@@ -238,7 +238,7 @@ def test_r9_n5_8_radar_search_checks_client_assignable_before_ranking():
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
     ]
     assert "assert_client_assignable" in calls
-    assert calls.index("assert_client_assignable") < calls.index("search")
+    assert calls.index("assert_client_assignable") < calls.index("runner")
 
 
 @pytest.mark.asyncio
@@ -291,3 +291,80 @@ def test_r9_v3_2_jarvis_calendar_dates_are_whole_warsaw_days():
     )
     assert spec.params["to_date"] == "2026-09-30T12:00:00+02:00"
     assert TOOLS_BY_NAME["list_calendar_events"].build({}).params["upcoming"] is True
+
+
+# ---------------------------------------------------------------- R9-N5-4
+
+
+def test_r9_n5_4_jarvis_radar_asks_for_the_canonical_score():
+    from app.services.jarvis.tools import TOOLS_BY_NAME
+
+    spec = TOOLS_BY_NAME["talent_radar_search"].build(
+        {"client_id": 5, "text": "Java developer", "limit": 5}
+    )
+    assert spec.path == "/api/talent-radar/search"
+    assert spec.params == {"canonical": "true"}
+    assert spec.json["client_id"] == 5
+
+
+@pytest.mark.asyncio
+async def test_r9_n5_4_canonical_radar_uses_search_policy_and_canonical_fit(
+    monkeypatch,
+):
+    from app.api import matching
+    from app.services import canonical_fit, scoring_service
+    from app.services import talent_radar_search as trs
+    from app.services.scoring_service import DEFAULT_PROFILE
+
+    cands = [_cand(1), _cand(2), _cand(3)]
+    seen = {}
+
+    async def pool(db, text, *, top_k, raise_on_error, use_rerank):
+        seen["pool_text"] = text
+        return [{"candidate_id": c.id, "score": 0.9} for c in cands]
+
+    async def load(db, ids):
+        return [c for c in cands if c.id in ids]
+
+    async def gate(db, *, job, ordered, now, inputs):
+        seen["inputs"] = inputs
+        kept = [c for c in ordered if c.id != 3]
+        return kept, {1: {"reason_code": "client_nda"}}, {"over_budget": 1}, 0, inputs
+
+    async def fits(db, context, kept):
+        seen["context"] = context
+        return [
+            canonical_fit.CanonicalFit(
+                SimpleNamespace(candidate_id=2, total=88.0), "measured"
+            ),
+            canonical_fit.CanonicalFit(
+                SimpleNamespace(candidate_id=1, total=70.0), "unavailable"
+            ),
+        ]
+
+    async def profile(db, **k):
+        return DEFAULT_PROFILE
+
+    class _Db:
+        async def scalar(self, stmt):
+            return 5
+
+    monkeypatch.setattr(trs, "retrieve_candidate_pool", pool)
+    monkeypatch.setattr(trs, "_load_candidates", load)
+    monkeypatch.setattr(matching, "_gate_and_dealbreakers", gate)
+    monkeypatch.setattr(canonical_fit, "score_candidates", fits)
+    monkeypatch.setattr(scoring_service, "resolve_active_profile", profile)
+
+    result = await trs.canonical_search(
+        _Db(),
+        trs.RadarQuery(client_id=5, text="Java developer, Spring", top_k=10),
+        user_id=7,
+    )
+    # Niezmierzony wynik odpada — nigdy nie jest zerem na liście.
+    assert [f.breakdown.candidate_id for f in result.breakdowns] == [2]
+    assert result.pool_size == 3 and result.eligible_size == 2
+    assert result.degraded is False
+    assert result.hidden == {"over_budget": 1}
+    assert seen["context"].query_text == seen["pool_text"]
+    assert set(result.candidates_by_id) == {2}
+    assert result.eligibility_by_id == {}

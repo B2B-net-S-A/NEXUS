@@ -1198,7 +1198,9 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         label="Przeszukuję bazę pod request klienta",
         description=(
             "Talent Radar: ranking kandydatów z bazy pod wklejony request klienta, bez "
-            "zakładania rekrutacji. Wymaga ID klienta (blacklisty, NDA)."
+            "zakładania rekrutacji. Wymaga ID klienta (blacklisty, NDA). Ta sama "
+            "ocena dopasowania co ekran Radaru, ale na puli najbliższych osób — "
+            "pełny przegląd całej bazy uruchamia się na ekranie Radaru."
         ),
         input_schema=_schema(
             {
@@ -1213,9 +1215,12 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         path="/api/talent-radar/search",
         section=ProductSection.sourcing,
         entity_type="candidate",
+        # Runda 9 (R9-N5-4): `canonical=true` — kanoniczny fit i bramka
+        # must-have jak ekran Radaru, nie legacy `RADAR_PROFILE`.
         build=lambda a: RequestSpec(
             "POST",
             "/api/talent-radar/search",
+            params={"canonical": "true"},
             json={
                 "client_id": _int(a, "client_id"),
                 "text": str(a.get("text") or "")[:8000],
