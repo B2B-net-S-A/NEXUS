@@ -120,7 +120,27 @@ export function missingTerminationFields(form: TerminationFormState): string[] {
 }
 
 /** Błąd blokujący zapis (backend odmawia tego samego 422). */
-export function terminationFormError(form: TerminationFormState): string | null {
+function plDay(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split("-");
+  return `${d}.${m}.${y}`;
+}
+
+/**
+ * Błąd blokujący zapis. `contractStart` (ISO) — data rozpoczęcia kontraktu;
+ * runda 10 (F27): koniec projektu przed startem kontraktu zapisywał odwrócony
+ * okres i anulował planowane zamówienie. Backend odmawia 422
+ * `end_date_before_start_date`; tu mówimy to przy polu, przed wysłaniem.
+ */
+export function terminationFormError(
+  form: TerminationFormState,
+  contractStart?: string | null,
+): string | null {
+  const start = (contractStart ?? "").slice(0, 10);
+  if (start && form.projectEndDate && form.projectEndDate < start) {
+    return `Data zakończenia projektu jest wcześniejsza niż start kontraktu (${plDay(
+      start,
+    )}). Wybierz datę od dnia startu. Jeśli współpraca w ogóle się nie zaczęła, unieważnij kontrakt zamiast go kończyć.`;
+  }
   if (
     form.agreementTerminated &&
     form.signedOn &&

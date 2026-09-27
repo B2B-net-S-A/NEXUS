@@ -22,7 +22,24 @@ export function orderPdfMonthLabel(value: string): string {
 }
 
 /** Okres w tym samym formacie, co w nazwie pliku: DD.MM.RRRR–DD.MM.RRRR. */
-export function orderPdfPeriod(file: Pick<OrderPdfFile, "start" | "end">): string {
+/**
+ * Runda 10 (F10): koniec przed startem (zamówienie zapisane przed walidacją
+ * okresu) nie jest okresem — backend niesie `period_invalid`, a lista mówi
+ * „do sprawdzenia” zamiast podawać odwrócone daty jak poprawne.
+ */
+export function orderPdfPeriodInvalid(
+  file: Pick<OrderPdfFile, "start" | "end" | "period_invalid">,
+): boolean {
+  if (file.period_invalid) return true;
+  return Boolean(file.end && file.end.slice(0, 10) < file.start.slice(0, 10));
+}
+
+export function orderPdfPeriod(
+  file: Pick<OrderPdfFile, "start" | "end" | "period_invalid">,
+): string {
+  if (orderPdfPeriodInvalid(file)) {
+    return `Okres do sprawdzenia: koniec ${formatDay(file.end as string)} przed startem ${formatDay(file.start)}`;
+  }
   return `${formatDay(file.start)}–${file.end ? formatDay(file.end) : "bezterminowo"}`;
 }
 
