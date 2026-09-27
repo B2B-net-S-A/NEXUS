@@ -35,7 +35,11 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.services.traffit.client import TraffitClient, TraffitConfig
-from app.services.traffit.importer import PhaseProgress, TraffitImporter
+from app.services.traffit.importer import (
+    PhaseProgress,
+    TraffitImporter,
+    safe_db_error,
+)
 from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
@@ -1379,12 +1383,14 @@ async def run_traffit_sync(
                         logger.exception("Traffit phase %s failed", name)
                         # A crash holds the watermark in EVERY phase, the
                         # enrichment ones included — see `ADVISORY_PHASES`.
-                        results[name] = {"error": repr(exc)}
+                        # Runda 10 (R10-N11-5): do stanu syncu (`/sync/status`)
+                        # sama klasa — treść wyjątku magazynu niesie klucz CV.
+                        results[name] = {"error": safe_db_error(exc)}
                         try:
                             await db.rollback()
                         except Exception:  # noqa: BLE001
                             pass
-                        crash_stats: dict[str, Any] = {"error": repr(exc)[:500]}
+                        crash_stats: dict[str, Any] = {"error": safe_db_error(exc)[:500]}
                         # Przenieś licznik kwarantanny przez awarię fazy.
                         # `stats` jest podmieniane W CAŁOŚCI (COALESCE w
                         # `_UPSERT_STATE` chroni wyłącznie przed NULL-em, a to

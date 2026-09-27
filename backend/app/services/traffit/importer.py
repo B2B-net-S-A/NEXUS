@@ -1247,7 +1247,15 @@ def safe_db_error(error: BaseException) -> str:
     """
     orig = getattr(error, "orig", None)
     if orig is None:
-        return repr(error)
+        # Runda 10 (R10-N11-5): błąd spoza bazy to SAMA klasa. Wyjątki
+        # botocore (`EndpointConnectionError`, `ReadTimeoutError`) niosą w
+        # treści URL obiektu, czyli klucz `cv/…/<uuid>-Jan_Kowalski_CV.pdf`,
+        # a httpx — adres z parametrami. Kod odpowiedzi HTTP zostaje, bo
+        # niczego osobowego nie niesie, a odróżnia 404 od 503.
+        status = getattr(getattr(error, "response", None), "status_code", None)
+        if isinstance(status, int):
+            return f"{type(error).__name__}(HTTP {status})"
+        return type(error).__name__
     constraint = getattr(orig, "constraint_name", None)
     if constraint is None:
         diag = getattr(orig, "diag", None)
