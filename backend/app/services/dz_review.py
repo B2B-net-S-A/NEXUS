@@ -800,8 +800,17 @@ def _client_tokens(client_name: Optional[str]) -> list[str]:
 
 
 def _matches_client(filename: Optional[str], tokens: list[str]) -> bool:
-    name = _fold(filename or "")
-    return any(token in name for token in tokens)
+    """Słowo klienta jako CAŁE słowo nazwy pliku (runda 10, R10-V2-8).
+
+    Podłańcuch łączył ING z „…_Testing…” i „…Banking…”. Słowo co najmniej
+    czteroliterowe może być początkiem słowa pliku („MillenniumBank”).
+    """
+    words = re.findall(r"[a-z0-9]+", _fold(filename or ""))
+    return any(
+        word == token or (len(token) >= 4 and word.startswith(token))
+        for token in tokens
+        for word in words
+    )
 
 
 # Runda 8 (R8-N8-1): JEDNA reguła wyboru pliku „…B2B…" — QC CV czyta nią
@@ -848,12 +857,16 @@ def pick_document_cv(rows: Any, client_name: Optional[str]) -> Optional[int]:
 
 def document_cv_ambiguous(rows: Any, client_name: Optional[str]) -> bool:
     """Kilka plików „…B2B…" z nazwą TEGO klienta — wybór najnowszego jest
-    zgadywaniem, więc CV jest „do sprawdzenia” (runda 9, R9-V2-5)."""
+    zgadywaniem, więc CV jest „do sprawdzenia” (runda 9, R9-V2-5).
+
+    Runda 10 (R10-V2-8): tak samo, gdy ŻADEN plik nie niesie słowa klienta —
+    najnowszy plik bywa CV przygotowanym pod innego klienta."""
 
     tokens = _client_tokens(client_name)
     if not tokens:
         return False
-    return sum(1 for row in rows if _matches_client(row[1], tokens)) > 1
+    matched = sum(1 for row in rows if _matches_client(row[1], tokens))
+    return matched > 1 or (matched == 0 and len(rows) > 0)
 
 
 async def _document_cv(
