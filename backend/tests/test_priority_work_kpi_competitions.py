@@ -811,7 +811,10 @@ async def test_autofreeze_failure_in_one_type_does_not_starve_the_rest(
     session = _FakeFreezeSession()
     monkeypatch.setattr(competition_autofreeze, "AsyncSessionLocal", lambda: session)
 
-    async def _guard(_db, ctype, _period) -> bool:
+    async def _guard(_db, ctype, period) -> bool:
+        # Starsze okresy z przeglądu wstecz (runda 9) są już zamknięte.
+        if period not in {"Q4 2025", "2025-12"}:
+            return True
         if ctype is CompetitionType.monthly_recommendations:
             raise RuntimeError("guard exploded")
         return False

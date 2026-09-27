@@ -366,6 +366,23 @@ def parse_month(period: str) -> tuple[int, int]:
     return int(parts[0]), int(parts[1])
 
 
+def period_sort_key(period: str) -> tuple[int, int, str]:
+    """Klucz chronologiczny okresu konkursu („Q4 2025” < „Q1 2026”, „2026-05”).
+
+    Runda 9 (R9-N6-4): historia sortowała okresy jako NAPISY, a „Q4 2025” >
+    „Q1 2026” alfabetycznie — nowy kwartał spadał pod stare i wypadał z limitu.
+    Nieznany format idzie na koniec (najstarsze).
+    """
+    try:
+        if period.startswith("Q"):
+            year, sub = parse_quarter(period)
+        else:
+            year, sub = parse_month(period)
+    except (ValueError, AttributeError):
+        return (-1, -1, str(period))
+    return (year, sub, period)
+
+
 # ── Walidacja okresu (audyt 25.09.2026, R3-14) ──────────────────────────
 
 _MONTH_PERIOD_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")

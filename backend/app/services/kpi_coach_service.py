@@ -33,6 +33,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import ws as ws_manager
+from app.core.scheduling import is_business_day
 from app.models.kpi_nudge_log import KpiNudgeChannel, KpiNudgeLog, KpiNudgeType
 from app.models.notification import Notification, NotificationType
 from app.services.notification_access import user_can_receive_notification
@@ -84,8 +85,8 @@ def is_in_quiet_hours(now: datetime) -> bool:
     odwrotnie — to okno głosu). Zachowuję nazwę zgodną z planem mimo
     tego — refaktor przy fazie 2."""
     now_w = _as_warsaw(now)
-    # Sobota=5, niedziela=6.
-    if now_w.weekday() >= 5:
+    # Weekend i polskie święto ustawowe (runda 9, R9-N6-6) — bez nudge'y.
+    if not is_business_day(now_w):
         return False
     t = now_w.time()
     return time(9, 0) <= t <= time(17, 30)
