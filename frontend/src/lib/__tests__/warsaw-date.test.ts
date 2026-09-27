@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { warsawDateOf, warsawToday } from "@/lib/warsaw-date";
+import { defaultUntil } from "@/components/marketplace/AddToMarketplaceButton";
 import { emptyAmendmentForm } from "@/components/ContractAmendmentsTab";
 
 describe("warsawToday", () => {
@@ -44,6 +45,8 @@ describe("formularze z domyślną datą „dziś”", () => {
     "src/app/contracts/new/page.tsx",
     "src/components/v2/pages/B2BContractGeneratorV2.tsx",
     "src/components/marketplace/AddToMarketplaceButton.tsx",
+    // Runda 10 (R10-X1-4).
+    "src/app/settings/rate-benchmarks/page.tsx",
   ];
   it.each(files)("%s nie liczy dnia w UTC", (file) => {
     const source = readFileSync(resolve(process.cwd(), file), "utf8");
@@ -77,6 +80,13 @@ describe("warsawDateOf (R10-X1-3)", () => {
       expect(source, file).not.toMatch(/(_at|cancelled_at|created_at)\??\.slice\(0, 10\)/);
       expect(source, file).toContain("warsawDateOf");
     }
+  });
+});
+
+describe("termin „Wrzuć na targ” (R10-X1-4)", () => {
+  it("po północy w Warszawie liczy 30 dni od dzisiejszego dnia firmy", () => {
+    // 27.09 00:30 w Warszawie = 26.09 22:30 UTC.
+    expect(defaultUntil(new Date("2026-09-26T22:30:00Z"))).toBe("2026-10-27");
   });
 });
 

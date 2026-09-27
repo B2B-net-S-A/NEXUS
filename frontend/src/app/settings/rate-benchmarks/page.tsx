@@ -11,6 +11,7 @@ import { RequireRole } from "@/components/RequireRole";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Plus, Trash2, Upload, X, Save } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { warsawToday } from "@/lib/warsaw-date";
 import { hasRole, useAuthStore } from "@/store/auth";
 
 const SENIORITY_LABELS: Record<SeniorityLevel, string> = {
@@ -285,7 +286,8 @@ function BenchmarkForm({ onSubmit, onCancel, submitting }: BenchmarkFormProps) {
     market_median: "",
     market_max: "",
     source: "",
-    source_date: new Date().toISOString().slice(0, 10),
+    // Runda 10 (R10-X1-4): dzień w Warszawie, nie UTC.
+    source_date: warsawToday(),
     location: "",
     notes: "",
   });
