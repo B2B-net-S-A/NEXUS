@@ -24,6 +24,27 @@ from app.tasks.notes_insights_sync import run_and_persist, sync_is_running
 
 router = APIRouter()
 
+# Runda 10 (R10-N8-2): rezerwacja biegu ustawiana SYNCHRONICZNIE w handlerze.
+# `sync_is_running()` widzi dopiero zajęty lock, a zadanie z `spawn` bierze go
+# w kolejnej iteracji pętli zdarzeń — dwa szybkie POST-y przechodziły oba
+# sprawdzenia, a drugi bieg czekał na lock i wykonywał się po pierwszym
+# (drugi raz płatny odczyt notatek).
+_manual_reserved = False
+
+
+async def _run_manual() -> None:
+    global _manual_reserved
+    try:
+        # Bieg pętli dziennej mógł wystartować między POST-em a tym krokiem —
+        # wtedy nie kolejkujemy drugiego biegu za nim. Od sprawdzenia do
+        # wejścia pod lock nie ma punktu oddania pętli (wolny lock bierze się
+        # bez czekania).
+        if sync_is_running():
+            return
+        await run_and_persist()
+    finally:
+        _manual_reserved = False
+
 
 @router.post("/sync")
 @limiter.limit("10/minute")
@@ -37,14 +58,16 @@ async def trigger_notes_insights_sync(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Notes insights sync disabled (NOTES_INSIGHTS_SYNC_ENABLED=false)",
         )
-    if sync_is_running():
+    global _manual_reserved
+    if _manual_reserved or sync_is_running():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A notes insights run is already in progress",
         )
 
+    _manual_reserved = True
     # `spawn`: trzymana referencja i log porażki (goły `create_task` — nie).
-    spawn(run_and_persist(), "notes_insights_sync")
+    spawn(_run_manual(), "notes_insights_sync")
     return {
         "status": "started",
         "batch_limit": settings.NOTES_INSIGHTS_SYNC_BATCH_LIMIT,
