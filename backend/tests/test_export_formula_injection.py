@@ -268,7 +268,6 @@ def test_no_private_copy_of_the_formula_prefix_list():
     assert not copies, f"Lokalna kopia prefiksów formuły: {copies}"
 
 
-
 # ── znaki niedozwolone w XLSX (Runda 10, R10-N13-1 / R10-N4-4) ───────────────
 #
 # openpyxl rzuca ``IllegalCharacterError`` na ``\x00``–``\x08``, ``\x0b``,
