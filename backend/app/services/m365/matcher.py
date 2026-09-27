@@ -181,7 +181,9 @@ async def _find_candidate_by_email(
         select(Candidate)
         # Runda 9 (R9-N10-8): adres w bazie bywa z wielkimi literami albo
         # spacją z importu — porównanie wprost gubiło takich kandydatów.
-        .where(func.lower(func.trim(Candidate.email)).in_(normalized))
+        # Runda 10 (R10-V3-3): `btrim`, nie `trim` — wyrażenie dokładnie jak
+        # w indeksie `ix_candidates_email_lower_btrim` (0391).
+        .where(func.lower(func.btrim(Candidate.email)).in_(normalized))
         .order_by(Candidate.id)
         .limit(_STRICT_ROW_LIMIT)
     )

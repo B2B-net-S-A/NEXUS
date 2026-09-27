@@ -96,6 +96,11 @@ SSO_ONLY_PASSWORD_DETAIL = (
     "To konto loguje się przez Microsoft — hasłem zarządza Microsoft."
 )
 
+#: Złe aktualne hasło przy zmianie hasła (R10-N15-2). 400, nie 401: front
+#: traktuje każde 401 jako wygasłą sesję i wylogowuje, więc literówka
+#: w polu „Aktualne hasło” kończyła sesję zamiast pokazać ten komunikat.
+WRONG_CURRENT_PASSWORD_DETAIL = "Aktualne hasło jest nieprawidłowe."
+
 logger = logging.getLogger(__name__)
 
 
@@ -583,8 +588,8 @@ async def change_password(
     """Self-service password change.
 
     Wymaga obecnego hasła (proof-of-possession) + nowego hasła min. 8 znaków.
-    Rate-limited 3/min per IP. Nie ujawnia że user istnieje — wszystkie
-    niepoprawne próby zwracają 401.
+    Rate-limited 3/min per IP. Złe obecne hasło zwraca 400 — sesja jest
+    ważna, więc 401 byłoby fałszywym sygnałem „wyloguj”.
 
     Po sukcesie: clear ``force_password_change`` flag (jeśli była ustawiona
     przez admin-reset) + audit log + email notification.
@@ -600,13 +605,13 @@ async def change_password(
         verify_password, data.current_password, current_user.password_hash
     ):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Current password is incorrect",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=WRONG_CURRENT_PASSWORD_DETAIL,
         )
     if data.new_password == data.current_password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="New password must differ from current",
+            detail="Nowe hasło musi różnić się od aktualnego.",
         )
     current_user.password_hash = await asyncio.to_thread(
         hash_password, data.new_password

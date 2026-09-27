@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import api, { extractErrorMsg } from "@/lib/api";
-import { takeSsoBrowserNonce } from "@/lib/sso-browser-nonce";
+import { takeSsoBrowserNonce, takeSsoNextPath } from "@/lib/sso-browser-nonce";
 import { postLoginDestination, useAuthStore } from "@/store/auth";
 import { AlertCircle } from "lucide-react";
 
@@ -87,7 +87,8 @@ function CallbackBody() {
           );
         }
 
-        router.replace(postLoginDestination(me.data));
+        // Link, z którego przyszło logowanie (R10-N15-1); bez niego pulpit.
+        router.replace(postLoginDestination(me.data, takeSsoNextPath() ?? "/"));
       } catch (err: unknown) {
         // extractErrorMsg, nie surowe `e.message`: 429 z limitera (ciało
         // slowapi bez klucza `detail`) trafiał na /login jako techniczne

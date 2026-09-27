@@ -868,6 +868,70 @@ async def test_resync_endpoint_remaps_role_from_stored_groups(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("admin_disabled", [True, False])
+async def test_resync_respects_admin_disable_decision(
+    app_client_no_redirect, monkeypatch, admin_token, cleanup_users, admin_disabled
+):
+    """R10-V3-2: resync nie włącza konta wyłączonego jawną decyzją admina.
+
+    Bliźniak R9-N13-2 (logowanie SSO). Konto wyłączone bez decyzji admina
+    (np. przez wypadnięcie z grupy przy SSO) resync nadal włącza.
+    """
+    unique = uuid.uuid4().hex[:8]
+    email = f"resync-disabled-{unique}@b2bnetwork.pl"
+    cleanup_users.append(email)
+    rec_group = f"grp-rec-{unique}"
+    admin_id, token = admin_token
+    async with AsyncSessionLocal() as db:
+        u = User(
+            email=email,
+            password_hash=None,
+            name="Resync Disabled",
+            role=UserRole.recruiter,
+            is_active=False,
+            profile_completed=True,
+            aad_group_ids=[{"id": rec_group, "displayName": "NEXUS-Recruiters"}],
+        )
+        db.add(u)
+        await db.flush()
+        if admin_disabled:
+            db.add(
+                Activity(
+                    entity_type="user",
+                    entity_id=u.id,
+                    action="active_changed",
+                    user_id=admin_id,
+                    details={"from": True, "to": False},
+                )
+            )
+        await db.commit()
+        target_id = u.id
+
+    monkeypatch.setattr(settings, "AAD_GROUP_RBAC_ENABLED", True)
+    monkeypatch.setattr(
+        settings, "AAD_GROUP_ROLE_MAP_JSON", json.dumps({rec_group: "recruiter"})
+    )
+    resp = await app_client_no_redirect.post(
+        f"/api/admin/users/{target_id}/resync-aad-groups",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["is_active"] is (not admin_disabled)
+    assert body["kept_inactive_by_admin_decision"] is admin_disabled
+
+    async with AsyncSessionLocal() as db:
+        u = await db.scalar(select(User).where(User.id == target_id))
+        assert u.is_active is (not admin_disabled)
+        await db.execute(
+            delete(Activity).where(
+                Activity.entity_id == target_id, Activity.entity_type == "user"
+            )
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
 async def test_resync_endpoint_422_when_user_has_no_stored_groups(
     app_client_no_redirect, monkeypatch, admin_token, cleanup_users
 ):

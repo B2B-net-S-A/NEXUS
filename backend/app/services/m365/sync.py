@@ -1356,9 +1356,11 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
         addrs = [a["address"] for a in attendee_rows]
         # Runda 9 (R9-N10-8): adresy uczestników są już małymi literami, adres
         # w bazie bywa zapisany z wielkimi — porównanie po obu stronach.
+        # Runda 10 (R10-V3-3): `btrim`, nie `trim` — wyrażenie dokładnie jak
+        # w indeksie `ix_candidates_email_lower_btrim` (0391).
         cand = await db.scalar(
             select(Candidate)
-            .where(func.lower(func.trim(Candidate.email)).in_(addrs))
+            .where(func.lower(func.btrim(Candidate.email)).in_(addrs))
             .order_by(Candidate.id)
             .limit(1)
         )

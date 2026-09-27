@@ -1,3 +1,5 @@
+import { safeInternalPath } from "@/lib/safe-href";
+
 /**
  * Sekret karty, która zaczęła logowanie Microsoft (runda 9, R9-N1-4).
  *
@@ -23,6 +25,36 @@ export function takeSsoBrowserNonce(): string | null {
     const value = window.sessionStorage.getItem(KEY);
     window.sessionStorage.removeItem(KEY);
     return value;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Dokąd wrócić po logowaniu Microsoft (runda 10, R10-N15-1).
+ *
+ * `?next=` z /login nie przeżywa przekierowania do Microsoftu (callback ma
+ * własny adres), więc na produkcji — SSO-only — link z maila albo dzwonka
+ * kończył się na pulpicie. Ścieżka jest sprawdzana przy zapisie i przy
+ * odczycie (`safeInternalPath`), bo sessionStorage to też dane z zewnątrz.
+ */
+const NEXT_KEY = "nexus_sso_next_path";
+
+export function saveSsoNextPath(next: string | null | undefined): void {
+  try {
+    const safe = safeInternalPath(next);
+    if (safe && safe !== "/") window.sessionStorage.setItem(NEXT_KEY, safe);
+    else window.sessionStorage.removeItem(NEXT_KEY);
+  } catch {
+    // Zablokowane dane witryny — po logowaniu trafimy na pulpit.
+  }
+}
+
+export function takeSsoNextPath(): string | null {
+  try {
+    const value = window.sessionStorage.getItem(NEXT_KEY);
+    window.sessionStorage.removeItem(NEXT_KEY);
+    return safeInternalPath(value);
   } catch {
     return null;
   }

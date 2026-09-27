@@ -546,17 +546,21 @@ export function middleware(request: NextRequest) {
   // oznacza tu tylko „brak zawężenia ról", a NIE „trasa niechroniona".
   const accessRule = resolveAccessRule(pathname);
 
+  // Runda 10 (R10-N15-1): `next` niesie też query — link z maila
+  // (`/clients/15?tab=zamowienia&order=123`) bez niego lądował na profilu.
+  const nextTarget = pathname + request.nextUrl.search;
+
   // Brak tokena na chronionej trasie → login.
   if (!token) {
     const loginUrl = new URL("/login", request.url);
-    if (pathname !== "/") loginUrl.searchParams.set("next", pathname);
+    if (pathname !== "/") loginUrl.searchParams.set("next", nextTarget);
     return NextResponse.redirect(loginUrl);
   }
 
   const payload = decodeJwtPayload(token);
   if (!payload || isJwtExpired(payload.exp) || !payload.role) {
     const loginUrl = new URL("/login", request.url);
-    if (pathname !== "/") loginUrl.searchParams.set("next", pathname);
+    if (pathname !== "/") loginUrl.searchParams.set("next", nextTarget);
     const response = NextResponse.redirect(loginUrl);
     // Wyczyść zepsute cookie — żeby unknąć pętli redirectów.
     response.cookies.delete(COOKIE_NAME);
