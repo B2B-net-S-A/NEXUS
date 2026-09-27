@@ -546,7 +546,9 @@ async def _notify_proposals(
                             Notification.related_entity_type == "job",
                             Notification.related_entity_id == job_id,
                             func.date(
-                                func.timezone(settings.BUSINESS_TZ, Notification.created_at)
+                                func.timezone(
+                                    settings.BUSINESS_TZ, Notification.created_at
+                                )
                             )
                             == business_today(settings.BUSINESS_TZ),
                         )
