@@ -267,6 +267,46 @@ async def test_removed_in_outlook_keeps_candidate_linked_email(owner):
 
 
 @pytest.mark.asyncio
+async def test_removed_in_outlook_keeps_unlinked_email_with_cv(owner):
+    """Runda 9 (R9-N10-12): ``@removed`` nie kasuje maila z załącznikiem CV,
+    nawet gdy nie jest jeszcze powiązany z kandydatem (CV nigdy nie znika)."""
+    async with AsyncSessionLocal() as db:
+        with_cv = _email(
+            owner.user_id,
+            m365_message_id=f"cv-{owner.suffix}",
+            direction=EmailDirection.received,
+        )
+        db.add(with_cv)
+        await db.flush()
+        db.add(
+            EmailAttachment(
+                email_id=with_cv.id,
+                m365_attachment_id=f"att-{owner.suffix}",
+                filename="cv.pdf",
+                content_type="application/pdf",
+                is_cv_candidate=True,
+            )
+        )
+        await db.commit()
+        with_cv_id = with_cv.id
+
+    conn = SimpleNamespace(id=1, user_id=owner.user_id, mailbox_upn="me@example.com")
+    async with AsyncSessionLocal() as db:
+        await sync_mod._upsert_message(
+            db,
+            None,
+            conn,
+            {"id": f"cv-{owner.suffix}", "@removed": {"reason": "deleted"}},
+            "Inbox",
+        )
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        kept = await db.get(Email, with_cv_id)
+    assert kept is not None, "mail z CV zniknął po przeniesieniu w Outlooku"
+
+
+@pytest.mark.asyncio
 async def test_self_cc_inbox_copy_does_not_adopt_sent_row(owner):
     """FIX-05: mail wysłany z własnym adresem w CC — kopia z Odebranych nie
     przejmuje wiersza wysyłki, a jej usunięcie nie rusza wysłanego."""
