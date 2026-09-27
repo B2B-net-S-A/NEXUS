@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import tempfile
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Annotated, Literal, Optional
 
@@ -850,6 +850,95 @@ async def _assert_no_duplicate_order_number(
                     "order_id": row.id,
                 },
             )
+
+
+# Zamówienia, które NAPRAWDĘ obowiązują w swoim okresie. Szkic (także pusty
+# szkic z podpisu, wchłaniany przez przedłużenie) i anulowane nie blokują —
+# szkic o tym samym numerze łapie ``_assert_no_duplicate_order_number``.
+_OVERLAP_BLOCKING_STATUSES = (
+    ClientOrderStatus.active,
+    ClientOrderStatus.paused,
+    ClientOrderStatus.completed,
+)
+
+
+def _pl_day(value: date) -> str:
+    return value.strftime("%d.%m.%Y")
+
+
+async def _assert_no_overlapping_periodic_order(
+    db: AsyncSession,
+    contract_id: int,
+    start: Optional[date],
+    end: Optional[date],
+    *,
+    exclude_order_id: Optional[int] = None,
+) -> None:
+    """Jedna osoba nie ma dwóch równoległych zamówień okresowych u klienta.
+
+    Runda 10 (F15): „Dodaj przedłużenie” 01.12.2026–31.03.2027 obok
+    zamówienia 01.10–31.12.2026 zapisało się bez słowa — grudzień był w dwóch
+    zamówieniach, choć instrukcja w Pomocy mówi „Jedna osoba nie ma dwóch
+    równoległych zamówień na to samo”. Porównujemy wyłącznie zamówienia
+    okresowe tego kontraktu (osoba × klient); linie zamówień MD/kosztowych
+    mają własną bramkę (``assert_no_open_md_group_line``). Zamówienie
+    zakończone bez daty końca nie jest „otwarte” (lustro ``order_facts``).
+    Lustro frontu: ``lib/order-period.ts`` ``overlappingOrderError``.
+    """
+    stmt = select(
+        ClientOrder.id,
+        ClientOrder.title,
+        ClientOrder.status,
+        ClientOrder.start_date,
+        ClientOrder.end_date,
+    ).where(
+        ClientOrder.contract_id == contract_id,
+        ClientOrder.order_group_id.is_(None),
+        ClientOrder.status.in_(_OVERLAP_BLOCKING_STATUSES),
+    )
+    if exclude_order_id is not None:
+        stmt = stmt.where(ClientOrder.id != exclude_order_id)
+    for row in (await db.execute(stmt.order_by(ClientOrder.id))).all():
+        if row.status == ClientOrderStatus.completed and row.end_date is None:
+            continue
+        # Odwrócony okres (zapis sprzed walidacji 24.09) nie opisuje żadnego
+        # okresu — nie może blokować poprawnego zamówienia.
+        if (
+            row.start_date is not None
+            and row.end_date is not None
+            and row.end_date < row.start_date
+        ):
+            continue
+        starts_before_other_ends = (
+            start is None or row.end_date is None or start <= row.end_date
+        )
+        ends_after_other_starts = (
+            end is None or row.start_date is None or end >= row.start_date
+        )
+        if not (starts_before_other_ends and ends_after_other_starts):
+            continue
+        period = (
+            f"{_pl_day(row.start_date) if row.start_date else '—'}–"
+            f"{_pl_day(row.end_date) if row.end_date else 'bezterminowo'}"
+        )
+        hint = (
+            f"Zacznij nowe zamówienie od {_pl_day(row.end_date + timedelta(days=1))}"
+            " albo najpierw skróć poprzednie."
+            if row.end_date is not None
+            else "Najpierw ustaw datę końca poprzedniego zamówienia."
+        )
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "overlapping_order",
+                "message": (
+                    f"Ta osoba ma już zamówienie {row.title} ({period}), które "
+                    "nakłada się na ten okres. Jedna osoba nie ma dwóch "
+                    f"równoległych zamówień. {hint}"
+                ),
+                "order_id": row.id,
+            },
+        )
 
 
 def _validated_total_value(value: Decimal) -> Decimal:
@@ -2088,6 +2177,10 @@ async def create_order_extension(
     await _assert_no_duplicate_order_number(
         db, contract.id, title, start_date, end_date
     )
+    if order_type == OrderType.periodic:
+        await _assert_no_overlapping_periodic_order(
+            db, contract.id, start_date, end_date
+        )
 
     effective = effective_rate_fields(contract, start_date or business_today())
     # Przedłużenie DZIEDZICZY jednostkę kontraktu (razem z jego stawkami), więc
@@ -2583,6 +2676,25 @@ async def update_order(
             data.get("start_date", order.start_date),
             data.get("end_date", order.end_date),
         )
+        # Runda 10 (F15): lustro „Dodaj przedłużenie” — zmiana dat nie może
+        # zrobić z dwóch zamówień tej osoby równoległych. Tylko przy REALNEJ
+        # zmianie daty: formularz odsyła nieruszane daty przy każdym zapisie.
+        dates_changed = data.get("start_date", order.start_date) != (
+            order.start_date
+        ) or data.get("end_date", order.end_date) != (order.end_date)
+        if (
+            dates_changed
+            and order.order_group_id is None
+            and order.order_type in (None, OrderType.periodic.value)
+            and data.get("status", order.status) != ClientOrderStatus.cancelled
+        ):
+            await _assert_no_overlapping_periodic_order(
+                db,
+                order.contract_id,
+                data.get("start_date", order.start_date),
+                data.get("end_date", order.end_date),
+                exclude_order_id=order.id,
+            )
     requested_type = data.pop("order_type", None)
     if "order_type" in payload.model_fields_set:
         if requested_type is None:

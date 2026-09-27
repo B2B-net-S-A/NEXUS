@@ -4,6 +4,7 @@ import {
   ORDER_PERIOD_REVERSED_MESSAGE,
   duplicateOrderError,
   orderPeriodError,
+  overlappingOrderError,
 } from "@/lib/order-period";
 
 describe("orderPeriodError", () => {
@@ -62,5 +63,40 @@ describe("duplicateOrderError", () => {
   });
   it("pusty numer nie jest duplikatem", () => {
     expect(duplicateOrderError("", "2026-10-01", "2026-12-31", existing)).toBeNull();
+  });
+});
+
+describe("overlappingOrderError (runda 10, F15)", () => {
+  const current = {
+    id: 733,
+    title: "QA-001",
+    status: "active",
+    start_date: "2026-10-01",
+    end_date: "2026-12-31",
+  };
+
+  it("refuses an extension overlapping the current order", () => {
+    expect(overlappingOrderError("2026-12-01", "2027-03-31", [current])).toBe(
+      "Ta osoba ma już zamówienie QA-001 (01.10.2026–31.12.2026), które nakłada się na ten okres. Jedna osoba nie ma dwóch równoległych zamówień. Zacznij nowe zamówienie od 01.01.2027 albo najpierw skróć poprzednie.",
+    );
+  });
+
+  it("accepts the next day, drafts, cancelled and MD lines", () => {
+    expect(overlappingOrderError("2027-01-01", "2027-03-31", [current])).toBeNull();
+    for (const other of [
+      { ...current, status: "draft" },
+      { ...current, status: "cancelled" },
+      { ...current, order_group_id: 5 },
+      { ...current, status: "completed", end_date: null },
+      { ...current, start_date: "2027-01-01", end_date: "2026-12-31" },
+    ]) {
+      expect(overlappingOrderError("2026-12-01", "2027-03-31", [other])).toBeNull();
+    }
+  });
+
+  it("an open-ended current order asks to set its end first", () => {
+    expect(
+      overlappingOrderError("2027-01-01", null, [{ ...current, end_date: null }]),
+    ).toMatch(/Najpierw ustaw datę końca/);
   });
 });
