@@ -16,6 +16,7 @@ import {
   pairContext,
   type PairInfo,
   slotConfirmedMessage,
+  slotsCreatedMessage,
   type SlotRequest,
 } from "@/lib/interview-cycle";
 import { cn } from "@/lib/utils";
@@ -90,9 +91,9 @@ export function SlotRequestDialog({
         duration_minutes: duration,
         note: note.trim() || null,
       }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       invalidate();
-      toast.showSuccess("Terminy wysłane rekruterowi — ustali termin z kandydatem.");
+      toast.showSuccess(slotsCreatedMessage(res));
       onOpenChange(false);
     },
     onError: (err) => setError(apiErrorMessage(err, "Nie udało się zapisać terminów.")),

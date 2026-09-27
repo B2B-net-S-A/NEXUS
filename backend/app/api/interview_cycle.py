@@ -117,6 +117,10 @@ class SlotRequestOut(BaseModel):
     # Pipeline v4: terminy od klienta przesunęły kartę na „Rozmowa u klienta”
     # (tylko w odpowiedzi na utworzenie wniosku).
     moved_to_client_interview: bool = False
+    # Runda 10 (F09): powód, dla którego automat ŚWIADOMIE zostawił kartę
+    # (`cv_not_sent` — CV nie zostało jeszcze wysłane do klienta; albo kod
+    # blokady kwalifikacji). `None`, gdy karta pojechała albo już jest dalej.
+    move_skipped_reason: Optional[str] = None
 
 
 class DebriefSummary(BaseModel):
@@ -600,8 +604,12 @@ async def create_slot_request(
     # albo karta już dalej zostają bez zmian.
     # Ruch jest dodatkiem do wniosku: jego awaria (savepoint) zostawia kartę
     # na miejscu i nie cofa terminów, które DL właśnie wpisał.
+    # Runda 10 (F09): automat nie przeskakuje „CV wysłane” — para bez
+    # wysłanego CV zostaje na miejscu (bramki QC CV i stawki DL sprawdza tylko
+    # `/pipeline/move`), a terminy i tak się zapisują.
     actor_id = current_user.id
     moved = None
+    skip_reasons: list[str] = []
     try:
         async with db.begin_nested():
             moved = await auto_advance(
@@ -612,9 +620,11 @@ async def create_slot_request(
                 actor_user_id=actor_id,
                 source="interview_slots",
                 note="Auto: terminy od klienta",
+                skip_reasons=skip_reasons,
             )
     except Exception:  # noqa: BLE001 — ruch karty nie może wywrócić wniosku
         moved = None
+        skip_reasons = []
         logger.exception(
             "interview slots: auto move to client_interview failed "
             "(candidate %s, job %s)",
@@ -652,6 +662,7 @@ async def create_slot_request(
         # `/move`. Po commicie, nigdy nie rzuca.
         await run_after_commit(db, stage_id=moved.id, mover=current_user)
     out.moved_to_client_interview = moved is not None
+    out.move_skipped_reason = skip_reasons[0] if skip_reasons else None
     return out
 
 

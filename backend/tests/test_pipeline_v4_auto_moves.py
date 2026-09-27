@@ -277,16 +277,38 @@ async def test_auto_advance_compares_template_positions_not_codes():
     )
     assert await _advance(cand_late, job_late, rec_id) is None
 
-    # Etap własny PRZED rozmową (też kod `new`) — ruch na etap szablonu.
+    # Etap własny PRZED „CV wysłane” (też kod `new`) — runda 10 (F09): automat
+    # nie przeskakuje wysłania CV, karta zostaje z wpisem w historii.
     job_early, cand_early, _ = await _pair(
         stage=PipelineStage.new,
         recruiter_id=rec_id,
         template_id=tpl["template"],
         stage_def_id=tpl["early"],
     )
-    moved = await _advance(cand_early, job_early, rec_id)
+    assert await _advance(cand_early, job_early, rec_id) is None
+    early = await _latest(cand_early, job_early)
+    assert early.stage_def_id == tpl["early"]
+    async with AsyncSessionLocal() as db:
+        skipped = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "pipeline",
+                Activity.entity_id == early.id,
+                Activity.action == "auto_advance_skipped",
+            )
+        )
+        assert skipped is not None
+        assert skipped.details["reason_code"] == "cv_not_sent"
+
+    # „CV wysłane” w szablonie (kod `cv_sent`) — ruch na etap szablonu.
+    job_cv, cand_cv, _ = await _pair(
+        stage=PipelineStage.cv_sent,
+        recruiter_id=rec_id,
+        template_id=tpl["template"],
+        stage_def_id=tpl["cv"],
+    )
+    moved = await _advance(cand_cv, job_cv, rec_id)
     assert moved is not None
-    latest = await _latest(cand_early, job_early)
+    latest = await _latest(cand_cv, job_cv)
     assert latest.stage == PipelineStage.client_interview
     assert latest.stage_def_id == tpl["ci"]
 
@@ -339,6 +361,50 @@ async def test_slot_request_moves_card_to_client_interview(app_client: AsyncClie
         )
         assert audit is not None
         assert audit.details["source"] == "interview_slots"
+
+
+@pytest.mark.parametrize(
+    "stage", [PipelineStage.posting, PipelineStage.verified, PipelineStage.interview]
+)
+async def test_slot_request_does_not_skip_cv_sent_gate(
+    app_client: AsyncClient, stage: PipelineStage
+):
+    """Runda 10 (F09): terminy od klienta dla osoby bez wysłanego CV zapisują
+    się, ale karta NIE przeskakuje QC CV i „CV wysłane”."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _pair(stage=stage, recruiter_id=rec_id, dl_id=dl_id)
+    before = await _latest(cand_id, job_id)
+
+    created = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(3)}],
+        },
+    )
+
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["moved_to_client_interview"] is False
+    assert body["move_skipped_reason"] == "cv_not_sent"
+    assert body["status"] == "awaiting_recruiter"
+    after = await _latest(cand_id, job_id)
+    assert after.id == before.id
+    assert after.stage == stage
+    async with AsyncSessionLocal() as db:
+        skipped = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "pipeline",
+                Activity.entity_id == before.id,
+                Activity.action == "auto_advance_skipped",
+            )
+        )
+        assert skipped is not None
+        assert skipped.details["reason_code"] == "cv_not_sent"
+        assert skipped.details["source"] == "interview_slots"
 
 
 async def test_slot_request_leaves_card_that_is_already_further(
@@ -733,8 +799,9 @@ async def test_auto_advance_reassigns_to_linked_jobs_like_the_board_move():
     from app.services import job_similarity as sim
 
     rec_id, _ = await _user(UserRole.recruiter)
+    # Runda 10 (F09): automat rusza wyłącznie parę z wysłanym CV.
     job_id, cand_id, client_id = await _pair(
-        stage=PipelineStage.verified, recruiter_id=rec_id
+        stage=PipelineStage.cv_sent, recruiter_id=rec_id
     )
     async with AsyncSessionLocal() as db:
         other = Job(

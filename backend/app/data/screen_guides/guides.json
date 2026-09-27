@@ -417,7 +417,8 @@
     ],
     "pitfalls": [
       "Bez debriefu kandydat nie wyjdzie z kolumny „Rozmowa u klienta” na tablicy rekrutacji.",
-      "Zmiana terminu wydarzenia z Outlooka idzie najpierw do Outlooka — bez połączonej skrzynki zapis zostanie odrzucony."
+      "Zmiana terminu wydarzenia z Outlooka idzie najpierw do Outlooka — bez połączonej skrzynki zapis zostanie odrzucony.",
+    "Terminy od klienta przesuwają kandydata na „Rozmowę u klienta” tylko wtedy, gdy jego CV zostało już wysłane do klienta. Inaczej karta zostaje na swoim etapie — przesuń ją na tablicy rekrutacji."
     ],
     "anchors": [
       {"id": "calendar.board", "label": "Tablica kroków", "describe": "Siedem kroków cyklu, kandydaci w kolumnach, zadania na kartach."},
