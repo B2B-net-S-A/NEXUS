@@ -301,11 +301,20 @@ async def get_public_cv(
     from app.services.cv_packages import public_documents
 
     package = await public_documents(db, getattr(row, "package_versions", None))
-    return {
-        **package,
-        "candidate_first_name": version.candidate_first_name
+    from app.services.cv_document_versions import public_first_name
+
+    # Maskowanie przy odczycie (R9-N3-1): wersje zapisane przed poprawką
+    # niosą prawdziwe imię także przy szablonie blind.
+    first_name = public_first_name(
+        version.candidate_first_name
         if version
         else (candidate.name if candidate else None),
+        version.template if version else csv.branded_template,
+        version.language if version else csv.branded_language,
+    )
+    return {
+        **package,
+        "candidate_first_name": first_name,
         "job_title": version.job_title if version else (job.title if job else None),
         "cv_html": cv_html,
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
