@@ -56,6 +56,9 @@ export function ChampionCard({
 
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Runda 10 (R10-N15-8): ostrzeżenie o zatrudnieniu u klienta w karcie,
+  // nie w `window.confirm` (natywne okno zamraża automatyzację przeglądarki).
+  const [confirmingShare, setConfirmingShare] = useState(false);
 
   const shareMut = useMutation({
     mutationFn: () => {
@@ -150,19 +153,40 @@ export function ChampionCard({
             </span>
           )}
           {!readOnly ? (
-            !shareUrl ? (
+            !shareUrl && confirmingShare ? (
+            <span
+              role="alert"
+              className="inline-flex flex-wrap items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+            >
+              <AlertTriangle className="w-3 h-3" aria-hidden />
+              Konsultant jest obecnie zatrudniony u naszego klienta
+              {employment?.client_name ? ` (${employment.client_name})` : ""}. Nie
+              wysyłaj linku temu samemu klientowi.
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmingShare(false);
+                  shareMut.mutate();
+                }}
+                className="rounded-md border border-purple-300 bg-card px-1.5 font-medium text-purple-700 hover:bg-purple-100"
+              >
+                Utwórz link
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingShare(false)}
+                className="rounded-md border border-border bg-card px-1.5 font-medium text-muted-foreground hover:bg-muted"
+              >
+                Anuluj
+              </button>
+            </span>
+          ) : !shareUrl ? (
             <button
               type="button"
               onClick={() => {
                 if (employment?.state === "employed_at_client") {
-                  const clientLabel = employment.client_name
-                    ? ` (${employment.client_name})`
-                    : "";
-                  const ok = window.confirm(
-                    `Uwaga: konsultant jest obecnie zatrudniony u naszego klienta${clientLabel}. ` +
-                      "Tworzysz link share — upewnij się, że nie wysyłasz go do tego samego klienta. Kontynuować ? "
-                  );
-                  if (!ok) return;
+                  setConfirmingShare(true);
+                  return;
                 }
                 shareMut.mutate();
               }}

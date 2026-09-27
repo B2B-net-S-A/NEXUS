@@ -131,6 +131,10 @@ export function CustomDashboard() {
   // układ" tylko przy siatce — w liście przeciąganie nie działa.
   const [gridMode, setGridMode] = useState<DashboardGridMode | null>(null)
   const [draft, setDraft] = useState<DashboardTile[]>([])
+  // Runda 10 (R10-N1-2): wersja, z której powstał szkic. Powrót do karty
+  // pobiera pulpit ponownie (refetchOnWindowFocus) — zapis szkicu z NOWĄ
+  // wersją nadpisywał bez 409 zmianę zrobioną w innej karcie.
+  const [draftBaseVersion, setDraftBaseVersion] = useState(0)
   const [history, setHistory] = useState<DashboardTile[][]>([])
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [dialog, setDialog] = useState<Dialog>(null)
@@ -224,6 +228,7 @@ export function CustomDashboard() {
 
   const startEditing = () => {
     setDraft(saved)
+    setDraftBaseVersion(version)
     setHistory([])
     setEditing(true)
   }
@@ -236,7 +241,7 @@ export function CustomDashboard() {
     if (savingRef.current) return
     savingRef.current = true
     save.mutate(
-      { tiles: draft, version },
+      { tiles: draft, version: draftBaseVersion },
       {
         onSettled: () => {
           savingRef.current = false

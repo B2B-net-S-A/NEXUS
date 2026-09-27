@@ -657,9 +657,8 @@ function LocationEditor({
       }),
     onSuccess: () => {
       setMutationError(null);
-      queryClient.invalidateQueries({
-        queryKey: candidateQueryKeys.detail(candidate.id),
-      });
+      // Runda 10 (R10-N15-10): lista (miasto pod nazwiskiem) i podgląd też.
+      invalidateCandidateMutation(queryClient, candidate.id, "edit");
       onOpenChange(false);
       showSuccess("Lokalizacja zapisana");
     },

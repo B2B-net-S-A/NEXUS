@@ -42,6 +42,47 @@ export function roundToTenth(value: number): number {
   return Math.round((value + Number.EPSILON) * 10) / 10;
 }
 
+/** Liczba jako dokładny ułamek dziesiętny `mantissa × 10^-scale` (jak `Decimal(str(x))`). */
+function exactDecimal(value: number): { mantissa: bigint; scale: number } {
+  const [coefficient, exponentPart] = String(value).toLowerCase().split("e");
+  const exponent = exponentPart ? Number(exponentPart) : 0;
+  const negative = coefficient.startsWith("-");
+  const [intPart, fracPart = ""] = coefficient.replace("-", "").split(".");
+  let digits = BigInt(`${intPart}${fracPart}` || "0");
+  let scale = fracPart.length - exponent;
+  if (scale < 0) {
+    digits *= BigInt(10) ** BigInt(-scale);
+    scale = 0;
+  }
+  return { mantissa: negative ? -digits : digits, scale };
+}
+
+/**
+ * „Po stawce przychodzącego”: pozostało × stawka odchodzącego ÷ stawka
+ * przychodzącego, zaokrąglone do 0,1 MD połówkami w górę — na liczbach
+ * całkowitych, jak `transferred_md` na `Decimal` po stronie serwera.
+ *
+ * Runda 10 (R10-X1-2): liczone na floatach 4,1 × 1500 ÷ 1000 dawało
+ * 6,1499999999999995 → 6,1 MD w podglądzie, a serwer zapisywał 6,2 MD.
+ */
+export function mdAtIncomingRate(
+  remaining: number,
+  departingRate: number,
+  incomingRate: number,
+): number {
+  const r = exactDecimal(remaining);
+  const d = exactDecimal(departingRate);
+  const i = exactDecimal(incomingRate);
+  const ten = BigInt(10);
+  // (r × d ÷ i) × 10 = (r_m × d_m × 10^i_s × 10) ÷ (i_m × 10^(r_s + d_s))
+  const numerator = r.mantissa * d.mantissa * ten ** BigInt(i.scale) * ten;
+  const denominator = i.mantissa * ten ** BigInt(r.scale + d.scale);
+  let tenths = numerator / denominator;
+  const rest = numerator % denominator;
+  if (rest * BigInt(2) >= denominator) tenths += BigInt(1);
+  return Number(tenths) / 10;
+}
+
 export function transferPreview(input: {
   unit: TakeoverPoolUnit | null | undefined;
   remaining: number | null | undefined;
@@ -70,8 +111,11 @@ export function transferPreview(input: {
       {
         method: "incoming_rate",
         md:
-          amount != null && incomingRate != null && incomingRate > 0
-            ? roundToTenth(amount / incomingRate)
+          amount != null &&
+          departingRate != null &&
+          incomingRate != null &&
+          incomingRate > 0
+            ? mdAtIncomingRate(remaining, departingRate, incomingRate)
             : null,
       },
     ],

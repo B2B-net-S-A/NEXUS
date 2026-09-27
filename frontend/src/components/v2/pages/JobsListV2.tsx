@@ -620,7 +620,26 @@ export function JobsListV2() {
     }
   }, [scope, defaultScope, sort, debouncedSearch, stages, filterValue]);
 
-  const dl = deadlineQueryParams(filterValue.deadline, filterValue.deadlineRange);
+  // Runda 10 (R10-N15-12): „Rekrutacje” z menu na przefiltrowanej liście to
+  // miękka nawigacja na goły `/jobs` — komponent zostaje, a stan filtrów
+  // czytany był tylko przy montowaniu. Goły adres = ta sama lista co po F5
+  // (lustro `CandidatesListV2`). Własne zapisy adresu dają goły adres tylko
+  // przy stanie domyślnym, więc reset jest wtedy bez skutku.
+  const routeQuery = searchParams?.toString() ?? "";
+  const [seenRouteQuery, setSeenRouteQuery] = useState(routeQuery);
+  if (routeQuery !== seenRouteQuery) {
+    setSeenRouteQuery(routeQuery);
+    if (routeQuery === "") {
+      setSearch("");
+      setScopeOverride(null);
+      setStages([]);
+      setFilterValue(EMPTY_FILTERS);
+      setSort(null);
+      setPage(1);
+    }
+  }
+
+  const dl =deadlineQueryParams(filterValue.deadline, filterValue.deadlineRange);
 
   // Jeden rejestr capability dla nagłówka, pustego stanu i akcji w wierszach
   // (audyt F-19) — wcześniej gate'owany był tylko przycisk w nagłówku.

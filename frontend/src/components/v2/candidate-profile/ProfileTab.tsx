@@ -59,7 +59,7 @@ import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
 import { JDGPanel } from "./JdgPanel";
 import { RecentActivityList } from "./Timeline";
 import { screeningConfirmedSkills } from "./profile-helpers";
-import { SectionHeading } from "./profile-shared";
+import { SectionError, SectionHeading } from "./profile-shared";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- payload kandydata jest luźno typowany (importy Traffit, CV) */
 
@@ -81,7 +81,13 @@ export interface ProfileTabProps {
   candidate: any;
   readOnly: boolean;
   embedded?: boolean;
-  recentActivity: { items: any[]; isPending: boolean };
+  recentActivity: {
+    items: any[];
+    isPending: boolean;
+    /** Awaria osi czasu — karta mówi „nie udało się”, nie „Brak zdarzeń.” (R10-N15-9). */
+    isError?: boolean;
+    refetch?: () => void;
+  };
   onNavigate: ProfileNavigate;
   /** Otwiera okno generatora CV. Brak = brak prawa zapisu. */
   onGenerateCv?: () => void;
@@ -155,6 +161,11 @@ export function ProfileTab({
           <CardContent>
             {recentActivity.isPending ? (
               <p className="text-sm text-muted-foreground">Ładowanie…</p>
+            ) : recentActivity.isError && recentActivity.items.length === 0 ? (
+              <SectionError
+                title="Nie udało się pobrać aktywności"
+                onRetry={() => recentActivity.refetch?.()}
+              />
             ) : (
               <RecentActivityList items={recentActivity.items.slice(0, 2)} />
             )}

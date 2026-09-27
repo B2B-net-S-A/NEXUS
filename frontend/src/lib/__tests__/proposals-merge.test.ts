@@ -246,6 +246,13 @@ describe("mergeProposals", () => {
     expect(EMPLOYMENT_ONLY_WARNING_PL).toBe("Tylko umowa o pracę");
   });
 
+  it("dzień przekazania to dzień w Warszawie, nie UTC (R10-X1-3)", () => {
+    // 30.09 22:30 UTC = 1.10 00:30 w Warszawie.
+    expect(
+      traineeHandoverReason({ by_name: "Ola", note: null, at: "2026-09-30T22:30:00+00:00" }),
+    ).toBe("Od praktykanta: Ola · 01.10");
+  });
+
   it("przekazanie bez nazwiska i daty nie zmyśla danych", () => {
     expect(traineeHandoverReason({ by_name: null, note: null, at: null })).toBe(
       "Od praktykanta: praktykant",

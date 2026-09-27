@@ -175,6 +175,7 @@ import {
   getCurrentTitle,
   isRowActivationKey,
 } from "@/components/v2/pages/candidate-list-helpers";
+import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
 import { PinnedCandidatesBar } from "@/components/v2/filters/PinnedCandidatesBar";
 import { SavedSearchesMenu } from "@/components/v2/filters/SavedSearchesMenu";
 import type { SearchTextInterpretation } from "@/lib/candidate-search-api";
@@ -2684,7 +2685,11 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
         onOpenChange={(v) => !v && setAssignFor(null)}
         candidateId={assignFor?.id ?? 0}
         candidateName={assignFor?.name ?? ""}
-        onAssigned={() => toastOnSuccess("Kandydat przypisany.")}
+        onAssigned={() => {
+          toastOnSuccess("Kandydat przypisany.");
+          // Runda 10 (R10-N15-5): kolumna „W procesie” — jak profil i podgląd.
+          if (assignFor) invalidateCandidateMutation(queryClient, assignFor.id, "assignment");
+        }}
       />
 
       {/* Szybki podgląd kandydata. */}

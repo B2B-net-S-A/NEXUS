@@ -70,6 +70,7 @@ import { ClientPlaybookCard } from "@/components/client-playbook/ClientPlaybookC
 import { clientPlaybookEditHref } from "@/lib/client-playbooks";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { warsawDateOf } from "@/lib/warsaw-date";
 import { countPl } from "@/lib/plural-pl";
 import { invalidateChampionDependents } from "@/lib/champion-cache";
 import {
@@ -374,7 +375,7 @@ export function ChampionProfileEditor({
               <Badge
                 variant="info"
                 size="sm"
-                title={`Profil zaimportowany z dokumentu (parser${draft._parsed_at ? `, ${draft._parsed_at.slice(0, 10)}` : ""}). Sekcje mogły być od tego czasu edytowane ręcznie — sprawdź przed użyciem.`}
+                title={`Profil zaimportowany z dokumentu (parser${draft._parsed_at ? `, ${warsawDateOf(draft._parsed_at) ?? draft._parsed_at}` : ""}). Sekcje mogły być od tego czasu edytowane ręcznie — sprawdź przed użyciem.`}
               >
                 {draft._parser?.includes("table-intake") ? "Z importu dokumentu" : CHAMPION_AI_PROVENANCE_LABEL}
               </Badge>

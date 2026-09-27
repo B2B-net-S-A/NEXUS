@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -533,5 +533,36 @@ describe("ExtendOrderDialog — polityka Banku Pocztowego", () => {
       screen.queryByText("Sprawdź numer zamówienia"),
     ).not.toBeInTheDocument();
     expect(screen.queryByText(/Z dokumentu:/)).not.toBeInTheDocument();
+  });
+});
+
+describe("ExtendOrderDialog — zdjęcie pliku bez natywnego okna (R10-N15-8)", () => {
+  afterEach(() => {
+    act(() => {
+      useAuthStore.setState({ user: null, hydrated: true });
+    });
+  });
+
+  it("pyta w oknie, nie przez window.confirm", () => {
+    act(() => {
+      useAuthStore.setState({ user: user("admin"), hydrated: true });
+    });
+    const confirmSpy = vi.spyOn(window, "confirm");
+    renderDialog(contract, true);
+    addPdf("zamowienie.pdf");
+    expect(extractBtn()).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Usuń plik PDF zamówienia" }));
+    expect(confirmSpy).not.toHaveBeenCalled();
+    const prompt = () => within(screen.getByText("Usunąć plik PDF?").parentElement!);
+    fireEvent.click(prompt().getByRole("button", { name: "Anuluj" }));
+    expect(extractBtn()).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Usuń plik PDF zamówienia" }));
+    fireEvent.click(prompt().getByRole("button", { name: "Usuń plik" }));
+    expect(extractBtn()).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Usuń plik PDF zamówienia" })).toBeNull();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 });

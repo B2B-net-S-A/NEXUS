@@ -638,7 +638,12 @@ export function CandidateDetailV2({
                 candidate={candidate}
                 readOnly={readOnly}
                 embedded={embedded}
-                recentActivity={{ items: timeline, isPending: timelineQuery.isPending }}
+                recentActivity={{
+                  items: timeline,
+                  isPending: timelineQuery.isPending,
+                  isError: timelineQuery.isError,
+                  refetch: () => void timelineQuery.refetch(),
+                }}
                 onNavigate={({ section }) => goToSection(section)}
                 onGenerateCv={canWriteSourcing ? () => setCvOpen(true) : undefined}
                 jdgFocusRequest={jdgFocusRequest}

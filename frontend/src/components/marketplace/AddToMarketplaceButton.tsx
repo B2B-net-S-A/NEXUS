@@ -7,6 +7,7 @@ import { marketplaceApi } from "@/lib/api";
 import { useMarketplaceThreshold } from "@/hooks/useMarketplaceThreshold";
 import { CandidateMatchesExpansion } from "./CandidateMatchesExpansion";
 import { warsawToday } from "@/lib/warsaw-date";
+import { addDaysIso } from "@/lib/candidate-followup";
 
 interface Props {
   candidateId: number;
@@ -21,10 +22,10 @@ interface Props {
   hideTrigger?: boolean;
 }
 
-function defaultUntil(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 30);
-  return d.toISOString().slice(0, 10);
+/** Dziś + 30 dni w kalendarzu firmy — Runda 10 (R10-X1-4): `toISOString` dawał
+ *  dzień UTC, więc po północy termin wychodził o dzień krótszy. */
+export function defaultUntil(now: Date = new Date()): string {
+  return addDaysIso(warsawToday(now), 30);
 }
 
 function formatPlDate(iso: string): string {

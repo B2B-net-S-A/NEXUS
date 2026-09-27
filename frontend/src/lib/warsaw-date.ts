@@ -17,3 +17,22 @@ export function warsawToday(now: Date = new Date()): string {
     day: "2-digit",
   }).format(now);
 }
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Dzień kalendarza firmy („YYYY-MM-DD”, Europe/Warsaw) znacznika czasu z API.
+ *
+ * Runda 10 (R10-X1-3): `created_at.slice(0, 10)` bierze dzień UTC, więc
+ * zdarzenie z 00:00–02:00 w Warszawie pokazywało się z datą dnia
+ * poprzedniego. Sama data (`RRRR-MM-DD`) wraca bez zmian; wartość
+ * nieczytelna — `null`.
+ */
+export function warsawDateOf(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (DATE_ONLY.test(trimmed)) return trimmed;
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) return null;
+  return warsawToday(date);
+}

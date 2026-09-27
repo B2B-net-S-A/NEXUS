@@ -56,7 +56,7 @@ describe("katalog kafelków", () => {
     } as Partial<User>);
     const result = templateAvailability(template("my_clients_alerts"), tcm);
     expect(result.ok).toBe(false);
-    for (const role of ["admin", "head_of_recruitment", "delivery_lead", "finance"] as UserRole[]) {
+    for (const role of ["admin", "delivery_lead", "finance"] as UserRole[]) {
       const u = user(role, {
         effective_section_access: {
           sourcing: "read",
@@ -69,6 +69,18 @@ describe("katalog kafelków", () => {
       } as Partial<User>);
       expect(templateAvailability(template("my_clients_alerts"), u).ok).toBe(true);
     }
+    // R10-N1-8: backend (DlAlertsUser) odmawia HoR 403 — także z sekcją Delivery.
+    const hor = user("head_of_recruitment", {
+      effective_section_access: {
+        sourcing: "read",
+        pipeline: "read",
+        delivery: "read",
+        insights: "read",
+        finance: "none",
+        system_admin: "none",
+      },
+    } as Partial<User>);
+    expect(templateAvailability(template("my_clients_alerts"), hor).ok).toBe(false);
   });
 
   it("odebrana sekcja wyłącza kafelek tej sekcji", () => {
