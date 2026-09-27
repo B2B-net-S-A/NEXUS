@@ -13,6 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
 import type { FollowupRow } from "@/lib/api/candidateFollowups";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
+import { warsawToday } from "@/lib/warsaw-date";
 
 export type BoardTaskKind = "cpro_to_send" | "cpro_sent" | "dl_review";
 
@@ -268,9 +269,17 @@ export function assigneeLabel(option: AssigneeOption): string {
   return option.name || option.email || `Użytkownik #${option.id}`;
 }
 
-/** „od dziś", „od wczoraj", „od 3 dni" — ile czeka osoba w kolejce. */
+/**
+ * „od dziś", „od wczoraj", „od 3 dni" — ile czeka osoba w kolejce.
+ *
+ * Runda 10 (R10-X1-5): dni KALENDARZOWE w Europe/Warsaw, nie pełne doby —
+ * osoba, która weszła wczoraj o 17:00, o 9:00 czeka „od wczoraj”, nie „od dziś”.
+ */
 export function waitingFor(since: string, now: Date = new Date()): string {
-  const days = Math.floor((now.getTime() - new Date(since).getTime()) / 86_400_000);
+  const sinceDate = new Date(since);
+  if (Number.isNaN(sinceDate.getTime())) return "od dziś";
+  const dayNumber = (d: Date) => Date.parse(`${warsawToday(d)}T00:00:00Z`) / 86_400_000;
+  const days = Math.round(dayNumber(now) - dayNumber(sinceDate));
   if (days <= 0) return "od dziś";
   if (days === 1) return "od wczoraj";
   return `od ${days} dni`;
