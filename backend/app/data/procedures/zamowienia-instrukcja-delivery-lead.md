@@ -275,7 +275,10 @@ jest istotna:
   czeka w „Umowach bez projektu". Innej drogi do „Zakończonego" nie ma: lista
   statusu i „Oznacz zakończone" otwierają to samo okno.
   Umowy **unieważnionej** nie da się zakończyć — system odmówi, bo to już
-  stan końcowy. Szkic zakończony z datą w przyszłości zostaje szkicem do tej
+  stan końcowy. **Data zakończenia projektu nie może być wcześniejsza niż start
+  kontraktu** — system odmówi i niczego nie zmieni (zamówienia też zostają).
+  Jeżeli współpraca w ogóle się nie zaczęła, kontrakt się unieważnia, a nie
+  kończy. Szkic zakończony z datą w przyszłości zostaje szkicem do tej
   daty, a dzień po niej sam przechodzi do „Zakończonych".
 
 Data w przyszłości w obu przypadkach zapisuje się od razu, ale **nie wyłącza
@@ -309,6 +312,13 @@ Jeżeli konsultant jest już obsadzony na **zamówieniu MD** u tego klienta, sys
 To nie jest ograniczenie na siłę: oba zapisy wiszą na tej samej umowie, więc
 duplikat mylił liczby i przy zakończeniu jednego znikał drugi. Gdy trzeba zmienić
 warunki — edytuj linię w zamówieniu zbiorczym.
+
+Dwa **zamówienia okresowe** tej samej osoby u klienta też nie mogą obowiązywać
+w tym samym czasie. Przedłużenie, które nachodzi na obowiązujące (albo
+zakończone) zamówienie — np. 01.12–31.03 obok 01.10–31.12 — system odrzuci
+i powie, od którego dnia zacząć nowe zamówienie (dzień po końcu poprzedniego),
+albo że najpierw trzeba skrócić poprzednie. To samo przy zmianie dat zamówienia.
+Szkice i anulowane zamówienia tej reguły nie blokują.
 
 Zamówienie **kosztowe** i okresowe u tej samej osoby mogą istnieć obok siebie —
 to dwa różne modele rozliczenia i są od siebie niezależne.
@@ -424,7 +434,10 @@ uzupełnienia"** (zamówienie trafi do **📝 Draft**). Aktywne zamówienie MD
 z budżetem per osoba musi mieć co najmniej jednego konsultanta.
 
 Wybór typu **Okresowe** w tym oknie przenosi Cię do formularza „Nowy kontraktor
-/ zamówienie" (jedna osoba) — wgrany PDF przechodzi razem z Tobą.
+/ zamówienie" (jedna osoba) — wgrany PDF, numer, okres i notatka przechodzą
+razem z Tobą. Przełączanie w drugą stronę działa tak samo, a po powrocie do
+**Okresowego** formularz ma z powrotem wpisanego kandydata, rekrutację, daty,
+stawki i notatkę. Zapisuje się zawsze typ wybrany w chwili zapisu.
 
 > **Jeżeli plik nie wejdzie, zamówienie i tak zostało zapisane.** Zapis
 > zamówienia i wysłanie pliku to dwie osobne operacje. System powie Ci wprost, że

@@ -504,7 +504,9 @@ def _overlapping_open_orders(orders: list[ClientOrder]) -> list[ClientOrder]:
     return [
         order
         for order in orders
-        if any(other is not order and _periods_overlap(order, other) for other in orders)
+        if any(
+            other is not order and _periods_overlap(order, other) for other in orders
+        )
     ]
 
 
@@ -521,7 +523,9 @@ def _current_of_chain(orders: list[ClientOrder]) -> ClientOrder:
         running = order.end_date is None or order.end_date >= today
         if started and running:
             return order
-    upcoming = [o for o in by_start if o.start_date is not None and o.start_date > today]
+    upcoming = [
+        o for o in by_start if o.start_date is not None and o.start_date > today
+    ]
     return upcoming[0] if upcoming else by_start[-1]
 
 

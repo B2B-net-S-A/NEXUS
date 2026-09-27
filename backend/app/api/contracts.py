@@ -3213,6 +3213,8 @@ async def create_contract(
                 },
             )
     await _assert_no_duplicate_contract(db, candidate=candidate, client=client)
+    # Runda 10 (F27): lustro PATCH-a i „Zakończ współpracę”.
+    _reject_end_before_start(data.start_date, data.end_date, termination=False)
     # Nowa umowa B2B rodzi się bezterminowa; datę niesie tylko wpis umowy już
     # zakończonej (rejestr importowanej historii).
     if not end_date_allowed(
