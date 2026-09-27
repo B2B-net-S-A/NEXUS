@@ -22,6 +22,7 @@ trafiają do specjalnego klienta `__traffit_orphans` (auto-utworzony, status=ina
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -604,6 +605,20 @@ _CANDIDATE_TOMBSTONE_GUARD = """
         )
     )
 """
+
+# Runda 10 (R10-N11-9): wersja skrótu zmapowanego payloadu kandydata. Zmiana
+# mappera, która ma przepisać istniejące wiersze, podbija tę wersję — inaczej
+# niezmieniony u źródła rekord nie zostałby przeliczony nową regułą.
+_CANDIDATE_PAYLOAD_SHA_VERSION = "r10-1"
+
+
+def candidate_payload_sha(payload: dict[str, Any]) -> str:
+    """Skrót zmapowanego rekordu `/employees/` — „czy u źródła coś się zmieniło”."""
+    blob = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=False)
+    return hashlib.sha256(
+        f"{_CANDIDATE_PAYLOAD_SHA_VERSION}\n{blob}".encode("utf-8")
+    ).hexdigest()[:32]
+
 
 def _with_manual_locks(sql: str) -> str:
     """Wstaw warunek znacznika ręcznej edycji zamiast `{manual:<pole>}`.
@@ -2395,6 +2410,12 @@ class TraffitImporter:
         # (dedup_service), nie importera.
         ext_to_id = await self._build_candidate_external_id_map()
         logger.info("Candidates: existing ext_to_id size=%d", len(ext_to_id))
+        # Runda 10 (R10-N11-1): odwrotna mapa (id wiersza → numer Traffita),
+        # żeby adopcja po mailu nie przestemplowała wiersza, który już należy
+        # do INNEGO żywego rekordu Traffita (dwie kartoteki z jednym mailem).
+        id_to_ext: dict[int, str] = {v: k for k, v in ext_to_id.items()}
+        gone_ids = await self._traffit_candidates_gone_upstream()
+        email_collisions = 0
         # Nagrobki twardo usuniętych kandydatów (0388, art. 17 RODO). Faza robi
         # pełny skan `/employees/`, więc bez tego usunięta osoba wracała przy
         # najbliższym syncu razem z etapami, notatkami i plikami (dalsze fazy
@@ -2519,6 +2540,7 @@ class TraffitImporter:
                     progress.inserted += 1
                     continue
 
+                payload_sha = candidate_payload_sha(payload)
                 existing_id = email_to_id.get(email_lc) if email_lc else None
                 if (
                     existing_id is not None
@@ -2538,6 +2560,25 @@ class TraffitImporter:
                         )
                     collisions += 1
                     existing_id = owner_id
+                elif (
+                    existing_id is not None
+                    and owner_id is None
+                    and id_to_ext.get(existing_id) not in (None, str(payload["external_id"]))
+                    and existing_id not in gone_ids
+                ):
+                    # Runda 10 (R10-N11-1): mail pasuje do wiersza, który jest
+                    # kartoteką INNEGO żywego rekordu Traffita. Przestemplowanie
+                    # przerzucało tożsamość między dwiema kartotekami przy
+                    # każdym biegu, a etapy, aktywności i pliki jednej z nich
+                    # były po cichu pomijane. Scalenie to decyzja dedupu, nie
+                    # importera — błąd przypisany wierszowi (kwarantanna).
+                    email_collisions += 1
+                    progress.add_error(
+                        f"email_collision candidate ext={payload['external_id']}: "
+                        f"mail należy do kandydata id={existing_id} z innym "
+                        "numerem Traffita"
+                    )
+                    continue
 
                 # Rozróżnia dwie ścieżki błędu w tym samym `except`: awaria
                 # ZAPISU WIERSZA jest już cofnięta przez savepoint, więc transakcja
@@ -2563,6 +2604,7 @@ class TraffitImporter:
                             params["tombstone_source_hash"] = source_hash
                             params["tombstone_legacy_hash"] = legacy_hash
                             params["tombstone_email_hash"] = email_hash
+                            params["traffit_payload_sha"] = payload_sha
                             try:
                                 async with self.db.begin_nested():
                                     result = await self.db.execute(upsert_sql, params)
@@ -2603,20 +2645,30 @@ class TraffitImporter:
                                 "cv_extracted_data": json.dumps(
                                     payload["cv_extracted_data"]
                                 ),
+                                "traffit_payload_sha": payload_sha,
                             }
                             result = await self.db.execute(
                                 _UPDATE_CANDIDATE_ADOPT, params
                             )
                             row = result.fetchone()
                             if row is None:
+                                # R10-N11-9: WHERE odrzucił zapis — bez zmian.
+                                progress.unchanged += 1
                                 continue
                             candidate_id = row[0]
                             progress.updated += 1
                             adopted += 1
+                            ext_to_id[str(payload["external_id"])] = candidate_id
+                            id_to_ext[candidate_id] = str(payload["external_id"])
                             if record_updates:
                                 updated_candidate_ids.append(candidate_id)
                         else:
                             if row is None:
+                                if owner_id is not None:
+                                    # R10-N11-9: konflikt po `external_id`,
+                                    # a WHERE odrzucił zapis — bez zmian.
+                                    progress.unchanged += 1
+                                    continue
                                 # Nagrobek postawiony w trakcie fazy (R7-V2-3).
                                 progress.skipped += 1
                                 continue
@@ -2630,6 +2682,7 @@ class TraffitImporter:
                                 # ...i jego external_id, żeby kolejny rekord o tym
                                 # samym ext nie próbował go ukraść innemu wierszowi.
                                 ext_to_id[str(payload["external_id"])] = row[0]
+                                id_to_ext[row[0]] = str(payload["external_id"])
                                 # Kandydat, którego jeszcze nie było w Nexusie, nie ma
                                 # też wektora — a bez wektora nie istnieje w
                                 # rekomendacjach, hybrid searchu ani w Marketplace.
@@ -2686,14 +2739,16 @@ class TraffitImporter:
                         since_commit = 0
                         logger.info(
                             "Candidates progress: %d/%d "
-                            "(inserted=%d updated=%d adopted=%d ext_collisions=%d "
-                            "errors=%d)",
+                            "(inserted=%d updated=%d unchanged=%d adopted=%d "
+                            "ext_collisions=%d email_collisions=%d errors=%d)",
                             progress.processed,
                             progress.total_source,
                             progress.inserted,
                             progress.updated,
+                            progress.unchanged,
                             adopted,
                             collisions,
+                            email_collisions,
                             progress.errors,
                         )
                 except Exception as e:  # noqa: BLE001
@@ -3488,6 +3543,21 @@ class TraffitImporter:
             hashes["traffit"] | hashes[TALENT_RADAR_TOMBSTONE_SOURCE],
             hashes[EMAIL_TOMBSTONE_SOURCE],
         )
+
+    async def _traffit_candidates_gone_upstream(self) -> set[int]:
+        """Wiersze kandydatów z nagrobkiem Traffita (404/410 u źródła).
+
+        Runda 10 (R10-N11-1): kartoteka, której rekord zniknął w Traffit, może
+        zostać przejęta po mailu przez nowy rekord tej samej osoby — tylko
+        żywa kartoteka blokuje przestemplowanie.
+        """
+        result = await self.db.execute(
+            text(
+                "SELECT id FROM candidates WHERE external_source='traffit' "
+                "AND external_id IS NOT NULL AND external_deleted_at IS NOT NULL"
+            )
+        )
+        return {row[0] for row in result}
 
     async def _build_candidate_external_id_map(self) -> dict[str, int]:
         result = await self.db.execute(
