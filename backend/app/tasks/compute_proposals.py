@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -62,6 +62,31 @@ async def create_pending_snapshot(
         await session.commit()
         await session.refresh(snap)
         return snap.id
+
+
+# Runda 10 (R10-N7-8): migawka liczona jest w tle TEGO SAMEGO procesu, więc
+# deploy w trakcie zostawia `pending` na zawsze, a front odpytywał ją co 3 s bez
+# końca. Liczenie trwa sekundy; dłużej niż to okno = bieg przerwany.
+PENDING_ABANDONED_AFTER = timedelta(minutes=10)
+ABANDONED_MESSAGE = "Liczenie rekomendacji zostało przerwane — odśwież rekomendacje."
+
+
+def effective_snapshot_status(
+    status: str, created_at: Optional[datetime], *, now: Optional[datetime] = None
+) -> tuple[str, Optional[str]]:
+    """Status do pokazania: porzucony `pending` czyta się jako `failed`.
+
+    Zwraca ``(status, komunikat)``; komunikat tylko dla porzuconej migawki.
+    Czysty odczyt — GET niczego nie zapisuje.
+    """
+    if status != STATUS_PENDING or created_at is None:
+        return status, None
+    moment = now or datetime.now(timezone.utc)
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    if moment - created_at > PENDING_ABANDONED_AFTER:
+        return STATUS_FAILED, ABANDONED_MESSAGE
+    return status, None
 
 
 async def compute_proposal_for_job(
@@ -278,12 +303,20 @@ async def compute_proposal_for_job(
                 job_id,
                 e,
             )
-            snap.status = STATUS_FAILED
-            snap.error_message = str(e)[:500]
+            # R10-N7-8: po błędzie bazy sesja wymaga rollbacku, a `commit`
+            # rzucał — migawka zostawała `pending` na zawsze. Najpierw
+            # rollback, potem zapis porażki wprost po id (obiekt jest wygasły).
             try:
+                await session.rollback()
+                await session.execute(
+                    update(ProposalSnapshot)
+                    .where(ProposalSnapshot.id == snapshot_id)
+                    .values(status=STATUS_FAILED, error_message=str(e)[:500])
+                )
                 await session.commit()
             except Exception as commit_err:
                 logger.warning(
-                    "[Proposals] failed to persist failure state: %s", commit_err
+                    "[Proposals] failed to persist failure state: %s",
+                    type(commit_err).__name__,
                 )
                 await session.rollback()
