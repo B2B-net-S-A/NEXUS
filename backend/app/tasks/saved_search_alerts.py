@@ -470,6 +470,12 @@ async def _scan_search(client, search_id: int) -> bool:
             )
             return False
         notified = False
+        # Runda 9 (R9-V3-1): stronicowanie trwa minuty przy szerokim zapisie;
+        # sesja po samych odczytach nie może przez ten czas trzymać połączenia
+        # „idle in transaction”. Obiekty przeżywają commit (expire_on_commit=False).
+        from app.core.database import release_idle_connection
+
+        await release_idle_connection(db)
         if ss.last_scanned_at is None:
             await _baseline_one(client, db, ss, owner)
         else:
