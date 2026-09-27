@@ -411,7 +411,10 @@ def with_pair_source(
     ):
         return response
     return response.model_copy(
-        update={"pair_source_stage_id": pair.stage_id, "pair_source_status": pair.status}
+        update={
+            "pair_source_stage_id": pair.stage_id,
+            "pair_source_status": pair.status,
+        }
     )
 
 

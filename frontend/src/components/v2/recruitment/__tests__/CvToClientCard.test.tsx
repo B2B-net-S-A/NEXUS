@@ -284,3 +284,31 @@ describe("CvToClientCard — plik źródłowy", () => {
     expect(screen.getByTestId("original-preview")).toBeInTheDocument();
   });
 });
+
+describe("CvToClientCard — CV firmowe pary na innym etapie (runda 11, F23)", () => {
+  it("nowy wiersz etapu bez CV pokazuje, pobiera i edytuje CV z etapu źródłowego", async () => {
+    mocks.brandedGet.mockImplementation((stageId: number) =>
+      Promise.resolve({
+        data:
+          stageId === 21
+            ? { status: "none", edit_revision: 0, version: 1, pair_source_stage_id: 20, pair_source_status: "finalized" }
+            : { status: "finalized", from_generator: true, generated_document_id: 5, edit_revision: 4, version: 2, docx_filename: "CV_Kowalski.docx" },
+      }),
+    );
+    rows = [{ id: 5, status: "ready" }];
+    renderCard();
+    expect(await screen.findByText("CV gotowe · wersja 2")).toBeInTheDocument();
+    expect(screen.queryByText(/Jeszcze nie ma CV do klienta/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Generuj CV/ })).toBeNull();
+    expect(mocks.brandedGet).toHaveBeenCalledWith(20);
+    await userEvent.click(screen.getByRole("button", { name: /Pobierz DOCX/ }));
+    await waitFor(() =>
+      expect(mocks.downloadAuthenticatedFile).toHaveBeenCalledWith(
+        "/api/candidates/stages/20/cv/branded/versions/2/docx",
+        "CV_Kowalski.docx",
+      ),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Edytuj/ }));
+    expect(screen.getByTestId("editor-stub")).toHaveTextContent("editor:20");
+  });
+});

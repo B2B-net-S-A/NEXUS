@@ -5937,6 +5937,9 @@ export interface CVBrandedState {
   finalized_by_name: string | null;
   snapshot_filename: string | null;
   rendered_from_default: boolean;
+  /** Etap bez własnego CV: wiersz etapu tej pary z CV firmowym (runda 11, F23). */
+  pair_source_stage_id?: number | null;
+  pair_source_status?: CVBrandedStatus | null;
 }
 
 export interface CVBrandedFinalizeResponseT {
