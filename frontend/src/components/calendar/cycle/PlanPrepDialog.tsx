@@ -10,18 +10,11 @@ import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
 import { prepMeetingsApi, usePrepOptions } from "@/lib/api/prepMeetings";
 import { candidateLabel, pairContext, type PairInfo } from "@/lib/interview-cycle";
+import { defaultPrepStart, prepTimingWarning, type PrepInterview } from "@/lib/prep-timing";
 import { cn } from "@/lib/utils";
 
 const INPUT =
   "w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
-
-function nextWorkdayAt(hour: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(hour)}:00`;
-}
 
 /** Czyste: organizator podpowiadany przez serwer dla tego prepu (albo brak). */
 export function defaultOrganizerId(
@@ -39,24 +32,30 @@ export function defaultOrganizerId(
  *
  * Gdy integracja z Teams nie jest włączona (serwer: `enabled=false`), okno
  * ustępuje dotychczasowemu zaproszeniu przez połączone konto M365 twórcy.
+ *
+ * `interview` — rozmowa u klienta, do której robi się prep (runda 10, F08):
+ * termin podpowiada się PRZED nią, a nakładanie się albo prep po rozmowie
+ * dają ostrzeżenie. Bez rozmowy — jutro, 10:00.
  */
 export function PlanPrepDialog({
   open,
   onOpenChange,
   pair,
   prepNo,
+  interview = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pair: PairInfo;
   prepNo: 1 | 2;
+  interview?: PrepInterview | null;
 }) {
   const toast = useToast();
   const qc = useQueryClient();
   const options = usePrepOptions(open ? pair.candidate_id : null, open ? pair.job_id : null);
   const [organizerId, setOrganizerId] = useState<number | null>(null);
   const [attendees, setAttendees] = useState<number[]>([]);
-  const [start, setStart] = useState(nextWorkdayAt(10));
+  const [start, setStart] = useState(() => defaultPrepStart(interview, prepNo, 45));
   const [duration, setDuration] = useState(45);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -70,16 +69,20 @@ export function PlanPrepDialog({
       typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random()}`;
-    setStart(nextWorkdayAt(10));
+    setStart(defaultPrepStart(interview, prepNo, 45));
     setDuration(45);
     setNote("");
     setError(null);
     setAttendees([]);
-  }, [open, prepNo, pair.candidate_id, pair.job_id]);
+    // `interview?.start`, nie obiekt — wołający składa go przy każdym renderze.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, prepNo, pair.candidate_id, pair.job_id, interview?.start, interview?.end]);
 
   useEffect(() => {
     if (options.data) setOrganizerId(defaultOrganizerId(options.data.suggested, prepNo));
   }, [options.data, prepNo]);
+
+  const timingWarning = prepTimingWarning(start, duration, interview);
 
   const team = useMemo(() => options.data?.team ?? [], [options.data]);
   const others = team.filter((p) => p.id !== organizerId);
@@ -126,6 +129,8 @@ export function PlanPrepDialog({
         defaultJobId={pair.job_id}
         defaultEventType="prep_call"
         defaultTitle={`Prep ${prepNo}: ${candidateLabel(pair)}`}
+        defaultStart={defaultPrepStart(interview, prepNo, 45)}
+        prepFor={interview}
       />
     );
   }
@@ -260,6 +265,15 @@ export function PlanPrepDialog({
               </select>
             </div>
           </div>
+          {timingWarning ? (
+            <p
+              role="status"
+              data-testid="prep-timing-warning"
+              className="rounded-md bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
+            >
+              {timingWarning}
+            </p>
+          ) : null}
           <div>
             <label htmlFor="prep-note" className="mb-1 block text-xs font-semibold text-muted-foreground">
               Wiadomość w zaproszeniu (opcjonalnie)

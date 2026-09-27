@@ -45,6 +45,7 @@ import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
 import { candidateStageLabel } from "@/components/v2/pages/candidate-timeline-labels";
+import { entrySourceLabel, recruitmentStageLabel } from "@/lib/recruitment-stage-label";
 import {
   focusCandidateRecruitmentCard,
   resolveVisibleRecruitmentFocus,
@@ -79,6 +80,17 @@ export interface RecruitmentsTabProps {
   defaultJobId: number | null;
   view: CandidateRecruitmentView;
   readOnly: boolean;
+  /**
+   * Flagi stawki do klienta z odpowiedzi `/history` (`can_view_client_rate`,
+   * `can_write_client_rate`). Runda 10 (R10-X2-3): serwer liczy je z roli
+   * I sekcji — rola z przeglądarki jest tylko zapasem, gdy ich brak.
+   */
+  clientRateAccess?: ClientRateAccess;
+}
+
+export interface ClientRateAccess {
+  canView?: boolean | null;
+  canWrite?: boolean | null;
 }
 
 export function RecruitmentsTab({
@@ -93,6 +105,7 @@ export function RecruitmentsTab({
   defaultJobId,
   view,
   readOnly,
+  clientRateAccess,
 }: RecruitmentsTabProps) {
   const { active, ended } = useMemo(() => splitRecruitments(history), [history]);
   const focusedJobId = useMemo(
@@ -179,6 +192,7 @@ export function RecruitmentsTab({
                   candidateName={candidateName}
                   focusedJobId={focusedJobId}
                   readOnly={readOnly}
+                  clientRateAccess={clientRateAccess}
                 />
               ))
             )}
@@ -207,6 +221,7 @@ export function RecruitmentsTab({
                         candidateName={candidateName}
                         focusedJobId={focusedJobId}
                         readOnly={readOnly}
+                        clientRateAccess={clientRateAccess}
                       />
                     ))}
                   </div>
@@ -435,18 +450,23 @@ export function RecruitmentRateRow({
   clientRate,
   expectedRate,
   readOnly = false,
+  clientRateAccess,
 }: {
   candidateId: number;
   jobId: number;
   clientRate: RecruitmentRate;
   expectedRate: RecruitmentRate;
   readOnly?: boolean;
+  clientRateAccess?: ClientRateAccess;
 }) {
   const authUser = useAuthStore((st) => st.user);
   // Decyzja 23.09.2026: stawki do klienta nie widzą rekruter, sourcer i TAC;
   // wpisuje ją wyłącznie DL albo admin (lustro `candidate_access.py`).
-  const showClientRate = canViewClientRate(authUser);
-  const clientRateWritable = canWriteClientRate(authUser);
+  // Runda 10 (R10-X2-3): rozstrzyga serwer (rola + zapis w sekcji); rola
+  // z przeglądarki tylko wtedy, gdy odpowiedź nie niesie flag.
+  const showClientRate = clientRateAccess?.canView ?? canViewClientRate(authUser);
+  const clientRateWritable =
+    showClientRate && (clientRateAccess?.canWrite ?? canWriteClientRate(authUser));
   const sameUnit =
     showClientRate &&
     clientRate != null &&
@@ -507,12 +527,14 @@ function RecruitmentCard({
   candidateName,
   focusedJobId,
   readOnly = false,
+  clientRateAccess,
 }: {
   job: any;
   candidateId: number;
   candidateName: string;
   focusedJobId: number | null;
   readOnly?: boolean;
+  clientRateAccess?: ClientRateAccess;
 }) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -613,14 +635,21 @@ function RecruitmentCard({
         </Link>
         <div className="text-xs text-muted-foreground">
           {job.client_name ? `${job.client_name} · ` : ""}
-          {candidateStageLabel(job.latest_stage)}
+          {recruitmentStageLabel(
+            job.latest_stage,
+            job.latest_stage_name,
+            candidateStageLabel,
+          )}
+          {entrySourceLabel(job.entry_source)
+            ? ` · ${entrySourceLabel(job.entry_source)}`
+            : ""}
           {job.first_seen ? ` · dodano ${formatDate(job.first_seen)}` : ""}
         </div>
         {Array.isArray(job.stages) && job.stages.length > 1 ? (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {job.stages.slice(0, 6).map((s: any, si: number) => (
               <Badge key={si} size="sm" variant="soft">
-                {candidateStageLabel(s.stage)}
+                {recruitmentStageLabel(s.stage, s.stage_name, candidateStageLabel)}
               </Badge>
             ))}
           </div>
@@ -652,6 +681,7 @@ function RecruitmentCard({
         clientRate={job.client_rate ?? null}
         expectedRate={job.expected_rate ?? null}
         readOnly={readOnly}
+        clientRateAccess={clientRateAccess}
       />
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">

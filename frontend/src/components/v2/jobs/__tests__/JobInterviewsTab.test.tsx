@@ -61,7 +61,14 @@ vi.mock("@/components/v2/modals/ScreeningSheet", () => ({
   ScreeningSheet: () => <div data-testid="screening-sheet-stub" />,
 }));
 vi.mock("@/components/v2/modals/RejectionV2", () => ({
-  RejectionV2: () => <div data-testid="rejection-stub" />,
+  // Przycisk w stubie potwierdza odrzucenie z zaznaczonym mailem (R10-V2-1).
+  RejectionV2: (p: { onConfirm: (...a: unknown[]) => void }) => (
+    <div data-testid="rejection-stub">
+      <button type="button" onClick={() => p.onConfirm("3", "", true, null)}>
+        stub: potwierdź odrzucenie z mailem
+      </button>
+    </div>
+  ),
 }));
 vi.mock("@/components/v2/modals/CVOriginalPreviewModal", () => ({
   CVOriginalPreviewModal: () => <div data-testid="cv-original-stub" />,
@@ -71,6 +78,7 @@ vi.mock("@/components/v2/modals/PrepInviteModal", () => ({
 }));
 
 import { JobInterviewsTab, feedbackStatusLabel } from "@/components/v2/jobs/JobInterviewsTab";
+import { rejectionEmailSkipMessage } from "@/lib/rejection-email";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { useAuthStore, type UserRole } from "@/store/auth";
 
@@ -343,6 +351,31 @@ describe("JobInterviewsTab", () => {
     expect(
       screen.getByRole("button", { name: /Odrzuć z powodem/ }),
     ).not.toBeDisabled();
+  });
+
+  it("zaznaczony mail, którego serwer nie zaplanował — komunikat z powodem (R10-V2-1)", async () => {
+    apiPost.mockImplementation((url: string) =>
+      url === "/api/pipeline/move"
+        ? Promise.resolve({
+            data: { scheduled_rejection_email_id: null, rejection_email_status: "no_mailbox" },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    renderTab();
+    await userEvent.click(await screen.findByRole("button", { name: /Odrzuć z powodem/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "stub: potwierdź odrzucenie z mailem" }),
+    );
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith(
+        "/api/pipeline/move",
+        expect.objectContaining({ send_rejection_email: true }),
+      ),
+    );
+    await waitFor(() =>
+      expect(showError).toHaveBeenCalledWith(rejectionEmailSkipMessage("no_mailbox")),
+    );
+    expect(showSuccess).toHaveBeenCalledWith("Zapisano decyzję.");
   });
 
   it("F05: ruch z doku wysyła wersję procesu z karty", async () => {

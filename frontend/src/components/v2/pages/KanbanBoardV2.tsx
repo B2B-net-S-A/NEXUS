@@ -103,6 +103,7 @@ import { hasRole, useAuthStore } from "@/store/auth";
 import {
  CARD_BADGE_TONE_CLASS,
  cardBadges,
+ cardStageBadge,
  cardNextStep,
  claimAction,
  knownForwardGap,
@@ -1090,7 +1091,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ponad budżet
  </span>
  )}
- {impliedBadges(stageBadge).map((badge) => (
+ {impliedBadges(cardStageBadge(item, stageBadge)).map((badge) => (
  <span
  key={badge}
  className={cn(

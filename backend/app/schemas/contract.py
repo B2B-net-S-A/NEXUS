@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Annotated, Any, Literal, Optional
 
-from pydantic import AfterValidator, BaseModel, Field, model_validator
+from pydantic import AfterValidator, BaseModel, Field, field_validator, model_validator
 
 from app.core.work_time import HOURS_PER_MONTH
 from app.models.contract import (
@@ -14,6 +14,7 @@ from app.models.contract import (
     ProlongationStatus,
     RateUnit,
 )
+from app.models.note import NoteType
 
 # Rozwiązanie umowy B2B (0367): wypowiedzenie / porozumienie stron; stronę,
 # która wypowiedziała albo zainicjowała porozumienie — konsultant / b2bnetwork.
@@ -535,6 +536,26 @@ class ContractTimelineItem(BaseModel):
     duration_seconds: Optional[int] = None
 
     model_config = {"from_attributes": True}
+
+
+class ContractNoteCreate(BaseModel):
+    """Notatka dodana bezpośrednio z zakładki „Notatki / Rozmowy" kontraktu.
+
+    Runda 10 (F03): do 26.09.2026 pusta zakładka kazała „ustawić
+    contract_id" albo dodać notatkę z kandydata, a formularz kandydata nie ma
+    wyboru kontraktu — nie było jak powiązać notatki z umową.
+    """
+
+    content: str = Field(min_length=1, max_length=20000)
+    note_type: NoteType = NoteType.general
+
+    @field_validator("content")
+    @classmethod
+    def _content_not_blank(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Wpisz treść notatki")
+        return cleaned
 
 
 class ContractList(BaseModel):

@@ -14,6 +14,7 @@ import {
 import { AppModal, FileDropZone } from "@/components/ds";
 import { OrderTypeSwitch } from "@/components/orders/OrderTypeSwitch";
 import type { OrderType } from "@/lib/api/dlPortal";
+import type { CarriedOrderFields } from "@/lib/order-type-switch";
 import {
   downloadAuthenticatedFile,
   openAuthenticatedFile,
@@ -82,12 +83,16 @@ interface Props {
     orderType: OrderType,
     file: File | null,
     orderNumber: string,
+    common: CarriedOrderFields,
   ) => void;
   allowedOrderTypes?: readonly OrderType[];
   /** Plik przeniesiony z formularza, z którego przełączono typ. */
   initialFile?: File | null;
   /** Numer zamówienia przeniesiony z formularza, z którego przełączono typ. */
   initialOrderNumber?: string;
+  /** Okres i notatka przeniesione z formularza, z którego przełączono typ
+   *  (runda 10, F02) — nowe zamówienie nie startuje od pustych dat. */
+  initialCommon?: CarriedOrderFields | null;
   /** PDF z kolejki zamówień z maila („Rozstrzygnij w oknie zamówienia"):
    *  trafia do okna w OBU trybach i jest od razu odczytywany — Delivery Lead
    *  widzi karty osób, w tym tę nieaktywną/nieznalezioną, bez ręcznego
@@ -133,6 +138,7 @@ export function OrderGroupFormModal({
   allowedOrderTypes,
   initialFile = null,
   initialOrderNumber = "",
+  initialCommon = null,
   autoReadFile = null,
   sourceNotice = null,
   submitting,
@@ -218,9 +224,9 @@ export function OrderGroupFormModal({
     setExecutiveContractId(
       group?.executive_contract ? String(group.executive_contract.id) : "",
     );
-    setStartDate(group?.start_date ?? "");
-    setEndDate(group?.end_date ?? "");
-    setNotes(group?.notes ?? "");
+    setStartDate(group ? (group.start_date ?? "") : (initialCommon?.startDate ?? ""));
+    setEndDate(group ? (group.end_date ?? "") : (initialCommon?.endDate ?? ""));
+    setNotes(group ? (group.notes ?? "") : (initialCommon?.notes ?? ""));
     setBudgetAmount(numberToField(group?.budget_amount));
     setMdBudgetTotal(numberToField(group?.md_budget_total));
     setSharedChoice(group ? usesSharedMdPool(group) : false);
@@ -872,7 +878,13 @@ export function OrderGroupFormModal({
 
         <OrderTypeSwitch
           value={orderType}
-          onChange={(next) => onOrderTypeChange(next, file, orderNumber)}
+          onChange={(next) =>
+            onOrderTypeChange(next, file, orderNumber, {
+              startDate,
+              endDate,
+              notes,
+            })
+          }
           allowedTypes={allowedOrderTypes}
           disabled={editing}
         />

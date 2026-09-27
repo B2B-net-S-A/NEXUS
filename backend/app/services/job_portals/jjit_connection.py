@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import logging
-import os
+import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -30,10 +32,12 @@ from urllib.parse import urlencode
 import httpx
 from jose import JWTError, jwt
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.encryption import get_token_cipher
+from app.models.app_setting import AppSetting
 from app.models.job_board_connection import (
     PROVIDER_JJIT,
     STATUS_ACTIVE,
@@ -81,23 +85,45 @@ def _api_url(path: str) -> str:
 # ── PKCE + state ─────────────────────────────────────────────────────────────
 
 
-def _pkce_pair() -> tuple[str, str]:
-    verifier = base64.urlsafe_b64encode(os.urandom(64)).rstrip(b"=").decode("ascii")
+def _challenge_for(verifier: str) -> str:
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
-    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
-    return verifier, challenge
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
 def _signing_key() -> str:
     return settings.M365_STATE_SIGNING_KEY or settings.SECRET_KEY
 
 
-def sign_state(user_id: int, verifier: str) -> str:
+# Runda 10 (R10-N10-8, bliźniak R9-N1-4): weryfikator PKCE jechał JAWNIE
+# w ``state``, a ``state`` był wielokrotnego użytku przez 10 min. Kto zdobył
+# adres logowania admina (historia przeglądarki, logi dostawcy), logował się
+# nim na SWOJE konto portalu i NEXUS podpinał je jako konto firmy. Teraz
+# ``state`` niesie tylko losowy ``n``, weryfikator wylicza serwer
+# (HMAC klucza podpisu), a callback zużywa ``n`` jednorazowo.
+def pkce_verifier_for(nonce: str) -> str:
+    digest = hmac.new(
+        _signing_key().encode("utf-8"),
+        f"jjit-pkce:{nonce}".encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    # 43 znaki alfabetu base64url — mieści się w RFC 7636 (43–128).
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+@dataclass(frozen=True)
+class OAuthState:
+    user_id: int
+    verifier: str
+    nonce_digest: str
+    expires_at: datetime
+
+
+def sign_state(user_id: int, nonce: Optional[str] = None) -> str:
     now = datetime.now(timezone.utc)
     return jwt.encode(
         {
             "sub": str(user_id),
-            "pkce": verifier,
+            "n": nonce or secrets.token_urlsafe(24),
             "iat": now,
             "exp": now + timedelta(seconds=_STATE_TTL_SECONDS),
             "purpose": STATE_PURPOSE,
@@ -107,26 +133,70 @@ def sign_state(user_id: int, verifier: str) -> str:
     )
 
 
-def verify_state(token: str) -> tuple[int, str]:
-    """(user_id, pkce_verifier) albo ``JWTError`` — także przy obcym ``purpose``."""
+def verify_state(token: str) -> OAuthState:
+    """Stan logowania albo ``JWTError`` — także przy obcym ``purpose`` i przy
+    ``state`` sprzed rundy 10 (bez ``n``)."""
     payload = jwt.decode(token, _signing_key(), algorithms=[_STATE_ALGORITHM])
     if payload.get("purpose") != STATE_PURPOSE:
         raise JWTError("wrong purpose")
-    return int(payload["sub"]), str(payload["pkce"])
+    nonce = payload.get("n")
+    if not isinstance(nonce, str) or not nonce:
+        raise JWTError("state without nonce")
+    return OAuthState(
+        user_id=int(payload["sub"]),
+        verifier=pkce_verifier_for(nonce),
+        nonce_digest=hashlib.sha256(nonce.encode("utf-8")).hexdigest(),
+        expires_at=datetime.fromtimestamp(int(payload["exp"]), tz=timezone.utc),
+    )
+
+
+_CONSUMED_STATES_KEY = "jjit_oauth_consumed_states"
+
+
+async def consume_state(db: AsyncSession, state: OAuthState) -> bool:
+    """Zużywa ``state`` (bez commitu). ``False`` = ten ``state`` już wrócił.
+
+    Wiersz ``app_settings`` pod blokadą serializuje równoległe callbacki; w
+    wartości leżą skróty ``n`` (nie same ``n``) do upływu ich ważności.
+    """
+    await db.execute(
+        pg_insert(AppSetting)
+        .values(key=_CONSUMED_STATES_KEY, value={})
+        .on_conflict_do_nothing(index_elements=["key"])
+    )
+    row = await db.scalar(
+        select(AppSetting)
+        .where(AppSetting.key == _CONSUMED_STATES_KEY)
+        .with_for_update()
+    )
+    now = datetime.now(timezone.utc)
+    seen: dict[str, str] = {}
+    for digest, expires in (row.value or {}).items():
+        try:
+            if datetime.fromisoformat(expires) > now:
+                seen[digest] = expires
+        except (TypeError, ValueError):
+            continue
+    if state.nonce_digest in seen:
+        return False
+    seen[state.nonce_digest] = state.expires_at.isoformat()
+    row.value = seen
+    await db.flush()
+    return True
 
 
 def authorize_url(user_id: int) -> str:
     if not oauth_configured():
         raise ConnectionNotConfigured("Brak konfiguracji aplikacji OAuth portalu.")
-    verifier, challenge = _pkce_pair()
+    nonce = secrets.token_urlsafe(24)
     query = urlencode(
         {
             "response_type": "code",
             "client_id": settings.JJIT_OAUTH_CLIENT_ID,
             "redirect_uri": settings.JJIT_OAUTH_REDIRECT_URI,
             "scope": settings.JJIT_OAUTH_SCOPE,
-            "state": sign_state(user_id, verifier),
-            "code_challenge": challenge,
+            "state": sign_state(user_id, nonce),
+            "code_challenge": _challenge_for(pkce_verifier_for(nonce)),
             "code_challenge_method": "S256",
         }
     )

@@ -30,7 +30,7 @@ const dayIso = (d: number) => daysAgo(-d).slice(0, 10);
 const JAN: FollowupRow = {
   candidate_id: 21,
   candidate_name: "Jan Wiśniewski",
-  phone: "600 214 390",
+  phone: "000 000 111",
   due_on: dayIso(-2),
   state: "overdue",
   overdue_days: 2,
@@ -41,7 +41,7 @@ const JAN: FollowupRow = {
     {
       job_id: 1,
       job_title: "Backend Java Developer",
-      client_name: "PKO BP",
+      client_name: "Bank Kappa",
       column: "client_interview",
       stage_name: "Po Interview",
       sent_at: daysAgo(20),
@@ -57,7 +57,7 @@ const JAN: FollowupRow = {
     {
       job_id: 2,
       job_title: "Java Developer",
-      client_name: "Nordea",
+      client_name: "Bank Północny",
       column: "cv_sent",
       stage_name: "Wysłany do Klienta",
       sent_at: daysAgo(16),
@@ -65,14 +65,14 @@ const JAN: FollowupRow = {
       silent_days: 16,
       owner_id: 3,
       owner_name: "Tomasz Lewandowski",
-      last_note: "Nordea wstrzymała rekrutację do października, proces żyje.",
+      last_note: "Bank Północny wstrzymał rekrutację do października, proces żyje.",
       last_note_by: "Tomasz Lewandowski",
       last_note_at: daysAgo(6),
     },
     {
       job_id: 3,
       job_title: "Senior Java Developer",
-      client_name: "Alior Bank",
+      client_name: "Bank Lambda",
       column: "cv_sent",
       stage_name: "CV Wysłane",
       sent_at: daysAgo(14),
@@ -97,27 +97,27 @@ const OTHERS: FollowupRow[] = [
     ...JAN,
     candidate_id: 22,
     candidate_name: "Karolina Mazur",
-    phone: "512 880 104",
+    phone: "000 000 112",
     due_on: dayIso(0),
     state: "today",
     overdue_days: 0,
-    processes: [{ ...JAN.processes[1], job_title: "Tester automatyzujący", client_name: "Polkomtel", silent_days: 13 }],
+    processes: [{ ...JAN.processes[1], job_title: "Tester automatyzujący", client_name: "Telekom Przykładowy", silent_days: 13 }],
     last_contact_by: "Tomasz Lewandowski",
     last_contact_kind: "call",
   },
   {
     ...JAN,
     candidate_id: 23,
-    candidate_name: "Aleksandra Dudek",
-    phone: "698 031 557",
+    candidate_name: "Aleksandra Przykładowa",
+    phone: "000 000 113",
     due_on: dayIso(0),
     state: "today",
     overdue_days: 0,
     pending: "no_answer",
     no_answer_count: 2,
     processes: [
-      { ...JAN.processes[2], client_name: "Credit Agricole", silent_days: 14 },
-      { ...JAN.processes[1], client_name: "BIK", silent_days: 12 },
+      { ...JAN.processes[2], client_name: "Bank Epsilon", silent_days: 14 },
+      { ...JAN.processes[1], client_name: "Biuro Gamma", silent_days: 12 },
     ],
   },
 ];
@@ -211,7 +211,7 @@ export default function CandidateFollowupPreviewPage() {
           </div>
           <BoardTasksPanel />
           <section aria-label="Dok osoby na Tablicy" className="max-w-md space-y-2">
-            <h2 className="text-sm font-semibold">Dok osoby na Tablicy (Ewa prowadzi Alior, dzwoni Anna)</h2>
+            <h2 className="text-sm font-semibold">Dok osoby na Tablicy (Ewa prowadzi Bank Lambda, dzwoni Anna)</h2>
             <DockFollowupBlock
               candidateId={21}
               badge={{

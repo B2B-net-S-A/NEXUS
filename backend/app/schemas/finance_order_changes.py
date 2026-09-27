@@ -212,6 +212,8 @@ class OrderGapItem(OrderRef):
     resolved_order_number: Optional[str] = None
     resolved_at: Optional[datetime] = None
     delay_days: Optional[int] = None
+    # Licznik przywróceń braku na „open” — część klucza odhaczenia (R10-N4-3).
+    episode: int = 0
 
 
 OrderChangesTabCode = Literal["changes", "entries", "exits", "ending", "gaps"]

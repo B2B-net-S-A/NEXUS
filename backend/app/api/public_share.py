@@ -703,11 +703,19 @@ async def _load_valid_link(token: str, db: AsyncSession) -> CandidateInviteLink:
         raise HTTPException(status_code=404, detail="Invite link expired")
     # 0339: link bez terminu żyje do zamknięcia rekrutacji — ta sama reguła
     # dla starych linków z terminem (zamknięta rekrutacja nie przyjmuje CV).
-    from app.services.job_public_profile import job_is_open
+    from app.models.job_public_profile import JobPublicProfile
+    from app.services import job_public_profile as jpp
 
     job = await db.get(Job, link.job_id)
-    if not job_is_open(job):
+    if not jpp.job_is_open(job):
         raise HTTPException(status_code=404, detail="Invite link no longer valid")
+    # Runda 10 (R10-N10-9): ta sama reguła co `/r/{slug}` — bez zatwierdzonego
+    # opisu publicznego strona pokazywała tytuł i miasto prosto z rekrutacji
+    # (nazwa klienta, kody), a formularz przyjmował zgłoszenia.
+    profile = await db.get(JobPublicProfile, link.job_id)
+    status_value, _default, _title = await jpp.resolve_status(db, job, profile)
+    if status_value != jpp.STATUS_APPROVED:
+        raise HTTPException(status_code=404, detail="Invite link not found or revoked")
     return link
 
 
@@ -734,19 +742,22 @@ async def get_public_apply_meta(
     # Use only the first name of the recruiter for the hero line.
     recruiter_first_name = (recruiter.name or "").strip().split(" ", 1)[0]
     # 0340: tytuł publiczny — surowy `jobs.title` niesie nazwę klienta i kody.
+    # Runda 10 (R10-N10-9): parametry z zatwierdzonej migawki i przełączników
+    # sekcji, jak na stronie kariery — nie surowe `jobs.location`.
     from app.models.job_public_profile import JobPublicProfile
-    from app.services.job_public_profile import public_titles
+    from app.services.job_public_profile import public_titles, visible_params
 
     profile = await db.get(JobPublicProfile, job.id)
     _default_title, public_title = await public_titles(db, job, profile)
+    params = visible_params(job, profile.sections if profile else None)
 
     return {
         "recruiter": {"first_name": recruiter_first_name or "Zespół"},
         "job": {
             "title": public_title,
-            "location": job.location,
-            "seniority": job.seniority.value if job.seniority else None,
-            "remote_policy": (job.remote_policy.value if job.remote_policy else None),
+            "location": params.get("city"),
+            "seniority": params.get("seniority"),
+            "remote_policy": params.get("remote_policy"),
         },
         "expires_at": link.expires_at.isoformat() if link.expires_at else None,
     }
@@ -818,8 +829,12 @@ async def _persist_cv(
             cv_text_extractor.extract_text, file_path, filename
         )
     except Exception as e:  # pragma: no cover — defensive
+        # Runda 10 (R10-N10-6): `UnsupportedCvFormat` niesie nazwę pliku CV
+        # (zwykle imię i nazwisko) — do logu idzie tylko klasa wyjątku.
         logger.warning(
-            "[apply] CV text extraction failed candidate=%s: %s", candidate_id, e
+            "[apply] CV text extraction failed candidate=%s: %s",
+            candidate_id,
+            type(e).__name__,
         )
     return filename, raw_text
 
@@ -1037,7 +1052,11 @@ async def _invite_post_apply_task(
                 trigger="public_apply",
             )
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[apply] CV enrichment failed candidate=%s: %s", candidate_id, e)
+        logger.warning(
+            "[apply] CV enrichment failed candidate=%s: %s",
+            candidate_id,
+            type(e).__name__,
+        )
 
     # (2) CC classification + auto-assign. Needs its own session because the
     # previous task committed and closed its session. Routes through the shared
@@ -1066,4 +1085,8 @@ async def _invite_post_apply_task(
                     summary["primary_score"],
                 )
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[apply] CC classify failed candidate=%s: %s", candidate_id, e)
+        logger.warning(
+            "[apply] CC classify failed candidate=%s: %s",
+            candidate_id,
+            type(e).__name__,
+        )

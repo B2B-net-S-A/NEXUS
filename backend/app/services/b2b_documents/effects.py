@@ -89,6 +89,21 @@ def _pl(day: date | None) -> str:
     return day.strftime("%d.%m.%Y") if day else "…"
 
 
+def project_end_of(values: dict[str, Any], when: date | None) -> date | None:
+    """Koniec projektu z porozumienia: ostatni dzień świadczenia usług.
+
+    Runda 10 (R10-N14-2): porozumienie niesie dwie daty — rozwiązanie umowy
+    (``termination_date``, ostatni dzień UMOWY) i ostatni dzień świadczenia
+    usług (``last_service_date``, koniec PROJEKTU). Do rundy 10 kontrakt
+    i zamówienia kończyły się datą rozwiązania, więc MRR, „Zejścia” i Insights
+    liczyły dni pracy, których nie było. Data późniejsza niż rozwiązanie
+    (dokument sprzed walidacji) liczy się jako rozwiązanie."""
+    last_service = _date(values.get("last_service_date"))
+    if when is None or last_service is None or last_service > when:
+        return when
+    return last_service
+
+
 async def _load_contract(db: AsyncSession, contract_id: int | None) -> Contract | None:
     if contract_id is None:
         return None
@@ -155,6 +170,35 @@ def _can_change_contracts(user: User) -> bool:
     return section_access_for_user(user, ProductSection.delivery) >= SectionAccess.write
 
 
+RATE_ANNEX_CONFIRMER_BLOCKER = (
+    "Aneks zmiany stawki oznacza jako podpisany admin, Finanse albo Delivery "
+    "Lead u klienta ze swojego portfela."
+)
+
+
+async def can_confirm_rate_annex(
+    db: AsyncSession, user: User, client_id: int | None
+) -> bool:
+    """Kto potwierdza aneks zmiany stawki (decyzja Artura 27.09.2026).
+
+    Admin i Finanse (``MANAGE_FINANCE`` — kwoty kontraktu zmieniają Finanse,
+    decyzja 22.09) — zawsze; Delivery Lead z zapisem w sekcji Delivery —
+    wyłącznie u klienta ze swojego portfela (ta sama granica co wgląd DL-a
+    w kwoty klienta, ``resolve_delivery_lead_finance_client_ids``). Do rundy 10
+    (R10-N14-7) wymagane były naraz rola admin/DL i ``MANAGE_FINANCE``, a rola
+    Finanse jest wyłączna — w praktyce aneks potwierdzał tylko admin."""
+    from app.api.financial_access import can_manage_finance_amounts
+    from app.models.user import UserRole
+    from app.services.access_scope import resolve_delivery_lead_finance_client_ids
+
+    if can_manage_finance_amounts(user):
+        return True
+    if not user.has_role(UserRole.delivery_lead) or not _can_change_contracts(user):
+        return False
+    portfolio = await resolve_delivery_lead_finance_client_ids(user, db)
+    return portfolio is not None and client_id is not None and client_id in portfolio
+
+
 async def describe(
     db: AsyncSession,
     doc: B2BContractDocument,
@@ -179,7 +223,8 @@ async def describe(
     if (
         user is not None
         and contract is not None
-        and doc_type.key not in ("preliminary_cez", "notice_withdrawal")
+        and doc_type.key
+        not in ("preliminary_cez", "notice_withdrawal", "annex_rate_change")
         and not _can_change_contracts(user)
     ):
         plan.blockers.append(
@@ -213,14 +258,10 @@ async def describe(
                     "Kontrakt nie jest rozliczany godzinowo — aneks mówi o stawce "
                     "za godzinę. Zmień stawkę w zakładce „Aneksy” kontraktu."
                 )
-            if user is not None:
-                from app.api.financial_access import can_manage_finance_amounts
-
-                if not can_manage_finance_amounts(user):
-                    plan.blockers.append(
-                        "Stawkę w kontrakcie zmienia admin albo Finanse — poproś "
-                        "ich o oznaczenie aneksu jako podpisanego."
-                    )
+            if user is not None and not await can_confirm_rate_annex(
+                db, user, contract.client_id
+            ):
+                plan.blockers.append(RATE_ANNEX_CONFIRMER_BLOCKER)
     elif key == "annex_start_date":
         new_start = _date(values.get("new_start_date"))
         plan.changes.append(f"Data rozpoczęcia usług: {_pl(new_start)}.")
@@ -242,6 +283,7 @@ async def describe(
         "termination_notice",
     ):
         when = _date(values.get("termination_date"))
+        project_end = project_end_of(values, when)
         ended_before = project_already_ended(contract, when)
         if ended_before and contract.status != ContractStatus.ended:
             # Projekt kończy się wcześniej niż umowa (zakończenie zaplanowane
@@ -270,10 +312,15 @@ async def describe(
                 )
         else:
             plan.changes.append(
-                f"Koniec współpracy z dniem {_pl(when)} — kontrakt, zamówienia klienta."
+                f"Koniec współpracy z dniem {_pl(project_end)} — kontrakt, "
+                "zamówienia klienta."
             )
         if parent is not None and not ended_before:
-            if contract is not None and when is not None and when >= business_today():
+            if project_end != when:
+                plan.changes.append(
+                    f"Umowa w rejestrze: „Zakończona” z dniem rozwiązania {_pl(when)}."
+                )
+            elif contract is not None and when is not None and when >= business_today():
                 plan.changes.append(
                     "Umowa w rejestrze: „Zakończona” dzień po "
                     f"{_pl(when)} — do tego dnia obowiązuje."
@@ -454,7 +501,15 @@ async def apply(
     if key == "annex_rate_change" and contract is not None:
         from app.schemas.contract_amendment import ContractAmendmentCreate
 
-        amendment = await contracts_api.create_contract_amendment(
+        # Bramkę kwot (admin / Finanse / DL z portfela — decyzja 27.09.2026)
+        # sprawdza `describe` przed zapisem; handler aneksu dopuszcza sam
+        # wyłącznie MANAGE_FINANCE, więc wołamy jego wersję z bramką zdjętą.
+        if not await can_confirm_rate_annex(db, user, contract.client_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=RATE_ANNEX_CONFIRMER_BLOCKER,
+            )
+        amendment = await contracts_api.apply_contract_amendment(
             contract_id=contract.id,
             data=ContractAmendmentCreate(
                 amendment_type=ContractAmendmentType.rate_change,
@@ -465,6 +520,7 @@ async def apply(
             ),
             current_user=user,
             db=db,
+            finance_write_authorized=True,
         )
         summary["amendment_id"] = amendment.id
 
@@ -592,6 +648,18 @@ async def apply(
         else:
             termination_reason = ContractTerminationReason.mutual_agreement
             mode, party, signed_on = "mutual_agreement", None, doc.document_date
+        project_end = project_end_of(values, when) or when
+        if project_end != when:
+            # Umowa trwa dłużej niż projekt: synchronizacja zakończenia
+            # kontraktu zamknie wiersz datą ROZWIĄZANIA z tego dokumentu
+            # (`contract_termination_sync._signed_dissolution_last_day`). Przy
+            # dacie minionej kontrakt kończy się jeszcze w tym zapisie, więc
+            # dokument musi być już widoczny jako zastosowany.
+            summary["agreement_outlives_project"] = True
+            summary["project_end_date"] = project_end.isoformat()
+            doc.effect_applied_at = datetime.now(timezone.utc)
+            doc.effect_summary = dict(summary)
+            await db.flush()
         # Umowa w rejestrze obowiązuje do daty rozwiązania: dokument zostawia
         # tryb na wierszu, a zamyka go synchronizacja zakończenia kontraktu —
         # teraz przy dacie minionej, inaczej nocny cron (audyt 25.09.2026,
@@ -609,12 +677,12 @@ async def apply(
                 db,
                 contract,
                 termination_reason=termination_reason,
-                when=when,
+                when=project_end,
                 termination_lessons=reason,
                 actor_id=user.id,
                 agreement_termination=agreement_termination,
             )
-            summary["terminated_at"] = when.isoformat()
+            summary["terminated_at"] = project_end.isoformat()
         if parent is not None:
             await close_dissolved_row(
                 db,
@@ -648,6 +716,12 @@ async def apply(
             parent.termination_mode = None
             parent.termination_party = None
             parent.termination_signed_on = None
+            # Runda 10 (R10-N14-1): migawka zakończenia opisuje stan, który
+            # właśnie cofnięto — jak przy ręcznej zmianie statusu w rejestrze.
+            # Zostawiona sprawiała, że „Powrót po przerwie” albo nowe zamówienie
+            # przywracały z niej „Zakończoną” z trybem wypowiedzenia, a kolejne
+            # rozwiązanie nie zostawiało znacznika (`mark_pending_dissolution`).
+            parent.termination_restore = None
         elif parent is not None:
             # Wypowiedzenie z przyszłą datą jeszcze nie zamknęło umowy — zdejmij
             # znacznik, żeby nocny cron jej nie zamknął.
@@ -706,6 +780,61 @@ async def _add_amendment(
     return amendment.id
 
 
+PARTNER_NOTICE_AMBIGUOUS = (
+    "Umowa nie jest powiązana z kontraktem, a osoba ma u tego klienta kilka "
+    "trwających kontraktów — zakończ właściwy w module Kontrakty („Zakończ "
+    "współpracę”), a potem zarejestruj wypowiedzenie."
+)
+PARTNER_NOTICE_NO_CONTRACT = (
+    "Umowa nie jest powiązana z kontraktem, a osoba nie ma u tego klienta "
+    "trwającego kontraktu — zmienił się tylko rejestr umów."
+)
+
+
+async def live_contract_ids_for_unlinked_row(
+    db: AsyncSession,
+    *,
+    row_id: int,
+    candidate_id: int | None,
+    client_id: int | None,
+) -> list[int]:
+    """Trwające kontrakty osoby u klienta umowy BEZ powiązania z kontraktem.
+
+    Runda 10 (R10-N14-3): wypowiedzenie Partnera do takiej umowy (każdy wiersz
+    z Excela działu) zmieniało tylko rejestr, a kontrakt osoby trwał dalej bez
+    daty końca. Lustro ``contract_termination_sync._rows_for_contract``:
+    kontrakt TEJ osoby u TEGO klienta, który trwa (``active``/``ending``)
+    i nie ma własnej żywej umowy w rejestrze — tamten projekt ma swoją umowę.
+    """
+    if candidate_id is None or client_id is None:
+        return []
+    own_agreement = (
+        select(B2BGeneratedContract.id)
+        .where(
+            B2BGeneratedContract.contract_id == Contract.id,
+            B2BGeneratedContract.id != row_id,
+            B2BGeneratedContract.contract_status.in_(
+                ("active", "suspended", "in_progress")
+            ),
+        )
+        .exists()
+    )
+    return list(
+        (
+            await db.scalars(
+                select(Contract.id)
+                .where(
+                    Contract.candidate_id == candidate_id,
+                    Contract.client_id == client_id,
+                    Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
+                    ~own_agreement,
+                )
+                .order_by(Contract.id.asc())
+            )
+        ).all()
+    )
+
+
 async def register_partner_notice(
     db: AsyncSession,
     parent: B2BGeneratedContract,
@@ -713,6 +842,7 @@ async def register_partner_notice(
     delivered_on: date,
     termination_date: date,
     user: User,
+    matched_contract_id: int | None = None,
 ) -> dict[str, Any]:
     """Wypowiedzenie złożone przez Partnera — bez dokumentu po naszej stronie.
 
@@ -726,7 +856,15 @@ async def register_partner_notice(
         "delivered_on": delivered_on.isoformat(),
         "termination_date": termination_date.isoformat(),
     }
-    contract = await _load_contract(db, parent.contract_id)
+    contract = await _load_contract(db, parent.contract_id or matched_contract_id)
+    if parent.contract_id is None and contract is not None:
+        # Dopasowany po osobie — wiersz dostaje powiązanie w tym samym zapisie
+        # (fill-only, jak synchronizacja zakończenia kontraktu).
+        parent.contract_id = contract.id
+        summary["contract_matched_by_person"] = True
+        await db.flush()
+    elif contract is None:
+        summary["contract_warning"] = PARTNER_NOTICE_NO_CONTRACT
     # Jak przy dokumencie: umowa obowiązuje do końca okresu wypowiedzenia,
     # zamyka ją synchronizacja zakończenia kontraktu (audyt 25.09.2026, runda 3).
     mark_pending_dissolution(

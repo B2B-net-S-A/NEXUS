@@ -479,6 +479,14 @@ def job_scope_clause(
         )
     )
     scope_clauses = [job_id_col.is_(None), job_id_col.in_(member_jobs)]
+    if not oversight_bypass:
+        # Runda 10 (R10-V2-3): widok OSOBISTY („my-work”, „moje” w cyklu
+        # rozmów) liczy też żywe przypisanie z przydziału requestów — ta sama
+        # reguła co „Moje” na liście /jobs (R9-N15-2). Bez tego filtr „Moje
+        # przypisane” był AND-owany z zakresem, który przypisań nie zna.
+        from app.api.jobs import _live_work_assignment_job_ids  # noqa: PLC0415
+
+        scope_clauses.append(job_id_col.in_(_live_work_assignment_job_ids([user.id])))
     inherited = operational_owner_ids(user) - {user.id}
     if inherited:
         scope_clauses.append(inherited_collaborator_work_clause(job_id_col, inherited))

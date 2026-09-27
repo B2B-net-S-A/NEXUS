@@ -2120,7 +2120,8 @@ async def api_health_check():
                     session.execute(
                         text(
                             "SELECT last_run_finished_at, last_status, "
-                            "COALESCE((stats->>'unprocessed_messages')::int, 0) "
+                            "COALESCE((stats->>'unprocessed_messages')::int, 0), "
+                            "COALESCE((stats->>'recheck_failures_in_row')::int, 0) "
                             "FROM order_mail_sync_state WHERE id = 1"
                         )
                     ),
@@ -2134,6 +2135,7 @@ async def api_health_check():
                 last_status=r[1] if r is not None else None,
                 unprocessed_messages=int(r[2] or 0) if r is not None else 0,
                 now=_dt.now(_tz.utc),
+                recheck_failures_in_row=int(r[3] or 0) if r is not None else 0,
             )
         except Exception:
             checks["order_mail"] = "degraded"
@@ -2202,11 +2204,11 @@ async def api_health_check():
             from app.services.job_portals.service import portal_health_inputs
 
             async with AsyncSessionLocal() as session:
-                _failed, _reconnect = await asyncio.wait_for(
+                _failed, _reconnect, _connected = await asyncio.wait_for(
                     portal_health_inputs(session), timeout=1.0
                 )
             checks["job_portals"] = _job_portals.health_state(
-                _failed, reconnect_required=_reconnect
+                _failed, reconnect_required=_reconnect, connected=_connected
             )
     except Exception:  # noqa: BLE001 — sonda informacyjna
         checks["job_portals"] = "unknown"

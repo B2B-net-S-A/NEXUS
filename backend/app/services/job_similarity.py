@@ -64,6 +64,13 @@ REASSIGN_STAGES: tuple[PipelineStage, ...] = (
 CONTRACT_STAGES: tuple[PipelineStage, ...] = (
     PipelineStage.acceptance,
     PipelineStage.negotiation,
+)
+# Runda 10 (R10-X2-2): Onboarding leży na Tablicy w kolumnie „Zatrudniony”
+# (`board_stage_badges._COLUMN_BY_ENUM`), więc w statusie requestu liczy się
+# jak zatrudnienie — do tej rundy odznaka Onboarding cofała „Obsadzona” na
+# „Umowa”.
+HIRED_STAGES: tuple[PipelineStage, ...] = (
+    PipelineStage.hired,
     PipelineStage.onboarding,
 )
 
@@ -961,7 +968,7 @@ def request_status_subquery(job_ids: Any):
                 func.distinct(
                     case(
                         (
-                            CandidateStage.stage == PipelineStage.hired,
+                            CandidateStage.stage.in_(HIRED_STAGES),
                             CandidateStage.candidate_id,
                         )
                     )
@@ -996,13 +1003,22 @@ def request_stage_expr(sq):
 
     Najpierw fakty z pipeline'u i championa (jak ``request_status_expr``),
     potem stan pracy prowadzony w NEXUSIE (`jobs.work_state`). Szkic jest
-    „Do uzupełnienia” niezależnie od stanu pracy."""
+    „Do uzupełnienia” niezależnie od stanu pracy.
+
+    Runda 10 (R10-X2-1): champion liczy się WYŁĄCZNIE przy „Szukamy” — ta
+    sama reguła co ``request_work_state.visible_state`` (pulpit, „Porządek
+    w requestach”). „Klient milczy” i „Zakończony” z championem nie trafiały
+    pod pigułkę „Mamy championa”. Wspólne przypadki:
+    ``frontend/src/lib/__fixtures__/request-work-state-cases.json``."""
     hired = func.coalesce(sq.c.hired_n, 0)
     return case(
         (Job.status == JobStatus.closed, "closed"),
         (and_(hired > 0, hired >= func.greatest(Job.headcount, 1)), "filled"),
         (func.coalesce(sq.c.contract_n, 0) > 0, "contract"),
-        (Job.champion_found_at.is_not(None), "champion"),
+        (
+            and_(Job.work_state == "searching", Job.champion_found_at.is_not(None)),
+            "champion",
+        ),
         (Job.status == JobStatus.draft, "incomplete"),
         (Job.work_state == "finished", "finished"),
         (Job.work_state == "client_silent", "client_silent"),

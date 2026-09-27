@@ -376,6 +376,9 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //                  bramka deny-by-default objęła tę przestrzeń, wszystkie 9
 //                  specow zaczęło dostawać 307 na /login i nightly był czerwony
 //                  tygodniami.
+//                  Publiczne TYLKO poza produkcją (patrz
+//                  `previewHarnessesArePublic`, runda 10) — na produkcji po
+//                  zalogowaniu.
 //                  Ścieżki dokładne, NIE prefiks `/preview/` — reszta harnessów
 //                  zostaje prywatna, bo `/preview/shell` renderuje prawdziwy
 //                  `SidebarV2` (role-gating, liczniki), czyli wewnętrzną
@@ -455,7 +458,26 @@ const PUBLIC_PATHS = [
 // Ścieżki publiczne dopasowywane DOKŁADNIE (bez `startsWith`).
 const PUBLIC_EXACT_PATHS = ["/kariera"];
 
+/**
+ * Runda 10 (R10-N10-1): harnessy `/preview/*` są publiczne wyłącznie poza
+ * buildem produkcyjnym (`next dev`, vitest) albo przy jawnej fladze builda
+ * `NEXT_PUBLIC_PREVIEW_PUBLIC=1` (stack E2E w `docker-compose.e2e.yml`, na nim
+ * chodzi nocny `preview-chromium`). Na produkcji wpuszczają tylko po
+ * zalogowaniu — do 27.09.2026 każdy bez sesji oglądał nazwiska, klientów
+ * i stawki z danych harnessów. Czytane przy wywołaniu (nie stała modułu), żeby
+ * testy mogły przełączać środowisko; Next wstawia obie wartości przy buildzie.
+ */
+function previewHarnessesArePublic(): boolean {
+  return (
+    process.env.NODE_ENV !== "production" ||
+    process.env.NEXT_PUBLIC_PREVIEW_PUBLIC === "1"
+  );
+}
+
 function isPublicPath(pathname: string): boolean {
+  if (pathname.startsWith("/preview/") && !previewHarnessesArePublic()) {
+    return false;
+  }
   return (
     PUBLIC_EXACT_PATHS.includes(pathname) ||
     PUBLIC_PATHS.some((p) => pathname.startsWith(p))
@@ -546,17 +568,21 @@ export function middleware(request: NextRequest) {
   // oznacza tu tylko „brak zawężenia ról", a NIE „trasa niechroniona".
   const accessRule = resolveAccessRule(pathname);
 
+  // Runda 10 (R10-N15-1): `next` niesie też query — link z maila
+  // (`/clients/15?tab=zamowienia&order=123`) bez niego lądował na profilu.
+  const nextTarget = pathname + request.nextUrl.search;
+
   // Brak tokena na chronionej trasie → login.
   if (!token) {
     const loginUrl = new URL("/login", request.url);
-    if (pathname !== "/") loginUrl.searchParams.set("next", pathname);
+    if (pathname !== "/") loginUrl.searchParams.set("next", nextTarget);
     return NextResponse.redirect(loginUrl);
   }
 
   const payload = decodeJwtPayload(token);
   if (!payload || isJwtExpired(payload.exp) || !payload.role) {
     const loginUrl = new URL("/login", request.url);
-    if (pathname !== "/") loginUrl.searchParams.set("next", pathname);
+    if (pathname !== "/") loginUrl.searchParams.set("next", nextTarget);
     const response = NextResponse.redirect(loginUrl);
     // Wyczyść zepsute cookie — żeby unknąć pętli redirectów.
     response.cookies.delete(COOKIE_NAME);

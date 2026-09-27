@@ -235,6 +235,39 @@ async def pair_carries_manager_veto(
     return (await db.scalar(stmt)) is not None
 
 
+async def job_carries_manager_veto(db: AsyncSession, *, job_id: int) -> bool:
+    """Czy którakolwiek para tej rekrutacji jest źródłem weta jej managera?
+
+    Runda 10 (R10-V2-5): weto liczy się z ``Job.hiring_manager_contact_id``
+    rekrutacji ŹRÓDŁOWEJ, więc zmiana albo wyczyszczenie jej HM zdejmuje weto
+    we wszystkich rekrutacjach tego managera — tak samo jak usunięcie pary
+    (:func:`pair_carries_manager_veto`, R9-N11-5).
+
+    Nie czyta bieżącego HM rekrutacji — wołający sprawdza, że był ustawiony
+    PRZED zmianą (PATCH pyta już po nałożeniu zmian na obiekt w sesji).
+    """
+    rejected = aliased(CandidateStage)
+    met = aliased(CandidateStage)
+    stmt = (
+        select(rejected.id)
+        .select_from(rejected)
+        .join(RejectionReason, RejectionReason.id == rejected.rejection_reason_id)
+        .where(
+            rejected.job_id == job_id,
+            rejected.stage == PipelineStage.rejected,
+            RejectionReason.disqualifies_person.is_(True),
+            exists().where(
+                met.candidate_id == rejected.candidate_id,
+                met.job_id == rejected.job_id,
+                met.stage.in_(tuple(MANAGER_MET_STAGES)),
+                met.moved_at <= rejected.moved_at,
+            ),
+        )
+        .limit(1)
+    )
+    return (await db.scalar(stmt)) is not None
+
+
 async def load_all_vetoes_for_candidate(
     db: AsyncSession, *, candidate_id: int
 ) -> list[ManagerVerdict]:

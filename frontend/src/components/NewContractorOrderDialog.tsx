@@ -28,6 +28,7 @@ import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
 import { orderPeriodError } from "@/lib/order-period";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
+import type { PeriodicOrderDraft } from "@/lib/order-type-switch";
 import {
   canManageCandidateFinance,
   useAuthStore,
@@ -42,9 +43,14 @@ interface NewContractorOrderDialogProps {
     orderType: OrderType,
     file: File | null,
     orderNumber: string,
+    draft: PeriodicOrderDraft,
   ) => void;
   /** Plik przeniesiony z okna „Nowe zamówienie" przy zmianie typu. */
   initialFile?: File | null;
+  /** Roboczy stan tego formularza sprzed zmiany typu (runda 10, F02) —
+   *  powrót do „Okresowego" odtwarza kandydata, rekrutację, daty, stawki
+   *  i notatkę zamiast pustego formularza. */
+  initialDraft?: Partial<PeriodicOrderDraft> | null;
   /** Numer zamówienia przeniesiony z okna „Nowe zamówienie" przy zmianie typu. */
   initialOrderNumber?: string;
   allowedOrderTypes?: readonly OrderType[];
@@ -100,6 +106,7 @@ export function NewContractorOrderDialog({
   allowedOrderTypes,
   initialFile = null,
   initialOrderNumber = "",
+  initialDraft = null,
   canManageFinance: serverCanManageFinance,
   defaultRateUnit,
   onClose,
@@ -114,35 +121,48 @@ export function NewContractorOrderDialog({
   const [candidateQuery, setCandidateQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedCandidate, setSelectedCandidate] =
-    useState<CandidateSearchItem | null>(null);
+    useState<CandidateSearchItem | null>(initialDraft?.selectedCandidate ?? null);
 
-  const [jobId, setJobId] = useState<string>(""); // "" = brak
+  const [jobId, setJobId] = useState<string>(initialDraft?.jobId ?? ""); // "" = brak
   // „Numer zamówienia" — przy zmianie typu przejmowany z drugiego formularza.
   const [title, setTitle] = useState(initialOrderNumber);
-  const [contractStart, setContractStart] = useState("");
-  const [orderStart, setOrderStart] = useState("");
-  const [orderEnd, setOrderEnd] = useState("");
-  const [rateClient, setRateClient] = useState("");
-  const [rateCandidate, setRateCandidate] = useState("");
+  const [contractStart, setContractStart] = useState(
+    initialDraft?.contractStart ?? "",
+  );
+  const [orderStart, setOrderStart] = useState(initialDraft?.orderStart ?? "");
+  const [orderEnd, setOrderEnd] = useState(initialDraft?.orderEnd ?? "");
+  const [rateClient, setRateClient] = useState(initialDraft?.rateClient ?? "");
+  const [rateCandidate, setRateCandidate] = useState(
+    initialDraft?.rateCandidate ?? "",
+  );
   // Domyślnie jednostka najczęstsza u klienta (nigdy `monthly`), a nie twardy
   // `monthly`. Gdy `defaultRateUnit` jeszcze nie dojechał, startujemy `monthly`
   // i adoptujemy właściwą wartość efektem niżej — o ile pola nie tknięto.
   const [rateUnit, setRateUnit] = useState<OrderRateUnit>(
-    defaultRateUnit ?? "monthly",
+    initialDraft?.rateUnit ?? defaultRateUnit ?? "monthly",
   );
   // Blokuje adopcję domyślnej jednostki, gdy użytkownik ją wybrał ręcznie lub
   // gdy nadpisał ją odczyt z dokumentu — inaczej późno dojeżdżający default
   // przełączyłby świadomie ustawioną jednostkę (i przeliczone pod nią kwoty).
-  const rateUnitTouchedRef = useRef(false);
-  const [billingHours, setBillingHours] = useState(String(HOURS_PER_MONTH));
-  const [rateClientCurrency, setRateClientCurrency] = useState("PLN");
-  const [rateCandidateCurrency, setRateCandidateCurrency] = useState("PLN");
-  const [notes, setNotes] = useState("");
+  // Jednostka z roboczego stanu (powrót po zmianie typu) = wybór użytkownika.
+  const rateUnitTouchedRef = useRef(Boolean(initialDraft?.rateUnit));
+  const [billingHours, setBillingHours] = useState(
+    initialDraft?.billingHours ?? String(HOURS_PER_MONTH),
+  );
+  const [rateClientCurrency, setRateClientCurrency] = useState(
+    initialDraft?.rateClientCurrency ?? "PLN",
+  );
+  const [rateCandidateCurrency, setRateCandidateCurrency] = useState(
+    initialDraft?.rateCandidateCurrency ?? "PLN",
+  );
+  const [notes, setNotes] = useState(initialDraft?.notes ?? "");
   // „Umowa wykonawcza" — pole widoczne i wymagane wyłącznie dla Centrum
   // e-Zdrowia (bramka po client_id, walidacja też serwerowo). Część umowy
   // jest od struktury umów wartością pochodną — nie wybiera się jej wprost.
   const ezdrowie = isEzdrowieClient(clientId);
-  const [executiveContractId, setExecutiveContractId] = useState<string>("");
+  const [executiveContractId, setExecutiveContractId] = useState<string>(
+    initialDraft?.executiveContractId ?? "",
+  );
   // Hook sam gasi zapytanie u innych klientów (`enabled` po client_id).
   const executiveContracts = useExecutiveContractOptions(clientId);
 
@@ -481,7 +501,23 @@ export function NewContractorOrderDialog({
           {onOrderTypeChange ? (
             <OrderTypeSwitch
               value={orderType}
-              onChange={(next) => onOrderTypeChange(next, file, title)}
+              onChange={(next) =>
+                onOrderTypeChange(next, file, title, {
+                  selectedCandidate,
+                  jobId,
+                  contractStart,
+                  orderStart,
+                  orderEnd,
+                  rateClient,
+                  rateCandidate,
+                  rateUnit,
+                  billingHours,
+                  rateClientCurrency,
+                  rateCandidateCurrency,
+                  notes,
+                  executiveContractId,
+                })
+              }
               allowedTypes={allowedOrderTypes}
             />
           ) : null}

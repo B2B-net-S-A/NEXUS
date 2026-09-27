@@ -45,12 +45,12 @@ function mondayOf(date: Date): Date {
 }
 
 const pairs: Record<string, PairInfo> = {
-  piotr: { candidate_id: 101, candidate_name: "Piotr Nowak", candidate_email: "piotr@example.com", job_id: 1, job_title: "Senior Java Developer", client_id: 11, client_name: "Alior" },
-  anna: { candidate_id: 102, candidate_name: "Anna Kowalska", candidate_email: "anna@example.com", job_id: 2, job_title: "Data Engineer", client_id: 12, client_name: "Nordea" },
-  tomasz: { candidate_id: 103, candidate_name: "Tomasz Zieliński", candidate_email: "tomasz@example.com", job_id: 3, job_title: "DevOps Engineer", client_id: 13, client_name: "PKO BP" },
-  michal: { candidate_id: 104, candidate_name: "Michał Lewandowski", candidate_email: "michal@example.com", job_id: 4, job_title: ".NET Developer", client_id: 14, client_name: "BIK" },
-  ewa: { candidate_id: 105, candidate_name: "Ewa Dąbrowska", candidate_email: "ewa@example.com", job_id: 5, job_title: "Business Analyst", client_id: 11, client_name: "Alior" },
-  oliwia: { candidate_id: 106, candidate_name: "Oliwia Kamińska", candidate_email: "oliwia@example.com", job_id: 6, job_title: "QA Engineer", client_id: 15, client_name: "mBank" },
+  piotr: { candidate_id: 101, candidate_name: "Piotr Nowak", candidate_email: "piotr@example.com", job_id: 1, job_title: "Senior Java Developer", client_id: 11, client_name: "Bank Lambda" },
+  anna: { candidate_id: 102, candidate_name: "Anna Kowalska", candidate_email: "anna@example.com", job_id: 2, job_title: "Data Engineer", client_id: 12, client_name: "Bank Północny" },
+  tomasz: { candidate_id: 103, candidate_name: "Tomasz Zieliński", candidate_email: "tomasz@example.com", job_id: 3, job_title: "DevOps Engineer", client_id: 13, client_name: "Bank Kappa" },
+  michal: { candidate_id: 104, candidate_name: "Michał Lewandowski", candidate_email: "michal@example.com", job_id: 4, job_title: ".NET Developer", client_id: 14, client_name: "Biuro Gamma" },
+  ewa: { candidate_id: 105, candidate_name: "Ewa Dąbrowska", candidate_email: "ewa@example.com", job_id: 5, job_title: "Business Analyst", client_id: 11, client_name: "Bank Lambda" },
+  oliwia: { candidate_id: 106, candidate_name: "Oliwia Kamińska", candidate_email: "oliwia@example.com", job_id: 6, job_title: "QA Engineer", client_id: 15, client_name: "Bank Iota" },
 };
 
 function st(

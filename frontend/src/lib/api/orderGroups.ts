@@ -721,7 +721,12 @@ export type ImportCostStatus =
   | "unmatched_number"
   | "unmatched_consultant"
   /** FIN-MD-06: korekta faktury / kwota ≤ 0 — do ręcznego rozliczenia. */
-  | "non_positive_amount";
+  | "non_positive_amount"
+  /** Runda 10: nieczytelna kwota w „Fakturze” — MD zostały, faktura ręcznie. */
+  | "invoice_unreadable"
+  /** Runda 10: numer wskazuje wyczerpane zamówienie kosztowe — faktura
+   *  nierozliczona. */
+  | "order_exhausted";
 
 export interface ImportLineOption {
   order_id: number;

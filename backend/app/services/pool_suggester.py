@@ -144,6 +144,10 @@ async def suggest_pools_for_candidate(
         # kandydata do puli, której i tak nie może modyfikować (→ 403).
         if pool.is_personal and not viewer_is_admin and pool.created_by != viewer_id:
             continue
+        # Targ kandydatów ma własne trasy z terminem — ogólne /add daje 409
+        # (runda 10, R10-N7-4), więc go nie podpowiadamy.
+        if getattr(pool, "is_marketplace", False):
+            continue
         band = "auto" if score >= AUTO_THRESHOLD else "suggest"
         suggestions.append(
             PoolSuggestion(

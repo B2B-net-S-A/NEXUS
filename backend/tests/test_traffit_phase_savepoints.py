@@ -32,7 +32,7 @@ IMPORTER = BACKEND / "app/services/traffit/importer.py"
 # fragment instrukcji jednoznacznie identyfikujący zapis tej fazy.
 _PER_ROW_WRITES = [
     "_UPSERT_CLIENT, payload",
-    "_UPSERT_CONTACT, payload",
+    "_UPSERT_CONTACT, {**payload",
     "_UPSERT_USER, payload",
     "_UPSERT_JOB, params",
     "_UPSERT_TALENT_POOL, payload",

@@ -870,3 +870,49 @@ async def test_recruiter_corrects_call_facts_with_audit(app_client) -> None:
         }
         kept = apply_dealbreakers([saved], inputs=DealbreakerInputs()).kept
     assert [c.id for c in kept] == [cand_id]
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_handover_refuses_a_job_the_candidate_is_already_in(app_client) -> None:
+    """R10-N7-9: osoba już w rekrutacji — rekrutacja znika z listy pasujących,
+    a przekazanie daje 409 (skrzynka i tak by jej nie pokazała)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.services.job_similarity import reset_pool_cache
+
+    skill = "Java"
+    async with AsyncSessionLocal() as db:
+        trainee, jobs = await _world(db, skill=skill)
+        cand = await _candidate(db, skill=skill)
+        await _list_with(db, trainee, [cand])
+        await db.flush()
+        db.add(
+            CandidateStage(
+                candidate_id=cand.id, job_id=jobs[0].id, stage=PipelineStage.new
+            )
+        )
+        await db.commit()
+        trainee_id, cand_id, job_id = trainee.id, cand.id, jobs[0].id
+
+    reset_pool_cache()
+    headers = _headers(trainee_id, "trainee")
+    body = (await app_client.get("/api/trainee/today", headers=headers)).json()
+    item_id = next(i["id"] for i in body["items"] if i["candidate_id"] == cand_id)
+    saved = await app_client.post(
+        f"/api/trainee/items/{item_id}/call",
+        headers=headers,
+        json={"b2b_willingness": "b2b"},
+    )
+    assert saved.status_code == 200, saved.text
+    open_jobs = await app_client.get(
+        f"/api/trainee/items/{item_id}/open-jobs", headers=headers
+    )
+    assert open_jobs.status_code == 200, open_jobs.text
+    assert job_id not in {row["job_id"] for row in open_jobs.json()}
+    resp = await app_client.post(
+        f"/api/trainee/items/{item_id}/handover",
+        headers=headers,
+        json={"job_id": job_id, "note": "Zna Javę"},
+    )
+    assert resp.status_code == 409, resp.text

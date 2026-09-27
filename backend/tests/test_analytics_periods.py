@@ -190,3 +190,38 @@ def test_period_is_timezone_aware_and_frozen():
     with pytest.raises(AttributeError):
         p.kind = PeriodKind.year  # type: ignore[misc]
     assert isinstance(p, Period)
+
+
+# ── Runda 10 (R10-N2-3): skrajne daty dają PeriodError (422), nie 500 ────────
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"kind": "month", "anchor": date(9999, 12, 15)},
+        {"kind": "quarter", "anchor": date(9999, 11, 1)},
+        {"kind": "year", "anchor": date(9999, 6, 1)},
+        {"kind": "week", "anchor": date(9999, 12, 30)},
+        {"kind": "day", "anchor": date(9999, 12, 31)},
+        {"kind": "month", "anchor": date(1, 1, 5), "offset": -1},
+        {"kind": "day", "anchor": date(1, 1, 1), "offset": -1},
+        {
+            "kind": "custom",
+            "date_from": date(9999, 12, 1),
+            "date_to": date(9999, 12, 31),
+        },
+        {"kind": "custom", "date_from": date(1, 1, 1), "date_to": date(1, 1, 31)},
+    ],
+)
+def test_extreme_dates_raise_period_error(kwargs):
+    kind = kwargs.pop("kind")
+    with pytest.raises(PeriodError):
+        resolve_period(kind, **kwargs)
+
+
+def test_isolation_years_used_by_tests_still_resolve():
+    # Testy na wspólnej bazie izolują dane latami 1100–2950 — muszą działać.
+    p = resolve_period("custom", date_from=date(1100, 3, 1), date_to=date(1100, 3, 31))
+    assert p.start.date() == date(1100, 3, 1)
+    p = resolve_period("month", anchor=date(2950, 12, 15), offset=-1)
+    assert p.start.date() == date(2950, 11, 1)

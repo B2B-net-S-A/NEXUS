@@ -138,9 +138,9 @@ function entry(overrides: Partial<OrderHistoryEntry> = {}): OrderHistoryEntry {
   };
 }
 
-/** Historia zamówienia 4500030197 (BIK) w kształcie z produkcji po ticket 7:
+/** Historia zamówienia 4599000197 (Biuro Gamma) w kształcie z produkcji po ticket 7:
  *  23 wpisy dziennika → 10 wpisów biznesowych. */
-const BIK_HISTORY: OrderHistoryEntry[] = [
+const GAMMA_HISTORY: OrderHistoryEntry[] = [
   entry({
     key: "ev-530",
     category: "edits",
@@ -150,11 +150,11 @@ const BIK_HISTORY: OrderHistoryEntry[] = [
     author_id: null,
     author_name: null,
     summary:
-      "Korekta importu MD: za 2026-08 zaksięgowano 2 MD z wiersza z numerem 4500030197; " +
-      "19 MD z wiersza z numerem 4500030845 przeniesiono na zamówienie 4500030845.",
+      "Korekta importu MD: za 2026-08 zaksięgowano 2 MD z wiersza z numerem 4599000197; " +
+      "19 MD z wiersza z numerem 4599000845 przeniesiono na zamówienie 4599000845.",
     order_id: 145,
-    person_name: "Paweł Łaski",
-    person_names: ["Paweł Łaski"],
+    person_name: "Paweł Pomysłowy",
+    person_names: ["Paweł Pomysłowy"],
     balance_before: -19,
     balance_after: 0,
   }),
@@ -166,8 +166,8 @@ const BIK_HISTORY: OrderHistoryEntry[] = [
     created_at: "2026-09-24T12:25:01Z",
     summary: "6 zmian w serii edycji",
     order_id: 146,
-    person_name: "Konrad Teper",
-    person_names: ["Konrad Teper"],
+    person_name: "Konrad Próbny",
+    person_names: ["Konrad Próbny"],
     changes: [
       { label: "ręczna korekta MD", before: null, after: null },
       { label: "stawka kosztowa", before: null, after: null },
@@ -191,7 +191,7 @@ const BIK_HISTORY: OrderHistoryEntry[] = [
     type_label: "Import MD",
     created_at: "2026-09-23T11:40:03Z",
     summary: "Import MD za sierpień 2026 – 2 osoby, 25 MD",
-    person_names: ["Paweł Łaski", "Konrad Teper"],
+    person_names: ["Paweł Pomysłowy", "Konrad Próbny"],
     import_id: 2,
     import_period_month: "2026-08",
     import_people: 2,
@@ -205,7 +205,7 @@ const BIK_HISTORY: OrderHistoryEntry[] = [
     author_id: null,
     author_name: null,
     summary:
-      "Zakończono zamówienie 4500030197 z dniem 2026-09-23 — wszyscy konsultanci wyczerpali limit MD",
+      "Zakończono zamówienie 4599000197 z dniem 2026-09-23 — wszyscy konsultanci wyczerpali limit MD",
   }),
   entry({
     key: "edit-900",
@@ -215,8 +215,8 @@ const BIK_HISTORY: OrderHistoryEntry[] = [
     created_at: "2026-09-25T09:10:00Z",
     summary: "stawka kosztowa: 560 zł/MD → 580 zł/MD; budżet MD: 9,66 MD → 10 MD.",
     order_id: 146,
-    person_name: "Konrad Teper",
-    person_names: ["Konrad Teper"],
+    person_name: "Konrad Próbny",
+    person_names: ["Konrad Próbny"],
     changes: [
       { label: "stawka kosztowa", before: "560 zł/MD", after: "580 zł/MD" },
       { label: "budżet MD", before: "9,66 MD", after: "10 MD" },
@@ -231,7 +231,7 @@ const BIK_HISTORY: OrderHistoryEntry[] = [
     type_label: "Import MD",
     created_at: "2026-08-31T11:19:05Z",
     summary: "Import MD za lipiec 2026 – 2 osoby, 44,75 MD",
-    person_names: ["Paweł Łaski", "Konrad Teper"],
+    person_names: ["Paweł Pomysłowy", "Konrad Próbny"],
     import_id: 1,
     import_period_month: "2026-07",
     import_people: 2,
@@ -243,20 +243,20 @@ const BIK_HISTORY: OrderHistoryEntry[] = [
     event_type: "dodanie_konsultanta",
     type_label: "Dodanie konsultanta",
     created_at: "2026-08-21T09:52:11Z",
-    summary: "Konrad Teper — stawka kosztowa 560.00 zł/MD, przychodowa 1000.00 zł/MD, budżet 9.66 MD",
+    summary: "Konrad Próbny — stawka kosztowa 560.00 zł/MD, przychodowa 1000.00 zł/MD, budżet 9.66 MD",
     order_id: 146,
-    person_name: "Konrad Teper",
-    person_names: ["Konrad Teper"],
+    person_name: "Konrad Próbny",
+    person_names: ["Konrad Próbny"],
   }),
   entry({
     key: "ev-112",
     created_at: "2026-08-21T09:31:15Z",
-    summary: "Utworzono zamówienie nr 4500030197 (2026-05-01 → 2026-08-31)",
+    summary: "Utworzono zamówienie nr 4599000197 (2026-05-01 → 2026-08-31)",
   }),
 ].sort((a, b) => b.created_at.localeCompare(a.created_at));
 
-const TEPER_CONSUMPTIONS: LineConsumptionsResponse = {
-  order_number: "4500030197",
+const PROBNY_CONSUMPTIONS: LineConsumptionsResponse = {
+  order_number: "4599000197",
   md_budget: 35.713,
   md_used: 25.45,
   md_remaining: 5.963,
@@ -275,7 +275,7 @@ const TEPER_CONSUMPTIONS: LineConsumptionsResponse = {
       updated_at: "2026-08-31T11:19:05Z",
       balance_after: 9.663,
       import_rows: [
-        { import_id: 1, row_number: 31, order_number_hint: "4500030197", md_reported: 21.75, foreign: false },
+        { import_id: 1, row_number: 31, order_number_hint: "4599000197", md_reported: 21.75, foreign: false },
       ],
       corrections: [],
     },
@@ -291,7 +291,7 @@ const TEPER_CONSUMPTIONS: LineConsumptionsResponse = {
       updated_at: "2026-09-24T12:24:35Z",
       balance_after: 5.963,
       import_rows: [
-        { import_id: 2, row_number: 12, order_number_hint: "4500030197", md_reported: 4, foreign: false },
+        { import_id: 2, row_number: 12, order_number_hint: "4599000197", md_reported: 4, foreign: false },
       ],
       corrections: [
         { created_at: "2026-09-24T12:23:47Z", period_month: "2026-08", author_name: "Anna Przykładowa", from_md: 4, from_source: "import", to_md: 3.7, removed: false },
@@ -301,14 +301,14 @@ const TEPER_CONSUMPTIONS: LineConsumptionsResponse = {
   ],
 };
 
-const LASKI_CONSUMPTIONS: LineConsumptionsResponse = {
-  order_number: "4500030197",
+const POMYSLOWY_CONSUMPTIONS: LineConsumptionsResponse = {
+  order_number: "4599000197",
   md_budget: 25,
   md_used: 44,
   md_remaining: -19,
   removed_months: [],
   foreign_import_warnings: [
-    { period_month: "2026-08", order_number: "4500030845", md: 19, import_id: 2, row_number: 36 },
+    { period_month: "2026-08", order_number: "4599000845", md: 19, import_id: 2, row_number: 36 },
   ],
   rows: [
     {
@@ -323,7 +323,7 @@ const LASKI_CONSUMPTIONS: LineConsumptionsResponse = {
       updated_at: "2026-08-31T11:19:05Z",
       balance_after: 2,
       import_rows: [
-        { import_id: 1, row_number: 30, order_number_hint: "4500030197", md_reported: 23, foreign: false },
+        { import_id: 1, row_number: 30, order_number_hint: "4599000197", md_reported: 23, foreign: false },
       ],
       corrections: [],
     },
@@ -339,8 +339,8 @@ const LASKI_CONSUMPTIONS: LineConsumptionsResponse = {
       updated_at: "2026-09-23T11:40:03Z",
       balance_after: -19,
       import_rows: [
-        { import_id: 2, row_number: 35, order_number_hint: "4500030197", md_reported: 2, foreign: false },
-        { import_id: 2, row_number: 36, order_number_hint: "4500030845", md_reported: 19, foreign: true },
+        { import_id: 2, row_number: 35, order_number_hint: "4599000197", md_reported: 2, foreign: false },
+        { import_id: 2, row_number: 36, order_number_hint: "4599000845", md_reported: 19, foreign: true },
       ],
       corrections: [],
     },
@@ -377,10 +377,10 @@ const IMPORTS: ClientMdImportSummary[] = [
 const IMPORT_DETAIL: ClientMdImportDetail = {
   ...IMPORTS[0],
   rows: [
-    { id: 1, row_number: 12, consultant_name: "Konrad Teper", order_number_hint: "4500030197", target_order_number: "4500030197", target_group_id: 51, md_reported: 4, invoice_amount: null, state: "booked", state_label: "Zaksięgowano", status_label: "Zaktualizowano", status_reason: null, number_mismatch: false },
-    { id: 2, row_number: 35, consultant_name: "Paweł Łaski", order_number_hint: "4500030197", target_order_number: "4500030197", target_group_id: 51, md_reported: 2, invoice_amount: null, state: "booked", state_label: "Zaksięgowano", status_label: "Zaktualizowano", status_reason: null, number_mismatch: false },
-    { id: 3, row_number: 36, consultant_name: "Paweł Łaski", order_number_hint: "4500030845", target_order_number: "4500030197", target_group_id: 51, md_reported: 19, invoice_amount: null, state: "booked", state_label: "Zaksięgowano", status_label: "Zaktualizowano", status_reason: null, number_mismatch: true },
-    { id: 4, row_number: 40, consultant_name: "Marta Przykładowa", order_number_hint: "4500031000", target_order_number: null, target_group_id: null, md_reported: 20, invoice_amount: null, state: "to_verify", state_label: "Do weryfikacji", status_label: "Wymaga przypisania", status_reason: "Osoba jest na dwóch zamówieniach klienta — wybierz zamówienie.", number_mismatch: false },
+    { id: 1, row_number: 12, consultant_name: "Konrad Próbny", order_number_hint: "4599000197", target_order_number: "4599000197", target_group_id: 51, md_reported: 4, invoice_amount: null, state: "booked", state_label: "Zaksięgowano", status_label: "Zaktualizowano", status_reason: null, number_mismatch: false },
+    { id: 2, row_number: 35, consultant_name: "Paweł Pomysłowy", order_number_hint: "4599000197", target_order_number: "4599000197", target_group_id: 51, md_reported: 2, invoice_amount: null, state: "booked", state_label: "Zaksięgowano", status_label: "Zaktualizowano", status_reason: null, number_mismatch: false },
+    { id: 3, row_number: 36, consultant_name: "Paweł Pomysłowy", order_number_hint: "4599000845", target_order_number: "4599000197", target_group_id: 51, md_reported: 19, invoice_amount: null, state: "booked", state_label: "Zaksięgowano", status_label: "Zaktualizowano", status_reason: null, number_mismatch: true },
+    { id: 4, row_number: 40, consultant_name: "Marta Przykładowa", order_number_hint: "4599001000", target_order_number: null, target_group_id: null, md_reported: 20, invoice_amount: null, state: "to_verify", state_label: "Do weryfikacji", status_label: "Wymaga przypisania", status_reason: "Osoba jest na dwóch zamówieniach klienta — wybierz zamówienie.", number_mismatch: false },
   ],
 };
 
@@ -394,16 +394,16 @@ const CASES: Array<{
   consumptions?: Record<number, LineConsumptionsResponse>;
 }> = [
   {
-    title: "Ticket 7 — historia, „Zużycie MD” i importy (BIK 4500030197)",
+    title: "Ticket 7 — historia, „Zużycie MD” i importy (Biuro Gamma 4599000197)",
     why:
       "Historia tylko biznesowa: import = jeden wpis z „Otwórz import →”, sześć edycji " +
-      "Konrada Tepera = jeden wpis „▸ 6 zmian”, „Zakończono zamówienie” raz. Przycisk " +
+      "Konrada Próbnego = jeden wpis „▸ 6 zmian”, „Zakończono zamówienie” raz. Przycisk " +
       "„Zużycie · sie 3,7” z mini-wykresem; pomarańczowy przy ujemnym saldzie, braku " +
       "zejścia za poprzedni miesiąc albo wierszu importu do weryfikacji.",
     group: group({
       id: 51,
       client_id: 18,
-      order_number: "4500030197",
+      order_number: "4599000197",
       start_date: "2026-05-01",
       end_date: "2026-08-31",
       status: "active",
@@ -412,7 +412,7 @@ const CASES: Array<{
         line({
           id: 145,
           group_id: 51,
-          consultant_name: "Paweł Łaski",
+          consultant_name: "Paweł Pomysłowy",
           start_date: "2026-05-01",
           md_total: 25,
           md_remaining: -19,
@@ -425,7 +425,7 @@ const CASES: Array<{
         line({
           id: 146,
           group_id: 51,
-          consultant_name: "Konrad Teper",
+          consultant_name: "Konrad Próbny",
           start_date: "2026-05-01",
           md_total: 31.41,
           md_remaining: 5.963,
@@ -450,8 +450,8 @@ const CASES: Array<{
       ],
       active_consultants: 3,
     }),
-    history: BIK_HISTORY,
-    consumptions: { 145: LASKI_CONSUMPTIONS, 146: TEPER_CONSUMPTIONS },
+    history: GAMMA_HISTORY,
+    consumptions: { 145: POMYSLOWY_CONSUMPTIONS, 146: PROBNY_CONSUMPTIONS },
   },
   {
     title: "Zamówienie MD — stan normalny",
@@ -463,7 +463,7 @@ const CASES: Array<{
     why: "Kwota, wykorzystano i pozostało — zamiast jednej liczby podpisanej „zużycie”, która maleje.",
     group: group({
       id: 11,
-      order_number: "SAP 4500719650",
+      order_number: "SAP 4599719650",
       is_cost_based: true,
       budget_amount: 50000,
       budget_used: 30000,
@@ -568,7 +568,7 @@ const CASES: Array<{
     why: "Zamówienie blokuje dodawanie konsultantów, a przy osobie widać, ILE zabrakło.",
     group: group({
       id: 12,
-      order_number: "SAP 4500719651",
+      order_number: "SAP 4599719651",
       status: "exhausted",
       status_label: "Wyczerpane",
       is_cost_based: true,
@@ -596,7 +596,7 @@ const CASES: Array<{
       "kto kogo zastąpił — zostaje przy osobie.",
     group: group({
       id: 18,
-      order_number: "CeZ/242/2025",
+      order_number: "IPR/942/2031",
       end_date: "2026-12-31",
       active_consultants: 1,
       lines: [
@@ -654,7 +654,7 @@ const CASES: Array<{
     why: "Import za miesiąc był, ale ta osoba nie ma w nim rozliczenia — to nie to samo co brak importu.",
     group: group({
       id: 14,
-      order_number: "SAP 4500719652",
+      order_number: "SAP 4599719652",
       is_cost_based: true,
       budget_amount: 50000,
       budget_used: 0,
@@ -678,14 +678,14 @@ const CASES: Array<{
       "powiązania (ostatni) renderuje sam tekst, bez martwego przycisku.",
     group: group({
       id: 15,
-      order_number: "4500030067",
+      order_number: "4599000067",
       lines: [line({ id: 8, md_total: 50, md_remaining: 0 })],
       active_consultants: 1,
       event_count: 5,
       future_orders: [
         group({
           id: 16,
-          order_number: "4500029903",
+          order_number: "4599009903",
           start_date: "2026-08-15",
           end_date: null,
           status: "scheduled",
@@ -708,7 +708,7 @@ const CASES: Array<{
         created_at: "2026-08-20T08:05:00Z",
         summary:
           "Zamówienie zakończone — budżet MD wyczerpany, kontynuacja na " +
-          "zamówieniu nr 4500029904",
+          "zamówieniu nr 4599009904",
       }),
       entry({
         key: "ev-103",
@@ -718,9 +718,9 @@ const CASES: Array<{
         created_at: "2026-08-20T08:00:00Z",
         summary:
           "Zamówienie zakończone — budżet MD wyczerpany, kontynuacja na " +
-          "zamówieniu nr 4500029903",
+          "zamówieniu nr 4599009903",
         related_group_id: 16,
-        related_order_number: "4500029903",
+        related_order_number: "4599009903",
       }),
       entry({
         key: "import-import_md-9",

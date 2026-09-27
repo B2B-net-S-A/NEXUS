@@ -68,6 +68,7 @@ from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.models.pipeline_template import PipelineStageDef, RejectionReason
+from app.models.recruitment_process import RecruitmentProcess
 from app.models.candidate_stage_removal import CandidateStageRemoval
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_priority import PriorityChannel
@@ -195,6 +196,7 @@ from app.services.candidate_location_writer import (
 from app.services.candidate_identity_ownership import (
     identity_sync_state,
     lock_changed_traffit_identity_fields,
+    lock_changed_traffit_synced_fields,
     restore_traffit_identity_fields,
 )
 from app.services.recruitment_process_commands import (
@@ -4535,6 +4537,9 @@ async def get_candidate_history(
             Job.status.label("job_status"),
             RejectionReason.name.label("rejection_reason_name"),
             client_display_name_expression().label("client_name"),
+            # Runda 10 (F04): nazwa etapu szablonu — profil składa etap w
+            # kolumnę Tablicy tą samą regułą co tablica (`placeStage`).
+            PipelineStageDef.name.label("stage_def_name"),
         )
         .join(Job, CandidateStage.job_id == Job.id)
         .outerjoin(Client, Client.id == Job.client_id)
@@ -4542,10 +4547,23 @@ async def get_candidate_history(
             RejectionReason,
             RejectionReason.id == CandidateStage.rejection_reason_id,
         )
+        .outerjoin(PipelineStageDef, PipelineStageDef.id == CandidateStage.stage_def_id)
         .where(CandidateStage.candidate_id == candidate_id)
         .where(job_read_scope_clause(current_user, CandidateStage.job_id))
         .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
     )
+    # Runda 10 (F04): źródło wejścia do rekrutacji (najnowsza próba procesu) —
+    # ręczne dodanie nie może się czytać jak „z ogłoszenia".
+    entry_sources = {
+        row.job_id: row.entry_source
+        for row in (
+            await db.execute(
+                select(RecruitmentProcess.job_id, RecruitmentProcess.entry_source)
+                .where(RecruitmentProcess.candidate_id == candidate_id)
+                .order_by(RecruitmentProcess.attempt_no.asc())
+            )
+        ).all()
+    }
 
     # Group by job
     # Decyzja 23.09.2026: stawki do klienta nie widzą rekruter, sourcer i TAC.
@@ -4557,6 +4575,7 @@ async def get_candidate_history(
         job_status,
         rejection_reason_name,
         client_name,
+        stage_def_name,
     ) in stages_result.all():
         job_id = stage.job_id
         if job_id not in jobs_map:
@@ -4568,6 +4587,8 @@ async def get_candidate_history(
                 "client_name": client_name,
                 "stages": [],
                 "latest_stage": None,
+                "latest_stage_name": None,
+                "entry_source": entry_sources.get(job_id),
                 # latest_stage_id wskazuje na najnowszy CandidateStage row
                 # (potrzebne dla CV-per-rekrutacja: api wybiera stage_id by
                 # wczytać snapshot oryginalnego CV i brandowane CV draft).
@@ -4593,6 +4614,7 @@ async def get_candidate_history(
             {
                 "stage_id": stage.id,
                 "stage": stage.stage.value,
+                "stage_name": stage_def_name,
                 "moved_at": stage.moved_at.isoformat() if stage.moved_at else None,
                 "rating": stage.rating,
                 "notes": stage.notes,
@@ -4629,6 +4651,7 @@ async def get_candidate_history(
             if not entry["last_seen"] or moved_at > entry["last_seen"]:
                 entry["last_seen"] = moved_at
                 entry["latest_stage"] = stage.stage.value
+                entry["latest_stage_name"] = stage_def_name
                 entry["latest_stage_id"] = stage.id
 
     # Contracts
@@ -4905,6 +4928,36 @@ async def remove_candidate_from_recruitment(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ten kandydat nie bierze udziału w tej rekrutacji.",
+        )
+
+    # Runda 10 (R10-V2-7): mail odrzucenia, którego wysyłka już ruszyła,
+    # wychodzi niezależnie od usunięcia — a kaskada skasowałaby jego wiersz,
+    # więc wynik wysyłki nie miałby gdzie się zapisać. `/cancel` w tej samej
+    # sytuacji odpowiada 409; blokada wiersza serializuje z pętlą wysyłki.
+    from app.models.rejection_email import (
+        RejectionEmailStatus,
+        ScheduledRejectionEmail,
+    )
+    from app.services.rejection_email_scheduler import send_in_progress
+
+    pending_mails = (
+        await db.scalars(
+            select(ScheduledRejectionEmail)
+            .where(
+                ScheduledRejectionEmail.candidate_id == candidate_id,
+                ScheduledRejectionEmail.job_id == job_id,
+                ScheduledRejectionEmail.status == RejectionEmailStatus.pending,
+            )
+            .with_for_update()
+        )
+    ).all()
+    if any(send_in_progress(row) for row in pending_mails):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Nie można teraz usunąć — mail odrzucenia do tej osoby właśnie "
+                "wychodzi. Spróbuj ponownie za kilka minut."
+            ),
         )
 
     # Runda 9 (R9-N11-5): usunięcie to też ruch osoby — blokada 12 h
@@ -5544,6 +5597,13 @@ async def update_candidate(
             entity_id=candidate.id,
             details={"fields": manual_identity_locks, "owner": "nexus"},
         )
+    # Runda 10 (R10-N11-2/3): telefon, e-mail, LinkedIn i status poprawione
+    # tutaj nie wracają przy nocnym syncu Traffita.
+    manual_synced = lock_changed_traffit_synced_fields(
+        candidate, updates, user_id=current_user.id
+    )
+    if manual_synced:
+        activity_details["manual_sync_locks"] = manual_synced
 
     # Phase D4: flag manual edits to `experience` so a subsequent CV upload
     # does not silently overwrite recruiter-curated data with AI extraction.
@@ -7506,6 +7566,24 @@ async def bulk_import_candidates(
                 "field_errors": field_errors,
             }
         )
+    # Runda 10 (R10-N13-8): intencja indeksu jak w imporcie CSV — bez niej
+    # kandydat nigdy nie trafiał do Qdranta (reconciler nie kolejkuje encji
+    # „nigdy niewidzianych”). Ścieżka masowa: sam INSERT, bez embeddingu
+    # w pętli; savepoint, bo błąd kolejki nie może zabrać importu.
+    if created:
+        try:
+            from app.services.index_outbox_service import (
+                CANDIDATE,
+                record_bulk_reindex,
+            )
+
+            async with db.begin_nested():
+                await record_bulk_reindex(db, CANDIDATE, created)
+        except Exception as exc:  # noqa: BLE001 - nigdy nie wywracaj importu
+            logger.warning(
+                "Recording reindex intent for bulk import failed: %s",
+                type(exc).__name__,
+            )
     activity = Activity(
         entity_type="candidate",
         entity_id=0,
@@ -7875,13 +7953,19 @@ async def assign_candidate_cc(
     )
     await db.execute(stmt)
 
-    # Backwards-compat: keep legacy single FK in sync when primary flagged
-    if body.is_primary:
-        candidate = await db.scalar(
-            select(Candidate).where(Candidate.id == candidate_id)
-        )
-        if candidate:
+    # Backwards-compat: keep legacy single FK in sync when primary flagged.
+    # Runda 10 (R10-N8-6): razem ze slugiem `competence_category` — czytają go
+    # karta dla klienta, prep-kit, tekst embeddingu i wyszukiwarka; sam FK
+    # zostawiał tam starą kategorię AI (lustro `apply_candidate_cc_scores`).
+    candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
+    if candidate:
+        if body.is_primary:
             candidate.competence_category_id = body.competence_category_id
+            candidate.competence_category = cc.slug
+        elif candidate.competence_category_id == body.competence_category_id:
+            # Dotychczasowa główna zdegradowana do pobocznej — główną zostaje „brak”.
+            candidate.competence_category_id = None
+            candidate.competence_category = None
     await db.commit()
 
     return CandidateCcOut(
@@ -7907,6 +7991,10 @@ async def unassign_candidate_cc(
     """Remove a CC assignment from a candidate."""
     from app.models.competence_category import CandidateCompetenceCategory
 
+    # Runda 10 (R10-N8-7): ta sama blokada co przy przydziale i w backfillu CC.
+    await db.execute(
+        select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
+    )
     link = await db.scalar(
         select(CandidateCompetenceCategory).where(
             CandidateCompetenceCategory.candidate_id == candidate_id,
@@ -7922,8 +8010,11 @@ async def unassign_candidate_cc(
         candidate = await db.scalar(
             select(Candidate).where(Candidate.id == candidate_id)
         )
-        if candidate and candidate.competence_category_id == cc_id:
+        if candidate and candidate.competence_category_id in (cc_id, None):
             candidate.competence_category_id = None
+            # Runda 10 (R10-N8-6): slug razem z FK, inaczej karta klienta,
+            # prep-kit i embedding dalej widzą zdjętą kategorię.
+            candidate.competence_category = None
     await db.commit()
 
 

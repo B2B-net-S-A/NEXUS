@@ -131,7 +131,7 @@ export function ZespolView() {
     previousLabel: previous?.label,
   });
 
-  const tile = (stage: string, label: string) => {
+  const tile = (stage: string, label: string, note?: string) => {
     const current = stageCount(funnel, stage);
     const before = prevFunnel ? stageCount(prevFunnel, stage) : null;
     return (
@@ -140,6 +140,7 @@ export function ZespolView() {
         label={label}
         value={current === null ? "—" : current.toLocaleString("pl-PL")}
         delta={previous ? countDelta(current, before, previous.label) : null}
+        note={note ?? null}
       />
     );
   };
@@ -178,7 +179,14 @@ export function ZespolView() {
             {tile("hired", "Placementy")}
             {tile("cv_sent", "CV wysłane do klienta")}
             {tile("client_interview", "Rozmowy u klienta")}
-            {tile("verified", "Zweryfikowani")}
+            {/* Runda 10 (R10-N2-5): kafel liczy kod etapu we wszystkich
+                rekrutacjach, a raport pod linkiem — kolumny Tablicy w
+                rekrutacjach opublikowanych i zamkniętych. Mówimy to wprost. */}
+            {tile(
+              "verified",
+              "Zweryfikowani",
+              "Po kodzie etapu, wszystkie rekrutacje. Raport „Lejek po etapach” liczy kolumny Tablicy, więc liczba może się różnić.",
+            )}
           </TileRow>
 
           <div
@@ -197,7 +205,7 @@ export function ZespolView() {
                 href={reportHref("lejek-etapy", period)}
                 className="text-sm font-semibold text-primary hover:underline"
               >
-                Wszystkie etapy i odznaki Tablicy →
+                Wszystkie etapy i odznaki Tablicy (reguła kolumn Tablicy) →
               </Link>
             </Panel>
             {seesTeam ? <AttentionPanel /> : null}

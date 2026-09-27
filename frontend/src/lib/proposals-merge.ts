@@ -26,6 +26,7 @@ import type {
   ProposalTraineeHandover,
 } from "@/lib/job-proposals-api";
 import { SEARCH_AVAILABILITY_OPTIONS } from "@/lib/search-availability";
+import { warsawDateOf } from "@/lib/warsaw-date";
 import {
   PROPOSAL_SOURCE_LABEL,
   type ProposalPersonRow,
@@ -106,6 +107,13 @@ export interface MergeProposalsInput {
     degraded: boolean;
   } | null;
   pipelineCandidateIds?: Iterable<number>;
+  /**
+   * Osoby pominięte w tej rekrutacji („Pomiń" z dowolnego źródła) — odsiewane
+   * ze WSZYSTKICH źródeł, tak jak osoby już w rekrutacji. Bez tego pominięty
+   * wracał po odświeżeniu z żywego przeglądu, podobnych projektów albo
+   * rekomendacji (runda 10, R10-N7-1).
+   */
+  dismissedCandidateIds?: Iterable<number>;
   budgetHourly?: number | null;
 }
 
@@ -210,7 +218,7 @@ function emptyDetail(candidateId: number): ProposalDetail {
 /** „Od praktykanta: Ola Kamińska · 24.09". Notatka idzie osobną linią. */
 export function traineeHandoverReason(handover: ProposalTraineeHandover): string {
   const who = handover.by_name?.trim() || "praktykant";
-  const day = handover.at ? handover.at.slice(0, 10).split("-") : null;
+  const day = warsawDateOf(handover.at)?.split("-") ?? null;
   const when = day && day.length === 3 ? ` · ${day[2]}.${day[1]}` : "";
   return `Od praktykanta: ${who}${when}`;
 }
@@ -260,7 +268,11 @@ function inboxRequirements(item: ProposalInboxItem): ProposalRequirement[] {
 }
 
 export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
-  const inPipeline = new Set<number>(input.pipelineCandidateIds ?? []);
+  // Osoby w rekrutacji ORAZ pominięte — żadne źródło ich nie proponuje.
+  const inPipeline = new Set<number>([
+    ...(input.pipelineCandidateIds ?? []),
+    ...(input.dismissedCandidateIds ?? []),
+  ]);
   const drafts = new Map<number, Draft>();
   const draft = (id: number, name?: string | null, lastname?: string | null): Draft => {
     let d = drafts.get(id);

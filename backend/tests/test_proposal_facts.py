@@ -80,7 +80,7 @@ def test_current_title_falls_back_to_the_first_cv_role():
     assert proposal_facts.current_title(linkedin) == ("Architekt", "X")
 
 
-def test_candidate_facts_redacts_the_rate_and_carries_no_contact():
+def test_candidate_facts_show_the_candidate_rate_and_carry_no_contact():
     candidate = SimpleNamespace(
         id=5,
         linkedin_current_title="Dev",
@@ -98,16 +98,15 @@ def test_candidate_facts_redacts_the_rate_and_carries_no_contact():
         email="x@example.com",
         phone="600",
     )
-    facts = proposal_facts.candidate_facts(candidate, include_rate=False, history=None)
-    assert facts["expected_rate_hourly"] is None
-    assert facts["expected_rate_redacted"] is True
+    # R10-N7-10: stawka KANDYDATA jawna dla każdej roli (decyzja 27.09.2026).
+    facts = proposal_facts.candidate_facts(candidate, history=None)
+    assert facts["expected_rate_hourly"] == 160.0
+    assert facts["expected_rate_redacted"] is False
     assert facts["city"] == "Kraków"
     assert facts["remote_modes"] == ["remote"]
     assert facts["availability_status"] == "open_to_offers"
     assert "email" not in facts and "phone" not in facts
-    visible = proposal_facts.candidate_facts(candidate, include_rate=True, history=None)
-    assert visible["expected_rate_hourly"] == 160.0
-    assert visible["expected_rate_currency"] == "PLN"
+    assert facts["expected_rate_currency"] == "PLN"
 
 
 # ── API ─────────────────────────────────────────────────────────────────────
@@ -195,8 +194,9 @@ async def test_proposal_facts_endpoint(app_client: AsyncClient, app_auth_headers
     as_recruiter = await app_client.get(url, params=params, headers=recruiter)
     assert as_recruiter.status_code == 200, as_recruiter.text
     first = next(i for i in as_recruiter.json()["items"] if i["candidate_id"] == ids[0])
-    assert first["expected_rate_hourly"] is None
-    assert first["expected_rate_redacted"] is True
+    # R10-N7-10: rekruter widzi stawkę kandydata (jak na profilu i liście).
+    assert first["expected_rate_hourly"] == 150.0
+    assert first["expected_rate_redacted"] is False
 
     too_many = [("candidate_ids", i) for i in range(1, 102)]
     refused = await app_client.get(url, params=too_many, headers=app_auth_headers)

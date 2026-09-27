@@ -464,6 +464,8 @@ export interface InsightsBoardFinance {
   priced_contracts: number;
   /** Kontrakty bez stawki kandydata — ich marża jest NIEZNANA, nie zerowa. */
   contracts_without_cost_leg: number;
+  /** Kontrakty bez stawki przychodowej — poza przychodem, kosztem i marżą. */
+  contracts_without_revenue_leg?: number;
   complete: boolean;
 }
 
@@ -505,6 +507,7 @@ export interface InsightsBoardDegraded {
     months_affected: string[];
   };
   contracts_without_cost_leg: number;
+  contracts_without_revenue_leg?: number;
   message: string;
 }
 
@@ -760,7 +763,9 @@ export interface InsightsYoYMetric {
   aggregate: InsightsYoYAggregate;
   /** Klucze w `component_series` — wymagane dla `aggregate: "ratio"`. */
   components: { numerator: string; denominator: string } | null;
-  /** Rok → wartość roczna. Wymagane dla `aggregate: "distinct"`. */
+  /** Rok → wartość roczna. Wymagane dla `aggregate: "distinct"`; przy
+   *  wskaźniku (`ratio`) zastępuje Σlicznik/Σmianownik, gdy roku nie da się
+   *  złożyć z miesięcy (udział top klienta). Bez porównania YTD. */
   yearly: Record<string, number | null> | null;
   /** Wzrost jest złą wiadomością (zejścia, koszty, koncentracja klienta). */
   lower_is_better: boolean;

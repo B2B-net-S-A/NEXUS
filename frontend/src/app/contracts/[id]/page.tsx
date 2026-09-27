@@ -2427,7 +2427,7 @@ export default function ContractDetailPage() {
       {/* Tab: Notatki / rozmowy */}
       {activeTab === "notes" && (
         <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
-          <ContractNotesTab contractId={id} />
+          <ContractNotesTab contractId={id} canAddNote={canEditContract} />
         </div>
       )}
 

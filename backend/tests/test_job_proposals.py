@@ -507,7 +507,7 @@ async def test_inbox_requires_login_and_an_existing_recruitment(
     assert gone.status_code in (404, 405), gone.text
 
 
-async def test_inbox_lists_narrow_identity_and_redacts_the_rate(
+async def test_inbox_lists_narrow_identity_and_shows_the_candidate_rate(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     world = await _world(people=2)
@@ -530,9 +530,9 @@ async def test_inbox_lists_narrow_identity_and_redacts_the_rate(
     candidate = item["candidate"]
     assert candidate["city"] == "Gdańsk"
     assert "email" not in candidate and "phone" not in candidate
-    # Rekruter nie ma odczytu finansów: stawka zredagowana, klucz zostaje.
-    assert candidate["expected_rate_hourly"] is None
-    assert candidate["expected_rate_redacted"] is True
+    # R10-N7-10: stawka KANDYDATA jawna także dla rekrutera (decyzja 27.09).
+    assert candidate["expected_rate_hourly"] == 150.0
+    assert candidate["expected_rate_redacted"] is False
 
     admin_candidate = as_admin.json()["items"][0]["candidate"]
     assert admin_candidate["expected_rate_hourly"] == 150.0
@@ -656,6 +656,19 @@ async def test_dismiss_works_for_a_person_the_inbox_never_listed(
         )
     assert row.dismissed_by == recruiter_id and row.dismissed_at is not None
     assert row.dismissed_cv_revision == "unparsed" == row.cv_revision
+
+    # R10-N7-1: skrzynka niesie listę pominiętych — front odsiewa ich z żywego
+    # przeglądu, podobnych projektów i rekomendacji (te źródła nie czytają
+    # `job_proposals`). Tylko pierwsza strona `proposed`.
+    listed = await app_client.get(_inbox(job_id), headers=recruiter)
+    assert listed.status_code == 200, listed.text
+    assert sorted(listed.json()["dismissed_candidate_ids"]) == sorted(
+        [searched, recommended]
+    )
+    later_page = await app_client.get(
+        _inbox(job_id), params={"offset": 20}, headers=recruiter
+    )
+    assert later_page.json()["dismissed_candidate_ids"] == []
 
     # Idempotentne: druga próba nie zakłada drugiego wiersza.
     again = await app_client.post(

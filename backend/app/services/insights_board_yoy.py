@@ -430,6 +430,12 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
     # musi powstać z ZBIORU. DynaReporter pokazywał tu 4,33 / 6,75 / 8,63 przy
     # realnych 18 / 23 / 25 (audyt 18.09.2026).
     clients_by_year: dict[str, set] = {}
+    # Runda 10 (R10-N2-2): udział top klienta ZA ROK liczy się z placementów
+    # klienta w całym roku, nie z sumy liderów miesięcy. Σ(lider miesiąca) /
+    # Σplacementów dawało 75% w roku, w którym co miesiąc wygrywał inny klient
+    # z 3 z 4 placementów, a realny udział największego klienta to ~6%.
+    placements_by_client_year: dict[str, dict[str, int]] = {}
+    placements_by_year: dict[str, int] = {}
     # Ile kontraktów stoi za kwotami danego miesiąca. To NIE jest metryka do
     # tabeli, tylko PODSTAWA — bez niej wiersz „Przychody" nie mówi, czy
     # wzrost bierze się z biznesu, czy z tego, że rok temu tych kontraktów po
@@ -465,6 +471,10 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
         )
         series["top_client_placements"][y][idx] = named[0][1] if named else None
         clients_by_year.setdefault(y, set()).update(nm for nm, _ in named)
+        placements_by_year[y] = placements_by_year.get(y, 0) + total_placements
+        year_clients = placements_by_client_year.setdefault(y, {})
+        for nm, cnt in named:
+            year_clients[nm] = year_clients.get(nm, 0) + cnt
         head = named[:CLIENTS_PER_MONTH]
         rest = sum(cnt for _, cnt in named[CLIENTS_PER_MONTH:])
         unnamed = total_placements - sum(cnt for _, cnt in named)
@@ -605,6 +615,15 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             definition=TOP_CLIENT_SHARE,
             note="Im niżej, tym mniejsza koncentracja na jednym kliencie.",
             basis="pipeline",
+            # Rok przychodzi gotowy: największy klient ROKU / placementy roku.
+            # Składowe zostają dla miesięcy, ale z nich roku złożyć się nie da.
+            yearly={
+                str(y): _top_client_year_share(
+                    placements_by_client_year.get(str(y)),
+                    placements_by_year.get(str(y)),
+                )
+                for y in years
+            },
         ),
         _metric(
             "margin_per_hour_pln",
@@ -704,6 +723,15 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
     }
 
 
+def _top_client_year_share(
+    by_client: Optional[dict], total: Optional[int]
+) -> Optional[float]:
+    """Udział największego klienta w placementach CAŁEGO roku."""
+    if not by_client or not total:
+        return None
+    return ratio(max(by_client.values()), total)
+
+
 def _metric(
     key: str,
     group: str,
@@ -747,7 +775,8 @@ def _metric(
         # rekrutacjami waży tyle samo co miesiąc z 200.
         "components": components,
         # Wartość ROCZNA podana wprost, gdy z miesięcy nie da się jej złożyć
-        # żadnym działaniem (liczność zbioru).
+        # żadnym działaniem (liczność zbioru, udział top klienta w roku).
+        # Widok czyta ją zamiast składać rok i nie liczy dla niej YTD.
         "yearly": yearly,
         "series": series[key],
     }

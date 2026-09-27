@@ -39,6 +39,9 @@ from app.services.client_access import (
     deny,
     resolve_client_access,
 )
+from app.services.client_portfolio_import import (
+    SOURCE_SYSTEM as PORTFOLIO_MANIFEST_SOURCE_SYSTEM,
+)
 from app.services.critical_events import audited_deletion
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
@@ -317,7 +320,7 @@ async def create_framework_contract(
     ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="expiry_date cannot be earlier than effective_date",
+            detail="Data wygaśnięcia nie może być wcześniejsza niż data wejścia w życie.",
         )
 
     relative_path = None
@@ -396,6 +399,7 @@ async def update_framework_contract(
         raise HTTPException(404, detail="Framework contract not found")
 
     data = payload.model_dump(exclude_unset=True)
+    _assert_manifest_dates_untouched(fc, data)
     await _validate_references(
         db,
         client_id,
@@ -412,7 +416,7 @@ async def update_framework_contract(
     ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="expiry_date cannot be earlier than effective_date",
+            detail="Data wygaśnięcia nie może być wcześniejsza niż data wejścia w życie.",
         )
     for field, value in data.items():
         setattr(fc, field, value)
@@ -429,6 +433,43 @@ async def update_framework_contract(
     await db.commit()
     await db.refresh(fc)
     return await _to_read(db, fc)
+
+
+def _is_manifest_owned(fc: ClientFrameworkContract) -> bool:
+    """Umowa założona przez manifest portfela klientów (``client_excel``)."""
+    return fc.source_system == PORTFOLIO_MANIFEST_SOURCE_SYSTEM
+
+
+def _assert_manifest_dates_untouched(fc: ClientFrameworkContract, data: dict) -> None:
+    """Runda 10 (R10-N12-1): lustro reguły zakresów portfela.
+
+    ``get_client_portfolio_import_health`` porównuje daty umów z manifestu
+    z wierszami importu; zmiana w miejscu dawała ``/api/health/deep`` 503
+    na stałe i czerwony każdy kolejny deploy (drugi przypadek awarii
+    z 03.08). Porównujemy WARTOŚĆ — formularz odsyła komplet pól.
+    Świadomie tylko ``client_excel``: szkielet E-Zdrowia nie ma dat
+    w manifeście i DL je uzupełnia.
+    """
+    if not _is_manifest_owned(fc):
+        return
+    changed = [
+        field
+        for field in ("effective_date", "expiry_date")
+        if field in data and data[field] != getattr(fc, field)
+    ]
+    if changed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "framework_contract_from_manifest",
+                "message": (
+                    "Ta umowa ramowa pochodzi z manifestu portfela klientów — "
+                    "zmiana dat w miejscu rozjechałaby stan z manifestem. "
+                    "Nowe daty wpisz w manifeście portfela."
+                ),
+                "fields": changed,
+            },
+        )
 
 
 async def _draft_delete_blockers(db: AsyncSession, fc_id: int) -> list[str]:
@@ -490,6 +531,21 @@ async def delete_framework_contract(
 
         files_to_delete: list[str] = []
         amendment_files: list[str] = []
+        if fc.status == FrameworkContractStatus.draft and _is_manifest_owned(fc):
+            # Runda 10 (R10-N12-1): szkic z manifestu portfela (start po dacie
+            # importu) liczy inwariant importu — trwałe usunięcie = 503 na
+            # /api/health/deep bez samonaprawy, jak archiwizacja zakresu.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "framework_contract_from_manifest",
+                    "message": (
+                        "Szkicu z manifestu portfela klientów nie da się usunąć "
+                        "trwale — rozjechałby stan z manifestem. Oznacz umowę "
+                        "jako zastąpioną albo usuń ją z manifestu portfela."
+                    ),
+                },
+            )
         if fc.status == FrameworkContractStatus.draft:
             # Zamówienia i umowy wykonawcze trzymają umowę ramową kluczem
             # RESTRICT — do 24.09.2026 plik znikał z dysku, a potem DELETE

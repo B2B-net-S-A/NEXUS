@@ -1271,6 +1271,63 @@ async def hard_delete_blocker(
     return None
 
 
+async def _close_dl_alerts_of_deleted_orders(
+    db: AsyncSession, order_ids: list[int]
+) -> None:
+    """Karty DL zamówień kasowanych kaskadą razem z kontraktem.
+
+    Runda 10 (R10-V1-2): bliźniak R9-N12-7 z ``_delete_line_row``. Kaskada
+    kontrakt → zamówienia → sprawy offboardingu zostawiała karty
+    „zdecyduj o puli” (``md_consultant_ended``) i karty braku następcy
+    w panelu na zawsze — oba klucze obce dostawały NULL, status zostawał
+    ``new``. Karta wskazuje i zamówienie, i sprawę; dwie akcje SET NULL
+    w jednej kaskadzie potrafią wywrócić DELETE na FK, więc odpinamy ją
+    jawnie przed usunięciem kontraktu.
+    """
+    if not order_ids:
+        return
+    from sqlalchemy import case as sa_case
+
+    from app.models.client_order_offboarding import ClientOrderOffboardingCase
+    from app.models.dl_alert import ALERT_MD_CONSULTANT_ENDED, DlAlert
+    from app.services.dl_alerts import resolve_entity_alerts
+    from app.services.order_gaps import close_gaps_of_deleted_orders
+
+    await close_gaps_of_deleted_orders(db, order_ids)
+    case_ids = (
+        await db.scalars(
+            select(ClientOrderOffboardingCase.id)
+            .where(ClientOrderOffboardingCase.order_id.in_(order_ids))
+            .order_by(ClientOrderOffboardingCase.id)
+        )
+    ).all()
+    for case_id in case_ids:
+        await resolve_entity_alerts(
+            db, alert_type=ALERT_MD_CONSULTANT_ENDED, entity_key=f"case:{case_id}"
+        )
+    alert_links = [DlAlert.order_id.in_(order_ids)]
+    if case_ids:
+        alert_links.append(DlAlert.offboarding_case_id.in_(case_ids))
+    await db.execute(
+        update(DlAlert)
+        .where(or_(*alert_links))
+        .values(
+            order_id=sa_case(
+                (DlAlert.order_id.in_(order_ids), None), else_=DlAlert.order_id
+            ),
+            offboarding_case_id=(
+                sa_case(
+                    (DlAlert.offboarding_case_id.in_(case_ids), None),
+                    else_=DlAlert.offboarding_case_id,
+                )
+                if case_ids
+                else DlAlert.offboarding_case_id
+            ),
+        )
+        .execution_options(synchronize_session=False)
+    )
+
+
 async def hard_delete_contract(
     db: AsyncSession,
     contract: Contract,
@@ -1439,6 +1496,7 @@ async def hard_delete_contract(
             details=audit_details,
         )
     )
+    await _close_dl_alerts_of_deleted_orders(db, [int(row.id) for row in order_rows])
     await db.delete(contract)
     # Force DELETE + FK actions before settlement and before returning to a
     # batch caller. This also surfaces an unexpected RESTRICT in this helper's

@@ -10,7 +10,7 @@
  * zaplanowane), `assign` (okno „Przypisz do zamówienia"), `offboarding`
  * (decyzja o MD z grupą „Nowe osoby u klienta").
  *
- * Nazwiska zmyślone. Numery umów w formacie CeZ są przykładowe.
+ * Nazwiska zmyślone. Numery umów w formacie umów wykonawczych są przykładowe.
  */
 
 import { Suspense, useMemo } from "react";
@@ -80,7 +80,7 @@ const PENDING_CASE: OrderOffboardingCaseRead = {
   rate_cost_snapshot: 760,
   rate_revenue_snapshot: 800,
   currency_snapshot: "PLN",
-  order_number_snapshot: "CeZ/242/2025/P",
+  order_number_snapshot: "IPR/942/2031/P",
   resolution: null,
   target_order_id: null,
   rate_basis: null,
@@ -96,7 +96,7 @@ function group(overrides: Partial<OrderGroupRead>): OrderGroupRead {
   return {
     id: 930,
     client_id: CLIENT_ID,
-    order_number: "CeZ/242/2025/P",
+    order_number: "IPR/942/2031/P",
     start_date: "2025-12-01",
     end_date: null,
     notes: null,
@@ -126,7 +126,7 @@ function group(overrides: Partial<OrderGroupRead>): OrderGroupRead {
     can_add_consultant: true,
     executive_contract: {
       id: 2,
-      number: "CeZ/145/2025",
+      number: "IPR/945/2031",
       status: "active",
       framework_contract_id: 12,
       project_part: "cz2",
@@ -191,7 +191,7 @@ const AFTER = group({
 // Zastępstwo zaplanowane: odchodzący jeszcze pracuje.
 const SCHEDULED = group({
   id: 932,
-  order_number: "CeZ/2/2026/P",
+  order_number: "IPR/92/2031/P",
   lines: [
     line({
       id: 10,
@@ -291,7 +291,7 @@ function Harness() {
     <main className="mx-auto flex max-w-5xl flex-col gap-8 p-8">
       <header>
         <h1 className="text-lg font-semibold">
-          Harness — przypisanie ze szkicu i przejęcie MD (CeZ)
+          Harness — przypisanie ze szkicu i przejęcie MD (umowy wykonawcze)
         </h1>
         <p className="text-sm text-muted-foreground">
           Publiczny podgląd na zamrożonych danych. Zero zapytań do API.

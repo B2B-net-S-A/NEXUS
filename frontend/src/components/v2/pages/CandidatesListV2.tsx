@@ -175,6 +175,7 @@ import {
   getCurrentTitle,
   isRowActivationKey,
 } from "@/components/v2/pages/candidate-list-helpers";
+import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
 import { PinnedCandidatesBar } from "@/components/v2/filters/PinnedCandidatesBar";
 import { SavedSearchesMenu } from "@/components/v2/filters/SavedSearchesMenu";
 import type { SearchTextInterpretation } from "@/lib/candidate-search-api";
@@ -2684,7 +2685,11 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
         onOpenChange={(v) => !v && setAssignFor(null)}
         candidateId={assignFor?.id ?? 0}
         candidateName={assignFor?.name ?? ""}
-        onAssigned={() => toastOnSuccess("Kandydat przypisany.")}
+        onAssigned={() => {
+          toastOnSuccess("Kandydat przypisany.");
+          // Runda 10 (R10-N15-5): kolumna „W procesie” — jak profil i podgląd.
+          if (assignFor) invalidateCandidateMutation(queryClient, assignFor.id, "assignment");
+        }}
       />
 
       {/* Szybki podgląd kandydata. */}
@@ -2775,7 +2780,12 @@ export function BulkAddToPoolModal({
  is_personal?: boolean;
  owner_id?: number | null;
  owner_name?: string | null;
- }> = Array.isArray(data) ? data : data?.items ?? [];
+ is_marketplace?: boolean;
+ }> = (Array.isArray(data) ? data : data?.items ?? []).filter(
+ // Targ kandydatów ma własne trasy z terminem — ogólne bulk-add daje 409
+ // (runda 10, R10-N7-4), więc tej puli tu nie proponujemy.
+ (p: { is_marketplace?: boolean }) => !p.is_marketplace,
+ );
  // Pula osobista innego usera = tylko podgląd (backend zwróci 403 na bulk-add).
  // Pokazujemy ją (jest team-visible), ale wyłączoną + z oznaczeniem właściciela.
  const canUsePool = (p: { is_personal?: boolean; owner_id?: number | null }) =>

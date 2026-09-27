@@ -13,6 +13,7 @@ wydanego pliku — ``strip_sensitive`` usuwa je przed zapisem ``render_payload``
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import date
 from typing import Literal
 
 FieldKind = Literal[
@@ -355,8 +356,10 @@ TYPES: dict[str, DocumentType] = {
             parent="b2b",
             description="Rozwiązanie umowy B2B za porozumieniem stron.",
             effect_label=(
-                "Kontrakt dostanie datę zakończenia (powód: porozumienie stron), "
-                "zamówienia zostaną domknięte, umowa w rejestrze — „Zakończona”."
+                "Kontrakt dostanie datę zakończenia (ostatni dzień świadczenia "
+                "usług, powód: porozumienie stron), zamówienia zostaną "
+                "domknięte, umowa w rejestrze — „Zakończona” z dniem "
+                "rozwiązania umowy."
             ),
             fields=(
                 DOCUMENT_DATE,
@@ -450,9 +453,12 @@ TYPES: dict[str, DocumentType] = {
                 "Partner cofa złożone wypowiedzenie; B2B.net wyraża zgodę pod "
                 "oświadczeniem."
             ),
+            # Runda 10 (R10-N14-6): podpis kontraktu NIE rusza (`effects.apply`)
+            # — pełne cofnięcie z zamówieniami robi „Cofnij zakończenie”.
             effect_label=(
-                "Kontrakt wróci do aktywnych (bez daty zakończenia), umowa "
-                "w rejestrze — „Aktywna”."
+                "Umowa w rejestrze wróci na „Aktywna”. Kontraktu podpis nie "
+                "zmienia — przywróć go przyciskiem „Cofnij zakończenie” "
+                "w module Kontrakty."
             ),
             fields=(
                 DOCUMENT_DATE,
@@ -582,8 +588,59 @@ def missing_required(doc_type: DocumentType, values: dict) -> list[str]:
     return missing
 
 
+#: Górna granica kwoty w dokumencie (wszystkie kwoty to stawki godzinowe).
+#: Runda 10 (R10-N14-5): literówka „1 500 000” kończyła się 500 w słowniku
+#: liczb; teraz 422 z czytelnym zdaniem, zanim cokolwiek się wyrenderuje.
+MONEY_MAX = 1_000_000
+
+
+def _iso_day(value: object) -> date | None:
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            return date.fromisoformat(value[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def invalid_values(doc_type: DocumentType, values: dict) -> list[str]:
+    """Zdania o wartościach, których dokument nie przyjmie (poza brakami)."""
+    problems: list[str] = []
+    for f in doc_type.fields:
+        if f.kind != "money" or not visible(f, values):
+            continue
+        raw = values.get(f.key)
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            continue
+        try:
+            amount = float(str(raw).replace(",", ".").replace(" ", ""))
+        except ValueError:
+            problems.append(f"„{f.label}” musi być kwotą.")
+            continue
+        if not (0 < amount < MONEY_MAX):
+            problems.append(
+                f"„{f.label}” musi być większa od zera i mniejsza niż 1 000 000."
+            )
+    # Runda 10 (R10-N14-2): ostatni dzień usług nie może wypaść po rozwiązaniu
+    # umowy — koniec projektu trafia do kontraktu, rozwiązanie do rejestru.
+    keys = {f.key for f in doc_type.fields}
+    if {"termination_date", "last_service_date"} <= keys:
+        ends = _iso_day(values.get("termination_date"))
+        last = _iso_day(values.get("last_service_date"))
+        if ends is not None and last is not None and last > ends:
+            problems.append(
+                "Ostatni dzień świadczenia usług nie może być późniejszy niż "
+                "dzień rozwiązania umowy."
+            )
+    return problems
+
+
 __all__ = [
     "DocumentType",
+    "MONEY_MAX",
+    "invalid_values",
     "FieldDef",
     "REF_LABELS",
     "TYPES",

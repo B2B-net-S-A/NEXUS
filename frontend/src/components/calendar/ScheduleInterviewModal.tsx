@@ -30,6 +30,7 @@ import {
   splitAttendeeEmails,
 } from "@/components/calendar/attendee-emails";
 import { REMINDER_OPTIONS } from "@/components/calendar/calendar-config";
+import { prepTimingWarning, type PrepInterview } from "@/lib/prep-timing";
 
 interface ConflictItem {
   id: number;
@@ -79,6 +80,10 @@ interface ScheduleInterviewModalProps {
   defaultEventType?: EventType;
   /** Tytuł przy otwarciu (domyślnie „Interview: …”). */
   defaultTitle?: string;
+  /** Początek przy otwarciu (`datetime-local`; domyślnie najbliższa pełna godzina). */
+  defaultStart?: string;
+  /** Prep do tej rozmowy u klienta — ostrzeżenie o kolizji i kolejności (runda 10, F08). */
+  prepFor?: PrepInterview | null;
 }
 
 type EventType = "interview" | "screening" | "prep_call" | "meeting";
@@ -109,6 +114,8 @@ export default function ScheduleInterviewModal({
   defaultJobId = null,
   defaultEventType = "interview",
   defaultTitle,
+  defaultStart,
+  prepFor = null,
 }: ScheduleInterviewModalProps) {
   const queryClient = useQueryClient();
 
@@ -119,7 +126,7 @@ export default function ScheduleInterviewModal({
   // Liczone przy otwarciu (efekt niżej), nie raz na życie komponentu: okno
   // jest stale zamontowane na profilu kandydata, więc `useMemo([])`
   // proponowało godzinę sprzed kilku godzin.
-  const [start, setStart] = useState(() => nextHourIso());
+  const [start, setStart] = useState(() => defaultStart ?? nextHourIso());
   const [jobId, setJobId] = useState<number | null>(defaultJobId);
   const [reminderMinutes, setReminderMinutes] = useState(15);
   const [duration, setDuration] = useState(45); // minutes
@@ -146,7 +153,7 @@ export default function ScheduleInterviewModal({
     setTitle(initialTitle);
     setDescription("");
     setEventType(defaultEventType);
-    setStart(nextHourIso());
+    setStart(defaultStart ?? nextHourIso());
     setDuration(45);
     setInviteCandidate(true);
     setExtraAttendees("");
@@ -157,6 +164,7 @@ export default function ScheduleInterviewModal({
     setError(null);
     setJobId(defaultJobId);
     setReminderMinutes(15);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `defaultStart` tylko przy otwarciu
   }, [open, candidateId, candidateName, defaultJobId, defaultEventType, initialTitle]);
 
   useEffect(() => {
@@ -180,6 +188,8 @@ export default function ScheduleInterviewModal({
       return start;
     }
   }, [start, duration]);
+
+  const prepTiming = prepFor ? prepTimingWarning(start, duration, prepFor) : null;
 
   // Free-busy advisory: ask Graph whether the recruiter (and candidate, if we
   // have their email) is already booked in the chosen window. Debounced so we
@@ -506,6 +516,11 @@ export default function ScheduleInterviewModal({
               value={start}
               onChange={(e) => setStart(e.target.value)}
             />
+            {prepTiming ? (
+              <div className="mt-2" data-testid="prep-timing-warning">
+                <Alert variant="warning" title="Termin prepu" description={prepTiming} />
+              </div>
+            ) : null}
             {conflictHint && (
               <div className="mt-2">
                 <Alert

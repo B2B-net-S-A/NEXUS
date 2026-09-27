@@ -791,3 +791,39 @@ def test_playwright_records_traces_only_against_a_local_stack() -> None:
         'screenshot: "only-on-failure"',
     ):
         assert literal not in config, f"{literal} bez warunku celu lokalnego"
+
+
+# ── Runda 10 (R10-N10-1): harnessy /preview/* publiczne tylko na stacku E2E ──
+
+
+def test_preview_harness_flag_is_limited_to_the_e2e_stack() -> None:
+    """Na produkcji `/preview/*` wymaga logowania. Flagę builda, która otwiera
+    harnessy bez sesji, niesie wyłącznie stack E2E — compose czytane przez
+    Coolify nie mogą jej przekazać, a publiczny `preview-chromium` chodzi na
+    stacku, nie przeciw produkcji."""
+    repo = _WORKFLOWS.parents[1]
+    stack = yaml.safe_load(
+        (repo / "docker-compose.e2e.yml").read_text(encoding="utf-8")
+    )
+    args = stack["services"]["frontend"]["build"]["args"]
+    assert args["NEXT_PUBLIC_PREVIEW_PUBLIC"] == "1"
+    for name in (
+        "docker-compose.yml",
+        "docker-compose.prod.yml",
+        "docker-compose.override.yml",
+    ):
+        path = repo / name
+        if path.exists():
+            assert "NEXT_PUBLIC_PREVIEW_PUBLIC" not in path.read_text(
+                encoding="utf-8"
+            ), name
+
+    e2e = _load("e2e.yml")
+    stack_runs = "\n".join(
+        str(step.get("run", "")) for step in e2e["jobs"]["stack"]["steps"]
+    )
+    assert "--project=preview-chromium" in stack_runs
+    prod_runs = "\n".join(
+        str(step.get("run", "")) for step in e2e["jobs"]["playwright"]["steps"]
+    )
+    assert "preview-chromium" not in prod_runs

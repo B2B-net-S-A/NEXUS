@@ -26,6 +26,7 @@ from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from tests.public_profile_helpers import approve_public_profile
 from app.models.activity import Activity
 from app.models.application_submission import (
     ApplicationSubmission,
@@ -79,7 +80,10 @@ async def _seed_job() -> int:
         db.add(job)
         await db.commit()
         await db.refresh(job)
-        return job.id
+    # Runda 10 (R10-N10-9): formularz `/apply/{token}` wymaga zatwierdzonego
+    # opisu publicznego, jak `/r/{slug}`.
+    await approve_public_profile(job.id)
+    return job.id
 
 
 async def _login(client: AsyncClient, email: str, password: str) -> dict[str, str]:
@@ -566,6 +570,8 @@ async def _vetoed_world() -> dict:
         target = await db.get(Job, world["target_job_id"])
         target.is_open = True
         await db.commit()
+    # Runda 10: /apply/{token} wymaga zatwierdzonego opisu publicznego.
+    await approve_public_profile(world["target_job_id"])
     return world
 
 

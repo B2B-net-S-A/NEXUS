@@ -234,3 +234,39 @@ async def test_closed_recruitment_is_not_in_process_on_list_or_quick_view(
     )
     assert q.status_code == 200, q.text
     assert [r["job_id"] for r in q.json()["current_recruitments"]] == [open_job]
+
+
+async def test_history_carries_entry_source_and_stage_name(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Runda 10 (F04): profil → Rekrutacje dostaje źródło wejścia i nazwę etapu.
+
+    Ręczne przypisanie leży na etapie „Ogłoszenia" szablonu, a profil pokazywał
+    ten etap dosłownie — tablica mówi „Nowi". Front składa etap w kolumnę
+    Tablicy z nazwy etapu, a źródło bierze z procesu (nie z etapu).
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.recruitment_process import RecruitmentProcess
+
+    candidate_id = await _seed_candidate()
+    job_id = await _seed_job()
+    await _seed_stage(candidate_id, job_id, "posting")
+    async with AsyncSessionLocal() as db:
+        db.add(
+            RecruitmentProcess(
+                candidate_id=candidate_id,
+                job_id=job_id,
+                entry_source="added_manual",
+            )
+        )
+        await db.commit()
+
+    r = await app_client.get(
+        f"/api/candidates/{candidate_id}/history", headers=app_auth_headers
+    )
+    assert r.status_code == 200, r.text
+    job = next(j for j in r.json()["jobs"] if j["job_id"] == job_id)
+    assert job["entry_source"] == "added_manual"
+    assert job["latest_stage"] == "posting"
+    assert "latest_stage_name" in job
+    assert "stage_name" in job["stages"][0]

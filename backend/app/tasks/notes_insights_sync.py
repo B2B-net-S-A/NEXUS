@@ -33,6 +33,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
+from app.services.candidate_notes_facts import NOTES_CHANGED_AT_KEY, clear_notes_facts
 from app.services.notes_insights_extractor import (
     MIN_BLOB_CHARS,
     PROMPT_VERSION,
@@ -113,6 +114,26 @@ def _is_due(last_synced_at: Optional[datetime], now: datetime) -> bool:
     return now.hour >= int(settings.NOTES_INSIGHTS_SYNC_HOUR_UTC)
 
 
+def _later(latest: Optional[datetime], changed_at: Any) -> Optional[datetime]:
+    """Późniejszy z: najnowszej notatki i znacznika zmiany zbioru notatek.
+
+    Zepsuty znacznik w JSONB jest pomijany — jeden wiersz nie może wywrócić
+    całego przebiegu selekcji.
+    """
+    if not isinstance(changed_at, str):
+        return latest
+    try:
+        changed = datetime.fromisoformat(changed_at)
+    except ValueError:
+        return latest
+    if changed.tzinfo is None:
+        changed = changed.replace(tzinfo=timezone.utc)
+    if latest is None:
+        return changed
+    base = latest if latest.tzinfo else latest.replace(tzinfo=timezone.utc)
+    return max(base, changed)
+
+
 async def _select_stale_candidates(limit: int) -> list[int]:
     """Kandydaci z notatką nowszą niż ich znacznik ekstrakcji (lub bez niej).
 
@@ -130,6 +151,8 @@ async def _select_stale_candidates(limit: int) -> list[int]:
                            c.cv_extracted_data->'_notes_insights'
                                ->>'_extracted_at' AS stamp_v1,
                            (c.cv_extracted_data ? '_notes_insights') AS has_ins,
+                           c.cv_extracted_data->'_notes_insights'
+                               ->>'_notes_changed_at' AS changed_at,
                            ln.latest
                     FROM candidates c
                     JOIN (
@@ -145,7 +168,7 @@ async def _select_stale_candidates(limit: int) -> list[int]:
             )
         ).all()
     stale: list[int] = []
-    for cid, stamp_v2, stamp_v1, has_ins, latest in rows:
+    for cid, stamp_v2, stamp_v1, has_ins, changed_at, latest in rows:
         # Lekka projekcja: same znaczniki zamiast całego blobu insights —
         # `legacy_row_is_fresh` i tak czyta wyłącznie te dwa pola, a pełny
         # JSONB dla ~14k wierszy to dziesiątki MB na każdy dzienny bieg.
@@ -154,6 +177,9 @@ async def _select_stale_candidates(limit: int) -> list[int]:
             if has_ins
             else None
         )
+        # Runda 10 (R10-N6-2): usunięcie notatki nie tworzy nowszej notatki,
+        # więc bez tego znacznika fakty z usuniętej notatki zostawały świeże.
+        latest = _later(latest, changed_at)
         if legacy_row_is_fresh(insights, latest):
             continue
         stale.append(int(cid))
@@ -203,6 +229,24 @@ async def _select_outdated_candidates(limit: int, exclude: set[int]) -> list[int
         ).all()
     out = [int(r[0]) for r in rows if int(r[0]) not in exclude]
     return out[:limit]
+
+
+async def _clear_facts(db, cand: Candidate) -> None:
+    """Wyczyść fakty z notatek (i stawkę wpisaną przez notatki) z audytem."""
+    from app.services.match_score_cache import mark_stale_for_candidate
+
+    rate_audit = clear_notes_facts(cand)
+    if rate_audit is not None:
+        from app.services import candidate_audit
+
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.PROFILE_RATE_CHANGED,
+            user_id=None,
+            entity_id=cand.id,
+            details=rate_audit,
+        )
+        await mark_stale_for_candidate(db, cand.id)
 
 
 # 401 zły klucz, 402 brak środków (DeepSeek), 403 konto zablokowane — każdy
@@ -270,6 +314,10 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                     continue
                 blob = build_notes_blob(rows)
                 if len(blob) < MIN_BLOB_CHARS:
+                    # Runda 10 (R10-N6-2): usunięto notatkę, a reszta nie niesie
+                    # treści — `stamp_no_content` zachowałby fakty z usuniętej.
+                    if isinstance(prior, dict) and prior.get(NOTES_CHANGED_AT_KEY):
+                        await _clear_facts(db, cand)
                     # Stempel bez AI — inaczej klasa "no_content" wraca do
                     # selekcji każdego dnia i zjada cały budżet biegu
                     # (prod, pierwszy bieg: selected=300, skipped_short=299).

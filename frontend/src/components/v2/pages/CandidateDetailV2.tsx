@@ -638,7 +638,12 @@ export function CandidateDetailV2({
                 candidate={candidate}
                 readOnly={readOnly}
                 embedded={embedded}
-                recentActivity={{ items: timeline, isPending: timelineQuery.isPending }}
+                recentActivity={{
+                  items: timeline,
+                  isPending: timelineQuery.isPending,
+                  isError: timelineQuery.isError,
+                  refetch: () => void timelineQuery.refetch(),
+                }}
                 onNavigate={({ section }) => goToSection(section)}
                 onGenerateCv={canWriteSourcing ? () => setCvOpen(true) : undefined}
                 jdgFocusRequest={jdgFocusRequest}
@@ -664,6 +669,14 @@ export function CandidateDetailV2({
                 defaultJobId={backJobId}
                 view={profileView.recruitments}
                 readOnly={readOnly}
+                clientRateAccess={
+                  historyRaw && !Array.isArray(historyRaw)
+                    ? {
+                        canView: historyRaw.can_view_client_rate,
+                        canWrite: historyRaw.can_write_client_rate,
+                      }
+                    : undefined
+                }
               />
             </TabsContent>
 

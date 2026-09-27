@@ -73,13 +73,19 @@ async def resolve_state(db: AsyncSession, config: PortalConfig) -> str:
     return "ready" if await jjit_connection.is_connected(db) else "not_connected"
 
 
-def health_state(failed_recently: int, *, reconnect_required: bool = False) -> str:
+def health_state(
+    failed_recently: int,
+    *,
+    reconnect_required: bool = False,
+    connected: bool = True,
+) -> str:
     """``checks.job_portals`` — informacyjne, nigdy nie zmienia ``status``.
 
     ``unconfigured`` = wszystkie portale wyłączone (stan dzisiejszy),
     ``misconfigured`` = włączony bez konfiguracji, ``degraded`` = konto
-    portalu do ponownego połączenia albo nieudane publikacje w ostatniej
-    dobie, inaczej ``healthy``.
+    portalu do ponownego połączenia, nigdy niepołączone (włączony portal
+    z ``needs_connection``) albo nieudane publikacje w ostatniej dobie,
+    inaczej ``healthy``.
     """
 
     configs = portal_configs()
@@ -88,5 +94,12 @@ def health_state(failed_recently: int, *, reconnect_required: bool = False) -> s
     if any(c.state == "misconfigured" for c in configs):
         return "misconfigured"
     if reconnect_required or failed_recently:
+        return "degraded"
+    # Runda 10 (R10-N12-5): włączony JustJoin.IT/RocketJobs bez połączonego
+    # konta nie opublikuje niczego (``resolve_state`` = ``not_connected``),
+    # a sonda pokazywała ``healthy``.
+    if not connected and any(
+        c.state == "ready" and c.needs_connection for c in configs
+    ):
         return "degraded"
     return "healthy"

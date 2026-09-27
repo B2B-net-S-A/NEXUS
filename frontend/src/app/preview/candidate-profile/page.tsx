@@ -62,7 +62,7 @@ const CANDIDATE = {
   name: "Marta",
   lastname: "Kowalczyk",
   email: "marta.kowalczyk@example.com",
-  phone: "+48 600 000 000",
+  phone: "+48 000 000 107",
   linkedin: "https://www.linkedin.com/in/przyklad",
   status: "active",
   competence_category_id: 2,

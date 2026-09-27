@@ -85,6 +85,14 @@ async def apply_candidate_cc_scores(
     if top.score < PRIMARY_MIN_SCORE:
         return None
 
+    # Runda 10 (R10-N8-7): blokada kandydata PRZED odczytem istniejących
+    # wierszy. Ręczny przydział (`/competence-categories`) bierze tę samą
+    # blokadę, więc nie wejdzie między SELECT a DELETE niżej — bez niej
+    # backfill kasował świeżo zatwierdzoną ręczną kurację.
+    await db.execute(
+        select(Candidate.id).where(Candidate.id == candidate.id).with_for_update()
+    )
+
     existing = (
         (
             await db.execute(
@@ -250,6 +258,9 @@ async def backfill_candidate_ccs(
                 )
                 if summary is None:
                     # Manual-curated (or nothing to write) — leave untouched.
+                    # Zwolnij blokadę kandydata (R10-N8-7) — inaczej trwałaby
+                    # do najbliższego commitu innego wiersza.
+                    await db.rollback()
                     stats["skipped"] += 1
                 else:
                     await db.commit()
@@ -265,12 +276,14 @@ async def backfill_candidate_ccs(
             progress.update(stats)
         if stats["processed"] % 50 == 0:
             logger.info(
-                "[cc_backfill] %d/%d processed (assigned=%d skipped=%d errors=%d)",
+                "[cc_backfill] %d/%d processed (assigned=%d skipped=%d errors=%d "
+                "last_id=%s)",
                 stats["processed"],
                 stats["total"],
                 stats["assigned"],
                 stats["skipped"],
                 stats["errors"],
+                stats["last_id"],
             )
 
     logger.info(

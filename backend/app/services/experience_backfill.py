@@ -288,15 +288,18 @@ async def backfill_experience_dates(
                 break
 
             for candidate in rows:
-                cursor = candidate.id
-                stats["last_id"] = candidate.id
-
                 if limit and stats["processed"] >= limit:
                     stats["stopped_reason"] = "limit"
                     return stats
                 if stats["usage"]["calls"] >= max_calls:
                     stats["stopped_reason"] = "max_calls"
                     return stats
+                # Runda 10 (R10-N8-4): `last_id` to `after_id` wznowienia —
+                # przesuwa się dopiero po sprawdzeniu limitów, a przy stopie
+                # kwoty wraca przed nieodczytany wiersz.
+                previous_last_id = stats["last_id"]
+                cursor = candidate.id
+                stats["last_id"] = candidate.id
 
                 stats["processed"] += 1
                 if not needs_dates(candidate):
@@ -311,6 +314,7 @@ async def backfill_experience_dates(
                             template=CV_EXPERIENCE_DATES,
                         )
                 except AIQuotaExceeded as quota_exc:
+                    stats["last_id"] = previous_last_id
                     stats["stopped_reason"] = f"quota: {quota_exc}"
                     logger.warning("[experience-dates] stop przez kwotę: %s", quota_exc)
                     return stats

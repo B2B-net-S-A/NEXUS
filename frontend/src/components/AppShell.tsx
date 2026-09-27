@@ -40,6 +40,7 @@ import { editableTagText, structuredTagLabels } from "@/lib/candidate-tags";
 import { changedCandidateFields, tagChanges } from "@/lib/candidate-edit-diff";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { emailFieldError } from "@/lib/email-field-error";
 import { defaultMeetingWindow } from "@/lib/meeting-defaults";
 import { newClientRequestId } from "@/lib/client-request-id";
 import {
@@ -269,8 +270,20 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
  * gorsze od jego braku: czytnik ekranu ogłasza nazwę, po której nie da się
  * nawigować.
  */
-function FieldGroup({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+function FieldGroup({
+  label,
+  required,
+  error,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  /** Runda 10 (F05): komunikat błędu tego pola — pod kontrolką, nie na górze formularza. */
+  error?: string | null;
+  children: React.ReactNode;
+}) {
   const generatedId = useId();
+  const errorId = `${generatedId}-error`;
   let controlId: string | undefined;
 
   const labelled = Children.map(children, (child) => {
@@ -279,9 +292,13 @@ function FieldGroup({ label, required, children }: { label: string; required?: b
     const own = (child.props as { id?: string }).id;
     const nextId = own ?? generatedId;
     controlId = nextId;
-    if (own) return child;
+    const errorProps = error
+      ? { "aria-invalid": true, "aria-describedby": errorId }
+      : {};
+    if (own && !error) return child;
     return cloneElement(child as React.ReactElement<{ id?: string }>, {
       id: nextId,
+      ...errorProps,
     });
   });
 
@@ -294,6 +311,11 @@ function FieldGroup({ label, required, children }: { label: string; required?: b
         {label} {required && <span className="text-destructive">*</span>}
       </label>
       {labelled}
+      {error ? (
+        <p id={errorId} role="alert" className="mt-1 text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -552,6 +574,29 @@ function candidateFormToPayload(form: CandidateFormData) {
   };
 }
 
+/**
+ * Runda 10 (F-extra): pole „Notatki” formularza kandydata nie trafiało do
+ * żadnego zapisu — `candidateFormToPayload` go nie wysyła, a kandydat nie ma
+ * kolumny notatek (notatki to osobne wiersze `notes`). Tekst z pola zapisujemy
+ * teraz jako notatkę kandydata (`POST /api/notes`) po udanym zapisie profilu.
+ * Zwraca `false`, gdy notatki nie udało się zapisać (profil i tak zapisany).
+ */
+async function saveCandidateFormNote(candidateId: number, notes: string): Promise<boolean> {
+  const content = notes.trim();
+  if (!content) return true;
+  try {
+    await api.post("/api/notes", {
+      candidate_id: candidateId,
+      content,
+      note_type: "general",
+    });
+    return true;
+  } catch (err) {
+    console.error("[candidate-form] note save failed", err);
+    return false;
+  }
+}
+
 function CandidateFormFields({
   form,
   onChange,
@@ -561,6 +606,7 @@ function CandidateFormFields({
   clients,
   importedTagLabels = [],
   collapseSecondary = false,
+  emailError = null,
 }: {
   form: CandidateFormData;
   onChange: (k: keyof CandidateFormData, v: string) => void;
@@ -575,7 +621,13 @@ function CandidateFormFields({
    * reszta pod „Więcej danych”. Edycja profilu pokazuje wszystko jak dotąd.
    */
   collapseSecondary?: boolean;
+  /** Runda 10 (F05): błąd e-maila z serwera — przy polu, z fokusem na nim. */
+  emailError?: string | null;
 }) {
+  const emailInputId = useId();
+  useEffect(() => {
+    if (emailError) document.getElementById(emailInputId)?.focus();
+  }, [emailError, emailInputId]);
   const CB = ({
     field,
     value,
@@ -688,9 +740,12 @@ function CandidateFormFields({
           </p>
         )}
       </FieldGroup>
-      <FieldGroup label="Notatki">
+      <FieldGroup label="Nowa notatka (opcjonalnie)">
         <Textarea value={form.notes} onChange={e => onChange("notes", e.target.value)} rows={3} placeholder="Dodatkowe informacje..." />
       </FieldGroup>
+      <p className="-mt-2 text-xs text-muted-foreground">
+        Notatka trafi do zakładki Historia w profilu kandydata.
+      </p>
 
       {/* ── Dane strukturalne ───────────────────────────────────────────── */}
       <div className="pt-2 border-t border-border dark:border-border">
@@ -823,8 +878,8 @@ function CandidateFormFields({
         <FieldGroup label="Nazwisko" required>
           <Input value={form.lastname} onChange={e => onChange("lastname", e.target.value)} placeholder="Kowalski" />
         </FieldGroup>
-        <FieldGroup label="Email">
-          <Input type="email" value={form.email} onChange={e => onChange("email", e.target.value)} placeholder="jan@mail.pl" />
+        <FieldGroup label="Email" error={emailError}>
+          <Input id={emailInputId} type="email" value={form.email} onChange={e => onChange("email", e.target.value)} placeholder="jan@mail.pl" />
         </FieldGroup>
         <FieldGroup label="Telefon">
           <Input type="tel" value={form.phone} onChange={e => onChange("phone", e.target.value)} placeholder="+48 500..." />
@@ -895,6 +950,7 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
   const [checkedKey, setCheckedKey] = useState<string>(() => duplicateIdentityKey(EMPTY_CANDIDATE));
   // Zapis zatrzymany na trafieniach — rekruter wybiera „Otwórz istniejącego” albo „Zapisz mimo to”.
   const [decisionPending, setDecisionPending] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
   const checkSeqRef = useRef(0);
   const formRef = useRef(form);
   formRef.current = form;
@@ -910,7 +966,10 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
   const users = usersData ?? [];
   const clients = clientsData ?? [];
 
-  const onChange = (k: keyof CandidateFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const onChange = (k: keyof CandidateFormData, v: string) => {
+    if (k === "email") setEmailError(null);
+    setForm(f => ({ ...f, [k]: v }));
+  };
   const onToggle = (k: "champion", v: boolean) => setForm(f => ({ ...f, [k]: v }));
   const onMulti = (
     k: "pref_remote_modes" | "pref_contract_types",
@@ -973,7 +1032,7 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
 
   const saveCandidate = async (force: boolean) => {
     if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
-    setSaving(true); setError("");
+    setSaving(true); setError(""); setEmailError(null);
     try {
       if (!force) {
         // Szybki zapis przed końcem debounce: sprawdź to, co jest w polach teraz.
@@ -983,11 +1042,25 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
           return;
         }
       }
-      await api.post("/api/candidates", candidateFormToPayload(form));
-      onSuccess("Kandydat dodany pomyślnie");
+      const created = await api.post("/api/candidates", candidateFormToPayload(form));
+      const createdId = Number(created?.data?.id);
+      const noteSaved = Number.isFinite(createdId)
+        ? await saveCandidateFormNote(createdId, form.notes)
+        : !form.notes.trim();
+      onSuccess(
+        noteSaved
+          ? "Kandydat dodany pomyślnie"
+          : "Kandydat dodany, ale notatki nie udało się zapisać — dodaj ją w profilu kandydata",
+      );
       onClose();
     } catch (err: any) {
-      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
+      const emailMsg = emailFieldError(err);
+      if (emailMsg) {
+        setDecisionPending(false);
+        setEmailError(emailMsg);
+      } else {
+        setError(formErrorMsg(err, "Błąd podczas zapisywania"));
+      }
     } finally { setSaving(false); }
   };
 
@@ -1041,6 +1114,7 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
           users={users}
           clients={clients}
           collapseSecondary
+          emailError={emailError}
         />
         {showDecision ? (
           <div
@@ -1094,6 +1168,7 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
   const [form, setForm] = useState<CandidateFormData>(initialForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   const { data: usersData } = useQuery({
     queryKey: ["users-list-for-candidate"],
@@ -1106,7 +1181,10 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
   const users = usersData ?? [];
   const clients = clientsData ?? [];
 
-  const onChange = (k: keyof CandidateFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const onChange = (k: keyof CandidateFormData, v: string) => {
+    if (k === "email") setEmailError(null);
+    setForm(f => ({ ...f, [k]: v }));
+  };
   const onToggle = (k: "champion", v: boolean) => setForm(f => ({ ...f, [k]: v }));
   const onMulti = (
     k: "pref_remote_modes" | "pref_contract_types",
@@ -1122,7 +1200,7 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
-    setSaving(true); setError("");
+    setSaving(true); setError(""); setEmailError(null);
     try {
       const { city: _city, country: _country, tags: _tags, ...nextPayload } =
         candidateFormToPayload(form);
@@ -1156,10 +1234,17 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
           country: nextCountry || null,
         });
       }
-      onSuccess("Kandydat zaktualizowany");
+      const noteSaved = await saveCandidateFormNote(candidate.id, form.notes);
+      onSuccess(
+        noteSaved
+          ? "Kandydat zaktualizowany"
+          : "Kandydat zaktualizowany, ale notatki nie udało się zapisać — dodaj ją w profilu kandydata",
+      );
       onClose();
     } catch (err: any) {
-      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
+      const emailMsg = emailFieldError(err);
+      if (emailMsg) setEmailError(emailMsg);
+      else setError(formErrorMsg(err, "Błąd podczas zapisywania"));
     } finally { setSaving(false); }
   };
 
@@ -1175,6 +1260,7 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
           users={users}
           clients={clients}
           importedTagLabels={structuredTagLabels(candidate.tags)}
+          emailError={emailError}
         />
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>

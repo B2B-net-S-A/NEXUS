@@ -20,6 +20,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getForStage = vi.fn();
 const originalGet = vi.fn();
 const brandedGet = vi.fn();
+const pairCvGet = vi.fn();
 const candidatesGet = vi.fn();
 const apiGet = vi.fn();
 const apiPost = vi.fn();
@@ -41,6 +42,7 @@ vi.mock("@/lib/api", () => ({
   candidateStageCvApi: {
     original: { get: (...a: unknown[]) => originalGet(...a) },
     branded: { get: (...a: unknown[]) => brandedGet(...a) },
+    share: { listForRecruitment: (...a: unknown[]) => pairCvGet(...a) },
   },
   screeningApi: {
     getForStage: (...a: unknown[]) => getForStage(...a),
@@ -166,6 +168,9 @@ function renderDock(overrides: Partial<DockProps> = {}) {
 describe("PipelineCandidateDock", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    pairCvGet.mockResolvedValue({
+      data: { items: [], branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null } },
+    });
     getForStage.mockResolvedValue({
       data: {
         stage_id: 501,
@@ -418,6 +423,9 @@ describe("PipelineCandidateDock", () => {
 describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    pairCvGet.mockResolvedValue({
+      data: { items: [], branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null } },
+    });
     getForStage.mockResolvedValue({ data: { screening_answers: null } });
     originalGet.mockResolvedValue({ data: { has_snapshot: false } });
     brandedGet.mockResolvedValue({ data: { status: "none" } });
@@ -649,6 +657,9 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    pairCvGet.mockResolvedValue({
+      data: { items: [], branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null } },
+    });
     getForStage.mockResolvedValue({ data: { screening_answers: null } });
     originalGet.mockResolvedValue({ data: { has_snapshot: false } });
     brandedGet.mockResolvedValue({ data: { status: "none" } });
@@ -802,6 +813,42 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     expect(screen.queryByText("CV firmowe: brak")).toBeNull();
   });
 
+  it("po ruchu dalej: CV firmowe pary z innego etapu zamiast „brak / Generuj CV” (runda 10, F23)", async () => {
+    // Produkcja 26.09.2026: po zwykłym przejściu na „CV wysłane” dok mówił
+    // „CV firmowe: brak” i proponował generację, choć zatwierdzone CV leżało
+    // na etapie „QC CV” (ruch zakłada nowy wiersz etapu bez CV).
+    brandedGet.mockRejectedValue({ response: { status: 404 } });
+    pairCvGet.mockResolvedValue({
+      data: {
+        items: [],
+        branded_cv: {
+          status: "finalized",
+          stage_id: 777,
+          stage_name: "QC CV",
+          finalized_at: "2026-09-26T10:00:00Z",
+        },
+      },
+    });
+    routeApiGet({ requirements: requirements({ to_column: "client_interview", items: [] }) });
+    const user = userEvent.setup();
+    renderDock({
+      primaryTarget: stageCol("client_interview", "Rozmowa u klienta", { stage_def_id: 9 }),
+      item: baseItem({ stage: "cv_sent" }),
+    });
+    const cvToggle = await screen.findByRole("button", { name: /^CV/ });
+    if (cvToggle.getAttribute("aria-expanded") !== "true") await user.click(cvToggle);
+    await waitFor(() =>
+      expect(
+        screen.getAllByText(
+          "CV firmowe: zatwierdzone 26.09.2026 — z etapu „QC CV”, nie podpięte do bieżącego etapu",
+        ).length,
+      ).toBeGreaterThanOrEqual(1),
+    );
+    expect(screen.queryByText("CV firmowe: brak")).toBeNull();
+    expect(screen.getByRole("button", { name: /Edytuj CV \(etap „QC CV”\)/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Generuj CV/ })).toBeNull();
+  });
+
   it("brak pilnowany przez serwer (QC CV) jest nazwany wprost", async () => {
     routeApiGet({
       requirements: requirements({
@@ -920,5 +967,48 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     expect(await screen.findByText(/Oryginał CV: dołączony do zgłoszenia · 20\.08\.2026/)).toBeInTheDocument();
     expect(await screen.findByText("CV firmowe: zatwierdzone 2.09.2026")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Pokaż CV oryginalne/ })).toBeInTheDocument();
+  });
+});
+
+// Runda 10 (R10-N15-3): awaria odczytu w doku to komunikat z „Ponów”, nie
+// „Brak …” — rekruter dopisywał notatkę albo robił screening drugi raz.
+describe("PipelineCandidateDock — awaria odczytu to nie pustka", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    originalGet.mockResolvedValue({ data: { has_snapshot: false } });
+    brandedGet.mockResolvedValue({ data: { status: "none" } });
+    candidatesGet.mockResolvedValue({ data: { email: "anna@example.com" } });
+    apiPost.mockResolvedValue({ data: {} });
+  });
+
+  it("screening: 500 daje „Nie udało się wczytać” z Ponów", async () => {
+    const user = userEvent.setup();
+    getForStage.mockRejectedValue(new Error("500"));
+    apiGet.mockResolvedValue({ data: { items: [] } });
+    renderDock({ item: baseItem({ stage: "new" }) });
+
+    expect(await screen.findByText(/Nie udało się wczytać: screening/)).toBeTruthy();
+    expect(screen.queryByText(/Brak jeszcze wypełnionego screeningu/)).toBeNull();
+
+    getForStage.mockResolvedValue({
+      data: { stage_id: 501, candidate_id: 42, job_id: 10, champion_profile: {}, screening_answers: null },
+    });
+    await user.click(screen.getByRole("button", { name: "Ponów" }));
+    expect(await screen.findByText(/Brak jeszcze wypełnionego screeningu/)).toBeTruthy();
+  });
+
+  it("notatki: 500 daje „Nie udało się wczytać”, nie „Brak notatek”", async () => {
+    const user = userEvent.setup();
+    getForStage.mockResolvedValue({ data: { screening_answers: null, champion_profile: {} } });
+    apiGet.mockImplementation((url: string) =>
+      url.startsWith("/api/notes")
+        ? Promise.reject(new Error("500"))
+        : Promise.resolve({ data: { items: [] } }),
+    );
+    renderDock();
+
+    await user.click(screen.getByRole("button", { name: /^Notatki/ }));
+    expect(await screen.findByText(/Nie udało się wczytać: notatki/)).toBeTruthy();
+    expect(screen.queryByText(/Brak notatek dla tej rekrutacji/)).toBeNull();
   });
 });

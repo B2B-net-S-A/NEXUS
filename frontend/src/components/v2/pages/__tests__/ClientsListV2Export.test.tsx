@@ -179,3 +179,15 @@ describe("ClientsListV2 — eksport katalogu klientów", () => {
     expect(await screen.findByText(/częściowy widok/i)).toBeVisible();
   });
 });
+
+describe("ClientsListV2 — opis zakładki aktywnych (runda 10, F07)", () => {
+  it("nie twierdzi, że każdy klient ma podpisaną współpracę", async () => {
+    mocks.currentSearch = "";
+    mocks.list.mockResolvedValue({ data: BASE_RESPONSE });
+    renderList();
+    expect(
+      await screen.findByText("Bieżący portfel — także prospekty przed podpisaniem umowy"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Klienci z podpisaną współpracą")).toBeNull();
+  });
+});

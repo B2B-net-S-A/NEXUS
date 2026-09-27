@@ -858,9 +858,13 @@ async def _handle_tool(
                 use_id, f"Nie udało się zbudować linku: {exc}", is_error=True
             )
         events.append({"type": "deep_link", **link})
+        # Runda 10 (F14): model pisał „Otworzyłem zakładkę”, choć ekran się
+        # nie zmienił — wynik mówi wprost, że to tylko przycisk.
         return _tool_result(
             use_id,
-            f"Pokazałem użytkownikowi przycisk „{link['label']}” ({link['href']}).",
+            f"Pokazałem użytkownikowi przycisk „{link['label']}” ({link['href']}). "
+            "Ekran NIE został otwarty — napisz, żeby użył tego przycisku; "
+            "nie pisz, że coś otworzyłeś.",
         )
 
     if tool.tier == "read":

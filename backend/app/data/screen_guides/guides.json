@@ -173,7 +173,7 @@
       },
       {
         "q": "Jak przygotować CV do klienta?",
-        "a": "Sekcja „CV” mówi osobno o CV firmowym (brak, szkic, zatwierdzone — z datą) i o oryginale (ze zgłoszenia, z profilu albo brak pliku). „Generuj CV” otwiera generator z tą osobą i rekrutacją, a gdy CV już jest — „Edytuj CV”. U klienta wymagającego zgody RODO (PKO BP) pobranie CV czeka na zrzut maila ze zgodą."
+        "a": "Sekcja „CV” mówi osobno o CV firmowym (brak, szkic, zatwierdzone — z datą) i o oryginale. „Generuj CV” otwiera generator, a gdy CV już jest — „Edytuj CV”, także gdy leży na wcześniejszym etapie („nie podpięte do bieżącego etapu”). U klienta wymagającego zgody RODO (PKO BP) pobranie czeka na zrzut maila ze zgodą."
       },
       {
         "q": "Co to są odznaki etapu (np. Prep, Umowa podpisana)?",
@@ -417,7 +417,8 @@
     ],
     "pitfalls": [
       "Bez debriefu kandydat nie wyjdzie z kolumny „Rozmowa u klienta” na tablicy rekrutacji.",
-      "Zmiana terminu wydarzenia z Outlooka idzie najpierw do Outlooka — bez połączonej skrzynki zapis zostanie odrzucony."
+      "Zmiana terminu wydarzenia z Outlooka idzie najpierw do Outlooka — bez połączonej skrzynki zapis zostanie odrzucony.",
+    "Terminy od klienta przesuwają kandydata na „Rozmowę u klienta” tylko wtedy, gdy jego CV zostało już wysłane do klienta. Inaczej karta zostaje na swoim etapie — przesuń ją na tablicy rekrutacji."
     ],
     "anchors": [
       {"id": "calendar.board", "label": "Tablica kroków", "describe": "Siedem kroków cyklu, kandydaci w kolumnach, zadania na kartach."},

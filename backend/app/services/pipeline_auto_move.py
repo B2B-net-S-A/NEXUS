@@ -13,7 +13,13 @@ Reguła jest jedna i wąska:
   (``transition_process(require_existing=True)``, jak podpis umowy);
 * kandydat z globalnej czarnej listy albo z wetem hiring managera zostaje na
   miejscu — na tablicy taki ruch wymaga świadomego „Przenieś mimo to”
-  (``ELIGIBILITY_WARNING``), a automat nie ma kogo zapytać (runda 7, N7-3).
+  (``ELIGIBILITY_WARNING``), a automat nie ma kogo zapytać (runda 7, N7-3);
+* automat nie przeskakuje „CV wysłane” (runda 10, F09): na etap za tą kolumną
+  (rozmowa u klienta i dalej) jedzie wyłącznie para, która JUŻ jest w „CV
+  wysłane” albo dalej. Wejście na „CV wysłane” ma bramki (QC CV, stawka DL,
+  osoba od Cpro), które sprawdza tylko ``/pipeline/move`` z człowiekiem przy
+  klawiaturze — para z „Ogłoszeń” czy „Zweryfikowanego” zostaje na miejscu
+  z wpisem ``auto_advance_skipped`` (``reason_code="cv_not_sent"``).
 
 Efekty, które ``/pipeline/move`` robi przy tym samym ruchu, robi też automat:
 przepięcie do podobnych rekrutacji (``on_candidate_sent``) w transakcji, a
@@ -117,6 +123,45 @@ def is_closed(stage: PipelineStage, stage_def: Optional[PipelineStageDef]) -> bo
     return _column(stage, stage_def) in ("closed", "hired")
 
 
+_CV_SENT_RANK = _COLUMN_RANK["cv_sent"]
+
+
+def needs_sent_cv(
+    target: PipelineStage, target_def: Optional[PipelineStageDef]
+) -> bool:
+    """Czy etap docelowy leży ZA kolumną „CV wysłane” (rozmowa u klienta i dalej)."""
+    rank = _COLUMN_RANK.get(_column(target, target_def))
+    return rank is not None and rank > _CV_SENT_RANK
+
+
+def has_sent_cv(
+    *,
+    stage: PipelineStage,
+    stage_def: Optional[PipelineStageDef],
+    cv_sent_def: Optional[PipelineStageDef],
+    template_id: Optional[int],
+) -> bool:
+    """Czy para jest już w kolumnie „CV wysłane” albo dalej.
+
+    Kolumna jak na Tablicy (``board_column_for``) — „Przepuszczony przez DZ”
+    i kolejka Cpro to QC CV, nie wysłanie. Wyjątek: etap WŁASNY szablonu (bez
+    kodu, na Tablicy liczony jako „Nowi”) postawiony w szablonie za etapem
+    „CV wysłane” — tam decyduje pozycja w szablonie.
+    """
+    rank = _COLUMN_RANK.get(_column(stage, stage_def))
+    if rank is not None and rank >= _CV_SENT_RANK:
+        return True
+    if (
+        stage_def is not None
+        and stage_def.legacy_enum_value is None
+        and cv_sent_def is not None
+        and stage_def.template_id == template_id
+        and cv_sent_def.template_id == template_id
+    ):
+        return stage_def.order > cv_sent_def.order
+    return False
+
+
 def is_before(
     *,
     stage: PipelineStage,
@@ -152,12 +197,18 @@ async def auto_advance(
     actor_user_id: Optional[int],
     source: str,
     note: str,
+    skip_reasons: Optional[list[str]] = None,
 ) -> Optional[CandidateStage]:
     """Przesuń kartę pary na ``target``, jeśli jest wcześniej w procesie.
 
     Zwraca nowy wiersz etapu albo ``None``, gdy nic się nie zmieniło (brak
     pary, proces zamknięty, karta już na etapie docelowym albo dalej, brak
     otwartego procesu przy zamkniętej historii).
+
+    ``skip_reasons``: lista, do której trafia kod powodu, gdy automat ŚWIADOMIE
+    zostawił kartę (``cv_not_sent``, kod blokady kwalifikacji) — wołający może
+    to powiedzieć człowiekowi. „Nie dotyczy” (karta dalej, brak pary) nic nie
+    dopisuje.
     """
     # Ta sama kolejność blokad co `transition_process` i /pipeline/move:
     # kandydat → rekrutacja. Blokada kandydata serializuje równoległe ruchy
@@ -201,6 +252,38 @@ async def auto_advance(
     ):
         return None
 
+    def _skip(reason_code: str) -> None:
+        # Ślad, dlaczego karta nie pojechała — sam kod, bez treści powodu (ta
+        # bywa nazwiskiem hiring managera); kod wystarcza do wyjaśnienia.
+        db.add(
+            Activity(
+                entity_type="pipeline",
+                entity_id=latest.id,
+                action="auto_advance_skipped",
+                user_id=actor_user_id,
+                details={
+                    "candidate_id": candidate_id,
+                    "job_id": job_id,
+                    "stage": target.value,
+                    "source": source,
+                    "reason_code": reason_code,
+                },
+            )
+        )
+        if skip_reasons is not None:
+            skip_reasons.append(reason_code)
+
+    if needs_sent_cv(target, target_def):
+        cv_sent_def = await _target_stage_def(db, template_id, PipelineStage.cv_sent)
+        if not has_sent_cv(
+            stage=latest.stage,
+            stage_def=latest_def,
+            cv_sent_def=cv_sent_def,
+            template_id=template_id,
+        ):
+            _skip("cv_not_sent")
+            return None
+
     if target not in (PipelineStage.rejected, PipelineStage.withdrawn):
         from app.services.hiring_manager_verdicts import (  # noqa: PLC0415
             puts_candidate_before_client,
@@ -218,23 +301,7 @@ async def auto_advance(
             acknowledged=True,
         )
         if block is not None:
-            # Ślad, dlaczego karta nie pojechała — bez treści powodu (ta bywa
-            # nazwiskiem hiring managera); kod wystarcza do wyjaśnienia.
-            db.add(
-                Activity(
-                    entity_type="pipeline",
-                    entity_id=latest.id,
-                    action="auto_advance_skipped",
-                    user_id=actor_user_id,
-                    details={
-                        "candidate_id": candidate_id,
-                        "job_id": job_id,
-                        "stage": target.value,
-                        "source": source,
-                        "reason_code": block.reason_code,
-                    },
-                )
-            )
+            _skip(block.reason_code)
             return None
 
     try:

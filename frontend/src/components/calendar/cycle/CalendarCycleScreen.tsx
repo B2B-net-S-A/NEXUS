@@ -20,6 +20,7 @@ import {
   type PairInfo,
   type SlotRequest,
 } from "@/lib/interview-cycle";
+import { prepInterviewForPair } from "@/lib/prep-timing";
 import { resolveViewState } from "@/lib/view-state";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -137,6 +138,35 @@ export function CalendarCycleScreen({
     router.replace(qs ? `${basePath}?${qs}` : basePath);
   };
 
+  // Runda 10 (R10-N15-4): link z dzwonka (`?cycle=`, `?debrief=`) wskazuje
+  // parę, której może nie być w domyślnym zakresie — HoR dostaje dzwonek
+  // o słabym prepie cudzego rekrutera, a jego domyślny zakres to „mine”.
+  // Taki link przełącza raz na szerszy dostępny zakres, a gdy szerszego nie
+  // ma, ekran mówi to wprost zamiast otwierać Tablicę bez panelu.
+  const wantedPair = parseCycleParam(cycleParam);
+  const wantedKey = wantedPair ? `${wantedPair.candidateId}-${wantedPair.jobId}` : null;
+  const widerScope: CycleScope | null = isOversight
+    ? scope === "all"
+      ? null
+      : "all"
+    : scope === "mine"
+      ? "jobs"
+      : null;
+  const linkTargetMissing =
+    view === "board" &&
+    !!data &&
+    ((wantedKey != null && !data.items.some((i) => pairKey(i) === wantedKey)) ||
+      (debriefParam != null && !data.items.some((i) => i.interview_event_id === debriefParam)));
+  const widenedFor = useRef<string | null>(null);
+  const linkToken = `${cycleParam ?? ""}|${debriefParam ?? ""}`;
+  useEffect(() => {
+    if (!linkTargetMissing || !widerScope || widenedFor.current === linkToken) return;
+    widenedFor.current = linkToken;
+    setParams({ scope: widerScope === defaultScope ? null : widerScope });
+    // `setParams` czyta bieżące parametry — wystarczy reagować na wynik listy.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkTargetMissing, widerScope, linkToken]);
+
   const onAction = (action: CycleAction) => {
     switch (action.type) {
       case "debrief":
@@ -249,6 +279,25 @@ export function CalendarCycleScreen({
           }}
         />
       )}
+      {linkTargetMissing && !widerScope ? (
+        <div
+          role="status"
+          data-testid="cycle-link-out-of-scope"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-foreground"
+        >
+          <span>
+            Kandydata z tego linku nie ma w Twoim zakresie — rozmowę prowadzi ktoś spoza
+            Twoich rekrutacji albo cykl już się zakończył.
+          </span>
+          <button
+            type="button"
+            onClick={() => setParams({ cycle: null, debrief: null })}
+            className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
+          >
+            Zamknij
+          </button>
+        </div>
+      ) : null}
       {view === "board" && data ? (
         <CycleCandidateSheet
           item={data.items.find((i) => pairKey(i) === selectedKey) ?? null}
@@ -300,6 +349,7 @@ export function CalendarCycleScreen({
           onOpenChange={(o) => !o && setDialog(null)}
           pair={dialog.pair}
           prepNo={dialog.second ? 2 : 1}
+          interview={prepInterviewForPair(data, dialog.pair)}
         />
       ) : null}
       <PrepReviewDialog

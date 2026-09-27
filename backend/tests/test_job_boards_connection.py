@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
@@ -69,8 +71,10 @@ async def clean_connection():
 
 
 def test_state_round_trip_and_foreign_purpose_is_rejected():
-    token = jjit_connection.sign_state(42, "verifier")
-    assert jjit_connection.verify_state(token) == (42, "verifier")
+    token = jjit_connection.sign_state(42, "nonce-1")
+    parsed = jjit_connection.verify_state(token)
+    assert parsed.user_id == 42
+    assert parsed.verifier == jjit_connection.pkce_verifier_for("nonce-1")
     foreign = jwt.encode(
         {
             "sub": "42",
@@ -93,7 +97,39 @@ def test_authorize_url_carries_pkce_and_app_data():
     assert query["code_challenge_method"] == ["S256"]
     assert query["response_type"] == ["code"]
     assert "offline_access" in query["scope"][0]
-    assert jjit_connection.verify_state(query["state"][0])[0] == 7
+    parsed = jjit_connection.verify_state(query["state"][0])
+    assert parsed.user_id == 7
+    expected = hashlib.sha256(parsed.verifier.encode("ascii")).digest()
+    assert query["code_challenge"] == [
+        base64.urlsafe_b64encode(expected).rstrip(b"=").decode("ascii")
+    ]
+
+
+def test_state_does_not_carry_the_pkce_verifier():
+    """R10-N10-8: `state` wraca w adresie razem z kodem — nie może nieść
+    klucza do jego wymiany."""
+    url = urlparse(jjit_connection.authorize_url(1))
+    state = parse_qs(url.query)["state"][0]
+    claims = jwt.get_unverified_claims(state)
+    assert "pkce" not in claims
+    verifier = jjit_connection.verify_state(state).verifier
+    assert verifier not in state
+    assert all(verifier not in str(value) for value in claims.values())
+
+
+def test_state_from_before_round_10_is_rejected():
+    legacy = jwt.encode(
+        {
+            "sub": "7",
+            "pkce": "v",
+            "purpose": jjit_connection.STATE_PURPOSE,
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        },
+        settings.M365_STATE_SIGNING_KEY or settings.SECRET_KEY,
+        algorithm="HS256",
+    )
+    with pytest.raises(JWTError):
+        jjit_connection.verify_state(legacy)
 
 
 def test_authorize_without_app_data_is_refused(monkeypatch):
@@ -223,7 +259,7 @@ async def test_callback_requires_admin(api, clean_connection, monkeypatch):
         raise AssertionError("must not exchange for non-admin")
 
     monkeypatch.setattr(jjit_connection, "exchange_code", exchange)
-    state = jjit_connection.sign_state(recruiter, "v")
+    state = jjit_connection.sign_state(recruiter)
     resp = await api.get(f"/api/job-boards/jjit/callback?code=c&state={state}")
     assert _status(resp) == "error"
 
@@ -245,10 +281,14 @@ async def test_callback_by_admin_stores_connection(api, clean_connection, monkey
         return row
 
     monkeypatch.setattr(jjit_connection, "exchange_code", exchange)
-    state = jjit_connection.sign_state(admin, "the-verifier")
+    state = jjit_connection.sign_state(admin, "the-nonce")
     resp = await api.get(f"/api/job-boards/jjit/callback?code=abc&state={state}")
     assert _status(resp) == "success"
-    assert captured == {"code": "abc", "verifier": "the-verifier", "user_id": admin}
+    assert captured == {
+        "code": "abc",
+        "verifier": jjit_connection.pkce_verifier_for("the-nonce"),
+        "user_id": admin,
+    }
     async with AsyncSessionLocal() as db:
         row = await db.scalar(
             select(JobBoardConnection).where(
@@ -256,3 +296,29 @@ async def test_callback_by_admin_stores_connection(api, clean_connection, monkey
             )
         )
         assert row is not None and row.connected_by == admin
+
+
+async def test_callback_state_is_single_use(api, clean_connection, monkeypatch):
+    """R10-N10-8: drugi powrót z tym samym `state` nie wymienia kodu."""
+    admin = await _user(UserRole.admin)
+    calls: list[str] = []
+
+    async def exchange(db, *, code, verifier, user_id, transport=None):
+        calls.append(code)
+        row = JobBoardConnection(
+            provider=PROVIDER_JJIT,
+            refresh_token_ct=CIPHER.encrypt("r"),
+            connected_at=datetime.now(timezone.utc),
+            connected_by=user_id,
+        )
+        db.add(row)
+        await db.flush()
+        return row
+
+    monkeypatch.setattr(jjit_connection, "exchange_code", exchange)
+    state = jjit_connection.sign_state(admin, f"single-use-{admin}")
+    first = await api.get(f"/api/job-boards/jjit/callback?code=a1&state={state}")
+    second = await api.get(f"/api/job-boards/jjit/callback?code=a2&state={state}")
+    assert _status(first) == "success"
+    assert _status(second) == "error"
+    assert calls == ["a1"]

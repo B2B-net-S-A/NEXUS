@@ -32,7 +32,11 @@ import {
 } from "@/lib/api/executiveContracts";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
-import { duplicateOrderError, orderPeriodError } from "@/lib/order-period";
+import {
+  duplicateOrderError,
+  orderPeriodError,
+  overlappingOrderError,
+} from "@/lib/order-period";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import {
@@ -134,6 +138,7 @@ export function ExtendOrderDialog({
     latest?.executive_contract_id ?? null,
   );
   const [file, setFile] = useState<File | null>(null);
+  const [confirmingFileRemove, setConfirmingFileRemove] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
 
   // Odczyt PDF ("Zczytaj dane z dokumentu") — świadoma akcja, ODDZIELONA od
@@ -172,7 +177,14 @@ export function ExtendOrderDialog({
     normalizeDateInput(endDate),
     contract.orders,
   );
-  const blockingError = periodError ?? duplicateError;
+  // Runda 10 (F15): przedłużenie (zawsze okresowe — formularz nie wysyła
+  // typu) nachodzące na obowiązujące zamówienie tej osoby.
+  const overlapError = overlappingOrderError(
+    normalizeDateInput(startDate),
+    normalizeDateInput(endDate),
+    contract.orders,
+  );
+  const blockingError = periodError ?? duplicateError ?? overlapError;
 
   // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
   const rateClientNum = parseDecimalInput(rateClient);
@@ -602,17 +614,13 @@ export function ExtendOrderDialog({
               >
                 {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
               </button>
-              {file ? (
-                <button
-                  type="button"
-                  aria-label="Usuń plik PDF zamówienia"
-                  title="Usuń plik"
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        "Czy na pewno chcesz usunąć plik PDF zamówienia?",
-                      )
-                    ) {
+              {file && confirmingFileRemove ? (
+                <span className="inline-flex items-center gap-1 text-xs">
+                  <span className="text-muted-foreground">Usunąć plik PDF?</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmingFileRemove(false);
                       setFile(null);
                       setFileError(null);
                       setExtractedRows([]);
@@ -623,8 +631,27 @@ export function ExtendOrderDialog({
                       setRateMdOriginal(null);
                       setGrossConversion(null);
                       setUnitChangeNotice(null);
-                    }
-                  }}
+                    }}
+                    className="rounded bg-destructive px-2 py-0.5 font-medium text-destructive-foreground"
+                  >
+                    Usuń plik
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingFileRemove(false)}
+                    className="rounded bg-muted px-2 py-0.5 font-medium text-muted-foreground"
+                  >
+                    Anuluj
+                  </button>
+                </span>
+              ) : file ? (
+                <button
+                  type="button"
+                  aria-label="Usuń plik PDF zamówienia"
+                  title="Usuń plik"
+                  // Runda 10 (R10-N15-8): potwierdzenie w oknie zamiast
+                  // `window.confirm`, które zamraża automatyzację przeglądarki.
+                  onClick={() => setConfirmingFileRemove(true)}
                   className="rounded-md border border-destructive/40 p-2 text-destructive hover:bg-destructive/10"
                 >
                   <Trash2 className="h-4 w-4" aria-hidden />

@@ -77,8 +77,8 @@ export function AdvancedOptions(props: AdvancedOptionsProps) {
             />
             <p className="text-xs text-muted-foreground">
               {props.positionFromJob
-                ? "Z tytułu rekrutacji. Trafia do nagłówka CV i do nazwy pliku."
-                : "Trafia do nagłówka CV i do nazwy pliku."}
+                ? "Z tytułu rekrutacji — generator dopasuje z niego nazwę stanowiska w nagłówku (język CV, bez numerów zapytań). Wpisz własne, żeby trafiło do nagłówka i nazwy pliku dosłownie."
+                : "Trafia do nagłówka CV i do nazwy pliku dosłownie."}
             </p>
           </div>
           {props.projectRefVisible ? (

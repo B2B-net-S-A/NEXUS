@@ -91,6 +91,9 @@ services:
       args:
         NEXT_PUBLIC_API_URL: http://localhost:8000
         NEXT_PUBLIC_GIT_SHA: ${GIT_SHA:-e2e}
+        # Harnessy /preview/* bez logowania (nocny `preview-chromium` na tym
+        # stacku). Na produkcji harnessy wymagają sesji — runda 10, R10-N10-1.
+        NEXT_PUBLIC_PREVIEW_PUBLIC: "1"
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
       INTERNAL_API_URL: http://backend:8000

@@ -292,43 +292,94 @@ async def _resolve_marketplace_recipients(
     return (notified_cand, notified_job, recipients)
 
 
+_DIGEST_NAMES_SHOWN = 3
+
+
+def _warsaw_day(column):
+    """Doba lokalna Europe/Warsaw — to samo wyrażenie co ``ix_notif_dedup_daily``."""
+    return func.date_trunc("day", func.timezone("Europe/Warsaw", column))
+
+
+async def _todays_alerts_for_recipient(
+    db: AsyncSession, *, job_id: int, user_id: int
+) -> list[tuple[str, float]]:
+    """Dzisiejsze pary tej rekrutacji, o których ``user_id`` ma być powiadomiony.
+
+    Czytane z ``marketplace_alert_log`` (także wiersze zapisane w tej samej
+    transakcji), więc drugi skan tego samego dnia dopisuje się do liczby, a nie
+    ją zeruje. Najlepszy wynik pierwszy.
+    """
+    rows = await db.execute(
+        select(Candidate.name, Candidate.lastname, MarketplaceAlertLog.score)
+        .join(Candidate, Candidate.id == MarketplaceAlertLog.candidate_id)
+        .where(
+            MarketplaceAlertLog.job_id == job_id,
+            or_(
+                MarketplaceAlertLog.notified_candidate_owner_id == user_id,
+                MarketplaceAlertLog.notified_job_owner_id == user_id,
+            ),
+            _warsaw_day(MarketplaceAlertLog.created_at) == _warsaw_day(func.now()),
+        )
+        .order_by(MarketplaceAlertLog.score.desc(), MarketplaceAlertLog.id)
+    )
+    return [
+        (" ".join(x for x in (name, lastname) if x).strip(), float(score))
+        for name, lastname, score in rows.all()
+    ]
+
+
 async def _emit_marketplace_notifications(
     db: AsyncSession,
     *,
-    candidate: Candidate,
     job: Job,
-    score: float,
     recipients: set[int],
+    single_candidate_id: Optional[int] = None,
 ) -> None:
-    """Create the in-app notification rows for already-resolved recipients.
+    """Jedno ZBIORCZE powiadomienie na (odbiorca, rekrutacja, dzień).
 
     Call ONLY after the alert-log claim succeeded — a notification for a pair
     that is already logged is a duplicate alert to a human.
 
-    Wiersz jest kluczowany rekrutacją (``related_entity_id=job.id``), a unique
-    partial index ``ix_notif_dedup_daily`` dopuszcza JEDEN wiersz na
-    (odbiorca, typ, rekrutacja, dzień). Drugi kandydat dopasowany do tej samej
-    rekrutacji tego samego dnia trafiał więc w indeks dopiero przy ``commit``
-    całego skanu — wycofując też zaklepane wpisy ``marketplace_alert_log``
-    i wszystkie powiadomienia z tego biegu; sweeper powtarzał to co godzinę.
-    Duplikat dzienny jest tu oczekiwany (odbiorca ma już dzisiejszy alert
-    o tej rekrutacji), więc każdy INSERT idzie w savepoincie, jak w
-    ``notification_triggers.emit``.
+    Runda 10 (R10-N7-3): indeks ``ix_notif_dedup_daily`` dopuszcza JEDEN wiersz
+    na (odbiorca, typ, rekrutacja, dzień). Do tej rundy drugi kandydat
+    dopasowany tego samego dnia trafiał w indeks, INSERT był połykany, a para
+    zostawała w logu jako „powiadomiona" — nikt się o niej nie dowiadywał.
+    Teraz treść liczy się z logu alertów (wszystkie dzisiejsze pary tego
+    odbiorcy) i nadpisuje dzisiejszy wiersz (``dedupe_resurface``).
     """
     from app.api.notifications import create_notification
 
     if not recipients:
         return
 
-    candidate_for_link = f"/candidates/{candidate.id}?job={job.id}"
     title = f"Nowy match: {job.title}"
-    score_int = int(round(score))
-    message = (
-        f"{candidate.name} {candidate.lastname} — score {score_int}/100 "
-        f'dopasowanie do nowej rekrutacji „{job.title}".'
-    )
-
-    for uid in recipients:
+    for uid in sorted(recipients):
+        alerts = await _todays_alerts_for_recipient(db, job_id=job.id, user_id=uid)
+        if not alerts:
+            continue
+        if len(alerts) == 1:
+            name, score = alerts[0]
+            message = (
+                f"{name} — score {int(round(score))}/100 "
+                f'dopasowanie do nowej rekrutacji „{job.title}".'
+            )
+            link = (
+                f"/candidates/{single_candidate_id}?job={job.id}"
+                if single_candidate_id is not None
+                else "/marketplace"
+            )
+        else:
+            shown = ", ".join(
+                f"{name} ({int(round(score))})"
+                for name, score in alerts[:_DIGEST_NAMES_SHOWN]
+            )
+            more = len(alerts) - _DIGEST_NAMES_SHOWN
+            tail = f" i {more} więcej" if more > 0 else ""
+            message = (
+                f"{len(alerts)} osób z Targu pasuje do rekrutacji "
+                f'„{job.title}": {shown}{tail}.'
+            )
+            link = "/marketplace"
         try:
             async with db.begin_nested():
                 await create_notification(
@@ -337,19 +388,17 @@ async def _emit_marketplace_notifications(
                     title=title,
                     message=message,
                     notification_type=NotificationType.marketplace_match,
-                    link=candidate_for_link,
+                    link=link,
                     related_entity_type="job",
                     related_entity_id=job.id,
-                    dedupe_resurface=False,
+                    dedupe_resurface=True,
                 )
                 await db.flush()
         except IntegrityError:
-            logger.debug(
-                "marketplace_scan: daily notification dedup hit user=%s job=%s "
-                "— candidate_id=%s skipped",
+            logger.warning(
+                "marketplace_scan: nie zapisano powiadomienia user=%s job=%s",
                 uid,
                 job.id,
-                candidate.id,
             )
 
 
@@ -394,6 +443,37 @@ async def _was_already_alerted(
         )
     )
     return result.scalar_one_or_none() is not None
+
+
+async def _eligible_marketplace_candidates(
+    db: AsyncSession, job: Job, candidates: list[Candidate]
+) -> list[Candidate]:
+    """Pula Targu po bramkach dopuszczalności — lustro ``match_digest``."""
+    from app.models.recruitment_pipeline import CandidateStage
+    from app.services.dealbreaker_filters import employment_only_refuses_b2b
+    from app.services.pipeline_eligibility import filter_eligible_candidates
+
+    staged = set(
+        (
+            await db.execute(
+                select(CandidateStage.candidate_id).where(
+                    CandidateStage.job_id == job.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    fresh = [
+        c
+        for c in candidates
+        if c.id not in staged and not employment_only_refuses_b2b(c)
+    ]
+    if not fresh:
+        return []
+    return await filter_eligible_candidates(
+        db, job=job, candidates=fresh, now=datetime.now(timezone.utc)
+    )
 
 
 async def scan_job_for_marketplace_matches(
@@ -460,6 +540,17 @@ async def scan_job_for_marketplace_matches(
             skipped_reason="empty_pool",
         )
 
+    # Runda 10 (R10-N7-2): te same bramki co digest dopasowań — osoba już
+    # w tej rekrutacji, globalna czarna lista, weto HM i „tylko umowa o pracę"
+    # nie dostają alertu „Nowy match" (dodanie i tak dałoby 409 albo nic).
+    candidates = await _eligible_marketplace_candidates(db, job, candidates)
+    if not candidates:
+        return ScanResult(
+            job_id=job_id,
+            latency_ms=round((time.perf_counter() - t0) * 1000, 2),
+            skipped_reason="no_eligible_candidates",
+        )
+
     # Semantic similarity — jedno Qdrant query na cały pool.
     pool_ids = {c.id for c in candidates}
     sim_map: dict[int, float] = {}
@@ -482,6 +573,7 @@ async def scan_job_for_marketplace_matches(
     matches = 0
     new_alerts = 0
     scored = 0
+    notify: dict[int, list[int]] = {}
     for cand in candidates:
         # Pre-check: para już w logu → skip całkowicie (no scoring wasted).
         if await _was_already_alerted(db, candidate_id=cand.id, job_id=job.id):
@@ -511,6 +603,11 @@ async def scan_job_for_marketplace_matches(
         notified_cand, notified_job, recipients = await _resolve_marketplace_recipients(
             db, candidate=cand, job=job
         )
+        if not recipients:
+            # R10-N7-3: para bez odbiorcy NIE trafia do logu — inaczej byłaby
+            # „zużyta" i nikt by jej nie dostał (np. szkic bez prowadzącego,
+            # który dostanie go po handoffie).
+            continue
         inserted = await _try_insert_alert_log(
             db,
             candidate_id=cand.id,
@@ -523,8 +620,16 @@ async def scan_job_for_marketplace_matches(
             # Already alerted for this pair — never re-notify.
             continue
         new_alerts += 1
+        for uid in recipients:
+            notify.setdefault(uid, []).append(cand.id)
+
+    # R10-N7-3: jedno zbiorcze powiadomienie na odbiorcę, po całym skanie.
+    for uid, cand_ids in notify.items():
         await _emit_marketplace_notifications(
-            db, candidate=cand, job=job, score=bd.total, recipients=recipients
+            db,
+            job=job,
+            recipients={uid},
+            single_candidate_id=cand_ids[0] if len(cand_ids) == 1 else None,
         )
 
     latency_ms = round((time.perf_counter() - t0) * 1000, 2)

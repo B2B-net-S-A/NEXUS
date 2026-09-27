@@ -54,6 +54,7 @@ _WRITE_PATHS = [
     ("app/api/candidates.py", "create_candidate"),
     ("app/api/candidates.py", "create_candidate_from_linkedin"),
     ("app/api/import_export.py", "import_candidates"),
+    ("app/api/candidates.py", "bulk_import_candidates"),
     ("app/services/traffit/importer.py", "import_candidates"),
 ]
 
@@ -110,10 +111,8 @@ _KNOWN_UNINDEXED = {
     # kandydaci w bazie — ludzie, którzy sami zaaplikowali na ogłoszenie — i
     # żaden z nich nie trafia do matchingu.
     "app/api/application_submissions.py::resolve_application_submission",
-    # Import wsadowy z panelu (POST /api/candidates/bulk-import). Ścieżka
-    # masowa, więc lekarstwem jest `record_bulk_reindex`, nie embedowanie
-    # w pętli (patrz `test_bulk_paths_do_not_embed_inline`).
-    "app/api/candidates.py::bulk_import_candidates",
+    # (Runda 10, R10-N13-8: `bulk_import_candidates` zapisuje już intencję
+    # przez `record_bulk_reindex` i zniknął z tej listy.)
 }
 
 
@@ -199,6 +198,7 @@ def test_bulk_paths_do_not_embed_inline() -> None:
     """
     for path, func_name in [
         ("app/api/import_export.py", "import_candidates"),
+        ("app/api/candidates.py", "bulk_import_candidates"),
         ("app/services/traffit/importer.py", "import_candidates"),
     ]:
         node = _function_node(path, func_name)

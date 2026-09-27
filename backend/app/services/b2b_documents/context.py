@@ -23,6 +23,7 @@ Szablon nigdy nie formatuje sam — jedna reguła formatu na wszystkie dokumenty
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -97,10 +98,20 @@ def _format_doc_values(
                 number = float(raw) if raw not in (None, "") else None
             except (TypeError, ValueError):
                 number = None
+            if number is not None and not math.isfinite(number):
+                number = None
             out[f.key] = format_rate(number) or "…"
-            out[f"{f.key}_words"] = (
-                rate_in_words(number, language, currency) if number is not None else "…"
-            )
+            try:
+                words = (
+                    rate_in_words(number, language, currency)
+                    if number is not None
+                    else "…"
+                )
+            except ValueError:
+                # Kwota poza słownikiem liczb — podgląd pokazuje „…”, a zapis
+                # i tak odrzuca ją walidacją (`registry.invalid_values`).
+                words = "…"
+            out[f"{f.key}_words"] = words
         elif f.kind == "bool":
             out[f.key] = bool(raw)
         else:
@@ -108,8 +119,13 @@ def _format_doc_values(
             if f.options:
                 labels = dict(f.options)
                 out[f"{f.key}_label"] = labels.get(raw)
-    # Pochodne, których szablon nie powinien liczyć sam.
-    if "new_start_date" in values:
+    # Pochodne, których szablon nie powinien liczyć sam. Runda 10
+    # (R10-N14-4): fraza powstaje zawsze, gdy typ ma pole daty startu — także
+    # przy pustej dacie („…”). Podgląd świeżego formularza kończył się 500
+    # (`StrictUndefined` na `doc.new_start_clause`).
+    if "new_start_date" in values or any(
+        f.key == "new_start_date" for f in doc_type.fields
+    ):
         out["new_start_clause"] = start_clause(
             _as_date(values.get("new_start_date")),
             values.get("new_start_date_mode") or "exact",

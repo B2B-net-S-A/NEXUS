@@ -505,6 +505,32 @@ async def open_counts_for_jobs(
     return {int(job_id): int(n) for job_id, n in rows.all()}
 
 
+# Runda 10 (R10-N7-1): sufit listy pominiętych w odpowiedzi skrzynki — pamięć
+# widoku, nie raport. Rekrutacja z tysiącami pominięć to i tak wyjątek.
+MAX_DISMISSED_IDS = 5000
+
+
+async def dismissed_candidate_ids(
+    db: AsyncSession, *, job_id: int, limit: int = MAX_DISMISSED_IDS
+) -> list[int]:
+    """Osoby pominięte w tej rekrutacji (status pary ``dismissed``).
+
+    Front odsiewa je ze WSZYSTKICH źródeł propozycji (żywy przegląd, podobne
+    projekty, rekomendacje) — te źródła nie czytają ``job_proposals``, więc bez
+    tej listy „Pomiń" działało wyłącznie w skrzynce, a osoba wracała po
+    odświeżeniu strony. Najnowsze pominięcia pierwsze (sufit ``limit``).
+    """
+    rows = await db.execute(
+        select(JobProposal.candidate_id)
+        .where(JobProposal.job_id == job_id)
+        .group_by(JobProposal.candidate_id)
+        .having(_pair_status() == "dismissed")
+        .order_by(func.max(JobProposal.dismissed_at).desc().nullslast())
+        .limit(limit)
+    )
+    return [int(cid) for (cid,) in rows.all()]
+
+
 @dataclass(frozen=True)
 class ProposalRow:
     candidate_id: int

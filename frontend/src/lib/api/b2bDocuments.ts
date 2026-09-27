@@ -163,6 +163,10 @@ export interface PartnerNoticeResult {
   delivered_on: string;
   termination_date: string;
   contract_id?: number;
+  /** Umowa bez powiązania — kontrakt dopasowany po osobie u klienta umowy. */
+  contract_matched_by_person?: boolean;
+  /** Zmienił się tylko rejestr (brak trwającego kontraktu osoby u klienta). */
+  contract_warning?: string | null;
 }
 
 /** Rozmiar strony listy dokumentów („Pokaż więcej”). */

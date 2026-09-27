@@ -27,6 +27,7 @@ from app.api.b2b_contract_generator import (
     _assert_generator_client_access,
     _assert_signature_client_access,
     _generator_unscoped,
+    _has_signature_permission,
     _load_legal_scoped_job,
     _require_contract_generation,
     _require_generated_contract_management,
@@ -35,7 +36,11 @@ from app.api.b2b_contract_generator import (
     _scope_generator_query,
     _validate_candidate_job_link,
 )
-from app.api.contract_access import B2BGeneratorAccess
+from app.api.contract_access import (
+    B2BGeneratorAccess,
+    assert_b2b_generator_action_access,
+)
+from app.api.financial_access import can_manage_finance_amounts
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import business_today
@@ -46,6 +51,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract
 from app.models.user import User, UserRole
+from app.services.action_permissions import ActionAccess
 from app.services import ezdrowie
 from app.services.b2b_documents import effects
 from app.services.b2b_documents.context import (
@@ -62,6 +68,7 @@ from app.services.b2b_documents.registry import (
     REF_LABELS,
     TYPES,
     DocumentType,
+    invalid_values,
     missing_required,
     strip_sensitive,
 )
@@ -72,6 +79,8 @@ from app.services.b2b_documents.render import (
 )
 
 router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
+
+RATE_ANNEX_TYPE = "annex_rate_change"
 
 
 # ── schematy ─────────────────────────────────────────────────────────────────
@@ -260,6 +269,16 @@ def _validate_values(
                 "missing": missing,
             },
         )
+    problems = invalid_values(doc_type, values)
+    if problems:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "document_values_invalid",
+                "message": " ".join(problems),
+                "problems": problems,
+            },
+        )
 
 
 def _context(
@@ -406,6 +425,9 @@ async def _serialize(
         can_sign = True
     except HTTPException:
         can_sign = False
+    # Aneks stawki potwierdzają też Finanse (decyzja Artura 27.09.2026) —
+    # rola bez uprawnienia „Oznaczanie podpisu umowy B2B”.
+    finance_can_sign_rate = can_manage_finance_amounts(user)
     try:
         _require_generated_contract_management(user)
         can_manage = True
@@ -452,7 +474,11 @@ async def _serialize(
                 sensitive_fields=sorted(doc_type.sensitive_keys),
                 can_edit=can_manage and open_unsigned and own,
                 can_delete=can_manage and open_unsigned and own,
-                can_confirm_signed=can_sign and open_unsigned,
+                can_confirm_signed=open_unsigned
+                and (
+                    can_sign
+                    or (finance_can_sign_rate and row.document_type == RATE_ANNEX_TYPE)
+                ),
                 cancelled_reason=row.cancelled_reason,
             )
         )
@@ -611,19 +637,36 @@ async def document_prefill(
     ):
         if payload.get(key):
             values[key] = payload[key]
+    # Runda 10 (R10-N14-8): `render_payload` to zapis PODPISANEJ umowy — po
+    # aneksie „dane firmy” niesie starą firmę. Bieżące dane Partnera mają
+    # kolumny wiersza (aktualizuje je podpisany aneks) i — po takim aneksie —
+    # profil kandydata (aneks zapisuje tam też REGON i adres). Wygrywają
+    # z payloadem, gdy są niepuste.
+    annex_done = parent is not None and bool(
+        getattr(parent, "business_data_annex_done_at", None)
+    )
     if parent is not None:
         values.setdefault("partner_name", parent.partner_name)
-        values.setdefault("partner_legal_name", parent.partner_legal_name)
-        values.setdefault("partner_nip", parent.partner_nip)
+        if parent.partner_legal_name:
+            values["partner_legal_name"] = parent.partner_legal_name
+        if parent.partner_nip:
+            values["partner_nip"] = parent.partner_nip
     if candidate_id is not None:
         candidate = await db.get(Candidate, candidate_id)
         if candidate is not None:
             full = f"{candidate.name or ''} {candidate.lastname or ''}".strip()
             values.setdefault("partner_name", full or None)
-            values.setdefault("partner_legal_name", candidate.legal_name)
-            values.setdefault("partner_business_address", candidate.business_address)
-            values.setdefault("partner_nip", candidate.nip)
-            values.setdefault("partner_regon", candidate.regon)
+            company = {
+                "partner_legal_name": candidate.legal_name,
+                "partner_business_address": candidate.business_address,
+                "partner_nip": candidate.nip,
+                "partner_regon": candidate.regon,
+            }
+            for key, value in company.items():
+                if annex_done and value:
+                    values[key] = value
+                else:
+                    values.setdefault(key, value)
     values.setdefault("gender", "m")
     values = {k: v for k, v in values.items() if v not in (None, "")}
 
@@ -689,7 +732,11 @@ async def preview_document(
         raise HTTPException(
             status_code=500, detail="Brak szablonu tego dokumentu."
         ) from exc
-    return {"html": html, "missing": missing_required(doc_type, request.values)}
+    return {
+        "html": html,
+        "missing": missing_required(doc_type, request.values),
+        "invalid": invalid_values(doc_type, request.values),
+    }
 
 
 @router.post("/documents")
@@ -940,9 +987,21 @@ async def confirm_document_signed(
     db: AsyncSession = Depends(get_db),
 ):
     """Oznacz jako podpisany obustronnie i zastosuj skutki (idempotentnie)."""
-    _require_signature_confirmation(current_user)
+    # Aneks stawki potwierdzają admin, Finanse i DL z portfela (decyzja Artura
+    # 27.09.2026). Finanse nie mają uprawnienia „Oznaczanie podpisu umowy
+    # B2B” — wpuszczamy je wyłącznie do aneksu stawki (typ sprawdzany niżej),
+    # resztę bramek i blokad liczy `effects.describe`.
+    finance_rate_only = not _has_signature_permission(
+        current_user
+    ) and can_manage_finance_amounts(current_user)
+    if finance_rate_only:
+        assert_b2b_generator_action_access(current_user, ActionAccess.view)
+    else:
+        _require_signature_confirmation(current_user)
     locked_contract_id = await _lock_contract_first(db, doc_id=doc_id)
     doc, doc_type, parent = await _load_document(db, current_user, doc_id, lock=True)
+    if finance_rate_only and doc_type.key != RATE_ANNEX_TYPE:
+        _require_signature_confirmation(current_user)
     _assert_same_locked_contract(
         locked_contract_id, effects.current_contract_id(doc, parent)
     )
@@ -1039,15 +1098,49 @@ async def register_partner_notice(
     locked_contract_id = await _lock_contract_first(
         db, parent_id=body.parent_generated_contract_id
     )
+    matched_contract_id: int | None = None
+    if locked_contract_id is None:
+        # Runda 10 (R10-N14-3): umowa bez powiązania (wiersz z Excela) —
+        # kontrakt osoby u klienta umowy, blokowany PRZED wierszem rejestru.
+        owner = (
+            await db.execute(
+                select(
+                    B2BGeneratedContract.candidate_id,
+                    B2BGeneratedContract.client_id,
+                ).where(B2BGeneratedContract.id == body.parent_generated_contract_id)
+            )
+        ).first()
+        if owner is not None:
+            live = await effects.live_contract_ids_for_unlinked_row(
+                db,
+                row_id=body.parent_generated_contract_id,
+                candidate_id=owner.candidate_id,
+                client_id=owner.client_id,
+            )
+            if len(live) > 1:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "partner_notice_contract_ambiguous",
+                        "message": effects.PARTNER_NOTICE_AMBIGUOUS,
+                    },
+                )
+            if live:
+                matched_contract_id = live[0]
+                await db.execute(
+                    select(Contract.id)
+                    .where(Contract.id == matched_contract_id)
+                    .with_for_update()
+                )
     parent = await _load_parent(db, body.parent_generated_contract_id, lock=True)
     _assert_same_locked_contract(locked_contract_id, parent.contract_id)
     await _assert_signature_client_access(db, current_user, parent.client_id)
     await _assert_generator_client_access(
         db, current_user, parent.client_id, write=True
     )
-    if parent.contract_id is not None and not effects._can_change_contracts(
-        current_user
-    ):
+    if (
+        parent.contract_id is not None or matched_contract_id is not None
+    ) and not effects._can_change_contracts(current_user):
         raise HTTPException(
             status_code=403,
             detail=(
@@ -1081,6 +1174,7 @@ async def register_partner_notice(
         delivered_on=body.delivered_on,
         termination_date=termination_date,
         user=current_user,
+        matched_contract_id=matched_contract_id,
     )
     await db.commit()
     return summary

@@ -26,6 +26,7 @@ from sqlalchemy import select, update
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from tests.public_profile_helpers import approve_public_profile
 from app.models.candidate import Candidate
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job, JobStatus, RemotePolicy
@@ -76,7 +77,11 @@ async def _seed_job(status: JobStatus = JobStatus.published) -> int:
         db.add(job)
         await db.commit()
         await db.refresh(job)
-        return job.id
+    # Runda 10 (R10-N10-9): formularz `/apply/{token}` wymaga zatwierdzonego
+    # opisu publicznego, jak `/r/{slug}`.
+    if status is JobStatus.published:
+        await approve_public_profile(job.id)
+    return job.id
 
 
 async def _login(client: AsyncClient, email: str, password: str) -> dict[str, str]:

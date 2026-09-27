@@ -155,6 +155,13 @@ describe("ważny token → dostęp", () => {
     const res = middleware(request("/dashboard", undefined))
     expect(res.headers.get("location")).toContain("next=%2Fdashboard")
   })
+
+  it("zachowuje w ?next także query linku (R10-N15-1)", () => {
+    const res = middleware(request("/jobs/5?candidate=7", undefined))
+    const location = new URL(res.headers.get("location") ?? "")
+    expect(location.pathname).toBe("/login")
+    expect(location.searchParams.get("next")).toBe("/jobs/5?candidate=7")
+  })
 })
 
 describe("linki publiczne działają bez tokenu", () => {
@@ -256,6 +263,33 @@ describe("linki publiczne działają bez tokenu", () => {
     // SidebarV2 (role-gating, liczniki) — czyli wewnętrzną strukturę aplikacji.
     expect(destination("/preview/shell")).toBe("/login")
     expect(destination("/preview/ds-kit")).toBe("/login")
+  })
+})
+
+describe("harnessy /preview/* na produkcji (runda 10, R10-N10-1)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it("build produkcyjny bez flagi wymaga logowania", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("NEXT_PUBLIC_PREVIEW_PUBLIC", "")
+    expect(destination("/preview/order-mail")).toBe("/login")
+    expect(destination("/preview/candidates")).toBe("/login")
+    expect(destination("/preview/contracts-consolidation")).toBe("/login")
+    // Zalogowany przechodzi — harness zostaje narzędziem zespołu.
+    expect(destination("/preview/order-mail", validRecruiter)).toBe("pass")
+    // Reszta publicznych linków bez zmian.
+    expect(destination("/share/champion-card/abc123")).toBe("pass")
+    expect(destination("/login")).toBe("pass")
+  })
+
+  it("flaga builda stacku E2E otwiera harnessy bez sesji", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("NEXT_PUBLIC_PREVIEW_PUBLIC", "1")
+    expect(destination("/preview/order-mail")).toBe("pass")
+    // Flaga nie otwiera harnessów spoza jawnej listy.
+    expect(destination("/preview/shell")).toBe("/login")
   })
 })
 

@@ -194,7 +194,41 @@ def upgrade() -> None:
         op.execute(statement)
 
 
+# Runda 10 (R10-N12-4): downgrade kasował dziennik telefonów praktykantów
+# (reguły „niezainteresowany = nigdy”, „zły numer”), programy, przekazania
+# rekruterom (`job_proposals.source = 'trainee'`) i fakty z rozmów na
+# kandydatach. Tego nie odtworzy ponowny upgrade.
+REFUSE_WITH_TRAINEE_DATA = """DO $$
+DECLARE
+    has_rows boolean := false;
+BEGIN
+    IF to_regclass('trainee_call_items') IS NOT NULL THEN
+        EXECUTE 'SELECT EXISTS (SELECT 1 FROM trainee_call_items)' INTO has_rows;
+    END IF;
+    IF NOT has_rows AND to_regclass('trainee_programs') IS NOT NULL THEN
+        EXECUTE 'SELECT EXISTS (SELECT 1 FROM trainee_programs)' INTO has_rows;
+    END IF;
+    IF NOT has_rows AND to_regclass('job_proposals') IS NOT NULL THEN
+        EXECUTE 'SELECT EXISTS (SELECT 1 FROM job_proposals'
+            || ' WHERE source::text = ''trainee'')' INTO has_rows;
+    END IF;
+    IF NOT has_rows AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'candidates'
+          AND column_name = 'call_facts_verified_at'
+    ) THEN
+        EXECUTE 'SELECT EXISTS (SELECT 1 FROM candidates'
+            || ' WHERE call_facts_verified_at IS NOT NULL)' INTO has_rows;
+    END IF;
+    IF has_rows THEN
+        RAISE EXCEPTION 'Downgrade 0374 odmawia: są dane praktykantów (programy, listy telefonów, przekazania albo fakty z rozmów na kandydatach), których ponowny upgrade nie odtworzy. Zostaw tę rewizję albo przenieś dane ręcznie.';
+    END IF;
+END $$"""
+
+
 def downgrade() -> None:
+    op.execute(REFUSE_WITH_TRAINEE_DATA)
     op.execute("DROP TABLE IF EXISTS trainee_call_items")
     op.execute("DROP TABLE IF EXISTS trainee_call_lists")
     op.execute("DROP TABLE IF EXISTS trainee_programs")

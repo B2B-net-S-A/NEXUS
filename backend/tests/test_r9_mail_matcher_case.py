@@ -32,9 +32,7 @@ async def test_strict_email_match_compares_lowercased_trimmed_column() -> None:
 
     async def _execute(stmt):
         captured.append(stmt)
-        return SimpleNamespace(
-            scalars=lambda: SimpleNamespace(all=lambda: [stored])
-        )
+        return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [stored]))
 
     db = SimpleNamespace(execute=AsyncMock(side_effect=_execute))
     found = await matcher._find_candidate_by_email(
@@ -43,10 +41,11 @@ async def test_strict_email_match_compares_lowercased_trimmed_column() -> None:
 
     assert found is stored
     sql = _sql(captured[0]).lower()
-    assert "lower(trim(candidates.email)) in ('jan.kowalski@example.com')" in sql
+    # R10-V3-3: `btrim` — dokładnie wyrażenie indeksu z 0391.
+    assert "lower(btrim(candidates.email)) in ('jan.kowalski@example.com')" in sql
 
 
 def test_calendar_attendee_match_is_case_insensitive() -> None:
     source = inspect.getsource(sync)
     assert "Candidate.email.in_(addrs)" not in source
-    assert "func.lower(func.trim(Candidate.email)).in_(addrs)" in source
+    assert "func.lower(func.btrim(Candidate.email)).in_(addrs)" in source

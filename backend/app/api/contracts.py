@@ -92,6 +92,7 @@ from app.schemas.contract import (
     ContractBulkTerminateRequest,
     ContractTemplateBrief,
     ContractTerminateRequest,
+    ContractNoteCreate,
     ContractTimelineItem,
     ContractUpdate,
     ContractVoidRequest,
@@ -559,6 +560,41 @@ def _status_after_end_date_change(
     return status
 
 
+END_BEFORE_START_REASON = "end_date_before_start_date"
+
+
+def _reject_end_before_start(
+    start: Optional[date], end: Optional[date], *, termination: bool
+) -> None:
+    """422, gdy koniec wypada przed startem kontraktu — PRZED jakimkolwiek zapisem.
+
+    Runda 10 (F27): „Zakończ współpracę” z domyślną datą „dziś” na kontrakcie,
+    który startuje za miesiąc, zapisywał okres „01.11.2026–27.09.2026”, status
+    „Kończący się” i anulował planowane zamówienie. Okres z końcem przed
+    początkiem nie opisuje żadnej współpracy. Koniec w dniu startu jest
+    poprawny (jednodniowy projekt); współpraca, która się nie zaczęła, to
+    unieważnienie kontraktu, nie zakończenie.
+    """
+    if start is None or end is None or end >= start:
+        return
+    what = "Data zakończenia projektu" if termination else "Data zakończenia umowy"
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "code": END_BEFORE_START_REASON,
+            "reason": END_BEFORE_START_REASON,
+            "message": (
+                f"{what} ({_pl_date(end)}) jest wcześniejsza niż data "
+                f"rozpoczęcia kontraktu ({_pl_date(start)}). Wybierz datę nie "
+                "wcześniejszą niż start. Jeśli współpraca w ogóle się nie "
+                "zaczęła, unieważnij kontrakt zamiast go kończyć."
+            ),
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+        },
+    )
+
+
 def _status_after_termination(
     current: ContractStatus, end_date: Optional[date], today: date
 ) -> ContractStatus:
@@ -873,6 +909,9 @@ async def _apply_termination_to_contract(
     """
     previous_end_date = contract.end_date
     state_before = ContractStateBefore.of(contract)
+    # Runda 10 (F27): koniec przed startem odrzucany, zanim cokolwiek (także
+    # zamówienia) zostanie ruszone — bulk odrzuca wtedy całą partię.
+    _reject_end_before_start(contract.start_date, when, termination=True)
     # Odmowa PRZED jakimkolwiek zapisem (także zamówień i ścieżki powtórzenia):
     # unieważniona umowa nie może wrócić przez „Zakończ współpracę".
     effective_end = (
@@ -3175,6 +3214,8 @@ async def create_contract(
                 },
             )
     await _assert_no_duplicate_contract(db, candidate=candidate, client=client)
+    # Runda 10 (F27): lustro PATCH-a i „Zakończ współpracę”.
+    _reject_end_before_start(data.start_date, data.end_date, termination=False)
     # Nowa umowa B2B rodzi się bezterminowa; datę niesie tylko wpis umowy już
     # zakończonej (rejestr importowanej historii).
     if not end_date_allowed(
@@ -3930,6 +3971,16 @@ async def update_contract(
     # `_apply_contract_status_change` opisuje komplet skutków.
     status_sent = "status" in updates
     status_target = updates.pop("status", None)
+    # Runda 10 (F27): tylko gdy TO żądanie zmienia start albo koniec — zapis
+    # innego pola nie może się wywrócić na starym, już odwróconym wierszu.
+    if ("start_date" in updates and updates["start_date"] != contract.start_date) or (
+        "end_date" in updates and updates["end_date"] != contract.end_date
+    ):
+        _reject_end_before_start(
+            updates.get("start_date", contract.start_date),
+            updates.get("end_date", contract.end_date),
+            termination=False,
+        )
     await _assert_b2b_end_date_update(contract, updates, status_target, db)
     requested_unit = (
         RateUnit(updates["rate_unit"]) if updates.get("rate_unit") is not None else None
@@ -4537,7 +4588,7 @@ def _render_draft_body(template: ContractTemplate, contract: Contract) -> str:
     (no <html> wrap — that's added by the printable endpoint)."""
     try:
         return _jinja_env.from_string(template.content_jinja).render(
-            **_contract_vars(contract)
+            **_contract_vars(contract, language=template.language)
         )
     except TemplateError as exc:
         raise HTTPException(status_code=422, detail=f"Template render error: {exc}")
@@ -5396,10 +5447,30 @@ async def create_contract_amendment(
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
+    return await apply_contract_amendment(
+        contract_id=contract_id, data=data, current_user=current_user, db=db
+    )
+
+
+async def apply_contract_amendment(
+    *,
+    contract_id: int,
+    data: ContractAmendmentCreate,
+    current_user: User,
+    db: AsyncSession,
+    finance_write_authorized: bool = False,
+):
+    """Aneks kontraktu — ciało trasy ``POST /{id}/amendments``.
+
+    ``finance_write_authorized=True`` wyłącznie dla wołającego, który sam
+    sprawdził bramkę kwot: podpisany aneks stawki z Generatora potwierdza
+    także Delivery Lead u klienta z portfela (decyzja Artura 27.09.2026,
+    ``b2b_documents.effects.can_confirm_rate_annex``)."""
     supplied_fields = set(data.model_fields_set)
     if data.amendment_type == ContractAmendmentType.rate_change:
         supplied_fields.add("rate_change")
-    _assert_contract_finance_write_allowed(current_user, supplied_fields)
+    if not finance_write_authorized:
+        _assert_contract_finance_write_allowed(current_user, supplied_fields)
 
     # FOR UPDATE: aneks przedłużający i wcześniejsze zakończenie zmieniają
     # status — oceniany musi być ten po commicie równoległego `void` (F03).
@@ -6226,19 +6297,7 @@ async def contract_timeline(
     items: list[ContractTimelineItem] = []
 
     for note, author_email in notes_res.all():
-        items.append(
-            ContractTimelineItem(
-                id=note.id,
-                kind="note",
-                at=note.created_at,
-                content=note.content,
-                sub_type=note.note_type.value
-                if hasattr(note.note_type, "value")
-                else str(note.note_type),
-                author_id=note.author_id,
-                author_name=author_email,
-            )
-        )
+        items.append(_note_timeline_item(note, author_email))
 
     for call, author_email in calls_res.all():
         items.append(
@@ -6262,6 +6321,67 @@ async def contract_timeline(
 
     items.sort(key=lambda i: i.at, reverse=True)
     return items[:limit]
+
+
+def _note_timeline_item(
+    note: Note, author_email: Optional[str]
+) -> ContractTimelineItem:
+    return ContractTimelineItem(
+        id=note.id,
+        kind="note",
+        at=note.created_at,
+        content=note.content,
+        sub_type=note.note_type.value
+        if hasattr(note.note_type, "value")
+        else str(note.note_type),
+        author_id=note.author_id,
+        author_name=author_email,
+    )
+
+
+@router.post(
+    "/{contract_id}/notes",
+    response_model=ContractTimelineItem,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_contract_note(
+    contract_id: int,
+    data: ContractNoteCreate,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Notatka przy kontrakcie — widoczna tu i w profilu kandydata.
+
+    Runda 10 (F03): bramka jak przy sprzęcie kontraktu (`DeliveryLeadPlus` +
+    zakres klienta DL), nie `POST /api/notes` — tamta trasa stoi za zapisem
+    kandydatów, czyli w innej domenie uprawnień niż umowa.
+    """
+    contract = await _assert_contract(db, contract_id, current_user)
+    note = Note(
+        content=data.content,
+        note_type=data.note_type,
+        candidate_id=contract.candidate_id,
+        contract_id=contract.id,
+        author_id=current_user.id,
+    )
+    db.add(note)
+    if contract.candidate_id is not None:
+        candidate = await db.get(Candidate, contract.candidate_id)
+        if candidate is not None:
+            candidate.notes_count = (candidate.notes_count or 0) + 1
+    await db.flush()
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action="note_added",
+            user_id=current_user.id,
+            details={"note_id": note.id},
+        )
+    )
+    await db.flush()
+    await db.refresh(note)
+    return _note_timeline_item(note, current_user.email)
 
 
 # ── Benchmark comparison (rate vs internal avg vs market) ────────────────────

@@ -189,6 +189,9 @@ export function EditOrderDialog({
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState("");
   const [busyFile, setBusyFile] = useState(false);
+  // Runda 10 (R10-N15-8): potwierdzenie w oknie zamiast `window.confirm`,
+  // które zamraża automatyzację przeglądarki.
+  const [confirmingFileDelete, setConfirmingFileDelete] = useState(false);
   const [hasExistingFile, setHasExistingFile] = useState(
     order?.has_file ?? false,
   );
@@ -435,11 +438,7 @@ export function EditOrderDialog({
 
   async function handleDeleteExistingFile() {
     if (!order) return;
-    if (
-      !window.confirm("Czy na pewno chcesz usunąć plik PDF zamówienia?")
-    ) {
-      return;
-    }
+    setConfirmingFileDelete(false);
     await withBusy(async () => {
       await dlPortalApi.deleteOrderPo(clientId, order.id);
       setHasExistingFile(false);
@@ -825,16 +824,37 @@ export function EditOrderDialog({
                   <Download className="w-4 h-4" />
                 )}
               </button>
-              <button
-                type="button"
-                title="Usuń"
-                aria-label="Usuń plik PDF zamówienia"
-                disabled={busyFile}
-                onClick={handleDeleteExistingFile}
-                className="p-1 rounded hover:bg-destructive/10 text-destructive disabled:opacity-50"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+              {confirmingFileDelete ? (
+                <span className="inline-flex items-center gap-1 text-xs">
+                  <span className="text-muted-foreground">Usunąć plik PDF?</span>
+                  <button
+                    type="button"
+                    disabled={busyFile}
+                    onClick={handleDeleteExistingFile}
+                    className="rounded bg-destructive px-2 py-0.5 font-medium text-destructive-foreground disabled:opacity-50"
+                  >
+                    Usuń plik
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingFileDelete(false)}
+                    className="rounded bg-muted px-2 py-0.5 font-medium text-muted-foreground"
+                  >
+                    Anuluj
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  title="Usuń"
+                  aria-label="Usuń plik PDF zamówienia"
+                  disabled={busyFile}
+                  onClick={() => setConfirmingFileDelete(true)}
+                  className="p-1 rounded hover:bg-destructive/10 text-destructive disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
             </div>
           )}
 

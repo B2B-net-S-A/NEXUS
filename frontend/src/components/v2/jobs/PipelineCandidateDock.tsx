@@ -56,6 +56,7 @@ import api, {
   type ChampionProfile,
   type CVBrandedState,
   type CVOriginalSnapshot,
+  type CVShareTokensForRecruitment,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -94,12 +95,14 @@ import {
   companyCvSentence,
   dockOriginalCv,
   pairCompanyCv,
+  pairCvOnOtherStage,
   originalCvSentence,
   type DockProfileCvDoc,
 } from "@/lib/dock-cv-summary";
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import { DockFollowupBlock } from "@/components/v2/followups/DockFollowupBlock";
 import { DockInterviewCycle } from "@/components/v2/jobs/DockInterviewCycle";
+import { DockLoadError } from "@/components/v2/jobs/workbench-chrome";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -652,6 +655,24 @@ export function PipelineCandidateDock({
     cvBrandedQuery.isError &&
     (cvBrandedQuery.error as { response?: { status?: number } } | null)?.response?.status === 404;
   const brandedFailed = cvBrandedQuery.isError && !brandedMissingOnStage;
+  // Runda 10 (F23): ruch na kolejną kolumnę zakłada nowy wiersz etapu bez CV,
+  // a CV firmowe zostaje na etapie, na którym powstało. Stan PARY (ten sam
+  // klucz co podgląd w panelu osoby) odróżnia „brak dokumentu” od „dokument
+  // na innym etapie” — i prowadzi do edycji tego dokumentu zamiast generacji.
+  const stageHasNoCv =
+    brandedMissingOnStage || (cvBrandedQuery.isSuccess && stageCv === "none");
+  const pairCvQuery = useQuery<CVShareTokensForRecruitment>({
+    queryKey: ["cv-share-tokens-recruitment", item.candidate_id, jobId],
+    queryFn: () =>
+      candidateStageCvApi.share
+        .listForRecruitment(item.candidate_id, jobId)
+        .then((r) => r.data),
+    enabled: isOpen("cv") && stageHasNoCv,
+  });
+  const pairCvElsewhere = stageHasNoCv
+    ? pairCvOnOtherStage(null, pairCvQuery.data?.branded_cv, item.id)
+    : null;
+  const editStageId = pairCvElsewhere?.stage_id ?? item.id;
   const nextStageRequirements = useMoveRequirements(
     {
       candidateId: item.candidate_id,
@@ -662,6 +683,7 @@ export function PipelineCandidateDock({
   );
   const companyCv = companyCvSentence(brandedMissingOnStage ? null : cvBrandedQuery.data, {
     pairHasCompanyCv: pairCompanyCv(nextStageRequirements.data?.items),
+    pairBranded: pairCvElsewhere,
   });
   const profileHref = `/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`;
 
@@ -827,7 +849,9 @@ export function PipelineCandidateDock({
                 .join(" · ") ||
                 (candidateDetailQuery.isLoading
                   ? "Wczytywanie profilu…"
-                  : "Brak danych profilowych")}
+                  : candidateDetailQuery.isError
+                    ? "Nie udało się wczytać profilu"
+                    : "Brak danych profilowych")}
             </div>
           </div>
         </div>
@@ -1213,6 +1237,8 @@ export function PipelineCandidateDock({
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
               </div>
+            ) : screeningQuery.isError ? (
+              <DockLoadError what="screening" onRetry={() => void screeningQuery.refetch()} />
             ) : screeningAnswers ? (
               <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-3 text-xs">
                 <div className="flex items-center justify-between">
@@ -1249,11 +1275,11 @@ export function PipelineCandidateDock({
                   </div>
                 )}
               </div>
-            ) : (
+            ) : screeningQuery.isSuccess ? (
               <p className="text-xs text-muted-foreground">
                 Brak jeszcze wypełnionego screeningu dla tego etapu.
               </p>
-            )}
+            ) : null}
           </div>
         </DockSection>
 
@@ -1334,14 +1360,17 @@ export function PipelineCandidateDock({
               ) : null}
               {!readOnly && (
                 <>
-                  {stageCv === "ready" ? (
+                  {stageCv === "ready" || pairCvElsewhere ? (
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => setOpenBranded(true)}
                       className="justify-start"
                     >
-                      <FileText className="h-3.5 w-3.5" /> Edytuj CV
+                      <FileText className="h-3.5 w-3.5" />{" "}
+                      {pairCvElsewhere?.stage_name
+                        ? `Edytuj CV (etap „${pairCvElsewhere.stage_name}”)`
+                        : "Edytuj CV"}
                     </Button>
                   ) : (
                     <Button
@@ -1410,6 +1439,8 @@ export function PipelineCandidateDock({
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
               </div>
+            ) : notesQuery.isError ? (
+              <DockLoadError what="notatki" onRetry={() => void notesQuery.refetch()} />
             ) : (notesQuery.data?.items ?? []).length > 0 ? (
               <div className="space-y-2">
                 {(notesQuery.data?.items ?? []).map((n) => (
@@ -1429,11 +1460,11 @@ export function PipelineCandidateDock({
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : notesQuery.isSuccess ? (
               <p className="text-xs text-muted-foreground">
                 Brak notatek dla tej rekrutacji.
               </p>
-            )}
+            ) : null}
           </div>
         </DockSection>
       </div>
@@ -1529,9 +1560,16 @@ export function PipelineCandidateDock({
       {!readOnly && openBranded && (
         <CVBrandedEditModal
           open
-          onOpenChange={setOpenBranded}
+          onOpenChange={(open) => {
+            setOpenBranded(open);
+            if (!open) {
+              void queryClient.invalidateQueries({
+                queryKey: ["cv-share-tokens-recruitment", item.candidate_id, jobId],
+              });
+            }
+          }}
           onRegenerate={() => setOpenGenerator(true)}
-          stageId={item.id}
+          stageId={editStageId}
           jobTitle={jobLabel}
           candidateName={fullName}
         />

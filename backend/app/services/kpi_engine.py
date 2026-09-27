@@ -16,6 +16,7 @@ skalowanie idzie po dniach pon-pt i w obrębie dnia.
 
 from __future__ import annotations
 
+import calendar
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from typing import Literal, Optional
@@ -134,7 +135,7 @@ def expected_progress_ratio(period: KpiPeriod, now: datetime) -> float:
     - day: 0% przed 9:00, 100% po 17:30, liniowo w środku.
     - week: (zakończone_dni_robocze * 1.0 + bieżący_ratio_dnia) / 5; cap 1.0
       dla weekendu.
-    - month: (day_of_month - 1 + ratio_dnia) / days_in_month.
+    - month: (zakończone_dni_robocze + ratio_dnia) / dni_robocze_miesiąca.
     """
     now_w = _as_warsaw(now)
 
@@ -176,18 +177,21 @@ def expected_progress_ratio(period: KpiPeriod, now: datetime) -> float:
         return min(1.0, (completed_days + today_ratio) / len(workdays))
 
     if period == KpiPeriod.month:
-        # Ile dni w miesiącu
-        if now_w.month == 12:
-            next_month = now_w.replace(year=now_w.year + 1, month=1, day=1)
-        else:
-            next_month = now_w.replace(month=now_w.month + 1, day=1)
-        days_in_month = (
-            next_month.replace(hour=0, minute=0, second=0, microsecond=0)
-            - now_w.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        ).days
-        completed_days = now_w.day - 1
-        today_ratio = _intraday_ratio(now_w)
-        return min(1.0, (completed_days + today_ratio) / max(days_in_month, 1))
+        # Runda 10 (R10-V1-5): miesiąc liczył dni KALENDARZOWE — 4 maja rano
+        # (po 1–3 maja) oczekiwał ~10% celu przy zerze dni roboczych, więc
+        # KPI był „behind” i coach ponaglał. Ta sama reguła co tydzień.
+        days_in_month = calendar.monthrange(now_w.year, now_w.month)[1]
+        first = now_w.replace(day=1)
+        workdays = [
+            day
+            for day in (first + timedelta(days=i) for i in range(days_in_month))
+            if is_business_day(day)
+        ]
+        if not workdays:
+            return 0.0
+        completed_days = sum(1 for day in workdays if day.date() < now_w.date())
+        today_ratio = _intraday_ratio(now_w) if is_business_day(now_w) else 0.0
+        return min(1.0, (completed_days + today_ratio) / len(workdays))
 
     raise ValueError(f"Unknown period: {period}")  # pragma: no cover
 

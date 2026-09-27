@@ -15,7 +15,9 @@ Cztery fazy:
    zostało) trafia do paragonu w ``app_settings``;
 4. wersja składania tekstu (``FOLD_VERSION``): inna niż zapisana = przeliczenie
    wszystkich wierszy obu kolumn. Dopiero po niej ``fold_ready()`` i
-   ``notes_ready()``.
+   ``notes_ready()``;
+5. lista pól korpusu (``CORPUS_SOURCES_VERSION``): inna niż zapisana =
+   jednorazowe przeliczenie wierszy, których dotyczy nowa kolumna.
 
 Do końca fazy zapytania korzystają ze starej ścieżki — wyniki są pełne przez
 cały czas.
@@ -452,6 +454,78 @@ async def _version_phase() -> None:
     keyword_corpus.mark_notes_ready(True)
 
 
+class CorpusTriggerOutdated(RuntimeError):
+    """Trigger korpusu w bazie nie zna jeszcze bieżącej listy pól."""
+
+
+async def _db_trigger_has_sources() -> bool:
+    async with AsyncSessionLocal() as db:
+        source = (
+            await db.execute(
+                text(
+                    "SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure(:signature)"
+                ),
+                {"signature": f"{keyword_corpus.TRIGGER_FUNCTION}()"},
+            )
+        ).scalar()
+    return keyword_corpus.CORPUS_SOURCES_MARKER_COLUMN in (source or "")
+
+
+async def _stored_sources_version() -> int | None:
+    async with AsyncSessionLocal() as db:
+        value = (
+            await db.execute(
+                text("SELECT value FROM app_settings WHERE key = :key"),
+                {"key": keyword_corpus.CORPUS_SOURCES_VERSION_KEY},
+            )
+        ).scalar()
+    return _parse_stored_fold_version(value)
+
+
+async def _sources_phase() -> None:
+    """Nowa kolumna w korpusie = jednorazowe przeliczenie wierszy, które ją mają.
+
+    Runda 10 (F17): ``verified_tech`` weszło do korpusu. Nowe i zmieniane
+    wiersze liczy trigger; zapisane wcześniej przeliczamy tu — bez tego
+    „Python” z „Zweryfikowanych technologii” dalej nie byłby słowem kluczowym
+    do najbliższej edycji kandydata. Przerwane przeliczenie zaczyna od nowa
+    (wierszy z tą kolumną jest mało).
+    """
+    if await _stored_sources_version() == keyword_corpus.CORPUS_SOURCES_VERSION:
+        return
+    if not await _db_trigger_has_sources():
+        raise CorpusTriggerOutdated(
+            f"{keyword_corpus.TRIGGER_FUNCTION} w bazie nie zna kolumny "
+            f"{keyword_corpus.CORPUS_SOURCES_MARKER_COLUMN}"
+        )
+    after = 0
+    rows = 0
+    while True:
+        last = await _fill_keyset_batch(
+            keyword_corpus.SOURCES_RECOMPUTE_BATCH_SQL,
+            after,
+            _BATCH,
+            keyword_corpus.TRIGGER_NAME,
+        )
+        if not last:
+            break
+        after = last
+        rows += _BATCH
+        await asyncio.sleep(_PAUSE_SECONDS)
+    await _upsert_setting(
+        keyword_corpus.CORPUS_SOURCES_VERSION_KEY,
+        {
+            "version": keyword_corpus.CORPUS_SOURCES_VERSION,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    logger.info(
+        "keyword corpus sources v%d recomputed: ~%d candidates",
+        keyword_corpus.CORPUS_SOURCES_VERSION,
+        rows,
+    )
+
+
 async def keyword_corpus_backfill_loop() -> None:
     phases = (
         _swap_process_version,
@@ -459,6 +533,7 @@ async def keyword_corpus_backfill_loop() -> None:
         _fold_phase,
         _notes_phase,
         _version_phase,
+        _sources_phase,
     )
     index = 0
     while index < len(phases):
@@ -467,7 +542,7 @@ async def keyword_corpus_backfill_loop() -> None:
             index += 1
         except asyncio.CancelledError:
             raise
-        except (TriggerMissing, FoldFunctionOutdated) as exc:
+        except (TriggerMissing, FoldFunctionOutdated, CorpusTriggerOutdated) as exc:
             # Zapytania dalej działają (stara ścieżka); trigger dołoży następny
             # start przez siatkę DDL w entrypoincie.
             logger.error("keyword corpus backfill stopped: %s", exc)

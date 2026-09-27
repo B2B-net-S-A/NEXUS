@@ -271,8 +271,12 @@ async def test_global_candidate_mentions_exclude_viewer_role_unions(
         viewer,
         malformed_finance_admin,
     ]
+    # Runda 10 (R10-N6-4): wzmianka to wyłącznie `@e-mail` — pierwsze zapytanie
+    # zamienia adresy na id, drugie czyta konta.
+    email_rows = MagicMock()
+    email_rows.all.return_value = [(1,), (2,), (3,), (4,)]
     db = AsyncMock()
-    db.execute.return_value = result
+    db.execute.side_effect = [email_rows, result]
     # This unit exercises the legacy role-union guard only. Runtime policy
     # resolution has its own DB-backed tests; avoid turning this fixture into a
     # partial mock of the role/override tables.
@@ -283,7 +287,8 @@ async def test_global_candidate_mentions_exclude_viewer_role_unions(
 
     # Finance (2) i hybryda finance+admin (4) wchodzą od 19.08 — wykluczony
     # zostaje wyłącznie viewer `user` (3).
-    assert await parse_mentions_global(db, "@1 @2 @3 @4") == [1, 2, 4]
+    content = " ".join(f"@u{uid}@example.com" for uid in (1, 2, 3, 4))
+    assert await parse_mentions_global(db, content) == [1, 2, 4]
 
 
 def test_all_chat_routes_declare_candidate_read_or_write_guards() -> None:

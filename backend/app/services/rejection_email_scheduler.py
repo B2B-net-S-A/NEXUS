@@ -33,7 +33,7 @@ from html import escape as html_escape
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -692,8 +692,26 @@ async def _mark_send_outcome_unknown(
 async def _previous_row_client_visible(
     db: AsyncSession, current: CandidateStage
 ) -> bool:
-    """Poprzedni wiersz pary (przed odrzuceniem) — widoczny dla klienta?"""
+    """Poprzedni wiersz pary (przed odrzuceniem) — widoczny dla klienta?
+
+    Runda 10 (R10-V2-9): „poprzedni” w kolejności ``moved_at, id`` — tej
+    samej, w której Tablica, okno odrzucenia i ``/move`` wybierają bieżący
+    wiersz. Import Traffita dopisuje wiersze historyczne (starszy
+    ``moved_at``, wyższe id), więc kolejność po samym id wskazywała import
+    „Nowi” zamiast „CV wysłane”.
+    """
     from app.models.pipeline_template import PipelineStageDef
+
+    if current.moved_at is None:
+        before = CandidateStage.id < current.id
+    else:
+        before = or_(
+            CandidateStage.moved_at < current.moved_at,
+            and_(
+                CandidateStage.moved_at == current.moved_at,
+                CandidateStage.id < current.id,
+            ),
+        )
 
     row = (
         await db.execute(
@@ -709,9 +727,10 @@ async def _previous_row_client_visible(
             .where(
                 CandidateStage.candidate_id == current.candidate_id,
                 CandidateStage.job_id == current.job_id,
-                CandidateStage.id < current.id,
+                CandidateStage.id != current.id,
+                before,
             )
-            .order_by(CandidateStage.id.desc())
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
             .limit(1)
         )
     ).first()

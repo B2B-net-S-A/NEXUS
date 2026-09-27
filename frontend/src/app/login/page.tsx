@@ -8,7 +8,7 @@ import api, { extractErrorMsg } from "@/lib/api";
 import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
 import { clearSessionArtifacts, getAccessToken, hasAuthCookie } from "@/lib/session";
 import { ssoErrorMessage } from "@/lib/sso-error";
-import { saveSsoBrowserNonce } from "@/lib/sso-browser-nonce";
+import { saveSsoBrowserNonce, saveSsoNextPath } from "@/lib/sso-browser-nonce";
 import { safeInternalPath } from "@/lib/safe-href";
 import { postLoginDestination, useAuthStore } from "@/store/auth";
 import { AlertCircle, ArrowRight, Info } from "lucide-react";
@@ -208,6 +208,8 @@ function LoginForm() {
       if (!data?.authorize_url) throw new Error("Brak authorize_url w odpowiedzi");
       // Sekret tej karty — callback odeśle go przy /exchange (R9-N1-4).
       saveSsoBrowserNonce(data.browser_nonce);
+      // Callback ma własny adres, więc `?next=` zapamiętujemy w tej karcie.
+      saveSsoNextPath(searchParams.get("next"));
       window.location.href = data.authorize_url;
     } catch (err: unknown) {
       // extractErrorMsg zamiast surowego `e.message` — inaczej 429 z limitera

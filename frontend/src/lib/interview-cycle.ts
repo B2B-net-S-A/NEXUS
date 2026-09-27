@@ -75,6 +75,28 @@ export interface SlotRequest {
   duration_minutes: number;
   note: string | null;
   event_id: number | null;
+  /** Tylko w odpowiedzi na utworzenie wniosku: karta pojechała na „Rozmowę u klienta”. */
+  moved_to_client_interview?: boolean;
+  /** Runda 10 (F09): dlaczego karta została (`cv_not_sent` — CV nie wysłane). */
+  move_skipped_reason?: string | null;
+}
+
+/** Komunikat po zapisaniu terminów od klienta (runda 10, F09). */
+export function slotsCreatedMessage(res: Pick<SlotRequest, "move_skipped_reason">): string {
+  if (res.move_skipped_reason === "cv_not_sent") {
+    return (
+      "Terminy wysłane rekruterowi. Karta kandydata została na swoim etapie — " +
+      "CV nie zostało jeszcze wysłane do klienta. Przesuń ją na tablicy rekrutacji " +
+      "(QC CV → CV wysłane)."
+    );
+  }
+  if (res.move_skipped_reason) {
+    return (
+      "Terminy wysłane rekruterowi. Karta kandydata została na swoim etapie — " +
+      "przesunięcie wymaga decyzji na tablicy rekrutacji."
+    );
+  }
+  return "Terminy wysłane rekruterowi — ustali termin z kandydatem.";
 }
 
 /** Stan blokady przełożonej rozmowy w Outlooku rekrutera (lustro

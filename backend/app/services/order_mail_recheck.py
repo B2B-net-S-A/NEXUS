@@ -140,6 +140,10 @@ class RecheckRunResult:
     failed_retried: int = 0
     failed_recovered: int = 0
     details: list[dict[str, Any]] = field(default_factory=list)
+    #: Czy bieg faktycznie przeglądał kolejkę (poza oknem godzin albo przy
+    #: wyłączonym recheku — nie). Licznik awarii z rzędu w biegu skrzynki
+    #: (R10-N12-6) nie może się zerować przez bieg, który nic nie sprawdził.
+    ran: bool = False
 
 
 def recheck_enabled() -> bool:
@@ -225,6 +229,10 @@ def failed_retry_pending(
     więc brak pliku = brak ponowień.
     """
     if row.outcome != OUTCOME_FAILED or not row.storage_path or not has_file:
+        return False
+    if not recheck_enabled():
+        # Runda 10 (R10-N3-11): ponowienia robi wyłącznie ``run_recheck`` —
+        # przy wyłączonym recheku kolejka nie może obiecywać „system ponawia”.
         return False
     if failed_retry_attempts(row) >= FAILED_RETRY_MAX_ATTEMPTS:
         return False
@@ -348,9 +356,16 @@ async def _retry_failed_one(
     try:
         row.error = None
         await process_pdf_bytes(db, row, payload, registry=registry)
+        # Przetworzenie bez wyjątku nie zawsze jest odzyskaniem: nieczytelny
+        # tekst zostawia wpis w „Nieudanych” (R10-N3-3).
+        outcome_meta = (
+            {"last_failure": "nieczytelny tekst"}
+            if row.outcome == OUTCOME_FAILED
+            else {"recovered_at": now.isoformat()}
+        )
         row.document_meta = {
             **(row.document_meta or {}),
-            "failed_retry": {**meta, "recovered_at": now.isoformat()},
+            "failed_retry": {**meta, **outcome_meta},
         }
         db.add(row)
         await db.commit()
@@ -758,6 +773,7 @@ async def run_recheck(
         # NIE jest tu przesuwany. Ręczne „Pobierz zamówienia z maila"
         # (`trigger="manual"`) tu nie trafia.
         return result
+    result.ran = True
     # Najpierw wpisy „Nieudane”: udane ponowienie zwykle kończy się „Do
     # weryfikacji”, więc ten sam bieg od razu przelicza je dalej.
     try:

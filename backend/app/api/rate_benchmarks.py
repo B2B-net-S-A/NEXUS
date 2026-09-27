@@ -13,6 +13,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
@@ -32,6 +33,28 @@ router = APIRouter()
 
 # audyt 22.09 r2 (SEC-03): górna granica wczytywanego CSV.
 MAX_CSV_BYTES = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+
+# Runda 10 (R10-N13-3): długości kolumn i zakres ``Integer`` sprawdzane PRZED
+# zapisem — inaczej ``DataError`` z bazy zamiast powodu przy wierszu.
+_ROLE_MAX = 160
+_SOURCE_MAX = 200
+_LOCATION_MAX = 120
+_INT32_MAX = 2_147_483_647
+
+
+def _check_length(field: str, value: Optional[str], limit: int) -> None:
+    if value is not None and len(value) > limit:
+        raise ValueError(f"{field} longer than {limit} characters")
+
+
+def _rate_int(field: str, raw: Optional[str]) -> Optional[int]:
+    if not raw:
+        return None
+    value = int(raw)
+    if not 0 <= value <= _INT32_MAX:
+        raise ValueError(f"{field} out of range (0–{_INT32_MAX})")
+    return value
 
 
 @router.get("", response_model=List[RateBenchmarkResponse])
@@ -152,11 +175,15 @@ async def import_benchmarks(
     errors: list[str] = []
 
     for row_num, row in enumerate(reader, start=2):  # header is row 1
-        lower_row = {
-            k.strip().lower(): (v.strip() if isinstance(v, str) else v)
-            for k, v in row.items()
-        }
         try:
+            # Runda 10 (R10-N13-3): nadmiarowe kolumny DictReader wkłada pod
+            # klucz ``None`` — ``None.strip()`` poza ``try`` dawało 500 i cały
+            # plik przepadał. Nadmiar pomijamy.
+            lower_row = {
+                k.strip().lower(): (v.strip() if isinstance(v, str) else v)
+                for k, v in row.items()
+                if isinstance(k, str)
+            }
             role = lower_row.get("role")
             rate_unit_str = (lower_row.get("rate_unit") or "").lower()
             median_str = lower_row.get("market_median")
@@ -177,29 +204,42 @@ async def import_benchmarks(
             seniority_val = lower_row.get("seniority")
             seniority_enum = SeniorityLevel(seniority_val) if seniority_val else None
 
+            location = lower_row.get("location") or None
+            _check_length("role", role, _ROLE_MAX)
+            _check_length("source", source, _SOURCE_MAX)
+            _check_length("location", location, _LOCATION_MAX)
+            market_min = _rate_int("market_min", lower_row.get("market_min"))
+            market_median = _rate_int("market_median", median_str)
+            market_max = _rate_int("market_max", lower_row.get("market_max"))
+
             row_obj = RateBenchmark(
                 role=role,
                 seniority=seniority_enum,
                 currency=(lower_row.get("currency") or "PLN").upper()[:3],
                 rate_unit=RateUnit(rate_unit_str),
-                market_min=int(lower_row["market_min"])
-                if lower_row.get("market_min")
-                else None,
-                market_median=int(median_str),
-                market_max=int(lower_row["market_max"])
-                if lower_row.get("market_max")
-                else None,
+                market_min=market_min,
+                market_median=market_median,
+                market_max=market_max,
                 source=source,
                 source_date=date.fromisoformat(source_date_str),
-                location=lower_row.get("location") or None,
+                location=location,
                 notes=lower_row.get("notes") or None,
                 created_by=current_user.id,
             )
-            db.add(row_obj)
-            created += 1
         except Exception as exc:  # noqa: BLE001
             skipped += 1
             errors.append(f"row {row_num}: {exc}")
+            continue
+        # Każdy wiersz we własnym savepoincie: błąd bazy jednego wiersza nie
+        # zabiera pozostałych (dotąd jedno ``flush`` na końcu = 500 dla pliku).
+        try:
+            async with db.begin_nested():
+                db.add(row_obj)
+                await db.flush()
+        except SQLAlchemyError:
+            skipped += 1
+            errors.append(f"row {row_num}: nie udało się zapisać wiersza")
+            continue
+        created += 1
 
-    await db.flush()
     return RateBenchmarkImportResult(created=created, skipped=skipped, errors=errors)

@@ -6,6 +6,7 @@ import {
   defaultEntryDate,
   effectiveTransferMethod,
   freePoolMd,
+  mdAtIncomingRate,
   mdOverFreePool,
   sourceDepartingRate,
   swapBlockedReason,
@@ -176,3 +177,40 @@ describe("zamiana kontraktora a zaplanowany następca (runda 8, N5-1)", () => {
     );
   });
 });
+
+describe("przeliczenie po stawce przychodzącego = serwer (R10-X1-2)", () => {
+  function incoming(remaining: number, departingRate: number, incomingRate: number) {
+    return transferPreview({ unit: "amount", remaining, departingRate, incomingRate })
+      ?.options.find((o) => o.method === "incoming_rate")?.md;
+  }
+
+  it("połówka dziesiątej części idzie w górę jak Decimal ROUND_HALF_UP", () => {
+    // 4,1 × 1500 = 6150 zł ÷ 1000 = 6,15 → 6,2 MD (floaty dawały 6,1).
+    expect(incoming(4.1, 1500, 1000)).toBe(6.2);
+    // 2,3 × 1350 = 3105 zł ÷ 900 = 3,45 → 3,5 MD.
+    expect(incoming(2.3, 1350, 900)).toBe(3.5);
+  });
+
+  it("zwykłe przypadki i grosze w stawkach", () => {
+    expect(mdAtIncomingRate(10, 1000, 800)).toBe(12.5);
+    expect(mdAtIncomingRate(3, 1000, 900)).toBe(3.3);
+    expect(mdAtIncomingRate(0.1, 1234.56, 1000)).toBe(0.1);
+    expect(mdAtIncomingRate(187, 800, 760)).toBe(196.8);
+    expect(mdAtIncomingRate(1e-7, 1, 1)).toBe(0);
+  });
+
+  it("siatka 0,1–40 MD × typowe stawki zgadza się z arytmetyką dziesiętną", () => {
+    const rates = [700, 760, 800, 900, 1000, 1200, 1350, 1500];
+    for (let tenths = 1; tenths <= 400; tenths += 1) {
+      for (const dep of rates) {
+        for (const inc of rates) {
+          // Całkowite: (tenths × dep ÷ inc) z połówką w górę, w dziesiątych MD.
+          const num = tenths * dep;
+          const expected = (Math.floor(num / inc) + (2 * (num % inc) >= inc ? 1 : 0)) / 10;
+          expect(mdAtIncomingRate(tenths / 10, dep, inc)).toBe(expected);
+        }
+      }
+    }
+  });
+});
+

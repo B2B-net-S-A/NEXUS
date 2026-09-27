@@ -35,6 +35,7 @@ import {
   registerImportReasonLabel,
 } from "@/lib/b2b-register-import";
 import { formatIsoDatePl } from "@/lib/date-pl";
+import { warsawDateOf } from "@/lib/warsaw-date";
 
 export const REGISTER_IMPORT_RUNS_KEY = ["b2b-register-import-runs"] as const;
 
@@ -228,7 +229,7 @@ function RunsList({ onRollback }: { onRollback: (run: B2BRegisterImportRun) => v
         {runs.data.map((run) => (
           <tr key={run.id} className="border-b">
             <td className="py-2 pr-4">
-              {run.created_at ? formatIsoDatePl(run.created_at.slice(0, 10)) : "—"}
+              {run.created_at ? formatIsoDatePl(warsawDateOf(run.created_at)) : "—"}
             </td>
             <td className="py-2 pr-4">{run.filename}</td>
             <td className="py-2 pr-4">

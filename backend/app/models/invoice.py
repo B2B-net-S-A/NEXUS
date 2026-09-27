@@ -2,9 +2,10 @@
 
 import enum
 from datetime import date
+from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -40,7 +41,8 @@ class Invoice(Base, TimestampMixin):
     issue_date: Mapped[date] = mapped_column(Date, nullable=False)
     due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     paid_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Runda 10 (R10-X1-1): kwota z groszami (0391; wcześniej INTEGER).
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="PLN", nullable=False)
     status: Mapped[InvoiceStatus] = mapped_column(
         Enum(InvoiceStatus, name="invoicestatus"),

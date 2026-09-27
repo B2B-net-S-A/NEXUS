@@ -122,6 +122,17 @@ describe("mergeProposals", () => {
     expect(entries.map((e) => e.row.candidateId)).toEqual([2]);
   });
 
+  it("pominięci znikają ze WSZYSTKICH źródeł, nie tylko ze skrzynki (R10-N7-1)", () => {
+    const entries = mergeProposals({
+      inbox: [inboxItem(2)],
+      run: { runId: "r", rows: [runRow(1, 80), runRow(3, 75)] },
+      similar: [similar(1), similar(4)],
+      recommendations: { items: [recommendation(1, 60), recommendation(5, 50)], degraded: false },
+      dismissedCandidateIds: [1],
+    });
+    expect(entries.map((e) => e.row.candidateId).sort()).toEqual([2, 3, 4, 5]);
+  });
+
   it("sortuje stabilnie: wynik malejąco (null na końcu), potem nowe, potem nazwisko", () => {
     const entries = mergeProposals({
       inbox: [
@@ -233,6 +244,13 @@ describe("mergeProposals", () => {
     expect(byId.get(1)?.warnings).toContain("employment_only");
     expect(byId.get(2)?.warnings).not.toContain("employment_only");
     expect(EMPLOYMENT_ONLY_WARNING_PL).toBe("Tylko umowa o pracę");
+  });
+
+  it("dzień przekazania to dzień w Warszawie, nie UTC (R10-X1-3)", () => {
+    // 30.09 22:30 UTC = 1.10 00:30 w Warszawie.
+    expect(
+      traineeHandoverReason({ by_name: "Ola", note: null, at: "2026-09-30T22:30:00+00:00" }),
+    ).toBe("Od praktykanta: Ola · 01.10");
   });
 
   it("przekazanie bez nazwiska i daty nie zmyśla danych", () => {

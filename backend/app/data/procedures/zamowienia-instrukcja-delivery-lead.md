@@ -275,7 +275,10 @@ jest istotna:
   czeka w „Umowach bez projektu". Innej drogi do „Zakończonego" nie ma: lista
   statusu i „Oznacz zakończone" otwierają to samo okno.
   Umowy **unieważnionej** nie da się zakończyć — system odmówi, bo to już
-  stan końcowy. Szkic zakończony z datą w przyszłości zostaje szkicem do tej
+  stan końcowy. **Data zakończenia projektu nie może być wcześniejsza niż start
+  kontraktu** — system odmówi i niczego nie zmieni (zamówienia też zostają).
+  Jeżeli współpraca w ogóle się nie zaczęła, kontrakt się unieważnia, a nie
+  kończy. Szkic zakończony z datą w przyszłości zostaje szkicem do tej
   daty, a dzień po niej sam przechodzi do „Zakończonych".
 
 Data w przyszłości w obu przypadkach zapisuje się od razu, ale **nie wyłącza
@@ -309,6 +312,13 @@ Jeżeli konsultant jest już obsadzony na **zamówieniu MD** u tego klienta, sys
 To nie jest ograniczenie na siłę: oba zapisy wiszą na tej samej umowie, więc
 duplikat mylił liczby i przy zakończeniu jednego znikał drugi. Gdy trzeba zmienić
 warunki — edytuj linię w zamówieniu zbiorczym.
+
+Dwa **zamówienia okresowe** tej samej osoby u klienta też nie mogą obowiązywać
+w tym samym czasie. Przedłużenie, które nachodzi na obowiązujące (albo
+zakończone) zamówienie — np. 01.12–31.03 obok 01.10–31.12 — system odrzuci
+i powie, od którego dnia zacząć nowe zamówienie (dzień po końcu poprzedniego),
+albo że najpierw trzeba skrócić poprzednie. To samo przy zmianie dat zamówienia.
+Szkice i anulowane zamówienia tej reguły nie blokują.
 
 Zamówienie **kosztowe** i okresowe u tej samej osoby mogą istnieć obok siebie —
 to dwa różne modele rozliczenia i są od siebie niezależne.
@@ -424,7 +434,10 @@ uzupełnienia"** (zamówienie trafi do **📝 Draft**). Aktywne zamówienie MD
 z budżetem per osoba musi mieć co najmniej jednego konsultanta.
 
 Wybór typu **Okresowe** w tym oknie przenosi Cię do formularza „Nowy kontraktor
-/ zamówienie" (jedna osoba) — wgrany PDF przechodzi razem z Tobą.
+/ zamówienie" (jedna osoba) — wgrany PDF, numer, okres i notatka przechodzą
+razem z Tobą. Przełączanie w drugą stronę działa tak samo, a po powrocie do
+**Okresowego** formularz ma z powrotem wpisanego kandydata, rekrutację, daty,
+stawki i notatkę. Zapisuje się zawsze typ wybrany w chwili zapisu.
 
 > **Jeżeli plik nie wejdzie, zamówienie i tak zostało zapisane.** Zapis
 > zamówienia i wysłanie pliku to dwie osobne operacje. System powie Ci wprost, że
@@ -477,7 +490,7 @@ datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 | **Uzupełnij zamówienie** | edycja numeru, budżetu, dat, notatek, podmiana PDF-a; w nowym szkicu MD także wybór trybu i aktywacja, a przy aktywnej wspólnej puli — miesięczne zużycie. **Zczytaj dane z dokumentu** czyta tu PDF tak samo jak w „Nowe zamówienie": osoby z dokumentu, których **nie ma jeszcze na zamówieniu**, dostają karty do dopisania (z tymi samymi odznakami i decyzjami — także osoba bez aktywnej współpracy albo nieznaleziona), a osoby, które **już są**, wypisane są w ramce „Już na zamówieniu" bez drugiej karty (gdy dokument podaje dla niej inne MD albo stawkę, ramka to mówi — zmieniasz je w „Edytuj linię"). Osoby, która już pracuje na tym zamówieniu, nie dopiszesz drugi raz — także wskazanej ręcznie. **Zapisz** dopisuje wszystkie karty naraz albo żadnej; przy aktywacji szkicu najpierw dopisuje osoby, potem aktywuje |
 | **Dodaj przedłużenie** | zakłada **nowe** zamówienie podpięte pod obecne (patrz niżej) |
 | **Zakończ** | okienko „Zakończ zamówienie": obowiązkowa data + opcjonalny powód |
-| **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Osoba, której umowę w międzyczasie **unieważniono**, nie wraca; osoba z umową **zakończoną** wraca jako zakończona z datą zakończenia umowy (jak po „Zakończ współpracę”). Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet; dotyczy to też zamówienia, które było wyczerpane w chwili zakończenia |
+| **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Osoba, której umowę w międzyczasie **unieważniono**, nie wraca, a jej data końca zostaje z dnia zakończenia zamówienia; osoba z umową **zakończoną** wraca jako zakończona z datą zakończenia umowy, a przy zamówieniu MD z niewykorzystanymi dniami — ze sprawą o pozostałe MD (jak po „Zakończ współpracę”). Datę końca sprzed zakończenia odzyskują tylko osoby, które wracają na zamówienie. Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet; dotyczy to też zamówienia, które było wyczerpane w chwili zakończenia |
 | **Anuluj zamówienie** | dla zamówienia, które **nie doszło do skutku** albo zostało założone omyłkowo, a chcesz zachować jego historię. Zamówienie i jego konsultanci dostają status „Anulowane”, znikają z aktywnych zamówień, sum, alertów i rozliczeń, ale zostają w rejestrze (filtr **Anulowane**). **Zamówienia z rozliczeniami (zaraportowane MD, faktury) nie anulujesz** — system odmówi i wskaże, co blokuje; wtedy właściwą akcją jest **Zakończ**. Anulowanego zamówienia nie edytujesz, nie kończysz ani nie przedłużasz |
 | **Przywróć anulowane** | cofa anulowanie: zamówienie wraca do stanu sprzed niego (np. „Aktywne”), a konsultanci — do swoich statusów; osoba, której okres w międzyczasie minął, wraca jako zakończona; osoba, której umowę w międzyczasie zakończono, wraca jako zakończona, ze sprawą o pozostałe MD (jak po „Zakończ współpracę”), a osoba z unieważnioną umową zostaje anulowana |
 | **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Razem z zamówieniem znikają jego linie — **nie powstają z nich osobne zamówienia okresowe**. Okno usuwania pokazuje skutki dla umów: jeśli zamówienie niosło jedyną stawkę klienta na umowie, umowa zostaje **bez przychodu** (stawka klienta i marża znikają), a gdy są inne zamówienia — okres, którego dotyczyło, przejdzie na ich stawkę |
@@ -867,7 +880,8 @@ kolejka miała w menu własną pozycję „Zamówienia z maila", a stare linki
 z powiadomień nadal do niej prowadzą.
 
 Automatyczny odczyt załączników ze skrzynki **zamowienia@b2bnetwork.pl**
-przygotowuje plan dla osób rozpoznanych w dokumencie. Trzy sytuacje zawsze
+przygotowuje plan dla osób rozpoznanych w dokumencie (czytane są także PDF-y
+wstawione w treść maila). Trzy sytuacje zawsze
 czekają na Ciebie w kolejce: **waluta inna niż PLN** (zapis bierze walutę
 z dokumentu), **okres niepotwierdzony regułą klienta** u BIK, Polkomtela, BNP,
 PFRON i Credit Agricole (tam liczy się wyłącznie okres z dokumentu) oraz
@@ -964,7 +978,10 @@ dołącz do niego PDF, jeśli ma zostać nietknięty. Draft na linii zamówienia
 albo kosztowego zostaje przy linii: system **nie wypełnia go** jak zamówienia
 okresowego (bez budżetu MD i bez zamówienia zbiorczego) i nie zakłada obok niego
 osobnego zamówienia — plan pokazuje „Linia grupy (zapis ręczny)”, a linię
-uzupełniasz w oknie zamówienia klienta.
+uzupełniasz w oknie zamówienia klienta. To samo dotyczy osoby, która jest na
+**aktywnej** linii zamówienia MD albo kosztowego: nowy PDF dla niej (także na
+okres po dacie końca linii — linia MD kończy się budżetem, nie datą) czeka
+w weryfikacji, a kolejne zamówienie zapisujesz w oknie zamówienia klienta.
 
 **Ten sam numer zamówienia** to numer identyczny po pominięciu spacji i wielkości
 liter. Krótsza forma numeru (np. „30751” zamiast „4500030751”) liczy się jako ten
@@ -1022,7 +1039,10 @@ godzinowej ponownej weryfikacji i nie wystawia karty Delivery Leadowi.
 **Klient scalony z innym rekordem** zostaje do odczytu: jego dawne zamówienia
 obejrzysz i pobierzesz, ale nowego zamówienia, edycji, dodania konsultanta,
 przedłużenia ani przywrócenia u niego nie zapiszesz — system odpowie, z którym
-rekordem go scalono. Zamówienia prowadzisz u rekordu głównego.
+rekordem go scalono. Zamówienia prowadzisz u rekordu głównego. Dokument z maila,
+który czekał w weryfikacji przy klientcie scalonym później, przechodzi na rekord
+główny przy najbliższym „Przelicz plan” albo godzinowej ponownej weryfikacji;
+„Zastosuj” kliknięte wcześniej odmawia z prośbą o przeliczenie planu.
 
 Gdy mail przychodzi przed umową, draft czeka na koszt i podpis. Po obustronnym
 podpisaniu umowy system pobiera koszt z umowy i aktywuje kompletny draft.
@@ -1543,21 +1563,29 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   zamówienia tej osoby, wiersz nie zejdzie po nazwisku i trafi do sprawdzenia.
   Usuń takie ciągi z „Uwag" albo wpisz tam właściwy numer. Ponowny
   import miesiąca z numerem cofa nadwyżkę przeniesioną wcześniej na
-  przedłużenie — te same MD nie liczą się dwa razy. Numer z samych cyfr jest
+  przedłużenie, a z numerem przedłużenia — część miesiąca zaksięgowaną
+  wcześniej na poprzednim zamówieniu (wpis w historii „cofnięto … MD”) —
+  te same MD nie liczą się dwa razy. Numer z samych cyfr jest
   porównywany **bez zer wiodących** — Excel zapisuje „0087020188" jako
   „87020188" i taki wiersz nadal trafia w swoje zamówienie.
 * **Zakończenie współpracy konsultanta nie wyklucza go z importu.** Liczy się
   okres, w którym obsadzał zamówienie — raport za sierpień wgrany we wrześniu
   trafi w osobę, która zeszła 31 sierpnia, i doliczy jej MD. Gdy ta sama osoba
-  w jednym miesiącu zeszła z jednego zamówienia i weszła na drugie, wiersz
-  idzie na to, na którym **nadal pracuje**. Pominięta jest wyłącznie osoba
-  **usunięta z zamówienia**.
+  w jednym miesiącu zeszła z jednego zamówienia i weszła na drugie **u tego
+  samego klienta**, wiersz idzie na to, na którym **nadal pracuje**. Gdy
+  zamówienia są u **różnych klientów** (albo to dwie różne osoby o tym samym
+  nazwisku), wiersz bez numeru trafia do **„Wymaga przypisania”** — system nie
+  zdejmie MD za pracę u jednego klienta z zamówienia drugiego. Pominięta jest
+  wyłącznie osoba **usunięta z zamówienia**.
 * **Zamówienie zakończone z datą w przyszłości nadal przyjmuje import** za
   miesiące, które nie leżą po dacie zakończenia — konsultant pracuje do tej
   daty, choć zamówienie od razu figuruje w „Zakończonych”. Dotyczy MD przy
   osobie, wspólnej puli MD i zamówień kosztowych. Za miesiąc po dacie
   zakończenia wiersz zostanie „Bez zamówienia MD”. Zamówienie
-  **wyczerpane** importu nie przyjmuje. Zamówienie, które zakończyło się samo
+  **wyczerpane** importu nie przyjmuje. Faktura z numerem wyczerpanego
+  zamówienia kosztowego tej osoby dostaje status **„Zamówienie wyczerpane —
+  faktura nierozliczona”** (nie „brak zamówienia”) — podnieś budżet albo dodaj
+  kolejne zamówienie i rozlicz fakturę ręcznie. Zamówienie, które zakończyło się samo
   po wyczerpaniu limitów MD wszystkich osób, dostaje datę zakończenia z dnia
   przeliczenia — raport za bieżący miesiąc nadal na nie trafia.
 * **Przy wspólnej puli MD u dowolnego klienta samo nazwisko nie
@@ -1575,11 +1603,13 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   wiersz niedopasowany.
 * **Wiersz z liczbą MD ujemną, większą niż 1000 albo nieliczbową („NaN”)
   jest odrzucany** i trafia do pominiętych wierszy z numerem i powodem — nie
-  zmienia żadnego budżetu. To samo dotyczy nieczytelnej kwoty faktury
-  (nieskończonej albo powyżej miliarda złotych) i każdej niepustej kwoty,
-  której nie da się odczytać („do ustalenia"). Kwoty w formatach „20 900,00 zł",
-  „20.900,00 zł" i „1,234.56" są czytane poprawnie. Popraw plik i wgraj miesiąc
-  ponownie.
+  zmienia żadnego budżetu. **Nieczytelna kwota faktury** (nieskończona, powyżej
+  miliarda złotych albo tekst, którego nie da się odczytać — „do ustalenia”,
+  „brak”) **nie odrzuca wiersza**: MD z tego wiersza schodzą normalnie, a
+  faktura dostaje status **„Nieczytelna kwota faktury — rozlicz ręcznie”**
+  i nie zdejmuje niczego z zamówienia kosztowego. Kwoty w formatach
+  „20 900,00 zł", „20.900,00 zł" i „1,234.56" są czytane poprawnie. Popraw plik
+  i wgraj miesiąc ponownie.
 * **Zejście, po którym saldo spadłoby poniżej zera, nie jest księgowane samo.**
   Dotyczy puli przy osobie (gdy nadwyżki nie przejmuje przedłużenie) i wspólnej
   puli MD. Wiersz dostaje status **„Do weryfikacji – przekroczenie puli o X MD"**,
@@ -1588,6 +1618,8 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   przyciskiem **„Zatwierdź mimo przekroczenia"** (dwa kliknięcia) — wtedy MD
   schodzą, a historia zamówienia ma dopisek „Przekroczenie puli zatwierdzone
   ręcznie". Przy wspólnej puli zatwierdza się cały miesiąc zamówienia naraz.
+  Zatwierdzenie odmówi, gdy zamówienie ze wspólną pulą zostało w międzyczasie
+  zakończone przed tym miesiącem albo anulowane.
 * **Powtórny import tego samego miesiąca nadpisuje** poprzednie zużycie — MD nie
   odejmą się drugi raz. Przy **wspólnej puli MD** plik korygujący może nieść
   tylko poprawione osoby: MD pozostałych osób z wcześniejszego importu tego
@@ -1828,6 +1860,9 @@ Osobne certyfikaty DocuSign („Certificate of Completion”, „Record Tracking
 „Signer Events”) są pomijane niezależnie od nazwy pliku i nie trafiają na listy
 zamówień. Załącznik bez cech zamówienia także jest pomijany. Właściwy dokument
 z tego samego maila oraz PDF łączący zamówienie z certyfikatem są odczytywane.
+PDF, z którego nie udało się odczytać tekstu (pusty albo prawie pusty odczyt),
+**nie jest pomijany** — trafia do zakładki „Nieudane” i system ponawia odczyt
+z zapisanego pliku.
 Te trzy reguły nie powodują „odczytu niepewnego”; inne błędy, np. niejasna
 osoba lub okres, nadal wymagają weryfikacji. **Osobę i stawkę z tabeli musi
 powtórzyć odczyt AI** — gdy odczyt nie potwierdza osoby albo podaje inną stawkę,

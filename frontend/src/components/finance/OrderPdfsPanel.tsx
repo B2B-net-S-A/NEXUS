@@ -30,6 +30,7 @@ import {
   orderPdfKey,
   orderPdfMonthLabel,
   orderPdfPeriod,
+  orderPdfPeriodInvalid,
   orderPdfStatusLabel,
 } from "@/lib/finance-order-pdfs";
 import { cn } from "@/lib/utils";
@@ -546,7 +547,15 @@ function FileRow({
           </Badge>
         ) : null}
       </span>
-      <span role="cell" className="text-xs text-foreground">
+      <span
+        role="cell"
+        className={cn(
+          "text-xs",
+          orderPdfPeriodInvalid(file)
+            ? "font-medium text-warning-muted-foreground"
+            : "text-foreground",
+        )}
+      >
         {orderPdfPeriod(file)}
       </span>
       <span role="cell" className="text-xs">

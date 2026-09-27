@@ -1,4 +1,4 @@
 {
-  "sha256": "10dface4c447555f151f12f55036087aaaf4699be0281308d71ee055fcc5f28c",
+  "sha256": "bea55c03422bb2ba1784c101a937811d00c032f15152f22187a3dd5ab8a79f8f",
   "source": "backend/app/services/order_mail_ingest.py"
 }

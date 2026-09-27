@@ -101,7 +101,11 @@ const CATEGORY_META: Record<
 > = {
   active: {
     title: "Aktywni klienci",
-    description: "Klienci z podpisaną współpracą",
+    // Runda 10 (F07): zakładkę ustawia manifest portfela albo ręczne
+    // przeniesienie (przy dodaniu — zakładka, w której dodano klienta),
+    // niezależnie od „Statusu klienta” i umów. Dawny opis „z podpisaną
+    // współpracą” nie był prawdą dla prospektów dodanych w tej zakładce.
+    description: "Bieżący portfel — także prospekty przed podpisaniem umowy",
     icon: CheckCircle2,
     iconClassName: "bg-success-muted text-success-muted-foreground",
   },

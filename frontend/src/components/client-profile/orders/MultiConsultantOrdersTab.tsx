@@ -82,6 +82,12 @@ import { NordeaOrderImportPanel } from "./NordeaOrderImportPanel";
 import { OffboardingDecisionModal } from "./OffboardingDecisionModal";
 import { OrderGroupCard, type OrderGroupFocusRequest } from "./OrderGroupCard";
 import { OrderGroupFormModal } from "./OrderGroupFormModal";
+import {
+  commonFieldsOfPeriodic,
+  periodicDraftForReturn,
+  type CarriedOrderFields,
+  type PeriodicOrderDraft,
+} from "@/lib/order-type-switch";
 import { OrderListControls } from "./OrderListControls";
 import { OrderTypeBadge, orderTypeLabel } from "./OrderTypeBadge";
 import { ReplaceWithTakeoverModal } from "./ReplaceWithTakeoverModal";
@@ -215,6 +221,13 @@ export function MultiConsultantOrdersTab({
   // Numer zamówienia wpisany przed zmianą typu — jedzie za użytkownikiem do
   // drugiego formularza tak jak plik; do 09.2026 przepadał (UAT B03).
   const [carriedOrderNumber, setCarriedOrderNumber] = useState("");
+  // Runda 10 (F02): okres/notatka jadą między formularzami przy zmianie typu,
+  // a roboczy stan formularza okresowego czeka na powrót do „Okresowego".
+  const [carriedCommon, setCarriedCommon] = useState<CarriedOrderFields | null>(
+    null,
+  );
+  const [carriedPeriodicDraft, setCarriedPeriodicDraft] =
+    useState<PeriodicOrderDraft | null>(null);
   const [standardOrderModalOpen, setStandardOrderModalOpen] = useState(false);
   const [groupModal, setGroupModal] = useState<{
     open: boolean;
@@ -373,6 +386,8 @@ export function MultiConsultantOrdersTab({
         // Numer przeniesiony przy zmianie typu w porzuconym formularzu nie może
         // wjechać do okna otwartego z kolejki maila — tam numer czyta PDF.
         setCarriedOrderNumber("");
+        setCarriedCommon(null);
+        setCarriedPeriodicDraft(null);
         setMailSource({ docId, file });
         setStandardOrderModalOpen(false);
         setNewOrderType(target.order_type);
@@ -1154,7 +1169,12 @@ export function MultiConsultantOrdersTab({
             <button
               type="button"
               disabled={!query.isSuccess || !contractorQuery.isSuccess}
-              onClick={() => openNewOrderForm(suggestedOrderType)}
+              onClick={() => {
+                // Świeże „Nowe zamówienie" — bez roboczego stanu porzuconego okna.
+                setCarriedCommon(null);
+                setCarriedPeriodicDraft(null);
+                openNewOrderForm(suggestedOrderType);
+              }}
               data-help="client.orders.new"
               className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
             >
@@ -1313,14 +1333,16 @@ export function MultiConsultantOrdersTab({
               ? "cost"
               : newOrderType
         }
-        onOrderTypeChange={(orderType, file, orderNumber) => {
+        onOrderTypeChange={(orderType, file, orderNumber, common) => {
           // Okno okresowe nie zna dokumentów z maila — dokument zostaje w kolejce.
           if (orderType === "periodic") releaseMailSource();
+          setCarriedCommon(common ?? null);
           openNewOrderForm(orderType, file, orderNumber);
         }}
         allowedOrderTypes={allowedOrderTypes}
         initialFile={carriedFile}
         initialOrderNumber={carriedOrderNumber}
+        initialCommon={carriedCommon}
         autoReadFile={mailSource?.file ?? null}
         sourceNotice={
           mailSource
@@ -1348,10 +1370,15 @@ export function MultiConsultantOrdersTab({
           }
           defaultRateUnit={defaultRateUnit}
           orderType={newOrderType}
-          onOrderTypeChange={openNewOrderForm}
+          onOrderTypeChange={(orderType, file, orderNumber, draft) => {
+            setCarriedPeriodicDraft(draft ?? null);
+            setCarriedCommon(draft ? commonFieldsOfPeriodic(draft) : null);
+            openNewOrderForm(orderType, file, orderNumber);
+          }}
           allowedOrderTypes={allowedOrderTypes}
           initialFile={carriedFile}
           initialOrderNumber={carriedOrderNumber}
+          initialDraft={periodicDraftForReturn(carriedPeriodicDraft, carriedCommon)}
           onClose={() => setStandardOrderModalOpen(false)}
           onCreated={async () => {
             await invalidate();

@@ -16,6 +16,7 @@
  * (serwer i tak odmawia reszcie).
  */
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -70,6 +71,34 @@ import {
 import { resolveViewState } from "@/lib/view-state";
 import { cn, formatDate } from "@/lib/utils";
 import { hasRole, useAuthStore } from "@/store/auth";
+
+const CVBrandedEditModal = dynamic(
+  () =>
+    import("@/components/v2/modals/CVBrandedEditModal").then(
+      (m) => m.CVBrandedEditModal,
+    ),
+  { ssr: false },
+);
+
+/**
+ * Który dokument otworzyć w edytorze z wyniku QC (runda 10, F22). Link do
+ * panelu osoby prowadził w QC CV do podglądu tylko do odczytu: warsztat CV
+ * panelu obsługuje kolumnę „Zweryfikowany”, a CV firmowe leży na etapie,
+ * na którym powstało. Edytor otwiera się więc na DOKUMENCIE, który QC
+ * sprawdził — CV etapu albo gotowe CV z generatora.
+ */
+export function qcEditorTarget(
+  cv: QcResult["cv"] | null | undefined,
+): { stageId: number } | { generatedId: number } | null {
+  if (!cv || !cv.editable) return null;
+  if ((cv.source === "branded_draft" || cv.source === "branded_finalized") && cv.stage_id != null) {
+    return { stageId: cv.stage_id };
+  }
+  if (cv.source === "generated" && cv.generated_document_id != null) {
+    return { generatedId: cv.generated_document_id };
+  }
+  return null;
+}
 
 export interface CvQcDialogProps {
   stageId: number | null;
@@ -776,8 +805,11 @@ export function CvQcDialogView({
 }: CvQcDialogViewProps) {
   const me = useAuthStore((s) => s.user);
   const canOverride = hasRole(me, "admin", "delivery_lead");
+  const [editorOpen, setEditorOpen] = useState(false);
+  const editorTarget = qcEditorTarget(data?.cv);
 
   return (
+    <>
     <Dialog open={open && stageId != null} onOpenChange={(next) => (!next ? onClose() : undefined)}>
       <DialogContent size="full" className="flex h-[92dvh] max-h-[92dvh] flex-col p-0" aria-describedby="cv-qc-desc">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3 pr-16">
@@ -849,16 +881,39 @@ export function CvQcDialogView({
                 ? "QC zaliczone — przesuń kartę dalej strzałką „→” na Tablicy."
                 : "Po każdej poprawce QC liczy się od nowa. Dalej przesuwasz kartę strzałką „→” na Tablicy, gdy blokujące będą zielone."}
             </p>
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/jobs/${data.job_id}?candidate=${data.candidate_id}&panel=cv`} onClick={onClose}>
+            {editorTarget ? (
+              <Button size="sm" variant="outline" onClick={() => setEditorOpen(true)}>
                 Otwórz w edytorze CV
-                <ExternalLink className="size-3.5" aria-hidden />
-              </Link>
-            </Button>
+              </Button>
+            ) : (
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/jobs/${data.job_id}?candidate=${data.candidate_id}&panel=cv`} onClick={onClose}>
+                  Otwórz panel osoby
+                  <ExternalLink className="size-3.5" aria-hidden />
+                </Link>
+              </Button>
+            )}
           </div>
         ) : null}
       </DialogContent>
     </Dialog>
+    {editorOpen && editorTarget && data ? (
+      <CVBrandedEditModal
+        open
+        onOpenChange={(next) => {
+          setEditorOpen(next);
+          if (!next) {
+            // Po poprawce QC liczy się od nowa — bez ponownej generacji.
+            onRecheck();
+            onChanged?.();
+          }
+        }}
+        jobTitle={data.job_title}
+        candidateName={data.candidate_name}
+        {...editorTarget}
+      />
+    ) : null}
+    </>
   );
 }
 

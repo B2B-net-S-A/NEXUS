@@ -2539,6 +2539,7 @@ async def update_job(
     # żeby nie wywoływać nimi rescanów Targu.
     _review_before = {f: getattr(job, f) for f in _AUTO_REVIEW_EXTRA_FIELDS}
     _status_before = job.status
+    _hiring_manager_before = job.hiring_manager_contact_id
     for k, v in updates.items():
         setattr(job, k, v)
     _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
@@ -2570,6 +2571,11 @@ async def update_job(
             )
             if hm_client_id != job.client_id:
                 job.hiring_manager_contact_id = None
+    if job.hiring_manager_contact_id != _hiring_manager_before:
+        # Runda 10 (R10-V2-5): zmiana klienta zeruje HM — to też zdjęcie weta.
+        await _assert_may_change_vetoing_manager(
+            db, current_user, job_id=job.id, previous=_hiring_manager_before
+        )
     if client_changed:
         # Runda 7 (N7-2): DL wpisany automatem należał do poprzedniego klienta.
         # Uzupełnienie wpisuje głównego DL-a nowego klienta albo zdejmuje
@@ -3062,6 +3068,30 @@ async def set_job_managed_in_nexus(
     return await get_job(job_id=job_id, current_user=current_user, db=db)
 
 
+async def _assert_may_change_vetoing_manager(
+    db: AsyncSession, user: User, *, job_id: int, previous: Optional[int]
+) -> None:
+    """Runda 10 (R10-V2-5): zmiana albo wyczyszczenie HM rekrutacji, której
+    pary niosą weto tego managera, zdejmuje weto we wszystkich jego
+    rekrutacjach. Jak przy usunięciu pary (R9-N11-5) — tylko admin albo HoR."""
+    if previous is None or user.has_any_role(
+        UserRole.admin, UserRole.head_of_recruitment
+    ):
+        return
+    from app.services.hiring_manager_verdicts import job_carries_manager_veto
+
+    if await job_carries_manager_veto(db, job_id=job_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Nie można zmienić hiring managera — odrzucił on w tej "
+                "rekrutacji osobę po rozmowie, a zmiana zdjęłaby jego weto "
+                "we wszystkich jego rekrutacjach. Zrobi to admin albo Head "
+                "of Recruitment."
+            ),
+        )
+
+
 @router.put("/{job_id}/hiring-manager", response_model=JobResponse)
 async def set_job_hiring_manager(
     job_id: int,
@@ -3116,6 +3146,9 @@ async def set_job_hiring_manager(
         contact_id = contact.id
 
     if contact_id != previous:
+        await _assert_may_change_vetoing_manager(
+            db, current_user, job_id=job.id, previous=previous
+        )
         job.hiring_manager_contact_id = contact_id
         db.add(
             Activity(

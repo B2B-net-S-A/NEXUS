@@ -37,7 +37,7 @@ function order(overrides: Partial<ClientOrderRead> = {}): ClientOrderRead {
     contract_id: 466,
     job_id: null,
     framework_contract_id: null,
-    title: "3/09/2026/BL",
+    title: "9/98/2026/BL",
     description: null,
     status: "active",
     order_type: "periodic",
@@ -77,7 +77,7 @@ function contractor(
   return {
     contract_id: 466,
     candidate_id: 5,
-    candidate_name: "Mateusz Sęderowski",
+    candidate_name: "Mateusz Wzorcowy",
     contract_status: "active",
     contract_start_date: "2026-09-01",
     contract_end_date: null,
@@ -103,7 +103,7 @@ const CONTRACTORS: ContractWithOrdersRead[] = [
   contractor({
     contract_id: 468,
     candidate_id: 6,
-    candidate_name: "Paweł Rurkowski",
+    candidate_name: "Paweł Fikcyjny",
     rate_candidate: 140,
     initial_job_title: "Inżynier DevOps",
     latest_order_rate_client: 1440,
@@ -121,7 +121,7 @@ const CONTRACTORS: ContractWithOrdersRead[] = [
   contractor({
     contract_id: 463,
     candidate_id: 7,
-    candidate_name: "Anna Michalczyk",
+    candidate_name: "Anna Wzorcowa",
     rate_candidate: 130,
     initial_job_title: "Analityk biznesowy",
     latest_order_rate_client: 1380,
@@ -143,7 +143,7 @@ const NO_ORDER: ContractWithOrdersRead[] = [
   contractor({
     contract_id: 470,
     candidate_id: 8,
-    candidate_name: "Katarzyna Wiśniewska-Dąbrowska",
+    candidate_name: "Katarzyna Przykładowa-Testowa",
     initial_job_title: "Specjalista ds. bezpieczeństwa informacji",
     latest_order_id: null,
     latest_order_end_date: null,

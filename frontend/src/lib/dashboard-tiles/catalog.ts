@@ -91,13 +91,10 @@ function both(
   };
 }
 
-// Lustro `DlAlertsUser` (backend/app/api/dl_alerts.py).
-const DL_ALERTS_ROLES: UserRole[] = [
-  "admin",
-  "head_of_recruitment",
-  "delivery_lead",
-  "finance",
-];
+// Lustro `DlAlertsUser` (backend/app/api/dl_alerts.py). Head of Recruitment
+// zdjęty tam 22.09.2026 (audyt U7); tu został — kafelek dawał mu 403
+// zamiast „Brak dostępu” (Runda 10, R10-N1-8).
+const DL_ALERTS_ROLES: UserRole[] = ["admin", "delivery_lead", "finance"];
 
 const CONTACT_CALLER_ROLES: UserRole[] = [
   "talent_community_manager",
@@ -278,7 +275,7 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     // sekcja Delivery (np. TCM) dawała kafelek kończący się 403.
     availability: both(
       needsSection("delivery", "Delivery"),
-      needsRole(DL_ALERTS_ROLES, "Dla Delivery Leadów, adminów, Head of Recruitment i Finansów"),
+      needsRole(DL_ALERTS_ROLES, "Dla Delivery Leadów, adminów i Finansów"),
     ),
   },
   dl_alerts: {

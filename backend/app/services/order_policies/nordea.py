@@ -80,13 +80,30 @@ def order_text_only(text: str) -> str:
     return text
 
 
+#: Poniżej tylu znaków (bez białych) tekst PDF-a nie jest dowodem niczego —
+#: najczęściej padł odczyt (limit czasu procesu PDF, OCR). Certyfikat DocuSign
+#: albo strona z podpisami ma setki znaków.
+MIN_READABLE_TEXT_CHARS = 40
+
+
+def text_unreadable(text: Optional[str]) -> bool:
+    """Czy tekst dokumentu jest pusty albo zbyt krótki, by go ocenić."""
+    return len("".join((text or "").split())) < MIN_READABLE_TEXT_CHARS
+
+
 def non_order_reason(text: str) -> Optional[str]:
     """Classify the attachment before stripping certificates or calling a model.
 
     A combined PDF may contain both a real CoA and signature pages. Inspect
     the retained order section so the certificate never hides a valid order.
     Filename and email subject are deliberately not evidence.
+
+    Runda 10 (R10-N3-3): pusty albo nieczytelny tekst NIE jest dowodem, że to
+    nie zamówienie — brak odczytu zwraca ``None``, a o dokumencie decyduje
+    wołający (poczta: „Nieudane” z ponowieniem).
     """
+    if text_unreadable(text):
+        return None
     body = order_text_only(text)
     certificate = bool(
         re.search(

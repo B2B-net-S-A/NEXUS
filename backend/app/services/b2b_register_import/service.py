@@ -721,6 +721,15 @@ async def _apply(
         flags = list(row.flags)
         key = _number_key(row)
         collision = None
+        if "number_out_of_range" in flags:
+            report.number_collisions.append(
+                {
+                    "number": _display_number(row),
+                    "rows": [row.row_number],
+                    "reason": "number_out_of_range",
+                }
+            )
+            report.counters["number_collisions"] += 1
         if "signing_date_unparsed" in flags:
             report.counters["signing_dates_unparsed"] += 1
             report.unparsed_dates.append(

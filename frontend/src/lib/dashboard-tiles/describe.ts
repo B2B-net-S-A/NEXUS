@@ -3,7 +3,7 @@
 // przed dodaniem kafelka.
 
 import type { MetricDefinition } from "@/lib/api/userDashboard";
-import { PERIOD_LABELS } from "@/lib/dashboard-tiles/layout";
+import { financeValuationClosed, PERIOD_LABELS } from "@/lib/dashboard-tiles/layout";
 
 const STAGE_LABELS: Record<string, string> = {
   verified: "Zweryfikowani",
@@ -77,6 +77,8 @@ export function describeMetric(
   if (group && group !== GROUP_SENTENCES.stage) parts[parts.length - 1] += `, ${group}`;
   if (SNAPSHOT.has(metric.measure)) {
     parts.push("— stan na dziś");
+  } else if (financeValuationClosed(metric)) {
+    parts.push("— stan na koniec poprzedniego miesiąca");
   } else if (metric.source === "finance" && metric.group_by !== "month") {
     parts.push("— stan na dziś");
   } else {

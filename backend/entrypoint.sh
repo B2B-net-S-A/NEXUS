@@ -2360,6 +2360,25 @@ _COLUMN_STATEMENTS = [
             EXECUTE FUNCTION sync_contract_rate_currencies_from_legacy();
         END IF;
     END $$""",
+    # 0391 (runda 10, R10-X1-1): kwota faktury z groszami — INTEGER →
+    # NUMERIC(14,2). Tekst identyczny z migracją (test lustra); ALTER tylko przy
+    # różnicy typu, więc kolejne starty nie biorą zamka tabeli.
+    """DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns c
+        WHERE c.table_schema = current_schema()
+          AND c.table_name = 'invoices'
+          AND c.column_name = 'amount'
+          AND (c.data_type <> 'numeric'
+               OR c.numeric_precision IS DISTINCT FROM 14
+               OR c.numeric_scale IS DISTINCT FROM 2)
+    ) THEN
+        ALTER TABLE invoices
+            ALTER COLUMN amount TYPE NUMERIC(14, 2) USING amount::numeric(14, 2);
+    END IF;
+END $$""",
     # Cortex fact store (0158): na prod `Base.metadata.create_all` potrafi
     # cicho paść (failure-tolerant echo), a alembic bywa multi-head — nowe
     # TABELE też wymagają mirrora tutaj (precedens: saved_search_alert_log).
@@ -4594,6 +4613,14 @@ _COLUMN_STATEMENTS = [
     "ON order_gaps (detected_on)",
     "CREATE INDEX IF NOT EXISTS ix_order_gaps_contract_status "
     "ON order_gaps (contract_id, status)",
+    # 0391 (runda 10, R10-N4-1/3): kilka braków na zamówienie — po jednym na
+    # datę końca — i licznik przywróceń braku (klucz odhaczenia w Finansach).
+    # Indeks unikalny PRZED zdjęciem starego więzu: tabela nie zostaje bez
+    # unikalności, gdy któraś instrukcja przegra blokadę.
+    "ALTER TABLE order_gaps ADD COLUMN IF NOT EXISTS episode INTEGER NOT NULL DEFAULT 0",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_order_gaps_order_ended "
+    "ON order_gaps (order_id, ended_on)",
+    "ALTER TABLE order_gaps DROP CONSTRAINT IF EXISTS uq_order_gaps_order_id",
     # 0354: Finanse — odhaczenia zmian w zamówieniach (audyt dopisywany)
     # i pobrania PDF-ów zamówień per osoba („Nowy / Pobrane przez Ciebie").
     """CREATE TABLE IF NOT EXISTS order_change_checks (
@@ -5645,6 +5672,12 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     retained_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )""",
     "CREATE INDEX IF NOT EXISTS ix_retained_candidate_files_subject_ref ON retained_candidate_files (subject_ref)",
+    # 0391: nagrobki notatek z Traffita usuniętych w NEXUSIE — promocja
+    # aktywności ich nie odtwarza (runda 10, R10-N6-1). Bez treści i PII.
+    """CREATE TABLE IF NOT EXISTS deleted_note_sources (
+    source_ref VARCHAR(255) PRIMARY KEY,
+    deleted_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)""",
     # 0372: follow-up z kandydatem — wyniki telefonów (kandydat CASCADE, RODO).
     """CREATE TABLE IF NOT EXISTS candidate_followups (
     id BIGSERIAL PRIMARY KEY,
@@ -8170,12 +8203,14 @@ _CONSTRAINT_STATEMENTS = [
     "ALTER TABLE md_consumption_import_rows "
     "DROP CONSTRAINT IF EXISTS ck_md_import_rows_cost_status",
     # 0351: 'non_positive_amount' — korekta faktury / kwota ≤ 0 (FIN-MD-06).
+    # 0391: 'invoice_unreadable' (nieczytelna faktura, MD zostają) i
+    # 'order_exhausted' (faktura na wyczerpane zamówienie kosztowe).
     """DO $$ BEGIN
         ALTER TABLE md_consumption_import_rows
             ADD CONSTRAINT ck_md_import_rows_cost_status
             CHECK (cost_status IS NULL OR cost_status IN (
                 'applied', 'unmatched_number', 'unmatched_consultant',
-                'non_positive_amount'
+                'non_positive_amount', 'invoice_unreadable', 'order_exhausted'
             )) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0351: 'cost_only' — wiersz arkusza z samą fakturą, bez liczby MD.
@@ -8627,6 +8662,10 @@ _INDEX_STATEMENTS = [
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_documents_created_at "
     "ON candidate_documents (created_at)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_calls_created_at ON calls (created_at)",
+    # 0391 (runda 10, R10-V3-3): dopasowanie maila/uczestnika M365 do
+    # kandydata porównuje lower(btrim(email)) — bez tego skan całej tabeli.
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_email_lower_btrim "
+    "ON candidates (lower(btrim(email)))",
 ]
 
 

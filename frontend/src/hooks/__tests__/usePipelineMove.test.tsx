@@ -250,6 +250,37 @@ describe("usePipelineMove — ruch pojedynczy", () => {
     );
   });
 
+  it("„Zweryfikowany”: podwójny klik w trakcie wysyłki to jeden ruch (R10-N15-7)", async () => {
+    const item = card({ id: 11, candidate_id: 101, process_state_version: 2 });
+    const b = board({ fresh: [item] });
+    let resolveMove: (v: unknown) => void = () => undefined;
+    move.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveMove = resolve;
+        })
+    );
+    mount(b.all, { apply: vi.fn(), confirm: vi.fn() });
+
+    React.act(() => controls.requestMove(item, b.fresh, b.verified));
+    const input = await screen.findByLabelText("Kwota");
+    fireEvent.change(input, { target: { value: "120" } });
+    const submit = screen.getByRole("button", { name: "Przesuń" });
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+    fireEvent.click(screen.getByRole("button", { name: "Pomiń stawkę" }));
+    await waitFor(() => expect(move).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Pomiń stawkę" })).toBeDisabled();
+
+    await React.act(async () => {
+      resolveMove({ data: { id: 503, process_state_version: 3 } });
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Pomiń stawkę" })).toBeNull()
+    );
+    expect(move).toHaveBeenCalledTimes(1);
+  });
+
   it("rola bez prawa do stawek dostaje komunikat zamiast okna", () => {
     useAuthStore.setState({
       user: { id: 2, role: "sourcer", email: "s@example.com" },
@@ -398,6 +429,30 @@ describe("usePipelineMove — odrzucenie", () => {
       )
     );
     expect(showActionToast).not.toHaveBeenCalled();
+  });
+
+  it("kilka osób, mail niezaplanowany — JEDNO zdanie z liczbą (R10-V2-1)", async () => {
+    const items = [1, 2].map((n) =>
+      card({ id: 40 + n, candidate_id: 400 + n, stage: "client_interview" })
+    );
+    const b = board({ client: items });
+    post.mockResolvedValue({
+      data: { id: 700, scheduled_rejection_email_id: null, rejection_email_status: "no_mailbox" },
+    });
+    mount(b.all);
+
+    React.act(() => controls.requestReject(items));
+    const reason = await screen.findByPlaceholderText(/brak wymaganych kompetencji/);
+    fireEvent.change(reason, { target: { value: "Za wysoka stawka" } });
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(showError).toHaveBeenCalledWith(
+        "Mail odrzucenia nie został zaplanowany dla 2 osób — brak podłączonej skrzynki Microsoft 365."
+      )
+    );
+    expect(showError).toHaveBeenCalledTimes(1);
   });
 });
 

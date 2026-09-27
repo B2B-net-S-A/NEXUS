@@ -121,16 +121,48 @@ vi.mock("@/components/NewContractorOrderDialog", () => ({
     orderType = "periodic",
     onOrderTypeChange,
     allowedOrderTypes = ["periodic", "cost", "md"],
+    initialDraft = null,
     onClose,
     onCreated,
   }: {
     orderType?: OrderType;
-    onOrderTypeChange?: (orderType: OrderType) => void;
+    onOrderTypeChange?: (
+      orderType: OrderType,
+      file?: File | null,
+      orderNumber?: string,
+      draft?: Record<string, unknown>,
+    ) => void;
     allowedOrderTypes?: readonly OrderType[];
+    initialDraft?: Record<string, unknown> | null;
     onClose: () => void;
     onCreated: () => void;
   }) => (
     <div role="dialog" aria-label="Nowe zamówienie standardowe">
+      <output data-testid="periodic-initial-draft">
+        {JSON.stringify(initialDraft)}
+      </output>
+      <button
+        type="button"
+        onClick={() =>
+          onOrderTypeChange?.("md", null, "Z-R10", {
+            selectedCandidate: { id: 7, name: "Jan", lastname: "Testowy" },
+            jobId: "12",
+            contractStart: "2026-10-01",
+            orderStart: "2026-10-01",
+            orderEnd: "2026-10-31",
+            rateClient: "160",
+            rateCandidate: "120,50",
+            rateUnit: "hourly",
+            billingHours: "168",
+            rateClientCurrency: "PLN",
+            rateCandidateCurrency: "PLN",
+            notes: "notatka R10",
+            executiveContractId: "",
+          })
+        }
+      >
+        Przełącz na MD z wpisanymi danymi
+      </button>
       <div role="radiogroup" aria-label="Typ zamówienia">
         {(
           [
@@ -645,6 +677,55 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
       "aria-checked",
       "true",
     );
+  });
+
+  it("Okresowe → MD → Okresowe zachowuje wpisane dane (runda 10, F02)", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await user.click(
+      await screen.findByRole("button", { name: "Nowe zamówienie" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Przełącz na MD z wpisanymi danymi" }),
+    );
+
+    // Okres i notatka jadą do formularza MD.
+    expect(screen.getByLabelText("Obowiązuje od *")).toHaveValue("2026-10-01");
+    expect(
+      screen.getByLabelText("Obowiązuje do (puste = bezterminowo)"),
+    ).toHaveValue("2026-10-31");
+    expect(screen.getByLabelText("Notatki")).toHaveValue("notatka R10");
+    await user.clear(screen.getByLabelText("Notatki"));
+    await user.type(screen.getByLabelText("Notatki"), "poprawiona w MD");
+
+    await user.click(screen.getByRole("radio", { name: "Okresowe" }));
+    const restored = JSON.parse(
+      screen.getByTestId("periodic-initial-draft").textContent ?? "null",
+    );
+    expect(restored).toMatchObject({
+      selectedCandidate: { id: 7 },
+      jobId: "12",
+      orderStart: "2026-10-01",
+      orderEnd: "2026-10-31",
+      rateClient: "160",
+      rateCandidate: "120,50",
+      notes: "poprawiona w MD",
+    });
+  });
+
+  it("świeże „Nowe zamówienie” nie niesie roboczego stanu porzuconego okna", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await user.click(
+      await screen.findByRole("button", { name: "Nowe zamówienie" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Przełącz na MD z wpisanymi danymi" }),
+    );
+    await user.click(screen.getByRole("radio", { name: "Okresowe" }));
+    await user.click(screen.getByRole("button", { name: "Zamknij standardowe" }));
+    await user.click(screen.getByRole("button", { name: "Nowe zamówienie" }));
+    expect(screen.getByTestId("periodic-initial-draft")).toHaveTextContent("null");
   });
 
   it("standardowe otwiera istniejący dialog legacy", async () => {

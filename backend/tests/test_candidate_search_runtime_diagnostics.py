@@ -142,6 +142,21 @@ def test_archived_comparison_projection_is_bounded_and_omits_identities():
         )
 
 
+def test_failed_run_state_is_projected_not_rejected():
+    """Runda 10 (R10-N8-8): stan `failed` (od #1428) nie wywraca diagnostyki."""
+    data = sample_report()
+    data["recent_runs"][0]["state"] = "failed"
+    result = transport().extract_diagnostics_report(
+        [{"message": runtime.PREFIX + json.dumps(data)}]
+    )
+    assert result["recent_runs"][0]["state"] == "failed"
+    data["recent_runs"][0]["state"] = "hacked"
+    with pytest.raises(ValueError, match="Invalid search state"):
+        transport().extract_diagnostics_report(
+            [{"message": runtime.PREFIX + json.dumps(data)}]
+        )
+
+
 @pytest.mark.parametrize("bad", [-1, float("nan"), True, "private"])
 def test_invalid_numeric_values_do_not_reach_artifact(bad):
     data = sample_report()

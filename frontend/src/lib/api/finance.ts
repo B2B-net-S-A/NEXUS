@@ -363,6 +363,8 @@ export interface OrderPdfFile {
   consultant_name: string | null;
   start: string;
   end: string | null;
+  /** Koniec przed startem — okres do sprawdzenia (runda 10, F10). */
+  period_invalid?: boolean;
   entry_type: OrderPdfEntryType;
   status: string | null;
   order_number: string | null;
