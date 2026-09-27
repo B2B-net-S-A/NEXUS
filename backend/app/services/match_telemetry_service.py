@@ -453,7 +453,10 @@ _VERIFIED_RUN_CANDIDATES = text(
                 )
             )
           )
-      AND r.job_id = :job_id
+      AND (
+            r.job_id = :job_id
+            OR (r.job_id IS NULL AND r.created_by = :user_id)
+          )
       AND i.candidate_id = ANY(:ids)
     """
 )

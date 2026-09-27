@@ -830,7 +830,7 @@ async def test_latest_run_shows_own_and_automatic_runs_only(app_client: AsyncCli
 
     empty = await app_client.get(url, headers=me)
     assert empty.status_code == 200, empty.text
-    assert empty.json() == {"job_id": job_id, "run": None}
+    assert empty.json() == {"job_id": job_id, "run": None, "latest_failure": None}
 
     now = datetime.now(timezone.utc)
 
@@ -869,6 +869,16 @@ async def test_latest_run_shows_own_and_automatic_runs_only(app_client: AsyncCli
     assert body["run"]["run_id"] == auto.id
     assert body["run"]["state"] == "partial"
     assert body["run"]["own"] is False and body["run"]["origin"] == "auto"
+    assert body["latest_failure"] is None
+
+    # Runda 9 (R9-N5-5): nowsza awaria nie przykrywa udanego rankingu.
+    broken = run(other_id, "failed", now, {"origin": "auto"})
+    async with AsyncSessionLocal() as db:
+        db.add(broken)
+        await db.commit()
+    body = (await app_client.get(url, headers=me)).json()
+    assert body["run"]["run_id"] == auto.id
+    assert body["latest_failure"]["run_id"] == broken.id
 
     _, no_pipeline = await _user(UserRole.recruiter, pipeline="none")
     assert (await app_client.get(url, headers=no_pipeline)).status_code == 403

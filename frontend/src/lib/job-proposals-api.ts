@@ -112,6 +112,8 @@ export interface LatestRunResponse {
   job_id: number;
   /** `null` = nie było jeszcze żadnego przeglądu — poprawna odpowiedź, nie błąd. */
   run: LatestRunInfo | null;
+  /** Przegląd `failed` NOWSZY od `run` (runda 9) — `run` to ostatni z wynikami. */
+  latest_failure?: LatestRunInfo | null;
 }
 
 export interface DismissProposalResponse {

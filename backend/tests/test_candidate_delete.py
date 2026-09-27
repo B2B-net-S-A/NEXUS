@@ -222,8 +222,9 @@ async def test_hard_delete_erases_full_search_rows_and_fails_active_scans(
     """RODO: wiersze pełnego przeglądu bazy nie mają FK na kandydata.
 
     Niosą dowody dopasowania osoby, więc bez jawnego kasowania przeżywałyby
-    usunięcie profilu. Aktywny przegląd nie może stracić wiersza po cichu
-    (`finish_run` wymaga rozliczenia całej migawki), więc kończy się `failed`.
+    usunięcie profilu. Aktywny przegląd traci wiersz razem z jednym miejscem
+    w populacji (`finish_run` rozlicza całą migawkę) — od rundy 9 (R9-N5-7)
+    nie kończy się już `failed`.
     """
     from app.core.database import AsyncSessionLocal
     from app.models.activity import Activity
@@ -309,9 +310,11 @@ async def test_hard_delete_erases_full_search_rows_and_fails_active_scans(
         assert {cid for _, cid in left} == {bystander_id}, "usunięta osoba zostaje"
         assert len(left) == 2, "wiersze innych kandydatów nie mogą zniknąć"
         assert finished.state == "complete"
-        assert active.state == "failed" and active.error_code == "candidate_erased"
+        # Runda 9 (R9-N5-7): przegląd w toku nie pada — traci wiersz.
+        assert active.state == "running" and active.population_size == 1
         assert audit.details["search_rows_deleted"] == 2
-        assert audit.details["search_runs_failed"] == 1
+        assert audit.details["search_runs_failed"] == 0
+        assert audit.details["search_runs_shrunk"] == 1
     finally:
         from sqlalchemy import delete
 

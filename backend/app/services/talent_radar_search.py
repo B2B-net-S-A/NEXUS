@@ -28,6 +28,7 @@ query embedding and nothing else — no quota gate, no per-search spend.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -344,6 +345,38 @@ def dealbreaker_inputs_for_radar(query: RadarQuery) -> DealbreakerInputs:
     )
 
 
+DEALBREAKER_CHUNK = 64
+
+
+async def _apply_dealbreakers_yielding(candidates: list, *, inputs) -> Any:
+    """`apply_dealbreakers` w paczkach, z oddaniem pętli zdarzeń między nimi.
+
+    Runda 9 (R9-N5-1): pula radaru to do `MATCH_POOL_SIZE` kandydatów, a filtr
+    (w tym bramka must-have po umiejętnościach) jest czystym CPU. Decyzja
+    o kandydacie nie zależy od innych kandydatów, więc wynik paczek złożony
+    w kolejności jest identyczny z jednym wywołaniem na całej liście.
+    """
+    from dataclasses import fields
+
+    from app.services.dealbreaker_filters import DealbreakerResult, apply_dealbreakers
+
+    merged = DealbreakerResult()
+    counters = [
+        f.name for f in fields(DealbreakerResult) if f.name.startswith("hidden_")
+    ]
+    for start in range(0, len(candidates), DEALBREAKER_CHUNK):
+        if start:
+            await asyncio.sleep(0)
+        part = apply_dealbreakers(
+            candidates[start : start + DEALBREAKER_CHUNK], inputs=inputs
+        )
+        merged.kept.extend(part.kept)
+        merged.exclusion_reasons.update(part.exclusion_reasons)
+        for name in counters:
+            setattr(merged, name, getattr(merged, name) + getattr(part, name))
+    return merged
+
+
 async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     """Rank the candidate base against an ad-hoc role. Persists nothing."""
     if not query.text and not query.champion_profile:
@@ -441,11 +474,8 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     # (must/dni/miasto) i AUTO `exclude_remote_only` (z `wants_office`) liczone
     # RAZEM przez `dealbreaker_inputs_for_radar` — bez jawnego
     # `exclude_remote_only=` tutaj, bo `inputs.wants_office` już go niesie.
-    from app.services.dealbreaker_filters import apply_dealbreakers
-
-    dealbreakers = apply_dealbreakers(
-        candidates,
-        inputs=dealbreaker_inputs_for_radar(query),
+    dealbreakers = await _apply_dealbreakers_yielding(
+        candidates, inputs=dealbreaker_inputs_for_radar(query)
     )
     candidates = dealbreakers.kept
 
@@ -476,5 +506,106 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
         candidates_by_id={c.id: c for c in candidates if c.id in kept},
         eligibility_by_id={
             cid: ann for cid, ann in eligibility_by_id.items() if cid in kept
+        },
+    )
+
+
+async def canonical_search(
+    db: AsyncSession, query: RadarQuery, *, user_id: Optional[int]
+) -> RadarResult:
+    """Szybki ranking pod request tą samą miarą co ekran Radaru (Jarvis).
+
+    Runda 9 (R9-N5-4): narzędzie Jarvisa wołało legacy `search` (profil
+    `RADAR_PROFILE`, próg `RECOMMENDATION_MIN_SCORE`, dealbreakery z pól
+    radaru), a ekran od #1428 pokazuje pełny przegląd z KANONICZNYM fitem
+    i polityką must-have `search_dealbreaker_inputs`. Ta sama osoba miała
+    więc inną liczbę w czacie i na ekranie. Tu: ten sam kontekst żądania
+    (`build_request_context` + profil wag osoby), ta sama bramka
+    (`_gate_and_dealbreakers` na `context.as_job()`, jak worker przeglądu)
+    i `canonical_fit.score_candidates`. Różnica względem ekranu jest jedna
+    i świadoma: ocenia pulę `MATCH_POOL_SIZE` najbliższych, nie całą bazę
+    (pełny przegląd trwa ~3 min). ``breakdowns`` niesie ``CanonicalFit``;
+    niezmierzony wynik odpada (nigdy 0).
+    """
+    from app.api.matching import _gate_and_dealbreakers
+    from app.services.canonical_fit import score_candidates
+    from app.services.champion_intake import enforce_operation
+    from app.services.dealbreaker_filters import DealbreakerResult
+    from app.services.embedding_service import SemanticSearchUnavailable
+    from app.services.request_matching_context import build_request_context
+    from app.services.requirement_contract import search_dealbreaker_inputs
+    from app.services.scoring_service import resolve_active_profile
+
+    if not query.text and not query.champion_profile:
+        raise TalentRadarError(
+            "Podaj treść zapytania albo profil Championa — bez tego nie ma czego szukać."
+        )
+    if await db.scalar(select(Client.id).where(Client.id == query.client_id)) is None:
+        raise TalentRadarError(
+            "Wskaż klienta — bez niego nie da się sprawdzić NDA, konfliktów "
+            "konkurencyjnych ani weta hiring managera."
+        )
+    job = build_ephemeral_job(query)
+    enforce_operation(job, "search", force=True)
+    profile = await resolve_active_profile(
+        db, user_id=user_id, client_id=query.client_id
+    )
+    context = build_request_context(job, profile)
+    target = context.as_job()
+    empty_hidden = DealbreakerResult().hidden_meta()
+    try:
+        hits = await retrieve_candidate_pool(
+            db,
+            context.query_text,
+            top_k=settings.MATCH_POOL_SIZE,
+            raise_on_error=True,
+            # Kolejność i tak nadpisuje kanoniczny fit (jak `/ai-matches`).
+            use_rerank=False,
+        )
+    except SemanticSearchUnavailable as exc:
+        logger.warning("[talent-radar] retrieval niedostępny: %s", exc)
+        return RadarResult(
+            breakdowns=[],
+            pool_size=0,
+            eligible_size=0,
+            degraded=True,
+            reason="semantic_unavailable",
+            hidden=empty_hidden,
+        )
+    if not hits:
+        return RadarResult(
+            breakdowns=[],
+            pool_size=0,
+            eligible_size=0,
+            degraded=False,
+            reason="no_semantic_hits",
+            hidden=empty_hidden,
+        )
+    candidates = await _load_candidates(db, [h["candidate_id"] for h in hits])
+    kept, annotations, hidden, _, _ = await _gate_and_dealbreakers(
+        db,
+        job=target,
+        ordered=candidates,
+        now=datetime.now(timezone.utc),
+        inputs=search_dealbreaker_inputs(target),
+    )
+    fits = await score_candidates(db, context, kept)
+    measured = [f for f in fits if f.fit_score is not None]
+    ranked = [
+        f for f in measured if query.min_score is None or f.fit_score >= query.min_score
+    ][: query.top_k]
+    returned = {f.breakdown.candidate_id for f in ranked}
+    blind = bool(kept) and not measured
+    return RadarResult(
+        breakdowns=ranked,
+        pool_size=len(candidates),
+        eligible_size=len(kept),
+        # Pula była, ale nikogo nie zmierzono = brak wektora zapytania.
+        degraded=blind,
+        reason="semantic_unavailable" if blind else None,
+        hidden=hidden,
+        candidates_by_id={c.id: c for c in kept if c.id in returned},
+        eligibility_by_id={
+            cid: ann for cid, ann in annotations.items() if cid in returned
         },
     )
