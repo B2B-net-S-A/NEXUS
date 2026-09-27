@@ -402,3 +402,49 @@ async def test_remove_from_recruitment_refuses_while_rejection_mail_is_sending(
                 )
             )
             await db.commit()
+
+
+# ── R10-V2-9: reguła maila odrzucenia czyta poprzedni wiersz po moved_at ─────
+
+
+@pytest.mark.asyncio
+async def test_previous_row_for_rejection_mail_follows_moved_at() -> None:
+    from datetime import datetime, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.services.rejection_email_scheduler import _previous_row_client_visible
+    from tests.test_pipeline_membership_gate import _seed_candidate, _seed_job
+
+    job_id, _ = await _seed_job(owner_id=None)
+    cand = await _seed_candidate()
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        sent = CandidateStage(
+            candidate_id=cand,
+            job_id=job_id,
+            stage=PipelineStage.cv_sent,
+            moved_at=now - timedelta(days=1),
+        )
+        db.add(sent)
+        await db.flush()
+        # Import historyczny: starszy `moved_at`, wyższe id.
+        imported = CandidateStage(
+            candidate_id=cand,
+            job_id=job_id,
+            stage=PipelineStage.new,
+            moved_at=now - timedelta(days=30),
+        )
+        db.add(imported)
+        await db.flush()
+        rejected = CandidateStage(
+            candidate_id=cand,
+            job_id=job_id,
+            stage=PipelineStage.rejected,
+            moved_at=now,
+        )
+        db.add(rejected)
+        await db.flush()
+        assert imported.id > sent.id
+        assert await _previous_row_client_visible(db, rejected) is True
+        await db.rollback()
