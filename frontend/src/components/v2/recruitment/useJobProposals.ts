@@ -213,6 +213,10 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     () => inbox.data?.pages.flatMap((p) => p.items) ?? [],
     [inbox.data],
   );
+  const dismissedIds = useMemo(
+    () => inbox.data?.pages[0]?.dismissed_candidate_ids ?? [],
+    [inbox.data],
+  );
   const inboxTotal = inbox.data?.pages[0]?.total ?? 0;
   const inboxHidden = inbox.data?.pages.reduce((n, p) => n + p.hidden_on_page, 0) ?? 0;
 
@@ -289,9 +293,10 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
             ? { items: recommendations.data.candidates, degraded: recommendations.data.degraded }
             : null,
         pipelineCandidateIds: pipelineIds,
+        dismissedCandidateIds: dismissedIds,
         budgetHourly,
       }).filter((e) => !hiddenIds.has(e.row.candidateId)),
-    [inboxItems, runUsable, runData, similar.data, recommendations.data, pipelineIds, budgetHourly, hiddenIds],
+    [inboxItems, runUsable, runData, similar.data, recommendations.data, pipelineIds, dismissedIds, budgetHourly, hiddenIds],
   );
   // Liczniki pigułek źródeł ignorują sam filtr źródła — inaczej kliknięcie
   // jednej pigułki zerowałoby pozostałe.

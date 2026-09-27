@@ -92,6 +92,11 @@ export interface ProposalInboxPage {
   job_id: number;
   status: ProposalInboxStatus;
   items: ProposalInboxItem[];
+  /**
+   * Pominięci w tej rekrutacji — tylko na pierwszej stronie `proposed`
+   * (dalsze strony: pusta lista). Starszy serwer pola nie zna.
+   */
+  dismissed_candidate_ids?: number[];
   total: number;
   /** Ukryci na TEJ stronie przez globalną czarną listę — nigdy po cichu. */
   hidden_on_page: number;

@@ -158,9 +158,12 @@ def _iso(value: Optional[date]) -> Optional[str]:
 def candidate_facts(
     candidate: Any,
     *,
-    include_rate: bool,
     history: Optional[dict[str, Any]],
 ) -> dict[str, Any]:
+    """Fakty jednej osoby. Stawka KANDYDATA jest jawna dla każdej roli
+    (decyzja Artura 27.09.2026, R10-N7-10 — jak na profilu i liście);
+    ``expected_rate_redacted`` zostaje w kształcie odpowiedzi jako ``False``.
+    Stawka DO KLIENTA tu nie występuje."""
     title, company = current_title(candidate)
     availability = getattr(candidate, "availability_status", None)
     rate = getattr(candidate, "expected_rate_hourly", None)
@@ -183,13 +186,9 @@ def candidate_facts(
         "availability_status": getattr(availability, "value", availability),
         "availability_date": _iso(getattr(candidate, "availability_date", None)),
         "expected_rate_hourly": (
-            float(rate)
-            if include_rate and isinstance(rate, (int, float, Decimal))
-            else None
+            float(rate) if isinstance(rate, (int, float, Decimal)) else None
         ),
-        "expected_rate_currency": (
-            getattr(candidate, "expected_rate_currency", None) if include_rate else None
-        ),
-        "expected_rate_redacted": not include_rate,
+        "expected_rate_currency": getattr(candidate, "expected_rate_currency", None),
+        "expected_rate_redacted": False,
         "client_history": history,
     }
