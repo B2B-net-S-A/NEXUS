@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import exists, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -234,6 +234,20 @@ FRESH_PAIR_ENTRY_ONLY = (
     "Tej osoby nie ma jeszcze w rekrutacji — dodaje się ją do „Nowych” albo "
     "„Screeningu”, a dalej prowadzi zwykłym ruchem."
 )
+
+
+def _fresh_pair_entry_kwargs(user: User, request: Optional[Request]) -> dict:
+    """Źródło wejścia i blokada nowego procesu dodanego ruchem ``/move``.
+
+    Lustro ``proposals_bulk``: człowiek dostaje ``added_manual`` + 12 h
+    blokady, integracja (token OAuth) — ``auto_match`` bez blokady.
+    """
+    if candidate_claim.is_integration_request(request):
+        return {"entry_source": candidate_claim.ENTRY_AUTO_MATCH}
+    return {
+        "entry_source": candidate_claim.ENTRY_ADDED_MANUAL,
+        "claim_for_user_id": user.id,
+    }
 
 
 def _assert_fresh_pair_entry(
@@ -866,6 +880,7 @@ async def move_candidate(
     data: StageMove,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
+    request: Request = None,  # type: ignore[assignment] — wywołania wprost w testach
 ):
     """Move a candidate to a new pipeline stage for a given job.
 
@@ -1367,6 +1382,13 @@ async def move_candidate(
         ),
         client_rate_currency=(
             client_rate_currency if client_rate_value is not None else None
+        ),
+        # Runda 10 (R10-V2-4): para bez wiersza to dodanie osoby — źródło
+        # wejścia i blokada 12 h jak w bulk-add (integracja bez blokady).
+        **(
+            _fresh_pair_entry_kwargs(current_user, request)
+            if fresh_pair
+            else {}
         ),
     )
     if client_rate_value is not None:

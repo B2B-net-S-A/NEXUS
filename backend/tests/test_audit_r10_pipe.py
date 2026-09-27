@@ -145,3 +145,73 @@ async def test_my_next_steps_filters_removed_collaborators_before_limit(
     ids = {j["job_id"] for j in body["jobs"]}
     assert ids == {own}
     assert body["truncated"] is False
+
+
+# ── R10-V2-4: /move dla pary bez wiersza = dodanie osoby z blokadą 12 h ──────
+
+
+@pytest.mark.asyncio
+async def test_move_adding_a_fresh_pair_claims_and_stamps_entry_source(
+    app_client: AsyncClient,
+) -> None:
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.recruitment_process import RecruitmentProcess
+    from app.services.candidate_claim import ENTRY_ADDED_MANUAL
+    from tests.test_pipeline_membership_gate import (
+        MOVE,
+        _seed_candidate,
+        _seed_job,
+        _seed_recruiter,
+    )
+
+    headers_a, uid_a = await _seed_recruiter(app_client)
+    headers_b, _ = await _seed_recruiter(app_client)
+    job_id, _ = await _seed_job(owner_id=None)
+    cand = await _seed_candidate()
+
+    added = await app_client.post(
+        MOVE,
+        headers=headers_a,
+        json={"candidate_id": cand, "job_id": job_id, "stage": "new"},
+    )
+    assert added.status_code == 200, added.text
+
+    async with AsyncSessionLocal() as db:
+        process = await db.scalar(
+            select(RecruitmentProcess).where(
+                RecruitmentProcess.candidate_id == cand,
+                RecruitmentProcess.job_id == job_id,
+            )
+        )
+        assert process is not None
+        assert process.entry_source == ENTRY_ADDED_MANUAL
+        assert process.claimed_by_user_id == uid_a
+
+    taken = await app_client.post(
+        MOVE,
+        headers=headers_b,
+        json={"candidate_id": cand, "job_id": job_id, "stage": "screening"},
+    )
+    assert taken.status_code == 423, taken.text
+    assert taken.json()["detail"]["code"] == "CANDIDATE_CLAIMED"
+
+
+def test_fresh_pair_entry_kwargs_mirror_bulk_add() -> None:
+    from types import SimpleNamespace
+
+    from app.api.pipeline import _fresh_pair_entry_kwargs
+    from app.services.candidate_claim import ENTRY_ADDED_MANUAL, ENTRY_AUTO_MATCH
+
+    human = SimpleNamespace(state=SimpleNamespace())
+    integration = SimpleNamespace(state=SimpleNamespace(oauth_client_id="jjit"))
+    user = User(id=77, role=UserRole.recruiter)
+    assert _fresh_pair_entry_kwargs(user, human) == {
+        "entry_source": ENTRY_ADDED_MANUAL,
+        "claim_for_user_id": 77,
+    }
+    assert _fresh_pair_entry_kwargs(user, None)["claim_for_user_id"] == 77
+    assert _fresh_pair_entry_kwargs(user, integration) == {
+        "entry_source": ENTRY_AUTO_MATCH
+    }
