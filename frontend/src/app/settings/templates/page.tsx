@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { AppModal } from "@/components/ds/AppModal";
 import { splitTemplateVariables } from "@/lib/template-variables";
+import { apiErrorMessage } from "@/lib/api-error";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -74,15 +75,18 @@ const CATEGORY_COLORS: Record<EmailCategory, string> = {
   general: "bg-muted text-muted-foreground dark:bg-muted dark:text-muted-foreground",
 };
 
+// Runda 9 (R9-N10-5): DOKŁADNIE to, co wypełnia wysyłka maila odrzucenia.
+// Lustro `TEMPLATE_VARIABLES` w backend/app/services/email_template_variables.py
+// (pilnuje tests/test_r9_mail_template_variables.py). Dawna lista obiecywała
+// m.in. {{company_name}} i {{salary}}, których nic nie podstawiało.
 const AVAILABLE_PLACEHOLDERS = [
-  { key: "{{candidate_name}}", desc: "Imię i nazwisko kandydata" },
+  { key: "{{candidate_name}}", desc: "Imię kandydata" },
+  { key: "{{candidate_lastname}}", desc: "Nazwisko kandydata" },
+  { key: "{{candidate_full_name}}", desc: "Imię i nazwisko kandydata" },
   { key: "{{job_title}}", desc: "Tytuł stanowiska" },
-  { key: "{{company_name}}", desc: "Nazwa firmy" },
-  { key: "{{interview_date}}", desc: "Data rozmowy / termin" },
-  { key: "{{salary}}", desc: "Wynagrodzenie / widełki" },
-  { key: "{{recruiter_name}}", desc: "Imię rekrutera" },
-  { key: "{{recruiter_email}}", desc: "Email rekrutera" },
-  { key: "{{application_date}}", desc: "Data aplikacji" },
+  { key: "{{recruiter_name}}", desc: "Imię i nazwisko rekrutera" },
+  { key: "{{other_processes_count}}", desc: "Liczba innych procesów kandydata" },
+  { key: "{{other_processes_list}}", desc: "Lista innych procesów kandydata" },
 ];
 
 const PLACEHOLDER_LABELS = new Map(AVAILABLE_PLACEHOLDERS.map(({ key, desc }) => [key, desc]));
@@ -104,7 +108,7 @@ function TemplatePreviewText({ text }: { text: string | null | undefined }) {
                 : "mx-0.5 inline-flex items-center rounded-md border border-destructive/30 bg-destructive/10 px-1.5 py-px text-xs font-medium text-destructive"
             }
           >
-            {part.label ?? `nieznana zmienna ${part.token}`}
+            {part.label ?? `zmienna bez wartości ${part.token}`}
           </span>
         ),
       )}
@@ -267,8 +271,8 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
       queryClient.invalidateQueries({ queryKey: ["email-templates"] });
       onSave();
     },
-    onError: () => {
-      setError("Błąd zapisywania szablonu. Spróbuj ponownie.");
+    onError: (err: unknown) => {
+      setError(apiErrorMessage(err, "Błąd zapisywania szablonu. Spróbuj ponownie."));
     },
   });
 
@@ -398,6 +402,9 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
         <div className="bg-primary/10 dark:bg-primary/10 rounded-xl p-3 border border-primary/15 dark:border-primary/30">
           <p className="text-xs font-semibold text-primary dark:text-primary mb-2">
             Zmienne (kliknij aby wstawić w treść):
+          </p>
+          <p className="text-xs text-muted-foreground mb-2">
+            Wysyłka wypełnia tylko te zmienne. Szablonu odrzucenia z inną zmienną nie da się zapisać — wysyła się automatycznie.
           </p>
           <div className="flex flex-wrap gap-1.5">
             {AVAILABLE_PLACEHOLDERS.map(({ key, desc }) => (
