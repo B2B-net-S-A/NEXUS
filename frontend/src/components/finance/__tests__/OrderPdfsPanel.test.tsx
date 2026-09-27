@@ -5,7 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import { OrderPdfsPanel } from "@/components/finance/OrderPdfsPanel";
 import { defaultOrderPdfMonth } from "@/components/finance/OrderPdfsTab";
 import type { OrderPdfClient, OrderPdfFile, OrderPdfMonth } from "@/lib/api/finance";
-import { filesLabel, orderPdfPeriod } from "@/lib/finance-order-pdfs";
+import {
+  filesLabel,
+  orderPdfPeriod,
+  orderPdfPeriodInvalid,
+} from "@/lib/finance-order-pdfs";
 
 vi.mock("@/lib/api/finance", () => ({
   financeApi: {},
@@ -184,5 +188,16 @@ describe("order PDF helpers", () => {
     expect(filesLabel(1)).toBe("1 plik");
     expect(filesLabel(3)).toBe("3 pliki");
     expect(filesLabel(12)).toBe("12 plików");
+  });
+
+  it("does not show a reversed period as a correct one (runda 10, F10)", () => {
+    const reversed = { start: "2027-01-01", end: "2026-12-31" };
+    expect(orderPdfPeriod(reversed)).toBe(
+      "Okres do sprawdzenia: koniec 31.12.2026 przed startem 01.01.2027",
+    );
+    expect(orderPdfPeriodInvalid(reversed)).toBe(true);
+    expect(
+      orderPdfPeriodInvalid({ start: "2026-10-01", end: "2026-10-01" }),
+    ).toBe(false);
   });
 });

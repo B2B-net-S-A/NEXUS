@@ -118,6 +118,14 @@ async def _seed_contract(
         return contract.id
 
 
+async def _backdate_start(contract_id: int, days: int = 10) -> None:
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        assert contract is not None
+        contract.start_date = business_today() - timedelta(days=days)
+        await db.commit()
+
+
 async def _seed_signature(
     contract_id: int, sender_id: int, status: SignatureStatus
 ) -> int:
@@ -696,6 +704,9 @@ async def test_patch_contract_honours_register_status_body(
     )
     assert refused.status_code == 409, refused.text
     assert refused.json()["detail"]["reason"] == "termination_required"
+    # Runda 10 (F27): koniec przed startem jest odrzucany — kontrakt z seeda
+    # startuje dziś, więc zakończenie „wczoraj” wymaga wcześniejszego startu.
+    await _backdate_start(cid)
     ended = await app_client.post(
         f"/api/contracts/{cid}/terminate",
         json={
@@ -852,6 +863,7 @@ async def test_register_status_updates_client_active_consultants(
     assert profile.status_code == 200, profile.text
     assert cid in {row["contract_id"] for row in profile.json()["active_consultants"]}
 
+    await _backdate_start(cid)  # runda 10 (F27), jak wyżej
     end = await app_client.post(
         f"/api/contracts/{cid}/terminate",
         json={

@@ -560,6 +560,41 @@ def _status_after_end_date_change(
     return status
 
 
+END_BEFORE_START_REASON = "end_date_before_start_date"
+
+
+def _reject_end_before_start(
+    start: Optional[date], end: Optional[date], *, termination: bool
+) -> None:
+    """422, gdy koniec wypada przed startem kontraktu — PRZED jakimkolwiek zapisem.
+
+    Runda 10 (F27): „Zakończ współpracę” z domyślną datą „dziś” na kontrakcie,
+    który startuje za miesiąc, zapisywał okres „01.11.2026–27.09.2026”, status
+    „Kończący się” i anulował planowane zamówienie. Okres z końcem przed
+    początkiem nie opisuje żadnej współpracy. Koniec w dniu startu jest
+    poprawny (jednodniowy projekt); współpraca, która się nie zaczęła, to
+    unieważnienie kontraktu, nie zakończenie.
+    """
+    if start is None or end is None or end >= start:
+        return
+    what = "Data zakończenia projektu" if termination else "Data zakończenia umowy"
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "code": END_BEFORE_START_REASON,
+            "reason": END_BEFORE_START_REASON,
+            "message": (
+                f"{what} ({_pl_date(end)}) jest wcześniejsza niż data "
+                f"rozpoczęcia kontraktu ({_pl_date(start)}). Wybierz datę nie "
+                "wcześniejszą niż start. Jeśli współpraca w ogóle się nie "
+                "zaczęła, unieważnij kontrakt zamiast go kończyć."
+            ),
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+        },
+    )
+
+
 def _status_after_termination(
     current: ContractStatus, end_date: Optional[date], today: date
 ) -> ContractStatus:
@@ -874,6 +909,9 @@ async def _apply_termination_to_contract(
     """
     previous_end_date = contract.end_date
     state_before = ContractStateBefore.of(contract)
+    # Runda 10 (F27): koniec przed startem odrzucany, zanim cokolwiek (także
+    # zamówienia) zostanie ruszone — bulk odrzuca wtedy całą partię.
+    _reject_end_before_start(contract.start_date, when, termination=True)
     # Odmowa PRZED jakimkolwiek zapisem (także zamówień i ścieżki powtórzenia):
     # unieważniona umowa nie może wrócić przez „Zakończ współpracę".
     effective_end = (
@@ -3176,6 +3214,8 @@ async def create_contract(
                 },
             )
     await _assert_no_duplicate_contract(db, candidate=candidate, client=client)
+    # Runda 10 (F27): lustro PATCH-a i „Zakończ współpracę”.
+    _reject_end_before_start(data.start_date, data.end_date, termination=False)
     # Nowa umowa B2B rodzi się bezterminowa; datę niesie tylko wpis umowy już
     # zakończonej (rejestr importowanej historii).
     if not end_date_allowed(
@@ -3931,6 +3971,16 @@ async def update_contract(
     # `_apply_contract_status_change` opisuje komplet skutków.
     status_sent = "status" in updates
     status_target = updates.pop("status", None)
+    # Runda 10 (F27): tylko gdy TO żądanie zmienia start albo koniec — zapis
+    # innego pola nie może się wywrócić na starym, już odwróconym wierszu.
+    if ("start_date" in updates and updates["start_date"] != contract.start_date) or (
+        "end_date" in updates and updates["end_date"] != contract.end_date
+    ):
+        _reject_end_before_start(
+            updates.get("start_date", contract.start_date),
+            updates.get("end_date", contract.end_date),
+            termination=False,
+        )
     await _assert_b2b_end_date_update(contract, updates, status_target, db)
     requested_unit = (
         RateUnit(updates["rate_unit"]) if updates.get("rate_unit") is not None else None

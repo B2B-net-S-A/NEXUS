@@ -77,11 +77,14 @@ export function ContractTerminationDialog({
   // Karta kontraktora i lista kontraktorów nie niosą okresu wypowiedzenia ani
   // końca zamówienia — dialog doczytuje je z kontraktu (ten sam klucz co karta
   // kontraktu, więc tam nie ma drugiego zapytania).
-  const needsContract =
-    !bulk && (noticePeriodProp === undefined || orderEndProp === undefined);
+  // Runda 10 (F27): przy jednej umowie dialog czyta ZAWSZE kontrakt — data
+  // startu blokuje koniec projektu przed nią (ten sam klucz co karta
+  // kontraktu, więc tam nie ma drugiego zapytania).
+  const needsContract = !bulk;
   const contractQuery = useQuery<{
     notice_period_months?: number | null;
     client_order_end_date?: string | null;
+    start_date?: string | null;
   }>({
     queryKey: ["contract", contractIds[0]],
     queryFn: () => contractsApi.get(contractIds[0]).then((r) => r.data),
@@ -193,7 +196,8 @@ export function ContractTerminationDialog({
   });
 
   const missing = missingTerminationFields(form);
-  const blocking = terminationFormError(form);
+  const contractStart = bulk ? null : contractQuery.data?.start_date ?? null;
+  const blocking = terminationFormError(form, contractStart);
   const warnings = terminationWarnings(form, orderEndDate);
   const ready = missing.length === 0 && !blocking;
   const formId = `contract-termination-${contractIds.join("-")}`;
@@ -299,6 +303,7 @@ export function ContractTerminationDialog({
             type="date"
             value={form.projectEndDate}
             required
+            min={contractStart ?? undefined}
             onChange={(e) => set({ projectEndDate: e.target.value })}
             className={FIELD}
           />

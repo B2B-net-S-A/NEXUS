@@ -1,4 +1,4 @@
 {
-  "sha256": "12f2d980725f32a98833daafbe209932a568bc9bd0ee69d5ea2a86bd0e9e4e1f",
+  "sha256": "7fa7aea1b13186ae5c2e00bd4adec53ffff4dbad220f77c49d644cccb7a5d4a8",
   "source": "backend/app/api/client_orders.py"
 }

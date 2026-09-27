@@ -32,7 +32,11 @@ import {
 } from "@/lib/api/executiveContracts";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
-import { duplicateOrderError, orderPeriodError } from "@/lib/order-period";
+import {
+  duplicateOrderError,
+  orderPeriodError,
+  overlappingOrderError,
+} from "@/lib/order-period";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import {
@@ -173,7 +177,14 @@ export function ExtendOrderDialog({
     normalizeDateInput(endDate),
     contract.orders,
   );
-  const blockingError = periodError ?? duplicateError;
+  // Runda 10 (F15): przedłużenie (zawsze okresowe — formularz nie wysyła
+  // typu) nachodzące na obowiązujące zamówienie tej osoby.
+  const overlapError = overlappingOrderError(
+    normalizeDateInput(startDate),
+    normalizeDateInput(endDate),
+    contract.orders,
+  );
+  const blockingError = periodError ?? duplicateError ?? overlapError;
 
   // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
   const rateClientNum = parseDecimalInput(rateClient);

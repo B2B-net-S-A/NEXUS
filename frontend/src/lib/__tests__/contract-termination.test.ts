@@ -61,6 +61,17 @@ describe("walidacja i ostrzeżenia", () => {
     expect(terminationFormError(form)).toMatch(/złożenia wypowiedzenia/);
   });
 
+  it("koniec projektu przed startem kontraktu blokuje zapis (runda 10, F27)", () => {
+    const form = { ...base, projectEndDate: "2026-09-27" };
+    expect(terminationFormError(form, "2026-11-01")).toMatch(
+      /wcześniejsza niż start kontraktu \(01\.11\.2026\)/,
+    );
+    expect(
+      terminationFormError({ ...base, projectEndDate: "2026-11-01" }, "2026-11-01"),
+    ).toBeNull();
+    expect(terminationFormError(form, null)).toBeNull();
+  });
+
   it("projekt po końcu umowy i po końcu zamówienia = dwa ostrzeżenia", () => {
     const form = {
       ...base,

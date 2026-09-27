@@ -1105,6 +1105,7 @@ def _order_pdf_file(
         consultant_name=entry.consultant_name,
         start=entry.start,
         end=entry.end,
+        period_invalid=entry.period_invalid,
         entry_type=entry.entry_type,
         status=entry.status,
         order_number=entry.order_number,

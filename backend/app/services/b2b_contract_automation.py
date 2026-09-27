@@ -20,6 +20,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_generated_contract import B2BGeneratedContract
@@ -487,6 +488,47 @@ def should_auto_create_order(client_id: int | None) -> bool:
     return not skips_standard_order_automation(client_id)
 
 
+def _periods_overlap(a: ClientOrder, b: ClientOrder) -> bool:
+    """Brak daty = otwarte w tę stronę (lustro ``_assert_no_duplicate_order_number``)."""
+    starts_before_other_ends = (
+        a.start_date is None or b.end_date is None or a.start_date <= b.end_date
+    )
+    ends_after_other_starts = (
+        a.end_date is None or b.start_date is None or a.end_date >= b.start_date
+    )
+    return starts_before_other_ends and ends_after_other_starts
+
+
+def _overlapping_open_orders(orders: list[ClientOrder]) -> list[ClientOrder]:
+    """Zamówienia, które nachodzą na inne otwarte zamówienie tej osoby."""
+    return [
+        order
+        for order in orders
+        if any(
+            other is not order and _periods_overlap(order, other) for other in orders
+        )
+    ]
+
+
+def _current_of_chain(orders: list[ClientOrder]) -> ClientOrder:
+    """Z łańcucha rozłącznych zamówień: obowiązujące dziś, inaczej najbliższe
+    przyszłe, inaczej ostatnie. Planowane przedłużenie nie zastępuje
+    bieżącego zamówienia przed swoim startem."""
+    if len(orders) == 1:
+        return orders[0]
+    today = business_today()
+    by_start = sorted(orders, key=lambda o: (o.start_date or date.min, o.id))
+    for order in by_start:
+        started = order.start_date is None or order.start_date <= today
+        running = order.end_date is None or order.end_date >= today
+        if started and running:
+            return order
+    upcoming = [
+        o for o in by_start if o.start_date is not None and o.start_date > today
+    ]
+    return upcoming[0] if upcoming else by_start[-1]
+
+
 async def _ensure_open_order(
     db: AsyncSession,
     *,
@@ -543,23 +585,32 @@ async def _ensure_open_order(
         .scalars()
         .all()
     )
-    if len(orders) > 1:
+    # Runda 10 (F24): bieżące zamówienie i jego PRZEDŁUŻENIE (okresy
+    # rozłączne, 01.10–31.12 i 01.01–31.03) to kontynuacja tej samej
+    # współpracy, nie duplikat — hook nazywał je „duplikatami” i nie zakładał
+    # szkicu kontraktu. Duplikat = dwa otwarte zamówienia na nachodzący okres.
+    overlapping = _overlapping_open_orders(orders)
+    if overlapping:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=_conflict_detail(
                 (
-                    "Kontraktor ma więcej niż jedno otwarte zamówienie dla tej "
-                    "rekrutacji. Zamknij duplikaty przed potwierdzeniem podpisu."
+                    "Kontraktor ma więcej niż jedno otwarte zamówienie na ten "
+                    "sam okres dla tej rekrutacji. Zamknij duplikaty przed "
+                    "potwierdzeniem podpisu."
                 ),
                 contract_ids=[contract.id],
-                order_ids=[order.id for order in orders],
+                order_ids=[order.id for order in overlapping],
             ),
         )
     if orders:
-        order = orders[0]
-        if order.client_id != job.client_id or (
-            order.job_id is not None and order.job_id != job.id
-        ):
+        mismatched = [
+            order
+            for order in orders
+            if order.client_id != job.client_id
+            or (order.job_id is not None and order.job_id != job.id)
+        ]
+        if mismatched:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=_conflict_detail(
@@ -568,12 +619,13 @@ async def _ensure_open_order(
                         "lub rekrutację."
                     ),
                     contract_ids=[contract.id],
-                    order_ids=[order.id],
+                    order_ids=[order.id for order in mismatched],
                 ),
             )
-        if order.job_id is None:
-            order.job_id = job.id
-        return orders[0], False, None
+        for order in orders:
+            if order.job_id is None:
+                order.job_id = job.id
+        return _current_of_chain(orders), False, None
 
     candidate_name = f"{candidate.name} {candidate.lastname}".strip()
     from_signed_confirmation = source == "signed_generated_contract"
