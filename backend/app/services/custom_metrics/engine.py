@@ -17,13 +17,13 @@ Trzy reguły, które trzymają ten moduł uczciwym:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import (
-    DateTime,
-    Integer,
     Text,
+    bindparam,
     cast,
     column,
     func,
@@ -36,13 +36,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+from app.core.cache import cache_get, cache_invalidate, cache_set, cache_single_flight
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup
 from app.models.competence_category import CompetenceCategory
 from app.models.contract import Contract, ContractStatus
-from app.models.job import Job, JobStatus
+from app.models.job import Job
 from app.models.user import User, UserRole
 from app.services.access_scope import (
     DashboardScope,
@@ -110,38 +111,152 @@ _MILESTONES = table(
 )
 
 
-def _credited_milestones():
-    """Kamienie milowe z kredytem jak w „Moje KPI" (rodzina A).
+# Runda 10 (R10-N1-1): kafelki „moje/mój zespół" i podział po rekruterach
+# liczyły pełne `VERIFIER_ANCHORED_CTE` (5–7 s) przy każdym przeliczeniu,
+# osobno dla każdej osoby i drugi raz dla porównania z poprzednim okresem.
+# Filtr okna i osoby i tak działał dopiero na wyniku CTE, więc liczymy JEDNĄ
+# migawkę całej firmy (osoba, etap, rekrutacja, dzień w Warszawie) na minutę,
+# z jednym wykonawcą, a okno, osobę i filtry nakładamy w Pythonie. Treść CTE
+# jest nietknięta — tę samą atrybucję czytają „Moje KPI" i wyścigi z nagrodami.
+_CREDITED_SNAPSHOT_TTL_SECONDS = 60
+_CREDITED_KEY_PREFIX = "dashboard_metric:credited:v1:"
+# Najdłuższe okno kreatora (12 miesięcy / ten rok) razem z poprzednim okresem
+# sięga ~730 dni wstecz; zapas, żeby żadne okno nie wyszło poza migawkę.
+_CREDITED_SPAN_DAYS = 800
 
-    Gdy metryka przypisuje ruchy LUDZIOM (autor „moje"/„mój zespół" albo
+# (credit_user, stage, job_id, client_id, competence_category_id, dzień, liczba)
+CreditedRow = tuple[Optional[int], str, int, Optional[int], Optional[int], date, int]
+
+
+def _uses_credit(
+    definition: MetricDefinition, author_ids: Optional[frozenset[int]]
+) -> bool:
+    """Ruchy przypisane LUDZIOM liczą kredyt jak „Moje KPI" (rodzina A).
+
+    Gdy metryka przypisuje ruchy ludziom (autor „moje"/„mój zespół" albo
     podział po rekruterze), zasługę dostaje osoba z ``VERIFIER_ANCHORED_CTE``
     — pierwszy zaakceptowany weryfikator pary — a nie ten, kto kliknął etap
-    (decyzja 22.09.2026). Bez tego kafelek „Zatrudnieni" (moje) liczył inną
-    osobę niż panel „Moje KPI" obok. Liczby całej firmy bez podziału na ludzi
-    zostają na widoku ``analytics_first_milestones`` (ta sama reguła D2 co
-    Insights). Oba źródła pomijają wykluczone placementy (0343).
+    (decyzja 22.09.2026). Liczby całej firmy bez podziału na ludzi zostają na
+    widoku ``analytics_first_milestones`` (reguła D2 jak Insights). Oba źródła
+    pomijają wykluczone placementy (0343).
     """
+    return definition.source == "pipeline_moves" and (
+        author_ids is not None or definition.group_by == "recruiter"
+    )
+
+
+async def _credited_snapshot(db: AsyncSession, since: date) -> list[CreditedRow]:
+    """Kamienie milowe z kredytem całej firmy od ``since`` — jedno CTE na minutę."""
     # Import lokalny: kpi_panel ciągnie kpi_engine, a silnik metryk nie
     # powinien ładować go przy imporcie modułu.
     from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
-    return (
-        text(
+    key = f"{_CREDITED_KEY_PREFIX}{since.isoformat()}"
+    cached = await cache_get(key)
+    if cached is not None:
+        return cached
+    async with cache_single_flight(key, db=db):
+        cached = await cache_get(key)
+        if cached is not None:
+            return cached
+        statement = text(
             VERIFIER_ANCHORED_CTE
-            + """
-            SELECT candidate_id, job_id, stage, reached_at, credit_user
-            FROM credited
+            + f"""
+            SELECT c.credit_user, c.stage, c.job_id,
+                   j.client_id, j.competence_category_id,
+                   (c.reached_at AT TIME ZONE '{TZ}')::date AS day,
+                   count(*) AS n
+            FROM credited c
+            JOIN jobs j ON j.id = c.job_id
+            WHERE c.stage IN :stages
+              AND c.reached_at >= :since
+            GROUP BY 1, 2, 3, 4, 5, 6
             """
+        ).bindparams(bindparam("stages", expanding=True))
+        result = await db.execute(
+            statement,
+            {
+                "stages": list(MILESTONE_STAGES),
+                "since": datetime.combine(since, time(0), tzinfo=ZoneInfo(TZ)),
+            },
         )
-        .columns(
-            column("candidate_id", Integer),
-            column("job_id", Integer),
-            column("stage", Text),
-            column("reached_at", DateTime(timezone=True)),
-            column("credit_user", Integer),
-        )
-        .subquery("credited_milestones")
+        rows: list[CreditedRow] = [
+            (
+                None if r[0] is None else int(r[0]),
+                str(r[1]),
+                int(r[2]),
+                None if r[3] is None else int(r[3]),
+                None if r[4] is None else int(r[4]),
+                r[5],
+                int(r[6]),
+            )
+            for r in result.all()
+        ]
+        # Najwyżej jedna migawka naraz — wczorajsza znika przy zapisie dzisiejszej.
+        await cache_invalidate(_CREDITED_KEY_PREFIX)
+        if _CREDITED_SNAPSHOT_TTL_SECONDS > 0:
+            await cache_set(
+                key,
+                rows,
+                ttl_seconds=_CREDITED_SNAPSHOT_TTL_SECONDS,
+                jitter_seconds=10,
+            )
+        return rows
+
+
+def _credited_since(window: Window) -> date:
+    return min(
+        window.today - timedelta(days=_CREDITED_SPAN_DAYS),
+        window.start_date,
+        window.previous().start_date,
     )
+
+
+def _credited_key(definition: MetricDefinition, row: CreditedRow) -> Any:
+    person, stage, _job, client, category, day, _n = row
+    g = definition.group_by
+    if g == "week":
+        return day - timedelta(days=day.weekday())
+    if g == "month":
+        return day.replace(day=1)
+    return {
+        "client": client,
+        "recruiter": person,
+        "stage": stage,
+        "competence_category": category,
+    }[g]
+
+
+def _credited_counts(
+    rows: list[CreditedRow],
+    definition: MetricDefinition,
+    window: Window,
+    author_ids: Optional[frozenset[int]],
+) -> dict[Any, int]:
+    """Ta sama selekcja co zapytanie SQL, tylko na migawce."""
+    stages = {definition.stage} if definition.stage else set(MILESTONE_STAGES)
+    f = definition.filters
+    clients = set(f.client_ids)
+    categories = set(f.competence_category_ids)
+    jobs = set(f.job_ids)
+    start, end = window.start_date, window.end_date
+    grouped = definition.group_by != "none"
+    out: dict[Any, int] = {}
+    for row in rows:
+        person, stage, job_id, client, category, day, n = row
+        if not (start <= day < end) or stage not in stages:
+            continue
+        if author_ids is not None and person not in author_ids:
+            continue
+        if clients and client not in clients:
+            continue
+        if categories and category not in categories:
+            continue
+        if jobs and job_id not in jobs:
+            continue
+        k = _credited_key(definition, row) if grouped else None
+        out[k] = out.get(k, 0) + n
+    return out
 
 
 class MetricAccessDenied(Exception):
@@ -267,7 +382,9 @@ def _author_ids(
     if author == "me":
         return frozenset({user.id})
     if author == "team":
-        return scope.allowed_operator_user_ids or frozenset({user.id})
+        # Runda 10 (R10-N1-7): pusty zespół to pusty zbiór, nie dane samego
+        # użytkownika pod podpisem „mój zespół" — kafelek mówi to notą.
+        return scope.allowed_operator_user_ids
     return None
 
 
@@ -365,19 +482,13 @@ def _pipeline_query(
     window: Window,
     author_ids: Optional[frozenset[int]],
 ):
-    # Przypisanie do ludzi = kredyt jak w „Moje KPI"; cała firma = widok.
-    if author_ids is not None or definition.group_by == "recruiter":
-        source = _credited_milestones()
-        m = source.c
-        stage = m.stage
-        person = m.credit_user
-        reached_at = m.reached_at
-    else:
-        source = _MILESTONES
-        m = source.c
-        stage = cast(m.stage, Text)
-        person = m.first_moved_by
-        reached_at = m.first_reached_at
+    # Cała firma bez podziału na ludzi = widok. Przypisanie do ludzi (kredyt
+    # jak w „Moje KPI") liczy `_credited_counts` z migawki — patrz wyżej.
+    source = _MILESTONES
+    m = source.c
+    stage = cast(m.stage, Text)
+    person = m.first_moved_by
+    reached_at = m.first_reached_at
     cols = {
         "client": Job.client_id,
         "recruiter": person,
@@ -423,20 +534,57 @@ def _candidates_query(
     return Candidate.__table__, conds, cols, Candidate.created_at
 
 
+def _jobs_author_clause(author: str, user: User, author_ids: frozenset[int]):
+    """„Moje"/„mój zespół" = ta sama reguła co zakres „Moje" listy ``/jobs``.
+
+    Runda 10 (R10-N1-3): kreator liczył tylko ``recruiter_id``/``tac_id``/
+    ``delivery_lead_id``, a „Moje" na ``/jobs`` (R9-N15-2) bierze też
+    współpracowników i żywe przypisania do requestu — sourcer z przypisaniem
+    miał w kreatorze zawsze 0. TAC i Delivery Lead rekrutacji zostają (DL
+    liczył „moje" rekrutacje po ``delivery_lead_id`` od początku kreatora).
+    """
+    from app.api.jobs import _live_work_assignment_job_ids, jobs_mine_clause
+    from app.models.job_collaborator import JobCollaborator
+
+    if author == "me":
+        return or_(
+            jobs_mine_clause(user),
+            Job.tac_id == user.id,
+            Job.delivery_lead_id == user.id,
+        )
+    ids = sorted(author_ids)
+    return or_(
+        Job.recruiter_id.in_(ids),
+        Job.tac_id.in_(ids),
+        Job.delivery_lead_id.in_(ids),
+        Job.id.in_(
+            select(JobCollaborator.job_id).where(JobCollaborator.user_id.in_(ids))
+        ),
+        Job.id.in_(_live_work_assignment_job_ids(ids)),
+    )
+
+
 def _jobs_query(
     definition: MetricDefinition,
     window: Window,
     author_ids: Optional[frozenset[int]],
+    user: Optional[User] = None,
 ):
+    from app.api.jobs import jobs_open_only_clause, jobs_register_base_clause
+
     cols = {
         "client": Job.client_id,
         "recruiter": Job.recruiter_id,
         "competence_category": Job.competence_category_id,
     }
-    conds: list[Any] = []
+    # Runda 10 (R10-N1-9): rekrutacje klientów ukrytych albo usuniętych nie
+    # istnieją w rejestrze `/jobs` (UAT B73), więc nie liczą się też tu.
+    conds: list[Any] = [jobs_register_base_clause()]
     ts: Any = None
     if definition.measure == "open_now":
-        conds.append(Job.status == JobStatus.published)
+        # „Otwarte teraz" = pigułka „Otwarte" rejestru `/jobs`: wszystko poza
+        # zamkniętymi, także szkic (do rundy 10 tylko `published`).
+        conds.append(jobs_open_only_clause())
     elif definition.measure == "opened":
         ts = func.coalesce(Job.opened_at, Job.created_at)
         conds += [ts >= window.start, ts < window.end]
@@ -444,14 +592,9 @@ def _jobs_query(
         ts = Job.closed_at
         conds += [ts >= window.start, ts < window.end]
     if author_ids is not None:
-        ids = sorted(author_ids)
-        conds.append(
-            or_(
-                Job.recruiter_id.in_(ids),
-                Job.tac_id.in_(ids),
-                Job.delivery_lead_id.in_(ids),
-            )
-        )
+        if user is None:  # pragma: no cover — wołający zawsze podaje konto
+            raise ValueError("Filtr autora rekrutacji wymaga konta.")
+        conds.append(_jobs_author_clause(definition.filters.author, user, author_ids))
     f = definition.filters
     if f.client_ids:
         conds.append(Job.client_id.in_(f.client_ids))
@@ -548,8 +691,16 @@ async def _run_count(
     window: Window,
     author_ids: Optional[frozenset[int]],
     client_boundary: Optional[frozenset[int]] = None,
+    credited_rows: Optional[list[CreditedRow]] = None,
+    *,
+    user: Optional[User] = None,
 ) -> tuple[float, list[dict[str, Any]], list[str]]:
     src = definition.source
+    if credited_rows is not None:
+        counts = _credited_counts(credited_rows, definition, window, author_ids)
+        if definition.group_by == "none":
+            return float(counts.get(None, 0)), [], []
+        return await _grouped_series(db, definition, window, list(counts.items()))
     if src == "pipeline_moves":
         base, conds, cols, ts = _pipeline_query(definition, window, author_ids)
         measure = func.count()
@@ -557,7 +708,7 @@ async def _run_count(
         base, conds, cols, ts = _candidates_query(definition, window, author_ids)
         measure = func.count()
     elif src == "jobs":
-        base, conds, cols, ts = _jobs_query(definition, window, author_ids)
+        base, conds, cols, ts = _jobs_query(definition, window, author_ids, user)
         measure = func.count()
     elif src == "contracts":
         base, conds, cols, ts = _contracts_query(definition, window, client_boundary)
@@ -731,9 +882,24 @@ async def evaluate_metric(
         if client_boundary is not None and not requested:
             applied = "portfolio"
 
+    team_notes: list[str] = []
+    if (
+        definition.filters.author == "team"
+        and author_ids is not None
+        and not author_ids
+    ):
+        team_notes.append(
+            "Nie masz jeszcze zespołu (nikt nie pracuje przy Twoich "
+            "rekrutacjach), więc liczba zespołu to 0."
+        )
+    credited_rows: Optional[list[CreditedRow]] = None
+    if _uses_credit(definition, author_ids):
+        # Jedna migawka na całe wywołanie — okres bieżący i poprzedni.
+        credited_rows = await _credited_snapshot(db, _credited_since(window))
     value, series, notes = await _run_count(
-        db, definition, window, author_ids, client_boundary
+        db, definition, window, author_ids, client_boundary, credited_rows, user=user
     )
+    notes = team_notes + notes
     if (
         definition.source == "pipeline_moves"
         and author_ids is None
@@ -754,7 +920,13 @@ async def evaluate_metric(
         else:
             prev_def = definition.model_copy(update={"group_by": "none"})
             previous, _, _ = await _run_count(
-                db, prev_def, window.previous(), author_ids, client_boundary
+                db,
+                prev_def,
+                window.previous(),
+                author_ids,
+                client_boundary,
+                credited_rows,
+                user=user,
             )
     return MetricResult(
         value=value,

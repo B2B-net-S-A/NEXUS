@@ -13,7 +13,7 @@ Tryb „podgląd jako" odrzuca zapis w `deps.py` (każde żądanie nie-odczytowe
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.user_dashboard import UserDashboard
-from app.services.dashboard_tiles import DashboardLayout, DashboardTile, load_layout
+from app.services.dashboard_tiles import (
+    MAX_TILES,
+    DashboardLayout,
+    DashboardTile,
+    load_layout,
+)
 
 router = APIRouter()
 
@@ -33,8 +38,18 @@ class UserDashboardResponse(BaseModel):
 
 
 class UserDashboardUpdate(BaseModel):
-    tiles: list[DashboardTile] = Field(default_factory=list)
+    # Runda 10 (R10-N1-5): limit i unikalność id sprawdzane w modelu żądania
+    # (422 z FastAPI). Do tej rundy łapał je dopiero `DashboardLayout(...)`
+    # w ciele handlera, a `ValidationError` stamtąd kończył się 500.
+    tiles: list[DashboardTile] = Field(default_factory=list, max_length=MAX_TILES)
     expected_version: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _unique_tile_ids(self) -> "UserDashboardUpdate":
+        ids = [tile.id for tile in self.tiles]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Dwa kafelki mają ten sam identyfikator.")
+        return self
 
 
 @router.get("", response_model=UserDashboardResponse)
