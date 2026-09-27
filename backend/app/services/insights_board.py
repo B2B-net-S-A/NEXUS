@@ -347,6 +347,10 @@ async def compute_board(
         reasons.append("fx_missing")
     if current_fold.without_cost_leg:
         reasons.append("cost_leg_missing")
+    # Runda 10 (R10-N9-1): kontrakt bez stawki przychodowej nie wchodzi do
+    # przychodu, kosztu ani marży — do tej rundy znikał bez sygnału.
+    if current_fold.without_revenue_leg:
+        reasons.append("revenue_leg_missing")
     if reasons:
         message_parts: list = []
         if missing_currencies:
@@ -373,6 +377,11 @@ async def compute_board(
                 f"{current_fold.without_cost_leg} kontrakt(ów) bez stawki "
                 "kandydata — ich marża jest nieznana i nie wchodzi do sumy."
             )
+        if current_fold.without_revenue_leg:
+            message_parts.append(
+                f"{current_fold.without_revenue_leg} kontrakt(ów) bez stawki "
+                "przychodowej — nie wchodzą do przychodu, kosztu ani marży."
+            )
         degraded = {
             "reasons": reasons,
             # Liczniki mają WĘŻSZY zasięg niż lista walut i nazwy to mówią:
@@ -388,6 +397,7 @@ async def compute_board(
                 "months_affected": months_degraded,
             },
             "contracts_without_cost_leg": current_fold.without_cost_leg,
+            "contracts_without_revenue_leg": current_fold.without_revenue_leg,
             "message": " ".join(message_parts),
         }
         logger.warning(
@@ -431,6 +441,7 @@ async def compute_board(
                 "active_contracts": current_fold.active_contracts,
                 "priced_contracts": current_fold.priced_contracts,
                 "contracts_without_cost_leg": current_fold.without_cost_leg,
+                "contracts_without_revenue_leg": current_fold.without_revenue_leg,
                 "complete": current_fold.complete,
             },
         },

@@ -464,6 +464,8 @@ export interface InsightsBoardFinance {
   priced_contracts: number;
   /** Kontrakty bez stawki kandydata — ich marża jest NIEZNANA, nie zerowa. */
   contracts_without_cost_leg: number;
+  /** Kontrakty bez stawki przychodowej — poza przychodem, kosztem i marżą. */
+  contracts_without_revenue_leg?: number;
   complete: boolean;
 }
 
@@ -505,6 +507,7 @@ export interface InsightsBoardDegraded {
     months_affected: string[];
   };
   contracts_without_cost_leg: number;
+  contracts_without_revenue_leg?: number;
   message: string;
 }
 

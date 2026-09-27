@@ -37,7 +37,8 @@ from decimal import Decimal
 from typing import Iterable, Optional, Sequence
 
 from app.core.work_time import HOURS_PER_MD, HOURS_PER_MONTH, MD_PER_MONTH
-from app.models.contract import Contract, RateUnit
+from app.core.scheduling import business_today
+from app.models.contract import Contract, ContractStatus, RateUnit
 from app.schemas.money import to_whole_pln
 from app.services.contract_rates import effective_rate_fields
 from app.services.contractor_identity import summarize_active_contracts
@@ -129,6 +130,12 @@ class MoneyFold:
     # procent o przychód kontraktów bez stawki kosztowej (analityka
     # kontraktów, audyt 24.09.2026). Rada tego pola nie czyta.
     margin_revenue: Decimal = Decimal("0")
+    # Runda 10 (R10-N9-1): kontrakty bez wycenionej nogi PRZYCHODU (np.
+    # podpisana umowa B2B przed pierwszym zamówieniem). Nie ma ich w żadnej
+    # kwocie — do tej rundy znikały bez śladu, a kafel był „kompletny".
+    # Świadomie poza ``complete`` (to pole mówi o kursach i steruje remisem
+    # wyścigu miesięcznego); wołający budują z tego osobny sygnał.
+    without_revenue_leg: int = 0
 
     @property
     def complete(self) -> bool:
@@ -147,14 +154,31 @@ def running_on(contracts: Iterable[Contract], on: date) -> list:
     Wypowiedzenie kontraktu USTAWIA ``end_date`` (`contracts.py`, handler
     ``/terminate``), więc filtr po datach nie przepuszcza kogoś, kto odszedł
     przed pierwotnym terminem.
+
+    Runda 10 (R10-N9-3): dla dnia dzisiejszego i późniejszych decyduje też
+    STATUS — kontrakt ``ended`` bez daty końca (albo z datą w przyszłości,
+    dane historyczne) nie jest dziś wykonywany. Ta sama reguła co
+    ``consultant_population`` (``status_decides``), inaczej Rada liczyła
+    więcej konsultantów i MRR niż Finanse. Dla dnia z przeszłości status
+    mówi o dziś, nie o tamtym dniu, więc decydują same daty.
     """
+    status_decides = on >= business_today()
     return [
         c
         for c in contracts
         if c.start_date is not None
         and c.start_date <= on
         and (c.end_date is None or c.end_date >= on)
+        and (not status_decides or _status_value(c) in _LIVE_STATUS_VALUES)
     ]
+
+
+_LIVE_STATUS_VALUES = frozenset({ContractStatus.active.value, ContractStatus.ending.value})
+
+
+def _status_value(contract: Contract) -> Optional[str]:
+    status = getattr(contract, "status", None)
+    return getattr(status, "value", status)
 
 
 def _billable_hours(contract: Contract) -> Optional[Decimal]:
@@ -195,6 +219,7 @@ def fold_money(contracts: Sequence[Contract], on: date, rates: dict) -> MoneyFol
     contracts_without_hours = 0
     priced = 0
     without_cost_leg = 0
+    without_revenue_leg = 0
     missing: set = set()
     skipped_revenue = 0
     skipped_margin = 0
@@ -208,7 +233,8 @@ def fold_money(contracts: Sequence[Contract], on: date, rates: dict) -> MoneyFol
 
         if client_amount is None:
             # Kontrakt bez wycenionej nogi przychodu — nie ma czego dodać
-            # i nie jest to problem z kursem.
+            # i nie jest to problem z kursem, ale suma jest niepełna.
+            without_revenue_leg += 1
             continue
         priced += 1
 
@@ -265,6 +291,7 @@ def fold_money(contracts: Sequence[Contract], on: date, rates: dict) -> MoneyFol
         margin_with_known_hours=margin_with_known_hours,
         contracts_without_hours=contracts_without_hours,
         margin_revenue=margin_revenue,
+        without_revenue_leg=without_revenue_leg,
     )
 
 

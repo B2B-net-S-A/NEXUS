@@ -193,6 +193,54 @@ describe("ContractAnalyticsPage — marża bez stawki kosztowej", () => {
   });
 });
 
+describe("ContractAnalyticsPage — kontrakty bez stawki przychodowej (runda 10)", () => {
+  it("kafle i wiersz mówią, że suma pomija kontrakty bez stawki przychodowej", async () => {
+    mocks.get.mockImplementation((url: string) => {
+      if (url.includes("margin-totals")) {
+        return Promise.resolve({
+          data: {
+            clients: 1,
+            active_contracts: 1,
+            total_monthly_margin: 0,
+            total_monthly_revenue: 0,
+            margin_pct: null,
+            fx_missing: false,
+            contracts_without_cost_leg: 0,
+            contracts_without_revenue_leg: 1,
+          },
+        });
+      }
+      if (url.includes("margin-by-client")) {
+        return Promise.resolve({
+          data: [
+            {
+              client_id: 7,
+              client_name: "Klient bez zamówienia",
+              active_contracts: 1,
+              total_monthly_margin: 0,
+              total_monthly_revenue: 0,
+              margin_pct: null,
+              fx_missing: false,
+              contracts_without_revenue_leg: 1,
+            },
+          ],
+        });
+      }
+      if (url.includes("margin-by")) return Promise.resolve({ data: [] });
+      if (url.includes("utilization")) return Promise.reject(httpError(500));
+      return Promise.resolve({ data: { horizon_months: 12, months: [] } });
+    });
+
+    renderPage();
+
+    const note =
+      "Niepełne: 1 kontrakt bez stawki przychodowej poza sumą";
+    // Kafel marży i kafel przychodu — oba podpisane.
+    expect(await screen.findAllByText(note)).toHaveLength(2);
+    expect(await screen.findByText("Niepełne")).toBeInTheDocument();
+  });
+});
+
 describe("ContractAnalyticsPage — degradacja kursów FX", () => {
   it("oznacza zdegradowane wiersze i nie sumuje ich jak kompletnych kwot", async () => {
     mocks.get.mockImplementation((url: string) => {

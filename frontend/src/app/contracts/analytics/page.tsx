@@ -40,6 +40,8 @@ interface MarginRow {
   fx_missing?: boolean;
   // Kontrakty z przychodem bez stawki kosztowej — w przychodzie, poza marżą.
   contracts_without_cost_leg?: number;
+  // Kontrakty bez stawki przychodowej — poza każdą kwotą wiersza (runda 10).
+  contracts_without_revenue_leg?: number;
 }
 
 interface MarginTotals {
@@ -53,6 +55,7 @@ interface MarginTotals {
   margin_pct: number | null;
   fx_missing: boolean;
   contracts_without_cost_leg?: number;
+  contracts_without_revenue_leg?: number;
 }
 
 interface UtilizationData {
@@ -100,9 +103,21 @@ function forecastMonthLabel(month: string, fallback: string): string {
     .replace(".", "");
 }
 
-/** Podpis kafla marży: procent od serwera i kontrakty bez stawki kosztowej. */
+/** Zdanie o kontraktach bez stawki przychodowej — poza każdą sumą (runda 10). */
+function withoutRevenueNote(count: number | undefined): string | undefined {
+  const n = count ?? 0;
+  if (n <= 0) return undefined;
+  return `Niepełne: ${countPl(n, "kontrakt", "kontrakty", "kontraktów")} bez stawki przychodowej poza sumą`;
+}
+
+/** Podpis kafla marży: procent od serwera i kontrakty bez jednej ze stawek. */
 function marginTileSub(
-  totals: Pick<MarginTotals, "margin_pct" | "contracts_without_cost_leg"> | undefined,
+  totals:
+    | Pick<
+        MarginTotals,
+        "margin_pct" | "contracts_without_cost_leg" | "contracts_without_revenue_leg"
+      >
+    | undefined,
 ): string | undefined {
   if (!totals) return undefined;
   const parts: string[] = [];
@@ -115,6 +130,8 @@ function marginTileSub(
       `${countPl(withoutCost, "kontrakt", "kontrakty", "kontraktów")} bez stawki kosztowej poza marżą`,
     );
   }
+  const withoutRevenue = withoutRevenueNote(totals.contracts_without_revenue_leg);
+  if (withoutRevenue) parts.push(withoutRevenue);
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
@@ -232,6 +249,18 @@ function MarginLeaderboard({
                           aria-hidden="true"
                         />
                         Brak kursu FX
+                      </span>
+                    )}
+                    {(r.contracts_without_revenue_leg ?? 0) > 0 && (
+                      <span
+                        className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                        title={withoutRevenueNote(r.contracts_without_revenue_leg)}
+                      >
+                        <AlertTriangle
+                          className="h-3.5 w-3.5"
+                          aria-hidden="true"
+                        />
+                        Niepełne
                       </span>
                     )}
                   </td>
@@ -510,7 +539,7 @@ export default function ContractAnalyticsPage() {
             }
             sub={
               marginTotalsKnown
-                ? undefined
+                ? withoutRevenueNote(totals?.contracts_without_revenue_leg)
                 : totalsQ.isLoading
                   ? "Ładowanie…"
                   : clientFxMissing
