@@ -1774,17 +1774,24 @@ def _run_generation_pipeline(
     # as a separate, clearly-labelled line. Set BEFORE the render_payload
     # snapshot so re-downloads reproduce an identical header.
     role_title = (job_title or "").strip()
+    explicit_position = (position_ref or "").strip()
     if client_rule and client_rule.managed_policy:
         role_title = str(
-            raw_data.get("presentation_position")
+            explicit_position
+            or raw_data.get("presentation_position")
             or candidate_data.get("position")
             or position_fallback
             or ""
         ).strip()
         candidate_data["generic_cv"] = mode != "tailored"
         candidate_data["presentation_position"] = role_title
-    elif role_title:
-        candidate_data["considered_for"] = role_title
+    else:
+        if role_title:
+            candidate_data["considered_for"] = role_title
+        if explicit_position:
+            # Runda 10 (F21): stanowisko wpisane przez rekrutera trafia do
+            # nagłówka dosłownie — UI obiecuje „nagłówek i nazwa pliku”.
+            candidate_data["presentation_position"] = explicit_position
 
     # ── 4. Anti-fabrication seatbelt + date sanity ───────────────────────
     source_text = f"{cv_text}\n{screening_notes_text}"
@@ -1923,7 +1930,9 @@ def _run_generation_pipeline(
         filename = rule_result.filename
         rule_warnings.extend(rule_result.warnings)
     else:
-        filename = _build_download_filename(role_title, candidate_name)
+        filename = _build_download_filename(
+            explicit_position or role_title, candidate_name
+        )
     rule_warnings.extend(rule_reminders(client_rule))
     if policy_notes:
         # Model nie zmieścił się w klockach reguły i kod je domknął — rekruter
@@ -2388,6 +2397,11 @@ class CandidateGenerationSource:
     cv_document_id: int | None
     requirements: tuple[tuple[str, str], ...] = ()
     client_id: int | None = None
+    # Runda 10 (F21): stanowisko wpisane przez rekrutera INNE niż tytuł
+    # rekrutacji. Idzie dosłownie do nagłówka CV i nazwy pliku. Pusty = jak
+    # dotąd (tytuł rekrutacji dopasowuje model). Domyślna wartość, więc
+    # snapshoty zadań sprzed tej zmiany dekodują się bez niego.
+    position_override: str = ""
 
     def champion(self) -> ChampionProfileForPrompt:
         # Each renderer owns a fresh DTO; mutation cannot contaminate another variant.
@@ -2605,6 +2619,12 @@ async def load_candidate_generation_source(
     from app.services.cv_generator_b2b.requirement_map import build_requirements
 
     position = (position or "").strip()
+    job_title = (job.title or "").strip() if job is not None else ""
+    # Pole „Stanowisko” jest w UI podpowiadane tytułem rekrutacji — ten sam
+    # tekst to nie decyzja rekrutera, więc nagłówek dalej dopasowuje model.
+    position_override = (
+        position if position and position.casefold() != job_title.casefold() else ""
+    )
     return CandidateGenerationSource(
         cv_bytes=bytes(cv_bytes),
         cv_filename=cv_doc.filename or "cv.pdf",
@@ -2625,6 +2645,7 @@ async def load_candidate_generation_source(
         if job is not None
         else (),
         client_id=job.client_id if job is not None else client_id,
+        position_override=position_override,
     )
 
 
@@ -2679,6 +2700,7 @@ async def generate_cv_from_candidate_source(
             content_mode=effective_mode,
             client_rule=client_rule,
             project_ref=project_ref,
+            position_ref=source.position_override or None,
             prepared_source_facts=prepared_source_facts,
             position_fallback=position_fallback,
         )

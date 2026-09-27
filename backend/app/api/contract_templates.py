@@ -101,8 +101,15 @@ from app.services.b2b_contract_generator.rate_clause import (  # noqa: E402
 _jinja_env.filters["pl_date"] = _pl_date
 
 
-def _contract_vars(contract: Contract) -> dict:
-    """Shape exposed to templates (keep stable — it's part of the contract)."""
+def _contract_vars(contract: Contract, language: Optional[str] = None) -> dict:
+    """Shape exposed to templates (keep stable — it's part of the contract).
+
+    ``language`` = język wybranego szablonu (``ContractTemplate.language``).
+    Runda 10 (F25): „Generuj z szablonu” → „Umowa B2B (EN)” na kontrakcie
+    z danymi B2B po polsku (albo bez nich) wstawiał w angielski §6 polskie
+    „słownie” i „od dnia”, bo język brał się wyłącznie z ``b2b_detail``.
+    Brak języka szablonu = jak dotąd (język z danych umowy).
+    """
     cand = contract.candidate
     cli = contract.client
     candidate_full_name = (
@@ -112,7 +119,10 @@ def _contract_vars(contract: Contract) -> dict:
     # `b2b_detail` musi być eager-loaded przy każdym wywołaniu (async).
     detail = getattr(contract, "b2b_detail", None)
     role = detail.role if detail else None
-    lang = (detail.language if detail else "pl") or "pl"
+    detail_lang = (detail.language if detail else "pl") or "pl"
+    lang = (language or "").strip().lower()[:2] or detail_lang
+    if lang not in ("pl", "en"):
+        lang = detail_lang
     if role is not None:
         _area_label = role.area_label_pl if lang == "pl" else role.area_label_en
         _role_name = role.name_pl if lang == "pl" else role.name_en
@@ -138,7 +148,11 @@ def _contract_vars(contract: Contract) -> dict:
         _words_override = None
     else:
         _rate_stages = [_RateStage(rate=contract.rate_candidate)]
-        _words_override = detail.rate_in_words if detail else None
+        # Ręczne „słownie” jest w języku danych umowy — w innym języku
+        # szablonu liczymy je od nowa z kwoty.
+        _words_override = (
+            detail.rate_in_words if detail and detail_lang == lang else None
+        )
     _rate_clause = _build_rate_clause(
         _rate_stages,
         language=lang,
@@ -356,7 +370,7 @@ async def render_template_for_contract(
     )
     try:
         rendered = _jinja_env.from_string(tpl.content_jinja).render(
-            **_contract_vars(contract)
+            **_contract_vars(contract, language=tpl.language)
         )
     except TemplateError as e:
         raise HTTPException(status_code=422, detail=f"Render error: {e}")

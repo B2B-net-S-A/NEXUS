@@ -73,9 +73,9 @@ export function ClientRulesCard(props: ClientRulesCardProps) {
           ) : null}
           <div className="border-t border-border pt-2.5">
             <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-muted-foreground">Zgoda RODO</span>
+              <span className="text-muted-foreground">Zrzut zgody RODO</span>
               {!props.consentRequired ? (
-                <StatusChip tone="neutral">nie wymaga</StatusChip>
+                <StatusChip tone="neutral">niewymagany</StatusChip>
               ) : props.consentAttached ? (
                 <StatusChip tone="ok">zrzut dołączony</StatusChip>
               ) : (
@@ -91,6 +91,14 @@ export function ClientRulesCard(props: ClientRulesCardProps) {
                 {props.consentSlot}
               </div>
             ) : null}
+            {/* Runda 10 (F20): stopka RODO pochodzi z szablonu B2B.net
+                (docx_renderer TRANSLATIONS["rodo"]), nie z CV kandydata ani
+                z modelu — ekran mówi to wprost, żeby „niewymagany” nie
+                znaczył „dokument bez klauzuli”. */}
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              Każde CV kończy stała klauzula RODO B2B.net z szablonu firmowego — nie pochodzi z CV
+              kandydata. Zrzut zgody to osobny wymóg klienta.
+            </p>
           </div>
         </>
       )}

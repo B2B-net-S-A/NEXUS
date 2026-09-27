@@ -302,17 +302,24 @@ def run_legacy_generation(
     _fix_scoped_years(candidate_data, language)
 
     role_title = (job_title or "").strip()
+    explicit_position = (position_ref or "").strip()
     if client_rule and client_rule.managed_policy:
         role_title = str(
-            raw_data.get("presentation_position")
+            explicit_position
+            or raw_data.get("presentation_position")
             or candidate_data.get("position")
             or position_fallback
             or ""
         ).strip()
         candidate_data["generic_cv"] = mode != "tailored"
         candidate_data["presentation_position"] = role_title
-    elif role_title:
-        candidate_data["considered_for"] = role_title
+    else:
+        if role_title:
+            candidate_data["considered_for"] = role_title
+        if explicit_position:
+            # Runda 10 (F21): stanowisko wpisane przez rekrutera trafia do
+            # nagłówka dosłownie — UI obiecuje „nagłówek i nazwa pliku”.
+            candidate_data["presentation_position"] = explicit_position
 
     # ── 4. Anti-fabrication seatbelt + date sanity (warnings only) ───────
     source_text = f"{cv_text}\n{screening_notes_text}"
@@ -375,7 +382,9 @@ def run_legacy_generation(
         filename = rule_result.filename
         rule_warnings.extend(rule_result.warnings)
     else:
-        filename = _build_download_filename(role_title, candidate_name)
+        filename = _build_download_filename(
+            explicit_position or role_title, candidate_name
+        )
     rule_warnings.extend(rule_reminders(client_rule))
     if policy_notes:
         rule_warnings.append(

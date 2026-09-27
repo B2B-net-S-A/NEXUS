@@ -577,7 +577,8 @@ async def _finalize_success(
             or payload.get("position")
         )
         if getattr(row, "central_policy", None)
-        else payload.get("position")
+        # Runda 10 (F21): stanowisko wpisane przez rekrutera = nagłówek CV.
+        else payload.get("presentation_position") or payload.get("position")
     )
     # Upload parsing has no recruitment context; retain the authorized enqueue binding.
     if result.job_id is not None:
