@@ -14,12 +14,13 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.encryption import TokenCipherNotConfigured
+from app.models.app_setting import AppSetting
 from app.models.calendar_event import CalendarEvent
 from app.models.m365 import (
     Email,
@@ -265,6 +266,14 @@ async def _rematch_pass(db: AsyncSession) -> RematchStats:
     batch_size = max(1, settings.M365_REMATCH_BATCH_SIZE)
     cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
 
+    # Runda 9 (R9-N10-13): bez kursora każdy bieg brał te same `batch_size`
+    # najnowszych niedopasowanych maili (poczta spoza kandydatów zostaje
+    # niedopasowana na zawsze), więc starsze w oknie nigdy nie były ponawiane.
+    # Kursor (received_at, id) idzie od najnowszych w dół i zawija się na
+    # początek, gdy paczka jest niepełna.
+    cursor_row = await db.get(AppSetting, REMATCH_CURSOR_KEY)
+    cursor = _parse_rematch_cursor(cursor_row.value if cursor_row else None, cutoff)
+
     stmt = (
         select(Email)
         .where(
@@ -276,11 +285,27 @@ async def _rematch_pass(db: AsyncSession) -> RematchStats:
             Email.matched_by_user_id.is_(None),
             Email.is_private_filtered.is_(False),
         )
-        .order_by(Email.received_at.desc())
+        .order_by(Email.received_at.desc(), Email.id.desc())
         .limit(batch_size)
     )
+    if cursor is not None:
+        stmt = stmt.where(tuple_(Email.received_at, Email.id) < tuple_(*cursor))
     result = await db.execute(stmt)
     candidates_to_try = list(result.scalars().all())
+
+    cursor_changed = False
+    if len(candidates_to_try) >= batch_size:
+        last = candidates_to_try[-1]
+        value = {"received_at": last.received_at.isoformat(), "id": last.id}
+        if cursor_row is None:
+            db.add(AppSetting(key=REMATCH_CURSOR_KEY, value=value))
+        else:
+            cursor_row.value = value
+        cursor_changed = True
+    elif cursor_row is not None and cursor_row.value:
+        # Koniec okna — następny bieg zaczyna od najnowszych.
+        cursor_row.value = {}
+        cursor_changed = True
 
     processed = 0
     matched = 0
@@ -336,10 +361,31 @@ async def _rematch_pass(db: AsyncSession) -> RematchStats:
         email.matched_at = datetime.now(timezone.utc)
         matched += 1
 
-    if matched:
+    if matched or cursor_changed:
         await db.commit()
 
     return RematchStats(processed=processed, matched=matched)
+
+
+REMATCH_CURSOR_KEY = "m365_rematch_cursor"
+
+
+def _parse_rematch_cursor(
+    value: object, cutoff: datetime
+) -> tuple[datetime, int] | None:
+    """Kursor z `app_settings` albo None (brak, uszkodzony, spoza okna)."""
+    if not isinstance(value, dict):
+        return None
+    try:
+        received_at = datetime.fromisoformat(str(value["received_at"]))
+        email_id = int(value["id"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if received_at.tzinfo is None:
+        received_at = received_at.replace(tzinfo=timezone.utc)
+    if received_at <= cutoff:
+        return None
+    return received_at, email_id
 
 
 def _addresses(raw: object) -> list[str]:

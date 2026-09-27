@@ -14,7 +14,13 @@ from sqlalchemy import and_, or_, select
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.operation_telemetry import record_job_outcome
-from app.models.m365 import Email, EmailAttachment, EmailMatchMethod, M365Connection
+from app.models.m365 import (
+    Email,
+    EmailAttachment,
+    EmailDirection,
+    EmailMatchMethod,
+    M365Connection,
+)
 from app.services.m365 import attachment_handler
 from app.services.m365.graph_client import GraphClient
 
@@ -46,6 +52,9 @@ async def run_m365_cv_parse_once() -> bool:
                 EmailAttachment.is_cv_candidate.is_(True),
                 EmailAttachment.storage_path.is_not(None),
                 Email.candidate_id.is_not(None),
+                # Runda 9 (R9-N10-9): CV z maila WYSŁANEGO przez rekrutera
+                # (np. CV firmowe do klienta) nie jest nowym CV kandydata.
+                Email.direction == EmailDirection.received,
                 # SQL NULL-safe comparison. Without this predicate, legacy
                 # rows already applied to their current candidate but lacking
                 # an attempt timestamp would be claimed forever.
@@ -175,8 +184,6 @@ async def _create_from_unknown_sender_once(db) -> bool:
     """
     if not settings.M365_AUTO_CREATE_CANDIDATE_FROM_CV:
         return False
-    from app.models.m365 import EmailDirection
-
     since = datetime.now(timezone.utc) - timedelta(
         days=max(1, settings.M365_AUTO_CREATE_LOOKBACK_DAYS)
     )

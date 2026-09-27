@@ -210,7 +210,11 @@ def _graph_refusal_http(exc: GraphRequestError) -> HTTPException:
 def _can_access_email(email: Email, user, privileged_role: bool) -> bool:
     if email.user_id == user.id:
         return True
-    return privileged_role
+    # Runda 9 (R9-N10-1): obejście dla admina/DL dotyczy WYŁĄCZNIE maili
+    # powiązanych z kandydatem. Mail niepowiązany to prywatna korespondencja
+    # właściciela skrzynki — do 27.09 GET /emails/{id} i pobranie załącznika
+    # oddawały dowolny mail z cudzej skrzynki.
+    return privileged_role and email.candidate_id is not None
 
 
 def _to_email_out(email: Email) -> EmailOut:

@@ -256,7 +256,6 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     # kontaktu i stawek (salary wygaszone), a pełny profil kandydata pozostaje
     # za bramkami modułu kandydatów; test w test_champion_profile_ingest.py
     # pilnuje, że guard rolowy nie wróci na te trasy cichym refaktorem.
-    ("POST", "/api/user-email-templates"),
     ("PUT", "/api/notifications/preferences/{category}"),
     ("PUT", "/api/notifications/read-all"),
     ("PUT", "/api/notifications/{notification_id}/read"),

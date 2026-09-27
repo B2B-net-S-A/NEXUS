@@ -662,14 +662,38 @@ async def _resolve_template(
          renderer treats it as non-conditional),
       4. any rejection template,
       5. None — renderer falls back to the hard-coded Polish body.
+
+    Runda 9 (R9-N10-5): szablon ze zmienną, której `_render` nie wypełnia
+    (np. `{{company_name}}` z dawnego zasiewu), jest pomijany — kandydat
+    dostałby dosłowne `{{company_name}}`. Zapis takiego szablonu odrzucenia
+    blokuje API; to osłona wierszy zapisanych wcześniej.
     """
+    from app.services.email_template_variables import unsupported_variables
+
+    def _usable(template: Optional[EmailTemplate]) -> bool:
+        if template is None:
+            return False
+        missing = unsupported_variables(template.subject, template.body)
+        if missing:
+            logger.warning(
+                "rejection template %s pominięty — zmienne bez wartości: %s",
+                template.id,
+                ", ".join(missing),
+            )
+            return False
+        return True
+
     if override_id:
         override = await db.get(EmailTemplate, override_id)
         # M4 PR-04 (audyt P1.14): override MUSI być templatem kategorii
         # rejection — dotąd dało się podstawić dowolny template (offer,
         # follow-up...) jako "mail odrzucenia". Zły override → fallback na
         # standardową ścieżkę wyboru + warning, nie cichy send.
-        if override is not None and override.category == EmailCategory.rejection:
+        if (
+            override is not None
+            and override.category == EmailCategory.rejection
+            and _usable(override)
+        ):
             return override
         logger.warning(
             "rejection template override %s odrzucony (brak/kategoria %s) — fallback",
@@ -686,26 +710,34 @@ async def _resolve_template(
         .where(EmailTemplate.name == REJECTION_EXTERNAL_TEMPLATE_NAME)
         .limit(1)
     )
-    if named is not None:
+    if _usable(named):
         return named
 
-    default_rejection = await db.scalar(
-        select(EmailTemplate)
-        .where(
-            EmailTemplate.category == EmailCategory.rejection,
-            EmailTemplate.is_default.is_(True),
+    defaults = (
+        await db.scalars(
+            select(EmailTemplate)
+            .where(
+                EmailTemplate.category == EmailCategory.rejection,
+                EmailTemplate.is_default.is_(True),
+            )
+            .order_by(EmailTemplate.id.asc())
         )
-        .limit(1)
-    )
-    if default_rejection is not None:
-        return default_rejection
+    ).all()
+    for candidate_template in defaults:
+        if _usable(candidate_template):
+            return candidate_template
 
-    return await db.scalar(
-        select(EmailTemplate)
-        .where(EmailTemplate.category == EmailCategory.rejection)
-        .order_by(EmailTemplate.id.asc())
-        .limit(1)
-    )
+    others = (
+        await db.scalars(
+            select(EmailTemplate)
+            .where(EmailTemplate.category == EmailCategory.rejection)
+            .order_by(EmailTemplate.id.asc())
+        )
+    ).all()
+    for candidate_template in others:
+        if _usable(candidate_template):
+            return candidate_template
+    return None
 
 
 def _render(
@@ -726,8 +758,12 @@ def _render(
     Falls back to a hard-coded subject/body when no template exists (first
     boot before seed).
     """
+    from app.services.email_template_variables import body_to_html
+
     subject_tmpl = template.subject if template else _DEFAULT_SUBJECT
-    body_tmpl = template.body if template else _DEFAULT_BODY
+    # Runda 9 (R9-N10-5): szablon z pola tekstowego (bez znaczników) → HTML;
+    # wcześniej akapity sklejały się w jedną linię, a `&` szło surowo.
+    body_tmpl = body_to_html(template.body if template else _DEFAULT_BODY)
 
     ctx = {
         "candidate_name": (candidate.name or "").strip(),
