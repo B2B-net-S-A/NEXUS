@@ -368,3 +368,24 @@ async def test_r9_n5_4_canonical_radar_uses_search_policy_and_canonical_fit(
     assert seen["context"].query_text == seen["pool_text"]
     assert set(result.candidates_by_id) == {2}
     assert result.eligibility_by_id == {}
+
+
+# ---------------------------------------------------------------- R9-N14-3
+
+
+def test_r9_n14_3_export_match_order_joins_instead_of_array_position():
+    from sqlalchemy import select
+    from sqlalchemy.dialects import postgresql
+
+    from app.api.candidates import order_by_id_list
+    from app.models.candidate import Candidate
+
+    sql = str(
+        order_by_id_list(select(Candidate.id), [3, 1, 2]).compile(
+            dialect=postgresql.dialect()
+        )
+    )
+    assert "array_position" not in sql
+    assert "WITH ORDINALITY" in sql
+    assert "LEFT OUTER JOIN unnest(" in sql
+    assert "ORDER BY id_order.position ASC NULLS LAST" in sql

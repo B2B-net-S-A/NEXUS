@@ -1465,6 +1465,25 @@ def _sort_prefix_exprs(filters: CandidateFilterSpec):
     return preferred_rank, unknown_rank
 
 
+def order_by_id_list(query, ids: list[int]):
+    """Posortuj ``select(Candidate…)`` w kolejności listy identyfikatorów.
+
+    Runda 9 (R9-N14-3): ``array_position`` przeszukuje tablicę od początku dla
+    KAŻDEGO wiersza — przy eksporcie kilkudziesięciu tysięcy osób w kolejności
+    „Dopasowanie” to kwadratowy koszt sortowania. ``unnest … WITH ORDINALITY``
+    daje pozycję złączeniem, a LEFT JOIN zostawia wiersze spoza listy na końcu
+    (jak NULL z ``array_position``), z ``id`` jako stabilnym rozstrzygnięciem.
+    """
+    position = (
+        func.unnest(literal(list(ids), type_=ARRAY(Integer)))
+        .table_valued("candidate_id", with_ordinality="position")
+        .render_derived(name="id_order")
+    )
+    return query.outerjoin(position, position.c.candidate_id == Candidate.id).order_by(
+        position.c.position.asc().nullslast(), Candidate.id.asc()
+    )
+
+
 def _apply_requested_sort(
     query,
     filters: CandidateFilterSpec,
@@ -3309,12 +3328,7 @@ async def export_candidates_v2(
             if match_ids is None:
                 export_filters = export_filters.model_copy(update={"sort": "newest"})
         if match_ids is not None:
-            query = query.order_by(
-                func.array_position(
-                    literal(list(match_ids), type_=ARRAY(Integer)), Candidate.id
-                ).asc(),
-                Candidate.id.asc(),
-            )
+            query = order_by_id_list(query, match_ids)
         else:
             query = _apply_candidate_sort(
                 query,
