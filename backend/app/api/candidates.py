@@ -25,6 +25,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import (
     ARRAY,
@@ -6090,10 +6091,12 @@ async def _store_candidate_document(
             )
             file_content = None
     except Exception as exc:  # pragma: no cover - storage fallback
+        # Runda 9 (R9-N7-8): komunikat wyjątku magazynu niesie URL z kluczem
+        # (nazwa pliku CV = imię i nazwisko) — do logu tylko klasa wyjątku.
         logger.warning(
             "[candidate_documents] storage upload failed candidate=%s: %s",
             candidate_id,
-            exc,
+            type(exc).__name__,
         )
 
     document = CandidateDocument(
@@ -6718,8 +6721,13 @@ def _sanitize_upload_filename(raw_filename: Optional[str], *, fallback: str) -> 
     """
     import pathlib
 
+    from app.api.public_share import _fit_filename
+
     name = pathlib.Path((raw_filename or "").strip()).name
-    return name or fallback
+    # Runda 9 (R9-N7-3): nazwa trafia na dysk jako `candidate_<id>_<nazwa>`,
+    # a nazwa pliku ma limit 255 BAJTÓW — CV z długą polską nazwą dawało
+    # `ENAMETOOLONG` = 500. Ta sama reguła co formularz kariery.
+    return _fit_filename(name) if name else fallback
 
 
 def _candidate_cv_disk_path(
@@ -7122,6 +7130,13 @@ async def bulk_cv_download(
 
     Skips candidates without an uploaded CV or missing file on disk and reports
     them in the `_manifest.txt` entry included at the archive root.
+
+    Runda 9 (R9-N7-6): CV bierze się z GŁÓWNEGO dokumentu kandydata
+    (``cv_source.get_current_cv`` — ta sama reguła co generator i kopie etapów),
+    a stare pola ``cv_filename``/``cv_storage_key`` są tylko zapasem. Do tej
+    zmiany paczka oddawała CV sprzed wgrania nowej wersji albo „brak CV” osobie,
+    która ma plik w dokumentach. Archiwum powstaje w pliku tymczasowym, nie
+    w pamięci procesu webowego (200 CV po kilka MB).
     """
     requested_ids = list(dict.fromkeys(payload.candidate_ids))
 
@@ -7132,111 +7147,106 @@ async def bulk_cv_download(
     included = 0
     skipped = 0
 
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as zf:
-        for cid in requested_ids:
-            candidate = candidates_by_id.get(cid)
-            if candidate is None:
-                manifest_rows.append(f"{cid}\t\t\t\tskipped_not_found")
-                skipped += 1
-                continue
-            if not candidate.cv_filename:
-                manifest_rows.append(
-                    f"{cid}\t{candidate.name}\t{candidate.lastname}\t\tskipped_no_cv"
-                )
-                skipped += 1
-                continue
+    tmp = tempfile.NamedTemporaryFile(prefix="nexus-cvs-", suffix=".zip", delete=False)
+    tmp.close()
+    archive_path = tmp.name
+    try:
+        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_STORED) as zf:
+            for cid in requested_ids:
+                candidate = candidates_by_id.get(cid)
+                if candidate is None:
+                    manifest_rows.append(f"{cid}\t\t\t\tskipped_not_found")
+                    skipped += 1
+                    continue
 
-            # Niebezpieczna nazwa = brak pliku na dysku; CV może nadal przyjść
-            # z object storage albo BYTEA niżej.
-            file_path = _candidate_cv_disk_path(candidate.id, candidate.cv_filename)
-            data: bytes | None = None
-            if file_path is not None and os.path.exists(file_path):
-                try:
-                    async with aiofiles.open(file_path, "rb") as f:
-                        data = await f.read()
-                except OSError as err:
-                    # Ścieżka niesie nazwę pliku CV (imię i nazwisko) — do logu
-                    # tylko id kandydata i klasa błędu (runda 6 audytu).
-                    logger.warning(
-                        "bulk_cv_download: failed to read CV of candidate=%s: %s",
-                        candidate.id,
-                        type(err).__name__,
+                data, filename = await _bulk_cv_bytes(db, candidate)
+                if data is None:
+                    status_label = (
+                        "skipped_file_missing"
+                        if candidate.cv_filename
+                        else "skipped_no_cv"
                     )
-            elif candidate.cv_storage_key:
-                # Round 2 migracja (audit-2026-05-07): CV w Hetzner Object Storage.
-                from app.services.object_storage import (
-                    download_cv as _download_cv,
-                    is_available as _storage_available,
+                    manifest_rows.append(
+                        f"{cid}\t{candidate.name}\t{candidate.lastname}\t"
+                        f"{candidate.cv_filename or ''}\t{status_label}"
+                    )
+                    skipped += 1
+                    continue
+
+                ext = os.path.splitext(filename or "")[1] or ".pdf"
+                entry_name = (
+                    f"{_sanitize_zip_component(candidate.lastname)}_"
+                    f"{_sanitize_zip_component(candidate.name)}_"
+                    f"{candidate.id}{_sanitize_zip_component(ext)}"
                 )
-
-                if _storage_available():
-                    try:
-                        # Sync boto3 download — offload so the loop is not
-                        # blocked for each of up to 200 CVs in this bulk request.
-                        data = await asyncio.to_thread(
-                            _download_cv, candidate.cv_storage_key
-                        )
-                    except Exception as err:
-                        logger.warning(
-                            "bulk_cv_download: storage fetch failed for %s: %s",
-                            candidate.id,
-                            err,
-                        )
-                # Fallback do BYTEA jeśli storage nie odpowiada — przed
-                # finalize-delete-bytea oba mogą współistnieć.
-                if data is None and candidate.cv_file_content:
-                    data = candidate.cv_file_content
-            elif candidate.cv_file_content:
-                data = candidate.cv_file_content
-
-            if data is None:
+                await asyncio.to_thread(zf.writestr, entry_name, data)
                 manifest_rows.append(
                     f"{cid}\t{candidate.name}\t{candidate.lastname}\t"
-                    f"{candidate.cv_filename}\tskipped_file_missing"
+                    f"{filename}\tincluded"
                 )
-                skipped += 1
-                continue
+                included += 1
 
-            ext = os.path.splitext(candidate.cv_filename)[1] or ".pdf"
-            entry_name = (
-                f"{_sanitize_zip_component(candidate.lastname)}_"
-                f"{_sanitize_zip_component(candidate.name)}_"
-                f"{candidate.id}{ext}"
-            )
-            zf.writestr(entry_name, data)
-            manifest_rows.append(
-                f"{cid}\t{candidate.name}\t{candidate.lastname}\t"
-                f"{candidate.cv_filename}\tincluded"
-            )
-            included += 1
+            zf.writestr("_manifest.txt", "\n".join(manifest_rows) + "\n")
 
-        zf.writestr("_manifest.txt", "\n".join(manifest_rows) + "\n")
-
-    candidate_audit.record_candidate_audit(
-        db,
-        action=candidate_audit.BULK_CV_DOWNLOADED,
-        user_id=current_user.id,
-        details={
-            "requested_count": len(requested_ids),
-            "included_count": included,
-            "skipped_count": skipped,
-        },
-    )
-    await db.commit()
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.BULK_CV_DOWNLOADED,
+            user_id=current_user.id,
+            details={
+                "requested_count": len(requested_ids),
+                "included_count": included,
+                "skipped_count": skipped,
+            },
+        )
+        await db.commit()
+    except BaseException:
+        os.remove(archive_path)
+        raise
 
     archive_name = _bulk_cv_archive_name()
     headers = {
-        "Content-Disposition": f'attachment; filename="{archive_name}"',
         "X-Included-Count": str(included),
         "X-Skipped-Count": str(skipped),
         "Access-Control-Expose-Headers": "Content-Disposition, X-Included-Count, X-Skipped-Count",
     }
-    return Response(
-        content=buffer.getvalue(),
+    return FileResponse(
+        archive_path,
         media_type="application/zip",
+        filename=archive_name,
         headers=headers,
+        background=BackgroundTask(os.remove, archive_path),
     )
+
+
+async def _bulk_cv_bytes(
+    db: AsyncSession, candidate: Candidate
+) -> tuple[Optional[bytes], Optional[str]]:
+    """Bajty i nazwa CV kandydata do paczki: główny dokument, potem stare pola."""
+    from app.services.cv_source import get_current_cv
+
+    current = await get_current_cv(db, candidate)
+    if current is not None and current.source.startswith("document_"):
+        return current.content, current.filename
+
+    # Stary zapis na dysku (`candidate_<id>_<cv_filename>`), którego
+    # `get_current_cv` nie zna. Niebezpieczna nazwa = brak pliku na dysku.
+    if candidate.cv_filename:
+        file_path = _candidate_cv_disk_path(candidate.id, candidate.cv_filename)
+        if file_path is not None and os.path.exists(file_path):
+            try:
+                async with aiofiles.open(file_path, "rb") as f:
+                    return await f.read(), candidate.cv_filename
+            except OSError as err:
+                # Ścieżka niesie nazwę pliku CV (imię i nazwisko) — do logu
+                # tylko id kandydata i klasa błędu (runda 6 audytu).
+                logger.warning(
+                    "bulk_cv_download: failed to read CV of candidate=%s: %s",
+                    candidate.id,
+                    type(err).__name__,
+                )
+    if current is not None:
+        return current.content, current.filename
+    return None, None
 
 
 @router.post("/bulk-import", status_code=status.HTTP_201_CREATED)

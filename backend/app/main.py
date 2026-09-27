@@ -949,6 +949,13 @@ app.add_middleware(
     compresslevel=5,
     exclude_content_types=(
         *DEFAULT_EXCLUDED_CONTENT_TYPES,
+        # Runda 9 (R9-N7-7): pliki już skompresowane (ZIP paczki CV, obrazy)
+        # i dokumenty Worda nie są kompresowane na pętli jedynego procesu —
+        # jawnie, niezależnie od wersji Starlette (starsze znały tylko SSE).
+        "application/zip",
+        "application/x-zip-compressed",
+        "application/msword",
+        "image/*",
         "application/pdf",
         "application/octet-stream",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

@@ -1,4 +1,4 @@
 {
-  "sha256": "8e3e932c5aa00abb14cf454260412ab8f8c100268f432ffa5e8b4c61ba5565c9",
+  "sha256": "4afa9b451f21ac43d126112b50625898c437144e5eb3c85a3c33ec7576cb0e08",
   "source": "backend/app/services/md_import_parser.py"
 }

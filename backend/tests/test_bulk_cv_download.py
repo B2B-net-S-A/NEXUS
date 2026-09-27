@@ -222,3 +222,59 @@ async def test_bulk_cv_download_sanitizes_filenames(
             assert entry.endswith(".pdf")
     finally:
         await _delete_candidate(cid, None)
+
+
+async def test_bulk_cv_download_takes_the_primary_document_over_legacy_fields(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Runda 9 (R9-N7-6): paczka czytała stare `cv_filename` z dysku, choć
+    kandydat ma nowszy GŁÓWNY dokument CV, a osoba z samym dokumentem (bez
+    `cv_filename`) wychodziła jako „skipped_no_cv”."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate_document import (
+        CandidateDocument,
+        CandidateDocumentKind,
+    )
+
+    legacy_id = await _seed_candidate(
+        first="Legacy",
+        last="Stary",
+        cv_filename="old.pdf",
+        cv_on_disk=b"%PDF-stara-wersja",
+    )
+    doc_only_id = await _seed_candidate(first="Doc", last="Tylko")
+    async with AsyncSessionLocal() as db:
+        for cid, payload in (
+            (legacy_id, b"%PDF-nowa-wersja"),
+            (doc_only_id, b"%PDF-z-dokumentu"),
+        ):
+            db.add(
+                CandidateDocument(
+                    candidate_id=cid,
+                    filename="cv-glowne.pdf",
+                    file_content=payload,
+                    document_kind=CandidateDocumentKind.cv,
+                    is_primary=True,
+                )
+            )
+        await db.commit()
+    try:
+        r = await app_client.post(
+            "/api/candidates/bulk-cv-download",
+            headers=app_auth_headers,
+            json={"candidate_ids": [legacy_id, doc_only_id]},
+        )
+        assert r.status_code == 200, r.text
+        assert r.headers["x-included-count"] == "2"
+        assert "nexus-cvs-" in r.headers["content-disposition"]
+        with zipfile.ZipFile(io.BytesIO(r.content), "r") as zf:
+            by_id = {
+                n.rsplit("_", 1)[-1]: zf.read(n)
+                for n in zf.namelist()
+                if n != "_manifest.txt"
+            }
+        assert by_id[f"{legacy_id}.pdf"] == b"%PDF-nowa-wersja"
+        assert by_id[f"{doc_only_id}.pdf"] == b"%PDF-z-dokumentu"
+    finally:
+        await _delete_candidate(legacy_id, "old.pdf")
+        await _delete_candidate(doc_only_id, None)

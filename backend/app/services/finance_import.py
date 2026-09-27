@@ -203,7 +203,12 @@ def parse_finance_workbook(data: bytes) -> FinanceParseResult:
 
     from openpyxl import load_workbook
 
+    from app.core.zip_guard import assert_safe_ooxml
+
     try:
+        # Runda 9 (R9-N7-13): XLSX to ZIP — nagłówki archiwum sprawdzamy przed
+        # openpyxl (sharedStrings ładuje się w całości nawet w read_only).
+        assert_safe_ooxml(data)
         # read_only=True → strumieniowanie zamiast budowy pełnego drzewa
         # komórek. data_only=True → wartości, nie formuły (arkusz liczy marże
         # formułami; bez tego dostalibyśmy „=G2-D2").

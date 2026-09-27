@@ -79,6 +79,7 @@ from app.schemas.finance_order_pdfs import (
     OrderPdfsResponse,
 )
 from app.core.http_headers import content_disposition_attachment
+from app.core.upload_filename import fit_filename_column
 from app.services import finance_order_pdfs
 from app.services import nordea_invoice_lines, order_change_checks
 from app.services import storage_service
@@ -553,7 +554,9 @@ async def import_workbook(
     """
     _validate_period(year, month)
 
-    filename = file.filename or "wyniki.xlsx"
+    # Runda 9 (R9-N7-4): `source_filename` to VARCHAR(255) — dłuższa nazwa
+    # dawała DataError (500) przy zapisie przebiegu.
+    filename = fit_filename_column(file.filename or "wyniki.xlsx")
     if not filename.lower().endswith(_ALLOWED_EXT):
         raise HTTPException(415, detail="Dozwolone są wyłącznie pliki .xlsx")
 

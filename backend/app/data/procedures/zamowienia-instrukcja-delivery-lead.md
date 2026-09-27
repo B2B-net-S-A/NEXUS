@@ -788,7 +788,9 @@ stawkę przychodową (tę, którą płaci klient), jednostkę tej stawki
 **Skany działają, ale w ograniczonym zakresie.** Gdy w pliku nie ma warstwy
 tekstowej, system rozpoznaje pismo — ale tylko z **pierwszych 10 stron** i wolno
 (kilka sekund na stronę). Zamówienie ze stawkami na 11. stronie skanu nie
-zostanie odczytane.
+zostanie odczytane. PDF, którego odczyt trwa zbyt długo albo potrzebuje zbyt
+dużo pamięci (uszkodzony albo nietypowo zbudowany plik), system traktuje jak
+nieczytelny — pola wpisujesz wtedy ręcznie.
 
 **Co zobaczysz po odczycie:**
 

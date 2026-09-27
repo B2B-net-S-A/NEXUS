@@ -25,6 +25,8 @@ from typing import Any, Optional
 
 from openpyxl import load_workbook
 
+from app.core.zip_guard import assert_safe_ooxml
+
 # Ile wierszy od góry przeszukać w poszukiwaniu nagłówka. Wystarcza na tytuł,
 # datę i pustą linię nad tabelą; więcej oznaczałoby już inny kształt pliku.
 _MAX_HEADER_SCAN_ROWS = 25
@@ -422,6 +424,8 @@ def parse_md_sheet(content: bytes) -> ParsedSheet:
     dalej. Wygrywa pierwszy arkusz z rozpoznanym nagłówkiem.
     """
     try:
+        # Runda 9 (R9-N7-13): strażnik „bomby ZIP” przed openpyxl.
+        assert_safe_ooxml(content)
         workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
     except Exception as exc:  # openpyxl rzuca różne typy dla uszkodzonych plików
         raise MdSheetFormatError(
