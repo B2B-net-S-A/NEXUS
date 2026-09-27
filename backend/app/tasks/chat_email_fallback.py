@@ -432,7 +432,11 @@ async def _process_batch(
         ):
             await _release_claim(db, notif.id)
             continue
-        await db.refresh(notif, attribute_names=["is_read", "email_sent_at"])
+        # Runda 10 (R10-N6-3): usunięta albo poprawiona wiadomość zmienia
+        # `is_read` / `message` powiadomienia — mail ma nieść stan z bazy.
+        await db.refresh(
+            notif, attribute_names=["is_read", "email_sent_at", "message", "title"]
+        )
         if (
             not user.is_active
             or notif.is_read

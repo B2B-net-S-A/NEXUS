@@ -604,3 +604,65 @@ def apply_notes_fact(candidate: Any, field: str) -> dict:
         return {"field": field, "count": len(cities)}
 
     raise NotesFactUnavailable(field)
+
+
+# ── Usunięta notatka (runda 10, R10-N6-2) ────────────────────────────────────
+#
+# Nocna ekstrakcja wybiera kandydatów po NAJNOWSZEJ istniejącej notatce, więc
+# usunięcie notatki niczego nie unieważniało: stawka, dostępność i weto klienta
+# z usuniętej notatki zostawały na karcie profilu i w bramce budżetu na stałe,
+# a kandydat, któremu usunięto jedyną notatkę, wypadał z selekcji całkiem.
+
+NOTES_CHANGED_AT_KEY = "_notes_changed_at"
+NOTES_REMOVED_RATE_SOURCE = "notes_removed"
+
+
+def _rate_written_by_notes(candidate: Any, insights: dict) -> bool:
+    """Ten sam dowód własności stawki co `apply_insights` (kwota + wersja)."""
+    written = insights.get("_rate_written")
+    version = getattr(candidate, "profile_rate_version", 0) or 0
+    return isinstance(written, dict) and written == {
+        "amount": str(candidate.expected_rate_hourly),
+        "currency": candidate.expected_rate_currency,
+        "version": version,
+    }
+
+
+def mark_notes_changed(candidate: Any, *, now_iso: str) -> bool:
+    """Zbiór notatek się zmienił — nocna ekstrakcja ma policzyć fakty od nowa."""
+    insights = notes_insights(candidate)
+    if insights is None:
+        return False
+    extracted = dict(candidate.cv_extracted_data)
+    extracted["_notes_insights"] = {**insights, NOTES_CHANGED_AT_KEY: now_iso}
+    candidate.cv_extracted_data = extracted
+    flag_modified(candidate, "cv_extracted_data")
+    return True
+
+
+def clear_notes_facts(candidate: Any) -> Optional[dict]:
+    """Kandydat nie ma już notatek z treścią — fakty z notatek znikają.
+
+    Stawkę czyści WYŁĄCZNIE, gdy wpisały ją notatki (`_rate_written` zgodne
+    z profilem) i nikt jej nie przejął ręcznie. Zwraca audyt stawki albo None.
+    Mutuje obiekt ORM, bez commitu.
+    """
+    insights = notes_insights(candidate)
+    if insights is None:
+        return None
+    extracted = dict(candidate.cv_extracted_data)
+    rate_audit = None
+    if (
+        candidate.expected_rate_hourly is not None
+        and not extracted.get("_manual_override_rate")
+        and _rate_written_by_notes(candidate, insights)
+    ):
+        from app.services.candidate_profile_rate import write_profile_rate
+
+        rate_audit = write_profile_rate(
+            candidate, None, source=NOTES_REMOVED_RATE_SOURCE
+        )
+    extracted.pop("_notes_insights", None)
+    candidate.cv_extracted_data = extracted
+    flag_modified(candidate, "cv_extracted_data")
+    return rate_audit

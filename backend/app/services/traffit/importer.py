@@ -1385,6 +1385,13 @@ WHERE a.external_source = 'traffit'
             OR (n.source_ref IS NULL AND n.created_at = a.created_at)
         )
   )
+  -- Runda 10 (R10-N6-1): notatka usunięta w NEXUSIE zostawia nagrobek
+  -- (`deleted_note_sources`, 0391). Bez niego NOT EXISTS wyżej nie widział
+  -- już notatki i pełny bieg zakładał ją od nowa.
+  AND NOT EXISTS (
+      SELECT 1 FROM deleted_note_sources t
+      WHERE t.source_ref = 'traffit:activity:' || a.external_id
+  )
 """
 
 

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.note import NoteType
 
@@ -14,8 +14,17 @@ class NoteCreate(BaseModel):
 
 
 class NoteUpdate(BaseModel):
-    content: Optional[str] = None
+    content: Optional[str] = Field(default=None, min_length=1)
     note_type: Optional[NoteType] = None
+
+    # Runda 10 (R10-N6-5): pole pominięte = bez zmian, ale jawne `null` szło
+    # przez `exclude_unset` do kolumn NOT NULL i kończyło się 500 przy commicie.
+    @field_validator("content", "note_type", mode="before")
+    @classmethod
+    def _reject_null(cls, value):
+        if value is None:
+            raise ValueError("Pole nie może być puste (null).")
+        return value
 
 
 class NoteResponse(BaseModel):

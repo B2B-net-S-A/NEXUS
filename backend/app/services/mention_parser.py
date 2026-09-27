@@ -1,8 +1,10 @@
 """Parser @mention'ów dla Job Chat, Candidate Chat i notatek.
 
-Wspiera dwie składnie:
-    @user@example.com   — adres email (preferowane, jednoznaczne)
-    @123                — user_id (zarezerwowane na future autocomplete)
+Składnia: ``@user@example.com`` — adres e-mail (to wstawia autocomplete).
+
+Runda 10 (R10-N6-4): składnia ``@<liczba>`` usunięta — nikt jej nie wstawiał,
+a „spotkanie @10:00” oznaczało użytkownika nr 10 (powiadomienie + mail
+z fragmentem notatki).
 
 Trzy warianty scope filtrowania:
 - `parse_mentions(db, content, job_id)` — tylko members projektu (job chat,
@@ -26,14 +28,13 @@ from app.services.candidate_membership import filter_to_candidate_members
 from app.services.job_membership import filter_to_members
 from app.services.section_permissions import resolve_effective_section_access_for_users
 
-# @email + @userId.  Email regex z note: dopuszcza znaki specjalne typowe
-# w korporacyjnych adresach (kropka, plus, myślnik).
+# @email. Regex dopuszcza znaki specjalne typowe w korporacyjnych adresach
+# (kropka, plus, myślnik).
 _EMAIL_RE = re.compile(r"@([A-Za-z0-9._+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})")
-_USERID_RE = re.compile(r"@(\d+)\b")
 
 
 async def _extract_candidate_user_ids(db: AsyncSession, content: str) -> set[int]:
-    """Resolves emails+user_ids z treści do zbioru user_id.
+    """Resolves adresy e-mail z treści do zbioru user_id.
 
     NIE filtruje po scope ani aktywności — to zadanie callera.
     """
@@ -41,7 +42,6 @@ async def _extract_candidate_user_ids(db: AsyncSession, content: str) -> set[int
         return set()
 
     raw_emails = _EMAIL_RE.findall(content)
-    raw_user_ids = _USERID_RE.findall(content)
 
     candidate_ids: set[int] = set()
 
@@ -51,12 +51,6 @@ async def _extract_candidate_user_ids(db: AsyncSession, content: str) -> set[int
         )
         for (uid,) in rows.all():
             candidate_ids.add(uid)
-
-    for sid in raw_user_ids:
-        try:
-            candidate_ids.add(int(sid))
-        except ValueError:
-            continue
 
     return candidate_ids
 

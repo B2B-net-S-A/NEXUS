@@ -5645,6 +5645,12 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     retained_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )""",
     "CREATE INDEX IF NOT EXISTS ix_retained_candidate_files_subject_ref ON retained_candidate_files (subject_ref)",
+    # 0391: nagrobki notatek z Traffita usuniętych w NEXUSIE — promocja
+    # aktywności ich nie odtwarza (runda 10, R10-N6-1). Bez treści i PII.
+    """CREATE TABLE IF NOT EXISTS deleted_note_sources (
+    source_ref VARCHAR(255) PRIMARY KEY,
+    deleted_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)""",
     # 0372: follow-up z kandydatem — wyniki telefonów (kandydat CASCADE, RODO).
     """CREATE TABLE IF NOT EXISTS candidate_followups (
     id BIGSERIAL PRIMARY KEY,
