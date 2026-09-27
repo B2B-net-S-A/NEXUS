@@ -817,8 +817,8 @@ async def _hidden_gap_ids(
     """Braki zakończonych współprac — JEDNA reguła dla listy i dla banera.
 
     Pomijany jest brak, gdy:
-    * jego zamówienie ma dziś zapisaną intencję zakończenia (wypowiedzenie
-      zapisane PO wykryciu braku);
+    * brak jest otwarty, a jego zamówienie ma dziś zapisaną intencję
+      zakończenia (wypowiedzenie zapisane PO wykryciu braku);
     * jego współpraca stoi w Zejściach tego miesiąca (``exit_keys``);
     * brak jest otwarty, a współpraca skończyła się zapisanym końcem
       (``_ended_cooperations``) — baner nie ma miesiąca, więc tylko ta
@@ -828,12 +828,14 @@ async def _hidden_gap_ids(
 
     if not gaps:
         return set()
-    ended_orders = await gap_orders_with_ending_intent(
-        db, (gap.order_id for gap, _ in gaps)
-    )
     open_ids = sorted(
         {gap.order_id for gap, _ in gaps if gap.status == GAP_STATUS_OPEN}
     )
+    # Runda 10 (R10-N4-2): intencja zakończenia zdejmuje tylko brak OTWARTY
+    # (DL wypowiada umowę, gdy zobaczy brak). Wpis „uzupełnione z opóźnieniem”
+    # to historia zamkniętego miesiąca — późniejsze zakończenie umowy nie może
+    # go wymazać wstecz.
+    ended_orders = await gap_orders_with_ending_intent(db, open_ids)
     ended_coops = (
         await _ended_cooperations(
             db, await load_facts(db, ClientOrder.id.in_(open_ids))
@@ -845,7 +847,7 @@ async def _hidden_gap_ids(
     for gap, candidate_id in gaps:
         key = _gap_key(gap, candidate_id)
         if (
-            gap.order_id in ended_orders
+            (gap.status == GAP_STATUS_OPEN and gap.order_id in ended_orders)
             or key in exit_keys
             or (gap.status == GAP_STATUS_OPEN and key in ended_coops)
         ):
@@ -911,6 +913,7 @@ async def _gaps(
                 resolved_order_number=gap.resolved_order_number,
                 resolved_at=gap.resolved_at,
                 delay_days=max(delay, 0) if delay is not None else None,
+                episode=gap.episode or 0,
             )
         )
     return items
