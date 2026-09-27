@@ -321,3 +321,90 @@ async def test_user_upsert_leaves_a_real_account_alone(db) -> None:
     await db.execute(text("DELETE FROM users WHERE id = :i"), {"i": uid})
     await db.commit()
     assert (role, active) == ("sourcer", True)
+
+
+class _Content503Traffit:
+    """Lista plików działa, pobranie treści daje 503 (chwilowa awaria)."""
+
+    class _Resp:
+        def __init__(self, status_code, payload=None):
+            self.status_code = status_code
+            self._payload = payload
+            self.content = b""
+            self.headers = {}
+
+        def json(self):
+            return self._payload
+
+    def __init__(self):
+        outer = self
+
+        class _Http:
+            async def get(self, url, headers=None):
+                return outer._Resp(503)
+
+        self._http = _Http()
+        self.config = type("Cfg", (), {"api_base": "https://traffit.test"})()
+
+    async def _get_raw(self, path, page=1, page_size=50):
+        return self._Resp(200, [{"id": 7, "name": "cv.pdf"}])
+
+    async def _ensure_token(self):
+        return "token"
+
+    async def _throttle(self):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_unchanged_candidate_is_retried_by_the_files_phase(
+    db, monkeypatch
+) -> None:
+    """R10-N11-9 (po przeglądzie): niezmieniony rekord nie wypada z delty plików.
+
+    Bieg 1: kandydat wchodzi, pobranie treści pliku daje 503 — błąd wiersza,
+    `__daily__` stoi. Bieg 2: Traffit oddaje ten sam rekord (bez zmian, więc
+    bez stempla `updated_at`), a faza plików i tak musi go znowu wziąć.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    tag = uuid.uuid4().hex[:10]
+    ext = f"r10f{tag}"
+    email = f"r10-f-{tag}@example.test"
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(hours=2)
+    payloads = {
+        ext: _payload(
+            ext,
+            email,
+            traffit_source_updated_at=(now - timedelta(minutes=30)).isoformat(),
+        )
+    }
+
+    first = await _import(db, [ext], payloads, monkeypatch)
+    assert first.errors == 0, first.error_samples
+    cid = (
+        await db.execute(
+            text(
+                "SELECT id FROM candidates WHERE external_source='traffit' "
+                "AND external_id = :e"
+            ),
+            {"e": ext},
+        )
+    ).scalar_one()
+    files_1 = await TraffitImporter(
+        _Content503Traffit(), db, dry_run=False
+    ).import_candidate_files(since=now, source_since=since)
+    assert f"candidate:{ext}" in files_1.error_refs
+
+    run_2 = datetime.now(timezone.utc) + timedelta(seconds=1)
+    second = await _import(db, [ext], payloads, monkeypatch)
+    assert second.unchanged == 1
+
+    importer = TraffitImporter(_Content503Traffit(), db, dry_run=False)
+    only_stamp = {row.id for row in await importer._delta_file_targets(run_2)}
+    assert cid not in only_stamp, "warunek samego `updated_at` gubi kandydata"
+    with_source = {row.id for row in await importer._delta_file_targets(run_2, since)}
+    assert cid in with_source
+    files_2 = await importer.import_candidate_files(since=run_2, source_since=since)
+    assert f"candidate:{ext}" in files_2.error_refs
