@@ -214,6 +214,9 @@ class UserBrief(BaseModel):
     name: str
     role: Optional[str] = None
     roles: list[str] = Field(default_factory=list)
+    # Runda 9 (R9-V2-2): nieaktywny prowadzący = brak prowadzącego (front
+    # pokazuje wtedy „Przejmij”, a `POST …/claim` je przyjmuje).
+    is_active: bool = True
 
     model_config = {"from_attributes": True}
 

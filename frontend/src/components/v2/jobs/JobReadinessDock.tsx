@@ -67,6 +67,7 @@ import {
   type ReadinessRowState,
 } from "@/components/v2/jobs/ReadinessRow";
 import { jobClientLine, jobDisplayTitle } from "@/lib/job-names";
+import { hasActiveOwner } from "@/components/v2/jobs/ownership-types";
 
 export type JobReadinessDockVariant = "list" | "champion";
 
@@ -646,15 +647,17 @@ export function JobReadinessDock({
   const canClaim =
     canWritePipeline &&
     claimEligible &&
-    job.primary_owner == null &&
+    !hasActiveOwner(job.primary_owner) &&
     !claimMutation.isSuccess;
 
   const ownerItem: ReadinessItem = {
     key: "owner",
-    done: job.primary_owner != null,
+    done: hasActiveOwner(job.primary_owner),
     title: "Właściciel projektu",
     description: job.primary_owner
-      ? job.primary_owner.name
+      ? hasActiveOwner(job.primary_owner)
+        ? job.primary_owner.name
+        : `${job.primary_owner.name} — konto nieaktywne, przejmij rekrutację.`
       : "Nieprzypisany — nikt nie dostanie alertów deadline'u.",
     action: canClaim ? (
       <Button

@@ -5047,7 +5047,12 @@ async def claim_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
-    if job.recruiter_id is not None:
+    # Runda 9 (R9-V2-2): prowadzący z nieaktywnym kontem to brak prowadzącego —
+    # do tej rundy przejęcie takiej rekrutacji kończyło się 409, a front nie
+    # pokazywał „Przejmij”, więc nikt nie mógł jej prowadzić.
+    if job.recruiter_id is not None and await db.scalar(
+        select(User.is_active).where(User.id == job.recruiter_id)
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Ta rekrutacja ma już właściciela",

@@ -465,6 +465,28 @@ describe("JobReadinessDock — dane", () => {
     );
   });
 
+  it("nieaktywny prowadzący: opis mówi o nieaktywnym koncie i jest „Przejmij” (R9-V2-2)", async () => {
+    postMock.mockResolvedValue({ data: {} });
+    mockGetByUrl({
+      job: () =>
+        Promise.resolve({
+          data: {
+            ...jobFixture,
+            primary_owner: { ...jobFixture.primary_owner, is_active: false },
+          },
+        }),
+    });
+    renderDock(501);
+
+    expect(
+      await screen.findByText(/konto nieaktywne, przejmij rekrutację/),
+    ).toBeInTheDocument();
+    screen.getByRole("button", { name: "Przejmij" }).click();
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith("/api/jobs/501/claim"),
+    );
+  });
+
   it("head_of_recruitment ma zapis w pipeline, ale NIE dostaje przycisku Claim (backend: 403 „Rola tylko do odczytu nie może przejąć rekrutacji”)", async () => {
     useAuthStore.setState({ user: headOfRecruitmentWrite });
     mockGetByUrl({
