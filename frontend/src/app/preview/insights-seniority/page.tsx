@@ -60,7 +60,7 @@ const BASE: SeniorityResponse = {
   entries: [
     {
       user_id: 1,
-      name: "Marcin Kraszewski",
+      name: "Marcin Demonstracyjny",
       role: "recruiter",
       level: "expert",
       total_placements: 121,
@@ -74,7 +74,7 @@ const BASE: SeniorityResponse = {
     },
     {
       user_id: 2,
-      name: "Malwina Jobda",
+      name: "Malwina Makietowa",
       role: "recruiter",
       level: "senior",
       total_placements: 71,
@@ -88,7 +88,7 @@ const BASE: SeniorityResponse = {
     },
     {
       user_id: 3,
-      name: "Igor Twardowski",
+      name: "Igor Próbny",
       role: "sourcer",
       level: "junior",
       total_placements: 3,
@@ -115,7 +115,7 @@ const BASE: SeniorityResponse = {
 
 const ONE: SeniorityRegression = {
   user_id: 1,
-  name: "Marcin Kraszewski",
+  name: "Marcin Demonstracyjny",
   level: "senior",
   previous_level: "expert",
   total_placements: 9,
@@ -128,7 +128,7 @@ const MANY: SeniorityRegression[] = [
   ONE,
   {
     user_id: 2,
-    name: "Malwina Jobda",
+    name: "Malwina Makietowa",
     level: "junior",
     previous_level: "senior",
     total_placements: 4,
@@ -138,7 +138,7 @@ const MANY: SeniorityRegression[] = [
   },
   {
     user_id: 3,
-    name: "Kinga Szmulik",
+    name: "Kinga Szkicowa",
     level: "junior",
     previous_level: "expert",
     total_placements: 2,

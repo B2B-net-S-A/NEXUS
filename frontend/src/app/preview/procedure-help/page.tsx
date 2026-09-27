@@ -52,17 +52,17 @@ na sekcje: **MD**, **Kosztowe**, **Okresowe**.
 
 ## Klienci — czym różni się każdy
 
-### Bank Pocztowy
+### Bank Sigma
 
 * Numer zamówienia wyłącznie z pola **„Numer pisma"**.
 * Stawka jest dzielona przez 8 i zapisywana jako godzinowa.
 
-### Credit Agricole
+### Bank Epsilon
 
 * Stawka wyłącznie spod napisu **„Wynagrodzenie za 1MD"**.
 * Nic nie jest przeliczane.
 
-### Erste Bank Polska
+### Bank Theta
 
 * Kwota w dokumencie jest brutto — system dzieli ją przez **1,23**.
 

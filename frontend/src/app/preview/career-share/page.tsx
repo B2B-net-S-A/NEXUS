@@ -37,7 +37,7 @@ import {
 
 const JOBS: PublishedJobLite[] = [
   // Surowy tytuł z nazwą klienta i kodem — na stronie ma wyjść tytuł domyślny.
-  { id: 101, title: "Nordea: Senior Java Developer (ZOB-3003)", status: "published" },
+  { id: 101, title: "Bank Północny: Senior Java Developer (ZOB-3003)", status: "published" },
   { id: 102, title: "DevOps Engineer (Azure)", status: "published" },
   { id: 103, title: "Analityk biznesowy", status: "published" },
 ];

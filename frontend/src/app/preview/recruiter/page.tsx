@@ -56,7 +56,7 @@ const TEAM = [
   { name: "Marta Nowak", role: "recruiter", cat: "Data & AI", wer: 86, rek: 31, int: 14, plac: 6, hit: 7.0, me: true },
   { name: "Tomasz Lis", role: "sourcer", cat: "Dev", wer: 124, rek: 29, int: 11, plac: 4, hit: 3.2, me: false },
   { name: "Karolina Wójcik", role: "recruiter", cat: "Security & QA", wer: 71, rek: 26, int: 13, plac: 5, hit: 7.0, me: false },
-  { name: "Michał Adamski", role: "tac", cat: "Management", wer: 57, rek: 18, int: 8, plac: 3, hit: 5.3, me: false },
+  { name: "Michał Makietowy", role: "tac", cat: "Management", wer: 57, rek: 18, int: 8, plac: 3, hit: 5.3, me: false },
 ] as const
 
 const ROLE_STYLE: Record<string, "soft" | "info" | "success" | "neutral"> = {

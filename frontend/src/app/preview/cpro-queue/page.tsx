@@ -64,7 +64,7 @@ const QUEUE: CproQueueResponse = {
     {
       job_id: 1,
       job_title: "Java Backend Developer",
-      client_name: "Nordea",
+      client_name: "Bank Północny",
       oldest_since: daysAgo(2),
       items: [
         item({ stage_id: 11, candidate_id: 21, candidate_name: "Robert Przykładowy", since: daysAgo(2), client_rate_value: 158, availability: "2026-11-01" }),
@@ -76,7 +76,7 @@ const QUEUE: CproQueueResponse = {
     {
       job_id: 2,
       job_title: "Data Engineer (Azure)",
-      client_name: "Nordea",
+      client_name: "Bank Północny",
       oldest_since: daysAgo(0),
       items: [
         item({ stage_id: 15, candidate_id: 25, candidate_name: "Piotr Próbny", client_rate_value: 170, availability: "2026-10-15" }),
@@ -86,7 +86,7 @@ const QUEUE: CproQueueResponse = {
     {
       job_id: 3,
       job_title: "Test Automation Engineer",
-      client_name: "Nordea",
+      client_name: "Bank Północny",
       oldest_since: daysAgo(0),
       items: [item({ stage_id: 17, candidate_id: 27, candidate_name: "Tomasz Wzór", client_rate_value: 130, cv: null })],
     },
@@ -101,7 +101,7 @@ const row = (over: Partial<BoardTaskRow>): BoardTaskRow => ({
   job_id: 1,
   job_title: "Java Backend Developer",
   client_id: 5,
-  client_name: "Nordea",
+  client_name: "Bank Północny",
   since: daysAgo(1),
   process_state_version: 1,
   target_stage_def_id: 44,

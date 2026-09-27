@@ -115,7 +115,7 @@ const taskRow = (over: Partial<BoardTaskRow>): BoardTaskRow => ({
   job_id: 1,
   job_title: "Senior Java Developer",
   client_id: 11,
-  client_name: "Nordea",
+  client_name: "Bank Północny",
   since: daysAgo(1),
   process_state_version: 1,
   target_stage_def_id: 5,
@@ -129,12 +129,12 @@ const BOARD_TASKS: BoardTasksResponse = {
   can_set_cpro_sender: true,
   dl_review_window_days: 30,
   dl_review: [
-    taskRow({ stage_id: 101, candidate_id: 201, candidate_name: "Joanna Wiśniewska", client_name: "PKO BP", since: daysAgo(4), qc_status: "passed" }),
-    taskRow({ stage_id: 102, candidate_id: 202, candidate_name: "Tomasz Lewandowski", job_title: "Data Engineer", client_name: "PKO BP", since: daysAgo(2), qc_status: "failed", qc_blocking_failed: 2 }),
-    taskRow({ stage_id: 103, candidate_id: 203, candidate_name: "Karolina Dąbrowska", job_title: "Tester Manualny", client_name: "Tauron", since: daysAgo(0), qc_status: "overridden" }),
+    taskRow({ stage_id: 101, candidate_id: 201, candidate_name: "Joanna Wiśniewska", client_name: "Bank Kappa", since: daysAgo(4), qc_status: "passed" }),
+    taskRow({ stage_id: 102, candidate_id: 202, candidate_name: "Tomasz Lewandowski", job_title: "Data Engineer", client_name: "Bank Kappa", since: daysAgo(2), qc_status: "failed", qc_blocking_failed: 2 }),
+    taskRow({ stage_id: 103, candidate_id: 203, candidate_name: "Karolina Dąbrowska", job_title: "Tester Manualny", client_name: "Energetyka Wzorcowa", since: daysAgo(0), qc_status: "overridden" }),
   ],
   cpro_to_send: [
-    taskRow({ kind: "cpro_to_send", stage_id: 111, candidate_id: 211, candidate_name: "Michał Wójcik", assignee_id: 1, assignee_name: "Artur Twardowski", since: daysAgo(1) }),
+    taskRow({ kind: "cpro_to_send", stage_id: 111, candidate_id: 211, candidate_name: "Michał Wójcik", assignee_id: 1, assignee_name: "Adam Wzorcowy", since: daysAgo(1) }),
     taskRow({ kind: "cpro_to_send", stage_id: 112, candidate_id: 212, candidate_name: "Agnieszka Kamińska", job_title: "Business Analyst", since: daysAgo(3) }),
   ],
   cpro_sent: [
@@ -157,16 +157,16 @@ function seededClient(tiles: DashboardTile[]): QueryClient {
   qc.setQueryData<BoardTasksResponse>(BOARD_TASKS_QUERY_KEY, BOARD_TASKS);
   qc.setQueryData<CproSender>(CPRO_SENDER_QUERY_KEY, {
     user_id: 1,
-    user_name: "Artur Twardowski",
+    user_name: "Adam Wzorcowy",
     until: null,
     fallback_user_id: null,
     fallback_user_name: null,
-    set_by_name: "Artur Twardowski",
+    set_by_name: "Adam Wzorcowy",
     set_at: daysAgo(3),
     can_set: true,
   });
   qc.setQueryData(["users-directory", "cpro-assignees"], [
-    { id: 1, name: "Artur Twardowski" },
+    { id: 1, name: "Adam Wzorcowy" },
     { id: 7, name: "Marta Kowalczyk" },
     { id: 8, name: "Piotr Zieliński" },
   ]);
@@ -192,11 +192,11 @@ function seededClient(tiles: DashboardTile[]): QueryClient {
       value: 9,
       scope_applied: "all",
       series: [
-        { key: "1", label: "Nordea", value: 3 },
-        { key: "2", label: "PKO BP", value: 2 },
-        { key: "3", label: "Alior", value: 2 },
-        { key: "4", label: "Orlen", value: 1 },
-        { key: "5", label: "BIK", value: 1 },
+        { key: "1", label: "Bank Północny", value: 3 },
+        { key: "2", label: "Bank Kappa", value: 2 },
+        { key: "3", label: "Bank Lambda", value: 2 },
+        { key: "4", label: "Paliwa Przykładowe", value: 1 },
+        { key: "5", label: "Biuro Gamma", value: 1 },
       ],
     }),
   );
@@ -209,9 +209,9 @@ function seededClient(tiles: DashboardTile[]): QueryClient {
     }),
   );
   qc.setQueryData(["dashboard", "calendar-today", warsawDay()], [
-    { id: 1, title: "Rozmowa: Anna Zielińska", start_time: new Date().toISOString().slice(0, 10) + "T08:00:00Z", all_day: false, candidate_name: "Anna Zielińska", client_name: "Nordea" },
+    { id: 1, title: "Rozmowa: Anna Zielińska", start_time: new Date().toISOString().slice(0, 10) + "T08:00:00Z", all_day: false, candidate_name: "Anna Zielińska", client_name: "Bank Północny" },
     { id: 2, title: "Screening telefoniczny", start_time: new Date().toISOString().slice(0, 10) + "T10:30:00Z", all_day: false, candidate_name: "Piotr Lis", client_name: null },
-    { id: 3, title: "Preparation meeting", start_time: new Date().toISOString().slice(0, 10) + "T13:00:00Z", all_day: false, candidate_name: null, client_name: "Orlen" },
+    { id: 3, title: "Preparation meeting", start_time: new Date().toISOString().slice(0, 10) + "T13:00:00Z", all_day: false, candidate_name: null, client_name: "Paliwa Przykładowe" },
   ]);
   qc.setQueryData(myPeopleSummaryQueryKey, {
     total: 37,

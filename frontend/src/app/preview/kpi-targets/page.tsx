@@ -63,8 +63,8 @@ const MATRIX: KpiTargetsMatrix = {
 };
 
 const HISTORY: KpiTargetEvent[] = [
-  { id: 2, scope: "user", role: null, role_label: null, subject_user_id: 1, subject_name: "Anna Kowalska", kpi_id: "monthly_placements", kpi_title: "Placementy w tym miesiącu", action: "set", from_value: null, to_value: 2, actor_name: "Dominik Zieliński", created_at: "2026-09-23T09:12:00+02:00" },
-  { id: 1, scope: "role", role: "recruiter", role_label: "Rekruter", subject_user_id: null, subject_name: null, kpi_id: "weekly_cvs_sent", kpi_title: "Rekomendacje w tygodniu", action: "set", from_value: null, to_value: 18, actor_name: "Dominik Zieliński", created_at: "2026-09-22T16:40:00+02:00" },
+  { id: 2, scope: "user", role: null, role_label: null, subject_user_id: 1, subject_name: "Anna Kowalska", kpi_id: "monthly_placements", kpi_title: "Placementy w tym miesiącu", action: "set", from_value: null, to_value: 2, actor_name: "Dawid Fikcyjny", created_at: "2026-09-23T09:12:00+02:00" },
+  { id: 1, scope: "role", role: "recruiter", role_label: "Rekruter", subject_user_id: null, subject_name: null, kpi_id: "weekly_cvs_sent", kpi_title: "Rekomendacje w tygodniu", action: "set", from_value: null, to_value: 18, actor_name: "Dawid Fikcyjny", created_at: "2026-09-22T16:40:00+02:00" },
 ];
 
 export default function KpiTargetsPreviewPage() {

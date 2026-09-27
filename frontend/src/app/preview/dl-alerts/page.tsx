@@ -34,12 +34,12 @@ function alert(overrides: Partial<DlAlertRead> = {}): DlAlertRead {
     status: "new",
     status_label: "Nowe",
     client_id: 12,
-    client_name: "Polkomtel",
+    client_name: "Telekom Przykładowy",
     order_group_id: 5,
     order_id: null,
-    title: "Polkomtel — zamówienie SAP 4500719650 wyczerpane",
+    title: "Telekom Przykładowy — zamówienie SAP 4599719650 wyczerpane",
     message:
-      "⚠ Polkomtel — zamówienie SAP 4500719650 zostało wyczerpane i przeniesione do zakończonych. Sprawdź rozliczenie i zorganizuj nowe zamówienie.",
+      "⚠ Telekom Przykładowy — zamówienie SAP 4599719650 zostało wyczerpane i przeniesione do zakończonych. Sprawdź rozliczenie i zorganizuj nowe zamówienie.",
     link: "/clients/12?tab=zamowienia",
     recipient_user_id: 3,
     recipient_name: "Anna Delivery",
@@ -59,18 +59,18 @@ const WITH_DATA = [
     id: 2,
     alert_type: "md_budget_low",
     alert_type_label: "Niski poziom MD na zamówieniu",
-    client_name: "BIK",
+    client_name: "Biuro Gamma",
     message:
-      "⏳ BIK — zamówieniu 445 pozostało mniej niż 15 MD. Zorganizuj nowe zamówienie/przedłużenie.",
+      "⏳ Biuro Gamma — zamówieniu 445 pozostało mniej niż 15 MD. Zorganizuj nowe zamówienie/przedłużenie.",
     created_at: "2026-08-08T08:00:00Z",
   }),
   alert({
     id: 3,
     alert_type: "draft_consultant_unassigned",
     alert_type_label: "Konsultant bez zamówienia (Draft)",
-    client_name: "BNP",
+    client_name: "Bank Rho",
     message:
-      "🆕 BNP — Jan Kowalski czeka na przypisanie do zamówienia (status: Draft). Potrzebne jest zamówienie dla tej osoby.",
+      "🆕 Bank Rho — Jan Kowalski czeka na przypisanie do zamówienia (status: Draft). Potrzebne jest zamówienie dla tej osoby.",
     created_at: "2026-08-15T08:00:00Z",
   }),
 ];
@@ -82,7 +82,7 @@ const HANDLED = [
     status_label: "Obsłużone",
     alert_type: "missing_revenue_rate",
     alert_type_label: "Brak stawki przychodowej",
-    message: "✏️ Polkomtel — uzupełnij stawkę przychodową dla Anny Nowak w zamówieniu 446.",
+    message: "✏️ Telekom Przykładowy — uzupełnij stawkę przychodową dla Anny Nowak w zamówieniu 446.",
     created_at: "2026-07-01T08:00:00Z",
     handled_at: "2026-07-03T11:30:00Z",
     handled_by_name: "Anna Delivery",
@@ -238,7 +238,7 @@ const PANEL_CARDS: DlAlertCard[] = [
     missing_fields: ["stawkę przychodową", "okres zamówienia", "numer zamówienia"],
     source: "b2b_generator",
   }),
-  // BNP: dwa NIEZALEŻNE sygnały o TYM SAMYM zamówieniu — długi okres i wysokie
+  // Bank Rho: dwa NIEZALEŻNE sygnały o TYM SAMYM zamówieniu — długi okres i wysokie
   // zużycie podstawy MD. Stoją obok siebie, bo nigdy nie są łączone w jedną kartę.
   card({
     id: 106,

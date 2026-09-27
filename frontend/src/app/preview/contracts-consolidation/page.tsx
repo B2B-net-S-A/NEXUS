@@ -36,8 +36,8 @@ const member = (over: Record<string, unknown>) => ({
   end_date: "2026-09-30",
   latest_order_end_date: null,
   contract_type: "b2b",
-  rate_candidate: 125,
-  rate_client: 175,
+  rate_candidate: 135,
+  rate_client: 185,
   margin: 50,
   rate_unit: "hourly",
   currency: "PLN",
@@ -50,24 +50,24 @@ const LIST_PAYLOAD = {
     {
       id: 467,
       candidate_id: 10,
-      candidate_name: "Paweł Małek",
-      client_name: "Bank Pocztowy",
+      candidate_name: "Paweł Makietowy",
+      client_name: "Bank Sigma",
       job_title: null,
       status: "ended",
       contract_type: "b2b",
       start_date: "2026-07-01",
       end_date: "2026-09-30",
-      rate_candidate: 125,
-      rate_client: 175,
+      rate_candidate: 135,
+      rate_client: 185,
       margin: 50,
       currency: "PLN",
       group_members: [
         member({
           id: 512,
           client_id: 2,
-          client_name: "VeloBank",
-          rate_candidate: 120,
-          rate_client: 162.5,
+          client_name: "Bank Omega",
+          rate_candidate: 128,
+          rate_client: 171.5,
           margin: 42.5,
           end_date: null,
           job_title: "Tester Mobile",
@@ -75,7 +75,7 @@ const LIST_PAYLOAD = {
         member({
           id: 467,
           client_id: 1,
-          client_name: "Bank Pocztowy",
+          client_name: "Bank Sigma",
           status: "ended",
         }),
       ],
@@ -83,46 +83,46 @@ const LIST_PAYLOAD = {
     {
       id: 300,
       candidate_id: 11,
-      candidate_name: "Jakub Jedynak",
-      client_name: "CARDIF - ASSURANCES RISQUES DIVERS",
+      candidate_name: "Jakub Testowy",
+      client_name: "UBEZPIECZENIA SIGMA - ODDZIAŁ W POLSCE",
       job_title: "Tester Mobile",
       status: "active",
       contract_type: "b2b",
       start_date: "2026-04-27",
       end_date: "2026-12-31",
-      rate_candidate: 100,
-      rate_client: 140,
+      rate_candidate: 105,
+      rate_client: 148,
       margin: 40,
       currency: "PLN",
       group_members: [
         member({
           id: 300,
           client_id: 3,
-          client_name: "CARDIF - ASSURANCES RISQUES DIVERS",
-          rate_candidate: 100,
-          rate_client: 140,
+          client_name: "UBEZPIECZENIA SIGMA - ODDZIAŁ W POLSCE",
+          rate_candidate: 105,
+          rate_client: 148,
           margin: 40,
           job_title: "Tester Mobile",
         }),
       ],
     },
     // Przykład z ticketu synchronizacji kontrakt ↔ zamówienia (09.2026):
-    // umowa z generatora (120 zł/h) po uzupełnieniu zamówienia 1340 PLN/MD —
+    // umowa z generatora (122,50 zł/h) po uzupełnieniu zamówienia 1360 PLN/MD —
     // aktywna, w MD, z osobnym okresem zamówienia pod okresem umowy.
     {
       id: 650,
       candidate_id: 12,
-      candidate_name: "Bartosz Czapelka",
-      client_name: "Alior Bank S.A.",
-      job_title: "Analityk Biznesowy - zastępstwo za: Wiktoria Matyja",
+      candidate_name: "Bartosz Próbny",
+      client_name: "Bank Lambda S.A.",
+      job_title: "Analityk Biznesowy - zastępstwo za: Wiktoria Testowa",
       status: "active",
       contract_type: "b2b",
       start_date: "2026-09-14",
       end_date: null,
       client_order_start_date: "2026-09-15",
       client_order_end_date: "2026-12-31",
-      rate_candidate: 960,
-      rate_client: 1340,
+      rate_candidate: 980,
+      rate_client: 1360,
       margin: 380,
       rate_unit: "daily",
       currency: "PLN",
@@ -130,14 +130,14 @@ const LIST_PAYLOAD = {
         member({
           id: 650,
           client_id: 4,
-          client_name: "Alior Bank S.A.",
-          job_title: "Analityk Biznesowy - zastępstwo za: Wiktoria Matyja",
+          client_name: "Bank Lambda S.A.",
+          job_title: "Analityk Biznesowy - zastępstwo za: Wiktoria Testowa",
           start_date: "2026-09-14",
           end_date: null,
           client_order_start_date: "2026-09-15",
           client_order_end_date: "2026-12-31",
-          rate_candidate: 960,
-          rate_client: 1340,
+          rate_candidate: 980,
+          rate_client: 1360,
           margin: 380,
           rate_unit: "daily",
         }),
@@ -149,14 +149,14 @@ const LIST_PAYLOAD = {
       id: 651,
       candidate_id: 13,
       candidate_name: "Ewa Przyszła",
-      client_name: "VeloBank",
+      client_name: "Bank Omega",
       job_title: "Tester Mobile",
       status: "active",
       contract_type: "b2b",
       start_date: "2031-10-01",
       end_date: null,
-      rate_candidate: 110,
-      rate_client: 150,
+      rate_candidate: 115,
+      rate_client: 158,
       margin: 40,
       rate_unit: "hourly",
       currency: "PLN",
@@ -164,12 +164,12 @@ const LIST_PAYLOAD = {
         member({
           id: 651,
           client_id: 2,
-          client_name: "VeloBank",
+          client_name: "Bank Omega",
           job_title: "Tester Mobile",
           start_date: "2031-10-01",
           end_date: null,
-          rate_candidate: 110,
-          rate_client: 150,
+          rate_candidate: 115,
+          rate_client: 158,
           margin: 40,
         }),
       ],
@@ -220,9 +220,9 @@ function seededClient(): QueryClient {
   qc.setQueryData(
     ["clients-lookup-add-project", "contract-eligible"],
     [
-      { id: 1, name: "Bank Pocztowy" },
-      { id: 2, name: "VeloBank" },
-      { id: 3, name: "CARDIF - ASSURANCES RISQUES DIVERS" },
+      { id: 1, name: "Bank Sigma" },
+      { id: 2, name: "Bank Omega" },
+      { id: 3, name: "UBEZPIECZENIA SIGMA - ODDZIAŁ W POLSCE" },
     ],
   );
   for (const cid of ["1", "2", "3"]) {
@@ -271,8 +271,8 @@ export default function ContractsConsolidationPreview() {
         <div className="min-h-screen bg-background p-6 space-y-10">
           <section>
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              1. Lista kontraktów — jeden wiersz na osobę (Paweł Małek: Bank
-              Pocztowy + VeloBank)
+              1. Lista kontraktów — jeden wiersz na osobę (Paweł Makietowy: Bank
+              Sigma + Bank Omega)
             </h2>
             <ContractsListV2 />
           </section>
@@ -293,7 +293,7 @@ export default function ContractsConsolidationPreview() {
               open={dialogOpen}
               onOpenChange={setDialogOpen}
               candidateId={10}
-              candidateName="Paweł Małek"
+              candidateName="Paweł Makietowy"
               canManageFinance
               baseContract={{
                 id: 467,
