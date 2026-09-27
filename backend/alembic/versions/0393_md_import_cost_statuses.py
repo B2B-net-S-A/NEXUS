@@ -1,7 +1,7 @@
 """Runda 10 audytu (MD): dwa nowe wyniki kosztowe wiersza importu MD.
 
-Revision ID: 0391_md_import_cost_statuses
-Revises: 0390_cand_retained_candidate_files
+Revision ID: 0393_md_import_cost_statuses
+Revises: 0392_fin_order_gap_episodes
 
 ``md_consumption_import_rows.cost_status``:
 

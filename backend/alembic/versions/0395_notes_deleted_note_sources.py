@@ -1,7 +1,7 @@
 """Nagrobki notatek z Traffita usuniętych w NEXUSIE (runda 10, R10-N6-1).
 
-Revision ID: 0391_notes_deleted_note_sources
-Revises: 0390_cand_retained_candidate_files
+Revision ID: 0395_notes_deleted_note_sources
+Revises: 0394_money_invoice_amount_grosze
 
 ``DELETE /api/notes/{id}`` kasował wiersz bez śladu, a promocja aktywności
 Traffita (``_PROMOTE_NOTES_SQL``) deduplikuje wyłącznie po ISTNIEJĄCEJ
@@ -39,7 +39,7 @@ REFUSE_WITH_ROWS = """DO $$
 BEGIN
     IF to_regclass('deleted_note_sources') IS NOT NULL THEN
         IF EXISTS (SELECT 1 FROM deleted_note_sources) THEN
-            RAISE EXCEPTION 'Downgrade 0391 odmawia: deleted_note_sources ma nagrobki usuniętych notatek. Bez nich nocny sync Traffita odtworzy te notatki.';
+            RAISE EXCEPTION 'Downgrade 0395 odmawia: deleted_note_sources ma nagrobki usuniętych notatek. Bez nich nocny sync Traffita odtworzy te notatki.';
         END IF;
     END IF;
 END $$"""

@@ -1,7 +1,7 @@
 """Kwota faktury z groszami — ``invoices.amount`` INTEGER → NUMERIC(14,2).
 
-Revision ID: 0391_money_invoice_amount_grosze
-Revises: 0390_cand_retained_candidate_files
+Revision ID: 0394_money_invoice_amount_grosze
+Revises: 0393_md_import_cost_statuses
 
 Runda 10 audytu (R10-X1-1): faktura przyjmowała wyłącznie pełne złote —
 formularz blokował „12345,67”, a API odpowiadało 422 na kwotę z groszami, więc

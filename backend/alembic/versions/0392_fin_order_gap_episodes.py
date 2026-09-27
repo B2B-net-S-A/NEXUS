@@ -1,7 +1,7 @@
 """Braki: kilka na zamówienie (po dacie końca) + epizod przywrócenia (runda 10).
 
-Revision ID: 0391_fin_order_gap_episodes
-Revises: 0390_cand_retained_candidate_files
+Revision ID: 0392_fin_order_gap_episodes
+Revises: 0391_auth_candidate_email_lower_index
 
 R10-N4-1: UNIQUE(order_id) blokował drugi brak tego samego zamówienia.
 Zamówienie przedłużone po fakcie uzupełnia swój brak (``filled_late``), a gdy
@@ -51,7 +51,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM order_gaps GROUP BY order_id HAVING count(*) > 1
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0391 odmawia: zamówienie ma kilka braków (po jednym na datę końca). Zostaw tę rewizję albo rozstrzygnij wpisy ręcznie.';
+        RAISE EXCEPTION 'Downgrade 0392 odmawia: zamówienie ma kilka braków (po jednym na datę końca). Zostaw tę rewizję albo rozstrzygnij wpisy ręcznie.';
     END IF;
 END $$"""
 
