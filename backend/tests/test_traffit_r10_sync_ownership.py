@@ -414,3 +414,36 @@ def test_candidate_patch_sets_the_sync_markers() -> None:
     body = body[: body.index("\n@router.", 10)]
     lock = body.index("lock_changed_traffit_synced_fields(")
     assert lock < body.index("setattr(candidate, field, value)")
+
+
+def test_delta_file_phases_get_the_source_window() -> None:
+    """R10-N11-9 (po przeglądzie): fazy plików/CV w delcie dostają okno źródła."""
+    import asyncio
+    from datetime import datetime, timezone
+
+    from app.tasks.traffit_sync import _phase_plan
+
+    calls: dict[str, dict] = {}
+
+    class _Imp:
+        def __getattr__(self, name):
+            async def _record(**kw):
+                calls[name] = kw
+
+            return _record
+
+    since = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    run_start = datetime(2026, 9, 2, tzinfo=timezone.utc)
+    for name, factory in _phase_plan(_Imp(), since, run_start):  # type: ignore[arg-type]
+        if name in ("candidates_cv", "candidate_files"):
+            asyncio.run(factory())
+    assert calls["import_candidates_cv"] == {"since": run_start, "source_since": since}
+    assert calls["import_candidate_files"] == {
+        "since": run_start,
+        "source_since": since,
+    }
+    calls.clear()
+    for name, factory in _phase_plan(_Imp(), None, None):  # type: ignore[arg-type]
+        if name == "candidate_files":
+            asyncio.run(factory())
+    assert calls["import_candidate_files"] == {"since": None, "source_since": None}

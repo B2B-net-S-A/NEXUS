@@ -639,6 +639,28 @@ def candidate_payload_sha(payload: dict[str, Any]) -> str:
     ).hexdigest()[:32]
 
 
+# Runda 10 (R10-N11-9, poprawka po przeglądzie): niezmieniony u źródła
+# kandydat nie dostaje już `updated_at = NOW()` w fazie `candidates`, więc sam
+# warunek `updated_at >= files_since` gubił go w delcie plików/CV. Ponowienie
+# po wstrzymanym `__daily__` (następna noc oddaje te same rekordy) i po
+# przerwanej próbie stało na tym stemplu. Drugi klucz zakresu: znacznik źródła
+# `traffit_source_updated_at >= since` (okno danych biegu) — ten sam zbiór,
+# który feed delty oddaje, czyli dokładnie ten, który dawniej stemplował upsert.
+_SOURCE_SINCE_CLAUSE = """
+    (
+      CAST(:source_since AS timestamptz) IS NOT NULL
+      AND CASE
+            WHEN c.custom_fields #>> '{_nexus_identity,traffit_source_updated_at}'
+                 ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+            THEN CAST(
+                   c.custom_fields #>> '{_nexus_identity,traffit_source_updated_at}'
+                   AS timestamptz
+                 )
+          END >= CAST(:source_since AS timestamptz)
+    )
+"""
+
+
 def _with_manual_locks(sql: str) -> str:
     """Wstaw warunek znacznika ręcznej edycji zamiast `{manual:<pole>}`.
 
@@ -3650,7 +3672,9 @@ class TraffitImporter:
     # ── Faza 5b: candidates-cv (binary CV download) ─────────────────────────
 
     async def import_candidates_cv(
-        self, since: Optional[datetime] = None
+        self,
+        since: Optional[datetime] = None,
+        source_since: Optional[datetime] = None,
     ) -> PhaseProgress:
         """Pobiera primary CV dla Traffit candidates bez ustawionego CV pointera.
 
@@ -3716,7 +3740,11 @@ class TraffitImporter:
             since_clause += " AND id > :after_id"
 
         if since is not None:
-            result = await self._delta_cv_targets(since)
+            result = await (
+                self._delta_cv_targets(since)
+                if source_since is None
+                else self._delta_cv_targets(since, source_since)
+            )
         else:
             result = await self.db.execute(
                 text(
@@ -4187,7 +4215,9 @@ class TraffitImporter:
                     {**doc_params, "is_primary": False},
                 )
 
-    async def _delta_cv_targets(self, since: datetime):
+    async def _delta_cv_targets(
+        self, since: datetime, source_since: Optional[datetime] = None
+    ):
         """Cele fazy ``candidates_cv`` w delcie: (id, external_id).
 
         Kandydaci zmienieni w tym biegu PLUS „zaległe CV” (runda 6 audytu):
@@ -4209,7 +4239,7 @@ class TraffitImporter:
                   AND c.external_id IS NOT NULL
                   AND c.cv_file_content IS NULL
                   AND c.cv_storage_key IS NULL
-                  AND c.updated_at >= :since
+                  AND (c.updated_at >= :since OR {source_since_clause})
                 UNION
                 SELECT p.id, p.external_id
                 FROM (
@@ -4225,17 +4255,20 @@ class TraffitImporter:
                     LIMIT :pending_limit
                 ) p
                 ORDER BY id
-                """
+                """.replace("{source_since_clause}", _SOURCE_SINCE_CLAUSE)
             ),
             {
                 "since": since,
+                "source_since": source_since,
                 "pending_since": datetime.now(timezone.utc)
                 - timedelta(days=max(0, int(settings.TRAFFIT_SYNC_PENDING_FILES_DAYS))),
                 "pending_limit": max(0, int(settings.TRAFFIT_SYNC_PENDING_FILES_LIMIT)),
             },
         )
 
-    async def _delta_file_targets(self, since: datetime):
+    async def _delta_file_targets(
+        self, since: datetime, source_since: Optional[datetime] = None
+    ):
         """Cele fazy plików w delcie: (id, external_id) kandydatów Traffita."""
         # Delta mode: recently-changed candidates regardless of existing
         # files; we skip already-present file_ids per candidate below.
@@ -4253,7 +4286,7 @@ class TraffitImporter:
                 FROM candidates c
                 WHERE c.external_source = 'traffit'
                   AND c.external_id IS NOT NULL
-                  AND c.updated_at >= :since
+                  AND (c.updated_at >= :since OR {source_since_clause})
                 UNION
                 SELECT p.id, p.external_id
                 FROM (
@@ -4272,10 +4305,11 @@ class TraffitImporter:
                     LIMIT :pending_limit
                 ) p
                 ORDER BY id
-                """
+                """.replace("{source_since_clause}", _SOURCE_SINCE_CLAUSE)
             ),
             {
                 "since": since,
+                "source_since": source_since,
                 "pending_since": datetime.now(timezone.utc)
                 - timedelta(days=max(0, int(settings.TRAFFIT_SYNC_PENDING_FILES_DAYS))),
                 "pending_limit": max(0, int(settings.TRAFFIT_SYNC_PENDING_FILES_LIMIT)),
@@ -4283,7 +4317,9 @@ class TraffitImporter:
         )
 
     async def import_candidate_files(
-        self, since: Optional[datetime] = None
+        self,
+        since: Optional[datetime] = None,
+        source_since: Optional[datetime] = None,
     ) -> PhaseProgress:
         """Pobiera pliki kandydatów Traffit do `candidate_documents`.
 
@@ -4359,7 +4395,11 @@ class TraffitImporter:
                 {"after_id": after_id, "limit": scan_limit},
             )
         else:
-            result = await self._delta_file_targets(since)
+            result = await (
+                self._delta_file_targets(since)
+                if source_since is None
+                else self._delta_file_targets(since, source_since)
+            )
         targets = list(result)
         progress.total_source = len(targets)
         # A short batch means the sweep reached the last candidate: the pass is

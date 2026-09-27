@@ -825,8 +825,23 @@ def _phase_plan(
         ("pipelines", lambda: importer.import_pipelines(since=since)),
         # Pliki CV zaraz za ruchami: CV nowych kandydatów nie czeka na fazy
         # wzbogacania, które i tak czytają zapisane CV.
-        ("candidates_cv", lambda: importer.import_candidates_cv(since=files_since)),
-        ("candidate_files", lambda: importer.import_candidate_files(since=files_since)),
+        # `source_since` (runda 10): kandydaci z feedu delty, także niezmienieni
+        # u źródła — upsert ich nie stempluje, a ponowienie po wstrzymanym
+        # watermarku musi ich znowu objąć.
+        (
+            "candidates_cv",
+            lambda: importer.import_candidates_cv(
+                since=files_since,
+                source_since=since if files_since is not None else None,
+            ),
+        ),
+        (
+            "candidate_files",
+            lambda: importer.import_candidate_files(
+                since=files_since,
+                source_since=since if files_since is not None else None,
+            ),
+        ),
         # Tekst z pobranych CV — zanim pola z CV zaczną go czytać.
         ("candidates_cv_text", _cv_text_phase),
         (
