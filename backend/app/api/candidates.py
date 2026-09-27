@@ -68,6 +68,7 @@ from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.models.pipeline_template import PipelineStageDef, RejectionReason
+from app.models.recruitment_process import RecruitmentProcess
 from app.models.candidate_stage_removal import CandidateStageRemoval
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_priority import PriorityChannel
@@ -4536,6 +4537,9 @@ async def get_candidate_history(
             Job.status.label("job_status"),
             RejectionReason.name.label("rejection_reason_name"),
             client_display_name_expression().label("client_name"),
+            # Runda 10 (F04): nazwa etapu szablonu — profil składa etap w
+            # kolumnę Tablicy tą samą regułą co tablica (`placeStage`).
+            PipelineStageDef.name.label("stage_def_name"),
         )
         .join(Job, CandidateStage.job_id == Job.id)
         .outerjoin(Client, Client.id == Job.client_id)
@@ -4543,10 +4547,23 @@ async def get_candidate_history(
             RejectionReason,
             RejectionReason.id == CandidateStage.rejection_reason_id,
         )
+        .outerjoin(PipelineStageDef, PipelineStageDef.id == CandidateStage.stage_def_id)
         .where(CandidateStage.candidate_id == candidate_id)
         .where(job_read_scope_clause(current_user, CandidateStage.job_id))
         .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
     )
+    # Runda 10 (F04): źródło wejścia do rekrutacji (najnowsza próba procesu) —
+    # ręczne dodanie nie może się czytać jak „z ogłoszenia".
+    entry_sources = {
+        row.job_id: row.entry_source
+        for row in (
+            await db.execute(
+                select(RecruitmentProcess.job_id, RecruitmentProcess.entry_source)
+                .where(RecruitmentProcess.candidate_id == candidate_id)
+                .order_by(RecruitmentProcess.attempt_no.asc())
+            )
+        ).all()
+    }
 
     # Group by job
     # Decyzja 23.09.2026: stawki do klienta nie widzą rekruter, sourcer i TAC.
@@ -4558,6 +4575,7 @@ async def get_candidate_history(
         job_status,
         rejection_reason_name,
         client_name,
+        stage_def_name,
     ) in stages_result.all():
         job_id = stage.job_id
         if job_id not in jobs_map:
@@ -4569,6 +4587,8 @@ async def get_candidate_history(
                 "client_name": client_name,
                 "stages": [],
                 "latest_stage": None,
+                "latest_stage_name": None,
+                "entry_source": entry_sources.get(job_id),
                 # latest_stage_id wskazuje na najnowszy CandidateStage row
                 # (potrzebne dla CV-per-rekrutacja: api wybiera stage_id by
                 # wczytać snapshot oryginalnego CV i brandowane CV draft).
@@ -4594,6 +4614,7 @@ async def get_candidate_history(
             {
                 "stage_id": stage.id,
                 "stage": stage.stage.value,
+                "stage_name": stage_def_name,
                 "moved_at": stage.moved_at.isoformat() if stage.moved_at else None,
                 "rating": stage.rating,
                 "notes": stage.notes,
@@ -4630,6 +4651,7 @@ async def get_candidate_history(
             if not entry["last_seen"] or moved_at > entry["last_seen"]:
                 entry["last_seen"] = moved_at
                 entry["latest_stage"] = stage.stage.value
+                entry["latest_stage_name"] = stage_def_name
                 entry["latest_stage_id"] = stage.id
 
     # Contracts

@@ -2497,8 +2497,9 @@ OPEN_SCREEN = JarvisTool(
     name="open_screen",
     label="Przygotowuję link",
     description=(
-        "Daje użytkownikowi przycisk do ekranu NEXUSA. Użyj ZAWSZE, gdy prośba dotyczy "
-        "operacji, której nie wykonujesz: usunięcie, zakończenie współpracy, "
+        "Daje użytkownikowi przycisk do ekranu NEXUSA — sam ekranu NIE otwiera, "
+        "więc nie pisz „otworzyłem”, tylko „użyj przycisku”. Użyj ZAWSZE, gdy prośba "
+        "dotyczy operacji, której nie wykonujesz: usunięcie, zakończenie współpracy, "
         "wypowiedzenie, podpis umowy, zmiana stawek, wysyłka maila, generowanie CV lub "
         "umowy, uprawnienia. Wyjaśnij w 'reason', co tam kliknąć."
     ),

@@ -10,6 +10,7 @@ Pilnujemy zasad, na których stoi bezpieczeństwo asystenta:
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -329,6 +330,17 @@ async def test_open_screen_emits_a_link_and_executes_nothing(app_client, monkeyp
             "reason": "Kliknij „Zakończ współpracę”.",
         }
     ]
+    # Runda 10 (F14): wynik narzędzia mówi modelowi, że ekran NIE został
+    # otwarty — inaczej odpowiadał „Otworzyłem zakładkę”.
+    tool_results = [
+        block
+        for msg in model.calls[1]["messages"]
+        if isinstance(msg.get("content"), list)
+        for block in msg["content"]
+        if isinstance(block, dict) and block.get("type") == "tool_result"
+    ]
+    assert tool_results
+    assert "NIE został otwarty" in json.dumps(tool_results, ensure_ascii=False)
 
 
 async def test_impersonation_disabled_flag_and_busy_turn_stop_before_the_model(

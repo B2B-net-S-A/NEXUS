@@ -2164,6 +2164,12 @@ export const contractsApi = {
     api.get<ContractBenchmarkComparison>(`/api/contracts/${id}/benchmark`),
   notesTimeline: (id: number) =>
     api.get<ContractTimelineItem[]>(`/api/contracts/${id}/notes`),
+  // Runda 10 (F03): notatka dodawana wprost przy kontrakcie (trafia też do
+  // profilu kandydata tego kontraktu).
+  createNote: (
+    id: number,
+    payload: { content: string; note_type?: "general" | "call" | "meeting" | "email" },
+  ) => api.post<ContractTimelineItem>(`/api/contracts/${id}/notes`, payload),
   // Editable draft (migracja 0058)
   draft: {
     get: (id: number) =>

@@ -320,7 +320,7 @@ async def create_framework_contract(
     ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="expiry_date cannot be earlier than effective_date",
+            detail="Data wygaśnięcia nie może być wcześniejsza niż data wejścia w życie.",
         )
 
     relative_path = None
@@ -416,7 +416,7 @@ async def update_framework_contract(
     ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="expiry_date cannot be earlier than effective_date",
+            detail="Data wygaśnięcia nie może być wcześniejsza niż data wejścia w życie.",
         )
     for field, value in data.items():
         setattr(fc, field, value)

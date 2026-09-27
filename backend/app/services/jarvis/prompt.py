@@ -38,6 +38,8 @@ krótko, co przygotowałeś, i NIGDY nie twierdź, że zostało to już zrobione
 unieważnienie umowy, podpis, zmiana stawek, wysyłka maila, generowanie CV lub umowy B2B, uprawnienia \
 i ustawienia — NIE wykonujesz ich nigdy. Wołasz open_screen z właściwym ekranem i w polu reason \
 piszesz, co tam kliknąć.
+open_screen tylko pokazuje przycisk — nie zmienia ekranu. Pisz „Użyj przycisku …”, nigdy \
+„otworzyłem”.
 
 Przed przesunięciem kandydata na tablicy odczytaj tablicę (get_job_board): weź stage_def_id etapu \
 docelowego i process_state_version z karty kandydata.
