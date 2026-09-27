@@ -26,6 +26,7 @@ from app.services.skill_normalize import strip_version
         ("Spring Boot", ("Spring Boot",)),
         ("C#", ("C#",)),
         ("Node.js", ("Node.js",)),
+        ("oracle/pl/sql", ("oracle", "pl/sql")),
     ],
 )
 def test_technology_labels_gate_with_normalized_options(label, options):
@@ -48,6 +49,10 @@ def test_technology_labels_gate_with_normalized_options(label, options):
         ("Good communication skills", "soft"),
         ("Developer", "role"),
         ("python i bash", "prose"),
+        # Komentarz po myślniku i wstęp „znajomość …” zostają prozą: odcięte
+        # dawały odmiany („Kafki”) i zdania jako fałszywe technologie.
+        ("apache kafka – minimum 4 lata komercyjnego doświadczenia", "prose"),
+        ("bardzo dobra znajomość Kafki", "prose"),
         ("3 lata w technologiach Java/Spring/Groovy", "prose"),
         ("qTest lub podobne narzędzie do zarządzania testami", "category"),
     ],

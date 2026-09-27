@@ -107,9 +107,11 @@ def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):
 
     The gate only ever compares must-haves recognised as technologies
     (`gate_eligible_must_skills`); prose requirements never hide anyone.
-    ``review`` (the default) hides a candidate whose known skills lack such a
-    technology, while a candidate with no skill data passes — absence of data
-    is not proof. ``exclude`` additionally hides that missing proof. An
+    Since v8 (27.09.2026) a technology counts as present when the profile,
+    the CV text or a recruiter's call/meeting note names it
+    (`must_text_evidence`); a candidate with no data at all hides as
+    ``no_data``. ``exclude`` additionally treats a recruiter's "unknown"
+    verification as missing, ``review`` (the default) does not. An
     explicit per-request ``True``/``False`` overrides the saved policy (``True``
     = ``exclude``, ``False`` = no must-have gate at all). The kill switch
     ``RUBRIC_DEALBREAKERS_ENABLED`` is applied once, in ``apply_dealbreakers``.

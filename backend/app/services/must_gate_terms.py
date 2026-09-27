@@ -45,6 +45,8 @@ _EXAMPLE_SPLIT = re.compile(
     r"\s*(?:,|;|/|\||\blub\b|\balbo\b|\bor\b|\band\b|\boraz\b|\bi\b)\s*", re.I
 )
 
+_SLASH_GUARD = "\u2044"  # ukośnik ułamkowy — chroni „PL/SQL” przy dzieleniu
+
 _LANGUAGE_WORDS = frozenset(
     {
         "angielski",
@@ -363,8 +365,20 @@ def _normalize_option(raw: str) -> tuple[Optional[str], Optional[str]]:
     return (None, reason) if reason else (name, None)
 
 
+def _guard_slash_names(text: str) -> str:
+    for name in _SLASH_NAMES:
+        text = re.sub(
+            rf"(?<![0-9a-z]){re.escape(name)}(?![0-9a-z])",
+            lambda m: m.group(0).replace("/", _SLASH_GUARD),
+            text,
+            flags=re.I,
+        )
+    return text
+
+
 def _split_options(text: str, pattern: re.Pattern[str]) -> list[str]:
-    return [p for p in (_clean(x) for x in pattern.split(text)) if p]
+    parts = pattern.split(_guard_slash_names(text))
+    return [p for p in (_clean(x.replace(_SLASH_GUARD, "/")) for x in parts) if p]
 
 
 def _analyse(label: str) -> tuple[Optional[GateRequirement], Optional[str]]:
