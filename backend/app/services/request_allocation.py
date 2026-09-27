@@ -47,6 +47,7 @@ from app.models.user import User, UserRole
 from app.services.request_allocation_plan import (
     Change,
     LiveAssignment,
+    PROPOSAL_RELEASE_PREFIX,
     PersonInfo,
     PlanInput,
     RequestInfo,
@@ -381,6 +382,8 @@ async def _last_assignment_was_auto(
         # Zwolnienie z powodu automatu (urlop, poza przydziałem…) zdjęło też
         # prowadzącego — skoro znów ktoś nim jest, wpisał go człowiek.
         and row.release_reason not in AUTO_RELEASE_REASONS
+        # Runda 9 (R9-V2-1): zwolniona propozycja nigdy nie wpisała prowadzącego.
+        and not (row.release_reason or "").startswith(PROPOSAL_RELEASE_PREFIX)
     )
 
 
@@ -462,10 +465,13 @@ async def _apply(
                     )
                 )
             ).first()
+            reason = change.reason
+            if previous is not None and previous.state == "proposed":
+                reason = f"{PROPOSAL_RELEASE_PREFIX}{reason}"
             await db.execute(
                 update(JobWorkAssignment)
                 .where(live_row)
-                .values(state="released", released_at=now, release_reason=change.reason)
+                .values(state="released", released_at=now, release_reason=reason)
             )
             counts["released"] += 1
             if (

@@ -38,7 +38,7 @@ from app.services.request_allocation import (
     manual_add,
     manual_remove,
 )
-from app.services.request_allocation_plan import RELEASE_REASONS
+from app.services.request_allocation_plan import release_reason_label
 from app.services.workforce_availability import workforce_context
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -319,7 +319,7 @@ async def get_request_board(
                 title=title,
                 client_name=all_clients.get(client_id),
                 user_name=name,
-                reason=RELEASE_REASONS.get(row.release_reason or "")
+                reason=release_reason_label(row.release_reason)
                 if released
                 else ("propozycja automatu" if row.state == "proposed" else None),
             )

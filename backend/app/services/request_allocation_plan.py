@@ -48,6 +48,18 @@ RELEASE_REASONS = {
     "mode_off": "Automat wyłączony",
 }
 
+# Runda 9 (R9-V2-1): zwolniona PROPOZYCJA automatu (tryb podglądu) nie jest
+# śladem tego, że automat wpisał prowadzącego — nigdy nie była aktywna.
+# Przedrostek przy powodzie odróżnia ją od zwolnionego aktywnego przydziału.
+PROPOSAL_RELEASE_PREFIX = "proposal:"
+
+
+def release_reason_label(reason: Optional[str], default: Optional[str] = None):
+    """Etykieta powodu zwolnienia, także dla zwolnionej propozycji."""
+    if reason and reason.startswith(PROPOSAL_RELEASE_PREFIX):
+        reason = reason[len(PROPOSAL_RELEASE_PREFIX) :]
+    return RELEASE_REASONS.get(reason or "", default)
+
 
 @dataclass(frozen=True)
 class RequestInfo:

@@ -25,7 +25,7 @@ from app.models.job import Job, JobStatus
 from app.models.job_work_assignment import JobWorkAssignment
 from app.models.notification import NotificationType
 from app.services.job_working_title import job_display_title_expr
-from app.services.request_allocation_plan import RELEASE_REASONS
+from app.services.request_allocation_plan import release_reason_label
 
 REVIEW_LINK = "/jobs/review-states"
 BOARD_LINK = "/dashboard"
@@ -74,7 +74,7 @@ async def _assignment_notices(db: AsyncSession, *, now: datetime) -> int:
         if state == "active":
             bucket["new"].append(title)
         else:
-            label = RELEASE_REASONS.get(reason or "", "")
+            label = release_reason_label(reason, "")
             bucket["gone"].append(f"{title} ({label})" if label else title)
     sent = 0
     for user_id, bucket in sorted(per_user.items()):

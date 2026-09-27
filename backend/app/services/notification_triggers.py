@@ -1021,7 +1021,7 @@ async def check_post_interview_t15(
         source = (
             FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
         )
-        if await _feedback_exists(db, event.id, source):
+        if await _post_interview_feedback_done(db, event, source):
             continue
 
         job = jobs.get(event.job_id) if event.job_id else None

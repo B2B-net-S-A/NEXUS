@@ -518,3 +518,15 @@ async def test_client_interview_reminder_needs_a_complete_debrief():
         ev,
         FeedbackSource.candidate_side,
     )
+
+
+def test_all_post_interview_reminders_share_the_debrief_rule() -> None:
+    """Runda 9 (R9-V2-3): T+15, T+45 i T+2h gasi ta sama reguła."""
+    for fn in (
+        nt.check_post_interview_t15,
+        nt.check_post_interview_t45,
+        nt.check_post_interview_t2h_escalation,
+    ):
+        src = inspect.getsource(fn)
+        assert "_post_interview_feedback_done(" in src
+        assert "_feedback_exists(" not in src

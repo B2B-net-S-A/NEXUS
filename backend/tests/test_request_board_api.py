@@ -586,3 +586,60 @@ async def test_closed_recruitment_state_change_is_refused_until_reopened(
         headers=app_auth_headers,
     )
     assert finished.status_code == 200, finished.text
+
+
+async def test_released_proposal_does_not_mark_a_human_owner_as_automat() -> None:
+    """Runda 9 (R9-V2-1): propozycja z trybu podglądu zwolniona przy wyłączeniu
+    automatu nigdy nie wpisała prowadzącego. Prowadzący ustawiony potem przez
+    człowieka wraca adopcją jako ``owner`` — inaczej zwolnienie za urlop
+    zdejmowało mu ``jobs.recruiter_id``."""
+    from datetime import datetime, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.services.request_allocation import (
+        _adopt_owners,
+        _apply,
+        _auto_released,
+        _blocked,
+    )
+    from app.services.request_allocation_plan import (
+        PROPOSAL_RELEASE_PREFIX,
+        Change,
+        release_reason_label,
+    )
+
+    job_id = await _seed_job(work_state="searching")
+    person = await _seed_recruiter()
+    async with AsyncSessionLocal() as db:
+        await _apply(
+            db,
+            [Change("assign", job_id, person, "recruiter", "")],
+            mode="shadow",
+            now=datetime.now(timezone.utc),
+        )
+        await db.commit()
+    assert await _live_rows(job_id) == [(person, "auto", "proposed")]
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Job, job_id)).recruiter_id is None
+        await _apply(
+            db,
+            [Change("release", job_id, person, "recruiter", "mode_off")],
+            mode="off",
+            now=datetime.now(timezone.utc),
+        )
+        job = await db.get(Job, job_id)
+        job.recruiter_id = person  # decyzja człowieka
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await _adopt_owners(
+            db,
+            blocked=await _blocked(db),
+            now=datetime.now(timezone.utc),
+            auto_released=await _auto_released(db),
+        )
+        await db.commit()
+    assert await _live_rows(job_id) == [(person, "owner", "active")]
+    assert release_reason_label(f"{PROPOSAL_RELEASE_PREFIX}mode_off") == (
+        "Automat wyłączony"
+    )
