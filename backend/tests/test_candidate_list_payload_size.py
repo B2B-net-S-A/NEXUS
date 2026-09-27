@@ -93,6 +93,8 @@ def test_gzip_wraps_the_whole_stack_and_skips_streams_and_binary_files() -> None
     # SSE Jarvisa: kompresja buforowałaby strumień i zdarzenia nie dochodziłyby na żywo.
     assert "text/event-stream" in excluded
     assert "application/pdf" in excluded
+    # Runda 9 (R9-N7-7): paczka CV (ZIP), obrazy i .doc bez kompresji na pętli.
+    assert {"application/zip", "application/msword", "image/*"} <= excluded
     assert (
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         in excluded

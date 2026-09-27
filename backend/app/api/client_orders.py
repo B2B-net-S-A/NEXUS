@@ -3364,7 +3364,12 @@ async def download_order_po(
     )
     if order is None or order.file_path is None:
         raise HTTPException(404, detail="File not found")
-    abs_path = storage_service.get_client_order_po_path(order.file_path)
+    try:
+        abs_path = storage_service.get_client_order_po_path(order.file_path)
+    except FileNotFoundError as exc:
+        # Runda 9 (R9-N7-9): wiersz wskazuje na plik, którego nie ma na dysku —
+        # 410 jak przy dokumentach kontraktu, nie 500 bez CORS.
+        raise HTTPException(410, detail="Plik PDF zamówienia nie istnieje") from exc
     return FileResponse(
         path=str(abs_path),
         filename=order.filename or "po.pdf",
@@ -3431,9 +3436,25 @@ async def list_contract_order_documents(
         .scalars()
         .all()
     )
-    return OrderDocumentsResponse(
-        documents=[_order_to_document_item(o) for o in orders]
-    )
+    # Runda 9 (R9-X2-2): `client_orders.client_id` to własna kolumna, a baza nie
+    # wiąże jej z klientem kontraktu. Bramka wyżej sprawdzała WYŁĄCZNIE klienta
+    # kontraktu, więc zamówienie z rozjechanym klientem (PDF ze stawkami innego
+    # klienta) wychodziło bez sprawdzenia. Każdy inny klient — ta sama bramka co
+    # pobranie pliku (`GET /{client_id}/orders/{id}/file`).
+    access_cache: dict[int, bool] = {contract.client_id: True}
+    visible: list[OrderDocumentItem] = []
+    for o in orders:
+        can = access_cache.get(o.client_id)
+        if can is None:
+            try:
+                await _require_order_file_read(db, user, o.client_id)
+                can = True
+            except HTTPException:
+                can = False
+            access_cache[o.client_id] = can
+        if can:
+            visible.append(_order_to_document_item(o))
+    return OrderDocumentsResponse(documents=visible)
 
 
 @router.get(

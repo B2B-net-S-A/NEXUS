@@ -85,9 +85,17 @@ async def get_current_cv(db: AsyncSession, candidate: Candidate) -> CurrentCV | 
                     safe_storage_key(doc.storage_key),
                     type(exc).__name__,
                 )
-        if doc.file_content:
+        # `file_content` jest odroczone (`deferred`) — dostęp do atrybutu na
+        # sesji async to MissingGreenlet, więc bajty czytamy jawnym zapytaniem
+        # (runda 9: paczka CV czyta główny dokument przez tę funkcję).
+        file_content = await db.scalar(
+            select(CandidateDocument.file_content).where(
+                CandidateDocument.id == doc.id
+            )
+        )
+        if file_content:
             return CurrentCV(
-                content=bytes(doc.file_content),
+                content=bytes(file_content),
                 filename=doc.filename,
                 language=candidate.cv_language,
                 source="document_bytea",
