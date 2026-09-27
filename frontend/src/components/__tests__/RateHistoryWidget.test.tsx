@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const showError = vi.fn();
@@ -81,11 +81,14 @@ describe("RateHistoryWidget — zapisy tylko dla admina (FE-10)", () => {
     act(() => useAuthStore.setState({ user: mkUser("admin"), hydrated: true }));
     list.mockResolvedValue({ data: [ROW] });
     remove.mockRejectedValue({ response: { status: 403, data: { detail: "Brak uprawnień" } } });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<RateHistoryWidget candidateId={1} />);
     await screen.findByText("2026-01-01");
     expect(screen.getByTestId("rate-history-add-toggle")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Usuń stawkę" }));
+    // Runda 11 (FRONT): potwierdzenie w oknie aplikacji, nie natywne confirm().
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Usunąć rekord stawki?");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Usuń" }));
     await waitFor(() => expect(showError).toHaveBeenCalled());
     expect(showError.mock.calls[0][0]).toContain("Brak uprawnień");
   });

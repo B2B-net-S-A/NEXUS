@@ -1,18 +1,19 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const listMock = vi.fn();
 const createMock = vi.fn();
 const markViewedMock = vi.fn();
+const deleteMock = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   savedSearchesApi: {
     list: (...a: unknown[]) => listMock(...a),
     update: vi.fn(),
     create: (...a: unknown[]) => createMock(...a),
-    delete: vi.fn(),
+    delete: (...a: unknown[]) => deleteMock(...a),
     markViewed: (...a: unknown[]) => markViewedMock(...a),
   },
 }));
@@ -52,6 +53,7 @@ describe("SavedSearchesMenu — powiadomienia o nowych pasujących osobach", () 
   beforeEach(() => {
     listMock.mockReset().mockResolvedValue({ data: [own] });
     createMock.mockReset().mockResolvedValue({ data: own });
+    deleteMock.mockReset().mockResolvedValue({ data: null });
     markViewedMock.mockReset().mockResolvedValue({
       data: { previous_viewed_at: "2026-09-20T10:00:00Z", new_candidate_ids: [5, 9] },
     });
@@ -75,5 +77,30 @@ describe("SavedSearchesMenu — powiadomienia o nowych pasujących osobach", () 
     await user.click(await screen.findByTitle("Java Kraków"));
     await waitFor(() => expect(onApply).toHaveBeenCalled());
     expect(onApply.mock.calls[0][3]).toEqual([5, 9]);
+  });
+
+  it("usuwanie pyta w oknie aplikacji, a menu zostaje otwarte (runda 11)", async () => {
+    const nativeConfirm = vi.spyOn(window, "confirm");
+    const user = userEvent.setup();
+    renderMenu();
+    await user.click(screen.getByRole("button", { name: /Zapisane/ }));
+    await user.click(await screen.findByRole("button", { name: "Usuń Java Kraków" }));
+
+    // PopoverContent też ma rolę „dialog” — okno potwierdzenia szukamy po nazwie.
+    const confirmName = /Usunąć zapisane wyszukiwanie „Java Kraków"\?/;
+    let dialog = await screen.findByRole("dialog", { name: confirmName });
+    await user.click(within(dialog).getByRole("button", { name: "Anuluj" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: confirmName })).not.toBeInTheDocument(),
+    );
+    expect(deleteMock).not.toHaveBeenCalled();
+
+    const deleteButton = await screen.findByRole("button", { name: "Usuń Java Kraków" });
+    await user.click(deleteButton);
+    dialog = await screen.findByRole("dialog", { name: confirmName });
+    await user.click(within(dialog).getByRole("button", { name: "Usuń" }));
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith(21));
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    nativeConfirm.mockRestore();
   });
 });
