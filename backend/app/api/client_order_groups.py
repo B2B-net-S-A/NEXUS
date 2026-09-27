@@ -4439,6 +4439,12 @@ async def close_order_group(
     )
 
 
+# Linie, które po „Przywróć” zostają na obsadzie zamówienia (R10-V1-3).
+_LINE_STATUSES_ON_ROSTER = frozenset(
+    {ClientOrderStatus.active, ClientOrderStatus.paused, ClientOrderStatus.draft}
+)
+
+
 @router.post(
     "/{client_id}/order-groups/{group_id}/reopen", response_model=OrderGroupRead
 )
@@ -4554,33 +4560,62 @@ async def reopen_order_group(
     group_lines = await lines_for_group(db, group.id)
     for line in group_lines:
         state = closed_lines_state.get(line.id)
-        if state is not None and previous_closure is not None:
-            if line.end_date == previous_closure:
-                raw_end = state.get("previous_end_date")
-                line.end_date = None if raw_end is None else date.fromisoformat(raw_end)
-            # Linie kosztowe i ze wspólnej puli nie mają budżetu per linia,
-            # więc `sync_md_line_status` ich nie wskrzesza — wracają, gdy były
-            # aktywne i ich okres dalej trwa.
-            if (
+        if state is None or previous_closure is None:
+            if await sync_md_line_status(db, line):
+                lines_reopened += 1
+            continue
+        # Runda 10 (R10-V1-3): data końca wraca WYŁĄCZNIE liniom, które wracają
+        # na obsadę (albo idą ścieżką zakończenia współpracy, która ją przytnie).
+        # Linia osoby z unieważnioną/zakończoną umową zostawała `completed`
+        # z przywróconym końcem 31.12 — Finanse → Zmiany dostawały fałszywe
+        # „przedłużenie” 01.09 → 31.12. Datę ustawiamy wstępnie (od niej zależy
+        # warunek okresu) i cofamy, gdy linia nie wraca.
+        cut_end = line.end_date
+        if cut_end == previous_closure:
+            raw_end = state.get("previous_end_date")
+            line.end_date = None if raw_end is None else date.fromisoformat(raw_end)
+        was_active = state.get("previous_status") == ClientOrderStatus.active.value
+        period_runs = (line.end_date is None or line.end_date >= reopen_day) and (
+            line.start_date is None or line.start_date <= reopen_day
+        )
+        to_offboarding = False
+        if (
+            was_active
+            and line.status == ClientOrderStatus.completed
+            and period_runs
+            and (
+                # Linie kosztowe i ze wspólnej puli nie mają budżetu per linia,
+                # więc `sync_md_line_status` ich nie wskrzesza — wracają, gdy
+                # były aktywne i ich okres dalej trwa.
                 line.md_total is None
-                and state.get("previous_status") == ClientOrderStatus.active.value
-                and line.status == ClientOrderStatus.completed
-                and (line.end_date is None or line.end_date >= reopen_day)
-                and (line.start_date is None or line.start_date <= reopen_day)
-            ):
-                contract = await db.get(Contract, line.contract_id)
-                if contract is not None and contract.status == ContractStatus.void:
-                    continue
+                # Linia MD z niewykorzystaną pulą na ZAKOŃCZONEJ umowie:
+                # `sync_md_line_status` jej nie wskrzesi, a sprawa o puli nie
+                # powstała (zakończenie umowy nie widziało zamkniętej linii).
+                # Ta sama ścieżka co w „Przywróć anulowane”.
+                or Decimal(str(line.md_remaining or 0)) > 0
+            )
+        ):
+            contract = await db.get(Contract, line.contract_id)
+            contract_ended = (
+                contract is not None and contract.status == ContractStatus.ended
+            )
+            if contract is not None and contract.status == ContractStatus.void:
+                pass
+            elif line.md_total is None or contract_ended:
                 line.status = ClientOrderStatus.active
                 lines_reopened += 1
-                if contract is not None and contract.status == ContractStatus.ended:
+                if contract_ended:
                     offboard_contracts[contract.id] = (
                         contract.end_date or contract.terminated_at or reopen_day
                     )
                     offboard_lines.setdefault(contract.id, set()).add(line.id)
-                continue
-        if await sync_md_line_status(db, line):
+                    to_offboarding = True
+            elif await sync_md_line_status(db, line):
+                lines_reopened += 1
+        elif line.md_total is not None and await sync_md_line_status(db, line):
             lines_reopened += 1
+        if not to_offboarding and line.status not in _LINE_STATUSES_ON_ROSTER:
+            line.end_date = cut_end
 
     if offboard_contracts:
         from app.services.contract_order_offboarding import (
