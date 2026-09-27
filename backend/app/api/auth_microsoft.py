@@ -1143,7 +1143,7 @@ async def exchange(
         # frontend sprzed R9-N1-4) — nie ma czego szukać.
         raise HTTPException(
             status.HTTP_410_GONE,
-            detail="Exchange code unknown, expired or already consumed",
+            detail="Logowanie wygasło albo zostało już dokończone — zaloguj się ponownie.",
         )
     stored_code = _bound_exchange_code(
         payload.code, _browser_binding(payload.browser_nonce)
@@ -1191,7 +1191,7 @@ async def exchange(
         await db.commit()
         raise HTTPException(
             status.HTTP_410_GONE,
-            detail="Exchange code unknown, expired or already consumed",
+            detail="Logowanie wygasło albo zostało już dokończone — zaloguj się ponownie.",
         )
     user_id, access, refresh, issued_authorization_version = consumed
 
@@ -1222,7 +1222,7 @@ async def exchange(
         await db.commit()
         raise HTTPException(
             status.HTTP_410_GONE,
-            detail="Exchange code unknown, expired or already consumed",
+            detail="Logowanie wygasło albo zostało już dokończone — zaloguj się ponownie.",
         )
     assert user is not None  # narrowed by ``still_current`` above
     summary = SsoUserSummary(

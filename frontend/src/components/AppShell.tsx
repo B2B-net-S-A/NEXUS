@@ -1136,12 +1136,14 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
       }
       // Tagi pojedynczo: PATCH zastępuje całą listę, więc tag dodany w tym
       // czasie przez kolegę (i obiekty importu) by znikał.
+      // Najpierw usunięcia: przy limicie 50 tagów podmiana jednego tagu
+      // inaczej kończyła się 422 na dodaniu.
       const { add, remove } = tagChanges(initialForm.tags, form.tags);
-      for (const tag of add) {
-        await api.post(`/api/candidates/${candidate.id}/tags`, { tag });
-      }
       for (const tag of remove) {
         await api.delete(`/api/candidates/${candidate.id}/tags`, { params: { tag } });
+      }
+      for (const tag of add) {
+        await api.post(`/api/candidates/${candidate.id}/tags`, { tag });
       }
 
       const nextCity = form.city.trim();
