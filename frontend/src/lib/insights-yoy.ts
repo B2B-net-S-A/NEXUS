@@ -275,16 +275,22 @@ export function buildYoYTable(
     excludesPartialMonth && partialMonthNumber !== null
       ? partialMonthNumber - 1
       : covered;
-  const ytd = excludesPartialMonth || (covered > 0 && covered < 12);
+  // Wartość roczna od serwera (`yearly`) nie ma wariantu YTD — wiersz nie może
+  // wtedy twierdzić „Δ = N mies.” (runda 10, R10-N2-2).
+  const usesYearly = metric.aggregate === "distinct" || Boolean(metric.yearly);
+  const ytd =
+    !usesYearly && (excludesPartialMonth || (covered > 0 && covered < 12));
 
   // Wartość w komórce podsumowania opisuje CAŁY rok — to jest liczba, którą
   // czytelnik chce zobaczyć dla roku zamkniętego. Zawężony jest tylko MIANOWNIK
   // porównania, i tylko dla pary z ostatnim rokiem. Przy `comparedMonths === 0`
   // (styczeń w toku) porównywać nie ma czego — delta to „—", nie −100%.
   const summarize = (limit?: number): Array<number | null> => {
-    if (metric.aggregate === "distinct") {
+    if (usesYearly) {
       // Liczności zbioru nie da się zawęzić do N miesięcy bez samego zbioru,
       // więc porównanie YTD dla tej metryki nie istnieje — rok jest rokiem.
+      // To samo dotyczy każdej metryki z `yearly` od serwera (runda 10,
+      // R10-N2-2: udział top klienta ROKU ≠ Σ liderów miesięcy / Σ placementów).
       return years.map((y) => metric.yearly?.[String(y)] ?? null);
     }
     if (metric.aggregate === "ratio") {

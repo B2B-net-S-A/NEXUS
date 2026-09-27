@@ -561,6 +561,49 @@ async def test_top_client_share_never_exceeds_one_hundred_percent(
                 assert 0 < value <= 100, value
 
 
+@pytest.mark.asyncio
+async def test_top_client_share_year_is_the_biggest_client_of_the_year(
+    yoy_client: AsyncClient,
+):
+    """Runda 10 (R10-N2-2): rok = największy klient ROKU / placementy roku.
+
+    Σ(lider miesiąca) / Σplacementów zawyżało koncentrację: klient A
+    w styczniu i klient B w lutym dawały „100%" za rok, choć każdy z nich
+    ma połowę placementów.
+    """
+    email, password = await _seed_user(UserRole.admin)
+    headers = await _login(yoy_client, email, password)
+    year = BASE_YEAR - 2
+    for month in (1, 2):
+        _cli, job_id, cand_id = await _seed_client_job_candidate()
+        when = datetime(year, month, 9, 10, tzinfo=timezone.utc)
+        await _seed_hire(cand_id, job_id, when)
+
+    payload = await _yoy(yoy_client, headers, end_year=year, years=2)
+    metric = _metric(payload, "top_client_share_pct")
+    assert metric["aggregate"] == "ratio"
+    assert set(metric["yearly"]) == {str(y) for y in payload["years"]}
+
+    parts = payload["component_series"]
+    top_sum = sum(v or 0 for v in parts["top_client_placements"][str(year)])
+    placements = sum(v or 0 for v in parts["placements"][str(year)])
+    yearly = metric["yearly"][str(year)]
+    assert yearly is not None and yearly > 0
+    # Największy klient roku nie ma więcej niż suma liderów miesięcy, a przy
+    # dwóch różnych liderach — ściśle mniej.
+    assert yearly < round(100 * top_sum / placements, 1)
+
+
+def test_top_client_year_share_counts_the_year_not_the_monthly_leaders():
+    from app.services.insights_board_yoy import _top_client_year_share
+
+    # Co miesiąc inny lider z 3 z 4 placementów → 12 klientów po 3, 12 po 1.
+    by_client = {f"L{m}": 3 for m in range(12)} | {f"R{m}": 1 for m in range(12)}
+    assert _top_client_year_share(by_client, 48) == 6.2
+    assert _top_client_year_share({}, 0) is None
+    assert _top_client_year_share(None, None) is None
+
+
 # ── 6. Jedna implementacja pieniędzy ────────────────────────────────────────
 
 
