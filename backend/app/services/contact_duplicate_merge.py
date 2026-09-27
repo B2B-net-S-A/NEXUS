@@ -97,6 +97,32 @@ async def _add_alias(db: AsyncSession, external_id: str, survivor_id: int) -> No
     setting.value = {**(setting.value or {}), "aliases": aliases}
 
 
+# Runda 10 (R10-N11-4): nagrobki kontaktów z Traffita usuniętych w NEXUSIE.
+# Faza `contacts` przegląda co noc cały `/crm_persons/` i robi upsert po
+# `external_id`, więc usunięty kontakt wracał następnej nocy (lustro aliasów
+# wyżej i nagrobków klientów/kandydatów).
+DELETED_KEY = "traffit_contact_tombstones"
+
+
+async def load_deleted_traffit_contacts(db: AsyncSession) -> set[str]:
+    """Id rekordów Traffita, których kontakty usunięto w NEXUSIE."""
+
+    setting = await db.get(AppSetting, DELETED_KEY)
+    raw = (setting.value or {}).get("external_ids", []) if setting else []
+    return {str(v) for v in raw if v is not None}
+
+
+async def add_deleted_traffit_contact(db: AsyncSession, external_id: str) -> None:
+    setting = await db.get(AppSetting, DELETED_KEY, with_for_update=True)
+    if setting is None:
+        db.add(AppSetting(key=DELETED_KEY, value={"external_ids": [external_id]}))
+        return
+    ids = [str(v) for v in (setting.value or {}).get("external_ids", [])]
+    if external_id not in ids:
+        ids.append(external_id)
+    setting.value = {**(setting.value or {}), "external_ids": ids}
+
+
 async def merge_pair(db: AsyncSession, pair: MergePair) -> dict[str, Any]:
     """Scal jedną parę; niezgodność z oczekiwanym stanem = pominięcie z kodem."""
 

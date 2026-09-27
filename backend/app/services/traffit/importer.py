@@ -532,13 +532,32 @@ _UPSERT_CONTACT = text(
     )
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
-        client_id          = EXCLUDED.client_id,
-        name               = EXCLUDED.name,
+        -- Runda 10 (R10-N11-4): klienta i nazwę kontaktu prowadzi NEXUS —
+        -- sync tylko dopełnia. Klient zmienia się wyłącznie, gdy kontakt
+        -- siedzi w worku zastępczym albo u klienta usuniętego/scalonego.
+        -- Do 27.09 pełny skan co noc cofał przeniesienie kontaktu do
+        -- właściwego klienta (także hiring managera rekrutacji).
+        client_id          = CASE
+                               WHEN contacts.client_id
+                                    = CAST(:orphan_client_id AS integer)
+                                 OR EXISTS (
+                                   SELECT 1 FROM clients AS c
+                                   WHERE c.id = contacts.client_id
+                                     AND (c.deleted_at IS NOT NULL
+                                          OR (c.merged_into_client_id IS NOT NULL
+                                              AND c.merged_into_client_id <> c.id))
+                                 )
+                               THEN EXCLUDED.client_id
+                               ELSE contacts.client_id
+                             END,
+        name               = COALESCE(NULLIF(contacts.name, ''), EXCLUDED.name),
         email              = COALESCE(EXCLUDED.email, contacts.email),
         phone              = COALESCE(EXCLUDED.phone, contacts.phone),
         position           = COALESCE(EXCLUDED.position, contacts.position),
         department         = COALESCE(EXCLUDED.department, contacts.department),
-        is_decision_maker  = EXCLUDED.is_decision_maker,
+        -- Traffit nie ma tego pola (mapper zawsze daje `false`) — decydenta
+        -- oznacza wyłącznie NEXUS.
+        is_decision_maker  = contacts.is_decision_maker,
         notes              = COALESCE(EXCLUDED.notes, contacts.notes)
     RETURNING id, (xmax = 0) AS was_insert
     """
@@ -1861,9 +1880,14 @@ class TraffitImporter:
         # Rekordy Traffita scalone w inny kontakt (ta sama osoba dwa razy
         # w Trafficie). Bez tego upsert po external_id odtwarzałby co noc
         # usunięty duplikat — `services/contact_duplicate_merge.py`.
-        from app.services.contact_duplicate_merge import load_traffit_contact_aliases
+        from app.services.contact_duplicate_merge import (
+            load_deleted_traffit_contacts,
+            load_traffit_contact_aliases,
+        )
 
         merged_ids = set(await load_traffit_contact_aliases(self.db))
+        # Runda 10 (R10-N11-4): kontakty usunięte w NEXUSIE nie wracają.
+        merged_ids |= await load_deleted_traffit_contacts(self.db)
 
         async for raw in self.traffit.get_paginated(
             "/crm_persons/", page_size=self.batch_size
@@ -1893,7 +1917,9 @@ class TraffitImporter:
                 # opisano dla `workflows`: `processed: 2, updated: 2, errors: 1`
                 # znaczyło „0 z 2 zapisanych", 23 biegi z rzędu.
                 async with self.db.begin_nested():
-                    result = await self.db.execute(_UPSERT_CONTACT, payload)
+                    result = await self.db.execute(
+                        _UPSERT_CONTACT, {**payload, "orphan_client_id": orphan_id}
+                    )
                     row = result.fetchone()
                     if row is not None:
                         was_insert = bool(row[1])
