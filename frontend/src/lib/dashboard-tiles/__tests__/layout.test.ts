@@ -9,6 +9,7 @@ import {
   bottomRow,
   duplicateTile,
   metricChip,
+  orderedMetricNotes,
   readingOrder,
   removeTile,
 } from "@/lib/dashboard-tiles/layout";
@@ -121,6 +122,36 @@ describe("etykiety ustawień", () => {
     expect(describeMetric(byKey("funnel").config.metric!, { clients: ["Nordea"] })).toContain(
       "u klienta Nordea",
     );
+  });
+});
+
+describe("finanse z okresem „poprzedni miesiąc” (R10-N1-4)", () => {
+  const lastMonth = {
+    source: "finance",
+    measure: "margin",
+    group_by: "none",
+    period: "last_month",
+  } as never;
+
+  it("chip i zdanie nie mówią „dziś” o kwocie z końca poprzedniego miesiąca", () => {
+    expect(metricChip(lastMonth)).toBe("Kwoty PLN · koniec poprzedniego miesiąca");
+    expect(describeMetric(lastMonth)).toContain("— stan na koniec poprzedniego miesiąca");
+    expect(describeMetric(lastMonth)).not.toContain("stan na dziś");
+  });
+
+  it("okres w toku zostaje „dziś”", () => {
+    const thisMonth = { ...(lastMonth as object), period: "this_month" } as never;
+    expect(metricChip(thisMonth)).toBe("Kwoty PLN · dziś");
+  });
+
+  it("nota z datą wyceny idzie pierwsza, choć serwer sortuje noty alfabetycznie", () => {
+    expect(
+      orderedMetricNotes([
+        "Kwoty liczone z kontraktów.",
+        "Kwoty według stanu na 31.08.2026.",
+      ]),
+    ).toEqual(["Kwoty według stanu na 31.08.2026.", "Kwoty liczone z kontraktów."]);
+    expect(orderedMetricNotes(["A", "B"])).toEqual(["A", "B"]);
   });
 });
 

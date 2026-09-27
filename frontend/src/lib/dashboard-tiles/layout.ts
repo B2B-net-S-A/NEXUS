@@ -185,6 +185,22 @@ export function metricIsSnapshot(metric: MetricDefinition): boolean {
   return SNAPSHOT_MEASURES.has(metric.measure);
 }
 
+/**
+ * Kwoty finansów bez podziału po miesiącach serwer wycenia na ostatni dzień
+ * okresu albo dziś, co wcześniej (`Window.asof`). Z okresów kreatora tylko
+ * „poprzedni miesiąc” jest zamknięty — tam „dziś” byłoby nieprawdą.
+ * Runda 10 (R10-N1-4): sierpniowa marża czytała się jak dzisiejsze MRR.
+ */
+export function financeValuationClosed(metric: MetricDefinition): boolean {
+  return metric.source === "finance" && metric.group_by !== "month" && metric.period === "last_month";
+}
+
+/** Nota z datą wyceny (serwer: „Kwoty według stanu na DD.MM.RRRR.”) idzie pierwsza. */
+export function orderedMetricNotes(notes: readonly string[]): string[] {
+  const valuation = notes.filter((n) => n.startsWith("Kwoty według stanu na"));
+  return [...valuation, ...notes.filter((n) => !valuation.includes(n))];
+}
+
 /** Chip w nagłówku kafelka: „Moje · 30 dni". */
 export function metricChip(metric: MetricDefinition): string {
   const parts: string[] = [];
@@ -195,6 +211,8 @@ export function metricChip(metric: MetricDefinition): string {
   }
   if (metricIsSnapshot(metric)) {
     parts.push(metric.measure === "ending_30_days" ? "najbliższe 30 dni" : "teraz");
+  } else if (financeValuationClosed(metric)) {
+    parts.push("koniec poprzedniego miesiąca");
   } else if (metric.source === "finance" && metric.group_by !== "month") {
     parts.push("dziś");
   } else {
