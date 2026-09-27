@@ -27,6 +27,7 @@ from sqlalchemy.orm import aliased
 
 from app.services.job_portals.service import (
     close_live_postings,
+    close_postings_if_approved_for_other_client,
     has_live_postings,
 )
 from app.core.cache import cache_invalidate
@@ -2565,6 +2566,9 @@ async def update_job(
             await db.flush()
             await fill_missing_job_delivery_leads(db, [job.client_id])
             await db.refresh(job, ["delivery_lead_id", "delivery_lead_auto_filled"])
+        # Runda 9 (R9-V2-7): opis publiczny zatwierdzony przy starym kliencie
+        # wraca do szkicu — ogłoszenia na portalach idą do zamknięcia.
+        await close_postings_if_approved_for_other_client(db, job)
     if (
         working_title_reset
         or {

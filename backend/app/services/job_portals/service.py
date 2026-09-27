@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import Text, and_, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -451,23 +451,65 @@ async def close_live_postings(db: AsyncSession, job_id: int) -> int:
     return len(rows)
 
 
+async def close_postings_if_approved_for_other_client(
+    db: AsyncSession, job: Job
+) -> int:
+    """Zmiana klienta po zatwierdzeniu opisu = zamknięcie ogłoszeń.
+
+    Runda 9 (R9-V2-7): opis wraca wtedy do szkicu (``approved_for_other_client``
+    — kontrola sprawdziła tekst pod kątem nazwy STAREGO klienta), ale żywe
+    ogłoszenia zostawały na portalach. Bez zatwierdzonego opisu nie ma czego
+    na nich utrzymywać, więc kolejkujemy zamknięcie jak przy wycofaniu.
+    """
+    from app.services.job_public_profile import approved_for_other_client
+
+    profile = await db.scalar(
+        select(JobPublicProfile).where(JobPublicProfile.job_id == job.id)
+    )
+    if profile is None or not approved_for_other_client(job, profile.sections):
+        return 0
+    return await close_live_postings(db, job.id)
+
+
+def _approved_for_other_client_clause():
+    """SQL-owe lustro ``approved_for_other_client`` (klucz musi istnieć)."""
+    from app.services.job_public_profile import (
+        APPROVED_CLIENT_KEY,
+        APPROVED_CONTENT_KEY,
+    )
+
+    snapshot = JobPublicProfile.sections[APPROVED_CONTENT_KEY]
+    return and_(
+        snapshot.has_key(APPROVED_CLIENT_KEY),
+        snapshot[APPROVED_CLIENT_KEY].astext.is_distinct_from(
+            cast(Job.client_id, Text)
+        ),
+    )
+
+
 async def close_postings_of_closed_jobs(db: AsyncSession) -> int:
     """Siatka bezpieczeństwa workera: rekrutacja nieopublikowana = zamknięcie.
 
     Obejmuje każdą ścieżkę zmiany statusu (PATCH, nocne archiwum Traffita,
     zmiany hurtowe), także te, które nie wołają ``close_live_postings``.
+    Runda 9 (R9-V2-7): także rekrutacja, której opis zatwierdzono przy innym
+    kliencie (przepięcie klienta każdą ścieżką, np. scalenie klientów).
     """
     job_ids = (
         await db.scalars(
             select(JobPosting.job_id)
             .join(Job, Job.id == JobPosting.job_id)
+            .outerjoin(JobPublicProfile, JobPublicProfile.job_id == Job.id)
             .where(
                 JobPosting.status.in_(LIVE_STATUSES),
                 or_(
                     JobPosting.pending_action.is_(None),
                     JobPosting.pending_action != ACTION_CLOSE,
                 ),
-                Job.status != JobStatus.published,
+                or_(
+                    Job.status != JobStatus.published,
+                    _approved_for_other_client_clause(),
+                ),
             )
             .distinct()
             .limit(50)
