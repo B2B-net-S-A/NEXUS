@@ -144,6 +144,16 @@ async def test_generation_rejects_foreign_attachment_before_quota_and_background
     pending.assert_not_called()
 
 
+def _tiny_png() -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    out = BytesIO()
+    Image.new("RGB", (3, 3), "white").save(out, format="PNG")
+    return out.getvalue()
+
+
 async def test_upload_issues_receipt_for_declared_cv_bytes_and_real_operator(
     monkeypatch,
 ):
@@ -164,7 +174,8 @@ async def test_upload_issues_receipt_for_declared_cv_bytes_and_real_operator(
     ) as client:
         response = await client.post(
             "/cv-generator/consent-screenshot",
-            files={"file": ("consent.png", b"\x89PNG\r\n\x1a\nsynthetic", "image/png")},
+            # Prawdziwy obraz: od rundy 9 (R9-N3-2) upload odrzuca nieczytelny plik.
+            files={"file": ("consent.png", _tiny_png(), "image/png")},
             data={"cv_sha256": fingerprint},
         )
     assert response.status_code == 200, response.text

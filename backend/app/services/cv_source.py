@@ -17,15 +17,40 @@ import logging
 from dataclasses import dataclass
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import undefer
 
 from app.models.candidate import Candidate
-from app.models.candidate_document import CandidateDocument
+from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.services import object_storage
 from app.core.log_safety import safe_storage_key
 
 logger = logging.getLogger(__name__)
+
+
+# Runda 9 (R9-N7-11): świadectwo albo list motywacyjny nie jest CV. Bez
+# głównego CV brano najnowszy PDF DOWOLNEGO rodzaju, więc certyfikat wgrany
+# po CV trafiał do migawki oryginału i do generatora. Dokumenty `other`
+# zostają (import Traffita nie klasyfikuje plików), ale ustępują `cv`.
+_NOT_CV_KINDS = (CandidateDocumentKind.certificate, CandidateDocumentKind.cover_letter)
+
+
+def current_cv_filters() -> tuple:
+    """Warunki „ten dokument może być bieżącym CV" (bez filtra rozszerzeń)."""
+    return (CandidateDocument.document_kind.notin_(_NOT_CV_KINDS),)
+
+
+def current_cv_ordering() -> tuple:
+    """Kolejność wyboru bieżącego CV: główne → rodzaj „cv" → najnowsze."""
+    return (
+        CandidateDocument.is_primary.desc(),
+        case(
+            (CandidateDocument.document_kind == CandidateDocumentKind.cv, 0),
+            else_=1,
+        ),
+        CandidateDocument.uploaded_at.desc(),
+    )
 
 
 @dataclass(frozen=True)
@@ -47,6 +72,10 @@ async def get_current_cv(db: AsyncSession, candidate: Candidate) -> CurrentCV | 
     doc = (
         await db.scalars(
             select(CandidateDocument)
+            # Runda 9 (R9-X1-1): `file_content` jest odroczone — odczyt bez
+            # `undefer` w sesji async to MissingGreenlet (500 przy CV
+            # z formularza kariery / maila, które leży w BYTEA bez storage_key).
+            .options(undefer(CandidateDocument.file_content))
             .where(
                 CandidateDocument.candidate_id == candidate.id,
                 or_(
@@ -54,11 +83,9 @@ async def get_current_cv(db: AsyncSession, candidate: Candidate) -> CurrentCV | 
                     func.lower(CandidateDocument.filename).like("%.docx"),
                     func.lower(CandidateDocument.filename).like("%.doc"),
                 ),
+                *current_cv_filters(),
             )
-            .order_by(
-                CandidateDocument.is_primary.desc(),
-                CandidateDocument.uploaded_at.desc(),
-            )
+            .order_by(*current_cv_ordering())
             .limit(1)
         )
     ).first()

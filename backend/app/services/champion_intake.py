@@ -516,6 +516,18 @@ def normalize_experience_items(value, *, with_years):
     return items
 
 
+# Sekcje profilu, które `prepare_profile` czyta jak słownik.
+_OBJECT_SECTIONS = (
+    "intake",
+    "basics",
+    "stack",
+    "experience",
+    "search",
+    "project",
+    "client",
+)
+
+
 def prepare_profile(
     data,
     *,
@@ -543,7 +555,19 @@ def prepare_profile(
     140 PLN/h from ~949 profiles of the 08.2026 import and, with the sync box
     ticked, from `jobs.rate_budget_hourly`.
     """
+    # Runda 9 (R9-N3-6): wejście z żądania (podgląd Championa w generatorze
+    # CV) bywa dowolnym JSON-em. Sekcja niebędąca obiektem kończyła się
+    # AttributeError → 500; TypeError wołający zamieniają na 422.
+    if data is not None and not isinstance(data, dict):
+        raise TypeError("Champion profile must be a JSON object")
     data = deepcopy(data or {})
+    for section in _OBJECT_SECTIONS:
+        value = data.get(section)
+        if value is None or isinstance(value, dict):
+            continue
+        if value:
+            raise TypeError(f"Champion profile section {section!r} must be an object")
+        data[section] = {}  # pusta lista / napis = pusta sekcja
     old_meta = data.get("intake") or {}
     unresolved = dict(old_meta.get("unresolved") or {})
     advisory = dict(old_meta.get("advisory") or {})

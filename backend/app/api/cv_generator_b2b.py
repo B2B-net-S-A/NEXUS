@@ -130,7 +130,31 @@ from app.services.cv_generator_b2b.standalone_service import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/cv-generator", tags=["cv-generator-b2b"])
+# Kolumny identyfikatorów są INTEGER (int32). Liczba spoza zakresu dochodziła
+# do Postgresa i kończyła się DataError → 500 (runda 9, R9-N3-7).
+_INT32_MAX = 2**31 - 1
+
+
+def _reject_out_of_range_ids(request: Request) -> None:
+    """422 dla identyfikatora w ścieżce lub zapytaniu spoza zakresu INTEGER."""
+    for name, value in (
+        *request.path_params.items(),
+        *request.query_params.multi_items(),
+    ):
+        if not (name.endswith("_id") or name == "version_number"):
+            continue
+        digits = str(value).strip().lstrip("+-")
+        if digits.isdigit() and (len(digits) > 10 or int(digits) > _INT32_MAX):
+            raise HTTPException(
+                status_code=422, detail="Identyfikator spoza dozwolonego zakresu."
+            )
+
+
+router = APIRouter(
+    prefix="/cv-generator",
+    tags=["cv-generator-b2b"],
+    dependencies=[Depends(_reject_out_of_range_ids)],
+)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────
@@ -177,16 +201,16 @@ class RecruitmentOption(BaseModel):
 
 
 class GenerateRequest(BaseModel):
-    cv_document_id: int = Field(..., ge=1)
-    candidate_id: int = Field(..., ge=1)
+    cv_document_id: int = Field(..., ge=1, le=_INT32_MAX)
+    candidate_id: int = Field(..., ge=1, le=_INT32_MAX)
     # Etap rekrutacji. Bez etapu („inny klient, bez procesu", generator v3)
     # klient jest WYMAGANY — reguły klienta muszą mieć komu obowiązywać.
-    stage_id: Optional[int] = Field(default=None, ge=1)
+    stage_id: Optional[int] = Field(default=None, ge=1, le=_INT32_MAX)
     # Z etapem klient jest wyprowadzany z rekrutacji; jawna wartość służy
     # wyłącznie do sprawdzenia, że front i serwer mówią o tym samym. Rozjazd =
     # 422, bo cicha wygrana którejkolwiek strony oznaczałaby zastosowanie reguł
     # (nazwa pliku, język) innego klienta niż widzi rekruter.
-    client_id: Optional[int] = Field(default=None, ge=1)
+    client_id: Optional[int] = Field(default=None, ge=1, le=_INT32_MAX)
     # Stanowisko z „Zaawansowanych": bez etapu zastępuje tytuł rekrutacji,
     # z etapem go nadpisuje (nazwa pliku, linia „rozważany na").
     position: str = Field(default="", max_length=300)
@@ -480,6 +504,10 @@ def _render_with_consent(
 CONSENT_ATTACH_FAILED_MESSAGE = (
     "Nie udało się dołączyć zrzutu zgody — wgraj go ponownie i wygeneruj jeszcze raz."
 )
+CONSENT_NOT_ATTACHED_WARNING = (
+    "Nie udało się dołączyć zrzutu zgody — dołącz go ponownie do tego CV. "
+    "Do tego czasu CV nie da się pobrać ani udostępnić."
+)
 
 
 async def _finalize_success(
@@ -506,6 +534,7 @@ async def _finalize_success(
     # `try` workera i zostawiał generację bez czytelnego powodu.
     final_docx = result.docx_bytes
     frozen_consent = None
+    consent_not_attached = False
     if consent_screenshot:
         from copy import deepcopy
 
@@ -523,13 +552,19 @@ async def _finalize_success(
                 generated_id,
                 exc_info=True,
             )
-            await _finalize_failure(
-                db,
-                generated_id,
-                CONSENT_ATTACH_FAILED_MESSAGE,
-                diagnostic_code="consent_screenshot_unavailable",
-            )
-            return False
+            if not (consent_gate.gate_enabled() and consent_gate.consent_required(row)):
+                await _finalize_failure(
+                    db,
+                    generated_id,
+                    CONSENT_ATTACH_FAILED_MESSAGE,
+                    diagnostic_code="consent_screenshot_unavailable",
+                )
+                return False
+            # Runda 9 (R9-N3-2): pod centralnymi regułami zgodę dołącza się też
+            # PO generacji, a pobranie bez niej blokuje `cv_consent_gate`. Gotowe
+            # (opłacone) CV zostaje — bez zrzutu, z prośbą o dołączenie go ponownie.
+            consent_screenshot = None
+            consent_not_attached = True
     payload = result.render_payload or {}
     # For blind CVs ``result.candidate_name`` is the anonymized "Kandydat" — use
     # the real name captured in the payload so the INTERNAL list stays
@@ -568,6 +603,8 @@ async def _finalize_success(
         )
         row.render_payload = {**row.render_payload, "artifact_provenance": provenance}
     row.warnings = list(result.warnings or [])
+    if consent_not_attached:
+        row.warnings.append(CONSENT_NOT_ATTACHED_WARNING)
     # Stempel wersji reguły klienta (0267) — odpowiedź na „którą regułą
     # powstało CV, na które klient się skarży".
     if rule_version is not None:
@@ -811,6 +848,32 @@ async def _attach_manual_stage_draft(
 # server restart mid-job are reaped to „failed" on startup (see main.lifespan).
 
 
+async def _frozen_or_prepared_source_facts(db: AsyncSession, prepare):
+    """Fakty źródła zamrożone przez przerwaną próbę tego zadania albo nowe.
+
+    Runda 9 (R9-N3-5): ponowienie przerwanej wersji głównej wznawia TO SAMO
+    zadanie — fakty zamrożone przed wywołaniem modelu (w trybie v10 kosztowało
+    je osobne wywołanie AI) są użyte ponownie zamiast liczone od nowa. Nowe
+    fakty zamrażamy przed wywołaniem modelu generacji: ich obecność mówi
+    reaperowi, że zadania nie wolno już po cichu powtórzyć.
+    """
+    from app.services.cv_generator_b2b.job_leases import lock_owned_job
+    from app.services.cv_generator_b2b.job_snapshot import _decode, _encode
+
+    active_job = await lock_owned_job(db)
+    frozen = getattr(active_job, "prepared_source_facts", None)
+    if active_job is not None:
+        await db.commit()  # nie trzymaj blokady zadania przez odczyt CV
+    if frozen:
+        return _decode(frozen)
+    source_facts = await prepare()
+    active_job = await lock_owned_job(db)
+    if active_job is not None:
+        active_job.prepared_source_facts = _encode(source_facts)
+        await db.commit()
+    return source_facts
+
+
 @terminal_operation("cv-generation")
 async def _run_generate_new_job(
     generated_id: int,
@@ -867,20 +930,16 @@ async def _run_generate_new_job(
             await db.commit()
         else:
             try:
-                source_facts = await run_in_threadpool(
-                    prepare_source_facts,
-                    cv_bytes=source.cv_bytes,
-                    cv_filename=source.cv_filename,
-                    screening_notes_text=source.screening_notes_text,
-                    request_id=f"cvgen_source_{generated_id}",
+                source_facts = await _frozen_or_prepared_source_facts(
+                    db,
+                    lambda: run_in_threadpool(
+                        prepare_source_facts,
+                        cv_bytes=source.cv_bytes,
+                        cv_filename=source.cv_filename,
+                        screening_notes_text=source.screening_notes_text,
+                        request_id=f"cvgen_source_{generated_id}",
+                    ),
                 )
-                from app.services.cv_generator_b2b.job_leases import lock_owned_job
-                from app.services.cv_generator_b2b.job_snapshot import _encode
-
-                active_job = await lock_owned_job(db)
-                if active_job is not None:
-                    active_job.prepared_source_facts = _encode(source_facts)
-                    await db.commit()
                 review_quota = await _charge_final_review(db, user_id=user_id)
                 with _review_declaration_or_null(user_id, review_quota):
                     result = await generate_cv_from_candidate_source(
@@ -1167,20 +1226,16 @@ async def _run_generate_upload_job(
             await db.commit()
         else:
             try:
-                source_facts = await run_in_threadpool(
-                    prepare_source_facts,
-                    cv_bytes=payload.cv_bytes,
-                    cv_filename=payload.cv_filename,
-                    screening_notes_text=payload.screening_notes or "",
-                    request_id=f"cvgen_upload_source_{generated_id}",
+                source_facts = await _frozen_or_prepared_source_facts(
+                    db,
+                    lambda: run_in_threadpool(
+                        prepare_source_facts,
+                        cv_bytes=payload.cv_bytes,
+                        cv_filename=payload.cv_filename,
+                        screening_notes_text=payload.screening_notes or "",
+                        request_id=f"cvgen_upload_source_{generated_id}",
+                    ),
                 )
-                from app.services.cv_generator_b2b.job_leases import lock_owned_job
-                from app.services.cv_generator_b2b.job_snapshot import _encode
-
-                active_job = await lock_owned_job(db)
-                if active_job is not None:
-                    active_job.prepared_source_facts = _encode(source_facts)
-                    await db.commit()
                 review_quota = await _charge_final_review(db, user_id=user_id)
                 with _review_declaration_or_null(user_id, review_quota):
                     result = await run_in_threadpool(
@@ -1759,6 +1814,30 @@ def _sniff_image_type(content: bytes) -> Optional[str]:
     return None
 
 
+def _consent_image_readable(content: bytes) -> bool:
+    """Czy obraz da się odczytać tak, jak zrobi to finalizacja CV.
+
+    Runda 9 (R9-N3-2): sama sygnatura przepuszczała uszkodzony plik (np. ucięty
+    PNG), a płatna generacja kończyła się „failed” dopiero przy wklejaniu zrzutu
+    (`rerender_docx_from_payload(require_consent=True)` → `Image.verify`).
+    Ta sama kontrola przy wgraniu mówi o tym od razu, zanim ruszy model.
+    """
+    from io import BytesIO
+
+    from PIL import Image
+
+    try:
+        with Image.open(BytesIO(content)) as image:
+            image.verify()
+        # `verify` nie dekoduje pikseli — ucięty plik przechodzi, a wstawienie
+        # do DOCX-a go czyta. Drugi odczyt z pełnym dekodowaniem.
+        with Image.open(BytesIO(content)) as image:
+            image.load()
+    except Exception:  # noqa: BLE001 — każdy błąd dekodera = nieczytelny obraz
+        return False
+    return True
+
+
 class ConsentScreenshotResponse(BaseModel):
     storage_key: str
     filename: str
@@ -1771,15 +1850,15 @@ async def upload_consent_screenshot(
     request: Request,
     current_user: CandidateWriteAccess,
     file: Annotated[UploadFile, File(description="Zrzut ekranu ze zgodą kandydata")],
-    candidate_id: Optional[int] = Form(None, ge=1),
-    stage_id: Optional[int] = Form(None, ge=1),
-    client_id: Optional[int] = Form(None, ge=1),
+    candidate_id: Optional[int] = Form(None, ge=1, le=_INT32_MAX),
+    stage_id: Optional[int] = Form(None, ge=1, le=_INT32_MAX),
+    client_id: Optional[int] = Form(None, ge=1, le=_INT32_MAX),
     cv_sha256: Optional[str] = Form(None, pattern=r"^[a-f0-9]{64}$"),
     project_ref: str = Form("", max_length=120),
-    binding_stage_id: Optional[int] = Form(None, ge=1),
+    binding_stage_id: Optional[int] = Form(None, ge=1, le=_INT32_MAX),
     # Generator v3: zgoda dla GOTOWEGO CV (dołączenie albo wymiana po
     # generacji) — pokwitowanie dla `POST /generated/{id}/consent`.
-    generated_id: Annotated[Optional[int], Form(ge=1)] = None,
+    generated_id: Annotated[Optional[int], Form(ge=1, le=_INT32_MAX)] = None,
     db: AsyncSession = Depends(get_db),
 ) -> ConsentScreenshotResponse:
     """Wgraj zrzut zgody i podpisz przypisanie do źródła i klienta.
@@ -1898,6 +1977,14 @@ async def upload_consent_screenshot(
             detail=(
                 "To nie wygląda na obraz PNG, JPEG ani WEBP — sprawdź, czy "
                 "wgrywasz zrzut ekranu."
+            ),
+        )
+    if not await run_in_threadpool(_consent_image_readable, content):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Nie udało się odczytać obrazu — plik jest uszkodzony albo niepełny. "
+                "Zrób zrzut ekranu jeszcze raz i wgraj go ponownie."
             ),
         )
     if not object_storage.is_available():
@@ -2487,9 +2574,9 @@ async def generate_from_upload(
     # Klient, pod którego idzie to CV. Wymagany (generator v3, jak `/generate`)
     # — z rekrutacji (`stage_id`) wynika sam, bez niej podaje go rekruter.
     # Opcjonalny w formularzu tylko dlatego, że z etapem nie trzeba go słać.
-    client_id: Optional[int] = Form(None),
-    candidate_id: Annotated[Optional[int], Form(ge=1)] = None,
-    stage_id: Annotated[Optional[int], Form(ge=1)] = None,
+    client_id: Optional[int] = Form(None, le=_INT32_MAX),
+    candidate_id: Annotated[Optional[int], Form(ge=1, le=_INT32_MAX)] = None,
+    stage_id: Annotated[Optional[int], Form(ge=1, le=_INT32_MAX)] = None,
     # Upload nie ma oferty, więc stanowisko i numer projektu — jedyne źródła
     # tokenów {STANOWISKO} i {PROJEKT} we wzorze nazwy pliku — podaje rekruter.
     position: str = Form("", max_length=300),
@@ -3910,7 +3997,7 @@ async def cancel_generated_cv_review(
 
 
 class PackageConfirmation(BaseModel):
-    note_id: Optional[int] = Field(default=None, ge=1)
+    note_id: Optional[int] = Field(default=None, ge=1, le=_INT32_MAX)
     # Od 21.09.2026 bez znaczenia dla gotowości (zapis wyboru notatki).
     sources_checked: bool = False
     expected_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -4049,6 +4136,22 @@ async def retry_cv_package(
 
     row = await _load_generated_document(db, generated_id, current_user)
     job, primary, rows = await members(db, row, lock=True)
+    if job and primary.status == "failed" and job.status == "interrupted":
+        # Runda 9 (R9-N3-5): wersja główna urwała się w trakcie generacji
+        # (zwykle deploy) — wznów TO SAMO zadanie z zapisanego wejścia. Kwota
+        # naliczona przy przyjęciu nie jest naliczana drugi raz.
+        if is_purged_key(job.input_storage_key):
+            raise HTTPException(
+                409, "Źródła tego zadania wygasły. Wygeneruj CV jeszcze raz."
+            )
+        primary.status = "processing"
+        primary.error_message = None
+        job.status = "queued"
+        job.finished_at = None
+        job.error_code = None
+        await db.commit()
+        background_tasks.add_task(execute_job, job.id)
+        return {"id": primary.id, "status": "queued"}
     if not primary.central_policy or not job or primary.status != "ready":
         raise HTTPException(
             409, "Ponowienie dotyczy brakującej wersji językowej gotowego CV."

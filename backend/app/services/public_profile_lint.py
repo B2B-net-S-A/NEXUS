@@ -53,7 +53,10 @@ _MONEY_PATTERNS = (
         re.IGNORECASE,
     ),
 )
-_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", re.IGNORECASE)
+# Runda 9 (R9-V3-4): start tylko na początku ciągu znaków adresu i kwantyfikatory
+# zaborcze — dawny wzorzec próbował od KAŻDEJ pozycji długiego ciągu liter
+# (kwadratowo; 16 KB bez „@" liczyło się sekundy na tekście z formularza).
+_EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]++@[\w-]++(?:\.[\w-]++)+", re.IGNORECASE)
 _PHONE = re.compile(r"(?<!\d)(?:\+\d{2}[\s-]?)?\d{3}[\s-]?\d{3}[\s-]?\d{3}(?!\d)")
 # Zdanie kończy się kropką, po której zaczyna się wielka litera — skróty
 # („tys. zł", „godz.") nie tną zdania w pół kwoty.
