@@ -83,11 +83,19 @@ COST_ROW_UNMATCHED_NUMBER = "unmatched_number"
 COST_ROW_UNMATCHED_CONSULTANT = "unmatched_consultant"
 # FIN-MD-06 (0351): korekta faktury / kwota ≤ 0 — nie znika po cichu.
 COST_ROW_NON_POSITIVE = "non_positive_amount"
+# Runda 10 (0391): nieczytelna kwota w „Fakturze” — MD zostają, faktura
+# czeka na ręczne rozliczenie (R10-N5-5).
+COST_ROW_INVOICE_UNREADABLE = "invoice_unreadable"
+# Runda 10 (0391): numer wskazuje wyczerpane zamówienie kosztowe tej osoby —
+# faktura nierozliczona (R10-N5-6).
+COST_ROW_ORDER_EXHAUSTED = "order_exhausted"
 COST_ROW_STATUSES: tuple[str, ...] = (
     COST_ROW_APPLIED,
     COST_ROW_UNMATCHED_NUMBER,
     COST_ROW_UNMATCHED_CONSULTANT,
     COST_ROW_NON_POSITIVE,
+    COST_ROW_INVOICE_UNREADABLE,
+    COST_ROW_ORDER_EXHAUSTED,
 )
 
 COST_ROW_STATUS_LABELS: dict[str, str] = {
@@ -95,6 +103,8 @@ COST_ROW_STATUS_LABELS: dict[str, str] = {
     COST_ROW_UNMATCHED_NUMBER: "Brak zamówienia o tym numerze",
     COST_ROW_UNMATCHED_CONSULTANT: "Numer się zgadza, konsultant nie",
     COST_ROW_NON_POSITIVE: "Korekta / kwota ≤ 0 — rozlicz ręcznie",
+    COST_ROW_INVOICE_UNREADABLE: "Nieczytelna kwota faktury — rozlicz ręcznie",
+    COST_ROW_ORDER_EXHAUSTED: "Zamówienie wyczerpane — faktura nierozliczona",
 }
 
 
@@ -168,7 +178,7 @@ class MdConsumptionImportRow(Base):
         CheckConstraint(
             "cost_status IS NULL OR cost_status IN "
             "('applied', 'unmatched_number', 'unmatched_consultant', "
-            "'non_positive_amount')",
+            "'non_positive_amount', 'invoice_unreadable', 'order_exhausted')",
             name="ck_md_import_rows_cost_status",
         ),
         Index("ix_md_import_rows_import", "import_id"),

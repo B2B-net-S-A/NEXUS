@@ -1164,6 +1164,44 @@ async def historical_cost_lines(db: AsyncSession, period_month: str) -> list[Lin
     return matches
 
 
+async def exhausted_cost_lines(db: AsyncSession, period_month: str) -> list[LineMatch]:
+    """Linie WYCZERPANYCH zamówień kosztowych, obsadzające dany miesiąc.
+
+    Runda 10 (R10-N5-6): nie są celem zapisu (z wyczerpanej puli nic się nie
+    zdejmuje, ``cost_lines_settling_in_month``), ale faktura z ich numerem nie
+    może dostać opisu „brak zamówienia o tym numerze” — zamówienie istnieje,
+    tylko skończył się jego budżet, więc kwota jest NIEROZLICZONA.
+    """
+    from app.services.cost_orders import is_cost_order_client
+
+    result = await db.execute(
+        _line_query()
+        .join(ClientOrderGroup, ClientOrder.order_group_id == ClientOrderGroup.id)
+        .join(Contract, ClientOrder.contract_id == Contract.id)
+        .options(selectinload(ClientOrder.order_group))
+        .where(
+            ClientOrderGroup.is_cost_based.is_(True),
+            ClientOrderGroup.status == GROUP_STATUS_EXHAUSTED,
+            *line_settles_in_month_conditions(period_month, include_draft=True),
+        )
+    )
+    matches: list[LineMatch] = []
+    for order in result.scalars():
+        group = order.order_group
+        if group is None or (
+            group.order_type != "cost" and not is_cost_order_client(order.client_id)
+        ):
+            continue
+        candidate = order.contract.candidate if order.contract else None
+        display = (
+            f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+            if candidate
+            else ""
+        )
+        matches.append(LineMatch(order=order, group=group, consultant_name=display))
+    return matches
+
+
 async def historical_shared_md_lines(
     db: AsyncSession, period_month: str
 ) -> list[LineMatch]:
@@ -1242,9 +1280,7 @@ def prefer_active_line(matches: list[LineMatch]) -> list[LineMatch]:
     """
     if len(matches) <= 1:
         return matches
-    owners = {
-        (m.group.client_id, _match_candidate_id(m)) for m in matches
-    }
+    owners = {(m.group.client_id, _match_candidate_id(m)) for m in matches}
     if len(owners) != 1 or next(iter(owners))[1] is None:
         return matches
     active = [m for m in matches if m.order.status == ClientOrderStatus.active]

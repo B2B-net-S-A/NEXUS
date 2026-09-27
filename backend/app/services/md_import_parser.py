@@ -298,6 +298,11 @@ class ParsedRow:
     #: faktury i numerem zamówienia w „Uwagach". Rozlicza wyłącznie pulę
     #: kosztową — do budżetów MD nie trafia (``md_reported`` = 0).
     cost_only: bool = False
+    #: Runda 10 (R10-N5-5): powód, dla którego niepustej kwoty z „Faktury” nie
+    #: dało się odczytać. Wiersz z poprawną liczbą MD zostaje (MD schodzą
+    #: z budżetu), a faktura czeka na ręczne rozliczenie — ``invoice_amount``
+    #: jest wtedy ``None``.
+    invoice_problem: Optional[str] = None
 
 
 def _blank_md_cell(value: Any) -> bool:
@@ -504,25 +509,22 @@ def parse_md_sheet(content: bytes) -> ParsedSheet:
                     notes_text = str(cells[notes_col] or "").strip()
                     notes_raw = notes_text or None
                 invoice_value: Optional[Decimal] = None
+                invoice_problem: Optional[str] = None
                 if invoice_col is not None and invoice_col < len(cells):
                     invoice_value = parse_money_value(cells[invoice_col])
                     invoice_problem = invoice_value_problem(invoice_value)
                     if invoice_value is None and not _blank_md_cell(cells[invoice_col]):
                         # S6: niepusta, nieczytelna kwota faktury nie może
-                        # zniknąć po cichu — wiersz idzie do pominiętych
-                        # z powodem, jak kwota nieskończona.
+                        # zniknąć po cichu.
                         invoice_problem = "nieczytelna kwota faktury"
                     if invoice_problem is not None:
-                        parsed.skipped_rows.append(
-                            {
-                                "row": row_idx,
-                                "reason": (
-                                    f"{invoice_problem} ({cells[invoice_col]!r})"
-                                ),
-                                "consultant_name": name,
-                            }
-                        )
-                        continue
+                        # Runda 10 (R10-N5-5): do 27.09 cały wiersz szedł do
+                        # pominiętych — razem z poprawną liczbą MD, a lista
+                        # pominiętych żyje tylko w odpowiedzi na wgranie pliku.
+                        # MD zostają, faktura dostaje trwały znacznik
+                        # (``cost_status = invoice_unreadable``).
+                        invoice_problem = f"{invoice_problem} ({cells[invoice_col]!r})"
+                        invoice_value = None
 
                 parsed.rows.append(
                     ParsedRow(
@@ -532,6 +534,7 @@ def parse_md_sheet(content: bytes) -> ParsedSheet:
                         notes_raw=notes_raw,
                         order_number_hint=extract_order_number(notes_raw),
                         invoice_amount=invoice_value,
+                        invoice_problem=invoice_problem,
                     )
                 )
             return parsed
