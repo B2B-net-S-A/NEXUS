@@ -201,10 +201,45 @@ _OTHER_CLIENT_GENERIC = (
 _GENERIC_REVIEW = "Sprawdź odczytane dane przed zapisem."
 
 
+#: Powód mówiący o pieniądzach: „stawka 1250 day poza pasmem…”, „kwota…”.
+_MONEY_CONTEXT_RE = re.compile(
+    r"stawk|kwot|brutto|netto|warto[śs]|\b(?:zł|pln|eur|usd|rate|price|cen[ay])\b",
+    re.I,
+)
+#: Liczba, która nie jest częścią daty (2026-09-30, 30.09.2026), numeru
+#: rekordu (#123) ani numeru zamówienia (7/2031). Bez zagnieżdżonych
+#: kwantyfikatorów wstecz — czas liniowy na tekście z zewnątrz.
+_AMOUNT_RE = re.compile(r"(?<![#\d./\-])\d+(?:[ \u00a0]\d{3})*(?:[.,]\d+)?(?![\d./\-])")
+
+
+def _hide_amounts(text: Any) -> Any:
+    """Kwoty w powodzie → „…” dla roli bez odczytu finansów.
+
+    Runda 10 (R10-N3-8): ``extraction`` i ``proposal`` były redagowane, ale
+    ``gate_reasons`` i powody historii ponownej weryfikacji niosły stawki
+    („stawka 1400 odbiega o 45% od obowiązującej 965”) do hybrydy DL+TCM
+    i do DL u klienta spoza portfela. Maskujemy wyłącznie liczby w powodach
+    o pieniądzach — daty, numery zamówień i nazwiska zostają.
+    """
+    if not isinstance(text, str) or not _MONEY_CONTEXT_RE.search(text):
+        return text
+    return _AMOUNT_RE.sub("…", text)
+
+
 def _hide_other_clients(text: Any) -> Any:
     if not isinstance(text, str):
         return text
     return _OTHER_CLIENT_RE.sub(_OTHER_CLIENT_GENERIC, text)
+
+
+def _reason_for_viewer(
+    text: Any, *, hide_other_clients: bool, show_finance: bool
+) -> Any:
+    if hide_other_clients:
+        text = _hide_other_clients(text)
+    if not show_finance:
+        text = _hide_amounts(text)
+    return text
 
 
 def _sees_other_clients(user) -> bool:
@@ -236,6 +271,8 @@ def _redact_proposal(
                     row[key] = None
         if hide_other_clients:
             row["reasons"] = [_hide_other_clients(x) for x in row.get("reasons") or []]
+        if not show_finance:
+            row["reasons"] = [_hide_amounts(x) for x in row.get("reasons") or []]
         if read_only_tcm:
             row["existing_person_ids"] = []
             if row.get("reasons"):
@@ -253,6 +290,14 @@ def _redact_proposal(
         ]
         out["blocking"] = [
             _hide_other_clients(x) for x in proposal.get("blocking") or []
+        ]
+    if not show_finance:
+        out["blocking"] = [_hide_amounts(x) for x in out.get("blocking") or []]
+        out["resolved"] = [
+            {**r, "reason": _hide_amounts(r.get("reason"))}
+            if isinstance(r, dict)
+            else r
+            for r in out.get("resolved") or []
         ]
     if read_only_tcm:
         out["blocking"] = [_GENERIC_REVIEW] if proposal.get("blocking") else []
@@ -310,9 +355,11 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
             ["Sprawdź odczytane dane przed zapisem."]
             if read_only_tcm and doc.gate_reasons
             else [
-                _hide_other_clients(polish_gate_reason(r))
-                if hide_other_clients
-                else polish_gate_reason(r)
+                _reason_for_viewer(
+                    polish_gate_reason(r),
+                    hide_other_clients=hide_other_clients,
+                    show_finance=show_finance,
+                )
                 for r in doc.gate_reasons or []
             ]
         ),
@@ -330,7 +377,7 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
         "error": (
             "Przetwarzanie dokumentu zakończyło się błędem."
             if read_only_tcm and doc.error
-            else doc.error
+            else (doc.error if show_finance else _hide_amounts(doc.error))
         ),
         "can_apply": can_finance and doc.outcome == OUTCOME_NEEDS_REVIEW,
         "can_dismiss": can_finance and doc.outcome in _DISMISSABLE_OUTCOMES,
@@ -469,6 +516,23 @@ async def list_recheck_runs(
     """
     visible = await _visible_client_ids(db, user)
     redact = _is_read_only_tcm(user)
+    finance_by_client: dict[Any, bool] = {}
+
+    async def _finance_visible_for(client_id: Any) -> bool:
+        # Lustro ``_serialize``: kwoty widzi rola z odczytem finansów albo
+        # admin / Delivery Lead przypisany do klienta tego wpisu.
+        if client_id not in finance_by_client:
+            dl_assigned = (
+                await _dl_assigned_to_client(db, user, client_id)
+                if client_id
+                else False
+            )
+            finance_by_client[client_id] = _order_finance_visible(
+                user,
+                can_finance=_can_manage_order_finance(user, dl_assigned=dl_assigned),
+            )
+        return finance_by_client[client_id]
+
     rows = (
         await db.execute(
             select(OrderMailRecheckRun)
@@ -486,6 +550,16 @@ async def list_recheck_runs(
         scoped = visible is not None
         if redact:
             entries = [{**e, "reasons": [], "people": []} for e in entries]
+        else:
+            entries = [
+                e
+                if await _finance_visible_for(e.get("client_id"))
+                else {
+                    **e,
+                    "reasons": [_hide_amounts(x) for x in e.get("reasons") or []],
+                }
+                for e in entries
+            ]
         applied = sum(1 for e in entries if e.get("outcome") == "applied")
         held = len(entries) - applied
         out.append(

@@ -101,7 +101,10 @@ def extract_order_text(path: str, filename: str) -> OrderDocumentText:
         ocr_used = not native or len(native.strip()) < _OCR_FALLBACK_THRESHOLD_CHARS
     ocr_capped = bool(ocr_used and page_count and page_count > OCR_PAGE_CAP)
     return OrderDocumentText(
-        text=text,
+        # Runda 10 (R10-N3-5): pdfminer (ścieżka tekstu z rozstrzelonymi
+        # literami) nie normalizuje U+0000 jak ``extract_text`` — a ten tekst
+        # trafia do odczytu i dalej do ``jsonb``, który NUL-a odrzuca.
+        text=(text or "").replace("\x00", ""),
         page_count=page_count,
         ocr_used=ocr_used,
         ocr_capped=ocr_capped,
