@@ -276,8 +276,9 @@ async def test_autofreeze_waits_for_third_business_day_and_traffit(
 ) -> None:
     frozen: list[str] = []
 
-    async def _not_frozen(_db, _ctype, _period) -> bool:
-        return False
+    async def _not_frozen(_db, _ctype, period) -> bool:
+        # Starsze okresy z przeglądu wstecz (runda 9) są już zamknięte.
+        return period not in {"Q2 2026", "2026-08"}
 
     async def _freeze(_db, ctype, period, *, reason):
         assert reason == "autofreeze"

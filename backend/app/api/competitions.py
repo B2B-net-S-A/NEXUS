@@ -8,7 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, CurrentUser
@@ -284,12 +284,14 @@ async def get_history(
 ):
     """Historia zamrożonych wyników z `competition_winners`."""
     ctype = _parse_type(type)
+    # Runda 9 (R9-N6-4): bez `LIMIT` po napisie okresu — „Q4 2025” > „Q1 2026”
+    # alfabetycznie, więc limit w SQL-u ucinał NAJNOWSZE kwartały. Wierszy
+    # jest kilka na okres, porządek chronologiczny liczy `period_sort_key`.
     q = (
         select(CompetitionWinner, User.name.label("user_name"))
         .join(User, CompetitionWinner.user_id == User.id)
         .where(CompetitionWinner.competition_type == ctype.value)
-        .order_by(desc(CompetitionWinner.period), CompetitionWinner.rank)
-        .limit(limit * 3)  # 3 pozycje per period
+        .order_by(CompetitionWinner.period, CompetitionWinner.rank)
     )
     rows = (await db.execute(q)).all()
     by_period: dict[str, list[dict]] = {}
@@ -309,7 +311,9 @@ async def get_history(
         "type": ctype.value,
         "periods": [
             {"period": p, "top3": by_period[p]}
-            for p in sorted(by_period.keys(), reverse=True)[:limit]
+            for p in sorted(by_period.keys(), key=comp_service.period_sort_key, reverse=True)[
+                :limit
+            ]
         ],
     }
 

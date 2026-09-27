@@ -282,7 +282,7 @@ class _Mail:
 async def _weekly_mails(db: AsyncSession, now_local: datetime) -> list[_Mail]:
     from app.analytics import metrics
     from app.analytics.periods import resolve_period
-    from app.services.access_scope import resolve_dashboard_scope
+    from app.services.access_scope import ScopeKind, resolve_dashboard_scope
 
     period = resolve_period("week", offset=-1, now=now_local)
     zone = ZoneInfo(DEFAULT_TZ)
@@ -292,10 +292,19 @@ async def _weekly_mails(db: AsyncSession, now_local: datetime) -> list[_Mail]:
     mails: list[_Mail] = []
     for user in await _recipients(db, (UserRole.head_of_recruitment,)):
         scope = await resolve_dashboard_scope(user, db)
+        # Runda 9 (R9-N6-5): zakres `organization` (HoR z rolą admin) ma pusty
+        # `allowed_operator_user_ids` — pusty zbiór to TWARDY zakres „nikt”,
+        # więc raport wychodził z pustym zespołem. `None` = cała organizacja,
+        # tak jak w `/api/analytics/v1/team/kpis`.
+        user_ids = (
+            None
+            if scope.kind is ScopeKind.organization
+            else frozenset(scope.allowed_operator_user_ids or ())
+        )
         team = await metrics.team_kpis(
             db,
             period,
-            user_ids=frozenset(scope.allowed_operator_user_ids or ()),
+            user_ids=user_ids,
             operational_roles_only=False,
         )
         subject, text = render_weekly(team, label)

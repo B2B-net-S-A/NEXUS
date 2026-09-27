@@ -30,6 +30,7 @@ from app.core.cache import (
     cache_set,
     cache_single_flight,
 )
+from app.core.scheduling import is_business_day
 from app.models.call import Call, CallStatus
 from app.models.candidate import Candidate
 from app.models.user import User, UserRole
@@ -149,16 +150,30 @@ def expected_progress_ratio(period: KpiPeriod, now: datetime) -> float:
         )
         return minutes / _WORKDAY_MINUTES
 
+    # Runda 9 (R9-N6-6): święto (Boże Ciało, 1 i 3 maja…) liczyło się jak
+    # dzień roboczy — w święto dzienny KPI był „behind”, a tygodniowy oczekiwał
+    # pięciu dni pracy w tygodniu z czterema. Dzień roboczy = `is_business_day`
+    # (Pon–Pt bez polskich świąt ustawowych).
     if period == KpiPeriod.day:
+        if not is_business_day(now_w):
+            return 0.0  # dzień wolny — nic nie jest oczekiwane
         return _intraday_ratio(now_w)
 
     if period == KpiPeriod.week:
         weekday = now_w.weekday()  # 0=pon, 6=niedz
         if weekday >= _WORKDAYS_PER_WEEK:
             return 1.0  # weekend — okres praktycznie "zamknięty"
-        completed_days = weekday  # pon=0, wt=1 (czyli 1 dzień się skończył)
-        today_ratio = _intraday_ratio(now_w)
-        return min(1.0, (completed_days + today_ratio) / _WORKDAYS_PER_WEEK)
+        monday = now_w - timedelta(days=weekday)
+        workdays = [
+            day
+            for day in (monday + timedelta(days=i) for i in range(_WORKDAYS_PER_WEEK))
+            if is_business_day(day)
+        ]
+        if not workdays:
+            return 0.0
+        completed_days = sum(1 for day in workdays if day.date() < now_w.date())
+        today_ratio = _intraday_ratio(now_w) if is_business_day(now_w) else 0.0
+        return min(1.0, (completed_days + today_ratio) / len(workdays))
 
     if period == KpiPeriod.month:
         # Ile dni w miesiącu
