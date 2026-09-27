@@ -3,7 +3,7 @@
  *
  * `@stack`. Dawna wersja wysyłała `content_json` na nieistniejący endpoint
  * (`/api/candidates/{id}/notes`), pomijała się przy błędzie i kończyła się
- * cichym `return`. API: `POST /api/notes` (201), wzmianka `@<id użytkownika>`
+ * cichym `return`. API: `POST /api/notes` (201), wzmianka `@<email użytkownika>`
  * (`services/mention_parser.py`), powiadomienie `note_mention`.
  */
 import { test, expect, jsonOf } from "./helpers/api";
@@ -21,7 +21,7 @@ test.describe("Notatka ze wzmianką @stack", () => {
     const note = await jsonOf<{ id: number; content: string; candidate_id: number }>(
       await admin.api.post("/api/notes", {
         data: {
-          content: `Proszę o screening @${recruiter.userId} — kandydat ${candidate.lastname}`,
+          content: `Proszę o screening @${recruiter.email} — kandydat ${candidate.lastname}`,
           candidate_id: candidate.id,
         },
       }),
