@@ -285,6 +285,20 @@ def _finance_rates_in_pln(
     }
 
 
+def _has_both_rate_legs(rates: dict[str, object]) -> bool:
+    """Obie nogi mają stawkę — przeliczoną albo czekającą na kurs NBP.
+
+    Noga bez stawki ma ``None`` i nie jest oznaczona brakiem kursu
+    (``amount_to_pln_with_rate(None, …)`` nie zgłasza braku kursu).
+    """
+    return (
+        rates["monthly_rate_client"] is not None or bool(rates["client_missing_fx"])
+    ) and (
+        rates["monthly_rate_candidate"] is not None
+        or bool(rates["candidate_missing_fx"])
+    )
+
+
 # Wiersz kontraktu, którego kandydat został usunięty (art. 17 RODO) — kontrakt
 # zostaje (faktury, marża), osoby już nie ma. Audyt 24.09.2026 (S6).
 ERASED_CANDIDATE_LABEL = "Konsultant usunięty (RODO)"
@@ -949,11 +963,21 @@ async def get_client_profile(
     # zaokrąglona raz na końcu potrafi różnić się od sumy kolumny o złotówkę
     # (zmierzone na prodzie: Alior 59 211 vs 59 212). Kafel ma być sumą tego,
     # co użytkownik WIDZI pod nim.
-    active_mrr_complete = not any(
-        active_rates_pln[c.id]["client_missing_fx"]
-        or active_rates_pln[c.id]["candidate_missing_fx"]
+    # Runda 10 (R10-N9-4): brak kursu liczy się WYŁĄCZNIE na kontraktach
+    # z obiema nogami. Kontrakt bez stawki i tak jest niewyceniony — jego
+    # brakujący kurs zerował cały kafel („—"), a front pisał „żaden kontrakt
+    # nie ma stawki", choć inne miały. Ta sama kolejność co
+    # `my_clients._monthly_margin_total_pln`: najpierw noga, potem kurs.
+    fx_missing_contracts = sum(
+        1
         for c in current_contracts
+        if _has_both_rate_legs(active_rates_pln[c.id])
+        and (
+            active_rates_pln[c.id]["client_missing_fx"]
+            or active_rates_pln[c.id]["candidate_missing_fx"]
+        )
     )
+    active_mrr_complete = fx_missing_contracts == 0
     # Kontrakt bez stawki (marża `None`) NIE jest zerem: do sumy wchodzą
     # wyłącznie wiersze z policzoną marżą, a liczba pominiętych jedzie osobno
     # (`active_mrr_unpriced_contracts`), żeby kafel nie podawał zaniżonej
@@ -968,7 +992,9 @@ async def get_client_profile(
         for c in current_contracts
         if active_rates_pln[c.id]["monthly_margin"] is not None
     ]
-    active_mrr_unpriced = len(current_contracts) - len(priced_margins)
+    active_mrr_unpriced = (
+        len(current_contracts) - len(priced_margins) - fx_missing_contracts
+    )
     active_mrr = (
         sum(to_whole_pln(margin) for margin in priced_margins)
         if active_mrr_complete and (priced_margins or not current_contracts)
@@ -1081,6 +1107,7 @@ async def get_client_profile(
         total_placements=total_placements,
         active_mrr=int(active_mrr) if active_mrr is not None else None,
         active_mrr_unpriced_contracts=active_mrr_unpriced,
+        active_mrr_fx_missing_contracts=fx_missing_contracts,
         ltv=int(ltv) if ltv_complete else None,
         avg_time_to_fill_days=round(avg_ttf, 1) if avg_ttf is not None else None,
         avg_time_to_fill_source=(
@@ -1113,6 +1140,7 @@ async def get_client_profile(
     if not finance_readable:
         response.summary.active_mrr = None
         response.summary.active_mrr_unpriced_contracts = 0
+        response.summary.active_mrr_fx_missing_contracts = 0
         response.summary.ltv = None
         for job in response.open_jobs:
             job.salary_min = None

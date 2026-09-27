@@ -172,6 +172,9 @@ class MarginByContractor(BaseModel):
     # Kontrakty z przychodem, ale bez stawki kosztowej: ich przychód jest
     # w ``total_monthly_revenue``, marża — nieznana (poza ``margin_pct``).
     contracts_without_cost_leg: int = 0
+    # Runda 10 (R10-N9-1): kontrakty bez stawki przychodowej (np. umowa B2B
+    # przed pierwszym zamówieniem) — nie ma ich w żadnej kwocie wiersza.
+    contracts_without_revenue_leg: int = 0
 
 
 class MarginByClient(BaseModel):
@@ -183,6 +186,7 @@ class MarginByClient(BaseModel):
     margin_pct: Optional[float]
     fx_missing: bool = False
     contracts_without_cost_leg: int = 0
+    contracts_without_revenue_leg: int = 0
     # Przychód kontraktów ze znaną marżą — mianownik ``margin_pct``.
     # ``None`` = równy ``total_monthly_revenue``.
     revenue_with_margin: Optional[MoneyPLN] = None
@@ -204,6 +208,8 @@ class MarginTotals(BaseModel):
     fx_missing: bool
     # Kafel mówi wprost, ile kontraktów wnosi przychód bez marży.
     contracts_without_cost_leg: int = 0
+    # …i ile kontraktów nie wnosi niczego, bo nie mają stawki przychodowej.
+    contracts_without_revenue_leg: int = 0
 
 
 class UtilizationStats(BaseModel):
@@ -295,6 +301,7 @@ async def margin_by_contractor(
                 margin_pct=_margin_pct(fold),
                 fx_missing=not fold.complete,
                 contracts_without_cost_leg=fold.without_cost_leg,
+                contracts_without_revenue_leg=fold.without_revenue_leg,
             )
         )
     # Rank by PLN-normalised margin (SQL can no longer order/limit — the ranking
@@ -343,6 +350,7 @@ async def _margin_by_client_rows(db: AsyncSession) -> List[MarginByClient]:
                 margin_pct=_margin_pct(fold),
                 fx_missing=not fold.complete,
                 contracts_without_cost_leg=fold.without_cost_leg,
+                contracts_without_revenue_leg=fold.without_revenue_leg,
                 revenue_with_margin=fold.margin_revenue,
             )
         )
@@ -399,6 +407,9 @@ async def margin_totals(
         margin_pct=ratio(margin, revenue_with_margin),
         fx_missing=any(row.fx_missing for row in rows),
         contracts_without_cost_leg=sum(row.contracts_without_cost_leg for row in rows),
+        contracts_without_revenue_leg=sum(
+            row.contracts_without_revenue_leg for row in rows
+        ),
     )
 
 

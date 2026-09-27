@@ -3,13 +3,14 @@
 import csv
 import logging
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from io import StringIO
 from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, PlainSerializer
+from pydantic import BaseModel, Field, PlainSerializer, field_validator
+from pydantic_core import PydanticCustomError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +44,82 @@ MoneyPLN = Annotated[
     Decimal, PlainSerializer(_money_out, return_type=float, when_used="json")
 ]
 
+# Runda 10 (R10-X1-1, UI F01/F13): kwota faktury z groszami i obowiązkowy
+# numer. Do tej rundy `amount: int` odrzucało 123,45 („Input should be a valid
+# integer”), a pusty formularz zapisywał fakturę „Wystawiona” na 0,00 PLN bez
+# numeru. Walidacja TYLKO na wejściu (Create/Update) — stare wiersze z zerem
+# albo pustym numerem muszą dalej dać się odczytać. Komunikaty po polsku
+# (PydanticCustomError, bez prefiksu „Value error, …”).
+_AMOUNT_LIMIT = Decimal("1000000000000")  # NUMERIC(14,2): 12 cyfr przed przecinkiem
+_INVOICE_NUMBER_MAX = 64  # invoices.invoice_number VARCHAR(64)
+
+
+def _parse_invoice_amount(value: object) -> Optional[Decimal]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise PydanticCustomError(
+            "invoice_amount_invalid", "Kwota faktury musi być liczbą, np. 123,45."
+        )
+    try:
+        amount = Decimal(str(value).strip().replace(",", "."))
+    except (InvalidOperation, ValueError):
+        raise PydanticCustomError(
+            "invoice_amount_invalid", "Kwota faktury musi być liczbą, np. 123,45."
+        ) from None
+    if not amount.is_finite():
+        raise PydanticCustomError(
+            "invoice_amount_invalid", "Kwota faktury musi być liczbą, np. 123,45."
+        )
+    if amount <= 0:
+        raise PydanticCustomError(
+            "invoice_amount_not_positive", "Kwota faktury musi być większa od zera."
+        )
+    if amount != amount.quantize(Decimal("0.01")):
+        raise PydanticCustomError(
+            "invoice_amount_precision",
+            "Kwota faktury może mieć najwyżej dwa miejsca po przecinku (grosze).",
+        )
+    if amount >= _AMOUNT_LIMIT:
+        raise PydanticCustomError(
+            "invoice_amount_too_large", "Kwota faktury jest za duża."
+        )
+    return amount.quantize(Decimal("0.01"))
+
+
+def _parse_invoice_number(value: object) -> Optional[str]:
+    if value is None:
+        return None
+    number = str(value).strip()
+    if not number:
+        raise PydanticCustomError("invoice_number_required", "Podaj numer faktury.")
+    if len(number) > _INVOICE_NUMBER_MAX:
+        raise PydanticCustomError(
+            "invoice_number_too_long",
+            f"Numer faktury może mieć najwyżej {_INVOICE_NUMBER_MAX} znaki.",
+        )
+    return number
+
+
+def _parse_invoice_amount_update(value: object) -> Decimal:
+    # Jawne `null` w PATCH trafiłoby w NOT NULL kolumny (500) — odmawiamy.
+    if value is None:
+        raise PydanticCustomError(
+            "invoice_amount_required", "Podaj kwotę faktury większą od zera."
+        )
+    parsed = _parse_invoice_amount(value)
+    assert parsed is not None
+    return parsed
+
+
+def _parse_invoice_number_update(value: object) -> str:
+    if value is None:
+        raise PydanticCustomError("invoice_number_required", "Podaj numer faktury.")
+    parsed = _parse_invoice_number(value)
+    assert parsed is not None
+    return parsed
+
+
 # ── Pydantic DTOs ────────────────────────────────────────────────────────────
 
 
@@ -54,7 +131,7 @@ class InvoiceBase(BaseModel):
     issue_date: date
     due_date: Optional[date] = None
     paid_date: Optional[date] = None
-    amount: int
+    amount: Decimal
     currency: str = "PLN"
     status: InvoiceStatus = InvoiceStatus.issued
     pdf_document_id: Optional[int] = None
@@ -63,6 +140,15 @@ class InvoiceBase(BaseModel):
 
 class InvoiceCreate(InvoiceBase):
     contract_id: int
+    # Brak pola = ten sam polski komunikat co puste pole (walidacja domyślnej
+    # wartości), zamiast angielskiego „Field required”.
+    invoice_number: str = Field(default=None, validate_default=True)
+    amount: Decimal = Field(default=None, validate_default=True)
+
+    _amount = field_validator("amount", mode="before")(_parse_invoice_amount_update)
+    _number = field_validator("invoice_number", mode="before")(
+        _parse_invoice_number_update
+    )
 
 
 class InvoiceUpdate(BaseModel):
@@ -73,16 +159,23 @@ class InvoiceUpdate(BaseModel):
     issue_date: Optional[date] = None
     due_date: Optional[date] = None
     paid_date: Optional[date] = None
-    amount: Optional[int] = None
+    amount: Optional[Decimal] = None
     currency: Optional[str] = None
     status: Optional[InvoiceStatus] = None
     pdf_document_id: Optional[int] = None
     notes: Optional[str] = None
 
+    _amount = field_validator("amount", mode="before")(_parse_invoice_amount_update)
+    _number = field_validator("invoice_number", mode="before")(
+        _parse_invoice_number_update
+    )
+
 
 class InvoiceResponse(InvoiceBase):
     id: int
     contract_id: int
+    # Liczba JSON (nie napis), żeby front sumował kwoty, a nie je sklejał.
+    amount: MoneyPLN
 
     model_config = {"from_attributes": True}
 
@@ -199,8 +292,8 @@ async def dso_by_client(
             .group_by(Client.id, Invoice.currency)
         )
     ).all()
-    paid_by: dict[tuple[int, str], int] = {
-        (r.id, (r.currency or "PLN").upper()): int(r.paid or 0) for r in paid_rows
+    paid_by: dict[tuple[int, str], Decimal] = {
+        (r.id, (r.currency or "PLN").upper()): Decimal(r.paid or 0) for r in paid_rows
     }
 
     currencies = {(r.currency or "PLN").upper() for r in total_rows}
@@ -229,7 +322,7 @@ async def dso_by_client(
                 r.id,
             )
             continue
-        bucket["total"] += Decimal(int(r.total or 0)) * rate
+        bucket["total"] += Decimal(r.total or 0) * rate
         bucket["paid"] += Decimal(paid_by.get((r.id, cur), 0)) * rate
 
     rows: list[DsoRow] = []
