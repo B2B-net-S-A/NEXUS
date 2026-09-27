@@ -75,12 +75,15 @@ async def get_current_cv(db: AsyncSession, candidate: Candidate) -> CurrentCV | 
                     language=candidate.cv_language,
                     source="document_storage",
                 )
-            except Exception:  # noqa: BLE001 — fall through to other sources
-                logger.exception(
+            except Exception as exc:  # noqa: BLE001 — fall through to other sources
+                # Runda 9 (R9-N7-8): bez tracebacku — komunikat wyjątku boto3
+                # powtarza URL z pełnym kluczem (nazwa pliku CV).
+                logger.warning(
                     "get_current_cv: object storage download failed "
-                    "(candidate=%s, key=%s)",
+                    "(candidate=%s, key=%s): %s",
                     candidate.id,
                     safe_storage_key(doc.storage_key),
+                    type(exc).__name__,
                 )
         if doc.file_content:
             return CurrentCV(
@@ -101,12 +104,13 @@ async def get_current_cv(db: AsyncSession, candidate: Candidate) -> CurrentCV | 
                 language=candidate.cv_language,
                 source="candidate_storage",
             )
-        except Exception:  # noqa: BLE001
-            logger.exception(
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
                 "get_current_cv: candidate storage download failed "
-                "(candidate=%s, key=%s)",
+                "(candidate=%s, key=%s): %s",
                 candidate.id,
                 safe_storage_key(candidate.cv_storage_key),
+                type(exc).__name__,
             )
 
     if candidate.cv_file_content is not None:

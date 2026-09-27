@@ -112,8 +112,11 @@ async def _load_submission_cv_bytes(
                     object_storage.download_cv, submission.cv_object_key
                 )
         except Exception as e:  # pragma: no cover — defensive
+            # Runda 9 (R9-N7-8): wyjątek magazynu niesie klucz z nazwą pliku.
             logger.warning(
-                "[submission] CV fetch failed submission=%s: %s", submission.id, e
+                "[submission] CV fetch failed submission=%s: %s",
+                submission.id,
+                type(e).__name__,
             )
     return None
 

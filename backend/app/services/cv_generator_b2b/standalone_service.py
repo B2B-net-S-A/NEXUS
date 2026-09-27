@@ -2525,12 +2525,17 @@ async def load_candidate_generation_source(
                 object_storage.download_cv, cv_doc.storage_key
             )
         except Exception as err:  # noqa: BLE001
-            logger.exception(
-                "[cv_b2b][%s] Object storage download failed: %s", request_id, err
+            # Runda 9 (R9-N7-8): komunikat wyjątku boto3 niesie URL z kluczem
+            # (nazwa pliku CV) — nie do logu i nie do komunikatu dla rekrutera.
+            logger.warning(
+                "[cv_b2b][%s] Object storage download failed: %s (%s)",
+                request_id,
+                type(err).__name__,
+                safe_storage_key(cv_doc.storage_key),
             )
             raise StandaloneGenerationError(
                 code="extraction_failed",
-                message=f"Nie udało się pobrać CV z Object Storage: {err}",
+                message="Nie udało się pobrać CV z magazynu plików. Spróbuj ponownie.",
             ) from err
     elif cv_doc.file_content:
         cv_bytes = bytes(cv_doc.file_content)
