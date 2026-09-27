@@ -262,3 +262,208 @@ async def test_generator_share_accepts_its_own_latest_version(monkeypatch):
 async def test_stage_share_accepts_its_own_latest_version(monkeypatch):
     packages, db, row = _package_with_two_surfaces(monkeypatch)
     assert await packages.require_ready(db, row, 30) == {"pl": 30}
+
+
+# ── R9-N3-6: podgląd Championa niebędący obiektem = 422, nie 500 ──────────
+
+
+@pytest.mark.parametrize(
+    "profile",
+    [["lista"], "napis", {"basics": "x"}, {"stack": ["Java"]}, {"project": "opis"}],
+)
+def test_prepare_profile_rejects_non_object_input_with_type_error(profile):
+    from app.services.champion_intake import prepare_profile
+
+    with pytest.raises(TypeError):
+        prepare_profile(profile, actor_id=1)
+
+
+def test_prepare_profile_keeps_tolerating_empty_legacy_sections():
+    from app.services.champion_intake import prepare_profile
+
+    profile = prepare_profile({"experience": [], "project": ""}, actor_id=1)
+    assert isinstance(profile["experience"], dict)
+
+
+# ── R9-N3-2: nieczytelny zrzut zgody ──────────────────────────────────────
+
+
+def _png() -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    out = BytesIO()
+    Image.new("RGB", (40, 30), "white").save(out, format="PNG")
+    return out.getvalue()
+
+
+def test_consent_upload_rejects_damaged_image_with_valid_signature():
+    from app.api.cv_generator_b2b import _consent_image_readable, _sniff_image_type
+
+    good = _png()
+    truncated = good[: len(good) // 2]
+    garbage = b"\x89PNG\r\n\x1a\n" + b"not really an image"
+    assert _consent_image_readable(good)
+    for damaged in (truncated, garbage):
+        # Sygnatura przechodzi — dlatego sama nie wystarczała.
+        assert _sniff_image_type(damaged) == "image/png"
+        assert not _consent_image_readable(damaged)
+
+
+async def test_central_policy_generation_survives_unreadable_consent(monkeypatch):
+    from app.api import cv_generator_b2b as api
+    from app.services.cv_generator_b2b import job_leases
+
+    monkeypatch.setattr(job_leases, "lock_owned_job", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        api, "_render_with_consent", Mock(side_effect=OSError("cannot identify image"))
+    )
+    row = NS(
+        status="processing",
+        error_message=None,
+        job_id=None,
+        central_policy={"requires_rodo_consent_block": True},
+    )
+    db = AsyncMock()
+    db.get.return_value = row
+    result = NS(
+        docx_bytes=b"docx-without-consent",
+        render_payload={"name": "Synthetic", "position": "Dev"},
+        candidate_name="Synthetic",
+        job_id=None,
+        filename="cv.docx",
+        warnings=["inne"],
+    )
+    finalized = await api._finalize_success(
+        db, 11, result=result, consent_screenshot={"storage_key": "synthetic/consent"}
+    )
+    assert finalized is True
+    assert row.status == "ready"
+    assert row.docx_content == b"docx-without-consent"
+    assert row.consent_content is None
+    assert "consent_screenshot" not in row.render_payload
+    assert api.CONSENT_NOT_ATTACHED_WARNING in row.warnings
+    # Pobranie i tak jest zablokowane do czasu dołączenia zgody.
+    from app.services import cv_consent_gate
+
+    assert cv_consent_gate.consent_missing(row)
+
+
+# ── R9-V3-4: wzorce e-maili/URL-i liniowe na tekście z zewnątrz ───────────
+
+_ADVERSARIAL = [
+    "a" * 16384,
+    "a-" * 8192,
+    "a." * 8192,
+    "a@" * 8192,
+    "@" * 16384,
+    "x" * 16383 + "@",
+    "ab.cd" * 3277,
+]
+
+
+@pytest.mark.parametrize("text", _ADVERSARIAL, ids=range(len(_ADVERSARIAL)))
+def test_email_and_url_patterns_are_linear_on_16kb(text):
+    import time
+
+    from app.services.cv_qc import _url_spans
+    from app.services.public_profile_lint import _EMAIL
+
+    started = time.perf_counter()
+    _EMAIL.search(text)
+    _url_spans(text)
+    assert time.perf_counter() - started < 0.05
+
+
+_OLD_EMAIL = r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+"
+_OLD_URLISH = r"\S+@\S+|https?://\S+|www\.\S+|\b[\w-]+\.(?:com|pl|io|org)\S*"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Napisz: jan.kowalski+cv@firma-x.com.pl lub zadzwoń.",
+        "(anna@b2b.pl), www.nexus.pl/cv i https://x.io/a?b=1 oraz kontakt@firma",
+        "Java, Spring, PostgreSQL — portfolio github.com/jan, e-mail: a@b.c",
+        "a@@b @x y@ foo.pl, test.org.",
+    ],
+)
+def test_rewritten_patterns_match_like_the_old_ones(text):
+    import re
+
+    from app.services.cv_qc import _URLISH
+    from app.services.public_profile_lint import _EMAIL
+
+    old_email = re.compile(_OLD_EMAIL, re.IGNORECASE).search(text)
+    new_email = _EMAIL.search(text)
+    assert (old_email and old_email.span()) == (new_email and new_email.span())
+    old_spans = [m.span() for m in re.finditer(_OLD_URLISH, text)]
+    assert old_spans == [m.span() for m in _URLISH.finditer(text)]
+
+
+def _request(path_params: dict, query: bytes = b""):
+    from starlette.requests import Request
+
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/cv-generator/x",
+            "query_string": query,
+            "headers": [],
+            "path_params": path_params,
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("path_params", "query"),
+    [
+        ({"generated_id": "2147483648"}, b""),
+        ({"generated_id": "1", "version_number": "99999999999"}, b""),
+        ({}, b"candidate_id=2147483648"),
+        ({}, b"before_id=" + b"9" * 5000),
+    ],
+)
+def test_ids_beyond_int32_are_rejected_with_422(path_params, query):
+    from fastapi import HTTPException
+
+    from app.api.cv_generator_b2b import _reject_out_of_range_ids
+
+    with pytest.raises(HTTPException) as error:
+        _reject_out_of_range_ids(_request(path_params, query))
+    assert error.value.status_code == 422
+
+
+def test_ids_within_int32_and_other_params_pass():
+    from app.api.cv_generator_b2b import _reject_out_of_range_ids, router
+
+    _reject_out_of_range_ids(
+        _request({"generated_id": "2147483647", "token": "9" * 40}, b"limit=20")
+    )
+    assert any(
+        dep.dependency is _reject_out_of_range_ids for dep in router.dependencies
+    )
+
+
+def test_generate_body_ids_beyond_int32_are_validation_errors():
+    from pydantic import ValidationError
+
+    from app.api.cv_generator_b2b import GenerateRequest
+
+    with pytest.raises(ValidationError):
+        GenerateRequest(cv_document_id=1, candidate_id=2**31)
+    with pytest.raises(ValidationError):
+        GenerateRequest(cv_document_id=1, candidate_id=1, stage_id=2**31)
+
+
+@pytest.mark.parametrize("profile", [{"basics": "x"}, {"search": [1, 2]}])
+def test_generator_champion_preview_with_bad_shape_is_422(profile):
+    from fastapi import HTTPException
+
+    from app.api.cv_generator_b2b import _imported_champion
+
+    with pytest.raises(HTTPException) as error:
+        _imported_champion(profile, 1)
+    assert error.value.status_code == 422

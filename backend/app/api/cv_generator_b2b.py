@@ -130,7 +130,31 @@ from app.services.cv_generator_b2b.standalone_service import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/cv-generator", tags=["cv-generator-b2b"])
+# Kolumny identyfikatorów są INTEGER (int32). Liczba spoza zakresu dochodziła
+# do Postgresa i kończyła się DataError → 500 (runda 9, R9-N3-7).
+_INT32_MAX = 2**31 - 1
+
+
+def _reject_out_of_range_ids(request: Request) -> None:
+    """422 dla identyfikatora w ścieżce lub zapytaniu spoza zakresu INTEGER."""
+    for name, value in (
+        *request.path_params.items(),
+        *request.query_params.multi_items(),
+    ):
+        if not (name.endswith("_id") or name == "version_number"):
+            continue
+        digits = str(value).strip().lstrip("+-")
+        if digits.isdigit() and (len(digits) > 10 or int(digits) > _INT32_MAX):
+            raise HTTPException(
+                status_code=422, detail="Identyfikator spoza dozwolonego zakresu."
+            )
+
+
+router = APIRouter(
+    prefix="/cv-generator",
+    tags=["cv-generator-b2b"],
+    dependencies=[Depends(_reject_out_of_range_ids)],
+)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────
@@ -177,16 +201,16 @@ class RecruitmentOption(BaseModel):
 
 
 class GenerateRequest(BaseModel):
-    cv_document_id: int = Field(..., ge=1)
-    candidate_id: int = Field(..., ge=1)
+    cv_document_id: int = Field(..., ge=1, le=_INT32_MAX)
+    candidate_id: int = Field(..., ge=1, le=_INT32_MAX)
     # Etap rekrutacji. Bez etapu („inny klient, bez procesu", generator v3)
     # klient jest WYMAGANY — reguły klienta muszą mieć komu obowiązywać.
-    stage_id: Optional[int] = Field(default=None, ge=1)
+    stage_id: Optional[int] = Field(default=None, ge=1, le=_INT32_MAX)
     # Z etapem klient jest wyprowadzany z rekrutacji; jawna wartość służy
     # wyłącznie do sprawdzenia, że front i serwer mówią o tym samym. Rozjazd =
     # 422, bo cicha wygrana którejkolwiek strony oznaczałaby zastosowanie reguł
     # (nazwa pliku, język) innego klienta niż widzi rekruter.
-    client_id: Optional[int] = Field(default=None, ge=1)
+    client_id: Optional[int] = Field(default=None, ge=1, le=_INT32_MAX)
     # Stanowisko z „Zaawansowanych": bez etapu zastępuje tytuł rekrutacji,
     # z etapem go nadpisuje (nazwa pliku, linia „rozważany na").
     position: str = Field(default="", max_length=300)
@@ -480,6 +504,10 @@ def _render_with_consent(
 CONSENT_ATTACH_FAILED_MESSAGE = (
     "Nie udało się dołączyć zrzutu zgody — wgraj go ponownie i wygeneruj jeszcze raz."
 )
+CONSENT_NOT_ATTACHED_WARNING = (
+    "Nie udało się dołączyć zrzutu zgody — dołącz go ponownie do tego CV. "
+    "Do tego czasu CV nie da się pobrać ani udostępnić."
+)
 
 
 async def _finalize_success(
@@ -506,6 +534,7 @@ async def _finalize_success(
     # `try` workera i zostawiał generację bez czytelnego powodu.
     final_docx = result.docx_bytes
     frozen_consent = None
+    consent_not_attached = False
     if consent_screenshot:
         from copy import deepcopy
 
@@ -523,13 +552,19 @@ async def _finalize_success(
                 generated_id,
                 exc_info=True,
             )
-            await _finalize_failure(
-                db,
-                generated_id,
-                CONSENT_ATTACH_FAILED_MESSAGE,
-                diagnostic_code="consent_screenshot_unavailable",
-            )
-            return False
+            if not (consent_gate.gate_enabled() and consent_gate.consent_required(row)):
+                await _finalize_failure(
+                    db,
+                    generated_id,
+                    CONSENT_ATTACH_FAILED_MESSAGE,
+                    diagnostic_code="consent_screenshot_unavailable",
+                )
+                return False
+            # Runda 9 (R9-N3-2): pod centralnymi regułami zgodę dołącza się też
+            # PO generacji, a pobranie bez niej blokuje `cv_consent_gate`. Gotowe
+            # (opłacone) CV zostaje — bez zrzutu, z prośbą o dołączenie go ponownie.
+            consent_screenshot = None
+            consent_not_attached = True
     payload = result.render_payload or {}
     # For blind CVs ``result.candidate_name`` is the anonymized "Kandydat" — use
     # the real name captured in the payload so the INTERNAL list stays
@@ -568,6 +603,8 @@ async def _finalize_success(
         )
         row.render_payload = {**row.render_payload, "artifact_provenance": provenance}
     row.warnings = list(result.warnings or [])
+    if consent_not_attached:
+        row.warnings.append(CONSENT_NOT_ATTACHED_WARNING)
     # Stempel wersji reguły klienta (0267) — odpowiedź na „którą regułą
     # powstało CV, na które klient się skarży".
     if rule_version is not None:
@@ -1759,6 +1796,30 @@ def _sniff_image_type(content: bytes) -> Optional[str]:
     return None
 
 
+def _consent_image_readable(content: bytes) -> bool:
+    """Czy obraz da się odczytać tak, jak zrobi to finalizacja CV.
+
+    Runda 9 (R9-N3-2): sama sygnatura przepuszczała uszkodzony plik (np. ucięty
+    PNG), a płatna generacja kończyła się „failed” dopiero przy wklejaniu zrzutu
+    (`rerender_docx_from_payload(require_consent=True)` → `Image.verify`).
+    Ta sama kontrola przy wgraniu mówi o tym od razu, zanim ruszy model.
+    """
+    from io import BytesIO
+
+    from PIL import Image
+
+    try:
+        with Image.open(BytesIO(content)) as image:
+            image.verify()
+        # `verify` nie dekoduje pikseli — ucięty plik przechodzi, a wstawienie
+        # do DOCX-a go czyta. Drugi odczyt z pełnym dekodowaniem.
+        with Image.open(BytesIO(content)) as image:
+            image.load()
+    except Exception:  # noqa: BLE001 — każdy błąd dekodera = nieczytelny obraz
+        return False
+    return True
+
+
 class ConsentScreenshotResponse(BaseModel):
     storage_key: str
     filename: str
@@ -1771,15 +1832,15 @@ async def upload_consent_screenshot(
     request: Request,
     current_user: CandidateWriteAccess,
     file: Annotated[UploadFile, File(description="Zrzut ekranu ze zgodą kandydata")],
-    candidate_id: Optional[int] = Form(None, ge=1),
-    stage_id: Optional[int] = Form(None, ge=1),
-    client_id: Optional[int] = Form(None, ge=1),
+    candidate_id: Optional[int] = Form(None, ge=1, le=_INT32_MAX),
+    stage_id: Optional[int] = Form(None, ge=1, le=_INT32_MAX),
+    client_id: Optional[int] = Form(None, ge=1, le=_INT32_MAX),
     cv_sha256: Optional[str] = Form(None, pattern=r"^[a-f0-9]{64}$"),
     project_ref: str = Form("", max_length=120),
-    binding_stage_id: Optional[int] = Form(None, ge=1),
+    binding_stage_id: Optional[int] = Form(None, ge=1, le=_INT32_MAX),
     # Generator v3: zgoda dla GOTOWEGO CV (dołączenie albo wymiana po
     # generacji) — pokwitowanie dla `POST /generated/{id}/consent`.
-    generated_id: Annotated[Optional[int], Form(ge=1)] = None,
+    generated_id: Annotated[Optional[int], Form(ge=1, le=_INT32_MAX)] = None,
     db: AsyncSession = Depends(get_db),
 ) -> ConsentScreenshotResponse:
     """Wgraj zrzut zgody i podpisz przypisanie do źródła i klienta.
@@ -1898,6 +1959,14 @@ async def upload_consent_screenshot(
             detail=(
                 "To nie wygląda na obraz PNG, JPEG ani WEBP — sprawdź, czy "
                 "wgrywasz zrzut ekranu."
+            ),
+        )
+    if not await run_in_threadpool(_consent_image_readable, content):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Nie udało się odczytać obrazu — plik jest uszkodzony albo niepełny. "
+                "Zrób zrzut ekranu jeszcze raz i wgraj go ponownie."
             ),
         )
     if not object_storage.is_available():
@@ -2487,9 +2556,9 @@ async def generate_from_upload(
     # Klient, pod którego idzie to CV. Wymagany (generator v3, jak `/generate`)
     # — z rekrutacji (`stage_id`) wynika sam, bez niej podaje go rekruter.
     # Opcjonalny w formularzu tylko dlatego, że z etapem nie trzeba go słać.
-    client_id: Optional[int] = Form(None),
-    candidate_id: Annotated[Optional[int], Form(ge=1)] = None,
-    stage_id: Annotated[Optional[int], Form(ge=1)] = None,
+    client_id: Optional[int] = Form(None, le=_INT32_MAX),
+    candidate_id: Annotated[Optional[int], Form(ge=1, le=_INT32_MAX)] = None,
+    stage_id: Annotated[Optional[int], Form(ge=1, le=_INT32_MAX)] = None,
     # Upload nie ma oferty, więc stanowisko i numer projektu — jedyne źródła
     # tokenów {STANOWISKO} i {PROJEKT} we wzorze nazwy pliku — podaje rekruter.
     position: str = Form("", max_length=300),
@@ -3910,7 +3979,7 @@ async def cancel_generated_cv_review(
 
 
 class PackageConfirmation(BaseModel):
-    note_id: Optional[int] = Field(default=None, ge=1)
+    note_id: Optional[int] = Field(default=None, ge=1, le=_INT32_MAX)
     # Od 21.09.2026 bez znaczenia dla gotowości (zapis wyboru notatki).
     sources_checked: bool = False
     expected_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")

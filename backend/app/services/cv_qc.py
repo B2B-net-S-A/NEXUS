@@ -505,7 +505,15 @@ _SPELLING: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("C#", re.compile(r"\bc\s?sharp\b|(?<!\w)c#", re.IGNORECASE)),
     ("Spring Boot", re.compile(r"\bspring\s?boot\b", re.IGNORECASE)),
 )
-_URLISH = re.compile(r"\S+@\S+|https?://\S+|www\.\S+|\b[\w-]+\.(?:com|pl|io|org)\S*")
+# Runda 9 (R9-V3-4): liniowo. Adres e-mail zaczyna się na początku tokenu
+# (tam zaczynał się najwcześniejszy dopasowany start dawnego `\S+@\S+`),
+# a kwantyfikatory zaborcze nie wracają do tego samego tekstu z każdej pozycji.
+_URLISH = re.compile(
+    r"(?<!\S)\S+?@\S++"
+    r"|https?://\S++"
+    r"|www\.\S++"
+    r"|(?<![\w-])[\w-]++\.(?:com|pl|io|org)\S*+"
+)
 
 
 def _url_spans(text: str) -> list[tuple[int, int]]:
