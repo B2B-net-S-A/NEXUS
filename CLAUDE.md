@@ -75,7 +75,7 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
 - **Tokeny:** `frontend/src/app/globals.css` + `frontend/tailwind.config.ts`. `--accent` = subtelny neutral (hover), **NIE** brand → emfaza zawsze przez `--primary`.
 - **Workflow + cheatsheet color→token: `frontend/docs/ds/ADDING-BLOCKS.md` + `frontend/scripts/add-block.sh` — PRZECZYTAJ przed dodaniem jakiegokolwiek bloku/prymitywu.**
 - **Gotchas:** (1) NIE `npx shadcn add` — przeformatowuje `tailwind.config`, remapuje `--sidebar`→`--sidebar-background`, bumpuje deps; pobieraj pliki z rejestru bezpośrednio (`add-block.sh`). (2) Jeśli bump radix wywali type-check na `@hello-pangea/dnd` „`--radix-${string}`" → `"overrides": {"@radix-ui/react-primitive":"2.1.4"}` + **pełny** `rm -rf node_modules package-lock.json && npm install`. (3) **NIE** odpalaj `build` równolegle z `dev`/`start` (oba piszą `.next` → korupcja: unstyled/500).
-- **Weryfikacja:** type-check/lint/build zielone + screenshot przez Chrome MCP. Publiczne ekrany (login) renderują się lokalnie; authed → harness `/preview/*` z mock danymi (middleware waliduje JWT, fake-auth nie przejdzie).
+- **Weryfikacja:** type-check/lint/build zielone + screenshot przez Chrome MCP. Publiczne ekrany (login) renderują się lokalnie; authed → harness `/preview/*` z mock danymi (middleware waliduje JWT, fake-auth nie przejdzie). Od rundy 10: na produkcji `/preview/*` wymaga logowania (publiczne tylko poza `NODE_ENV=production` albo z `NEXT_PUBLIC_PREVIEW_PUBLIC=1`, flaga tylko w stacku E2E), harnessy mają WYŁĄCZNIE fikcyjne dane (strażnik `harness-fictional-data.test.ts`) i nie mogą wysyłać zapisów (`app/preview/layout.tsx`).
 
 ## Role, uprawnienia i cele — audyt 22.09.2026
 
@@ -3403,7 +3403,7 @@ Makiety: https://claude.ai/artifact/1gapo2YTWp7oYbZp9pBdBo (decyzje Artura
   zmień fixture.
 - **Propozycje** (`GET /api/jobs/{id}/proposal-facts`,
   `services/proposal_facts.py`): stanowisko, staż, miasto, tryb, dostępność,
-  stawka tylko dla ról, które ją widzą, historia u tego klienta; bez danych
+  stawka kandydata dla wszystkich ról (decyzja Artura 27.09.2026), historia u tego klienta; bez danych
   kontaktowych, stała liczba zapytań, ≤ 100 osób. „Policz dopasowanie dla N”
   idzie przez `useVisibleMatchScores` (paczki po 20).
 - **Ramka „Następny etap” i okno „Przesuń dalej” mają JEDNĄ regułę przycisku**
@@ -7454,6 +7454,57 @@ Raport: `docs/audits/2026-09-25/runda-9.md`.
 - **Admin/DL czytają cudzy mail wyłącznie powiązany z kandydatem**
   (`_can_access_email`).
 
+### Runda 10 (27.09.2026, po PR #1871)
+
+Raport: `docs/audits/2026-09-25/runda-10.md`; testy manualne UI Codexa (F01–F27) i lekcje:
+`docs/audits/2026-09-25/manual-ui-codex-2026-09-26.md`.
+
+- **Automat ruchu karty nie przeskakuje bramki CV** (F09): terminy od klienta
+  przesuwają kartę na „Rozmowę u klienta” tylko z kolumny „CV wysłane” albo
+  dalszej; inaczej `auto_advance_skipped` z `cv_not_sent` i komunikat dla DL.
+  Nowa bramka = sprawdź WSZYSTKIE ścieżki zmiany etapu (ręczny, zbiorczy,
+  automat, import).
+- **Koniec współpracy przed startem kontraktu = 422** `end_date_before_start_date`
+  (`/terminate`, `bulk-mark-ended`, podpis dokumentu rozwiązania, PATCH i POST
+  dat). **Przedłużenie zamówienia okresowego nie nakłada się** na inne
+  zamówienie tego kontraktu (409 `overlapping_order`). Bieżące + przyszłe
+  nienakładające się zamówienie przy „Zatrudniony” to kontynuacja, nie duplikat.
+- **Faktury:** kwota NUMERIC(14,2) z groszami (0394), numer obowiązkowy,
+  kwota > 0 (F01/F13).
+- **Braki w Finansach:** jedno zamówienie może mieć kilka braków (po jednym na
+  datę końca, 0392 `ux_order_gaps_order_ended`), `episode` w kluczu odhaczenia;
+  z Braków ukrywany jest tylko brak OTWARTY z intencją zakończenia —
+  „uzupełnione z opóźnieniem” zostaje w historii miesiąca.
+- **Import MD:** wiersz bez numeru nie trafia na aktywną linię innego klienta
+  ani imiennika (`prefer_active_line` tylko ta sama osoba i klient); nieczytelna
+  faktura nie wyrzuca MD (`invoice_unreadable`), numer wyczerpanego zamówienia
+  kosztowego = `order_exhausted` (0393).
+- **Aneks stawki potwierdza admin, Finanse i DL portfela** (decyzja Artura,
+  `effects.can_confirm_rate_annex`). Porozumienie o rozwiązaniu kończy projekt
+  ostatnim dniem usług, umowę — datą rozwiązania.
+- **Import Traffita nie nadpisuje poprawek z NEXUSA**: znaczniki ręczne w
+  `_nexus_identity` (email/phone/linkedin/profile_about/status), kontakty
+  (decydent, nazwa, klient tylko dopełniane) i pule z nagrobkami, notatki
+  usunięte w NEXUSIE (`deleted_note_sources`, 0395). Niezmieniony rekord
+  (`traffit_payload_sha`) nie jest przepisywany — delta plików/CV bierze też
+  kandydatów z oknem źródła (`traffit_source_updated_at`), żeby ponowienie po
+  błędzie działało.
+- **Słowa kluczowe i porównanie czytają `verified_tech`** (F17/F18) —
+  dołożenie kolumny do korpusu = podbicie `CORPUS_SOURCES_VERSION` i zapytanie
+  przeliczające w `keyword_corpus.py` (bez zmiany `FOLD_VERSION`).
+- **Szablony maili autora mają limit wyniku przed operacją** (`+ ~ % join
+  replace` itd.) i przerwanie przy przyroście pamięci procesu.
+- **Alembic przy starcie ma `lock_timeout` 10 s i `statement_timeout` 20 min**
+  (`startup_locks.apply_migration_session_limits`). Daty i szkic umowy ramowej
+  z manifestu portfela (`client_excel`) są nieedytowalne (409), bo psuły
+  `/api/health/deep`.
+- **Eksport XLSX:** `safe_cell` usuwa znaki niedozwolone w XLSX przed
+  sprawdzeniem prefiksu formuły.
+- **Metryki pulpitu per osoba liczą z jednej migawki firmy** (60 s, single-flight)
+  — nie woła się `VERIFIER_ANCHORED_CTE` per kafel.
+- Stawka kandydata w propozycjach jawna dla wszystkich; stawka do klienta
+  bez zmian (tylko admin/DL zapisują, rekruter nie widzi).
+
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 
 Audyt `docs/recruiter-tools-audit-2026-09-17.md`, raport z poprawek
@@ -8514,8 +8565,8 @@ Reguły, które łatwo cofnąć:
 - **Fonty strony kariery (Geist, JetBrains Mono) są lokalne** i ładowane tylko w
   jej layoucie; grafiki OG czytają TTF przez `fs`, stąd
   `outputFileTracingIncludes` w `next.config.ts` (obraz standalone).
-- Klauzula `/kariera/rodo` to **wersja robocza do akceptacji prawnej**
-  (placeholdery: e-mail kontaktowy, okres przechowywania).
+- Klauzula `/kariera/rodo`: kontakt rodo@b2bnetwork.pl, okres przechowywania
+  3 lata od zgłoszenia lub do cofnięcia zgody (decyzja Artura 27.09.2026, F16).
 - Aktywacja domeny: rekord DNS `kariera` w Cloudflare → serwer NEXUSA, domena
   w Coolify dla serwisu frontend, env `NEXT_PUBLIC_CAREER_HOST` (build arg),
   `CAREER_PUBLIC_BASE_URL` i `CORS_ORIGINS` + `https://kariera.dynaminds.pl`.

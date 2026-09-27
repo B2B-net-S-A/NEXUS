@@ -16,9 +16,10 @@ Te pliki są po to, żeby następny audyt **nie zaczynał od zera**: wiadomo, co
 | 6 | `e2585b51c` | 1 krytyczne, 13 wysokich, 2 średnio-wysokie, ~50 średnich, ~35 niskich (19 agentów; 2 luki poprawek r5, reszta z obszarów dotąd nieaudytowanych i kodu po r5) | PR #1860 (`75ffa6ddb`) | [runda-6.md](runda-6.md) |
 | 7 | `4e92bbc82` | 3 krytyczne + 1 opublikowane, 14 wysokich, ~45 średnich, ~30 niskich (20 agentów; 4 luki poprawek r6, w tym 2 regresje naprawione przed scaleniem #1860) | PR #1864 (`300a53596`) | [runda-7.md](runda-7.md) |
 | 8 | `66b016c46` | 7 wysokich, ~80 średnich, ~60 niskich — 149 łącznie (20 agentów; 12 luk poprawek r4–r7) | PR #1870 (`7814fdf40`) | [runda-8.md](runda-8.md) |
-| 9 | `5fc015405` | 9 wysokich, ~140 średnich i niskich (20 agentów; 3 regresje r8 naprawione przed scaleniem #1870) | PR rundy 9 | [runda-9.md](runda-9.md) |
+| 9 | `5fc015405` | 9 wysokich, ~140 średnich i niskich (20 agentów; 3 regresje r8 naprawione przed scaleniem #1870) | PR #1871 (`b5463ca17`) | [runda-9.md](runda-9.md) |
+| 10 | `724853ab6` | 7 wysokich, ~165 średnich i niskich (20 agentów) + 27 ustaleń z testów manualnych UI Codexa | PR rundy 10 | [runda-10.md](runda-10.md), [manual-ui-codex-2026-09-26.md](manual-ui-codex-2026-09-26.md) |
 
-Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji”), są w `CLAUDE.md`, sekcja „Audyt 25.09.2026 — reguły po naprawie” z podsekcjami „Runda 2” … „Runda 8”.
+Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji”), są w `CLAUDE.md`, sekcja „Audyt 25.09.2026 — reguły po naprawie” z podsekcjami „Runda 2” … „Runda 10”.
 
 ## Co się powtarza (przeczytaj przed kolejnym audytem albo poprawką)
 
@@ -46,6 +47,12 @@ Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji�
 22. **Nowa walidacja (np. 422) w funkcji wołanej też z nocnego skanu** wywraca cały przebieg — ścieżki tła osłaniaj savepointem i pomijaj zamiast rzucać (r8: `reopen_contract` w skanie wygasania).
 23. **Gitleaks skanuje każdy commit PR-a**, nie tylko głowę — atrapę adresu bazy z hasłem usuniętą w kolejnym commicie trzeba dopisać do allowlisty po wartości.
 24. **Dwie gałęzie tej samej rundy = dwie migracje o tym samym numerze** — przy scalaniu przenumeruj i zepnij w jeden łańcuch (`down_revision`), zanim puścisz CI.
+
+25. **Audyt kodu nie zastępuje przeklikania UI.** Runda 10: 27 ustaleń z ręcznego testu A–Z (Codex), których 20 agentów czytających kod nie znalazło — łańcuchy ekran → API → automat (kalendarz przeskakujący bramkę CV, formularz zapisujący pustą fakturę). Po serii poprawek przeklikaj główne przepływy.
+26. **Logi pełnego CI z różnych biegów się mieszają.** `gh api …/jobs/<id>/logs` dla starego numeru joba daje „porażki” sprzed poprawki — sprawdzaj `headSha` biegu, zanim zaczniesz naprawiać.
+27. **Przenumerowanie migracji = przenumerowanie testów**, które ładują plik migracji po nazwie albo sprawdzają łańcuch `down_revision`.
+28. **Optymalizacja „pomiń niezmienione” zawęża zakres ponowień.** Pominięcie rekordu bez zmian (sha ładunku) wyrzuciło z delty plików kandydatów, u których poprzednia próba padła — każdy skip musi zostawić ścieżkę ponowienia.
+29. **Porównanie kolumny enum z parametrem wymaga typu enum** (`SAEnum(..., name=...)`), inaczej Postgres odmawia `enum = varchar` dopiero na prawdziwej bazie — testy z atrapą tego nie złapią.
 
 ## Świadomie zostawione (nie zgłaszaj ponownie bez nowego faktu)
 

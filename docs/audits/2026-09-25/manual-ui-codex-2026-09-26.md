@@ -391,3 +391,37 @@ Po trzech kolejnych turach bez postępu potwierdzono tę samą blokadę: brak se
 Do wznowienia pełnego zakresu potrzebne są istniejące konta testowe Rekrutera, DeliveryLeada i Praktykanta oraz uzgodniony pilot integracji/podpisów/rozliczenia. Dwa konkretne potwierdzenia UI już przedstawiono: cofnięcie zakończenia wyłącznie syntetycznego676 i przywrócenie735 oraz odwołanie własnego syntetycznego zdarzenia27.09 08:15–08:30 dla598805/693762. Nie zaakceptowano ich bez odpowiedzi użytkownika, ponieważ zasady narzędziaCUA wymagają konkretnego potwierdzenia dodatkowego ostrzeżenia aplikacji. Nie dokonano zmian dostępu ani legalnego podpisu.
 
 Szczegółowy audyt kompletności: [completion-audit.json](completion-audit.json). Raport wykonanych prób jest gotowy, lecz głęboki audyt całego systemu i kompletny produkcyjny procesA–Z pozostają nieukończone.
+
+---
+
+## Stan ustaleń po rundzie 10 (27.09.2026)
+
+| ID | Stan | Co zrobiono |
+|---|---|---|
+| F01 | naprawione | Faktura wymaga numeru i kwoty > 0 (front i API, CHECK w 0394) |
+| F02 | naprawione | Zmiana typu zamówienia przenosi wprowadzone dane między formularzami |
+| F03 | naprawione | Notatka do kontraktu ma własną ścieżkę w UI i API; instrukcja zgodna z ekranem |
+| F04 | naprawione | Ręczne przypisanie pokazuje etap i źródło tą samą etykietą co Tablica |
+| F05 | naprawione | Błąd e-maila po polsku, przy polu |
+| F06 | naprawione | Imię i nazwisko (dwa słowa, także z cyframi w nazwisku) dopasowywane dosłownie |
+| F07 | częściowo | Opis zakładki poprawiony; reguła zakładki bez zmian — czeka na decyzję |
+| F08 | naprawione | Domyślny prep kończy się przed rozmową u klienta |
+| F09 | naprawione | Terminy od klienta przesuwają kartę tylko od „CV wysłane”; inaczej pominięcie z powodem |
+| F10 | naprawione | Lista PDF pokazuje daty z dokumentu; zakres niepoprawny = ostrzeżenie |
+| F11 | naprawione | Pusty wynik filtra Targu mówi o filtrze, nie o pustym Marketplace |
+| F12 | naprawione | Błąd dat umowy ramowej po polsku |
+| F13 | naprawione | Kwota faktury z groszami (NUMERIC(14,2), migracja 0394) |
+| F14 | naprawione | Jarvis mówi „oto link”, nie „otwieram” |
+| F15 | naprawione | Przedłużenie nakładające się na inne zamówienie = 409 |
+| F16 | naprawione | Klauzula: rodo@b2bnetwork.pl, 3 lata; bez dopisku „wersja robocza” |
+| F17 | naprawione | Słowa kluczowe czytają `verified_tech` (korpus, `CORPUS_SOURCES_VERSION`) |
+| F18 | naprawione | Porównanie kandydatów liczy potwierdzone umiejętności |
+| F19 | naprawione | Lata doświadczenia ze źródła, bez zaokrąglania w górę |
+| F20 | świadomie bez zmian | Stała klauzula zgody w CV zostaje (decyzja Artura); ekran ją opisuje |
+| F21 | naprawione | Stanowisko z „Zaawansowanych” trafia do nagłówka CV |
+| F22 | naprawione | Link z QC otwiera edytor CV pary |
+| F23 | częściowo | Karta czyta CV pary zamiast wiersza etapu; dokument nie jest przenoszony |
+| F24 | naprawione | Przyszłe nienakładające się zamówienie przy „Zatrudniony” = kontynuacja |
+| F25 | naprawione | Szablon EN ma angielski opis stawek |
+| F26 | naprawione | Nowe terminy po zakończonej rundzie otwierają nowy cykl; „Wybierz termin” działa |
+| F27 | naprawione | Koniec współpracy przed startem kontraktu = 422 |
