@@ -64,7 +64,34 @@ def upgrade() -> None:
     )
 
 
+# Runda 10 (R10-N12-4): migawki stanu sprzed zakończenia są jedynym źródłem
+# „Cofnij zakończenie”, a `returned_from_contract_id` — śladem „Powrotu po
+# przerwie”. Downgrade kasował je bez ostrzeżenia.
+REFUSE_WITH_TERMINATION_SNAPSHOTS = """DO $$
+DECLARE
+    has_rows boolean := false;
+BEGIN
+    IF to_regclass('contract_termination_snapshots') IS NOT NULL THEN
+        EXECUTE 'SELECT EXISTS (SELECT 1 FROM contract_termination_snapshots)'
+            INTO has_rows;
+    END IF;
+    IF NOT has_rows AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'contracts'
+          AND column_name = 'returned_from_contract_id'
+    ) THEN
+        EXECUTE 'SELECT EXISTS (SELECT 1 FROM contracts'
+            || ' WHERE returned_from_contract_id IS NOT NULL)' INTO has_rows;
+    END IF;
+    IF has_rows THEN
+        RAISE EXCEPTION 'Downgrade 0368 odmawia: są migawki zakończeń albo powroty po przerwie — bez nich „Cofnij zakończenie” przestanie działać. Zostaw tę rewizję albo przenieś dane ręcznie.';
+    END IF;
+END $$"""
+
+
 def downgrade() -> None:
+    op.execute(REFUSE_WITH_TERMINATION_SNAPSHOTS)
     op.execute("DROP INDEX IF EXISTS ix_contracts_returned_from_contract_id")
     op.execute("ALTER TABLE contracts DROP COLUMN IF EXISTS returned_from_contract_id")
     op.execute("DROP TABLE IF EXISTS contract_termination_snapshots")
