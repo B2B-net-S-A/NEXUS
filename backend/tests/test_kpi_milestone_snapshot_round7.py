@@ -81,3 +81,62 @@ async def test_two_users_share_one_milestone_query(monkeypatch) -> None:
     assert by_second["daily_first_verifications"] == 1
     assert by_second["monthly_placements"] == 2
     assert by_first["monthly_placements"] == 0
+
+
+
+# ── Runda 9 (R9-N6-1): klucz bez „teraz” z mikrosekundami ─────────────────
+
+
+def _patch_engine(monkeypatch) -> None:
+    async def _targets(_db, users, ids):
+        return {user.id: {kpi_id: 5 for kpi_id in ids} for user in users}
+
+    monkeypatch.setattr(kpi_engine, "resolve_kpi_targets_bulk", _targets)
+    monkeypatch.setattr(
+        kpi_engine, "kpi_available", lambda k: k.metric.value != "completed_calls"
+    )
+
+
+def _empty_db() -> AsyncMock:
+    snapshot = MagicMock()
+    snapshot.mappings.return_value.all.return_value = []
+    db = AsyncMock()
+    db.execute.return_value = snapshot
+    db.scalar.return_value = 0
+    return db
+
+
+@pytest.mark.asyncio
+async def test_live_calls_without_now_share_one_query(monkeypatch) -> None:
+    _patch_engine(monkeypatch)
+    db = _empty_db()
+
+    await kpi_engine.evaluate_user_kpis(db, user=_user(11))
+    await kpi_engine.evaluate_user_kpis(db, user=_user(12))
+
+    assert db.execute.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_cache_keys_do_not_grow_with_each_call(monkeypatch) -> None:
+    from datetime import timedelta
+
+    _patch_engine(monkeypatch)
+    db = _empty_db()
+    base = datetime(2026, 9, 23, 12, 0, 0, 1, tzinfo=kpi_engine.WARSAW)
+
+    for offset in range(30):
+        now = base + timedelta(seconds=offset, microseconds=offset * 37)
+        await kpi_engine.evaluate_user_kpis(db, user=_user(11), now=now)
+    assert db.execute.await_count == 1
+
+    # Nowy dzień i „teraz” spoza TTL — przeliczenie, ale nadal jeden wpis.
+    for later in (
+        base + timedelta(minutes=5),
+        base + timedelta(days=1),
+        base - timedelta(days=3),
+    ):
+        await kpi_engine.evaluate_user_kpis(db, user=_user(11), now=later)
+    milestone_keys = [k for k in cache_module._cache if k.startswith("kpi:milestones:")]
+    assert len(milestone_keys) == 1
+    assert db.execute.await_count == 4
