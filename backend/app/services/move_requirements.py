@@ -107,6 +107,9 @@ class PairFacts:
     debrief_event_id: Optional[int] = None
     client_decision: bool = False
     signed: bool = False
+    # Runda 9 (R9-V2-6): wyłącznik `CV_QC_GATE_ENABLED` — przy wyłączonym QC
+    # serwer nie odmawia wysyłki bez QC ani CV firmowego, więc okno też nie.
+    qc_gate_enabled: bool = True
 
 
 @dataclass
@@ -211,7 +214,7 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
                 "company_cv",
                 "CV firmowe „Pod rekrutację”",
                 OK if f.company_cv else MISSING,
-                True,
+                f.qc_gate_enabled,
                 None if f.company_cv else "jeszcze nie wygenerowane",
                 None
                 if f.company_cv
@@ -245,13 +248,15 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
             qc_detail = "QC jeszcze nie policzone"
         else:
             qc_detail = None
+        if not f.qc_gate_enabled and not qc_ok:
+            qc_detail = "QC CV jest wyłączone — nie blokuje wysyłki"
         items = [
             _Item(
                 column,
                 "cv_qc",
                 "QC CV",
-                OK if qc_ok else MISSING,
-                True,
+                OK if qc_ok else (MISSING if f.qc_gate_enabled else WAITING),
+                f.qc_gate_enabled,
                 qc_detail,
                 None if qc_ok else _action("open_qc", "Otwórz QC CV", sid),
             )
@@ -530,6 +535,7 @@ async def company_cv_refs(
         from app.models.client import Client  # noqa: PLC0415
         from app.models.job import Job  # noqa: PLC0415
         from app.services.dz_review import (  # noqa: PLC0415
+            document_cv_ambiguous,
             document_cv_conditions,
             pick_document_cv,
         )
@@ -566,13 +572,16 @@ async def company_cv_refs(
             ).all():
                 client_names[job_id] = display_name or name
         for cand, job in missing:
-            doc_id = pick_document_cv(by_candidate.get(cand, []), client_names.get(job))
+            rows = by_candidate.get(cand, [])
+            doc_id = pick_document_cv(rows, client_names.get(job))
             if doc_id is not None:
                 out[(cand, job)] = {
                     "source": "document",
                     "stage_id": None,
                     "generated_document_id": None,
                     "document_id": doc_id,
+                    # Kilka plików tego klienta — do sprawdzenia (R9-V2-5).
+                    "ambiguous": document_cv_ambiguous(rows, client_names.get(job)),
                 }
     return out
 
@@ -640,6 +649,7 @@ async def load_pair_facts(
     from app.services import candidate_claim, cpro_sender  # noqa: PLC0415
     from app.services.board_tasks import classify_template  # noqa: PLC0415
     from app.services.debrief_gate import missing_debrief  # noqa: PLC0415
+    from app.core.config import settings  # noqa: PLC0415
     from app.services.pipeline_move_rules import CLIENT_SEND_ROLES  # noqa: PLC0415
 
     pair = (candidate.id, job.id)
@@ -805,6 +815,7 @@ async def load_pair_facts(
         debrief_event_id=debrief.get("event_id") if debrief else None,
         client_decision=client_decision,
         signed=signed,
+        qc_gate_enabled=settings.CV_QC_GATE_ENABLED,
     )
 
 

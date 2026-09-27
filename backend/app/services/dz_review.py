@@ -32,6 +32,7 @@ import logging
 import os
 import re
 import tempfile
+import unicodedata
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any, Optional
@@ -744,9 +745,63 @@ def text_blocks(text: str) -> list[Block]:
     ]
 
 
-def _client_token(client_name: Optional[str]) -> Optional[str]:
-    words = re.findall(r"[^\W\d_]{3,}", client_name or "")
-    return words[0].casefold() if words else None
+# Słowa rodzajowe w nazwach klientów — nie wyróżniają klienta w nazwie pliku.
+# Runda 9 (R9-V2-5): do tej pory liczyło się PIERWSZE słowo nazwy, więc
+# „Bank Pekao” i „Bank Pocztowy” szukały w nazwie pliku słowa „bank”, a CV
+# „…_B2B_Bank_Millennium.docx” trafiało jako CV dla innego banku.
+_GENERIC_CLIENT_WORDS = frozenset(
+    {
+        "bank",
+        "banku",
+        "centrum",
+        "grupa",
+        "grupy",
+        "group",
+        "polska",
+        "polski",
+        "polskie",
+        "poland",
+        "spolka",
+        "akcyjna",
+        "oddzial",
+        "towarzystwo",
+        "ubezpieczen",
+        "insurance",
+        "zaklad",
+        "krajowy",
+        "krajowa",
+        "narodowy",
+        "panstwowy",
+        "instytut",
+        "fundusz",
+        "holding",
+        "company",
+        "services",
+        "solutions",
+        "systems",
+        "technologies",
+        "the",
+        "and",
+        "oraz",
+    }
+)
+
+
+def _fold(text: str) -> str:
+    folded = (text or "").casefold().replace("ł", "l")
+    folded = unicodedata.normalize("NFKD", folded)
+    return "".join(ch for ch in folded if not unicodedata.combining(ch))
+
+
+def _client_tokens(client_name: Optional[str]) -> list[str]:
+    """Słowa wyróżniające klienta (bez rodzajowych), bez polskich znaków."""
+    words = re.findall(r"[^\W\d_]{3,}", _fold(client_name or ""))
+    return [w for w in words if w not in _GENERIC_CLIENT_WORDS]
+
+
+def _matches_client(filename: Optional[str], tokens: list[str]) -> bool:
+    name = _fold(filename or "")
+    return any(token in name for token in tokens)
 
 
 # Runda 8 (R8-N8-1): JEDNA reguła wyboru pliku „…B2B…" — QC CV czyta nią
@@ -771,15 +826,16 @@ def document_cv_conditions() -> list[Any]:
 
 def pick_document_cv(rows: Any, client_name: Optional[str]) -> Optional[int]:
     """Id pliku „…B2B…" dla klienta z wierszy ``(id, filename, uploaded_at,
-    created_at)`` jednego kandydata: najpierw plik z nazwą klienta w nazwie,
-    potem najnowszy (``uploaded_at``, a bez niej ``created_at``), potem id."""
+    created_at)`` jednego kandydata: najpierw plik z wyróżniającym słowem
+    nazwy klienta w nazwie, potem najnowszy (``uploaded_at``, a bez niej
+    ``created_at``), potem id."""
 
-    token = _client_token(client_name)
+    tokens = _client_tokens(client_name)
 
     def key(row: Any) -> tuple:
         doc_id, filename, uploaded_at, created_at = row
         stamp = uploaded_at or created_at
-        miss = 0 if token and token in (filename or "").casefold() else 1
+        miss = 0 if tokens and _matches_client(filename, tokens) else 1
         return (
             miss,
             -stamp.timestamp() if stamp is not None else float("inf"),
@@ -788,6 +844,16 @@ def pick_document_cv(rows: Any, client_name: Optional[str]) -> Optional[int]:
 
     ordered = sorted(rows, key=key)
     return ordered[0][0] if ordered else None
+
+
+def document_cv_ambiguous(rows: Any, client_name: Optional[str]) -> bool:
+    """Kilka plików „…B2B…" z nazwą TEGO klienta — wybór najnowszego jest
+    zgadywaniem, więc CV jest „do sprawdzenia” (runda 9, R9-V2-5)."""
+
+    tokens = _client_tokens(client_name)
+    if not tokens:
+        return False
+    return sum(1 for row in rows if _matches_client(row[1], tokens)) > 1
 
 
 async def _document_cv(
@@ -815,6 +881,7 @@ async def _document_cv(
         )
     ).all()
     doc_id = pick_document_cv(rows, client_name)
+    ambiguous = document_cv_ambiguous(rows, client_name)
     doc = await db.get(CandidateDocument, doc_id) if doc_id is not None else None
     if doc is None:
         return None
@@ -853,6 +920,8 @@ async def _document_cv(
         "updated_at": doc.uploaded_at or doc.created_at,
         "bold_known": bold_known,
         "blocks": blocks,
+        # Kilka plików tego klienta — wskazany jest najnowszy, do sprawdzenia.
+        "ambiguous": ambiguous,
     }
 
 

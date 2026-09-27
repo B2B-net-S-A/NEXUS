@@ -76,6 +76,19 @@ def puts_candidate_before_client(stage: Optional[PipelineStage]) -> bool:
     return stage in VETO_ENFORCED_STAGES
 
 
+# Kolumny Tablicy, które stawiają osobę przed klientem — lustro
+# ``VETO_ENFORCED_STAGES`` po kolumnie (``board_column_for``). Runda 9
+# (R9-N11-3): etapy rozpoznawane po NAZWIE („Preparation Meeting”,
+# „Interview - Prep”, „Po Interview” — kod `interview`) leżą w kolumnie
+# „Rozmowa u klienta”, a samo porównanie kodu omijało na nich weto.
+VETO_ENFORCED_COLUMNS: frozenset[str] = frozenset({"cv_sent", "client_interview"})
+
+
+def puts_column_before_client(column: Optional[str]) -> bool:
+    """Czy ruch do kolumny ``column`` sprawdza weto hiring managera?"""
+    return column in VETO_ENFORCED_COLUMNS
+
+
 @dataclass(frozen=True)
 class ManagerVerdict:
     """One manager's standing rejection of one candidate."""
@@ -184,6 +197,42 @@ async def load_manager_rejections(
             rejection_note=row.rejection_note,
         )
     return verdicts
+
+
+async def pair_carries_manager_veto(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> bool:
+    """Czy wiersze tej pary są źródłem weta hiring managera?
+
+    Weto liczy się z odrzucenia z powodem dyskwalifikującym osobę po
+    spotkaniu z managerem rekrutacji, która MA managera — ta sama reguła co
+    :func:`load_manager_rejections`, tylko dla jednej pary. Usunięcie takiej
+    pary z rekrutacji zdejmuje weto we wszystkich rekrutacjach tego managera
+    (runda 9, R9-N11-5).
+    """
+    rejected = aliased(CandidateStage)
+    met = aliased(CandidateStage)
+    stmt = (
+        select(rejected.id)
+        .select_from(rejected)
+        .join(Job, Job.id == rejected.job_id)
+        .join(RejectionReason, RejectionReason.id == rejected.rejection_reason_id)
+        .where(
+            rejected.candidate_id == candidate_id,
+            rejected.job_id == job_id,
+            rejected.stage == PipelineStage.rejected,
+            Job.hiring_manager_contact_id.is_not(None),
+            RejectionReason.disqualifies_person.is_(True),
+            exists().where(
+                met.candidate_id == rejected.candidate_id,
+                met.job_id == rejected.job_id,
+                met.stage.in_(tuple(MANAGER_MET_STAGES)),
+                met.moved_at <= rejected.moved_at,
+            ),
+        )
+        .limit(1)
+    )
+    return (await db.scalar(stmt)) is not None
 
 
 async def load_all_vetoes_for_candidate(

@@ -43,6 +43,7 @@ from tests.test_pending_gate_removed import (  # noqa: F401  (fixture pv_client)
     _seed_candidate,
     _seed_job,
     _seed_user,
+    enter_pipeline,
     pv_client,
 )
 
@@ -150,6 +151,9 @@ def _fake_generator(monkeypatch, *, error: HTTPException | None = None) -> list[
 
 
 async def _move(client: AsyncClient, headers, cand_id, job_id, stage="verified"):
+    if stage not in ("new", "screening"):
+        # Runda 9 (R9-N11-4): osoba spoza rekrutacji wchodzi najpierw do „Nowych”.
+        await enter_pipeline(client, headers, cand_id, job_id)
     return await client.post(
         "/api/pipeline/move",
         headers=headers,

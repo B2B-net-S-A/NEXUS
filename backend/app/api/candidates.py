@@ -4879,6 +4879,37 @@ async def remove_candidate_from_recruitment(
             detail="Ten kandydat nie bierze udziału w tej rekrutacji.",
         )
 
+    # Runda 9 (R9-N11-5): usunięcie to też ruch osoby — blokada 12 h
+    # („Nowi”/„Screening” zarezerwowane przez kogoś innego) obowiązuje jak
+    # przy `/move`. Admin, DL i HoR przechodzą (`candidate_claim.can_override`).
+    from app.services import candidate_claim
+
+    await candidate_claim.assert_can_act(
+        db,
+        process=await candidate_claim.load_process(
+            db, candidate_id=candidate_id, job_id=job_id
+        ),
+        user=current_user,
+    )
+    # Runda 9 (R9-N11-5): weto hiring managera liczy się z wierszy
+    # `rejected` po spotkaniu z nim. Usunięcie osoby z rekrutacji, w której
+    # HM ją odrzucił, kasowało te wiersze — i razem z nimi weto we wszystkich
+    # rekrutacjach tego managera. Zdejmuje je wyłącznie admin albo HoR.
+    if not current_user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
+        from app.services.hiring_manager_verdicts import pair_carries_manager_veto
+
+        if await pair_carries_manager_veto(
+            db, candidate_id=candidate_id, job_id=job_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Nie można usunąć — hiring manager odrzucił tę osobę "
+                    "po rozmowie w tej rekrutacji, a usunięcie zdjęłoby "
+                    "jego weto. Zrobi to admin albo Head of Recruitment."
+                ),
+            )
+
     # Resource scope: to najbardziej destrukcyjna trasa w module — kasuje
     # WSZYSTKIE `CandidateStage` pary, a kaskadą snapshoty CV, share-tokeny i
     # zaplanowane maile odrzucenia. Guard `hired`/kontrakt niżej ogranicza CO

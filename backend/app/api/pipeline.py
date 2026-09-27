@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, text
+from sqlalchemy import exists, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -31,10 +31,13 @@ from app.services import board_tasks as board_tasks_svc
 from app.services import candidate_audit, candidate_claim, pipeline_move_rules
 from app.models.contract import RateUnit
 from app.services.board_stage_badges import (
+    _NAME_ONLY_KINDS as NAME_ONLY_STAGE_KINDS,
     board_column_for,
     ensure_badge_stage_allowed,
     foreign_stage_target,
     is_cpro_stage,
+    is_entry_column,
+    stage_badge_kind,
 )
 from app.services import champion_view
 from app.services.candidate_stage_cv_service import (
@@ -81,10 +84,11 @@ from app.api.recruitment_access import (
 )
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.services.hiring_manager_verdicts import (
-    puts_candidate_before_client,
+    puts_column_before_client,
     veto_for_candidate_stage,
 )
 from app.services.pipeline_eligibility import (
+    assert_candidate_move_eligible,
     assert_candidates_move_eligible,
     check_candidate_move_eligibility,
     evaluate_candidates_for_job_with_verdicts,
@@ -190,12 +194,245 @@ async def _resolve_stage_def(
     ) or await _default_template_id(db)
     if not template_id:
         return None
-    return await db.scalar(
-        select(PipelineStageDef).where(
-            PipelineStageDef.template_id == template_id,
-            PipelineStageDef.legacy_enum_value == legacy_stage.value,
+    # Runda 9 (R9-N11-8): kilka etapów szablonu bywa z tym samym kodem
+    # („QC CV” ma kod `interview`, obok zwykłej rozmowy), a `scalar` bez
+    # ORDER BY brał dowolny. Pierwszy w kolejności szablonu, z pominięciem
+    # etapów rozpoznawanych po NAZWIE (QC, Cpro) — jak `foreign_stage_target`.
+    candidates = (
+        await db.scalars(
+            select(PipelineStageDef)
+            .where(
+                PipelineStageDef.template_id == template_id,
+                PipelineStageDef.legacy_enum_value == legacy_stage.value,
+            )
+            .order_by(PipelineStageDef.order.asc(), PipelineStageDef.id.asc())
+        )
+    ).all()
+    for sd in candidates:
+        if stage_badge_kind(sd.name) not in NAME_ONLY_STAGE_KINDS:
+            return sd
+    return candidates[0] if candidates else None
+
+
+async def _pair_has_no_stage(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> bool:
+    """Para (kandydat, rekrutacja) nie ma jeszcze żadnego wiersza etapu."""
+    return not await db.scalar(
+        select(
+            exists().where(
+                CandidateStage.candidate_id == candidate_id,
+                CandidateStage.job_id == job_id,
+            )
         )
     )
+
+
+FRESH_PAIR_ENTRY_ONLY = (
+    "Tej osoby nie ma jeszcze w rekrutacji — dodaje się ją do „Nowych” albo "
+    "„Screeningu”, a dalej prowadzi zwykłym ruchem."
+)
+
+
+def _assert_fresh_pair_entry(
+    stage_def: Optional[PipelineStageDef], legacy: Optional[PipelineStage]
+) -> None:
+    """422, gdy osoba spoza rekrutacji ma wejść dalej niż „Nowi”/„Screening”."""
+    if not is_entry_column(
+        stage_def.name if stage_def else None,
+        (stage_def.legacy_enum_value if stage_def else None)
+        or (legacy.value if legacy is not None else None),
+        category=(
+            stage_def.category.value if stage_def and stage_def.category else None
+        ),
+        terminal_type=(
+            stage_def.terminal_type.value
+            if stage_def and stage_def.terminal_type
+            else None
+        ),
+    ):
+        raise HTTPException(status_code=422, detail=FRESH_PAIR_ENTRY_ONLY)
+
+
+# Kod etapu, którym haki „osoba u klienta” (przepięcia, „Klient milczy”)
+# rozpoznają kolumnę Tablicy — lustro `_COLUMN_BY_ENUM` w odwrotną stronę.
+_CLIENT_COLUMN_HOOK_STAGE: dict[str, PipelineStage] = {
+    "cv_sent": PipelineStage.cv_sent,
+    "client_interview": PipelineStage.client_interview,
+    "contract": PipelineStage.acceptance,
+}
+
+
+def _client_hook_stage(column: str, legacy: PipelineStage) -> PipelineStage:
+    """Kod etapu dla haków po ruchu, liczony z kolumny docelowej.
+
+    Własny kod zostaje, gdy leży w tej samej kolumnie (`negotiation` to
+    „Umowa”); etap rozpoznany po nazwie dostaje kod swojej kolumny.
+    """
+    mapped = _CLIENT_COLUMN_HOOK_STAGE.get(column)
+    if mapped is None:
+        return legacy
+    if board_column_for(None, legacy.value) == column:
+        return legacy
+    return mapped
+
+
+def _record_stage_change(
+    db: AsyncSession,
+    *,
+    stage: CandidateStage,
+    stage_def: Optional[PipelineStageDef],
+    legacy_enum: PipelineStage,
+    actor_id: int,
+    stage_display_name: str,
+    extra_details: Optional[dict] = None,
+) -> None:
+    """Ślad ruchu: `Activity stage_changed` + `UserActivity` (ranking osób).
+
+    Wspólny dla `/move` i `/bulk-move` — do rundy 9 (R9-N11-7) ruch zbiorczy
+    nie zostawiał żadnego z nich, więc historia karty i liczniki osoby
+    gubiły przesunięcia zrobione paczką.
+    """
+    details: dict = {
+        "candidate_id": stage.candidate_id,
+        "job_id": stage.job_id,
+        "stage": legacy_enum.value,
+        "stage_def_id": stage_def.id if stage_def else None,
+        "stage_name": stage_display_name,
+    }
+    if extra_details:
+        details.update(extra_details)
+    db.add(
+        Activity(
+            entity_type="pipeline",
+            entity_id=stage.id,
+            action="stage_changed",
+            user_id=actor_id,
+            details=details,
+        )
+    )
+    db.add(
+        UserActivity(
+            user_id=actor_id,
+            action_type=UserActionType.stage_changed,
+            entity_type="pipeline",
+            entity_id=stage.id,
+            details={
+                "candidate_id": stage.candidate_id,
+                "job_id": stage.job_id,
+                "stage": legacy_enum.value,
+                "stage_def_id": stage_def.id if stage_def else None,
+            },
+        )
+    )
+
+
+async def _cancel_pending_rejection_emails(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+    actor_id: int,
+    restored_to: PipelineStage,
+) -> None:
+    """Ruch na etap nieterminalny anuluje niewysłane maile odrzucenia pary.
+
+    W TEJ SAMEJ transakcji co ruch (M4 PR-02, audyt P1.7). Wiersz, którego
+    wysyłka już ruszyła, zostaje — rozstrzyga go pętla wysyłki (runda 9).
+    """
+    from app.models.rejection_email import (
+        RejectionEmailStatus,
+        ScheduledRejectionEmail,
+    )
+    from app.services.rejection_email_scheduler import send_in_progress
+
+    pending_mails = (
+        (
+            await db.execute(
+                select(ScheduledRejectionEmail)
+                .where(
+                    ScheduledRejectionEmail.candidate_id == candidate_id,
+                    ScheduledRejectionEmail.job_id == job_id,
+                    ScheduledRejectionEmail.status == RejectionEmailStatus.pending,
+                )
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for mail_row in pending_mails:
+        if send_in_progress(mail_row):
+            continue
+        mail_row.status = RejectionEmailStatus.cancelled
+        mail_row.cancelled_at = datetime.now(timezone.utc)
+        mail_row.cancelled_by = actor_id
+        db.add(
+            Activity(
+                entity_type="candidate",
+                entity_id=candidate_id,
+                action="rejection_email_cancelled_on_restore",
+                user_id=actor_id,
+                details={
+                    "scheduled_rejection_email_id": mail_row.id,
+                    "job_id": job_id,
+                    "restored_to_stage": restored_to.value,
+                },
+            )
+        )
+
+
+def _spawn_cv_qc_after_move(target_column: str, stage_id: int, actor_id: int) -> None:
+    """QC CV liczy się samo po wejściu do kolumny „QC CV” (Rekrutacja v5).
+
+    Ten sam wyłącznik co bramka (w testach wyłączony autouse-fixturą).
+    """
+    if target_column != "cv_qc":
+        return
+    try:
+        from app.core.config import settings as _settings
+        from app.services import cv_qc as _cv_qc
+
+        if _settings.CV_QC_GATE_ENABLED:
+            _spawn(
+                _cv_qc.run_after_move(stage_id, actor_id),
+                f"cv_qc stage={stage_id}",
+            )
+    except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
+        logger.warning(
+            "cv_qc spawn failed stage=%s (%s)", stage_id, type(_exc).__name__
+        )
+
+
+def _notify_stage_change_effect(
+    db: AsyncSession,
+    *,
+    stage: CandidateStage,
+    previous_stage_row: Optional[CandidateStage],
+    job: Job,
+    mover: User,
+    stage_display_name: str,
+) -> Callable[[], Awaitable[None]]:
+    """Powiadomienia o przejściu (reguły 0066) — efekt po commicie ruchu."""
+
+    async def _effect() -> None:
+        from app.services.stage_notification_emitter import notify_stage_change
+
+        candidate_obj = await db.scalar(
+            select(Candidate).where(Candidate.id == stage.candidate_id)
+        )
+        if candidate_obj is not None:
+            await notify_stage_change(
+                db,
+                new_stage=stage,
+                previous_stage=previous_stage_row,
+                job=job,
+                candidate=candidate_obj,
+                mover=mover,
+                stage_display_name=stage_display_name,
+            )
+
+    return _effect
 
 
 def _days_in_stage(moved_at: datetime) -> int:
@@ -697,6 +934,23 @@ async def move_candidate(
         ensure_badge_stage_allowed(
             current_user, stage_name=stage_def.name, client_id=job.client_id
         )
+    # Runda 9 (R9-N11-4): para BEZ żadnego wiersza etapu to dodanie osoby do
+    # rekrutacji, nie ruch. Wejście tylko do „Nowych”/„Screeningu” i twarda
+    # bramka czarnej listy / weta — ta sama reguła co bulk-add
+    # (`proposals_bulk`, `is_entry_column`). Dalsze kolumny mają bramki
+    # ruchu, które liczą się względem drogi, której tu nie ma.
+    fresh_pair = await _pair_has_no_stage(
+        db, candidate_id=data.candidate_id, job_id=job.id
+    )
+    if fresh_pair:
+        _assert_fresh_pair_entry(stage_def, data.stage)
+        await assert_candidate_move_eligible(
+            db,
+            candidate_id=data.candidate_id,
+            job=job,
+            now=datetime.now(timezone.utc),
+        )
+
     # Rekrutacja v5 (0361): QC CV przed „CV wysłane”/Cpro. Tu, przed
     # pierwszym zapisem ruchu — odmowa zapisuje przebieg QC i nic więcej.
     await _assert_cv_qc_gate(
@@ -870,7 +1124,11 @@ async def move_candidate(
     client_rate_value = data.client_rate_value
     client_rate_unit = data.client_rate_unit
     client_rate_currency = (data.client_rate_currency or "PLN")[:3].upper()
-    if pipeline_move_rules.requires_dl_client_rate(legacy_enum, job.client_id):
+    if pipeline_move_rules.requires_dl_client_rate(
+        legacy_enum, job.client_id
+    ) and await pipeline_move_rules.arrives_from_before_client_send(
+        db, candidate_id=data.candidate_id, job_id=data.job_id
+    ):
         known_rate = client_rate_value
         if known_rate is None:
             known_rate = await db.scalar(
@@ -913,13 +1171,15 @@ async def move_candidate(
     # powód jest OSTRZEŻENIEM — bez `acknowledge_eligibility` 409
     # `ELIGIBILITY_WARNING`, z flagą ruch przechodzi i zostaje `Activity`.
     eligibility_block = None
-    if not is_removal_move:
+    if not is_removal_move and not fresh_pair:
         eligibility_block = await check_candidate_move_eligibility(
             db,
             candidate_id=data.candidate_id,
             job=job,
             now=datetime.now(timezone.utc),
-            enforce_manager_verdict=puts_candidate_before_client(legacy_enum),
+            # Runda 9 (R9-N11-3): weto z kolumny docelowej, jak bramka QC —
+            # etapy u klienta rozpoznane po nazwie mają kod `interview`.
+            enforce_manager_verdict=puts_column_before_client(target_column),
             acknowledged=data.acknowledge_eligibility,
         )
 
@@ -1150,30 +1410,24 @@ async def move_candidate(
         else STAGE_LABELS.get(legacy_enum, legacy_enum.value)
     )
 
-    # Activity log
-    activity_details: dict = {
-        "candidate_id": data.candidate_id,
-        "job_id": data.job_id,
-        "stage": legacy_enum.value,
-        "stage_def_id": stage_def.id if stage_def else None,
-        "stage_name": stage_display_name,
-    }
+    # Activity log + UserActivity (ranking) — wspólne z `/bulk-move`.
+    activity_extra: dict = {}
     if legacy_enum == PipelineStage.verified and budget_max_snapshot is not None:
         # M4 PR-02: audyt decyzji gate'u — z jakiej normalizacji wynikła.
-        activity_details["rate_gate"] = {
+        activity_extra["rate_gate"] = {
             "policy": RATE_POLICY_VERSION,
             "note": normalization_note,
             "budget_exceeded": budget_exceeded,
             "budget_max": budget_max_snapshot,
         }
-    db.add(
-        Activity(
-            entity_type="pipeline",
-            entity_id=stage.id,
-            action="stage_changed",
-            user_id=current_user.id,
-            details=activity_details,
-        )
+    _record_stage_change(
+        db,
+        stage=stage,
+        stage_def=stage_def,
+        legacy_enum=legacy_enum,
+        actor_id=current_user.id,
+        stage_display_name=stage_display_name,
+        extra_details=activity_extra,
     )
     if eligibility_block is not None:
         # Przeniesiono mimo ostrzeżenia — audyt widzi, co zignorowano i kto.
@@ -1197,57 +1451,13 @@ async def move_candidate(
     # niewysłane maile odrzucenia tej pary — w TEJ SAMEJ transakcji co move.
     # Dotąd przywrócony kandydat mógł dostać zaplanowane wcześniej odrzucenie.
     if not is_terminal_target:
-        from app.models.rejection_email import (
-            RejectionEmailStatus,
-            ScheduledRejectionEmail,
+        await _cancel_pending_rejection_emails(
+            db,
+            candidate_id=data.candidate_id,
+            job_id=data.job_id,
+            actor_id=current_user.id,
+            restored_to=legacy_enum,
         )
-
-        pending_mails = (
-            (
-                await db.execute(
-                    select(ScheduledRejectionEmail).where(
-                        ScheduledRejectionEmail.candidate_id == data.candidate_id,
-                        ScheduledRejectionEmail.job_id == data.job_id,
-                        ScheduledRejectionEmail.status == RejectionEmailStatus.pending,
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for mail_row in pending_mails:
-            mail_row.status = RejectionEmailStatus.cancelled
-            mail_row.cancelled_at = datetime.now(timezone.utc)
-            mail_row.cancelled_by = current_user.id
-            db.add(
-                Activity(
-                    entity_type="candidate",
-                    entity_id=data.candidate_id,
-                    action="rejection_email_cancelled_on_restore",
-                    user_id=current_user.id,
-                    details={
-                        "scheduled_rejection_email_id": mail_row.id,
-                        "job_id": data.job_id,
-                        "restored_to_stage": legacy_enum.value,
-                    },
-                )
-            )
-
-    # UserActivity for leaderboard/performance tracking
-    db.add(
-        UserActivity(
-            user_id=current_user.id,
-            action_type=UserActionType.stage_changed,
-            entity_type="pipeline",
-            entity_id=stage.id,
-            details={
-                "candidate_id": data.candidate_id,
-                "job_id": data.job_id,
-                "stage": legacy_enum.value,
-                "stage_def_id": stage_def.id if stage_def else None,
-            },
-        )
-    )
 
     # M4 PR-02 (audyt P0.6): notify_stage_change (in-app + SMTP) oraz
     # talent-pool auto-add przeniesione ZA commit — patrz sekcja post-commit
@@ -1468,27 +1678,44 @@ async def move_candidate(
     # planujemy WYŁĄCZNIE gdy klient przysłał `send_rejection_email=True`
     # (checkbox w oknie odrzucenia, domyślnie odznaczony). `maybe_schedule`
     # nadal sam sprawdza kwalifikowalność (etap klienta, e-mail kandydata).
+    #
+    # Runda 9 (R9-N11-1): mail wychodzi ze skrzynki osoby, która ODRZUCA —
+    # nie prowadzącego rekrutacji (dotąd `job.recruiter_id`: cudza skrzynka,
+    # cudzy podpis i 403 na „Cofnij wysyłkę” dla odrzucającego). Bez
+    # podłączonej skrzynki nic nie planujemy i odpowiedź mówi dlaczego.
     scheduled_rejection_email_id: Optional[int] = None
+    rejection_email_status: Optional[str] = None
     if legacy_enum == PipelineStage.rejected and data.send_rejection_email is True:
-        from app.services.rejection_email_scheduler import maybe_schedule
+        from app.services import rejection_email_scheduler as _rejection_mail
 
-        scheduled = await maybe_schedule(
-            db,
-            stage=stage,
-            job=job,
-            recruiter_id=job.recruiter_id,
-            template_override_id=data.rejection_email_template_id,
+        rejection_email_status = await _rejection_mail.skip_reason(
+            db, stage=stage, sender=current_user
         )
-        if scheduled is not None:
-            scheduled_rejection_email_id = scheduled.id
+        if rejection_email_status is None:
+            scheduled = await _rejection_mail.maybe_schedule(
+                db,
+                stage=stage,
+                job=job,
+                recruiter_id=current_user.id,
+                template_override_id=data.rejection_email_template_id,
+            )
+            if scheduled is not None:
+                scheduled_rejection_email_id = scheduled.id
+                rejection_email_status = _rejection_mail.EMAIL_STATUS_SCHEDULED
+            else:
+                rejection_email_status = _rejection_mail.EMAIL_SKIP_NOT_CLIENT_VISIBLE
 
     # 0341: osoba weszła do klienta → przepnij ją do połączonych (podobnych)
     # rekrutacji jako propozycję „przepięcie". Nigdy nie rzuca.
     if legacy_enum is not None:
         from app.services.job_similarity import on_candidate_sent  # noqa: PLC0415
 
+        # Runda 9 (R9-N11-3): haki czytają kolumnę docelową, nie sam kod —
+        # „Po Interview” / „Preparation Meeting” (kod `interview`) to rozmowa
+        # u klienta.
+        hook_stage = _client_hook_stage(target_column, legacy_enum)
         await on_candidate_sent(
-            db, job_id=data.job_id, candidate_id=stage.candidate_id, stage=legacy_enum
+            db, job_id=data.job_id, candidate_id=stage.candidate_id, stage=hook_stage
         )
         # 0371: klient zaprosił na rozmowę / zaakceptował → „Klient milczy”
         # wraca do „Szukamy kandydatów”. Nigdy nie rzuca.
@@ -1497,7 +1724,7 @@ async def move_candidate(
         )
 
         await wake_on_client_response(
-            db, job_id=data.job_id, stage=legacy_enum, reason="client_stage"
+            db, job_id=data.job_id, stage=hook_stage, reason="client_stage"
         )
 
     actor_id = current_user.id
@@ -1532,24 +1759,18 @@ async def move_candidate(
 
     # Configurable stage-transition notifications (migracja 0066) —
     # in-app + email (SMTP) per regułą; teraz wyłącznie PO commicie.
-    async def _notify_stage_change() -> None:
-        from app.services.stage_notification_emitter import notify_stage_change
-
-        candidate_obj = await db.scalar(
-            select(Candidate).where(Candidate.id == data.candidate_id)
-        )
-        if candidate_obj is not None:
-            await notify_stage_change(
-                db,
-                new_stage=stage,
-                previous_stage=previous_stage_row,
-                job=job,
-                candidate=candidate_obj,
-                mover=current_user,
-                stage_display_name=stage_display_name,
-            )
-
-    await _post_commit_effect(db, f"stage_notif stage={stage_id}", _notify_stage_change)
+    await _post_commit_effect(
+        db,
+        f"stage_notif stage={stage_id}",
+        _notify_stage_change_effect(
+            db,
+            stage=stage,
+            previous_stage_row=previous_stage_row,
+            job=job,
+            mover=current_user,
+            stage_display_name=stage_display_name,
+        ),
+    )
 
     # 0348/0353: dzwonek dla osoby, która wysyła do Cpro. Best-effort.
     if cpro_assignee is not None:
@@ -1631,23 +1852,10 @@ async def move_candidate(
 
     # QC CV (Rekrutacja v5): po wejściu do kolumny „QC CV” QC liczy się samo,
     # żeby karta, przegląd DL i kolejka Cpro nie mówiły „nie sprawdzone”.
-    # Ten sam wyłącznik co bramka (w testach wyłączony autouse-fixturą).
-    if target_column == "cv_qc":
-        try:
-            from app.core.config import settings as _settings
-            from app.services import cv_qc as _cv_qc
-
-            if _settings.CV_QC_GATE_ENABLED:
-                _spawn(
-                    _cv_qc.run_after_move(stage_id, actor_id),
-                    f"cv_qc stage={stage_id}",
-                )
-        except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
-            logger.warning(
-                "cv_qc spawn failed stage=%s (%s)", stage_id, type(_exc).__name__
-            )
+    _spawn_cv_qc_after_move(target_column, stage_id, actor_id)
 
     resp["scheduled_rejection_email_id"] = scheduled_rejection_email_id
+    resp["rejection_email_status"] = rejection_email_status
     return CandidateStageResponse(**resp)
 
 
@@ -3224,8 +3432,57 @@ async def bulk_move_candidates(
     # job-specific) and before any candidate lookup.
     await ensure_job_membership(db, current_user, job.id)
 
+    # Etap-odznaka Tablicy (DZ / Cpro) — ta sama reguła co pojedynczy /move.
+    bulk_stage_def = await _resolve_stage_def(
+        db, job, stage_def_id=None, legacy_stage=data.stage
+    )
+    if bulk_stage_def is not None:
+        ensure_badge_stage_allowed(
+            current_user, stage_name=bulk_stage_def.name, client_id=job.client_id
+        )
+    bulk_target_column = board_column_for(
+        bulk_stage_def.name if bulk_stage_def else None,
+        data.stage.value,
+        category=(
+            bulk_stage_def.category.value
+            if bulk_stage_def and bulk_stage_def.category
+            else None
+        ),
+        terminal_type=(
+            bulk_stage_def.terminal_type.value
+            if bulk_stage_def and bulk_stage_def.terminal_type
+            else None
+        ),
+    )
+
+    # Runda 9 (R9-N11-4): osoby spoza rekrutacji (para bez wiersza) wchodzą
+    # tylko do „Nowych”/„Screeningu” i przez twardą bramkę — jak bulk-add.
+    fresh_ids = [
+        cid
+        for cid in unique_ids
+        if await _pair_has_no_stage(db, candidate_id=cid, job_id=job.id)
+    ]
+    if fresh_ids:
+        try:
+            _assert_fresh_pair_entry(bulk_stage_def, data.stage)
+        except HTTPException as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=f"{exc.detail} (kandydaci: {fresh_ids[:20]})",
+            ) from None
+
     # Pipeline v4: „CV wysłane" poza Nordeą — DL + stawka (jak pojedynczy /move).
+    # Runda 9 (R9-N11-6): tylko dla osób, które do klienta dopiero idą — cofnięcie
+    # karty z „Rozmowy u klienta” to nie wysłanie.
+    dl_send = False
     if pipeline_move_rules.requires_dl_client_rate(data.stage, job.client_id):
+        for cid in unique_ids:
+            if await pipeline_move_rules.arrives_from_before_client_send(
+                db, candidate_id=cid, job_id=job.id
+            ):
+                dl_send = True
+                break
+    if dl_send:
         pipeline_move_rules.assert_client_send_allowed(
             current_user, data.client_rate_value
         )
@@ -3235,15 +3492,6 @@ async def bulk_move_candidates(
         raise HTTPException(
             status_code=403,
             detail="Stawkę do klienta zapisuje Delivery Lead albo admin.",
-        )
-
-    # Etap-odznaka Tablicy (DZ / Cpro) — ta sama reguła co pojedynczy /move.
-    bulk_stage_def = await _resolve_stage_def(
-        db, job, stage_def_id=None, legacy_stage=data.stage
-    )
-    if bulk_stage_def is not None:
-        ensure_badge_stage_allowed(
-            current_user, stage_name=bulk_stage_def.name, client_id=job.client_id
         )
 
     # Rekrutacja v5 (0361): QC CV przed „CV wysłane” — jak pojedynczy /move.
@@ -3281,16 +3529,26 @@ async def bulk_move_candidates(
     # (409). Client conflicts are warnings since 17.09.2026 and do not stop the
     # batch. Pojedynczy /move ostrzega z potwierdzeniem; bulk zostaje twardym
     # 409 — nie ma UI, które mogłoby potwierdzić ostrzeżenie za paczkę.
-    await assert_candidates_move_eligible(
-        db,
-        candidate_ids=unique_ids,
-        job=job,
-        now=datetime.now(timezone.utc),
-        enforce_manager_verdict=puts_candidate_before_client(data.stage),
-    )
+    # Runda 9 (R9-N11-3): weto z kolumny docelowej; osoby spoza rekrutacji
+    # zawsze z wetem (jak bulk-add).
+    moving_ids = [cid for cid in unique_ids if cid not in fresh_ids]
+    if moving_ids:
+        await assert_candidates_move_eligible(
+            db,
+            candidate_ids=moving_ids,
+            job=job,
+            now=datetime.now(timezone.utc),
+            enforce_manager_verdict=puts_column_before_client(bulk_target_column),
+        )
+    if fresh_ids:
+        await assert_candidates_move_eligible(
+            db,
+            candidate_ids=fresh_ids,
+            job=job,
+            now=datetime.now(timezone.utc),
+        )
 
     # Pipeline v4: debrief po rozmowie u klienta — jak pojedynczy /move.
-    bulk_target_column = board_column_for(None, data.stage.value)
     for cid in unique_ids:
         await pipeline_move_rules.assert_debrief_before_contract(
             db, candidate_id=cid, job_id=data.job_id, target_column=bulk_target_column
@@ -3314,7 +3572,23 @@ async def bulk_move_candidates(
             "client_rate_currency": (data.client_rate_currency or "PLN")[:3].upper(),
         }
     moved = 0
+    bulk_display_name = (
+        bulk_stage_def.name
+        if bulk_stage_def
+        else STAGE_LABELS.get(data.stage, data.stage.value)
+    )
+    # (etap, poprzedni wiersz) — do powiadomień po commicie, jak w /move.
+    moved_entries: list[tuple[CandidateStage, Optional[CandidateStage]]] = []
     for cid in unique_ids:
+        previous_row = await db.scalar(
+            select(CandidateStage)
+            .where(
+                CandidateStage.candidate_id == cid,
+                CandidateStage.job_id == data.job_id,
+            )
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+            .limit(1)
+        )
         entry = await transition_process(
             db,
             candidate_id=cid,
@@ -3337,12 +3611,30 @@ async def bulk_move_candidates(
             source="pipeline",
             occurred_at=entry.moved_at,
         )
+        # Runda 9 (R9-N11-7): te same ślady co pojedynczy /move.
+        _record_stage_change(
+            db,
+            stage=entry,
+            stage_def=bulk_stage_def,
+            legacy_enum=data.stage,
+            actor_id=current_user.id,
+            stage_display_name=bulk_display_name,
+            extra_details={"bulk": True},
+        )
+        await _cancel_pending_rejection_emails(
+            db,
+            candidate_id=cid,
+            job_id=data.job_id,
+            actor_id=current_user.id,
+            restored_to=data.stage,
+        )
+        moved_entries.append((entry, previous_row))
         moved += 1
 
     # 0341: przepięcia do połączonych rekrutacji (jak w pojedynczym /move).
     from app.services.job_similarity import on_candidate_sent  # noqa: PLC0415
 
-    bulk_stage = data.stage
+    bulk_stage = _client_hook_stage(bulk_target_column, data.stage)
     for cid in unique_ids:
         await on_candidate_sent(
             db, job_id=data.job_id, candidate_id=cid, stage=bulk_stage
@@ -3365,6 +3657,21 @@ async def bulk_move_candidates(
     # błędzie wygaszał `current_user`, kolejne odczyty `current_user.id`
     # kończyły się połykanym MissingGreenlet, a reszta paczki nie trafiała do
     # pul talentów (commit był dopiero po pętli).
+    for entry, previous_row in moved_entries:
+        await _post_commit_effect(
+            db,
+            f"bulk stage_notif stage={entry.id}",
+            _notify_stage_change_effect(
+                db,
+                stage=entry,
+                previous_stage_row=previous_row,
+                job=job,
+                mover=current_user,
+                stage_display_name=bulk_display_name,
+            ),
+        )
+        _spawn_cv_qc_after_move(bulk_target_column, entry.id, actor_id)
+
     from app.services.candidate_risk import on_candidate_stage_change
 
     for cid in unique_ids:

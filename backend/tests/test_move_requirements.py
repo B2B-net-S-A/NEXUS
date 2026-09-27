@@ -283,11 +283,17 @@ async def test_move_requirements_route(monkeypatch: pytest.MonkeyPatch) -> None:
         _seed_user,
         _seed_world,
         restore_cpro_sender,
+        seed_entry_row,
     )
+    from app.core.config import settings
 
     limiter.enabled = False
     world = await _seed_world()
+    await seed_entry_row(world["candidate_id"], world["job_id"])
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    # Okno ruchu pokazuje bramkę QC tylko przy włączonym QC (R9-V2-6);
+    # conftest wyłącza je dla wszystkich testów.
+    monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
     dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)

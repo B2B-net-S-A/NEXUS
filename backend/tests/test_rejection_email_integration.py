@@ -30,7 +30,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate, CandidateStatus
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.rejection_email import (
     RejectionEmailStatus,
@@ -319,16 +319,39 @@ async def test_skips_when_candidate_has_no_email(seeded_entities):
         await db.commit()
 
 
+async def _approve_public_profile(db, job_id: int, public_title: str) -> None:
+    """Zatwierdzony opis publiczny rekrutacji (skrót liczony jak w serwisie)."""
+    from app.models.job_public_profile import JobPublicProfile
+    from app.services.job_public_profile import content_hash, public_titles
+
+    job = await db.get(Job, job_id)
+    profile = JobPublicProfile(
+        job_id=job_id,
+        public_title=public_title,
+        subtitle="Projekt dla banku",
+        about="Opis roli",
+    )
+    db.add(profile)
+    await db.flush()
+    _default, effective = await public_titles(db, job, profile)
+    profile.approved_hash = content_hash(
+        profile.subtitle, profile.about, profile.sections, effective
+    )
+    profile.approved_at = datetime.now(timezone.utc)
+    await db.flush()
+
+
 @pytest.mark.asyncio
 async def test_other_processes_excludes_current_and_terminals(seeded_entities):
-    """The "other active processes" query must:
-    - exclude the current job (no self-reference)
-    - include jobs where candidate is at active stage
-    - exclude jobs where candidate is at rejected/withdrawn/hired
+    """Lista „inne procesy” w mailu do kandydata (runda 9, R9-N10-2):
+    - bez bieżącej rekrutacji,
+    - tylko rekrutacje opublikowane, w których osoba jest dziś u klienta,
+    - tytuł WYŁĄCZNIE z zatwierdzonego opisu publicznego (nigdy `jobs.title`),
+    - bez rekrutacji zakończonych zatrudnieniem.
     """
     ids = seeded_entities
     async with AsyncSessionLocal() as db:
-        # Candidate has an ACTIVE stage (screening) on the OTHER job.
+        # Wewnętrzny etap w innej rekrutacji — klient osoby jeszcze nie widział.
         await _add_stage(
             db,
             candidate_id=ids["candidate_id"],
@@ -336,7 +359,6 @@ async def test_other_processes_excludes_current_and_terminals(seeded_entities):
             stage=PipelineStage.screening,
             moved_by=ids["recruiter_id"],
         )
-        # Candidate has a cv_sent on the PRIMARY job (will become current).
         await _add_stage(
             db,
             candidate_id=ids["candidate_id"],
@@ -345,17 +367,54 @@ async def test_other_processes_excludes_current_and_terminals(seeded_entities):
             moved_by=ids["recruiter_id"],
         )
         await db.commit()
-
         others = await _load_other_active_processes(
             db,
             candidate_id=ids["candidate_id"],
             current_job_id=ids["job_primary_id"],
         )
-        titles = {o["title"] for o in others}
-        assert any("Other Active Role" in t for t in titles)
-        assert not any("Primary Role" in t for t in titles)
+        assert others == []
 
-    # Now progress the other job to `hired` — it must disappear from the list.
+        # CV u klienta, ale bez zatwierdzonego opisu publicznego — tytuł
+        # z `jobs.title` nie może trafić do kandydata.
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_other_id"],
+            stage=PipelineStage.cv_sent,
+            moved_by=ids["recruiter_id"],
+        )
+        await db.commit()
+        others = await _load_other_active_processes(
+            db,
+            candidate_id=ids["candidate_id"],
+            current_job_id=ids["job_primary_id"],
+        )
+        assert others == []
+
+        await _approve_public_profile(db, ids["job_other_id"], "Programista Java")
+        await db.commit()
+        others = await _load_other_active_processes(
+            db,
+            candidate_id=ids["candidate_id"],
+            current_job_id=ids["job_primary_id"],
+        )
+        assert others == [{"job_id": ids["job_other_id"], "title": "Programista Java"}]
+        assert not any("Other Active Role" in o["title"] for o in others)
+
+        # Rekrutacja zamknięta znika z listy mimo zatwierdzonego opisu.
+        other_job = await db.get(Job, ids["job_other_id"])
+        other_job.status = JobStatus.closed
+        await db.commit()
+        others = await _load_other_active_processes(
+            db,
+            candidate_id=ids["candidate_id"],
+            current_job_id=ids["job_primary_id"],
+        )
+        assert others == []
+        other_job.status = JobStatus.published
+        await db.commit()
+
+    # Zatrudnienie w innej rekrutacji — ten proces się skończył.
     async with AsyncSessionLocal() as db:
         await _add_stage(
             db,
@@ -371,9 +430,64 @@ async def test_other_processes_excludes_current_and_terminals(seeded_entities):
             candidate_id=ids["candidate_id"],
             current_job_id=ids["job_primary_id"],
         )
-        assert others_after == [] or all(
-            "Other Active Role" not in o["title"] for o in others_after
+        assert others_after == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_refuses_a_send_in_progress(
+    app_client, app_auth_headers, seeded_entities
+):
+    """Runda 9 (R9-N10-10): pętla wysyłki zatwierdziła rezerwację i znacznik
+    „wysyłka ruszyła” — `/cancel` nie może odpowiedzieć „Anulowano”, bo mail
+    wychodzi. Ruch przywracający kandydata też go nie anuluje."""
+    from app.services.rejection_email_scheduler import SEND_IN_PROGRESS
+
+    ids = seeded_entities
+    async with AsyncSessionLocal() as db:
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.cv_sent,
+            moved_by=ids["recruiter_id"],
         )
+        rejected_stage = await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.rejected,
+            moved_by=ids["recruiter_id"],
+        )
+        job = await db.get(Job, ids["job_primary_id"])
+        scheduled = await maybe_schedule(
+            db, stage=rejected_stage, job=job, recruiter_id=ids["recruiter_id"]
+        )
+        scheduled.last_error = SEND_IN_PROGRESS
+        await db.commit()
+        row_id = scheduled.id
+
+    resp = await app_client.post(
+        f"/api/rejection-emails/{row_id}/cancel", headers=app_auth_headers
+    )
+    assert resp.status_code == 409, resp.text
+    assert "trwa" in resp.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        row = await db.get(ScheduledRejectionEmail, row_id)
+        assert row.status == RejectionEmailStatus.pending
+
+    moved = await app_client.post(
+        "/api/pipeline/move",
+        json={
+            "candidate_id": ids["candidate_id"],
+            "job_id": ids["job_primary_id"],
+            "stage": "screening",
+        },
+        headers=app_auth_headers,
+    )
+    assert moved.status_code == 200, moved.text
+    async with AsyncSessionLocal() as db:
+        row = await db.get(ScheduledRejectionEmail, row_id)
+        assert row.status == RejectionEmailStatus.pending
 
 
 # ── Tests: cancel endpoint ─────────────────────────────────────────────────

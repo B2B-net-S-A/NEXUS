@@ -403,6 +403,24 @@ async def _seed_world() -> dict:
         }
 
 
+async def seed_entry_row(candidate_id: int, job_id: int) -> None:
+    """Osoba jest już w rekrutacji („Nowi”) — dopiero wtedy `/move` przenosi
+    ją dalej. Runda 9 (R9-N11-4): para BEZ wiersza wchodzi wyłącznie do
+    „Nowych”/„Screeningu”, jak przy dodaniu przez bulk-add."""
+    from app.models.recruitment_pipeline import PipelineStage
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStage(
+                candidate_id=candidate_id,
+                job_id=job_id,
+                stage=PipelineStage.new,
+                moved_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+            )
+        )
+        await db.commit()
+
+
 async def _cleanup(world: dict, user_ids: list[int]) -> None:
     async with AsyncSessionLocal() as db:
         await db.execute(
@@ -483,6 +501,7 @@ async def test_nordea_cpro_queue_with_one_sender_for_the_company(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     world = await _seed_world()
+    await seed_entry_row(world["candidate_id"], world["job_id"])
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
@@ -604,6 +623,7 @@ async def test_cpro_queue_ignores_non_nordea_clients(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     world = await _seed_world()
+    await seed_entry_row(world["candidate_id"], world["job_id"])
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
     dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
@@ -751,6 +771,7 @@ async def test_assignee_on_ready_move_still_sets_the_job_fallback(
     (`jobs.cpro_sender_id`), który obowiązuje, gdy nikt nie wysyła na firmę."""
 
     world = await _seed_world()
+    await seed_entry_row(world["candidate_id"], world["job_id"])
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
     admin_id, admin_creds = await _seed_user(UserRole.admin)

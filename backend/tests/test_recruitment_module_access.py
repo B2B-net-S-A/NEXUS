@@ -392,8 +392,9 @@ async def test_secondary_role_grants_terminal(m4_client: AsyncClient):
 async def test_secondary_dl_can_cancel_foreign_rejection_email(
     m4_client: AsyncClient, headers_by_role
 ):
-    """TAC z dodatkową rolą delivery_lead anuluje cudzy zaplanowany mail —
-    primary-role-only porównanie (stary kod) dawało tu 403."""
+    """TAC z dodatkową rolą delivery_lead czyta cudzy zaplanowany mail —
+    primary-role-only porównanie (stary kod) dawało tu 403. Anulować może
+    od rundy 9 każdy z prawem ruchu w rekrutacji (także zwykły TAC)."""
     from app.models.rejection_email import (
         RejectionEmailStatus,
         ScheduledRejectionEmail,
@@ -422,9 +423,11 @@ async def test_secondary_dl_can_cancel_foreign_rejection_email(
         await db.refresh(row)
         row_id = row.id
 
-    # Zwykły TAC (nie-owner, bez oversight) → 403.
-    r = await m4_client.post(
-        f"/api/rejection-emails/{row_id}/cancel",
+    # Runda 9 (R9-N11-1): zwykły TAC nie jest ownerem ani oversightem, ale
+    # ma prawo ruchu w tej rekrutacji — może zatrzymać pomyłkę. Podgląd
+    # treści maila (GET) zostaje dla ownera i oversightu.
+    r = await m4_client.get(
+        f"/api/rejection-emails/{row_id}",
         headers=headers_by_role[UserRole.tac],
     )
     assert r.status_code == 403, r.text
@@ -434,7 +437,12 @@ async def test_secondary_dl_can_cancel_foreign_rejection_email(
         UserRole.tac, secondary=["tac", "delivery_lead"]
     )
     headers = await _login(m4_client, email, password)
-    r = await m4_client.post(f"/api/rejection-emails/{row_id}/cancel", headers=headers)
+    r = await m4_client.get(f"/api/rejection-emails/{row_id}", headers=headers)
+    assert r.status_code == 200, r.text
+    r = await m4_client.post(
+        f"/api/rejection-emails/{row_id}/cancel",
+        headers=headers_by_role[UserRole.tac],
+    )
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "cancelled"
 

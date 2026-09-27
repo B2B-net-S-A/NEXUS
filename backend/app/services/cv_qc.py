@@ -1108,6 +1108,9 @@ def _cv_payload(src: dz.ReviewSources) -> Optional[dict]:
         "filename": gen.get("filename"),
         "bold_known": src.bold_known,
         "updated_at": gen.get("updated_at"),
+        # Runda 9 (R9-V2-5): kilka plików „…B2B…” tego klienta — wskazany
+        # najnowszy, do sprawdzenia przez człowieka.
+        "ambiguous": bool(gen.get("ambiguous")),
         "blocks": [
             {"kind": b.kind, "section": b.section, "runs": b.runs} for b in src.blocks
         ],
