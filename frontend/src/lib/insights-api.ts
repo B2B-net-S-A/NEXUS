@@ -760,7 +760,9 @@ export interface InsightsYoYMetric {
   aggregate: InsightsYoYAggregate;
   /** Klucze w `component_series` — wymagane dla `aggregate: "ratio"`. */
   components: { numerator: string; denominator: string } | null;
-  /** Rok → wartość roczna. Wymagane dla `aggregate: "distinct"`. */
+  /** Rok → wartość roczna. Wymagane dla `aggregate: "distinct"`; przy
+   *  wskaźniku (`ratio`) zastępuje Σlicznik/Σmianownik, gdy roku nie da się
+   *  złożyć z miesięcy (udział top klienta). Bez porównania YTD. */
   yearly: Record<string, number | null> | null;
   /** Wzrost jest złą wiadomością (zejścia, koszty, koncentracja klienta). */
   lower_is_better: boolean;

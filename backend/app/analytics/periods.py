@@ -103,6 +103,30 @@ MAX_PERIOD_OFFSET = 120
 raport, a jednocześnie ucina generowanie dowolnych dat przez parametr URL.
 """
 
+MIN_PERIOD_YEAR = 1000
+MAX_PERIOD_YEAR = 9000
+"""Granice lat okna (runda 10, R10-N2-3).
+
+Bez nich ``anchor=9999-12-15`` albo ``date_to=9999-12-31`` wychodziły poza
+zakres ``datetime.date`` (``ValueError``/``OverflowError``) i każda trasa
+``/api/insights/*`` kończyła się 500 zamiast 422. Przedział jest świadomie
+szerszy niż kalendarz firmy (1900–2100 w filtrach listy kandydatów): testy
+na wspólnej bazie izolują dane latami 1100–2950, a tu chodzi wyłącznie
+o to, żeby arytmetyka okresu nigdy nie wyszła poza ``date.min``/``date.max``.
+Sprawdzane są DATY WEJŚCIOWE, nie wynikowe okno: okna pochodne (poprzedni
+okres, trend sześciu miesięcy) cofają się najwyżej o ``MAX_PERIOD_OFFSET``
+jednostek od okna, które już przeszło kontrolę, więc zawsze mieszczą się
+w kalendarzu — kontrola okna wynikowego zamieniłaby je w 500 serwisu.
+"""
+
+
+def _check_year(d: date, label: str) -> None:
+    if not (MIN_PERIOD_YEAR <= d.year <= MAX_PERIOD_YEAR):
+        raise PeriodError(
+            f"{label} poza zakresem: {d.isoformat()} "
+            f"(dozwolone lata {MIN_PERIOD_YEAR}–{MAX_PERIOD_YEAR})"
+        )
+
 
 def resolve_period(
     kind: str | PeriodKind,
@@ -138,7 +162,8 @@ def resolve_period(
     Raises:
         PeriodError: nieznany kind, brak from/to dla custom, from > to,
             zakres dłuższy niż 366 dni, offset poza ``MAX_PERIOD_OFFSET``,
-            offset podany razem z custom.
+            offset podany razem z custom, rok daty albo okna poza
+            ``MIN_PERIOD_YEAR``–``MAX_PERIOD_YEAR``.
     """
     try:
         period_kind = PeriodKind(kind)
@@ -152,6 +177,14 @@ def resolve_period(
         raise PeriodError(
             f"offset poza zakresem: {offset} (dozwolone +/-{MAX_PERIOD_OFFSET})"
         )
+
+    for value, label in (
+        (anchor, "anchor"),
+        (date_from, "date_from"),
+        (date_to, "date_to"),
+    ):
+        if value is not None:
+            _check_year(value, label)
 
     if period_kind is PeriodKind.custom:
         if offset:

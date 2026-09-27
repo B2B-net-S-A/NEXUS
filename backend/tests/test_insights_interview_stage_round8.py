@@ -24,7 +24,10 @@ def test_funnel_conversions_use_client_interview():
     assert "interview" not in _operands(CONVERSIONS)
     assert "client_interview" in _operands(CONVERSIONS)
     (qc,) = [s for s in FUNNEL_STAGES if s["stage"] == "interview"]
-    assert qc["label"] == "QC CV"
+    # Runda 10 (R10-N2-5): lejek liczy po KODZIE, a import Traffita zapisuje
+    # tym kodem też etapy rozmów — etykieta ma mówić, co naprawdę liczy.
+    assert qc["label"].startswith("QC CV")
+    assert "Traffit" in qc["label"]
 
 
 def test_team_table_interviews_column_is_client_interview():
