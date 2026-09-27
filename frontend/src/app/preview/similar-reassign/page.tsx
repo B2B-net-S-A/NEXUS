@@ -6,7 +6,7 @@
  * bez API i bez logowania. Interceptor odrzuca każde żądanie axiosa, więc
  * kliknięcie „Przepnij” kończy się komunikatem błędu — to podgląd wyglądu.
  *
- * W polu wyszukiwania wpisz „analityk pko”, żeby zobaczyć wyniki. Dane są
+ * W polu wyszukiwania wpisz „analityk kappa”, żeby zobaczyć wyniki. Dane są
  * fikcyjne — repo jest publiczne.
  */
 
@@ -85,7 +85,7 @@ function seededClient(): QueryClient {
   qc.setQueryData(similarPeopleKey(JOB_ID, 1500), [
     person(15, "Kamil Bezdanych", { already_in_job: true, selectable: false }),
   ]);
-  qc.setQueryData(similarSearchKey(JOB_ID, "analityk pko"), [
+  qc.setQueryData(similarSearchKey(JOB_ID, "analityk kappa"), [
     job(1837, "Analityk Systemowy", { sent_count: 4, similarity: null }),
     job(2931, "Analityk Biznesowy", { sent_count: 1, similarity: null }),
   ]);

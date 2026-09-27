@@ -42,7 +42,7 @@ const noop = () => undefined;
 
 const STATES = [
   ["start", "Start"],
-  ["process", "Proces z Championem (PKO BP)"],
+  ["process", "Proces z Championem (Bank Kappa)"],
   ["missing-sources", "Proces bez Championa"],
   ["no-process", "Inny klient (bez procesu)"],
   ["upload", "Osoba spoza bazy"],
@@ -67,10 +67,10 @@ function recruitment(partial: Partial<RecruitmentOption> & Pick<RecruitmentOptio
   };
 }
 
-const PKO = recruitment({ stage_id: 11, job_id: 501, job_title: "Senior Java Developer", stage: "verified", client_id: 7, client_name: "PKO BP" });
-const NORDEA = recruitment({ stage_id: 12, job_id: 502, job_title: "Java Tech Lead", stage: "cv_sent", client_id: 8, client_name: "Nordea" });
-const BANK_POCZTOWY = recruitment({
-  stage_id: 21, job_id: 601, job_title: "Java Developer", stage: "new", client_id: 9, client_name: "Bank Pocztowy",
+const KAPPA = recruitment({ stage_id: 11, job_id: 501, job_title: "Senior Java Developer", stage: "verified", client_id: 7, client_name: "Bank Kappa" });
+const POLNOCNY = recruitment({ stage_id: 12, job_id: 502, job_title: "Java Tech Lead", stage: "cv_sent", client_id: 8, client_name: "Bank Północny" });
+const BANK_SIGMA = recruitment({
+  stage_id: 21, job_id: 601, job_title: "Java Developer", stage: "new", client_id: 9, client_name: "Bank Sigma",
   has_champion: false, has_notes: false, notes_chars: 0,
 });
 
@@ -102,27 +102,27 @@ const RESULT_WARNINGS = [
   "MUST-HAVE: Kafka",
   "MUST-HAVE: Kubernetes",
   "WERYFIKUJ: nakładające się okresy zatrudnienia: 'Allegro' (01.2020 – 12.2022) i 'Freelance' (06.2021 – 03.2023)",
-  "WERYFIKUJ: nakładające się okresy zatrudnienia: 'Freelance' (06.2021 – 03.2023) i 'mBank' (01.2023 – obecnie)",
+  "WERYFIKUJ: nakładające się okresy zatrudnienia: 'Freelance' (06.2021 – 03.2023) i 'Bank Iota' (01.2023 – obecnie)",
   "WERYFIKUJ: domknięto politykę prezentacji klienta w kodzie: skrócono 3 punktów obowiązków do 160 znaków.",
   "NICE-TO-HAVE: Terraform",
 ];
 
 const RESULT_DOCS: GeneratedCvItem[] = [
-  cvItem({ id: 900, candidate_name: "Jan Kowalski", candidate_id: 1, job_id: 501, client_name: "PKO BP", position: "Senior Java Developer", language: "en", filename: "CV_Kowalski_ZOB-2026-114_EN.docx", warnings: RESULT_WARNINGS, consent_required: true, consent_missing: true }),
-  cvItem({ id: 901, package_id: 900, candidate_name: "Jan Kowalski", candidate_id: 1, job_id: 501, client_name: "PKO BP", position: "Senior Java Developer", language: "pl", filename: "CV_Kowalski_ZOB-2026-114_PL.docx", warnings: RESULT_WARNINGS, consent_required: true, consent_missing: true }),
+  cvItem({ id: 900, candidate_name: "Jan Kowalski", candidate_id: 1, job_id: 501, client_name: "Bank Kappa", position: "Senior Java Developer", language: "en", filename: "CV_Kowalski_ZOB-2026-114_EN.docx", warnings: RESULT_WARNINGS, consent_required: true, consent_missing: true }),
+  cvItem({ id: 901, package_id: 900, candidate_name: "Jan Kowalski", candidate_id: 1, job_id: 501, client_name: "Bank Kappa", position: "Senior Java Developer", language: "pl", filename: "CV_Kowalski_ZOB-2026-114_PL.docx", warnings: RESULT_WARNINGS, consent_required: true, consent_missing: true }),
 ];
 
 const MY_CV: GeneratedCvItem[] = [
   ...RESULT_DOCS,
-  cvItem({ id: 880, candidate_name: "Marta Zielińska", candidate_id: 2, job_id: 601, client_name: "Bank Pocztowy", position: "Java Developer", content_mode: "polished", status: "processing", job_status: "running", created_at: "2026-09-23T12:52:00+02:00" }),
-  cvItem({ id: 870, candidate_name: "Piotr Wiśniewski", candidate_id: 3, job_id: 502, client_name: "Nordea", position: "DevOps Engineer", language: "en", created_at: "2026-09-23T10:15:00+02:00" }),
-  cvItem({ id: 860, candidate_name: "Katarzyna Lewandowska", candidate_id: 4, job_id: 503, client_name: "Alior Bank", position: "Analityk biznesowy", origin: "auto", needs_review: true, warnings: ["MUST-HAVE: BPMN"], created_at: "2026-09-22T16:02:00+02:00" }),
-  cvItem({ id: 850, candidate_name: "Tomasz Dąbrowski", candidate_id: 5, job_id: null, client_name: "Polkomtel", content_mode: "polished", created_at: "2026-09-22T11:30:00+02:00" }),
-  cvItem({ id: 840, candidate_name: "Agnieszka Mazur", candidate_id: 6, job_id: 504, client_name: "BIK", position: "Scrum Master", warnings: ["MUST-HAVE: SAFe", "MUST-HAVE: Jira Align", "BRAK POKRYCIA: liczba '12 zespołów' (BIK) nie występuje w CV ani notatkach — „prowadziła 12 zespołów”"], created_at: "2026-09-19T09:00:00+02:00" }),
-  cvItem({ id: 830, candidate_name: "Paweł Wójcik", candidate_id: 7, job_id: 505, client_name: "Nordea", position: "Frontend Developer", language: "en", content_mode: "polished", status: "failed", job_status: "failed", error_message: "Model przerwał odpowiedź.", created_at: "2026-09-18T09:00:00+02:00" }),
+  cvItem({ id: 880, candidate_name: "Marta Zielińska", candidate_id: 2, job_id: 601, client_name: "Bank Sigma", position: "Java Developer", content_mode: "polished", status: "processing", job_status: "running", created_at: "2026-09-23T12:52:00+02:00" }),
+  cvItem({ id: 870, candidate_name: "Piotr Wiśniewski", candidate_id: 3, job_id: 502, client_name: "Bank Północny", position: "DevOps Engineer", language: "en", created_at: "2026-09-23T10:15:00+02:00" }),
+  cvItem({ id: 860, candidate_name: "Katarzyna Lewandowska", candidate_id: 4, job_id: 503, client_name: "Bank Lambda", position: "Analityk biznesowy", origin: "auto", needs_review: true, warnings: ["MUST-HAVE: BPMN"], created_at: "2026-09-22T16:02:00+02:00" }),
+  cvItem({ id: 850, candidate_name: "Tomasz Dąbrowski", candidate_id: 5, job_id: null, client_name: "Telekom Przykładowy", content_mode: "polished", created_at: "2026-09-22T11:30:00+02:00" }),
+  cvItem({ id: 840, candidate_name: "Agnieszka Mazur", candidate_id: 6, job_id: 504, client_name: "Biuro Gamma", position: "Scrum Master", warnings: ["MUST-HAVE: SAFe", "MUST-HAVE: Jira Align", "BRAK POKRYCIA: liczba '12 zespołów' (Biuro Gamma) nie występuje w CV ani notatkach — „prowadziła 12 zespołów”"], created_at: "2026-09-19T09:00:00+02:00" }),
+  cvItem({ id: 830, candidate_name: "Paweł Wójcik", candidate_id: 7, job_id: 505, client_name: "Bank Północny", position: "Frontend Developer", language: "en", content_mode: "polished", status: "failed", job_status: "failed", error_message: "Model przerwał odpowiedź.", created_at: "2026-09-18T09:00:00+02:00" }),
 ];
 
-const PKO_POLICY: LanguagePolicy = { forced: null, requiresBoth: false };
+const KAPPA_POLICY: LanguagePolicy = { forced: null, requiresBoth: false };
 const PLAIN_POLICY: LanguagePolicy = { forced: null, requiresBoth: false };
 
 function Content({ mode, hasChampion, language, policy, clientName, advancedOpen = false, projectRefFromJob = null, position }: {
@@ -183,13 +183,13 @@ function renderState(state: HarnessState): ReactNode {
         <CvGeneratorLayout
           main={<>
             {person(JAN)}
-            <ProcessStep recruitments={[PKO, NORDEA]} loading={false} error={false} value="11" onChange={noop} otherClient={null} onOtherClientChange={noop}>
+            <ProcessStep recruitments={[KAPPA, POLNOCNY]} loading={false} error={false} value="11" onChange={noop} otherClient={null} onOtherClientChange={noop}>
               <ProcessSourcesFixture />
             </ProcessStep>
-            <Content mode="tailored" hasChampion language="en" policy={PKO_POLICY} clientName="PKO BP" position="Senior Java Developer" />
+            <Content mode="tailored" hasChampion language="en" policy={KAPPA_POLICY} clientName="Bank Kappa" position="Senior Java Developer" />
           </>}
           aside={<>
-            <Rules clientName="PKO BP" clientSource="process" languageLabel={languageSummary("en", PKO_POLICY)}
+            <Rules clientName="Bank Kappa" clientSource="process" languageLabel={languageSummary("en", KAPPA_POLICY)}
               filename="CV_Kowalski_ZOB-2026-114_EN.docx" projectRef="ZOB/2026/114" projectRefFromJob
               consentRequired consentSlot={<Button type="button" variant="outline" size="sm">Wgraj zrzut maila</Button>} />
             <GenerateBar missing={[]} pending={false} onGenerate={noop}
@@ -202,13 +202,13 @@ function renderState(state: HarnessState): ReactNode {
         <CvGeneratorLayout
           main={<>
             {person(MARTA)}
-            <ProcessStep recruitments={[BANK_POCZTOWY]} loading={false} error={false} value="21" onChange={noop} otherClient={null} onOtherClientChange={noop}>
+            <ProcessStep recruitments={[BANK_SIGMA]} loading={false} error={false} value="21" onChange={noop} otherClient={null} onOtherClientChange={noop}>
               <ProcessSourcesFixture jobId={601} hasChampion={false} hasNotes={false} notesChars={0} sources={SOURCES_MARTA} cvDocumentId={3} />
             </ProcessStep>
-            <Content mode="polished" hasChampion={false} language="pl" policy={PLAIN_POLICY} clientName="Bank Pocztowy" advancedOpen position="Java Developer" />
+            <Content mode="polished" hasChampion={false} language="pl" policy={PLAIN_POLICY} clientName="Bank Sigma" advancedOpen position="Java Developer" />
           </>}
           aside={<>
-            <Rules clientName="Bank Pocztowy" clientSource="process" languageLabel="PL" filename="Zielinska_Java_Developer.docx" />
+            <Rules clientName="Bank Sigma" clientSource="process" languageLabel="PL" filename="Zielinska_Java_Developer.docx" />
             <GenerateBar missing={[]} pending={false} onGenerate={noop}
               hint="Ok. 40 s. Gotowe CV trafi do procesu jako „CV do klienta” i na listę Moje CV. Champion i notatki nie są wymagane. Bez nich powstanie Redakcja." />
           </>}
@@ -220,13 +220,13 @@ function renderState(state: HarnessState): ReactNode {
           main={<>
             {person(TOMASZ)}
             <ProcessStep recruitments={[]} loading={false} error={false} value="other" onChange={noop}
-              otherClient={{ id: 15, name: "Polkomtel" }} onOtherClientChange={noop}>
+              otherClient={{ id: 15, name: "Telekom Przykładowy" }} onOtherClientChange={noop}>
               <ProcessSourcesFixture variant="no-process" jobId={null} hasChampion={false} hasNotes={false} notesChars={0} sources={SOURCES_TOMASZ} cvDocumentId={4} />
             </ProcessStep>
-            <Content mode="polished" hasChampion={false} language="pl" policy={PLAIN_POLICY} clientName="Polkomtel" position="" />
+            <Content mode="polished" hasChampion={false} language="pl" policy={PLAIN_POLICY} clientName="Telekom Przykładowy" position="" />
           </>}
           aside={<>
-            <Rules clientName="Polkomtel" clientSource="manual" languageLabel="PL" filename="Dabrowski_CV.docx" />
+            <Rules clientName="Telekom Przykładowy" clientSource="manual" languageLabel="PL" filename="Dabrowski_CV.docx" />
             <GenerateBar missing={[]} pending={false} onGenerate={noop} hint="Ok. 40 s. Gotowe CV trafi na listę Moje CV." />
           </>}
         />
@@ -417,9 +417,9 @@ export default function CvGeneratorPreviewPage() {
   const [queryClient] = useState(() => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
     qc.setQueryData([CV_GENERATOR_CLIENTS_QUERY_KEY], [
-      { id: 7, name: "PKO BP" },
-      { id: 15, name: "Polkomtel" },
-      { id: 8, name: "Nordea" },
+      { id: 7, name: "Bank Kappa" },
+      { id: 15, name: "Telekom Przykładowy" },
+      { id: 8, name: "Bank Północny" },
     ]);
     seedCardStates(qc);
     return qc;

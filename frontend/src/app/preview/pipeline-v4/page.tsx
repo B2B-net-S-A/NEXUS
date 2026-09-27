@@ -85,7 +85,7 @@ function columns(viewerId: number): KanbanColumn[] {
         claim_user_name: "Marta Nowak",
         claim_until: inHours(9.2),
       }),
-      card("Paweł", "Nowicki", {
+      card("Paweł", "Fikcyjny", {
         entry_source: "added_manual",
         added_to_job_by_name: "Anna Kowal",
         claim_user_id: 3,
@@ -95,13 +95,13 @@ function columns(viewerId: number): KanbanColumn[] {
       }),
       card("Marek", "Lis", {
         entry_source: "added_manual",
-        added_to_job_by_name: "Piotr Sowa",
+        added_to_job_by_name: "Piotr Szkicowy",
         can_take: true,
         days_in_stage: 2,
       }),
       card("Ewa", "Dąbrowska", {
         entry_source: "reassign",
-        reassign_from_title: "Java Developer · PKO BP",
+        reassign_from_title: "Java Developer · Bank Kappa",
         claim_user_id: viewerId,
         claim_user_name: "Marta Nowak",
         claim_until: inHours(11.5),
@@ -236,7 +236,7 @@ function PipelineV4Harness() {
       user: {
         id: viewerId,
         email: "preview@example.com",
-        name: asDl ? "Kamil Rudnicki" : "Marta Nowak",
+        name: asDl ? "Kamil Próbny" : "Marta Nowak",
         role: asDl ? "delivery_lead" : "recruiter",
         roles: [asDl ? "delivery_lead" : "recruiter"],
         profile_completed: true,

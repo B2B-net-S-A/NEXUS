@@ -66,11 +66,11 @@ test.describe("candidate UX deterministic previews", () => {
       await expectNoPageOverflow(page);
 
       if (viewport.width < 1024) {
-        await expect(page.getByRole("heading", { name: "Janusz Prażmowski" })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "Janusz Przykładowy" })).toBeVisible();
         await expect(page.getByRole("button", { name: "Podgląd" }).first()).toBeVisible();
         await expect(page.getByRole("table")).toBeHidden();
       } else {
-        await expect(page.getByRole("button", { name: "Janusz Prażmowski", exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Janusz Przykładowy", exact: true })).toBeVisible();
         await expect(page.getByRole("table")).toBeVisible();
         await expect(page.getByRole("columnheader", { name: "Kandydat" })).toBeVisible();
         await expect(page.getByRole("columnheader", { name: "Ostatnia aktywność" })).toBeVisible();

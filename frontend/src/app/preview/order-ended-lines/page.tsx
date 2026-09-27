@@ -73,7 +73,7 @@ const PENDING_POOL: OrderOffboardingCaseRead = {
   rate_cost_snapshot: 800,
   rate_revenue_snapshot: 1000,
   currency_snapshot: "PLN",
-  order_number_snapshot: "4500099001",
+  order_number_snapshot: "4599099001",
   resolution: null,
   target_order_id: null,
   rate_basis: null,
@@ -175,7 +175,7 @@ function group(lines: OrderLineRead[]): OrderGroupRead {
   return {
     id: 30,
     client_id: 18,
-    order_number: "4500099001",
+    order_number: "4599099001",
     start_date: "2026-03-01",
     end_date: null,
     notes: null,

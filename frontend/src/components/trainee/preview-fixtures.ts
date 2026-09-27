@@ -50,14 +50,14 @@ type Seed = [
 ];
 
 const OPEN_SEEDS: Seed[] = [
-  ["Tomasz Zieliński", "Senior Java Developer", "Comarch", "Kraków", "+48 601 234 518", 6, 2, ["Java", "Spring", "Kafka"], ["rate_stale", "work_time", "availability", "work_mode"], { min_rate_hourly: 140, rate_updated_at: "2025-03-12T09:00:00Z" }],
-  ["Magdalena Kowal", "DevOps Engineer (Azure)", "Asseco", "Warszawa", "+48 512 880 314", 5, 1, ["Azure", "Kubernetes", "Terraform"], ["rate_missing", "b2b"]],
-  ["Piotr Nowicki", "Analityk biznesowy", "Sii", "Gdańsk", "+48 698 102 447", 4, 1, ["analiza wymagań", "UML", "bankowość"], ["rate_missing", "availability"]],
-  ["Agnieszka Lis", "Tester automatyzujący", "Capgemini", "Wrocław", "+48 790 331 206", 4, 0, ["Selenium", "Playwright", "Java"], ["work_mode", "availability"], { min_rate_hourly: 120, rate_updated_at: "2026-01-20T09:00:00Z" }],
-  ["Michał Dąbrowski", ".NET Developer", "Atos", "Łódź", "+48 505 774 190", 3, 1, ["C#", ".NET", "Azure"], ["rate_missing"]],
-  ["Karolina Wysocka", "Data Engineer", "Allegro", "Poznań", "+48 660 218 953", 3, 0, ["Python", "Spark", "Databricks"], ["rate_stale", "below_min_consent"], { min_rate_hourly: 160, rate_updated_at: "2024-11-05T09:00:00Z" }],
-  ["Rafał Mazur", "Kierownik projektu IT", "Orange", "Warszawa", "+48 733 409 861", 3, 0, ["PM", "Scrum", "telekomunikacja"], ["availability", "b2b", "office_consent"]],
-  ["Joanna Pawlak", "Frontend Developer (React)", "Netguru", "Katowice", "+48 579 640 125", 2, 1, ["React", "TypeScript"], ["rate_missing", "work_mode"]],
+  ["Tomasz Zieliński", "Senior Java Developer", "Comarch", "Kraków", "+48 000 000 114", 6, 2, ["Java", "Spring", "Kafka"], ["rate_stale", "work_time", "availability", "work_mode"], { min_rate_hourly: 140, rate_updated_at: "2025-03-12T09:00:00Z" }],
+  ["Magdalena Kowal", "DevOps Engineer (Azure)", "Asseco", "Warszawa", "+48 000 000 115", 5, 1, ["Azure", "Kubernetes", "Terraform"], ["rate_missing", "b2b"]],
+  ["Piotr Nowicki", "Analityk biznesowy", "Sii", "Gdańsk", "+48 000 000 116", 4, 1, ["analiza wymagań", "UML", "bankowość"], ["rate_missing", "availability"]],
+  ["Agnieszka Lis", "Tester automatyzujący", "Capgemini", "Wrocław", "+48 000 000 117", 4, 0, ["Selenium", "Playwright", "Java"], ["work_mode", "availability"], { min_rate_hourly: 120, rate_updated_at: "2026-01-20T09:00:00Z" }],
+  ["Michał Dąbrowski", ".NET Developer", "Atos", "Łódź", "+48 000 000 118", 3, 1, ["C#", ".NET", "Azure"], ["rate_missing"]],
+  ["Karolina Wysocka", "Data Engineer", "Allegro", "Poznań", "+48 000 000 119", 3, 0, ["Python", "Spark", "Databricks"], ["rate_stale", "below_min_consent"], { min_rate_hourly: 160, rate_updated_at: "2024-11-05T09:00:00Z" }],
+  ["Rafał Mazur", "Kierownik projektu IT", "Orange", "Warszawa", "+48 000 000 120", 3, 0, ["PM", "Scrum", "telekomunikacja"], ["availability", "b2b", "office_consent"]],
+  ["Joanna Pawlak", "Frontend Developer (React)", "Netguru", "Katowice", "+48 000 000 121", 2, 1, ["React", "TypeScript"], ["rate_missing", "work_mode"]],
 ];
 
 const FIRST = ["Anna", "Jan", "Ewa", "Marek", "Kasia", "Paweł", "Zofia", "Adam", "Iga", "Leon"];
@@ -298,9 +298,9 @@ export function previewOverview(): TraineeOverview {
 
 export function previewQualitySample(): TraineeQualitySampleItem[] {
   return [
-    { item_id: 901, candidate_id: 7001, name: "Leon Dudek", phone: "+48 600 301 401", called_at: "2026-09-22T10:14:00Z", facts: { b2b_willingness: "b2b", min_rate_hourly: 150, remote_modes: ["remote"] }, verdict: null, note: null },
-    { item_id: 902, candidate_id: 7002, name: "Iga Stępień", phone: "+48 600 302 402", called_at: "2026-09-22T11:40:00Z", facts: { b2b_willingness: "would_switch", min_rate_hourly: 120 }, verdict: "issue", note: "Kandydatka mówi, że stawki nie podawała." },
-    { item_id: 903, candidate_id: 7003, name: "Adam Zając", phone: "+48 600 303 403", called_at: "2026-09-23T09:05:00Z", facts: { b2b_willingness: "employment_only" }, verdict: "ok", note: null },
+    { item_id: 901, candidate_id: 7001, name: "Leon Dudek", phone: "+48 000 000 122", called_at: "2026-09-22T10:14:00Z", facts: { b2b_willingness: "b2b", min_rate_hourly: 150, remote_modes: ["remote"] }, verdict: null, note: null },
+    { item_id: 902, candidate_id: 7002, name: "Iga Stępień", phone: "+48 000 000 123", called_at: "2026-09-22T11:40:00Z", facts: { b2b_willingness: "would_switch", min_rate_hourly: 120 }, verdict: "issue", note: "Kandydatka mówi, że stawki nie podawała." },
+    { item_id: 903, candidate_id: 7003, name: "Adam Zając", phone: "+48 000 000 124", called_at: "2026-09-23T09:05:00Z", facts: { b2b_willingness: "employment_only" }, verdict: "ok", note: null },
   ];
 }
 

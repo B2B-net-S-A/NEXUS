@@ -120,6 +120,16 @@ jobs:
             | tee playwright-output.txt
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: playwright-results.json
+      - name: Playwright — harnessy /preview/* (preview-chromium)
+        # Runda 10 (R10-N10-1): na produkcji harnessy wymagają logowania, więc
+        # publiczny projekt `preview-chromium` chodzi tu — na stacku zbudowanym
+        # z `NEXT_PUBLIC_PREVIEW_PUBLIC=1`, ze źródeł tego samego commitu.
+        # Nocą i ręcznie; w kolejce merge'ów nie (minuty Actions są płatne).
+        if: ${{ github.event_name != 'merge_group' }}
+        run: |
+          set -o pipefail
+          npx playwright test --project=preview-chromium --reporter=list \
+            | tee playwright-preview-output.txt
       - name: Podsumowanie i kontrola pominięć
         if: ${{ !cancelled() }}
         run: |
@@ -262,7 +272,9 @@ jobs:
           E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
           E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
         # Bez E2E_USER_PASSWORD (dedykowane prodowe konto E2E — działanie
-        # operatorskie) chodzi wyłącznie publiczny projekt `preview-chromium`.
+        # operatorskie) bieg nie uruchamia niczego. Harnessy `/preview/*`
+        # (`preview-chromium`) chodzą w jobie `stack`: na produkcji wymagają
+        # logowania od rundy 10 audytu (R10-N10-1).
         #
         # WAŻNE: zielony bieg w tym trybie NIE znaczy „E2E przechodzi". Dlatego
         # bieg WYPISUJE swoje własne pokrycie do podsumowania zadania — żeby
@@ -310,7 +322,7 @@ jobs:
               | sed -n 's/^Total: \([0-9]*\) tests* in \([0-9]*\) files*$/\1 \2/p' \
               | tail -1
           }
-          read -r total_cases total_specs <<< "$(count_tests --project=prod-smoke --project=preview-chromium)"
+          read -r total_cases total_specs <<< "$(count_tests --project=prod-smoke)"
           total_cases="${total_cases:-0}"; total_specs="${total_specs:-0}"
 
           if [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
@@ -340,32 +352,30 @@ jobs:
           fi
 
           if [ -z "$E2E_USER_PASSWORD" ]; then
-            read -r ran_cases ran_specs <<< "$(count_tests --project=preview-chromium)"
-            ran_cases="${ran_cases:-0}"; ran_specs="${ran_specs:-0}"
             {
-              echo "### E2E produkcja — bieg CZĘŚCIOWY"
+              echo "### E2E produkcja — NIE uruchomiono"
               echo ""
               echo "| | wykonane | wszystkie |"
               echo "|---|---|---|"
-              echo "| pliki spec | $ran_specs | $total_specs |"
-              echo "| przypadki | $ran_cases | $total_cases |"
+              echo "| pliki spec | 0 | $total_specs |"
+              echo "| przypadki | 0 | $total_cases |"
               echo ""
               echo "Brak sekretów \`E2E_USER_EMAIL\`/\`E2E_USER_PASSWORD\`, więc projekt"
               echo "\`prod-smoke\` (odczyty po zalogowaniu) NIE został uruchomiony."
+              echo "Harnessy \`/preview/*\` sprawdza job \`stack\`."
               echo "**Zielony wynik tego biegu nie znaczy, że E2E przechodzi.**"
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "::warning::E2E produkcja CZĘŚCIOWE — $ran_cases z $total_cases przypadków ($ran_specs z $total_specs plików). Brak E2E_USER_EMAIL/E2E_USER_PASSWORD. Zielony wynik NIE znaczy, że E2E przechodzi."
-            run_pw --project=preview-chromium
+            echo "::warning::E2E produkcja NIE uruchomione — 0 z $total_cases przypadków. Brak E2E_USER_EMAIL/E2E_USER_PASSWORD. Zielony wynik NIE znaczy, że E2E przechodzi."
           else
             {
-              echo "### E2E produkcja — prod-smoke + preview"
+              echo "### E2E produkcja — prod-smoke"
               echo ""
               echo "| | liczba |"
               echo "|---|---|"
               echo "| przypadki wylistowane | $total_cases |"
               echo "| pliki spec | $total_specs |"
             } >> "$GITHUB_STEP_SUMMARY"
-            run_pw --project=prod-smoke --project=preview-chromium
+            run_pw --project=prod-smoke
           fi
 
       # Raportu Playwrighta z tego joba NIE wgrywamy (runda 6 audytu): bieg idzie
