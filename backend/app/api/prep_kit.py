@@ -104,6 +104,7 @@ def _must_have_gaps(job, candidate) -> list[str]:
         gate_eligible_must_skills,
         missing_must_skills,
     )
+    from app.services.must_text_evidence import cv_text
     from app.services.scoring_service import (
         candidate_known_skill_names,
         job_explicit_must_skills,
@@ -113,14 +114,14 @@ def _must_have_gaps(job, candidate) -> list[str]:
     if not must:
         return []
     shown = _display_names(job)
-    if not candidate_known_skill_names(candidate):
+    if not candidate_known_skill_names(candidate) and not cv_text(candidate).strip():
         names = ", ".join(shown.get(skill, skill) for skill in must[:5])
         return [
             "Brak danych o umiejętnościach kandydata — nie da się porównać "
             f"z wymaganiami MUST ({names}). Uzupełnij profil lub CV przed rozmową."
         ]
     return [
-        f"Brak {shown.get(skill, skill)} (MUST rekrutacji) w profilu — może być pytanie"
+        f"Brak {shown.get(skill, skill)} (MUST rekrutacji) w profilu ani CV — może być pytanie"
         for skill in missing_must_skills(candidate, must, verification_job_id=job.id)
     ]
 

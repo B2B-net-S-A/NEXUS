@@ -164,3 +164,32 @@ def tech_alias_forms(name: str) -> list[str]:
     forms = {canon, (name or "").strip().lower()}
     forms.update(CANONICAL_TO_ALIASES.get(canon, []))
     return sorted(f for f in forms if f)
+
+
+# ── Wersja przy nazwie technologii (bramka must, formularz rekrutacji) ──────
+
+# „Java 8+”, „Python 3.x”, „Angular 15”, „.NET 6”, „Java 7/8”,
+# „React.js (v18 or higher)”, „Java 11 or higher”. Formy sklejone z nazwą
+# („ES6”, „S3”, „OAuth2”, „Log4j”) zostają — tam cyfra jest częścią nazwy.
+_VERSION_TAIL = re.compile(
+    r"(?:\s*\((?:v\.?\s?)?\d[^()]*\)"
+    r"|\s+v?\.?\s?\d+(?:[.,/]\d+)*(?:\.x)?\s*\+?"
+    r"(?:\s*(?:or|lub|and)\s*(?:higher|newer|above|wyżej|wyzej|nowsz\w*|nowsza|później|pozniej))?)\s*$",
+    re.IGNORECASE,
+)
+
+
+def strip_version(name: str) -> tuple[str, str | None]:
+    """Nazwa bez wersji i odcięta wersja: „Java 8+” → („Java”, „8+”).
+
+    Bez wersji zwraca (nazwa, None). Nazwa złożona z samej wersji nie jest
+    ucinana do pustego napisu.
+    """
+    text = (name or "").strip()
+    match = _VERSION_TAIL.search(text)
+    if not match or match.start() == 0:
+        return text, None
+    base = text[: match.start()].strip()
+    if not base:
+        return text, None
+    return base, match.group(0).strip().strip("()").strip()

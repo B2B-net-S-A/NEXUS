@@ -40,10 +40,12 @@ test("shows scan duration but never the API cost, known or unknown", () => {
 });
 
 test("shows primary exclusion totals without treating missing proof as confirmed failure", () => {
-  render(<FullCandidateSearchStatus data={{ ...page, counts: { ...page.counts, exclusion_reasons: { over_budget: 3, missing_must: 5, unknown: 2, remote_only: 0 } } }} offset={0} onPage={vi.fn()} />);
+  render(<FullCandidateSearchStatus data={{ ...page, counts: { ...page.counts, exclusion_reasons: { over_budget: 3, missing_must: 5, no_data: 4, unknown: 2, remote_only: 0 } } }} offset={0} onPage={vi.fn()} />);
   expect(screen.getByText("Powyżej budżetu: 3")).toBeVisible();
-  // Default policy (10.09): a KNOWN technology gap hides, not "missing proof".
-  expect(screen.getByText("Brak technologii must-have w profilu: 5")).toBeVisible();
+  // Od v8 (27.09.2026): must liczy profil, CV i notatki; osoba bez żadnych
+  // danych ma osobny wiersz.
+  expect(screen.getByText("Brak technologii must-have w profilu, CV ani notatkach: 5")).toBeVisible();
+  expect(screen.getByText("Bez CV, umiejętności i notatek: 4")).toBeVisible();
   expect(screen.getByText("Brak zapisanej szczegółowej przyczyny: 2")).toBeVisible();
   expect(screen.queryByText("Wyłącznie praca zdalna: 0")).not.toBeInTheDocument();
 });

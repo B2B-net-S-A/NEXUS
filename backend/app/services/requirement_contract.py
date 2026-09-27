@@ -95,7 +95,11 @@ def requirements_for_job(job) -> MatchingRequirements:
 # v7 (27.09.2026, runda 9 R9-N8-6): „wyłącznie zdalnie” z notatek nie ukrywa
 # osoby, która ma w profilu jawny tryb pracy, limit dni w biurze albo zgodę
 # na więcej dni.
-MUST_GATE_POLICY_VERSION = "known-technology-gap-v7"
+# v8 (27.09.2026, decyzja Artura): must spełnia profil, CV albo notatka;
+# bramka tylko na technologiach (bez wersji, przykłady klienta jako „lub”);
+# kandydat bez żadnych danych ukryty (`no_data`); inne miasto ukrywa dopiero
+# od 4 dni w biurze; nazwy miast porównywane przez słownik miejscowości.
+MUST_GATE_POLICY_VERSION = "anywhere-evidence-v8"
 
 
 def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):
@@ -192,19 +196,34 @@ def evaluate_requirements(
     from app.services.requirement_verification import reviewed_group
 
     skills = candidate_skill_names(candidate)
+    # 27.09.2026: must wymieniony w profilu, CV albo notatce (dowód dołączony
+    # przez bramkę, `must_text_evidence`) jest spełniony — plakietka mówi to
+    # samo co bramka, z podstawą „text_mention”.
+    evidence = getattr(candidate, "_must_text_evidence", None)
+    text_met = {label.lower() for label in getattr(evidence, "met", ())}
     results = []
     for group in contract.all_of:
         found = [name for name in group.any_of if skill_present(name, skills)]
+        mentioned = not found and (
+            requirement_label(group).lower() in text_met
+            or any(name.lower() in text_met for name in group.any_of)
+        )
         # Absence in imported/extracted skills is not proof of inability.
         results.append(
             {
                 "any_of": group.any_of,
                 "level": group.level,
-                "status": "met" if found else "unknown",
+                "status": "met" if (found or mentioned) else "unknown",
                 "matched": found,
                 # Imported/extracted profile signals do not establish current
                 # proficiency, a verification date or project usage context.
-                "evidence_basis": "profile_signal" if found else "no_evidence",
+                "evidence_basis": (
+                    "profile_signal"
+                    if found
+                    else "text_mention"
+                    if mentioned
+                    else "no_evidence"
+                ),
                 "verified_at": None,
                 "usage_context": None,
                 "source": group.source,

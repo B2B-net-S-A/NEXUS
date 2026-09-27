@@ -26,8 +26,16 @@ import re
 # Coordinates / postcode are intentionally excluded — they are not place names.
 _BLOB_PLACE_KEYS = ("locality", "city", "region1", "region2", "region3", "country")
 
-# Plain-text location separators ("Kraków / remote", "Gdańsk, Pomorskie").
-_TEXT_SEPARATORS = re.compile(r"[,/;|]+")
+# Plain-text location separators ("Kraków / remote", "Gdańsk, Pomorskie") —
+# także słowa alternatywy: "Gdansk or Warsaw", "Warszawa lub Kraków" (lustro
+# `CITY_ALTERNATIVE` z `frontend/src/lib/job-search-prefill.ts`). Do 27.09.2026
+# "Gdansk or Warsaw" był jednym tokenem i bramka biura ukrywała każdego.
+_TEXT_SEPARATORS = re.compile(
+    r"[,/;|]+|\s+(?:lub|albo|oraz|or|and|i)\s+", re.IGNORECASE
+)
+# „Warszawa (hybrydowo)”, „okolice Krakowa” — dopisek to nie miasto.
+_PARENTHESES = re.compile(r"\([^)]*\)")
+_NEAR_PREFIX = re.compile(r"^(?:okolice|okolic|near|around)\s+", re.IGNORECASE)
 
 
 def location_tokens(raw: object) -> set[str]:
@@ -55,8 +63,8 @@ def location_tokens(raw: object) -> set[str]:
                 if isinstance(v, str) and v.strip():
                     tokens.add(v.strip().lower())
         return tokens
-    for part in _TEXT_SEPARATORS.split(s.lower()):
-        part = part.strip()
+    for part in _TEXT_SEPARATORS.split(_PARENTHESES.sub(" ", s.lower())):
+        part = _NEAR_PREFIX.sub("", part.strip()).strip()
         if part:
             tokens.add(part)
     return tokens
@@ -151,11 +159,40 @@ def city_tokens(raw: object) -> set[str]:
     return {t for t in location_tokens(s) if _is_city_token(t)}
 
 
-def tokens_overlap(a: set[str], b: set[str]) -> bool:
-    """Substring-tolerant overlap between two token sets (either direction).
+# Trójmiasto to trzy miasta, a słownik miejscowości wskazuje nim tylko Gdańsk.
+_TRICITY_NAMES = ("gdansk", "gdynia", "sopot")
+_TRICITY_KEYS = frozenset({"trojmiasto", "tricity"})
 
-    ``"warszawa"`` matches ``"warszawa, mazowieckie"`` and vice-versa. Empty on
-    either side → no overlap.
+
+def place_keys(token: str) -> frozenset[str]:
+    """Klucze porównania miejsca: id ze słownika (``pl_places`` — aliasy
+    „Warsaw”, „Cracow”, bez polskich znaków) albo sam klucz nazwy.
+
+    „Warsaw” i „Warszawa” dają ten sam klucz, „Gdansk” i „Gdańsk” też; do
+    27.09.2026 bramka biura porównywała surowe napisy i ukrywała kandydatów
+    z Warszawy w rekrutacji zapisanej jako „Warsaw”.
+    """
+    from app.services import pl_places
+
+    key = pl_places.place_key(token)
+    if not key:
+        return frozenset()
+    if key in _TRICITY_KEYS:
+        return frozenset(
+            f"id:{place.id}"
+            for name in _TRICITY_NAMES
+            if (place := pl_places.resolve(name)) is not None
+        )
+    place = pl_places.resolve(key)
+    return frozenset({f"id:{place.id}" if place is not None else f"k:{key}"})
+
+
+def tokens_overlap(a: set[str], b: set[str]) -> bool:
+    """Overlap between two token sets: same place, or substring (either way).
+
+    ``"warszawa"`` matches ``"warszawa, mazowieckie"``, ``"warsaw"`` and
+    ``"Warszawa"``; ``"gdansk"`` matches ``"gdańsk"``. Empty on either side →
+    no overlap.
     """
     if not a or not b:
         return False
@@ -163,7 +200,20 @@ def tokens_overlap(a: set[str], b: set[str]) -> bool:
         for y in b:
             if x == y or x in y or y in x:
                 return True
-    return False
+    keys_a = frozenset().union(*(place_keys(x) for x in a))
+    keys_b = frozenset().union(*(place_keys(y) for y in b))
+    if keys_a & keys_b:
+        return True
+    # Odmiana bez polskich znaków: „krakowa” ⊃ „krakow”, „gdanska” ⊃ „gdansk”.
+    from app.services.pl_places import place_key
+
+    folded_a = {place_key(x) for x in a}
+    folded_b = {place_key(y) for y in b}
+    return any(
+        len(x) >= 4 and len(y) >= 4 and (x.startswith(y) or y.startswith(x))
+        for x in folded_a
+        for y in folded_b
+    )
 
 
 def location_matches(requested_tokens: set[str], candidate_location: object) -> bool:

@@ -429,6 +429,8 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     if (detail.workTimeFit === "part_time_only" || detail.workTimeFit === "full_time_only") {
       warnings.push(detail.workTimeFit);
     }
+    // Inne miasto przy hybrydzie 1–3 dni nie ukrywa (27.09.2026) — plakietka.
+    if (detail.officeFit === "city_mismatch") warnings.push("city_mismatch");
     if (detail.traineeHandover?.employment_only) warnings.push("employment_only");
     const handoverNote = detail.traineeHandover?.note?.trim() || null;
     entries.push({
@@ -461,6 +463,10 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
 
 /** Etykiety plakietki sprzecznego wymiaru pracy (tylko przypadki ostrzegawcze,
  *  decyzja 24.09.2026: plakietka, nie ukrycie). Klucz = kod ostrzeżenia wiersza. */
+/** Plakietka innego miasta przy hybrydzie (decyzja 27.09.2026: ostrzeżenie,
+ *  ukrycie dopiero od 4 dni w biurze). */
+export const CITY_MISMATCH_WARNING_PL = "Inne miasto — dojazd lub relokacja?";
+
 export const WORK_TIME_FIT_WARNING_PL: Partial<Record<WorkTimeFit, string>> = {
   part_time_only: "Szuka części etatu",
   full_time_only: "Tylko pełny etat",

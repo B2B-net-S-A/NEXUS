@@ -40,6 +40,7 @@ from app.models.candidate import Candidate
 from app.models.candidate_auto_match import CandidateMatchOutbox
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
+from app.services.must_text_evidence import attach_gate_evidence
 from app.services.auto_match_outbox import auto_match_mode, candidate_revision
 from app.services.auto_match_rules import is_good_match
 from app.services.request_work_state import IN_WORK_STATES
@@ -676,7 +677,9 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
                 Decision(candidate.id, job.id, None, "ineligible", "bramka przypisania")
             )
             continue
-        kept = apply_dealbreakers([candidate], inputs=search_dealbreaker_inputs(job))
+        job_inputs = search_dealbreaker_inputs(job)
+        await attach_gate_evidence(db, [candidate], job_inputs.must_skills)
+        kept = apply_dealbreakers([candidate], inputs=job_inputs)
         if not kept.kept:
             ineligible.append(
                 Decision(
@@ -799,7 +802,9 @@ async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
     eligible = await filter_eligible_candidates(
         db, job=job, candidates=list(candidates), now=now
     )
-    kept = apply_dealbreakers(eligible, inputs=search_dealbreaker_inputs(job)).kept
+    job_inputs = search_dealbreaker_inputs(job)
+    await attach_gate_evidence(db, eligible, job_inputs.must_skills)
+    kept = apply_dealbreakers(eligible, inputs=job_inputs).kept
     revisions = {c.id: candidate_revision(c) for c in candidates}
     job_changed_at = job.updated_at or job.created_at
     already = await _logged_pairs(

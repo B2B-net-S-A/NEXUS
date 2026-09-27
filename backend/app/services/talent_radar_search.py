@@ -480,9 +480,11 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     # (must/dni/miasto) i AUTO `exclude_remote_only` (z `wants_office`) liczone
     # RAZEM przez `dealbreaker_inputs_for_radar` — bez jawnego
     # `exclude_remote_only=` tutaj, bo `inputs.wants_office` już go niesie.
-    dealbreakers = await _apply_dealbreakers_yielding(
-        candidates, inputs=dealbreaker_inputs_for_radar(query)
-    )
+    radar_inputs = dealbreaker_inputs_for_radar(query)
+    from app.services.must_text_evidence import attach_gate_evidence
+
+    await attach_gate_evidence(db, candidates, radar_inputs.must_skills)
+    dealbreakers = await _apply_dealbreakers_yielding(candidates, inputs=radar_inputs)
     candidates = dealbreakers.kept
 
     # `rank_candidates_for_job`, NOT `bulk_get_or_compute`: the score cache is

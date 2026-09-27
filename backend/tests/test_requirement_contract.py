@@ -113,8 +113,8 @@ def test_multiple_alternatives_keep_both_groups():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("policy,expected_ids", [("review", [1, 2]), ("exclude", [1])])
-async def test_shared_gate_respects_review_policy_for_missing_proof(
+@pytest.mark.parametrize("policy,expected_ids", [("review", [1]), ("exclude", [1])])
+async def test_shared_gate_hides_missing_proof_under_both_policies(
     monkeypatch, policy, expected_ids
 ):
     from datetime import datetime, timezone
@@ -135,8 +135,8 @@ async def test_shared_gate_respects_review_policy_for_missing_proof(
     candidates = [
         make_candidate(id=1, skills=["java"]),
         make_candidate(id=2, skills=[]),
-        # A KNOWN gap hides under both policies (decision 10.09); only the
-        # missing-proof candidate (id=2) depends on the saved policy.
+        # A KNOWN gap hides under both policies (decision 10.09); since v8
+        # (27.09.2026) a candidate with no data at all (id=2) hides too.
         make_candidate(id=3, skills=["rust"]),
     ]
     now = datetime.now(timezone.utc)

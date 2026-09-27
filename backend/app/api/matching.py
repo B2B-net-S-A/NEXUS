@@ -25,6 +25,7 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.services.candidate_job_eligibility import Severity, Visibility
 from app.services.eligibility_annotation import eligibility_annotation
+from app.services.must_text_evidence import attach_gate_evidence
 from app.services.dealbreaker_filters import (
     DealbreakerInputs,
     DealbreakerResult,
@@ -249,7 +250,14 @@ def _build_match_info(
             work_time_fit_status(candidate, inputs) if inputs else "not_applicable"
         ),
         "missing_must": (
-            missing_must_skills(candidate, inputs.must_skills) if inputs else []
+            missing_must_skills(
+                candidate,
+                inputs.must_skills,
+                verification_job_id=inputs.verification_job_id,
+                verification_fingerprint=inputs.verification_fingerprint,
+            )
+            if inputs
+            else []
         ),
     }
 
@@ -385,6 +393,9 @@ async def _gate_and_dealbreakers(
         _apply_dealbreakers_yielding,
     )
 
+    # 27.09.2026: must spełnia też CV i notatki — dowód dla całej widocznej
+    # puli (także wiersze z wetem HM: chipy ✓/✗ muszą mówić to samo co bramka).
+    await attach_gate_evidence(db, visible, inputs.must_skills)
     db_res = await _apply_dealbreakers_yielding(
         dealbreakable,
         inputs=inputs,
