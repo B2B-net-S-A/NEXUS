@@ -3168,27 +3168,36 @@ async def export_candidates(
 
     filename = f"candidates_{ts}.csv"
     return StreamingResponse(
-        _stream_candidate_csv(db, query),
+        _stream_candidate_csv(query),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
-async def _stream_candidate_csv(db: AsyncSession, query):
-    """Yield bounded CSV chunks while candidates are streamed from Postgres."""
+async def _stream_candidate_csv(query):
+    """Yield bounded CSV chunks while candidates are streamed from Postgres.
+
+    Runda 9 (R9-X1-2): własna sesja. Sesja żądania (``get_db``) zamyka się
+    przed wysłaniem odpowiedzi, a ten generator biegnie dopiero w trakcie jej
+    wysyłania — zamknięta sesja pobrałaby nowe połączenie, którego nikt by
+    nie zwolnił.
+    """
     import csv
     from io import StringIO
+
+    from app.core.database import AsyncSessionLocal
 
     buffer = StringIO()
     writer = csv.writer(buffer, quoting=csv.QUOTE_MINIMAL)
     writer.writerow(_EXPORT_COLUMNS)
-    stream = await db.stream_scalars(query.execution_options(yield_per=500))
-    async for candidate in stream:
-        writer.writerow(_row_for_export(candidate))
-        if buffer.tell() >= 64 * 1024:
-            yield buffer.getvalue()
-            buffer.seek(0)
-            buffer.truncate(0)
+    async with AsyncSessionLocal() as stream_db:
+        stream = await stream_db.stream_scalars(query.execution_options(yield_per=500))
+        async for candidate in stream:
+            writer.writerow(_row_for_export(candidate))
+            if buffer.tell() >= 64 * 1024:
+                yield buffer.getvalue()
+                buffer.seek(0)
+                buffer.truncate(0)
     if buffer.tell():
         yield buffer.getvalue()
 
@@ -3353,7 +3362,7 @@ async def export_candidates_v2(
         )
 
     return StreamingResponse(
-        _stream_candidate_csv(db, query),
+        _stream_candidate_csv(query),
         media_type="text/csv; charset=utf-8",
         headers=headers,
     )

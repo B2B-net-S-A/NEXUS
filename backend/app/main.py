@@ -13,7 +13,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES, GZipMiddleware
 
 from app.core.config import settings
-from app.core.database import engine, Base
+from app.core.database import engine, Base, enforce_function_scope
 from app.core.http_headers import apply_credentialed_cache_policy
 from app.core.logging_config import configure_json_logging
 from app.core.rate_limit import limiter
@@ -3690,3 +3690,9 @@ async def api_health_deep_check():
         if all_healthy
         else http_status.HTTP_503_SERVICE_UNAVAILABLE,
     )
+
+
+# Runda 9 (R9-X1-2): sesja żądania zatwierdzana PRZED odpowiedzią i przed
+# BackgroundTasks. Musi stać po zarejestrowaniu wszystkich tras (także tych
+# z dekoratorów wyżej) — pilnuje tego test_get_db_function_scope.py.
+enforce_function_scope(app)
