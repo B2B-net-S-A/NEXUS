@@ -311,9 +311,9 @@ async def get_history(
         "type": ctype.value,
         "periods": [
             {"period": p, "top3": by_period[p]}
-            for p in sorted(by_period.keys(), key=comp_service.period_sort_key, reverse=True)[
-                :limit
-            ]
+            for p in sorted(
+                by_period.keys(), key=comp_service.period_sort_key, reverse=True
+            )[:limit]
         ],
     }
 

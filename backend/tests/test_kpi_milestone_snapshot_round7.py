@@ -83,7 +83,6 @@ async def test_two_users_share_one_milestone_query(monkeypatch) -> None:
     assert by_first["monthly_placements"] == 0
 
 
-
 # ── Runda 9 (R9-N6-1): klucz bez „teraz” z mikrosekundami ─────────────────
 
 

@@ -753,11 +753,10 @@ async def _dl_head_fallback_map(db: AsyncSession) -> DlFallback:
     """client_id → główny DL klienta (`is_head`, aktywny, z rolą DL). Fallback
     dla rekrutacji bez DL-a albo z DL-em, który nie może już nim być."""
     heads = {
-        int(r.client_id): int(r.dl_id) for r in (await db.execute(text(_DL_HEADS_SQL))).all()
+        int(r.client_id): int(r.dl_id)
+        for r in (await db.execute(text(_DL_HEADS_SQL))).all()
     }
-    eligible = frozenset(
-        int(r.id) for r in (await db.execute(_ELIGIBLE_DL_SQL)).all()
-    )
+    eligible = frozenset(int(r.id) for r in (await db.execute(_ELIGIBLE_DL_SQL)).all())
     return DlFallback(heads, eligible)
 
 

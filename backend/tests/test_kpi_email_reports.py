@@ -231,9 +231,7 @@ def test_deliver_reports_deferred_when_sender_refused_temporarily(monkeypatch):
     monkeypatch.setattr(
         "app.services.notification_delivery.last_send_policy_blocked", lambda: True
     )
-    assert reports._deliver(reports.MONTHLY_KIND, datetime.now(WAW), mail) == (
-        "failed"
-    )
+    assert reports._deliver(reports.MONTHLY_KIND, datetime.now(WAW), mail) == ("failed")
 
 
 @pytest.mark.asyncio
@@ -305,7 +303,6 @@ async def test_new_period_drops_stale_pending_of_the_same_kind(
         assert await db.get(AppSetting, other_kind) is not None
         await db.delete(await db.get(AppSetting, other_kind))
         await db.commit()
-
 
 
 # ── Runda 9 (R9-N6-3): raport nie przepada po awarii liczenia ani restarcie ──

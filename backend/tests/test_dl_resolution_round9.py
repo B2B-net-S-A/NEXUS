@@ -57,7 +57,9 @@ async def test_fallback_map_uses_active_dl_heads_only() -> None:
             return _Result([SimpleNamespace(client_id=7, dl_id=99)])
         return _Result([SimpleNamespace(id=99), SimpleNamespace(id=5)])
 
-    fallback = await reports._dl_head_fallback_map(SimpleNamespace(execute=fake_execute))
+    fallback = await reports._dl_head_fallback_map(
+        SimpleNamespace(execute=fake_execute)
+    )
     assert dict(fallback) == {7: 99}
     assert fallback.eligible_dl_ids == frozenset({5, 99})
     heads_sql = next(s for s in seen if "is_head" in s)
