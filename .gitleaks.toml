@@ -93,6 +93,10 @@ regexes = [
   # wyłączyłoby skaner na katalogu, w którym migracje danych operują na realnych
   # tabelach i do którego najłatwiej wkleić DSN-a z produkcji.
   '''^[0-9]{4}_[a-z0-9_]+$''',
+  # Atrapy haseł z testu zmiany hasła (runda 10 audytu, 27.09.2026) — zostały
+  # w historii gałęzi PR #1874, a skan PR-a obejmuje cały zakres commitów.
+  # Zakotwiczone, dokładnie trzy wartości.
+  '''^(dobre-haslo-123|nowe-haslo-456|zle-haslo-xxx)$''',
 ]
 
 [[rules]]
