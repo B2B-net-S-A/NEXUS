@@ -9,8 +9,8 @@ Każdy test dowodzi jednego kontraktu, który łatwo cofnąć „przy okazji":
 3. Odczyt karty i przeglądu jest org-wide dla ról operacyjnych (karta
    zastępuje wzory Word czytane w Pomocy przez każdego); zapis i historia
    wymagają sekcji Delivery, a każdy DL może zarządzać każdym klientem.
-4. ``off_limits`` z umowy ramowej jedzie tylko do ról z odczytem sekcji
-   Delivery, a Delivery Leadowi — tylko u klientów z portfela (runda 6).
+4. Karta NIE niesie ``off_limits`` — funkcja usunięta 27.09.2026 decyzją
+   Artura (runda 9, R9-N4-8); kolumny w ``client_contract_terms`` zostają.
 5. Seed w repo (14 kart) i lustro DDL/seeda w ``entrypoint.sh`` są spójne
    z migracją — prod alembic jest osierocony, więc lustro jest wdrożeniem.
 """
@@ -152,7 +152,7 @@ async def test_get_without_row_returns_empty_card_not_404(app_client: AsyncClien
         assert body["exists"] is False
         assert body["version"] == 0
         assert body["documents"] == []
-        assert body["off_limits"] is None
+        assert "off_limits" not in body
         assert body["client_name"] == "Pusty Bank"
     finally:
         await _cleanup([cid])
@@ -384,7 +384,13 @@ async def test_delivery_lead_writes_for_all_clients(
 
 
 @pytest.mark.asyncio
-async def test_off_limits_only_for_delivery_readers(app_client: AsyncClient):
+async def test_card_carries_no_off_limits_for_any_role(app_client: AsyncClient):
+    """Runda 9 (R9-N4-8): off-limits usunięte decyzją Artura 27.09.2026.
+
+    Warunki umowy mają wartość off-limit w bazie, a mimo to karta (odczyt,
+    odpowiedź zapisu) i przegląd nie oddają jej żadnej roli — także adminowi
+    i DL-owi z portfela. Zapis karty nie rusza kolumn w bazie.
+    """
     from app.core.database import AsyncSessionLocal
     from app.models.client_contract_terms import ClientContractTerms
 
@@ -403,23 +409,15 @@ async def test_off_limits_only_for_delivery_readers(app_client: AsyncClient):
             URL.format(cid=cid), json=_full_payload(), headers=owner
         )
         assert r.status_code == 200, r.text
-        assert r.json()["off_limits"] == {
-            "months": 12,
-            "scope": "cały bank",
-            "notes": None,
-        }
-        g = await app_client.get(URL.format(cid=cid), headers=owner)
-        assert g.json()["off_limits"]["months"] == 12
+        assert "off_limits" not in r.json()
+        for role_headers in (owner, await _headers_for(app_client, "admin")):
+            g = await app_client.get(URL.format(cid=cid), headers=role_headers)
+            assert g.status_code == 200, g.text
+            assert "off_limits" not in g.json()
+            o = await app_client.get(OVERVIEW_URL, headers=role_headers)
+            row = [i for i in o.json()["items"] if i["client_id"] == cid]
+            assert row and "off_limits" not in row[0]
 
-        recruiter = await _headers_for(app_client, "recruiter")
-        g = await app_client.get(URL.format(cid=cid), headers=recruiter)
-        assert g.status_code == 200, g.text
-        assert g.json()["off_limits"] is None
-        o = await app_client.get(OVERVIEW_URL, headers=recruiter)
-        mine = [i for i in o.json()["items"] if i["client_id"] == cid]
-        assert mine and mine[0]["off_limits"] is None
-
-        # Zapis karty nie dotyka warunków umowy.
         async with AsyncSessionLocal() as db:
             terms = (
                 await db.execute(
@@ -429,52 +427,6 @@ async def test_off_limits_only_for_delivery_readers(app_client: AsyncClient):
                 )
             ).scalar_one()
             assert terms.off_limits_months == 12
-    finally:
-        await _cleanup([cid])
-
-
-@pytest.mark.asyncio
-async def test_off_limits_only_for_clients_in_the_dl_portfolio(
-    app_client: AsyncClient,
-):
-    """Runda 6 audytu (decyzja Artura 26.09.2026).
-
-    Karta jest org-wide dla DL, ale off-limit pochodzi z umowy ramowej, a
-    warunki umów DL czyta tylko u swoich klientów (jak
-    ``GET /clients/{id}/contract-terms``). Do tej rundy DL spoza portfela
-    widział off-limit każdego klienta na karcie, w odpowiedzi zapisu
-    i w przeglądzie.
-    """
-    from app.core.database import AsyncSessionLocal
-    from app.models.client_contract_terms import ClientContractTerms
-
-    cid = await _make_client(_unique("Playbook offlimit portfolio"))
-    try:
-        async with AsyncSessionLocal() as db:
-            db.add(ClientContractTerms(client_id=cid, off_limits_months=6))
-            await db.commit()
-
-        stranger = await _headers_for(app_client, "delivery_lead")
-        g = await app_client.get(URL.format(cid=cid), headers=stranger)
-        assert g.status_code == 200, g.text
-        assert g.json()["off_limits"] is None
-        r = await app_client.put(
-            URL.format(cid=cid), json=_full_payload(), headers=stranger
-        )
-        assert r.status_code == 200, r.text
-        assert r.json()["off_limits"] is None
-        o = await app_client.get(OVERVIEW_URL, headers=stranger)
-        row = [i for i in o.json()["items"] if i["client_id"] == cid]
-        assert row and row[0]["off_limits"] is None
-
-        owner = await _headers_for(app_client, "delivery_lead", assigned_client_id=cid)
-        o = await app_client.get(OVERVIEW_URL, headers=owner)
-        row = [i for i in o.json()["items"] if i["client_id"] == cid]
-        assert row and row[0]["off_limits"]["months"] == 6
-
-        admin = await _headers_for(app_client, "admin")
-        g = await app_client.get(URL.format(cid=cid), headers=admin)
-        assert g.json()["off_limits"]["months"] == 6
     finally:
         await _cleanup([cid])
 
@@ -815,30 +767,10 @@ def test_seed_never_names_another_client_in_card_text():
         assert "Nordea" not in text, entry["seed_key"]
 
 
-@pytest.mark.asyncio
-async def test_off_limits_boundary_is_the_delivery_client_resolver(monkeypatch):
-    """Bez bazy: off-limit DL-a tylko u klientów z ``resolve_delivery_lead_client_ids``."""
-    from types import SimpleNamespace
-
+def test_playbook_read_schema_has_no_off_limits():
+    """Bez bazy: runda 9 (R9-N4-8) — kształt odpowiedzi karty bez off-limits."""
     from app.api import client_playbooks as api
 
-    async def boundary(user, db):
-        return frozenset({1})
+    assert "off_limits" not in api.ClientPlaybookRead.model_fields
+    assert not hasattr(api, "OffLimitsRead")
 
-    async def terms_for(db, client_id):
-        return SimpleNamespace(
-            off_limits_months=3, off_limits_scope=None, off_limits_notes=None
-        )
-
-    monkeypatch.setattr(api, "_can_read_off_limits", lambda user: True)
-    monkeypatch.setattr(api, "resolve_delivery_lead_client_ids", boundary)
-    monkeypatch.setattr(api, "_terms_for", terms_for)
-    user = SimpleNamespace(id=5)
-    assert (await api._off_limits_for(None, user, 1)).months == 3
-    assert await api._off_limits_for(None, user, 2) is None
-
-    async def unrestricted(user, db):
-        return None
-
-    monkeypatch.setattr(api, "resolve_delivery_lead_client_ids", unrestricted)
-    assert (await api._off_limits_for(None, user, 2)).months == 3

@@ -10,9 +10,8 @@
  * prowadzona przez Delivery Leada. Zapis = obowiązuje (bez bramki
  * zatwierdzenia jak w regułach CV); wersja + historia zostają.
  *
- * Off-limit NIE jest polem karty — przychodzi tylko do odczytu z warunków
- * umowy ramowej (`client_contract_terms`) i wyłącznie dla ról z odczytem
- * sekcji Delivery; reszta dostaje `null`.
+ * Off-limits usunięte 27.09.2026 decyzją Artura (runda 9, R9-N4-8) — karta
+ * ani API ich nie niosą; kolumny w `client_contract_terms` zostają w bazie.
  *
  * Nazwy `playbookToForm` / `playbookFormToPayload` są celowo inne niż
  * `ruleToForm` / `formToPayload` z `cv-rules.ts` — oba moduły spotykają się
@@ -40,12 +39,6 @@ export interface PlaybookDocument {
   url: string;
 }
 
-export interface PlaybookOffLimits {
-  months: number | null;
-  scope: string | null;
-  notes: string | null;
-}
-
 /** Odpowiedź `GET /api/clients/{id}/playbook` (także dla klienta bez karty). */
 export interface ClientPlaybook {
   client_id: number;
@@ -64,8 +57,6 @@ export interface ClientPlaybook {
   process_rules_md: string | null;
   onboarding_md: string | null;
   documents: PlaybookDocument[];
-  /** Tylko do odczytu — z warunków umowy, nie z karty. */
-  off_limits: PlaybookOffLimits | null;
   seed_key: string | null;
   updated_at: string | null;
   updated_by_name: string | null;
@@ -125,7 +116,6 @@ export const PLAYBOOK_FIELD_LABELS: Record<string, string> = {
   process_rules_md: "Zasady procesu rekrutacji (Markdown)",
   onboarding_md: "Onboarding po akceptacji (Markdown)",
   documents: "Dokumenty (nazwa + link)",
-  off_limits: "Off-limit (z warunków umowy)",
 };
 
 /** Etykiety akcji historii — backend emituje dziś wyłącznie `saved`;
@@ -184,11 +174,7 @@ export function useClientPlaybookHistory(clientId: number) {
   });
 }
 
-/**
- * `exists=false` LUB wszystkie pola treści puste. `off_limits` NIE liczy się
- * — pochodzi z umowy, nie z karty, więc nie świadczy o tym, że kartę ktoś
- * wypełnił.
- */
+/** `exists=false` LUB wszystkie pola treści puste. */
 export function isPlaybookEmpty(p: ClientPlaybook | null | undefined): boolean {
   if (!p || !p.exists) return true;
   const ints = [
@@ -210,14 +196,6 @@ export function isPlaybookEmpty(p: ClientPlaybook | null | undefined): boolean {
     texts.every((t) => !t?.trim()) &&
     (p.documents ?? []).length === 0
   );
-}
-
-export function formatOffLimits(o: PlaybookOffLimits | null): string | null {
-  if (!o) return null;
-  const parts: string[] = [];
-  if (o.months != null) parts.push(`${o.months} mies.`);
-  if (o.scope?.trim()) parts.push(o.scope.trim());
-  return parts.join(" · ") || null;
 }
 
 /** Formularz: null → "" (kontrolki sterowane), liczby jako string dla <input type="number">. */

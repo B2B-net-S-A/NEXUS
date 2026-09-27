@@ -18,7 +18,7 @@ import {
  *  * po zapisie invaliduje kartę, listę w Pomocy i historię — inaczej karta
  *    obok formularza pokazywałaby starą wersję;
  *  * awaria odczytu NIE udaje pustej karty;
- *  * off-limit jest tylko do odczytu (źródłem prawdy jest umowa ramowa).
+ *  * formularz nie ma pola off-limit (funkcja usunięta 27.09.2026, R9-N4-8).
  */
 
 const mocks = vi.hoisted(() => ({
@@ -193,13 +193,11 @@ describe("ClientPlaybookForm", () => {
     expect(mocks.get).toHaveBeenCalledWith(HISTORY_URL, { params: { limit: 10 } });
   });
 
-  it("off-limit jest tylko do odczytu", async () => {
+  it("nie ma pola off-limit (funkcja usunięta, R9-N4-8)", async () => {
     renderForm();
     await screen.findByLabelText(SLA_LABEL);
 
-    expect(screen.getByTestId("playbook-off-limits")).toHaveTextContent("12 mies. · Cały bank");
-    expect(screen.queryByLabelText("Off-limit (z warunków umowy)")).not.toBeInTheDocument();
-    // Etykieta jest, ale jako opis pola do odczytu, nie <label> kontrolki.
-    expect(screen.getByText("Off-limit (z warunków umowy)")).toBeInTheDocument();
+    expect(screen.queryByTestId("playbook-off-limits")).not.toBeInTheDocument();
+    expect(screen.queryByText(/off-limit/i)).not.toBeInTheDocument();
   });
 });

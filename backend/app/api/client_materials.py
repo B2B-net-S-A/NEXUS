@@ -184,9 +184,6 @@ async def _terms_to_response(
     return ClientContractTermsResponse(
         id=terms.id,
         client_id=terms.client_id,
-        off_limits_months=terms.off_limits_months,
-        off_limits_scope=terms.off_limits_scope,
-        off_limits_notes=terms.off_limits_notes,
         internalization_fee_pct=terms.internalization_fee_pct,
         internalization_min_months=terms.internalization_min_months,
         internalization_notice_days=terms.internalization_notice_days,
