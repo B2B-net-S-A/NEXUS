@@ -24,16 +24,18 @@ Query (ten sam trap co w ``candidate_activity_summary.py``).
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from io import BytesIO
+from types import SimpleNamespace
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from app.api.deps import require_roles
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
@@ -52,6 +54,7 @@ from app.models.dl_alert import (
     DL_ALERT_TYPE_LABELS,
     DlAlert,
 )
+from app.models.client import Client
 from app.models.client_order_offboarding import OFFBOARDING_STATUS_PENDING
 from app.models.user import User, UserRole
 from app.services.client_identity import client_display_name
@@ -417,6 +420,74 @@ async def mark_handled(
     return _to_read(refreshed or alert)
 
 
+_EXPORT_HEADER = [
+    "Delivery Lead",
+    "Klient",
+    "Typ",
+    "Treść",
+    "Data wygenerowania",
+    "Data obsłużenia",
+    "Czas reakcji",
+    "Status",
+]
+
+
+def _export_sheet_row(row: tuple) -> list:
+    """Jeden wiersz arkusza z krotki zapytania kolumnowego (czysta funkcja)."""
+    (
+        recipient_id,
+        recipient_name,
+        recipient_email,
+        client_display,
+        client_name,
+        alert_type,
+        message,
+        created_at,
+        handled_at,
+        alert_status,
+    ) = row
+    if recipient_id is None:
+        recipient_label = "—"
+    else:
+        recipient_label = (
+            (recipient_name or "").strip() or recipient_email or f"#{recipient_id}"
+        )
+    client_label = (client_display or "").strip() or client_name or "—"
+    timing = SimpleNamespace(
+        created_at=created_at, handled_at=handled_at, status=alert_status
+    )
+    return [
+        safe_cell(recipient_label),
+        safe_cell(client_label),
+        safe_cell(DL_ALERT_TYPE_LABELS.get(alert_type, alert_type)),
+        safe_cell(message),
+        created_at.isoformat(timespec="seconds"),
+        handled_at.isoformat(timespec="seconds") if handled_at else "",
+        format_reaction(timing),
+        DL_ALERT_STATUS_LABELS.get(alert_status, alert_status),
+    ]
+
+
+def _build_export_xlsx(rows: list[tuple]) -> BytesIO:
+    """Arkusz raportu — CPU (openpyxl), wołane przez ``asyncio.to_thread``."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Powiadomienia"
+    sheet.append(_EXPORT_HEADER)
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    sheet.freeze_panes = "A2"
+    for row in rows:
+        sheet.append(_export_sheet_row(row))
+    buffer = BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
 @router.get("/export")
 async def export_alerts(
     user: DlAlertsUser,
@@ -437,56 +508,33 @@ async def export_alerts(
             detail="Eksport zbiorczy jest dostępny dla ról Administrator i Finanse",
         )
 
-    query = _base_query().order_by(DlAlert.created_at.desc(), DlAlert.id.desc())
+    # Runda 9 (R9-X1-10): do 50 000 wierszy — zapytanie kolumnowe zamiast
+    # pełnych obiektów ORM z trzema selectinloadami, a arkusz składany w wątku.
+    # Dawniej ORM, walidacja DlAlertRead i openpyxl szły na pętli jedynego
+    # procesu uvicorna i na sekundy zatrzymywały każde inne żądanie.
+    recipient = aliased(User)
+    query = (
+        select(
+            recipient.id,
+            recipient.name,
+            recipient.email,
+            Client.display_name,
+            Client.name,
+            DlAlert.alert_type,
+            DlAlert.message,
+            DlAlert.created_at,
+            DlAlert.handled_at,
+            DlAlert.status,
+        )
+        .select_from(DlAlert)
+        .outerjoin(recipient, recipient.id == DlAlert.user_id)
+        .outerjoin(Client, Client.id == DlAlert.client_id)
+        .order_by(DlAlert.created_at.desc(), DlAlert.id.desc())
+    )
     if scope == "mine":
         query = query.where(DlAlert.user_id == user.id)
-    result = await db.execute(query.limit(limit))
-    alerts = list(result.scalars())
-
-    from openpyxl import Workbook
-    from openpyxl.styles import Font
-
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = "Powiadomienia"
-    sheet.append(
-        [
-            "Delivery Lead",
-            "Klient",
-            "Typ",
-            "Treść",
-            "Data wygenerowania",
-            "Data obsłużenia",
-            "Czas reakcji",
-            "Status",
-        ]
-    )
-    for cell in sheet[1]:
-        cell.font = Font(bold=True)
-    sheet.freeze_panes = "A2"
-
-    for alert in alerts:
-        read = _to_read(alert)
-        sheet.append(
-            [
-                safe_cell(read.recipient_name),
-                safe_cell(read.client_name),
-                safe_cell(read.alert_type_label),
-                safe_cell(read.message),
-                read.created_at.isoformat(timespec="seconds"),
-                (
-                    read.handled_at.isoformat(timespec="seconds")
-                    if read.handled_at
-                    else ""
-                ),
-                read.reaction_label,
-                read.status_label,
-            ]
-        )
-
-    buffer = BytesIO()
-    workbook.save(buffer)
-    buffer.seek(0)
+    rows = [tuple(row) for row in (await db.execute(query.limit(limit))).all()]
+    buffer = await asyncio.to_thread(_build_export_xlsx, rows)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"powiadomienia-dl_{stamp}.xlsx"
     return StreamingResponse(
