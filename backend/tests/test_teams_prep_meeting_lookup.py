@@ -26,7 +26,9 @@ async def test_eventual_meeting_is_found_before_recording_setup(monkeypatch):
     monkeypatch.setattr(teams_prep_graph, "_client", lambda: client)
     monkeypatch.setattr(teams_prep_graph.asyncio, "sleep", sleep)
 
-    assert await teams_prep_graph.find_online_meeting("organizer", "join'url") == "meeting"
+    assert (
+        await teams_prep_graph.find_online_meeting("organizer", "join'url") == "meeting"
+    )
     assert client.get.await_count == 2
     sleep.assert_awaited_once_with(1)
     assert client.get.call_args.kwargs["params"] == {
@@ -57,3 +59,25 @@ async def test_access_denied_is_not_retried(monkeypatch):
         await teams_prep_graph.find_online_meeting("organizer", "url")
     assert client.get.await_count == 1
     sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("language", ["pl-PL", "en-US"])
+async def test_recording_setup_uses_configured_spoken_language(monkeypatch, language):
+    client = LookupClient([])
+    client.patch = AsyncMock()
+    monkeypatch.setattr(teams_prep_graph, "_client", lambda: client)
+    monkeypatch.setattr(
+        teams_prep_graph.settings, "TEAMS_PREP_SPOKEN_LANGUAGE", language
+    )
+
+    await teams_prep_graph.enable_auto_transcription("organizer", "meeting")
+
+    client.patch.assert_awaited_once_with(
+        "/users/organizer/onlineMeetings/meeting",
+        json={
+            "recordAutomatically": True,
+            "allowTranscription": True,
+            "meetingSpokenLanguageTag": language,
+        },
+    )

@@ -19,6 +19,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from urllib.parse import quote
 
+from app.core.config import settings
 from app.services.m365.app_graph_client import AppGraphClient
 from app.services.m365.graph_client import GraphRequestError
 from app.services.m365.teams_prep_auth import acquire_teams_prep_token
@@ -181,7 +182,11 @@ async def enable_auto_transcription(user_id: str, meeting_id: str) -> None:
     async with _client() as gc:
         await gc.patch(
             f"{_user(user_id)}/onlineMeetings/{meeting_id}",
-            json={"recordAutomatically": True, "allowTranscription": True},
+            json={
+                "recordAutomatically": True,
+                "allowTranscription": True,
+                "meetingSpokenLanguageTag": settings.TEAMS_PREP_SPOKEN_LANGUAGE,
+            },
         )
 
 

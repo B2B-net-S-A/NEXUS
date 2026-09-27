@@ -196,6 +196,7 @@ def probe(
     allowed = {
         "TEAMS_PREP_CLIENT_ID",
         "TEAMS_PREP_CLIENT_SECRET",
+        "TEAMS_PREP_SPOKEN_LANGUAGE",
         "M365_MAIL_TENANT_ID",
         "M365_TENANT_ID",
     }
@@ -331,11 +332,27 @@ def probe(
             aad_path + "/onlineMeetings/" + urllib.parse.quote(meeting["id"], safe="")
         )
         stage = "automatic_recording"
-        graph(path, "PATCH", {"recordAutomatically": True, "allowTranscription": True})
+        spoken_language = values.get("TEAMS_PREP_SPOKEN_LANGUAGE") or "pl-PL"
+        graph(
+            path,
+            "PATCH",
+            {
+                "recordAutomatically": True,
+                "allowTranscription": True,
+                "meetingSpokenLanguageTag": spoken_language,
+            },
+        )
         _, options = graph(path)
         result["record_automatically"] = options.get("recordAutomatically") is True
         result["allow_transcription"] = options.get("allowTranscription") is True
-        if not (result["record_automatically"] and result["allow_transcription"]):
+        result["spoken_language_verified"] = (
+            options.get("meetingSpokenLanguageTag") == spoken_language
+        )
+        if not (
+            result["record_automatically"]
+            and result["allow_transcription"]
+            and result["spoken_language_verified"]
+        ):
             raise ProbeError()
         stage = "transcript_access"
         status, _ = graph(path + "/transcripts")
