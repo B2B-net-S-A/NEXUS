@@ -367,6 +367,32 @@ def _get(path: str, params: Optional[dict[str, Any]] = None) -> RequestSpec:
     return RequestSpec("GET", path, params=_clean(params or {}))
 
 
+def _local_day_bound(value: Any, *, end: bool) -> Any:
+    """Data ``RRRR-MM-DD`` → granica doby w kalendarzu firmy, ze strefą.
+
+    Runda 9 (R9-V3-2): `/api/calendar/events` porównuje `start_time` z chwilą,
+    a sama data to północ UTC — „do 2026-09-30” odcinało CAŁY 30. dzień,
+    a „od” zaczynało dobę o 01:00/02:00 czasu polskiego. Koniec = ostatnia
+    mikrosekunda doby (trasa porównuje `<=`). Wartość, która nie jest samą
+    datą (pełna chwila ISO), idzie bez zmian.
+    """
+    if not isinstance(value, str):
+        return value
+    try:
+        day = date.fromisoformat(value.strip())
+    except ValueError:
+        return value
+    from app.core.scheduling import local_day_start_utc
+
+    if end:
+        bound = local_day_start_utc(day + timedelta(days=1)) - timedelta(
+            microseconds=1
+        )
+    else:
+        bound = local_day_start_utc(day)
+    return bound.isoformat()
+
+
 _BOARD_TASK_ROW = (
     "kind",
     "candidate_id",
@@ -1043,8 +1069,8 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         build=lambda a: _get(
             "/api/calendar/events",
             {
-                "from_date": a.get("from_date"),
-                "to_date": a.get("to_date"),
+                "from_date": _local_day_bound(a.get("from_date"), end=False),
+                "to_date": _local_day_bound(a.get("to_date"), end=True),
                 "upcoming": not (a.get("from_date") or a.get("to_date")),
                 "mine_only": a.get("mine_only", True),
                 "limit": _limit(a),

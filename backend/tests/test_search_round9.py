@@ -264,3 +264,30 @@ async def test_r9_n5_8_full_scan_radar_refuses_deleted_client(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await cs.start_search(payload, SimpleNamespace(id=1), _Db())
     assert exc.value.status_code == 422
+
+
+# ---------------------------------------------------------------- R9-V3-2
+
+
+def test_r9_v3_2_jarvis_calendar_dates_are_whole_warsaw_days():
+    from datetime import datetime, timedelta
+
+    from app.services.jarvis.tools import TOOLS_BY_NAME
+
+    spec = TOOLS_BY_NAME["list_calendar_events"].build(
+        {"from_date": "2026-09-30", "to_date": "2026-09-30"}
+    )
+    start = datetime.fromisoformat(spec.params["from_date"])
+    end = datetime.fromisoformat(spec.params["to_date"])
+    assert start.utcoffset() is not None and end.utcoffset() is not None
+    # 30.09 w Warszawie (CEST, UTC+2): 29.09 22:00 UTC → 30.09 21:59:59.999999 UTC.
+    assert start.isoformat() == "2026-09-29T22:00:00+00:00"
+    assert end - start == timedelta(days=1, microseconds=-1)
+    assert spec.params["upcoming"] is False
+
+    # Pełna chwila ISO przechodzi bez zmian; bez dat — nadchodzące.
+    spec = TOOLS_BY_NAME["list_calendar_events"].build(
+        {"to_date": "2026-09-30T12:00:00+02:00"}
+    )
+    assert spec.params["to_date"] == "2026-09-30T12:00:00+02:00"
+    assert TOOLS_BY_NAME["list_calendar_events"].build({}).params["upcoming"] is True
