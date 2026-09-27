@@ -48,7 +48,10 @@ async def test_finalize_stores_exact_submitted_content_only_after_review(
     monkeypatch, verified
 ):
     item = draft()
-    db = SimpleNamespace(add=Mock(), flush=AsyncMock())
+    # `get`: finalizacja czyta dokument generatora (nagłówek wersji, R9-N3-3).
+    db = SimpleNamespace(
+        add=Mock(), flush=AsyncMock(), get=AsyncMock(return_value=None)
+    )
     monkeypatch.setattr(
         editor, "render", AsyncMock(return_value=b"rendered edited docx")
     )
@@ -81,7 +84,10 @@ async def test_real_editor_docx_keeps_submitted_text_and_bold(monkeypatch):
 
     item = draft()
     item.branded_template_content = default_template()
-    db = SimpleNamespace(add=Mock(), flush=AsyncMock())
+    # `get`: finalizacja czyta dokument generatora (nagłówek wersji, R9-N3-3).
+    db = SimpleNamespace(
+        add=Mock(), flush=AsyncMock(), get=AsyncMock(return_value=None)
+    )
     # Exercise the actual DOCX renderer; this test does not claim model acceptance.
     monkeypatch.setattr(
         editor, "review_for_approval", AsyncMock(return_value={"status": "verified"})
