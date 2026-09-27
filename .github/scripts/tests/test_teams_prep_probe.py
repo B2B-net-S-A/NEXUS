@@ -123,13 +123,26 @@ class TeamsProbeTests(unittest.TestCase):
             side_effect=self.initial()
             + [
                 response({}),
-                response({"recordAutomatically": True, "allowTranscription": True}),
+                response(
+                    {
+                        "recordAutomatically": True,
+                        "allowTranscription": True,
+                        "meetingSpokenLanguageTag": "pl-PL",
+                    }
+                ),
                 response({"value": []}),
                 response({}, 202),
             ]
         )
         result = probe.probe(self.rows(), write=True, opener=opener)
         self.assertTrue(result["passed"])
+        self.assertTrue(result["spoken_language_verified"])
+        self.assertEqual(
+            json.loads(opener.call_args_list[6].args[0].data)[
+                "meetingSpokenLanguageTag"
+            ],
+            "pl-PL",
+        )
         self.assertEqual(result["organizer"], probe.ORGANIZER)
         self.assertEqual(
             opener.call_args_list[1].args[0].full_url,
@@ -140,6 +153,28 @@ class TeamsProbeTests(unittest.TestCase):
         self.assertTrue(result["event_cancelled"])
         self.assertFalse(result["recording_generated_verified"])
         self.assertFalse(result["transcript_generated_verified"])
+        self.assert_private(result)
+
+    def test_ignored_spoken_language_fails_and_cancels_test_meeting(self):
+        opener = Mock(
+            side_effect=self.initial()
+            + [
+                response({}),
+                response(
+                    {
+                        "recordAutomatically": True,
+                        "allowTranscription": True,
+                        "meetingSpokenLanguageTag": "en-US",
+                    }
+                ),
+                response({}, 202),
+            ]
+        )
+        result = probe.probe(self.rows(), write=True, opener=opener)
+        self.assertFalse(result["passed"])
+        self.assertFalse(result["spoken_language_verified"])
+        self.assertEqual(result["failed_stage"], "automatic_recording")
+        self.assertTrue(result["event_cancelled"])
         self.assert_private(result)
 
     def test_failed_cleanup_cannot_pass(self):

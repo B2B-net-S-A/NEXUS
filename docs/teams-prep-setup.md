@@ -145,6 +145,13 @@ TEAMS_PREP_TRANSCRIPTS_ENABLED=true
 
 `M365_MAIL_TENANT_ID` jest już ustawiony (tenant dla client_credentials).
 
+Prepy i follow-upy domyślnie ustawiają język mowy na polski (`pl-PL`)
+przez `meetingSpokenLanguageTag` przed rozpoczęciem transkrypcji.
+Opcjonalne `TEAMS_PREP_SPOKEN_LANGUAGE` pozwala zmienić ten domyślny język
+(np. `en-US`). Organizator nadal może zmienić język podczas spotkania.
+Nie zmienia to ustawień zwykłych spotkań Outlook ani polityki zgody.
+Pole obsługuje [Graph v1.0 Update onlineMeeting](https://learn.microsoft.com/en-us/graph/api/onlinemeeting-update?view=graph-rest-1.0).
+
 ## 6. Sprawdzenie na jednym prawdziwym prepie
 
 1. `/api/health` → `checks.teams_prep = healthy`.

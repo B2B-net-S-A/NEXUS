@@ -1083,6 +1083,8 @@ class Settings(BaseSettings):
     TEAMS_PREP_APP_ONLY_ENABLED: bool = False
     # PATCH spotkania z automatycznym nagrywaniem/transkrypcją po utworzeniu.
     TEAMS_PREP_AUTO_TRANSCRIBE: bool = True
+    # Język mowy prepu/follow-upu ustawiany przed startem transkrypcji.
+    TEAMS_PREP_SPOKEN_LANGUAGE: str = "pl-PL"
     # Pętla pobierająca transkrypty (kill-switch — OFF kończy ją przed pętlą).
     TEAMS_PREP_TRANSCRIPTS_ENABLED: bool = False
     TEAMS_PREP_POLL_MINUTES: int = 10
