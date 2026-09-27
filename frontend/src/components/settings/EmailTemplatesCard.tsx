@@ -20,6 +20,7 @@ import {
   type UserEmailTemplateInput,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { hasRole, useAuthStore } from "@/store/auth";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -214,6 +215,10 @@ interface EditorProps {
 }
 
 function TemplateEditor({ initial, onClose, onSaved, onError }: EditorProps) {
+  // Runda 9 (R9-N10-11): szablon wspólny publikują tylko admin, HoR i DL —
+  // serwer odmawia pozostałym, więc checkbox nie może im obiecywać publikacji.
+  const user = useAuthStore((s) => s.user);
+  const canShare = hasRole(user, "admin", "head_of_recruitment", "delivery_lead");
   const isEdit = initial !== null;
 
   const [draft, setDraft] = useState<DraftState>(() =>
@@ -364,31 +369,33 @@ function TemplateEditor({ initial, onClose, onSaved, onError }: EditorProps) {
             </div>
           </div>
 
-          <label
-            className={cn(
-              "flex items-start gap-3 p-3 rounded-xl border border-border dark:border-border cursor-pointer",
-              draft.is_shared && "bg-primary/5 border-primary/30",
-            )}
-          >
-            <input
-              type="checkbox"
-              checked={draft.is_shared}
-              onChange={(e) =>
-                setDraft((prev) => ({ ...prev, is_shared: e.target.checked }))
-              }
-              className="mt-1"
-            />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-foreground flex items-center gap-2">
-                <Share2 className="h-3.5 w-3.5" />
-                Udostępnij zespołowi
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Pozostali użytkownicy zobaczą ten szablon na liście wyboru w oknie
-                nowej wiadomości. Edytować i usuwać może tylko właściciel.
-              </p>
-            </div>
-          </label>
+          {(canShare || draft.is_shared) && (
+            <label
+              className={cn(
+                "flex items-start gap-3 p-3 rounded-xl border border-border dark:border-border cursor-pointer",
+                draft.is_shared && "bg-primary/5 border-primary/30",
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={draft.is_shared}
+                onChange={(e) =>
+                  setDraft((prev) => ({ ...prev, is_shared: e.target.checked }))
+                }
+                className="mt-1"
+              />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-foreground flex items-center gap-2">
+                  <Share2 className="h-3.5 w-3.5" />
+                  Udostępnij zespołowi
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Pozostali użytkownicy zobaczą ten szablon na liście wyboru w oknie
+                  nowej wiadomości. Edytować i usuwać może tylko właściciel.
+                </p>
+              </div>
+            </label>
+          )}
         </SheetBody>
         <SheetFooter>
           <Button

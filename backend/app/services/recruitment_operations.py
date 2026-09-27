@@ -30,6 +30,7 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import Subquery
 
+from app.api.jobs import _live_work_assignment_job_ids
 from app.api.recruitment_access import job_scope_clause
 from app.services.workforce_availability import (
     operational_owner_ids,
@@ -224,6 +225,10 @@ def _job_filters(
                         JobCollaborator.removed_from_auto_cc.is_(False),
                     )
                 ),
+                # Runda 9 (bliźniak R9-N15-2): żywe przypisanie z przydziału
+                # requestów to też „moja” rekrutacja — ta sama reguła co „Moje”
+                # na liście /jobs.
+                Job.id.in_(_live_work_assignment_job_ids([user.id])),
             )
         )
     normalized_q = (q or "").strip()

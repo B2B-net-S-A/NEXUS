@@ -414,6 +414,10 @@ async def activate_without_revenue_gate(
     previous = contract.status
     if previous not in (ContractStatus.draft, ContractStatus.ready_for_signature):
         return False
+    # Runda 9 (bliźniak R9-V1-2): podpis umowy nie wskrzesza kontraktu klienta
+    # usuniętego albo scalonego — kontrakt zostaje szkicem, podpis się zapisuje.
+    if source == "b2b_signed_agreement" and await contract_client_is_gone(db, contract):
+        return False
     assert_transition(previous, ContractStatus.active)
     contract.status = ContractStatus.active
     db.add(
