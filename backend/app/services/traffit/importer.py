@@ -2767,8 +2767,9 @@ class TraffitImporter:
         # racing the uq_jobs_reference_number constraint mid-loop.
         existing_refs_result = await self.db.execute(
             text(
-                "SELECT reference_number, external_id FROM jobs "
-                "WHERE reference_number IS NOT NULL"
+                "SELECT reference_number, "
+                "CASE WHEN external_source = 'traffit' THEN external_id END "
+                "FROM jobs WHERE reference_number IS NOT NULL"
             )
         )
         # ref -> external_id of the row that already owns it (None if it was
@@ -2814,9 +2815,16 @@ class TraffitImporter:
             # ani razu od 21.09 (0 wierszy z `job_id` w kolejce).
             from app.services.auto_match_outbox import enqueue_job
 
-            for job_id in event_job_ids:
+            for job_id in list(event_job_ids):
                 try:
-                    await enqueue_job(self.db, job_id=job_id, trigger="traffit_job")
+                    # Runda 10 (R10-N11-12): savepoint — błąd bazy w zapisie
+                    # zdarzenia nie może zostawić przerwanej transakcji, którą
+                    # commit paczki niżej po cichu wycofałby razem z 200
+                    # zapisanymi rekrutacjami.
+                    async with self.db.begin_nested():
+                        await enqueue_job(
+                            self.db, job_id=job_id, trigger="traffit_job"
+                        )
                     progress.job_events += 1
                 except Exception as exc:  # noqa: BLE001
                     # Brak zdarzenia = rekrutacja poczeka na ręczną zmianę;
@@ -2826,6 +2834,14 @@ class TraffitImporter:
                         job_id,
                         safe_db_error(exc),
                     )
+                    if await self._recover_session(
+                        progress, exc, batch="jobs", staged=since_commit
+                    ):
+                        touched_job_ids.clear()
+                        inserted_job_ids.clear()
+                        working_title_job_ids.clear()
+                        since_commit = 0
+                        break
             event_job_ids.clear()
 
             # Intencja przeindeksowania rekrutacji — jak dla kandydatów.
@@ -2843,15 +2859,24 @@ class TraffitImporter:
                 )
 
                 try:
-                    progress.index_intents += await record_bulk_reindex(
-                        self.db, JOB, list(touched_job_ids)
-                    )
+                    # Runda 10 (R10-N11-12): savepoint, jak archiwum i kategorie
+                    # niżej — bez niego błąd bazy zostawiał przerwaną transakcję.
+                    async with self.db.begin_nested():
+                        progress.index_intents += await record_bulk_reindex(
+                            self.db, JOB, list(touched_job_ids)
+                        )
                 except Exception as exc:  # noqa: BLE001
                     # Brak intencji to opóźniony wektor, nie utracony import —
                     # reconciler i tak go dogoni.
                     progress.add_error(
                         f"record job reindex intent: {safe_db_error(exc)}"
                     )
+                    if await self._recover_session(
+                        progress, exc, batch="jobs", staged=since_commit
+                    ):
+                        inserted_job_ids.clear()
+                        working_title_job_ids.clear()
+                        since_commit = 0
                 touched_job_ids.clear()
 
             # Archiwum z Traffita: stan „Zakończony” i `is_open=false` to kolumny
@@ -3049,7 +3074,10 @@ class TraffitImporter:
             ext_id = payload["external_id"]
             if ref:
                 owner = ref_owner.get(ref)
-                if owner is not None and owner != ext_id:
+                # Runda 10 (R10-N11-8): numer zajęty przez rekrutację spoza
+                # Traffita (właściciel `None`) też wymaga sufiksu — inaczej
+                # UNIQUE pada co noc, a rekrutacja nigdy nie wchodzi.
+                if ref in ref_owner and owner != ext_id:
                     suffixed = f"{ref} (#{ext_id})"[:100]
                     payload["reference_number"] = suffixed
                     ref_owner[suffixed] = ext_id
@@ -3618,7 +3646,11 @@ class TraffitImporter:
                 # zabierał całą paczkę (do 99 wskaźników CV, których pliki już
                 # leżały w magazynie).
                 async with self.db.begin_nested():
-                    await self.db.execute(
+                    # Runda 10 (R10-N11-6): cele wybrano na starcie fazy, która
+                    # trwa godzinami. CV wgrane w NEXUSIE w tym czasie wygrywa —
+                    # wskaźnik z Traffita zapisujemy tylko do pustego miejsca.
+                    # Pobrany plik zostaje w magazynie (CV się nie kasuje).
+                    stored = await self.db.execute(
                         text(
                             """
                             UPDATE candidates SET
@@ -3626,6 +3658,8 @@ class TraffitImporter:
                                 cv_filename = :filename,
                                 updated_at = NOW()
                             WHERE id = :id
+                              AND cv_storage_key IS NULL
+                              AND cv_file_content IS NULL
                             """
                         ),
                         {
@@ -3634,6 +3668,9 @@ class TraffitImporter:
                             "id": row.id,
                         },
                     )
+                if not stored.rowcount:
+                    progress.skipped += 1
+                    continue
                 progress.inserted += 1
             except Exception as e:  # noqa: BLE001
                 # `ext=` w komunikacie: `_ERROR_REF_RE` przypisuje błąd do
