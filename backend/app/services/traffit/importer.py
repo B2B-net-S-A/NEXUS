@@ -22,6 +22,7 @@ trafiają do specjalnego klienta `__traffit_orphans` (auto-utworzony, status=ina
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -531,13 +532,32 @@ _UPSERT_CONTACT = text(
     )
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
-        client_id          = EXCLUDED.client_id,
-        name               = EXCLUDED.name,
+        -- Runda 10 (R10-N11-4): klienta i nazwę kontaktu prowadzi NEXUS —
+        -- sync tylko dopełnia. Klient zmienia się wyłącznie, gdy kontakt
+        -- siedzi w worku zastępczym albo u klienta usuniętego/scalonego.
+        -- Do 27.09 pełny skan co noc cofał przeniesienie kontaktu do
+        -- właściwego klienta (także hiring managera rekrutacji).
+        client_id          = CASE
+                               WHEN contacts.client_id
+                                    = CAST(:orphan_client_id AS integer)
+                                 OR EXISTS (
+                                   SELECT 1 FROM clients AS c
+                                   WHERE c.id = contacts.client_id
+                                     AND (c.deleted_at IS NOT NULL
+                                          OR (c.merged_into_client_id IS NOT NULL
+                                              AND c.merged_into_client_id <> c.id))
+                                 )
+                               THEN EXCLUDED.client_id
+                               ELSE contacts.client_id
+                             END,
+        name               = COALESCE(NULLIF(contacts.name, ''), EXCLUDED.name),
         email              = COALESCE(EXCLUDED.email, contacts.email),
         phone              = COALESCE(EXCLUDED.phone, contacts.phone),
         position           = COALESCE(EXCLUDED.position, contacts.position),
         department         = COALESCE(EXCLUDED.department, contacts.department),
-        is_decision_maker  = EXCLUDED.is_decision_maker,
+        -- Traffit nie ma tego pola (mapper zawsze daje `false`) — decydenta
+        -- oznacza wyłącznie NEXUS.
+        is_decision_maker  = contacts.is_decision_maker,
         notes              = COALESCE(EXCLUDED.notes, contacts.notes)
     RETURNING id, (xmax = 0) AS was_insert
     """
@@ -605,7 +625,40 @@ _CANDIDATE_TOMBSTONE_GUARD = """
     )
 """
 
-_UPSERT_CANDIDATE_SQL = """
+# Runda 10 (R10-N11-9): wersja skrótu zmapowanego payloadu kandydata. Zmiana
+# mappera, która ma przepisać istniejące wiersze, podbija tę wersję — inaczej
+# niezmieniony u źródła rekord nie zostałby przeliczony nową regułą.
+_CANDIDATE_PAYLOAD_SHA_VERSION = "r10-1"
+
+
+def candidate_payload_sha(payload: dict[str, Any]) -> str:
+    """Skrót zmapowanego rekordu `/employees/` — „czy u źródła coś się zmieniło”."""
+    blob = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=False)
+    return hashlib.sha256(
+        f"{_CANDIDATE_PAYLOAD_SHA_VERSION}\n{blob}".encode("utf-8")
+    ).hexdigest()[:32]
+
+
+def _with_manual_locks(sql: str) -> str:
+    """Wstaw warunek znacznika ręcznej edycji zamiast `{manual:<pole>}`.
+
+    Runda 10 (R10-N11-2/3): znaczniki `<pole>_manual` w
+    `custom_fields._nexus_identity` stawia PATCH kandydata
+    (`lock_changed_traffit_synced_fields`). Jedno miejsce, żeby gałąź upsertu
+    i adopcji czytały ten sam warunek.
+    """
+    return re.sub(
+        r"\{manual:(\w+)\}",
+        lambda m: (
+            "(COALESCE(candidates.custom_fields #>> "
+            f"'{{_nexus_identity,{m.group(1)}_manual}}', 'false') = 'true')"
+        ),
+        sql,
+    )
+
+
+_UPSERT_CANDIDATE_SQL = _with_manual_locks(
+    """
     INSERT INTO candidates (
         external_id, external_source, name, lastname, email, phone, linkedin,
         status, profile_about, cv_filename,
@@ -629,7 +682,8 @@ _UPSERT_CANDIDATE_SQL = """
                 'traffit_name', CAST(:name AS text),
                 'traffit_lastname', CAST(:lastname AS text),
                 'traffit_source_updated_at',
-                    CAST(:traffit_source_updated_at AS text)
+                    CAST(:traffit_source_updated_at AS text),
+                'traffit_payload_sha', CAST(:traffit_payload_sha AS text)
             ))
         ),
         CAST(:source AS text), CAST(:created_by AS integer),
@@ -676,9 +730,20 @@ _UPSERT_CANDIDATE_SQL = """
                               THEN candidates.lastname
                               ELSE EXCLUDED.lastname
                             END,
-        email             = COALESCE(EXCLUDED.email, candidates.email),
-        phone             = COALESCE(EXCLUDED.phone, candidates.phone),
-        linkedin          = COALESCE(EXCLUDED.linkedin, candidates.linkedin),
+        -- Runda 10 (R10-N11-3): pole poprawione w NEXUSIE (znacznik
+        -- `<pole>_manual` z PATCH kandydata) zostaje przy wartości z NEXUSA.
+        email             = CASE WHEN {manual:email}
+                              THEN candidates.email
+                              ELSE COALESCE(EXCLUDED.email, candidates.email)
+                            END,
+        phone             = CASE WHEN {manual:phone}
+                              THEN candidates.phone
+                              ELSE COALESCE(EXCLUDED.phone, candidates.phone)
+                            END,
+        linkedin          = CASE WHEN {manual:linkedin}
+                              THEN candidates.linkedin
+                              ELSE COALESCE(EXCLUDED.linkedin, candidates.linkedin)
+                            END,
         -- Blacklista jest LEPKA. `EXCLUDED.status` niesie to, co przysłał
         -- Traffit, a tam blacklisty nie ma w żadnym polu: jest wklejona
         -- w imię. Bez tego warunku każdy, kogo admin oznaczył ręcznie
@@ -686,16 +751,23 @@ _UPSERT_CANDIDATE_SQL = """
         -- cichy powrót do proponowania osoby, której proponować nie wolno.
         -- Zdjęcie blacklisty jest świadomą decyzją człowieka i musi się
         -- odbyć w Nexusie, a nie przez brak markera w cudzym systemie.
+        --
+        -- Runda 10 (R10-N11-2): w drugą stronę też — zdjęcie blacklisty
+        -- w NEXUSIE (znacznik `status_manual`) nie wraca z markera w imieniu.
         status            = CASE
                               WHEN candidates.status
                                    = CAST('blacklisted' AS candidatestatus)
+                                OR {manual:status}
                               THEN candidates.status
                               ELSE EXCLUDED.status
                             END,
-        profile_about     = COALESCE(
-            EXCLUDED.profile_about,
-            candidates.profile_about
-        ),
+        profile_about     = CASE WHEN {manual:profile_about}
+                              THEN candidates.profile_about
+                              ELSE COALESCE(
+                                EXCLUDED.profile_about,
+                                candidates.profile_about
+                              )
+                            END,
         cv_filename       = COALESCE(EXCLUDED.cv_filename, candidates.cv_filename),
         cv_extracted_data = candidates.cv_extracted_data
                             || EXCLUDED.cv_extracted_data
@@ -797,8 +869,17 @@ _UPSERT_CANDIDATE_SQL = """
         -- (chwilowa awaria Traffita, rekord przywrócony z kosza) zostawiałoby
         -- trwałe „usunięty u źródła" na wskroś żywym profilu.
         external_deleted_at = NULL
+    -- Runda 10 (R10-N11-9): rekord Traffita bez zmian (ten sam skrót
+    -- zmapowanego payloadu) nie jest przepisywany — pełny bieg stemplował
+    -- `updated_at` ~57 tys. kandydatów co tydzień, a trigger przeliczał korpus
+    -- słów kluczowych (tsvector z CV) dla każdego z nich. Brak wiersza
+    -- w RETURNING = „bez zmian”.
+    WHERE candidates.custom_fields #>> '{_nexus_identity,traffit_payload_sha}'
+            IS DISTINCT FROM CAST(:traffit_payload_sha AS text)
+       OR candidates.external_deleted_at IS NOT NULL
     RETURNING id, (xmax = 0) AS was_insert
     """
+)
 
 _UPSERT_CANDIDATE = text(
     _UPSERT_CANDIDATE_SQL.replace("{tombstone_guard}", _CANDIDATE_TOMBSTONE_GUARD)
@@ -818,7 +899,8 @@ _CANDIDATE_EMAIL_UNIQUE = ("ix_candidates_email", "candidates_email_key")
 # stash the previous external_source under cv_extracted_data.legacy_source
 # so we don't lose origin attribution.
 _UPDATE_CANDIDATE_ADOPT = text(
-    """
+    _with_manual_locks(
+        """
     UPDATE candidates
     SET external_source = CAST(:external_source AS text),
         external_id     = CAST(:external_id AS text),
@@ -856,8 +938,16 @@ _UPDATE_CANDIDATE_ADOPT = text(
                             THEN candidates.lastname
                             ELSE CAST(:lastname AS text)
                           END,
-        phone           = COALESCE(CAST(:phone AS text), candidates.phone),
-        linkedin        = COALESCE(CAST(:linkedin AS text), candidates.linkedin),
+        -- Runda 10 (R10-N11-3): lustro gałęzi upsertu.
+        phone           = CASE WHEN {manual:phone}
+                            THEN candidates.phone
+                            ELSE COALESCE(CAST(:phone AS text), candidates.phone)
+                          END,
+        linkedin        = CASE WHEN {manual:linkedin}
+                            THEN candidates.linkedin
+                            ELSE COALESCE(CAST(:linkedin AS text),
+                                          candidates.linkedin)
+                          END,
         -- Blacklista jest LEPKA — dokładnie tak jak w gałęzi upsertu wyżej.
         -- Bez tego warunku nocny sync ZDEJMOWAŁBY blacklisty założone
         -- w NEXUSIE: Traffit nie zna tego stanu (jest wklejony w imię), więc
@@ -871,13 +961,17 @@ _UPDATE_CANDIDATE_ADOPT = text(
         status          = CASE
                             WHEN candidates.status
                                  = CAST('blacklisted' AS candidatestatus)
+                              OR {manual:status}
                             THEN candidates.status
                             ELSE CAST(:status AS candidatestatus)
                           END,
-        profile_about   = COALESCE(
-            CAST(:profile_about AS text),
-            candidates.profile_about
-        ),
+        profile_about   = CASE WHEN {manual:profile_about}
+                            THEN candidates.profile_about
+                            ELSE COALESCE(
+                              CAST(:profile_about AS text),
+                              candidates.profile_about
+                            )
+                          END,
         cv_filename     = COALESCE(CAST(:cv_filename AS text),
                                    candidates.cv_filename),
         cv_extracted_data = candidates.cv_extracted_data
@@ -966,7 +1060,9 @@ _UPDATE_CANDIDATE_ADOPT = text(
                                END
                             || jsonb_build_object(
                                  'traffit_name', CAST(:name AS text),
-                                 'traffit_lastname', CAST(:lastname AS text)
+                                 'traffit_lastname', CAST(:lastname AS text),
+                                 'traffit_payload_sha',
+                                   CAST(:traffit_payload_sha AS text)
                                )
                             || CASE
                                  WHEN CAST(:traffit_source_updated_at AS text)
@@ -994,8 +1090,19 @@ _UPDATE_CANDIDATE_ADOPT = text(
         -- przy najbliższym syncu — bez migracji danych.
         external_deleted_at = NULL
     WHERE id = :nexus_id
+      -- Runda 10 (R10-N11-9): lustro WHERE upsertu — bez zmiany u źródła
+      -- (i bez przejęcia z innego źródła) wiersz nie jest przepisywany.
+      AND (
+        candidates.custom_fields #>> '{_nexus_identity,traffit_payload_sha}'
+          IS DISTINCT FROM CAST(:traffit_payload_sha AS text)
+        OR candidates.external_deleted_at IS NOT NULL
+        OR candidates.external_id IS DISTINCT FROM CAST(:external_id AS text)
+        OR candidates.external_source
+             IS DISTINCT FROM CAST(:external_source AS text)
+      )
     RETURNING id
     """
+    )
 )
 
 
@@ -1140,7 +1247,9 @@ _UPSERT_TALENT_POOL = text(
     )
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
-        name        = EXCLUDED.name,
+        -- Runda 10 (R10-N11-7): nazwę prowadzi NEXUS — przemianowanie puli
+        -- w NEXUSIE nie jest cofane nocnym syncem; import tylko dopełnia.
+        name        = COALESCE(NULLIF(talent_pools.name, ''), EXCLUDED.name),
         description = COALESCE(EXCLUDED.description, talent_pools.description)
     RETURNING id, (xmax = 0) AS was_insert
     """
@@ -1173,11 +1282,21 @@ _UPSERT_USER = text(
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
         name      = EXCLUDED.name,
-        role      = EXCLUDED.role,
-        is_active = EXCLUDED.is_active,
+        -- Runda 10 (R10-N11-11): rolę i aktywność prowadzi Traffit WYŁĄCZNIE
+        -- dla kont zastępczych z importu (hash-zaślepka, bez SSO). Konto
+        -- zaadoptowane w NEXUSIE trafia tu, gdy w Traffit zmieni się mail
+        -- (nie pasuje do mapy adresów) — bez warunku sync wyłączał je albo
+        -- zmieniał mu rolę.
+        role      = CASE WHEN {placeholder} THEN EXCLUDED.role ELSE users.role END,
+        is_active = CASE WHEN {placeholder} THEN EXCLUDED.is_active
+                         ELSE users.is_active END,
         updated_at = NOW()
     RETURNING id, (xmax = 0) AS was_insert
-    """
+    """.replace(
+        "{placeholder}",
+        "(users.password_hash = '!imported-from-traffit-no-login!' "
+        "AND users.azure_oid IS NULL AND users.microsoft_upn IS NULL)",
+    )
 )
 
 # Mark istniejącego (po email) Nexus usera jako Traffit-imported. Nie zmienia
@@ -1247,7 +1366,15 @@ def safe_db_error(error: BaseException) -> str:
     """
     orig = getattr(error, "orig", None)
     if orig is None:
-        return repr(error)
+        # Runda 10 (R10-N11-5): błąd spoza bazy to SAMA klasa. Wyjątki
+        # botocore (`EndpointConnectionError`, `ReadTimeoutError`) niosą w
+        # treści URL obiektu, czyli klucz `cv/…/<uuid>-Jan_Kowalski_CV.pdf`,
+        # a httpx — adres z parametrami. Kod odpowiedzi HTTP zostaje, bo
+        # niczego osobowego nie niesie, a odróżnia 404 od 503.
+        status = getattr(getattr(error, "response", None), "status_code", None)
+        if isinstance(status, int):
+            return f"{type(error).__name__}(HTTP {status})"
+        return type(error).__name__
     constraint = getattr(orig, "constraint_name", None)
     if constraint is None:
         diag = getattr(orig, "diag", None)
@@ -1762,9 +1889,14 @@ class TraffitImporter:
         # Rekordy Traffita scalone w inny kontakt (ta sama osoba dwa razy
         # w Trafficie). Bez tego upsert po external_id odtwarzałby co noc
         # usunięty duplikat — `services/contact_duplicate_merge.py`.
-        from app.services.contact_duplicate_merge import load_traffit_contact_aliases
+        from app.services.contact_duplicate_merge import (
+            load_deleted_traffit_contacts,
+            load_traffit_contact_aliases,
+        )
 
         merged_ids = set(await load_traffit_contact_aliases(self.db))
+        # Runda 10 (R10-N11-4): kontakty usunięte w NEXUSIE nie wracają.
+        merged_ids |= await load_deleted_traffit_contacts(self.db)
 
         async for raw in self.traffit.get_paginated(
             "/crm_persons/", page_size=self.batch_size
@@ -1794,7 +1926,9 @@ class TraffitImporter:
                 # opisano dla `workflows`: `processed: 2, updated: 2, errors: 1`
                 # znaczyło „0 z 2 zapisanych", 23 biegi z rzędu.
                 async with self.db.begin_nested():
-                    result = await self.db.execute(_UPSERT_CONTACT, payload)
+                    result = await self.db.execute(
+                        _UPSERT_CONTACT, {**payload, "orphan_client_id": orphan_id}
+                    )
                     row = result.fetchone()
                     if row is not None:
                         was_insert = bool(row[1])
@@ -2311,6 +2445,12 @@ class TraffitImporter:
         # (dedup_service), nie importera.
         ext_to_id = await self._build_candidate_external_id_map()
         logger.info("Candidates: existing ext_to_id size=%d", len(ext_to_id))
+        # Runda 10 (R10-N11-1): odwrotna mapa (id wiersza → numer Traffita),
+        # żeby adopcja po mailu nie przestemplowała wiersza, który już należy
+        # do INNEGO żywego rekordu Traffita (dwie kartoteki z jednym mailem).
+        id_to_ext: dict[int, str] = {v: k for k, v in ext_to_id.items()}
+        gone_ids = await self._traffit_candidates_gone_upstream()
+        email_collisions = 0
         # Nagrobki twardo usuniętych kandydatów (0388, art. 17 RODO). Faza robi
         # pełny skan `/employees/`, więc bez tego usunięta osoba wracała przy
         # najbliższym syncu razem z etapami, notatkami i plikami (dalsze fazy
@@ -2435,6 +2575,7 @@ class TraffitImporter:
                     progress.inserted += 1
                     continue
 
+                payload_sha = candidate_payload_sha(payload)
                 existing_id = email_to_id.get(email_lc) if email_lc else None
                 if (
                     existing_id is not None
@@ -2454,6 +2595,26 @@ class TraffitImporter:
                         )
                     collisions += 1
                     existing_id = owner_id
+                elif (
+                    existing_id is not None
+                    and owner_id is None
+                    and id_to_ext.get(existing_id)
+                    not in (None, str(payload["external_id"]))
+                    and existing_id not in gone_ids
+                ):
+                    # Runda 10 (R10-N11-1): mail pasuje do wiersza, który jest
+                    # kartoteką INNEGO żywego rekordu Traffita. Przestemplowanie
+                    # przerzucało tożsamość między dwiema kartotekami przy
+                    # każdym biegu, a etapy, aktywności i pliki jednej z nich
+                    # były po cichu pomijane. Scalenie to decyzja dedupu, nie
+                    # importera — błąd przypisany wierszowi (kwarantanna).
+                    email_collisions += 1
+                    progress.add_error(
+                        f"email_collision candidate ext={payload['external_id']}: "
+                        f"mail należy do kandydata id={existing_id} z innym "
+                        "numerem Traffita"
+                    )
+                    continue
 
                 # Rozróżnia dwie ścieżki błędu w tym samym `except`: awaria
                 # ZAPISU WIERSZA jest już cofnięta przez savepoint, więc transakcja
@@ -2479,6 +2640,7 @@ class TraffitImporter:
                             params["tombstone_source_hash"] = source_hash
                             params["tombstone_legacy_hash"] = legacy_hash
                             params["tombstone_email_hash"] = email_hash
+                            params["traffit_payload_sha"] = payload_sha
                             try:
                                 async with self.db.begin_nested():
                                     result = await self.db.execute(upsert_sql, params)
@@ -2519,20 +2681,30 @@ class TraffitImporter:
                                 "cv_extracted_data": json.dumps(
                                     payload["cv_extracted_data"]
                                 ),
+                                "traffit_payload_sha": payload_sha,
                             }
                             result = await self.db.execute(
                                 _UPDATE_CANDIDATE_ADOPT, params
                             )
                             row = result.fetchone()
                             if row is None:
+                                # R10-N11-9: WHERE odrzucił zapis — bez zmian.
+                                progress.unchanged += 1
                                 continue
                             candidate_id = row[0]
                             progress.updated += 1
                             adopted += 1
+                            ext_to_id[str(payload["external_id"])] = candidate_id
+                            id_to_ext[candidate_id] = str(payload["external_id"])
                             if record_updates:
                                 updated_candidate_ids.append(candidate_id)
                         else:
                             if row is None:
+                                if owner_id is not None:
+                                    # R10-N11-9: konflikt po `external_id`,
+                                    # a WHERE odrzucił zapis — bez zmian.
+                                    progress.unchanged += 1
+                                    continue
                                 # Nagrobek postawiony w trakcie fazy (R7-V2-3).
                                 progress.skipped += 1
                                 continue
@@ -2546,6 +2718,7 @@ class TraffitImporter:
                                 # ...i jego external_id, żeby kolejny rekord o tym
                                 # samym ext nie próbował go ukraść innemu wierszowi.
                                 ext_to_id[str(payload["external_id"])] = row[0]
+                                id_to_ext[row[0]] = str(payload["external_id"])
                                 # Kandydat, którego jeszcze nie było w Nexusie, nie ma
                                 # też wektora — a bez wektora nie istnieje w
                                 # rekomendacjach, hybrid searchu ani w Marketplace.
@@ -2602,14 +2775,16 @@ class TraffitImporter:
                         since_commit = 0
                         logger.info(
                             "Candidates progress: %d/%d "
-                            "(inserted=%d updated=%d adopted=%d ext_collisions=%d "
-                            "errors=%d)",
+                            "(inserted=%d updated=%d unchanged=%d adopted=%d "
+                            "ext_collisions=%d email_collisions=%d errors=%d)",
                             progress.processed,
                             progress.total_source,
                             progress.inserted,
                             progress.updated,
+                            progress.unchanged,
                             adopted,
                             collisions,
+                            email_collisions,
                             progress.errors,
                         )
                 except Exception as e:  # noqa: BLE001
@@ -2766,8 +2941,9 @@ class TraffitImporter:
         # racing the uq_jobs_reference_number constraint mid-loop.
         existing_refs_result = await self.db.execute(
             text(
-                "SELECT reference_number, external_id FROM jobs "
-                "WHERE reference_number IS NOT NULL"
+                "SELECT reference_number, "
+                "CASE WHEN external_source = 'traffit' THEN external_id END "
+                "FROM jobs WHERE reference_number IS NOT NULL"
             )
         )
         # ref -> external_id of the row that already owns it (None if it was
@@ -2813,9 +2989,14 @@ class TraffitImporter:
             # ani razu od 21.09 (0 wierszy z `job_id` w kolejce).
             from app.services.auto_match_outbox import enqueue_job
 
-            for job_id in event_job_ids:
+            for job_id in list(event_job_ids):
                 try:
-                    await enqueue_job(self.db, job_id=job_id, trigger="traffit_job")
+                    # Runda 10 (R10-N11-12): savepoint — błąd bazy w zapisie
+                    # zdarzenia nie może zostawić przerwanej transakcji, którą
+                    # commit paczki niżej po cichu wycofałby razem z 200
+                    # zapisanymi rekrutacjami.
+                    async with self.db.begin_nested():
+                        await enqueue_job(self.db, job_id=job_id, trigger="traffit_job")
                     progress.job_events += 1
                 except Exception as exc:  # noqa: BLE001
                     # Brak zdarzenia = rekrutacja poczeka na ręczną zmianę;
@@ -2825,6 +3006,14 @@ class TraffitImporter:
                         job_id,
                         safe_db_error(exc),
                     )
+                    if await self._recover_session(
+                        progress, exc, batch="jobs", staged=since_commit
+                    ):
+                        touched_job_ids.clear()
+                        inserted_job_ids.clear()
+                        working_title_job_ids.clear()
+                        since_commit = 0
+                        break
             event_job_ids.clear()
 
             # Intencja przeindeksowania rekrutacji — jak dla kandydatów.
@@ -2842,15 +3031,24 @@ class TraffitImporter:
                 )
 
                 try:
-                    progress.index_intents += await record_bulk_reindex(
-                        self.db, JOB, list(touched_job_ids)
-                    )
+                    # Runda 10 (R10-N11-12): savepoint, jak archiwum i kategorie
+                    # niżej — bez niego błąd bazy zostawiał przerwaną transakcję.
+                    async with self.db.begin_nested():
+                        progress.index_intents += await record_bulk_reindex(
+                            self.db, JOB, list(touched_job_ids)
+                        )
                 except Exception as exc:  # noqa: BLE001
                     # Brak intencji to opóźniony wektor, nie utracony import —
                     # reconciler i tak go dogoni.
                     progress.add_error(
                         f"record job reindex intent: {safe_db_error(exc)}"
                     )
+                    if await self._recover_session(
+                        progress, exc, batch="jobs", staged=since_commit
+                    ):
+                        inserted_job_ids.clear()
+                        working_title_job_ids.clear()
+                        since_commit = 0
                 touched_job_ids.clear()
 
             # Archiwum z Traffita: stan „Zakończony” i `is_open=false` to kolumny
@@ -3048,7 +3246,10 @@ class TraffitImporter:
             ext_id = payload["external_id"]
             if ref:
                 owner = ref_owner.get(ref)
-                if owner is not None and owner != ext_id:
+                # Runda 10 (R10-N11-8): numer zajęty przez rekrutację spoza
+                # Traffita (właściciel `None`) też wymaga sufiksu — inaczej
+                # UNIQUE pada co noc, a rekrutacja nigdy nie wchodzi.
+                if ref in ref_owner and owner != ext_id:
                     suffixed = f"{ref} (#{ext_id})"[:100]
                     payload["reference_number"] = suffixed
                     ref_owner[suffixed] = ext_id
@@ -3171,11 +3372,18 @@ class TraffitImporter:
         progress.total_source = await self._probe_total("/talents/", "Talents")
 
         user_map = await self.build_user_id_map()
+        from app.services.traffit.pool_tombstones import load_deleted_traffit_pools
+
+        deleted_pools = await load_deleted_traffit_pools(self.db)
 
         async for raw in self.traffit.get_paginated(
             "/talents/", page_size=self.batch_size
         ):
             progress.processed += 1
+            if str(raw.get("id")) in deleted_pools:
+                # Runda 10 (R10-N11-7): pula usunięta w NEXUSIE nie wraca.
+                progress.skipped += 1
+                continue
             try:
                 payload = traffit_talent_to_pool(raw, user_map)
             except Exception as e:  # noqa: BLE001
@@ -3376,6 +3584,21 @@ class TraffitImporter:
             hashes["traffit"] | hashes[TALENT_RADAR_TOMBSTONE_SOURCE],
             hashes[EMAIL_TOMBSTONE_SOURCE],
         )
+
+    async def _traffit_candidates_gone_upstream(self) -> set[int]:
+        """Wiersze kandydatów z nagrobkiem Traffita (404/410 u źródła).
+
+        Runda 10 (R10-N11-1): kartoteka, której rekord zniknął w Traffit, może
+        zostać przejęta po mailu przez nowy rekord tej samej osoby — tylko
+        żywa kartoteka blokuje przestemplowanie.
+        """
+        result = await self.db.execute(
+            text(
+                "SELECT id FROM candidates WHERE external_source='traffit' "
+                "AND external_id IS NOT NULL AND external_deleted_at IS NOT NULL"
+            )
+        )
+        return {row[0] for row in result}
 
     async def _build_candidate_external_id_map(self) -> dict[str, int]:
         result = await self.db.execute(
@@ -3617,7 +3840,11 @@ class TraffitImporter:
                 # zabierał całą paczkę (do 99 wskaźników CV, których pliki już
                 # leżały w magazynie).
                 async with self.db.begin_nested():
-                    await self.db.execute(
+                    # Runda 10 (R10-N11-6): cele wybrano na starcie fazy, która
+                    # trwa godzinami. CV wgrane w NEXUSIE w tym czasie wygrywa —
+                    # wskaźnik z Traffita zapisujemy tylko do pustego miejsca.
+                    # Pobrany plik zostaje w magazynie (CV się nie kasuje).
+                    stored = await self.db.execute(
                         text(
                             """
                             UPDATE candidates SET
@@ -3625,6 +3852,8 @@ class TraffitImporter:
                                 cv_filename = :filename,
                                 updated_at = NOW()
                             WHERE id = :id
+                              AND cv_storage_key IS NULL
+                              AND cv_file_content IS NULL
                             """
                         ),
                         {
@@ -3633,6 +3862,9 @@ class TraffitImporter:
                             "id": row.id,
                         },
                     )
+                if not stored.rowcount:
+                    progress.skipped += 1
+                    continue
                 progress.inserted += 1
             except Exception as e:  # noqa: BLE001
                 # `ext=` w komunikacie: `_ERROR_REF_RE` przypisuje błąd do

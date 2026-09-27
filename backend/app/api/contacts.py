@@ -434,4 +434,11 @@ async def delete_contact(
         action="contact_deleted",
         details={"contact_id": contact.id, "name": contact.name},
     )
+    if contact.external_source == "traffit" and contact.external_id:
+        # Runda 10 (R10-N11-4): nagrobek — nocny import nie odtworzy kontaktu.
+        from app.services.contact_duplicate_merge import (
+            add_deleted_traffit_contact,
+        )
+
+        await add_deleted_traffit_contact(db, str(contact.external_id))
     await db.delete(contact)
