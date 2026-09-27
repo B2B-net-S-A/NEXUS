@@ -181,6 +181,7 @@ async def _status_with_saved(
     out["resume_after_id"] = _cursor_from(saved, cursor_key, params)
     return out
 
+
 # Single-flight in-memory job state; kursor i parametry biegu trafiają też do
 # `app_settings` (patrz „Trwały postęp backfilli” wyżej).
 _JOB: dict[str, Any] = {
@@ -502,7 +503,9 @@ async def _run_cv_fields_backfill(
         complete=False,
         last_error=None,
     )
-    keeper = _start_progress_keeper(_CV_FIELDS_PROGRESS, _CV_FIELDS_JOB, _CV_FIELDS_KEYS)
+    keeper = _start_progress_keeper(
+        _CV_FIELDS_PROGRESS, _CV_FIELDS_JOB, _CV_FIELDS_KEYS
+    )
     try:
         async with AsyncSessionLocal() as db:
             await backfill_cv_fields(
@@ -621,7 +624,9 @@ async def _run_experience_dates_backfill(limit: Optional[int], after_id: int) ->
         complete=False,
         last_error=None,
     )
-    keeper = _start_progress_keeper(_EXP_DATES_PROGRESS, _EXP_DATES_JOB, _EXP_DATES_KEYS)
+    keeper = _start_progress_keeper(
+        _EXP_DATES_PROGRESS, _EXP_DATES_JOB, _EXP_DATES_KEYS
+    )
     try:
         async with AsyncSessionLocal() as db:
             await backfill_experience_dates(

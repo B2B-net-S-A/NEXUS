@@ -30,9 +30,7 @@ class _RecordingDb:
         self.statements: list[str] = []
 
     async def execute(self, stmt, *_a, **_k):
-        self.statements.append(
-            str(stmt.compile(dialect=postgresql.dialect()))
-        )
+        self.statements.append(str(stmt.compile(dialect=postgresql.dialect())))
         return _Result()
 
     def add(self, _obj):

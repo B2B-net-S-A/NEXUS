@@ -111,7 +111,9 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
     )
     hired_this_month = (
         await db.execute(
-            select(func.count()).select_from(milestones).where(
+            select(func.count())
+            .select_from(milestones)
+            .where(
                 milestones.c.stage == PipelineStage.hired.value,
                 milestones.c.first_reached_at >= month.start_utc,
                 milestones.c.first_reached_at < month.end_utc,

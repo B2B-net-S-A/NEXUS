@@ -126,7 +126,9 @@ async def test_notes_insights_second_post_is_409_not_queued(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_cc_cursor_survives_restart_and_is_the_default(monkeypatch, _no_db_progress):
+async def test_cc_cursor_survives_restart_and_is_the_default(
+    monkeypatch, _no_db_progress
+):
     class _Session:
         async def __aenter__(self):
             return object()
