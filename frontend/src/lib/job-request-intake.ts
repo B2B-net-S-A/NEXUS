@@ -592,6 +592,9 @@ export interface TemplateSourceJob {
  * skopiował z szablonu (`from_job_id`). Profil bierzemy z
  * `GET …/champion-profile` (`champion_view.api_response` — migracja na
  * serwerze, jedna reguła); gdy ten odczyt padnie, zostaje surowy.
+ *
+ * Runda 9 (R9-V2-4): `mark_read=false` — kopiowanie szablonu to nie otwarcie
+ * rekrutacji, więc nie może gasić powiadomień „Profil Championa zaktualizowany”.
  */
 export async function loadTemplateSource<T extends TemplateSourceJob>(
   get: (url: string) => Promise<{ data: unknown }>,
@@ -599,7 +602,7 @@ export async function loadTemplateSource<T extends TemplateSourceJob>(
 ): Promise<T> {
   const [jobResponse, profile] = await Promise.all([
     get(`/api/jobs/${jobId}`),
-    get(`/api/jobs/${jobId}/champion-profile`).then(
+    get(`/api/jobs/${jobId}/champion-profile?mark_read=false`).then(
       ({ data }) =>
         data && typeof data === "object"
           ? (data as { champion_profile?: unknown }).champion_profile

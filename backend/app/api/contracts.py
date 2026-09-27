@@ -12,6 +12,7 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     status,
 )
@@ -4608,6 +4609,7 @@ def _draft_response(
 @router.get("/{contract_id}/draft", response_model=ContractDraftResponse)
 async def get_contract_draft(
     contract_id: int,
+    request: Request,
     current_user: ContractDocumentReadUser,
     db: AsyncSession = Depends(get_db),
 ):
@@ -4636,8 +4638,13 @@ async def get_contract_draft(
         if default is not None:
             rendered_from_default = True
             rendered = _render_draft_body(default, contract)
-            if current_user.has_role(UserRole.finance) and has_financial_access(
-                current_user
+            # Runda 9 (R9-N1-2): „podgląd jako” jest tylko do odczytu — admin
+            # dostaje ten sam podgląd co Finanse, bez zapisu szkicu z autorem
+            # = osoba podglądana i bez wpisu w historii kontraktu.
+            previewing = getattr(request.state, "impersonator_id", None) is not None
+            if previewing or (
+                current_user.has_role(UserRole.finance)
+                and has_financial_access(current_user)
             ):
                 preview_content_html = rendered
                 preview_template_id = default.id

@@ -6,7 +6,15 @@ from typing import Annotated, Optional
 
 import httpx
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import (
     and_,
@@ -3055,7 +3063,11 @@ _champion_response = champion_view.api_response
 
 @router.get("/{job_id}/champion-profile")
 async def get_champion_profile(
-    job_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
+    job_id: int,
+    request: Request,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+    mark_read: bool = Query(True),
 ) -> dict:
     """Return the Delivery Lead's Champion Profile for this job (or {}).
 
@@ -3064,24 +3076,32 @@ async def get_champion_profile(
     this implements "powiadomienie znika jak Rekruter otworzy" regardless
     of whether the user arrived via the notification dropdown, a direct
     URL, or an internal link.
+
+    Runda 9 (R9-N1-2, R9-V2-4): nic nie oznaczamy w „podglądzie jako”
+    (admin czyta cudzy ekran, powiadomienia należą do podglądanej osoby) ani
+    przy ``mark_read=false`` — tak czyta profil kopiowanie szablonu na
+    ``/jobs/new``, gdzie nikt tej rekrutacji nie otwiera.
     """
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
 
-    await db.execute(
-        sql_update(Notification)
-        .where(
-            Notification.user_id == current_user.id,
-            Notification.notification_type == NotificationType.champion_profile_updated,
-            Notification.related_entity_type == "job",
-            Notification.related_entity_id == job_id,
-            Notification.is_read.is_(False),
+    previewing = getattr(request.state, "impersonator_id", None) is not None
+    if mark_read and not previewing:
+        await db.execute(
+            sql_update(Notification)
+            .where(
+                Notification.user_id == current_user.id,
+                Notification.notification_type
+                == NotificationType.champion_profile_updated,
+                Notification.related_entity_type == "job",
+                Notification.related_entity_id == job_id,
+                Notification.is_read.is_(False),
+            )
+            .values(is_read=True)
         )
-        .values(is_read=True)
-    )
-    await db.commit()
+        await db.commit()
 
     from app.services.champion_intake import response_context
 
@@ -3094,22 +3114,40 @@ async def get_champion_profile(
 
 
 async def _champion_profile_recipients(
-    db: AsyncSession, job: Job, exclude_user_id: int
+    db: AsyncSession, job: Job, exclude_user_id: int, *, link: str
 ) -> list[int]:
     """Return the distinct user ids that should be notified of a CP edit.
 
     The set is the primary ``recruiter_id`` plus everyone in
     ``job_collaborators`` — minus the editor themselves. Nulls are
     filtered out.
+
+    Runda 9 (R9-N2-7): bez współpracowników zdjętych z auto-CC
+    (``removed_from_auto_cc``) i przez bramkę odbiorcy
+    (``filter_notification_recipients``: aktywne konto, sekcja, wyciszenia) —
+    do tej rundy dzwonek dostawały też konta nieaktywne i osoby wypisane
+    z rekrutacji.
     """
+    from app.services.notification_access import filter_notification_recipients
+
     rows = await db.execute(
-        select(JobCollaborator.user_id).where(JobCollaborator.job_id == job.id)
+        select(JobCollaborator.user_id).where(
+            JobCollaborator.job_id == job.id,
+            JobCollaborator.removed_from_auto_cc.is_(False),
+        )
     )
     collaborator_ids = {uid for (uid,) in rows.all() if uid is not None}
     if job.recruiter_id is not None:
         collaborator_ids.add(job.recruiter_id)
     collaborator_ids.discard(exclude_user_id)
-    return sorted(collaborator_ids)
+    allowed = await filter_notification_recipients(
+        db,
+        collaborator_ids,
+        NotificationType.champion_profile_updated,
+        related_entity_type="job",
+        link=link,
+    )
+    return sorted(user.id for user in allowed)
 
 
 @router.put("/{job_id}/champion-profile")
@@ -3338,9 +3376,6 @@ async def _save_champion_profile(
         )
     )
 
-    recipients = await _champion_profile_recipients(
-        db, job, exclude_user_id=current_user.id
-    )
     editor_name = (current_user.name or "Ktoś").strip() or "Ktoś"
     sections_pl = summarize_sections(fields_changed)
     title = "Profil Championa zaktualizowany"
@@ -3352,6 +3387,9 @@ async def _save_champion_profile(
     # Front zna zakładkę `champion`; `champion-profile` zostaje jako alias
     # dla powiadomień zapisanych w bazie przed 09.2026.
     link = f"/jobs/{job.id}?tab=champion"
+    recipients = await _champion_profile_recipients(
+        db, job, exclude_user_id=current_user.id, link=link
+    )
 
     for recipient_id in recipients:
         await create_notification(

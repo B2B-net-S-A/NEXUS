@@ -461,7 +461,7 @@ describe("loadTemplateSource (R8-N12-1)", () => {
 
   it("bierze profil po migracji z GET …/champion-profile", async () => {
     const get = async (url: string) =>
-      url === "/api/jobs/7/champion-profile"
+      url === "/api/jobs/7/champion-profile?mark_read=false"
         ? { data: { job_id: 7, champion_profile: migrated } }
         : { data: legacyJob };
     const source = await loadTemplateSource(get, 7);
@@ -480,11 +480,22 @@ describe("loadTemplateSource (R8-N12-1)", () => {
 
   it("bez odczytu profilu zostaje surowa rekrutacja", async () => {
     const get = async (url: string) => {
-      if (url.endsWith("/champion-profile")) throw new Error("403");
+      if (url.includes("/champion-profile")) throw new Error("403");
       return { data: legacyJob };
     };
     const source = await loadTemplateSource(get, 7);
     expect(source.champion_profile).toEqual(legacyJob.champion_profile);
+  });
+
+  it("R9-V2-4: czyta profil bez oznaczania powiadomień jako przeczytanych", async () => {
+    const urls: string[] = [];
+    const get = async (url: string) => {
+      urls.push(url);
+      return { data: url.includes("/champion-profile") ? {} : legacyJob };
+    };
+    await loadTemplateSource(get, 7);
+    expect(urls).toContain("/api/jobs/7/champion-profile?mark_read=false");
+    expect(urls).not.toContain("/api/jobs/7/champion-profile");
   });
 
   it("stary kształt bez migracji zostawiał formularz pusty", () => {
