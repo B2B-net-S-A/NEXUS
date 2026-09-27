@@ -503,3 +503,102 @@ async def test_canonical_gate_applies_dealbreakers_in_chunks(monkeypatch) -> Non
     assert hidden == whole.hidden_meta()
     assert used is inputs
     assert counter["yields"] >= 300 // trs.DEALBREAKER_CHUNK
+
+
+# ── R10-X2-1 / X2-2: stan i status requestu na liście /jobs ─────────────────
+
+
+def _work_state_cases() -> list[dict]:
+    import json
+    from pathlib import Path
+
+    from app.services.request_work_state import WORK_STATES
+
+    cases = json.loads(
+        (
+            Path(__file__).resolve().parents[2]
+            / "frontend/src/lib/__fixtures__/request-work-state-cases.json"
+        ).read_text()
+    )["cases"]
+    # Kolumna `jobs.work_state` przyjmuje tylko znane stany.
+    return [case for case in cases if case["work_state"] in WORK_STATES]
+
+
+@pytest.mark.asyncio
+async def test_list_request_stage_matches_visible_state_cases() -> None:
+    from datetime import datetime, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.job import JobStatus
+    from app.services import job_similarity as sim
+
+    cases = _work_state_cases()
+    assert any(c["work_state"] == "client_silent" and c["champion"] for c in cases)
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"R10PipeState-{tag}")
+        db.add(client)
+        await db.flush()
+        jobs = [
+            Job(
+                title=f"R10-state-{i}-{tag}",
+                status=JobStatus.published,
+                client_id=client.id,
+                work_state=case["work_state"],
+                champion_found_at=(
+                    datetime.now(timezone.utc) if case["champion"] else None
+                ),
+            )
+            for i, case in enumerate(cases)
+        ]
+        db.add_all(jobs)
+        await db.commit()
+        stages = await sim.request_statuses_and_stages(db, [j.id for j in jobs])
+    for job, case in zip(jobs, cases):
+        assert stages[job.id][1] == case["visible"], case
+
+
+@pytest.mark.asyncio
+async def test_onboarding_counts_as_hired_in_request_status() -> None:
+    from datetime import datetime, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.services import job_similarity as sim
+    from tests.test_pipeline_membership_gate import _seed_candidate, _seed_job
+
+    job_id, _ = await _seed_job(owner_id=None)
+    cand = await _seed_candidate()
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                CandidateStage(
+                    candidate_id=cand,
+                    job_id=job_id,
+                    stage=PipelineStage.hired,
+                    moved_at=now - timedelta(minutes=5),
+                ),
+                CandidateStage(
+                    candidate_id=cand,
+                    job_id=job_id,
+                    stage=PipelineStage.onboarding,
+                    moved_at=now,
+                ),
+            ]
+        )
+        await db.commit()
+        status_, stage = (await sim.request_statuses_and_stages(db, [job_id]))[
+            job_id
+        ]
+    assert status_ == "filled"
+    assert stage == "filled"
+
+
+def test_contract_stages_exclude_onboarding() -> None:
+    from app.models.recruitment_pipeline import PipelineStage
+    from app.services import job_similarity as sim
+
+    assert PipelineStage.onboarding not in sim.CONTRACT_STAGES
+    assert PipelineStage.onboarding in sim.HIRED_STAGES
