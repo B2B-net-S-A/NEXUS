@@ -1031,7 +1031,7 @@ export function ChampionProfileEditor({
         ) : null}
       </SectionGroup>
 
-      {/* 7. O kliencie — fakty o kliencie (SLA, limity, dokumenty,
+      {/* 7. O kliencie — fakty o kliencie (SLA, limity, off-limit, dokumenty,
           „co powiedzieć kandydatowi", reguły priorytetu) żyją w KARCIE KLIENTA
           (DL: profil klienta → Zasady współpracy albo /settings/cv-rules →
           Karta klienta) i są tu tylko do odczytu. Pola
