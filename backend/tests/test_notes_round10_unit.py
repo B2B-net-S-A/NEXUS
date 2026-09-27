@@ -171,7 +171,9 @@ async def test_job_chat_serialization_has_constant_query_count() -> None:
         for i in range(1, 41)
     ]
     authors = [
-        SimpleNamespace(id=uid, name=f"U{uid}", email=f"u{uid}@example.com", role="recruiter")
+        SimpleNamespace(
+            id=uid, name=f"U{uid}", email=f"u{uid}@example.com", role="recruiter"
+        )
         for uid in (10, 11)
     ]
 
