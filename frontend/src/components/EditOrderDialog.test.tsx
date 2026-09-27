@@ -545,3 +545,31 @@ describe("EditOrderDialog — e-Zdrowie: umowa wykonawcza", () => {
     expect(executiveContractMocks.structure).not.toHaveBeenCalled();
   });
 });
+
+describe("EditOrderDialog — usunięcie PDF bez natywnego okna (R10-N15-8)", () => {
+  beforeEach(() => {
+    vi.mocked(dlPortalApi.deleteOrderPo).mockReset();
+    vi.mocked(dlPortalApi.deleteOrderPo).mockResolvedValue({ data: {} } as never);
+  });
+
+  it("pyta w oknie, nie przez window.confirm, i usuwa dopiero po potwierdzeniu", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
+    const order = { ...draftOrder("periodic"), has_file: true, filename: "zam.pdf" };
+    renderDialog({ order });
+
+    fireEvent.click(screen.getByRole("button", { name: "Usuń plik PDF zamówienia" }));
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(dlPortalApi.deleteOrderPo).not.toHaveBeenCalled();
+    expect(screen.getByText("Usunąć plik PDF?")).toBeInTheDocument();
+
+    const prompt = () => within(screen.getByText("Usunąć plik PDF?").parentElement!);
+    fireEvent.click(prompt().getByRole("button", { name: "Anuluj" }));
+    expect(dlPortalApi.deleteOrderPo).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Usuń plik PDF zamówienia" }));
+    fireEvent.click(prompt().getByRole("button", { name: "Usuń plik" }));
+    await waitFor(() => expect(dlPortalApi.deleteOrderPo).toHaveBeenCalledWith(10, 41));
+    expect(confirmSpy).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+});
