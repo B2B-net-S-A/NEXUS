@@ -428,13 +428,88 @@ async def test_digest_uses_each_recipient_profile_without_unknown_notification(
         notifications.append(payload)
         return object()
 
+    async def operational(db, owner_ids):
+        # Zastępstwo z COMPASS i nieaktywne konta rozstrzyga ta funkcja.
+        return next((o for o in owner_ids if o is not None), None)
+
     monkeypatch.setattr(md, "AsyncSessionLocal", Db)
     monkeypatch.setattr(md, "_fresh_top_matches", matches)
     monkeypatch.setattr("app.services.notification_triggers.emit", emit)
+    monkeypatch.setattr(
+        "app.services.notification_triggers._operational_recipient", operational
+    )
     stats = await md.run_match_digest()
-    assert recipients == [42, 43]
+    # R10-N7-7: TAC wypadł z adresatów (funkcji TAC nie używamy).
+    assert recipients == [42]
     assert [item["user_id"] for item in notifications] == [42]
     assert "78 pkt" in notifications[0]["message"]
     assert stats["jobs_with_matches"] == 1
     assert stats["notifications_sent"] == 1
     assert stats["errors"] == 0
+
+
+@pytest.mark.asyncio
+async def test_digest_only_for_requests_in_work_and_falls_back_to_the_dl(
+    monkeypatch,
+):
+    """R10-N7-7: „Zakończony" i „Klient milczy" nie dostają digestu, a bez
+    prowadzącego (nieaktywne konto, brak zastępstwa) dzwonek idzie do DL-a."""
+    import app.tasks.match_digest as md
+
+    job = SimpleNamespace(id=78, title="Go", recruiter_id=50, tac_id=None)
+    statements = []
+
+    class Result:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [job]
+
+        def scalar_one_or_none(self):
+            return job
+
+    class Db:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def execute(self, stmt):
+            statements.append(stmt)
+            return Result()
+
+        async def commit(self):
+            pass
+
+    recipients = []
+
+    async def matches(db, request, *, user_id):
+        recipients.append(user_id)
+        return [(1, 80.0)]
+
+    async def emit(db, **payload):
+        return object()
+
+    async def nobody(db, owner_ids):
+        return None
+
+    async def delivery_lead(db, job_row):
+        return [7]
+
+    monkeypatch.setattr(md, "AsyncSessionLocal", Db)
+    monkeypatch.setattr(md, "_fresh_top_matches", matches)
+    monkeypatch.setattr("app.services.notification_triggers.emit", emit)
+    monkeypatch.setattr(
+        "app.services.notification_triggers._operational_recipient", nobody
+    )
+    monkeypatch.setattr(
+        "app.services.notification_triggers._delivery_lead_targets", delivery_lead
+    )
+    await md.run_match_digest()
+    assert recipients == [7]
+    first = str(statements[0].compile(compile_kwargs={"literal_binds": True}))
+    where = first.split("WHERE", 1)[1]
+    assert "work_state IN ('to_review', 'searching')" in where
+    assert "tac_id" not in where
