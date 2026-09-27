@@ -24,9 +24,12 @@ Usage
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
+import subprocess
+import sys
 from typing import Optional
 
 from app.core.log_safety import safe_filename
@@ -153,12 +156,24 @@ def _extract_pdf_ocr(path: str) -> Optional[str]:
         import pytesseract  # type: ignore[import-untyped]
         from pdf2image import convert_from_path  # type: ignore[import-untyped]
 
-        pages = convert_from_path(path, dpi=200, last_page=10)
-        out: list[str] = []
-        for img in pages:
-            txt = pytesseract.image_to_string(img, lang="pol+eng")
-            if txt:
-                out.append(txt)
+        import tempfile
+
+        # Runda 9 (R9-N7-2): `size` ogranicza rozmiar strony w pikselach (MediaBox
+        # 200×200 cali przy 200 dpi to 40 000 × 40 000 px, czyli gigabajty na stronę),
+        # a `output_folder` trzyma strony na dysku zamiast w pamięci procesu.
+        with tempfile.TemporaryDirectory(prefix="nexus-ocr-") as tmpdir:
+            pages = convert_from_path(
+                path,
+                dpi=200,
+                last_page=10,
+                size=_OCR_PAGE_MAX_PX,
+                output_folder=tmpdir,
+            )
+            out: list[str] = []
+            for img in pages:
+                txt = pytesseract.image_to_string(img, lang="pol+eng")
+                if txt:
+                    out.append(txt)
         return "\n\n".join(out) if out else ""
     except (
         Exception
@@ -171,11 +186,12 @@ def _extract_pdf_ocr(path: str) -> Optional[str]:
         return None
 
 
-def _extract_pdf(path: str) -> Optional[str]:
+def _extract_pdf_inprocess(path: str) -> Optional[str]:
     """Extract PDF text — native first (pdfplumber→pdfminer), OCR fallback if
     output is suspiciously short (likely a scan).
 
     Returns None only on total failure so the dispatcher degrades to "".
+    Runs in the sandboxed worker (``_extract_pdf``), never on the web process.
     """
     native = _extract_pdf_native(path)
     if native and len(native.strip()) >= _OCR_FALLBACK_THRESHOLD_CHARS:
@@ -190,6 +206,173 @@ def _extract_pdf(path: str) -> Optional[str]:
         return ocr
     # Return whichever has more content (could still be empty).
     return (native or "") if (len(native or "") >= len(ocr or "")) else (ocr or "")
+
+
+# ── Odczyt PDF w osobnym procesie (runda 9, R9-N7-2) ─────────────────────────
+#
+# pdfminer dekompresuje strumienie PDF bez limitu, a pdf2image renderuje strony
+# w rozmiarze z MediaBox — „bomba” PDF (kilka MB, które rozwijają się do
+# gigabajtów) wgrana z formularza kariery albo z poczty zamówień zabijała
+# OOM-killerem CAŁY backend (jeden proces uvicorna, limit kontenera 4 GB).
+# Dlatego odczyt PDF idzie w podprocesie z limitem pamięci (RLIMIT_AS, dziedziczą
+# go też pdftoppm i tesseract) i limitem czasu; przekroczenie = pusty tekst, jak
+# każdy nieczytelny PDF. Koszt: start interpretera z pdfplumberem (~0,1–0,3 s).
+
+#: Limit przestrzeni adresowej procesu odczytu. Tesseract z pol+eng i strony
+#: A4 przy 200 dpi mieszczą się z zapasem.
+PDF_WORKER_MEMORY_BYTES = 1536 * 1024 * 1024
+#: Limit czasu całego odczytu (natywny + OCR do 10 stron po ~2–5 s).
+PDF_WORKER_TIMEOUT_SECONDS = 150
+#: Najdłuższy bok strony renderowanej do OCR (A4 przy 200 dpi = 2339 px).
+_OCR_PAGE_MAX_PX = 2400
+#: Sufit tekstu oddawanego przez proces odczytu — żadne CV ani zamówienie nie
+#: ma dwóch milionów znaków, a odpowiedź czyta proces webowy.
+_PDF_WORKER_MAX_CHARS = 2_000_000
+_BACKEND_ROOT = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
+_WORKER_OPS = ("pdf", "native", "pdfminer", "pages")
+
+
+def _pdf_worker_command(op: str, path: str) -> list[str]:
+    return [sys.executable, "-m", "app.services.cv_text_extractor", op, path]
+
+
+def _run_pdf_worker(
+    op: str,
+    path: str,
+    *,
+    timeout: float | None = None,
+    memory_bytes: int | None = None,
+) -> Optional[dict]:
+    """Wynik operacji ``op`` z procesu odczytu albo ``None`` (limit, awaria)."""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        p for p in (_BACKEND_ROOT, env.get("PYTHONPATH")) if p
+    )
+    env["NEXUS_PDF_WORKER_MEMORY_BYTES"] = str(
+        memory_bytes or PDF_WORKER_MEMORY_BYTES
+    )
+    try:
+        proc = subprocess.run(
+            _pdf_worker_command(op, os.path.abspath(path)),
+            capture_output=True,
+            timeout=timeout or PDF_WORKER_TIMEOUT_SECONDS,
+            env=env,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "[cv_text_extractor] PDF %s: odczyt przerwany po limicie czasu (%s)",
+            safe_filename(path),
+            op,
+        )
+        return None
+    except OSError as e:
+        logger.warning(
+            "[cv_text_extractor] PDF %s: proces odczytu nie wystartował: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
+        return None
+    if proc.returncode != 0:
+        logger.warning(
+            "[cv_text_extractor] PDF %s: proces odczytu zakończył się kodem %s (%s)"
+            " — limit pamięci albo uszkodzony plik",
+            safe_filename(path),
+            proc.returncode,
+            op,
+        )
+        return None
+    # Ostatnia linia wyjścia to wynik; wcześniejsze (gdyby biblioteka coś
+    # wypisała na stdout) pomijamy.
+    lines = proc.stdout.decode("utf-8", "replace").strip().splitlines()
+    try:
+        result = json.loads(lines[-1]) if lines else None
+    except ValueError:
+        return None
+    return result if isinstance(result, dict) else None
+
+
+def _extract_pdf(path: str) -> Optional[str]:
+    """Tekst PDF z procesu odczytu z limitem pamięci i czasu (R9-N7-2)."""
+    result = _run_pdf_worker("pdf", path)
+    text = result.get("text") if result else None
+    return text if isinstance(text, str) else None
+
+
+def extract_pdf_native_sandboxed(path: str) -> Optional[str]:
+    """``_extract_pdf_native`` w procesie odczytu (bez OCR)."""
+    result = _run_pdf_worker("native", path)
+    text = result.get("text") if result else None
+    return text if isinstance(text, str) else None
+
+
+def extract_pdfminer_sandboxed(path: str) -> Optional[str]:
+    """Sam pdfminer.six w procesie odczytu (poczta zamówień: literowanie)."""
+    result = _run_pdf_worker("pdfminer", path)
+    text = result.get("text") if result else None
+    return text if isinstance(text, str) and text else None
+
+
+def pdf_page_count_sandboxed(path: str) -> Optional[int]:
+    """Liczba stron PDF z procesu odczytu."""
+    result = _run_pdf_worker("pages", path)
+    pages = result.get("pages") if result else None
+    return pages if isinstance(pages, int) else None
+
+
+def _worker_pdfminer(path: str) -> Optional[str]:
+    try:
+        from pdfminer.high_level import extract_text as _pdfminer_extract
+
+        return _pdfminer_extract(path) or None
+    except Exception:  # noqa: BLE001 — wynik best-effort
+        return None
+
+
+def _worker_page_count(path: str) -> Optional[int]:
+    try:
+        import pdfplumber  # type: ignore[import-untyped]
+
+        with pdfplumber.open(path) as pdf:
+            return len(pdf.pages)
+    except Exception:  # noqa: BLE001 — metadane są best-effort
+        return None
+
+
+def _apply_worker_limits() -> None:
+    try:
+        import resource
+
+        limit = int(
+            os.environ.get("NEXUS_PDF_WORKER_MEMORY_BYTES") or PDF_WORKER_MEMORY_BYTES
+        )
+        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+    except (ImportError, ValueError, OSError):  # pragma: no cover — macOS/Windows
+        pass
+
+
+def _worker_main(argv: list[str]) -> int:
+    if len(argv) != 2 or argv[0] not in _WORKER_OPS:
+        return 2
+    op, path = argv
+    _apply_worker_limits()
+    payload: dict = {}
+    if op == "pdf":
+        payload["text"] = _extract_pdf_inprocess(path)
+    elif op == "native":
+        payload["text"] = _extract_pdf_native(path)
+    elif op == "pdfminer":
+        payload["text"] = _worker_pdfminer(path)
+    else:
+        payload["pages"] = _worker_page_count(path)
+    text = payload.get("text")
+    if isinstance(text, str) and len(text) > _PDF_WORKER_MAX_CHARS:
+        payload["text"] = text[:_PDF_WORKER_MAX_CHARS]
+    sys.stdout.write("\n" + json.dumps(payload) + "\n")
+    sys.stdout.flush()
+    return 0
 
 
 def _extract_docx(path: str) -> Optional[str]:
@@ -361,3 +544,7 @@ def extract_text(file_path: str, filename: str) -> str:
         )
 
     return _normalize(raw or "")
+
+
+if __name__ == "__main__":  # proces odczytu PDF (``_run_pdf_worker``)
+    sys.exit(_worker_main(sys.argv[1:]))
