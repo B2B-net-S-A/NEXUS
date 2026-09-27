@@ -985,14 +985,30 @@ def request_status_subquery(job_ids: Any):
     )
 
 
+# Stany pracy, przy których „Mamy championa” nie jest pokazywane (lustro
+# ``request_work_state.visible_state``: champion tylko przy „Szukamy”).
+_CHAMPION_HIDING_WORK_STATES = ("client_silent", "finished")
+
+
 def request_status_expr(sq):
-    """Jedna reguła statusu — filtr listy i wiersz listy czytają to samo."""
+    """Jedna reguła statusu — filtr listy i wiersz listy czytają to samo.
+
+    Runda 11 (PIPE-2): champion nie przykrywa „Klient milczy” ani
+    „Zakończony” — jak ``request_stage_expr`` i
+    ``request_work_state.visible_state``. Słownik statusu nie zna tych stanów,
+    więc taki request spada do dalszych gałęzi (szkic / „Szukamy”)."""
     hired = func.coalesce(sq.c.hired_n, 0)
     return case(
         (Job.status == JobStatus.closed, "closed"),
         (and_(hired > 0, hired >= func.greatest(Job.headcount, 1)), "filled"),
         (func.coalesce(sq.c.contract_n, 0) > 0, "contract"),
-        (Job.champion_found_at.is_not(None), "champion"),
+        (
+            and_(
+                Job.champion_found_at.is_not(None),
+                Job.work_state.notin_(_CHAMPION_HIDING_WORK_STATES),
+            ),
+            "champion",
+        ),
         (Job.status == JobStatus.draft, "incomplete"),
         else_="searching",
     )
