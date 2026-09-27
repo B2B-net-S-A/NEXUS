@@ -250,9 +250,7 @@ def _run_pdf_worker(
     env["PYTHONPATH"] = os.pathsep.join(
         p for p in (_BACKEND_ROOT, env.get("PYTHONPATH")) if p
     )
-    env["NEXUS_PDF_WORKER_MEMORY_BYTES"] = str(
-        memory_bytes or PDF_WORKER_MEMORY_BYTES
-    )
+    env["NEXUS_PDF_WORKER_MEMORY_BYTES"] = str(memory_bytes or PDF_WORKER_MEMORY_BYTES)
     try:
         proc = subprocess.run(
             _pdf_worker_command(op, os.path.abspath(path)),

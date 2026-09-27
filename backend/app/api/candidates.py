@@ -7134,8 +7134,6 @@ async def bulk_cv_download(
     która ma plik w dokumentach. Archiwum powstaje w pliku tymczasowym, nie
     w pamięci procesu webowego (200 CV po kilka MB).
     """
-    from app.services.cv_source import get_current_cv
-
     requested_ids = list(dict.fromkeys(payload.candidate_ids))
 
     result = await db.execute(select(Candidate).where(Candidate.id.in_(requested_ids)))
@@ -7145,9 +7143,7 @@ async def bulk_cv_download(
     included = 0
     skipped = 0
 
-    tmp = tempfile.NamedTemporaryFile(
-        prefix="nexus-cvs-", suffix=".zip", delete=False
-    )
+    tmp = tempfile.NamedTemporaryFile(prefix="nexus-cvs-", suffix=".zip", delete=False)
     tmp.close()
     archive_path = tmp.name
     try:
@@ -7159,7 +7155,7 @@ async def bulk_cv_download(
                     skipped += 1
                     continue
 
-                data, filename = await _bulk_cv_bytes(db, candidate, get_current_cv)
+                data, filename = await _bulk_cv_bytes(db, candidate)
                 if data is None:
                     status_label = (
                         "skipped_file_missing"
@@ -7219,9 +7215,11 @@ async def bulk_cv_download(
 
 
 async def _bulk_cv_bytes(
-    db: AsyncSession, candidate: Candidate, get_current_cv
+    db: AsyncSession, candidate: Candidate
 ) -> tuple[Optional[bytes], Optional[str]]:
     """Bajty i nazwa CV kandydata do paczki: główny dokument, potem stare pola."""
+    from app.services.cv_source import get_current_cv
+
     current = await get_current_cv(db, candidate)
     if current is not None and current.source.startswith("document_"):
         return current.content, current.filename

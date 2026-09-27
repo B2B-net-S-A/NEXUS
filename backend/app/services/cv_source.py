@@ -89,9 +89,7 @@ async def get_current_cv(db: AsyncSession, candidate: Candidate) -> CurrentCV | 
         # sesji async to MissingGreenlet, więc bajty czytamy jawnym zapytaniem
         # (runda 9: paczka CV czyta główny dokument przez tę funkcję).
         file_content = await db.scalar(
-            select(CandidateDocument.file_content).where(
-                CandidateDocument.id == doc.id
-            )
+            select(CandidateDocument.file_content).where(CandidateDocument.id == doc.id)
         )
         if file_content:
             return CurrentCV(

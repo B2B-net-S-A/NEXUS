@@ -861,9 +861,7 @@ async def _persist_submission_cv(
 
         raw_text = await asyncio.to_thread(_extract)
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning(
-            "[apply] inert CV text extraction failed: %s", type(e).__name__
-        )
+        logger.warning("[apply] inert CV text extraction failed: %s", type(e).__name__)
 
     return object_key, file_bytes, raw_text
 
