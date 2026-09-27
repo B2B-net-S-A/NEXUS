@@ -275,6 +275,17 @@ async def test_daily_reconciler_catches_up_after_a_missed_day_but_skips_cutover_
             # Wskrzeszenie zamyka otwartą migawkę zakończenia (0368) — tu jej nie ma.
             return None
 
+        def begin_nested(self):
+            # Runda 9 (R9-V1-1): nocne wznowienie idzie w savepoincie.
+            return _NullAsyncCtx()
+
+    class _NullAsyncCtx:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, *_exc):
+            return False
+
     db = _FakeDb()
     assert await reconcile_contracts_to_live_orders(db, today=today) == 1
     assert audited_contract.status == ContractStatus.ended

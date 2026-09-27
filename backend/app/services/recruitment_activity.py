@@ -29,6 +29,7 @@ from app.schemas.recruitment_activity import (
     RecruitmentActivitySummaryResponse,
     RecruitmentActivityWindow,
 )
+from app.services.insights_person_scope import outside_scope_user_ids
 from app.services.kpi_engine import WARSAW
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 from app.services.kpi_targets import resolve_kpi_target
@@ -403,10 +404,25 @@ async def build_recruitment_activity_summary(
                 remaining=max(target - current, 0),
             )
 
-    people_count = len(benchmark_by_user)
+    # Runda 8 (R8-V2-3): konta administracyjne (bez roli rekrutacyjnej, jak
+    # w tabelach osób Insights — `insights_person_scope`) są poza średnią
+    # zespołu. Legacy `classified_fallback` daje im kredyt za masowe
+    # domykanie pipeline'u, co zawyżało średnią placementów. Sumy zespołu
+    # (liczniki miesiąca) zostają bez zmian. Osoby z listy KPI mają rolę
+    # z zakresu, więc sprawdzamy tylko pozostałych z kredytem.
+    audience_ids = {user.id for user in audience.users}
+    outside_ids = await outside_scope_user_ids(
+        db, (uid for uid in benchmark_by_user if uid not in audience_ids)
+    )
+    team_pool = {
+        uid: values
+        for uid, values in benchmark_by_user.items()
+        if uid not in outside_ids
+    }
+    people_count = len(team_pool)
     comparisons: list[RecruitmentActivityComparison] = []
     for metric, stage in (("verification", "verified"), ("placement", "hired")):
-        team_total = sum(values[stage] for values in benchmark_by_user.values())
+        team_total = sum(values[stage] for values in team_pool.values())
         team_average = (
             round(team_total / (people_count * _BENCHMARK_MONTHS), 1)
             if people_count

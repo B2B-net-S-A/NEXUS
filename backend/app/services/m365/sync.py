@@ -1224,6 +1224,10 @@ async def _scrub_old_private_events(
                 row.attendees = []
                 # R7-V1-7: powiązanie z kandydatem pochodziło z uczestników.
                 row.candidate_id = None
+        elif row.candidate_id is not None:
+            # Runda 8 (R8-V3-3): wiersz oczyszczony przed rundą 7 zachował
+            # kandydata — profil pokazywał „Spotkanie prywatne”, czyli z kim.
+            row.candidate_id = None
         after_id = row.id
 
     value = {"after_id": after_id, "done": done}
@@ -1248,6 +1252,27 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
             CalendarEvent.external_id == graph_id,
         )
     )
+
+    # Runda 8 (R8-N9-4): rozmowa u klienta założona w NEXUSIE (potwierdzony
+    # termin od klienta) ma w Outlooku rekrutera tylko BLOKADĘ bez uczestników.
+    # Terminem rządzi NEXUS: usunięcie blokady nie odwołuje rozmowy (znikała
+    # bramka debriefu i telefon po rozmowie), a przesunięcie blokady nie
+    # przestawia terminu ani nie nadpisuje opisu z notatką DL-a.
+    nexus_interview = (
+        existing is not None
+        and existing.event_type == EventType.client_interview
+        and _created_in_nexus(existing)
+    )
+    if nexus_interview:
+        if ev.get("@removed") or ev.get("isCancelled"):
+            # Kopii w Outlooku już nie ma — odpinamy ją, rozmowa zostaje.
+            existing.external_source = None
+            existing.external_id = None
+            existing.m365_change_key = None
+            existing.m365_series_master_id = None
+        else:
+            existing.m365_change_key = ev.get("changeKey")
+        return False
 
     if ev.get("@removed") or ev.get("isCancelled"):
         if existing:

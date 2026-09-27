@@ -33,5 +33,21 @@ def upgrade() -> None:
         op.execute(statement)
 
 
+# Runda 8 (R8-N15-1): downgrade odmawia, gdy są nagrobki. Po `DROP TABLE`
+# i ponownym upgrade tabela wracała pusta, a nocny sync Traffita zakładał
+# usuniętych kandydatów od nowa (razem z etapami, notatkami i plikami).
+# Zagnieżdżony IF, bo PL/pgSQL planuje wyrażenie w całości — zapytanie
+# o nieistniejącą tabelę padłoby mimo `to_regclass` obok.
+REFUSE_WITH_TOMBSTONES = """DO $$
+BEGIN
+    IF to_regclass('purged_candidates') IS NOT NULL THEN
+        IF EXISTS (SELECT 1 FROM purged_candidates) THEN
+            RAISE EXCEPTION 'Downgrade 0388 odmawia: purged_candidates ma nagrobki usuniętych kandydatów. Bez nich nocny sync Traffita odtworzy te osoby. Zostaw tę rewizję albo przenieś nagrobki ręcznie.';
+        END IF;
+    END IF;
+END $$"""
+
+
 def downgrade() -> None:
+    op.execute(REFUSE_WITH_TOMBSTONES)
     op.execute("DROP TABLE IF EXISTS purged_candidates")

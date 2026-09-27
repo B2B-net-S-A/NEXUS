@@ -247,3 +247,84 @@ def test_polkomtel_replay_ignores_rows_booked_on_another_line():
     )
 
     assert plans[0].expected_value == Decimal("4")
+
+
+# ── R8-V1-5 (decyzja właściciela 26.09.2026) ───────────────────────────────
+
+
+def test_unknown_number_in_the_shape_of_the_cost_order_binds():
+    """Nowy SAP Polkomtela (klient kosztowy) nie schodzi po nazwisku z BNP."""
+    bnp = _line(1, BNP, "87_2026", "Ewa Dwojga")
+
+    picked = _match_per_consultant_md_row(
+        parsed_row=SimpleNamespace(
+            consultant_name="Ewa Dwojga", notes_raw="SAP 4500099999"
+        ),
+        candidates=[bnp],
+        order_numbers=_index(),
+        other_client_ids={POLKOMTEL},
+    )
+
+    assert picked == []
+
+
+def test_shape_rule_is_only_for_the_cost_client_and_its_shape():
+    index = _index()
+    # Kształt klienta kosztowego (10 cyfr, „45…”) wiąże…
+    assert finance_order_matching.explicit_order_hints(
+        ["4500099999"], index, {BNP}, known_only_client_ids={POLKOMTEL}
+    ) == ["4500099999"]
+    # …inny kształt (NIP, 9 cyfr, inny prefiks) — nie.
+    for hint in ("5261040828", "450009999", "45000999991"):
+        assert (
+            finance_order_matching.explicit_order_hints(
+                [hint], index, {BNP}, known_only_client_ids={POLKOMTEL}
+            )
+            == []
+        )
+    # Bez klienta kosztowego osoby kształt Polkomtela nic nie wiąże.
+    assert (
+        finance_order_matching.explicit_order_hints(["4500099999"], index, {BNP}) == []
+    )
+
+
+def test_reason_mirror_reports_the_missing_cost_order():
+    def order(oid: int, client_id: int, group_id: int):
+        return SimpleNamespace(
+            id=oid,
+            client_id=client_id,
+            order_group_id=group_id,
+            status=ClientOrderStatus.active,
+            contract=SimpleNamespace(status=ContractStatus.active),
+            start_date=None,
+            end_date=None,
+        )
+
+    groups = {
+        10: SimpleNamespace(
+            id=10, client_id=BNP, order_number="87_2026", is_cost_based=False
+        ),
+        20: SimpleNamespace(
+            id=20,
+            client_id=POLKOMTEL,
+            order_number="SAP 4500012345",
+            is_cost_based=True,
+        ),
+    }
+    context = _ReasonContext(
+        index=_index(),
+        groups=groups,
+        lines_by_person={
+            name_tokens("Ewa Dwojga"): [order(1, BNP, 10), order(2, POLKOMTEL, 20)]
+        },
+    )
+    row = SimpleNamespace(
+        status=IMPORT_ROW_UNMATCHED,
+        cost_status=None,
+        consultant_name="Ewa Dwojga",
+        notes_raw="SAP 4500099999",
+    )
+
+    reason = _unmatched_reason(row, "2026-08", context)
+    assert reason is not None
+    assert "4500099999 nie ma w NEXUSIE" in reason[1]

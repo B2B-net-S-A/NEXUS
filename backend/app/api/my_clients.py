@@ -490,6 +490,7 @@ async def client_dashboard(
     has_margin = False
     margin_complete = True
     margin_unpriced = 0
+    current_contract_count = 0
     # „Dziś” poza gałęzią finansową: czyta je też liczenie aktywnych
     # konsultantów niżej, a odbiorca bez kwot dostawał tu 500 (NameError).
     today = business_today()
@@ -515,6 +516,7 @@ async def client_dashboard(
         # na profilu tego klienta (UAT B46). Pusta data startu znaczy „start
         # nieznany", nie „planowany" (audyt 18.09.2026).
         contract_rows = await load_current_contracts(db, contract_rows, today)
+        current_contract_count = len(contract_rows)
         totals = await _monthly_margin_total_pln(db, contract_rows, today)
         monthly_margin_total = totals.margin
         monthly_revenue_total = totals.revenue
@@ -650,9 +652,15 @@ async def client_dashboard(
             completed_rev if finance_ok and revenue_fx_complete else None
         ),
         currency_breakdown=currency_breakdown if finance_ok else None,
+        # Runda 8 (R8-N13-3): klient bez obecnych kontraktów ma marżę 0, jak
+        # kafel „Aktywne MRR" na profilu (`clients.py`) — dotąd Analityka
+        # pokazywała „—", a profil tego samego klienta „0 zł". „—" zostaje
+        # dla kontraktów, z których żaden nie ma wyceny.
         monthly_margin_total=(
             monthly_margin_total
-            if finance_ok and has_margin and margin_complete
+            if finance_ok
+            and margin_complete
+            and (has_margin or current_contract_count == 0)
             else None
         ),
         monthly_margin_pct=margin_pct if finance_ok else None,

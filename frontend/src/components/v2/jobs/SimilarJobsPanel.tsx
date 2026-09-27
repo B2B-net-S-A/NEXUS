@@ -324,13 +324,15 @@ export function SimilarJobsPanel({
         <GroupSection title="Podpowiedzi systemu">
           {similar.isLoading ? (
             <p className="text-sm text-muted-foreground">Szukam podobnych rekrutacji…</p>
-          ) : suggestions.length === 0 ? (
+          ) : suggestions.length > 0 ? (
+            suggestions.map(renderGroup)
+          ) : similar.isSuccess ? (
+            // Runda 8 (R8-N14-4): „nie znalazł” tylko po udanym odczycie —
+            // przy awarii komunikat błędu stoi wyżej.
             <p className="text-sm text-muted-foreground">
               System nie znalazł podobnych rekrutacji. Wpisz rekrutację w polu wyżej.
             </p>
-          ) : (
-            suggestions.map(renderGroup)
-          )}
+          ) : null}
         </GroupSection>
 
         {linked.length > 0 ? (

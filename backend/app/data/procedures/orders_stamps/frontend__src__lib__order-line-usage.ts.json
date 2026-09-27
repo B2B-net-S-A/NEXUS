@@ -1,4 +1,4 @@
 {
-  "sha256": "3557f1181736610995c0dc179024f94de7d14cb9d632a31e0fa5de80c68f8933",
+  "sha256": "83bf9a39adee520eb82c7a3047944fd45c975a968422344b74c9b47f6b385b61",
   "source": "frontend/src/lib/order-line-usage.ts"
 }

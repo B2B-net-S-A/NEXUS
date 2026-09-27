@@ -582,6 +582,42 @@ export interface TemplateSourceJob {
   champion_profile?: unknown;
 }
 
+/**
+ * Rekrutacja-szablon z profilem Championa W NOWYM KSZTAŁCIE.
+ *
+ * Runda 8 (R8-N12-1): `GET /api/jobs/{id}` oddaje surowy JSONB profilu, a 949
+ * profili z importu 08.2026 ma stary kształt (`project_context`, `sourcing`).
+ * `applyTemplate` czyta wyłącznie nowe sekcje, więc formularz zostawał pusty,
+ * a PUT z `/jobs/new` nadpisywał pustymi napisami to, co serwer właśnie
+ * skopiował z szablonu (`from_job_id`). Profil bierzemy z
+ * `GET …/champion-profile` (`champion_view.api_response` — migracja na
+ * serwerze, jedna reguła); gdy ten odczyt padnie, zostaje surowy.
+ */
+export async function loadTemplateSource<T extends TemplateSourceJob>(
+  get: (url: string) => Promise<{ data: unknown }>,
+  jobId: number,
+): Promise<T> {
+  const [jobResponse, profile] = await Promise.all([
+    get(`/api/jobs/${jobId}`),
+    get(`/api/jobs/${jobId}/champion-profile`).then(
+      ({ data }) =>
+        data && typeof data === "object"
+          ? (data as { champion_profile?: unknown }).champion_profile
+          : undefined,
+      () => undefined,
+    ),
+  ]);
+  const job = jobResponse.data as T;
+  if (
+    profile &&
+    typeof profile === "object" &&
+    Object.keys(profile as object).length > 0
+  ) {
+    return { ...job, champion_profile: profile };
+  }
+  return job;
+}
+
 function skillNames(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const out: string[] = [];

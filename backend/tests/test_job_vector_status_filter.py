@@ -16,7 +16,7 @@ def test_job_point_payload_carries_status():
     """Bez `status` w payloadzie filtrowanie po stronie Qdranta nie istnieje."""
     source = open(embedding_service.__file__, encoding="utf-8").read()
     payload_block = source[source.index('"industry": job.industry or ""') :][:1200]
-    assert '"status": getattr(job.status' in payload_block
+    assert '"status": job_status_value(job.status)' in payload_block
 
 
 def test_status_filter_lets_legacy_points_through():

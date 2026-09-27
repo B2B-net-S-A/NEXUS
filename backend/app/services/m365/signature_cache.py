@@ -136,6 +136,7 @@ _MAX_SIGNATURE_LENGTH = 12000
 # mobile / Gmail. Do 26.09.2026 podpis brał wszystko od ostatniego znacznika
 # do końca treści, więc cytat maila kandydata A (adres, stawka) trafiał do
 # podpisu i był doklejany do każdego maila z NEXUSA przez 24 h.
+_HR_RE = re.compile(r"<hr\b", re.I)
 _QUOTE_START_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"""<div\b[^>]*\bid\s*=\s*["']?(?:x_)?appendonsend\b""", re.I),
     re.compile(r"""<div\b[^>]*\bid\s*=\s*["']?(?:x_)?divRplyFwdMsg\b""", re.I),
@@ -146,7 +147,7 @@ _QUOTE_START_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
         r"""<div\b[^>]*\bclass\s*=\s*["'][^"']*\bgmail_(?:quote|attr)\b""", re.I
     ),
-    re.compile(r"<hr\b", re.I),
+    _HR_RE,
     re.compile(r"<blockquote\b", re.I),
     # Nagłówek cytowanego maila: „From: … Sent: / Od: … Wysłano:” (Outlook
     # desktop i nowy Outlook piszą go zwykłym tekstem, bez id).
@@ -163,8 +164,14 @@ _QUOTE_START_PATTERNS: tuple[re.Pattern[str], ...] = (
 # AB3E8A90” z ``src="cid:…"`` logo pasowało jako adres z domeną „…AB” i podpis
 # z obrazkiem losowo znikał), a odnośniki ``cid:`` do obrazków w treści maila
 # nie są adresami — usuwamy je przed sprawdzeniem.
-_EMAIL_RE = re.compile(
-    r"[A-Za-z0-9._%+\-]+@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})(?![A-Za-z0-9\-])"
+#
+# Runda 8 (R8-V3-4): regex łapie tylko „@” z zachłanną domeną (każdy znak
+# czytany raz), a znak przed „@” i końcówkę domeny sprawdza Python
+# (``_email_domains``). Dawny wzorzec z lookaheadem po ``[A-Za-z]{2,}`` wracał
+# z każdej pozycji — 12 KB podpisu = ok. 2 s w pętli zdarzeń.
+_AT_DOMAIN_RE = re.compile(r"@([A-Za-z0-9.\-]+)")
+_EMAIL_LOCAL_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._%+-"
 )
 _CID_RE = re.compile(r"cid:[^\s\"'<>]+", re.IGNORECASE)
 
@@ -188,11 +195,43 @@ _MOBILE_DEFAULT_RE = re.compile(
 _DIV_TAG_RE = re.compile(r"<(/?)div\b[^>]*>", re.IGNORECASE)
 
 
-def _quote_start(body_html: str) -> Optional[int]:
+def _quote_start(body_html: str, *, ignore_hr: bool = False) -> Optional[int]:
     positions = [
-        m.start() for p in _QUOTE_START_PATTERNS for m in [p.search(body_html)] if m
+        m.start()
+        for p in _QUOTE_START_PATTERNS
+        if not (ignore_hr and p is _HR_RE)
+        for m in [p.search(body_html)]
+        if m
     ]
     return min(positions) if positions else None
+
+
+def _email_domains(text: str) -> list[str]:
+    """Domeny adresów e-mail w tekście (lustro dawnego ``_EMAIL_RE``)."""
+    out: list[str] = []
+    for match in _AT_DOMAIN_RE.finditer(text):
+        start = match.start()
+        if start == 0 or text[start - 1] not in _EMAIL_LOCAL_CHARS:
+            continue
+        domain = _email_domain(match.group(1))
+        if domain is not None:
+            out.append(domain)
+    return out
+
+
+def _email_domain(candidate: str) -> Optional[str]:
+    """Najdłuższa domena z kandydata, której TLD (≥ 2 litery) kończy domenę.
+
+    Lustro dawnego ``[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}(?![A-Za-z0-9\\-])``: domena
+    może się kończyć tylko na końcu kandydata albo tuż przed kropką.
+    """
+    labels = candidate.split(".")
+    for k in range(len(labels), 1, -1):
+        tld = labels[k - 1]
+        head_empty = k == 2 and not labels[0]
+        if len(tld) >= 2 and tld.isascii() and tld.isalpha() and not head_empty:
+            return ".".join(labels[:k])
+    return None
 
 
 def _allowed_email_domains(owner_email: Optional[str]) -> set[str]:
@@ -202,18 +241,20 @@ def _allowed_email_domains(owner_email: Optional[str]) -> set[str]:
     return domains
 
 
-def _looks_like_quote(signature: str, owner_email: Optional[str]) -> bool:
+def _looks_like_quote(
+    signature: str, owner_email: Optional[str], *, ignore_hr: bool = False
+) -> bool:
     """Czy fragment niesie cudzą treść (runda 6 audytu).
 
     Bezpieczniej wysłać mail bez podpisu niż z cytatem cudzego maila, bo
     podpis jest doklejany do KAŻDEJ wiadomości z NEXUSA (także do maili
     odrzucenia) — dlatego wątpliwość = brak podpisu.
     """
-    if _quote_start(signature) is not None:
+    if _quote_start(signature, ignore_hr=ignore_hr) is not None:
         return True
     allowed = _allowed_email_domains(owner_email)
-    for match in _EMAIL_RE.finditer(_CID_RE.sub(" ", signature)):
-        if match.group(1).lower() not in allowed:
+    for domain in _email_domains(_CID_RE.sub(" ", signature)):
+        if domain.lower() not in allowed:
             return True
     return False
 
@@ -267,12 +308,16 @@ def extract_signature(
         if first is None:
             continue
         if marker.include_match:
-            end = _element_end(head, first.start())
+            # Runda 8 (R8-V3-5): koniec elementu szukamy w PEŁNEJ treści —
+            # ``<hr>`` wewnątrz ``<div id="Signature">`` (linia oddzielająca
+            # w podpisie) ucinał ``head`` w środku elementu i mail szedł bez
+            # podpisu. Inny znacznik cytatu w elemencie nadal go odrzuca.
+            end = _element_end(body_html, first.start())
             if end is None:
                 return None
-            tail = head[first.start() : end].strip()
+            tail = body_html[first.start() : end].strip()
             # Drugi znacznik podpisu WEWNĄTRZ elementu = zagnieżdżona treść.
-            rest = head[first.end() : end]
+            rest = body_html[first.end() : end]
         else:
             tail = head[first.end() :].strip()
             rest = head[first.end() :]
@@ -288,7 +333,9 @@ def extract_signature(
         # Drugi znacznik podpisu za pierwszym = zagnieżdżona cudza treść.
         if any(m.pattern.search(rest) for m in _SIGSEP_MARKERS):
             return None
-        if _looks_like_quote(tail, owner_email) or _is_mobile_default(tail):
+        if _looks_like_quote(
+            tail, owner_email, ignore_hr=marker.include_match
+        ) or _is_mobile_default(tail):
             return None
         return tail
     return None

@@ -272,7 +272,7 @@ export function HeroLigaMistrzow({
  <span className="font-mono font-bold">{pointsFormula.placement} pkt</span>
  </span>
  <span>
- <span className="font-semibold text-sky-300">Interview:</span>{""}
+ <span className="font-semibold text-sky-300">Rozmowa u klienta:</span>{""}
  <span className="font-mono font-bold">{pointsFormula.interview} pkt</span>
  </span>
  <span>

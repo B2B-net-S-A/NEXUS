@@ -45,7 +45,9 @@ export interface FunnelAccent {
 export const FUNNEL_STAGE_ACCENT: Record<string, FunnelAccent> = {
   verified: { border: "border-l-info", value: "text-info-muted-foreground" },
   cv_sent: { border: "border-l-chart-5", value: "text-chart-5" },
-  interview: {
+  // Runda 8 (R8-V2-2): „Rozmowy” = `client_interview`. Kod `interview`
+  // to od v5 etap QC CV, nie rozmowa.
+  client_interview: {
     border: "border-l-warning",
     value: "text-warning-muted-foreground",
   },
@@ -77,7 +79,7 @@ export const NEUTRAL_ACCENT: FunnelAccent = {
 const KPI_TILES: { stage: string; headline: string }[] = [
   { stage: "verified", headline: "Weryfikacje" },
   { stage: "cv_sent", headline: "Rekomendacje" },
-  { stage: "interview", headline: "Interviews" },
+  { stage: "client_interview", headline: "Rozmowy u klienta" },
   { stage: "hired", headline: "Placements" },
 ];
 

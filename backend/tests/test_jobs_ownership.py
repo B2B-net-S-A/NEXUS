@@ -66,12 +66,14 @@ async def _seed_client() -> int:
         return c.id
 
 
-async def _seed_job(recruiter_id: int | None = None) -> int:
+async def _seed_job(
+    recruiter_id: int | None = None, status: JobStatus = JobStatus.draft
+) -> int:
     client_id = await _seed_client()
     async with AsyncSessionLocal() as db:
         j = Job(
             title=f"Ownership-test Job {uuid.uuid4().hex[:6]}",
-            status=JobStatus.draft,
+            status=status,
             recruiter_id=recruiter_id,
             client_id=client_id,
         )
@@ -205,6 +207,22 @@ async def test_claim_already_owned_returns_409(ownership_client: AsyncClient):
     headers = await _login(ownership_client, challenger_email, challenger_pass)
     resp = await ownership_client.post(f"/api/jobs/{job_id}/claim", headers=headers)
     assert resp.status_code == 409, resp.text
+
+
+@pytest.mark.asyncio
+async def test_claim_closed_job_returns_409(ownership_client: AsyncClient):
+    """Runda 8 (R8-X2-3): zamkniętej rekrutacji bez prowadzącego (archiwum
+    z Traffita) nikt nie przejmuje — „prowadzący” widział stawki umów B2B
+    wydanych w tej rekrutacji."""
+    _, rec_email, rec_pass = await _seed_user(UserRole.recruiter)
+    job_id = await _seed_job(status=JobStatus.closed)
+
+    headers = await _login(ownership_client, rec_email, rec_pass)
+    resp = await ownership_client.post(f"/api/jobs/{job_id}/claim", headers=headers)
+    assert resp.status_code == 409, resp.text
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        assert job is not None and job.recruiter_id is None
 
 
 @pytest.mark.asyncio

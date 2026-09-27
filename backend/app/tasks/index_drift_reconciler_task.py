@@ -103,6 +103,12 @@ async def index_drift_reconciler_loop() -> None:
                         unseen_predicate=(
                             _job_is_published if entity_type == outbox.JOB else None
                         ),
+                        # Runda 8 (R8-N11-4): kandydat, którego jedyna intencja
+                        # skończyła jako `dead` (np. długa awaria Qdranta),
+                        # wraca do kolejki — inaczej nie dostałby wektora nigdy.
+                        revive_dead_unseen=entity_type == outbox.CANDIDATE,
+                        # R8-N11-2: status w payloadzie ofert zgodny z bazą.
+                        sync_job_status=entity_type == outbox.JOB,
                     )
                     await db.commit()
                 if result.next_cursor is None:
@@ -112,7 +118,7 @@ async def index_drift_reconciler_loop() -> None:
                     cursors[entity_type] = 0
                 else:
                     cursors[entity_type] = result.next_cursor
-                    if result.drifted:
+                    if result.drifted or result.revived or result.status_synced:
                         logger.info(
                             "[index-drift] %s: %s", entity_type, result.as_log()
                         )

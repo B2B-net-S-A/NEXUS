@@ -48,7 +48,7 @@ const METRIC_KEYS: TeamTableMetricKey[] = [
 const METRIC_LABEL: Record<TeamTableMetricKey, string> = {
   verifications: "Weryfikacje",
   recommendations: "Rekomendacje",
-  interviews: "Interviews",
+  interviews: "Rozmowy u klienta",
   placements: "Placements",
 };
 

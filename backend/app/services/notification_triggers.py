@@ -7,8 +7,9 @@ co 5 min. Idempotentność zapewnia unique partial index `ix_notif_dedup_daily`
 
 Triggery:
   1. check_dl_stage_stale_6h     — kandydat w `cv_sent` > 6h bez ruchu → alert do DL.
-  2. check_client_feedback_eobd  — o 16:30 dla `client_interview` zakończonego dziś
-                                   bez feedbacku (brak ScreeningNote po end_time).
+  2. check_client_feedback_eobd  — o 16:30 dla rozmowy u klienta zakończonej dziś
+                                   bez feedbacku (ScreeningNote, werdykt HM ani
+                                   debrief po end_time).
   3. (usunięty 23.09.2026) raport PowerCalling 11:45 — bez telefonii mierzył
      rozmowy, których system nie rejestruje. Typ `powercalling_kpi` zostaje
      dla historycznych powiadomień.
@@ -27,7 +28,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -406,10 +407,12 @@ async def check_client_feedback_eobd(
         return 0
 
     day = local_day_bounds(now)
-    # Wszystkie dzisiejsze zakończone interview (event_type=interview, status=completed).
+    # Wszystkie dzisiejsze zakończone rozmowy u klienta. Runda 8 (R8-X1-2):
+    # cykl 0338 zakłada je jako `client_interview` — samo `interview` (stare
+    # wydarzenia) pomijało każdą rozmowę z potwierdzonego terminu od klienta.
     ev_rows = await db.execute(
         select(CalendarEvent).where(
-            CalendarEvent.event_type == EventType.interview,
+            CalendarEvent.event_type.in_(_POST_INTERVIEW_EVENT_TYPES),
             CalendarEvent.status == EventStatus.completed,
             CalendarEvent.end_time.isnot(None),
             CalendarEvent.end_time >= day.start_utc,
@@ -443,6 +446,26 @@ async def check_client_feedback_eobd(
             )
         )
         if (fb.scalar() or 0) > 0:
+            continue
+        # Feedback = też werdykt hiring managera (`client_side`) i debrief
+        # (`candidate_side`) zapisane po rozmowie — cykl 0338 zapisuje tam,
+        # nie w ScreeningNote (runda 8, R8-X1-2).
+        verdict = await db.execute(
+            select(func.count())
+            .select_from(InterviewFeedback)
+            .where(
+                InterviewFeedback.candidate_id == event.candidate_id,
+                InterviewFeedback.job_id == event.job_id,
+                or_(
+                    InterviewFeedback.updated_at > event.end_time,
+                    and_(
+                        InterviewFeedback.calendar_event_id == event.id,
+                        InterviewFeedback.updated_at >= event.start_time,
+                    ),
+                ),
+            )
+        )
+        if (verdict.scalar() or 0) > 0:
             continue
         targets = await _delivery_lead_targets(db, job)
         for dl_id in targets:
@@ -894,6 +917,47 @@ async def _feedback_exists(
     return (res.scalar() or 0) > 0
 
 
+async def _post_interview_feedback_done(
+    db: AsyncSession, event: CalendarEvent, source: FeedbackSource
+) -> bool:
+    """Czy przypomnienie po rozmowie ma zgasnąć.
+
+    Runda 8 (CAL2): dla rozmowy u klienta po stronie kandydata gasi je
+    WYŁĄCZNIE kompletny debrief (`debrief_gate.debrief_closes_round`) — ta sama
+    reguła co bramka i ekran. Feedback bez pytań klienta zostawiał bramkę
+    zamkniętą, a dzwonek milczał.
+    """
+    if not (
+        event.event_type == EventType.client_interview
+        and source == FeedbackSource.candidate_side
+    ):
+        return await _feedback_exists(db, event.id, source)
+    from app.services.debrief_gate import debrief_closes_round
+
+    rows = (
+        await db.execute(
+            select(
+                InterviewFeedback.client_questions,
+                InterviewFeedback.no_client_questions,
+                InterviewFeedback.updated_at,
+            ).where(
+                InterviewFeedback.calendar_event_id == event.id,
+                InterviewFeedback.feedback_source == source,
+            )
+        )
+    ).all()
+
+    def _aware(value):
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
+    return any(
+        debrief_closes_round(r[0], r[1], _aware(r[2]), _aware(event.start_time))
+        for r in rows
+    )
+
+
 def _is_client_side(stage: LatestStage | None) -> bool:
     return stage is not None and stage.stage == PipelineStage.client_interview
 
@@ -957,7 +1021,7 @@ async def check_post_interview_t15(
         source = (
             FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
         )
-        if await _feedback_exists(db, event.id, source):
+        if await _post_interview_feedback_done(db, event, source):
             continue
 
         job = jobs.get(event.job_id) if event.job_id else None
@@ -1009,7 +1073,7 @@ async def check_post_interview_t45(
         source = (
             FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
         )
-        if await _feedback_exists(db, event.id, source):
+        if await _post_interview_feedback_done(db, event, source):
             continue
 
         job = jobs.get(event.job_id) if event.job_id else None
@@ -1051,7 +1115,7 @@ async def check_post_interview_t2h_escalation(
         source = (
             FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
         )
-        if await _feedback_exists(db, event.id, source):
+        if await _post_interview_feedback_done(db, event, source):
             continue
 
         job = jobs.get(event.job_id) if event.job_id else None

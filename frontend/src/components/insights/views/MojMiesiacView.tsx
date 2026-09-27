@@ -241,7 +241,17 @@ export function MojMiesiacView() {
           title="Wyścig placementów"
           hint={placementsRace?.prize.name ?? undefined}
         >
-          {raceRanking.length === 0 ? (
+          {/* Runda 8 (R8-N14-2): zdanie o pustym wyścigu tylko po udanym
+              odczycie — awaria i wczytywanie to nie „nikt się nie kwalifikuje”. */}
+          {racesQuery.isPending ? (
+            <p className="text-sm text-muted-foreground">Wczytuję wyścig…</p>
+          ) : racesQuery.isError && !racesQuery.data ? (
+            <SectionError
+              label="Wyścig placementów"
+              error={racesQuery.error}
+              onRetry={() => void racesQuery.refetch()}
+            />
+          ) : raceRanking.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Nikt nie ma jeszcze wymaganej liczby placementów w tym miesiącu.
             </p>

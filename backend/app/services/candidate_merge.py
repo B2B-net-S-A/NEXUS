@@ -87,6 +87,12 @@ _SKIP_TABLES: dict[str, str] = {
     # Kolejka indeksu: wiersz duplikatu zostaje i dostaje zadanie „delete",
     # ocalały dostaje świeże przeliczenie wektora.
     "match_index_outbox": "kolejka indeksu wektorowego",
+    # Migawki pełnego przeglądu bazy: wiersze duplikatu kasuje
+    # `candidate_search_store.erase_candidate` (runda 8, R8-N11-6) i ogradza
+    # przeglądy w toku. Przepięcie łamało kompletność migawki (PK
+    # `(run_id, candidate_id)`), więc `finish_run` rzucał ValueError przy każdej
+    # próbie, aż przegląd kończył się `failed` z nieczytelnym kodem.
+    "candidate_search_results": "migawki przeglądów bazy (erase_candidate)",
 }
 
 Choice = Literal["survivor", "duplicate"]
@@ -1000,6 +1006,10 @@ async def execute_merge(
         "merged_at": datetime.now(timezone.utc).isoformat(),
     }
 
+    from app.services import candidate_search_store
+
+    search_erasure = await candidate_search_store.erase_candidate(db, duplicate_id)
+
     indexes = await unique_indexes(db)
     moved: dict[str, dict[str, int]] = {}
     for ref in await _usable_references(db):
@@ -1073,6 +1083,7 @@ async def execute_merge(
                 "replaced_rows": replaced_rows,
                 "tables": sorted(moved),
                 "fields_from_duplicate": sorted(updates),
+                "search_runs_failed": search_erasure["search_runs_failed"],
             },
         )
     )

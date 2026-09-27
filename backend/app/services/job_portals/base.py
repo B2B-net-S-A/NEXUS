@@ -140,6 +140,11 @@ class PostingContent:
     external_ref: Optional[str] = None
 
 
+# ``PortalResult.extra`` — ``publish`` przejął ogłoszenie, które już było na
+# portalu (poprzednia próba), zamiast je utworzyć; jego treść może być stara.
+ADOPTED_EXISTING = "adopted_existing"
+
+
 @dataclass
 class PortalResult:
     external_id: Optional[str] = None

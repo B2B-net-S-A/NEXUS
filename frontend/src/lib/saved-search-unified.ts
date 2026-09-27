@@ -491,17 +491,26 @@ export function unifiedToSearchBody(request: UnifiedCandidateSearchRequest): Dic
   return out;
 }
 
-const GAP_IGNORED = new Set([
-  "sort",
-  "search_mode",
-  "exclude_blacklisted",
-  "exclude_in_job_id",
-]);
+const GAP_IGNORED = new Set(["sort", "search_mode"]);
 
-/** Pola, których lista nie umie wyrazić (języki, źródła…). */
+/**
+ * Pola, których lista nie umie wyrazić (języki, źródła…). Lustro
+ * `list_engine_gaps`: `exclude_blacklisted` i `exclude_in_job_id` zawężają
+ * wynik, więc są luką, chyba że nic nie zawężają (runda 8, R8-N10-6).
+ */
 export function listEngineGaps(request: UnifiedCandidateSearchRequest): string[] {
-  return Object.keys(request.search_only ?? {})
-    .filter((k) => !GAP_IGNORED.has(k))
+  const searchOnly = (request.search_only ?? {}) as Record<string, unknown>;
+  const statuses = request.status ?? [];
+  return Object.keys(searchOnly)
+    .filter((k) => {
+      if (GAP_IGNORED.has(k)) return false;
+      const value = searchOnly[k];
+      if (k === "exclude_blacklisted") {
+        return Boolean(value) && !(statuses.length > 0 && !statuses.includes("blacklisted"));
+      }
+      if (k === "exclude_in_job_id") return value !== null && value !== undefined;
+      return true;
+    })
     .sort();
 }
 

@@ -33,7 +33,11 @@ from app.models.interview_feedback import (
 )
 from app.models.job import Job
 from app.models.notification import NotificationType
-from app.services.notification_triggers import emit
+from app.services.notification_triggers import (
+    _delivery_lead_targets,
+    _operational_recipient,
+    emit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +48,14 @@ async def _load_job(db: AsyncSession, job_id: Optional[int]) -> Optional[Job]:
     return await db.get(Job, job_id)
 
 
+async def _emit_to(db: AsyncSession, recipients: list[int], **kwargs) -> int:
+    sent = 0
+    for user_id in recipients:
+        if await emit(db, user_id=user_id, **kwargs) is not None:
+            sent += 1
+    return sent
+
+
 async def apply_post_feedback_actions(
     db: AsyncSession, feedback: InterviewFeedback
 ) -> int:
@@ -51,15 +63,28 @@ async def apply_post_feedback_actions(
 
     Returns number of notifications emitted.
     """
+    if (
+        feedback.decision not in (InterviewDecision.advance, InterviewDecision.reject)
+        and feedback.interest_level != InterestLevel.dead
+    ):
+        return 0
     job = await _load_job(db, feedback.job_id)
-    recruiter_id = job.recruiter_id if job else None
-    if not recruiter_id:
-        # Fallback: autor feedbacku (ktoś zarejestrował, więc ma relację do procesu)
-        recruiter_id = feedback.author_id
-    if not recruiter_id:
+    # Runda 8 (R8-X1-1): adresat jak przy telefonie po rozmowie — prowadzący,
+    # a gdy jego konta już nie ma, autor feedbacku (zastępstwo z COMPASS
+    # wygrywa); bez obu DL rekrutacji albo Head of Recruitment. Do tej pory
+    # nieaktywny prowadzący połykał „Klient idzie dalej / odrzucił” w `emit`.
+    recipient = await _operational_recipient(
+        db, [job.recruiter_id if job else None, feedback.author_id]
+    )
+    if recipient is not None:
+        recipients = [recipient]
+    elif job is not None:
+        recipients = await _delivery_lead_targets(db, job)
+    else:
+        recipients = []
+    if not recipients:
         logger.debug(
-            "interview_feedback_actions: no recipient (no recruiter_id, no author_id) "
-            "for feedback id=%s — skipping",
+            "interview_feedback_actions: no recipient for feedback id=%s — skipping",
             feedback.id,
         )
         return 0
@@ -76,9 +101,9 @@ async def apply_post_feedback_actions(
     in_job = f" w rekrutacji „{job.title}”" if job is not None and job.title else ""
 
     if feedback.decision == InterviewDecision.advance:
-        result = await emit(
+        emitted += await _emit_to(
             db,
-            user_id=recruiter_id,
+            recipients,
             title="Klient idzie dalej — zaproponuj next step",
             message=(
                 f"Klient chce iść dalej: {who}{in_job}. "
@@ -90,13 +115,11 @@ async def apply_post_feedback_actions(
             related_entity_type="candidate",
             related_entity_id=feedback.candidate_id,
         )
-        if result is not None:
-            emitted += 1
 
     if feedback.decision == InterviewDecision.reject:
-        result = await emit(
+        emitted += await _emit_to(
             db,
-            user_id=recruiter_id,
+            recipients,
             title="Klient odrzucił — zamknij proces albo przenieś do puli",
             message=(
                 f"Klient nie chce kontynuować: {who}{in_job}. "
@@ -107,13 +130,11 @@ async def apply_post_feedback_actions(
             related_entity_type="candidate",
             related_entity_id=feedback.candidate_id,
         )
-        if result is not None:
-            emitted += 1
 
     if feedback.interest_level == InterestLevel.dead:
-        result = await emit(
+        emitted += await _emit_to(
             db,
-            user_id=recruiter_id,
+            recipients,
             title="Kandydat stracił zainteresowanie",
             message=(
                 f"{full_name or 'Kandydat'}{in_job} zamknął temat po swojej stronie. "
@@ -124,7 +145,5 @@ async def apply_post_feedback_actions(
             related_entity_type="candidate",
             related_entity_id=feedback.candidate_id,
         )
-        if result is not None:
-            emitted += 1
 
     return emitted

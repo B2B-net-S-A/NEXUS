@@ -388,7 +388,11 @@ _SCORING_INPUT_FIELDS = _EMBED_TRIGGER_FIELDS | {
 }
 
 
-_OWNER_FIELD_LABELS = {"tac_id": "TAC", "delivery_lead_id": "Delivery Lead"}
+_OWNER_FIELD_LABELS = {
+    "tac_id": "TAC",
+    "delivery_lead_id": "Delivery Lead",
+    "recruiter_id": "Prowadzący",
+}
 
 
 async def _validate_owner_override(
@@ -448,6 +452,28 @@ async def _validate_tac_client_assignment(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail="TAC: ta osoba nie jest przypisana do wybranego klienta.",
+        )
+
+
+async def _sync_job_status_payload(job: Job) -> None:
+    """Status w payloadzie punktu oferty w Qdrancie — tani zapis, bez Voyage'a.
+
+    Runda 8 (R8-N11-2): zmiana statusu nie zmienia tekstu embeddingu, więc nie
+    wywołuje re-embedu, a filtr puli ofert (`search_jobs_semantic(statuses=…)`)
+    czyta status z payloadu. Oferta bez `embedding_id` nie ma punktu — pomijamy.
+    Wołać PO commicie; nigdy nie rzuca. Oferty bez punktu nie sprawdzamy
+    tutaj — `sync_job_status_payloads` pomija punkty, których nie ma.
+    """
+    try:
+        from app.services.embedding_service import (
+            job_status_value,
+            sync_job_status_payloads,
+        )
+
+        await sync_job_status_payloads({job.id: job_status_value(job.status)})
+    except Exception as exc:  # noqa: BLE001 — payload dogoni reconciler
+        logger.warning(
+            "[Job] status payload sync failed job=%s: %s", job.id, type(exc).__name__
         )
 
 
@@ -1805,6 +1831,16 @@ async def create_job(
             },
             field="delivery_lead_id",
         )
+    # Runda 8 (R8-X1-3): prowadzący jak w „Przekaż do searchu” — nieistniejące
+    # id dawało IntegrityError (500 bez CORS), a nieaktywne konto zostawało
+    # „Prowadzi” przy osobie, której nie ma.
+    if data.recruiter_id is not None:
+        await _validate_owner_override(
+            db,
+            user_id=data.recruiter_id,
+            allowed_roles=set(_HANDOFF_RECRUITER_ROLES),
+            field="recruiter_id",
+        )
 
     # Auto-assign from Client ↔ TAC/DL assignments when the caller left the
     # field empty. Override semantics: if caller supplied the value, we
@@ -2277,6 +2313,7 @@ async def update_job(
     delivery_lead_changed = (
         "delivery_lead_id" in sent and data.delivery_lead_id != job.delivery_lead_id
     )
+    recruiter_changed = "recruiter_id" in sent and data.recruiter_id != job.recruiter_id
     if client_changed:
         await assert_client_assignable(db, data.client_id)
     if tac_changed and data.tac_id is not None:
@@ -2309,6 +2346,15 @@ async def update_job(
                 UserRole.head_of_recruitment,
             },
             field="delivery_lead_id",
+        )
+    # Runda 8 (R8-X1-3): tylko przy realnej zmianie — formularz odsyła
+    # niezmienionego (także nieaktywnego już) prowadzącego przy każdym zapisie.
+    if recruiter_changed and data.recruiter_id is not None:
+        await _validate_owner_override(
+            db,
+            user_id=data.recruiter_id,
+            allowed_roles=set(_HANDOFF_RECRUITER_ROLES),
+            field="recruiter_id",
         )
 
     updates = data.model_dump(exclude_unset=True)
@@ -2502,6 +2548,7 @@ async def update_job(
     # Invalidate client hit-ratio cache on status changes (affects aggregates).
     if status_flipped:
         await cache_invalidate("reports:clients")
+        await _sync_job_status_payload(job)
 
     # Phase 2: re-embed if any embed-relevant field changed
     if _EMBED_TRIGGER_FIELDS & changed:
@@ -2785,6 +2832,7 @@ async def close_job(
     await db.refresh(job)
 
     await cache_invalidate("reports:clients")
+    await _sync_job_status_payload(job)
     payload = JobResponse.model_validate(job).model_dump()
     return _redact_delivery_lead_job_finance(payload, current_user)
 
@@ -2964,6 +3012,7 @@ async def publish_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
+    status_changes = job.status != JobStatus.published
     if job.status == JobStatus.closed:
         # Lustro ponownego otwarcia w PATCH: bez tego rekrutacja opublikowana
         # z powrotem zostawała „Zakończona” i poza przydziałem (audyt 24.09.2026).
@@ -2990,6 +3039,8 @@ async def publish_job(
 
     await enqueue_job(db, job_id=job_id, trigger="job_publish")
     await db.commit()
+    if status_changes:
+        await _sync_job_status_payload(job)
     return {"status": "published", "job_id": job_id}
 
 
@@ -4889,6 +4940,14 @@ async def claim_job(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Ta rekrutacja ma już właściciela",
+        )
+    # Runda 8 (R8-X2-3): zamkniętej rekrutacji (także archiwum z Traffita bez
+    # prowadzącego) nikt już nie przejmuje — „prowadzący” odsłaniał stawki
+    # wszystkich umów B2B wydanych w tej rekrutacji.
+    if job.status == JobStatus.closed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Zamkniętej rekrutacji nie można przejąć.",
         )
 
     if job.is_open and current_user.has_any_role(

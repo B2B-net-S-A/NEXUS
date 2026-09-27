@@ -32,6 +32,7 @@ import {
   EMPTY_INTAKE_FORM,
   MISSING_LABEL,
   applyTemplate,
+  loadTemplateSource,
   buildChampionPayload,
   buildJobPayload,
   formFromIntake,
@@ -164,11 +165,10 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     const fromId = fromParam ? Number(fromParam) : NaN;
     if (!Number.isInteger(fromId) || fromId <= 0) return;
     let cancelled = false;
-    api
-      .get<
-        TemplateSourceJob & { client?: { id: number; name: string } | null }
-      >(`/api/jobs/${fromId}`)
-      .then(({ data }) => {
+    loadTemplateSource<
+      TemplateSourceJob & { client?: { id: number; name: string } | null }
+    >(api.get, fromId)
+      .then((data) => {
         if (cancelled) return;
         if (data.client_id != null) {
           setClient({
@@ -309,7 +309,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
 
   const applyTemplateFromJob = async (jobId: number) => {
     try {
-      const { data } = await api.get<TemplateSourceJob>(`/api/jobs/${jobId}`);
+      const data = await loadTemplateSource(api.get, jobId);
       setForm((f) => applyTemplate(f, data));
       setTemplateJobId(jobId);
     } catch (e) {
@@ -650,6 +650,20 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                   ))}
                 </select>
               </label>
+              {/* Runda 8 (R8-N14-6): pusta lista „Prowadzi” przy awarii
+                  blokowała przekazanie bez słowa wyjaśnienia. */}
+              {recruitersQuery.isError && !recruitersQuery.data ? (
+                <span role="alert" className="text-xs text-destructive">
+                  Nie udało się wczytać listy rekruterów.{" "}
+                  <button
+                    type="button"
+                    className="font-medium underline"
+                    onClick={() => void recruitersQuery.refetch()}
+                  >
+                    Ponów
+                  </button>
+                </span>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"

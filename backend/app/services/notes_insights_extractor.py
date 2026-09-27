@@ -126,10 +126,17 @@ _ISO_RE = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})")
 
 
 async def load_note_rows(db: AsyncSession, candidate_id: int) -> list[tuple]:
-    """(id, updated_at, created_at::date, content) — najnowsze najpierw."""
+    """(id, updated_at, dzień warszawski created_at, content) — najnowsze najpierw.
+
+    Runda 8 (R8-X1-5): dzień notatki liczony w Europe/Warsaw, nie w UTC sesji —
+    notatka z 00:30 dostawała w prompcie datę poprzedniego dnia, a model liczył
+    od niej dostępność („od przyszłego miesiąca”).
+    """
     result = await db.execute(
         text(
-            "SELECT id, updated_at, created_at::date AS d, content FROM notes "
+            "SELECT id, updated_at, "
+            "(created_at AT TIME ZONE 'Europe/Warsaw')::date AS d, "
+            "content FROM notes "
             "WHERE candidate_id = :c ORDER BY created_at DESC LIMIT :lim"
         ),
         {"c": candidate_id, "lim": NOTES_LIMIT},

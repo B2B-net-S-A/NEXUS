@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  attendeesOf,
   awaitingLuna,
   bookableSessions,
   bulkFailureMessage,
@@ -194,5 +195,18 @@ describe("withReplacedApplication — liczniki po akcji na osobie", () => {
     expect(withReplacedApplication(data, app({ id: 1, status: "to_call" }))?.counts).toEqual({ to_call: 1 });
     expect(withReplacedApplication(data, app({ id: 9, status: "rejected" }))?.counts).toEqual({ to_call: 1 });
     expect(withReplacedApplication(undefined, app({ id: 1 }))).toBeUndefined();
+  });
+});
+
+describe("attendeesOf (runda 8, R8-N2-9)", () => {
+  it("pomija wykluczonych i zrezygnowanych, którzy nie byli na spotkaniu", () => {
+    const apps = [
+      app({ id: 1, full_name: "Bartek", status: "scheduled", session_id: 5 }),
+      app({ id: 2, full_name: "Celina", status: "withdrew", session_id: 5 }),
+      app({ id: 3, full_name: "Daria", status: "rejected", session_id: 5, attended: false }),
+      app({ id: 4, full_name: "Adam", status: "rejected", session_id: 5, attended: true }),
+      app({ id: 5, full_name: "Ewa", status: "scheduled", session_id: 6 }),
+    ];
+    expect(attendeesOf(apps, 5).map((a) => a.id)).toEqual([4, 1]);
   });
 });

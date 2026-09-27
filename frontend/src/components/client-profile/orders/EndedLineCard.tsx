@@ -18,7 +18,7 @@ import {
   requiresDecision,
 } from "@/lib/order-ended-line";
 import { hasScopedMd, lineHasSettlements } from "@/lib/order-line-usage";
-import { MD_TRANSFER_METHOD_LABELS } from "@/lib/order-takeover";
+import { MD_TRANSFER_METHOD_LABELS, swapBlockedReason } from "@/lib/order-takeover";
 import { cn } from "@/lib/utils";
 import { formatDate, formatPLN } from "@/types/client-profile";
 
@@ -345,8 +345,9 @@ export function EndedLineCard({
               </button>
             ) : null}
             {/* Linia MD kończy się budżetem, nie datą — osoba po zejściu bywa
-                dalej `status: active` i serwer pozwala ją zamienić. */}
-            {canManage && line.status === "active" ? (
+                dalej `status: active` i serwer pozwala ją zamienić — chyba że
+                ma już zaplanowanego następcę (runda 8, N5-1). */}
+            {canManage && swapBlockedReason(line) === null ? (
               <button
                 type="button"
                 onClick={() => onSwapLine(group, line)}

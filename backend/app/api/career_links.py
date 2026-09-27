@@ -325,15 +325,19 @@ async def _profile_response(
     status_value, default_title, effective_title = await jpp.resolve_status(
         db, job, profile
     )
-    preview = jpp.public_job_payload(
-        job,
-        title=effective_title,
-        link_slug=await _preview_slug(db, user, job.id),
-        subtitle=subtitle,
-        about=about,
-        sections=sections,
+    preview_kwargs = {
+        "title": effective_title,
+        "link_slug": await _preview_slug(db, user, job.id),
+        "subtitle": subtitle,
+        "about": about,
+        "sections": sections,
+    }
+    # Podgląd (karta LinkedIna w edytorze) = to, co zobaczy kandydat, więc bez
+    # sekcji ukrytych; kontrola czyta pełną projekcję (runda 8).
+    preview = jpp.public_job_payload(job, **preview_kwargs)
+    findings = await jpp.lint_payload(
+        db, job, jpp.public_job_payload(job, **preview_kwargs, respect_show=False)
     )
-    findings = await jpp.lint_payload(db, job, preview)
     approved_by_name: Optional[str] = None
     if profile is not None and profile.approved_by:
         approved_by_name = await db.scalar(
@@ -484,6 +488,7 @@ async def approve_public_profile(
         subtitle=profile.subtitle,
         about=profile.about,
         sections=jpp.normalize_sections(profile.sections),
+        respect_show=False,
     )
     findings = await jpp.lint_payload(db, job, preview)
     if findings:
@@ -507,8 +512,11 @@ async def approve_public_profile(
     # zatwierdzenia (audyt 25.09.2026, r3) — ich późniejsza zmiana w
     # rekrutacji wymaga ponownego zatwierdzenia.
     profile.sections = jpp.sections_with_approved_content(
-        profile.sections, jpp.approved_content(preview)
+        profile.sections, jpp.approved_content(preview, client_id=job.client_id)
     )
+    # Runda 8 (R8-N4-2): adres linku powstał z tytułu, którego kontrola nie
+    # widziała — slug z nazwą klienta albo nazwiskiem dostaje nowy adres.
+    await jpp.rotate_unsafe_job_slugs(db, job, effective_title)
     profile.updated_by = current_user.id
     # 0381: nowa zatwierdzona treść → aktualizacja żywych ogłoszeń na portalach.
     from app.services.job_portals.service import queue_content_update

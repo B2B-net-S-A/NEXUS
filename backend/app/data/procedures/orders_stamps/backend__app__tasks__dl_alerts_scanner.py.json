@@ -1,4 +1,4 @@
 {
-  "sha256": "dcac97dd5ab9529d02c343b7d20a0afc36337d8984bb77d69bcb8c905ebb47de",
+  "sha256": "9c02f98ee427375f3b8e8862a6276293ade323178b4b4ae06eaa74a6580706e0",
   "source": "backend/app/tasks/dl_alerts_scanner.py"
 }

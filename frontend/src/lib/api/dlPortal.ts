@@ -424,6 +424,8 @@ export interface DlKpiRow {
   total_revenue: string | number | null;
   active_revenue: string | number | null;
   monthly_margin_total: number | null;
+  /** Klienci z obecnym kontraktem bez wyceny — marża DL-a jest wtedy częściowa. */
+  monthly_margin_unpriced_clients?: number;
   active_orders_count: number;
   active_consultants: number;
   active_contracts: number;

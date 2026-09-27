@@ -479,8 +479,23 @@ def unified_to_search_body(request: dict[str, Any]) -> dict[str, Any]:
 def list_engine_gaps(request: dict[str, Any]) -> list[str]:
     """Pola, których lista NIE umie wyrazić (np. źródła, „ma CV") — zapis z nimi
     nie może być odtwarzany przez listę jako alert, bo byłby szerszy."""
-    ignored = {"sort", "search_mode", "exclude_blacklisted", "exclude_in_job_id"}
-    return sorted(k for k in (request.get("search_only") or {}) if k not in ignored)
+    ignored = {"sort", "search_mode"}
+    gaps: list[str] = []
+    for key, value in (request.get("search_only") or {}).items():
+        if key in ignored:
+            continue
+        # Runda 8 (R8-N10-6): oba przełączniki ZAWĘŻAJĄ wynik. Pominięte
+        # w odtworzeniu dawały alert szerszy niż zapis (osoby z czarnej listy
+        # i osoby już w rekrutacji). Nie są luką tylko wtedy, gdy nic nie
+        # zawężają: wyłączone albo czarną listę i tak wyklucza filtr statusu.
+        if key == "exclude_blacklisted":
+            statuses = request.get("status") or []
+            if not value or (statuses and "blacklisted" not in statuses):
+                continue
+        if key == "exclude_in_job_id" and value is None:
+            continue
+        gaps.append(key)
+    return sorted(gaps)
 
 
 def build_unified_payload(

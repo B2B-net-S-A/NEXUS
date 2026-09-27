@@ -490,3 +490,61 @@ async def test_completed_predecessor_with_active_contract_is_not_revived(
     again = await _post(app_client, app_auth_headers, seed["client_id"], manifest, False)
     assert again.status_code == 200, again.text
     assert again.json()["groups"][0]["status"] == "already_exists"
+
+
+async def test_person_with_completed_and_active_line_still_syncs_the_contract(
+    app_client: AsyncClient, app_auth_headers, monkeypatch
+):
+    """R8-N6-7: linia zakończona nie wyłącza synchronizacji kontraktu, gdy ta
+    sama osoba ma w imporcie także linię aktywną (kontynuacja na nowej karcie)."""
+    seed = await _seed(monkeypatch)
+    _patch_gate(monkeypatch, seed["client_id"])
+    beta = seed["people"]["beta"]
+    person = {"name": beta["name"], "contract_id": beta["contract_id"]}
+    manifest = {
+        "client_id": seed["client_id"],
+        "supersede_order_ids": [],
+        "groups": [
+            {
+                "executive_contract_number": seed["ec_b"],
+                "order_number": seed["ec_b"],
+                "start_date": "2025-12-01",
+                "end_date": "2025-12-31",
+                "lines": [
+                    {
+                        "key": "old",
+                        "person": person,
+                        "base_md": 20,
+                        "rate_cost": 500,
+                        "rate_revenue": 600,
+                        "start_date": "2025-12-01",
+                        "end_date": "2025-12-31",
+                        "line_status": "completed",
+                        "history": [{"month": "2025-12", "md": 18, "status": "accepted"}],
+                    }
+                ],
+            },
+            {
+                "executive_contract_number": seed["ec_a"],
+                "order_number": seed["ec_a"],
+                "start_date": "2026-01-01",
+                "lines": [
+                    {
+                        "key": "new",
+                        "person": person,
+                        "base_md": 100,
+                        "rate_cost": 560,
+                        "rate_revenue": 640,
+                        "start_date": "2026-01-01",
+                        "history": [],
+                    }
+                ],
+            },
+        ],
+    }
+    resp = await _post(app_client, app_auth_headers, seed["client_id"], manifest, False)
+    assert resp.status_code == 200, resp.text
+    async with AsyncSessionLocal() as db:
+        contract = await db.scalar(select(Contract).where(Contract.id == beta["contract_id"]))
+        # Przed poprawką: okres zamówienia pusty (kontrakt pominięty w syncu).
+        assert contract.client_order_start_date == date(2026, 1, 1)

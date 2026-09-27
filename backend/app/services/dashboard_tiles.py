@@ -15,6 +15,7 @@ wywrócić cały ekran startowy z powodu jednego starego kafelka.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Literal, Optional, get_args
 from uuid import UUID
 
@@ -65,6 +66,20 @@ TileType = Literal[
 TILE_TYPES: tuple[str, ...] = get_args(TileType)
 
 
+# Backslash, białe i sterujące znaki — przeglądarka normalizuje `/\evil.com`
+# do `//evil.com`, czyli adresu obcej domeny (runda 8, R8-N10-5). Lustro
+# `safeInternalPath` z `frontend/src/lib/safe-href.ts`.
+_UNSAFE_PATH_CHARS = re.compile(r"[\\\s\x00-\x1f\x7f]")
+
+
+def _is_internal_path(value: str) -> bool:
+    return (
+        value.startswith("/")
+        and not value.startswith("//")
+        and not _UNSAFE_PATH_CHARS.search(value)
+    )
+
+
 class NoteLink(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -77,9 +92,7 @@ class NoteLink(BaseModel):
         # Link w notatce renderuje się jako <a href>. `javascript:` i podobne
         # schematy byłyby XSS-em zapisanym na koncie — dopuszczamy wyłącznie
         # adresy https i ścieżki wewnątrz aplikacji.
-        if value.startswith("https://") or (
-            value.startswith("/") and not value.startswith("//")
-        ):
+        if value.startswith("https://") or _is_internal_path(value):
             return value
         raise ValueError("Link musi zaczynać się od https:// albo / (strona NEXUS).")
 
@@ -101,7 +114,7 @@ class TileConfig(BaseModel):
     def _internal_link(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return value
-        if value.startswith("/") and not value.startswith("//"):
+        if _is_internal_path(value):
             return value
         raise ValueError("Kliknięcie w kafelek może prowadzić tylko do strony NEXUS.")
 

@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, CurrentUser
 from app.core.config import settings
-from app.core.database import AsyncSessionLocal, get_db
+from app.core.database import AsyncSessionLocal, get_db, release_idle_connection
 from app.core.rate_limit import client_ip_key, limiter, user_or_ip_key
 from app.core.scheduling import DEFAULT_TZ, business_today, local_now
 from app.core.tasks import spawn
@@ -304,6 +304,7 @@ async def jarvis_chat(
     request: Request,
     payload: JarvisChatRequest,
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     _require_available(request)
     if payload.web:
@@ -342,6 +343,11 @@ async def jarvis_chat(
         sections={s.value: v for s, v in _section_map(current_user).items()},
         web=payload.web,
     )
+    # Runda 8 (R8-N1-1): sesja requestu (auth, snapshot uprawnień) zamyka się
+    # dopiero PO wysłaniu całego strumienia. Bez zwolnienia połączenie wisiało
+    # „idle in transaction” przez całą turę (model do 90 s + narzędzia).
+    # Tura korzysta wyłącznie z własnych, krótkich sesji (``store``).
+    await release_idle_connection(db)
     try:
         claimed = await agent.claim(turn)
     except store.TurnBusy:
@@ -386,14 +392,27 @@ async def list_conversations(
     ]
 
 
-def _anchor_label(anchor_id: str) -> str:
+def _anchor_label(anchor_id: str) -> Optional[str]:
+    """Etykieta kotwicy z przewodników; ``None`` = takiej kotwicy nie ma."""
     from app.data.screen_guides import load_guides
 
     for guide in load_guides().values():
         for anchor in guide.anchors:
             if anchor.id == anchor_id:
                 return anchor.label
-    return "Element ekranu"
+    return None
+
+
+def _failed_tool_uses(messages: list[tuple[str, list[dict[str, Any]]]]) -> set[str]:
+    return {
+        str(block.get("tool_use_id") or "")
+        for role, blocks in messages
+        if role == "user"
+        for block in blocks or []
+        if isinstance(block, dict)
+        and block.get("type") == "tool_result"
+        and block.get("is_error")
+    }
 
 
 def _conversation_items(
@@ -403,6 +422,7 @@ def _conversation_items(
     for action in actions:
         by_tool_use.setdefault(action.tool_use_id, []).append(action)
     items: list[dict[str, Any]] = []
+    failed = _failed_tool_uses(messages)
     for role, blocks in messages:
         # Kolejne bloki tekstu jednej wiadomości asystenta to jeden akapit
         # (odpowiedź z cytatami przychodzi pocięta) — jeden dymek, nie 24.
@@ -438,12 +458,20 @@ def _conversation_items(
                 name = block.get("name")
                 if name == "show_on_screen":
                     anchor = str((block.get("input") or {}).get("anchor") or "")
-                    if anchor:
+                    # Runda 8 (R8-N1-8): odrzucone wywołanie (kotwica spoza
+                    # przewodnika ekranu) nie wraca po odświeżeniu jako
+                    # martwy przycisk „Element ekranu”.
+                    label = (
+                        _anchor_label(anchor)
+                        if anchor and str(block.get("id") or "") not in failed
+                        else None
+                    )
+                    if label:
                         items.append(
                             {
                                 "kind": "highlight",
                                 "anchor": anchor,
-                                "label": _anchor_label(anchor),
+                                "label": label,
                                 "reason": str(
                                     (block.get("input") or {}).get("reason") or ""
                                 )[:200],
@@ -590,8 +618,12 @@ async def confirm_action(
     action_id: uuid.UUID,
     request: Request,
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     _require_available(request)
+    # Runda 8 (R8-N1-1): wykonanie idzie in-process (własna sesja trasy
+    # docelowej) — połączenie tego requestu nie może czekać na nie w puli.
+    await release_idle_connection(db)
     try:
         outcome = await jarvis_actions.confirm_action(
             action_id, user_id=current_user.id, identity=_identity(request)

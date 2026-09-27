@@ -565,7 +565,9 @@ def _apply_facts(candidate: Candidate, facts: CallFacts, user: User) -> dict[str
         )
         days = facts.max_onsite_days
         if days is None:
-            days = candidate.max_onsite_days_per_week
+            days = rules_mod.onsite_days_for_call_modes(
+                modes, candidate.max_onsite_days_per_week
+            )
         set_profile_work_mode(candidate, modes=modes, max_onsite_days=days)
     if facts.accepts_more_office_days is not None:
         candidate.accepts_more_office_days = facts.accepts_more_office_days
@@ -952,6 +954,16 @@ async def _trainee_users(db: AsyncSession) -> list[tuple[User, TraineeProgram]]:
     return [(user, program) for user, program in rows]
 
 
+def _panel_program_view(
+    user: User, program: TraineeProgram, *, today: date
+) -> dict[str, Any]:
+    """Program w panelu HoR — konto wyłączone nie czeka na decyzję (R8-X1-4)."""
+    view = program_view(program, today=today)
+    if not user.is_active:
+        view["decision_due"] = False
+    return view
+
+
 async def _item_stats(db: AsyncSession, user_ids: list[int], today: date) -> dict:
     if not user_ids:
         return {}
@@ -992,6 +1004,9 @@ async def _item_stats(db: AsyncSession, user_ids: list[int], today: date) -> dic
                 func.count(TraineeCallItem.id).filter(
                     TraineeCallItem.outcome.is_(None)
                 ),
+                func.count(TraineeCallItem.id).filter(
+                    TraineeCallItem.outcome == "call"
+                ),
             )
             .outerjoin(TraineeCallItem, TraineeCallItem.list_id == TraineeCallList.id)
             .where(
@@ -1001,10 +1016,16 @@ async def _item_stats(db: AsyncSession, user_ids: list[int], today: date) -> dic
             .group_by(TraineeCallList.user_id, TraineeCallList.list_date)
         )
     ).all()
-    for uid, list_date, total, open_n in per_list:
+    for uid, list_date, total, open_n, calls_n in per_list:
+        # R8-N3-3: norma liczy dni ZAMKNIĘTE — dzisiejsza lista w trakcie
+        # wchodzi dopiero po zaliczeniu, a lista bez pozycji (pula pusta, nie
+        # wina praktykanta) nie wchodzi wcale.
+        if not total or (list_date >= today and open_n):
+            continue
         entry = stats.setdefault(uid, {})
         entry["days_with_list"] = entry.get("days_with_list", 0) + 1
-        if total and not open_n:
+        entry["calls_on_counted_days"] = entry.get("calls_on_counted_days", 0) + calls_n
+        if not open_n:
             entry["days_completed"] = entry.get("days_completed", 0) + 1
     complete = (
         await db.execute(
@@ -1089,10 +1110,10 @@ async def overview(db: AsyncSession) -> dict[str, Any]:
                 "user_id": user.id,
                 "name": user.name,
                 "is_active": user.is_active,
-                "program": program_view(program, today=today),
+                "program": _panel_program_view(user, program, today=today),
                 "days_with_list": days,
                 "days_completed": int(entry.get("days_completed", 0)),
-                "calls_per_day": round(entry.get("calls", 0) / days, 1)
+                "calls_per_day": round(entry.get("calls_on_counted_days", 0) / days, 1)
                 if days
                 else None,
                 "answered_pct": answered,
@@ -1233,6 +1254,9 @@ async def _pin_people(db: AsyncSession, trainee_id: int) -> int:
                     followup.user_id == trainee_id,
                     followup.candidate_id == later_item.candidate_id,
                     followup.list_date > later_item.list_date,
+                    # R8-N3-4: pozycja oddzwonienia, której nikt nie zamknął,
+                    # nie jest rozmową — relacja nadal czeka.
+                    followup.outcome.is_not(None),
                 ),
             )
         )
@@ -1279,7 +1303,15 @@ async def decide(
     if action == "extend":
         if program.status != "active":
             raise _http(status.HTTP_409_CONFLICT, "Program jest już zakończony.")
-        program.extended_days = (program.extended_days or 0) + extend_days
+        total_extension = (program.extended_days or 0) + extend_days
+        if total_extension > rules_mod.MAX_EXTENDED_DAYS:
+            # R8-N3-5: CHECK w bazie odrzuciłby sumę dopiero przy commicie (500).
+            raise _http(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Program można przedłużyć łącznie najwyżej o "
+                f"{rules_mod.MAX_EXTENDED_DAYS} dni roboczych.",
+            )
+        program.extended_days = total_extension
         program.decision = "extended"
         program.decided_at = now
         program.decided_by_user_id = actor.id
@@ -1444,7 +1476,9 @@ async def notify_due_decisions(db: AsyncSession, *, today: date) -> int:
         if not view["decision_due"]:
             continue
         trainee = await db.get(User, program.user_id)
-        if trainee is None:
+        if trainee is None or not trainee.is_active:
+            # R8-X1-4: konto wyłączone (odejście) — bez decyzji o kimś, kogo nie
+            # ma. Bez stempla: po ponownym włączeniu konta powiadomienie wyjdzie.
             continue
         for recipient in recipients:
             await emit(

@@ -465,17 +465,20 @@ async def _signal_owners(
     do dzisiejszego wpisu i oznaczamy jako nieprzeczytany.
     """
 
+    from app.services.workforce_availability import workforce_context  # noqa: PLC0415
+
+    # Runda 8 (R8-N7-1): właściciel na zastępstwie z COMPASS — sygnał idzie
+    # do osoby, która za niego pracuje (jak telefon w `compute_followup`).
+    workforce = await workforce_context(db)
     flagged = {jid for jid, flag in body.processes.items() if flag == "withdrawing"}
-    targets = [
-        p
-        for p in followup.processes
-        if p.owner_id is not None
-        and p.owner_id != author.id
-        and (not flagged or p.job_id in flagged)
-    ]
     by_owner: dict[int, list[svc.WaitingProcess]] = {}
-    for p in targets:
-        by_owner.setdefault(p.owner_id, []).append(p)
+    for p in followup.processes:
+        if p.owner_id is None or (flagged and p.job_id not in flagged):
+            continue
+        recipient = workforce.performer(p.owner_id)
+        if recipient is None or recipient == author.id:
+            continue
+        by_owner.setdefault(recipient, []).append(p)
 
     sent = 0
     author_name = author.name or author.email

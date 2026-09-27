@@ -573,23 +573,16 @@ async def _rank_recruiters_by_points(
         cnt = int(r.cnt)
         if r.stage == "hired":
             bucket["placements"] += cnt
-        elif r.stage == "interview":
-            # D3: składnik „interview" liczy stage `interview`, NIE
-            # `client_interview`.
+        elif r.stage == "client_interview":
+            # Runda 8 (LEAGUE, decyzja właściciela 27.09.2026): punkty za
+            # rozmowę liczy rozmowa u klienta (`client_interview`), od razu,
+            # także w bieżącym kwartale — jak KPI i Insights od rundy 7. Kod
+            # `interview` to od Rekrutacji v5 etap QC CV i punktów nie daje.
             #
-            # Historycznie ten składnik był ZEROWY, bo import nie mapował
-            # `client_interview` na nic. Od domknięcia mapowania po nazwie
-            # stanu (migracja 0269 + `_TRAFFIT_STATE_NAME_MAP`) „Interview
-            # u klienta" trafia do `client_interview`, więc do TEJ sumy już
-            # nie wchodzi — a `interview` zbiera pozostałe stany workflow.
-            #
-            # UWAGA PRZY ZMIANIE MAPOWANIA: ten składnik niesie pieniądze.
-            # Zmierzone Q3 2026 przy wagach 150/15/5: u zwycięzcy 2 040 z 3 080
-            # punktów (66%) pochodziło z `interview`, a osoba z 4 placementami
-            # wygrała 5 000 zł z osobą, która miała 6 (3 000 zł). Właściciel
-            # świadomie zostawił wagi bez zmian (decyzja 2026-09-03) — każda
-            # kolejna zmiana mapowania Traffita przesuwa tę sumę i wymaga
-            # policzenia rankingu przed/po, ZANIM kwartał zostanie zamrożony.
+            # UWAGA: ten składnik niesie pieniądze (10 000 zł za kwartał
+            # i wykluczenie lidera z wyścigów miesięcznych). Każda zmiana
+            # etapu, który tu wpada, wymaga policzenia rankingu przed/po,
+            # ZANIM kwartał zostanie zamrożony.
             bucket["interviews"] += cnt
         elif r.stage == "cv_sent":
             bucket["recommendations"] += cnt

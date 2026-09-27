@@ -84,6 +84,10 @@ from app.services.recruitment_process_commands import (
 
 logger = logging.getLogger(__name__)
 
+# Źródło Talent Radar (`talent_radar_importer.SOURCE_VALUE`) — ten sam numer
+# kandydata z Traffita. Literał, bo import modułu Talent Radar ciągnie asyncpg.
+TALENT_RADAR_TOMBSTONE_SOURCE = "tr_legacy"
+
 
 ORPHAN_CLIENT_NAME = "__traffit_orphans"
 
@@ -579,6 +583,11 @@ _CANDIDATE_TOMBSTONE_GUARD = """
         WHERE (
             pc.external_source = CAST(:external_source AS text)
             AND pc.external_id_hash = CAST(:tombstone_source_hash AS text)
+        ) OR (
+            -- Runda 8 (R8-V2-4): ten sam numer z Traffita żył też pod źródłem
+            -- Talent Radar (`tr_legacy`) — lustro `_is_tombstoned` tam.
+            pc.external_source = 'tr_legacy'
+            AND pc.external_id_hash = CAST(:tombstone_legacy_hash AS text)
         ) OR (
             pc.external_source = 'email'
             AND pc.external_id_hash = CAST(:tombstone_email_hash AS text)
@@ -2362,12 +2371,18 @@ class TraffitImporter:
                 # Przed ścieżką adopcji po mailu: usunięta osoba nie może też
                 # „wrócić” jako stempel `external_id` na cudzym wierszu.
                 source_hash: Optional[str] = None
+                legacy_hash: Optional[str] = None
                 email_hash: Optional[str] = None
                 if tombstones is not None:
                     source_hash = candidate_source_tombstone(
                         payload["external_source"], payload["external_id"]
                     )
-                    if source_hash in tombstones[0]:
+                    # Runda 8 (R8-V2-4): usunięty kandydat Talent Radar
+                    # (`tr_legacy`, ten sam numer z Traffita) też nie wraca.
+                    legacy_hash = candidate_source_tombstone(
+                        TALENT_RADAR_TOMBSTONE_SOURCE, payload["external_id"]
+                    )
+                    if source_hash in tombstones[0] or legacy_hash in tombstones[0]:
                         progress.skipped += 1
                         continue
 
@@ -2433,6 +2448,7 @@ class TraffitImporter:
                                 payload["cv_extracted_data"]
                             )
                             params["tombstone_source_hash"] = source_hash
+                            params["tombstone_legacy_hash"] = legacy_hash
                             params["tombstone_email_hash"] = email_hash
                             try:
                                 async with self.db.begin_nested():
@@ -3279,11 +3295,15 @@ class TraffitImporter:
         if not settings.CANDIDATE_IDENTITY_FINGERPRINT_KEY.strip():
             return None
         hashes = await purged_candidate_hashes(
-            self.db, ("traffit", EMAIL_TOMBSTONE_SOURCE)
+            self.db, ("traffit", TALENT_RADAR_TOMBSTONE_SOURCE, EMAIL_TOMBSTONE_SOURCE)
         )
         if hashes is None:
             return None
-        return hashes["traffit"], hashes[EMAIL_TOMBSTONE_SOURCE]
+        # HMAC niesie nazwę źródła, więc suma zbiorów nie myli źródeł (R8-V2-4).
+        return (
+            hashes["traffit"] | hashes[TALENT_RADAR_TOMBSTONE_SOURCE],
+            hashes[EMAIL_TOMBSTONE_SOURCE],
+        )
 
     async def _build_candidate_external_id_map(self) -> dict[str, int]:
         result = await self.db.execute(

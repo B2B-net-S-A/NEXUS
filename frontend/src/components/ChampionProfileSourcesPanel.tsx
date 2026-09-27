@@ -115,6 +115,11 @@ export function ChampionProfileSourcesPanel({
     );
   }, [unlinked.data]);
 
+  const attachedMeetings = useMemo(
+    () => (attached.data?.items ?? []).filter((n) => n.note_type === "meeting"),
+    [attached.data],
+  );
+
   const linkMutation = useMutation({
     mutationFn: async (noteId: number) => {
       const res = await api.post(`/api/notes/${noteId}/link-job`, {
@@ -151,8 +156,12 @@ export function ChampionProfileSourcesPanel({
       />
 
       {/* Pending suggestions */}
-      <Section title="Drafty AI do przeglądu" empty="Brak pending draftów.">
-        {pending.isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+      <Section
+        title="Drafty AI do przeglądu"
+        empty="Brak pending draftów."
+        count={pending.data?.items?.length ?? 0}
+        query={pending}
+      >
         {(pending.data?.items ?? []).map((s) => (
           <div
             key={s.id}
@@ -183,10 +192,10 @@ export function ChampionProfileSourcesPanel({
       <Section
         title="Powiązane rozmowy"
         empty="Żadne meetingi nie są powiązane z tą rekrutacją."
+        count={attachedMeetings.length}
+        query={attached}
       >
-        {(attached.data?.items ?? [])
-          .filter((n) => n.note_type === "meeting")
-          .map((n) => (
+        {attachedMeetings.map((n) => (
             <div
               key={n.id}
               className="flex items-center gap-3 border border-border dark:border-border rounded-lg p-3 text-sm"
@@ -208,6 +217,8 @@ export function ChampionProfileSourcesPanel({
       <Section
         title="Meetingi bez powiązania"
         empty="Wszystkie meetingi zostały już powiązane."
+        count={unlinkedMeetings.length}
+        query={unlinked}
       >
         {unlinkedMeetings.slice(0, 10).map((n) => (
           <div
@@ -256,21 +267,39 @@ export function ChampionProfileSourcesPanel({
 function Section({
   title,
   empty,
+  count,
+  query,
   children,
 }: {
   title: string;
   empty: string;
+  /** Liczba pozycji do pokazania — pusta lista z `.map()` jest truthy. */
+  count: number;
+  query: { isPending: boolean; isError: boolean; refetch: () => unknown };
   children: React.ReactNode;
 }) {
-  const kids = Array.isArray(children) ? children : [children];
-  const hasContent = kids.some((c) => c);
+  // Runda 8 (R8-N14-5): pusty stan tylko po udanym odczycie, awaria mówi to
+  // wprost — pusta sekcja czytała się jak „nic tu nie ma”.
   return (
     <div className="space-y-2">
       <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">
         {title}
       </div>
-      {hasContent ? (
+      {count > 0 ? (
         <div className="space-y-2">{children}</div>
+      ) : query.isPending ? (
+        <Loader2 className="w-4 h-4 animate-spin" aria-label="Wczytuję…" />
+      ) : query.isError ? (
+        <p className="text-sm text-destructive">
+          Nie udało się wczytać tej listy.{" "}
+          <button
+            type="button"
+            className="font-medium underline"
+            onClick={() => void query.refetch()}
+          >
+            Ponów
+          </button>
+        </p>
       ) : (
         <div className="text-sm italic text-muted-foreground">{empty}</div>
       )}

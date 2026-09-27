@@ -177,7 +177,7 @@ def test_career_url_falls_back_to_kariera_path_on_app_host(monkeypatch):
 
 def test_consent_text_names_the_controller():
     assert "B2B.NET S.A." in CONSENT_TEXT
-    assert CONSENT_TEXT_VERSION == "2026-09-21"
+    assert CONSENT_TEXT_VERSION == "2026-09-26"
 
 
 def test_optional_fields_accept_blank_strings():
@@ -341,3 +341,115 @@ def test_draft_material_uses_given_title_and_falls_back_to_description():
     assert out["description"] == "brak" and out["requirements"] == "brak"
     # Bez podanego tytułu: domyślny bez znajomości klienta (kody zdjęte).
     assert out["title"] == "Nordea: Data Engineer"
+
+
+# ── Runda 8 (R8-N4-1): sekcje ukryte przełącznikiem też są publiczne ───────
+
+
+def test_hidden_sections_are_still_linted():
+    from app.services.job_public_profile import _payload_texts
+
+    payload = {
+        "title": "Java Developer",
+        "subtitle": None,
+        "about": None,
+        "must": [{"name": "Znajomość systemów PKO BP", "note": None}],
+        "nice": ["Praca w pko bp"],
+        "params": {"city": "Centrala PKO BP", "start": None, "duration": None},
+        "show": {"must": False, "nice": False, "params": False, "process": True},
+    }
+    findings = lint_public_texts(_payload_texts(payload), client_names=["PKO BP"])
+    assert _codes(findings) == ["client_name"] * 3
+
+
+# ── Runda 8 (decyzja Artura 27.09.2026): ukryta sekcja znika z danych ───────
+
+
+def _hidden_job():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        champion_profile={
+            "basics": {"start_date": "10.2026", "contract_length": "12 mies."},
+            "stack": {"must": [{"name": "Java 17"}], "nice": [{"name": "Kafka"}]},
+        },
+        must_skills=None,
+        nice_skills=None,
+        location="Warszawa",
+        remote_policy=None,
+        onsite_days_per_week=2,
+        seniority=None,
+    )
+
+
+def _public(sections, **kwargs):
+    from app.services.job_public_profile import public_job_payload
+
+    return public_job_payload(
+        _hidden_job(),
+        title="Java Developer",
+        link_slug="java-dev",
+        subtitle="Rozwój platformy",
+        about="Opis",
+        sections=sections,
+        **kwargs,
+    )
+
+
+_HIDDEN = {"must": False, "nice": False, "params": False, "process": True}
+
+
+def test_hidden_sections_vanish_from_the_public_projection():
+    payload = _public(_HIDDEN)
+    assert payload["must"] == [] and payload["nice"] == []
+    params = payload["params"]
+    for key in ("city", "remote_policy", "onsite_days_per_week", "seniority"):
+        assert params[key] is None, key
+    assert params["start"] is None and params["duration"] is None
+    # Stała firmy, nie dana rekrutacji — czyta ją sekcja „proces”.
+    assert params["contract"] == "B2B"
+    assert payload["show"] == _HIDDEN
+
+
+def test_shown_sections_stay_in_the_public_projection():
+    payload = _public(None)
+    assert payload["must"] == [{"name": "Java 17", "note": None}]
+    assert payload["nice"] == ["Kafka"]
+    assert payload["params"]["city"] == "Warszawa"
+    assert payload["params"]["start"] == "10.2026"
+
+
+def test_hidden_sections_from_the_approval_snapshot_also_vanish():
+    from app.services import job_public_profile as jpp
+
+    full = _public(_HIDDEN, respect_show=False)
+    assert full["must"] == [{"name": "Java 17", "note": None}]
+    stored = jpp.sections_with_approved_content(_HIDDEN, jpp.approved_content(full))
+    # Migawka niesie pełne pola (inaczej edytor widziałby fałszywą „zmianę”)…
+    assert jpp.stored_approved_content(stored)["must"] == ["Java 17"]
+    assert not jpp.approved_content_stale(_hidden_job(), stored)
+    # …ale strona i portale dostają okrojoną projekcję.
+    served = _public(stored)
+    assert served["must"] == [] and served["params"]["city"] is None
+    assert jpp.visible_params(_hidden_job(), stored)["city"] is None
+    assert jpp.visible_params(_hidden_job(), None)["city"] == "Warszawa"
+
+
+def test_portal_refuses_hidden_must_with_a_clear_reason():
+    from app.services.job_portals import jjit_payload
+
+    options = jjit_payload.normalize_options(
+        {
+            "category": "java",
+            "experience_level": "senior",
+            "working_time": "full_time",
+            "workplace_type": "remote",
+            "city": "Warszawa",
+        }
+    )
+    payload = _public(_HIDDEN)
+    assert jjit_payload.skill_split("rocketjobs", payload) == ([], [])
+    problems = jjit_payload.validate("rocketjobs", payload, options)
+    assert any("ukryta" in p for p in problems), problems
+    assert "Szczegóły" not in jjit_payload.build_body(payload)
+    assert jjit_payload.validate("rocketjobs", _public(None), options) == []

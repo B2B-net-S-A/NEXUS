@@ -149,6 +149,24 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("awaria odczytu kolejki → komunikat z „Spróbuj ponownie”, nie pustka (R8-N14-1)", async () => {
+    let calls = 0;
+    get.mockImplementation((url: string) => {
+      if (url === "/api/board-tasks") {
+        calls += 1;
+        return calls === 1
+          ? Promise.reject(new Error("boom"))
+          : Promise.resolve({ data: { window_days: 14, cpro_to_send: [], cpro_sent: [row("cpro_sent")] } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPanel();
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText(/Nie udało się wczytać listy „Czeka na Ciebie”/)).toBeTruthy();
+    await userEvent.click(within(alert).getByRole("button", { name: /Spróbuj ponownie/ }));
+    expect(await screen.findByRole("region", { name: "Wysłane do Cpro" })).toBeTruthy();
+  });
+
   it("admin / DL Nordei widzi przełącznik osoby od Cpro także przy pustej kolejce", async () => {
     mockQueue({ can_set_cpro_sender: true });
     renderPanel();

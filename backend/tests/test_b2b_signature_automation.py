@@ -2174,15 +2174,12 @@ async def test_confirming_signature_promotes_in_progress_to_active(
 async def test_confirming_signature_does_not_reopen_a_closed_contract(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
-    """Promocja jest WARUNKOWA i to jest jej sens.
+    """Zamknięta niepodpisana umowa nie przyjmuje podpisu (runda 8, R8-X2-6).
 
-    Umowę wolno zamknąć powodem `resignation_before_signing` PRZED podpisem.
-    Bezwarunkowe `contract_status = "active"` zostawiłoby wtedy wypełnione pola
-    `closure_*` przy statusie `active`, co łamie
-    `ck_b2b_generated_contracts_closure_coherence` → IntegrityError w środku
-    atomowej automatyzacji zatrudnienia. Test na samo przejście
-    `in_progress → active` przeszedłby również dla wersji bezwarunkowej.
-    """
+    Do 26.09.2026 potwierdzenie przechodziło: zakładało aktywny kontrakt,
+    zamówienie i zatrudnienie, a wiersz rejestru dalej mówił „Zakończona,
+    powód …”. Teraz 409 z prośbą o powrót na „W trakcie” — i nic się nie
+    zmienia (dawny sens testu: bez IntegrityError i bez cichego otwarcia)."""
     scenario = await _seed_bound_scenario(
         created_by=await _current_admin_id(app_client)
     )
@@ -2194,15 +2191,14 @@ async def test_confirming_signature_does_not_reopen_a_closed_contract(
     )
 
     response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
-    assert response.status_code == 200, response.text
+    assert response.status_code == 409, response.text
 
-    generated = response.json()["generated_contract"]
-    assert generated["contract_status"] == "closed", (
-        "zamknięta umowa nie może zostać cicho otwarta przez potwierdzenie podpisu"
-    )
-    assert generated["closure_reason"] == "resignation_before_signing"
-    # Sam podpis został odnotowany — blokujemy tylko zmianę statusu handlowego.
-    assert generated["signature_status"] == "signed_both"
+    async with AsyncSessionLocal() as db:
+        generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert generated is not None
+        assert generated.contract_status == "closed"
+        assert generated.closure_reason == "resignation_before_signing"
+        assert generated.signature_status == "unsigned"
 
 
 @pytest.mark.asyncio
@@ -2351,3 +2347,187 @@ async def test_confirm_on_group_line_does_not_notify_finance(
     assert response.status_code == 200, response.text
     assert response.json()["order_skipped_reason"] == "open_group_line"
     assert await _hired_order_notices(finance_id, existing_id) == []
+
+
+# ── Runda 8 (R8-X2-1): kontrakt tej osoby bez rekrutacji nie jest dublowany ──
+
+
+async def _live_contracts_at_client(candidate_id: int, client_id: int) -> list[int]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(Contract.id).where(
+                        Contract.candidate_id == candidate_id,
+                        Contract.client_id == client_id,
+                        Contract.status.in_(
+                            (
+                                ContractStatus.draft,
+                                ContractStatus.ready_for_signature,
+                                ContractStatus.active,
+                                ContractStatus.ending,
+                            )
+                        ),
+                    )
+                )
+            ).all()
+        )
+
+
+@pytest.mark.asyncio
+async def test_confirm_links_the_persons_contract_without_recruitment(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Kontrakt założony ręcznie („Nowy kontraktor”, rekrutacja opcjonalna) nie
+    był znajdowany: podpis zakładał DRUGI aktywny kontrakt tej osoby u klienta
+    (podwójny MRR). Teraz wiąże istniejący i uzupełnia mu rekrutację."""
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    async with AsyncSessionLocal() as db:
+        manual = Contract(
+            candidate_id=scenario["candidate_id"],
+            client_id=scenario["client_id"],
+            job_id=None,
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=date(2026, 8, 1),
+            rate_candidate=Decimal("150.500"),
+            rate_unit=RateUnit.hourly,
+        )
+        db.add(manual)
+        await db.commit()
+        await db.refresh(manual)
+        manual_id = manual.id
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["outcome"] == "linked_existing"
+    assert body["contract_id"] == manual_id
+    assert await _live_contracts_at_client(
+        scenario["candidate_id"], scenario["client_id"]
+    ) == [manual_id]
+    async with AsyncSessionLocal() as db:
+        linked = await db.get(Contract, manual_id)
+        assert linked is not None
+        assert linked.job_id == scenario["job_id"]
+
+
+@pytest.mark.asyncio
+async def test_confirm_refuses_when_a_duplicate_record_of_the_person_has_a_contract(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Ten sam e-mail na innym rekordzie kandydata z żywym kontraktem u klienta
+    = zdublowana osoba. Podpis nie zakłada drugiego kontraktu (to samo robi
+    ręczna blokada duplikatu), tylko prosi o scalenie."""
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    async with AsyncSessionLocal() as db:
+        original = await db.get(Candidate, scenario["candidate_id"])
+        assert original is not None
+        twin = Candidate(
+            name="Anna",
+            lastname="Duplikat",
+            email=f"  {original.email.upper()}\n",
+        )
+        db.add(twin)
+        await db.flush()
+        db.add(
+            Contract(
+                candidate_id=twin.id,
+                client_id=scenario["client_id"],
+                job_id=None,
+                contract_type=ContractType.b2b,
+                status=ContractStatus.active,
+                start_date=date(2026, 8, 1),
+                rate_candidate=Decimal("150.500"),
+                rate_unit=RateUnit.hourly,
+            )
+        )
+        await db.commit()
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 409, response.text
+    assert "scal duplikaty" in response.json()["detail"]["message"]
+    assert (
+        await _live_contracts_at_client(scenario["candidate_id"], scenario["client_id"])
+        == []
+    )
+    async with AsyncSessionLocal() as db:
+        generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert generated is not None
+        assert generated.signature_status == "unsigned"
+
+
+# ── Runda 8 (R8-X2-6): „Zakończona”/„Bez projektu” bez podpisu ─────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("row_status", ["closed", "suspended"])
+async def test_confirm_refuses_an_ended_unsigned_agreement(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], row_status: str
+):
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    await _set_generated_status(
+        scenario["generated_id"],
+        contract_status=row_status,
+        closure_reason="project_completed",
+        closure_date=date(2026, 8, 15),
+    )
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 409, response.text
+    assert "W trakcie" in response.json()["detail"]
+    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
+        0,
+        0,
+        0,
+    )
+
+
+@pytest.mark.asyncio
+async def test_pipeline_hire_reuses_the_persons_contract_without_recruitment(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """R8-X2-1, bliźniak w ruchu na „Zatrudniony”: zdublowany szkic kontraktu
+    i szkic zamówienia obok ręcznie założonego kontraktu tej osoby."""
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    async with AsyncSessionLocal() as db:
+        manual = Contract(
+            candidate_id=scenario["candidate_id"],
+            client_id=scenario["client_id"],
+            job_id=None,
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=date(2026, 8, 1),
+            rate_candidate=Decimal("150.500"),
+            rate_unit=RateUnit.hourly,
+        )
+        db.add(manual)
+        await db.commit()
+        await db.refresh(manual)
+        manual_id = manual.id
+
+    moved = await app_client.post(
+        "/api/pipeline/move",
+        json={
+            "candidate_id": scenario["candidate_id"],
+            "job_id": scenario["job_id"],
+            "stage": "hired",
+        },
+        headers=app_auth_headers,
+    )
+
+    assert moved.status_code == 200, moved.text
+    assert await _live_contracts_at_client(
+        scenario["candidate_id"], scenario["client_id"]
+    ) == [manual_id]

@@ -50,7 +50,9 @@ from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 
-FIXES_PROMPT_VERSION = "cv-qc-fixes-v1"
+FIXES_PROMPT_VERSION = "cv-qc-fixes-v2"
+# Runda 8 (R8-N8-2): cytat źródła musi być zdaniem o wymaganiu, nie słowem.
+SOURCE_QUOTE_MIN_WORDS = 4
 NOTES_TEXT_MAX = 12_000
 NOTES_MAX_ROWS = 60
 PROMPT_ORIGINAL_MAX = 15_000
@@ -1016,6 +1018,7 @@ async def _notes_text(db: AsyncSession, candidate_id: int) -> str:
     """Notatki kandydata (wszystkie rekrutacje) — źródło faktów obok oryginału."""
 
     from app.models.note import Note
+    from app.services.cv_generator_b2b.standalone_service import _not_followup_note
 
     rows = (
         await db.execute(
@@ -1023,6 +1026,10 @@ async def _notes_text(db: AsyncSession, candidate_id: int) -> str:
             .where(
                 Note.candidate_id == candidate_id,
                 Note.source_deleted_at.is_(None),
+                # Runda 8 (R8-V3-2): notatka z telefonu follow-up wymienia
+                # tytuły CUDZYCH rekrutacji („Procesy: X — Senior Java…”) —
+                # „potwierdzałaby” must-have, którego kandydat nie podał.
+                _not_followup_note(),
             )
             .order_by(Note.created_at.desc(), Note.id.desc())
             .limit(NOTES_MAX_ROWS)
@@ -1055,8 +1062,11 @@ async def _consent_state(db: AsyncSession, src: dz.ReviewSources) -> Optional[st
                 CandidateStageCV.candidate_stage_id == gen["stage_id"]
             )
         )
-        if attached:
-            return "ok"
+        # Runda 8 (R8-N8-4): DOCX kopii etapu renderuje się z JEJ obrazu
+        # zgody, a blokada pobrania (`cv_consent_gate.ensure_copy_downloadable`)
+        # patrzy wyłącznie na kopię — obraz na wierszu generatora nie
+        # zalicza CV firmowego etapu.
+        return "ok" if attached else "missing"
     if gen.get("generated_document_id"):
         payload = await db.scalar(
             select(CvGeneratedDocument.render_payload).where(
@@ -1503,8 +1513,9 @@ punktu w tej roli.
 Zasady:
 1. Wyłącznie fakty z ORYGINALNEGO CV albo NOTATEK poniżej. Nie wymyślaj
    technologii, liczb, projektów ani efektów.
-2. source_quote = dosłowny fragment (najwyżej 200 znaków) z oryginału albo
-   notatek, który potwierdza zdanie. Bez takiego fragmentu pomiń brak.
+2. source_quote = dosłowny fragment (co najmniej 4 słowa, najwyżej 200 znaków)
+   z oryginału albo notatek, który potwierdza zdanie i zawiera nazwę
+   wymaganej technologii. Bez takiego fragmentu pomiń brak.
 3. current_text = dosłowny tekst istniejącego punktu tej roli w CV dla
    klienta, który Twoje zdanie zastępuje (rozszerza), albo null, gdy to nowy
    punkt.
@@ -1593,6 +1604,8 @@ def parse_fixes(raw: str, material: dict, digest: str) -> list[dict]:
 
     * cytat (znormalizowany) musi być w oryginale albo w notatkach — model nie
       może dopisać faktu, którego kandydat nie podał,
+    * cytat ma co najmniej ``SOURCE_QUOTE_MIN_WORDS`` słów i zawiera wymaganie
+      (runda 8, R8-N8-2: cytat „a” był podciągiem każdego oryginału),
     * zdanie musi zawierać wymaganie,
     * ``current_text`` spoza punktów tej roli w CV = nowy punkt (null).
     """
@@ -1619,6 +1632,8 @@ def parse_fixes(raw: str, material: dict, digest: str) -> list[dict]:
         quote = " ".join(str(entry.get("source_quote") or "").split())
         if not proposed or not quote or len(proposed) > PROPOSED_TEXT_MAX:
             continue
+        if len(quote.split()) < SOURCE_QUOTE_MIN_WORDS:
+            continue
         nq = _norm(quote)
         if nq and nq in original:
             source = "original"
@@ -1632,6 +1647,8 @@ def parse_fixes(raw: str, material: dict, digest: str) -> list[dict]:
             terms=tuple(item["terms"]),
         )
         if not dz._found(proposed.replace("**", ""), req):
+            continue
+        if not dz._found(quote, req):
             continue
         current = entry.get("current_text")
         current = " ".join(str(current).split()) if current else None
@@ -1930,9 +1947,13 @@ def apply_ai_fix(
         )
     current = fix.get("current_text")
     if current:
-        candidates = list(range(len(doc.blocks)))
-        if role_idx is not None:
-            candidates = roles[role_idx].blocks + candidates
+        # Runda 8 (R8-N8-5): przy znanej roli tylko jej punkty — ten sam
+        # tekst w innej roli („Code review.”) nie jest punktem do zastąpienia.
+        candidates = (
+            list(roles[role_idx].blocks)
+            if role_idx is not None
+            else list(range(len(doc.blocks)))
+        )
         for i in candidates:
             start, end = doc.spans[i]
             if start is None or end is None:

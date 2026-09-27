@@ -41,10 +41,14 @@ from app.models.client_interview_slot_request import (
     ClientInterviewSlotRequest,
 )
 from app.models.interview_feedback import FeedbackSource, InterviewFeedback
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
-from app.services.debrief_gate import debrief_saved_after_start
+from app.services.debrief_gate import (
+    debrief_closes_round,
+    pick_current_round,
+    pick_prep_round,
+)
 from app.services.job_working_title import job_display_title_expr
 
 Scope = Literal["mine", "jobs", "all"]
@@ -148,6 +152,27 @@ class PairSnapshot:
     interview: Optional[EventRef] = None
     debrief: Optional[DebriefRef] = None
     latest_stage: Optional[str] = None
+    # Runda do prepów, gdy jest INNA niż ``interview`` (runda do debriefu):
+    # runda odbyta bez debriefu + zaplanowana kolejna. Runda 8 (CAL2, decyzja
+    # Artura 27.09.2026): zaległy debrief i braki prepów do następnej rundy
+    # przypominają się równolegle. ``None`` = obie rundy to ``interview``.
+    prep_interview: Optional[EventRef] = None
+    prep_round_preps: list[EventRef] = field(default_factory=list)
+
+    def for_preps(self) -> "PairSnapshot":
+        """Migawka rundy, do której robi się prepy (najbliższa przyszła
+        rozmowa, bez przyszłej — bieżąca). Czytają ją zadania „Brak prepu”,
+        plakietka prepu na Tablicy i kolejka ``prep_attention``."""
+        if self.prep_interview is None:
+            return self
+        return replace(
+            self,
+            interview=self.prep_interview,
+            preps=self.prep_round_preps,
+            debrief=None,
+            prep_interview=None,
+            prep_round_preps=[],
+        )
 
     def prep_slot(self, n: int) -> Optional[EventRef]:
         """Prep numer ``n``. Powtórzony prep (poprzedni bez nagrania) wygrywa
@@ -361,9 +386,16 @@ def compute_todos(
     call_window_minutes: int,
     user_id: int,
     is_dl_view: bool,
+    acting_for: Optional[Iterable[int]] = None,
 ) -> list[dict]:
     """Zadania „Do zrobienia” dla pary. Rekruter i DL widzą inne przekazania:
-    wybór terminu należy do rekrutera, potwierdzenie u klienta do DL."""
+    wybór terminu należy do rekrutera, potwierdzenie u klienta do DL.
+
+    ``acting_for`` = osoby, za które wołający pracuje (``operational_owner_ids``
+    — on sam i zastępowani z COMPASS-a). Runda 8 (R8-N9-6): zastępca widział
+    parę w zakresie „mine”, ale nie dostawał „Wybierz termin” ani „Potwierdź”.
+    """
+    me = set(acting_for) if acting_for is not None else {user_id}
     todos: list[dict] = []
     iv = pair.interview
     req = pair.slot_request
@@ -392,10 +424,10 @@ def compute_todos(
             add("debrief_overdue", due=deadline, event_id=iv.id)
 
     if req is not None and req.status == SLOT_STATUS_AWAITING_RECRUITER:
-        if is_dl_view or req.recruiter_id in (None, user_id):
+        if is_dl_view or req.recruiter_id is None or req.recruiter_id in me:
             add("slots_pick", due=req.respond_by, slot_request_id=req.id)
     if req is not None and req.status == SLOT_STATUS_AWAITING_DL:
-        if is_dl_view or req.created_by == user_id:
+        if is_dl_view or req.created_by in me:
             chosen = _chosen_slot(req)
             add(
                 "slots_confirm",
@@ -403,22 +435,26 @@ def compute_todos(
                 slot_request_id=req.id,
             )
 
-    if iv is not None and iv.start > now:
-        urgent = iv.start - now <= timedelta(hours=PREP_URGENT_HOURS)
-        first, second = pair.prep_slot(1), pair.prep_slot(2)
+    # Prepy liczą się do rundy prepów (``for_preps``), nie do rundy czekającej
+    # na debrief — oba przypomnienia idą równolegle (runda 8, CAL2).
+    prep_round = pair.for_preps()
+    prep_iv = prep_round.interview
+    if prep_iv is not None and prep_iv.start > now:
+        urgent = prep_iv.start - now <= timedelta(hours=PREP_URGENT_HOURS)
+        first, second = prep_round.prep_slot(1), prep_round.prep_slot(2)
         # Najpierw Prep 1 — dwa zadania naraz to szum; Prep 2 zawsze (0370).
         if first is None:
-            add("prep_missing", due=iv.start, event_id=iv.id, urgent=urgent)
+            add("prep_missing", due=prep_iv.start, event_id=prep_iv.id, urgent=urgent)
         elif second is None:
-            add("prep2_missing", due=iv.start, event_id=iv.id, urgent=urgent)
+            add("prep2_missing", due=prep_iv.start, event_id=prep_iv.id, urgent=urgent)
         for ev in (first, second):
             if ev is None or ev.start > now:
                 continue
             _meta, quality = prep_quality(ev)
             if quality == "weak":
-                add("prep_weak", due=iv.start, event_id=ev.id)
+                add("prep_weak", due=prep_iv.start, event_id=ev.id)
             elif quality == "unrecorded":
-                add("prep_unrecorded", due=iv.start, event_id=ev.id)
+                add("prep_unrecorded", due=prep_iv.start, event_id=ev.id)
 
     if (
         is_dl_view
@@ -558,7 +594,12 @@ async def _scope_pairs(
         .subquery()
     )
     stage_q = select(latest.c.candidate_id, latest.c.job_id).where(
-        latest.c.stage == PipelineStage.client_interview
+        latest.c.stage == PipelineStage.client_interview,
+        # Runda 8 (R8-N9-5): import Traffita dopisuje etap „Rozmowa z klientem”
+        # rekrutacjom-archiwum i zamkniętym — to nie jest praca DL-a, więc
+        # bez „Brak terminów od klienta” dla nich. Pary z wydarzeniami
+        # i wnioskami o terminy (źródła wyżej) zostają bez zmian.
+        latest.c.job_id.in_(select(Job.id).where(Job.status == JobStatus.published)),
     )
     if scope == "mine":
         from app.models.recruitment_process import RecruitmentProcess
@@ -584,8 +625,13 @@ async def load_snapshots(
     *,
     window_start: datetime,
     window_end: datetime,
+    now: Optional[datetime] = None,
 ) -> dict[tuple[int, int], PairSnapshot]:
-    """Migawki par — stała liczba zapytań niezależnie od liczby par."""
+    """Migawki par — stała liczba zapytań niezależnie od liczby par.
+
+    ``now`` rozstrzyga, która runda rozmów jest bieżąca (``pick_current_round``)
+    — wołający podaje ten sam zegar, którym liczy kroki i zadania.
+    """
     keys = sorted(set(pairs))[:MAX_PAIRS]
     snaps = {k: PairSnapshot(candidate_id=k[0], job_id=k[1]) for k in keys}
     if not keys:
@@ -593,26 +639,30 @@ async def load_snapshots(
     cand_ids = sorted({k[0] for k in keys})
     job_ids = sorted({k[1] for k in keys})
 
-    # Wydarzenia cyklu: prepy i rozmowa u klienta w oknie.
+    # Wydarzenia cyklu: prepy w oknie i WSZYSTKIE rozmowy u klienta pary.
+    # Runda 8 (CAL2): rozmowy bez okna, jak bramka debriefu (``missing_debrief``)
+    # — inaczej rozmowa sprzed 44 dni bez debriefu blokowała ruch karty, a ekran
+    # jej nie widział i wskazywał inną rundę.
     ev_rows = (
         await db.execute(
             select(CalendarEvent)
             .where(
                 CalendarEvent.candidate_id.in_(cand_ids),
                 CalendarEvent.job_id.in_(job_ids),
-                CalendarEvent.event_type.in_(
-                    (EventType.prep_call, EventType.client_interview)
-                ),
                 CalendarEvent.status != EventStatus.cancelled,
-                CalendarEvent.start_time >= window_start - timedelta(days=30),
-                CalendarEvent.start_time <= window_end,
+                or_(
+                    CalendarEvent.event_type == EventType.client_interview,
+                    and_(
+                        CalendarEvent.event_type == EventType.prep_call,
+                        CalendarEvent.start_time >= window_start - timedelta(days=30),
+                        CalendarEvent.start_time <= window_end,
+                    ),
+                ),
             )
-            .order_by(CalendarEvent.start_time)
+            .order_by(CalendarEvent.start_time, CalendarEvent.id)
         )
     ).scalars()
-    interviews: dict[tuple[int, int], CalendarEvent] = {}
-    # Poprzednia rozmowa pary — prepy sprzed niej należą do poprzedniej rundy.
-    previous: dict[tuple[int, int], CalendarEvent] = {}
+    interviews: dict[tuple[int, int], list[CalendarEvent]] = {}
     for ev in ev_rows:
         key = (ev.candidate_id, ev.job_id)
         snap = snaps.get(key)
@@ -621,24 +671,87 @@ async def load_snapshots(
         if ev.event_type == EventType.prep_call:
             snap.preps.append(_event_ref(ev))
         else:
-            # Najnowsza rozmowa u klienta — kolejne rundy nadpisują poprzednią.
-            if key in interviews:
-                previous[key] = interviews[key]
-            interviews[key] = ev
-    for key, ev in interviews.items():
-        snaps[key].interview = _event_ref(ev)
-        # Prepy liczą się do TEJ rozmowy: te po niej należą do następnej rundy.
-        iv_start = _as_utc(ev.start_time)
-        prev = previous.get(key)
-        prev_start = _as_utc(prev.start_time) if prev is not None else None
-        snaps[key].preps = [
+            interviews.setdefault(key, []).append(ev)
+
+    # Debrief: feedback strony kandydata pod rozmowami u klienta — potrzebny
+    # już do wyboru bieżącej rundy (runda z debriefem jest zamknięta).
+    feedback: dict[int, InterviewFeedback] = {}
+    iv_ids = [ev.id for evs in interviews.values() for ev in evs]
+    if iv_ids:
+        fb_rows = (
+            await db.execute(
+                select(InterviewFeedback).where(
+                    InterviewFeedback.calendar_event_id.in_(iv_ids),
+                    InterviewFeedback.feedback_source == FeedbackSource.candidate_side,
+                )
+            )
+        ).scalars()
+        feedback = {fb.calendar_event_id: fb for fb in fb_rows}
+
+    def _debrief_of(ev: CalendarEvent) -> Optional[InterviewFeedback]:
+        fb = feedback.get(ev.id)
+        # Ta sama reguła „runda zamknięta” co bramka (``debrief_closes_round``):
+        # debrief kompletny i zapisany po rozpoczęciu rozmowy. Feedback bez
+        # pytań klienta (ogólny ``POST /api/interview-feedback``) nie zamyka
+        # kroków „Telefon” i „Debrief” — bramka i tak odrzuciłaby ruch karty.
+        if fb is not None and debrief_closes_round(
+            fb.client_questions,
+            fb.no_client_questions,
+            _as_utc(fb.updated_at) if fb.updated_at else None,
+            _as_utc(ev.start_time),
+        ):
+            return fb
+        return None
+
+    def _round_preps(
+        preps: list[EventRef], evs: list[CalendarEvent], index: int
+    ) -> list[EventRef]:
+        # Prepy liczą się do TEJ rozmowy: te po niej należą do następnej rundy,
+        # te sprzed poprzedniej — do poprzedniej.
+        iv_start = _as_utc(evs[index].start_time)
+        prev_start = _as_utc(evs[index - 1].start_time) if index > 0 else None
+        return [
             p
-            for p in snaps[key].preps
+            for p in preps
             if p.start <= iv_start and (prev_start is None or p.start > prev_start)
         ]
 
+    now = _as_utc(now) if now is not None else datetime.now(timezone.utc)
+    for key, evs in interviews.items():
+        # Runda 8 (R8-N9-3): runda do debriefu wg jednej reguły z
+        # ``debrief_gate`` (ostatnia rozpoczęta bez debriefu, inaczej
+        # najbliższa przyszła) — nie „najpóźniejsza”, bo przy kilku rundach
+        # naraz telefon po rundzie, która właśnie minęła, znikał z ekranu.
+        index = pick_current_round(
+            [(_as_utc(ev.start_time), _debrief_of(ev) is not None) for ev in evs],
+            now,
+        )
+        # Runda 8 (CAL2): prepy zawsze do najbliższej przyszłej rozmowy — obok
+        # zaległego debriefu rundy odbytej, nie zamiast niego.
+        prep_index = pick_prep_round([_as_utc(ev.start_time) for ev in evs], now)
+        current = evs[index]
+        snap = snaps[key]
+        all_preps = snap.preps
+        snap.interview = _event_ref(current)
+        snap.preps = _round_preps(all_preps, evs, index)
+        if prep_index is not None and prep_index != index:
+            snap.prep_interview = _event_ref(evs[prep_index])
+            snap.prep_round_preps = _round_preps(all_preps, evs, prep_index)
+        fb = _debrief_of(current)
+        if fb is not None:
+            snap.debrief = DebriefRef(
+                id=fb.id,
+                overall_impression=fb.overall_impression,
+                offer_acceptance=fb.offer_acceptance,
+                acceptance_condition=fb.acceptance_condition,
+                candidate_questions=fb.candidate_questions,
+                client_questions=fb.client_questions,
+            )
+
     # 0370: stan prepów z NEXUSA (numer, transkrypt, ocena) — jedno zapytanie.
-    prep_ids = [p.id for snap in snaps.values() for p in snap.preps]
+    prep_ids = [
+        p.id for snap in snaps.values() for p in (*snap.preps, *snap.prep_round_preps)
+    ]
     if prep_ids:
         from app.models.prep_meeting import PrepMeeting, PrepReview
 
@@ -659,22 +772,25 @@ async def load_snapshots(
                 )
             ).all()
         }
+
+        def _with_info(p: EventRef) -> EventRef:
+            if p.id not in info:
+                return p
+            return replace(
+                p,
+                prep_no=info[p.id].prep_no,
+                transcription_setup=info[p.id].transcription_setup,
+                transcript_status=info[p.id].transcript_status,
+                review_status=info[p.id].review_status,
+                review_level=info[p.id].review_level,
+            )
+
         for snap in snaps.values():
-            snap.preps = [
-                replace(
-                    p,
-                    prep_no=info[p.id].prep_no,
-                    transcription_setup=info[p.id].transcription_setup,
-                    transcript_status=info[p.id].transcript_status,
-                    review_status=info[p.id].review_status,
-                    review_level=info[p.id].review_level,
-                )
-                if p.id in info
-                else p
-                for p in snap.preps
-            ]
+            snap.preps = [_with_info(p) for p in snap.preps]
+            snap.prep_round_preps = [_with_info(p) for p in snap.prep_round_preps]
     for snap in snaps.values():
         snap.preps = assign_prep_ordinals(snap.preps)
+        snap.prep_round_preps = assign_prep_ordinals(snap.prep_round_preps)
 
     # Wnioski o sloty: otwarty wygrywa, inaczej najnowszy niezanulowany.
     slot_rows = (
@@ -695,38 +811,6 @@ async def load_snapshots(
         current = snap.slot_request
         if current is None or current.status not in OPEN_SLOT_STATUSES:
             snap.slot_request = slot_ref(req)
-
-    # Debrief: feedback strony kandydata pod rozmową u klienta.
-    iv_ids = [s.interview.id for s in snaps.values() if s.interview is not None]
-    if iv_ids:
-        fb_rows = (
-            await db.execute(
-                select(InterviewFeedback).where(
-                    InterviewFeedback.calendar_event_id.in_(iv_ids),
-                    InterviewFeedback.feedback_source == FeedbackSource.candidate_side,
-                )
-            )
-        ).scalars()
-        by_event = {fb.calendar_event_id: fb for fb in fb_rows}
-        for snap in snaps.values():
-            if snap.interview is None:
-                continue
-            fb = by_event.get(snap.interview.id)
-            # Debrief zapisany przed rozpoczęciem rozmowy nie zamyka kroków
-            # „Telefon” i „Debrief” — rozmowy jeszcze nie było (lustro bramki
-            # w ``debrief_gate``; zapis przed startem blokuje ``PUT …/debrief``).
-            if fb is not None and debrief_saved_after_start(
-                _as_utc(fb.updated_at) if fb.updated_at else None,
-                snap.interview.start,
-            ):
-                snap.debrief = DebriefRef(
-                    id=fb.id,
-                    overall_impression=fb.overall_impression,
-                    offer_acceptance=fb.offer_acceptance,
-                    acceptance_condition=fb.acceptance_condition,
-                    candidate_questions=fb.candidate_questions,
-                    client_questions=fb.client_questions,
-                )
 
     # Najnowszy etap pary.
     latest = (
@@ -798,7 +882,7 @@ async def load_overview(
         db, user, scope, window_start=window_start, window_end=window_end, now=now
     )
     snaps = await load_snapshots(
-        db, pair_keys, window_start=window_start, window_end=window_end
+        db, pair_keys, window_start=window_start, window_end=window_end, now=now
     )
     names, jobs = await _labels(
         db,
@@ -806,6 +890,9 @@ async def load_overview(
         sorted({k[1] for k in snaps}),
     )
     is_dl_view = scope != "mine"
+    from app.services.workforce_availability import operational_owner_ids
+
+    acting_for = operational_owner_ids(user)
 
     items: list[dict] = []
     agenda: list[dict] = []
@@ -846,49 +933,55 @@ async def load_overview(
             call_window_minutes=call_window,
             user_id=user.id,
             is_dl_view=is_dl_view,
+            acting_for=acting_for,
         ):
             todos.append({**t, **pair_info})
 
-        for prep in snap.preps:
-            if window_start <= prep.start <= window_end:
-                meta, quality = prep_quality(prep)
+        # Runda do debriefu i — gdy inna (runda 8, CAL2) — runda do prepów:
+        # panel kandydata pokazuje obie rozmowy i prepy do następnej.
+        rounds = [(snap.interview, snap.preps, snap.debrief is not None)]
+        if snap.prep_interview is not None:
+            rounds.append((snap.prep_interview, snap.prep_round_preps, False))
+        for iv, round_preps, debriefed in rounds:
+            for prep in round_preps:
+                if window_start <= prep.start <= window_end:
+                    meta, quality = prep_quality(prep)
+                    agenda.append(
+                        {
+                            **pair_info,
+                            "kind": "prep" if (prep.ordinal or 1) == 1 else "prep2",
+                            "start": prep.start,
+                            "end": prep.end,
+                            "event_id": prep.id,
+                            "online_meeting_url": prep.online_meeting_url,
+                            "from_nexus": prep.prep_no is not None,
+                            "prep_quality": quality,
+                            "prep_meta": meta if prep.start <= now else None,
+                        }
+                    )
+            if iv is not None and window_start <= iv.start <= window_end:
                 agenda.append(
                     {
                         **pair_info,
-                        "kind": "prep" if (prep.ordinal or 1) == 1 else "prep2",
-                        "start": prep.start,
-                        "end": prep.end,
-                        "event_id": prep.id,
-                        "online_meeting_url": prep.online_meeting_url,
-                        "from_nexus": prep.prep_no is not None,
-                        "prep_quality": quality,
-                        "prep_meta": meta if prep.start <= now else None,
+                        "kind": "interview",
+                        "start": iv.start,
+                        "end": iv.end,
+                        "event_id": iv.id,
+                        "online_meeting_url": None,
                     }
                 )
-        iv = snap.interview
-        if iv is not None and window_start <= iv.start <= window_end:
-            agenda.append(
-                {
-                    **pair_info,
-                    "kind": "interview",
-                    "start": iv.start,
-                    "end": iv.end,
-                    "event_id": iv.id,
-                    "online_meeting_url": None,
-                }
-            )
-            end = _interview_end(iv)
-            agenda.append(
-                {
-                    **pair_info,
-                    "kind": "call",
-                    "start": end,
-                    "end": end + timedelta(minutes=call_window),
-                    "event_id": iv.id,
-                    "online_meeting_url": None,
-                    "done": snap.debrief is not None,
-                }
-            )
+                end = _interview_end(iv)
+                agenda.append(
+                    {
+                        **pair_info,
+                        "kind": "call",
+                        "start": end,
+                        "end": end + timedelta(minutes=call_window),
+                        "event_id": iv.id,
+                        "online_meeting_url": None,
+                        "done": debriefed,
+                    }
+                )
         if (
             req is not None
             and req.status == SLOT_STATUS_AWAITING_DL
@@ -1064,6 +1157,12 @@ def compute_badge(
         label = f"Czeka na DL · {_when_label(start)}" if start else "Czeka na DL"
         return _badge("awaiting_dl", label, "wait", start)
 
+    # Zbliżająca się rozmowa i jej prepy — runda prepów (runda 8, CAL2): gdy
+    # poprzednia runda jeszcze trwa bez debriefu, a kolejna jest zaplanowana,
+    # plakietka mówi o prepach do kolejnej.
+    if pair.prep_interview is not None:
+        pair = pair.for_preps()
+        iv = pair.interview
     if iv is not None and _interview_end(iv) > now:
         soon = iv.start - now <= timedelta(hours=PREP_URGENT_HOURS)
         past = [p for p in pair.preps if p.start <= now]
@@ -1129,7 +1228,8 @@ async def interview_badges_for_job(
         CalendarEvent.candidate_id.in_(ids),
         CalendarEvent.event_type.in_((EventType.prep_call, EventType.client_interview)),
         CalendarEvent.status != EventStatus.cancelled,
-        # To samo okno co `load_snapshots` (cofa start o 30 dni).
+        # Okno prepów z `load_snapshots` (cofa start o 30 dni) — decyduje tylko,
+        # KTO ma odznakę; rundę migawka wybiera spośród wszystkich rozmów pary.
         CalendarEvent.start_time >= window_start - timedelta(days=30),
         CalendarEvent.start_time <= window_end,
     )
@@ -1153,6 +1253,7 @@ async def interview_badges_for_job(
             [(cid, job_id) for cid in chunk],
             window_start=window_start,
             window_end=window_end,
+            now=now,
         )
         for (cid, _jid), snap in snaps.items():
             badge = compute_badge(snap, now, call_window_minutes=call_window)

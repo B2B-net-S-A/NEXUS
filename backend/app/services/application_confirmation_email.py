@@ -68,9 +68,14 @@ def email_key(email: str) -> str:
 def render_confirmation(
     *, to: str, first_name: str, public_job_title: Optional[str], rodo_url: str
 ) -> ConfirmationEmail:
-    """Czysta funkcja: te same wejścia → ten sam mail, niezależnie od bazy."""
-    name = (first_name or "").strip()
-    greeting = f"Cześć {name}," if name else "Dzień dobry,"
+    """Czysta funkcja: te same wejścia → ten sam mail, niezależnie od bazy.
+
+    ``first_name`` świadomie NIE trafia do treści (runda 8, R8-N4-9): formularz
+    jest anonimowy, więc imię to dowolny tekst obcej osoby, a mail idzie
+    z firmowej skrzynki na dowolny podany adres. Powitanie jest ogólne.
+    """
+    del first_name
+    greeting = "Dzień dobry,"
     title = (public_job_title or "").strip() or None
     what = f"Twoje zgłoszenie na stanowisko „{title}”" if title else "Twoje zgłoszenie"
     subject = (

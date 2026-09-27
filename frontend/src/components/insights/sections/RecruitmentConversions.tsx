@@ -28,7 +28,8 @@ interface Props {
 const CONVERSION_SOURCE_STAGE: Record<string, string> = {
   verified_to_cv_sent: "verified",
   cv_sent_to_interview: "cv_sent",
-  interview_to_hired: "interview",
+  // Klucz API zostaje, ale mianownikiem są rozmowy u klienta (R8-V2-2).
+  interview_to_hired: "client_interview",
   verified_to_hired: "verified",
 };
 

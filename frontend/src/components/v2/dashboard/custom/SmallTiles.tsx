@@ -18,6 +18,7 @@ import {
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState"
 import { calendarApi, type CalendarEventResponse } from "@/lib/api"
 import { useMyPeopleSummary } from "@/lib/api/myPeople"
+import { safeExternalHref, safeInternalPath } from "@/lib/safe-href"
 import type { TileConfig } from "@/lib/api/userDashboard"
 import { summarySentences } from "@/lib/my-people-summary"
 import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
@@ -130,26 +131,36 @@ export function NoteBody({ config }: { config: TileConfig }) {
       {text ? <p className="whitespace-pre-line text-foreground">{text}</p> : null}
       {links.length > 0 ? (
         <ul className="flex flex-col gap-1">
-          {links.map((link) =>
-            link.url.startsWith("/") ? (
+          {links.map((link) => {
+            // Runda 8 (R8-N10-5): `/\evil.com` przeglądarka czyta jak
+            // `//evil.com` — ścieżka wewnętrzna tylko przez `safeInternalPath`,
+            // zewnętrzny wyłącznie https; resztę pokazujemy jako tekst.
+            const internal = safeInternalPath(link.url)
+            const external =
+              internal === null && link.url.startsWith("https://")
+                ? safeExternalHref(link.url)
+                : null
+            return (
               <li key={`${link.label}-${link.url}`}>
-                <Link href={link.url} className="font-medium text-primary hover:underline">
-                  {link.label}
-                </Link>
+                {internal ? (
+                  <Link href={internal} className="font-medium text-primary hover:underline">
+                    {link.label}
+                  </Link>
+                ) : external ? (
+                  <a
+                    href={external}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-primary hover:underline"
+                  >
+                    {link.label}
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground">{link.label}</span>
+                )}
               </li>
-            ) : (
-              <li key={`${link.label}-${link.url}`}>
-                <a
-                  href={link.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-medium text-primary hover:underline"
-                >
-                  {link.label}
-                </a>
-              </li>
-            ),
-          )}
+            )
+          })}
         </ul>
       ) : null}
     </div>

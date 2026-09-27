@@ -1,4 +1,4 @@
 {
-  "sha256": "2b69d8dcd58e39a602a7e86d4c09bf0e73f32b11d490069b7735a15a0f9a472e",
+  "sha256": "67572a4cc1bb77ec529e2865975c70be2ed1856550b094afcd83736bc4b8c4f4",
   "source": "backend/app/api/md_consumption.py"
 }

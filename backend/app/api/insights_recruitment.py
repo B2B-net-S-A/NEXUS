@@ -104,8 +104,10 @@ FUNNEL_STAGES: list[dict] = [
         "in_milestones": True,
     },
     {
+        # Kod `interview` to od v5 etap „QC CV” (przed wysłaniem CV), nie
+        # rozmowa — rozmowy liczy `client_interview` (R8-V2-2).
         "stage": "interview",
-        "label": "Rozmowa",
+        "label": "QC CV",
         "in_milestones": True,
     },
     {
@@ -161,6 +163,11 @@ _STAGE_LOG_STAGES = [x["stage"] for x in FUNNEL_STAGES if not x["in_milestones"]
 # Konwersje liczone z TYCH SAMYCH liczników co kafle wyżej. Gdy mianownik jest
 # zerem, wynik to None (luka), nigdy 0.0 — „nie da się policzyć" to co innego
 # niż „policzone i wyszło zero".
+#
+# Runda 8 (R8-V2-2): „Rozmowy” to `client_interview` (decyzja właściciela
+# 26.09.2026: Interview w KPI/Insights = wyłącznie rozmowa u klienta). Kod
+# `interview` to od v5 QC CV — konwersja „CV wysłane → QC” nie znaczyła nic
+# i potrafiła przekroczyć 100%. Klucze zostają (kontrakt API).
 CONVERSIONS: list[dict] = [
     {
         "key": "verified_to_cv_sent",
@@ -170,15 +177,15 @@ CONVERSIONS: list[dict] = [
     },
     {
         "key": "cv_sent_to_interview",
-        "label": "Rekomendacje → Rozmowy",
-        "numerator": "interview",
+        "label": "Rekomendacje → Rozmowy u klienta",
+        "numerator": "client_interview",
         "denominator": "cv_sent",
     },
     {
         "key": "interview_to_hired",
-        "label": "Rozmowy → Zatrudnienia",
+        "label": "Rozmowy u klienta → Zatrudnienia",
         "numerator": "hired",
-        "denominator": "interview",
+        "denominator": "client_interview",
     },
     {
         "key": "verified_to_hired",
@@ -232,7 +239,7 @@ async def insights_recruitment_funnel(
 
     # Klucz cache'u NIESIE OKNO. Bez tego liczby jednego okresu wyszłyby pod
     # etykietą drugiego — i nikt by się nie dowiedział, bo obie są wiarygodne.
-    cache_key = f"insights:recruitment:funnel:v1:{resolved.cache_suffix}"
+    cache_key = f"insights:recruitment:funnel:v2:{resolved.cache_suffix}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:

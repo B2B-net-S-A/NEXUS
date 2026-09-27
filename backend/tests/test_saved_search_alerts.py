@@ -86,3 +86,96 @@ class TestBuildLink:
         assert build_link({}, search_id=7) == "/candidates?ss=7"
         assert build_link(None, search_id=7) == "/candidates?ss=7"
         assert build_link({"qs": ""}, search_id=7) == "/candidates?ss=7"
+
+
+class _FakeResponse:
+    def __init__(self, n: int):
+        self._n = n
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict:
+        return {"items": [{"id": i} for i in range(self._n)]}
+
+
+class _FakeClient:
+    def __init__(self, sizes: list[int]):
+        self.sizes = list(sizes)
+        self.pages: list[int] = []
+
+    async def get(self, _url, *, params, headers):
+        self.pages.append(params["page"])
+        return _FakeResponse(self.sizes.pop(0))
+
+
+class TestReplayMatchItems:
+    """Runda 8 (R8-N10-3): pager mówi, czy obejrzał ogon."""
+
+    @pytest.mark.asyncio
+    async def test_complete_when_last_page_is_short(self):
+        from app.tasks.saved_search_alerts import _replay_match_items
+
+        client = _FakeClient([100, 100, 3])
+        items, truncated = await _replay_match_items(client, "t", {}, max_pages=5)
+        assert (len(items), truncated, client.pages) == (203, False, [1, 2, 3])
+
+    @pytest.mark.asyncio
+    async def test_truncated_when_cap_reached(self):
+        from app.tasks.saved_search_alerts import _replay_match_items
+
+        client = _FakeClient([100, 100, 100])
+        items, truncated = await _replay_match_items(client, "t", {}, max_pages=2)
+        assert (len(items), truncated) == (200, True)
+
+    @pytest.mark.asyncio
+    async def test_keeps_only_id_and_names(self):
+        """Runda 9 (R9-N14-1): pełne wiersze kandydatów nie zostają w pamięci."""
+        from app.tasks.saved_search_alerts import _replay_match_items
+
+        class _Rich(_FakeResponse):
+            def json(self) -> dict:
+                return {
+                    "items": [
+                        {
+                            "id": 1,
+                            "name": "A",
+                            "lastname": "B",
+                            "experience": ["x"] * 50,
+                        }
+                    ]
+                }
+
+        class _Client:
+            async def get(self, _url, *, params, headers):
+                return _Rich(1)
+
+        items, _ = await _replay_match_items(_Client(), "t", {}, max_pages=1)
+        assert items == [{"id": 1, "name": "A", "lastname": "B"}]
+
+    def test_default_cap_covers_whole_database(self):
+        from app.tasks import saved_search_alerts as mod
+
+        # 20 stron = 2000 trafień dawało niepełną linię bazową (fałszywe alerty).
+        assert mod._MAX_PAGES * mod._PAGE_SIZE >= 100_000
+
+
+def test_log_writes_are_batched_under_the_asyncpg_argument_limit():
+    """Runda 8 (przegląd): sufit skanu to 100 tys. osób, a asyncpg przyjmuje
+    najwyżej 32 767 argumentów — zapis i odczyt dziennika idą paczkami."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.tasks import saved_search_alerts as mod
+
+    db = MagicMock()
+    result = MagicMock()
+    result.all.return_value = []
+    db.execute = AsyncMock(return_value=result)
+    ids = list(range(1, 11_001))
+    asyncio.run(mod._log_candidates(db, 1, ids, notified_at=None))
+    assert db.execute.await_count == 3
+    db.execute.reset_mock()
+    asyncio.run(mod._logged_candidate_ids(db, 1, ids))
+    assert db.execute.await_count == 3
+    assert mod._LOG_BATCH * 3 < 32_767

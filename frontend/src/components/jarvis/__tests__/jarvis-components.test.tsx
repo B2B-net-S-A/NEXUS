@@ -66,6 +66,16 @@ describe("karta akcji", () => {
     render(<JarvisActionCard action={{ ...action, status: "failed", result: { error: "Brak uprawnień" } }} />);
     expect(screen.getByText("Nie udało się: Brak uprawnień")).toBeInTheDocument();
   });
+
+  it("wykonanie przerwane w trakcie mówi „nie wiadomo”, nie „nie udało się”", () => {
+    render(
+      <JarvisActionCard
+        action={{ ...action, status: "failed", result: { ok: false, uncertain: true, error: "Wykonanie zostało przerwane" } }}
+      />,
+    );
+    expect(screen.getByText(/nie wiadomo, czy się zapisało/)).toBeInTheDocument();
+    expect(screen.queryByText(/Nie udało się/)).toBeNull();
+  });
 });
 
 function panelProps(overrides: Partial<JarvisPanelProps> = {}): JarvisPanelProps {

@@ -68,7 +68,9 @@ CACHE_TTL_SECONDS = 300
 STAGE_COLUMNS: list[dict] = [
     {"key": "verifications", "stage": "verified", "label": "Weryfikacje"},
     {"key": "recommendations", "stage": "cv_sent", "label": "Rekomendacje"},
-    {"key": "interviews", "stage": "interview", "label": "Interviews"},
+    # Runda 8 (R8-V2-2): rozmowy = `client_interview`; kod `interview` to od v5
+    # QC CV. Klucz `interviews` zostaje (kontrakt API).
+    {"key": "interviews", "stage": "client_interview", "label": "Rozmowy u klienta"},
     {"key": "placements", "stage": "hired", "label": "Placements"},
 ]
 
@@ -138,7 +140,7 @@ async def insights_team_table(
     # v3 + flaga (runda 6 audytu): średnia zespołu tą samą atrybucją co „Mój
     # miesiąc” jest osobnym, droższym policzeniem — tylko na żądanie.
     cache_key = (
-        f"insights:team:table:v3:{resolved.cache_suffix}"
+        f"insights:team:table:v4:{resolved.cache_suffix}"
         f":{'anchored' if anchored_average else 'plain'}"
     )
     async with cache_single_flight(cache_key, db=db):

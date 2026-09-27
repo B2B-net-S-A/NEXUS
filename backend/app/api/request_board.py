@@ -31,13 +31,14 @@ from app.models.job_work_assignment import JobWorkAssignment
 from app.models.recruitment_allocation import RecruitmentAllocationState
 from app.models.user import User, UserRole
 from app.services.job_similarity import sent_counts
+from app.services.job_working_title import display_title, job_display_title_expr
 from app.services.recruitment_allocation import allocation_lock
 from app.services.request_allocation import (
     changed_since,
     manual_add,
     manual_remove,
 )
-from app.services.request_allocation_plan import RELEASE_REASONS
+from app.services.request_allocation_plan import release_reason_label
 from app.services.workforce_availability import workforce_context
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -175,7 +176,7 @@ async def get_request_board(
     requests = [
         BoardRequest(
             job_id=job.id,
-            title=job.title,
+            title=display_title(job),
             client_name=clients.get(job.client_id),
             category_id=job.competence_category_id,
             deadline=job.deadline,
@@ -276,7 +277,9 @@ async def get_request_board(
     since = changed_since(now)
     change_rows = (
         await db.execute(
-            select(JobWorkAssignment, User.name, Job.title, Job.client_id)
+            select(
+                JobWorkAssignment, User.name, job_display_title_expr(), Job.client_id
+            )
             .join(User, User.id == JobWorkAssignment.user_id)
             .join(Job, Job.id == JobWorkAssignment.job_id)
             .where(
@@ -316,14 +319,14 @@ async def get_request_board(
                 title=title,
                 client_name=all_clients.get(client_id),
                 user_name=name,
-                reason=RELEASE_REASONS.get(row.release_reason or "")
+                reason=release_reason_label(row.release_reason)
                 if released
                 else ("propozycja automatu" if row.state == "proposed" else None),
             )
         )
     champions = (
         await db.execute(
-            select(Activity.created_at, Job.id, Job.title, Job.client_id)
+            select(Activity.created_at, Job.id, job_display_title_expr(), Job.client_id)
             .join(Job, Job.id == Activity.entity_id)
             .where(
                 Activity.entity_type == "job",

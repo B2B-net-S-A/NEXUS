@@ -58,6 +58,13 @@ PROPOSALS_METRIC = "auto_proposals"
 # więc to awaria automatu, nie wynik (runda 6 audytu). Ustawia `_publish`,
 # czytają `_last_auto_run_at` i `_last_successful_fingerprint`.
 SEMANTIC_BLIND_METRIC = "auto_semantic_blind"
+# Przegląd z niepełnym pokryciem (runda 8, R8-N11-3): partia `failed`
+# (wyjątek/timeout oceny) albo dopuszczeni bez pomiaru, bo Qdrant chwilowo
+# milczał (`unavailable`). Propozycje z reszty publikujemy, ale przegląd NIE
+# zamyka tematu — inaczej następnej nocy odcisk dawał `unchanged`, a pominięci
+# kandydaci nie trafiali do „Propozycji”, dopóki request się nie zmienił.
+INCOMPLETE_METRIC = "auto_incomplete_coverage"
+_NOT_A_FINAL_REVIEW = (SEMANTIC_BLIND_METRIC, INCOMPLETE_METRIC)
 _PICK_LIMIT = 50
 _RECONCILE_WINDOW = timedelta(days=2)
 
@@ -134,6 +141,7 @@ def _finished_review_started_at():
             Activity.entity_type == ACTIVITY_ENTITY,
             Activity.entity_id == Job.id,
             Activity.action.in_(_REVIEW_MEMORY_ACTIONS),
+            ~Activity.details.has_key(INCOMPLETE_METRIC),
         )
         .correlate(Job)
         .scalar_subquery()
@@ -151,8 +159,9 @@ def _last_auto_run_at():
             CandidateSearchRun.job_id == Job.id,
             store.auto_origin_clause(),
             CandidateSearchRun.state != "failed",
-            # Przegląd bez wektora nie zamyka tematu — jak `failed`.
-            ~CandidateSearchRun.metrics.has_key(SEMANTIC_BLIND_METRIC),
+            # Przegląd bez wektora albo z niepełnym pokryciem nie zamyka
+            # tematu — jak `failed`.
+            *(~CandidateSearchRun.metrics.has_key(key) for key in _NOT_A_FINAL_REVIEW),
         )
         .correlate(Job)
         .scalar_subquery()
@@ -226,9 +235,9 @@ async def _last_successful_fingerprint(db, job_id: int) -> Optional[str]:
             CandidateSearchRun.job_id == job_id,
             store.auto_origin_clause(),
             CandidateSearchRun.state.in_((*store.ACTIVE_STATES, *store.RESULT_STATES)),
-            # Odcisk przeglądu bez wektora nie jest „bez zmian” — trzeba go
-            # powtórzyć (runda 6 audytu).
-            ~CandidateSearchRun.metrics.has_key(SEMANTIC_BLIND_METRIC),
+            # Odcisk przeglądu bez wektora (runda 6) albo z niepełnym
+            # pokryciem (runda 8) nie jest „bez zmian” — trzeba go powtórzyć.
+            *(~CandidateSearchRun.metrics.has_key(key) for key in _NOT_A_FINAL_REVIEW),
         )
         .order_by(CandidateSearchRun.created_at.desc())
         .limit(1)
@@ -536,6 +545,26 @@ async def _semantic_blind(db, run: CandidateSearchRun) -> bool:
     return bool(eligible) and not measured
 
 
+async def _incomplete_coverage(db, run: CandidateSearchRun) -> bool:
+    """Część populacji nieoceniona: partia `failed` albo pomiar `unavailable`.
+
+    `stale`/`missing_index` NIE liczą się — to trwały stan indeksu, który
+    następna noc by powtórzyła (przegląd nie zamknąłby się nigdy).
+    """
+    failed, unavailable = (
+        await db.execute(
+            select(
+                func.count().filter(CandidateSearchResult.state == "failed"),
+                func.count().filter(
+                    CandidateSearchResult.eligible.is_(True),
+                    CandidateSearchResult.measurement == "unavailable",
+                ),
+            ).where(CandidateSearchResult.run_id == run.id)
+        )
+    ).one()
+    return bool(failed or unavailable)
+
+
 async def _publish(db, run: CandidateSearchRun, *, eligible: Optional[int]) -> int:
     if await _semantic_blind(db, run):
         from app.services import automation_failures as failures
@@ -555,25 +584,32 @@ async def _publish(db, run: CandidateSearchRun, *, eligible: Optional[int]) -> i
         await db.flush()
         return 0
     count = await publish_run_proposals(db, run)
+    incomplete = await _incomplete_coverage(db, run)
     # Po `finish_run` telemetria już nie nadpisuje `metrics`.
-    run.metrics = {**(run.metrics or {}), PROPOSALS_METRIC: count}
+    metrics = {**(run.metrics or {}), PROPOSALS_METRIC: count}
+    details = {
+        "run_id": run.id,
+        "proposals": count,
+        "eligible": eligible,
+        "state": run.state,
+        # Pamięć automatu po retencji przeglądu (runda 6 audytu).
+        "run_created_at": run.created_at.isoformat() if run.created_at else None,
+        "fingerprint": run.request_fingerprint,
+    }
+    if incomplete:
+        # Bez odcisku i ze znacznikiem: wpis nie jest pamięcią przeglądu
+        # (`_finished_review_started_at`, `_last_successful_fingerprint`).
+        metrics[INCOMPLETE_METRIC] = True
+        details.pop("fingerprint")
+        details[INCOMPLETE_METRIC] = True
+    run.metrics = metrics
     db.add(
         Activity(
             entity_type=ACTIVITY_ENTITY,
             entity_id=run.job_id,
             action="auto_full_review_finished",
             user_id=None,
-            details={
-                "run_id": run.id,
-                "proposals": count,
-                "eligible": eligible,
-                "state": run.state,
-                # Pamięć automatu po retencji przeglądu (runda 6 audytu).
-                "run_created_at": run.created_at.isoformat()
-                if run.created_at
-                else None,
-                "fingerprint": run.request_fingerprint,
-            },
+            details=details,
         )
     )
     await db.flush()

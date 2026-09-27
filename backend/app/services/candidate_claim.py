@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -93,10 +93,39 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def claim_state(process: Optional[RecruitmentProcess]) -> ClaimState:
-    if process is None:
+def claim_state(
+    process: Optional[RecruitmentProcess],
+    inactive_user_ids: frozenset[int] | set[int] = frozenset(),
+) -> ClaimState:
+    """Blokada procesu. Blokada konta nieaktywnego = brak blokady (runda 8,
+    R8-N8-7): nieaktywne konto nie prowadzi nikogo, więc nie wiąże zespołu."""
+
+    if process is None or process.claimed_by_user_id in inactive_user_ids:
         return ClaimState(None, None)
     return ClaimState(process.claimed_by_user_id, process.claimed_until)
+
+
+async def inactive_holders(
+    db: AsyncSession, processes: Iterable[Optional[RecruitmentProcess]]
+) -> set[int]:
+    """Id nieaktywnych kont trzymających blokady tych procesów — jedno zapytanie."""
+
+    ids = {
+        p.claimed_by_user_id
+        for p in processes
+        if p is not None and p.claimed_by_user_id is not None
+    }
+    if not ids:
+        return set()
+    return set(
+        (
+            await db.execute(
+                select(User.id).where(User.id.in_(ids), User.is_active.is_(False))
+            )
+        )
+        .scalars()
+        .all()
+    )
 
 
 def can_override(user: User) -> bool:
@@ -180,8 +209,8 @@ async def assert_can_act(
     rozstrzygają spory o osobę.
     """
 
-    state = claim_state(process)
     moment = now or utcnow()
+    state = claim_state(process, await inactive_holders(db, [process]))
     if not state.active(moment) or state.user_id == user.id or can_override(user):
         return
     # Blokada dotyczy wyłącznie „Nowych" i „Screeningu". Import z Traffita i synchronizacja
@@ -213,10 +242,15 @@ async def assert_can_act(
     )
 
 
-def can_take(process: Optional[RecruitmentProcess], user: User, now: datetime) -> bool:
+def can_take(
+    process: Optional[RecruitmentProcess],
+    user: User,
+    now: datetime,
+    inactive_user_ids: frozenset[int] | set[int] = frozenset(),
+) -> bool:
     """Czy ``user`` może kliknąć „Biorę"/„Przejmij" na tej karcie."""
 
-    state = claim_state(process)
+    state = claim_state(process, inactive_user_ids)
     if state.user_id == user.id and state.active(now):
         return False
     return not state.active(now) or can_override(user)

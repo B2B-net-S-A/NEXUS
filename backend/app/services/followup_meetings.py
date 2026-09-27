@@ -376,8 +376,12 @@ async def erase_candidate_meetings(
             )
         ).all()
         for upn, event in rows:
+            # Runda 8 (R8-V3-9): status „odwołane” zapisuje dopiero udane
+            # odwołanie w Teams (``_mark_cancelled`` po commicie). Do rundy 7
+            # szedł tu przed Graphem, a żądanie przerwane w trakcie ponowień
+            # (deploy, crash) zostawiało „odwołane” w NEXUSIE przy ważnym
+            # zaproszeniu w Teams.
             pending.append((upn, event.external_id, event.id))
-            event.status = EventStatus.cancelled
     events = (
         await db.scalars(
             select(CalendarEvent).where(CalendarEvent.candidate_id == candidate.id)
@@ -391,6 +395,10 @@ async def erase_candidate_meetings(
             event.title = ERASED_EVENT_TITLE
         event.description = None
         event.attendees = _without_address(event.attendees, candidate.email)
+    pending_ids = {event_id for _upn, _graph_id, event_id in pending}
+    for event in events:
+        if pending_ids and event.id in pending_ids:
+            event.description = CANCEL_PENDING_NOTE
     await db.flush()
     return pending, {
         "teams_meetings_cancelled": len(pending),
@@ -400,6 +408,11 @@ async def erase_candidate_meetings(
 
 # Ponowienia odwołania w Teams po usunięciu kandydata (runda 7, R7-V1-6).
 _CANCEL_RETRY_DELAYS: tuple[float, ...] = (1.0, 3.0)
+# Opis na czas odwoływania — zostaje, jeśli żądanie przerwano przed Graphem.
+CANCEL_PENDING_NOTE = (
+    "Dane kandydata usunięte — spotkanie w Teams jest odwoływane. Jeśli ten "
+    "opis nie zniknie, odwołaj je ręcznie w kalendarzu organizatora."
+)
 CANCEL_FAILED_NOTE = (
     "Nie udało się odwołać tego spotkania w Teams po usunięciu danych "
     "kandydata — odwołaj je ręcznie w kalendarzu organizatora."
@@ -424,12 +437,33 @@ async def _cancel_with_retry(upn: str, graph_event_id: str) -> bool:
     return False
 
 
+async def _mark_cancelled(event_ids: list[int]) -> None:
+    """Odwołane w Teams → „odwołane” w NEXUSIE (runda 8, R8-V3-9)."""
+    from app.core.database import AsyncSessionLocal
+
+    try:
+        async with AsyncSessionLocal() as db:
+            events = (
+                await db.scalars(
+                    select(CalendarEvent).where(CalendarEvent.id.in_(event_ids))
+                )
+            ).all()
+            for event in events:
+                event.status = EventStatus.cancelled
+                event.description = None
+            await db.commit()
+    except Exception as exc:  # noqa: BLE001 — usunięcie już się stało
+        logger.error(
+            "candidate erasure: cancelled state not saved (%s)", type(exc).__name__
+        )
+
+
 async def _restore_uncancelled(event_ids: list[int]) -> None:
     """Spotkanie, którego Teams nie odwołał, nie może udawać odwołanego.
 
-    ``erase_candidate_meetings`` oznaczyło je jako odwołane przed Graphem;
-    zaproszenie kandydata dalej wisi w kalendarzu organizatora, więc NEXUS
-    wraca do „zaplanowane” z prośbą o ręczne odwołanie.
+    Wydarzenie zostaje „zaplanowane” (``erase_candidate_meetings`` nie zmienia
+    już statusu przed Graphem); zaproszenie kandydata dalej wisi w kalendarzu
+    organizatora, więc opis prosi o ręczne odwołanie.
     """
     from app.core.database import AsyncSessionLocal
 
@@ -462,13 +496,15 @@ async def cancel_erased_meetings(pending: list[tuple[str, str, int]]) -> int:
     przyjął, wraca w NEXUSIE na „zaplanowane” z prośbą o ręczne odwołanie —
     dotąd NEXUS pokazywał „odwołane”, a kandydat miał ważne zaproszenie.
     """
-    cancelled = 0
+    cancelled_ids: list[int] = []
     failed: list[int] = []
     for upn, graph_event_id, event_id in pending:
         if await _cancel_with_retry(upn, graph_event_id):
-            cancelled += 1
+            cancelled_ids.append(event_id)
         else:
             failed.append(event_id)
+    if cancelled_ids:
+        await _mark_cancelled(cancelled_ids)
     if failed:
         await _restore_uncancelled(failed)
-    return cancelled
+    return len(cancelled_ids)

@@ -870,7 +870,7 @@ def merge_field_plan(
             [
                 row
                 for row in contracts
-                if int(row["id"]) == survivor_id or not _carries_cooperation_end(row)
+                if int(row["id"]) == survivor_id or _end_field_transfers(row, field)
             ]
             if survivor_live and field in _END_OF_COOPERATION_FIELDS
             else contracts
@@ -940,6 +940,43 @@ def _carries_cooperation_end(row: Mapping[str, Any]) -> bool:
         or not _is_empty(row.get("termination_reason"))
         or not _is_empty(row.get("agreement_termination_mode"))
     )
+
+
+def _live_termination_is_current(row: Mapping[str, Any]) -> bool:
+    """Żywy kontrakt z TRWAJĄCYM wypowiedzeniem (data końca już ucięta).
+
+    „Zakończ współpracę” zawsze skraca ``end_date`` do dnia zakończenia, więc
+    trwające wypowiedzenie to ``end_date <= terminated_at``. Umowa przedłużona
+    aneksem ma późniejszą albo pustą datę końca — jej ``terminated_at``
+    przeżył aneks i opisuje PIERWSZE, cofnięte zakończenie.
+    """
+    terminated_at = row.get("terminated_at")
+    end_date = row.get("end_date")
+    return (
+        not _is_empty(terminated_at)
+        and not _is_empty(end_date)
+        and _date_value(end_date) <= _date_value(terminated_at)
+    )
+
+
+def _end_field_transfers(row: Mapping[str, Any], field: str) -> bool:
+    """Czy pole końca współpracy przegranego przechodzi na ŻYWY zachowany.
+
+    Runda 8 (R8-V1-6): N1-1 (r7) odrzucał koniec współpracy KAŻDEGO
+    przegranego z zapisanym zakończeniem — także żywego „Kończącego się”
+    z zaplanowanym wypowiedzeniem, którego zamówienia już ucięto do tej daty.
+    Zachowany kontrakt zostawał bezterminowy, a konsultant nie schodził.
+    Odrzucamy więc tylko zakończenie przegranego zakończonego/anulowanego;
+    trwające wypowiedzenie żywego przegranego przechodzi w całości (data końca
+    przez „najpóźniejszą”, reszta przez zwykłe reguły pola — różne wartości
+    to konflikt do rozstrzygnięcia). Przedawnione ślady zakończenia żywego
+    przegranego (umowa przedłużona) nie przechodzą — jego data końca tak.
+    """
+    if _enum_text(row.get("status")) in _ENDED_STATUSES:
+        return False
+    if _live_termination_is_current(row) or not _carries_cooperation_end(row):
+        return True
+    return field == "end_date"
 
 
 def _keep_live_b2b_survivor_indefinite(

@@ -205,26 +205,43 @@ def _screen_entities(screen: Optional[dict[str, Any]]) -> set[tuple[str, int]]:
     return set()
 
 
+async def _candidate_name(transport: JarvisTransport, candidate_id: int) -> str:
+    resp = await transport.call(
+        RequestSpec("GET", f"/api/candidates/{candidate_id}/quick-view")
+    )
+    person = (
+        resp.data.get("candidate") if resp.ok and isinstance(resp.data, dict) else None
+    )
+    if not isinstance(person, dict):
+        return ""
+    return " ".join(
+        str(person.get(k) or "").strip() for k in ("name", "lastname")
+    ).strip()
+
+
 async def _display_names(
     transport: JarvisTransport, args: dict[str, Any]
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Nazwy do karty akcji — czytane przez API (sprawdza przy okazji dostęp)."""
-    names: dict[str, str] = {}
+    names: dict[str, Any] = {}
     if isinstance(args.get("candidate_id"), int):
-        resp = await transport.call(
-            RequestSpec("GET", f"/api/candidates/{args['candidate_id']}/quick-view")
-        )
-        person = (
-            resp.data.get("candidate")
-            if resp.ok and isinstance(resp.data, dict)
-            else None
-        )
-        if isinstance(person, dict):
-            full = " ".join(
-                str(person.get(k) or "").strip() for k in ("name", "lastname")
-            ).strip()
-            if full:
-                names["candidate_id"] = full
+        full = await _candidate_name(transport, args["candidate_id"])
+        if full:
+            names["candidate_id"] = full
+    # Runda 8 (R8-N1-2): karta „Dodam 3 kandydatów” nie mówiła, KOGO — człowiek
+    # zatwierdzał listę ID, której nie widział. Nazwiska z odczytu API; brak
+    # dostępu albo nazwy = numer na karcie.
+    candidate_ids = args.get("candidate_ids")
+    if isinstance(candidate_ids, list) and candidate_ids:
+        listed: list[str] = []
+        for cid in candidate_ids[:20]:
+            name = (
+                await _candidate_name(transport, cid)
+                if isinstance(cid, int) and not isinstance(cid, bool)
+                else ""
+            )
+            listed.append(name or f"Kandydat #{cid}")
+        names["candidate_ids"] = listed
     if isinstance(args.get("job_id"), int):
         resp = await transport.call(RequestSpec("GET", f"/api/jobs/{args['job_id']}"))
         if resp.ok and isinstance(resp.data, dict) and resp.data.get("title"):
@@ -351,15 +368,21 @@ async def prepare_proposal(
     if extra.get("from_stage"):
         text += f" (teraz: {extra['from_stage']})"
     preview = {"text": text, "tool_label": tool.label, "display": display}
-    if tool.detail:
-        preview["body"] = tool.detail(args)
+    body = tool.detail({**args, "_display": display}) if tool.detail else ""
+    if body:
+        preview["body"] = body
     return args, preview
 
 
 async def _merge_notes(
     transport: JarvisTransport, args: dict[str, Any]
 ) -> dict[str, Any]:
-    """Pełna lista pamięci (zapisane + nowa) — PATCH podmienia całą listę."""
+    """Pełna lista pamięci (zapisane + nowa) — PATCH podmienia całą listę.
+
+    Wołane przy propozycji (walidacja karty) i PONOWNIE tuż przed wykonaniem
+    (``actions.confirm_action``) — runda 8 (R8-N1-4): lista z chwili
+    propozycji gubiła notatki zapisane albo usunięte w międzyczasie.
+    """
     from app.services.jarvis.prefs import MAX_NOTES
 
     resp = await transport.call(RequestSpec("GET", "/api/users/me/preferences"))
@@ -748,6 +771,17 @@ async def _steps(
             )
             for event in events:
                 yield event
+        if not await _extend_lock(state):
+            # Runda 8 (R8-N1-6): blokada wygasła w trakcie narzędzi i rozmowę
+            # przejęła inna tura — dopisanie wyników za jej wiadomościami
+            # zepsułoby historię (tool_result bez pary). Wynik przepada,
+            # ``repair_history`` wstawi „przerwane”.
+            yield {
+                "type": "error",
+                "message": "Ta rozmowa jest już obsługiwana w innym oknie — odśwież panel.",
+                "code": "turn_lost",
+            }
+            return
         await store.append_message(state.conversation_id, "user", results)
         history.append({"role": "user", "content": results})
         if _cancelled(state):

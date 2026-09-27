@@ -9554,7 +9554,8 @@ PY
 # 0312: docelowa struktura umów Centrum e-Zdrowia (5 umów ramowych = części,
 # 3 umowy wykonawcze). Safety-net dla migracji 0312 — jedno źródło SQL w
 # `app/services/ezdrowie_structure.py`; idempotentny (ramowa po części,
-# wykonawcza po numerze), no-op bez klienta 115. Log: tylko liczby.
+# wykonawcze tylko pod część bez żadnej umowy wykonawczej — numer poprawiony
+# w UI nie wraca, R8-N6-2), no-op bez klienta 115. Log: tylko liczby.
 startup_phase "seed-ezdrowie-structure"
 echo "Centrum e-Zdrowia: seeding framework parts and executive contracts (idempotent)..."
 python - <<'PY' || echo "ezdrowie structure seed skipped; continuing"
@@ -10070,6 +10071,40 @@ async def repair():
             )
             sys.exit(1)
     print(f"candidate contact backfill: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# Prywatne spotkania z Outlooka oczyszczone przed rundą 7 (R8-V3-3) —
+# jednorazowo: zdjęcie `candidate_id`, który pochodził z uczestników. Profil
+# kandydata pokazywał „Spotkanie prywatne”, czyli z kim było. Logika
+# w `app/services/m365_private_event_link_repair.py`; marker w `app_settings`
+# + advisory lock; porażka nie zapisuje niczego. Log: wyłącznie liczby.
+startup_phase "repair-m365-private-event-candidate"
+echo "Calendar: unlink candidates from scrubbed private Outlook events (one-shot)..."
+python - <<'PY' || echo "private event unlink skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.m365_private_event_link_repair import (
+    run_private_event_unlink,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_private_event_unlink(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane wydarzeń
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"private event unlink failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"private event unlink: {summarize_for_log(summary)}")
 
 asyncio.run(repair())
 PY

@@ -66,7 +66,8 @@ export interface JarvisAction {
     /** Pełna treść zapisu (np. notatki) — renderowana jako zwykły tekst. */
     body?: string;
   };
-  result?: { ok?: boolean; error?: string } | null;
+  /** `uncertain` = wykonanie przerwane w trakcie — nie wiadomo, czy się zapisało. */
+  result?: { ok?: boolean; error?: string; uncertain?: boolean } | null;
 }
 
 export interface JarvisLink {

@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import hashlib
 
-CONSENT_TEXT_VERSION = "2026-09-21"
+# 2026-09-21: pierwsza wersja. 2026-09-26 (runda 8, R8-N4-3): front pokazywał
+# tekst BEZ adresu siedziby, a zapisywaliśmy skrót tekstu z adresem — od tej
+# wersji obie strony mają tekst z adresem (test lustra pilnuje zgodności).
+# Wiersze z wersją 2026-09-21 zostają, jak były.
+CONSENT_TEXT_VERSION = "2026-09-26"
 
 CONSENT_TEXT = (
     "Wyrażam zgodę na przetwarzanie moich danych osobowych przez B2B.NET S.A. "

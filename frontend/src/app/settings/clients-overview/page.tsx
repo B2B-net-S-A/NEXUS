@@ -221,6 +221,12 @@ function DlLeaderboard() {
                 </td>
                 <td className="px-3 py-2 text-right text-violet-700">
                   {fmt(r.monthly_margin_total)}
+                  {(r.monthly_margin_unpriced_clients ?? 0) > 0 &&
+                    r.monthly_margin_total !== null && (
+                      <div className="text-xs text-muted-foreground">
+                        niepełne ({r.monthly_margin_unpriced_clients} kl. bez stawki)
+                      </div>
+                    )}
                 </td>
                 <td className="px-3 py-2 text-right">{r.active_orders_count}</td>
                 <td className="px-3 py-2 text-right">

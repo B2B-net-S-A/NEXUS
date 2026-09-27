@@ -397,7 +397,7 @@ async def test_resignations_are_a_subset_of_departures_dated_by_actual_parting(
     """Rezygnacja liczy się w miesiącu ROZSTANIA, nie w pierwotnym terminie.
 
     Kontrakt wypowiedziany w marcu, z umową do grudnia, jest zejściem marcowym.
-    Data zejścia to `COALESCE(terminated_at, end_date)` — ta sama definicja,
+    Data zejścia to `COALESCE(end_date, terminated_at)` — ta sama definicja,
     której używa `contract_analytics.termination_analysis`.
     """
     email, password = await _seed_user(UserRole.admin)

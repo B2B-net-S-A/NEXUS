@@ -8,6 +8,7 @@ import {
   freePoolMd,
   mdOverFreePool,
   sourceDepartingRate,
+  swapBlockedReason,
   takeoverSources,
   transferPreview,
 } from "@/lib/order-takeover";
@@ -149,5 +150,29 @@ describe("stawka odchodzącego w podglądzie przejęcia (audyt 24.09, N2)", () =
     expect(
       sourceDepartingRate(line({ rate_revenue: 900, offboarding_case: pendingCase(null) })),
     ).toBe(900);
+  });
+});
+
+describe("zamiana kontraktora a zaplanowany następca (runda 8, N5-1)", () => {
+  it("aktywna linia bez następcy — zamiana dozwolona", () => {
+    expect(swapBlockedReason({ status: "active", replaced_by_kind: null })).toBeNull();
+    expect(
+      swapBlockedReason({ status: "active", replaced_by_kind: "replacement" }),
+    ).toBeNull();
+  });
+
+  it("zaplanowana zamiana albo zastępstwo blokuje drugą zamianę", () => {
+    expect(swapBlockedReason({ status: "active", replaced_by_kind: "swap" })).toMatch(
+      /już zaplanowana/,
+    );
+    expect(
+      swapBlockedReason({ status: "active", replaced_by_kind: "takeover" }),
+    ).toMatch(/zastępstwo/);
+  });
+
+  it("linia nieaktywna — jak dotąd", () => {
+    expect(swapBlockedReason({ status: "completed", replaced_by_kind: null })).toMatch(
+      /tylko aktywną/,
+    );
   });
 });

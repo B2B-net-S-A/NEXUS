@@ -248,7 +248,10 @@ async def test_four_columns_are_attributed_to_the_person_who_moved_the_stage(
     for stage in (
         PipelineStage.verified,
         PipelineStage.cv_sent,
+        # R8-V2-2: „Rozmowy” = rozmowa u klienta. Kod `interview` to od v5
+        # QC CV i nie może wejść do tej kolumny.
         PipelineStage.interview,
+        PipelineStage.client_interview,
         PipelineStage.hired,
     ):
         await _seed_stage(
@@ -258,6 +261,14 @@ async def test_four_columns_are_attributed_to_the_person_who_moved_the_stage(
             moved_at=_at(day),
             moved_by=owner_id,
         )
+    cand3, job3 = await _seed_pair()
+    await _seed_stage(
+        candidate_id=cand3,
+        job_id=job3,
+        stage=PipelineStage.interview,
+        moved_at=_at(day),
+        moved_by=owner_id,
+    )
     await _seed_stage(
         candidate_id=cand2,
         job_id=job2,

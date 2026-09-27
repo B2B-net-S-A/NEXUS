@@ -11,7 +11,7 @@ Każdy test broni jednej konkretnej reguły, a nie „że endpoint działa":
 4. **Placement = D2** — pierwsze `hired` per para (kandydat, oferta)
    z `analytics_first_milestones`. Powrót na etap nie liczy się drugi raz.
 5. **Rezygnacja liczy się po DNIU FAKTYCZNEGO ZAKOŃCZENIA**
-   (`COALESCE(terminated_at, end_date)`), a szkic i anulowanie nie liczą się
+   (`COALESCE(end_date, terminated_at)`), a szkic i anulowanie nie liczą się
    wcale — kontrakt, który nigdy nie ruszył, nie może być odejściem.
 6. **CRUD tylko admin, odczyt każdy (D7).**
 """
@@ -355,20 +355,33 @@ async def test_placement_pair_counted_once(camp_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_resignation_uses_terminated_at_over_end_date(camp_client: AsyncClient):
-    """Zerwanie przed czasem liczy się w dniu ZERWANIA, nie planowanego końca.
+async def test_resignation_uses_end_date_over_stale_termination(
+    camp_client: AsyncClient,
+):
+    """Odejście liczy się w dniu faktycznego końca (`end_date`).
 
-    `terminated_at` bywa wcześniejszy niż `end_date` — i to on jest dniem,
-    w którym kontraktor zniknął ze stanu. Liczenie po `end_date` przesunęłoby
-    odejście na miesiąc, w którym tej osoby już nie było.
+    Runda 8 (R8-N13-1): „Zakończ współpracę" skraca `end_date` do dnia
+    zerwania, więc zerwanie przed czasem i tak ląduje w swoim dniu. Natomiast
+    `terminated_at` przeżywa aneks przedłużenia: umowa zakończona PRZED oknem,
+    przedłużona i zakończona W oknie, jest odejściem w oknie. Żywa umowa
+    przedłużona bezterminowo z przedawnionym `terminated_at` w oknie nie jest
+    odejściem wcale.
     """
     await _deactivate_all_campaigns()
     window_start, window_end = await _fresh_window()
+    # Przedłużona i zakończona w oknie — pierwsze zakończenie PRZED oknem.
     await _seed_contract(
         status=ContractStatus.ended,
-        start=window_start - timedelta(days=30),
-        end=window_end + timedelta(days=60),  # planowany koniec POZA oknem
-        terminated_at=window_start + timedelta(days=9),  # zerwanie W oknie
+        start=window_start - timedelta(days=90),
+        end=window_start + timedelta(days=9),
+        terminated_at=window_start - timedelta(days=30),
+    )
+    # Pracuje dalej bezterminowo; przedawnione `terminated_at` leży w oknie.
+    await _seed_contract(
+        status=ContractStatus.active,
+        start=window_start - timedelta(days=90),
+        end=None,
+        terminated_at=window_start + timedelta(days=3),
     )
 
     headers = await _admin_headers(camp_client)
@@ -378,12 +391,12 @@ async def test_resignation_uses_terminated_at_over_end_date(camp_client: AsyncCl
         start=window_start.isoformat(),
         end=window_end.isoformat(),
         target_net=5,
-        name="Zerwanie przed czasem",
+        name="Przedawnione zakończenie",
     )
     assert body["resignations"] == 1, body
     assert body["net"] == -1
     assert (
-        body["resignations_definition"] == "ended_engagement_by_effective_end_date_v2"
+        body["resignations_definition"] == "ended_engagement_by_effective_end_date_v3"
     )
     assert "rezygnacja" in body["resignations_definition_note"].lower()
 

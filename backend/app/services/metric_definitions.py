@@ -35,8 +35,9 @@ CLOSED_JOBS_WITH_PLACEMENT = "closed_jobs_with_at_least_one_placement"
 VERIFIER_ANCHORED_MILESTONES = "verifier_anchored_milestones"
 
 # Zejście kontraktora: kontrakt zakończony, datowany dniem faktycznego
-# rozstania (`COALESCE(terminated_at, end_date)`) — wypowiedzenie przed czasem
-# liczy się w swoim miesiącu, nie w pierwotnym terminie umowy.
+# rozstania (`COALESCE(end_date, terminated_at)`; „Zakończ współpracę" skraca
+# `end_date`) — wypowiedzenie przed czasem liczy się w swoim miesiącu, nie
+# w pierwotnym terminie umowy.
 CONTRACTOR_DEPARTURE = "ended_contracts_by_effective_end_date"
 
 # Rezygnacja: PODZBIÓR zejść z powodem po stronie kontraktora

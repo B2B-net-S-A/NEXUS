@@ -389,3 +389,87 @@ async def test_jarvis_conversation_links_follow_the_survivor(app_client: AsyncCl
     assert sorted((str(c), e) for c, e in links) == sorted(
         [(str(only_dup_id), survivor), (str(both_id), survivor)]
     )
+
+
+async def test_merge_fences_active_search_runs_like_erasure(app_client: AsyncClient):
+    """Runda 8 (R8-N11-6): migawka przeglądu bazy z obiema osobami.
+
+    Przepięcie wiersza duplikatu kolidowało z PK `(run_id, candidate_id)`
+    i łamało kompletność migawki — `finish_run` rzucał ValueError przy każdej
+    próbie, aż przegląd kończył się `failed` z nieczytelnym kodem. Scalenie
+    ogradza go teraz jak usunięcie osoby.
+    """
+    from sqlalchemy import delete
+
+    from app.models.candidate_search_run import (
+        CandidateSearchResult,
+        CandidateSearchRun,
+    )
+    from app.models.client import Client
+
+    user_id, headers = await _user(app_client, UserRole.admin)
+    survivor = await _candidate()
+    duplicate = await _candidate()
+    active_id, finished_id = str(uuid.uuid4()), str(uuid.uuid4())
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"R8-N11-6-{uuid.uuid4().hex[:6]}")
+        db.add(client)
+        await db.flush()
+        for run_id, state in ((active_id, "running"), (finished_id, "complete")):
+            db.add(
+                CandidateSearchRun(
+                    id=run_id,
+                    created_by=user_id,
+                    client_id=client.id,
+                    state=state,
+                    request_fingerprint="m" * 64,
+                    request_context={},
+                    version_trace={},
+                    population_size=2,
+                    metrics={},
+                )
+            )
+        await db.flush()
+        for run_id in (active_id, finished_id):
+            for cid in (survivor, duplicate):
+                db.add(
+                    CandidateSearchResult(
+                        run_id=run_id,
+                        candidate_id=cid,
+                        candidate_version="v",
+                        state="pending",
+                    )
+                )
+        await db.commit()
+
+    try:
+        preview = await _preview(app_client, headers, survivor, duplicate)
+        assert preview.status_code == 200, preview.text
+        merged = await _merge(
+            app_client, headers, survivor, duplicate, preview.json()["fingerprint"]
+        )
+        assert merged.status_code == 200, merged.text
+
+        async with AsyncSessionLocal() as db:
+            active = await db.get(CandidateSearchRun, active_id)
+            finished = await db.get(CandidateSearchRun, finished_id)
+            assert (active.state, active.error_code) == ("failed", "candidate_erased")
+            assert finished.state == "complete"
+            left = (
+                await db.execute(
+                    select(
+                        CandidateSearchResult.run_id, CandidateSearchResult.candidate_id
+                    ).where(CandidateSearchResult.run_id.in_([active_id, finished_id]))
+                )
+            ).all()
+        assert sorted(tuple(r) for r in left) == sorted(
+            [(active_id, survivor), (finished_id, survivor)]
+        )
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CandidateSearchRun).where(
+                    CandidateSearchRun.id.in_([active_id, finished_id])
+                )
+            )
+            await db.commit()

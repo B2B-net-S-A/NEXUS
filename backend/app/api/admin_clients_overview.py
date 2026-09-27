@@ -181,10 +181,15 @@ async def kpi_by_dl(
         (
             margin_lookup_dl,
             incomplete_margin_clients,
-            _unpriced,
+            unpriced_clients,
         ) = await _margin_lookup_pln(db, margin_rows_dl, today)
         margin_total = sum(margin_lookup_dl.values(), start=Decimal("0"))
-        has_margin = bool(margin_lookup_dl) and not incomplete_margin_clients
+        # Runda 8 (R8-N13-4): brak obecnych kontraktów to policzone 0 (jak
+        # „Aktywne MRR" na profilu), a suma częściowa niesie liczbę klientów
+        # z kontraktem bez wyceny — dotąd wyglądała na pełną.
+        has_margin = not incomplete_margin_clients and (
+            bool(margin_lookup_dl) or not margin_rows_dl
+        )
 
         items.append(
             DlKpiRow(
@@ -193,9 +198,12 @@ async def kpi_by_dl(
                 dl_email=slot["email"],
                 managed_clients_count=len(client_ids),
                 head_clients_count=slot["head_count"],
-                total_revenue=(revenue_total or None) if revenue_complete else None,
-                active_revenue=(active_revenue or None) if revenue_complete else None,
+                # Zero to liczba, nie brak — `or None` robiło z DL-a bez
+                # zamówień „—", nie do odróżnienia od braku kursu.
+                total_revenue=revenue_total if revenue_complete else None,
+                active_revenue=active_revenue if revenue_complete else None,
                 monthly_margin_total=margin_total if has_margin else None,
+                monthly_margin_unpriced_clients=len(unpriced_clients),
                 active_orders_count=active_orders_count,
                 active_consultants=active_headcount.contractors,
                 active_contracts=active_headcount.active_contracts,

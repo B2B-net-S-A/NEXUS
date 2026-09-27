@@ -39,5 +39,25 @@ def upgrade() -> None:
     )
 
 
+# Runda 8 (R8-N15-2): wartości enumów zostają po downgrade, a kod sprzed tej
+# rewizji ich nie zna — ORM rzuca `LookupError` (500) na pytaniu z archiwum
+# (prep-kit, bank pytań) i na wpisie w dzienniku AI (raport w Ustawieniach).
+# Downgrade odmawia, zamiast kasować archiwum pytań i historię kosztów.
+REFUSE_WITH_NEW_ENUM_ROWS = """DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM interview_questions WHERE source::text = 'legacy_import'
+    ) THEN
+        RAISE EXCEPTION 'Downgrade 0383 odmawia: interview_questions ma pytania z archiwum (legacy_import). Cofnij import skryptem import_legacy_interview_questions.py --rollback albo zostaw tę rewizję.';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM ai_usage_log WHERE feature::text = 'interview_question_import'
+    ) THEN
+        RAISE EXCEPTION 'Downgrade 0383 odmawia: ai_usage_log ma wpisy interview_question_import, których kod sprzed tej rewizji nie odczyta.';
+    END IF;
+END $$"""
+
+
 def downgrade() -> None:
+    op.execute(REFUSE_WITH_NEW_ENUM_ROWS)
     op.execute("DELETE FROM ai_features WHERE feature = 'interview_question_import'")

@@ -56,7 +56,12 @@ logger = logging.getLogger(__name__)
 FEATURE = AIFeatureKey.prep_review
 PROMPT_VERSION = "prep-review-v1"
 NOTE_SOURCE = "teams_prep"
-MAX_TRANSCRIPT_CHARS = 60_000
+# Runda 8 (R8-N9-9): transkrypt dłuższy niż limit NIE jest ucinany — tematy
+# z końca długiego prepu wychodziłyby jako „nie było”. Ponad limitem ocena
+# jest niedostępna (``level=NULL``), notatka mówi to wprost. 200 tys. znaków
+# to ok. 4 godziny rozmowy (~55 tys. tokenów) — mieści się w kontekście
+# modelu i zapasu.
+MAX_TRANSCRIPT_CHARS = 200_000
 MAX_QUESTIONS = 20
 QUOTE_MIN_CHARS = 6
 _STATUSES = ("covered", "partial", "missing")
@@ -141,24 +146,29 @@ async def build_items(db: AsyncSession, job: Job) -> list[Item]:
         if link.question.id not in seen:
             seen.add(link.question.id)
             questions.append(link.question)
-    if job.client_id is not None:
-        bank = await db.scalars(
-            select(InterviewQuestion)
-            .where(
-                InterviewQuestion.client_id == job.client_id,
-                InterviewQuestion.source == InterviewQuestionSource.client_debrief,
-            )
-            .order_by(InterviewQuestion.created_at.desc(), InterviewQuestion.id.desc())
-            .limit(MAX_QUESTIONS)
-        )
-        for q in bank.all():
-            if q.id not in seen:
-                seen.add(q.id)
-                questions.append(q)
+    # Runda 8 (R8-N9-1): pytania klienta z TEGO SAMEGO źródła co prep-kit —
+    # najnowsze z debriefów (ten sam limit) i tylko pasujące do technologii
+    # roli (``_fits_job``). Dotąd ocena brała 20 najnowszych bez filtra roli,
+    # więc prep roli Power Platform u klienta pytającego o Javę wychodził
+    # „słaby” za pytania, których prep-kit prowadzącemu nie pokazał.
+    from app.services.question_suggestions import (
+        _fits_job,
+        _tier_client_debrief,
+        job_requirement_names,
+    )
+
+    requirement_names = job_requirement_names(job)
+    entries: list[tuple[int, str]] = [(q.id, q.text or "") for q in questions]
+    for suggested in await _tier_client_debrief(db, job):
+        qid = suggested.question_id
+        if qid is None or qid in seen or not _fits_job(suggested, requirement_names):
+            continue
+        seen.add(qid)
+        entries.append((qid, suggested.text or ""))
     items.extend(
-        Item(key=f"q:{q.id}", label=q.text.strip(), kind="question")
-        for q in questions[:MAX_QUESTIONS]
-        if (q.text or "").strip()
+        Item(key=f"q:{qid}", label=text.strip(), kind="question")
+        for qid, text in entries[:MAX_QUESTIONS]
+        if text.strip()
     )
     return items
 
@@ -195,23 +205,57 @@ def _verified(quote: Any, haystack: str) -> Optional[str]:
     return q[:300]
 
 
+def _status(value: Any) -> Optional[str]:
+    """Status modelu bez wielkości liter („Covered” = „covered”)."""
+    if not isinstance(value, str):
+        return None
+    status = value.strip().casefold()
+    return status if status in _STATUSES else None
+
+
+def _check_protocol(items: list[Item], given: dict[str, dict]) -> None:
+    """Odpowiedź, która nie trzyma się kluczy albo statusów, to awaria modelu.
+
+    Runda 8 (R8-N9-2): klucz „Java” zamiast „must:Java” albo pominięta grupa
+    zerowały wszystkie punkty i dawały „słaby” z dzwonkiem do organizatora
+    i HoR — a awaria modelu ma dawać ``unavailable`` (``level=NULL``). Model,
+    który pominie pojedynczy punkt, dalej dostaje za niego „nie było”; odmowa
+    dopiero, gdy nie pasuje co najmniej połowa kluczy albo statusów.
+    """
+    if not items:
+        return
+    matched = [given[i.key] for i in items if i.key in given]
+    if len(matched) * 2 < len(items):
+        raise ValueError("model output keys do not match the items")
+    valid = sum(1 for entry in matched if _status(entry.get("status")) is not None)
+    if valid * 2 < len(matched):
+        raise ValueError("model output statuses are not recognised")
+
+
 def parse_review(raw: str, *, items: list[Item], transcript: str) -> dict:
     """JSON modelu → ``{summary, items, own_projects}``; cytaty sprawdzone.
 
     Punkt, o którym model milczy, jest „nie było”. Status ``covered``/
     ``partial`` bez cytatu obecnego w transkrypcie też — z ``unverified``.
+    Odpowiedź niezgodna z protokołem (brak grupy, obce klucze albo statusy
+    dla większości punktów) rzuca ``ValueError`` — wołający zapisuje wtedy
+    ocenę jako niedostępną.
     """
     data = _json_object(raw)
     haystack = _norm(transcript)
     given: dict[str, dict] = {}
-    for group in ("must_haves", "client_questions"):
-        for entry in data.get(group) or []:
+    for group, kind in (("must_haves", "must"), ("client_questions", "question")):
+        entries = data.get(group)
+        if any(i.kind == kind for i in items) and not isinstance(entries, list):
+            raise ValueError(f"model output without {group}")
+        for entry in entries or []:
             if isinstance(entry, dict) and entry.get("key"):
                 given.setdefault(str(entry["key"]).strip(), entry)
+    _check_protocol(items, given)
     out: list[dict] = []
     for item in items:
         entry = given.get(item.key) or {}
-        status = entry.get("status") if entry.get("status") in _STATUSES else "missing"
+        status = _status(entry.get("status")) or "missing"
         quote = _verified(entry.get("quote"), haystack) if status != "missing" else None
         unverified = status != "missing" and quote is None
         out.append(
@@ -417,7 +461,8 @@ async def review_prep(db: AsyncSession, prep_meeting_id: int) -> Optional[PrepRe
         return None
 
     items = await build_items(db, job)
-    text = transcript.plain_text[:MAX_TRANSCRIPT_CHARS]
+    text = transcript.plain_text
+    too_long = len(text) > MAX_TRANSCRIPT_CHARS
     chain = model_chain_for(FEATURE)
     material = {
         "title": job.title or "",
@@ -437,7 +482,9 @@ async def review_prep(db: AsyncSession, prep_meeting_id: int) -> Optional[PrepRe
     )
     parsed: Optional[dict] = None
     model_used: Optional[str] = None
-    if api_key_configured(chain[0]):
+    if too_long:
+        logger.info("prep_review: transcript too long prep=%s", prep.id)
+    if api_key_configured(chain[0]) and not too_long:
         prompt = _PROMPT.format(
             title=job.title or "rekrutacja",
             prep_no=prep.prep_no,

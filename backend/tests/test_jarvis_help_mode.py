@@ -272,7 +272,8 @@ async def test_show_on_screen_accepts_only_anchors_of_the_current_screen(
         f"/api/jarvis/conversations/{events[0]['conversation_id']}", headers=headers
     )
     kinds = [i["kind"] for i in detail.json()["items"]]
-    assert "highlight" in kinds
+    # Odrzucona kotwica nie wraca po odświeżeniu jako martwy przycisk (R8-N1-8).
+    assert kinds.count("highlight") == 1
 
 
 # ── G: nowe narzędzia ───────────────────────────────────────────────────────

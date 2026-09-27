@@ -9,6 +9,7 @@ import {
   effectiveWorkingTitle,
   formFromIntake,
   highlightSegments,
+  loadTemplateSource,
   missingFor,
   missingHeadline,
   type IntakeForm,
@@ -438,5 +439,56 @@ describe("„Skopiuj jako szablon” nie kasuje pól spoza formularza (runda 6 a
   it("lata odczytane z maila wygrywają z szablonem", () => {
     const next = applyTemplate(formFromIntake(INTAKE), template);
     expect(next.seniorityYears).toBe(5);
+  });
+});
+
+
+describe("loadTemplateSource (R8-N12-1)", () => {
+  const legacyJob = {
+    id: 7,
+    title: "Stara rola",
+    // Surowy JSONB sprzed 09.2026 — `applyTemplate` go nie czyta.
+    champion_profile: {
+      project_context: { about: "Projekt płatności" },
+      sourcing: { keywords: "java kafka" },
+    },
+  };
+  const migrated = {
+    project: { about: "Projekt płatności", responsibilities: "" },
+    search: { keywords: "java kafka" },
+    client: { selling_points: "Stabilny projekt" },
+  };
+
+  it("bierze profil po migracji z GET …/champion-profile", async () => {
+    const get = async (url: string) =>
+      url === "/api/jobs/7/champion-profile"
+        ? { data: { job_id: 7, champion_profile: migrated } }
+        : { data: legacyJob };
+    const source = await loadTemplateSource(get, 7);
+    const next = applyTemplate({ ...EMPTY_INTAKE_FORM }, source);
+    expect(next.about).toBe("Projekt płatności");
+    expect(next.searchKeywords).toBe("java kafka");
+    expect(next.sellingPoints).toBe("Stabilny projekt");
+    // PUT z /jobs/new odsyła teraz skopiowaną treść zamiast pustych napisów.
+    const payload = buildChampionPayload(next) as {
+      project: { about: string };
+      search: { keywords: string };
+    };
+    expect(payload.project.about).toBe("Projekt płatności");
+    expect(payload.search.keywords).toBe("java kafka");
+  });
+
+  it("bez odczytu profilu zostaje surowa rekrutacja", async () => {
+    const get = async (url: string) => {
+      if (url.endsWith("/champion-profile")) throw new Error("403");
+      return { data: legacyJob };
+    };
+    const source = await loadTemplateSource(get, 7);
+    expect(source.champion_profile).toEqual(legacyJob.champion_profile);
+  });
+
+  it("stary kształt bez migracji zostawiał formularz pusty", () => {
+    const next = applyTemplate({ ...EMPTY_INTAKE_FORM }, legacyJob);
+    expect(next.about).toBe("");
   });
 });

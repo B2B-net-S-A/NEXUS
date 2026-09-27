@@ -76,8 +76,11 @@ def _pdfminer_text(path: str) -> Optional[str]:
 
         return _pdfminer_extract(path) or None
     except Exception as exc:  # noqa: BLE001
+        # Runda 8 (R8-V3-1): ścieżka to `order_mail/…/{sha12}-{nazwa_załącznika}`.
         logger.info(
-            "[order_document_text] pdfminer re-extraction failed on %s: %s", path, exc
+            "[order_document_text] pdfminer re-extraction failed on %s: %s",
+            safe_filename(path),
+            type(exc).__name__,
         )
         return None
 

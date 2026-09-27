@@ -493,18 +493,14 @@ def _cv_fields_windows_from_payload(payload: Any) -> list[dict[str, Any]]:
             after_id = max(0, int(window.get("after_id") or 0))
         except (TypeError, ValueError):
             after_id = 0
-        parsed: dict[str, Any] = {
-            "since": since.isoformat(),
-            "until": until.isoformat(),
-            "after_id": after_id,
-        }
-        try:
-            until_id = window.get("until_id")
-            if until_id is not None:
-                parsed["until_id"] = max(0, int(until_id))
-        except (TypeError, ValueError):
-            pass
-        out.append(parsed)
+        # `until_id` zapisany przed rundą 8 jest pomijany (R8-V2-1).
+        out.append(
+            {
+                "since": since.isoformat(),
+                "until": until.isoformat(),
+                "after_id": after_id,
+            }
+        )
     return out
 
 
@@ -520,15 +516,21 @@ def _cv_fields_id_caps(windows: list[dict[str, Any]]) -> list[Optional[int]]:
     wcześniejsze okno (zakresy czasu się teraz zagnieżdżają: `since` rośnie
     z oknem), okno bierze tylko id do najmniejszego kursora okien przed nim:
     wcześniejsze okno obejmuje (albo obejmie) wszystko powyżej swojego
-    kursora w szerszym zakresie czasu. Zapisana granica tylko się zaostrza.
+    kursora w szerszym zakresie czasu.
+
+    Runda 8 (R8-V2-1): granica jest liczona od nowa w każdym biegu z BIEŻĄCYCH
+    kursorów, nigdy z zapisanego `until_id`. Zapisana granica przeżywała
+    przesunięcie albo domknięcie okna, które ją wyznaczyło: pierwsze okno
+    listy dostawało wtedy górną granicę id (nowi kandydaci nie trafiali do
+    żadnego okna), a okno środkowe gubiło id między starym a nowym kursorem
+    wcześniejszego okna. Pierwsze okno jest zawsze bez granicy. Ceną jest
+    najwyżej jedna dodatkowa próba parsowania wiersza, którego parser nie
+    uzupełnił (uzupełnione odpadają w filtrze zakresu `backfill_cv_fields`).
     """
     caps: list[Optional[int]] = []
     floor: Optional[int] = None
     for window in windows:
-        cap = window.get("until_id")
-        if floor is not None:
-            cap = floor if cap is None else min(int(cap), floor)
-        caps.append(cap)
+        caps.append(floor)
         after = int(window.get("after_id") or 0)
         floor = after if floor is None else min(floor, after)
     return caps
@@ -620,11 +622,9 @@ async def _cv_fields_phase(files_since: Optional[datetime]) -> _CvFieldsPhaseRes
         stop_reason: Optional[str] = None
         caps = _cv_fields_id_caps(windows)
         for window, cap in zip(windows, caps):
-            if cap is not None:
-                if cap <= window["after_id"]:
-                    # Całe okno obejmują wcześniejsze okna (R7-V2-5).
-                    continue
-                window = {**window, "until_id": cap}
+            if cap is not None and cap <= window["after_id"]:
+                # Całe okno obejmują wcześniejsze okna (R7-V2-5).
+                continue
             if stop_reason is not None:
                 remaining.append(window)
                 continue

@@ -239,9 +239,12 @@ async def _jobs_closed_by_month(db: AsyncSession, span_start, span_end) -> dict:
 def _departures_by_month(contracts) -> tuple:
     """Zejścia i rezygnacje z WCZYTANYCH kontraktów, bez drugiego zapytania.
 
-    Data zejścia to `COALESCE(terminated_at, end_date)` — ta sama definicja,
+    Data zejścia to `COALESCE(end_date, terminated_at)` — ta sama definicja,
     której używa `contract_analytics.termination_analysis`; wypowiedzenie przed
-    czasem ma się liczyć w swoim miesiącu, nie w pierwotnym terminie.
+    czasem ma się liczyć w swoim miesiącu, nie w pierwotnym terminie
+    („Zakończ współpracę" skraca `end_date` do dnia zakończenia). Runda 8
+    (R8-N13-1): `end_date` idzie pierwsze, bo `terminated_at` przeżywa aneks
+    przedłużenia i niesie datę PIERWSZEGO zakończenia.
     """
     departures: dict = defaultdict(int)
     resignations: dict = defaultdict(int)
@@ -249,7 +252,7 @@ def _departures_by_month(contracts) -> tuple:
     for contract in contracts:
         if contract.status != ContractStatus.ended:
             continue
-        when = contract.terminated_at or contract.end_date
+        when = contract.end_date or contract.terminated_at
         if when is None:
             continue
         key = (when.year, when.month)

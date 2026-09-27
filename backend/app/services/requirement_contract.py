@@ -128,6 +128,26 @@ def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):
     return replace(inputs, exclude_unknown_skill_evidence=exclude)
 
 
+def _normalized_profile(value: dict) -> dict:
+    """Profil Championa w bieżącym kształcie (leniwa migracja schematu).
+
+    Runda 8 (R8-N12-5): zapisany JSONB bywa w kształcie sprzed 09.2026
+    (`project_context`, `sourcing`), a nowy profil przychodzi już po migracji —
+    porównanie surowej strony z zmigrowaną różniło się ZAWSZE, więc pierwszy
+    zapis samych notatek, historii klienta albo weryfikacji kasował przejrzany
+    kontrakt wymagań. Obie strony idą przez ten sam schemat; profil, którego
+    schemat nie przyjmuje, zostaje porównany surowo (jak dotąd).
+    """
+    from pydantic import ValidationError
+
+    from app.schemas.champion import ChampionProfile
+
+    try:
+        return ChampionProfile.model_validate(value).model_dump()
+    except ValidationError:
+        return value
+
+
 def invalidate_changed_requirements(job, updates: dict) -> None:
     """An edited source must not remain masked by previously reviewed criteria."""
     if "matching_requirements" in updates:
@@ -149,7 +169,7 @@ def invalidate_changed_requirements(job, updates: dict) -> None:
             # (`insights`, `client_history`) do not change role requirements.
             from app.services import champion_view
 
-            return champion_view.requirement_source(value)
+            return champion_view.requirement_source(_normalized_profile(value))
         return value
 
     if any(

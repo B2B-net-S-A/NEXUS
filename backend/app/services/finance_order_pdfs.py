@@ -529,8 +529,11 @@ def _zip_date(value: Optional[date]) -> str:
     return value.strftime("%d.%m.%Y") if value is not None else OPEN_ENDED_LABEL
 
 
+_ZIP_SUFFIX = re.compile(r"\.[a-z0-9]{1,5}")
+
+
 def zip_member_name(entry: OrderPdfEntry) -> str:
-    """``[Klient]_[NrZam]_[Nazwisko]_[Typ]_[DataOd]-[DataDo].pdf``.
+    """``[Klient]_[NrZam]_[Nazwisko]_[Typ]_[DataOd]-[DataDo].<rozszerzenie>``.
 
     Brakujący człon dostaje zaślepkę zamiast znikać — nazwa ma zawsze tyle
     samo członów, więc pliki sortują się i czytają tak samo.
@@ -543,7 +546,13 @@ def zip_member_name(entry: OrderPdfEntry) -> str:
         _ZIP_TYPE_LABELS[entry.entry_type],
         f"{_zip_date(entry.start)}-{_zip_date(entry.end)}",
     ]
-    return "_".join(parts) + ".pdf"
+    # Runda 8 (R8-N6-3): rozszerzenie z oryginału, jak w pobraniu
+    # pojedynczym — zamówienie w Wordzie z końcówką ``.pdf`` nie otwierało
+    # się w archiwum. Nazwa w ZIP-ie jest ASCII, więc dziwna końcówka = ``.pdf``.
+    suffix = PurePath((entry.original_name or "").replace("\\", "/")).suffix.lower()
+    if not _ZIP_SUFFIX.fullmatch(suffix):
+        suffix = ".pdf"
+    return "_".join(parts) + suffix
 
 
 def client_zip_name(client_name: str, year: int, month: int) -> str:

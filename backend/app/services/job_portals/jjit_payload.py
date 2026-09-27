@@ -185,7 +185,14 @@ def validate(board: str, job: dict[str, Any], options: dict[str, Any]) -> list[s
     if not options.get("city"):
         problems.append("Podaj miasto — portal wymaga co najmniej jednej lokalizacji.")
     must, _nice = skill_split(board, job)
-    if not must:
+    show = job.get("show") if isinstance(job.get("show"), dict) else {}
+    if not must and show.get("must", True) is False:
+        # Runda 8: ukryta sekcja nie trafia na portal, a portal wymaga must-have.
+        problems.append(
+            "Sekcja wymagań (must-have) jest ukryta w opisie publicznym, a portal "
+            "wymaga umiejętności — włącz ją na stronie kariery i zatwierdź opis."
+        )
+    elif not must:
         problems.append("Rekrutacja nie ma wymaganych umiejętności (must-have).")
     salary = options.get("salary")
     if salary:

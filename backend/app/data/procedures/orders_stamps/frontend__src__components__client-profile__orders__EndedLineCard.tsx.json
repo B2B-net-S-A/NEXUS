@@ -1,4 +1,4 @@
 {
-  "sha256": "d2200c5538e23ae361a9426565268465a75f5c01cd9f951b78b3c74b2fb68483",
+  "sha256": "148132816a978f3ef774a7ae23f18767da35ec3401d3f45eff8143771cf29cea",
   "source": "frontend/src/components/client-profile/orders/EndedLineCard.tsx"
 }

@@ -574,21 +574,17 @@ async def _record_failed_embed_intent(candidate_id: int, db: AsyncSession) -> No
     Piszemy w sesji WOŁAJĄCEGO (bez commita): intencja ma się utrwalić dokładnie
     wtedy, gdy utrwali się kandydat, którego dotyczy.
 
-    `worker_enabled()` jest warunkiem KONIECZNYM, nie ostrożnością: przy
-    włączonym workerze to ON woła `embed_candidate` (`_default_reindex`) i sam
-    prowadzi księgowość prób (`attempts` → `failed`/`dead`). Dopisanie stamtąd
-    nowego zdarzenia zamieniłoby każdą nieudaną próbę drenażu w kolejny wiersz
-    kolejki — podczas awarii providera kolejka rosłaby wykładniczo, a licznik
-    prób przestałby cokolwiek znaczyć.
+    O tym, czy zapisać intencję, decyduje WOŁAJĄCY (`record_intent` w
+    `embed_candidate`), nie `worker_enabled()`. Worker (`_default_reindex`) sam
+    prowadzi księgowość prób, więc przekazuje `record_intent=False` — dopisanie
+    stamtąd nowego zdarzenia zamieniłoby każdą nieudaną próbę drenażu w kolejny
+    wiersz kolejki. Runda 8 (R8-N11-1): do tej rundy funkcja pytała
+    `worker_enabled()`, więc przy workerze ON i outboxie OFF nieudany embed
+    INLINE (żądanie HTTP, nie worker) nie zostawiał nic — a reconciler pomija
+    kandydatów bez historii, więc taki kandydat nie dostawał wektora nigdy.
     """
-    from app.services.index_outbox_service import (
-        CANDIDATE,
-        record_bulk_reindex,
-        worker_enabled,
-    )
+    from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex
 
-    if worker_enabled():
-        return
     try:
         await record_bulk_reindex(db, CANDIDATE, [candidate_id])
     except Exception as exc:  # noqa: BLE001 — zapis intencji jest best-effort
@@ -599,14 +595,23 @@ async def _record_failed_embed_intent(candidate_id: int, db: AsyncSession) -> No
         )
 
 
-async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
+async def embed_candidate(
+    candidate_id: int, db: AsyncSession, *, record_intent: bool = True
+) -> bool:
     """
     Generate an embedding for a candidate and upsert it into Qdrant.
     Returns True on success, False on failure.
 
     Porażka providera zostawia dodatkowo trwałą intencję reindeksu
     (:func:`_record_failed_embed_intent`) — bez niej „nie udało się" znikało
-    razem z requestem.
+    razem z requestem. Worker outboxu przekazuje ``record_intent=False``
+    (sam liczy próby); każda ścieżka inline zostawia intencję.
+
+    Sesja należy do WOŁAJĄCEGO: stempel ``embedding_id`` jest tylko
+    ``flush``-owany. Runda 8 (R8-N11-5): ``commit`` w środku zatwierdzał całą
+    transakcję wołającego — zgłoszenie z formularza kariery wołało to w
+    savepoincie PRZED zapisem zgody i CV, więc błąd dalszego kroku zostawiał
+    kandydata bez zgody i bez CV. Commit robi wołający (``get_db``, worker).
     """
     from app.models.candidate import Candidate
 
@@ -624,7 +629,8 @@ async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
 
         embedding = await generate_embedding(text)
         if embedding is None:
-            await _record_failed_embed_intent(candidate_id, db)
+            if record_intent:
+                await _record_failed_embed_intent(candidate_id, db)
             return False
 
         # Upsert into Qdrant
@@ -658,14 +664,15 @@ async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
 
         # Update embedding_id on the candidate record
         candidate.embedding_id = str(candidate_id)
-        await db.commit()
+        await db.flush()
 
         logger.info(f"[Embed] Candidate {candidate_id} embedded and stored in Qdrant.")
         return True
 
     except Exception as e:
         logger.error(f"[Embed] Failed to embed candidate {candidate_id}: {e}")
-        await _record_failed_embed_intent(candidate_id, db)
+        if record_intent:
+            await _record_failed_embed_intent(candidate_id, db)
         return False
 
 
@@ -1251,7 +1258,7 @@ async def embed_job(job_id: int, db: AsyncSession) -> bool:
                             # więc `top_k=50` dawało ~9 wyników — sufit
                             # rekomendacji, którego nie dało się podnieść
                             # inaczej niż pobierając całą kolekcję.
-                            "status": getattr(job.status, "value", job.status) or "",
+                            "status": job_status_value(job.status),
                         },
                     )
                 ],
@@ -1306,6 +1313,91 @@ async def embed_job(job_id: int, db: AsyncSession) -> bool:
     except Exception as e:
         logger.error(f"[Embed] Failed to embed job {job_id}: {e}")
         return False
+
+
+def job_status_value(status) -> str:
+    """Status oferty w kształcie payloadu punktu (``embed_job``)."""
+    return getattr(status, "value", status) or ""
+
+
+async def job_payload_statuses(job_ids: Sequence[int]) -> Optional[dict[int, str]]:
+    """``status`` z payloadu punktów ofert. ``None`` = „nie wiem" (awaria).
+
+    Oferta bez punktu nie trafia do słownika. Bez wektorów — tylko payload.
+    """
+    ids = [int(j) for j in job_ids]
+    if not ids:
+        return {}
+
+    def _retrieve():
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        return client.retrieve(
+            collection_name=_jobs_collection(),
+            ids=ids,
+            with_payload=["status"],
+            with_vectors=False,
+        )
+
+    try:
+        points = await _run_qdrant(_retrieve)
+    except Exception as exc:  # noqa: BLE001 — odczyt pomocniczy, best-effort
+        logger.warning("[Embed] odczyt statusów ofert z Qdranta padł: %s", exc)
+        return None
+    return {int(p.id): str((p.payload or {}).get("status") or "") for p in points}
+
+
+async def sync_job_status_payloads(statuses: dict[int, str]) -> int:
+    """Zapisz ``status`` w payloadzie punktów ofert — bez Voyage'a.
+
+    Runda 8 (R8-N11-2): status trafiał do payloadu wyłącznie przy embedzie,
+    a zmiana statusu (PATCH, publikacja, zamknięcie, archiwum Traffita) nie
+    zmienia tekstu embeddingu. Rekrutacja otwarta ponownie z payloadem
+    „closed" znikała z filtra `search_jobs_semantic(statuses=…)`, a zamknięta
+    z payloadem „published" dalej zajmowała pulę. Best-effort: nigdy nie rzuca,
+    zwraca liczbę zaktualizowanych punktów. Punkt, którego nie ma, pomija
+    (wektor powstanie przy embedzie — już z właściwym statusem).
+    """
+    by_status: dict[str, list[int]] = {}
+    for job_id, status in statuses.items():
+        by_status.setdefault(status, []).append(int(job_id))
+    if not by_status:
+        return 0
+
+    def _set_one(status: str, ids: list[int]):
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        existing = [
+            int(p.id)
+            for p in client.retrieve(
+                collection_name=_jobs_collection(),
+                ids=ids,
+                with_payload=False,
+                with_vectors=False,
+            )
+        ]
+        if existing:
+            client.set_payload(
+                collection_name=_jobs_collection(),
+                payload={"status": status},
+                points=existing,
+            )
+        return len(existing)
+
+    updated = 0
+    for status, ids in by_status.items():
+        try:
+            updated += await _run_qdrant(lambda s=status, i=ids: _set_one(s, i))
+        except Exception as exc:  # noqa: BLE001 — payload dogoni reconciler
+            logger.warning(
+                "[Embed] zapis statusu %s w payloadzie %s ofert padł: %s",
+                status,
+                len(ids),
+                exc,
+            )
+    return updated
 
 
 async def search_jobs_semantic(

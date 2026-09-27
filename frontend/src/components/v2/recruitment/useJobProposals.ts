@@ -92,13 +92,24 @@ interface AddGroup {
  * propozycji (z `run_id` przeglądu, który tę osobę zaproponował, jeśli serwer
  * go podał) → podobne projekty → rekomendacje. Backend i tak przypina wynik do
  * przeglądu tylko wtedy, gdy ten naprawdę pokazał kandydata.
+ *
+ * `autoRunId` — adoptowany nocny przegląd automatyczny (`latest-run`,
+ * `origin: "auto"`). Jego wiersze idą jako `proposal_inbox`: backend przypina
+ * dodanie do cudzego (automatycznego) przeglądu tylko dla źródeł, które takie
+ * przeglądy pokazują. Jako `full_search` członek zespołu niebędący autorem
+ * tracił `run_id` (runda 8, R8-N11-7).
  */
-export function groupAddsByOrigin(entries: readonly ProposalEntry[]): AddGroup[] {
+export function groupAddsByOrigin(
+  entries: readonly ProposalEntry[],
+  autoRunId: string | null = null,
+): AddGroup[] {
   const groups = new Map<string, AddGroup>();
   for (const { row, detail } of entries) {
     const origins = detail.origins;
     const group: Omit<AddGroup, "ids"> =
-      origins.includes("run") && row.runId
+      origins.includes("run") && row.runId && row.runId === autoRunId
+        ? { source: "proposal_inbox", runId: row.runId }
+        : origins.includes("run") && row.runId
         ? { source: "full_search", runId: row.runId }
         : origins.includes("inbox")
           ? { source: "proposal_inbox", runId: row.runId }
@@ -215,6 +226,7 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
   // z serwera (własny albo nocny automat — tylko takie zwraca `latest-run`).
   const { adopt: adoptRun, runId: currentRunId, starting: runStarting } = fullSearch;
   const latestRunId = latestRun.data?.run?.run_id ?? null;
+  const autoRunId = latestRun.data?.run?.origin === "auto" ? latestRunId : null;
   useEffect(() => {
     if (latestRunId && currentRunId === null && !runStarting) adoptRun(latestRunId);
   }, [latestRunId, currentRunId, runStarting, adoptRun]);
@@ -333,7 +345,7 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       if (readOnly) throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
       const picked = candidateIds.flatMap((id) => entryById.get(id) ?? []);
       const parts: BulkProposalsResponse[] = [];
-      for (const group of groupAddsByOrigin(picked)) {
+      for (const group of groupAddsByOrigin(picked, autoRunId)) {
         const body: BulkProposalsRequest = { candidate_ids: group.ids };
         if (opts.stageDefId != null) body.initial_stage_def_id = opts.stageDefId;
         else if (opts.initialStageLegacy) body.initial_stage_legacy = opts.initialStageLegacy;

@@ -805,13 +805,26 @@ def client_safe_screening(screening_answers: Any) -> Optional[dict]:
     pusta odpowiedź z dopiskiem „pominięte" czytałaby się u klienta jak brak
     kompetencji. Wejście to surowy JSONB z `CandidateStage.screening_answers`
     (także sprzed 23.09.2026); brak danych = ``None``.
+
+    Runda 8 (R8-N12-4): BIAŁA lista kluczy (``_CLIENT_SCREENING_KEYS``,
+    ``_CLIENT_ANSWER_KEYS``), nie czarna. Czarna przepuściła
+    ``experience_checks`` (status „nie potwierdził” + notatka rekrutera,
+    23.09.2026) i ``answered_by`` do JSON-u publicznej karty Championa — każde
+    nowe pole arkusza wychodziłoby do klienta, dopóki ktoś go nie dopisze tutaj.
     """
     if not isinstance(screening_answers, dict) or not screening_answers:
         return None
-    safe = {k: v for k, v in screening_answers.items() if k != "internal_note"}
+    safe = {k: v for k, v in screening_answers.items() if k in _CLIENT_SCREENING_KEYS}
     answers = screening_answers.get("answers")
     if isinstance(answers, list):
         safe["answers"] = [
-            a for a in answers if isinstance(a, dict) and not a.get("skipped")
+            {k: v for k, v in a.items() if k in _CLIENT_ANSWER_KEYS}
+            for a in answers
+            if isinstance(a, dict) and not a.get("skipped")
         ]
     return safe
+
+
+# Pola arkusza screeningu, które widzi klient (karta Championa) i generator CV.
+_CLIENT_SCREENING_KEYS = frozenset({"answers", "overall_fit", "notes"})
+_CLIENT_ANSWER_KEYS = frozenset({"question_id", "response", "deal_breaker_hit"})

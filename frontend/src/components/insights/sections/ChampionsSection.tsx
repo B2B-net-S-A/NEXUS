@@ -488,7 +488,7 @@ function LeagueCard({
                     <strong className="text-foreground">
                       {data.points_formula.placement} pkt
                     </strong>{" "}
-                    · Interview{" "}
+                    · Rozmowa u klienta{" "}
                     <strong className="text-foreground">
                       {data.points_formula.interview} pkt
                     </strong>{" "}

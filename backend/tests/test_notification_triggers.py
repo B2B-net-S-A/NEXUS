@@ -321,7 +321,11 @@ async def test_client_feedback_link_opens_the_candidate_on_the_board(monkeypatch
 
     now = datetime(2026, 9, 17, 14, 30, tzinfo=timezone.utc)
     event = SimpleNamespace(
-        id=9, candidate_id=77, job_id=12, end_time=now - timedelta(hours=2)
+        id=9,
+        candidate_id=77,
+        job_id=12,
+        start_time=now - timedelta(hours=3),
+        end_time=now - timedelta(hours=2),
     )
 
     class _Rows:
@@ -463,3 +467,66 @@ async def test_stage_stuck_reminder_for_inactive_recruiter_goes_to_the_dl(
     monkeypatch.setattr(nt, "emit", emit)
     assert await nt.check_stage_stuck_7d(_Db(), now, {(77, 12): stage}) == 1
     assert sent == [44]
+
+
+# ── Runda 8 (CAL2): przypomnienie po rozmowie u klienta gasi tylko debrief ───
+
+
+class _FeedbackRows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return list(self._rows)
+
+
+class _FeedbackDb:
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def execute(self, statement):
+        return _FeedbackRows(self._rows)
+
+
+@pytest.mark.asyncio
+async def test_client_interview_reminder_needs_a_complete_debrief():
+    from app.models.calendar_event import CalendarEvent, EventType
+    from app.models.interview_feedback import FeedbackSource
+
+    start = datetime(2026, 9, 20, 10, 0, tzinfo=timezone.utc)
+    ev = CalendarEvent(id=5, event_type=EventType.client_interview, start_time=start)
+    after = start + timedelta(hours=2)
+
+    # Ogólny feedback bez pytań klienta NIE gasi przypomnienia.
+    assert not await nt._post_interview_feedback_done(
+        _FeedbackDb([(None, None, after)]), ev, FeedbackSource.candidate_side
+    )
+    # Debrief zapisany PRZED rozmową też nie.
+    assert not await nt._post_interview_feedback_done(
+        _FeedbackDb([("Jak testujesz?", None, start - timedelta(days=1))]),
+        ev,
+        FeedbackSource.candidate_side,
+    )
+    # Pytania klienta albo jawne „nie pytał” po rozmowie — gasi.
+    assert await nt._post_interview_feedback_done(
+        _FeedbackDb([("Jak testujesz?", None, after)]),
+        ev,
+        FeedbackSource.candidate_side,
+    )
+    assert await nt._post_interview_feedback_done(
+        _FeedbackDb([(None, True, after.replace(tzinfo=None))]),
+        ev,
+        FeedbackSource.candidate_side,
+    )
+
+
+def test_all_post_interview_reminders_share_the_debrief_rule() -> None:
+    """Runda 9 (R9-V2-3): T+15, T+45 i T+2h gasi ta sama reguła."""
+    for fn in (
+        nt.check_post_interview_t15,
+        nt.check_post_interview_t45,
+        nt.check_post_interview_t2h_escalation,
+    ):
+        src = inspect.getsource(fn)
+        assert "_post_interview_feedback_done(" in src
+        assert "_feedback_exists(" not in src

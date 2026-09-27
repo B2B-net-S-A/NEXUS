@@ -45,6 +45,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import re
 import sys
 from pathlib import Path
 
@@ -106,6 +107,37 @@ def _name_ref(name: str | None) -> str:
         return ""
     folded = " ".join(name.split()).casefold()
     return "sha:" + hashlib.sha256(folded.encode("utf-8")).hexdigest()[:8]
+
+
+# Forma prawna spółki kapitałowej / oddziału / banku = nazwa osoby prawnej,
+# nie przedsiębiorcy-osoby. Spółki osobowe (s.c., sp.j., sp.k.) celowo poza
+# listą — ich nazwa niesie nazwisko wspólnika.
+_LEGAL_ENTITY_RE = re.compile(
+    r"(?:\bs\.\s?a\.?(?![a-z])|\bsp\.\s?z\s?o\.\s?o\b|\bspółka akcyjna\b"
+    r"|\bograniczoną odpowiedzialnością\b|\bgmbh\b|\bltd\b|\blimited\b|\binc\b"
+    r"|\bllc\b|\bag\b|\bse\b|\bb\.v\.|\bn\.v\.|\bplc\b|\bs\.r\.l\b"
+    r"|\bsas\b|\boddział\b|\bbank\b|\bbanku\b)",
+    re.IGNORECASE,
+)
+
+
+def _client_label(name: str | None) -> str:
+    """Nazwa klienta do publicznego logu Actions (runda 8, R8-V3-8).
+
+    Klient-JDG („Jan Kowalski Consulting”) to imię i nazwisko. Nazwa z formą
+    prawną spółki kapitałowej / banku idzie w całości (tym narzędziem
+    rozróżnia się podobne rekordy firm); każda inna — pierwszy wyraz, inicjały
+    reszty i skrót (``_name_ref``), więc dwa rekordy tej samej nazwy nadal
+    widać jako równe.
+    """
+    if not name:
+        return ""
+    if _LEGAL_ENTITY_RE.search(name):
+        return name
+    words = name.split()
+    initials = " ".join(f"{w[0]}." for w in words[1:] if w[:1].isalnum())
+    head = words[0] if words else ""
+    return " ".join(p for p in (head, initials, f"[{_name_ref(name)}]") if p)
 
 
 async def print_links(client_ids: list[int]) -> None:
@@ -208,7 +240,10 @@ async def main() -> None:
     # w logu Actions nie odróżnia „nic nie pasuje" od „skrypt się nie wykonał".
     print(f"=== clients matching {args.like!r}: {len(rows)} ===")
     for cid, name, display, nip in rows:
-        print(f"{cid}\t{name}\tdisplay={display}\tnip={_nip_tail(nip)}")
+        print(
+            f"{cid}\t{_client_label(name)}\tdisplay={_client_label(display)}"
+            f"\tnip={_nip_tail(nip)}"
+        )
     if args.with_links:
         await print_links([r[0] for r in rows])
 

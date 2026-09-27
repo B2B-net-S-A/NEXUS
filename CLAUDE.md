@@ -834,6 +834,14 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
     w „Zakończonych”. Reguły: `lib/b2b-generator-register.ts`.
   - Stawka zaokrąglana do groszy w schemacie (jedna reguła dla kwoty i kwoty
     słownie); nazwy Partnera/Klienta ≤ 255 znaków (422, nie 500).
+- **Runda 8 audytu (26.09.2026):** podpis i ruch na „Zatrudniony” wiążą
+  ŻYWY kontrakt tej osoby u klienta także bez rekrutacji (tożsamość jak
+  `_assert_no_duplicate_contract`; ten sam e-mail na innym rekordzie = 409
+  „scal duplikaty”), niepodpisana „Zakończona”/„Bez projektu” nie przyjmuje
+  podpisu (409), przywrócić z zawieszenia na projekt może tylko ktoś, kto
+  widzi stawki umowy, numer porządkowy jest zajęty w KAŻDYM roku (409
+  z kodem `contract_number_taken` — tylko przy nim front podmienia numer),
+  a umowy z podpisanym dokumentem pochodnym nie da się usunąć.
 - **Dokumenty pochodne (0362, zakładka „Dokumenty”, `?tab=documents`)** —
   aneksy (stawka, data startu, dane firmy JDG/spółka, oddelegowanie, zlecenie),
   porozumienie o rozwiązaniu (B2B i zlecenie, opcja zwolnienia z zakazu
@@ -6290,7 +6298,8 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   - **Rezygnacje to PODZBIÓR zejść** (`consultant_resigned`, `better_offer`,
     `personal_reasons`); `poached_by_client` świadomie poza — to klient zabiera
     człowieka, inne zjawisko i inny wniosek. Data zejścia to
-    `COALESCE(terminated_at, end_date)`, jak w `contract_analytics`.
+    `COALESCE(end_date, terminated_at)` (od rundy 8 — pierwsze wypowiedzenie
+    przeżywa aneks przedłużenia, więc nie może wygrywać z datą końca umowy).
   - **Marża na godzinę wyklucza ryczałt z LICZNIKA i MIANOWNIKA naraz.**
     Kwota miesięczna nie niesie godzin, a podstawienie 160 zamieniłoby
     wskaźnik w marżę podzieloną przez wymyśloną stałą.
@@ -7303,8 +7312,89 @@ Raport: `docs/audits/2026-09-25/runda-7.md`.
   prywatne spotkanie z Outlooka traci `candidate_id`; publiczny POST
   potwierdzenia rozmowy usunięty.
 - **Import rejestru z Excela:** arkusz „Bez działalności” stawia
-  `needs_business_data_annex` także na umowie z NEXUSA (tylko to pole; import go
-  nie zdejmuje).
+  `needs_business_data_annex` także na umowie z NEXUSA (tylko to pole). Od rundy 8
+  import zdejmuje flagę, którą SAM postawił, gdy arkusz mówi „zrobione” albo osoby
+  już w nim nie ma (migawka w przebiegu — cofnięcie przebiegu przywraca flagę).
+
+### Runda 8 (27.09.2026, po PR #1864)
+
+Raport: `docs/audits/2026-09-25/runda-8.md`.
+
+- **Dzień zakończenia umowy = `end_date` → `terminated_at` → dziś** (archiwum,
+  LTV, analiza odejść, rok do roku Rady, kreator metryk, kampanie). Wypowiedzenie
+  trwa tylko przy `end_date <= terminated_at`; samo przeżyte `terminated_at` po
+  aneksie przedłużenia już nic nie znaczy.
+- **Kontraktu usuniętego ALBO scalonego klienta nie da się wznowić** żadną drogą
+  (`contract_lifecycle.assert_contract_client_not_deleted` w `reopen_contract`,
+  PATCH, aneks, `/bulk-extend` → `skipped_client_deleted`, „Cofnij zakończenie”,
+  „Powrót po przerwie”, `confirm-fully-signed`): 422 `client_deleted` /
+  `client_merged`.
+- **Zamówienia MD:** druga zaplanowana zamiana tej samej osoby = 409; nieudane
+  nocne przeniesienie anuluje zastępstwo (`transfer_failed`); usunięcie osoby
+  z zaplanowanym zastępstwem = 409; „Przywróć anulowane” nie wskrzesza linii
+  z umową zakończoną/unieważnioną; linia natychmiastowego przejęcia ma puste pola
+  MD do przeniesienia (bez chwilowego zamknięcia zamówienia).
+- **Import MD, klient kosztowy:** numer z samych cyfr (≥ 7) w KSZTAŁCIE zamówień
+  tego klienta (długość + 2 pierwsze cyfry) wiąże wiersz także, gdy takiego
+  zamówienia nie ma — „Brak pasującego zamówienia”, nie zejście po nazwisku.
+- **Liga Mistrzów: punkty za rozmowę liczy `client_interview`** (decyzja Artura
+  27.09.2026, od razu także w bieżącym kwartale); etap QC CV (kod `interview`)
+  punktów nie daje. `_rank_recruiters_by_points` jest jedyną funkcją liczącą Ligę
+  (ekran, zamrożenie, wykluczenie lidera z wyścigów miesięcznych); klucz
+  `league_points_interview` i migawka kwartału bez zmian.
+- **„Interview” = `client_interview` także w KPI Rady** (`insights_board`
+  `kpis.interview`, CSV „Rozmowy u klienta”), wykresie rocznym, lejku i tabeli
+  zespołu; etap `interview` to QC CV.
+- **Przydział requestów:** prowadzący wpisany przez automat wraca po powrocie
+  requestu do puli jako wiersz `auto` (planer zwolni go za urlop) — chyba że
+  automat go już zdjął (powód z `AUTO_RELEASE_REASONS`), wtedy prowadzącego wpisał
+  człowiek i wraca jako `owner`. Tryb `off` zwalnia przypisania spoza puli, martwe
+  konta i propozycje (powód `mode_off`). Prowadzący z nieaktywnym kontem = brak.
+- **QC CV i Cpro:** plik „…B2B…” wybiera JEDNA reguła (`dz_review.pick_document_cv`:
+  nazwa klienta → najnowszy) dla QC i kolejki Cpro; wymóg „do Cpro wysyła osoba od
+  Cpro” działa także przy wyłączonym QC; zgoda RODO w QC = obraz na kopii etapu;
+  ponowne „Biorę” nie przedłuża własnej blokady (409), blokada nieaktywnego konta
+  nikogo nie wiąże.
+- **Kalendarz:** usunięcie/przesunięcie blokady rozmowy u klienta w Outlooku nie
+  kasuje ani nie przesuwa rozmowy z NEXUSA (kopia zostaje odpięta); przełożenie na
+  przyszły termin zeruje `reminder_sent_at`; ocena prepu sprawdza tylko pytania,
+  które pokazuje prep-kit, a popsuta odpowiedź modelu i transkrypt > 200 tys.
+  znaków = `unavailable`, nigdy „słaby”.
+- **Indeks:** ścieżki inline zawsze zostawiają intencję naprawy po nieudanym
+  embedzie; status oferty w payloadzie Qdranta aktualizuje tani `set_payload` przy
+  zmianie statusu (bez `embedding_id` jako bramki — punkt, którego nie ma, jest
+  pomijany); reconciler wznawia kandydata z intencją `dead` bez `done` RAZ
+  (dokładnie jedna `dead`), nie w każdym przebiegu.
+- **Alerty zapisanych wyszukiwań:** każdy zapis we własnej sesji; sufit 1000 stron;
+  dziennik pisany i czytany paczkami po 5000 (limit argumentów asyncpg to 32 767).
+- **Jarvis:** czat i potwierdzenie oddają połączenie do puli przed turą; karta
+  akcji pokazuje wszystko, co zapisze „Zrób to” (czas w Europe/Warsaw, czas bez
+  strefy odrzucany); akcja nie wisi w `confirmed` (po 5 min „nie wiadomo”);
+  blokady tur zdejmowane przy starcie procesu.
+- **Logi i M365:** nazwy plików i ścieżki w logach tylko przez `safe_filename`;
+  wyszukiwanie e-maila (CV, podpis Outlooka) w czasie liniowym; stary prywatny
+  wpis z Outlooka traci `candidate_id` (faza `repair-m365-private-event-candidate`);
+  „odwołane” follow-upu zapisuje się dopiero po udanym odwołaniu w Teams.
+- **Sekcja wyłączona przełącznikiem `show` znika z danych publicznych**
+  (decyzja Artura 27.09.2026): `public_job_payload` (domyślnie `respect_show=True`)
+  zwraca puste must/nice i zerowe parametry (poza stałym `contract`) — tak dostają
+  je `/r/<slug>`, grafika OG, meta, lista `/p/<slug>` (`visible_params`), podgląd
+  w edytorze i portale. Pełną projekcję (`respect_show=False`) czytają wyłącznie
+  kontrola treści i migawka zatwierdzenia. Portal przy ukrytych wymaganiach = 422
+  `listing_invalid`.
+- **Strona kariery i portale:** kontrola publikacji sprawdza także sekcje
+  wyłączone przełącznikiem; slug linku rekrutacji bez nazwy klienta i nazwisk
+  (nieczysty dostaje nowy adres przy zatwierdzeniu); zmiana klienta po
+  zatwierdzeniu = szkic; wycofanie w trakcie dzierżawy nie zeruje
+  `next_attempt_at`; dwa równoległe „Publikuj” = 409.
+- **Migracje 0381/0383/0388:** downgrade przy istniejących danych kończy się
+  wyjątkiem zamiast je kasować.
+- **Rozmowa u klienta ma dwie rundy naraz** (decyzja Artura 27.09.2026):
+  zaległy debrief rundy odbytej (`pick_current_round`) i prepy do następnej
+  (`pick_prep_round`, `PairSnapshot.for_preps()`) przypominają się równolegle.
+  „Runda zamknięta” liczy JEDNA funkcja `debrief_gate.debrief_closes_round`
+  (bramka, ekran, plakietka, kolejka prepów i przypomnienia 45 min / 2 h po
+  rozmowie) — sam feedback bez pytań klienta rundy nie zamyka.
 
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 
@@ -7641,6 +7731,13 @@ dokumenty i umowa → edycja (program do 10 dni roboczych). Decyzje Artura
   Scalanie kandydatów: odrzucenie wygrywa z nowszym zgłoszeniem. Lista
   zgłoszeń: najpierw osoby w toku, najnowsi pierwsi; limit ucina najstarszych
   zamkniętych, a ekran mówi „Pokazano N z M”.
+- **Runda 8 (26.09.2026):** „skip” pamięta wersję reguł i kryteria programu
+  (`screening.criteria`, `SCREENING_VERSION` 3); zmiana limitu lat albo wymogu
+  polskiego i zmiana reguł oddają odłożonych do ponownego sortowania
+  (`reset_stale_skips`), a „Zatwierdź” odmawia starego werdyktu. Studia bez
+  roku końca + staż ponad limit = „do decyzji”; „present” od Luny wymaga
+  „obecnie” w cytacie albo tuż za nim. Z „W akademii” da się „Zrezygnował sam”
+  (decyzja Artura 26.09.2026); odejście przed spotkaniem zwalnia termin.
 - **Dokumenty** (`POST /api/academy/applications/{id}/documents`, ZIP: umowa,
   zał. 1 harmonogram, oświadczenie, regulamin, protokół Manuala) od etapu
   „zaliczył zadanie”. **PESEL i adres idą wyłącznie do pliku** — nie do bazy

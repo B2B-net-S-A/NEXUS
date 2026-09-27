@@ -96,7 +96,7 @@ const COVERAGE = {
 const STAGES = [
   stage("verified", "Zweryfikowany", 828),
   stage("cv_sent", "CV wysłane", 490),
-  stage("interview", "Rozmowa", 100),
+  stage("client_interview", "Rozmowa u klienta", 100),
   stage("hired", "Zatrudniony", 21),
 ];
 
@@ -110,14 +110,14 @@ const CONVERSIONS = [
   },
   {
     key: "cv_sent_to_interview",
-    label: "Rekomendacje → Rozmowy",
+    label: "Rekomendacje → Rozmowy u klienta",
     numerator: 100,
     denominator: 490,
     pct: 20.4,
   },
   {
     key: "interview_to_hired",
-    label: "Rozmowy → Zatrudnienia",
+    label: "Rozmowy u klienta → Zatrudnienia",
     numerator: 21,
     denominator: 100,
     pct: 21.0,
@@ -158,7 +158,9 @@ describe("InsightsKpiTiles", () => {
     expect(await screen.findByText("828")).toBeInTheDocument();
     expect(within(tile("Weryfikacje")).getByText("828")).toBeInTheDocument();
     expect(within(tile("Rekomendacje")).getByText("490")).toBeInTheDocument();
-    expect(within(tile("Interviews")).getByText("100")).toBeInTheDocument();
+    expect(
+      within(tile("Rozmowy u klienta")).getByText("100"),
+    ).toBeInTheDocument();
     expect(within(tile("Placements")).getByText("21")).toBeInTheDocument();
 
     // Podpis mówi, co ta liczba zlicza — nagłówek („Rekomendacje") jest
@@ -198,11 +200,15 @@ describe("InsightsKpiTiles", () => {
 
   it("etap, którego serwer nie zwrócił, to „—”, a nie podstawione zero", async () => {
     respond(
-      funnelPayload({ stages: STAGES.filter((s) => s.stage !== "interview") }),
+      funnelPayload({
+        stages: STAGES.filter((s) => s.stage !== "client_interview"),
+      }),
     );
     renderSection(<InsightsKpiTiles period={PERIOD} />);
 
-    const interviews = await screen.findByRole("group", { name: "Interviews" });
+    const interviews = await screen.findByRole("group", {
+      name: "Rozmowy u klienta",
+    });
     expect(within(interviews).getByText("—")).toBeInTheDocument();
     expect(within(interviews).queryByText("0")).not.toBeInTheDocument();
     expect(
@@ -317,9 +323,18 @@ describe("RecruitmentConversions", () => {
     );
 
     const fromCvSent = screen.getByRole("group", {
-      name: "Rekomendacje → Rozmowy",
+      name: "Rekomendacje → Rozmowy u klienta",
     });
     expect(fromCvSent.className).toContain(FUNNEL_STAGE_ACCENT.cv_sent.border);
+
+    // R8-V2-2: mianownikiem „Rozmowy u klienta → Zatrudnienia” są rozmowy
+    // u klienta, nie etap QC CV (kod `interview`).
+    const fromInterview = screen.getByRole("group", {
+      name: "Rozmowy u klienta → Zatrudnienia",
+    });
+    expect(fromInterview.className).toContain(
+      FUNNEL_STAGE_ACCENT.client_interview.border,
+    );
   });
 
   it("500 renderuje awarię, nie „brak konwersji”", async () => {

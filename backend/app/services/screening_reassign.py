@@ -303,7 +303,9 @@ async def _job_scoped_notes(
     rows = (
         await db.execute(
             text(
-                "SELECT id, updated_at, created_at::date AS d, content FROM notes "
+                "SELECT id, updated_at, "
+                "(created_at AT TIME ZONE 'Europe/Warsaw')::date AS d, "
+                "content FROM notes "
                 "WHERE candidate_id = :c AND job_id = ANY(:jobs) "
                 "ORDER BY created_at DESC LIMIT :lim"
             ),

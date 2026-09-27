@@ -73,6 +73,10 @@ class StudiesFacts:
     still_studying: bool
     found_any: bool  # czy w ogóle była jakakolwiek pozycja edukacji
     quote: Optional[str] = None
+    # Runda 8 (R8-N2-3): studia wyższe bez ustalonego roku ukończenia. Praca
+    # w trakcie studiów się nie liczy, więc nie wiemy, od kiedy liczyć staż —
+    # ponad limit to „do decyzji”, nie „skip”.
+    end_unknown: bool = False
 
 
 @dataclass(frozen=True)
@@ -149,11 +153,11 @@ def studies_from_profile(education: Any, today: date) -> StudiesFacts:
     entries = _as_list(education)
     completed: list[int] = []
     studying = False
+    end_unknown = False
     for entry in entries:
         if not is_higher_education(entry):
             continue
         end_year = _int_year(entry.get("end_year")) or _int_year(entry.get("year"))
-        start_year = _int_year(entry.get("start_year"))
         ongoing_text = " ".join(
             str(entry.get(k) or "") for k in ("end", "end_year", "year", "status")
         )
@@ -163,12 +167,16 @@ def studies_from_profile(education: Any, today: date) -> StudiesFacts:
             completed.append(end_year)
         elif _ONGOING.search(ongoing_text):
             studying = True
-        elif start_year is not None and start_year >= today.year - 5:
-            studying = True
+        else:
+            # Runda 8 (R8-N2-3): brak roku końca to NIE „bez studiów” ani
+            # „studiuje” (dawniej zgadywane ze startu z ostatnich 5 lat) —
+            # parser mógł go zgubić, a osoba mogła już skończyć.
+            end_unknown = True
     return StudiesFacts(
         end_year=max(completed) if completed else None,
         still_studying=studying,
         found_any=bool(entries),
+        end_unknown=end_unknown,
     )
 
 
@@ -296,15 +304,59 @@ def quote_says_ongoing(quote: Any) -> bool:
     return bool(_ONGOING.search(quote) or _ONGOING_QUOTE.search(_fold(quote)))
 
 
+# Słowo trwania musi stać zaraz za cytatem: tylko separatory („ – ”, „, ”),
+# bez cyfr i kropki — inaczej „obecnie” z NASTĘPNEGO stanowiska potwierdzałoby
+# poprzednie („2012 – 2014 Kasjer. 2025-03 – obecnie …”).
+_ONGOING_TAIL = re.compile(
+    r"^[\s\-\u2013\u2014:,(]{0,6}"
+    r"(?:obecnie|present|current|ongoing|now|nadal|still|teraz|do dzis|do chwili obecnej|to date)\b"
+)
+WORK_QUOTE_MAX = 200
+
+
+def ongoing_after_quote(quote: Any, text: str) -> bool:
+    """Czy tuż za cytatem w CV stoi słowo trwania („… 2023-09 – obecnie”)."""
+    if not isinstance(quote, str) or not quote.strip():
+        return False
+    folded_text = _fold(text)
+    folded_quote = _fold(quote)
+    start = 0
+    while True:
+        idx = folded_text.find(folded_quote, start)
+        if idx < 0:
+            return False
+        tail = folded_text[idx + len(folded_quote) : idx + len(folded_quote) + 40]
+        if _ONGOING_TAIL.search(tail):
+            return True
+        start = idx + 1
+
+
+# Poziom przy polskim, który wyklucza „podstawowy” (R8-N2-5).
+_POLISH_HIGH_LEVEL = re.compile(
+    r"ojczyst|native|natyw|rodzim|mother tongue|bieg|fluent|proficien|\bc[12]\b"
+)
+_LANGUAGE_SEPARATORS = re.compile(r"[,;|/\n]")
+
+
 def quote_proves_polish(quote: Any, level: str) -> bool:
-    """Cytat o polskim musi mówić o języku polskim; „podstawowy” — także o poziomie."""
+    """Cytat o polskim musi mówić o języku polskim; „podstawowy” — także o poziomie.
+
+    Poziom musi stać przy polskim (ten sam fragment listy języków), a nie
+    gdziekolwiek w cytacie: „polski — ojczysty, angielski B2” nie dowodzi
+    polskiego na poziomie B2 (R8-N2-5).
+    """
     if not isinstance(quote, str):
         return False
     folded = _fold(quote)
     if not _POLISH_WORD.search(folded):
         return False
     if level == POLISH_BASIC:
-        return _POLISH_BASIC_LEVEL.search(folded) is not None
+        return any(
+            _POLISH_BASIC_LEVEL.search(part) is not None
+            and _POLISH_HIGH_LEVEL.search(part) is None
+            for part in _LANGUAGE_SEPARATORS.split(folded)
+            if _POLISH_WORD.search(part)
+        )
     return True
 
 
@@ -335,6 +387,7 @@ def facts_from_model(
     if isinstance(raw_education, list):
         completed: list[tuple[int, str]] = []
         studying = False
+        end_unknown = False
         for item in raw_education:
             if not isinstance(item, dict) or item.get("kind") != "higher":
                 continue
@@ -344,10 +397,11 @@ def facts_from_model(
                 studying = True
                 continue
             end_year = _int_year(item.get("end_year"))
-            if end_year is None:
-                continue
-            if not quote_has_year(item.get("quote"), end_year):
-                # Rok końca studiów bez tego roku w cytacie — nie dowiedziony.
+            if end_year is None or not quote_has_year(item.get("quote"), end_year):
+                # Rok końca studiów nieznany albo bez tego roku w cytacie —
+                # nie dowiedziony. Studia są, więc to „nie wiemy, od kiedy
+                # liczyć”, a nie „bez studiów” (R8-N2-3).
+                end_unknown = True
                 continue
             if end_year > today.year:
                 studying = True
@@ -359,6 +413,7 @@ def facts_from_model(
             still_studying=studying,
             found_any=bool(raw_education),
             quote=best[1] if best else None,
+            end_unknown=end_unknown,
         )
 
     work: Optional[WorkFacts] = None
@@ -370,6 +425,11 @@ def facts_from_model(
             if not isinstance(item, dict) or not quote_in_text(
                 item.get("quote"), cv_text
             ):
+                continue
+            if len(str(item.get("quote")).strip()) > WORK_QUOTE_MAX:
+                # Długi fragment CV zawiera dowolne lata i dowolne „obecnie” —
+                # cytat ma opisywać JEDNO stanowisko (R8-N2-1).
+                undated += 1
                 continue
             start = parse_year_month(item.get("start"), today)
             raw_end = item.get("end")
@@ -388,6 +448,15 @@ def facts_from_model(
                 continue
             quote = item.get("quote")
             ongoing = _ONGOING.search(str(raw_end)) is not None
+            if ongoing and not (
+                quote_says_ongoing(quote) or ongoing_after_quote(quote, cv_text)
+            ):
+                # Runda 8 (R8-N2-1): jawne „present” od modelu też musi mieć
+                # dowód w CV — w cytacie albo tuż za nim („2023-09 – obecnie”).
+                # Bez tego „2012 – 2014 Kasjer” z końcem „present” dawało 14 lat
+                # i „skip”, a zbiorcze „Zatwierdź” wykluczało na zawsze.
+                undated += 1
+                continue
             if not quote_has_year(quote, start[0]) or (
                 not ongoing and not quote_has_year(quote, end[0])
             ):
@@ -466,7 +535,29 @@ def evaluate(
 
     has_profile_studies = p_studies.end_year is not None or p_studies.still_studying
     studies = _pick(p_studies, m_studies, has_profile_studies)
+    if (
+        studies is not p_studies
+        and p_studies.end_unknown
+        and studies.end_year is None
+        and not studies.still_studying
+        and not studies.end_unknown
+    ):
+        # Profil zna studia bez roku końca, a Luna go nie dowiodła — niepewność
+        # zostaje (R8-N2-3).
+        studies = StudiesFacts(
+            end_year=None,
+            still_studying=False,
+            found_any=True,
+            quote=studies.quote,
+            end_unknown=True,
+        )
     work = _pick(p_work, m_work, bool(p_work.periods))
+    if work is not p_work and not work.periods and p_work.undated:
+        # Runda 8 (R8-N2-6): profil ma stanowiska bez dat, Luna nie dała żadnego
+        # okresu — to „nie da się policzyć”, a nie „0 lat pracy”.
+        work = WorkFacts(
+            periods=(), undated=max(p_work.undated, work.undated), found_any=True
+        )
     polish = (
         p_polish if p_polish.level != POLISH_UNKNOWN or m_polish is None else m_polish
     )
@@ -498,6 +589,18 @@ def evaluate(
             {
                 "code": "experience_unknown",
                 "text": "Nie da się policzyć doświadczenia — brak dat w CV.",
+            }
+        )
+    elif years > max_experience_years and studies.end_unknown:
+        # Część tej pracy mogła przypaść na studia, które się nie liczą.
+        unknown = True
+        reasons.append(
+            {
+                "code": "studies_end_unknown",
+                "text": _experience_text(years, basis, studies)
+                + f" — ponad limit {max_experience_years} lat, ale nie znamy roku "
+                "ukończenia studiów (praca w trakcie studiów się nie liczy). "
+                "Sprawdź w rozmowie.",
             }
         )
     elif years > max_experience_years:
@@ -566,6 +669,7 @@ def evaluate(
     facts = {
         "studies_end_year": studies.end_year,
         "still_studying": studies.still_studying,
+        "studies_end_unknown": studies.end_unknown,
         "studies_quote": studies.quote,
         "experience_years": years,
         "experience_basis": basis,
@@ -595,4 +699,6 @@ def _experience_text(years: float, basis: str, studies: StudiesFacts) -> str:
         return f"{years_label(years)} pracy po studiach (koniec {studies.end_year})"
     if studies.still_studying:
         return f"{years_label(years)} pracy, studiuje"
+    if studies.end_unknown:
+        return f"{years_label(years)} pracy, rok ukończenia studiów nieznany"
     return f"{years_label(years)} pracy, bez ukończonych studiów"
