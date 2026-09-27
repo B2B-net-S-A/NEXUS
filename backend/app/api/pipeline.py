@@ -72,6 +72,7 @@ from app.schemas.pipeline import (
 from app.api.candidate_access import (
     CandidatePIIAccess,
     resolve_client_rate_write,
+    user_can_access_candidate_domain,
     user_can_view_client_rate,
     user_has_candidate_read,
 )
@@ -79,6 +80,7 @@ from app.api.deps import CurrentUser, OperationalUser, RecruiterPlus
 from app.api.recruitment_access import (
     ensure_job_read_access,
     ensure_job_membership,
+    job_scope_clause,
     user_can_edit_rates,
     user_can_terminal_transition,
 )
@@ -2601,13 +2603,23 @@ async def my_next_steps(
     ``MY_NEXT_STEPS_JOB_LIMIT`` recruitments, nearest deadline first;
     ``truncated`` says the list was cut.
     """
-    from app.api.jobs import jobs_mine_clause  # noqa: PLC0415 — import cycle
+    from app.api.jobs import (  # noqa: PLC0415 — import cycle
+        _live_work_assignment_job_ids,
+        jobs_mine_clause,
+    )
 
+    # Runda 10 (R10-V2-2): członkostwo filtrujemy w SQL PRZED LIMIT — inaczej
+    # rekrutacje odrzucane niżej (samo przypisanie, usunięty współpracownik)
+    # zjadały miejsca i wypychały własne rekrutacje osoby.
     jobs = (
         await db.scalars(
             select(Job)
             .options(selectinload(Job.client))
-            .where(jobs_mine_clause(current_user), Job.status != JobStatus.closed)
+            .where(
+                jobs_mine_clause(current_user),
+                Job.status != JobStatus.closed,
+                job_scope_clause(current_user, Job.id, oversight_bypass=False),
+            )
             .order_by(Job.deadline.asc().nullslast(), Job.id.desc())
             # One extra row tells a full page from a cut list.
             .limit(MY_NEXT_STEPS_JOB_LIMIT + 1)
@@ -2615,6 +2627,16 @@ async def my_next_steps(
     ).all()
     truncated = len(jobs) > MY_NEXT_STEPS_JOB_LIMIT
     jobs = jobs[:MY_NEXT_STEPS_JOB_LIMIT]
+    # Żywe przypisanie z przydziału to „moja” rekrutacja (R9-N15-2), ale
+    # bramka tablicy (`is_member_of_job`) go nie zna — dla nich decyduje
+    # zakres w SQL wyżej.
+    assigned_job_ids = (
+        set(
+            await db.scalars(_live_work_assignment_job_ids([current_user.id]))
+        )
+        if user_can_access_candidate_domain(current_user)
+        else set()
+    )
     out: list[MyNextStepsJob] = []
     for job in jobs:
         try:
@@ -2622,9 +2644,10 @@ async def my_next_steps(
             # the board read guard is the one that decides. Widok OSOBISTY:
             # od 23.09.2026 tablicę każdej rekrutacji czyta każdy, więc
             # przypisanie liczymy jawnie (`oversight_bypass=False`).
-            await ensure_job_read_access(
-                db, current_user, job.id, oversight_bypass=False
-            )
+            if job.id not in assigned_job_ids:
+                await ensure_job_read_access(
+                    db, current_user, job.id, oversight_bypass=False
+                )
         except HTTPException:
             continue
         out.append(
