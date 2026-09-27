@@ -98,10 +98,13 @@ type FactsCandidate = ComponentProps<
   typeof CandidateProfileFactsBar
 >["candidate"];
 
+let lastClient: QueryClient | null = null;
+
 function renderBar(candidateOverrides: Partial<FactsCandidate> = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  lastClient = client;
   return render(
     <QueryClientProvider client={client}>
       <CandidateProfileFactsBar
@@ -323,6 +326,7 @@ describe("CandidateProfileFactsBar", () => {
     mockedProfileApi.updateLocation.mockResolvedValue({ data: {} } as never);
     const user = userEvent.setup();
     renderBar();
+    const spy = vi.spyOn(lastClient!, "invalidateQueries");
 
     await user.click(
       await screen.findByRole("button", { name: "Edytuj lokalizację" }),
@@ -340,6 +344,11 @@ describe("CandidateProfileFactsBar", () => {
         country: "PL",
       }),
     );
+    // R10-N15-10: miasto pod nazwiskiem na liście i w podglądzie też.
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith({ queryKey: ["candidates-v2"] }),
+    );
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["candidate-quick-view", 7] });
   });
 
   it("saves the B2B rate with profile-rate ETag and no selectable unit", async () => {

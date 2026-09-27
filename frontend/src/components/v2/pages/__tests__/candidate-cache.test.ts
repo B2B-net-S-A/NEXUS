@@ -12,6 +12,7 @@ describe("candidate mutation cache invalidation", () => {
       ["suggested-jobs", 42],
       ["candidate-pipelines", 42],
       ["candidates-v2"],
+      ["candidate-quick-view", 42],
     ]);
     expect(candidateInvalidationKeys(42, "note")).toEqual([
       ["candidate-timeline", 42],
@@ -24,9 +25,15 @@ describe("candidate mutation cache invalidation", () => {
       ["candidate-ai-profile", 42],
       ["suggested-jobs", 42],
       ["candidates-v2"],
+      ["candidate-quick-view", 42],
     ]);
     expect(candidateInvalidationKeys(42, "rate")).toContainEqual([
       "suggested-jobs",
+      42,
+    ]);
+    // R10-N15-10: podgląd z listy pokazuje stawkę.
+    expect(candidateInvalidationKeys(42, "rate")).toContainEqual([
+      "candidate-quick-view",
       42,
     ]);
     expect(candidateInvalidationKeys(42, "document")).toContainEqual([
@@ -42,7 +49,7 @@ describe("candidate mutation cache invalidation", () => {
       42,
       "rate",
     );
-    expect(invalidateQueries).toHaveBeenCalledTimes(4);
+    expect(invalidateQueries).toHaveBeenCalledTimes(5);
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["suggested-jobs", 42],
     });
