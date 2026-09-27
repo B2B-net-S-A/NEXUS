@@ -328,35 +328,51 @@ describe("ContractInvoicesTab — kwota faktury", () => {
     mocks.get.mockResolvedValue({ data: [] });
     renderWith(<ContractInvoicesTab contractId={5} />);
     fireEvent.click(await screen.findByRole("button", { name: /Dodaj fakturę/ }));
-    const input = screen.getByText("Kwota").parentElement!.querySelector("input")!;
+    const field = (label: string) =>
+      screen.getByText(label).parentElement!.querySelector("input")!;
     const form = screen.getByRole("button", { name: "Zapisz" }).closest("form")!;
-    return { input, form };
+    return { input: field("Kwota"), number: field("Numer"), form };
   }
 
-  it("pole przyjmuje grosze i jest wymagane", async () => {
-    const { input } = await openForm();
+  it("pola kwoty i numeru są wymagane, kwota przyjmuje grosze", async () => {
+    const { input, number } = await openForm();
     expect(input).toHaveAttribute("step", "0.01");
     expect(input).toBeRequired();
+    expect(number).toBeRequired();
   });
 
-  it("pusta albo zerowa kwota nie wysyła faktury", async () => {
-    const { input, form } = await openForm();
-    fireEvent.submit(form);
-    fireEvent.change(input, { target: { value: "0" } });
+  it("UI F01: pusty formularz nie wysyła faktury (najpierw numer)", async () => {
+    const { form } = await openForm();
     fireEvent.submit(form);
     expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalledWith("Podaj numer faktury.", "error");
+  });
+
+  it("zerowa albo ujemna kwota nie wysyła faktury", async () => {
+    const { input, number, form } = await openForm();
+    fireEvent.change(number, { target: { value: "FV/9" } });
+    for (const value of ["", "0", "-5"]) {
+      fireEvent.change(input, { target: { value } });
+      fireEvent.submit(form);
+    }
+    expect(mocks.post).not.toHaveBeenCalled();
     expect(mocks.showToast).toHaveBeenCalledWith(
-      "Podaj kwotę faktury różną od zera.",
+      "Podaj kwotę faktury większą od zera.",
       "error",
     );
   });
 
   it("kwota z groszami idzie do API bez zaokrąglenia", async () => {
     mocks.post.mockResolvedValue({ data: {} });
-    const { input, form } = await openForm();
-    fireEvent.change(input, { target: { value: "12345.67" } });
+    const { input, number, form } = await openForm();
+    fireEvent.change(number, { target: { value: " FV/2026/09/1 " } });
+    // UI F13: 123,45 PLN.
+    fireEvent.change(input, { target: { value: "123.45" } });
     fireEvent.submit(form);
     await waitFor(() => expect(mocks.post).toHaveBeenCalled());
-    expect(mocks.post.mock.calls[0][1]).toMatchObject({ amount: 12345.67 });
+    expect(mocks.post.mock.calls[0][1]).toMatchObject({
+      amount: 123.45,
+      invoice_number: "FV/2026/09/1",
+    });
   });
 });

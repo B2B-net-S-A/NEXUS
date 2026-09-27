@@ -219,12 +219,50 @@ async def test_invoice_amount_with_grosze_round_trips(
         )
         assert [row["amount"] for row in listed.json()] == [12345.67]
 
+        # UI F13: 123,45 PLN zapisuje się i po odczycie ma grosze.
+        grosze = await app_client.post(
+            "/api/invoices",
+            json={
+                **payload,
+                "invoice_number": f"R10/{contract_id}/2",
+                "amount": 123.45,
+            },
+            headers=app_auth_headers,
+        )
+        assert grosze.status_code == 201, grosze.text
+        assert grosze.json()["amount"] == 123.45
+
         zero = await app_client.post(
             "/api/invoices",
             json={**payload, "invoice_number": f"R10/{contract_id}/0", "amount": 0},
             headers=app_auth_headers,
         )
         assert zero.status_code == 422, zero.text
+
+        # UI F01: pusty formularz (bez numeru i kwoty) — 422 po polsku i ŻADNEGO
+        # nowego rekordu.
+        empty = await app_client.post(
+            "/api/invoices",
+            json={
+                "contract_id": contract_id,
+                "direction": "to_client",
+                "invoice_number": "",
+                "issue_date": business_today().isoformat(),
+                "currency": "PLN",
+            },
+            headers=app_auth_headers,
+        )
+        assert empty.status_code == 422, empty.text
+        messages = {err["msg"] for err in empty.json()["detail"]}
+        assert messages == {
+            "Podaj numer faktury.",
+            "Podaj kwotę faktury większą od zera.",
+        }
+
+        after = await app_client.get(
+            f"/api/invoices?contract_id={contract_id}", headers=app_auth_headers
+        )
+        assert sorted(row["amount"] for row in after.json()) == [123.45, 12345.67]
     finally:
         # Faktury znikają kaskadą z kontraktem (FK ON DELETE CASCADE).
         await _cleanup(client_id)

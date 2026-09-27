@@ -59,13 +59,14 @@ function todayWarsawISO(): string {
   );
 }
 
-/** Kwota z formularza: liczba z groszami albo `null` (puste pole, zero, śmieci).
+/** Kwota z formularza: liczba z groszami albo `null` (puste pole, ≤ 0, śmieci).
  *
- *  Runda 10 (R10-X1-1): do tej rundy `Number(form.amount) || 0` zapisywało
- *  pustą kwotę jako fakturę na 0 zł, a pole bez `step` blokowało grosze. */
+ *  Runda 10 (R10-X1-1, UI F01/F13): do tej rundy `Number(form.amount) || 0`
+ *  zapisywało pusty formularz jako fakturę „Wystawiona” na 0 zł, a pole bez
+ *  `step` blokowało grosze. Lustro walidacji `InvoiceCreate` w backendzie. */
 export function parseInvoiceAmount(raw: string): number | null {
   const value = Number(raw.trim().replace(",", "."));
-  if (raw.trim() === "" || !Number.isFinite(value) || value === 0) return null;
+  if (raw.trim() === "" || !Number.isFinite(value) || value <= 0) return null;
   return Math.round(value * 100) / 100;
 }
 
@@ -169,13 +170,19 @@ export function ContractInvoicesTab({
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                const invoiceNumber = form.invoice_number.trim();
+                if (!invoiceNumber) {
+                  showError("Podaj numer faktury.");
+                  return;
+                }
                 const amount = parseInvoiceAmount(form.amount);
                 if (amount === null) {
-                  showError("Podaj kwotę faktury różną od zera.");
+                  showError("Podaj kwotę faktury większą od zera.");
                   return;
                 }
                 createMutation.mutate({
                   ...form,
+                  invoice_number: invoiceNumber,
                   amount,
                   due_date: form.due_date || null,
                 });
@@ -197,6 +204,8 @@ export function ContractInvoicesTab({
                 <label className="block">
                   <span className="block text-xs text-muted-foreground mb-1">Numer</span>
                   <input
+                    required
+                    maxLength={64}
                     value={form.invoice_number}
                     onChange={(e) => setForm({ ...form, invoice_number: e.target.value })}
                     className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
@@ -208,6 +217,7 @@ export function ContractInvoicesTab({
                   <input
                     type="number"
                     step="0.01"
+                    min="0.01"
                     required
                     value={form.amount}
                     onChange={(e) => setForm({ ...form, amount: e.target.value })}

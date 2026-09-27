@@ -120,8 +120,54 @@ def test_md_order_keeps_the_budget_per_consultant():
 
     assert len(rows) == 2  # bez wiersza zbiorczego
     assert [row.consultant_name for row in rows] == ["Anna Kowalska", "Jan Nowak"]
-    assert [row.allocation for row in rows] == [Decimal("50"), Decimal("20")]
+    # Runda 10 (R10-N13-6): budżet obejmuje korektę ręczną (20 + 5).
+    assert [row.allocation for row in rows] == [Decimal("50"), Decimal("25")]
     assert [row.consumption for row in rows] == [Decimal("20"), Decimal("5")]
+
+
+def test_md_line_allocation_reconciles_with_usage_and_remaining():
+    """Runda 10 (R10-N13-6): Liczba MD − Zużycie = Pozostały budżet MD.
+
+    Linia: podstawa 100, opcja 20, korekta +10, zeszło 110 MD → zostało 20.
+    Do tej rundy arkusz pokazywał 100 / 110 / 20 (przekroczenie, którego nie ma).
+    """
+    group = _group(
+        is_cost_based=False,
+        md_budget_mode="per_person",
+        lines=[
+            _line(
+                "Anna Kowalska",
+                md_total=Decimal("100"),
+                md_optional_total=Decimal("20"),
+                md_manual_adjustment=Decimal("10"),
+                md_remaining=Decimal("20"),
+            )
+        ],
+    )
+
+    (row,) = export_rows_for_group(group)
+
+    assert row.allocation == Decimal("130")
+    assert row.consumption == Decimal("110")
+    assert row.allocation - row.consumption == row.remaining_md
+
+
+def test_shared_md_allocation_includes_manual_adjustment():
+    group = _group(
+        client_id=38339,
+        md_budget_mode="shared",
+        is_md_budget_based=True,
+        md_budget_total=Decimal("80"),
+        md_budget_manual_adjustment=Decimal("10"),
+        md_budget_used=Decimal("35"),
+        md_budget_remaining=Decimal("55"),
+        lines=[_line("Anna Kowalska")],
+    )
+
+    total_row = export_rows_for_group(group)[0]
+
+    assert total_row.allocation == Decimal("90")
+    assert total_row.allocation - total_row.consumption == total_row.remaining_md
 
 
 def test_shared_md_order_amount_and_usage_appear_once_for_the_group():

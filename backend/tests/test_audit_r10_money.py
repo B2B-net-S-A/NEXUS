@@ -106,11 +106,75 @@ def test_invoice_amount_rejects_zero_and_fractions_of_grosz():
 
     from app.api.invoices import InvoiceCreate, InvoiceUpdate
 
-    for bad in ("0", "0.00", "1.234"):
+    for bad in ("0", "0.00", "1.234", "-10", "abc"):
         with pytest.raises(ValidationError):
             InvoiceCreate(**_invoice_payload(amount=bad))
     with pytest.raises(ValidationError):
         InvoiceUpdate(amount=0)
+    with pytest.raises(ValidationError):
+        InvoiceUpdate(amount=None)
+
+
+def _messages(exc) -> list[str]:
+    return [err["msg"] for err in exc.value.errors()]
+
+
+def test_empty_invoice_form_is_rejected_with_polish_messages():
+    """UI F01: pusty formularz (bez numeru i kwoty) nie tworzy faktury 0 zł."""
+    import pytest
+    from pydantic import ValidationError
+
+    from app.api.invoices import InvoiceCreate
+
+    payload = _invoice_payload(invoice_number="  ")
+    del payload["amount"]
+    with pytest.raises(ValidationError) as exc:
+        InvoiceCreate(**payload)
+    assert set(_messages(exc)) == {
+        "Podaj numer faktury.",
+        "Podaj kwotę faktury większą od zera.",
+    }
+
+    payload = _invoice_payload()
+    del payload["invoice_number"]
+    with pytest.raises(ValidationError) as exc:
+        InvoiceCreate(**payload)
+    assert _messages(exc) == ["Podaj numer faktury."]
+
+
+def test_invoice_amount_errors_are_polish():
+    """UI F13: zamiast „Input should be a valid integer” — zdanie po polsku."""
+    import pytest
+    from pydantic import ValidationError
+
+    from app.api.invoices import InvoiceCreate
+
+    with pytest.raises(ValidationError) as exc:
+        InvoiceCreate(**_invoice_payload(amount="1.234"))
+    assert _messages(exc) == [
+        "Kwota faktury może mieć najwyżej dwa miejsca po przecinku (grosze)."
+    ]
+    with pytest.raises(ValidationError) as exc:
+        InvoiceCreate(**_invoice_payload(amount=0))
+    assert _messages(exc) == ["Kwota faktury musi być większa od zera."]
+
+
+def test_invoice_number_is_trimmed_and_amount_accepts_comma():
+    from app.api.invoices import InvoiceCreate
+
+    inv = InvoiceCreate(**_invoice_payload(invoice_number=" FV/1 ", amount="123,45"))
+    assert inv.invoice_number == "FV/1"
+    assert inv.amount == Decimal("123.45")
+
+
+def test_legacy_zero_invoice_still_serialises():
+    """Stare wiersze (0 zł, pusty numer) muszą dalej dać się odczytać."""
+    from app.api.invoices import InvoiceResponse
+
+    body = InvoiceResponse(
+        id=1, **_invoice_payload(invoice_number="", amount=Decimal("0"))
+    ).model_dump(mode="json")
+    assert body["amount"] == 0
 
 
 def test_invoice_response_amount_is_a_json_number():
