@@ -68,7 +68,7 @@ generated column. Additive — the exact branches stay, so nothing regresses.
 from __future__ import annotations
 
 import unicodedata
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import (
     Text,
@@ -324,24 +324,41 @@ def _quote_sql(value: str) -> str:
     return value.replace("'", "''")
 
 
+def _json_names_text(column: Any, keys: tuple[str, ...]) -> ColumnElement:
+    """Gołe napisy i wartości wskazanych kluczy z tablicy JSON, bez kluczy."""
+    text_value = func.coalesce(
+        func.jsonb_path_query_array(
+            column,
+            literal_column("'lax $[*] ? (@.type() == \"string\")'::jsonpath"),
+        ).cast(Text),
+        "",
+    )
+    for key in keys:
+        text_value = (
+            text_value
+            + " "
+            + func.coalesce(
+                func.jsonb_path_query_array(
+                    column, literal_column(f"'lax $[*].{key}'::jsonpath")
+                ).cast(Text),
+                "",
+            )
+        )
+    return text_value
+
+
 def _skill_names_text() -> ColumnElement:
     """Nazwy umiejętności (``skills[*].name`` i gołe napisy), bez kluczy JSON
-    — regex po ``skills::text`` trafiał „level”/„years” u każdego."""
+    — regex po ``skills::text`` trafiał „level”/„years” u każdego.
+
+    Runda 10 (F17): także „Zweryfikowane technologie” (``verified_tech``) —
+    zakres „Umiejętności” ma widzieć to, co profil pokazuje w tej sekcji i co
+    znajduje filtr „Umiejętności”.
+    """
     return (
-        func.coalesce(
-            func.jsonb_path_query_array(
-                Candidate.skills,
-                literal_column("'lax $[*] ? (@.type() == \"string\")'::jsonpath"),
-            ).cast(Text),
-            "",
-        )
+        _json_names_text(Candidate.skills, keyword_corpus.SKILL_KEYS)
         + " "
-        + func.coalesce(
-            func.jsonb_path_query_array(
-                Candidate.skills, literal_column("'lax $[*].name'::jsonpath")
-            ).cast(Text),
-            "",
-        )
+        + _json_names_text(Candidate.verified_tech, keyword_corpus.VERIFIED_TECH_KEYS)
         + " "
         + _traffit_text("traffit_technologie")
     )

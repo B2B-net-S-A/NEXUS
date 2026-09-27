@@ -123,6 +123,36 @@ describe("/candidates/compare — dopasowanie do rekrutacji (B6)", () => {
     expect(await screen.findByTestId("compare-job")).toHaveTextContent("Java Developer · Bank");
   });
 
+  it("zweryfikowane technologie spełniają must-have jak na profilu (runda 10, F18)", async () => {
+    urlParams = new URLSearchParams("ids=1,2&job=42");
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/jobs/42") {
+        return Promise.resolve({ data: { id: 42, title: "Java Developer", client_name: "Bank" } });
+      }
+      if (url === "/api/candidates/2") {
+        return Promise.resolve({
+          data: {
+            id: 2,
+            name: "Jan",
+            lastname: "Kowalski",
+            skills: ["python"],
+            verified_tech: ["Java", { name: "Quarkus" }],
+          },
+        });
+      }
+      return Promise.resolve({ data: CANDIDATES[url] });
+    });
+    renderPage();
+    const second = await screen.findByTestId("compare-match-2");
+    expect(
+      await within(second).findByLabelText("java: potwierdzone na screeningu"),
+    ).toBeInTheDocument();
+    expect(
+      within(second).getByLabelText("spring lub quarkus: potwierdzone na screeningu"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("potwierdzone na screeningu").length).toBeGreaterThan(0);
+  });
+
   it("403 mówi o braku dostępu, inny błąd daje „nie policzono — ponów”", async () => {
     urlParams = new URLSearchParams("ids=1,2&job=42");
     mocks.matchScores.mockRejectedValueOnce(httpError(403));

@@ -495,6 +495,22 @@ _EMAIL_RE = re.compile(r"^[^@\s]*@[^@\s]*$")
 _PHONE_QUERY_RE = re.compile(r"^\+?[\d\s().\-/]+$")
 _PHONE_QUERY_MIN_DIGITS = 6
 _NAME_TOKEN_RE = re.compile(r"^[^\W\d_]+(?:[-'’][^\W\d_]+)*$", re.UNICODE)
+# Jedno słowo z literami I cyframi („UIAZ20260926”, nazwisko z importu z numerem
+# albo znacznik) — nie wygląda na imię, ale bywa CAŁYM nazwiskiem w bazie.
+# Runda 10 (F06): takie słowo szło od razu po znaczeniu (199 osób), choć
+# dosłownie był dokładnie jeden kandydat. Teraz o trybie rozstrzyga baza,
+# tak jak przy zwykłym pojedynczym słowie.
+_ALNUM_TOKEN_RE = re.compile(r"^[^\W_]+(?:[-'’][^\W_]+)*$", re.UNICODE)
+
+
+def _alnum_name_candidate(token: str) -> bool:
+    return (
+        bool(_ALNUM_TOKEN_RE.match(token))
+        and any(ch.isalpha() for ch in token)
+        and any(ch.isdigit() for ch in token)
+    )
+
+
 _MAX_NAME_TOKENS = 3
 
 # Słowa, które wyglądają jak imię/nazwisko (same litery), a opisują rolę,
@@ -616,8 +632,9 @@ def detect_text_mode(q: Optional[str]) -> TextInterpretation:
     osoba" zabiera wyszukiwaniu semantykę, fałszywe „to opis" kosztuje najwyżej
     gorszą kolejność. Osoba = 1–3 wyrazy z samych liter (myślnik/apostrof
     dozwolony), z których żaden nie jest znaną umiejętnością, miastem ani
-    słowem roli. POJEDYNCZE słowo dostaje tu regułę ``single_word_unchecked`` —
-    o tym, czy to naprawdę czyjeś imię/nazwisko, rozstrzyga ``interpret_text``.
+    słowem roli. POJEDYNCZE słowo (także z cyframi, np. „UIAZ20260926”)
+    dostaje tu regułę ``single_word_unchecked`` — o tym, czy to naprawdę
+    czyjeś imię/nazwisko, rozstrzyga ``interpret_text``.
     """
     raw = (q or "").strip()
     if not raw:
@@ -644,7 +661,10 @@ def detect_text_mode(q: Optional[str]) -> TextInterpretation:
         and not skills
         and not locations
         and not role_words
-        and all(_NAME_TOKEN_RE.match(t) for t in tokens)
+        and (
+            all(_NAME_TOKEN_RE.match(t) for t in tokens)
+            or (len(tokens) == 1 and _alnum_name_candidate(tokens[0]))
+        )
     )
     if looks_like_name:
         return TextInterpretation(
