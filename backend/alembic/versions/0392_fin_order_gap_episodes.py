@@ -20,8 +20,8 @@ starego więzu, więc w żadnej chwili tabela nie jest bez unikalności.
 
 from alembic import op
 
-revision = "0391_fin_order_gap_episodes"
-down_revision = "0390_cand_retained_candidate_files"
+revision = "0392_fin_order_gap_episodes"
+down_revision = "0391_auth_candidate_email_lower_index"
 branch_labels = None
 depends_on = None
 

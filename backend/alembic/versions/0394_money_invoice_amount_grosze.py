@@ -12,8 +12,8 @@ tylko przy różnicy typu, więc kolejne starty nie biorą zamka tabeli.
 
 from alembic import op
 
-revision = "0391_money_invoice_amount_grosze"
-down_revision = "0390_cand_retained_candidate_files"
+revision = "0394_money_invoice_amount_grosze"
+down_revision = "0393_md_import_cost_statuses"
 branch_labels = None
 depends_on = None
 

@@ -204,7 +204,7 @@ async def test_job_chat_serialization_has_constant_query_count() -> None:
 
 
 def _migration():
-    path = BACKEND / "alembic" / "versions" / "0391_notes_deleted_note_sources.py"
+    path = BACKEND / "alembic" / "versions" / "0395_notes_deleted_note_sources.py"
     spec = importlib.util.spec_from_file_location("m0391", path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None

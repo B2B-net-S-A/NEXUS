@@ -16,7 +16,7 @@ BACKEND = pathlib.Path(__file__).resolve().parents[1]
 
 
 def _migration():
-    path = BACKEND / "alembic" / "versions" / "0391_fin_order_gap_episodes.py"
+    path = BACKEND / "alembic" / "versions" / "0392_fin_order_gap_episodes.py"
     spec = importlib.util.spec_from_file_location("m0391", path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None

@@ -14,8 +14,8 @@ w ``entrypoint.sh`` (prod alembic bywa osierocony) — pilnuje
 
 from alembic import op
 
-revision = "0391_notes_deleted_note_sources"
-down_revision = "0390_cand_retained_candidate_files"
+revision = "0395_notes_deleted_note_sources"
+down_revision = "0394_money_invoice_amount_grosze"
 branch_labels = None
 depends_on = None
 

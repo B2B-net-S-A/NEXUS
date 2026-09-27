@@ -17,8 +17,8 @@ Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony).
 
 from alembic import op
 
-revision = "0391_md_import_cost_statuses"
-down_revision = "0390_cand_retained_candidate_files"
+revision = "0393_md_import_cost_statuses"
+down_revision = "0392_fin_order_gap_episodes"
 branch_labels = None
 depends_on = None
 

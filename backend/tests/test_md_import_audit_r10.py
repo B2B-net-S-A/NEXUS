@@ -203,7 +203,7 @@ def test_unreadable_invoice_keeps_the_md_of_the_row(invoice):
 def test_new_cost_statuses_are_mirrored_in_entrypoint_and_migration():
     entrypoint = re.sub(r"\s+", " ", (BACKEND / "entrypoint.sh").read_text())
     migration = (
-        BACKEND / "alembic" / "versions" / "0391_md_import_cost_statuses.py"
+        BACKEND / "alembic" / "versions" / "0393_md_import_cost_statuses.py"
     ).read_text()
     for value in ("'invoice_unreadable'", "'order_exhausted'"):
         assert value in entrypoint, value

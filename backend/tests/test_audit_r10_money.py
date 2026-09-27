@@ -199,7 +199,7 @@ def test_invoice_amount_migration_is_mirrored_in_entrypoint():
     # Moduł migracji zaczyna się cyfrą — czytamy stałą z pliku wprost.
     backend = Path(__file__).resolve().parents[1]
     source = (
-        backend / "alembic" / "versions" / "0391_money_invoice_amount_grosze.py"
+        backend / "alembic" / "versions" / "0394_money_invoice_amount_grosze.py"
     ).read_text()
     namespace: dict = {}
     start = source.index("WIDEN_INVOICE_AMOUNT = ")
