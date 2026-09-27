@@ -8,6 +8,7 @@ import { InterviewCycleProgress } from "@/components/calendar/cycle/InterviewCyc
 import { PlanPrepDialog } from "@/components/calendar/cycle/PlanPrepDialog";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { PairInfo, StepState } from "@/lib/interview-cycle";
+import { scheduledInterviewFromSteps } from "@/lib/prep-timing";
 import { cn } from "@/lib/utils";
 
 const OPEN_STEP: ReadonlySet<StepState> = new Set(["todo", "current", "overdue"]);
@@ -107,7 +108,13 @@ export function DockInterviewCycle({
         </div>
       ) : null}
       {prepNo ? (
-        <PlanPrepDialog open onOpenChange={(o) => !o && setPrepNo(null)} pair={pair} prepNo={prepNo} />
+        <PlanPrepDialog
+          open
+          onOpenChange={(o) => !o && setPrepNo(null)}
+          pair={pair}
+          prepNo={prepNo}
+          interview={scheduledInterviewFromSteps(steps)}
+        />
       ) : null}
     </div>
   );

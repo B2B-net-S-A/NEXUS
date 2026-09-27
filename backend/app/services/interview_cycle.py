@@ -227,9 +227,35 @@ def compute_steps(
     pair: PairSnapshot, now: datetime, *, call_window_minutes: int
 ) -> list[dict]:
     """Siedem kroków pary. Stan „current” ma najwyżej jeden krok — pierwszy
-    niezamknięty — żeby ekran wiedział, co podświetlić."""
+    niezamknięty — żeby ekran wiedział, co podświetlić.
+
+    Otwarty wniosek o terminy (rekruter wybiera albo DL potwierdza) po rozmowie,
+    która już się odbyła, to NOWA runda (runda 10, F26): kroki opisują ją, nie
+    poprzednią rozmowę — inaczej „Wybór terminu” i „Rozmowa” świeciły jako
+    zrobione z datą starej rozmowy, a bieżącym krokiem był telefon po niej.
+    Zaległy debrief poprzedniej rozmowy zostaje zadaniem (``compute_todos``).
+    Gdy kolejna rozmowa jest już zaplanowana (``prep_interview``), kroki
+    opisują tę rundę.
+    """
     req = pair.slot_request
     iv = pair.interview
+    open_request = req is not None and req.status in (
+        SLOT_STATUS_AWAITING_RECRUITER,
+        SLOT_STATUS_AWAITING_DL,
+    )
+    if open_request and iv is not None and _interview_end(iv) <= now:
+        if pair.prep_interview is not None:
+            pair = pair.for_preps()
+        else:
+            pair = replace(
+                pair,
+                interview=None,
+                preps=[],
+                debrief=None,
+                prep_interview=None,
+                prep_round_preps=[],
+            )
+        iv = pair.interview
     iv_done = iv is not None and _interview_end(iv) <= now
     steps: list[dict] = []
 
@@ -239,8 +265,11 @@ def compute_steps(
     else:
         steps.append(_step("slots", "todo"))
 
-    # 2. Wybór terminu
-    if iv is not None or (req is not None and req.status == SLOT_STATUS_CONFIRMED):
+    # 2. Wybór terminu — otwarty wniosek wygrywa z zaplanowaną rozmową
+    # (nowe terminy = przełożenie albo kolejna runda, runda 10 F26).
+    if not open_request and (
+        iv is not None or (req is not None and req.status == SLOT_STATUS_CONFIRMED)
+    ):
         steps.append(_step("choice", "done", at=iv.start if iv else None))
     elif req is not None and req.status == SLOT_STATUS_AWAITING_DL:
         chosen = _chosen_slot(req)

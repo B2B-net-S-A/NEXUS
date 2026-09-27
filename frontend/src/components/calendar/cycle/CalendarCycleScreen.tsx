@@ -20,6 +20,7 @@ import {
   type PairInfo,
   type SlotRequest,
 } from "@/lib/interview-cycle";
+import { prepInterviewForPair } from "@/lib/prep-timing";
 import { resolveViewState } from "@/lib/view-state";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -348,6 +349,7 @@ export function CalendarCycleScreen({
           onOpenChange={(o) => !o && setDialog(null)}
           pair={dialog.pair}
           prepNo={dialog.second ? 2 : 1}
+          interview={prepInterviewForPair(data, dialog.pair)}
         />
       ) : null}
       <PrepReviewDialog
