@@ -397,7 +397,9 @@ async def test_scan_skips_people_already_in_the_job_and_employment_only(
     fine = await _seed_candidate(db, owner=owner)
     job = await _seed_job(db, recruiter=owner)
     uop.b2b_willingness = "employment_only"
-    db.add(CandidateStage(candidate_id=staged.id, job_id=job.id, stage=PipelineStage.new))
+    db.add(
+        CandidateStage(candidate_id=staged.id, job_id=job.id, stage=PipelineStage.new)
+    )
     await db.commit()
     await auto_sync_marketplace_membership(db)
     await db.commit()

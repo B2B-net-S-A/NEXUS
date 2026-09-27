@@ -798,6 +798,19 @@ def _ensure_handover_allowed(item: TraineeCallItem) -> None:
         )
 
 
+async def _jobs_with_candidate(db: AsyncSession, candidate_id: int) -> set[int]:
+    """Rekrutacje, w których osoba ma już jakikolwiek etap (R10-N7-9)."""
+    return set(
+        (
+            await db.scalars(
+                select(CandidateStage.job_id)
+                .where(CandidateStage.candidate_id == candidate_id)
+                .distinct()
+            )
+        ).all()
+    )
+
+
 async def open_jobs(db: AsyncSession, user: User, item_id: int) -> list[dict[str, Any]]:
     from app.services.job_similarity import _load_pool  # noqa: PLC0415
 
@@ -806,9 +819,14 @@ async def open_jobs(db: AsyncSession, user: User, item_id: int) -> list[dict[str
     candidate = await db.get(Candidate, item.candidate_id)
     skills, display = lists._candidate_skills(candidate.skills if candidate else None)
     pool = await _load_pool(db)
+    # Runda 10 (R10-N7-9): osoba już w rekrutacji nie jest propozycją —
+    # skrzynka jej nie pokaże, a notatka praktykanta by przepadła.
+    already_in = await _jobs_with_candidate(db, item.candidate_id)
     matched: list[tuple[int, list[str]]] = []
     for job in pool.jobs.values():
         if job.status != JobStatus.published.value:
+            continue
+        if job.id in already_in:
             continue
         demand_job = rules_mod.DemandJob(
             id=job.id,
@@ -852,6 +870,12 @@ async def handover(
     from app.services import candidate_audit  # noqa: PLC0415
     from app.services.job_proposals import upsert_proposals  # noqa: PLC0415
 
+    own = await _own_item(db, user, item_id)
+    if job_id in await _jobs_with_candidate(db, own.candidate_id):
+        raise _http(
+            status.HTTP_409_CONFLICT,
+            "Ta osoba jest już w tej rekrutacji — rekruter ją widzi na tablicy.",
+        )
     allowed = {row["job_id"] for row in await open_jobs(db, user, item_id)}
     if job_id not in allowed:
         raise _http(

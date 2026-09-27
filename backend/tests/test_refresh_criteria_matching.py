@@ -36,7 +36,9 @@ async def _job(status: JobStatus) -> int:
         return job.id
 
 
-@pytest.mark.parametrize("status,enqueued", [(JobStatus.published, True), (JobStatus.draft, False)])
+@pytest.mark.parametrize(
+    "status,enqueued", [(JobStatus.published, True), (JobStatus.draft, False)]
+)
 async def test_refresh_criteria_refreshes_matching_and_wakes_automations(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch, status, enqueued
 ):
@@ -60,7 +62,9 @@ async def test_refresh_criteria_refreshes_matching_and_wakes_automations(
     async def fake_enqueue(job_id, trigger="job_publish"):
         queued.append(job_id)
 
-    monkeypatch.setattr(recommendations, "_generate_criteria_with_ollama", fake_criteria)
+    monkeypatch.setattr(
+        recommendations, "_generate_criteria_with_ollama", fake_criteria
+    )
     monkeypatch.setattr(job_matching_refresh, "refresh_job_matching", fake_refresh)
     monkeypatch.setattr(auto_match_outbox, "enqueue_job_safe", fake_enqueue)
     monkeypatch.setattr(settings, "MARKETPLACE_ENABLED", False)
