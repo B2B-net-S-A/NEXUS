@@ -76,3 +76,70 @@ def test_past_day_still_decided_by_dates_only():
 
     assert ended in running_on([ended], date(2025, 3, 1))
     assert ended not in running_on([ended], date(2025, 7, 1))
+
+
+# ── R10-X1-1 ────────────────────────────────────────────────────────────────
+
+
+def _invoice_payload(**overrides) -> dict:
+    payload = {
+        "contract_id": 1,
+        "direction": "to_client",
+        "invoice_number": "R10/1",
+        "issue_date": date(2026, 9, 1),
+        "amount": "12345.67",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_invoice_amount_keeps_grosze():
+    from app.api.invoices import InvoiceCreate, InvoiceUpdate
+
+    assert InvoiceCreate(**_invoice_payload()).amount == Decimal("12345.67")
+    assert InvoiceUpdate(amount=12345.67).amount == Decimal("12345.67")
+
+
+def test_invoice_amount_rejects_zero_and_fractions_of_grosz():
+    import pytest
+    from pydantic import ValidationError
+
+    from app.api.invoices import InvoiceCreate, InvoiceUpdate
+
+    for bad in ("0", "0.00", "1.234"):
+        with pytest.raises(ValidationError):
+            InvoiceCreate(**_invoice_payload(amount=bad))
+    with pytest.raises(ValidationError):
+        InvoiceUpdate(amount=0)
+
+
+def test_invoice_response_amount_is_a_json_number():
+    from app.api.invoices import InvoiceResponse
+
+    body = InvoiceResponse(
+        id=1, **_invoice_payload(amount=Decimal("12345.67"))
+    ).model_dump(mode="json")
+    assert body["amount"] == 12345.67
+
+
+def test_invoice_amount_column_is_numeric_with_grosze():
+    from app.models.invoice import Invoice
+
+    column_type = Invoice.__table__.c.amount.type
+    assert (column_type.precision, column_type.scale) == (14, 2)
+
+
+def test_invoice_amount_migration_is_mirrored_in_entrypoint():
+    from pathlib import Path
+
+    # Moduł migracji zaczyna się cyfrą — czytamy stałą z pliku wprost.
+    backend = Path(__file__).resolve().parents[1]
+    source = (
+        backend / "alembic" / "versions" / "0391_money_invoice_amount_grosze.py"
+    ).read_text()
+    namespace: dict = {}
+    start = source.index("WIDEN_INVOICE_AMOUNT = ")
+    end = source.index('END $$"""', start) + len('END $$"""')
+    exec(source[start:end], namespace)
+    ddl = namespace["WIDEN_INVOICE_AMOUNT"]
+    assert ddl in (backend / "entrypoint.sh").read_text()

@@ -9,7 +9,7 @@ from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, PlainSerializer
+from pydantic import BaseModel, Field, PlainSerializer, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +43,19 @@ MoneyPLN = Annotated[
     Decimal, PlainSerializer(_money_out, return_type=float, when_used="json")
 ]
 
+# Kwota faktury na wejściu: grosze, najwyżej 12 cyfr przed przecinkiem
+# (kolumna NUMERIC(14,2)). Runda 10 (R10-X1-1): do tej rundy `int` — kwota
+# z groszami dostawała 422, a formularz zaokrąglał ją do pełnych złotych.
+InvoiceAmountIn = Annotated[Decimal, Field(max_digits=14, decimal_places=2)]
+
+
+def _reject_zero_amount(value: Optional[Decimal]) -> Optional[Decimal]:
+    """Faktura na 0 zł nie jest fakturą — puste pole formularza tak kończyło."""
+    if value is not None and value == 0:
+        raise ValueError("Kwota faktury nie może wynosić 0.")
+    return value
+
+
 # ── Pydantic DTOs ────────────────────────────────────────────────────────────
 
 
@@ -54,7 +67,7 @@ class InvoiceBase(BaseModel):
     issue_date: date
     due_date: Optional[date] = None
     paid_date: Optional[date] = None
-    amount: int
+    amount: InvoiceAmountIn
     currency: str = "PLN"
     status: InvoiceStatus = InvoiceStatus.issued
     pdf_document_id: Optional[int] = None
@@ -63,6 +76,8 @@ class InvoiceBase(BaseModel):
 
 class InvoiceCreate(InvoiceBase):
     contract_id: int
+
+    _amount_not_zero = field_validator("amount")(_reject_zero_amount)
 
 
 class InvoiceUpdate(BaseModel):
@@ -73,16 +88,20 @@ class InvoiceUpdate(BaseModel):
     issue_date: Optional[date] = None
     due_date: Optional[date] = None
     paid_date: Optional[date] = None
-    amount: Optional[int] = None
+    amount: Optional[InvoiceAmountIn] = None
     currency: Optional[str] = None
     status: Optional[InvoiceStatus] = None
     pdf_document_id: Optional[int] = None
     notes: Optional[str] = None
 
+    _amount_not_zero = field_validator("amount")(_reject_zero_amount)
+
 
 class InvoiceResponse(InvoiceBase):
     id: int
     contract_id: int
+    # Liczba JSON (nie napis), żeby front sumował kwoty, a nie je sklejał.
+    amount: MoneyPLN
 
     model_config = {"from_attributes": True}
 
@@ -199,8 +218,8 @@ async def dso_by_client(
             .group_by(Client.id, Invoice.currency)
         )
     ).all()
-    paid_by: dict[tuple[int, str], int] = {
-        (r.id, (r.currency or "PLN").upper()): int(r.paid or 0) for r in paid_rows
+    paid_by: dict[tuple[int, str], Decimal] = {
+        (r.id, (r.currency or "PLN").upper()): Decimal(r.paid or 0) for r in paid_rows
     }
 
     currencies = {(r.currency or "PLN").upper() for r in total_rows}
@@ -229,7 +248,7 @@ async def dso_by_client(
                 r.id,
             )
             continue
-        bucket["total"] += Decimal(int(r.total or 0)) * rate
+        bucket["total"] += Decimal(r.total or 0) * rate
         bucket["paid"] += Decimal(paid_by.get((r.id, cur), 0)) * rate
 
     rows: list[DsoRow] = []

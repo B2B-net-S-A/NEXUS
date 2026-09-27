@@ -320,3 +320,43 @@ describe("audyt 24.09 (blok D) — zakładki kontraktu", () => {
     );
   });
 });
+
+// Runda 10 (R10-X1-1): puste pole kwoty zapisywało fakturę na 0 zł, a grosze
+// były blokowane domyślnym `step=1`.
+describe("ContractInvoicesTab — kwota faktury", () => {
+  async function openForm() {
+    mocks.get.mockResolvedValue({ data: [] });
+    renderWith(<ContractInvoicesTab contractId={5} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Dodaj fakturę/ }));
+    const input = screen.getByText("Kwota").parentElement!.querySelector("input")!;
+    const form = screen.getByRole("button", { name: "Zapisz" }).closest("form")!;
+    return { input, form };
+  }
+
+  it("pole przyjmuje grosze i jest wymagane", async () => {
+    const { input } = await openForm();
+    expect(input).toHaveAttribute("step", "0.01");
+    expect(input).toBeRequired();
+  });
+
+  it("pusta albo zerowa kwota nie wysyła faktury", async () => {
+    const { input, form } = await openForm();
+    fireEvent.submit(form);
+    fireEvent.change(input, { target: { value: "0" } });
+    fireEvent.submit(form);
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalledWith(
+      "Podaj kwotę faktury różną od zera.",
+      "error",
+    );
+  });
+
+  it("kwota z groszami idzie do API bez zaokrąglenia", async () => {
+    mocks.post.mockResolvedValue({ data: {} });
+    const { input, form } = await openForm();
+    fireEvent.change(input, { target: { value: "12345.67" } });
+    fireEvent.submit(form);
+    await waitFor(() => expect(mocks.post).toHaveBeenCalled());
+    expect(mocks.post.mock.calls[0][1]).toMatchObject({ amount: 12345.67 });
+  });
+});

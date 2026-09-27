@@ -2360,6 +2360,25 @@ _COLUMN_STATEMENTS = [
             EXECUTE FUNCTION sync_contract_rate_currencies_from_legacy();
         END IF;
     END $$""",
+    # 0391 (runda 10, R10-X1-1): kwota faktury z groszami — INTEGER →
+    # NUMERIC(14,2). Tekst identyczny z migracją (test lustra); ALTER tylko przy
+    # różnicy typu, więc kolejne starty nie biorą zamka tabeli.
+    """DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns c
+        WHERE c.table_schema = current_schema()
+          AND c.table_name = 'invoices'
+          AND c.column_name = 'amount'
+          AND (c.data_type <> 'numeric'
+               OR c.numeric_precision IS DISTINCT FROM 14
+               OR c.numeric_scale IS DISTINCT FROM 2)
+    ) THEN
+        ALTER TABLE invoices
+            ALTER COLUMN amount TYPE NUMERIC(14, 2) USING amount::numeric(14, 2);
+    END IF;
+END $$""",
     # Cortex fact store (0158): na prod `Base.metadata.create_all` potrafi
     # cicho paść (failure-tolerant echo), a alembic bywa multi-head — nowe
     # TABELE też wymagają mirrora tutaj (precedens: saved_search_alert_log).

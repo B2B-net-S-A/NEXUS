@@ -189,3 +189,42 @@ async def test_missing_fx_on_priced_contract_is_reported_as_fx_not_rates(
         assert summary["active_mrr_fx_missing_contracts"] == 1
     finally:
         await _cleanup(client_id)
+
+
+# ── R10-X1-1 ────────────────────────────────────────────────────────────────
+
+
+async def test_invoice_amount_with_grosze_round_trips(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    client_id = await _client()
+    try:
+        contract_id = await _contract(client_id, await _candidate())
+        payload = {
+            "contract_id": contract_id,
+            "direction": "to_client",
+            "invoice_number": f"R10/{contract_id}",
+            "issue_date": business_today().isoformat(),
+            "amount": 12345.67,
+            "currency": "PLN",
+        }
+        created = await app_client.post(
+            "/api/invoices", json=payload, headers=app_auth_headers
+        )
+        assert created.status_code == 201, created.text
+        assert created.json()["amount"] == 12345.67
+
+        listed = await app_client.get(
+            f"/api/invoices?contract_id={contract_id}", headers=app_auth_headers
+        )
+        assert [row["amount"] for row in listed.json()] == [12345.67]
+
+        zero = await app_client.post(
+            "/api/invoices",
+            json={**payload, "invoice_number": f"R10/{contract_id}/0", "amount": 0},
+            headers=app_auth_headers,
+        )
+        assert zero.status_code == 422, zero.text
+    finally:
+        # Faktury znikają kaskadą z kontraktem (FK ON DELETE CASCADE).
+        await _cleanup(client_id)

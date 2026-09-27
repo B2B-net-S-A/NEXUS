@@ -59,6 +59,16 @@ function todayWarsawISO(): string {
   );
 }
 
+/** Kwota z formularza: liczba z groszami albo `null` (puste pole, zero, śmieci).
+ *
+ *  Runda 10 (R10-X1-1): do tej rundy `Number(form.amount) || 0` zapisywało
+ *  pustą kwotę jako fakturę na 0 zł, a pole bez `step` blokowało grosze. */
+export function parseInvoiceAmount(raw: string): number | null {
+  const value = Number(raw.trim().replace(",", "."));
+  if (raw.trim() === "" || !Number.isFinite(value) || value === 0) return null;
+  return Math.round(value * 100) / 100;
+}
+
 function emptyForm() {
   return {
     direction: "to_client",
@@ -159,9 +169,14 @@ export function ContractInvoicesTab({
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                const amount = parseInvoiceAmount(form.amount);
+                if (amount === null) {
+                  showError("Podaj kwotę faktury różną od zera.");
+                  return;
+                }
                 createMutation.mutate({
                   ...form,
-                  amount: Number(form.amount) || 0,
+                  amount,
                   due_date: form.due_date || null,
                 });
               }}
@@ -192,6 +207,8 @@ export function ContractInvoicesTab({
                   <span className="block text-xs text-muted-foreground mb-1">Kwota</span>
                   <input
                     type="number"
+                    step="0.01"
+                    required
                     value={form.amount}
                     onChange={(e) => setForm({ ...form, amount: e.target.value })}
                     className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
