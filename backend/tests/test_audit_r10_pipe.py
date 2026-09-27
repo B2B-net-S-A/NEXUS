@@ -255,3 +255,80 @@ def test_fresh_pair_entry_kwargs_mirror_bulk_add() -> None:
     assert _fresh_pair_entry_kwargs(user, integration) == {
         "entry_source": ENTRY_AUTO_MATCH
     }
+
+
+# ── R10-V2-6: przerwana generacja CV wraca do kolejki najwyżej raz ───────────
+
+
+@pytest.mark.asyncio
+async def test_requeue_sql_skips_jobs_already_requeued_once() -> None:
+    from unittest.mock import AsyncMock, Mock
+
+    from app.services.cv_generator_b2b import job_leases
+
+    db = AsyncMock()
+    db.execute.return_value = Mock(
+        scalars=Mock(return_value=Mock(all=Mock(return_value=[])))
+    )
+    await job_leases.requeue_unstarted_expired_jobs(db)
+    sql = str(
+        db.execute.call_args.args[0].compile(compile_kwargs={"literal_binds": True})
+    )
+    assert "cv_generation_jobs.error_code != 'requeued_after_lost_worker'" in sql
+    assert "error_code='requeued_after_lost_worker'" in sql.replace(" ", "")
+
+
+@pytest.mark.asyncio
+async def test_expired_unstarted_job_is_requeued_only_once() -> None:
+    from datetime import datetime, timezone
+
+    from sqlalchemy import delete, update
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.cv_generation_job import CvGenerationJob
+    from app.services.cv_generator_b2b.job_leases import (
+        interrupt_expired_jobs,
+        requeue_unstarted_expired_jobs,
+    )
+
+    past = datetime.now(timezone.utc) - timedelta(minutes=5)
+    job = CvGenerationJob(
+        kind="new",
+        status="running",
+        input_storage_key=f"synthetic/r10/{uuid.uuid4().hex}",
+        input_sha256="0" * 64,
+        lease_token=str(uuid.uuid4()),
+        lease_expires_at=past,
+    )
+    job_id = None
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(job)
+            await db.commit()
+            job_id = job.id
+        async with AsyncSessionLocal() as db:
+            assert job_id in await requeue_unstarted_expired_jobs(db)
+            await db.commit()
+        # Wykonawca bierze zadanie i znowu pada przy odczycie źródła.
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(CvGenerationJob)
+                .where(CvGenerationJob.id == job_id)
+                .values(
+                    status="running",
+                    lease_token=str(uuid.uuid4()),
+                    lease_expires_at=past,
+                )
+            )
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            assert job_id not in await requeue_unstarted_expired_jobs(db)
+            assert job_id in await interrupt_expired_jobs(db)
+            await db.commit()
+    finally:
+        if job_id is not None:
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    delete(CvGenerationJob).where(CvGenerationJob.id == job_id)
+                )
+                await db.commit()

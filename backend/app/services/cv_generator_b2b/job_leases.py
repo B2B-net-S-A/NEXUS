@@ -95,6 +95,13 @@ async def finish_job(db, job_id: int, token: str, *, failed: bool = False) -> bo
 # na którym pada odczyt), nie krąży bez końca.
 REQUEUE_UNSTARTED_WITHIN = timedelta(minutes=30)
 
+# Runda 10 (R10-V2-6): zadanie wraca do kolejki NAJWYŻEJ RAZ. Plik, na którym
+# odczyt źródła zabija proces, przez 30 minut kładł jedyny proces uvicorna
+# co dzierżawę (7–8 razy). Znacznik żyje w ``error_code`` (bez migracji):
+# drugie wygaśnięcie idzie już ścieżką ``interrupt_expired_jobs``, a
+# „Ponów generację” człowieka czyści ``error_code`` i daje nową szansę.
+REQUEUED_AFTER_LOST_WORKER = "requeued_after_lost_worker"
+
 
 async def requeue_unstarted_expired_jobs(db) -> list[int]:
     """Oddaj do kolejki wygasłe zadania, które nie zaczęły płatnej generacji.
@@ -116,10 +123,19 @@ async def requeue_unstarted_expired_jobs(db) -> list[int]:
             CvGenerationJob.lease_expires_at <= now,
             CvGenerationJob.kind.in_(("new", "upload")),
             CvGenerationJob.created_at > now - REQUEUE_UNSTARTED_WITHIN,
+            or_(
+                CvGenerationJob.error_code.is_(None),
+                CvGenerationJob.error_code != REQUEUED_AFTER_LOST_WORKER,
+            ),
             # Kolumna JSONB: brak wartości bywa SQL NULL albo JSON-owym null.
             or_(facts.is_(None), func.jsonb_typeof(cast(facts, JSONB)) == "null"),
         )
-        .values(status="queued", lease_token=None, lease_expires_at=None)
+        .values(
+            status="queued",
+            lease_token=None,
+            lease_expires_at=None,
+            error_code=REQUEUED_AFTER_LOST_WORKER,
+        )
         .returning(CvGenerationJob.id)
     )
     return list(result.scalars().all())
