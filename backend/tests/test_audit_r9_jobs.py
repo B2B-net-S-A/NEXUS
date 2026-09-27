@@ -135,3 +135,35 @@ async def test_mine_scope_lists_and_counts_live_assignments(
         assert after["mine"] == before["mine"] + 1
     finally:
         await _cleanup([live, released])
+
+
+# ── R9-N15-4 ─────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_closing_a_closed_job_is_refused_and_keeps_closed_at(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job, JobStatus
+
+    closed_at = datetime(2026, 3, 31, 12, 0, tzinfo=timezone.utc)
+    job_id = await _seed_job(
+        f"R9Close{uuid.uuid4().hex[:8]}",
+        status=JobStatus.closed,
+        closed_at=closed_at,
+    )
+    try:
+        response = await app_client.post(
+            f"/api/jobs/{job_id}/close",
+            json={"reason": "budget"},
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "job_already_closed"
+        async with AsyncSessionLocal() as db:
+            job = await db.get(Job, job_id)
+            assert job.closed_at == closed_at
+            assert job.close_reason is None
+    finally:
+        await _cleanup([job_id])

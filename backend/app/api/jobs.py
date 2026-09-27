@@ -2802,6 +2802,16 @@ async def close_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
+    if job.status == JobStatus.closed:
+        # Runda 9 (R9-N15-4): ponowne zamknięcie przestawiało `closed_at`,
+        # a hit ratio Ligi DL liczy rekrutacje zamknięte w kwartale po tej dacie.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "job_already_closed",
+                "message": "Rekrutacja jest już zamknięta.",
+            },
+        )
 
     job.status = JobStatus.closed
     job.closed_at = datetime.now(timezone.utc)
