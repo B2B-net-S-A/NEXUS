@@ -620,7 +620,8 @@ async def insights_team_activity(
     # Klucz NIESIE OKNO i `limit` — obcięta lista pod kluczem pełnej dałaby
     # liczby jednego zapytania pod etykietą drugiego.
     # v2 (24.09.2026): konta administracyjne poza rankingiem osób.
-    cache_key = f"insights:recruitment:team-activity:v2:{resolved.cache_suffix}:{limit}"
+    # v3 (runda 10): kolumny z prawdziwych źródeł.
+    cache_key = f"insights:recruitment:team-activity:v3:{resolved.cache_suffix}:{limit}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -677,15 +678,16 @@ async def insights_team_activity(
                 "placements": sum(r.placements for r in outside_rows),
             },
             "coverage": {
-                "source": "user_activities",
-                # Bez tego zdania pusty ranking czyta się jako „zespół nic nie
-                # robił". `user_activities` zapisuje wyłącznie czynności wykonane
-                # W NEXUSIE — import z Traffita nie tworzy tam ani jednego wiersza.
+                # Runda 10 (R10-N2-1): kolumny liczone z prawdziwych źródeł
+                # (opis w `services/insights_team_activity.py`).
+                "source": "mixed",
                 "note": (
-                    "Liczone są wyłącznie czynności wykonane w NEXUSIE. "
-                    "Ruch zaimportowany z Traffita nie zasila tej tabeli, więc "
-                    "zero przy osobie znaczy „nie pracowała w NEXUSIE”, "
-                    "a nie „nie pracowała”."
+                    "Kandydaci, screeningi, telefony i kolumna „Razem” to "
+                    "czynności wykonane w NEXUSIE. Rozmowy u klienta "
+                    "i placementy liczą pierwsze wejście pary na etap, "
+                    "przypisane osobie, która ją przesunęła — także ruchy "
+                    "z importu Traffita, tak jak w tabeli „Performance per "
+                    "osoba”."
                 ),
             },
         }

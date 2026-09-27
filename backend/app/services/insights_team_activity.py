@@ -21,6 +21,32 @@ Trzy rzeczy, które ten moduł ŚWIADOMIE zostawia routerom:
 3. **Procenty.** Legacy liczy je ``_safe_pct`` (zero przy zerowym mianowniku),
    Insights ``_ratio`` (``None``). Serwis zwraca WYŁĄCZNIE surowe liczniki,
    więc żadna z tych konwencji nie wycieka do drugiej powierzchni.
+
+Skąd biorą się kolumny (runda 10, R10-N2-1). Do 27.09.2026 cztery kolumny
+sumowały typy ``user_activities`` (``screening_done``, ``interview_scheduled``,
+``placement_closed``, ``call_made``), których NIC w kodzie nie zapisywało —
+tabela pokazywała stałe zera, a wiersz kont administracyjnych mówił
+„0 placementów” obok tabeli Zespołu z trzydziestoma. Teraz każda kolumna
+czyta swoje prawdziwe źródło:
+
+- **Kandydaci** — ``user_activities.candidate_added`` (to jest zapisywane),
+- **Screeningi** — zapisane arkusze screeningu (``activities.action =
+  'screening_answered'``, jeden etap = jeden screening, ponowny zapis tego
+  samego arkusza się nie dubluje),
+- **Rozmowy** — rozmowy u klienta: pierwsze wejście pary na etap
+  ``client_interview`` przypisane osobie, która je przesunęła
+  (``analytics_first_milestones.first_moved_by``) — ta sama reguła co
+  kolumna „Rozmowy u klienta” w „Performance per osoba” (``insights_team``),
+- **Placementy** — D2: pierwsze ``hired`` pary po ``first_moved_by``,
+  identycznie jak „Performance per osoba” obok (wykluczone placementy
+  odpadają w widoku),
+- **Telefony** — wiersze ``calls`` osoby (czas rozmowy, a bez niego zapisu).
+
+**Razem** = czynności wykonane w NEXUSIE: wiersze ``user_activities``
+(kandydaci, ruchy etapów, notatki, CV, czat) + zapisane screeningi +
+telefony. Rozmowy i placementy NIE wchodzą do sumy: ruch wykonany w NEXUSIE
+jest już policzony jako ``stage_changed``, a ruch z importu Traffita nie jest
+czynnością w NEXUSIE.
 """
 
 from __future__ import annotations
@@ -28,11 +54,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import case, func, select
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models.user import User
-from app.models.user_activity import UserActionType, UserActivity
 
 __all__ = ["TeamActivityRow", "compute_team_activity"]
 
@@ -51,8 +74,11 @@ class TeamActivityRow:
     total_actions: int
 
 
-def _sum_of(action: UserActionType):
-    return func.sum(case((UserActivity.action_type == action, 1), else_=0))
+def _window(column: str, *, bounded: bool) -> str:
+    clause = f"{column} >= :since"
+    if bounded:
+        clause += f" AND {column} < :until"
+    return clause
 
 
 async def compute_team_activity(
@@ -72,44 +98,89 @@ async def compute_team_activity(
             w praktyce „od poprzedniego miesiąca do dziś".
         limit: ilu użytkowników zwrócić.
     """
-    window = [UserActivity.created_at >= since]
-    if until is not None:
-        window.append(UserActivity.created_at < until)
-
-    per_user = (
-        select(
-            UserActivity.user_id,
-            _sum_of(UserActionType.candidate_added).label("candidates_added"),
-            _sum_of(UserActionType.screening_done).label("screenings"),
-            _sum_of(UserActionType.interview_scheduled).label("interviews"),
-            _sum_of(UserActionType.placement_closed).label("placements"),
-            _sum_of(UserActionType.call_made).label("calls"),
-            func.count(UserActivity.id).label("total_actions"),
+    bounded = until is not None
+    sql = f"""
+        WITH ua AS (
+            SELECT user_id,
+                   count(*) FILTER (
+                       WHERE action_type::text = 'candidate_added'
+                   ) AS candidates_added,
+                   count(*) AS ua_total
+            FROM user_activities
+            WHERE {_window("created_at", bounded=bounded)}
+            GROUP BY user_id
+        ),
+        scr AS (
+            SELECT user_id, count(DISTINCT entity_id) AS screenings
+            FROM activities
+            WHERE action = 'screening_answered'
+              AND entity_type = 'candidate_stage'
+              AND user_id IS NOT NULL
+              AND {_window("created_at", bounded=bounded)}
+            GROUP BY user_id
+        ),
+        ms AS (
+            SELECT first_moved_by AS user_id,
+                   count(*) FILTER (
+                       WHERE stage::text = 'client_interview'
+                   ) AS interviews,
+                   count(*) FILTER (WHERE stage::text = 'hired') AS placements
+            FROM analytics_first_milestones
+            WHERE first_moved_by IS NOT NULL
+              AND stage::text IN ('client_interview', 'hired')
+              AND {_window("first_reached_at", bounded=bounded)}
+            GROUP BY first_moved_by
+        ),
+        cl AS (
+            SELECT user_id, count(*) AS calls
+            FROM calls
+            WHERE user_id IS NOT NULL
+              AND {_window("COALESCE(started_at, created_at)", bounded=bounded)}
+            GROUP BY user_id
+        ),
+        ids AS (
+            SELECT user_id FROM ua
+            UNION SELECT user_id FROM scr
+            UNION SELECT user_id FROM ms
+            UNION SELECT user_id FROM cl
         )
-        .where(*window)
-        .group_by(UserActivity.user_id)
-        .subquery()
-    )
+        SELECT u.id,
+               u.name,
+               COALESCE(ua.candidates_added, 0) AS candidates_added,
+               COALESCE(scr.screenings, 0)      AS screenings,
+               COALESCE(ms.interviews, 0)       AS interviews,
+               COALESCE(ms.placements, 0)       AS placements,
+               COALESCE(cl.calls, 0)            AS calls,
+               COALESCE(ua.ua_total, 0)
+                 + COALESCE(scr.screenings, 0)
+                 + COALESCE(cl.calls, 0)        AS total_actions
+        FROM ids
+        JOIN users u ON u.id = ids.user_id
+        LEFT JOIN ua  ON ua.user_id  = ids.user_id
+        LEFT JOIN scr ON scr.user_id = ids.user_id
+        LEFT JOIN ms  ON ms.user_id  = ids.user_id
+        LEFT JOIN cl  ON cl.user_id  = ids.user_id
+        ORDER BY total_actions DESC,
+                 COALESCE(ms.placements, 0) DESC,
+                 u.id
+        LIMIT :limit
+    """
+    params: dict = {"since": since, "limit": limit}
+    if bounded:
+        params["until"] = until
 
-    rows = (
-        await db.execute(
-            select(User.id, User.name, per_user)
-            .join(per_user, User.id == per_user.c.user_id)
-            .order_by(per_user.c.total_actions.desc())
-            .limit(limit)
-        )
-    ).all()
+    rows = (await db.execute(text(sql), params)).mappings().all()
 
     return [
         TeamActivityRow(
-            user_id=int(r.id),
-            user_name=r.name,
-            candidates_added=int(r.candidates_added or 0),
-            screenings=int(r.screenings or 0),
-            interviews=int(r.interviews or 0),
-            placements=int(r.placements or 0),
-            calls=int(r.calls or 0),
-            total_actions=int(r.total_actions or 0),
+            user_id=int(r["id"]),
+            user_name=r["name"],
+            candidates_added=int(r["candidates_added"] or 0),
+            screenings=int(r["screenings"] or 0),
+            interviews=int(r["interviews"] or 0),
+            placements=int(r["placements"] or 0),
+            calls=int(r["calls"] or 0),
+            total_actions=int(r["total_actions"] or 0),
         )
         for r in rows
     ]
