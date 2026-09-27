@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import pathlib
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -72,6 +73,38 @@ WORK_MODES = ("remote", "hybrid", "onsite", "any")
 RATE_MIN = Decimal("1")
 RATE_MAX = Decimal("10000")
 CITY_MAX = 120
+
+
+# Runda 10 (R10-N10-7): `content_type` części multipart pisze przeglądarka
+# (albo skrypt) — ponad 100 znaków (`String(100)` w obu tabelach) dawało 500,
+# a w gałęzi nowego kandydata plik CV zostawał już zapisany na dysku. Do bazy
+# idzie wyłącznie typ z białej listy albo typ wyprowadzony z rozszerzenia.
+_CV_TYPE_BY_EXT = {
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx": (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ),
+}
+
+
+def cv_content_type(cv: UploadFile) -> str:
+    """MIME CV do zapisu: z białej listy formularza albo z rozszerzenia."""
+    from app.api import public_share
+
+    declared = (cv.content_type or "").split(";", 1)[0].strip().lower()
+    if declared in public_share._ALLOWED_CV_MIME:
+        return declared
+    ext = pathlib.PurePath((cv.filename or "").lower()).suffix
+    return _CV_TYPE_BY_EXT.get(ext, "application/octet-stream")
+
+
+def cv_display_filename(cv: UploadFile) -> str:
+    """Nazwa CV do zapisu w bazie — bez katalogów, przycięta jak na dysku."""
+    from app.api import public_share
+
+    name = pathlib.PurePath((cv.filename or "").strip().replace("\\", "/")).name
+    return public_share._fit_filename(name or "cv.pdf")
 
 
 def field_error(field_name: str, message: str, value: Any = None) -> HTTPException:
@@ -379,8 +412,8 @@ async def _record_duplicate_application(
         matched_candidate_id=existing.id,
         cv_object_key=object_key,
         cv_file_content=cv_bytes,
-        cv_filename=(cv.filename or "cv.pdf"),
-        cv_content_type=cv.content_type,
+        cv_filename=cv_display_filename(cv),
+        cv_content_type=cv_content_type(cv),
         cv_size_bytes=len(content),
         raw_cv_text=raw_text,
         raw_payload={
@@ -550,7 +583,7 @@ async def _create_candidate(
             candidate_id=candidate.id,
             filename=stored_filename,
             file_content=content,
-            content_type=cv.content_type,
+            content_type=cv_content_type(cv),
             size_bytes=len(content),
             document_kind=CandidateDocumentKind.cv,
             is_primary=True,

@@ -608,6 +608,7 @@ async def test_apply_requires_consent_and_honeypot_is_silent(api):
 async def test_legacy_apply_endpoint_now_requires_consent(api):
     _, headers, job_id = await _owner_with_job(api)
     token = (await _create_job_link(api, headers, job_id))["token"]
+    assert (await _approve(api, headers, job_id)).status_code == 200
     resp = await api.post(
         f"/api/public/apply/{token}",
         data={
@@ -619,6 +620,31 @@ async def test_legacy_apply_endpoint_now_requires_consent(api):
     )
     assert resp.status_code == 422
     assert resp.json()["detail"][0]["loc"] == ["body", "consent"]
+
+
+async def test_legacy_apply_link_without_approved_profile_is_404(api):
+    """R10-N10-9: stary `/apply/{token}` stosuje regułę `/r/{slug}` — bez
+    zatwierdzonego opisu nie pokazuje tytułu i nie przyjmuje zgłoszeń."""
+    _, headers, job_id = await _owner_with_job(api)
+    token = (await _create_job_link(api, headers, job_id))["token"]
+
+    meta = await api.get(f"/api/public/apply/{token}")
+    assert meta.status_code == 404
+    applied = await api.post(
+        f"/api/public/apply/{token}",
+        data={
+            "first_name": "Ola",
+            "last_name": "Szkic",
+            "email": f"draft-{uuid.uuid4().hex[:6]}@example.com",
+            "consent": "true",
+        },
+        files=_cv(),
+    )
+    assert applied.status_code == 404
+
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    approved = await api.get(f"/api/public/apply/{token}")
+    assert approved.status_code == 200, approved.text
 
 
 async def test_apply_via_unknown_or_unapproved_link_is_404(api):

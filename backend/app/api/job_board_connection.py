@@ -201,19 +201,29 @@ async def callback(
     if not code or not state:
         return RedirectResponse(_settings_url("error", "Brak kodu logowania."), 302)
     try:
-        user_id, verifier = jjit_connection.verify_state(state)
+        parsed = jjit_connection.verify_state(state)
     except (JWTError, KeyError, ValueError):
         return RedirectResponse(
             _settings_url("error", "Logowanie wygasło — spróbuj ponownie."), 302
         )
-    user = await db.get(User, user_id)
+    user = await db.get(User, parsed.user_id)
     if user is None or not user.is_active or not user.has_role(UserRole.admin):
         return RedirectResponse(
             _settings_url("error", "Konto portalu łączy wyłącznie administrator."), 302
         )
+    # Runda 10 (R10-N10-8): `state` jest jednorazowy — drugi powrót z tym
+    # samym `state` (np. z adresu z historii admina) nie podepnie konta.
+    if not await jjit_connection.consume_state(db, parsed):
+        await db.rollback()
+        return RedirectResponse(
+            _settings_url(
+                "error", "Ten link logowania został już użyty — spróbuj ponownie."
+            ),
+            302,
+        )
     try:
         await jjit_connection.exchange_code(
-            db, code=code, verifier=verifier, user_id=user.id
+            db, code=code, verifier=parsed.verifier, user_id=user.id
         )
     except PortalError as exc:
         await db.rollback()
