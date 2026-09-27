@@ -532,6 +532,7 @@ async def canonical_search(
     from app.services.champion_intake import enforce_operation
     from app.services.dealbreaker_filters import DealbreakerResult
     from app.services.embedding_service import SemanticSearchUnavailable
+    from app.services.hybrid_search import build_job_bm25_query, build_job_must_groups
     from app.services.request_matching_context import build_request_context
     from app.services.requirement_contract import search_dealbreaker_inputs
     from app.services.scoring_service import resolve_active_profile
@@ -561,6 +562,11 @@ async def canonical_search(
             raise_on_error=True,
             # Kolejność i tak nadpisuje kanoniczny fit (jak `/ai-matches`).
             use_rerank=False,
+            # 0278: jawne must-have oferty efemerycznej i noga BM25 — jak
+            # ścieżka legacy, żeby pula była ta sama, a różnił się tylko wynik.
+            query_variants=build_job_query_variants(job, context.query_text),
+            bm25_query=build_job_bm25_query(job),
+            must_groups=build_job_must_groups(job),
         )
     except SemanticSearchUnavailable as exc:
         logger.warning("[talent-radar] retrieval niedostępny: %s", exc)

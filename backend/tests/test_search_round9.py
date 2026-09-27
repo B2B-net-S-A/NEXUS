@@ -319,7 +319,7 @@ async def test_r9_n5_4_canonical_radar_uses_search_policy_and_canonical_fit(
     cands = [_cand(1), _cand(2), _cand(3)]
     seen = {}
 
-    async def pool(db, text, *, top_k, raise_on_error, use_rerank):
+    async def pool(db, text, *, top_k, raise_on_error, use_rerank, **_kw):
         seen["pool_text"] = text
         return [{"candidate_id": c.id, "score": 0.9} for c in cands]
 

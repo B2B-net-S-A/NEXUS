@@ -81,7 +81,7 @@ async def test_patch_to_taken_email_returns_409_not_500(
     # Własny, niezmieniony adres przechodzi.
     same = await app_client.patch(
         f"/api/candidates/{first.json()['id']}",
-        json={"email": taken, "city": "Gdańsk"},
+        json={"email": taken, "notice_period": 30, "notice_period_unit": "days"},
         headers=app_auth_headers,
     )
     assert same.status_code == 200, same.text

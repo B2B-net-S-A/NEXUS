@@ -384,6 +384,17 @@ def cv_experience_entries(parsed: dict) -> list[dict]:
     ]
 
 
+def _loaded_flag(obj, name: str) -> bool:
+    """Wartość kolumny tylko wtedy, gdy jest już wczytana — odczyt niewczytanej
+    (``load_only`` wołającego) w sesji async to ``MissingGreenlet``."""
+    from sqlalchemy import inspect as sa_inspect
+
+    state = sa_inspect(obj, raiseerr=False)
+    if state is not None and name in state.unloaded:
+        return False
+    return bool(getattr(obj, name, False))
+
+
 def _apply_cv_enrichment(
     candidate: Candidate,
     parsed: dict,
@@ -439,7 +450,7 @@ def _apply_cv_enrichment(
         # Runda 9 (R9-N8-11): umiejętności poprawione ręcznie przed znacznikiem
         # blokady (0280) są tak samo chronione — także przy REFRESH, inaczej
         # nowy odczyt CV wskrzeszał usunięte przez rekrutera pozycje.
-        if field == "skills" and getattr(candidate, "skills_manually_curated", False):
+        if field == "skills" and _loaded_flag(candidate, "skills_manually_curated"):
             return False
         if policy is CvWritePolicy.REFRESH:
             return True

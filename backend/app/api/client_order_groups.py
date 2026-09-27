@@ -43,7 +43,8 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from starlette.concurrency import run_in_threadpool
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import case as sa_case
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -94,7 +95,7 @@ from app.models.client_order_offboarding import (
     OFFBOARDING_STATUS_RESOLVED,
     ClientOrderOffboardingCase,
 )
-from app.models.dl_alert import ALERT_MD_CONSULTANT_ENDED
+from app.models.dl_alert import ALERT_MD_CONSULTANT_ENDED, DlAlert
 from app.models.md_consumption import (
     CONSUMPTION_SOURCE_MANUAL,
     IMPORT_ROW_APPLIED,
@@ -4054,16 +4055,42 @@ async def _delete_line_row(db: AsyncSession, line: ClientOrder) -> str | None:
     # Runda 9 (R9-N12-7): sprawy offboardingu tej linii znikają kaskadą FK,
     # a karta DL ma ``offboarding_case_id`` z ``SET NULL`` — bez zamknięcia
     # przed kasowaniem zostawała w panelu na zawsze.
-    for case_id in (
+    case_ids = (
         await db.scalars(
             select(ClientOrderOffboardingCase.id).where(
                 ClientOrderOffboardingCase.order_id == line.id
             )
         )
-    ).all():
+    ).all()
+    for case_id in case_ids:
         await resolve_entity_alerts(
             db, alert_type=ALERT_MD_CONSULTANT_ENDED, entity_key=f"case:{case_id}"
         )
+    # Karta DL wskazuje i linię, i sprawę: przy kasowaniu linii obie akcje
+    # SET NULL biegną w jednej instrukcji, a UPDATE z pierwszej sprawdza FK
+    # sprawy już skasowanej kaskadą (ForeignKeyViolation → 500). Odpinamy
+    # kartę jawnie, zanim linia zniknie.
+    alert_links = [DlAlert.order_id == line.id]
+    if case_ids:
+        alert_links.append(DlAlert.offboarding_case_id.in_(case_ids))
+    await db.execute(
+        update(DlAlert)
+        .where(or_(*alert_links))
+        .values(
+            order_id=sa_case(
+                (DlAlert.order_id == line.id, None), else_=DlAlert.order_id
+            ),
+            offboarding_case_id=(
+                sa_case(
+                    (DlAlert.offboarding_case_id.in_(case_ids), None),
+                    else_=DlAlert.offboarding_case_id,
+                )
+                if case_ids
+                else DlAlert.offboarding_case_id
+            ),
+        )
+        .execution_options(synchronize_session=False)
+    )
     # audyt 22.09 r2 (FIN-02): krok stawki zdejmowany PRZED kaskadą w bazie.
     await detach_order_rate_steps(db, line)
     await db.delete(line)

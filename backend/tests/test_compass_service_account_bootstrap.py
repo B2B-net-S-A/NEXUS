@@ -129,7 +129,9 @@ async def test_deleted_account_is_not_recreated_from_env(monkeypatch):
         ).scalar_one()
         # Kasujemy sam klucz (jak kaskada z DELETE konta) — konto zostaje,
         # bo dzielą je inne testy na wspólnej bazie.
-        await db.execute(delete(ServiceAccountKey).where(ServiceAccountKey.id == row.id))
+        await db.execute(
+            delete(ServiceAccountKey).where(ServiceAccountKey.key_id == row.key_id)
+        )
         await db.commit()
 
     async with AsyncSessionLocal() as db:
