@@ -1617,9 +1617,27 @@ async def seeking_contractors(
                     ]
                 ),
                 Candidate.status != CandidateStatus.blacklisted,
+                # R10-N7-5: „tylko umowa o pracę" nie jest kandydatem do
+                # żadnej rekrutacji (pracujemy na B2B) — lustro dealbreakera.
+                Candidate.b2b_willingness.is_distinct_from("employment_only"),
             )
         )
         looking_ids = {row[0] for row in looking_rows.all()}
+    if ending_meta:
+        employment_only = set(
+            (
+                await db.execute(
+                    select(Candidate.id).where(
+                        Candidate.id.in_(list(ending_meta)),
+                        Candidate.b2b_willingness == "employment_only",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for cid in employment_only:
+            ending_meta.pop(cid, None)
 
     # Pełna pula PRZED obcięciem — `total` musi opisywać ilu jest konsultantów,
     # nie ile ich zmieściło się na stronie. Wcześniej `total` liczyło już
@@ -1726,6 +1744,19 @@ async def seeking_contractors(
     # ładowane hurtowo raz na stronę. Kolejność wierszy i wyniki bez zmian.
     page_candidate_ids = [c.id for c in candidates]
     conflicts_by_candidate = await load_active_conflicts_bulk(db, page_candidate_ids)
+    # R10-N7-5: rekrutacje, w których osoba już jest (także odrzucona), nie są
+    # „dopasowaniem" — lustro `/candidates/{id}/recommendations`. Jedno
+    # zapytanie na stronę.
+    staged_pairs: set[tuple[int, int]] = {
+        (int(cid), int(jid))
+        for cid, jid in (
+            await db.execute(
+                select(CandidateStage.candidate_id, CandidateStage.job_id)
+                .where(CandidateStage.candidate_id.in_(page_candidate_ids))
+                .distinct()
+            )
+        ).all()
+    }
     scoring_contexts = await build_jobs_scoring_contexts(
         db, all_open_jobs, page_candidate_ids
     )
@@ -1775,6 +1806,7 @@ async def seeking_contractors(
             # Pusty wiersz z flagą degradacji jest uczciwszy niż wiersz
             # wypełniony losowymi ofertami.
             scoring_pool = []
+        scoring_pool = [j for j in scoring_pool if (cand.id, j.id) not in staged_pairs]
 
         # 2b. Apply user filters (incl. industry_blocklist via CandidateConflict)
         filtered, _stats = await apply_user_filters(
