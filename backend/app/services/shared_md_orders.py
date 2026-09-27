@@ -163,6 +163,10 @@ async def settle_shared_md_group(db: AsyncSession, group: ClientOrderGroup) -> D
         group.status = GROUP_STATUS_EXHAUSTED
     elif group.status == GROUP_STATUS_EXHAUSTED and remaining > ZERO:
         group.status = GROUP_STATUS_ACTIVE
+        # Runda 9 (R9-N12-9): budżet wrócił — karta „wyczerpane" znika.
+        from app.services.dl_alerts import resolve_budget_exhausted_alerts
+
+        await resolve_budget_exhausted_alerts(db, group.id)
     return remaining
 
 

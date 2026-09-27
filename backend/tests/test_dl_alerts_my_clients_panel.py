@@ -1170,3 +1170,155 @@ async def test_draft_lines_waiting_for_their_group_are_not_without_an_order(
     }
     assert alerted == expected
     assert not alerted & excluded
+
+
+async def test_exhausted_card_closes_when_the_cost_budget_is_raised():
+    """Runda 9 (R9-N12-9): zamówienie z powrotem ``active`` = karta znika."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_group import (
+        GROUP_STATUS_ACTIVE,
+        GROUP_STATUS_EXHAUSTED,
+        ClientOrderGroup,
+    )
+    from app.models.dl_alert import ALERT_COST_ORDER_EXHAUSTED
+    from app.models.md_consumption import ClientOrderInvoiceConsumption
+    from app.services.cost_orders import settle_group
+    from app.services.dl_alerts import emit_cost_order_exhausted
+
+    client_id = await _seed_client()
+    user_id, _, _ = await _seed_dl(client_id)
+    contract_id, _ = await _seed_contract(client_id)
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=client_id,
+            order_number=f"KOSZT-{uuid.uuid4().hex[:6]}",
+            start_date=date(2026, 9, 1),
+            status=GROUP_STATUS_ACTIVE,
+            is_cost_based=True,
+            budget_amount=Decimal("1000.00"),
+            budget_remaining=Decimal("1000.00"),
+        )
+        db.add(group)
+        await db.flush()
+        line = ClientOrder(
+            client_id=client_id,
+            contract_id=contract_id,
+            title=group.order_number,
+            status=ClientOrderStatus.active,
+            order_group_id=group.id,
+            start_date=date(2026, 9, 1),
+        )
+        db.add(line)
+        await db.flush()
+        db.add(
+            ClientOrderInvoiceConsumption(
+                order_id=line.id,
+                period_month="2026-09",
+                invoice_amount=Decimal("1000.00"),
+                source="import",
+            )
+        )
+        await db.flush()
+        await settle_group(db, group)
+        assert group.status == GROUP_STATUS_EXHAUSTED
+        await emit_cost_order_exhausted(db, group)
+        await db.commit()
+        group_id = group.id
+
+    assert [r.status for r in await _alerts(user_id, ALERT_COST_ORDER_EXHAUSTED)] == [
+        "new"
+    ]
+
+    async with AsyncSessionLocal() as db:
+        group = await db.get(ClientOrderGroup, group_id)
+        group.budget_amount = Decimal("2000.00")
+        await settle_group(db, group)
+        assert group.status == GROUP_STATUS_ACTIVE
+        await db.commit()
+
+    rows = await _alerts(user_id, ALERT_COST_ORDER_EXHAUSTED)
+    assert [r.status for r in rows] == ["resolved"]
+    assert rows[0].handled_by_user_id is None
+
+
+async def test_deleting_a_line_closes_its_md_decision_card():
+    """Runda 9 (R9-N12-7): sprawa offboardingu znika kaskadą, karta też.
+
+    ``dl_alerts.offboarding_case_id`` ma ``SET NULL``, więc karta
+    „decyzja MD po zakończeniu” zostawała w panelu na zawsze.
+    """
+    from app.api.client_order_groups import _delete_line_row
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_group import GROUP_STATUS_ACTIVE, ClientOrderGroup
+    from app.models.client_order_offboarding import (
+        OFFBOARDING_RESOLUTION_RESTORE,
+        OFFBOARDING_STATUS_RESOLVED,
+        ClientOrderOffboardingCase,
+    )
+    from app.models.dl_alert import ALERT_MD_CONSULTANT_ENDED
+    from app.services.dl_alerts import emit_md_consultant_ended
+
+    client_id = await _seed_client()
+    user_id, _, _ = await _seed_dl(client_id)
+    contract_id, _ = await _seed_contract(client_id)
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=client_id,
+            order_number=f"MD-{uuid.uuid4().hex[:6]}",
+            start_date=date(2026, 9, 1),
+            status=GROUP_STATUS_ACTIVE,
+            order_type="md",
+        )
+        db.add(group)
+        await db.flush()
+        line = ClientOrder(
+            client_id=client_id,
+            contract_id=contract_id,
+            title=group.order_number,
+            status=ClientOrderStatus.active,
+            order_group_id=group.id,
+            start_date=date(2026, 9, 1),
+        )
+        db.add(line)
+        await db.flush()
+        case = ClientOrderOffboardingCase(
+            contract_id=contract_id,
+            order_id=line.id,
+            order_group_id=group.id,
+            client_id=client_id,
+            effective_date=_TODAY,
+            status=OFFBOARDING_STATUS_RESOLVED,
+            resolution=OFFBOARDING_RESOLUTION_RESTORE,
+            resolved_at=datetime.now(timezone.utc),
+            uses_shared_md_pool=False,
+            remaining_md_snapshot=Decimal("10"),
+            order_number_snapshot=group.order_number,
+        )
+        db.add(case)
+        await db.flush()
+        await emit_md_consultant_ended(
+            db,
+            case_id=case.id,
+            client_id=client_id,
+            order_id=line.id,
+            order_group_id=group.id,
+            order_number=group.order_number,
+            consultant_name="Anna T.",
+            effective_date=_TODAY,
+            remaining_md=Decimal("10"),
+            uses_shared_md_pool=False,
+        )
+        await db.commit()
+        line_id = line.id
+
+    assert [r.status for r in await _alerts(user_id, ALERT_MD_CONSULTANT_ENDED)] == [
+        "new"
+    ]
+    async with AsyncSessionLocal() as db:
+        line = await db.get(ClientOrder, line_id)
+        await _delete_line_row(db, line)
+        await db.commit()
+    rows = await _alerts(user_id, ALERT_MD_CONSULTANT_ENDED)
+    assert [r.status for r in rows] == ["resolved"]

@@ -590,6 +590,26 @@ async def _emit_budget_exhausted(
     )
 
 
+async def resolve_budget_exhausted_alerts(
+    db: AsyncSession, group_id: int, *, now: Optional[datetime] = None
+) -> int:
+    """Zamknij karty „zamówienie wyczerpane" grupy, która znów ma budżet.
+
+    Runda 9 (R9-N12-9): ``settle_group`` / ``settle_shared_md_group`` wracały
+    z ``exhausted`` na ``active`` (podniesiona kwota, korekta importu), a karta
+    zostawała otwarta — DL widział „wyczerpane" przy zamówieniu, które
+    pracuje. Klucz niesie numer epizodu (``group:{id}:ep:{n}``), więc prefiks
+    ``group:{id}:`` zamyka karty wszystkich epizodów; kolejne wyczerpanie to
+    nowy epizod i nowa karta.
+    """
+    return await resolve_entity_alerts(
+        db,
+        alert_type=ALERT_COST_ORDER_EXHAUSTED,
+        entity_key=f"group:{group_id}",
+        now=now,
+    )
+
+
 async def reconcile_exhausted_group_budget_alerts(db: AsyncSession) -> int:
     """Backstop: dostarcz alert wyczerpania, który przepadł przy braku DL.
 
