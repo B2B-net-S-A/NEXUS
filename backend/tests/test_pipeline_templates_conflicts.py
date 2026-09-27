@@ -23,7 +23,9 @@ from app.api import pipeline_templates
 
 class _Orig(Exception):
     def __init__(self, sqlstate: str) -> None:
-        super().__init__("duplicate key value violates unique constraint ... (name)=(x)")
+        super().__init__(
+            "duplicate key value violates unique constraint ... (name)=(x)"
+        )
         self.sqlstate = sqlstate
 
 
@@ -58,7 +60,9 @@ async def test_integrity_error_becomes_polish_409_without_sql():
 async def test_missing_reference_is_named_as_such():
     exc = IntegrityError("INSERT ...", {}, _Orig("23503"))
     with pytest.raises(HTTPException) as raised:
-        await pipeline_templates._write_or_conflict(_FakeDb(exc), "Nazwa zajęta.", flush=True)
+        await pipeline_templates._write_or_conflict(
+            _FakeDb(exc), "Nazwa zajęta.", flush=True
+        )
     assert raised.value.status_code == 409
     assert "nie istnieje" in raised.value.detail
 

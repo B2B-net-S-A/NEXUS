@@ -76,7 +76,9 @@ async def _write_or_conflict(db: AsyncSession, detail: str, *, flush: bool = Fal
             sqlstate,
         )
         if sqlstate == _FOREIGN_KEY_VIOLATION:
-            raise HTTPException(status_code=409, detail=_MISSING_REFERENCE_DETAIL) from exc
+            raise HTTPException(
+                status_code=409, detail=_MISSING_REFERENCE_DETAIL
+            ) from exc
         raise HTTPException(status_code=409, detail=detail) from exc
 
 

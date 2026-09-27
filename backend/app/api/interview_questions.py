@@ -19,6 +19,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, desc, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -37,11 +38,35 @@ from app.models.interview_question import (
 )
 from app.models.job import Job
 from app.models.user import User, UserRole
+from app.services.client_access import assert_client_assignable
 from app.services.question_suggestions import suggest_questions_for_prep
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 _WHITESPACE_RE = re.compile(r"\s+")
+
+
+# Runda 9 (R9-X2-1): pytanie klienta z debriefu albo z archiwum rozmów (0383)
+# jest przypięte do klienta, który je zadał — przepięcie na innego klienta albo
+# do banku globalnego (client_id=NULL) wpuszczałoby je do prep-kitów innych
+# klientów.
+_CLIENT_BOUND_SOURCES = frozenset(
+    {InterviewQuestionSource.client_debrief, InterviewQuestionSource.legacy_import}
+)
+_FOREIGN_KEY_VIOLATION = "23503"
+
+
+def _can_manage_question(iq: InterviewQuestion, user: User) -> bool:
+    """Autor zawsze; cudze pytanie — admin; pytanie bez autora (import archiwum,
+    debrief zapisany przez system) — admin albo Head of Recruitment.
+
+    Runda 9 (R9-X2-1): do tej zmiany pytanie z ``created_by = NULL`` edytował
+    i usuwał każdy z zapisem Pipeline."""
+    if user.has_role(UserRole.admin):
+        return True
+    if iq.created_by is None:
+        return user.has_role(UserRole.head_of_recruitment)
+    return iq.created_by == user.id
 
 
 def _normalize_hash(text: str) -> str:
@@ -189,6 +214,7 @@ async def create_question(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> InterviewQuestionOut:
+    await assert_client_assignable(db, payload.client_id)
     # Dedup — jeśli hash już istnieje w tym samym scope, zwróć istniejące
     norm_hash = _normalize_hash(payload.text)
     if payload.client_id is None:
@@ -326,16 +352,23 @@ async def update_question(
     if not iq:
         raise HTTPException(status_code=404, detail="Nie znaleziono pytania")
 
-    # Autoryzacja: tylko autor lub admin edytuje
-    if iq.created_by not in (None, current_user.id) and not current_user.has_role(
-        UserRole.admin
-    ):
+    if not _can_manage_question(iq, current_user):
         raise HTTPException(
             status_code=403,
             detail="Tylko autor pytania lub admin może edytować",
         )
 
     data = payload.model_dump(exclude_unset=True)
+    if "client_id" in data and data["client_id"] != iq.client_id:
+        if iq.source in _CLIENT_BOUND_SOURCES:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Pytanie zadane przez klienta zostaje przy tym kliencie — "
+                    "nie można przenieść go do innego klienta ani do banku ogólnego."
+                ),
+            )
+        await assert_client_assignable(db, data["client_id"])
     if "text" in data and data["text"]:
         iq.text = data["text"].strip()
         iq.normalized_text_hash = _normalize_hash(iq.text)
@@ -351,7 +384,20 @@ async def update_question(
         if field in data:
             setattr(iq, field, data[field])
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        orig = getattr(exc, "orig", None)
+        sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+        if sqlstate == _FOREIGN_KEY_VIOLATION:
+            raise HTTPException(
+                status_code=422, detail="Wskazany klient albo kategoria nie istnieje."
+            ) from exc
+        raise HTTPException(
+            status_code=409,
+            detail="Takie pytanie jest już w banku dla tego klienta.",
+        ) from exc
     await db.refresh(iq)
     votes = await _count_votes(db, [iq.id])
     v = votes.get(iq.id, {"up": 0, "down": 0})
@@ -369,9 +415,7 @@ async def delete_question(
     iq = await db.get(InterviewQuestion, question_id)
     if not iq:
         raise HTTPException(status_code=404, detail="Nie znaleziono pytania")
-    if iq.created_by not in (None, current_user.id) and not current_user.has_role(
-        UserRole.admin
-    ):
+    if not _can_manage_question(iq, current_user):
         raise HTTPException(status_code=403, detail="Tylko autor lub admin może usunąć")
     await db.delete(iq)
     await db.commit()
