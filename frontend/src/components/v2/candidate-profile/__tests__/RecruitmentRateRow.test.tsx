@@ -13,12 +13,12 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { useAuthStore } from "@/store/auth";
-import { RecruitmentRateRow } from "../RecruitmentsTab";
+import { RecruitmentRateRow, type ClientRateAccess } from "../RecruitmentsTab";
 
 const clientRate = { value: 190, unit: "hourly", currency: "PLN" };
 const expectedRate = { value: 150, unit: "hourly", currency: "PLN" };
 
-function renderAs(roles: string[]) {
+function renderAs(roles: string[], clientRateAccess?: ClientRateAccess) {
   useAuthStore.setState({
     user: {
       id: 1,
@@ -36,6 +36,7 @@ function renderAs(roles: string[]) {
         jobId={2}
         clientRate={clientRate}
         expectedRate={expectedRate}
+        clientRateAccess={clientRateAccess}
       />
     </QueryClientProvider>,
   );
@@ -74,5 +75,26 @@ describe("RecruitmentRateRow — stawka do klienta wg roli", () => {
   it("rekruter z dodatkową rolą DL widzi stawkę do klienta", () => {
     renderAs(["recruiter", "delivery_lead"]);
     expect(screen.getByText("Stawka do klienta")).toBeInTheDocument();
+  });
+});
+
+// Runda 10 (R10-X2-3): flagi z odpowiedzi `/history` wygrywają z rolą — serwer
+// liczy też zapis w sekcji, którego przeglądarka nie zna.
+describe("RecruitmentRateRow — flagi serwera", () => {
+  it("DL bez zapisu w sekcji (can_write_client_rate=false) nie edytuje stawki", () => {
+    renderAs(["delivery_lead"], { canView: true, canWrite: false });
+    expect(screen.getByText("Stawka do klienta")).toBeInTheDocument();
+    expect(screen.queryByTestId("client-rate-edit")).not.toBeInTheDocument();
+  });
+
+  it("serwer chowa stawkę do klienta mimo roli (can_view_client_rate=false)", () => {
+    renderAs(["delivery_lead"], { canView: false, canWrite: false });
+    expect(screen.queryByText("Stawka do klienta")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Marża/)).not.toBeInTheDocument();
+  });
+
+  it("brak flag w odpowiedzi — zapas z roli", () => {
+    renderAs(["delivery_lead"], { canView: null, canWrite: undefined });
+    expect(screen.getByTestId("client-rate-edit")).toBeInTheDocument();
   });
 });

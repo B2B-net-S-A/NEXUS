@@ -11,7 +11,13 @@ import {
 } from "./candidate-query-keys";
 
 export type CandidateHistoryResponse =
-  | { jobs?: unknown[]; contracts?: unknown[] }
+  | {
+      jobs?: unknown[];
+      contracts?: unknown[];
+      /** Serwer liczy z roli i sekcji (`_candidate_history_response_for_user`). */
+      can_view_client_rate?: boolean;
+      can_write_client_rate?: boolean;
+    }
   | unknown[];
 
 /**
