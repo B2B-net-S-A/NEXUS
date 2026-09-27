@@ -179,3 +179,67 @@ async def test_missing_person_has_no_default_denominator():
             db, [user_id], date(1999, 1, 1), date(1999, 1, 31)
         )
     assert got == {}
+
+
+@pytest.mark.asyncio
+async def test_duplicate_rows_for_the_same_period_do_not_break_the_upsert(monkeypatch):
+    """Runda 9 (R9-N9-7): powtórzony wiersz osoby i okresu nie wywraca przebiegu.
+
+    Do rundy 9 dwa wiersze tego samego klucza w jednym INSERT … ON CONFLICT
+    dawały „cannot affect row a second time” — cały przebieg padał. Te same
+    liczby są zlewane, sprzeczne liczby pomijane (bez zgadywania).
+    """
+    same = f"wd-dup-{uuid.uuid4().hex[:8]}@b2bnetwork.pl"
+    clash = f"wd-clash-{uuid.uuid4().hex[:8]}@b2bnetwork.pl"
+    same_id = await _seed_user(same)
+    clash_id = await _seed_user(clash)
+
+    def _row(email, working):
+        return {
+            "email": email,
+            "period_start": "2026-07-01",
+            "period_end": "2026-07-31",
+            "business_days": 23,
+            "absence_days": 23 - working,
+            "working_days": working,
+        }
+
+    async def fake_fetch(date_from, date_to, bucket="month"):
+        return {
+            "basis": "business_days_minus_approved_leave",
+            "people": [
+                _row(same, 20),
+                _row(same.upper(), 20),
+                _row(clash, 20),
+                _row(clash, 15),
+            ],
+        }
+
+    monkeypatch.setattr(insights_workdays.settings, "COMPASS_WORKDAYS_ENABLED", True)
+    monkeypatch.setattr(insights_workdays.settings, "COMPASS_WORKDAYS_URL", "http://x")
+    monkeypatch.setattr(insights_workdays.settings, "COMPASS_WORKDAYS_SECRET", "s")
+    monkeypatch.setattr(insights_workdays, "fetch_workdays", fake_fetch)
+
+    async with AsyncSessionLocal() as db:
+        result = await insights_workdays.sync_workdays(
+            db, date(2026, 7, 1), date(2026, 7, 1)
+        )
+        assert result.error is None
+        assert result.rows_written == 1
+        assert result.duplicate_rows == 2
+        assert result.conflicting_periods == 1
+
+        from sqlalchemy import select
+
+        written = (
+            (
+                await db.execute(
+                    select(UserWorkdayPeriod.user_id).where(
+                        UserWorkdayPeriod.user_id.in_([same_id, clash_id])
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert written == [same_id]

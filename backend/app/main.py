@@ -2233,6 +2233,31 @@ async def api_health_check():
         except Exception:
             checks["compass_lifecycle"] = "degraded"
 
+    # Runda 9 (R9-N9-9): klucze kont serwisowych — aktywne konto bez ważnego
+    # klucza albo z kluczem wygasającym w 14 dni = `degraded`. Informacyjna,
+    # nie zmienia `status` (patrz `services/service_account_health.py`).
+    if not settings.SERVICE_ACCOUNTS_ENABLED:
+        checks["service_account_keys"] = "disabled"
+    else:
+        try:
+            from datetime import datetime as _dt
+            from datetime import timezone as _tz
+
+            from app.services.service_account_health import (
+                load_latest_valid_expiry,
+                service_account_keys_verdict,
+            )
+
+            async with AsyncSessionLocal() as session:
+                _expiries = await asyncio.wait_for(
+                    load_latest_valid_expiry(session), timeout=1.0
+                )
+            checks["service_account_keys"] = service_account_keys_verdict(
+                _expiries, now=_dt.now(_tz.utc)
+            )
+        except Exception:  # noqa: BLE001 — sonda informacyjna
+            checks["service_account_keys"] = "degraded"
+
     # Qdrant — patrz `_probe_qdrant` po uzasadnienie kształtu tej sondy.
     #
     # Nigdy nie przestawia `overall` ani kodu HTTP: utrata wektorów to utrata

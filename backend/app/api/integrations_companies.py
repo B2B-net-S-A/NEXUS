@@ -423,9 +423,11 @@ async def _resolve_client(
     # folded into another. Matching either would hand back an id whose contracts
     # live on the surviving row, so `via_us` would silently come back empty.
     # Ordering puts the canonical row first when a name still matches several.
+    # Runda 9 (R9-N9-5): a deleted client (`deleted_at`) is not a NEXUS client
+    # any more — CRM must not be told the company is ours.
     labels = (
         select(Client.id, Client.name, Client.legal_name, Client.display_name)
-        .where(Client.merged_into_client_id.is_(None))
+        .where(Client.merged_into_client_id.is_(None), Client.deleted_at.is_(None))
         .order_by(Client.hidden.asc(), Client.id.asc())
     )
 
@@ -443,11 +445,47 @@ async def _resolve_client(
         if row is not None:
             return MatchedClient(id=row.id, name=row.display_name or row.name)
 
-    for row in (await db.execute(labels)).all():
-        for label in (row.name, row.legal_name, row.display_name):
-            if label and normalize_company_name(label) in canonical_names:
-                return MatchedClient(id=row.id, name=row.display_name or row.name)
+    for client_id, display, names in await _client_label_index(db, labels):
+        if names & canonical_names:
+            return MatchedClient(id=client_id, name=display)
     return None
+
+
+# Runda 9 (R9-N9-12): the name pass used to re-normalise every client label on
+# every call (60/min per integration). The normalised index is cached and
+# rebuilt only when the client table changes — the fingerprint (row count,
+# last `updated_at`, highest id) is one cheap aggregate, so a new, renamed,
+# deleted or merged client is visible on the very next call.
+_LABEL_INDEX: dict[str, Any] = {"fingerprint": None, "rows": []}
+
+
+async def _client_label_index(
+    db: AsyncSession, labels
+) -> list[tuple[int, str, frozenset[str]]]:
+    fingerprint = tuple(
+        (
+            await db.execute(
+                select(
+                    func.count(Client.id),
+                    func.max(Client.updated_at),
+                    func.max(Client.id),
+                )
+            )
+        ).one()
+    )
+    if _LABEL_INDEX["fingerprint"] == fingerprint:
+        return _LABEL_INDEX["rows"]
+    rows: list[tuple[int, str, frozenset[str]]] = []
+    for row in (await db.execute(labels)).all():
+        names = frozenset(
+            normalize_company_name(label)
+            for label in (row.name, row.legal_name, row.display_name)
+            if label
+        )
+        rows.append((row.id, row.display_name or row.name, names))
+    _LABEL_INDEX["fingerprint"] = fingerprint
+    _LABEL_INDEX["rows"] = rows
+    return rows
 
 
 # ── Route ────────────────────────────────────────────────────────────────────

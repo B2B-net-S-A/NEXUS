@@ -1646,7 +1646,7 @@ class TraffitImporter:
         try:
             return await self.traffit.total_count(path)
         except Exception as e:  # noqa: BLE001
-            logger.warning("%s total_count probe failed: %r", phase, e)
+            logger.warning("%s total_count probe failed: %s", phase, safe_db_error(e))
             return 0
 
     # ── Phase: clients ──────────────────────────────────────────────────────
@@ -1666,7 +1666,7 @@ class TraffitImporter:
             try:
                 payload = traffit_client_to_nexus(raw)
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map client id={raw.get('id')}: {e!r}")
+                progress.add_error(f"map client id={raw.get('id')}: {safe_db_error(e)}")
                 continue
             if payload["external_id"] in tombstoned:
                 progress.skipped += 1
@@ -1691,7 +1691,7 @@ class TraffitImporter:
                         was_insert = bool(row[1])
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
-                    f"upsert client ext={payload.get('external_id')}: {e!r}"
+                    f"upsert client ext={payload.get('external_id')}: {safe_db_error(e)}"
                 )
                 # Savepoint już cofnął sam zapis, więc transakcja zewnętrzna
                 # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
@@ -1753,7 +1753,9 @@ class TraffitImporter:
             try:
                 payload = traffit_crm_person_to_nexus(raw, client_map, orphan_id)
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map crm_person id={raw.get('id')}: {e!r}")
+                progress.add_error(
+                    f"map crm_person id={raw.get('id')}: {safe_db_error(e)}"
+                )
                 continue
             if self.dry_run:
                 progress.inserted += 1
@@ -1775,7 +1777,7 @@ class TraffitImporter:
                         was_insert = bool(row[1])
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
-                    f"upsert contact ext={payload.get('external_id')}: {e!r}"
+                    f"upsert contact ext={payload.get('external_id')}: {safe_db_error(e)}"
                 )
                 # Savepoint już cofnął sam zapis, więc transakcja zewnętrzna
                 # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
@@ -1823,7 +1825,7 @@ class TraffitImporter:
             try:
                 t_count = await self.traffit.total_count(traffit_path)
             except Exception as e:  # noqa: BLE001
-                report[entity] = {"error": f"traffit count failed: {e!r}"}
+                report[entity] = {"error": f"traffit count failed: {safe_db_error(e)}"}
                 continue
             n_count = await self.db.scalar(
                 text(
@@ -1909,11 +1911,11 @@ class TraffitImporter:
                 progress.skipped += 1
                 if len(progress.error_samples) < 20:
                     progress.error_samples.append(
-                        f"skip user id={raw.get('id')}: {e!s}"
+                        f"skip user id={raw.get('id')}: {safe_db_error(e)}"
                     )
                 continue
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map user id={raw.get('id')}: {e!r}")
+                progress.add_error(f"map user id={raw.get('id')}: {safe_db_error(e)}")
                 continue
 
             if self.dry_run:
@@ -1954,7 +1956,7 @@ class TraffitImporter:
                             else:
                                 outcome = "updated"
             except Exception as e:  # noqa: BLE001
-                msg = f"upsert user ext={payload['external_id']}: {e!r}"
+                msg = f"upsert user ext={payload['external_id']}: {safe_db_error(e)}"
                 progress.add_error(msg)
                 if progress.errors <= 5:
                     logger.warning("User upsert error: %s", msg[:300])
@@ -2030,7 +2032,9 @@ class TraffitImporter:
                 detail = detail_resp.json()
                 template_payload = traffit_workflow_to_template(detail)
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map workflow id={raw.get('id')}: {e!r}")
+                progress.add_error(
+                    f"map workflow id={raw.get('id')}: {safe_db_error(e)}"
+                )
                 continue
 
             if self.dry_run:
@@ -2061,7 +2065,7 @@ class TraffitImporter:
                     await self._rewrite_template_stage_defs(template_id, states_sorted)
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
-                    f"upsert workflow ext={template_payload.get('external_id')}: {e!r}"
+                    f"upsert workflow ext={template_payload.get('external_id')}: {safe_db_error(e)}"
                 )
                 # Faza commituje raz, na końcu — po rollbacku po utracie
                 # połączenia wcześniejsze szablony tego biegu przepadają.
@@ -2366,7 +2370,9 @@ class TraffitImporter:
                 try:
                     payload = traffit_employee_to_candidate(raw, user_map)
                 except Exception as e:  # noqa: BLE001
-                    progress.add_error(f"map employee id={raw.get('id')}: {e!r}")
+                    progress.add_error(
+                        f"map employee id={raw.get('id')}: {safe_db_error(e)}"
+                    )
                     continue
                 # Przed ścieżką adopcji po mailu: usunięta osoba nie może też
                 # „wrócić” jako stempel `external_id` na cudzym wierszu.
@@ -2688,9 +2694,9 @@ class TraffitImporter:
                 "candidates: %s",
                 len(new_ids),
                 len(updated_ids),
-                e,
+                safe_db_error(e),
             )
-            progress.add_error(f"index intent: {e!r}")
+            progress.add_error(f"index intent: {safe_db_error(e)}")
         finally:
             new_ids.clear()
             updated_ids.clear()
@@ -2787,7 +2793,11 @@ class TraffitImporter:
                 except Exception as exc:  # noqa: BLE001
                     # Brak zdarzenia = rekrutacja poczeka na ręczną zmianę;
                     # nie wywracamy importu rekrutacji.
-                    logger.warning("Jobs: enqueue_job job=%s failed: %r", job_id, exc)
+                    logger.warning(
+                        "Jobs: enqueue_job job=%s failed: %s",
+                        job_id,
+                        safe_db_error(exc),
+                    )
             event_job_ids.clear()
 
             # Intencja przeindeksowania rekrutacji — jak dla kandydatów.
@@ -2811,7 +2821,9 @@ class TraffitImporter:
                 except Exception as exc:  # noqa: BLE001
                     # Brak intencji to opóźniony wektor, nie utracony import —
                     # reconciler i tak go dogoni.
-                    progress.add_error(f"record job reindex intent: {exc!r}")
+                    progress.add_error(
+                        f"record job reindex intent: {safe_db_error(exc)}"
+                    )
                 touched_job_ids.clear()
 
             # Archiwum z Traffita: stan „Zakończony” i `is_open=false` to kolumny
@@ -2825,7 +2837,7 @@ class TraffitImporter:
                 async with self.db.begin_nested():
                     progress.archived += await archive_traffit_jobs(self.db)
             except Exception as exc:  # noqa: BLE001
-                progress.add_error(f"archive traffit jobs: {exc!r}")
+                progress.add_error(f"archive traffit jobs: {safe_db_error(exc)}")
                 # Utrata połączenia — bez rollbacku commit paczki niżej rzuca
                 # `PendingRollbackError` i wywraca fazę.
                 if await self._recover_session(
@@ -2846,7 +2858,7 @@ class TraffitImporter:
                             self.db, list(inserted_job_ids)
                         )
                 except Exception as exc:  # noqa: BLE001
-                    progress.add_error(f"classify job categories: {exc!r}")
+                    progress.add_error(f"classify job categories: {safe_db_error(exc)}")
                     await self._recover_session(
                         progress, exc, batch="jobs", staged=since_commit
                     )
@@ -2866,7 +2878,9 @@ class TraffitImporter:
                     raw, client_map, workflow_map, user_map
                 )
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map recruitment id={raw.get('id')}: {e!r}")
+                progress.add_error(
+                    f"map recruitment id={raw.get('id')}: {safe_db_error(e)}"
+                )
                 continue
             # Rekrutacja z Traffita jest w NEXUSIE archiwum (decyzja Artura
             # 24.09.2026, `services/traffit_job_archive.py`): status ZAWSZE
@@ -2918,7 +2932,9 @@ class TraffitImporter:
                     # inny wiersz, więc kwarantanna nigdy by go nie zwolniła.
                     progress.recruiter_detail_failed += 1
                     logger.warning(
-                        "Traffit recruitment %s detail failed: %r", ext_id, e
+                        "Traffit recruitment %s detail failed: %s",
+                        ext_id,
+                        safe_db_error(e),
                     )
 
             # Rekrutacje bez znanego klienta lądują u sieroty, nie w koszu.
@@ -3029,7 +3045,7 @@ class TraffitImporter:
                                 event_job_ids.append(int(row[0]))
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
-                    f"upsert job ext={payload.get('external_id')}: {e!r}"
+                    f"upsert job ext={payload.get('external_id')}: {safe_db_error(e)}"
                 )
                 # Savepoint już cofnął sam zapis, więc transakcja zewnętrzna
                 # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
@@ -3107,7 +3123,7 @@ class TraffitImporter:
             try:
                 payload = traffit_talent_to_pool(raw, user_map)
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map talent id={raw.get('id')}: {e!r}")
+                progress.add_error(f"map talent id={raw.get('id')}: {safe_db_error(e)}")
                 continue
             if self.dry_run:
                 progress.inserted += 1
@@ -3129,7 +3145,7 @@ class TraffitImporter:
                         was_insert = bool(row[1])
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
-                    f"upsert talent ext={payload.get('external_id')}: {e!r}"
+                    f"upsert talent ext={payload.get('external_id')}: {safe_db_error(e)}"
                 )
                 # Savepoint już cofnął sam zapis, więc transakcja zewnętrzna
                 # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
@@ -3567,7 +3583,7 @@ class TraffitImporter:
                 # wiersza, więc kwarantanna może go zaparkować. Dawne
                 # „emp {id}: …” było nieprzypisane i zamrażało `__daily__`
                 # na stałe przy jednym trwale zepsutym kandydacie.
-                progress.add_error(f"cv candidate ext={traffit_id}: {e!r}")
+                progress.add_error(f"cv candidate ext={traffit_id}: {safe_db_error(e)}")
                 # Utrata połączenia w savepoincie (zapis wskaźnika albo
                 # nagrobek) — bez rollbacku sesji padłby każdy kolejny kandydat.
                 if await self._recover_session(
@@ -3597,7 +3613,7 @@ class TraffitImporter:
                 except Exception as e:  # noqa: BLE001
                     # Padnięty commit cofa paczkę — błąd całej paczki, nie
                     # wiersza, więc (nieprzypisany) trzyma watermark.
-                    progress.add_error(f"cv batch commit: {e!r}")
+                    progress.add_error(f"cv batch commit: {safe_db_error(e)}")
                     await self.db.rollback()
                 since_commit = 0
                 logger.info(
@@ -3803,7 +3819,16 @@ class TraffitImporter:
             # zaparkować — dokładnie ta pułapka, którą ta faza już raz dostała.
             # Nieodświeżony indeks jest gorszy od aktualnego, ale zatrzymany
             # sync jest gorszy od obu.
-            logger.warning("Enrich missing names: reindex intent failed: %s", e)
+            #
+            # Runda 9 (R9-X1-8): bez rollbacku sesja zostawała w przerwanej
+            # transakcji i pierwsze kolejne zapytanie fazy (zapis kursora,
+            # commit) padało `PendingRollbackError` — log „best-effort” był
+            # więc kłamstwem, bo wywracał fazę. Backfill commituje każdy wiersz
+            # sam, więc rollback nie zabiera tu niczego poza tą intencją.
+            await self.db.rollback()
+            logger.warning(
+                "Enrich missing names: reindex intent failed: %s", safe_db_error(e)
+            )
 
     # ── Faza A: candidates-files (multi-file CV w candidate_documents) ──────
 
@@ -4221,7 +4246,7 @@ class TraffitImporter:
                             await self._upsert_candidate_document(doc_params)
                     except Exception as e:  # noqa: BLE001
                         progress.add_error(
-                            f"store file {file_id} candidate ext={traffit_id}: {e!r}"
+                            f"store file {file_id} candidate ext={traffit_id}: {safe_db_error(e)}"
                         )
                         # Utrata połączenia: savepoint nie cofnął się, więc
                         # sesję podnosi dopiero rollback — inaczej padnie
@@ -4240,7 +4265,9 @@ class TraffitImporter:
                 # dokumenty całej paczki, których pliki już były w magazynie.
                 # Zapisy mają własne savepointy, więc po błędzie instrukcji
                 # sesja jest zdrowa — ale nie po utracie połączenia (nagrobek).
-                progress.add_error(f"files candidate ext={traffit_id}: {e!r}")
+                progress.add_error(
+                    f"files candidate ext={traffit_id}: {safe_db_error(e)}"
+                )
                 if await self._recover_session(
                     progress, e, batch="files", staged=since_commit
                 ):
@@ -4262,7 +4289,7 @@ class TraffitImporter:
                 except Exception as e:  # noqa: BLE001
                     # Padnięty commit cofa paczkę — błąd paczki, nie wiersza,
                     # więc (nieprzypisany) trzyma watermark.
-                    progress.add_error(f"files batch commit: {e!r}")
+                    progress.add_error(f"files batch commit: {safe_db_error(e)}")
                     await self.db.rollback()
                 since_commit = 0
                 logger.info(
@@ -4364,7 +4391,9 @@ class TraffitImporter:
                     raw, cand_map, job_map, sd_id_map, sd_legacy_map, user_map
                 )
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map history id={raw.get('id')}: {e!r}")
+                progress.add_error(
+                    f"map history id={raw.get('id')}: {safe_db_error(e)}"
+                )
                 return
             if payload is None:
                 progress.skipped += 1
@@ -4412,7 +4441,9 @@ class TraffitImporter:
             try:
                 was_insert = await self._upsert_stage_row(payload, rejection_reason_id)
             except Exception as e:  # noqa: BLE001
-                msg = f"upsert stage ext={payload.get('external_id')}: {e!r}"
+                msg = (
+                    f"upsert stage ext={payload.get('external_id')}: {safe_db_error(e)}"
+                )
                 progress.add_error(msg)
                 if progress.errors <= 5 or progress.errors % 500 == 0:
                     logger.warning("Pipelines upsert error: %s", msg[:300])
@@ -4707,10 +4738,10 @@ class TraffitImporter:
             # jeden zamiast całego wsadu, a błąd niesie `ext=<id>`.
             logger.warning(
                 "Pipelines batch commit failed (%d pairs) — replaying %d rows "
-                "individually: %r",
+                "individually: %s",
                 len(pairs),
                 len(pending_rows),
-                e,
+                safe_db_error(e),
             )
             await self._replay_stage_rows(progress, pending_rows)
             return
@@ -4786,7 +4817,9 @@ class TraffitImporter:
                 await self.db.rollback()
                 # Format `<verb> <entity> ext=<id>` — patrz `_ERROR_REF_RE`:
                 # bez niego błąd jest nieprzypisywalny i blokuje watermark.
-                msg = f"replay stage ext={payload.get('external_id')}: {e!r}"
+                msg = (
+                    f"replay stage ext={payload.get('external_id')}: {safe_db_error(e)}"
+                )
                 progress.add_error(msg)
                 if progress.errors <= 5 or progress.errors % 500 == 0:
                     logger.warning("Pipelines replay error: %s", msg[:300])
@@ -4930,7 +4963,7 @@ class TraffitImporter:
             # failure must NOT be recorded as a blocking error — otherwise an
             # otherwise-complete run would freeze the watermark and stay
             # `degraded`. The pagination loop below has its own failure path.
-            logger.warning("Activities total_count probe failed: %r", e)
+            logger.warning("Activities total_count probe failed: %s", safe_db_error(e))
             progress.total_source = 0
 
         cand_map = await self._build_candidate_external_id_map()
@@ -5003,7 +5036,9 @@ class TraffitImporter:
             try:
                 payload = traffit_activity_to_activity(raw, cand_map, user_map)
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map activity id={raw.get('id')}: {e!r}")
+                progress.add_error(
+                    f"map activity id={raw.get('id')}: {safe_db_error(e)}"
+                )
                 continue
             if payload is None:
                 progress.skipped += 1
@@ -5052,7 +5087,7 @@ class TraffitImporter:
                     row = result.fetchone()
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
-                    f"upsert activity ext={payload.get('external_id')}: {e!r}"
+                    f"upsert activity ext={payload.get('external_id')}: {safe_db_error(e)}"
                 )
                 if await self._recover_session(
                     progress, e, batch="activities", staged=since_commit
@@ -5087,7 +5122,7 @@ class TraffitImporter:
                 except Exception as e:  # noqa: BLE001
                     # Padnięty commit cofa całą paczkę — błąd nieprzypisany do
                     # wiersza, więc trzyma watermark (kolejny bieg ją powtórzy).
-                    progress.add_error(f"activities batch commit: {e!r}")
+                    progress.add_error(f"activities batch commit: {safe_db_error(e)}")
                     await self.db.rollback()
                 since_commit = 0
                 logger.info(
@@ -5113,15 +5148,15 @@ class TraffitImporter:
 
         if pagination_error is not None:
             logger.warning(
-                "Activities pagination aborted after %d processed: %r — "
+                "Activities pagination aborted after %d processed: %s — "
                 "committed partial batch (cursor at page %d), notes still "
                 "promoted, watermark frozen; next run resumes from the cursor",
                 progress.processed,
-                pagination_error,
+                safe_db_error(pagination_error),
                 current_page,
             )
             progress.add_error(
-                f"activities pagination incomplete: {pagination_error!r}"
+                f"activities pagination incomplete: {safe_db_error(pagination_error)}"
             )
         elif not self.dry_run:
             # Full, uninterrupted fetch — clear the cursor so the next run (after
@@ -5154,7 +5189,7 @@ class TraffitImporter:
                 logger.info("Activities: promoted %d notes → notes table", promoted)
             except Exception as e:  # noqa: BLE001
                 await self.db.rollback()
-                progress.add_error(f"promote_notes: {e!r}")
+                progress.add_error(f"promote_notes: {safe_db_error(e)}")
 
         # Self-heal: the rejection *reason* lives only on these activities
         # (details.content.rejection.name), never on the recruitment_history
@@ -5172,7 +5207,7 @@ class TraffitImporter:
                 )
             except Exception as e:  # noqa: BLE001
                 await self.db.rollback()
-                progress.add_error(f"rejection_note backfill: {e!r}")
+                progress.add_error(f"rejection_note backfill: {safe_db_error(e)}")
 
             # Second self-heal: stitch the recruiter's free-text rejection comment
             # (content.description) onto candidate_stages.notes so the "Powód
@@ -5188,7 +5223,9 @@ class TraffitImporter:
                 )
             except Exception as e:  # noqa: BLE001
                 await self.db.rollback()
-                progress.add_error(f"rejection description backfill: {e!r}")
+                progress.add_error(
+                    f"rejection description backfill: {safe_db_error(e)}"
+                )
 
         progress.finished_at = datetime.now(timezone.utc)
         logger.info(
@@ -5255,7 +5292,7 @@ class TraffitImporter:
             try:
                 mapped = traffit_source_to_candidate_tag(raw, cand_map)
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map source id={raw.get('id')}: {e!r}")
+                progress.add_error(f"map source id={raw.get('id')}: {safe_db_error(e)}")
                 continue
             if mapped is None:
                 progress.skipped += 1
@@ -5324,7 +5361,7 @@ class TraffitImporter:
                 # nie jest gołym „candidate” — tu jest id NEXUSA, faza
                 # `candidates` kluczuje po id Traffita.
                 progress.add_error(
-                    f"merge tags candidate_source id={candidate_id}: {e!r}"
+                    f"merge tags candidate_source id={candidate_id}: {safe_db_error(e)}"
                 )
                 # Savepoint już cofnął zapis; sesję podnosimy tylko przy utracie
                 # połączenia (`ROLLBACK TO SAVEPOINT` nie ma wtedy dokąd pójść).
