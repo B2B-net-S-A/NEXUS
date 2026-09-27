@@ -33,6 +33,10 @@ export function activeContractsWord(n: number): string {
 
 export function SummaryBar({ summary }: Props) {
   const unpriced = summary.active_mrr_unpriced_contracts ?? 0;
+  // Runda 10 (R10-N9-4): brak kursu NBP to inny stan niż brak stawek — kwoty
+  // nie da się policzyć, choć kontrakty są wycenione.
+  const fxMissing = summary.active_mrr_fx_missing_contracts ?? 0;
+  const mrrFxMissing = fxMissing > 0 && summary.active_mrr === null;
   // Kontrakty bez stawki nie wchodzą do sumy — kafel mówi wprost, że kwota jest
   // niepełna, zamiast podawać zaniżoną liczbę jako pewną.
   // Podpis kafla idzie do natywnego tooltipa (StatsCard), więc samo „niepełne”
@@ -40,12 +44,14 @@ export function SummaryBar({ summary }: Props) {
   const mrrIncomplete = unpriced > 0 && summary.active_mrr !== null;
   // `null` przy niewycenionych kontraktach to „brak stawek”, nie brak
   // uprawnień — redakcja zeruje licznik, więc oba stany się nie mylą (N3).
-  const mrrUnpriced = unpriced > 0 && summary.active_mrr === null;
-  const mrrSubtitle = mrrIncomplete
-    ? `miesięczna marża — suma niepełna: pominięto ${unpriced} ${activeContractsWord(unpriced)} bez stawki`
-    : mrrUnpriced
-      ? `miesięczna marża — żaden z ${unpriced} ${activeContractsWord(unpriced)} nie ma stawki`
-      : "miesięczna marża";
+  const mrrUnpriced = !mrrFxMissing && unpriced > 0 && summary.active_mrr === null;
+  const mrrSubtitle = mrrFxMissing
+    ? `miesięczna marża — brak kursu NBP dla ${fxMissing} ${activeContractsWord(fxMissing)}, kwoty nie da się policzyć`
+    : mrrIncomplete
+      ? `miesięczna marża — suma niepełna: pominięto ${unpriced} ${activeContractsWord(unpriced)} bez stawki`
+      : mrrUnpriced
+        ? `miesięczna marża — żaden z ${unpriced} ${activeContractsWord(unpriced)} nie ma stawki`
+        : "miesięczna marża";
   return (
     <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
       <StatsCard
@@ -57,7 +63,13 @@ export function SummaryBar({ summary }: Props) {
       />
       <StatsCard
         title={mrrIncomplete ? "Aktywne MRR (niepełne)" : "Aktywne MRR"}
-        value={mrrUnpriced ? "Brak stawek" : formatPLN(summary.active_mrr)}
+        value={
+          mrrFxMissing
+            ? "Brak kursu"
+            : mrrUnpriced
+              ? "Brak stawek"
+              : formatPLN(summary.active_mrr)
+        }
         subtitle={mrrSubtitle}
         color="orange"
         icon={<DollarSign className="w-4 h-4" />}

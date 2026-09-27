@@ -61,9 +61,7 @@ def test_ended_contract_without_end_date_is_not_running_today():
         status=ContractStatus.ended, end_date=today + timedelta(days=30)
     )
     active = _contract()
-    ending = _contract(
-        status=ContractStatus.ending, end_date=today + timedelta(days=5)
-    )
+    ending = _contract(status=ContractStatus.ending, end_date=today + timedelta(days=5))
 
     running = running_on([ended, ended_future, active, ending], today)
 

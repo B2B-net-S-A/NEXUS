@@ -58,6 +58,8 @@ export interface ClientProfileSummary {
   active_mrr: number | null;
   /** Aktywne kontrakty bez stawki, pominięte w `active_mrr` — >0 = suma niepełna. */
   active_mrr_unpriced_contracts?: number;
+  /** Kontrakty z obiema stawkami, ale bez kursu NBP — >0 = kwoty nie da się policzyć. */
+  active_mrr_fx_missing_contracts?: number;
   ltv: number | null;
   avg_time_to_fill_days: number | null;
   /** "opened_at" gdy policzone, "unavailable" gdy żadna rekrutacja nie ma daty

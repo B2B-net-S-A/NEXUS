@@ -173,7 +173,9 @@ def running_on(contracts: Iterable[Contract], on: date) -> list:
     ]
 
 
-_LIVE_STATUS_VALUES = frozenset({ContractStatus.active.value, ContractStatus.ending.value})
+_LIVE_STATUS_VALUES = frozenset(
+    {ContractStatus.active.value, ContractStatus.ending.value}
+)
 
 
 def _status_value(contract: Contract) -> Optional[str]:
