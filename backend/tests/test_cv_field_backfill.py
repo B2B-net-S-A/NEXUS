@@ -216,7 +216,9 @@ async def test_backfill_run_stops_on_quota_not_per_row(monkeypatch):
     stats = await runner.backfill_cv_fields(_FakeDb())
 
     assert stats["stopped_reason"].startswith("quota")
-    assert stats["last_id"] == 7, "kursor musi wskazywać, od czego wznowić"
+    # Runda 10 (R10-N8-4): `last_id` to `after_id` wznowienia (`id > after_id`),
+    # a wiersz 7 nie został odczytany — kursor zostaje PRZED nim.
+    assert stats["last_id"] == 0, "kursor musi wskazywać, od czego wznowić"
 
 
 def test_bulk_prompt_asks_for_country_and_apply_consumes_it():
@@ -629,3 +631,74 @@ async def test_constraint_violation_quarantines_row_not_run(monkeypatch):
     assert stats["errors"] == 1, "zatruty wiersz policzony jako błąd"
     assert stats["updated"] == 1, "zdrowy wiersz z tej samej paczki przeżył"
     assert stats["stopped_reason"] == "done", "bieg dobiegł końca mimo trucizny"
+
+
+# ── Runda 10 (R10-N8-3 / R10-N8-4) ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_read_without_the_field_marks_the_cv_text(monkeypatch):
+    """CV bez miasta: odczyt się udał, pole puste — znacznik, żeby nie płacić znowu."""
+
+    from app.services import cv_field_backfill as runner
+
+    _install_quarantine_runner_fakes(
+        monkeypatch, runner, {"skills": ["Python"], "_confidence": {}}
+    )
+    candidate = _quarantine_candidate(301)
+    stats = await runner.backfill_cv_fields(_QuarantineDb([candidate]))
+
+    assert stats["marked_read_incomplete"] == 1
+    assert candidate.cv_extracted_data[runner.READ_MARK_KEY] == (
+        runner.cv_text_digest(candidate.raw_cv_text)
+    )
+
+
+@pytest.mark.asyncio
+async def test_failed_read_is_not_marked(monkeypatch):
+    """Awaria wywołania (None) nie znakuje — wiersz ma dostać drugą szansę."""
+
+    from app.services import cv_field_backfill as runner
+
+    _install_quarantine_runner_fakes(monkeypatch, runner, {})
+
+    async def failing_parse(cv_text, *, model, template):
+        return None
+
+    monkeypatch.setattr(runner, "parse_cv_with_claude", failing_parse)
+    candidate = _quarantine_candidate(302)
+    stats = await runner.backfill_cv_fields(_QuarantineDb([candidate]))
+
+    assert stats["skipped_no_result"] == 1
+    assert candidate.cv_extracted_data is None
+
+
+def test_scope_excludes_rows_marked_for_the_same_cv_text():
+    from sqlalchemy import select
+
+    from app.models.candidate import Candidate
+    from app.services import cv_field_backfill as runner
+
+    sql = str(
+        select(Candidate.id)
+        .where(*runner._scope_filter())
+        .compile(dialect=postgresql.dialect())
+    )
+    assert "_cv_fields_read_md5" in sql
+    assert "md5(candidates.raw_cv_text)" in sql
+
+
+@pytest.mark.asyncio
+async def test_limit_stop_leaves_cursor_on_the_last_processed_row(monkeypatch):
+    """`last_id` jest kursorem wznowienia — nie może wskazywać nieprzerobionego wiersza."""
+
+    from app.services import cv_field_backfill as runner
+
+    _install_quarantine_runner_fakes(
+        monkeypatch, runner, {"city": "Kraków", "_confidence": {}}
+    )
+    rows = [_quarantine_candidate(401), _quarantine_candidate(402)]
+    stats = await runner.backfill_cv_fields(_QuarantineDb(rows), limit=1)
+
+    assert stats["stopped_reason"] == "limit"
+    assert stats["last_id"] == 401
