@@ -14,8 +14,8 @@ export const metadata: Metadata = {
 
 /**
  * Klauzula informacyjna (art. 13 RODO) dla kandydatów aplikujących przez
- * stronę kariery. WERSJA ROBOCZA — miejsca oznaczone [DO UZUPEŁNIENIA]
- * wymagają decyzji prawnika przed uruchomieniem domeny publicznej.
+ * stronę kariery. Kontakt i okres przechowywania — decyzja właściciela
+ * 27.09.2026 (runda 10 audytu, F16 z testów manualnych).
  */
 export default async function CareerRodoPage() {
   const { base, host } = await careerRequestContext();
@@ -23,9 +23,6 @@ export default async function CareerRodoPage() {
     <>
       <TerminalChrome path="~/dynaminds/kariera — zsh — klauzula_rodo" />
       <main className="kr-doc">
-        <p className="kr-draft" role="note">
-          <span className="kr-r">[!]</span> Wersja robocza — do akceptacji prawnej.
-        </p>
         <span className="kr-c">{"// cat /etc/dynaminds/klauzula_rodo.md"}</span>
         <h1>Klauzula informacyjna dla kandydatów</h1>
 
@@ -40,7 +37,7 @@ export default async function CareerRodoPage() {
         <h2>2. Kontakt w sprawie danych osobowych</h2>
         <p>
           W sprawach dotyczących przetwarzania danych możesz napisać na adres:{" "}
-          <strong>[DO UZUPEŁNIENIA — adres e-mail do spraw ochrony danych]</strong> albo
+          <a href="mailto:rodo@b2bnetwork.pl">rodo@b2bnetwork.pl</a> albo
           listownie na adres siedziby administratora.
         </p>
 
@@ -63,8 +60,8 @@ export default async function CareerRodoPage() {
 
         <h2>5. Okres przechowywania</h2>
         <p>
-          Dane przechowujemy do czasu wycofania zgody, nie dłużej jednak niż{" "}
-          <strong>[DO UZUPEŁNIENIA — okres do potwierdzenia przez prawnika]</strong>.
+          Dane przechowujemy do czasu wycofania zgody, nie dłużej jednak niż 3 lata od
+          przesłania zgłoszenia.
         </p>
 
         <h2>6. Odbiorcy danych</h2>
