@@ -237,7 +237,11 @@ async def test_taken_reference_number_is_409_on_create_and_update(
     try:
         created = await app_client.post(
             "/api/jobs",
-            json={"title": "R9 ref", "client_id": client_id, "reference_number": reference},
+            json={
+                "title": "R9 ref",
+                "client_id": client_id,
+                "reference_number": reference,
+            },
             headers=app_auth_headers,
         )
         assert created.status_code == 409, created.text

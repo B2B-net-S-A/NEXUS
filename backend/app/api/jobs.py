@@ -468,7 +468,9 @@ async def _assert_job_references_valid(
         found = set(
             (
                 await db.scalars(
-                    select(CompetenceCategory.id).where(CompetenceCategory.id.in_(cc_ids))
+                    select(CompetenceCategory.id).where(
+                        CompetenceCategory.id.in_(cc_ids)
+                    )
                 )
             ).all()
         )

@@ -2879,10 +2879,8 @@ class TraffitImporter:
 
                 try:
                     async with self.db.begin_nested():
-                        progress.working_titles += (
-                            await refresh_working_titles_for_ids(
-                                self.db, list(working_title_job_ids)
-                            )
+                        progress.working_titles += await refresh_working_titles_for_ids(
+                            self.db, list(working_title_job_ids)
                         )
                 except Exception as exc:  # noqa: BLE001
                     # Tytuł dla rekrutera jest pomocniczy — jego awaria nie
