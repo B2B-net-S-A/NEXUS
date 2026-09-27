@@ -752,6 +752,10 @@ JOB_FULL_EDIT_ROLES: tuple[UserRole, ...] = (
 # Pola, których członek zespołu (rekruter prowadzący, współpracownik) nie
 # zmienia: status to cykl życia, klient i osoby prowadzące to decyzja
 # Delivery, a widełki wynagrodzenia ustawia admin albo TAC (CLAUDE.md).
+# Runda 9 (R9-N15-6): termin, budżet (kolumna), liczba osób, priorytet,
+# „Potrzebny search”, szablon procesu i kategoria — lustro okna edycji, które
+# członkowi zespołu pokazuje „termin, budżet, zespół zmienia Delivery Lead”.
+# Budżet z Championa (`PUT …/champion-profile`) tej bramki nie przechodzi.
 JOB_MEMBER_LOCKED_FIELDS: frozenset[str] = frozenset(
     {
         "status",
@@ -761,13 +765,22 @@ JOB_MEMBER_LOCKED_FIELDS: frozenset[str] = frozenset(
         "delivery_lead_id",
         "salary_min",
         "salary_max",
+        "deadline",
+        "rate_budget_hourly",
+        "headcount",
+        "priority",
+        "needs_sourcing",
+        "pipeline_template_id",
+        "competence_category_id",
+        "secondary_cc_ids",
     }
 )
 
 _JOB_EDIT_DENIED = "Nie masz uprawnień do edycji rekrutacji."
 _JOB_MEMBER_LOCKED_DENIED = (
-    "Status, klienta, osoby prowadzące i widełki wynagrodzenia zmienia "
-    "Delivery Lead albo admin."
+    "Status, klienta, osoby prowadzące, termin, budżet, liczbę osób, priorytet, "
+    "szablon procesu, kategorię i widełki wynagrodzenia zmienia Delivery Lead "
+    "albo admin."
 )
 
 

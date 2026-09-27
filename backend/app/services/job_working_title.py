@@ -230,3 +230,52 @@ async def fill_missing_job_names(
     if only_job_ids is None:
         db.add(AppSetting(key=BACKFILL_MARKER, value=receipt))
     return receipt
+
+
+async def refresh_working_titles_for_ids(db: AsyncSession, job_ids: list[int]) -> int:
+    """Przelicz tytuł dla rekrutera wskazanych rekrutacji z włączonym automatem.
+
+    Runda 9 (R9-N15-7): woła go import Traffita dla rekrutacji nowych i tych,
+    którym zmienił się ``title`` — tytuł dla rekrutera bez roli w Championie
+    składa się z nazwy od klienta, a import go nie przeliczał. Nie podbija
+    ``updated_at`` (zrobił to już upsert). Zwraca liczbę zmienionych wierszy.
+    """
+    from types import SimpleNamespace
+
+    from app.services.job_public_profile import _client_names
+
+    ids = sorted({int(job_id) for job_id in job_ids})
+    if not ids:
+        return 0
+    rows = (
+        await db.execute(
+            select(
+                Job.id,
+                Job.title,
+                Job.client_reference,
+                Job.working_title,
+                Job.client_id,
+                Job.must_skills,
+                Job.champion_profile,
+            ).where(Job.id.in_(ids), Job.working_title_auto.is_(True))
+        )
+    ).all()
+    names_cache: dict[Optional[int], list[str]] = {}
+    updates: list[dict[str, Any]] = []
+    for row in rows:
+        if row.client_id not in names_cache:
+            names_cache[row.client_id] = await _client_names(db, row.client_id)
+        value = working_title_for_job(
+            SimpleNamespace(**row._mapping), names_cache[row.client_id]
+        )
+        if value != row.working_title:
+            updates.append({"jid": row.id, "wtitle": value})
+    if updates:
+        table = Job.__table__
+        await db.execute(
+            table.update()
+            .where(table.c.id == bindparam("jid"), table.c.working_title_auto.is_(True))
+            .values(working_title=bindparam("wtitle"), updated_at=table.c.updated_at),
+            updates,
+        )
+    return len(updates)

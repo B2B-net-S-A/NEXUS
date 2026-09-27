@@ -125,8 +125,13 @@ export function jobNamesPatch(
   if (reference !== before.clientReference.trim()) patch.client_reference = reference || null;
   if (draft.workingTitleManual) {
     const title = draft.workingTitle.trim();
-    if (title && (!before.workingTitleManual || title !== before.workingTitle.trim()))
+    if (!title) {
+      // Runda 9 (R9-N15-8): wyczyszczony ręczny tytuł = powrót do automatu,
+      // nie „bez zmian” — inaczej stary ręczny tytuł zostawał po zapisie.
+      if (before.workingTitleManual) patch.working_title = "";
+    } else if (!before.workingTitleManual || title !== before.workingTitle.trim()) {
       patch.working_title = title;
+    }
   } else if (before.workingTitleManual) {
     patch.working_title = "";
   }

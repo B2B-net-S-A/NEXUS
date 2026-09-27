@@ -1063,6 +1063,8 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         # 24.09.2026: archiwum z Traffita i kategorie nowych rekrutacji.
         "archived",
         "categorised",
+        # Runda 9: przeliczone tytuły dla rekrutera.
+        "working_titles",
         "drifted_entities",
         "drift",
         "total_source",

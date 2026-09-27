@@ -151,6 +151,14 @@ async def test_outsider_cannot_touch_lifecycle_and_viewer_cannot_edit(
         ("status", "closed"),
         ("recruiter_id", None),
         ("salary_max", 30000),
+        # Runda 9 (R9-N15-6): termin, budżet i reszta ustawień Delivery.
+        ("deadline", "2027-01-31"),
+        ("rate_budget_hourly", 150),
+        ("headcount", 3),
+        ("priority", "high"),
+        ("needs_sourcing", True),
+        ("pipeline_template_id", None),
+        ("competence_category_id", None),
     ],
 )
 async def test_team_member_cannot_touch_lifecycle_or_budget(

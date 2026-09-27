@@ -333,6 +333,8 @@ class PhaseProgress:
     # („Zakończony”) i ilu nowym nadała kategorię kompetencji.
     archived: int = 0
     categorised: int = 0
+    # Runda 9 (R9-N15-7): przeliczone tytuły dla rekrutera (`working_title`).
+    working_titles: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -424,6 +426,7 @@ class PhaseProgress:
             "recruiter_detail_failed": self.recruiter_detail_failed,
             "archived": self.archived,
             "categorised": self.categorised,
+            "working_titles": self.working_titles,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -1024,9 +1027,12 @@ _UPDATE_CANDIDATE_ADOPT = text(
 # `status` i `closed_at` (etapy prowadzi już NEXUS, więc „zamknięta w Traffitcie"
 # nie może jej zamknąć ani przemianować). Unieważnienie wymagań jest wtedy
 # wyłączone, bo tytuł się nie zmienia — inaczej każdy bieg kasowałby kryteria
-# tylko dlatego, że Traffit ma inne brzmienie niż zatrzymany tytuł. Pozostałe
-# kolumny bez zmian: COALESCE (`deadline`, `opened_at`, `client_id`…) nadal
-# dopełnia puste pola, a `custom_fields` scala JSONB.
+# tylko dlatego, że Traffit ma inne brzmienie niż zatrzymany tytuł. `client_id`,
+# `pipeline_template_id`, `reference_number`, `deadline` i `opened_at` przełączonej
+# rekrutacji Traffit tylko DOPEŁNIA (Runda 9, R9-N15-1: do tej rundy
+# `COALESCE(EXCLUDED, jobs)` nadpisywał termin czy klienta ustawione w NEXUSIE);
+# rekrutacji nieprzełączonej nadal nadpisuje je wartością z Traffita.
+# `custom_fields` scala JSONB.
 _UPSERT_JOB = text(
     """
     INSERT INTO jobs (
@@ -1066,17 +1072,23 @@ _UPSERT_JOB = text(
             ELSE jobs.requirements_reviewed END,
         status               = CASE WHEN jobs.managed_in_nexus THEN jobs.status
                                    ELSE EXCLUDED.status END,
-        client_id            = COALESCE(EXCLUDED.client_id, jobs.client_id),
-        pipeline_template_id = COALESCE(
-            EXCLUDED.pipeline_template_id, jobs.pipeline_template_id
-        ),
+        client_id            = CASE WHEN jobs.managed_in_nexus
+                                   THEN COALESCE(jobs.client_id, EXCLUDED.client_id)
+                                   ELSE COALESCE(EXCLUDED.client_id, jobs.client_id) END,
+        pipeline_template_id = CASE WHEN jobs.managed_in_nexus
+                                   THEN COALESCE(jobs.pipeline_template_id, EXCLUDED.pipeline_template_id)
+                                   ELSE COALESCE(EXCLUDED.pipeline_template_id, jobs.pipeline_template_id) END,
         recruiter_id         = CASE WHEN jobs.is_open THEN jobs.recruiter_id
                                    ELSE COALESCE(jobs.recruiter_id, EXCLUDED.recruiter_id) END,
-        reference_number     = COALESCE(
-            EXCLUDED.reference_number, jobs.reference_number
-        ),
-        deadline             = COALESCE(EXCLUDED.deadline, jobs.deadline),
-        opened_at            = COALESCE(EXCLUDED.opened_at, jobs.opened_at),
+        reference_number     = CASE WHEN jobs.managed_in_nexus
+                                   THEN COALESCE(jobs.reference_number, EXCLUDED.reference_number)
+                                   ELSE COALESCE(EXCLUDED.reference_number, jobs.reference_number) END,
+        deadline             = CASE WHEN jobs.managed_in_nexus
+                                   THEN COALESCE(jobs.deadline, EXCLUDED.deadline)
+                                   ELSE COALESCE(EXCLUDED.deadline, jobs.deadline) END,
+        opened_at            = CASE WHEN jobs.managed_in_nexus
+                                   THEN COALESCE(jobs.opened_at, EXCLUDED.opened_at)
+                                   ELSE COALESCE(EXCLUDED.opened_at, jobs.opened_at) END,
         closed_at            = CASE WHEN jobs.managed_in_nexus THEN jobs.closed_at
                                    ELSE EXCLUDED.closed_at END,
         custom_fields        = jobs.custom_fields || EXCLUDED.custom_fields,
@@ -1095,18 +1107,22 @@ _UPSERT_JOB = text(
             )
         )
         OR (EXCLUDED.client_id IS NOT NULL
-            AND jobs.client_id IS DISTINCT FROM EXCLUDED.client_id)
+            AND jobs.client_id IS DISTINCT FROM EXCLUDED.client_id
+            AND (NOT jobs.managed_in_nexus OR jobs.client_id IS NULL))
         OR (EXCLUDED.pipeline_template_id IS NOT NULL
-            AND jobs.pipeline_template_id IS DISTINCT FROM
-                EXCLUDED.pipeline_template_id)
+            AND jobs.pipeline_template_id IS DISTINCT FROM EXCLUDED.pipeline_template_id
+            AND (NOT jobs.managed_in_nexus OR jobs.pipeline_template_id IS NULL))
         OR (NOT jobs.is_open AND jobs.recruiter_id IS NULL
             AND EXCLUDED.recruiter_id IS NOT NULL)
         OR (EXCLUDED.reference_number IS NOT NULL
-            AND jobs.reference_number IS DISTINCT FROM EXCLUDED.reference_number)
+            AND jobs.reference_number IS DISTINCT FROM EXCLUDED.reference_number
+            AND (NOT jobs.managed_in_nexus OR jobs.reference_number IS NULL))
         OR (EXCLUDED.deadline IS NOT NULL
-            AND jobs.deadline IS DISTINCT FROM EXCLUDED.deadline)
+            AND jobs.deadline IS DISTINCT FROM EXCLUDED.deadline
+            AND (NOT jobs.managed_in_nexus OR jobs.deadline IS NULL))
         OR (EXCLUDED.opened_at IS NOT NULL
-            AND jobs.opened_at IS DISTINCT FROM EXCLUDED.opened_at)
+            AND jobs.opened_at IS DISTINCT FROM EXCLUDED.opened_at
+            AND (NOT jobs.managed_in_nexus OR jobs.opened_at IS NULL))
         OR NOT (COALESCE(jobs.custom_fields, '{}'::jsonb) @> EXCLUDED.custom_fields)
     RETURNING id, (xmax = 0) AS was_insert, managed_in_nexus
     """
@@ -2727,6 +2743,10 @@ class TraffitImporter:
         # DATA-01: opublikowane rekrutacje nowe albo ze zmienionym
         # tytułem/statusem — zdarzenie dla automatów.
         event_job_ids: list[int] = []
+        # Runda 9 (R9-N15-7): rekrutacje nowe albo ze zmienionym tytułem —
+        # tytuł dla rekrutera (`working_title`) liczy się też z `title`, a
+        # import go nie przeliczał.
+        working_title_job_ids: list[int] = []
         logger.info(
             "Jobs lookup maps: clients=%d workflows=%d users=%d",
             len(client_map),
@@ -2863,6 +2883,28 @@ class TraffitImporter:
                         progress, exc, batch="jobs", staged=since_commit
                     )
                 inserted_job_ids.clear()
+
+            if working_title_job_ids:
+                from app.services.job_working_title import (
+                    refresh_working_titles_for_ids,
+                )
+
+                try:
+                    async with self.db.begin_nested():
+                        progress.working_titles += await refresh_working_titles_for_ids(
+                            self.db, list(working_title_job_ids)
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    # Tytuł dla rekrutera jest pomocniczy — jego awaria nie
+                    # zatrzymuje importu ani watermarku.
+                    logger.warning(
+                        "Jobs: przeliczenie tytułów dla rekrutera nie powiodło się (%s)",
+                        type(exc).__name__,
+                    )
+                    await self._recover_session(
+                        progress, exc, batch="jobs", staged=since_commit
+                    )
+                working_title_job_ids.clear()
 
             await self.db.commit()
             since_commit = 0
@@ -3039,6 +3081,12 @@ class TraffitImporter:
                                 )
                             )
                         )
+                        if was_insert or (
+                            not managed
+                            and previous is not None
+                            and previous[1] != payload.get("title")
+                        ):
+                            working_title_job_ids.append(int(row[0]))
                         if meaningful:
                             touched_job_ids.append(int(row[0]))
                             if not managed and payload.get("status") == "published":
@@ -3060,6 +3108,7 @@ class TraffitImporter:
                     event_job_ids.clear()
                     touched_job_ids.clear()
                     inserted_job_ids.clear()
+                    working_title_job_ids.clear()
                     since_commit = 0
                 continue
             if was_insert is None:
