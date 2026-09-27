@@ -99,7 +99,7 @@ class _OneEmployee:
         yield 1, [{"id": self.ext}]
 
 
-async def _sync_employee(ext: str, email: str):
+async def _sync_employee(ext: str, email: str, *, profile_about: str | None = None):
     async with AsyncSessionLocal() as db:
         imp = importer_mod.TraffitImporter(
             _OneEmployee(ext), db, dry_run=False, batch_size=10
@@ -122,7 +122,7 @@ async def _sync_employee(ext: str, email: str):
             "country": None,
             "location": None,
             "status": "active",
-            "profile_about": None,
+            "profile_about": profile_about,
             "languages": [],
             "cv_filename": None,
             "cv_extracted_data": {},
@@ -378,8 +378,13 @@ async def test_upsert_without_tombstone_still_inserts_and_updates():
     ext = str(960_000_000 + uuid.uuid4().int % 30_000_000)
     first = await _sync_employee(ext, None)
     assert first.inserted == 1 and first.skipped == 0
+    # Runda 10 (R10-N11-9): rekord Traffita bez zmian (ten sam skrót) nie jest
+    # przepisywany — liczy się jako `unchanged`, nie `updated`.
     second = await _sync_employee(ext, None)
-    assert second.updated == 1 and second.inserted == 0
+    assert second.unchanged == 1 and second.updated == 0 and second.inserted == 0
+    # Zmieniony rekord idzie przez `ON CONFLICT ... DO UPDATE`.
+    third = await _sync_employee(ext, None, profile_about="Zmieniony opis")
+    assert third.updated == 1 and third.inserted == 0
     async with AsyncSessionLocal() as db:
         count = await db.scalar(
             text(
