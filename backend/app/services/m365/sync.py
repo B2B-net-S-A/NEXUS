@@ -1326,7 +1326,14 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
         from app.models.candidate import Candidate
 
         addrs = [a["address"] for a in attendee_rows]
-        cand = await db.scalar(select(Candidate).where(Candidate.email.in_(addrs)))
+        # Runda 9 (R9-N10-8): adresy uczestników są już małymi literami, adres
+        # w bazie bywa zapisany z wielkimi — porównanie po obu stronach.
+        cand = await db.scalar(
+            select(Candidate)
+            .where(func.lower(func.trim(Candidate.email)).in_(addrs))
+            .order_by(Candidate.id)
+            .limit(1)
+        )
         if cand:
             candidate_id = cand.id
 
