@@ -71,6 +71,7 @@ import unicodedata
 from typing import Any, Optional
 
 from sqlalchemy import (
+    Integer,
     Text,
     and_,
     column,
@@ -79,6 +80,7 @@ from sqlalchemy import (
     not_,
     or_,
     select,
+    text,
     union,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
@@ -364,6 +366,60 @@ def _skill_names_text() -> ColumnElement:
     )
 
 
+def screening_skill_rows():
+    """Umiejętności potwierdzone w screeningu jako wiersze ``(candidate_id,
+    skill)`` — reguła ``keyword_corpus.screening_skill_rows_sql`` (ta sama co
+    korpus). Nieskorelowane: ``Candidate.id IN (…)`` liczy się raz na zapytanie.
+    """
+    return (
+        text(keyword_corpus.screening_skill_rows_sql())
+        .columns(candidate_id=Integer, skill=Text)
+        .subquery("screening_skills")
+    )
+
+
+def _scope_field_match(
+    scope: str, pattern: str, query: Optional[ColumnElement] = None
+) -> ColumnElement:
+    """Warunek POLA dla zakresu ``cv`` / ``title`` / ``skills``.
+
+    ``query`` = zapytanie korpusu złożonego (``folded_tsquery``) — wtedy pole
+    potwierdza też tsvector złożony tą samą funkcją SQL co indeks.
+
+    Runda 12 (SEARCH): zakres „Umiejętności” widzi też umiejętności potwierdzone
+    w screeningu — runda 11 dołożyła je do korpusu (indeks wybierał osobę), ale
+    pole ich nie znało, więc osoba znaleziona wyłącznie po nich odpadała.
+    """
+    field = {
+        "cv": Candidate.raw_cv_text,
+        "title": _experience_roles_text(),
+        "skills": _skill_names_text(),
+    }[scope]
+    fold_fn = getattr(func, keyword_corpus.FOLD_FUNCTION)
+
+    def folded(value: ColumnElement) -> ColumnElement:
+        return func.to_tsvector(
+            _FTS_CONFIG,
+            fold_fn(
+                func.left(func.coalesce(value, ""), keyword_corpus.CV_CAP),
+                type_=Text,
+            ),
+        )
+
+    alternatives: list[ColumnElement] = [field.op("~*")(pattern)]
+    if query is not None:
+        alternatives.append(folded(field).op("@@")(query))
+    if scope == "skills":
+        rows = screening_skill_rows()
+        skill_hit = [rows.c.skill.op("~*")(pattern)]
+        if query is not None:
+            skill_hit.append(folded(rows.c.skill).op("@@")(query))
+        alternatives.append(
+            Candidate.id.in_(select(rows.c.candidate_id).where(or_(*skill_hit)))
+        )
+    return or_(*alternatives) if len(alternatives) > 1 else alternatives[0]
+
+
 def _corpus_fts(query) -> ColumnElement:
     """``keyword_fts @@ query``; do końca backfillu wiersze bez korpusu
     dopasowuje stary ``search_fts`` (``keyword_corpus.ready``)."""
@@ -450,31 +506,14 @@ def _folded_whole_word_match(
     if scope in ("cv", "title", "skills"):
         # Indeks wybiera wiersze, regex pola potwierdza zakres — jak dotąd,
         # tylko teraz także dla „c#” (dawniej regex bez wstępnego filtra).
-        field = {
-            "cv": Candidate.raw_cv_text,
-            "title": _experience_roles_text(),
-            "skills": _skill_names_text(),
-        }[scope]
         # Runda 7 (R7-X3-1): pole składa TA SAMA funkcja SQL co indeks
         # (NFC, znaki łączące, „/” i „-” jako spacja, c#/.net). Pythonowe
         # ``translate`` odrzucało wiersze, które indeks wybrał: „lodz” przy CV
         # z „Lo\u0301dz\u0301”, „ci/cd” przy „CI-CD”. Tani regex pola idzie
         # pierwszy — łapie większość wierszy bez liczenia tsvector.
-        fold_fn = getattr(func, keyword_corpus.FOLD_FUNCTION)
-        folded_field = func.to_tsvector(
-            _FTS_CONFIG,
-            fold_fn(
-                func.left(func.coalesce(field, ""), keyword_corpus.CV_CAP),
-                type_=Text,
-            ),
-        )
         return Candidate.id.in_(
             select(Candidate.id).where(
-                match,
-                or_(
-                    field.op("~*")(pattern),
-                    folded_field.op("@@")(query),
-                ),
+                match, _scope_field_match(scope, pattern, query)
             )
         )
     return Candidate.id.in_(union(select(Candidate.id).where(match), notes_branch))
@@ -544,12 +583,7 @@ def _whole_word_match(term: KeywordTerm, scope: str = "all") -> ColumnElement:
     if scope == "notes":
         return Candidate.id.in_(notes_branch)
     if scope in ("cv", "title", "skills"):
-        field = {
-            "cv": Candidate.raw_cv_text,
-            "title": _experience_roles_text(),
-            "skills": _skill_names_text(),
-        }[scope]
-        conditions = [field.op("~*")(pattern)]
+        conditions = [_scope_field_match(scope, pattern)]
         if fts is not None:
             conditions.insert(0, fts)
         return Candidate.id.in_(select(Candidate.id).where(*conditions))
