@@ -605,7 +605,7 @@ function RequiredDocumentsSection({
   readOnly: boolean;
 }) {
   const qc = useQueryClient();
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showInfo } = useToast();
   const [showApply, setShowApply] = useState(false);
   const [editing, setEditing] = useState<RequiredDoc | null>(null);
 
@@ -700,7 +700,7 @@ function RequiredDocumentsSection({
             if (count > 0) {
               showSuccess(`Dodano ${count} wymóg(i) z szablonu`);
             } else {
-              showError("Wszystkie wybrane szablony są już zaaplikowane");
+              showInfo("Wszystkie wybrane szablony są już zaaplikowane");
             }
           }}
         />

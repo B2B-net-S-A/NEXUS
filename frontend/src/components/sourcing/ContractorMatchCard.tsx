@@ -95,7 +95,7 @@ export function ContractorMatchCard({ row }: Props) {
   const [openMenuJobId, setOpenMenuJobId] = useState<number | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftState | null>(null);
-  const { showError } = useToast();
+  const { showError, showInfo } = useToast();
 
   const handleProposal = async (jobId: number) => {
     setActionLoading(`proposal-${jobId}`);
@@ -121,7 +121,7 @@ export function ContractorMatchCard({ row }: Props) {
 
   const handleShortlist = async () => {
     if (row.top_matches.length === 0) {
-      showError("Brak rekrutacji do wysłania w shortliście.");
+      showInfo("Brak rekrutacji do wysłania w shortliście.");
       return;
     }
     setActionLoading("shortlist");
