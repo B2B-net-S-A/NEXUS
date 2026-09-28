@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   delete: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
+  showInfo: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -25,7 +26,11 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/components/Toast", () => ({
-  useToast: () => ({ showSuccess: mocks.showSuccess, showError: mocks.showError }),
+  useToast: () => ({
+    showSuccess: mocks.showSuccess,
+    showError: mocks.showError,
+    showInfo: mocks.showInfo,
+  }),
 }));
 
 const CLIENT_ID = 7;
@@ -270,6 +275,35 @@ describe("MaterialsTab — wymagane dokumenty i warunki (zapis)", () => {
     );
     expect(mocks.showSuccess).toHaveBeenCalledWith("Status: Podpisany");
     await waitFor(() => expect(getCallsFor(REQUIRED_DOCS_URL)).toBe(2));
+  });
+
+  it("szablony już zaaplikowane to informacja, nie błąd", async () => {
+    // Runda 13 (FRONTB): zero nowych wymogów z szablonu nie jest awarią.
+    routeGets({
+      [ONE_PAGERS_URL]: [[]],
+      [REQUIRED_DOCS_URL]: [[requiredDoc(9, "NDA")]],
+      ["/api/required-document-templates"]: [
+        [{ id: 3, name: "NDA", description: null, is_default: true }],
+      ],
+    });
+    mocks.post.mockResolvedValue({ data: [] });
+
+    renderTab();
+    fireEvent.click(screen.getByRole("button", { name: "Wymagane dokumenty" }));
+    await screen.findByText("NDA");
+
+    fireEvent.click(screen.getByRole("button", { name: "Z szablonu" }));
+    const applyAll = await screen.findByRole("button", { name: "Aplikuj wszystkie domyślne" });
+    await waitFor(() => expect(applyAll).toBeEnabled());
+    fireEvent.click(applyAll);
+
+    await waitFor(() =>
+      expect(mocks.showInfo).toHaveBeenCalledWith(
+        "Wszystkie wybrane szablony są już zaaplikowane",
+      ),
+    );
+    expect(mocks.showError).not.toHaveBeenCalled();
+    expect(mocks.showSuccess).not.toHaveBeenCalled();
   });
 
   it("zapis warunków kontraktowych wysyła tylko zmienione pola", async () => {
