@@ -596,6 +596,14 @@ async def change_password(
     przez admin-reset) + audit log + email notification. Zwraca nową parę
     tokenów (ten sam kształt co `/login`) — wcześniejsze tokeny są martwe.
     """
+    # Runda 12: token klienta OAuth (integracja działająca w imieniu konta) nie
+    # zmienia hasła — odpowiedź niesie pełną sesję użytkownika, która omijałaby
+    # zakres tras klienta i przeżyła jego wyłączenie.
+    if getattr(getattr(request, "state", None), "oauth_client_id", None):
+        raise HTTPException(
+            status_code=403,
+            detail="Integracja nie może zmieniać hasła konta.",
+        )
     # Konto tylko SSO nie ma hasła do zmiany (AUTH-04). Do 09.2026 formularz
     # kończył się tu 500 (``AttributeError`` na ``None.encode``).
     if not has_usable_password(current_user.password_hash):

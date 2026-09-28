@@ -136,3 +136,25 @@ async def test_change_password_success_gives_current_session_fresh_tokens(
     # Nowa para przeżywa podłogę, którą ta sama zmiana postawiła.
     assert not token_is_revoked(access, user.tokens_valid_after)
     assert not token_is_revoked(refresh, user.tokens_valid_after)
+
+
+@pytest.mark.asyncio
+async def test_change_password_refuses_oauth_client_token() -> None:
+    """Runda 12 (przegląd): integracja OAuth nie dostaje sesji użytkownika."""
+    from fastapi import HTTPException
+
+    from app.api import auth
+
+    handler = inspect.unwrap(auth.change_password)
+    with pytest.raises(HTTPException) as exc:
+        await handler(
+            request=SimpleNamespace(
+                client=None, state=SimpleNamespace(oauth_client_id="klient-r12")
+            ),
+            data=auth.ChangePasswordRequest(
+                current_password="stare-haslo-123", new_password="nowe-haslo-456"
+            ),
+            current_user=SimpleNamespace(id=1, password_hash="x"),
+            db=_FakeDb(),
+        )
+    assert exc.value.status_code == 403

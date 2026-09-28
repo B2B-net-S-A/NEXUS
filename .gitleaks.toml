@@ -96,7 +96,7 @@ regexes = [
   # Atrapy haseł z testu zmiany hasła (runda 10 audytu, 27.09.2026) — zostały
   # w historii gałęzi PR #1874, a skan PR-a obejmuje cały zakres commitów.
   # Zakotwiczone, dokładnie trzy wartości.
-  '''^(dobre-haslo-123|nowe-haslo-456|zle-haslo-xxx)$''',
+  '''^(dobre-haslo-123|nowe-haslo-456|zle-haslo-xxx|stare-haslo-123)$''',
 ]
 
 [[rules]]
