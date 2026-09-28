@@ -619,7 +619,9 @@ async def reset_password(
     user.force_password_change_at = func.now()
     # F-05: admin-reset unieważnia wszystkie wcześniej wybite tokeny usera —
     # wykradziony/wyciekły token nie przeżywa resetu hasła.
-    user.tokens_valid_after = func.now()
+    # Runda 13: podłoga z zegara aplikacji (jak token_is_revoked i iat), nie
+    # początek transakcji w bazie.
+    user.tokens_valid_after = datetime.now(timezone.utc)
 
     db.add(
         Activity(

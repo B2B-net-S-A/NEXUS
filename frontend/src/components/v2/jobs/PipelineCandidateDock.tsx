@@ -1489,7 +1489,7 @@ export function PipelineCandidateDock({
             aria-label="Dodaj notatkę"
             placeholder="Dodaj notatkę… (Enter wysyła)"
             rows={1}
-            className="min-h-8 flex-1 resize-none rounded-md border border-border bg-card px-3 py-1.5 text-xs focus:outline-hidden focus:ring-2 focus:ring-primary"
+            className="min-h-8 w-0 flex-1 resize-none rounded-md border border-border bg-card px-3 py-1.5 text-xs focus:outline-hidden focus:ring-2 focus:ring-primary"
           />
           <Button
             size="sm"

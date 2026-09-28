@@ -119,7 +119,7 @@ describe("natywne window.alert", () => {
     );
     expect(
       offenders,
-      "użyj toastu (useToast z components/Toast: showError / showSuccess) zamiast natywnego alert()",
+      "użyj toastu (useToast z components/Toast: showError / showSuccess / showInfo — informacja, która nie jest błędem) zamiast natywnego alert()",
     ).toEqual([]);
   });
 });

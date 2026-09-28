@@ -7575,6 +7575,24 @@ Raport: `docs/audits/2026-09-25/runda-12.md`.
   zależy od fontu systemu). Nocny `preview-chromium` biegnie w jobie `stack`
   tylko z harmonogramu — w kolejce merge'ów jest pomijany.
 
+### Runda 13 (28.09.2026, po PR #1884)
+
+Raport: `docs/audits/2026-09-25/runda-13.md`.
+
+- **Tokeny mają `iat` z mikrosekundami** (`security._issued_at`), a
+  `token_is_revoked` porównuje je dokładnie; tokeny z całkowitym `iat` (sprzed
+  28.09.2026) — po pełnych sekundach. Każde ustawienie `tokens_valid_after`
+  bierze czas z zegara aplikacji (`datetime.now(timezone.utc)`), nigdy
+  `func.now()` — to początek transakcji, więc token wybity równolegle przeżyłby
+  unieważnienie. Nowa ścieżka wydająca token = `create_access_token`/`create_refresh_token`.
+- **Zapisane wyszukiwanie z filtrem umiejętności** dostaje przy migracji v1 → v2
+  kod `screening_skills` (`saved_search_payload.RULE_SCREENING_SKILLS`).
+- **Powiadomienia: `showError` tylko dla błędów**, informacja — `showInfo`
+  (`components/Toast.tsx`, rola `status`).
+- **Pole `flex-1` w wierszu ma jawną szerokość (`w-0`), przewijany kontener
+  z `absolute`/`sr-only` w środku ma `relative`** — pilnują strażniki
+  w `responsive-guards.test.ts`.
+
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 
 Audyt `docs/recruiter-tools-audit-2026-09-17.md`, raport z poprawek

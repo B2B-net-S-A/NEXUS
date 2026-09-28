@@ -117,7 +117,8 @@ async def test_user_scope_invalidation_is_atomic_active_dl_only() -> None:
     sql = str(db.statements[0].compile(dialect=postgresql.dialect()))
     assert sql.startswith("UPDATE users SET ")
     assert "authorization_version=(users.authorization_version +" in sql
-    assert "tokens_valid_after=now()" in sql
+    # Runda 13: podłoga z zegara aplikacji (parametr), nie now() bazy.
+    assert "tokens_valid_after=%(tokens_valid_after)s" in sql
     assert "users.is_active IS true" in sql
     assert "users.role =" in sql
     assert "users.roles @>" in sql

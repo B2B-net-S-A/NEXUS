@@ -796,7 +796,10 @@ async def reset_password_with_token(
     user.force_password_change = False
     user.force_password_change_at = None
     # F-05: reset przez link z maila też unieważnia wcześniejsze tokeny.
-    user.tokens_valid_after = func.now()
+    # Runda 13 (AUTH): podłoga z zegara aplikacji — tym samym zegarem wybijamy
+    # ``iat``, a ``func.now()`` to początek transakcji w bazie, więc token
+    # wybity równolegle w trakcie resetu przeżyłby go.
+    user.tokens_valid_after = datetime.now(timezone.utc)
 
     db.add(
         Activity(

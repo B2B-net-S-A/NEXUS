@@ -97,7 +97,7 @@ export function StageBreakdownSection({ period }: Props) {
 function StageTable({ rows }: { rows: StageBreakdownRow[] }) {
   const max = Math.max(0, ...rows.map((r) => r.reached));
   return (
-    <div className="overflow-x-auto xl:col-span-2">
+    <div className="relative overflow-x-auto xl:col-span-2">
       <table className="w-full min-w-[560px] text-sm">
         <thead>
           <tr className="border-b border-border text-left text-xs text-muted-foreground">

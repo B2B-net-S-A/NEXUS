@@ -104,7 +104,7 @@ export function NordeaOrderImportPanel({ clientId, onApplied }: Props) {
               setReport(null);
               setError(null);
             }}
-            className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground file:mr-3 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs file:font-medium file:text-foreground"
+            className="w-0 min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground file:mr-3 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs file:font-medium file:text-foreground"
           />
           <button
             type="button"

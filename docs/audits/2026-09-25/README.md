@@ -19,9 +19,10 @@ Te pliki są po to, żeby następny audyt **nie zaczynał od zera**: wiadomo, co
 | 9 | `5fc015405` | 9 wysokich, ~140 średnich i niskich (20 agentów; 3 regresje r8 naprawione przed scaleniem #1870) | PR #1871 (`b5463ca17`) | [runda-9.md](runda-9.md) |
 | 10 | `724853ab6` | 7 wysokich, ~165 średnich i niskich (20 agentów) + 27 ustaleń z testów manualnych UI Codexa | PR #1874 (`3a2f78a52`) | [runda-10.md](runda-10.md), [manual-ui-codex-2026-09-26.md](manual-ui-codex-2026-09-26.md) |
 | 11 | `734c4fa6d` | domknięcie 7 pozycji „poza zakresem” z rundy 10 (bez nowego audytu) | PR #1877 (`c7071e276`) | [runda-11.md](runda-11.md) |
-| 12 | `ab01059fb` | domknięcie „Znalezione” z rundy 11 (wylogowanie po zmianie hasła potwierdzone, nocny test harnessów czerwony od 25.09) | PR rundy 12 | [runda-12.md](runda-12.md) |
+| 12 | `ab01059fb` | domknięcie „Znalezione” z rundy 11 (wylogowanie po zmianie hasła potwierdzone, nocny test harnessów czerwony od 25.09) | PR #1884 (`9c4bcee01`) | [runda-12.md](runda-12.md) |
+| 13 | `6cfb45c8d` | domknięcie „Znalezione” z rundy 12 | PR rundy 13 | [runda-13.md](runda-13.md) |
 
-Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji”), są w `CLAUDE.md`, sekcja „Audyt 25.09.2026 — reguły po naprawie” z podsekcjami „Runda 2” … „Runda 12”.
+Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji”), są w `CLAUDE.md`, sekcja „Audyt 25.09.2026 — reguły po naprawie” z podsekcjami „Runda 2” … „Runda 13”.
 
 ## Co się powtarza (przeczytaj przed kolejnym audytem albo poprawką)
 

@@ -327,7 +327,7 @@ export function LineMonthlyHistoryDialog({
               : "Brak wpisów miesięcznych."}
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full min-w-[46rem] text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
