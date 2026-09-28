@@ -8,6 +8,7 @@ import {
   ChevronUp,
   ClipboardList,
   Ellipsis,
+  FileText,
   Link2,
   MessageCircle,
   PencilLine,
@@ -464,6 +465,20 @@ export function JobDetailCompactHeader({
                     brakuje {missing}
                   </Badge>
                 ) : null}
+              </Button>
+            ) : null}
+            {/* Profil Championa (opis projektu, stack, screening) — do 09.2026
+                wchodziło się do niego wyłącznie przez okno „Zlecenie”. */}
+            {activeView !== "champion" ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => onViewChange("champion")}
+                data-testid="open-champion-profile"
+              >
+                <FileText className="h-4 w-4" aria-hidden="true" />
+                Profil Championa
               </Button>
             ) : null}
             <Button

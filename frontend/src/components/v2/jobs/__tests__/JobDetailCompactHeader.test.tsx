@@ -149,6 +149,15 @@ describe("JobDetailCompactHeader", () => {
     expect(screen.getByTestId("open-order")).not.toHaveAttribute("aria-current");
   });
 
+  it("„Profil Championa” otwiera widok Championa z Tablicy, a na nim znika", async () => {
+    const { onViewChange, unmount } = renderHeader({ activeView: "board" });
+    await userEvent.click(screen.getByRole("button", { name: "Profil Championa" }));
+    expect(onViewChange).toHaveBeenCalledWith("champion");
+    unmount();
+    renderHeader({ activeView: "champion" });
+    expect(screen.queryByRole("button", { name: "Profil Championa" })).toBeNull();
+  });
+
   it("zamyka menu przed odroczonym otwarciem modala akcji", async () => {
     const { onEdit } = renderHeader();
 
