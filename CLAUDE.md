@@ -7547,6 +7547,34 @@ Raport: `docs/audits/2026-09-25/runda-11.md` (domknięcie pozycji z rundy 10).
   niesie `pair_source_stage_id`/`pair_source_status` — ekrany czytają CV pary
   stamtąd. Plików CV nie kopiujemy ani nie przenosimy.
 
+### Runda 12 (28.09.2026, po PR #1877)
+
+Raport: `docs/audits/2026-09-25/runda-12.md`.
+
+- **Zmiana hasła nie wylogowuje bieżącej sesji:** `POST /api/auth/change-password`
+  zwraca 200 z nową parą tokenów (bez `fpc`), a unieważnia wszystkie
+  wcześniejsze (podłoga `tokens_valid_after` z zegara aplikacji). Front
+  zapisuje nowy token (`lib/password-change-session.ts`).
+  Token klienta OAuth dostaje 403 — trasa wydająca tokeny użytkownika nie
+  może przyjmować tokenu integracji.
+- **Status requestu „champion” tylko przy „Szukamy”** — `request_status_expr`
+  = `request_stage_expr` = `visible_state`. „Mamy championa” kliknięte na
+  innym stanie zapisuje się, ale widać je po przestawieniu na „Szukamy”
+  (decyzja Artura 28.09.2026).
+- **CV firmowe pary czytają wszystkie ekrany przez `useStageBrandedCv`**
+  (`pairSourceStageId`): karta „CV do klienta”, warsztat wysyłki (link klienta
+  i odwołanie linków idą na wiersz pary), zakładka „Rekrutacje” profilu.
+- **Umiejętności ze screeningu (`confirmed`) liczą się w zakresie „Umiejętności”,
+  filtrze umiejętności v2 i wycinkach** — jedno źródło
+  `keyword_corpus._screening_skills_from`. v1 wyszukiwania bez zmian.
+- **Natywne `alert()` i `confirm()` odrzuca strażnik**
+  `src/__tests__/native-confirm-guard.test.ts` — komunikaty przez `useToast`,
+  potwierdzenia przez `useConfirmV2()`.
+- **Responsywność:** przewijany kontener tabeli z `sr-only` w nagłówku musi mieć
+  `relative`; pole `flex-1` w wierszu dostaje `w-0` (minimum z `size=20`
+  zależy od fontu systemu). Nocny `preview-chromium` biegnie w jobie `stack`
+  tylko z harmonogramu — w kolejce merge'ów jest pomijany.
+
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 
 Audyt `docs/recruiter-tools-audit-2026-09-17.md`, raport z poprawek

@@ -64,7 +64,9 @@ def skills_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
     „Mile widziane" (`predicates.skill_buckets_from_search`). ``None``, gdy
     nie ma czym szeregować.
     """
-    return predicates.skills_preferred_rank(predicates.skill_buckets_from_search(req))
+    return predicates.skills_preferred_rank(
+        predicates.skill_buckets_from_search(req), request_semantics(req)
+    )
 
 
 def experience_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
@@ -286,12 +288,12 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
     add(
         "skills_required",
         'Umiejętności — „Musi mieć"',
-        predicates.skills_required_clauses(buckets),
+        predicates.skills_required_clauses(buckets, sem),
     )
     add(
         "skills",
         'Umiejętności — „Wyklucz"',
-        predicates.skills_excluded_clauses(buckets),
+        predicates.skills_excluded_clauses(buckets, sem),
     )
 
     experience: list[ColumnElement] = []

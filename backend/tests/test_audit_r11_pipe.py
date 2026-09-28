@@ -93,8 +93,9 @@ async def test_request_status_champion_does_not_cover_silent_or_finished() -> No
         "searching": "champion",
         "client_silent": "searching",
         "finished": "searching",
-        # Słownik statusu nie zna „Do przejrzenia” — champion zostaje.
-        "to_review": "champion",
+        # Runda 12 (BACK-1): „Do przejrzenia” z championem to nie „Mamy
+        # championa” — pigułka stanu i pulpit mówią „Do przejrzenia”.
+        "to_review": "searching",
     }
     async with AsyncSessionLocal() as db:
         client = Client(name=f"R11PipeStatus-{tag}")
@@ -120,7 +121,7 @@ async def test_request_status_champion_does_not_cover_silent_or_finished() -> No
         assert status_ == expected, state
         # Oba wyrażenia mówią „champion” przy „Klient milczy” / „Zakończony”
         # jednakowo — czyli wcale.
-        if state in ("client_silent", "finished"):
+        if state in ("client_silent", "finished", "to_review"):
             assert stage == state
 
 

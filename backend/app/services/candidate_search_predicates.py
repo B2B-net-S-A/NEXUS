@@ -24,6 +24,7 @@ Umiejętności        „Musi mieć" = filtr TWARDY · „Mile widziane" = tylko
                     ranking · „Wyklucz" = filtr TWARDY. Bez kubełka → „Musi
                     mieć". Pola legacy zachowują dotychczasowe znaczenie
                     (patrz ``skill_buckets_from_list`` / ``…_from_search``).
+                    v2: także umiejętności potwierdzone w screeningu.
 Tekst ``q``         auto: nazwisko / e-mail / telefon → dopasowanie dosłowne,
                     reszta → dotychczasowa ścieżka silnika. Jawne ``text_mode``.
 „Otwarty na"        LUB (którykolwiek z zaznaczonych).
@@ -56,6 +57,7 @@ from sqlalchemy.sql import ColumnElement
 from app.models.candidate import Candidate
 from app.services.advanced_candidate_search import (
     build_advanced_filter,
+    screening_skill_rows,
     single_phrase_filter,
 )
 from app.services.candidate_profile_rate import (
@@ -171,7 +173,7 @@ def _json_token_match(blob: ColumnElement, needles: Sequence[str]) -> ColumnElem
     return or_(*conditions)
 
 
-def skill_match(skill: str) -> ColumnElement:
+def skill_match(skill: str, sem: Optional[Semantics] = None) -> ColumnElement:
     """Kandydat MA umiejętność — cały token, oba kodowania, rodzina aliasów.
 
     Zmierzone na produkcji 28.07.2026: goły ``%Go%`` przy „nie ma Go" wycinał
@@ -191,7 +193,21 @@ def skill_match(skill: str) -> ColumnElement:
     from app.services.scoring_service import skill_name_variants
 
     needles = [w for w in skill_name_variants([skill]) if w] or [skill.lower()]
-    return _json_token_match(func.lower(skills_text()), needles)
+    match = _json_token_match(func.lower(skills_text()), needles)
+    if sem is None or not sem.unified:
+        # v1 (i wołający bez semantyki): DOKŁADNIE dotychczasowy zbiór kolumn.
+        return match
+    # v2 — runda 12 (SEARCH): także umiejętności potwierdzone w screeningu
+    # (profil pokazuje je z ✓ w „Umiejętnościach”, a runda 11 dołożyła je do
+    # słów kluczowych). Cała nazwa bez wielkości liter — ten sam test „całego
+    # tokenu” co zrzut JSON; poziomy basic/none się nie liczą.
+    rows = screening_skill_rows()
+    screening = Candidate.id.in_(
+        select(rows.c.candidate_id).where(
+            func.lower(func.btrim(rows.c.skill)).in_(needles)
+        )
+    )
+    return or_(match, screening)
 
 
 def split_pipe_group(value: str) -> list[str]:
@@ -461,25 +477,31 @@ def skill_buckets_from_search(req: Any) -> SkillBuckets:
     return _normalize_buckets(required, groups, preferred, excluded)
 
 
-def skills_required_clauses(buckets: SkillBuckets) -> list[ColumnElement]:
+def skills_required_clauses(
+    buckets: SkillBuckets, sem: Optional[Semantics] = None
+) -> list[ColumnElement]:
     """„Musi mieć": każda umiejętność + z każdej grupy co najmniej jedna."""
-    clauses: list[ColumnElement] = [skill_match(s) for s in buckets.required]
+    clauses: list[ColumnElement] = [skill_match(s, sem) for s in buckets.required]
     for group in buckets.required_any_groups:
-        clauses.append(or_(*[skill_match(s) for s in group]))
+        clauses.append(or_(*[skill_match(s, sem) for s in group]))
     return clauses
 
 
-def skills_excluded_clauses(buckets: SkillBuckets) -> list[ColumnElement]:
+def skills_excluded_clauses(
+    buckets: SkillBuckets, sem: Optional[Semantics] = None
+) -> list[ColumnElement]:
     """„Wyklucz": żadnej z wymienionych."""
-    return [not_(skill_match(s)) for s in buckets.excluded]
+    return [not_(skill_match(s, sem)) for s in buckets.excluded]
 
 
-def skills_preferred_rank(buckets: SkillBuckets) -> Optional[ColumnElement]:
+def skills_preferred_rank(
+    buckets: SkillBuckets, sem: Optional[Semantics] = None
+) -> Optional[ColumnElement]:
     """ORDER BY: ile pozycji „Mile widziane" kandydat spełnia. Nigdy nie tnie."""
     if not buckets.preferred:
         return None
     points = [
-        case((or_(*[skill_match(s) for s in group]), 1), else_=0)
+        case((or_(*[skill_match(s, sem) for s in group]), 1), else_=0)
         for group in buckets.preferred
     ]
     return reduce(lambda a, b: a + b, points)

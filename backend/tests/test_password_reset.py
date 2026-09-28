@@ -20,6 +20,7 @@ from typing import AsyncIterator
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from jose import jwt
 from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
@@ -414,7 +415,7 @@ async def test_change_password_self_clears_force_flag(
         },
         headers=headers,
     )
-    assert resp.status_code == 204
+    assert resp.status_code == 200, resp.text
 
     async with AsyncSessionLocal() as db:
         u = await db.scalar(select(User).where(User.id == fresh_user["id"]))
@@ -457,7 +458,18 @@ async def test_fpc_token_is_refused_by_business_api_but_reaches_recovery(
         },
         headers=headers,
     )
-    assert changed.status_code == 204
+    assert changed.status_code == 200, changed.text
+
+    # Runda 12 (BACK-2): odpowiedź niesie nowy token BEZ ``fpc`` — ta sama
+    # sesja od razu pracuje, bez ponownego logowania.
+    new_token = changed.json()["access_token"]
+    assert "fpc" not in jwt.get_unverified_claims(new_token)
+    assert (
+        await app_client.get(
+            "/api/notifications",
+            headers={"Authorization": f"Bearer {new_token}"},
+        )
+    ).status_code == 200
 
     # Nowa sesja po zmianie hasła nie niesie ``fpc`` — API działa.
     relogin = await app_client.post(

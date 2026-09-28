@@ -17,7 +17,6 @@ import { Ban, ChevronDown, ChevronUp, RefreshCcw, Sparkles, Trash2 } from "lucid
 import {
   candidatesApi,
   candidateStageCvApi,
-  type CVBrandedState,
   type CVOriginalSnapshot,
   type RateUnit,
 } from "@/lib/api";
@@ -26,6 +25,7 @@ import { canViewClientRate, canWriteClientRate } from "@/lib/client-rate-access"
 import { useAuthStore } from "@/store/auth";
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { stageCvBadge, stageCvStatus } from "@/lib/cv-to-client";
+import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -559,12 +559,13 @@ function RecruitmentCard({
   // Stan CV do klienta decyduje, czy karta daje „Generuj CV”, czy „Edytuj CV”.
   // Od generatora CV v3 GET przy braku CV zwraca pusty stan (bez renderowania
   // starego szablonu), więc pytamy od razu, a nie dopiero po kliknięciu.
-  const { data: branded } = useQuery<CVBrandedState>({
-    queryKey: ["cv-branded", stageId],
-    queryFn: () =>
-      candidateStageCvApi.branded.get(stageId as number).then((r) => r.data),
-    enabled: stageId != null,
-  });
+  // Runda 12: najnowszy wiersz etapu (po ruchu na kolejną kolumnę) nie ma
+  // własnego CV — edycja, plakietka i link idą na wiersz pary z CV.
+  const {
+    query: { data: branded },
+    pairStageId,
+    cvStageId,
+  } = useStageBrandedCv(stageId);
 
   const refreshMut = useMutation({
     mutationFn: () => {
@@ -766,7 +767,7 @@ function RecruitmentCard({
           open
           onOpenChange={setOpenBranded}
           onRegenerate={() => setOpenGenerator(true)}
-          stageId={stageId}
+          stageId={cvStageId ?? stageId}
           jobTitle={job.job_title}
           candidateName={candidateName}
         />
@@ -782,6 +783,9 @@ function RecruitmentCard({
             setOpenGenerator(false);
             showSuccess("CV generuje się w tle. Gdy będzie gotowe, pojawi się przy tej rekrutacji.");
             void queryClient.invalidateQueries({ queryKey: ["cv-branded", stageId] });
+            if (pairStageId != null) {
+              void queryClient.invalidateQueries({ queryKey: ["cv-branded", pairStageId] });
+            }
           }}
         />
       ) : null}
@@ -789,7 +793,7 @@ function RecruitmentCard({
         <CVShareLinkModal
           open
           onOpenChange={setOpenShare}
-          stageId={stageId}
+          stageId={cvStageId ?? stageId}
           candidateName={candidateName}
         />
       ) : null}
