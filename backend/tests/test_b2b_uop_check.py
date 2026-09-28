@@ -117,3 +117,119 @@ def test_prompt_pins_partner_wording_for_the_service_provider(monkeypatch, langu
     # …i jawnie wymienia terminy zakazane (żeby model nie wstawił ich do redakcji).
     for forbidden in ("Wykonawca", "Konsultant", "Zleceniobiorca"):
         assert forbidden in prompt
+
+
+# ── Ticket 5: redakcja AI nie dopisuje warunków współpracy ───────────────────
+
+
+def _fake_response(rewritten: str, suggestion: str = "") -> str:
+    import json
+
+    return json.dumps(
+        {
+            "issues": [
+                {"phrase": "godziny pracy", "why": "ryzyko", "suggestion": suggestion}
+            ],
+            "rewritten": rewritten,
+            "summary": "Wymaga zmiany.",
+        },
+        ensure_ascii=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "added",
+    [
+        "Partner samodzielnie realizuje usługi na rzecz Klienta.",
+        "Partner raportuje postępy osobom wskazanym przez Klienta.",
+        "Usługi są świadczone zdalnie lub w siedzibie Klienta.",
+        "Partner ponosi odpowiedzialność za rezultat usług.",
+        "Partner może korzystać z podwykonawców.",
+    ],
+)
+def test_rewrite_drops_added_cooperation_terms(monkeypatch, added):
+    """Zdanie z Ticketu 5 („Konsultant będzie samodzielnie realizował usługi na
+    rzecz Klienta”) i jego rodzeństwo nie trafiają do opisu, gdy rekrutacja
+    o nich nie mówiła — reszta redakcji zostaje."""
+    source = "Projekt migracji systemu płatności. Praca w godzinach 9-17."
+    rewritten = f"Projekt migracji systemu płatności. {added}"
+    monkeypatch.setattr(
+        uop_check,
+        "analyze_with_ai",
+        lambda *a, **k: _fake_response(rewritten, suggestion=added),
+    )
+
+    result = uop_check.check_employment_hallmarks(source)
+
+    assert result["rewritten"] == "Projekt migracji systemu płatności."
+    assert result["issues"][0]["suggestion"] == ""
+
+
+def test_rewrite_keeps_terms_present_in_the_source(monkeypatch):
+    """Określenie przepisane z rekrutacji nie jest dopiskiem — zostaje."""
+    source = "Samodzielne testowanie aplikacji mobilnej w zespole QA."
+    rewritten = "Samodzielne testowanie aplikacji mobilnej w zespole QA."
+    monkeypatch.setattr(
+        uop_check, "analyze_with_ai", lambda *a, **k: _fake_response(rewritten)
+    )
+
+    assert uop_check.check_employment_hallmarks(source)["rewritten"] == rewritten
+
+
+def test_rewrite_drops_only_the_added_list_item(monkeypatch):
+    source = "Zakres: analiza wymagań, testy regresji."
+    rewritten = (
+        "Zakres obejmuje analizę wymagań; testy regresji; raportowanie do Klienta."
+    )
+    monkeypatch.setattr(
+        uop_check, "analyze_with_ai", lambda *a, **k: _fake_response(rewritten)
+    )
+
+    assert (
+        uop_check.check_employment_hallmarks(source)["rewritten"]
+        == "Zakres obejmuje analizę wymagań; testy regresji."
+    )
+
+
+def test_rewrite_emptied_by_the_guard_falls_back_to_the_source(monkeypatch):
+    source = "Testy aplikacji mobilnej."
+    monkeypatch.setattr(
+        uop_check,
+        "analyze_with_ai",
+        lambda *a, **k: _fake_response(
+            "Konsultant będzie samodzielnie realizował usługi na rzecz Klienta."
+        ),
+    )
+
+    assert uop_check.check_employment_hallmarks(source)["rewritten"] == source
+
+
+def test_sentence_split_keeps_versions_and_abbreviations_together():
+    pieces = uop_check._split_sentences(
+        "Wersja 5.x i .NET. Zakres m.in. testy.\nKoniec"
+    )
+
+    assert pieces == ["Wersja 5.x i .NET. ", "Zakres m.in. testy.\n", "Koniec"]
+    assert "".join(pieces) == "Wersja 5.x i .NET. Zakres m.in. testy.\nKoniec"
+
+
+@pytest.mark.parametrize("language", ["pl", "en"])
+def test_prompt_forbids_adding_cooperation_terms(monkeypatch, language):
+    captured: list[str] = []
+
+    def fake_analyze(content, *args, **kwargs):
+        captured.append(content)
+        return '{"issues":[],"rewritten":"x","summary":"OK."}'
+
+    monkeypatch.setattr(uop_check, "analyze_with_ai", fake_analyze)
+    uop_check.check_employment_hallmarks("Testy aplikacji.", language=language)
+
+    prompt = captured[0].lower()
+    # Stary prompt kazał proponować „samodzielność, własną organizację czasu,
+    # możliwość podwykonawstwa” — to jest źródło dopisków z Ticketu 5.
+    assert "możliwość podwykonawstwa)" not in prompt
+    assert "possibility of subcontracting)" not in prompt
+    if language == "pl":
+        assert "nie dodawaj" in prompt
+    else:
+        assert "do not add" in prompt
