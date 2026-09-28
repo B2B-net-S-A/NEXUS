@@ -47,6 +47,26 @@ function offendersIn(source: string): number[] {
     .map(({ index }) => index + 1);
 }
 
+/**
+ * Runda 12: natywny `alert()` zamraża automatyzację tak samo jak `confirm()`.
+ * Komunikat idzie toastem (`useToast` z `components/Toast`).
+ */
+const NATIVE_ALERT =
+  /(^|[^\w.$])alert\s*\(|\b(?:window|globalThis|self)\s*\??\.\s*alert\b/;
+const WINDOW_ALERT = /\b(?:window|globalThis|self)\s*\??\.\s*alert\b/;
+/** Plik z własną funkcją `alert` (np. fabryka danych harnessu) przesłania natywną. */
+const LOCAL_ALERT = /\b(?:function\s+alert\s*\(|(?:const|let|var)\s+alert\b)/;
+
+function alertOffendersIn(source: string): number[] {
+  const code = stripComments(source);
+  const pattern = LOCAL_ALERT.test(code) ? WINDOW_ALERT : NATIVE_ALERT;
+  return code
+    .split("\n")
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => pattern.test(line))
+    .map(({ index }) => index + 1);
+}
+
 describe("natywne window.confirm", () => {
   it("rozpoznaje wywołania i pomija komentarze oraz metody obiektów", () => {
     expect(offendersIn('if (!confirm("Usunąć?")) return;')).toEqual([1]);
@@ -70,6 +90,36 @@ describe("natywne window.confirm", () => {
     expect(
       offenders,
       "użyj useConfirmV2 (components/v2/modals/ConfirmV2) albo ConfirmTwoStepButton zamiast natywnego confirm()",
+    ).toEqual([]);
+  });
+});
+
+describe("natywne window.alert", () => {
+  it("rozpoznaje wywołania i pomija komentarze, metody i lokalną funkcję alert", () => {
+    expect(alertOffendersIn('alert("Nie udało się usunąć.");')).toEqual([1]);
+    expect(alertOffendersIn("  window.alert(`Błąd: ${msg}`);")).toEqual([1]);
+    expect(alertOffendersIn("globalThis?.alert?.(x);")).toEqual([1]);
+    expect(alertOffendersIn("// zamiast natywnego `alert()`")).toEqual([]);
+    expect(alertOffendersIn("{/* bez alert() */}")).toEqual([]);
+    expect(alertOffendersIn("query.data.alerts.map((alert) => alert.id)")).toEqual([]);
+    expect(alertOffendersIn("showAlert(x); dlAlert(y); this.alert(z);")).toEqual([]);
+    expect(
+      alertOffendersIn("function alert(o = {}) { return o; }\nconst rows = [alert()];"),
+    ).toEqual([]);
+    expect(
+      alertOffendersIn("function alert() {}\nwindow.alert(1);"),
+    ).toEqual([2]);
+  });
+
+  it("kod frontu nie woła natywnego alert()", () => {
+    const offenders = sourceFiles(SRC).flatMap((file) =>
+      alertOffendersIn(readFileSync(file, "utf8")).map(
+        (line) => `${relative(SRC, file)}:${line}`,
+      ),
+    );
+    expect(
+      offenders,
+      "użyj toastu (useToast z components/Toast: showError / showSuccess) zamiast natywnego alert()",
     ).toEqual([]);
   });
 });

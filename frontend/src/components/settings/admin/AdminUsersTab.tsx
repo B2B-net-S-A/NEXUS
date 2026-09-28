@@ -19,6 +19,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { adminApi, extractErrorMsg } from "@/lib/api";
+import { useToast } from "@/components/Toast";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
 import {
   AdminUser,
@@ -52,6 +53,7 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
   const { user } = useAuthStore();
   const impersonate = useAuthStore((s) => s.impersonate);
   const queryClient = useQueryClient();
+  const { showError } = useToast();
   // `?sub=` w adresie (B42): F5 na „Uprawnieniach" nie wraca do „Użytkowników".
   const searchParams = useSearchParams();
   const [subTab, setSubTab] = useAdminSubTab(
@@ -165,7 +167,7 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
       });
       // impersonate() przekierowuje na "/" po ustawieniu stanu.
     } catch (e) {
-      alert(extractErrorMsg(e));
+      showError(extractErrorMsg(e));
     }
   };
 
