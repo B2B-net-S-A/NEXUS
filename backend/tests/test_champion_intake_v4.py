@@ -372,3 +372,34 @@ def test_vertical_merge_is_read_once_and_does_not_multiply_questions():
     data = stream.getvalue()
     assert document_text(data).count(first_question) == 1
     assert len(table_profile(data)["profile"]["screening_questions"]) == 1
+
+
+# ── v7 (27.09.2026): lista miast biura ze słownika jest jednoznaczna ────────
+
+
+def test_office_list_of_known_cities_is_not_ambiguous():
+    from app.services.champion_intake import office_places, same_office_places
+
+    assert office_places("Warszawa, Gdańsk") == office_places("Gdansk lub Warsaw")
+    assert office_places("Warszawa, Biuro na Mokotowie") is None
+    assert same_office_places("Warsaw", "Warszawa")
+    assert not same_office_places("Warszawa", "Kraków")
+
+    cp = filled()
+    cp["basics"]["candidate_location_pref"] = "Warszawa, Gdańsk"
+    codes = {i["code"] for i in validation(cp)["issues"]}
+    assert "ambiguous_office" not in codes
+    cp["basics"]["candidate_location_pref"] = "Warszawa lub okolice Trójmiasta"
+    codes = {i["code"] for i in validation(cp)["issues"]}
+    assert "ambiguous_office" in codes
+
+
+def test_same_city_in_other_spelling_is_not_a_column_conflict():
+    cp = filled()
+    cp["basics"]["candidate_location_pref"] = "Warszawa, Gdańsk"
+    draft = job(cp)
+    draft.office_location = None
+    draft.location = "Gdansk, Warsaw"
+    assert "column_conflict" not in {i["code"] for i in validation(cp, draft)["issues"]}
+    draft.location = "Kraków"
+    assert "column_conflict" in {i["code"] for i in validation(cp, draft)["issues"]}

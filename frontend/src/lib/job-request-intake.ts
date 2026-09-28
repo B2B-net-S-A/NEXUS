@@ -86,6 +86,8 @@ export interface IntakeForm {
   seniorityYears: number | null;
   rateBudget: string;
   rateNote: string | null;
+  /** v7 (27.09.2026): uwagi z odczytu (np. „bankowość” przeniesiona do mile widzianych). */
+  intakeNotes: string[];
   remotePolicy: RemotePolicyValue | "";
   onsiteDays: string;
   city: string;
@@ -134,6 +136,10 @@ export interface RequestIntakeResponse {
   remote_policy: RemotePolicyValue | null;
   onsite_days_per_week: number | null;
   office_city: string | null;
+  /** v7: wszystkie miasta biura z maila, po polsku. */
+  office_cities?: string[];
+  /** v7: co kod zmienił w odczycie modelu (przeniesione wymagania, lata dziedzin). */
+  advisories?: string[];
   start_date: string | null;
   project_about: string | null;
   responsibilities: string | null;
@@ -177,6 +183,24 @@ export const EMPTY_EXPERIENCE_FORM: ChampionExperience = {
   notes: "",
 };
 
+/**
+ * Biuro w formularzu to lista miast (chipy); w rekrutacji i Championie idzie
+ * jednym napisem „Warszawa, Gdańsk” — tak czyta je bramka miasta biura.
+ */
+export function splitCities(city: string): string[] {
+  const out: string[] = [];
+  for (const part of city.split(/[,;\n]/)) {
+    const name = part.trim();
+    if (name && !out.some((c) => c.toLowerCase() === name.toLowerCase()))
+      out.push(name);
+  }
+  return out;
+}
+
+export function joinCities(cities: string[]): string {
+  return splitCities(cities.join(",")).join(", ");
+}
+
 export const EMPTY_INTAKE_FORM: IntakeForm = {
   title: "",
   clientTitle: "",
@@ -188,6 +212,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   seniorityYears: null,
   rateBudget: "",
   rateNote: null,
+  intakeNotes: [],
   remotePolicy: "",
   onsiteDays: "",
   city: "",
@@ -293,12 +318,15 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
         ? String(intake.rate_budget_hourly)
         : "",
     rateNote: intake.rate_note ?? null,
+    intakeNotes: intake.advisories ?? [],
     remotePolicy: intake.remote_policy ?? "",
     onsiteDays:
       intake.onsite_days_per_week != null
         ? String(intake.onsite_days_per_week)
         : "",
-    city: intake.office_city ?? "",
+    city: intake.office_cities?.length
+      ? joinCities(intake.office_cities)
+      : (intake.office_city ?? ""),
     startDate: intake.start_date ?? "",
     about: intake.project_about ?? "",
     responsibilities: intake.responsibilities ?? "",

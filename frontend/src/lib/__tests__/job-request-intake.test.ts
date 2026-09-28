@@ -9,9 +9,11 @@ import {
   effectiveWorkingTitle,
   formFromIntake,
   highlightSegments,
+  joinCities,
   loadTemplateSource,
   missingFor,
   missingHeadline,
+  splitCities,
   type IntakeForm,
   type RequestIntakeResponse,
 } from "@/lib/job-request-intake";
@@ -501,5 +503,38 @@ describe("loadTemplateSource (R8-N12-1)", () => {
   it("stary kształt bez migracji zostawiał formularz pusty", () => {
     const next = applyTemplate({ ...EMPTY_INTAKE_FORM }, legacyJob);
     expect(next.about).toBe("");
+  });
+});
+
+describe("v7 (27.09.2026): miasta biura i uwagi z odczytu", () => {
+  it("lista miast z odczytu trafia do formularza jako jeden napis", () => {
+    const form = formFromIntake({
+      ...INTAKE,
+      office_city: "Warszawa, Gdańsk",
+      office_cities: ["Warszawa", "Gdańsk"],
+      advisories: ["„bankowość” przeniesiona do mile widzianych — to nie technologia."],
+    });
+    expect(form.city).toBe("Warszawa, Gdańsk");
+    expect(splitCities(form.city)).toEqual(["Warszawa", "Gdańsk"]);
+    expect(form.intakeNotes).toHaveLength(1);
+    expect(
+      buildJobPayload(form, { clientId: 1, requestText: "", templateJobId: null })
+        .location,
+    ).toBe("Warszawa, Gdańsk");
+  });
+
+  it("stary odczyt bez listy miast czyta office_city", () => {
+    const form = formFromIntake(INTAKE);
+    expect(form.city).toBe("Warszawa");
+    expect(form.intakeNotes).toEqual([]);
+  });
+
+  it("chipy miast: bez pustych i bez powtórzeń", () => {
+    expect(splitCities(" Warszawa ;  warszawa, Kraków,, ")).toEqual([
+      "Warszawa",
+      "Kraków",
+    ]);
+    expect(joinCities(["Gdańsk", "Gdynia", "gdańsk"])).toBe("Gdańsk, Gdynia");
+    expect(splitCities("")).toEqual([]);
   });
 });

@@ -3087,6 +3087,16 @@ template” → `/jobs/new?from=<id>`) prowadzi na stronę.
 - Strona jest dla admina i Delivery Leada (`job.create` + rola), bo odczyt,
   Champion i handoff to `DeliveryLeadPlus`. Harness `/preview/new-job`
   (`?state=request|review|gaps`, zero zapytań).
+- **Odczyt maila v7 (27.09.2026): must = same technologie, bo każda pozycja
+  must UKRYWA kandydatów** (bramka v8, `must_gate_terms`). Kod dopina to, czego
+  model nie zrobi (`job_request_intake.normalize_must`): bez wersji, przykłady
+  klienta jako jedna pozycja „A lub B”, język do pola języka, branża/miękkie do
+  „Mile widziane” z uwagą w `advisories`. Biuro to lista miast po polsku
+  (`office_cities` → `jobs.location` „Warszawa, Gdańsk”; chipy w formularzu,
+  `splitCities`/`joinCities`), a Champion nie uznaje listy miast ze słownika za
+  „dwuznaczną” ani różnej pisowni tego samego miasta za konflikt z rekrutacją
+  (`champion_intake.office_places`). Lata dziedziny większe niż lata ogółem
+  (albo > 25) odpadają z uwagą. Portal dostaje pierwsze miasto.
 
 ## Hiring manager rekrutacji: lista albo nowa osoba (25.09.2026)
 

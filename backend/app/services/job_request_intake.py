@@ -23,6 +23,11 @@ Zasady, które łatwo cofnąć „przy okazji”:
   (słowa w wierszu = warianty), a każde słowo MUSI stać w mailu jako całe
   słowo (`_word_in_text` — `_in_text` to podłańcuch, „go” przeszłoby
   w „google”). Słowo spoza maila odpada; DL poprawia wiersze na formularzu.
+* **Od v7 (27.09.2026) must = technologie, bo must UKRYWA** (bramka
+  `anywhere-evidence-v8`). Kod normalizuje listę tą samą regułą co bramka
+  (`must_gate_terms`): wersje odcięte, przykłady klienta jako jedna pozycja
+  „A lub B”, język idzie do pola języka, reszta (branża, metodyka, zdanie)
+  do nice. Miasta biura to lista nazw ze słownika miejscowości, po polsku.
 """
 
 from __future__ import annotations
@@ -53,6 +58,10 @@ MAX_ASK_CLIENT = 5
 MAX_DISQUALIFIERS = 8
 MAX_SEARCH_ROWS = 4
 MAX_SEARCH_WORDS = 6
+MAX_OFFICE_CITIES = 5
+# Lata w dziedzinie ponad staż całkowity (albo ponad ten sufit bez stażu) to
+# pomyłka modelu — „10 lat w bankowości” przy „5+ lat doświadczenia”.
+MAX_DOMAIN_YEARS_WITHOUT_SENIORITY = 25
 # Rdzeń słowa z gwiazdką („bankow*”) — krótszy łapałby przypadkowe słowa.
 MIN_SEARCH_STEM = 4
 _BASES = ("request", "client_history", "ai")
@@ -98,7 +107,9 @@ class RequestIntake:
     rate_note: Optional[str] = None
     remote_policy: Optional[str] = None
     onsite_days_per_week: Optional[int] = None
+    # Lista miast po przecinku (zapis `jobs.location`), polskie nazwy.
     office_city: Optional[str] = None
+    office_cities: list[str] = field(default_factory=list)
     start_date: Optional[str] = None
     project_about: Optional[str] = None
     responsibilities: Optional[str] = None
@@ -137,6 +148,8 @@ class RequestIntake:
     hiring_manager_contact_id: Optional[int] = None
     # Imię i nazwisko z KONTAKTU (pisownia z bazy), gdy dopasowano.
     hiring_manager_contact_name: Optional[str] = None
+    # ── od v7 (27.09.2026): uwagi dla DL z normalizacji odczytu ──
+    advisories: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -460,6 +473,115 @@ def _strings(value: Any, limit: int, cap: int) -> list[str]:
     return out
 
 
+# ── v7: must = technologie, miasta = słownik miejscowości ───────────────────
+
+_CITY_SPLIT = re.compile(
+    r"\s*(?:[,;/|]|\s(?:lub|albo|oraz|or|and|i)\s)\s*", re.IGNORECASE
+)
+_CITY_NOISE = re.compile(r"\([^)]*\)|\b(?:okolice|okolic[ay]|biuro w|biuro)\b", re.I)
+
+
+def _office_cities(data: dict[str, Any]) -> list[str]:
+    """Miasta biura: nazwa ze słownika miejscowości (polska), inaczej jak w mailu.
+
+    Model zwraca listę (v7) albo — starszy kształt — jedno pole tekstowe
+    („Gdansk or Warsaw”); oba idą przez ten sam podział.
+    """
+    from app.services import pl_places
+
+    raw = data.get("office_cities")
+    items = raw if isinstance(raw, list) else [data.get("office_city")]
+    out: list[str] = []
+    for item in items:
+        text = _text(item, 200)
+        if not text:
+            continue
+        for part in _CITY_SPLIT.split(_CITY_NOISE.sub(" ", text)):
+            name = " ".join(part.split()).strip(" .-")
+            if len(name) < 2:
+                continue
+            if pl_places.place_key(name) in {"trojmiasto", "tricity"}:
+                name = "Trójmiasto"
+            else:
+                place = pl_places.resolve(name)
+                if place is not None:
+                    name = place.name
+            if name.casefold() not in {c.casefold() for c in out}:
+                out.append(name)
+            if len(out) >= MAX_OFFICE_CITIES:
+                return out
+    return out
+
+
+def _gate_label(requirement) -> str:
+    return " lub ".join(requirement.options)
+
+
+def normalize_must(
+    must: list[str], nice: list[str]
+) -> tuple[list[str], list[str], Optional[str], list[str]]:
+    """Must przez regułę bramki: (must, nice, język, uwagi dla DL).
+
+    Pozycja, która nie jest technologią, nie znika — trafia do nice (ranking)
+    albo do pola języka. Wersja jest odcinana („Java 8+” → „Java”), przykłady
+    klienta stają się jedną pozycją „A lub B”.
+    """
+    from app.services.must_gate_terms import gate_requirement, ignored_reason
+
+    out: list[str] = []
+    moved: list[str] = []
+    language: Optional[str] = None
+    notes: list[str] = []
+    for label in must:
+        requirement = gate_requirement(label)
+        if requirement is None:
+            if ignored_reason(label) == "language" and language is None:
+                language = label
+            else:
+                moved.append(label)
+            continue
+        name = _gate_label(requirement)
+        if name.casefold() != label.casefold():
+            notes.append(f"Must „{label}” zapisano jako „{name}”.")
+        if name.casefold() not in {m.casefold() for m in out}:
+            out.append(name)
+    if moved:
+        notes.append(
+            "Do nice przeniesiono pozycje, które nie są technologią (must ukrywa "
+            "kandydatów bez nich): " + ", ".join(f"„{m}”" for m in moved) + "."
+        )
+    merged_nice = list(nice)
+    for label in moved:
+        if label.casefold() not in {n.casefold() for n in merged_nice}:
+            merged_nice.append(label)
+    merged_nice = [
+        n for n in merged_nice if n.casefold() not in {m.casefold() for m in out}
+    ][:MAX_NICE]
+    return out, merged_nice, language, notes
+
+
+def _label_in_text(name: str, folded_text: str) -> bool:
+    return all(_word_in_text(part, folded_text) for part in name.split(" lub "))
+
+
+def _check_domain_years(
+    experience: dict[str, list[dict[str, Any]]], seniority: Optional[int]
+) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
+    ceiling = seniority if seniority is not None else MAX_DOMAIN_YEARS_WITHOUT_SENIORITY
+    notes: list[str] = []
+    domains: list[dict[str, Any]] = []
+    for item in experience.get("domains", []):
+        years = item.get("min_years")
+        if years is not None and years > ceiling:
+            notes.append(
+                f"Lata w dziedzinie „{item['name']}” ({years}) przekraczają "
+                "wymagany staż — sprawdź w mailu."
+            )
+            item = {**item, "min_years": None}
+        domains.append(item)
+    return {**experience, "domains": domains}, notes
+
+
 def missing_fields(
     *,
     role_name: Optional[str],
@@ -537,10 +659,11 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     work_mode = _text(data.get("work_mode"), 30)
     remote_policy = _WORK_MODES.get((work_mode or "").casefold())
     onsite_days = _int_in(data.get("onsite_days_per_week"), 0, 7)
-    office_city = _text(data.get("office_city"), 120)
+    office_cities = _office_cities(data)
     if remote_policy == "remote":
         onsite_days = None
-        office_city = None
+        office_cities = []
+    office_city = ", ".join(office_cities)[:255] or None
 
     start_date = (
         champion_intake.date(data.get("start_date")) if data.get("start_date") else None
@@ -579,17 +702,18 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     for quote in (client_title, client_reference, hm_name):
         if quote and quote not in evidence:
             evidence.append(quote)
-    must = _names(data.get("must"), MAX_MUST)
-    nice = [
-        n
-        for n in _names(data.get("nice"), MAX_NICE)
-        if n.casefold() not in {m.casefold() for m in must}
-    ]
+    must, nice, must_language, advisories = normalize_must(
+        _names(data.get("must"), MAX_MUST), _names(data.get("nice"), MAX_NICE)
+    )
     project_about = _text(data.get("project_about"), 600)
     responsibilities = _text(data.get("responsibilities"), 2000)
     questions = _questions(data.get("screening_questions"))
 
-    experience = _experience(data.get("experience"), folded_text)
+    experience, year_notes = _check_domain_years(
+        _experience(data.get("experience"), folded_text),
+        _int_in(data.get("seniority_min_years"), 0, 40),
+    )
+    advisories.extend(year_notes)
     for items in experience.values():
         for item in items:
             if item["quote"] not in evidence:
@@ -629,7 +753,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         if names:
             provenance[key] = (
                 "request"
-                if all(_word_in_text(name, folded_text) for name in names)
+                if all(_label_in_text(name, folded_text) for name in names)
                 else "ai"
             )
     search_basis = _basis(search.get("basis"))
@@ -683,6 +807,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         remote_policy=remote_policy,
         onsite_days_per_week=onsite_days,
         office_city=office_city,
+        office_cities=office_cities,
         start_date=start_date,
         project_about=project_about,
         responsibilities=responsibilities,
@@ -700,7 +825,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
             questions=questions,
             search_requirements=search_requirements,
         ),
-        language=_text(data.get("language"), 50),
+        language=_text(data.get("language"), 50) or _text(must_language, 50),
         contract_length=_text(data.get("contract_length"), 255),
         experience=experience,
         search_keywords=search_keywords,
@@ -716,6 +841,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         hiring_manager_name=hm_name,
         hiring_manager_position=hm_position,
         hiring_manager_email=hm_email,
+        advisories=advisories,
     )
 
 

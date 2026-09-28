@@ -129,10 +129,17 @@ def default_options(
             "working_time": _WORK_MODE_TO_TIME.get(str(work_mode or ""), "full_time"),
             "workplace_type": workplace,
             "office_days": office_days if workplace == "hybrid" else None,
-            "city": params.get("city"),
+            # Portal przyjmuje jedno miasto; lista biur („Warszawa, Gdańsk”,
+            # prompt v7) podpowiada pierwsze — człowiek może je zmienić.
+            "city": _first_city(params.get("city")),
             "salary": None,
         }
     )
+
+
+def _first_city(value: Any) -> str | None:
+    first = re.split(r"[,;/\n]|\s(?:lub|albo|or)\s", str(value or ""), maxsplit=1)[0]
+    return first.strip() or None
 
 
 def skill_split(board: str, job: dict[str, Any]) -> tuple[list[str], list[str]]:

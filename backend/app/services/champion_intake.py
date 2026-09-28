@@ -716,6 +716,33 @@ def prepare_profile(
     return ChampionProfile.model_validate(data).model_dump(mode="json")
 
 
+_OFFICE_SPLIT = re.compile(r"[,;/\n]|\s(?:lub|albo|or|oraz|i)\s", re.I)
+
+
+def office_places(text: object) -> frozenset[str] | None:
+    """Klucze miejsc listy miast biura; ``None``, gdy któregoś miasta nie ma
+    w słowniku (wtedy lista zostaje „do uzgodnienia”)."""
+    from app.services.location_utils import place_keys
+
+    parts = [p.strip() for p in _OFFICE_SPLIT.split(str(text or "")) if p and p.strip()]
+    if not parts:
+        return None
+    keys: set[str] = set()
+    for part in parts:
+        found = place_keys(part)
+        if not found or any(key.startswith("k:") for key in found):
+            return None
+        keys |= found
+    return frozenset(keys)
+
+
+def same_office_places(a: object, b: object) -> bool:
+    """„Warsaw” i „Warszawa”, „Gdańsk, Warszawa” i „Warszawa, Gdańsk” to
+    to samo biuro — nie konflikt profilu z polem rekrutacji."""
+    left, right = office_places(a), office_places(b)
+    return left is not None and left == right
+
+
 def validation(profile, job=None, *, enforce=False):
     """Issues of the profile AS STORED; never rewrites what it is given.
 
@@ -912,6 +939,10 @@ def validation(profile, job=None, *, enforce=False):
                     original not in (None, "")
                     and str(original).casefold() != str(column_value).casefold()
                     and original != column_value
+                    and not (
+                        key == "candidate_location_pref"
+                        and same_office_places(original, column_value)
+                    )
                 ):
                     add(
                         "column_conflict",
@@ -959,7 +990,9 @@ def validation(profile, job=None, *, enforce=False):
             ["search", "handoff"],
         )
     city = str(values.get("candidate_location_pref") or "")
-    if re.search(r"[,;/]|\s(?:lub|albo)\s", city, re.I):
+    # v7 (27.09.2026): lista miast rozpoznanych w słowniku („Warszawa, Gdańsk”)
+    # jest jednoznaczna — bramka biura sprawdza każde miasto osobno.
+    if re.search(r"[,;/]|\s(?:lub|albo)\s", city, re.I) and office_places(city) is None:
         add(
             "ambiguous_office",
             "basics.candidate_location_pref",
