@@ -806,6 +806,8 @@ async def _assert_no_duplicate_order_number(
     title: str,
     start: Optional[date],
     end: Optional[date],
+    *,
+    exclude_order_id: Optional[int] = None,
 ) -> None:
     """Ta sama osoba nie dostaje drugiego zamówienia o tym samym numerze na
     nachodzący okres (ticket OIT/0569/2026/ITVM, 24.09.2026: „Dodaj
@@ -826,18 +828,21 @@ async def _assert_no_duplicate_order_number(
             ).where(
                 ClientOrder.contract_id == contract_id,
                 ClientOrder.status != ClientOrderStatus.cancelled,
+                ClientOrder.id != (exclude_order_id or 0),
             )
         )
     ).all()
     for row in rows:
         if " ".join((row.title or "").split()).upper() != number:
             continue
-        starts_before_other_ends = (
-            start is None or row.end_date is None or start <= row.end_date
-        )
-        ends_after_other_starts = (
-            end is None or row.start_date is None or end >= row.start_date
-        )
+        # Zamówienie zapisane z odwróconym okresem (sprzed blokady) liczy się
+        # jako przedział od wcześniejszej do późniejszej daty — inaczej nie
+        # nachodziłoby na nic (zgłoszenie 28.09.2026).
+        row_start, row_end = row.start_date, row.end_date
+        if row_start is not None and row_end is not None and row_start > row_end:
+            row_start, row_end = row_end, row_start
+        starts_before_other_ends = start is None or row_end is None or start <= row_end
+        ends_after_other_starts = end is None or row_start is None or end >= row_start
         if starts_before_other_ends and ends_after_other_starts:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -2695,6 +2700,27 @@ async def update_order(
                 data.get("end_date", order.end_date),
                 exclude_order_id=order.id,
             )
+    # Zgłoszenie 28.09.2026: zmiana numeru albo okresu nie może zrobić z dwóch
+    # zamówień tej osoby dwóch zapisów jednego dokumentu (ten sam numer na
+    # nachodzący okres). Tylko przy REALNEJ zmianie — formularz odsyła
+    # nieruszane pola przy każdym zapisie.
+    new_title = data.get("title", order.title)
+    new_start = data.get("start_date", order.start_date)
+    new_end = data.get("end_date", order.end_date)
+    if (
+        order.order_group_id is None
+        and data.get("status", order.status) != ClientOrderStatus.cancelled
+        and (new_title, new_start, new_end)
+        != (order.title, order.start_date, order.end_date)
+    ):
+        await _assert_no_duplicate_order_number(
+            db,
+            order.contract_id,
+            new_title,
+            new_start,
+            new_end,
+            exclude_order_id=order.id,
+        )
     requested_type = data.pop("order_type", None)
     if "order_type" in payload.model_fields_set:
         if requested_type is None:

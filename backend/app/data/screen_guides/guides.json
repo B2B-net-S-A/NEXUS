@@ -526,7 +526,8 @@
     ],
     "pitfalls": [
       "„Zastosuj” ignoruje wyłącznik automatu — zapisujesz świadomie jako człowiek.",
-      "Stawka w walucie innej niż PLN zawsze wymaga ręcznej weryfikacji."
+      "Stawka w walucie innej niż PLN zawsze wymaga ręcznej weryfikacji.",
+      "Wiersz z datą od późniejszą niż data do czeka jako „Do weryfikacji – błędny okres” — „Zastosuj” go nie zapisze; okres wpisz w oknie zamówienia klienta."
     ],
     "anchors": [
       {

@@ -258,3 +258,46 @@ async def test_same_number_on_overlapping_period_is_refused(
         headers=app_auth_headers,
     )
     assert later.status_code == 201, later.text
+
+
+async def test_patch_to_a_number_already_on_the_same_period_is_refused(
+    app_client, app_auth_headers
+):
+    """Zgłoszenie 28.09.2026: edycja nie może dać drugiego zamówienia tej osoby
+    o tym samym numerze na nachodzący okres. Szkice omija bramka okresów
+    równoległych, więc łapie je właśnie kontrola numeru."""
+    client_id, contract_id = await _seed(rate_client=None)
+    today = business_today()
+    number = f"OIT/{uuid.uuid4().hex[:4]}/2026/ITVM"
+    window = {
+        "start_date": (today + timedelta(days=10)).isoformat(),
+        "end_date": (today + timedelta(days=90)).isoformat(),
+    }
+    first = _form(contract_id, title=number, **window)
+    first.pop("rate_client")
+    created = await app_client.post(
+        f"/api/clients/{client_id}/orders", data=first, headers=app_auth_headers
+    )
+    assert created.status_code == 201, created.text
+    second = _form(contract_id, title=f"{number}-B", **window)
+    second.pop("rate_client")
+    other = await app_client.post(
+        f"/api/clients/{client_id}/orders", data=second, headers=app_auth_headers
+    )
+    assert other.status_code == 201, other.text
+
+    resp = await app_client.patch(
+        f"/api/clients/{client_id}/orders/{other.json()['id']}",
+        json={"title": number},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "duplicate_order_number"
+
+    # Zapis bez zmiany numeru i dat (np. sama notatka) przechodzi.
+    untouched = await app_client.patch(
+        f"/api/clients/{client_id}/orders/{created.json()['id']}",
+        json={"title": number, "notes": "bez zmian", **window},
+        headers=app_auth_headers,
+    )
+    assert untouched.status_code == 200, untouched.text

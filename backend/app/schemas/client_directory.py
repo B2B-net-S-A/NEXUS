@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -36,6 +36,10 @@ class ClientDirectoryItem(BaseModel):
     industry: Optional[str] = None
     active_consultants_count: int = 0
     active_contracts_count: int = 0
+    # ``scope`` = the row counts only contracts pinned to this scope's MSA
+    # through their orders; ``client`` = the whole client (minus contracts
+    # pinned to another scope of the same client).
+    consultants_scope: Literal["scope", "client"] = "client"
     # ``effective_date`` / ``expiry_date`` / ``category`` are the EFFECTIVE
     # values: a manual placement override wins over the manifest / linked MSA.
     effective_date: Optional[date] = None

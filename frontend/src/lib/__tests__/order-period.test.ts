@@ -61,6 +61,20 @@ describe("duplicateOrderError", () => {
       duplicateOrderError("OIT/0569/2026/ITVM", "2026-10-01", "2026-12-31", existing, 630),
     ).toBeNull();
   });
+  it("zapisane zamówienie z odwróconym okresem też dubluje (28.09.2026)", () => {
+    const reversed = [
+      {
+        id: 653,
+        title: "OIT/0569/2026/ITVM",
+        status: "active",
+        start_date: "2027-01-01",
+        end_date: "2026-12-31",
+      },
+    ];
+    expect(
+      duplicateOrderError("OIT/0569/2026/ITVM", "2026-10-01", "2026-12-31", reversed),
+    ).toContain("już istnieje");
+  });
   it("pusty numer nie jest duplikatem", () => {
     expect(duplicateOrderError("", "2026-10-01", "2026-12-31", existing)).toBeNull();
   });

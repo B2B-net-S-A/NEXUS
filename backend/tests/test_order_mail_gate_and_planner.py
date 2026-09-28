@@ -1067,3 +1067,41 @@ def test_cost_order_for_several_people_goes_to_the_queue():
         CODE_COST_SHARED_BUDGET
         not in evaluate(_gate_input(extraction=one, proposal=single)).codes
     )
+
+
+# ── Zgłoszenie 28.09.2026: Alior, zamówienie 01.01 → 31.12 roku wcześniej ────
+
+
+def test_reversed_period_row_is_never_written_even_by_manual_apply():
+    """Wiersz z datą od późniejszą niż data do nie jest zapisywany żadną drogą.
+
+    Ręczne „Zastosuj” nie czyta bramki, ale przelicza ten plan — SKIP nie jest
+    akcją zapisu, więc dokument zostaje w kolejce z powodem „błędny okres”.
+    """
+    from app.services.order_mail_planner import ACTION_SKIP, AUTO_ACTIONS
+
+    ex = _extraction([_row("Jan Kowalski", start="2032-01-01", end="2031-12-31")])
+    prop = _plan(ex, (_resolved(0, "Jan Kowalski"),))
+    (row,) = prop.rows
+    assert row.action == ACTION_SKIP
+    assert row.action not in AUTO_ACTIONS
+    assert row.reasons == [
+        "Do weryfikacji – błędny okres: data od 01.01.2032 jest późniejsza niż "
+        "data do 31.12.2031"
+    ]
+    assert not prop.auto_eligible_actions
+    verdict = evaluate(_gate_input(extraction=ex, proposal=prop))
+    assert verdict.verdict == VERDICT_REVIEW
+    assert any("błędny okres" in reason for reason in verdict.reasons)
+
+
+def test_order_saved_with_reversed_period_still_counts_as_overlapping():
+    """Historyczne zamówienie z odwróconym okresem liczy się jak przedział
+    od wcześniejszej do późniejszej daty — obok niego nie powstaje drugie."""
+    from app.services.order_mail_planner import _overlaps
+
+    reversed_order = ExistingOrder(
+        653, "active", "OIT/0569/2031/ITVM", date(2032, 1, 1), date(2031, 12, 31)
+    )
+    assert _overlaps(reversed_order, date(2031, 10, 1), "2031-12-31")
+    assert not _overlaps(reversed_order, date(2032, 2, 1), "2032-03-31")

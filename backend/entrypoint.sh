@@ -9835,6 +9835,81 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Zamówienie z odwróconym okresem (Alior, zgłoszenie 28.09.2026) — jednorazowo:
+# drugie zamówienie tej samej osoby o tym samym numerze, 01.01.2027 → 31.12.2026,
+# założone oknem przedłużenia. Ta sama droga co usunięcie z zakładki
+# „Zamówienia”; logika w `app/services/alior_reversed_order_repair.py`,
+# przypięta do ID, numeru i dat. Plik PDF kasowany po commicie. Log: ID.
+startup_phase "repair-alior-reversed-order"
+echo "Orders: reversed-period duplicate from 28.09 ticket (one-shot)..."
+python - <<'PY' || echo "alior reversed order repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services import storage_service
+from app.services.alior_reversed_order_repair import (
+    run_alior_reversed_order_repair,
+    summarize_for_log,
+)
+from app.services.order_write_errors import commit_order_write
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary, po_paths = await run_alior_reversed_order_repair(db)
+            await commit_order_write(db)
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane zamówień
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"alior reversed order repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    for path in po_paths:
+        try:
+            storage_service.delete_client_order_po(path)
+        except Exception as exc:  # noqa: BLE001 — plik to sprzątanie, nie korekta
+            print(f"alior reversed order repair: PDF cleanup failed ({type(exc).__name__})")
+    print(f"alior reversed order repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# Zakres „Pentesty” klienta Nordea (zgłoszenie 28.09.2026) — jednorazowo:
+# zamówienie jedynego konsultanta Pentestów dostaje umowę ramową zakresu, żeby
+# katalog klientów liczył go tylko tam (a Pentesty — nie całą Nordeę). Klient,
+# kontrakt i stawki bez zmian. Logika w
+# `app/services/nordea_pentesty_scope_repair.py`, przypięta do ID. Log: ID.
+startup_phase "repair-nordea-pentesty-scope"
+echo "Clients: pin Nordea Pentesty contract to its scope (one-shot)..."
+python - <<'PY' || echo "nordea pentesty scope repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.nordea_pentesty_scope_repair import (
+    run_nordea_pentesty_scope_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_nordea_pentesty_scope_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"nordea pentesty scope repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"nordea pentesty scope repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 # Zdublowane kontakty klienta z Traffita (25.09.2026) — jednorazowo: trzy pary
 # tej samej osoby u tego samego klienta. Zostaje kontakt o niższym id, drugi
 # rekord Traffita dostaje alias (`traffit_contact_aliases`), żeby nocny import
