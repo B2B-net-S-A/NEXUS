@@ -28,6 +28,7 @@ _BCRYPT_ROUNDS = 12
 _DUMMY_HASH = b"$2b$12$XIC4ez/F8wAC/Y/.sa.A6.CIqyRSrsapLIgL5LYOcebe3w8RNw7Xu"
 
 
+# dzień UTC celowo: epoka Unix (punkt zero ``iat``), nie data kalendarzowa.
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _MICROSECOND = timedelta(microseconds=1)
 

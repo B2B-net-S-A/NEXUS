@@ -85,6 +85,10 @@ function eachJsxElement(visit: (node: JsxNode, where: (n: ts.Node) => string, co
   }
 }
 
+// Oba strażniki parsują cały frontend parserem TypeScript — na runnerze CI
+// z pokryciem trwa to ~7 s, więcej niż domyślny limit Vitesta (5 s).
+const GUARD_TIMEOUT_MS = 60_000;
+
 describe("responsywność — reguły wspólne", () => {
   it("shell nie używa h-screen/100vh (dół strony chował się pod paskiem przeglądarki mobilnej)", () => {
     // Komentarze w shellu tłumaczą, czemu NIE h-screen — liczy się tylko kod.
@@ -138,7 +142,7 @@ describe("responsywność — reguły wspólne", () => {
       offenders.push(where(node));
     });
     expect(offenders, "dopisz `w-0` obok `flex-1`").toEqual([]);
-  });
+  }, GUARD_TIMEOUT_MS);
 
   it("przewijany kontener nie wypuszcza elementów absolute/sr-only (poziomy scroll całej strony)", () => {
     // Runda 12/13: `sr-only` to `position: absolute`. Bez pozycjonowanego
@@ -168,5 +172,5 @@ describe("responsywność — reguły wspólne", () => {
       search(node);
     });
     expect(offenders, "dodaj `relative` do przewijanego kontenera").toEqual([]);
-  });
+  }, GUARD_TIMEOUT_MS);
 });
