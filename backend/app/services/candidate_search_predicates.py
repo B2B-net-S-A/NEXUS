@@ -24,6 +24,7 @@ Umiejętności        „Musi mieć" = filtr TWARDY · „Mile widziane" = tylko
                     ranking · „Wyklucz" = filtr TWARDY. Bez kubełka → „Musi
                     mieć". Pola legacy zachowują dotychczasowe znaczenie
                     (patrz ``skill_buckets_from_list`` / ``…_from_search``).
+                    v2: także umiejętności potwierdzone w screeningu.
 Tekst ``q``         auto: nazwisko / e-mail / telefon → dopasowanie dosłowne,
                     reszta → dotychczasowa ścieżka silnika. Jawne ``text_mode``.
 „Otwarty na"        LUB (którykolwiek z zaznaczonych).

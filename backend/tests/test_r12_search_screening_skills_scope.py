@@ -93,9 +93,11 @@ def test_filtr_umiejetnosci_v1_bez_screeningu() -> None:
     """Kontrakt: v1 (i wołający bez semantyki) — dokładnie dotychczasowy SQL."""
     legacy_list = predicates.semantics_for("list", None)
     legacy_search = predicates.semantics_for("search", 1)
-    baseline = _sql(predicates._json_token_match(
-        predicates.func.lower(predicates.skills_text()), ["python"]
-    ))
+    baseline = _sql(
+        predicates._json_token_match(
+            predicates.func.lower(predicates.skills_text()), ["python"]
+        )
+    )
     for sem in (None, legacy_list, legacy_search):
         sql = _sql(predicates.skill_match("Python", sem))
         assert "screening_notes" not in sql
@@ -285,9 +287,7 @@ async def test_zakres_umiejetnosci_i_wycinek_przez_liste(
     fields = {s["field"]: s for s in items[with_skill]["match_snippets"] or []}
     assert "Umiejętności" in fields
     field = fields["Umiejętności"]
-    assert [field["text"][a:b] for a, b in field["highlights"]] == [
-        skill.capitalize()
-    ]
+    assert [field["text"][a:b] for a, b in field["highlights"]] == [skill.capitalize()]
 
 
 @pytest.mark.asyncio

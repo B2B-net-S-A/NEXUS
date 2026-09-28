@@ -512,9 +512,7 @@ def _folded_whole_word_match(
         # z „Lo\u0301dz\u0301”, „ci/cd” przy „CI-CD”. Tani regex pola idzie
         # pierwszy — łapie większość wierszy bez liczenia tsvector.
         return Candidate.id.in_(
-            select(Candidate.id).where(
-                match, _scope_field_match(scope, pattern, query)
-            )
+            select(Candidate.id).where(match, _scope_field_match(scope, pattern, query))
         )
     return Candidate.id.in_(union(select(Candidate.id).where(match), notes_branch))
 

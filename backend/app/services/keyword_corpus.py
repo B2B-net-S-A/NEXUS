@@ -889,9 +889,7 @@ def title_text(candidate: Any, roles: Optional[str] = None) -> str:
     return " · ".join(p for p in parts if p)
 
 
-def skills_text(
-    candidate: Any, screening_skills: Optional[list[str]] = None
-) -> str:
+def skills_text(candidate: Any, screening_skills: Optional[list[str]] = None) -> str:
     """Umiejętności: nazwy (bez poziomów), zweryfikowane technologie,
     technologie z Traffita i — runda 12 (SEARCH) — umiejętności potwierdzone
     w screeningu (``screening_skills``, wczytane przez wołającego regułą
