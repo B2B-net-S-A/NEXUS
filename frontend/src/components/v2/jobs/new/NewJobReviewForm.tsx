@@ -208,6 +208,9 @@ function TagListInput({
             </button>
           </span>
         ))}
+        {/* Runda 12 (FRONTB): `w-0` — bez szerokości pole liczyło minimum
+            kolumny z domyślnego `size=20` (~270 px, zależne od fontu systemu),
+            a formularz na 360 px miał kilka px zapasu. */}
         <input
           id={inputId}
           value={draft}
@@ -215,7 +218,7 @@ function TagListInput({
           onKeyDown={onKeyDown}
           onBlur={commit}
           placeholder={values.length === 0 ? placeholder : "dodaj…"}
-          className="h-7 min-w-[8rem] flex-1 bg-transparent px-1 text-sm text-foreground outline-hidden placeholder:text-muted-foreground"
+          className="h-7 w-0 min-w-[8rem] flex-1 bg-transparent px-1 text-sm text-foreground outline-hidden placeholder:text-muted-foreground"
         />
       </div>
       <MissingNote show={!!missing} />
