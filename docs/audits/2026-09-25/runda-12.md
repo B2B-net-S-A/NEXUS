@@ -13,6 +13,10 @@ Baza: `ab01059fb` (main po PR #1877 i #1878–#1882). Bez nowego audytu — napr
 | Wylogowanie po zmianie hasła (niepotwierdzone w r10/r11) | potwierdzone i naprawione | `change_password` unieważniał też bieżący token i odpowiadał 204. Teraz 200 z nową parą tokenów (bez `fpc`); inne sesje dalej unieważnione; front zapisuje nowy token (`lib/password-change-session.ts`) |
 | Nocny test `/preview` (niepotwierdzone) | sprawdzone i naprawione | Nocny `preview-chromium` padał od 25.09 na 5 harnessach z poziomym scrollem: `sr-only` bez `relative` w tabeli praktykantów (błąd także na produkcji), pola `flex-1` bez `w-0` (minimum z `size=20` zależne od fontu Linuksa — także na produkcji), dwa błędy samych harnessów. Lokalnie 62/62 |
 
+## Przegląd po scaleniu
+
+Złapał jeden problem blokujący: nowa odpowiedź zmiany hasła (pełna para tokenów) była dostępna też dla tokenu klienta OAuth działającego w imieniu konta — integracja z zakresem `*:write` i znanym hasłem konta dostałaby sesję użytkownika omijającą zakres tras klienta i jego wyłączenie. Naprawione przed PR: zmiana hasła odmawia 403 dla tokenu klienta (`request.state.oauth_client_id`).
+
 ## Decyzje Artura
 
 | Temat | Decyzja |

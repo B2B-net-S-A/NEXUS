@@ -7555,6 +7555,8 @@ Raport: `docs/audits/2026-09-25/runda-12.md`.
   zwraca 200 z nową parą tokenów (bez `fpc`), a unieważnia wszystkie
   wcześniejsze (podłoga `tokens_valid_after` z zegara aplikacji). Front
   zapisuje nowy token (`lib/password-change-session.ts`).
+  Token klienta OAuth dostaje 403 — trasa wydająca tokeny użytkownika nie
+  może przyjmować tokenu integracji.
 - **Status requestu „champion” tylko przy „Szukamy”** — `request_status_expr`
   = `request_stage_expr` = `visible_state`. „Mamy championa” kliknięte na
   innym stanie zapisuje się, ale widać je po przestawieniu na „Szukamy”
