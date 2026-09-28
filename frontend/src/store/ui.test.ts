@@ -27,8 +27,8 @@ describe("useUiStore — migracja v6", () => {
     const state = useUiStore.getState();
     expect(state.hideEmptyKanbanColumns).toBe(true);
     expect(state.candidatesPageSize).toBe(50);
-    // Pozostałe preferencje przechodzą bez zmian.
-    expect(state.density).toBe("compact");
+    // Pozostałe preferencje przechodzą bez zmian, a gęstość (usunięta w v9) znika.
+    expect(state).not.toHaveProperty("density");
     expect(state.candidatesView).toBe("tiles");
     expect(state.columnPreferences).toEqual({ "candidates-v2": ["rate"] });
   });
@@ -41,10 +41,10 @@ describe("useUiStore — migracja v6", () => {
       5,
     ) as Record<string, unknown>;
     expect(migrated).toMatchObject({
-      density: "cozy",
       hideEmptyKanbanColumns: true,
       candidatesPageSize: 50,
     });
+    expect(migrated).not.toHaveProperty("density");
   });
 
   it("wybór rozmiaru strony w v6 nie jest nadpisywany przy odczycie", async () => {

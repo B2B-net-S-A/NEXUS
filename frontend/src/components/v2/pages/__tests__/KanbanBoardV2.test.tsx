@@ -292,7 +292,6 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
     useAuthStore.setState({
       user: { role: "recruiter", roles: ["recruiter"] } as never,
     });
-    useUiStore.setState({ density: "cozy" } as never);
     get.mockResolvedValue({
       data: { effective_budget_hourly: 100, pipeline_template_id: null },
     });
@@ -320,7 +319,6 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
     useAuthStore.setState({
       user: { role: "admin", roles: ["admin"] } as never,
     });
-    useUiStore.setState({ density: "compact" } as never);
 
     renderBoard();
 
@@ -336,7 +334,6 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
     useAuthStore.setState({
       user: { role: "recruiter", roles: ["recruiter"] } as never,
     });
-    useUiStore.setState({ density: "compact" } as never);
 
     renderBoard(pendingColumns(), new Map([[5, 77]]));
 
@@ -349,7 +346,6 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
     useAuthStore.setState({
       user: { role: "recruiter", roles: ["recruiter"] } as never,
     });
-    useUiStore.setState({ density: "cozy" } as never);
 
     renderBoard(
       rateColumns([
@@ -388,7 +384,6 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
     useAuthStore.setState({
       user: { role: "recruiter", roles: ["recruiter"] } as never,
     });
-    useUiStore.setState({ density: "cozy" } as never);
 
     renderBoard();
     const candidate = await screen.findByRole("link", { name: "Anna Kowalska" });
@@ -406,7 +401,6 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
     useAuthStore.setState({
       user: { role: "admin", roles: ["admin"] } as never,
     });
-    useUiStore.setState({ density: "compact" } as never);
 
     renderBoard(pendingColumns(), undefined, true);
 
@@ -440,7 +434,6 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     useAuthStore.setState({
       user: { role: "admin", roles: ["admin"] } as never,
     });
-    useUiStore.setState({ density: "cozy" } as never);
   });
 
   function gateColumns(extra: Record<string, unknown>) {
@@ -985,23 +978,12 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     scrollIntoView.mockRestore();
   });
 
-  it("zmienia gęstość bez zmiany etapu ani odmontowania kolumn", async () => {
-    useUiStore.setState({ density: "cozy" } as never);
+  it("nie ma przełącznika gęstości (cozy/kompaktowa)", async () => {
     const { container } = renderBoard(focusColumns());
 
-    const density = await screen.findByRole("button", {
-      name: "Gęstość: cozy",
-    });
-    await userEvent.click(density);
-
-    expect(
-      screen.getByRole("button", { name: "Gęstość: kompaktowa" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("combobox", { name: "Screening, etap 2 z 12" }),
-    ).toBeTruthy();
+    await screen.findByRole("combobox", { name: "Screening, etap 2 z 12" });
+    expect(screen.queryByRole("button", { name: /Gęstość/ })).toBeNull();
     expect(container.querySelectorAll("[data-colid]")).toHaveLength(12);
-    expect(post).not.toHaveBeenCalled();
   });
 
   it("nawiguje strzałkami i blokuje poprzedni etap na początku", async () => {
@@ -1078,7 +1060,6 @@ describe("KanbanBoardV2 — karty poza szablonem", () => {
     kanban.mockResolvedValue({ data: { columns: [], off_template: null } });
     post.mockResolvedValue({ data: {} });
     useAuthStore.setState({ user: { id: 1, role: "admin" } } as never);
-    useUiStore.setState({ density: "cozy" } as never);
   });
 
   it("renderuje kubełek z kartami zamiast je gubić", async () => {
@@ -1225,7 +1206,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     kanban.mockResolvedValue({ data: { columns: [], off_template: null } });
     post.mockResolvedValue({ data: {} });
     useAuthStore.setState({ user: { id: 1, role: "admin" } } as never);
-    useUiStore.setState({ density: "cozy", hideEmptyKanbanColumns: false } as never);
+    useUiStore.setState({ hideEmptyKanbanColumns: false } as never);
   });
 
   it("filtry stoją w jednym pasku nad tablicą — bez lewej kolumny etapów", async () => {
@@ -1672,7 +1653,6 @@ describe("KanbanBoardV2 — wysuwany dok i deep link ?candidate=", () => {
     kanban.mockResolvedValue({ data: { columns: [], off_template: null } });
     post.mockResolvedValue({ data: {} });
     useAuthStore.setState({ user: { id: 1, role: "admin", roles: ["admin"] } } as never);
-    useUiStore.setState({ density: "cozy" } as never);
   });
 
   function dockColumns() {

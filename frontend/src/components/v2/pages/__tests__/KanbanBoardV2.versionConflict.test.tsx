@@ -48,7 +48,6 @@ vi.mock("@/lib/celebrate", () => ({ celebrate: vi.fn() }));
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/store/auth";
-import { useUiStore } from "@/store/ui";
 import { PIPELINE_VERSION_CONFLICT_MESSAGE } from "@/lib/pipeline-version-conflict";
 
 beforeAll(() => {
@@ -126,7 +125,6 @@ describe("KanbanBoardV2 — wersja procesu przy ruchu (F05)", () => {
     vi.clearAllMocks();
     kanban.mockResolvedValue({ data: { columns: [] } });
     useAuthStore.setState({ user: { role: "admin", roles: ["admin"] } as never });
-    useUiStore.setState({ density: "cozy" } as never);
   });
 
   it("pojedynczy ruch z doku wysyła `expected_state_version` z karty", async () => {

@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type UiDensity = "cozy" | "compact";
 export type CandidatesView = "list" | "tiles";
 export type JobsView = "tiles" | "list";
 /** Rozmiar strony listy kandydatów — zapamiętany w przeglądarce. */
@@ -9,7 +8,6 @@ export type CandidatesPageSize = 20 | 50 | 100;
 export const CANDIDATES_PAGE_SIZES: readonly CandidatesPageSize[] = [20, 50, 100];
 
 interface UiStoreState {
-  density: UiDensity;
   sidebarCollapsed: boolean;
   candidatesView: CandidatesView;
   /** Jobs list presentation — tile grid (default) vs. compact table. */
@@ -24,7 +22,7 @@ interface UiStoreState {
    */
   columnPreferences: Record<string, string[]>;
   /** Pipeline kanban (04 „Pipeline" — flow C2 PR3): ukryj kolumny szablonu bez
-   *  kandydatów. Globalne (nie per-job) — świadomie proste, jak `density`.
+   *  kandydatów. Globalne (nie per-job) — świadomie proste.
    *  Domyślnie włączone od v6 (przegląd UX 17.09.2026). */
   hideEmptyKanbanColumns: boolean;
   /** Liczba wierszy na stronę listy kandydatów (20 / 50 / 100, domyślnie 50). */
@@ -32,7 +30,6 @@ interface UiStoreState {
   /** Ukryj postać „Moi ludzie" w rogu — wejście zostaje w topbarze. */
   hideMyPeopleBuddy: boolean;
   setHideMyPeopleBuddy: (v: boolean) => void;
-  setDensity: (d: UiDensity) => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (v: boolean) => void;
   setCandidatesView: (v: CandidatesView) => void;
@@ -46,7 +43,6 @@ interface UiStoreState {
 export const useUiStore = create<UiStoreState>()(
   persist(
     (set) => ({
-      density: "cozy",
       sidebarCollapsed: false,
       candidatesView: "list",
       jobsView: "list",
@@ -55,7 +51,6 @@ export const useUiStore = create<UiStoreState>()(
       candidatesPageSize: 50,
       hideMyPeopleBuddy: false,
       setHideMyPeopleBuddy: (hideMyPeopleBuddy) => set({ hideMyPeopleBuddy }),
-      setDensity: (density) => set({ density }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
       setCandidatesView: (candidatesView) => set({ candidatesView }),
@@ -76,7 +71,7 @@ export const useUiStore = create<UiStoreState>()(
     }),
     {
       name: "nexus-ui",
-      version: 8,
+      version: 9,
       migrate: (persisted, fromVersion) => {
         let state = (persisted ?? {}) as Partial<UiStoreState>;
         if (fromVersion < 2) {
@@ -110,6 +105,14 @@ export const useUiStore = create<UiStoreState>()(
           // zwijanej kolumny (v7 `jobsFiltersCollapsed`) — pole znika.
           const { jobsFiltersCollapsed: _dropped, ...rest } = state as Partial<UiStoreState> & {
             jobsFiltersCollapsed?: unknown;
+          };
+          state = rest;
+        }
+        if (fromVersion < 9) {
+          // 28.09.2026: Tablica rekrutacji nie ma już przełącznika gęstości
+          // (cozy/kompaktowa) — pole znika.
+          const { density: _dropped, ...rest } = state as Partial<UiStoreState> & {
+            density?: unknown;
           };
           state = rest;
         }
