@@ -322,7 +322,7 @@ export function ChipField({
         {chipBadges}
         <input
           {...inputProps}
-          className="h-7 min-w-[8rem] flex-1 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed"
+          className="h-7 w-0 min-w-[8rem] flex-1 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed"
         />
         {suggestionList}
       </div>

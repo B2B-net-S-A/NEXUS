@@ -261,7 +261,10 @@ function Harness() {
   });
   return (
     <QueryClientProvider client={client}>
-      <div className="min-h-dvh bg-background">
+      {/* Te same odstępy co `<main>` w `AppShellV2` (`p-4 md:p-6`) — stopka
+          strony wychodzi na krawędź ujemnym marginesem liczonym pod nie;
+          bez nich harness dawał poziomy scroll, którego na produkcji nie ma. */}
+      <div className="min-h-dvh bg-background p-4 pb-24 md:p-6">
         <NewJobPage key={params?.get("state") ?? "review"} preview={state} />
       </div>
     </QueryClientProvider>

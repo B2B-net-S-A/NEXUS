@@ -242,6 +242,10 @@ export function JarvisAppearanceForm({
         ) : (
           <p className="text-xs text-muted-foreground">Na razie nic.</p>
         )}
+        {/* Runda 12 (FRONTB): `w-0` przy `flex-1` — bez szerokości pole liczyło
+            minimum wiersza z domyślnego `size=20` (szerokość znaków zależna od
+            systemu), a `<fieldset>` ma `min-width: min-content`, więc na Linuksie
+            formularz nie mieścił się w 360 px. */}
         <div className="flex gap-2">
           <input
             value={noteDraft}
@@ -256,7 +260,7 @@ export function JarvisAppearanceForm({
             disabled={draft.notes.length >= MAX_NOTES}
             placeholder={draft.notes.length >= MAX_NOTES ? `Najwyżej ${MAX_NOTES} pozycji` : "Dodaj preferencję…"}
             aria-label="Nowa preferencja"
-            className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+            className="h-9 w-0 min-w-0 flex-1 rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary"
           />
           <Button type="button" size="sm" variant="outline" disabled={!canAddNote} onClick={addNote}>
             Dodaj
