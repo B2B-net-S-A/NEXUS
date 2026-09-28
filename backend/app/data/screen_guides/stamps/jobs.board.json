@@ -3,7 +3,7 @@
   "guide": "jobs.board",
   "sources": {
     "backend/app/services/pipeline_move_rules.py": "838a4ceb3d99722d5b17aabfc486ea9e9104f8c661d11b42c47eae202069df5f",
-    "frontend/src/components/v2/pages/KanbanBoardV2.tsx": "e57d4fde834c768077dca6962b9a6aa53abb237ab01d466f533a4d6ac9430a6c",
+    "frontend/src/components/v2/pages/KanbanBoardV2.tsx": "00f0c25a043c1fe98675a9c895568a7a4eb77007dab73e4de57377e0f2c14cd3",
     "frontend/src/lib/board-stages.ts": "8fd424ccdb05b0983114863c00ecd170e62e0914a683f52cba81e1517c36c618"
   }
 }

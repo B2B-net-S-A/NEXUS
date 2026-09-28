@@ -23,12 +23,10 @@ import {
  FileText,
  Flag,
  HelpCircle,
- LayoutGrid,
  Loader2,
  Mail,
  MoveRight,
  Phone,
- Rows3,
  Send,
  Sparkles,
  Star,
@@ -409,17 +407,13 @@ const StageFocusNavigator = memo(function StageFocusNavigator({
  );
 });
 
-/** Przełączniki widoku (kafelki/kolumny) i gęstości — w pasku filtrów Tablicy. */
+/** Przełącznik widoku (kafelki/kolumny) — w pasku filtrów Tablicy. */
 function BoardViewControls({
  viewMode,
  onSetViewMode,
- density,
- onToggleDensity,
 }: {
  viewMode: KanbanViewMode | null;
  onSetViewMode: (next: KanbanViewMode) => void;
- density: "cozy" | "compact";
- onToggleDensity: () => void;
 }) {
  return (
  <>
@@ -452,27 +446,6 @@ function BoardViewControls({
  </div>
  )}
 
- <Tooltip>
-
- <TooltipTrigger asChild>
- <Button
- type="button"
- size="icon-sm"
- variant="ghost"
- onClick={onToggleDensity}
- aria-label={`Gęstość: ${density === "compact" ? "kompaktowa" : "cozy"}`}
- >
- {density === "compact" ? (
- <LayoutGrid className="h-4 w-4" />
- ) : (
- <Rows3 className="h-4 w-4" />
- )}
- </Button>
- </TooltipTrigger>
- <TooltipContent>
- Gęstość: {density === "compact" ? "kompaktowa" : "cozy"}
- </TooltipContent>
- </Tooltip>
  </>
  );
 }
@@ -609,7 +582,6 @@ interface CardProps {
  selected: boolean;
  onToggleSelect: (id: number) => void;
  onOpenScreening: (stageId: number, name: string) => void;
- density: "cozy" |"compact";
  canScreen: boolean;
  /** Arkusz screeningu na tym etapie jeszcze niezapisany (17.09.2026). */
  screeningDue: boolean;
@@ -770,7 +742,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  selected,
  onToggleSelect,
  onOpenScreening,
- density,
  canScreen,
  screeningDue,
  scorecardDue,
@@ -887,7 +858,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  selected &&"ring-2 ring-primary border-primary",
  // Makieta kroku 04 daje karcie ~9 px oddechu; stare `p-5` (20 px) zjadało
  // przy 176 px kolumny ćwierć jej szerokości na sam padding.
- density === "compact" ?"p-2" :"p-3",
+ "p-3",
  desktopOverview &&"xl:pointer-fine:min-h-[68px] xl:pointer-fine:rounded-md xl:pointer-fine:p-1 xl:pointer-fine:pb-6 xl:pointer-fine:pt-6",
  // Świadomie bez grayscale/opacity — czytałoby się jako „nieaktywny". Ten
  // kandydat jest aktywny; weto to ostrzeżenie (17.09.2026), nie blokada.
@@ -963,10 +934,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  z jednolinijkowym nazwiskiem — przy ~176 px szerokości kolumny to on
  zabierał miejsce, przez które nazwisko trzeba było uciąć. */}
  {/* Wcięcie DOKŁADNIE pod checkbox: jego pole wizualne (`before:inset-1`)
- kończy się 20 px od lewej krawędzi karty, a padding karty to 12 px
- (cozy) / 8 px (compact). Stare `pl-5` zostawiało nazwisku 64 z 158 px
+ kończy się 20 px od lewej krawędzi karty, a padding karty to 12 px.
+ Stare `pl-5` zostawiało nazwisku 64 z 158 px
  karty — stąd „Wojcie/ch" łamane w środku wyrazu. */}
- <div className={cn("flex items-start gap-2", density === "compact" ? "pl-3" : "pl-2", desktopOverview &&"xl:pointer-fine:items-center xl:pointer-fine:gap-1 xl:pointer-fine:pl-0")}>
+ <div className={cn("flex items-start gap-2", "pl-2", desktopOverview &&"xl:pointer-fine:items-center xl:pointer-fine:gap-1 xl:pointer-fine:pl-0")}>
  <div className="min-w-0 flex-1">
  <Link
  href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
@@ -987,7 +958,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // w środku wyrazu przy ~176 px kolumny („Wojcie/ch Wyleżoł"), czyli robi
  // dokładnie to, czego ta karta miała się pozbyć.
  className={cn("block font-semibold text-foreground hover:underline break-words line-clamp-2",
- density === "compact" ?"text-[11px] leading-tight" :"text-[13px] leading-snug",
+ "text-[13px] leading-snug",
  desktopOverview &&"xl:pointer-fine:whitespace-normal xl:pointer-fine:break-words xl:pointer-fine:text-[10px] xl:pointer-fine:font-semibold xl:pointer-fine:leading-3",
  // W kafelku nazwisko zajmuje CAŁĄ kartę (39x87 px), więc link do profilu
  // przechwytywał każde kliknięcie i dok był nieosiągalny. `pointer-events-none`
@@ -1002,8 +973,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {(normalizedMatchScore != null || scoresLoading) && (
  <div className={cn(desktopOverview &&"xl:pointer-fine:hidden")}>
  {/* Zawsze `compact`: kolumna kanbana ma ~176 px, a pierścień „cozy"
- (40 px) zabierał ćwierć tej szerokości nazwisku obok. Gęstość
- steruje tu paddingiem i krojem, nie rozmiarem pierścienia. */}
+ (40 px) zabierał ćwierć tej szerokości nazwisku obok. */}
  <ScoreRing score={normalizedMatchScore} density="compact" />
  </div>
  )}
@@ -1226,7 +1196,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onRemoveFromRecruitment(item);
  }}
  className={cn("absolute right-1 z-10 inline-flex items-center justify-center rounded-md bg-card/80 text-muted-foreground transition-opacity pointer-fine:opacity-0","hover:bg-destructive/10 hover:text-destructive pointer-fine:group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-hidden",
- density === "compact" ?"h-5 w-5" :"h-6 w-6",
+ "h-6 w-6",
  desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6",
  "top-1",
  desktopOverview &&"xl:pointer-fine:bottom-0 xl:pointer-fine:left-0 xl:pointer-fine:right-auto xl:pointer-fine:top-auto"
@@ -1234,7 +1204,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  title="Usuń kandydata z tej rekrutacji"
  aria-label={`Usuń ${fullName} z rekrutacji`}
  >
- <Trash2 className={density === "compact" ?"h-3 w-3" :"h-3.5 w-3.5"} />
+ <Trash2 className="h-3.5 w-3.5" />
  </button>}
 
  {/* Screening jest WIERSZEM karty, nie elementem na `absolute bottom-1
@@ -1277,7 +1247,6 @@ interface ColProps {
  selectedIds: Set<number>;
  onToggleSelect: (id: number) => void;
  onOpenScreening: (stageId: number, name: string) => void;
- density: "cozy" |"compact";
  scoreMap?: Map<number, number>;
  scoresLoading?: boolean;
  /** Definicje etapów ze scorecardem — odznaka „Scorecard" (17.09.2026). */
@@ -1325,7 +1294,6 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  selectedIds,
  onToggleSelect,
  onOpenScreening,
- density,
  scoreMap,
  scoresLoading,
  stagesWithScorecard,
@@ -1396,7 +1364,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  )}
  data-narrow={narrow && !desktopOverview ? "true" : undefined}
  >
- <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-xs border-b border-border flex items-center gap-2", density === "compact" ?"px-3 py-2" :"px-4 py-3", desktopOverview &&"xl:pointer-fine:min-h-14 xl:pointer-fine:flex-col xl:pointer-fine:items-stretch xl:pointer-fine:gap-1 xl:pointer-fine:px-1 xl:pointer-fine:py-1.5", !desktopOverview && narrow &&"xl:pointer-fine:flex-wrap xl:pointer-fine:gap-1 xl:pointer-fine:px-2")}>
+ <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-xs border-b border-border flex items-center gap-2", "px-4 py-3", desktopOverview &&"xl:pointer-fine:min-h-14 xl:pointer-fine:flex-col xl:pointer-fine:items-stretch xl:pointer-fine:gap-1 xl:pointer-fine:px-1 xl:pointer-fine:py-1.5", !desktopOverview && narrow &&"xl:pointer-fine:flex-wrap xl:pointer-fine:gap-1 xl:pointer-fine:px-2")}>
  {col.category && (
  <Tooltip>
  <TooltipTrigger asChild>
@@ -1427,7 +1395,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  w środku (dzielenie po polsku, `lang="pl"`). „Zweryfikowany" ucinało się
  do „Zweryfikowan" w wąskiej pustej kolumnie (96 px) i w pełnej przy 1440 px
  (audyt 24.09.2026). Pełna nazwa zostaje w `title`. */}
- <h3 className={cn("text-foreground flex-1 min-w-0 line-clamp-2 leading-tight hyphens-auto [overflow-wrap:break-word]", density === "compact" ?"text-sm font-medium" :"text-base font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]", !desktopOverview && narrow &&"xl:pointer-fine:order-last xl:pointer-fine:basis-full xl:pointer-fine:text-xs xl:pointer-fine:font-medium xl:pointer-fine:line-clamp-3 xl:pointer-fine:hyphens-auto xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)} lang="pl">
+ <h3 className={cn("text-foreground flex-1 min-w-0 line-clamp-2 leading-tight hyphens-auto [overflow-wrap:break-word]", "text-base font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]", !desktopOverview && narrow &&"xl:pointer-fine:order-last xl:pointer-fine:basis-full xl:pointer-fine:text-xs xl:pointer-fine:font-medium xl:pointer-fine:line-clamp-3 xl:pointer-fine:hyphens-auto xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)} lang="pl">
  {titleOverride ?? columnLabel(col)}
  </h3>
  <Badge size="sm" variant={headerCount > 0 ?"soft" :"outline"} className={cn(desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[10px]")}>
@@ -1515,7 +1483,6 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  selected={selectedIds.has(item.candidate_id)}
  onToggleSelect={onToggleSelect}
  onOpenScreening={onOpenScreening}
- density={density}
  canScreen={SCREENING_BADGE_STAGES.has(item.stage)}
  // `=== false`, nie `!`: odpowiedź bez pola (starszy serwer) nie
  // pokazuje odznaki, której nie umie uzasadnić.
@@ -1575,9 +1542,7 @@ const MIN_COLUMN_HEIGHT = 280;
 const MOBILE_MAIN_PADDING_Y = 32;
 
 export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, onOpenAddCandidates, similarReassign = null, focusColumnRequest = null }: KanbanBoardV2Props) {
- const density = useUiStore((s) => s.density);
- const setDensity = useUiStore((s) => s.setDensity);
- // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik, jak `density` —
+ // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik —
  // świadomie nie per-job.
  const hideEmptyColumns = useUiStore((s) => s.hideEmptyKanbanColumns);
  const setHideEmptyColumns = useUiStore((s) => s.setHideEmptyKanbanColumns);
@@ -1894,13 +1859,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  };
  }, [measureColumnHeight]);
  // Re-pomiar gdy cokolwiek nad/wewnątrz boardu może przesunąć jego pozycję:
- // zwinięcie nagłówka (prop), zmiana gęstości, status-baru lub liczby kolumn.
+ // zwinięcie nagłówka (prop), zmiana status-baru lub liczby kolumn.
  useEffect(() => {
  measureColumnHeight();
  }, [
  measureColumnHeight,
  headerCollapsed,
- density,
  statusMessage,
  cols.length,
  selected.size,
@@ -2901,8 +2865,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  <BoardViewControls
  viewMode={viewToggleVisible ? viewMode : null}
  onSetViewMode={setViewPreference}
- density={density}
- onToggleDensity={() => setDensity(density === "cozy" ? "compact" : "cozy")}
  />
  }
  inProcessCount={stageCols.reduce(
@@ -3115,7 +3077,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  selectedIds={selected}
  onToggleSelect={toggleSelect}
  onOpenScreening={handleOpenScreening}
- density={density}
  scoreMap={scoreMap}
  scoresLoading={scoresLoading}
  stagesWithScorecard={stagesWithScorecard}
