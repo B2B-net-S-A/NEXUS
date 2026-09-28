@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   cvToClientShouldPoll,
+  pairSourceStageId,
   resolveCvToClient,
   stageCvBadge,
   stageCvStatus,
@@ -122,5 +123,15 @@ describe("resolveCvToClient", () => {
 
   it("nic nie ma = „none”", () => {
     expect(resolveCvToClient({ branded: { status: "none" }, rows: [] }).kind).toBe("none");
+  });
+});
+
+describe("pairSourceStageId (runda 12)", () => {
+  it("wskazuje wiersz pary tylko wtedy, gdy bieżący wiersz nie ma CV", () => {
+    expect(pairSourceStageId({ status: "none", pair_source_stage_id: 20 })).toBe(20);
+    expect(pairSourceStageId({ status: "draft", pair_source_stage_id: 20 })).toBeNull();
+    expect(pairSourceStageId({ status: "none" })).toBeNull();
+    expect(pairSourceStageId({ status: "none", pair_source_stage_id: null })).toBeNull();
+    expect(pairSourceStageId(undefined)).toBeNull();
   });
 });

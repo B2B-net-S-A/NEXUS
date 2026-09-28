@@ -1,7 +1,16 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { candidateStageCvApi, type CVBrandedState } from "@/lib/api";
 import { pairSourceStageId, stageBrandedQueryKey } from "@/lib/cv-to-client";
+
+export interface StageBrandedCv<Id extends number | null> {
+  ownQuery: UseQueryResult<CVBrandedState>;
+  /** Stan CV do pokazania — z wiersza pary, gdy bieżący jest pusty. */
+  query: UseQueryResult<CVBrandedState>;
+  pairStageId: number | null;
+  /** Wiersz etapu, na którym leży CV (edycja, pobranie, link). */
+  cvStageId: Id;
+}
 
 /**
  * CV do klienta osoby na etapie — z bieżącego wiersza etapu, a gdy ten jest
@@ -12,7 +21,9 @@ import { pairSourceStageId, stageBrandedQueryKey } from "@/lib/cv-to-client";
  * klienta idą na `cvStageId`, inaczej po ruchu na kolejną kolumnę ekran
  * twierdził „brak CV” i proponował generację od nowa.
  */
-export function useStageBrandedCv(stageId: number | null) {
+export function useStageBrandedCv(stageId: number): StageBrandedCv<number>;
+export function useStageBrandedCv(stageId: number | null): StageBrandedCv<number | null>;
+export function useStageBrandedCv(stageId: number | null): StageBrandedCv<number | null> {
   const ownQuery = useQuery<CVBrandedState>({
     queryKey: stageBrandedQueryKey(stageId),
     queryFn: () => candidateStageCvApi.branded.get(stageId as number).then((r) => r.data),
@@ -26,10 +37,8 @@ export function useStageBrandedCv(stageId: number | null) {
   });
   return {
     ownQuery,
-    /** Stan CV do pokazania — z wiersza pary, gdy bieżący jest pusty. */
     query: pairStageId != null ? pairQuery : ownQuery,
     pairStageId,
-    /** Wiersz etapu, na którym leży CV (edycja, pobranie, link). */
     cvStageId: pairStageId ?? stageId,
   };
 }
