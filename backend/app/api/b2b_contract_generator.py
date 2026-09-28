@@ -77,6 +77,7 @@ from app.schemas.b2b_contract_generator import (
     B2B_CLOSING_STATUSES,
     B2BClosureReason,
     B2BCompanyLookupResponse,
+    B2BCompanyVerificationResponse,
     B2BContractDetailResponse,
     B2BContractStatus,
     B2BGenerateRequest,
@@ -135,6 +136,9 @@ from app.services.b2b_contract_generator.entity_type import (
     resolve_partner_entity_type,
 )
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
+from app.services.b2b_contract_generator.registry_verification import (
+    verify_company,
+)
 from app.services.b2b_contract_generator.render_context import build_render_context
 from app.services.b2b_contract_generator.uop_check import (
     CVGeneratorAIError,
@@ -1734,6 +1738,23 @@ async def company_lookup(
             detail="Nie znaleziono firmy w rejestrze (sprawdź NIP / KRS).",
         )
     return data
+
+
+@router.get("/company-verification", response_model=B2BCompanyVerificationResponse)
+async def company_verification(
+    current_user: B2BGeneratorAccess,
+    nip: str | None = Query(None, max_length=32),
+    krs: str | None = Query(None, max_length=32),
+):
+    """Najnowsze dane firmy z CEIDG (JDG) albo KRS (spółka) + ostrzeżenia.
+
+    Front woła to przy KAŻDYM „Pobierz DOCX", bez pamięci podręcznej — dane
+    mają być z chwili generowania. Odpowiedź jest zawsze 200: rejestr, który
+    nie odpowiada, daje `status = unverified` z powodem, bo sprawdzenie nie
+    blokuje umowy (ticket 6).
+    """
+    _require_contract_generation(current_user)
+    return await verify_company(nip=nip, krs=krs)
 
 
 # ── Standalone render (DOCX / HTML) — bez rekordu Contract ───────────────────

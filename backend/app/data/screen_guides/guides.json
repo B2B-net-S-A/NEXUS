@@ -555,7 +555,7 @@
     "tasks": [
       {
         "q": "Jak wygenerować umowę?",
-        "a": "W zakładce „Generator” wypełnij dane Partnera i warunki, sprawdź „Podgląd” i kliknij „Pobierz DOCX (PL)” albo „(EN)”. Numer umowy nadaje się sam.",
+        "a": "W zakładce „Generator” wypełnij dane Partnera i warunki, sprawdź „Podgląd” i kliknij „Pobierz DOCX” (język z przełącznika). Numer nadaje się sam. Przed pobraniem generator sprawdza firmę w CEIDG albo KRS: zawieszenie, wykreślenie, likwidacja czy upadłość dają ostrzeżenie, które nie blokuje umowy.",
         "anchor": "contracts.b2b_generator.docx"
       },
       {

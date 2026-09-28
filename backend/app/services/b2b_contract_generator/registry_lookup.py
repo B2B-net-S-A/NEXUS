@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import date
 
 import httpx
 
@@ -172,11 +173,45 @@ async def lookup_by_ceidg(nip: str) -> dict | None:
         return None
 
 
-def _parse_ceidg(data: dict) -> dict | None:
-    firmy = data.get("firmy") or []
+# Kolejność wyboru wpisu CEIDG dla jednego NIP-u. Osoba, która zamknęła
+# działalność i założyła nową, ma pod tym samym NIP-em kilka wpisów (na
+# produkcji 10 z 40 NIP-ów Partnerów, 28.09.2026), a API nie zwraca ich w stałej
+# kolejności. Do 28.09 brany był pierwszy z listy — bywało nim stare, wykreślone
+# przedsiębiorstwo z nieaktualną nazwą i adresem.
+_CEIDG_STATUS_RANK = {
+    "AKTYWNY": 0,
+    "OCZEKUJE_NA_ROZPOCZECIE_DZIALANOSCI": 1,
+    "WYLACZNIE_W_FORMIE_SPOLKI": 2,
+    "ZAWIESZONY": 3,
+    "WYKRESLONY": 4,
+}
+
+
+def _iso_ordinal(value: object) -> int:
+    try:
+        return date.fromisoformat(str(value)[:10]).toordinal()
+    except ValueError:
+        return 0
+
+
+def pick_current_ceidg_firm(firmy: list[dict]) -> dict | None:
+    """Wpis CEIDG, który opisuje firmę DZIŚ: najpierw status, potem najnowszy
+    start działalności."""
     if not firmy:
         return None
-    f = firmy[0]
+    return min(
+        firmy,
+        key=lambda f: (
+            _CEIDG_STATUS_RANK.get(str(f.get("status") or "").upper(), 5),
+            -_iso_ordinal(f.get("dataRozpoczecia")),
+        ),
+    )
+
+
+def _parse_ceidg(data: dict) -> dict | None:
+    f = pick_current_ceidg_firm(data.get("firmy") or [])
+    if f is None:
+        return None
     owner = f.get("wlasciciel") or {}
     person = (
         " ".join(p for p in [owner.get("imie"), owner.get("nazwisko")] if p).strip()
@@ -197,7 +232,12 @@ def _parse_ceidg(data: dict) -> dict | None:
 def _ceidg_address(adr: dict) -> str | None:
     if not adr:
         return None
-    street = " ".join(p for p in [adr.get("ulica"), adr.get("budynek")] if p).strip()
+    # Miejscowość bez ulic: CEIDG nie ma `ulica`, a numer domu stoi przy nazwie
+    # miejscowości („Dąbrówka 12, 05-252 Dąbrówka").
+    street_name = adr.get("ulica") or (
+        adr.get("miasto") if adr.get("budynek") else None
+    )
+    street = " ".join(p for p in [street_name, adr.get("budynek")] if p).strip()
     if adr.get("lokal"):
         street = f"{street}/{adr['lokal']}".strip("/")
     tail = " ".join(p for p in [adr.get("kod"), adr.get("miasto")] if p).strip()
