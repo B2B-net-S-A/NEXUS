@@ -792,6 +792,45 @@ def test_injected_clause_paragraphs_have_no_left_indent(client_name, section):
     assert checked > 0, "nie znaleziono akapitów klauzul do weryfikacji wcięcia"
 
 
+@pytest.mark.parametrize("lang", ["pl", "en"])
+def test_bnp_s4_paragraphs_have_no_gaps_like_native_paragraphs(lang):
+    """Umowa BNP: wstawiony § 4 bez odstępów między akapitami (ticket 7).
+
+    Domyślne ustawienia dokumentu dają 8 pt po KAŻDYM akapicie, a natywne
+    paragrafy umowy mają odstęp 0 — wstawione akapity bez jawnego 0
+    rozpychały umowę i przenosiły podpisy na kolejną stronę."""
+    from docx.shared import Pt
+
+    def span(doc):
+        paras = doc.paragraphs
+        start = next(
+            i for i, p in enumerate(paras) if re.fullmatch(r"§\s*4\.?", p.text.strip())
+        )
+        end = next(
+            i for i, p in enumerate(paras) if re.fullmatch(r"§\s*5\.?", p.text.strip())
+        )
+        return paras, start, end
+
+    plain_paras, _, plain_end = span(
+        _render_docx_with_overrides("Inny Klient Sp. z o.o.", lang)
+    )
+    paras, start, end = span(
+        _render_docx_with_overrides("BNP Paribas Bank Polska S.A.", lang)
+    )
+    native_line = plain_paras[plain_end].paragraph_format.line_spacing
+    injected = [p for p in paras[start:end] if (p.text or "").strip()]
+    assert len(injected) > 10
+    for p in injected:
+        pf = p.paragraph_format
+        assert pf.space_before == Pt(0), p.text[:40]
+        assert pf.space_after == Pt(0), p.text[:40]
+        assert pf.line_spacing == native_line, p.text[:40]
+    # Pusta linia przed § 5 jest dokładnie tam, gdzie ma ją szablon (PL tak,
+    # EN nie) — podmiana § 4 jej nie zjada.
+    had_separator = not (plain_paras[plain_end - 1].text or "").strip()
+    assert (not (paras[end - 1].text or "").strip()) == had_separator
+
+
 # ── PATCH /generated/{id} — korekta nazwy Klienta (in-process, real DB) ───────
 
 

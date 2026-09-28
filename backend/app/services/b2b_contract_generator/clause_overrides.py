@@ -246,7 +246,10 @@ def _ref_font(paragraph) -> tuple[object, object]:
 
 
 def _doc_ref_styles(doc):
-    """(base_style, head_font, body_font) z reprezentatywnych akapitów umowy."""
+    """(base_style, head_font, body_font, line_spacing) z akapitów umowy.
+
+    Interlinia idzie z natywnego akapitu treści: wstawiony akapit ma wyglądać
+    jak sąsiednie paragrafy umowy, a nie jak domyślne ustawienia dokumentu."""
     base_style = None
     head_p = body_p = None
     for p in doc.paragraphs:
@@ -258,7 +261,8 @@ def _doc_ref_styles(doc):
             body_p = p
         if head_p is not None and body_p is not None:
             break
-    return (base_style, _ref_font(head_p), _ref_font(body_p))
+    line_spacing = body_p.paragraph_format.line_spacing if body_p is not None else None
+    return (base_style, _ref_font(head_p), _ref_font(body_p), line_spacing)
 
 
 def _apply_font(run, font) -> None:
@@ -271,13 +275,21 @@ def _apply_font(run, font) -> None:
 
 def _style_para(para, kind: str, text: str, styles) -> None:
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.shared import Inches
+    from docx.shared import Inches, Pt
 
-    base_style, head_font, body_font = styles
+    base_style, head_font, body_font, line_spacing = styles
     if base_style is not None:
         para.style = base_style
     run = para.add_run(text)
     pf = para.paragraph_format
+    # Domyślne ustawienia szablonu dają 8 pt po KAŻDYM akapicie, a natywne
+    # paragrafy umowy mają odstęp 0 (styl „Default”). Bez jawnego zera wstawione
+    # klauzule (§ 4 BNP, § 10 CeZ/PFRON…) miały przerwy między akapitami,
+    # a umowa BNP przenosiła podpisy na kolejną stronę (ticket 7, 09.2026).
+    pf.space_before = Pt(0)
+    pf.space_after = Pt(0)
+    if line_spacing is not None:
+        pf.line_spacing = line_spacing
     if kind in ("h", "sub"):
         run.bold = True
         para.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -338,6 +350,15 @@ def _find_section_heading_el(doc, n: int):
     return None
 
 
+def _is_empty_para(el) -> bool:
+    from docx.oxml.ns import qn
+
+    if el.tag != qn("w:p"):
+        return False
+    text = "".join(t.text or "" for t in el.iter(qn("w:t")))
+    return not text.strip() and not any(True for _ in el.iter(qn("w:drawing")))
+
+
 def _next_heading_el(doc, start_el):
     """Element następnego nagłówka (§ N / § NA / Załącznik) po ``start_el``."""
     seen = False
@@ -368,13 +389,20 @@ def apply_ops_docx(doc, ops: list[Op]) -> int:
             nxt = _next_heading_el(doc, start)
             if nxt is None:
                 continue
-            # usuń akapity § N (od nagłówka do przed następnym nagłówkiem)
+            # Pusta linia między § N a § N+1 zostaje — nowa treść wchodzi
+            # przed nią, jak w natywnych paragrafach umowy.
+            anchor = nxt
+            prev = nxt.getprevious()
+            while prev is not None and prev is not start and _is_empty_para(prev):
+                anchor = prev
+                prev = prev.getprevious()
+            # usuń akapity § N (od nagłówka do przed pustą linią / nagłówkiem)
             el = start
-            while el is not None and el is not nxt:
+            while el is not None and el is not anchor:
                 to_remove = el
                 el = el.getnext()
                 to_remove.getparent().remove(to_remove)
-            _emit_before(nxt, body_parent, blocks, styles)
+            _emit_before(anchor, body_parent, blocks, styles)
             applied += 1
         elif kind == "append_to_section":
             start = _find_section_heading_el(doc, int(target))  # type: ignore[arg-type]
