@@ -201,7 +201,7 @@
     "title": "Zlecenie i Champion",
     "section": "pipeline",
     "roles": ["delivery_lead", "recruiter", "admin"],
-    "what": "Tu opisujesz, czego szuka klient: profil Championa w sześciu sekcjach, stack MUST/NICE, pytania screeningowe i gotowość do przekazania do searchu.",
+    "what": "Tu opisujesz, czego szuka klient: profil Championa w ośmiu sekcjach, stack MUST/NICE, pytania screeningowe i gotowość do przekazania do searchu. Wchodzisz tu przyciskiem „Profil Championa” w nagłówku rekrutacji.",
     "tasks": [
       {
         "q": "Jak szybko wypełnić profil z maila klienta?",
