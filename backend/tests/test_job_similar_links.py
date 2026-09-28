@@ -252,6 +252,11 @@ async def test_request_status_rule():
         job_b = await db.get(Job, world["b"])
         job_b.champion_found_at = datetime.now(timezone.utc)
         await db.commit()
+        # Runda 12 (BACK-1): champion liczy się wyłącznie przy „Szukamy” —
+        # przy „Do przejrzenia” zostaje status „Szukamy”, jak pigułka stanu.
+        assert (await sim.request_statuses(db, [world["b"]]))[world["b"]] == "searching"
+        job_b.work_state = "searching"
+        await db.commit()
         assert (await sim.request_statuses(db, [world["b"]]))[world["b"]] == "champion"
         db.add(
             CandidateStage(
@@ -396,6 +401,11 @@ async def test_champion_found_is_delivery_lead_decision(
 ):
     recruiter_id, recruiter = await _user(UserRole.recruiter)
     world = await _world(recruiter_id=recruiter_id)
+    # Runda 12 (BACK-1): „Mamy championa” = champion przy „Szukamy”.
+    async with AsyncSessionLocal() as db:
+        job_b = await db.get(Job, world["b"])
+        job_b.work_state = "searching"
+        await db.commit()
     denied = await app_client.post(
         f"/api/jobs/{world['b']}/champion-found",
         json={"found": True},
