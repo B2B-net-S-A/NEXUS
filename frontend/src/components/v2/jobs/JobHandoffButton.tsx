@@ -51,7 +51,16 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
         .get(`/api/jobs/${jobId}/readiness`)
         .then((r) => r.data as JobReadiness),
     staleTime: 30_000,
+    // Lustro pozostałych konsumentów klucza (nagłówek, okno „Zlecenie”, dok):
+    // 403 nie zmieni się od ponowienia, a ponowienia opóźniały komunikat.
+    retry: false,
   });
+  // Braki i przycisk mają sens WYŁĄCZNIE po udanym odczycie. Odmowa (403 —
+  // rola albo DL spoza portfela) i awaria wyglądały dotąd jak „brak braków”,
+  // czyli aktywny przycisk, który kończył się kolejnym błędem.
+  const readinessStatus = (
+    readinessQuery.error as { response?: { status?: number } } | null
+  )?.response?.status;
   const readiness = readinessQuery.data;
   // `isSuccess`, nie `!isLoading`: w przerwie między ponowieniami react-query
   // ma `isLoading === false` i puste `data`, a wtedy „brak braków" znaczyłoby
@@ -144,7 +153,11 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
           <button
             type="button"
             onClick={() => setOpen(true)}
-            disabled={knownBlockers.length > 0 || readiness?.closed === true}
+            disabled={
+              !readinessQuery.isSuccess ||
+              knownBlockers.length > 0 ||
+              readiness?.closed === true
+            }
             data-testid="handoff-open"
             className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -152,6 +165,32 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
           </button>
         )}
       </div>
+
+      {readinessQuery.isError && (
+        <div
+          data-testid="handoff-readiness-error"
+          role="alert"
+          className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
+        >
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+          {readinessStatus === 403 ? (
+            <span>
+              Przekazać do searchu może admin albo Delivery Lead tej rekrutacji.
+            </span>
+          ) : (
+            <>
+              <span>Nie udało się sprawdzić, czy rekrutacja jest gotowa.</span>
+              <button
+                type="button"
+                onClick={() => void readinessQuery.refetch()}
+                className="font-medium text-foreground underline underline-offset-2"
+              >
+                Ponów
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {readiness?.closed && (
         <p
