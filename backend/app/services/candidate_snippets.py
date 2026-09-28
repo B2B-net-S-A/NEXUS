@@ -256,7 +256,9 @@ def _experience_roles(candidate: Candidate) -> str:
 
 
 def _structured_corpus(
-    candidate: Candidate, notes_contents: Optional[list[str]]
+    candidate: Candidate,
+    notes_contents: Optional[list[str]],
+    screening_skills: Optional[list[str]] = None,
 ) -> Iterator[tuple[str, Any]]:
     """Pola korpusu słów kluczowych (``keyword_corpus``), każde osobno.
 
@@ -276,7 +278,7 @@ def _structured_corpus(
 
     yield "Treść CV", attr("raw_cv_text")
     yield "Stanowisko", kc.title_text(candidate, _experience_roles(candidate))
-    yield "Umiejętności", kc.skills_text(candidate)
+    yield "Umiejętności", kc.skills_text(candidate, screening_skills)
     yield "Doświadczenie", kc.json_text(attr("experience"), kc.EXPERIENCE_KEYS)
     yield "O sobie", attr("profile_about")
     yield "Certyfikaty", kc.traffit_value(candidate, "traffit_certificates")
@@ -369,17 +371,22 @@ def extract_field_snippets(
     *,
     whole_words: bool = True,
     scope: str = "all",
+    screening_skills: Optional[list[str]] = None,
 ) -> list[dict]:
     """Lista ``{"field", "text", "highlights": [[start, end], …]}`` — każde pole
     z trafieniem (najwyżej ``_MAX_FIELDS``), w każdym do ``_FIELD_WINDOWS``
-    okien. ``highlights`` to zakresy znaków w ``text`` do pogrubienia."""
+    okien. ``highlights`` to zakresy znaków w ``text`` do pogrubienia.
+
+    ``screening_skills`` — umiejętności potwierdzone w screeningu
+    (``load_screening_confirmed_skills``); trafiają do pola „Umiejętności”, tak
+    jak do korpusu i zakresu „Umiejętności” filtra (runda 12, SEARCH)."""
     patterns = _term_patterns(terms, whole_words)
     if not patterns:
         return []
     folded_patterns = _folded_term_patterns(terms) if whole_words else []
     allowed = _SCOPE_FIELDS.get(scope)
     out: list[dict] = []
-    for label, raw in _structured_corpus(candidate, notes_contents):
+    for label, raw in _structured_corpus(candidate, notes_contents, screening_skills):
         if len(out) >= _MAX_FIELDS:
             break
         if not raw or (allowed is not None and label not in allowed):
@@ -476,3 +483,32 @@ def snippets_as_text(snippets: list[dict]) -> Optional[str]:
     if len(text) > _MAX_SNIPPET_LEN:
         text = text[: _MAX_SNIPPET_LEN - 1].rstrip() + "…"
     return text
+
+
+async def load_screening_confirmed_skills(
+    db: Any, candidate_ids: list[int]
+) -> dict[int, list[str]]:
+    """Umiejętności potwierdzone w screeningu dla strony listy — jedno zapytanie,
+    ta sama reguła co korpus (``keyword_corpus.screening_skill_rows_sql``)."""
+    if not candidate_ids:
+        return {}
+    from sqlalchemy import text
+
+    from app.services import keyword_corpus as kc
+
+    rows = await db.execute(
+        text(
+            kc.screening_skill_rows_sql("sn.candidate_id = ANY(:candidate_ids)")
+            + "\n        ORDER BY sn.id"
+        ),
+        {"candidate_ids": list(candidate_ids)},
+    )
+    out: dict[int, list[str]] = {}
+    for candidate_id, skill in rows.all():
+        name = str(skill or "").strip()
+        if not name:
+            continue
+        names = out.setdefault(candidate_id, [])
+        if name.lower() not in {n.lower() for n in names}:
+            names.append(name)
+    return out

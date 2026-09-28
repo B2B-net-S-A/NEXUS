@@ -1150,9 +1150,9 @@ async def _build_candidate_filtered_query(
         skills_preferred=f.skills_preferred,
         skills_excluded=f.skills_excluded,
     )
-    for skill_clause in predicates.skills_required_clauses(skill_buckets):
+    for skill_clause in predicates.skills_required_clauses(skill_buckets, sem):
         query = query.where(skill_clause)
-    for skill_clause in predicates.skills_excluded_clauses(skill_buckets):
+    for skill_clause in predicates.skills_excluded_clauses(skill_buckets, sem):
         query = query.where(skill_clause)
 
     if f.remote_policy:
@@ -1413,7 +1413,10 @@ def _preferred_rank(filters: CandidateFilterSpec):
 
     points = []
     skills_rank = predicates.skills_preferred_rank(
-        predicates.skill_buckets_from_list(skills_preferred=filters.skills_preferred)
+        predicates.skill_buckets_from_list(skills_preferred=filters.skills_preferred),
+        predicates.semantics_for(
+            "list", filters.semantics_version, filters.hide_unknown
+        ),
     )
     if skills_rank is not None:
         points.append(skills_rank)
@@ -2678,6 +2681,7 @@ async def list_candidates(
         extract_field_snippets,
         extract_search_terms,
         extract_snippet,
+        load_screening_confirmed_skills,
         snippets_as_text,
     )
 
@@ -2742,6 +2746,15 @@ async def list_candidates(
         candidates_with_cv = {row[0] for row in cv_rows.all()}
     field_snippets_by_candidate: dict[int, list[dict]] = {}
     if list_semantics.unified and keyword_terms_for_snippets and items:
+        # Runda 12 (SEARCH): umiejętności potwierdzone w screeningu są w korpusie
+        # i w zakresie „Umiejętności” — wycinek musi je widzieć, inaczej osoba
+        # znaleziona wyłącznie po nich nie ma pod wynikiem żadnego trafienia.
+        screening_skills_by_candidate = (
+            await load_screening_confirmed_skills(db, [c.id for c in items])
+            if q_scope in ("all", "skills")
+            else {}
+        )
+
         # Czyszczenie i dopasowanie tekstu CV i notatek poza pętlą zdarzeń
         # (R7-N10-5); obiekty są już załadowane, sesja w tym czasie stoi.
         def _page_field_snippets() -> dict[int, list[dict]]:
@@ -2752,6 +2765,7 @@ async def list_candidates(
                     notes_contents=notes_by_candidate.get(cand.id),
                     whole_words=True,
                     scope=q_scope,
+                    screening_skills=screening_skills_by_candidate.get(cand.id),
                 )
                 for cand in items
             }

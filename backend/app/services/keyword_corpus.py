@@ -392,19 +392,56 @@ SCREENING_NOTES_TABLE = "screening_notes"
 SCREENING_CONFIRMED_LEVEL = "confirmed"
 
 
-def screening_skills_sql(candidate_id: str = "NEW.id") -> str:
-    """Nazwy umiejętności potwierdzonych w screeningu kandydata (SQL)."""
-    return f"""(
-        SELECT string_agg(e ->> 'skill', ' ')
-        FROM {SCREENING_NOTES_TABLE} AS sn
+def _screening_skills_from(candidate_condition: str) -> str:
+    """FROM … WHERE wspólne dla korpusu, zakresu „Umiejętności”, filtra
+    „Umiejętności” (v2) i wycinków — JEDNA reguła: element-obiekt, poziom
+    „confirmed”, sama nazwa (``skill``)."""
+    return f"""FROM {SCREENING_NOTES_TABLE} AS sn
         CROSS JOIN LATERAL jsonb_array_elements(
             CASE WHEN jsonb_typeof(sn.verified_skills) = 'array'
                  THEN sn.verified_skills ELSE '[]'::jsonb END
         ) AS e
-        WHERE sn.candidate_id = {candidate_id}
+        WHERE {candidate_condition}
           AND jsonb_typeof(e) = 'object'
-          AND e ->> 'level' = '{SCREENING_CONFIRMED_LEVEL}'
+          AND e ->> 'level' = '{SCREENING_CONFIRMED_LEVEL}'"""
+
+
+def screening_skills_sql(candidate_id: str = "NEW.id") -> str:
+    """Nazwy umiejętności potwierdzonych w screeningu kandydata (SQL)."""
+    return f"""(
+        SELECT string_agg(e ->> 'skill', ' ')
+        {_screening_skills_from(f"sn.candidate_id = {candidate_id}")}
     )"""
+
+
+# Runda 12 (SEARCH): te same umiejętności jako WIERSZE (kandydat, nazwa) — dla
+# zakresu słów kluczowych „Umiejętności”, filtra „Umiejętności” (v2) i wycinków.
+# Nieskorelowany SELECT: ``Candidate.id IN (…)`` liczy się raz na zapytanie
+# (hashed SubPlan), zamiast podzapytania na każdy wiersz listy.
+def screening_skill_rows_sql(candidate_condition: str = "TRUE") -> str:
+    """``SELECT candidate_id, skill`` — umiejętności potwierdzone w screeningu."""
+    return f"""SELECT sn.candidate_id AS candidate_id, e ->> 'skill' AS skill
+        {_screening_skills_from(candidate_condition)}
+          AND coalesce(e ->> 'skill', '') <> ''"""
+
+
+def screening_confirmed_skill_names(verified_skills: Any) -> list[str]:
+    """Lustro ``screening_skills_sql`` w Pythonie (jedna notatka screeningu)."""
+    if not isinstance(verified_skills, list):
+        return []
+    out: list[str] = []
+    for item in verified_skills:
+        if not isinstance(item, dict):
+            continue
+        if item.get("level") != SCREENING_CONFIRMED_LEVEL:
+            continue
+        skill = item.get("skill")
+        if skill is None or isinstance(skill, (list, dict)):
+            continue
+        name = str(skill).strip()
+        if name:
+            out.append(name)
+    return out
 
 
 def trigger_function_ddl(*, screening_skills: bool = True) -> str:
@@ -852,12 +889,16 @@ def title_text(candidate: Any, roles: Optional[str] = None) -> str:
     return " · ".join(p for p in parts if p)
 
 
-def skills_text(candidate: Any) -> str:
-    """Umiejętności: nazwy (bez poziomów), zweryfikowane technologie
-    i technologie z Traffita."""
+def skills_text(candidate: Any, screening_skills: Optional[list[str]] = None) -> str:
+    """Umiejętności: nazwy (bez poziomów), zweryfikowane technologie,
+    technologie z Traffita i — runda 12 (SEARCH) — umiejętności potwierdzone
+    w screeningu (``screening_skills``, wczytane przez wołającego regułą
+    ``screening_skill_rows_sql``; osobna tabela, obiekt kandydata ich nie niesie).
+    """
     parts = [
         json_text(getattr(candidate, "skills", None), SKILL_KEYS),
         json_text(getattr(candidate, "verified_tech", None), VERIFIED_TECH_KEYS),
         traffit_value(candidate, "traffit_technologie"),
+        ", ".join(s for s in screening_skills or [] if s),
     ]
     return " · ".join(p for p in parts if p)
