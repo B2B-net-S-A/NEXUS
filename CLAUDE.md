@@ -7585,6 +7585,8 @@ Raport: `docs/audits/2026-09-25/runda-13.md`.
   bierze czas z zegara aplikacji (`datetime.now(timezone.utc)`), nigdy
   `func.now()` — to początek transakcji, więc token wybity równolegle przeżyłby
   unieważnienie. Nowa ścieżka wydająca token = `create_access_token`/`create_refresh_token`.
+  Całkowite `iat` wybite po 28.09.2026 14:30 UTC (`_LEGACY_INT_IAT_UNTIL`) przy
+  ustawionej podłodze = unieważnione; testy wybijają `iat` z ułamkiem (runda 14).
 - **Zapisane wyszukiwanie z filtrem umiejętności** dostaje przy migracji v1 → v2
   kod `screening_skills` (`saved_search_payload.RULE_SCREENING_SKILLS`).
 - **Powiadomienia: `showError` tylko dla błędów**, informacja — `showInfo`
