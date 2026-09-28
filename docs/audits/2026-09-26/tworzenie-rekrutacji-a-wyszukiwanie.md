@@ -363,6 +363,21 @@ dowody z notatek, wszystkie bramki), skrypt `anywhere_gate_study.py` uruchomiony
 
 Dowody z notatek: mediana 5 ms na rekrutację (paczka wysłanych), 42 ms przy 162 osobach.
 
+Cała baza (63 535 osób), nocny przegląd dla 4 rekrutacji z 25.09 (v7 → v8):
+
+| rekrutacja | dopuszczeni | propozycje ≥ progu (z danymi) | dodani przez zespół widoczni |
+|---|---|---|---|
+| #689430 Senior Java (9 must) | 3 085 → 200 | 0 → 60 (60) | 0/23 → 2/23 (miejsca 66, 139) |
+| #689431 Senior Java (7 must) | 3 093 → 326 | 8 → 60 (60) | 0/24 → 0/24 |
+| #689433 Senior Frontend (7 must) | 3 079 → 0 | 0 → 0 | 0/12 → 0/12 |
+| #689440 Windows Expert (10 must) | 3 085 → 7 | 0 → 5 (5) | 0/11 → 0/11 |
+
+v7 dopuszczała prawie wyłącznie osoby bez danych o umiejętnościach (v8 chowa je jako `no_data`:
+2 791 osób). Koszt dowodów z tekstu: pierwsza wersja 2,6–4,7 s CPU na paczkę 2000 osób (przegląd
+146–221 s zamiast ~55 s). Po filtrze słowa (regex tylko przy tekstach, w których słowo nazwy
+występuje) i wyszukiwaniu w tekście zamienionym na małe litery: 0,83 s na paczkę (z 5,0 s),
+czyli ok. +27 s na przegląd całej bazy; pętla oddaje sterowanie co 32 osoby.
+
 Etykiety must wszystkich rekrutacji (15 775 pozycji, 8 576 różnych): bramkuje 49,8%; nie bramkują
 zdania (27,5%), kategorie i metodyki (15,4%), umiejętności miękkie (3,6%), branże i regulacje (2,0%),
 języki (1,7%). 6,3% bramkujących to „którakolwiek z kilku”, 7,4% dostało poprawioną nazwę (wersja, rola).

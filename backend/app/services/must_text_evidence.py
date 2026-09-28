@@ -19,6 +19,7 @@ ogłoszenia wysłanego kandydatowi, więc „Java” w mailu nie mówi nic o nim
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ from app.services.must_gate_terms import GateRequirement, gate_requirement
 # Notatki, które są dowodem: rozmowy, spotkania, notatki ogólne, rozmowy
 # rekrutacyjne. Bez maili (patrz docstring modułu).
 EVIDENCE_NOTE_TYPES = ("call", "meeting", "general", "interview")
+YIELD_EVERY = 32
 
 # Kluczy `cv_extracted_data`, które są treścią profilu (nie metadanymi).
 _PROFILE_DATA_KEYS = (
@@ -55,9 +57,24 @@ class MustTextEvidence:
     has_notes: bool
 
 
+# Najdłuższe słowo nazwy jako tani filtr: regex idzie wyłącznie po tekstach,
+# w których to słowo w ogóle występuje. Wzorce dopasowują słowa dosłownie
+# (bez wielkości liter), więc filtr niczego nie gubi. Zmierzone 27.09.2026:
+# bez filtra 2000 kandydatów × 10 wymagań = 5 s czystego CPU na paczkę.
+_TOKEN = re.compile(r"[0-9a-ząćęłńóśźż]+")
+
+
+def _prefilter_token(form: str) -> str:
+    tokens = _TOKEN.findall(form.lower())
+    best = max(tokens, key=len) if tokens else ""
+    return best if len(best) >= 3 else ""
+
+
 @lru_cache(maxsize=4096)
-def _patterns(requirement: GateRequirement) -> tuple[re.Pattern[str], ...]:
-    """Wzorce całego słowa dla opcji wymagania i ich aliasów.
+def _patterns(
+    requirement: GateRequirement,
+) -> tuple[tuple[re.Pattern[str], str, bool], ...]:
+    """Wzorce całego słowa dla opcji wymagania i ich aliasów (+ słowo filtra).
 
     Aliasy 1–2-znakowe i zwykłe polskie słowa („go”, „jest”) szukamy tylko
     w pisowni z wymagania, z wielkością liter („Go”, „Jest”); jednoliterowych
@@ -65,7 +82,8 @@ def _patterns(requirement: GateRequirement) -> tuple[re.Pattern[str], ...]:
     """
     from app.services.scoring_service import POLISH_WORD_ALIASES, skill_name_variants
 
-    out: list[re.Pattern[str]] = []
+    # (wzorzec, słowo filtra, z wielkością liter)
+    out: list[tuple[re.Pattern[str], str, bool]] = []
     seen: set[str] = set()
     for option in requirement.options:
         forms = [option.lower(), *skill_name_variants([option])]
@@ -78,25 +96,45 @@ def _patterns(requirement: GateRequirement) -> tuple[re.Pattern[str], ...]:
             if short:
                 if form != option.lower() or len(option.strip()) < 2:
                     continue
-                out.append(
-                    re.compile(
-                        r"(?<![0-9A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ])"
-                        + re.escape(option.strip())
-                        + r"(?![0-9A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ])"
-                    )
+                cased = re.compile(
+                    r"(?<![0-9A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ])"
+                    + re.escape(option.strip())
+                    + r"(?![0-9A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ])"
                 )
+                out.append((cased, _prefilter_token(form), True))
                 continue
-            term = parse_keyword(form)
+            term = parse_keyword(form.lower())
             if term is not None:
-                out.append(py_regex(term))
+                # Bez IGNORECASE, na tekście już zamienionym na małe litery —
+                # regex Pythona z IGNORECASE był tu ~3× wolniejszy.
+                out.append(
+                    (re.compile(py_regex(term).pattern), _prefilter_token(form), False)
+                )
     return tuple(out)
+
+
+def _mentions_lowered(requirement: GateRequirement, text: str, lowered: str) -> bool:
+    for pattern, token, cased in _patterns(requirement):
+        # Wzorce z wielkością liter (krótkie aliasy) idą po oryginale.
+        haystack = text if cased else lowered
+        start = 0
+        if token:
+            at = lowered.find(token)
+            if at < 0:
+                continue
+            # Dopasowanie zawiera słowo filtra, więc nie zaczyna się wcześniej
+            # niż długość wzorca przed nim (lookbehind widzi tekst przed `pos`).
+            start = max(0, at - len(pattern.pattern))
+        if pattern.search(haystack, start):
+            return True
+    return False
 
 
 def mentions(requirement: GateRequirement, text: str) -> bool:
     """Czy tekst wymienia którąś z opcji wymagania (całe słowo, aliasy)."""
     if not text:
         return False
-    return any(p.search(text) for p in _patterns(requirement))
+    return _mentions_lowered(requirement, text, text.lower())
 
 
 def profile_text(candidate) -> str:
@@ -137,10 +175,14 @@ def text_met_labels(
     ]
     if not requirements:
         return frozenset()
-    sources = [profile_text(candidate), cv_text(candidate), *note_texts]
+    sources = [
+        (text, text.lower())
+        for text in (profile_text(candidate), cv_text(candidate), *note_texts)
+        if text
+    ]
     met: set[str] = set()
     for label, requirement in requirements:
-        if any(mentions(requirement, text) for text in sources if text):
+        if any(_mentions_lowered(requirement, t, low) for t, low in sources):
             met.add(label)
     return frozenset(met)
 
@@ -210,7 +252,11 @@ async def attach_gate_evidence(db, candidates: Sequence, must: Sequence[str]) ->
             "must evidence: notes lookup failed", exc_info=True
         )
         return
-    for candidate in candidates:
+    for index, candidate in enumerate(candidates):
+        # ~0,4 ms CPU na kandydata; pełny przegląd bazy żyje w procesie web,
+        # więc oddajemy pętlę zdarzeń co 32 osoby (jak `canonical_fit`).
+        if index and index % YIELD_EVERY == 0:
+            await asyncio.sleep(0)
         cid = getattr(candidate, "id", None)
         if cid is None:
             continue
