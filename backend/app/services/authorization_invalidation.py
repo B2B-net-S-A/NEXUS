@@ -5,9 +5,10 @@ tables.  A JWT issued before one of those relationships changes must not keep
 using the old scope, including on long-lived WebSocket connections.
 """
 
+from datetime import datetime, timezone
 from collections.abc import Iterable
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.team_structure import DeliveryLeadClientAssignment
@@ -49,7 +50,7 @@ async def invalidate_delivery_lead_scope_for_users(
         )
         .values(
             authorization_version=User.authorization_version + 1,
-            tokens_valid_after=func.now(),
+            tokens_valid_after=datetime.now(timezone.utc),
         )
         .execution_options(synchronize_session=False)
     )
@@ -73,7 +74,7 @@ async def invalidate_delivery_lead_scope_for_client(
         )
         .values(
             authorization_version=User.authorization_version + 1,
-            tokens_valid_after=func.now(),
+            tokens_valid_after=datetime.now(timezone.utc),
         )
         .execution_options(synchronize_session=False)
     )
