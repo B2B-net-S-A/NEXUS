@@ -331,7 +331,11 @@ function TraineesTable({
   const cell = "px-3 py-2.5 align-top text-sm tabular-nums text-foreground";
   return (
     <section aria-label="Lista praktykantów" className="overflow-hidden rounded-xl border border-border bg-card">
-      <div className="overflow-x-auto">
+      {/* Runda 12 (FRONTB): `relative` jest nośne — `sr-only` w nagłówku
+          „Akcje” to `position: absolute`; bez pozycjonowanego przodka liczył
+          się względem dokumentu, wychodził spod `overflow-x-auto` i dawał
+          poziomy scroll CAŁEJ strony na telefonie. */}
+      <div className="relative overflow-x-auto">
         <table className="w-full min-w-[980px] border-collapse">
           <thead className="bg-muted">
             <tr>
