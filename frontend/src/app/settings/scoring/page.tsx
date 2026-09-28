@@ -136,7 +136,7 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="flex-1 min-w-0 font-semibold text-lg text-foreground dark:text-foreground bg-transparent border-b border-border dark:border-border focus:outline-hidden focus:border-primary px-1"
+          className="w-0 flex-1 min-w-0 font-semibold text-lg text-foreground dark:text-foreground bg-transparent border-b border-border dark:border-border focus:outline-hidden focus:border-primary px-1"
           placeholder="Nazwa profilu"
         />
         <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground dark:text-muted-foreground">
@@ -187,7 +187,7 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
               step={1}
               value={weights[layer]}
               onChange={(e) => updateLayer(layer, Number(e.target.value))}
-              className="flex-1 min-w-0 accent-blue-600"
+              className="w-0 flex-1 min-w-0 accent-blue-600"
             />
             <input
               type="number"

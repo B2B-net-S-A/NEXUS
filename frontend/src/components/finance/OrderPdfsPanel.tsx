@@ -425,7 +425,7 @@ function ClientFiles({
             : "Brak plików tego typu."}
         </Empty>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <div
             role="table"
             aria-label={`Pliki — ${client.client_name}`}

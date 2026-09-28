@@ -85,7 +85,7 @@ export function MergePlanView({
         </div>
       ) : null}
 
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
         <table className="w-full text-left text-sm">
           <caption className="sr-only">Porównanie pól profilu</caption>
           <thead className="text-xs text-muted-foreground">

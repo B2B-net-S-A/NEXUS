@@ -278,7 +278,7 @@ export function TraineeCallCard({
                         aria-label="Jednostka stawki"
                         value={form.rateUnit}
                         onChange={(e) => set("rateUnit", e.target.value as TraineeCallForm["rateUnit"])}
-                        className={cn(INPUT, "min-w-0 flex-1")}
+                        className={cn(INPUT, "w-0 min-w-0 flex-1")}
                       >
                         {RATE_UNIT_OPTIONS.map((o) => (
                           <option key={o.value} value={o.value}>

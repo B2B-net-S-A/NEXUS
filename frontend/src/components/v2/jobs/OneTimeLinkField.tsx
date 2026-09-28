@@ -42,7 +42,7 @@ export function OneTimeLinkField({ url, label, note, onCopied }: OneTimeLinkFiel
           readOnly
           value={url}
           onFocus={(e) => e.currentTarget.select()}
-          className="h-8 min-w-0 flex-1 rounded-md border border-border bg-muted/30 px-2 text-[11px] text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary"
+          className="h-8 w-0 min-w-0 flex-1 rounded-md border border-border bg-muted/30 px-2 text-[11px] text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary"
         />
         <Button
           size="sm"

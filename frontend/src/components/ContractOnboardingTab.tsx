@@ -217,7 +217,7 @@ export function ContractOnboardingTab({
               value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)}
               placeholder="Dodaj pozycję (np. 'Karta dostępu do biura')"
-              className="flex-1 px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+              className="w-0 flex-1 px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
             />
             <button
               type="submit"

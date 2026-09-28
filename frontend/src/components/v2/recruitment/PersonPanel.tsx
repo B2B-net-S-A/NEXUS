@@ -746,7 +746,7 @@ export function PersonPanel({
           disabled={writeBlocked != null || move.isMoving}
           title={writeBlocked ?? undefined}
           onChange={(event) => handleStageSelect(event.target.value)}
-          className="h-[34px] min-w-[10rem] flex-1 rounded-md border border-border bg-card px-2 text-[13px] pointer-coarse:h-10 font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+          className="h-[34px] w-0 min-w-[10rem] flex-1 rounded-md border border-border bg-card px-2 text-[13px] pointer-coarse:h-10 font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
         >
           {/* Bieżący etap spoza listy celów (odrzucony, poza szablonem) musi
               być opcją — inaczej select pokazałby pierwszy etap szablonu. */}

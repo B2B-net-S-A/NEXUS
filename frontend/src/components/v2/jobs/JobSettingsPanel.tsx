@@ -32,7 +32,7 @@ const ROW_LABEL_CLASS =
   "w-[6.5rem] shrink-0 text-[11px] uppercase tracking-wider text-muted-foreground";
 const NOTE_INDENT_CLASS = "pl-[7rem]";
 const CONTROL_CLASS =
-  "min-w-0 flex-1 rounded border border-border bg-card px-2 py-1 text-xs dark:bg-muted";
+  "w-0 min-w-0 flex-1 rounded border border-border bg-card px-2 py-1 text-xs dark:bg-muted";
 
 /**
  * „Ustawienia zlecenia" — zakładka „Zespół" doku gotowości.

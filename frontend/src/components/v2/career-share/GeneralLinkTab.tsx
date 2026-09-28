@@ -222,7 +222,7 @@ export function GeneralLinkTab({ enabled }: { enabled: boolean }) {
                   maxLength={40}
                   spellCheck={false}
                   autoComplete="off"
-                  className="min-w-0 flex-1 bg-transparent px-3 font-mono text-sm text-foreground outline-hidden"
+                  className="w-0 min-w-0 flex-1 bg-transparent px-3 font-mono text-sm text-foreground outline-hidden"
                   aria-describedby="career-slug-status"
                 />
               </div>
