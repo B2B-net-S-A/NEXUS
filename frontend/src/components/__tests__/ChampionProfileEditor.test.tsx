@@ -699,3 +699,63 @@ describe("ChampionProfileEditor — sekcje 4 i 8 (09.2026)", () => {
     expect(screen.getByRole("button", { name: "Odśwież" })).toBeInTheDocument();
   });
 });
+
+// Do 28.09.2026 nieudany zapis ustawiał stan „error”, którego nic nie
+// renderowało — DL widział zwolniony przycisk „Zapisz” i myślał, że zapisał.
+describe("ChampionProfileEditor — nieudany zapis nie jest cichy", () => {
+  function axiosError(status: number, detail: unknown) {
+    return Object.assign(new Error(`Request failed with status code ${status}`), {
+      isAxiosError: true,
+      response: { status, data: { detail } },
+    });
+  }
+
+  it("odrzucony PUT pokazuje komunikat serwera przy „Zapisz”, a zmiany zostają w formularzu", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 21, champion_profile: {} } });
+    putMock.mockRejectedValue(
+      axiosError(422, "Profil Championa ma zły kształt sekcji „basics”."),
+    );
+    renderEditor(21, true);
+
+    const role = await screen.findByLabelText("Nazwa roli");
+    await userEvent.type(role, "Java Developer");
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+
+    const alert = await screen.findByTestId("champion-profile-save-error");
+    expect(alert).toHaveAttribute("role", "alert");
+    expect(alert).toHaveTextContent("Nie zapisano profilu");
+    expect(alert).toHaveTextContent("Profil Championa ma zły kształt sekcji „basics”.");
+    expect(screen.queryByText("Zapisano")).toBeNull();
+    expect(screen.getByLabelText("Nazwa roli")).toHaveValue("Java Developer");
+  });
+
+  it("409 mówi zdaniem, że ktoś zmienił rekrutację w międzyczasie", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 22, champion_profile: {} } });
+    putMock.mockRejectedValue(
+      axiosError(409, { message: "Rekrutacja zmieniła się. Sprawdź aktualne różnice." }),
+    );
+    renderEditor(22, true);
+
+    await userEvent.click(await screen.findByTestId("save-champion-profile"));
+
+    const alert = await screen.findByTestId("champion-profile-save-error");
+    expect(alert).toHaveTextContent(
+      "Ktoś zmienił tę rekrutację w międzyczasie",
+    );
+  });
+
+  it("komunikat znika po udanym ponownym zapisie", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 23, champion_profile: {} } });
+    putMock
+      .mockRejectedValueOnce(axiosError(500, "Internal Server Error"))
+      .mockResolvedValueOnce({ data: { job_id: 23, champion_profile: {} } });
+    renderEditor(23, true);
+
+    await userEvent.click(await screen.findByTestId("save-champion-profile"));
+    await screen.findByTestId("champion-profile-save-error");
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+
+    await screen.findByText("Zapisano");
+    expect(screen.queryByTestId("champion-profile-save-error")).toBeNull();
+  });
+});

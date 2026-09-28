@@ -861,6 +861,21 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
     expect(checklist).toHaveAttribute("data-can-edit", "false");
   });
 
+  it("recruiter z prawem edycji treści (`can_edit`) też NIE dostaje „Przekaż do searchu” — backend to DeliveryLeadPlus", async () => {
+    // Do 28.09.2026 przycisk wisiał na `canEditChampion`, a `can_edit` z
+    // serwera dostaje też rekruter prowadzący: widział aktywny przycisk,
+    // /readiness odpowiadało mu 403, a klik kończył się drugim 403.
+    mockGetByUrl({
+      job: () => Promise.resolve({ data: { ...jobFixture, can_edit: true } }),
+    });
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText(CHAMPION_DOCK_LABEL);
+    const checklist = await screen.findByTestId("mock-verification-checklist");
+    // Edycja Championa zostaje — odbieramy wyłącznie przekazanie do searchu.
+    expect(checklist).toHaveAttribute("data-can-edit", "true");
+    expect(screen.queryByTestId("mock-handoff-button")).not.toBeInTheDocument();
+  });
+
   it("recruiter widzi zakładkę „Zespół”, ale HiringManagerPicker jest read-only (`job.update` = TacPlus)", async () => {
     const user = userEvent.setup();
     renderDock(501, undefined, true, "champion");

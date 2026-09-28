@@ -73,6 +73,7 @@ import { cn } from "@/lib/utils";
 import { warsawDateOf } from "@/lib/warsaw-date";
 import { countPl } from "@/lib/plural-pl";
 import { invalidateChampionDependents } from "@/lib/champion-cache";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   CHAMPION_AI_PROVENANCE_LABEL,
   CHAMPION_PROSE_SECTION_IDS,
@@ -140,6 +141,7 @@ export function ChampionProfileEditor({
   );
   const [reviewOpen, setReviewOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [remoteChange, setRemoteChange] = useState<{
     by: string;
     at: number;
@@ -234,10 +236,16 @@ export function ChampionProfileEditor({
       // Profil, zlecenie (sync stacku do `must_skills`) i werdykt gotowości
       // „Przekaż do searchu" — patrz `invalidateChampionDependents`.
       invalidateChampionDependents(qc, jobId);
+      setSaveError(null);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 3000);
     },
-    onError: () => setSaveStatus("error"),
+    // Do 28.09.2026 stan „error” nie miał żadnego widoku: DL widział zwolniony
+    // „Zapisz” i myślał, że zapisał. Zmiany zostają w `draft` — nic nie ginie.
+    onError: (error) => {
+      setSaveError(championSaveErrorMessage(error));
+      setSaveStatus("error");
+    },
   });
 
   const updateQuestion = (i: number, patch: Partial<ScreeningQuestion>) => {
@@ -413,6 +421,19 @@ export function ChampionProfileEditor({
       />
       {canEdit && <button className="text-sm underline" onClick={() => setReviewOpen(true)} data-help="job.champion.reconcile">Uzgodnij profil i pola rekrutacji</button>}
       {reviewOpen && <ChampionImportReview initial={{ champion_profile: draft, validation: data?.validation }} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onClose={() => setReviewOpen(false)} onApply={() => invalidateChampionDependents(qc, jobId)} />}
+
+      {saveStatus === "error" && saveError && (
+        <div
+          role="alert"
+          data-testid="champion-profile-save-error"
+          className="text-xs px-3 py-2 rounded-lg bg-destructive-muted border border-destructive/30 text-destructive-muted-foreground inline-flex items-start gap-1.5"
+        >
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>
+            <strong>Nie zapisano profilu.</strong> {saveError}
+          </span>
+        </div>
+      )}
 
       {saveStatus === "saved" && (
         <div className="text-xs px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 inline-flex items-center gap-1.5">
@@ -1379,4 +1400,21 @@ function Labeled({
       {children}
     </label>
   );
+}
+
+/**
+ * Zdanie dla DL-a po odrzuconym zapisie profilu. 409 = rekrutacja zmieniła się
+ * pod spodem; 5xx i brak odpowiedzi = awaria, a nie treść do pokazania
+ * („Internal Server Error” niczego nie mówi). Resztę mówi serwer.
+ */
+function championSaveErrorMessage(error: unknown): string {
+  const status = (error as { response?: { status?: unknown } } | null)?.response
+    ?.status;
+  if (status === 409) {
+    return "Ktoś zmienił tę rekrutację w międzyczasie — odśwież stronę i wprowadź zmianę ponownie. Twoje zmiany są nadal w formularzu.";
+  }
+  if (typeof status !== "number" || status >= 500) {
+    return "Serwer nie odpowiedział poprawnie — spróbuj zapisać ponownie. Twoje zmiany są nadal w formularzu.";
+  }
+  return apiErrorMessage(error, "Spróbuj zapisać ponownie.");
 }

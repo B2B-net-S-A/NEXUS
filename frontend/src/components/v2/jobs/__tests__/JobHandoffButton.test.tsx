@@ -54,6 +54,7 @@ describe("JobHandoffButton", () => {
     mocks.handoff.mockResolvedValue({ data: { status: "handed_off" } });
 
     renderButton();
+    await waitFor(() => expect(screen.getByTestId("handoff-open")).toBeEnabled());
     fireEvent.click(screen.getByTestId("handoff-open"));
     await screen.findByText("Rec One");
     fireEvent.change(screen.getByTestId("handoff-recruiter-select"), {
@@ -79,6 +80,7 @@ describe("JobHandoffButton", () => {
     });
 
     renderButton();
+    await waitFor(() => expect(screen.getByTestId("handoff-open")).toBeEnabled());
     fireEvent.click(screen.getByTestId("handoff-open"));
     await screen.findByText("Rec One");
     fireEvent.change(screen.getByTestId("handoff-recruiter-select"), {
@@ -118,5 +120,42 @@ describe("JobHandoffButton", () => {
     ).toBeInTheDocument();
     expect(screen.getByTestId("handoff-open")).toBeDisabled();
   });
-});
 
+  it("odmowa odczytu gotowości (403) blokuje przycisk i mówi, kto może przekazać", async () => {
+    mocks.apiGet.mockImplementation((url: unknown) =>
+      typeof url === "string" && url.includes("/readiness")
+        ? Promise.reject({ response: { status: 403, data: { detail: "Requires one of roles: ['admin', 'delivery_lead']" } } })
+        : Promise.resolve({ data: [] }),
+    );
+
+    renderButton();
+
+    expect(await screen.findByTestId("handoff-readiness-error")).toHaveTextContent(
+      "Przekazać do searchu może admin albo Delivery Lead tej rekrutacji.",
+    );
+    expect(screen.getByTestId("handoff-open")).toBeDisabled();
+    expect(screen.queryByTestId("handoff-readiness-blockers")).not.toBeInTheDocument();
+  });
+
+  it("awaria odczytu gotowości to nie „brak braków” — przycisk zablokowany, jest „Ponów”", async () => {
+    mocks.apiGet.mockImplementation((url: unknown) =>
+      typeof url === "string" && url.includes("/readiness")
+        ? Promise.reject({ response: { status: 503 } })
+        : Promise.resolve({ data: [] }),
+    );
+
+    renderButton();
+
+    expect(await screen.findByTestId("handoff-readiness-error")).toHaveTextContent(
+      "Nie udało się sprawdzić, czy rekrutacja jest gotowa.",
+    );
+    expect(screen.getByTestId("handoff-open")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Ponów" })).toBeInTheDocument();
+  });
+
+  it("dopóki gotowość się wczytuje, przycisk jest zablokowany", () => {
+    mocks.apiGet.mockImplementation(() => new Promise(() => {}));
+    renderButton();
+    expect(screen.getByTestId("handoff-open")).toBeDisabled();
+  });
+});

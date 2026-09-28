@@ -1063,10 +1063,12 @@ export function JobReadinessDock({
 
             <div className="grid grid-cols-2 gap-2 pt-1">
               {/* Krok 02: handoff jest GŁÓWNĄ akcją tego doku — dopiero po nim
-                  rekruter dostaje dostęp i ranking się generuje. Ten sam warunek
-                  widoczności, którego do tej pory używał `page.tsx` na zakładce
-                  `champion` (`canWritePipeline && (isAdmin || DL)`). */}
-              {variant === "champion" && canEditChampion && (
+                  rekruter dostaje dostęp i ranking się generuje. Lustro backendu:
+                  `GET /readiness` i `POST /handoff` to `DeliveryLeadPlus`
+                  (admin + DL), więc rola z bramki gotowości i zapis Pipeline.
+                  NIE `canEditChampion`: `can_edit` z serwera ma też rekruter
+                  prowadzący, a dla niego oba endpointy to 403 (28.09.2026). */}
+              {variant === "champion" && canSeeGate && canWritePipeline && (
                 <div className="col-span-2">
                   <JobHandoffButton jobId={jobId} />
                 </div>

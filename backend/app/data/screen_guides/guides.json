@@ -210,7 +210,7 @@
       },
       {
         "q": "Czego brakuje, żeby przekazać rekrutację do searchu?",
-        "a": "Zobacz dok gotowości z prawej: lista braków (rola, must-have, budżet, tryb pracy, opis projektu, dwa pytania screeningowe). Gdy wszystko jest, użyj „Przekaż do searchu”.",
+        "a": "Zobacz dok gotowości z prawej: lista braków (rola, must-have, budżet, tryb pracy, opis projektu, dwa pytania screeningowe). Gdy wszystko jest, admin albo Delivery Lead używa „Przekaż do searchu”.",
         "anchor": "job.champion.readiness"
       },
       {
