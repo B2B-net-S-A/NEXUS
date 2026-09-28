@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   generated: vi.fn(),
   generatedForm: vi.fn(),
   companyLookup: vi.fn(),
+  companyVerification: vi.fn(),
   renderDocx: vi.fn(),
   rerenderGenerated: vi.fn(),
   renderHtml: vi.fn(),
@@ -73,6 +74,7 @@ vi.mock("@/lib/api", () => ({
     generated: (...a: unknown[]) => mocks.generated(...a),
     generatedForm: (...a: unknown[]) => mocks.generatedForm(...a),
     companyLookup: (...a: unknown[]) => mocks.companyLookup(...a),
+    companyVerification: (...a: unknown[]) => mocks.companyVerification(...a),
     renderDocx: (...a: unknown[]) => mocks.renderDocx(...a),
     rerenderGenerated: (...a: unknown[]) => mocks.rerenderGenerated(...a),
     renderHtml: (...a: unknown[]) => mocks.renderHtml(...a),
@@ -192,6 +194,15 @@ beforeEach(() => {
   mocks.clientsLookup.mockResolvedValue([]);
   mocks.generated.mockResolvedValue([]);
   mocks.companyLookup.mockRejectedValue(new Error("brak"));
+  // Rejestr potwierdza firmę bez uwag → „Pobierz DOCX” generuje od razu.
+  mocks.companyVerification.mockResolvedValue({
+    status: "verified",
+    registry: "ceidg",
+    checked_at: "2026-09-28T10:00:00Z",
+    company: null,
+    warnings: [],
+    message: null,
+  });
 });
 
 /** Błąd `/render`: ciało DOCX-owego żądania (`responseType: "blob"`) to Blob. */
@@ -670,5 +681,143 @@ describe("GeneratorForm — awaria wyszukiwarek to nie pusta lista", () => {
       await screen.findByText("Nie udało się wyszukać kandydatów."),
     ).toBeInTheDocument();
     expect(screen.queryByText("Brak wyników.")).not.toBeInTheDocument();
+  });
+});
+
+describe("GeneratorForm — sprawdzenie firmy w CEIDG/KRS przed pobraniem (ticket 6)", () => {
+  function verification(overrides: Record<string, unknown> = {}) {
+    return {
+      status: "verified",
+      registry: "ceidg",
+      checked_at: "2026-09-28T10:00:00Z",
+      company: {
+        name: "JK SOFTWARE JAN KOWALSKI",
+        person: "Jan Kowalski",
+        nip: "1234563218",
+        regon: "123456785",
+        address: "UL. PROSTA 1, 00-001 WARSZAWA",
+        krs: null,
+        entity_type: "sole_trader",
+      },
+      warnings: [],
+      message: null,
+      ...overrides,
+    };
+  }
+
+  it("dane zgodne z rejestrem → pobiera od razu, bez okna", async () => {
+    const user = setupUser();
+    mocks.companyVerification.mockResolvedValue(verification());
+    mocks.renderDocx.mockResolvedValue(docxResponse("77"));
+    renderForm();
+    await fillForm(user);
+
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+
+    await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledTimes(1));
+    expect(mocks.companyVerification).toHaveBeenCalledWith({ nip: "1234563218" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("zawieszona działalność → ostrzeżenie, ale „Generuj mimo to” pobiera umowę", async () => {
+    const user = setupUser();
+    mocks.companyVerification.mockResolvedValue(
+      verification({
+        warnings: [
+          {
+            code: "ceidg_suspended",
+            message:
+              "Działalność gospodarcza Partnera jest ZAWIESZONA w CEIDG (od 01.07.2026).",
+          },
+        ],
+      }),
+    );
+    mocks.renderDocx.mockResolvedValue(docxResponse("77"));
+    renderForm();
+    await fillForm(user);
+
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("ZAWIESZONA w CEIDG (od 01.07.2026)");
+    expect(mocks.renderDocx).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Generuj mimo to" }));
+    await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledTimes(1));
+  });
+
+  it("nowszy adres w rejestrze trafia do umowy i do formularza", async () => {
+    const user = setupUser();
+    mocks.companyVerification.mockResolvedValue(
+      verification({
+        company: {
+          ...verification().company,
+          address: "UL. NOWA 7/2, 00-950 WARSZAWA",
+        },
+      }),
+    );
+    mocks.renderDocx.mockResolvedValue(docxResponse("77"));
+    renderForm();
+    await fillForm(user);
+
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("UL. NOWA 7/2, 00-950 WARSZAWA");
+    // Nazwa różni się tylko wielkością liter i interpunkcją — to nie zmiana.
+    expect(dialog).not.toHaveTextContent("Nazwa firmy");
+    expect(
+      screen.getByRole("checkbox", { name: /Wstaw do umowy aktualne dane/ }),
+    ).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Generuj umowę" }));
+
+    await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledTimes(1));
+    expect(mocks.renderDocx.mock.calls[0][0]).toMatchObject({
+      partner_business_address: "UL. NOWA 7/2, 00-950 WARSZAWA",
+      partner_legal_name: "JK Software Jan Kowalski",
+    });
+    expect(
+      (screen.getByLabelText("Adres siedziby firmy *") as HTMLInputElement).value,
+    ).toBe("UL. NOWA 7/2, 00-950 WARSZAWA");
+  });
+
+  it("odznaczone „Wstaw dane z rejestru” zostawia dane z formularza", async () => {
+    const user = setupUser();
+    mocks.companyVerification.mockResolvedValue(
+      verification({
+        company: { ...verification().company, regon: "987654321" },
+      }),
+    );
+    mocks.renderDocx.mockResolvedValue(docxResponse("77"));
+    renderForm();
+    await fillForm(user);
+
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+    await screen.findByRole("dialog");
+    await user.click(
+      screen.getByRole("checkbox", { name: /Wstaw do umowy aktualne dane/ }),
+    );
+    await user.click(screen.getByRole("button", { name: "Generuj umowę" }));
+
+    await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledTimes(1));
+    expect(mocks.renderDocx.mock.calls[0][0]).toMatchObject({
+      partner_regon: "123456785",
+    });
+  });
+
+  it("rejestr niedostępny → komunikat o braku weryfikacji; „Anuluj” nic nie pobiera", async () => {
+    const user = setupUser();
+    mocks.companyVerification.mockRejectedValue(new Error("Network Error"));
+    renderForm();
+    await fillForm(user);
+
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent(
+      "Dane firmy nie zostały zweryfikowane w rejestrze",
+    );
+    await user.click(screen.getByRole("button", { name: "Anuluj" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mocks.renderDocx).not.toHaveBeenCalled();
   });
 });

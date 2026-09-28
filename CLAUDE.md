@@ -871,6 +871,21 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   - Wypowiedzenie złożone przez Partnera nie ma wzoru — to akcja bez
     dokumentu (`POST /documents/partner-notice`, koniec z okresu wypowiedzenia
     wersji umowy: 2026 = miesiąc na koniec miesiąca).
+- **Sprawdzenie firmy w CEIDG/KRS przy KAŻDYM „Pobierz DOCX” (ticket 6,
+  28.09.2026)** — `GET /company-verification`
+  (`services/b2b_contract_generator/registry_verification.py`), zawsze 200:
+  JDG → CEIDG v3 po NIP, spółka → odpis aktualny KRS (numer z Białej Listy);
+  wykreślona spółka ma odpis aktualny 204 i jest rozpoznawana po ostatnim
+  wpisie odpisu PEŁNEGO (`stanPozycji` NIE mówi o wykreśleniu). Ostrzeżenia
+  (zawieszona/wykreślona w CEIDG, likwidacja/upadłość/wykreślenie w KRS)
+  i `unverified` są WYŁĄCZNIE informacją — okno `RegistryCheckDialog` zawsze
+  pozwala „Generuj mimo to”; nie zamieniaj tego w bramkę. Różnice nazwy,
+  adresu i REGON-u liczy `lib/b2b-registry-check.ts` po normalizacji („ul.”,
+  wielkość liter, REGON 14-cyfrowy z zerami) i domyślnie wstawia dane
+  z rejestru. Pod jednym NIP-em CEIDG ma często kilka wpisów (10 z 40
+  Partnerów) — bieżący wybiera `pick_current_ceidg_firm` (status, potem
+  najnowszy start); do 28.09 auto-uzupełnianie brało pierwszy, bywało
+  wykreślone przedsiębiorstwo ze starym adresem.
 - **Rejestr z Excela działu (0363)** — Excel „UMOWY I ZAMÓWIENIA” jest
   prowadzony RÓWNOLEGLE, więc import jest powtarzalny: Ustawienia → Umowy
   i stawki → „Rejestr umów z Excela” (admin): podgląd → zapis → cofnięcie

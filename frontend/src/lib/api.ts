@@ -10,6 +10,7 @@ import type { WorkMode } from "./work-mode";
 import type { CallFactsPatch } from "./candidate-call-facts";
 import type { RequestStatus } from "./request-status";
 import type { RequestStage } from "./request-stage";
+import type { CompanyVerification } from "./b2b-registry-check";
 import { recordRefusal, refusalCode } from "./help/refusal-tracker";
 import type {
   RoleActionPermissionChange,
@@ -3447,6 +3448,16 @@ export const b2bGeneratorApi = {
         // o obu rejestrach jednocześnie ma tylko warstwa serwisowa.
         entity_type: "sole_trader" | "company" | null;
       }>("/api/b2b-generator/company-lookup", { params })
+      .then((r) => r.data),
+  /** Najnowsze dane firmy z CEIDG/KRS + ostrzeżenia, tuż przed „Pobierz DOCX”
+   *  (ticket 6). Zawsze 200 — niedostępny rejestr to `status: "unverified"`. */
+  companyVerification: (params: { nip?: string; krs?: string }) =>
+    api
+      .get<CompanyVerification>("/api/b2b-generator/company-verification", {
+        params,
+        // Rejestr bywa wolny (CEIDG + szczegóły wpisu + odpis KRS).
+        timeout: 45_000,
+      })
       .then((r) => r.data),
   clientsLookup: () =>
     api

@@ -377,6 +377,37 @@ class B2BCompanyLookupResponse(BaseModel):
     entity_type: Optional[B2BPartnerEntityType] = None
 
 
+class B2BRegistryWarning(BaseModel):
+    code: str
+    message: str
+
+
+class B2BRegistryCompany(BaseModel):
+    name: Optional[str] = None
+    person: Optional[str] = None
+    nip: Optional[str] = None
+    regon: Optional[str] = None
+    krs: Optional[str] = None
+    address: Optional[str] = None
+    entity_type: Optional[B2BPartnerEntityType] = None
+
+
+class B2BCompanyVerificationResponse(BaseModel):
+    """Sprawdzenie firmy w CEIDG/KRS tuż przed wygenerowaniem umowy.
+
+    Wyłącznie informacja: `warnings` (zawieszenie, wykreślenie, likwidacja,
+    upadłość) i `status = unverified` nie blokują generowania.
+    """
+
+    status: Literal["verified", "unverified"]
+    registry: Optional[Literal["ceidg", "krs"]] = None
+    checked_at: str
+    company: Optional[B2BRegistryCompany] = None
+    warnings: list[B2BRegistryWarning] = Field(default_factory=list)
+    # Powód braku weryfikacji (rejestr niedostępny, brak firmy, brak NIP-u).
+    message: Optional[str] = None
+
+
 class B2BUopCheckRequest(BaseModel):
     text: str
     language: str = "pl"

@@ -111,6 +111,15 @@ import { countPl } from "@/lib/plural-pl";
 import { positiveIntParam } from "@/lib/client-tab";
 import { DocumentsTab } from "@/components/v2/b2b-generator/documents/DocumentsTab";
 import { RegisterNewDocumentMenu } from "@/components/v2/b2b-generator/documents/RegisterNewDocumentMenu";
+import { RegistryCheckDialog } from "@/components/v2/b2b-generator/RegistryCheckDialog";
+import {
+  needsRegistryDialog,
+  registryDiffs,
+  registryOverrides,
+  verificationFailed,
+  type CompanyVerification,
+  type RegistryDiff,
+} from "@/lib/b2b-registry-check";
 import {
   B2B_CURRENCIES,
   B2B_REGISTER_PAGE_SIZE,
@@ -4092,9 +4101,28 @@ export function GeneratorForm({
     return true;
   };
 
+  // Sprawdzenie firmy w CEIDG/KRS przy KAŻDYM „Pobierz DOCX” (ticket 6).
+  // Okno pokazuje ostrzeżenia, brak weryfikacji i różnice danych; niczego nie
+  // blokuje. `registryCheck === null` = okno zamknięte.
+  const [registryCheck, setRegistryCheck] = useState<{
+    verification: CompanyVerification;
+    diffs: RegistryDiff[];
+  } | null>(null);
+  const [applyRegistry, setApplyRegistry] = useState(true);
+  const verifyMut = useMutation({
+    mutationFn: () =>
+      b2bGeneratorApi.companyVerification({
+        nip: partnerNip.replace(/\D/g, "") || undefined,
+      }),
+  });
+
   const docxMut = useMutation({
-    mutationFn: async () => {
-      const payload = buildPayload(language);
+    mutationFn: async (
+      registryData: ReturnType<typeof registryOverrides> | void,
+    ) => {
+      // Dane z rejestru nakładamy na ładunek wprost: stan formularza
+      // zaktualizuje się dopiero przy następnym renderze.
+      const payload = { ...buildPayload(language), ...(registryData ?? {}) };
       // Formularz opisuje zapisaną umowę → poprawka tego samego wiersza pod
       // tym samym numerem. Inaczej — nowy wpis w rejestrze.
       const saved = activeSaved;
@@ -4301,9 +4329,46 @@ export function GeneratorForm({
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
 
-  const onDocx = () => {
-    if (validate()) docxMut.mutate();
+  const onDocx = async () => {
+    if (!validate()) return;
+    let verification: CompanyVerification;
+    try {
+      verification = await verifyMut.mutateAsync();
+    } catch {
+      verification = verificationFailed();
+    }
+    const diffs = registryDiffs(
+      {
+        legalName: partnerLegalName,
+        address: partnerBusinessAddress,
+        regon: partnerRegon,
+      },
+      verification.company,
+    );
+    if (!needsRegistryDialog(verification, diffs)) {
+      docxMut.mutate();
+      return;
+    }
+    setApplyRegistry(true);
+    setRegistryCheck({ verification, diffs });
   };
+  const confirmRegistryCheck = () => {
+    const diffs = registryCheck?.diffs ?? [];
+    setRegistryCheck(null);
+    if (!applyRegistry || diffs.length === 0) {
+      docxMut.mutate();
+      return;
+    }
+    // Formularz też dostaje dane z rejestru — kolejne pobranie i podgląd
+    // opisują to, co trafiło do umowy.
+    for (const d of diffs) {
+      if (d.field === "legalName") setPartnerLegalName(d.registry);
+      if (d.field === "address") setPartnerBusinessAddress(d.registry);
+      if (d.field === "regon") setPartnerRegon(d.registry);
+    }
+    docxMut.mutate(registryOverrides(diffs));
+  };
+  const docxBusy = docxMut.isPending || verifyMut.isPending;
   const onPreview = () => {
     if (validate()) previewMut.mutate();
   };
@@ -4339,10 +4404,10 @@ export function GeneratorForm({
             <Button
               type="button"
               size="sm"
-              disabled={docxMut.isPending}
+              disabled={docxBusy}
               onClick={onDocx}
             >
-              {docxMut.isPending ? (
+              {docxBusy ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Download className="h-4 w-4" />
@@ -4353,7 +4418,7 @@ export function GeneratorForm({
               type="button"
               size="sm"
               variant="outline"
-              disabled={docxMut.isPending}
+              disabled={docxBusy}
               onClick={resetForm}
             >
               <Plus className="h-4 w-4" />
@@ -5024,8 +5089,8 @@ export function GeneratorForm({
         {/* Jeden przycisk w języku z „Język umowy”. Dwa (PL/EN) zakładały dwa
             wiersze rejestru i dwa numery dla jednej umowy; teraz druga wersja
             językowa to poprawka zapisanej umowy pod tym samym numerem. */}
-        <Button disabled={docxMut.isPending} onClick={onDocx} data-help="contracts.b2b_generator.docx">
-          {docxMut.isPending ? (
+        <Button disabled={docxBusy} onClick={onDocx} data-help="contracts.b2b_generator.docx">
+          {docxBusy ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
             <Download className="mr-2 h-4 w-4" />
@@ -5038,14 +5103,27 @@ export function GeneratorForm({
           <Button
             type="button"
             variant="outline"
-            disabled={docxMut.isPending}
+            disabled={docxBusy}
             onClick={resetForm}
           >
             <Plus className="mr-2 h-4 w-4" />
             Nowa umowa
           </Button>
         ) : null}
+        {verifyMut.isPending ? (
+          <span role="status" className="text-xs text-muted-foreground">
+            Sprawdzam firmę w rejestrze (CEIDG / KRS)…
+          </span>
+        ) : null}
       </div>
+      <RegistryCheckDialog
+        verification={registryCheck?.verification ?? null}
+        diffs={registryCheck?.diffs ?? []}
+        applyRegistry={applyRegistry}
+        onApplyRegistryChange={setApplyRegistry}
+        onConfirm={confirmRegistryCheck}
+        onCancel={() => setRegistryCheck(null)}
+      />
 
       {/* Podgląd */}
       {previewHtml ? (
