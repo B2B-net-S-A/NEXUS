@@ -36,7 +36,6 @@ import {
 
 import api, {
   candidateStageCvApi,
-  type CVBrandedState,
   type CVOriginalSnapshot,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -61,6 +60,7 @@ import {
   latestAutoCvSkip,
 } from "@/lib/job-background-events";
 import { formatDate } from "@/lib/utils";
+import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -213,25 +213,11 @@ export function CvToClientCard({
     return () => clearTimeout(timer);
   }, [pendingId]);
 
-  const ownBrandedQuery = useQuery<CVBrandedState>({
-    queryKey: stageBrandedQueryKey(stageId),
-    queryFn: () => candidateStageCvApi.branded.get(stageId).then((r) => r.data),
-  });
   // Runda 11 (PIPE-3, F23): ruch na kolejną kolumnę zakłada nowy wiersz etapu
   // bez CV, a CV firmowe zostaje na wierszu, na którym powstało. Serwer
   // wskazuje ten wiersz (`pair_source_stage_id`) — karta pokazuje, pobiera
   // i edytuje TEN dokument zamiast proponować generację od nowa.
-  const pairStageId =
-    ownBrandedQuery.data?.status === "none"
-      ? (ownBrandedQuery.data.pair_source_stage_id ?? null)
-      : null;
-  const pairBrandedQuery = useQuery<CVBrandedState>({
-    queryKey: stageBrandedQueryKey(pairStageId),
-    queryFn: () => candidateStageCvApi.branded.get(pairStageId as number).then((r) => r.data),
-    enabled: pairStageId != null,
-  });
-  const brandedQuery = pairStageId != null ? pairBrandedQuery : ownBrandedQuery;
-  const cvStageId = pairStageId ?? stageId;
+  const { query: brandedQuery, pairStageId, cvStageId } = useStageBrandedCv(stageId);
   const rowsQuery = useQuery<StageGeneratedCvRow[]>({
     queryKey: cvToClientRowsQueryKey(candidateId, jobId),
     queryFn: () =>

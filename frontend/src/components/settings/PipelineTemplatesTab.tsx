@@ -31,6 +31,7 @@ import {
 import { ScorecardSchemaBuilder } from "@/components/ScorecardSchemaBuilder";
 import { StageNotificationRulesModal } from "@/components/StageNotificationRulesModal";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { useToast } from "@/components/Toast";
 
 const CATEGORY_LABELS: Record<string, string> = {
   internal: "Wewnętrzny",
@@ -51,6 +52,7 @@ export function PipelineTemplatesTab() {
   const [loading, setLoading] = useState(true);
   const [savingOrder, setSavingOrder] = useState(false);
   const { askConfirm, confirmDialog } = useConfirmV2();
+  const { showError } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [scorecardEditor, setScorecardEditor] = useState<{
     stageDefId: number;
@@ -104,7 +106,7 @@ export function PipelineTemplatesTab() {
       setSelectedId(res.data.id);
     } catch (err: unknown) {
       const message = apiErrorMessage(err, "Błąd.");
-      alert(`Nie udało się utworzyć: ${message}`);
+      showError(`Nie udało się utworzyć: ${message}`);
     }
   };
 
@@ -118,7 +120,7 @@ export function PipelineTemplatesTab() {
       setSelectedId(res.data.id);
     } catch (err: unknown) {
       const message = apiErrorMessage(err, "Błąd.");
-      alert(`Nie udało się sklonować: ${message}`);
+      showError(`Nie udało się sklonować: ${message}`);
     }
   };
 
@@ -139,7 +141,7 @@ export function PipelineTemplatesTab() {
       await loadTemplates();
     } catch (err: unknown) {
       const message = apiErrorMessage(err, "Błąd.");
-      alert(`Nie udało się zarchiwizować: ${message}`);
+      showError(`Nie udało się zarchiwizować: ${message}`);
     }
   };
 
@@ -151,7 +153,7 @@ export function PipelineTemplatesTab() {
       await loadDetail(detail.id);
     } catch (err: unknown) {
       console.error(err);
-      alert("Nie udało się zapisać zmian.");
+      showError("Nie udało się zapisać zmian.");
     }
   };
 
@@ -165,7 +167,7 @@ export function PipelineTemplatesTab() {
         | "external"
         | "terminal";
     if (!["internal", "external", "terminal"].includes(category)) {
-      alert("Nieprawidłowa kategoria.");
+      showError("Nieprawidłowa kategoria.");
       return;
     }
     const maxOrder = Math.max(...detail.stages.map((s) => s.order), -1);
@@ -181,7 +183,7 @@ export function PipelineTemplatesTab() {
       await loadTemplates();
     } catch (err: unknown) {
       const message = apiErrorMessage(err, "Błąd.");
-      alert(`Nie udało się dodać etapu: ${message}`);
+      showError(`Nie udało się dodać etapu: ${message}`);
     }
   };
 
@@ -201,7 +203,7 @@ export function PipelineTemplatesTab() {
       await loadDetail(detail.id);
     } catch (err: unknown) {
       const message = apiErrorMessage(err, "Błąd.");
-      alert(`Nie udało się usunąć: ${message}`);
+      showError(`Nie udało się usunąć: ${message}`);
     }
   };
 
@@ -235,7 +237,7 @@ export function PipelineTemplatesTab() {
       );
     } catch (err) {
       console.error(err);
-      alert("Nie udało się zapisać nowej kolejności.");
+      showError("Nie udało się zapisać nowej kolejności.");
       await loadDetail(detail.id);
     } finally {
       setSavingOrder(false);
@@ -250,7 +252,7 @@ export function PipelineTemplatesTab() {
       | "rejected"
       | "withdrawn";
     if (!["rejected", "withdrawn"].includes(cat)) {
-      alert("Nieprawidłowa kategoria.");
+      showError("Nieprawidłowa kategoria.");
       return;
     }
     const maxOrder = Math.max(
@@ -266,7 +268,7 @@ export function PipelineTemplatesTab() {
       await loadDetail(detail.id);
     } catch (err: unknown) {
       const message = apiErrorMessage(err, "Błąd.");
-      alert(`Nie udało się dodać powodu: ${message}`);
+      showError(`Nie udało się dodać powodu: ${message}`);
     }
   };
 
@@ -294,7 +296,7 @@ export function PipelineTemplatesTab() {
       await loadDetail(detail.id);
     } catch (err) {
       console.error(err);
-      alert("Nie udało się zmienić blokady dla tego powodu.");
+      showError("Nie udało się zmienić blokady dla tego powodu.");
     }
   };
 

@@ -21,6 +21,7 @@ import {
 import { recommendationsApi, type SeekingContractorRow } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { EmailDraftDialog } from "./EmailDraftDialog";
+import { useToast } from "@/components/Toast";
 import { assignErrorMessage } from "@/lib/assign-error";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 
@@ -94,6 +95,7 @@ export function ContractorMatchCard({ row }: Props) {
   const [openMenuJobId, setOpenMenuJobId] = useState<number | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftState | null>(null);
+  const { showError } = useToast();
 
   const handleProposal = async (jobId: number) => {
     setActionLoading(`proposal-${jobId}`);
@@ -111,7 +113,7 @@ export function ContractorMatchCard({ row }: Props) {
       });
     } catch (e: unknown) {
       const msg = apiErrorMessage(e, "Błąd");
-      alert(`Nie udało się wygenerować propozycji: ${msg}`);
+      showError(`Nie udało się wygenerować propozycji: ${msg}`);
     } finally {
       setActionLoading(null);
     }
@@ -119,7 +121,7 @@ export function ContractorMatchCard({ row }: Props) {
 
   const handleShortlist = async () => {
     if (row.top_matches.length === 0) {
-      alert("Brak rekrutacji do wysłania w shortliście.");
+      showError("Brak rekrutacji do wysłania w shortliście.");
       return;
     }
     setActionLoading("shortlist");
@@ -137,7 +139,7 @@ export function ContractorMatchCard({ row }: Props) {
       });
     } catch (e: unknown) {
       const msg = apiErrorMessage(e, "Błąd");
-      alert(`Nie udało się wygenerować shortlistu: ${msg}`);
+      showError(`Nie udało się wygenerować shortlistu: ${msg}`);
     } finally {
       setActionLoading(null);
     }
@@ -149,7 +151,7 @@ export function ContractorMatchCard({ row }: Props) {
       await recommendationsApi.assignToJob(c.id, jobId);
       setAssignedIds((prev) => new Set(prev).add(jobId));
     } catch (e: unknown) {
-      alert(`Nie udało się przypisać: ${assignErrorMessage(e)}`);
+      showError(`Nie udało się przypisać: ${assignErrorMessage(e)}`);
     } finally {
       setAssigningJobId(null);
     }

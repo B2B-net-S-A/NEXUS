@@ -37,12 +37,12 @@ import {
   extractErrorMsg,
   pipelineApi,
   screeningApi,
-  type CVBrandedState,
   type CVShareTokenListItem,
   type RateUnit,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { useCapability } from "@/hooks/useCapability";
+import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -222,11 +222,9 @@ export function CvHandoffWorkbench({
   // ── CV etapu — ten sam klucz co karta „CV do klienta” i edytor ──────────
   // Warsztat potrzebuje stanu tylko do linku dla klienta (link wymaga
   // zatwierdzonej wersji). Samo CV — podgląd, edycja, generacja — żyje w karcie.
-  const brandedQuery = useQuery<CVBrandedState>({
-    queryKey: ["cv-branded", stageId],
-    queryFn: () => candidateStageCvApi.branded.get(stageId!).then((r) => r.data),
-    enabled: stageId != null,
-  });
+  // Runda 12: nowy wiersz etapu nie ma własnego CV — CV firmowe pary leży na
+  // wierszu wskazanym przez serwer. Link dla klienta i jego lista idą tam.
+  const { query: brandedQuery, cvStageId } = useStageBrandedCv(stageId);
   const brandedStatus = brandedQuery.data?.status ?? "none";
   const brandedFinalized = brandedStatus === "finalized";
 
@@ -241,7 +239,9 @@ export function CvHandoffWorkbench({
   const lastShareSuffix =
     [...handoffResults]
       .reverse()
-      .find((r) => r.stageId === activeStageId && r.suffix != null)?.suffix ?? null;
+      .find(
+        (r) => (r.stageId === activeStageId || r.stageId === cvStageId) && r.suffix != null,
+      )?.suffix ?? null;
   const rememberLink = (result: HandoffLinkResult) => {
     resultsRef.current = [...resultsRef.current, result];
     setHandoffResults(resultsRef.current);
@@ -293,16 +293,16 @@ export function CvHandoffWorkbench({
   // Linki tego etapu — lista i odwołanie. Zapytanie startuje dopiero na
   // zakładce „Linki": kolejka bywa długa, a to jest zapytanie per kandydat.
   const linksQuery = useQuery<CVShareTokenListItem[]>({
-    queryKey: ["cv-share-tokens", stageId],
-    queryFn: () => candidateStageCvApi.share.list(stageId!).then((r) => r.data),
-    enabled: stageId != null && dockTab === "links",
+    queryKey: ["cv-share-tokens", cvStageId],
+    queryFn: () => candidateStageCvApi.share.list(cvStageId!).then((r) => r.data),
+    enabled: cvStageId != null && dockTab === "links",
   });
   const activeLinks = (linksQuery.data ?? []).filter((t) => !t.revoked);
 
   const revokeAllMut = useMutation({
     mutationFn: () =>
       candidateStageCvApi.share.revokeAll(
-        stageId!,
+        cvStageId!,
         "Odwołane z warsztatu „CV do klienta”",
       ),
     onSuccess: () => {
@@ -371,7 +371,8 @@ export function CvHandoffWorkbench({
       }
       // Etap SPRZED ruchu: na nim leży sfinalizowane CV brandowane, więc link
       // tworzony po ruchu celuje właśnie tutaj, a nie w świeży „CV Wysłane".
-      const sourceStageId = stageId;
+      // Gdy ten wiersz jest pusty, CV leży na wierszu pary (runda 12).
+      const sourceStageId = cvStageId ?? stageId;
       const expiresInDays = shareDays;
       const plan: CvHandoffPlan = {
         clientRate: canWriteClientRate && clientRateValid

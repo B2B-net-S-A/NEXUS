@@ -10,6 +10,12 @@ const mocks = vi.hoisted(() => ({
   overridesCreate: vi.fn(),
   overridesUpdate: vi.fn(),
   overridesDelete: vi.fn(),
+  showError: vi.fn(),
+  showSuccess: vi.fn(),
+}));
+
+vi.mock("@/components/Toast", () => ({
+  useToast: () => ({ showError: mocks.showError, showSuccess: mocks.showSuccess }),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -215,6 +221,7 @@ describe("NotificationsTab", () => {
   it("nieudane usunięcie informuje użytkownika", async () => {
     mockLoad([override()]);
     mocks.overridesDelete.mockRejectedValue({ response: { status: 403 } });
+    // Runda 12: toast zamiast natywnego alert() (zamrażał automatyzację).
     const alertMock = vi.fn();
     vi.stubGlobal("alert", alertMock);
 
@@ -225,7 +232,8 @@ describe("NotificationsTab", () => {
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Usuń" }));
 
-    await waitFor(() => expect(alertMock).toHaveBeenCalledWith("Nie udało się usunąć."));
+    await waitFor(() => expect(mocks.showError).toHaveBeenCalledWith("Nie udało się usunąć."));
+    expect(alertMock).not.toHaveBeenCalled();
     expect(mocks.overridesList).toHaveBeenCalledTimes(1);
   });
 });

@@ -24,6 +24,7 @@ import {
   StageRuleForm,
 } from "@/components/StageRuleForm";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { useToast } from "@/components/Toast";
 
 interface Props {
   clientId: number;
@@ -39,6 +40,7 @@ export function NotificationsTab({ clientId }: Props) {
   const [creatingFor, setCreatingFor] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const { askConfirm, confirmDialog } = useConfirmV2();
+  const { showError } = useToast();
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -132,7 +134,7 @@ export function NotificationsTab({ clientId }: Props) {
       await loadAll();
     } catch (err) {
       console.error(err);
-      alert("Nie udało się usunąć.");
+      showError("Nie udało się usunąć.");
     }
   };
 

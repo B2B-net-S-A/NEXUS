@@ -285,6 +285,26 @@ describe("CvHandoffWorkbench", () => {
     );
   });
 
+  it("pusty wiersz etapu: link dla klienta idzie na wiersz pary z CV (runda 12)", async () => {
+    brandedGet.mockImplementation((stageId: number) =>
+      Promise.resolve({
+        data:
+          stageId === 21
+            ? { status: "none", pair_source_stage_id: 20, pair_source_status: "finalized" }
+            : { status: "finalized" },
+      }),
+    );
+    renderWorkbench();
+    await readySendButton();
+    expect(screen.queryByText(/wymaga zatwierdzonego CV do klienta/)).toBeNull();
+
+    await userEvent.click(await sendButton());
+
+    await waitFor(() => expect(shareCreate).toHaveBeenCalledOnce());
+    expect(brandedGet).toHaveBeenCalledWith(20);
+    expect(shareCreate).toHaveBeenCalledWith(20, 14);
+  });
+
   it("puste pole stawki = świadome pominięcie, komunikat nie sugeruje braku", async () => {
     renderWorkbench();
     await readySendButton();
