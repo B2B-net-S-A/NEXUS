@@ -26,6 +26,20 @@ export function stageBrandedQueryKey(stageId: number | null) {
   return ["cv-branded", stageId] as const;
 }
 
+/**
+ * Wiersz etapu, na którym leży CV firmowe pary, gdy bieżący wiersz go nie ma.
+ *
+ * Ruch na kolejną kolumnę zakłada nowy wiersz etapu bez CV, a CV zostaje na
+ * wierszu, na którym powstało — serwer wskazuje go w `pair_source_stage_id`
+ * (runda 11). `null` = bieżący wiersz ma własne CV albo para nie ma żadnego.
+ */
+export function pairSourceStageId(
+  branded: { status: string; pair_source_stage_id?: number | null } | null | undefined,
+): number | null {
+  if (!branded || branded.status !== "none") return null;
+  return branded.pair_source_stage_id ?? null;
+}
+
 /** Minimalny kształt odpowiedzi `GET /api/cv-generator/generated`. */
 export interface StageGeneratedCvRow {
   id: number;
