@@ -134,7 +134,7 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
     # Reuse the established visibility policy, including visible assignment
     # blocks and the invariant that global blacklist remains hidden.
     from app.api.matching import _gate_and_dealbreakers
-    from app.services.dealbreaker_filters import rate_fit_status
+    from app.services.dealbreaker_filters import office_fit_status, rate_fit_status
     from app.services.location_utils import location_tokens
     from app.services.requirement_contract import (
         requirements_for_job,
@@ -204,6 +204,9 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
                             if r["status"] == "met"
                         ],
                         "rate": rate_fit_status(candidate, inputs),
+                        # Inne miasto przy hybrydzie 1–3 dni nie ukrywa —
+                        # wiersz niesie plakietkę (27.09.2026).
+                        "office": office_fit_status(candidate, inputs),
                         "locations": sorted(location_tokens(candidate.location)),
                     },
                     "eligibility": annotations.get(cid),

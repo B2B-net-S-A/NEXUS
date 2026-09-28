@@ -38,8 +38,8 @@ def test_missing_must_skills_are_listed_as_gaps():
         _job(["Python", "PostgreSQL", "Docker"]), _candidate([{"name": "Python"}])
     )
     assert gaps == [
-        "Brak PostgreSQL (MUST rekrutacji) w profilu — może być pytanie",
-        "Brak Docker (MUST rekrutacji) w profilu — może być pytanie",
+        "Brak PostgreSQL (MUST rekrutacji) w profilu ani CV — może być pytanie",
+        "Brak Docker (MUST rekrutacji) w profilu ani CV — może być pytanie",
     ]
 
 

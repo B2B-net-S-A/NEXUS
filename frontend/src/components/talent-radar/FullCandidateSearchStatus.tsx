@@ -6,11 +6,13 @@ import { searchFailed, searchIsRunning, type CandidateSearchPage } from "@/lib/f
 const exclusionLabels: Record<string, string> = {
   employment_only: "Tylko umowa o pracę",
   over_budget: "Powyżej budżetu",
-  // Domyślnie: znane umiejętności nie obejmują technologii must-have. Brak
-  // danych o umiejętnościach wyklucza tylko przy polityce „Wyklucz z wyników”.
-  missing_must: "Brak technologii must-have w profilu",
+  // 27.09.2026 (decyzja Artura): must-have liczy się z profilu, CV i notatek;
+  // osoba bez żadnych danych jest ukryta osobno.
+  no_data: "Bez CV, umiejętności i notatek",
+  missing_must: "Brak technologii must-have w profilu, CV ani notatkach",
   office_days_exceeded: "Za dużo wymaganych dni w biurze",
-  office_city_mismatch: "Niezgodne miasto biura",
+  // Inne miasto ukrywa tylko przy 4+ dniach w biurze; przy hybrydzie — plakietka.
+  office_city_mismatch: "Inne miasto przy pracy z biura (4+ dni)",
   remote_only: "Wyłącznie praca zdalna",
   work_time_mismatch: "Inny wymiar pracy (full-time/part-time)",
   eligibility_hidden: "Wykluczenie według reguł dopuszczalności",

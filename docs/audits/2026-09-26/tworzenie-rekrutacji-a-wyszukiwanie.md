@@ -336,3 +336,56 @@ Sprawdzone na produkcji `734c4fa6d` (17 commitów od bazy badania; tylko odczyt)
 | Bramka miasta w wyszukiwaniu AI (rek. 9) | **aktualna** (decyzja czeka) | #1861 zmiękczył miasto tylko w „Szukaj ręcznie”; `office_city_mismatch` w przeglądzie bazy i auto-dopasowaniu bez zmian |
 | Pełny tekst rekrutacji szuka najlepiej (B7) | **aktualna** — embedding nadal v1; A/B v3 przegrał (#1868) | `AI_TEXT_SCHEMA_V3=False` |
 | Nowe dane | od 26.09 nie powstała żadna nowa prawdziwa rekrutacja (tylko 2 testowe), więc liczby z B1–B11 się nie zmieniły | SQL `jobs` |
+
+## Wdrożenie reguł wyszukiwania (PR A, 27.09.2026)
+
+Decyzje Artura 27.09.2026 (odrzucona rek. 7 — must zostaje twardą bramką):
+
+- must jest spełniony, gdy technologia stoi w profilu, w tekście CV albo w notatce z rozmowy
+  (bez maili — maile z Traffita niosą treść ogłoszeń); brak we wszystkich = osoba ukryta;
+- kandydat bez CV, umiejętności i notatek jest ukryty (`no_data`);
+- bramka tylko na technologiach: wersje odcięte („Java 8+” → Java), przykłady klienta jako jedno
+  wymaganie „którakolwiek” („CI/CD tools like Bitbucket, Jenkins”), „A lub B”/„A/B”; język, branża,
+  metodyki, kategorie, role i zdania nie ukrywają nikogo;
+- miasta przez słownik miejscowości (Warsaw = Warszawa, „Gdansk or Warsaw”, Trójmiasto),
+  inne miasto ukrywa dopiero od 4 dni w biurze albo pracy stacjonarnej; przy hybrydzie 1–3 dni
+  wiersz ma plakietkę „Inne miasto — dojazd lub relokacja?”;
+- `MUST_GATE_POLICY_VERSION` → `anywhere-evidence-v8`.
+
+Pomiar na produkcji `c7071e276`, tylko odczyt, ta sama ścieżka co ekrany (weryfikacje rekrutera,
+dowody z notatek, wszystkie bramki), skrypt `anywhere_gate_study.py` uruchomiony na kodzie produkcji
+(v7) i gałęzi (v8):
+
+| grupa | widocznych v7 | widocznych v8 | ukryci za must v7 → v8 | ukryci za miasto v7 → v8 |
+|---|---|---|---|---|
+| osoby wysłane do klienta (21 778 par, 3 764 rekrutacji) | 32,7% | **58,5%** | 11 440 → 6 264 | 562 → 11 |
+| osoby dodane przez zespół do rekrutacji z 25.09 (162 pary, 13 rekrutacji) | 2,5% | **3,1%** | 155 → 153 | 0 → 0 |
+
+Dowody z notatek: mediana 5 ms na rekrutację (paczka wysłanych), 42 ms przy 162 osobach.
+
+Cała baza (63 535 osób), nocny przegląd dla 4 rekrutacji z 25.09 (v7 → v8):
+
+| rekrutacja | dopuszczeni | propozycje ≥ progu (z danymi) | dodani przez zespół widoczni |
+|---|---|---|---|
+| #689430 Senior Java (9 must) | 3 085 → 200 | 0 → 60 (60) | 0/23 → 2/23 (miejsca 66, 139) |
+| #689431 Senior Java (7 must) | 3 093 → 326 | 8 → 60 (60) | 0/24 → 0/24 |
+| #689433 Senior Frontend (7 must) | 3 079 → 0 | 0 → 0 | 0/12 → 0/12 |
+| #689440 Windows Expert (10 must) | 3 085 → 7 | 0 → 5 (5) | 0/11 → 0/11 |
+
+v7 dopuszczała prawie wyłącznie osoby bez danych o umiejętnościach (v8 chowa je jako `no_data`:
+2 791 osób). Koszt dowodów z tekstu: pierwsza wersja 2,6–4,7 s CPU na paczkę 2000 osób (przegląd
+146–221 s zamiast ~55 s). Po filtrze słowa (regex tylko przy tekstach, w których słowo nazwy
+występuje) i wyszukiwaniu w tekście zamienionym na małe litery: 0,83 s na paczkę (z 5,0 s),
+czyli ok. +27 s na przegląd całej bazy; pętla oddaje sterowanie co 32 osoby.
+
+Etykiety must wszystkich rekrutacji (15 775 pozycji, 8 576 różnych): bramkuje 49,8%; nie bramkują
+zdania (27,5%), kategorie i metodyki (15,4%), umiejętności miękkie (3,6%), branże i regulacje (2,0%),
+języki (1,7%). 6,3% bramkujących to „którakolwiek z kilku”, 7,4% dostało poprawioną nazwę (wersja, rola).
+
+**Nowe rekrutacje zostają prawie puste — i to nie jest błąd dopasowania.** Formularz z maila robi
+listy must po 7–10 technologii (np. java, spring boot, microservices, rest api, angular, angular
+material, kafka, sql, docker, kubernetes). Luźne wyszukiwanie w pełnym CV (mediana 4,9 tys. znaków)
+i profilu potwierdza braki: np. „spring boot” nie ma u 50 osób, „bitbucket” u 33. Ze 157 ukrytych
+osób dodanych przez zespół 21 nie ma jednej pozycji, 136 — dwóch lub więcej. Zespół wysyła ludzi,
+którzy nie spełniają „must” z maila klienta. Decyzja Artura 27.09.2026: reguła zostaje jak wyżej;
+listy must skraca Delivery Lead (i formularz w PR B).

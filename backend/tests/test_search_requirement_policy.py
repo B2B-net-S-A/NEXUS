@@ -22,13 +22,14 @@ def job(policy="review"):
     )
 
 
-def test_review_keeps_missing_proof_without_changing_evidence():
-    """No skill data is not proof of inability: it stays for review."""
+def test_candidate_without_data_is_hidden_as_no_data():
+    """Decyzja Artura 27.09.2026: bez CV, umiejętności i notatek must nie ma
+    nigdzie — kandydat jest ukryty (`no_data`), a nie zostawiany „do oceny”."""
     target = job()
     candidate = SimpleNamespace(skills=[])
     result = apply_dealbreakers([candidate], inputs=search_dealbreaker_inputs(target))
-    assert result.kept == [candidate]
-    assert result.hidden_missing_must == 0
+    assert result.kept == []
+    assert result.hidden_no_data == 1
     assert (
         evaluate_requirements(requirements_for_job(target), candidate)[0]["status"]
         == "unknown"
@@ -52,7 +53,9 @@ def test_default_job_without_saved_contract_gates_on_its_technology_column():
     no_data = SimpleNamespace(id=2, skills=[])
     fits = SimpleNamespace(id=3, skills=["Python"])
     result = apply_dealbreakers([known_gap, no_data, fits], inputs=inputs)
-    assert [c.id for c in result.kept] == [2, 3]
+    # 27.09.2026: bez danych = ukryty (`no_data`).
+    assert [c.id for c in result.kept] == [3]
+    assert result.exclusion_reasons == {1: "missing_must", 2: "no_data"}
 
 
 @pytest.mark.parametrize("policy", ["review", "exclude"])
@@ -113,7 +116,8 @@ def test_explicit_exclusion_includes_empty_evidence_and_respects_or(skills, kept
     candidate = SimpleNamespace(skills=skills)
     result = apply_dealbreakers([candidate], inputs=search_dealbreaker_inputs(target))
     assert bool(result.kept) is kept
-    assert result.hidden_missing_must == int(not kept)
+    hidden = result.hidden_missing_must + result.hidden_no_data
+    assert hidden == int(not kept)
 
 
 @pytest.mark.parametrize(

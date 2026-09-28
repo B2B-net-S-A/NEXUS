@@ -44,6 +44,7 @@ import { eligibilityBadgeClass } from "@/lib/conflicts";
 import { searchIsRunning } from "@/lib/full-candidate-search-api";
 import { matchingRequirementsApi, requirementLabels } from "@/lib/matching-requirements";
 import {
+  CITY_MISMATCH_WARNING_PL,
   DEFAULT_PROPOSAL_FILTERS,
   EMPLOYMENT_ONLY_WARNING_PL,
   WORK_TIME_FIT_WARNING_PL,
@@ -110,6 +111,7 @@ const WARNING_LABEL: Record<string, string> = {
   over_budget: "Ponad budżet",
   rejected_by_same_client: "Odrzucony przez tego klienta",
   employment_only: EMPLOYMENT_ONLY_WARNING_PL,
+  city_mismatch: CITY_MISMATCH_WARNING_PL,
   ...WORK_TIME_FIT_WARNING_PL,
 };
 
@@ -137,7 +139,8 @@ function proposalRow(entry: ProposalEntry, facts?: ProposalFacts | null): PickRo
       code === "rejected_by_same_client" ||
       code === "part_time_only" ||
       code === "full_time_only" ||
-      code === "employment_only"
+      code === "employment_only" ||
+      code === "city_mismatch"
     ) {
       warnings.push({ key: code, label: WARNING_LABEL[code], blocking: false });
     }

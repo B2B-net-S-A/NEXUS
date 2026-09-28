@@ -190,9 +190,11 @@ async def _fresh_top_matches(
     candidates = await filter_eligible_candidates(
         db, job=job, candidates=candidates, now=datetime.now(timezone.utc)
     )
-    candidates = apply_dealbreakers(
-        candidates, inputs=search_dealbreaker_inputs(job)
-    ).kept
+    job_inputs = search_dealbreaker_inputs(job)
+    from app.services.must_text_evidence import attach_gate_evidence
+
+    await attach_gate_evidence(db, candidates, job_inputs.must_skills)
+    candidates = apply_dealbreakers(candidates, inputs=job_inputs).kept
     if not candidates:
         return []
 

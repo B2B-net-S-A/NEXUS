@@ -38,13 +38,8 @@ PROZA_Z_PRODUKCJI = [
     "język angielski na poziomie minimum średniozaawansowanym (b1/b2)",
     "Minimum 3 lata doświadczenia na stanowisku Testera IT",
     "doświadczenie w architekturze it – aplikacyjnej, korporacyjnej lub systemowej",
-    # Alternatywy z ukośnikiem — zmierzone na 24 ofertach produkcyjnych. Nikt
-    # nie ma ich dosłownie jako umiejętności, więc bramkowanie nimi opróżnia
-    # listę tak samo jak proza.
-    "Docker/Kubernetes",
-    "Pytest/Jest/Cypress",
-    "Flask/FastAPI",
-    "Jenkins/Gitlab/Github Actions",
+    # Alternatywy z ukośnikiem bramkują od 27.09.2026 jako „którakolwiek”
+    # (ALTERNATYWY niżej); tu zostają tylko te, które nie są technologiami.
     "KYC / AML",
     "Portfolio/backlog management",
     # Frazy CZYNNOŚCIOWE — zmierzone po pierwszej naprawie: wciąż bramkowały
@@ -61,6 +56,16 @@ PROZA_Z_PRODUKCJI = [
     "wsparcie UAT",
     "zasady SOLID",
 ]
+
+# Alternatywy (decyzja Artura 27.09.2026): bramkują jako „którakolwiek z opcji”,
+# a opcję spełnia profil, CV albo notatka — nie dosłowny napis „Docker/Kubernetes”.
+ALTERNATYWY = {
+    "Docker/Kubernetes": ("Docker", "Kubernetes"),
+    "Pytest/Jest/Cypress": ("Pytest", "Jest", "Cypress"),
+    "Flask/FastAPI": ("Flask", "FastAPI"),
+    "Jenkins/Gitlab/Github Actions": ("Jenkins", "Gitlab", "Github Actions"),
+    "Kafka lub RabbitMQ": ("Kafka", "RabbitMQ"),
+}
 
 # Nazwy technologii, które MUSZĄ dalej bramkować — inaczej naprawa wyłącza
 # rubrykę, zamiast ją naprawiać.
@@ -118,6 +123,24 @@ def test_real_technology_names_still_gate():
     assert zgubione == [], (
         f"nazwa technologii przestała bramkować — rubryka przestaje działać: {zgubione}"
     )
+
+
+def test_alternatives_gate_as_any_of():
+    from app.services.must_gate_terms import gate_requirement
+
+    for label, options in ALTERNATYWY.items():
+        requirement = gate_requirement(label)
+        assert requirement is not None, label
+        assert requirement.options == options
+
+    ma_jedno = _kandydat(["Kubernetes"])
+    nie_ma = _kandydat(["Java"])
+    from app.services.dealbreaker_filters import DealbreakerInputs
+
+    wynik = apply_dealbreakers(
+        [ma_jedno, nie_ma], inputs=DealbreakerInputs(must_skills=("Docker/Kubernetes",))
+    )
+    assert [c.id for c in wynik.kept] == [ma_jedno.id]
 
 
 def test_single_word_verbal_noun_still_gates():

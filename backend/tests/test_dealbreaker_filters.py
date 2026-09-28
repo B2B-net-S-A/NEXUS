@@ -169,6 +169,7 @@ def test_apply_counts_and_order_are_deterministic():
     assert res.hidden_meta() == {
         "employment_only": 0,
         "over_budget": 1,
+        "no_data": 0,
         "missing_must": 0,
         "office_days_exceeded": 0,
         "office_city_mismatch": 0,
@@ -268,29 +269,49 @@ def test_radar_budget_presence_is_the_whole_contract():
 
 
 def test_missing_must_hides_only_with_positive_skill_signal():
-    """Kandydat z UMIEJĘTNOŚCIAMI, ale bez jednego must, jest ukryty i policzony.
+    """Must jest spełniony, gdy technologia stoi w profilu albo w CV.
 
-    Kandydat bez ŻADNEGO sygnału umiejętności przechodzi — „nieznany przechodzi"
-    dotyczy tej rubryki dokładnie tak samo jak budżetu.
+    Decyzja Artura 27.09.2026: brak must we wszystkich źródłach ukrywa — także
+    kandydata bez żadnych danych (dotąd „nieznany przechodził”; to on
+    wypełniał nocne propozycje zamiast ludzi z danymi).
     """
     has_java_only = _cand(skills=[{"name": "Java"}])
     assert missing_must_skills(has_java_only, ["java", "kafka"]) == ["kafka"]
 
     no_signal = _cand()
-    assert missing_must_skills(no_signal, ["java", "kafka"]) == []
+    assert missing_must_skills(no_signal, ["java", "kafka"]) == ["java", "kafka"]
+
+    kafka_in_cv = _cand(
+        skills=[{"name": "Java"}],
+        raw_cv_text="Projekt płatności: integracja przez Kafka i Spring Boot.",
+    )
+    assert missing_must_skills(kafka_in_cv, ["java", "kafka"]) == []
+
+
+def test_candidate_without_any_data_is_hidden_as_no_data():
+    """Bez CV, umiejętności i notatek — powód `no_data`, osobno od braku must."""
+    inputs = DealbreakerInputs(must_skills=("python",))
+    empty = _cand(id=1)
+    lacks = _cand(id=2, skills=[{"name": "Java"}])
+    has = _cand(id=3, raw_cv_text="Python, Django, PostgreSQL")
+    res = apply_dealbreakers([empty, lacks, has], inputs=inputs)
+    assert res.kept == [has]
+    assert res.exclusion_reasons == {1: "no_data", 2: "missing_must"}
+    assert res.hidden_no_data == 1 and res.hidden_missing_must == 1
 
 
 def test_tags_alone_do_not_make_skills_known_for_the_gate():
     """UAT M02-B01: tag rekrutera („QA-E2E”) nie jest umiejętnością.
 
-    Kandydat bez skilli, CV i verified_tech, ale z tagiem, był traktowany jak
-    ktoś, kto ma znane umiejętności bez Pythona — i znikał z każdego pełnego
-    przeglądu. Bez danych o umiejętnościach przechodzi (polityka `review`);
-    tag pasujący do must nadal jest dowodem, a `exclude` nadal ukrywa brak.
+    Tag pasujący do must nadal jest dowodem. Kandydat z samym tagiem, który
+    must nie pasuje, nie ma danych — od 27.09.2026 jest ukryty jako `no_data`.
     """
-    tagged = _cand(tags=["QA-E2E", "QA-E2E-2026-09-13"])
-    assert missing_must_skills(tagged, ["python", "docker"]) == []
-    assert missing_must_skills(tagged, ["python"], include_unknown=True) == ["python"]
+    tagged = _cand(id=5, tags=["QA-E2E", "QA-E2E-2026-09-13"])
+    assert missing_must_skills(tagged, ["python", "docker"]) == ["python", "docker"]
+    res = apply_dealbreakers(
+        [tagged], inputs=DealbreakerInputs(must_skills=("python",))
+    )
+    assert res.exclusion_reasons == {5: "no_data"}
 
     tagged_python = _cand(tags=["Python"])
     assert missing_must_skills(tagged_python, ["python"], include_unknown=True) == []
@@ -408,13 +429,14 @@ def test_remote_only_auto_arms_on_wants_office():
     assert res.kept == [] and res.hidden_remote_only == 1
 
 
-def test_hidden_meta_always_has_seven_int_keys():
+def test_hidden_meta_always_has_eight_int_keys():
     from app.services.dealbreaker_filters import DealbreakerResult
 
     meta = DealbreakerResult().hidden_meta()
     assert meta == {
         "employment_only": 0,
         "over_budget": 0,
+        "no_data": 0,
         "missing_must": 0,
         "office_days_exceeded": 0,
         "office_city_mismatch": 0,
@@ -446,6 +468,7 @@ def test_reason_order_budget_must_days_city_remote():
     assert res.hidden_meta() == {
         "employment_only": 0,
         "over_budget": 1,
+        "no_data": 0,
         "missing_must": 0,
         "office_days_exceeded": 0,
         "office_city_mismatch": 0,
@@ -561,6 +584,7 @@ def test_kill_switch_restores_pre_rubric_behaviour(monkeypatch):
     assert res.hidden_meta() == {
         "employment_only": 0,
         "over_budget": 0,
+        "no_data": 0,
         "missing_must": 0,
         "office_days_exceeded": 0,
         "office_city_mismatch": 0,
@@ -592,3 +616,51 @@ def test_candidate_office_tokens_strips_non_places():
 
     remote_only = _cand(location="remote")
     assert candidate_office_tokens(remote_only) == set()
+
+
+# ── 27.09.2026: inne miasto ukrywa dopiero od 4 dni w biurze ────────────────
+
+
+def test_other_city_is_a_badge_for_hybrid_up_to_three_days():
+    from app.services.dealbreaker_filters import office_fit_status
+
+    krakow = _cand(id=11, location="Kraków", skills=[{"name": "Java"}])
+    hybrid = DealbreakerInputs(
+        onsite_days_per_week=2,
+        office_tokens=frozenset({"warszawa"}),
+        wants_office=True,
+        remote_policy="hybrid",
+    )
+    res = apply_dealbreakers([krakow], inputs=hybrid)
+    assert res.kept == [krakow]
+    assert office_fit_status(krakow, hybrid) == "city_mismatch"
+
+
+def test_other_city_hides_from_four_days_or_onsite():
+    krakow = _cand(id=12, location="Kraków", skills=[{"name": "Java"}])
+    four_days = DealbreakerInputs(
+        onsite_days_per_week=4,
+        office_tokens=frozenset({"warszawa"}),
+        wants_office=True,
+        remote_policy="hybrid",
+    )
+    onsite = DealbreakerInputs(
+        onsite_days_per_week=2,
+        office_tokens=frozenset({"warszawa"}),
+        wants_office=True,
+        remote_policy="onsite",
+    )
+    for inputs in (four_days, onsite):
+        res = apply_dealbreakers([krakow], inputs=inputs)
+        assert res.exclusion_reasons == {12: "office_city_mismatch"}
+
+
+def test_english_city_name_on_the_job_matches_polish_candidate():
+    warszawa = _cand(id=13, location="Warszawa", skills=[{"name": "Java"}])
+    inputs = DealbreakerInputs(
+        onsite_days_per_week=5,
+        office_tokens=frozenset({"warsaw"}),
+        wants_office=True,
+        remote_policy="onsite",
+    )
+    assert apply_dealbreakers([warszawa], inputs=inputs).kept == [warszawa]

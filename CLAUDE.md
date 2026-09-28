@@ -2368,12 +2368,20 @@ web — jeden przegląd naraz, ~3 min.
 - **RODO:** twarde usunięcie kandydata kasuje jego wiersze wyników, a aktywne
   przeglądy z tą osobą kończy jako `failed` (`candidate_erased`) —
   `finish_run` wymaga rozliczenia całej migawki.
-- **Bramka must-have (decyzja 10.09): `requirement_contract.search_dealbreaker_inputs`
-  to JEDNO miejsce polityki dla wszystkich powierzchni.** Polityka `review`
-  (domyślna) ukrywa kandydata, którego ZNANE umiejętności nie obejmują
-  must-have rozpoznanego jako technologia; kandydat bez danych przechodzi;
-  proza nigdy nie bramkuje. `exclude` dokłada ukrywanie braku dowodu. Po #1428
-  do 10.09 `review` zdejmowało bramkę w całości (nikt nie był ukrywany).
+- **Bramka must-have: `requirement_contract.search_dealbreaker_inputs`
+  to JEDNO miejsce polityki dla wszystkich powierzchni.** Od v8 (decyzja Artura
+  27.09.2026, `anywhere-evidence-v8`) must jest spełniony, gdy technologia stoi
+  w profilu, tekście CV albo notatce z rozmowy (bez maili;
+  `services/must_text_evidence.py`, `attach_gate_evidence` przed KAŻDYM
+  `apply_dealbreakers` — pilnuje `test_must_gate_evidence_wiring.py`); brak
+  wszędzie = ukryty, osoba bez CV, umiejętności i notatek = `no_data`. Bramkują
+  tylko technologie (`services/must_gate_terms.py`: wersje odcięte, przykłady
+  klienta i „A lub B” = którakolwiek; język, branża, kategorie, role, zdania nie).
+  Inne miasto ukrywa dopiero od 4 dni w biurze / pracy stacjonarnej, przy
+  hybrydzie 1–3 dni to plakietka `city_mismatch`. `exclude` dokłada tylko
+  weryfikację rekrutera „nieznane” jako brak. Pomiar i świadomy koszt (długie
+  listy must z maila chowają prawie wszystkich): `docs/audits/2026-09-26/
+  tworzenie-rekrutacji-a-wyszukiwanie.md`, sekcja „Wdrożenie reguł wyszukiwania”.
   `MUST_GATE_POLICY_VERSION` jest częścią odcisku requestu — zmiana znaczenia
   polityki = bump, inaczej stare rankingi udają aktualne. Kill-switch
   `RUBRIC_DEALBREAKERS_ENABLED` działa raz, w `apply_dealbreakers`.

@@ -280,7 +280,7 @@ def scoring_algorithm_version() -> str:
     payload["requirement_contract"] = "2026-09-09-and-of-or"
     payload["budget_contract"] = "2026-09-09-explicit-budget-currency"
     payload["skill_canon_contract"] = "2026-09-22-significant-signs"
-    payload["location_contract"] = "2026-09-22-city-token-only"
+    payload["location_contract"] = "2026-09-27-place-dictionary"
     payload["alias_mention_contract"] = "2026-09-25-polish-short-aliases"
     payload["default_weights"] = [
         SEMANTIC_MAX,

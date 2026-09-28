@@ -2811,6 +2811,7 @@ export interface CandidateMatch {
 export type HiddenReason =
   | "employment_only"
   | "over_budget"
+  | "no_data"
   | "missing_must"
   | "office_days_exceeded"
   | "office_city_mismatch"
@@ -2827,9 +2828,12 @@ export type HiddenCounters = Partial<Record<HiddenReason, number>>;
 export const HIDDEN_LABELS_PL: Record<HiddenReason, string> = {
   employment_only: "tylko umowa o pracę",
   over_budget: "powyżej budżetu rekrutacji",
-  missing_must: "bez technologii must-have",
+  // 27.09.2026: must liczy się z profilu, CV i notatek; osoby bez żadnych
+  // danych są ukrywane osobno.
+  no_data: "bez CV, umiejętności i notatek",
+  missing_must: "bez technologii must-have (profil, CV, notatki)",
   office_days_exceeded: "za mało dni w biurze",
-  office_city_mismatch: "inne miasto niż biuro",
+  office_city_mismatch: "inne miasto niż biuro (4+ dni w biurze)",
   remote_only: "tylko-zdalnych",
   work_time_mismatch: "inny wymiar pracy (full-time/part-time)",
 };

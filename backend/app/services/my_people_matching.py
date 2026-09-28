@@ -141,7 +141,13 @@ async def score_people_for_job(
     from app.services.requirement_verification import load_verified_requirements
 
     if candidates:
+        from app.services.must_text_evidence import attach_gate_evidence
+        from app.services.requirement_contract import search_dealbreaker_inputs
+
         await load_verified_requirements(db, job, candidates)
+        await attach_gate_evidence(
+            db, candidates, search_dealbreaker_inputs(job).must_skills
+        )
     dealbreaker_hidden = dealbreaker_exclusions(job, candidates, decisions)
 
     by_id = {c.id: c for c in candidates}
@@ -198,6 +204,7 @@ def dealbreaker_exclusions(job, candidates: list, decisions: dict) -> dict[int, 
         and d.visibility is Visibility.warn
         and not employment_only_refuses_b2b(c)
     }
+    # Dowód must z CV i notatek dołącza wołający (`attach_gate_evidence`).
     result = apply_dealbreakers(
         [c for c in candidates if c.id not in exempt],
         inputs=search_dealbreaker_inputs(job),
