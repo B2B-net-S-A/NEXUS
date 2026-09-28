@@ -47,7 +47,11 @@ import {
   openOrderDocument,
 } from "@/lib/order-documents";
 import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
-import { orderPeriodError } from "@/lib/order-period";
+import {
+  duplicateOrderError,
+  orderPeriodError,
+  type ExistingOrderPeriod,
+} from "@/lib/order-period";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import {
@@ -70,6 +74,11 @@ interface EditOrderDialogProps {
   order: ClientOrderRead | null;
   /** Zakłada zamówienie, gdy `order === null`. Zwraca id nowego wiersza. */
   onCreate?: CreateDraftOrder;
+  /**
+   * Pozostałe zamówienia tej osoby — do sprawdzenia, czy numer i okres nie
+   * dublują istniejącego zamówienia (lustro 409 `duplicate_order_number`).
+   */
+  siblingOrders?: readonly ExistingOrderPeriod[];
   /** Stawka kosztowa z powiązanego kontraktu (`ContractWithOrdersRead`). */
   rateCandidate: number | null;
   /** Fallback dla zamówień utworzonych przed snapshotem jednostki/waluty. */
@@ -107,6 +116,7 @@ export function EditOrderDialog({
   candidateId,
   order,
   onCreate,
+  siblingOrders,
   rateCandidate,
   contractRateUnit = "monthly",
   contractBillingHoursPerMonth = HOURS_PER_MONTH,
@@ -460,10 +470,27 @@ export function EditOrderDialog({
     (orderType !== "cost" || (parseDecimalInput(totalBudget) ?? 0) > 0) &&
     (orderType !== "md" || (parseDecimalInput(mdBudget) ?? 0) > 0);
   // Koniec przed startem blokuje zapis (ticket OIT/0569/2026/ITVM; backend 422).
-  const periodError = orderPeriodError(
-    normalizeDateInput(startDate),
-    normalizeDateInput(endDate),
-  );
+  const numberOrPeriodChanged =
+    order === null ||
+    title.trim().replace(/\s+/g, " ").toUpperCase() !==
+      (order.title ?? "").trim().replace(/\s+/g, " ").toUpperCase() ||
+    normalizeDateInput(startDate) !== (order.start_date ?? "").slice(0, 10) ||
+    normalizeDateInput(endDate) !== (order.end_date ?? "").slice(0, 10);
+  const periodError =
+    orderPeriodError(normalizeDateInput(startDate), normalizeDateInput(endDate)) ??
+    // Zgłoszenie 28.09.2026: ten sam numer na nachodzący okres to drugi zapis
+    // tego samego dokumentu — backend odmawia 409, mówimy to przy polu. Tylko
+    // przy REALNEJ zmianie numeru albo dat (lustro PATCH): zamówienie, które już
+    // ma historyczny duplikat, musi dać się zapisać bez zmiany tych pól.
+    (numberOrPeriodChanged
+      ? duplicateOrderError(
+          title,
+          normalizeDateInput(startDate),
+          normalizeDateInput(endDate),
+          siblingOrders ?? [],
+          order?.id ?? null,
+        )
+      : null);
   const canSubmit =
     title.trim().length > 0 && budgetComplete && !mutation.isPending;
 

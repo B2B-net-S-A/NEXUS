@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, distinct, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.clients import polish_alphabetical_key
@@ -32,6 +33,7 @@ from app.models.client_directory import (
     PortfolioCategory,
 )
 from app.models.client_framework_contract import ClientFrameworkContract
+from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.user import User, UserRole
 from app.schemas.client_directory import (
@@ -85,8 +87,90 @@ def _visible_client_filters() -> tuple:
     return visible_client_predicates()
 
 
+def _contract_scope_bucket():
+    """Zakres portfela, do którego kontrakt przypięto przez umowę ramową.
+
+    Kontrakt należy do zakresu, którego umowę ramową (MSA) wskazuje którekolwiek
+    jego nieanulowane zamówienie u tego samego klienta; kilka — najniższy
+    ``scope.id``. ``NULL`` = kontrakt nieprzypięty do żadnego zakresu.
+    """
+
+    return (
+        select(func.min(ClientPortfolioScope.id))
+        .select_from(ClientOrder)
+        .join(
+            ClientPortfolioScope,
+            and_(
+                ClientPortfolioScope.framework_contract_id
+                == ClientOrder.framework_contract_id,
+                ClientPortfolioScope.client_id == Contract.client_id,
+                ClientPortfolioScope.archived_at.is_(None),
+            ),
+        )
+        .where(
+            ClientOrder.contract_id == Contract.id,
+            ClientOrder.client_id == Contract.client_id,
+            ClientOrder.framework_contract_id.is_not(None),
+            ClientOrder.status != ClientOrderStatus.cancelled,
+        )
+        .correlate(Contract)
+        .scalar_subquery()
+    )
+
+
+def _scope_has_own_contracts():
+    """Czy do zakresu przypięto choć jeden kontrakt (przez MSA zamówienia).
+
+    Taki zakres liczy WYŁĄCZNIE swoje kontrakty. Liczone ze wszystkich
+    nieanulowanych zamówień, nie tylko bieżących kontraktów — zakres, którego
+    jedyny konsultant odszedł, ma pokazać 0, a nie wrócić do liczby całego
+    klienta (zgłoszenie 28.09.2026: „Nordea Bank Abp – Pentesty” pokazywało
+    292 konsultantów Nordei zamiast jednego swojego).
+    """
+
+    return exists(
+        select(ClientOrder.id).where(
+            ClientOrder.framework_contract_id
+            == ClientPortfolioScope.framework_contract_id,
+            ClientOrder.client_id == ClientPortfolioScope.client_id,
+            ClientOrder.status != ClientOrderStatus.cancelled,
+        )
+    ).correlate(ClientPortfolioScope)
+
+
+def _client_has_pin_free_scope():
+    """Czy klient ma inny żywy zakres bez przypiętych kontraktów.
+
+    Bez takiego zakresu kontrakty nieprzypięte liczy zakres z przypięciami —
+    inaczej wypadłyby z katalogu (np. przypięcie jednego kontraktu do umowy
+    ramowej jedynego zakresu klienta zdjęłoby z licznika całą resztę).
+    """
+
+    other = aliased(ClientPortfolioScope)
+    return exists(
+        select(other.id).where(
+            other.client_id == ClientPortfolioScope.client_id,
+            other.id != ClientPortfolioScope.id,
+            other.archived_at.is_(None),
+            ~exists(
+                select(ClientOrder.id).where(
+                    ClientOrder.framework_contract_id == other.framework_contract_id,
+                    ClientOrder.client_id == other.client_id,
+                    ClientOrder.status != ClientOrderStatus.cancelled,
+                )
+            ),
+        )
+    ).correlate(ClientPortfolioScope)
+
+
 def _active_consultants_subquery(as_of: date):
-    """Client-wide date-effective consultant count, deduplicated by person."""
+    """Date-effective consultant count per (client, scope bucket), by person.
+
+    ``scope_id`` is the scope a contract is pinned to (``_contract_scope_bucket``)
+    or ``NULL`` for contracts pinned to no scope.  A client without pinned
+    contracts has a single ``NULL`` bucket, so every scope row still shows the
+    whole client — the behaviour before 28.09.2026.
+    """
 
     identity_key = contractor_identity_sql_expression(
         Candidate.name,
@@ -95,13 +179,13 @@ def _active_consultants_subquery(as_of: date):
         Candidate.id,
     )
 
-    return (
+    current = (
         select(
+            Contract.id.label("contract_id"),
             Contract.client_id.label("client_id"),
-            func.count(distinct(identity_key))
-            .filter(Candidate.id.is_not(None))
-            .label("active_consultants"),
-            func.count(Contract.id).label("active_contracts"),
+            _contract_scope_bucket().label("scope_id"),
+            identity_key.label("identity_key"),
+            Candidate.id.label("candidate_id"),
         )
         # A deleted candidate is detached from its contracts.  Such a row is
         # still an active contract and must remain in ``active_contracts``;
@@ -121,7 +205,19 @@ def _active_consultants_subquery(as_of: date):
             # status umowy (N11).
             current_contract_clause(as_of),
         )
-        .group_by(Contract.client_id)
+        .subquery()
+    )
+
+    return (
+        select(
+            current.c.client_id,
+            current.c.scope_id,
+            func.count(distinct(current.c.identity_key))
+            .filter(current.c.candidate_id.is_not(None))
+            .label("active_consultants"),
+            func.count(current.c.contract_id).label("active_contracts"),
+        )
+        .group_by(current.c.client_id, current.c.scope_id)
         .subquery()
     )
 
@@ -136,6 +232,7 @@ def _directory_rows_statement(
     canonical_name = _effective_client_name()
     scope_label = func.nullif(func.btrim(ClientPortfolioScope.label), "")
     active_consultants = _active_consultants_subquery(as_of)
+    own_contracts = _scope_has_own_contracts()
 
     # Effective placement: a manual override wins over the manifest ``category``
     # and the linked-MSA dates.  The manifest consistency invariant keeps
@@ -188,6 +285,9 @@ def _directory_rows_statement(
             func.coalesce(active_consultants.c.active_contracts, 0).label(
                 "active_contracts_count"
             ),
+            and_(own_contracts, _client_has_pin_free_scope()).label(
+                "counts_own_contracts"
+            ),
         )
         .select_from(ClientPortfolioScope)
         .join(Client, Client.id == ClientPortfolioScope.client_id)
@@ -201,7 +301,21 @@ def _directory_rows_statement(
         )
         .outerjoin(
             active_consultants,
-            active_consultants.c.client_id == Client.id,
+            and_(
+                active_consultants.c.client_id == Client.id,
+                # Zakres z przypiętymi kontraktami liczy tylko swoje; pozostałe
+                # zakresy klienta — kontrakty nieprzypięte do żadnego zakresu.
+                or_(
+                    and_(
+                        own_contracts,
+                        active_consultants.c.scope_id == ClientPortfolioScope.id,
+                    ),
+                    and_(
+                        active_consultants.c.scope_id.is_(None),
+                        or_(~own_contracts, ~_client_has_pin_free_scope()),
+                    ),
+                ),
+            ),
         )
         .where(
             ClientPortfolioScope.archived_at.is_(None),
@@ -357,6 +471,7 @@ async def list_client_directory(
             industry=row.industry,
             active_consultants_count=int(row.active_consultants_count or 0),
             active_contracts_count=int(row.active_contracts_count or 0),
+            consultants_scope="scope" if row.counts_own_contracts else "client",
             effective_date=row.effective_date,
             expiry_date=row.expiry_date,
             category=row.category,

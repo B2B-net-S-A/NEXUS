@@ -431,7 +431,7 @@ def test_reversed_document_period_is_a_reason_and_never_auto():
     )
     _, verdict = gate(ex, text, [recruitment_draft()])
     assert not verdict.is_auto
-    assert any("okres odwrócony" in reason for reason in verdict.reasons)
+    assert any("błędny okres" in reason for reason in verdict.reasons)
 
 
 def test_reversed_period_under_the_name_is_never_used():

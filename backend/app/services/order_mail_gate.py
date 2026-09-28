@@ -24,6 +24,7 @@ from app.services.order_mail_planner import (
     ACTION_REACTIVATE,
     AUTO_ACTIONS,
     DocumentProposal,
+    reversed_period_reason,
 )
 from app.services.order_mail_resolver import MATCH_EXACT, ResolvedConsultant
 from app.services.order_pdf_parser import (
@@ -571,7 +572,8 @@ def evaluate(inp: GateInput) -> GateVerdict:
             reasons.append(
                 (
                     CODE_PERIOD_REVERSED,
-                    f"„{row_prop.row_name}”: okres odwrócony w dokumencie ({row_prop.start_date} – {row_prop.end_date})",
+                    f"„{row_prop.row_name}”: "
+                    + reversed_period_reason(row_prop.start_date, row_prop.end_date),
                 )
             )
 

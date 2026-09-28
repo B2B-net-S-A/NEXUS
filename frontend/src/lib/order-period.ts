@@ -56,6 +56,16 @@ function overlaps(
 }
 
 /**
+ * Okres istniejącego zamówienia; zapisany z odwróconymi datami (sprzed blokady)
+ * liczy się od wcześniejszej do późniejszej daty — lustro backendu (28.09.2026).
+ */
+function orderedPeriod(o: ExistingOrderPeriod): [string | null, string | null] {
+  const start = iso(o.start_date);
+  const end = iso(o.end_date);
+  return start && end && start > end ? [end, start] : [start, end];
+}
+
+/**
  * Komunikat, gdy ta osoba ma już nieanulowane zamówienie o tym samym numerze
  * na nachodzący okres (lustro 409 `duplicate_order_number` z backendu).
  */
@@ -76,7 +86,7 @@ export function duplicateOrderError(
       o.id !== excludeId &&
       o.status !== "cancelled" &&
       normalizeNumber(o.title) === number &&
-      overlaps(s, e, iso(o.start_date), iso(o.end_date)),
+      overlaps(s, e, ...orderedPeriod(o)),
   );
   if (!clash) return null;
   return `Zamówienie ${clash.title} na ten okres już istnieje — popraw istniejące zamiast dodawać drugie.`;

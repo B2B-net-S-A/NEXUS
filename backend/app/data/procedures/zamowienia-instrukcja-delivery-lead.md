@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 27.09.2026
+> **Zgodność z systemem sprawdzona:** 28.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -319,6 +319,13 @@ zakończone) zamówienie — np. 01.12–31.03 obok 01.10–31.12 — system odr
 i powie, od którego dnia zacząć nowe zamówienie (dzień po końcu poprzedniego),
 albo że najpierw trzeba skrócić poprzednie. To samo przy zmianie dat zamówienia.
 Szkice i anulowane zamówienia tej reguły nie blokują.
+
+Tego samego **numeru zamówienia** na nachodzący okres system też nie przyjmie
+drugi raz — ani przy dodaniu przedłużenia, ani przy zmianie numeru czy dat
+w **Uzupełnij zamówienie** (tu dotyczy to także szkiców). Formularz pokaże
+„Zamówienie … na ten okres już istnieje” i nie da się go zapisać: popraw
+istniejące zamówienie zamiast dodawać drugie. Okresu, w którym data startu
+wypada po dacie końca, nie da się zapisać w żadnym formularzu.
 
 Zamówienie **kosztowe** i okresowe u tej samej osoby mogą istnieć obok siebie —
 to dwa różne modele rozliczenia i są od siebie niezależne.
@@ -893,7 +900,10 @@ kosztowe dla kilku osób** (kwota zlecenia jest wspólna — automat jej nie dzi
 zakładasz je w oknie zamówienia, a „Zastosuj” takiego dokumentu odmawia, bo
 powstałyby same szkice bez kwoty) oraz **jedna liczba MD na całe zamówienie dla
 kilku osób** (wspólną pulę MD zakładasz w oknie zamówienia; „Zastosuj” takiego
-dokumentu odmawia, bo każda osoba dostałaby całą pulę). „Zastosuj” odmawia też
+dokumentu odmawia, bo każda osoba dostałaby całą pulę). Wiersz, w którym
+**data od jest późniejsza niż data do**, czeka z powodem „Do weryfikacji –
+błędny okres” — system nie zakłada z niego zamówienia ani szkicu, a „Zastosuj”
+go pomija; właściwy okres wpisujesz w oknie zamówienia klienta. „Zastosuj” odmawia też
 wiersza, który ma stawkę, ale **bez jednostki** (np. inna kwota niż w nagłówku
 dokumentu bez „zł/MD” czy „zł/h”) — jednostkę uzupełniasz w oknie zamówienia,
 bo przyjęta po cichu jednostka umowy mogła zapisać stawkę za MD jako

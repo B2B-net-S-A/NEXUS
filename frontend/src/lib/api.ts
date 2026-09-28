@@ -347,6 +347,8 @@ export interface ClientDirectoryItem {
   industry: string | null;
   active_consultants_count: number;
   active_contracts_count: number;
+  /** `scope` = liczy tylko kontrakty przypięte do umowy ramowej tego zakresu. */
+  consultants_scope?: "scope" | "client";
   /** EFFECTIVE values: a manual placement override wins over the manifest/MSA. */
   effective_date: string | null;
   expiry_date: string | null;

@@ -919,7 +919,11 @@ export function ClientsListV2() {
                             <span
                               className="inline-flex cursor-help items-center gap-1.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               tabIndex={0}
-                              aria-label={`${item.active_consultants_count} aktywnych konsultantów i ${item.active_contracts_count} aktywnych kontraktów u klienta, łącznie we wszystkich zakresach`}
+                              aria-label={
+                                item.consultants_scope === "scope"
+                                  ? `${item.active_consultants_count} aktywnych konsultantów i ${item.active_contracts_count} aktywnych kontraktów przypiętych do umowy ramowej tego zakresu`
+                                  : `${item.active_consultants_count} aktywnych konsultantów i ${item.active_contracts_count} aktywnych kontraktów u klienta, łącznie we wszystkich zakresach`
+                              }
                             >
                               <span className="font-medium tabular-nums">
                                 {item.active_consultants_count} / {item.active_contracts_count}
@@ -931,8 +935,9 @@ export function ClientsListV2() {
                             </span>
                           </TooltipTrigger>
                           <TooltipContent>
-                            Liczba dla całego klienta: aktywni konsultanci /
-                            aktywne kontrakty, łącznie we wszystkich zakresach.
+                            {item.consultants_scope === "scope"
+                              ? "Tylko ten zakres: aktywni konsultanci / aktywne kontrakty, których zamówienie jest przypięte do umowy ramowej tego zakresu."
+                              : "Liczba dla całego klienta: aktywni konsultanci / aktywne kontrakty, łącznie we wszystkich zakresach. Kontrakty przypięte do umowy ramowej innego zakresu liczą się tylko tam."}
                           </TooltipContent>
                         </Tooltip>
                       </TableCell>

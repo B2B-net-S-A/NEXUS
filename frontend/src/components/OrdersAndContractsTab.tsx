@@ -471,6 +471,7 @@ export function ContractorOrderCards({
     contractRateClientCurrency: string;
     contractRateCandidateCurrency: string;
     createOrder: CreateDraftOrder;
+    siblingOrders: ContractWithOrdersRead["orders"];
   } | null>(null);
 
   function refresh() {
@@ -554,6 +555,7 @@ export function ContractorOrderCards({
                   contractor.rate_client_currency,
                 ),
                 createOrder,
+                siblingOrders: contractor.orders,
               })
             }
             onChange={refresh}
@@ -622,6 +624,7 @@ export function ContractorOrderCards({
             editingOrder.contractRateCandidateCurrency
           }
           onCreate={editingOrder.createOrder}
+          siblingOrders={editingOrder.siblingOrders}
           canManageFinance={canManageFinance}
           suggestedOrderType={suggestedOrderType}
           allowedOrderTypes={allowedOrderTypes}

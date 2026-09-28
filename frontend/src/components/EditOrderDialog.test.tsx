@@ -46,6 +46,7 @@ vi.mock("@/lib/api/executiveContracts", async (importOriginal) => {
 });
 
 import { EZDROWIE_CLIENT_ID } from "@/lib/ezdrowie";
+import type { ExistingOrderPeriod } from "@/lib/order-period";
 
 const extractOrderPdf = vi.mocked(dlPortalApi.extractOrderPdf);
 const updateOrder = vi.mocked(dlPortalApi.updateOrder);
@@ -60,6 +61,7 @@ function renderDialog({
   contractRateUnit = "monthly",
   contractRateClientCurrency = "PLN",
   contractRateCandidateCurrency = "PLN",
+  siblingOrders,
 }: {
   clientId?: number;
   order?: ClientOrderRead | null;
@@ -70,6 +72,7 @@ function renderDialog({
   contractRateUnit?: "hourly" | "daily" | "monthly";
   contractRateClientCurrency?: string | null;
   contractRateCandidateCurrency?: string | null;
+  siblingOrders?: ExistingOrderPeriod[];
 } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false } },
@@ -84,6 +87,7 @@ function renderDialog({
           // Pocztowego) — formularz pusty, szkic powstaje dopiero przy zapisie.
           order={order}
           onCreate={onCreate}
+          siblingOrders={siblingOrders}
           rateCandidate={rateCandidate}
           contractRateUnit={contractRateUnit}
           contractRateClientCurrency={contractRateClientCurrency}
@@ -571,5 +575,59 @@ describe("EditOrderDialog — usunięcie PDF bez natywnego okna (R10-N15-8)", ()
     await waitFor(() => expect(dlPortalApi.deleteOrderPo).toHaveBeenCalledWith(10, 41));
     expect(confirmSpy).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
+  });
+});
+
+
+describe("EditOrderDialog — duplikat numeru (zgłoszenie 28.09.2026)", () => {
+  const sibling = {
+    id: 630,
+    title: "OIT/0569/2026/ITVM",
+    status: "active",
+    start_date: "2026-10-01",
+    end_date: "2026-12-31",
+  };
+
+  it("zmiana numeru na numer zamówienia z tego okresu blokuje zapis", () => {
+    renderDialog({
+      order: {
+        ...draftOrder("periodic"),
+        title: "OIT/0570/2026/ITVM",
+        start_date: "2026-10-01",
+        end_date: "2026-12-31",
+      },
+      siblingOrders: [sibling],
+    });
+    expect(screen.queryByText(/już istnieje/)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Numer zamówienia/), {
+      target: { value: "oit/0569/2026/itvm" },
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(/już istnieje/);
+    expect(screen.getByRole("button", { name: "Zapisz" })).toBeDisabled();
+  });
+
+  it("zamówienie z historycznym duplikatem da się zapisać bez zmiany numeru i dat", () => {
+    renderDialog({
+      order: {
+        ...draftOrder("periodic"),
+        title: "OIT/0569/2026/ITVM",
+        start_date: "2026-10-01",
+        end_date: "2026-12-31",
+      },
+      siblingOrders: [sibling],
+    });
+    expect(screen.queryByText(/już istnieje/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zapisz" })).not.toBeDisabled();
+  });
+
+  it("zamówienie nie dubluje samego siebie", () => {
+    const own = {
+      ...draftOrder("periodic"),
+      title: "OIT/0569/2026/ITVM",
+      start_date: "2026-10-01",
+      end_date: "2026-12-31",
+    };
+    renderDialog({ order: own, siblingOrders: [own] });
+    expect(screen.queryByText(/już istnieje/)).not.toBeInTheDocument();
   });
 });

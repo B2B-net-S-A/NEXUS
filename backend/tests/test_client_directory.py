@@ -25,6 +25,7 @@ from app.models.client_framework_contract import (
     ClientFrameworkContract,
     FrameworkContractStatus,
 )
+from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.user import User, UserRole
 from app.core.scheduling import business_today
@@ -355,6 +356,107 @@ async def test_directory_counts_scopes_sorts_and_counts_consultants(
         assert items[2]["expiry_date"] is None
         assert items[2]["msa_id"] == seed["msa_id"]
     finally:
+        await _cleanup_directory(seed)
+
+
+async def test_scope_with_pinned_contracts_counts_only_its_own(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    """Zgłoszenie 28.09.2026: „Nordea Bank Abp – Pentesty” (drugi zakres tego
+    samego klienta) pokazywał wszystkich konsultantów Nordei. Kontrakt przypięty
+    przez zamówienie do umowy ramowej zakresu liczy się tylko w tym zakresie."""
+
+    seed = await _seed_directory()
+    zulu_id = seed["client_ids"][1]
+    candidate_one, candidate_two = seed["candidate_ids"][:2]
+    today = business_today()
+    try:
+        async with AsyncSessionLocal() as db:
+            pentest_msa = ClientFrameworkContract(
+                client_id=zulu_id,
+                name=f"Pentest MSA {seed['suffix']}",
+                status=FrameworkContractStatus.active,
+                effective_date=today - timedelta(days=30),
+            )
+            db.add(pentest_msa)
+            await db.flush()
+            rel_scope = await db.scalar(
+                select(ClientPortfolioScope).where(
+                    ClientPortfolioScope.client_id == zulu_id,
+                    ClientPortfolioScope.label == "Pentesty",
+                )
+            )
+            rel_scope.framework_contract_id = pentest_msa.id
+            contracts = (
+                await db.scalars(
+                    select(Contract).where(
+                        Contract.client_id == zulu_id,
+                        Contract.candidate_id.in_([candidate_one, candidate_two]),
+                        Contract.status.in_(
+                            (ContractStatus.active, ContractStatus.ending)
+                        ),
+                    )
+                )
+            ).all()
+            two = next(c for c in contracts if c.candidate_id == candidate_two)
+            one = next(
+                c
+                for c in contracts
+                if c.candidate_id == candidate_one and c.status == ContractStatus.active
+            )
+            db.add_all(
+                [
+                    ClientOrder(
+                        client_id=zulu_id,
+                        contract_id=two.id,
+                        title=f"PT-{seed['suffix']}",
+                        status=ClientOrderStatus.active,
+                        start_date=today,
+                        framework_contract_id=pentest_msa.id,
+                    ),
+                    # Anulowane zamówienie nie przypina kontraktu do zakresu.
+                    ClientOrder(
+                        client_id=zulu_id,
+                        contract_id=one.id,
+                        title=f"PT-X-{seed['suffix']}",
+                        status=ClientOrderStatus.cancelled,
+                        start_date=today,
+                        framework_contract_id=pentest_msa.id,
+                    ),
+                ]
+            )
+            await db.commit()
+
+        async def rows(category: str) -> list[dict]:
+            response = await app_client.get(
+                "/api/clients/directory",
+                params={"category": category, "q": seed["suffix"], "page_size": 50},
+                headers=app_auth_headers,
+            )
+            assert response.status_code == 200, response.text
+            return [
+                item
+                for item in response.json()["items"]
+                if item["client_id"] == zulu_id
+            ]
+
+        (pentest,) = await rows("relationship")
+        assert pentest["active_consultants_count"] == 1
+        assert pentest["active_contracts_count"] == 1
+        assert pentest["consultants_scope"] == "scope"
+
+        active_rows = await rows("active")
+        # Bez przypiętego kontraktu: 3 osoby / 5 kontraktów minus jedna / jeden.
+        assert {r["active_consultants_count"] for r in active_rows} == {2}
+        assert {r["active_contracts_count"] for r in active_rows} == {4}
+        assert {r["consultants_scope"] for r in active_rows} == {"client"}
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ClientOrder).where(ClientOrder.client_id == zulu_id)
+            )
+            await db.commit()
         await _cleanup_directory(seed)
 
 

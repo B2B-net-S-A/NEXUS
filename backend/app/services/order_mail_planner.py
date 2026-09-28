@@ -93,6 +93,27 @@ REPEATED_PERSON_REASON = (
 )
 
 
+#: Prefiks powodu dla okresu, w którym data od jest późniejsza niż data do
+#: (zgłoszenie 28.09.2026, Alior: zamówienie 01.01.2027 → 31.12.2026). Ten sam
+#: prefiks niesie powód bramki ``CODE_PERIOD_REVERSED``.
+REVERSED_PERIOD_PREFIX = "Do weryfikacji – błędny okres"
+
+
+def reversed_period_reason(start: str, end: str) -> str:
+    """Zdanie dla wiersza z odwróconym okresem (daty ISO → DD.MM.RRRR)."""
+
+    def _pl(value: str) -> str:
+        try:
+            return date.fromisoformat(value).strftime("%d.%m.%Y")
+        except ValueError:
+            return value
+
+    return (
+        f"{REVERSED_PERIOD_PREFIX}: data od {_pl(start)} jest późniejsza niż "
+        f"data do {_pl(end)}"
+    )
+
+
 @dataclass(frozen=True)
 class ExistingOrder:
     id: int
@@ -229,11 +250,17 @@ def titles_collide(a: Optional[str], b: Optional[str]) -> bool:
 
 
 def _overlaps(order: ExistingOrder, start: date, end: Optional[str]) -> bool:
-    """Czy okres zamówienia nachodzi na okres z dokumentu (brak końca = bez końca)."""
-    return (order.end_date is None or order.end_date >= start) and (
-        end is None
-        or order.start_date is None
-        or order.start_date <= date.fromisoformat(end)
+    """Czy okres zamówienia nachodzi na okres z dokumentu (brak końca = bez końca).
+
+    Zamówienie zapisane z odwróconym okresem (historyczne, sprzed blokady)
+    liczy się jako przedział od wcześniejszej do późniejszej daty — inaczej
+    nie nachodziłoby na nic i obok niego powstawało drugie zamówienie.
+    """
+    order_start, order_end = order.start_date, order.end_date
+    if order_start is not None and order_end is not None and order_start > order_end:
+        order_start, order_end = order_end, order_start
+    return (order_end is None or order_end >= start) and (
+        end is None or order_start is None or order_start <= date.fromisoformat(end)
     )
 
 
@@ -437,6 +464,14 @@ def plan_document(
             continue
         if not start:
             rp.reasons.append("Brak daty początku okresu w dokumencie")
+            proposal.rows.append(rp)
+            continue
+        if end and start > end:
+            # Odwrócony okres nie trafia do bazy żadną drogą — ani automatem
+            # (bramka: CODE_PERIOD_REVERSED), ani ręcznym „Zastosuj”, które
+            # bramki nie czyta, ale przelicza ten plan. Dokument zostaje
+            # w kolejce do weryfikacji; szkicu nie zakładamy (decyzja 28.09.2026).
+            rp.reasons.append(reversed_period_reason(start, end))
             proposal.rows.append(rp)
             continue
 
