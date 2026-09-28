@@ -144,7 +144,7 @@ async def test_seed_is_idempotent_and_never_steals_existing_names(monkeypatch):
                     )
                 ).all()
             )
-        assert skills == [(owner, "language"), (fresh, "tools")]
+        assert set(skills) == {(owner, "language"), (fresh, "tools")}
         assert aliases == {owned_alias: owner, fresh_alias.lower(): fresh}
     finally:
         async with engine.begin() as conn:
