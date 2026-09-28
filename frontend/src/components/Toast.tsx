@@ -1,13 +1,17 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { X, CheckCircle, AlertCircle, Undo2 } from "lucide-react";
+import { X, CheckCircle, AlertCircle, Info, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useThemeStore } from "@/store/theme";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type ToastType = "success" | "error" | "action";
+// "info" = komunikat, który nie jest ani sukcesem, ani awarią („Brak
+// rekrutacji do wysłania…”, „nic do zrobienia”). Runda 12 zamieniła natywne
+// alert() na showError, więc takie zdania wyglądały jak błąd (czerwień,
+// role="alert") — runda 13 dała im własny wariant.
+type ToastType = "success" | "error" | "info" | "action";
 
 interface ActionToastOptions {
   actionLabel: string;
@@ -30,6 +34,7 @@ interface ToastContextValue {
   showToast: (message: string, type?: ToastType) => void;
   showSuccess: (message: string) => void;
   showError: (message: string) => void;
+  showInfo: (message: string) => void;
   showActionToast: (message: string, options: ActionToastOptions) => void;
 }
 
@@ -70,12 +75,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setToasts((prev) => [...prev, { id, message, type }]);
     // Błędy muszą zdążyć być przeczytane — przy 3 s komunikat znikał zanim
     // user spojrzał (klik "Generuj CV" wyglądał wtedy jak martwy przycisk).
-    const durationMs = type === "error" ? 8000 : 3000;
+    // Informacja nie jest pilna jak błąd, ale bywa dłuższa niż „Zapisano”.
+    const durationMs = type === "error" ? 8000 : type === "info" ? 5000 : 3000;
     scheduleDismiss(id, durationMs);
   }, [scheduleDismiss]);
 
   const showSuccess = useCallback((message: string) => showToast(message, "success"), [showToast]);
   const showError = useCallback((message: string) => showToast(message, "error"), [showToast]);
+  const showInfo = useCallback((message: string) => showToast(message, "info"), [showToast]);
 
   const showActionToast = useCallback(
     (message: string, options: ActionToastOptions) => {
@@ -106,11 +113,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   // zależności useEffect i woła z niego showError (InsightsView) — zmiana
   // tożsamości obiektu ponawia efekt, efekt pokazuje toast, toast zmienia
   // tożsamość obiektu: pętla, która sama się napędza.
-  // Wszystkie cztery funkcje są już stabilne przez useCallback, więc to memo
+  // Wszystkie pięć funkcji jest już stabilnych przez useCallback, więc to memo
   // nie unieważni się nigdy.
   const value = useMemo<ToastContextValue>(
-    () => ({ showToast, showSuccess, showError, showActionToast }),
-    [showToast, showSuccess, showError, showActionToast]
+    () => ({ showToast, showSuccess, showError, showInfo, showActionToast }),
+    [showToast, showSuccess, showError, showInfo, showActionToast]
   );
 
   const dismiss = (id: number) => {
@@ -151,6 +158,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 "bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/40 dark:border-emerald-700 dark:text-emerald-200",
               toast.type === "error" &&
                 "bg-destructive/10 border-destructive/20 text-red-800 dark:bg-red-900/40 dark:border-red-700 dark:text-red-200",
+              toast.type === "info" &&
+                "bg-info-muted border-info/25 text-info-muted-foreground",
               toast.type === "action" &&
                 "bg-primary/10 border-primary/20 text-primary dark:bg-primary/40 dark:border-primary/90 dark:text-primary"
             )}
@@ -165,6 +174,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               <AlertCircle
                 aria-hidden="true"
                 className="w-4 h-4 text-destructive shrink-0"
+              />
+            )}
+            {toast.type === "info" && (
+              <Info
+                aria-hidden="true"
+                className="w-4 h-4 text-info shrink-0"
               />
             )}
             {toast.type === "action" && (
