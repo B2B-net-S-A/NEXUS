@@ -188,7 +188,7 @@ export function RequestReviewView({
           </div>
         )}
 
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full min-w-[980px] text-sm">
             <thead className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               <tr>
