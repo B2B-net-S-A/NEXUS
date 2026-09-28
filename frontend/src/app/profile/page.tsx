@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { hasSectionAccess } from "@/lib/section-access";
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { adoptPasswordChangeSession } from "@/lib/password-change-session";
 import {
   User,
   Mail,
@@ -128,7 +129,7 @@ function ActivityCard({ type, count }: { type: string; count: number }) {
 // ── Profile page ──────────────────────────────────────────────────────────────
 
 export default function ProfilePage() {
-  const { user, setAuth, token } = useAuthStore();
+  const { user, setAuth } = useAuthStore();
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -199,36 +200,37 @@ export default function ProfilePage() {
 
     setPwSaving(true);
     try {
-      await api.post("/api/auth/change-password", {
+      const changed = await api.post("/api/auth/change-password", {
         current_password: pwForm.current,
         new_password: pwForm.next,
       });
       setPwSuccess(true);
       setPwForm({ current: "", next: "", confirm: "" });
 
-      // Po zmianie hasła backend wyczyścił flag force_password_change.
-      // Re-fetch /me + nowy login do refreshu JWT (claim fpc zniknie)
-      // żeby middleware przestał redirectować z innych route'ów.
-      // Tutaj tylko refresh /me — full re-login wymagany jest dopiero przy
-      // następnej akcji którą middleware zatrzyma. Bezpieczniej: wymuś
-      // ponowny login by JWT się przeładował.
+      // Zmiana hasła unieważnia wszystkie wcześniejsze tokeny, także bieżący,
+      // a odpowiedź niesie nową parę bez `fpc` (runda 12, BACK-2). Zapisujemy
+      // ją, zanim cokolwiek zapyta API starym tokenem — inaczej 401
+      // wylogowywało tuż po komunikacie o sukcesie.
+      let adopted = false;
       try {
-        const me = await api.get("/api/auth/me");
-        if (token) {
-          // setAuth z tym samym tokenem zapisuje świeży user object
-          // (bez force_password_change). JWT pozostaje stary aż do
-          // następnego loginu — ale fpc claim w JWT wymaga full re-login,
-          // więc dla mustChangePassword case wylogowujemy + redirect.
-          setAuth(me.data, token);
-        }
+        adopted = await adoptPasswordChangeSession(changed.data, {
+          fetchMe: (accessToken) =>
+            api
+              .get("/api/auth/me", {
+                headers: { Authorization: `Bearer ${accessToken}` },
+              })
+              .then((r) => r.data),
+          setAuth,
+          currentUser: user,
+        });
         queryClient.invalidateQueries({ queryKey: ["user-profile"] });
       } catch {
-        /* refresh best-effort */
+        /* profil best-effort — token i tak jest zapisany albo sesja wygasa */
       }
 
-      if (mustChangePassword) {
-        // JWT ma claim fpc=true który nie zniknie bez nowego loginu.
-        // Wylogowanie + redirect na login zapewnia świeży token bez fpc.
+      if (!adopted) {
+        // Serwer nie oddał nowego tokenu (stara wersja API w trakcie
+        // deployu): bieżący token jest martwy, trzeba zalogować się ponownie.
         setTimeout(() => {
           useAuthStore.getState().logout();
         }, 1500);

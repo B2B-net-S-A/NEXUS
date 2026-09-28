@@ -600,7 +600,8 @@ async def test_change_password_happy_path_updates_hash(
         headers=headers,
         json={"current_password": old_password, "new_password": new_password},
     )
-    assert resp.status_code == 204
+    assert resp.status_code == 200, resp.text
+    assert set(resp.json()) >= {"access_token", "refresh_token", "token_type"}
 
     # Stare hasło już nie pasuje
     bad = await rbac_client.post(

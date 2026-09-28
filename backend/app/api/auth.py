@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
@@ -577,7 +578,7 @@ async def me(
     return await build_user_response(current_user, db)
 
 
-@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/change-password", response_model=TokenResponse)
 @limiter.limit("3/minute")
 async def change_password(
     request: Request,
@@ -592,7 +593,8 @@ async def change_password(
     ważna, więc 401 byłoby fałszywym sygnałem „wyloguj”.
 
     Po sukcesie: clear ``force_password_change`` flag (jeśli była ustawiona
-    przez admin-reset) + audit log + email notification.
+    przez admin-reset) + audit log + email notification. Zwraca nową parę
+    tokenów (ten sam kształt co `/login`) — wcześniejsze tokeny są martwe.
     """
     # Konto tylko SSO nie ma hasła do zmiany (AUTH-04). Do 09.2026 formularz
     # kończył się tu 500 (``AttributeError`` na ``None.encode``).
@@ -618,9 +620,15 @@ async def change_password(
     )
     current_user.force_password_change = False
     current_user.force_password_change_at = None
-    # F-05: unieważnij wszystkie wcześniej wybite tokeny (także bieżący —
-    # user zaloguje się ponownie). Wykradziony token nie przeżywa zmiany hasła.
-    current_user.tokens_valid_after = func.now()
+    # F-05: unieważnij wszystkie wcześniej wybite tokeny (także bieżący).
+    # Wykradziony token nie przeżywa zmiany hasła.
+    # Runda 12 (BACK-2): bieżąca sesja dostaje w odpowiedzi nową parę tokenów
+    # wybitą PO podłodze — do tej rundy odpowiedź była pusta, a następne
+    # żądanie z unieważnionym tokenem wylogowywało osobę tuż po komunikacie
+    # „Hasło zmienione”. Podłoga z zegara aplikacji (nie `func.now()`
+    # = początek transakcji w bazie), żeby `iat` nowych tokenów nie mógł być
+    # od niej wcześniejszy przy rozjeździe zegarów.
+    current_user.tokens_valid_after = datetime.now(timezone.utc)
 
     db.add(
         Activity(
@@ -640,7 +648,22 @@ async def change_password(
         recipient_name=current_user.name,
         by_admin=False,
     )
-    return None
+    # Nowy access token bez ``fpc`` (flaga wyczyszczona wyżej) — middleware
+    # przestaje odsyłać na /profile bez ponownego logowania.
+    await resolve_effective_section_access(db, current_user)
+    return TokenResponse(
+        access_token=create_access_token(
+            current_user.id,
+            current_user.role.value,
+            force_password_change=False,
+            roles=[r.value for r in current_user.get_all_roles()],
+            authorization_version=current_user.authorization_version,
+            section_access=current_user.effective_section_access,
+        ),
+        refresh_token=create_refresh_token(
+            current_user.id, authorization_version=current_user.authorization_version
+        ),
+    )
 
 
 @router.post("/forgot-password", status_code=status.HTTP_200_OK)
