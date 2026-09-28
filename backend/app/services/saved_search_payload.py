@@ -563,7 +563,17 @@ RULE_CATEGORY_SECONDARY = "category_secondary"
 RULE_OPEN_TO_ANY = "open_to_any"
 RULE_EXPERIENCE_TRAFFIT = "experience_traffit_fallback"
 RULE_TEXT_PERSON = "text_person_literal"
+RULE_SCREENING_SKILLS = "screening_skills"
 RULE_OTHER = "other"
+
+# Kubełki umiejętności żądania wspólnego — każdy czyta ``skill_match``, który
+# w v2 łapie też umiejętności potwierdzone w screeningu (runda 12).
+_SKILL_KEYS = (
+    "skills_required",
+    "skills_required_any_groups",
+    "skills_preferred",
+    "skills_excluded",
+)
 
 
 def neutralise_list_request(
@@ -604,11 +614,16 @@ def possible_difference_rules(origin: str, request: dict[str, Any]) -> list[str]
     zneutralizować flagą. Gdy wynik się różni, to one są przyczyną; pusta lista
     przy różnicy = ``other``."""
     rules: list[str] = []
+    # Runda 13 (SEARCH): zapis z listy i z wyszukiwarki — w obu kubełki
+    # umiejętności v2 łapią też screening, a flagą tego się nie wyłączy.
+    uses_skills = any(not _empty(request.get(key)) for key in _SKILL_KEYS)
     if origin == "candidates_list":
         if any(
             "%" in str(c) or "_" in str(c) for c in request.get("location_cities") or []
         ):
             rules.append(RULE_LOCATION_WILDCARDS)
+        if uses_skills:
+            rules.append(RULE_SCREENING_SKILLS)
         return rules
     if request.get("tags"):
         rules.append(RULE_TAGS_WHOLE_MATCH)
@@ -618,6 +633,8 @@ def possible_difference_rules(origin: str, request: dict[str, Any]) -> list[str]
         rules.append(RULE_OPEN_TO_ANY)
     if "experience_years_min" in request or "experience_years_max" in request:
         rules.append(RULE_EXPERIENCE_TRAFFIT)
+    if uses_skills:
+        rules.append(RULE_SCREENING_SKILLS)
     return rules
 
 
