@@ -13,6 +13,7 @@ import { hasExperience } from "@/lib/champion-experience";
 import {
   FIELD_BASIS_LABEL,
   effectiveWorkingTitle,
+  joinCities,
   markEdited,
   newQuestionKey,
   type FieldBasis,
@@ -22,6 +23,7 @@ import {
   type MissingCode,
   type QuestionOrigin,
   type RemotePolicyValue,
+  splitCities,
 } from "@/lib/job-request-intake";
 
 const WORK_MODES: { value: RemotePolicyValue; label: string }[] = [
@@ -110,6 +112,14 @@ function FieldLabel({
       ) : null}
     </div>
   );
+}
+
+/** Pole lat: puste albo 0–40 (to samo co `seniority_min_years` w Championie). */
+function parseYears(raw: string): number | null {
+  if (!raw.trim()) return null;
+  const n = Math.round(Number(raw));
+  if (!Number.isFinite(n)) return null;
+  return Math.min(40, Math.max(0, n));
 }
 
 /** Pod polem, nie obok etykiety — w wąskiej kolumnie łamała się i przesuwała pole. */
@@ -294,7 +304,7 @@ export function NewJobReviewForm({
     workingTitle: useId(),
     rate: useId(),
     days: useId(),
-    city: useId(),
+    years: useId(),
     start: useId(),
     about: useId(),
     resp: useId(),
@@ -435,6 +445,17 @@ export function NewJobReviewForm({
           tone="muted"
           placeholder="opcjonalnie"
         />
+        {form.intakeNotes.length > 0 && (
+          <ul
+            className="flex flex-col gap-1 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground"
+            aria-label="Uwagi z odczytu maila"
+            data-testid="new-job-intake-notes"
+          >
+            {form.intakeNotes.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        )}
 
         {/* 25.09.2026: od tych wierszy rekruter zaczyna „Szukaj ręcznie”;
             bez co najmniej jednego rekrutacja nie idzie do searchu. */}
@@ -550,22 +571,31 @@ export function NewJobReviewForm({
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {officeNeeded && (
-            <div className="flex flex-col gap-2">
-              <FieldLabel htmlFor={ids.city} missing={isMissing("office_city")}>
-                Miasto biura
-              </FieldLabel>
-              <Input
-                id={ids.city}
-                value={form.city}
-                onChange={(e) => set("city", e.target.value)}
-                placeholder="np. Warszawa"
-                className={cn(isMissing("office_city") && MISSING_RING)}
-              />
-              <MissingNote show={isMissing("office_city")} />
-            </div>
+            <TagListInput
+              label="Miasta biura"
+              values={splitCities(form.city)}
+              onChange={(v) => set("city", joinCities(v))}
+              tone="muted"
+              missing={isMissing("office_city")}
+              placeholder="np. Warszawa, Gdańsk — Enter dodaje"
+            />
           )}
+          <div className="flex flex-col gap-2">
+            <FieldLabel htmlFor={ids.years} hint="opcjonalnie">
+              Wymagane lata doświadczenia
+            </FieldLabel>
+            <Input
+              id={ids.years}
+              type="number"
+              min={0}
+              max={40}
+              value={form.seniorityYears ?? ""}
+              onChange={(e) => set("seniorityYears", parseYears(e.target.value))}
+              placeholder="np. 5"
+            />
+          </div>
           <div className="flex flex-col gap-2">
             <FieldLabel htmlFor={ids.start} hint="opcjonalnie">
               Start

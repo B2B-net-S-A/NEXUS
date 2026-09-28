@@ -899,10 +899,16 @@ CV_REQUIREMENT_MAP = PromptTemplate(
 # Do tego jeden angielski odpowiednik w wierszu (decyzja Artura 25.09.2026:
 # „bankow* lub banking” — 903 osoby), jedyne słowo spoza maila; wtedy wiersze
 # są „propozycją AI”, nie „z maila”.
+#
+# v7 (27.09.2026): must UKRYWA kandydatów bez którejkolwiek pozycji (bramka
+# `anywhere-evidence-v8`), więc must to wyłącznie wymagane technologie bez
+# wersji, a przykłady klienta to jedna pozycja „A lub B”. Miasta biura to
+# lista polskich nazw (`office_cities`). Kod i tak normalizuje wynik tą samą
+# regułą co bramka (`job_request_intake.normalize_must`, `_office_cities`).
 
 JOB_REQUEST_INTAKE = PromptTemplate(
     name="job_request_intake",
-    version=6,
+    version=7,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
@@ -944,13 +950,13 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         '  "hiring_manager_name": str|null,     // imię i nazwisko osoby zamawiającej po stronie klienta, DOKŁADNIE z tekstu, np. "Anna Nowak"\n'
         '  "hiring_manager_position": str|null, // jej stanowisko DOKŁADNIE z tekstu (np. z podpisu), np. "Kierownik Zespołu Rozwoju"\n'
         '  "hiring_manager_email": str|null,    // jej adres e-mail DOKŁADNIE z tekstu\n'
-        '  "must": [str],                     // POJEDYNCZE technologie wymagane, max 10\n'
+        '  "must": [str],                     // technologie, których klient WPROST wymaga, bez wersji, max 10 (zasady niżej)\n'
         '  "nice": [str],                     // POJEDYNCZE technologie mile widziane, max 8\n'
         '  "seniority_min_years": int|null,   // minimalne lata doświadczenia, tylko gdy podane\n'
         '  "rate_quote": str|null,            // dosłowny fragment ze stawką/budżetem, np. "do 170 zł/h netto"\n'
         '  "work_mode": "zdalnie"|"hybrydowo"|"stacjonarnie"|null,\n'
         '  "onsite_days_per_week": int|null,  // dni w biurze w tygodniu, tylko gdy podane\n'
-        '  "office_city": str|null,           // samo miasto biura, np. "Warszawa"\n'
+        '  "office_cities": [str],            // WSZYSTKIE miasta biura, zawsze po polsku, np. ["Gdańsk", "Warszawa"]\n'
         '  "start_date": str|null,            // RRRR-MM-DD, tylko gdy podana konkretna data\n'
         '  "language": str|null,              // język pracy wymagany od kandydata, np. "PL, EN B2"\n'
         '  "contract_length": str|null,       // długość projektu, np. "6 miesięcy z przedłużeniem"\n'
@@ -980,6 +986,19 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "e-commerce, sektor publiczny) — NIE technologia. Certyfikaty to np. ISTQB, "
         "AWS Solutions Architect, PSM I. Regulacje i standardy to np. PSD2, PCI DSS, "
         "RODO, KNF, ISO 27001. level=must tylko gdy klient pisze, że to wymóg.\n\n"
+        "Must (must): kandydat bez KTÓREJKOLWIEK pozycji must jest ukrywany "
+        "w wyszukiwaniu, więc wpisuj tu wyłącznie nazwy technologii, których "
+        "klient wprost wymaga — nie cały stack z maila. Bez numerów wersji "
+        "(„Java”, nie „Java 8+”; wersję zostaw w treści maila). Gdy klient podaje "
+        "przykłady albo zamienniki („CI/CD tools like Bitbucket, Jenkins”, "
+        "„Kafka lub RabbitMQ”), wpisz JEDNĄ pozycję z wariantami rozdzielonymi "
+        "słowem „lub”: „CI/CD lub Bitbucket lub Jenkins”. Język pracy idzie do "
+        "language, dziedzina do experience.domains, lata do seniority_min_years, "
+        "umiejętności miękkie i metodyki (Agile, Scrum) — nigdzie w must. "
+        "Technologie, które klient wymienia, ale nie wymaga, idą do nice.\n\n"
+        "Miasta biura (office_cities): każde miasto osobno, polską nazwą "
+        "(„Warsaw” → „Warszawa”, „Gdansk” → „Gdańsk”); „Trójmiasto” zostaje "
+        "„Trójmiasto”. Pusta lista, gdy mail nie podaje miasta.\n\n"
         "Frazy do wyszukiwarki: 3–8 fraz, tak jak rekruter wpisze je w wyszukiwarkę "
         "(nazwa roli, kluczowe technologie, dziedzina).\n\n"
         "Wymagania do wyszukiwania (search.requirements): 2–4 najważniejsze wymagania "

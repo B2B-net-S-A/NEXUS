@@ -294,3 +294,15 @@ def test_normalize_options_drops_unknown_keys_and_bad_values():
     assert options["workplace_type"] is None
     assert options["office_days"] is None
     assert options["salary"] == {"from": 1000.5, "to": 2000.0, "unit": "month"}
+
+
+def test_default_city_is_the_first_office_city():
+    options = p.default_options(
+        {
+            "city": "Warszawa, Gdańsk",
+            "remote_policy": "hybrid",
+            "onsite_days_per_week": 2,
+        },
+        work_mode=None,
+    )
+    assert options["city"] == "Warszawa"

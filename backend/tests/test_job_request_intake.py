@@ -43,7 +43,8 @@ def test_complete_request_has_nothing_missing() -> None:
     assert result.missing == []
     assert result.rate_budget_hourly == 170.0
     assert result.remote_policy == "hybrid"
-    assert result.must == ["Java 17+", "Spring Boot", "Kafka"]
+    # v7: wersja odcięta tą samą regułą co bramka must.
+    assert result.must == ["Java", "Spring Boot", "Kafka"]
     # Must-have nie jest powtarzany w „mile widzianych”.
     assert result.nice == ["Kubernetes"]
     assert [q.from_request for q in result.screening_questions] == [True, False]
@@ -115,7 +116,9 @@ def _technologies(monkeypatch, *names: str) -> None:
     )
 
 
-def test_search_requirements_keep_only_whole_words_from_the_request(monkeypatch) -> None:
+def test_search_requirements_keep_only_whole_words_from_the_request(
+    monkeypatch,
+) -> None:
     """v5 (25.09.2026): słowo spoza maila odpada, kawałek słowa też („go”
     w „google” to nie Go), puste wiersze znikają, najwyżej 4 wiersze.
     Technologia spoza maila („Kotlin”) nie jest angielskim odpowiednikiem."""
@@ -135,12 +138,19 @@ def test_search_requirements_keep_only_whole_words_from_the_request(monkeypatch)
         }
     }
     result = normalize_model_output(raw, text)
-    assert result.search_requirements == [["Java"], ["Kafka", "RabbitMQ"], ["Google"], ["cloud"]]
+    assert result.search_requirements == [
+        ["Java"],
+        ["Kafka", "RabbitMQ"],
+        ["Google"],
+        ["cloud"],
+    ]
     assert result.provenance.get("search_requirements") == "request"
     assert intake.MISSING_SEARCH not in result.missing
 
 
-def test_search_requirements_accept_a_stem_of_a_word_from_the_request(monkeypatch) -> None:
+def test_search_requirements_accept_a_stem_of_a_word_from_the_request(
+    monkeypatch,
+) -> None:
     """v6 (25.09.2026): polskie słowo się odmienia, a wyszukiwarka szuka całych
     słów — wiersz „bankowości” z maila „doświadczenie w bankowości” znalazł na
     produkcji 55 osób, „bankow*” 323. Rdzeń z gwiazdką przechodzi, gdy zaczyna
@@ -386,3 +396,96 @@ async def test_prompt_carries_client_history_but_no_consultant_notes(
     assert "Testy procesów kartowych" in captured["prompt"]
     assert "tester, karty, acquiring" in captured["prompt"]
     assert "Kowalski" not in captured["prompt"]
+
+
+# ── v7 (27.09.2026): must = technologie, miasta ze słownika ─────────────────
+
+
+def test_must_keeps_only_technologies_without_versions() -> None:
+    text = (
+        "Must have: Java 8+, CI/CD tools like Bitbucket, Jenkins, język "
+        "angielski B2, bankowość, Agile. Nice: Docker."
+    )
+    raw = {
+        "must": [
+            "Java 8+",
+            "CI/CD tools like Bitbucket, Jenkins",
+            "język angielski B2",
+            "bankowość",
+            "Agile",
+        ],
+        "nice": ["Docker"],
+    }
+    result = normalize_model_output(raw, text)
+    assert result.must == ["Java", "CI/CD lub Bitbucket lub Jenkins"]
+    assert result.language == "język angielski B2"
+    assert result.nice == ["Docker", "bankowość", "Agile"]
+    assert any("nie są technologią" in note for note in result.advisories)
+    # Przykłady klienta stoją w mailu — to nadal „z maila”, nie propozycja AI.
+    assert result.provenance["must"] == "request"
+
+
+def test_explicit_language_wins_over_language_found_in_must() -> None:
+    raw = {"must": ["Java", "angielski B2"], "language": "PL, EN B2"}
+    result = normalize_model_output(raw, "Java, angielski B2")
+    assert result.language == "PL, EN B2"
+    assert result.must == ["Java"]
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ({"office_cities": ["Warsaw"]}, ["Warszawa"]),
+        ({"office_city": "Gdansk or Warsaw"}, ["Gdańsk", "Warszawa"]),
+        (
+            {"office_cities": ["Gdańsk, Gdynia", "Warszawa (biuro)"]},
+            ["Gdańsk", "Gdynia", "Warszawa"],
+        ),
+        ({"office_cities": ["Trojmiasto"]}, ["Trójmiasto"]),
+        ({"office_cities": ["Warszawa", "warsaw"]}, ["Warszawa"]),
+    ],
+)
+def test_office_cities_are_polish_place_names(raw, expected) -> None:
+    result = normalize_model_output({"work_mode": "hybrydowo", **raw}, "Biuro.")
+    assert result.office_cities == expected
+    assert result.office_city == ", ".join(expected)
+
+
+def test_domain_years_above_seniority_are_dropped_with_a_note() -> None:
+    text = "5+ lat doświadczenia, w tym 10 lat w bankowości."
+    raw = {
+        "seniority_min_years": 5,
+        "experience": {
+            "domains": [
+                {
+                    "name": "bankowość",
+                    "level": "must",
+                    "min_years": 10,
+                    "quote": "10 lat w bankowości",
+                }
+            ]
+        },
+    }
+    result = normalize_model_output(raw, text)
+    assert result.experience["domains"][0]["min_years"] is None
+    assert any("bankowość" in note for note in result.advisories)
+
+
+def test_domain_years_within_seniority_stay() -> None:
+    text = "5+ lat doświadczenia, w tym 3 lata w bankowości."
+    raw = {
+        "seniority_min_years": 5,
+        "experience": {
+            "domains": [
+                {
+                    "name": "bankowość",
+                    "level": "must",
+                    "min_years": 3,
+                    "quote": "3 lata w bankowości",
+                }
+            ]
+        },
+    }
+    result = normalize_model_output(raw, text)
+    assert result.experience["domains"][0]["min_years"] == 3
+    assert result.advisories == []
