@@ -229,3 +229,17 @@ def test_decoded_fractional_iat_passes_jose_validation() -> None:
         algorithm=ALGORITHM,
     )
     assert decode_token(token)["iat"] == now
+
+
+def test_integer_iat_after_the_round_13_deploy_is_revoked() -> None:
+    """Runda 14: całkowite ``iat`` po wdrożeniu formatu z ułamkiem nie mogło
+    powstać legalnie — przy ustawionej podłodze to unieważniony token."""
+    from app.core import security
+
+    floor = datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc)
+    after_deploy = security._LEGACY_INT_IAT_UNTIL + 5
+    assert security.token_is_revoked({"iat": after_deploy}, floor) is True
+    # Stary token sprzed wdrożenia, po podłodze — nadal ważny.
+    assert (
+        security.token_is_revoked({"iat": int(floor.timestamp()) + 60}, floor) is False
+    )

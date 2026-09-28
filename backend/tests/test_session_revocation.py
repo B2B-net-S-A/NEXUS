@@ -60,7 +60,9 @@ def _mint_access_token(
         "sub": str(user_id),
         "role": role,
         "type": "access",
-        "iat": iat,
+        # Format produkcyjny od rundy 13: ``iat`` z ułamkiem. Całkowite ``iat``
+        # wybite po wdrożeniu rundy 13 jest przy ustawionej podłodze odrzucane.
+        "iat": iat.timestamp(),
         "exp": iat + timedelta(hours=1),
         "av": authorization_version,
     }
@@ -76,7 +78,9 @@ def _mint_refresh_token(
     payload = {
         "sub": str(user_id),
         "type": "refresh",
-        "iat": iat,
+        # Format produkcyjny od rundy 13: ``iat`` z ułamkiem. Całkowite ``iat``
+        # wybite po wdrożeniu rundy 13 jest przy ustawionej podłodze odrzucane.
+        "iat": iat.timestamp(),
         "exp": iat + timedelta(days=1),
         "av": authorization_version,
     }

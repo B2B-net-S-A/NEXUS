@@ -30,6 +30,15 @@ _DUMMY_HASH = b"$2b$12$XIC4ez/F8wAC/Y/.sa.A6.CIqyRSrsapLIgL5LYOcebe3w8RNw7Xu"
 
 # dzień UTC celowo: epoka Unix (punkt zero ``iat``), nie data kalendarzowa.
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+# Runda 14: tokeny z całkowitym ``iat`` wybijał wyłącznie kod sprzed wdrożenia
+# rundy 13 (28.09.2026 13:38 UTC; stare kontenery obsługują ruch najwyżej
+# kilka minut dłużej). Taki token z ``iat`` późniejszym niż ta chwila nie mógł
+# powstać legalnie, a po 30 dniach (``REFRESH_TOKEN_EXPIRE_DAYS``) wszystkie
+# wygasają — wtedy porównanie po pełnych sekundach przestaje mieć komu służyć.
+# dzień UTC celowo: znacznik chwili wdrożenia, nie data kalendarzowa.
+_LEGACY_INT_IAT_UNTIL = int(
+    datetime(2026, 9, 28, 14, 30, tzinfo=timezone.utc).timestamp()
+)
 _MICROSECOND = timedelta(microseconds=1)
 
 
@@ -221,6 +230,8 @@ def token_is_revoked(payload: dict, tokens_valid_after: Optional[datetime]) -> b
         return True
     floor_us = _microseconds(tokens_valid_after)
     if isinstance(iat, int):
+        if iat >= _LEGACY_INT_IAT_UNTIL:
+            return True
         return iat < floor_us // 1_000_000
     try:
         issued_us = round(float(iat) * 1_000_000)
