@@ -538,9 +538,8 @@ async def gated_missing_must_fixture(request):
             skills=[{"name": "java"}],
         )
         warn_no_signal = Candidate(
-            # `warn` (NDA) bez żadnego sygnału umiejętności: rubryka must-have
-            # jest no-opem dla niego (nieznany przechodzi). Od 17.09.2026 NDA
-            # nie zwalnia z dealbreakerów — przepuszcza go sam brak sygnału.
+            # `warn` (NDA) bez żadnych danych: od v8 (27.09.2026) ukryty jako
+            # `no_data` przy obu politykach; NDA nie zwalnia z dealbreakerów.
             name="Warn",
             lastname=f"NoSignal{unique}",
             email=f"warn-no-signal-{unique}@example.com",
@@ -584,7 +583,7 @@ async def test_missing_must_hides_on_both_branches(
     gated_missing_must_fixture,
     monkeypatch,
 ):
-    job_id, java_only_id, warn_id, _client_id, policy = gated_missing_must_fixture
+    job_id, java_only_id, warn_id, _client_id, _policy = gated_missing_must_fixture
     _widen_pool(monkeypatch)
 
     # Gałąź fallback (droga 3: pusty wynik Qdranta, cicho).
@@ -609,20 +608,11 @@ async def test_missing_must_hides_on_both_branches(
     # exclusion must be counted; the exact count is checked below against the
     # two-ID semantic pool. Unrelated rows may legitimately add exclusions.
     assert body_fallback["meta"]["hidden"]["missing_must"] >= 1
-    warn_match = _match(body_fallback, warn_id)
-    if policy == "review":
-        assert warn_match is not None, (
-            "warn bez sygnału umiejętności musi zostać widoczny — must-have jest "
-            "no-opem bez sygnału przy „review”"
-        )
-        assert warn_match["eligibility"] is not None
-        assert warn_match["eligibility"]["reason_code"] == "client_nda"
-        assert warn_match["eligibility"]["assignment_allowed"] is True
-    else:
-        assert warn_match is None, (
-            "NDA (ostrzeżenie) nie jest zwolnione z dealbreakerów — przy "
-            "„exclude” brak dowodu must-have ukrywa go jak każdego innego"
-        )
+    # Od v8 (27.09.2026) kandydat bez CV, umiejętności i notatek jest ukryty
+    # jako `no_data` przy obu politykach; NDA nie zwalnia z dealbreakerów.
+    assert _match(body_fallback, warn_id) is None, (
+        "warn bez żadnych danych nie może przejść bramki must-have"
+    )
 
     # Gałąź semantyczna (prawdziwe trafienie z Qdranta).
     async def _one_hit(*_a, **_kw):
@@ -643,10 +633,6 @@ async def test_missing_must_hides_on_both_branches(
     body_semantic = resp_semantic.json()
     assert body_semantic["search_type"] == "semantic+composite"
     assert java_only_id not in _ids(body_semantic)
-    warn_match2 = _match(body_semantic, warn_id)
-    if policy == "review":
-        assert body_semantic["meta"]["hidden"]["missing_must"] == 1
-        assert warn_match2 is not None and warn_match2["eligibility"] is not None
-    else:
-        assert body_semantic["meta"]["hidden"]["missing_must"] == 2
-        assert warn_match2 is None
+    assert _match(body_semantic, warn_id) is None
+    assert body_semantic["meta"]["hidden"]["missing_must"] == 1
+    assert body_semantic["meta"]["hidden"]["no_data"] == 1
