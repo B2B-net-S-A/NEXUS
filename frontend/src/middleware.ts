@@ -421,6 +421,7 @@ const PUBLIC_PATHS = [
   "/preview/cv-generator",
   "/preview/client-playbook",
   "/preview/inactive-clients-cleanup",
+  "/preview/contract-docs-sharepoint",
   "/preview/order-new-from-pdf",
   "/preview/jobs-list-v3",
   "/preview/new-job",

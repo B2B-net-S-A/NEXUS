@@ -149,6 +149,7 @@ from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
 from app.api import b2b_documents
 from app.api import b2b_register_import
+from app.api import contract_folder_docs
 from app.api import jarvis as jarvis_api
 from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import calendar
@@ -690,6 +691,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
     from app.tasks.teams_prep_transcripts import teams_prep_transcripts_loop
+    from app.tasks.contract_docs_sharepoint import contract_docs_sharepoint_loop
     from app.tasks.notes_insights_sync import notes_insights_sync_loop
     from app.tasks.weekly_eval import weekly_eval_loop
     from app.tasks.match_digest import match_digest_loop
@@ -819,6 +821,12 @@ async def lifespan(app: FastAPI):
         # 0370: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
         # przed pętlą przy TEAMS_PREP_TRANSCRIPTS_ENABLED=false.
         "teams_prep_transcripts": asyncio.create_task(teams_prep_transcripts_loop()),
+        # 0402: dokumenty kontraktów z SharePointa — wznowienie pierwszego
+        # pobrania i synchronizacja w obie strony. Bez rejestracji Azure
+        # kończy się przed pętlą.
+        "contract_docs_sharepoint": asyncio.create_task(
+            contract_docs_sharepoint_loop()
+        ),
         # D5: mianownik wskaznikow „na dzien". Petla KONCZY sie przed
         # pierwszym odczekaniem, gdy wylaczona — nie budzi sie co interwal
         # tylko po to, zeby sprawdzic te sama flage.
@@ -1298,6 +1306,11 @@ app.include_router(
     b2b_register_import.router,
     prefix="/api/b2b-generator",
     tags=["b2b-generator"],
+)
+app.include_router(
+    contract_folder_docs.router,
+    prefix="/api/contract-docs-sharepoint",
+    tags=["contracts"],
 )
 app.include_router(invoices.router, prefix="/api/invoices", tags=["invoices"])
 app.include_router(fx.router, prefix="/api/fx", tags=["fx"])
@@ -2097,6 +2110,19 @@ async def api_health_check():
     except Exception:
         checks["teams_prep"] = "degraded"
 
+    # 0402: dokumenty kontraktów z SharePointa (ticket 9). Informacyjna.
+    try:
+        from app.services.contract_folder_docs.sync import (
+            health_status as _contract_docs_sp_health,
+        )
+
+        async with AsyncSessionLocal() as session:
+            checks["contract_docs_sharepoint"] = await asyncio.wait_for(
+                _contract_docs_sp_health(session), timeout=1.0
+            )
+    except Exception:
+        checks["contract_docs_sharepoint"] = "degraded"
+
     if not settings.ORDER_MAIL_INGEST_ENABLED:
         checks["order_mail"] = "unconfigured"
     elif not settings.ORDER_MAIL_UPN:
@@ -2777,6 +2803,8 @@ async def api_health_deep_check():
     from app.models.retained_candidate_file import RetainedCandidateFile
     from app.models.b2b_contract_document import B2BContractDocument
     from app.models.b2b_register_import import B2BRegisterImportRun
+    from app.models.contract_doc_sharepoint import ContractDocSpItem, ContractDocSpRun
+    from app.models.contract_document import ContractDocument
     from app.models.cv_qc_run import CvQcRun
 
     core_checks = [
@@ -2802,6 +2830,11 @@ async def api_health_deep_check():
         # importu rejestru z Excela.
         ("b2b_contract_documents", B2BContractDocument),
         ("b2b_register_import_runs", B2BRegisterImportRun),
+        # 0402: dokumenty kontraktów z SharePointa. `contract_documents`
+        # sprawdza przy okazji nowe kolumny (skrót, źródło, stan wysyłki).
+        ("contract_documents", ContractDocument),
+        ("contract_doc_sp_runs", ContractDocSpRun),
+        ("contract_doc_sp_items", ContractDocSpItem),
         # Zamówienia wielo-konsultantowe (0227). Bez tych sond zakładka
         # „Zamówienia" trzech klientów rozliczanych na MD wywalałaby
         # UndefinedTable przy zielonym deployu — dokładnie tryb awarii
