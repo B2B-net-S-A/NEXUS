@@ -89,6 +89,8 @@ class TestFeatureKeyEnum:
             "interview_question_import",
             # 0403: research „Champion po ludzku” w internecie.
             "plain_knowledge_research",
+            # 0404: przegląd zgłoszeń z linku rekrutacji przed „Nowi”.
+            "application_screening",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

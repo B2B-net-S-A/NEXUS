@@ -142,6 +142,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.interview_question_import: ("F25", "gpt-6-luna"),
     # F26 — decyzja 29.09.2026: research „Champion po ludzku” (web_search → Anthropic).
     AIFeatureKey.plain_knowledge_research: ("F26", "claude-sonnet-5"),
+    # F27 — decyzja 29.09.2026: przegląd zgłoszeń z linku rekrutacji, jak F23.
+    AIFeatureKey.application_screening: ("F27", "gpt-6-luna"),
 }
 
 
@@ -203,6 +205,7 @@ def test_legacy_settings_defaults_agree_with_the_registry():
         AIFeatureKey.cv_name_backfill,
         AIFeatureKey.screening_reassign_suggest,
         AIFeatureKey.academy_screening,
+        AIFeatureKey.application_screening,
     ],
 )
 def test_non_anthropic_functions_fall_back_to_sonnet_5(monkeypatch, feature):

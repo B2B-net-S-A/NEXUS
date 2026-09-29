@@ -450,6 +450,8 @@ const PUBLIC_PATHS = [
   "/preview/academy",
   "/preview/request-allocation",
   "/preview/plain-brief",
+  // 0404: „Odrzuceni przez AI” i plakietki przeglądu zgłoszeń.
+  "/preview/job-board-screening",
   // Praktykanci (0374): `/preview/trainee` pokrywa też `/preview/trainees`.
   "/preview/trainee",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym

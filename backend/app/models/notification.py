@@ -195,6 +195,9 @@ class NotificationType(str, enum.Enum):
     # 0399: ktoś odpowiedział na Twoją notatkę — link prowadzi do notatki
     # głównej; related_entity=(note, id odpowiedzi).
     note_reply = "note_reply"
+    # 0404: rano JEDEN skrót na rekrutację — „N zgłoszeń odrzuconych przez AI”
+    # (poprzednie dni). Do prowadzącego rekrutację; related_entity=(job, id).
+    application_screening_digest = "application_screening_digest"
 
 
 class Notification(Base, TimestampMixin):

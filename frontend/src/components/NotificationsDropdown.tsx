@@ -123,6 +123,12 @@ const TYPE_CONFIG: Record<
     color: "text-cyan-600",
     bgColor: "bg-cyan-100",
   },
+  // 0404: poranny skrót zgłoszeń odrzuconych przez AI (lista w „Nowi”).
+  application_screening_digest: {
+    icon: <Inbox className="w-3.5 h-3.5" />,
+    color: "text-muted-foreground",
+    bgColor: "bg-muted",
+  },
   // Phase 13 — automatyczne triggery
   dl_stage_stale_6h: {
     icon: <ClockAlert className="w-3.5 h-3.5" />,

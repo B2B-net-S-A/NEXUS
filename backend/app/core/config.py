@@ -571,6 +571,13 @@ class Settings(BaseSettings):
     # Rozmowy starsze niż tyle dni są kasowane (dane osobowe w treści).
     JARVIS_RETENTION_DAYS: int = 30
 
+    # Zgłoszenia z linku rekrutacji (0404, decyzja Artura 29.09.2026): osoba
+    # z formularza `/r/<slug>` trafia do „Nowi” dopiero po przeglądzie AI
+    # w tle (`application_screening`). Wyłączenie = zachowanie sprzed 0404:
+    # proces otwiera się od razu w requeście; oczekujące oceny pętla wtedy
+    # dodaje bez modelu („AI nie oceniło”), więc nikt nie zostaje w zawieszeniu.
+    APPLICATION_SCREENING_ENABLED: bool = True
+
     # Akademia (0369): pętla naboru z ogłoszeń i sortowania Luną co 10 min.
     # Bez programów nic nie robi; wyłączenie nie blokuje przycisku na ekranie.
     ACADEMY_INTAKE_ENABLED: bool = True

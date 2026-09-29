@@ -100,6 +100,47 @@ export function formatClientRate(item: KanbanItem): string | null {
   return `do klienta ${shown}${currency} ${unit}`;
 }
 
+/**
+ * 0404: zgłoszenie z linku rekrutacji po przeglądzie AI. Werdykt liczy serwer
+ * (`services/application_screening.py`); tu tylko etykieta. „Dodaj mimo to”
+ * (osoba odrzucona przez AI, dodana ręcznie) mówi to wprost.
+ */
+export function aiScreeningBadge(
+  meta: KanbanItem["entry_ai_screening"],
+): { label: string; tone: CardBadgeTone; title: string } | null {
+  if (!meta) return null;
+  const must =
+    meta.must_total != null && meta.must_total > 0
+      ? ` Must-have w CV: ${meta.must_found ?? 0} z ${meta.must_total}.`
+      : "";
+  if (meta.overridden) {
+    return {
+      label: "AI: odrzucony · dodany ręcznie",
+      tone: "neutral",
+      title: `Zgłoszenie z ogłoszenia. AI uznało je za niepasujące, ktoś dodał osobę mimo to.${must}`,
+    };
+  }
+  if (!meta.assessed) {
+    return {
+      label: "AI nie oceniło",
+      tone: "info",
+      title: `Zgłoszenie z ogłoszenia. AI nie oceniło CV (brak czytelnego CV albo awaria) — sprawdź sam.${must}`,
+    };
+  }
+  if (meta.verdict === "fits") {
+    return {
+      label: "AI: pasuje",
+      tone: "ok",
+      title: `Zgłoszenie z ogłoszenia. AI: doświadczenie pasuje do roli.${must}`,
+    };
+  }
+  return {
+    label: "AI: do sprawdzenia",
+    tone: "info",
+    title: `Zgłoszenie z ogłoszenia. AI nie jest pewne dopasowania — sprawdź CV.${must}`,
+  };
+}
+
 function sourceBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null {
   switch (item.entry_source) {
     case "added_manual": {
@@ -113,8 +154,12 @@ function sourceBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null 
           : undefined,
       };
     }
-    case "application":
-      return { key: "source", label: "Z ogłoszenia", tone: "neutral" };
+    case "application": {
+      const ai = aiScreeningBadge(item.entry_ai_screening);
+      return ai
+        ? { key: "source", label: ai.label, tone: ai.tone, title: ai.title }
+        : { key: "source", label: "Z ogłoszenia", tone: "neutral" };
+    }
     case "proposal":
       return { key: "source", label: "Propozycja", tone: "neutral" };
     case "auto_match":

@@ -277,6 +277,21 @@ def _cv_qc_gate_off_by_default(monkeypatch):
     monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", False)
 
 
+# ── Przegląd AI zgłoszeń z linku rekrutacji (0404) ───────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _application_screening_off_by_default(monkeypatch):
+    """Testy formularza kariery sprawdzają proces w „Nowi” zaraz po zgłoszeniu.
+
+    Z przeglądem AI proces otwiera dopiero pętla w tle, więc te testy
+    widziałyby pustą rekrutację. Testy przeglądu
+    (`test_application_screening.py`) włączają go jawnie.
+    """
+
+    monkeypatch.setattr(settings, "APPLICATION_SCREENING_ENABLED", False)
+
+
 # ── Polkomtel: klientowa normalizacja numerów Finansów ─────────────────────
 
 

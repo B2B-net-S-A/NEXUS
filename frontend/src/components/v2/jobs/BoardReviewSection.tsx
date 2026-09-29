@@ -7,7 +7,9 @@
  * Przepięcia (osoby wysłane już do klienta przy podobnym requeście) i
  * propozycje z bazy. „Biorę" dodaje osobę do „Nowych" z blokadą 12 h na
  * klikającego (serwer: `candidate_claim`), ✕ ją pomija. Osoby z ogłoszeń
- * są zwykłymi kartami tej kolumny z odznaką „Z ogłoszenia".
+ * są zwykłymi kartami tej kolumny z odznaką „Z ogłoszenia" — od 0404 dopiero
+ * po przeglądzie AI; niepasujący czekają w zwiniętym „Odrzuceni przez AI (N)”
+ * (`ScreenedOutSection`).
  *
  * Lista to TA SAMA scalona lista co segment „Propozycje z bazy" w Tabeli
  * (`useJobProposals`: skrzynka + przegląd bazy + podobne projekty +
@@ -20,6 +22,7 @@ import Link from "next/link";
 import { Check, RefreshCw, Sparkles, X } from "lucide-react";
 
 import { jobProposalsHref } from "@/components/v2/jobs/JobListCells";
+import { ScreenedOutSection } from "@/components/v2/jobs/ScreenedOutSection";
 import { PROPOSAL_SOURCE_LABEL } from "@/components/v2/recruitment/types";
 import { useJobProposals } from "@/components/v2/recruitment/useJobProposals";
 import { boardReviewCountLabel, boardReviewState } from "@/lib/board-review-state";
@@ -153,6 +156,7 @@ export function BoardReviewSection({
             </button>
           </p>
         ) : null}
+        <ScreenedOutSection jobId={jobId} readOnly={readOnly} />
         {!readOnly && onOpenPanel ? (
           <button
             type="button"
@@ -285,6 +289,7 @@ export function BoardReviewSection({
           Przejrzyj wszystkich {countLabel} →
         </Link>
       ) : null}
+      <ScreenedOutSection jobId={jobId} readOnly={readOnly} />
       {showPostingHeading ? (
         <div className="px-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           Z ogłoszeń

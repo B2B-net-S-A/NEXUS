@@ -45,6 +45,9 @@ const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   hired: "Zatrudniono",
   engagement_updated: "Zaktualizowano zaangażowanie",
   application_submission_resolved: "Rozpatrzono zgłoszenie kandydata",
+  // 0404: przegląd AI zgłoszenia z linku rekrutacji i „Dodaj mimo to”.
+  application_screened: "AI przejrzało zgłoszenie z ogłoszenia",
+  application_screening_overridden: "Dodano do rekrutacji mimo odrzucenia przez AI",
   rejection_email_cancelled_on_restore:
     "Anulowano email odrzucenia po przywróceniu kandydata",
   bulk_action_executed: "Wykonano akcję zbiorczą",

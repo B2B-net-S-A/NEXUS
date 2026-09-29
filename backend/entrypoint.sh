@@ -271,6 +271,8 @@ _ENUM_STATEMENTS = [
     # 0383: import archiwum pytań z interview (GPT-6 Luna, jednorazowy skrypt).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'interview_question_import'",
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'plain_knowledge_research'",
+    # 0404: przegląd zgłoszeń z linku rekrutacji przed „Nowi” (GPT-6 Luna).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'application_screening'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -689,6 +691,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_followup_signal'",
     # 0399: odpowiedź na notatkę — powiadomienie autora notatki głównej.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'note_reply'",
+    # 0404: dzienny skrót zgłoszeń odrzuconych przez AI (do prowadzącego).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'application_screening_digest'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -830,6 +834,16 @@ except Exception as _plain_err:  # noqa: BLE001
     print(f"plain knowledge DDL unavailable: {_plain_err!r}")
     _PLAIN_KNOWLEDGE_DDL = []
 
+# Ocena zgłoszeń z linku rekrutacji przez AI (migracja 0404) — JEDNO źródło
+# z migracją (`app/services/application_screening_schema.py`).
+try:
+    from app.services import application_screening_schema as _app_screening
+
+    _APPLICATION_SCREENING_DDL = list(_app_screening.TABLE_DDL)
+except Exception as _app_screening_err:  # noqa: BLE001
+    print(f"application screening DDL unavailable: {_app_screening_err!r}")
+    _APPLICATION_SCREENING_DDL = []
+
 # Dokumenty kontraktów z SharePointa (migracja 0402, ticket 9): przebiegi
 # pierwszego pobrania, stan plików synchronizacji i kolumny `contract_documents`
 # — JEDNO źródło z migracją (`app/services/contract_folder_docs/schema_sql.py`).
@@ -844,6 +858,7 @@ except Exception as _contract_docs_sp_err:  # noqa: BLE001
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
     *_PLAIN_KNOWLEDGE_DDL,
+    *_APPLICATION_SCREENING_DDL,
     *_B2B_DOCUMENTS_DDL,
     *_B2B_REGISTER_DDL,
     *_CONTRACT_DOCS_SP_DDL,
@@ -6439,6 +6454,11 @@ _DATA_STATEMENTS = [
     "SELECT 'plain_knowledge_research', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'plain_knowledge_research')",
+    # 0404: seed feature'a AI `application_screening` (przegląd zgłoszeń).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'application_screening', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'application_screening')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

@@ -66,6 +66,7 @@ from app.services.career_consent import (
     CONSENT_TEXT_VERSION,
     consent_given,
 )
+from app.services.application_screening import record_pending, screening_applies
 
 logger = logging.getLogger(__name__)
 
@@ -286,6 +287,12 @@ async def submit_application(
         select(Candidate).where(func.lower(Candidate.email) == normalized_email)
     )
 
+    # 0404: zgłoszenie z linku rekrutacji czeka na przegląd AI w tle — proces
+    # w „Nowi” i dzwonek dla właściciela linku dopiero po decyzji pętli
+    # `application_screening`. Stały link rekrutera i wyłączona flaga — jak
+    # dotąd.
+    screening = screening_applies(link)
+
     if existing is not None:
         existing_id = existing.id
         blacklisted = existing.status == CandidateStatus.blacklisted
@@ -297,19 +304,21 @@ async def submit_application(
             content=content,
             existing=existing,
             blacklisted=blacklisted,
+            screening=screening,
         )
         await db.commit()
-        await _notify_owner(
-            db,
-            link=link,
-            applicant=applicant,
-            related_entity_type="candidate",
-            related_entity_id=existing_id,
-            target=f"/candidates/{existing_id}",
-            duplicate=True,
-            blacklisted=blacklisted,
-            blocked_reason=blocked_reason,
-        )
+        if not screening:
+            await _notify_owner(
+                db,
+                link=link,
+                applicant=applicant,
+                related_entity_type="candidate",
+                related_entity_id=existing_id,
+                target=f"/candidates/{existing_id}",
+                duplicate=True,
+                blacklisted=blacklisted,
+                blocked_reason=blocked_reason,
+            )
         await _confirm_to_applicant(
             db,
             ref=ref,
@@ -320,20 +329,21 @@ async def submit_application(
         return {"ok": True, "status": "received"}
 
     candidate = await _create_candidate(
-        db, ref=ref, applicant=applicant, cv=cv, content=content
+        db, ref=ref, applicant=applicant, cv=cv, content=content, screening=screening
     )
     await db.commit()
     candidate_id = candidate.id
 
-    await _notify_owner(
-        db,
-        link=link,
-        applicant=applicant,
-        related_entity_type="candidate",
-        related_entity_id=candidate_id,
-        target=f"/candidates/{candidate_id}",
-        duplicate=False,
-    )
+    if not screening:
+        await _notify_owner(
+            db,
+            link=link,
+            applicant=applicant,
+            related_entity_type="candidate",
+            related_entity_id=candidate_id,
+            target=f"/candidates/{candidate_id}",
+            duplicate=False,
+        )
 
     await _confirm_to_applicant(
         db,
@@ -383,8 +393,18 @@ async def _record_duplicate_application(
     content: bytes,
     existing: Candidate,
     blacklisted: bool,
+    screening: bool = False,
 ) -> tuple[int, Optional[str]]:
-    """Zwraca (id zgłoszenia, powód nieotwarcia procesu albo ``None``)."""
+    """Zwraca (id zgłoszenia, powód nieotwarcia procesu albo ``None``).
+
+    ``screening`` (0404): link rekrutacji przy włączonym przeglądzie AI —
+    zamiast procesu wiersz ``application_screenings`` (``pending``); bramki
+    twarde (czarna lista, weto HM) sprawdza pętla przy decyzji.
+    """
+    from app.models.candidate_source_event import (
+        CandidateSourceEvent,
+        SourceChannel,
+    )
     from app.api import public_share
     from app.api.application_submissions import (
         _attach_cv_as_document,
@@ -450,7 +470,20 @@ async def _record_duplicate_application(
     await _attach_cv_as_document(db, existing.id, submission)
     opened_stage = None
     blocked_reason: Optional[str] = None
-    if not blacklisted:
+    if screening:
+        record_pending(
+            db,
+            candidate_id=existing.id,
+            job_id=link.job_id,
+            submission_id=submission.id,
+            cv_text=raw_text,
+            link=link,
+            via=ref.via,
+            first_name=applicant.first_name,
+            last_name=applicant.last_name,
+            utm_source=applicant.utm.get("source"),
+        )
+    elif not blacklisted:
         if link.job_id is not None:
             # Audyt 22.09 r2 (CAND-01): weto hiring managera tej rekrutacji
             # (ta sama bramka co przypisanie) — CV zostaje przy profilu, proces
@@ -504,7 +537,22 @@ async def _record_duplicate_application(
                 "process_opened": opened_stage is not None,
                 "blacklisted": blacklisted,
                 "process_blocked": blocked_reason is not None,
+                "screening": "pending" if screening else None,
             },
+        )
+    )
+    # Źródło także dla osoby już w bazie (0404) — raport źródeł ma widzieć
+    # kanał (UTM) każdego zgłoszenia, nie tylko pierwszego.
+    db.add(
+        CandidateSourceEvent(
+            candidate_id=existing.id,
+            channel=SourceChannel.posting,
+            job_id=link.job_id,
+            utm_source=applicant.utm.get("source"),
+            utm_medium=applicant.utm.get("medium"),
+            utm_campaign=applicant.utm.get("campaign"),
+            utm_term=applicant.utm.get("term"),
+            utm_content=applicant.utm.get("content"),
         )
     )
     link.use_count += 1
@@ -519,6 +567,7 @@ async def _create_candidate(
     applicant: ApplicantInput,
     cv: UploadFile,
     content: bytes,
+    screening: bool = False,
 ) -> Candidate:
     from app.api import public_share
     from app.models.candidate_source_event import (
@@ -575,7 +624,7 @@ async def _create_candidate(
         )
     db.add(_consent_row(ref, candidate_id=candidate.id))
 
-    stored_filename, _raw_text = await public_share._persist_cv(
+    stored_filename, raw_text = await public_share._persist_cv(
         candidate.id, cv, content
     )
     db.add(
@@ -594,7 +643,21 @@ async def _create_candidate(
     )
     await db.flush()
 
-    if link.job_id is not None:
+    if screening:
+        # 0404: proces otworzy pętla przeglądu AI po odczycie CV.
+        record_pending(
+            db,
+            candidate_id=candidate.id,
+            job_id=link.job_id,
+            submission_id=None,
+            cv_text=raw_text,
+            link=link,
+            via=ref.via,
+            first_name=applicant.first_name,
+            last_name=applicant.last_name,
+            utm_source=applicant.utm.get("source"),
+        )
+    elif link.job_id is not None:
         stage_exists = await db.scalar(
             select(CandidateStage).where(
                 CandidateStage.candidate_id == candidate.id,
@@ -648,6 +711,7 @@ async def _create_candidate(
                 "link_kind": link.kind,
                 "via": ref.via,
                 "was_duplicate": False,
+                "screening": "pending" if screening else None,
             },
         )
     )
@@ -694,6 +758,7 @@ async def _notify_owner(
     duplicate: bool,
     blacklisted: bool = False,
     blocked_reason: Optional[str] = None,
+    extra: Optional[str] = None,
 ) -> None:
     """Dzwonek dla właściciela linku. Po commicie, nigdy nie rzuca.
 
@@ -741,6 +806,8 @@ async def _notify_owner(
                 " Ta osoba była już w bazie — nowe CV dołączono do jej profilu "
                 "jako dodatkowy dokument, dane profilu bez zmian."
             )
+        if extra:
+            message += extra
         for recipient_id in recipients:
             await emit(
                 db,

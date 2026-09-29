@@ -1275,6 +1275,42 @@ ACADEMY_SCREENING = PromptTemplate(
 )
 
 
+APPLICATION_SCREENING = PromptTemplate(
+    name="application_screening",
+    version=1,
+    expected_format="json",
+    system_prompt=(
+        "Czytasz CV osoby, która sama zgłosiła się na ogłoszenie rekrutacji IT. "
+        "Oceniasz WYŁĄCZNIE związek jej doświadczenia zawodowego i umiejętności "
+        "z opisaną rolą: czy pracowała w podobnej roli, z wymaganymi "
+        "technologiami, na podobnym poziomie. "
+        "ZAKAZY: nie wnioskuj niczego z imienia, nazwiska, wieku, płci, "
+        "narodowości, miejsca urodzenia, zdjęcia ani wyglądu — tych danych nie "
+        "bierzesz pod uwagę wcale. Nie oceniasz stawki ani lokalizacji. "
+        "Każdy powód musi mieć DOSŁOWNY cytat z CV (skopiuj fragment dokładnie "
+        "tak, jak jest w CV); powód bez cytatu zostanie odrzucony. Brak czegoś "
+        "w CV opisz zdaniem i zacytuj to, co CV mówi w zamian (np. ostatnie "
+        "stanowisko). "
+        "Werdykt: 'fits' — doświadczenie wyraźnie pasuje do roli; 'not_fit' — "
+        "CV pokazuje doświadczenie z zupełnie innej dziedziny albo brak "
+        "doświadczenia w tej roli; 'unclear' — w każdym innym przypadku, także "
+        "gdy CV jest krótkie albo niejasne. W razie wątpliwości wybierz "
+        "'unclear'. Zdania po polsku. Odpowiadasz wyłącznie JSON-em."
+    ),
+    template=(
+        "{job}\n\n{cv}\n\n"
+        "Zwróć JSON dokładnie w tym kształcie:\n"
+        "{{\n"
+        '  "verdict": "fits|unclear|not_fit",\n'
+        '  "reasons": [\n'
+        '    {{"text": "jedno zdanie po polsku", "quote": "dosłowny cytat z CV"}}\n'
+        "  ]\n"
+        "}}\n\n"
+        "Najwyżej 4 powody, najważniejsze pierwsze."
+    ),
+)
+
+
 LEGACY_INTERVIEW_QUESTIONS = PromptTemplate(
     name="legacy_interview_questions",
     version=1,
@@ -1336,5 +1372,6 @@ ALL_TEMPLATES: dict[str, PromptTemplate] = {
         SCREENING_REASSIGN_SUGGEST,
         ACADEMY_SCREENING,
         LEGACY_INTERVIEW_QUESTIONS,
+        APPLICATION_SCREENING,
     )
 }

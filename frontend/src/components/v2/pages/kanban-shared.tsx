@@ -126,6 +126,17 @@ export interface KanbanItem {
   must_hit: string[];
   must_total: number | null;
  } | null;
+ /**
+  * 0404: przegląd AI zgłoszenia z linku rekrutacji — plakietka „AI: pasuje”,
+  * „AI: do sprawdzenia”, „AI nie oceniło”; `null` = wejście bez przeglądu.
+  */
+ entry_ai_screening?: {
+  verdict: "fits" | "unclear" | "not_fit";
+  assessed: boolean;
+  must_found: number | null;
+  must_total: number | null;
+  overridden: boolean;
+ } | null;
  reassign_from_job_id?: number | null;
  reassign_from_title?: string | null;
  /** Numer rekrutacji źródłowej („ZOB-1725”) — odznaka „↻ z …”. */
