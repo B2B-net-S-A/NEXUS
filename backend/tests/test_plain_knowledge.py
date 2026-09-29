@@ -808,3 +808,11 @@ def test_repo_seed_files_are_complete_and_clean() -> None:
     # Kwoty w tekstach („150 zł”, „20 000 PLN”); tytuły źródeł bywają cennikami
     # egzaminów, a „zł” w środku słowa („przyszłości”) to nie kwota.
     assert not re.search(r"\d[\d\s]*(?:zł|pln)\b", blob, re.IGNORECASE)
+
+
+def test_glossary_keeps_lowercase_tools_described_in_the_repo_seed() -> None:
+    from app.services.plain_knowledge.knowledge import researchable_term
+
+    assert researchable_term("pytest")
+    assert researchable_term("npm")
+    assert not researchable_term("bankowość")
