@@ -57,6 +57,7 @@ from app.services.contract_folder_docs.store import (
     FROM_SHAREPOINT,
     SOURCE_SYNC,
     attach_file,
+    sha256_hex,
 )
 from app.services.m365 import sharepoint_docs as sp
 from app.services.m365.graph_client import GraphRequestError
@@ -476,6 +477,12 @@ async def _push_one(
     if match.folder is not None and match.folder.item_id:
         folder_id = match.folder.item_id
     else:
+        prospective = Folder.of(folder_display_name(first, last))
+        candidates = folder_candidates(await load_contract_people(db), [prospective])
+        if candidate_id is None or candidates.get(prospective.name, set()) - {
+            candidate_id
+        }:
+            return skip(PUSH_SKIP_SAME_NAME)
         created = await sp.ensure_person_folder(
             client, drive_id, root_id, folder_display_name(first, last)
         )
@@ -487,9 +494,13 @@ async def _push_one(
     except (FileNotFoundError, OSError):
         return skip("Brak pliku dokumentu na serwerze NEXUSA.")
 
-    # Ten sam plik (nazwa i rozmiar) już leży w folderze osoby — tylko łączymy.
+    # Nazwa i rozmiar zawężają porównanie, ale dopiero treść potwierdza kopię.
+    digest = sha256_hex(content)
     for existing in files_by_folder.get(folder_id, []):
         if existing.item.name == doc.filename and existing.item.size == len(content):
+            existing_content = await sp.download(client, drive_id, existing.item.id)
+            if sha256_hex(existing_content) != digest:
+                continue
             await _mark_pushed(db, doc, existing.item, drive_id)
             stats.pushed += 1
             return None

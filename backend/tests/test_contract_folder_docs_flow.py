@@ -405,6 +405,87 @@ async def test_push_skips_a_folder_shared_by_two_people_of_the_same_name(monkeyp
     assert fake.uploads == []
 
 
+async def test_push_does_not_create_a_shared_folder_for_two_people(monkeypatch):
+    fake = FakeSharePoint()
+    fake.install(monkeypatch)
+    tag = _tag()
+    (contract_id,) = await _seed_person("Jan", tag)
+    await _seed_person("Jan", tag)
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        doc = ContractDocument(
+            contract_id=contract_id, filename="x.pdf", file_path="nie/ma.pdf"
+        )
+        stats = sync.SyncStats()
+        await sync._push_one(
+            db,
+            None,
+            DRIVE,
+            ROOT,
+            doc,
+            "Jan",
+            tag,
+            [],
+            {},
+            stats,
+            candidate_id=contract.candidate_id,
+        )
+    assert doc.sharepoint_push_status == "skipped"
+    assert doc.sharepoint_push_error == sync.PUSH_SKIP_SAME_NAME
+    assert fake.folders == {}
+    assert fake.uploads == []
+
+
+@pytest.mark.parametrize("same_content", [True, False])
+async def test_push_compares_content_before_linking_same_name_and_size(
+    monkeypatch, same_content
+):
+    import io
+
+    from app.services import storage_service
+
+    fake = FakeSharePoint()
+    fake.install(monkeypatch)
+    tag = _tag()
+    (contract_id,) = await _seed_person("Jan", tag)
+    folder = fake.add_folder(f"{tag} Jan")
+    local_content = b"local document"
+    remote_content = local_content if same_content else b"other document"
+    assert len(local_content) == len(remote_content)
+    item_id = fake.add_file(folder.name, "umowa.pdf", remote_content)
+    path, size = storage_service.save_contract_document(
+        contract_id, "umowa.pdf", io.BytesIO(local_content)
+    )
+    async with AsyncSessionLocal() as db:
+        doc = ContractDocument(
+            contract_id=contract_id,
+            filename="umowa.pdf",
+            file_path=path,
+            size_bytes=size,
+            source="upload",
+        )
+        db.add(doc)
+        await db.flush()
+        stats = sync.SyncStats()
+        await sync._push_one(
+            db,
+            None,
+            DRIVE,
+            ROOT,
+            doc,
+            "Jan",
+            tag,
+            [Folder.of(folder.name, folder.id)],
+            {folder.id: fake.files},
+            stats,
+        )
+        await db.commit()
+        assert doc.sharepoint_push_status == "done"
+        assert (doc.sharepoint_item_id == item_id) is same_content
+    assert len(fake.uploads) == (0 if same_content else 1)
+    assert fake.content[item_id] == remote_content
+
+
 async def test_filip_jablonski_is_never_pushed(monkeypatch):
     fake = FakeSharePoint()
     fake.install(monkeypatch)
