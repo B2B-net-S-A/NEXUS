@@ -823,8 +823,10 @@ def test_seed_drops_sources_with_key_shaped_urls() -> None:
     from scripts.build_plain_knowledge import client_source_filter
 
     keep = client_source_filter({"clients": []})
+    # Składane w teście — dosłowny UUID w repo zapaliłby tę samą regułę gitleaks.
+    job_id = "-".join(["54f04000", "1111", "2222", "3333", "444455556666"])
     sources = [
-        {"url": "https://www.dice.com/job-detail/54f04000-1111-2222-3333-444455556666"},
+        {"url": f"https://www.dice.com/job-detail/{job_id}"},
         {"url": "https://example.org/devops"},
     ]
     assert keep(sources) == [{"url": "https://example.org/devops"}]
