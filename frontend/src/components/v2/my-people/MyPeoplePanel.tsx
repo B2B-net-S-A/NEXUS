@@ -48,6 +48,7 @@ import {
   PeopleListView,
   type RowActions,
 } from "./MyPeopleViews";
+import { shouldCloseOnEscape } from "@/lib/panel-escape";
 
 type PanelTab = "all" | "job" | "move";
 
@@ -66,12 +67,7 @@ export function contextFromPath(pathname: string | null): {
   };
 }
 
-/** Escape zamyka panel — chyba że klawisz należy do otwartego okna albo menu. */
-export function shouldCloseOnEscape(e: KeyboardEvent): boolean {
-  if (e.key !== "Escape" || e.defaultPrevented) return false;
-  if (typeof document === "undefined") return true;
-  return !document.querySelector('[role="dialog"],[role="alertdialog"],[role="menu"]');
-}
+export { shouldCloseOnEscape };
 
 function WhereToMove({ candidateId }: { candidateId: number }) {
   const query = useQuery({
