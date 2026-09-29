@@ -9,6 +9,9 @@ import {
   briefHasContent,
   normalizePlainBrief,
   plainBriefQueryKey,
+  RESEARCH_POLL_LIMIT,
+  RESEARCH_POLL_MS,
+  researchPollInterval,
   plainTermsQueryKey,
   shouldAutoRefresh,
 } from "@/lib/api/plainKnowledge";
@@ -60,5 +63,24 @@ describe("normalizePlainBrief", () => {
     expect(brief?.candidate_qa).toEqual([]);
     expect(brief?.glossary).toEqual([]);
     expect(briefHasContent(brief)).toBe(false);
+  });
+});
+
+describe("researchPollInterval", () => {
+  const brief = (status: string) =>
+    normalizePlainBrief({
+      job_id: 1,
+      status: "ready",
+      glossary: [{ term_key: "kafka", display_name: "Kafka", status }],
+    });
+
+  it("dociąga widok, dopóki hasło jest w researchu", () => {
+    expect(researchPollInterval(brief("researching"), 0)).toBe(RESEARCH_POLL_MS);
+    expect(researchPollInterval(brief("ready"), 0)).toBe(false);
+    expect(researchPollInterval(brief("missing"), 0)).toBe(false);
+  });
+
+  it("przestaje po limicie, żeby hasło, które utknęło, nie odpytywało bez końca", () => {
+    expect(researchPollInterval(brief("researching"), RESEARCH_POLL_LIMIT)).toBe(false);
   });
 });

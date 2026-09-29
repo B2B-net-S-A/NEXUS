@@ -1756,9 +1756,13 @@ blok „Po ludzku” na górze Podglądu Championa i „Ściąga do rozmowy” w
   `screening_questions` (bez nowych warunków; brak deal breakera = brak „Odpada”).
 - **GET nic nie zapisuje** i nie woła AI; `stale` mówi, że profil zmienił się od
   generacji. Odświeża `POST …/plain-brief/refresh` (osobny moduł z limitem
-  10/min, w `READ_ONLY_POST_ROUTE_TEMPLATES`, 403 w „podglądzie jako”): najwyżej
-  3 researche w żądaniu, reszta `spawn` w tle. Front woła go sam tylko dla
-  otwartych rekrutacji. Nie dokładaj haka w zapis Championa — `stale` obejmuje
+  10/min, w `READ_ONLY_POST_ROUTE_TEMPLATES`, 403 w „podglądzie jako”): w żądaniu
+  tylko research nowej roli i brakującego opisu klienta (zmieniają teksty), hasła
+  słowniczka są od razu zajmowane („Szukam opisu…”) i badane w tle — pomiar
+  29.09: trzy researche w żądaniu + teksty = 99 s przy limicie frontu 120 s. Front
+  woła odświeżenie sam tylko dla otwartych rekrutacji i dociąga widok co 10 s,
+  dopóki hasło jest w researchu (najwyżej 30 razy). Nazwa nowej roli bez poziomu,
+  nawiasów i prefiksu klienta przed dwukropkiem (`role_matcher.clean_role_name`). Nie dokładaj haka w zapis Championa — `stale` obejmuje
   każdą ścieżkę zapisu profilu.
 - **Stawka i nazwa klienta idą do kandydata od razu; statystyki roli BEZ stawek**
   (liczba rekrutacji, klientów, zatrudnień, stanowiska zatrudnionych od 3

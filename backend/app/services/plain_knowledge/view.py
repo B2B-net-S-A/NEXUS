@@ -3,8 +3,8 @@
 ``build_view`` tylko czyta (GET nic nie zapisuje i nie woła AI) i mówi przez
 ``stale``, czy profil zmienił się od ostatniej generacji. ``refresh`` robi
 resztę: dopasowuje rolę, uzupełnia brakujące hasła słowniczka, rolę i opis
-klienta researchem (najwyżej ``REQUEST_RESEARCH_BUDGET`` w żądaniu, reszta
-w tle) i liczy teksty rekrutacji.
+klienta researchem (rola i opis klienta w żądaniu, hasła słowniczka w tle)
+i liczy teksty rekrutacji.
 """
 
 from __future__ import annotations
@@ -24,7 +24,6 @@ from app.services.plain_knowledge import job_brief, knowledge, role_matcher
 
 logger = logging.getLogger(__name__)
 
-REQUEST_RESEARCH_BUDGET = 3
 MIN_HIRES_FOR_TITLES = 3
 
 
@@ -300,11 +299,16 @@ async def _research_role(
 
 
 async def _research_term(
-    db: AsyncSession, key: str, display: str, user_id: Optional[int]
+    db: AsyncSession,
+    key: str,
+    display: str,
+    user_id: Optional[int],
+    *,
+    claimed: bool = False,
 ) -> None:
     from app.services.plain_knowledge.research import research
 
-    if await knowledge.claim_term(db, key, display):
+    if claimed or await knowledge.claim_term(db, key, display):
         result = await research(db, "term", display, user_id=user_id)
         await knowledge.finish_term(db, key, result)
 
@@ -321,7 +325,7 @@ async def _run_research(
             if kind == "role":
                 await _research_role(db, job_id, payload, user_id)
             elif kind == "term":
-                await _research_term(db, payload[0], payload[1], user_id)
+                await _research_term(db, payload[0], payload[1], user_id, claimed=True)
             elif kind == "client" and client is not None:
                 await knowledge.fill_client_about(
                     db, client[0], client[1], user_id=user_id
@@ -333,24 +337,26 @@ async def _run_research(
             )
 
 
-async def _background(
-    job_id: int,
-    tasks: list[tuple[str, Any]],
-    client: Optional[tuple[int, str]],
-    user_id: Optional[int],
+async def _background_terms(
+    job_id: int, terms: list[tuple[str, str]], user_id: Optional[int]
 ) -> None:
+    """Hasła słowniczka w tle — nie wpływają na teksty rekrutacji, więc bez
+    ponownej generacji; ekran dociąga je sam, dopóki hasło jest „researching”."""
     from app.core.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
-        await _run_research(db, tasks, job_id, client, user_id)
-        job = await db.get(Job, job_id)
-        if job is not None:
-            inputs, *_ = await current_inputs(db, job)
-            await job_brief.generate(db, job, inputs, user_id=user_id)
+        await _run_research(db, [("term", t) for t in terms], job_id, None, user_id)
 
 
 async def refresh(db: AsyncSession, job_id: int, *, user_id: Optional[int]) -> None:
-    """Uzupełnia wiedzę i liczy teksty. Nie rzuca z powodu AI."""
+    """Uzupełnia wiedzę i liczy teksty. Nie rzuca z powodu AI.
+
+    W żądaniu idzie tylko research tego, co zmienia teksty rekrutacji: nowa rola
+    i brakujący opis klienta (zwykle nic — baza startowa je ma). Hasła
+    słowniczka są od razu zajmowane (``researching`` = „Szukam opisu…”)
+    i badane w tle. Pomiar 29.09 na produkcji: trzy researche w żądaniu
+    + teksty = 99 s przy limicie frontu 120 s.
+    """
     from app.core.tasks import spawn
     from app.services.plain_knowledge.research import enabled
 
@@ -359,27 +365,31 @@ async def refresh(db: AsyncSession, job_id: int, *, user_id: Optional[int]) -> N
         return
     _role_id, new_role = await assign_role(db, job)
     job = await db.get(Job, job_id, populate_existing=True)
-    tasks: list[tuple[str, Any]] = []
-    if new_role is not None:
-        tasks.append(("role", new_role))
     entries = job_brief.job_terms(job)
-    rows = await knowledge.terms_by_key(db, [e["term_key"] for e in entries])
-    for entry in entries:
-        if knowledge.needs_research(rows.get(entry["term_key"])):
-            tasks.append(("term", (entry["term_key"], entry["display_name"])))
     client, playbook = await _client_and_playbook(db, job.client_id)
     client_ref = (client.id, _client_name(client)) if _client_usable(client) else None
-    if client_ref and knowledge.client_about_missing(playbook):
-        tasks.append(("client", None))
-
-    if tasks and enabled():
-        now, later = tasks[:REQUEST_RESEARCH_BUDGET], tasks[REQUEST_RESEARCH_BUDGET:]
-        await _run_research(db, now, job_id, client_ref, user_id)
-        if later:
+    if enabled():
+        now: list[tuple[str, Any]] = []
+        if new_role is not None:
+            now.append(("role", new_role))
+        if client_ref and knowledge.client_about_missing(playbook):
+            now.append(("client", None))
+        rows = await knowledge.terms_by_key(db, [e["term_key"] for e in entries])
+        claimed: list[tuple[str, str]] = []
+        for entry in entries:
+            if knowledge.needs_research(
+                rows.get(entry["term_key"])
+            ) and await knowledge.claim_term(
+                db, entry["term_key"], entry["display_name"]
+            ):
+                claimed.append((entry["term_key"], entry["display_name"]))
+        if claimed:
             spawn(
-                _background(job_id, later, client_ref, user_id),
+                _background_terms(job_id, claimed, user_id),
                 label=f"plain_knowledge:{job_id}",
             )
+        if now:
+            await _run_research(db, now, job_id, client_ref, user_id)
     job = await db.get(Job, job_id, populate_existing=True)
     if job is None:
         return
