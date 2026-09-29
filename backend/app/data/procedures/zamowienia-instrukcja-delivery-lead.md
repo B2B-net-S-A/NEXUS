@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 28.09.2026
+> **Zgodność z systemem sprawdzona:** 29.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -1928,6 +1928,10 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   przeliczono na stawkę godzinową (÷ 8)". W zamówieniu z maila tak samo
   przeliczana jest stawka przy **osobie** odczytanej z dokumentu, a „Przelicz
   plan” stosuje regułę ponownie (bez dzielenia drugi raz).
+* **Zamówienie z maila zapisuje się samo**, gdy osoba spod „Imię i nazwisko”
+  i stawka ze wzoru „<stawka>*1,23*<liczba MD>” zgadzają się z odczytem
+  dokumentu. Do weryfikacji trafia tylko wtedy, gdy czegoś brakuje albo coś
+  się nie zgadza (inna stawka, inna osoba, brak wzoru w dokumencie).
 * **Jeżeli przeliczona stawka wypadnie poniżej 80 zł/h albo powyżej 300 zł/h**,
   w banerze pojawi się ostrzeżenie o nietypowej stawce. To sygnał, że w dokumencie
   odczytano prawdopodobnie inną liczbę niż stawkę — sprawdź, zanim zapiszesz.

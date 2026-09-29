@@ -868,6 +868,91 @@ class TestBankPocztowyLayout:
         assert ruled.consultant_rows[0].rate_client_gross is None
 
 
+# Układ z produkcji (29.09.2026): kilkuwyrazowy profil przed nazwiskiem.
+BP_LONG_PROFILE = """Zamówienie nr 248/2031
+Sporządził: Numer pisma 248/2031/ZAM/B2B
+Profil Specjalisty (Stanowisko) Imię i nazwisko
+Programista Power Platform Jan Testowy
+Maksymalna kwota zamówienia nie może przekroczyć: 1160*1,23*63 = 89 888,40 PLN
+Termin rozpoczęcia Planowany termin zakończenia Miejsce świadczenia usług
+01.10.2031 31.12.2031
+"""
+
+
+class TestBankPocztowyRowEvidence:
+    """Zgłoszenie 29.09.2026: każdy dokument BP szedł do weryfikacji.
+
+    Wiersz z tabeli (dowód bramki) nie niósł stawki, a profil dłuższy niż dwa
+    wyrazy oznaczał nazwisko jako niepewne — bramka zgłaszała „niepewny odczyt
+    wiersza" i „stawka nie zgadza się z polem PDF" przy poprawnym odczycie.
+    """
+
+    @staticmethod
+    def _model_read(text: str, rate: str = "1160") -> OrderExtraction:
+        result = OrderExtraction(
+            source="claude",
+            rate_client=Decimal(rate),
+            rate_unit="day",
+            consultant_rows=[
+                ConsultantOrderRow(
+                    consultant_name="Testowy Jan",
+                    rate_client=Decimal(rate),
+                    rate_unit="day",
+                    uncertain=False,
+                )
+            ],
+        )
+        policy = policy_by_key("bank_pocztowy")
+        ruled, _ = apply_policies(result, PolicyContext(document_text=text), [policy])
+        return ruled
+
+    def test_table_row_carries_the_formula_rate_and_a_certain_name(self):
+        (row,) = bank_pocztowy.extract_rows(BP_LONG_PROFILE)
+        assert row.consultant_name == "Jan Testowy"
+        assert (row.rate_client, row.rate_unit) == (Decimal("145.00"), "hour")
+        assert row.uncertain is False
+
+    def test_correct_read_passes_the_row_evidence_check(self):
+        from app.services.order_mail_gate import _row_evidence_reasons
+
+        ruled = self._model_read(BP_LONG_PROFILE)
+        evidence = tuple(bank_pocztowy.extract_rows(BP_LONG_PROFILE))
+        assert _row_evidence_reasons(ruled.consultant_rows, evidence) == []
+
+    def test_model_rate_different_from_the_formula_still_goes_to_review(self):
+        from app.services.order_mail_gate import (
+            CODE_ROW_EVIDENCE_RATE,
+            _row_evidence_reasons,
+        )
+
+        ruled = self._model_read(BP_LONG_PROFILE, rate="1200")
+        evidence = tuple(bank_pocztowy.extract_rows(BP_LONG_PROFILE))
+        codes = [c for c, _ in _row_evidence_reasons(ruled.consultant_rows, evidence)]
+        assert codes == [CODE_ROW_EVIDENCE_RATE]
+
+    def test_document_without_the_formula_has_no_rate_evidence(self):
+        from app.services.order_mail_gate import (
+            CODE_ROW_EVIDENCE_UNCERTAIN,
+            _row_evidence_reasons,
+        )
+
+        text = BP_LONG_PROFILE.replace("*1,23*63 = 89 888,40", " zł netto za MD")
+        (row,) = bank_pocztowy.extract_rows(text)
+        assert row.rate_client is None
+        ruled = self._model_read(text)
+        codes = [c for c, _ in _row_evidence_reasons(ruled.consultant_rows, (row,))]
+        assert CODE_ROW_EVIDENCE_UNCERTAIN in codes
+
+    @pytest.mark.parametrize(
+        "line",
+        ["Programista Java jan testowy", "Kierownik projektu 12345", "Jan"],
+    )
+    def test_name_that_does_not_look_like_a_name_stays_uncertain(self, line):
+        text = BP_LONG_PROFILE.replace("Programista Power Platform Jan Testowy", line)
+        name, uncertain = bank_pocztowy.consultant_name(text)
+        assert uncertain is True
+
+
 CA = """Zamówienie nr 26138 z dnia 2031-08-12 do Umowy Ramowej nr CA/B2B.NET/short/kwalif/2031
 Wynagrodzenie
 Poziom Szacowana
