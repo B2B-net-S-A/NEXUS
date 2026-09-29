@@ -151,6 +151,10 @@ regexes = [
   # They select the approved application and are not bearer credentials.
   '''e277180c-b58a-418c-b362-bb89ab0b1301''',
   '''b6051b61-559e-4482-841e-0cc8869a4e2e''',
+  # Public identifiers of the isolated contract-docs app and selected site.
+  # Exact complete assignments only, not a file/path exemption.
+  '''^CLIENT = "2a905946-22c8-4cb2-a100-22f4f1952075"$''',
+  '''^SITE = "b2bnetsa\.sharepoint\.com,62a80b82-17bf-4d58-9709-34dfe364feb9,8fbefbc4-4ee5-4c9f-a011-6bda02296f09"$''',
   # Fikcyjne GUID-y tenanta z testu callbacku M365 (runda 4 audytu, 25.09.2026) —
   # zostały w historii gałęzi PR #1844, a skan PR-a obejmuje cały zakres commitów.
   '''[19]{8}-2222-3333-4444-555555555555''',
