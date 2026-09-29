@@ -184,6 +184,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/contact-queue",
     "/preview/order-consultant-picker",
     "/preview/order-tile",
+    "/preview/client-orders",
     "/preview/contracts-consolidation",
     "/preview/procedure-help",
     "/preview/client-playbook",
@@ -250,10 +251,12 @@ describe("linki publiczne działają bez tokenu", () => {
     // Picker konsultanta — harness renderuje prawdziwy komponent, ale z cache
     // react-query zasianym z góry, więc nie woła API (warunek wejścia tutaj).
     expect(destination("/preview/order-consultant-picker")).toBe("pass")
-    // Kafelek zamówienia — `ContractorOrderCards` nie ma ani jednego
-    // `useQuery` (tylko mutacje, odpalane kliknięciem), więc harness
-    // renderuje produkcyjny komponent bez jednego żądania.
+    // Kontraktor z zamówieniem — `ContractorOrderPanel` nie ma ani jednego
+    // `useQuery` przy wejściu (tylko mutacje, odpalane kliknięciem), więc
+    // harness renderuje produkcyjny komponent bez jednego żądania.
     expect(destination("/preview/order-tile")).toBe("pass")
+    // Cała zakładka „Zamówienia” klienta — zasiany cache, sieć odcięta.
+    expect(destination("/preview/client-orders")).toBe("pass")
     // Treść procedury z modułu Pomoc — sam `ProcedureContent` z mockiem,
     // bez sesji i bez API.
     expect(destination("/preview/procedure-help")).toBe("pass")

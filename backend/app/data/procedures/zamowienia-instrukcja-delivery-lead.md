@@ -25,15 +25,31 @@ zamówienia, w stałej kolejności od góry: **MD**, **Kosztowe**, **Okresowe**
 (z liczbą pozycji w nawiasie). **Sekcja bez ani jednej pozycji w ogóle się nie
 pokazuje**, więc u większości klientów zobaczysz tylko jedną albo dwie.
 
-Sekcja **Okresowe** zawiera wyłącznie karty pojedynczych osób. Sekcje **MD**
-i **Kosztowe** bywają mieszane: obok kart zamówień zbiorczych (z listą
-konsultantów) potrafią stać karty pojedynczych osób, których zamówienie ma taki
-typ.
+Każda sekcja to **tabela**. W sekcji **Okresowe** jeden wiersz to jedna osoba
+(numer zamówienia, okres, stawki i stan). W sekcjach **MD** i **Kosztowe**
+najpierw stoi szary wiersz **zamówienia** (numer, okres, pozostały budżet,
+uwagi), pod nim wiersze jego **konsultantów**, niżej zwijany wiersz
+**„Zakończone (N)"** i wiersze **przyszłych zamówień**. Obok zamówień
+zbiorczych potrafią tam stać wiersze pojedynczych osób, których zamówienie ma
+taki typ.
+
+**Kliknij wiersz, a po prawej otworzy się panel** ze wszystkimi szczegółami
+i akcjami tego wiersza — zamówienia, osoby na zamówieniu albo osoby
+z zamówieniem okresowym. Przyciski, które dawniej stały pod kartami, są teraz
+w stopce panelu, a rzadsze w menu **„⋯"**. Okna, które otwierają, są takie
+same jak wcześniej. Na dużym monitorze panel stoi obok tabeli, na laptopie
+nasuwa się na jej prawą część. **Esc** zamyka panel, strzałki **↑ ↓**
+przechodzą do sąsiedniego wiersza. Otwarty panel jest zapisany w adresie
+strony, więc odświeżenie i link z powiadomienia pokazują ten sam wiersz.
 
 Nad listą masz:
 
-* siedem filtrów z licznikami: **Wszystkie**, **Aktywne**, **⚠️ Bez kontynuacji 30d**,
-  **Zakończeni**, **Wyczerpane**, **Anulowane**, **📝 Draft (do uzupełnienia)**.
+* filtry z licznikami: **Wszystkie**, **Aktywne**, **Bez kontynuacji 30 dni**,
+  **Zakończeni**, **Wyczerpane**, **Anulowane**, **Draft** (szkice do uzupełnienia)
+  oraz — tylko gdy coś czeka — czerwony **Wymaga decyzji** (zamówienia MD
+  i kosztowe z osobą, o której trzeba zdecydować po zakończeniu współpracy).
+  Obok stoi lista **Typ zamówienia** (wszystkie / MD / Kosztowe / Okresowe);
+  eksport do Excela bierze pod uwagę także ten wybór.
   **O tym, kto jest w „Zakończonych", decyduje wyłącznie umowa z modułu
   Kontrakty** — jej status i data zakończenia — nigdy sam upływ okresu
   zamówienia. Osoba z datą końca umowy 30.09 jest w „Aktywnych" do 30.09
@@ -43,7 +59,7 @@ Nad listą masz:
   Ciebie: dodaj przedłużenie albo poproś administrację o zakończenie umowy
   w Kontraktach. Data końca wpisana tam w umowie od razu staje się datą końca
   jej otwartego zamówienia (zamówienie zaczynające się później jest anulowane).
-  **W „Bez kontynuacji 30d" są tylko zamówienia, które nie mają jeszcze
+  **W „Bez kontynuacji 30 dni" są tylko zamówienia, które nie mają jeszcze
   kontynuacji.** Gdy do zamówienia kończącego się w ciągu 30 dni dodasz już
   przyszłe zamówienie (także szkic „do uzupełnienia" z wpisaną stawką albo
   datą końca), to zamówienie znika z tej zakładki i z jej licznika — nie
@@ -72,23 +88,25 @@ Nad listą masz:
   przeliczona na jednostkę zamówienia,
 * przycisk **Nowe zamówienie**.
 
-**📝 Draft** pokazuje szkice pojedynczych konsultantów oraz nowe zbiorcze
+**Draft** pokazuje szkice pojedynczych konsultantów oraz nowe zbiorcze
 zamówienia MD, które czekają na uzupełnienie i aktywację. **Wyczerpane**
 pokazuje wyłącznie zamówienia zbiorcze.
 
 **Imię i nazwisko konsultanta jest klikalne — otwiera jego umowę w module
-Kontrakty.** Działa w każdym wierszu: na karcie pojedynczej osoby, na liście
-konsultantów zamówienia zbiorczego (również w części „Zakończone") i na
-wierszach przyszłych zamówień. Otwiera się **ta umowa, która stoi w tym
+Kontrakty.** Działa w każdym wierszu osoby: w sekcji Okresowe, na liście
+konsultantów zamówienia zbiorczego (również w części „Zakończone"), a w panelu
+osoby — pod linkiem **„Otwórz kontrakt →"**. Kliknięcie w resztę wiersza
+otwiera panel, a nie umowę. Otwiera się **ta umowa, która stoi w tym
 wierszu** — jeśli ktoś pracuje u kilku klientów i ma kilka umów, dostaniesz tę
 u klienta, z którego profilu kliknąłeś, a nie listę wszystkich jego umów.
 Wracasz przyciskiem **wstecz** przeglądarki; wrócisz na zakładkę „Zamówienia",
 ale **filtr i wyszukiwarka wracają do ustawień domyślnych** — jeśli szukałeś
 kogoś w długiej liście, wpisz frazę jeszcze raz.
 
-Nieklikalne są dwie nazwy przy historii pozycji: **„zastąpił: …"** oraz nazwa
-następcy przy osobie zastąpionej. System zna tam tylko numer zamówienia, nie
-umowę — żeby do kogoś z nich przejść, kliknij jego własny wiersz na liście.
+Nazwa następcy przy osobie zastąpionej (**„Zastąpiony przez: …"** w panelu)
+zaznacza wiersz następcy i otwiera jego panel. Nieklikalne zostaje
+**„zastąpił: …"** — system zna tam tylko numer zamówienia, nie umowę; żeby
+przejść do tej osoby, kliknij jej własny wiersz na liście.
 
 ---
 
@@ -152,18 +170,16 @@ daty i wgraj PDF zamówienia". W rubryce **nr zam.** stoi wtedy wartość
 zastępcza: **„(bez numeru)"** u klientów rozliczanych w MD lub kosztowo, a u
 pozostałych **„Imię Nazwisko — Tytuł rekrutacji"**. Jedno i drugie trzeba
 zastąpić prawdziwym numerem z dokumentu klienta. Szkic znajdziesz pod filtrem
-**📝 Draft (do uzupełnienia)**.
+**Draft**.
 
-Kliknij **Uzupełnij zamówienie** na karcie tej osoby i wypełnij dane z dokumentu
-od klienta.
+Kliknij wiersz tej osoby, w panelu wybierz **Uzupełnij zamówienie** i wypełnij
+dane z dokumentu od klienta.
 
-**2. Osoba jest na liście, ale chcesz poprawić jedno pole.** Numer zamówienia,
-obie stawki i okres edytujesz **klikając wprost w tekst na karcie** — bez
-otwierania okienka. Na każdej karcie stoją w stałym układzie trzech linii pod
-nazwiskiem: najpierw **nr zam.**, niżej razem **koszt.** i **przych.**, a w
-trzeciej linii **okres:**. Najechanie myszą na etykietę pokazuje jej pełne
-brzmienie. Jeżeli ta osoba nie ma jeszcze żadnego zamówienia, pierwszy taki
-zapis sam założy szkic.
+**2. Osoba jest na liście, ale chcesz poprawić jedno pole.** Kliknij jej
+wiersz. W panelu, w sekcji bieżącego zamówienia, numer zamówienia, obie stawki
+i okres edytujesz **klikając wprost w tekst** — bez otwierania okienka.
+Jeżeli ta osoba nie ma jeszcze żadnego zamówienia, pierwszy taki zapis sam
+założy szkic.
 
 **3. Osoby nie ma jeszcze w rejestrze.** Kliknij **Nowe zamówienie**, wybierz typ
 **Okresowe** — otworzy się formularz **„Nowy kontraktor / zamówienie"**, który
@@ -235,7 +251,7 @@ zamówienie ruszyło.
 ### Zmiana okresu przelicza aktywność zamówienia
 
 W **samodzielnym zamówieniu okresowym** zmiana dat przez **Uzupełnij
-zamówienie** albo bezpośrednio na karcie od razu przelicza aktywność. Jeśli
+zamówienie** albo bezpośrednio w panelu osoby od razu przelicza aktywność. Jeśli
 nowy okres obejmuje dzisiaj, zamówienie **Zakończone** wraca do **Aktywne** —
 również wtedy, gdy wcześniej zakończono je ręcznie. Po zapisie znika ostrzeżenie
 **„Brak aktywnego zamówienia”**, bez odświeżania strony.
@@ -260,8 +276,8 @@ zamówienia" mimo trwającego okresu. **Nocny skaner sam przywraca takie
 zamówienie do Aktywnych** (razem z alertami 30/14/7 dni), o ile umowa jest
 aktywna albo kończąca się i nie kończy się przed końcem tego zamówienia. Jeśli
 ta sama umowa ma już **inne aktywne zamówienie obejmujące dziś**, stary wiersz
-jest duplikatem: zostaje w historii, a na karcie, w górnym miejscu, stoi
-zamówienie, które trwa. Osoba obsadzona na **zamówieniu MD albo kosztowym**
+jest duplikatem: zostaje w historii, a w wierszu i w panelu osoby jako bieżące
+stoi zamówienie, które trwa. Osoba obsadzona na **zamówieniu MD albo kosztowym**
 (żywa linia) też zostaje bez zmian — zamówienie okresowe obok niej byłoby
 drugim zapisem tej samej współpracy. Zamówienie zamknięte dziś przyciskiem
 **Zakończ zamówienie** (data końca = dzisiaj) nie wraca.
@@ -269,14 +285,14 @@ Skaner przywróci też zamówienie, które ktoś ustawił jako „Zakończone" w
 przez API, zostawiając datę końca w przyszłości — do zamykania zamówień służy
 „Zakończ zamówienie".
 
-Jeśli dane zapiszą się poprawnie, ale wgranie PDF-a się nie powiedzie, karta
+Jeśli dane zapiszą się poprawnie, ale wgranie PDF-a się nie powiedzie, panel
 pokazuje już zapisany okres i status, a formularz zgłasza błąd pliku. Ponów
 wgranie pliku przez **Uzupełnij zamówienie**.
 
 ### „Zakończ zamówienie" to co innego niż „Zakończ współpracę"
 
-Na karcie pojedynczego konsultanta są **dwa** przyciski i różnica między nimi
-jest istotna:
+W panelu pojedynczego konsultanta (sekcja Okresowe) są **dwa** przyciski
+i różnica między nimi jest istotna:
 
 * **Zakończ zamówienie** — domyka **to jedno zamówienie**. Umowa zostaje
   aktywna, a wszystkie pozostałe zamówienia tej osoby (w tym linia na
@@ -304,8 +320,8 @@ jest istotna:
 Data w przyszłości w obu przypadkach zapisuje się od razu, ale **nie wyłącza
 niczego dzisiaj** — zamówienie obowiązuje do jej nadejścia.
 
-Trzecia akcja, **Usuń zamówienie** (kosz — przy bieżącym zamówieniu na karcie
-i przy każdym zamówieniu przyszłym oraz historycznym), służy do wycofania
+Trzecia akcja, **Usuń zamówienie** (w panelu: menu **„⋯"** przy bieżącym
+zamówieniu, kosz przy każdym zamówieniu przyszłym oraz historycznym), służy do wycofania
 **pomyłki**: kasuje trwale **tylko to jedno zamówienie**. Status umowy
 i pozostałe zamówienia tej osoby (także linia na zamówieniu MD lub kosztowym)
 zostają nietknięte. Zamówienia z rozliczeniami (zaraportowane MD, zaimportowane
@@ -457,7 +473,7 @@ wskazaną osobę, potwierdzone dopasowanie i obie stawki (a przy MD per osoba �
 liczbę MD). Jednym kliknięciem powstaje zamówienie razem ze wszystkimi
 konsultantami. **Status** nowego zamówienia MD to domyślnie **„Aktywne — od razu
 po zapisaniu"**; jeżeli czegoś jeszcze nie wiesz, wybierz **„Draft — do
-uzupełnienia"** (zamówienie trafi do **📝 Draft**). Aktywne zamówienie MD
+uzupełnienia"** (zamówienie trafi do **Draft**). Aktywne zamówienie MD
 z budżetem per osoba musi mieć co najmniej jednego konsultanta.
 
 Wybór typu **Okresowe** w tym oknie przenosi Cię do formularza „Nowy kontraktor
@@ -470,13 +486,13 @@ stawki i notatkę. Zapisuje się zawsze typ wybrany w chwili zapisu.
 > zamówienia i wysłanie pliku to dwie osobne operacje. System powie Ci wprost, że
 > masz wgrać plik ponownie przez edycję — **nie zakładaj zamówienia drugi raz**.
 
-Wgrany PDF pojawia się nie tylko na karcie zamówienia: znajdziesz go też
+Wgrany PDF pojawia się nie tylko w panelu zamówienia: znajdziesz go też
 w sekcji **„Dokumenty zamówień"** w dokumentach umowy konsultanta i w jego
 plikach. Rola bez dostępu do zamówień tego klienta tej sekcji po prostu nie
 zobaczy — bez żadnego komunikatu.
 
-**Dokładanie konsultanta do istniejącego zamówienia.** Na karcie zamówienia
-kliknij **Dodaj konsultanta do zamówienia**. Tak samo działa ręczny wybór osoby
+**Dokładanie konsultanta do istniejącego zamówienia.** Kliknij wiersz
+zamówienia i w panelu wybierz **Dodaj konsultanta**. Tak samo działa ręczny wybór osoby
 na karcie w oknie „Nowe zamówienie". Wyszukiwarka pokazuje dwa źródła:
 
 * **Rekrutacja u klienta** — osoby, które mają u tego klienta umowę,
@@ -510,7 +526,14 @@ jedna linia oraz dodatnie budżety osób albo wspólny budżet. Od tej chwili tr
 budżetu jest zablokowany. Jeśli data startu jest przyszła, zamówienie czeka na tę
 datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 
-### Co jeszcze możesz zrobić na karcie zamówienia zbiorczego
+### Co jeszcze możesz zrobić w panelu zamówienia zbiorczego
+
+Kliknij szary wiersz zamówienia. W stopce panelu są **Dodaj konsultanta**,
+**Uzupełnij zamówienie** i **Dodaj przedłużenie**, a w menu **„⋯"**:
+**Zakończ**, **Przywróć**, **Anuluj zamówienie**, **Przywróć anulowane**
+i **Usuń całe zamówienie**. Panel pokazuje też plik PDF zamówienia
+(**Otwórz**, **Pobierz**), paski budżetu, listę konsultantów, przyszłe
+zamówienia i zakładkę **Historia**.
 
 | Przycisk | Co robi |
 |---|---|
@@ -521,22 +544,23 @@ datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 | **Anuluj zamówienie** | dla zamówienia, które **nie doszło do skutku** albo zostało założone omyłkowo, a chcesz zachować jego historię. Zamówienie i jego konsultanci dostają status „Anulowane”, znikają z aktywnych zamówień, sum, alertów i rozliczeń, ale zostają w rejestrze (filtr **Anulowane**). **Zamówienia z rozliczeniami (zaraportowane MD, faktury) nie anulujesz** — system odmówi i wskaże, co blokuje; wtedy właściwą akcją jest **Zakończ**. Anulowanego zamówienia nie edytujesz, nie kończysz ani nie przedłużasz |
 | **Przywróć anulowane** | cofa anulowanie: zamówienie wraca do stanu sprzed niego (np. „Aktywne”), a konsultanci — do swoich statusów; osoba, której okres w międzyczasie minął, wraca jako zakończona; osoba, której umowę w międzyczasie zakończono, wraca jako zakończona, ze sprawą o pozostałe MD (jak po „Zakończ współpracę”), a osoba z unieważnioną umową zostaje anulowana |
 | **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Razem z zamówieniem znikają jego linie — **nie powstają z nich osobne zamówienia okresowe**. Okno usuwania pokazuje skutki dla umów: jeśli zamówienie niosło jedyną stawkę klienta na umowie, umowa zostaje **bez przychodu** (stawka klienta i marża znikają), a gdy są inne zamówienia — okres, którego dotyczyło, przejdzie na ich stawkę |
-| **Historia zamówienia** | rozwijana lista **zdarzeń biznesowych**: data · autor (wpis bez osoby = zmiana automatyczna) · rodzaj · osoba · co zmieniono w formie „przed → po" · saldo osoby po zmianie (ujemne na czerwono, obok „było …"). Są w niej: utworzenie, przedłużenie, zakończenie i anulowanie zamówienia, dodanie, zamiana i usunięcie konsultanta, decyzje o osobie i o puli MD, zmiany stawek i budżetu MD osoby oraz **jeden wpis na każdy import MD** („Import MD za sierpień 2026 – 2 osoby, 25 MD") z odsyłaczem **„Otwórz import →"** do zakładki **Importy MD**. Kilka edycji tej samej osoby przez tę samą osobę w odstępie do 15 minut to **jeden wpis z wynikiem netto** — pojedyncze zmiany rozwiniesz przyciskiem „▸ N zmian". Nad listą są filtry: **typ zdarzenia** (Wszystko / Zamówienie / Konsultanci / Zużycie MD / Edycje) i **osoba**. **Nie ma tu** pojedynczych zejść i korekt MD (są w oknie **Zużycie MD** osoby) ani technicznych zmian pól, np. waluty czy jednostki stawki (są w zakładce **Timeline** kontraktu osoby, z polskimi nazwami pól). Zapis nowego szkicu MD, zmiana jego trybu, aktywacja i zapis miesięcznego zużycia wspólnej puli również zostawiają wpis |
+| **Historia** (zakładka panelu zamówienia) | lista **zdarzeń biznesowych**: data · autor (wpis bez osoby = zmiana automatyczna) · rodzaj · osoba · co zmieniono w formie „przed → po" · saldo osoby po zmianie (ujemne na czerwono, obok „było …"). Są w niej: utworzenie, przedłużenie, zakończenie i anulowanie zamówienia, dodanie, zamiana i usunięcie konsultanta, decyzje o osobie i o puli MD, zmiany stawek i budżetu MD osoby oraz **jeden wpis na każdy import MD** („Import MD za sierpień 2026 – 2 osoby, 25 MD") z odsyłaczem **„Otwórz import →"** do zakładki **Importy MD**. Kilka edycji tej samej osoby przez tę samą osobę w odstępie do 15 minut to **jeden wpis z wynikiem netto** — pojedyncze zmiany rozwiniesz przyciskiem „▸ N zmian". Nad listą są filtry: **typ zdarzenia** (Wszystko / Zamówienie / Konsultanci / Zużycie MD / Edycje) i **osoba**. **Nie ma tu** pojedynczych zejść i korekt MD (są w oknie **Zużycie MD** osoby) ani technicznych zmian pól, np. waluty czy jednostki stawki (są w zakładce **Timeline** kontraktu osoby, z polskimi nazwami pól). Zapis nowego szkicu MD, zmiana jego trybu, aktywacja i zapis miesięcznego zużycia wspólnej puli również zostawiają wpis |
 
-Przy każdym konsultancie masz osobno: **Edytuj linię**, **Zamień kontraktora**
-(tylko przy aktywnej linii) i **Usuń konsultanta z zamówienia**.
+Kliknij wiersz konsultanta, a jego panel ma: **Edytuj linię** (Finanse:
+**Edytuj stawki**), **Zamień kontraktora** (tylko przy aktywnej linii) i w menu
+**„⋯"** **Usuń konsultanta z zamówienia**.
 
 ### Zużycie MD osoby
 
-Przy każdej osobie z własnym budżetem MD stoi przycisk **„Zużycie"** z małym
+W wierszu każdej osoby z własnym budżetem MD stoi przycisk **„Zużycie"** z małym
 wykresem słupkowym ostatnich miesięcy i ostatnią wartością, np.
 „Zużycie · sie 3,7". Przycisk jest **pomarańczowy z kropką**, gdy saldo osoby
 jest ujemne, brakuje zejścia za poprzedni miesiąc (a import za ten miesiąc już
 był) albo któryś wiersz importu tej osoby czeka „Do weryfikacji" — podpowiedź
-po najechaniu mówi, który powód. Osoby zakończone mają ten sam przycisk
-w **Szczegółach** swojej karty w sekcji „Zakończone".
+po najechaniu mówi, który powód. Przycisk otwiera panel osoby od razu na
+zakładce **Zużycie MD** (osoby zakończone mają ją tak samo).
 
-Okno **Zużycie MD** pokazuje u góry wykorzystane, budżet i pozostało, a w tabeli
+Zakładka **Zużycie MD** pokazuje u góry wykorzystane, budżet i pozostało, a w tabeli
 miesiąc po miesiącu: **MD**, **Nr z importu** (numer zamówienia z „Uwag"
 wiersza arkusza), **Źródło** (import / ręcznie / ręczna korekta), **Saldo po
 miesiącu** (ujemne na czerwono), autora i notatkę. **Korekty miesiąca stoją
@@ -568,8 +592,8 @@ wierszy robi dalej Finanse w **Finanse → Import zużycia MD**.
 Obsada zamówienia dzieli się na dwie sekcje. **O przejściu do „Zakończonych"
 decyduje data zakończenia współpracy wpisana przy osobie** — wystarczy wpisać ją
 w **Edytuj linię** i zapisać; nie trzeba nic więcej klikać. Od dnia po tej dacie
-osoba schodzi z aktywnej obsady, znika z awatarów w nagłówku i z licznika
-aktywnych konsultantów, a jej wiersz przenosi się niżej, do **„Zakończonych"** —
+osoba schodzi z aktywnej obsady i z licznika osób w wierszu zamówienia, a jej
+wiersz przenosi się niżej, do **„Zakończonych"** —
 z całą historią: okresem udziału, wykorzystanymi MD i kwotami oraz informacją,
 kogo zastąpiła i kto zastąpił ją. **„Zakończeni" są ułożeni datą zejścia,
 od najnowszego.** Osoba, która kogoś zastąpiła, zostaje w aktywnej obsadzie —
@@ -580,14 +604,15 @@ której współpraca się skończyła, a Ty nie rozstrzygnąłeś jeszcze, co zr
 niewykorzystanym limitem, stoi od razu w dolnej sekcji — „Aktywna obsada" ma mówić
 wyłącznie o tym, kto dziś pracuje. Żeby decyzja nie zginęła, nagłówek sekcji mówi,
 ile osób jest w sekcji i ile czeka: **„Zakończone (3) · 2 wymagają decyzji"**.
-Sekcja z czekającą decyzją jest rozwinięta, a karty z decyzją stoją na górze —
-na czerwonym tle, z przyciskiem **Podejmij decyzję**. Gdy nic nie czeka, sekcja
-jest zwinięta do samego nagłówka.
+Sekcja z czekającą decyzją jest rozwinięta, a wiersze z decyzją stoją na górze —
+na czerwonym tle, z plakietką **Podejmij decyzję**. Gdy nic nie czeka, sekcja
+jest zwinięta do samego wiersza „Zakończone (N)". Wszystkie zamówienia z decyzją
+zbiera czerwona pigułka **Wymaga decyzji**.
 
-**Karta osoby w „Zakończonych" jest zwinięta do jednej linii:** imię i nazwisko,
+**Wiersz osoby w „Zakończonych" ma jedną linię:** imię i nazwisko,
 plakietka, okres na zamówieniu („01.05.2026 – 31.08.2026"), wykorzystanie
 („25,45 MD · 25 450,00 zł" — kwotę widzi rola z dostępem do stawek) i po prawej
-przycisk **Podejmij decyzję** albo szary opis podjętej decyzji („Zostawiony jako
+plakietka **Podejmij decyzję** albo szary opis podjętej decyzji („Zostawiony jako
 historia", „Zastąpiony przez …", „Pula MD przeniesiona"). Plakietki są tylko
 dwie:
 
@@ -596,11 +621,11 @@ dwie:
 * **Zakończył projekt** — osoba skończyła pracę na tym zamówieniu, a umowa B2B
   nadal obowiązuje.
 
-Kliknięcie w kartę albo w **Szczegóły** pokazuje resztę: stawki (tylko role
+Kliknięcie w wiersz otwiera panel osoby z resztą: stawki (tylko role
 z dostępem do stawek), pasek puli MD, kto i kiedy dodał osobę ręcznie, stan
-umowy (ostatni dzień umowy i tryb albo „Umowa B2B nadal obowiązuje"), przycisk
-**Zużycie MD** i ikonę edycji. To, że wykorzystana kwota nie wraca do puli,
-mówi ikona **i** przy nagłówku sekcji.
+umowy (ostatni dzień umowy i tryb albo „Umowa B2B nadal obowiązuje"), zakładkę
+**Zużycie MD** i przycisk edycji. To, że wykorzystana kwota nie wraca do puli,
+panel mówi pod paskiem budżetu.
 
 Dwie rzeczy, które celowo działają inaczej, niż mógłbyś się spodziewać:
 
@@ -629,16 +654,16 @@ powstaje z niego nowe zamówienie okresowe, a pozostałe zamówienia tej osoby n
 zmieniają się. Stawka klienta zapisana z tej linii znika jednak z umowy —
 okno usuwania (już nie zwykłe „OK / Anuluj”) mówi, czy umowa przejdzie na
 stawkę innego zamówienia, czy zostanie **bez przychodu**. Osoby, która ma już
-zafakturowaną kwotę albo zaraportowane MD, **nie usuniesz** (kosz i opcja
-w oknie decyzji są wyszarzone, a system odmówi): usunięcie skasowałoby jej
+zafakturowaną kwotę albo zaraportowane MD, **nie usuniesz** (pozycja w menu
+„⋯" panelu i opcja w oknie decyzji są wyszarzone, a system odmówi): usunięcie skasowałoby jej
 rozliczenia. Gdy współpraca się skończyła, użyj **Podejmij decyzję** →
 **Zostaw jako historię** albo **Zastąp kimś innym**, albo **Zakończ**.
 
-**Zastąpienie nie zwraca zużycia do puli — u każdego klienta.** Karta osoby
+**Zastąpienie nie zwraca zużycia do puli — u każdego klienta.** Wiersz osoby
 w „Zakończonych" pokazuje, ile wykorzystała (na zamówieniu kosztowym — kwota
 faktur; na zamówieniu MD — liczba MD, a przy dostępie do kwot także ich
-wartość), a ikona **i** przy nagłówku sekcji przypomina, że ta kwota nie wraca
-do puli dostępnej dla innych konsultantów. Zastępca dostaje własny budżet — MD
+wartość), a panel tej osoby przypomina, że ta kwota nie wraca do puli
+dostępnej dla innych konsultantów. Zastępca dostaje własny budżet — MD
 i kwota wykorzystane przez poprzednika zostają przy poprzedniku.
 
 **Każde usunięcie trafia do Historii zdarzeń.** Usunięcie całego zamówienia,
@@ -647,15 +672,15 @@ system odmówił — jest zapisywane w **Ustawienia → Historia zdarzeń** (wid
 Admina i Finansów): kto, kiedy, czego dotyczyło i z jakim wynikiem. Ten zapis
 zostaje także wtedy, gdy historia samego zamówienia znika razem z nim.
 
-Przy osobie, która **zakończyła współpracę**, a została na zamówieniu, karta
-ma przycisk **Podejmij decyzję**. Otwiera on okno z trzema opcjami:
+Przy osobie, która **zakończyła współpracę**, a została na zamówieniu, panel
+tej osoby ma przycisk **Podejmij decyzję**. Otwiera on okno z trzema opcjami:
 **Zostaw jako historię** (zapisuje, kto i kiedy zdecydował), **Zastąp kimś
 innym** (na zamówieniu MD z pulą przy osobie nowa osoba **przejmuje pozostałe MD**
 odchodzącej — zasady w „Przejęcie pozostałych MD" niżej; na zamówieniu
 kosztowym i przy wspólnej puli dołącza **obok**, a historia zapisze, za kogo jest
 zastępstwem) i **Usuń z zamówienia** (tylko gdy osoba
-nie ma rozliczeń — inaczej opcja jest wyszarzona). Po decyzji karta robi się
-szara, a w szczegółach jest przycisk **Zmień decyzję** — zostawienie jako
+nie ma rozliczeń — inaczej opcja jest wyszarzona). Po decyzji wiersz robi się
+szary, a w panelu jest przycisk **Zmień decyzję** — zostawienie jako
 historii da się jeszcze zamienić na zastępstwo albo usunięcie. Przy zamówieniu
 MD z czekającą decyzją o pozostałych MD to samo okno prowadzi do decyzji
 o puli (niżej).
@@ -762,10 +787,11 @@ udział się kończy, użyj „Zakończ" albo popraw budżet linii.
 
 Osoba bez zamówienia (albo tylko ze szkicem zamówienia) stoi w pigułce
 **Draft** z dopiskiem „Brak aktywnego zamówienia" — to **karta szkicu**.
+Kliknij jej wiersz; obie akcje poniżej są w stopce panelu.
 
-**Usuń szkic** (u każdego klienta) chowa taką kartę razem ze szkicem zamówienia.
-Kontrakt i dane rekrutacji zostają; karta wraca, gdy dla tej osoby powstanie
-nowe zamówienie. Karty z zamówieniem innym niż szkic nie da się tak usunąć.
+**Usuń szkic** (u każdego klienta) chowa taki wiersz razem ze szkicem zamówienia.
+Kontrakt i dane rekrutacji zostają; wiersz wraca, gdy dla tej osoby powstanie
+nowe zamówienie. Wiersza z zamówieniem innym niż szkic nie da się tak usunąć.
 
 **Przypisz do zamówienia** (tylko Centrum e-Zdrowia) daje trzy drogi:
 
@@ -849,7 +875,7 @@ nieczytelny — pola wpisujesz wtedy ręcznie.
 
 **Uwaga na różnicę w nadpisywaniu:**
 
-* **Karta pojedynczego konsultanta (Okresowe):** odczyt **nadpisuje bez pytania**
+* **Pojedynczy konsultant (Okresowe):** odczyt **nadpisuje bez pytania**
   to, co już wpisałeś — ale tylko te pola, które dokument faktycznie dostarczył.
   Do tego dochodzi **stawka kosztowa**: jeżeli odczyt zmieni jednostkę stawki,
   Twoja kwota zostanie przeliczona na nową jednostkę, choć w dokumencie jej nie
@@ -2004,7 +2030,7 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   z umowy). Przy komunikacie o ręcznym wpisaniu **zawsze sprawdź wartość
   w polu**, zamiast zakładać, że odczyt ją podmienił.
 * **Cała reguła Orlena włącza się tylko wtedy, gdy odczyt dotyczy konkretnej
-  osoby** — czyli na karcie pojedynczego konsultanta, przy przedłużeniu jego
+  osoby** — czyli w panelu pojedynczego konsultanta, przy przedłużeniu jego
   zamówienia i przy dodawaniu go do zamówienia zbiorczego. **Liczba MD jest wtedy
   pomijana.** W formularzu zamówienia zbiorczego, gdzie osoby się nie wskazuje,
   reguła w ogóle nie działa: do pola budżetu wpadnie liczba MD odczytana przez AI,
@@ -2218,7 +2244,7 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   1,23 — decyzja należy do Ciebie. „Brutto" przy sumie „Razem PLN" pod tabelą
   dotyczy pomijanego Totalu, nie stawki, i niczego nie zatrzymuje.
 * **Osoba z PDF-a jest dopasowywana do konsultantów Aliora** po imieniu
-  i nazwisku. Gdy ma szkic zamówienia (📝 Draft), zamówienie z maila **samo go
+  i nazwisku. Gdy ma szkic zamówienia (pigułka Draft), zamówienie z maila **samo go
   uzupełnia** numerem, okresem i stawką — bez przycisku „Zastosuj". Imię
   i nazwisko z tabeli musi zgadzać się z niezależnym odczytem modelu; każda
   rozbieżność (osoba, stawka, okres) trafia do weryfikacji z konkretnym powodem

@@ -1,0 +1,621 @@
+{
+ "_comment": "Spis funkcji Kontraktów i Zamówień klienta (wersja B z panelem, 29.09.2026, makieta https://claude.ai/artifact/4kiwKRJxukyHVYmWdydUoS). `file` + `marker` wskazują, gdzie funkcja żyje DZIŚ; przy przenosinach zmienia się `file`, wpis zostaje. Usunięcie wpisu wymaga `removed_reason` i decyzji Artura. Pilnuje tego lib/__tests__/orders-contracts-feature-parity.test.ts.",
+ "features": [
+  {
+   "id": "k.modes",
+   "opis": "Tryby: Rejestr kontraktów · Obsługa kontraktorów · Skrzynka zamówień z licznikiem",
+   "file": "app/contracts/page.tsx",
+   "marker": "Skrzynka zamówień",
+   "b_home": "Pasek trybów nad tabelą"
+  },
+  {
+   "id": "k.count",
+   "opis": "Licznik kontraktorów i aktywnych kontraktów",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "kontraktorów",
+   "b_home": "Nagłówek strony"
+  },
+  {
+   "id": "k.analytics",
+   "opis": "Analityka (admin, Finanse)",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "Analityka",
+   "b_home": "Nagłówek, przycisk"
+  },
+  {
+   "id": "k.export",
+   "opis": "Eksport Excel i CSV",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "Eksport",
+   "b_home": "Nagłówek, menu „Eksport”"
+  },
+  {
+   "id": "k.new",
+   "opis": "Nowy kontrakt",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "canCreateContract",
+   "b_home": "Nagłówek, przycisk główny"
+  },
+  {
+   "id": "k.expiring-banner",
+   "opis": "Baner kontraktów kończących się w 30 dni",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "kończy się",
+   "b_home": "Pasek filtrów"
+  },
+  {
+   "id": "k.client-picker",
+   "opis": "Wybór klienta: lista globalna albo rejestr klienta",
+   "file": "app/contracts/page.tsx",
+   "marker": "ContractsClientPicker",
+   "b_home": "Pierwszy przycisk paska filtrów"
+  },
+  {
+   "id": "k.search",
+   "opis": "Szukaj po kandydacie, kliencie, pozycji",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "placeholder=",
+   "b_home": "Pasek filtrów"
+  },
+  {
+   "id": "k.status-type",
+   "opis": "Status i typ umowy",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "contract_type",
+   "b_home": "Pasek filtrów"
+  },
+  {
+   "id": "k.dates",
+   "opis": "Filtry dat startu i końca zamówienia",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "dateRangeChipText",
+   "b_home": "Okienko „Daty”"
+  },
+  {
+   "id": "k.chips",
+   "opis": "Chipy aktywnych filtrów",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "Usuń filtr dat",
+   "b_home": "Pod paskiem filtrów"
+  },
+  {
+   "id": "k.columns",
+   "opis": "Kolumny z sortowaniem",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "SortableHead",
+   "b_home": "Tabela"
+  },
+  {
+   "id": "k.grouping",
+   "opis": "Grupowanie po osobie, „pracuje u N klientów”",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "pracuje u",
+   "b_home": "Tabela, podwiersze"
+  },
+  {
+   "id": "k.finance-redact",
+   "opis": "Kwoty tylko z dostępem do finansów",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "canSeeFinance",
+   "b_home": "Tabela i panel"
+  },
+  {
+   "id": "k.future-start",
+   "opis": "„startuje DD.MM”, koniec zamówienia",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "startuje",
+   "b_home": "Kolumny Status i Koniec zamówienia"
+  },
+  {
+   "id": "k.row-panel",
+   "opis": "Klik w wiersz otwiera panel, nazwisko zostaje linkiem",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "ContractSidePanel",
+   "b_home": "Tabela → panel"
+  },
+  {
+   "id": "k.select",
+   "opis": "Zaznaczanie osoby i „Zaznacz wszystkie”",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "Zaznacz wszystkie",
+   "b_home": "Kwadracik w wierszu"
+  },
+  {
+   "id": "k.bulk",
+   "opis": "Pasek zbiorczy (+3m/+6m/+12m, oznacz zakończone)",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "ContractsBulkActionsBar",
+   "b_home": "Pływający pasek"
+  },
+  {
+   "id": "k.states",
+   "opis": "Ładowanie, błąd, 403, pusty wynik",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "NIE jest pusty",
+   "b_home": "Bez zmian"
+  },
+  {
+   "id": "k.url",
+   "opis": "Stronicowanie i stan w adresie, ?contract=",
+   "file": "lib/contracts-list-navigation.ts",
+   "marker": "selected",
+   "b_home": "Adres"
+  },
+  {
+   "id": "k.client-register",
+   "opis": "Rejestr klienta: Nr projektu, Pula godzin, Prolongata",
+   "file": "components/contracts/ClientContractRegister.tsx",
+   "marker": "Prolongata",
+   "b_home": "Tabela + panel"
+  },
+  {
+   "id": "k.operations",
+   "opis": "Obsługa kontraktorów: Do uzupełnienia, Zakończ projekt",
+   "file": "components/v2/pages/ContractorsListV2.tsx",
+   "marker": "Zakończ projekt",
+   "b_home": "Tabela + panel"
+  },
+  {
+   "id": "k.order-mail",
+   "opis": "Skrzynka zamówień z maila",
+   "file": "components/order-mail/OrderMailQueue.tsx",
+   "marker": "Przelicz plan",
+   "b_home": "Bez zmian"
+  },
+  {
+   "id": "k.p.facts",
+   "opis": "Umowa i zamówienie u klienta",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "DetailFacts",
+   "b_home": "Panel: sekcje"
+  },
+  {
+   "id": "k.p.contact",
+   "opis": "E-mail i telefon z edycją",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "ContractCandidateContactRow",
+   "b_home": "Panel: Kontakt"
+  },
+  {
+   "id": "k.p.status",
+   "opis": "Zmień status",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "ContractStatusControl",
+   "b_home": "Panel"
+  },
+  {
+   "id": "k.p.terminate",
+   "opis": "Zakończ współpracę",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "ContractTerminationDialog",
+   "b_home": "Panel, okno bez zmian"
+  },
+  {
+   "id": "k.p.recovery",
+   "opis": "Cofnij zakończenie i Powrót po przerwie",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "Powrót po przerwie",
+   "b_home": "Panel"
+  },
+  {
+   "id": "k.p.annex",
+   "opis": "Aneksy",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "Wygeneruj dokument",
+   "b_home": "Panel: menu „Aneks”"
+  },
+  {
+   "id": "k.p.more",
+   "opis": "Edytuj, Dodaj projekt, Generuj z szablonu, Przepnij, Usuń",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "Przepnij",
+   "b_home": "Panel: menu „⋯”"
+  },
+  {
+   "id": "k.p.docs",
+   "opis": "Dokumenty z oznaczeniem SharePointa",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "DOC_TYPE_LABEL",
+   "b_home": "Panel: 3 ostatnie"
+  },
+  {
+   "id": "k.p.timeline",
+   "opis": "Timeline",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "contract-activities",
+   "b_home": "Panel: 3 ostatnie"
+  },
+  {
+   "id": "k.page",
+   "opis": "Pełna strona kontraktu",
+   "file": "app/contracts/[id]/page.tsx",
+   "marker": "Onboarding",
+   "b_home": "Strona kontraktu"
+  },
+  {
+   "id": "c.header",
+   "opis": "Nagłówek klienta w jednej linii, menu „Więcej o kliencie”",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "Więcej o kliencie",
+   "b_home": "Nagłówek"
+  },
+  {
+   "id": "c.tabs",
+   "opis": "Zakładki klienta",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "ClientMdImportsTab",
+   "b_home": "Pod nagłówkiem"
+  },
+  {
+   "id": "o.new",
+   "opis": "Nowe zamówienie",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "Nowe zamówienie",
+   "b_home": "Pasek"
+  },
+  {
+   "id": "o.pills",
+   "opis": "Pigułki z licznikami + „Wymaga decyzji”",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "Wymaga decyzji",
+   "b_home": "Pasek"
+  },
+  {
+   "id": "o.search",
+   "opis": "Szukaj po numerze albo nazwisku",
+   "file": "components/client-profile/orders/OrderListControls.tsx",
+   "marker": "Szukaj po numerze",
+   "b_home": "Pasek"
+  },
+  {
+   "id": "o.excel",
+   "opis": "Pobierz do Excela",
+   "file": "components/client-profile/orders/OrderListControls.tsx",
+   "marker": "Pobierz do Excela",
+   "b_home": "Pasek"
+  },
+  {
+   "id": "o.filters",
+   "opis": "Filtry i sortowanie",
+   "file": "components/client-profile/orders/OrderListControls.tsx",
+   "marker": "Filtry i sortowanie",
+   "b_home": "Okienko"
+  },
+  {
+   "id": "o.sections",
+   "opis": "Sekcje MD, Kosztowe, Okresowe i filtr typu",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "TYPE_FILTERS",
+   "b_home": "Sekcje tabeli"
+  },
+  {
+   "id": "o.nordea",
+   "opis": "Import Nordea z CSV",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "NordeaOrderImportPanel",
+   "b_home": "Pasek"
+  },
+  {
+   "id": "o.deeplink",
+   "opis": "Linki ?order= / ?group= / ?contract= otwierają panel",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "focusContractId",
+   "b_home": "Panel"
+  },
+  {
+   "id": "o.order-mail-doc",
+   "opis": "?orderMailDoc= otwiera okno z PDF-em",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "orderMailDoc",
+   "b_home": "Bez zmian"
+  },
+  {
+   "id": "o.states",
+   "opis": "Wczytywanie, błąd, puste stany",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "isSuccess",
+   "b_home": "Bez zmian"
+  },
+  {
+   "id": "p.row",
+   "opis": "Wiersz kontraktora okresowego",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "ContractPersonLink",
+   "b_home": "Wiersz i panel"
+  },
+  {
+   "id": "p.ending",
+   "opis": "„kończy się za N dni”",
+   "file": "components/client-profile/orders/contractor-order-row.ts",
+   "marker": "kończy się",
+   "b_home": "Kolumna „Stan”"
+  },
+  {
+   "id": "p.no-order",
+   "opis": "„Brak aktywnego zamówienia” i „Brak zamówienia”",
+   "file": "components/client-profile/orders/contractor-order-row.ts",
+   "marker": "Brak aktywnego zamówienia",
+   "b_home": "Kolumna „Stan”"
+  },
+  {
+   "id": "p.inline",
+   "opis": "Edycja w miejscu numeru, okresu, stawek",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "InlinePeriod",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.cez",
+   "opis": "Umowa wykonawcza CeZ",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "executive",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.job",
+   "opis": "„z rekrutacji”",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Z rekrutacji",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.complete",
+   "opis": "Uzupełnij zamówienie",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Uzupełnij zamówienie",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.extend",
+   "opis": "Dodaj przedłużenie",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Dodaj przedłużenie",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.close",
+   "opis": "Zakończ zamówienie",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Zakończ zamówienie",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.delete",
+   "opis": "Usuń zamówienie",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Usuń zamówienie",
+   "b_home": "Panel, menu „⋯”"
+  },
+  {
+   "id": "p.draft",
+   "opis": "Usuń szkic, Przypisz do zamówienia",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Usuń szkic",
+   "b_home": "Panel karty szkicu"
+  },
+  {
+   "id": "p.terminate",
+   "opis": "Zakończ współpracę z bramką ról",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "canManageContractStatus",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.future",
+   "opis": "Przyszłe zamówienia",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Brak przyszłych zamówień",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.history",
+   "opis": "Historia zamówień z PDF",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Historia zamówień",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.pdf",
+   "opis": "PDF bieżącego zamówienia",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Pobierz",
+   "b_home": "Panel"
+  },
+  {
+   "id": "g.row",
+   "opis": "Wiersz zamówienia MD/kosztowego",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "Zamówienie nr",
+   "b_home": "Tabela i panel"
+  },
+  {
+   "id": "g.bars",
+   "opis": "Paski budżetu i baner wyczerpania",
+   "file": "components/client-profile/orders/order-group-parts.tsx",
+   "marker": "SharedMdBudgetBar",
+   "b_home": "Wiersz i panel"
+  },
+  {
+   "id": "g.add",
+   "opis": "Dodaj konsultanta",
+   "file": "components/client-profile/orders/OrderGroupPanel.tsx",
+   "marker": "Dodaj konsultanta",
+   "b_home": "Panel"
+  },
+  {
+   "id": "g.complete",
+   "opis": "Uzupełnij zamówienie",
+   "file": "components/client-profile/orders/OrderGroupPanel.tsx",
+   "marker": "Uzupełnij zamówienie",
+   "b_home": "Panel"
+  },
+  {
+   "id": "g.extend",
+   "opis": "Dodaj przedłużenie",
+   "file": "components/client-profile/orders/OrderGroupPanel.tsx",
+   "marker": "Dodaj przedłużenie",
+   "b_home": "Panel"
+  },
+  {
+   "id": "g.lifecycle",
+   "opis": "Zakończ/Przywróć, Anuluj, Usuń całe",
+   "file": "components/client-profile/orders/OrderGroupPanel.tsx",
+   "marker": "Usuń całe zamówienie",
+   "b_home": "Panel, menu „⋯”"
+  },
+  {
+   "id": "g.future",
+   "opis": "Przyszłe zamówienia",
+   "file": "components/client-profile/orders/order-group-parts.tsx",
+   "marker": "Przyszłe zamówienia",
+   "b_home": "Wiersz i panel"
+  },
+  {
+   "id": "g.history",
+   "opis": "Historia zamówienia",
+   "file": "components/client-profile/orders/OrderGroupPanel.tsx",
+   "marker": "OrderHistoryPanel",
+   "b_home": "Panel, zakładka"
+  },
+  {
+   "id": "g.pdf",
+   "opis": "PDF zamówienia",
+   "file": "components/client-profile/orders/OrderGroupPanel.tsx",
+   "marker": "Pobierz",
+   "b_home": "Panel"
+  },
+  {
+   "id": "l.badges",
+   "opis": "Odznaki osoby",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "Dołączona",
+   "b_home": "Wiersz"
+  },
+  {
+   "id": "l.relations",
+   "opis": "Relacje „przejęła po”, „zastąpiony przez”",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "przejęła po",
+   "b_home": "Wiersz i panel"
+  },
+  {
+   "id": "l.missing",
+   "opis": "Brak zejścia, nierozliczone",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "Nierozliczone",
+   "b_home": "Kolumna „Uwagi”"
+  },
+  {
+   "id": "l.rates",
+   "opis": "Stawki, „—” bez finansów",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "canViewFinance",
+   "b_home": "Kolumny"
+  },
+  {
+   "id": "l.budget",
+   "opis": "Budżet osoby",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "MdBudgetBar",
+   "b_home": "Kolumna „Zostało MD”"
+  },
+  {
+   "id": "l.consumption-btn",
+   "opis": "Przycisk „Zużycie”",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "ConsumptionButton",
+   "b_home": "Kolumna „Zużycie”"
+  },
+  {
+   "id": "l.consumption",
+   "opis": "Zużycie MD po miesiącach z edycją",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "LineConsumptionTable",
+   "b_home": "Panel, zakładka"
+  },
+  {
+   "id": "l.edit",
+   "opis": "Edytuj linię / stawki",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "Edytuj stawki",
+   "b_home": "Panel"
+  },
+  {
+   "id": "l.swap",
+   "opis": "Zamień kontraktora",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "swapBlockedReason",
+   "b_home": "Panel"
+  },
+  {
+   "id": "l.remove",
+   "opis": "Usuń konsultanta z zamówienia",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "Więcej akcji konsultanta",
+   "b_home": "Panel, menu „⋯”"
+  },
+  {
+   "id": "l.manual",
+   "opis": "„Dodany ręcznie”, PDF podpięty do profilu",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "Dodany ręcznie",
+   "b_home": "Panel, Szczegóły"
+  },
+  {
+   "id": "e.section",
+   "opis": "Zakończone (N) · N wymaga decyzji",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "wymaga decyzji",
+   "b_home": "Zwijany wiersz"
+  },
+  {
+   "id": "e.state",
+   "opis": "Status zakończenia, wykorzystanie",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "nie wracają do puli",
+   "b_home": "Wiersz i panel"
+  },
+  {
+   "id": "e.decide",
+   "opis": "Podejmij decyzję",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "Podejmij decyzję",
+   "b_home": "Panel"
+  },
+  {
+   "id": "e.pool",
+   "opis": "Decyzja o puli MD",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "OffboardingDecisionModal",
+   "b_home": "Okno z panelu"
+  },
+  {
+   "id": "e.change",
+   "opis": "Zmień decyzję, „Oczekuje na decyzję”",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "Oczekuje na decyzję",
+   "b_home": "Panel"
+  },
+  {
+   "id": "e.replace",
+   "opis": "Zastąp kimś innym, Przypisz do zamówienia",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "EndedLineDecisionDialog",
+   "b_home": "Okna z panelu"
+  },
+  {
+   "id": "x.alert",
+   "opis": "Alert DL „Podejmij decyzję” otwiera panel",
+   "file": "lib/client-order-list.ts",
+   "marker": "lineId",
+   "b_home": "Panel decyzji"
+  },
+  {
+   "id": "x.imports",
+   "opis": "Zakładka „Importy MD”",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "Importy MD",
+   "b_home": "Bez zmian"
+  }
+ ]
+}

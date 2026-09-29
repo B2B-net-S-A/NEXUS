@@ -1,4 +1,4 @@
 {
-  "sha256": "54d9c796bf1f47ee674ef23b06c03e498647c8d31ab848e1194269b97874d354",
+  "sha256": "ca48b2aa58cb04092a9e7fd338c229f7d8ca1738db9bdc7fff30a55ca6781b4c",
   "source": "frontend/src/components/client-profile/orders/LineMonthlyHistoryDialog.tsx"
 }

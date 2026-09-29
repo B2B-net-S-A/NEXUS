@@ -177,7 +177,6 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "backend/app/services/order_burn_rate.py",
     "frontend/src/components/v2/dashboard/MyClientsAlertsPanel.tsx",
     # ── Ekrany, na których Delivery Lead to widzi ───────────────────────
-    "frontend/src/components/OrdersAndContractsTab.tsx",
     "frontend/src/components/EditOrderDialog.tsx",
     "frontend/src/components/ExtendOrderDialog.tsx",
     "frontend/src/components/NewContractorOrderDialog.tsx",
@@ -185,10 +184,18 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "frontend/src/components/orders/InlineOrderFields.tsx",
     "frontend/src/components/orders/OrderTypeSwitch.tsx",
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx",
-    # Karta zamówienia zbiorczego: lista konsultantów, sekcja „Zakończone",
-    # przyszłe zamówienia i komplet akcji cyklu życia na linii. Brakowało jej
-    # tu, choć wszystkie jej rodzeństwa były już obserwowane (09.2026).
-    "frontend/src/components/client-profile/orders/OrderGroupCard.tsx",
+    # Wersja B (29.09.2026): tabela zamówień z panelem szczegółów. Tabela
+    # (wiersze zamówień, osób, „Zakończone", przyszłe zamówienia), panele
+    # zamówienia, osoby i kontraktora okresowego — instrukcja opisuje, gdzie
+    # stoją przyciski, więc każda zmiana układu wymaga jej przeglądu.
+    "frontend/src/components/client-profile/orders/OrdersTable.tsx",
+    "frontend/src/components/client-profile/orders/orders-table-model.ts",
+    "frontend/src/components/client-profile/orders/order-group-parts.tsx",
+    "frontend/src/components/client-profile/orders/OrderGroupPanel.tsx",
+    "frontend/src/components/client-profile/orders/OrderLinePanel.tsx",
+    "frontend/src/components/client-profile/orders/ContractorOrderPanel.tsx",
+    "frontend/src/components/client-profile/orders/contractor-order-row.ts",
+    "frontend/src/components/client-profile/orders/LineConsumptionTable.tsx",
     # Ticket 7 (25.09.2026): historia biznesowa zamówienia, okno i przycisk
     # „Zużycie MD", zakładka „Importy MD" — instrukcja opisuje ich zawartość.
     "backend/app/services/order_history.py",
@@ -202,10 +209,9 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "frontend/src/components/client-profile/orders/OrderPlanLineCard.tsx",
     "frontend/src/lib/order-plan.ts",
     "frontend/src/lib/order-line-usage.ts",
-    # Karta osoby w „Zakończonych" (ticket 6, 09.2026): dwie plakietki,
-    # zwinięty widok i okno „Podejmij decyzję" — instrukcja cytuje ich kształt.
+    # Osoba w „Zakończonych" (ticket 6, 09.2026): dwie plakietki, wiersz
+    # w tabeli i okno „Podejmij decyzję" — instrukcja cytuje ich kształt.
     "frontend/src/lib/order-ended-line.ts",
-    "frontend/src/components/client-profile/orders/EndedLineCard.tsx",
     "frontend/src/components/client-profile/orders/EndedLineDecisionDialog.tsx",
     "frontend/src/components/client-profile/orders/ExtendOrderGroupModal.tsx",
     "frontend/src/components/client-profile/orders/EndOrderGroupModal.tsx",
