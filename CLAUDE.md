@@ -5557,10 +5557,14 @@ zamówienia” albo „przyszłe zamówienie … kończy się za 1 dzień” i n
   (stare wiersze z importów Excela/Nordea). Naprawia to nocny skaner:
   `dl_portal_expiry_scanner.revive_stale_completed_periodic_orders`, wołany
   z `run_once` PRZED `_promote_statuses` (pętla robi pierwszy bieg przy starcie
-  kontenera, więc naprawa wchodzi z deployem). Bezpieczniki: koniec ŚCIŚLE po
-  dziś (zamknięcie „dziś” zostaje `completed`), start znany, umowa `active`/
-  `ending` i ten sam klient, tylko efektywny typ okresowy, nie ożywia
-  duplikatu (umowa ma inne aktywne/wstrzymane zamówienie obejmujące dziś),
+  kontenera, więc naprawa wchodzi z deployem). Bezpieczniki (jedna definicja
+  `_revivable_clause` dla SELECT i UPDATE): koniec ŚCIŚLE po dziś (zamknięcie
+  „dziś” zostaje `completed`), start znany, umowa `active`/`ending`, ten sam
+  klient i data końca umowy NIE wcześniejsza niż koniec zamówienia (zamówienie
+  nie przeżywa umowy — inaczej nocny reconcile mógłby wskrzesić wypowiedzianą
+  umowę), tylko efektywny typ okresowy, nie ożywia duplikatu (umowa ma inne
+  aktywne/wstrzymane zamówienie obejmujące dziś) ani zamówienia osoby z żywą
+  linią MD/kosztową (jak ścieżki automatyczne, `order_engagement_separation`),
   najwyżej jedno zamówienie na umowę na bieg. Krok jest w savepoincie — jego
   błąd (`logger.exception` → Sentry) nie zatrzymuje przejść statusów ani
   alertów. Kierunek odwrotny do `periodic_due` (koniec < dziś), więc bez
@@ -5569,9 +5573,11 @@ zamówienia” albo „przyszłe zamówienie … kończy się za 1 dzień” i n
   górnego slotu zamówienie, które TRWA (`isCurrentOrder`), a dopiero bez
   takiego ostatnie rozpoczęte. Kontrakt z dwoma wierszami tego samego okresu
   (stary `completed` obok aktywnego) miał w slocie martwy wiersz. Plakietka
-  „przyszłe zamówienie … kończy się za N dni” wynika z `orderNotStarted`
-  (start po dziś), NIE z porównania id z górnym slotem; zamówienie, które
-  trwa, mówi „kończy się za N dni” bez numeru.
+  „przyszłe zamówienie … kończy się za N dni” pojawia się tylko dla
+  zamówienia z listy „Przyszłe zamówienie” tej karty (`futureOrders`, podział
+  po `orderNotStarted` — start po dziś), NIE z porównania id z górnym slotem;
+  zamówienie, które trwa (także jedyne, które jeszcze się nie zaczęło i stoi
+  w slocie), mówi „kończy się za N dni” bez numeru.
 
 ## Umowa B2B jest bezterminowa, dopóki ktoś jej ręcznie nie zakończy (11.09.2026)
 

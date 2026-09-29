@@ -1102,11 +1102,15 @@ function ContractorCard({
   const endingDays = endingOrder
     ? (contractor.ending_without_successor_days ?? daysUntil(endingOrder.end_date))
     : null;
-  // „Przyszłe" znaczy: okres jeszcze się nie rozpoczął. Nie „inne niż zamówienie
-  // z górnego slotu" — zamówienie, które trwa i za chwilę się kończy, mówi
-  // „kończy się za N dni" (bez numeru), niezależnie od tego, w którym wierszu
-  // karty stoi (zgłoszenie 29.09.2026).
-  const endingIsFuture = endingOrder !== null && orderNotStarted(endingOrder);
+  // „Przyszłe" znaczy: okres jeszcze się nie rozpoczął I zamówienie stoi na liście
+  // „Przyszłe zamówienie" tej karty (`splitOrders` dzieli po dacie startu), więc
+  // plakietka nie zaprzecza sekcji pod nią. Nie „inne niż zamówienie z górnego
+  // slotu": zamówienie, które trwa i za chwilę się kończy, mówi „kończy się za
+  // N dni" (bez numeru), niezależnie od tego, w którym wierszu karty stoi
+  // (zgłoszenie 29.09.2026). Jedyne zamówienie, które jeszcze się nie zaczęło,
+  // stoi w górnym slocie (nic innego nie trwa) i też mówi „kończy się za N dni".
+  const endingIsFuture =
+    endingOrder !== null && futureOrders.some((order) => order.id === endingOrder.id);
   // Okres zamówienia minął, a umowa trwa: osoba zostaje w „Aktywnych"
   // z dopiskiem — do „Zakończonych" przenosi wyłącznie umowa z modułu
   // Kontrakty (reguła 09.2026, `contractClosed`).

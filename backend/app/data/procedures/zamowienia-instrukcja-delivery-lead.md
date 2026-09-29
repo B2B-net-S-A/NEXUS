@@ -258,10 +258,13 @@ skraca datę końca do dnia zamknięcia. Zostaje po edycji dat wykonanej zanim
 zapis okresu zaczął przeliczać status, i wtedy karta mówi „Brak aktywnego
 zamówienia" mimo trwającego okresu. **Nocny skaner sam przywraca takie
 zamówienie do Aktywnych** (razem z alertami 30/14/7 dni), o ile umowa jest
-aktywna albo kończąca się. Jeśli ta sama umowa ma już **inne aktywne zamówienie
-obejmujące dziś**, stary wiersz jest duplikatem: zostaje w historii, a na
-karcie, w górnym miejscu, stoi zamówienie, które trwa. Zamówienie zamknięte
-dziś przyciskiem **Zakończ zamówienie** (data końca = dzisiaj) nie wraca.
+aktywna albo kończąca się i nie kończy się przed końcem tego zamówienia. Jeśli
+ta sama umowa ma już **inne aktywne zamówienie obejmujące dziś**, stary wiersz
+jest duplikatem: zostaje w historii, a na karcie, w górnym miejscu, stoi
+zamówienie, które trwa. Osoba obsadzona na **zamówieniu MD albo kosztowym**
+(żywa linia) też zostaje bez zmian — zamówienie okresowe obok niej byłoby
+drugim zapisem tej samej współpracy. Zamówienie zamknięte dziś przyciskiem
+**Zakończ zamówienie** (data końca = dzisiaj) nie wraca.
 Skaner przywróci też zamówienie, które ktoś ustawił jako „Zakończone" wprost
 przez API, zostawiając datę końca w przyszłości — do zamykania zamówień służy
 „Zakończ zamówienie".

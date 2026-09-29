@@ -1763,6 +1763,55 @@ describe("OrdersAndContractsTab — komunikat o zamówieniu kończącym się w n
     ).toBeInTheDocument();
   });
 
+  it("jedyne zamówienie, które jeszcze się nie zaczęło, stoi w górnym slocie i mówi „kończy się za N dni”", async () => {
+    // Nic nie trwa, więc najbliższe przyszłe zamówienie jest „bieżącą pozycją"
+    // karty (`splitOrders`) — plakietka nie może twierdzić „przyszłe zamówienie",
+    // skoro karta nie ma sekcji przyszłych zamówień.
+    mockContractor(
+      [
+        makeOrder({
+          id: 700,
+          title: "SOLO-FUTURE",
+          start_date: localISO(3),
+          end_date: localISO(20),
+        }),
+      ],
+      { ending_without_successor_order_id: 700, ending_without_successor_days: 20 },
+    );
+    renderTab();
+
+    expect(await screen.findByTestId("order-ending-badge")).toHaveTextContent(
+      /^kończy się za 20 dni$/,
+    );
+    expect(screen.queryByTestId("no-active-order-note")).toBeNull();
+  });
+
+  it("przyszłe zamówienie obok zamkniętego historycznego stoi na liście przyszłych i tak jest nazwane", async () => {
+    mockContractor(
+      [
+        makeOrder({
+          id: 701,
+          title: "NEXT-3",
+          start_date: localISO(3),
+          end_date: localISO(20),
+        }),
+        makeOrder({
+          id: 699,
+          title: "OLD-DONE",
+          status: "completed",
+          start_date: localISO(-100),
+          end_date: localISO(-10),
+        }),
+      ],
+      { ending_without_successor_order_id: 701, ending_without_successor_days: 20 },
+    );
+    renderTab();
+
+    expect(await screen.findByTestId("order-ending-badge")).toHaveTextContent(
+      "przyszłe zamówienie NEXT-3 kończy się za 20 dni",
+    );
+  });
+
   it("„przyszłe zamówienie …” tylko dla zamówienia, którego okres jeszcze się nie zaczął", async () => {
     // Kontrakt #145: bieżące zamówienie ma kontynuację, a to PRZYSZŁE samo
     // kończy się za 20 dni i nic po nim nie ma — ono ostrzega.

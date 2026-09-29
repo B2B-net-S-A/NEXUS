@@ -29,6 +29,7 @@ from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order_group import ClientOrderGroup
 from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
 from app.models.order_type import OrderType
 from app.tasks import dl_portal_expiry_scanner as scanner
@@ -363,6 +364,77 @@ async def test_contract_past_its_end_date_is_left_to_the_contract_cron():
     await _revive(today)
 
     assert await _status(order_id) == ClientOrderStatus.completed
+
+
+async def test_order_that_outlives_its_ending_contract_is_left_alone():
+    """Zamówienie nie przeżywa umowy: przywrócone po dacie końca umowy mogłoby
+    — gdy nocny reconcile wyprzedzi cron umów — wskrzesić wypowiedzianą umowę."""
+    today = _far_today(2104)
+    ids = await _contract(
+        today=today,
+        status=ContractStatus.ending,
+        end_date=today + timedelta(days=3),
+    )
+    order_id = await _order(
+        ids, start=today - timedelta(days=90), end=today + timedelta(days=10)
+    )
+
+    await _revive(today)
+
+    assert await _status(order_id) == ClientOrderStatus.completed
+
+
+async def _group_line(
+    ids: dict[str, int], *, today: date, status: ClientOrderStatus
+) -> None:
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=ids["client_id"],
+            order_number=f"G-{uuid.uuid4().hex[:6]}",
+            order_type="md",
+            status="active",
+            start_date=today - timedelta(days=60),
+            end_date=None,
+        )
+        db.add(group)
+        await db.commit()
+        group_id = group.id
+    await _order(
+        ids,
+        start=today - timedelta(days=60),
+        end=None,
+        status=status,
+        order_group_id=group_id,
+    )
+
+
+async def test_person_on_an_open_group_line_keeps_the_stale_order_in_history():
+    """Okresowe obok żywej linii MD/kosztowej to drugi zapis tej samej
+    współpracy — aplikacja odmawia go przy ręcznym zakładaniu."""
+    today = _far_today(2105)
+    ids = await _contract(today=today)
+    stale = await _order(
+        ids, start=today - timedelta(days=30), end=today + timedelta(days=10)
+    )
+    await _group_line(ids, today=today, status=ClientOrderStatus.active)
+
+    await _revive(today)
+
+    assert await _status(stale) == ClientOrderStatus.completed
+
+
+async def test_finished_group_line_does_not_block_the_revive():
+    """Tylko OTWARTA linia (draft/active/paused) blokuje; historia nie."""
+    today = _far_today(2106)
+    ids = await _contract(today=today)
+    stale = await _order(
+        ids, start=today - timedelta(days=30), end=today + timedelta(days=10)
+    )
+    await _group_line(ids, today=today, status=ClientOrderStatus.completed)
+
+    await _revive(today)
+
+    assert await _status(stale) == ClientOrderStatus.active
 
 
 async def test_budget_orders_and_cancelled_orders_are_left_alone():

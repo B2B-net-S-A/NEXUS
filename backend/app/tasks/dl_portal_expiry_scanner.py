@@ -70,6 +70,7 @@ from app.services.delivery_alert_recipients import (
 from app.services.order_alert_policy import extended_order_alert_client_ids
 from app.services.order_continuation import order_ending_without_continuation
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
+from app.services.order_engagement_separation import OPEN_ORDER_STATUSES
 from app.services.order_line_takeover import scheduled_takeover_draft_clause
 from app.services.order_md_exhaustion import reconcile_md_exhausted_groups
 from app.services.order_types import effective_standalone_order_type
@@ -261,6 +262,66 @@ def _contract_already_served_clause(today: date) -> ColumnElement[bool]:
     )
 
 
+def _live_contract_clause() -> ColumnElement[bool]:
+    """Umowa zamówienia jest żywa i obejmuje jego koniec.
+
+    ``active``/``ending`` i ten sam klient co zamówienie (``client_orders.client_id``
+    bywa rozjechane z klientem umowy). Data końca umowy nie może być wcześniejsza
+    niż koniec zamówienia: zamówienie nie przeżywa umowy, a przywrócone mogłoby
+    — po dacie końca umowy, gdy nocny reconcile wyprzedzi cron umów — wskrzesić
+    wypowiedzianą umowę. Skoro koniec zamówienia jest ściśle po dziś, ten
+    warunek gwarantuje też, że umowa nie ma minionej daty końca (tę zamknie
+    dzienny cron kontraktów, a przywrócone zamówienie zmieniałoby status dwa
+    razy w ciągu doby).
+    """
+    return (
+        select(Contract.id)
+        .where(
+            Contract.id == ClientOrder.contract_id,
+            Contract.client_id == ClientOrder.client_id,
+            Contract.status.in_((ContractStatus.active, ContractStatus.ending)),
+            or_(
+                Contract.end_date.is_(None),
+                Contract.end_date >= ClientOrder.end_date,
+            ),
+        )
+        .correlate(ClientOrder)
+        .exists()
+    )
+
+
+def _open_group_line_clause() -> ColumnElement[bool]:
+    """Osoba jest już obsadzona żywą linią zamówienia MD albo kosztowego.
+
+    Zamówienie okresowe obok takiej linii to drugi, równoległy zapis tej samej
+    współpracy: aplikacja odmawia go przy ręcznym zakładaniu
+    (``order_engagement_separation``), a inwentarz zaangażowań flaguje jako
+    ``periodic_duplicates_group_line``. Ścieżki automatyczne pytają o to samo
+    predykatem i po cichu odpuszczają — tu też.
+    """
+    line = aliased(ClientOrder)
+    return (
+        select(line.id)
+        .where(
+            line.contract_id == ClientOrder.contract_id,
+            line.order_group_id.is_not(None),
+            line.status.in_(OPEN_ORDER_STATUSES),
+        )
+        .correlate(ClientOrder)
+        .exists()
+    )
+
+
+def _revivable_clause(today: date) -> tuple[ColumnElement[bool], ...]:
+    """Komplet warunków przywrócenia — jedna definicja dla SELECT i UPDATE."""
+    return (
+        *_stale_completed_periodic_clause(today),
+        _live_contract_clause(),
+        ~_contract_already_served_clause(today),
+        ~_open_group_line_clause(),
+    )
+
+
 def one_stale_order_per_contract(rows: Iterable[Any]) -> list[int]:
     """Z kandydatów wybierz NAJWYŻEJ jedno zamówienie na umowę.
 
@@ -306,21 +367,21 @@ async def revive_stale_completed_periodic_orders(
     robi przy zapisie okresu) — tu dla wierszy, których nikt od tamtej pory nie
     edytował. Bezpieczniki:
 
-    * umowa musi być żywa (``active``/``ending``, bez minionej daty końca — tę
-      zamknie dzienny cron kontraktów, a przywrócone zamówienie zmieniałoby
-      status dwa razy w ciągu doby) i należeć do tego samego klienta co
-      zamówienie — wskrzeszenie zamówienia pod umową zakończoną uruchamiałoby
-      wskrzeszanie kontraktów, a ta decyzja należy do ludzi;
+    * umowa musi być żywa (``active``/``ending``), tego samego klienta i nie
+      kończyć się przed końcem zamówienia (``_live_contract_clause``) —
+      wskrzeszenie zamówienia pod umową zakończoną albo krótszą od niego
+      uruchamiałoby wskrzeszanie kontraktów, a ta decyzja należy do ludzi;
     * jeśli umowa ma już inne aktywne (albo wstrzymane) zamówienie obejmujące
       dziś, stary wiersz jest duplikatem i zostaje w historii;
+    * osoba obsadzona żywą linią zamówienia MD/kosztowego zostaje bez zmian
+      (okresowe obok niej to drugi zapis tej samej współpracy);
     * najwyżej jedno zamówienie na umowę na bieg;
     * tylko zamówienia okresowe (MD, kosztowe i linie grup mają cykl budżetowy).
 
     Zwraca liczbę przywróconych zamówień; każde zostawia ``Activity`` bez autora.
     """
     today = business_day or business_today()
-    stale = _stale_completed_periodic_clause(today)
-    served = _contract_already_served_clause(today)
+    revivable = _revivable_clause(today)
     rows = (
         await db.execute(
             select(
@@ -330,28 +391,20 @@ async def revive_stale_completed_periodic_orders(
                 ClientOrder.order_type,
                 ClientOrder.start_date,
                 ClientOrder.end_date,
-            )
-            .join(Contract, Contract.id == ClientOrder.contract_id)
-            .where(
-                *stale,
-                ClientOrder.client_id == Contract.client_id,
-                Contract.status.in_((ContractStatus.active, ContractStatus.ending)),
-                or_(Contract.end_date.is_(None), Contract.end_date >= today),
-                ~served,
-            )
+            ).where(*revivable)
         )
     ).all()
     order_ids = one_stale_order_per_contract(rows)
     if not order_ids:
         return 0
-    # Kolejność blokad kontrakt → zamówienia (jak `_promote_statuses`); warunki
-    # sprawdzamy jeszcze raz w samym UPDATE, bo wiersz mógł się zmienić między
-    # odczytem a blokadą.
+    # Kolejność blokad kontrakt → zamówienia (jak `_promote_statuses`). Komplet
+    # warunków (także stan umowy) sprawdzamy jeszcze raz w samym UPDATE, bo
+    # wiersze mogły się zmienić między odczytem a blokadą.
     await lock_contract_then_orders(db, order_ids=order_ids)
     revived = (
         await db.execute(
             update(ClientOrder)
-            .where(ClientOrder.id.in_(order_ids), *stale, ~served)
+            .where(ClientOrder.id.in_(order_ids), *revivable)
             .values(status=ClientOrderStatus.active)
             .returning(
                 ClientOrder.id,
