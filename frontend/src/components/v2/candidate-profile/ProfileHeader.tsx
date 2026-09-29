@@ -223,7 +223,7 @@ export function ProfileHeader({
                   {candidate.email ? (
                     <a
                       href={`mailto:${candidate.email}`}
-                      className="inline-flex min-h-11 min-w-0 items-center gap-1.5 break-all hover:text-primary"
+                      className="inline-flex min-h-11 max-2xl:pointer-fine:min-h-7 min-w-0 items-center gap-1.5 break-all hover:text-primary"
                     >
                       <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       {candidate.email}
@@ -234,7 +234,7 @@ export function ProfileHeader({
                       candidateId={candidateId}
                       phone={candidate.phone}
                       compact
-                      className="min-h-11 min-w-11"
+                      className="min-h-11 max-2xl:pointer-fine:min-h-7 min-w-11"
                     />
                   ) : candidate.phone ? (
                     <span className="inline-flex items-center gap-1.5">{candidate.phone}</span>
@@ -244,10 +244,12 @@ export function ProfileHeader({
                       href={linkedinHref(candidate.linkedin) ?? undefined}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex min-h-11 min-w-11 items-center gap-1.5 hover:text-primary"
+                      className="inline-flex min-h-11 max-2xl:pointer-fine:min-h-7 min-w-11 items-center gap-1.5 hover:text-primary"
                     >
                       <Linkedin className="h-3.5 w-3.5 shrink-0 text-brand-linkedin" />
-                      LinkedIn
+                      {/* Poniżej 1536 px sam logotyp — napis spychał link do
+                          osobnej linii obok przycisków nagłówka (28.09.2026). */}
+                      <span className="max-2xl:sr-only">LinkedIn</span>
                     </a>
                   ) : null}
                   {showContactStatus ? (

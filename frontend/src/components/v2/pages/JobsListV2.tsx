@@ -835,6 +835,29 @@ export function JobsListV2() {
     setPage(1);
   };
 
+  // Baner przepięć stoi w rzędzie „Stan requestu” od 1536 px; na węższym
+  // oknie (laptop z Windows, 150%) spychał się tam do osobnej linii, więc
+  // poniżej 1536 px stoi w rzędzie tytułu, gdzie jest wolne miejsce.
+  const similarWithSuggestions = visibleItems.filter(
+    (j: any) => j.similar?.suggested && j.can_open !== false,
+  ).length;
+  const similarBanner = (className: string) =>
+    similarWithSuggestions > 0 ? (
+      <span
+        className={cn(
+          "items-center gap-1 rounded-md border border-dashed border-primary/40 px-2 py-1 text-xs font-medium text-primary",
+          className,
+        )}
+      >
+        ≈ {similarWithSuggestions}{" "}
+        {pluralPl(similarWithSuggestions, "rekrutacja", "rekrutacje", "rekrutacji")}
+        {/* Liczone z wierszy na ekranie — przy wielu stronach mówimy to
+            wprost, inaczej liczba wyglądała na sumę całej listy. */}
+        {total > visibleItems.length ? " na tej stronie" : ""}{" "}
+        {pluralPl(similarWithSuggestions, "ma", "mają", "ma")} podobne z osobami u klienta — przepnij je
+      </span>
+    ) : null;
+
   return (
     // `pb-24`: maskotka Jarvisa w prawym dolnym rogu zasłaniała ikony akcji
     // ostatnich wierszy — lista musi dać się przewinąć nad nią (audyt 24.09.2026).
@@ -854,6 +877,7 @@ export function JobsListV2() {
               ? "Nie udało się pobrać listy"
               : listSummary}
         </p>
+        {similarBanner("inline-flex 2xl:hidden")}
         <div className="ml-auto flex items-center gap-2">
           {/* Stany requestów ustawia DL (lustro bramki strony i API
               `request_work_states`) — bez tego linku ekran był osiągalny
@@ -1050,21 +1074,7 @@ export function JobsListV2() {
                 </button>
               );
             })}
-            {(() => {
-              const withSuggestions = visibleItems.filter(
-                (j: any) => j.similar?.suggested && j.can_open !== false,
-              ).length;
-              return withSuggestions > 0 ? (
-                <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-dashed border-primary/40 px-2 py-1 text-xs font-medium text-primary">
-                  ≈ {withSuggestions}{" "}
-                  {pluralPl(withSuggestions, "rekrutacja", "rekrutacje", "rekrutacji")}
-                  {/* Liczone z wierszy na ekranie — przy wielu stronach mówimy to
-                      wprost, inaczej liczba wyglądała na sumę całej listy. */}
-                  {total > visibleItems.length ? " na tej stronie" : ""}{" "}
-                  {pluralPl(withSuggestions, "ma", "mają", "ma")} podobne z osobami u klienta — przepnij je
-                </span>
-              ) : null;
-            })()}
+            {similarBanner("hidden 2xl:ml-auto 2xl:inline-flex")}
           </div>
 
           <JobsFilterBar

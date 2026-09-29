@@ -140,6 +140,17 @@ export function PipelineFilterBar({
     Number(blockedFilter) +
     Number(recruiterFilter != null) +
     Number(hideEmptyColumns);
+  const slaFull = slaLoading
+    ? "SLA: wczytywanie…"
+    : slaDays != null
+      ? `SLA ${slaClientName?.trim() || "klienta"}: ${slaDays} ${slaDays === 1 ? "dzień roboczy" : "dni roboczych"}`
+      : "SLA: nie ustawiono w karcie klienta";
+  const slaShort = slaLoading
+    ? "SLA: …"
+    : slaDays != null
+      ? `SLA: ${slaDays} ${slaDays === 1 ? "dzień rob." : "dni rob."}`
+      : "SLA: brak";
+
   return (
     <div
       className="flex flex-wrap items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2"
@@ -153,7 +164,7 @@ export function PipelineFilterBar({
         onChange={(e) => onNameQueryChange(e.target.value)}
         placeholder="Filtruj po nazwisku…"
         aria-label="Filtruj po nazwisku"
-        className="h-7 w-full min-w-0 rounded-md border pointer-coarse:h-10 sm:w-48 border-border bg-background px-2 text-xs focus:outline-hidden focus:ring-2 focus:ring-ring"
+        className="h-7 w-full min-w-0 rounded-md border pointer-coarse:h-10 sm:w-48 lg:w-36 2xl:w-48 border-border bg-background px-2 text-xs focus:outline-hidden focus:ring-2 focus:ring-ring"
       />
       <FilterPill
         active={myMoveFilter}
@@ -252,22 +263,24 @@ export function PipelineFilterBar({
         {/* Podsumowanie i SLA klienta (z karty klienta; brak mówimy wprost,
             bo cisza czytałaby się jak „zdążamy"). */}
         <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+          {/* Od 1536 px: „N w procesie” stoi już w ścieżce rekrutacji nad
+              tablicą, a na węższym oknie spychało zamkniętych do drugiej linii. */}
           {typeof inProcessCount === "number" ? (
-            <span className="tabular-nums">
+            <span className="hidden tabular-nums 2xl:inline">
               {inProcessCount} w procesie
               {stuckCount > 0 ? ` · ${stuckCount} utknęło > 7 d` : ""}
             </span>
           ) : null}
+          {/* Pełne zdanie od 1536 px; węższe okno (laptop z Windows) dostaje
+              krótką formę, pełna zostaje w podpowiedzi — inaczej pasek łamał
+              się na dwie linie (28.09.2026). */}
           <span
             className="inline-flex items-center gap-1"
-            title="SLA klienta z karty klienta — dni robocze na CV od wejścia w Screening"
+            title={`${slaFull} — dni robocze na CV od wejścia w Screening (z karty klienta)`}
           >
             <Timer className="h-3 w-3" aria-hidden="true" />
-            {slaLoading
-              ? "SLA: wczytywanie…"
-              : slaDays != null
-                ? `SLA ${slaClientName?.trim() || "klienta"}: ${slaDays} ${slaDays === 1 ? "dzień roboczy" : "dni roboczych"}`
-                : "SLA: nie ustawiono w karcie klienta"}
+            <span className="hidden 2xl:inline">{slaFull}</span>
+            <span className="2xl:hidden">{slaShort}</span>
           </span>
         </span>
       </span>

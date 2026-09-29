@@ -2519,6 +2519,18 @@ Audyt i lista ustaleń: `docs/responsiveness-audit-2026-09-23/`. Reguły wspóln
   każdy harness `/preview/*` przy 360/390/768/1024/1280 bez poziomego scrolla
   strony. Nowy harness dopisz do listy. Mierz `setViewportSize` na Chrome
   desktopowym — emulacja telefonu poszerza układ i maskuje przelew.
+- **Laptop z Windows to docelowy ekran, nie szeroki Mac (28.09.2026).**
+  Skalowanie 125–150% daje przeglądarce 1280–1536 × 650–860 px (zmierzone:
+  Mac Artura 2666 × 1229, laptop rekrutera ≈ 1280 × 650). Nagłówek i filtry
+  rosły tam w dół i tablica rekrutacji zaczynała się na 73% wysokości. Zasada:
+  **przy 1280 × 720 główna treść (tablica, tabela) zaczyna się w górnych 60%
+  okna** — filtry w jednym rzędzie, rzadsze pod „Więcej filtrów”, liczby
+  powtórzone w kilku miejscach dopiero od `2xl`. Pilnuje test „okna laptopów
+  z Windows” w `e2e/responsive-preview.spec.ts` (1280×720, 1366×768, 1536×864;
+  harnessy bez powłoki dostają ramkę CSS 240 px + 48 px), harness tablicy
+  z powłoką: `/preview/job-detail`. Zwarty układ poniżej `2xl`, na liście
+  kandydatów poniżej `min-[1800px]` (1536 × 864 to też niski ekran). Każda
+  zmiana UI: przeklikaj też przy 1280 × 720, nie tylko na dużym monitorze.
 
 ## Audyt manualny Codexa 13–15.09.2026 — reguły, które łatwo cofnąć
 

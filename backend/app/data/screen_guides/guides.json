@@ -13,7 +13,7 @@
       },
       {
         "q": "Jak znaleźć konkretną rekrutację albo zawęzić listę?",
-        "a": "Wpisz tytuł, klienta, technologię albo numer u klienta i wybierz stan requestu. Pasek pod nim ma „Klient”, „Delivery Lead”, „Kto pracuje” (Ty, wybrane osoby albo nikt), „Kategoria”, „Termin” i „Więcej filtrów”, a obok przełączniki „Po terminie”, „Nikt nie pracuje” i „Nikogo nie wysłano”. Krzyżyk przy filtrze go zdejmuje.",
+        "a": "Wpisz tytuł, klienta, technologię albo numer u klienta i wybierz stan requestu. Pasek pod nim ma „Klient”, „Delivery Lead” („DL”), „Kto pracuje” (Ty, wybrane osoby albo nikt), „Kategoria”, „Termin” i „Więcej filtrów” („Więcej”), a obok przełączniki „Po terminie”, „Nikt nie pracuje” i „Nikogo nie wysłano”. Krzyżyk przy filtrze go zdejmuje.",
         "anchor": "jobs.list.search"
       },
       {
