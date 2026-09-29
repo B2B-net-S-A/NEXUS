@@ -51,7 +51,20 @@ from decimal import Decimal
 from functools import reduce
 from typing import Any, Iterable, Literal, Optional, Sequence
 
-from sqlalchemy import String, and_, case, cast, func, literal, not_, or_, select, text
+from sqlalchemy import (
+    String,
+    Text,
+    and_,
+    case,
+    cast,
+    func,
+    literal,
+    not_,
+    or_,
+    select,
+    text,
+)
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.sql import ColumnElement
 
 from app.models.candidate import Candidate
@@ -800,6 +813,202 @@ async def interpret_text(db: Any, q: Optional[str]) -> TextInterpretation:
     )
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Nazwisko: najpierw dokładnie, podobne tylko, gdy nikogo takiego nie ma
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Zgłoszenie 09.2026: „Składanowski” w górnym polu listy dawało też
+# Stefanowskiego, Baranowskiego, Bazanowskiego i SKŁADOWSKIEGO — gałąź
+# literówek (trigramy, próg 0,2) jest przy jednym słowie tak luźna, że łapie
+# każde „-anowski”. Decyzja Artura: „tylko dokładne”. W v2 z ``text_mode=auto``
+# tekst wyglądający na osobę idzie więc BEZ gałęzi literówek, jeśli w bazie
+# jest ktoś o dokładnie takim imieniu/nazwisku; podobne pokazujemy wyłącznie
+# wtedy, gdy nikogo takiego nie ma — i odpowiedź to mówi (``text_match``).
+# v1 i żądania bez ``text_mode`` (alerty zapisanych wyszukiwań) — bez zmian.
+
+PersonTextMatch = Literal["exact", "similar"]
+
+# Końcówki, po których jedno nieznane słowo traktujemy jako nazwisko (a nie
+# opis w rodzaju „księgowa”) i szukamy podobnych nazwisk zamiast znaczenia.
+_SURNAME_SUFFIXES = (
+    "ski",
+    "ska",
+    "cki",
+    "cka",
+    "dzki",
+    "dzka",
+    "wicz",
+    "czyk",
+    "czuk",
+    "czak",
+)
+# Przymiotniki na „-ski/-cki”, które są opisem (głównie języki), nie nazwiskiem.
+_NOT_SURNAME_STEMS = frozenset(
+    """
+    angielsk niemieck francusk polsk rosyjsk hiszpansk wlosk ukrainsk czesk
+    slowack szwedzk dunsk norwesk finsk japonsk chinsk koreansk portugalsk
+    holendersk wegiersk rumunsk bulgarsk chorwack serbsk litewsk lotewsk
+    estonsk greck tureck arabsk hebrajsk europejsk miejsk wiejsk morsk
+    """.split()
+)
+
+
+def looks_like_surname(token: str) -> bool:
+    """Jedno słowo z typową końcówką polskiego nazwiska (bez języków)."""
+    from app.services.advanced_candidate_search import fold_polish
+
+    folded = fold_polish(token.strip()).lower()
+    if len(folded) < 5 or not _NAME_TOKEN_RE.match(token.strip()):
+        return False
+    if not folded.endswith(_SURNAME_SUFFIXES):
+        return False
+    return folded[:-1] not in _NOT_SURNAME_STEMS
+
+
+def _fold_person_col(col: Any) -> ColumnElement:
+    from app.services.advanced_candidate_search import (
+        _POLISH_FOLD_DST,
+        _POLISH_FOLD_SRC,
+    )
+
+    return func.lower(
+        func.translate(func.coalesce(col, ""), _POLISH_FOLD_SRC, _POLISH_FOLD_DST)
+    )
+
+
+def _folded_name_tokens(tokens: Sequence[str]) -> list[str]:
+    """Wyrazy zapytania bez polskich znaków, małymi literami, myślnik = odstęp."""
+    from app.services.advanced_candidate_search import fold_polish
+
+    out: list[str] = []
+    for token in tokens:
+        out.extend(
+            part for part in re.split(r"[\s\-]+", fold_polish(token).lower()) if part
+        )
+    return out
+
+
+def exact_person_clause(tokens: Sequence[str]) -> Optional[ColumnElement]:
+    """Kandydat, którego imię i nazwisko DOKŁADNIE odpowiada wpisanym wyrazom.
+
+    * jedno słowo: imię, nazwisko albo jeden człon nazwiska dwuczłonowego
+      (ta sama reguła co ``person_token_exists``),
+    * 2–3 słowa: każde jest osobnym wyrazem imienia lub nazwiska, w dowolnej
+      kolejności („Kowalski Jan” = „Jan Kowalski”).
+    """
+    from app.services.advanced_candidate_search import fold_polish
+
+    cleaned = [t.strip() for t in tokens if t and t.strip()]
+    if not cleaned:
+        return None
+    if len(cleaned) == 1:
+        folded = fold_polish(cleaned[0]).lower()
+        return or_(
+            _fold_person_col(Candidate.name) == folded,
+            _fold_person_col(Candidate.lastname) == folded,
+            literal(folded)
+            == func.any(
+                func.string_to_array(_fold_person_col(Candidate.lastname), "-")
+            ),
+        )
+    words = _folded_name_tokens(cleaned)
+    person_words = func.string_to_array(
+        func.regexp_replace(
+            func.btrim(
+                _fold_person_col(Candidate.name)
+                + " "
+                + _fold_person_col(Candidate.lastname)
+            ),
+            r"[[:space:]-]+",
+            " ",
+            "g",
+        ),
+        " ",
+    )
+    return person_words.op("@>")(literal(words, type_=ARRAY(Text)))
+
+
+_person_name_cache: dict[str, tuple[float, bool]] = {}
+
+
+async def person_name_exists(db: Any, tokens: Sequence[str]) -> bool:
+    """Czy w bazie jest osoba o dokładnie takim imieniu/nazwisku (1–3 wyrazy).
+
+    Jedno słowo = ``person_token_exists``. Kilka słów: jedno zapytanie
+    ``LIMIT 1`` zawężone indeksem trigramowym ``search_doc_unaccented`` po
+    każdym wyrazie, a dokładność sprawdza ``exact_person_clause``.
+    """
+    import time
+
+    from app.services.advanced_candidate_search import (
+        _SEARCH_DOC_UNACCENT,
+        _escape_like,
+    )
+
+    cleaned = [t.strip() for t in tokens if t and t.strip()]
+    if not cleaned:
+        return False
+    if len(cleaned) == 1:
+        return await person_token_exists(db, cleaned[0])
+    words = _folded_name_tokens(cleaned)
+    key = " ".join(words)
+    now = time.monotonic()
+    cached = _person_name_cache.get(key)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+    clause = exact_person_clause(cleaned)
+    stmt = (
+        select(Candidate.id)
+        .where(
+            *(
+                _SEARCH_DOC_UNACCENT.ilike(f"%{_escape_like(word)}%", escape="\\")
+                for word in words
+            ),
+            clause,
+        )
+        .limit(1)
+    )
+    exists = (await db.execute(stmt)).first() is not None
+    if len(_person_name_cache) >= _PERSON_TOKEN_CACHE_MAX:
+        _person_name_cache.clear()
+    _person_name_cache[key] = (now + _PERSON_TOKEN_TTL_SECONDS, exists)
+    return exists
+
+
+def person_text_applies(sem: "Semantics", requested: Optional[str]) -> bool:
+    """Reguła „najpierw dokładnie” działa WYŁĄCZNIE w v2 z ``text_mode=auto``."""
+    return bool(sem.unified) and requested == "auto"
+
+
+async def person_text_match(
+    db: Any, q: Optional[str], sem: "Semantics", requested: Optional[str]
+) -> Optional[PersonTextMatch]:
+    """``exact`` / ``similar`` albo ``None`` (bez zmian w dopasowaniu).
+
+    * ``exact`` — tekst wygląda na osobę i jest ktoś o dokładnie takim imieniu
+      /nazwisku: dopasowanie dosłowne BEZ gałęzi literówek,
+    * ``similar`` — tekst wygląda na osobę, a takiej osoby nie ma: gałąź
+      literówek zostaje (podobne nazwiska) i odpowiedź to mówi. Jedno słowo
+      tylko przy końcówce nazwiska — reszta („księgowa”) idzie jak dotąd
+      ścieżką semantyczną,
+    * ``None`` — v1, brak ``text_mode=auto`` albo tekst nie wygląda na osobę.
+    """
+    if not person_text_applies(sem, requested):
+        return None
+    stripped = (q or "").strip()
+    if not stripped:
+        return None
+    found = detect_text_mode(stripped)
+    if found.kind != "name" or not found.name_tokens:
+        return None
+    tokens = found.name_tokens
+    if await person_name_exists(db, tokens):
+        return "exact"
+    if len(tokens) > 1:
+        return "similar"
+    return "similar" if looks_like_surname(tokens[0]) else None
+
+
 def text_mode_to_apply(
     sem: Semantics, requested: Optional[str], interpretation: TextInterpretation
 ) -> Optional[Literal["literal", "semantic"]]:
@@ -829,7 +1038,9 @@ def literal_text_threshold(q: str) -> Optional[float]:
     return 0.5 if " " in stripped else 0.2
 
 
-def literal_text_clause(q: str) -> Optional[ColumnElement]:
+def literal_text_clause(
+    q: str, *, person_match: Optional[PersonTextMatch] = None
+) -> Optional[ColumnElement]:
     """Dopasowanie DOSŁOWNE — to samo w L i w S.
 
     Fraza w dowolnym przeszukiwanym polu (``single_phrase_filter``: FTS-prefiks
@@ -839,6 +1050,15 @@ def literal_text_clause(q: str) -> Optional[ColumnElement]:
     (``prepare_literal_text``). ``None`` = fraza za krótka, by filtrować.
     """
     stripped = (q or "").strip()
+    if person_match == "exact":
+        # Jest ktoś o dokładnie takim imieniu/nazwisku: bez gałęzi literówek
+        # (inaczej „Składanowski” daje też Baranowskiego). Dokładny wyraz
+        # w dowolnej kolejności dokłada ``exact_person_clause``.
+        phrase = single_phrase_filter(stripped, fuzzy=False)
+        exact = exact_person_clause(detect_text_mode(stripped).name_tokens)
+        if phrase is not None and exact is not None:
+            return or_(phrase, exact)
+        return phrase if phrase is not None else exact
     phrase = single_phrase_filter(
         stripped, fuzzy=literal_text_threshold(stripped) is not None
     )
@@ -855,7 +1075,9 @@ class LiteralTextTooShort(ValueError):
     """Niepusty tekst dosłowny, który nie daje żadnego warunku (1 znak)."""
 
 
-async def prepare_literal_text(db: Any, q: str) -> Optional[ColumnElement]:
+async def prepare_literal_text(
+    db: Any, q: str, *, person_match: Optional[PersonTextMatch] = None
+) -> Optional[ColumnElement]:
     """Ustawia ``pg_trgm.similarity_threshold`` (SET LOCAL) i zwraca klauzulę.
 
     Niepusty tekst, z którego nie powstaje warunek (np. jedna litera), to
@@ -863,11 +1085,13 @@ async def prepare_literal_text(db: Any, q: str) -> Optional[ColumnElement]:
     (25.09.2026) ``None`` znaczyło „brak warunku”, więc `q="a"` w trybie
     dosłownym zwracało CAŁĄ bazę. Pusty tekst nadal daje ``None``.
     """
-    clause = literal_text_clause(q)
+    clause = literal_text_clause(q, person_match=person_match)
     if clause is None:
         if (q or "").strip():
             raise LiteralTextTooShort(LITERAL_TEXT_TOO_SHORT_MSG)
         return None
+    if person_match == "exact":
+        return clause
     threshold = literal_text_threshold(q)
     if threshold is not None:
         # Wartość jest jedną z dwóch stałych powyżej — nie pochodzi z wejścia.

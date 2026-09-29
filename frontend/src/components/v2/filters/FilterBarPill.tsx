@@ -93,7 +93,10 @@ export function FilterPill({
                 {count}
               </span>
             ) : null}
-            <ChevronDown className="h-3.5 w-3.5 opacity-60" aria-hidden />
+            {/* Strzałka dopiero od 1536 px: na laptopie z Windows (okno
+                ≈ 1280 px) sześć strzałek spychało „Wyczyść filtry” listy
+                rekrutacji do drugiej linii (produkcja 29.09.2026). */}
+            <ChevronDown className="h-3.5 w-3.5 opacity-60 max-2xl:hidden" aria-hidden />
           </button>
         </PopoverTrigger>
         <PopoverContent
