@@ -1,7 +1,7 @@
 """„Champion po ludzku”: słowniczek, biblioteka ról, teksty rekrutacji (29.09.2026).
 
 Revision ID: 0402_plain_knowledge
-Revises: 0400_candidate_document_outdated
+Revises: 0401_b2b_annex_rates
 
 Decyzje Artura 29.09.2026 (makiety https://claude.ai/artifact/WEVyKuavTdd8JVggXQ9mD3):
 rekruter widzi na górze Podglądu Championa wyjaśnienie „po ludzku”, a w doku
@@ -17,7 +17,7 @@ from alembic import op
 from app.services.plain_knowledge import schema_sql, seed
 
 revision = "0402_plain_knowledge"
-down_revision = "0400_candidate_document_outdated"
+down_revision = "0401_b2b_annex_rates"
 branch_labels = None
 depends_on = None
 
