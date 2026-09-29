@@ -244,8 +244,9 @@ export function ContractAmendmentsTab({
                 <StopIcon className="w-4 h-4" /> Zakończ wcześniej
               </button>
             )}
-            {/* Dokument aneksu do podpisu (DOCX) — generator dokumentów
-                w module Generator Umów B2B, umowa bazowa po tym kontrakcie. */}
+            {/* Dokument aneksu do podpisu (DOCX) — zakładka „Generator
+                aneksów” w module Generator Umów B2B (`documentsHref` z typem
+                aneksu prowadzi tam), umowa bazowa po tym kontrakcie. */}
             <Link
               href={documentsHref({ newType: "annex_rate_change", contractId })}
               className="flex items-center gap-2 border border-border hover:bg-muted text-foreground px-3 py-2 rounded-lg text-sm font-medium"
