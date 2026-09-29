@@ -206,71 +206,122 @@ async def _clients_without_about(db) -> list[tuple[int, str]]:
     return [(cid, name) for cid, name in rows if name]
 
 
-async def build_plan(args: argparse.Namespace) -> dict[str, Any]:
+def load_journal(path: Path) -> dict[tuple[str, str], dict[str, Any]]:
+    """Wyniki już zbadane (ostatni zapis per hasło). Brak wyniku = do ponowienia."""
+    done: dict[tuple[str, str], dict[str, Any]] = {}
+    if not path.exists():
+        return done
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(rec, dict) and rec.get("result"):
+            done[(rec["kind"], rec["key"])] = rec
+    return done
+
+
+async def _plan_items(args: argparse.Namespace) -> list[dict[str, Any]]:
     from app.core.database import AsyncSessionLocal
     from app.services.plain_knowledge import knowledge
-    from app.services.plain_knowledge.research import research
-    from app.services.skill_taxonomy_loader import refresh_alias_map
 
-    from app.core.config import settings
-
-    await refresh_alias_map()
-    # Jednorazowa budowa bazy startowej: dzienny sufit researchu dotyczy
-    # aplikacji, nie tego przebiegu (kilkaset haseł naraz).
-    settings.PLAIN_KNOWLEDGE_RESEARCH_DAILY_LIMIT = 100_000
-    plan: dict[str, Any] = {
-        "version": PLAN_VERSION,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
     async with AsyncSessionLocal() as db:
         terms_src = await _frequent_terms(db)
         jobs = await _load_jobs(db)
         clients = await _clients_without_about(db)
         await db.commit()
 
-        seen: set[str] = set()
-        terms: list[dict[str, Any]] = []
-        for name in terms_src:
-            if not knowledge.researchable_term(name):
-                continue
-            key = knowledge.term_key_for(name)
-            if key in seen:
-                continue
-            seen.add(key)
-            if args.limit_terms and len(terms) >= args.limit_terms:
-                break
-            result = await research(db, "term", name)
-            terms.append({"term_key": key, "name": name, "result": result})
-            logger.info("term %s: %s", len(terms), "ok" if result else "brak")
-        plan["terms"] = terms
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for name in terms_src:
+        if not knowledge.researchable_term(name):
+            continue
+        key = knowledge.term_key_for(name)
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append({"kind": "term", "key": key, "term_key": key, "name": name})
+    terms = [i for i in items if i["kind"] == "term"][: args.limit_terms or None]
 
-        groups = cluster_jobs(jobs, args.min_group)
-        roles: list[dict[str, Any]] = []
-        for group in groups[: args.limit_roles or None]:
-            name = group["name"] or " ".join(group["title_words"]).title()
-            result = await research(db, "role", name, skills=group["skills"])
-            roles.append(
-                {
-                    **group,
-                    "slug": knowledge.slugify(name),
-                    "name": name,
-                    "result": result,
-                }
-            )
+    roles: dict[str, dict[str, Any]] = {}
+    for group in cluster_jobs(jobs, args.min_group):
+        name = group["name"] or " ".join(group["title_words"]).title()
+        slug = knowledge.slugify(name)
+        if slug in roles:  # dwie grupy o tej samej nazwie = jedna rola
+            roles[slug]["jobs"] += group["jobs"]
+            continue
+        roles[slug] = {**group, "kind": "role", "key": slug, "slug": slug, "name": name}
+    role_items = list(roles.values())[: args.limit_roles or None]
+
+    client_items = [
+        {"kind": "client", "key": str(cid), "client_id": cid, "name": name}
+        for cid, name in clients[: args.limit_clients or None]
+    ]
+    return terms + role_items + client_items
+
+
+async def build_plan(args: argparse.Namespace) -> dict[str, Any]:
+    """Research wznawialny i równoległy: każdy wynik od razu trafia do dziennika
+    ``<plan>.jsonl``, a ponowny bieg pomija hasła już zbadane (deploy ubija
+    proces w kontenerze — bieg trwa godziny)."""
+    from app.core.config import settings
+    from app.core.database import AsyncSessionLocal
+    from app.services.plain_knowledge.research import research
+    from app.services.skill_taxonomy_loader import refresh_alias_map
+
+    await refresh_alias_map()
+    # Jednorazowa budowa bazy startowej: dzienny sufit researchu dotyczy
+    # aplikacji, nie tego przebiegu (kilkaset haseł naraz).
+    settings.PLAIN_KNOWLEDGE_RESEARCH_DAILY_LIMIT = 100_000
+    items = await _plan_items(args)
+    journal = Path(f"{args.plan}.jsonl")
+    done = load_journal(journal)
+    todo = [i for i in items if (i["kind"], i["key"]) not in done]
+    logger.info(
+        "plan: %s haseł, zrobione %s, do zbadania %s", len(items), len(done), len(todo)
+    )
+    sem = asyncio.Semaphore(max(1, args.concurrency))
+    lock = asyncio.Lock()
+    counter = {"n": 0}
+
+    async def run(item: dict[str, Any]) -> None:
+        async with sem:
+            async with AsyncSessionLocal() as db:
+                result = await research(
+                    db, item["kind"], item["name"], skills=item.get("skills")
+                )
+        async with lock:
+            with journal.open("a", encoding="utf-8") as fh:
+                fh.write(
+                    json.dumps({**item, "result": result}, ensure_ascii=False) + "\n"
+                )
+            counter["n"] += 1
             logger.info(
-                "role %s (%s): %s",
-                len(roles),
-                group["jobs"],
+                "%s/%s %s %s: %s",
+                counter["n"],
+                len(todo),
+                item["kind"],
+                item["key"],
                 "ok" if result else "brak",
             )
-        plan["roles"] = roles
 
-        out_clients = []
-        for cid, name in clients[: args.limit_clients or None]:
-            result = await research(db, "client", name)
-            out_clients.append({"client_id": cid, "name": name, "result": result})
-        plan["clients"] = out_clients
-    return plan
+    await asyncio.gather(*(run(i) for i in todo))
+    done = load_journal(journal)
+
+    def rows(kind: str) -> list[dict[str, Any]]:
+        return [
+            {**i, "result": (done.get((kind, i["key"])) or {}).get("result")}
+            for i in items
+            if i["kind"] == kind
+        ]
+
+    return {
+        "version": PLAN_VERSION,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "terms": rows("term"),
+        "roles": rows("role"),
+        "clients": rows("client"),
+    }
 
 
 def write_review(plan: dict[str, Any], path: Path) -> None:
@@ -566,6 +617,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--limit-terms", type=int, default=0)
     parser.add_argument("--limit-roles", type=int, default=0)
     parser.add_argument("--limit-clients", type=int, default=0)
+    parser.add_argument("--concurrency", type=int, default=6)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
     return asyncio.run(_main(args))

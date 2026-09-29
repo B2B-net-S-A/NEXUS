@@ -6,6 +6,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  briefHasContent,
+  normalizePlainBrief,
   plainBriefQueryKey,
   plainTermsQueryKey,
   shouldAutoRefresh,
@@ -44,5 +46,19 @@ describe("klucze zapytań", () => {
       "outside",
       "kaf",
     ]);
+  });
+});
+
+describe("normalizePlainBrief", () => {
+  it("odrzuca odpowiedź spoza kontraktu zamiast wywracać dok", () => {
+    expect(normalizePlainBrief(undefined)).toBeNull();
+    expect(normalizePlainBrief({ stages: [] })).toBeNull();
+  });
+
+  it("uzupełnia brakujące listy pustymi tablicami", () => {
+    const brief = normalizePlainBrief({ job_id: 1, status: "none", stale: true });
+    expect(brief?.candidate_qa).toEqual([]);
+    expect(brief?.glossary).toEqual([]);
+    expect(briefHasContent(brief)).toBe(false);
   });
 });

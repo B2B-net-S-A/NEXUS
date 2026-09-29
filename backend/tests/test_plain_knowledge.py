@@ -629,3 +629,25 @@ async def test_model_failure_is_a_status_not_a_500(app_client, monkeypatch) -> N
     assert body["status"] == "failed"
     assert body["message"] == job_brief.FAILED
     assert body["can_change_role"] is True
+
+
+def test_build_journal_skips_done_items_and_retries_empty_results(tmp_path) -> None:
+    import json
+
+    from scripts.build_plain_knowledge import load_journal
+
+    path = tmp_path / "plan.json.jsonl"
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {"kind": "term", "key": "kafka", "result": {"summary": "x"}}
+                ),
+                json.dumps({"kind": "term", "key": "jira", "result": None}),
+                "zepsuta linia",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    done = load_journal(path)
+    assert set(done) == {("term", "kafka")}

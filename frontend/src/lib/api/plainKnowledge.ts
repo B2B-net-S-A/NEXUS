@@ -218,9 +218,29 @@ export function plainTermHistoryQueryKey(id: number) {
 
 // ── API ──────────────────────────────────────────────────────────────────
 
+const asArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
+
+/**
+ * Odpowiedź API sprawdzana na granicy: kształt spoza kontraktu (inna trasa, stary
+ * backend, pusta odpowiedź) daje `null` zamiast wywracać dok osoby i Podgląd
+ * Championa na `undefined.length`. Listy zawsze są tablicami.
+ */
+export function normalizePlainBrief(raw: unknown): PlainBrief | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Record<string, unknown>;
+  if (typeof data.job_id !== "number" || typeof data.status !== "string") return null;
+  return {
+    ...(data as unknown as PlainBrief),
+    day_to_day: asArray<string>(data.day_to_day),
+    candidate_qa: asArray<CandidateQa>(data.candidate_qa),
+    screening_plain: asArray<ScreeningPlain>(data.screening_plain),
+    glossary: asArray<GlossaryTerm>(data.glossary),
+  };
+}
+
 export const plainKnowledgeApi = {
   brief: (jobId: number) =>
-    api.get<PlainBrief>(`/api/jobs/${jobId}/plain-brief`).then((r) => r.data),
+    api.get<PlainBrief>(`/api/jobs/${jobId}/plain-brief`).then((r) => normalizePlainBrief(r?.data)),
   // Generacja tekstów + research brakujących terminów — do ~60 s po stronie
   // serwera, więc długi sufit (`lib/http-timeouts.ts`).
   refresh: (jobId: number) =>
@@ -228,11 +248,11 @@ export const plainKnowledgeApi = {
       .post<PlainBrief>(`/api/jobs/${jobId}/plain-brief/refresh`, undefined, {
         timeout: SLOW_ENDPOINT_TIMEOUT_MS,
       })
-      .then((r) => r.data),
+      .then((r) => normalizePlainBrief(r?.data)),
   setRole: (jobId: number, roleProfileId: number | null) =>
     api
       .put<PlainBrief>(`/api/jobs/${jobId}/role-profile`, { role_profile_id: roleProfileId })
-      .then((r) => r.data),
+      .then((r) => normalizePlainBrief(r?.data)),
   roles: (q = "") =>
     api
       .get<{ items: RoleProfileListItem[] }>("/api/role-profiles", { params: q ? { q } : undefined })
@@ -317,7 +337,7 @@ export function useRefreshPlainBrief(jobId: number) {
  */
 export function useAutoRefreshPlainBrief(
   jobId: number,
-  brief: PlainBrief | undefined,
+  brief: PlainBrief | null | undefined,
   refresh: { mutate: () => void },
 ): void {
   const fired = useRef(false);
