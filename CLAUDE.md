@@ -1784,6 +1784,11 @@ blok „Po ludzku” na górze Podglądu Championa i „Ściąga do rozmowy” w
   Opisy klientów NIE trafiają do repo (repo publiczne) — `scripts/build_plain_knowledge.py
   --apply-clients` na produkcji. Bazę startową buduje ten sam skrypt (`--plan`
   → przegląd arkusza → `--write-seed`).
+- **Scalona rola pamięta inne nazwy** (`match_rules.title_alternatives`, lista
+  zestawów słów): „Tester automatyzujący” trafia też w „Test Automation Engineer”.
+  Zestaw złożony z samych ogólnych słów („developer”, „it”) nie trafia do listy —
+  pasowałby do każdej rekrutacji. `--write-seed` wycina źródła z domen klientów
+  (słowo z nazwy klienta w adresie) — w repo nie ma nazw klientów.
 
 ## Karta klienta (`client_playbooks`)
 

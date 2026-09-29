@@ -8,6 +8,7 @@ research w internecie raz i tylko po nazwie.
 
 from __future__ import annotations
 
+import re
 import uuid
 from types import SimpleNamespace
 
@@ -743,3 +744,67 @@ def test_build_script_merges_polish_and_english_role_synonyms() -> None:
     assert role_key("Programista Java") == role_key("Java Developer")
     assert role_key("Analityk Systemowy") == role_key("System Analyst")
     assert role_key("Tester manualny") != role_key("Tester automatyzujący")
+
+
+def test_merged_role_matches_titles_of_its_other_names() -> None:
+    """Scalona rola „Tester automatyzujący” musi łapać „Test Automation Engineer”."""
+    rules = role_matcher.rules_of(
+        7,
+        {
+            "title_words": ["automatyzujący", "tester"],
+            "title_alternatives": [["automation", "engineer", "test"]],
+            "skills": ["selenium"],
+            "category": "security_quality",
+        },
+    )
+    title = frozenset({"test", "automation", "engineer"})
+    assert role_matcher.best_role([rules], title, frozenset(), None) == 7
+    # Stare reguły bez alternatyw liczą się jak dawniej.
+    plain = role_matcher.rules_of(8, {"title_words": ["tester", "manualny"]})
+    assert (
+        role_matcher.score(plain, frozenset({"tester", "manualny"}), frozenset(), None)
+        == 0.5
+    )
+
+
+def test_seed_drops_sources_from_client_domains() -> None:
+    from scripts.build_plain_knowledge import client_source_filter
+
+    keep = client_source_filter(
+        {"clients": [{"name": "Comarch S.A."}, {"name": "Bank Polski"}]}
+    )
+    kept = keep(
+        [
+            {"url": "https://kariera.comarch.pl/blog/x", "title": "Comarch"},
+            {"url": "https://pl.wikipedia.org/wiki/Java", "title": "Wikipedia"},
+            {"url": "https://bank.example.com/java", "title": "Słowo z formy prawnej"},
+        ]
+    )
+    assert [s["title"] for s in kept] == ["Wikipedia", "Słowo z formy prawnej"]
+
+
+def test_repo_seed_files_are_complete_and_clean() -> None:
+    """Pliki zasiewu idą do publicznego repo i startują bibliotekę na produkcji."""
+    import json
+    from pathlib import Path
+
+    base = Path(__file__).resolve().parents[1] / "app" / "data" / "plain_knowledge"
+    roles = json.loads((base / "roles.json").read_text(encoding="utf-8"))["roles"]
+    terms = json.loads((base / "terms.json").read_text(encoding="utf-8"))["terms"]
+    assert roles and terms
+    slugs = [r["slug"] for r in roles]
+    assert len(slugs) == len(set(slugs))
+    keys = [t["term_key"] for t in terms]
+    assert len(keys) == len(set(keys))
+    for role in roles:
+        assert role["summary"] and role["match_rules"]["title_words"], role["slug"]
+        assert role_matcher.clean_role_name(role["name"]) == role["name"], role["name"]
+    for term in terms:
+        assert term["summary"], term["term_key"]
+    texts = [
+        {k: v for k, v in row.items() if k != "sources"} for row in [*roles, *terms]
+    ]
+    blob = json.dumps(texts, ensure_ascii=False)
+    # Kwoty w tekstach („150 zł”, „20 000 PLN”); tytuły źródeł bywają cennikami
+    # egzaminów, a „zł” w środku słowa („przyszłości”) to nie kwota.
+    assert not re.search(r"\d[\d\s]*(?:zł|pln)\b", blob, re.IGNORECASE)
