@@ -137,7 +137,9 @@ describe("AddCandidateModal — start od CV", () => {
 
     await waitFor(() => expect(callsTo("/api/candidates/from-cv")).toHaveLength(1));
     const body = callsTo("/api/candidates/from-cv")[0][1] as FormData;
-    expect(body.get("email")).toBe("");
+    // Pusty napis w multipart FastAPI czyta jak brak pola — wyczyszczone idą listą.
+    expect(body.get("email")).toBeNull();
+    expect(body.get("cleared")).toBe("email");
     expect(body.get("linkedin")).toBeNull(); // CV nie miało LinkedIna — nic do czyszczenia
     expect(JSON.parse(String(body.get("candidate")))).toEqual({ tags: ["java", "sql"] });
     expect(apiPatch).not.toHaveBeenCalled();

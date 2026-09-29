@@ -49,6 +49,7 @@ import {
   cvKnownFields,
   extraFieldsForCv,
   fillEmptyFromCv,
+  fromCvFormEntries,
   fromCvOverrides,
   type CandidateCvPreview,
   type CvFormField,
@@ -1125,8 +1126,8 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
   const saveFromCv = async (file: File, force: boolean): Promise<number> => {
     const fd = new FormData();
     fd.append("file", file);
-    for (const [key, value] of Object.entries(fromCvOverrides(form, cvKnown))) {
-      fd.append(key, value ?? "");
+    for (const [key, value] of fromCvFormEntries(fromCvOverrides(form, cvKnown))) {
+      fd.append(key, value);
     }
     const extra = extraFieldsForCv(
       candidateFormToPayload(form) as Record<string, unknown>,

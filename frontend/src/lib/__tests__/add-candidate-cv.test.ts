@@ -6,6 +6,7 @@ import {
   extraFieldsForCv,
   cvKnownFields,
   fillEmptyFromCv,
+  fromCvFormEntries,
   fromCvOverrides,
   type CandidateCvPreview,
 } from "@/lib/add-candidate-cv";
@@ -98,5 +99,13 @@ describe("add-candidate-cv", () => {
     expect(duplicateMatchesFromConflict(error)).toEqual([match]);
     expect(duplicateMatchesFromConflict({ response: { status: 422, data: {} } })).toBeNull();
     expect(duplicateMatchesFromConflict(new Error("x"))).toBeNull();
+  });
+
+  it("wyczyszczone pola jadą listą `cleared`, nie pustym napisem", () => {
+    expect(fromCvFormEntries({ name: "Anna", email: "", city: "" })).toEqual([
+      ["name", "Anna"],
+      ["cleared", "email,city"],
+    ]);
+    expect(fromCvFormEntries({ name: "Anna" })).toEqual([["name", "Anna"]]);
   });
 });

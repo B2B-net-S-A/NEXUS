@@ -190,8 +190,9 @@ async def test_cleared_field_is_not_refilled_from_the_cv_nor_used_for_dedup(
     form = {
         "name": "Nowy",
         "lastname": f"Bezmaila{unique}",
-        "email": "",
-        "city": "",
+        # Pusty napis z multipart FastAPI traktuje jak brak pola — wyczyszczenie
+        # idzie osobną listą (tak wysyła je okno „Dodaj kandydata”).
+        "cleared": "email,city",
     }
     try:
         warned = await app_client.post(

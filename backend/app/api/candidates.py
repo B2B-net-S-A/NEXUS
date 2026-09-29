@@ -6838,6 +6838,28 @@ async def _extract_uploaded_cv_text(
     return raw_text
 
 
+# Pole formularza „Dodaj kandydata” → klucz odczytu CV.
+_FROM_CV_FORM_FIELDS: dict[str, str] = {
+    "name": "first_name",
+    "lastname": "last_name",
+    "email": "email",
+    "phone": "phone",
+    "city": "city",
+    "linkedin": "linkedin_url",
+}
+
+
+def _cleared_form_fields(value: Optional[str]) -> list[str]:
+    """`cleared=email,city` → znane pola formularza; nieznane pomijamy."""
+    if not value:
+        return []
+    return [
+        key
+        for key in (part.strip() for part in value.split(","))
+        if key in _FROM_CV_FORM_FIELDS
+    ]
+
+
 def _clean_override(value: Optional[str], limit: int) -> Optional[str]:
     """`None` = pola nie przysłano (zostaje odczyt CV); `""` = rekruter pole
     wyczyścił (wartość z CV NIE wraca); inaczej przycięta wartość."""
@@ -7071,6 +7093,7 @@ async def create_candidate_from_cv(
     city: Optional[str] = Form(default=None),
     linkedin: Optional[str] = Form(default=None),
     candidate_fields: Optional[str] = Form(default=None, alias="candidate"),
+    cleared: Optional[str] = Form(default=None),
 ):
     """One-shot onboarding: PDF/DOCX CV in → new Candidate out.
 
@@ -7117,17 +7140,20 @@ async def create_candidate_from_cv(
         force=force,
         remember=False,
     )
-    parsed = _apply_from_cv_overrides(
-        parsed,
-        {
-            "first_name": _clean_override(name, 100),
-            "last_name": _clean_override(lastname, 100),
-            "email": email_override,
-            "phone": _clean_override(phone, 50),
-            "city": _clean_override(city, 100),
-            "linkedin_url": _clean_override(linkedin, 500),
-        },
-    )
+    overrides: dict[str, Optional[str]] = {
+        "first_name": _clean_override(name, 100),
+        "last_name": _clean_override(lastname, 100),
+        "email": email_override,
+        "phone": _clean_override(phone, 50),
+        "city": _clean_override(city, 100),
+        "linkedin_url": _clean_override(linkedin, 500),
+    }
+    # Pola świadomie wyczyszczone w formularzu. FastAPI zamienia pusty napis
+    # z formularza multipart na brak pola, więc `""` nie dociera — lista
+    # przychodzi osobno (`cleared=email,city`).
+    for form_key in _cleared_form_fields(cleared):
+        overrides[_FROM_CV_FORM_FIELDS[form_key]] = ""
+    parsed = _apply_from_cv_overrides(parsed, overrides)
 
     # 3 — dedup scan (po scaleniu z polami formularza)
     dup_rows = await find_candidate_duplicates(

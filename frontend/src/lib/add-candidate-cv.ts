@@ -81,6 +81,26 @@ export function fromCvOverrides(
   return out;
 }
 
+/**
+ * Pola `/from-cv` jako wpisy formularza multipart. FastAPI zamienia pusty
+ * napis w multipart na brak pola, więc wyczyszczone pola jadą osobno:
+ * `cleared=email,city`.
+ */
+export function fromCvFormEntries(
+  overrides: Partial<Record<CvFormField, string>>,
+): [string, string][] {
+  const entries: [string, string][] = [];
+  const cleared: string[] = [];
+  for (const field of CV_FORM_FIELDS) {
+    const value = overrides[field];
+    if (value === undefined) continue;
+    if (value === "") cleared.push(field);
+    else entries.push([field, value]);
+  }
+  if (cleared.length > 0) entries.push(["cleared", cleared.join(",")]);
+  return entries;
+}
+
 /** Klucze formularza zmienione względem pustego formularza (poza pominiętymi). */
 export function changedFormKeys<T extends Record<string, unknown>>(
   form: T,
