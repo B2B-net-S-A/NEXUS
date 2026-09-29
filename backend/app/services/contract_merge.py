@@ -149,6 +149,10 @@ _KNOWN_CONTRACT_FKS = {
     ("contract_candidate_rates", "contract_id"),
     ("contract_client_rates", "contract_id"),
     ("contract_documents", "contract_id"),
+    # Wiersze raportu pobrania dokumentów z SharePointa (0402) — idą za
+    # kontraktem jak same dokumenty, żeby raport przebiegu wskazywał kontrakt,
+    # który zostaje.
+    ("contract_doc_sp_run_items", "contract_id"),
     ("contract_equipment", "contract_id"),
     ("contract_framework_rates", "contract_id"),
     ("contract_onboarding_items", "contract_id"),
