@@ -1398,31 +1398,6 @@ def _pl_sort_key(column):
     )
 
 
-def _exact_person_sort_expr(filters: CandidateFilterSpec):
-    """``0`` dla osoby o dokładnie wpisanym imieniu/nazwisku, ``1`` dla reszty.
-
-    ``None`` poza v2 + ``text_mode=auto`` i dla tekstu, który nie wygląda na
-    osobę — kolejność v1 i alertów zapisanych wyszukiwań zostaje bez zmian.
-    """
-    from app.services import candidate_search_predicates as predicates  # noqa: PLC0415
-
-    q_stripped = (filters.q or "").strip()
-    if not q_stripped:
-        return None
-    sem = predicates.semantics_for(
-        "list", filters.semantics_version, filters.hide_unknown
-    )
-    if not predicates.person_text_applies(sem, filters.text_mode):
-        return None
-    found = predicates.detect_text_mode(q_stripped)
-    if found.kind != "name" or not found.name_tokens:
-        return None
-    clause = predicates.exact_person_clause(found.name_tokens)
-    if clause is None:
-        return None
-    return case((clause, 0), else_=1)
-
-
 def _apply_candidate_sort(
     query,
     filters: CandidateFilterSpec,
@@ -1433,14 +1408,7 @@ def _apply_candidate_sort(
     """Sortowanie listy. „Mile widziane" (`skills_preferred`) prowadzi KAŻDE
     sortowanie — tak samo jak chipy podbijające ranking w wyszukiwarce
     (decyzja 17.09.2026); żądany `sort` rozstrzyga w obrębie tej samej liczby
-    trafień. Bez `skills_preferred` kolejność jest dokładnie taka jak dotąd.
-
-    Osoba wpisana w `q` (v2 + `text_mode=auto`, tekst wyglądający na imię
-    i nazwisko) prowadzi przed wszystkim — dokładne trafienie jest pierwsze
-    niezależnie od sortowania, jak dokładny e-mail przy „Trafności”."""
-    exact_person = _exact_person_sort_expr(filters)
-    if exact_person is not None:
-        query = query.order_by(exact_person.asc())
+    trafień. Bez `skills_preferred` kolejność jest dokładnie taka jak dotąd."""
     preferred_rank, unknown_rank = _sort_prefix_exprs(filters)
     if preferred_rank is not None:
         query = query.order_by(preferred_rank.desc())

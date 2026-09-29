@@ -842,13 +842,19 @@ _SURNAME_SUFFIXES = (
     "czuk",
     "czak",
 )
-# Przymiotniki na „-ski/-cki”, które są opisem (głównie języki), nie nazwiskiem.
+# Przymiotniki na „-ski/-cki”, które są opisem (języki, regiony, miasta), nie
+# nazwiskiem — bez trafienia dokładnego idą po znaczeniu, nie jako „podobne”.
 _NOT_SURNAME_STEMS = frozenset(
     """
     angielsk niemieck francusk polsk rosyjsk hiszpansk wlosk ukrainsk czesk
     slowack szwedzk dunsk norwesk finsk japonsk chinsk koreansk portugalsk
     holendersk wegiersk rumunsk bulgarsk chorwack serbsk litewsk lotewsk
     estonsk greck tureck arabsk hebrajsk europejsk miejsk wiejsk morsk
+    warszawsk slask dolnoslask gornoslask mazowieck pomorsk zachodniopomorsk
+    malopolsk wielkopolsk podlask lubelsk lodzk krakowsk gdansk gdynsk sopock
+    poznansk wroclawsk katowick szczecinsk bydgosk torunsk rzeszowsk kieleck
+    opolsk olsztynsk bialostock czestochowsk radomsk zielonogorsk
+    swietokrzysk podkarpack kujawsk lubusk warminsk mazursk kaszubsk
     """.split()
 )
 
@@ -928,6 +934,45 @@ def exact_person_clause(tokens: Sequence[str]) -> Optional[ColumnElement]:
     return person_words.op("@>")(literal(words, type_=ARRAY(Text)))
 
 
+def _exact_person_prefilter(tokens: Sequence[str]) -> list[ColumnElement]:
+    """``search_doc_unaccented ILIKE '%słowo%'`` dla każdego wyrazu.
+
+    Ten warunek zawęża wiersze indeksem trigramowym
+    ``ix_candidates_search_doc_unaccent_trgm`` (migracja 0159) — równość imienia
+    i nazwiska sprawdzamy już tylko na nich, bez skanu całej tabeli.
+    """
+    from app.services.advanced_candidate_search import (
+        _SEARCH_DOC_UNACCENT,
+        _escape_like,
+    )
+
+    return [
+        _SEARCH_DOC_UNACCENT.ilike(f"%{_escape_like(word)}%", escape="\\")
+        for word in _folded_name_tokens(tokens)
+    ]
+
+
+def exact_person_filter(tokens: Sequence[str]) -> Optional[ColumnElement]:
+    """WYŁĄCZNIE osoby o dokładnie takim imieniu/nazwisku (decyzja 29.09.2026).
+
+    ``candidates.id IN (SELECT id … WHERE <trigram ILIKE po słowach> AND
+    <równość imienia/nazwiska>)`` — samodzielny warunek, nigdy w ``OR``
+    z innymi gałęziami: ``OR`` na najwyższym poziomie z ``IN (UNION …)``
+    wyłącza semi-join i daje skan całej tabeli (patrz ``_phrase_match``).
+    Bez frazy w e-mailu, firmie, CV i notatkach — „Nowak” nie daje
+    „Nowakowskiego”.
+    """
+    clause = exact_person_clause(tokens)
+    if clause is None:
+        return None
+    subquery = (
+        select(Candidate.id)
+        .where(*_exact_person_prefilter(tokens), clause)
+        .correlate(None)
+    )
+    return Candidate.id.in_(subquery)
+
+
 _person_name_cache: dict[str, tuple[float, bool]] = {}
 
 
@@ -939,11 +984,6 @@ async def person_name_exists(db: Any, tokens: Sequence[str]) -> bool:
     każdym wyrazie, a dokładność sprawdza ``exact_person_clause``.
     """
     import time
-
-    from app.services.advanced_candidate_search import (
-        _SEARCH_DOC_UNACCENT,
-        _escape_like,
-    )
 
     cleaned = [t.strip() for t in tokens if t and t.strip()]
     if not cleaned:
@@ -958,15 +998,7 @@ async def person_name_exists(db: Any, tokens: Sequence[str]) -> bool:
         return cached[1]
     clause = exact_person_clause(cleaned)
     stmt = (
-        select(Candidate.id)
-        .where(
-            *(
-                _SEARCH_DOC_UNACCENT.ilike(f"%{_escape_like(word)}%", escape="\\")
-                for word in words
-            ),
-            clause,
-        )
-        .limit(1)
+        select(Candidate.id).where(*_exact_person_prefilter(cleaned), clause).limit(1)
     )
     exists = (await db.execute(stmt)).first() is not None
     if len(_person_name_cache) >= _PERSON_TOKEN_CACHE_MAX:
@@ -1043,6 +1075,9 @@ def literal_text_clause(
 ) -> Optional[ColumnElement]:
     """Dopasowanie DOSŁOWNE — to samo w L i w S.
 
+    ``person_match="exact"`` (v2 + auto, osoba istnieje) = sam
+    ``exact_person_filter``: wyłącznie dokładne imię/nazwisko.
+
     Fraza w dowolnym przeszukiwanym polu (``single_phrase_filter``: FTS-prefiks
     albo podłańcuch, wariant bez polskich znaków, notatki) + literówki
     w imieniu/nazwisku/e-mailu (gdy ≥3 znaki) + numer telefonu niezależny od
@@ -1051,14 +1086,11 @@ def literal_text_clause(
     """
     stripped = (q or "").strip()
     if person_match == "exact":
-        # Jest ktoś o dokładnie takim imieniu/nazwisku: bez gałęzi literówek
-        # (inaczej „Składanowski” daje też Baranowskiego). Dokładny wyraz
-        # w dowolnej kolejności dokłada ``exact_person_clause``.
-        phrase = single_phrase_filter(stripped, fuzzy=False)
-        exact = exact_person_clause(detect_text_mode(stripped).name_tokens)
-        if phrase is not None and exact is not None:
-            return or_(phrase, exact)
-        return phrase if phrase is not None else exact
+        # Jest ktoś o dokładnie takim imieniu/nazwisku: pokazujemy WYŁĄCZNIE
+        # takie osoby (decyzja 29.09.2026) — bez literówek („Składanowski” nie
+        # daje Baranowskiego), bez prefiksu („Nowak” nie daje Nowakowskiego)
+        # i bez trafień w e-mailu, firmie czy notatkach.
+        return exact_person_filter(detect_text_mode(stripped).name_tokens)
     phrase = single_phrase_filter(
         stripped, fuzzy=literal_text_threshold(stripped) is not None
     )
