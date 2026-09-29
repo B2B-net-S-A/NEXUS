@@ -3308,6 +3308,14 @@ export const signingApi = {
       .then((r) => r.data),
 };
 
+export type B2BContractVariant = "jdg" | "company";
+
+export interface B2BCompanyRepresentative {
+  /** Puste, gdy publiczne API KRS zamaskowało imię i nazwisko. */
+  name: string | null;
+  function: string | null;
+}
+
 export interface B2BRenderPayload {
   candidate_id?: number | null;
   job_id?: number | null;
@@ -3330,6 +3338,26 @@ export interface B2BRenderPayload {
   partner_regon?: string | null;
   partner_email?: string | null;
   partner_phone?: string | null;
+  /**
+   * Wariant umowy (ticket 8): „jdg” = wzór dotychczasowy, „company” =
+   * komparycja z KRS, § 12 o osobach skierowanych i osoba skierowana
+   * w Załączniku nr 3. Brak pola = „jdg”.
+   */
+  contract_variant?: B2BContractVariant;
+  partner_krs?: string | null;
+  /** Miejscowość siedziby (mianownik, z KRS) — umowa EN. */
+  partner_seat?: string | null;
+  /** Fraza po „z siedzibą” w umowie PL („w Warszawie”). */
+  partner_seat_locative?: string | null;
+  /** Sąd rejestrowy razem z wydziałem. */
+  partner_registry_court?: string | null;
+  partner_share_capital?: string | null;
+  partner_representative_name?: string | null;
+  partner_representative_function?: string | null;
+  /** Fraza po „reprezentowaną przez” (biernik) — auto, edytowalna. */
+  partner_representation?: string | null;
+  /** Osoba skierowana (Zał. 3) — serwer i tak bierze ją z rekrutacji. */
+  assigned_person_name?: string | null;
   client_name?: string | null;
   project_city?: string | null;
   project_description?: string | null;
@@ -3447,6 +3475,12 @@ export const b2bGeneratorApi = {
         // tutaj: `source` przychodzi w czterech niespójnych formatach, a wiedzę
         // o obu rejestrach jednocześnie ma tylko warstwa serwisowa.
         entity_type: "sole_trader" | "company" | null;
+        // Dane komparycji spółki z odpisów KRS (tylko spółki z numerem KRS).
+        seat?: string | null;
+        registry_court?: string | null;
+        share_capital?: string | null;
+        representatives?: B2BCompanyRepresentative[];
+        representation_method?: string | null;
       }>("/api/b2b-generator/company-lookup", { params })
       .then((r) => r.data),
   /** Najnowsze dane firmy z CEIDG/KRS + ostrzeżenia, tuż przed „Pobierz DOCX”

@@ -11,6 +11,12 @@ from typing import Optional
 
 from app.core.work_time import HOURS_PER_MONTH
 from app.models.b2b_contract_role import B2BContractRole
+from app.services.b2b_contract_generator.company_variant import (
+    format_share_capital,
+    is_company,
+    representation_en,
+    representation_pl_fallback,
+)
 from app.services.b2b_contract_generator.formatting import format_rate, start_clause
 from app.services.b2b_contract_generator.gender import gender_forms
 from app.services.b2b_contract_generator.number_words import rate_in_words
@@ -57,6 +63,30 @@ def build_render_context(req, role: Optional[B2BContractRole]) -> dict:
         currency=req.currency or "PLN",
         words_override=req.rate_in_words if len(stages) == 1 else None,
     )
+
+    company = is_company(getattr(req, "contract_variant", None))
+    forms = gender_forms(getattr(req, "gender", None))
+    if company:
+        # Partnerem jest spółka — rodzaj żeński („zwaną w dalszej części umowy
+        # Partnerem”, „zwaną dalej Podmiotem Przetwarzającym”). Pozostałe formy
+        # (deklaracja poufności) mówi osoba podpisująca, więc zostają przy
+        # wybranej płci.
+        forms["g_zwany"] = "zwaną"
+        forms["g_zwanym"] = "zwaną"
+    rep_name = getattr(req, "partner_representative_name", None)
+    rep_function = getattr(req, "partner_representative_function", None)
+    if lang == "en":
+        representation = representation_en(
+            rep_name, rep_function, getattr(req, "gender", None)
+        )
+    else:
+        representation = (
+            getattr(req, "partner_representation", None) or ""
+        ).strip() or representation_pl_fallback(
+            rep_name, rep_function, getattr(req, "gender", None)
+        )
+    seat = (getattr(req, "partner_seat", None) or "").strip() or None
+    seat_locative = (getattr(req, "partner_seat_locative", None) or "").strip() or None
 
     return {
         "candidate": {
@@ -120,6 +150,24 @@ def build_render_context(req, role: Optional[B2BContractRole]) -> dict:
             "partner_instrumental": (
                 getattr(req, "partner_instrumental", None) or req.partner_name
             ),
-            **gender_forms(getattr(req, "gender", None)),
+            **forms,
+            "is_company": company,
+            "company": {
+                "krs": (getattr(req, "partner_krs", None) or "").strip() or None,
+                # PL: „z siedzibą w Warszawie”; EN: „registered office in Warszawa”.
+                "seat": seat_locative if lang == "pl" else seat,
+                "registry_court": (
+                    getattr(req, "partner_registry_court", None) or ""
+                ).strip()
+                or None,
+                "share_capital": format_share_capital(
+                    getattr(req, "partner_share_capital", None), lang
+                ),
+                "representation": representation,
+            },
+            "assigned_person": (
+                getattr(req, "assigned_person_name", None) or ""
+            ).strip()
+            or req.partner_name,
         },
     }

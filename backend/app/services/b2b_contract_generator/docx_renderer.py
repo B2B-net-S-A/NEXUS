@@ -23,6 +23,9 @@ from app.services.b2b_contract_generator.clause_overrides import (
     overrides_for_key,
     resolve_override,
 )
+from app.services.b2b_contract_generator.company_variant import (
+    apply_company_variant_docx,
+)
 from app.services.b2b_contract_generator.field_mapping import build_docx_context
 from app.services.b2b_contract_generator.formatting import pl_date
 
@@ -116,6 +119,15 @@ def render_from_context(
                 f"Dokument NIE został wydany — zgłoś to, szablon umowy "
                 f"rozjechał się z rejestrem klauzul."
             )
+    # Wariant dla spółki PO klauzulach Klienta: przenumerowanie obejmuje też
+    # ich odwołania „§ 12 … Umowy Głównej” (patrz `company_variant`).
+    b2b = context.get("b2b") or {}
+    if b2b.get("is_company"):
+        apply_company_variant_docx(
+            tpl.docx,
+            language=lang,
+            assigned_person=b2b.get("assigned_person") or "",
+        )
     buf = io.BytesIO()
     tpl.save(buf)
     return buf.getvalue()
