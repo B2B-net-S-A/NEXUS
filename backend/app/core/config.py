@@ -1472,6 +1472,11 @@ class Settings(BaseSettings):
     # https://api.nexus.dynaminds.pl/api/job-boards/jjit/callback
     JJIT_OAUTH_REDIRECT_URI: str = ""
     JJIT_OAUTH_SCOPE: str = "profile offline_access"
+    # Statyczny klucz API (JWT ważny do 2 lat) — tryb serwer-serwer, który
+    # rekomenduje dostawca (29.09.2026). Ustawiony = portale nie potrzebują
+    # połączenia OAuth w Ustawieniach; pusty = dotychczasowy tryb OAuth.
+    # Wyłącznie przez workflow „Coolify set env” z `value_from_secret`.
+    JJIT_STATIC_ACCESS_TOKEN: str = ""
     # Nadpisanie jednostki organizacyjnej odczytanej z `/oauth/me` (gdy konto
     # ma kilka jednostek albo claim nie przychodzi).
     PORTAL_JJIT_ORGANIZATION_UNIT_ID: str = ""

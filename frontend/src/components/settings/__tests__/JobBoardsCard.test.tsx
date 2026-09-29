@@ -113,4 +113,22 @@ describe("JobBoardsCard", () => {
       }),
     ).toEqual(["K1: 0 ogłoszeń", "Abonament enterprise: bez limitu"]);
   });
+
+  it("klucz API: bez „Połącz” i „Rozłącz”, z datą ważności i ostrzeżeniem przed końcem", () => {
+    renderCard({
+      ...ACTIVE,
+      oauth_configured: false,
+      auth_mode: "static",
+      token_expires_at: "2028-09-28T00:00:00Z",
+      token_expiring: true,
+      connected_by_name: null,
+      connected_at: null,
+    });
+    expect(screen.getByText(/Połączone kluczem API/)).toBeInTheDocument();
+    expect(screen.getByText("Klucz API wkrótce wygaśnie")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Połącz konto/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Rozłącz/ })).toBeNull();
+    expect(screen.queryByText("Brak konfiguracji OAuth na serwerze")).toBeNull();
+    expect(screen.queryByText(/Połączył\(a\)/)).toBeNull();
+  });
 });

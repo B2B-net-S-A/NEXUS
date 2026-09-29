@@ -29,7 +29,11 @@ async def job_portal_worker_loop() -> None:
     # Konto JustJoin.IT/RocketJobs skonfigurowane = worker działa także przy
     # wyłączonych flagach: flaga blokuje nowe publikacje, nie zamykanie już
     # opłaconych ogłoszeń (zamknięcie rekrutacji, „Wycofaj”).
-    if not (job_portals.any_enabled() or jjit_connection.oauth_configured()):
+    if not (
+        job_portals.any_enabled()
+        or jjit_connection.oauth_configured()
+        or jjit_connection.auth_mode() == "static"
+    ):
         logger.info("job_portal_worker disabled — żaden portal nie jest włączony")
         return
 

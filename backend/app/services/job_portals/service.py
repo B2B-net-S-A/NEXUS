@@ -962,6 +962,10 @@ async def portal_health_inputs(db: AsyncSession) -> tuple[int, bool, bool]:
     from app.services.job_portals import jjit_connection
 
     failed = await failed_recently(db)
+    if jjit_connection.auth_mode() == "static":
+        # Klucz API nie ma połączenia do odnowienia — kończący się klucz
+        # zgłaszamy tym samym sygnałem co konto do ponownego połączenia.
+        return failed, jjit_connection.static_token_expiring(), True
     row = await jjit_connection.load(db)
     return (
         failed,

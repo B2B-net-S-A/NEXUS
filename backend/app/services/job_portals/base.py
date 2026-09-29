@@ -108,6 +108,14 @@ class PortalConfig:
                 if portal == Portal.justjoinit
                 else settings.PORTAL_ROCKETJOBS_ENABLED
             )
+            if jjit_static_token():
+                # Klucz API z env zastępuje połączenie OAuth (rekomendacja
+                # dostawcy dla serwer-serwer, 29.09.2026).
+                return cls(
+                    portal=portal,
+                    enabled=bool(flag),
+                    missing=_blank(PORTAL_JJIT_API_URL=settings.PORTAL_JJIT_API_URL),
+                )
             return cls(
                 portal=portal,
                 enabled=bool(flag),
@@ -120,6 +128,11 @@ class PortalConfig:
                 needs_connection=True,
             )
         return cls(portal=portal, enabled=False)
+
+
+def jjit_static_token() -> str:
+    """Statyczny klucz API JustJoin.IT/RocketJobs z env (pusty = tryb OAuth)."""
+    return str(getattr(settings, "JJIT_STATIC_ACCESS_TOKEN", "") or "").strip()
 
 
 def _blank(**values: Any) -> tuple[str, ...]:
