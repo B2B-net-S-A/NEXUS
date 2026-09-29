@@ -52,6 +52,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import ContractorsReadCaller
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.pagination import MAX_PAGE
 from app.core.rate_limit import limiter
 from app.core.scheduling import business_today
 from app.models.client_order import ClientOrder, ClientOrderStatus
@@ -115,7 +116,7 @@ async def export_contractors(
     request: Request,
     _caller: ContractorsReadCaller,
     db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=MAX_PAGE),
     page_size: int = Query(200, ge=1, le=_MAX_PAGE_SIZE),
     updated_since: date | None = Query(
         None,

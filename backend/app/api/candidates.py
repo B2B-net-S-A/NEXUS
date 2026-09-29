@@ -48,6 +48,7 @@ from sqlalchemy.orm import aliased, selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.pagination import MAX_PAGE
 from app.core.export_safety import safe_row
 from app.core.scheduling import business_today
 from app.core.http_headers import content_disposition
@@ -1717,7 +1718,9 @@ async def list_candidates(
     current_user: CandidateSearchAccess,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
+    # Upper bound: (page - 1) * page_size is bound as an int8 OFFSET; an
+    # unbounded page overflowed it in asyncpg (HTTP 500) — reject with 422.
+    page: int = Query(1, ge=1, le=MAX_PAGE),
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[list[CandidateStatus]] = Query(
         None,

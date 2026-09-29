@@ -34,6 +34,7 @@ from app.api.deps import CurrentUser
 from app.api.financial_access import can_read_client_finance
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.pagination import MAX_PAGE
 from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
@@ -194,7 +195,7 @@ async def list_contractors(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     status_filter: Optional[ContractStatus] = Query(None, alias="status"),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=MAX_PAGE),
     page_size: int = Query(50, ge=1, le=200),
 ):
     """List contractors (Contracts with status in draft/active/ending).
