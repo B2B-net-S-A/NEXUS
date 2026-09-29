@@ -891,6 +891,8 @@ export function JobReadinessDock({
         jobTitle={job.title}
         primaryOwner={job.primary_owner ?? null}
         collaborators={job.collaborators ?? []}
+        // Współpracowników dopisuje każdy, kto redaguje rekrutację (29.09.2026).
+        canEdit={editScope !== "none"}
       />
       <JobSettingsPanel
         jobId={jobId}

@@ -248,6 +248,12 @@ function Harness() {
       defaultOptions: { queries: { staleTime: Infinity, retry: false } },
     });
     qc.setQueryData(["clients-lookup-new-job"], [CLIENT]);
+    // Pole „Współpracownicy” (`JobCollaboratorsField`) — katalog osób.
+    qc.setQueryData(["users-directory"], [
+      { id: 31, name: "[Rekruterka A]", role: "recruiter", roles: [] },
+      { id: 32, name: "[Rekruter B]", role: "recruiter", roles: [] },
+      { id: 33, name: "[Sourcerka C]", role: "sourcer", roles: [] },
+    ]);
     qc.setQueryData(
       ["handoff-recruiters"],
       [
