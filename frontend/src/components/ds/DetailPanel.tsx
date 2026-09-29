@@ -44,7 +44,7 @@ export function DetailPanel({
   "data-testid": testId,
 }: DetailPanelProps) {
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col", className)} data-testid={testId}>
+    <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", className)} data-testid={testId}>
       <header className="grid gap-1.5 border-b border-border px-4 pb-3 pt-3">
         <div className="flex items-start gap-2">
           {leading}
@@ -71,7 +71,7 @@ export function DetailPanel({
           <TabbedNav tabs={tabs} value={tab} onValueChange={onTabChange} ariaLabel={tabsLabel} overflow="scroll" dense />
         </div>
       )}
-      <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto px-4 py-3 text-sm">{children}</div>
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-4 overflow-y-auto overflow-x-hidden px-4 py-3 text-sm">{children}</div>
       {footer && (
         <footer className="flex flex-wrap items-center gap-2 border-t border-border bg-muted/40 px-4 py-2.5">{footer}</footer>
       )}
@@ -91,7 +91,7 @@ export function DetailSection({
   className?: string;
 }) {
   return (
-    <section className={cn("grid gap-1.5", className)}>
+    <section className={cn("grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5", className)}>
       <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         <span>{title}</span>
         {aside}

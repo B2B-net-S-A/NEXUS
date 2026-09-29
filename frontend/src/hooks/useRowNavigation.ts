@@ -70,6 +70,9 @@ export function rowActivationProps(key: string, onOpen: (key: string) => void) {
     "data-row-key": key,
     tabIndex: 0,
     onClick: (event: ReactMouseEvent<HTMLElement>) => {
+      // Klik w portalu (lista Radix Select, menu) wędruje w drzewie Reacta do
+      // wiersza, choć w DOM-ie leży poza nim — wybór opcji nie otwiera panelu.
+      if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
       if (fromInteractive(event.target, event.currentTarget)) return;
       if (typeof window !== "undefined" && window.getSelection()?.toString()) return;
       onOpen(key);

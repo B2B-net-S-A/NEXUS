@@ -70,11 +70,16 @@ export function ListDetailLayout({ list, panel, onClose, panelLabel, className }
         <aside
           aria-label={panelLabel}
           data-list-detail-panel
+          // Trzy rozłączne zakresy zamiast nadpisywania: Tailwind v4 nie
+          // gwarantuje, że `min-[1600px]:w-auto` wygra z `md:w-[400px]`
+          // (zmierzone 29.09: panel miał 400 px w kolumnie 380 px).
           className={cn(
-            "fixed inset-0 z-40 flex flex-col bg-background",
-            "md:inset-y-0 md:left-auto md:top-12 md:w-[400px] md:border-l md:border-border md:shadow-2xl",
-            "min-[1600px]:sticky min-[1600px]:top-4 min-[1600px]:z-auto min-[1600px]:w-auto min-[1600px]:max-h-[calc(100dvh-5rem)]",
-            "min-[1600px]:self-start min-[1600px]:rounded-lg min-[1600px]:border min-[1600px]:shadow-none",
+            "flex flex-col bg-background",
+            "max-md:fixed max-md:inset-0 max-md:z-40",
+            "md:max-[1599px]:fixed md:max-[1599px]:bottom-0 md:max-[1599px]:right-0 md:max-[1599px]:top-12 md:max-[1599px]:z-40",
+            "md:max-[1599px]:w-[400px] md:max-[1599px]:border-l md:max-[1599px]:border-border md:max-[1599px]:shadow-2xl",
+            "min-[1600px]:sticky min-[1600px]:top-4 min-[1600px]:max-h-[calc(100dvh-5rem)] min-[1600px]:self-start",
+            "min-[1600px]:overflow-hidden min-[1600px]:rounded-lg min-[1600px]:border min-[1600px]:border-border",
           )}
         >
           {panel}
