@@ -894,6 +894,11 @@ class CandidateDocumentOut(BaseModel):
     uploaded_at: Optional[datetime] = None
     external_source: Optional[str] = None
     created_at: datetime
+    # 0400: kto wgrał plik i plakietka „nieaktualne”. Nazwiska uzupełnia
+    # handler (`_documents_with_people`) — model nie ładuje relacji.
+    uploaded_by_name: Optional[str] = None
+    outdated_at: Optional[datetime] = None
+    outdated_by_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -903,6 +908,28 @@ class CandidateDocumentUpdate(BaseModel):
         None
     )
     is_primary: Optional[bool] = None
+    # True = oznacz jako nieaktualne, False = cofnij. Tylko plakietka i blokada
+    # ustawienia jako głównego CV — wyszukiwanie i wektory bez zmian.
+    outdated: Optional[bool] = None
+
+
+class CandidateCVPreview(BaseModel):
+    """Odczyt CV przed zapisem kandydata (`POST /api/candidates/cv/preview`).
+
+    Pola wypełniają formularz „Dodaj kandydata”; `cv_sha256` pozwala
+    `POST /from-cv` użyć tego samego odczytu bez drugiego wywołania modelu.
+    """
+
+    cv_sha256: str
+    name: Optional[str] = None
+    lastname: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    linkedin: Optional[str] = None
+    current_position: Optional[str] = None
+    confidence: dict[str, float] = Field(default_factory=dict)
+    source: Optional[str] = None
 
 
 # ── Chrome extension: POST /api/candidates/from-linkedin ────────────────────

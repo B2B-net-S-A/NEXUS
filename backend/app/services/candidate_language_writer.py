@@ -90,7 +90,53 @@ _LANGUAGE_CODES = {
     "hungarian": "hu",
     "wegierski": "hu",
     "węgierski": "hu",
+    # 29.09.2026: pełna lista okna „Języki kandydata” (`LANGUAGE_OPTIONS`
+    # w `frontend/src/lib/candidate-languages.ts`). Parytet kodów i polskich
+    # nazw pilnuje `test_candidate_language_options_mirror.py`.
+    "niderlandzki": "nl",
+    "bulgarian": "bg",
+    "bulgarski": "bg",
+    "bułgarski": "bg",
+    "croatian": "hr",
+    "chorwacki": "hr",
+    "serbian": "sr",
+    "serbski": "sr",
+    "slovenian": "sl",
+    "slovene": "sl",
+    "slowenski": "sl",
+    "słoweński": "sl",
+    "lithuanian": "lt",
+    "litewski": "lt",
+    "latvian": "lv",
+    "lotewski": "lv",
+    "łotewski": "lv",
+    "estonian": "et",
+    "estonski": "et",
+    "estoński": "et",
+    "greek": "el",
+    "grecki": "el",
+    "turkish": "tr",
+    "turecki": "tr",
+    "arabic": "ar",
+    "arabski": "ar",
+    "hebrew": "he",
+    "hebrajski": "he",
+    "chinese": "zh",
+    "chinski": "zh",
+    "chiński": "zh",
+    "mandarin": "zh",
+    "japanese": "ja",
+    "japonski": "ja",
+    "japoński": "ja",
+    "korean": "ko",
+    "koreanski": "ko",
+    "koreański": "ko",
+    "hindi": "hi",
 }
+
+# Kody, które okno „Języki kandydata” pozwala wybrać z listy. Kod spoza tej
+# listy rekruter zapisuje wyłącznie jako „Inny…” (`other: true`).
+KNOWN_LANGUAGE_CODES: frozenset[str] = frozenset(_LANGUAGE_CODES.values())
 _INLINE_LEVEL_RE = re.compile(
     r"^(?P<name>.+?)(?:\s*[-:–—]\s*|\s*\(\s*|\s+)"
     r"(?P<level>A1|A2|B1|B2|C1|C2|native speaker|native|mother tongue|"

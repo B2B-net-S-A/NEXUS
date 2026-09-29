@@ -177,6 +177,8 @@ async def put_candidate_languages(
         )
     except facts.CandidateNotFoundError:
         raise _not_found() from None
+    except facts.UnknownLanguageCodeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     except facts.ProfileFactsVersionConflictError as exc:
         raise _version_conflict(
             kind="languages",

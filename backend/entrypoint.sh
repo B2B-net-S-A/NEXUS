@@ -2706,6 +2706,10 @@ END $$""",
     "ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS document_kind candidatedocumentkind NOT NULL DEFAULT 'other'",
     'CREATE UNIQUE INDEX IF NOT EXISTS ux_candidate_documents_candidate_sha ON candidate_documents (candidate_id, content_sha256) WHERE content_sha256 IS NOT NULL AND source_deleted_at IS NULL',
     'CREATE INDEX IF NOT EXISTS ix_candidate_documents_manifest ON candidate_documents (candidate_id, source_manifest_fingerprint)',
+    # 0400: plakietka „nieaktualne” i autor wgrania pliku kandydata.
+    'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS outdated_at TIMESTAMPTZ',
+    'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS outdated_by INTEGER REFERENCES users(id) ON DELETE SET NULL',
+    'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL',
     # 0207: durable, PII-minimized identity quarantine for candidate sources.
     """CREATE TABLE IF NOT EXISTS candidate_source_identity_reviews (
         id                  SERIAL PRIMARY KEY,

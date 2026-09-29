@@ -2981,6 +2981,35 @@ orkiestratorem. Zasady, których łatwo nie zauważyć:
 - Harnessy wizualne (publiczne, zero zapytań): `/preview/candidates-list`
   (`?dialog=1` otwiera okno requestu) i `/preview/candidate-profile` (`?tab=`).
 
+**Pliki, języki i „Dodaj kandydata” od CV (0400, 29.09.2026):**
+- **„Nieaktualne” to tylko plakietka** (`candidate_documents.outdated_at/
+  outdated_by`, `PATCH …/documents/{id}` z `outdated`). Plik zostaje, wyszukiwanie,
+  `raw_cv_text` i wektory bez zmian. Głównego CV nie da się oznaczyć (409 „Najpierw
+  ustaw inne CV jako główne.”), nieaktualnego nie da się ustawić jako głównego
+  (409), chyba że w tym samym żądaniu `outdated: false`. Lista plików: główne CV,
+  potem najnowsze (`uploaded_at ?? created_at`), podpis „dodano DD.MM.RRRR · osoba”
+  z `uploaded_by` (wiersze sprzed 0400 i importy — sama data albo „z Traffita”).
+- **Języki: jedna lista** `LANGUAGE_OPTIONS` (`lib/candidate-languages.ts`, filtr
+  listy i okno „Języki kandydata”) ↔ `candidate_language_writer._LANGUAGE_CODES`
+  (`test_candidate_language_options_mirror.py`). `PUT /languages` odrzuca 422 kod
+  spoza listy bez `other: true` — chyba że kandydat już ma taki język zapisany
+  (stare dane z CV zostają zapisywalne). Pola „Kod” w oknie nie ma.
+- **„Dodaj kandydata” zaczyna się od CV (opcjonalnie):** `POST /api/candidates/cv/preview`
+  czyta plik BEZ zapisu; odczyt żyje w OGRANICZONEJ pamięci
+  `services/cv_preview_cache.py` (64 wpisy, 30 min, tekst > 200 tys. znaków nie jest
+  trzymany; nie `app/core/cache.py` — ten nie ma limitu ani sprzątania). `/from-cv`
+  z tym samym plikiem bierze odczyt (jeden płatny), a przy trafieniu bez `force`
+  i tak puszcza darmowe sito. Pola formularza (`name`, `lastname`, `email`,
+  `phone`, `city`, `linkedin`) wygrywają z odczytem, `""` = pole wyczyszczone
+  (wartość z CV nie wraca, także do skanu duplikatów). Reszta formularza jedzie
+  w tym samym żądaniu (`candidate`, JSON, walidacja `CandidateCreate` PRZED
+  odczytem) — jedna transakcja, bez PATCH-a. E-mail innego kandydata = 409
+  „Kandydat z tym adresem e-mail już istnieje.” także przy `force` (jak
+  `POST /api/candidates`); front pokazuje go przy polu (`emailFieldError`).
+  `/from-cv` tylko CZYTA z pamięci — masowy import jej nie zapełni. Osobne
+  „Dodaj z CV” zdjęte z listy kandydatów (`AddCandidateFromCVModal` zostaje
+  w rekrutacji).
+
 ## Kanban bez bramek (decyzja Artura, 17.09.2026)
 
 Tylko 0,4 % ruchów w pipeline powstawało w NEXUSIE (131 z 32 872 w 90 dniach —

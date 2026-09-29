@@ -90,9 +90,6 @@ vi.mock("@/components/AppShell", () => ({ AddCandidateModal: () => null }));
 vi.mock("@/components/v2/modals/ImportCandidatesV2", () => ({
   ImportCandidatesV2: () => null,
 }));
-vi.mock("@/components/v2/modals/AddCandidateFromCVModal", () => ({
-  AddCandidateFromCVModal: () => null,
-}));
 vi.mock("@/components/v2/modals/QuickAssignV2", () => ({ QuickAssignV2: () => null }));
 vi.mock("@/components/v2/modals/GenerateInviteLinkV2", () => ({
   GenerateInviteLinkV2: () => null,
