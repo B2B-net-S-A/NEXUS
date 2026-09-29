@@ -46,6 +46,7 @@ import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
 import { candidateStageLabel } from "@/components/v2/pages/candidate-timeline-labels";
 import { entrySourceLabel, recruitmentStageLabel } from "@/lib/recruitment-stage-label";
+import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-view";
 import {
   focusCandidateRecruitmentCard,
   resolveVisibleRecruitmentFocus,
@@ -641,11 +642,19 @@ function RecruitmentCard({
             job.latest_stage_name,
             candidateStageLabel,
           )}
-          {entrySourceLabel(job.entry_source)
+          {entrySourceLabel(job.entry_source) && !autoMatchBadgeLabel(job.entry_auto_match)
             ? ` · ${entrySourceLabel(job.entry_source)}`
             : ""}
           {job.first_seen ? ` · dodano ${formatDate(job.first_seen)}` : ""}
         </div>
+        {/* 0399: wynik automatu przy procesie zamiast notatki w historii. */}
+        {autoMatchBadgeLabel(job.entry_auto_match) ? (
+          <div className="mt-1.5">
+            <Badge size="sm" variant="soft" title={autoMatchBadgeTitle(job.entry_auto_match)}>
+              {autoMatchBadgeLabel(job.entry_auto_match)}
+            </Badge>
+          </div>
+        ) : null}
         {Array.isArray(job.stages) && job.stages.length > 1 ? (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {job.stages.slice(0, 6).map((s: any, si: number) => (

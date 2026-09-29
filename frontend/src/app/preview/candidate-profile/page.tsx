@@ -191,16 +191,67 @@ const TIMELINE = {
   ],
 };
 
+// 0399: przypięta notatka, odpowiedź, długa notatka zwinięta, wpis automatu
+// schowany za „Pokaż systemowe”, dwie rekrutacje w filtrze.
 const NOTES = {
   items: [
+    {
+      id: 70,
+      created_at: daysAgo(12),
+      author_id: 2,
+      author_name: "Kamil Wiśniewski",
+      content: "Nie dzwonić przed 10:00 — prowadzi daily o 9:30.",
+      pinned_at: daysAgo(3),
+      pinned_by_name: "Ola Nowak",
+      job_id: null,
+      replies: [],
+    },
     {
       id: 71,
       created_at: daysAgo(0),
       author_id: 1,
       author_name: "Ola Nowak",
       content: "Potwierdziła dostępność od 01.10. Druga rozmowa w czwartek.",
+      job_id: 501,
+      job_title: "Java Developer",
+      replies: [
+        {
+          id: 75,
+          created_at: daysAgo(0),
+          author_id: 2,
+          author_name: "Kamil Wiśniewski",
+          content: "Klient potwierdził czwartek 14:00.",
+          parent_note_id: 71,
+          replies: [],
+        },
+      ],
+    },
+    {
+      id: 72,
+      created_at: daysAgo(20),
+      author_id: 2,
+      author_name: "Kamil Wiśniewski",
+      content:
+        "Rozmowa telefoniczna (25 min).\nObecnie: Java 17 + Spring Boot w projekcie bankowym, zespół 8 osób.\nSzuka projektu z większą odpowiedzialnością za architekturę.\nB2B, oczekiwania 160–170 zł/h netto, elastyczna przy dłuższym projekcie.\nHybryda do 2 dni w biurze w Warszawie.\nOkres wypowiedzenia: miesiąc.\nZna Kafkę produkcyjnie, K8s tylko od strony deploymentów.",
+      job_id: 502,
+      job_title: "Backend Engineer",
+      replies: [],
+    },
+    {
+      id: 73,
+      created_at: daysAgo(25),
+      author_id: null,
+      author_name: null,
+      content:
+        "Auto-match 86/100 — kandydat dodany automatycznie po odczycie CV. Must-have: 3/3.",
+      job_id: 502,
+      job_title: "Backend Engineer",
+      external_source: "system",
+      is_system: true,
+      replies: [],
     },
   ],
+  total: 4,
 };
 
 const DOCUMENTS = [

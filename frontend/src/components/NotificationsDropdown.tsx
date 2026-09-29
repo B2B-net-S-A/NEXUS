@@ -226,6 +226,12 @@ const TYPE_CONFIG: Record<
     color: "text-primary",
     bgColor: "bg-primary/15",
   },
+  // 0399: ktoś odpowiedział na Twoją notatkę.
+  note_reply: {
+    icon: <AtSign className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
   job_chat_mention: {
     icon: <AtSign className="w-3.5 h-3.5" />,
     color: "text-primary",

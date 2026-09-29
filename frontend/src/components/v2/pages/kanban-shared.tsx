@@ -116,6 +116,16 @@ export interface KanbanItem {
   | "auto_match"
   | "import"
   | null;
+ /**
+  * 0399: wynik automatu przy wejściu — plakietka „Auto-match 67/100 · JJIT”
+  * (do 29.09.2026 automaty pisały go jako notatkę w historii kandydata).
+  */
+ entry_auto_match?: {
+  score: number;
+  source: string;
+  must_hit: string[];
+  must_total: number | null;
+ } | null;
  reassign_from_job_id?: number | null;
  reassign_from_title?: string | null;
  /** Numer rekrutacji źródłowej („ZOB-1725”) — odznaka „↻ z …”. */

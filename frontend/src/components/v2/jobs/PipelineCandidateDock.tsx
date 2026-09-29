@@ -103,6 +103,7 @@ import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import { DockFollowupBlock } from "@/components/v2/followups/DockFollowupBlock";
 import { DockInterviewCycle } from "@/components/v2/jobs/DockInterviewCycle";
 import { DockLoadError } from "@/components/v2/jobs/workbench-chrome";
+import { PinnedCandidateNotes } from "@/components/v2/recruitment/PinnedCandidateNotes";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -225,6 +226,8 @@ interface NoteListItem {
   content_rendered?: string | null;
   author_name?: string | null;
   created_at: string;
+  /** 0399: wpis automatu — w doku go nie pokazujemy (wynik jest plakietką). */
+  is_system?: boolean;
 }
 
 /** Wycinek `CandidateResponse`, którego dok naprawdę używa. `candidatesApi.get`
@@ -596,6 +599,7 @@ export function PipelineCandidateDock({
         .then((r) => r.data),
     enabled: isOpen("notes"),
   });
+  const dockNotes = (notesQuery.data?.items ?? []).filter((n) => !n.is_system);
   const addNoteMutation = useMutation({
     mutationFn: (content: string) =>
       api.post("/api/notes", {
@@ -1041,6 +1045,8 @@ export function PipelineCandidateDock({
 
       {/* ── Treść zakładki (przewijana) ──────────────────────────────── */}
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
+        {/* 0399: przypięte notatki kandydata — z każdej rekrutacji. */}
+        <PinnedCandidateNotes candidateId={item.candidate_id} />
         <DockSection
           id="process"
           label={DOCK_SECTION_LABEL.process}
@@ -1429,7 +1435,7 @@ export function PipelineCandidateDock({
         <DockSection
           id="notes"
           label={DOCK_SECTION_LABEL.notes}
-          summary={notesQuery.data?.items ? `${notesQuery.data.items.length} w tej rekrutacji` : "Notatki w tej rekrutacji"}
+          summary={notesQuery.data?.items ? `${dockNotes.length} w tej rekrutacji` : "Notatki w tej rekrutacji"}
           isNow={nowSection === "notes"}
           open={isOpen("notes")}
           onToggle={() => toggleSection("notes")}
@@ -1441,9 +1447,9 @@ export function PipelineCandidateDock({
               </div>
             ) : notesQuery.isError ? (
               <DockLoadError what="notatki" onRetry={() => void notesQuery.refetch()} />
-            ) : (notesQuery.data?.items ?? []).length > 0 ? (
+            ) : dockNotes.length > 0 ? (
               <div className="space-y-2">
-                {(notesQuery.data?.items ?? []).map((n) => (
+                {dockNotes.map((n) => (
                   <div
                     key={n.id}
                     className="rounded-lg border border-border bg-muted/20 p-2.5 text-xs"

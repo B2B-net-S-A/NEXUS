@@ -26,6 +26,7 @@ import { TabsContent } from "@/components/ui/tabs";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { EditCandidateModal } from "@/components/AppShell";
 import { canHardDeleteCandidate } from "@/lib/candidate-delete-access";
+import { humanNoteCount } from "@/lib/candidate-notes-view";
 import { canMergeCandidates } from "@/lib/api/candidateMerge";
 import { CandidateMergeDialog } from "@/components/v2/candidate-profile/CandidateMergeDialog";
 import { ConfirmV2 } from "@/components/v2/modals/ConfirmV2";
@@ -220,7 +221,7 @@ export function CandidateDetailV2({
     ) =>
       replaceProfileView({
         section,
-        activity: sub.activity ?? "timeline",
+        activity: sub.activity ?? "notes",
         documents: sub.documents ?? "files",
         recruitments: sub.recruitments ?? "list",
       }),
@@ -408,6 +409,17 @@ export function CandidateDetailV2({
     ? timelineQuery.data
     : (timelineQuery.data?.timeline ?? []);
 
+  // Notatki: licznik zakładki „Historia” (29.09.2026 — liczba notatek ludzi,
+  // bez odpowiedzi i wpisów automatów). Ten sam klucz i zapytanie co lista
+  // w zakładce, więc jedno pobranie.
+  const notesCountQuery = useQuery<{ items?: any[] }>({
+    queryKey: candidateQueryKeys.notes(id),
+    queryFn: ({ signal }) =>
+      api.get(`/api/notes?candidate_id=${id}`, { signal }).then((r) => r.data),
+    enabled: !!id,
+    staleTime: 30_000,
+  });
+
   // Rekrutacje: licznik zakładki, karty, selektor rekrutacji w kompozytorze.
   const historyQuery = useCandidateHistoryQuery(id, !!id);
   const historyRaw = historyQuery.visibleData;
@@ -533,7 +545,9 @@ export function CandidateDetailV2({
       value: "activity",
       label: "Historia",
       icon: MessageSquare,
-      count: timelineQuery.isSuccess ? timeline.length : undefined,
+      count: notesCountQuery.isSuccess
+        ? humanNoteCount(notesCountQuery.data?.items ?? [])
+        : undefined,
     },
     { value: "documents", label: "Pliki i umowy", icon: Files, count: fileCount },
   ];

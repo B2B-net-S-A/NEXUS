@@ -69,6 +69,7 @@ import { CvHandoffWorkbench, ScreeningWorkbench } from "./panel-workbenches";
 import { SavedCvView, SavedScreeningView } from "./PanelSavedViews";
 import { defaultPanelSectionFor, isOffTemplateRow } from "./person-rows";
 import type { PersonPanelSection, ProcessPersonRow } from "./types";
+import { PinnedCandidateNotes } from "./PinnedCandidateNotes";
 
 // ── Kontrakt z warsztatami ────────────────────────────────────────────
 
@@ -156,6 +157,8 @@ interface NoteListItem {
   content: string;
   author_name?: string | null;
   created_at: string;
+  /** 0399: wpis automatu — w doku go nie pokazujemy (wynik jest plakietką). */
+  is_system?: boolean;
 }
 
 function daysPhrase(days: number): string {
@@ -222,7 +225,7 @@ function NotesSection({
   };
 
   const { item } = row;
-  const notes = notesQuery.data?.items ?? [];
+  const notes = (notesQuery.data?.items ?? []).filter((n) => !n.is_system);
 
   return (
     <div className="space-y-4 text-[13px]">
@@ -259,6 +262,9 @@ function NotesSection({
           </div>
         </div>
       ) : null}
+
+      {/* 0399: przypięte notatki kandydata — z każdej rekrutacji. */}
+      <PinnedCandidateNotes candidateId={candidateId} />
 
       <section aria-label="Notatki" className="space-y-2">
         <h3 className="text-xs font-semibold text-muted-foreground">Notatki w tej rekrutacji</h3>

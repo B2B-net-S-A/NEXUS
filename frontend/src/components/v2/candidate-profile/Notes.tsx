@@ -8,7 +8,17 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, PencilLine, Plus, Target, Trash2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  PencilLine,
+  Pin,
+  PinOff,
+  Plus,
+  Reply,
+  Target,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
@@ -19,6 +29,16 @@ import { buildUsersByEmail, renderWithMentions } from "@/lib/renderMentions";
 import type { PresenceViewer } from "@/hooks/usePresence";
 import { noteTypeLabel } from "@/components/v2/pages/candidate-timeline-labels";
 import { cn, formatRelativeTime } from "@/lib/utils";
+import {
+  isLongNote,
+  noteDateLabel,
+  noteRecruitmentOptions,
+  parseRecruitmentFilter,
+  systemNoteCount,
+  threadContainsNote,
+  visibleNotes,
+  type NoteRecruitmentFilter,
+} from "@/lib/candidate-notes-view";
 import { unwrapNoteContent } from "./profile-shared";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- notatki i rekrutacje przychodzą z luźno typowanych endpointów profilu */
@@ -197,49 +217,95 @@ export function NoteComposer({
   );
 }
 
-/** Lista notatek z edycją/usuwaniem (autor albo admin). Bez kompozytora. */
+/**
+ * Lista notatek (29.09.2026): zwarte karty „autor · data · rekrutacja”,
+ * długa treść zwinięta, filtr rekrutacji, notatki automatów schowane za
+ * „Pokaż systemowe”, przypięcie wspólne dla zespołu i odpowiedzi (jeden
+ * poziom). Reguły listy: `lib/candidate-notes-view.ts`.
+ */
 export function NotesList({
   notes: rawNotes,
   recruitments = [],
   onEdit,
   onDelete,
+  onPin,
+  onReply,
   currentUserId,
   canModerate = false,
   readOnly = false,
   focusedNoteId = null,
+  now,
 }: {
   notes: any[];
   recruitments?: any[];
   onEdit: (noteId: number, content: string) => Promise<boolean>;
   onDelete: (noteId: number) => Promise<boolean>;
+  /** Przypnij/odepnij (wspólnie dla zespołu). Brak = bez przycisku. */
+  onPin?: (noteId: number, pinned: boolean) => Promise<boolean>;
+  /** Odpowiedź na notatkę główną. Brak = bez przycisku „Odpowiedz”. */
+  onReply?: (parentId: number, content: string) => Promise<boolean>;
   currentUserId?: number;
   canModerate?: boolean;
   readOnly?: boolean;
   focusedNoteId?: number | null;
+  /** Wstrzykiwany zegar (harness, testy). */
+  now?: Date;
 }) {
-  const notes = (Array.isArray(rawNotes) ? rawNotes : []).filter(
-    (t: any) => t.type === "note",
+  const notes = useMemo(
+    () =>
+      (Array.isArray(rawNotes) ? rawNotes : []).filter(
+        (t: any) => t.type === "note" && t.parent_note_id == null,
+      ),
+    [rawNotes],
   );
-  // Link z powiadomienia o wzmiance (`?note=<id>`) przewija do notatki i ją
-  // wyróżnia — raz na notatkę, żeby odświeżenie listy nie szarpało widokiem.
-  const focusedNotePresent =
-    focusedNoteId != null && notes.some((n: any) => Number(n.id) === focusedNoteId);
+  const { jobTitleById } = useRecruitmentOptions(recruitments);
+
+  const [showSystem, setShowSystem] = useState(false);
+  const [recruitmentFilter, setRecruitmentFilter] =
+    useState<NoteRecruitmentFilter>("all");
+  const systemCount = systemNoteCount(notes);
+  const options = useMemo(
+    () =>
+      noteRecruitmentOptions(notes, { showSystem }, (id) => jobTitleById.get(id)),
+    [notes, showSystem, jobTitleById],
+  );
+  // Wybrana rekrutacja zniknęła z listy (np. po usunięciu notatki) → wszystkie.
+  const effectiveFilter: NoteRecruitmentFilter = options.some(
+    (o) => o.value === recruitmentFilter,
+  )
+    ? recruitmentFilter
+    : "all";
+  const shown = useMemo(
+    () => visibleNotes(notes, { recruitment: effectiveFilter, showSystem }),
+    [notes, effectiveFilter, showSystem],
+  );
+
+  // Link z powiadomienia (`?note=<id>`) — także odpowiedzi: pokaż jej wątek,
+  // nawet gdy leży za filtrem albo jest notatką systemową.
+  const focusedThread =
+    focusedNoteId != null
+      ? notes.find((n: any) => threadContainsNote(n, focusedNoteId))
+      : undefined;
+  const focusedHidden =
+    focusedThread != null && !shown.some((n: any) => n.id === focusedThread.id);
+  const listed = focusedHidden ? [focusedThread, ...shown] : shown;
   const handledNoteFocusRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!focusedNotePresent || focusedNoteId == null) return;
+    if (focusedThread == null || focusedNoteId == null) return;
     if (handledNoteFocusRef.current === focusedNoteId) return;
     const el = document.querySelector(`[data-note-id="${focusedNoteId}"]`);
     if (!(el instanceof HTMLElement)) return;
     handledNoteFocusRef.current = focusedNoteId;
     el.scrollIntoView?.({ block: "center", behavior: "smooth" });
-  }, [focusedNoteId, focusedNotePresent]);
-
-  const { jobTitleById } = useRecruitmentOptions(recruitments);
+  }, [focusedNoteId, focusedThread]);
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const [busyId, setBusyId] = useState<number | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
+  const [replyTo, setReplyTo] = useState<number | null>(null);
+  const [replyText, setReplyText] = useState("");
 
   // Notatkę może zmienić jej autor albo admin (moderacja) — zgodne z
   // _can_modify_note na backendzie. author_id bywa null dla importów Traffit.
@@ -252,6 +318,7 @@ export function NotesList({
   // Render wzmianek w liście (zawsze global — lista miesza rekrutacje).
   const { data: users = [] } = useMentionableUsers({ kind: "global" });
   const usersByEmail = useMemo(() => buildUsersByEmail(users), [users]);
+  const clock = now ?? new Date();
 
   const confirmDelete = async () => {
     const noteId = confirmDeleteId;
@@ -266,130 +333,338 @@ export function NotesList({
     }
   };
 
+  const toggleExpanded = (id: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const renderBody = (n: any) => {
+    const text = unwrapNoteContent(n.content_rendered ?? n.content);
+    const long = isLongNote(text);
+    const open = expanded.has(Number(n.id)) || Number(n.id) === focusedNoteId;
+    return (
+      <>
+        <p
+          className={cn(
+            "mt-1 whitespace-pre-line break-words text-sm text-foreground",
+            long && !open && "line-clamp-4",
+          )}
+        >
+          {renderWithMentions(text, usersByEmail)}
+        </p>
+        {long ? (
+          <button
+            type="button"
+            onClick={() => toggleExpanded(Number(n.id))}
+            aria-expanded={open}
+            className="mt-0.5 text-xs font-medium text-primary hover:underline"
+          >
+            {open ? "Pokaż mniej" : "Pokaż więcej"}
+          </button>
+        ) : null}
+      </>
+    );
+  };
+
+  const renderEditor = (n: any) => {
+    const isBusy = busyId != null && busyId === n.id;
+    return (
+      <div className="mt-2 space-y-2">
+        <MentionTextarea
+          value={editText}
+          onChange={setEditText}
+          scope={
+            n.job_id != null
+              ? { kind: "job", jobId: Number(n.job_id) }
+              : { kind: "global" }
+          }
+          placeholder="Treść notatki… (@email aby oznaczyć osobę)"
+          rows={3}
+          ariaLabel="Edytuj treść notatki"
+        />
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={isBusy}
+            onClick={() => {
+              setEditingId(null);
+              setEditText("");
+            }}
+          >
+            <X className="h-3.5 w-3.5" />
+            Anuluj
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            loading={isBusy}
+            disabled={!editText.trim() || isBusy}
+            onClick={async () => {
+              setBusyId(n.id);
+              const ok = await onEdit(n.id, editText.trim());
+              setBusyId(null);
+              if (ok) {
+                setEditingId(null);
+                setEditText("");
+              }
+            }}
+          >
+            Zapisz
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
+  const iconButton =
+    "inline-flex items-center justify-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground hit-area";
+
+  const renderActions = (n: any, { isReply }: { isReply: boolean }) => {
+    const editable = canModifyNote(n);
+    const pinned = n.pinned_at != null;
+    return (
+      <span className="ml-auto inline-flex shrink-0 items-center gap-0.5">
+        {!isReply && onPin && !readOnly ? (
+          <button
+            type="button"
+            onClick={async () => {
+              setBusyId(n.id);
+              await onPin(n.id, !pinned);
+              setBusyId(null);
+            }}
+            disabled={busyId === n.id}
+            className={cn(iconButton, pinned && "text-primary")}
+            title={pinned ? "Odepnij notatkę (dla całego zespołu)" : "Przypnij notatkę (dla całego zespołu)"}
+            aria-label={pinned ? "Odepnij notatkę" : "Przypnij notatkę"}
+            aria-pressed={pinned}
+          >
+            {pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+          </button>
+        ) : null}
+        {!isReply && onReply && !readOnly ? (
+          <button
+            type="button"
+            onClick={() => {
+              setReplyTo(replyTo === n.id ? null : n.id);
+              setReplyText("");
+            }}
+            className={iconButton}
+            title="Odpowiedz na notatkę"
+            aria-label="Odpowiedz na notatkę"
+          >
+            <Reply className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+        {editable ? (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingId(n.id);
+                setEditText(unwrapNoteContent(n.content));
+              }}
+              className={iconButton}
+              title={isReply ? "Edytuj odpowiedź" : "Edytuj notatkę"}
+              aria-label={isReply ? "Edytuj odpowiedź" : "Edytuj notatkę"}
+            >
+              <PencilLine className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteId(n.id)}
+              className={cn(iconButton, "hover:bg-destructive/10 hover:text-destructive")}
+              title={isReply ? "Usuń odpowiedź" : "Usuń notatkę"}
+              aria-label={isReply ? "Usuń odpowiedź" : "Usuń notatkę"}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </>
+        ) : null}
+      </span>
+    );
+  };
+
+  const metaLine = (n: any, jobTitle?: string | null) => (
+    <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+      <span className="font-medium text-foreground">
+        {n.author_name ?? (n.is_system ? "System" : "Import z Traffita")}
+      </span>
+      <span aria-hidden="true">·</span>
+      <time dateTime={n.created_at ?? n.timestamp ?? undefined} className="tabular-nums">
+        {noteDateLabel(n.created_at ?? n.timestamp, clock, formatRelativeTime)}
+      </time>
+      {jobTitle ? (
+        <span className="inline-flex max-w-56 items-center gap-1 truncate rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+          <Target className="h-3 w-3 shrink-0" />
+          <span className="truncate">{jobTitle}</span>
+        </span>
+      ) : null}
+      {noteTypeLabel(n.note_type) ? (
+        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px]">
+          {noteTypeLabel(n.note_type)}
+        </span>
+      ) : null}
+      {n.is_system ? (
+        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px]">
+          systemowa
+        </span>
+      ) : null}
+    </span>
+  );
+
   return (
     <div className="space-y-2">
-      {notes.length === 0 ? (
+      {notes.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {options.length > 2 ? (
+            <label className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+              <Target className="h-3.5 w-3.5 shrink-0" />
+              <span className="sr-only">Filtr rekrutacji</span>
+              <select
+                className="max-w-72 truncate rounded-lg border border-border bg-card px-2 py-1 text-xs text-foreground"
+                value={String(effectiveFilter)}
+                onChange={(e) => setRecruitmentFilter(parseRecruitmentFilter(e.target.value))}
+                aria-label="Pokaż notatki z rekrutacji"
+              >
+                {options.map((o) => (
+                  <option key={String(o.value)} value={String(o.value)}>
+                    {o.label} ({o.count})
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {systemCount > 0 ? (
+            <label className="ml-auto inline-flex cursor-pointer items-center gap-1.5 text-muted-foreground">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 rounded border-border"
+                checked={showSystem}
+                onChange={(e) => setShowSystem(e.target.checked)}
+              />
+              Pokaż systemowe ({systemCount})
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+
+      {listed.length === 0 ? (
         <div className="py-6 text-center text-sm text-muted-foreground">
-          Brak notatek.
+          {notes.length === 0
+            ? "Brak notatek."
+            : "Brak notatek dla wybranych filtrów."}
         </div>
       ) : (
-        notes.map((n: any, i: number) => {
-          const editable = canModifyNote(n);
+        listed.map((n: any, i: number) => {
           const isEditing = editingId != null && editingId === n.id;
-          const isBusy = busyId != null && busyId === n.id;
           const jobTitle = n.job_title ?? jobTitleById.get(Number(n.job_id));
+          const replies: any[] = Array.isArray(n.replies) ? n.replies : [];
+          const pinned = n.pinned_at != null;
           return (
-            <div
+            <article
               key={n.id ?? i}
               data-note-id={n.id ?? undefined}
+              aria-label={pinned ? "Przypięta notatka" : "Notatka"}
               className={cn(
-                "rounded-lg border border-border bg-background/40 p-3",
+                "rounded-lg border border-border bg-background/40 px-3 py-2",
+                pinned && "border-primary/40 bg-primary/5",
+                n.is_system && "opacity-80",
                 focusedNoteId != null &&
                   Number(n.id) === focusedNoteId &&
                   "border-primary ring-2 ring-primary/30",
               )}
             >
-              <div className="flex flex-wrap items-baseline gap-2 text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {noteTypeLabel(n.note_type)
-                    ? `Notatka — ${noteTypeLabel(n.note_type)}`
-                    : "Notatka"}
-                </span>
-                {jobTitle ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                    <Target className="h-3 w-3" />
-                    {jobTitle}
-                  </span>
-                ) : null}
-                {n.author_name ? (
-                  <>
-                    <span>·</span>
-                    <span title={n.author_email ?? undefined}>{n.author_name}</span>
-                  </>
-                ) : null}
-                <span>·</span>
-                <span>{n.timestamp ? formatRelativeTime(n.timestamp) : ""}</span>
-                {editable && !isEditing ? (
-                  <span className="ml-auto inline-flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingId(n.id);
-                        setEditText(unwrapNoteContent(n.content));
-                      }}
-                      className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                      title="Edytuj notatkę"
-                      aria-label="Edytuj notatkę"
-                    >
-                      <PencilLine className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDeleteId(n.id)}
-                      className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                      title="Usuń notatkę"
-                      aria-label="Usuń notatkę"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </span>
-                ) : null}
-              </div>
-              {isEditing ? (
-                <div className="mt-2 space-y-2">
-                  <MentionTextarea
-                    value={editText}
-                    onChange={setEditText}
-                    scope={
-                      n.job_id != null
-                        ? { kind: "job", jobId: Number(n.job_id) }
-                        : { kind: "global" }
+              <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                {pinned ? (
+                  <Pin
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary"
+                    aria-label={
+                      n.pinned_by_name ? `Przypięta przez: ${n.pinned_by_name}` : "Przypięta"
                     }
-                    placeholder="Treść notatki… (@email aby oznaczyć osobę)"
-                    rows={3}
-                    ariaLabel="Edytuj treść notatki"
                   />
-                  <div className="flex items-center justify-end gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={isBusy}
-                      onClick={() => {
-                        setEditingId(null);
-                        setEditText("");
-                      }}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                      Anuluj
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      loading={isBusy}
-                      disabled={!editText.trim() || isBusy}
-                      onClick={async () => {
-                        setBusyId(n.id);
-                        const ok = await onEdit(n.id, editText.trim());
-                        setBusyId(null);
-                        if (ok) {
-                          setEditingId(null);
-                          setEditText("");
+                ) : null}
+                {metaLine(n, jobTitle)}
+                {!isEditing ? renderActions(n, { isReply: false }) : null}
+              </div>
+              {isEditing ? renderEditor(n) : renderBody(n)}
+
+              {replies.length > 0 || replyTo === n.id ? (
+                <div className="mt-2 space-y-1.5 border-l-2 border-border pl-3">
+                  {replies.map((r: any) => {
+                    const replyEditing = editingId != null && editingId === r.id;
+                    return (
+                      <div
+                        key={r.id}
+                        data-note-id={r.id}
+                        className={cn(
+                          "rounded-md",
+                          focusedNoteId != null &&
+                            Number(r.id) === focusedNoteId &&
+                            "ring-2 ring-primary/30",
+                        )}
+                      >
+                        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                          {metaLine(r)}
+                          {!replyEditing ? renderActions(r, { isReply: true }) : null}
+                        </div>
+                        {replyEditing ? renderEditor(r) : renderBody(r)}
+                      </div>
+                    );
+                  })}
+                  {replyTo === n.id ? (
+                    <div className="space-y-1.5">
+                      <MentionTextarea
+                        value={replyText}
+                        onChange={setReplyText}
+                        scope={
+                          n.job_id != null
+                            ? { kind: "job", jobId: Number(n.job_id) }
+                            : { kind: "global" }
                         }
-                      }}
-                    >
-                      Zapisz
-                    </Button>
-                  </div>
+                        placeholder="Odpowiedź… (@email aby oznaczyć osobę)"
+                        rows={2}
+                        ariaLabel="Treść odpowiedzi"
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setReplyTo(null);
+                            setReplyText("");
+                          }}
+                        >
+                          Anuluj
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          loading={busyId === n.id}
+                          disabled={!replyText.trim() || busyId === n.id}
+                          onClick={async () => {
+                            if (!onReply) return;
+                            setBusyId(n.id);
+                            const ok = await onReply(n.id, replyText.trim());
+                            setBusyId(null);
+                            if (ok) {
+                              setReplyTo(null);
+                              setReplyText("");
+                            }
+                          }}
+                        >
+                          <Reply className="h-3.5 w-3.5" />
+                          Odpowiedz
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-              ) : (
-                <p className="mt-1 whitespace-pre-line text-sm text-foreground">
-                  {renderWithMentions(
-                    unwrapNoteContent(n.content_rendered ?? n.content),
-                    usersByEmail,
-                  )}
-                </p>
-              )}
-            </div>
+              ) : null}
+            </article>
           );
         })
       )}
@@ -401,7 +676,7 @@ export function NotesList({
         }}
         variant="destructive"
         title="Usunąć notatkę?"
-        description="Tej operacji nie można cofnąć. Notatka zostanie trwale usunięta."
+        description="Tej operacji nie można cofnąć. Notatka zostanie trwale usunięta razem z odpowiedziami."
         confirmLabel="Usuń"
         onConfirm={() => void confirmDelete()}
       />
