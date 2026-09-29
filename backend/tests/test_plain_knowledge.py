@@ -816,3 +816,15 @@ def test_glossary_keeps_lowercase_tools_described_in_the_repo_seed() -> None:
     assert researchable_term("pytest")
     assert researchable_term("npm")
     assert not researchable_term("bankowość")
+
+
+def test_seed_drops_sources_with_key_shaped_urls() -> None:
+    """Gitleaks bierze UUID w adresie ogłoszenia za klucz API."""
+    from scripts.build_plain_knowledge import client_source_filter
+
+    keep = client_source_filter({"clients": []})
+    sources = [
+        {"url": "https://www.dice.com/job-detail/54f04000-1111-2222-3333-444455556666"},
+        {"url": "https://example.org/devops"},
+    ]
+    assert keep(sources) == [{"url": "https://example.org/devops"}]

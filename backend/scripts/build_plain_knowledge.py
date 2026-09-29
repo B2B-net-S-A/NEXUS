@@ -479,6 +479,14 @@ _CLIENT_NAME_STOPWORDS = frozenset(
 )
 
 
+# Adres z identyfikatorem w kształcie klucza (UUID, ``pa-…``) zapala gitleaks
+# w CI — repo jest publiczne, więc skaner nie może mieć wyjątku na te pliki.
+_KEY_SHAPED = re.compile(
+    r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"
+    r"|pa-[A-Za-z0-9_-]{30,}"
+)
+
+
 def client_source_filter(plan: dict[str, Any]):
     """Źródła z domen klientów z planu nie trafiają do publicznego repo —
     ogłoszenie klienta przy naszej roli zdradzałoby, dla kogo rekrutujemy."""
@@ -494,8 +502,9 @@ def client_source_filter(plan: dict[str, Any]):
     def keep(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out = []
         for s in sources or []:
-            host = urlparse(str(s.get("url") or "")).netloc.casefold()
-            if not any(w in host for w in words):
+            url = str(s.get("url") or "")
+            host = urlparse(url).netloc.casefold()
+            if not any(w in host for w in words) and not _KEY_SHAPED.search(url):
                 out.append(s)
         return out
 
