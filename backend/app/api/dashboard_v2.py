@@ -4,6 +4,7 @@ from datetime import date, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import AfterValidator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.capabilities import (
@@ -66,6 +67,16 @@ from app.services.recruitment_activity import (
     list_recruitment_activity_details,
 )
 from app.services.kpi_engine import WARSAW
+
+
+def _validate_bounded_month(value: date) -> date:
+    if value.year > 9998:
+        raise ValueError("month year must be 9998 or earlier")
+    return value
+
+
+# A date that is safe to shift forward by one month without overflowing date.max.
+BoundedMonth = Annotated[date, AfterValidator(_validate_bounded_month)]
 
 # Bramki sekcji per trasa (F02, audyt 14.09.2026): pulpity czytają dane różnych
 # sekcji, więc jedna bramka na routerze odcięłaby np. Delivery Leada bez
@@ -278,7 +289,7 @@ async def recruitment_activity_summary(
     current_user: RecruitmentOperationsUser,
     db: Database,
     day: date | None = Query(None),
-    month: date | None = Query(None),
+    month: BoundedMonth | None = Query(None),
     subject_user_id: int | None = Query(None, ge=1),
     scope: Literal["auto", "team"] = Query("auto"),
 ) -> RecruitmentActivitySummaryResponse:
@@ -307,7 +318,7 @@ async def recruitment_activity_details(
     metric: RecruitmentActivityMetric = Query(...),
     window: RecruitmentActivityWindow = Query(...),
     day: date | None = Query(None),
-    month: date | None = Query(None),
+    month: BoundedMonth | None = Query(None),
     subject_user_id: int | None = Query(None, ge=1),
     scope: Literal["auto", "team"] = Query("auto"),
     page: int = Query(1, ge=1),
