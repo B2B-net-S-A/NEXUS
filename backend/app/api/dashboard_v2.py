@@ -3,6 +3,18 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
 
+from pydantic import AfterValidator
+
+
+def _validate_bounded_month(value: date) -> date:
+    if value.year > 9998:
+        raise ValueError("month year must be 9998 or earlier")
+    return value
+
+
+# A date that is safe to shift forward by one month without overflowing date.max.
+BoundedMonth = Annotated[date, AfterValidator(_validate_bounded_month)]
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -278,7 +290,7 @@ async def recruitment_activity_summary(
     current_user: RecruitmentOperationsUser,
     db: Database,
     day: date | None = Query(None),
-    month: date | None = Query(None),
+    month: BoundedMonth | None = Query(None),
     subject_user_id: int | None = Query(None, ge=1),
     scope: Literal["auto", "team"] = Query("auto"),
 ) -> RecruitmentActivitySummaryResponse:
@@ -307,7 +319,7 @@ async def recruitment_activity_details(
     metric: RecruitmentActivityMetric = Query(...),
     window: RecruitmentActivityWindow = Query(...),
     day: date | None = Query(None),
-    month: date | None = Query(None),
+    month: BoundedMonth | None = Query(None),
     subject_user_id: int | None = Query(None, ge=1),
     scope: Literal["auto", "team"] = Query("auto"),
     page: int = Query(1, ge=1),

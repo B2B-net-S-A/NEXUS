@@ -190,7 +190,13 @@ def _month_start(value: date) -> date:
 
 def _shift_month(value: date, delta: int) -> date:
     absolute = value.year * 12 + value.month - 1 + delta
-    return date(absolute // 12, absolute % 12 + 1, 1)
+    year = absolute // 12
+    if year > 9999:
+        raise ValueError(
+            f"_shift_month result exceeds max representable year 9999 "
+            f"(value={value}, delta={delta})"
+        )
+    return date(year, absolute % 12 + 1, 1)
 
 
 def _warsaw_bounds(start: date, end: date) -> tuple[datetime, datetime]:
