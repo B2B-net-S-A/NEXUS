@@ -264,7 +264,7 @@ async def _drain_background() -> None:
 async def _seed_job() -> dict:
     tag = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
-        client = Client(name=f"Bank Po Ludzku {tag}")
+        client = Client(name=f"Bank Po Ludzku K{tag}")
         db.add(client)
         await db.flush()
         job = Job(
@@ -673,10 +673,44 @@ def test_new_role_name_drops_seniority_references_and_headcount() -> None:
     clean = role_matcher.clean_role_name
     assert clean("Starszy Programista Frontend (Angular)") == "Programista Frontend"
     assert clean("3 x Senior FullStack Developer in Corporate Area") == (
-        "FullStack Developer in Corporate Area"
+        "FullStack Developer"
     )
     assert clean("Tech Lead Java") == "Tech Lead Java"
-    assert clean("Nordea: PM for AI-driven application modernization") == (
-        "PM for AI-driven application modernization"
-    )
+    assert clean("Nordea: PM for AI-driven application modernization") == "PM"
     assert clean("Bank Pocztowy: Tester manualny") == "Tester manualny"
+
+
+def test_role_name_drops_order_markers_team_codes_and_the_client() -> None:
+    """Przypadki z produkcji 29.09: bez tego biblioteka dostała role „PL”,
+    „AKADEMIA” i „PKO BP Analityk Systemowy” (nazwa klienta w publicznym repo)."""
+    clean = role_matcher.clean_role_name
+    drop = role_matcher.client_words("PKO Bank Polski S.A.")
+    assert {"pko", "bp", "polski"} <= drop
+    assert clean("PKO BP Programista Java", drop) == "Programista Java"
+    assert clean("Programista Java _moduł V") == "Programista Java"
+    assert clean("Tester Manualny Middle") == "Tester Manualny"
+    assert clean("PL_Service Manager_PEP ID") == "Service Manager"
+    assert clean("ON HOLD_2x RPA UiPath Developer") == "RPA UiPath Developer"
+    assert clean("Tester x1 Zapotrzebowanie 55 cz. I") == "Tester"
+    assert clean("Power BI Developer dla Colliers") == "Power BI Developer"
+    assert clean("Projektant UI/UX") == "Projektant UI/UX"
+    for junk in ("PL", "PL- KYC", "AKADEMIA", "Rekrutacja #", "Szkolenia z AWS"):
+        assert clean(junk) == "", junk
+
+
+def test_title_without_an_occupation_does_not_create_a_role() -> None:
+    job = SimpleNamespace(
+        title="PL_BCCM RRP",
+        working_title=None,
+        must_skills=["Java"],
+        champion_profile={},
+    )
+    assert role_matcher.rules_for_new_role(job, None) is None
+
+
+def test_build_script_merges_polish_and_english_role_synonyms() -> None:
+    from scripts.build_plain_knowledge import role_key
+
+    assert role_key("Programista Java") == role_key("Java Developer")
+    assert role_key("Analityk Systemowy") == role_key("System Analyst")
+    assert role_key("Tester manualny") != role_key("Tester automatyzujący")
