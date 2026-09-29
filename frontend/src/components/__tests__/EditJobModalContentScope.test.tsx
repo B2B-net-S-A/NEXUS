@@ -23,6 +23,15 @@ vi.mock("@/lib/api", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.patch).mockResolvedValue({ data: {} } as never);
+  vi.mocked(api.get).mockResolvedValue({
+    data: [
+      { id: 11, name: "Prowadząca Rekruterka", role: "recruiter", roles: [] },
+      { id: 21, name: "Anna Współpracowniczka", role: "sourcer", roles: [] },
+      { id: 22, name: "Bartek Drugi", role: "recruiter", roles: [] },
+    ],
+  } as never);
+  vi.mocked(api.post).mockResolvedValue({ data: {} } as never);
+  vi.mocked(api.delete).mockResolvedValue({ data: {} } as never);
 });
 
 const job = {
@@ -35,6 +44,10 @@ const job = {
   recruiter_id: 11,
   delivery_lead_id: 12,
   status: "published",
+  collaborators: [
+    { id: 22, name: "Bartek Drugi", source: "manual" },
+    { id: 30, name: "Cała Kategoria", source: "auto_cc" },
+  ],
 };
 
 function renderModal(scope?: "full" | "content") {
@@ -55,9 +68,12 @@ describe("EditJobModal — edycja treści przez rekrutera (22.09.2026)", () => {
     expect(screen.queryByText("Rekruter prowadzący")).not.toBeInTheDocument();
     expect(screen.queryByText("Delivery Lead")).not.toBeInTheDocument();
     expect(screen.getByText(/zmienia Delivery Lead/)).toBeInTheDocument();
-    // Listy klientów i użytkowników nie są potrzebne — nie pytamy o nie.
+    // Lista klientów nie jest potrzebna; katalog osób tylko dla pola
+    // „Współpracownicy” (decyzja 29.09.2026 — dopisuje każdy, kto redaguje).
     expect(phase5Api.clientsLookup).not.toHaveBeenCalled();
-    expect(api.get).not.toHaveBeenCalled();
+    for (const [url] of vi.mocked(api.get).mock.calls) {
+      expect(url).toBe("/api/users");
+    }
   });
 
   it("scope=content wysyła w PATCH wyłącznie opis i wymagania", async () => {
@@ -72,6 +88,50 @@ describe("EditJobModal — edycja treści przez rekrutera (22.09.2026)", () => {
       description: "Nowy opis",
       requirements: "Java",
     });
+  });
+
+  it("pole „Współpracownicy” pokazuje wyłącznie ręcznych, bez prowadzącego", async () => {
+    renderModal("content");
+    const chips = await screen.findByRole("list", { name: "Wybrani współpracownicy" });
+    expect(chips).toHaveTextContent("Bartek Drugi");
+    expect(chips).not.toHaveTextContent("Cała Kategoria");
+  });
+
+  it("zapis dopisuje i zdejmuje współpracowników po PATCH-u", async () => {
+    const user = userEvent.setup();
+    renderModal("content");
+    await user.click(
+      await screen.findByRole("button", { name: "Usuń Bartek Drugi ze współpracowników" }),
+    );
+    await user.click(screen.getByRole("button", { name: /^Współpracownicy:/ }));
+    await user.click(await screen.findByRole("option", { name: /Anna Współpracowniczka/ }));
+    // Prowadzącej nie da się wybrać — serwer odpowiedziałby 409.
+    expect(screen.queryByRole("option", { name: /Prowadząca Rekruterka/ })).toBeNull();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await waitFor(() => expect(api.delete).toHaveBeenCalledTimes(1));
+    expect(api.post).toHaveBeenCalledWith("/api/jobs/7/collaborators", { user_id: 21 });
+    expect(api.delete).toHaveBeenCalledWith("/api/jobs/7/collaborators/22");
+  });
+
+  it("awaria zapisu współpracowników zostawia okno z komunikatem", async () => {
+    vi.mocked(api.post).mockRejectedValue({
+      response: { status: 403, data: { detail: "Nie masz uprawnień do edycji rekrutacji." } },
+    } as never);
+    const onSuccess = vi.fn();
+    const user = userEvent.setup();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <EditJobModal job={job} onClose={() => {}} onSuccess={onSuccess} scope="content" />
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole("button", { name: /^Współpracownicy:/ }));
+    await user.click(await screen.findByRole("option", { name: /Anna Współpracowniczka/ }));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    expect(await screen.findByText(/Rekrutacja zapisana, ale/)).toBeInTheDocument();
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 
   it("domyślnie pełny formularz (klient, budżet, zespół)", () => {

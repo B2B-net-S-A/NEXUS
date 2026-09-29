@@ -838,6 +838,49 @@ describe("CandidatesListV2", () => {
       ).toBeTruthy();
     });
 
+    it("brak nazwiska w bazie: zdanie, że pokazujemy podobne", async () => {
+      urlParams = new URLSearchParams("q=Kowalczykowski");
+      listItems = [{ id: 1, name: "Jan", lastname: "Kowalczyk" }];
+      listTotal = 1;
+      listExtra = { text_mode_applied: "literal", text_match: "similar" };
+      renderList();
+      expect(
+        await screen.findByText("Nie ma nikogo o tym nazwisku — pokazujemy podobne."),
+      ).toBeTruthy();
+    });
+
+    it("dokładne nazwisko nie pokazuje zdania o podobnych", async () => {
+      urlParams = new URLSearchParams("q=Kowalski");
+      listItems = [{ id: 1, name: "Jan", lastname: "Kowalski" }];
+      listTotal = 1;
+      listExtra = { text_mode_applied: "literal", text_match: "exact" };
+      renderList();
+      expect(await screen.findByText(/Kowalski/)).toBeTruthy();
+      expect(
+        screen.queryByText("Nie ma nikogo o tym nazwisku — pokazujemy podobne."),
+      ).toBeNull();
+    });
+
+    it("numery stron pod listą: bieżąca oznaczona, klik przechodzi na stronę", async () => {
+      listItems = Array.from({ length: 3 }, (_, i) => ({
+        id: i + 1,
+        name: `Osoba${i + 1}`,
+        lastname: "Testowa",
+      }));
+      listTotal = 31_800;
+      renderList();
+      const nav = await screen.findByRole("navigation", { name: "Strony wyników" });
+      const current = within(nav).getByRole("button", { name: "Strona 1" });
+      expect(current).toHaveAttribute("aria-current", "page");
+      const last = within(nav).getByRole("button", { name: "Strona 636" });
+      expect(last).not.toHaveAttribute("aria-current");
+      fireEvent.click(within(nav).getByRole("button", { name: "Strona 3" }));
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ page: 3 });
+      });
+    });
+
     it("„Z requestu” otwiera okno, a „Dalej” oddaje dane rodzicowi", async () => {
       const onRequestSearch = vi.fn();
       renderList({ onRequestSearch });

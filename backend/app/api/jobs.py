@@ -48,7 +48,7 @@ from app.models.contract import Contract, ContractStatus
 from app.services.pipeline_latest import latest_stage_ids
 from app.services.access_scope import DL_CLIENT_OUT_OF_SCOPE_DETAIL
 from app.models.job import Job, JobStatus
-from app.models.job_collaborator import JobCollaborator
+from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.activity import Activity
 from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -617,33 +617,42 @@ async def _hydrate_owner_map(
 
 async def _load_collaborator_map(
     db: AsyncSession, job_ids: list[int]
-) -> dict[int, list[int]]:
-    """Return {job_id: [user_id, ...]} for the given job ids."""
+) -> dict[int, list[tuple[int, str]]]:
+    """Return {job_id: [(user_id, source), ...]} for the given job ids.
+
+    ``source`` = ``manual`` (dodany ręcznie — liczy się w „Kto pracuje”) albo
+    ``auto_cc`` (cała kategoria kompetencji — nie liczy się). Front pokazuje
+    w oknie edycji i w kolumnie „Prowadzi” wyłącznie ręcznych."""
     if not job_ids:
         return {}
     rows = (
         await db.execute(
-            select(JobCollaborator.job_id, JobCollaborator.user_id).where(
-                JobCollaborator.job_id.in_(job_ids)
+            select(
+                JobCollaborator.job_id,
+                JobCollaborator.user_id,
+                JobCollaborator.source,
             )
+            .where(JobCollaborator.job_id.in_(job_ids))
+            .order_by(JobCollaborator.id)
         )
     ).all()
-    out: dict[int, list[int]] = {}
-    for job_id, user_id in rows:
-        out.setdefault(job_id, []).append(user_id)
+    out: dict[int, list[tuple[int, str]]] = {}
+    for job_id, user_id, source in rows:
+        out.setdefault(job_id, []).append(
+            (user_id, getattr(source, "value", source) or "manual")
+        )
     return out
 
 
-async def _require_manage_ownership(job: Job, current_user: User) -> None:
-    """Gate for collaborator add/remove: admin, delivery_lead, or primary owner."""
-    if current_user.has_any_role(UserRole.admin, UserRole.delivery_lead):
-        return
-    if job.recruiter_id is not None and job.recruiter_id == current_user.id:
-        return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Requires admin, delivery_lead, or primary owner of this job",
-    )
+def _collaborator_payload(
+    entries: list[tuple[int, str]], user_brief_map: dict[int, UserBrief]
+) -> list[dict]:
+    """Współpracownicy rekrutacji do odpowiedzi — ``UserBrief`` + ``source``."""
+    return [
+        {**user_brief_map[uid].model_dump(), "source": source}
+        for uid, source in entries
+        if uid in user_brief_map
+    ]
 
 
 class JobSort(str, enum.Enum):
@@ -833,19 +842,44 @@ def _owner_is_working_clause():
     return and_(Job.recruiter_id.is_not(None), active_owner, not_(released_manually))
 
 
+def _manual_collaborator_job_ids(user_ids: Optional[list[int]] = None):
+    """Rekrutacje z RĘCZNIE dodanym współpracownikiem (decyzja 29.09.2026).
+
+    Współpracownik dopisany w oknie edycji albo w zakładce „Zespół” pracuje
+    nad rekrutacją. Wiersze ``auto_cc`` NIE liczą się — to cała kategoria
+    kompetencji, nie osoby przy tej rekrutacji. Liczą się tylko aktywne
+    konta (jak przy przypisaniach i prowadzącym)."""
+    subq = (
+        select(JobCollaborator.job_id)
+        .join(User, User.id == JobCollaborator.user_id)
+        .where(
+            JobCollaborator.source == JobCollaboratorSource.manual,
+            JobCollaborator.removed_from_auto_cc.is_(False),
+            User.is_active.is_(True),
+        )
+    )
+    if user_ids is not None:
+        subq = subq.where(JobCollaborator.user_id.in_(user_ids))
+    return subq
+
+
 def jobs_worked_by_clause(user_ids: list[int]):
-    """„Kto pracuje” — żywe przypisanie którejś z osób albo jej prowadzenie."""
+    """„Kto pracuje” — żywe przypisanie którejś z osób, jej prowadzenie albo
+    ręczne dopisanie jako współpracownik."""
     return or_(
         Job.id.in_(_live_work_assignment_job_ids(user_ids)),
         and_(Job.recruiter_id.in_(user_ids), _owner_is_working_clause()),
+        Job.id.in_(_manual_collaborator_job_ids(user_ids)),
     )
 
 
 def jobs_nobody_working_clause():
-    """„Nikt nie pracuje” — bez żywego przypisania i bez pracującego prowadzącego."""
+    """„Nikt nie pracuje” — bez żywego przypisania, bez pracującego prowadzącego
+    i bez ręcznie dopisanego współpracownika."""
     return and_(
         Job.id.not_in(_live_work_assignment_job_ids()),
         not_(_owner_is_working_clause()),
+        Job.id.not_in(_manual_collaborator_job_ids()),
     )
 
 
@@ -1429,8 +1463,8 @@ async def list_jobs(
     for j in jobs:
         if j.recruiter_id is not None:
             user_ids.add(j.recruiter_id)
-    for ids in collab_map.values():
-        user_ids.update(ids)
+    for entries in collab_map.values():
+        user_ids.update(uid for uid, _source in entries)
     user_brief_map = await _hydrate_owner_map(db, user_ids)
 
     # Hiring manager names batch lookup — denormalized na response żeby UI
@@ -1538,12 +1572,9 @@ async def list_jobs(
         )
         if d["primary_owner"] is not None:
             d["primary_owner"] = d["primary_owner"].model_dump()
-        collab_ids = collab_map.get(j.id, [])
-        d["collaborators"] = [
-            user_brief_map[uid].model_dump()
-            for uid in collab_ids
-            if uid in user_brief_map
-        ]
+        d["collaborators"] = _collaborator_payload(
+            collab_map.get(j.id, []), user_brief_map
+        )
         d["hiring_manager_name"] = (
             hm_names.get(j.hiring_manager_contact_id)
             if j.hiring_manager_contact_id
@@ -2275,8 +2306,8 @@ async def get_job(
     )
 
     collab_map = await _load_collaborator_map(db, [job.id])
-    collab_ids = collab_map.get(job.id, [])
-    user_ids: set[int] = set(collab_ids)
+    collab_entries = collab_map.get(job.id, [])
+    user_ids: set[int] = {uid for uid, _source in collab_entries}
     if job.recruiter_id is not None:
         user_ids.add(job.recruiter_id)
     user_brief_map = await _hydrate_owner_map(db, user_ids)
@@ -2287,9 +2318,7 @@ async def get_job(
         if job.recruiter_id in user_brief_map
         else None
     )
-    payload["collaborators"] = [
-        user_brief_map[uid].model_dump() for uid in collab_ids if uid in user_brief_map
-    ]
+    payload["collaborators"] = _collaborator_payload(collab_entries, user_brief_map)
 
     # Hiring manager name z Contact join'a (denormalized)
     if job.hiring_manager_contact_id:
@@ -5225,17 +5254,24 @@ async def add_collaborator(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Add a collaborator. Admin/DL always; otherwise primary owner only.
+    """Dodaj współpracownika — każdy, kto redaguje rekrutację (``ensure_job_editor``).
+
+    Decyzja Artura 29.09.2026: kilka osób pracuje nad jedną rekrutacją, więc
+    współpracowników dopisuje każdy, kto redaguje jej treść (lustro okna
+    edycji). Zmiana prowadzącego (``/owner``, ``/claim``) zostaje przy
+    dotychczasowych bramkach.
 
     Idempotent at the DB layer via UNIQUE(job_id, user_id) — duplicate inserts
-    return the existing row instead of raising.
+    return the existing row instead of raising. Wiersz ``auto_cc`` (cała
+    kategoria) dodany ręcznie staje się ``manual`` — od tej chwili liczy się
+    w „Kto pracuje”.
     """
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
 
-    await _require_manage_ownership(job, current_user)
+    await ensure_job_editor(db, current_user, job)
 
     target = await db.scalar(select(User).where(User.id == payload.user_id))
     if not target or not target.is_active:
@@ -5275,6 +5311,23 @@ async def add_collaborator(
             )
         )
         await db.commit()
+    elif (
+        existing.source != JobCollaboratorSource.manual or existing.removed_from_auto_cc
+    ):
+        existing.source = JobCollaboratorSource.manual
+        existing.removed_from_auto_cc = False
+        existing.removed_at = None
+        existing.added_by = current_user.id
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=job_id,
+                action="collaborator_added",
+                user_id=current_user.id,
+                details={"collaborator_id": target.id, "promoted_from": "auto_cc"},
+            )
+        )
+        await db.commit()
     return UserBrief.model_validate(target)
 
 
@@ -5288,13 +5341,13 @@ async def remove_collaborator(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Remove a collaborator. Admin/DL always; otherwise primary owner only."""
+    """Usuń współpracownika — ta sama bramka co dodanie (``ensure_job_editor``)."""
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
 
-    await _require_manage_ownership(job, current_user)
+    await ensure_job_editor(db, current_user, job)
 
     link = await db.scalar(
         select(JobCollaborator).where(

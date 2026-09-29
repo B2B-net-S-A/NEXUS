@@ -38,6 +38,7 @@ function renderPanel(
     role: "recruiter";
     is_active?: boolean;
   } | null = null,
+  canEdit?: boolean,
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -49,6 +50,7 @@ function renderPanel(
         jobTitle="Backend Engineer"
         primaryOwner={primaryOwner}
         collaborators={[]}
+        canEdit={canEdit}
       />
     </QueryClientProvider>,
   );
@@ -111,5 +113,30 @@ describe("JobOwnershipPanel — nieaktywny prowadzący (R9-V2-2)", () => {
     expect(
       screen.queryByRole("button", { name: "Przejmij rekrutację" }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("JobOwnershipPanel — współpracowników dopisuje każdy, kto redaguje (29.09.2026)", () => {
+  const recruiter = {
+    ...deliveryLead,
+    id: 9,
+    name: "Rekruter spoza zespołu",
+    role: "recruiter",
+    roles: ["recruiter"],
+  } satisfies User;
+  const owner = { id: 3, name: "Prowadząca", email: "p@example.com", role: "recruiter" as const };
+
+  it("rekruter spoza zespołu z prawem edycji widzi „Dodaj”", () => {
+    useAuthStore.setState({ user: recruiter });
+    renderPanel(owner, true);
+    expect(screen.getByRole("button", { name: "Dodaj" })).toBeInTheDocument();
+    // Zmiana prowadzącego zostaje przy adminie i DL.
+    expect(screen.queryByRole("button", { name: "Zmień" })).not.toBeInTheDocument();
+  });
+
+  it("bez prawa edycji — bez „Dodaj”", () => {
+    useAuthStore.setState({ user: recruiter });
+    renderPanel(owner, false);
+    expect(screen.queryByRole("button", { name: "Dodaj" })).not.toBeInTheDocument();
   });
 });

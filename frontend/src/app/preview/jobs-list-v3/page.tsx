@@ -88,6 +88,12 @@ const MINE = [
     status: "published",
     tac_id: 3,
     primary_owner: { name: "Marta Kowalska" },
+    // Kolumna „Prowadzi”: „+N” ręcznych współpracowników (auto_cc się nie liczy).
+    collaborators: [
+      { id: 71, name: "Anna Współpracowniczka", source: "manual" },
+      { id: 72, name: "Piotr Sourcer", source: "manual" },
+      { id: 73, name: "Cała Kategoria", source: "auto_cc" },
+    ],
     deadline: inDays(5),
     created_at: inDays(-12),
     headcount: 2,

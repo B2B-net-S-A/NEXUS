@@ -184,7 +184,7 @@ def _boolean_clause(body: CandidateSearchRequest) -> Any:
 
 async def _text_plan(
     db: AsyncSession, body: CandidateSearchRequest
-) -> tuple[str, str, Optional[dict]]:
+) -> tuple[str, str, Optional[dict], Optional[str]]:
     """Jak potraktować `q`: ``(q_text, applied, interpretation)``.
 
     ``applied``: ``literal`` (osoba albo jawny przełącznik — to samo dopasowanie
@@ -195,28 +195,37 @@ async def _text_plan(
     """
     q_text = (body.q or "").strip() if body.q else ""
     if not q_text:
-        return "", "none", None
+        return "", "none", None, None
     sem = request_semantics(body)
+    # Osoba (v2 + `text_mode=auto`): ta sama reguła co lista —
+    # `candidate_search_predicates.person_text_match`.
+    person_match = await predicates.person_text_match(db, q_text, sem, body.text_mode)
     if sem.unified or body.text_mode is not None:
         interpretation = await predicates.interpret_text(db, q_text)
     else:
         interpretation = predicates.detect_text_mode(q_text)
     forced = predicates.text_mode_to_apply(sem, body.text_mode, interpretation)
-    if forced is not None:
+    if person_match is not None:
+        applied = "literal"
+    elif forced is not None:
         applied = forced
     elif body.search_mode == "hybrid":
         applied = "semantic"
     else:
         applied = "keywords"
-    return q_text, applied, interpretation.as_dict()
+    return q_text, applied, interpretation.as_dict(), person_match
 
 
-async def _literal_text_or_422(db: AsyncSession, q_text: str) -> Any:
+async def _literal_text_or_422(
+    db: AsyncSession, q_text: str, person_match: Optional[str] = None
+) -> Any:
     """Dopasowanie dosłowne albo 422 po polsku — ta sama reguła co lista
     (`q` min. 2 znaki). Jedna litera nie daje warunku i do rundy 2 audytu
     (25.09.2026) zwracała całą bazę."""
     try:
-        return await predicates.prepare_literal_text(db, q_text)
+        return await predicates.prepare_literal_text(
+            db, q_text, person_match=person_match
+        )
     except predicates.LiteralTextTooShort as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -513,7 +522,7 @@ async def candidate_search_diagnostics(
     if body.exclude_in_job_id is not None:
         body.exclude_blacklisted = True
 
-    q_text, text_applied, _interpretation = await _text_plan(db, body)
+    q_text, text_applied, _interpretation, person_match = await _text_plan(db, body)
 
     base_count = await _diagnostics_count(db, [])
     applied: list[Any] = []
@@ -544,7 +553,7 @@ async def candidate_search_diagnostics(
     # ekran, na którym rekruter szuka przyczyny — i był kierowany pod zły adres.
     query_label = "Zapytanie tekstowe"
     if text_applied == "literal":
-        literal_clause = await _literal_text_or_422(db, q_text)
+        literal_clause = await _literal_text_or_422(db, q_text, person_match)
         if literal_clause is not None:
             query_clauses.append(literal_clause)
         query_label = "Zapytanie (dopasowanie dosłowne)"
@@ -634,7 +643,7 @@ async def advanced_candidate_search(
     clauses.extend(build_structured_filter(body))
 
     # === Layer 3: free-text — FTS or hybrid (BM25+dense+RRF+rerank) ==========
-    q_text, text_applied, interpretation = await _text_plan(db, body)
+    q_text, text_applied, interpretation, person_match = await _text_plan(db, body)
     hybrid_order: list[int] = []
     search_degraded = False
     use_hybrid = text_applied == "semantic"
@@ -678,7 +687,7 @@ async def advanced_candidate_search(
         # Osoba (nazwisko / e-mail / telefon) albo jawne `text_mode=literal`:
         # TO SAMO dopasowanie co `?q=` na liście — fraza w dowolnym polu,
         # literówki w tożsamości, telefon niezależny od zapisu.
-        literal_clause = await _literal_text_or_422(db, q_text)
+        literal_clause = await _literal_text_or_422(db, q_text, person_match)
         if literal_clause is not None:
             clauses.append(literal_clause)
     elif q_text:
@@ -843,6 +852,7 @@ async def advanced_candidate_search(
             result_cap_reached=use_hybrid and len(hybrid_order) >= pool_size,
             text_mode_applied=text_applied,
             interpretation=interpretation,
+            text_match=person_match if text_applied == "literal" else None,
         ),
     )
 

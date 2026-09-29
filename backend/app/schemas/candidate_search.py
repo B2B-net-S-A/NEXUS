@@ -289,6 +289,9 @@ class SearchMeta(BaseModel):
     text_mode_applied: Literal["literal", "keywords", "semantic", "none"] = "none"
     # „Rozumiem to jako…" — patrz `candidate_search_predicates.TextInterpretation`.
     interpretation: Optional[dict[str, Any]] = None
+    # Osoba (v2 + `text_mode=auto`): "exact" / "similar" — jak `text_match`
+    # listy (`candidate_search_predicates.person_text_match`).
+    text_match: Optional[Literal["exact", "similar"]] = None
 
 
 class CandidateSearchResponse(BaseModel):

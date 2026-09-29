@@ -228,6 +228,13 @@ class UserBrief(BaseModel):
         return getattr(v, "value", str(v))
 
 
+class JobCollaboratorBrief(UserBrief):
+    """Współpracownik rekrutacji: ``manual`` (dodany ręcznie) albo ``auto_cc``
+    (cała kategoria kompetencji). Do „Kto pracuje” liczą się tylko ręczni."""
+
+    source: str = "manual"
+
+
 class JobResponse(BaseModel):
     id: int
     title: str
@@ -307,7 +314,7 @@ class JobResponse(BaseModel):
     # ``UserBrief`` so the UI does not need to do a second fetch to render the
     # owner badge. Both are ``None``/empty when the job is unassigned.
     primary_owner: Optional[UserBrief] = None
-    collaborators: list[UserBrief] = []
+    collaborators: list[JobCollaboratorBrief] = []
     # Czy bieżący użytkownik może zapisać „stawkę do klienta" w tej rekrutacji
     # (`user_can_write_client_rate`: role zarządcze/Finanse albo właściciel/
     # twórca rekrutacji). Ustawiane tylko przez `GET /api/jobs/{id}`; tablica

@@ -24,12 +24,20 @@ import { hasSectionAccess } from "@/lib/section-access";
 import { OwnerBadge } from"./OwnerBadge";
 import { ReassignOwnerV2 } from"@/components/v2/modals/ReassignOwnerV2";
 import { hasActiveOwner, type UserBrief } from"./ownership-types";
+import { COLLABORATOR_ROLES } from "@/lib/job-collaborators";
 
 interface JobOwnershipPanelProps {
  jobId: number;
  jobTitle: string;
  primaryOwner: UserBrief | null;
  collaborators: UserBrief[];
+ /**
+ * Czy bieżąca osoba redaguje rekrutację (`can_edit` z `GET /api/jobs/{id}`
+ * albo pełna edycja). Współpracowników dopisuje i zdejmuje każdy, kto
+ * redaguje (decyzja 29.09.2026, lustro `ensure_job_editor`). Brak propa =
+ * dawna reguła: admin, Delivery Lead albo prowadzący.
+ */
+ canEdit?: boolean;
 }
 
 /**
@@ -43,6 +51,7 @@ export function JobOwnershipPanel({
  jobTitle,
  primaryOwner,
  collaborators,
+ canEdit,
 }: JobOwnershipPanelProps) {
  const queryClient = useQueryClient();
  const currentUser = useAuthStore((s) => s.user);
@@ -64,7 +73,8 @@ export function JobOwnershipPanel({
  !!currentUser &&
  !hasRole(currentUser, "user");
  const isPrimary = !!currentUser && primaryOwner?.id === currentUser.id;
- const canManageCollaborators = canWritePipeline && (canReassign || isPrimary);
+ const canManageCollaborators =
+ canWritePipeline && (canEdit ?? (canReassign || isPrimary));
 
  const invalidate = () => {
  queryClient.invalidateQueries({ queryKey: ["job", jobId] });
@@ -142,7 +152,9 @@ export function JobOwnershipPanel({
  <span
  key={c.id}
  className="inline-flex items-center gap-1 pl-1 pr-2 h-6 rounded-full bg-card border border-border text-[11px]"
- title={`${c.name} · ${ROLE_LABELS[c.role]}`}
+ title={`${c.name} · ${ROLE_LABELS[c.role]}${
+ c.source === "auto_cc" ? " · z kategorii kompetencji" : ""
+ }`}
  >
  <OwnerBadge user={c} size="sm" />
  {canManageCollaborators ? (
@@ -228,7 +240,14 @@ function AddCollaboratorInner({
  setError(extractDetail(err) ??"Nie udało się dodać współpracownika."),
  });
 
- const options = directory.filter((u) => !existingIds.has(u.id));
+ // Serwer przyjmuje tylko role z `_OWNERSHIP_ELIGIBLE_ROLES` (reszta = 409).
+ const options = directory.filter(
+ (u) =>
+ !existingIds.has(u.id) &&
+ COLLABORATOR_ROLES.some(
+ (role) => u.role === role || (u.roles ?? []).includes(role),
+ ),
+ );
 
  return (
  <div className="space-y-2">

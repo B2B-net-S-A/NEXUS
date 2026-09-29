@@ -824,6 +824,10 @@ class CandidateList(BaseModel):
     # hybrydowy, v2 + jawne `text_mode`), "literal" albo "none" (bez `q`).
     text_mode_applied: Optional[str] = None
     interpretation: Optional[dict] = None
+    # Tekst wyglądający na osobę (v2 + `text_mode=auto`): "exact" = jest ktoś
+    # o dokładnie takim imieniu/nazwisku (bez literówek), "similar" = nie ma
+    # nikogo takiego, pokazujemy podobne; `None` = reguła nie dotyczy.
+    text_match: Optional[Literal["exact", "similar"]] = None
     # Tryb semantyczny: noga gęsta (Qdrant / Voyage) padła, wynik to sam BM25 —
     # krótka lista NIE znaczy „w bazie nikogo nie ma".
     search_degraded: bool = False

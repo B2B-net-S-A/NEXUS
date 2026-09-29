@@ -9,6 +9,13 @@ export interface UserBrief {
   name: string;
   email: string;
   role: UserRole;
+  /** Role dodatkowe (lista z `/api/users`). */
+  roles?: string[];
+  /**
+   * Tylko współpracownicy (`collaborators[]`): `manual` = dopisany ręcznie,
+   * `auto_cc` = cała kategoria kompetencji. Brak = dodany ręcznie.
+   */
+  source?: string | null;
   /** Runda 9 (R9-V2-2): `false` = konto nieaktywne. Brak = aktywne. */
   is_active?: boolean;
 }

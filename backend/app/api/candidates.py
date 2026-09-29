@@ -955,6 +955,15 @@ async def _resolve_semantic_text(db: AsyncSession, filters: "CandidateFilterSpec
     interpretation = await search_predicates.interpret_text(db, q_stripped)
     if not semantics.unified or filters.text_mode not in ("auto", "semantic"):
         return None, interpretation
+    # Tekst wyglądający na osobę (także nieznane słowo z końcówką nazwiska,
+    # które inaczej poszłoby po znaczeniu) — dopasowanie dosłowne.
+    if (
+        await search_predicates.person_text_match(
+            db, q_stripped, semantics, filters.text_mode
+        )
+        is not None
+    ):
+        return None, interpretation
     forced = search_predicates.text_mode_to_apply(
         semantics, filters.text_mode, interpretation
     )
@@ -1124,8 +1133,13 @@ async def _build_candidate_filtered_query(
             Candidate.id.in_(semantic_pool_ids) if semantic_pool_ids else false()
         )
     elif f.q:
+        # v2 + `text_mode=auto`: osoba o dokładnie takim nazwisku = bez gałęzi
+        # literówek (`person_text_match`); v1 i brak `text_mode` — bez zmian.
+        person_match = await predicates.person_text_match(db, f.q, sem, f.text_mode)
         try:
-            literal_clause = await predicates.prepare_literal_text(db, f.q)
+            literal_clause = await predicates.prepare_literal_text(
+                db, f.q, person_match=person_match
+            )
         except predicates.LiteralTextTooShort as exc:
             # `q` z samych spacji wokół jednej litery przechodzi `min_length=2`.
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -1386,6 +1400,31 @@ def _pl_sort_key(column):
     )
 
 
+def _exact_person_sort_expr(filters: CandidateFilterSpec):
+    """``0`` dla osoby o dokładnie wpisanym imieniu/nazwisku, ``1`` dla reszty.
+
+    ``None`` poza v2 + ``text_mode=auto`` i dla tekstu, który nie wygląda na
+    osobę — kolejność v1 i alertów zapisanych wyszukiwań zostaje bez zmian.
+    """
+    from app.services import candidate_search_predicates as predicates  # noqa: PLC0415
+
+    q_stripped = (filters.q or "").strip()
+    if not q_stripped:
+        return None
+    sem = predicates.semantics_for(
+        "list", filters.semantics_version, filters.hide_unknown
+    )
+    if not predicates.person_text_applies(sem, filters.text_mode):
+        return None
+    found = predicates.detect_text_mode(q_stripped)
+    if found.kind != "name" or not found.name_tokens:
+        return None
+    clause = predicates.exact_person_clause(found.name_tokens)
+    if clause is None:
+        return None
+    return case((clause, 0), else_=1)
+
+
 def _apply_candidate_sort(
     query,
     filters: CandidateFilterSpec,
@@ -1396,7 +1435,14 @@ def _apply_candidate_sort(
     """Sortowanie listy. „Mile widziane" (`skills_preferred`) prowadzi KAŻDE
     sortowanie — tak samo jak chipy podbijające ranking w wyszukiwarce
     (decyzja 17.09.2026); żądany `sort` rozstrzyga w obrębie tej samej liczby
-    trafień. Bez `skills_preferred` kolejność jest dokładnie taka jak dotąd."""
+    trafień. Bez `skills_preferred` kolejność jest dokładnie taka jak dotąd.
+
+    Osoba wpisana w `q` (v2 + `text_mode=auto`, tekst wyglądający na imię
+    i nazwisko) prowadzi przed wszystkim — dokładne trafienie jest pierwsze
+    niezależnie od sortowania, jak dokładny e-mail przy „Trafności”."""
+    exact_person = _exact_person_sort_expr(filters)
+    if exact_person is not None:
+        query = query.order_by(exact_person.asc())
     preferred_rank, unknown_rank = _sort_prefix_exprs(filters)
     if preferred_rank is not None:
         query = query.order_by(preferred_rank.desc())
@@ -2858,7 +2904,15 @@ async def list_candidates(
         text_mode_applied = "semantic"
     else:
         text_mode_applied = "literal" if q_stripped else "none"
+    # „Nie ma nikogo o tym nazwisku — pokazujemy podobne”: front mówi to przy
+    # liczbie wyników. Wynik pamiętany 60 s, więc to nie drugie zapytanie.
+    text_match = None
+    if text_mode_applied == "literal":
+        text_match = await search_predicates.person_text_match(
+            db, q_stripped, list_semantics, filters.text_mode
+        )
     return CandidateList(
+        text_match=text_match,
         items=response_items,
         total=total,
         page=page,
