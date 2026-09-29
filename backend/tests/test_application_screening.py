@@ -530,9 +530,17 @@ async def test_existing_candidate_uses_submitted_cv(api, screening_on, monkeypat
     assert await svc.process_one(row.id) == "added"
 
 
-async def test_closed_job_leaves_person_in_base(api, screening_on):
+async def test_job_closed_after_apply_still_adds_person_without_model(
+    api, screening_on, monkeypatch
+):
+    """Przegląd kodu 29.09.2026: zgłoszenie do rekrutacji zamkniętej, zanim
+    pętla je oceniła, znikało — bez procesu, dzwonka i wpisu na liście."""
     from app.models.job import Job, JobStatus
 
+    def never(_prompt):
+        raise AssertionError("model nie powinien oceniać zamkniętej rekrutacji")
+
+    monkeypatch.setattr(svc, "_call_model", never)
     _, _, job_id, _ = await _apply(api)
     row = await _row_for(job_id)
     async with AsyncSessionLocal() as db:
@@ -540,8 +548,8 @@ async def test_closed_job_leaves_person_in_base(api, screening_on):
             update(Job).where(Job.id == job_id).values(status=JobStatus.closed)
         )
         await db.commit()
-    assert await svc.process_one(row.id) == "job_closed"
-    assert await _stage(row.candidate_id, job_id) is None
+    assert await svc.process_one(row.id) == "added"
+    assert await _stage(row.candidate_id, job_id) is not None
 
 
 async def test_new_candidate_waits_for_cv_before_claim(api, screening_on):

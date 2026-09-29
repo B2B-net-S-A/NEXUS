@@ -9001,9 +9001,14 @@ harness `/preview/job-board-screening`.
   `application_screening_digest` na rekrutację do prowadzącego.
 - **`APPLICATION_SCREENING_ENABLED=false`** = zachowanie sprzed 0404; pętla
   biegnie dalej i dodaje oczekujące bez modelu. W testach flaga jest
-  wyłączona autouse-fixturą (`conftest.py`). Zmiana promptu albo progu =
-  ponowny pomiar na ~40 historycznych zgłoszeniach (osoba potem zweryfikowana
-  w tej rekrutacji nie może dostać `not_fit`).
+  wyłączona autouse-fixturą (`conftest.py`). **Domyślnie OFF** — włącza się
+  ją workflowem „Coolify set env” dopiero po pomiarze
+  `python -m scripts.eval_application_screening --per-group 40` w kontenerze
+  backendu (ta sama `assess`, bez zapisu decyzji): grupa `verified` (osoby
+  zweryfikowane w rekrutacji) nie może mieć ani jednego `not_fit`, a każde
+  `not_fit` z grupy `posting` (aplikujący z ogłoszeń Traffita) przegląda
+  człowiek. Historycznych zgłoszeń z linków prawie nie ma (1 do 29.09.2026),
+  stąd te dwie grupy. Zmiana promptu albo progu = ponowny pomiar.
 
 ## Strona kariery dla kandydatów (kariera.dynaminds.pl, 0339, 22.09.2026)
 

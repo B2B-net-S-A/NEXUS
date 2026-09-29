@@ -83,6 +83,8 @@ MIN_AGE = timedelta(seconds=20)
 WAIT_FOR_CV = timedelta(minutes=10)
 LEASE = timedelta(minutes=5)
 BATCH = 5
+# Paczka BATCH wierszy musi zmieścić się w dzierżawie LEASE.
+MODEL_TOTAL_TIMEOUT_SECONDS = 50.0
 MAX_ATTEMPTS = 3
 DIGEST_HOUR_LOCAL = 8
 
@@ -298,6 +300,10 @@ def _call_model(prompt: str) -> str:
     from app.services.claude_client import call_claude_text  # noqa: PLC0415
 
     return call_claude_text(
+        # Cała ocena (ponowienia i zapas) mieści się w dzierżawie wiersza —
+        # dłuższa awaria dostawcy = `unclear`, nie druga ocena w drugim
+        # kontenerze ani fałszywe „stalled” w `checks.background_tasks`.
+        total_timeout=MODEL_TOTAL_TIMEOUT_SECONDS,
         model=model_for(FEATURE),
         fallback_models=fallbacks_for(FEATURE),
         max_tokens=1200,
@@ -522,10 +528,11 @@ async def process_one(screening_id: int) -> Optional[str]:
         if job is None or candidate is None:  # pragma: no cover — CASCADE
             return None
 
-        if not jpp.job_is_open(job):
-            await _finish(db, row, result=None, outcome="job_closed")
-            await db.commit()
-            return "job_closed"
+        # Rekrutacja zamknięta po zgłoszeniu (ręcznie albo nocnym archiwum
+        # Traffita): osoba aplikowała, gdy była otwarta — przed 0404 proces
+        # otwierał się od razu, więc wchodzi do „Nowi” bez oceny modelu.
+        # Wynik `job_closed` gubił ją: bez procesu, dzwonka i wpisu na liście.
+        job_open = jpp.job_is_open(job)
         if await pair_in_job(db, candidate_id=row.candidate_id, job_id=row.job_id):
             await _finish(db, row, result=None, outcome="already_in_job")
             await db.commit()
@@ -552,7 +559,7 @@ async def process_one(screening_id: int) -> Optional[str]:
             job=job,
             candidate=candidate,
             cv_text=cv_text,
-            use_model=bool(settings.APPLICATION_SCREENING_ENABLED),
+            use_model=bool(settings.APPLICATION_SCREENING_ENABLED) and job_open,
         )
 
         # Zapis decyzji pod blokadą wiersza: równoległy przebieg albo
