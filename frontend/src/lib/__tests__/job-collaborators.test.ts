@@ -44,6 +44,15 @@ describe("job-collaborators", () => {
     expect(collaboratorsSummary([])).toEqual({ count: 0, tooltip: "" });
   });
 
+  it("„+N” pomija nieaktywne konta (ta sama reguła co „Kto pracuje”)", () => {
+    expect(
+      collaboratorsSummary([
+        { id: 1, name: "Aktywna", source: "manual", is_active: true },
+        { id: 2, name: "Była Pracownica", source: "manual", is_active: false },
+      ]),
+    ).toEqual({ count: 1, tooltip: "Współpracownicy: Aktywna" });
+  });
+
   it("zapis woła trasy i zgłasza częściową awarię po polsku", async () => {
     vi.mocked(api.post)
       .mockResolvedValueOnce({ data: {} } as never)
