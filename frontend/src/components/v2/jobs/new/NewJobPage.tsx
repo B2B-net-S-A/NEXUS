@@ -76,6 +76,25 @@ interface RecruiterOption {
 
 export type Step = "request" | "review";
 
+/** „Prowadzi”: osoba wybrana ręcznie albo automat przydziału (0371). */
+export type RecruiterAssignment = "person" | "automatic";
+
+/** `GET /api/job-intake/handoff-options` — rekrutacji jeszcze nie ma. */
+interface HandoffOptions {
+  automatic_enabled: boolean;
+  mode: "off" | "shadow" | "auto";
+}
+
+const AUTOMATIC_DISABLED_TEXT =
+  "Automatyczny przydział jest wyłączony — włącza go administrator.";
+
+/** Co zrobi automat po przekazaniu — zależy od trybu z panelu przydziału. */
+function automaticHint(mode: HandoffOptions["mode"] | undefined): string {
+  return mode === "auto"
+    ? "System przydzieli osobę według kategorii i obłożenia."
+    : "System zaproponuje osobę — przypisze ją Delivery Lead.";
+}
+
 /** Odczyt modelem trwa kilkanaście–kilkadziesiąt sekund (OCR PDF-a dłużej). */
 const READ_TIMEOUT_MS = 120_000;
 
@@ -110,6 +129,7 @@ export interface NewJobPagePreview {
   form: IntakeForm;
   evidence: string[];
   recruiterId?: number | null;
+  assignment?: RecruiterAssignment;
   /** Krok „Ogłoszenie na portalach” (widoczny tylko przy gotowym portalu). */
   portalPlan?: NewJobPortalPlan;
   portalFindings?: PublicDraftRead["findings"];
@@ -143,6 +163,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const [templateJobId, setTemplateJobId] = useState<number | null>(null);
   const [recruiterId, setRecruiterId] = useState<number | null>(
     preview?.recruiterId ?? null,
+  );
+  const [assignment, setAssignment] = useState<RecruiterAssignment>(
+    preview?.assignment ?? "person",
   );
   const [saving, setSaving] = useState<"handoff" | "draft" | null>(null);
   // 0341: podobne rekrutacje zaznaczone przy tworzeniu — łączone po zapisie.
@@ -201,6 +224,23 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         })
         .then((r) => r.data as RecruiterOption[]),
   });
+
+  // Czy da się wybrać „Przydziel automatycznie” — ta sama flaga co w handoffie.
+  // Tryb „off” znaczy, że automat nikogo nie przydzieli, więc też wyłączone.
+  const handoffOptionsQuery = useQuery({
+    queryKey: ["job-intake-handoff-options"],
+    enabled: step === "review",
+    retry: false,
+    queryFn: () =>
+      api
+        .get("/api/job-intake/handoff-options")
+        .then((r) => r.data as HandoffOptions),
+  });
+  const automaticAvailable =
+    handoffOptionsQuery.data?.automatic_enabled === true &&
+    handoffOptionsQuery.data.mode !== "off";
+  const automatic = assignment === "automatic" && automaticAvailable;
+  const automaticOffNotice = handoffOptionsQuery.isSuccess && !automaticAvailable;
 
   // Portale wyłączone flagami (produkcja dziś) = `any_ready: false` → sekcji nie ma.
   const portalConfigQuery = useQuery({
@@ -407,12 +447,20 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       return;
     }
     try {
-      await jobsApi.handoff(
-        jobId,
-        recruiterId as number,
-        undefined,
-        "linkedin",
-      );
+      if (automatic) {
+        // Prowadzącego wybierze automat przydziału (request trafia na „Szukamy”).
+        await api.post(`/api/jobs/${jobId}/handoff`, {
+          assignment_mode: "automatic",
+          channel: "linkedin",
+        });
+      } else {
+        await jobsApi.handoff(
+          jobId,
+          recruiterId as number,
+          undefined,
+          "linkedin",
+        );
+      }
     } catch (e) {
       showError(
         `Rekrutacja zapisana jako szkic — nie przekazano do searchu: ${readErrorMessage(e, "błąd")}`,
@@ -461,13 +509,20 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       router.push(`/jobs/${jobId}`);
       return;
     }
-    if (published) showSuccess("Rekrutacja utworzona i przekazana do searchu.");
+    if (published) {
+      showSuccess(
+        automatic
+          ? "Rekrutacja utworzona i przekazana do searchu — prowadzącego wybierze automat przydziału."
+          : "Rekrutacja utworzona i przekazana do searchu.",
+      );
+    }
     router.push(`/jobs/${jobId}`);
   };
 
   const ready = missing.length === 0;
+  const hasLead = automatic || recruiterId != null;
   const canHandoff =
-    ready && recruiterId != null && saving == null && portalBlocker == null;
+    ready && hasLead && saving == null && portalBlocker == null;
   const recruiters = recruitersQuery.data ?? [];
 
   return (
@@ -613,11 +668,13 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                 <span className="truncate text-xs text-muted-foreground">
                   {!ready
                     ? missing.map((code) => MISSING_LABEL[code]).join(" · ")
-                    : recruiterId == null
+                    : !hasLead
                       ? "Wybierz, kto poprowadzi rekrutację — wtedy przekażesz ją do searchu."
                       : portalBlocker
                         ? `Ogłoszenie na portalach: ${portalBlocker}`
-                        : "Szablon procesu, kategoria i zespół ustawią się same."}
+                        : automatic
+                          ? automaticHint(handoffOptionsQuery.data?.mode)
+                          : "Szablon procesu, kategoria i zespół ustawią się same."}
                 </span>
               </div>
             </div>
@@ -630,29 +687,56 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                   {saveError}
                 </span>
               )}
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                Prowadzi
-                <select
-                  aria-label="Rekruter prowadzący"
-                  className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground"
-                  value={recruiterId ?? ""}
-                  onChange={(e) =>
-                    setRecruiterId(
-                      e.target.value ? Number(e.target.value) : null,
-                    )
-                  }
+              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                <span id="new-job-lead-label">Prowadzi</span>
+                <div
+                  role="radiogroup"
+                  aria-labelledby="new-job-lead-label"
+                  className="inline-flex rounded-lg border border-border bg-card p-0.5"
                 >
-                  <option value="">Wybierz rekrutera…</option>
-                  {recruiters.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name || r.email || `#${r.id}`}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  <AssignmentOption
+                    label="Wybieram osobę"
+                    checked={!automatic}
+                    onSelect={() => setAssignment("person")}
+                  />
+                  <AssignmentOption
+                    label="Przydziel automatycznie"
+                    checked={automatic}
+                    disabled={!automaticAvailable}
+                    describedBy={
+                      automaticOffNotice ? "new-job-automatic-off" : undefined
+                    }
+                    onSelect={() => setAssignment("automatic")}
+                  />
+                </div>
+                {!automatic && (
+                  <select
+                    aria-label="Rekruter prowadzący"
+                    className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground"
+                    value={recruiterId ?? ""}
+                    onChange={(e) =>
+                      setRecruiterId(
+                        e.target.value ? Number(e.target.value) : null,
+                      )
+                    }
+                  >
+                    <option value="">Wybierz rekrutera…</option>
+                    {recruiters.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name || r.email || `#${r.id}`}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {automaticOffNotice ? (
+                  <span id="new-job-automatic-off" className="text-xs">
+                    {AUTOMATIC_DISABLED_TEXT}
+                  </span>
+                ) : null}
+              </div>
               {/* Runda 8 (R8-N14-6): pusta lista „Prowadzi” przy awarii
                   blokowała przekazanie bez słowa wyjaśnienia. */}
-              {recruitersQuery.isError && !recruitersQuery.data ? (
+              {!automatic && recruitersQuery.isError && !recruitersQuery.data ? (
                 <span role="alert" className="text-xs text-destructive">
                   Nie udało się wczytać listy rekruterów.{" "}
                   <button
@@ -681,8 +765,8 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                 title={
                   !ready
                     ? "Uzupełnij braki, żeby przekazać do searchu"
-                    : recruiterId == null
-                      ? "Wybierz rekrutera, który poprowadzi rekrutację"
+                    : !hasLead
+                      ? "Wybierz rekrutera, który poprowadzi rekrutację, albo przydział automatyczny"
                       : portalBlocker
                         ? `Ogłoszenie na portalach: ${portalBlocker}`
                         : undefined
@@ -695,6 +779,43 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         </footer>
       )}
     </div>
+  );
+}
+
+function AssignmentOption({
+  label,
+  checked,
+  disabled = false,
+  describedBy,
+  onSelect,
+}: {
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  describedBy?: string;
+  onSelect: () => void;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex cursor-pointer items-center rounded-md px-3 py-1.5 text-sm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
+        checked
+          ? "bg-primary text-primary-foreground"
+          : "text-foreground hover:bg-accent",
+        disabled && "cursor-not-allowed opacity-50 hover:bg-transparent",
+      )}
+    >
+      <input
+        type="radio"
+        name="new-job-recruiter-assignment"
+        className="sr-only"
+        checked={checked}
+        disabled={disabled}
+        aria-describedby={describedBy}
+        onChange={onSelect}
+      />
+      {label}
+    </label>
   );
 }
 

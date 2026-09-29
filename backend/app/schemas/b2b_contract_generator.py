@@ -292,6 +292,31 @@ class B2BRenderRequest(BaseModel):
     partner_entity_type: Optional[str] = None
     partner_email: Optional[str] = None
     partner_phone: Optional[str] = None
+    # Wariant umowy (ticket 8, 28.09.2026): „jdg” = wzór dotychczasowy,
+    # „company” = komparycja z KRS, § 12 o osobach skierowanych i osoba
+    # skierowana w Załączniku nr 3. Domyślne „jdg” = każdy zapisany payload
+    # renderuje się jak dotąd. Przełączenie wariantu nie czyści pól poniżej —
+    # zmienia wyłącznie sposób, w jaki trafiają do umowy.
+    contract_variant: Literal["jdg", "company"] = "jdg"
+    # Dane spółki do komparycji (tylko wariant „company”).
+    partner_krs: Optional[str] = Field(None, max_length=32)
+    # Siedziba: miejscowość (mianownik, z KRS) i fraza po „z siedzibą”
+    # („w Warszawie”, „we Wrocławiu”) — odmiany nie zgadujemy w backendzie.
+    partner_seat: Optional[str] = Field(None, max_length=120)
+    partner_seat_locative: Optional[str] = Field(None, max_length=160)
+    # Sąd rejestrowy RAZEM z wydziałem („Sąd Rejonowy dla m.st. Warszawy
+    # w Warszawie, XIV Wydział Gospodarczy Krajowego Rejestru Sądowego”).
+    partner_registry_court: Optional[str] = Field(None, max_length=400)
+    partner_share_capital: Optional[str] = Field(None, max_length=60)
+    # Osoba reprezentująca spółkę — NIE osoba skierowana do realizacji usług.
+    partner_representative_name: Optional[str] = Field(None, max_length=255)
+    partner_representative_function: Optional[str] = Field(None, max_length=255)
+    # Fraza po „reprezentowaną przez” w bierniku („Pana Jana Kowalskiego –
+    # Prezesa Zarządu”); liczona na froncie i edytowalna, jak narzędnik JDG.
+    partner_representation: Optional[str] = Field(None, max_length=600)
+    # Osoba skierowana (Załącznik nr 3). Przy umowie powiązanej z rekrutacją
+    # serwer nadpisuje ją imieniem i nazwiskiem kandydata z tej rekrutacji.
+    assigned_person_name: Optional[str] = Field(None, max_length=255)
     # Klient + projekt
     client_name: Optional[str] = Field(None, max_length=255)
     project_city: Optional[str] = None
@@ -358,6 +383,11 @@ class B2BNextNumberResponse(BaseModel):
     seq: int
 
 
+class B2BCompanyRepresentative(BaseModel):
+    name: Optional[str] = None
+    function: Optional[str] = None
+
+
 class B2BCompanyLookupResponse(BaseModel):
     """Dane firmy z rejestru państwowego (Biała Lista MF / KRS)."""
 
@@ -375,6 +405,14 @@ class B2BCompanyLookupResponse(BaseModel):
     # jednocześnie ma tylko `_merge`. Przepisanie tej tabeli prawdy do TS-a
     # znaczyłoby jej wieczne pilnowanie w dwóch miejscach.
     entity_type: Optional[B2BPartnerEntityType] = None
+    # Dane komparycji spółki z odpisów KRS (tylko spółki z numerem KRS).
+    seat: Optional[str] = None
+    registry_court: Optional[str] = None
+    share_capital: Optional[str] = None
+    # Skład organu reprezentującego. Publiczne API KRS maskuje imiona
+    # i nazwiska („K*****”) — wtedy `name` jest puste, a osobę wpisuje człowiek.
+    representatives: list[B2BCompanyRepresentative] = []
+    representation_method: Optional[str] = None
 
 
 class B2BRegistryWarning(BaseModel):

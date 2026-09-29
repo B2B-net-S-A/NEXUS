@@ -197,6 +197,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/jarvis",
     "/preview/recruitment-v3",
     "/preview/pipeline-v4",
+    "/preview/job-detail",
     "/preview/calendar-cycle",
     "/preview/cv-generator",
     "/preview/cv-qc",

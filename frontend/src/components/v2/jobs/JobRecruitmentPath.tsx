@@ -66,15 +66,20 @@ export function JobRecruitmentPath({
 }: JobRecruitmentPathProps) {
   return (
     <div
-      className="flex min-w-0 flex-wrap items-stretch gap-x-3 gap-y-2 border-t border-border px-3 py-2"
+      // Od `lg` jedna linia: na laptopie z Windows (skalowanie 150% → okno
+      // ≈ 1280 px) kroki łamały się na dwa rzędy, a „Najbliższy krok” na
+      // trzeci — sama ścieżka miała 138 px wysokości (28.09.2026). Opisy
+      // kroków się skracają (pełny tekst w `aria-label`), zdanie kroku
+      // zawija się w dwie linie.
+      className="flex min-w-0 flex-wrap items-stretch gap-x-3 gap-y-2 border-t border-border px-3 py-2 lg:flex-nowrap"
       data-testid="job-recruitment-path"
     >
       <ol
         aria-label="Ścieżka rekrutacji"
-        className="flex min-w-0 flex-1 flex-wrap items-stretch gap-y-1"
+        className="flex min-w-0 flex-1 flex-wrap items-stretch gap-y-1 lg:min-w-min lg:flex-nowrap"
       >
         {steps.map((step, index) => (
-          <li key={step.key} className="flex min-w-0 items-center">
+          <li key={step.key} className="flex min-w-0 items-center lg:min-w-min lg:grow 2xl:grow-0">
             {index > 0 ? (
               <ChevronRight
                 className="mx-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/60"
@@ -88,20 +93,24 @@ export function JobRecruitmentPath({
               data-state={step.state}
               aria-label={`${step.label}: ${STATE_LABEL[step.state]} — ${step.detail}`}
               className={cn(
-                "flex min-w-0 items-start gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-muted",
+                "flex min-w-0 items-start gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-muted lg:grow 2xl:grow-0",
                 "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
               )}
             >
               <span className="mt-0.5">
                 <StepDot state={step.state} />
               </span>
-              <span className="min-w-0 leading-tight">
-                <span className="block text-xs font-semibold text-foreground">
+              <span className="min-w-0 flex-1 leading-tight">
+                <span className="block whitespace-nowrap text-xs font-semibold text-foreground">
                   {step.label}
                 </span>
                 <span
                   className={cn(
-                    "block max-w-[16rem] truncate text-[11px]",
+                    // 1024–1535 px: opis nie wlicza się do szerokości kroku
+                    // (`contain: inline-size`), kroki dzielą wolne miejsce
+                    // (`grow`) — w ciasnym oknie skraca się opis, nazwa kroku
+                    // zostaje cała. Od 1536 px bez zmian.
+                    "block max-w-[16rem] truncate text-[11px] lg:[contain:inline-size] 2xl:[contain:none]",
                     step.state === "missing"
                       ? "font-medium text-warning"
                       : "text-muted-foreground",
@@ -117,7 +126,7 @@ export function JobRecruitmentPath({
 
       {nearest ? (
         <div
-          className="flex min-w-0 items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1"
+          className="flex min-w-0 items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1 lg:min-w-[15rem] lg:flex-[0_1_20rem] 2xl:flex-[0_1_26rem]"
           data-testid="job-nearest-step"
           data-rule={nearest.rule}
         >
@@ -125,7 +134,10 @@ export function JobRecruitmentPath({
             <span className="block text-[10px] font-semibold uppercase tracking-eyebrow text-primary">
               Najbliższy krok
             </span>
-            <span className="block truncate text-xs font-medium text-foreground">
+            <span
+              className="line-clamp-3 text-xs font-medium text-foreground 2xl:line-clamp-2"
+              title={nearest.sentence}
+            >
               {nearest.sentence}
             </span>
           </span>

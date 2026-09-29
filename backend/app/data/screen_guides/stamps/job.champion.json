@@ -3,6 +3,6 @@
   "guide": "job.champion",
   "sources": {
     "frontend/src/components/ChampionProfileEditor.tsx": "0aa4e47f8d168f3eb7f6ed9c8e920f7f8002b2922738f752ac702a6a66a096d6",
-    "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx": "986ac81902918ab10b4d13b0ffabd5d6fb232dc4af5e4dbfe060ba2bb3be4555"
+    "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx": "37ac8a1ab7cb037d6e085528c07997ec7d447a18d7ff7d30c3665eb86e92477c"
   }
 }

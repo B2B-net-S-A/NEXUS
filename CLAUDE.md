@@ -901,6 +901,33 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   w NEXUSIE, bo ta flaga to jedyne pole, które import może na niej zmienić
   (decyzja Artura 26.09.2026). `GET /generated/export.xlsx`
   oddaje rejestr w układzie kolumn Excela działu.
+- **Wariant „Umowa spółka” (ticket 8, 29.09.2026)** — przełącznik „Umowa JDG /
+  Umowa spółka” (`contract_variant`, domyślnie `jdg`; zapisany payload bez pola
+  = JDG, dokument bez zmian). Przełączenie nie czyści pól formularza.
+  - **Komparycja spółki siedzi w szablonie**: warunek
+    `b2b.is_company is defined and b2b.is_company` w dwóch runach komparycji
+    umowy i umowy powierzenia (`is defined`, bo ten sam HTML renderuje
+    „Generuj z szablonu” na kontrakcie ze StrictUndefined). Źródeł prawnika nie
+    ma w repo — szablony zmienia `python scripts/build_b2b_templates.py
+    --company-variant` (idempotentnie, na zacommitowanych plikach).
+  - **§ 12 „Osoby skierowane…”, przenumerowanie i wiersz „Osoba skierowana”
+    w Załączniku nr 3 to przekształcenie gotowego dokumentu**
+    (`services/b2b_contract_generator/company_variant.py`), PO klauzulach
+    Klienta: przesuwa nagłówki ≥ 12 umowy głównej i odwołania „§ N … Umowy
+    Głównej / of the Main Agreement” w załącznikach, nie rusza własnej
+    numeracji załączników (DPA § 1–5, Credit Agricole § 11–15) ani przepisów
+    („art. 22 § 1”). Brak kotwicy = `CompanyVariantError` (500), nigdy cicha
+    umowa JDG.
+  - **Osoba skierowana = kandydat z rekrutacji** (`_stamp_assigned_person` w
+    `/render` i `/rerender`, zapisana w `render_payload`) — nie spółka i nie
+    osoba reprezentująca. Wariant spółki stempluje `partner_entity_type =
+    company` i `template_version = "2026-company"` (dokumenty pochodne cytują
+    § 13 wypowiedzenie i § 14 datę startu, `contract_versions.COMPANY_VERSION`).
+  - **KRS**: `lookup_krs_company_details` — siedziba i kapitał z odpisu
+    aktualnego, sąd rejestrowy z OSTATNIEGO wpisu sądu (nie „SYSTEM”) w odpisie
+    pełnym. Publiczne API maskuje imiona i nazwiska zarządu — osobę
+    reprezentującą wpisuje człowiek (front podpowiada funkcje i biernik,
+    `lib/b2b-company-variant.ts`). Harness `/preview/b2b-generator`.
 - **Kontener listy:** `max-w-6xl` → `max-w-7xl` (9 kolumn + akcje).
 
 ## Centrum e-Zdrowia: umowy ramowe (części) → umowy wykonawcze + zamówienia MD (09.2026)
@@ -2519,6 +2546,18 @@ Audyt i lista ustaleń: `docs/responsiveness-audit-2026-09-23/`. Reguły wspóln
   każdy harness `/preview/*` przy 360/390/768/1024/1280 bez poziomego scrolla
   strony. Nowy harness dopisz do listy. Mierz `setViewportSize` na Chrome
   desktopowym — emulacja telefonu poszerza układ i maskuje przelew.
+- **Laptop z Windows to docelowy ekran, nie szeroki Mac (28.09.2026).**
+  Skalowanie 125–150% daje przeglądarce 1280–1536 × 650–860 px (zmierzone:
+  Mac Artura 2666 × 1229, laptop rekrutera ≈ 1280 × 650). Nagłówek i filtry
+  rosły tam w dół i tablica rekrutacji zaczynała się na 73% wysokości. Zasada:
+  **przy 1280 × 720 główna treść (tablica, tabela) zaczyna się w górnych 60%
+  okna** — filtry w jednym rzędzie, rzadsze pod „Więcej filtrów”, liczby
+  powtórzone w kilku miejscach dopiero od `2xl`. Pilnuje test „okna laptopów
+  z Windows” w `e2e/responsive-preview.spec.ts` (1280×720, 1366×768, 1536×864;
+  harnessy bez powłoki dostają ramkę CSS 240 px + 48 px), harness tablicy
+  z powłoką: `/preview/job-detail`. Zwarty układ poniżej `2xl`, na liście
+  kandydatów poniżej `min-[1800px]` (1536 × 864 to też niski ekran). Każda
+  zmiana UI: przeklikaj też przy 1280 × 720, nie tylko na dużym monitorze.
 
 ## Audyt manualny Codexa 13–15.09.2026 — reguły, które łatwo cofnąć
 
@@ -3119,10 +3158,17 @@ template” → `/jobs/new?from=<id>`) prowadzi na stronę.
   `lib/job-request-intake.ts::missingFor` — zmieniając bramkę handoffu,
   zmień obie.
 - **Zapis idzie ZWYKŁYMI trasami** w stałej kolejności: `POST /api/jobs` →
-  `PUT …/champion-profile` → `POST …/handoff` (wymaga rekrutera — pole
-  „Prowadzi”) → `POST …/publish`. Awaria po utworzeniu rekrutacji = toast
-  + przejście do zakładki Championa, nigdy utrata. „Zapisz szkic” kończy
-  po Championie.
+  `PUT …/champion-profile` → `POST …/handoff` (pole „Prowadzi”: wybrana
+  osoba albo „Przydziel automatycznie” = `assignment_mode: "automatic"`,
+  decyzja 29.09.2026) → `POST …/publish`. Awaria po utworzeniu rekrutacji =
+  toast + przejście do zakładki Championa, nigdy utrata. „Zapisz szkic”
+  kończy po Championie.
+- **„Przydziel automatycznie” czyta `GET /api/job-intake/handoff-options`**
+  (`automatic_enabled` = `RECRUITMENT_ALLOCATION_ENABLED`, `mode` z
+  `recruitment_allocation_state`) — rekrutacji jeszcze nie ma, więc
+  `…/readiness` odpada. Flaga wyłączona ALBO tryb `off` = opcja widoczna,
+  ale nieaktywna ze zdaniem o administratorze (w `off` automat nikogo nie
+  przydzieli). `shadow` tylko proponuje osobę, `auto` ją przypisuje.
 - **Pola usunięte z tworzenia I ustawień** (TAC, szablon procesu, kategoria
   kompetencji, Program/Train, priorytet, typ rekrutacji, widełki PLN/mies.):
   `JobSettingsPanel` ma dwa pola (Delivery Lead, Deadline), `EditJobModal`

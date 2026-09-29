@@ -18,6 +18,7 @@ const WIDTHS = [360, 390, 768, 1024, 1280] as const;
 
 const PAGES = [
   "/preview/b2b-documents",
+  "/preview/b2b-generator",
   "/preview/calendar-cycle",
   "/preview/calendar-cycle?as=dl",
   "/preview/candidates",
@@ -60,6 +61,7 @@ const PAGES = [
   "/preview/new-job",
   "/preview/new-job?state=request",
   "/preview/new-job?state=gaps",
+  "/preview/new-job?state=automatic",
   "/preview/order-consultant-picker",
   "/preview/order-ended-lines",
   "/preview/order-lifecycle",
@@ -103,6 +105,68 @@ test.describe("responsywność harnessów — brak poziomego scrolla strony", ()
       }
       const broken = Object.entries(overflow).filter(([, px]) => px > 1);
       expect(broken, `poziomy scroll strony (szerokość → px): ${JSON.stringify(overflow)}`).toEqual(
+        [],
+      );
+    });
+  }
+});
+
+/**
+ * Okna laptopów z Windows (zgłoszenie 28.09.2026). Skalowanie ekranu 125–150%
+ * daje przeglądarce 1280–1536 px szerokości i 650–860 px wysokości, a UI było
+ * układane na szerokich monitorach Maca (2666 × 1229): na laptopie nagłówek
+ * i filtry rosły w dół i główną treść widać było dopiero na dole ekranu.
+ *
+ * Harnessy bez powłoki aplikacji dostają ramkę w CSS — 240 px przypiętego menu
+ * (od 1280 px domyślnie przypięte) i 48 px paska górnego. Treść jest wtedy tak
+ * wąska jak w aplikacji, a progi Tailwinda (`2xl` = 1536 px) liczą się od
+ * szerokości okna jak w aplikacji. `/preview/job-detail` ma powłokę w sobie.
+ *
+ * Próg to położenie GÓRNEJ krawędzi głównej treści jako ułamek wysokości okna
+ * — zmierzone 28.09.2026 + zapas. Nowy element nad listą/tablicą, który ją
+ * spycha niżej, ma przegrać ten test, zanim trafi do laptopów zespołu.
+ */
+const WINDOWS_LAPTOP_WINDOWS = [
+  { width: 1280, height: 720 },
+  { width: 1366, height: 768 },
+  { width: 1536, height: 864 },
+] as const;
+
+const PRIMARY_CONTENT = [
+  // Tablica: nagłówek kolumny „Nowi” (zmierzone 0,54 przy 1280 × 720).
+  { path: "/preview/job-detail?empty=1", selector: "h3:text-is('Nowi')", maxTop: 0.6, shell: true },
+  // Lista rekrutacji: pierwszy wiersz tabeli (0,42).
+  { path: "/preview/jobs-list-v3", selector: "tbody tr", maxTop: 0.5, shell: false },
+  // Kandydaci: pierwszy wiersz listy (0,59 — panel słów kluczowych jest duży z założenia).
+  { path: "/preview/candidates-list", selector: "[data-testid^='candidate-row-']", maxTop: 0.65, shell: false },
+  // Profil: zakładki pod nagłówkiem i faktami — fakty SĄ treścią profilu (0,76).
+  { path: "/preview/candidate-profile", selector: "[role='tablist']", maxTop: 0.8, shell: false },
+] as const;
+
+test.describe("okna laptopów z Windows — główna treść w górnej części ekranu", () => {
+  for (const { path, selector, maxTop, shell } of PRIMARY_CONTENT) {
+    test(`${path}: treść zaczyna się wyżej niż ${Math.round(maxTop * 100)}% okna`, async ({ page }) => {
+      const tops: Record<string, number> = {};
+      for (const size of WINDOWS_LAPTOP_WINDOWS) {
+        await page.setViewportSize(size);
+        await page.goto(path);
+        await page.waitForLoadState("networkidle");
+        if (!shell) {
+          await page.addStyleTag({
+            content: "html{padding-left:240px;padding-top:48px;box-sizing:border-box}",
+          });
+        }
+        const target = page.locator(selector).first();
+        await expect(target).toBeVisible();
+        await page.evaluate(
+          () => new Promise((resolve) => requestAnimationFrame(() => resolve(null))),
+        );
+        const box = await target.boundingBox();
+        tops[`${size.width}x${size.height}`] = box ? +(box.y / size.height).toFixed(2) : 1;
+        expect(await pageOverflowPx(page), `poziomy scroll przy ${size.width} px`).toBeLessThanOrEqual(1);
+      }
+      const tooLow = Object.entries(tops).filter(([, ratio]) => ratio > maxTop);
+      expect(tooLow, `górna krawędź treści (okno → ułamek wysokości): ${JSON.stringify(tops)}`).toEqual(
         [],
       );
     });

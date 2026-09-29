@@ -403,3 +403,26 @@ describe("/preview/insights zasiewa każdy stały klucz widoków", () => {
     );
   });
 });
+
+describe("/preview/b2b-generator (ticket 8) zasiewa stałe klucze formularza i nie ma sieci", () => {
+  const harness = withoutComments(read("app/preview/b2b-generator/page.tsx"));
+  const form = read("components/v2/pages/B2BContractGeneratorV2.tsx");
+  // Stałe klucze samego formularza (reszta pliku to rejestr i ustawienia ról).
+  const start = form.indexOf("export function GeneratorForm(");
+  // Koniec komponentu = następna deklaracja najwyższego poziomu.
+  const rest = form.slice(start + 1);
+  const next = rest.search(/\n(?:export )?(?:async )?(?:function|const|class) /);
+  const formKeys = literalQueryKeys(
+    next >= 0 ? form.slice(start, start + 1 + next) : form.slice(start),
+  );
+
+  it("formularz ma stałe klucze, a harness zasiewa każdy z nich", () => {
+    expect(formKeys.length).toBeGreaterThan(0);
+    const normalized = harness.replace(/\s+/g, " ");
+    expect(formKeys.filter((key) => !normalized.includes(key))).toEqual([]);
+  });
+
+  it("odrzuca każde żądanie", () => {
+    expect(harness).toContain("api.interceptors.request.use");
+  });
+});

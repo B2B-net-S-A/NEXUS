@@ -14,7 +14,7 @@ o nie, podpowiadając wersję 2026.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date, timedelta
 
 CURRENT_VERSION = "2026"
@@ -56,6 +56,23 @@ VERSIONS: dict[str, ContractVersionRefs] = {
         notice_to_month_end=True,
     ),
 }
+
+#: Umowa 2026 w wariancie dla spółki (ticket 8, 28.09.2026): nowy § 12
+#: „Osoby skierowane do realizacji Usług” przesuwa dawny § 12 (rozwiązanie
+#: umowy) na § 13, a § 13 (postanowienia końcowe, data startu) na § 14.
+#: Wypowiedzenie i aneks daty startu MUSZĄ cytować przesunięte paragrafy.
+COMPANY_VERSION = "2026-company"
+VERSIONS[COMPANY_VERSION] = replace(
+    VERSIONS[CURRENT_VERSION],
+    start_paragraph="§ 14 ust. 2",
+    notice_paragraph="§ 13 ust. 2 pkt 2",
+)
+
+
+def version_for_variant(contract_variant: str | None) -> str:
+    """Wersja wzoru zapisywana przy wydaniu umowy w danym wariancie."""
+    return COMPANY_VERSION if contract_variant == "company" else CURRENT_VERSION
+
 
 #: Pola, o które formularz pyta, gdy wersja umowy bazowej jest nieznana.
 REF_FIELDS: tuple[str, ...] = tuple(

@@ -363,11 +363,12 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/order-new-from-pdf`, `/preview/finance-order-changes`,
 //   `/preview/finance-order-pdfs`, `/preview/order-takeover`,
 //   `/preview/contract-candidate-contact`, `/preview/cv-search`,
-//   `/preview/recruitment-v3`, `/preview/pipeline-v4`, `/preview/cv-generator`,
+//   `/preview/recruitment-v3`, `/preview/pipeline-v4`, `/preview/job-detail`,
+//   `/preview/cv-generator`,
 //   `/preview/jobs-list-v3`, `/preview/calendar-cycle`, `/preview/cv-qc`,
 //   `/preview/cpro-queue`, `/preview/candidate-followup`,
 //   `/preview/kpi-targets`,
-//   `/preview/b2b-documents`, `/preview/similar-reassign`,
+//   `/preview/b2b-documents`, `/preview/b2b-generator`, `/preview/similar-reassign`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
@@ -430,6 +431,7 @@ const PUBLIC_PATHS = [
   "/preview/jarvis",
   "/preview/recruitment-v3",
   "/preview/pipeline-v4",
+  "/preview/job-detail",
   "/preview/my-people",
   "/preview/custom-dashboard",
   "/preview/calendar-cycle",
@@ -438,6 +440,7 @@ const PUBLIC_PATHS = [
   "/preview/candidate-followup",
   "/preview/kpi-targets",
   "/preview/b2b-documents",
+  "/preview/b2b-generator",
   "/preview/similar-reassign",
   "/preview/kariera",
   "/preview/career-share",

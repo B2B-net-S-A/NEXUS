@@ -179,7 +179,10 @@ const KPI_TONE_CLASS: Record<JobHeaderKpiTone, string> = {
 function JobHeaderKpiCluster({ kpis }: { kpis: JobHeaderKpi[] }) {
   return (
     <div
-      className="flex items-center gap-4 pr-1"
+      // Dopiero od 1536 px: te same liczby stoją w ścieżce rekrutacji pod
+      // tytułem („9 w procesie”, „0 wysłanych”), a na węższym oknie (laptop
+      // z Windows, skalowanie 150%) klaster ucinał tytuł i łamał nagłówek.
+      className="hidden items-center gap-4 pr-1 2xl:flex"
       data-testid="job-header-kpis"
       aria-label="Wskaźniki tego kroku"
     >

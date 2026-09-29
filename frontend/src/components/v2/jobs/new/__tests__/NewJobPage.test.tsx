@@ -217,6 +217,121 @@ describe("NewJobPage", () => {
     expect(mocks.refreshClientHistory).toHaveBeenCalledWith(900);
   });
 
+  describe("„Przydziel automatycznie” (decyzja 29.09.2026)", () => {
+    function allocationOptions(automatic_enabled: boolean, mode: string) {
+      mocks.get.mockImplementation((url: string) => {
+        if (url === "/api/users") {
+          return Promise.resolve({ data: [{ id: 31, name: "Rekruterka Ola" }] });
+        }
+        if (url === "/api/job-intake/handoff-options") {
+          return Promise.resolve({ data: { automatic_enabled, mode } });
+        }
+        return Promise.resolve({ data: {} });
+      });
+    }
+
+    it("przy wyłączonym automacie opcja jest widoczna, ale nieaktywna — z powodem", async () => {
+      allocationOptions(false, "off");
+      await readRequest();
+      const automatic = await screen.findByRole("radio", {
+        name: "Przydziel automatycznie",
+      });
+      expect(automatic).toBeDisabled();
+      expect(
+        screen.getByText(
+          "Automatyczny przydział jest wyłączony — włącza go administrator.",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Wybieram osobę" })).toBeChecked();
+      expect(
+        screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }),
+      ).toBeDisabled();
+    });
+
+    it("tryb „off” przy włączonej fladze też nie pozwala wybrać automatu", async () => {
+      allocationOptions(true, "off");
+      await readRequest();
+      await waitFor(() =>
+        expect(
+          screen.getByRole("radio", { name: "Przydziel automatycznie" }),
+        ).toBeDisabled(),
+      );
+    });
+
+    it("automat bez rekrutera: przycisk aktywny, handoff z assignment_mode automatic", async () => {
+      allocationOptions(true, "shadow");
+      await readRequest();
+      const automatic = await screen.findByRole("radio", {
+        name: "Przydziel automatycznie",
+      });
+      await waitFor(() => expect(automatic).toBeEnabled());
+      fireEvent.click(automatic);
+      expect(
+        screen.getByText("System zaproponuje osobę — przypisze ją Delivery Lead."),
+      ).toBeInTheDocument();
+      // Lista osób znika — nie ma czego wybierać.
+      expect(screen.queryByLabelText("Rekruter prowadzący")).toBeNull();
+
+      const handoffButton = screen.getByRole("button", {
+        name: "Utwórz i przekaż do searchu",
+      });
+      expect(handoffButton).toBeEnabled();
+      fireEvent.click(handoffButton);
+
+      await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900"));
+      expect(mocks.post).toHaveBeenCalledWith("/api/jobs/900/handoff", {
+        assignment_mode: "automatic",
+        channel: "linkedin",
+      });
+      expect(mocks.handoff).not.toHaveBeenCalled();
+      expect(mocks.post).toHaveBeenCalledWith("/api/jobs/900/publish");
+    });
+
+    it("tryb „auto” mówi, że system sam przydzieli osobę", async () => {
+      allocationOptions(true, "auto");
+      await readRequest();
+      const automatic = await screen.findByRole("radio", {
+        name: "Przydziel automatycznie",
+      });
+      await waitFor(() => expect(automatic).toBeEnabled());
+      fireEvent.click(automatic);
+      expect(
+        screen.getByText("System przydzieli osobę według kategorii i obłożenia."),
+      ).toBeInTheDocument();
+    });
+
+    it("odmowa automatycznego handoffu: rekrutacja zostaje, przejście do Championa", async () => {
+      allocationOptions(true, "auto");
+      await readRequest();
+      const fallback = mocks.post.getMockImplementation()!;
+      mocks.post.mockImplementation((url: string, ...rest: unknown[]) =>
+        url === "/api/jobs/900/handoff"
+          ? Promise.reject({
+              response: {
+                status: 409,
+                data: { detail: "Automatyczny przydział nie jest jeszcze włączony" },
+              },
+            })
+          : fallback(url, ...rest),
+      );
+      const automatic = await screen.findByRole("radio", {
+        name: "Przydziel automatycznie",
+      });
+      await waitFor(() => expect(automatic).toBeEnabled());
+      fireEvent.click(automatic);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }),
+      );
+      await waitFor(() =>
+        expect(mocks.push).toHaveBeenCalledWith("/jobs/900?tab=champion"),
+      );
+      expect(mocks.showError).toHaveBeenCalledWith(
+        expect.stringContaining("nie przekazano do searchu"),
+      );
+      expect(mocks.post).not.toHaveBeenCalledWith("/api/jobs/900/publish");
+    });
+  });
+
   it("awaria listy rekruterów → komunikat z „Ponów” przy polu „Prowadzi” (R8-N14-6)", async () => {
     let calls = 0;
     mocks.get.mockImplementation((url: string) => {

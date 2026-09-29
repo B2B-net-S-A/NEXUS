@@ -3,11 +3,13 @@
 /**
  * Harness `/preview/new-job` — strona „Nowa rekrutacja” na danych fikcyjnych.
  *
- * `?state=request|review|gaps|portals`. Zero zapytań: klucze klientów,
+ * `?state=request|review|gaps|portals|automatic`. Zero zapytań: klucze klientów,
  * rekruterów, konfiguracji portali i słownika RocketJobs są zasiane w cache
  * (patrz `app/preview/__tests__`), a baner podobnych rekrutacji nie renderuje
  * się w trybie podglądu. `portals` = krok „Ogłoszenie na portalach” z gotowym
- * szkicem (na produkcji portale są dziś wyłączone flagami).
+ * szkicem (na produkcji portale są dziś wyłączone flagami). `automatic` =
+ * „Prowadzi: Przydziel automatycznie” przy włączonym automacie (tryb „shadow”);
+ * pozostałe stany pokazują automat wyłączony, jak dziś na produkcji.
  */
 
 import { Suspense, useState } from "react";
@@ -231,6 +233,12 @@ STATES.portals = {
   ],
 };
 
+STATES.automatic = {
+  ...STATES.review,
+  recruiterId: null,
+  assignment: "automatic",
+};
+
 function Harness() {
   const params = useSearchParams();
   const stateKey = params?.get("state") ?? "review";
@@ -252,6 +260,13 @@ function Harness() {
       stateKey === "portals" ? PORTALS_ON : PORTALS_OFF,
     );
     qc.setQueryData(jobPortalKeys.dictionaries("rocketjobs"), DICTIONARY);
+    // Pole „Prowadzi”: czy automat przydziału (0371) da się wybrać.
+    qc.setQueryData(
+      ["job-intake-handoff-options"],
+      stateKey === "automatic"
+        ? { automatic_enabled: true, mode: "shadow" }
+        : { automatic_enabled: false, mode: "off" },
+    );
     // Lista kontaktów klienta w polu „Hiring manager” (`hiringManagerOptionsKey`).
     qc.setQueryData(["hiring-manager-options", 1], [
       { id: 501, name: "Tomasz Przykładowy", position: "Dyrektor IT" },
