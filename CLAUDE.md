@@ -1700,6 +1700,46 @@ Wzór Word i edytor mają OSIEM sekcji: 1 Podstawy · 2 Search · 3 Stack ·
 - UI: `components/champion/*` (sekcje, skrót dla rekrutera, plakietki),
   `ds/RequirementChipInput`, harness `/preview/champion-profile` (przypadek 3).
 
+## „Champion po ludzku” i ściąga do rozmowy (0402, 29.09.2026)
+
+Decyzje Artura 29.09.2026 (makiety https://claude.ai/artifact/WEVyKuavTdd8JVggXQ9mD3):
+blok „Po ludzku” na górze Podglądu Championa i „Ściąga do rozmowy” w doku osoby
+(Nowi/Screening). Kontrakt API: `docs/champion-plain-brief-contract.md`.
+
+- **Wiedza ogólna jest wspólna i powstaje RAZ** (research w internecie,
+  F26 `plain_knowledge_research`, Sonnet 5 — `web_search` działa tylko
+  u Anthropic): `plain_terms` (słowniczek, klucz = `skill_normalize.canonical_of`,
+  bez FK do `skills` i BEZ dopisywania `skill_aliases` — to zmieniłoby scoring),
+  `role_profiles` (biblioteka ról, `jobs.role_profile_id`, dopasowanie
+  `plain_knowledge/role_matcher.py` bez AI, `manual` nigdy nienadpisywany),
+  opis klienta w `client_playbooks.about_for_candidate` z `about_for_candidate_origin`
+  (`web`/`manual`). Do wyszukiwarki idzie WYŁĄCZNIE nazwa (technologii, roli,
+  firmy) — nigdy profil, kandydat ani notatki. Research nie trzyma blokady:
+  wiersz zajmuje `INSERT … ON CONFLICT` ze `status='researching'`.
+- **Teksty rekrutacji w `job_plain_briefs`, NIE w `champion_profile`**
+  (`champion_intake.fingerprint` hashuje cały profil — zapis w tle dawałby
+  fałszywe 409 przy imporcie). Klucz AI `champion_draft`. Kod usuwa zdanie
+  z liczbą albo technologią spoza danych wejściowych, pytania kandydata są stałą
+  listą (brak danych = `answer: null`), `screening_plain` to wyłącznie istniejące
+  `screening_questions` (bez nowych warunków; brak deal breakera = brak „Odpada”).
+- **GET nic nie zapisuje** i nie woła AI; `stale` mówi, że profil zmienił się od
+  generacji. Odświeża `POST …/plain-brief/refresh` (osobny moduł z limitem
+  10/min, w `READ_ONLY_POST_ROUTE_TEMPLATES`, 403 w „podglądzie jako”): najwyżej
+  3 researche w żądaniu, reszta `spawn` w tle. Front woła go sam tylko dla
+  otwartych rekrutacji. Nie dokładaj haka w zapis Championa — `stale` obejmuje
+  każdą ścieżkę zapisu profilu.
+- **Stawka i nazwa klienta idą do kandydata od razu; statystyki roli BEZ stawek**
+  (liczba rekrutacji, klientów, zatrudnień, stanowiska zatrudnionych od 3
+  zatrudnień). Bez wersji EN i bez wiadomości do kandydata (wycofane 29.09).
+- **Poprawki biblioteki ról i słowniczka: admin + Head of Recruitment**
+  (`HeadOfRecruitmentPlus`, historia `plain_knowledge_events`, `origin=manual`).
+  Opis klienta nadal edytuje karta klienta (DL/admin); ręczny zapis zdejmuje `web`.
+- **Zasiew z repo** (`app/data/plain_knowledge/terms.json`, `roles.json`) biegnie
+  w migracji i przy każdym starcie; nadpisuje wiersze `seed`/`ai`, nigdy `manual`.
+  Opisy klientów NIE trafiają do repo (repo publiczne) — `scripts/build_plain_knowledge.py
+  --apply-clients` na produkcji. Bazę startową buduje ten sam skrypt (`--plan`
+  → przegląd arkusza → `--write-seed`).
+
 ## Karta klienta (`client_playbooks`)
 
 Jedno miejsce prawdy „jak pracujemy z tym klientem" (migracja `0272`, decyzje

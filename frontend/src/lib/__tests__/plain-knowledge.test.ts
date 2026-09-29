@@ -1,0 +1,48 @@
+/**
+ * „Po ludzku” — reguła samoodświeżania wyjaśnienia rekrutacji.
+ * Otwarta rekrutacja z nieaktualnym wyjaśnieniem odświeża się sama; zamknięta
+ * i „podgląd jako” nie (generacja kosztuje, a w podglądzie nie wolno pisać).
+ */
+import { describe, expect, it } from "vitest";
+
+import {
+  plainBriefQueryKey,
+  plainTermsQueryKey,
+  shouldAutoRefresh,
+} from "@/lib/api/plainKnowledge";
+
+const base = { status: "ready" as const, stale: false, is_open: true, can_refresh: true };
+
+describe("shouldAutoRefresh", () => {
+  it("aktualne wyjaśnienie — bez odświeżania", () => {
+    expect(shouldAutoRefresh(base)).toBe(false);
+  });
+
+  it("nieaktualne albo jeszcze nieprzygotowane w otwartej rekrutacji — odświeża", () => {
+    expect(shouldAutoRefresh({ ...base, stale: true })).toBe(true);
+    expect(shouldAutoRefresh({ ...base, status: "none" })).toBe(true);
+    expect(shouldAutoRefresh({ ...base, status: "failed", stale: true })).toBe(true);
+  });
+
+  it("nieudana generacja bez zmiany profilu nie kręci się w pętli", () => {
+    expect(shouldAutoRefresh({ ...base, status: "failed" })).toBe(false);
+  });
+
+  it("zamknięta rekrutacja i brak prawa odświeżania — nigdy", () => {
+    expect(shouldAutoRefresh({ ...base, stale: true, is_open: false })).toBe(false);
+    expect(shouldAutoRefresh({ ...base, status: "none", can_refresh: false })).toBe(false);
+    expect(shouldAutoRefresh(undefined)).toBe(false);
+  });
+});
+
+describe("klucze zapytań", () => {
+  it("są stabilne (harness zasiewa je tymi samymi funkcjami)", () => {
+    expect(plainBriefQueryKey(4812)).toEqual(["plain-brief", 4812]);
+    expect(plainTermsQueryKey({ scope: "outside", q: "kaf" })).toEqual([
+      "plain-terms",
+      "list",
+      "outside",
+      "kaf",
+    ]);
+  });
+});

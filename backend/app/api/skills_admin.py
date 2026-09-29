@@ -190,3 +190,113 @@ async def ignore_term(
         )
     except skill_curation.CurationError as exc:
         raise _curation_error(exc) from exc
+
+
+# ── Słowniczek „po ludzku” (0402) ───────────────────────────────────────────
+# Definicje technologii dla rekruterów (blok „Po ludzku” w Podglądzie
+# Championa). Poprawiają admin i Head of Recruitment (decyzja 29.09.2026);
+# zapis ustawia `origin=manual`, więc ani zasiew z repo, ani research go nie
+# nadpiszą. „Ze słownika” = hasło jest nazwą kanoniczną umiejętności.
+
+
+class PlainTermUpdate(BaseModel):
+    display_name: Optional[str] = Field(default=None, max_length=200)
+    summary: Optional[str] = Field(default=None, max_length=2000)
+    does: Optional[str] = Field(default=None, max_length=2000)
+    cv_hints: Optional[list[str]] = None
+    confused_with: Optional[str] = Field(default=None, max_length=2000)
+
+
+async def _plain_term_payload(db: AsyncSession, row: Any) -> dict[str, Any]:
+    from app.models.user import User
+    from app.services.plain_knowledge import library
+
+    in_dictionary = bool(
+        await db.scalar(
+            select(func.count(Skill.id)).where(
+                func.lower(Skill.canonical_name) == row.term_key
+            )
+        )
+    )
+    editor = await db.get(User, row.updated_by) if row.updated_by else None
+    return library.term_row_payload(
+        row, in_dictionary=in_dictionary, updated_by_name=getattr(editor, "name", None)
+    )
+
+
+@router.get("/plain-terms")
+async def list_plain_terms(
+    _user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+    q: str = Query("", max_length=100),
+    scope: str = Query("all", pattern="^(all|dictionary|outside)$"),
+    limit: int = Query(100, ge=1, le=500),
+) -> dict[str, Any]:
+    from app.models.plain_knowledge import PlainTerm
+    from app.models.user import User
+    from app.services.plain_knowledge import library
+
+    in_dict = (
+        select(Skill.id)
+        .where(func.lower(Skill.canonical_name) == PlainTerm.term_key)
+        .exists()
+    )
+    stmt = select(PlainTerm, in_dict.label("in_dictionary"), User.name).outerjoin(
+        User, User.id == PlainTerm.updated_by
+    )
+    needle = q.strip()
+    if needle:
+        like = f"%{needle}%"
+        stmt = stmt.where(
+            or_(PlainTerm.display_name.ilike(like), PlainTerm.term_key.ilike(like))
+        )
+    if scope == "dictionary":
+        stmt = stmt.where(in_dict)
+    elif scope == "outside":
+        stmt = stmt.where(~in_dict)
+    rows = (await db.execute(stmt.order_by(PlainTerm.display_name).limit(limit))).all()
+    return {
+        "items": [
+            library.term_row_payload(
+                row, in_dictionary=bool(flag), updated_by_name=name
+            )
+            for row, flag, name in rows
+        ]
+    }
+
+
+@router.put("/plain-terms/{term_id}")
+async def update_plain_term(
+    term_id: int,
+    payload: PlainTermUpdate,
+    user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    from app.models.plain_knowledge import PlainTerm
+    from app.services.plain_knowledge import library
+
+    row = await db.get(PlainTerm, term_id, with_for_update=True)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Nie ma takiego hasła.")
+    if await library.apply_changes(
+        db,
+        row,
+        "term",
+        library.TERM_FIELDS,
+        payload.model_dump(exclude_unset=True),
+        user,
+    ):
+        await db.commit()
+    row = await db.get(PlainTerm, term_id, populate_existing=True)
+    return await _plain_term_payload(db, row)
+
+
+@router.get("/plain-terms/{term_id}/history")
+async def plain_term_history(
+    term_id: int,
+    _user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    from app.services.plain_knowledge import library
+
+    return await library.history(db, "term", term_id)

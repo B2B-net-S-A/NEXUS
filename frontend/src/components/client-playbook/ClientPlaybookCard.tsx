@@ -33,6 +33,7 @@ import { BookOpen, ExternalLink, Pencil } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { SourceLinks, WebOriginChip } from "@/components/champion/plain/PlainBits";
 import { EmptyState } from "@/components/ds/EmptyState";
 import { KeyFacts, type KeyFact } from "@/components/ds/KeyFacts";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -263,6 +264,8 @@ function FullCard({
       <TextBlock
         title={PLAYBOOK_FIELD_LABELS.about_for_candidate}
         text={playbook.about_for_candidate}
+        web={playbook.about_for_candidate_origin === "web"}
+        sources={playbook.about_for_candidate_sources}
       />
       <TextBlock title={PLAYBOOK_FIELD_LABELS.priority_rules} text={playbook.priority_rules} />
       <MarkdownBlock title="Zasady procesu rekrutacji" md={playbook.process_rules_md} />
@@ -280,12 +283,27 @@ function BlockTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-function TextBlock({ title, text }: { title: string; text: string | null }) {
+function TextBlock({
+  title,
+  text,
+  web = false,
+  sources,
+}: {
+  title: string;
+  text: string | null;
+  /** Tekst ułożony z publicznych źródeł — plakietka „z internetu” i źródła. */
+  web?: boolean;
+  sources?: { url: string; title: string | null }[];
+}) {
   if (!text?.trim()) return null;
   return (
     <section>
-      <BlockTitle>{title}</BlockTitle>
+      <div className="flex flex-wrap items-center gap-2">
+        <BlockTitle>{title}</BlockTitle>
+        {web ? <WebOriginChip className="mb-1" /> : null}
+      </div>
       <p className="whitespace-pre-wrap text-sm text-foreground">{text}</p>
+      {web ? <SourceLinks sources={sources} className="mt-1" /> : null}
     </section>
   );
 }
@@ -427,9 +445,17 @@ function CompactCard({
         </p>
       ) : null}
       {playbook.about_for_candidate ? (
-        <p className="whitespace-pre-wrap text-xs text-muted-foreground">
-          {playbook.about_for_candidate}
-        </p>
+        <div className="space-y-1">
+          <p className="whitespace-pre-wrap text-xs text-muted-foreground">
+            {playbook.about_for_candidate}
+          </p>
+          {playbook.about_for_candidate_origin === "web" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <WebOriginChip />
+              <SourceLinks sources={playbook.about_for_candidate_sources} />
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );

@@ -21,6 +21,7 @@ import {
   useChampionProfile,
 } from "@/components/champion/ChampionBriefForRecruiters";
 import { SearchRequirementsEditor } from "@/components/champion/SearchRequirementsEditor";
+import { PlainBriefBlock } from "@/components/champion/plain/PlainBriefBlock";
 import { ChampionClientQuestionsPanel } from "@/components/ChampionClientQuestionsPanel";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
 import { ClientPlaybookCard } from "@/components/client-playbook/ClientPlaybookCard";
@@ -236,6 +237,9 @@ export function ChampionBriefView({
 
   return (
     <div className="min-w-0 space-y-3.5" data-testid="champion-brief-view">
+      {/* „Po ludzku” (29.09.2026): wyjaśnienie rekrutacji dla rekrutera bez
+          zaplecza technicznego — przed brief, bo od niego zaczyna się czytanie. */}
+      <PlainBriefBlock jobId={jobId} />
       <Section
         title="Co zamówił klient"
         source={source}

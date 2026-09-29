@@ -36,11 +36,12 @@ def _domains(raw: str) -> list[str]:
     return [d.strip().lower() for d in (raw or "").split(",") if d.strip()]
 
 
-def web_tool_definition() -> dict[str, Any]:
+def web_tool_definition(max_uses: int | None = None) -> dict[str, Any]:
+    uses = settings.JARVIS_WEB_MAX_SEARCHES_PER_TURN if max_uses is None else max_uses
     tool: dict[str, Any] = {
         "type": "web_search_20250305",
         "name": "web_search",
-        "max_uses": max(1, int(settings.JARVIS_WEB_MAX_SEARCHES_PER_TURN)),
+        "max_uses": max(1, int(uses)),
         "user_location": {
             "type": "approximate",
             "country": "PL",

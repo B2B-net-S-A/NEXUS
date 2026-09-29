@@ -90,6 +90,13 @@ const SkillDictionaryTab = dynamic(
     loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
   }
 );
+const RoleLibraryTab = dynamic(
+  () => import("@/components/settings/RoleLibraryTab"),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
 const PlacementExclusionsTab = dynamic(
   () => import("@/components/settings/PlacementExclusionsTab"),
   {
@@ -378,6 +385,8 @@ function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters
       );
     case "skills":
       return <SkillDictionaryTab />;
+    case "roles":
+      return <RoleLibraryTab />;
     case "traffit":
       return <TraffitSyncCard />;
     case "job-boards":

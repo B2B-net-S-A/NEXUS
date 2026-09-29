@@ -145,6 +145,10 @@ class ClientPlaybookRead(BaseModel):
     multi_project_cooldown_days: Optional[int] = None
     rate_policy: Optional[str] = None
     about_for_candidate: Optional[str] = None
+    # 0402: `web` = opis z researchu w internecie („Champion po ludzku”),
+    # `manual`/NULL = wpisany przez człowieka.
+    about_for_candidate_origin: Optional[str] = None
+    about_for_candidate_sources: list[dict[str, str]] = Field(default_factory=list)
     priority_rules: Optional[str] = None
     process_rules_md: Optional[str] = None
     onboarding_md: Optional[str] = None
@@ -314,6 +318,14 @@ def _to_read(
         multi_project_cooldown_days=row.multi_project_cooldown_days,
         rate_policy=row.rate_policy,
         about_for_candidate=row.about_for_candidate,
+        about_for_candidate_origin=(row.about_for_candidate_origin or "manual")
+        if row.about_for_candidate
+        else None,
+        about_for_candidate_sources=[
+            {"url": str(s.get("url")), "title": str(s.get("title") or s.get("url"))}
+            for s in (row.about_for_candidate_sources or [])
+            if isinstance(s, dict) and s.get("url")
+        ][:8],
         priority_rules=row.priority_rules,
         process_rules_md=row.process_rules_md,
         onboarding_md=row.onboarding_md,
@@ -379,6 +391,11 @@ async def upsert_client_playbook(
 
     _apply_payload(row, payload)
     changes = _diff(before, _state(row))
+    if "about_for_candidate" in changes:
+        # Opis poprawiony przez człowieka przestaje być „z internetu” — research
+        # („Champion po ludzku”) już go nie nadpisze.
+        row.about_for_candidate_origin = "manual"
+        row.about_for_candidate_sources = None
 
     try:
         if created or changes:

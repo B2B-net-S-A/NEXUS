@@ -367,7 +367,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/cv-generator`,
 //   `/preview/jobs-list-v3`, `/preview/calendar-cycle`, `/preview/cv-qc`,
 //   `/preview/cpro-queue`, `/preview/candidate-followup`,
-//   `/preview/kpi-targets`,
+//   `/preview/kpi-targets`, `/preview/plain-brief`,
 //   `/preview/b2b-documents`, `/preview/b2b-generator`, `/preview/similar-reassign`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
 //                — konkretne harnessy designu, po których może chodzić nightly
@@ -448,6 +448,7 @@ const PUBLIC_PATHS = [
   "/preview/job-portals",
   "/preview/academy",
   "/preview/request-allocation",
+  "/preview/plain-brief",
   // Praktykanci (0374): `/preview/trainee` pokrywa też `/preview/trainees`.
   "/preview/trainee",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym

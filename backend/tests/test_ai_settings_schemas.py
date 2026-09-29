@@ -87,6 +87,8 @@ class TestFeatureKeyEnum:
             "prep_review",
             # 0383: import archiwum pytań z interview (jednorazowy skrypt).
             "interview_question_import",
+            # 0402: research „Champion po ludzku” w internecie.
+            "plain_knowledge_research",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

@@ -594,6 +594,13 @@ class Settings(BaseSettings):
     # wygrywają. Obu naraz Anthropic nie przyjmuje — dozwolone mają pierwszeństwo.
     JARVIS_WEB_ALLOWED_DOMAINS: str = ""
     JARVIS_WEB_BLOCKED_DOMAINS: str = ""
+
+    # „Champion po ludzku” (0402): research w internecie dla technologii, ról
+    # i opisów klientów, których nie ma jeszcze w bazie. Wyłącznik bez deployu
+    # i dzienny sufit (licznik w pamięci procesu — backend to jeden uvicorn).
+    PLAIN_KNOWLEDGE_WEB_ENABLED: bool = True
+    PLAIN_KNOWLEDGE_RESEARCH_DAILY_LIMIT: int = 200
+    PLAIN_KNOWLEDGE_MAX_SEARCHES: int = 3
     AUTO_MATCH_MAX_ATTEMPTS: int = 3
     AUTO_MATCH_STALE_HOURS: int = 48
     # ── „Moi ludzie" (21.09.2026) ────────────────────────────────────────────

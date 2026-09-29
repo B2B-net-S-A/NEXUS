@@ -61,6 +61,10 @@ vi.mock("@/components/Toast", () => ({
 
 // Modale CV/email mają WŁASNE zapytania (inne endpointy) — dok tylko je
 // otwiera/zamyka, więc dla testów doku wystarczy pusty stub.
+// „Ściąga do rozmowy” ma własne zapytanie (wyjaśnienie „po ludzku”) i testy.
+vi.mock("@/components/v2/jobs/DockCallCheatsheet", () => ({
+  DockCallCheatsheet: () => null,
+}));
 vi.mock("@/components/v2/modals/CVOriginalPreviewModal", () => ({
   CVOriginalPreviewModal: () => null,
 }));

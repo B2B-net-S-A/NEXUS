@@ -14,6 +14,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { BookOpen, Loader2, Plus } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { PlainTermsSection } from "@/components/settings/PlainTermsSection";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -426,6 +427,8 @@ export function SkillDictionaryTab() {
       </section>
 
       <UnmatchedTermsSection />
+
+      <PlainTermsSection />
     </div>
   );
 }

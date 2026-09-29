@@ -927,6 +927,22 @@
    "file": "components/champion/ChampionBriefView.tsx",
    "marker": "RequestHistorySection",
    "v3_home": "Zlecenie i Champion → Podgląd (każda rola) i Edytuj → Wypełnij szybciej"
+  },
+  {
+   "id": "champion.plain-brief",
+   "area": "zlecenie",
+   "opis": "„Po ludzku”: jedno zdanie o rekrutacji, przykład z codzienności, o kliencie, czym będzie się zajmować, słowniczek technologii i pytania screeningowe przetłumaczone na zwykły język (pomoc AI, odświeżana sama)",
+   "file": "components/champion/ChampionBriefView.tsx",
+   "marker": "<PlainBriefBlock jobId",
+   "v3_home": "Zlecenie i Champion → Podgląd (na górze)"
+  },
+  {
+   "id": "dock.call-cheatsheet",
+   "area": "panel",
+   "opis": "Ściąga do rozmowy: tekst na start, odpowiedzi na pytania kandydata (brak → dopisz do „Do dopytania”), trzy pytania z profilu z dobrą odpowiedzią i powodem odrzucenia",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "<DockCallCheatsheet jobId",
+   "v3_home": "Tablica → dok osoby → Screening"
   }
  ]
 }

@@ -46,6 +46,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F23 | academy_screening                | gpt-6-luna (z Sonnet 5)  |
 | F24 | prep_review                      | gpt-6-luna (z Sonnet 5)  |
 | F25 | interview_question_import        | gpt-6-luna (z Sonnet 5)  |
+| F26 | plain_knowledge_research         | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -320,6 +321,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "import archiwum pytań z interview: „znajdź i zacytuj” pytania klienta w "
         "notatce rekrutera, jak F22/F24. Cytat spoza wpisu odrzuca kod, a całość "
         "przegląda człowiek przed zapisem.",
+    ),
+    AIFeatureKey.plain_knowledge_research: ModelChoice(
+        default=SONNET_5,
+        env_vars=("PLAIN_KNOWLEDGE_RESEARCH_MODEL",),
+        fallbacks=("claude-haiku-4-5",),
+        rationale="F26 (decyzja Artura 29.09.2026, POZA badaniem 16.09). Research "
+        "„Champion po ludzku” używa narzędzia web_search, które działa tylko u "
+        "Anthropic (jak F19). Do wyszukiwarki idzie sama nazwa technologii, roli "
+        "albo firmy; wynik zapisujemy raz i używamy we wszystkich rekrutacjach.",
     ),
     AIFeatureKey.cv_name_backfill: ModelChoice(
         default=GPT_LUNA,

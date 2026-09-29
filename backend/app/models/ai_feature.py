@@ -138,6 +138,11 @@ class AIFeatureKey(str, enum.Enum):
     # rekruterów na pojedyncze pytania klienta z cytatem źródła i odsiewa
     # oceny kandydata oraz nazwiska. Jednorazowy skrypt, nie ścieżka aplikacji.
     interview_question_import = "interview_question_import"
+    # „Champion po ludzku” (0402): research w internecie — co to jest
+    # technologia, czym zajmuje się rola, jak opisać klienta kandydatowi.
+    # Do wyszukiwarki idzie wyłącznie NAZWA (technologii, roli, firmy).
+    # Wynik zapisany raz w bazie; teksty rekrutacji liczą się pod champion_draft.
+    plain_knowledge_research = "plain_knowledge_research"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -168,6 +173,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.academy_screening: "Akademia — sortowanie zgłoszeń z ogłoszeń",
     AIFeatureKey.prep_review: "Ocena prepu z transkryptu Teams",
     AIFeatureKey.interview_question_import: "Import archiwum pytań z rozmów u klienta",
+    AIFeatureKey.plain_knowledge_research: "Champion po ludzku — research technologii, ról i klientów w internecie",
 }
 
 
@@ -289,6 +295,10 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Nazwa roli (bez nazwisk) i notatka rekrutera z archiwalnej rozmowy u klienta",
         "Notatka bywa z imieniem kandydata lub rozmówcy — kod odrzuca pytania z osobą",
         "(bez nazwy klienta, stawek i danych kandydata z bazy)",
+    ],
+    AIFeatureKey.plain_knowledge_research: [
+        "Nazwa technologii, roli albo firmy klienta — także do wyszukiwarki internetowej",
+        "(bez profilu Championa, danych kandydatów, stawek i notatek)",
     ],
 }
 
