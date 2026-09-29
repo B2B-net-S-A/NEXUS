@@ -21,7 +21,6 @@ import {
   Lock,
   Plus,
   Search,
-  Sparkles,
   Upload,
   UserPlus,
   Users,
@@ -46,7 +45,6 @@ import { filtersFromCandidateSavedSearch } from "@/lib/candidate-saved-search";
 import { cn } from "@/lib/utils";
 import { AddCandidateModal } from "@/components/AppShell";
 import { ImportCandidatesV2 } from "@/components/v2/modals/ImportCandidatesV2";
-import { AddCandidateFromCVModal } from "@/components/v2/modals/AddCandidateFromCVModal";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { CandidateQuickView } from "@/components/v2/pages/CandidateQuickView";
@@ -1374,7 +1372,6 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  // Modals + assigns -------------------------------------------
  const [showAdd, setShowAdd] = useState(false);
  const [showImport, setShowImport] = useState(false);
- const [showAddFromCV, setShowAddFromCV] = useState(false);
  const [showInvite, setShowInvite] = useState(false);
  const [showBulkPool, setShowBulkPool] = useState(false);
  const [showBulkRecruitment, setShowBulkRecruitment] = useState(false);
@@ -1911,9 +1908,6 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                   <DropdownMenuContent align="end" className="w-60">
                     <DropdownMenuItem onSelect={() => setShowImport(true)}>
                       <Upload className="h-4 w-4" /> Import CSV
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => setShowAddFromCV(true)}>
-                      <Sparkles className="h-4 w-4" /> Dodaj z CV
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
                       <Link href="/candidates/bulk-import">
@@ -2693,11 +2687,6 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
         open={showImport}
         onOpenChange={setShowImport}
         onImported={() => toastOnSuccess("Import zakończony.")}
-      />
-      <AddCandidateFromCVModal
-        open={showAddFromCV}
-        onOpenChange={setShowAddFromCV}
-        onAdded={() => toastOnSuccess("Kandydat dodany z CV.")}
       />
       <GenerateInviteLinkV2 open={showInvite} onOpenChange={setShowInvite} />
       <QuickAssignV2

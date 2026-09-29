@@ -184,7 +184,8 @@
     "pitfalls": [
       "Osoba zarezerwowana przez kogoś innego (12 h) nie da się przesunąć, dopóki rezerwacja nie wygaśnie albo ktoś uprawniony jej nie przejmie.",
       "CV dla klienta wymagającego zgody RODO da się wygenerować bez zrzutu, ale nie da się go pobrać ani udostępnić, dopóki zrzut nie zostanie dołączony.",
-      "Odznaka „Follow-up: Anna K. · zaległy 2 dni” znaczy, że klient milczy od 14 dni i ta osoba zadzwoni do kandydata — jedna osoba, nawet gdy kandydat jest w kilku procesach. Nie dzwoń drugi raz: zapisz wynik albo kliknij „Zrobię to ja” w bloku „Kontakt z kandydatem”."
+      "Odznaka „Follow-up: Anna K. · zaległy 2 dni” znaczy, że klient milczy od 14 dni i ta osoba zadzwoni do kandydata — jedna osoba, nawet gdy kandydat jest w kilku procesach. Nie dzwoń drugi raz: zapisz wynik albo kliknij „Zrobię to ja” w bloku „Kontakt z kandydatem”.",
+      "Przypięte notatki kandydata (pinezka) są na górze karty — z każdej rekrutacji, nie tylko z tej. Przypina i odpina się je w profilu kandydata, w „Historia → Notatki”."
     ],
     "anchors": [
       {"id": "jobs.person.dock", "label": "Karta kandydata", "describe": "Panel osoby wysuwany z prawej po kliknięciu karty."},
@@ -291,7 +292,7 @@
     "pitfalls": [
       "Osoby bez stawki, lokalizacji albo stażu zostają na liście przy aktywnym filtrze i są oznaczone — możesz je ukryć w „Więcej filtrów”.",
       "Historia kontaktów z Traffita ma datę importu (maj 2026), więc wcześniejszy okres nic nie znajdzie.",
-      "Z wymaganiami lista układa osoby od najlepiej dopasowanych („Dopasowanie do wymagań”; „Najnowsi” wybierzesz w sortowaniu). Same nazwy technologii wpisane w górne pole stają się wymaganiami — „Szukaj … po znaczeniu” to cofa. Nazwisko w górnym polu szuka dokładnie tej osoby; podobne nazwiska pokazujemy tylko, gdy nikogo takiego nie ma (lista to mówi).",
+      "Z wymaganiami lista układa osoby od najlepiej dopasowanych („Dopasowanie do wymagań”; „Najnowsi” wybierzesz w sortowaniu). Same nazwy technologii wpisane w górne pole stają się wymaganiami — „Szukaj … po znaczeniu” to cofa. Imię albo nazwisko w górnym polu pokazuje tylko osoby, które dokładnie tak się nazywają (bez polskich znaków też zadziała; „Nowak” nie pokaże „Nowakowskiego”). Podobne nazwiska pojawiają się tylko, gdy nikogo takiego nie ma — lista to mówi.",
       "Chipy „Mile widziane” (miasto, kategoria, wiersz słów) tylko podnoszą pasujące osoby wyżej, nikogo nie ukrywają; „Wymagaj” zamienia chip w filtr. Tak „Szukaj ręcznie” w rekrutacji ustawia jej miasto, kategorię i wiersze, które nie są technologiami."
     ],
     "anchors": [
@@ -366,7 +367,8 @@
       }
     ],
     "pitfalls": [
-      "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem."
+      "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem.",
+      "„Historia” otwiera się na „Notatkach”. Wpisy automatów (np. „Auto-match 67/100”) są schowane za „Pokaż systemowe” — wynik dopasowania widać jako plakietkę przy rekrutacji. Ważną notatkę przypnij pinezką: zobaczy ją cały zespół, także w karcie kandydata w rekrutacji."
     ],
     "anchors": [
       {"id": "candidate.profile.assign", "label": "Przypisz do rekrutacji", "describe": "Dodanie kandydata do rekrutacji."},

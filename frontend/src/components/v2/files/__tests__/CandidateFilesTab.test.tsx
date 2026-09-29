@@ -239,4 +239,86 @@ describe("CandidateFilesTab labels (UAT M01-B10)", () => {
     expect(screen.queryByText("application/pdf")).not.toBeInTheDocument();
     expect(screen.queryByText(/primary/)).not.toBeInTheDocument();
   });
+
+  it("oznacza stare CV jako nieaktualne: plakietka, „Cofnij”, bez „Ustaw jako główne”", async () => {
+    vi.mocked(api.patch).mockResolvedValue({ data: {} });
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/candidates/42/documents") {
+        return {
+          data: [
+            {
+              id: 2,
+              filename: "cv-stare.pdf",
+              content_type: "application/pdf",
+              size_bytes: 1024,
+              document_kind: "cv",
+              is_primary: false,
+              uploaded_at: "2025-01-10T10:00:00Z",
+              created_at: "2025-01-10T10:00:00Z",
+              external_source: "traffit",
+              outdated_at: "2026-09-29T08:00:00Z",
+              outdated_by_name: "Anna Nowak",
+            },
+            {
+              id: 3,
+              filename: "cv-drugie.pdf",
+              content_type: "application/pdf",
+              size_bytes: 2048,
+              document_kind: "cv",
+              is_primary: false,
+              uploaded_at: "2026-09-01T10:00:00Z",
+              created_at: "2026-09-01T10:00:00Z",
+              external_source: "manual",
+              uploaded_by_name: "Jan Kowalski",
+            },
+            {
+              id: 1,
+              filename: "cv.pdf",
+              content_type: "application/pdf",
+              size_bytes: 1024,
+              document_kind: "cv",
+              is_primary: true,
+              uploaded_at: "2024-01-01T10:00:00Z",
+              created_at: "2024-01-01T10:00:00Z",
+              external_source: null,
+            },
+          ],
+        };
+      }
+      return { data: [] };
+    });
+    renderTab();
+
+    expect(await screen.findByText("nieaktualne")).toBeInTheDocument();
+    expect(screen.getByText("dodano 10.01.2025 · z Traffita")).toBeInTheDocument();
+    expect(screen.getByText("dodano 01.09.2026 · Jan Kowalski")).toBeInTheDocument();
+    // Główne pierwsze, potem najnowsze.
+    const names = screen
+      .getAllByText(/^cv(-stare|-drugie)?\.pdf$/)
+      .map((node) => node.textContent);
+    expect(names).toEqual(["cv.pdf", "cv-drugie.pdf", "cv-stare.pdf"]);
+    // Tylko drugie (aktualne) CV da się ustawić jako główne.
+    expect(screen.getAllByText("Ustaw jako główne CV")).toHaveLength(1);
+    // Główne CV nie ma akcji „nieaktualne”.
+    expect(
+      screen.queryByRole("button", { name: /nieaktualne: cv\.pdf$/ }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Cofnij oznaczenie „nieaktualne”: cv-stare.pdf" }),
+    );
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith("/api/candidates/42/documents/2", {
+        outdated: false,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Oznacz jako nieaktualne: cv-drugie.pdf" }),
+    );
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith("/api/candidates/42/documents/3", {
+        outdated: true,
+      }),
+    );
+  });
 });

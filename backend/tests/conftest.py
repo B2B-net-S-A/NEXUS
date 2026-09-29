@@ -203,6 +203,20 @@ def _competition_rankings_uncached(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _cv_preview_reads_cleared():
+    """Odczyt CV z `/cv/preview` żyje 30 min w procesie pod skrótem pliku.
+
+    Testy `/from-cv` wgrywają te same bajty z różnymi zamockowanymi odczytami
+    — bez czyszczenia dostawałyby odczyt poprzedniego testu.
+    """
+    from app.services.cv_preview_cache import preview_cache
+
+    preview_cache.clear()
+    yield
+    preview_cache.clear()
+
+
+@pytest.fixture(autouse=True)
 def _dashboard_metric_credit_snapshot_uncached(monkeypatch):
     """Migawka kredytu kamieni milowych kreatora metryk żyje 60 s w procesie.
 

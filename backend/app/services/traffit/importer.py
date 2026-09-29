@@ -54,6 +54,10 @@ from app.services.candidate_audit import (
     candidate_source_tombstone,
 )
 from app.services.candidate_erasure_leftovers import purged_candidate_hashes
+from app.services.note_mention_render import (
+    clean_mention_label,
+    rewrite_traffit_mentions,
+)
 from app.services.traffit.client import TraffitClient
 from app.services.traffit.mappers import (
     _parse_traffit_datetime,
@@ -68,6 +72,7 @@ from app.services.traffit.mappers import (
     traffit_responsible_user_id,
     traffit_source_to_candidate_tag,
     traffit_talent_to_pool,
+    traffit_user_display_name,
     traffit_user_to_nexus,
     traffit_workflow_state_to_stage_def,
     traffit_workflow_to_template,
@@ -336,6 +341,9 @@ class PhaseProgress:
     categorised: int = 0
     # Runda 9 (R9-N15-7): przeliczone tytuły dla rekrutera (`working_title`).
     working_titles: int = 0
+    # 29.09.2026: rekrutacje dopisane do notatek z aktywności osoby w Traffit
+    # (liczniki `link_note_recruitments` + `over_budget`).
+    note_recruitments: dict[str, int] = field(default_factory=dict)
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -428,6 +436,7 @@ class PhaseProgress:
             "archived": self.archived,
             "categorised": self.categorised,
             "working_titles": self.working_titles,
+            "note_recruitments": self.note_recruitments,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -1440,6 +1449,26 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
 )
 
 
+# Typy aktywności Traffita, które są notatką kandydata (promocja do `notes`).
+TRAFFIT_NOTE_ACTIONS: tuple[str, ...] = (
+    "traffit:Notatka",
+    "traffit:Email",
+    "traffit:Reply",
+    "traffit:Rozmowa telefoniczna",
+    "traffit:Spotkanie",
+)
+
+# Data aktywności z Traffita jako `timestamptz` (29.09.2026). Traffit podaje
+# czas LOKALNY firmy bez strefy — ta sama reguła co `_parse_traffit_datetime`
+# i backfill odrzuceń. `pg_input_is_valid` (PG16): zepsuta data daje NULL
+# zamiast wywracać cały `INSERT ... SELECT`. Alias tabeli aktywności: `a`.
+ACTIVITY_AT_SQL = (
+    "CASE WHEN pg_input_is_valid(a.details ->> 'activity_date', 'timestamp') "
+    "THEN ((a.details ->> 'activity_date')::timestamp AT TIME ZONE 'Europe/Warsaw') "
+    "END"
+)
+
+
 # Promote Traffit candidate notes (held in `activities`) into the dedicated
 # `notes` table so the candidate "Notatki" UI shows them. This is the exact
 # logic from Alembic 0077 — lifted here so it runs on every sync (the migration
@@ -1451,7 +1480,7 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
 _PROMOTE_NOTES_SQL = """
 INSERT INTO notes (
     candidate_id, content, note_type, author_id, source_ref,
-    created_at, updated_at
+    created_at, source_created_at, updated_at
 )
 SELECT
     a.entity_id,
@@ -1478,7 +1507,10 @@ SELECT
     END,
     a.user_id,
     'traffit:activity:' || a.external_id,
-    a.created_at,
+    -- Data notatki = data aktywności w Traffit (29.09.2026), nie chwila
+    -- importu. Aktywność bez daty zostaje przy `a.created_at`.
+    COALESCE(/*ACTIVITY_AT*/, a.created_at),
+    /*ACTIVITY_AT*/,
     a.updated_at
 FROM activities a
 WHERE a.external_source = 'traffit'
@@ -1541,7 +1573,131 @@ WHERE a.external_source = 'traffit'
       SELECT 1 FROM deleted_note_sources t
       WHERE t.source_ref = 'traffit:activity:' || a.external_id
   )
-"""
+RETURNING id
+""".replace("/*ACTIVITY_AT*/", ACTIVITY_AT_SQL)
+
+
+async def rewrite_note_mentions(
+    db: AsyncSession, note_ids: list[int], labels: dict[str, str]
+) -> int:
+    """Zamień `$$user_NN$$` na `@Imię Nazwisko` w notatkach ``note_ids``.
+
+    Zapis wyłącznie kolumny `content` surowym SQL-em — `updated_at` zostaje
+    nietknięty (od niego zależy odcisk nocnej analizy notatek przez AI).
+    Zwraca liczbę zmienionych notatek. Bez commitu — robi go wołający.
+    """
+    if not note_ids or not labels:
+        return 0
+    rows = await db.execute(
+        text(
+            "SELECT id, content FROM notes "
+            "WHERE id = ANY(CAST(:ids AS integer[])) "
+            "AND strpos(content, '$$user_') > 0"
+        ),
+        {"ids": list(note_ids)},
+    )
+    updates: list[dict[str, Any]] = []
+    for note_id, content in rows.all():
+        rewritten = rewrite_traffit_mentions(content, labels)
+        if rewritten != content:
+            updates.append({"id": int(note_id), "content": rewritten})
+    if updates:
+        await db.execute(
+            text("UPDATE notes SET content = :content WHERE id = :id"), updates
+        )
+    return len(updates)
+
+
+async def link_note_recruitments(
+    traffit: Any,
+    db: AsyncSession,
+    candidates: list[tuple[int, str]],
+    *,
+    job_map: Optional[dict[str, int]] = None,
+    dry_run: bool = False,
+) -> dict[str, int]:
+    """Dopisz `notes.job_id` z aktywności kandydata w Traffit (29.09.2026).
+
+    Globalny feed `/employees/activities` nie niesie rekrutacji — ma ją tylko
+    lista aktywności jednej osoby (`/employees/{id}/activities`, pole
+    `recruitment.id`). ``candidates`` = pary (id kandydata w NEXUSIE, id osoby
+    w Traffit). Notatkę dopasowuje `source_ref` aktywności; zapis wyłącznie
+    tam, gdzie `job_id` jest pusty (ręczne podpięcie w NEXUSIE wygrywa) —
+    kolumny `content`/`updated_at` nietknięte. Awaria jednej osoby to licznik
+    `failed`, nie wyjątek: rekrutacja przy notatce jest wzbogaceniem, a nie
+    danymi, bez których notatki nie ma. Commit per osoba (poza ``dry_run``).
+    """
+    stats = {"candidates": 0, "linked": 0, "found": 0, "failed": 0, "no_job": 0}
+    if not candidates:
+        return stats
+    if job_map is None:
+        rows = await db.execute(
+            text(
+                "SELECT id, external_id FROM jobs "
+                "WHERE external_source='traffit' AND external_id IS NOT NULL"
+            )
+        )
+        job_map = {str(r.external_id): int(r.id) for r in rows}
+    for candidate_id, traffit_employee_id in candidates:
+        stats["candidates"] += 1
+        pairs: list[dict[str, Any]] = []
+        try:
+            async for item in traffit.get_paginated(
+                f"/employees/{traffit_employee_id}/activities", page_size=100
+            ):
+                recruitment = item.get("recruitment")
+                rid = (
+                    recruitment.get("id")
+                    if isinstance(recruitment, dict)
+                    else recruitment
+                )
+                activity_id = item.get("id")
+                if rid is None or activity_id is None:
+                    continue
+                job_id = job_map.get(str(rid))
+                if job_id is None:
+                    stats["no_job"] += 1
+                    continue
+                pairs.append(
+                    {
+                        "cid": candidate_id,
+                        "ref": f"traffit:activity:{activity_id}",
+                        "job": job_id,
+                    }
+                )
+        except Exception as exc:  # noqa: BLE001
+            stats["failed"] += 1
+            logger.warning(
+                "Note recruitments: candidate %s fetch failed: %s",
+                candidate_id,
+                type(exc).__name__,
+            )
+            continue
+        stats["found"] += len(pairs)
+        if dry_run or not pairs:
+            continue
+        try:
+            async with db.begin_nested():
+                for pair in pairs:
+                    result = await db.execute(
+                        text(
+                            "UPDATE notes SET job_id = :job "
+                            "WHERE candidate_id = :cid AND source_ref = :ref "
+                            "AND job_id IS NULL"
+                        ),
+                        pair,
+                    )
+                    stats["linked"] += result.rowcount or 0
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            stats["failed"] += 1
+            logger.warning(
+                "Note recruitments: candidate %s write failed: %s",
+                candidate_id,
+                safe_db_error(exc),
+            )
+            await db.rollback()
+    return stats
 
 
 # ── Importer ─────────────────────────────────────────────────────────────────
@@ -1597,23 +1753,39 @@ class TraffitImporter:
             }
         }
 
-    async def promote_notes(self, since: Optional[datetime] = None) -> int:
+    async def promote_notes(
+        self,
+        since: Optional[datetime] = None,
+        *,
+        mention_labels: Optional[dict[str, str]] = None,
+    ) -> int:
         """Promote Traffit candidate activities → `notes` table (idempotent).
 
         Replicates Alembic 0077 so new Traffit notes/emails/calls/meetings reach
         the candidate "Notatki" UI on every sync. Returns rows inserted.
+
+        ``mention_labels`` (id użytkownika Traffita → imię i nazwisko z
+        Traffit `/users/`) zamienia w nowych notatkach `$$user_NN$$` na
+        `@Imię Nazwisko`. Bez mapy tokeny zostają (render w UI je rozwiąże).
         """
         if self.dry_run:
             return 0
         since_clause = ""
         params: dict[str, Any] = {}
         if since is not None:
-            since_clause = "AND a.created_at >= :since"
+            # Po `updated_at` (chwila zapisu w tym biegu), nie po `created_at`:
+            # od 29.09.2026 `created_at` to data aktywności w Traffit, a ta
+            # bywa starsza niż okno delty (notatka z rozmowy wpisana później
+            # z datą rozmowy) — taka aktywność nigdy by się nie promowała.
+            since_clause = "AND a.updated_at >= :since"
             params["since"] = since
         sql = _PROMOTE_NOTES_SQL.replace("/*SINCE*/", since_clause)
         result = await self.db.execute(text(sql), params)
+        new_ids = [int(r[0]) for r in result.fetchall()]
+        if new_ids and mention_labels:
+            await rewrite_note_mentions(self.db, new_ids, mention_labels)
         await self.db.commit()
-        return result.rowcount or 0
+        return len(new_ids)
 
     # ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -2030,6 +2202,9 @@ class TraffitImporter:
         traffit_users: list[dict[str, Any]] = []
         async for u in self.traffit.get_paginated("/users/", page_size=self.batch_size):
             traffit_users.append(u)
+        # Ta sama lista zasila etykiety wzmianek (`traffit_user_labels`) —
+        # bez drugiego pobrania `/users/` w tym samym biegu.
+        self._traffit_users = traffit_users
 
         emails = [
             (u.get("id"), (u.get("email") or "").strip().lower())
@@ -2050,6 +2225,22 @@ class TraffitImporter:
             for traffit_id, email in emails
             if email in nexus_by_email
         }
+
+    def traffit_user_labels(self) -> dict[str, str]:
+        """Id użytkownika Traffita → imię i nazwisko (z Traffit `/users/`).
+
+        Czyta listę pobraną przez :meth:`build_user_id_map` w tym biegu; bez
+        niej — pusta mapa (wzmianki zostają, patrz `rewrite_traffit_mentions`).
+        """
+        labels: dict[str, str] = {}
+        for u in getattr(self, "_traffit_users", None) or []:
+            uid = u.get("id")
+            if uid is None:
+                continue
+            label = clean_mention_label(traffit_user_display_name(u))
+            if label:
+                labels[str(uid)] = label
+        return labels
 
     # ── Faza A: users import ────────────────────────────────────────────────
 
@@ -5304,6 +5495,9 @@ class TraffitImporter:
 
         commit_every = 500
         since_commit = 0
+        # Kandydaci, których aktywności-notatki przyszły w tym biegu (id NEXUSA
+        # → id osoby w Traffit) — po promocji dociągamy im rekrutację notatek.
+        note_candidates: dict[int, str] = {}
 
         # Stage 3 — resumable page cursor. A large catch-up (days of history) is
         # slow and a Coolify deploy restart kills the run mid-stream; without a
@@ -5392,13 +5586,34 @@ class TraffitImporter:
                                 :external_id, 'traffit',
                                 :entity_type, :entity_id, :action,
                                 CAST(:details AS JSONB),
-                                :user_id, NOW(), NOW()
+                                :user_id,
+                                COALESCE(CAST(:activity_at AS timestamptz), NOW()),
+                                NOW()
                             )
                             ON CONFLICT (external_source, external_id)
                             WHERE external_id IS NOT NULL
                             DO UPDATE SET
                                 details   = EXCLUDED.details,
                                 user_id   = COALESCE(EXCLUDED.user_id, activities.user_id),
+                                -- Data aktywności z Traffita (29.09.2026) — ALE
+                                -- nie tam, gdzie notatka z migracji 0077 (bez
+                                -- `source_ref`) jest dopasowywana do aktywności
+                                -- po znaczniku czasu: przesunięcie go zrobiłoby
+                                -- z niej przy promocji duplikat, a z nagrobka
+                                -- usuniętej notatki — martwy wpis. Taka notatka
+                                -- dostaje `source_ref` w naprawie z panelu
+                                -- admina, a następny bieg przestawi datę.
+                                created_at = CASE
+                                    WHEN CAST(:activity_at AS timestamptz) IS NULL
+                                        THEN activities.created_at
+                                    WHEN EXISTS (
+                                        SELECT 1 FROM notes n
+                                        WHERE n.source_ref IS NULL
+                                          AND n.candidate_id = activities.entity_id
+                                          AND n.created_at = activities.created_at
+                                    ) THEN activities.created_at
+                                    ELSE CAST(:activity_at AS timestamptz)
+                                END,
                                 updated_at = NOW()
                             RETURNING id, (xmax = 0) AS was_insert
                             """
@@ -5410,6 +5625,7 @@ class TraffitImporter:
                             "action": payload["action"],
                             "details": json.dumps(payload["details"]),
                             "user_id": payload["user_id"],
+                            "activity_at": payload.get("created_at"),
                         },
                     )
                     row = result.fetchone()
@@ -5428,6 +5644,13 @@ class TraffitImporter:
                 progress.inserted += 1
             else:
                 progress.updated += 1
+            # Tylko NOWE aktywności — pełny bieg dotyka wszystkich, a budżet
+            # zapytań per osoba ma iść na notatki, które właśnie powstały.
+            if row[1] and payload.get("action") in TRAFFIT_NOTE_ACTIONS:
+                employee = raw.get("employee")
+                emp_id = employee.get("id") if isinstance(employee, dict) else None
+                if emp_id is not None:
+                    note_candidates[int(payload["entity_id"])] = str(emp_id)
             since_commit += 1
             if since_commit >= commit_every:
                 try:
@@ -5512,12 +5735,34 @@ class TraffitImporter:
         # missing" true on every recurring run, not just the one-time migration.
         if not self.dry_run:
             try:
-                promoted = await self.promote_notes(since)
+                promoted = await self.promote_notes(
+                    since, mention_labels=self.traffit_user_labels()
+                )
                 progress.notes_promoted = promoted
                 logger.info("Activities: promoted %d notes → notes table", promoted)
             except Exception as e:  # noqa: BLE001
                 await self.db.rollback()
                 progress.add_error(f"promote_notes: {safe_db_error(e)}")
+
+        # Rekrutacja notatek (29.09.2026): globalny feed jej nie niesie, więc
+        # dla kandydatów z nowymi notatkami tego biegu pytamy o ich własną
+        # listę aktywności — w budżecie (5 zapytań/s do Traffita). Kandydaci
+        # ponad budżet i awarie nie blokują watermarku; resztę domyka
+        # naprawa z panelu admina (`/api/admin/traffit/notes-repair/recruitments`).
+        limit = int(getattr(settings, "TRAFFIT_SYNC_NOTE_RECRUITMENT_LIMIT", 0) or 0)
+        if not self.dry_run and note_candidates and limit > 0:
+            try:
+                picked = sorted(note_candidates.items())[:limit]
+                stats = await link_note_recruitments(self.traffit, self.db, picked)
+                progress.note_recruitments = {
+                    **stats,
+                    "over_budget": max(0, len(note_candidates) - limit),
+                }
+            except Exception as e:  # noqa: BLE001
+                await self.db.rollback()
+                logger.warning(
+                    "Activities: note recruitments skipped: %s", safe_db_error(e)
+                )
 
         # Self-heal: the rejection *reason* lives only on these activities
         # (details.content.rejection.name), never on the recruitment_history

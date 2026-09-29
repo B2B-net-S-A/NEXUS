@@ -29,6 +29,7 @@ from app.models.user_activity import UserActivity, UserActionType
 from app.models.notification import Notification, NotificationType
 from app.services import board_tasks as board_tasks_svc
 from app.services import candidate_audit, candidate_claim, pipeline_move_rules
+from app.services.process_entry_meta import auto_match_badge
 from app.models.contract import RateUnit
 from app.services.board_stage_badges import (
     _NAME_ONLY_KINDS as NAME_ONLY_STAGE_KINDS,
@@ -2438,6 +2439,7 @@ async def build_kanban_view(
         v4 = v4_processes.get(e.candidate_id)
         if v4 is not None:
             payload["entry_source"] = v4.entry_source
+            payload["entry_auto_match"] = auto_match_badge(v4.entry_meta)
             payload["reassign_from_job_id"] = v4.reassign_from_job_id
             if v4.reassign_from_job_id is not None:
                 payload["reassign_from_title"] = reassign_titles.get(

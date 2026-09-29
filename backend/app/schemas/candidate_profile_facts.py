@@ -72,6 +72,10 @@ class CandidateLanguageWrite(BaseModel):
     cefr_level: Optional[CefrLevel] = None
     is_native: bool = False
     is_level_unknown: bool = True
+    # 29.09.2026: język spoza listy okna („Inny…”) — kod wyprowadzony z nazwy.
+    # Bez tej flagi kod spoza listy jest odrzucany (chyba że kandydat już ma
+    # taki język zapisany — stare dane zostają czytelne i zapisywalne).
+    other: bool = False
 
     @field_validator("language_code", mode="before")
     @classmethod

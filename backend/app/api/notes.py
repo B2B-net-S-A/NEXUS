@@ -5,10 +5,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.database import get_db
+from app.models.activity import Activity
 from app.models.deleted_note_source import DeletedNoteSource
-from app.models.note import Note, NoteType
+from app.models.note import SYSTEM_NOTE_SOURCE, Note, NoteType
+from app.models.notification import NotificationType
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.note_mention import NoteMention
@@ -68,6 +71,50 @@ def _can_modify_note(user: User, note: Note) -> bool:
     return note.author_id == user.id or user.has_any_role(UserRole.admin)
 
 
+def _enriched(
+    note: Note,
+    *,
+    author_name: Optional[str],
+    job_title: Optional[str],
+    pinned_by_name: Optional[str],
+    mention_label_map: dict,
+) -> EnrichedNoteResponse:
+    return EnrichedNoteResponse(
+        id=note.id,
+        content=note.content,
+        note_type=note.note_type,
+        candidate_id=note.candidate_id,
+        job_id=note.job_id,
+        author_id=note.author_id,
+        created_at=note.created_at,
+        updated_at=note.updated_at,
+        parent_note_id=note.parent_note_id,
+        pinned_at=note.pinned_at,
+        author_name=author_name,
+        author_email=None,  # P0.6 — do not leak author email to note readers
+        content_rendered=render_traffit_mentions(note.content, mention_label_map),
+        job_title=job_title,
+        external_source=note.external_source,
+        is_system=note.external_source == SYSTEM_NOTE_SOURCE,
+        pinned_by_name=pinned_by_name,
+    )
+
+
+def _enriched_select():
+    pinner = aliased(User)
+    return (
+        select(
+            Note,
+            User.name.label("author_name"),
+            Job.title.label("job_title"),
+            pinner.name.label("pinned_by_name"),
+        )
+        .outerjoin(User, Note.author_id == User.id)
+        .outerjoin(Job, Note.job_id == Job.id)
+        .outerjoin(pinner, Note.pinned_by == pinner.id)
+    )
+
+
 @router.get("", response_model=EnrichedNoteList)
 async def list_notes(
     current_user: CandidatePIIAccess,
@@ -79,6 +126,7 @@ async def list_notes(
     job_id: Optional[int] = Query(None, ge=1),
     note_type: Optional[NoteType] = None,
     unattached: bool = False,
+    pinned_only: bool = False,
     limit: int = Query(1000, ge=1, le=2000),
 ):
     """Notatki jednego kandydata/oferty (albo jednej kategorii `note_type`).
@@ -87,6 +135,11 @@ async def list_notes(
     etapami/aktywnościami i ucina, przez co przy bogatej historii (import
     Traffit) starsze notatki wypadały z widoku. Tu zwracamy komplet dla danego
     zakresu, wzbogacony o `author_name` i `content_rendered`.
+
+    0399 (29.09.2026): lista zwraca wyłącznie notatki GŁÓWNE, przypięte
+    pierwsze; odpowiedzi jadą zagnieżdżone w `replies` i nie liczą się do
+    `total`. `pinned_only` = same przypięte (dok osoby w rekrutacji pokazuje
+    przypięte notatki kandydata niezależnie od rekrutacji).
 
     P0.6: wcześniej brak filtra zwracał WSZYSTKIE notatki firmy (globalna
     enumeracja treści PII) bez limitu, a odpowiedź ujawniała e-mail autora.
@@ -101,21 +154,15 @@ async def list_notes(
             detail="Wymagany filtr: candidate_id, job_id albo note_type",
         )
 
-    query = (
-        select(
-            Note,
-            User.name.label("author_name"),
-            Job.title.label("job_title"),
-        )
-        .outerjoin(User, Note.author_id == User.id)
-        .outerjoin(Job, Note.job_id == Job.id)
-    )
+    query = _enriched_select().where(Note.parent_note_id.is_(None))
     if candidate_id is not None:
         query = query.where(Note.candidate_id == candidate_id)
     if job_id is not None:
         query = query.where(Note.job_id == job_id)
     if note_type is not None:
         query = query.where(Note.note_type == note_type)
+    if pinned_only:
+        query = query.where(Note.pinned_at.is_not(None))
     if unattached:
         # Panel „Meetingi bez powiązania” w Źródłach AI Championa: wyłącznie
         # notatki bez rekrutacji I bez kandydata (spotkania z klientem/DL
@@ -123,29 +170,51 @@ async def list_notes(
         # kandydatów innych klientów (import Traffita, surowy HTML) z przyciskiem
         # „Powiąż + AI” na cudzej rekrutacji — UAT M03-B13 / M04-B04.
         query = query.where(Note.job_id.is_(None), Note.candidate_id.is_(None))
-    query = query.order_by(Note.created_at.desc()).limit(limit)
+    query = query.order_by(
+        Note.pinned_at.is_(None),
+        Note.pinned_at.desc(),
+        Note.created_at.desc(),
+        Note.id.desc(),
+    ).limit(limit)
     rows = (await db.execute(query)).all()
 
+    reply_rows: list = []
+    parent_ids = [note.id for note, *_ in rows]
+    if parent_ids:
+        reply_rows = (
+            await db.execute(
+                _enriched_select()
+                .where(Note.parent_note_id.in_(parent_ids))
+                .order_by(Note.created_at.asc(), Note.id.asc())
+            )
+        ).all()
+
     mention_label_map = await build_traffit_user_label_map(
-        db, collect_traffit_user_ids(note.content for note, *_ in rows)
+        db,
+        collect_traffit_user_ids(note.content for note, *_ in [*rows, *reply_rows]),
     )
-    items = [
-        EnrichedNoteResponse(
-            id=note.id,
-            content=note.content,
-            note_type=note.note_type,
-            candidate_id=note.candidate_id,
-            job_id=note.job_id,
-            author_id=note.author_id,
-            created_at=note.created_at,
-            updated_at=note.updated_at,
-            author_name=author_name,
-            author_email=None,  # P0.6 — do not leak author email to note readers
-            content_rendered=render_traffit_mentions(note.content, mention_label_map),
-            job_title=job_title,
+    replies_by_parent: dict[int, list[EnrichedNoteResponse]] = {}
+    for note, author_name, job_title, pinned_by_name in reply_rows:
+        replies_by_parent.setdefault(note.parent_note_id, []).append(
+            _enriched(
+                note,
+                author_name=author_name,
+                job_title=job_title,
+                pinned_by_name=pinned_by_name,
+                mention_label_map=mention_label_map,
+            )
         )
-        for note, author_name, job_title in rows
-    ]
+    items = []
+    for note, author_name, job_title, pinned_by_name in rows:
+        item = _enriched(
+            note,
+            author_name=author_name,
+            job_title=job_title,
+            pinned_by_name=pinned_by_name,
+            mention_label_map=mention_label_map,
+        )
+        item.replies = replies_by_parent.get(note.id, [])
+        items.append(item)
     return EnrichedNoteList(items=items, total=len(items))
 
 
@@ -162,10 +231,32 @@ async def create_note(
         and await db.get(Candidate, data.candidate_id) is None
     ):
         raise HTTPException(status_code=404, detail="Kandydat nie istnieje.")
-    if data.job_id is not None and await db.get(Job, data.job_id) is None:
+    parent: Optional[Note] = None
+    if data.parent_note_id is not None:
+        parent = await db.get(Note, data.parent_note_id)
+        if parent is None:
+            raise HTTPException(status_code=404, detail="Notatka nie istnieje.")
+        if parent.parent_note_id is not None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Na odpowiedź nie można odpowiedzieć — odpowiedz na notatkę główną."
+                ),
+            )
+    elif data.job_id is not None and await db.get(Job, data.job_id) is None:
         raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
 
-    note = Note(**data.model_dump(), author_id=current_user.id)
+    values = data.model_dump()
+    if parent is not None:
+        # Odpowiedź należy do wątku notatki głównej — kandydata i rekrutację
+        # bierze z niej serwer; klient ich nie zmieni. Kontraktu NIGDY nie
+        # dziedziczy: notatki kontraktu pisze Delivery Lead w zakresie klienta
+        # (`POST /api/contracts/{id}/notes`, F03), a ta trasa wymaga tylko
+        # zapisu kandydata — odpowiedź zostaje na poziomie kandydata.
+        values["candidate_id"] = parent.candidate_id
+        values["job_id"] = parent.job_id
+        values["contract_id"] = None
+    note = Note(**values, author_id=current_user.id)
     db.add(note)
     await db.flush()  # need note.id
 
@@ -193,19 +284,47 @@ async def create_note(
         related_entity_id=note.id,
     )
 
-    # Update candidate notes_count
-    if data.candidate_id:
+    # 0399: autor notatki głównej dowiaduje się o odpowiedzi (chyba że to on
+    # sam odpowiada albo już dostał wzmiankę w tej odpowiedzi).
+    reply_pairs: list = []
+    reply_title = ""
+    reply_link = ""
+    if (
+        parent is not None
+        and parent.author_id is not None
+        and parent.author_id != current_user.id
+        and parent.author_id not in mentioned_ids
+    ):
+        reply_title = (
+            f"{current_user.name or current_user.email} odpowiedział(a) "
+            "na Twoją notatkę"
+        )
+        reply_link = build_note_deep_link(parent)
+        reply_pairs = await enqueue_mention_notifications(
+            db,
+            mentioned_user_ids=[parent.author_id],
+            author=current_user,
+            deep_link_path=reply_link,
+            snippet=snippet,
+            notification_title=reply_title,
+            related_entity_type="note",
+            related_entity_id=note.id,
+            notification_type=NotificationType.note_reply,
+        )
+
+    # Update candidate notes_count — odpowiedź nie jest osobną notatką.
+    if note.candidate_id and parent is None:
         result = await db.execute(
-            select(Candidate).where(Candidate.id == data.candidate_id)
+            select(Candidate).where(Candidate.id == note.candidate_id)
         )
         candidate = result.scalar_one_or_none()
         if candidate:
             candidate.notes_count = (candidate.notes_count or 0) + 1
 
     # Track activity for leaderboard
-    entity_id = data.candidate_id or data.job_id or note.id
+    entity_id = note.candidate_id or note.job_id or note.id
     entity_type = (
-        "candidate" if data.candidate_id else ("job" if data.job_id else "note")
+        "candidate" if note.candidate_id else ("job" if note.job_id else "note")
     )
     db.add(
         UserActivity(
@@ -217,6 +336,7 @@ async def create_note(
                 "note_id": note.id,
                 "note_type": data.note_type.value if data.note_type else None,
                 "mentioned_count": len(mentioned_ids),
+                "reply_to": parent.id if parent is not None else None,
             },
         )
     )
@@ -234,9 +354,73 @@ async def create_note(
             context_label=context_label,
             notification_title=notification_title,
         )
+    if reply_pairs:
+        await send_mention_side_effects(
+            reply_pairs,
+            author_name=current_user.name or current_user.email,
+            snippet=snippet,
+            deep_link_path=reply_link,
+            context_label=context_label,
+            notification_title=reply_title,
+            notification_type=NotificationType.note_reply,
+            send_email=False,
+        )
 
     await db.refresh(note)
     return note
+
+
+async def _set_pinned(
+    db: AsyncSession, note_id: int, current_user: User, *, pinned: bool
+) -> NoteResponse:
+    note = await db.scalar(select(Note).where(Note.id == note_id).with_for_update())
+    if note is None:
+        raise HTTPException(status_code=404, detail="Notatka nie istnieje.")
+    if note.parent_note_id is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="Odpowiedzi nie da się przypiąć — przypnij notatkę główną.",
+        )
+    if (note.pinned_at is not None) == pinned:
+        return NoteResponse.model_validate(note)
+    note.pinned_at = datetime.now(timezone.utc) if pinned else None
+    note.pinned_by = current_user.id if pinned else None
+    db.add(
+        Activity(
+            entity_type="note",
+            entity_id=note.id,
+            action="note_pinned" if pinned else "note_unpinned",
+            details={"candidate_id": note.candidate_id, "job_id": note.job_id},
+            user_id=current_user.id,
+        )
+    )
+    await db.commit()
+    await db.refresh(note)
+    return NoteResponse.model_validate(note)
+
+
+@router.post("/{note_id}/pin", response_model=NoteResponse)
+async def pin_note(
+    note_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Przypnij notatkę — wspólnie dla całego zespołu (0399).
+
+    Ta sama bramka co dodanie notatki: kto może pisać notatki o kandydacie,
+    może też przypiąć ważną (np. „nie dzwonić przed 10”). Idempotentne.
+    """
+    return await _set_pinned(db, note_id, current_user, pinned=True)
+
+
+@router.delete("/{note_id}/pin", response_model=NoteResponse)
+async def unpin_note(
+    note_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Odepnij notatkę (każdy z prawem zapisu notatek; idempotentne)."""
+    return await _set_pinned(db, note_id, current_user, pinned=False)
 
 
 @router.get("/{note_id}", response_model=NoteResponse)
@@ -347,7 +531,13 @@ async def delete_note(
             status_code=403, detail="Brak uprawnień do usunięcia tej notatki"
         )
     await _tombstone_traffit_source(db, note)
-    await retract_note_mention_notifications(db, note.id)
+    # 0399: odpowiedzi znikają razem z notatką główną (CASCADE), więc ich
+    # dzwonki (`note_reply`, wzmianki) też nie mogą dalej nieść treści.
+    reply_ids = (
+        await db.scalars(select(Note.id).where(Note.parent_note_id == note.id))
+    ).all()
+    for retracted_id in (note.id, *reply_ids):
+        await retract_note_mention_notifications(db, retracted_id)
     candidate_id = note.candidate_id
     await db.delete(note)
     await db.flush()

@@ -826,6 +826,8 @@ export interface CandidateLanguageInput {
   cefr_level: CandidateLanguageCefrLevel | null;
   is_native: boolean;
   is_level_unknown: boolean;
+  /** Język spoza listy okna („Inny…”) — kod wyprowadzony z nazwy. */
+  other?: boolean;
 }
 
 export interface CandidateProfileRate {

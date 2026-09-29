@@ -23,7 +23,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   X, Loader2, ChevronRight, Plus,
-  UserPlus, Briefcase, Building2, CalendarPlus,
+  UserPlus, Briefcase, Building2, CalendarPlus, FileText, Upload,
 } from "lucide-react";
 import api, {
   candidateProfileApi,
@@ -41,6 +41,19 @@ import { changedCandidateFields, tagChanges } from "@/lib/candidate-edit-diff";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { emailFieldError } from "@/lib/email-field-error";
+import {
+  CV_ACCEPT,
+  CV_FIELD_LABELS,
+  changedFormKeys,
+  duplicateMatchesFromConflict,
+  cvKnownFields,
+  extraFieldsForCv,
+  fillEmptyFromCv,
+  fromCvFormEntries,
+  fromCvOverrides,
+  type CandidateCvPreview,
+  type CvFormField,
+} from "@/lib/add-candidate-cv";
 import { defaultMeetingWindow } from "@/lib/meeting-defaults";
 import { newClientRequestId } from "@/lib/client-request-id";
 import {
@@ -467,6 +480,17 @@ const EMPTY_CANDIDATE: CandidateFormData = {
   pref_industries: "", pref_contract_types: [], pref_excluded_clients: "",
   pref_office_cities: "", max_onsite_days_per_week: "",
 };
+
+/** Pola kontaktu wysyłane do `/from-cv` osobno (reszta w polu `candidate`, notatka osobno). */
+const CV_SAVED_FORM_KEYS: ReadonlySet<string> = new Set([
+  "name",
+  "lastname",
+  "email",
+  "phone",
+  "city",
+  "linkedin",
+  "notes",
+]);
 
 type VerifiedTechItem = string | { name?: string; skill?: string } | null;
 
@@ -958,6 +982,18 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
   // Zapis zatrzymany na trafieniach — rekruter wybiera „Otwórz istniejącego” albo „Zapisz mimo to”.
   const [decisionPending, setDecisionPending] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
+  // „Wgraj CV (opcjonalnie)”: odczyt CV wypełnia puste pola, a zapis idzie
+  // przez `/from-cv` z polami formularza (serwer bierze ten sam odczyt).
+  const [cvFile, setCvFile] = useState<File | null>(null);
+  const [cvReading, setCvReading] = useState(false);
+  const [cvError, setCvError] = useState<string | null>(null);
+  const [cvFilled, setCvFilled] = useState<CvFormField[]>([]);
+  // Pola, dla których odczyt CV dał wartość — wyczyszczone idą jako jawne "".
+  const [cvKnown, setCvKnown] = useState<CvFormField[]>([]);
+  const [cvConflict, setCvConflict] = useState<DuplicateCandidateHit[] | null>(null);
+  const [cvDragOver, setCvDragOver] = useState(false);
+  const cvInputRef = useRef<HTMLInputElement>(null);
+  const cvReadSeqRef = useRef(0);
   const checkSeqRef = useRef(0);
   const formRef = useRef(form);
   formRef.current = form;
@@ -1034,10 +1070,87 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedIdentityKey]);
 
+  const readCv = async (file: File, force = false) => {
+    const seq = ++cvReadSeqRef.current;
+    setCvFile(file);
+    setCvReading(true);
+    setCvError(null);
+    setCvConflict(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await api.post<CandidateCvPreview>(
+        `/api/candidates/cv/preview${force ? "?force=true" : ""}`,
+        fd,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+      if (seq !== cvReadSeqRef.current) return;
+      // Uzupełniamy tylko PUSTE pola — to, co rekruter zdążył wpisać, zostaje.
+      const { form: next, filled } = fillEmptyFromCv(formRef.current, res.data);
+      setForm(next);
+      setCvFilled(filled);
+      setCvKnown(cvKnownFields(res.data));
+    } catch (err) {
+      if (seq !== cvReadSeqRef.current) return;
+      const matches = duplicateMatchesFromConflict(err);
+      if (matches && matches.length > 0) {
+        setCvConflict(matches);
+      } else {
+        setCvError(formErrorMsg(err, "Nie udało się przeczytać CV. Uzupełnij pola ręcznie albo wgraj inny plik."));
+      }
+    } finally {
+      if (seq === cvReadSeqRef.current) setCvReading(false);
+    }
+  };
+
+  const pickCv = (file: File | undefined | null) => {
+    if (!file) return;
+    void readCv(file);
+  };
+
+  const removeCv = () => {
+    cvReadSeqRef.current += 1;
+    setCvFile(null);
+    setCvReading(false);
+    setCvError(null);
+    setCvConflict(null);
+    setCvFilled([]);
+    setCvKnown([]);
+  };
+
+  /**
+   * Zapis z plikiem CV: JEDNO żądanie `/from-cv` — pola kontaktu (wyczyszczone
+   * jako jawne "") i reszta formularza w polu `candidate`. Serwer waliduje
+   * całość przed odczytem i zapisem, więc błąd nie zostawia połowy kandydata.
+   */
+  const saveFromCv = async (file: File, force: boolean): Promise<number> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    for (const [key, value] of fromCvFormEntries(fromCvOverrides(form, cvKnown))) {
+      fd.append(key, value);
+    }
+    const extra = extraFieldsForCv(
+      candidateFormToPayload(form) as Record<string, unknown>,
+      changedFormKeys(
+        form as unknown as Record<string, unknown>,
+        EMPTY_CANDIDATE as unknown as Record<string, unknown>,
+        CV_SAVED_FORM_KEYS,
+      ),
+    );
+    if (Object.keys(extra).length > 0) fd.append("candidate", JSON.stringify(extra));
+    const created = await api.post(
+      `/api/candidates/from-cv${force ? "?force=true" : ""}`,
+      fd,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+    return Number(created?.data?.candidate?.id);
+  };
+
   const currentKey = duplicateIdentityKey(form);
   const showDecision = decisionPending && duplicates.length > 0 && currentKey === checkedKey;
 
   const saveCandidate = async (force: boolean) => {
+    if (cvReading) { setError("Poczekaj, aż skończymy czytać CV."); return; }
     if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
     setSaving(true); setError(""); setEmailError(null);
     try {
@@ -1049,8 +1162,9 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
           return;
         }
       }
-      const created = await api.post("/api/candidates", candidateFormToPayload(form));
-      const createdId = Number(created?.data?.id);
+      const createdId = cvFile
+        ? await saveFromCv(cvFile, force)
+        : Number((await api.post("/api/candidates", candidateFormToPayload(form)))?.data?.id);
       const noteSaved = Number.isFinite(createdId)
         ? await saveCandidateFormNote(createdId, form.notes)
         : !form.notes.trim();
@@ -1062,9 +1176,15 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
       onClose();
     } catch (err: any) {
       const emailMsg = emailFieldError(err);
+      const conflictMatches = duplicateMatchesFromConflict(err);
       if (emailMsg) {
         setDecisionPending(false);
         setEmailError(emailMsg);
+      } else if (conflictMatches && conflictMatches.length > 0) {
+        // `/from-cv` znalazł duplikat (sito po pliku albo skan po odczycie).
+        setDuplicates(conflictMatches);
+        setCheckedKey(currentKey);
+        setDecisionPending(true);
       } else {
         setError(formErrorMsg(err, "Błąd podczas zapisywania"));
       }
@@ -1076,9 +1196,113 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
     await saveCandidate(false);
   };
 
+  const cvUploader = (
+    <div
+      className={
+        "rounded-lg border border-dashed p-3 transition-colors " +
+        (cvDragOver ? "border-primary bg-primary/5" : "border-border bg-background/30")
+      }
+      onDragOver={(event) => {
+        event.preventDefault();
+        setCvDragOver(true);
+      }}
+      onDragLeave={() => setCvDragOver(false)}
+      onDrop={(event) => {
+        event.preventDefault();
+        setCvDragOver(false);
+        pickCv(event.dataTransfer.files?.[0]);
+      }}
+    >
+      <input
+        ref={cvInputRef}
+        type="file"
+        accept={CV_ACCEPT}
+        className="sr-only"
+        aria-label="Wgraj CV (opcjonalnie)"
+        data-testid="add-candidate-cv-input"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          pickCv(file);
+        }}
+      />
+      {cvFile ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <FileText className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+          <span className="min-w-0 truncate font-medium text-foreground">{cvFile.name}</span>
+          {cvReading ? (
+            <span role="status" className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Czytam CV…
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={removeCv}
+            className="ml-auto text-xs text-muted-foreground hover:text-foreground hover:underline"
+          >
+            Usuń plik
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => cvInputRef.current?.click()}
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-medium hover:bg-muted"
+          >
+            <Upload className="h-4 w-4" aria-hidden="true" /> Wgraj CV (opcjonalnie)
+          </button>
+          <span className="text-xs text-muted-foreground">
+            Przeczytamy CV i uzupełnimy puste pola. PDF, DOC(X), ODT, RTF, TXT — albo przeciągnij plik tutaj.
+          </span>
+        </div>
+      )}
+      {cvFile && !cvReading && cvFilled.length > 0 ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Uzupełniono z CV: {cvFilled.map((field) => CV_FIELD_LABELS[field]).join(", ")}. Sprawdź przed zapisem.
+        </p>
+      ) : null}
+      {cvFile && !cvReading && !cvError && !cvConflict && cvFilled.length === 0 ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          CV zostanie dodane do profilu przy zapisie.
+        </p>
+      ) : null}
+      {cvError ? (
+        <p role="alert" className="mt-2 text-xs text-destructive">
+          {cvError}
+        </p>
+      ) : null}
+      {cvConflict && cvFile ? (
+        <div role="alert" className="mt-2 space-y-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm dark:bg-amber-900/20">
+          <p className="text-foreground">
+            To CV wygląda na kandydata z bazy: {cvConflict[0].name} {cvConflict[0].lastname}
+            {cvConflict[0].email ? ` (${cvConflict[0].email})` : ""}.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/candidates/${cvConflict[0].candidate_id}`}
+              onClick={onClose}
+              className="inline-flex h-9 items-center rounded-lg bg-primary px-3 text-xs font-medium text-white hover:bg-primary/90"
+            >
+              Otwórz istniejącego
+            </Link>
+            <button
+              type="button"
+              onClick={() => void readCv(cvFile, true)}
+              className="h-9 rounded-lg border border-border bg-card px-3 text-xs font-medium hover:bg-muted"
+            >
+              Wczytaj mimo to
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+
   return (
     <Modal title="Dodaj kandydata" onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
+        {cvUploader}
         {error && <ErrorBanner error={error} />}
         {duplicates.length > 0 && (
           <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-2">
@@ -1637,19 +1861,15 @@ export function EditJobModal({
     });
 
   // Po PATCH-u rekrutacji — jej awaria nie cofa zapisu, tylko mówi, co nie weszło.
-  const saveCollaborators = async (primaryOwnerId: number | null): Promise<boolean> => {
+  /** `null` = zapisane (albo bez zmian); inaczej polskie zdanie o błędzie. */
+  const saveCollaborators = async (primaryOwnerId: number | null): Promise<string | null> => {
     const changes = collaboratorChanges(
       manualCollaboratorIds(job.collaborators),
       collaborators,
       primaryOwnerId,
     );
-    if (!hasCollaboratorChanges(changes)) return true;
-    const failure = await saveCollaboratorChanges(job.id, changes);
-    if (failure) {
-      setError(`Rekrutacja zapisana, ale ${failure}.`);
-      return false;
-    }
-    return true;
+    if (!hasCollaboratorChanges(changes)) return null;
+    return saveCollaboratorChanges(job.id, changes);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1663,7 +1883,11 @@ export function EditJobModal({
           requirements: form.requirements || undefined,
           ...jobNamesPatch(job, names),
         });
-        if (!(await saveCollaborators(job.recruiter_id ?? null))) return;
+        const failure = await saveCollaborators(job.recruiter_id ?? null);
+        if (failure) {
+          setError(`Rekrutacja zapisana, ale ${failure}.`);
+          return;
+        }
         onSuccess("Rekrutacja zaktualizowana");
         onClose();
         return;
@@ -1694,17 +1918,22 @@ export function EditJobModal({
         delivery_lead_id: form.delivery_lead_id ? Number(form.delivery_lead_id) : null,
         ...jobNamesPatch(job, names),
       });
+      // Hiring manager i współpracownicy to dwa niezależne zapisy po
+      // rekrutacji — błąd jednego nie może pominąć drugiego.
+      const failures: string[] = [];
       if (!sameChoice(hiringManager, jobHiringManager(job))) {
         try {
           await saveHiringManager(job.id, hiringManager);
         } catch (err: any) {
-          setError(
-            `Rekrutacja zapisana, ale hiring manager nie: ${formErrorMsg(err, "błąd zapisu")}`,
-          );
-          return;
+          failures.push(`hiring manager nie (${formErrorMsg(err, "błąd zapisu")})`);
         }
       }
-      if (!(await saveCollaborators(form.recruiter_id ? Number(form.recruiter_id) : null))) {
+      const collaboratorFailure = await saveCollaborators(
+        form.recruiter_id ? Number(form.recruiter_id) : null,
+      );
+      if (collaboratorFailure) failures.push(collaboratorFailure);
+      if (failures.length > 0) {
+        setError(`Rekrutacja zapisana, ale ${failures.join("; ")}.`);
         return;
       }
       onSuccess("Rekrutacja zaktualizowana");

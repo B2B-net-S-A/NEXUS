@@ -11,6 +11,7 @@ import {
   Mail,
   Maximize2,
   MessageSquare,
+  Pin,
   MoreHorizontal,
   Phone,
   UserPlus,
@@ -113,6 +114,8 @@ interface CandidateQuickViewData {
     content: string;
     created_at: string;
     author_name: string | null;
+    /** 0399: przypięta (wspólnie dla zespołu) — serwer stawia ją pierwszą. */
+    pinned?: boolean;
   }>;
   cv_highlights?: {
     years_experience?: number | null;
@@ -337,7 +340,7 @@ export function CandidateQuickView({
         : new URLSearchParams();
       params = withCandidateProfileView(params, {
         section: destination,
-        activity: "timeline",
+        activity: "notes",
         documents: "files",
       });
       onClose();
@@ -413,7 +416,11 @@ export function CandidateQuickView({
   ]
     .filter(Boolean)
     .join(" · ");
-  const latestNote = quickView?.recent_notes[0] ?? null;
+  // Przypięte notatki (np. „nie dzwonić przed 10”) zawsze na wierzchu; obok
+  // nich najnowsza zwykła notatka.
+  const pinnedNotes = (quickView?.recent_notes ?? []).filter((n) => n.pinned);
+  const latestNote =
+    (quickView?.recent_notes ?? []).find((n) => !n.pinned) ?? null;
 
   return (
     <div
@@ -670,8 +677,26 @@ export function CandidateQuickView({
 
             <section aria-labelledby="quick-note-heading" className="space-y-2">
               <h3 id="quick-note-heading" className="text-sm font-semibold text-foreground">
-                Ostatnia notatka
+                {pinnedNotes.length > 0 ? "Notatki" : "Ostatnia notatka"}
               </h3>
+              {pinnedNotes.map((note) => (
+                <figure
+                  key={note.id}
+                  className="flex gap-2 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2"
+                >
+                  <Pin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-label="Przypięta" />
+                  <div className="min-w-0">
+                    <blockquote className="line-clamp-3 whitespace-pre-wrap text-sm text-foreground">
+                      {note.content}
+                    </blockquote>
+                    <figcaption className="mt-1 text-xs text-muted-foreground">
+                      Przypięta · {note.author_name || "System / import"}
+                      {" · "}
+                      {formatRelativeTime(note.created_at)}
+                    </figcaption>
+                  </div>
+                </figure>
+              ))}
               {latestNote ? (
                 <figure className="flex gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
                   <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
@@ -686,9 +711,9 @@ export function CandidateQuickView({
                     </figcaption>
                   </div>
                 </figure>
-              ) : (
+              ) : pinnedNotes.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Brak notatek.</p>
-              )}
+              ) : null}
             </section>
 
             {riskQuery.error ? (

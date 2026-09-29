@@ -381,18 +381,36 @@ async def test_sieve_runs_before_the_paid_read():
     from app.api import candidates as module
 
     tree = ast.parse(inspect.getsource(module))
-    handler = next(
-        (
-            n
-            for n in ast.walk(tree)
-            if isinstance(n, ast.AsyncFunctionDef)
-            and n.name == "create_candidate_from_cv"
-        ),
-        None,
-    )
-    assert handler is not None, (
-        "create_candidate_from_cv nie istnieje — jeśli przemianowano, zaktualizuj test"
-    )
+
+    def _function(name: str):
+        found = next(
+            (
+                n
+                for n in ast.walk(tree)
+                if isinstance(n, ast.AsyncFunctionDef) and n.name == name
+            ),
+            None,
+        )
+        assert found is not None, (
+            f"{name} nie istnieje — jeśli przemianowano, zaktualizuj test"
+        )
+        return found
+
+    # Od 29.09.2026 odczyt CV (sito + płatny odczyt, z pamięcią procesu) żyje
+    # w jednym pomocniku, który wołają `/from-cv` i `/cv/preview`.
+    handler = _function("_read_cv_for_new_candidate")
+    for route in ("create_candidate_from_cv", "preview_candidate_cv"):
+        route_calls = {
+            getattr(node.func, "id", None)
+            for node in ast.walk(_function(route))
+            if isinstance(node, ast.Call)
+        }
+        assert "_read_cv_for_new_candidate" in route_calls, (
+            f"{route} musi czytać CV przez `_read_cv_for_new_candidate`"
+        )
+        assert "parse_cv" not in route_calls, (
+            f"{route} woła parse_cv z pominięciem sita"
+        )
 
     def _linenos(name: str) -> list[int]:
         out = []
