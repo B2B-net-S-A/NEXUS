@@ -100,6 +100,12 @@ export interface RequirementRowsFieldProps {
   onUseExperience?: (range: ExperienceRange) => void;
   /** Wymagane i puste (bramka przekazania rekrutacji). */
   invalid?: boolean;
+  /**
+   * 1024–1799 px: „Musi mieć” i „Wyklucz” obok siebie (dwie kolumny) — na
+   * laptopie z Windows (okno ≈ 1280 × 650 px) panel słów kluczowych zabierał
+   * liście kandydatów jedną trzecią wysokości (28.09.2026). Od 1800 px bez zmian.
+   */
+  split?: boolean;
   className?: string;
 }
 
@@ -119,6 +125,7 @@ export function RequirementRowsField({
   onUseLocation,
   onUseExperience,
   invalid = false,
+  split = false,
   className,
 }: RequirementRowsFieldProps) {
   // Pusta lista = jeden pusty wiersz do pisania (nie zapisujemy go w stanie).
@@ -175,8 +182,19 @@ export function RequirementRowsField({
   const canRemove = shown.length > 1 || shown[0].length > 0;
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
-      <div role="group" aria-label="Wymagania — każdy wiersz musi być spełniony" className="flex flex-col gap-2">
+    <div
+      className={cn(
+        "flex flex-col gap-2",
+        split &&
+          "lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-x-4 min-[1800px]:flex",
+        className,
+      )}
+    >
+      <div
+        role="group"
+        aria-label="Wymagania — każdy wiersz musi być spełniony"
+        className={cn("flex flex-col gap-2", split && "lg:col-start-1")}
+      >
         {shown.map((row, index) => {
           const rowHints = hints.filter((hint) => hint.row === index);
           return (
@@ -249,7 +267,12 @@ export function RequirementRowsField({
         })}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 pl-[4.5rem] sm:pl-[5.75rem]">
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-3 pl-[4.5rem] sm:pl-[5.75rem]",
+          split && "lg:col-start-1",
+        )}
+      >
         <Button
           type="button"
           variant="outline"
@@ -261,14 +284,27 @@ export function RequirementRowsField({
           <Plus className="h-3.5 w-3.5" aria-hidden />
           Dodaj wymaganie
         </Button>
-        <span className="text-xs text-muted-foreground">
+        <span
+          className={cn(
+            "text-xs text-muted-foreground",
+            // W układzie dwukolumnowym zdanie łamało się do osobnej linii —
+            // to samo mówi podpowiedź ⓘ panelu (limit wierszy zostaje zawsze).
+            split && !atLimit && "lg:hidden min-[1800px]:inline",
+          )}
+        >
           {atLimit
             ? `Najwyżej ${MAX_REQUIREMENT_ROWS} wymagań.`
             : "Słowa w jednym wierszu to warianty — wystarczy jedno z nich."}
         </span>
       </div>
 
-      <div className="flex items-start gap-2 border-t border-border pt-2 sm:gap-3">
+      <div
+        className={cn(
+          "flex items-start gap-2 border-t border-border pt-2 sm:gap-3",
+          split &&
+            "lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:self-start lg:border-t-0 lg:pt-0 min-[1800px]:self-auto min-[1800px]:border-t min-[1800px]:pt-2",
+        )}
+      >
         <span className="flex h-10 w-16 shrink-0 items-center justify-end text-xs font-semibold text-destructive-muted-foreground sm:w-20">
           Wyklucz
         </span>

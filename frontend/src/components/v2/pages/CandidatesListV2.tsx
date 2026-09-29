@@ -1854,66 +1854,25 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
 
   return (
     <div className="mx-auto max-w-[2400px] space-y-4">
-      {!embed && (
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex items-baseline gap-3">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Kandydaci</h1>
-          {baseTotal !== null && (
-            <span className="text-sm text-muted-foreground">
-              {baseTotal.toLocaleString("pl-PL")} w bazie
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline">
-                <Upload className="h-4 w-4" /> Importuj <ChevronDown className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-60">
-              <DropdownMenuItem onSelect={() => setShowImport(true)}>
-                <Upload className="h-4 w-4" /> Import CSV
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setShowAddFromCV(true)}>
-                <Sparkles className="h-4 w-4" /> Dodaj z CV
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/candidates/bulk-import">
-                  <FileArchive className="h-4 w-4" /> Masowy import CV
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setShowInvite(true)}>
-                <LinkIcon className="h-4 w-4" /> Wygeneruj link
-              </DropdownMenuItem>
-              {canExport && (
-                <>
-                  {/* Eksport CAŁEGO wyniku (nie tylko zaznaczenia) — role jak w
-                      `CANDIDATE_EXPORT_ROLES`; backend zwraca 403 pozostałym. */}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => void doExport("csv", "filtered")}>
-                    <Download className="h-4 w-4" /> Eksportuj wyniki (CSV)
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void doExport("xlsx", "filtered")}>
-                    <FileText className="h-4 w-4" /> Eksportuj wyniki (XLSX)
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
-            <Plus className="h-4 w-4" />
-            Dodaj kandydata
-          </Button>
-        </div>
-      </div>
-      )}
-
       <div>
         <div className="min-w-0 space-y-3">
           <div className="space-y-1.5">
+            {/* Tytuł, pole wyszukiwania i akcje w JEDNYM rzędzie poniżej
+                1800 px (laptop z Windows, okno ≈ 1280 × 650 — dwa rzędy
+                zabierały liście ~50 px, 28.09.2026). Od 1800 px `order`
+                i łamanie odtwarzają układ w dwóch rzędach. */}
             <div className="flex flex-wrap items-center gap-2">
-              <div className="min-w-[240px] flex-1">
+              {!embed && (
+              <div className="flex items-baseline gap-3 min-[1800px]:order-1 min-[1800px]:mr-auto">
+                <h1 className="text-xl font-semibold tracking-tight text-foreground">Kandydaci</h1>
+                {baseTotal !== null && (
+                  <span className="text-sm text-muted-foreground">
+                    {baseTotal.toLocaleString("pl-PL")} w bazie
+                  </span>
+                )}
+              </div>
+              )}
+              <div className="min-w-[240px] flex-1 min-[1800px]:order-4">
                 <Input
                   leadingIcon={<Search className="h-4 w-4" />}
                   placeholder="Nazwisko, e-mail, telefon albo opis, kogo szukasz…"
@@ -1929,13 +1888,60 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
               {onRequestSearch && (
                 <Button
                   variant="outline"
-                  className="h-10"
+                  className="h-10 min-[1800px]:order-5"
                   onClick={() => setRequestOpen(true)}
                   title="Wklej request klienta, wgraj profil Championa albo wybierz rekrutację"
                   data-help="candidates.list.request"
                 >
                   <FileText className="h-4 w-4" /> Z requestu
                 </Button>
+              )}
+              {!embed && (
+              <div className="flex items-center gap-2 min-[1800px]:order-2">
+                <DropdownMenu modal={false}>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="outline">
+                      <Upload className="h-4 w-4" /> Importuj <ChevronDown className="h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-60">
+                    <DropdownMenuItem onSelect={() => setShowImport(true)}>
+                      <Upload className="h-4 w-4" /> Import CSV
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setShowAddFromCV(true)}>
+                      <Sparkles className="h-4 w-4" /> Dodaj z CV
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/candidates/bulk-import">
+                        <FileArchive className="h-4 w-4" /> Masowy import CV
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setShowInvite(true)}>
+                      <LinkIcon className="h-4 w-4" /> Wygeneruj link
+                    </DropdownMenuItem>
+                    {canExport && (
+                      <>
+                        {/* Eksport CAŁEGO wyniku (nie tylko zaznaczenia) — role jak w
+                            `CANDIDATE_EXPORT_ROLES`; backend zwraca 403 pozostałym. */}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onSelect={() => void doExport("csv", "filtered")}>
+                          <Download className="h-4 w-4" /> Eksportuj wyniki (CSV)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => void doExport("xlsx", "filtered")}>
+                          <FileText className="h-4 w-4" /> Eksportuj wyniki (XLSX)
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
+                  <Plus className="h-4 w-4" />
+                  Dodaj kandydata
+                </Button>
+              </div>
+              )}
+              {!embed && (
+                <div aria-hidden className="hidden min-[1800px]:order-3 min-[1800px]:block min-[1800px]:basis-full" />
               )}
             </div>
             {pastedRequest && onRequestSearch ? (

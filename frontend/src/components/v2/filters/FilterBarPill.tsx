@@ -26,6 +26,7 @@ export function FieldLabel({ children, htmlFor }: { children: ReactNode; htmlFor
  */
 export function FilterPill({
   label,
+  shortLabel,
   icon,
   summary,
   count,
@@ -34,6 +35,12 @@ export function FilterPill({
   children,
 }: {
   label: string;
+  /**
+   * Krótsza etykieta poniżej 1536 px (laptop z Windows przy skalowaniu 150%
+   * ma okno ≈ 1280 px i pasek łamał się na dwie linie). Pełna `label` zostaje
+   * w nazwie dostępnej przycisku.
+   */
+  shortLabel?: string;
   icon: ReactNode;
   /** Wartość na przycisku („do 160 zł/h”); bez niej przycisk pokazuje licznik. */
   summary?: string | null;
@@ -57,15 +64,26 @@ export function FilterPill({
           <button
             type="button"
             className={cn(
-              "flex h-full items-center gap-1.5 rounded-full pl-3 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+              "flex h-full items-center gap-1.5 rounded-full pl-2.5 2xl:pl-3 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
               active && onClear ? "pr-1" : "pr-2.5",
             )}
           >
-            <span aria-hidden className="[&>svg]:h-3.5 [&>svg]:w-3.5">
+            {/* Ikona dopiero od 1536 px — na węższym oknie liczy się miejsce
+                na tekst (28.09.2026). */}
+            <span aria-hidden className="hidden 2xl:inline [&>svg]:h-3.5 [&>svg]:w-3.5">
               {icon}
             </span>
             <span className="flex min-w-0 items-baseline">
-              {label}
+              {shortLabel ? (
+                <>
+                  <span className="sr-only 2xl:not-sr-only">{label}</span>
+                  <span aria-hidden="true" className="2xl:hidden">
+                    {shortLabel}
+                  </span>
+                </>
+              ) : (
+                label
+              )}
               {active && summary && (
                 <span className="max-w-[200px] truncate font-semibold">: {summary}</span>
               )}

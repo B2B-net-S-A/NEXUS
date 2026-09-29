@@ -108,7 +108,7 @@ function AttentionToggle({
       aria-pressed={active}
       onClick={onToggle}
       className={cn(
-        "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors md:h-8",
+        "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors md:h-8 2xl:px-3",
         active
           ? "border-primary/30 bg-primary/10 text-primary"
           : "border-border bg-card text-foreground hover:bg-accent",
@@ -167,6 +167,7 @@ export function JobsFilterBar({
 
       <FilterPill
         label="Delivery Lead"
+        shortLabel="DL"
         icon={<UserCircle />}
         summary={namesSummary(value.deliveryLeadIds, userName)}
         count={value.deliveryLeadIds.length}
@@ -302,6 +303,7 @@ export function JobsFilterBar({
 
       <FilterPill
         label="Więcej filtrów"
+        shortLabel="Więcej"
         icon={<SlidersHorizontal />}
         summary={value.sent !== "any" ? `wysłanych: ${SENT_LABEL[value.sent]}` : null}
         count={value.sent !== "any" ? 1 : 0}
@@ -327,7 +329,7 @@ export function JobsFilterBar({
         </div>
       </FilterPill>
 
-      <span aria-hidden="true" className="mx-1 hidden h-5 w-px bg-border sm:block" />
+      <span aria-hidden="true" className="hidden h-5 w-px bg-border sm:block 2xl:mx-1" />
 
       <AttentionToggle
         label="Po terminie"

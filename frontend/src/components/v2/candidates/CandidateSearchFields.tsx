@@ -93,13 +93,20 @@ export function KeywordFields({
       id={id}
       aria-labelledby={titleId}
       className={cn(
-        "flex flex-col gap-3 rounded-lg border border-border bg-card p-3 sm:p-4",
+        // 1024–1799 px (laptop z Windows, okno ≈ 1280 × 650, 28.09.2026):
+        // podsumowanie i „Szukaj” w rzędzie nagłówka, „Musi mieć” i
+        // „Wyklucz” obok siebie — panel zabierał liście 1/3 wysokości.
+        // Od 1800 px (szeroki monitor) układ w kolumnie jak dotąd — próg
+        // wyżej niż `2xl`, bo laptop 1920 px przy 125% ma okno 1536 × 864.
+        "flex flex-col gap-2 rounded-lg border border-border bg-card p-3",
+        "lg:grid lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center lg:gap-x-4",
+        "min-[1800px]:flex min-[1800px]:items-stretch min-[1800px]:gap-3 min-[1800px]:p-4",
         className,
       )}
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 lg:col-start-1 lg:row-start-1">
         <SectionTitle id={titleId}>Słowa kluczowe</SectionTitle>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-xs text-muted-foreground lg:hidden min-[1800px]:inline">
           {sourceNote ?? "Każdy wiersz to jedno wymaganie. Słowa w wierszu to warianty — wystarczy jedno z nich."}
         </span>
         <div className="ml-auto flex items-center gap-2">
@@ -145,6 +152,8 @@ export function KeywordFields({
         exclude={filters.qNone}
         onExcludeChange={(next) => onPatch({ qNone: next })}
         suggest={KEYWORD_SUGGEST}
+        split
+        className="lg:col-span-2 lg:row-start-2"
         onSubmitEmpty={onSearch}
         onUseLocation={(city) => onPatch({ location: city })}
         onUseExperience={(range) =>
@@ -152,8 +161,8 @@ export function KeywordFields({
         }
       />
 
-      <div className="flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 sm:flex-row sm:items-center">
-        <p className="min-w-0 flex-1 text-sm text-foreground" aria-live="polite">
+      <div className="flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 sm:flex-row sm:items-center lg:col-start-2 lg:row-start-1 min-[1800px]:py-2.5">
+        <p className="min-w-0 flex-1 text-sm text-foreground lg:line-clamp-2 min-[1800px]:line-clamp-none" aria-live="polite" title={summary}>
           {summary}
         </p>
         {onSearch && (
@@ -162,7 +171,7 @@ export function KeywordFields({
             variant="primary"
             onClick={onSearch}
             className={cn(
-              "h-10 w-full shrink-0 gap-2 sm:w-auto sm:min-w-[124px]",
+              "h-10 w-full shrink-0 gap-2 sm:w-auto sm:min-w-[124px] lg:h-8 min-[1800px]:h-10",
               pendingCount > 0 && "ring-4 ring-primary/20",
             )}
             data-help="candidates.list.search"
