@@ -29,6 +29,7 @@ import { JobRecruitmentPath } from "@/components/v2/jobs/JobRecruitmentPath";
 import { RequestStatusBadge } from "@/components/v2/jobs/JobListCells";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import { screenedOutQueryKey } from "@/lib/api/applicationScreenings";
 import type { NearestStep, PathStep } from "@/lib/job-recruitment-path";
 import type { JobHeaderKpi } from "@/lib/job-header-kpis";
 import { useAuthStore } from "@/store/auth";
@@ -130,9 +131,14 @@ function JobDetailHarness() {
   const params = useSearchParams();
   const showEmpty = params.get("empty") === "1";
   const railOnly = params.get("rail") === "1";
-  const [client] = useState(
-    () => new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } }),
-  );
+  const [client] = useState(() => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    // 0404: „Odrzuceni przez AI” — pusta lista, bez zapytania.
+    qc.setQueryData(screenedOutQueryKey(JOB_ID), { job_id: JOB_ID, total: 0, items: [] });
+    return qc;
+  });
   const [ready, setReady] = useState(false);
   useEffect(() => {
     useAuthStore.setState({

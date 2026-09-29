@@ -24,6 +24,7 @@ import { ToastProvider } from "@/components/Toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { screenedOutQueryKey } from "@/lib/api/applicationScreenings";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { useAuthStore } from "@/store/auth";
 
@@ -251,6 +252,10 @@ function PipelineV4Harness() {
     setReady(true);
   }, [asDl, viewerId]);
   const cols = useMemo(() => columns(viewerId), [viewerId]);
+  // 0404: „Odrzuceni przez AI” — pusta lista, bez zapytania.
+  useMemo(() => {
+    client.setQueryData(screenedOutQueryKey(JOB_ID), { job_id: JOB_ID, total: 0, items: [] });
+  }, [client]);
   // Notatki w doku osoby (sekcja „Notatki”): ta sama lista co w profilu —
   // odpowiedź pod notatką i notatka automatu za „Pokaż systemowe (1)”.
   useMemo(() => {

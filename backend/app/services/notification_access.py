@@ -51,6 +51,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.candidate_added: ProductSection.sourcing,
     NotificationType.stage_changed: ProductSection.pipeline,
     NotificationType.new_application: ProductSection.sourcing,
+    NotificationType.application_screening_digest: ProductSection.pipeline,
     NotificationType.dl_stage_stale_6h: ProductSection.pipeline,
     NotificationType.client_feedback_eobd: ProductSection.pipeline,
     NotificationType.powercalling_kpi: ProductSection.insights,

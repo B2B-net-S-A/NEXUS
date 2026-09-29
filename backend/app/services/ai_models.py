@@ -47,6 +47,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F24 | prep_review                      | gpt-6-luna (z Sonnet 5)  |
 | F25 | interview_question_import        | gpt-6-luna (z Sonnet 5)  |
 | F26 | plain_knowledge_research         | claude-sonnet-5 (z Haiku)|
+| F27 | application_screening            | gpt-6-luna (z Sonnet 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -330,6 +331,16 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "„Champion po ludzku” używa narzędzia web_search, które działa tylko u "
         "Anthropic (jak F19). Do wyszukiwarki idzie sama nazwa technologii, roli "
         "albo firmy; wynik zapisujemy raz i używamy we wszystkich rekrutacjach.",
+    ),
+    AIFeatureKey.application_screening: ModelChoice(
+        default=GPT_LUNA,
+        env_vars=("APPLICATION_SCREENING_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F27 (decyzja Artura 29.09.2026, POZA badaniem 16.09). Przegląd "
+        "zgłoszenia z linku rekrutacji to „znajdź i zacytuj” w CV (jak F23 akademii): "
+        "powód bez cytatu obecnego w CV odrzuca kod, a werdykt „nie pasuje” wymaga "
+        "zgody kodu (must-have < 50%). Awaria modelu = osoba wchodzi do „Nowi”. "
+        "Przed włączeniem pomiar na ~40 historycznych zgłoszeniach.",
     ),
     AIFeatureKey.cv_name_backfill: ModelChoice(
         default=GPT_LUNA,

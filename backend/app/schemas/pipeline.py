@@ -234,6 +234,9 @@ class CandidateStageResponse(BaseModel):
     # 0399: wynik automatu przy wejściu („Auto-match 67/100 · JJIT”) —
     # {"score", "source", "must_hit", "must_total"}; `None` = wejście ręczne.
     entry_auto_match: Optional[dict] = None
+    # 0404: przegląd zgłoszenia z linku rekrutacji — {"verdict", "assessed",
+    # "must_found", "must_total", "overridden"}; `None` = wejście bez przeglądu.
+    entry_ai_screening: Optional[dict] = None
     reassign_from_job_id: Optional[int] = None
     reassign_from_title: Optional[str] = None
     # Numer rekrutacji źródłowej („ZOB-1725") — odznaka „↻ z …" na karcie.

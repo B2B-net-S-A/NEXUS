@@ -143,6 +143,10 @@ class AIFeatureKey(str, enum.Enum):
     # Do wyszukiwarki idzie wyłącznie NAZWA (technologii, roli, firmy).
     # Wynik zapisany raz w bazie; teksty rekrutacji liczą się pod champion_draft.
     plain_knowledge_research = "plain_knowledge_research"
+    # Zgłoszenia z linku rekrutacji (0404): Luna czyta CV i ocenia związek
+    # doświadczenia z rolą, każdy powód z cytatem z CV. Werdykt liczy kod
+    # razem z must-have; „nie pasuje” zostawia osobę w bazie z „Dodaj mimo to”.
+    application_screening = "application_screening"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -174,6 +178,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.prep_review: "Ocena prepu z transkryptu Teams",
     AIFeatureKey.interview_question_import: "Import archiwum pytań z rozmów u klienta",
     AIFeatureKey.plain_knowledge_research: "Champion po ludzku — research technologii, ról i klientów w internecie",
+    AIFeatureKey.application_screening: "Zgłoszenia z linku rekrutacji — przegląd CV przed wejściem do „Nowi”",
 }
 
 
@@ -299,6 +304,11 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.plain_knowledge_research: [
         "Nazwa technologii, roli albo firmy klienta — także do wyszukiwarki internetowej",
         "(bez profilu Championa, danych kandydatów, stawek i notatek)",
+    ],
+    AIFeatureKey.application_screening: [
+        "Tekst CV z formularza zgłoszenia (tak, jak przesłał go kandydat)",
+        "Tytuł rekrutacji, must-have, nice-to-have i opis projektu",
+        "(bez pól formularza, danych z profilu kandydata, stawek i notatek)",
     ],
 }
 

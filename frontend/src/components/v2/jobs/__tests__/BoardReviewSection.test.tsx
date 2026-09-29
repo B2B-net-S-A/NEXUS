@@ -34,6 +34,12 @@ vi.mock("@/components/v2/recruitment/useJobProposals", () => ({
   },
 }));
 
+// 0404: „Odrzuceni przez AI” ma własne zapytanie i własny test
+// (`ScreenedOutSection.test.tsx`).
+vi.mock("@/components/v2/jobs/ScreenedOutSection", () => ({
+  ScreenedOutSection: () => null,
+}));
+
 import { BoardReviewSection } from "@/components/v2/jobs/BoardReviewSection";
 
 function entry(id: number, sources: string[], reason: string | null = null) {

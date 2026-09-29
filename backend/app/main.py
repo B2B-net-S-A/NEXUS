@@ -182,6 +182,7 @@ from app.api import job_shortlist as job_shortlist_api
 from app.api import hiring_manager_feedback as hiring_manager_feedback_api
 from app.api import proposals_bulk as proposals_bulk_api
 from app.api import job_proposals as job_proposals_api
+from app.api import application_screenings as application_screenings_api
 from app.api import job_similar as job_similar_api
 from app.api import plain_brief as plain_brief_api
 from app.api import plain_brief_refresh as plain_brief_refresh_api
@@ -708,6 +709,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.candidate_search_retention import candidate_search_retention_loop
     from app.tasks.jarvis_retention import jarvis_retention_loop
     from app.tasks.academy_intake import academy_intake_loop
+    from app.tasks.application_screening import application_screening_loop
     from app.tasks.trainee_call_lists import trainee_call_lists_loop
 
     # audyt 22.09 r2 (DATA-03/04/PROD-10): retencja kolejek i dziennika automatów.
@@ -757,6 +759,8 @@ async def lifespan(app: FastAPI):
         # Jarvis (0330): retencja rozmów (dane osobowe) i wygaszanie propozycji.
         "jarvis_retention": asyncio.create_task(jarvis_retention_loop()),
         "academy_intake": asyncio.create_task(academy_intake_loop()),
+        # 0404: zgłoszenia z linku rekrutacji — przegląd AI przed „Nowi”.
+        "application_screening": asyncio.create_task(application_screening_loop()),
         "trainee_call_lists": asyncio.create_task(trainee_call_lists_loop()),
         # audyt 22.09 r2 (DATA-03/04/PROD-10): dziennik auto-matcha, kolejki.
         "queue_retention": asyncio.create_task(queue_retention_loop()),
@@ -1586,6 +1590,7 @@ app.include_router(help_materials_api.router, prefix="/api", tags=["help-materia
 app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
 app.include_router(job_proposals_api.router, prefix="/api", tags=["proposals"])
+app.include_router(application_screenings_api.router, prefix="/api", tags=["proposals"])
 app.include_router(job_similar_api.router, prefix="/api", tags=["similar-jobs"])
 app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(plain_brief_refresh_api.router, prefix="/api", tags=["plain-brief"])
@@ -2818,6 +2823,7 @@ async def api_health_deep_check():
     from app.models.contract_doc_sharepoint import ContractDocSpItem, ContractDocSpRun
     from app.models.contract_document import ContractDocument
     from app.models.cv_qc_run import CvQcRun
+    from app.models.application_screening import ApplicationScreening
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -3043,6 +3049,9 @@ async def api_health_deep_check():
         # 0361: QC CV — tablica czyta stan QC każdej karty, a ruch na
         # „CV wysłane” zapisuje przebieg, więc brak tabeli = kanban 500.
         ("cv_qc_runs", CvQcRun),
+        # 0404: każde zgłoszenie z linku rekrutacji zapisuje ocenę AI — brak
+        # tabeli = 500 przy każdym zgłoszeniu ze strony kariery.
+        ("application_screenings", ApplicationScreening),
     ]
 
     checks: dict[str, str] = {}
