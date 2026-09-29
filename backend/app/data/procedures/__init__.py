@@ -203,7 +203,6 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "backend/app/api/client_md_imports.py",
     "frontend/src/components/client-profile/orders/OrderHistoryPanel.tsx",
     "frontend/src/components/client-profile/orders/ConsumptionButton.tsx",
-    "frontend/src/components/client-profile/orders/LineMonthlyHistoryDialog.tsx",
     "frontend/src/components/client-profile/orders/ClientMdImportsTab.tsx",
     "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx",
     "frontend/src/components/client-profile/orders/OrderPlanLineCard.tsx",

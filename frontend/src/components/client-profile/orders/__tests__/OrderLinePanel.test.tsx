@@ -16,7 +16,7 @@ import {
   makeOffboardingCase as offboardingCase,
   makeOrderGroup as group,
   makeOrderLine as line,
-} from "@/test/fixtures/order-groups";
+} from "@/components/client-profile/orders/__tests__/fixtures/order-groups";
 
 vi.mock("@/lib/api/orderGroups", () => ({
   orderGroupsApi: {
