@@ -18,6 +18,7 @@ const WIDTHS = [360, 390, 768, 1024, 1280] as const;
 
 const PAGES = [
   "/preview/b2b-documents",
+  "/preview/b2b-generator",
   "/preview/calendar-cycle",
   "/preview/calendar-cycle?as=dl",
   "/preview/candidates",

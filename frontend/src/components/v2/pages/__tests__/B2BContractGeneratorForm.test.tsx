@@ -167,10 +167,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.apiGet.mockImplementation((url: string) => {
     const cand = /^\/api\/candidates\/(\d+)$/.exec(url);
-    if (cand) return Promise.resolve({ data: CANDIDATES[Number(cand[1])] ?? {} });
+    if (cand)
+      return Promise.resolve({ data: CANDIDATES[Number(cand[1])] ?? {} });
     if (url.endsWith("/recruitments")) {
       return Promise.resolve({
-        data: [{ stage_id: 11, job_id: 10, job_title: "Java Dev", stage: "offer" }],
+        data: [
+          { stage_id: 11, job_id: 10, job_title: "Java Dev", stage: "offer" },
+        ],
       });
     }
     if (url === "/api/jobs/10") {
@@ -189,7 +192,11 @@ beforeEach(() => {
   });
   mocks.roles.mockResolvedValue([ROLE]);
   mocks.nextNumber
-    .mockResolvedValueOnce({ contract_number: "1500/2026", year: 2026, seq: 1500 })
+    .mockResolvedValueOnce({
+      contract_number: "1500/2026",
+      year: 2026,
+      seq: 1500,
+    })
     .mockResolvedValue({ contract_number: "1501/2026", year: 2026, seq: 1501 });
   mocks.clientsLookup.mockResolvedValue([]);
   mocks.generated.mockResolvedValue([]);
@@ -210,7 +217,9 @@ function blobError(status: number, detail: unknown) {
   return Object.assign(new Error(`Request failed with status code ${status}`), {
     response: {
       status,
-      data: new Blob([JSON.stringify({ detail })], { type: "application/json" }),
+      data: new Blob([JSON.stringify({ detail })], {
+        type: "application/json",
+      }),
     },
   });
 }
@@ -258,7 +267,9 @@ async function fillForm(user: ReturnType<typeof setupUser>) {
     ).toBe("1500/2026"),
   );
   await user.click(screen.getByRole("combobox", { name: /Obszar/ }));
-  await user.click(await screen.findByRole("option", { name: "Programista Java" }));
+  await user.click(
+    await screen.findByRole("option", { name: "Programista Java" }),
+  );
   fireEvent.change(screen.getByLabelText("Stawka godz. (netto) *"), {
     target: { value: "150" },
   });
@@ -277,7 +288,9 @@ describe("GeneratorForm — pobranie i poprawka pod tym samym numerem", () => {
     await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
 
     expect(
-      await screen.findByText("Umowa 1500/2026 zapisana w rejestrze (W trakcie)"),
+      await screen.findByText(
+        "Umowa 1500/2026 zapisana w rejestrze (W trakcie)",
+      ),
     ).toBeInTheDocument();
     expect(mocks.renderDocx).toHaveBeenCalledTimes(1);
     expect(mocks.renderDocx.mock.calls[0][0]).toMatchObject({
@@ -299,7 +312,9 @@ describe("GeneratorForm — pobranie i poprawka pod tym samym numerem", () => {
     await user.click(
       screen.getAllByRole("button", { name: "Popraw i pobierz ponownie" })[0],
     );
-    await waitFor(() => expect(mocks.rerenderGenerated).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mocks.rerenderGenerated).toHaveBeenCalledTimes(1),
+    );
     expect(mocks.rerenderGenerated.mock.calls[0][0]).toBe(77);
     expect(mocks.rerenderGenerated.mock.calls[0][1]).toMatchObject({
       candidate_id: 42,
@@ -322,15 +337,14 @@ describe("GeneratorForm — pobranie i poprawka pod tym samym numerem", () => {
 
     await waitFor(() =>
       expect(
-        (screen.getByLabelText("Numer umowy (auto) *") as HTMLInputElement).value,
+        (screen.getByLabelText("Numer umowy (auto) *") as HTMLInputElement)
+          .value,
       ).toBe("1501/2026"),
     );
+    expect(screen.queryByText(/zapisana w rejestrze \(W trakcie\)/)).toBeNull();
     expect(
-      screen.queryByText(/zapisana w rejestrze \(W trakcie\)/),
-    ).toBeNull();
-    expect(screen.getByRole("combobox", { name: /Kandydat/ })).toHaveTextContent(
-      "Wybierz kandydata…",
-    );
+      screen.getByRole("combobox", { name: /Kandydat/ }),
+    ).toHaveTextContent("Wybierz kandydata…");
     expect(
       (screen.getByLabelText("Nazwa Firmy *") as HTMLInputElement).value,
     ).toBe("");
@@ -389,7 +403,10 @@ describe("GeneratorForm — pobranie i poprawka pod tym samym numerem", () => {
 describe("GeneratorForm — podgląd", () => {
   it("podgląd w piaskownicy znika po zmianie danych formularza", async () => {
     const user = setupUser();
-    mocks.renderHtml.mockResolvedValue({ html: "<p>Treść</p>", contract_number: null });
+    mocks.renderHtml.mockResolvedValue({
+      html: "<p>Treść</p>",
+      contract_number: null,
+    });
     renderForm();
     await fillForm(user);
 
@@ -398,7 +415,9 @@ describe("GeneratorForm — podgląd", () => {
       await screen.findByText("Podgląd (bez numeru w rejestrze)"),
     ).toBeInTheDocument();
     expect(screen.getByTitle("Podgląd umowy")).toHaveAttribute("sandbox", "");
-    expect(screen.getByRole("button", { name: /Drukuj podgląd/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Drukuj podgląd/ }),
+    ).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Miasto Klienta *"), {
       target: { value: "Kraków" },
@@ -412,10 +431,11 @@ describe("GeneratorForm — podgląd", () => {
 describe("GeneratorForm — zmiana kandydata i ostrzeżenia", () => {
   it("nowy kandydat nie dziedziczy danych firmy ani ręcznej odmiany poprzedniego", async () => {
     const { rerenderForm } = renderForm();
-    await waitFor(() =>
-      expect(
-        (screen.getByLabelText("Nazwa Firmy *") as HTMLInputElement).value,
-      ).toBe("JK Software Jan Kowalski"),
+    await waitFor(
+      () =>
+        expect(
+          (screen.getByLabelText("Nazwa Firmy *") as HTMLInputElement).value,
+        ).toBe("JK Software Jan Kowalski"),
       { timeout: PREFILL_WAIT },
     );
     fireEvent.change(
@@ -425,16 +445,21 @@ describe("GeneratorForm — zmiana kandydata i ostrzeżenia", () => {
 
     rerenderForm({ prefillCandidateId: 43, prefillJobId: 10 });
 
-    await waitFor(() =>
-      expect(
-        (screen.getByLabelText("Imię i nazwisko *") as HTMLInputElement).value,
-      ).toBe("Anna Nowak"),
+    await waitFor(
+      () =>
+        expect(
+          (screen.getByLabelText("Imię i nazwisko *") as HTMLInputElement)
+            .value,
+        ).toBe("Anna Nowak"),
       { timeout: PREFILL_WAIT },
     );
     expect(
       (screen.getByLabelText("Nazwa Firmy *") as HTMLInputElement).value,
     ).toBe("");
-    expect((screen.getByLabelText("NIP (auto z rejestru) *") as HTMLInputElement).value).toBe("");
+    expect(
+      (screen.getByLabelText("NIP (auto z rejestru) *") as HTMLInputElement)
+        .value,
+    ).toBe("");
     // Flaga „dotknięcia” narzędnika wyzerowana — auto-odmiana działa znowu.
     expect(
       (
@@ -460,21 +485,29 @@ describe("GeneratorForm — zmiana kandydata i ostrzeżenia", () => {
     // Bez prawa poprawki (`can_edit`) link prowadzi do rejestru z wyszukaniem.
     expect(
       screen.getByRole("link", { name: "Otwórz umowę 1490/2026 w rejestrze" }),
-    ).toHaveAttribute("href", "/contracts/b2b-generator?tab=generated&q=1490%2F2026");
+    ).toHaveAttribute(
+      "href",
+      "/contracts/b2b-generator?tab=generated&q=1490%2F2026",
+    );
     // Ostrzeżenie nie blokuje generowania.
-    expect(screen.getByRole("button", { name: "Pobierz DOCX (PL)" })).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Pobierz DOCX (PL)" }),
+    ).toBeEnabled();
   });
 
   it("anulowana umowa tej osoby nie ostrzega", async () => {
-    mocks.generated.mockResolvedValue([existing({ contract_status: "cancelled" })]);
+    mocks.generated.mockResolvedValue([
+      existing({ contract_status: "cancelled" }),
+    ]);
     renderForm();
     await waitFor(() => expect(mocks.generated).toHaveBeenCalled(), {
       timeout: PREFILL_WAIT,
     });
-    await waitFor(() =>
-      expect(
-        (screen.getByLabelText("Miasto Klienta *") as HTMLInputElement).value,
-      ).toBe("Warszawa"),
+    await waitFor(
+      () =>
+        expect(
+          (screen.getByLabelText("Miasto Klienta *") as HTMLInputElement).value,
+        ).toBe("Warszawa"),
       { timeout: PREFILL_WAIT },
     );
     expect(screen.queryByText(/Ta osoba ma już umowę/)).toBeNull();
@@ -485,7 +518,9 @@ describe("GeneratorForm — zmiana kandydata i ostrzeżenia", () => {
     renderForm();
     await user.click(screen.getByRole("combobox", { name: "Waluta" }));
     for (const code of ["PLN", "EUR", "USD", "GBP", "CHF"]) {
-      expect(await screen.findByRole("option", { name: code })).toBeInTheDocument();
+      expect(
+        await screen.findByRole("option", { name: code }),
+      ).toBeInTheDocument();
     }
   });
 });
@@ -569,9 +604,9 @@ describe("GeneratorForm — „Popraw umowę” (`?edit=`)", () => {
       "aria-pressed",
       "true",
     );
-    expect(screen.getByRole("combobox", { name: /Kandydat/ })).toHaveTextContent(
-      "Jan Kowalski",
-    );
+    expect(
+      screen.getByRole("combobox", { name: /Kandydat/ }),
+    ).toHaveTextContent("Jan Kowalski");
     expect(screen.getByRole("combobox", { name: /Waluta/ })).toHaveTextContent(
       "EUR",
     );
@@ -581,7 +616,9 @@ describe("GeneratorForm — „Popraw umowę” (`?edit=`)", () => {
     await user.click(
       screen.getAllByRole("button", { name: "Popraw i pobierz ponownie" })[0],
     );
-    await waitFor(() => expect(mocks.rerenderGenerated).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mocks.rerenderGenerated).toHaveBeenCalledTimes(1),
+    );
     expect(mocks.renderDocx).not.toHaveBeenCalled();
     const [id, payload] = mocks.rerenderGenerated.mock.calls[0];
     expect(id).toBe(90);
@@ -651,11 +688,15 @@ describe("GeneratorForm — awaria wyszukiwarek to nie pusta lista", () => {
     mocks.clientsLookup.mockRejectedValue(new Error("503"));
     renderForm({});
 
-    await user.click(screen.getByRole("combobox", { name: /Pełna nazwa Klienta/ }));
+    await user.click(
+      screen.getByRole("combobox", { name: /Pełna nazwa Klienta/ }),
+    );
     expect(
       await screen.findByText("Nie udało się pobrać listy klientów."),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Brak klientów na liście.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Brak klientów na liście."),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Ponów/ })).toBeInTheDocument();
   });
 
@@ -663,8 +704,12 @@ describe("GeneratorForm — awaria wyszukiwarek to nie pusta lista", () => {
     const user = setupUser();
     renderForm({});
 
-    await user.click(screen.getByRole("combobox", { name: /Pełna nazwa Klienta/ }));
-    expect(await screen.findByText("Brak klientów na liście.")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("combobox", { name: /Pełna nazwa Klienta/ }),
+    );
+    expect(
+      await screen.findByText("Brak klientów na liście."),
+    ).toBeInTheDocument();
   });
 
   it("błąd wyszukiwania kandydata daje „Ponów”, nie „Brak wyników.”", async () => {
@@ -819,5 +864,100 @@ describe("GeneratorForm — sprawdzenie firmy w CEIDG/KRS przed pobraniem (ticke
     await user.click(screen.getByRole("button", { name: "Anuluj" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(mocks.renderDocx).not.toHaveBeenCalled();
+  });
+});
+
+describe("GeneratorForm — wariant umowy dla spółki (ticket 8)", () => {
+  it("domyślnie JDG; spółka wysyła dane z KRS, a powrót na JDG nie gubi danych", async () => {
+    const user = setupUser();
+    mocks.renderDocx.mockResolvedValue(docxResponse("78"));
+    mocks.companyLookup.mockImplementation(
+      (params: { nip?: string; krs?: string }) =>
+        params.krs
+          ? Promise.resolve({
+              name: "JK SOFTWARE SP. Z O.O.",
+              krs: params.krs,
+              entity_type: "company",
+              seat: "Wrocław",
+              registry_court:
+                "Sąd Rejonowy dla Wrocławia-Fabrycznej we Wrocławiu, VI Wydział Gospodarczy Krajowego Rejestru Sądowego",
+              share_capital: "5.000,00",
+              representatives: [
+                { name: null, function: "Prezes Zarządu" },
+                { name: null, function: "Członek Zarządu" },
+              ],
+              representation_method: "Każdy członek zarządu samodzielnie",
+            })
+          : Promise.reject(new Error("brak")),
+    );
+    renderForm();
+    await fillForm(user);
+
+    const jdg = screen.getByRole("button", { name: "Umowa JDG" });
+    expect(jdg).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "Umowa spółka" }));
+
+    // Pola JDG znikają z widoku, osoba skierowana to kandydat z rekrutacji.
+    expect(screen.queryByLabelText(/narzędnik/)).toBeNull();
+    expect(
+      screen.getByText(/Osoba skierowana do realizacji usług/).parentElement,
+    ).toHaveTextContent("Jan Kowalski");
+
+    // Bez danych spółki pobranie odmawia i mówi, czego brakuje.
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+    expect(mocks.renderDocx).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("KRS *"), {
+      target: { value: "0000123456" },
+    });
+    await waitFor(
+      () =>
+        expect(
+          (
+            screen.getByLabelText(
+              "Siedziba w umowie („z siedzibą …”) *",
+            ) as HTMLInputElement
+          ).value,
+        ).toBe("we Wrocławiu"),
+      { timeout: 5_000 },
+    );
+    expect(screen.getByText(/imiona i nazwiska są ukryte/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Osoba reprezentująca spółkę *"), {
+      target: { value: "Piotr Nowak" },
+    });
+    await user.click(screen.getByRole("button", { name: "Prezes Zarządu" }));
+    expect(
+      (
+        screen.getByLabelText(
+          "Reprezentacja w komparycji („reprezentowaną przez …”) *",
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("Pana Piotra Nowaka – Prezesa Zarządu");
+
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+    await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledTimes(1));
+    expect(mocks.renderDocx.mock.calls[0][0]).toMatchObject({
+      contract_variant: "company",
+      partner_krs: "0000123456",
+      partner_seat: "Wrocław",
+      partner_seat_locative: "we Wrocławiu",
+      partner_share_capital: "5.000,00",
+      partner_representative_name: "Piotr Nowak",
+      partner_representative_function: "Prezes Zarządu",
+      partner_representation: "Pana Piotra Nowaka – Prezesa Zarządu",
+      assigned_person_name: "Jan Kowalski",
+      // Dane wpisane pod JDG zostają — zmienia się tylko prezentacja.
+      partner_name: "Jan Kowalski",
+      partner_legal_name: "JK Software Jan Kowalski",
+    });
+
+    await user.click(screen.getByRole("button", { name: "Umowa JDG" }));
+    expect(
+      (screen.getByLabelText("Imię i nazwisko *") as HTMLInputElement).value,
+    ).toBe("Jan Kowalski");
+    await user.click(screen.getByRole("button", { name: "Umowa spółka" }));
+    expect((screen.getByLabelText("KRS *") as HTMLInputElement).value).toBe(
+      "0000123456",
+    );
   });
 });

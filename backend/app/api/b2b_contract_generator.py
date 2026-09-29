@@ -71,7 +71,7 @@ from app.services.action_permissions import (
     action_access_for_user,
 )
 from app.services.access_scope import resolve_delivery_lead_assigned_client_ids
-from app.services.b2b_documents.contract_versions import CURRENT_VERSION
+from app.services.b2b_documents.contract_versions import version_for_variant
 from app.services.critical_events import audited_deletion
 from app.schemas.b2b_contract_generator import (
     B2B_CLOSING_STATUSES,
@@ -136,6 +136,10 @@ from app.services.b2b_contract_generator.entity_type import (
     resolve_partner_entity_type,
 )
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
+from app.services.b2b_contract_generator.company_variant import (
+    CompanyVariantError,
+    apply_company_variant_html,
+)
 from app.services.b2b_contract_generator.registry_verification import (
     verify_company,
 )
@@ -225,7 +229,7 @@ async def _render_docx_or_500(
                 context, language=lang, clause_override_key=clause_override_key
             )
         )
-    except ClauseOverrideError as exc:
+    except (ClauseOverrideError, CompanyVariantError) as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -764,6 +768,33 @@ async def _load_legal_scoped_job(
             write=write,
         )
     return job
+
+
+def _stored_entity_type(payload: "B2BRenderRequest") -> str | None:
+    """Umowa wydana w wariancie spółki JEST umową ze spółką — to rozstrzyga
+    typ podmiotu w rejestrze mocniej niż lookup albo heurystyka po nazwie."""
+    if payload.contract_variant == "company":
+        return "company"
+    return payload.partner_entity_type
+
+
+def _stamp_assigned_person(
+    payload: "B2BRenderRequest", candidate: Candidate | None
+) -> None:
+    """Osoba skierowana w umowie spółki = kandydat z powiązanej rekrutacji.
+
+    Ticket 8: w Załączniku nr 3 ma stać osoba, która świadczy usługi — nie
+    nazwa spółki i nie jej reprezentant — „pobierana automatycznie
+    z rekrutacji”. Formularz podpowiada to samo, ale źródłem prawdy jest
+    rekord kandydata; wartość ląduje w ``render_payload``, więc ponowne
+    pobranie wydaje ten sam dokument."""
+    if payload.contract_variant != "company" or candidate is None:
+        return
+    full_name = " ".join(
+        part.strip() for part in (candidate.name, candidate.lastname) if part
+    ).strip()
+    if full_name:
+        payload.assigned_person_name = full_name
 
 
 async def _validate_candidate_job_link(
@@ -1783,11 +1814,12 @@ async def render_standalone(
             payload.job_id,
             write=True,
         )
-        _, linked_job = await _validate_candidate_job_link(
+        linked_candidate, linked_job = await _validate_candidate_job_link(
             db,
             candidate_id=payload.candidate_id,
             job_id=linked_job.id,
         )
+        _stamp_assigned_person(payload, linked_candidate)
     await _assert_generator_client_access(
         db,
         current_user,
@@ -1828,6 +1860,16 @@ async def render_standalone(
                         "klauzul. Zgłoś to zanim wygenerujesz dokument."
                     ),
                 )
+        if context["b2b"]["is_company"]:
+            try:
+                html = apply_company_variant_html(
+                    html,
+                    language=lang,
+                    assigned_person=context["b2b"]["assigned_person"] or "",
+                )
+            except CompanyVariantError as exc:
+                logger.error("b2b_company_variant_failed surface=html: %s", exc)
+                raise HTTPException(status_code=500, detail=str(exc))
         return B2BRenderHtmlResponse(html=html, contract_number=payload.contract_number)
 
     # format == docx → numer + log + plik
@@ -1928,7 +1970,7 @@ async def render_standalone(
         # ją dopiero przy następnym starcie, a do tego czasu wypowiedzenie
         # Partnera odmawiało policzenia okresu wypowiedzenia (runda 6 audytu,
         # DOC-3).
-        template_version=CURRENT_VERSION,
+        template_version=version_for_variant(payload.contract_variant),
         # Snapshot danych rejestrowych na potrzeby listy — odnormalizowane
         # z payloadu, bo lista pokazuje je jako kolumny i filtruje po
         # `start_date` po stronie SQL-a.
@@ -1939,7 +1981,7 @@ async def render_standalone(
         # wymaga snapshotu „nieprzeliczanego później", a forma prawna
         # Partnera po podpisaniu umowy przestaje być bieżącą informacją.
         partner_entity_type=resolve_partner_entity_type(
-            stored=payload.partner_entity_type,
+            stored=_stored_entity_type(payload),
             legal_name=payload.partner_legal_name,
         ),
         # Zapis surowych pól → ponowne pobranie DOCX z listy (re-render).
@@ -2925,6 +2967,8 @@ async def rerender_generated_contract(
 
     lang = normalize_language(payload.language)
     role = await db.get(B2BContractRole, payload.role_id) if payload.role_id else None
+    if row.candidate_id is not None:
+        _stamp_assigned_person(payload, await db.get(Candidate, row.candidate_id))
     context = build_render_context(payload, role)
     context["b2b"]["contract_number"] = row.contract_number
     override_key, override_ops = resolve_override(payload.client_name, lang)
@@ -2937,8 +2981,11 @@ async def rerender_generated_contract(
     row.partner_legal_name = payload.partner_legal_name
     row.partner_nip = _nip_digits(payload.partner_nip)
     row.start_date = payload.start_date
+    # Zmiana wariantu JDG ↔ spółka przesuwa paragrafy, które cytują aneksy
+    # i wypowiedzenia — wersja wzoru idzie za poprawioną treścią.
+    row.template_version = version_for_variant(payload.contract_variant)
     row.partner_entity_type = resolve_partner_entity_type(
-        stored=payload.partner_entity_type,
+        stored=_stored_entity_type(payload),
         legal_name=payload.partner_legal_name,
     )
     row.render_payload = {

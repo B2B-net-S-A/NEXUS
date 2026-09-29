@@ -555,7 +555,7 @@
     "tasks": [
       {
         "q": "Jak wygenerować umowę?",
-        "a": "W zakładce „Generator” wypełnij dane Partnera i warunki, sprawdź „Podgląd” i kliknij „Pobierz DOCX” (język z przełącznika). Numer nadaje się sam. Przed pobraniem generator sprawdza firmę w CEIDG albo KRS: zawieszenie, wykreślenie, likwidacja czy upadłość dają ostrzeżenie, które nie blokuje umowy.",
+        "a": "W „Generatorze” wybierz „Umowa JDG” albo „Umowa spółka”, wypełnij dane i warunki, sprawdź „Podgląd” i kliknij „Pobierz DOCX”. Dla spółki siedziba, sąd i kapitał przyjdą z KRS, osobę reprezentującą wpisz ręcznie. Przed pobraniem generator sprawdza firmę w CEIDG/KRS — ostrzeżenia nie blokują umowy.",
         "anchor": "contracts.b2b_generator.docx"
       },
       {

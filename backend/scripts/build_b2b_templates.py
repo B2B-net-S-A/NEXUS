@@ -14,6 +14,12 @@ jeden zestaw danych zasila zarówno DOCX (docxtpl) jak i HTML (draft/PDF/Autenti
 Uruchom raz; wynik jest commitowany. NIE jest częścią ścieżki produkcyjnej.
 
     python scripts/build_b2b_templates.py [pl_src.docx en_src.docx]
+
+Wariant umowy dla spółki (ticket 8, 28.09.2026) — ``add_company_variant``
+dokłada do komparycji warunek ``b2b.is_company``. ``build`` robi to zawsze;
+na już zacommitowanych szablonach (źródła prawnika nie leżą w repo):
+
+    python scripts/build_b2b_templates.py --company-variant
 """
 
 from __future__ import annotations
@@ -299,6 +305,121 @@ def format_komparycja(doc: _DocType) -> None:
             break
 
 
+# ── Wariant dla spółki: komparycja z KRS zamiast „Panem … prowadzącym …” ────
+#
+# Komparycja JDG to dwa runy: pogrubione „Panem Jan Kowalski ” i zwykły opis
+# działalności. W obu dokładamy ``{% if b2b.is_company %}…{% else %}…{% endif %}``
+# — cały warunek mieści się w JEDNYM runie, więc XML zostaje poprawny, a umowa
+# JDG renderuje się znak w znak jak przed zmianą. To samo w stronach umowy
+# powierzenia (Załącznik nr 2). § 12 i Załącznik nr 3 dokłada render
+# (``company_variant``), nie szablon.
+
+_COMPANY_MARK = "b2b.is_company"
+
+_COMPANY_HEAD = "{{ candidate.legal_name or '" + _DOTS + "' }} "
+
+_COMPANY_BODY = {
+    "pl": (
+        "z siedzibą {{ b2b.company.seat or '" + _DOTS + "' }}, pod adresem "
+        "{{ candidate.business_address or '" + _DOTS + "' }}, wpisaną do Rejestru "
+        "Przedsiębiorców Krajowego Rejestru Sądowego, prowadzonego przez "
+        "{{ b2b.company.registry_court or '" + _DOTS + "' }}, pod numerem KRS: "
+        "{{ b2b.company.krs or '" + _DOTS + "' }}, NIP: "
+        "{{ candidate.nip or '" + _DOTS + "' }}, REGON: "
+        "{{ candidate.regon or '" + _DOTS + "' }}, o kapitale zakładowym "
+        "{{ b2b.company.share_capital or '" + _DOTS + "' }}, reprezentowaną przez "
+        "{{ b2b.company.representation or '" + _DOTS + "' }}, "
+    ),
+    "en": (
+        "with its registered office in {{ b2b.company.seat or '" + _DOTS + "' }}, "
+        "at the address: {{ candidate.business_address or '" + _DOTS + "' }}, "
+        "entered in the Register of Entrepreneurs of the National Court Register "
+        "kept by {{ b2b.company.registry_court or '" + _DOTS + "' }}, under KRS "
+        "number: {{ b2b.company.krs or '" + _DOTS + "' }}, NIP: "
+        "{{ candidate.nip or '" + _DOTS + "' }}, REGON: "
+        "{{ candidate.regon or '" + _DOTS + "' }}, with share capital of "
+        "{{ b2b.company.share_capital or '" + _DOTS + "' }}, represented by "
+        "{{ b2b.company.representation or '" + _DOTS + "' }}, "
+    ),
+}
+
+_JDG_HEAD_MARK = {"pl": "{{ b2b.g_pan }}", "en": "{{ b2b.g_mr }}"}
+_JDG_BODY_MARK = {"pl": "pod firmą:", "en": "under the name:"}
+
+
+def _company_if(company: str, jdg: str) -> str:
+    # `is defined` — ten sam HTML renderuje też „Generuj z szablonu” na
+    # kontrakcie (`_contract_vars`, StrictUndefined), który wariantu nie zna.
+    cond = f"{_COMPANY_MARK} is defined and {_COMPANY_MARK}"
+    return f"{{% if {cond} %}}{company}{{% else %}}{jdg}{{% endif %}}"
+
+
+def company_variant_pairs(doc: _DocType, lang: str) -> list[tuple[str, str]]:
+    """(tekst runu JDG → tekst z warunkiem) dla komparycji umowy i DPA."""
+    pairs: list[tuple[str, str]] = []
+    for p in doc.paragraphs:
+        runs = p.runs
+        for head, body in zip(runs, runs[1:]):
+            if (
+                head.text.startswith(_JDG_HEAD_MARK[lang])
+                and _JDG_BODY_MARK[lang] in body.text
+                and _COMPANY_MARK not in head.text
+            ):
+                pairs.append((head.text, _company_if(_COMPANY_HEAD, head.text)))
+                pairs.append(
+                    (body.text, _company_if(_COMPANY_BODY[lang], body.text))
+                )
+    return pairs
+
+
+def add_company_variant(doc: _DocType, lang: str) -> int:
+    """Owiń komparycję JDG warunkiem wariantu spółki. Zwraca liczbę komparycji."""
+    wrapped = 0
+    for p in doc.paragraphs:
+        runs = p.runs
+        for head, body in zip(runs, runs[1:]):
+            if (
+                head.text.startswith(_JDG_HEAD_MARK[lang])
+                and _JDG_BODY_MARK[lang] in body.text
+                and _COMPANY_MARK not in head.text
+            ):
+                head.text = _company_if(_COMPANY_HEAD, head.text)
+                body.text = _company_if(_COMPANY_BODY[lang], body.text)
+                wrapped += 1
+    return wrapped
+
+
+def add_company_variant_html(html: str, pairs: list[tuple[str, str]]) -> str:
+    """To samo w lustrze HTML: runy wychodzą tam jako ``_esc(run.text)``."""
+    for old, new in pairs:
+        before = html.count(_esc(old))
+        if before == 0:
+            raise RuntimeError(f"Brak fragmentu komparycji w HTML: {old[:60]!r}")
+        html = html.replace(_esc(old), _esc(new))
+    return html
+
+
+def patch_company_variant() -> None:
+    """Dołóż wariant spółki do ZACOMMITOWANYCH szablonów (idempotentnie)."""
+    for lang in ("pl", "en"):
+        docx_path = OUT_DIR / f"umowa_b2b_{lang}.docx"
+        html_path = OUT_DIR / f"umowa_b2b_{lang}.html"
+        doc = docx.Document(str(docx_path))
+        pairs = company_variant_pairs(doc, lang)
+        if not pairs:
+            print(f"[{lang}] wariant spółki już jest — bez zmian")
+            continue
+        wrapped = add_company_variant(doc, lang)
+        if wrapped != 2:
+            raise SystemExit(
+                f"[{lang}] oczekiwano 2 komparycji (umowa + DPA), jest {wrapped}"
+            )
+        doc.save(str(docx_path))
+        html = add_company_variant_html(html_path.read_text(encoding="utf-8"), pairs)
+        html_path.write_text(html, encoding="utf-8")
+        print(f"[{lang}] ✅ wariant spółki: {wrapped} komparycje")
+
+
 def _lowercase_net_in_paragraph(p: Paragraph, target: str = "B2B.NET") -> int:
     """Zamień „NET" na „net" w każdym wystąpieniu „B2B.NET" w akapicie.
 
@@ -438,6 +559,7 @@ def build(lang: str, src: Path, rules) -> None:
     patch_appendix_table(doc, lang)
     unbold_partner(doc)
     format_komparycja(doc)  # bold tylko „Pan/Pani + imię i nazwisko"
+    add_company_variant(doc, lang)  # komparycja spółki (ticket 8) — po podziale runów
     normalize_company_name(
         doc
     )  # „B2B.NET S.A." → „B2B.net S.A." (skrót „B2BNET" bez zmian)
@@ -473,6 +595,9 @@ def build(lang: str, src: Path, rules) -> None:
 
 
 def main() -> None:
+    if "--company-variant" in sys.argv[1:]:
+        patch_company_variant()
+        return
     pl_src = Path(sys.argv[1]) if len(sys.argv) > 2 else DEFAULT_PL
     en_src = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_EN
     for path in (pl_src, en_src):

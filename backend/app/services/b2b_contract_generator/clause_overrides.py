@@ -8,6 +8,8 @@ pozostaje nietknięta.
 Silnik wspiera operacje (Op = ``(kind, target, blocks)``):
   - ``replace_section``    target=int  → podmień cały § N (np. § 4, § 10)
   - ``append_to_section``  target=int  → dołącz akapity na końcu § N (przed § N+1)
+  - ``insert_before_section`` target=int → nowe akapity tuż PRZED nagłówkiem § N
+    (wariant umowy dla spółki wstawia tak nowy § 12)
   - ``append_appendix``    target=None → nowy Załącznik na końcu dokumentu (page-break)
   - ``after_table``        target=int  → wstaw akapity po tabeli (indeks)
   - ``after_sentence``     target=str  → wstaw akapity po akapicie zawierającym frazę
@@ -199,6 +201,11 @@ def apply_ops_html_counted(rendered_html: str, ops: list[Op]) -> tuple[str, int]
             span = _html_section_span(out, int(target))  # type: ignore[arg-type]
             if span:
                 out = out[: span[1]] + frag + out[span[1] :]
+                applied += 1
+        elif kind == "insert_before_section":
+            span = _html_section_span(out, int(target))  # type: ignore[arg-type]
+            if span:
+                out = out[: span[0]] + frag + out[span[0] :]
                 applied += 1
         elif kind == "append_appendix":
             out = out.rstrip() + "\n" + frag
@@ -412,6 +419,12 @@ def apply_ops_docx(doc, ops: list[Op]) -> int:
             if nxt is None:
                 continue
             _emit_before(nxt, body_parent, blocks, styles)
+            applied += 1
+        elif kind == "insert_before_section":
+            start = _find_section_heading_el(doc, int(target))  # type: ignore[arg-type]
+            if start is None:
+                continue
+            _emit_before(start, body_parent, blocks, styles)
             applied += 1
         elif kind == "append_appendix":
             last_el = doc.paragraphs[-1]._p

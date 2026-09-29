@@ -27,13 +27,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import date
 
 import httpx
 
 from app.core.config import settings
 from app.core.scheduling import business_today
-from app.services.b2b_contract_generator.entity_type import entity_type_from_registry
+from app.services.b2b_contract_generator.entity_type import (
+    COMPANY,
+    entity_type_from_registry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +249,18 @@ def _ceidg_address(adr: dict) -> str | None:
     return full.upper() or None
 
 
+async def _fetch_odpis(client: httpx.AsyncClient, krs: str, kind: str) -> dict | None:
+    """Odpis z API KRS (``OdpisAktualny`` / ``OdpisPelny``), rejestr P, potem S."""
+    for rejestr in ("P", "S"):
+        resp = await client.get(
+            f"{_KRS_BASE}/api/krs/{kind}/{krs}",
+            params={"rejestr": rejestr, "format": "json"},
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    return None
+
+
 async def lookup_by_krs(krs: str) -> dict | None:
     """KRS OpenAPI — po numerze KRS (10 cyfr, padded). Tylko spółki."""
     clean = _digits(krs)
@@ -253,19 +269,40 @@ async def lookup_by_krs(krs: str) -> dict | None:
     clean = clean.zfill(10)
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            for rejestr in ("P", "S"):
-                resp = await client.get(
-                    f"{_KRS_BASE}/api/krs/OdpisAktualny/{clean}",
-                    params={"rejestr": rejestr, "format": "json"},
-                )
-                if resp.status_code != 200:
-                    continue
-                parsed = _parse_krs(resp.json())
-                if parsed:
-                    return parsed
+            data = await _fetch_odpis(client, clean, "OdpisAktualny")
+            if data is not None:
+                return _parse_krs(data)
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("KRS lookup failed for KRS %s: %s", clean, exc)
     return None
+
+
+async def lookup_krs_company_details(krs: str) -> dict:
+    """Dane komparycji spółki: siedziba, kapitał, sąd rejestrowy, zarząd.
+
+    Dwa odpisy, bo sąd rejestrowy NIE występuje w odpisie aktualnym (tam jest
+    tylko sąd OSTATNIEGO wpisu, zwykle „SYSTEM”) — bierzemy go z historii
+    wpisów odpisu pełnego. Imiona i nazwiska członków zarządu publiczne API
+    maskuje („K*****”), więc zwracamy tylko to, co da się pokazać: funkcje
+    i sposób reprezentacji. Każda awaria = puste pola, nie wyjątek."""
+    clean = _digits(krs)
+    if not clean:
+        return {}
+    clean = clean.zfill(10)
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            current, full = await asyncio.gather(
+                _fetch_odpis(client, clean, "OdpisAktualny"),
+                _fetch_odpis(client, clean, "OdpisPelny"),
+            )
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("KRS details lookup failed for KRS %s: %s", clean, exc)
+        return {}
+    details = _parse_krs_company_details(current) if current else {}
+    court = _registry_court_from_full(full) if full else None
+    if court:
+        details["registry_court"] = court
+    return details
 
 
 def _parse_krs(data: dict) -> dict | None:
@@ -293,6 +330,111 @@ def _parse_krs(data: dict) -> dict | None:
         }
     except (KeyError, TypeError):
         return None
+
+
+# ── Dane komparycji spółki (wariant „spółka” Generatora, ticket 8) ──────────
+
+_ROMAN = re.compile(r"^[IVXLCDM]+$")
+_LOWER_WORDS = frozenset({"dla", "w", "we", "i", "z"})
+
+
+def _title_word(word: str) -> str:
+    core = word.rstrip(",.")
+    tail = word[len(core) :]
+    if not core:
+        return word
+    lower = core.lower()
+    if lower in _LOWER_WORDS:
+        return lower + tail
+    if lower in ("m.st", "m.st."):
+        return "m.st." + tail.lstrip(".")
+    if _ROMAN.match(core):
+        return core + tail
+    return (
+        "-".join(part[:1].upper() + part[1:].lower() for part in core.split("-")) + tail
+    )
+
+
+def title_case_pl(value: str | None) -> str | None:
+    """„SĄD REJONOWY DLA M. ST. WARSZAWY” → „Sąd Rejonowy dla m.st. Warszawy”.
+
+    KRS podaje wszystko WIELKIMI literami; do umowy trafia zapis zwykły.
+    Liczby rzymskie wydziału („XIV”) zostają wielkie."""
+    text = re.sub(r"\s+", " ", value or "").strip()
+    if not text:
+        return None
+    text = re.sub(r"(?i)\bm\.\s*st\.\s*", "M.ST. ", text)
+    return " ".join(_title_word(w) for w in text.split(" "))
+
+
+def _registry_court_from_full(data: dict) -> str | None:
+    """Sąd rejestrowy = sąd, który dokonał OSTATNIEGO wpisu nie-systemowego."""
+    try:
+        entries = data["odpis"]["naglowekP"]["wpis"] or []
+    except (KeyError, TypeError):
+        return None
+    for entry in reversed(entries):
+        court = (entry or {}).get("oznaczenieSaduDokonujacegoWpisu") or ""
+        if court.strip() and court.strip().upper() != "SYSTEM":
+            return title_case_pl(court)
+    return None
+
+
+def _format_capital(amount: str | None, currency: str | None) -> str | None:
+    """„1360000,00” PLN → „1.360.000,00” (bez waluty — dokłada ją umowa)."""
+    raw = (amount or "").replace(" ", "").strip()
+    if not raw:
+        return None
+    whole, _, frac = raw.partition(",")
+    if not whole.isdigit():
+        return raw
+    groups: list[str] = []
+    while whole:
+        groups.insert(0, whole[-3:])
+        whole = whole[:-3]
+    formatted = f"{'.'.join(groups)},{(frac + '00')[:2]}"
+    cur = (currency or "PLN").strip().upper()
+    return formatted if cur == "PLN" else f"{formatted} {cur}"
+
+
+def _masked(value: str | None) -> bool:
+    return not value or "*" in value
+
+
+def _parse_krs_company_details(data: dict) -> dict:
+    out: dict = {}
+    try:
+        dane = data["odpis"]["dane"]
+    except (KeyError, TypeError):
+        return out
+    d1 = dane.get("dzial1") or {}
+    seat = ((d1.get("siedzibaIAdres") or {}).get("siedziba") or {}).get("miejscowosc")
+    if seat:
+        out["seat"] = title_case_pl(seat)
+    capital = (d1.get("kapital") or {}).get("wysokoscKapitaluZakladowego") or {}
+    formatted = _format_capital(capital.get("wartosc"), capital.get("waluta"))
+    if formatted:
+        out["share_capital"] = formatted
+    representation = (dane.get("dzial2") or {}).get("reprezentacja") or {}
+    people = []
+    for member in representation.get("sklad") or []:
+        if not isinstance(member, dict) or member.get("czyZawieszona"):
+            continue
+        first = ((member.get("imiona") or {}).get("imie") or "").strip()
+        last = ((member.get("nazwisko") or {}).get("nazwiskoICzlon") or "").strip()
+        name = None if _masked(first) or _masked(last) else f"{first} {last}"
+        people.append(
+            {
+                "name": title_case_pl(name) if name else None,
+                "function": title_case_pl(member.get("funkcjaWOrganie")),
+            }
+        )
+    if people:
+        out["representatives"] = people
+    method = (representation.get("sposobReprezentacji") or "").strip()
+    if method:
+        out["representation_method"] = method[:1] + method[1:].lower()
+    return out
 
 
 def _merge(name_src: dict, bl: dict | None) -> dict:
@@ -336,7 +478,17 @@ def _with_entity_type(result: dict | None) -> dict | None:
 
 async def lookup_company(nip: str | None = None, krs: str | None = None) -> dict | None:
     """Pełna nazwa firmy z biznes.gov.pl (lub CEIDG, jeśli token) + adres/osoba
-    z Białej Listy. KRS jako fallback po numerze KRS."""
+    z Białej Listy. KRS jako fallback po numerze KRS. Spółka z numerem KRS
+    dostaje też dane komparycji (siedziba, kapitał, sąd, zarząd)."""
+    result = await _lookup_company_base(nip=nip, krs=krs)
+    if result and result.get("entity_type") == COMPANY and result.get("krs"):
+        result = {**result, **await lookup_krs_company_details(result["krs"])}
+    return result
+
+
+async def _lookup_company_base(
+    nip: str | None = None, krs: str | None = None
+) -> dict | None:
     if nip:
         # Adres/osobę zawsze z Białej Listy; nazwę z preferowanego źródła.
         if settings.CEIDG_API_TOKEN:

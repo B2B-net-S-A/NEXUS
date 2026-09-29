@@ -901,6 +901,33 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   w NEXUSIE, bo ta flaga to jedyne pole, które import może na niej zmienić
   (decyzja Artura 26.09.2026). `GET /generated/export.xlsx`
   oddaje rejestr w układzie kolumn Excela działu.
+- **Wariant „Umowa spółka” (ticket 8, 29.09.2026)** — przełącznik „Umowa JDG /
+  Umowa spółka” (`contract_variant`, domyślnie `jdg`; zapisany payload bez pola
+  = JDG, dokument bez zmian). Przełączenie nie czyści pól formularza.
+  - **Komparycja spółki siedzi w szablonie**: warunek
+    `b2b.is_company is defined and b2b.is_company` w dwóch runach komparycji
+    umowy i umowy powierzenia (`is defined`, bo ten sam HTML renderuje
+    „Generuj z szablonu” na kontrakcie ze StrictUndefined). Źródeł prawnika nie
+    ma w repo — szablony zmienia `python scripts/build_b2b_templates.py
+    --company-variant` (idempotentnie, na zacommitowanych plikach).
+  - **§ 12 „Osoby skierowane…”, przenumerowanie i wiersz „Osoba skierowana”
+    w Załączniku nr 3 to przekształcenie gotowego dokumentu**
+    (`services/b2b_contract_generator/company_variant.py`), PO klauzulach
+    Klienta: przesuwa nagłówki ≥ 12 umowy głównej i odwołania „§ N … Umowy
+    Głównej / of the Main Agreement” w załącznikach, nie rusza własnej
+    numeracji załączników (DPA § 1–5, Credit Agricole § 11–15) ani przepisów
+    („art. 22 § 1”). Brak kotwicy = `CompanyVariantError` (500), nigdy cicha
+    umowa JDG.
+  - **Osoba skierowana = kandydat z rekrutacji** (`_stamp_assigned_person` w
+    `/render` i `/rerender`, zapisana w `render_payload`) — nie spółka i nie
+    osoba reprezentująca. Wariant spółki stempluje `partner_entity_type =
+    company` i `template_version = "2026-company"` (dokumenty pochodne cytują
+    § 13 wypowiedzenie i § 14 datę startu, `contract_versions.COMPANY_VERSION`).
+  - **KRS**: `lookup_krs_company_details` — siedziba i kapitał z odpisu
+    aktualnego, sąd rejestrowy z OSTATNIEGO wpisu sądu (nie „SYSTEM”) w odpisie
+    pełnym. Publiczne API maskuje imiona i nazwiska zarządu — osobę
+    reprezentującą wpisuje człowiek (front podpowiada funkcje i biernik,
+    `lib/b2b-company-variant.ts`). Harness `/preview/b2b-generator`.
 - **Kontener listy:** `max-w-6xl` → `max-w-7xl` (9 kolumn + akcje).
 
 ## Centrum e-Zdrowia: umowy ramowe (części) → umowy wykonawcze + zamówienia MD (09.2026)
