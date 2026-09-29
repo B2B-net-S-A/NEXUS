@@ -20,8 +20,24 @@ vi.mock("@/lib/api", () => ({
   requestHistoryApi: {},
 }));
 
+// Domyślnie prawdziwe zachowanie; test „błąd HM” podmienia oba na raz.
+const hmMocks = vi.hoisted(() => ({ forceFailure: false }));
+vi.mock("@/lib/hiring-manager", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/hiring-manager")>();
+  return {
+    ...actual,
+    sameChoice: (...args: Parameters<typeof actual.sameChoice>) =>
+      hmMocks.forceFailure ? false : actual.sameChoice(...args),
+    saveHiringManager: (...args: Parameters<typeof actual.saveHiringManager>) =>
+      hmMocks.forceFailure
+        ? Promise.reject({ response: { status: 500, data: { detail: "awaria" } } })
+        : actual.saveHiringManager(...args),
+  };
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
+  hmMocks.forceFailure = false;
   vi.mocked(api.patch).mockResolvedValue({ data: {} } as never);
   vi.mocked(api.get).mockResolvedValue({
     data: [
@@ -131,6 +147,28 @@ describe("EditJobModal — edycja treści przez rekrutera (22.09.2026)", () => {
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
     expect(await screen.findByText(/Rekrutacja zapisana, ale/)).toBeInTheDocument();
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it("błąd zapisu hiring managera nie pomija zapisu współpracowników", async () => {
+    hmMocks.forceFailure = true;
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({ data: [] } as never);
+    const onSuccess = vi.fn();
+    const user = userEvent.setup();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <EditJobModal job={job} onClose={() => {}} onSuccess={onSuccess} scope="full" />
+      </QueryClientProvider>,
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Usuń Bartek Drugi ze współpracowników" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await waitFor(() =>
+      expect(api.delete).toHaveBeenCalledWith("/api/jobs/7/collaborators/22"),
+    );
+    expect(await screen.findByText(/Rekrutacja zapisana, ale hiring manager nie/)).toBeInTheDocument();
     expect(onSuccess).not.toHaveBeenCalled();
   });
 

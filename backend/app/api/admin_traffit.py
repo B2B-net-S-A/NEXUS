@@ -38,6 +38,8 @@ from app.tasks.traffit_sync import (
     validate_phases,
 )
 
+from app.services import traffit_notes_repair as notes_repair
+from app.services.traffit.client import TraffitConfig
 from app.services.traffit_status import read_traffit_status
 
 router = APIRouter()
@@ -125,3 +127,91 @@ async def traffit_sync_status(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     return await read_traffit_status(db)
+
+
+# ── Naprawa notatek z Traffita (29.09.2026) ─────────────────────────────────
+#
+# Jednorazowa, WYŁĄCZNIE ręczna: najpierw przebieg próbny (`dry_run=true`,
+# zero zapisów w notatkach, raport w statusie), potem — po akceptacji liczb
+# przez właściciela — zapis (`dry_run=false`). Rekrutacje notatek to osobny
+# bieg z kursorem (zapytanie per osoba do Traffita). Szczegóły:
+# `app/services/traffit_notes_repair.py`.
+
+
+def _traffit_configured_or_503() -> None:
+    try:
+        TraffitConfig.from_env()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Brak konfiguracji Traffita (TRAFFIT_TENANT/CLIENT_ID/CLIENT_SECRET).",
+        ) from exc
+
+
+@router.post("/notes-repair")
+@limiter.limit(_service_rate_limit)
+async def trigger_traffit_notes_repair(
+    request: Request,
+    _caller: TraffitSyncCaller,
+    dry_run: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Naprawa dat, autorów i wzmianek notatek z Traffita (w tle)."""
+    _traffit_configured_or_503()
+    reason = notes_repair.spawn_running_guard()
+    if reason:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
+    if not dry_run and not await notes_repair.fresh_dry_run_exists(db):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Najpierw przebieg próbny (dry_run=true) — zapis wymaga raportu "
+                "próbnego z ostatnich 7 dni."
+            ),
+        )
+    spawn(
+        notes_repair.run_notes_repair(dry_run_mode=dry_run),
+        f"traffit_notes_repair(dry_run={dry_run})",
+    )
+    return {"status": "started", "dry_run": dry_run}
+
+
+@router.post("/notes-repair/recruitments")
+@limiter.limit(_service_rate_limit)
+async def trigger_traffit_note_recruitments(
+    request: Request,
+    _caller: TraffitSyncCaller,
+    dry_run: bool = Query(True),
+    limit: int = Query(2000, ge=1, le=20000),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Rekrutacje notatek z aktywności osoby w Traffit (w tle, z kursorem)."""
+    _traffit_configured_or_503()
+    reason = notes_repair.spawn_running_guard()
+    if reason:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
+    if not dry_run:
+        current = await notes_repair.read_status(db)
+        if not current.get("applied"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Najpierw zapis naprawy notatek (notes-repair?dry_run=false) — "
+                    "rekrutacje dopasowujemy po source_ref, który ona nadaje."
+                ),
+            )
+    spawn(
+        notes_repair.run_recruitment_backfill(dry_run_mode=dry_run, limit=limit),
+        f"traffit_note_recruitments(dry_run={dry_run}, limit={limit})",
+    )
+    return {"status": "started", "dry_run": dry_run, "limit": limit}
+
+
+@router.get("/notes-repair/status")
+@limiter.limit(_service_rate_limit)
+async def traffit_notes_repair_status(
+    request: Request,
+    _caller: TraffitReadCaller,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    return await notes_repair.read_status(db)

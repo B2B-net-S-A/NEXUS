@@ -90,8 +90,63 @@ def render_traffit_mentions(
     return _TRAFFIT_USER_TOKEN_RE.sub(_replace, content)
 
 
+# Etykieta ZAPISYWANA w treści notatki (import i naprawa z 29.09.2026) dla
+# tokenu, którego użytkownika nie ma już w Traffit (`/users/`). Inna niż
+# `_FALLBACK_LABEL` z renderu: tam nie wiadomo, czy konto istnieje (render
+# pyta tylko o `users.external_id`, który SSO nadpisuje), tu Traffit
+# potwierdził, że go nie ma.
+STORED_UNKNOWN_LABEL = "(były użytkownik)"
+
+
+def clean_mention_label(name: str | None) -> str:
+    """Nazwa bez znaków, które rozbiłyby opakowanie JSON/HTML notatki."""
+    return _UNSAFE_NAME_CHARS_RE.sub("", (name or "").strip())
+
+
+def has_traffit_mentions(content: str | None) -> bool:
+    return bool(content) and _TRAFFIT_USER_TOKEN_RE.search(content) is not None
+
+
+def rewrite_traffit_mentions(
+    content: str | None, label_map: dict[str, str]
+) -> str | None:
+    """Zamień `$$user_NN$$` na `@Imię Nazwisko` w ZAPISYWANEJ treści.
+
+    ``label_map`` = identyfikator użytkownika Traffita → nazwa z Traffit
+    `/users/` (nie z `users.external_id`, który logowanie SSO nadpisuje).
+    Pusta mapa = nic nie zmieniamy: bez listy użytkowników nie da się
+    odróżnić konta usuniętego od niepobranej listy, a zamiana jest
+    nieodwracalna w samej notatce (oryginał zostaje w `activities.details`).
+    """
+    if not content or not label_map:
+        return content
+
+    def _replace(match: re.Match[str]) -> str:
+        label = label_map.get(match.group(1)) or STORED_UNKNOWN_LABEL
+        return f"@{label}"
+
+    return _TRAFFIT_USER_TOKEN_RE.sub(_replace, content)
+
+
+def count_unknown_traffit_mentions(
+    content: str | None, label_map: dict[str, str]
+) -> int:
+    """Ile tokenów `$$user_NN$$` nie ma w ``label_map`` (zostaną
+    `@(były użytkownik)` przy :func:`rewrite_traffit_mentions`)."""
+    if not content or not label_map:
+        return 0
+    return sum(
+        1 for uid in _TRAFFIT_USER_TOKEN_RE.findall(content) if not label_map.get(uid)
+    )
+
+
 __all__ = [
+    "STORED_UNKNOWN_LABEL",
+    "count_unknown_traffit_mentions",
     "build_traffit_user_label_map",
+    "clean_mention_label",
     "collect_traffit_user_ids",
+    "has_traffit_mentions",
     "render_traffit_mentions",
+    "rewrite_traffit_mentions",
 ]

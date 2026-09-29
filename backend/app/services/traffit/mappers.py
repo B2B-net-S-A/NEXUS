@@ -1078,6 +1078,11 @@ def traffit_activity_to_activity(
         "entity_type": "candidate",
         "entity_id": candidate_id,
         "action": action,
+        # Data aktywności z Traffita (czas lokalny Europe/Warsaw → UTC). Do
+        # 29.09.2026 aktywność dostawała `created_at = NOW()`, więc notatka
+        # z lutego wyglądała na majową (dzień importu). `None` = brak daty
+        # w Traffit — zapis bierze wtedy chwilę importu.
+        "created_at": _parse_traffit_datetime(payload.get("activity_date")),
         "details": {
             "traffit_type_id": type_id,
             "traffit_type_value": type_value,
@@ -1201,6 +1206,23 @@ def normalize_traffit_role(group_name: Optional[str]) -> str:
         if keyword in key:
             return role
     return "recruiter"
+
+
+def traffit_user_display_name(payload: dict[str, Any]) -> str:
+    """Imię i nazwisko użytkownika Traffita tak, jak je pokazuje Traffit.
+
+    Ta sama reguła co ``name`` w :func:`traffit_user_to_nexus` („imię
+    nazwisko”, zapasowo część adresu przed @). Pusty napis, gdy Traffit nie
+    podaje ani nazwiska, ani adresu.
+    """
+    raw_first = (payload.get("name") or "").strip()
+    raw_last = (payload.get("lastname") or "").strip()
+    full_name = " ".join(p for p in (raw_first, raw_last) if p).strip()
+    if full_name:
+        return full_name
+    email = (payload.get("email") or payload.get("username") or "").strip().lower()
+    local = email.split("@", 1)[0] if "@" in email else ""
+    return " ".join(part.capitalize() for part in local.replace(".", " ").split())
 
 
 def traffit_user_to_nexus(payload: dict[str, Any]) -> dict[str, Any]:

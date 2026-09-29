@@ -192,6 +192,9 @@ class NotificationType(str, enum.Enum):
     # z procesu, dostępność) — do właściciela procesu; related_entity=
     # (candidate, id).
     candidate_followup_signal = "candidate_followup_signal"
+    # 0399: ktoś odpowiedział na Twoją notatkę — link prowadzi do notatki
+    # głównej; related_entity=(note, id odpowiedzi).
+    note_reply = "note_reply"
 
 
 class Notification(Base, TimestampMixin):

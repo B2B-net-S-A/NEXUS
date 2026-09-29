@@ -2,7 +2,9 @@
 
 /**
  * Zakładka „Historia”: jeden kompozytor notatki u góry i filtry
- * „Wszystko · Notatki · Maile · Rozmowy · Czat zespołu”. Każdy filtr to
+ * „Notatki · Wszystko · Maile · Rozmowy · Czat zespołu” (od 29.09.2026
+ * domyślnie „Notatki” — oś czasu mieszała notatki ludzi z ruchami etapów
+ * i wpisami automatów). Każdy filtr to
  * dotychczasowy komponent (oś czasu, lista notatek, czytnik maili M365,
  * rozmowy CloudTalk, czat zespołu) — zmieniło się tylko miejsce.
  *
@@ -28,6 +30,7 @@ import {
   type CandidateDocument,
 } from "@/components/v2/files/FilePreviewModal";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { humanNoteCount } from "@/lib/candidate-notes-view";
 import type { CandidateActivityView } from "@/components/v2/pages/candidate-profile-navigation";
 import type { PresenceViewer } from "@/hooks/usePresence";
 import { cn } from "@/lib/utils";
@@ -46,8 +49,8 @@ export const ACTIVITY_FILTER_LABELS: Record<CandidateActivityView, string> = {
 };
 
 const FILTER_ORDER: CandidateActivityView[] = [
-  "timeline",
   "notes",
+  "timeline",
   "emails",
   "calls",
   "chat",
@@ -116,13 +119,14 @@ export function HistoryTab({
 
   // Notatki — dedykowane, NIEUCINANE źródło. Oś czasu miesza notatki
   // z etapami i ucina do limitu, więc starsze notatki znikały z filtra.
+  // Ten sam klucz co licznik zakładki „Historia” w profilu (jedno pobranie).
   const notesQuery = useQuery<{ items?: any[] }>({
     queryKey: candidateQueryKeys.notes(candidateId),
     queryFn: ({ signal }) =>
       api
         .get(`/api/notes?candidate_id=${candidateId}`, { signal })
         .then((r) => r.data),
-    enabled: candidateId > 0 && activityView === "notes",
+    enabled: candidateId > 0,
   });
   const noteItems = useMemo(
     () =>
@@ -184,6 +188,40 @@ export function HistoryTab({
     }
   };
 
+  // Przypięcie jest wspólne dla zespołu (0399) — każdy z prawem zapisu notatek.
+  const handlePinNote = async (noteId: number, pinned: boolean) => {
+    if (readOnly) return false;
+    try {
+      if (pinned) await api.post(`/api/notes/${noteId}/pin`);
+      else await api.delete(`/api/notes/${noteId}/pin`);
+      invalidateNotes();
+      return true;
+    } catch (e) {
+      showError(
+        extractErrorMsg(e) ||
+          (pinned ? "Nie udało się przypiąć notatki" : "Nie udało się odpiąć notatki"),
+      );
+      return false;
+    }
+  };
+
+  // Odpowiedź dziedziczy kandydata i rekrutację notatki głównej (serwer).
+  const handleReplyNote = async (parentId: number, content: string) => {
+    if (readOnly) return false;
+    try {
+      await api.post("/api/notes", {
+        parent_note_id: parentId,
+        content,
+        note_type: "general",
+      });
+      invalidateNotes();
+      return true;
+    } catch (e) {
+      showError(extractErrorMsg(e) || "Nie udało się dodać odpowiedzi");
+      return false;
+    }
+  };
+
   // Backend kaskaduje NoteMention; 403 gdy nie autor i nie admin.
   const handleDeleteNote = async (noteId: number) => {
     if (readOnly) return false;
@@ -199,7 +237,8 @@ export function HistoryTab({
 
   const counts: Partial<Record<CandidateActivityView, number>> = {
     timeline: timeline.isPending ? undefined : timeline.items.length,
-    notes: notesQuery.isSuccess ? noteItems.length : undefined,
+    // Notatki ludzi — bez odpowiedzi i bez wpisów automatów (0399).
+    notes: notesQuery.isSuccess ? humanNoteCount(noteItems) : undefined,
     calls: callsQuery.isSuccess ? (callsQuery.data ?? []).length : undefined,
   };
 
@@ -305,6 +344,8 @@ export function HistoryTab({
             recruitments={recruitments}
             onEdit={handleEditNote}
             onDelete={handleDeleteNote}
+            onPin={handlePinNote}
+            onReply={handleReplyNote}
             currentUserId={currentUserId}
             canModerate={canModerate}
             readOnly={readOnly}

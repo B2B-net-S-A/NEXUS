@@ -231,12 +231,20 @@ async def _write_log(
         )
 
 
-def _note(score: Optional[float], matching: int, total: int, trigger: str) -> str:
-    source = "nowej rekrutacji" if trigger == "job_publish" else "odczycie CV"
-    must = f" Must-have: {matching}/{total}." if total else ""
-    return (
-        f"Auto-match {round(score or 0)}/100 — kandydat dodany automatycznie po "
-        f"{source}.{must}"
+def _entry_meta(scored: Scored, score: Optional[float], trigger: str) -> dict:
+    """Wynik auto-matcha przy procesie (0399) — do 29.09.2026 był notatką.
+
+    Automaty nie piszą notatek: historia kandydata ma być tym, co napisali
+    ludzie. Plakietka „Auto-match 86/100” przy procesie niesie to samo.
+    """
+    from app.services.process_entry_meta import auto_match_entry_meta
+
+    return auto_match_entry_meta(
+        score=score,
+        source="nexus",
+        must_hit=list(scored.matching_must),
+        must_total=len(scored.matching_must) + len(scored.gap_must),
+        trigger=trigger,
     )
 
 
@@ -276,17 +284,12 @@ async def _apply_decisions(
                     candidate_ids=[d.candidate_id],
                     actor_user_id=job.recruiter_id or job.tac_id,
                     initial_stage_legacy="posting",
-                    note=_note(
-                        d.score,
-                        len(scored.matching_must),
-                        len(scored.matching_must) + len(scored.gap_must),
-                        trigger,
-                    ),
                     tags=[AUTO_MATCH_TAG],
                     # Automat nikogo nie „bierze” — osoba z automatu jest
                     # wolna, a „Biorę” zakłada blokadę klikającemu (0352).
                     entry_source="auto_match",
                     claim=False,
+                    entry_meta=_entry_meta(scored, d.score, trigger),
                 )
         except Exception as exc:  # noqa: BLE001 — jedna para nie wywraca biegu
             logger.warning(

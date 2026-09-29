@@ -9,6 +9,11 @@ from app.core.database import Base
 from app.models.base import TimestampMixin
 
 
+# 0399: wpisy zapisane przez automaty (auto-match z CV i ze scrapera JJIT)
+# — lista notatek chowa je domyślnie za „Pokaż systemowe”.
+SYSTEM_NOTE_SOURCE = "system"
+
+
 class NoteType(str, enum.Enum):
     call = "call"
     meeting = "meeting"
@@ -67,6 +72,21 @@ class Note(Base, TimestampMixin):
     # audio do Object Storage zamiast polegać na tym URL-u.
     audio_url: Mapped[Optional[str]] = mapped_column(Text)
 
+    # 0399: przypięcie wspólne dla zespołu — przypięta notatka jest pierwsza
+    # na liście, w szybkim podglądzie kandydata i w doku osoby w rekrutacji.
+    pinned_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    pinned_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # 0399: odpowiedź na notatkę — JEDEN poziom (odpowiedź na odpowiedź = 422).
+    # Odpowiedź dziedziczy kandydata i rekrutację notatki głównej; usunięcie
+    # notatki głównej kasuje odpowiedzi (ON DELETE CASCADE).
+    parent_note_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("notes.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+
     # Relationships
     candidate = relationship("Candidate", back_populates="notes")
     job = relationship("Job", back_populates="notes")
@@ -83,6 +103,13 @@ class Note(Base, TimestampMixin):
     )
     supersedes_note = relationship(
         "Note", remote_side="Note.id", foreign_keys=[supersedes_note_id]
+    )
+    # Tylko do odczytu i bez kaskady ORM: odpowiedzi kasuje baza (CASCADE).
+    parent_note = relationship(
+        "Note",
+        remote_side="Note.id",
+        foreign_keys=[parent_note_id],
+        viewonly=True,
     )
 
     __table_args__ = (

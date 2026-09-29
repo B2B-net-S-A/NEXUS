@@ -57,6 +57,16 @@ def sync_is_running() -> bool:
     return _sync_lock.locked()
 
 
+def traffit_exclusive_lock() -> asyncio.Lock:
+    """Blokada biegu Traffita dla prac jednorazowych (naprawa notatek, 29.09).
+
+    Trzymana przez naprawę sprawia, że zaplanowany sync w tym czasie się
+    pomija („already_running”) — nie piszą naraz do tych samych notatek
+    i nie dzielą limitu zapytań do Traffita.
+    """
+    return _sync_lock
+
+
 # ── Scheduling decisions (pure, unit-testable) ───────────────────────────────
 
 
@@ -1101,6 +1111,8 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "categorised",
         # Runda 9: przeliczone tytuły dla rekrutera.
         "working_titles",
+        # 29.09.2026: rekrutacje dopisane do notatek (faza aktywności).
+        "note_recruitments",
         "drifted_entities",
         "drift",
         "total_source",

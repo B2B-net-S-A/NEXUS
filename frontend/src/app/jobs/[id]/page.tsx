@@ -968,6 +968,8 @@ export default function JobDetailPage() {
           onClose={() => setShowEditJob(false)}
           onSuccess={() => {
             queryClient.invalidateQueries({ queryKey: ["job", id] });
+            // Lista /jobs pokazuje prowadzącego i „+N” współpracowników.
+            queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
             setShowEditJob(false);
           }}
         />

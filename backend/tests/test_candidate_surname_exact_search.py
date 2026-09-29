@@ -41,15 +41,16 @@ async def _seed() -> dict[str, int]:
         return _IDS
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate, CandidateStatus
+    from app.models.note import Note
 
-    def person(name: str, lastname: str) -> Candidate:
+    def person(name: str, lastname: str, email: str | None = None) -> Candidate:
         # Krótkie imię i brak e-maila: tożsamość (imię + nazwisko + e-mail)
         # jest krótka, więc podobieństwo trigramowe nazwisk wyraźnie
         # przekracza próg 0,2 — tak jak na produkcji.
         return Candidate(
             name=name,
             lastname=lastname,
-            email=None,
+            email=email,
             status=CandidateStatus.active,
             linkedin_current_company=CO,
         )
@@ -63,15 +64,24 @@ async def _seed() -> dict[str, int]:
         for row in rows.values():
             db.add(row)
         await db.flush()
-        # Kolejność: dokładne nazwisko STARSZE, dłuższa odmiana NOWSZA.
-        older = person("Jo", f"Wita{Y}owski")
-        db.add(older)
+        # „Nowak” vs „Nowakowski”: dokładne nazwisko i nazwisko z tym samym
+        # początkiem; słowo w e-mailu i w notatce innej osoby.
+        extra = {
+            "wit": person("Jo", f"Wita{Y}"),
+            "wit_longer": person("Jo", f"Wita{Y}kowski"),
+            "wit_email": person("Ala", "Inna", email=f"wita{Y}@example.com"),
+            "wit_note": person("Ola", "Inna"),
+        }
+        for row in extra.values():
+            db.add(row)
         await db.flush()
-        newer = person("Jo", f"Wita{Y}owskiego")
-        db.add(newer)
-        await db.flush()
-        rows["wit"] = older
-        rows["wit_newer"] = newer
+        db.add(
+            Note(
+                candidate_id=extra["wit_note"].id,
+                content=f"Polecił ją Wita{Y} z poprzedniego projektu.",
+            )
+        )
+        rows.update(extra)
         await db.commit()
         for key, row in rows.items():
             _IDS[key] = row.id
@@ -128,6 +138,48 @@ def test_opis_i_jezyk_to_nie_nazwisko(token: str) -> None:
     assert not p.looks_like_surname(token)
 
 
+@pytest.mark.parametrize(
+    "token",
+    [
+        "warszawski",
+        "Śląski",
+        "mazowiecka",
+        "pomorski",
+        "małopolski",
+        "wielkopolska",
+        "podlaski",
+        "lubelski",
+        "łódzki",
+        "krakowska",
+        "gdański",
+        "poznański",
+        "wrocławski",
+    ],
+)
+def test_przymiotnik_regionu_to_nie_nazwisko(token: str) -> None:
+    """Region/miasto bez trafienia dokładnego idzie po znaczeniu, nie jako
+    „podobne nazwiska”."""
+    assert not p.looks_like_surname(token)
+
+
+def test_dokladny_filtr_to_samodzielny_semi_join() -> None:
+    """Warunek dokładny nie może być ``OR`` z gałęziami frazy: ``OR`` na
+    najwyższym poziomie z ``IN (UNION …)`` wyłącza semi-join i skanuje całą
+    tabelę kandydatów. Ma być jedno ``IN (SELECT …)`` zawężone trigramem."""
+    from sqlalchemy.dialects import postgresql
+
+    clause = p.literal_text_clause("Jan Kowalski", person_match="exact")
+    sql = str(clause.compile(dialect=postgresql.dialect()))
+    assert sql.startswith("candidates.id IN (SELECT candidates.id"), sql
+    assert "FROM candidates" in sql
+    assert sql.count("search_doc_unaccented ILIKE") == 2
+    for forbidden in ("UNION", "notes", "email", "raw_cv_text", " % "):
+        assert forbidden not in sql, f"{forbidden!r} w warunku dokładnym: {sql}"
+    # jedyne OR-y są w środku podzapytania (imię / nazwisko), nie na górze
+    head = sql.split("(SELECT", 1)[0]
+    assert " OR " not in head
+
+
 @pytest.mark.asyncio
 async def test_regula_dziala_tylko_w_v2_z_auto(monkeypatch) -> None:
     async def _never(*args, **kwargs):  # pragma: no cover - nie może zostać zawołane
@@ -153,6 +205,7 @@ async def test_dokladne_nazwisko_wylacza_literowki(monkeypatch) -> None:
     assert await p.person_text_match(None, "Składanowski", v2, "auto") == "exact"
     compiled = str(p.literal_text_clause("Składanowski", person_match="exact"))
     assert " % " not in compiled, "gałąź literówek nie może zostać przy trafieniu"
+    assert "UNION" not in compiled, "przy trafieniu dokładnym nie ma gałęzi frazy"
 
 
 # ── Oba silniki na prawdziwej bazie ─────────────────────────────────────────
@@ -201,14 +254,28 @@ async def test_brak_nazwiska_pokazuje_podobne_z_flaga(app_client, app_auth_heade
 
 
 @pytest.mark.asyncio
-async def test_dokladna_osoba_pierwsza_niezaleznie_od_sortowania(
+async def test_tylko_dokladne_nazwisko_bez_prefiksu_emaila_i_notatek(
     app_client, app_auth_headers
 ):
-    q = f"Wita{Y}owski"
+    """Decyzja 29.09.2026: „Nowak” pokazuje wyłącznie Nowaków — bez
+    „Nowakowskiego” i bez osób, u których to słowo stoi w e-mailu lub notatce."""
+    q = f"Wita{Y}"
     body = await _list_raw(app_client, app_auth_headers, q=q, text_mode="auto")
-    # Nowsza „…owskiego” trafia prefiksem, ale dokładne nazwisko jest pierwsze
-    # mimo domyślnego sortowania od najnowszych.
-    assert _keys([i["id"] for i in body["items"]]) == ["wit", "wit_newer"]
+    assert _keys([i["id"] for i in body["items"]]) == ["wit"]
+    assert body["text_match"] == "exact"
+
+    data = await _search_raw(app_client, app_auth_headers, q=q, text_mode="auto")
+    assert _keys([i["id"] for i in data["items"]]) == ["wit"]
+
+
+@pytest.mark.asyncio
+async def test_doslownie_bez_text_mode_nadal_szuka_frazy(app_client, app_auth_headers):
+    """Bez ``text_mode`` (alerty zapisanych wyszukiwań) fraza nadal trafia
+    w dłuższe nazwisko, e-mail i notatkę — dotychczasowe zachowanie."""
+    q = f"Wita{Y}"
+    body = await _list_raw(app_client, app_auth_headers, q=q)
+    found = set(_keys([i["id"] for i in body["items"]]))
+    assert {"wit", "wit_longer", "wit_email", "wit_note"} <= found
 
 
 @pytest.mark.asyncio
