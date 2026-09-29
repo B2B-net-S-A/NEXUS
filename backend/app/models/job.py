@@ -324,7 +324,7 @@ class Job(Base, TimestampMixin):
     hiring_manager_contact_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    # 0402: rola z biblioteki ról („Champion po ludzku”). `auto` przypisuje
+    # 0403: rola z biblioteki ról („Champion po ludzku”). `auto` przypisuje
     # `plain_knowledge.role_matcher`, `manual` — admin albo Head of Recruitment;
     # ręcznego wyboru automat nigdy nie nadpisuje.
     role_profile_id: Mapped[Optional[int]] = mapped_column(

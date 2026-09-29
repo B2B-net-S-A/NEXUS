@@ -1,4 +1,4 @@
-"""DDL „Champion po ludzku” — JEDNO źródło dla migracji 0402 i ``entrypoint.sh``.
+"""DDL „Champion po ludzku” — JEDNO źródło dla migracji 0403 i ``entrypoint.sh``.
 
 Produkcyjny alembic bywa osierocony, więc siatka w ``entrypoint.sh`` jest
 wdrożeniem równorzędnym z migracją. Obie strony importują listy stąd, żeby

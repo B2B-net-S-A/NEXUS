@@ -138,7 +138,7 @@ class AIFeatureKey(str, enum.Enum):
     # rekruterów na pojedyncze pytania klienta z cytatem źródła i odsiewa
     # oceny kandydata oraz nazwiska. Jednorazowy skrypt, nie ścieżka aplikacji.
     interview_question_import = "interview_question_import"
-    # „Champion po ludzku” (0402): research w internecie — co to jest
+    # „Champion po ludzku” (0403): research w internecie — co to jest
     # technologia, czym zajmuje się rola, jak opisać klienta kandydatowi.
     # Do wyszukiwarki idzie wyłącznie NAZWA (technologii, roli, firmy).
     # Wynik zapisany raz w bazie; teksty rekrutacji liczą się pod champion_draft.

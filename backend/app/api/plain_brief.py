@@ -1,4 +1,4 @@
-"""„Champion po ludzku” — widok rekrutacji i wybór roli (migracja 0402).
+"""„Champion po ludzku” — widok rekrutacji i wybór roli (migracja 0403).
 
 * ``GET /api/jobs/{job_id}/plain-brief`` — blok „Po ludzku” i ściąga do rozmowy:
   teksty rekrutacji, słowniczek stacku, rola ze statystykami (bez stawek)

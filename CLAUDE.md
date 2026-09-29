@@ -1732,7 +1732,7 @@ Wzór Word i edytor mają OSIEM sekcji: 1 Podstawy · 2 Search · 3 Stack ·
 - UI: `components/champion/*` (sekcje, skrót dla rekrutera, plakietki),
   `ds/RequirementChipInput`, harness `/preview/champion-profile` (przypadek 3).
 
-## „Champion po ludzku” i ściąga do rozmowy (0402, 29.09.2026)
+## „Champion po ludzku” i ściąga do rozmowy (0403, 29.09.2026)
 
 Decyzje Artura 29.09.2026 (makiety https://claude.ai/artifact/WEVyKuavTdd8JVggXQ9mD3):
 blok „Po ludzku” na górze Podglądu Championa i „Ściąga do rozmowy” w doku osoby

@@ -54,7 +54,7 @@ _RATE_LIMITED_MODULES = (
     "api/cv_qc.py",
     # Konto JustJoin.IT/RocketJobs (0381): callback OAuth bez sesji NEXUSA.
     "api/job_board_connection.py",
-    # „Champion po ludzku” (0402): odświeżenie = płatny model i research w internecie.
+    # „Champion po ludzku” (0403): odświeżenie = płatny model i research w internecie.
     "api/plain_brief_refresh.py",
 )
 

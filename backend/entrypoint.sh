@@ -820,7 +820,7 @@ except Exception as _b2b_register_err:  # noqa: BLE001
     print(f"b2b register import DDL unavailable: {_b2b_register_err!r}")
     _B2B_REGISTER_DDL = []
 
-# „Champion po ludzku” (migracja 0402): słowniczek, biblioteka ról, teksty
+# „Champion po ludzku” (migracja 0403): słowniczek, biblioteka ról, teksty
 # rekrutacji — JEDNO źródło z migracją (`app/services/plain_knowledge/schema_sql.py`).
 try:
     from app.services.plain_knowledge import schema_sql as _plain
@@ -6434,7 +6434,7 @@ _DATA_STATEMENTS = [
     "SELECT 'interview_question_import', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'interview_question_import')",
-    # 0402: seed feature'a AI `plain_knowledge_research` („Champion po ludzku”).
+    # 0403: seed feature'a AI `plain_knowledge_research` („Champion po ludzku”).
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'plain_knowledge_research', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
@@ -8930,7 +8930,7 @@ async def _lowercase_user_emails(conn):
 
 
 async def _seed_plain_knowledge(conn):
-    # „Champion po ludzku” (0402): słowniczek i role z plików w repo. Wiersz
+    # „Champion po ludzku” (0403): słowniczek i role z plików w repo. Wiersz
     # poprawiony w aplikacji (`origin='manual'`) nie jest nadpisywany. Błąd nie
     # może urwać reszty startu (constraints i indeksy biegną po seedach).
     try:

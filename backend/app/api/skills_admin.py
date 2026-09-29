@@ -192,7 +192,7 @@ async def ignore_term(
         raise _curation_error(exc) from exc
 
 
-# ── Słowniczek „po ludzku” (0402) ───────────────────────────────────────────
+# ── Słowniczek „po ludzku” (0403) ───────────────────────────────────────────
 # Definicje technologii dla rekruterów (blok „Po ludzku” w Podglądzie
 # Championa). Poprawiają admin i Head of Recruitment (decyzja 29.09.2026);
 # zapis ustawia `origin=manual`, więc ani zasiew z repo, ani research go nie

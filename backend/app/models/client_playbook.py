@@ -62,7 +62,7 @@ class ClientPlaybook(Base, TimestampMixin):
 
     # ── Treść (co mówić kandydatowi, reguły, proces, onboarding) ─────────
     about_for_candidate: Mapped[Optional[str]] = mapped_column(Text)
-    # 0402: skąd pochodzi opis dla kandydata — `web` = research z internetu
+    # 0403: skąd pochodzi opis dla kandydata — `web` = research z internetu
     # („Champion po ludzku”), NULL/`manual` = wpisany przez człowieka.
     # Research nigdy nie nadpisuje opisu wpisanego ręcznie.
     about_for_candidate_origin: Mapped[Optional[str]] = mapped_column(String(10))

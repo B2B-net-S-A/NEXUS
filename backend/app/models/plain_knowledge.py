@@ -1,4 +1,4 @@
-"""„Champion po ludzku” — wspólna baza wiedzy i teksty rekrutacji (migracja 0402).
+"""„Champion po ludzku” — wspólna baza wiedzy i teksty rekrutacji (migracja 0403).
 
 Decyzje Artura 29.09.2026: rekruter ma w minutę zrozumieć, kogo szuka i co
 powiedzieć kandydatowi. Wiedza OGÓLNA (co to jest technologia, czym zajmuje

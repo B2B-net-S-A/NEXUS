@@ -23,7 +23,7 @@ READ_ONLY_POST_ROUTE_TEMPLATES: tuple[str, ...] = (
     "/api/jobs/champion-profile/historical-matches",
     "/api/jobs/request-history/preview",
     "/api/jobs/{job_id}/classify-cc",
-    # 0402: „Champion po ludzku” — odświeżenie pamięci podręcznej tekstów.
+    # 0403: „Champion po ludzku” — odświeżenie pamięci podręcznej tekstów.
     "/api/jobs/{job_id}/plain-brief/refresh",
     "/api/jobs/{job_id}/generate-criteria-preview",
     "/api/recommendations/cv-upload-preview",

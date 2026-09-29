@@ -5,7 +5,7 @@
 (``scripts/build_plain_knowledge.py``). Opisy klientów NIE są w repo — repo jest
 publiczne, a lista klientów to informacja handlowa; idą ``--apply`` na produkcji.
 
-Zasiew biegnie w migracji 0402 i przy każdym starcie (entrypoint), więc
+Zasiew biegnie w migracji 0403 i przy każdym starcie (entrypoint), więc
 poprawka pliku w repo dociera bez nowej migracji. Wiersz poprawiony w
 aplikacji (``origin='manual'``) NIGDY nie jest nadpisywany; wiersz z zasiewu
 albo dopisany przez AI dostaje treść z pliku (plik jest przejrzany przez

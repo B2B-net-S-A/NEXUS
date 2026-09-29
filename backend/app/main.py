@@ -2884,7 +2884,7 @@ async def api_health_deep_check():
         # jako 500 na profilu klienta i w Pomocy → Klienci. Sonda jest dowodem.
         ("client_playbooks", ClientPlaybook),
         ("client_playbook_events", ClientPlaybookEvent),
-        # 0402: „Champion po ludzku”. Brak tabel = 500 na Podglądzie Championa
+        # 0403: „Champion po ludzku”. Brak tabel = 500 na Podglądzie Championa
         # i w doku osoby (ściąga do rozmowy).
         ("plain_terms", PlainTerm),
         ("role_profiles", RoleProfile),

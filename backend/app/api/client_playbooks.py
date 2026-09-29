@@ -145,7 +145,7 @@ class ClientPlaybookRead(BaseModel):
     multi_project_cooldown_days: Optional[int] = None
     rate_policy: Optional[str] = None
     about_for_candidate: Optional[str] = None
-    # 0402: `web` = opis z researchu w internecie („Champion po ludzku”),
+    # 0403: `web` = opis z researchu w internecie („Champion po ludzku”),
     # `manual`/NULL = wpisany przez człowieka.
     about_for_candidate_origin: Optional[str] = None
     about_for_candidate_sources: list[dict[str, str]] = Field(default_factory=list)

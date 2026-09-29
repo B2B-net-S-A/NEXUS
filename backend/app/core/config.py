@@ -595,7 +595,7 @@ class Settings(BaseSettings):
     JARVIS_WEB_ALLOWED_DOMAINS: str = ""
     JARVIS_WEB_BLOCKED_DOMAINS: str = ""
 
-    # „Champion po ludzku” (0402): research w internecie dla technologii, ról
+    # „Champion po ludzku” (0403): research w internecie dla technologii, ról
     # i opisów klientów, których nie ma jeszcze w bazie. Wyłącznik bez deployu
     # i dzienny sufit (licznik w pamięci procesu — backend to jeden uvicorn).
     PLAIN_KNOWLEDGE_WEB_ENABLED: bool = True

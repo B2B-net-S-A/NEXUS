@@ -1071,7 +1071,7 @@ CHAMPION_CLIENT_HISTORY = PromptTemplate(
 )
 
 
-# ── „Champion po ludzku” (0402, 29.09.2026) ─────────────────────────────────
+# ── „Champion po ludzku” (0403, 29.09.2026) ─────────────────────────────────
 # Research z internetu robimy RAZ na technologię, rolę i firmę klienta, a wynik
 # zapisujemy w bazie. Dwa kroki: (1) wyszukanie z narzędziem web_search — do
 # zapytania idzie WYŁĄCZNIE nazwa; (2) ułożenie notatek w JSON bez narzędzi.

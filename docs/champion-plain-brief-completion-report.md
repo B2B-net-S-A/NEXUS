@@ -14,7 +14,7 @@ Makiety: https://claude.ai/artifact/WEVyKuavTdd8JVggXQ9mD3 (v7). Kontrakt API:
 - **Biblioteka ról** (Ustawienia → Rekrutacja) i pola „po ludzku” w Słowniku
   umiejętności; poprawki: admin + Head of Recruitment, z historią zmian.
 - **Opis klienta z internetu** w karcie klienta (`about_for_candidate_origin=web`).
-- Backend: migracja 0402 (`plain_terms`, `role_profiles`, `job_plain_briefs`,
+- Backend: migracja 0403 (`plain_terms`, `role_profiles`, `job_plain_briefs`,
   `plain_knowledge_events`, `jobs.role_profile_id`, pola karty), research w
   internecie (F26), dopasowanie roli bez AI, teksty rekrutacji z kontrolą
   ugruntowania, trasy GET/POST/PUT, skrypt `scripts/build_plain_knowledge.py`.

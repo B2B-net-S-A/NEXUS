@@ -1,7 +1,7 @@
 """„Champion po ludzku”: słowniczek, biblioteka ról, teksty rekrutacji (29.09.2026).
 
-Revision ID: 0402_plain_knowledge
-Revises: 0401_b2b_annex_rates
+Revision ID: 0403_plain_knowledge
+Revises: 0402_contract_docs_sharepoint
 
 Decyzje Artura 29.09.2026 (makiety https://claude.ai/artifact/WEVyKuavTdd8JVggXQ9mD3):
 rekruter widzi na górze Podglądu Championa wyjaśnienie „po ludzku”, a w doku
@@ -16,8 +16,8 @@ from alembic import op
 
 from app.services.plain_knowledge import schema_sql, seed
 
-revision = "0402_plain_knowledge"
-down_revision = "0401_b2b_annex_rates"
+revision = "0403_plain_knowledge"
+down_revision = "0402_contract_docs_sharepoint"
 branch_labels = None
 depends_on = None
 
@@ -45,7 +45,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM ai_usage_log WHERE feature::text = 'plain_knowledge_research'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0402 odmawia: ai_usage_log ma wpisy plain_knowledge_research, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0403 odmawia: ai_usage_log ma wpisy plain_knowledge_research, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

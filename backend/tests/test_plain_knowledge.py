@@ -1,4 +1,4 @@
-"""„Champion po ludzku” (0402): ugruntowanie tekstów, dopasowanie roli, research,
+"""„Champion po ludzku” (0403): ugruntowanie tekstów, dopasowanie roli, research,
 uprawnienia i to, że odczyt nic nie zapisuje.
 
 Decyzje Artura 29.09.2026: stawka i nazwa klienta idą do kandydata od razu,

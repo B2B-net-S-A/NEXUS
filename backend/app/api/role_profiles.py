@@ -1,4 +1,4 @@
-"""Biblioteka ról „po ludzku” (migracja 0402).
+"""Biblioteka ról „po ludzku” (migracja 0403).
 
 * ``GET /api/role-profiles`` — lista ról z liczbą rekrutacji.
 * ``GET /api/role-profiles/{id}`` — rola, statystyki z historii (bez stawek)
