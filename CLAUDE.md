@@ -1767,7 +1767,11 @@ blok „Po ludzku” na górze Podglądu Championa i „Ściąga do rozmowy” w
   „ON HOLD”) i bez słów nazwy klienta tej rekrutacji z jej skrótami
   (`client_words`: „PKO Bank Polski” → „BP”). Tytuł bez nazwy zawodu
   (`ROLE_NOUNS`) roli nie zakłada — research 29.09 dał role „PL” i „AKADEMIA”,
-  a nazwy z klientem trafiłyby do publicznego `roles.json`. Nie dokładaj haka w zapis Championa — `stale` obejmuje
+  a nazwy z klientem trafiłyby do publicznego `roles.json`. Słowniczek nie
+  bada zwykłych polskich słów (`knowledge._generic_phrase`: hasło spoza słownika
+  umiejętności pisane małymi literami albo złożone z polskich rzeczowników
+  i przymiotników — „dokumentacja”, „testy web”, „Bankowość”); skróty i nazwy
+  narzędzi („AML”, „SoapUI”, „RedMine”) zostają. Nie dokładaj haka w zapis Championa — `stale` obejmuje
   każdą ścieżkę zapisu profilu.
 - **Stawka i nazwa klienta idą do kandydata od razu; statystyki roli BEZ stawek**
   (liczba rekrutacji, klientów, zatrudnień, stanowiska zatrudnionych od 3

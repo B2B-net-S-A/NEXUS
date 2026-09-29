@@ -125,6 +125,35 @@ def test_term_notes_only_for_terms_of_this_job() -> None:
     assert out["term_notes"] == {"kafka": "Po niej płyną transakcje."}
 
 
+def test_glossary_skips_plain_polish_words_but_keeps_tools_and_jargon() -> None:
+    """Sonda 29.09 (rekrutacja 715222) badała w internecie „dokumentację”
+    i „bankowość” — słowniczek jest na technologie i żargon."""
+    for generic in (
+        "dokumentacja",
+        "raportowanie błędów",
+        "testy web",
+        "aplikacje webowe",
+        "Bankowość",
+        "Dokumentacja",
+        "Testy manualne",
+        "Płatności",
+    ):
+        assert not knowledge.researchable_term(generic), generic
+    for jargon in (
+        "RedMine",
+        "SoapUI",
+        "Testlink",
+        "Ferryt",
+        "AML",
+        "SIEM",
+        ".NET",
+        "Treasury",
+        "Core banking",
+        "ISTQB",
+    ):
+        assert knowledge.researchable_term(jargon), jargon
+
+
 def test_researchable_terms_skip_sentences_and_years() -> None:
     assert knowledge.researchable_term("Kafka")
     assert knowledge.researchable_term("Karty płatnicze")

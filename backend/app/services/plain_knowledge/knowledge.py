@@ -31,6 +31,50 @@ STALE_CLAIM_MINUTES = 5
 FAILED_RETRY_HOURS = 24
 MAX_TERM_CHARS = 60
 MAX_TERM_WORDS = 4
+# Słowniczek tłumaczy technologie i żargon, nie zwykłe polskie słowa: sonda
+# 29.09 (rekrutacja 715222) badała w internecie „dokumentację”, „testy web”
+# i „bankowość”. Hasło spoza słownika umiejętności odpada, gdy jest pisane
+# małymi literami albo każde jego słowo wygląda na polski rzeczownik lub
+# przymiotnik. Skróty i nazwy narzędzi („AML”, „SoapUI”, „Treasury”) zostają.
+_POLISH_LETTERS = re.compile(r"[ąćęłńóśźż]", re.IGNORECASE)
+_POLISH_ENDINGS = (
+    "ość",
+    "ości",
+    "acja",
+    "acje",
+    "acji",
+    "anie",
+    "enie",
+    "owe",
+    "owy",
+    "owa",
+    "owych",
+)
+# Krótkie końcówki tylko we frazach: „Testy manualne”, ale nie „RedMine”.
+_POLISH_PHRASE_ENDINGS = ("ne", "ny", "nych", "ami")
+_POLISH_COMMON = frozenset(
+    {"test", "testy", "testów", "aplikacje", "systemy", "dane", "projekty"}
+)
+
+
+def _polish_word(word: str, in_phrase: bool) -> bool:
+    if any(ch.isupper() for ch in word[1:]):  # „RedMine”, „SoapUI”, „SIEM”
+        return False
+    low = word.casefold()
+    return bool(
+        _POLISH_LETTERS.search(word)
+        or low.endswith(_POLISH_ENDINGS)
+        or (in_phrase and low.endswith(_POLISH_PHRASE_ENDINGS))
+        or low in _POLISH_COMMON
+    )
+
+
+def _generic_phrase(clean: str) -> bool:
+    if clean == clean.lower() and not re.search(r"[\d#+.]", clean):
+        return True
+    words = [w for w in clean.split(" ") if w[:1].isalpha()]
+    return bool(words) and all(_polish_word(w, len(words) > 1) for w in words)
+
 
 _inflight_clients: set[int] = set()
 
@@ -55,6 +99,7 @@ def researchable_term(name: str) -> bool:
         len(clean) <= MAX_TERM_CHARS
         and len(clean.split(" ")) <= MAX_TERM_WORDS
         and not re.search(r"\d+\s*\+?\s*(lat|lata|years?)", clean, re.IGNORECASE)
+        and not _generic_phrase(clean)
     )
 
 
