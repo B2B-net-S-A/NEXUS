@@ -2,7 +2,7 @@
 
 - ``state`` podpisany i związany z celem (obcy JWT nie przejdzie);
 - adres logowania niesie PKCE S256 i dane aplikacji;
-- jednostka organizacyjna: env > claim z ``/oauth/me``;
+- jednostka organizacyjna: env > claim jednostki > jedyna jednostka konta;
 - odświeżenie tokenu zapisuje nowy refresh token; ``invalid_grant`` =
   ``reconnect_required`` (zapisane mimo wyjątku);
 - callback bez sesji NEXUSA: brak kodu / zły state / nie-admin = powrót
@@ -138,14 +138,21 @@ def test_authorize_without_app_data_is_refused(monkeypatch):
         jjit_connection.authorize_url(1)
 
 
-def test_units_env_override_wins_over_claim(monkeypatch):
-    assert jjit_connection.resolve_units({"organization_id": "org-1"}) == {
-        "justjoinit": "org-1",
-        "rocketjobs": "org-1",
+def test_units_env_override_wins_over_account_unit(monkeypatch):
+    # Kształt `/oauth/me` z sandboxa 29.09.2026: `organization_id` to ID
+    # organizacji, NIE jednostki — ścieżki ogłoszeń z nim nie działają.
+    me = {"sub": "u", "organization_id": "org-1", "company_id": None}
+    assert jjit_connection.resolve_units(me) == {}
+    units = [{"id": "unit-1", "organizationId": "org-1", "name": "b2bnetwork.pl"}]
+    assert jjit_connection.resolve_units(me, units) == {
+        "justjoinit": "unit-1",
+        "rocketjobs": "unit-1",
     }
+    # Kilka jednostek bez nadpisania = brak zgadywania.
+    assert jjit_connection.resolve_units(me, units + [{"id": "unit-2"}]) == {}
     monkeypatch.setattr(settings, "PORTAL_ROCKETJOBS_ORGANIZATION_UNIT_ID", "rj-unit")
-    assert jjit_connection.resolve_units({})["rocketjobs"] == "rj-unit"
-    assert "justjoinit" not in jjit_connection.resolve_units({})
+    assert jjit_connection.resolve_units(me, units)["rocketjobs"] == "rj-unit"
+    assert jjit_connection.resolve_units(me, units)["justjoinit"] == "unit-1"
 
 
 async def _seed_connection(expires_in: timedelta) -> None:

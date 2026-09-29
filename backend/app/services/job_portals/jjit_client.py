@@ -29,9 +29,15 @@ logger = logging.getLogger(__name__)
 
 TokenProvider = Callable[[bool], Awaitable[str]]
 
+CLOSED_TITLE = "errors.jobAdvertisementNotActive"
+
 _TITLE_MESSAGES = {
     "job.advertisement.not.found": "Ogłoszenia nie ma już na portalu.",
     "job.advertisement.not.published": (
+        "Ogłoszenie na portalu jest już zamknięte — nie da się go edytować."
+    ),
+    # Sandbox 29.09.2026: DELETE i PUT zamkniętego ogłoszenia = 400 z tym kluczem.
+    CLOSED_TITLE: (
         "Ogłoszenie na portalu jest już zamknięte — nie da się go edytować."
     ),
     "hiring.company.logo.required": (
@@ -48,7 +54,16 @@ def portal_error(response: httpx.Response, *, action: str) -> PortalError:
     """Odpowiedź błędu → ``PortalError`` z polskim komunikatem i flagą ponowienia."""
     error = _portal_error(response, action=action)
     error.status = response.status_code
+    error.title = _problem_title(response)
     return error
+
+
+def _problem_title(response: httpx.Response) -> str:
+    try:
+        body = response.json()
+    except ValueError:
+        return ""
+    return str(body.get("title") or "") if isinstance(body, dict) else ""
 
 
 def _portal_error(response: httpx.Response, *, action: str) -> PortalError:
@@ -188,6 +203,19 @@ class JjitApi:
         )
         return data if isinstance(data, dict) else {}
 
+    async def units(self) -> list[dict[str, Any]]:
+        """Jednostki organizacyjne konta — ``/oauth/me`` ich NIE podaje."""
+        data = self._json(
+            await self._request(
+                "GET",
+                "/employer/organizations/units",
+                action="units",
+                params={"pageSize": 50, "pageNumber": 1},
+            )
+        )
+        items = data.get("items") if isinstance(data, dict) else data
+        return [item for item in items or [] if isinstance(item, dict)]
+
     async def skills(self, board: str, names: list[str]) -> dict[str, dict[str, str]]:
         """``PUT /skills`` (get-or-create) → ``skill_key`` nazwy → ``{id, name}``."""
         if not names:
@@ -200,7 +228,12 @@ class JjitApi:
                 json={"skillNames": names},
             )
         )
-        items = data.get("items") if isinstance(data, dict) else data
+        # Odpowiedź to `{"skills": [...]}` (Swagger 1EP, sandbox 29.09.2026).
+        items = (
+            (data.get("skills") or data.get("items"))
+            if isinstance(data, dict)
+            else data
+        )
         out: dict[str, dict[str, str]] = {}
         for item in items or []:
             if isinstance(item, dict) and item.get("id") and item.get("name"):
@@ -223,9 +256,14 @@ class JjitApi:
                 "GET",
                 self._ads(unit_id),
                 action="list",
+                # `order`, `orderBy` i `state` są WYMAGANE — bez nich portal
+                # odpowiada 400 (sandbox 29.09.2026); `state` zna tylko
+                # Published i Expired.
                 params={
                     "pageSize": 5,
                     "pageNumber": 1,
+                    "order": "Desc",
+                    "orderBy": "CreatedAt",
                     "state": "Published",
                     "externalId": external_id,
                 },

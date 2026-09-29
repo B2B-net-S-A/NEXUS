@@ -95,10 +95,11 @@ export interface BoardDictionaries {
 }
 
 export interface JobBoardBalance {
-  codes: { name: string; remaining: number; expires_at: string | null; plan_key: string | null }[];
+  codes: { name: string; remaining: number | null; expires_at: string | null; plan_key: string | null }[];
   subscriptions: {
     id: string;
-    remaining: number;
+    /** `null` = abonament bez limitu. */
+    remaining: number | null;
     end_date: string | null;
     plan_key: string | null;
     active: boolean;

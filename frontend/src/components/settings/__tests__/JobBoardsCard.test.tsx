@@ -102,4 +102,15 @@ describe("JobBoardsCard", () => {
       }),
     ).toEqual(["Abonament: 1 ogłoszenie · nieaktywny"]);
   });
+
+  it("abonament bez limitu (remaining = null) mówi „bez limitu”, nie „null ogłoszeń”", () => {
+    expect(
+      balanceLines({
+        codes: [{ name: "K1", remaining: 0, expires_at: null, plan_key: null }],
+        subscriptions: [
+          { id: "s1", remaining: null, end_date: null, plan_key: "enterprise", active: true },
+        ],
+      }),
+    ).toEqual(["K1: 0 ogłoszeń", "Abonament enterprise: bez limitu"]);
+  });
 });

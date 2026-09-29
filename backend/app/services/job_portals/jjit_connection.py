@@ -54,12 +54,15 @@ _STATE_ALGORITHM = "HS256"
 # Token odświeżamy z zapasem — żądanie w toku nie może trafić na wygasły.
 _EXPIRY_MARGIN = timedelta(seconds=90)
 
-# Nadpisania jednostek z env mają pierwszeństwo przed claimami z `/oauth/me`.
+# Nadpisania jednostek z env mają pierwszeństwo przed jednostką konta.
 _UNIT_OVERRIDE = {
     "justjoinit": "PORTAL_JJIT_ORGANIZATION_UNIT_ID",
     "rocketjobs": "PORTAL_ROCKETJOBS_ORGANIZATION_UNIT_ID",
 }
-_UNIT_CLAIMS = ("organization_unit_id", "organizationUnitId", "organization_id")
+# Sandbox 29.09.2026: `/oauth/me` niesie `organization_id` — to ID ORGANIZACJI,
+# nie jednostki (ścieżki ogłoszeń z nim nie działają). Jednostkę podaje
+# `GET /employer/organizations/units`; jedna jednostka obsługuje oba portale.
+_UNIT_CLAIMS = ("organization_unit_id", "organizationUnitId")
 
 
 class ConnectionNotConfigured(RuntimeError):
@@ -253,9 +256,18 @@ def _expiry(body: dict[str, Any]) -> Optional[datetime]:
     return datetime.now(timezone.utc) + timedelta(seconds=seconds)
 
 
-def resolve_units(claims: dict[str, Any]) -> dict[str, str]:
-    """Jednostka organizacyjna per portal: env > claim z ``/oauth/me``."""
+def resolve_units(
+    claims: dict[str, Any], units: Optional[list[dict[str, Any]]] = None
+) -> dict[str, str]:
+    """Jednostka per portal: env > claim jednostki > JEDYNA jednostka konta.
+
+    Konto z kilkoma jednostkami bez nadpisania w env zostaje bez jednostki —
+    publikacja mówi wtedy wprost, że trzeba ją ustawić (zgadywanie wydałoby
+    kredyt innej jednostki).
+    """
     claimed = next((str(claims[key]) for key in _UNIT_CLAIMS if claims.get(key)), None)
+    if claimed is None and units and len(units) == 1 and units[0].get("id"):
+        claimed = str(units[0]["id"])
     units: dict[str, str] = {}
     for board, setting in _UNIT_OVERRIDE.items():
         override = str(getattr(settings, setting, "") or "").strip()
@@ -296,7 +308,9 @@ async def exchange_code(
     async def _fixed(_force: bool) -> str:
         return access
 
-    claims = await JjitApi(_fixed, transport=transport).me()
+    api = JjitApi(_fixed, transport=transport)
+    claims = await api.me()
+    units = await api.units()
     cipher = get_token_cipher()
     now = datetime.now(timezone.utc)
     row = await db.scalar(
@@ -311,7 +325,7 @@ async def exchange_code(
     row.access_token_ct = cipher.encrypt(access)
     row.refresh_token_ct = cipher.encrypt(str(body["refresh_token"]))
     row.expires_at = _expiry(body)
-    row.organization_units = resolve_units(claims)
+    row.organization_units = resolve_units(claims, units)
     label = claims.get("name") or claims.get("email") or claims.get("company_name")
     row.account_label = str(label)[:255] if label else None
     row.connected_by = user_id
