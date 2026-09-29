@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from"react";
 import Link from"next/link";
+import dynamic from"next/dynamic";
 import { useSearchParams } from"next/navigation";
 import { useQuery, useQueryClient } from"@tanstack/react-query";
 import {
@@ -49,6 +50,8 @@ import { TruncatedText } from"@/components/ds/TruncatedText";
 import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
 import { DraftCompletionModal } from"@/components/v2/modals/DraftCompletionModal";
 import { ContractTerminationDialog } from"@/components/contracts/ContractTerminationDialog";
+import { ListDetailLayout } from"@/components/ds/ListDetailLayout";
+import { rowActivationProps, useRowNavigation } from"@/hooks/useRowNavigation";
 import {
  buildContractDetailHref,
  buildContractorsListUrl,
@@ -59,6 +62,20 @@ import {
 } from "@/lib/contracts-list-navigation";
 
 type Tab = Exclude<ContractorStatus, "ready_for_signature">;
+
+// Boczny panel kontraktu (wersja B) — ładowany dopiero po kliknięciu wiersza.
+const ContractSidePanel = dynamic(
+ () =>
+ import("@/components/contracts/ContractSidePanel").then(
+ (m) => m.ContractSidePanel,
+ ),
+ {
+ ssr: false,
+ loading: () => (
+ <p className="p-4 text-sm text-muted-foreground">Ładowanie kontraktu…</p>
+ ),
+ },
+);
 
 const PAGE_SIZE = 50;
 
@@ -162,9 +179,14 @@ export function ContractorsListV2() {
  setPage(next.page);
  }, [navigationSearch]);
 
+ // Kontrakt otwarty w bocznym panelu; zmiana zakładki go zamyka (wiersz
+ // zniknąłby z listy).
+ const [openContractId, setOpenContractId] = useState<number | null>(null);
+ const listRef = useRef<HTMLDivElement>(null);
  const selectTab = (next: Tab) => {
  setTab(next);
  setPage(1);
+ setOpenContractId(null);
  };
  const [draftToComplete, setDraftToComplete] =
  useState<ContractorListItem | null>(null);
@@ -188,6 +210,18 @@ export function ContractorsListV2() {
  });
 
  const items = useMemo(() => data?.items ?? [], [data]);
+ const rowKeys = useMemo(() => items.map((c) => String(c.contract_id)), [items]);
+ useRowNavigation({
+ keys: rowKeys,
+ activeKey: openContractId != null ? String(openContractId) : null,
+ onChange: (key) => setOpenContractId(Number(key)),
+ containerRef: listRef,
+ enabled: openContractId != null,
+ });
+ const openItem =
+ openContractId != null
+ ? items.find((c) => c.contract_id === openContractId) ?? null
+ : null;
  const total = data?.total ?? 0;
  const pageSize = data?.page_size ?? PAGE_SIZE;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -238,8 +272,8 @@ export function ContractorsListV2() {
  window.setTimeout(() => restoreContractsListScroll(y), 0);
  }, [initialListState, viewState]);
 
- return (
- <div className="max-w-[1400px] mx-auto space-y-4 md:p-6">
+ const listContent = (
+ <div className="space-y-4">
  <div className="flex items-end justify-between flex-wrap gap-3">
  <div>
  <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
@@ -401,7 +435,20 @@ export function ContractorsListV2() {
  const hasComparableCurrencies =
  revenueCurrency.toUpperCase() === costCurrency.toUpperCase();
  return (
- <TableRow key={c.contract_id} interactive>
+ <TableRow
+ key={c.contract_id}
+ interactive
+ {...rowActivationProps(String(c.contract_id), () =>
+ setOpenContractId(c.contract_id),
+ )}
+ aria-selected={openContractId === c.contract_id}
+ data-selected={openContractId === c.contract_id || undefined}
+ className={cn(
+ "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+ openContractId === c.contract_id &&
+ "bg-primary/5 shadow-[inset_3px_0_0_0_hsl(var(--primary))]",
+ )}
+ >
  <TableCell className="max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-card">
  <Link
  href={`/candidates/${c.candidate.id}`}
@@ -561,6 +608,39 @@ export function ContractorsListV2() {
  </div>
  </div>
  )}
+
+ </div>
+ );
+
+ return (
+ <div ref={listRef} className="max-w-[1400px] mx-auto md:p-6">
+ <ListDetailLayout
+ list={listContent}
+ onClose={() => setOpenContractId(null)}
+ panelLabel="Szczegóły kontraktu"
+ panel={
+ openContractId != null ? (
+ <ContractSidePanel
+ key={openContractId}
+ contractId={openContractId}
+ onClose={() => setOpenContractId(null)}
+ preview={
+ openItem
+ ? {
+ candidate_name: `${openItem.candidate.name} ${openItem.candidate.lastname}`.trim(),
+ client_name: openItem.client_name,
+ job_title: openItem.job_title,
+ status: openItem.status,
+ }
+ : undefined
+ }
+ returnTarget={returnTarget}
+ source="contractors"
+ contractorItem={openItem}
+ />
+ ) : null
+ }
+ />
 
  {canOperateContracts && terminating && (
  <ContractTerminationDialog

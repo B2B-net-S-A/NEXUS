@@ -53,6 +53,7 @@ function invalidateAfterRecovery(
   qc.invalidateQueries({ queryKey: ["contract", contractId] });
   qc.invalidateQueries({ queryKey: ["contract-activities", contractId] });
   qc.invalidateQueries({ queryKey: ["contracts-v2"] });
+  qc.invalidateQueries({ queryKey: ["client-register"] });
   qc.invalidateQueries({ queryKey: ["contracts-expiring-v2"] });
   qc.invalidateQueries({ queryKey: ["contractors-v2"] });
   qc.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
@@ -244,7 +245,7 @@ export function ReverseTerminationPlanView({
   );
 }
 
-function ReverseTerminationDialog({
+export function ReverseTerminationDialog({
   contractId,
   onClose,
 }: {
@@ -314,7 +315,7 @@ function ReverseTerminationDialog({
   );
 }
 
-function ReturnAfterBreakDialog({
+export function ReturnAfterBreakDialog({
   contractId,
   onClose,
 }: {

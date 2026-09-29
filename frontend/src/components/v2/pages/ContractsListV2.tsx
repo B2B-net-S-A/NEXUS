@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from"react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from"react";
 import Link from"next/link";
+import dynamic from"next/dynamic";
 import { keepPreviousData, useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  AlertTriangle,
@@ -26,11 +27,12 @@ import {
  CONTRACT_STATUS_VARIANT,
 } from"@/lib/contract-register";
 import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
+import { ListDetailLayout } from"@/components/ds/ListDetailLayout";
+import { rowActivationProps, useRowNavigation } from"@/hooks/useRowNavigation";
 import { TruncatedText } from"@/components/ds/TruncatedText";
 import { useCapability } from"@/hooks/useCapability";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
-import { Card } from"@/components/ui/card";
 import { Checkbox } from"@/components/ui/checkbox";
 import { Input } from"@/components/ui/input";
 import {
@@ -72,6 +74,30 @@ import {
  hasRole,
  useAuthStore,
 } from "@/store/auth";
+
+// Panel ładowany leniwie: niesie okna zakończenia, aneksów i dokumentów, których
+// lista bez otwartego panelu nie potrzebuje.
+const ContractSidePanel = dynamic(
+ () =>
+ import("@/components/contracts/ContractSidePanel").then(
+ (m) => m.ContractSidePanel,
+ ),
+ {
+ ssr: false,
+ loading: () => (
+ <p className="p-4 text-sm text-muted-foreground">Ładowanie kontraktu…</p>
+ ),
+ },
+);
+
+/** Klik w link, przycisk albo kwadracik w komórce nie otwiera panelu. */
+function clickFromInteractive(event: MouseEvent<HTMLElement>): boolean {
+ const target = event.target instanceof Element ? event.target : null;
+ const el = target?.closest(
+"a,button,input,select,textarea,label,[role=checkbox],[data-row-stop]",
+ );
+ return el != null && el !== event.currentTarget;
+}
 
 interface ContractGroupMemberRow {
  id: number;
@@ -523,7 +549,13 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  dir: initialListState.state.sortDir,
  }));
  const [page, setPage] = useState(initialListState.state.page);
+ // Kontrakt otwarty w bocznym panelu (`?contract=`). Wybór NIE zeruje strony
+ // ani filtrów — to podgląd, nie zawężenie listy.
+ const [openContractId, setOpenContractId] = useState<number | null>(
+ initialListState.state.selected ?? null,
+ );
  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+ const listRef = useRef<HTMLDivElement>(null);
  const [toast, setToast] = useState<string | null>(null);
  const [exporting, setExporting] = useState(false);
  const queryClient = useQueryClient();
@@ -541,8 +573,9 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  sortBy: sort.by,
  sortDir: sort.dir,
  page,
+ selected: openContractId ?? undefined,
  }),
- [search, statusFilter, typeFilter, endingSoon, dateRange, sort, page],
+ [search, statusFilter, typeFilter, endingSoon, dateRange, sort, page, openContractId],
  );
 
  // Keep the current list entry self-contained. `replaceState` deliberately
@@ -581,6 +614,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  });
  setSort({ by: next.sortBy, dir: next.sortDir });
  setPage(next.page);
+ setOpenContractId(next.selected ?? null);
  }, [navigationSearch]);
 
  // Do zapytania idzie wartość zdebouncowana, do inputa surowa — inaczej każde
@@ -678,7 +712,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  // (audyt F-19).
  const canCreateContract = useCapability("contract.create");
 
- const { data, isLoading, isError, error, refetch } = useQuery({
+ const { data, isLoading, isError, error, refetch, isPlaceholderData } = useQuery({
  queryKey: [
  "contracts-v2",
  debouncedSearch,
@@ -724,7 +758,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  staleTime: 5 * 60 * 1000,
  });
 
- const items: ContractRow[] = data?.items ?? [];
+ const items = useMemo<ContractRow[]>(() => data?.items ?? [], [data]);
  const total = data?.total ?? 0;
  const contractorsTotal = data?.contractors_total ?? total;
  const contractsTotal = data?.contracts_total ?? total;
@@ -789,18 +823,77 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  [expiring]
  );
 
- return (
- <div className="max-w-[1400px] mx-auto space-y-4">
- {/* Header */}
- <div className="flex items-end justify-between flex-wrap gap-3">
- <div>
- <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
- Delivery · Kontrakty
- </p>
- <h1 className="font-semibold text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
- Kontrakty
- </h1>
- <p className="text-sm text-muted-foreground mt-1">
+ // Kolejność wierszy na ekranie = kolejność ↑/↓. Wiersz osoby otwiera umowę
+ // główną (`c.id`), pas klienta — umowę tego klienta.
+ const rowKeys = useMemo(
+ () =>
+ items.flatMap((i) =>
+ i.group_members?.length
+ ? i.group_members.map((m) => String(m.id))
+ : [String(i.id)],
+ ),
+ [items],
+ );
+ const previews = useMemo(() => {
+ const map = new Map<
+ number,
+ { candidate_name?: string | null; client_name?: string | null; job_title?: string | null; status?: string | null }
+ >();
+ for (const i of items) {
+ const members = i.group_members?.length ? i.group_members : [rowAsGroupMember(i)];
+ for (const m of members) {
+ map.set(m.id, {
+ candidate_name: i.candidate_name,
+ client_name: m.client_name,
+ job_title: m.job_title,
+ status: m.status,
+ });
+ }
+ }
+ return map;
+ }, [items]);
+ const openContract = (id: number) => setOpenContractId(id);
+ const closePanel = () => setOpenContractId(null);
+ useRowNavigation({
+ keys: rowKeys,
+ activeKey: openContractId != null ? String(openContractId) : null,
+ onChange: (key) => setOpenContractId(Number(key)),
+ containerRef: listRef,
+ enabled: openContractId != null,
+ });
+
+ // Zmiana filtrów zostawia panel tylko wtedy, gdy kontrakt nadal jest na
+ // liście — inaczej panel mówiłby o wierszu, którego nie widać. Wejście
+ // z adresu (`?contract=`) nie jest zmianą filtrów i panelu nie zamyka.
+ const recheckOpenRow = useRef(false);
+ const filtersSignature = JSON.stringify([
+ debouncedSearch,
+ statusFilter,
+ typeFilter,
+ endingSoon,
+ appliedDates,
+ ]);
+ const previousFilters = useRef(filtersSignature);
+ useEffect(() => {
+ if (previousFilters.current === filtersSignature) return;
+ previousFilters.current = filtersSignature;
+ recheckOpenRow.current = true;
+ }, [filtersSignature]);
+ useEffect(() => {
+ if (!recheckOpenRow.current || isLoading || isPlaceholderData) return;
+ recheckOpenRow.current = false;
+ if (openContractId == null) return;
+ if (!rowKeys.includes(String(openContractId))) setOpenContractId(null);
+ }, [rowKeys, isLoading, isPlaceholderData, openContractId, filtersSignature]);
+
+ const listContent = (
+ <div className="space-y-3">
+ {/* Nagłówek zwarty: tytuł i licznik w jednej linii — laptop 1280×720
+ ma zobaczyć tabelę w górnych 60% okna. */}
+ <div className="flex flex-wrap items-center justify-between gap-2">
+ <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+ <h1 className="text-lg font-semibold text-foreground">Kontrakty</h1>
+ <p className="text-xs text-muted-foreground">
  {isLoading
  ?"Ładowanie…"
  : failed
@@ -852,42 +945,11 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  </div>
  </div>
 
- {/* Expiring alert */}
- {expiringCount > 0 && (
- <Card className="flex items-center gap-3 border-warning/25 bg-warning-muted p-4!">
- <AlertTriangle className="h-5 w-5 shrink-0 text-warning-muted-foreground" />
- <div className="flex-1">
- <p className="text-sm font-semibold text-warning-muted-foreground">
- {expiringBannerText(expiringCount)}
- </p>
- <p className="text-xs text-warning-muted-foreground">
- Sprawdź, czy wymagają przedłużenia albo wypowiedzenia.
- </p>
- </div>
- <Button
- size="sm"
- variant="outline"
- onClick={() => {
- // Surface exactly the contracts the banner counts. The banner reads
- // the date-based /api/contracts/expiring (end_date within 30 days),
- // so filter the list the same way via `expiring_in_days` — not the
- // stored `ending` status, which is a cron-maintained set disjoint
- // from the banner's and would show the wrong rows (or none).
- setEndingSoon(true);
- setStatusFilter([]);
- setSearch("");
- setPage(1);
- }}
- >
- Pokaż
- </Button>
- </Card>
- )}
-
- {/* Filters */}
- <div className="flex gap-2 flex-wrap">
- <div className="flex-1 min-w-[240px] max-w-lg">
+ {/* Filtry — wszystkie kontrolki mają 32 px wysokości (h-8). */}
+ <div className="flex flex-wrap items-center gap-2">
+ <div className="flex-1 min-w-[220px] max-w-md">
  <Input
+ className="h-8"
  leadingIcon={<Search className="h-4 w-4" />}
  placeholder="Szukaj po kandydacie, kliencie, pozycji…"
  value={search}
@@ -907,7 +969,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  options={CONTRACT_STATUS_OPTIONS}
  placeholder="Wszystkie statusy"
  searchPlaceholder="Szukaj statusu…"
- triggerWidthClass="w-[180px]"
+ triggerWidthClass="w-[170px] h-8 text-xs"
  triggerLabel={(n) =>
  n === 1
  ? (CONTRACT_STATUS_OPTIONS.find((o) => o.value === statusFilter[0])
@@ -924,7 +986,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  options={CONTRACT_TYPE_OPTIONS}
  placeholder="Typ"
  searchPlaceholder="Szukaj typu…"
- triggerWidthClass="w-[180px]"
+ triggerWidthClass="w-[140px] h-8 text-xs"
  triggerLabel={(n) =>
  n === 1
  ? (CONTRACT_TYPE_OPTIONS.find((o) => o.value === typeFilter[0])
@@ -998,6 +1060,36 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  Kończące się w ciągu 30 dni
  <X className="h-3.5 w-3.5" />
  </Button>
+ )}
+ {/* Baner „kończą się w ciągu 30 dni" — w linii paska filtrów, nie jako
+ osobna karta nad tabelą. „Pokaż" działa jak dotąd. */}
+ {expiringCount > 0 && (
+ <div
+ role="status"
+ className="ml-auto flex h-8 items-center gap-2 rounded-md border border-warning/25 bg-warning-muted px-2 text-xs text-warning-muted-foreground"
+ title="Sprawdź, czy wymagają przedłużenia albo wypowiedzenia."
+ >
+ <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+ <span className="font-semibold">{expiringBannerText(expiringCount)}</span>
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-6 px-2"
+ onClick={() => {
+ // Surface exactly the contracts the banner counts. The banner reads
+ // the date-based /api/contracts/expiring (end_date within 30 days),
+ // so filter the list the same way via `expiring_in_days` — not the
+ // stored `ending` status, which is a cron-maintained set disjoint
+ // from the banner's and would show the wrong rows (or none).
+ setEndingSoon(true);
+ setStatusFilter([]);
+ setSearch("");
+ setPage(1);
+ }}
+ >
+ Pokaż
+ </Button>
+ </div>
  )}
  </div>
 
@@ -1182,16 +1274,22 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  todayIso,
  );
 
+ const panelOpen = openContractId === m.id;
  return (
  <TableRow
  key={m.id}
  data-contract-member={m.id}
  interactive
  selected={rowSelected}
+ {...rowActivationProps(String(m.id), () => openContract(m.id))}
+ aria-selected={panelOpen}
+ data-selected={panelOpen || undefined}
  className={cn(
- "h-auto min-h-10",
+ "h-auto min-h-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
  rowSelected
  ?"bg-primary/10!"
+ : panelOpen
+ ?"bg-primary/5! shadow-[inset_3px_0_0_0_hsl(var(--primary))]"
  : memberIndex % 2 === 0
  ?"bg-info-muted/35"
  :"bg-primary/[0.04]",
@@ -1204,8 +1302,16 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  <TableCell
  rowSpan={members.length}
  data-label="Kandydat"
- className="align-top bg-card px-2 py-2 max-xl:col-span-2 max-xl:block max-xl:border-b max-xl:border-border max-xl:bg-muted/40"
- onClick={(e) => e.stopPropagation()}
+ className={cn(
+ "align-top px-2 py-2 max-xl:col-span-2 max-xl:block max-xl:border-b max-xl:border-border max-xl:bg-muted/40",
+ openContractId === c.id ?"bg-primary/5" :"bg-card",
+ )}
+ // Komórka osoby otwiera umowę główną (`c.id`), nie pas,
+ // w którym akurat leży; kwadracik i link zostają sobą.
+ onClick={(e) => {
+ e.stopPropagation();
+ if (!clickFromInteractive(e)) openContract(c.id);
+ }}
  >
  <div className="flex min-w-0 items-start gap-2">
  {canCreateContract && (
@@ -1417,12 +1523,6 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  )}
  </Table>
 
- {toast && (
- <div className="fixed bottom-24 right-4 z-9999 px-4 py-3 rounded-lg shadow-md text-sm bg-card text-foreground">
- {toast}
- </div>
- )}
-
  {/* Pagination */}
  {viewState === "ready" && total > pageSize && (
  <div className="flex items-center justify-between text-sm">
@@ -1442,6 +1542,42 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  Następna
  </Button>
  </div>
+ </div>
+ )}
+ </div>
+ );
+
+ const openPreview = openContractId != null ? previews.get(openContractId) : undefined;
+
+ return (
+ <div
+ ref={listRef}
+ className={cn(
+ "mx-auto max-w-[1400px]",
+ openContractId != null && "min-[1600px]:max-w-[1820px]",
+ )}
+ >
+ <ListDetailLayout
+ list={listContent}
+ onClose={closePanel}
+ panelLabel="Szczegóły kontraktu"
+ panel={
+ openContractId != null ? (
+ <ContractSidePanel
+ key={openContractId}
+ contractId={openContractId}
+ onClose={closePanel}
+ preview={openPreview}
+ returnTarget={returnTarget}
+ source="contracts"
+ onSelectContract={openContract}
+ />
+ ) : null
+ }
+ />
+ {toast && (
+ <div className="fixed bottom-24 right-4 z-9999 px-4 py-3 rounded-lg shadow-md text-sm bg-card text-foreground">
+ {toast}
  </div>
  )}
  </div>

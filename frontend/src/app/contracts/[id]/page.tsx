@@ -75,20 +75,16 @@ import {
 } from "@/lib/contract-rate-schedule";
 import { useToast } from "@/components/Toast";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
-import { hasSectionAccess } from "@/lib/section-access";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { ContractClientReassignDialog } from "@/components/contracts/ContractClientReassignDialog";
 import {
-  canManageCandidateFinance,
-  canManageContractStatus,
-  canRecoverContractTermination,
-  canViewClientFinance,
-  hasAnalyticsCapability,
-  hasRole,
-  useAuthStore,
-} from "@/store/auth";
+  ContractStatusControl,
+  SELECTABLE_CONTRACT_STATUSES,
+} from "@/components/contracts/ContractStatusControl";
+import { useAuthStore } from "@/store/auth";
+import { contractAccess } from "@/lib/contract-access";
 import {
   buildContractDetailHref,
   parseContractsReturnContext,
@@ -256,9 +252,9 @@ function statusStyle(status: string): string {
   return VARIANT_STYLES[contractStatusVariant(status)];
 }
 
-// Statusy, które da się WYBRAĆ w rejestrze. „Do podpisu” i „Anulowany” mają
-// własne ścieżki (podpis, „Anuluj kontrakt”) — tylko je wyświetlamy.
-const SELECTABLE_STATUSES = ["draft", "active", "ending", "ended"] as const;
+// Statusy do wyboru w formularzu edycji — te same co na liście statusu
+// w nagłówku (`ContractStatusControl`).
+const SELECTABLE_STATUSES = SELECTABLE_CONTRACT_STATUSES;
 
 const TYPE_LABELS: Record<string, string> = {
   b2b: "B2B",
@@ -500,29 +496,21 @@ export default function ContractDetailPage() {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const impersonating = useAuthStore((state) => state.realUser !== null);
-  const canManageFinance = canManageCandidateFinance(user);
-  // Benchmark porównuje z kontraktami INNYCH klientów, więc backend trzyma go
-  // za `view_finance` (bez wyjątku portfela DL). Ta sama bramka tutaj —
-  // inaczej DL dostawał 403 i karta znikała bez słowa (audyt 24.09, S1).
-  const canViewBenchmark = hasAnalyticsCapability(user, "view_finance");
-  // Faktury: backend `/api/invoices` — odczyt `view_finance`, zapis
-  // `manage_finance` (bez wyjątku portfela DL). Jedna bramka zamiast dwóch
-  // sprzecznych (audyt 24.09, S10): `readOnly={!canManageFinance}` wpuszczał
-  // Finanse, a `RequireRole admin/delivery_lead` w środku je wyrzucał.
-  const canViewInvoices = canViewBenchmark;
-  const canManageInvoices = hasAnalyticsCapability(user, "manage_finance");
-  const isAdmin = hasRole(user, "admin");
-  const canEditContract =
-    !impersonating &&
-    hasRole(user, "admin", "delivery_lead") &&
-    hasSectionAccess(user, "delivery", "write");
-  // Finanse zmieniają WYŁĄCZNIE kwoty (backend: `finance_amounts_only`),
-  // więc bez roli admin/DL dostają edycję ograniczoną do sekcji stawek.
-  const financeAmountsOnly =
-    !impersonating && !canEditContract && canManageFinance;
-  const canEditContractStatus = !impersonating && canManageContractStatus(user);
-  const canRecoverTermination =
-    !impersonating && canRecoverContractTermination(user);
+  // Bramki akcji — wspólne z bocznym panelem rejestru (`lib/contract-access.ts`).
+  // Benchmark i faktury: `view_finance`/`manage_finance` bez wyjątku portfela
+  // DL (audyt 24.09, S1/S10); Finanse bez roli admin/DL edytują wyłącznie kwoty
+  // (backend: `finance_amounts_only`).
+  const {
+    canManageFinance,
+    canViewBenchmark,
+    canViewInvoices,
+    canManageInvoices,
+    isAdmin,
+    canEditContract,
+    financeAmountsOnly,
+    canEditContractStatus,
+    canRecoverTermination,
+  } = contractAccess(user, { impersonating, clientId: null });
   const [recoveryHint, setRecoveryHint] = useState("");
   const id = Number(params.id);
 
@@ -559,13 +547,10 @@ export default function ContractDetailPage() {
     queryFn: () => contractsApi.get(id).then((r) => r.data),
     enabled: !Number.isNaN(id),
   });
-  const canViewFinance = contract
-    ? canViewClientFinance(user, contract.client_id)
-    : false;
   // Opaque documents and rendered drafts can contain rates that cannot be
   // redacted safely. They retain the same assigned-client boundary as finance.
-  const canViewContractDocuments = Boolean(contract) && (isAdmin || canViewFinance);
-  const canEditContractDocuments = canEditContract && canViewContractDocuments;
+  const { canViewFinance, canViewContractDocuments, canEditContractDocuments } =
+    contractAccess(user, { impersonating, clientId: contract?.client_id });
 
   // Fetch activity timeline (lazy)
   const activitiesQuery = useQuery<ActivityEntry[]>({
@@ -639,18 +624,6 @@ export default function ContractDetailPage() {
     await queryClient.invalidateQueries({ queryKey: ["contract", id] });
     setError("");
   };
-
-  const statusMutation = useMutation({
-    mutationFn: (status: string) => contractsApi.updateStatus(id, status),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["contract", id] });
-      queryClient.invalidateQueries({ queryKey: ["contracts"] });
-      queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
-      queryClient.invalidateQueries({ queryKey: ["contract-activities", id] });
-      setError("");
-    },
-    onError: (err: unknown) => setError(extractErrorMsg(err)),
-  });
 
   // Usuwanie: modal potwierdzenia zamiast natywnego `window.confirm` (ten
   // wzorzec jest w repo zbanowany — patrz ContractTerminationDialog) ORAZ
@@ -954,51 +927,17 @@ export default function ContractDetailPage() {
             Kontrakt #{contract.id}
             <StatusBadge status={contract.status} />
             {canEditContractStatus && !editing && (
-              <select
-                aria-label="Zmień status kontraktu"
-                value={contract.status}
-                disabled={statusMutation.isPending}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  // „Zakończony" wyłącznie przez okno „Zakończ współpracę"
-                  // (kontrakt #674). Lista jest kontrolowana wartością z
-                  // serwera, więc „Anuluj" zostawia na niej poprzedni status.
-                  if (next === "ended") {
-                    setRecoveryHint("");
-                    setTerminationDate(undefined);
-                    setShowTerminationDialog(true);
-                    return;
-                  }
-                  // „Zakończony → Aktywny" przestało być jedną akcją: pomyłka
-                  // i powrót po przerwie to dwie różne operacje, a zwykła
-                  // zmiana statusu nie przywraca zamówień (zgłoszenie 09.2026).
-                  if (contract.status === "ended") {
-                    setRecoveryHint(
-                      canRecoverTermination
-                        ? "Zakończony kontrakt przywracasz jedną z dwóch akcji poniżej: „Cofnij zakończenie” (pomyłka) albo „Powrót po przerwie” (nowy kontrakt)."
-                        : "Zakończony kontrakt przywraca Admin, Finanse albo Talent Community Manager: „Cofnij zakończenie” (pomyłka) albo „Powrót po przerwie”.",
-                    );
-                    return;
-                  }
-                  setRecoveryHint("");
-                  statusMutation.mutate(next);
+              <ContractStatusControl
+                contractId={contract.id}
+                status={contract.status}
+                canRecoverTermination={canRecoverTermination}
+                onRequestTermination={() => {
+                  setTerminationDate(undefined);
+                  setShowTerminationDialog(true);
                 }}
-                className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium"
-              >
-                {SELECTABLE_STATUSES.map((value) => (
-                  <option key={value} value={value}>
-                    {CONTRACT_STATUS_LABELS[value]}
-                  </option>
-                ))}
-                {/* „Do podpisu” / „Anulowany” — wyświetlane, nie do wyboru. */}
-                {!(SELECTABLE_STATUSES as readonly string[]).includes(
-                  contract.status,
-                ) && (
-                  <option value={contract.status} disabled>
-                    {contractStatusLabel(contract.status)}
-                  </option>
-                )}
-              </select>
+                onRecoveryHint={setRecoveryHint}
+                onError={setError}
+              />
             )}
             {complianceRisk.risk === "overdue" && (
               <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-destructive/15 text-destructive border border-destructive/20">

@@ -99,6 +99,7 @@ export function ContractClientReassignDialog({ open, onOpenChange, contractId, c
       void queryClient.invalidateQueries({ queryKey: ["contract", contractId] });
       void queryClient.invalidateQueries({ queryKey: ["contract", String(contractId)] });
       void queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      void queryClient.invalidateQueries({ queryKey: ["client-register"] });
       onDone?.(result);
       onOpenChange(false);
     },

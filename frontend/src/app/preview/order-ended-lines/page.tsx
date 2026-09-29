@@ -1,20 +1,22 @@
 "use client";
 
 /**
- * Harness wizualny sekcji „Zakończone" karty zamówienia MD (ticket 6, 09.2026).
+ * Harness wizualny sekcji „Zakończone" zamówienia MD (ticket 6, 09.2026;
+ * wersja B 29.09.2026 — tabela z panelem).
  *
- * Renderuje PRODUKCYJNY `OrderGroupCard` na zamrożonych danych (zasiany cache,
- * zero zapytań — dlatego stoi w `PUBLIC_PATHS`). Wszystkie stany karty osoby
- * obok siebie: czeka na decyzję, czeka decyzja o puli MD, zostawiony jako
- * historia (umowa rozwiązana), zastąpiony. „Zostaw jako historię" działa na
- * stanie lokalnym, żeby było widać kartę po decyzji. Nazwiska, numery i kwoty
- * są zmyślone (repo jest publiczne).
+ * Renderuje PRODUKCYJNĄ tabelę zamówień z panelem osoby na zamrożonych danych
+ * (zasiany cache, zero zapytań — dlatego stoi w `PUBLIC_PATHS`). Wszystkie
+ * stany osoby zakończonej obok siebie: czeka na decyzję, czeka decyzja o puli
+ * MD, zostawiony jako historia (umowa rozwiązana), zastąpiony. „Zostaw jako
+ * historię" działa na stanie lokalnym, żeby było widać wiersz po decyzji.
+ * `?order=<id osoby>` otwiera od razu panel tej osoby. Nazwiska, numery
+ * i kwoty są zmyślone (repo jest publiczne).
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { OrderGroupCard } from "@/components/client-profile/orders/OrderGroupCard";
+import { OrderGroupsHarness, seedOrderGroupPanels } from "@/app/preview/order-groups-harness";
 import type {
   OrderGroupRead,
   OrderLineRead,
@@ -213,16 +215,21 @@ function group(lines: OrderLineRead[]): OrderGroupRead {
   };
 }
 
-const noop = () => {};
+/** `?order=<id>` — panel osoby od wejścia (zrzuty ekranu). */
+function initialLineId(): number | null {
+  if (typeof window === "undefined") return null;
+  const value = Number(new URLSearchParams(window.location.search).get("order"));
+  return INITIAL_LINES.some((item) => item.id === value) ? value : null;
+}
 
 export default function OrderEndedLinesPreview() {
   const [lines, setLines] = useState(INITIAL_LINES);
   const [lastAction, setLastAction] = useState<string | null>(null);
+  // Adres czytany po zamontowaniu — SSR nie zna `window`, a różny stan
+  // pierwszego renderu dałby błąd hydracji.
+  const [lineId, setLineId] = useState<number | null>(null);
+  useEffect(() => setLineId(initialLineId()), []);
   const current = group(lines);
-  // Bez rozliczeń „nic się nie wydarzy": decyzja o puli i usunięcie w podglądzie
-  // nie mają serwera, więc tylko mówimy, co by się otworzyło.
-  const note = (label: string) => (_g: OrderGroupRead, target: OrderLineRead) =>
-    setLastAction(`${label}: ${target.consultant_name}`);
 
   const queryClient = useMemo(() => {
     const qc = new QueryClient({
@@ -234,33 +241,29 @@ export default function OrderEndedLinesPreview() {
         },
       },
     });
-    qc.setQueryData(["order-group-events", 18, 30], { events: [] });
+    seedOrderGroupPanels(qc, 18, [group(INITIAL_LINES)]);
     return qc;
   }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
-      <main className="mx-auto flex max-w-5xl flex-col gap-6 p-4 sm:p-8">
+      <main className="mx-auto flex max-w-6xl flex-col gap-6 p-4 sm:p-8">
         <header>
           <h1 className="text-lg font-semibold">
-            Harness — „Zakończone” na karcie zamówienia MD
+            Harness — „Zakończone” w zamówieniu MD
           </h1>
           <p className="text-sm text-muted-foreground">
-            Publiczny podgląd na zamrożonych danych. Zero zapytań do API.
+            Publiczny podgląd na zamrożonych danych. Zero zapytań do API. Kliknij
+            wiersz, żeby otworzyć panel.
             {lastAction ? ` Ostatnia akcja: ${lastAction}.` : ""}
           </p>
         </header>
-        <OrderGroupCard
+        <OrderGroupsHarness
+          key={lineId ?? "brak"}
           clientId={18}
-          group={current}
-          canManage
-          canManageLifecycle
-          onAddConsultant={noop}
-          onEditGroup={noop}
-          onEditLine={note("Edycja linii")}
-          onSwapLine={note("Zamiana kontraktora")}
-          onDeleteLine={note("Usunięcie z zamówienia")}
-          onResolveOffboarding={note("Decyzja o puli MD")}
+          groups={[current]}
+          initialSelection={lineId ? { kind: "line", groupId: 30, lineId } : null}
+          onAction={setLastAction}
           onKeepHistory={(_g, target) =>
             setLines((prev) =>
               prev.map((item) =>
@@ -274,12 +277,6 @@ export default function OrderEndedLinesPreview() {
               ),
             )
           }
-          onReplaceLine={note("Zastąp kimś innym")}
-          onDeleteGroup={noop}
-          onCloseGroup={noop}
-          onReopenGroup={noop}
-          onExtendGroup={noop}
-          onFocusGroup={noop}
         />
       </main>
     </QueryClientProvider>

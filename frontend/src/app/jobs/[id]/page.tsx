@@ -1,5 +1,6 @@
 "use client";
 
+import { useUrlSyncedState, writeUrlParams } from "@/lib/url-selection";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -150,36 +151,8 @@ const KPI_TAB_FOR_VIEW: Record<JobDetailView, JobDetailTab> = {
 
 const DEFAULT_SEGMENT: RecruitmentSegment = "in-process";
 
-/**
- * Stan trzymany w adresie. Efekt zależy od WARTOŚCI wyczytanej z adresu, nie
- * od tożsamości `searchParams`: miękka nawigacja App Routera (klik
- * w powiadomienie na tej samej rekrutacji) zmienia adres bez odmontowania
- * strony, a inicjalizator `useState` odpala się raz. `null` z adresu NIE
- * cofa ręcznego wyboru — parametr, który zniknął, to nie polecenie.
- */
 /** Tryb widoku „Zlecenie i Champion”: brief do czytania albo edytor. */
 type ChampionMode = "view" | "edit";
-
-function useUrlSyncedState<T extends string>(fromUrl: T | null, fallback: T | null) {
-  const [value, setValue] = useState<T | null>(fromUrl ?? fallback);
-  useEffect(() => {
-    if (fromUrl !== null) setValue(fromUrl);
-  }, [fromUrl]);
-  return [value, setValue] as const;
-}
-
-/** Podmienia parametry bieżącego adresu bez dokładania wpisu w historii. */
-function writeUrlParams(patch: Record<string, string | null>) {
-  if (typeof window === "undefined") return;
-  const url = new URL(window.location.href);
-  for (const [name, value] of Object.entries(patch)) {
-    if (value == null) url.searchParams.delete(name);
-    else url.searchParams.set(name, value);
-  }
-  const next = `${url.pathname}${url.search}${url.hash}`;
-  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  if (next !== current) window.history.replaceState(window.history.state, "", next);
-}
 
 export default function JobDetailPage() {
   const { id } = useParams();

@@ -454,7 +454,14 @@ export function NewContractorOrderDialog({
   });
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div
+      // role + aria-modal: panel szczegółów (ListDetailLayout) nie zamyka się
+      // na Esc, gdy to okno jest otwarte (lib/panel-escape.ts).
+      role="dialog"
+      aria-modal="true"
+      aria-label="Nowy kontraktor / zamówienie"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+    >
       <form
         onSubmit={(e) => {
           e.preventDefault();

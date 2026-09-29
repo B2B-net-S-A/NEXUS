@@ -781,10 +781,11 @@ describe("resolveOrderFocus — deep link z panelu „Moi klienci”", () => {
     });
   });
 
-  it("?order= linii grupy prowadzi do jej zamówienia", () => {
+  it("?order= linii grupy prowadzi do jej zamówienia i wskazuje tę osobę", () => {
     expect(resolveOrderFocus(groups, contractors, { orderId: 71 })).toEqual({
       kind: "group",
       groupId: 7,
+      lineId: 71,
     });
   });
 

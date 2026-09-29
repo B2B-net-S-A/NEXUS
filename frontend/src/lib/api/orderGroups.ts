@@ -535,7 +535,7 @@ export type LineConsumptionStatus = "accepted" | "protocol";
 
 /** Jeden miesiąc zużycia MD osoby na zamówieniu. `status` jest etapem
  *  rozliczenia u klienta (protokół → akceptacja), nie stanem importu. Etykiety
- *  PL żyją w warstwie prezentacji (`LineMonthlyHistoryDialog`), NIE tutaj —
+ *  PL żyją w warstwie prezentacji (`LineConsumptionTable`), NIE tutaj —
  *  testy mockują `@/lib/api` w całości, więc stałe stąd wychodziłyby w nich
  *  jako `undefined`. */
 export interface LineConsumptionRow {

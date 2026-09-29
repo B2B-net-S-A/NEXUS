@@ -38,6 +38,11 @@ export interface ContractsListState {
   sortBy: ContractSortKey | null;
   sortDir: ContractSortDir;
   page: number;
+  /**
+   * Kontrakt otwarty w bocznym panelu (`?contract=`, wersja B 29.09.2026).
+   * Brak = panel zamknięty. Nie jest filtrem — nie czyni wejścia „jawnym”.
+   */
+  selected?: number;
 }
 
 export interface ParsedContractsListState {
@@ -180,8 +185,14 @@ export function parseContractsListState(
         : null,
       sortDir: params.get("dir") === "desc" ? "desc" : "asc",
       page: positivePage(params.get("page")),
+      selected: positiveId(params.get("contract")),
     },
   };
+}
+
+function positiveId(raw: string | null): number | undefined {
+  const parsed = Number(raw);
+  return raw && Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 /**
@@ -211,6 +222,7 @@ export function buildContractsListUrl(
     if (state.sortDir === "desc") params.set("dir", "desc");
   }
   if (state.page > 1) params.set("page", String(state.page));
+  if (state.selected) params.set("contract", String(state.selected));
 
   const query = params.toString();
   return `/contracts${query ? `?${query}` : ""}`;

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   keepPreviousData,
   useMutation,
@@ -54,6 +55,8 @@ import {
   type RegisterContractRow,
 } from "@/lib/contract-register";
 import { ContractRegisterDialog } from "./ContractRegisterDialog";
+import { ListDetailLayout } from "@/components/ds/ListDetailLayout";
+import { rowActivationProps, useRowNavigation } from "@/hooks/useRowNavigation";
 import {
   buildClientContractRegisterUrl,
   buildContractDetailHref,
@@ -78,6 +81,17 @@ const PROLONGATION_DOT_CLASS: Record<string, string> = {
   danger: "bg-[#6b1120]",
   neutral: "bg-foreground",
 };
+
+// Boczny panel kontraktu (wersja B) — ładowany dopiero po kliknięciu wiersza.
+const ContractSidePanel = dynamic(
+  () => import("./ContractSidePanel").then((m) => m.ContractSidePanel),
+  {
+    ssr: false,
+    loading: () => (
+      <p className="p-4 text-sm text-muted-foreground">Ładowanie kontraktu…</p>
+    ),
+  },
+);
 
 /** Liczba kontraktów na stronę w rejestrze klienta. */
 const PAGE_SIZE = 50;
@@ -267,6 +281,9 @@ export function ClientContractRegister({
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<RegisterContractRow | null>(null);
+  // Kontrakt otwarty w bocznym panelu. Prolongata i ołówek zostają w wierszu.
+  const [openContractId, setOpenContractId] = useState<number | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(initialListState.state.page);
   const [searchInput, setSearchInput] = useState(initialListState.state.search);
   const search = useDebouncedValue(searchInput.trim(), 300);
@@ -474,6 +491,18 @@ export function ClientContractRegister({
   };
 
   const items = useMemo(() => data?.items ?? [], [data]);
+  const rowKeys = useMemo(() => items.map((row) => String(row.id)), [items]);
+  useRowNavigation({
+    keys: rowKeys,
+    activeKey: openContractId != null ? String(openContractId) : null,
+    onChange: (key) => setOpenContractId(Number(key)),
+    containerRef: listRef,
+    enabled: openContractId != null,
+  });
+  const openRow =
+    openContractId != null
+      ? items.find((row) => row.id === openContractId) ?? null
+      : null;
   const total = data?.total ?? 0;
   const pageSize = data?.page_size ?? PAGE_SIZE;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -518,7 +547,7 @@ export function ClientContractRegister({
     setDialogOpen(true);
   };
 
-  return (
+  const listContent = (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-end justify-between flex-wrap gap-3">
@@ -708,7 +737,20 @@ export function ClientContractRegister({
             </TableRow>
           ) : (
             items.map((row) => (
-              <TableRow key={row.id}>
+              <TableRow
+                key={row.id}
+                interactive
+                {...rowActivationProps(String(row.id), () =>
+                  setOpenContractId(row.id),
+                )}
+                aria-selected={openContractId === row.id}
+                data-selected={openContractId === row.id || undefined}
+                className={cn(
+                  "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                  openContractId === row.id &&
+                    "bg-primary/5 shadow-[inset_3px_0_0_0_hsl(var(--primary))]",
+                )}
+              >
                 <TableCell className="font-mono text-xs max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-card">
                   {row.project_code ? (
                     <span className="text-foreground">{row.project_code}</span>
@@ -813,6 +855,37 @@ export function ClientContractRegister({
           </div>
         </div>
       )}
+
+    </div>
+  );
+
+  return (
+    <div ref={listRef}>
+      <ListDetailLayout
+        list={listContent}
+        onClose={() => setOpenContractId(null)}
+        panelLabel="Szczegóły kontraktu"
+        panel={
+          openContractId != null ? (
+            <ContractSidePanel
+              key={openContractId}
+              contractId={openContractId}
+              onClose={() => setOpenContractId(null)}
+              preview={
+                openRow
+                  ? {
+                      candidate_name: openRow.candidate_name,
+                      client_name: clientName ?? null,
+                      status: openRow.status,
+                    }
+                  : undefined
+              }
+              returnTarget={returnTarget}
+              source="client-register"
+            />
+          ) : null
+        }
+      />
 
       {toast && (
         <div className="fixed bottom-24 right-4 z-9999 rounded-lg bg-card px-4 py-3 text-sm text-foreground shadow-md">

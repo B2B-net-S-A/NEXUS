@@ -135,6 +135,7 @@ export function ContractTerminationDialog({
     // Rejestr (`staleTime` 30 s) i panel „Kończące się" (5 min) — bez tego
     // zakończony kontrakt dalej wisiał jako aktywny w oknie 30 dni.
     qc.invalidateQueries({ queryKey: ["contracts-v2"] });
+    qc.invalidateQueries({ queryKey: ["client-register"] });
     qc.invalidateQueries({ queryKey: ["contracts-expiring-v2"] });
     qc.invalidateQueries({ queryKey: ["contractors-v2"] });
     qc.invalidateQueries({ queryKey: ["contractors-stats-v2"] });

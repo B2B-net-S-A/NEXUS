@@ -154,6 +154,8 @@ interface InlinePeriodProps {
   onError: (msg: string) => void;
   /** Czy okres może wejść w tryb edycji. */
   editable?: boolean;
+  /** `false`, gdy pole ma już podpis obok (panel szczegółów: „Okres”). */
+  showLabel?: boolean;
 }
 
 /** Click-to-edit order period (start → end / bezterminowo). */
@@ -163,6 +165,7 @@ export function InlinePeriod({
   onSave,
   onError,
   editable = true,
+  showLabel = true,
 }: InlinePeriodProps) {
   const [editing, setEditing] = useState(false);
   const [start, setStart] = useState(dateOnly(startDate) ?? "");
@@ -202,14 +205,15 @@ export function InlinePeriod({
   if (!editable || !editing) {
     return (
       <span className="inline-flex items-center gap-1">
-        <Calendar className="w-3 h-3" />
+        {showLabel ? <Calendar className="w-3 h-3" /> : null}
         {/* „okres:", nie „okres zamówienia:" — ta etykieta stoi w jednej
             zawijającej się linii obok numeru zamówienia i obu stawek, a
             poprzedza ją ikona kalendarza, więc słowo „zamówienia" niczego tu
             nie doprecyzowuje, a wypychało stawki do kolejnego wiersza. Pełne
             brzmienie niesie `title`. */}
         <span title="Okres zamówienia">
-          okres: {fmtDate(startDate) ?? "—"} →{" "}
+          {showLabel ? "okres: " : null}
+          {fmtDate(startDate) ?? "—"} →{" "}
           {fmtDate(endDate) ?? "bezterminowo"}
         </span>
         {editable ? (
@@ -237,9 +241,11 @@ export function InlinePeriod({
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) commit();
       }}
     >
-      <span className="text-muted-foreground" title="Okres zamówienia">
-        okres:
-      </span>
+      {showLabel ? (
+        <span className="text-muted-foreground" title="Okres zamówienia">
+          okres:
+        </span>
+      ) : null}
       <input
         autoFocus
         type="text"

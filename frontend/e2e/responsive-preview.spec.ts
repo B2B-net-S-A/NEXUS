@@ -30,6 +30,8 @@ const PAGES = [
   "/preview/candidate-profile?tab=documents",
   "/preview/career-share",
   "/preview/champion-profile",
+  "/preview/client-orders",
+  "/preview/client-orders?order=5015",
   "/preview/client-playbook",
   "/preview/contact-queue",
   "/preview/contract-candidate-contact",
@@ -147,6 +149,9 @@ const PRIMARY_CONTENT = [
   { path: "/preview/candidates-list", selector: "[data-testid^='candidate-row-']", maxTop: 0.65, shell: false },
   // Profil: zakładki pod nagłówkiem i faktami — fakty SĄ treścią profilu (0,76).
   { path: "/preview/candidate-profile", selector: "[role='tablist']", maxTop: 0.8, shell: false },
+  // Zamówienia klienta (wersja B): pierwszy wiersz tabeli — pigułki w jednym
+  // rzędzie, filtr typu w wierszu wyszukiwania (≈0,5 przy 1280 × 720 z ramką).
+  { path: "/preview/client-orders", selector: "[data-orders-table] tbody tr", maxTop: 0.6, shell: false },
 ] as const;
 
 test.describe("okna laptopów z Windows — główna treść w górnej części ekranu", () => {

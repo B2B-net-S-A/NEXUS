@@ -43,7 +43,17 @@ import {
   Trash2,
   AlertOctagon,
   FileSpreadsheet,
+  Ellipsis,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { clientTeamApi, type ClientTeamResponse } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { EditClientModal } from "@/components/AppShell";
@@ -915,10 +925,15 @@ export default function ClientDetailPage() {
   const focusOrderId = positiveIntParam(searchParams.get("order"));
   const focusGroupId = positiveIntParam(searchParams.get("group"));
   const focusFrameworkId = positiveIntParam(searchParams.get("framework"));
+  // `?contract=` — panel kontraktora bez zamówienia w zakładce „Zamówienia”
+  // (wersja B). Zakładka sama pisze `?order=`/`?group=`/`?contract=` przy
+  // wyborze wiersza, więc otwarty panel przeżywa odświeżenie strony.
+  const focusContractId = positiveIntParam(searchParams.get("contract"));
   const clearFocusParams = useCallback(() => {
     const next = new URLSearchParams(searchParams.toString());
     next.delete("order");
     next.delete("group");
+    next.delete("contract");
     next.delete("framework");
     router.replace(`/clients/${id}?${next.toString()}`, { scroll: false });
   }, [router, id, searchParams]);
@@ -963,6 +978,21 @@ export default function ClientDetailPage() {
   });
 
   useCanonicalClientRedirect(id, client?.id);
+
+  // Główny Delivery Lead w nagłówku — ten sam klucz co zakładka „Delivery
+  // Lead” (`OwnersTab`), więc cache jest wspólny. Awaria = brak chipa,
+  // nie komunikat: nagłówek to skrót, pełna informacja jest w zakładce.
+  const teamQuery = useQuery<ClientTeamResponse>({
+    queryKey: ["client-team", Number(id)],
+    queryFn: () => clientTeamApi.get(Number(id)).then((r) => r.data),
+    enabled: Number.isFinite(Number(id)),
+  });
+  const headDeliveryLead = (() => {
+    const leads = teamQuery.data?.delivery_leads ?? [];
+    const head = leads.find((lead) => lead.is_head) ?? leads[0];
+    if (!head) return null;
+    return leads.length > 1 ? `${head.name} +${leads.length - 1}` : head.name;
+  })();
 
   // Pasek 8 zakładek jest na telefonie szerszy niż ekran. Wejście z
   // powiadomienia (`?tab=zamowienia`) albo klik w częściowo widoczną zakładkę
@@ -1041,86 +1071,101 @@ export default function ClientDetailPage() {
   );
 
   return (
-    <div className="space-y-4">
-      <Link
-        href="/clients"
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" /> Wróć do klientów
-      </Link>
-
-      <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-xs overflow-hidden">
-        <div className="h-1.5 bg-linear-to-r from-purple-600 via-violet-500 to-purple-400" />
-
-        <div className="p-4 sm:p-6">
-          <div className="flex items-start gap-4">
-            <div className="hidden sm:flex w-14 h-14 bg-purple-100 rounded-2xl items-center justify-center shrink-0">
-              <Building2 className="w-7 h-7 text-purple-600" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="min-w-0">
-                  <h1 className="text-2xl font-bold text-foreground break-words">{client.name}</h1>
-                  {client.industry && (
-                    <p className="text-sm text-purple-600 font-medium mt-0.5">{client.industry}</p>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {client.status && (
-                    <span
-                      className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[client.status] || "bg-muted text-muted-foreground"}`}
+    <div className="space-y-3">
+      <div className="bg-card dark:bg-muted rounded-xl border border-border shadow-xs overflow-hidden">
+        {/* Nagłówek w jednej linii (wersja B, 29.09.2026): nazwa, status,
+            Delivery Lead i menu. Do 09.2026 karta miała ~130 px (ikona 56 px,
+            tytuł 24 px, osobne rzędy WWW i NDA), więc zamówienia zaczynały się
+            w połowie ekranu laptopa. WWW, NDA i „Usuń klienta” są w menu „⋯”. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 sm:px-5" data-client-header>
+          <Link
+            href="/clients"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            aria-label="Wróć do klientów"
+            title="Wróć do klientów"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> Klienci
+          </Link>
+          <span aria-hidden="true" className="text-xs text-muted-foreground">/</span>
+          <h1 className="min-w-0 break-words text-lg font-semibold text-foreground">{client.name}</h1>
+          {client.industry && (
+            <span className="text-xs text-muted-foreground">{client.industry}</span>
+          )}
+          {client.status && (
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_COLORS[client.status] || "bg-muted text-muted-foreground"}`}
+            >
+              {STATUS_LABELS[client.status] || client.status}
+            </span>
+          )}
+          {headDeliveryLead && (
+            <span className="text-xs text-muted-foreground" data-client-header-dl>
+              DL: <span className="font-medium text-foreground">{headDeliveryLead}</span>
+            </span>
+          )}
+          <div className="ml-auto flex items-center gap-1.5">
+            {canUpdateClient && (
+              <button
+                onClick={() => setShowEdit(true)}
+                title="Edytuj firmę"
+                className="flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground pointer-coarse:min-h-10"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Edytuj
+              </button>
+            )}
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Więcej o kliencie"
+                  title="Strona WWW, NDA i więcej"
+                  className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground pointer-coarse:h-10 pointer-coarse:w-10"
+                >
+                  <Ellipsis className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel className="truncate">{client.name}</DropdownMenuLabel>
+                {client.website ? (
+                  <DropdownMenuItem asChild>
+                    <a
+                      href={client.website.startsWith("http") ? client.website : `https://${client.website}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
                     >
-                      {STATUS_LABELS[client.status] || client.status}
-                    </span>
-                  )}
-                  {canUpdateClient && (
-                    <button
-                      onClick={() => setShowEdit(true)}
-                      title="Edytuj firmę"
-                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-md transition-colors pointer-coarse:min-h-10"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                      Edytuj
-                    </button>
-                  )}
-                  {canDeleteClient && (
-                    <button
-                      onClick={() => setShowDelete(true)}
-                      title="Usuń klienta"
-                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors pointer-coarse:min-h-10"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Usuń klienta
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-4 mt-3 text-sm text-muted-foreground">
-                {client.website && (
-                  <a
-                    href={client.website.startsWith("http") ? client.website : `https://${client.website}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex min-w-0 max-w-full items-center gap-1.5 hover:text-purple-600 transition-colors"
-                  >
-                    <Globe className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                    <span className="break-all">{client.website}</span>
-                  </a>
+                      <Globe className="h-4 w-4 shrink-0" />
+                      <span className="break-all">{client.website}</span>
+                    </a>
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem disabled>
+                    <Globe className="h-4 w-4" />
+                    Brak strony WWW
+                  </DropdownMenuItem>
                 )}
-              </div>
-
-              <div className="flex items-center gap-3 mt-3">
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <DropdownMenuItem disabled className="opacity-100">
                   {client.nda_signed ? (
-                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <CheckCircle className="h-4 w-4 text-success" />
                   ) : (
-                    <XCircle className="w-4 h-4 text-muted-foreground" />
+                    <XCircle className="h-4 w-4 text-muted-foreground" />
                   )}
                   NDA {client.nda_signed ? "podpisane" : "niepodpisane"}
-                </span>
-              </div>
-            </div>
+                </DropdownMenuItem>
+                {canDeleteClient && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={() => window.setTimeout(() => setShowDelete(true), 0)}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Usuń klienta
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -1138,9 +1183,9 @@ export default function ClientDetailPage() {
                 ref={activeTab === tab.key ? activeTabRef : undefined}
                 onClick={() => selectTab(tab.key)}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-3 text-sm font-medium border-b-2 transition-colors shrink-0",
+                  "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors shrink-0",
                   activeTab === tab.key
-                    ? "border-purple-600 text-purple-600"
+                    ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -1156,7 +1201,7 @@ export default function ClientDetailPage() {
             dziecko montuje się dopiero po pierwszym otwarciu (LazyDetails) —
             zwinięty <details> montuje treść i odpalał zapytania paneli, których
             nikt nie ogląda. */}
-        <div className="p-4 sm:p-6">
+        <div className={activeTab === "zamowienia" ? "p-3 sm:p-4" : "p-4 sm:p-6"}>
           {activeTab === "profil" && (
             <div className="space-y-4">
               <ProfileTab clientId={Number(id)} />
@@ -1222,9 +1267,8 @@ export default function ClientDetailPage() {
             </div>
           )}
 
-          {/* Jeden rejestr dla wszystkich klientów: zamówienia okresowe nadal
-              korzystają z dotychczasowych kart kontraktorów, a kosztowe i MD
-              z grup ze wspólnym budżetem. */}
+          {/* Jeden rejestr dla wszystkich klientów: tabela zamówień okresowych,
+              kosztowych i MD z panelem szczegółów po prawej (wersja B). */}
           {activeTab === "zamowienia" && (
             <MultiConsultantOrdersTab
               clientId={Number(id)}
@@ -1237,6 +1281,7 @@ export default function ClientDetailPage() {
               onOrderMailDocDone={clearOrderMailDoc}
               focusOrderId={focusOrderId}
               focusGroupId={focusGroupId}
+              focusContractId={focusContractId}
               onFocusHandled={clearFocusParams}
             />
           )}

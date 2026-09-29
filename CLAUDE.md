@@ -1029,8 +1029,8 @@ w `/api/health/deep`). Funkcja dotyczy WYŁĄCZNIE klienta 115 (bramka
   z opcji. Kwoty tylko z finansami. **UI „zakresów" (paski Podstawa/Opcja, nagłówek
   „Wykorzystano wartości umowy", pole „Zakres opcjonalny") renderuje się WYŁĄCZNIE dla
   karty z `executive_contract` / klienta CeZ** — BIK/Polkomtel/BNP widzą dotychczasowy
-  pasek „pozostało / całość". `MdScopeBars`, `LineMonthlyHistoryDialog`
-  („Rozliczenia miesięczne"). Harness `/preview/order-md-scopes`.
+  pasek „pozostało / całość". `MdScopeBars`, `LineConsumptionTable`
+  (zakładka „Zużycie MD" panelu osoby). Harness `/preview/order-md-scopes`.
 - **Import danych startowych (Faza C):** `POST /api/admin/clients/{id}/ezdrowie-md-orders/import?dry_run=`
   (admin, tylko CeZ) z manifestem JSON (`app/schemas/ezdrowie_md_seed.py`) —
   **manifest żyje poza repo** (nazwiska, stawki). Serwis `app/services/ezdrowie_md_seed.py`:
@@ -4663,6 +4663,38 @@ zamyka). Serwis `services/order_change_checks.py`, front
 - Rozliczenia nadal blokują usunięcie (409, `settlement_blockers`) — dialog
   tylko mówi to WCZEŚNIEJ i nazywa, co by przepadło.
 
+## Kontrakty i Zamówienia: lista z panelem (wersja B, 29.09.2026)
+
+Zgłoszenie Anny („wszystko jest gigantyczne"), makieta B wybrana przez zespół:
+https://claude.ai/artifact/4kiwKRJxukyHVYmWdydUoS. `/contracts` (rejestr, „Obsługa
+kontraktorów", rejestr klienta) i zakładka „Zamówienia" klienta to zwarta tabela;
+klik w wiersz otwiera panel szczegółów po prawej. **Okna z formularzami i backend
+się nie zmieniły** — panel otwiera TE SAME okna co dawne karty.
+
+- **Klocki:** `ds/ListDetailLayout` (≥ 1600 px panel obok tabeli, 768–1599 px
+  nachodzi na tabelę z prawej — `fixed`, 400 px — i nie ściska kolumn, < 768 px cały
+  ekran; trzy ROZŁĄCZNE zakresy `max-md:` / `md:max-[1599px]:` / `min-[1600px]:`,
+  bo Tailwind v4 nie gwarantuje, że `min-[1600px]:w-auto` wygra z `md:w-[400px]`),
+  `ds/DetailPanel` (nagłówek, zakładki, treść w kolumnie `minmax(0,1fr)`, stopka
+  akcji), `hooks/useRowNavigation` (↑/↓, `rowActivationProps` — klik w link,
+  przycisk, kwadracik albo portal nie otwiera panelu), `lib/url-selection.ts`,
+  `lib/panel-escape.ts` (Esc nie zamyka panelu przy otwartym oknie, menu ani w polu).
+- **Zaznaczenie żyje w adresie:** kontrakty `?contract=`; zamówienia `?group=`,
+  `?order=` (linia MD albo zamówienie okresowe — jedno id `ClientOrder`) i `?contract=`
+  (karta szkicu). To te same parametry, które niosą linki zapisane w bazie (alerty DL,
+  braki zamówień, wygasanie) — link otwiera panel od razu; brak celu = toast.
+- **Nie przywracaj kart.** Panele: `contracts/ContractSidePanel.tsx` (bramki
+  z `lib/contract-access.ts`, wspólne ze stroną kontraktu; status przez
+  `ContractStatusControl`), `OrderGroupPanel`, `OrderLinePanel` (zużycie MD w
+  `LineConsumptionTable`, bez osobnego okna), `ContractorOrderPanel` (logika dawnej
+  karty okresowej bez zmian w zachowaniu; „Zakończ współpracę" z bramką ról jak na
+  stronie kontraktu).
+- **Nic nie zginęło — pilnuje test:** `lib/orders-contracts-feature-inventory.json`
+  (88 funkcji z makiety, plik + marker) i `lib/__tests__/orders-contracts-feature-parity.test.ts`.
+  Przeniesienie funkcji = zmiana `file`; usunięcie wpisu tylko z `removed_reason`.
+- Harness `/preview/client-orders` (`?group=501`, `?order=5015`, `?contract=813`),
+  `/preview/contracts-consolidation`.
+
 ## Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP) + import zużycia MD
 
 Klienci rozliczani w T&M na MD przysyłają JEDNO zamówienie („nr 445") obejmujące
@@ -5078,12 +5110,11 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
 `client_order_groups`. Pełny opis: `docs/order-lifecycle-cost-and-dl-alerts-completion-report.md`.
 
 - **Zakładka „Zamówienia" to JEDEN widok dla każdego klienta** (stan z audytu
-  24.09.2026): `MultiConsultantOrdersTab` renderuje grupy MD/kosztowe i karty
-  kontraktorów z zamówieniami okresowymi (`ContractorOrderCards` z
-  `components/OrdersAndContractsTab.tsx`). Główna funkcja `OrdersAndContractsTab` w tym
-  pliku nie jest nigdzie montowana (żyje tylko w teście i harnessie `/preview/order-tile`)
-  — nie dokładaj do niej funkcji, bo nikt ich nie zobaczy. Do 09.2026 były dwa widoki
-  i stąd historyczne wzmianki w tym pliku o „widoku jednoosobowym”.
+  24.09.2026; od 29.09.2026 tabela z panelem — sekcja „Kontrakty i Zamówienia: lista
+  z panelem"): `MultiConsultantOrdersTab` renderuje zamówienia MD/kosztowe i kontraktorów
+  z zamówieniami okresowymi w jednej `OrdersTable`. `OrdersAndContractsTab`,
+  `OrderGroupCard` i `EndedLineCard` usunięte. Do 09.2026 były dwa widoki i stąd
+  historyczne wzmianki w tym pliku o „widoku jednoosobowym”.
 - **Cykl życia grupy jest STANEM, nie datą.** `status` ∈ `active | completed | exhausted`.
   Data nie odróżnia zamówienia domkniętego świadomie od takiego, któremu minął termin,
   a to dwie różne decyzje. `exhausted` dochodzi automatycznie przy zerowym budżecie

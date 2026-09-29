@@ -1,16 +1,15 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "@/components/Toast";
 import {
-  ContractorOrderCards,
-  OrdersAndContractsTab,
-  canTerminateContractor,
-  splitOrders,
-} from "@/components/OrdersAndContractsTab";
-import type { ClientOrderRead } from "@/lib/api/dlPortal";
+  ContractorOrderPanel,
+  type ContractorOrderFocus,
+} from "@/components/client-profile/orders/ContractorOrderPanel";
+import type { ClientOrderRead, ContractWithOrdersRead } from "@/lib/api/dlPortal";
+import { canViewClientFinance, useAuthStore } from "@/store/auth";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -18,11 +17,20 @@ const authState = vi.hoisted(() => ({
   role: "admin" as string,
   capabilities: ["manage_finance"] as string[],
 }));
+// „Podgląd jako" (impersonacja) — `realUser !== null` chowa „Zakończ współpracę".
+const impersonation = vi.hoisted(() => ({ realUser: null as null | { role: string } }));
 
 vi.mock("@/store/auth", () => ({
   useAuthStore: (
-    selector: (s: { user: { role: string; capabilities: string[] } }) => unknown,
-  ) => selector({ user: authState }),
+    selector: (s: {
+      user: { role: string; capabilities: string[] };
+      realUser: null | { role: string };
+    }) => unknown,
+  ) => selector({ user: authState, realUser: impersonation.realUser }),
+  // Lustro `canManageContractStatus` ze store/auth.ts (bez sekcji — w testach
+  // każda rola ma dostęp do Delivery).
+  canManageContractStatus: (user: { role?: string } | null) =>
+    ["admin", "delivery_lead", "talent_community_manager"].includes(user?.role ?? ""),
   canManageCandidateFinance: (
     user: { role?: string; capabilities?: string[] } | null,
   ) =>
@@ -60,6 +68,7 @@ vi.mock("@/lib/api/dlPortal", () => ({
       },
     }),
     closeOrder: vi.fn(),
+    dismissDraftCard: vi.fn(),
     createOrderExtension: vi.fn(),
     extractOrderPdf: vi.fn(),
     replaceOrderPo: vi.fn(),
@@ -68,6 +77,19 @@ vi.mock("@/lib/api/dlPortal", () => ({
     getDefaultRateUnit: vi.fn().mockResolvedValue({ data: { rate_unit: "hourly" } }),
   },
 }));
+
+const fileMocks = vi.hoisted(() => ({
+  download: vi.fn(),
+  open: vi.fn(),
+}));
+vi.mock("@/lib/authenticated-files", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/authenticated-files")>();
+  return {
+    ...actual,
+    downloadAuthenticatedFile: (...args: unknown[]) => fileMocks.download(...args),
+    openAuthenticatedFile: (...args: unknown[]) => fileMocks.open(...args),
+  };
+});
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -190,41 +212,78 @@ const CONTRACTOR = {
   orders: [FUTURE, ACTIVE, HISTORY],
 };
 
-// Drugi kontraktor z polskimi znakami — do testów diacritic-insensitive search.
-const CONTRACTOR_2 = {
-  ...structuredClone(CONTRACTOR),
-  contract_id: 530,
-  candidate_id: 100,
-  candidate_name: "Michał Jarząb",
-  orders: [
-    makeOrder({
-      id: 11,
-      title: "77777",
-      contract_id: 530,
-      candidate_id: 100,
-      candidate_name: "Michał Jarząb",
-      start_date: localISO(-10),
-    }),
-  ],
-};
+interface RenderPanelOptions {
+  suggestedOrderType?: "periodic" | "cost" | "md";
+  legacyNullOrderType?: "periodic" | "md";
+  searching?: boolean;
+  queryClient?: QueryClient;
+}
 
-function renderTab(
-  clientId = 7,
-  hideCreateButton = false,
-  suggestedOrderType: "periodic" | "cost" | "md" = "periodic",
-  legacyNullOrderType: "periodic" | "md" = "periodic",
-) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+/**
+ * Lustro tego, jak lista zamówień zasila panel: te same dane z
+ * `listContractorsWithOrders` i te same bramki (`can_manage_finance` z serwera,
+ * widoczność kwot z `canViewClientFinance`). Jeden panel na kontraktora.
+ */
+function PanelHarness({
+  clientId,
+  suggestedOrderType,
+  legacyNullOrderType,
+  searching,
+}: {
+  clientId: number;
+  suggestedOrderType: "periodic" | "cost" | "md";
+  legacyNullOrderType: "periodic" | "md";
+  searching: boolean;
+}) {
+  const user = useAuthStore((state) => state.user);
+  const { data } = useQuery({
+    queryKey: ["dl-orders-grouped", clientId],
+    queryFn: async () => (await dlPortalApi.listContractorsWithOrders(clientId)).data,
   });
+  if (!data) return null;
+  const canManageFinance = data.can_manage_finance ?? false;
+  const canViewFinance = canManageFinance || canViewClientFinance(user, clientId);
+  return (
+    <>
+      {data.contractors.map((contractor: ContractWithOrdersRead) => (
+        <ContractorOrderPanel
+          key={contractor.contract_id}
+          contractor={contractor}
+          clientId={clientId}
+          canManageOrders={canManageFinance}
+          canManageFinance={canManageFinance}
+          canViewFinance={canViewFinance}
+          suggestedOrderType={suggestedOrderType}
+          legacyNullOrderType={legacyNullOrderType}
+          searching={searching}
+          onClose={() => undefined}
+        />
+      ))}
+    </>
+  );
+}
+
+/** „Usuń zamówienie" przy bieżącym zamówieniu stoi w menu „⋯" stopki panelu. */
+async function openDeleteFromMenu() {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Więcej akcji zamówienia" }));
+  await user.click(await screen.findByRole("menuitem", { name: /Usuń zamówienie/ }));
+}
+
+function renderPanel(clientId = 7, options: RenderPanelOptions = {}) {
+  const queryClient =
+    options.queryClient ??
+    new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <OrdersAndContractsTab
+        <PanelHarness
           clientId={clientId}
-          hideCreateButton={hideCreateButton}
-          suggestedOrderType={suggestedOrderType}
-          legacyNullOrderType={legacyNullOrderType}
+          suggestedOrderType={options.suggestedOrderType ?? "periodic"}
+          legacyNullOrderType={options.legacyNullOrderType ?? "periodic"}
+          searching={options.searching ?? false}
         />
       </ToastProvider>
     </QueryClientProvider>,
@@ -233,6 +292,7 @@ function renderTab(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  impersonation.realUser = null;
   authState.role = "admin";
   authState.capabilities = ["manage_finance"];
   vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
@@ -255,132 +315,10 @@ beforeEach(() => {
 
 // ── Pure split logic ──────────────────────────────────────────────────────────
 
-describe("splitOrders", () => {
-  it("promotes the latest started order and queues the future one", () => {
-    const { activeOrder, futureOrders, historyOrders } = splitOrders([
-      FUTURE,
-      ACTIVE,
-      HISTORY,
-    ]);
-    expect(activeOrder?.id).toBe(ACTIVE.id);
-    expect(futureOrders.map((o) => o.id)).toEqual([FUTURE.id]);
-    expect(historyOrders.map((o) => o.id)).toEqual([HISTORY.id]);
-  });
-
-  it("treats a start_date of today as already active (not future)", () => {
-    const startsToday = makeOrder({ id: 5, title: "T", start_date: localISO(0) });
-    const { activeOrder, futureOrders } = splitOrders([startsToday]);
-    expect(activeOrder?.id).toBe(5);
-    expect(futureOrders).toHaveLength(0);
-  });
-
-  it("falls back to the soonest upcoming order when nothing has started", () => {
-    const soon = makeOrder({ id: 6, title: "soon", start_date: localISO(10) });
-    const later = makeOrder({ id: 7, title: "later", start_date: localISO(40) });
-    const { activeOrder, futureOrders } = splitOrders([later, soon]);
-    expect(activeOrder?.id).toBe(6);
-    expect(futureOrders.map((o) => o.id)).toEqual([7]);
-  });
-
-  it("keeps cancelled orders out of active/future and in history", () => {
-    const cancelled = makeOrder({
-      id: 8,
-      title: "x",
-      status: "cancelled",
-      start_date: localISO(-5),
-    });
-    const { activeOrder, futureOrders, historyOrders } = splitOrders([
-      ACTIVE,
-      cancelled,
-    ]);
-    expect(activeOrder?.id).toBe(ACTIVE.id);
-    expect(futureOrders).toHaveLength(0);
-    expect(historyOrders.map((o) => o.id)).toEqual([8]);
-  });
-
-  it("wybiera zamówienie, które trwa dziś, a nie zamknięty duplikat tego samego okresu", () => {
-    // Kontrakt #479 (zgłoszenie 29.09.2026): stary wiersz z importu Excela
-    // (`completed`) stoi PRZED aktywnym, bo API sortuje po starcie, a starty
-    // są równe. Zamknięty wiersz w slocie chował „Zakończ zamówienie".
-    const stale = makeOrder({
-      id: 15,
-      title: "K/2026/197070/ŁO/477/26APP",
-      status: "completed",
-      start_date: "2026-07-01",
-      end_date: "2026-09-30",
-    });
-    const live = makeOrder({
-      id: 464,
-      title: "K/2026/197070/ŁO/477/26APP",
-      status: "active",
-      start_date: "2026-07-01",
-      end_date: "2026-09-30",
-    });
-    const { activeOrder, futureOrders, historyOrders } = splitOrders(
-      [stale, live],
-      "2026-09-29",
-    );
-    expect(activeOrder?.id).toBe(464);
-    expect(futureOrders).toHaveLength(0);
-    expect(historyOrders.map((o) => o.id)).toEqual([15]);
-  });
-
-  it("nowszy start nie przebija bieżącego zamówienia, gdy nowsze już się skończyło", () => {
-    const endedLater = makeOrder({
-      id: 20,
-      title: "ENDED",
-      status: "active",
-      start_date: localISO(-10),
-      end_date: localISO(-2),
-    });
-    const running = makeOrder({
-      id: 21,
-      title: "RUNNING",
-      status: "active",
-      start_date: localISO(-100),
-      end_date: null,
-    });
-    expect(splitOrders([endedLater, running]).activeOrder?.id).toBe(21);
-  });
-
-  it("bez bieżącego zamówienia zostaje ostatnie rozpoczęte (historia osoby)", () => {
-    const newest = makeOrder({
-      id: 30,
-      title: "NEWEST",
-      status: "completed",
-      start_date: localISO(-40),
-      end_date: localISO(-10),
-    });
-    const older = makeOrder({
-      id: 31,
-      title: "OLDER",
-      status: "completed",
-      start_date: localISO(-100),
-      end_date: localISO(-50),
-    });
-    const { activeOrder, historyOrders } = splitOrders([newest, older]);
-    expect(activeOrder?.id).toBe(30);
-    expect(historyOrders.map((o) => o.id)).toEqual([31]);
-  });
-});
-
-// ── Card rendering ────────────────────────────────────────────────────────────
-
-describe("OrdersAndContractsTab card", () => {
-  it("w trybie osadzonym ukrywa własne wejście tworzenia", async () => {
-    renderTab(7, true);
-
-    expect(
-      await screen.findByRole("heading", { name: /Tomasz Sadowski/ }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Nowy kontraktor / zamówienie" }),
-    ).not.toBeInTheDocument();
-  });
-
+describe("ContractorOrderPanel card", () => {
   it("oznacza typ bieżącego, przyszłego i historycznego zamówienia", async () => {
     const user = userEvent.setup();
-    renderTab();
+    renderPanel();
 
     expect(await screen.findByText("MD")).toBeInTheDocument();
     expect(screen.getByText("Kosztowe")).toBeInTheDocument();
@@ -432,7 +370,7 @@ describe("OrdersAndContractsTab card", () => {
       },
     } as never);
 
-    renderTab();
+    renderPanel();
 
     await screen.findByRole("heading", { name: /Anulowane kosztowe/ });
     expect(screen.getByText("Kosztowe")).toBeInTheDocument();
@@ -458,7 +396,7 @@ describe("OrdersAndContractsTab card", () => {
     } as never);
     const user = userEvent.setup();
 
-    renderTab(7, false, "cost", "md");
+    renderPanel(7, { suggestedOrderType: "cost", legacyNullOrderType: "md" });
 
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
     expect(screen.getAllByText("MD")).toHaveLength(2);
@@ -486,20 +424,20 @@ describe("OrdersAndContractsTab card", () => {
         can_manage_finance: true,
       },
     } as never);
-    renderTab();
+    renderPanel();
     expect(await screen.findByTestId("no-active-order-note")).toHaveTextContent(
       "Brak aktywnego zamówienia",
     );
   });
 
   it('nie dopisuje „Brak aktywnego zamówienia", gdy zamówienie trwa albo dopiero się zacznie', async () => {
-    renderTab();
+    renderPanel();
     expect((await screen.findAllByText(/Tomasz Sadowski/)).length).toBeGreaterThan(0);
     expect(screen.queryByTestId("no-active-order-note")).toBeNull();
   });
 
   it("shows the consultant name with the contract id and recruitment origin", async () => {
-    renderTab();
+    renderPanel();
     expect(
       await screen.findByRole("heading", { name: /Tomasz Sadowski/ }),
     ).toBeInTheDocument();
@@ -509,7 +447,7 @@ describe("OrdersAndContractsTab card", () => {
     expect(screen.getByText("Kontrakt #529")).toBeInTheDocument();
     expect(screen.queryByText(/Kontrakt #529 draft/)).not.toBeInTheDocument();
     // Rekrutacja, z której wyszedł kontraktor.
-    expect(screen.getByText(/z rekrutacji/)).toBeInTheDocument();
+    expect(screen.getByText(/z rekrutacji/i)).toBeInTheDocument();
     expect(
       screen.getByText("Specjalista: Engineer DevOps"),
     ).toBeInTheDocument();
@@ -518,7 +456,7 @@ describe("OrdersAndContractsTab card", () => {
   it("nazwisko w nagłówku kafelka prowadzi do kontraktu z tego wiersza", async () => {
     // Osoba pracująca u kilku klientów ma kilka kontraktów — kafelek zna ten
     // jeden, który dotyczy klienta, z którego profilu się w niego kliknęło.
-    renderTab();
+    renderPanel();
     const heading = await screen.findByRole("heading", {
       name: /Tomasz Sadowski/,
     });
@@ -533,23 +471,20 @@ describe("OrdersAndContractsTab card", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("nazwisko w wierszu przyszłego zamówienia też prowadzi do kontraktu", async () => {
-    renderTab();
+  it("wiersz przyszłego zamówienia nie powtarza nazwiska — panel dotyczy jednej osoby", async () => {
+    renderPanel();
     await screen.findByText(/Przyszłe zamówienie \(1\)/);
 
     const links = screen
       .getAllByRole("link", { name: "Tomasz Sadowski" })
       .map((link) => link.getAttribute("href"));
-    // Kafelek + wiersz przyszłego zamówienia; oba na ten sam kontrakt.
-    expect(links.length).toBeGreaterThan(1);
-    expect(new Set(links)).toEqual(new Set(["/contracts/529"]));
+    expect(links).toEqual(["/contracts/529"]);
   });
 
-  it("trzyma numer, obie stawki i okres w trzech stałych liniach", async () => {
+  it("trzyma numer, każdą stawkę i okres w osobnych, stałych liniach", async () => {
     // Regresja układu z ticketu: długość tekstu nie może decydować, czy okres
-    // sklei się ze stawkami. Test kotwiczy pola na trzech jawnych kontenerach,
-    // niezależnych od zawijania wewnątrz każdej linii.
-    renderTab();
+    // sklei się ze stawkami. W panelu każde pole ma własny wiersz faktów.
+    renderPanel();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
 
     const numberRow = screen
@@ -557,21 +492,19 @@ describe("OrdersAndContractsTab card", () => {
       .closest('[data-order-detail-line="number"]');
     const costRow = screen
       .getByTitle("Stawka kosztowa")
-      .closest('[data-order-detail-line="rates"]');
+      .closest('[data-order-detail-line="cost"]');
     const revenueRow = screen
       .getByTitle("Stawka przychodowa")
-      .closest('[data-order-detail-line="rates"]');
+      .closest('[data-order-detail-line="revenue"]');
     const periodRow = screen
       .getByTitle("Okres zamówienia")
       .closest('[data-order-detail-line="period"]');
 
     expect(numberRow).not.toBeNull();
     expect(costRow).not.toBeNull();
-    expect(revenueRow).toBe(costRow);
+    expect(revenueRow).not.toBeNull();
     expect(periodRow).not.toBeNull();
-    expect(numberRow).not.toBe(costRow);
-    expect(costRow).not.toBe(periodRow);
-    expect(numberRow).not.toBe(periodRow);
+    expect(new Set([numberRow, costRow, revenueRow, periodRow]).size).toBe(4);
 
     expect(
       screen
@@ -579,7 +512,7 @@ describe("OrdersAndContractsTab card", () => {
         .closest("[data-order-detail-line]"),
     ).toBe(numberRow);
     // Stawka kosztowa pochodzi z kontraktu (09.2026) — w miejscu przycisku
-    // edycji jest znacznik źródła, w tej samej linii stawek.
+    // edycji jest znacznik źródła, w tej samej linii.
     expect(
       screen.getByText("(z kontraktu)").closest("[data-order-detail-line]"),
     ).toBe(costRow);
@@ -587,7 +520,7 @@ describe("OrdersAndContractsTab card", () => {
       screen
         .getByRole("button", { name: "Edytuj: Stawka przychodowa" })
         .closest("[data-order-detail-line]"),
-    ).toBe(costRow);
+    ).toBe(revenueRow);
     expect(
       screen
         .getByRole("button", { name: "Edytuj: okres zamówienia" })
@@ -596,7 +529,7 @@ describe("OrdersAndContractsTab card", () => {
   });
 
   it("renames the section to Przyszłe zamówienie and lists the future order", async () => {
-    renderTab();
+    renderPanel();
     expect(await screen.findByText(/Przyszłe zamówienie \(1\)/)).toBeInTheDocument();
     // Future entry: candidate name + "Numer zamówienia: <title>", no draft badge.
     expect(screen.getByText("Numer zamówienia:")).toBeInTheDocument();
@@ -617,7 +550,7 @@ describe("OrdersAndContractsTab card", () => {
           can_manage_finance: false,
         },
       } as never);
-      renderTab();
+      renderPanel();
       await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
       // Kotwica na `title`, nie na widocznej etykiecie: kafelek skraca ją do
       // „koszt."/„przych.", żeby obie stawki mieściły się w jednej linii, a
@@ -630,7 +563,7 @@ describe("OrdersAndContractsTab card", () => {
     },
   );
 
-  it("Finance widzi pełne stawki i zachowuje istniejącą terminację kontraktu", async () => {
+  it("Finance widzi pełne stawki, ale bez „Zakończ współpracę” (bramka roli jak na stronie kontraktu)", async () => {
     authState.role = "finance";
     authState.capabilities = ["view_finance"];
     vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
@@ -642,7 +575,7 @@ describe("OrdersAndContractsTab card", () => {
     } as never);
     const user = userEvent.setup();
 
-    renderTab();
+    renderPanel();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
 
     expect(screen.getByTitle("Stawka kosztowa")).toBeInTheDocument();
@@ -656,9 +589,11 @@ describe("OrdersAndContractsTab card", () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByTitle("Usuń zamówienie")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Nowy kontraktor / zamówienie" }),
+      screen.queryByRole("button", { name: "Więcej akcji zamówienia" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Zakończ współpracę$/ })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Zakończ współpracę/ }),
+    ).not.toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", { name: /Historia zamówień \(1\)/ }),
@@ -667,7 +602,7 @@ describe("OrdersAndContractsTab card", () => {
     expect(screen.queryByTitle("Usuń zamówienie")).not.toBeInTheDocument();
   });
 
-  it("TAC widzi dane i terminację, ale żadnej mutacji zamówienia okresowego", async () => {
+  it("TAC widzi dane, ale żadnej mutacji zamówienia ani „Zakończ współpracę”", async () => {
     authState.role = "tac";
     authState.capabilities = [];
     vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
@@ -679,7 +614,7 @@ describe("OrdersAndContractsTab card", () => {
     } as never);
     const user = userEvent.setup();
 
-    renderTab(EZDROWIE_CLIENT_ID);
+    renderPanel(EZDROWIE_CLIENT_ID);
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
 
     expect(screen.queryAllByLabelText(/^Edytuj:/)).toHaveLength(0);
@@ -692,9 +627,11 @@ describe("OrdersAndContractsTab card", () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByTitle("Usuń zamówienie")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Nowy kontraktor / zamówienie" }),
+      screen.queryByRole("button", { name: "Więcej akcji zamówienia" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Zakończ współpracę$/ })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Zakończ współpracę/ }),
+    ).not.toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", { name: /Historia zamówień \(1\)/ }),
@@ -707,7 +644,7 @@ describe("OrdersAndContractsTab card", () => {
   });
 
   it("shows candidate finance rows when the server grants manage_finance", async () => {
-    renderTab();
+    renderPanel();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
     expect(screen.getByTitle("Stawka kosztowa")).toBeInTheDocument();
     expect(screen.getByTitle("Stawka przychodowa")).toBeInTheDocument();
@@ -718,7 +655,7 @@ describe("OrdersAndContractsTab card", () => {
     // nie zamyka — decyduje flaga policzona serwerowo dla TEGO klienta.
     authState.role = "delivery_lead";
     authState.capabilities = [];
-    renderTab();
+    renderPanel();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
     expect(screen.getByTitle("Stawka kosztowa")).toBeInTheDocument();
     expect(screen.getByTitle("Stawka przychodowa")).toBeInTheDocument();
@@ -726,7 +663,7 @@ describe("OrdersAndContractsTab card", () => {
 
   it("reveals history behind the toggle", async () => {
     const user = userEvent.setup();
-    renderTab();
+    renderPanel();
     const toggle = await screen.findByRole("button", {
       name: /Historia zamówień \(1\)/,
     });
@@ -739,7 +676,7 @@ describe("OrdersAndContractsTab card", () => {
 
   it("saves an edited order number via updateOrder", async () => {
     const user = userEvent.setup();
-    renderTab();
+    renderPanel();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
 
     await user.click(screen.getByLabelText("Edytuj: Numer zamówienia"));
@@ -761,13 +698,7 @@ describe("OrdersAndContractsTab card", () => {
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
     const spy = vi.spyOn(queryClient, "invalidateQueries");
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ToastProvider>
-          <OrdersAndContractsTab clientId={7} />
-        </ToastProvider>
-      </QueryClientProvider>,
-    );
+    renderPanel(7, { queryClient });
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
 
     await user.click(screen.getByLabelText("Edytuj: Numer zamówienia"));
@@ -787,7 +718,7 @@ describe("OrdersAndContractsTab card", () => {
     // Kontrakt jest źródłem prawdy dla stawki kosztowej (09.2026): zapis
     // w zamówieniu i tak nadpisałaby synchronizacja, więc pola nie da się
     // edytować, a karta mówi, skąd liczba pochodzi.
-    renderTab();
+    renderPanel();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
     expect(screen.queryByLabelText("Edytuj: Stawka kosztowa")).not.toBeInTheDocument();
     expect(screen.getByText("(z kontraktu)")).toBeInTheDocument();
@@ -803,7 +734,7 @@ describe("OrdersAndContractsTab card", () => {
       },
     } as never);
     const user = userEvent.setup();
-    renderTab();
+    renderPanel();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
 
     await user.click(screen.getByLabelText("Edytuj: Stawka kosztowa"));
@@ -824,7 +755,7 @@ describe("OrdersAndContractsTab card", () => {
 
   it("saves the edited future order number against the future order id", async () => {
     const user = userEvent.setup();
-    renderTab();
+    renderPanel();
     await screen.findByText("3320");
 
     await user.click(screen.getByLabelText("Edytuj: Numer zamówienia (przyszłe)"));
@@ -842,7 +773,7 @@ describe("OrdersAndContractsTab card", () => {
 
   it("saves an edited okres (start + end) via updateOrder", async () => {
     const user = userEvent.setup();
-    renderTab();
+    renderPanel();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
 
     await user.click(screen.getByLabelText("Edytuj: okres zamówienia"));
@@ -867,7 +798,7 @@ describe("OrdersAndContractsTab card", () => {
         can_manage_finance: true,
       },
     } as never);
-    renderTab();
+    renderPanel();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
     expect(screen.getByText("ustaw stawkę")).toBeInTheDocument();
   });
@@ -890,7 +821,7 @@ describe("OrdersAndContractsTab card", () => {
         can_manage_finance: true,
       },
     } as never);
-    renderTab();
+    renderPanel();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
     expect(screen.getByText("125 USD/h")).toBeInTheDocument();
     expect(screen.getByText("180 EUR/h")).toBeInTheDocument();
@@ -919,7 +850,7 @@ describe("OrdersAndContractsTab card", () => {
       },
     } as never);
 
-    renderTab();
+    renderPanel();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
     expect(screen.getByText("120 USD/MD")).toBeInTheDocument();
     expect(screen.getByText("180 GBP/MD")).toBeInTheDocument();
@@ -928,127 +859,25 @@ describe("OrdersAndContractsTab card", () => {
 
 // ── Search ────────────────────────────────────────────────────────────────────
 
-describe("OrdersAndContractsTab search", () => {
-  function mockTwoContractors() {
-    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
-      data: {
-        contractors: [structuredClone(CONTRACTOR), structuredClone(CONTRACTOR_2)],
-        total_contractors: 2,
-        can_manage_finance: true,
-      },
-    } as never);
-  }
-
-  it("filters by consultant name, diacritic-insensitive", async () => {
-    mockTwoContractors();
-    const user = userEvent.setup();
-    renderTab();
-    await screen.findByRole("heading", { name: /Michał Jarząb/ });
-
-    // "jarzab" bez polskich znaków musi trafić w "Jarząb" (foldText).
-    await user.type(screen.getByLabelText("Szukaj zamówień"), "jarzab");
-
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("heading", { name: /Tomasz Sadowski/ }),
-      ).not.toBeInTheDocument(),
-    );
-    expect(
-      screen.getByRole("heading", { name: /Michał Jarząb/ }),
-    ).toBeInTheDocument();
-  });
-
-  it("matches a history order number and force-expands the history section", async () => {
-    const user = userEvent.setup();
-    renderTab();
+describe("ContractorOrderPanel — wyszukiwanie", () => {
+  it("aktywne wyszukiwanie wymusza rozwiniętą historię (trafienie w starym numerze)", async () => {
+    renderPanel(7, { searching: true });
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
-    // Historia domyślnie zwinięta.
-    expect(screen.queryByText("OLD-1")).not.toBeInTheDocument();
-
-    await user.type(screen.getByLabelText("Szukaj zamówień"), "OLD-1");
-
-    // Trafienie w zamówieniu historycznym: karta zostaje, historia wymuszona.
     expect(await screen.findByText("OLD-1")).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: /Tomasz Sadowski/ }),
-    ).toBeInTheDocument();
+    // Przełącznik nie może schować dopasowanego zamówienia.
+    fireEvent.click(screen.getByRole("button", { name: /Historia zamówień \(1\)/ }));
+    expect(screen.getByText("OLD-1")).toBeInTheDocument();
   });
 
-  it("shows a distinct empty state when nothing matches the search", async () => {
-    const user = userEvent.setup();
-    renderTab();
+  it("bez wyszukiwania historia jest domyślnie zwinięta", async () => {
+    renderPanel();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
-
-    await user.type(screen.getByLabelText("Szukaj zamówień"), "nie-ma-takiego");
-
-    expect(
-      await screen.findByText("Brak zamówień pasujących do wyszukiwania."),
-    ).toBeInTheDocument();
-    // Komunikat "brak kontraktorów" NIE może się tu pojawić — pustka po
-    // wyszukaniu ≠ brak danych.
-    expect(
-      screen.queryByText(/Brak kontraktorów u tego klienta/),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText("OLD-1")).not.toBeInTheDocument();
   });
 });
 
-
-// ── Liczniki pigułek (ticket: liczby przy każdej zakładce) ───────────────────
-
-describe("OrdersAndContractsTab — liczniki filtrów", () => {
-  it("każda pigułka pokazuje liczbę, a „Bez kontynuacji 30d\" jest podzbiorem „Aktywni\"", async () => {
-    // Trzej kontraktorzy: aktywny kończący się za 10 dni, aktywny bez końca,
-    // zakończony. „Bez kontynuacji 30d" celowo liczy się PONOWNIE w „Aktywni" —
-    // suma pigułek nie musi równać się liczbie z „Wszyscy".
-    const ending = {
-      ...structuredClone(CONTRACTOR),
-      contract_id: 601,
-      candidate_name: "Anna Kowalska",
-      days_to_latest_end: 10,
-      orders: [
-        makeOrder({
-          id: 51,
-          title: "E-1",
-          status: "active",
-          start_date: localISO(-20),
-          end_date: localISO(10),
-        }),
-      ],
-    };
-    const openEnded = {
-      ...structuredClone(CONTRACTOR),
-      contract_id: 602,
-      candidate_name: "Piotr Nowak",
-      days_to_latest_end: null,
-    };
-    const ended = {
-      ...structuredClone(CONTRACTOR),
-      contract_id: 603,
-      candidate_name: "Ewa Zielińska",
-      contract_status: "ended",
-      // Reguła 09.2026: „Zakończeni" wymaga daty końca umowy, która minęła —
-      // status bez daty to zaszłość danych, nie zakończenie współpracy.
-      contract_end_date: localISO(-10),
-      days_to_latest_end: null,
-      orders: [makeOrder({ id: 31, title: "Z-1", status: "completed" })],
-    };
-    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
-      data: {
-        contractors: [ending, openEnded, ended],
-        total_contractors: 3,
-        can_manage_finance: true,
-      },
-    } as never);
-
-    renderTab();
-
-    expect(await screen.findByText(/Wszyscy \(3\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Aktywni \(2\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Bez kontynuacji 30d \(1\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Zakończeni \(1\)/)).toBeInTheDocument();
-  });
-
-  it("zamówienie z dodanym przyszłym zamówieniem nie liczy się do „Bez kontynuacji 30d”", async () => {
+describe("ContractorOrderPanel — plakietka przyszłego zamówienia", () => {
+  it("zamówienie z dodanym przyszłym zamówieniem nie ostrzega; ostrzega przyszłe, które samo się kończy", async () => {
     // Ticket 09.2026 (kontrakt #145): 282129 kończy się za 8 dni, ale ma już
     // dodane przyszłe zamówienie 286699 (szkic). Nie wymaga działania.
     const continued = {
@@ -1103,107 +932,18 @@ describe("OrdersAndContractsTab — liczniki filtrów", () => {
       },
     } as never);
 
-    renderTab();
+    renderPanel();
 
-    expect(await screen.findByText(/Bez kontynuacji 30d \(1\)/)).toBeInTheDocument();
+    await screen.findByRole("heading", { name: /Jan Następca/ });
     const badges = screen.getAllByTestId("order-ending-badge");
     expect(badges).toHaveLength(1);
     expect(badges[0]).toHaveTextContent(
       "przyszłe zamówienie NEXT-1 kończy się za 22 dni",
     );
   });
-
-  it("zakończony kontrakt z wiszącym aktywnym zamówieniem NIE wchodzi do Aktywnych", async () => {
-    // Zamówienia domyka nocny skaner po dacie, więc kontrakt `ended` z wciąż
-    // aktywnym wierszem zamówienia to norma, nie wyjątek. Szeroka reguła
-    // „którekolwiek zamówienie aktywne" pokazywałaby go jednocześnie
-    // w „Aktywni" i „Zakończeni".
-    const endedContract = {
-      ...structuredClone(CONTRACTOR),
-      contract_id: 606,
-      contract_status: "ended",
-      contract_end_date: localISO(-10),
-      candidate_name: "Zakonczony Kontrakt",
-      orders: [makeOrder({ id: 43, title: "Z-1", status: "active" })],
-    };
-    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
-      data: {
-        contractors: [endedContract],
-        total_contractors: 1,
-        can_manage_finance: true,
-      },
-    } as never);
-
-    renderTab();
-
-    expect(await screen.findByText(/Zakończeni \(1\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Aktywni \(0\)/)).toBeInTheDocument();
-  });
-
-  it("kompletne zamówienie wychodzi z Draftu do Aktywnych mimo draftowego kontraktu", async () => {
-    // Regresja ticketu: pigułki liczyły WYŁĄCZNIE `contract_status`, a
-    // uzupełnianie zamówienia zmienia status ZAMÓWIENIA. Kontraktor
-    // z draftowym kontraktem i promowanym zamówieniem siedział w „Draft" na
-    // stałe i nie pojawiał się w „Aktywni" — czyli wpisanie czterech pól nie
-    // dawało widocznego skutku, mimo że backend zamówienie promował.
-    const draftContract = {
-      ...structuredClone(CONTRACTOR),
-      contract_id: 605,
-      contract_status: "draft",
-      candidate_name: "Szkicowy Kontrakt",
-      orders: [
-        makeOrder({
-          id: 42,
-          title: "K-1",
-          status: "active",
-          start_date: localISO(-1),
-          end_date: localISO(200),
-          rate_client: 180,
-        }),
-      ],
-    };
-    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
-      data: {
-        contractors: [draftContract],
-        total_contractors: 1,
-        can_manage_finance: true,
-      },
-    } as never);
-
-    renderTab();
-
-    expect(await screen.findByText(/Aktywni \(1\)/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/Draft \(do uzupełnienia\) \(0\)/),
-    ).toBeInTheDocument();
-  });
-
-  it("licznik draftów obejmuje kontraktora, którego zamówienie jest szkicem", async () => {
-    const withDraft = {
-      ...structuredClone(CONTRACTOR),
-      contract_id: 604,
-      candidate_name: "Draftowy Kontraktor",
-      orders: [makeOrder({ id: 41, title: "D-1", status: "draft" })],
-    };
-    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
-      data: {
-        contractors: [withDraft],
-        total_contractors: 1,
-        can_manage_finance: true,
-      },
-    } as never);
-
-    renderTab();
-
-    expect(
-      await screen.findByText(/Draft \(do uzupełnienia\) \(1\)/),
-    ).toBeInTheDocument();
-  });
 });
 
-// ── Kontraktor BEZ zamówienia (Bank Pocztowy) ────────────────────────────────
-
-describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
+describe("ContractorOrderPanel — kontraktor bez zamówienia", () => {
   // Realny przypadek z Banku Pocztowego: kontrakt istnieje, ale nie ma ani
   // jednego `ClientOrder`, więc i stawki są puste.
   const NO_ORDERS = {
@@ -1229,19 +969,19 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
     // Przed poprawką to pole wisiało na `activeOrder` i po prostu nie
     // renderowało się — karta pokazywała stawkę kosztową bez przychodowej
     // i wyglądała, jakby ta druga u tego klienta nie istniała.
-    renderTab();
+    renderPanel();
     expect(
       await screen.findByRole("button", { name: /Edytuj: Stawka przychodowa/i }),
     ).toBeInTheDocument();
   });
 
   it("pusta karta pokazuje badge sugerowanego typu sekcji", async () => {
-    renderTab(7, false, "md");
+    renderPanel(7, { suggestedOrderType: "md" });
     expect(await screen.findByText("MD")).toBeInTheDocument();
   });
 
   it("okres i numer zamówienia są edytowalne mimo braku zamówienia", async () => {
-    renderTab();
+    renderPanel();
     expect(
       await screen.findByRole("button", { name: /Edytuj: Numer zamówienia/i }),
     ).toBeInTheDocument();
@@ -1252,7 +992,7 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
 
   it("pierwszy zapis zakłada SZKIC zamówienia zamiast rzucać błędem", async () => {
     const user = userEvent.setup();
-    renderTab();
+    renderPanel();
 
     await user.click(
       await screen.findByRole("button", { name: /Edytuj: Numer zamówienia/i }),
@@ -1276,7 +1016,7 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
     // wyłącznie klienci z zaimportowanymi zamówieniami. Reszta dostawała samo
     // „Dodaj przedłużenie" i zgłaszała to jako funkcję włączoną wybranym
     // klientom — a to była różnica DANYCH, nie konfiguracji.
-    renderTab();
+    renderPanel();
     expect(
       await screen.findByRole("button", { name: "Uzupełnij zamówienie" }),
     ).toBeInTheDocument();
@@ -1290,7 +1030,7 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
     // zostawiałoby po każdym rozmyśleniu się wiersz „(bez numeru)", który
     // potem dopominałby się w pigułce „Draft (do uzupełnienia)".
     const user = userEvent.setup();
-    renderTab();
+    renderPanel();
 
     await user.click(
       await screen.findByRole("button", { name: "Uzupełnij zamówienie" }),
@@ -1306,7 +1046,7 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
 
   it("zapis z dialogu zakłada zamówienie JEDNYM żądaniem z kompletem pól", async () => {
     const user = userEvent.setup();
-    renderTab();
+    renderPanel();
 
     await user.click(
       await screen.findByRole("button", { name: "Uzupełnij zamówienie" }),
@@ -1351,7 +1091,7 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
     vi.mocked(dlPortalApi.createOrderExtension).mockRejectedValueOnce(
       new Error("boom"),
     );
-    renderTab();
+    renderPanel();
 
     await user.click(
       await screen.findByRole("button", { name: "Uzupełnij zamówienie" }),
@@ -1377,7 +1117,7 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
     // także ścieżkę dialogową — inaczej powstaje drugi szkic tego samego
     // zamówienia.
     const user = userEvent.setup();
-    renderTab();
+    renderPanel();
 
     await user.click(
       await screen.findByRole("button", { name: /Edytuj: Numer zamówienia/i }),
@@ -1408,7 +1148,7 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
 
   it("stawka kosztowa zapisuje się przez świeżo utworzone zamówienie", async () => {
     const user = userEvent.setup();
-    renderTab();
+    renderPanel();
 
     await user.click(
       await screen.findByRole("button", { name: /Edytuj: Stawka kosztowa/i }),
@@ -1426,7 +1166,7 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
 });
 
 
-describe("OrdersAndContractsTab — promocja draftu z dialogu", () => {
+describe("ContractorOrderPanel — promocja draftu z dialogu", () => {
   it("zapis istniejącego zamówienia NIE wysyła statusu", async () => {
     // Sprzężenie łatwe do zerwania: `_auto_activate_unless_status_explicit`
     // po stronie serwera USTĘPUJE jawnemu `status` w ciele PATCH-a (bo
@@ -1458,7 +1198,7 @@ describe("OrdersAndContractsTab — promocja draftu z dialogu", () => {
     } as never);
 
     const user = userEvent.setup();
-    renderTab();
+    renderPanel();
 
     await user.click(
       await screen.findByRole("button", { name: "Uzupełnij zamówienie" }),
@@ -1475,7 +1215,7 @@ describe("OrdersAndContractsTab — promocja draftu z dialogu", () => {
   });
 });
 
-describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
+describe("ContractorOrderPanel — e-Zdrowie bez zamówienia", () => {
   // `POST /orders` wymaga umowy wykonawczej dla Centrum e-Zdrowia, a select
   // renderował się wyłącznie przy `activeOrder`. U TEGO klienta ścieżka
   // „kontraktor bez zamówienia" kończyła się więc 422 i objaw „nie da się nic
@@ -1533,7 +1273,7 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
   });
 
   it("select umowy wykonawczej renderuje się MIMO braku zamówienia, pogrupowany po częściach", async () => {
-    renderTab(EZDROWIE_CLIENT_ID);
+    renderPanel(EZDROWIE_CLIENT_ID);
     const select = await screen.findByLabelText("Umowa wykonawcza");
     // Opcje dojeżdżają po odpowiedzi struktury.
     await waitFor(() =>
@@ -1548,7 +1288,7 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
 
   it("wybór umowy wykonawczej zakłada szkic zamówienia i przesyła executive_contract_id", async () => {
     const user = userEvent.setup();
-    renderTab(EZDROWIE_CLIENT_ID);
+    renderPanel(EZDROWIE_CLIENT_ID);
 
     const select = await screen.findByLabelText("Umowa wykonawcza");
     await waitFor(() => expect(select.querySelectorAll("option")).toHaveLength(2));
@@ -1567,7 +1307,7 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
     // Bez tej gałęzi użytkownik dostawał surowe „Request failed with status
     // code 422" — komunikat, z którego nie da się wywnioskować, czego brakuje.
     const user = userEvent.setup();
-    renderTab(EZDROWIE_CLIENT_ID);
+    renderPanel(EZDROWIE_CLIENT_ID);
 
     await user.click(
       await screen.findByRole("button", { name: /Edytuj: Numer zamówienia/i }),
@@ -1588,7 +1328,7 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
     // zamówienia — a wybór umowy wykonawczej stawia obowiązkowy krok dokładnie
     // przed innymi edycjami, czyli robi z tego zwykłą kolejność klikania.
     const user = userEvent.setup();
-    renderTab(EZDROWIE_CLIENT_ID);
+    renderPanel(EZDROWIE_CLIENT_ID);
 
     const select = await screen.findByLabelText("Umowa wykonawcza");
     await waitFor(() => expect(select.querySelectorAll("option")).toHaveLength(2));
@@ -1619,7 +1359,7 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
         { ...STRUCTURE.framework_contracts[0], executive_contracts: [] },
       ],
     });
-    renderTab(EZDROWIE_CLIENT_ID);
+    renderPanel(EZDROWIE_CLIENT_ID);
     expect(
       await screen.findByText(
         "Dodaj umowę wykonawczą w sekcji Struktura umów na profilu klienta.",
@@ -1630,7 +1370,7 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
   it("u klienta spoza e-Zdrowia umowa wykonawcza się NIE pojawia", async () => {
     // Bramka jest po `client_id`, nie po nazwie — a backend odrzuca umowę
     // wykonawczą przysłaną przez kogokolwiek innego.
-    renderTab(7);
+    renderPanel(7);
     expect(await screen.findByText(/Ezdrowie Bezzamowien/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Umowa wykonawcza")).not.toBeInTheDocument();
     expect(executiveContractMocks.structure).not.toHaveBeenCalled();
@@ -1641,7 +1381,7 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
 
 // ── Zamówienie kończące się jutro (zgłoszenie 29.09.2026) ────────────────────
 
-describe("OrdersAndContractsTab — komunikat o zamówieniu kończącym się w najbliższych dniach", () => {
+describe("ContractorOrderPanel — komunikat o zamówieniu kończącym się w najbliższych dniach", () => {
   const NUMBER = "K/2026/197070/ŁO/477/26APP";
 
   /** Kontraktor z zamówieniami i polami, które serwer liczy w odpowiedzi listy. */
@@ -1683,7 +1423,7 @@ describe("OrdersAndContractsTab — komunikat o zamówieniu kończącym się w n
       ],
       { ending_without_successor_order_id: 464, ending_without_successor_days: 1 },
     );
-    renderTab();
+    renderPanel();
 
     const badge = await screen.findByTestId("order-ending-badge");
     expect(badge).toHaveTextContent(/^kończy się za 1 dzień$/);
@@ -1704,7 +1444,7 @@ describe("OrdersAndContractsTab — komunikat o zamówieniu kończącym się w n
       ],
       { ending_without_successor_order_id: 464, ending_without_successor_days: 1 },
     );
-    renderTab();
+    renderPanel();
     await screen.findByTestId("order-ending-badge");
 
     fireEvent.click(screen.getByRole("button", { name: /^Zakończ zamówienie$/ }));
@@ -1729,7 +1469,7 @@ describe("OrdersAndContractsTab — komunikat o zamówieniu kończącym się w n
       [makeOrder({ id: 585, title: "K/2026/194208/JP/828/26ERSTE8", ...period })],
       { ending_without_successor_order_id: 585, ending_without_successor_days: 1 },
     );
-    renderTab();
+    renderPanel();
 
     expect(await screen.findByTestId("order-ending-badge")).toHaveTextContent(
       /^kończy się za 1 dzień$/,
@@ -1752,7 +1492,7 @@ describe("OrdersAndContractsTab — komunikat o zamówieniu kończącym się w n
       ],
       { ending_without_successor_order_id: 586, ending_without_successor_days: 0 },
     );
-    renderTab();
+    renderPanel();
 
     expect(await screen.findByTestId("order-ending-badge")).toHaveTextContent(
       /^kończy się dziś$/,
@@ -1778,7 +1518,7 @@ describe("OrdersAndContractsTab — komunikat o zamówieniu kończącym się w n
       ],
       { ending_without_successor_order_id: 700, ending_without_successor_days: 20 },
     );
-    renderTab();
+    renderPanel();
 
     expect(await screen.findByTestId("order-ending-badge")).toHaveTextContent(
       /^kończy się za 20 dni$/,
@@ -1805,7 +1545,7 @@ describe("OrdersAndContractsTab — komunikat o zamówieniu kończącym się w n
       ],
       { ending_without_successor_order_id: 701, ending_without_successor_days: 20 },
     );
-    renderTab();
+    renderPanel();
 
     expect(await screen.findByTestId("order-ending-badge")).toHaveTextContent(
       "przyszłe zamówienie NEXT-3 kończy się za 20 dni",
@@ -1832,7 +1572,7 @@ describe("OrdersAndContractsTab — komunikat o zamówieniu kończącym się w n
       ],
       { ending_without_successor_order_id: 656, ending_without_successor_days: 20 },
     );
-    renderTab();
+    renderPanel();
 
     expect(await screen.findByTestId("order-ending-badge")).toHaveTextContent(
       "przyszłe zamówienie NEXT-2 kończy się za 20 dni",
@@ -1841,7 +1581,7 @@ describe("OrdersAndContractsTab — komunikat o zamówieniu kończącym się w n
   });
 });
 
-describe("OrdersAndContractsTab — przyciski „Zakończ zamówienie” i „Zakończ współpracę”", () => {
+describe("ContractorOrderPanel — przyciski „Zakończ zamówienie” i „Zakończ współpracę”", () => {
   /** Kontraktor o zadanym statusie kontraktu, z jednym aktywnym zamówieniem. */
   function withContractStatus(contract_status: string) {
     return {
@@ -1882,10 +1622,10 @@ describe("OrdersAndContractsTab — przyciski „Zakończ zamówienie” i „Za
     // (Pierwotną przyczyną tego szkicu było wymaganie `end_date` w bramce
     // aktywacji — zdjęte w sierpniu 2026; scenariusz zostaje realny bez niego.)
     mockContractor("draft");
-    renderTab();
+    renderPanel();
     await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
     expect(
-      screen.getByRole("button", { name: /^Zakończ współpracę$/ }),
+      screen.getByRole("button", { name: /^Zakończ współpracę…$/ }),
     ).toBeInTheDocument();
   });
 
@@ -1893,10 +1633,10 @@ describe("OrdersAndContractsTab — przyciski „Zakończ zamówienie” i „Za
     "kontrakt w stanie %s MA „Zakończ współpracę”",
     async (status) => {
       mockContractor(status);
-      renderTab();
+      renderPanel();
       await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
       expect(
-        screen.getByRole("button", { name: /^Zakończ współpracę$/ }),
+        screen.getByRole("button", { name: /^Zakończ współpracę…$/ }),
       ).toBeInTheDocument();
     },
   );
@@ -1905,10 +1645,10 @@ describe("OrdersAndContractsTab — przyciski „Zakończ zamówienie” i „Za
     "kontrakt w stanie terminalnym %s NIE MA „Zakończ współpracę”",
     async (status) => {
       mockContractor(status);
-      renderTab();
+      renderPanel();
       await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
       expect(
-        screen.queryByRole("button", { name: /^Zakończ współpracę$/ }),
+        screen.queryByRole("button", { name: /^Zakończ współpracę…$/ }),
       ).not.toBeInTheDocument();
     },
   );
@@ -1921,7 +1661,7 @@ describe("OrdersAndContractsTab — przyciski „Zakończ zamówienie” i „Za
       data: { id: 61 },
     } as never);
     mockContractor("active");
-    renderTab();
+    renderPanel();
     await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
 
     fireEvent.click(screen.getByRole("button", { name: /^Zakończ zamówienie$/ }));
@@ -1953,10 +1693,10 @@ describe("OrdersAndContractsTab — przyciski „Zakończ zamówienie” i „Za
     // kasowanie zabiera przez CASCADE krok stawki klienta. Dialog pyta serwer,
     // CO się przeceni, i dopiero wtedy odsłania przycisk.
     mockContractor("active");
-    renderTab();
+    renderPanel();
     await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
 
-    fireEvent.click(screen.getByRole("button", { name: /^Usuń zamówienie$/ }));
+    await openDeleteFromMenu();
 
     // Otwiera się dialog, nie mutacja: samo kliknięcie kosza NIE kasuje.
     await screen.findByRole("heading", { name: /Usunąć zamówienie/ });
@@ -2004,10 +1744,10 @@ describe("OrdersAndContractsTab — przyciski „Zakończ zamówienie” i „Za
       },
     } as never);
     mockContractor("active");
-    renderTab();
+    renderPanel();
     await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
 
-    fireEvent.click(screen.getByRole("button", { name: /^Usuń zamówienie$/ }));
+    await openDeleteFromMenu();
 
     expect(await screen.findByText(/przeceniony z 185,00 PLN\/h/)).toBeInTheDocument();
     expect(screen.getByText(/01\.03\.2026/)).toBeInTheDocument();
@@ -2015,84 +1755,12 @@ describe("OrdersAndContractsTab — przyciski „Zakończ zamówienie” i „Za
 
   it("„Zakończ współpracę” nie wygląda jak usuwanie (bez ikony kosza)", async () => {
     mockContractor("active");
-    renderTab();
+    renderPanel();
     await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
-    const terminate = screen.getByRole("button", { name: /^Zakończ współpracę$/ });
+    const terminate = screen.getByRole("button", { name: /^Zakończ współpracę…$/ });
     expect(terminate.querySelector("svg[class*='trash']")).toBeNull();
   });
 });
-
-describe("canTerminateContractor", () => {
-  it("przepuszcza wszystko poza `ended` i `void`", () => {
-    for (const status of [
-      "draft",
-      "ready_for_signature",
-      "active",
-      "ending",
-    ]) {
-      expect(canTerminateContractor(status)).toBe(true);
-    }
-    expect(canTerminateContractor("ended")).toBe(false);
-    expect(canTerminateContractor("void")).toBe(false);
-  });
-
-  it("brak statusu traktuje jak stan nieterminalny", () => {
-    // `contract_status` jest po stronie API nullowalne (`contract.status.value
-    // if contract else None`). Ukrycie przycisku przy braku danych zostawiłoby
-    // kontraktora bez jedynej drogi zakończenia — awaria odczytu nie może
-    // czytać się jak stan terminalny.
-    expect(canTerminateContractor(null)).toBe(true);
-  });
-});
-
-
-describe("ContractorOrderCards — deep link z panelu „Moi klienci”", () => {
-  function renderCards(focusOrder: Parameters<typeof ContractorOrderCards>[0]["focusOrder"]) {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-    });
-    const draft = makeOrder({ id: 77, title: "Tomasz Sadowski — DevOps", status: "draft" });
-    return render(
-      <QueryClientProvider client={queryClient}>
-        <ToastProvider>
-          <ContractorOrderCards
-            clientId={7}
-            contractors={[{ ...structuredClone(CONTRACTOR), orders: [draft] } as never]}
-            canViewFinance
-            canManageFinance
-            canManageOrders
-            suggestedOrderType="periodic"
-            legacyNullOrderType="periodic"
-            searching={false}
-            focusOrder={focusOrder}
-          />
-        </ToastProvider>
-      </QueryClientProvider>,
-    );
-  }
-
-  it("szkic z linku otwiera się od razu w oknie „Uzupełnij zamówienie” i karta jest podświetlona", async () => {
-    const { container } = renderCards({
-      contractId: 529,
-      orderId: 77,
-      openEditor: true,
-      nonce: 1,
-    });
-    expect(
-      await screen.findByRole("dialog", { name: "Uzupełnij zamówienie" }),
-    ).toBeInTheDocument();
-    expect(
-      container.querySelector("#contractor-order-card-529"),
-    ).toHaveAttribute("data-focused", "true");
-  });
-
-  it("bez celu nic się nie otwiera", async () => {
-    renderCards(null);
-    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
-    expect(screen.queryByRole("dialog", { name: "Uzupełnij zamówienie" })).toBeNull();
-  });
-});
-
 
 describe("reactivation after completing an order", () => {
   it.each(["success", "save_failure", "upload_failure"])(
@@ -2114,7 +1782,7 @@ describe("reactivation after completing an order", () => {
         return { data: updated } as never;
       });
       vi.mocked(dlPortalApi.replaceOrderPo).mockRejectedValue(new Error("Upload odrzucony"));
-      renderTab();
+      renderPanel();
       expect(await screen.findByTestId("no-active-order-note")).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Uzupełnij zamówienie" }));
       fireEvent.change(screen.getByLabelText("Data od"), { target: { value: updated.start_date } });
@@ -2143,4 +1811,327 @@ describe("reactivation after completing an order", () => {
       }
     },
   );
+});
+
+
+// ── Panel: nowe zachowania (wersja B, 29.09.2026) ────────────────────────────
+
+describe("ContractorOrderPanel — bramka roli „Zakończ współpracę”", () => {
+  it("rekruter (bez zarządzania statusem kontraktu) nie widzi „Zakończ współpracę”", async () => {
+    authState.role = "recruiter";
+    authState.capabilities = [];
+    renderPanel();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    expect(
+      screen.queryByRole("button", { name: /^Zakończ współpracę/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("admin w trybie „podgląd jako” nie widzi „Zakończ współpracę”", async () => {
+    impersonation.realUser = { role: "admin" };
+    renderPanel();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    expect(
+      screen.queryByRole("button", { name: /^Zakończ współpracę/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("Delivery Lead widzi „Zakończ współpracę” i otwiera okno zakończenia", async () => {
+    authState.role = "delivery_lead";
+    authState.capabilities = [];
+    renderPanel();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    expect(
+      screen.getByRole("button", { name: /^Zakończ współpracę…$/ }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("ContractorOrderPanel — PDF bieżącego zamówienia", () => {
+  function mockActive(hasFile: boolean) {
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [
+          {
+            ...structuredClone(CONTRACTOR),
+            orders: [
+              {
+                ...structuredClone(ACTIVE),
+                has_file: hasFile,
+                filename: hasFile ? "zamowienie_45767.pdf" : null,
+                content_type: hasFile ? "application/pdf" : null,
+              },
+            ],
+          },
+        ],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+  }
+
+  it("bez pliku nie ma przycisków „Otwórz” i „Pobierz”", async () => {
+    mockActive(false);
+    renderPanel();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    expect(screen.queryByRole("button", { name: /Otwórz/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Pobierz/ })).not.toBeInTheDocument();
+  });
+
+  it("z plikiem pokazuje nazwę, „Otwórz” i „Pobierz” — oba przez endpoint z tokenem", async () => {
+    mockActive(true);
+    fileMocks.download.mockResolvedValue(undefined);
+    fileMocks.open.mockResolvedValue(undefined);
+    renderPanel();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    expect(screen.getByText("zamowienie_45767.pdf")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Pobierz/ }));
+    await waitFor(() =>
+      expect(fileMocks.download).toHaveBeenCalledWith(
+        "/api/clients/7/orders/1/file",
+        "zamowienie_45767.pdf",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Otwórz/ }));
+    await waitFor(() =>
+      expect(fileMocks.open).toHaveBeenCalledWith(
+        "/api/clients/7/orders/1/file",
+        "application/pdf",
+        "zamowienie_45767.pdf",
+      ),
+    );
+  });
+
+  it("nieudane pobranie mówi o tym po polsku", async () => {
+    mockActive(true);
+    fileMocks.download.mockRejectedValue(new Error("boom"));
+    renderPanel();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    fireEvent.click(screen.getByRole("button", { name: /Pobierz/ }));
+    expect(
+      await screen.findByText("Nie udało się pobrać pliku zamówienia."),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("ContractorOrderPanel — karta szkicu", () => {
+  const DRAFT_CARD = {
+    ...structuredClone(CONTRACTOR),
+    contract_id: 690,
+    candidate_name: "Jan Maj",
+    draft_card: true,
+    orders: [],
+  };
+
+  function renderDraft(onAssignToOrder = vi.fn()) {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <ContractorOrderPanel
+            contractor={DRAFT_CARD as never}
+            clientId={7}
+            canManageOrders
+            canManageFinance
+            canViewFinance
+            suggestedOrderType="periodic"
+            legacyNullOrderType="periodic"
+            onAssignToOrder={onAssignToOrder}
+            onClose={() => undefined}
+          />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+    return onAssignToOrder;
+  }
+
+  it("ma „Przypisz do zamówienia”, „Uzupełnij zamówienie” i „Usuń szkic”, bez menu usuwania zamówienia", async () => {
+    const onAssign = renderDraft();
+    expect(screen.getByTestId("no-active-order-note")).toHaveTextContent("Brak zamówienia");
+    expect(screen.getByRole("button", { name: "Uzupełnij zamówienie" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Usuń szkic" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Więcej akcji zamówienia" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Przypisz do zamówienia" }));
+    expect(onAssign).toHaveBeenCalledWith(
+      expect.objectContaining({ contract_id: 690 }),
+      expect.any(Function),
+    );
+  });
+
+  it("„Usuń szkic” pyta w oknie i dopiero potwierdzenie woła serwer", async () => {
+    vi.mocked(dlPortalApi.dismissDraftCard).mockResolvedValue({ data: {} } as never);
+    renderDraft();
+    fireEvent.click(screen.getByRole("button", { name: "Usuń szkic" }));
+    const dialog = await screen.findByRole("dialog", { name: "Usunąć szkic?" });
+    expect(dlPortalApi.dismissDraftCard).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Usuń szkic" }));
+    await waitFor(() =>
+      expect(dlPortalApi.dismissDraftCard).toHaveBeenCalledWith(7, 690),
+    );
+  });
+
+  it("bez `onAssignToOrder` (klient spoza CeZ) nie ma „Przypisz do zamówienia”", async () => {
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <ContractorOrderPanel
+            contractor={DRAFT_CARD as never}
+            clientId={7}
+            canManageOrders
+            canManageFinance
+            canViewFinance
+            suggestedOrderType="periodic"
+            legacyNullOrderType="periodic"
+            onClose={() => undefined}
+          />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Przypisz do zamówienia" }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("ContractorOrderPanel — redakcja kwot i zamykanie", () => {
+  it("rola bez kwot widzi „—” w wierszach Koszt i Przychód", async () => {
+    authState.role = "tac";
+    authState.capabilities = [];
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [structuredClone(CONTRACTOR)],
+        total_contractors: 1,
+        can_manage_finance: false,
+      },
+    } as never);
+    renderPanel();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    const cost = screen.getByText("Koszt").nextElementSibling;
+    const revenue = screen.getByText("Przychód").nextElementSibling;
+    expect(cost).toHaveTextContent(/^—$/);
+    expect(revenue).toHaveTextContent(/^—$/);
+    expect(screen.queryByText(/180/)).not.toBeInTheDocument();
+  });
+
+  it("przycisk zamykania woła `onClose`", async () => {
+    const onClose = vi.fn();
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <ContractorOrderPanel
+            contractor={structuredClone(CONTRACTOR) as never}
+            clientId={7}
+            canManageOrders
+            canManageFinance
+            canViewFinance
+            suggestedOrderType="periodic"
+            legacyNullOrderType="periodic"
+            onClose={onClose}
+          />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij panel" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("kończące się zamówienie stawia „Dodaj przedłużenie” jako główną akcję", async () => {
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [
+          {
+            ...structuredClone(CONTRACTOR),
+            ending_without_successor_order_id: 90,
+            ending_without_successor_days: 1,
+            orders: [
+              makeOrder({
+                id: 90,
+                title: "END-1",
+                start_date: localISO(-30),
+                end_date: localISO(1),
+              }),
+            ],
+          },
+        ],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+    renderPanel();
+    await screen.findByTestId("order-ending-badge");
+    const footerButtons = screen
+      .getAllByRole("button")
+      .filter((b) => /Dodaj przedłużenie|Uzupełnij zamówienie/.test(b.textContent ?? ""));
+    expect(footerButtons[0]).toHaveTextContent("Dodaj przedłużenie");
+  });
+});
+
+// Przeniesione z testu dawnych kafelków (`ContractorOrderCards`, do 29.09.2026):
+// link z panelu „Moi klienci" (`?order=`) trafia do panelu kontraktora.
+describe("ContractorOrderPanel — deep link z panelu „Moi klienci”", () => {
+  function renderWithFocus(focusOrder: ContractorOrderFocus | null) {
+    const onFocusOrderServed = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const draft = makeOrder({ id: 77, title: "Tomasz Sadowski — DevOps", status: "draft" });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <ContractorOrderPanel
+            clientId={7}
+            contractor={{ ...structuredClone(CONTRACTOR), orders: [draft] } as never}
+            canViewFinance
+            canManageFinance
+            canManageOrders
+            suggestedOrderType="periodic"
+            legacyNullOrderType="periodic"
+            focusOrder={focusOrder}
+            onFocusOrderServed={onFocusOrderServed}
+            onClose={() => undefined}
+          />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+    return { onFocusOrderServed };
+  }
+
+  it("szkic z linku otwiera się od razu w oknie „Uzupełnij zamówienie” i zgłasza obsłużenie", async () => {
+    const { onFocusOrderServed } = renderWithFocus({
+      contractId: 529,
+      orderId: 77,
+      openEditor: true,
+      nonce: 1,
+    });
+    expect(
+      await screen.findByRole("dialog", { name: "Uzupełnij zamówienie" }),
+    ).toBeInTheDocument();
+    expect(onFocusOrderServed).toHaveBeenCalledTimes(1);
+  });
+
+  it("cel innego kontraktora nic nie otwiera", async () => {
+    const { onFocusOrderServed } = renderWithFocus({
+      contractId: 999,
+      orderId: 77,
+      openEditor: true,
+      nonce: 1,
+    });
+    await screen.findByTestId("contractor-order-panel");
+    expect(screen.queryByRole("dialog", { name: "Uzupełnij zamówienie" })).toBeNull();
+    expect(onFocusOrderServed).not.toHaveBeenCalled();
+  });
+
+  it("bez celu nic się nie otwiera", async () => {
+    renderWithFocus(null);
+    await screen.findByTestId("contractor-order-panel");
+    expect(screen.queryByRole("dialog", { name: "Uzupełnij zamówienie" })).toBeNull();
+  });
 });

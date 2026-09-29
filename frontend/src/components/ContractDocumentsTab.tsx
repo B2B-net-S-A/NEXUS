@@ -42,7 +42,7 @@ const DOC_TYPES: { value: string; label: string }[] = [
   { value: "other", label: "Inne" },
 ];
 
-const DOC_TYPE_LABEL: Record<string, string> = Object.fromEntries(
+export const DOC_TYPE_LABEL: Record<string, string> = Object.fromEntries(
   DOC_TYPES.map((d) => [d.value, d.label]),
 );
 
