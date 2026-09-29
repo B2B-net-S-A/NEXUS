@@ -293,6 +293,13 @@ export default function JobDetailPage() {
     null,
   );
   const [portalsFocus, setPortalsFocus] = useState(false);
+  // Edytor zostaje zamontowany po pierwszym wejściu w „Edytuj” — przełączenie
+  // na „Podgląd” go tylko chowa, więc niezapisany szkic nie ginie.
+  const [championEditorMounted, setChampionEditorMounted] = useState(false);
+  const [championDirty, setChampionDirty] = useState(false);
+  useEffect(() => {
+    if (championModeState === "edit") setChampionEditorMounted(true);
+  }, [championModeState]);
   const [showCloseJob, setShowCloseJob] = useState(false);
 
   // Tryb „Tabela" usunięty (decyzja Artura 22.09.2026): rekrutacja to Tablica.
@@ -792,6 +799,8 @@ export default function JobDetailPage() {
   // Bez prawa edycji zawsze „Podgląd” — nawet ze starym linkiem `?mode=edit`.
   const championMode: ChampionMode =
     canEditChampion && championModeState === "edit" ? "edit" : "view";
+  const renderChampionEditor =
+    canEditChampion && (championMode === "edit" || championEditorMounted);
   const onEdit = canEditJobContentFields ? () => setShowEditJob(true) : undefined;
   const onWriteAnnouncement = canEditJobContentFields
     ? () => setShowAIWriter(true)
@@ -1319,6 +1328,9 @@ export default function JobDetailPage() {
                   )}
                 >
                   Edytuj
+                  {championDirty ? (
+                    <span className="ml-1.5 text-[11px] font-medium text-warning">● niezapisane</span>
+                  ) : null}
                 </button>
               ) : null}
             </div>
@@ -1331,7 +1343,8 @@ export default function JobDetailPage() {
             </p>
           </div>
 
-          {championMode === "edit" ? (
+          {renderChampionEditor ? (
+            <div hidden={championMode !== "edit"} data-testid="champion-editor-slot">
             <ChampionProfileEditor
               jobId={Number(id)}
               clientId={job?.client_id ?? null}
@@ -1344,8 +1357,11 @@ export default function JobDetailPage() {
               intakeDefaultOpen={searchParams?.get("intake") === "1"}
               intakeSeedText={job?.description ?? undefined}
               layout="workspace"
+              onDirtyChange={setChampionDirty}
             />
-          ) : (
+            </div>
+          ) : null}
+          {championMode === "view" ? (
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
               <ChampionBriefView
                 jobId={Number(id)}
@@ -1361,6 +1377,7 @@ export default function JobDetailPage() {
                 onOpenManualSearch={
                   canWritePipeline ? () => openSlideOver("manual-search") : undefined
                 }
+                requestHistory={{ readOnly: !canWritePipeline }}
               />
               <aside
                 className="xl:sticky xl:top-4 xl:self-start"
@@ -1382,7 +1399,7 @@ export default function JobDetailPage() {
                 />
               </aside>
             </div>
-          )}
+          ) : null}
         </div>
       )}
     </div>

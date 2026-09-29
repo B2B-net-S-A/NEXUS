@@ -924,9 +924,9 @@
    "id": "champion.request-history",
    "area": "zlecenie",
    "opis": "Wcześniejsze zapytania klienta (Otwórz, Skopiuj jako template, Dodaj championa)",
-   "file": "components/ChampionProfileEditor.tsx",
+   "file": "components/champion/ChampionBriefView.tsx",
    "marker": "RequestHistorySection",
-   "v3_home": "Zlecenie i Champion → Edytuj → Wypełnij szybciej"
+   "v3_home": "Zlecenie i Champion → Podgląd (każda rola) i Edytuj → Wypełnij szybciej"
   }
  ]
 }

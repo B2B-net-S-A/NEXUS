@@ -22,13 +22,14 @@ import {
 } from "@/components/champion/ChampionBriefForRecruiters";
 import { SearchRequirementsEditor } from "@/components/champion/SearchRequirementsEditor";
 import { ChampionClientQuestionsPanel } from "@/components/ChampionClientQuestionsPanel";
+import { RequestHistorySection } from "@/components/RequestHistorySection";
 import { ClientPlaybookCard } from "@/components/client-playbook/ClientPlaybookCard";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
-import type { ChampionProfile } from "@/lib/api";
+import { EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
 import { clientPlaybookEditHref } from "@/lib/client-playbooks";
-import { JOB_WORK_MODE_LABEL } from "@/lib/champion-job-seed";
+import { JOB_WORK_MODE_LABEL, seedChampionFromJob } from "@/lib/champion-job-seed";
 import { formatBudgetHourly } from "@/lib/job-budget";
 import { formatDate } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
@@ -50,6 +51,12 @@ export interface ChampionBriefViewProps {
   onEditSection?: (anchor: string) => void;
   /** „Szukaj ręcznie w bazie” — start od wymagań z sekcji 2. */
   onOpenManualSearch?: () => void;
+  /**
+   * Wcześniejsze zapytania tego klienta (Otwórz, Skopiuj jako template).
+   * Do 29.09.2026 zakładka „Historia” panelu — widziała ją każda rola, więc
+   * Podgląd też. `null` = sekcji nie ma (harness, testy).
+   */
+  requestHistory?: { readOnly: boolean } | null;
 }
 
 /** Kotwice sekcji edytora (`ChampionProfileEditor`, `id=` na kartach). */
@@ -165,6 +172,7 @@ export function ChampionBriefView({
   job,
   onEditSection,
   onOpenManualSearch,
+  requestHistory = null,
 }: ChampionBriefViewProps) {
   const query = useChampionProfile(jobId);
   const cvRuleQuery = useClientCvRule(job.client_id ?? null);
@@ -188,7 +196,20 @@ export function ChampionBriefView({
     return <QueryStateNotice state={state} onRetry={() => void query.refetch()} />;
   }
 
-  const profile: Partial<ChampionProfile> = query.data?.champion_profile ?? {};
+  // Ten sam profil, na który patrzy edytor: dla profili sprzed 09.2026 stack
+  // i podstawy (budżet, tryb pracy) wczytujemy z kolumn rekrutacji
+  // (`seedChampionFromJob`, M04-B02). Surowy `champion_profile` dawał
+  // rekruterowi „brak wymagań” tam, gdzie „Edytuj” pokazywał listę technologii.
+  const profile: Partial<ChampionProfile> = query.data
+    ? seedChampionFromJob(
+        {
+          ...EMPTY_CHAMPION_PROFILE,
+          ...(query.data.champion_profile as Partial<ChampionProfile>),
+        },
+        query.data.job_values,
+        query.data.job_title,
+      ).profile
+    : {};
   const basics = profile.basics ?? {};
   const must = stackNames(profile.stack?.must);
   const nice = stackNames(profile.stack?.nice);
@@ -414,6 +435,18 @@ export function ChampionBriefView({
         <AskClientList profile={profile} />
         <ChampionInsightsDigest profile={profile} limit={8} historyLimit={5} />
       </Section>
+
+      {requestHistory ? (
+        <Section title="Wcześniejsze zapytania klienta" testId="brief-request-history">
+          <RequestHistorySection
+            jobId={jobId}
+            clientId={job.client_id ?? null}
+            readOnly={requestHistory.readOnly}
+            compact
+            maxItems={5}
+          />
+        </Section>
+      ) : null}
     </div>
   );
 }

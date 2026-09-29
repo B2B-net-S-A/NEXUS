@@ -121,6 +121,8 @@ interface ChampionProfileEditorProps {
    * (harness `/preview/champion-profile` i testy komponentu).
    */
   layout?: "stacked" | "workspace";
+  /** Zgłasza, czy są niezapisane zmiany — przełącznik trybu na stronie je pokazuje. */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 function genId(): string {
@@ -134,6 +136,7 @@ export function ChampionProfileEditor({
   intakeDefaultOpen = false,
   intakeSeedText = "",
   layout = "stacked",
+  onDirtyChange,
 }: ChampionProfileEditorProps) {
   const qc = useQueryClient();
   const { data, isLoading, error } = useQuery({
@@ -210,6 +213,16 @@ export function ChampionProfileEditor({
       setSeededBasics(seed.seededBasics);
     }
   }, [data]);
+
+  // Ile sekcji ma niezapisane zmiany — po kluczach najwyższego poziomu,
+  // czyli po sekcjach, które DL widzi w pasku. Liczone PRZED wczesnymi
+  // `return` (hook zgłaszający stan stronie musi stać zawsze w tym samym miejscu).
+  const dirtySections = (Object.keys(draft) as Array<keyof ChampionProfile>).filter(
+    (key) => JSON.stringify(draft[key] ?? null) !== JSON.stringify(baseline[key] ?? null),
+  ).length;
+  useEffect(() => {
+    onDirtyChange?.(dirtySections > 0);
+  }, [dirtySections, onDirtyChange]);
 
   // Live refresh when another user edits this job's Champion Profile.
   // The WS hook dispatches CHAMPION_PROFILE_CHANGED_EVENT on the window;
@@ -1187,12 +1200,6 @@ export function ChampionProfileEditor({
       )}
     </>
   );
-
-  // Ile sekcji ma niezapisane zmiany — po kluczach najwyższego poziomu,
-  // czyli po sekcjach, które DL widzi w pasku.
-  const dirtySections = (Object.keys(draft) as Array<keyof ChampionProfile>).filter(
-    (key) => JSON.stringify(draft[key] ?? null) !== JSON.stringify(baseline[key] ?? null),
-  ).length;
 
   const renderWorkspace = () => (
     <div className="space-y-4" data-testid="champion-editor-workspace">

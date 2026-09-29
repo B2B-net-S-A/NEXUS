@@ -436,3 +436,20 @@ describe("strona rekrutacji — ścieżka rekrutacji i najbliższy krok", () => 
     );
   });
 });
+
+describe("strona rekrutacji — „Zlecenie i Champion”: szkic przeżywa przełączanie trybu", () => {
+  it("Edytuj → Podgląd → Edytuj nie odmontowuje edytora (niezapisane zmiany zostają)", async () => {
+    renderPage("tab=champion&mode=edit");
+    await screen.findByTestId("champion-editor");
+    const firstProps = seen.champion;
+    // Edytor zgłasza niezapisane zmiany — przełącznik trybu je pokazuje.
+    act(() => (seen.champion?.onDirtyChange as (dirty: boolean) => void)(true));
+    await userEvent.click(screen.getByRole("button", { name: "Podgląd" }));
+    expect(await screen.findByTestId("champion-brief")).toBeInTheDocument();
+    // Edytor jest nadal w drzewie (ukryty), a nie odmontowany.
+    expect(screen.getByTestId("champion-editor")).toBeInTheDocument();
+    expect(screen.getByTestId("champion-mode-edit")).toHaveTextContent("niezapisane");
+    await userEvent.click(screen.getByTestId("champion-mode-edit"));
+    expect(seen.champion?.jobId).toBe(firstProps?.jobId);
+  });
+});

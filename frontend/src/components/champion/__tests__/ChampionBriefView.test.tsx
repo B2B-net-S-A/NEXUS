@@ -25,6 +25,11 @@ vi.mock("@/components/v2/cv-generator/ClientCvRuleBanner", () => ({
 vi.mock("@/components/client-playbook/ClientPlaybookCard", () => ({
   ClientPlaybookCard: () => <div data-testid="playbook-card" />,
 }));
+vi.mock("@/components/RequestHistorySection", () => ({
+  RequestHistorySection: ({ readOnly }: { readOnly: boolean }) => (
+    <div data-testid="request-history" data-read-only={String(readOnly)} />
+  ),
+}));
 vi.mock("@/components/ChampionClientQuestionsPanel", () => ({
   ChampionClientQuestionsPanel: ({ canEdit }: { canEdit: boolean }) => (
     <div data-testid="client-questions" data-can-edit={String(canEdit)} />
@@ -121,5 +126,38 @@ describe("ChampionBriefView", () => {
     renderBrief();
     expect(await screen.findByRole("button", { name: /Ponów|Spróbuj ponownie/ })).toBeInTheDocument();
     expect(screen.queryByTestId("champion-brief-view")).toBeNull();
+  });
+});
+
+describe("ChampionBriefView — profil sprzed 09.2026 (pola z rekrutacji, M04-B02)", () => {
+  it("pusty stack i budżet profilu biorą wartości z kolumn rekrutacji — jak edytor", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 5,
+        champion_profile: { stack: { must: [], nice: [], notes: "" }, basics: {} },
+        job_values: { must: "Java", nice: null, rate_value: 120, work_mode: "remote" },
+        job_title: "Java Developer",
+      },
+    });
+    renderBrief();
+    expect(await screen.findByText("Java", { selector: "li" })).toBeInTheDocument();
+    expect(screen.getByText("do 120,00 PLN/h")).toBeInTheDocument();
+    expect(screen.getByText("zdalnie")).toBeInTheDocument();
+  });
+});
+
+describe("ChampionBriefView — wcześniejsze zapytania klienta", () => {
+  it("są w Podglądzie dla każdej roli (do 29.09 zakładka „Historia” panelu), zapis wg uprawnień", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ChampionBriefView
+          jobId={5}
+          job={{ title: "X", client_id: 9 }}
+          requestHistory={{ readOnly: true }}
+        />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByTestId("request-history")).toHaveAttribute("data-read-only", "true");
   });
 });
