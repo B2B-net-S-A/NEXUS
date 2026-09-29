@@ -248,11 +248,14 @@ async def create_note(
 
     values = data.model_dump()
     if parent is not None:
-        # Odpowiedź należy do wątku notatki głównej — kandydata, rekrutację
-        # i kontrakt bierze z niej serwer; klient ich nie zmieni.
+        # Odpowiedź należy do wątku notatki głównej — kandydata i rekrutację
+        # bierze z niej serwer; klient ich nie zmieni. Kontraktu NIGDY nie
+        # dziedziczy: notatki kontraktu pisze Delivery Lead w zakresie klienta
+        # (`POST /api/contracts/{id}/notes`, F03), a ta trasa wymaga tylko
+        # zapisu kandydata — odpowiedź zostaje na poziomie kandydata.
         values["candidate_id"] = parent.candidate_id
         values["job_id"] = parent.job_id
-        values["contract_id"] = parent.contract_id
+        values["contract_id"] = None
     note = Note(**values, author_id=current_user.id)
     db.add(note)
     await db.flush()  # need note.id
@@ -528,7 +531,13 @@ async def delete_note(
             status_code=403, detail="Brak uprawnień do usunięcia tej notatki"
         )
     await _tombstone_traffit_source(db, note)
-    await retract_note_mention_notifications(db, note.id)
+    # 0399: odpowiedzi znikają razem z notatką główną (CASCADE), więc ich
+    # dzwonki (`note_reply`, wzmianki) też nie mogą dalej nieść treści.
+    reply_ids = (
+        await db.scalars(select(Note.id).where(Note.parent_note_id == note.id))
+    ).all()
+    for retracted_id in (note.id, *reply_ids):
+        await retract_note_mention_notifications(db, retracted_id)
     candidate_id = note.candidate_id
     await db.delete(note)
     await db.flush()

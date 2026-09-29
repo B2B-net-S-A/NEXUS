@@ -385,12 +385,20 @@ async def refresh_chat_message_snippets(
     )
 
 
+# Powiadomienia niosące fragment notatki: wzmianka i odpowiedź (0399). Oba
+# mają `related_entity=(note, id notatki, która je wywołała)`.
+NOTE_SNIPPET_NOTIFICATION_TYPES = (
+    NotificationType.note_mention,
+    NotificationType.note_reply,
+)
+
+
 async def retract_note_mention_notifications(db: AsyncSession, note_id: int) -> None:
-    """Usunięta notatka: wzmianka w dzwonku nie niesie już jej fragmentu."""
+    """Usunięta notatka: wzmianka i odpowiedź w dzwonku nie niosą już jej fragmentu."""
     await db.execute(
         update(Notification)
         .where(
-            Notification.notification_type == NotificationType.note_mention,
+            Notification.notification_type.in_(NOTE_SNIPPET_NOTIFICATION_TYPES),
             Notification.related_entity_type == "note",
             Notification.related_entity_id == note_id,
         )
@@ -402,11 +410,11 @@ async def retract_note_mention_notifications(db: AsyncSession, note_id: int) -> 
 async def refresh_note_mention_snippets(
     db: AsyncSession, note_id: int, snippet: str
 ) -> None:
-    """Poprawiona notatka: wzmianki w dzwonku pokazują nowy fragment."""
+    """Poprawiona notatka: wzmianki i odpowiedzi w dzwonku pokazują nowy fragment."""
     await db.execute(
         update(Notification)
         .where(
-            Notification.notification_type == NotificationType.note_mention,
+            Notification.notification_type.in_(NOTE_SNIPPET_NOTIFICATION_TYPES),
             Notification.related_entity_type == "note",
             Notification.related_entity_id == note_id,
         )

@@ -428,7 +428,7 @@ export function NotesList({
     const pinned = n.pinned_at != null;
     return (
       <span className="ml-auto inline-flex shrink-0 items-center gap-0.5">
-        {!isReply && onPin && !readOnly ? (
+        {!isReply && !n.is_system && onPin && !readOnly ? (
           <button
             type="button"
             onClick={async () => {
@@ -445,7 +445,7 @@ export function NotesList({
             {pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
           </button>
         ) : null}
-        {!isReply && onReply && !readOnly ? (
+        {!isReply && !n.is_system && onReply && !readOnly ? (
           <button
             type="button"
             onClick={() => {

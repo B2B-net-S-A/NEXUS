@@ -120,6 +120,17 @@ describe("NotesList (0399)", () => {
     expect(within(thread).queryByRole("button", { name: "Edytuj notatkę" })).toBeNull();
   });
 
+  it("system notes get neither pin nor reply", () => {
+    renderList();
+    fireEvent.click(screen.getByLabelText("Pokaż systemowe (1)"));
+    const system = screen
+      .getAllByRole("article", { name: "Notatka" })
+      .find((el) => el.textContent?.includes("Auto-match 70/100"));
+    expect(system).toBeTruthy();
+    expect(within(system!).queryByRole("button", { name: /Przypnij|Odepnij/ })).toBeNull();
+    expect(within(system!).queryByRole("button", { name: "Odpowiedz na notatkę" })).toBeNull();
+  });
+
   it("read-only viewer sees no pin, reply or edit buttons", () => {
     renderList({ readOnly: true });
     expect(screen.queryByRole("button", { name: /Przypnij|Odepnij/ })).toBeNull();

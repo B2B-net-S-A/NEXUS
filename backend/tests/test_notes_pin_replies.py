@@ -376,3 +376,132 @@ async def test_system_note_is_flagged_and_timeline_hides_traffit_duplicates(
         i for i in items if i.get("type") == "note" and i["id"] == human.id
     )
     assert [r["id"] for r in human_item["replies"]] == [reply["id"]]
+
+
+# ── Przegląd PR #1911: odpowiedź nie wchodzi do kontraktu, dzwonek sprzątany ──
+
+
+async def _seed_contract_note() -> dict:
+    from datetime import timedelta
+
+    from app.core.scheduling import business_today
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus, ContractType
+
+    token = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(name="Kontrakt", lastname=f"Notatka-{token}")
+        client = Client(name=f"PinContract {token}")
+        db.add_all([cand, client])
+        await db.flush()
+        contract = Contract(
+            candidate_id=cand.id,
+            client_id=client.id,
+            status=ContractStatus.active,
+            contract_type=ContractType("b2b"),
+            start_date=business_today() - timedelta(days=30),
+            rate_client=100,
+            rate_candidate=80,
+            currency="PLN",
+        )
+        db.add(contract)
+        await db.flush()
+        note = Note(
+            content="Notatka Delivery o przedłużeniu",
+            candidate_id=cand.id,
+            contract_id=contract.id,
+        )
+        db.add(note)
+        await db.commit()
+        return {
+            "contract_id": contract.id,
+            "candidate_id": cand.id,
+            "note_id": note.id,
+        }
+
+
+@pytest.mark.asyncio
+async def test_reply_to_contract_note_never_lands_in_the_contract_timeline(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Notatka kontraktu (DL + zakres klienta) ma kandydata, więc jest
+    w „Historia → Notatki” z „Odpowiedz”. Odpowiedź rekrutera (sam zapis
+    kandydata) nie może trafić na oś kontraktu — to omijałoby bramkę F03."""
+    seeded = await _seed_contract_note()
+    _, r_email, r_pass = await _seed_user(UserRole.recruiter)
+    recruiter = await _login(app_client, r_email, r_pass)
+
+    reply = await _note(
+        app_client,
+        recruiter,
+        content="Dopisek rekrutera",
+        parent_note_id=seeded["note_id"],
+    )
+    assert reply["candidate_id"] == seeded["candidate_id"]
+    async with AsyncSessionLocal() as db:
+        stored = await db.get(Note, reply["id"])
+        assert stored.contract_id is None
+
+    timeline = await app_client.get(
+        f"/api/contracts/{seeded['contract_id']}/notes", headers=app_auth_headers
+    )
+    assert timeline.status_code == 200, timeline.text
+    ids = [i["id"] for i in timeline.json() if i["kind"] == "note"]
+    assert ids == [seeded["note_id"]]
+
+    # Obrona w głąb: odpowiedź z kontraktem zapisana wprost też nie trafia
+    # na oś kontraktu.
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Note(
+                content="stara odpowiedź",
+                candidate_id=seeded["candidate_id"],
+                contract_id=seeded["contract_id"],
+                parent_note_id=seeded["note_id"],
+            )
+        )
+        await db.commit()
+    again = await app_client.get(
+        f"/api/contracts/{seeded['contract_id']}/notes", headers=app_auth_headers
+    )
+    assert [i["id"] for i in again.json() if i["kind"] == "note"] == [seeded["note_id"]]
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_reply_retracts_its_bell_entry(app_client: AsyncClient):
+    from app.services.mention_dispatch import NOTE_DELETED_PLACEHOLDER
+
+    cand_id = await _seed_candidate()
+    author_id, a_email, a_pass = await _seed_user(UserRole.recruiter)
+    author = await _login(app_client, a_email, a_pass)
+    _, r_email, r_pass = await _seed_user(UserRole.recruiter)
+    replier = await _login(app_client, r_email, r_pass)
+    parent = await _note(app_client, author, content="główna", candidate_id=cand_id)
+    first = await _note(
+        app_client, replier, content="pierwsza odpowiedź", parent_note_id=parent["id"]
+    )
+    second = await _note(
+        app_client, replier, content="druga odpowiedź", parent_note_id=parent["id"]
+    )
+
+    async def bell(note_id: int) -> Notification:
+        async with AsyncSessionLocal() as db:
+            return await db.scalar(
+                select(Notification).where(
+                    Notification.user_id == author_id,
+                    Notification.notification_type == NotificationType.note_reply,
+                    Notification.related_entity_id == note_id,
+                )
+            )
+
+    assert (await bell(first["id"])).message == "pierwsza odpowiedź"
+    deleted = await app_client.delete(f"/api/notes/{first['id']}", headers=replier)
+    assert deleted.status_code == 204
+    gone = await bell(first["id"])
+    assert gone.message == NOTE_DELETED_PLACEHOLDER
+    assert gone.is_read is True
+
+    # Usunięcie notatki głównej zabiera odpowiedzi (CASCADE) — ich dzwonki też.
+    removed = await app_client.delete(f"/api/notes/{parent['id']}", headers=author)
+    assert removed.status_code == 204
+    assert (await bell(second["id"])).message == NOTE_DELETED_PLACEHOLDER

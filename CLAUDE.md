@@ -2047,12 +2047,16 @@ Decyzje Artura 29.09.2026 — historia kandydata ma być tym, co napisali ludzie
   pierwsze na liście, w szybkim podglądzie i w doku osoby w rekrutacji
   (`PinnedCandidateNotes`, `?pinned_only=true` — z KAŻDEJ rekrutacji).
 - **Odpowiedzi: `notes.parent_note_id`, jeden poziom** (odpowiedź na odpowiedź
-  = 422), CASCADE z notatką główną. Serwer nadpisuje kandydata/rekrutację/kontrakt
-  z notatki głównej. Lista (`GET /api/notes`) zwraca WYŁĄCZNIE notatki główne
+  = 422), CASCADE z notatką główną. Serwer nadpisuje kandydata i rekrutację
+  z notatki głównej, a **kontraktu NIGDY nie dziedziczy** (`contract_id` =
+  NULL): notatki kontraktu pisze DL w zakresie klienta (F03), a `POST
+  /api/notes` wymaga tylko zapisu kandydata; oś kontraktu dodatkowo pomija
+  odpowiedzi. Lista (`GET /api/notes`) zwraca WYŁĄCZNIE notatki główne
   z `replies[]`, `total` ich nie liczy, `notes_count` kandydata też nie; oś
   czasu zagnieżdża odpowiedzi. Autor notatki głównej dostaje `note_reply`
-  (kategoria „Wzmianki”, sekcja Sourcing, bez maila). Usunięcie kandydata
-  kasuje odpowiedzi PRZED kaskadą ORM.
+  (kategoria „Wzmianki”, sekcja Sourcing, bez maila); usunięcie odpowiedzi
+  (także kaskadą z notatką główną) czyści jej dzwonek jak wzmiankę.
+  Usunięcie kandydata kasuje odpowiedzi PRZED kaskadą ORM.
 - **„Historia” otwiera się na „Notatkach”** (`?tab=activity` bez filtra);
   `?tab=timeline`/`podglad`/`activity=timeline` dalej otwierają „Wszystko”.
   Licznik zakładki = notatki ludzi. Oś czasu nie pokazuje `traffit:Email`,
