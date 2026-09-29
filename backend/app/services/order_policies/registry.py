@@ -304,7 +304,10 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         # Reguła jest idempotentna (``rate_client_md``, jednostka wiersza).
         reapply_on_refresh=True,
         # 24.09.2026: wiersze osób też przeliczane MD → h (audyt W3).
-        rule_version="2026-09-24",
+        # 29.09.2026: wiersz z tabeli niesie stawkę ze wzoru, a kilkuwyrazowy
+        # profil nie czyni nazwiska niepewnym — bramka przestała odsyłać
+        # każdy dokument do weryfikacji.
+        rule_version="2026-09-29",
     ),
     OrderClientPolicy(
         key="credit_agricole",
