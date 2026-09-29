@@ -1,9 +1,9 @@
 {
-  "entry": "e192585975080a63fd13d2642e681aade66a854d6ea5b3143ca3e873a192f28f",
+  "entry": "1990026c2c61b0b10e8a54e395bf1038f0273695d63d18acf751dd011510f429",
   "guide": "candidates.list",
   "sources": {
     "frontend/src/components/v2/candidates/CandidateFilterBar.tsx": "0ec0000851973ab8a1df5baeddc08365cab66514d30e07c76f0229c7366b64a2",
     "frontend/src/components/v2/candidates/CandidateSearchFields.tsx": "acd06c51ba25c5bfba3aead06cbcb7b88c322642d7e4f6393ee6ddc5e3ffa96e",
-    "frontend/src/components/v2/pages/CandidatesListV2.tsx": "7259910174c53196dd368c2d220b07d34e304e5afe6febf8b5e0aeafdaca7413"
+    "frontend/src/components/v2/pages/CandidatesListV2.tsx": "94fa73af32dfaf77b5e15838eb509fb2887fc5ae5b81319e48983a22c73e40cd"
   }
 }

@@ -186,6 +186,7 @@ import {
   type ListTextModeApplied,
 } from "@/components/v2/candidates/ListSearchInterpretation";
 import { CandidateBulkBar } from "@/components/v2/candidates/CandidateBulkBar";
+import { PageNumberButtons } from "@/components/v2/candidates/PageNumberButtons";
 import { RequestSearchDialog } from "@/components/v2/candidates/RequestSearchDialog";
 import {
   availabilityCellText,
@@ -314,6 +315,9 @@ interface CandidateListResponse {
   result_cap_reached?: boolean;
   /** Kolejność faktycznie użyta (przy braku wektorów „match” → „newest”). */
   sort_applied?: string | null;
+  /** Tekst wyglądający na osobę: „exact” = jest ktoś o tym nazwisku,
+   *  „similar” = nie ma nikogo takiego, pokazujemy podobne nazwiska. */
+  text_match?: "exact" | "similar" | null;
 }
 
 /**
@@ -1969,6 +1973,11 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                 }}
               />
             ) : null}
+            {hasText && data?.text_match === "similar" ? (
+              <p className="text-xs text-muted-foreground" role="status">
+                Nie ma nikogo o tym nazwisku — pokazujemy podobne.
+              </p>
+            ) : null}
             {data?.sort_applied === "newest" && effectiveSort(queryFilters) === "match" ? (
               <p className="text-xs text-muted-foreground" role="status">
                 Kolejność według dopasowania jest chwilowo niedostępna — pokazujemy najnowszych.
@@ -2584,6 +2593,11 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                   >
                     Poprzednia
                   </Button>
+                  <PageNumberButtons
+                    page={resultsPage}
+                    totalPages={totalPages}
+                    onPageChange={goToPage}
+                  />
                   <Button
                     size="sm"
                     variant="outline"
