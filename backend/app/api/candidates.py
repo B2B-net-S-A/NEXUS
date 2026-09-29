@@ -6825,6 +6825,7 @@ async def _read_cv_for_new_candidate(
     client_filename: Optional[str],
     user_id: int,
     force: bool,
+    remember: bool,
 ) -> tuple[str, dict[str, Any]]:
     """Tekst i odczyt CV — z pamięci procesu albo jednym płatnym wywołaniem.
 
@@ -6832,8 +6833,11 @@ async def _read_cv_for_new_candidate(
     duplikat płacił wcześniej za odczyt modelem, a dopiero potem dostawał 409
     (9739 płatnych odczytów dało 689 kandydatów). Sito jest jednostronne —
     trafi, to oszczędza; nie trafi, to nic nie przesądza, więc skan po
-    odczycie w `/from-cv` ZOSTAJE. Wynik odczytu jest trzymany 30 min pod
-    skrótem SHA-256 treści pliku.
+    odczycie w `/from-cv` ZOSTAJE.
+
+    `remember=True` (tylko `/cv/preview`) trzyma wynik 30 min pod skrótem
+    SHA-256 treści pliku. `/from-cv` wyłącznie z niego CZYTA — masowy import
+    CV (tysiące plików) nie może zapełnić pamięci jedynego procesu.
     """
     from app.core.cache import cache_get, cache_set, cache_single_flight
     from app.services.cv_parser import parse_cv
@@ -6857,11 +6861,12 @@ async def _read_cv_for_new_candidate(
             if cheap_rows:
                 _raise_from_cv_duplicate_conflict(cheap_rows)
         parsed = await parse_cv(raw_text, db=db, user_id=user_id)
-        await cache_set(
-            key,
-            {"raw_text": raw_text, "parsed": parsed},
-            ttl_seconds=_CV_PREVIEW_TTL_SECONDS,
-        )
+        if remember:
+            await cache_set(
+                key,
+                {"raw_text": raw_text, "parsed": parsed},
+                ttl_seconds=_CV_PREVIEW_TTL_SECONDS,
+            )
         return raw_text, parsed
 
 
@@ -6898,6 +6903,7 @@ async def preview_candidate_cv(
         client_filename=file.filename,
         user_id=current_user.id,
         force=force,
+        remember=True,
     )
     return _cv_preview_response(hashlib.sha256(content).hexdigest(), parsed)
 
@@ -6962,6 +6968,7 @@ async def create_candidate_from_cv(
         client_filename=file.filename,
         user_id=current_user.id,
         force=force,
+        remember=False,
     )
     email_override = _clean_override(email, 255)
     if email_override:
@@ -7094,6 +7101,10 @@ async def create_candidate_from_cv(
     )
 
     await db.commit()
+    # Odczyt z podglądu zrobił swoje — kandydat zapisany, zwalniamy pamięć.
+    from app.core.cache import cache_invalidate
+
+    await cache_invalidate(_cv_preview_cache_key(hashlib.sha256(content).hexdigest()))
 
     reloaded = await db.execute(
         select(Candidate)

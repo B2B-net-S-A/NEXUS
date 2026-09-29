@@ -24,6 +24,11 @@ import {
   type CandidateDocument,
 } from "@/components/v2/files/FilePreviewModal";
 import { OrderDocumentsSection } from "@/components/OrderDocumentsSection";
+import {
+  fileAddedLabel,
+  formatFileDate,
+  sortCandidateFiles,
+} from "@/lib/candidate-files";
 
 export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  const { showError, showToast } = useToast();
@@ -53,16 +58,19 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  docId,
  documentKind,
  isPrimary,
+ outdated,
  }: {
  docId: number;
  documentKind?: CandidateDocument["document_kind"];
  isPrimary?: boolean;
+ outdated?: boolean;
  }) =>
  api.patch(`/api/candidates/${candidateId}/documents/${docId}`, {
  ...(documentKind ? { document_kind: documentKind } : {}),
  ...(isPrimary !== undefined ? { is_primary: isPrimary } : {}),
+ ...(outdated !== undefined ? { outdated } : {}),
  }),
- onSuccess: () => {
+ onSuccess: (_response, variables) => {
  void queryClient.invalidateQueries({
  queryKey: candidateQueryKeys.documents(candidateId),
  });
@@ -72,7 +80,14 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  void queryClient.invalidateQueries({
  queryKey: candidateQueryKeys.quickView(candidateId),
  });
- showToast("Metadane dokumentu zaktualizowane.", "success");
+ showToast(
+ variables.outdated === true
+ ? "Oznaczono jako nieaktualne."
+ : variables.outdated === false
+ ? "Cofnięto oznaczenie „nieaktualne”."
+ : "Metadane dokumentu zaktualizowane.",
+ "success",
+ );
  },
  onError: (mutationError) =>
  showError(
@@ -153,7 +168,9 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  }
  }
 
- const docs = documents ?? [];
+ // Główne CV pierwsze, potem najnowsze — także zaraz po zmianie, zanim
+ // lista wróci z serwera.
+ const docs = sortCandidateFiles(documents ?? []);
 
  // Uploader renderuje się w każdym stanie listy (ładowanie, błąd, pusto) —
  // pusty profil to dokładnie ten moment, w którym trzeba dodać pierwszy plik.
@@ -266,6 +283,21 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  główne CV
  </Badge>
  )}
+ {doc.outdated_at ? (
+ <Badge
+ size="sm"
+ variant="neutral"
+ title={[
+ "Oznaczone jako nieaktualne",
+ formatFileDate(doc.outdated_at),
+ doc.outdated_by_name,
+ ]
+ .filter(Boolean)
+ .join(" · ")}
+ >
+ nieaktualne
+ </Badge>
+ ) : null}
  <Badge size="sm" variant="neutral">
  {doc.document_kind === "cv"
  ? "CV"
@@ -275,20 +307,13 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  ? "certyfikat"
  : "inny"}
  </Badge>
- {doc.external_source === "traffit" && (
- <Badge size="sm" variant="info">
- z Traffita
- </Badge>
- )}
  </div>
  <div className="text-xs text-muted-foreground mt-0.5">
- {formatFileSize(doc.size_bytes)}
- {doc.uploaded_at && (
+ <span>{fileAddedLabel(doc)}</span>
+ {formatFileSize(doc.size_bytes) && (
  <>
  <span className="mx-1.5">·</span>
- <span>
- {new Date(doc.uploaded_at).toLocaleDateString("pl-PL")}
- </span>
+ <span>{formatFileSize(doc.size_bytes)}</span>
  </>
  )}
  {fileTypeLabel(doc.content_type, doc.filename) && (
@@ -321,7 +346,7 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  <option value="other">Inny</option>
  </select>
  ) : null}
- {canEditDocuments && doc.document_kind === "cv" && !doc.is_primary ? (
+ {canEditDocuments && doc.document_kind === "cv" && !doc.is_primary && !doc.outdated_at ? (
  <button
  type="button"
  onClick={() =>
@@ -331,6 +356,26 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  className="text-xs font-medium text-[hsl(var(--accent-primary))] hover:underline disabled:opacity-50"
  >
  Ustaw jako główne CV
+ </button>
+ ) : null}
+ {canEditDocuments && !doc.is_primary ? (
+ <button
+ type="button"
+ onClick={() =>
+ metadataMutation.mutate({
+ docId: doc.id,
+ outdated: !doc.outdated_at,
+ })
+ }
+ disabled={metadataMutation.isPending}
+ aria-label={
+ doc.outdated_at
+ ? `Cofnij oznaczenie „nieaktualne”: ${doc.filename}`
+ : `Oznacz jako nieaktualne: ${doc.filename}`
+ }
+ className="text-xs font-medium text-muted-foreground hover:text-foreground hover:underline disabled:opacity-50"
+ >
+ {doc.outdated_at ? "Cofnij" : "Oznacz jako nieaktualne"}
  </button>
  ) : null}
  <button

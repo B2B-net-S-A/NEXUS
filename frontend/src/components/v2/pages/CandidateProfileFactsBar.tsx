@@ -5,6 +5,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Briefcase,
   CalendarClock,
+  Check,
+  ChevronsUpDown,
   Languages,
   Loader2,
   LockKeyhole,
@@ -38,6 +40,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -70,6 +81,13 @@ import {
   type WorkMode,
 } from "@/lib/work-mode";
 import { useCapability } from "@/hooks/useCapability";
+import {
+  foldLanguageName,
+  isListedLanguageCode,
+  languageLabel as listedLanguageLabel,
+  otherLanguageCode,
+  searchLanguageOptions,
+} from "@/lib/candidate-languages";
 import { formatCandidateLocation } from "./candidate-list-helpers";
 import { invalidateCandidateMutation } from "./candidate-cache";
 import { candidateQueryKeys } from "./candidate-query-keys";
@@ -91,52 +109,107 @@ const AVAILABILITY_LABELS: Record<string, string> = {
 };
 
 const LANGUAGE_CODE_RE = /^[a-z][a-z0-9-]{1,15}$/;
-const COMMON_LANGUAGE_CODES: Record<string, string> = {
-  angielski: "en",
-  english: "en",
-  polski: "pl",
-  polish: "pl",
-  niemiecki: "de",
-  german: "de",
-  francuski: "fr",
-  french: "fr",
-  hiszpanski: "es",
-  spanish: "es",
-  wloski: "it",
-  italian: "it",
-  ukrainski: "uk",
-  ukrainian: "uk",
-  rosyjski: "ru",
-  russian: "ru",
-  czeski: "cs",
-  czech: "cs",
-  slowacki: "sk",
-  slovak: "sk",
-  niderlandzki: "nl",
-  holenderski: "nl",
-  dutch: "nl",
-  portugalski: "pt",
-  portuguese: "pt",
-};
 
-function normalizedLanguageToken(value: string): string {
-  return value
-    .normalize("NFKD")
-    .toLocaleLowerCase()
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/ł/g, "l")
-    .trim();
-}
+/** Wiersz okna „Języki kandydata” — `other` = język spoza listy („Inny…”). */
+type LanguageRow = CandidateLanguageInput & { other: boolean };
 
-function inferredLanguageCode(languageName: string): string {
-  const normalizedName = normalizedLanguageToken(languageName);
-  if (!normalizedName) return "";
-  const knownCode = COMMON_LANGUAGE_CODES[normalizedName];
-  if (knownCode) return knownCode;
-  return normalizedName
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 16);
+/**
+ * Wybór języka z JEDNEJ listy (`LANGUAGE_OPTIONS`) z wyszukiwaniem. Kod
+ * wynika z wyboru — pola „Kod” już nie ma. „Inny…” odsłania pole nazwy
+ * (kod wyprowadzony z nazwy, serwer przyjmuje go tylko z `other: true`).
+ */
+function LanguagePicker({
+  id,
+  row,
+  onPick,
+}: {
+  id: string;
+  row: LanguageRow;
+  onPick: (option: { code: string; label: string } | "other") => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const options = React.useMemo(() => searchLanguageOptions(query), [query]);
+  const selectedLabel = row.other
+    ? "Inny…"
+    : row.language_code
+      ? isListedLanguageCode(row.language_code)
+        ? listedLanguageLabel(row.language_code)
+        : row.language_name || row.language_code
+      : null;
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery("");
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          id={id}
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="mt-1 min-h-11 w-full justify-between font-normal"
+        >
+          <span className={cn("truncate", !selectedLabel && "text-muted-foreground")}>
+            {selectedLabel ?? "Wybierz język…"}
+          </span>
+          <ChevronsUpDown className="size-4 opacity-50" aria-hidden="true" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[260px] p-0">
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder="Szukaj języka…"
+            value={query}
+            onValueChange={setQuery}
+          />
+          <CommandList>
+            <CommandEmpty>Brak na liście — wybierz „Inny…”.</CommandEmpty>
+            <CommandGroup>
+              {options.map((option) => (
+                <CommandItem
+                  key={option.code}
+                  value={option.code}
+                  onSelect={() => {
+                    onPick(option);
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    aria-hidden="true"
+                    className={cn(
+                      "mr-2 size-4",
+                      !row.other && row.language_code === option.code
+                        ? "opacity-100"
+                        : "opacity-0",
+                    )}
+                  />
+                  {option.label}
+                </CommandItem>
+              ))}
+              <CommandItem
+                value="__other__"
+                onSelect={() => {
+                  onPick("other");
+                  setOpen(false);
+                }}
+              >
+                <Check
+                  aria-hidden="true"
+                  className={cn("mr-2 size-4", row.other ? "opacity-100" : "opacity-0")}
+                />
+                Inny…
+              </CommandItem>
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 type LanguagesQueryData = {
@@ -314,7 +387,7 @@ function LanguagesEditor({
 }) {
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useToast();
-  const [rows, setRows] = React.useState<CandidateLanguageInput[]>([]);
+  const [rows, setRows] = React.useState<LanguageRow[]>([]);
   const [validationError, setValidationError] = React.useState<string | null>(
     null,
   );
@@ -333,6 +406,9 @@ function LanguagesEditor({
           cefr_level: language.cefr_level,
           is_native: language.is_native,
           is_level_unknown: language.is_level_unknown,
+          // Zapisany kod spoza listy (np. z CV) zostaje „Innym…” z tym samym
+          // kodem, dopóki ktoś nie zmieni nazwy.
+          other: !isListedLanguageCode(language.language_code),
         })),
       );
       setValidationError(null);
@@ -382,10 +458,7 @@ function LanguagesEditor({
     },
   });
 
-  const updateRow = (
-    index: number,
-    update: Partial<CandidateLanguageInput>,
-  ) => {
+  const updateRow = (index: number, update: Partial<LanguageRow>) => {
     setRows((current) =>
       current.map((row, rowIndex) =>
         rowIndex === index ? { ...row, ...update } : row,
@@ -399,23 +472,28 @@ function LanguagesEditor({
       .map((row) => ({
         ...row,
         language_name: row.language_name.trim(),
-        language_code:
-          row.language_code.trim().toLocaleLowerCase() ||
-          inferredLanguageCode(row.language_name),
+        language_code: row.language_code.trim().toLocaleLowerCase(),
       }))
-      .filter((row) => row.language_name);
+      .filter((row) => row.language_name || row.language_code);
+    const missingName = normalized.find((row) => !row.language_name);
+    if (missingName) {
+      setValidationError(
+        missingName.other
+          ? "Wpisz nazwę języka spoza listy albo usuń pusty wiersz."
+          : "Wybierz język z listy albo usuń pusty wiersz.",
+      );
+      return;
+    }
     const invalidCode = normalized.find(
       (row) => !LANGUAGE_CODE_RE.test(row.language_code),
     );
     if (invalidCode) {
       setValidationError(
-        `Podaj poprawny kod języka dla „${invalidCode.language_name}” (2–16 małych liter, cyfr lub łączników).`,
+        `Nazwa „${invalidCode.language_name}” jest za krótka albo nie zawiera liter — wpisz pełną nazwę języka.`,
       );
       return;
     }
-    const nameKeys = normalized.map((row) =>
-      normalizedLanguageToken(row.language_name),
-    );
+    const nameKeys = normalized.map((row) => foldLanguageName(row.language_name));
     const codeKeys = normalized.map((row) => row.language_code);
     if (
       new Set(nameKeys).size !== nameKeys.length ||
@@ -454,51 +532,48 @@ function LanguagesEditor({
               className="rounded-lg border border-border p-3"
             >
               <legend className="sr-only">Język {index + 1}</legend>
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_6rem_9rem_auto]">
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem_auto]">
                 <div>
                   <Label htmlFor={`candidate-language-${index}`}>Język</Label>
-                  <Input
+                  <LanguagePicker
                     id={`candidate-language-${index}`}
-                    className="mt-1 min-h-11"
-                    value={row.language_name}
-                    onChange={(event) => {
-                      const languageName = event.target.value;
-                      const previousInferredCode = inferredLanguageCode(
-                        row.language_name,
-                      );
+                    row={row}
+                    onPick={(picked) => {
+                      if (picked === "other") {
+                        updateRow(index, {
+                          other: true,
+                          language_name: row.other ? row.language_name : "",
+                          language_code: row.other ? row.language_code : "",
+                        });
+                        return;
+                      }
                       updateRow(index, {
-                        language_name: languageName,
-                        language_code:
-                          !row.language_code ||
-                          row.language_code === previousInferredCode
-                            ? inferredLanguageCode(languageName)
-                            : row.language_code,
+                        other: false,
+                        language_code: picked.code,
+                        language_name: picked.label,
                       });
                     }}
-                    placeholder="np. angielski"
-                    autoComplete="off"
                   />
-                </div>
-                <div>
-                  <Label htmlFor={`candidate-language-code-${index}`}>
-                    Kod
-                  </Label>
-                  <Input
-                    id={`candidate-language-code-${index}`}
-                    className="mt-1 min-h-11 font-mono lowercase"
-                    value={row.language_code}
-                    onChange={(event) =>
-                      updateRow(index, {
-                        language_code: event.target.value
-                          .toLocaleLowerCase()
-                          .replace(/[^a-z0-9-]/g, "")
-                          .slice(0, 16),
-                      })
-                    }
-                    placeholder="en"
-                    maxLength={16}
-                    autoComplete="off"
-                  />
+                  {row.other ? (
+                    <div className="mt-2">
+                      <Label htmlFor={`candidate-language-other-${index}`}>
+                        Nazwa języka
+                      </Label>
+                      <Input
+                        id={`candidate-language-other-${index}`}
+                        className="mt-1 min-h-11"
+                        value={row.language_name}
+                        onChange={(event) =>
+                          updateRow(index, {
+                            language_name: event.target.value,
+                            language_code: otherLanguageCode(event.target.value),
+                          })
+                        }
+                        placeholder="np. kataloński"
+                        autoComplete="off"
+                      />
+                    </div>
+                  ) : null}
                 </div>
                 <div>
                   <Label htmlFor={`candidate-language-level-${index}`}>
@@ -574,6 +649,7 @@ function LanguagesEditor({
                   cefr_level: null,
                   is_native: false,
                   is_level_unknown: true,
+                  other: false,
                 },
               ])
             }

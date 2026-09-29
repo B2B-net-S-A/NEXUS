@@ -211,6 +211,7 @@ describe("CandidateProfileFactsBar", () => {
             cefr_level: "C1",
             is_native: false,
             is_level_unknown: false,
+            other: false,
           },
         ],
         '"candidate-languages-7-v3"',
@@ -218,7 +219,7 @@ describe("CandidateProfileFactsBar", () => {
     );
   });
 
-  it("generates a valid code when a new language is added", async () => {
+  it("picks a new language from the searchable list — the code follows the choice", async () => {
     mockedFactsApi.getLanguages.mockResolvedValue({
       data: { candidate_id: 7, version: 3, languages: [] },
       etag: '"candidate-languages-7-v3"',
@@ -238,9 +239,11 @@ describe("CandidateProfileFactsBar", () => {
       await screen.findByRole("button", { name: "Edytuj języki" }),
     );
     await user.click(screen.getByRole("button", { name: "Dodaj język" }));
-    await user.type(screen.getByLabelText("Język"), "Angielski");
-
-    expect(screen.getByLabelText("Kod")).toHaveValue("en");
+    expect(screen.queryByLabelText("Kod")).not.toBeInTheDocument();
+    await user.click(screen.getByLabelText("Język"));
+    await user.type(screen.getByPlaceholderText("Szukaj języka…"), "hiszp");
+    expect(screen.queryByRole("option", { name: "angielski" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "hiszpański" }));
     await user.click(screen.getByRole("button", { name: "Zapisz języki" }));
 
     await waitFor(() =>
@@ -248,11 +251,12 @@ describe("CandidateProfileFactsBar", () => {
         7,
         [
           {
-            language_code: "en",
-            language_name: "Angielski",
+            language_code: "es",
+            language_name: "hiszpański",
             cefr_level: null,
             is_native: false,
             is_level_unknown: true,
+            other: false,
           },
         ],
         '"candidate-languages-7-v3"',
@@ -260,26 +264,25 @@ describe("CandidateProfileFactsBar", () => {
     );
   });
 
-  it("accepts the full 16-character language-code boundary", async () => {
-    const boundaryCode = "a123456789012345";
+  it("saves a language outside the list as „Inny…” with a code derived from its name", async () => {
+    mockedFactsApi.getLanguages.mockResolvedValue({
+      data: { candidate_id: 7, version: 3, languages: [] },
+      etag: '"candidate-languages-7-v3"',
+    });
     mockedFactsApi.updateLanguages.mockResolvedValue({
-      data: {
-        candidate_id: 7,
-        version: 4,
-        languages: [{ ...language, language_code: boundaryCode }],
-      },
+      data: { candidate_id: 7, version: 4, languages: [] },
       etag: '"candidate-languages-7-v4"',
     });
     const user = userEvent.setup();
     renderBar();
 
-    await screen.findByText("Angielski · C1");
     await user.click(
-      screen.getByRole("button", { name: "Edytuj języki" }),
+      await screen.findByRole("button", { name: "Edytuj języki" }),
     );
-    const code = screen.getByLabelText("Kod");
-    await user.clear(code);
-    await user.type(code, boundaryCode);
+    await user.click(screen.getByRole("button", { name: "Dodaj język" }));
+    await user.click(screen.getByLabelText("Język"));
+    await user.click(screen.getByRole("option", { name: "Inny…" }));
+    await user.type(screen.getByLabelText("Nazwa języka"), "Kataloński");
     await user.click(screen.getByRole("button", { name: "Zapisz języki" }));
 
     await waitFor(() =>
@@ -287,11 +290,12 @@ describe("CandidateProfileFactsBar", () => {
         7,
         [
           {
-            language_code: boundaryCode,
-            language_name: "Angielski",
-            cefr_level: "C1",
+            language_code: "katalonski",
+            language_name: "Kataloński",
+            cefr_level: null,
             is_native: false,
-            is_level_unknown: false,
+            is_level_unknown: true,
+            other: true,
           },
         ],
         '"candidate-languages-7-v3"',
@@ -310,16 +314,15 @@ describe("CandidateProfileFactsBar", () => {
     await user.click(
       screen.getByRole("button", { name: "Edytuj języki" }),
     );
-    const name = screen.getByLabelText("Język");
-    await user.clear(name);
-    await user.type(name, "English");
+    await user.click(screen.getByLabelText("Język"));
+    await user.click(screen.getByRole("option", { name: "niemiecki" }));
     await user.click(screen.getByRole("button", { name: "Zapisz języki" }));
 
     expect(
       await screen.findByText(/Zachowaliśmy Twój draft/i),
     ).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByLabelText("Język")).toHaveValue("English");
+    expect(screen.getByLabelText("Język")).toHaveTextContent("niemiecki");
   });
 
   it("saves canonical city and country through the existing location endpoint", async () => {
@@ -527,9 +530,6 @@ describe("CandidateProfileFactsBar", () => {
 
     await user.click(editLanguages);
     expect(screen.getByLabelText("Język").classList.contains("min-h-11")).toBe(
-      true,
-    );
-    expect(screen.getByLabelText("Kod").classList.contains("min-h-11")).toBe(
       true,
     );
     expect(screen.getByLabelText("Poziom").classList.contains("h-11")).toBe(

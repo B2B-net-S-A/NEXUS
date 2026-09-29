@@ -2935,6 +2935,27 @@ orkiestratorem. Zasady, których łatwo nie zauważyć:
 - Harnessy wizualne (publiczne, zero zapytań): `/preview/candidates-list`
   (`?dialog=1` otwiera okno requestu) i `/preview/candidate-profile` (`?tab=`).
 
+**Pliki, języki i „Dodaj kandydata” od CV (0398, 29.09.2026):**
+- **„Nieaktualne” to tylko plakietka** (`candidate_documents.outdated_at/
+  outdated_by`, `PATCH …/documents/{id}` z `outdated`). Plik zostaje, wyszukiwanie,
+  `raw_cv_text` i wektory bez zmian. Głównego CV nie da się oznaczyć (409 „Najpierw
+  ustaw inne CV jako główne.”), nieaktualnego nie da się ustawić jako głównego
+  (409), chyba że w tym samym żądaniu `outdated: false`. Lista plików: główne CV,
+  potem najnowsze (`uploaded_at ?? created_at`), podpis „dodano DD.MM.RRRR · osoba”
+  z `uploaded_by` (wiersze sprzed 0398 i importy — sama data albo „z Traffita”).
+- **Języki: jedna lista** `LANGUAGE_OPTIONS` (`lib/candidate-languages.ts`, filtr
+  listy i okno „Języki kandydata”) ↔ `candidate_language_writer._LANGUAGE_CODES`
+  (`test_candidate_language_options_mirror.py`). `PUT /languages` odrzuca 422 kod
+  spoza listy bez `other: true` — chyba że kandydat już ma taki język zapisany
+  (stare dane z CV zostają zapisywalne). Pola „Kod” w oknie nie ma.
+- **„Dodaj kandydata” zaczyna się od CV (opcjonalnie):** `POST /api/candidates/cv/preview`
+  czyta plik BEZ zapisu i trzyma odczyt 30 min w pamięci procesu pod SHA-256 treści;
+  `/from-cv` z tym samym plikiem go bierze (jeden płatny odczyt), pola formularza
+  (`name`, `lastname`, `email`, `phone`, `city`, `linkedin`) wygrywają z odczytem,
+  a reszta formularza idzie PATCH-em. `/from-cv` tylko CZYTA z tej pamięci —
+  masowy import nie może jej zapełnić. Osobne „Dodaj z CV” zdjęte z listy
+  kandydatów (`AddCandidateFromCVModal` zostaje w rekrutacji).
+
 ## Kanban bez bramek (decyzja Artura, 17.09.2026)
 
 Tylko 0,4 % ruchów w pipeline powstawało w NEXUSIE (131 z 32 872 w 90 dniach —
