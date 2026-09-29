@@ -79,6 +79,7 @@ from app.models.user import User, UserRole
 from app.schemas.candidate import (
     CandidateCreate,
     CandidateCvHighlights,
+    CandidateCVPreview,
     CandidateDocumentOut,
     CandidateDocumentUpdate,
     CandidateEngagementUpdate,
@@ -5183,11 +5184,38 @@ async def list_candidate_documents(
     result = await db.execute(
         stmt.order_by(
             CandidateDocument.is_primary.desc(),
-            CandidateDocument.uploaded_at.desc().nulls_last(),
-            CandidateDocument.created_at.desc(),
+            func.coalesce(
+                CandidateDocument.uploaded_at, CandidateDocument.created_at
+            ).desc(),
+            CandidateDocument.id.desc(),
         )
     )
-    return list(result.scalars().all())
+    return await _documents_with_people(db, list(result.scalars().all()))
+
+
+async def _documents_with_people(
+    db: AsyncSession, documents: list[CandidateDocument]
+) -> list[CandidateDocumentOut]:
+    """Dokumenty z nazwiskami osoby, która wgrała plik i oznaczyła go jako
+    nieaktualny — jedno zapytanie o konta na całą listę (0398)."""
+
+    user_ids = {
+        user_id
+        for document in documents
+        for user_id in (document.uploaded_by, document.outdated_by)
+        if user_id is not None
+    }
+    names: dict[int, str] = {}
+    if user_ids:
+        rows = await db.execute(select(User.id, User.name).where(User.id.in_(user_ids)))
+        names = {row.id: row.name for row in rows}
+    out: list[CandidateDocumentOut] = []
+    for document in documents:
+        item = CandidateDocumentOut.model_validate(document)
+        item.uploaded_by_name = names.get(document.uploaded_by or 0)
+        item.outdated_by_name = names.get(document.outdated_by or 0)
+        out.append(item)
+    return out
 
 
 @router.patch(
@@ -5230,6 +5258,16 @@ async def update_candidate_document(
                 status_code=422,
                 detail="Only a document classified as CV can be primary",
             )
+        # 0398: nieaktualne CV nie wraca jako główne — najpierw „Cofnij”
+        # (w tym samym żądaniu wolno: `outdated: false` + `is_primary: true`).
+        if doc.outdated_at is not None and payload.outdated is not False:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "To CV jest oznaczone jako nieaktualne. Cofnij oznaczenie, "
+                    "zanim ustawisz je jako główne."
+                ),
+            )
         await db.execute(
             update(CandidateDocument)
             .where(
@@ -5244,6 +5282,21 @@ async def update_candidate_document(
     elif payload.is_primary is False:
         doc.is_primary = False
 
+    if payload.outdated is True:
+        # Główne CV czytają profil, generator i QC — oznaczenie go jako
+        # nieaktualne zostawiłoby kandydata z nieaktualnym „głównym” plikiem.
+        if doc.is_primary:
+            raise HTTPException(
+                status_code=409,
+                detail="Najpierw ustaw inne CV jako główne.",
+            )
+        if doc.outdated_at is None:
+            doc.outdated_at = datetime.now(timezone.utc)
+            doc.outdated_by = current_user.id
+    elif payload.outdated is False:
+        doc.outdated_at = None
+        doc.outdated_by = None
+
     await db.commit()
     await db.refresh(doc)
 
@@ -5256,7 +5309,7 @@ async def update_candidate_document(
             actor_user_id=current_user.id,
         )
 
-    return doc
+    return (await _documents_with_people(db, [doc]))[0]
 
 
 @router.post("/{candidate_id}/cv/reparse", status_code=202)
@@ -6198,6 +6251,7 @@ async def _store_candidate_document(
     external_source: str,
     document_kind: CandidateDocumentKind = CandidateDocumentKind.cv,
     is_primary: bool = True,
+    uploaded_by: Optional[int] = None,
 ) -> CandidateDocument:
     """Persist one candidate attachment with content-level deduplication.
 
@@ -6257,6 +6311,13 @@ async def _store_candidate_document(
         existing.content_type = content_type or None
         existing.size_bytes = len(content)
         existing.uploaded_at = datetime.now(timezone.utc)
+        if uploaded_by is not None:
+            existing.uploaded_by = uploaded_by
+        if existing.is_primary:
+            # Ten sam plik wgrany ponownie jako aktualne CV zdejmuje plakietkę
+            # „nieaktualne” — główne CV nie może jej nosić.
+            existing.outdated_at = None
+            existing.outdated_by = None
         await db.flush()
         return existing
 
@@ -6295,6 +6356,7 @@ async def _store_candidate_document(
         document_kind=document_kind,
         is_primary=is_primary,
         uploaded_at=datetime.now(timezone.utc),
+        uploaded_by=uploaded_by,
         external_source=external_source,
         content_sha256=digest,
     )
@@ -6312,6 +6374,7 @@ async def _store_candidate_cv_document(
     content_type: Optional[str],
     external_source: str,
     is_primary: bool = True,
+    uploaded_by: Optional[int] = None,
 ) -> CandidateDocument:
     """Persist one CV version with content-level deduplication."""
 
@@ -6324,6 +6387,7 @@ async def _store_candidate_cv_document(
         external_source=external_source,
         document_kind=CandidateDocumentKind.cv,
         is_primary=is_primary,
+        uploaded_by=uploaded_by,
     )
 
 
@@ -6642,6 +6706,202 @@ def _raise_from_cv_duplicate_conflict(rows: list[dict]) -> None:
     )
 
 
+# Odczyt CV przed zapisem kandydata (29.09.2026): okno „Dodaj kandydata”
+# czyta wgrane CV, wypełnia formularz, a zapis (`/from-cv`) bierze TEN SAM
+# odczyt z pamięci procesu po skrócie treści pliku — model płaci raz.
+_CV_PREVIEW_TTL_SECONDS = 30 * 60
+_CV_PREVIEW_CACHE_PREFIX = "cv_preview_parse"
+
+
+def _cv_preview_cache_key(sha256: str) -> str:
+    return f"{_CV_PREVIEW_CACHE_PREFIX}:{sha256}"
+
+
+async def _extract_uploaded_cv_text(
+    content: bytes, *, safe_name: str, client_filename: Optional[str]
+) -> str:
+    """Tekst CV z bajtów uploadu (plik roboczy o losowej nazwie, zawsze sprzątany).
+
+    Nazwa pliku roboczego jest losowa: dawne `from_cv_tmp_<nazwa klienta>`
+    dzieliło jedną ścieżkę między równoległymi żądaniami z tym samym `CV.pdf`.
+    """
+    import asyncio
+
+    from app.services import cv_text_extractor
+
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    ext = os.path.splitext(safe_name)[1].lower() or ".bin"
+    with tempfile.NamedTemporaryFile(
+        prefix="nexus_from_cv_", suffix=ext, dir=settings.UPLOAD_DIR, delete=False
+    ) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    raw_text: Optional[str] = None
+    try:
+        try:
+            raw_text = await asyncio.to_thread(
+                cv_text_extractor.extract_text, tmp_path, client_filename or ""
+            )
+        except cv_text_extractor.UnsupportedCvFormat as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported CV format: {e}",
+            ) from e
+        except Exception as e:
+            logger.warning("[from-cv] text extraction failed: %s", type(e).__name__)
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+    if not raw_text or not raw_text.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Nie udało się odczytać tekstu z pliku CV.",
+        )
+    return raw_text
+
+
+def _clean_override(value: Optional[str], limit: int) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = " ".join(value.split())
+    return cleaned[:limit] or None
+
+
+def _apply_from_cv_overrides(
+    parsed: dict[str, Any], overrides: dict[str, Optional[str]]
+) -> dict[str, Any]:
+    """Wartości wpisane przez rekrutera w formularzu wygrywają z odczytem CV.
+
+    Kopia — odczyt w pamięci procesu zostaje nietknięty. Tożsamość kandydata
+    i sprawdzenie źródła CV idą po scalonych wartościach: rekruter potwierdził
+    osobę, więc poprawione nazwisko nie może odesłać CV do kwarantanny.
+    """
+    import copy
+
+    # Głęboka kopia: dalsze kroki zapisu dopisują do list odczytu, a odczyt
+    # w pamięci procesu musi zostać taki, jaki oddał model.
+    merged = copy.deepcopy(parsed)
+    for key, value in overrides.items():
+        if value:
+            merged[key] = value
+    return merged
+
+
+def _cv_preview_response(sha256: str, parsed: dict[str, Any]) -> CandidateCVPreview:
+    def _text(key: str) -> Optional[str]:
+        value = parsed.get(key)
+        if not isinstance(value, str):
+            return None
+        return value.strip() or None
+
+    confidence = {
+        str(key): float(value)
+        for key, value in (parsed.get("_confidence") or {}).items()
+        if isinstance(value, (int, float))
+    }
+    return CandidateCVPreview(
+        cv_sha256=sha256,
+        name=_text("first_name"),
+        lastname=_text("last_name"),
+        email=_text("email"),
+        phone=_text("phone"),
+        city=_text("city"),
+        linkedin=_text("linkedin_url"),
+        current_position=_text("current_position"),
+        confidence=confidence,
+        source=_text("_source"),
+    )
+
+
+async def _read_cv_for_new_candidate(
+    db: AsyncSession,
+    *,
+    content: bytes,
+    safe_name: str,
+    client_filename: Optional[str],
+    user_id: int,
+    force: bool,
+) -> tuple[str, dict[str, Any]]:
+    """Tekst i odczyt CV — z pamięci procesu albo jednym płatnym wywołaniem.
+
+    Darmowe sito duplikatów idzie PRZED płatnym odczytem (18.09.2026): każdy
+    duplikat płacił wcześniej za odczyt modelem, a dopiero potem dostawał 409
+    (9739 płatnych odczytów dało 689 kandydatów). Sito jest jednostronne —
+    trafi, to oszczędza; nie trafi, to nic nie przesądza, więc skan po
+    odczycie w `/from-cv` ZOSTAJE. Wynik odczytu jest trzymany 30 min pod
+    skrótem SHA-256 treści pliku.
+    """
+    from app.core.cache import cache_get, cache_set, cache_single_flight
+    from app.services.cv_parser import parse_cv
+    from app.services.cv_upload_dedup import find_duplicates_without_llm
+
+    key = _cv_preview_cache_key(hashlib.sha256(content).hexdigest())
+    cached = await cache_get(key)
+    if cached is not None:
+        return cached["raw_text"], cached["parsed"]
+    async with cache_single_flight(key, db=db):
+        cached = await cache_get(key)
+        if cached is not None:
+            return cached["raw_text"], cached["parsed"]
+        raw_text = await _extract_uploaded_cv_text(
+            content, safe_name=safe_name, client_filename=client_filename
+        )
+        if not force and settings.FROM_CV_SIEVE_ENABLED:
+            cheap_rows = await find_duplicates_without_llm(
+                db, content=content, raw_text=raw_text
+            )
+            if cheap_rows:
+                _raise_from_cv_duplicate_conflict(cheap_rows)
+        parsed = await parse_cv(raw_text, db=db, user_id=user_id)
+        await cache_set(
+            key,
+            {"raw_text": raw_text, "parsed": parsed},
+            ttl_seconds=_CV_PREVIEW_TTL_SECONDS,
+        )
+        return raw_text, parsed
+
+
+@router.post(
+    "/cv/preview",
+    response_model=CandidateCVPreview,
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "description": "Darmowe sito znalazło kandydata z tym CV "
+            "(kształt jak w `/from-cv`); `?force=true` czyta mimo to.",
+        }
+    },
+)
+@limiter.limit("30/minute", key_func=user_or_ip_key)
+async def preview_candidate_cv(
+    request: Request,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+    force: bool = Query(default=False),
+):
+    """Przeczytaj CV i oddaj pola formularza „Dodaj kandydata” — BEZ zapisu.
+
+    Ta sama bramka, odczyt i kwota AI co `/from-cv`. Odczyt zostaje 30 min
+    w pamięci procesu pod skrótem treści pliku, więc zapis przez `/from-cv`
+    z tym samym plikiem nie woła modelu drugi raz.
+    """
+    safe_name = _sanitize_upload_filename(file.filename, fallback="upload.pdf")
+    content = await _read_upload_bounded(file, label="CV file")
+    _raw_text, parsed = await _read_cv_for_new_candidate(
+        db,
+        content=content,
+        safe_name=safe_name,
+        client_filename=file.filename,
+        user_id=current_user.id,
+        force=force,
+    )
+    return _cv_preview_response(hashlib.sha256(content).hexdigest(), parsed)
+
+
 @router.post(
     "/from-cv",
     response_model=CandidateFromCVResponse,
@@ -6665,92 +6925,74 @@ async def create_candidate_from_cv(
         "even if a close match exists. The duplicates array on the response "
         "is still populated for audit.",
     ),
+    name: Optional[str] = Form(default=None),
+    lastname: Optional[str] = Form(default=None),
+    email: Optional[str] = Form(default=None),
+    phone: Optional[str] = Form(default=None),
+    city: Optional[str] = Form(default=None),
+    linkedin: Optional[str] = Form(default=None),
 ):
     """One-shot onboarding: PDF/DOCX CV in → new Candidate out.
 
     Flow:
-      1. Save upload to disk + extract raw text (PDF / DOCX / TXT).
+      1. Extract raw text (PDF / DOCX / TXT).
       2. Run `parse_cv()` to pull contact fields, skills, education, etc.
-      3. Scan for duplicates via `find_candidate_duplicates` — return 409
+         — albo weź odczyt z `/cv/preview` (ten sam plik, 30 min).
+      3. Pola formularza (`name`, `lastname`, `email`, `phone`, `city`,
+         `linkedin`) wygrywają z odczytem.
+      4. Scan for duplicates via `find_candidate_duplicates` — return 409
          with `existing_candidate_id` unless `?force=true`.
-      4. Insert a Candidate, apply enrichment (contact fields, summary,
+      5. Insert a Candidate, apply enrichment (contact fields, summary,
          experience), and auto-assign a primary Competence Category.
-      5. Kick off embedding + match-cache invalidation in the background.
 
     `name` / `lastname` default to the placeholder "Nieznane" when the LLM
     could not extract them — they're NOT NULL columns, and the frontend flags
     them as low confidence so the recruiter completes them before saving.
     """
-    import asyncio
-
-    from app.services import cv_text_extractor
-    from app.services.cv_parser import parse_cv
-    from app.services.cv_upload_dedup import find_duplicates_without_llm
-
-    # 1 — persist the upload and extract text
+    # 1 — bounded read BEFORE any disk write or extraction.
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     safe_name = _sanitize_upload_filename(file.filename, fallback="upload.pdf")
-    # Size gate BEFORE any disk write or extraction, and a bounded read so an
-    # oversized file never lands in memory whole — same helper as the other
-    # CV upload routes (`upload_cv`, `upload_candidate_document`).
     content = await _read_upload_bounded(file, label="CV file")
 
-    # Scratch file for the extractor (it only reads from a path). The name is
-    # random on purpose: it used to be `from_cv_tmp_<client filename>`, so two
-    # recruiters uploading `CV.pdf` in the same second shared ONE path — the
-    # second write overwrote the first mid-extraction and the first request's
-    # `os.remove` deleted the second one's file. Each request now owns its file
-    # and drops it right after extraction; the permanent copy is written later
-    # from the in-memory bytes, so nothing is renamed across requests.
-    ext = os.path.splitext(safe_name)[1].lower() or ".bin"
-    with tempfile.NamedTemporaryFile(
-        prefix="nexus_from_cv_", suffix=ext, dir=settings.UPLOAD_DIR, delete=False
-    ) as tmp:
-        tmp.write(content)
-        tmp_path = tmp.name
+    # 1b/2 — darmowe sito duplikatów, potem odczyt (albo odczyt z podglądu).
+    raw_text, parsed = await _read_cv_for_new_candidate(
+        db,
+        content=content,
+        safe_name=safe_name,
+        client_filename=file.filename,
+        user_id=current_user.id,
+        force=force,
+    )
+    email_override = _clean_override(email, 255)
+    if email_override:
+        from pydantic import EmailStr, TypeAdapter, ValidationError
 
-    raw_text: Optional[str] = None
-    try:
         try:
-            raw_text = await asyncio.to_thread(
-                cv_text_extractor.extract_text, tmp_path, file.filename or ""
-            )
-        except cv_text_extractor.UnsupportedCvFormat as e:
+            email_override = TypeAdapter(EmailStr).validate_python(email_override)
+        except ValidationError as exc:
             raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported CV format: {e}",
-            ) from e
-        except Exception as e:
-            logger.warning("[from-cv] text extraction failed: %s", e)
-    finally:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
+                status_code=422,
+                detail=[
+                    {
+                        "loc": ["body", "email"],
+                        "msg": exc.errors()[0].get("msg", "Nieprawidłowy e-mail"),
+                        "type": "value_error",
+                    }
+                ],
+            ) from None
+    parsed = _apply_from_cv_overrides(
+        parsed,
+        {
+            "first_name": _clean_override(name, 100),
+            "last_name": _clean_override(lastname, 100),
+            "email": email_override,
+            "phone": _clean_override(phone, 50),
+            "city": _clean_override(city, 100),
+            "linkedin_url": _clean_override(linkedin, 500),
+        },
+    )
 
-    if not raw_text or not raw_text.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Could not extract any text from the uploaded CV file.",
-        )
-
-    # 1b — DARMOWE sito duplikatów PRZED płatnym odczytem (18.09.2026).
-    # Kroki 2 i 3 są w tej kolejności od początku, więc każdy duplikat płacił
-    # najpierw za odczyt modelem, a dopiero potem dostawał 409. W imporcie
-    # masowym duplikat jest regułą: zmierzone 9739 płatnych odczytów dało 689
-    # kandydatów. Sito jest jednostronne — trafi, to oszczędza; nie trafi, to
-    # nic nie przesądza, więc skan w kroku 3 ZOSTAJE (patrz `cv_upload_dedup`).
-    if not force and settings.FROM_CV_SIEVE_ENABLED:
-        cheap_rows = await find_duplicates_without_llm(
-            db, content=content, raw_text=raw_text
-        )
-        if cheap_rows:
-            _raise_from_cv_duplicate_conflict(cheap_rows)
-
-    # 2 — parse structured facts
-    parsed = await parse_cv(raw_text, db=db, user_id=current_user.id)
-
-    # 3 — dedup scan
+    # 3 — dedup scan (po scaleniu z polami formularza)
     dup_rows = await find_candidate_duplicates(
         db,
         email=parsed.get("email"),
@@ -7040,6 +7282,7 @@ async def _ingest_candidate_cv_file(
         content_type=content_type,
         external_source=external_source,
         is_primary=True,
+        uploaded_by=user_id,
     )
     db.add(
         Activity(
@@ -7252,7 +7495,7 @@ async def upload_candidate_document(
                 document=document,
                 actor_user_id=current_user.id,
             )
-            return document
+            return (await _documents_with_people(db, [document]))[0]
 
     document = await _store_candidate_document(
         db,
@@ -7263,6 +7506,7 @@ async def upload_candidate_document(
         external_source="manual",
         document_kind=kind,
         is_primary=False,
+        uploaded_by=current_user.id,
     )
     db.add(
         Activity(
@@ -7275,7 +7519,7 @@ async def upload_candidate_document(
     )
     await db.commit()
     await db.refresh(document)
-    return document
+    return (await _documents_with_people(db, [document]))[0]
 
 
 @router.get("/{candidate_id}/cv-download")
