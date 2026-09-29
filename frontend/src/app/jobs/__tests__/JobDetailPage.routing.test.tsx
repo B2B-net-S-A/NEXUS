@@ -24,6 +24,9 @@ const seen = vi.hoisted(() => ({
   manual: null as Record<string, unknown> | null,
   header: null as Record<string, unknown> | null,
   champion: null as Record<string, unknown> | null,
+  brief: null as Record<string, unknown> | null,
+  dock: null as Record<string, unknown> | null,
+  close: null as Record<string, unknown> | null,
 }));
 const apiMock = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn() }));
 // Atrapa dziecka: zapamiętuje propsy; zamknięte okno nie renderuje nic.
@@ -113,7 +116,15 @@ vi.mock("@/components/ChampionProfileEditor", () => ({
 }));
 vi.mock("@/components/v2/jobs/ChampionSectionNav", () => ({ ChampionSectionNav: () => null }));
 vi.mock("@/components/v2/jobs/JobSummaryCard", () => ({ JobSummaryCard: () => null }));
-vi.mock("@/components/v2/jobs/JobReadinessDock", () => ({ JobReadinessDock: () => null }));
+vi.mock("@/components/v2/jobs/JobReadinessDock", () => ({
+  JobReadinessDock: stub("dock", "readiness-dock"),
+}));
+vi.mock("@/components/champion/ChampionBriefView", () => ({
+  ChampionBriefView: stub("brief", "champion-brief"),
+}));
+vi.mock("@/components/v2/jobs/JobCloseWithReasonDialog", () => ({
+  JobCloseWithReasonDialog: stub("close", "close-dialog"),
+}));
 vi.mock("@/components/v2/jobs/ManagedInNexusSwitch", () => ({
   ManagedInTraffitNotice: () => null,
   ManagedInNexusChip: () => null,
@@ -183,9 +194,9 @@ describe("strona rekrutacji — widoki", () => {
     expect(await screen.findByTestId("kanban")).toBeInTheDocument();
     expect(screen.queryByTestId("proposals-screen")).not.toBeInTheDocument();
     expect(nav.replace).not.toHaveBeenCalled();
-    // Tryb „Tabela" usunięty — w nagłówku nie ma przełącznika widoku.
+    // Tryb „Tabela" usunięty — widoki to zakładki „Tablica” i „Zlecenie i Champion”.
     expect(screen.queryByTestId("view-people")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("view-board")).not.toBeInTheDocument();
+    expect(screen.getByTestId("view-board")).toHaveAttribute("aria-current", "page");
   });
 
   it("dawny adres „Tabeli” (?tab=people) otwiera Tablicę z kontekstem warsztatów", async () => {
@@ -248,9 +259,15 @@ describe("strona rekrutacji — stare adresy", () => {
   });
 
   it("?tab=portals → okno „Zlecenie” z sekcją portali (R5-8); ?tab=questions → baza pytań; ?tab=manual-search → wyszukiwarka", async () => {
+    // 29.09.2026: portale żyją w panelu obok Profilu Championa (zakładka
+    // „Ogłoszenie”) — stary adres prowadzi tam wprost, z rozwiniętymi portalami.
     const first = renderPage("tab=portals");
-    await screen.findByTestId("order-window");
-    expect(seen.order).toMatchObject({ open: true, initialSection: "portals" });
+    await screen.findByTestId("champion-brief");
+    await waitFor(() =>
+      expect(seen.dock).toMatchObject({ panelTab: "announce", portalsFocus: true }),
+    );
+    expect(window.location.search).toContain("ptab=announce");
+    expect(window.location.search).not.toContain("win=order");
     first.unmount();
     const second = renderPage("tab=questions");
     expect(await screen.findByTestId("questions-window")).toBeInTheDocument();
@@ -322,7 +339,8 @@ describe("strona rekrutacji — okna z nagłówka i z warsztatów", () => {
     renderPage("win=order");
     await screen.findByTestId("order-window");
     act(() => (seen.order?.onNavigate as (target: string) => void)("champion"));
-    expect(await screen.findByTestId("champion-editor")).toBeInTheDocument();
+    // Domyślnie „Podgląd” — brief do czytania; edytor po „Edytuj”.
+    expect(await screen.findByTestId("champion-brief")).toBeInTheDocument();
     expect(window.location.search).toContain("tab=champion");
   });
 });
@@ -338,27 +356,33 @@ describe("strona rekrutacji — poprawki po integracji v3", () => {
     expect(dialog).toContainElement(screen.getByTestId("job-ai-actions"));
   });
 
-  it("podpowiedź „Obsada kompletna” otwiera okno „Zlecenie” na akcji zamknięcia", async () => {
+  it("podpowiedź „Obsada kompletna” otwiera od razu dialog zamknięcia z powodem", async () => {
     renderPage();
     await screen.findByTestId("kanban");
     await waitFor(() => expect(seen.kanban?.workbenchContext).toBeTruthy());
     const ctx = seen.kanban?.workbenchContext as { onRequestCloseJob: () => void };
     act(() => ctx.onRequestCloseJob());
-    await waitFor(() => expect(seen.order).toMatchObject({ open: true, initialSection: "close" }));
-    expect(window.location.search).toContain("win=order");
-    expect(window.location.search).toContain("wintab=close");
+    await waitFor(() => expect(seen.close).toMatchObject({ open: true }));
+    // Stary adres okna nie zostaje — zamknięcie żyje w menu „⋯”.
+    expect(window.location.search).not.toContain("win=order");
   });
 
-  it("na widoku „Zlecenie i Champion” przycisk „Zlecenie” otwiera okno jak na pozostałych widokach", async () => {
+  it("na widoku „Zlecenie i Champion” nie ma okna „Zlecenie” — braki, zespół i ogłoszenie są w panelu obok", async () => {
     renderPage("tab=champion");
+    await screen.findByTestId("champion-brief");
+    expect(screen.queryByTestId("open-order")).not.toBeInTheDocument();
+    expect(screen.getByTestId("readiness-dock")).toBeInTheDocument();
+    expect(screen.getByTestId("open-champion-profile")).toHaveAttribute("aria-current", "page");
+  });
+
+  it("?mode=edit otwiera edytor w układzie „workspace” (pasek sekcji, „Wypełnij szybciej”)", async () => {
+    renderPage("tab=champion&mode=edit");
     await screen.findByTestId("champion-editor");
-    const button = screen.getByTestId("open-order");
-    expect(button).not.toHaveAttribute("aria-current");
-    await userEvent.click(button);
-    await waitFor(() => expect(seen.order).toMatchObject({ open: true }));
-    expect(window.location.search).toContain("win=order");
-    // Widok pod oknem zostaje — okno nie przełącza strony.
-    expect(screen.getByTestId("champion-editor")).toBeInTheDocument();
+    expect(seen.champion).toMatchObject({ layout: "workspace", canEdit: true });
+    expect(screen.queryByTestId("champion-brief")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Podgląd" }));
+    expect(await screen.findByTestId("champion-brief")).toBeInTheDocument();
+    expect(window.location.search).not.toContain("mode=edit");
   });
 });
 
@@ -410,5 +434,22 @@ describe("strona rekrutacji — ścieżka rekrutacji i najbliższy krok", () => 
     await waitFor(() =>
       expect(seen.kanban).toMatchObject({ focusColumnRequest: { column: "client_interview", seq: 2 } }),
     );
+  });
+});
+
+describe("strona rekrutacji — „Zlecenie i Champion”: szkic przeżywa przełączanie trybu", () => {
+  it("Edytuj → Podgląd → Edytuj nie odmontowuje edytora (niezapisane zmiany zostają)", async () => {
+    renderPage("tab=champion&mode=edit");
+    await screen.findByTestId("champion-editor");
+    const firstProps = seen.champion;
+    // Edytor zgłasza niezapisane zmiany — przełącznik trybu je pokazuje.
+    act(() => (seen.champion?.onDirtyChange as (dirty: boolean) => void)(true));
+    await userEvent.click(screen.getByRole("button", { name: "Podgląd" }));
+    expect(await screen.findByTestId("champion-brief")).toBeInTheDocument();
+    // Edytor jest nadal w drzewie (ukryty), a nie odmontowany.
+    expect(screen.getByTestId("champion-editor")).toBeInTheDocument();
+    expect(screen.getByTestId("champion-mode-edit")).toHaveTextContent("niezapisane");
+    await userEvent.click(screen.getByTestId("champion-mode-edit"));
+    expect(seen.champion?.jobId).toBe(firstProps?.jobId);
   });
 });

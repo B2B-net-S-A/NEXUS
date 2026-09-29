@@ -41,9 +41,13 @@ import { jobProposalsApi, jobProposalsKeys } from "@/lib/job-proposals-api";
 import { proposalsBulkApi, shortlistApi } from "@/lib/candidate-search-api";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
-import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
-import { JobSummaryCard } from "@/components/v2/jobs/JobSummaryCard";
-import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
+import { ChampionBriefView } from "@/components/champion/ChampionBriefView";
+import {
+  JobReadinessDock,
+  type ChampionPanelTab,
+} from "@/components/v2/jobs/JobReadinessDock";
+import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReasonDialog";
+import { scrollToWhenReady } from "@/components/v2/recruitment/OrderMissingBlock";
 import {
   ManagedInNexusChip,
   ManagedInTraffitNotice,
@@ -74,15 +78,6 @@ import { useTabsStore } from "@/store/tabs";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { hasSectionAccess } from "@/lib/section-access";
 import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
-import { useLocalStorageFlag } from "@/lib/use-local-storage-flag";
-import {
-  JOB_HEADER_COLLAPSED_DEFAULT,
-  JOB_HEADER_COLLAPSED_STORAGE_KEY,
-} from "@/lib/job-header-preferences";
-import {
-  JOB_CHAMPION_DOCK_COLLAPSED_DEFAULT,
-  JOB_CHAMPION_DOCK_COLLAPSED_STORAGE_KEY,
-} from "@/lib/job-dock-preferences";
 import {
   JobDetailCompactHeader,
   type JobDetailTab,
@@ -162,6 +157,9 @@ const DEFAULT_SEGMENT: RecruitmentSegment = "in-process";
  * strony, a inicjalizator `useState` odpala się raz. `null` z adresu NIE
  * cofa ręcznego wyboru — parametr, który zniknął, to nie polecenie.
  */
+/** Tryb widoku „Zlecenie i Champion”: brief do czytania albo edytor. */
+type ChampionMode = "view" | "edit";
+
 function useUrlSyncedState<T extends string>(fromUrl: T | null, fallback: T | null) {
   const [value, setValue] = useState<T | null>(fromUrl ?? fallback);
   useEffect(() => {
@@ -191,7 +189,7 @@ export default function JobDetailPage() {
   const pathname = usePathname();
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();
-  const { showError } = useToast();
+  const { showError, showSuccess } = useToast();
   const authUser = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
   const isAdmin = hasRole(authUser, "admin");
@@ -234,8 +232,6 @@ export default function JobDetailPage() {
   // Narzędzia AI administratora z menu „…" — niezależnie od tego, czy
   // jakakolwiek propozycja jest zaznaczona.
   const [showAiTools, setShowAiTools] = useState(false);
-  // Opis oferty potrafi mieć kilkaset linii — domyślnie zwinięty.
-  const [showFullDescription, setShowFullDescription] = useState(false);
 
   // ── Stan w adresie: widok, segment, sekcja panelu, okno wysuwane ─────────
   const searchKey = searchParams?.toString() ?? "";
@@ -276,6 +272,36 @@ export default function JobDetailPage() {
     urlState.orderSection,
     null,
   );
+  // „Zlecenie i Champion” (29.09.2026): tryb „Podgląd”/„Edytuj” (`?mode=edit`;
+  // stare `?intake=1` z nowej rekrutacji otwiera od razu edycję z panelem AI)
+  // i zakładka panelu obok profilu (`?ptab=team|announce`).
+  const modeFromUrl: ChampionMode | null =
+    searchParams?.get("mode") === "edit" || searchParams?.get("intake") === "1"
+      ? "edit"
+      : searchParams?.get("mode") === "view"
+        ? "view"
+        : null;
+  const [championModeState, setChampionModeState] = useUrlSyncedState<ChampionMode>(
+    modeFromUrl,
+    "view",
+  );
+  const ptabRaw = searchParams?.get("ptab");
+  const panelTabFromUrl: ChampionPanelTab | null =
+    ptabRaw === "team" || ptabRaw === "announce" || ptabRaw === "readiness" ? ptabRaw : null;
+  const [championPanelTab, setChampionPanelTab] = useUrlSyncedState<ChampionPanelTab>(
+    panelTabFromUrl,
+    null,
+  );
+  const [portalsFocus, setPortalsFocus] = useState(false);
+  // Edytor zostaje zamontowany po pierwszym wejściu w „Edytuj” — przełączenie
+  // na „Podgląd” go tylko chowa, więc niezapisany szkic nie ginie.
+  const [championEditorMounted, setChampionEditorMounted] = useState(false);
+  const [championDirty, setChampionDirty] = useState(false);
+  useEffect(() => {
+    if (championModeState === "edit") setChampionEditorMounted(true);
+  }, [championModeState]);
+  const [showCloseJob, setShowCloseJob] = useState(false);
+
   // Tryb „Tabela" usunięty (decyzja Artura 22.09.2026): rekrutacja to Tablica.
   // `tab=people` zostaje wyłącznie dla pełnej listy „Do przejrzenia"
   // (propozycje z bazy i shortlista — makieta 4). Każdy inny dawny adres
@@ -291,9 +317,34 @@ export default function JobDetailPage() {
       writeUrlParams({
         tab: view === JOB_DETAIL_DEFAULT_VIEW ? null : view,
         ...(view === "board" ? { seg: null, panel: null } : {}),
+        ...(view !== "champion" ? { mode: null, ptab: null, intake: null } : {}),
       });
     },
     [setViewState, setSegmentState],
+  );
+  const selectChampionMode = useCallback(
+    (mode: ChampionMode) => {
+      setChampionModeState(mode);
+      writeUrlParams({ mode: mode === "edit" ? "edit" : null, intake: null });
+    },
+    [setChampionModeState],
+  );
+  const selectChampionPanelTab = useCallback(
+    (tab: ChampionPanelTab) => {
+      setChampionPanelTab(tab);
+      writeUrlParams({ ptab: tab === "readiness" ? null : tab });
+    },
+    [setChampionPanelTab],
+  );
+  /** Wejście na „Zlecenie i Champion” z zakładką panelu albo w trybie edycji. */
+  const openChampion = useCallback(
+    (opts: { panelTab?: ChampionPanelTab; edit?: boolean } = {}) => {
+      selectView("champion");
+      if (opts.panelTab) selectChampionPanelTab(opts.panelTab);
+      if (opts.edit) selectChampionMode("edit");
+      else if (opts.panelTab) selectChampionMode("view");
+    },
+    [selectView, selectChampionPanelTab, selectChampionMode],
   );
   const selectSegment = useCallback(
     (next: RecruitmentSegment) => {
@@ -334,6 +385,21 @@ export default function JobDetailPage() {
     if (open) openSlideOver(kind);
     else if (slideOver === kind) closeSlideOver();
   };
+
+  // Stare wejścia do sekcji okna „Zlecenie” (`?win=order&wintab=team|portals|close`
+  // — podpowiedź „Obsada kompletna”, powrót z `/jobs/new` po nieudanej
+  // publikacji na portalu). Od 29.09.2026 te sekcje żyją w panelu obok
+  // Profilu Championa, a zamknięcie w menu „⋯” — link prowadzi tam wprost.
+  useEffect(() => {
+    if (slideOver !== "order" || !orderSection) return;
+    if (orderSection === "close") setShowCloseJob(true);
+    else if (orderSection === "team") openChampion({ panelTab: "team" });
+    else if (orderSection === "portals") {
+      setPortalsFocus(true);
+      openChampion({ panelTab: "announce" });
+    }
+    closeSlideOver();
+  }, [slideOver, orderSection, openChampion, closeSlideOver]);
 
   // Stary adres (`?tab=chat`, `?tab=screening`, `?highlight=ai-proposals`…)
   // przepisujemy na nowy kształt — `replace`, nie `push`: stary adres nie ma
@@ -378,18 +444,7 @@ export default function JobDetailPage() {
   // `?candidate=<id>` (powiadomienia, wzmianka w notatce, „Wróć do rekrutacji")
   // — otwórz tę osobę: panel w „Tabeli", dok na „Tablicy".
   const linkedCandidateId = positiveIntParam(searchParams?.get("candidate") ?? null);
-  // Zwijanie panelu „Zespół i priorytet" (pełny widok „Zlecenie i Champion")
-  // oraz — na „Tablicy" — wysokość kolumn. Preferencja globalna w localStorage.
-  const [headerCollapsed, setHeaderCollapsed] = useLocalStorageFlag(
-    JOB_HEADER_COLLAPSED_STORAGE_KEY,
-    JOB_HEADER_COLLAPSED_DEFAULT,
-  );
-  // Zwijanie doku „Gotowość" na widoku Championa — patrz
-  // `lib/job-dock-preferences.ts`.
-  const [championDockCollapsed, setChampionDockCollapsed] = useLocalStorageFlag(
-    JOB_CHAMPION_DOCK_COLLAPSED_STORAGE_KEY,
-    JOB_CHAMPION_DOCK_COLLAPSED_DEFAULT,
-  );
+
 
   // Parametr jest jednorazowy: po otwarciu osoby znika z adresu, żeby
   // odświeżenie strony albo zamknięcie panelu nie otwierało jej ponownie.
@@ -741,6 +796,11 @@ export default function JobDetailPage() {
     // Lustro `PUT /champion-profile` sprzed pola `can_edit` (DeliveryLeadPlus).
     fallback: isAdmin || hasRole(authUser, "delivery_lead"),
   });
+  // Bez prawa edycji zawsze „Podgląd” — nawet ze starym linkiem `?mode=edit`.
+  const championMode: ChampionMode =
+    canEditChampion && championModeState === "edit" ? "edit" : "view";
+  const renderChampionEditor =
+    canEditChampion && (championMode === "edit" || championEditorMounted);
   const onEdit = canEditJobContentFields ? () => setShowEditJob(true) : undefined;
   const onWriteAnnouncement = canEditJobContentFields
     ? () => setShowAIWriter(true)
@@ -749,6 +809,19 @@ export default function JobDetailPage() {
     canWritePipeline && job.status === "published" && canCreateInviteLink
       ? () => setShowInviteLink(true)
       : undefined;
+  const copyJobLink = () => {
+    const url = `${window.location.origin}/jobs/${jobId}`;
+    // `navigator.clipboard` nie istnieje w niezabezpieczonym kontekście —
+    // bez tej gałęzi klik nic by nie robił i wyglądał na zepsuty.
+    if (!navigator?.clipboard?.writeText) {
+      showError("Przeglądarka nie pozwala skopiować linku.");
+      return;
+    }
+    void navigator.clipboard
+      .writeText(url)
+      .then(() => showSuccess("Skopiowano link do rekrutacji."))
+      .catch(() => showError("Nie udało się skopiować linku."));
+  };
   const kanbanQueryState = {
     isLoading: kanbanLoading,
     isError: kanbanIsError,
@@ -877,38 +950,14 @@ export default function JobDetailPage() {
         onWriteAnnouncement={onWriteAnnouncement}
         onGenerateInviteLink={onGenerateInviteLink}
         chatUnreadCount={chatUnread?.unread_count ?? 0}
-        // Panel „Zespół i priorytet" żyje teraz w oknie „Zlecenie". Zostaje
-        // w nagłówku wyłącznie na pełnym widoku „Zlecenie i Champion".
-        {...(activeView === "champion"
-          ? {
-              contextOpen: !headerCollapsed,
-              onContextOpenChange: (open: boolean) => setHeaderCollapsed(!open),
-              contextContent: (
-                <>
-                  <p className="text-xs text-muted-foreground">
-                    Właściciela, hiring managera i Priority Work znajdziesz
-                    w zakładce „Zespół i priorytet" doku obok Profilu Championa.
-                  </p>
-                  {job.description ? (
-                    <div className="border-t border-border pt-3">
-                      <button
-                        type="button"
-                        onClick={() => setShowFullDescription((value) => !value)}
-                        className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-                      >
-                        {showFullDescription ? "Ukryj opis ▲" : "Pokaż opis ▼"}
-                      </button>
-                      {showFullDescription ? (
-                        <div className="mt-2 whitespace-pre-line text-sm text-muted-foreground">
-                          {job.description}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </>
-              ),
-            }
-          : {})}
+        // 29.09.2026: zespół i priorytet mieszkają w panelu obok Profilu
+        // Championa, oryginalny opis — w „Podglądzie”; pasek „Zespół
+        // i priorytet” w nagłówku zniknął.
+        clientCardHref={
+          job.client_id != null ? `/help?tab=clients&client=${job.client_id}` : undefined
+        }
+        onCopyLink={copyJobLink}
+        onCloseJob={canEditJob && job.status !== "closed" ? () => setShowCloseJob(true) : undefined}
       />
 
       {/* Edit Job Modal */}
@@ -1022,7 +1071,7 @@ export default function JobDetailPage() {
         jobId={jobId}
         canEdit={canEditJob}
         canEditContent={canEditJobContentFields}
-        onNavigate={() => selectView("champion")}
+        onNavigate={(_target, opts) => openChampion(opts)}
         onOpenSlideOver={openSlideOver}
         onEdit={() => setShowEditJob(true)}
         onOpenAiWriter={onWriteAnnouncement}
@@ -1030,6 +1079,16 @@ export default function JobDetailPage() {
         initialSection={orderSection}
         hiredCount={kanban ? countHired(kanbanColumns) : 0}
       />
+      {canEditJob && job.status !== "closed" ? (
+        <JobCloseWithReasonDialog
+          open={showCloseJob}
+          onOpenChange={setShowCloseJob}
+          jobId={jobId}
+          jobTitle={job.title ?? `Rekrutacja #${jobId}`}
+          clientId={job.client_id ?? null}
+          defaultReason={kanban && countHired(kanbanColumns) > 0 ? "filled_by_us" : "other"}
+        />
+      ) : null}
       <QuestionBankSlideOver
         open={slideOver === "questions"}
         onOpenChange={slideOverOpenChange("questions")}
@@ -1233,32 +1292,59 @@ export default function JobDetailPage() {
 
       {/* ── Widok „Zlecenie i Champion" — pełna strona, bez zmian ────────── */}
       {activeView === "champion" && (
-        // Szerokość edytora jest tu celem, nie efektem ubocznym: przy 1440 px
-        // (sidebar 240 + zwinięta szyna kart) spis sekcji 230 i dok 360
-        // zostawiały edytorowi 451 px. Dlatego spis sekcji pokazuje się
-        // dopiero od `2xl` — poniżej każda sekcja edytora i tak ma nagłówek
-        // z chipem stanu — a na `xl` siatka ma dwie kolumny: edytor i dok.
-        // Dok jest zwijalny WYŁĄCZNIE od `xl` (węziej stoi pod edytorem).
-        // Literały klas muszą być PEŁNE (Tailwind skanuje kod źródłowy, nie
-        // interpoluje fragmentów w runtime) — stąd gałęzie zamiast
-        // wstrzykiwanej szerokości.
-        <div
-          className={cn(
-            "grid grid-cols-1 gap-4",
-            championDockCollapsed
-              ? "xl:grid-cols-[minmax(0,1fr)_44px] 2xl:grid-cols-[230px_minmax(0,1fr)_44px]"
-              : "xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[230px_minmax(0,1fr)_360px]",
-          )}
-        >
-          <aside className="hidden 2xl:block 2xl:sticky 2xl:top-4 2xl:self-start">
-            <ChampionSectionNav jobId={Number(id)} />
-          </aside>
+        <div className="space-y-3" data-testid="job-champion-view">
+          {/* „Podgląd” czyta zlecenie jak brief (każda rola), „Edytuj” to
+              formularz Championa z paskiem sekcji i „Wypełnij szybciej”. */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div
+              role="group"
+              aria-label="Tryb widoku zlecenia"
+              className="inline-flex rounded-lg border border-border bg-card p-0.5"
+            >
+              <button
+                type="button"
+                aria-pressed={championMode === "view"}
+                onClick={() => selectChampionMode("view")}
+                className={cn(
+                  "h-8 rounded-md px-3 text-[13px] font-medium transition-colors",
+                  championMode === "view"
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Podgląd
+              </button>
+              {canEditChampion ? (
+                <button
+                  type="button"
+                  aria-pressed={championMode === "edit"}
+                  onClick={() => selectChampionMode("edit")}
+                  data-testid="champion-mode-edit"
+                  className={cn(
+                    "h-8 rounded-md px-3 text-[13px] font-medium transition-colors",
+                    championMode === "edit"
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  Edytuj
+                  {championDirty ? (
+                    <span className="ml-1.5 text-[11px] font-medium text-warning">● niezapisane</span>
+                  ) : null}
+                </button>
+              ) : null}
+            </div>
+            <p className="text-[13px] text-muted-foreground">
+              {championMode === "edit"
+                ? "Zmiany zapisuje „Zapisz” na pasku sekcji — do tego czasu widzisz je tylko Ty."
+                : canEditChampion
+                  ? "Tak widzi zlecenie rekruter. Zmiany robisz w „Edytuj”."
+                  : "Zlecenie od Delivery Leada — pytania, stack i to, co powiedzieć kandydatowi."}
+            </p>
+          </div>
 
-          <div className="min-w-0 space-y-4">
-            <JobSummaryCard
-              job={job}
-              onEdit={onEdit}
-            />
+          {renderChampionEditor ? (
+            <div hidden={championMode !== "edit"} data-testid="champion-editor-slot">
             <ChampionProfileEditor
               jobId={Number(id)}
               clientId={job?.client_id ?? null}
@@ -1266,22 +1352,54 @@ export default function JobDetailPage() {
               // 22.09.2026); bez pola — lustro DeliveryLeadPlus (P1-02), żeby
               // nikt nie wypełniał formularza, który skończy się 403.
               canEdit={canEditChampion}
-              // `CreateJobModal` ląduje tu z `?intake=1` gdy nowa rekrutacja
-              // ma opis do podania AI (stare linki; od 22.09.2026 `/jobs/new`) — otwiera panel „Wklej
-              // opis" od razu, zamiast zmuszać DL-a do odnalezienia go samemu.
+              // Stare linki `?intake=1` (sprzed `/jobs/new`) otwierają panel
+              // „Wklej opis” od razu z opisem rekrutacji.
               intakeDefaultOpen={searchParams?.get("intake") === "1"}
               intakeSeedText={job?.description ?? undefined}
+              layout="workspace"
+              onDirtyChange={setChampionDirty}
             />
-          </div>
-
-          <aside className="xl:sticky xl:top-4 xl:self-start" data-help="job.champion.readiness">
-            <JobReadinessDock
-              jobId={Number(id)}
-              variant="champion"
-              collapsed={championDockCollapsed}
-              onCollapsedChange={setChampionDockCollapsed}
-            />
-          </aside>
+            </div>
+          ) : null}
+          {championMode === "view" ? (
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <ChampionBriefView
+                jobId={Number(id)}
+                job={job}
+                onEditSection={
+                  canEditChampion
+                    ? (anchor) => {
+                        selectChampionMode("edit");
+                        scrollToWhenReady(anchor);
+                      }
+                    : undefined
+                }
+                onOpenManualSearch={
+                  canWritePipeline ? () => openSlideOver("manual-search") : undefined
+                }
+                requestHistory={{ readOnly: !canWritePipeline }}
+              />
+              <aside
+                className="xl:sticky xl:top-4 xl:self-start"
+                data-help="job.champion.readiness"
+                aria-label="Panel zlecenia"
+              >
+                <JobReadinessDock
+                  jobId={Number(id)}
+                  variant="champion"
+                  panelTab={championPanelTab}
+                  onPanelTabChange={selectChampionPanelTab}
+                  onGoChampionSection={(anchor) => {
+                    selectChampionMode("edit");
+                    if (anchor) scrollToWhenReady(anchor);
+                  }}
+                  onWriteAnnouncement={onWriteAnnouncement}
+                  onGenerateInviteLink={onGenerateInviteLink}
+                  portalsFocus={portalsFocus}
+                />
+              </aside>
+            </div>
+          ) : null}
         </div>
       )}
     </div>

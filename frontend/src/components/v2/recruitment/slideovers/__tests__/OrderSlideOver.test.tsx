@@ -170,66 +170,37 @@ describe("OrderSlideOver", () => {
     expect(h.onOpenSlideOver).toHaveBeenCalledWith("questions");
   });
 
-  it("sekcje montują klocki dopiero po rozwinięciu", async () => {
+  it("skrót prowadzi do panelu obok Profilu Championa: „Zespół i priorytet”, „Ogłoszenie i portale”", async () => {
     const h = setup();
-    // Blok „Zespół" pokazuje właściciela od razu; panele montują się po „Zmień".
-    const teamBlock = await screen.findByRole("region", { name: "Zespół" });
-    expect(teamBlock).toHaveTextContent("Anna Nowicka");
-    const team = screen.getByRole("button", { name: /Zmień zespół i hiring managera/ });
+    // Fakty zespołu zostają w skrócie — edycja jest w panelu.
+    expect(await screen.findByText("Anna Nowicka")).toBeInTheDocument();
     expect(screen.queryByTestId("ownership-panel")).not.toBeInTheDocument();
-    fireEvent.click(team);
-    expect(screen.getByTestId("ownership-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("hm-picker")).toHaveAttribute("data-can-edit", "true");
-
-    fireEvent.click(screen.getByRole("button", { name: /Ustawienia rekrutacji/ }));
-    expect(screen.getByTestId("settings-panel")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /^Priorytet/ }));
-    expect(screen.getByTestId("priority-context")).toBeInTheDocument();
-
-    // Symulowane portale ogłoszeniowe usunięte 23.09.2026.
-    expect(screen.queryByRole("button", { name: /Portale ogłoszeniowe/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Napisz ogłoszenie z AI" }));
-    expect(h.onOpenAiWriter).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Zespół i priorytet" }));
+    expect(h.onOpenChange).toHaveBeenCalledWith(false);
+    expect(h.onNavigate).toHaveBeenCalledWith("champion", { panelTab: "team" });
+    fireEvent.click(screen.getByRole("button", { name: "Ogłoszenie i portale" }));
+    expect(h.onNavigate).toHaveBeenCalledWith("champion", { panelTab: "announce" });
   });
 
-  it("canEdit=false chowa edycję i zamknięcie, a klocki dostają tryb odczytu", async () => {
+  it("canEdit=false chowa edycję; skrót nie ma już zamknięcia ani paneli zespołu", async () => {
     setup({ canEdit: false, onOpenAiWriter: undefined, onOpenInviteLink: undefined });
     await screen.findByText("Java 17");
     expect(screen.queryByRole("button", { name: "Edytuj rekrutację" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Zamknij rekrutację" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Zmień zespół i hiring managera/ }));
-    expect(screen.getByTestId("hm-picker")).toHaveAttribute("data-can-edit", "false");
+    expect(screen.queryByRole("button", { name: /Zamknij rekrutację/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("hm-picker")).not.toBeInTheDocument();
   });
 
-  it("rekruter prowadzący (canEditContent): edycja treści, bez zespołu i zamknięcia", async () => {
+  it("rekruter prowadzący (canEditContent): edycja treści w skrócie", async () => {
     setup({ canEdit: false, canEditContent: true });
     expect(await screen.findByRole("button", { name: "Edytuj rekrutację" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Zamknij rekrutację" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Zmień zespół i hiring managera/ }));
-    expect(screen.getByTestId("hm-picker")).toHaveAttribute("data-can-edit", "false");
+    expect(screen.queryByRole("button", { name: /Zamknij rekrutację/ })).not.toBeInTheDocument();
   });
 
-  it("„Zamknij rekrutację” otwiera istniejący dialog z podpowiedzią powodu", async () => {
-    setup({ hiredCount: 1 });
-    fireEvent.click(await screen.findByRole("button", { name: "Zamknij rekrutację" }));
-    expect(screen.getByTestId("close-dialog")).toHaveAttribute("data-reason", "filled_by_us");
-  });
-
-  it("initialSection=close (podpowiedź „Obsada kompletna”) otwiera od razu dialog zamknięcia z „Obsadzone przez nas”", async () => {
+  it("„Zamknij rekrutację” przeszło do menu „⋯” — okno go nie renderuje, także przy initialSection=close", async () => {
     setup({ initialSection: "close", hiredCount: 2 });
-    expect(await screen.findByTestId("close-dialog")).toHaveAttribute("data-reason", "filled_by_us");
-  });
-
-  it("initialSection=close bez prawa edycji niczego nie otwiera (bramka zostaje w oknie)", async () => {
-    setup({ initialSection: "close", hiredCount: 2, canEdit: false });
     await screen.findByText("Java 17");
     expect(screen.queryByTestId("close-dialog")).not.toBeInTheDocument();
-  });
-
-  it("zamknięta rekrutacja nie pokazuje przycisku zamknięcia", async () => {
-    setup({}, { job: { ...JOB, status: "closed" }, readiness: { closed: true } });
-    await screen.findByText("Java 17");
-    expect(screen.queryByRole("button", { name: "Zamknij rekrutację" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Zamknij rekrutację/ })).not.toBeInTheDocument();
   });
 });
 
@@ -311,7 +282,7 @@ describe("OrderSlideOver — braki z działaniem", () => {
     const handlers = setup({}, { job: OPEN_JOB, readiness: { ready: false, blockers: [MSG.context] } });
     fireEvent.click(await screen.findByRole("button", { name: /Uzupełnij w Championie/ }));
     expect(handlers.onOpenChange).toHaveBeenCalledWith(false);
-    expect(handlers.onNavigate).toHaveBeenCalledWith("champion");
+    expect(handlers.onNavigate).toHaveBeenCalledWith("champion", { edit: true });
   });
 
   it("bez prawa edycji treści budżet i tryb są tylko linkiem do Championa", async () => {

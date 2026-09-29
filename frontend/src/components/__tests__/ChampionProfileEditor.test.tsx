@@ -51,6 +51,11 @@ vi.mock("@/components/v2/pages/candidate-list-query", () => ({
 vi.mock("@/components/ChampionProfileSourcesPanel", () => ({
   ChampionProfileSourcesPanel: () => null,
 }));
+// Układ „workspace” montuje historię zapytań klienta (router Next.js, własne
+// zapytania) — ma osobne testy.
+vi.mock("@/components/RequestHistorySection", () => ({
+  RequestHistorySection: () => null,
+}));
 
 const recruiter = {
   id: 7,
@@ -757,5 +762,53 @@ describe("ChampionProfileEditor — nieudany zapis nie jest cichy", () => {
 
     await screen.findByText("Zapisano");
     expect(screen.queryByTestId("champion-profile-save-error")).toBeNull();
+  });
+});
+
+// Tryb „Edytuj” widoku „Zlecenie i Champion” (29.09.2026).
+describe("ChampionProfileEditor — układ workspace", () => {
+  function renderWorkspace(jobId: number) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor jobId={jobId} canEdit clientId={null} layout="workspace" />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("licznik niezapisanych zmian i „Anuluj” przywracające wczytany profil", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 31, champion_profile: {} } });
+    renderWorkspace(31);
+    await screen.findByTestId("champion-editor-workspace");
+    expect(screen.queryByTestId("champion-unsaved-count")).toBeNull();
+    expect(screen.getByTestId("cancel-champion-profile")).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText("Nazwa roli"), "QA");
+    expect(screen.getByTestId("champion-unsaved-count")).toHaveTextContent("1 niezapisana zmiana");
+
+    await userEvent.click(screen.getByTestId("cancel-champion-profile"));
+    expect(screen.getByLabelText("Nazwa roli")).toHaveValue("");
+    expect(screen.queryByTestId("champion-unsaved-count")).toBeNull();
+  });
+
+  it("pasek sekcji w kolejności wyświetlania, z „Wyszukiwaniem w bazie”", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 32, champion_profile: {} } });
+    renderWorkspace(32);
+    const nav = await screen.findByRole("navigation", { name: "Sekcje Profilu Championa" });
+    const labels = Array.from(nav.querySelectorAll("a")).map((a) =>
+      a.textContent?.replace(/,.*$/, "").trim(),
+    );
+    expect(labels).toEqual([
+      "Podstawy",
+      "Stack",
+      "Poza stackiem",
+      "Wyszukiwanie w bazie",
+      "Frazy i firmy",
+      "Projekt",
+      "Screening",
+      "Klient",
+      "Wiedza z rozmów",
+    ]);
+    expect(screen.getByRole("complementary", { name: "Wypełnij szybciej" })).toBeInTheDocument();
   });
 });

@@ -201,21 +201,21 @@
     "title": "Zlecenie i Champion",
     "section": "pipeline",
     "roles": ["delivery_lead", "recruiter", "admin"],
-    "what": "Tu opisujesz, czego szuka klient: profil Championa w ośmiu sekcjach, stack MUST/NICE, pytania screeningowe i gotowość do przekazania do searchu. Wchodzisz tu przyciskiem „Profil Championa” w nagłówku rekrutacji.",
+    "what": "Tu czytasz i opisujesz zlecenie: „Podgląd” pokazuje je jak brief, „Edytuj” to formularz Championa w ośmiu sekcjach. Obok panel: Gotowość, Zespół, Ogłoszenie. Wchodzisz tu zakładką „Zlecenie i Champion” w nagłówku rekrutacji.",
     "tasks": [
       {
         "q": "Jak szybko wypełnić profil z maila klienta?",
-        "a": "Kliknij „Wygeneruj z opisu klienta”, wklej opis i zatwierdź. AI wypełni sekcje, a Ty poprawisz je ręcznie — profil dostanie znacznik pochodzenia.",
+        "a": "Przejdź na „Edytuj” i w kolumnie „Wypełnij szybciej” kliknij „Wygeneruj z opisu klienta”, wklej opis i zatwierdź. AI wypełni sekcje, a Ty poprawisz je ręcznie — profil dostanie znacznik pochodzenia. Obok jest też import pliku Word/PDF.",
         "anchor": "job.champion.intake"
       },
       {
         "q": "Czego brakuje, żeby przekazać rekrutację do searchu?",
-        "a": "Zobacz dok gotowości z prawej: lista braków (rola, must-have, budżet, tryb pracy, opis projektu, dwa pytania screeningowe). Gdy wszystko jest, admin albo Delivery Lead używa „Przekaż do searchu”.",
+        "a": "Zobacz zakładkę „Gotowość” w panelu z prawej: lista braków (rola, must-have, budżet, tryb pracy, opis projektu, pytania screeningowe, wymagania do wyszukiwania). Budżet i tryb pracy uzupełnisz na miejscu. Gdy nic nie brakuje, admin albo Delivery Lead używa „Przekaż do searchu”.",
         "anchor": "job.champion.readiness"
       },
       {
         "q": "Profil i pola rekrutacji się różnią — co zrobić?",
-        "a": "Kliknij „Uzgodnij profil i pola rekrutacji”. Zobaczysz różnice obok siebie i zdecydujesz, która wartość zostaje.",
+        "a": "W „Edytuj” (kolumna „Wypełnij szybciej”) kliknij „Uzgodnij profil i pola rekrutacji”. Zobaczysz różnice obok siebie i zdecydujesz, która wartość zostaje.",
         "anchor": "job.champion.reconcile"
       },
       {
@@ -235,7 +235,7 @@
     ],
     "anchors": [
       {"id": "job.champion.intake", "label": "Wygeneruj z opisu klienta", "describe": "Wypełnienie profilu z opisu klienta przez AI."},
-      {"id": "job.champion.readiness", "label": "Gotowość rekrutacji", "describe": "Dok z brakami i przyciskiem przekazania do searchu."},
+      {"id": "job.champion.readiness", "label": "Gotowość rekrutacji", "describe": "Panel zlecenia z brakami i przyciskiem przekazania do searchu."},
       {"id": "job.champion.reconcile", "label": "Uzgodnij profil i pola", "describe": "Porównanie profilu z polami rekrutacji."},
       {
         "id": "job.champion.found",

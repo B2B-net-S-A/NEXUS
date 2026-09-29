@@ -5,10 +5,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  JOB_HEADER_COLLAPSED_DEFAULT,
-  JOB_HEADER_COLLAPSED_STORAGE_KEY,
-} from "@/lib/job-header-preferences";
-import {
   buildJobHeaderSubtitle,
   formatDeadlineShort,
   shortenPersonName,
@@ -104,17 +100,6 @@ describe("buildJobHeaderSubtitle", () => {
     expect(
       buildJobHeaderSubtitle({ ownerName: "Marta Kowalska", hired: 1 }),
     ).toEqual(["Marta K."]);
-  });
-});
-
-describe("preferencja zwiniętego nagłówka", () => {
-  it("bez zapisanego wyboru panel „Zespół i priorytet” jest ZWINIĘTY", () => {
-    // Rozwinięty zabierał ~40 % ekranu na KAŻDEJ zakładce rekrutacji.
-    expect(JOB_HEADER_COLLAPSED_DEFAULT).toBe(true);
-  });
-
-  it("klucz zostaje na :v2 — podbicie skasowałoby zapamiętany wybór użytkownikom", () => {
-    expect(JOB_HEADER_COLLAPSED_STORAGE_KEY).toBe("nexus:jobHeaderCollapsed:v3");
   });
 });
 

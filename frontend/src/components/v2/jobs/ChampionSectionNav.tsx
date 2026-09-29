@@ -24,10 +24,12 @@ import { seedChampionFromJob } from "@/lib/champion-job-seed";
 import {
   CHAMPION_SECTIONS,
   CHAMPION_SECTION_STATE_LABEL,
+  SEARCH_REQUIREMENTS_ANCHOR,
   championSectionState,
   type ChampionSectionState,
 } from "@/lib/champion-section-state";
 import { cn } from "@/lib/utils";
+
 
 const STATE_DOT_CLASS: Record<ChampionSectionState, string> = {
   empty: "bg-muted-foreground/40",
@@ -36,9 +38,34 @@ const STATE_DOT_CLASS: Record<ChampionSectionState, string> = {
 
 export interface ChampionSectionNavProps {
   jobId: number;
+  /**
+   * `horizontal` — przyklejony pasek trybu „Edytuj” (29.09.2026): krótkie
+   * nazwy w KOLEJNOŚCI WYŚWIETLANIA sekcji. Numery 1, 3, 4, 2… zostały po
+   * wzorze Worda i w pasku tylko myliły. Dochodzi „Wyszukiwanie w bazie”
+   * (wymagania do wyszukiwania), którego pionowy spis nie znał.
+   */
+  orientation?: "vertical" | "horizontal";
 }
 
-export function ChampionSectionNav({ jobId }: ChampionSectionNavProps) {
+/** Pasek edycji: kolejność = kolejność kart w `ChampionProfileEditor`. */
+const HORIZONTAL_ITEMS: ReadonlyArray<{
+  key: string;
+  anchor: string;
+  label: string;
+  sectionId: (typeof CHAMPION_SECTIONS)[number]["id"] | null;
+}> = [
+  { key: "basics", anchor: "champion-section-basics", label: "Podstawy", sectionId: "basics" },
+  { key: "stack", anchor: "champion-section-stack", label: "Stack", sectionId: "stack" },
+  { key: "experience", anchor: "champion-section-experience", label: "Poza stackiem", sectionId: "experience" },
+  { key: "requirements", anchor: SEARCH_REQUIREMENTS_ANCHOR, label: "Wyszukiwanie w bazie", sectionId: null },
+  { key: "search", anchor: "champion-section-search", label: "Frazy i firmy", sectionId: "search" },
+  { key: "project", anchor: "champion-section-project", label: "Projekt", sectionId: "project" },
+  { key: "screening", anchor: "champion-section-screening", label: "Screening", sectionId: "screening_questions" },
+  { key: "client", anchor: "champion-section-client", label: "Klient", sectionId: "client" },
+  { key: "insights", anchor: "champion-section-insights", label: "Wiedza z rozmów", sectionId: "insights" },
+];
+
+export function ChampionSectionNav({ jobId, orientation = "vertical" }: ChampionSectionNavProps) {
   const { data, isError } = useQuery({
     queryKey: ["champion-profile", jobId],
     queryFn: () => championApi.get(jobId).then((r) => r.data),
@@ -61,6 +88,45 @@ export function ChampionSectionNav({ jobId }: ChampionSectionNavProps) {
         data.job_title,
       ).profile
     : null;
+
+  if (orientation === "horizontal") {
+    return (
+      <nav
+        aria-label="Sekcje Profilu Championa"
+        data-help="job.champion.sections"
+        className="relative flex min-w-0 items-center gap-0.5 overflow-x-auto"
+      >
+        {HORIZONTAL_ITEMS.map((item) => {
+          const state: ChampionSectionState | null = !profile
+            ? null
+            : item.sectionId
+              ? championSectionState(item.sectionId, profile)
+              : (profile.search?.requirements ?? []).some((row) => row.some((w) => w.trim()))
+                ? "filled"
+                : "empty";
+          return (
+            <a
+              key={item.key}
+              href={`#${item.anchor}`}
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[13px] text-foreground transition-colors hover:bg-accent"
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "h-1.5 w-1.5 shrink-0 rounded-full",
+                  state ? STATE_DOT_CLASS[state] : "bg-muted",
+                )}
+              />
+              {item.label}
+              {state ? (
+                <span className="sr-only">, {CHAMPION_SECTION_STATE_LABEL[state]}</span>
+              ) : null}
+            </a>
+          );
+        })}
+      </nav>
+    );
+  }
 
   return (
     <nav

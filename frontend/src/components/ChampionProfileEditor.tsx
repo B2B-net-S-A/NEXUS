@@ -93,6 +93,8 @@ import { ChampionInsightsSection } from "@/components/champion/ChampionInsightsS
 import { syncLegacyInsight, type InsightChange } from "@/lib/champion-insights";
 import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
 import { ChampionClientQuestionsPanel } from "./ChampionClientQuestionsPanel";
+import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
+import { RequestHistorySection } from "@/components/RequestHistorySection";
 
 interface ChampionProfileEditorProps {
   jobId: number;
@@ -110,6 +112,17 @@ interface ChampionProfileEditorProps {
   /** Seeduje pole „Wklej opis" treścią `job.description`, gdy panel otwiera
    *  się automatycznie po zapisaniu nowej rekrutacji. */
   intakeSeedText?: string;
+  /**
+   * `workspace` — tryb „Edytuj” widoku „Zlecenie i Champion” (29.09.2026):
+   * przyklejony pasek (sekcje w kolejności wyświetlania, licznik
+   * niezapisanych zmian, „Anuluj”, „Zapisz”), formularz i obok kolumna
+   * „Wypełnij szybciej” (AI z opisu, plik Word/PDF, podobne role, szkice AI,
+   * rozmowy, wcześniejsze zapytania klienta). `stacked` — dawny jeden słup
+   * (harness `/preview/champion-profile` i testy komponentu).
+   */
+  layout?: "stacked" | "workspace";
+  /** Zgłasza, czy są niezapisane zmiany — przełącznik trybu na stronie je pokazuje. */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 function genId(): string {
@@ -122,6 +135,8 @@ export function ChampionProfileEditor({
   clientId,
   intakeDefaultOpen = false,
   intakeSeedText = "",
+  layout = "stacked",
+  onDirtyChange,
 }: ChampionProfileEditorProps) {
   const qc = useQueryClient();
   const { data, isLoading, error } = useQuery({
@@ -130,6 +145,9 @@ export function ChampionProfileEditor({
   });
 
   const [draft, setDraft] = useState<ChampionProfile>(EMPTY_CHAMPION_PROFILE);
+  // Profil tak, jak go wczytano (z polami z rekrutacji) — punkt odniesienia
+  // dla licznika niezapisanych zmian i „Anuluj”.
+  const [baseline, setBaseline] = useState<ChampionProfile>(EMPTY_CHAMPION_PROFILE);
   // Stack wczytany z kolumn rekrutacji dla profilu sprzed 09.2026 (M04-B02) —
   // patrz `lib/champion-job-seed.ts`. `null` = profil ma własny stack.
   const [seededStack, setSeededStack] = useState<ChampionStack | null>(null);
@@ -190,10 +208,21 @@ export function ChampionProfileEditor({
         data.job_title,
       );
       setDraft(seed.profile);
+      setBaseline(seed.profile);
       setSeededStack(seed.seededStack);
       setSeededBasics(seed.seededBasics);
     }
   }, [data]);
+
+  // Ile sekcji ma niezapisane zmiany — po kluczach najwyższego poziomu,
+  // czyli po sekcjach, które DL widzi w pasku. Liczone PRZED wczesnymi
+  // `return` (hook zgłaszający stan stronie musi stać zawsze w tym samym miejscu).
+  const dirtySections = (Object.keys(draft) as Array<keyof ChampionProfile>).filter(
+    (key) => JSON.stringify(draft[key] ?? null) !== JSON.stringify(baseline[key] ?? null),
+  ).length;
+  useEffect(() => {
+    onDirtyChange?.(dirtySections > 0);
+  }, [dirtySections, onDirtyChange]);
 
   // Live refresh when another user edits this job's Champion Profile.
   // The WS hook dispatches CHAMPION_PROFILE_CHANGED_EVENT on the window;
@@ -366,49 +395,13 @@ export function ChampionProfileEditor({
         .join(", ")
     : null;
 
-  return (
-    <div className="space-y-6">
-      {/* Poniżej `xl` edytor jest długi, a dok z bramką stoi pod nim — nagłówek
-          z „Zapisz" jest przyklejony, żeby po edycji sekcji 6 nie przewijać
-          całego formularza w górę. */}
-      <div className="sticky top-0 z-20 -mx-2 flex items-start justify-between gap-3 bg-background/95 px-2 py-2 backdrop-blur-sm xl:static xl:mx-0 xl:bg-transparent xl:p-0 xl:backdrop-blur-none">
-        <div className="min-w-0">
-          <h2 className="text-lg font-bold text-foreground dark:text-foreground flex flex-wrap items-center gap-2">
-            <Sparkles className="w-5 h-5 text-purple-500" />
-            Profil Championa
-            {/* Znacznik pochodzenia jest CAŁOPROFILOWY (`_source`/`_parser` z
-                parsera dokumentu) — jeden chip tutaj, nie przy sekcjach, bo
-                backend nie wie, które sekcje ktoś od tego czasu przepisał. */}
-            {hasChampionAiProvenance(draft) ? (
-              <Badge
-                variant="info"
-                size="sm"
-                title={`Profil zaimportowany z dokumentu (parser${draft._parsed_at ? `, ${warsawDateOf(draft._parsed_at) ?? draft._parsed_at}` : ""}). Sekcje mogły być od tego czasu edytowane ręcznie — sprawdź przed użyciem.`}
-              >
-                {draft._parser?.includes("table-intake") ? "Z importu dokumentu" : CHAMPION_AI_PROVENANCE_LABEL}
-              </Badge>
-            ) : null}
-          </h2>
-          <p className="text-xs text-muted-foreground mt-0.5 hidden sm:block">
-            Delivery Lead opisuje idealnego kandydata. Rekruterzy będą odpowiadać
-            na pytania screeningowe przed wysłaniem CV do klienta.
-          </p>
-        </div>
-        {canEdit && (
-          <button
-            type="button"
-            onClick={() => mutation.mutate(draft)}
-            disabled={mutation.isPending}
-            className="inline-flex shrink-0 items-center gap-1.5 bg-primary hover:bg-primary/90 text-white px-3 py-1.5 pointer-coarse:py-2 rounded-lg text-sm font-medium shadow-xs disabled:opacity-60"
-            data-testid="save-champion-profile"
-          >
-            <Save className="w-4 h-4" />
-            {mutation.isPending ? "Zapisuję…" : "Zapisz"}
-          </button>
-        )}
-      </div>
-
+  const toolsRow = (
+    <>
       <div className="flex gap-2 flex-wrap"><ChampionTemplateDownload />{canEdit && <ChampionImportButton current={importBaseline} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onApply={() => invalidateChampionDependents(qc, jobId)} />}</div>
+    </>
+  );
+  const validationPanel = (
+    <>
       <ChampionValidationPanel
         validation={withoutSeededStackConflict(data?.validation, seededStack)}
         // Ostrzeżenie o polu ze zwiniętej grupy 2·5·6 najpierw ją rozwija —
@@ -419,9 +412,16 @@ export function ChampionProfileEditor({
           }
         }}
       />
+    </>
+  );
+  const reconcileControls = (
+    <>
       {canEdit && <button className="text-sm underline" onClick={() => setReviewOpen(true)} data-help="job.champion.reconcile">Uzgodnij profil i pola rekrutacji</button>}
       {reviewOpen && <ChampionImportReview initial={{ champion_profile: draft, validation: data?.validation }} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onClose={() => setReviewOpen(false)} onApply={() => invalidateChampionDependents(qc, jobId)} />}
-
+    </>
+  );
+  const statusBanners = (
+    <>
       {saveStatus === "error" && saveError && (
         <div
           role="alert"
@@ -451,7 +451,10 @@ export function ChampionProfileEditor({
           {remoteChange.by} zaktualizował profil — odświeżono
         </div>
       )}
-
+    </>
+  );
+  const intakePanel = (
+    <>
       {/* AI Intake (Phase 14): paste JD → draft Championa.
           Od fali 3 wejściem jest BANER na górze formularza (makieta kroku 02),
           a nie wiersz-akordeon między sekcjami: to pierwsza rzecz, którą robi
@@ -533,7 +536,10 @@ export function ChampionProfileEditor({
           )}
         </div>
       )}
-
+    </>
+  );
+  const suggestionModal = (
+    <>
       {activeSuggestion && (
         <ChampionProfileSuggestionReview
           jobId={jobId}
@@ -542,7 +548,10 @@ export function ChampionProfileEditor({
           onClose={() => setActiveSuggestion(null)}
         />
       )}
-
+    </>
+  );
+  const formSections = (
+    <>
       {/* 1. Podstawowe informacje */}
       <Section
         title={meta("basics").label}
@@ -1165,14 +1174,20 @@ export function ChampionProfileEditor({
           }
         />
       </Section>
-
+    </>
+  );
+  const readOnlyNotice = (
+    <>
       {!canEdit && (
         <div className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
           <AlertTriangle className="w-4 h-4" />
           Podgląd — edycja wymaga roli Delivery Lead lub Admin.
         </div>
       )}
-
+    </>
+  );
+  const sourcesPanel = (
+    <>
       {/* Phase 14: Fireflies / CloudTalk sources + pending AI suggestions */}
       {canEdit && (
         <div className="border-t border-border dark:border-border pt-6 mt-6">
@@ -1183,6 +1198,148 @@ export function ChampionProfileEditor({
           />
         </div>
       )}
+    </>
+  );
+
+  const renderWorkspace = () => (
+    <div className="space-y-4" data-testid="champion-editor-workspace">
+      <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/95 px-3 py-2 backdrop-blur-sm">
+        <div className="min-w-0 flex-1">
+          <ChampionSectionNav jobId={jobId} orientation="horizontal" />
+        </div>
+        {canEdit ? (
+          <div className="flex shrink-0 items-center gap-2">
+            {dirtySections > 0 ? (
+              <span
+                className="text-xs font-medium text-warning-muted-foreground"
+                data-testid="champion-unsaved-count"
+              >
+                ● {countPl(dirtySections, "niezapisana zmiana", "niezapisane zmiany", "niezapisanych zmian")}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setDraft(baseline)}
+              disabled={dirtySections === 0 || mutation.isPending}
+              className="rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground hover:bg-accent disabled:opacity-50"
+              data-testid="cancel-champion-profile"
+            >
+              Anuluj
+            </button>
+            <button
+              type="button"
+              onClick={() => mutation.mutate(draft)}
+              disabled={mutation.isPending}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white shadow-xs hover:bg-primary/90 disabled:opacity-60"
+              data-testid="save-champion-profile"
+            >
+              <Save className="h-4 w-4" />
+              {mutation.isPending ? "Zapisuję…" : "Zapisz"}
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {validationPanel}
+      {statusBanners}
+      {suggestionModal}
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="min-w-0 space-y-6">
+          {formSections}
+          {readOnlyNotice}
+        </div>
+        {canEdit ? (
+          <aside
+            aria-label="Wypełnij szybciej"
+            className="space-y-3 xl:sticky xl:top-16 xl:max-h-[calc(100dvh-5rem)] xl:self-start xl:overflow-y-auto"
+          >
+            <div className="space-y-3 rounded-xl border border-border bg-card p-4">
+              <h3 className="text-[15px] font-semibold text-foreground">Wypełnij szybciej</h3>
+              {intakePanel}
+              <div className="space-y-2 rounded-lg border border-border p-3">
+                <p className="text-[13px] font-semibold text-foreground">Z pliku Word / PDF</p>
+                {toolsRow}
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                {reconcileControls}
+              </div>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-4">
+              <h3 className="mb-2 text-[13px] font-semibold text-foreground">
+                Wcześniejsze zapytania klienta
+              </h3>
+              <RequestHistorySection
+                jobId={jobId}
+                clientId={clientId ?? null}
+                readOnly={!canEdit}
+                compact
+                narrow
+                maxItems={3}
+              />
+            </div>
+            <div className="rounded-xl border border-border bg-card p-4">{sourcesPanel}</div>
+          </aside>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  if (layout === "workspace") {
+    return renderWorkspace();
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Poniżej `xl` edytor jest długi, a dok z bramką stoi pod nim — nagłówek
+          z „Zapisz" jest przyklejony, żeby po edycji sekcji 6 nie przewijać
+          całego formularza w górę. */}
+      <div className="sticky top-0 z-20 -mx-2 flex items-start justify-between gap-3 bg-background/95 px-2 py-2 backdrop-blur-sm xl:static xl:mx-0 xl:bg-transparent xl:p-0 xl:backdrop-blur-none">
+        <div className="min-w-0">
+          <h2 className="text-lg font-bold text-foreground dark:text-foreground flex flex-wrap items-center gap-2">
+            <Sparkles className="w-5 h-5 text-purple-500" />
+            Profil Championa
+            {/* Znacznik pochodzenia jest CAŁOPROFILOWY (`_source`/`_parser` z
+                parsera dokumentu) — jeden chip tutaj, nie przy sekcjach, bo
+                backend nie wie, które sekcje ktoś od tego czasu przepisał. */}
+            {hasChampionAiProvenance(draft) ? (
+              <Badge
+                variant="info"
+                size="sm"
+                title={`Profil zaimportowany z dokumentu (parser${draft._parsed_at ? `, ${warsawDateOf(draft._parsed_at) ?? draft._parsed_at}` : ""}). Sekcje mogły być od tego czasu edytowane ręcznie — sprawdź przed użyciem.`}
+              >
+                {draft._parser?.includes("table-intake") ? "Z importu dokumentu" : CHAMPION_AI_PROVENANCE_LABEL}
+              </Badge>
+            ) : null}
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5 hidden sm:block">
+            Delivery Lead opisuje idealnego kandydata. Rekruterzy będą odpowiadać
+            na pytania screeningowe przed wysłaniem CV do klienta.
+          </p>
+        </div>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => mutation.mutate(draft)}
+            disabled={mutation.isPending}
+            className="inline-flex shrink-0 items-center gap-1.5 bg-primary hover:bg-primary/90 text-white px-3 py-1.5 pointer-coarse:py-2 rounded-lg text-sm font-medium shadow-xs disabled:opacity-60"
+            data-testid="save-champion-profile"
+          >
+            <Save className="w-4 h-4" />
+            {mutation.isPending ? "Zapisuję…" : "Zapisz"}
+          </button>
+        )}
+      </div>
+
+      {toolsRow}
+      {validationPanel}
+      {reconcileControls}
+      {statusBanners}
+      {intakePanel}
+      {suggestionModal}
+      {formSections}
+      {readOnlyNotice}
+      {sourcesPanel}
     </div>
   );
 }

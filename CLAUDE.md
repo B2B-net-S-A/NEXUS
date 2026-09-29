@@ -3097,14 +3097,43 @@ innego niż serwer albo nadpisywał cudzą pracę.
   `EditJobModal`/`JobFormFields` ZOSTAJĄ w `AppShell.tsx` jako pełna edycja
   (testy źródłowe czytają tam literały `FieldGroup`). TAC, DL, szablon,
   kategoria, Program/Train, priorytet i deadline edytuje `JobSettingsPanel`
-  w zakładce „Zespół” doku gotowości. Zakładka „Zlecenie i Champion”: spis
-  sekcji tylko od `2xl`, na `xl` dwie kolumny (edytor + dok) — przy 1440 px
-  edytor miał 251 px; dok zwijany do 44 px wyłącznie od `xl`
-  (`nexus:jobChampionDockCollapsed:v1`), szyna „Otwarte karty” domyślnie
-  zwinięta (`nexus.jobTabsRail.collapsed.v2`). Sekcja 1 Championa startuje
+  w zakładce „Zespół” panelu zlecenia. Układ „Zlecenie i Champion” od
+  29.09.2026 — sekcja „„Zlecenie i Champion” — Podgląd, Edytuj i panel
+  zlecenia”; szyna „Otwarte karty” domyślnie zwinięta
+  (`nexus.jobTabsRail.collapsed.v2`). Sekcja 1 Championa startuje
   z pól rekrutacji per pole (`lib/champion-job-seed.ts`), nietknięte klucze nie
   jadą w PUT; okno „Uzgodnij profil i pola rekrutacji” dostaje widoczny `draft`
   (pusty stack + „Uzgodnij też pole” czyściłby `must_skills`).
+
+## „Zlecenie i Champion” — Podgląd, Edytuj i panel zlecenia (29.09.2026)
+
+Makiety: https://claude.ai/artifact/HPqxFakL75CNUTa5eCH8tX. Te same rzeczy żyły
+w trzech miejscach (okno „Zlecenie”, widok Championa, dok gotowości — Priority
+Work 4×, zespół 3×, braki 5×), a do profilu wchodziło się tylko z okna.
+
+- **Nagłówek ma zakładki „Tablica” | „Zlecenie i Champion”** (odznaka „brakuje N”
+  przy drugiej). „Karta klienta”, „Kopiuj link do rekrutacji” i „Zamknij
+  rekrutację…” są w menu „⋯” (dialog zamknięcia renderuje strona).
+- **Widok ma dwa tryby** (`?mode=edit`, stare `?intake=1` = edycja): „Podgląd”
+  (`components/champion/ChampionBriefView.tsx`, tylko odczyt, „Edytuj” przy
+  sekcji prowadzi do jej kotwicy) i „Edytuj” (`ChampionProfileEditor
+  layout="workspace"`: przyklejony pasek sekcji w kolejności wyświetlania,
+  licznik niezapisanych zmian, „Anuluj”, „Zapisz”, kolumna „Wypełnij
+  szybciej” z AI, plikiem, uzgodnieniem, wcześniejszymi zapytaniami klienta
+  i źródłami). Układ `stacked` zostaje dla `/preview/champion-profile` i testów.
+  Rola bez edycji Championa widzi zawsze „Podgląd”.
+- **Panel zlecenia = `JobReadinessDock variant="champion"`** z zakładkami
+  Gotowość · Zespół · Ogłoszenie (`?ptab=team|announce`). Gotowość zaczyna
+  się od `MissingBlock` (`components/v2/recruitment/OrderMissingBlock.tsx` —
+  ten sam blok co w oknie: werdykt bramki, budżet i tryb pracy na miejscu),
+  siedmiopunktowa lista idzie niżej jako „nie blokuje”. „Historia” (zapytania
+  klienta) przeszła do „Wypełnij szybciej”; „Dodaj kandydata”, „Edytuj
+  rekrutację” i „Otwórz propozycje” są tylko w wariancie listy.
+- **Okno „Zlecenie” to skrót** (krok „Zlecenie” na Tablicy): braki, fakty,
+  wymagania, projekt; „Zespół i priorytet” / „Ogłoszenie i portale” prowadzą
+  do panelu. Stare `?win=order&wintab=team|portals|close` strona przepisuje na
+  panel (portale rozwinięte) albo na dialog zamknięcia.
+- Nowa funkcja tego ekranu = wpis w `lib/recruitment-feature-inventory.json`.
 
 ## Nowa rekrutacja = strona `/jobs/new` z requestu klienta (22.09.2026)
 
@@ -3367,8 +3396,9 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
 - **Dok osoby: sekcje zamiast zakładek** — „Teraz" wg etapu
   (`nowSectionForStage`: posting/new/verified → CV, screening → Screening,
   reszta → W procesie), główna akcja pod nazwiskiem, notatka zawsze na dole.
-  **Okno Zlecenie: trzy bloki** (Co zamówił klient · Zespół · Ogłoszenie),
-  priorytet/ustawienia/kompletność w „Więcej"; „Baza pytań" w menu „⋯".
+  **Okno Zlecenie** to od 29.09.2026 skrót (braki, fakty, wymagania), a
+  zespół, ogłoszenie i priorytet są w panelu obok Profilu Championa;
+  „Baza pytań" w menu „⋯".
 - *(Od 24.09.2026 Tablica ma 8 kolumn, a DZ zastąpiło QC CV — sekcja „Rekrutacja v5”. Opis niżej do „Pipeline v4” włącznie mówi, jak składa się szablon; reguły DZ są historyczne.)*
 - **Tablica: jeden etap = jedna kolumna, reszta to odznaki** (decyzja Artura
   22.09.2026, `lib/board-stages.ts` → `foldBoardColumns`; od 23.09.2026
