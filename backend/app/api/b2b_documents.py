@@ -12,6 +12,7 @@ Ponowne pobranie takiego dokumentu wymaga podania ich jeszcze raz.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -53,17 +54,21 @@ from app.models.contract import Contract
 from app.models.user import User, UserRole
 from app.services.action_permissions import ActionAccess
 from app.services import ezdrowie
-from app.services.b2b_documents import effects
+from app.services.b2b_documents import annex_register, effects
 from app.services.b2b_documents.context import (
     BaseContractInfo,
     build_document_context,
 )
 from app.services.b2b_documents.contract_versions import (
+    COMPANY_VERSION,
+    CURRENT_VERSION,
+    VERSIONS,
     ContractVersionRefs,
     default_refs,
     notice_end_date,
     refs_for,
 )
+from app.services.client_access import assert_client_assignable
 from app.services.b2b_documents.registry import (
     REF_LABELS,
     TYPES,
@@ -176,7 +181,9 @@ async def _load_parent(
 ) -> B2BGeneratedContract:
     stmt = select(B2BGeneratedContract).where(B2BGeneratedContract.id == parent_id)
     if lock:
-        stmt = stmt.with_for_update()
+        # `populate_existing`: wiersz bywa już w sesji (odczyt bez blokady
+        # wcześniej w tym żądaniu) — bez tego blokada zwróciłaby stare pola.
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
     row = await db.scalar(stmt)
     if row is None:
         raise HTTPException(status_code=404, detail="Umowa bazowa nie istnieje.")
@@ -358,7 +365,7 @@ async def _resolve_subject(
             job_id=parent.job_id,
             client_id=parent.client_id,
         )
-    elif doc_type.parent == "b2b":
+    elif doc_type.parent == "b2b" and not doc_type.allows_external:
         raise HTTPException(status_code=422, detail="Wybierz umowę bazową z rejestru.")
 
     if doc_type.key == "preliminary_cez":
@@ -396,7 +403,71 @@ async def _resolve_subject(
             db, candidate_id=request.candidate_id, job_id=job.id
         )
         links.update(client_id=job.client_id)
-    return parent, await _base_info(db, parent), links
+    base = _with_value_overrides(doc_type, await _base_info(db, parent), request.values)
+    return parent, base, links
+
+
+def _is_external(doc_type: DocumentType, parent: B2BGeneratedContract | None) -> bool:
+    """Aneks do umowy spoza NEXUSA: dane umowy wpisane ręcznie, bez wiersza
+    rejestru — dokumentu nie zapisujemy (ticket „Generator aneksów”, pkt 7.2)."""
+    return parent is None and doc_type.allows_external and doc_type.parent == "b2b"
+
+
+def _with_value_overrides(
+    doc_type: DocumentType, base: BaseContractInfo, values: dict[str, Any]
+) -> BaseContractInfo:
+    """Generator aneksów: numer i data zawarcia umowy są polami formularza —
+    migawka ``base`` ma pokazywać to, co trafiło do dokumentu."""
+    if not doc_type.allows_external:
+        return base
+    number = str(values.get("contract_number") or "").strip()
+    if number:
+        base.contract_number = number
+    signing = _date(values.get("contract_signing_date"))
+    if signing is not None:
+        base.signing_date = signing
+    return base
+
+
+async def _resolve_rate_clients(
+    db: AsyncSession, values: dict[str, Any]
+) -> dict[str, Any]:
+    """Pełna nazwa klienta pozycji stawki — z NEXUSA, nie z żądania.
+
+    Ticket: „Wpisuj pełną nazwę klienta z Nexusa, np. Bank Pocztowy S.A.”.
+    Nazwa z przeglądarki mogłaby wpisać do aneksu dowolny tekst jako klienta."""
+    items = values.get("rate_items")
+    if not isinstance(items, list):
+        return values
+    resolved: list[Any] = []
+    for number, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            resolved.append(item)
+            continue
+        entry = {**item, "client_name": None}
+        client_id = item.get("client_id")
+        if client_id not in (None, ""):
+            try:
+                cid = int(client_id)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Pozycja stawki {number}: nieprawidłowy klient.",
+                ) from None
+            client = await assert_client_assignable(db, cid)
+            if client is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Pozycja stawki {number}: klienta nie ma w NEXUSIE.",
+                )
+            entry["client_id"] = cid
+            entry["client_name"] = (
+                getattr(client, "legal_name", None) or client.name or ""
+            ).strip() or None
+        else:
+            entry["client_id"] = None
+        resolved.append(entry)
+    return {**values, "rate_items": resolved}
 
 
 async def _users(db: AsyncSession, ids: set[int]) -> dict[int, str]:
@@ -500,7 +571,7 @@ async def _load_document(
         parent = await _load_parent(db, doc.parent_generated_contract_id, lock=lock)
     if not _generator_unscoped(user):
         await _assert_generator_client_access(db, user, doc.client_id, write=False)
-    if any(f.kind == "money" for f in doc_type.fields):
+    if doc_type.carries_money:
         # Aneks stawki i umowa przedwstępna niosą kwotę — ta sama reguła
         # widoczności stawek co DOCX umowy bazowej (CLAUDE.md, audyt 22.09).
         await _require_generator_rate_content(
@@ -697,11 +768,16 @@ async def document_prefill(
         values["entity_type"] = "sole_trader"
     if "base_signing_date" in field_keys and base.signing_date:
         values["base_signing_date"] = base.signing_date.isoformat()
+    paragraph_defaults: dict[str, list[str]] = {}
+    if doc_type.allows_external:
+        paragraph_defaults = _annex_paragraph_defaults(doc_type, base)
+        values = await _annex_prefill(db, doc_type, parent, base, payload, values)
     # Pola wrażliwe nigdy nie wracają z serwera — nawet gdyby były w payloadzie.
     values = strip_sensitive(doc_type, values)
     return {
         "values": values,
         "base": _base_snapshot(base),
+        "paragraph_defaults": paragraph_defaults,
         "needs_refs": _needs_refs(doc_type, base),
         "ref_defaults": default_refs().as_context(),
         "languages": list(doc_type.languages),
@@ -711,6 +787,122 @@ async def document_prefill(
             else doc_type.languages[0]
         ),
     }
+
+
+#: Domyślne paragrafy z ticketu (umowy sprzed wzoru 2026, umowy spoza
+#: NEXUSA): data startu § 12 ust. 2 (JDG) / § 13 ust. 2 (spółka — nowy § 12
+#: „Osoby skierowane do realizacji Usług” przesuwa numerację), stawka § 6 ust. 1.
+_TICKET_PARAGRAPHS: dict[str, dict[str, tuple[str, str]]] = {
+    "annex_start_date": {"sole_trader": ("12", "2"), "company": ("13", "2")},
+    "annex_rate_change": {"sole_trader": ("6", "1"), "company": ("6", "1")},
+}
+
+_REF_ATTR = {
+    "annex_start_date": "start_paragraph",
+    "annex_rate_change": "rate_paragraph",
+}
+
+
+def _split_ref(ref: str) -> tuple[str, str] | None:
+    """„§ 13 ust. 2” → („13”, „2”)."""
+    match = re.match(r"§\s*([0-9]+[a-zA-Z]?)\s+ust\.\s*([0-9]+)", ref or "")
+    return (match.group(1), match.group(2)) if match else None
+
+
+def _annex_paragraph_defaults(
+    doc_type: DocumentType, base: BaseContractInfo
+) -> dict[str, list[str]]:
+    """Podpowiedź „§ X ust. Y” dla obu wariantów Partnera.
+
+    Umowa wydana w NEXUSIE (znana wersja wzoru 2026) cytuje paragrafy TEGO
+    wzoru: data startu § 13 ust. 2 (JDG) / § 14 ust. 2 (spółka). Umowa z Excela
+    działu albo spoza NEXUSA — domyślne z ticketu (starszy wzór). Pole zostaje
+    edytowalne, bo o numerze rozstrzyga podpisana umowa."""
+    ticket = _TICKET_PARAGRAPHS.get(doc_type.key)
+    if not ticket:
+        return {}
+    out = {variant: list(pair) for variant, pair in ticket.items()}
+    attr = _REF_ATTR[doc_type.key]
+    if refs_for(base.template_version) is not None:
+        for variant, version in (
+            ("sole_trader", CURRENT_VERSION),
+            ("company", COMPANY_VERSION),
+        ):
+            pair = _split_ref(getattr(VERSIONS[version], attr))
+            if pair:
+                out[variant] = list(pair)
+    return out
+
+
+async def _annex_prefill(
+    db: AsyncSession,
+    doc_type: DocumentType,
+    parent: B2BGeneratedContract | None,
+    base: BaseContractInfo,
+    payload: dict[str, Any],
+    values: dict[str, Any],
+) -> dict[str, Any]:
+    """Wartości startowe generatora aneksów: dane umowy, wariant Partnera,
+    komparycja spółki, obecna data startu i stawki (ticket, pkt 1.3)."""
+    out = dict(values)
+    if base.contract_number:
+        out["contract_number"] = base.contract_number
+    if base.signing_date:
+        out["contract_signing_date"] = base.signing_date.isoformat()
+    company = bool(
+        (parent is not None and parent.partner_entity_type == "company")
+        or payload.get("contract_variant") == "company"
+    )
+    out["partner_variant"] = "company" if company else "sole_trader"
+    for key in (
+        "partner_regon",
+        "partner_business_address",
+        "partner_krs",
+        "partner_seat_locative",
+        "partner_registry_court",
+        "partner_share_capital",
+        "partner_representative_name",
+        "partner_representative_function",
+        "partner_representation",
+    ):
+        if payload.get(key) and not out.get(key):
+            out[key] = payload[key]
+    defaults = _annex_paragraph_defaults(doc_type, base)
+    if defaults:
+        paragraph, section = defaults[out["partner_variant"]]
+        out["paragraph"], out["paragraph_section"] = paragraph, section
+    if doc_type.key == "annex_start_date" and base.start_date:
+        out["current_start_date"] = base.start_date.isoformat()
+    if doc_type.key == "annex_rate_change":
+        items: list[dict[str, Any]] = []
+        if parent is not None:
+            client_name = None
+            if parent.client_id is not None:
+                client = await db.get(Client, parent.client_id)
+                if client is not None:
+                    client_name = (
+                        client.legal_name or client.name or ""
+                    ).strip() or None
+            for item in annex_register.rate_items_from_register(parent):
+                entry = dict(item)
+                if not entry.get("client_id") and parent.client_id is not None:
+                    # Klient umowy z rejestru — pozycja startowa „dla klienta”.
+                    entry["client_id"] = parent.client_id
+                    entry["client_name"] = client_name
+                items.append(entry)
+        out["rate_items"] = items or [{"rate": None, "from": None, "to": None}]
+    if doc_type.key == "annex_party_data":
+        # Uzupełnienie danych firmy: nową firmą jest JDG — NIP i REGON, jeśli
+        # są już w profilu kandydata, podpowiadamy do „Pobierz z CEIDG”.
+        for src, dst in (
+            ("partner_nip", "new_nip"),
+            ("partner_regon", "new_regon"),
+            ("partner_legal_name", "new_legal_name"),
+            ("partner_business_address", "new_business_address"),
+        ):
+            if values.get(src) and not out.get(dst):
+                out[dst] = values[src]
+    return out
 
 
 @router.post("/documents/preview")
@@ -723,7 +915,8 @@ async def preview_document(
     doc_type = _type_or_422(request.document_type)
     language = _language(doc_type, request.language)
     _, base, _ = await _resolve_subject(db, current_user, doc_type, request)
-    context = _context(doc_type, request.values, language, base, request.refs)
+    values = await _resolve_rate_clients(db, request.values)
+    context = _context(doc_type, values, language, base, request.refs)
     try:
         html = await run_in_threadpool(
             render_html, template_key(doc_type.key, language), context
@@ -734,8 +927,8 @@ async def preview_document(
         ) from exc
     return {
         "html": html,
-        "missing": missing_required(doc_type, request.values),
-        "invalid": invalid_values(doc_type, request.values),
+        "missing": missing_required(doc_type, values),
+        "invalid": invalid_values(doc_type, values),
     }
 
 
@@ -750,18 +943,29 @@ async def create_document(
     doc_type = _type_or_422(request.document_type)
     language = _language(doc_type, request.language)
     parent, base, links = await _resolve_subject(db, current_user, doc_type, request)
-    _validate_values(doc_type, request.values, base, request.refs)
-    context = _context(doc_type, request.values, language, base, request.refs)
+    values = await _resolve_rate_clients(db, request.values)
+    _validate_values(doc_type, values, base, request.refs)
+    context = _context(doc_type, values, language, base, request.refs)
     # Render przed zapisem: błąd szablonu nie zostawia wiersza bez dokumentu.
     data = await _render_bytes(doc_type, language, context)
-    doc_date = _date(request.values.get("document_date")) or business_today()
+    doc_date = _date(values.get("document_date")) or business_today()
+    if _is_external(doc_type, parent):
+        # Umowy nie ma w NEXUSIE — nie ma przy czym zapisać aneksu (ticket,
+        # pkt 7.2). Plik idzie do przeglądarki, baza zostaje nietknięta.
+        response = _docx_response(data, _filename(doc_type, values, doc_date), None)
+        response.headers["X-Document-Saved"] = "0"
+        return response
+    if parent is not None and doc_type.allows_external:
+        # Wiersz rejestru zmienia się teraz — blokada, żeby dwa aneksy do tej
+        # samej umowy nie zapisały sobie nawzajem stanu „sprzed”.
+        parent = await _load_parent(db, parent.id, lock=True)
     doc = B2BContractDocument(
         document_type=doc_type.key,
         language=language,
         parent_generated_contract_id=parent.id if parent else None,
         document_date=doc_date,
         render_payload={
-            "values": strip_sensitive(doc_type, request.values),
+            "values": strip_sensitive(doc_type, values),
             "refs": request.refs,
             "base": _base_snapshot(base),
         },
@@ -771,6 +975,10 @@ async def create_document(
     )
     db.add(doc)
     await db.flush()
+    register_fields: list[str] = []
+    if parent is not None and doc_type.allows_external:
+        await annex_register.apply(db, doc, parent, values)
+        register_fields = sorted(doc.render_payload.get("register_applied") or {})
     db.add(
         Activity(
             entity_type="b2b_contract_document",
@@ -780,11 +988,12 @@ async def create_document(
             details={
                 "document_type": doc_type.key,
                 "parent_generated_contract_id": doc.parent_generated_contract_id,
+                **({"register_fields": register_fields} if register_fields else {}),
             },
         )
     )
     await db.commit()
-    return _docx_response(data, _filename(doc_type, request.values, doc_date), doc.id)
+    return _docx_response(data, _filename(doc_type, values, doc_date), doc.id)
 
 
 @router.get("/documents", response_model=list[DocumentItem])
@@ -866,11 +1075,31 @@ async def document_form(
         "parent_generated_contract_id": doc.parent_generated_contract_id,
         "candidate_id": doc.candidate_id,
         "job_id": doc.job_id,
-        "values": payload.get("values") or {},
+        "values": _legacy_form_values(doc_type, payload.get("values") or {}),
         "refs": payload.get("refs"),
         "base": payload.get("base") or {},
         "sensitive_fields": sorted(doc_type.sensitive_keys),
     }
+
+
+def _legacy_form_values(
+    doc_type: DocumentType, values: dict[str, Any]
+) -> dict[str, Any]:
+    """Formularz aneksu zapisanego przed generatorem aneksów (29.09.2026).
+
+    Stary aneks stawki niesie jedną stawkę w ``new_rate`` — bez przełożenia na
+    pozycję formularz podstawiłby bieżącą stawkę z rejestru i „Popraw”
+    zmieniłby kwotę, której nikt nie ruszał."""
+    out = dict(values)
+    if (
+        doc_type.key == "annex_rate_change"
+        and not out.get("rate_items")
+        and out.get("new_rate") not in (None, "")
+    ):
+        out["rate_items"] = [
+            {"rate": out["new_rate"], "client_id": None, "from": None, "to": None}
+        ]
+    return out
 
 
 @router.post("/documents/{doc_id}/docx")
@@ -936,17 +1165,32 @@ async def rerender_document(
         if parent
         else _base_from_snapshot((doc.render_payload or {}).get("base"))
     )
-    _validate_values(doc_type, request.values, base, request.refs)
-    context = _context(doc_type, request.values, language, base, request.refs)
+    base = _with_value_overrides(doc_type, base, request.values)
+    stored_values = (doc.render_payload or {}).get("values") or {}
+    request_values = dict(request.values)
+    if stored_values.get("currency") and not request_values.get("currency"):
+        # Aneks sprzed generatora aneksów w walucie innej niż PLN — formularz
+        # nie ma już pola waluty, a poprawka nie może zmienić EUR w złotówki.
+        request_values["currency"] = stored_values["currency"]
+    values = await _resolve_rate_clients(db, request_values)
+    _validate_values(doc_type, values, base, request.refs)
+    context = _context(doc_type, values, language, base, request.refs)
     data = await _render_bytes(doc_type, language, context)
     doc.language = language
     doc.template_key = template_key(doc_type.key, language)
-    doc.document_date = _date(request.values.get("document_date")) or doc.document_date
-    doc.render_payload = {
-        "values": strip_sensitive(doc_type, request.values),
+    doc.document_date = _date(values.get("document_date")) or doc.document_date
+    previous = doc.render_payload or {}
+    payload: dict[str, Any] = {
+        "values": strip_sensitive(doc_type, values),
         "refs": request.refs,
         "base": _base_snapshot(base),
     }
+    if "register_before" in previous:
+        # Stan wiersza sprzed PIERWSZEGO wygenerowania — poprawka go nie zmienia.
+        payload["register_before"] = previous["register_before"]
+    doc.render_payload = payload
+    if parent is not None and doc_type.allows_external:
+        await annex_register.apply(db, doc, parent, values)
     db.add(
         Activity(
             entity_type="b2b_contract_document",
@@ -957,9 +1201,7 @@ async def rerender_document(
         )
     )
     await db.commit()
-    return _docx_response(
-        data, _filename(doc_type, request.values, doc.document_date), doc.id
-    )
+    return _docx_response(data, _filename(doc_type, values, doc.document_date), doc.id)
 
 
 @router.get("/documents/{doc_id}/effects")
@@ -1048,17 +1290,22 @@ async def cancel_document(
     db: AsyncSession = Depends(get_db),
 ):
     """Dokument, który nie doszedł do skutku — zostaje w historii."""
-    doc, _doc_type, _parent = await _load_document(db, current_user, doc_id, lock=True)
+    doc, _doc_type, parent = await _load_document(db, current_user, doc_id, lock=True)
     _assert_editable(doc, current_user)
     doc.status = "cancelled"
     doc.cancelled_reason = body.reason.strip()
+    # Aneks, który nie doszedł do skutku, nie zostawia w rejestrze swoich danych.
+    restored = await annex_register.revert(db, doc, parent)
     db.add(
         Activity(
             entity_type="b2b_contract_document",
             entity_id=doc.id,
             action="cancelled",
             user_id=current_user.id,
-            details={"document_type": doc.document_type},
+            details={
+                "document_type": doc.document_type,
+                **({"register_restored": restored} if restored else {}),
+            },
         )
     )
     await db.commit()
@@ -1072,15 +1319,19 @@ async def delete_document(
     current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
 ):
-    doc, _doc_type, _parent = await _load_document(db, current_user, doc_id, lock=True)
+    doc, _doc_type, parent = await _load_document(db, current_user, doc_id, lock=True)
     _assert_editable(doc, current_user)
+    restored = await annex_register.revert(db, doc, parent)
     db.add(
         Activity(
             entity_type="b2b_contract_document",
             entity_id=doc.id,
             action="deleted",
             user_id=current_user.id,
-            details={"document_type": doc.document_type},
+            details={
+                "document_type": doc.document_type,
+                **({"register_restored": restored} if restored else {}),
+            },
         )
     )
     await db.delete(doc)

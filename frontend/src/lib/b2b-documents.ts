@@ -12,6 +12,7 @@ import type {
   DocumentTypeDef,
   DocumentValue,
   DocumentValues,
+  RateItemValue,
 } from "@/lib/api/b2bDocuments";
 import { messageFromApiResponse } from "@/lib/api-error";
 
@@ -30,12 +31,19 @@ export const FAMILY_LABELS: Record<DocumentFamily, string> = {
 };
 
 export const GROUP_LABELS: Record<DocumentFieldGroup, string> = {
+  base: "Umowa bazowa",
   document: "Dokument",
   partner: "Partner",
-  base: "Umowa bazowa",
+  change: "Zmiana",
 };
 
-const GROUP_ORDER: readonly DocumentFieldGroup[] = ["document", "partner", "base"];
+// Umowa → daty dokumentu → Partner → treść zmiany (generator aneksów, 29.09).
+const GROUP_ORDER: readonly DocumentFieldGroup[] = [
+  "base",
+  "document",
+  "partner",
+  "change",
+];
 
 export const LANGUAGE_LABELS: Record<string, string> = {
   pl: "Polski",
@@ -77,7 +85,7 @@ export function visibleFields(
   return type.fields.filter((f) => isFieldVisible(f, values));
 }
 
-/** Widoczne pola w grupach Dokument → Partner → Umowa bazowa (puste odpadają). */
+/** Widoczne pola w grupach Umowa → Dokument → Partner → Zmiana (puste odpadają). */
 export function groupedFields(
   type: DocumentTypeDef,
   values: DocumentValues,
@@ -91,6 +99,7 @@ export function groupedFields(
 }
 
 function isEmpty(value: DocumentValue | undefined): boolean {
+  if (Array.isArray(value)) return cleanRateItems(value).length === 0;
   return (
     value === undefined ||
     value === null ||
@@ -146,6 +155,131 @@ export function invalidMoneyFields(
     .map((f) => f.label);
 }
 
+// ── Pozycje stawki (aneks zmiany stawki) ────────────────────────────────────
+
+/** Lustro `registry.MAX_RATE_ITEMS`. */
+export const MAX_RATE_ITEMS = 10;
+
+export function emptyRateItem(): RateItemValue {
+  return { rate: "", client_id: null, client_name: null, from: null, to: null };
+}
+
+function isBlankRateItem(item: RateItemValue): boolean {
+  return (
+    (item.rate === null || item.rate === undefined || String(item.rate).trim() === "") &&
+    !item.client_id &&
+    !item.from &&
+    !item.to
+  );
+}
+
+/** Pozycje do wysłania: bez pustych wierszy, kwota jako liczba (gdy czytelna). */
+export function cleanRateItems(items: readonly RateItemValue[]): RateItemValue[] {
+  return items
+    .filter((item) => item && !isBlankRateItem(item))
+    .map((item) => {
+      const parsed = parseMoney(item.rate as DocumentValue);
+      return {
+        rate: parsed ?? (typeof item.rate === "string" ? item.rate.trim() : item.rate),
+        client_id: item.client_id ?? null,
+        from: item.from || null,
+        to: item.to || null,
+      };
+    });
+}
+
+/**
+ * Lustro `registry.rate_items_problems` — te same zdania, żeby formularz
+ * odmówił tak samo jak serwer, zanim ktokolwiek kliknie „Pobierz”.
+ */
+export function rateItemsProblems(items: readonly RateItemValue[]): string[] {
+  const list = cleanRateItems(items);
+  const problems: string[] = [];
+  if (list.length > MAX_RATE_ITEMS) {
+    problems.push(`Aneks mieści najwyżej ${MAX_RATE_ITEMS} pozycji stawki.`);
+  }
+  list.forEach((item, index) => {
+    const n = index + 1;
+    const amount = parseMoney(item.rate as DocumentValue);
+    if (amount === null) {
+      problems.push(`Pozycja stawki ${n}: podaj stawkę netto za godzinę.`);
+    } else if (!(amount > 0 && amount < 1_000_000)) {
+      problems.push(
+        `Pozycja stawki ${n}: stawka musi być większa od zera i mniejsza niż 1 000 000.`,
+      );
+    }
+    if (item.from && item.to && item.to < item.from) {
+      problems.push(`Pozycja stawki ${n}: data „do” jest wcześniejsza niż „od”.`);
+    }
+  });
+  if (list.length > 1) {
+    const loose = list.filter((item) => !item.from && !item.client_id);
+    if (loose.length > 1) {
+      problems.push(
+        "Przy kilku stawkach każda (poza jedną) potrzebuje daty „od” albo klienta — inaczej nie wiadomo, kiedy która obowiązuje.",
+      );
+    }
+  }
+  return problems;
+}
+
+/** Etykiety/zdania nieczytelnych wartości pól list (pozycje stawki). */
+export function invalidListFields(
+  type: DocumentTypeDef,
+  values: DocumentValues,
+): string[] {
+  return visibleFields(type, values)
+    .filter((f) => f.kind === "rate_items" && Array.isArray(values[f.key]))
+    .flatMap((f) => rateItemsProblems(values[f.key] as RateItemValue[]));
+}
+
+// ── Wariant Partnera (JDG / spółka) ─────────────────────────────────────────
+
+export type PartnerVariant = "sole_trader" | "company";
+
+/**
+ * Po zmianie wariantu Partnera paragraf przechodzi na domyślny nowego
+ * wariantu — ale tylko, jeśli człowiek nie wpisał innego niż domyślny
+ * poprzedniego (numer z podpisanej umowy wygrywa z podpowiedzią).
+ */
+export function paragraphAfterVariantChange(
+  values: DocumentValues,
+  previous: PartnerVariant | null,
+  next: PartnerVariant,
+  defaults: Partial<Record<PartnerVariant, readonly [string, string]>> | undefined,
+): { paragraph: string; paragraph_section: string } | null {
+  const target = defaults?.[next];
+  if (!target) return null;
+  const before = previous ? defaults?.[previous] : undefined;
+  const paragraph = String(values.paragraph ?? "").trim();
+  const section = String(values.paragraph_section ?? "").trim();
+  const untouched =
+    (!paragraph && !section) ||
+    (before !== undefined && paragraph === before[0] && section === before[1]);
+  if (!untouched) return null;
+  return { paragraph: target[0], paragraph_section: target[1] };
+}
+
+/** Pola rejestru (`GET /company-lookup`) przepisane do pól formularza. */
+export function registryLookupValues(
+  fills: readonly [string, string][],
+  data: Record<string, unknown>,
+  seatLocative: (city: string) => string,
+): DocumentValues {
+  const out: DocumentValues = {};
+  for (const [source, target] of fills) {
+    let value: unknown;
+    if (source === "seat_locative") {
+      const seat = typeof data.seat === "string" ? data.seat.trim() : "";
+      value = seat ? seatLocative(seat) : null;
+    } else {
+      value = data[source];
+    }
+    if (typeof value === "string" && value.trim()) out[target] = value.trim();
+  }
+  return out;
+}
+
 // ── Ciało żądania ───────────────────────────────────────────────────────────
 
 export interface RequestSubject {
@@ -168,6 +302,13 @@ export function cleanValues(
     const raw = values[field.key];
     if (field.kind === "bool") {
       if (raw === true) out[field.key] = true;
+      continue;
+    }
+    if (field.kind === "rate_items") {
+      if (Array.isArray(raw)) {
+        const items = cleanRateItems(raw);
+        if (items.length) out[field.key] = items;
+      }
       continue;
     }
     if (isEmpty(raw)) continue;
@@ -311,11 +452,39 @@ export function documentsHref(intent: {
   parentId?: number | null;
   contractId?: number | null;
 }): string {
+  // Aneksy powstają wyłącznie w „Generatorze aneksów” — link do typu aneksu
+  // (z wiersza rejestru, z zakładki „Aneksy” kontraktu) prowadzi tam.
+  if (intent.newType && isAnnexTypeKey(intent.newType)) return annexesHref(intent);
   const params = new URLSearchParams({ tab: "documents" });
   params.set("new", intent.newType || "1");
   if (intent.parentId) params.set("parent", String(intent.parentId));
   if (intent.contractId) params.set("contract", String(intent.contractId));
   return `/contracts/b2b-generator?${params.toString()}`;
+}
+
+/** Klucze typów aneksów mają prefiks `annex_` (rejestr backendu). */
+export function isAnnexTypeKey(key: string): boolean {
+  return key.startsWith("annex_");
+}
+
+/** Zakładka „Generator aneksów” (`?tab=annexes`) — tam powstaje każdy aneks. */
+export function annexesHref(intent: {
+  newType?: string | null;
+  parentId?: number | null;
+  contractId?: number | null;
+}): string {
+  const params = new URLSearchParams({ tab: "annexes" });
+  if (intent.newType) params.set("new", intent.newType);
+  if (intent.parentId) params.set("parent", String(intent.parentId));
+  if (intent.contractId) params.set("contract", String(intent.contractId));
+  return `/contracts/b2b-generator?${params.toString()}`;
+}
+
+/** Aneksy tworzy wyłącznie zakładka „Generator aneksów” (ticket 29.09.2026). */
+export function createdInAnnexGenerator(
+  type: Pick<DocumentTypeDef, "family">,
+): boolean {
+  return type.family === "annex";
 }
 
 /** Klucze parametrów kreatora — zdejmowane z adresu po wczytaniu. */

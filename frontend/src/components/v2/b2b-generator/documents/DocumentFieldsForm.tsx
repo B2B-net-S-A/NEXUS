@@ -15,6 +15,7 @@ import type {
   DocumentTypeDef,
   DocumentValue,
   DocumentValues,
+  RateItemValue,
 } from "@/lib/api/b2bDocuments";
 import {
   SENSITIVE_NOTE,
@@ -22,6 +23,8 @@ import {
   parseMoney,
 } from "@/lib/b2b-documents";
 import { cn } from "@/lib/utils";
+
+import { RateItemsField, RegistryLookupButton } from "./AnnexFieldControls";
 
 const SELECT_CLASS =
   "flex h-9 w-full rounded-md border border-border bg-card px-3 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring disabled:opacity-50";
@@ -97,6 +100,18 @@ function FieldControl({
   describedBy?: string;
 }) {
   const text = typeof value === "string" || typeof value === "number" ? String(value) : "";
+  if (field.kind === "rate_items") {
+    return (
+      <RateItemsField
+        id={id}
+        value={Array.isArray(value) ? (value as RateItemValue[]) : []}
+        onChange={onChange}
+        disabled={disabled}
+        invalid={invalid}
+        describedBy={describedBy}
+      />
+    );
+  }
   const common = {
     id,
     disabled,
@@ -228,7 +243,10 @@ export function DocumentFieldsForm({
               const invalid = Boolean(errorKeys?.has(field.key)) || moneyInvalid;
               const describedBy =
                 field.help || field.sensitive || moneyInvalid ? helpId : undefined;
-              const wide = field.kind === "textarea" || field.kind === "bool";
+              const wide =
+                field.kind === "textarea" ||
+                field.kind === "bool" ||
+                field.kind === "rate_items";
               if (field.kind === "bool") {
                 return (
                   <div key={field.key} className="sm:col-span-2">
@@ -277,6 +295,18 @@ export function DocumentFieldsForm({
                     invalid={invalid}
                     describedBy={describedBy}
                   />
+                  {field.lookup === "registry" ? (
+                    <RegistryLookupButton
+                      field={field}
+                      nip={typeof raw === "string" || typeof raw === "number" ? String(raw) : ""}
+                      disabled={disabled}
+                      onFill={(filled) => {
+                        for (const [key, value] of Object.entries(filled)) {
+                          onChange(key, value);
+                        }
+                      }}
+                    />
+                  ) : null}
                   {describedBy ? (
                     <div id={helpId} className="space-y-0.5 text-xs">
                       {moneyInvalid ? (

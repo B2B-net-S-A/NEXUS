@@ -1091,6 +1091,16 @@ async def _serialize_generated_contracts(
                 signed_by_name=users.get(row.signed_by_user_id),
                 can_confirm_signed=can_confirm,
                 blocked_reason=blocked_reason,
+                annex_rates=(
+                    list((row.annex_rates or {}).get("items") or [])
+                    if row.annex_rates
+                    and rate_visibility.visible(
+                        client_id=row.client_id,
+                        created_by=row.created_by,
+                        job_id=row.job_id,
+                    )
+                    else None
+                ),
                 source=row.source or "generator",
                 template_version=row.template_version,
                 raw_contract_number=row.raw_contract_number,

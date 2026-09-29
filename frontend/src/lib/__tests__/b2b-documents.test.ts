@@ -5,7 +5,9 @@ import type {
   DocumentTypeDef,
 } from "@/lib/api/b2bDocuments";
 import {
+  annexesHref,
   buildDocumentRequest,
+  cleanRateItems,
   cleanValues,
   documentStatusLabel,
   documentsHref,
@@ -13,13 +15,17 @@ import {
   findRegisterRowForContract,
   groupedFields,
   intentOpensWizard,
+  invalidListFields,
   invalidMoneyFields,
   isFieldVisible,
   missingRequired,
+  paragraphAfterVariantChange,
   parseDocumentsIntent,
   parseMoney,
+  rateItemsProblems,
   readDocumentError,
   redownloadNeedsInput,
+  registryLookupValues,
   typesByFamily,
 } from "@/lib/b2b-documents";
 
@@ -34,6 +40,8 @@ function field(key: string, label: string, extra: Partial<DocumentFieldDef> = {}
     options: [],
     show_if: null,
     group: "document",
+    lookup: null,
+    lookup_fills: [],
     ...extra,
   };
 }
@@ -48,6 +56,8 @@ const TERMINATION: DocumentTypeDef = {
   effect_label: "",
   signatories: "both",
   uses_refs: true,
+  allows_external: false,
+  legacy_languages: [],
   fields: [
     field("document_date", "Data dokumentu", { kind: "date", required: true }),
     field("gender", "Płeć Partnera", { kind: "gender", required: true, group: "partner" }),
@@ -264,5 +274,115 @@ describe("wiersze", () => {
       "Aneksy",
       "Rozwiązanie umowy",
     ]);
+  });
+});
+
+// ── Generator aneksów (ticket 29.09.2026) ───────────────────────────────────
+
+const RATE_ANNEX: DocumentTypeDef = {
+  ...TERMINATION,
+  key: "annex_rate_change",
+  family: "annex",
+  allows_external: true,
+  fields: [
+    field("contract_number", "Numer umowy", { required: true, group: "base" }),
+    field("rate_items", "Stawki", { kind: "rate_items", required: true, group: "change" }),
+  ],
+};
+
+describe("generator aneksów — pozycje stawki", () => {
+  it("drops blank rows and parses Polish amounts", () => {
+    expect(
+      cleanRateItems([
+        { rate: "135,50", client_id: null, from: "", to: null },
+        { rate: "", client_id: null, from: null, to: null },
+      ]),
+    ).toEqual([{ rate: 135.5, client_id: null, from: null, to: null }]);
+  });
+
+  it("mirrors the server rule: several rates need a date or a client", () => {
+    expect(rateItemsProblems([{ rate: "135" }])).toEqual([]);
+    expect(
+      rateItemsProblems([{ rate: "135" }, { rate: "140", from: "2027-01-01" }]),
+    ).toEqual([]);
+    expect(rateItemsProblems([{ rate: "135" }, { rate: "140" }])[0]).toMatch(
+      /daty „od” albo klienta/,
+    );
+    expect(
+      rateItemsProblems([{ rate: "135", from: "2026-12-01", to: "2026-11-01" }])[0],
+    ).toMatch(/wcześniejsza niż „od”/);
+    expect(rateItemsProblems([{ rate: "abc", client_id: 1 }])[0]).toMatch(/podaj stawkę/);
+  });
+
+  it("treats a list with only blank rows as missing and sends clean items", () => {
+    const values = { contract_number: "1/2026", rate_items: [{ rate: "" }] };
+    expect(missingRequired(RATE_ANNEX, values)).toEqual(["Stawki"]);
+    const body = buildDocumentRequest({
+      type: RATE_ANNEX,
+      language: "pl",
+      subject: {},
+      values: { contract_number: "1/2026", rate_items: [{ rate: "150", from: "2026-11-01" }] },
+      needsRefs: false,
+    });
+    expect(body.values.rate_items).toEqual([
+      { rate: 150, client_id: null, from: "2026-11-01", to: null },
+    ]);
+    expect(body.parent_generated_contract_id).toBeUndefined();
+    expect(invalidListFields(RATE_ANNEX, { rate_items: [{ rate: "0" }] })).toHaveLength(1);
+  });
+});
+
+describe("generator aneksów — wariant Partnera i rejestr", () => {
+  const defaults = { sole_trader: ["12", "2"], company: ["13", "2"] } as const;
+
+  it("switches the default paragraph with the variant", () => {
+    expect(
+      paragraphAfterVariantChange(
+        { paragraph: "12", paragraph_section: "2" },
+        "sole_trader",
+        "company",
+        { ...defaults },
+      ),
+    ).toEqual({ paragraph: "13", paragraph_section: "2" });
+  });
+
+  it("keeps a paragraph the user typed", () => {
+    expect(
+      paragraphAfterVariantChange(
+        { paragraph: "15", paragraph_section: "3" },
+        "sole_trader",
+        "company",
+        { ...defaults },
+      ),
+    ).toBeNull();
+  });
+
+  it("maps registry fields and builds the locative seat", () => {
+    expect(
+      registryLookupValues(
+        [
+          ["name", "partner_legal_name"],
+          ["seat_locative", "partner_seat_locative"],
+          ["regon", "partner_regon"],
+        ],
+        { name: "Softex Sp. z o.o.", seat: "Warszawa", regon: null },
+        (city) => `w ${city}`,
+      ),
+    ).toEqual({
+      partner_legal_name: "Softex Sp. z o.o.",
+      partner_seat_locative: "w Warszawa",
+    });
+  });
+
+  it("sends every annex link to the annex generator tab", () => {
+    expect(documentsHref({ newType: "annex_rate_change", contractId: 7 })).toBe(
+      "/contracts/b2b-generator?tab=annexes&new=annex_rate_change&contract=7",
+    );
+    expect(annexesHref({ newType: "annex_party_data", parentId: 3 })).toBe(
+      "/contracts/b2b-generator?tab=annexes&new=annex_party_data&parent=3",
+    );
+    expect(documentsHref({ newType: "termination_agreement", parentId: 3 })).toBe(
+      "/contracts/b2b-generator?tab=documents&new=termination_agreement&parent=3",
+    );
   });
 });

@@ -3795,6 +3795,21 @@ export interface B2BGeneratedContractRow {
   business_data_annex_done_at?: string | null;
   /** Wiersza nie było w ostatnio wgranym pliku Excela. */
   excel_missing_since?: string | null;
+  /**
+   * Stawki z ostatniego aneksu zmiany stawki (Generator aneksów) — zmieniają
+   * się już przy wygenerowaniu aneksu. `null` = brak aneksu albo stawki tej
+   * umowy są dla bieżącej osoby niewidoczne.
+   */
+  annex_rates?: B2BAnnexRate[] | null;
+}
+
+/** Pozycja stawki z aneksu w wierszu rejestru. */
+export interface B2BAnnexRate {
+  rate: number;
+  from: string | null;
+  to: string | null;
+  client_id: number | null;
+  client_name: string | null;
 }
 
 export type B2BRegisterSource = "generator" | "excel";
