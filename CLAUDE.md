@@ -643,7 +643,9 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   roli TCM `confirm-fully-signed`, a #1421 zmianę statusu kontraktu
   (`PATCH /contracts/{id}/status`) — obie akcje bez zakresu klienta, bo nie ma
   modelu przypisania TCM do klienta. To jest stan docelowy, nie przeoczenie:
-  ścisły client-scope z punktu wyżej dotyczy DL/TAC. Jedyna granica TCM to
+  ścisły client-scope z punktu wyżej dotyczy DL/TAC — ale nie konta, które
+  ma też rolę TCM (29.09.2026: TCM + TAC bez przypisań nie mógł oznaczyć
+  podpisu). Jedyna granica TCM to
   sekcja Delivery: wyjątek TCM w `section_access.py` wymaga co najmniej
   odczytu Delivery, więc odebranie sekcji w panelu naprawdę odbiera akcję
   (do 10.09 wyjątek wracał, zanim porównał `granted`).
