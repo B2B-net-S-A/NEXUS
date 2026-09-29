@@ -54,7 +54,10 @@ from typing import Any, Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.note_mention_render import rewrite_traffit_mentions
+from app.services.note_mention_render import (
+    count_unknown_traffit_mentions,
+    rewrite_traffit_mentions,
+)
 from app.services.traffit.importer import (
     ACTIVITY_AT_SQL,
     TRAFFIT_NOTE_ACTIONS,
@@ -129,6 +132,7 @@ SELECT
     m.k_note,
     m.k_act,
     acts.external_id,
+    acts.candidate_id,
     acts.activity_at,
     acts.a_user_id,
     acts.traffit_created_by_id,
@@ -180,10 +184,63 @@ WHERE id = :id
 
 _UPDATE_CONTENT_SQL = "UPDATE notes SET content = :content WHERE id = :id"
 
+# Sieroty w grupie (kandydat, stary znacznik czasu) notatek z 0077.
+#
+# Import z maja dał WSZYSTKIM aktywnościom jednej transakcji ten sam
+# `created_at`. Aktywność, której notatkę ktoś usunął w NEXUSIE przed
+# nagrobkami (0391), nie wracała przy promocji WYŁĄCZNIE dlatego, że gałąź
+# „notatka bez `source_ref` z tym samym znacznikiem” pasowała do notatki
+# innej aktywności z tej grupy. Naprawa nadaje tej notatce `source_ref`
+# i nową datę — bez nagrobka następny sync przestawiłby datę sieroty
+# i założył usuniętą notatkę od nowa. Sierota = aktywność-notatka z grupy
+# z treścią, bez notatki po źródle, bez nagrobka, a w grupie nie zostaje
+# już żadna notatka bez `source_ref` (ta dalej by ją chroniła).
+# `:stamped_ids`/`:stamped_refs` = notatki, które naprawa właśnie oznacza
+# (przebieg próbny symuluje zapis; w zapisie są już w bazie — puste tablice).
+_ORPHANS_SQL = """
+SELECT DISTINCT 'traffit:activity:' || a.external_id AS ref
+FROM activities a
+JOIN unnest(CAST(:cids AS integer[]), CAST(:ts AS timestamptz[])) AS g(cid, ts)
+  ON a.entity_id = g.cid AND a.created_at = g.ts
+WHERE a.external_source = 'traffit'
+  AND a.entity_type = 'candidate'
+  AND a.external_id IS NOT NULL
+  AND a.action = ANY(CAST(:actions AS text[]))
+  AND note_unwrap_json(COALESCE(
+      a.details #>> '{content,content}',
+      a.details ->> 'content',
+      ''
+  )) <> ''
+  AND NOT (('traffit:activity:' || a.external_id) = ANY(CAST(:stamped_refs AS text[])))
+  AND NOT EXISTS (
+      SELECT 1 FROM notes n
+      WHERE n.candidate_id = a.entity_id
+        AND n.source_ref = 'traffit:activity:' || a.external_id
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM deleted_note_sources t
+      WHERE t.source_ref = 'traffit:activity:' || a.external_id
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM notes n
+      WHERE n.candidate_id = a.entity_id
+        AND n.source_ref IS NULL
+        AND n.created_at = a.created_at
+        AND NOT (n.id = ANY(CAST(:stamped_ids AS integer[])))
+  )
+"""
+
+_TOMBSTONE_SQL = """
+INSERT INTO deleted_note_sources (source_ref)
+SELECT unnest(CAST(:refs AS text[]))
+ON CONFLICT (source_ref) DO NOTHING
+"""
+
 
 @dataclass
 class NoteChange:
     note_id: int
+    candidate_id: int
     legacy: bool
     source_ref: str
     old_created_at: datetime
@@ -280,6 +337,7 @@ async def build_plan(db: AsyncSession, user_map: dict[str, int]) -> RepairPlan:
         plan.changes.append(
             NoteChange(
                 note_id=note_id,
+                candidate_id=int(row["candidate_id"]),
                 legacy=legacy,
                 source_ref=f"traffit:activity:{row['external_id']}",
                 old_created_at=row["note_created_at"],
@@ -302,21 +360,50 @@ async def build_plan(db: AsyncSession, user_map: dict[str, int]) -> RepairPlan:
 
 async def _mention_rewrites(
     db: AsyncSession, changes: list[NoteChange], labels: dict[str, str]
-) -> dict[int, str]:
-    """Nowa treść notatek z tokenami (tylko te, które naprawdę się zmieniają)."""
+) -> tuple[dict[int, str], int]:
+    """Nowa treść notatek z tokenami (tylko te, które naprawdę się zmieniają)
+    oraz liczba tokenów, które staną się `@(były użytkownik)`."""
     ids = [c.note_id for c in changes if c.has_token]
     if not ids or not labels:
-        return {}
+        return {}, 0
     rows = await db.execute(
         text("SELECT id, content FROM notes WHERE id = ANY(CAST(:ids AS integer[]))"),
         {"ids": ids},
     )
     out: dict[int, str] = {}
+    former = 0
     for note_id, content in rows.all():
         rewritten = rewrite_traffit_mentions(content, labels)
         if rewritten is not None and rewritten != content:
             out[int(note_id)] = rewritten
-    return out
+            former += count_unknown_traffit_mentions(content, labels)
+    return out, former
+
+
+async def _orphan_refs(
+    db: AsyncSession,
+    legacy: list[NoteChange],
+    *,
+    stamped_ids: list[int],
+    stamped_refs: list[str],
+) -> list[str]:
+    """Źródła aktywności-sierot z grup (kandydat, stary znacznik) ``legacy``."""
+    groups = sorted({(c.candidate_id, c.old_created_at) for c in legacy})
+    refs: set[str] = set()
+    for i in range(0, len(groups), 5000):
+        chunk = groups[i : i + 5000]
+        rows = await db.execute(
+            text(_ORPHANS_SQL),
+            {
+                "cids": [g[0] for g in chunk],
+                "ts": [g[1] for g in chunk],
+                "actions": list(TRAFFIT_NOTE_ACTIONS),
+                "stamped_ids": stamped_ids,
+                "stamped_refs": stamped_refs,
+            },
+        )
+        refs.update(str(r[0]) for r in rows.all())
+    return sorted(refs)
 
 
 def _iso(value: Optional[datetime]) -> Optional[str]:
@@ -348,8 +435,10 @@ async def dry_run(
     plan = await build_plan(db, user_map)
     counts = dict.fromkeys(CHANGE_TYPES, 0)
     samples: dict[str, list[dict[str, Any]]] = {k: [] for k in CHANGE_TYPES}
+    mentions_former_user = 0
     for batch in _batches(plan.changes):
-        rewrites = await _mention_rewrites(db, batch, labels)
+        rewrites, former = await _mention_rewrites(db, batch, labels)
+        mentions_former_user += former
         for change in batch:
             if change.date_changed:
                 counts["dates"] += 1
@@ -379,6 +468,13 @@ async def dry_run(
                 counts["source_refs"] += 1
                 if len(samples["source_refs"]) < SAMPLE_SIZE:
                     samples["source_refs"].append({"note_id": change.note_id})
+    legacy = [c for c in plan.changes if c.legacy]
+    orphans = await _orphan_refs(
+        db,
+        legacy,
+        stamped_ids=[c.note_id for c in legacy],
+        stamped_refs=[c.source_ref for c in legacy],
+    )
     jobs = (await db.execute(text(NOTES_WITHOUT_JOB_SQL))).mappings().one()
     # Zamknij transakcję odczytu — przebieg próbny nie zostawia otwartej sesji.
     await db.rollback()
@@ -386,6 +482,12 @@ async def dry_run(
         **_base_report(plan),
         "changes": counts,
         "samples": samples,
+        # Tokeny, których konta Traffit już nie zna — staną się
+        # `@(były użytkownik)`.
+        "mentions_former_user": mentions_former_user,
+        # Aktywności, których notatki usunięto w NEXUSIE przed nagrobkami
+        # (0391) — dostaną nagrobek razem z nadaniem `source_ref`.
+        "orphans_tombstoned": len(orphans),
         "mention_labels_available": bool(labels),
         # Rekrutacja: liczy ją osobny przebieg (zapytanie per osoba do
         # Traffita) — tu tylko ile notatek z syncu i ilu kandydatów czeka.
@@ -412,7 +514,9 @@ async def _append_details(db: AsyncSession, details: dict[str, list[Any]]) -> No
                     'source_refs', COALESCE(app_settings.value -> 'source_refs', '[]'::jsonb)
                                    || (EXCLUDED.value -> 'source_refs'),
                     'mentions', COALESCE(app_settings.value -> 'mentions', '[]'::jsonb)
-                                || (EXCLUDED.value -> 'mentions')
+                                || (EXCLUDED.value -> 'mentions'),
+                    'orphans', COALESCE(app_settings.value -> 'orphans', '[]'::jsonb)
+                               || (EXCLUDED.value -> 'orphans')
                 ),
                 updated_at = now()
             """
@@ -428,6 +532,8 @@ async def apply(
     plan = await build_plan(db, user_map)
     await db.rollback()
     counts = dict.fromkeys(CHANGE_TYPES, 0)
+    orphans_tombstoned = 0
+    mentions_former_user = 0
     skipped_concurrent = 0
     failed_batches = 0
     for batch in _batches(plan.changes):
@@ -435,13 +541,14 @@ async def apply(
             await db.execute(
                 text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": LOCK_KEY}
             )
-            rewrites = await _mention_rewrites(db, batch, labels)
+            rewrites, former = await _mention_rewrites(db, batch, labels)
             field_rows: list[dict[str, Any]] = []
             details: dict[str, list[Any]] = {
                 "dates": [],
                 "authors": [],
                 "source_refs": [],
                 "mentions": [],
+                "orphans": [],
             }
             for change in batch:
                 if not change.fields_changed:
@@ -476,6 +583,17 @@ async def apply(
                 if change.legacy:
                     counts["source_refs"] += 1
                     details["source_refs"].append(change.note_id)
+            # Nagrobki sierot w TEJ SAMEJ transakcji co nadanie `source_ref`
+            # — między nimi nie może wejść sync, który założyłby usuniętą
+            # notatkę od nowa.
+            stamped = [c for c in batch if c.legacy and c.note_id in written]
+            if stamped:
+                orphans = await _orphan_refs(
+                    db, stamped, stamped_ids=[], stamped_refs=[]
+                )
+                if orphans:
+                    await db.execute(text(_TOMBSTONE_SQL), {"refs": orphans})
+                    details["orphans"].extend(orphans)
             content_rows = [
                 {"id": note_id, "content": content}
                 for note_id, content in rewrites.items()
@@ -487,6 +605,8 @@ async def apply(
             if any(details.values()):
                 await _append_details(db, details)
             await db.commit()
+            orphans_tombstoned += len(details["orphans"])
+            mentions_former_user += former
         except Exception as exc:  # noqa: BLE001
             failed_batches += 1
             logger.error("Traffit notes repair: batch failed: %s", safe_db_error(exc))
@@ -494,6 +614,8 @@ async def apply(
     return {
         **_base_report(plan),
         "changes": counts,
+        "orphans_tombstoned": orphans_tombstoned,
+        "mentions_former_user": mentions_former_user,
         "skipped_concurrent": skipped_concurrent,
         "failed_batches": failed_batches,
     }

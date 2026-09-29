@@ -128,8 +128,21 @@ def rewrite_traffit_mentions(
     return _TRAFFIT_USER_TOKEN_RE.sub(_replace, content)
 
 
+def count_unknown_traffit_mentions(
+    content: str | None, label_map: dict[str, str]
+) -> int:
+    """Ile tokenów `$$user_NN$$` nie ma w ``label_map`` (zostaną
+    `@(były użytkownik)` przy :func:`rewrite_traffit_mentions`)."""
+    if not content or not label_map:
+        return 0
+    return sum(
+        1 for uid in _TRAFFIT_USER_TOKEN_RE.findall(content) if not label_map.get(uid)
+    )
+
+
 __all__ = [
     "STORED_UNKNOWN_LABEL",
+    "count_unknown_traffit_mentions",
     "build_traffit_user_label_map",
     "clean_mention_label",
     "collect_traffit_user_ids",

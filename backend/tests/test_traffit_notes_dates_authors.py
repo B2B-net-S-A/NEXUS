@@ -579,3 +579,71 @@ async def test_repaired_legacy_note_is_not_promoted_again(db) -> None:
     await TraffitImporter(object(), db).promote_notes()
 
     assert len(await _notes_of(db, fx["cid"])) == before
+
+
+@pytest.mark.asyncio
+async def test_repair_tombstones_orphans_so_deleted_0077_notes_do_not_return(
+    db, monkeypatch
+) -> None:
+    """Import z maja dawał WSZYSTKIM aktywnościom jednej transakcji ten sam
+    `created_at`. Kandydat miał A1 i A2 (ten sam znacznik, różna treść), 0077
+    zrobiła N1 i N2, a ktoś usunął N1 w NEXUSIE przed nagrobkami (0391). A1
+    nie wracała tylko dlatego, że gałąź „bez `source_ref` + ten sam znacznik”
+    pasowała do N2. Naprawa nadaje N2 `source_ref` i nową datę — bez nagrobka
+    dla A1 następny sync przestawiłby jej datę i założył N1 od nowa."""
+    cid, emp = await _mk_candidate(db)
+    e_deleted = uuid.uuid4().hex[:12]
+    e_kept = uuid.uuid4().hex[:12]
+    await _mk_activity(
+        db, cid, ext=e_deleted, content="Usunieta w NEXUSIE", created_at=IMPORTED_AT
+    )
+    await _mk_activity(db, cid, ext=e_kept, content="Zostala", created_at=IMPORTED_AT)
+    kept = await _mk_note(
+        db, cid, content="Zostala", created_at=IMPORTED_AT, author_id=None
+    )
+    await db.commit()
+
+    report = await repair.dry_run(db, {}, {})
+    assert report["orphans_tombstoned"] >= 1
+
+    await repair.apply(db, {}, {})
+
+    raw = [
+        {
+            "id": ext,
+            "employee": {"id": emp},
+            "type": {"value": "Notatka"},
+            "activity_date": TRAFFIT_DATE,
+            "content": content,
+        }
+        for ext, content in (
+            (e_deleted, "Usunieta w NEXUSIE"),
+            (e_kept, "Zostala"),
+        )
+    ]
+    importer = TraffitImporter(_FakeTraffit(raw, [], {}), db)
+    _stub_side_phases(importer, monkeypatch)
+    await importer.import_candidate_activities(since=None)
+
+    moved = await db.scalar(
+        text("SELECT created_at FROM activities WHERE external_id = :e"),
+        {"e": e_deleted},
+    )
+    assert moved == TRAFFIT_DATE_UTC, (
+        "upsert nie przestawił daty — test nic nie dowodzi"
+    )
+    notes = await _notes_of(db, cid)
+    assert [n["id"] for n in notes] == [kept], "usunięta notatka wróciła"
+    tomb = await db.scalar(
+        text("SELECT count(*) FROM deleted_note_sources WHERE source_ref = :r"),
+        {"r": f"traffit:activity:{e_deleted}"},
+    )
+    assert tomb == 1
+
+
+@pytest.mark.asyncio
+async def test_repair_dry_run_counts_mentions_of_former_users(db) -> None:
+    fx = await _repair_fixture(db)
+    report = await repair.dry_run(db, fx["user_map"], fx["labels"])
+    # `$$user_1$$` w notatce z 0077 — konta nie ma w mapie z Traffita.
+    assert report["mentions_former_user"] >= 1
