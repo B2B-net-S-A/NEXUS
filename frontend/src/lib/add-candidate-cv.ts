@@ -4,8 +4,8 @@
  * Okno wysyła plik do `POST /api/candidates/cv/preview` (odczyt bez zapisu),
  * uzupełnia PUSTE pola formularza, a zapis idzie przez `POST /from-cv`
  * z polami formularza — serwer bierze ten sam odczyt z pamięci procesu,
- * więc model płaci raz. Reszta formularza (tagi, preferencje, stawka…)
- * dochodzi zwykłym PATCH-em po utworzeniu kandydata.
+ * więc model płaci raz. Reszta formularza (tagi, preferencje…) jedzie w tym
+ * samym żądaniu (pole `candidate`) — jedna transakcja, bez PATCH-a.
  */
 
 export interface CandidateCvPreview {
@@ -56,12 +56,27 @@ export function fillEmptyFromCv<T extends Record<CvFormField, string>>(
   return { form: next, filled };
 }
 
-/** Pola formularza dla `/from-cv` — wpisane przez rekrutera wygrywają z odczytem. */
-export function fromCvOverrides(form: Record<CvFormField, string>): Partial<Record<CvFormField, string>> {
+/** Pola, dla których odczyt CV dał wartość — tylko je da się „wyczyścić”. */
+export function cvKnownFields(preview: CandidateCvPreview | null | undefined): CvFormField[] {
+  if (!preview) return [];
+  return CV_FORM_FIELDS.filter((field) => Boolean(preview[field]?.trim()));
+}
+
+/**
+ * Pola formularza dla `/from-cv` — wpisane przez rekrutera wygrywają z odczytem.
+ * Pole, które odczyt CV znał (`known`), a rekruter je wyczyścił, idzie jako
+ * jawne `""`: serwer NIE wstawia wtedy wartości z CV (ani do profilu, ani do
+ * skanu duplikatów). Puste pole bez wartości w CV nie jest wysyłane.
+ */
+export function fromCvOverrides(
+  form: Record<CvFormField, string>,
+  known: readonly CvFormField[] = [],
+): Partial<Record<CvFormField, string>> {
   const out: Partial<Record<CvFormField, string>> = {};
   for (const field of CV_FORM_FIELDS) {
     const value = form[field].trim();
     if (value) out[field] = value;
+    else if (known.includes(field)) out[field] = "";
   }
   return out;
 }
@@ -83,11 +98,12 @@ const PAYLOAD_KEYS: Record<string, string[]> = {
 };
 
 /**
- * PATCH po utworzeniu z CV: tylko to, co rekruter faktycznie ustawił
- * w formularzu. Preferencje bez pustych kluczy — `null` w PATCH czyści
- * wartość, a tu nie ma czego czyścić.
+ * Reszta formularza dla `/from-cv` (pole `candidate`, JSON) — tylko to, co
+ * rekruter faktycznie ustawił. Serwer waliduje ją jak `POST /api/candidates`
+ * i zapisuje w TEJ SAMEJ transakcji co kandydata. Preferencje bez pustych
+ * kluczy — nie ma czego czyścić.
  */
-export function extraPatchAfterCv(
+export function extraFieldsForCv(
   payload: Record<string, unknown>,
   changed: readonly string[],
 ): Record<string, unknown> {

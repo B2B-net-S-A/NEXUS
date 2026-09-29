@@ -12,8 +12,17 @@ export function emailFieldError(error: unknown): string | null {
   const response = (
     error as { response?: { status?: unknown; data?: unknown } } | null | undefined
   )?.response;
+  const detail = (response?.data as { detail?: unknown } | null | undefined)?.detail;
+  // Adres należy do innego kandydata (`POST /api/candidates`, `/from-cv` —
+  // także przy „Zapisz mimo to”): zdanie serwera przy polu, nie na górze.
+  if (
+    response?.status === 409 &&
+    typeof detail === "string" &&
+    detail.includes("adresem e-mail")
+  ) {
+    return detail;
+  }
   if (response?.status !== 422) return null;
-  const detail = (response.data as { detail?: unknown } | null | undefined)?.detail;
   if (!Array.isArray(detail)) return null;
   const hit = detail.find((item) => {
     const loc = (item as { loc?: unknown } | null)?.loc;

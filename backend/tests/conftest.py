@@ -203,16 +203,17 @@ def _competition_rankings_uncached(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _cv_preview_parse_uncached(monkeypatch):
+def _cv_preview_reads_cleared():
     """Odczyt CV z `/cv/preview` żyje 30 min w procesie pod skrótem pliku.
 
     Testy `/from-cv` wgrywają te same bajty z różnymi zamockowanymi odczytami
-    — z cache'em dostawałyby odczyt poprzedniego testu. Zachowanie cache'u
-    sprawdza `test_candidates_cv_preview.py` (włącza TTL jawnie).
+    — bez czyszczenia dostawałyby odczyt poprzedniego testu.
     """
-    from app.api import candidates as candidates_api
+    from app.services.cv_preview_cache import preview_cache
 
-    monkeypatch.setattr(candidates_api, "_CV_PREVIEW_TTL_SECONDS", -1)
+    preview_cache.clear()
+    yield
+    preview_cache.clear()
 
 
 @pytest.fixture(autouse=True)

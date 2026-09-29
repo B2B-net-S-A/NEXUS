@@ -2949,12 +2949,20 @@ orkiestratorem. Zasady, których łatwo nie zauważyć:
   spoza listy bez `other: true` — chyba że kandydat już ma taki język zapisany
   (stare dane z CV zostają zapisywalne). Pola „Kod” w oknie nie ma.
 - **„Dodaj kandydata” zaczyna się od CV (opcjonalnie):** `POST /api/candidates/cv/preview`
-  czyta plik BEZ zapisu i trzyma odczyt 30 min w pamięci procesu pod SHA-256 treści;
-  `/from-cv` z tym samym plikiem go bierze (jeden płatny odczyt), pola formularza
-  (`name`, `lastname`, `email`, `phone`, `city`, `linkedin`) wygrywają z odczytem,
-  a reszta formularza idzie PATCH-em. `/from-cv` tylko CZYTA z tej pamięci —
-  masowy import nie może jej zapełnić. Osobne „Dodaj z CV” zdjęte z listy
-  kandydatów (`AddCandidateFromCVModal` zostaje w rekrutacji).
+  czyta plik BEZ zapisu; odczyt żyje w OGRANICZONEJ pamięci
+  `services/cv_preview_cache.py` (64 wpisy, 30 min, tekst > 200 tys. znaków nie jest
+  trzymany; nie `app/core/cache.py` — ten nie ma limitu ani sprzątania). `/from-cv`
+  z tym samym plikiem bierze odczyt (jeden płatny), a przy trafieniu bez `force`
+  i tak puszcza darmowe sito. Pola formularza (`name`, `lastname`, `email`,
+  `phone`, `city`, `linkedin`) wygrywają z odczytem, `""` = pole wyczyszczone
+  (wartość z CV nie wraca, także do skanu duplikatów). Reszta formularza jedzie
+  w tym samym żądaniu (`candidate`, JSON, walidacja `CandidateCreate` PRZED
+  odczytem) — jedna transakcja, bez PATCH-a. E-mail innego kandydata = 409
+  „Kandydat z tym adresem e-mail już istnieje.” także przy `force` (jak
+  `POST /api/candidates`); front pokazuje go przy polu (`emailFieldError`).
+  `/from-cv` tylko CZYTA z pamięci — masowy import jej nie zapełni. Osobne
+  „Dodaj z CV” zdjęte z listy kandydatów (`AddCandidateFromCVModal` zostaje
+  w rekrutacji).
 
 ## Kanban bez bramek (decyzja Artura, 17.09.2026)
 

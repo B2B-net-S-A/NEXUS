@@ -4,6 +4,7 @@ from typing import Annotated, Any, Literal, Optional
 import asyncio
 import hashlib
 import io
+import json
 import logging
 import re
 import tempfile
@@ -6708,13 +6709,32 @@ def _raise_from_cv_duplicate_conflict(rows: list[dict]) -> None:
 
 # Odczyt CV przed zapisem kandydata (29.09.2026): okno „Dodaj kandydata”
 # czyta wgrane CV, wypełnia formularz, a zapis (`/from-cv`) bierze TEN SAM
-# odczyt z pamięci procesu po skrócie treści pliku — model płaci raz.
-_CV_PREVIEW_TTL_SECONDS = 30 * 60
-_CV_PREVIEW_CACHE_PREFIX = "cv_preview_parse"
+# odczyt z OGRANICZONEJ pamięci procesu (`services/cv_preview_cache.py`, klucz
+# = SHA-256 treści pliku) — model płaci raz. Nie `app/core/cache.py`: tamten
+# nie ma limitu ani sprzątania, a tekst CV to dziesiątki KB.
+_TAKEN_EMAIL_MESSAGE = "Kandydat z tym adresem e-mail już istnieje."
 
-
-def _cv_preview_cache_key(sha256: str) -> str:
-    return f"{_CV_PREVIEW_CACHE_PREFIX}:{sha256}"
+# Pola formularza „Dodaj kandydata” spoza kontaktu, które `/from-cv` przyjmuje
+# w polu `candidate` (JSON) i waliduje tak samo jak `POST /api/candidates` —
+# jedna transakcja, bez PATCH-a po utworzeniu.
+_FROM_CV_EXTRA_FIELDS = frozenset(
+    {
+        "country",
+        "availability_date",
+        "notice_period",
+        "notice_period_unit",
+        "source",
+        "status",
+        "availability_status",
+        "tags",
+        "years_it_experience",
+        "champion",
+        "verifier_id",
+        "verified_tech",
+        "preferences",
+        "max_onsite_days_per_week",
+    }
+)
 
 
 async def _extract_uploaded_cv_text(
@@ -6765,10 +6785,56 @@ async def _extract_uploaded_cv_text(
 
 
 def _clean_override(value: Optional[str], limit: int) -> Optional[str]:
+    """`None` = pola nie przysłano (zostaje odczyt CV); `""` = rekruter pole
+    wyczyścił (wartość z CV NIE wraca); inaczej przycięta wartość."""
     if value is None:
         return None
-    cleaned = " ".join(value.split())
-    return cleaned[:limit] or None
+    return " ".join(value.split())[:limit]
+
+
+def _body_error(field: str, message: str) -> HTTPException:
+    return HTTPException(
+        status_code=422,
+        detail=[{"loc": ["body", field], "msg": message, "type": "value_error"}],
+    )
+
+
+def _validated_from_cv_extras(raw: Optional[str]) -> dict[str, Any]:
+    """Pola `candidate` (JSON) z `/from-cv` — walidacja jak `POST /api/candidates`.
+
+    Idzie PRZED płatnym odczytem i przed jakimkolwiek zapisem: zła wartość to
+    422 bez kandydata w bazie i bez wydanych pieniędzy.
+    """
+    from pydantic import ValidationError
+
+    if raw is None or not raw.strip():
+        return {}
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        raise _body_error("candidate", "Nieprawidłowe dane formularza.") from None
+    if not isinstance(data, dict):
+        raise _body_error("candidate", "Nieprawidłowe dane formularza.")
+    unknown = sorted(set(data) - _FROM_CV_EXTRA_FIELDS)
+    if unknown:
+        raise _body_error(unknown[0], "Tego pola nie można ustawić przy dodaniu z CV.")
+    try:
+        validated = CandidateCreate.model_validate(
+            {**data, "name": "-", "lastname": "-"}
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {
+                    "loc": ["body", *(str(part) for part in error["loc"])],
+                    "msg": str(error.get("msg", "Nieprawidłowa wartość")),
+                    "type": str(error.get("type", "value_error")),
+                }
+                for error in exc.errors()
+            ],
+        ) from None
+    return validated.model_dump(include=set(data))
 
 
 def _apply_from_cv_overrides(
@@ -6786,8 +6852,11 @@ def _apply_from_cv_overrides(
     # w pamięci procesu musi zostać taki, jaki oddał model.
     merged = copy.deepcopy(parsed)
     for key, value in overrides.items():
-        if value:
-            merged[key] = value
+        if value is None:
+            continue
+        # Pusty napis = pole świadomie wyczyszczone: wartość z CV nie wraca
+        # (ani do profilu, ani do skanu duplikatów).
+        merged[key] = value or None
     return merged
 
 
@@ -6839,35 +6908,45 @@ async def _read_cv_for_new_candidate(
     SHA-256 treści pliku. `/from-cv` wyłącznie z niego CZYTA — masowy import
     CV (tysiące plików) nie może zapełnić pamięci jedynego procesu.
     """
-    from app.core.cache import cache_get, cache_set, cache_single_flight
+    from app.core.cache import cache_single_flight
     from app.services.cv_parser import parse_cv
+    from app.services.cv_preview_cache import preview_cache
     from app.services.cv_upload_dedup import find_duplicates_without_llm
 
-    key = _cv_preview_cache_key(hashlib.sha256(content).hexdigest())
-    cached = await cache_get(key)
-    if cached is not None:
-        return cached["raw_text"], cached["parsed"]
-    async with cache_single_flight(key, db=db):
-        cached = await cache_get(key)
-        if cached is not None:
-            return cached["raw_text"], cached["parsed"]
-        raw_text = await _extract_uploaded_cv_text(
-            content, safe_name=safe_name, client_filename=client_filename
-        )
+    sha256 = hashlib.sha256(content).hexdigest()
+
+    async def _free_sieve(raw_text: str) -> None:
         if not force and settings.FROM_CV_SIEVE_ENABLED:
             cheap_rows = await find_duplicates_without_llm(
                 db, content=content, raw_text=raw_text
             )
             if cheap_rows:
                 _raise_from_cv_duplicate_conflict(cheap_rows)
-        parsed = await parse_cv(raw_text, db=db, user_id=user_id)
-        if remember:
-            await cache_set(
-                key,
-                {"raw_text": raw_text, "parsed": parsed},
-                ttl_seconds=_CV_PREVIEW_TTL_SECONDS,
-            )
-        return raw_text, parsed
+
+    cached = preview_cache.get(sha256)
+    if cached is None:
+        # Blokada per plik (bez wartości w `core.cache`) — dwa równoległe
+        # podglądy tego samego CV płacą raz.
+        async with cache_single_flight(f"cv_preview_parse:{sha256}", db=db):
+            cached = preview_cache.get(sha256)
+            if cached is None:
+                raw_text = await _extract_uploaded_cv_text(
+                    content, safe_name=safe_name, client_filename=client_filename
+                )
+                await _free_sieve(raw_text)
+                parsed = await parse_cv(raw_text, db=db, user_id=user_id)
+                if remember:
+                    preview_cache.set(sha256, parsed=parsed, raw_text=raw_text)
+                return raw_text, parsed
+    # Odczyt z pamięci: sito biegnie i tak (bez `force`) — podgląd „Wczytaj
+    # mimo to” nie może zwolnić zapisu z wykrycia duplikatu.
+    raw_text = cached.raw_text
+    if raw_text is None:
+        raw_text = await _extract_uploaded_cv_text(
+            content, safe_name=safe_name, client_filename=client_filename
+        )
+    await _free_sieve(raw_text)
+    return raw_text, cached.parsed
 
 
 @router.post(
@@ -6937,6 +7016,7 @@ async def create_candidate_from_cv(
     phone: Optional[str] = Form(default=None),
     city: Optional[str] = Form(default=None),
     linkedin: Optional[str] = Form(default=None),
+    candidate_fields: Optional[str] = Form(default=None, alias="candidate"),
 ):
     """One-shot onboarding: PDF/DOCX CV in → new Candidate out.
 
@@ -6960,6 +7040,19 @@ async def create_candidate_from_cv(
     safe_name = _sanitize_upload_filename(file.filename, fallback="upload.pdf")
     content = await _read_upload_bounded(file, label="CV file")
 
+    # 1a — reszta formularza i e-mail walidowane PRZED płatnym odczytem.
+    extras = _validated_from_cv_extras(candidate_fields)
+    email_override = _clean_override(email, 255)
+    if email_override:
+        from pydantic import EmailStr, TypeAdapter, ValidationError
+
+        try:
+            email_override = TypeAdapter(EmailStr).validate_python(email_override)
+        except ValidationError as exc:
+            raise _body_error(
+                "email", str(exc.errors()[0].get("msg", "Nieprawidłowy e-mail"))
+            ) from None
+
     # 1b/2 — darmowe sito duplikatów, potem odczyt (albo odczyt z podglądu).
     raw_text, parsed = await _read_cv_for_new_candidate(
         db,
@@ -6970,23 +7063,6 @@ async def create_candidate_from_cv(
         force=force,
         remember=False,
     )
-    email_override = _clean_override(email, 255)
-    if email_override:
-        from pydantic import EmailStr, TypeAdapter, ValidationError
-
-        try:
-            email_override = TypeAdapter(EmailStr).validate_python(email_override)
-        except ValidationError as exc:
-            raise HTTPException(
-                status_code=422,
-                detail=[
-                    {
-                        "loc": ["body", "email"],
-                        "msg": exc.errors()[0].get("msg", "Nieprawidłowy e-mail"),
-                        "type": "value_error",
-                    }
-                ],
-            ) from None
     parsed = _apply_from_cv_overrides(
         parsed,
         {
@@ -7012,6 +7088,17 @@ async def create_candidate_from_cv(
     if duplicates and not force:
         _raise_from_cv_duplicate_conflict(dup_rows)
 
+    # 3b — adres zajęty przez INNEGO kandydata = twarda odmowa, także przy
+    # `force` (jak `POST /api/candidates`). „Zapisz mimo to” tworzy drugą
+    # osobę, a zapis profilu po cichu pominąłby wpisany e-mail.
+    taken_email = str(parsed.get("email") or "").strip().lower()
+    if taken_email and await db.scalar(
+        select(Candidate.id).where(func.lower(Candidate.email) == taken_email).limit(1)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_TAKEN_EMAIL_MESSAGE
+        )
+
     # 4 — insert and enrich
     first_name = (parsed.get("first_name") or "").strip() or _CV_PLACEHOLDER_NAME
     last_name = (parsed.get("last_name") or "").strip() or _CV_PLACEHOLDER_NAME
@@ -7023,6 +7110,10 @@ async def create_candidate_from_cv(
         source="cv_upload",
         created_by=current_user.id,
     )
+    # Reszta formularza (zwalidowana na wejściu) przed odczytem CV: FILL_EMPTY
+    # nie nadpisze tego, co rekruter ustawił.
+    for field, value in extras.items():
+        setattr(candidate, field, value)
     db.add(candidate)
     await db.flush()  # allocate id so the file can carry it in its name
 
@@ -7050,6 +7141,7 @@ async def create_candidate_from_cv(
         content_type=file.content_type,
         external_source="from_cv",
         is_primary=True,
+        uploaded_by=current_user.id,
     )
     # The candidate identity is initialized from this same parse, but persist
     # the match provenance so every document has an explicit review state.
@@ -7102,9 +7194,9 @@ async def create_candidate_from_cv(
 
     await db.commit()
     # Odczyt z podglądu zrobił swoje — kandydat zapisany, zwalniamy pamięć.
-    from app.core.cache import cache_invalidate
+    from app.services.cv_preview_cache import preview_cache
 
-    await cache_invalidate(_cv_preview_cache_key(hashlib.sha256(content).hexdigest()))
+    preview_cache.pop(hashlib.sha256(content).hexdigest())
 
     reloaded = await db.execute(
         select(Candidate)

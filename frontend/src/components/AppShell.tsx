@@ -46,7 +46,8 @@ import {
   CV_FIELD_LABELS,
   changedFormKeys,
   duplicateMatchesFromConflict,
-  extraPatchAfterCv,
+  cvKnownFields,
+  extraFieldsForCv,
   fillEmptyFromCv,
   fromCvOverrides,
   type CandidateCvPreview,
@@ -472,7 +473,7 @@ const EMPTY_CANDIDATE: CandidateFormData = {
   pref_office_cities: "", max_onsite_days_per_week: "",
 };
 
-/** Pola, które zapis z CV wysyła do `/from-cv` (reszta idzie PATCH-em, notatka osobno). */
+/** Pola kontaktu wysyłane do `/from-cv` osobno (reszta w polu `candidate`, notatka osobno). */
 const CV_SAVED_FORM_KEYS: ReadonlySet<string> = new Set([
   "name",
   "lastname",
@@ -979,6 +980,8 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
   const [cvReading, setCvReading] = useState(false);
   const [cvError, setCvError] = useState<string | null>(null);
   const [cvFilled, setCvFilled] = useState<CvFormField[]>([]);
+  // Pola, dla których odczyt CV dał wartość — wyczyszczone idą jako jawne "".
+  const [cvKnown, setCvKnown] = useState<CvFormField[]>([]);
   const [cvConflict, setCvConflict] = useState<DuplicateCandidateHit[] | null>(null);
   const [cvDragOver, setCvDragOver] = useState(false);
   const cvInputRef = useRef<HTMLInputElement>(null);
@@ -1078,6 +1081,7 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
       const { form: next, filled } = fillEmptyFromCv(formRef.current, res.data);
       setForm(next);
       setCvFilled(filled);
+      setCvKnown(cvKnownFields(res.data));
     } catch (err) {
       if (seq !== cvReadSeqRef.current) return;
       const matches = duplicateMatchesFromConflict(err);
@@ -1103,22 +1107,21 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
     setCvError(null);
     setCvConflict(null);
     setCvFilled([]);
+    setCvKnown([]);
   };
 
-  /** Zapis z plikiem CV: `/from-cv` z polami formularza, potem reszta PATCH-em. */
+  /**
+   * Zapis z plikiem CV: JEDNO żądanie `/from-cv` — pola kontaktu (wyczyszczone
+   * jako jawne "") i reszta formularza w polu `candidate`. Serwer waliduje
+   * całość przed odczytem i zapisem, więc błąd nie zostawia połowy kandydata.
+   */
   const saveFromCv = async (file: File, force: boolean): Promise<number> => {
     const fd = new FormData();
     fd.append("file", file);
-    for (const [key, value] of Object.entries(fromCvOverrides(form))) {
-      if (value) fd.append(key, value);
+    for (const [key, value] of Object.entries(fromCvOverrides(form, cvKnown))) {
+      fd.append(key, value ?? "");
     }
-    const created = await api.post(
-      `/api/candidates/from-cv${force ? "?force=true" : ""}`,
-      fd,
-      { headers: { "Content-Type": "multipart/form-data" } },
-    );
-    const createdId = Number(created?.data?.candidate?.id);
-    const extra = extraPatchAfterCv(
+    const extra = extraFieldsForCv(
       candidateFormToPayload(form) as Record<string, unknown>,
       changedFormKeys(
         form as unknown as Record<string, unknown>,
@@ -1126,10 +1129,13 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
         CV_SAVED_FORM_KEYS,
       ),
     );
-    if (Number.isFinite(createdId) && Object.keys(extra).length > 0) {
-      await api.patch(`/api/candidates/${createdId}`, extra);
-    }
-    return createdId;
+    if (Object.keys(extra).length > 0) fd.append("candidate", JSON.stringify(extra));
+    const created = await api.post(
+      `/api/candidates/from-cv${force ? "?force=true" : ""}`,
+      fd,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+    return Number(created?.data?.candidate?.id);
   };
 
   const currentKey = duplicateIdentityKey(form);

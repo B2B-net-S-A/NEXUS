@@ -119,9 +119,54 @@ describe("AddCandidateModal — start od CV", () => {
     expect(body.get("lastname")).toBe("Nowak-Kowalska");
     expect(body.get("email")).toBe("anna.nowak@firma.pl");
     expect(apiPost.mock.calls.some(([url]) => url === "/api/candidates")).toBe(false);
-    // Nic poza polami z CV nie zostało ustawione — bez dodatkowego PATCH-a.
+    expect(body.get("candidate")).toBeNull();
     expect(apiPatch).not.toHaveBeenCalled();
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith("Kandydat dodany pomyślnie"));
+  });
+
+  it("wyczyszczone pole idzie jako jawne \"\", a reszta formularza w tym samym żądaniu", async () => {
+    const user = userEvent.setup();
+    renderModal();
+    pickCv();
+    await screen.findByText(/Uzupełniono z CV/);
+    await user.clear(screen.getByPlaceholderText("jan@mail.pl"));
+    const tagsField = screen.getByPlaceholderText("React, TypeScript, Remote...");
+    await user.type(tagsField, "java, sql");
+
+    await user.click(screen.getByRole("button", { name: "Dodaj kandydata" }));
+
+    await waitFor(() => expect(callsTo("/api/candidates/from-cv")).toHaveLength(1));
+    const body = callsTo("/api/candidates/from-cv")[0][1] as FormData;
+    expect(body.get("email")).toBe("");
+    expect(body.get("linkedin")).toBeNull(); // CV nie miało LinkedIna — nic do czyszczenia
+    expect(JSON.parse(String(body.get("candidate")))).toEqual({ tags: ["java", "sql"] });
+    expect(apiPatch).not.toHaveBeenCalled();
+  });
+
+  it("zajęty e-mail (409 także przy „Zapisz mimo to”) pokazuje się przy polu e-mail", async () => {
+    apiPost.mockImplementation((url: string) => {
+      if (url.startsWith("/api/candidates/cv/preview")) {
+        return Promise.resolve({ data: PREVIEW } as never);
+      }
+      if (url === "/api/candidates/check-duplicates") {
+        return Promise.resolve({ data: [] } as never);
+      }
+      if (url.startsWith("/api/candidates/from-cv")) {
+        return Promise.reject({
+          response: { status: 409, data: { detail: "Kandydat z tym adresem e-mail już istnieje." } },
+        });
+      }
+      return Promise.resolve({ data: { id: 1 } } as never);
+    });
+    const user = userEvent.setup();
+    const { onSuccess } = renderModal();
+    pickCv();
+    await screen.findByText(/Uzupełniono z CV/);
+
+    await user.click(screen.getByRole("button", { name: "Dodaj kandydata" }));
+
+    expect(await screen.findByText("Kandydat z tym adresem e-mail już istnieje.")).toBeInTheDocument();
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 
   it("CV rozpoznane przez sito jako istniejący kandydat — link i „Wczytaj mimo to”", async () => {

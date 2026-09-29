@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   changedFormKeys,
   duplicateMatchesFromConflict,
-  extraPatchAfterCv,
+  extraFieldsForCv,
+  cvKnownFields,
   fillEmptyFromCv,
   fromCvOverrides,
   type CandidateCvPreview,
@@ -34,14 +35,24 @@ describe("add-candidate-cv", () => {
     expect(filled).toEqual(["lastname", "email", "phone", "linkedin"]);
   });
 
-  it("pola dla /from-cv: tylko niepuste, bez spacji na brzegach", () => {
+  it("pola dla /from-cv: niepuste bez spacji na brzegach", () => {
     expect(fromCvOverrides({ ...emptyForm, name: " Anna ", email: "a@b.pl" })).toEqual({
       name: "Anna",
       email: "a@b.pl",
     });
   });
 
-  it("PATCH po zapisie z CV niesie tylko ustawione pola, bez pustych preferencji", () => {
+  it("pole wyczyszczone po odczycie CV idzie jako jawne \"\" — wartość z CV nie wraca", () => {
+    const known = cvKnownFields(preview);
+    expect(known).toEqual(["name", "lastname", "email", "phone", "linkedin"]);
+    expect(
+      fromCvOverrides({ ...emptyForm, name: "Anna", lastname: "Nowak" }, known),
+    ).toEqual({ name: "Anna", lastname: "Nowak", email: "", phone: "", linkedin: "" });
+    // Bez odczytu (albo pole, którego CV nie miało) — puste pole nic nie znaczy.
+    expect(fromCvOverrides({ ...emptyForm, name: "Anna" }, [])).toEqual({ name: "Anna" });
+  });
+
+  it("reszta formularza w tym samym żądaniu: tylko ustawione pola, bez pustych preferencji", () => {
     const empty = { name: "", tags: "", notice_period: "", pref_remote_modes: [] as string[], status: "active" };
     const form = { name: "Anna", tags: "java", notice_period: "30", pref_remote_modes: ["remote"], status: "active" };
     const changed = changedFormKeys(form, empty, new Set(["name"]));
@@ -54,13 +65,13 @@ describe("add-candidate-cv", () => {
       status: "active",
       preferences: { remote_modes: ["remote"], industries: null },
     };
-    expect(extraPatchAfterCv(payload, changed)).toEqual({
+    expect(extraFieldsForCv(payload, changed)).toEqual({
       tags: ["java"],
       notice_period: 30,
       notice_period_unit: "days",
       preferences: { remote_modes: ["remote"] },
     });
-    expect(extraPatchAfterCv(payload, [])).toEqual({});
+    expect(extraFieldsForCv(payload, [])).toEqual({});
   });
 
   it("czyta trafienia z 409 i ignoruje inne błędy", () => {
