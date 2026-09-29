@@ -17,7 +17,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from typing import AsyncIterator, Awaitable, Callable, Optional
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import msal
 
@@ -149,6 +149,15 @@ def parse_site_url(url: str) -> tuple[str, Optional[str], Optional[str]]:
         site_path = f"/sites/{parts[2]}"
     elif len(parts) >= 2 and parts[0] in {"sites", "teams"}:
         site_path = f"/{parts[0]}/{parts[1]}"
+        if parts[-2:] == ["Forms", "AllItems.aspx"]:
+            # Adres skopiowany z otwartej biblioteki przechowuje folder w id.
+            folder_url = (parse_qs(parsed.query).get("id") or [""])[0]
+            if folder_url:
+                if not folder_url.startswith(site_path + "/"):
+                    raise SharePointFolderNotFound("folder spoza witryny w linku")
+                parts = [p for p in folder_url.split("/") if p]
+            else:
+                parts = parts[:-2]
         rest = parts[2:]
         # „Shared Documents/…”, „Dokumenty udostępnione/…” — pierwszy segment
         # to biblioteka, reszta to ścieżka folderu w niej.

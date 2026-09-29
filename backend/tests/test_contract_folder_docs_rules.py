@@ -5,6 +5,11 @@ from __future__ import annotations
 
 import pytest
 
+from app.services.m365.sharepoint_docs import (
+    SharePointFolderNotFound,
+    parse_site_url,
+)
+
 from app.services.contract_folder_docs.classify import classify_filename, is_importable
 from app.services.contract_folder_docs.matching import (
     AMBIGUOUS,
@@ -23,6 +28,37 @@ from app.services.contract_folder_docs.plan import (
     ListedFile,
     build_plan,
 )
+
+
+@pytest.mark.parametrize(
+    ("path", "folder"),
+    [
+        (
+            "/sites/Share_B2B/Shared%20Documents/Umowy%20pracownik%C3%B3w",
+            "Umowy pracowników",
+        ),
+        (
+            "/sites/Share_B2B/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FShare_B2B%2FShared%20Documents%2FUmowy%20pracownik%C3%B3w&p=true",
+            "Umowy pracowników",
+        ),
+        ("/sites/Share_B2B/Shared%20Documents/Forms/AllItems.aspx", None),
+        ("/:f:/s/Share_B2B/sharing-token", None),
+    ],
+)
+def test_folder_link_accepts_sharepoint_browser_urls(path, folder):
+    assert parse_site_url("https://b2bnetsa.sharepoint.com" + path) == (
+        "b2bnetsa.sharepoint.com",
+        "/sites/Share_B2B",
+        folder,
+    )
+
+
+def test_browser_folder_link_cannot_switch_sites():
+    with pytest.raises(SharePointFolderNotFound):
+        parse_site_url(
+            "https://b2bnetsa.sharepoint.com/sites/Share_B2B/Shared%20Documents/Forms/AllItems.aspx"
+            "?id=%2Fsites%2FOther%2FShared%20Documents%2FUmowy"
+        )
 
 
 @pytest.mark.parametrize(
