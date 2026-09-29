@@ -1762,7 +1762,12 @@ blok „Po ludzku” na górze Podglądu Championa i „Ściąga do rozmowy” w
   29.09: trzy researche w żądaniu + teksty = 99 s przy limicie frontu 120 s. Front
   woła odświeżenie sam tylko dla otwartych rekrutacji i dociąga widok co 10 s,
   dopóki hasło jest w researchu (najwyżej 30 razy). Nazwa nowej roli bez poziomu,
-  nawiasów i prefiksu klienta przed dwukropkiem (`role_matcher.clean_role_name`). Nie dokładaj haka w zapis Championa — `stale` obejmuje
+  nawiasów i prefiksu klienta przed dwukropkiem (`role_matcher.clean_role_name`),
+  bez oznaczeń zamówień i zespołów („_moduł V”, „x1 Zapotrzebowanie…”, „PL_”,
+  „ON HOLD”) i bez słów nazwy klienta tej rekrutacji z jej skrótami
+  (`client_words`: „PKO Bank Polski” → „BP”). Tytuł bez nazwy zawodu
+  (`ROLE_NOUNS`) roli nie zakłada — research 29.09 dał role „PL” i „AKADEMIA”,
+  a nazwy z klientem trafiłyby do publicznego `roles.json`. Nie dokładaj haka w zapis Championa — `stale` obejmuje
   każdą ścieżkę zapisu profilu.
 - **Stawka i nazwa klienta idą do kandydata od razu; statystyki roli BEZ stawek**
   (liczba rekrutacji, klientów, zatrudnień, stanowiska zatrudnionych od 3

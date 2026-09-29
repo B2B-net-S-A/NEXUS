@@ -272,7 +272,15 @@ async def assign_role(
         return best, None
     if job.role_profile_id:
         return job.role_profile_id, None
-    name, rules, skill_list = role_matcher.rules_for_new_role(job, category)
+    client = await db.get(Client, job.client_id) if job.client_id else None
+    drop = role_matcher.client_words(
+        getattr(client, "name", None), getattr(client, "display_name", None)
+    )
+    spec = role_matcher.rules_for_new_role(job, category, drop)
+    if spec is None:
+        # Żaden tytuł nie niesie nazwy zawodu — nie zakładamy roli „PL”.
+        return None, None
+    name, rules, skill_list = spec
     return None, (knowledge.slugify(name), name, rules, skill_list)
 
 

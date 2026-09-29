@@ -35,6 +35,7 @@ import argparse
 import asyncio
 import json
 import logging
+import re
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -52,7 +53,47 @@ RECEIPT_KEY = "plain_knowledge_clients_apply"
 CLUSTER_MIN_SCORE = 55
 FREQUENT_MUST_MIN = 20
 # Jedna reguła czyszczenia nazwy roli z aplikacją (nowe role z researchu).
-from app.services.plain_knowledge.role_matcher import clean_role_name  # noqa: E402
+from app.services.plain_knowledge.role_matcher import (  # noqa: E402
+    clean_role_name,
+    client_words,
+)
+
+
+# Polskie nazwy zawodów → angielskie, żeby synonimy dawały jedną rolę.
+_ROLE_SYNONYMS = {
+    "programista": "developer",
+    "analityk": "analyst",
+    "inżynier": "engineer",
+    "inzynier": "engineer",
+    "architekt": "architect",
+    "projektant": "designer",
+    "kierownik": "manager",
+    "specjalista": "specialist",
+    "lider": "leader",
+    "testów": "test",
+    "tester": "tester",
+    "projektu": "project",
+    "projektów": "project",
+    "systemowy": "system",
+    "biznesowy": "business",
+    "danych": "data",
+    "rozwiązań": "solution",
+    "solutions": "solution",
+    "automatyzujący": "automation",
+    "automatyczny": "automation",
+    "manualny": "manual",
+    "front-end": "frontend",
+    "back-end": "backend",
+    "full-stack": "fullstack",
+}
+
+
+def role_key(name: str) -> frozenset[str]:
+    """Klucz scalania ról: słowa po sprowadzeniu synonimów, bez wielkości liter."""
+    words = re.findall(r"[\w.+#-]+", (name or "").casefold())
+    return frozenset(
+        _ROLE_SYNONYMS.get(w, w) for w in words if w not in {"ds.", "i", "and", "/"}
+    )
 
 
 def cluster_jobs(jobs: list[dict[str, Any]], min_group: int) -> list[dict[str, Any]]:
@@ -83,6 +124,9 @@ def cluster_jobs(jobs: list[dict[str, Any]], min_group: int) -> list[dict[str, A
         members = group["members"]
         if len(members) < min_group:
             continue
+        if not any(m["role_name"] for m in members):
+            # Grupa bez nazwy zawodu (oznaczenia zespołów, „AKADEMIA”) nie jest rolą.
+            continue
         names = Counter(m["role_name"] for m in members if m["role_name"])
         titles = Counter(w for m in members for w in m["title"])
         skills = Counter(s for m in members for s in m["skills"])
@@ -104,6 +148,7 @@ def cluster_jobs(jobs: list[dict[str, Any]], min_group: int) -> list[dict[str, A
 async def _load_jobs(db) -> list[dict[str, Any]]:
     from sqlalchemy import select
 
+    from app.models.client import Client
     from app.models.competence_category import CompetenceCategory
     from app.models.job import Job
     from app.services import champion_view
@@ -112,6 +157,12 @@ async def _load_jobs(db) -> list[dict[str, Any]]:
     slugs = dict(
         (await db.execute(select(CompetenceCategory.id, CompetenceCategory.slug))).all()
     )
+    clients = {
+        cid: client_words(name, display)
+        for cid, name, display in (
+            await db.execute(select(Client.id, Client.name, Client.display_name))
+        ).all()
+    }
     rows = (
         await db.execute(
             select(
@@ -121,15 +172,20 @@ async def _load_jobs(db) -> list[dict[str, Any]]:
                 Job.must_skills,
                 Job.champion_profile,
                 Job.competence_category_id,
+                Job.client_id,
             ).order_by(Job.id.desc())
         )
     ).all()
     out = []
-    for jid, title, working, must, profile, cc in rows:
+    for jid, title, working, must, profile, cc, client_id in rows:
         role = champion_view.basics(profile).get("role_name")
-        name = clean_role_name(
-            role if isinstance(role, str) and role.strip() else (title or "")
-        )
+        drop = clients.get(client_id, frozenset())
+        # Nazwa roli trafia do publicznego repo — bez nazwy klienta tej rekrutacji.
+        name = ""
+        for raw in (role if isinstance(role, str) else None, working, title):
+            name = clean_role_name(raw or "", drop)
+            if name:
+                break
         out.append(
             {
                 "id": jid,
@@ -231,14 +287,18 @@ async def _plan_items(args: argparse.Namespace) -> list[dict[str, Any]]:
         items.append({"kind": "term", "key": key, "term_key": key, "name": name})
     terms = [i for i in items if i["kind"] == "term"][: args.limit_terms or None]
 
-    roles: dict[str, dict[str, Any]] = {}
+    roles: dict[frozenset[str], dict[str, Any]] = {}
     for group in cluster_jobs(jobs, args.min_group):
-        name = group["name"] or " ".join(group["title_words"]).title()
-        slug = knowledge.slugify(name)
-        if slug in roles:  # dwie grupy o tej samej nazwie = jedna rola
-            roles[slug]["jobs"] += group["jobs"]
+        name = group["name"]
+        same = role_key(name)
+        if same in roles:  # „Programista Java” i „Java Developer” = jedna rola
+            roles[same]["jobs"] += group["jobs"]
+            roles[same]["name_candidates"] = list(
+                dict.fromkeys(roles[same]["name_candidates"] + group["name_candidates"])
+            )[:6]
             continue
-        roles[slug] = {**group, "kind": "role", "key": slug, "slug": slug, "name": name}
+        slug = knowledge.slugify(name)
+        roles[same] = {**group, "kind": "role", "key": slug, "slug": slug, "name": name}
     role_items = list(roles.values())[: args.limit_roles or None]
 
     client_items = [
