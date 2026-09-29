@@ -467,6 +467,12 @@ async def _assert_signature_client_access(
 ) -> None:
     # Preserve existing legal scope for DL/TAC. The separately granted command
     # lets operational users confirm signatures without granting document edits.
+    # TCM potwierdza podpisy w całej organizacji (decyzja 10.09.2026) — także
+    # wtedy, gdy ma dodatkowo rolę DL albo TAC. Do 29.09.2026 dodatkowa rola
+    # TAC włączała zakres klienta i konto TCM + TAC bez przypisań dostawało
+    # „Brak uprawnień do potwierdzania podpisu dla tego klienta”.
+    if user.has_role(UserRole.talent_community_manager):
+        return
     if user.has_any_role(UserRole.delivery_lead, UserRole.tac):
         await assert_contract_legal_client_access(
             db, user, client_id, write=True, purpose="org"

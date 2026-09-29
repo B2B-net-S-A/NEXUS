@@ -57,3 +57,32 @@ async def test_clientless_tcm_signature_reaches_link_validation(monkeypatch):
     legal_scope.assert_not_awaited()
     with pytest.raises(HTTPException):
         await _assert_signature_client_access(None, user_with_access(role=UserRole.tac), None)
+
+
+def user_with_roles(*roles):
+    return SimpleNamespace(
+        id=1,
+        effective_action_access={
+            "b2b_contract_generator": "manage",
+            "b2b_signature_confirmation": "manage",
+        },
+        has_role=lambda required: required in roles,
+        has_any_role=lambda *required: any(role in roles for role in required),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "extra_role", [UserRole.tac, UserRole.delivery_lead]
+)
+async def test_tcm_with_extra_scoped_role_still_confirms_org_wide(monkeypatch, extra_role):
+    # 29.09.2026: konto TCM + TAC (osoba od Cpro) dostawało „Brak uprawnień do
+    # potwierdzania podpisu dla tego klienta” — rola TAC włączała zakres klienta,
+    # choć TCM potwierdza podpisy w całej organizacji (decyzja 10.09.2026).
+    legal_scope = AsyncMock(side_effect=HTTPException(status_code=403))
+    monkeypatch.setattr("app.api.b2b_contract_generator.assert_contract_legal_client_access", legal_scope)
+    user = user_with_roles(UserRole.talent_community_manager, extra_role)
+    await _assert_signature_client_access(None, user, 11)
+    legal_scope.assert_not_awaited()
+    with pytest.raises(HTTPException):
+        await _assert_signature_client_access(None, user_with_roles(extra_role), 11)
