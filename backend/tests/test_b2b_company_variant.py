@@ -296,6 +296,35 @@ def test_html_preview_mirrors_the_company_docx(lang):
     assert out.index("<h2>§ 12</h2>") < out.index("<h2>§ 13</h2>")
 
 
+@pytest.mark.parametrize(
+    "lang, company_text, jdg_text",
+    [
+        ("pl", "JK Soft Sp. z o.o. z siedzibą w Warszawie", "Centralnej Ewidencji"),
+        (
+            "en",
+            "JK Soft Sp. z o.o. with its registered office in Warszawa",
+            "Central Register",
+        ),
+    ],
+)
+def test_html_preview_komparycja_matches_the_docx(lang, company_text, jdg_text):
+    """Przegląd 29.09: łatka HTML owijała opis tylko w umowie powierzenia —
+    podgląd umowy głównej mówił „prowadzącym działalność … w CEIDG”, a plik
+    DOCX był poprawny. Obie komparycje (umowa + DPA) mają być spółkowe."""
+    out = re.sub(r"<[^>]+>", "", _html(_req(lang, **_COMPANY)))
+    assert out.count(company_text) == 2
+    assert jdg_text not in out
+    # Adres do korespondencji zostaje poza warunkiem wariantu.
+    with_address = re.sub(
+        r"<[^>]+>",
+        "",
+        _html(
+            _req(lang, **_COMPANY, partner_correspondence_address="ul. Boczna 2, Łódź")
+        ),
+    )
+    assert "ul. Boczna 2, Łódź" in with_address
+
+
 def test_html_preview_escapes_the_assigned_person():
     out = _html(_req("pl", **{**_COMPANY, "assigned_person_name": "<b>X</b> & Y"}))
     assert "&lt;b&gt;X&lt;/b&gt; &amp; Y" in out

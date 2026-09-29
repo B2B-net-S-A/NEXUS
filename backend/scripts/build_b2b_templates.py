@@ -343,6 +343,10 @@ _COMPANY_BODY = {
     ),
 }
 
+# Opis spółki po treści runu z warunkiem — łatka HTML składa warunek od nowa
+# (bez końcowej spacji), więc potrzebuje samego opisu spółki.
+_COMPANY_BODY_BY_JDG: dict[str, str] = {}
+
 _JDG_HEAD_MARK = {"pl": "{{ b2b.g_pan }}", "en": "{{ b2b.g_mr }}"}
 _JDG_BODY_MARK = {"pl": "pod firmą:", "en": "under the name:"}
 
@@ -366,9 +370,9 @@ def company_variant_pairs(doc: _DocType, lang: str) -> list[tuple[str, str]]:
                 and _COMPANY_MARK not in head.text
             ):
                 pairs.append((head.text, _company_if(_COMPANY_HEAD, head.text)))
-                pairs.append(
-                    (body.text, _company_if(_COMPANY_BODY[lang], body.text))
-                )
+                wrapped_body = _company_if(_COMPANY_BODY[lang], body.text)
+                _COMPANY_BODY_BY_JDG[wrapped_body] = _COMPANY_BODY[lang]
+                pairs.append((body.text, wrapped_body))
     return pairs
 
 
@@ -390,12 +394,32 @@ def add_company_variant(doc: _DocType, lang: str) -> int:
 
 
 def add_company_variant_html(html: str, pairs: list[tuple[str, str]]) -> str:
-    """To samo w lustrze HTML: runy wychodzą tam jako ``_esc(run.text)``."""
-    for old, new in pairs:
-        before = html.count(_esc(old))
-        if before == 0:
-            raise RuntimeError(f"Brak fragmentu komparycji w HTML: {old[:60]!r}")
-        html = html.replace(_esc(old), _esc(new))
+    """To samo w lustrze HTML.
+
+    Lustro nie jest kopią runów 1:1 — w umowie głównej po „REGON: …,” stoi od
+    razu ``{% if b2b.correspondence_address %}`` (bez spacji z końca runu), więc
+    szukamy CAŁEJ komparycji ``<strong>nagłówek</strong>opis`` bez końcowych
+    białych znaków i podmieniamy każde wystąpienie osobno. Zwykłe
+    ``str.replace`` samego runu trafiało tylko w umowę powierzenia, a nagłówek
+    (identyczny w obu miejscach) owijało dwa razy."""
+    heads = dict(pairs[0::2])
+    bodies = dict(pairs[1::2])
+    wrapped = 0
+    for head_old, head_new in heads.items():
+        for body_old, body_new in bodies.items():
+            old = f"<strong>{_esc(head_old)}</strong>{_esc(body_old).rstrip()}"
+            new = f"<strong>{_esc(head_new)}</strong>" + _esc(
+                _company_if(
+                    _COMPANY_BODY_BY_JDG[body_new].rstrip(), body_old.rstrip()
+                )
+            )
+            count = html.count(old)
+            html = html.replace(old, new)
+            wrapped += count
+    if wrapped != 2:
+        raise RuntimeError(
+            f"Oczekiwano 2 komparycji w HTML (umowa + DPA), podmieniono {wrapped}"
+        )
     return html
 
 
