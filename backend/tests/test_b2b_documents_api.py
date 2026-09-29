@@ -353,7 +353,14 @@ async def test_sensitive_values_never_reach_the_database(app_client, app_auth_he
     with_values = await app_client.post(
         f"{BASE}/documents/{doc_id}/docx",
         headers=app_auth_headers,
-        json={"values": {"partner_home_address": "ul. Tajna 1, Warszawa"}},
+        json={
+            "values": {
+                "partner_home_address": "ul. Tajna 1, Warszawa",
+                # Numer dowodu jest w aneksie uzupełnienia danych wymagany
+                # (ticket generatora aneksów) — też go nie przechowujemy.
+                "id_document": "ABC123456",
+            }
+        },
     )
     assert with_values.status_code == 200, with_values.text
 
