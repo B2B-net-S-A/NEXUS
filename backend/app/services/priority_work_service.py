@@ -143,6 +143,21 @@ async def ensure_priority_state(
     return row
 
 
+async def read_priority_state(
+    db: AsyncSession,
+) -> Optional[RecruitmentPriorityState]:
+    """Read the singleton state row without creating it.
+
+    Read paths (every GET, the panel on each recruitment) must not write: the
+    upsert in `ensure_priority_state` turned each panel view into an INSERT,
+    so the request transaction counted as a write. A missing row means the
+    same as a fresh one — no current plan and no metrics.
+    """
+    return await db.scalar(
+        select(RecruitmentPriorityState).where(RecruitmentPriorityState.id == 1)
+    )
+
+
 def audit_event(
     db: AsyncSession,
     event_type: str,
@@ -322,8 +337,8 @@ async def load_plan(
 
 
 async def current_plan(db: AsyncSession) -> Optional[RecruitmentPriorityPlan]:
-    state = await ensure_priority_state(db)
-    if state.current_plan_id is None:
+    state = await read_priority_state(db)
+    if state is None or state.current_plan_id is None:
         return None
     return await load_plan(db, state.current_plan_id)
 
