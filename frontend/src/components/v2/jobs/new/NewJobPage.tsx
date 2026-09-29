@@ -51,6 +51,8 @@ import { ClientAskedBeforeHint } from "./ClientAskedBeforeHint";
 import { plural } from "@/components/v2/jobs/SimilarJobsDialog";
 import { similarJobsApi } from "@/lib/similar-jobs-api";
 import { saveHiringManager } from "@/lib/hiring-manager";
+import { collaboratorChanges, saveCollaboratorChanges } from "@/lib/job-collaborators";
+import { JobCollaboratorsField } from "@/components/jobs/JobCollaboratorsField";
 import {
   fetchPortalConfig,
   fetchPublicDraft,
@@ -130,6 +132,7 @@ export interface NewJobPagePreview {
   evidence: string[];
   recruiterId?: number | null;
   assignment?: RecruiterAssignment;
+  collaboratorIds?: number[];
   /** Krok „Ogłoszenie na portalach” (widoczny tylko przy gotowym portalu). */
   portalPlan?: NewJobPortalPlan;
   portalFindings?: PublicDraftRead["findings"];
@@ -166,6 +169,10 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   );
   const [assignment, setAssignment] = useState<RecruiterAssignment>(
     preview?.assignment ?? "person",
+  );
+  // Współpracownicy (decyzja 29.09.2026) — dopisywani po utworzeniu rekrutacji.
+  const [collaboratorIds, setCollaboratorIds] = useState<number[]>(
+    preview?.collaboratorIds ?? [],
   );
   const [saving, setSaving] = useState<"handoff" | "draft" | null>(null);
   // 0341: podobne rekrutacje zaznaczone przy tworzeniu — łączone po zapisie.
@@ -400,6 +407,17 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
           `Rekrutacja zapisana, ale hiring manager nie: ${apiErrorMessage(e, "błąd")}. Ustaw go w oknie zlecenia.`,
         );
       }
+    }
+    // Współpracownicy: dodatek jak hiring manager — awaria nie cofa rekrutacji
+    // (da się ich dopisać w oknie edycji albo w zakładce „Zespół”).
+    const collaboratorsFailure = await saveCollaboratorChanges(
+      jobId,
+      collaboratorChanges([], collaboratorIds, automatic ? null : recruiterId),
+    );
+    if (collaboratorsFailure) {
+      showError(
+        `Rekrutacja zapisana, ale ${collaboratorsFailure}. Dopisz ich w oknie edycji rekrutacji.`,
+      );
     }
     const championTab = `/jobs/${jobId}?tab=champion`;
     try {
@@ -748,6 +766,18 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                   </button>
                 </span>
               ) : null}
+              {/* Decyzja 29.09.2026: obok prowadzącego pracują współpracownicy
+                  (liczą się w „Kto pracuje”). Dopisywani po utworzeniu rekrutacji. */}
+              <div className="flex flex-wrap items-start gap-2 text-sm text-muted-foreground">
+                <span className="pt-2.5">Współpracownicy</span>
+                <div className="w-60">
+                  <JobCollaboratorsField
+                    value={collaboratorIds}
+                    onChange={setCollaboratorIds}
+                    primaryOwnerId={automatic ? null : recruiterId}
+                  />
+                </div>
+              </div>
               <Button
                 type="button"
                 variant="outline"

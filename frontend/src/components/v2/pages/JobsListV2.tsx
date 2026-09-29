@@ -63,6 +63,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { OwnerBadge } from "@/components/v2/jobs/OwnerBadge";
+import {
+  collaboratorsSummary,
+  type JobCollaboratorEntry,
+} from "@/lib/job-collaborators";
 import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import {
   JobClientNames,
@@ -275,8 +279,27 @@ export function jobsQuickCountsQueryKey(): unknown[] {
  * i **ton ostrzegawczy przy braku** (na liście „nieprzypisany" jest sprawą do
  * załatwienia, a nie neutralnym faktem: nikt nie dostanie alertów deadline'u).
  */
-function JobOwnerCell({ user }: { user?: { name?: string | null } | null }) {
+function JobOwnerCell({
+  user,
+  collaborators,
+}: {
+  user?: { name?: string | null } | null;
+  collaborators?: readonly JobCollaboratorEntry[] | null;
+}) {
   const short = shortenPersonName(user?.name);
+  // „+N” = współpracownicy dopisani ręcznie (decyzja 29.09.2026); `auto_cc`
+  // (cała kategoria kompetencji) się nie liczy.
+  const team = collaboratorsSummary(collaborators);
+  const more =
+    team.count > 0 ? (
+      <span
+        className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] font-medium text-muted-foreground"
+        title={team.tooltip}
+      >
+        <span aria-hidden="true">+{team.count}</span>
+        <span className="sr-only">{team.tooltip}</span>
+      </span>
+    ) : null;
   if (!short) {
     return (
       <span
@@ -285,6 +308,7 @@ function JobOwnerCell({ user }: { user?: { name?: string | null } | null }) {
       >
         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
         Nieprzypisany
+        {more}
       </span>
     );
   }
@@ -300,6 +324,7 @@ function JobOwnerCell({ user }: { user?: { name?: string | null } | null }) {
         {initialsOf(user?.name)}
       </span>
       <span className="truncate">{short}</span>
+      {more}
     </span>
   );
 }
@@ -470,7 +495,10 @@ function JobsTable({
                 <JobDeadlineCell deadline={job.deadline} />
               </TableCell>
               <TableCell>
-                <JobOwnerCell user={job.primary_owner ?? null} />
+                <JobOwnerCell
+                  user={job.primary_owner ?? null}
+                  collaborators={job.collaborators}
+                />
               </TableCell>
               <TableCell>
                 <div className="flex items-center justify-end gap-0.5">

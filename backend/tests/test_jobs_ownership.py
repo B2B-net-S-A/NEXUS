@@ -332,9 +332,14 @@ async def test_collaborator_add_by_primary_succeeds(ownership_client: AsyncClien
 
 
 @pytest.mark.asyncio
-async def test_collaborator_add_by_foreign_recruiter_forbidden(
+async def test_collaborator_add_by_recruiter_outside_the_job_succeeds(
     ownership_client: AsyncClient,
 ):
+    """Decyzja 29.09.2026: współpracowników dopisuje każdy, kto redaguje
+    rekrutację (``ensure_job_editor``) — także rekruter spoza jej zespołu.
+    Każde dodanie i usunięcie zostawia wpis w historii."""
+    from app.models.activity import Activity
+
     owner_id, _, _ = await _seed_user(UserRole.recruiter)
     _, stranger_email, stranger_pass = await _seed_user(UserRole.recruiter)
     collab_id, _, _ = await _seed_user(UserRole.sourcer)
@@ -346,7 +351,97 @@ async def test_collaborator_add_by_foreign_recruiter_forbidden(
         headers=headers,
         json={"user_id": collab_id},
     )
-    assert resp.status_code == 403, resp.text
+    assert resp.status_code == 201, resp.text
+    removed = await ownership_client.delete(
+        f"/api/jobs/{job_id}/collaborators/{collab_id}", headers=headers
+    )
+    assert removed.status_code == 204, removed.text
+
+    async with AsyncSessionLocal() as db:
+        actions = set(
+            (
+                await db.execute(
+                    select(Activity.action).where(
+                        Activity.entity_type == "job", Activity.entity_id == job_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert {"collaborator_added", "collaborator_removed"} <= actions
+
+
+@pytest.mark.asyncio
+async def test_collaborator_add_and_remove_by_read_only_viewer_forbidden(
+    ownership_client: AsyncClient,
+):
+    owner_id, _, _ = await _seed_user(UserRole.recruiter)
+    _, viewer_email, viewer_pass = await _seed_user(UserRole.user)
+    collab_id, _, _ = await _seed_user(UserRole.sourcer)
+    job_id = await _seed_job(recruiter_id=owner_id)
+    async with AsyncSessionLocal() as db:
+        from app.models.job_collaborator import JobCollaborator
+
+        db.add(JobCollaborator(job_id=job_id, user_id=collab_id, added_by=owner_id))
+        await db.commit()
+
+    headers = await _login(ownership_client, viewer_email, viewer_pass)
+    add = await ownership_client.post(
+        f"/api/jobs/{job_id}/collaborators",
+        headers=headers,
+        json={"user_id": collab_id},
+    )
+    assert add.status_code == 403, add.text
+    remove = await ownership_client.delete(
+        f"/api/jobs/{job_id}/collaborators/{collab_id}", headers=headers
+    )
+    assert remove.status_code == 403, remove.text
+
+
+@pytest.mark.asyncio
+async def test_manual_add_promotes_an_auto_cc_collaborator(
+    ownership_client: AsyncClient,
+):
+    from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
+
+    owner_id, owner_email, owner_pass = await _seed_user(UserRole.recruiter)
+    collab_id, _, _ = await _seed_user(UserRole.sourcer)
+    job_id = await _seed_job(recruiter_id=owner_id)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            JobCollaborator(
+                job_id=job_id,
+                user_id=collab_id,
+                source=JobCollaboratorSource.auto_cc,
+            )
+        )
+        await db.commit()
+
+    headers = await _login(ownership_client, owner_email, owner_pass)
+    resp = await ownership_client.post(
+        f"/api/jobs/{job_id}/collaborators",
+        headers=headers,
+        json={"user_id": collab_id},
+    )
+    assert resp.status_code == 201, resp.text
+
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(JobCollaborator).where(
+                JobCollaborator.job_id == job_id,
+                JobCollaborator.user_id == collab_id,
+            )
+        )
+        assert row is not None
+        assert row.source == JobCollaboratorSource.manual
+        assert row.added_by == owner_id
+
+    detail = await ownership_client.get(f"/api/jobs/{job_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    assert [(c["id"], c["source"]) for c in detail.json()["collaborators"]] == [
+        (collab_id, "manual")
+    ]
 
 
 @pytest.mark.asyncio

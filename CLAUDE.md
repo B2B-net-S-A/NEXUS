@@ -2683,6 +2683,13 @@ miejsce, nie zbiór funkcji.
     Prowadzący (`jobs.recruiter_id`, aktywne konto, niezdjęty ręcznie
     w bieżącym stanie requestu) też pracuje — przypisania powstają tylko
     w puli „Szukamy” przy włączonym przydziale (runda 7 audytu, 26.09.2026).
+    Od 29.09.2026 pracuje też współpracownik dopisany RĘCZNIE
+    (`job_collaborators.source='manual'`, aktywne konto,
+    `_manual_collaborator_job_ids`); `auto_cc` (cała kategoria) się nie liczy.
+    Dopisuje go każdy, kto redaguje rekrutację (`ensure_job_editor` w
+    `POST/DELETE …/collaborators`; zmiana prowadzącego `/owner`, `/claim` bez
+    zmian) — w oknie edycji, na `/jobs/new` i w zakładce „Zespół”; kolumna
+    „Prowadzi” pokazuje „+N” (`lib/job-collaborators.ts`, `collaborators[].source`).
 - **Kolumny:** „Etapy” = te same 8 kolumn co Tablica (Nowi … Zatrudniony),
   rozstrzygane `placeStage` z `lib/board-stages.ts` na `stage_columns` wiersza
   — tą samą regułą co Tablica (QC ma kod `interview`, a mimo to trafia do QC
@@ -4026,6 +4033,8 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
 - **„Kto pracuje” = `job_work_assignments`** (wiersz nigdy nie jest kasowany,
   zdjęcie = `released` z powodem — z tego liczą się „Zmiany od wczoraj”).
   NIE `job_collaborators` (auto_cc = cała kategoria) i NIE plan priorytetów.
+  (Filtr listy `/jobs` „Kto pracuje” od 29.09.2026 liczy dodatkowo ręcznych
+  współpracowników — pulpit i automat przydziału nadal ich nie czytają.)
   Prowadzący rekrutacji (`jobs.recruiter_id` z handoffu, Traffita, ręki) dostaje
   wiersz `source='owner'` przy każdym przebiegu (`_adopt_owners`) — inaczej
   automat dokładałby drugą osobę do requestu, który ktoś już prowadzi; takie

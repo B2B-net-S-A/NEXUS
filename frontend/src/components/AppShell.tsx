@@ -58,6 +58,13 @@ import {
   type CandidateChoice,
 } from "@/components/calendar/CandidateCombobox";
 import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
+import { JobCollaboratorsField } from "@/components/jobs/JobCollaboratorsField";
+import {
+  collaboratorChanges,
+  hasCollaboratorChanges,
+  manualCollaboratorIds,
+  saveCollaboratorChanges,
+} from "@/lib/job-collaborators";
 import {
   sameChoice,
   saveHiringManager,
@@ -1341,6 +1348,9 @@ function JobFormFields({
   users,
   hiringManager,
   onHiringManagerChange,
+  collaborators,
+  onCollaboratorsChange,
+  knownCollaborators,
 }: {
   form: JobFormData;
   onChange: (k: keyof JobFormData, v: string) => void;
@@ -1348,6 +1358,9 @@ function JobFormFields({
   users: any[];
   hiringManager: HiringManagerChoice | null;
   onHiringManagerChange: (value: HiringManagerChoice | null) => void;
+  collaborators: number[];
+  onCollaboratorsChange: (ids: number[]) => void;
+  knownCollaborators?: ReadonlyArray<{ id: number; name?: string | null }>;
 }) {
   const hiringManagerLabelId = useId();
   // 22.09.2026 (strona `/jobs/new`): TAC, Program/Train, typ rekrutacji,
@@ -1456,6 +1469,16 @@ function JobFormFields({
             </option>
           ))}
         </Select>
+      </FieldGroup>
+      {/* Decyzja 29.09.2026: kilka osób pracuje nad rekrutacją — prowadzący
+          zostaje jeden, reszta to współpracownicy (liczą się w „Kto pracuje”). */}
+      <FieldGroup label="Współpracownicy">
+        <JobCollaboratorsField
+          value={collaborators}
+          onChange={onCollaboratorsChange}
+          primaryOwnerId={form.recruiter_id ? Number(form.recruiter_id) : null}
+          knownUsers={knownCollaborators}
+        />
       </FieldGroup>
       <FieldGroup label="Delivery Lead">
         <Select value={form.delivery_lead_id} onChange={e => onChange("delivery_lead_id", e.target.value)}>
@@ -1577,6 +1600,10 @@ export function EditJobModal({
   // 0380: numer u klienta i tytuł dla rekrutera — osobny szkic, bo PATCH
   // wysyła je tylko po zmianie (pusty tytuł = powrót do automatu).
   const [names, setNames] = useState<JobNamesDraft>(() => jobNamesDraft(job));
+  // Ręczni współpracownicy (bez `auto_cc`) — zapis osobnymi trasami po PATCH-u.
+  const [collaborators, setCollaborators] = useState<number[]>(() =>
+    manualCollaboratorIds(job.collaborators),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const contentOnly = scope === "content";
@@ -1609,6 +1636,22 @@ export function EditJobModal({
       return { ...current, [k]: v };
     });
 
+  // Po PATCH-u rekrutacji — jej awaria nie cofa zapisu, tylko mówi, co nie weszło.
+  const saveCollaborators = async (primaryOwnerId: number | null): Promise<boolean> => {
+    const changes = collaboratorChanges(
+      manualCollaboratorIds(job.collaborators),
+      collaborators,
+      primaryOwnerId,
+    );
+    if (!hasCollaboratorChanges(changes)) return true;
+    const failure = await saveCollaboratorChanges(job.id, changes);
+    if (failure) {
+      setError(`Rekrutacja zapisana, ale ${failure}.`);
+      return false;
+    }
+    return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title) { setError("Tytuł jest wymagany"); return; }
@@ -1620,6 +1663,7 @@ export function EditJobModal({
           requirements: form.requirements || undefined,
           ...jobNamesPatch(job, names),
         });
+        if (!(await saveCollaborators(job.recruiter_id ?? null))) return;
         onSuccess("Rekrutacja zaktualizowana");
         onClose();
         return;
@@ -1660,6 +1704,9 @@ export function EditJobModal({
           return;
         }
       }
+      if (!(await saveCollaborators(form.recruiter_id ? Number(form.recruiter_id) : null))) {
+        return;
+      }
       onSuccess("Rekrutacja zaktualizowana");
       onClose();
     } catch (err: any) {
@@ -1680,8 +1727,16 @@ export function EditJobModal({
             <FieldGroup label="Wymagania">
               <Textarea value={form.requirements} onChange={e => onChange("requirements", e.target.value)} rows={4} placeholder="Wymagania techniczne..." />
             </FieldGroup>
+            <FieldGroup label="Współpracownicy">
+              <JobCollaboratorsField
+                value={collaborators}
+                onChange={setCollaborators}
+                primaryOwnerId={job.recruiter_id ?? null}
+                knownUsers={job.collaborators}
+              />
+            </FieldGroup>
             <p className="text-xs text-muted-foreground">
-              Klienta, budżet, zespół, termin i status rekrutacji zmienia Delivery Lead.
+              Klienta, budżet, prowadzącego, termin i status rekrutacji zmienia Delivery Lead.
             </p>
           </>
         ) : (
@@ -1693,6 +1748,9 @@ export function EditJobModal({
               users={users}
               hiringManager={hiringManager}
               onHiringManagerChange={setHiringManager}
+              collaborators={collaborators}
+              onCollaboratorsChange={setCollaborators}
+              knownCollaborators={job.collaborators}
             />
             <JobNamesFields job={job} names={names} onChange={setNames} />
           </>

@@ -6,6 +6,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -160,7 +161,13 @@ beforeEach(() => {
   mocks.refreshClientHistory.mockReturnValue(Promise.resolve({ data: {} }));
   mocks.get.mockImplementation((url: string) =>
     Promise.resolve({
-      data: url === "/api/users" ? [{ id: 31, name: "Rekruterka Ola" }] : {},
+      data:
+        url === "/api/users"
+          ? [
+              { id: 31, name: "Rekruterka Ola", role: "recruiter", roles: [] },
+              { id: 32, name: "Sourcerka Iza", role: "sourcer", roles: [] },
+            ]
+          : {},
     }),
   );
   mocks.put.mockResolvedValue({ data: {} });
@@ -334,7 +341,12 @@ describe("NewJobPage", () => {
 
   it("awaria listy rekruterów → komunikat z „Ponów” przy polu „Prowadzi” (R8-N14-6)", async () => {
     let calls = 0;
-    mocks.get.mockImplementation((url: string) => {
+    mocks.get.mockImplementation((url: string, config?: { params?: unknown }) => {
+      // Lista „Prowadzi” pyta z `params.roles`; katalog pola „Współpracownicy”
+      // (ten sam adres, bez parametrów) nie jest tu testowany.
+      if (url === "/api/users" && !config?.params) {
+        return Promise.resolve({ data: [] });
+      }
       if (url === "/api/users") {
         calls += 1;
         return calls === 1
@@ -689,5 +701,47 @@ describe("NewJobPage — hiring manager z maila", () => {
     expect(
       mocks.put.mock.calls.some(([url]) => url === "/api/jobs/900/hiring-manager"),
     ).toBe(false);
+  });
+});
+
+describe("NewJobPage — współpracownicy (29.09.2026)", () => {
+  async function pickCollaboratorAndHandoff() {
+    const user = userEvent.setup();
+    await screen.findByRole("option", { name: "Rekruterka Ola" });
+    fireEvent.change(screen.getByLabelText("Rekruter prowadzący"), {
+      target: { value: "31" },
+    });
+    await user.click(screen.getByRole("button", { name: /^Współpracownicy:/ }));
+    // Prowadzącej nie da się wybrać — serwer odpowiedziałby 409.
+    const list = await screen.findByRole("listbox");
+    expect(within(list).queryByText("Rekruterka Ola")).toBeNull();
+    await user.click(within(list).getByText("Sourcerka Iza"));
+    await user.keyboard("{Escape}");
+    fireEvent.click(screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900"));
+  }
+
+  it("dopisuje wybranych po utworzeniu rekrutacji", async () => {
+    await readRequest();
+    await pickCollaboratorAndHandoff();
+    expect(mocks.post).toHaveBeenCalledWith("/api/jobs/900/collaborators", {
+      user_id: 32,
+    });
+    expect(mocks.handoff).toHaveBeenCalledWith(900, 31, undefined, "linkedin");
+  });
+
+  it("awaria dopisania nie zatrzymuje utworzenia rekrutacji", async () => {
+    await readRequest();
+    const base = mocks.post.getMockImplementation();
+    mocks.post.mockImplementation((url: string, ...rest: unknown[]) =>
+      url === "/api/jobs/900/collaborators"
+        ? Promise.reject({ response: { status: 403, data: { detail: "brak" } } })
+        : base!(url, ...rest),
+    );
+    await pickCollaboratorAndHandoff();
+    expect(mocks.showError).toHaveBeenCalledWith(
+      expect.stringContaining("Rekrutacja zapisana, ale nie zapisano zmian współpracowników"),
+    );
+    expect(mocks.handoff).toHaveBeenCalled();
   });
 });
