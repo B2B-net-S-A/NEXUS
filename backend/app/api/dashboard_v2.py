@@ -3,19 +3,8 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator
-
-
-def _validate_bounded_month(value: date) -> date:
-    if value.year > 9998:
-        raise ValueError("month year must be 9998 or earlier")
-    return value
-
-
-# A date that is safe to shift forward by one month without overflowing date.max.
-BoundedMonth = Annotated[date, AfterValidator(_validate_bounded_month)]
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import AfterValidator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.capabilities import (
@@ -78,6 +67,16 @@ from app.services.recruitment_activity import (
     list_recruitment_activity_details,
 )
 from app.services.kpi_engine import WARSAW
+
+
+def _validate_bounded_month(value: date) -> date:
+    if value.year > 9998:
+        raise ValueError("month year must be 9998 or earlier")
+    return value
+
+
+# A date that is safe to shift forward by one month without overflowing date.max.
+BoundedMonth = Annotated[date, AfterValidator(_validate_bounded_month)]
 
 # Bramki sekcji per trasa (F02, audyt 14.09.2026): pulpity czytają dane różnych
 # sekcji, więc jedna bramka na routerze odcięłaby np. Delivery Leada bez
