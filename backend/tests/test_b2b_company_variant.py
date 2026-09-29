@@ -562,6 +562,14 @@ async def test_render_takes_assigned_person_from_the_recruitment(
 async def test_html_preview_endpoint_renders_company_variant(
     app_client, app_auth_headers
 ):
+    # Podgląd czyta szablon HTML z bazy; w aplikacji zasiewa go start
+    # (`ensure_b2b_seed_data`), w bazie testowej — nikt.
+    from app.core.database import AsyncSessionLocal
+    from app.services.b2b_contract_generator.seeder import ensure_b2b_seed_data
+
+    async with AsyncSessionLocal() as db:
+        await ensure_b2b_seed_data(db)
+
     payload = {
         **{k: v for k, v in _BASE.items() if k not in ("signing_date", "start_date")},
         **_COMPANY,
