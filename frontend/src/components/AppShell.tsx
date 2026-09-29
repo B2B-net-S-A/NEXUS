@@ -1637,19 +1637,15 @@ export function EditJobModal({
     });
 
   // Po PATCH-u rekrutacji — jej awaria nie cofa zapisu, tylko mówi, co nie weszło.
-  const saveCollaborators = async (primaryOwnerId: number | null): Promise<boolean> => {
+  /** `null` = zapisane (albo bez zmian); inaczej polskie zdanie o błędzie. */
+  const saveCollaborators = async (primaryOwnerId: number | null): Promise<string | null> => {
     const changes = collaboratorChanges(
       manualCollaboratorIds(job.collaborators),
       collaborators,
       primaryOwnerId,
     );
-    if (!hasCollaboratorChanges(changes)) return true;
-    const failure = await saveCollaboratorChanges(job.id, changes);
-    if (failure) {
-      setError(`Rekrutacja zapisana, ale ${failure}.`);
-      return false;
-    }
-    return true;
+    if (!hasCollaboratorChanges(changes)) return null;
+    return saveCollaboratorChanges(job.id, changes);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1663,7 +1659,11 @@ export function EditJobModal({
           requirements: form.requirements || undefined,
           ...jobNamesPatch(job, names),
         });
-        if (!(await saveCollaborators(job.recruiter_id ?? null))) return;
+        const failure = await saveCollaborators(job.recruiter_id ?? null);
+        if (failure) {
+          setError(`Rekrutacja zapisana, ale ${failure}.`);
+          return;
+        }
         onSuccess("Rekrutacja zaktualizowana");
         onClose();
         return;
@@ -1694,17 +1694,22 @@ export function EditJobModal({
         delivery_lead_id: form.delivery_lead_id ? Number(form.delivery_lead_id) : null,
         ...jobNamesPatch(job, names),
       });
+      // Hiring manager i współpracownicy to dwa niezależne zapisy po
+      // rekrutacji — błąd jednego nie może pominąć drugiego.
+      const failures: string[] = [];
       if (!sameChoice(hiringManager, jobHiringManager(job))) {
         try {
           await saveHiringManager(job.id, hiringManager);
         } catch (err: any) {
-          setError(
-            `Rekrutacja zapisana, ale hiring manager nie: ${formErrorMsg(err, "błąd zapisu")}`,
-          );
-          return;
+          failures.push(`hiring manager nie (${formErrorMsg(err, "błąd zapisu")})`);
         }
       }
-      if (!(await saveCollaborators(form.recruiter_id ? Number(form.recruiter_id) : null))) {
+      const collaboratorFailure = await saveCollaborators(
+        form.recruiter_id ? Number(form.recruiter_id) : null,
+      );
+      if (collaboratorFailure) failures.push(collaboratorFailure);
+      if (failures.length > 0) {
+        setError(`Rekrutacja zapisana, ale ${failures.join("; ")}.`);
         return;
       }
       onSuccess("Rekrutacja zaktualizowana");

@@ -27,6 +27,8 @@ export interface JobCollaboratorEntry {
   name?: string | null;
   /** Brak pola (starsze odpowiedzi) = dodany ręcznie. */
   source?: string | null;
+  /** Nieaktywne konto nie liczy się do „+N” (tak jak w „Kto pracuje”). */
+  is_active?: boolean | null;
 }
 
 export function manualCollaborators<T extends JobCollaboratorEntry>(
@@ -98,11 +100,17 @@ export async function saveCollaboratorChanges(
     : `zapisano ${total - failures.length} z ${total} zmian współpracowników (${failures[0]})`;
 }
 
-/** „+N” obok prowadzącego w kolumnie „Prowadzi” i treść podpowiedzi. */
+/**
+ * „+N” obok prowadzącego w kolumnie „Prowadzi” i treść podpowiedzi. Liczy
+ * tylko aktywne konta — ta sama reguła co filtr „Kto pracuje”, inaczej wiersz
+ * mówiłby „+1” i jednocześnie „Nikt nie pracuje”.
+ */
 export function collaboratorsSummary(
   collaborators: readonly JobCollaboratorEntry[] | null | undefined,
 ): { count: number; tooltip: string } {
-  const manual = manualCollaborators(collaborators);
+  const manual = manualCollaborators(collaborators).filter(
+    (c) => c.is_active !== false,
+  );
   const names = manual.map((c) => c.name?.trim() || `#${c.id}`);
   return {
     count: manual.length,
