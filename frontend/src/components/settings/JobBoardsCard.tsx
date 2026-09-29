@@ -151,6 +151,7 @@ export default function JobBoardsCard() {
   const data = connection.data;
   const status = data?.status ?? "not_connected";
   const connected = status !== "not_connected";
+  const staticKey = data?.auth_mode === "static";
 
   return (
     <div className="rounded-2xl border border-border bg-card p-6">
@@ -186,7 +187,20 @@ export default function JobBoardsCard() {
         </p>
       ) : (
         <div className="flex flex-col gap-4">
-          {!data?.oauth_configured ? (
+          {staticKey ? (
+            <p className="text-sm text-muted-foreground">
+              Połączone kluczem API
+              {data?.token_expires_at ? ` · ważny do ${formatDate(data.token_expires_at)}` : ""}
+            </p>
+          ) : null}
+          {staticKey && data?.token_expiring ? (
+            <Alert
+              variant="warning"
+              title="Klucz API wkrótce wygaśnie"
+              description="Poproś RocketJobs o nowy klucz i podmień go na serwerze — po wygaśnięciu publikacja i zamykanie ogłoszeń staną."
+            />
+          ) : null}
+          {!staticKey && !data?.oauth_configured ? (
             <Alert
               variant="warning"
               title="Brak konfiguracji OAuth na serwerze"
@@ -206,7 +220,7 @@ export default function JobBoardsCard() {
             </p>
           ) : null}
 
-          {connected ? (
+          {connected && !staticKey ? (
             <p className="text-sm text-muted-foreground">
               Połączył(a): <span className="font-medium text-foreground">{data?.connected_by_name ?? "—"}</span>
               {data?.connected_at ? ` · ${formatRelativeTime(data.connected_at)}` : ""}
@@ -221,43 +235,45 @@ export default function JobBoardsCard() {
             </ul>
           ) : null}
 
-          <div className="flex flex-wrap items-center gap-3">
-            {status !== "active" ? (
-              <Button
-                type="button"
-                onClick={() => connect.mutate()}
-                loading={connect.isPending}
-                disabled={!data?.oauth_configured}
-              >
-                <Plug className="mr-1 h-4 w-4" />
-                {status === "reconnect_required" ? "Połącz ponownie" : "Połącz konto"}
-              </Button>
-            ) : null}
-            {connected ? (
-              !confirmDisconnect ? (
-                <Button type="button" variant="outline" onClick={() => setConfirmDisconnect(true)}>
-                  <Trash2 className="mr-1 h-4 w-4" />
-                  Rozłącz
+          {staticKey ? null : (
+            <div className="flex flex-wrap items-center gap-3">
+              {status !== "active" ? (
+                <Button
+                  type="button"
+                  onClick={() => connect.mutate()}
+                  loading={connect.isPending}
+                  disabled={!data?.oauth_configured}
+                >
+                  <Plug className="mr-1 h-4 w-4" />
+                  {status === "reconnect_required" ? "Połącz ponownie" : "Połącz konto"}
                 </Button>
-              ) : (
-                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  <span>Rozłączyć? Publikacje na obu portalach staną.</span>
-                  <button
-                    type="button"
-                    onClick={() => disconnect.mutate()}
-                    disabled={disconnect.isPending}
-                    className="font-semibold hover:underline disabled:opacity-50"
-                  >
-                    {disconnect.isPending ? "Rozłączam…" : "Tak, rozłącz"}
-                  </button>
-                  <span aria-hidden>·</span>
-                  <button type="button" onClick={() => setConfirmDisconnect(false)} className="hover:underline">
-                    Anuluj
-                  </button>
-                </div>
-              )
-            ) : null}
-          </div>
+              ) : null}
+              {connected ? (
+                !confirmDisconnect ? (
+                  <Button type="button" variant="outline" onClick={() => setConfirmDisconnect(true)}>
+                    <Trash2 className="mr-1 h-4 w-4" />
+                    Rozłącz
+                  </Button>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    <span>Rozłączyć? Publikacje na obu portalach staną.</span>
+                    <button
+                      type="button"
+                      onClick={() => disconnect.mutate()}
+                      disabled={disconnect.isPending}
+                      className="font-semibold hover:underline disabled:opacity-50"
+                    >
+                      {disconnect.isPending ? "Rozłączam…" : "Tak, rozłącz"}
+                    </button>
+                    <span aria-hidden>·</span>
+                    <button type="button" onClick={() => setConfirmDisconnect(false)} className="hover:underline">
+                      Anuluj
+                    </button>
+                  </div>
+                )
+              ) : null}
+            </div>
+          )}
         </div>
       )}
     </div>

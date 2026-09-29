@@ -1,8 +1,13 @@
-"""Połączone konto firmy w JustJoin.IT / RocketJobs — OAuth i tokeny (0381).
+"""Połączone konto firmy w JustJoin.IT / RocketJobs — klucz API albo OAuth (0381).
 
-Employer Public API ma wyłącznie ``authorization_code`` (+ ``refresh_token``),
-bez trybu serwer-serwer. Admin łączy konto RAZ w Ustawieniach → Portale
-ogłoszeniowe; dalej pracujemy na odświeżanym tokenie.
+Dwa tryby (``auth_mode``):
+
+* ``static`` — statyczny klucz API (JWT ważny do 2 lat) z env
+  ``JJIT_STATIC_ACCESS_TOKEN``. Rekomendacja dostawcy dla integracji
+  serwer-serwer (29.09.2026): bez przycisku „Połącz”, bez rotacji refresh
+  tokenu. Jednostkę organizacyjną czytamy raz z ``/organizations/units``.
+* ``oauth`` — ``authorization_code`` + ``refresh_token``. Admin łączy konto
+  RAZ w Ustawieniach → Portale ogłoszeniowe; dalej odświeżany token.
 
 Dwie reguły, które łatwo zepsuć:
 
@@ -44,7 +49,11 @@ from app.models.job_board_connection import (
     STATUS_RECONNECT_REQUIRED,
     JobBoardConnection,
 )
-from app.services.job_portals.base import PortalError, PortalReconnectRequired
+from app.services.job_portals.base import (
+    PortalError,
+    PortalReconnectRequired,
+    jjit_static_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +72,38 @@ _UNIT_OVERRIDE = {
 # nie jednostki (ścieżki ogłoszeń z nim nie działają). Jednostkę podaje
 # `GET /employer/organizations/units`; jedna jednostka obsługuje oba portale.
 _UNIT_CLAIMS = ("organization_unit_id", "organizationUnitId")
+
+
+STATIC_UNITS_KEY = "jjit_static_units"
+# Ostrzeżenie w Ustawieniach i w `checks.job_portals` na tyle dni przed końcem
+# ważności klucza API — dostawca wystawia nowy na prośbę.
+STATIC_TOKEN_WARN_DAYS = 30
+
+
+def auth_mode() -> str:
+    return "static" if jjit_static_token() else "oauth"
+
+
+def static_token_expires_at() -> Optional[datetime]:
+    """``exp`` z klucza API — WYŁĄCZNIE do wyświetlenia (bez weryfikacji
+    podpisu: sekret zna tylko dostawca, a ważność i tak sprawdza portal)."""
+    token = jjit_static_token()
+    if not token:
+        return None
+    try:
+        claims = jwt.get_unverified_claims(token)
+        return datetime.fromtimestamp(int(claims["exp"]), tz=timezone.utc)
+    except (JWTError, KeyError, TypeError, ValueError, OverflowError):
+        return None
+
+
+def static_token_expiring(now: Optional[datetime] = None) -> bool:
+    """Klucz API wygasa w ciągu ``STATIC_TOKEN_WARN_DAYS`` dni (albo wygasł)."""
+    expires = static_token_expires_at()
+    if expires is None:
+        return False
+    now = now or datetime.now(timezone.utc)
+    return expires - now <= timedelta(days=STATIC_TOKEN_WARN_DAYS)
 
 
 class ConnectionNotConfigured(RuntimeError):
@@ -349,6 +390,16 @@ async def is_connected(db: AsyncSession) -> bool:
 
 async def access_token(force_refresh: bool = False) -> str:
     """Ważny token dostępu — odświeżenie we własnej sesji, zapis od razu."""
+    static = jjit_static_token()
+    if static:
+        if force_refresh:
+            # Klient ponawia raz po 401 z `force_refresh=True`; klucza API nie
+            # da się odświeżyć — odrzucony znaczy nieważny albo wygasły.
+            raise PortalReconnectRequired(
+                "Portal odrzucił klucz API albo klucz wygasł — poproś RocketJobs "
+                "o nowy i podmień JJIT_STATIC_ACCESS_TOKEN."
+            )
+        return static
     from app.core.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
@@ -390,6 +441,45 @@ async def access_token(force_refresh: bool = False) -> str:
         token = str(body["access_token"])
         await db.commit()
         return token
+
+
+def _token_fingerprint(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+
+
+async def resolve_unit(db: AsyncSession, board: str) -> Optional[str]:
+    """Jednostka dla portalu: env > wiersz połączenia > (tryb klucza API)
+    jednostka konta z ``/organizations/units``, zapamiętana per klucz.
+
+    Pamięć niesie odcisk klucza — nowy klucz (np. inne konto) czyta jednostkę
+    od nowa zamiast publikować na starej.
+    """
+    row = await load(db)
+    unit = unit_for(row, board)
+    token = jjit_static_token()
+    if unit or not token:
+        return unit
+    fingerprint = _token_fingerprint(token)
+    cached = await db.get(AppSetting, STATIC_UNITS_KEY)
+    value = (
+        cached.value if cached is not None and isinstance(cached.value, dict) else {}
+    )
+    if value.get("token") == fingerprint and isinstance(value.get("units"), dict):
+        return value["units"].get(board)
+    from app.services.job_portals.jjit_client import JjitApi
+
+    units = resolve_units({}, await JjitApi().units())
+    stmt = pg_insert(AppSetting).values(
+        key=STATIC_UNITS_KEY, value={"token": fingerprint, "units": units}
+    )
+    await db.execute(
+        stmt.on_conflict_do_update(
+            index_elements=[AppSetting.key],
+            set_={"value": stmt.excluded.value},
+        )
+    )
+    await db.commit()
+    return units.get(board)
 
 
 def unit_for(row: Optional[JobBoardConnection], board: str) -> Optional[str]:

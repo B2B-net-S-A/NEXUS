@@ -5,8 +5,11 @@
     GET    /api/job-boards/jjit/callback     — powrót z logowania (bez sesji NEXUSA)
     DELETE /api/job-boards/jjit/connection   — rozłączenie (admin)
 
-Dostawca ma wyłącznie ``authorization_code``: konto łączy RAZ osoba, która
-ma login pracodawcy B2B.NET, a dalej pracujemy na odświeżanym tokenie
+Tryb podstawowy (rekomendacja dostawcy, 29.09.2026) to statyczny klucz API
+z env ``JJIT_STATIC_ACCESS_TOKEN`` — wtedy GET zwraca ``auth_mode=static``
+i nie ma czego łączyć. Tryb zapasowy OAuth (``authorization_code``): konto
+łączy RAZ osoba, która ma login pracodawcy B2B.NET, a dalej pracujemy na
+odświeżanym tokenie
 (``services/job_portals/jjit_connection``). Callback nie ma sesji NEXUSA —
 tożsamość niesie podpisany ``state`` (wzór ``api/microsoft365.py``), a rola
 admina jest sprawdzana ponownie przed wymianą kodu.
@@ -77,6 +80,10 @@ class BoardState(BaseModel):
 
 class JobBoardConnectionRead(BaseModel):
     oauth_configured: bool
+    # `static` = klucz API z env (bez „Połącz”), `oauth` = konto łączone przez admina.
+    auth_mode: str = "oauth"
+    token_expires_at: Optional[datetime] = None
+    token_expiring: bool = False
     status: str  # not_connected | active | reconnect_required
     connected_by_name: Optional[str] = None
     connected_at: Optional[datetime] = None
@@ -134,34 +141,44 @@ async def get_connection(
     request: Request, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> JobBoardConnectionRead:
     row = await jjit_connection.load(db)
+    static = jjit_connection.auth_mode() == "static"
     connected_by = (
-        await db.get(User, row.connected_by) if row and row.connected_by else None
+        await db.get(User, row.connected_by)
+        if row and row.connected_by and not static
+        else None
     )
+    status = "active" if static else (row.status if row else "not_connected")
     boards: list[BoardState] = []
     for portal in JJIT_FAMILY:
         board = portal.value
-        unit = jjit_connection.unit_for(row, board)
         state = BoardState(
             board=board,
             label=_LABELS[board],
             enabled=PortalConfig.from_settings(portal).enabled,
-            organization_unit_id=unit,
         )
-        if row is not None and row.status == "active" and state.enabled and unit:
+        if status == "active" and state.enabled:
             from app.services.job_portals.jjit_client import JjitApi
 
             try:
-                state.balance = _balance(board, await JjitApi().balance(unit))
+                unit = await jjit_connection.resolve_unit(db, board)
+                state.organization_unit_id = unit
+                if unit:
+                    state.balance = _balance(board, await JjitApi().balance(unit))
             except PortalError as exc:
                 state.balance_error = exc.message
+        else:
+            state.organization_unit_id = jjit_connection.unit_for(row, board)
         boards.append(state)
     return JobBoardConnectionRead(
         oauth_configured=jjit_connection.oauth_configured(),
-        status=row.status if row else "not_connected",
+        auth_mode="static" if static else "oauth",
+        token_expires_at=jjit_connection.static_token_expires_at() if static else None,
+        token_expiring=static and jjit_connection.static_token_expiring(),
+        status=status,
         connected_by_name=getattr(connected_by, "name", None)
         or getattr(connected_by, "email", None),
-        connected_at=row.connected_at if row else None,
-        last_error=row.last_error if row else None,
+        connected_at=row.connected_at if row and not static else None,
+        last_error=row.last_error if row and not static else None,
         boards=boards,
     )
 

@@ -117,6 +117,10 @@ export interface JobBoardConnectionBoard {
 
 export interface JobBoardConnectionRead {
   oauth_configured: boolean;
+  /** `static` = klucz API z serwera (bez „Połącz”), `oauth` = konto łączone przez admina. */
+  auth_mode?: "static" | "oauth";
+  token_expires_at?: string | null;
+  token_expiring?: boolean;
   status: "not_connected" | "active" | "reconnect_required";
   connected_by_name: string | null;
   connected_at: string | null;

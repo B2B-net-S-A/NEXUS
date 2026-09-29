@@ -3433,7 +3433,18 @@ połączone konto firmy (`job_board_connections`). Za flagami
 odpowiedź integration@rocketjobs.com. Kontrakt API frontu:
 `docs/job-boards-rocketjobs-contract.md`.
 
-- **Konto łączy admin RAZ** (Ustawienia → System → Portale ogłoszeniowe,
+- **Tryb podstawowy = statyczny klucz API** (`JJIT_STATIC_ACCESS_TOKEN`,
+  JWT ważny do 2 lat — rekomendacja dostawcy dla serwer-serwer, 29.09.2026).
+  Ustawiony klucz: portal jest „ready” bez `JJIT_OAUTH_*` i bez wiersza
+  połączenia, Ustawienia pokazują „Połączone kluczem API · ważny do …” (data
+  z `exp`, bez weryfikacji podpisu) i ostrzegają 30 dni przed końcem (także
+  `checks.job_portals` = `degraded`). 401 po kluczu = `PortalReconnectRequired`
+  („poproś o nowy klucz”), bez odświeżania. Jednostkę czyta
+  `jjit_connection.resolve_unit` z `/organizations/units` i trzyma
+  w `app_settings['jjit_static_units']` z odciskiem klucza — nowy klucz czyta
+  ją od nowa. Klucz ustawia się WYŁĄCZNIE workflowem „Coolify set env”
+  z `value_from_secret`.
+- **Tryb zapasowy OAuth: konto łączy admin RAZ** (Ustawienia → System → Portale ogłoszeniowe,
   `api/job_board_connection.py`). Dostawca ma tylko `authorization_code` +
   refresh token. Odświeżenie tokenu idzie we WŁASNEJ sesji z natychmiastowym
   commitem i pod `FOR UPDATE` wiersza (`jjit_connection.access_token`) —

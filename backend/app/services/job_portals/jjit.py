@@ -52,8 +52,7 @@ class JjitBoardAdapter(PortalAdapter):
 
     async def _unit(self) -> str:
         async with AsyncSessionLocal() as db:
-            row = await jjit_connection.load(db)
-        unit = jjit_connection.unit_for(row, self.board)
+            unit = await jjit_connection.resolve_unit(db, self.board)
         if not unit:
             raise PortalError(
                 f"Brak identyfikatora jednostki organizacyjnej {self.label} — "
