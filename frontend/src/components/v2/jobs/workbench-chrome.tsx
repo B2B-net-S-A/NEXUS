@@ -28,7 +28,8 @@ import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { TabbedNav } from "@/components/ds";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
-import { cn, formatDate } from "@/lib/utils";
+import { JobNotesList } from "@/components/v2/candidate-profile/JobNotesList";
+import { cn } from "@/lib/utils";
 
 /** Tony makiety: `ok` (zielony), `warn`, `bad`, `info`, `neutral`. */
 export type ChromeTone = "ok" | "warn" | "bad" | "info" | "neutral";
@@ -634,6 +635,9 @@ interface NoteListItem {
   content_rendered?: string | null;
   author_name?: string | null;
   created_at: string;
+  is_system?: boolean;
+  pinned_at?: string | null;
+  replies?: NoteListItem[];
 }
 
 /**
@@ -759,29 +763,10 @@ export function DockNotesPanel({
         </div>
       ) : notesQuery.isError ? (
         <DockLoadError what="notatki" onRetry={() => void notesQuery.refetch()} />
-      ) : items.length > 0 ? (
-        <div className="space-y-2">
-          {items.map((n) => (
-            <div
-              key={n.id}
-              className="rounded-lg border border-border bg-muted/20 p-2.5 text-xs"
-            >
-              <div className="mb-1 flex items-center justify-between text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {n.author_name ?? "Nieznany autor"}
-                </span>
-                <span>{formatDate(n.created_at)}</span>
-              </div>
-              <p className="whitespace-pre-line text-foreground">
-                {n.content_rendered ?? n.content}
-              </p>
-            </div>
-          ))}
-        </div>
       ) : notesQuery.isSuccess ? (
-        <p className="text-xs text-muted-foreground">
-          Brak notatek dla tej rekrutacji.
-        </p>
+        // Ta sama lista co w „Historii” profilu: odpowiedzi, przypięte
+        // pierwsze, notatki automatów za „Pokaż systemowe (N)”.
+        <JobNotesList candidateId={candidateId} notes={items} readOnly={readOnly} />
       ) : null}
     </div>
   );

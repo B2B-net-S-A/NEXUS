@@ -14,7 +14,7 @@
 
 import * as React from "react";
 import { useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Download, FileText, Loader2 } from "lucide-react";
 
 import api, { callsApi, extractErrorMsg, type Call } from "@/lib/api";
@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils";
 import { NoteComposer, NotesList } from "./Notes";
 import { TimelineTab } from "./Timeline";
 import { SectionError, SectionLoading } from "./profile-shared";
+import { useNoteActions } from "./useNoteActions";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- oś czasu i notatki są luźno typowane */
 
@@ -103,7 +104,6 @@ export function HistoryTab({
   composeRequest,
   onComposeHandled,
 }: HistoryTabProps) {
-  const queryClient = useQueryClient();
   const { showError } = useToast();
   const [noteText, setNoteText] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
@@ -144,14 +144,13 @@ export function HistoryTab({
     enabled: candidateId > 0 && activityView === "calls",
   });
 
-  const invalidateNotes = () => {
-    queryClient.invalidateQueries({
-      queryKey: candidateQueryKeys.timelineRoot(candidateId),
-    });
-    queryClient.invalidateQueries({
-      queryKey: candidateQueryKeys.notes(candidateId),
-    });
-  };
+  const {
+    invalidateNotes,
+    editNote: handleEditNote,
+    pinNote: handlePinNote,
+    replyToNote: handleReplyNote,
+    deleteNote: handleDeleteNote,
+  } = useNoteActions(candidateId, readOnly);
 
   const handleAddNote = async (jobId?: number | null) => {
     if (readOnly || !noteText.trim()) return;
@@ -172,66 +171,6 @@ export function HistoryTab({
       showError(extractErrorMsg(e) || "Nie udało się dodać notatki");
     } finally {
       setNoteSaving(false);
-    }
-  };
-
-  // PATCH re-parsuje @wzmianki; wynik bool — lista wychodzi z edycji po sukcesie.
-  const handleEditNote = async (noteId: number, content: string) => {
-    if (readOnly) return false;
-    try {
-      await api.patch(`/api/notes/${noteId}`, { content });
-      invalidateNotes();
-      return true;
-    } catch (e) {
-      showError(extractErrorMsg(e) || "Nie udało się zapisać notatki");
-      return false;
-    }
-  };
-
-  // Przypięcie jest wspólne dla zespołu (0399) — każdy z prawem zapisu notatek.
-  const handlePinNote = async (noteId: number, pinned: boolean) => {
-    if (readOnly) return false;
-    try {
-      if (pinned) await api.post(`/api/notes/${noteId}/pin`);
-      else await api.delete(`/api/notes/${noteId}/pin`);
-      invalidateNotes();
-      return true;
-    } catch (e) {
-      showError(
-        extractErrorMsg(e) ||
-          (pinned ? "Nie udało się przypiąć notatki" : "Nie udało się odpiąć notatki"),
-      );
-      return false;
-    }
-  };
-
-  // Odpowiedź dziedziczy kandydata i rekrutację notatki głównej (serwer).
-  const handleReplyNote = async (parentId: number, content: string) => {
-    if (readOnly) return false;
-    try {
-      await api.post("/api/notes", {
-        parent_note_id: parentId,
-        content,
-        note_type: "general",
-      });
-      invalidateNotes();
-      return true;
-    } catch (e) {
-      showError(extractErrorMsg(e) || "Nie udało się dodać odpowiedzi");
-      return false;
-    }
-  };
-
-  // Backend kaskaduje NoteMention; 403 gdy nie autor i nie admin.
-  const handleDeleteNote = async (noteId: number) => {
-    if (readOnly) return false;
-    try {
-      await api.delete(`/api/notes/${noteId}`);
-      invalidateNotes();
-      return true;
-    } catch (e) {
-      showError(extractErrorMsg(e) || "Nie udało się usunąć notatki");
-      return false;
     }
   };
 

@@ -61,12 +61,15 @@ from app.services.note_mention_render import (
 from app.services.traffit.client import TraffitClient
 from app.services.traffit.mappers import (
     _parse_traffit_datetime,
+    employee_files_from_detail,
     select_all_files_with_priority,
     select_primary_cv_file,
     traffit_activity_to_activity,
     traffit_client_to_nexus,
     traffit_crm_person_to_nexus,
     traffit_employee_to_candidate,
+    traffit_file_upload_date,
+    traffit_file_upload_dates,
     traffit_recruitment_history_to_stage,
     traffit_recruitment_to_job,
     traffit_responsible_user_id,
@@ -4406,6 +4409,31 @@ class TraffitImporter:
                     {**doc_params, "is_primary": False},
                 )
 
+    async def _employee_file_upload_dates(
+        self, traffit_id: Any
+    ) -> dict[str, Optional[datetime]]:
+        """Daty wgrania plików osoby z detalu `/employees/{id}` (29.09.2026).
+
+        Data to wzbogacenie, nie warunek zapisu pliku: awaria detalu daje
+        pusty słownik (dokument bez `uploaded_at`, jak dotąd), a nie błąd fazy,
+        który wstrzymałby watermark. Naprawę istniejących dokumentów robi
+        `traffit_file_dates_repair`.
+        """
+        try:
+            resp = await self.traffit._get_raw(  # noqa: SLF001
+                f"/employees/{traffit_id}", page=1, page_size=1
+            )
+            if resp.status_code != 200:
+                return {}
+            return traffit_file_upload_dates(employee_files_from_detail(resp.json()))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Traffit employee %s detail for file dates failed: %s",
+                traffit_id,
+                type(exc).__name__,
+            )
+            return {}
+
     async def _delta_cv_targets(
         self, since: datetime, source_since: Optional[datetime] = None
     ):
@@ -4682,6 +4710,9 @@ class TraffitImporter:
                     progress.inserted += len(files_sorted)
                     continue
 
+                # Daty wgrania z detalu osoby — pobierane raz, dopiero gdy
+                # jest nowy plik bez daty na liście (29.09.2026).
+                detail_dates: Optional[dict[str, Optional[datetime]]] = None
                 # Pobierz binary dla każdego pliku
                 for f in files_sorted:
                     file_id = f["id"]
@@ -4692,7 +4723,21 @@ class TraffitImporter:
                         continue
                     filename = f.get("name") or f"file-{file_id}"
                     is_primary = bool(f.get("is_primary", False))
-                    uploaded_at_raw = f.get("file_uploaded") or f.get("created_at")
+                    # Lista `/files` nie niesie daty wgrania — ma ją detal
+                    # osoby (`files: [{filename, file_uploaded}]`, bez id
+                    # pliku, więc łączenie po nazwie). Bez niej dokument
+                    # pokazywał dzień importu jako „dodano”.
+                    uploaded_at = _parse_traffit_datetime(
+                        f.get("file_uploaded") or f.get("created_at")
+                    )
+                    if uploaded_at is None:
+                        if detail_dates is None:
+                            detail_dates = await self._employee_file_upload_dates(
+                                traffit_id
+                            )
+                        uploaded_at = traffit_file_upload_date(
+                            f.get("name"), detail_dates
+                        )
                     try:
                         token = await self.traffit._ensure_token()  # noqa: SLF001
                         url = (
@@ -4720,11 +4765,6 @@ class TraffitImporter:
                         # Strip charset suffix (e.g. "application/pdf; charset=utf-8")
                         if ";" in content_type:
                             content_type = content_type.split(";", 1)[0].strip()
-
-                        # Parse uploaded_at z formatu Traffita
-                        from app.services.traffit.mappers import _parse_traffit_datetime
-
-                        uploaded_at = _parse_traffit_datetime(uploaded_at_raw)
 
                         # Upload do Hetzner Object Storage (audit-2026-05-07 Faza 3).
                         # Bez S3 envów — fallback na BYTEA byłby tutaj kuszący ale

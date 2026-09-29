@@ -30,6 +30,7 @@ import type { PresenceViewer } from "@/hooks/usePresence";
 import { noteTypeLabel } from "@/components/v2/pages/candidate-timeline-labels";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import {
+  collapsedNotePreview,
   isLongNote,
   noteDateLabel,
   noteRecruitmentOptions,
@@ -235,6 +236,8 @@ export function NotesList({
   readOnly = false,
   focusedNoteId = null,
   now,
+  emptyText = "Brak notatek.",
+  hideRecruitment = false,
 }: {
   notes: any[];
   recruitments?: any[];
@@ -250,6 +253,10 @@ export function NotesList({
   focusedNoteId?: number | null;
   /** Wstrzykiwany zegar (harness, testy). */
   now?: Date;
+  /** Pusty stan, gdy kandydat nie ma żadnej notatki w tym zakresie. */
+  emptyText?: string;
+  /** Lista jednej rekrutacji (dok osoby): bez filtra i plakietki rekrutacji. */
+  hideRecruitment?: boolean;
 }) {
   const notes = useMemo(
     () =>
@@ -345,6 +352,9 @@ export function NotesList({
     const text = unwrapNoteContent(n.content_rendered ?? n.content);
     const long = isLongNote(text);
     const open = expanded.has(Number(n.id)) || Number(n.id) === focusedNoteId;
+    // Zwinięta: pierwsze linie Z TEKSTEM (bez pustych akapitów z Traffita),
+    // inaczej podgląd bywał samym wierszem wzmianek i „…”.
+    const shownText = long && !open ? collapsedNotePreview(text) : text;
     return (
       <>
         <p
@@ -353,7 +363,7 @@ export function NotesList({
             long && !open && "line-clamp-4",
           )}
         >
-          {renderWithMentions(text, usersByEmail)}
+          {renderWithMentions(shownText, usersByEmail)}
         </p>
         {long ? (
           <button
@@ -520,7 +530,7 @@ export function NotesList({
     <div className="space-y-2">
       {notes.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          {options.length > 2 ? (
+          {options.length > 2 && !hideRecruitment ? (
             <label className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
               <Target className="h-3.5 w-3.5 shrink-0" />
               <span className="sr-only">Filtr rekrutacji</span>
@@ -554,14 +564,14 @@ export function NotesList({
 
       {listed.length === 0 ? (
         <div className="py-6 text-center text-sm text-muted-foreground">
-          {notes.length === 0
-            ? "Brak notatek."
-            : "Brak notatek dla wybranych filtrów."}
+          {notes.length === 0 ? emptyText : "Brak notatek dla wybranych filtrów."}
         </div>
       ) : (
         listed.map((n: any, i: number) => {
           const isEditing = editingId != null && editingId === n.id;
-          const jobTitle = n.job_title ?? jobTitleById.get(Number(n.job_id));
+          const jobTitle = hideRecruitment
+            ? null
+            : n.job_title ?? jobTitleById.get(Number(n.job_id));
           const replies: any[] = Array.isArray(n.replies) ? n.replies : [];
           const pinned = n.pinned_at != null;
           return (

@@ -152,6 +152,9 @@ class _FakeTraffit:
 
     async def _get_raw(self, path, page=1, page_size=50):
         emp = path.split("/")[2]
+        if not path.rstrip("/").endswith("/files"):
+            # Detal osoby (daty wgrania plików, 29.09.2026) — tu nieistotny.
+            return _FakeResp(status_code=404)
         self.listed.append(emp)
         return _FakeResp(payload=self.files_by_emp.get(emp, []))
 

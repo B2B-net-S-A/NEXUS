@@ -10,8 +10,14 @@ zostaje w parserze. Ta warstwa dokłada to, czego tamta nie czyta::
     Kierownik projektu Wojciech Sokolnicki
 
 Nagłówek w jednej linii, wartości w następnej. Nazwisko = OSTATNIE dwa tokeny
-linii pod nagłówkiem (przed nimi stoi profil) — jednoosobowy dokument, więc
-przy trzyczłonowym nazwisku oznaczamy niepewność zamiast zgadywać.
+linii pod nagłówkiem (przed nimi stoi profil, bywa kilkuwyrazowy: „Programista
+Power Platform"). Niepewne jest nazwisko, którego dwa ostatnie tokeny nie
+wyglądają na imię i nazwisko; trzyczłonowe nazwisko łapie bramka, bo model
+czyta osobę niezależnie i jego odczyt musi się zgadzać z tym wierszem.
+
+Stawka wiersza pochodzi ze wzoru „<netto MD>*1,23*<liczba MD>" (ta sama reguła
+MD → h co w ciele polityki). Bez stawki bramka uznawała KAŻDY dokument za
+niepotwierdzony i nic nie zapisywało się automatem (zgłoszenie 29.09.2026).
 """
 
 from __future__ import annotations
@@ -19,6 +25,10 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from app.services.order_pdf_parser import (
+    _bp_hourly_from_md,
+    bank_pocztowy_net_md_rate,
+)
 from app.services.order_policies._shared import (
     ConsultantOrderRow,
     OrderExtraction,
@@ -32,6 +42,9 @@ _PERIOD_HEADER_RE = re.compile(
 )
 _TWO_DATES_RE = re.compile(r"(\d{1,2}\.\d{1,2}\.\d{4})\s+(\d{1,2}\.\d{1,2}\.\d{4})")
 _NAME_HEADER_RE = re.compile(r"Imi[ęe]\s+i\s+nazwisko", re.IGNORECASE)
+# Imię albo nazwisko: wielka litera, dalej litery; nazwisko dwuczłonowe
+# z myślnikiem („Nowak-Kowalska") to jeden token.
+_NAME_TOKEN_RE = re.compile(r"[^\W\d_][^\W\d_]+(?:-[^\W\d_][^\W\d_]+)*")
 
 
 def period(text: str) -> tuple[Optional[str], Optional[str]]:
@@ -53,10 +66,12 @@ def consultant_name(text: str) -> tuple[Optional[str], bool]:
         if _NAME_HEADER_RE.search(ln) and i + 1 < len(lines):
             tokens = lines[i + 1].split()
             if len(tokens) >= 2:
-                name = clean_person_name(" ".join(tokens[-2:]))
-                # Profil bywa dwuwyrazowy („Kierownik projektu"); jeśli linia ma
-                # więcej niż 4 tokeny, granica profil/nazwisko jest niepewna.
-                return name, len(tokens) > 4
+                last_two = tokens[-2:]
+                name = clean_person_name(" ".join(last_two))
+                name_like = all(
+                    _NAME_TOKEN_RE.fullmatch(t) and t[0].isupper() for t in last_two
+                )
+                return name, not name_like
     return None, True
 
 
@@ -65,9 +80,15 @@ def extract_rows(text: str) -> list[ConsultantOrderRow]:
     if not name:
         return []
     start, end = period(text)
+    md_rate = bank_pocztowy_net_md_rate(text)
     return [
         ConsultantOrderRow(
-            consultant_name=name, start_date=start, end_date=end, uncertain=uncertain
+            consultant_name=name,
+            rate_client=_bp_hourly_from_md(md_rate) if md_rate else None,
+            rate_unit="hour" if md_rate else None,
+            start_date=start,
+            end_date=end,
+            uncertain=uncertain,
         )
     ]
 
