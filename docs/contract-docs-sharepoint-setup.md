@@ -79,3 +79,31 @@ domyślnie 60):
 
 Sonda: `checks.contract_docs_sharepoint` (`degraded` = ostatni bieg padł albo
 brak biegu przez 3 odstępy).
+
+## Jednorazowy zapis sekretu bez dostępu operatora do panelu Coolify
+
+Gdy operator może uruchamiać istniejące operacje Coolify, ale nie ma prawa
+zapisywać GitHub Actions Secrets, workflow **Contract docs secure provisioning**
+przyjmuje wyłącznie zaszyfrowaną kopertę dla tej konkretnej rejestracji. Nie zmienia
+uprawnień bota, nie odczytuje sekretów GitHuba i nie wykonuje deployu.
+
+1. Na `main` uruchom `operation=receive`. Pobierz artefakt
+   `contract-docs-key-<run-id>-1` zawierający `offer.json`.
+2. Po utworzeniu sekretu aplikacji zaszyfruj JSON o polach `identity`, `challenge`
+   (z oferty), `client_id` (z oferty), `secret` (wartość nowego sekretu). Użyj
+   klucza publicznego oferty, RSA-OAEP z SHA-256 i MGF1-SHA256. Wynik zakoduj Base64.
+   Wartości jawnej nie zapisuj do plików repozytorium, logów ani inputów workflow.
+3. Przed upływem 15 minut uruchom ten sam workflow z `operation=submit`,
+   `receiver_identity=<run-id>-1` i `ciphertext=<zaszyfrowana koperta Base64>`.
+   Oba przebiegi muszą mieć tego samego operatora i SHA `main`.
+4. Poczekaj na sukces odbiorcy. Sprawdza on token z **wyłącznie Sites.Selected**,
+   dostęp do Share_B2B, zgodność tenanta/client ID, wyłączony sync i zapis sekretu
+   w Coolify. Odmawia nadpisania innego istniejącego sekretu. Klucz prywatny
+   odbiorcy jest usuwany po użyciu/wygaśnięciu; nie trafia do artefaktów.
+5. Uruchom zwykły workflow **Deploy**, wykonaj pierwszy import, następnie włącz
+   synchronizację przez **Coolify set env** zgodnie z sekcją wyżej.
+
+Artefakty zawierają tylko klucz publiczny i szyfrogram (retencja 1 dzień). Ta
+ścieżka nie przechowuje kopii sekretu w GitHub Actions Secrets; sekret pozostaje
+w Coolify. Kolejny zapis wymaga nowego przebiegu odbiorcy, a rotacja istniejącego
+sekretu wymaga standardowej procedury administracyjnej.
