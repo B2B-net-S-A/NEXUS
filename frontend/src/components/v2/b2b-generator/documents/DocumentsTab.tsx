@@ -51,7 +51,9 @@ import {
 } from "@/lib/api/b2bDocuments";
 import {
   DOCUMENTS_INTENT_KEYS,
+  annexesHref,
   documentStatusLabel,
+  isAnnexTypeKey,
   intentOpensWizard,
   parseDocumentsIntent,
   readDocumentError,
@@ -67,7 +69,6 @@ import {
   saveDocx,
 } from "./DocumentDialogs";
 import { DocumentWizard } from "./DocumentWizard";
-import { BusinessDataAnnexQueue } from "./BusinessDataAnnexQueue";
 
 const SELECT_CLASS =
   "flex h-9 w-full rounded-md border border-border bg-card px-3 text-sm text-foreground";
@@ -98,6 +99,18 @@ export function DocumentsTab({ canGenerate = true }: { canGenerate?: boolean }) 
   // pustego kreatora po zapisanym dokumencie.
   useEffect(() => {
     if (!intentOpensWizard(intent)) return;
+    if (intent.newType && isAnnexTypeKey(intent.newType)) {
+      // Stary link „?tab=documents&new=annex_…” — aneksy tworzy Generator aneksów.
+      router.replace(
+        annexesHref({
+          newType: intent.newType,
+          parentId: intent.parentId,
+          contractId: intent.contractId,
+        }),
+        { scroll: false },
+      );
+      return;
+    }
     setWizard({
       key: Date.now(),
       type: intent.newType || null,
@@ -201,18 +214,6 @@ export function DocumentsTabContent({
         </p>
       ) : null}
 
-      <BusinessDataAnnexQueue
-        enabled={canGenerate && !wizard}
-        onStart={(row) =>
-          onOpenWizard({
-            type: "annex_party_data",
-            parentId: row.id,
-            contractId: null,
-            editId: null,
-          })
-        }
-      />
-
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
           <div>
@@ -220,7 +221,8 @@ export function DocumentsTabContent({
             <CardDescription>
               Aneksy, porozumienia i wypowiedzenia do umów z rejestru oraz
               umowy przedwstępne. Po podpisie oznacz dokument jako podpisany —
-              NEXUS zastosuje jego skutki w kontrakcie i rejestrze.
+              NEXUS zastosuje jego skutki w kontrakcie i rejestrze. Nowy aneks
+              przygotujesz w zakładce „Generator aneksów”.
             </CardDescription>
           </div>
           {canGenerate ? (
@@ -396,7 +398,7 @@ export function DocumentsListView({
         description={
           filtered
             ? "Zmień filtry albo wyczyść wyszukiwanie."
-            : "Aneks, porozumienie albo wypowiedzenie wygenerujesz przyciskiem „Nowy dokument” albo z wiersza umowy w rejestrze."
+            : "Aneks przygotujesz w zakładce „Generator aneksów”, porozumienie albo wypowiedzenie — przyciskiem „Nowy dokument” albo z wiersza umowy w rejestrze."
         }
       />
     );

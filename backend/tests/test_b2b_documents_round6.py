@@ -172,7 +172,6 @@ async def test_effects_follow_the_current_contract_of_the_agreement(
         "annex_start_date",
         rid,
         new_start_date="2026-11-01",
-        new_start_date_mode="exact",
     )
     new_contract_id, _ = await _seed_linked_contract()
     async with AsyncSessionLocal() as db:

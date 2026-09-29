@@ -250,3 +250,16 @@ def rate_in_words(
     if grosze:
         out += f" {liczba_slownie(grosze)} {_pl_grosz(grosze)}"
     return out
+
+
+def pln_words_with_fraction(amount: int | float | None) -> str:
+    """Kwota PLN słownie z groszami jako ułamkiem — zapis aneksów działu.
+
+    135 → „sto trzydzieści pięć złotych 00/100”, 135,5 → „… złotych 50/100”.
+    Kwota jest najpierw zaokrąglana do groszy, żeby 99,999 nie dało „100/100”.
+    """
+    if amount is None:
+        return ""
+    cents = int(round(abs(float(amount)) * 100))
+    whole, grosze = divmod(cents, 100)
+    return f"{liczba_slownie(whole)} {_pl_zloty(whole)} {grosze:02d}/100"

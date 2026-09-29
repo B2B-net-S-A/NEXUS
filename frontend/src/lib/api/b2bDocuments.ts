@@ -24,9 +24,27 @@ export type DocumentFieldKind =
   | "bool"
   | "select"
   | "email"
-  | "gender";
-export type DocumentFieldGroup = "document" | "partner" | "base";
-export type DocumentValue = string | number | boolean | null;
+  | "gender"
+  /** Lista pozycji stawki aneksu (kwota, klient z NEXUSA, od, do). */
+  | "rate_items";
+export type DocumentFieldGroup = "base" | "document" | "partner" | "change";
+
+/** Pozycja stawki aneksu — kwota jak wpisał człowiek („135,50”). */
+export interface RateItemValue {
+  rate: string | number | null;
+  client_id?: number | null;
+  /** Wyłącznie do wyświetlenia — do dokumentu serwer bierze nazwę z NEXUSA. */
+  client_name?: string | null;
+  from?: string | null;
+  to?: string | null;
+}
+
+export type DocumentValue =
+  | string
+  | number
+  | boolean
+  | null
+  | RateItemValue[];
 export type DocumentValues = Record<string, DocumentValue>;
 
 export interface DocumentFieldDef {
@@ -40,6 +58,10 @@ export interface DocumentFieldDef {
   /** Pole widoczne tylko, gdy `values[klucz] === wartość`. */
   show_if: [string, DocumentValue] | null;
   group: DocumentFieldGroup;
+  /** „Pobierz z rejestru” przy polu (NIP) — `GET /company-lookup`. */
+  lookup: "registry" | null;
+  /** (klucz odpowiedzi rejestru, klucz pola formularza). */
+  lookup_fills: [string, string][];
 }
 
 export interface DocumentTypeDef {
@@ -53,6 +75,10 @@ export interface DocumentTypeDef {
   description: string;
   signatories: "both" | "company" | "partner_and_company";
   uses_refs: boolean;
+  /** Zakładka „Generator aneksów”: przyjmuje też umowę spoza NEXUSA. */
+  allows_external: boolean;
+  /** Języki tylko do ponownego pobrania starych dokumentów. */
+  legacy_languages: string[];
 }
 
 export interface DocumentTypesResponse {
@@ -75,6 +101,8 @@ export interface DocumentBaseInfo {
 export interface DocumentPrefill {
   values: DocumentValues;
   base: DocumentBaseInfo;
+  /** Generator aneksów: „§ X ust. Y” dla obu wariantów Partnera. */
+  paragraph_defaults?: Partial<Record<"sole_trader" | "company", [string, string]>>;
   needs_refs: boolean;
   ref_defaults: Record<string, string>;
   languages: string[];

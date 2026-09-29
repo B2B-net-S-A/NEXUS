@@ -551,7 +551,7 @@
     "title": "Generator umów B2B",
     "section": null,
     "roles": ["recruiter", "delivery_lead", "tac", "admin"],
-    "what": "Tu generujesz umowę B2B z Partnerem w DOCX, prowadzisz rejestr umów (bieżące, bez projektu, zakończone) i przygotowujesz dokumenty do umów: aneksy, porozumienia, wypowiedzenia i umowę przedwstępną.",
+    "what": "Tu generujesz umowę B2B z Partnerem w DOCX, prowadzisz rejestr umów (bieżące, bez projektu, zakończone), w „Generatorze aneksów” przygotowujesz aneksy, a w „Dokumentach” porozumienia, wypowiedzenia i umowę przedwstępną.",
     "tasks": [
       {
         "q": "Jak wygenerować umowę?",
@@ -572,8 +572,8 @@
         "a": "Zmień status umowy na „Anulowana”. Wpis zostaje w „Umowy bieżące”, numer nie wraca do puli, a powrót na „W trakcie” to jedno kliknięcie."
       },
       {
-        "q": "Jak przygotować aneks albo porozumienie o rozwiązaniu?",
-        "a": "W zakładce „Dokumenty” kliknij „Nowy dokument” (albo „Nowy dokument” w wierszu umowy), wybierz rodzaj i umowę bazową, uzupełnij formularz i pobierz DOCX. Po podpisie kliknij „Oznacz jako podpisany” — dopiero wtedy NEXUS zmienia kontrakt i rejestr.",
+        "q": "Jak przygotować aneks?",
+        "a": "W „Generatorze aneksów” wybierz typ (dane firmy, data startu, stawka), znajdź umowę z „Umów bieżących” albo wybierz „Umowa spoza Nexusa” i pobierz DOCX. Aneks do umowy z listy od razu zmienia jej wiersz; kontrakt zmienia się po „Oznacz jako podpisany” w „Dokumentach”.",
         "anchor": "contracts.b2b_generator.tabs"
       }
     ],
@@ -584,7 +584,7 @@
       "Zakończenie kontraktu w module Kontrakty przestawia umowę samo: z rozwiązaniem umowy trafia do „Zakończonych umów”, bez rozwiązania — do „Umów bez projektu”."
     ],
     "anchors": [
-      {"id": "contracts.b2b_generator.tabs", "label": "Zakładki generatora", "describe": "Generator, Umowy bieżące, Umowy bez projektu, Zakończone umowy, Dokumenty."},
+      {"id": "contracts.b2b_generator.tabs", "label": "Zakładki generatora", "describe": "Generator, Umowy bieżące, Umowy bez projektu, Zakończone umowy, Generator aneksów, Dokumenty."},
       {"id": "contracts.b2b_generator.search", "label": "Szukaj umowy", "describe": "Wyszukiwanie po numerze i nazwisku."},
       {
         "id": "contracts.b2b_generator.docx",

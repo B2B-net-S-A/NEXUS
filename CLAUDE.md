@@ -871,6 +871,36 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   - Wypowiedzenie złożone przez Partnera nie ma wzoru — to akcja bez
     dokumentu (`POST /documents/partner-notice`, koniec z okresu wypowiedzenia
     wersji umowy: 2026 = miesiąc na koniec miesiąca).
+- **Generator aneksów (`?tab=annexes`, 0398, 29.09.2026)** — KAŻDY aneks
+  powstaje w tej zakładce (Dokumenty tworzą rozwiązania i przedwstępną;
+  `documentsHref` z typem `annex_*` przekierowuje tam). Trzy typy z ticketu
+  (dane firmy, data startu, stawka) mają `allows_external`: umowa z „Umów
+  bieżących” ALBO „Umowa spoza Nexusa” (dane wpisane ręcznie, dokument NIE jest
+  zapisywany, odpowiedź bez `X-Document-Id`, `X-Document-Saved: 0`). Treść trzech
+  szablonów PL buduje `scripts/build_b2b_annex_templates.py` z opisu w tickecie
+  (oprawa z `annex_party_data_pl.docx`), nie builder wzorów działu — zmiana
+  treści = zmiana listy bloków i ponowne uruchomienie. EN tych typów zostało
+  wyłącznie do ponownego pobrania starych dokumentów (`legacy_languages`).
+  - **Rejestr zmienia się PRZY WYGENEROWANIU, kontrakt po podpisie** (decyzja
+    Artura 29.09.2026 — wyjątek od „generowanie niczego nie zmienia”):
+    `annex_register.apply` wpisuje firmę+NIP / datę rozpoczęcia /
+    `annex_rates` (stawki z aneksu, lista widoczna tylko przy widocznych
+    stawkach) i zapamiętuje `register_before`; anulowanie i usunięcie
+    niepodpisanego aneksu cofają TYLKO pola, które nadal mają wartość z tego
+    aneksu (późniejszy aneks wygrywa). `render_payload` wiersza (podpisana
+    umowa) nigdy nie jest przepisywany.
+  - **Paragraf jest polem, nie `refs`** (`uses_refs=False`): podpowiedź dla
+    umowy ze znaną wersją wzoru NEXUSA to § 13/§ 14 ust. 2 (data startu,
+    JDG/spółka), dla Excela i umów spoza NEXUSA — § 12/§ 13 ust. 2 z ticketu;
+    stawka zawsze § 6 ust. 1. Zmiana wariantu podmienia paragraf tylko, gdy
+    człowiek go nie zmienił.
+  - **Stawki = lista pozycji** (`rate_items`: kwota, klient z NEXUSA, od, do).
+    Nazwę klienta do dokumentu serwer bierze z bazy (`_resolve_rate_clients`,
+    usunięty/scalony = 422), słownie „… złotych 00/100”
+    (`pln_words_with_fraction`). Kilka pozycji bez daty „od” i klienta = 422.
+    Przy podpisie każda pozycja klienta TEGO kontraktu (albo bez klienta) to
+    osobny krok harmonogramu; pozycja innego klienta = ostrzeżenie, kontrakt
+    bez zmian.
 - **Sprawdzenie firmy w CEIDG/KRS przy KAŻDYM „Pobierz DOCX” (ticket 6,
   28.09.2026)** — `GET /company-verification`
   (`services/b2b_contract_generator/registry_verification.py`), zawsze 200:

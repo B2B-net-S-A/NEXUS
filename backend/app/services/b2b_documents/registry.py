@@ -17,8 +17,21 @@ from datetime import date
 from typing import Literal
 
 FieldKind = Literal[
-    "text", "textarea", "date", "money", "bool", "select", "email", "gender"
+    "text",
+    "textarea",
+    "date",
+    "money",
+    "bool",
+    "select",
+    "email",
+    "gender",
+    # Lista pozycji stawki aneksu (kwota, klient z NEXUSA, od, do) — wartość
+    # to lista słowników, nie tekst. Walidacja: ``rate_items_problems``.
+    "rate_items",
 ]
+
+#: Grupy pól w kolejności formularza. ``change`` = treść zmiany aneksu.
+FieldGroup = Literal["base", "document", "partner", "change"]
 
 
 @dataclass(frozen=True)
@@ -33,7 +46,13 @@ class FieldDef:
     #: Pole widoczne tylko, gdy inne pole ma wartość (np. klient zwolnienia
     #: z zakazu tylko przy zaznaczonym zwolnieniu). ``(klucz, wartość)``.
     show_if: tuple[str, object] | None = None
-    group: str = "document"
+    group: FieldGroup = "document"
+    #: Przycisk „Pobierz z rejestru” przy polu (NIP): front woła
+    #: ``GET /company-lookup`` i przepisuje pola odpowiedzi do pól formularza
+    #: wg ``lookup_fills`` — ``(klucz odpowiedzi, klucz pola)``. Użytkownik może
+    #: je potem zmienić.
+    lookup: Literal["registry"] | None = None
+    lookup_fills: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -53,6 +72,14 @@ class DocumentType:
     signatories: Literal["both", "company", "partner_and_company"] = "both"
     #: Czy dokument wymaga numerów paragrafów umowy bazowej.
     uses_refs: bool = True
+    #: Typ zakładki „Generator aneksów”: przyjmuje też umowę spoza NEXUSA
+    #: (dane umowy wpisane ręcznie, bez wiersza rejestru — dokument nie jest
+    #: wtedy zapisywany), a wygenerowanie aktualizuje wiersz rejestru
+    #: (``annex_register``). Skutki w kontrakcie dalej dopiero po podpisie.
+    allows_external: bool = False
+    #: Języki, w których nowego dokumentu już się nie wystawia, ale zapisany
+    #: wcześniej dokument pobiera się ponownie (szablon zostaje w repo).
+    legacy_languages: tuple[str, ...] = ()
 
     @property
     def sensitive_keys(self) -> frozenset[str]:
@@ -131,6 +158,324 @@ MANDATE_PARTY_FIELDS: tuple[FieldDef, ...] = (
 )
 
 
+# ── Generator aneksów (ticket 29.09.2026) ────────────────────────────────────
+
+_VARIANTS = (("sole_trader", "JDG"), ("company", "spółka"))
+_JDG = ("partner_variant", "sole_trader")
+_COMPANY = ("partner_variant", "company")
+
+#: Dane umowy bazowej — wymagane; z rejestru uzupełniają się same, przy
+#: umowie spoza NEXUSA wpisuje je człowiek.
+ANNEX_CONTRACT_FIELDS: tuple[FieldDef, ...] = (
+    FieldDef("contract_number", "Numer umowy", required=True, group="base"),
+    FieldDef(
+        "contract_signing_date",
+        "Data zawarcia umowy",
+        "date",
+        required=True,
+        group="base",
+    ),
+)
+
+ANNEX_DATE_FIELDS: tuple[FieldDef, ...] = (
+    FieldDef(
+        "document_date",
+        "Data sporządzenia aneksu",
+        "date",
+        required=True,
+        help="Data w nagłówku aneksu. Domyślnie dziś.",
+    ),
+    FieldDef(
+        "effective_date",
+        "Data wejścia zmian w życie",
+        "date",
+        required=True,
+    ),
+)
+
+ANNEX_PARAGRAPH_FIELDS: tuple[FieldDef, ...] = (
+    FieldDef(
+        "paragraph",
+        "Zmieniany paragraf (§)",
+        required=True,
+        help="Numer z podpisanej umowy — podpowiadamy według jej wzoru.",
+        group="change",
+    ),
+    FieldDef("paragraph_section", "Ustęp", required=True, group="change"),
+)
+
+#: Rejestr → pola formularza przy „Pobierz z rejestru” (Biała Lista/CEIDG/KRS).
+_REGISTRY_FILLS_JDG = (
+    ("name", "partner_legal_name"),
+    ("address", "partner_business_address"),
+    ("regon", "partner_regon"),
+)
+_REGISTRY_FILLS_COMPANY = (
+    *_REGISTRY_FILLS_JDG,
+    ("krs", "partner_krs"),
+    ("seat_locative", "partner_seat_locative"),
+    ("registry_court", "partner_registry_court"),
+    ("share_capital", "partner_share_capital"),
+)
+
+#: Partner umowy — JDG albo spółka (komparycja z KRS, jak w umowie spółki).
+ANNEX_PARTNER_FIELDS: tuple[FieldDef, ...] = (
+    FieldDef(
+        "partner_variant",
+        "Wariant Partnera",
+        "select",
+        required=True,
+        options=_VARIANTS,
+        group="partner",
+    ),
+    FieldDef(
+        "gender",
+        "Płeć",
+        "gender",
+        required=True,
+        help="Przy spółce — płeć osoby reprezentującej spółkę.",
+        group="partner",
+    ),
+    FieldDef(
+        "partner_name",
+        "Imię i nazwisko Partnera",
+        required=True,
+        help="Przy spółce — osoba, której dotyczy umowa (nie trafia do komparycji).",
+        group="partner",
+    ),
+    FieldDef(
+        "partner_instrumental",
+        "Imię i nazwisko — narzędnik",
+        help="„z Panem/Panią …”. Puste = mianownik.",
+        show_if=_JDG,
+        group="partner",
+    ),
+    FieldDef(
+        "partner_legal_name",
+        "Nazwa firmy (spółki)",
+        required=True,
+        group="partner",
+    ),
+    FieldDef(
+        "partner_nip",
+        "NIP",
+        required=True,
+        group="partner",
+        lookup="registry",
+        lookup_fills=_REGISTRY_FILLS_JDG,
+        show_if=_JDG,
+    ),
+    FieldDef(
+        "partner_nip",
+        "NIP",
+        required=True,
+        group="partner",
+        lookup="registry",
+        lookup_fills=_REGISTRY_FILLS_COMPANY,
+        show_if=_COMPANY,
+    ),
+    FieldDef(
+        "partner_business_address",
+        "Adres (z CEIDG / siedziby spółki)",
+        required=True,
+        group="partner",
+    ),
+    FieldDef("partner_regon", "REGON", required=True, group="partner"),
+    FieldDef(
+        "partner_seat_locative",
+        "Siedziba — „z siedzibą …”",
+        required=True,
+        help="Z przyimkiem, np. „w Warszawie”, „we Wrocławiu”.",
+        show_if=_COMPANY,
+        group="partner",
+    ),
+    FieldDef("partner_krs", "KRS", required=True, show_if=_COMPANY, group="partner"),
+    FieldDef(
+        "partner_registry_court",
+        "Sąd rejestrowy z wydziałem",
+        required=True,
+        help=(
+            "np. „Sąd Rejonowy dla m.st. Warszawy w Warszawie, XII Wydział "
+            "Gospodarczy Krajowego Rejestru Sądowego”."
+        ),
+        show_if=_COMPANY,
+        group="partner",
+    ),
+    FieldDef(
+        "partner_share_capital",
+        "Kapitał zakładowy",
+        required=True,
+        help="np. „5 000,00 zł”.",
+        show_if=_COMPANY,
+        group="partner",
+    ),
+    FieldDef(
+        "partner_representative_name",
+        "Osoba reprezentująca — imię i nazwisko",
+        required=True,
+        show_if=_COMPANY,
+        group="partner",
+    ),
+    FieldDef(
+        "partner_representative_function",
+        "Funkcja osoby reprezentującej",
+        required=True,
+        help="np. „Prezes Zarządu”.",
+        show_if=_COMPANY,
+        group="partner",
+    ),
+    FieldDef(
+        "partner_representation",
+        "„reprezentowaną przez …” (biernik)",
+        help="Puste = „Pana/Panią <imię i nazwisko> – <funkcja>”.",
+        show_if=_COMPANY,
+        group="partner",
+    ),
+)
+
+ANNEX_GENERATOR_TYPES: tuple[DocumentType, ...] = (
+    DocumentType(
+        key="annex_party_data",
+        label="Aneks — uzupełnienie danych firmy",
+        family="annex",
+        languages=("pl",),
+        # Wersja EN sprzed generatora aneksów — tylko ponowne pobranie.
+        legacy_languages=("en",),
+        parent="b2b",
+        uses_refs=False,
+        allows_external=True,
+        description=(
+            "Umowa zawarta z osobą fizyczną przed założeniem działalności: "
+            "od aneksu Partnerem jest jej JDG."
+        ),
+        effect_label=(
+            "Dane firmy trafią do profilu kandydata; pozycja zniknie z kolejki "
+            "„Aneks uzupełnienia danych”. Wiersz rejestru (firma, NIP) "
+            "zmienia się już przy wygenerowaniu."
+        ),
+        fields=(
+            *ANNEX_CONTRACT_FIELDS,
+            *ANNEX_DATE_FIELDS,
+            FieldDef(
+                "gender", "Płeć Partnera", "gender", required=True, group="partner"
+            ),
+            FieldDef("partner_name", "Imię i nazwisko", required=True, group="partner"),
+            FieldDef(
+                "partner_instrumental",
+                "Imię i nazwisko — narzędnik",
+                help="„z Panem/Panią …”. Puste = mianownik.",
+                group="partner",
+            ),
+            FieldDef(
+                "partner_home_address",
+                "Adres zamieszkania",
+                required=True,
+                sensitive=True,
+                group="partner",
+            ),
+            FieldDef(
+                "id_document",
+                "Numer dowodu osobistego",
+                required=True,
+                sensitive=True,
+                group="partner",
+            ),
+            FieldDef(
+                "new_nip",
+                "NIP działalności",
+                required=True,
+                help="„Pobierz z CEIDG” uzupełni nazwę, adres i REGON.",
+                group="change",
+                lookup="registry",
+                lookup_fills=(
+                    ("name", "new_legal_name"),
+                    ("address", "new_business_address"),
+                    ("regon", "new_regon"),
+                ),
+            ),
+            FieldDef("new_legal_name", "Nazwa firmy", required=True, group="change"),
+            FieldDef(
+                "new_business_address",
+                "Adres działalności (CEIDG)",
+                required=True,
+                group="change",
+            ),
+            FieldDef("new_regon", "REGON", required=True, group="change"),
+        ),
+    ),
+    DocumentType(
+        key="annex_start_date",
+        label="Aneks — zmiana daty startu",
+        family="annex",
+        languages=("pl",),
+        parent="b2b",
+        uses_refs=False,
+        allows_external=True,
+        description="Przesunięcie daty rozpoczęcia świadczenia usług.",
+        effect_label=(
+            "Kontrakt dostanie nową datę rozpoczęcia. Data w rejestrze umów "
+            "zmienia się już przy wygenerowaniu."
+        ),
+        fields=(
+            *ANNEX_CONTRACT_FIELDS,
+            *ANNEX_DATE_FIELDS,
+            *ANNEX_PARTNER_FIELDS,
+            *ANNEX_PARAGRAPH_FIELDS,
+            FieldDef(
+                "current_start_date",
+                "Obecna data rozpoczęcia usług",
+                "date",
+                required=True,
+                group="change",
+            ),
+            FieldDef(
+                "new_start_date",
+                "Nowa data rozpoczęcia usług",
+                "date",
+                required=True,
+                group="change",
+            ),
+        ),
+    ),
+    DocumentType(
+        key="annex_rate_change",
+        label="Aneks — zmiana stawki",
+        family="annex",
+        languages=("pl",),
+        legacy_languages=("en",),
+        parent="b2b",
+        uses_refs=False,
+        allows_external=True,
+        description=(
+            "Nowe wynagrodzenie godzinowe: jedna stawka, stawka progresywna "
+            "albo różne stawki dla różnych klientów."
+        ),
+        effect_label=(
+            "Stawki wejdą do harmonogramu stawek kontraktu (aneks w zakładce "
+            "„Aneksy”). Stawka w rejestrze umów zmienia się już przy "
+            "wygenerowaniu."
+        ),
+        fields=(
+            *ANNEX_CONTRACT_FIELDS,
+            *ANNEX_DATE_FIELDS,
+            *ANNEX_PARTNER_FIELDS,
+            *ANNEX_PARAGRAPH_FIELDS,
+            FieldDef(
+                "rate_items",
+                "Stawki",
+                "rate_items",
+                required=True,
+                help=(
+                    "Jedna pozycja = jedna stawka. Kilka pozycji: stawka "
+                    "progresywna (daty „od”) albo różne stawki dla klientów."
+                ),
+                group="change",
+            ),
+        ),
+    ),
+)
+
+
 def _non_compete_fields() -> tuple[FieldDef, ...]:
     return (
         FieldDef(
@@ -152,130 +497,7 @@ def _non_compete_fields() -> tuple[FieldDef, ...]:
 TYPES: dict[str, DocumentType] = {
     t.key: t
     for t in (
-        DocumentType(
-            key="annex_rate_change",
-            label="Aneks — zmiana stawki",
-            family="annex",
-            languages=("pl", "en"),
-            parent="b2b",
-            description="Zmiana wynagrodzenia godzinowego Partnera.",
-            effect_label=(
-                "Nowa stawka wejdzie do harmonogramu stawek kontraktu od dnia "
-                "wejścia w życie (aneks w zakładce „Aneksy”)."
-            ),
-            fields=(
-                DOCUMENT_DATE,
-                *PARTNER_FIELDS,
-                FieldDef(
-                    "effective_date",
-                    "Nowa stawka obowiązuje od",
-                    "date",
-                    required=True,
-                ),
-                FieldDef(
-                    "new_rate", "Nowa stawka godzinowa netto", "money", required=True
-                ),
-                FieldDef(
-                    "currency", "Waluta", "select", required=True, options=_CURRENCIES
-                ),
-            ),
-        ),
-        DocumentType(
-            key="annex_start_date",
-            label="Aneks — zmiana daty rozpoczęcia",
-            family="annex",
-            languages=("pl",),
-            parent="b2b",
-            description="Przesunięcie daty rozpoczęcia świadczenia usług.",
-            effect_label="Kontrakt i umowa w rejestrze dostaną nową datę rozpoczęcia.",
-            fields=(
-                DOCUMENT_DATE,
-                *PARTNER_FIELDS,
-                FieldDef(
-                    "new_start_date",
-                    "Nowa data rozpoczęcia usług",
-                    "date",
-                    required=True,
-                ),
-                FieldDef(
-                    "new_start_date_mode",
-                    "Tryb daty",
-                    "select",
-                    required=True,
-                    options=_START_MODES,
-                ),
-            ),
-        ),
-        DocumentType(
-            key="annex_party_data",
-            label="Aneks — uzupełnienie danych firmy",
-            family="annex",
-            languages=("pl", "en"),
-            parent="b2b",
-            description=(
-                "Umowa zawarta przed założeniem działalności: od dnia aneksu "
-                "Partnerem jest firma (JDG albo spółka)."
-            ),
-            effect_label=(
-                "Dane firmy trafią do profilu kandydata i do rejestru umów; "
-                "pozycja zniknie z kolejki „Aneks uzupełnienia danych”."
-            ),
-            fields=(
-                DOCUMENT_DATE,
-                FieldDef(
-                    "gender", "Płeć Partnera", "gender", required=True, group="partner"
-                ),
-                FieldDef(
-                    "partner_name", "Imię i nazwisko", required=True, group="partner"
-                ),
-                FieldDef(
-                    "partner_instrumental",
-                    "Imię i nazwisko — narzędnik",
-                    group="partner",
-                ),
-                FieldDef(
-                    "partner_home_address",
-                    "Adres zamieszkania",
-                    required=True,
-                    sensitive=True,
-                    group="partner",
-                ),
-                FieldDef(
-                    "id_document",
-                    "Seria i numer dowodu osobistego",
-                    sensitive=True,
-                    group="partner",
-                ),
-                FieldDef(
-                    "entity_type",
-                    "Forma działalności",
-                    "select",
-                    required=True,
-                    options=_ENTITY,
-                ),
-                FieldDef("new_legal_name", "Nazwa firmy", required=True),
-                FieldDef("new_business_address", "Adres siedziby", required=True),
-                FieldDef(
-                    "new_nip", "NIP", required=True, help="Uzupełnia się z rejestru."
-                ),
-                FieldDef("new_regon", "REGON", required=True),
-                FieldDef(
-                    "company_krs",
-                    "KRS",
-                    show_if=("entity_type", "company"),
-                    required=True,
-                ),
-                FieldDef(
-                    "company_representative",
-                    "Reprezentant spółki",
-                    show_if=("entity_type", "company"),
-                    required=True,
-                ),
-                FieldDef(
-                    "effective_date", "Zmiana obowiązuje od", "date", required=True
-                ),
-            ),
-        ),
+        *ANNEX_GENERATOR_TYPES,
         DocumentType(
             key="annex_subcontractor",
             label="Aneks — osoba skierowana (oddelegowanie)",
@@ -583,7 +805,11 @@ def missing_required(doc_type: DocumentType, values: dict) -> list[str]:
         if not f.required or not visible(f, values):
             continue
         value = values.get(f.key)
-        if value is None or (isinstance(value, str) and not value.strip()):
+        if (
+            value is None
+            or (isinstance(value, str) and not value.strip())
+            or (isinstance(value, list) and not value)
+        ):
             missing.append(f.label)
     return missing
 
@@ -605,9 +831,80 @@ def _iso_day(value: object) -> date | None:
     return None
 
 
+#: Najwięcej pozycji stawki w jednym aneksie (lustro formularza).
+MAX_RATE_ITEMS = 10
+
+
+def parse_amount(raw: object) -> float | None:
+    """„1 234,50” / 150 → liczba; ``None`` = puste albo nieczytelne."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    text = str(raw).replace(",", ".").replace(" ", "").replace("\u00a0", "")
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def rate_items_problems(items: object) -> list[str]:
+    """Zdania o pozycjach stawki, których aneks nie przyjmie.
+
+    Kilka pozycji musi się czymś różnić — każda poza jedną potrzebuje daty
+    „od” albo klienta; inaczej aneks mówiłby dwie różne stawki za tę samą
+    godzinę."""
+    if not isinstance(items, list) or not items:
+        return []
+    problems: list[str] = []
+    if len(items) > MAX_RATE_ITEMS:
+        problems.append(f"Aneks mieści najwyżej {MAX_RATE_ITEMS} pozycji stawki.")
+    for number, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            problems.append(f"Pozycja stawki {number} jest nieczytelna.")
+            continue
+        amount = parse_amount(item.get("rate"))
+        if amount is None:
+            problems.append(f"Pozycja stawki {number}: podaj stawkę netto za godzinę.")
+        elif not (0 < amount < MONEY_MAX):
+            problems.append(
+                f"Pozycja stawki {number}: stawka musi być większa od zera "
+                "i mniejsza niż 1 000 000."
+            )
+        start = _iso_day(item.get("from"))
+        end = _iso_day(item.get("to"))
+        if item.get("from") and start is None:
+            problems.append(f"Pozycja stawki {number}: nieczytelna data „od”.")
+        if item.get("to") and end is None:
+            problems.append(f"Pozycja stawki {number}: nieczytelna data „do”.")
+        if start and end and end < start:
+            problems.append(
+                f"Pozycja stawki {number}: data „do” jest wcześniejsza niż „od”."
+            )
+    if len(items) > 1:
+        loose = [
+            n
+            for n, item in enumerate(items, start=1)
+            if isinstance(item, dict)
+            and not item.get("from")
+            and not item.get("client_id")
+        ]
+        if len(loose) > 1:
+            problems.append(
+                "Przy kilku stawkach każda (poza jedną) potrzebuje daty „od” albo "
+                "klienta — inaczej nie wiadomo, kiedy która obowiązuje."
+            )
+    return problems
+
+
 def invalid_values(doc_type: DocumentType, values: dict) -> list[str]:
     """Zdania o wartościach, których dokument nie przyjmie (poza brakami)."""
     problems: list[str] = []
+    for f in doc_type.fields:
+        if f.kind == "rate_items" and visible(f, values):
+            problems.extend(rate_items_problems(values.get(f.key)))
     for f in doc_type.fields:
         if f.kind != "money" or not visible(f, values):
             continue
@@ -639,8 +936,11 @@ def invalid_values(doc_type: DocumentType, values: dict) -> list[str]:
 
 __all__ = [
     "DocumentType",
+    "MAX_RATE_ITEMS",
     "MONEY_MAX",
     "invalid_values",
+    "parse_amount",
+    "rate_items_problems",
     "FieldDef",
     "REF_LABELS",
     "TYPES",

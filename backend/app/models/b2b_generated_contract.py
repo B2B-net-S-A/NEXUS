@@ -331,6 +331,15 @@ class B2BGeneratedContract(Base, TimestampMixin):
         JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"),
         nullable=True,
     )
+    # Stawki z ostatniego wygenerowanego aneksu zmiany stawki (0398, Generator
+    # aneksów): ``{"items": [{rate, from, to, client_id, client_name}],
+    # "document_id", "effective_date"}``. Rejestr zmienia się już przy
+    # wygenerowaniu aneksu (decyzja Artura 29.09.2026) — ``render_payload``
+    # zostaje zapisem PODPISANEJ umowy i nie jest przepisywany.
+    annex_rates: Mapped[Optional[dict]] = mapped_column(
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"),
+        nullable=True,
+    )
     # Powrót po przerwie przy rozwiązanej umowie zakłada NOWĄ umowę — ta
     # kolumna wskazuje poprzednią (zostaje w „Zakończonych" bez zmian).
     previous_generated_contract_id: Mapped[Optional[int]] = mapped_column(

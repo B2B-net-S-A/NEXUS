@@ -90,3 +90,11 @@ BACKFILL_DDL: list[str] = [
        SET template_version = '2026'
        WHERE template_version IS NULL AND render_payload IS NOT NULL""",
 ]
+
+
+#: Generator aneksów (migracja 0398): stawki z ostatniego aneksu zmiany stawki
+#: w wierszu rejestru — pokazuje je lista „Umowy bieżące”.
+ANNEX_GENERATOR_DDL: list[str] = [
+    """ALTER TABLE b2b_generated_contracts
+       ADD COLUMN IF NOT EXISTS annex_rates JSONB NULL""",
+]
