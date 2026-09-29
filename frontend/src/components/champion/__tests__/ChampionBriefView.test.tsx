@@ -26,8 +26,8 @@ vi.mock("@/components/client-playbook/ClientPlaybookCard", () => ({
   ClientPlaybookCard: () => <div data-testid="playbook-card" />,
 }));
 vi.mock("@/components/RequestHistorySection", () => ({
-  RequestHistorySection: ({ readOnly }: { readOnly: boolean }) => (
-    <div data-testid="request-history" data-read-only={String(readOnly)} />
+  RequestHistorySection: ({ readOnly, narrow }: { readOnly: boolean; narrow?: boolean }) => (
+    <div data-testid="request-history" data-read-only={String(readOnly)} data-narrow={String(!!narrow)} />
   ),
 }));
 vi.mock("@/components/ChampionClientQuestionsPanel", () => ({
@@ -97,6 +97,10 @@ describe("ChampionBriefView", () => {
     expect(screen.getByText("Oryginalny opis od klienta")).toBeInTheDocument();
     // Pytania klienta z rozmów — tylko do odczytu.
     expect(screen.getByTestId("client-questions")).toHaveAttribute("data-can-edit", "false");
+    // Link do pełnej karty niesie karta klienta (ClientPlaybookCard) — drugi
+    // w nagłówku sekcji dawał dwa identyczne linki jeden pod drugim.
+    expect(screen.queryByRole("link", { name: /Pełna karta klienta/ })).toBeNull();
+    expect(screen.getByTestId("playbook-card")).toBeInTheDocument();
   });
 
   it("pokazuje 3 pytania screeningowe, resztę po „Pokaż kolejne”", async () => {
@@ -158,6 +162,10 @@ describe("ChampionBriefView — wcześniejsze zapytania klienta", () => {
         />
       </QueryClientProvider>,
     );
-    expect(await screen.findByTestId("request-history")).toHaveAttribute("data-read-only", "true");
+    const history = await screen.findByTestId("request-history");
+    expect(history).toHaveAttribute("data-read-only", "true");
+    // Kolumna briefu jest za wąska na trzy karty w rzędzie — tytuły zapytań
+    // ucinały się do kilku liter (produkcja 29.09).
+    expect(history).toHaveAttribute("data-narrow", "true");
   });
 });

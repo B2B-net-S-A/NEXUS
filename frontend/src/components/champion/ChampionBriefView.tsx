@@ -387,16 +387,6 @@ export function ChampionBriefView({
       <Section
         title="O kliencie"
         onEdit={onEditSection ? edit(CHAMPION_EDIT_ANCHOR.client) : undefined}
-        action={
-          clientId != null ? (
-            <a
-              href={`/help?tab=clients&client=${clientId}`}
-              className="text-[13px] font-medium text-primary hover:underline"
-            >
-              Pełna karta klienta →
-            </a>
-          ) : null
-        }
         testId="brief-client"
       >
         <div className="space-y-1">
@@ -443,6 +433,7 @@ export function ChampionBriefView({
             clientId={job.client_id ?? null}
             readOnly={requestHistory.readOnly}
             compact
+            narrow
             maxItems={5}
           />
         </Section>
