@@ -622,6 +622,7 @@ async def transition_process(
     entry_source: Optional[str] = None,
     claim_for_user_id: Optional[int] = None,
     reassign_from_job_id: Optional[int] = None,
+    entry_meta: Optional[dict] = None,
     _strict_open: bool = False,
     **candidate_stage_values: Any,
 ) -> CandidateStage:
@@ -783,6 +784,9 @@ async def transition_process(
             process.entry_source = entry_source
         if reassign_from_job_id is not None:
             process.reassign_from_job_id = reassign_from_job_id
+        if entry_meta is not None:
+            # 0399: wynik automatu przy procesie zamiast notatki.
+            process.entry_meta = entry_meta
         if (
             claim_for_user_id is not None
             and process.status == ProcessStatus.open

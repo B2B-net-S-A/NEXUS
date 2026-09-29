@@ -234,7 +234,7 @@ async def _cleanup(ids):
 
 @needs_db
 async def test_new_cv_lands_in_pipeline_once_and_notifies_the_owner(monkeypatch):
-    from sqlalchemy import select, text
+    from sqlalchemy import func, select, text
 
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
@@ -294,6 +294,29 @@ async def test_new_cv_lands_in_pipeline_once_and_notifies_the_owner(monkeypatch)
             assert [(r.decision, r.stage_id) for r in log] == [("added", stages[0].id)]
             candidate = await db.get(Candidate, ids["candidate"])
             assert "auto-match" in (candidate.tags or [])
+            # 0399 (29.09.2026): automat nie pisze notatki — wynik jedzie
+            # jako dane procesu (plakietka „Auto-match 86/100”).
+            from app.models.note import Note
+            from app.models.recruitment_process import RecruitmentProcess
+
+            assert (
+                await db.scalar(
+                    select(func.count(Note.id)).where(
+                        Note.candidate_id == ids["candidate"]
+                    )
+                )
+                == 0
+            )
+            process = await db.scalar(
+                select(RecruitmentProcess).where(
+                    RecruitmentProcess.candidate_id == ids["candidate"],
+                    RecruitmentProcess.job_id == ids["job"],
+                )
+            )
+            assert process.entry_meta["kind"] == "auto_match"
+            assert process.entry_meta["score"] == 86
+            assert process.entry_meta["source"] == "nexus"
+            assert process.entry_meta["must_hit"] == ["Python"]
             notes = (
                 await db.scalars(
                     select(Notification).where(

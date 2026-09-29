@@ -65,7 +65,7 @@ from app.models.index_outbox import IndexOutboxEvent
 from app.models.activity import Activity
 from app.models.invite_link import CandidateInviteLink
 from app.models.user_activity import UserActivity, UserActionType
-from app.models.note import Note
+from app.models.note import SYSTEM_NOTE_SOURCE, Note
 from app.models.notification import Notification, NotificationType
 from app.models.pipeline_template import PipelineStageDef, RejectionReason
 from app.models.recruitment_process import RecruitmentProcess
@@ -116,6 +116,7 @@ from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, Stage
 from app.schemas.pipeline import ClientRateUpdate, STAGE_LABELS
 from app.services.match_score_cache import bulk_get_or_compute
 from app.services.critical_events import record_executed
+from app.services.process_entry_meta import auto_match_badge
 from app.services.rejection_reason_labels import rejection_reason_label
 from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.candidate_contact_hooks import (
@@ -4290,8 +4291,20 @@ async def get_candidate_quick_view(
             .where(
                 Note.candidate_id == candidate_id,
                 Note.source_deleted_at.is_(None),
+                # 0399: podgląd pokazuje notatki główne — przypięte pierwsze,
+                # bez odpowiedzi i bez wpisów automatów.
+                Note.parent_note_id.is_(None),
+                or_(
+                    Note.external_source.is_(None),
+                    Note.external_source != SYSTEM_NOTE_SOURCE,
+                ),
             )
-            .order_by(Note.created_at.desc(), Note.id.desc())
+            .order_by(
+                Note.pinned_at.is_(None),
+                Note.pinned_at.desc(),
+                Note.created_at.desc(),
+                Note.id.desc(),
+            )
             .limit(3)
         )
     ).all()
@@ -4304,6 +4317,7 @@ async def get_candidate_quick_view(
             content=format_quick_view_note_content(note.content, mention_labels),
             created_at=note.created_at,
             author_name=author_name,
+            pinned=note.pinned_at is not None,
         )
         for note, author_name in note_rows
     ]
@@ -4362,11 +4376,18 @@ async def get_candidate_quick_view(
 # dodatkowo nie pozwala im wypychać użytecznych aktywności spod `limit`.
 #   - `traffit:Zmiana etapu` (170k) duplikuje wpisy `stage_change` (PR #416)
 #   - `traffit:Notatka`      (40k)  duplikuje realne wpisy `Note` ("Notatka — …")
-# Pozostałe `traffit:*` (Tag-dodany, Plik-dodany, Email, …) niosą content —
+#   - `traffit:Email`, `traffit:Reply`, `traffit:Rozmowa telefoniczna`,
+#     `traffit:Spotkanie` — promocja (`TraffitImporter.promote_notes`) robi
+#     z nich notatki, więc na osi czasu stały dwa razy (decyzja 29.09.2026).
+# Pozostałe `traffit:*` (Tag-dodany, Plik-dodany, …) niosą content —
 # ich NIE ukrywamy. `activities.action` jest NOT NULL → notin_ bezpieczne.
 _HIDDEN_TIMELINE_ACTIONS = (
     "traffit:Zmiana etapu",
     "traffit:Notatka",
+    "traffit:Email",
+    "traffit:Reply",
+    "traffit:Rozmowa telefoniczna",
+    "traffit:Spotkanie",
     # Financial audit event: its details carry the client rate, and the
     # timeline feed is served to non-finance roles without redaction (P1-11).
     candidate_audit.CLIENT_RATE_CHANGED,
@@ -4409,17 +4430,49 @@ async def get_candidate_timeline(
         .outerjoin(User, Note.author_id == User.id)
         .outerjoin(Job, Note.job_id == Job.id)
         .where(Note.candidate_id == candidate_id)
+        # 0399: odpowiedzi nie są osobnymi wpisami — jadą pod notatką główną.
+        .where(Note.parent_note_id.is_(None))
         .order_by(Note.created_at.desc())
         .limit(limit)
     )
     notes_rows = notes_result.all()
+    reply_rows: list = []
+    note_ids = [note.id for note, *_ in notes_rows]
+    if note_ids:
+        reply_rows = (
+            await db.execute(
+                select(Note, User.name.label("author_name"))
+                .outerjoin(User, Note.author_id == User.id)
+                .where(Note.parent_note_id.in_(note_ids))
+                .order_by(Note.created_at.asc(), Note.id.asc())
+            )
+        ).all()
     # Legacy Traffit notes embed @mentions as `$$user_NN$$` markers (NN = Traffit
     # user id). Resolve them to "@Imię Nazwisko" for display via users.external_id,
     # in a separate `content_rendered` field — raw `content` stays intact so
     # editing preserves the original token/HTML wrapper.
     mention_label_map = await build_traffit_user_label_map(
-        db, collect_traffit_user_ids(note.content for note, *_ in notes_rows)
+        db,
+        collect_traffit_user_ids(
+            note.content for note, *_ in [*notes_rows, *reply_rows]
+        ),
     )
+    replies_by_note: dict[int, list[dict]] = {}
+    for reply, reply_author in reply_rows:
+        replies_by_note.setdefault(reply.parent_note_id, []).append(
+            {
+                "id": reply.id,
+                "timestamp": (
+                    reply.created_at.isoformat() if reply.created_at else None
+                ),
+                "content": reply.content,
+                "content_rendered": render_traffit_mentions(
+                    reply.content, mention_label_map
+                ),
+                "author_id": reply.author_id,
+                "author_name": reply_author,
+            }
+        )
     for note, author_name, author_email, job_title in notes_rows:
         timeline.append(
             {
@@ -4436,6 +4489,9 @@ async def get_candidate_timeline(
                 "author_email": author_email,
                 "job_id": note.job_id,
                 "job_title": job_title,
+                "is_system": note.external_source == SYSTEM_NOTE_SOURCE,
+                "pinned": note.pinned_at is not None,
+                "replies": replies_by_note.get(note.id, []),
             }
         )
 
@@ -4622,15 +4678,24 @@ async def get_candidate_history(
     )
     # Runda 10 (F04): źródło wejścia do rekrutacji (najnowsza próba procesu) —
     # ręczne dodanie nie może się czytać jak „z ogłoszenia".
-    entry_sources = {
-        row.job_id: row.entry_source
+    entry_rows = {
+        row.job_id: row
         for row in (
             await db.execute(
-                select(RecruitmentProcess.job_id, RecruitmentProcess.entry_source)
+                select(
+                    RecruitmentProcess.job_id,
+                    RecruitmentProcess.entry_source,
+                    RecruitmentProcess.entry_meta,
+                )
                 .where(RecruitmentProcess.candidate_id == candidate_id)
                 .order_by(RecruitmentProcess.attempt_no.asc())
             )
         ).all()
+    }
+    entry_sources = {job_id: row.entry_source for job_id, row in entry_rows.items()}
+    # 0399: wynik auto-matcha przy procesie (dawniej notatka w historii).
+    entry_auto_match = {
+        job_id: auto_match_badge(row.entry_meta) for job_id, row in entry_rows.items()
     }
 
     # Group by job
@@ -4657,6 +4722,7 @@ async def get_candidate_history(
                 "latest_stage": None,
                 "latest_stage_name": None,
                 "entry_source": entry_sources.get(job_id),
+                "entry_auto_match": entry_auto_match.get(job_id),
                 # latest_stage_id wskazuje na najnowszy CandidateStage row
                 # (potrzebne dla CV-per-rekrutacja: api wybiera stage_id by
                 # wczytać snapshot oryginalnego CV i brandowane CV draft).
@@ -6164,6 +6230,14 @@ async def delete_candidate(
     # nigdy żadnych CV”). Do tego dnia każdy klucz szedł do rejestru kasowań
     # `cv_source_cleanup`; klucze nadal zbieramy wyżej, ale tylko do liczby
     # w dowodzie wykonania.
+    # 0399: odpowiedzi na notatki kasujemy PRZED kaskadą ORM — inaczej baza
+    # zdejmuje je razem z notatką główną (ON DELETE CASCADE), a ORM próbuje
+    # skasować je drugi raz.
+    await db.execute(
+        sa_delete(Note).where(
+            Note.candidate_id == candidate_id, Note.parent_note_id.is_not(None)
+        )
+    )
     await db.delete(candidate)
     # Flush PRZED commitem: kaskady w bazie wykonują się tutaj, więc ewentualny
     # FK bez `ON DELETE` wywali się czytelnie, a rejestr kasowań wycofa się

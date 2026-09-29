@@ -214,14 +214,22 @@ class NexusLoopbackClient:
         return out
 
     async def add_to_job(
-        self, job_id: int, candidate_id: int, note: str
+        self, job_id: int, candidate_id: int, rec: dict
     ) -> tuple[bool, str]:
+        must_hit = list(rec.get("matching_must") or [])
         resp = await self._request(
             "POST",
             f"/api/jobs/{job_id}/proposals/bulk",
             json={
                 "candidate_ids": [candidate_id],
-                "note": note[:2000],
+                # 0399: bez notatki — wynik jedzie jako dane procesu
+                # (plakietka „Auto-match 67/100 · JJIT” przy rekrutacji).
+                "auto_match": {
+                    "score": max(0.0, min(100.0, float(rec.get("score") or 0))),
+                    "source": "jjit",
+                    "must_hit": [str(m)[:80] for m in must_hit[:8]],
+                    "must_total": len(must_hit) + len(rec.get("gap_must") or []),
+                },
                 "tags": ["auto-match", "jjit"],
                 # Kandydaci z ogłoszeń lądują w „Ogłoszeniach" (etap `posting`,
                 # migracja 0317), nie w „Nowi" — rekruter przenosi ręcznie.
@@ -283,13 +291,9 @@ class NexusLoopbackClient:
             )
         ]
         for rec in good:
-            rec_note = (
-                f"{note}\nAuto-match score: {rec['score']:.0f}/100 ({candidate_name})\n"
-                f"Must-have trafione: {', '.join(rec['matching_must'][:8]) or '—'}"
-            )
             try:
                 added, reason = await self.add_to_job(
-                    rec["job_id"], result.candidate_id, rec_note
+                    rec["job_id"], result.candidate_id, rec
                 )
             except Exception as e:  # noqa: BLE001
                 added, reason = False, str(e)[:120]

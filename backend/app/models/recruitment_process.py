@@ -39,6 +39,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -184,6 +185,10 @@ class RecruitmentProcess(Base, TimestampMixin):
     # 0352), ale NIE w modelu: druga ścieżka processes → jobs robi z każdego
     # `select(...).join(Job)` bez warunku AmbiguousForeignKeysError.
     reassign_from_job_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # 0399: dane wejścia z automatu zamiast notatki („Auto-match 67/100 · JJIT”)
+    # — {"kind": "auto_match", "score", "source", "must_hit", "must_total"}.
+    # Do 29.09.2026 automaty pisały to jako notatkę w historii kandydata.
+    entry_meta: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     opened_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True

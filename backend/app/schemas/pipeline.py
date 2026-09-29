@@ -231,6 +231,9 @@ class CandidateStageResponse(BaseModel):
     # skąd osoba weszła (added_manual|application|proposal|reassign|auto_match|
     # import; `None` = proces sprzed 0352) i rekrutacja przepięcia.
     entry_source: Optional[str] = None
+    # 0399: wynik automatu przy wejściu („Auto-match 67/100 · JJIT”) —
+    # {"score", "source", "must_hit", "must_total"}; `None` = wejście ręczne.
+    entry_auto_match: Optional[dict] = None
     reassign_from_job_id: Optional[int] = None
     reassign_from_title: Optional[str] = None
     # Numer rekrutacji źródłowej („ZOB-1725") — odznaka „↻ z …" na karcie.

@@ -132,6 +132,7 @@ async def enqueue_mention_notifications(
     notification_title: str,
     related_entity_type: str,
     related_entity_id: int,
+    notification_type: NotificationType = NotificationType.note_mention,
 ) -> list[tuple[User, Notification]]:
     """Dodaje Notification do sesji per user. NIE commit'uje.
 
@@ -161,7 +162,7 @@ async def enqueue_mention_notifications(
     for user in users:
         if not user_can_receive_notification(
             user,
-            NotificationType.note_mention,
+            notification_type,
             related_entity_type=related_entity_type,
             link=deep_link_path,
         ):
@@ -177,7 +178,7 @@ async def enqueue_mention_notifications(
             title=notification_title,
             message=snippet,
             link=deep_link_path,
-            notification_type=NotificationType.note_mention,
+            notification_type=notification_type,
             related_entity_type=related_entity_type,
             related_entity_id=related_entity_id,
             dedupe_resurface=True,
@@ -202,8 +203,14 @@ async def send_mention_side_effects(
     deep_link_path: str,
     context_label: str,
     notification_title: str,
+    notification_type: NotificationType = NotificationType.note_mention,
+    send_email: bool = True,
 ) -> int:
-    """Po commicie: WS push + email per user. Best-effort (try/except)."""
+    """Po commicie: WS push + email per user. Best-effort (try/except).
+
+    Odpowiedź na notatkę (``note_reply``, 0399) idzie bez maila — mail
+    wzmianki mówi „oznaczył(a) Cię”, a odpowiedź widać w dzwonku.
+    """
     if not pairs:
         return 0
 
@@ -213,7 +220,7 @@ async def send_mention_side_effects(
         allowed_users = await filter_notification_recipients(
             db,
             (user.id for user, _ in pairs),
-            NotificationType.note_mention,
+            notification_type,
             related_entity_type="note",
             link=deep_link_path,
         )
@@ -239,7 +246,7 @@ async def send_mention_side_effects(
                         "title": notif.title,
                         "message": notif.message,
                         "link": notif.link,
-                        "notification_type": NotificationType.note_mention.value,
+                        "notification_type": notification_type.value,
                         "created_at": (
                             notif.created_at.isoformat()
                             if notif.created_at is not None
@@ -257,7 +264,11 @@ async def send_mention_side_effects(
             )
 
         # Email — tylko gdy user ma email i jest aktywny.
-        if not user.email or not policy.allows("mentions", notif.created_at):
+        if (
+            not send_email
+            or not user.email
+            or not policy.allows("mentions", notif.created_at)
+        ):
             continue
         try:
             # Blocking smtplib send — offload off the event loop.

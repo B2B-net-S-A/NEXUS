@@ -110,6 +110,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.cpro_send_assigned: _C.mentions,
     # Ktoś przejął Twoją osobę w „Nowych" — imienne, jak wzmianka.
     _T.candidate_claim_taken: _C.mentions,
+    # Odpowiedź na Twoją notatkę — imienne, jak wzmianka (0399).
+    _T.note_reply: _C.mentions,
     # Czat
     _T.job_chat_message: _C.chat,
     # Ruchy w rekrutacjach
