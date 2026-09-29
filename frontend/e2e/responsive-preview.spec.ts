@@ -60,6 +60,7 @@ const PAGES = [
   "/preview/new-job",
   "/preview/new-job?state=request",
   "/preview/new-job?state=gaps",
+  "/preview/new-job?state=automatic",
   "/preview/order-consultant-picker",
   "/preview/order-ended-lines",
   "/preview/order-lifecycle",
