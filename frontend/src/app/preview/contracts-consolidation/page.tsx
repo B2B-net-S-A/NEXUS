@@ -14,13 +14,20 @@
  * Auth: zustand store dostaje admina z view_finance — komponenty czytają rolę
  * z tego samego store'a co produkcja, więc kolumny finansowe się renderują.
  *
- * UWAGA: harness gwarantuje zero requestów przy ŁADOWANIU (wszystkie zapytania
- * zasiane). Kliknięcie „Dodaj projekt" z wybranym klientem wykonałoby jednak
- * prawdziwy POST /api/contracts (mutacja, nie query) i skończyło się 401 —
- * dialog służy tu do oglądania WALIDACJI (zapis bez klienta), nie do zapisu.
+ * 3. Boczny panel kontraktu (wersja B, 29.09.2026) — klik w wiersz albo
+ *    `?contract=<id>` w adresie otwiera go od razu (np. `?contract=467` —
+ *    kontrakt zakończony z „Cofnij zakończenie”, `?contract=300` — brak
+ *    aktywnego zamówienia). Szczegóły, dokumenty i historia każdego kontraktu
+ *    z listy są zasiane.
+ *
+ * UWAGA: harness gwarantuje zero requestów — wszystkie zapytania są zasiane,
+ * a interceptor axios odrzuca każde żądanie, które mimo to by wyszło (okna
+ * otwierane z panelu pytają o klucze nie do zasiania). Zapisy blokuje też
+ * layout `/preview`.
  */
 
 import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ContractsListV2 } from "@/components/v2/pages/ContractsListV2";
 import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
@@ -181,6 +188,100 @@ const LIST_PAYLOAD = {
   page_size: 20,
 };
 
+type ListItem = (typeof LIST_PAYLOAD.items)[number];
+type ListMember = ReturnType<typeof member> & {
+  id: number;
+  client_id: number;
+  client_name: string | null;
+  job_title?: string | null;
+  client_order_start_date?: string;
+  client_order_end_date?: string;
+};
+
+/** Szczegóły kontraktu z panelu — lustro odpowiedzi `GET /api/contracts/{id}`. */
+function contractDetail(item: ListItem, m: ListMember) {
+  const siblings = (item.group_members as ListMember[]).filter(
+    (other) => other.id !== m.id,
+  );
+  const status = String(m.status ?? item.status);
+  return {
+    id: m.id,
+    candidate_id: item.candidate_id,
+    client_id: m.client_id,
+    job_id: null,
+    candidate_name: item.candidate_name,
+    client_name: m.client_name,
+    job_title: m.job_title ?? null,
+    candidate_email_effective: "kontakt@example.com",
+    candidate_phone_effective: "+48 600 100 200",
+    candidate_email_source: "candidate_profile",
+    candidate_phone_source: "contract",
+    start_date: m.start_date,
+    end_date: m.end_date ?? null,
+    client_order_start_date: m.client_order_start_date ?? null,
+    client_order_end_date: m.client_order_end_date ?? null,
+    rate_candidate: m.rate_candidate,
+    rate_client: m.rate_client,
+    margin: m.margin,
+    monthly_margin: typeof m.margin === "number" ? m.margin * 168 : null,
+    rate_unit: m.rate_unit ?? "hourly",
+    billing_hours_per_month: 168,
+    currency: "PLN",
+    rate_client_currency: "PLN",
+    rate_candidate_currency: "PLN",
+    contract_type: m.contract_type,
+    status,
+    work_mode: "remote",
+    notice_period_months: 1,
+    termination_reason: status === "ended" ? "project_ended" : null,
+    terminated_at: status === "ended" ? m.end_date : null,
+    can_reverse_termination: status === "ended",
+    can_return_after_break: status === "ended",
+    related_contracts: siblings.map((other) => ({
+      id: other.id,
+      client_id: other.client_id,
+      client_name: other.client_name,
+      status: other.status,
+      contract_type: other.contract_type,
+      start_date: other.start_date,
+      end_date: other.end_date ?? null,
+    })),
+  };
+}
+
+const PANEL_DOCUMENTS = [
+  {
+    id: 9001,
+    filename: "Umowa-B2B-przyklad.pdf",
+    doc_type: "contract",
+    content_type: "application/pdf",
+    size_bytes: 120_000,
+    expiry_date: null,
+    uploaded_by: 1,
+    uploaded_by_email: "preview@example.com",
+    created_at: "2026-07-01T09:00:00Z",
+    source: "sharepoint_import",
+  },
+  {
+    id: 9002,
+    filename: "Zamowienie-przyklad.pdf",
+    doc_type: "order",
+    content_type: "application/pdf",
+    size_bytes: 80_000,
+    expiry_date: null,
+    uploaded_by: 1,
+    uploaded_by_email: "preview@example.com",
+    created_at: "2026-09-15T09:00:00Z",
+    sharepoint_item_id: "fikcyjny-element",
+  },
+];
+
+const PANEL_ACTIVITIES = [
+  { id: 1, action: "status_changed", details: null, user_id: 1, user_name: "Preview Admin", created_at: "2026-09-20T10:00:00Z" },
+  { id: 2, action: "updated", details: null, user_id: 1, user_name: "Preview Admin", created_at: "2026-09-10T10:00:00Z" },
+  { id: 3, action: "created", details: null, user_id: 1, user_name: "Preview Admin", created_at: "2026-07-01T10:00:00Z" },
+];
+
 function seededClient(): QueryClient {
   const qc = new QueryClient({
     defaultOptions: {
@@ -211,6 +312,15 @@ function seededClient(): QueryClient {
     LIST_PAYLOAD,
   );
   qc.setQueryData(["contracts-expiring-v2"], []);
+  // Boczny panel: szczegóły, dokumenty i historia KAŻDEGO kontraktu z listy
+  // (te same klucze co karta kontraktu).
+  for (const item of LIST_PAYLOAD.items) {
+    for (const m of item.group_members as ListMember[]) {
+      qc.setQueryData(["contract", m.id], contractDetail(item, m));
+      qc.setQueryData(["contract-documents", m.id], PANEL_DOCUMENTS);
+      qc.setQueryData(["contract-activities", m.id], PANEL_ACTIVITIES);
+    }
+  }
   // Klucz MUSI być pełny: `AddProjectDialog` pyta o klientów zdatnych do
   // kontraktu (`["clients-lookup-add-project", "contract-eligible"]`).
   // Harness zasiewał wersję JEDNOELEMENTOWĄ sprzed dołożenia tego filtra, więc
@@ -234,10 +344,39 @@ function seededClient(): QueryClient {
   return qc;
 }
 
+/**
+ * Bezpiecznik sieci na czas życia harnessu: okna otwierane z panelu
+ * (zakończenie, przepięcie klienta) pytają o klucze nie do zasiania.
+ */
+function useNetworkBlocked() {
+  const [interceptorId] = useState(() =>
+    api.interceptors.request.use(() =>
+      Promise.reject(
+        Object.assign(
+          new Error("Harness /preview/contracts-consolidation nie wysyła zapytań."),
+          { isAxiosError: true, code: "ERR_PREVIEW_OFFLINE" },
+        ),
+      ),
+    ),
+  );
+  useEffect(
+    () => () => {
+      api.interceptors.request.eject(interceptorId);
+    },
+    [interceptorId],
+  );
+}
+
 export default function ContractsConsolidationPreview() {
+  useNetworkBlocked();
   const [ready, setReady] = useState(false);
   const [qc] = useState(seededClient);
-  const [dialogOpen, setDialogOpen] = useState(true);
+  // `?contract=` pokazuje otwarty panel — dialog nie może go zasłaniać.
+  const [dialogOpen, setDialogOpen] = useState(
+    () =>
+      typeof window === "undefined" ||
+      !new URLSearchParams(window.location.search).has("contract"),
+  );
 
   useEffect(() => {
     // Komponenty czytają rolę z produkcyjnego store'a — zasilamy go adminem

@@ -244,7 +244,7 @@ export function ReverseTerminationPlanView({
   );
 }
 
-function ReverseTerminationDialog({
+export function ReverseTerminationDialog({
   contractId,
   onClose,
 }: {
@@ -314,7 +314,7 @@ function ReverseTerminationDialog({
   );
 }
 
-function ReturnAfterBreakDialog({
+export function ReturnAfterBreakDialog({
   contractId,
   onClose,
 }: {

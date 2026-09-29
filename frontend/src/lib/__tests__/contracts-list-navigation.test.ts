@@ -109,6 +109,17 @@ describe("contracts list navigation state", () => {
     });
   });
 
+  it("round-trips the contract open in the side panel without making the entry explicit", () => {
+    const parsed = parseContractsListState("contract=467");
+    expect(parsed.explicit).toBe(false);
+    expect(parsed.state.selected).toBe(467);
+    expect(parsed.state.statusFilter).toEqual(["active", "ending"]);
+    const url = buildContractsListUrl({ ...parsed.state, page: 2 });
+    expect(url).toBe("/contracts?status=active&status=ending&page=2&contract=467");
+    expect(parseContractsListState("contract=abc").state.selected).toBeUndefined();
+    expect(parseContractsListState("contract=-3").state.selected).toBeUndefined();
+  });
+
   it("drops an unknown sort key and a malformed date instead of sending them", () => {
     const state = parseContractsListState(
       "sort=id;drop&dir=sideways&start_from=01.02.2026",
