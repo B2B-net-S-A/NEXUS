@@ -36,4 +36,12 @@ Makiety: https://claude.ai/artifact/WEVyKuavTdd8JVggXQ9mD3 (v7). Kontrakt API:
 3. Pomiar tekstów rekrutacji (20 profili, Luna vs Sonnet) przed ewentualną zmianą modelu.
 
 Do tego czasu baza wiedzy buduje się sama: otwarcie otwartej rekrutacji uzupełnia
-brakujące hasła, rolę i opis klienta (najwyżej 3 researche w żądaniu, reszta w tle).
+brakujące hasła, rolę i opis klienta.
+
+## Po wdrożeniu (29.09, test na produkcji)
+- Rekrutacja 706641: GET 200 `stale`, odświeżenie 200 po 98,8 s, `ready`, teksty sensowne, rola założona.
+  98,8 s to za blisko limitu frontu (120 s), a nazwa roli niosła poziom („Starszy …”). Poprawki (PR follow-up):
+  - hasła słowniczka zajmowane od razu i badane w tle; w żądaniu tylko rola i opis klienta;
+  - front dociąga widok co 10 s, dopóki hasło jest w researchu;
+  - nazwa nowej roli bez poziomu, nawiasów, numerów i prefiksu klienta (`clean_role_name`).
+- Research bazy startowej (`--plan`) biegnie na serwerze (495 haseł, dziennik wznawialny).

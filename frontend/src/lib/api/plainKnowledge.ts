@@ -312,11 +312,27 @@ export function briefHasContent(brief: PlainBrief | null | undefined): boolean {
 
 // ── Hooki ────────────────────────────────────────────────────────────────
 
+/** Co ile dociągać widok, gdy hasła słowniczka są jeszcze w researchu (w tle). */
+export const RESEARCH_POLL_MS = 10_000;
+/** Najwyżej tyle dociągnięć na jedno otwarcie (~5 min) — research, który utknął,
+ *  nie może odpytywać bez końca. */
+export const RESEARCH_POLL_LIMIT = 30;
+
+export function researchPollInterval(
+  brief: PlainBrief | null | undefined,
+  polls: number,
+): number | false {
+  if (!brief || polls >= RESEARCH_POLL_LIMIT) return false;
+  return brief.glossary.some((term) => term.status === "researching") ? RESEARCH_POLL_MS : false;
+}
+
 export function usePlainBrief(jobId: number) {
   return useQuery({
     queryKey: plainBriefQueryKey(jobId),
     queryFn: () => plainKnowledgeApi.brief(jobId),
     staleTime: 60_000,
+    refetchInterval: (query) =>
+      researchPollInterval(query.state.data, query.state.dataUpdateCount),
   });
 }
 

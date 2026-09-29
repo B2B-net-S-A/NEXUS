@@ -35,7 +35,6 @@ import argparse
 import asyncio
 import json
 import logging
-import re
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -52,19 +51,8 @@ PLAN_VERSION = 1
 RECEIPT_KEY = "plain_knowledge_clients_apply"
 CLUSTER_MIN_SCORE = 55
 FREQUENT_MUST_MIN = 20
-_SENIORITY = re.compile(
-    r"\b(senior|junior|mid|regular|lead|principal|staff|expert|starszy|młodszy|sr|jr)\b\.?",
-    re.IGNORECASE,
-)
-_REF = re.compile(r"\b[A-Z]{2,}[-_/]?\d{2,}\b|\(\s*[^)]*\)|\d{3,}")
-
-
-def clean_role_name(title: str) -> str:
-    """Tytuł rekrutacji bez numerów zapytań i poziomu stanowiska."""
-    text = _REF.sub(" ", title or "")
-    text = _SENIORITY.sub(" ", text)
-    text = re.split(r"[|·–—]| - ", text)[0]
-    return re.sub(r"\s+", " ", text).strip(" ,.-/")[:120]
+# Jedna reguła czyszczenia nazwy roli z aplikacją (nowe role z researchu).
+from app.services.plain_knowledge.role_matcher import clean_role_name  # noqa: E402
 
 
 def cluster_jobs(jobs: list[dict[str, Any]], min_group: int) -> list[dict[str, Any]]:

@@ -69,8 +69,10 @@ Odczyt dla każdej roli wewnętrznej z dostępem do rekrutacji. NIC nie zapisuje
 Bez stawek osób zatrudnionych. Stawka rekrutacji pojawia się wyłącznie w `pitch` i odpowiedzi `rate`.
 
 ## `POST /api/jobs/{job_id}/plain-brief/refresh`
-Generuje teksty rekrutacji (i research brakujących terminów/roli/opisu klienta, najwyżej 3 w żądaniu, reszta
-w tle). Zwraca to samo co GET. Limit 10/min na osobę (429). Może trwać do ~60 s — front używa długiego timeoutu.
+Generuje teksty rekrutacji. W żądaniu robi też research nowej roli i brakującego opisu klienta (wpływają
+na teksty); brakujące hasła słowniczka wraca jako `status: "researching"` i bada w tle. Zwraca to samo co GET.
+Limit 10/min na osobę (429). Zwykle 20–60 s (przy nowej roli dłużej), więc front używa długiego timeoutu. Dopóki
+któreś hasło ma `researching`, front dociąga GET co 10 s (najwyżej 30 razy).
 Bramka: każda rola wewnętrzna z odczytem rekrutacji (także tylko-odczyt Pipeline); w „podglądzie jako” 403.
 
 ## `PUT /api/jobs/{job_id}/role-profile`

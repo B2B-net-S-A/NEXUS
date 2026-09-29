@@ -252,6 +252,15 @@ async def _headers_for(app_client, role_value: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
+async def _drain_background() -> None:
+    import asyncio
+
+    from app.core import tasks
+
+    while tasks._bg_tasks:
+        await asyncio.gather(*list(tasks._bg_tasks), return_exceptions=True)
+
+
 async def _seed_job() -> dict:
     tag = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
@@ -357,8 +366,13 @@ async def test_refresh_fills_knowledge_once_and_skips_the_model_when_nothing_cha
     body = first.json()
     assert body["status"] == "ready" and body["stale"] is False
     assert body["pitch"] == "Projekt w banku, stawka do 170 zł netto na godzinę."
-    assert body["glossary"][0]["status"] == "ready"
-    assert body["glossary"][0]["sources"][0]["url"] == "https://example.com/k"
+    # Hasła słowniczka idą w tle: w odpowiedzi „Szukam opisu…” albo już gotowe
+    # (atrapa researchu kończy się, zanim serwer złoży odpowiedź), nigdy błąd.
+    assert body["glossary"][0]["status"] in {"researching", "ready"}
+    await _drain_background()
+    later = (await app_client.get(url, headers=app_auth_headers)).json()
+    assert later["glossary"][0]["status"] == "ready"
+    assert later["glossary"][0]["sources"][0]["url"] == "https://example.com/k"
     assert body["role"]["name"].startswith("Plainjava Developer")
     # Statystyki roli bez żadnej kwoty.
     assert set(body["role"]["stats"]) == {"jobs", "clients", "hires", "hired_titles"}
@@ -394,6 +408,7 @@ async def test_manual_term_is_never_researched_again(
     await app_client.post(
         f"/api/jobs/{world['job_id']}/plain-brief/refresh", headers=app_auth_headers
     )
+    await _drain_background()
     assert ("term", f"Plainkafka{world['tag']}") not in fake_ai["research"]
 
 
@@ -407,6 +422,7 @@ async def test_only_admin_and_head_of_recruitment_edit_knowledge(
     await app_client.post(
         f"/api/jobs/{world['job_id']}/plain-brief/refresh", headers=app_auth_headers
     )
+    await _drain_background()
     async with AsyncSessionLocal() as db:
         role_id = await db.scalar(
             select(Job.role_profile_id).where(Job.id == world["job_id"])
@@ -651,3 +667,16 @@ def test_build_journal_skips_done_items_and_retries_empty_results(tmp_path) -> N
     )
     done = load_journal(path)
     assert set(done) == {("term", "kafka")}
+
+
+def test_new_role_name_drops_seniority_references_and_headcount() -> None:
+    clean = role_matcher.clean_role_name
+    assert clean("Starszy Programista Frontend (Angular)") == "Programista Frontend"
+    assert clean("3 x Senior FullStack Developer in Corporate Area") == (
+        "FullStack Developer in Corporate Area"
+    )
+    assert clean("Tech Lead Java") == "Tech Lead Java"
+    assert clean("Nordea: PM for AI-driven application modernization") == (
+        "PM for AI-driven application modernization"
+    )
+    assert clean("Bank Pocztowy: Tester manualny") == "Tester manualny"

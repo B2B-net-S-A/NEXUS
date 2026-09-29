@@ -12,10 +12,36 @@ nadpisywany.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
 MIN_SCORE = 0.45
+
+# Poziom stanowiska nie jest częścią roli: „Starszy Programista Frontend” i
+# „Programista Frontend” to ta sama pozycja w bibliotece. „Lead”/„Principal”
+# zostają — „Tech Lead” to inna rola, nie wyższy poziom programisty.
+_SENIORITY = re.compile(
+    r"(?<![\w-])(senior|junior|mid|regular|starszy|starsza|starsi|młodszy|młodsza|"
+    r"sr|jr|ekspert|expert)(?![\w-])\.?",
+    re.IGNORECASE,
+)
+_REF = re.compile(
+    r"\b[A-Z]{2,}[-_/]?\d{2,}\b|\(\s*[^)]*\)|\d{3,}|\b\d+\s*x\b", re.IGNORECASE
+)
+
+
+def clean_role_name(title: str) -> str:
+    """Tytuł bez numerów zapytań, nawiasów, liczby osób i poziomu stanowiska."""
+    text = _REF.sub(" ", title or "")
+    text = _SENIORITY.sub(" ", text)
+    # „Nordea: PM for …” — przed dwukropkiem zwykle stoi klient, nie rola.
+    head, sep, tail = text.partition(":")
+    if sep and tail.strip() and len(head.split()) <= 2:
+        text = tail
+    text = re.split(r"[|·–—:]| - ", text)[0]
+    text = re.sub(r"\s+", " ", text).strip(" ,.-/")[:120]
+    return text[:1].upper() + text[1:]
 
 
 @dataclass(frozen=True)
@@ -115,15 +141,10 @@ def rules_for_new_role(
     role_name = champion_view.basics(getattr(job, "champion_profile", None)).get(
         "role_name"
     )
-    name = (
-        role_name.strip() if isinstance(role_name, str) and role_name.strip() else None
+    raw = role_name if isinstance(role_name, str) and role_name.strip() else None
+    name = clean_role_name(
+        raw or getattr(job, "working_title", None) or getattr(job, "title", None) or ""
     )
-    if not name:
-        name = (
-            (getattr(job, "working_title", None) or getattr(job, "title", None) or "")
-            .split("·")[0]
-            .strip()
-        )
     title, skills = job_signals(job)
     words = sorted(title_tokens(name) or title)[:6]
     skill_list = sorted(skills)[:8]
