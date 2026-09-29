@@ -226,6 +226,13 @@ from app.services.access_scope import (
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
+# Górne granice filtrów liczbowych listy/eksportu. Bez nich FastAPI przyjmuje
+# dowolnie duży int, który asyncpg próbuje zakodować jako parametr i wybucha
+# OverflowError → 500 (NEXUS-BE-4N). Z granicami zły input dostaje 422.
+# Kolumny id to Integer (int4); stawki/marża to Numeric(16, 6) → max < 10^10.
+_INT32_MAX = 2_147_483_647
+_NUMERIC_16_6_MAX = 9_999_999_999
+
 # Mutacje kontraktów stoją na `DeliveryLeadPlus` (admin + Delivery Lead). Do
 # 22.09.2026 było tu `TacPlus`, ale TAC nie ma sekcji Delivery, więc bramka
 # routera i tak go odcinała (audyt U7) — alias mówił coś, czego kod nie robił.
@@ -2070,7 +2077,7 @@ async def _can_read_contract_finance(
 async def list_contracts(
     current_user: ContractReadUser,
     db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=_INT32_MAX),
     page_size: int = Query(20, ge=1, le=100),
     q: Optional[str] = Query(
         None,
@@ -2087,8 +2094,8 @@ async def list_contracts(
             "multi-select (e.g. `?status=active&status=ending`). OR-combined."
         ),
     ),
-    client_id: Optional[int] = None,
-    candidate_id: Optional[int] = None,
+    client_id: Optional[int] = Query(None, ge=0, le=_INT32_MAX),
+    candidate_id: Optional[int] = Query(None, ge=0, le=_INT32_MAX),
     contract_type: Optional[list[str]] = Query(
         None,
         description=(
@@ -2119,9 +2126,11 @@ async def list_contracts(
             "dla multi-select, OR-łączony. Kontrakty bez rekrutacji są wykluczane."
         ),
     ),
-    rate_client_min: Optional[int] = Query(None, ge=0),
-    rate_client_max: Optional[int] = Query(None, ge=0),
-    margin_min: Optional[int] = Query(None),
+    rate_client_min: Optional[int] = Query(None, ge=0, le=_NUMERIC_16_6_MAX),
+    rate_client_max: Optional[int] = Query(None, ge=0, le=_NUMERIC_16_6_MAX),
+    margin_min: Optional[int] = Query(
+        None, ge=-_NUMERIC_16_6_MAX, le=_NUMERIC_16_6_MAX
+    ),
     expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
     order_end_from: Optional[date] = Query(
         None,
@@ -2516,8 +2525,8 @@ async def export_contracts(
     format: str = Query("xlsx", pattern="^(csv|xlsx)$"),
     q: Optional[str] = Query(None),
     status: Optional[list[ContractStatus]] = Query(None),
-    client_id: Optional[int] = None,
-    candidate_id: Optional[int] = None,
+    client_id: Optional[int] = Query(None, ge=0, le=_INT32_MAX),
+    candidate_id: Optional[int] = Query(None, ge=0, le=_INT32_MAX),
     contract_type: Optional[list[str]] = Query(None),
     start_from: Optional[date] = Query(None),
     start_to: Optional[date] = Query(None),
@@ -2526,9 +2535,11 @@ async def export_contracts(
     period_from: Optional[date] = Query(None),
     period_to: Optional[date] = Query(None),
     subcategory: Optional[list[str]] = Query(None),
-    rate_client_min: Optional[int] = Query(None, ge=0),
-    rate_client_max: Optional[int] = Query(None, ge=0),
-    margin_min: Optional[int] = Query(None),
+    rate_client_min: Optional[int] = Query(None, ge=0, le=_NUMERIC_16_6_MAX),
+    rate_client_max: Optional[int] = Query(None, ge=0, le=_NUMERIC_16_6_MAX),
+    margin_min: Optional[int] = Query(
+        None, ge=-_NUMERIC_16_6_MAX, le=_NUMERIC_16_6_MAX
+    ),
     expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
     order_end_from: Optional[date] = Query(None),
     order_end_to: Optional[date] = Query(None),
