@@ -385,8 +385,8 @@ def period_sort_key(period: str) -> tuple[int, int, str]:
 
 # ── Walidacja okresu (audyt 25.09.2026, R3-14) ──────────────────────────
 
-_MONTH_PERIOD_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
-_QUARTER_PERIOD_RE = re.compile(r"^Q[1-4] \d{4}$")
+_MONTH_PERIOD_RE = re.compile(r"^(?:19|20)\d{2}-(0[1-9]|1[0-2])$")
+_QUARTER_PERIOD_RE = re.compile(r"^Q[1-4] (?:19|20)\d{2}$")
 
 
 class PeriodValidationError(ValueError):
