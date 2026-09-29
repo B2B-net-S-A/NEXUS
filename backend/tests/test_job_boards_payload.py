@@ -217,7 +217,9 @@ def test_update_body_carries_fields_put_requires():
     )
     for forbidden in ("jobBoard", "title", "payment", "externalId", "category"):
         assert forbidden not in body
-    assert body["categories"] == ["java"]
+    # Sandbox 29.09.2026: kategoria jako obiekt, `expiredAt` null bez subskrypcji.
+    assert body["categories"] == [{"key": "java"}]
+    assert body["expiredAt"] is None
     assert body["informationClause"] == "Klauzula"
     assert body["contact"]["email"] == "a@b.pl"
     assert body["publicTags"] == [{"key": "x"}]
@@ -229,37 +231,38 @@ def test_skill_key_keeps_cpp_and_csharp_apart():
 
 
 def test_pick_payment_prefers_codes_expiring_first_then_subscription():
+    # `currentUsage` = POZOSTAŁE użycia (sandbox 29.09.2026: 10/10 → 9/10).
     now = "2026-09-25T00:00:00+00:00"
     balance = {
         "codes": [
             {
                 "name": "LATER",
                 "maxUsage": 5,
-                "currentUsage": 1,
+                "currentUsage": 4,
                 "expiresAt": "2027-01-01",
             },
             {
                 "name": "SOON",
                 "maxUsage": 5,
-                "currentUsage": 4,
+                "currentUsage": 1,
                 "expiresAt": "2026-10-01",
             },
             {
                 "name": "USED",
                 "maxUsage": 1,
-                "currentUsage": 1,
+                "currentUsage": 0,
                 "expiresAt": "2026-10-01",
             },
             {
                 "name": "OLD",
                 "maxUsage": 5,
-                "currentUsage": 0,
+                "currentUsage": 5,
                 "expiresAt": "2026-01-01",
             },
-            {"name": "JJ", "jobBoard": "justjoinit", "maxUsage": 5, "currentUsage": 0},
+            {"name": "JJ", "jobBoard": "justjoinit", "maxUsage": 5, "currentUsage": 5},
         ],
         "subscriptions": [
-            {"id": "sub-1", "isActive": True, "maxUsage": 10, "currentUsage": 2}
+            {"id": "sub-1", "isActive": True, "maxUsage": 10, "currentUsage": 8}
         ],
     }
     assert p.pick_payment("rocketjobs", balance, now_iso=now) == {
@@ -273,10 +276,100 @@ def test_pick_payment_prefers_codes_expiring_first_then_subscription():
     }
     inactive = {
         "subscriptions": [
-            {"id": "s", "isActive": False, "maxUsage": 9, "currentUsage": 0}
+            {"id": "s", "isActive": False, "maxUsage": 9, "currentUsage": 9}
         ]
     }
     assert p.pick_payment("rocketjobs", inactive, now_iso=now) is None
+
+
+def test_fresh_sandbox_balance_is_usable():
+    """Saldo dokładnie takie, jak z sandboxa 29.09.2026 — do tej daty dawało
+    „Brak kodów i aktywnej subskrypcji” na obu portalach."""
+    now = "2026-09-29T00:00:00+00:00"
+    balance = {
+        "codes": [
+            {
+                "jobBoard": "justjoinit",
+                "name": "JJ-CODE",
+                "currentUsage": 100,
+                "maxUsage": 100,
+                "expiresAt": "2027-09-29T00:00:00",
+            },
+            {
+                "jobBoard": "rocketjobs",
+                "name": "RJ-CODE",
+                "currentUsage": 0,
+                "maxUsage": 10,
+                "expiresAt": "2027-09-29T00:00:00",
+            },
+        ],
+        "subscriptions": [
+            {
+                "id": "rj-sub",
+                "jobBoard": "rocketjobs",
+                "subscriptionType": "usageBased",
+                "maxUsage": -1,
+                "currentUsage": -1,
+                "isActive": True,
+            }
+        ],
+    }
+    assert p.pick_payment("justjoinit", balance, now_iso=now) == {
+        "type": "Code",
+        "id": "JJ-CODE",
+    }
+    # Wyczerpany kod → subskrypcja bez limitu.
+    assert p.pick_payment("rocketjobs", balance, now_iso=now) == {
+        "type": "Subscription",
+        "id": "rj-sub",
+    }
+    assert p.payment_remaining(balance["subscriptions"][0]) is None
+    assert p.payment_remaining(balance["codes"][1]) == 0
+
+
+def test_dictionaries_are_per_board_with_display_names_and_leaf_categories():
+    from app.api.job_portals import _dictionary_items
+
+    # Wycinek odpowiedzi `/employer/dictionaries` z sandboxa 29.09.2026.
+    categories = [
+        {
+            "jobBoard": "justjoinit",
+            "key": "java",
+            "displayName": "Java",
+            "children": [],
+        },
+        {
+            "jobBoard": "rocketjobs",
+            "key": "bankowosc",
+            "displayName": "Bankowość",
+            "children": [
+                {
+                    "jobBoard": "rocketjobs",
+                    "key": "bankowosc-analiza-ryzyko",
+                    "displayName": "Analiza / Ryzyko",
+                    "parentKey": "bankowosc",
+                }
+            ],
+        },
+        {
+            "jobBoard": "rocketjobs",
+            "key": "inne",
+            "displayName": "Inne",
+            "children": [],
+        },
+        {"jobBoard": "hellohr", "key": "employer-branding", "displayName": "EB"},
+    ]
+    levels = [
+        {"key": "senior", "supportedJobBoards": ["justjoinit", "rocketjobs"]},
+        {"key": "mobile", "supportedJobBoards": ["rocketjobs"]},
+    ]
+    rj = [(i.key, i.name) for i in _dictionary_items(categories, "rocketjobs")]
+    assert rj == [
+        ("bankowosc-analiza-ryzyko", "Bankowość › Analiza / Ryzyko"),
+        ("inne", "Inne"),
+    ]
+    assert [i.key for i in _dictionary_items(categories, "justjoinit")] == ["java"]
+    assert [i.key for i in _dictionary_items(levels, "justjoinit")] == ["senior"]
 
 
 def test_normalize_options_drops_unknown_keys_and_bad_values():

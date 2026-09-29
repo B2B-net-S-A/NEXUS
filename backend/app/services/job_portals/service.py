@@ -806,10 +806,15 @@ def _apply(
         posting.url = result.url[:1024]
     if action == ACTION_PUBLISH and posting.published_at is None:
         posting.published_at = now
+    unchanged = []
     if result.extra.get("title_unchanged"):
+        unchanged.append("tytułu")
+    if result.extra.get("city_unchanged"):
+        unchanged.append("miasta")
+    if unchanged:
         posting.last_error = (
-            "Portal nie pozwala zmienić tytułu po publikacji — na portalu "
-            "został poprzedni tytuł."
+            f"Portal nie pozwala zmienić {' ani '.join(unchanged)} po publikacji — "
+            "na portalu zostały poprzednie wartości."
         )
     if outcome.built is not None:
         posting.payload_hash = outcome.built.payload_hash

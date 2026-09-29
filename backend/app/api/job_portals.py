@@ -184,17 +184,51 @@ _DICTIONARY_TTL_SECONDS = 24 * 3600
 _dictionary_cache: dict[str, tuple[float, BoardDictionaries]] = {}
 
 
-def _dictionary_items(raw: Any) -> list[DictionaryItem]:
+def _for_board(item: dict, board: str) -> bool:
+    """Wpis słownika dotyczy portalu — `jobBoard` (kategorie) albo lista
+    `supportedJobBoards` (pozostałe). Słowniki dostawcy obejmują naraz
+    JustJoin.IT, RocketJobs i HelloHR (sandbox 29.09.2026)."""
+    if item.get("jobBoard"):
+        return str(item["jobBoard"]).casefold() == board
+    supported = item.get("supportedJobBoards")
+    if isinstance(supported, list):
+        return board in {str(b).casefold() for b in supported}
+    return True
+
+
+def _dictionary_items(raw: Any, board: str) -> list[DictionaryItem]:
+    """Wpisy portalu; kategoria z podkategoriami daje same podkategorie.
+
+    RocketJobs odrzuca kategorię nadrzędną 422 „Categories contains parent
+    categories that require a subcategory” (sandbox 29.09.2026), więc
+    formularz dostaje wyłącznie liście, z nazwą „Kategoria › Podkategoria”.
+    """
     items: list[DictionaryItem] = []
     for item in raw or []:
         if isinstance(item, str):
             items.append(DictionaryItem(key=item, name=item))
-        elif isinstance(item, dict):
-            key = item.get("key") or item.get("value") or item.get("id")
-            if key:
-                items.append(
-                    DictionaryItem(key=str(key), name=str(item.get("name") or key))
+            continue
+        if not isinstance(item, dict) or not _for_board(item, board):
+            continue
+        key = item.get("key") or item.get("value") or item.get("id")
+        if not key:
+            continue
+        name = str(item.get("displayName") or item.get("name") or key)
+        children = [
+            child
+            for child in item.get("children") or []
+            if isinstance(child, dict) and child.get("key")
+        ]
+        if children:
+            for child in children:
+                child_name = str(
+                    child.get("displayName") or child.get("name") or child["key"]
                 )
+                items.append(
+                    DictionaryItem(key=str(child["key"]), name=f"{name} › {child_name}")
+                )
+        else:
+            items.append(DictionaryItem(key=str(key), name=name))
     return items
 
 
@@ -208,6 +242,7 @@ async def get_board_dictionaries(
     portal = _portal(board)
     if portal not in JJIT_FAMILY:
         raise HTTPException(422, detail="Ten portal nie ma słowników w NEXUSIE.")
+    board = portal.value
     config = job_portals.PortalConfig.from_settings(portal)
     if await job_portals.resolve_state(db, config) != "ready":
         raise HTTPException(
@@ -217,7 +252,7 @@ async def get_board_dictionaries(
                 "message": "Portal nie jest włączony albo konto nie jest połączone.",
             },
         )
-    cached = _dictionary_cache.get("jjit")
+    cached = _dictionary_cache.get(board)
     if cached and time.monotonic() - cached[0] < _DICTIONARY_TTL_SECONDS:
         return cached[1]
     from app.services.job_portals.jjit_client import JjitApi
@@ -229,12 +264,12 @@ async def get_board_dictionaries(
             502, detail={"code": "portal_error", "message": exc.message}
         ) from exc
     result = BoardDictionaries(
-        categories=_dictionary_items(raw.get("categories")),
-        experience_levels=_dictionary_items(raw.get("experienceLevels")),
-        working_times=_dictionary_items(raw.get("workingTimes")),
-        workplace_types=_dictionary_items(raw.get("workplaceTypes")),
+        categories=_dictionary_items(raw.get("categories"), board),
+        experience_levels=_dictionary_items(raw.get("experienceLevels"), board),
+        working_times=_dictionary_items(raw.get("workingTimes"), board),
+        workplace_types=_dictionary_items(raw.get("workplaceTypes"), board),
     )
-    _dictionary_cache["jjit"] = (time.monotonic(), result)
+    _dictionary_cache[board] = (time.monotonic(), result)
     return result
 
 

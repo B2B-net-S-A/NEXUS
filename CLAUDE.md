@@ -3429,11 +3429,25 @@ odpowiedź integration@rocketjobs.com. Kontrakt API frontu:
   kontroli), po publikacji rekrutacji: opis → zatwierdzenie → link →
   publikacja (`lib/new-job-portal-publish.ts`). Awaria po utworzeniu =
   toast + `?tab=portals`, rekrutacja zostaje.
-- **Do potwierdzenia na pierwszym prawdziwym ogłoszeniu** (dokumentacja
-  milczy): adresy publiczne ogłoszeń (`_OFFER_URL`), kształt odpowiedzi
-  `PUT /skills` i `GET` ogłoszenia, pole `categories` w `PUT`, czy
-  `/dictionaries` zależy od portalu, claim z `organizationUnitId`
-  (nadpisanie: `PORTAL_*_ORGANIZATION_UNIT_ID`). Harnessy:
+- **Kształty potwierdzone na sandboxie dostawcy 29.09.2026** (pełny cykl
+  publikacja → edycja → zamknięcie na obu portalach; do tej daty każda
+  publikacja by padła, a testy przechodziły, bo kodowały założenia):
+  `/oauth/me` NIE niesie jednostki (`organization_id` to ID organizacji) —
+  jednostkę daje `GET /employer/organizations/units`, jedna na oba portale;
+  lista ogłoszeń wymaga `order`, `orderBy` i `state` (tylko `Published`
+  albo `Expired`); `PUT /skills` zwraca `{"skills": […]}`; w saldzie
+  `currentUsage` to POZOSTAŁE użycia, `-1/-1` = subskrypcja bez limitu
+  (`payment_remaining`); słowniki obejmują naraz JJIT, RocketJobs i HelloHR,
+  nazwa jest w `displayName`, a RocketJobs odrzuca kategorię nadrzędną
+  (formularz dostaje same podkategorie `children`); `PUT` wymaga
+  `categories: [{key}]`, `expiredAt` (wartość tylko przy subskrypcji, przy
+  kodzie `null`) i lokalizacji z ulicą i współrzędnymi — bierzemy je
+  z `GET`, więc miasta po publikacji nie zmienimy (`city_unchanged`, jak
+  tytuł); ponowne zamknięcie = 400 `errors.jobAdvertisementNotActive`
+  (traktowane jak sukces); POST, GET i lista zwracają gotowy `url`.
+  Bez logo w profilu firmy portal odmawia 422 `hiring.company.logo.required`.
+  Sandbox: `jobboardcore-external.stage-wj4yiuqw6nwl.justjoin.it/external-api`
+  (token od dostawcy, NIE w repo). Harnessy:
   `/preview/job-portals?dialog=1`, `/preview/new-job?state=portals`.
 
 ## Podobne rekrutacje, przepięcia i status requestu (0341, 22.09.2026)

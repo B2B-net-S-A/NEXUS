@@ -385,6 +385,32 @@ def create_body(
     return body
 
 
+def keeps_current_location(current: dict[str, Any], options: dict[str, Any]) -> bool:
+    """Edycja zostawia lokalizację z portalu, gdy miasto się nie zmieniło.
+
+    Portal przy tworzeniu sam uzupełnia ulicę („Centrum”) i współrzędne, a przy
+    edycji ich WYMAGA (sandbox 29.09.2026: 422 „Street/GeoCoordinates must not
+    be empty”). Nowego miasta nie umiemy zgeokodować, więc przy zmianie miasta
+    też zostaje lokalizacja z portalu — adapter zgłasza to jako ``city_unchanged``.
+    """
+    locations = current.get("locations") or []
+    first = locations[0] if locations and isinstance(locations[0], dict) else {}
+    return bool(first) and " ".join(
+        str(first.get("city") or "").split()
+    ).casefold() == (" ".join(str(options.get("city") or "").split()).casefold())
+
+
+def _current_locations(current: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            key: location.get(key)
+            for key in ("countryCode", "street", "city", "geoCoordinates")
+        }
+        for location in current.get("locations") or []
+        if isinstance(location, dict)
+    ]
+
+
 def update_body(
     board: str,
     *,
@@ -397,17 +423,43 @@ def update_body(
     """``PUT`` podmienia CAŁE ogłoszenie: klauzula, kontakt i tagi idą z ``GET``.
 
     Bez ``jobBoard``, ``title``, ``payment``, ``externalId`` (dokumentacja).
-    Kategoria w edycji to ``categories`` (tablica z jednym kluczem).
+    Kształty potwierdzone na sandboxie 29.09.2026: ``categories`` to
+    ``[{"key": …}]``; ``expiredAt`` jest wymagany, ale portal przyjmuje go
+    WYŁĄCZNIE dla ogłoszeń z subskrypcji (kod = ``null``); lokalizacje z ``GET``.
     """
     body = content_fields(board, job, options, apply_url=apply_url, skill_ids=skill_ids)
     body["informationClause"] = current.get("informationClause") or ""
     body["contact"] = current.get("contact")
     body["publicTags"] = current.get("publicTags") or []
-    body["categories"] = [options["category"]]
+    body["categories"] = [{"key": options["category"]}]
+    body["expiredAt"] = (
+        current.get("expiredAt") if current.get("subscriptionId") else None
+    )
+    current_locations = _current_locations(current)
+    if current_locations:
+        body["locations"] = current_locations
     for key in ("customConsent", "futureConsent"):
         if current.get(key) is not None:
             body[key] = current[key]
     return body
+
+
+def payment_remaining(item: dict[str, Any]) -> Optional[int]:
+    """Ile publikacji zostało w kodzie albo subskrypcji; ``None`` = bez limitu.
+
+    Sandbox 29.09.2026: ``currentUsage`` to POZOSTAŁE użycia (świeży kod 10/10,
+    po publikacji 9/10), a subskrypcja ``usageBased`` bez limitu ma ``-1/-1``.
+    Do tej daty liczyliśmy ``maxUsage − currentUsage`` i świeży kod wyglądał na
+    pusty — publikacja kończyła się „Brak kodów i aktywnej subskrypcji”.
+    """
+    try:
+        current = int(item.get("currentUsage"))
+        maximum = int(item.get("maxUsage"))
+    except (TypeError, ValueError):
+        return 0
+    if current < 0 or maximum < 0:
+        return None
+    return max(0, current)
 
 
 def pick_payment(
@@ -419,11 +471,8 @@ def pick_payment(
     def usable(item: dict[str, Any]) -> bool:
         if str(item.get("jobBoard") or board).casefold() != board:
             return False
-        try:
-            left = int(item.get("maxUsage") or 0) - int(item.get("currentUsage") or 0)
-        except (TypeError, ValueError):
-            return False
-        return left > 0
+        left = payment_remaining(item)
+        return left is None or left > 0
 
     codes = [
         c

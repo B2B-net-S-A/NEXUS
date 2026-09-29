@@ -43,18 +43,23 @@ const STATUS_TONE: Record<JobBoardConnectionRead["status"], string> = {
   reconnect_required: "bg-warning-muted text-warning-muted-foreground",
 };
 
+function remainingLabel(remaining: number | null): string {
+  if (remaining === null) return "bez limitu";
+  return `${remaining} ${remaining === 1 ? "ogłoszenie" : "ogłoszeń"}`;
+}
+
 /** Saldo publikacji w jednym zdaniu na pozycję — puste = brak pakietów. */
 export function balanceLines(balance: JobBoardBalance): string[] {
   const lines: string[] = [];
   for (const code of balance.codes) {
     lines.push(
-      `${code.name}: ${code.remaining} ${code.remaining === 1 ? "ogłoszenie" : "ogłoszeń"}` +
+      `${code.name}: ${remainingLabel(code.remaining)}` +
         (code.expires_at ? ` · ważne do ${formatDate(code.expires_at)}` : ""),
     );
   }
   for (const sub of balance.subscriptions) {
     lines.push(
-      `Abonament${sub.plan_key ? ` ${sub.plan_key}` : ""}: ${sub.remaining} ${sub.remaining === 1 ? "ogłoszenie" : "ogłoszeń"}` +
+      `Abonament${sub.plan_key ? ` ${sub.plan_key}` : ""}: ${remainingLabel(sub.remaining)}` +
         (sub.end_date ? ` · do ${formatDate(sub.end_date)}` : "") +
         (sub.active ? "" : " · nieaktywny"),
     );

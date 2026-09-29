@@ -5,6 +5,10 @@ Pilnuje reguł, które kosztują pieniądze albo zostawiają ogłoszenie na
 portalu: adopcja po ``externalId`` zamiast drugiego ``POST``, jedno
 odświeżenie tokenu po 401, 409 przy zamykaniu = sukces, mapowanie błędów
 RFC 7807 na zdania po polsku i flagę ponowienia.
+
+Kształty odpowiedzi są nagrane z sandboxa dostawcy (29.09.2026) — do tej daty
+testy kodowały założenia z dokumentacji (``items`` w ``/skills``, saldo jako
+„zużyte”, lista bez ``order``) i przechodziły, choć każda publikacja by padła.
 """
 
 from __future__ import annotations
@@ -108,12 +112,27 @@ def _adapter(cls, api):
 
 def _skills(request):
     names = json.loads(request.content)["skillNames"]
-    return httpx.Response(200, json=[{"id": f"id-{n}", "name": n} for n in names])
+    # Sandbox 29.09.2026: `{"skills": [...]}`, nazwa w pisowni portalu.
+    return httpx.Response(
+        200,
+        json={
+            "skills": [
+                {
+                    "jobBoard": "rocketjobs",
+                    "id": f"id-{n}",
+                    "name": n,
+                    "normalizedName": n.casefold(),
+                }
+                for n in names
+            ]
+        },
+    )
 
 
+# `currentUsage` = POZOSTAŁE publikacje (sandbox: świeży kod 10/10, po jednej 9/10).
 BALANCE = {
     "codes": [
-        {"name": "KOD", "maxUsage": 3, "currentUsage": 0, "jobBoard": "rocketjobs"}
+        {"name": "KOD", "maxUsage": 3, "currentUsage": 3, "jobBoard": "rocketjobs"}
     ],
     "subscriptions": [],
 }
@@ -148,12 +167,19 @@ async def test_publish_ignores_list_item_with_foreign_external_id():
         ("PUT", "/rocketjobs/skills"): _skills,
         ("POST", ADS): lambda r: httpx.Response(
             200,
-            json={"jobBoard": "rocketjobs", "id": "ad-1", "title": "T", "slug": "t"},
+            json={
+                "jobBoard": "rocketjobs",
+                "id": "ad-1",
+                "title": "T",
+                "slug": "t",
+                "url": "https://rocketjobs.pl/oferta-pracy/t",
+            },
         ),
     }
     api, rec = _api(routes)
     result = await _adapter(RocketJobsAdapter, api).publish(_content())
     assert result.external_id == "ad-1"
+    assert result.url == "https://rocketjobs.pl/oferta-pracy/t"
     post = next(c for c in rec.calls if c[0] == "POST")
     body = post[2]
     assert body["jobBoard"] == "rocketjobs"
@@ -172,7 +198,7 @@ async def test_jjit_sends_only_required_skills():
                     {
                         "name": "J",
                         "maxUsage": 1,
-                        "currentUsage": 0,
+                        "currentUsage": 1,
                         "jobBoard": "justjoinit",
                     }
                 ]
@@ -183,6 +209,7 @@ async def test_jjit_sends_only_required_skills():
     }
     api, rec = _api(routes)
     result = await _adapter(JjitAdapter, api).publish(_content())
+    # Bez `url` w odpowiedzi — zapasowy szablon ze `slug`.
     assert result.url == "https://justjoin.it/job-offer/s"
     skills_call = next(c for c in rec.calls if c[0] == "PUT")
     assert skills_call[2] == {"skillNames": ["Java"]}
@@ -231,9 +258,22 @@ async def test_update_reads_current_ad_and_sends_full_body():
     current = {
         "id": "ad-1",
         "slug": "s",
+        "url": "https://rocketjobs.pl/oferta-pracy/s",
         "title": "Stary tytuł",
         "informationClause": "Klauzula",
         "contact": {"name": "A", "email": "a@b.pl", "phone": "1"},
+        "subscriptionId": "sub-1",
+        "expiredAt": "2026-12-28T15:00:52Z",
+        "customConsent": {"value": None, "enabled": False},
+        "locations": [
+            {
+                "id": "loc-1",
+                "countryCode": "PL",
+                "street": "Centrum",
+                "city": "Warszawa",
+                "geoCoordinates": {"latitude": 52.23, "longitude": 21.01},
+            }
+        ],
     }
     routes = {
         ("GET", f"{ADS}/ad-1"): lambda r: httpx.Response(200, json=current),
@@ -246,17 +286,113 @@ async def test_update_reads_current_ad_and_sends_full_body():
     assert put[2]["informationClause"] == "Klauzula"
     assert "title" not in put[2] and "payment" not in put[2]
     assert result.extra.get("title_unchanged") is True
+    # Sandbox 29.09.2026: bez tych trzech PUT dostawał 400/422.
+    assert put[2]["categories"] == [{"key": "java"}]
+    assert put[2]["expiredAt"] == "2026-12-28T15:00:52Z"
+    assert put[2]["locations"] == [
+        {
+            "countryCode": "PL",
+            "street": "Centrum",
+            "city": "Warszawa",
+            "geoCoordinates": {"latitude": 52.23, "longitude": 21.01},
+        }
+    ]
+    assert put[2]["customConsent"] == {"value": None, "enabled": False}
+    assert result.url == "https://rocketjobs.pl/oferta-pracy/s"
+    assert "city_unchanged" not in result.extra
 
 
-async def test_close_treats_409_and_404_as_done():
-    for status in (409, 404):
+async def test_update_keeps_portal_location_when_city_changes():
+    current = {
+        "id": "ad-1",
+        "title": "Java Developer",
+        "locations": [
+            {
+                "countryCode": "PL",
+                "street": "Centrum",
+                "city": "Kraków",
+                "geoCoordinates": {"latitude": 50.06, "longitude": 19.94},
+            }
+        ],
+    }
+    routes = {
+        ("GET", f"{ADS}/ad-1"): lambda r: httpx.Response(200, json=current),
+        ("PUT", "/rocketjobs/skills"): _skills,
+        ("PUT", f"{ADS}/ad-1"): lambda r: httpx.Response(204),
+    }
+    api, rec = _api(routes)
+    result = await _adapter(RocketJobsAdapter, api).update("ad-1", _content())
+    put = [c for c in rec.calls if c[0] == "PUT" and c[1].endswith("/ad-1")][0]
+    assert put[2]["locations"][0]["city"] == "Kraków"
+    # Ogłoszenie z kodu: `expiredAt` tylko `null` (400 w sandboxie).
+    assert put[2]["expiredAt"] is None
+    assert result.extra.get("city_unchanged") is True
+
+
+async def test_list_sends_the_required_sort_and_state_params():
+    seen = []
+
+    def listing(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(200, json={"items": [], "totalCount": 0})
+
+    api, _ = _api({("GET", ADS): listing})
+    assert await api.find_published(UNIT, "nexus-posting-5") is None
+    assert seen == [
+        {
+            "pageSize": "5",
+            "pageNumber": "1",
+            "order": "Desc",
+            "orderBy": "CreatedAt",
+            "state": "Published",
+            "externalId": "nexus-posting-5",
+        }
+    ]
+
+
+async def test_units_come_from_the_units_endpoint():
+    api, rec = _api(
+        {
+            ("GET", "/organizations/units"): lambda r: httpx.Response(
+                200,
+                json={
+                    "items": [{"id": "unit-9", "organizationId": "org-1"}],
+                    "totalCount": 1,
+                },
+            )
+        }
+    )
+    assert await api.units() == [{"id": "unit-9", "organizationId": "org-1"}]
+    assert rec.calls[0][1].endswith("/employer/organizations/units")
+
+
+async def test_close_treats_already_closed_as_done():
+    # 409 z dokumentacji, 404 i 400 `errors.jobAdvertisementNotActive`
+    # (sandbox 29.09.2026 — ponowne DELETE zamkniętego ogłoszenia).
+    for status, title in (
+        (409, ""),
+        (404, ""),
+        (400, "errors.jobAdvertisementNotActive"),
+    ):
         api, _ = _api(
             {
-                ("DELETE", f"{ADS}/ad-1"): lambda r, s=status: httpx.Response(
-                    s, json={"status": s}
+                ("DELETE", f"{ADS}/ad-1"): lambda r, s=status, t=title: httpx.Response(
+                    s, json={"status": s, "title": t}
                 )
             }
         )
+        await _adapter(RocketJobsAdapter, api).unpublish("ad-1")
+
+
+async def test_close_other_400_is_raised():
+    api, _ = _api(
+        {
+            ("DELETE", f"{ADS}/ad-1"): lambda r: httpx.Response(
+                400, json={"status": 400, "title": "Bad Request"}
+            )
+        }
+    )
+    with pytest.raises(PortalError):
         await _adapter(RocketJobsAdapter, api).unpublish("ad-1")
 
 

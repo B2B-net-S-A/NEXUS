@@ -27,10 +27,10 @@ from app.services.job_portals.base import (
     PortalResult,
     PostingContent,
 )
-from app.services.job_portals.jjit_client import JjitApi
+from app.services.job_portals.jjit_client import CLOSED_TITLE, JjitApi
 
-# Publiczny adres ogłoszenia — dokumentacja 1EP go nie podaje, portal zwraca
-# tylko `slug`. Szablony do potwierdzenia na pierwszym prawdziwym ogłoszeniu.
+# Portal zwraca gotowy `url` w odpowiedzi POST, GET i listy (sandbox
+# 29.09.2026) — szablon ze `slug` to wyłącznie zapas, gdyby pola zabrakło.
 _OFFER_URL = {
     "justjoinit": "https://justjoin.it/job-offer/{slug}",
     "rocketjobs": "https://rocketjobs.pl/oferta-pracy/{slug}",
@@ -80,7 +80,9 @@ class JjitBoardAdapter(PortalAdapter):
 
     def _result(self, ad: dict[str, Any]) -> PortalResult:
         slug = ad.get("slug")
-        url = _OFFER_URL[self.board].format(slug=slug) if slug else None
+        url = str(ad.get("url") or "") or (
+            _OFFER_URL[self.board].format(slug=slug) if slug else None
+        )
         return PortalResult(external_id=str(ad.get("id") or "") or None, url=url)
 
     async def publish(self, content: PostingContent) -> PortalResult:
@@ -146,9 +148,15 @@ class JjitBoardAdapter(PortalAdapter):
             skill_ids=await self._skill_ids(content),
         )
         await self.api.update(unit, external_id, body)
-        result = self._result({"id": external_id, "slug": current.get("slug")})
+        result = self._result(
+            {"id": external_id, "slug": current.get("slug"), "url": current.get("url")}
+        )
         if current.get("title") and current["title"] != content.title:
             result.extra["title_unchanged"] = True
+        if current.get("locations") and not jjit_payload.keeps_current_location(
+            current, options
+        ):
+            result.extra["city_unchanged"] = True
         return result
 
     async def unpublish(
@@ -170,8 +178,9 @@ class JjitBoardAdapter(PortalAdapter):
         except PortalGone:
             return  # usunięte z portalu poza API — nic do zamknięcia
         except PortalError as exc:
-            # 409 = ogłoszenie już zamknięte (dokumentacja) — cel osiągnięty.
-            if exc.status == 409:
+            # 409 (dokumentacja) albo 400 `errors.jobAdvertisementNotActive`
+            # (sandbox 29.09.2026) = ogłoszenie już zamknięte — cel osiągnięty.
+            if exc.status == 409 or getattr(exc, "title", "") == CLOSED_TITLE:
                 return
             raise
 

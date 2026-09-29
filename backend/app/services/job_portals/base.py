@@ -41,6 +41,8 @@ class PortalError(Exception):
         self.message = message
         # Status HTTP odpowiedzi portalu (gdy błąd przyszedł z API).
         self.status = status
+        # Stabilny klucz błędu dostawcy (RFC 7807 ``title``), gdy jest.
+        self.title = ""
         if retryable is not None:
             self.retryable = retryable  # type: ignore[misc]
 

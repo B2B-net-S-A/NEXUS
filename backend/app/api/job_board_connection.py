@@ -47,14 +47,15 @@ class AuthorizeResponse(BaseModel):
 
 class BalanceCode(BaseModel):
     name: str
-    remaining: int
+    remaining: Optional[int]
     expires_at: Optional[str] = None
     plan_key: Optional[str] = None
 
 
 class BalanceSubscription(BaseModel):
     id: str
-    remaining: int
+    # None = bez limitu (`usageBased` z `-1`).
+    remaining: Optional[int]
     end_date: Optional[str] = None
     plan_key: Optional[str] = None
     active: bool
@@ -90,13 +91,12 @@ def _settings_url(status: str, message: Optional[str] = None) -> str:
     return f"{settings.PUBLIC_BASE_URL.rstrip('/')}/settings?{urlencode(query)}"
 
 
-def _remaining(item: dict) -> int:
-    try:
-        return max(
-            0, int(item.get("maxUsage") or 0) - int(item.get("currentUsage") or 0)
-        )
-    except (TypeError, ValueError):
-        return 0
+def _remaining(item: dict) -> Optional[int]:
+    """Pozostałe publikacje; ``None`` = subskrypcja bez limitu (jedna reguła
+    z wyborem płatności — ``jjit_payload.payment_remaining``)."""
+    from app.services.job_portals.jjit_payload import payment_remaining
+
+    return payment_remaining(item)
 
 
 def _balance(board: str, raw: dict) -> BoardBalance:
