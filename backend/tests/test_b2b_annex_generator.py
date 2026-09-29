@@ -175,6 +175,103 @@ async def test_later_annex_wins_over_cancelling_an_earlier_one(
     assert (await _row(rid)).start_date == date(2026, 12, 1)
 
 
+async def test_cancelling_both_annexes_restores_the_state_before_them(
+    app_client, app_auth_headers
+):
+    """A, potem B; anulowanie A, potem B — wiersz wraca do stanu sprzed
+    aneksów, nie do wartości anulowanego A."""
+    rid, _ = await _signed_parent(app_client)
+    before = (await _row(rid)).start_date
+    first = await _create(
+        app_client,
+        app_auth_headers,
+        "annex_start_date",
+        rid,
+        new_start_date="2026-11-15",
+    )
+    second = await _create(
+        app_client,
+        app_auth_headers,
+        "annex_start_date",
+        rid,
+        new_start_date="2026-12-01",
+    )
+    for doc_id in (first, second):
+        resp = await app_client.post(
+            f"{BASE}/documents/{doc_id}/cancel",
+            headers=app_auth_headers,
+            json={"reason": "Nie doszło do skutku"},
+        )
+        assert resp.status_code == 200, resp.text
+    assert (await _row(rid)).start_date == before
+
+
+async def test_correcting_an_older_annex_does_not_override_a_newer_one(
+    app_client, app_auth_headers
+):
+    rid, _ = await _signed_parent(app_client)
+    first = await _create(
+        app_client,
+        app_auth_headers,
+        "annex_start_date",
+        rid,
+        new_start_date="2026-11-15",
+    )
+    await _create(
+        app_client,
+        app_auth_headers,
+        "annex_start_date",
+        rid,
+        new_start_date="2026-12-01",
+    )
+    fixed = await app_client.post(
+        f"{BASE}/documents/{first}/rerender",
+        headers=app_auth_headers,
+        json={
+            "document_type": "annex_start_date",
+            "parent_generated_contract_id": rid,
+            "values": _values(new_start_date="2026-11-20"),
+        },
+    )
+    assert fixed.status_code == 200, fixed.text
+    assert (await _row(rid)).start_date == date(2026, 12, 1)
+    cancel = await app_client.post(
+        f"{BASE}/documents/{first}/cancel",
+        headers=app_auth_headers,
+        json={"reason": "Pomyłka"},
+    )
+    assert cancel.status_code == 200, cancel.text
+    assert (await _row(rid)).start_date == date(2026, 12, 1)
+
+
+async def test_legacy_rate_annex_form_keeps_its_own_rate(app_client, app_auth_headers):
+    """„Popraw” aneksu zapisanego przed generatorem (``new_rate``) pokazuje
+    jego stawkę, a nie bieżącą stawkę z rejestru."""
+    from app.models.b2b_contract_document import B2BContractDocument
+
+    rid, _ = await _signed_parent(app_client)
+    doc_id = await _create(
+        app_client,
+        app_auth_headers,
+        "annex_rate_change",
+        rid,
+        rate_items=[{"rate": "150"}],
+    )
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(B2BContractDocument, doc_id)
+        payload = dict(doc.render_payload)
+        values = dict(payload["values"])
+        values.pop("rate_items")
+        values.update(new_rate=180, currency="PLN")
+        doc.render_payload = {**payload, "values": values}
+        await db.commit()
+    form = await app_client.get(
+        f"{BASE}/documents/{doc_id}/form", headers=app_auth_headers
+    )
+    assert form.status_code == 200, form.text
+    assert form.json()["values"]["rate_items"][0]["rate"] == 180
+
+
 async def test_party_data_annex_updates_company_and_nip(app_client, app_auth_headers):
     rid, _ = await _signed_parent(app_client)
     doc_id = await _create(

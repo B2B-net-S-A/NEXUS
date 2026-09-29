@@ -8,16 +8,20 @@ przy „Oznacz jako podpisany” (``effects.py``) — aneks, którego nikt nie
 podpisał, nie może zostawić w kontrakcie stawki bez podpisu.
 
 Dlatego zmiana w rejestrze jest ODWRACALNA: dokument zapamiętuje stan wiersza
-sprzed pierwszego zastosowania (``register_before``) i to, co sam wpisał
-(``register_applied``). Anulowanie albo usunięcie niepodpisanego aneksu
-przywraca tylko te pola, które nadal mają wartość z tego aneksu — późniejszy
-aneks do tej samej umowy wygrywa.
+sprzed pierwszego zastosowania (``register_before``) i to, co sam wpisuje
+(``register_applied``), a wiersz jest przeliczany (``_recompute``): wartość
+z najnowszego aktywnego aneksu tego typu, bez aktywnych — stan sprzed
+pierwszego. Anulowanie albo usunięcie niepodpisanego aneksu przelicza wiersz
+z pominięciem tego aneksu.
 """
 
 from __future__ import annotations
 
 from datetime import date
 from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.b2b_contract_document import B2BContractDocument
 from app.models.b2b_generated_contract import B2BGeneratedContract
@@ -109,55 +113,103 @@ def _current(row: B2BGeneratedContract, field: str) -> Any:
     return _to_json(field, getattr(row, field))
 
 
-def apply(
+def _applied(doc: B2BContractDocument) -> dict[str, Any]:
+    applied = (doc.render_payload or {}).get("register_applied")
+    return applied if isinstance(applied, dict) else {}
+
+
+async def _recompute(
+    db: AsyncSession,
+    row: B2BGeneratedContract,
+    doc_type_key: str,
+    *,
+    exclude_id: int | None = None,
+) -> list[str]:
+    """Ustaw pola wiersza na wartość z NAJNOWSZEGO aktywnego aneksu tego typu
+    (kolejność wystawienia), a bez aktywnych — na stan sprzed pierwszego.
+
+    Pamiętanie samego „przed” w każdym dokumencie nie wystarcza: anulowanie
+    aneksu A po wystawieniu B, a potem B, wracało do wartości A — aneksu, który
+    nie doszedł do skutku; „Popraw” starszego aneksu nadpisywał nowszy. Pole,
+    którego wartość nie pochodzi z żadnego aneksu (zmiana spoza generatora,
+    np. import z Excela), zostaje nietknięte."""
+    fields = REGISTER_FIELDS.get(doc_type_key, ())
+    if not fields:
+        return []
+    docs = list(
+        (
+            await db.scalars(
+                select(B2BContractDocument)
+                .where(
+                    B2BContractDocument.parent_generated_contract_id == row.id,
+                    B2BContractDocument.document_type == doc_type_key,
+                )
+                .order_by(B2BContractDocument.id)
+            )
+        ).all()
+    )
+    changed: list[str] = []
+    for field in fields:
+        touching = [d for d in docs if field in _applied(d)]
+        if not touching:
+            continue
+        before = (touching[0].render_payload or {}).get("register_before") or {}
+        baseline = before.get(field) if isinstance(before, dict) else None
+        active = [d for d in touching if d.id != exclude_id and d.status != "cancelled"]
+        target = _applied(active[-1])[field] if active else baseline
+        current = _current(row, field)
+        if current == target:
+            continue
+        known = [baseline, *(_applied(d)[field] for d in touching)]
+        if current not in known:
+            continue
+        setattr(row, field, _from_json(field, target))
+        changed.append(field)
+    return changed
+
+
+async def apply(
+    db: AsyncSession,
     doc: B2BContractDocument,
     row: B2BGeneratedContract,
     values: dict[str, Any],
-) -> dict[str, Any]:
-    """Wpisz zmiany aneksu do wiersza i zapamiętaj stan sprzed nich.
+) -> None:
+    """Zapisz w dokumencie, co wpisuje do wiersza, i przelicz wiersz.
 
-    Zwraca nowy ``render_payload`` dokumentu (wołający go przypisuje).
-    Ponowne wygenerowanie („Popraw”) zostawia pierwotny ``register_before``."""
+    ``register_before`` = stan wiersza przed PIERWSZYM zastosowaniem tego
+    dokumentu (bazą jest ``register_before`` najstarszego aneksu)."""
     fields = REGISTER_FIELDS.get(doc.document_type, ())
-    payload = dict(doc.render_payload or {})
     if not fields:
-        return payload
+        return
+    payload = dict(doc.render_payload or {})
     changes = planned(doc.document_type, values, document_id=doc.id)
     before = payload.get("register_before")
     if not isinstance(before, dict):
         before = {field: _current(row, field) for field in fields}
     applied: dict[str, Any] = {}
     for field in fields:
-        if field not in changes:
-            continue
-        new_value = changes[field]
+        new_value = changes.get(field)
         if new_value is None and field != "annex_rates":
             # Brak wartości w aneksie nie kasuje danych wiersza.
             continue
-        setattr(row, field, _from_json(field, new_value))
         applied[field] = new_value
     payload["register_before"] = before
     payload["register_applied"] = applied
-    return payload
+    doc.render_payload = payload
+    await db.flush()
+    await _recompute(db, row, doc.document_type)
 
 
-def revert(doc: B2BContractDocument, row: B2BGeneratedContract | None) -> list[str]:
-    """Cofnij zmiany aneksu w wierszu — tylko pola, których nikt nie zmienił
-    od tego czasu. Zwraca listę przywróconych pól."""
-    if row is None:
+async def revert(
+    db: AsyncSession,
+    doc: B2BContractDocument,
+    row: B2BGeneratedContract | None,
+) -> list[str]:
+    """Aneks anulowany albo usuwany: wiersz wraca do najnowszego aktywnego
+    aneksu tego typu albo do stanu sprzed aneksów. Zwraca zmienione pola."""
+    if row is None or not _applied(doc):
         return []
-    payload = doc.render_payload or {}
-    before = payload.get("register_before")
-    applied = payload.get("register_applied")
-    if not isinstance(before, dict) or not isinstance(applied, dict):
-        return []
-    restored: list[str] = []
-    for field, value in applied.items():
-        if field not in before or _current(row, field) != value:
-            continue
-        setattr(row, field, _from_json(field, before[field]))
-        restored.append(field)
-    return restored
+    return await _recompute(db, row, doc.document_type, exclude_id=doc.id)
 
 
 def rate_items_from_register(row: B2BGeneratedContract) -> list[dict[str, Any]]:

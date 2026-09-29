@@ -174,9 +174,11 @@ FINAL = [
     Signatures(),
 ]
 
+# Frazę („z dniem 15.10.2026 r.”) składa kontekst — dokument sprzed generatora
+# aneksów niesie tryb daty („nie później niż …”) i ma się pobrać bez zmian.
 START_QUOTE = (
     "„Partner zobowiązany jest do podjęcia świadczenia usług wynikających "
-    "z niniejszej Umowy z dniem {date} r.”"
+    "z niniejszej Umowy {phrase}”"
 )
 
 TEMPLATES: dict[str, list] = {
@@ -230,16 +232,16 @@ TEMPLATES: dict[str, list] = {
             "{{ base.contract_number }} następujące zmiany:"
         ),
         p("a) Określoną w {{ doc.paragraph_ref }} treść:"),
-        p(START_QUOTE.format(date="{{ doc.current_start_date }}"), indent_cm=0.63),
+        p(START_QUOTE.format(phrase="{{ doc.current_start_phrase }}"), indent_cm=0.63),
         p("zastępuje się treścią:"),
-        p(START_QUOTE.format(date="{{ doc.new_start_date }}"), indent_cm=0.63),
+        p(START_QUOTE.format(phrase="{{ doc.new_start_phrase }}"), indent_cm=0.63),
         p(
             "b) W Załączniku nr 3 do Umowy (wzór określający Klienta B2BNET) "
             "pozycję „Data rozpoczęcia świadczenia usług”:"
         ),
-        p("{{ doc.current_start_date }} r.", indent_cm=0.63),
+        p("{{ doc.current_start_value }}", indent_cm=0.63),
         p("zastępuje się wartością:"),
-        p("{{ doc.new_start_date }} r.", indent_cm=0.63),
+        p("{{ doc.new_start_value }}", indent_cm=0.63),
         *FINAL,
     ],
     "annex_rate_change_pl": [

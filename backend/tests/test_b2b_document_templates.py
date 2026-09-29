@@ -523,3 +523,37 @@ def test_single_rate_annex_is_one_sentence():
         "trzydzieści pięć złotych 00/100) netto + VAT za każdą roboczogodzinę."
     ) in text
     assert "•" not in text
+
+
+def test_legacy_rate_annex_in_euro_keeps_its_currency():
+    """Aneks sprzed generatora w EUR nie może się pobrać jako „150 zł”."""
+    doc_type = TYPES["annex_rate_change"]
+    values = {
+        "document_date": "2026-09-20",
+        "effective_date": "2026-10-01",
+        "gender": "m",
+        "partner_name": "Jan Próbny",
+        "new_rate": 150,
+        "currency": "EUR",
+    }
+    ctx = build_document_context(doc_type, values, language="pl", base=BASE, refs=None)
+    _, text = _docx_text(render_docx(template_key(doc_type.key, "pl"), ctx))
+    assert "150 EUR" in text
+    assert "150 zł" not in text and "złotych" not in text
+
+
+def test_legacy_start_annex_keeps_its_date_mode():
+    """Aneks daty startu sprzed generatora: „nie później niż …” zostaje."""
+    doc_type = TYPES["annex_start_date"]
+    values = {
+        "document_date": "2026-09-20",
+        "gender": "m",
+        "partner_name": "Jan Próbny",
+        "new_start_date": "2026-10-15",
+        "new_start_date_mode": "not_later",
+    }
+    ctx = build_document_context(doc_type, values, language="pl", base=BASE, refs=None)
+    _, text = _docx_text(render_docx(template_key(doc_type.key, "pl"), ctx))
+    assert "z niniejszej Umowy nie później niż 15.10.2026 roku.”" in text
+    assert "z niniejszej Umowy z dniem 01.09.2026 roku.”" in text
+    assert "z dniem podpisania niniejszego aneksu" in text

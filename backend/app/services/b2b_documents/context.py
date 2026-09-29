@@ -194,19 +194,30 @@ def _legacy_values(
             out[key] = raw if raw not in (None, "") else None
 
 
-def _rate_phrase(item: dict[str, Any], *, bullet: bool) -> str:
+def _rate_phrase(item: dict[str, Any], *, bullet: bool, currency: str = "PLN") -> str:
     """Jedna pozycja stawki: „[Od …] wynagrodzenie w wysokości … [w okresie
     do …] [dla Klienta B2BNET – …]”. Elementy opcjonalne tylko, gdy wypełnione
     (ticket 29.09.2026, pkt 6.8)."""
     amount = parse_amount(item.get("rate"))
-    words = pln_words_with_fraction(amount) if amount is not None else "…"
     shown = format_rate(amount) if amount is not None else "…"
+    cur = (currency or "PLN").upper()
+    if cur == "PLN":
+        words = pln_words_with_fraction(amount) if amount is not None else "…"
+        unit = "zł"
+    else:
+        # Aneks sprzed generatora aneksów bywał w innej walucie — ponowne
+        # pobranie nie może zamienić 150 EUR w 150 zł.
+        try:
+            words = rate_in_words(amount, "pl", cur) if amount is not None else "…"
+        except ValueError:
+            words = "…"
+        unit = cur
     parts: list[str] = []
     start = _as_date(item.get("from"))
     if start is not None:
         parts.append(f"{'Od' if bullet else 'od'} {pl_date(start)} roku")
     parts.append(
-        f"wynagrodzenie w wysokości {shown} zł (słownie: {words}) netto + VAT "
+        f"wynagrodzenie w wysokości {shown} {unit} (słownie: {words}) netto + VAT "
         "za każdą roboczogodzinę"
     )
     end = _as_date(item.get("to"))
@@ -236,6 +247,7 @@ def _annex_values(
     values: dict[str, Any],
     refs: dict[str, str],
     out: dict[str, Any],
+    currency: str,
 ) -> None:
     """Pochodne generatora aneksów — liczone tu, nie w szablonie."""
     paragraph = str(values.get("paragraph") or "").strip()
@@ -262,12 +274,42 @@ def _annex_values(
     items = _rate_items(values)
     single = len(items) <= 1
     out["rate_single"] = single
-    out["rate_sentence"] = (
-        _rate_phrase(items[0], bullet=False)
-        if items
-        else _rate_phrase({}, bullet=False)
+    out["rate_sentence"] = _rate_phrase(
+        items[0] if items else {}, bullet=False, currency=currency
     )
-    out["rate_lines"] = [_rate_phrase(i, bullet=True) for i in items]
+    out["rate_lines"] = [_rate_phrase(i, bullet=True, currency=currency) for i in items]
+
+
+def _start_phrases(
+    values: dict[str, Any],
+    base: BaseContractInfo,
+    language: str,
+    out: dict[str, Any],
+) -> None:
+    """Fraza daty startu w aneksie: „z dniem 15.10.2026 r.” (generator
+    aneksów). Dokument sprzed niego niesie tryb daty (`new_start_date_mode`:
+    „nie później niż …”) i nie ma obecnej daty — ponowne pobranie ma oddać
+    dokładnie to, co wydano, więc fraza idzie z trybu, a obecna data z umowy."""
+    legacy = "new_start_date_mode" in values or not values.get("current_start_date")
+    new_date = _as_date(values.get("new_start_date"))
+    if legacy:
+        current = start_clause(
+            base.start_date, base.start_date_mode or "exact", language
+        )
+        new = start_clause(
+            new_date, values.get("new_start_date_mode") or "exact", language
+        )
+        out["current_start_phrase"] = f"{current}."
+        out["new_start_phrase"] = f"{new}."
+        out["current_start_value"] = current
+        out["new_start_value"] = new
+        out["current_start_date"] = pl_date(base.start_date)
+        return
+    current_date = _as_date(values.get("current_start_date"))
+    out["current_start_phrase"] = f"z dniem {pl_date(current_date)} r."
+    out["new_start_phrase"] = f"z dniem {pl_date(new_date)} r."
+    out["current_start_value"] = f"{pl_date(current_date)} r."
+    out["new_start_value"] = f"{pl_date(new_date)} r."
 
 
 def build_document_context(
@@ -309,10 +351,9 @@ def build_document_context(
         if value:
             effective_refs[key] = value
     doc_values = _format_doc_values(doc_type, values, language, currency)
-    _annex_values(doc_type, values, effective_refs, doc_values)
-    if doc_type.key == "annex_start_date" and not values.get("current_start_date"):
-        # Dokument sprzed generatora aneksów: obecna data z umowy bazowej.
-        doc_values["current_start_date"] = pl_date(base.start_date)
+    _annex_values(doc_type, values, effective_refs, doc_values, currency)
+    if doc_type.key == "annex_start_date":
+        _start_phrases(values, base, language, doc_values)
     return {
         "language": language,
         "company": company_party(language),

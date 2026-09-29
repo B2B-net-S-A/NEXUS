@@ -82,6 +82,11 @@ class DocumentType:
     legacy_languages: tuple[str, ...] = ()
 
     @property
+    def carries_money(self) -> bool:
+        """Dokument niesie kwotę (stawkę) — widoczność jak DOCX umowy bazowej."""
+        return any(f.kind in ("money", "rate_items") for f in self.fields)
+
+    @property
     def sensitive_keys(self) -> frozenset[str]:
         return frozenset(f.key for f in self.fields if f.sensitive)
 
