@@ -2,7 +2,7 @@
 # module z PEP 563 zamienia `Annotated` guardy w parametry query (slowapi #579).
 """Odczyt requestu klienta przed założeniem rekrutacji (strona /jobs/new).
 
-Dwie trasy, obie tylko do odczytu — niczego nie zapisują w bazie poza
+Trasy tylko do odczytu — niczego nie zapisują w bazie poza
 telemetrią AI (`ai_feature`). Rekrutację zakłada potem zwykłe `POST /api/jobs`,
 a przekazanie do searchu zwykłe `POST /api/jobs/{id}/handoff`, więc ta
 powierzchnia nie ma własnych reguł uprawnień do rekrutacji.
@@ -22,9 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DeliveryLeadPlus, get_db
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
+from app.core.config import settings
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.ai_feature import AIFeatureKey
 from app.models.client import Client
+from app.models.recruitment_allocation import RecruitmentAllocationState
 from app.services import job_request_intake as intake
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.client_access import assert_client_assignable
@@ -186,3 +188,24 @@ async def public_draft(
         return await draft_for_request(db, request_job, user_id=current_user.id)
     except PublicDraftUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
+
+
+@router.get("/handoff-options")
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def handoff_options(
+    request: Request,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Czy „Przydziel automatycznie” da się wybrać przed założeniem rekrutacji.
+
+    Strona /jobs/new nie ma jeszcze rekrutacji, więc nie może zapytać
+    `GET /api/jobs/{id}/readiness`. Ta sama flaga co w handoffie
+    (`RECRUITMENT_ALLOCATION_ENABLED`) i tryb automatu przydziału (0371):
+    `shadow` tylko proponuje osobę, `auto` ją przypisuje.
+    """
+    state = await db.get(RecruitmentAllocationState, 1)
+    return {
+        "automatic_enabled": bool(settings.RECRUITMENT_ALLOCATION_ENABLED),
+        "mode": state.mode if state else "off",
+    }

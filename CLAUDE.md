@@ -3090,10 +3090,17 @@ template” → `/jobs/new?from=<id>`) prowadzi na stronę.
   `lib/job-request-intake.ts::missingFor` — zmieniając bramkę handoffu,
   zmień obie.
 - **Zapis idzie ZWYKŁYMI trasami** w stałej kolejności: `POST /api/jobs` →
-  `PUT …/champion-profile` → `POST …/handoff` (wymaga rekrutera — pole
-  „Prowadzi”) → `POST …/publish`. Awaria po utworzeniu rekrutacji = toast
-  + przejście do zakładki Championa, nigdy utrata. „Zapisz szkic” kończy
-  po Championie.
+  `PUT …/champion-profile` → `POST …/handoff` (pole „Prowadzi”: wybrana
+  osoba albo „Przydziel automatycznie” = `assignment_mode: "automatic"`,
+  decyzja 29.09.2026) → `POST …/publish`. Awaria po utworzeniu rekrutacji =
+  toast + przejście do zakładki Championa, nigdy utrata. „Zapisz szkic”
+  kończy po Championie.
+- **„Przydziel automatycznie” czyta `GET /api/job-intake/handoff-options`**
+  (`automatic_enabled` = `RECRUITMENT_ALLOCATION_ENABLED`, `mode` z
+  `recruitment_allocation_state`) — rekrutacji jeszcze nie ma, więc
+  `…/readiness` odpada. Flaga wyłączona ALBO tryb `off` = opcja widoczna,
+  ale nieaktywna ze zdaniem o administratorze (w `off` automat nikogo nie
+  przydzieli). `shadow` tylko proponuje osobę, `auto` ją przypisuje.
 - **Pola usunięte z tworzenia I ustawień** (TAC, szablon procesu, kategoria
   kompetencji, Program/Train, priorytet, typ rekrutacji, widełki PLN/mies.):
   `JobSettingsPanel` ma dwa pola (Delivery Lead, Deadline), `EditJobModal`
