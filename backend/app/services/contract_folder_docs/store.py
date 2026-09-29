@@ -86,7 +86,10 @@ async def attach_file(
     """Zapisz plik na kontrakcie albo pomiń, gdy kontrakt już go ma.
 
     ``stored_key`` jest stały dla (przebieg/plik, kontrakt) — ponowienie po
-    deployu nadpisuje ten sam plik na dysku zamiast zostawiać sierotę.
+    deployu nadpisuje ten sam plik na dysku zamiast zostawiać sierotę. Klucz
+    NIE niesie nazwy pliku: ta bywa ścieżką z podfolderu („2023/umowa.pdf”),
+    a zapis zostawia z niej tylko ostatni człon, więc dwa pliki „umowa.pdf”
+    z różnych podfolderów nadpisywałyby się na dysku.
     """
     await db.execute(
         text("SELECT pg_advisory_xact_lock(:ns, :id)"),
@@ -98,23 +101,32 @@ async def attach_file(
     # skrótów policzonych przed chwilą.
     await db.flush()
     existing = await db.scalar(
-        select(ContractDocument.id)
+        select(ContractDocument)
         .where(
             ContractDocument.contract_id == contract_id,
             (ContractDocument.content_sha256 == digest)
             | (ContractDocument.sharepoint_item_id == item_id),
         )
+        .order_by(ContractDocument.id)
         .limit(1)
     )
     if existing is not None:
-        return AttachResult(existing, "skipped_existing")
+        # Ten sam plik już jest na kontrakcie (np. wgrany ręcznie pod inną
+        # nazwą) — wiążemy go z plikiem SharePointa, inaczej synchronizacja
+        # wysłałaby go z powrotem jako drugą kopię.
+        if existing.sharepoint_item_id is None:
+            existing.sharepoint_item_id = item_id
+            existing.sharepoint_push_status = "done"
+            existing.sharepoint_push_error = None
+            await db.flush()
+        return AttachResult(existing.id, "skipped_existing")
 
     display_name = fit_filename_column(filename.rsplit("/", 1)[-1] or "dokument")
     relative_path, size = storage_service.save_contract_document(
         contract_id=contract_id,
         upload_filename=display_name,
         source=io.BytesIO(content),
-        stored_name=stored_key,
+        stored_name=stored_key.replace("/", "_") + extension(display_name),
     )
     doc = ContractDocument(
         contract_id=contract_id,

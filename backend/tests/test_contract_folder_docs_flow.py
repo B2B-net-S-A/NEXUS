@@ -253,6 +253,29 @@ async def test_existing_manual_upload_without_hash_counts_as_already_there(monke
     await _apply(await _preview())
     docs = await _docs(contract_id)
     assert len(docs) == 1 and docs[0].content_sha256
+    # Związany z plikiem SharePointa — synchronizacja nie wyśle go z powrotem.
+    assert docs[0].sharepoint_item_id and docs[0].sharepoint_push_status == "done"
+
+
+async def test_same_file_name_in_two_subfolders_keeps_both_files(monkeypatch):
+    fake = FakeSharePoint()
+    fake.install(monkeypatch)
+    tag = _tag()
+    (contract_id,) = await _seed_person("Ada", tag)
+    fake.add_file(f"{tag} Ada", "2023/umowa.pdf", b"stara " + tag.encode())
+    fake.add_file(f"{tag} Ada", "2024/umowa.pdf", b"nowa " + tag.encode())
+
+    await _apply(await _preview())
+    docs = await _docs(contract_id)
+    assert len(docs) == 2
+    assert len({d.file_path for d in docs}) == 2
+    from app.services import storage_service
+
+    contents = {
+        storage_service.get_contract_document_path(d.file_path).read_bytes()
+        for d in docs
+    }
+    assert contents == {b"stara " + tag.encode(), b"nowa " + tag.encode()}
 
 
 async def test_deselected_uncertain_assignment_is_not_imported(monkeypatch):
@@ -355,6 +378,31 @@ async def test_sync_pulls_new_files_and_pushes_nexus_uploads_without_echo(monkey
         assert doc.sharepoint_push_status == "done" and doc.sharepoint_item_id
         state = await db.get(ContractDocSpItem, doc.sharepoint_item_id)
         assert state is not None and state.status == "pushed"
+
+
+async def test_push_skips_a_folder_shared_by_two_people_of_the_same_name(monkeypatch):
+    fake = FakeSharePoint()
+    fake.install(monkeypatch)
+    folder = fake.add_folder("Wspolny Jan")
+    doc = ContractDocument(contract_id=0, filename="x.pdf", file_path="nie/ma.pdf")
+    stats = sync.SyncStats()
+    async with AsyncSessionLocal() as db:
+        await sync._push_one(
+            db,
+            None,
+            DRIVE,
+            ROOT,
+            doc,
+            "Jan",
+            "Wspolny",
+            [Folder.of(folder.name, folder.id)],
+            {},
+            stats,
+            candidate_id=1,
+            candidates_by_folder={folder.name: {1, 2}},
+        )
+    assert doc.sharepoint_push_status == "skipped"
+    assert fake.uploads == []
 
 
 async def test_filip_jablonski_is_never_pushed(monkeypatch):

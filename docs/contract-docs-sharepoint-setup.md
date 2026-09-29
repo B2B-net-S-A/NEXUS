@@ -71,8 +71,9 @@ domyślnie 60):
 
 - nowy PDF/JPG w folderze osoby → dokument na każdym jej kontrakcie; przy
   niepewnym dopasowaniu → kolejka „Do przypisania” w tym samym panelu;
-- dokument dodany w NEXUSIE (poza PDF-ami zamówień) → podfolder osoby
-  (brak folderu = NEXUS go zakłada jako „Nazwisko Imię”);
+- dokument dodany w NEXUSIE po pierwszym pobraniu (poza PDF-ami zamówień) →
+  podfolder osoby (brak folderu = NEXUS go zakłada jako „Nazwisko Imię”;
+  folder pasujący do dwóch osób o tym samym nazwisku = pominięcie);
 - usunięcie po którejkolwiek stronie niczego nie kasuje po drugiej;
 - Filip Jabłoński jest pomijany w obu kierunkach.
 

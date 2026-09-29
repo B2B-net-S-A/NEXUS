@@ -16,7 +16,7 @@ import base64
 import logging
 import threading
 from dataclasses import dataclass
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Awaitable, Callable, Optional
 from urllib.parse import quote, unquote, urlparse
 
 import msal
@@ -238,7 +238,12 @@ class FolderListing:
 
 
 async def list_person_files(
-    client: AppGraphClient, drive_id: str, root_item_id: str, *, max_depth: int = 6
+    client: AppGraphClient,
+    drive_id: str,
+    root_item_id: str,
+    *,
+    max_depth: int = 6,
+    on_folder: Optional[Callable[[], Awaitable[None]]] = None,
 ) -> FolderListing:
     """Spis folderu: podfoldery pierwszego poziomu = osoby, pliki w nich
     (także w podkatalogach) należą do tej osoby."""
@@ -248,7 +253,10 @@ async def list_person_files(
             listing.person_folders.append(child)
         else:
             listing.loose_files.append(child)
-    for person in listing.person_folders:
+    for index, person in enumerate(listing.person_folders):
+        # Kilkaset folderów to minuty — wołający odnawia wtedy dzierżawę.
+        if on_folder is not None and index % 25 == 0:
+            await on_folder()
         stack: list[tuple[str, str, int]] = [(person.id, "", 0)]
         while stack:
             item_id, prefix, depth = stack.pop()

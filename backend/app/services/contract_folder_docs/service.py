@@ -184,33 +184,50 @@ async def start_preview(
 
 
 async def build_preview(run_id: int) -> None:
-    """Spis folderu + plan przypisań. Nie pobiera plików."""
+    """Spis folderu + plan przypisań. Nie pobiera plików i niczego poza
+    wierszami przebiegu nie zapisuje — folder synchronizacji zmienia dopiero
+    zapis („Pobierz i zapisz”)."""
     if not await _claim(run_id, ("listing",)):
         return
+    # Spis folderu to minuty wywołań Graphu — bez otwartej transakcji
+    # (połączenie wraca do puli), z odnawianą dzierżawą.
     async with AsyncSessionLocal() as db:
         run = await db.get(ContractDocSpRun, run_id)
         if run is None:
             return
-        settings_value = await load_settings(db)
-        try:
-            async with sp.graph_client() as client:
-                folder = await sp.resolve_folder(
-                    client,
-                    run.source_url or "",
-                    folder_name=settings_value.get("folder_name")
-                    or sp.DEFAULT_FOLDER_NAME,
-                )
-                listing = await sp.list_person_files(
-                    client, folder.drive_id, folder.item_id
-                )
-        except Exception as exc:  # noqa: BLE001 — każdy błąd kończy przebieg zdaniem
-            logger.warning("contract_docs_sp: listing failed (%s)", type(exc).__name__)
-            run.mode = "failed"
-            run.error = polish_error(exc)
-            run.lease_until = None
-            await db.commit()
-            return
+        source_url = run.source_url or ""
+        folder_name = (await load_settings(db)).get("folder_name")
 
+    async def renew() -> None:
+        async with AsyncSessionLocal() as renew_db:
+            await _renew(renew_db, run_id)
+            await renew_db.commit()
+
+    try:
+        async with sp.graph_client() as client:
+            folder = await sp.resolve_folder(
+                client, source_url, folder_name=folder_name or sp.DEFAULT_FOLDER_NAME
+            )
+            listing = await sp.list_person_files(
+                client, folder.drive_id, folder.item_id, on_folder=renew
+            )
+    except Exception as exc:  # noqa: BLE001 — każdy błąd kończy przebieg zdaniem
+        logger.warning("contract_docs_sp: listing failed (%s)", type(exc).__name__)
+        async with AsyncSessionLocal() as db:
+            run = await db.get(ContractDocSpRun, run_id, with_for_update=True)
+            if run is not None and run.mode == "listing":
+                run.mode = "failed"
+                run.error = polish_error(exc)
+                run.lease_until = None
+                await db.commit()
+        return
+
+    async with AsyncSessionLocal() as db:
+        # Blokada wiersza: gdyby dwa procesy spisały folder naraz (dzierżawa
+        # wygasła przy throttlingu), drugi zobaczy gotowy podgląd i odpuści.
+        run = await db.get(ContractDocSpRun, run_id, with_for_update=True)
+        if run is None or run.mode != "listing":
+            return
         contracts = await load_contract_people(db)
         plan = build_plan(
             contracts, [f.name for f in listing.person_folders], listed_files(listing)
@@ -222,19 +239,10 @@ async def build_preview(run_id: int) -> None:
             db.add(ContractDocSpRunItem(run_id=run_id, **row_dict(row)))
         run.drive_id = folder.drive_id
         run.folder_item_id = folder.item_id
-        run.counters = plan.counters
+        run.counters = {**plan.counters, "folder_label": folder.name}
         run.mode = "preview"
         run.error = None
         run.lease_until = None
-        await save_settings(
-            db,
-            {
-                "drive_id": folder.drive_id,
-                "folder_item_id": folder.item_id,
-                "folder_label": folder.name,
-            },
-            run.created_by,
-        )
         await db.commit()
 
 
@@ -340,7 +348,7 @@ async def apply_run(run_id: int) -> None:
                             item_id=item_id,
                             user_id=user_id,
                             run_id=run_id,
-                            stored_key=f"sp-{run_id}-{row.id}-{row.file_name or 'dokument'}",
+                            stored_key=f"sp-{run_id}-{row.id}",
                         )
                         row.status = result.status
                         row.contract_document_id = result.document_id
@@ -423,7 +431,24 @@ async def _finish_apply(db: AsyncSession, run_id: int) -> None:
             updated_by=run.applied_by,
         )
     )
-    await save_settings(db, {"initial_import_run_id": run_id}, run.applied_by)
+    # Dopiero zapis wskazuje synchronizacji folder — podgląd innego linku
+    # niczego nie przestawia.
+    await save_settings(
+        db,
+        {
+            "initial_import_run_id": run_id,
+            "drive_id": run.drive_id,
+            "folder_item_id": run.folder_item_id,
+            "folder_label": (run.counters or {}).get("folder_label"),
+            "applied_url": run.source_url,
+            # Wysyłka NEXUS → SharePoint obejmuje dokumenty dodane PO pierwszym
+            # pobraniu. Starsze pliki z NEXUSA to w dużej części kopie tego,
+            # co już leży w folderze pod inną nazwą — wysyłka wstecz
+            # zdublowałaby archiwum działu.
+            "push_since": run.applied_at.isoformat() if run.applied_at else None,
+        },
+        run.applied_by,
+    )
 
 
 async def _record_sp_items(db: AsyncSession, run: ContractDocSpRun) -> None:

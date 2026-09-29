@@ -5662,9 +5662,13 @@ Ustawienia → Umowy i stawki (`ContractDocsSharePointPanel`, harness
   folderu co godzinę (delta nie działa na podfolderze), stan pliku w
   `contract_doc_sp_items` — decyzja o pliku jest ostateczna, wracają tylko
   `waiting_contract`; niepewne → kolejka „Do przypisania”. NEXUS → SharePoint:
-  dokumenty bez `sharepoint_item_id` i nie z SharePointa (bez PDF-ów
-  zamówień), `conflictBehavior=rename`, PUT uploadu bez ponowienia po utracie
-  odpowiedzi. Usunięcie po żadnej stronie nie kasuje drugiej.
+  dokumenty dodane PO pierwszym pobraniu (`push_since`), bez
+  `sharepoint_item_id`, nie z SharePointa i bez PDF-ów zamówień; folder
+  wspólny dla dwóch rekordów kandydata = pominięcie. `conflictBehavior=rename`,
+  PUT uploadu bez ponowienia po utracie odpowiedzi. Usunięcie po żadnej
+  stronie nie kasuje drugiej. Folder synchronizacji ustawia dopiero ZAPIS
+  pierwszego pobrania, nie podgląd. Klucz pliku na dysku nie niesie nazwy
+  (podfoldery miewają dwa „umowa.pdf”).
 
 ## Kontakt do konsultanta na umowie (09.2026, migracja 0320)
 

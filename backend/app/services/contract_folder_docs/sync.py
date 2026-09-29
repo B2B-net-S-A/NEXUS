@@ -77,6 +77,7 @@ PUSH_SKIP_UNCERTAIN = (
     "Folder w SharePoincie ma inny zapis nazwiska — przenieś plik ręcznie."
 )
 PUSH_SKIP_NO_PERSON = "Kontrakt bez osoby — nie wiadomo, do którego folderu."
+PUSH_SKIP_SAME_NAME = "Kilka osób o tym nazwisku pasuje do folderu w SharePoincie — przenieś plik ręcznie."
 
 # Backend to jeden proces uvicorna: pętla i przycisk „Synchronizuj teraz” nie
 # mogą biec naraz (dwa biegi wysłałyby ten sam dokument dwa razy).
@@ -115,6 +116,8 @@ async def run_sync(db: AsyncSession) -> Optional[SyncStats]:
 
 async def _run_sync_locked(db: AsyncSession) -> Optional[SyncStats]:
     state = await load_settings(db)
+    # Spis folderu trwa minuty — bez otwartej transakcji na czas Graphu.
+    await db.commit()
     drive_id = state.get("drive_id")
     root_id = state.get("folder_item_id")
     if not drive_id or not root_id or not state.get("initial_import_run_id"):
@@ -124,7 +127,9 @@ async def _run_sync_locked(db: AsyncSession) -> Optional[SyncStats]:
         async with sp.graph_client() as client:
             listing = await sp.list_person_files(client, drive_id, root_id)
             await _pull(db, client, drive_id, listing, stats)
-            await _push(db, client, drive_id, root_id, listing, stats)
+            await _push(
+                db, client, drive_id, root_id, listing, stats, state.get("push_since")
+            )
     except Exception as exc:  # noqa: BLE001
         logger.warning("contract_docs_sp: sync failed (%s)", type(exc).__name__)
         await db.rollback()
@@ -202,7 +207,7 @@ async def _pull(
                     source=SOURCE_SYNC,
                     item_id=item.id,
                     user_id=None,
-                    stored_key=f"sp-sync-{item.id}-{contract_id}-{listed.relative_path}",
+                    stored_key=f"sp-sync-{item.id}-{contract_id}",
                 )
                 if result.status == "done":
                     stats.imported_documents += 1
@@ -226,6 +231,19 @@ async def _pull(
             contract_ids,
         )
         await db.commit()
+
+
+def folder_candidates(
+    contracts: list[Any], folders: list[Folder]
+) -> dict[str, set[int]]:
+    """Folder → rekordy kandydata, które do niego pasują (pewnie albo niepewnie)."""
+    result: dict[str, set[int]] = {}
+    for match in match_contracts(contracts, folders):
+        if match.match.folder is not None and match.contract.candidate_id is not None:
+            result.setdefault(match.match.folder.name, set()).add(
+                match.contract.candidate_id
+            )
+    return result
 
 
 def _decide(
@@ -333,7 +351,7 @@ async def decide_review(
             source=SOURCE_SYNC,
             item_id=row.item_id,
             user_id=user_id,
-            stored_key=f"sp-sync-{row.item_id}-{contract_id}-{row.file_name}",
+            stored_key=f"sp-sync-{row.item_id}-{contract_id}",
         )
         imported += int(result.status == "done")
     row.status = "imported"
@@ -352,10 +370,21 @@ async def _push(
     root_id: str,
     listing: sp.FolderListing,
     stats: SyncStats,
+    push_since: Optional[str] = None,
 ) -> None:
+    since_filter = []
+    if push_since:
+        since_filter.append(
+            ContractDocument.created_at >= datetime.fromisoformat(push_since)
+        )
     rows = (
         await db.execute(
-            select(ContractDocument, Candidate.name, Candidate.lastname)
+            select(
+                ContractDocument,
+                Candidate.name,
+                Candidate.lastname,
+                Contract.candidate_id,
+            )
             .join(Contract, Contract.id == ContractDocument.contract_id)
             .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
             .where(
@@ -366,6 +395,7 @@ async def _push(
                 ),
                 ContractDocument.doc_type.not_in(_NOT_PUSHED_TYPES),
                 ContractDocument.source_order_group_id.is_(None),
+                *since_filter,
                 or_(
                     ContractDocument.sharepoint_push_status.is_(None),
                     (ContractDocument.sharepoint_push_status == "failed")
@@ -382,8 +412,9 @@ async def _push(
     files_by_folder: dict[str, list[sp.PersonFile]] = {}
     for listed in listing.files:
         files_by_folder.setdefault(listed.folder.id, []).append(listed)
+    candidates_by_folder = folder_candidates(await load_contract_people(db), folders)
 
-    for doc, first, last in rows:
+    for doc, first, last, candidate_id in rows:
         try:
             await _push_one(
                 db,
@@ -396,6 +427,8 @@ async def _push(
                 folders,
                 files_by_folder,
                 stats,
+                candidate_id=candidate_id,
+                candidates_by_folder=candidates_by_folder,
             )
         except GraphRequestError as exc:
             doc.sharepoint_push_status = "failed"
@@ -416,6 +449,9 @@ async def _push_one(
     folders: list[Folder],
     files_by_folder: dict[str, list[sp.PersonFile]],
     stats: SyncStats,
+    *,
+    candidate_id: Optional[int] = None,
+    candidates_by_folder: Optional[dict[str, set[int]]] = None,
 ) -> None:
     def skip(reason: str) -> None:
         doc.sharepoint_push_status = "skipped"
@@ -431,6 +467,12 @@ async def _push_one(
         return skip(PUSH_SKIP_AMBIGUOUS)
     if match.kind == UNCERTAIN and set(match.reasons) != {REASON_DIACRITICS}:
         return skip(PUSH_SKIP_UNCERTAIN)
+    if match.folder is not None and candidates_by_folder is not None:
+        # Dwie różne osoby (rekordy kandydata) o tym nazwisku pasują do tego
+        # folderu — nie wiadomo, czyj to folder (ta sama reguła co przy pobieraniu).
+        others = candidates_by_folder.get(match.folder.name, set()) - {candidate_id}
+        if candidate_id is None or others:
+            return skip(PUSH_SKIP_SAME_NAME)
     if match.folder is not None and match.folder.item_id:
         folder_id = match.folder.item_id
     else:
