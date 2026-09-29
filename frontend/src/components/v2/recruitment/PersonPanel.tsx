@@ -70,6 +70,7 @@ import { SavedCvView, SavedScreeningView } from "./PanelSavedViews";
 import { defaultPanelSectionFor, isOffTemplateRow } from "./person-rows";
 import type { PersonPanelSection, ProcessPersonRow } from "./types";
 import { PinnedCandidateNotes } from "./PinnedCandidateNotes";
+import { JobNotesList } from "@/components/v2/candidate-profile/JobNotesList";
 
 // ── Kontrakt z warsztatami ────────────────────────────────────────────
 
@@ -157,8 +158,10 @@ interface NoteListItem {
   content: string;
   author_name?: string | null;
   created_at: string;
-  /** 0399: wpis automatu — w doku go nie pokazujemy (wynik jest plakietką). */
+  /** 0399: wpis automatu — schowany za „Pokaż systemowe”. */
   is_system?: boolean;
+  pinned_at?: string | null;
+  replies?: NoteListItem[];
 }
 
 function daysPhrase(days: number): string {
@@ -225,7 +228,6 @@ function NotesSection({
   };
 
   const { item } = row;
-  const notes = (notesQuery.data?.items ?? []).filter((n) => !n.is_system);
 
   return (
     <div className="space-y-4 text-[13px]">
@@ -284,23 +286,16 @@ function NotesSection({
               Ponów
             </button>
           </p>
-        ) : notesQuery.isSuccess && notes.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Brak notatek w tej rekrutacji.</p>
-        ) : (
-          <ul className="space-y-2">
-            {notes.map((note) => (
-              <li key={note.id} className="grid grid-cols-[76px_minmax(0,1fr)] gap-x-2.5">
-                <span className="text-xs text-muted-foreground">{formatDate(note.created_at)}</span>
-                <span className="min-w-0">
-                  <span className="block whitespace-pre-line text-foreground">{note.content}</span>
-                  <span className="block text-xs text-muted-foreground">
-                    {note.author_name ?? "Nieznany autor"}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        ) : notesQuery.isSuccess ? (
+          // Ta sama lista co w „Historii” profilu: odpowiedzi pod notatką,
+          // przypięte pierwsze, notatki automatów za „Pokaż systemowe (N)”.
+          <JobNotesList
+            candidateId={candidateId}
+            notes={notesQuery.data?.items ?? []}
+            readOnly={readOnly}
+            emptyText="Brak notatek w tej rekrutacji."
+          />
+        ) : null}
       </section>
 
       {/* Oś czasu WYŁĄCZNIE z faktów, które niesie wiersz — zmyślony wpis

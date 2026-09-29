@@ -104,6 +104,7 @@ import { DockFollowupBlock } from "@/components/v2/followups/DockFollowupBlock";
 import { DockInterviewCycle } from "@/components/v2/jobs/DockInterviewCycle";
 import { DockLoadError } from "@/components/v2/jobs/workbench-chrome";
 import { PinnedCandidateNotes } from "@/components/v2/recruitment/PinnedCandidateNotes";
+import { JobNotesList } from "@/components/v2/candidate-profile/JobNotesList";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -226,8 +227,10 @@ interface NoteListItem {
   content_rendered?: string | null;
   author_name?: string | null;
   created_at: string;
-  /** 0399: wpis automatu — w doku go nie pokazujemy (wynik jest plakietką). */
+  /** 0399: wpis automatu — schowany za „Pokaż systemowe”, nie w liczniku. */
   is_system?: boolean;
+  pinned_at?: string | null;
+  replies?: NoteListItem[];
 }
 
 /** Wycinek `CandidateResponse`, którego dok naprawdę używa. `candidatesApi.get`
@@ -1447,29 +1450,14 @@ export function PipelineCandidateDock({
               </div>
             ) : notesQuery.isError ? (
               <DockLoadError what="notatki" onRetry={() => void notesQuery.refetch()} />
-            ) : dockNotes.length > 0 ? (
-              <div className="space-y-2">
-                {dockNotes.map((n) => (
-                  <div
-                    key={n.id}
-                    className="rounded-lg border border-border bg-muted/20 p-2.5 text-xs"
-                  >
-                    <div className="mb-1 flex items-center justify-between text-muted-foreground">
-                      <span className="font-medium text-foreground">
-                        {n.author_name ?? "Nieznany autor"}
-                      </span>
-                      <span>{formatDate(n.created_at)}</span>
-                    </div>
-                    <p className="whitespace-pre-line text-foreground">
-                      {n.content_rendered ?? n.content}
-                    </p>
-                  </div>
-                ))}
-              </div>
             ) : notesQuery.isSuccess ? (
-              <p className="text-xs text-muted-foreground">
-                Brak notatek dla tej rekrutacji.
-              </p>
+              // Ta sama lista co w „Historii” profilu (odpowiedzi, przypięte,
+              // „Pokaż systemowe”).
+              <JobNotesList
+                candidateId={item.candidate_id}
+                notes={notesQuery.data?.items ?? []}
+                readOnly={readOnly}
+              />
             ) : null}
           </div>
         </DockSection>

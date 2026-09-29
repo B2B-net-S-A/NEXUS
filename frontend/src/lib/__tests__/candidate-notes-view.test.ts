@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   autoMatchBadgeLabel,
+  collapsedNotePreview,
+  visibleNoteLines,
   autoMatchBadgeTitle,
   formatAbsoluteNoteDate,
   humanNoteCount,
@@ -13,6 +15,7 @@ import {
   threadContainsNote,
   visibleNotes,
 } from "@/lib/candidate-notes-view";
+import { unwrapNoteContent } from "@/components/v2/candidate-profile/profile-shared";
 
 const NOW = new Date(2026, 8, 29, 12, 0);
 const relative = () => "2 godz. temu";
@@ -92,6 +95,61 @@ describe("isLongNote", () => {
     expect(isLongNote("x".repeat(400))).toBe(true);
     expect(isLongNote("a\nb\nc\nd\ne\nf")).toBe(true);
     expect(isLongNote(null)).toBe(false);
+  });
+
+  it("counts only lines with visible text", () => {
+    // Krótka notatka rozdzielona pustymi akapitami nie jest „długa”.
+    expect(isLongNote("Pierwsza\n\n \n\u00a0\n\n\nDruga\n\n\n")).toBe(false);
+    expect(isLongNote("\u00a0\n \n\u200b")).toBe(false);
+  });
+});
+
+// Notatka z Traffita: wzmianki, potem puste akapity `<p>&nbsp;</p>`.
+const TRAFFIT_HTML = [
+  "<p>@Anna Nowak @Jan Kowalski</p>",
+  "<p>&nbsp;</p>",
+  "<p>&nbsp;</p>",
+  "<p>Rozmowa telefoniczna 12.09 — kandydat zainteresowany projektem.</p>",
+  "<p>&nbsp;</p>",
+  "<p>Stawka 160 zł/h netto B2B, dostępny od 1.11.</p>",
+  "<p> </p>",
+  "<p>Preferuje hybrydę, max 2 dni w biurze w Warszawie.</p>",
+  "<p>&#160;</p>",
+  "<p>Oddzwonić po rozmowie z klientem.</p>",
+  "<p>Ma ofertę konkurencyjną — decyzja do piątku.</p>",
+].join("");
+
+describe("collapsed note preview", () => {
+  it("skips empty Traffit paragraphs, so the preview shows real text", () => {
+    const text = unwrapNoteContent(TRAFFIT_HTML);
+    expect(isLongNote(text)).toBe(true);
+    expect(collapsedNotePreview(text).split("\n")).toEqual([
+      "@Anna Nowak @Jan Kowalski",
+      "Rozmowa telefoniczna 12.09 — kandydat zainteresowany projektem.",
+      "Stawka 160 zł/h netto B2B, dostępny od 1.11.",
+      "Preferuje hybrydę, max 2 dni w biurze w Warszawie.",
+    ]);
+  });
+
+  it("unwraps Traffit HTML without whitespace-only lines", () => {
+    const text = unwrapNoteContent(TRAFFIT_HTML);
+    for (const line of text.split("\n")) {
+      expect(line).toBe(line.trimEnd());
+    }
+    expect(text).not.toMatch(/\n{3,}/);
+  });
+
+  it("plain text keeps its first four non-empty lines", () => {
+    const text = "raz\n\ndwa\n   \ntrzy\ncztery\npięć\nsześć";
+    expect(visibleNoteLines(text)).toEqual(["raz", "dwa", "trzy", "cztery", "pięć", "sześć"]);
+    expect(collapsedNotePreview(text)).toBe("raz\ndwa\ntrzy\ncztery");
+    expect(isLongNote(text)).toBe(true);
+  });
+
+  it("short note stays whole", () => {
+    expect(isLongNote("Nie dzwonić przed 10.")).toBe(false);
+    expect(collapsedNotePreview("Nie dzwonić przed 10.")).toBe("Nie dzwonić przed 10.");
+    expect(collapsedNotePreview(null)).toBe("");
   });
 });
 

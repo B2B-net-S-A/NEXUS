@@ -131,6 +131,40 @@ describe("NotesList (0399)", () => {
     expect(within(system!).queryByRole("button", { name: "Odpowiedz na notatkę" })).toBeNull();
   });
 
+  it("collapsed Traffit note previews real text, not empty paragraphs", () => {
+    const content = [
+      "<p>@Anna Nowak</p>",
+      "<p>&nbsp;</p>",
+      "<p>&nbsp;</p>",
+      "<p>Pierwsza linia treści.</p>",
+      "<p>&nbsp;</p>",
+      "<p>Druga linia treści.</p>",
+      "<p>&nbsp;</p>",
+      "<p>Trzecia linia treści.</p>",
+      "<p>Czwarta linia.</p>",
+      "<p>Piąta linia — widoczna dopiero po rozwinięciu.</p>",
+    ].join("");
+    renderList({
+      notes: [
+        { id: 40, type: "note", author_id: 6, author_name: "Kamil W.", content, replies: [] },
+      ],
+    });
+    const body = screen.getByText(/Pierwsza linia treści/);
+    expect(body.textContent).toBe(
+      "@Anna Nowak\nPierwsza linia treści.\nDruga linia treści.\nTrzecia linia treści.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż więcej" }));
+    expect(screen.getByText(/Piąta linia/)).toBeTruthy();
+  });
+
+  it("job-scoped list hides the recruitment filter and badge", () => {
+    renderList({ hideRecruitment: true, emptyText: "Brak notatek dla tej rekrutacji." });
+    expect(screen.queryByLabelText("Pokaż notatki z rekrutacji")).toBeNull();
+    expect(screen.queryByText("Java Dev")).toBeNull();
+    // Odpowiedź dalej jedzie pod notatką.
+    expect(screen.getByText("Potwierdzone.")).toBeTruthy();
+  });
+
   it("read-only viewer sees no pin, reply or edit buttons", () => {
     renderList({ readOnly: true });
     expect(screen.queryByRole("button", { name: /Przypnij|Odepnij/ })).toBeNull();

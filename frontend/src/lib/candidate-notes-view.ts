@@ -62,11 +62,51 @@ export function noteDateLabel(
   return relative(iso);
 }
 
+/** Tyle linii z tekstem pokazuje zwinięta notatka. */
+export const COLLAPSED_NOTE_LINES = 4;
+
+// Znaki, których nie widać: spacje (także twarda `&nbsp;` = U+00A0 — tak
+// Traffit wypełnia puste akapity `<p>&nbsp;</p>`), tabulatory i znaki
+// zerowej szerokości.
+const INVISIBLE_CHARS = /[\s ​‌‍⁠﻿]/g;
+
+/** Czy linia ma cokolwiek do przeczytania. */
+export function hasVisibleText(line: string): boolean {
+  return line.replace(INVISIBLE_CHARS, "").length > 0;
+}
+
+/**
+ * Linie notatki z widocznym tekstem — puste akapity z Traffita i linie
+ * z samych spacji odpadają. Na nich liczymy, czy notatkę zwinąć, i z nich
+ * składamy podgląd, bo zwinięcie po surowych liniach pokazywało czasem sam
+ * wiersz wzmianek i „…”.
+ */
+export function visibleNoteLines(text: string | null | undefined): string[] {
+  if (!text) return [];
+  return text
+    .split(/\r?\n/)
+    .filter(hasVisibleText)
+    .map((line) => line.replace(/[\s ]+$/, ""));
+}
+
 export function isLongNote(text: string | null | undefined): boolean {
-  if (!text) return false;
+  const lines = visibleNoteLines(text);
+  if (lines.length === 0) return false;
   return (
-    text.length > LONG_NOTE_CHARS || text.split(/\n/).length > LONG_NOTE_LINES
+    lines.join("\n").length > LONG_NOTE_CHARS || lines.length > LONG_NOTE_LINES
   );
+}
+
+/**
+ * Treść zwiniętej notatki: pierwsze {@link COLLAPSED_NOTE_LINES} linie
+ * z tekstem, bez pustych akapitów między nimi. Pełną treść (z odstępami)
+ * pokazuje „Pokaż więcej”.
+ */
+export function collapsedNotePreview(
+  text: string | null | undefined,
+  maxLines: number = COLLAPSED_NOTE_LINES,
+): string {
+  return visibleNoteLines(text).slice(0, Math.max(1, maxLines)).join("\n");
 }
 
 export function systemNoteCount(notes: readonly CandidateNoteLike[]): number {

@@ -111,7 +111,7 @@ export function unwrapNoteContent(raw: unknown): string {
     .replace(/<\/p>/gi, "\n\n")
     .replace(/<\/li>/gi, "\n")
     .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
+    .replace(/&nbsp;|&#160;|&#xa0;/gi, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
@@ -121,6 +121,9 @@ export function unwrapNoteContent(raw: unknown): string {
     )
     .replace(/\\\//g, "/")
     .replace(/\\n/g, "\n")
+    // Puste akapity Traffita (`<p>&nbsp;</p>`) zostawiały linie z samych
+    // spacji, których `\n{3,}` nie zwija — pełna notatka miała wielkie dziury.
+    .replace(/[^\S\n]+$/gm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
