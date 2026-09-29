@@ -62,6 +62,8 @@ import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
 import { JobPriorityContext } from "@/components/v2/priority-work";
 import { JobHandoffButton } from "@/components/v2/jobs/JobHandoffButton";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
+import { MissingBlock } from "@/components/v2/recruitment/OrderMissingBlock";
+import { JobPortalsSection } from "@/components/v2/recruitment/JobPortalsSection";
 import {
   ReadinessRow,
   type ReadinessRowState,
@@ -112,17 +114,34 @@ interface JobReadinessDockProps {
   listNav?: JobReadinessDockListNav;
   /**
    * Zwinięty dok kroku 02 (pasek 44 px z przyciskiem „Rozwiń" + licznikiem
-   * `done/total`) — TYLKO `variant="champion"`. Stan i jego zapis w
-   * `localStorage` mieszkają w `page.tsx` (`lib/job-dock-preferences.ts`),
-   * bo o szerokości kolumny doku decyduje siatka strony, nie sam dok.
+   * `done/total`) — TYLKO `variant="champion"`. Od 29.09.2026 strona
+   * rekrutacji panelu nie zwija (stoi obok „Podglądu”, nie obok edytora);
+   * o szerokości kolumny decyduje siatka strony, nie sam dok.
    * Brak `onCollapsedChange` = dok ignoruje `collapsed` i renderuje się
    * w pełni (np. na `variant="list"`, gdzie zwijanie nie istnieje).
    */
   collapsed?: boolean;
   onCollapsedChange?: (next: boolean) => void;
+  /**
+   * Zakładka panelu zlecenia sterowana z adresu (`?ptab=`) — linki „Zespół”
+   * i „Ogłoszenie” ze skrótu zlecenia na Tablicy otwierają ją od razu. Tylko
+   * `variant="champion"`; brak = stan lokalny doku.
+   */
+  panelTab?: ChampionPanelTab | null;
+  onPanelTabChange?: (tab: ChampionPanelTab) => void;
+  /** „Uzupełnij w Championie” przy braku — przejście do edycji i sekcji. */
+  onGoChampionSection?: (anchor: string | null) => void;
+  /** Zakładka „Ogłoszenie”: brak = rola nie może pisać ogłoszenia / linku. */
+  onWriteAnnouncement?: () => void;
+  onGenerateInviteLink?: () => void;
+  /** Wejście z `/jobs/new` po nieudanej publikacji — portale od razu rozwinięte. */
+  portalsFocus?: boolean;
 }
 
-type DockTab = "readiness" | "pipeline" | "team" | "history";
+/** Zakładki panelu zlecenia obok Profilu Championa (makieta 29.09.2026). */
+export type ChampionPanelTab = "readiness" | "team" | "announce";
+
+type DockTab = "readiness" | "pipeline" | "team" | "history" | "announce";
 
 const LIST_DOCK_TABS: { value: DockTab; label: string }[] = [
   { value: "readiness", label: "Gotowość" },
@@ -135,10 +154,14 @@ const LIST_DOCK_TABS: { value: DockTab; label: string }[] = [
 // Znaczenie zostaje jasne z kontekstu (właściciel + HM + Priority Work).
 // Zakładka „Wyszukiwania (AI)” usunięta 25.09.2026 — rekomendowane
 // wyszukiwania zastąpiły wymagania do wyszukiwania w sekcji 2 Championa.
+// 29.09.2026: „Historia” (wcześniejsze zapytania klienta) przeszła do trybu
+// edycji Championa („Wypełnij szybciej”) — myliła się z „Historia i czat”.
+// Dochodzi „Ogłoszenie”: opis z AI, link aplikacyjny i portale, które do tej
+// pory żyły wyłącznie w oknie „Zlecenie”.
 const CHAMPION_DOCK_TABS: { value: DockTab; label: string }[] = [
   { value: "readiness", label: "Gotowość" },
   { value: "team", label: "Zespół" },
-  { value: "history", label: "Historia" },
+  { value: "announce", label: "Ogłoszenie" },
 ];
 
 // Lustro `_OWNERSHIP_ELIGIBLE_ROLES` w `backend/app/api/jobs.py`:
@@ -441,6 +464,12 @@ export function JobReadinessDock({
   listNav,
   collapsed = false,
   onCollapsedChange,
+  panelTab,
+  onPanelTabChange,
+  onGoChampionSection,
+  onWriteAnnouncement,
+  onGenerateInviteLink,
+  portalsFocus = false,
 }: JobReadinessDockProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -459,7 +488,22 @@ export function JobReadinessDock({
   const canUpdateJob = useCapability("job.update");
   const [showEdit, setShowEdit] = useState(false);
   const [showAddCandidates, setShowAddCandidates] = useState(false);
-  const [dockTab, setDockTab] = useState<DockTab>("readiness");
+  const [localDockTab, setLocalDockTab] = useState<DockTab>(
+    variant === "champion" && panelTab ? panelTab : "readiness",
+  );
+  // Na widoku Championa zakładka idzie z adresu, gdy strona ją podaje —
+  // miękka nawigacja (`?ptab=team` ze skrótu zlecenia) nie odmontowuje doku.
+  const dockTab: DockTab =
+    variant === "champion" && panelTab ? panelTab : localDockTab;
+  const setDockTab = (next: DockTab) => {
+    setLocalDockTab(next);
+    if (
+      variant === "champion" &&
+      (next === "readiness" || next === "team" || next === "announce")
+    ) {
+      onPanelTabChange?.(next);
+    }
+  };
 
   // Klucz `["job", "<id>"]` = DOKŁADNIE ten, pod którym strona rekrutacji
   // trzyma zlecenie (`page.tsx`: `["job", id]`, `id` to string z `useParams`).
@@ -989,7 +1033,23 @@ export function JobReadinessDock({
       <div className="flex-1 space-y-3 px-4 py-3">
         {dockTab === "readiness" && (
           <>
-            <div>
+            {variant === "champion" && canSeeGate ? (
+              <MissingBlock
+                jobId={jobId}
+                job={job}
+                canSeeGate={canSeeGate}
+                canEditChampion={canEditChampion}
+                canEditJob={canManageJob}
+                onGoChampion={(anchor) => onGoChampionSection?.(anchor)}
+                onEditJob={() => setShowEdit(true)}
+              />
+            ) : null}
+            {variant === "champion" ? (
+              <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Dopięcie zlecenia · nie blokuje przekazania
+              </p>
+            ) : null}
+            <div className={cn(variant === "champion" && "hidden")}>
               <div className="flex items-end gap-2">
                 <span
                   className={cn(
@@ -1028,7 +1088,12 @@ export function JobReadinessDock({
               ) : null}
             </div>
 
-            <ReadinessGateBlock query={readinessQuery} canSeeGate={canSeeGate} />
+            {/* Na widoku Championa werdykt bramki stoi wyżej (`MissingBlock`)
+                — drugi blok z tą samą listą braków przeczyłby liczbie nad nim.
+                Rolom spoza bramki zostaje notatka „kto to widzi”. */}
+            {variant === "champion" && canSeeGate ? null : (
+              <ReadinessGateBlock query={readinessQuery} canSeeGate={canSeeGate} />
+            )}
 
             <div className="space-y-1.5">
               {variant === "champion"
@@ -1057,9 +1122,6 @@ export function JobReadinessDock({
               <PipelineSummary jobId={jobId} stageBreakdown={stageBreakdown} />
             ) : null}
 
-            {variant === "champion" ? (
-              <JobPriorityContext jobId={jobId} variant="summary" />
-            ) : null}
 
             <div className="grid grid-cols-2 gap-2 pt-1">
               {/* Krok 02: handoff jest GŁÓWNĄ akcją tego doku — dopiero po nim
@@ -1077,6 +1139,7 @@ export function JobReadinessDock({
                   `Button` dokłada slot na spinner, więc Radix `Slot` dostałby dwoje
                   dzieci (lustro `PrepInviteActions.tsx`). Nawigacja, nie mutacja —
                   zawsze aktywna, niezależnie od `canWritePipeline`. */}
+              {variant === "list" ? (
               <Link
                 href={`/jobs/${jobId}?tab=people&seg=proposals`}
                 className={cn(
@@ -1086,6 +1149,7 @@ export function JobReadinessDock({
               >
                 <Target className="h-3.5 w-3.5" aria-hidden="true" /> Otwórz propozycje z bazy
               </Link>
+              ) : null}
               {/* Makieta kroku 02 ma tu jeszcze „Wzór Word (SharePoint)"
                   i „Historia requestu" — pierwszego dok nie zna (link żyje
                   w `help_materials`, poza danymi tego komponentu), a drugie
@@ -1094,7 +1158,9 @@ export function JobReadinessDock({
                   „Dodaj kandydata" i „Edytuj rekrutację" zostają w OBU
                   wariantach — makieta ich na kroku 02 nie rysuje, ale dziś tam
                   są i ich zniknięcie byłoby utratą funkcji, nie porządkowaniem. */}
-              {canWritePipeline && (
+              {/* Na widoku Championa „Dodaj kandydatów” stoi w nagłówku,
+                  a „Edytuj rekrutację” w menu „⋯” — tu byłyby trzecią kopią. */}
+              {canWritePipeline && variant === "list" && (
                 <>
                   <Button
                     type="button"
@@ -1127,6 +1193,42 @@ export function JobReadinessDock({
         )}
 
         {dockTab === "team" && teamTab}
+
+        {dockTab === "announce" && (
+          <div className="space-y-4" data-testid="dock-announce-tab">
+            <section className="space-y-2">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Opis publiczny i link aplikacyjny
+              </h3>
+              {onWriteAnnouncement || onGenerateInviteLink ? (
+                <div className="flex flex-wrap gap-2">
+                  {onWriteAnnouncement ? (
+                    <Button type="button" variant="outline" size="sm" onClick={onWriteAnnouncement}>
+                      Napisz ogłoszenie z AI
+                    </Button>
+                  ) : null}
+                  {onGenerateInviteLink ? (
+                    <Button type="button" variant="outline" size="sm" onClick={onGenerateInviteLink}>
+                      Wygeneruj link aplikacyjny
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                {onGenerateInviteLink
+                  ? "Kandydat z linku trafia od razu do „Nowych” tej rekrutacji."
+                  : job.status !== "published"
+                    ? "Link aplikacyjny da się wygenerować po opublikowaniu rekrutacji."
+                    : "Ogłoszenie i link przygotowuje osoba z zespołu rekrutacji."}
+              </p>
+            </section>
+            <JobPortalsSection
+              jobId={jobId}
+              readOnly={editScope === "none"}
+              focusOnReady={portalsFocus}
+            />
+          </div>
+        )}
 
         {dockTab === "history" && (
           <RequestHistorySection

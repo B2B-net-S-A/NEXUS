@@ -122,7 +122,7 @@
    "opis": "Szkic ogłoszenia (AI)",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "AIJobWriterModal",
-   "v3_home": "Zlecenie (okno) → Ogłoszenie i link"
+   "v3_home": "menu … / Zlecenie i Champion → panel → Ogłoszenie"
   },
   {
    "id": "header.chat-unread",
@@ -138,15 +138,15 @@
    "opis": "Edytuj rekrutację",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "EditJobModal",
-   "v3_home": "Zlecenie (okno) / menu …"
+   "v3_home": "menu …"
   },
   {
    "id": "header.hm-picker",
    "area": "naglowek",
    "opis": "Hiring manager klienta",
-   "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
+   "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "HiringManagerPicker",
-   "v3_home": "Zlecenie (okno) → Zespół"
+   "v3_home": "Zlecenie i Champion → panel → Zespół"
   },
   {
    "id": "header.invite-link",
@@ -154,7 +154,7 @@
    "opis": "Wygeneruj link aplikacyjny",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "GenerateInviteLinkV2",
-   "v3_home": "Zlecenie (okno) → Ogłoszenie i link"
+   "v3_home": "menu … / Zlecenie i Champion → panel → Ogłoszenie"
   },
   {
    "id": "header.managed",
@@ -168,17 +168,17 @@
    "id": "header.ownership",
    "area": "naglowek",
    "opis": "Przejmij / współpracownicy",
-   "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
+   "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "JobOwnershipPanel",
-   "v3_home": "Zlecenie (okno) → Zespół"
+   "v3_home": "Zlecenie i Champion → panel → Zespół"
   },
   {
    "id": "header.priority",
    "area": "naglowek",
    "opis": "Kontekst Priority Work",
-   "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
+   "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "JobPriorityContext",
-   "v3_home": "Zlecenie (okno) → Priorytet"
+   "v3_home": "Zlecenie i Champion → panel → Zespół"
   },
   {
    "id": "header.tabs-rail",
@@ -547,15 +547,15 @@
    "opis": "Link do karty klienta (Pomoc → Klienci)",
    "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
    "marker": "/help?tab=clients",
-   "v3_home": "okno Zlecenie"
+   "v3_home": "skrót zlecenia (okno) / Podgląd → O kliencie / menu …"
   },
   {
    "id": "header.view-switch",
    "area": "nagłówek",
-   "opis": "Tryb „Tabela” usunięty (22.09.2026) — z ekranów pobocznych wraca się przyciskiem „← Tablica”",
+   "opis": "Zakładki „Tablica” | „Zlecenie i Champion” w nagłówku (29.09.2026); z pełnej listy „Do przejrzenia” wraca „Tablica”",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "onViewChange(\"board\")",
-   "v3_home": "nagłówek (tylko poza Tablicą)"
+   "v3_home": "nagłówek — zakładki widoku"
   },
   {
    "id": "routing.legacy-tabs",
@@ -761,10 +761,10 @@
   {
    "id": "order.blocks",
    "area": "zlecenie",
-   "opis": "Okno Zlecenie w trzech blokach: Co zamówił klient · Zespół · Ogłoszenie i link, reszta w „Więcej”",
+   "opis": "Skrót zlecenia (29.09.2026): braki z szybką poprawką, fakty i wymagania; zespół, ogłoszenie i priorytet otwierają panel obok Profilu Championa",
    "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
    "marker": "OrderBlock",
-   "v3_home": "okno Zlecenie"
+   "v3_home": "okno Zlecenie (krok „Zlecenie” na Tablicy)"
   },
   {
    "id": "board.filter-bar",
@@ -895,6 +895,38 @@
    "file": "components/v2/pages/KanbanBoardV2.tsx",
    "marker": "isPlainLeftClick",
    "v3_home": "karta Tablicy"
+  },
+  {
+   "id": "order.close-job",
+   "area": "zlecenie",
+   "opis": "Zamknij rekrutację z powodem",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "Zamknij rekrutację",
+   "v3_home": "menu … (29.09.2026; dawniej dół okna Zlecenie)"
+  },
+  {
+   "id": "order.portals",
+   "area": "zlecenie",
+   "opis": "Portale ogłoszeniowe (RocketJobs, JustJoin.IT)",
+   "file": "components/v2/jobs/JobReadinessDock.tsx",
+   "marker": "JobPortalsSection",
+   "v3_home": "Zlecenie i Champion → panel → Ogłoszenie"
+  },
+  {
+   "id": "champion.brief",
+   "area": "zlecenie",
+   "opis": "Podgląd zlecenia jak brief (co zamówił klient, czego szukamy, projekt, pytania, klient, wiedza z rozmów)",
+   "file": "components/champion/ChampionBriefView.tsx",
+   "marker": "champion-brief-view",
+   "v3_home": "Zlecenie i Champion → Podgląd"
+  },
+  {
+   "id": "champion.request-history",
+   "area": "zlecenie",
+   "opis": "Wcześniejsze zapytania klienta (Otwórz, Skopiuj jako template, Dodaj championa)",
+   "file": "components/ChampionProfileEditor.tsx",
+   "marker": "RequestHistorySection",
+   "v3_home": "Zlecenie i Champion → Edytuj → Wypełnij szybciej"
   }
  ]
 }

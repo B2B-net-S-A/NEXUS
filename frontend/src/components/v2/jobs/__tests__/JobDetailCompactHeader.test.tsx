@@ -77,7 +77,7 @@ describe("JobDetailCompactHeader", () => {
     const items = await screen.findAllByRole("menuitem");
     expect(items.map((i) => i.textContent?.trim())).toEqual(["Baza pytań"]);
     // Okna zostają także w trybie tylko-do-odczytu.
-    expect(screen.getByRole("button", { name: /Zlecenie/ })).toBeTruthy();
+    expect(screen.getByTestId("open-order")).toBeTruthy();
   });
 
   it("dawne kroki nie są nawigacją strony", () => {
@@ -91,7 +91,7 @@ describe("JobDetailCompactHeader", () => {
     const { onOpenOrder, onOpenHistoryChat, onOpenQuestions } = renderHeader();
     const nav = screen.getByRole("navigation", { name: "Sekcje rekrutacji" });
 
-    await userEvent.click(within(nav).getByRole("button", { name: /Zlecenie/ }));
+    await userEvent.click(within(nav).getByTestId("open-order"));
     expect(onOpenOrder).toHaveBeenCalledOnce();
     await userEvent.click(within(nav).getByRole("button", { name: /Historia i czat/ }));
     expect(onOpenHistoryChat).toHaveBeenCalledOnce();
@@ -102,17 +102,17 @@ describe("JobDetailCompactHeader", () => {
     await waitFor(() => expect(onOpenQuestions).toHaveBeenCalledOnce());
   });
 
-  it("odznaka „brakuje N” tylko przy ZNANYCH brakach — niewiedza i zero milczą", () => {
+  it("odznaka „brakuje N” stoi przy zakładce „Zlecenie i Champion” — tylko przy ZNANYCH brakach", () => {
     const { unmount } = renderHeader({ orderMissingCount: 2 });
-    expect(screen.getByTestId("open-order")).toHaveTextContent("brakuje 2");
+    expect(screen.getByTestId("open-champion-profile")).toHaveTextContent("brakuje 2");
     unmount();
 
     const zero = renderHeader({ orderMissingCount: 0 });
-    expect(screen.getByTestId("open-order")).not.toHaveTextContent("brakuje");
+    expect(screen.getByTestId("open-champion-profile")).not.toHaveTextContent("brakuje");
     zero.unmount();
 
     renderHeader({ orderMissingCount: null });
-    expect(screen.getByTestId("open-order")).not.toHaveTextContent("brakuje");
+    expect(screen.getByTestId("open-champion-profile")).not.toHaveTextContent("brakuje");
   });
 
   it("ze „Ścieżką rekrutacji” krok 1 zastępuje przycisk „Zlecenie” — bez dublowania", () => {
@@ -136,26 +136,39 @@ describe("JobDetailCompactHeader", () => {
     expect(screen.getByRole("button", { name: "Historia i czat" })).toBeTruthy();
   });
 
-  it("na Tablicy nie ma przełącznika widoku — tryb „Tabela” usunięty", () => {
+  it("widoki to dwie zakładki: „Tablica” i „Zlecenie i Champion” — bez trybu „Tabela”", () => {
     renderHeader({ activeView: "board" });
     expect(screen.queryByTestId("view-people")).toBeNull();
-    expect(screen.queryByTestId("view-board")).toBeNull();
+    const nav = screen.getByRole("navigation", { name: "Widok rekrutacji" });
+    expect(within(nav).getByTestId("view-board")).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByTestId("open-champion-profile")).not.toHaveAttribute("aria-current");
   });
 
-  it("z ekranu pobocznego (Champion, „Do przejrzenia”) wraca się jednym przyciskiem „Tablica”", async () => {
+  it("z „Zlecenia i Championa” wraca się zakładką „Tablica”; okna „Zlecenie” tam nie ma (panel obok)", async () => {
     const { onViewChange } = renderHeader({ activeView: "champion" });
+    expect(screen.getByTestId("open-champion-profile")).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByTestId("open-order")).toBeNull();
     await userEvent.click(screen.getByTestId("view-board"));
     expect(onViewChange).toHaveBeenCalledWith("board");
-    expect(screen.getByTestId("open-order")).not.toHaveAttribute("aria-current");
   });
 
-  it("„Profil Championa” otwiera widok Championa z Tablicy, a na nim znika", async () => {
-    const { onViewChange, unmount } = renderHeader({ activeView: "board" });
-    await userEvent.click(screen.getByRole("button", { name: "Profil Championa" }));
+  it("zakładka „Zlecenie i Champion” otwiera widok z Tablicy", async () => {
+    const { onViewChange } = renderHeader({ activeView: "board" });
+    await userEvent.click(screen.getByRole("button", { name: /Zlecenie i Champion/ }));
     expect(onViewChange).toHaveBeenCalledWith("champion");
-    unmount();
-    renderHeader({ activeView: "champion" });
-    expect(screen.queryByRole("button", { name: "Profil Championa" })).toBeNull();
+  });
+
+  it("menu „⋯” niesie Kartę klienta, Kopiuj link i Zamknij rekrutację, gdy strona je podaje", async () => {
+    const onCopyLink = vi.fn();
+    const onCloseJob = vi.fn();
+    renderHeader({ clientCardHref: "/help?tab=clients&client=4", onCopyLink, onCloseJob });
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
+    expect(await screen.findByRole("menuitem", { name: /Karta klienta/ })).toHaveAttribute(
+      "href",
+      "/help?tab=clients&client=4",
+    );
+    await userEvent.click(screen.getByRole("menuitem", { name: /Zamknij rekrutację/ }));
+    await waitFor(() => expect(onCloseJob).toHaveBeenCalledOnce());
   });
 
   it("zamyka menu przed odroczonym otwarciem modala akcji", async () => {

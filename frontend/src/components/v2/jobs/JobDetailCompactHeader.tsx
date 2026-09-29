@@ -4,9 +4,11 @@ import type { ReactNode } from "react";
 import {
   ArrowLeft,
   BookOpen,
+  Building2,
   ChevronDown,
   ChevronUp,
   ClipboardList,
+  Copy,
   Ellipsis,
   FileText,
   Link2,
@@ -18,6 +20,7 @@ import {
   UserCheck,
   UserPlus,
   Wand2,
+  XCircle,
 } from "lucide-react";
 
 import { EntityHeader } from "@/components/ds/EntityHeader";
@@ -138,6 +141,12 @@ interface JobDetailCompactHeaderProps {
    * propozycji, więc rekrutacja bez propozycji nie miała do nich wejścia.
    */
   onOpenAiTools?: () => void;
+  /** „Karta klienta” w menu „⋯” (link do Pomocy). Brak = rekrutacja bez klienta. */
+  clientCardHref?: string;
+  /** „Kopiuj link do rekrutacji” w menu „⋯”. */
+  onCopyLink?: () => void;
+  /** „Zamknij rekrutację…” w menu „⋯” — pełna edycja i rekrutacja nie zamknięta. */
+  onCloseJob?: () => void;
   chatUnreadCount?: number;
   /**
    * Panel „Zespół i priorytet". W widokach „Tabela"/„Tablica" żyje w oknie
@@ -233,6 +242,9 @@ export function JobDetailCompactHeader({
   onWriteAnnouncement,
   onGenerateInviteLink,
   onOpenAiTools,
+  clientCardHref,
+  onCopyLink,
+  onCloseJob,
   chatUnreadCount = 0,
   contextOpen = false,
   onContextOpenChange,
@@ -405,6 +417,23 @@ export function JobDetailCompactHeader({
                           </DropdownMenuItem>
                         </>
                       ) : null}
+                      {clientCardHref ? (
+                        <DropdownMenuItem asChild>
+                          <a href={clientCardHref} data-testid="open-client-card">
+                            <Building2 className="h-4 w-4" />
+                            Karta klienta
+                          </a>
+                        </DropdownMenuItem>
+                      ) : null}
+                      {onCopyLink ? (
+                        <DropdownMenuItem
+                          onSelect={() => deferMenuAction(onCopyLink)}
+                          data-testid="copy-job-link"
+                        >
+                          <Copy className="h-4 w-4" />
+                          Kopiuj link do rekrutacji
+                        </DropdownMenuItem>
+                      ) : null}
                       {onOpenAiTools ? (
                         <>
                           <DropdownMenuSeparator />
@@ -414,6 +443,19 @@ export function JobDetailCompactHeader({
                           >
                             <Sparkles className="h-4 w-4" />
                             Narzędzia AI (administrator)
+                          </DropdownMenuItem>
+                        </>
+                      ) : null}
+                      {onCloseJob ? (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onSelect={() => deferMenuAction(onCloseJob)}
+                            className="text-destructive focus:text-destructive"
+                            data-testid="close-job"
+                          >
+                            <XCircle className="h-4 w-4" />
+                            Zamknij rekrutację…
                           </DropdownMenuItem>
                         </>
                       ) : null}
@@ -430,27 +472,59 @@ export function JobDetailCompactHeader({
             się ZŁAMAĆ, a nie schować końcówkę za niewidoczny pasek przewijania.
             Przycisk, którego nie widać, nie istnieje dla użytkownika. */}
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border px-3 py-1.5">
-          {/* Tryb „Tabela" usunięty (22.09.2026) — rekrutacja to Tablica.
-              Z ekranów pobocznych (pełna lista „Do przejrzenia", strona
-              Championa) wraca się jednym przyciskiem. */}
-          {activeView !== "board" ? (
-            <Button
+          {/* Dwa widoki rekrutacji jako zakładki (makieta 29.09.2026): Tablica
+              i „Zlecenie i Champion”. Do 28.09 do profilu Championa prowadził
+              wyłącznie przycisk w oknie „Zlecenie”. Pełna lista „Do przejrzenia”
+              (`tab=people`) nie jest zakładką — z niej wraca „Tablica”. */}
+          <nav className="flex shrink-0 items-center gap-0.5" aria-label="Widok rekrutacji">
+            <button
               type="button"
-              size="sm"
-              variant="ghost"
               onClick={() => onViewChange("board")}
+              aria-current={activeView === "board" ? "page" : undefined}
               data-testid="view-board"
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors",
+                activeView === "board"
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
             >
-              <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              {activeView !== "board" && activeView !== "champion" ? (
+                <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              ) : null}
               Tablica
-            </Button>
-          ) : null}
+            </button>
+            <button
+              type="button"
+              onClick={() => onViewChange("champion")}
+              aria-current={activeView === "champion" ? "page" : undefined}
+              data-testid="open-champion-profile"
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors",
+                activeView === "champion"
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
+            >
+              <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+              Zlecenie i Champion
+              {missing != null ? (
+                <Badge variant="warning" size="sm" className="tabular-nums">
+                  brakuje {missing}
+                </Badge>
+              ) : null}
+            </button>
+          </nav>
+
+          <div aria-hidden="true" className="hidden h-5 w-px bg-border sm:block" />
 
           <nav
             className="flex min-w-0 flex-wrap items-center gap-1.5"
             aria-label="Sekcje rekrutacji"
           >
-            {path == null ? (
+            {/* Skrót zlecenia: na Tablicy otwiera go krok „Zlecenie” ścieżki,
+                na widoku Championa braki są w panelu obok — tam go nie ma. */}
+            {path == null && activeView !== "champion" ? (
               <Button
                 type="button"
                 size="sm"
@@ -460,25 +534,6 @@ export function JobDetailCompactHeader({
               >
                 <ClipboardList className="h-4 w-4" aria-hidden="true" />
                 Zlecenie
-                {missing != null ? (
-                  <Badge variant="warning" size="sm" className="tabular-nums">
-                    brakuje {missing}
-                  </Badge>
-                ) : null}
-              </Button>
-            ) : null}
-            {/* Profil Championa (opis projektu, stack, screening) — do 09.2026
-                wchodziło się do niego wyłącznie przez okno „Zlecenie”. */}
-            {activeView !== "champion" ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => onViewChange("champion")}
-                data-testid="open-champion-profile"
-              >
-                <FileText className="h-4 w-4" aria-hidden="true" />
-                Profil Championa
               </Button>
             ) : null}
             <Button

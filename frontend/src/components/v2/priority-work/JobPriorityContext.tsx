@@ -185,7 +185,7 @@ export function JobPriorityContext({
         {data.blockers.length > 0 ? (
           <p className="mt-1 text-[11px] font-medium text-warning-muted-foreground">
             {countPl(data.blockers.length, "blocker", "blockery", "blockerów")} —
-            szczegóły w zakładce „Zespół i priorytet".
+            szczegóły w zakładce „Zespół”.
           </p>
         ) : null}
       </section>

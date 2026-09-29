@@ -841,14 +841,61 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
     expect(await screen.findByTestId("mock-handoff-button")).toBeInTheDocument();
   });
 
-  it("„Dodaj kandydata” i „Edytuj rekrutację” zostają na kroku 02 (makieta ich nie rysuje, ale dziś tam są)", async () => {
+  it("na kroku 02 nie ma „Dodaj kandydata”, „Edytuj rekrutację” ani „Otwórz propozycje” — są w nagłówku i menu „⋯”", async () => {
     useAuthStore.setState({ user: deliveryLead });
     renderDock(501, undefined, true, "champion");
     await screen.findByText(CHAMPION_DOCK_LABEL);
-    expect(screen.getByRole("button", { name: "Dodaj kandydata" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Edytuj rekrutację" }),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dodaj kandydata" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edytuj rekrutację" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Otwórz propozycje z bazy/ })).not.toBeInTheDocument();
+  });
+
+  it("panel zlecenia ma zakładki Gotowość, Zespół, Ogłoszenie — „Historia” przeszła do edycji Championa", async () => {
+    useAuthStore.setState({ user: deliveryLead });
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText(CHAMPION_DOCK_LABEL);
+    expect(screen.getByRole("tab", { name: "Ogłoszenie" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Historia" })).not.toBeInTheDocument();
+  });
+
+  it("zakładka „Ogłoszenie” niesie opis z AI, link aplikacyjny i portale", async () => {
+    const user = userEvent.setup();
+    const onWrite = vi.fn();
+    const onLink = vi.fn();
+    useAuthStore.setState({ user: deliveryLead });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <JobReadinessDock
+            jobId={501}
+            canOpen
+            variant="champion"
+            onWriteAnnouncement={onWrite}
+            onGenerateInviteLink={onLink}
+          />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+    await screen.findByText(CHAMPION_DOCK_LABEL);
+    await user.click(screen.getByRole("tab", { name: "Ogłoszenie" }));
+    await user.click(await screen.findByRole("button", { name: "Napisz ogłoszenie z AI" }));
+    expect(onWrite).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Wygeneruj link aplikacyjny" }));
+    expect(onLink).toHaveBeenCalledOnce();
+  });
+
+  it("zakładkę panelu da się otworzyć z adresu (`panelTab`) — skrót zlecenia prowadzi wprost do „Zespołu”", async () => {
+    useAuthStore.setState({ user: deliveryLead });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <JobReadinessDock jobId={501} canOpen variant="champion" panelTab="team" />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByTestId("mock-priority-context")).toBeInTheDocument();
   });
 
   it("JobHandoffButton NIE renderuje się dla recruitera — handoff to decyzja DL/admina", async () => {
