@@ -3468,7 +3468,9 @@ odpowiedź integration@rocketjobs.com. Kontrakt API frontu:
   i `status` sprawdzają tylko konfigurację (`ensure_configured`), a worker
   startuje także przy wyłączonych flagach, gdy konto jest skonfigurowane.
 - **Treść = biała lista `public_job_payload`** (zatwierdzony opis publiczny),
-  link aplikacji = `/r/<slug>` strony kariery, więc zgłoszenia wpadają do
+  link aplikacji = `/r/<slug>` strony kariery z `utm_source=<portal>`,
+  `utm_medium=job_board`, `utm_campaign=nexus-job-<id>` (`portal_apply_url`,
+  29.09.2026 — raport źródeł widzi JJIT/RocketJobs osobno), więc zgłoszenia wpadają do
   NEXUSA istniejącą ścieżką. Nic o kliencie ani stawce.
 - **Widełki są opcjonalne i wpisuje je człowiek** (decyzja Artura 25.09.2026),
   nigdy z budżetu rekrutacji ani stawki Championa. B2B netto, `do ≤ 3 × od`.
