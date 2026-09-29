@@ -366,8 +366,9 @@ async def test_refresh_fills_knowledge_once_and_skips_the_model_when_nothing_cha
     body = first.json()
     assert body["status"] == "ready" and body["stale"] is False
     assert body["pitch"] == "Projekt w banku, stawka do 170 zł netto na godzinę."
-    # Hasła słowniczka idą w tle: od razu „Szukam opisu…”, a po zadaniu gotowe.
-    assert body["glossary"][0]["status"] == "researching"
+    # Hasła słowniczka idą w tle: w odpowiedzi „Szukam opisu…” albo już gotowe
+    # (atrapa researchu kończy się, zanim serwer złoży odpowiedź), nigdy błąd.
+    assert body["glossary"][0]["status"] in {"researching", "ready"}
     await _drain_background()
     later = (await app_client.get(url, headers=app_auth_headers)).json()
     assert later["glossary"][0]["status"] == "ready"
