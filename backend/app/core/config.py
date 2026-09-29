@@ -1535,6 +1535,11 @@ class Settings(BaseSettings):
     # resumable via an `after_id` cursor, full reconcile only — delta already
     # scopes itself to the rows it just touched.
     TRAFFIT_SYNC_ENRICH_NAMES_LIMIT: int = 500
+    # Rekrutacja notatek z Traffita (29.09.2026): globalny feed aktywności jej
+    # nie niesie, więc faza aktywności pyta `/employees/{id}/activities` dla
+    # kandydatów z NOWYMI notatkami w biegu. Sufit osób na bieg (5 zapytań/s);
+    # 0 = wyłączone. Resztę domyka naprawa z panelu admina.
+    TRAFFIT_SYNC_NOTE_RECRUITMENT_LIMIT: int = 500
     # Sufit fazy candidates_cv_fields (parse pól skills/city/years dla
     # kandydatów dotkniętych w biegu; ~$0,008/CV na Haiku). Nocna delta to
     # zwykle dziesiątki wierszy — 200 ogranicza patologiczny bieg do ~$1,6.

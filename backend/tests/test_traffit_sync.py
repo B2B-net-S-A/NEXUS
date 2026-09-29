@@ -98,10 +98,10 @@ def test_promote_notes_sql_shape():
 
 def test_promote_notes_since_clause_substitution():
     full = _PROMOTE_NOTES_SQL.replace("/*SINCE*/", "")
-    delta = _PROMOTE_NOTES_SQL.replace("/*SINCE*/", "AND a.created_at >= :since")
+    delta = _PROMOTE_NOTES_SQL.replace("/*SINCE*/", "AND a.updated_at >= :since")
     assert "/*SINCE*/" not in full and "/*SINCE*/" not in delta
     assert ":since" not in full
-    assert "a.created_at >= :since" in delta
+    assert "a.updated_at >= :since" in delta
 
 
 # ── TraffitClient X-Request-Filter ───────────────────────────────────────────
