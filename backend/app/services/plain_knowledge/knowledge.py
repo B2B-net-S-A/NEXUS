@@ -16,6 +16,7 @@ import logging
 import re
 import unicodedata
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Any, Iterable, Optional
 
 from sqlalchemy import select, text
@@ -86,6 +87,18 @@ def term_key_for(name: str) -> str:
     return canonical_of(re.sub(r"\s+", " ", name or "").strip())[:200]
 
 
+@lru_cache(maxsize=1)
+def _seed_term_keys() -> frozenset[str]:
+    """Hasła opisane w bazie startowej z repo — przeszły już przegląd człowieka."""
+    from app.services.plain_knowledge.seed import term_rows
+
+    keys: set[str] = set()
+    for row in term_rows():
+        keys.add(str(row["term_key"]).casefold())
+        keys.add(str(row["display_name"]).casefold())
+    return frozenset(keys)
+
+
 def researchable_term(name: str) -> bool:
     """Czy nazwa nadaje się na hasło słowniczka (a nie zdanie z wymaganiem)."""
     from app.services.skill_normalize import is_taxonomy_technology
@@ -94,6 +107,8 @@ def researchable_term(name: str) -> bool:
     if not clean:
         return False
     if is_taxonomy_technology(clean):
+        return True
+    if clean.casefold() in _seed_term_keys():  # „npm”, „pytest” spoza słownika
         return True
     return (
         len(clean) <= MAX_TERM_CHARS

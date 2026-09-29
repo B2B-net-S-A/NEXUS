@@ -123,11 +123,13 @@ def clean_role_name(title: str, drop_words: frozenset[str] = frozenset()) -> str
         segment = _LEAD_COUNTRY.sub("", segment)
         segment = _CONTEXT.sub("", segment)
         segment = _drop_words(segment, drop_words)
-        segment = re.sub(r"\s+", " ", segment).strip(" ,.-/+&")
+        segment = re.sub(r"\s+", " ", segment).rstrip(" ,.-/+&").lstrip(" ,-/+&")
         if segment and _has_role_noun(segment):
             chosen = segment
             break
-    chosen = chosen[:80].strip(" ,.-/+&")
+    chosen = chosen[:80].rstrip(" ,.-/+&")
+    if chosen[1:2].isupper():  # „iOS Developer”, „eBay” — pisownia marki
+        return chosen
     return chosen[:1].upper() + chosen[1:]
 
 
@@ -169,6 +171,9 @@ class RoleRules:
     title_words: frozenset[str]
     skills: frozenset[str]
     category: Optional[str]
+    # Inne nazwy tej samej roli („Test Automation Engineer” przy „Tester
+    # automatyzujący”) — tytuł liczy się po najlepiej pokrytym zestawie.
+    title_alternatives: tuple[frozenset[str], ...] = ()
 
 
 def rules_of(role_id: int, raw: Any) -> RoleRules:
@@ -182,12 +187,26 @@ def rules_of(role_id: int, raw: Any) -> RoleRules:
         )
 
     category = data.get("category")
+    alternatives = data.get("title_alternatives")
     return RoleRules(
         role_id=role_id,
         title_words=words(data.get("title_words")),
         skills=words(data.get("skills")),
         category=category if isinstance(category, str) and category else None,
+        title_alternatives=tuple(
+            alt
+            for alt in (
+                words(item)
+                for item in (alternatives if isinstance(alternatives, list) else [])
+                if isinstance(item, list)
+            )
+            if alt
+        ),
     )
+
+
+def _coverage(rule_words: frozenset[str], title: frozenset[str]) -> float:
+    return len(rule_words & title) / len(rule_words) if rule_words else 0.0
 
 
 def score(
@@ -196,10 +215,12 @@ def score(
     skills: frozenset[str],
     category: Optional[str],
 ) -> float:
-    title_hit = (
-        len(rules.title_words & title) / len(rules.title_words)
-        if rules.title_words
-        else 0.0
+    title_hit = max(
+        (
+            _coverage(words, title)
+            for words in (rules.title_words, *rules.title_alternatives)
+        ),
+        default=0.0,
     )
     skill_hit = len(rules.skills & skills) / len(rules.skills) if rules.skills else 0.0
     if title_hit == 0.0 and skill_hit < 0.5:

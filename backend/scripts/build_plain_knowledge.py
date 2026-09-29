@@ -450,7 +450,69 @@ def write_review(plan: dict[str, Any], path: Path) -> None:
     wb.save(path)
 
 
+_CLIENT_NAME_STOPWORDS = frozenset(
+    {
+        "bank",
+        "polska",
+        "polski",
+        "group",
+        "grupa",
+        "spółka",
+        "akcyjna",
+        "oddział",
+        "polsce",
+        "solutions",
+        "services",
+        "systems",
+        "technology",
+        "software",
+        "data",
+        "centrum",
+        "consulting",
+        "international",
+        "digital",
+        "global",
+        "europe",
+        "poland",
+        "online",
+    }
+)
+
+
+# Adres z identyfikatorem w kształcie klucza (UUID, ``pa-…``) zapala gitleaks
+# w CI — repo jest publiczne, więc skaner nie może mieć wyjątku na te pliki.
+_KEY_SHAPED = re.compile(
+    r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"
+    r"|pa-[A-Za-z0-9_-]{30,}"
+)
+
+
+def client_source_filter(plan: dict[str, Any]):
+    """Źródła z domen klientów z planu nie trafiają do publicznego repo —
+    ogłoszenie klienta przy naszej roli zdradzałoby, dla kogo rekrutujemy."""
+    from urllib.parse import urlparse
+
+    words = {
+        w.casefold()
+        for c in plan.get("clients", [])
+        for w in re.findall(r"[A-Za-z0-9]{4,}", c.get("name") or "")
+        if w.casefold() not in _CLIENT_NAME_STOPWORDS
+    }
+
+    def keep(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        out = []
+        for s in sources or []:
+            url = str(s.get("url") or "")
+            host = urlparse(url).netloc.casefold()
+            if not any(w in host for w in words) and not _KEY_SHAPED.search(url):
+                out.append(s)
+        return out
+
+    return keep
+
+
 def write_seed(plan: dict[str, Any], data_dir: Path) -> tuple[int, int]:
+    keep_sources = client_source_filter(plan)
     terms = []
     for t in plan.get("terms", []):
         r = t.get("result") or {}
@@ -464,7 +526,7 @@ def write_seed(plan: dict[str, Any], data_dir: Path) -> tuple[int, int]:
                 "does": r.get("does"),
                 "cv_hints": r.get("cv_hints") or [],
                 "confused_with": r.get("confused_with"),
-                "sources": r.get("sources") or [],
+                "sources": keep_sources(r.get("sources") or []),
             }
         )
     roles = []
@@ -483,10 +545,11 @@ def write_seed(plan: dict[str, Any], data_dir: Path) -> tuple[int, int]:
                 "typical_skills": g["skills"],
                 "match_rules": {
                     "title_words": g["title_words"],
+                    "title_alternatives": g.get("title_alternatives") or [],
                     "skills": g["skills"],
                     "category": g.get("category"),
                 },
-                "sources": r.get("sources") or [],
+                "sources": keep_sources(r.get("sources") or []),
             }
         )
     for name, key, rows in (
