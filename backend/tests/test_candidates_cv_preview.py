@@ -172,8 +172,10 @@ async def test_cleared_field_is_not_refilled_from_the_cv_nor_used_for_dedup(
 ) -> None:
     """E-mail z CV należy do istniejącej osoby, rekruter pole wyczyścił.
 
-    Bez honorowania `""` skan duplikatów znalazłby tamtą osobę (409), a przy
-    zapisie adres wróciłby z CV.
+    Darmowe sito czyta sam PLIK (tekst CV), więc bez `force` słusznie
+    ostrzega „wygląda na duplikat” (miękkie 409 z `matches`) — rekruter
+    potwierdza „Zapisz mimo to”. Wtedy wyczyszczony adres nie wraca z CV i nie
+    daje twardego 409 „adres zajęty” (ten liczy się z pól po scaleniu).
     """
     unique = uuid.uuid4().hex[:8]
     parsed = _parsed(unique)
@@ -185,17 +187,27 @@ async def test_cleared_field_is_not_refilled_from_the_cv_nor_used_for_dedup(
     )
     assert other.status_code == 201, other.text
 
+    form = {
+        "name": "Nowy",
+        "lastname": f"Bezmaila{unique}",
+        "email": "",
+        "city": "",
+    }
     try:
-        saved = await app_client.post(
+        warned = await app_client.post(
             "/api/candidates/from-cv",
             headers=app_auth_headers,
             files=_file(f"%PDF-1.4 cleared {unique}".encode()),
-            data={
-                "name": "Nowy",
-                "lastname": f"Bezmaila{unique}",
-                "email": "",
-                "city": "",
-            },
+            data=form,
+        )
+        assert warned.status_code == 409, warned.text
+        assert warned.json()["detail"].get("matches"), warned.text
+
+        saved = await app_client.post(
+            "/api/candidates/from-cv?force=true",
+            headers=app_auth_headers,
+            files=_file(f"%PDF-1.4 cleared {unique}".encode()),
+            data=form,
         )
         assert saved.status_code == 201, saved.text
         candidate = saved.json()["candidate"]
