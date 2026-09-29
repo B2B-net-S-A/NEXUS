@@ -1,35 +1,13 @@
-// Drobne pomocniki wiersza obsady — wspólne dla aktywnej obsady
-// (`OrderGroupCard`) i karty osoby z sekcji „Zakończone" (`EndedLineCard`).
+// Drobne pomocniki wiersza osoby na zamówieniu MD/kosztowym — wspólne dla
+// tabeli zamówień (`OrdersTable`) i paneli szczegółów (wersja B, 29.09.2026).
 
 import type { OrderLineRead } from "@/lib/api/orderGroups";
 import { formatPLN } from "@/types/client-profile";
 
-export function initials(name: string): string {
-  const parts = name.split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  return parts
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? "")
-    .join("");
-}
-
-/** Kotwica wiersza obsady — cel przejścia „→ następca" z wiersza osoby
- *  zastąpionej. Następca bywa w innej sekcji (aktywna obsada vs zakończone),
- *  więc przewijamy po id, nie po pozycji na liście. */
+/** Kotwica wiersza osoby w tabeli — cel przewinięcia przy linku z
+ *  powiadomienia (`?order=`) i przy przejściu „→ następca" z panelu. */
 export function orderLineAnchorId(lineId: number): string {
   return `order-line-${lineId}`;
-}
-
-/** Przewinięcie do wiersza następcy z krótkim podświetleniem. Bez celu w DOM
- *  (następca na innej karcie) — nic; przycisk nie może udawać nawigacji. */
-export function focusOrderLine(lineId: number) {
-  const el = document.getElementById(orderLineAnchorId(lineId));
-  if (!el) return;
-  el.scrollIntoView({ behavior: "smooth", block: "center" });
-  el.classList.add("ring-2", "ring-primary", "ring-inset");
-  window.setTimeout(() => {
-    el.classList.remove("ring-2", "ring-primary", "ring-inset");
-  }, 1600);
 }
 
 export function displayLineRate(line: OrderLineRead, side: "cost" | "revenue"): string {

@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Download, RotateCcw, Search, SlidersHorizontal } from "lucide-react";
 
 import {
@@ -19,6 +20,8 @@ interface Props {
   exporting: boolean;
   onExport: () => void;
   showExport?: boolean;
+  /** Dodatkowe kontrolki w rzędzie wyszukiwarki (np. filtr typu zamówienia). */
+  extraControls?: ReactNode;
 }
 
 function activeFilterCount(filters: OrderListFilters): number {
@@ -42,6 +45,7 @@ export function OrderListControls({
   exporting,
   onExport,
   showExport = true,
+  extraControls = null,
 }: Props) {
   const update = <K extends keyof OrderListFilters>(
     key: K,
@@ -50,7 +54,7 @@ export function OrderListControls({
   const activeCount = activeFilterCount(filters);
 
   return (
-    <section className="rounded-lg border border-border bg-card p-3" data-help="client.orders.search">
+    <section className="rounded-lg border border-border bg-card px-2.5 py-2" data-help="client.orders.search">
       <div className="flex flex-col gap-2 sm:flex-row">
         <div className="relative min-w-0 flex-1">
           <Search
@@ -62,15 +66,16 @@ export function OrderListControls({
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder="Szukaj po numerze zamówienia lub imieniu/nazwisku konsultanta…"
             aria-label="Szukaj zamówień"
-            className="w-full rounded-md border border-border bg-background py-2 pl-9 pr-3 text-sm text-foreground outline-hidden placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-8 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-hidden placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-10"
           />
         </div>
+        {extraControls}
         {showExport ? (
           <button
             type="button"
             onClick={onExport}
             disabled={exporting || resultCount === 0}
-            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:h-10"
           >
             <Download className="h-4 w-4" aria-hidden="true" />
             {exporting ? "Przygotowuję…" : "Pobierz do Excela"}
@@ -78,8 +83,8 @@ export function OrderListControls({
         ) : null}
       </div>
 
-      <details className="mt-3">
-        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-foreground">
+      <details className="mt-1.5">
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-medium text-foreground">
           <SlidersHorizontal className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
           Filtry i sortowanie
           {activeCount > 0 ? (

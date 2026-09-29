@@ -12,10 +12,9 @@ import {
   CancelOrderGroupDialog,
   cancelRefusalMessage,
 } from "@/components/client-profile/orders/CancelOrderGroupDialog";
-import {
-  ContractorOrderCards,
-  type ContractorOrderFocus,
-} from "@/components/OrdersAndContractsTab";
+import { ListDetailLayout } from "@/components/ds/ListDetailLayout";
+import { useRowNavigation } from "@/hooks/useRowNavigation";
+import { writeUrlParams } from "@/lib/url-selection";
 import { useToast } from "@/components/Toast";
 import { useClientDefaultRateUnit } from "@/hooks/useClientDefaultRateUnit";
 import { dlPortalApi, type ContractWithOrdersRead } from "@/lib/api/dlPortal";
@@ -37,6 +36,7 @@ import { countPl } from "@/lib/plural-pl";
 import {
   DEFAULT_ORDER_LIST_FILTERS,
   ORDER_TYPE_ORDER,
+  consultantMatchesQuery,
   buildOrderGroupFamilies,
   contractorMatchesPill,
   contractorOrderType,
@@ -61,6 +61,7 @@ import {
   postAuthenticatedDownload,
 } from "@/lib/authenticated-files";
 import { hasSectionAccess } from "@/lib/section-access";
+import { cn } from "@/lib/utils";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import {
   canViewClientFinance,
@@ -80,7 +81,22 @@ import { EndOrderGroupModal } from "./EndOrderGroupModal";
 import { ExtendOrderGroupModal } from "./ExtendOrderGroupModal";
 import { NordeaOrderImportPanel } from "./NordeaOrderImportPanel";
 import { OffboardingDecisionModal } from "./OffboardingDecisionModal";
-import { OrderGroupCard, type OrderGroupFocusRequest } from "./OrderGroupCard";
+import { EndedLineDecisionDialog } from "./EndedLineDecisionDialog";
+import { OrderGroupPanel, type OrderGroupActions } from "./OrderGroupPanel";
+import { OrderLinePanel } from "./OrderLinePanel";
+import { OrdersTable, type LinePanelTab } from "./OrdersTable";
+import { ContractorOrderPanel, type ContractorOrderFocus } from "./ContractorOrderPanel";
+import {
+  buildSectionRows,
+  findGroup,
+  findLine,
+  groupRoster,
+  selectableKeys,
+  selectionFromKey,
+  selectionKey,
+  type OrderSelection,
+  type OrdersTableSection,
+} from "./orders-table-model";
 import { OrderGroupFormModal } from "./OrderGroupFormModal";
 import {
   commonFieldsOfPeriodic,
@@ -89,7 +105,6 @@ import {
   type PeriodicOrderDraft,
 } from "@/lib/order-type-switch";
 import { OrderListControls } from "./OrderListControls";
-import { OrderTypeBadge, orderTypeLabel } from "./OrderTypeBadge";
 import { ReplaceWithTakeoverModal } from "./ReplaceWithTakeoverModal";
 import { SwapConsultantModal } from "./SwapConsultantModal";
 
@@ -132,15 +147,34 @@ function saveErrorMessage(err: unknown, fallback: string): string {
   return err instanceof SaveStepError ? err.message : apiError(err, fallback);
 }
 
-const PILLS: Array<{ key: UnifiedOrderPill; label: string }> = [
+/** „Wymaga decyzji" (wersja B) — zamówienia z osobą zakończoną, o której
+ *  Delivery Lead jeszcze nie zdecydował. Liczone z tej samej reguły co sekcja
+ *  „Zakończone" w tabeli (`requiresDecision`). */
+type OrdersPill = UnifiedOrderPill | "decision";
+
+// Etykiety krótkie, żeby pigułki mieściły się w jednym rzędzie na laptopie
+// 1280 px (menu 240 px) — pełne brzmienie niesie `title`.
+const PILLS: Array<{ key: OrdersPill; label: string; title?: string }> = [
   { key: "all", label: "Wszystkie" },
   { key: "active", label: "Aktywne" },
-  { key: "ending_30d", label: "⚠️ Bez kontynuacji 30d" },
+  { key: "ending_30d", label: "Bez kontynuacji 30 dni" },
   { key: "completed", label: "Zakończeni" },
   { key: "exhausted", label: "Wyczerpane" },
   { key: "cancelled", label: "Anulowane" },
-  { key: "draft", label: "📝 Draft (do uzupełnienia)" },
+  { key: "draft", label: "Draft", title: "Szkice do uzupełnienia" },
+  { key: "decision", label: "Wymaga decyzji" },
 ];
+
+const TYPE_FILTERS: Array<{ key: OrderType | "all"; label: string }> = [
+  { key: "all", label: "Wszystkie typy" },
+  { key: "md", label: "MD" },
+  { key: "cost", label: "Kosztowe" },
+  { key: "periodic", label: "Okresowe" },
+];
+
+function groupNeedsDecision(group: OrderGroupRead): boolean {
+  return groupRoster(group).pendingDecisions > 0;
+}
 
 interface Props {
   clientId: number;
@@ -160,7 +194,10 @@ interface Props {
    *  linia grupy (`?order=`) i zamówienie MD/kosztowe (`?group=`). */
   focusOrderId?: number | null;
   focusGroupId?: number | null;
-  /** Cel obsłużony (albo niewidoczny) — strona zdejmuje parametry z adresu. */
+  /** Panel kontraktora bez zamówienia (karta szkicu) — `?contract=`. */
+  focusContractId?: number | null;
+  /** Celu nie ma na liście — strona zdejmuje parametry z adresu. Cel
+   *  znaleziony ZOSTAJE w adresie jako otwarty panel (wersja B). */
   onFocusHandled?: () => void;
 }
 
@@ -186,6 +223,7 @@ export function MultiConsultantOrdersTab({
   onOrderMailDocDone,
   focusOrderId = null,
   focusGroupId = null,
+  focusContractId = null,
   onFocusHandled,
 }: Props) {
   const queryClient = useQueryClient();
@@ -208,7 +246,8 @@ export function MultiConsultantOrdersTab({
       hasRole(user, "admin", "delivery_lead", "finance"));
   const allowedOrderTypes = ALL_ORDER_TYPES;
 
-  const [pill, setPill] = useState<UnifiedOrderPill>("all");
+  const [pill, setPill] = useState<OrdersPill>("all");
+  const [typeFilter, setTypeFilter] = useState<OrderType | "all">("all");
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<OrderListFilters>({
     ...DEFAULT_ORDER_LIST_FILTERS,
@@ -282,11 +321,16 @@ export function MultiConsultantOrdersTab({
     group: OrderGroupRead;
     line: OrderLineRead;
   } | null>(null);
-  // Przejście z wpisu „transfer_md" do zamówienia powiązanego. Żądanie leci do
-  // WSZYSTKICH kart, bo cel bywa zagnieżdżony w przyszłych zamówieniach innej
-  // karty — tylko ona wie, że go zawiera, i tylko ona umie się rozwinąć.
-  const [focusRequest, setFocusRequest] =
-    useState<OrderGroupFocusRequest | null>(null);
+  // Panel szczegółów (wersja B, 29.09.2026): zaznaczony wiersz tabeli.
+  const [selection, setSelection] = useState<OrderSelection | null>(null);
+  const [lineTab, setLineTab] = useState<LinePanelTab | null>(null);
+  const [expandedEnded, setExpandedEnded] = useState<ReadonlySet<number>>(new Set());
+  const [collapsedEnded, setCollapsedEnded] = useState<ReadonlySet<number>>(new Set());
+  const [decisionTarget, setDecisionTarget] = useState<{
+    group: OrderGroupRead;
+    line: OrderLineRead;
+  } | null>(null);
+  const tableRef = useRef<HTMLDivElement | null>(null);
 
   const query = useQuery({
     queryKey: ["client-order-groups", clientId],
@@ -875,41 +919,47 @@ export function MultiConsultantOrdersTab({
   // Rodziny przedłużeń liczone z PEŁNEJ listy: pigułka i filtr dostają już
   // przefiltrowane grupy, a następca zamówienia może w tym podzbiorze nie być.
   const groupFamilies = useMemo(() => buildOrderGroupFamilies(groups), [groups]);
+  const groupMatchesPill = useCallback(
+    (group: OrderGroupRead, key: OrdersPill) =>
+      key === "decision"
+        ? groupNeedsDecision(group)
+        : orderGroupMatchesPill(group, key, undefined, groupFamilies),
+    [groupFamilies],
+  );
   const counts = useMemo(() => {
-    const byStatus = {} as Record<UnifiedOrderPill, number>;
+    const byStatus = {} as Record<OrdersPill, number>;
     for (const entry of PILLS) {
       byStatus[entry.key] =
-        groups.filter((group) =>
-          orderGroupMatchesPill(group, entry.key, undefined, groupFamilies),
-        ).length +
-        contractors.filter((contractor) =>
-          contractorMatchesPill(contractor, entry.key),
-        ).length;
+        groups.filter((group) => groupMatchesPill(group, entry.key)).length +
+        (entry.key === "decision"
+          ? 0
+          : contractors.filter((contractor) =>
+              contractorMatchesPill(contractor, entry.key as UnifiedOrderPill),
+            ).length);
     }
     return byStatus;
-  }, [contractors, groups, groupFamilies]);
+  }, [contractors, groups, groupMatchesPill]);
   const visibleGroups = useMemo(
     () =>
       filterAndSortOrderGroups(
-        groups.filter((group) =>
-          orderGroupMatchesPill(group, pill, undefined, groupFamilies),
-        ),
+        groups.filter((group) => groupMatchesPill(group, pill)),
         search,
         filters,
         undefined,
         groupFamilies,
       ),
-    [filters, groups, groupFamilies, pill, search],
+    [filters, groups, groupFamilies, groupMatchesPill, pill, search],
   );
   const visibleContractors = useMemo(
     () =>
       // „Blisko budżetu" opisuje wyłącznie grupy kosztowe/MD. Kontraktorzy
       // okresowi nie mają wspólnego budżetu, więc przy tym filtrze odpadają.
-      filters.nearBudget
+      // „Wymaga decyzji" dotyczy wyłącznie osób na zamówieniach MD/kosztowych.
+      filters.nearBudget || pill === "decision"
         ? []
         : filterAndSortContractors(
             contractors.filter((contractor) =>
-              contractorMatchesPill(contractor, pill),
+              contractorMatchesPill(contractor, pill as UnifiedOrderPill),
             ),
             search,
             filters,
@@ -939,29 +989,134 @@ export function MultiConsultantOrdersTab({
           ],
           filters.sort,
         ),
-      })).filter((section) => section.items.length > 0),
+      }))
+        .filter((section) => typeFilter === "all" || section.type === typeFilter)
+        .filter((section) => section.items.length > 0),
     [
       filters.sort,
       legacyNullOrderType,
       suggestedOrderType,
+      typeFilter,
       visibleContractors,
       visibleGroups,
     ],
   );
-  const resultCount = visibleGroups.length + visibleContractors.length;
+  const resultCount = sections.reduce((sum, section) => sum + section.items.length, 0);
+  const tableSections: OrdersTableSection[] = useMemo(
+    () =>
+      sections.map((section) => ({
+        type: section.type,
+        itemCount: section.items.length,
+        rows: buildSectionRows(section.items, {
+          expandedEnded,
+          collapsedEnded,
+          matchesSearch: search.trim()
+            ? (name) => consultantMatchesQuery(name, search)
+            : undefined,
+        }),
+      })),
+    [collapsedEnded, expandedEnded, search, sections],
+  );
+  const rowKeys = useMemo(() => selectableKeys(tableSections), [tableSections]);
 
-  // Deep link z panelu „Moi klienci" (`?order=` / `?group=`). Czeka na obie
-  // listy, zdejmuje filtry (cel mógłby być schowany pod pigułką albo
-  // wyszukiwaniem), a potem przewija do grupy (istniejący mechanizm
-  // `focusRequest`) albo do karty kontraktora. Raz na wartość parametru —
-  // odświeżenie listy nie przewija ekranu drugi raz. Cel, którego nie ma,
-  // dostaje komunikat zamiast cichego „nic się nie stało".
+  // ── Zaznaczenie i panel (wersja B, 29.09.2026) ─────────────────────────────
+  // Otwarty panel żyje w adresie: `?group=` (zamówienie), `?order=` (linia MD
+  // albo zamówienie okresowe) i `?contract=` (kontraktor bez zamówienia). To te
+  // same parametry, które niosą linki z powiadomień i alertów DL zapisane
+  // w bazie — link otwiera więc od razu właściwy panel.
+  const focusServed = useRef<string | null>(null);
   const [contractorFocus, setContractorFocus] =
     useState<ContractorOrderFocus | null>(null);
-  const focusServed = useRef<string | null>(null);
   const clearContractorFocus = useCallback(() => setContractorFocus(null), []);
+
+  const writeSelectionToUrl = useCallback((next: OrderSelection | null) => {
+    const patch: Record<string, string | null> = { group: null, order: null, contract: null };
+    let key: string | null = null;
+    if (next?.kind === "group") {
+      patch.group = String(next.groupId);
+      key = `group:${next.groupId}`;
+    } else if (next?.kind === "line") {
+      patch.order = String(next.lineId);
+      key = `order:${next.lineId}`;
+    } else if (next?.kind === "contractor") {
+      patch.contract = String(next.contractId);
+      key = `contract:${next.contractId}`;
+    }
+    // Nasz własny zapis w adresie nie jest „nowym linkiem" do obsłużenia.
+    focusServed.current = key;
+    writeUrlParams(patch);
+  }, []);
+
+  const select = useCallback(
+    (next: OrderSelection | null, tab: LinePanelTab | null = null) => {
+      setSelection(next);
+      setLineTab(tab);
+      writeSelectionToUrl(next);
+    },
+    [writeSelectionToUrl],
+  );
+  const closePanel = useCallback(() => select(null), [select]);
+  const selectKey = useCallback(
+    (key: string, tab?: LinePanelTab) => {
+      const next = selectionFromKey(key, tableSections);
+      if (next) select(next, tab ?? null);
+    },
+    [select, tableSections],
+  );
+
+  /** Cel poza bieżącym filtrem — zdejmij filtry, żeby wiersz był widoczny. */
+  const revealAll = useCallback(() => {
+    setPill("all");
+    setTypeFilter("all");
+    setSearch("");
+    setFilters({ ...DEFAULT_ORDER_LIST_FILTERS });
+  }, []);
+  const scrollRowIntoView = useCallback((anchorId: string) => {
+    window.requestAnimationFrame(() => {
+      document.getElementById(anchorId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, []);
+  const selectGroupById = useCallback(
+    (groupId: number) => {
+      if (!rowKeys.includes(`g:${groupId}`)) revealAll();
+      select({ kind: "group", groupId });
+      scrollRowIntoView(`order-group-anchor-${groupId}`);
+    },
+    [revealAll, rowKeys, scrollRowIntoView, select],
+  );
+  const selectLineById = useCallback(
+    (groupId: number, lineId: number) => {
+      const found = findLine(groups, lineId);
+      if (!found) return;
+      if (!rowKeys.includes(`l:${lineId}`)) {
+        revealAll();
+        setExpandedEnded((previous) => new Set(previous).add(found.group.id));
+      }
+      select({ kind: "line", groupId: found.group.id ?? groupId, lineId });
+      scrollRowIntoView(`order-line-${lineId}`);
+    },
+    [groups, revealAll, rowKeys, scrollRowIntoView, select],
+  );
+
+  useRowNavigation({
+    keys: rowKeys,
+    activeKey: selection ? selectionKey(selection) : null,
+    onChange: (key) => selectKey(key),
+    containerRef: tableRef,
+  });
+
+  // Link z powiadomienia (`?order=` / `?group=` / `?contract=`). Czeka na obie
+  // listy, zdejmuje filtry (cel mógłby być schowany pod pigułką), otwiera
+  // panel i przewija do wiersza. Raz na wartość parametru — odświeżenie listy
+  // nie przewija ekranu drugi raz. Cel, którego nie ma, dostaje komunikat.
   useEffect(() => {
-    const key = focusGroupId ? `group:${focusGroupId}` : focusOrderId ? `order:${focusOrderId}` : null;
+    const key = focusGroupId
+      ? `group:${focusGroupId}`
+      : focusOrderId
+        ? `order:${focusOrderId}`
+        : focusContractId
+          ? `contract:${focusContractId}`
+          : null;
     if (!key) {
       focusServed.current = null;
       return;
@@ -969,41 +1124,81 @@ export function MultiConsultantOrdersTab({
     if (!query.isSuccess || !contractorQuery.isSuccess) return;
     if (focusServed.current === key) return;
     focusServed.current = key;
+    if (focusContractId && !focusGroupId && !focusOrderId) {
+      const contractor = contractors.find((item) => item.contract_id === focusContractId);
+      if (!contractor) {
+        showToast("Zamówienie nie jest już widoczne na liście tego klienta.", "error");
+        onFocusHandled?.();
+        return;
+      }
+      revealAll();
+      setSelection({ kind: "contractor", contractId: focusContractId });
+      scrollRowIntoView(`contractor-row-${focusContractId}`);
+      return;
+    }
     const target = resolveOrderFocus(groups, contractors, {
       orderId: focusOrderId,
       groupId: focusGroupId,
     });
     if (target === null) {
       showToast("Zamówienie nie jest już widoczne na liście tego klienta.", "error");
-    } else {
-      setPill("all");
-      setSearch("");
-      setFilters({ ...DEFAULT_ORDER_LIST_FILTERS });
-      if (target.kind === "group") {
-        setFocusRequest((previous) => ({
-          groupId: target.groupId,
-          nonce: (previous?.nonce ?? 0) + 1,
-        }));
-      } else {
-        setContractorFocus((previous) => ({
-          contractId: target.contractId,
-          orderId: target.orderId,
-          openEditor: target.isDraft,
-          nonce: (previous?.nonce ?? 0) + 1,
-        }));
-      }
+      onFocusHandled?.();
+      return;
     }
-    onFocusHandled?.();
+    revealAll();
+    if (target.kind === "group") {
+      if (target.lineId != null) {
+        const found = findLine(groups, target.lineId);
+        if (found) setExpandedEnded((previous) => new Set(previous).add(found.group.id));
+        setSelection({ kind: "line", groupId: target.groupId, lineId: target.lineId });
+        scrollRowIntoView(`order-line-${target.lineId}`);
+      } else {
+        setSelection({ kind: "group", groupId: target.groupId });
+        scrollRowIntoView(`order-group-anchor-${target.groupId}`);
+      }
+    } else {
+      setSelection({ kind: "contractor", contractId: target.contractId });
+      setContractorFocus((previous) => ({
+        contractId: target.contractId,
+        orderId: target.orderId,
+        openEditor: target.isDraft,
+        nonce: (previous?.nonce ?? 0) + 1,
+      }));
+      scrollRowIntoView(`contractor-row-${target.contractId}`);
+    }
   }, [
     focusGroupId,
     focusOrderId,
+    focusContractId,
     query.isSuccess,
     contractorQuery.isSuccess,
     groups,
     contractors,
     showToast,
     onFocusHandled,
+    revealAll,
+    scrollRowIntoView,
   ]);
+
+  // Zaznaczony obiekt zniknął z listy (usunięty, anulowany i schowany) —
+  // zamknij panel zamiast pokazywać nieaktualne dane.
+  const selectedGroup =
+    selection?.kind === "group" ? findGroup(groups, selection.groupId) : null;
+  const selectedLine = selection?.kind === "line" ? findLine(groups, selection.lineId) : null;
+  const selectedContractor =
+    selection?.kind === "contractor"
+      ? (contractors.find((item) => item.contract_id === selection.contractId) ?? null)
+      : null;
+  const selectionMissing =
+    selection !== null &&
+    query.isSuccess &&
+    contractorQuery.isSuccess &&
+    !selectedGroup &&
+    !selectedLine &&
+    !selectedContractor;
+  useEffect(() => {
+    if (selectionMissing) closePanel();
+  }, [selectionMissing, closePanel]);
 
   async function exportVisible() {
     setExporting(true);
@@ -1013,7 +1208,9 @@ export function MultiConsultantOrdersTab({
       );
       type ExportItem =
         { kind: "group"; id: number } | { kind: "order"; id: number };
-      const items: ExportItem[] = ORDER_TYPE_ORDER.flatMap<ExportItem>((type) =>
+      const items: ExportItem[] = ORDER_TYPE_ORDER.filter(
+        (type) => typeFilter === "all" || type === typeFilter,
+      ).flatMap<ExportItem>((type) =>
         sortUnifiedOrderItems(
           [
             ...visibleGroups
@@ -1061,94 +1258,152 @@ export function MultiConsultantOrdersTab({
     }
   }
 
-  function renderGroup(group: OrderGroupRead) {
-    return (
-      <OrderGroupCard
-        key={group.id}
+  // Te same callbacki, które wołała dawna karta zamówienia — panele
+  // otwierają TE SAME okna, hostowane niżej w tym komponencie.
+  const groupActions: OrderGroupActions & {
+    onReplaceLine: (group: OrderGroupRead, line: OrderLineRead) => void;
+    onKeepHistory: (group: OrderGroupRead, line: OrderLineRead) => void;
+    onSwapLine: (group: OrderGroupRead, line: OrderLineRead) => void;
+    onResolveOffboarding: (group: OrderGroupRead, line: OrderLineRead) => void;
+    onDeleteLine: (group: OrderGroupRead, line: OrderLineRead) => void;
+  } = {
+    onAddConsultant: (selected) => {
+      setFormError(null);
+      setLineModal({ open: true, group: selected, line: null, replaces: null });
+    },
+    onReplaceLine: (selected, line) => {
+      setFormError(null);
+      // Pula per osoba z pozostałymi MD: nowa osoba je przejmuje (B1).
+      // Kosztowe i wspólna pula nie mają puli osoby — zwykłe dodanie.
+      if (!selected.is_cost_based && !usesSharedMdPool(selected) && line.takeover_source) {
+        setReplaceModal({ group: selected, line });
+        return;
+      }
+      setLineModal({ open: true, group: selected, line: null, replaces: line });
+    },
+    onKeepHistory: (selected, line) => keepHistory.mutate({ groupId: selected.id, lineId: line.id }),
+    onEditGroup: (selected) => {
+      setFormError(null);
+      setGroupModal({ open: true, group: selected });
+    },
+    onEditLine: (selected, line) => {
+      setFormError(null);
+      setLineModal({ open: true, group: selected, line, replaces: null });
+    },
+    onSwapLine: (selected, line) => {
+      setFormError(null);
+      setSwapModal({ open: true, group: selected, line });
+    },
+    onResolveOffboarding: (selected, line) => {
+      setFormError(null);
+      setOffboardingModal({ open: true, group: selected, line });
+    },
+    // Audyt 22.09 r2 (FE-N02): dialog ze skutkami liczonymi przez serwer
+    // zamiast `window.confirm` — usunięcie linii zabiera jej krok stawki klienta.
+    onDeleteLine: (selected, line) => setDeleteLineTarget({ group: selected, line }),
+    onDeleteGroup: (selected) => setDeleteGroupTarget(selected),
+    onCloseGroup: (selected) => {
+      setFormError(null);
+      setEndModal({ open: true, group: selected });
+    },
+    onReopenGroup: (selected) => reopenGroup.mutate(selected.id),
+    onCancelGroup: (selected) => {
+      setCancelError(null);
+      setCancelGroupTarget(selected);
+    },
+    onRestoreGroup: (selected) => restoreGroup.mutate(selected.id),
+    onExtendGroup: (selected) => {
+      setFormError(null);
+      setExtendModal({ open: true, group: selected });
+    },
+  };
+
+  function parentOf(groupId: number): OrderGroupRead | null {
+    const visit = (list: readonly OrderGroupRead[]): OrderGroupRead | null => {
+      for (const group of list) {
+        if (group.future_orders.some((future) => future.id === groupId)) return group;
+        const nested = visit(group.future_orders);
+        if (nested) return nested;
+      }
+      return null;
+    };
+    return visit(groups);
+  }
+
+  let panel: React.ReactNode = null;
+  if (selectedGroup) {
+    panel = (
+      <OrderGroupPanel
+        key={`g-${selectedGroup.id}`}
         clientId={clientId}
-        group={group}
+        group={selectedGroup}
+        parent={parentOf(selectedGroup.id)}
+        canManage={canManage}
+        canManageLifecycle={canLifecycle}
         searchQuery={search}
+        onClose={closePanel}
+        onSelectLine={selectLineById}
+        onSelectGroup={selectGroupById}
+        {...groupActions}
+      />
+    );
+  } else if (selectedLine) {
+    panel = (
+      <OrderLinePanel
+        key={`l-${selectedLine.line.id}`}
+        clientId={clientId}
+        group={selectedLine.group}
+        line={selectedLine.line}
         canManage={canManage}
         canEditAmounts={canEditAmounts}
         canManageLifecycle={canLifecycle}
-        onAddConsultant={(selected) => {
-          setFormError(null);
-          setLineModal({ open: true, group: selected, line: null, replaces: null });
-        }}
-        onReplaceLine={(selected, line) => {
-          setFormError(null);
-          // Pula per osoba z pozostałymi MD: nowa osoba je przejmuje (B1).
-          // Kosztowe i wspólna pula nie mają puli osoby — zwykłe dodanie.
-          if (
-            !selected.is_cost_based &&
-            !usesSharedMdPool(selected) &&
-            line.takeover_source
-          ) {
-            setReplaceModal({ group: selected, line });
-            return;
-          }
-          setLineModal({ open: true, group: selected, line: null, replaces: line });
-        }}
-        onKeepHistory={(selected, line) =>
-          keepHistory.mutate({ groupId: selected.id, lineId: line.id })
+        initialTab={lineTab}
+        onClose={closePanel}
+        onEditLine={groupActions.onEditLine}
+        onSwapLine={groupActions.onSwapLine}
+        onDeleteLine={groupActions.onDeleteLine}
+        onDecide={(group, line) => setDecisionTarget({ group, line })}
+        onSelectLine={selectLineById}
+        onSelectGroup={selectGroupById}
+      />
+    );
+  } else if (selectedContractor && contractorQuery.data) {
+    panel = (
+      <ContractorOrderPanel
+        key={`c-${selectedContractor.contract_id}`}
+        clientId={clientId}
+        contractor={selectedContractor}
+        canViewFinance={canViewFinance}
+        canManageFinance={contractorQuery.data.can_manage_finance}
+        canManageOrders={contractorQuery.data.can_manage_finance}
+        suggestedOrderType={suggestedOrderType}
+        legacyNullOrderType={legacyNullOrderType}
+        allowedOrderTypes={allowedOrderTypes}
+        searching={search.trim().length > 0}
+        focusOrder={
+          contractorFocus?.contractId === selectedContractor.contract_id ? contractorFocus : null
         }
-        onEditGroup={(selected) => {
-          setFormError(null);
-          setGroupModal({ open: true, group: selected });
-        }}
-        onEditLine={(selected, line) => {
-          setFormError(null);
-          setLineModal({ open: true, group: selected, line, replaces: null });
-        }}
-        onSwapLine={(selected, line) => {
-          setFormError(null);
-          setSwapModal({ open: true, group: selected, line });
-        }}
-        onResolveOffboarding={(selected, line) => {
-          setFormError(null);
-          setOffboardingModal({ open: true, group: selected, line });
-        }}
-        // Audyt 22.09 r2 (FE-N02): dialog ze skutkami liczonymi przez serwer
-        // zamiast `window.confirm`, który obiecywał „umowa się nie zmieni” —
-        // usunięcie linii zabiera jej krok stawki klienta.
-        onDeleteLine={(selected, line) =>
-          setDeleteLineTarget({ group: selected, line })
+        onFocusOrderServed={clearContractorFocus}
+        onAssignToOrder={
+          isEzdrowieClient(clientId) && canManage
+            ? (contractor, openCompleteOrder) => {
+                setFormError(null);
+                setAssignModal({ contractor, openCompleteOrder });
+              }
+            : undefined
         }
-        onDeleteGroup={(selected) => setDeleteGroupTarget(selected)}
-        onCloseGroup={(selected) => {
-          setFormError(null);
-          setEndModal({ open: true, group: selected });
-        }}
-        onReopenGroup={(selected) => reopenGroup.mutate(selected.id)}
-        onCancelGroup={(selected) => {
-          setCancelError(null);
-          setCancelGroupTarget(selected);
-        }}
-        onRestoreGroup={(selected) => restoreGroup.mutate(selected.id)}
-        onExtendGroup={(selected) => {
-          setFormError(null);
-          setExtendModal({ open: true, group: selected });
-        }}
-        focusRequest={focusRequest}
-        onFocusGroup={(groupId) =>
-          setFocusRequest((previous) => ({
-            groupId,
-            nonce: (previous?.nonce ?? 0) + 1,
-          }))
-        }
+        onClose={closePanel}
       />
     );
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground">
-            Zamówienia klienta
-          </h2>
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <h2 className="text-sm font-semibold text-foreground">Zamówienia klienta</h2>
           <p className="text-xs text-muted-foreground">
-            Jedna lista zamówień okresowych, kosztowych i rozliczanych w MD.
+            Kliknij wiersz, żeby zobaczyć szczegóły i akcje.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -1176,7 +1431,7 @@ export function MultiConsultantOrdersTab({
                 openNewOrderForm(suggestedOrderType);
               }}
               data-help="client.orders.new"
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:min-h-10"
             >
               <Plus className="h-4 w-4" aria-hidden="true" /> Nowe zamówienie
             </button>
@@ -1189,21 +1444,27 @@ export function MultiConsultantOrdersTab({
           zweryfikowania wzrokiem. Renderujemy je dopiero przy `isSuccess`,
           żeby „(0)" nie udawało wyniku, zanim cokolwiek wiadomo. */}
       {query.isSuccess && contractorQuery.isSuccess ? (
-        <div className="flex flex-wrap gap-2" data-help="client.orders.pills">
-          {PILLS.map((entry) => (
+        <div className="flex flex-wrap items-center gap-1.5" data-help="client.orders.pills">
+          {PILLS.filter((entry) => entry.key !== "decision" || counts.decision > 0 || pill === "decision").map((entry) => (
             <button
               key={entry.key}
               type="button"
               onClick={() => setPill(entry.key)}
               aria-pressed={pill === entry.key}
-              className={
-                "rounded-full border px-3 py-1.5 text-sm transition-colors " +
-                (pill === entry.key
-                  ? "border-primary/40 bg-primary/10 text-primary"
-                  : "border-border bg-card text-muted-foreground hover:text-foreground")
-              }
+              title={entry.title}
+              className={cn(
+                "inline-flex h-8 items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition-colors pointer-coarse:min-h-10",
+                pill === entry.key
+                  ? "border-foreground bg-foreground text-background"
+                  : entry.key === "decision"
+                    ? "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15"
+                    : "border-border bg-card text-muted-foreground hover:text-foreground",
+              )}
             >
-              {entry.label} ({counts[entry.key]})
+              {/* Spacja przed licznikiem: nazwa dostępna przycisku to
+                  „Aktywne (1)", nie sklejone „Aktywne(1)" (flex ją ignoruje). */}
+              {entry.label}{" "}
+              <span className="font-mono text-[11px] tabular-nums opacity-80">({counts[entry.key]})</span>
             </button>
           ))}
         </div>
@@ -1218,6 +1479,20 @@ export function MultiConsultantOrdersTab({
           resultCount={resultCount}
           exporting={exporting}
           onExport={exportVisible}
+          extraControls={
+            <select
+              value={typeFilter}
+              onChange={(event) => setTypeFilter(event.target.value as OrderType | "all")}
+              aria-label="Typ zamówienia"
+              className="h-8 shrink-0 rounded-md border border-border bg-background px-2 text-xs text-foreground pointer-coarse:h-10"
+            >
+              {TYPE_FILTERS.map((entry) => (
+                <option key={entry.key} value={entry.key}>
+                  {entry.label}
+                </option>
+              ))}
+            </select>
+          }
           showExport={canExport}
         />
       ) : null}
@@ -1262,54 +1537,37 @@ export function MultiConsultantOrdersTab({
           }
         />
       ) : (
-        <div className="flex flex-col gap-6">
-          {sections.map((section) => (
-            <section
-              key={section.type}
-              aria-labelledby={`orders-${section.type}-heading`}
-              className="space-y-3"
-            >
-              <h3
-                id={`orders-${section.type}-heading`}
-                className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-              >
-                <OrderTypeBadge type={section.type} />
-                {orderTypeLabel(section.type)} ({section.items.length})
-              </h3>
-              {section.items.map((item) =>
-                item.kind === "group" ? (
-                  renderGroup(item.group)
-                ) : (
-                  <ContractorOrderCards
-                    key={`contractor-${item.contractor.contract_id}`}
-                    clientId={clientId}
-                    contractors={[item.contractor]}
-                    canViewFinance={canViewFinance}
-                    canManageFinance={contractorQuery.data.can_manage_finance}
-                    canManageOrders={contractorQuery.data.can_manage_finance}
-                    suggestedOrderType={suggestedOrderType}
-                    legacyNullOrderType={legacyNullOrderType}
-                    allowedOrderTypes={allowedOrderTypes}
-                    searching={search.trim().length > 0}
-                    focusOrder={
-                      contractorFocus?.contractId === item.contractor.contract_id
-                        ? contractorFocus
-                        : null
-                    }
-                    onFocusOrderServed={clearContractorFocus}
-                    onAssignToOrder={
-                      isEzdrowieClient(clientId) && canManage
-                        ? (contractor, openCompleteOrder) => {
-                            setFormError(null);
-                            setAssignModal({ contractor, openCompleteOrder });
-                          }
-                        : undefined
-                    }
-                  />
-                ),
-              )}
-            </section>
-          ))}
+        <div ref={tableRef}>
+          <ListDetailLayout
+            panelLabel="Szczegóły zamówienia"
+            onClose={closePanel}
+            panel={panel}
+            list={
+              <OrdersTable
+                sections={tableSections}
+                selectedKey={selection ? selectionKey(selection) : null}
+                onSelect={selectKey}
+                onToggleEnded={(groupId, open) => {
+                  setExpandedEnded((previous) => {
+                    const next = new Set(previous);
+                    if (open) next.add(groupId);
+                    else next.delete(groupId);
+                    return next;
+                  });
+                  setCollapsedEnded((previous) => {
+                    const next = new Set(previous);
+                    if (open) next.delete(groupId);
+                    else next.add(groupId);
+                    return next;
+                  });
+                }}
+                searchQuery={search}
+                canDecide={canManage || canLifecycle}
+                canManage={canManage}
+                canViewFinance={canViewFinance}
+              />
+            }
+          />
         </div>
       )}
 
@@ -1512,6 +1770,18 @@ export function MultiConsultantOrdersTab({
           onClose={() => setDeleteGroupTarget(null)}
         />
       ) : null}
+
+      <EndedLineDecisionDialog
+        group={decisionTarget?.group ?? null}
+        line={decisionTarget?.line ?? null}
+        onClose={() => setDecisionTarget(null)}
+        canManage={canManage}
+        canManageLifecycle={canLifecycle}
+        onKeepHistory={groupActions.onKeepHistory}
+        onReplaceLine={groupActions.onReplaceLine}
+        onDeleteLine={groupActions.onDeleteLine}
+        onResolveOffboarding={groupActions.onResolveOffboarding}
+      />
 
       <CancelOrderGroupDialog
         key={cancelGroupTarget?.id ?? "none"}

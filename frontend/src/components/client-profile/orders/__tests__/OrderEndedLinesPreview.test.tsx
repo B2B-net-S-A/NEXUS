@@ -1,6 +1,7 @@
 /**
  * Harness `/preview/order-ended-lines` jest PUBLICZNY — jego twarda obietnica
- * to zero zapytań do API, także po decyzji „Zostaw jako historię".
+ * to zero zapytań do API, także po otwarciu panelu osoby i decyzji
+ * „Zostaw jako historię".
  */
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -18,26 +19,32 @@ vi.mock("@/lib/api", () => ({
 import { api } from "@/lib/api";
 
 describe("Harness /preview/order-ended-lines", () => {
-  it("pokazuje wszystkie stany karty i decyzję bez zapytań do API", async () => {
+  it("pokazuje wszystkie stany osoby zakończonej i decyzję bez zapytań do API", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(<OrderEndedLinesPreview />);
 
-    const heading = screen.getByRole("heading", {
-      name: /Zakończone \(4\)\s*· 2 wymagają decyzji/,
+    const toggle = screen.getByRole("button", {
+      name: /^Zakończone \(4\)\s*· 2 wymagają decyzji$/,
     });
-    expect(within(heading).getByRole("button")).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("Zostawiony jako historia")).toBeInTheDocument();
-    expect(screen.getByText("Zastąpiony przez Ewa Następna")).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const table = within(document.querySelector("[data-orders-table]") as HTMLElement);
+    expect(table.getByText("Zostawiony jako historia")).toBeInTheDocument();
+    expect(table.getByText("Zastąpiony przez Ewa Następna")).toBeInTheDocument();
 
-    await user.click(
-      screen.getByRole("button", { name: "Podejmij decyzję — Karol Przykładowy" }),
-    );
+    // Panel osoby: zużycie MD i historia z zasianego cache.
+    await user.click(document.getElementById("order-line-2")!);
+    const panel = within(screen.getByTestId("order-line-panel"));
+    await user.click(panel.getByRole("tab", { name: "Zużycie MD" }));
+    await user.click(panel.getByRole("tab", { name: "Historia" }));
+    expect(screen.queryByText(/Nie udało się wczytać/)).toBeNull();
+
+    await user.click(panel.getByRole("button", { name: "Podejmij decyzję" }));
     await user.click(screen.getByRole("button", { name: /Zostaw jako historię/ }));
 
     expect(
-      screen.getByRole("heading", { name: /Zakończone \(4\)\s*· 1 wymaga decyzji/ }),
+      screen.getByRole("button", { name: /^Zakończone \(4\)\s*· 1 wymaga decyzji$/ }),
     ).toBeInTheDocument();
-    expect(screen.getAllByText("Zostawiony jako historia")).toHaveLength(2);
+    expect(table.getAllByText("Zostawiony jako historia")).toHaveLength(2);
     expect(vi.mocked(api.get)).not.toHaveBeenCalled();
     expect(vi.mocked(api.post)).not.toHaveBeenCalled();
   }, 20_000);

@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * Harness wizualny kafelka kontraktora z zakładki „Zamówienia".
+ * Harness wizualny kontraktora z zamówieniem pojedynczym w zakładce
+ * „Zamówienia" (wersja B, 29.09.2026 — wiersz tabeli z panelem).
  *
- * Renderuje PRODUKCYJNY `ContractorOrderCards` (nie kopię) — ten sam
- * komponent, który obsługuje OBA widoki zamówień: jednoosobowy
- * (`OrdersAndContractsTab`) i wielo-konsultantowy (`MultiConsultantOrdersTab`
- * importuje go wprost). Dzięki temu kompaktowość kafelka da się obejrzeć raz,
- * a nie osobno u każdego klienta.
+ * Renderuje PRODUKCYJNĄ tabelę `OrdersTable` i panel `ContractorOrderPanel`
+ * (nie kopię) — to samo, co `MultiConsultantOrdersTab` pokazuje u każdego
+ * klienta. Kliknięcie wiersza otwiera panel z edycją w miejscu, przyszłymi
+ * i historycznymi zamówieniami.
  *
- * Zero zapytań: `ContractorOrderCards` nie ma ani jednego `useQuery` (tylko
+ * Zero zapytań: panel nie ma ani jednego `useQuery` przy wejściu (tylko
  * mutacje, odpalane kliknięciem), więc strona może stać w `PUBLIC_PATHS`.
  *
  * Trzy typy zamówień stoją OBOK SIEBIE, bo ticket wymaga jednego wzorca dla
@@ -19,13 +19,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { ToastProvider } from "@/components/Toast";
-import { ContractorOrderCards } from "@/components/OrdersAndContractsTab";
-import type {
-  ClientOrderRead,
-  ContractWithOrdersRead,
-  OrderType,
-} from "@/lib/api/dlPortal";
+import { ContractorOrdersHarness, OrderGroupsHarnessGroup } from "@/app/preview/order-groups-harness";
+import type { ClientOrderRead, ContractWithOrdersRead } from "@/lib/api/dlPortal";
 
 const client = new QueryClient({
   defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -263,18 +258,7 @@ function Block({
         {title}
       </h2>
       <div className={narrow ? "max-w-3xl" : undefined}>
-        <ul className="space-y-3">
-          <ContractorOrderCards
-            clientId={1}
-            contractors={contractors}
-            canViewFinance
-            canManageFinance
-            canManageOrders
-            suggestedOrderType={"periodic" as OrderType}
-            legacyNullOrderType="periodic"
-            searching={false}
-          />
-        </ul>
+        <ContractorOrdersHarness clientId={1} contractors={contractors} />
       </div>
     </section>
   );
@@ -293,17 +277,17 @@ function EndingSoonBlock() {
 export default function OrderTilePreview() {
   return (
     <QueryClientProvider client={client}>
-      <ToastProvider>
-        <main className="min-h-dvh bg-background p-4 sm:p-8 space-y-8">
-          <header className="space-y-1">
-            <h1 className="text-lg font-semibold text-foreground">
-              Kafelek zamówienia — harness
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Ten sam kafelek obsługuje zamówienia okresowe, MD i kosztowe u
-              wszystkich klientów.
-            </p>
-          </header>
+      <main className="min-h-dvh bg-background p-4 sm:p-8 space-y-8">
+        <header className="space-y-1">
+          <h1 className="text-lg font-semibold text-foreground">
+            Kontraktor z zamówieniem — harness
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Ten sam wiersz i panel obsługują zamówienia okresowe, MD i kosztowe
+            u wszystkich klientów. Kliknij wiersz, żeby otworzyć panel.
+          </p>
+        </header>
+        <OrderGroupsHarnessGroup>
           <Block title="Trzy typy zamówień" contractors={CONTRACTORS} />
           <EndingSoonBlock />
           <Block title="Bez zamówienia" contractors={NO_ORDER} />
@@ -312,8 +296,8 @@ export default function OrderTilePreview() {
             contractors={CONTRACTORS.slice(0, 1)}
             narrow
           />
-        </main>
-      </ToastProvider>
+        </OrderGroupsHarnessGroup>
+      </main>
     </QueryClientProvider>
   );
 }

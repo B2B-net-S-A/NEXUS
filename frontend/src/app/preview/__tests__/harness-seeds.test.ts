@@ -52,6 +52,8 @@ describe("/preview/contracts-consolidation zasiewa każdy stały klucz", () => {
   const components = [
     "components/v2/pages/ContractsListV2.tsx",
     "components/contracts/AddProjectDialog.tsx",
+    "components/contracts/ContractSidePanel.tsx",
+    "components/contracts/ContractStatusControl.tsx",
   ];
 
   it("nie zostawia klucza, który uruchomiłby zapytanie i przerzucił na /login", () => {
@@ -68,6 +70,19 @@ describe("/preview/contracts-consolidation zasiewa każdy stały klucz", () => {
       "Niezasiany klucz react-query w harnessie: queryFn wystartuje, dostanie " +
         "401 i strona przerzuci na /login.",
     ).toEqual([]);
+  });
+
+  it("zasiewa klucze bocznego panelu (z parametrem) i odcina sieć", () => {
+    // Strażnik literałów ich nie widzi — zależą od id kontraktu, a `?contract=`
+    // otwiera panel przy samym wejściu.
+    const panel = withoutComments(read("components/contracts/ContractSidePanel.tsx"));
+    const seeded = withoutComments(harness).replace(/\s+/g, " ");
+    for (const key of ["contract", "contract-documents", "contract-activities"]) {
+      expect(panel).toContain(`queryKey: ["${key}", contractId]`);
+      expect(seeded).toContain(`qc.setQueryData(["${key}", m.id]`);
+    }
+    expect(seeded).toContain("api.interceptors.request.use(");
+    expect(seeded).toContain("api.interceptors.request.eject(");
   });
 
   it("nie daje się uciszyć komentarzem", () => {
@@ -447,6 +462,49 @@ describe("/preview/plain-brief zasiewa wyjaśnienie tymi samymi kluczami co komp
     ]) {
       expect(literalQueryKeys(read(file)), file).toEqual([]);
     }
+  });
+
+  it("odcina sieć na czas życia harnessu", () => {
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
+  });
+});
+
+describe("/preview/client-orders zasiewa klucze zakładki „Zamówienia” i odcina sieć", () => {
+  const harness = withoutComments(read("app/preview/client-orders/page.tsx")).replace(/\s+/g, " ");
+  const shared = withoutComments(read("app/preview/order-groups-harness.tsx")).replace(/\s+/g, " ");
+  const components = [
+    "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+    "components/client-profile/orders/OrdersTable.tsx",
+    "components/client-profile/orders/OrderGroupPanel.tsx",
+    "components/client-profile/orders/OrderLinePanel.tsx",
+    "components/client-profile/orders/ContractorOrderPanel.tsx",
+    "components/client-profile/orders/OrderListControls.tsx",
+  ];
+
+  it("nie zostawia stałego klucza bez zasiewu", () => {
+    const missing: string[] = [];
+    for (const file of components) {
+      for (const key of literalQueryKeys(read(file))) {
+        if (!harness.includes(key)) missing.push(`${file}: ${key}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("zasiewa klucze z id klienta, o które zakładka pyta przy wejściu", () => {
+    const tab = withoutComments(read("components/client-profile/orders/MultiConsultantOrdersTab.tsx"));
+    const rateUnit = withoutComments(read("hooks/useClientDefaultRateUnit.ts"));
+    expect(tab).toContain('queryKey: ["client-order-groups", clientId]');
+    expect(tab).toContain('queryKey: ["dl-orders-grouped", clientId]');
+    expect(rateUnit).toContain('queryKey: ["client-default-rate-unit", clientId]');
+    for (const key of ["client-order-groups", "dl-orders-grouped", "client-default-rate-unit"]) {
+      expect(harness).toMatch(new RegExp(`setQueryData(<[^>]*>)?\\(\\["${key}", CLIENT_ID\\]`));
+    }
+    // Historia i zużycie MD paneli — TYMI SAMYMI funkcjami kluczy co panele.
+    expect(harness).toContain("seedOrderGroupPanels(qc, CLIENT_ID, GROUPS");
+    expect(shared).toContain("orderHistoryQueryKey(clientId, group.id)");
+    expect(shared).toContain("lineConsumptionsQueryKey(clientId, group.id, line.id)");
   });
 
   it("odcina sieć na czas życia harnessu", () => {

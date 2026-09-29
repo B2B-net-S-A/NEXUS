@@ -1,9 +1,9 @@
 /**
  * Harness `/preview/order-md-scopes` ma być PUBLICZNY, więc jego jedyna twarda
  * obietnica brzmi: zero zapytań do API — także po otwarciu rozliczeń
- * miesięcznych (lazy query) i historii zamówienia.
+ * miesięcznych i historii zamówienia w panelach.
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -24,21 +24,35 @@ describe("Harness /preview/order-md-scopes", () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(<OrderMdScopesPreview />);
 
-    // Nagłówek: umowa wykonawcza z częścią i kwoty tylko w wariancie z finansami.
-    expect(screen.getAllByText("Umowa wykonawcza IPR/942/2031 · Cz. II")).toHaveLength(2);
-    expect(screen.getAllByText(/Wykorzystano wartości umowy/)).toHaveLength(1);
-    // Karta konsultanta CeZ: zastąpiony → następca, brak opcji w umowie,
-    // przekroczenie i korekta ręczna wprost przy „Łącznie".
+    // Wiersze zamówień: umowa wykonawcza z częścią w obu wariantach.
+    const groupRows = Array.from(document.querySelectorAll('[data-order-row="group"]'));
+    expect(groupRows).toHaveLength(2);
+    for (const groupRow of groupRows) {
+      expect(groupRow).toHaveTextContent("Umowa wykonawcza IPR/942/2031 · Cz. II");
+    }
+    // Panel zamówienia z finansami otwarty od wejścia: kwoty umowy i przyszłe
+    // zamówienie pod nim.
+    const groupPanel = within(screen.getByTestId("order-group-panel"));
+    expect(groupPanel.getByText(/Wykorzystano wartości umowy/)).toBeInTheDocument();
+    expect(groupPanel.getByText("Przyszłe zamówienia (1)")).toBeInTheDocument();
+    await user.click(groupPanel.getByRole("tab", { name: /^Historia/ }));
+    expect(screen.queryByText(/Nie udało się wczytać/)).toBeNull();
+
     // Zastąpiony stoi w zwiniętej sekcji „Zakończone” (nic nie czeka na decyzję).
     const completedToggles = screen.getAllByRole("button", { name: "Zakończone (1)" });
     expect(completedToggles).toHaveLength(2);
     await user.click(completedToggles[0]);
     expect(screen.getByText("Zastąpiony przez Marcin Następca")).toBeInTheDocument();
-    expect(screen.getAllByText("Brak opcji w umowie").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/przekroczono o 8 MD/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/w tym korekta \+10 MD/).length).toBeGreaterThan(0);
-    // Przyszłe zamówienie pod kartą (tylko wariant z finansami).
-    expect(screen.getByText("Przyszłe zamówienia (1)")).toBeInTheDocument();
+
+    // Panel osoby CeZ: trzy „pozostało”, przekroczenie i korekta wprost.
+    await user.click(document.getElementById("order-line-2")!);
+    expect(
+      within(screen.getByTestId("order-line-panel")).getAllByText("Brak opcji w umowie").length,
+    ).toBeGreaterThan(0);
+    await user.click(document.getElementById("order-line-5")!);
+    expect(screen.getByTestId("order-line-panel")).toHaveTextContent(/przekroczono o 8 MD/);
+    await user.click(document.getElementById("order-line-6")!);
+    expect(screen.getByTestId("order-line-panel")).toHaveTextContent(/w tym korekta \+10 MD/);
 
     await user.click(
       screen.getAllByRole("button", { name: "Zużycie MD — Anna Przykładowa" })[0],

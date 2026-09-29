@@ -1,15 +1,17 @@
 "use client";
 
 /**
- * Harness wizualny karty zamówienia wielo-konsultantowego.
+ * Harness wizualny zamówień wielo-konsultantowych (wersja B, 29.09.2026 —
+ * tabela z panelem szczegółów).
  *
- * Renderuje PRODUKCYJNY `OrderGroupCard` (nie kopię), a dane wstrzykuje przez
- * zasiany cache react-query z `staleTime: Infinity` — żaden `queryFn` się nie
- * odpala, więc strona nie robi ani jednego zapytania i może stać w
- * `PUBLIC_PATHS`. Ten sam wzorzec co `/preview/order-consultant-picker`.
+ * Renderuje PRODUKCYJNĄ tabelę `OrdersTable` z panelami (nie kopię), a dane
+ * wstrzykuje przez zasiany cache react-query z `staleTime: Infinity` — żaden
+ * `queryFn` się nie odpala, więc strona nie robi ani jednego zapytania i może
+ * stać w `PUBLIC_PATHS`. Ten sam wzorzec co `/preview/order-consultant-picker`.
  *
  * Stany stoją OBOK SIEBIE celowo: to jedyny sposób, żeby zobaczyć, że awaria,
- * pustka i „wyczerpany budżet" nie wyglądają tak samo.
+ * pustka i „wyczerpany budżet" nie wyglądają tak samo. Kliknięcie wiersza
+ * otwiera panel zamówienia albo osoby (historia, zużycie MD, akcje).
  */
 
 import { useMemo, useState } from "react";
@@ -19,12 +21,11 @@ import {
   ClientMdImportsTab,
   clientMdImportsQueryKey,
 } from "@/components/client-profile/orders/ClientMdImportsTab";
-import { lineConsumptionsQueryKey } from "@/components/client-profile/orders/LineMonthlyHistoryDialog";
 import {
-  OrderGroupCard,
-  type OrderGroupFocusRequest,
-} from "@/components/client-profile/orders/OrderGroupCard";
-import { orderHistoryQueryKey } from "@/components/client-profile/orders/OrderHistoryPanel";
+  OrderGroupsHarness,
+  OrderGroupsHarnessGroup,
+  seedOrderGroupPanels,
+} from "@/app/preview/order-groups-harness";
 import type {
   ClientMdImportDetail,
   ClientMdImportSummary,
@@ -674,7 +675,7 @@ const CASES: Array<{
     title: "Przeniesienie MD na zamówienie-następcę",
     why:
       "Historia niesie ikonę per typ wpisu, a numer zamówienia powiązanego jest " +
-      "klikalny — cel leży w „Przyszłych zamówieniach” tej samej karty. Wpis bez " +
+      "klikalny — otwiera panel przyszłego zamówienia spod tego samego wiersza. Wpis bez " +
       "powiązania (ostatni) renderuje sam tekst, bez martwego przycisku.",
     group: group({
       id: 15,
@@ -740,14 +741,7 @@ const CASES: Array<{
   },
 ];
 
-function noop() {}
-
 export default function OrderLifecyclePreview() {
-  // Ta sama plątanina co w `MultiConsultantOrdersTab` — harness ma ćwiczyć
-  // PRODUKCYJNĄ ścieżkę przejścia, a nie jej uproszczoną atrapę.
-  const [focusRequest, setFocusRequest] = useState<OrderGroupFocusRequest | null>(
-    null,
-  );
   const [selectedImport, setSelectedImport] = useState<number | null>(null);
 
   const queryClient = useMemo(() => {
@@ -766,22 +760,13 @@ export default function OrderLifecyclePreview() {
         },
       },
     });
-    // Historia i okno zużycia pobierają dane dopiero po rozwinięciu —
-    // bez zasiania ich otwarcie trafiłoby w sieć.
+    // Historia i zużycie MD pobierają dane dopiero w panelu — bez zasiania
+    // otwarcie panelu trafiłoby w sieć.
     for (const item of CASES) {
-      const people = [
-        ...new Set((item.history ?? []).flatMap((e) => e.person_names)),
-      ].sort();
-      qc.setQueryData(orderHistoryQueryKey(item.group.client_id, item.group.id), {
-        entries: item.history ?? [],
-        people,
+      seedOrderGroupPanels(qc, item.group.client_id, [item.group], {
+        history: { [item.group.id]: item.history ?? [] },
+        consumptions: item.consumptions,
       });
-      for (const ln of item.group.lines) {
-        qc.setQueryData(
-          lineConsumptionsQueryKey(item.group.client_id, item.group.id, ln.id),
-          item.consumptions?.[ln.id] ?? { rows: [] },
-        );
-      }
     }
     qc.setQueryData(clientMdImportsQueryKey(18), { imports: IMPORTS });
     qc.setQueryData([...clientMdImportsQueryKey(18), 2], IMPORT_DETAIL);
@@ -791,49 +776,28 @@ export default function OrderLifecyclePreview() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <main className="mx-auto flex max-w-5xl flex-col gap-8 p-8">
+      <main className="mx-auto flex max-w-6xl flex-col gap-8 p-4 sm:p-8">
         <header>
           <h1 className="text-lg font-semibold">
-            Harness — karta zamówienia (cykl życia + budżet kosztowy)
+            Harness — zamówienia MD i kosztowe (cykl życia + budżet kosztowy)
           </h1>
           <p className="text-sm text-muted-foreground">
-            Publiczny podgląd na zamrożonych danych. Zero zapytań do API.
+            Publiczny podgląd na zamrożonych danych. Zero zapytań do API. Kliknij
+            wiersz, żeby otworzyć panel.
           </p>
         </header>
 
-        {CASES.map((item) => (
-          <section key={item.group.id} className="flex flex-col gap-2">
-            <div>
-              <h2 className="text-sm font-semibold">{item.title}</h2>
-              <p className="text-xs text-muted-foreground">{item.why}</p>
-            </div>
-            <OrderGroupCard
-              clientId={item.group.client_id}
-              group={item.group}
-              canManage
-              canManageLifecycle
-              onAddConsultant={noop}
-              onEditGroup={noop}
-              onEditLine={noop}
-              onSwapLine={noop}
-              onDeleteLine={noop}
-              onResolveOffboarding={noop}
-              onKeepHistory={noop}
-              onReplaceLine={noop}
-              onDeleteGroup={noop}
-              onCloseGroup={noop}
-              onReopenGroup={noop}
-              onExtendGroup={noop}
-              focusRequest={focusRequest}
-              onFocusGroup={(groupId) =>
-                setFocusRequest((prev) => ({
-                  groupId,
-                  nonce: (prev?.nonce ?? 0) + 1,
-                }))
-              }
-            />
-          </section>
-        ))}
+        <OrderGroupsHarnessGroup>
+          {CASES.map((item) => (
+            <section key={item.group.id} className="flex flex-col gap-2">
+              <div>
+                <h2 className="text-sm font-semibold">{item.title}</h2>
+                <p className="text-xs text-muted-foreground">{item.why}</p>
+              </div>
+              <OrderGroupsHarness clientId={item.group.client_id} groups={[item.group]} />
+            </section>
+          ))}
+        </OrderGroupsHarnessGroup>
 
         <section className="flex flex-col gap-2" id="importy-md">
           <div>

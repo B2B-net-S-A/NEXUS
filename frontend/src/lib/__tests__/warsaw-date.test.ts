@@ -70,7 +70,10 @@ describe("warsawDateOf (R10-X1-3)", () => {
 
   it("ekrany ze znacznikami czasu nie tną ich już `.slice(0, 10)`", () => {
     for (const file of [
-      "components/client-profile/orders/OrderGroupCard.tsx",
+      // Data anulowania zamówienia MD/kosztowego (wersja B): wiersz tabeli
+      // i panel zamówienia — dawniej karta `OrderGroupCard`.
+      "components/client-profile/orders/OrdersTable.tsx",
+      "components/client-profile/orders/OrderGroupPanel.tsx",
       "components/settings/B2BRegisterImportPanel.tsx",
       "components/insights/sections/InsightsSeniority.tsx",
       "lib/proposals-merge.ts",

@@ -2,14 +2,17 @@
 
 /**
  * Harness wizualny zamówienia MD z zakresami podstawa + opcja (umowy
- * wykonawcze, Faza B). Renderuje PRODUKCYJNY `OrderGroupCard` na zamrożonych
- * danych: cache react-query zasiany ze `staleTime: Infinity` i domyślnym
- * `queryFn`, które odrzuca LOKALNIE — strona nie robi ani jednego zapytania
- * (ten sam wzorzec co `/preview/order-lifecycle`).
+ * wykonawcze, Faza B). Renderuje PRODUKCYJNĄ tabelę zamówień z panelami
+ * (wersja B, 29.09.2026) na zamrożonych danych: cache react-query zasiany ze
+ * `staleTime: Infinity` i domyślnym `queryFn`, które odrzuca LOKALNIE —
+ * strona nie robi ani jednego zapytania (ten sam wzorzec co
+ * `/preview/order-lifecycle`).
  *
- * Dwa warianty tej samej karty stoją obok siebie celowo: z kwotami (rola
- * z finansami) i bez (`contract_value_pln: null`) — różnica ma być widoczna
- * na jednym ekranie, a nie zależeć od tego, kto akurat patrzy.
+ * Dwa warianty tego samego zamówienia stoją obok siebie celowo: z kwotami
+ * (rola z finansami) i bez (`contract_value_pln: null`) — różnica ma być
+ * widoczna na jednym ekranie, a nie zależeć od tego, kto akurat patrzy.
+ * Pierwszy wariant otwiera od wejścia panel zamówienia (nagłówek umowy
+ * z wartością), kliknięcie wiersza — panel osoby.
  *
  * Nazwiska zmyślone. Numery umów w formacie umów wykonawczych są przykładowe.
  */
@@ -17,9 +20,11 @@
 import { useMemo } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { OrderGroupCard } from "@/components/client-profile/orders/OrderGroupCard";
-import { lineConsumptionsQueryKey } from "@/components/client-profile/orders/LineMonthlyHistoryDialog";
-import { orderHistoryQueryKey } from "@/components/client-profile/orders/OrderHistoryPanel";
+import {
+  OrderGroupsHarness,
+  OrderGroupsHarnessGroup,
+  seedOrderGroupPanels,
+} from "@/app/preview/order-groups-harness";
 import type {
   LineConsumptionRow,
   OrderGroupListResponse,
@@ -286,8 +291,8 @@ const CASES: Array<{ title: string; why: string; group: OrderGroupRead }> = [
     why:
       "Nagłówek: umowa wykonawcza z częścią, pasek MD pozycji i wartość umowy w PLN. " +
       "Wiersze: podstawa + opcja z zużyciem, brak opcji w umowie, osoba zastąpiona " +
-      "z przejściem „→ następca”, następca z zerowym zużyciem. Kalendarz przy wierszu " +
-      "otwiera rozliczenia miesięczne (zasiane dla pierwszej osoby).",
+      "z przejściem „→ następca”, następca z zerowym zużyciem. „Zużycie” przy wierszu " +
+      "otwiera rozliczenia miesięczne w panelu (zasiane dla pierwszej osoby).",
     group: WITH_FINANCE,
   },
   {
@@ -298,8 +303,6 @@ const CASES: Array<{ title: string; why: string; group: OrderGroupRead }> = [
     group: WITHOUT_FINANCE,
   },
 ];
-
-function noop() {}
 
 export default function OrderMdScopesPreview() {
   const queryClient = useMemo(() => {
@@ -320,24 +323,19 @@ export default function OrderMdScopesPreview() {
       total_groups: CASES.length,
       total_consultants: LINES.length,
     });
-    for (const item of CASES) {
-      qc.setQueryData(orderHistoryQueryKey(CLIENT_ID, item.group.id), {
-        entries: [],
-        people: [],
-      });
-      for (const row of item.group.lines) {
-        // Pierwsza osoba ma wpisy, reszta pusty stan — oba do obejrzenia.
-        qc.setQueryData(lineConsumptionsQueryKey(CLIENT_ID, item.group.id, row.id), {
-          rows: row.id === 1 ? CONSUMPTIONS : [],
-        });
-      }
-    }
+    // Pierwsza osoba ma wpisy zużycia, reszta pusty stan — oba do obejrzenia.
+    seedOrderGroupPanels(
+      qc,
+      CLIENT_ID,
+      CASES.map((item) => item.group),
+      { consumptions: { 1: { rows: CONSUMPTIONS } } },
+    );
     return qc;
   }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
-      <main className="mx-auto flex max-w-5xl flex-col gap-8 p-8">
+      <main className="mx-auto flex max-w-6xl flex-col gap-8 p-4 sm:p-8">
         <header>
           <h1 className="text-lg font-semibold">
             Harness — zamówienie MD z zakresami (podstawa + opcja, umowy wykonawcze)
@@ -347,33 +345,23 @@ export default function OrderMdScopesPreview() {
           </p>
         </header>
 
-        {CASES.map((item) => (
-          <section key={item.group.id} className="flex flex-col gap-2">
-            <div>
-              <h2 className="text-sm font-semibold">{item.title}</h2>
-              <p className="text-xs text-muted-foreground">{item.why}</p>
-            </div>
-            <OrderGroupCard
-              clientId={CLIENT_ID}
-              group={item.group}
-              canManage
-              canManageLifecycle
-              onAddConsultant={noop}
-              onEditGroup={noop}
-              onEditLine={noop}
-              onSwapLine={noop}
-              onDeleteLine={noop}
-              onResolveOffboarding={noop}
-              onKeepHistory={noop}
-              onReplaceLine={noop}
-              onDeleteGroup={noop}
-              onCloseGroup={noop}
-              onReopenGroup={noop}
-              onExtendGroup={noop}
-              onFocusGroup={noop}
-            />
-          </section>
-        ))}
+        <OrderGroupsHarnessGroup>
+          {CASES.map((item) => (
+            <section key={item.group.id} className="flex flex-col gap-2">
+              <div>
+                <h2 className="text-sm font-semibold">{item.title}</h2>
+                <p className="text-xs text-muted-foreground">{item.why}</p>
+              </div>
+              <OrderGroupsHarness
+                clientId={CLIENT_ID}
+                groups={[item.group]}
+                initialSelection={
+                  item.group === WITH_FINANCE ? { kind: "group", groupId: item.group.id } : null
+                }
+              />
+            </section>
+          ))}
+        </OrderGroupsHarnessGroup>
       </main>
     </QueryClientProvider>
   );

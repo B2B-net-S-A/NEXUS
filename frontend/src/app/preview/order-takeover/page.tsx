@@ -2,13 +2,14 @@
 
 /**
  * Harness wizualny przypisania osoby ze szkicu i przejęcia pozostałych MD
- * (ticket 09.2026). Renderuje PRODUKCYJNE `OrderGroupCard`,
- * `AssignToOrderModal` i `OffboardingDecisionModal` na zamrożonych danych —
- * zero zapytań (ten sam wzorzec co `/preview/order-md-scopes`).
+ * (ticket 09.2026). Renderuje PRODUKCYJNĄ tabelę zamówień z panelami
+ * (wersja B, 29.09.2026), `AssignToOrderModal` i `OffboardingDecisionModal`
+ * na zamrożonych danych — zero zapytań (ten sam wzorzec co
+ * `/preview/order-md-scopes`).
  *
- * `?view=` wybiera stan: `card` (domyślnie — po zastępstwie i zastępstwo
- * zaplanowane), `assign` (okno „Przypisz do zamówienia"), `offboarding`
- * (decyzja o MD z grupą „Nowe osoby u klienta").
+ * `?view=` wybiera stan: `card` (domyślnie — po zastępstwie z otwartym panelem
+ * osoby przejmującej i zastępstwo zaplanowane), `assign` (okno „Przypisz do
+ * zamówienia"), `offboarding` (decyzja o MD z grupą „Nowe osoby u klienta").
  *
  * Nazwiska zmyślone. Numery umów w formacie umów wykonawczych są przykładowe.
  */
@@ -19,7 +20,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { AssignToOrderModal } from "@/components/client-profile/orders/AssignToOrderModal";
 import { OffboardingDecisionModal } from "@/components/client-profile/orders/OffboardingDecisionModal";
-import { OrderGroupCard } from "@/components/client-profile/orders/OrderGroupCard";
+import {
+  OrderGroupsHarness,
+  OrderGroupsHarnessGroup,
+  seedOrderGroupPanels,
+} from "@/app/preview/order-groups-harness";
 import type { ContractWithOrdersRead } from "@/lib/api/dlPortal";
 import type {
   OrderGroupRead,
@@ -263,32 +268,10 @@ const KAMILA = {
 
 function noop() {}
 
-function cardProps(item: OrderGroupRead) {
-  return {
-    clientId: CLIENT_ID,
-    group: item,
-    canManage: true,
-    canManageLifecycle: true,
-    onAddConsultant: noop,
-    onEditGroup: noop,
-    onEditLine: noop,
-    onSwapLine: noop,
-    onDeleteLine: noop,
-    onResolveOffboarding: noop,
-    onKeepHistory: noop,
-    onReplaceLine: noop,
-    onDeleteGroup: noop,
-    onCloseGroup: noop,
-    onReopenGroup: noop,
-    onExtendGroup: noop,
-    onFocusGroup: noop,
-  };
-}
-
 function Harness() {
   const view = useSearchParams().get("view") ?? "card";
   return (
-    <main className="mx-auto flex max-w-5xl flex-col gap-8 p-8">
+    <main className="mx-auto flex max-w-6xl flex-col gap-8 p-4 sm:p-8">
       <header>
         <h1 className="text-lg font-semibold">
           Harness — przypisanie ze szkicu i przejęcie MD (umowy wykonawcze)
@@ -300,16 +283,21 @@ function Harness() {
         </p>
       </header>
       {view === "card" ? (
-        <>
+        <OrderGroupsHarnessGroup>
           <section className="flex flex-col gap-2">
             <h2 className="text-sm font-semibold">Po zastępstwie (Konrad → Kamila)</h2>
-            <OrderGroupCard {...cardProps(AFTER)} />
+            <OrderGroupsHarness
+              clientId={CLIENT_ID}
+              groups={[AFTER]}
+              initialSelection={{ kind: "line", groupId: AFTER.id, lineId: 4 }}
+              initialLineTab="szczegoly"
+            />
           </section>
           <section className="flex flex-col gap-2">
             <h2 className="text-sm font-semibold">Zastępstwo zaplanowane</h2>
-            <OrderGroupCard {...cardProps(SCHEDULED)} />
+            <OrderGroupsHarness clientId={CLIENT_ID} groups={[SCHEDULED]} />
           </section>
-        </>
+        </OrderGroupsHarnessGroup>
       ) : null}
       <AssignToOrderModal
         open={view === "assign"}
@@ -338,20 +326,20 @@ function Harness() {
 }
 
 export default function OrderTakeoverPreview() {
-  const queryClient = useMemo(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: Infinity,
-            retry: false,
-            refetchOnMount: false,
-            queryFn: () => Promise.reject(new Error("podgląd: brak zasianych danych")),
-          },
+  const queryClient = useMemo(() => {
+    const qc = new QueryClient({
+      defaultOptions: {
+        queries: {
+          staleTime: Infinity,
+          retry: false,
+          refetchOnMount: false,
+          queryFn: () => Promise.reject(new Error("podgląd: brak zasianych danych")),
         },
-      }),
-    [],
-  );
+      },
+    });
+    seedOrderGroupPanels(qc, CLIENT_ID, [AFTER, SCHEDULED, BEFORE]);
+    return qc;
+  }, []);
   return (
     <QueryClientProvider client={queryClient}>
       <Suspense fallback={null}>
