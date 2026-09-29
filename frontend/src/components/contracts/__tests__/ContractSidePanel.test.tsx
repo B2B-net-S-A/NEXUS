@@ -300,4 +300,27 @@ describe("ContractStatusControl — ta sama lista na karcie i w panelu", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "Zmień status kontraktu" }), "draft");
     await waitFor(() => expect(mocks.updateStatus).toHaveBeenCalledWith(501, "draft"));
   });
+
+  // Przegląd PR #1932: panel stoi też nad rejestrem klienta, więc zmiana
+  // statusu musi odświeżyć jego tabelę, a nie tylko listę /contracts.
+  it("zmiana statusu odświeża rejestr klienta", async () => {
+    const user = userEvent.setup();
+    mocks.updateStatus.mockResolvedValueOnce({});
+    const qc = new QueryClient();
+    const spy = vi.spyOn(qc, "invalidateQueries");
+    render(
+      <QueryClientProvider client={qc}>
+        <ContractStatusControl
+          contractId={501}
+          status="active"
+          canRecoverTermination
+          onRequestTermination={vi.fn()}
+          onRecoveryHint={vi.fn()}
+          onError={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+    await user.selectOptions(screen.getByRole("combobox", { name: "Zmień status kontraktu" }), "draft");
+    await waitFor(() => expect(spy).toHaveBeenCalledWith({ queryKey: ["client-register"] }));
+  });
 });

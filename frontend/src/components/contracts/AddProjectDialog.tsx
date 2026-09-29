@@ -240,6 +240,7 @@ export function AddProjectDialog({
       // Odśwież wszystkie powierzchnie, które właśnie stały się wieloklientowe.
       queryClient.invalidateQueries({ queryKey: ["contract", baseContract.id] });
       queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
+      queryClient.invalidateQueries({ queryKey: ["client-register"] });
       queryClient.invalidateQueries({ queryKey: ["contracts-expiring-v2"] });
       queryClient.invalidateQueries({ queryKey: ["contractors-v2"] });
       queryClient.invalidateQueries({ queryKey: ["contractors-stats-v2"] });

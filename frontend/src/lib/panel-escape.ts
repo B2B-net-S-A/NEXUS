@@ -5,7 +5,7 @@
 export function shouldCloseOnEscape(e: KeyboardEvent): boolean {
   if (e.key !== "Escape" || e.defaultPrevented) return false;
   if (typeof document === "undefined") return true;
-  if (document.querySelector('[role="dialog"],[role="alertdialog"],[role="menu"]')) return false;
+  if (document.querySelector('[role="dialog"],[role="alertdialog"],[role="menu"],[aria-modal="true"]')) return false;
   const el = document.activeElement as HTMLElement | null;
   if (!el) return true;
   const tag = el.tagName.toLowerCase();
