@@ -42,7 +42,9 @@ import {
   daysUntil,
   endingWithoutSuccessorOrderId,
   endsInPhrase,
+  isCurrentOrder,
   lacksCurrentOrder,
+  orderNotStarted,
 } from "@/lib/client-order-list";
 import type {
   ClientOrderRead,
@@ -723,24 +725,27 @@ interface SplitOrders {
  * the moment its start date arrives it naturally promotes to the top of the
  * card without any backend cron. `orders` arrives sorted by start_date desc.
  */
-export function splitOrders(orders: ClientOrderRead[]): SplitOrders {
-  const today = todayLocalISO();
+export function splitOrders(
+  orders: ClientOrderRead[],
+  todayIso: string = todayLocalISO(),
+): SplitOrders {
+  const today = todayIso;
   const nonCancelled = orders.filter((o) => o.status !== "cancelled");
   const cancelled = orders.filter((o) => o.status === "cancelled");
 
-  const future = nonCancelled.filter((o) => {
-    const start = dateOnly(o.start_date);
-    return start !== null && start > today;
-  });
-  const started = nonCancelled.filter((o) => {
-    const start = dateOnly(o.start_date);
-    return start === null || start <= today;
-  });
+  const future = nonCancelled.filter((o) => orderNotStarted(o, today));
+  const started = nonCancelled.filter((o) => !orderNotStarted(o, today));
 
   let activeOrder: ClientOrderRead | null = null;
   let futureOrders: ClientOrderRead[] = future;
   if (started.length > 0) {
-    activeOrder = started[0]; // latest started (input is start_date desc)
+    // Zamówienie BIEŻĄCE (trwa dziś i nie jest zamknięte) wygrywa z samym
+    // najnowszym startem: kontrakt z dwoma wierszami tego samego okresu —
+    // stary `completed` z importu obok aktywnego — miał w slocie martwy
+    // wiersz, więc karta mówiła „przyszłe zamówienie…", chowała „Zakończ
+    // zamówienie", a aktywne lądowało w historii (zgłoszenie 29.09.2026).
+    // Bez bieżącego zamówienia zostaje ostatnie rozpoczęte (historia osoby).
+    activeOrder = started.find((o) => isCurrentOrder(o, today)) ?? started[0];
   } else if (future.length > 0) {
     // No order has started yet — the soonest upcoming one is the current one.
     const soonestFirst = [...future].sort((a, b) =>
@@ -1097,8 +1102,11 @@ function ContractorCard({
   const endingDays = endingOrder
     ? (contractor.ending_without_successor_days ?? daysUntil(endingOrder.end_date))
     : null;
-  const endingIsFuture =
-    endingOrder !== null && endingOrder.id !== activeOrder?.id;
+  // „Przyszłe" znaczy: okres jeszcze się nie rozpoczął. Nie „inne niż zamówienie
+  // z górnego slotu" — zamówienie, które trwa i za chwilę się kończy, mówi
+  // „kończy się za N dni" (bez numeru), niezależnie od tego, w którym wierszu
+  // karty stoi (zgłoszenie 29.09.2026).
+  const endingIsFuture = endingOrder !== null && orderNotStarted(endingOrder);
   // Okres zamówienia minął, a umowa trwa: osoba zostaje w „Aktywnych"
   // z dopiskiem — do „Zakończonych" przenosi wyłącznie umowa z modułu
   // Kontrakty (reguła 09.2026, `contractClosed`).

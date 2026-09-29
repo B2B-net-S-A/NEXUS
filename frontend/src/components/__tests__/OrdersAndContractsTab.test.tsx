@@ -297,6 +297,71 @@ describe("splitOrders", () => {
     expect(futureOrders).toHaveLength(0);
     expect(historyOrders.map((o) => o.id)).toEqual([8]);
   });
+
+  it("wybiera zamówienie, które trwa dziś, a nie zamknięty duplikat tego samego okresu", () => {
+    // Kontrakt #479 (zgłoszenie 29.09.2026): stary wiersz z importu Excela
+    // (`completed`) stoi PRZED aktywnym, bo API sortuje po starcie, a starty
+    // są równe. Zamknięty wiersz w slocie chował „Zakończ zamówienie".
+    const stale = makeOrder({
+      id: 15,
+      title: "K/2026/197070/ŁO/477/26APP",
+      status: "completed",
+      start_date: "2026-07-01",
+      end_date: "2026-09-30",
+    });
+    const live = makeOrder({
+      id: 464,
+      title: "K/2026/197070/ŁO/477/26APP",
+      status: "active",
+      start_date: "2026-07-01",
+      end_date: "2026-09-30",
+    });
+    const { activeOrder, futureOrders, historyOrders } = splitOrders(
+      [stale, live],
+      "2026-09-29",
+    );
+    expect(activeOrder?.id).toBe(464);
+    expect(futureOrders).toHaveLength(0);
+    expect(historyOrders.map((o) => o.id)).toEqual([15]);
+  });
+
+  it("nowszy start nie przebija bieżącego zamówienia, gdy nowsze już się skończyło", () => {
+    const endedLater = makeOrder({
+      id: 20,
+      title: "ENDED",
+      status: "active",
+      start_date: localISO(-10),
+      end_date: localISO(-2),
+    });
+    const running = makeOrder({
+      id: 21,
+      title: "RUNNING",
+      status: "active",
+      start_date: localISO(-100),
+      end_date: null,
+    });
+    expect(splitOrders([endedLater, running]).activeOrder?.id).toBe(21);
+  });
+
+  it("bez bieżącego zamówienia zostaje ostatnie rozpoczęte (historia osoby)", () => {
+    const newest = makeOrder({
+      id: 30,
+      title: "NEWEST",
+      status: "completed",
+      start_date: localISO(-40),
+      end_date: localISO(-10),
+    });
+    const older = makeOrder({
+      id: 31,
+      title: "OLDER",
+      status: "completed",
+      start_date: localISO(-100),
+      end_date: localISO(-50),
+    });
+    const { activeOrder, historyOrders } = splitOrders([newest, older]);
+    expect(activeOrder?.id).toBe(30);
+    expect(historyOrders.map((o) => o.id)).toEqual([31]);
+  });
 });
 
 // ── Card rendering ────────────────────────────────────────────────────────────
@@ -1573,6 +1638,159 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
 });
 
 // ── Przycisk „Zakończ" ───────────────────────────────────────────────────────
+
+// ── Zamówienie kończące się jutro (zgłoszenie 29.09.2026) ────────────────────
+
+describe("OrdersAndContractsTab — komunikat o zamówieniu kończącym się w najbliższych dniach", () => {
+  const NUMBER = "K/2026/197070/ŁO/477/26APP";
+
+  /** Kontraktor z zamówieniami i polami, które serwer liczy w odpowiedzi listy. */
+  function mockContractor(
+    orders: ClientOrderRead[],
+    server: {
+      ending_without_successor_order_id?: number | null;
+      ending_without_successor_days?: number | null;
+    } = {},
+  ) {
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [
+          {
+            ...structuredClone(CONTRACTOR),
+            contract_id: 479,
+            candidate_name: "Mariusz Matyszczuk",
+            contract_status: "active",
+            days_to_latest_end: 1,
+            orders,
+            ...server,
+          },
+        ],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+  }
+
+  const period = { start_date: localISO(-90), end_date: localISO(1) };
+
+  it("zamówienie trwające i kończące się jutro mówi „kończy się za 1 dzień” — bez numeru i bez słowa „przyszłe”", async () => {
+    // Kontrakt #479: stary `completed` z importu Excela stoi w kolekcji PRZED
+    // aktywnym wierszem tego samego okresu. Serwer wskazuje aktywny (#464).
+    mockContractor(
+      [
+        makeOrder({ id: 15, title: NUMBER, status: "completed", ...period }),
+        makeOrder({ id: 464, title: NUMBER, status: "active", ...period }),
+      ],
+      { ending_without_successor_order_id: 464, ending_without_successor_days: 1 },
+    );
+    renderTab();
+
+    const badge = await screen.findByTestId("order-ending-badge");
+    expect(badge).toHaveTextContent(/^kończy się za 1 dzień$/);
+    expect(badge.textContent).not.toMatch(/przyszłe|K\/2026/);
+    // Aktywne zamówienie obsługuje kontraktora — żadnego „Brak aktywnego”.
+    expect(screen.queryByTestId("no-active-order-note")).toBeNull();
+    expect(screen.getByText("Brak przyszłych zamówień.")).toBeInTheDocument();
+    // Zamknięty duplikat idzie do historii, nie do górnego slotu.
+    expect(screen.getByText(/Historia zamówień \(1\)/)).toBeInTheDocument();
+  });
+
+  it("„Zakończ zamówienie” działa na AKTYWNYM wierszu, nie na zamkniętym duplikacie", async () => {
+    vi.mocked(dlPortalApi.closeOrder).mockResolvedValue({ data: { id: 464 } } as never);
+    mockContractor(
+      [
+        makeOrder({ id: 15, title: NUMBER, status: "completed", ...period }),
+        makeOrder({ id: 464, title: NUMBER, status: "active", ...period }),
+      ],
+      { ending_without_successor_order_id: 464, ending_without_successor_days: 1 },
+    );
+    renderTab();
+    await screen.findByTestId("order-ending-badge");
+
+    fireEvent.click(screen.getByRole("button", { name: /^Zakończ zamówienie$/ }));
+    const dateInput = await screen.findByLabelText(/Data zakończenia zamówienia/);
+    fireEvent.change(dateInput, { target: { value: localISO(1) } });
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /^Zakończ zamówienie$/ }).at(-1)!,
+    );
+
+    await waitFor(() =>
+      expect(dlPortalApi.closeOrder).toHaveBeenCalledWith(
+        7,
+        464,
+        expect.objectContaining({ closure_date: localISO(1) }),
+      ),
+    );
+  });
+
+  it("jedno aktywne zamówienie kończące się jutro: ten sam komunikat i przycisk „Zakończ zamówienie”", async () => {
+    // Wzorzec z kafelków, które działały (Żółtaniecki #478, Augustyniak #619).
+    mockContractor(
+      [makeOrder({ id: 585, title: "K/2026/194208/JP/828/26ERSTE8", ...period })],
+      { ending_without_successor_order_id: 585, ending_without_successor_days: 1 },
+    );
+    renderTab();
+
+    expect(await screen.findByTestId("order-ending-badge")).toHaveTextContent(
+      /^kończy się za 1 dzień$/,
+    );
+    expect(screen.queryByTestId("no-active-order-note")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /^Zakończ zamówienie$/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("kończące się dziś zamówienie też jest aktywne i mówi „dziś”", async () => {
+    mockContractor(
+      [
+        makeOrder({
+          id: 586,
+          title: "TODAY-1",
+          start_date: localISO(-30),
+          end_date: localISO(0),
+        }),
+      ],
+      { ending_without_successor_order_id: 586, ending_without_successor_days: 0 },
+    );
+    renderTab();
+
+    expect(await screen.findByTestId("order-ending-badge")).toHaveTextContent(
+      /^kończy się dziś$/,
+    );
+    expect(screen.queryByTestId("no-active-order-note")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /^Zakończ zamówienie$/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("„przyszłe zamówienie …” tylko dla zamówienia, którego okres jeszcze się nie zaczął", async () => {
+    // Kontrakt #145: bieżące zamówienie ma kontynuację, a to PRZYSZŁE samo
+    // kończy się za 20 dni i nic po nim nie ma — ono ostrzega.
+    mockContractor(
+      [
+        makeOrder({
+          id: 656,
+          title: "NEXT-2",
+          start_date: localISO(5),
+          end_date: localISO(20),
+        }),
+        makeOrder({
+          id: 655,
+          title: "CUR-2",
+          start_date: localISO(-100),
+          end_date: localISO(4),
+        }),
+      ],
+      { ending_without_successor_order_id: 656, ending_without_successor_days: 20 },
+    );
+    renderTab();
+
+    expect(await screen.findByTestId("order-ending-badge")).toHaveTextContent(
+      "przyszłe zamówienie NEXT-2 kończy się za 20 dni",
+    );
+    expect(screen.queryByTestId("no-active-order-note")).toBeNull();
+  });
+});
 
 describe("OrdersAndContractsTab — przyciski „Zakończ zamówienie” i „Zakończ współpracę”", () => {
   /** Kontraktor o zadanym statusie kontraktu, z jednym aktywnym zamówieniem. */

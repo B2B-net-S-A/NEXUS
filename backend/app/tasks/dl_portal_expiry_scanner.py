@@ -7,6 +7,9 @@ Lifecycle:
    (POZA liniami MD — te kończy budżet, nie kalendarz; patrz ``_promote_statuses``)
 2a. ``ClientOrderGroup`` MD z budżetem przy osobie (od 24.09.2026 każdy klient): wszystkie
    osoby wyczerpały limit MD → completed (``order_md_exhaustion``)
+2b. ``ClientOrder`` okresowe: status=completed, a okres jeszcze trwa (start ≤ dziś <
+   koniec) → active (``revive_stale_completed_periodic_orders``, przeciwny kierunek
+   niż krok 2; nie rusza duplikatu, gdy umowa ma już inne aktywne zamówienie)
 3. ``Contract``: ended/ending + aktywny Order obejmujący dziś → active
 4. Dispatch notyfikacji expiry:
    - 30/14/7 dni przed ``ClientFrameworkContract.expiry_date`` (status=active)
@@ -33,14 +36,17 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date, timedelta
+from typing import Any, Iterable
 
 from sqlalchemy import and_, func, literal_column, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
+from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_framework_contract import (
@@ -49,8 +55,9 @@ from app.models.client_framework_contract import (
 )
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import GROUP_STATUS_COMPLETED, ClientOrderGroup
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractStatus
 from app.models.notification import Notification, NotificationType
+from app.models.order_type import OrderType
 from app.services.contract_lifecycle import (
     lock_contract_then_orders,
     reconcile_contracts_to_live_orders,
@@ -65,6 +72,7 @@ from app.services.order_continuation import order_ending_without_continuation
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
 from app.services.order_line_takeover import scheduled_takeover_draft_clause
 from app.services.order_md_exhaustion import reconcile_md_exhausted_groups
+from app.services.order_types import effective_standalone_order_type
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +215,198 @@ async def _insert_notification(db: AsyncSession, **values: object) -> bool:
         .returning(Notification.id)
     )
     return (await db.execute(statement)).scalar_one_or_none() is not None
+
+
+def _stale_completed_periodic_clause(
+    today: date,
+) -> tuple[ColumnElement[bool], ...]:
+    """Zamówienie okresowe ``completed``, którego okres jeszcze trwa.
+
+    Obie granice liczą się do okresu (jak w ``refresh_periodic_order_status``),
+    ale koniec musi być ŚCIŚLE w przyszłości: zamknięcie („Zakończ zamówienie”)
+    z datą dzisiejszą zostawia ``end_date == today`` i status ``completed`` —
+    to świadoma decyzja z tego dnia, nie rozjazd. Brak daty startu nie jest
+    dowodem, że zamówienie trwa, więc go nie przywracamy.
+    """
+    return (
+        ClientOrder.status == ClientOrderStatus.completed,
+        ClientOrder.order_group_id.is_(None),
+        ClientOrder.start_date.is_not(None),
+        ClientOrder.start_date <= today,
+        ClientOrder.end_date.is_not(None),
+        ClientOrder.end_date > today,
+    )
+
+
+def _contract_already_served_clause(today: date) -> ColumnElement[bool]:
+    """Ta sama umowa ma INNE zamówienie okresowe, które obejmuje dziś.
+
+    Wtedy stare ``completed`` jest duplikatem (albo poprzednikiem) zamówienia,
+    które już obsługuje kontraktora — przywrócenie dałoby dwa aktywne wiersze
+    tego samego okresu, a nocny skaner zdublowałby alerty.
+    """
+    other = aliased(ClientOrder)
+    return (
+        select(other.id)
+        .where(
+            other.contract_id == ClientOrder.contract_id,
+            other.id != ClientOrder.id,
+            other.order_group_id.is_(None),
+            other.status.in_((ClientOrderStatus.active, ClientOrderStatus.paused)),
+            or_(other.start_date.is_(None), other.start_date <= today),
+            or_(other.end_date.is_(None), other.end_date >= today),
+        )
+        .correlate(ClientOrder)
+        .exists()
+    )
+
+
+def one_stale_order_per_contract(rows: Iterable[Any]) -> list[int]:
+    """Z kandydatów wybierz NAJWYŻEJ jedno zamówienie na umowę.
+
+    Dwa zamknięte duplikaty tej samej umowy przywrócone naraz to dokładnie ten
+    rozjazd, który naprawiamy, tylko w drugą stronę. Wygrywa najpóźniejszy
+    start, potem najpóźniejszy koniec, potem wyższe id (nowszy wiersz); reszta
+    zostaje w historii i przy następnym biegu jest już „obsłużona”.
+    Zamówienie, które nie jest okresowe (legacy ``NULL`` u klientów rozliczanych
+    w MD, jawny typ MD/kosztowy), ma własny cykl życia i odpada.
+    """
+    best: dict[int, tuple[tuple[date, date, int], int]] = {}
+    for row in rows:
+        if (
+            effective_standalone_order_type(row.client_id, row.order_type)
+            != OrderType.periodic
+        ):
+            continue
+        rank = (row.start_date, row.end_date, row.id)
+        chosen = best.get(row.contract_id)
+        if chosen is None or rank > chosen[0]:
+            best[row.contract_id] = (rank, row.id)
+    return sorted(order_id for _, order_id in best.values())
+
+
+async def revive_stale_completed_periodic_orders(
+    db: AsyncSession, *, business_day: date | None = None
+) -> int:
+    """Przywróć ``active`` zamówieniu okresowemu, którego okres jeszcze trwa.
+
+    Kafelki kontraktorów (zgłoszenie 29.09.2026, na produkcji cztery umowy):
+    zamówienie ze statusem ``completed`` i datą końca w PRZYSZŁOŚCI. Każda
+    droga, która zamyka zamówienie (``close_order``, offboarding, synchronizacja
+    terminacji), ucina jego datę końca do dnia zamknięcia — legalnie zamknięte
+    kończy się więc najpóźniej dziś. ``completed`` z późniejszym końcem to
+    skutek edycji okresu, po której status nie został przeliczony (zapis dat
+    go nie ruszał do #1638 z 21.09.2026; wiersze z importu Excela z czerwca
+    zostały w tym stanie). Karta pokazywała „Brak aktywnego zamówienia” i
+    chowała „Zakończ zamówienie”, choć okres obejmował dziś, a nocny alert
+    30/14/7 dni nigdy nie ostrzegał o końcu takiego zamówienia.
+
+    To jest dopełnienie kroku „active → completed” w przeciwną stronę i ta sama
+    reguła co ``refresh_periodic_order_status`` (jedyny writer, który już to
+    robi przy zapisie okresu) — tu dla wierszy, których nikt od tamtej pory nie
+    edytował. Bezpieczniki:
+
+    * umowa musi być żywa (``active``/``ending``, bez minionej daty końca — tę
+      zamknie dzienny cron kontraktów, a przywrócone zamówienie zmieniałoby
+      status dwa razy w ciągu doby) i należeć do tego samego klienta co
+      zamówienie — wskrzeszenie zamówienia pod umową zakończoną uruchamiałoby
+      wskrzeszanie kontraktów, a ta decyzja należy do ludzi;
+    * jeśli umowa ma już inne aktywne (albo wstrzymane) zamówienie obejmujące
+      dziś, stary wiersz jest duplikatem i zostaje w historii;
+    * najwyżej jedno zamówienie na umowę na bieg;
+    * tylko zamówienia okresowe (MD, kosztowe i linie grup mają cykl budżetowy).
+
+    Zwraca liczbę przywróconych zamówień; każde zostawia ``Activity`` bez autora.
+    """
+    today = business_day or business_today()
+    stale = _stale_completed_periodic_clause(today)
+    served = _contract_already_served_clause(today)
+    rows = (
+        await db.execute(
+            select(
+                ClientOrder.id,
+                ClientOrder.contract_id,
+                ClientOrder.client_id,
+                ClientOrder.order_type,
+                ClientOrder.start_date,
+                ClientOrder.end_date,
+            )
+            .join(Contract, Contract.id == ClientOrder.contract_id)
+            .where(
+                *stale,
+                ClientOrder.client_id == Contract.client_id,
+                Contract.status.in_((ContractStatus.active, ContractStatus.ending)),
+                or_(Contract.end_date.is_(None), Contract.end_date >= today),
+                ~served,
+            )
+        )
+    ).all()
+    order_ids = one_stale_order_per_contract(rows)
+    if not order_ids:
+        return 0
+    # Kolejność blokad kontrakt → zamówienia (jak `_promote_statuses`); warunki
+    # sprawdzamy jeszcze raz w samym UPDATE, bo wiersz mógł się zmienić między
+    # odczytem a blokadą.
+    await lock_contract_then_orders(db, order_ids=order_ids)
+    revived = (
+        await db.execute(
+            update(ClientOrder)
+            .where(ClientOrder.id.in_(order_ids), *stale, ~served)
+            .values(status=ClientOrderStatus.active)
+            .returning(
+                ClientOrder.id,
+                ClientOrder.contract_id,
+                ClientOrder.start_date,
+                ClientOrder.end_date,
+            )
+            .execution_options(synchronize_session=False)
+        )
+    ).all()
+    for order_id, contract_id, start_date, end_date in revived:
+        db.add(
+            Activity(
+                entity_type="client_order",
+                entity_id=order_id,
+                action="status_auto_changed",
+                user_id=None,
+                details={
+                    "from_status": ClientOrderStatus.completed.value,
+                    "to_status": ClientOrderStatus.active.value,
+                    "reason": "period_still_running",
+                    "contract_id": contract_id,
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                },
+            )
+        )
+    if revived:
+        logger.info(
+            "DL portal expiry: revived %d completed periodic orders whose period "
+            "is still running order_ids=%s",
+            len(revived),
+            [row[0] for row in revived],
+        )
+    return len(revived)
+
+
+async def _revive_stale_completed_periodic_orders_safely(
+    db: AsyncSession, *, business_day: date | None = None
+) -> int:
+    """Krok naprawczy nie może zatrzymać reszty dziennego skanera.
+
+    Savepoint: błąd SQL wewnątrz transakcji unieważniłby ją, a razem z nią
+    przejścia statusów i alerty, które idą po tym kroku. ``logger.exception``
+    trafia do Sentry (poziom ERROR), więc awaria jest widoczna, tylko nie
+    blokuje niczego innego.
+    """
+    try:
+        async with db.begin_nested():
+            return await revive_stale_completed_periodic_orders(
+                db, business_day=business_day
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("dl_portal_expiry: reviving completed periodic orders failed")
+        return 0
 
 
 async def _promote_statuses(
@@ -468,6 +668,12 @@ async def run_once() -> dict:
     """Uruchom scan + status promotions raz; zwraca summary dict."""
     async with AsyncSessionLocal() as db:
         try:
+            # Naprawa rozjazdu status ↔ okres idzie PRZED przejściami dnia i we
+            # własnej transakcji: blokady kontrakt → zamówienia bierze potem
+            # `_promote_statuses` (jedno wywołanie helpera na transakcję), a
+            # przywrócone zamówienie od razu trafia do alertów 30/14/7 dni.
+            orders_revived = await _revive_stale_completed_periodic_orders_safely(db)
+            await db.commit()
             (
                 fc_expired,
                 order_completed,
@@ -487,6 +693,7 @@ async def run_once() -> dict:
 
     summary = {
         "fc_expired": fc_expired,
+        "orders_revived": orders_revived,
         "orders_completed": order_completed,
         "order_groups_promoted": groups_promoted,
         "md_exhaustion_groups_synced": md_groups_synced,
