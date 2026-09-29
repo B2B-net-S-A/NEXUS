@@ -106,3 +106,35 @@ describe("JobTabsRail — samo-ukrywanie", () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+describe("JobTabsRail — okno węższe niż 1536 px (laptop z Windows)", () => {
+  function mockNarrowScreen() {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    );
+  }
+
+  it("zapisane „rozwiń” nie zabiera szerokości: pasek, a lista jako nakładka bez zapisu", async () => {
+    mockNarrowScreen();
+    window.localStorage.setItem(JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY, "0");
+    const user = userEvent.setup();
+    render(<JobTabsRail />);
+
+    const open = await screen.findByRole("button", { name: "Pokaż pasek rekrutacji" });
+    expect(screen.queryByText("Rekrutacje")).not.toBeInTheDocument();
+
+    await user.click(open);
+    expect(await screen.findByText("Otwarte karty: 1")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByText("Otwarte karty: 1")).not.toBeInTheDocument();
+    expect(window.localStorage.getItem(JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY)).toBe("0");
+    vi.unstubAllGlobals();
+  });
+});

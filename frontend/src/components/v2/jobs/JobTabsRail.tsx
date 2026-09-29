@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { FileText, X, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useTabsStore } from "@/store/tabs";
@@ -10,6 +10,28 @@ import {
   JOB_TABS_RAIL_COLLAPSED_DEFAULT,
   JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY,
 } from "@/lib/job-tabs-rail-preferences";
+
+/**
+ * Od 1536 px rozwinięta szyna zajmuje miejsce w układzie (zapamiętany wybór).
+ * Węższe okno — laptop z Windows przy skalowaniu 125–150% — ma 1280–1535 px:
+ * szyna 240 px obok przypiętego menu zostawiała rekrutacji ~730 px i nagłówek
+ * z Tablicą łamały się w kilka rzędów (produkcja 29.09.2026). Tam szyna jest
+ * zawsze paskiem 40 px, a lista kart wysuwa się jako nakładka (bez zapisu).
+ */
+const WIDE_RAIL_QUERY = "(min-width: 1536px)";
+
+function useWideRail(): boolean {
+  const [wide, setWide] = useState(true);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia(WIDE_RAIL_QUERY);
+    const update = () => setWide(mq.matches);
+    update();
+    mq.addEventListener?.("change", update);
+    return () => mq.removeEventListener?.("change", update);
+  }, []);
+  return wide;
+}
 
 /**
  * JobTabsRail — left-side vertical list of open recruitment "tabs", recreating
@@ -41,6 +63,9 @@ export function JobTabsRail({ className }: { className?: string }) {
     JOB_TABS_RAIL_COLLAPSED_DEFAULT,
   );
   const toggleCollapsed = () => setCollapsed((prev) => !prev);
+  const wide = useWideRail();
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   const tabs = useTabsStore((s) => s.tabs);
   const closeTab = useTabsStore((s) => s.closeTab);
@@ -48,6 +73,26 @@ export function JobTabsRail({ className }: { className?: string }) {
   const activateTab = useTabsStore((s) => s.activateTab);
 
   const jobTabs = tabs.filter((t) => t.type === "job");
+
+  // Nakładka zamyka się po przejściu na inną stronę, Esc i kliknięciu obok.
+  useEffect(() => {
+    setOverlayOpen(false);
+  }, [pathname]);
+  useEffect(() => {
+    if (!overlayOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOverlayOpen(false);
+    };
+    const onPointer = (event: MouseEvent) => {
+      if (!overlayRef.current?.contains(event.target as Node)) setOverlayOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointer);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointer);
+    };
+  }, [overlayOpen]);
 
   if (!mounted || jobTabs.length === 0) return null;
 
@@ -62,18 +107,17 @@ export function JobTabsRail({ className }: { className?: string }) {
   };
 
   // Collapsed: thin strip with a reopen button + count badge.
-  if (collapsed) {
-    return (
+  const strip = (onToggle: () => void, stripClassName?: string) => (
       <aside
         className={cn(
           "w-10 shrink-0 flex flex-col items-center rounded-xl border border-border bg-card/60 py-2",
-          className
+          stripClassName
         )}
         aria-label="Otwarte rekrutacje (zwinięte)"
       >
         <button
           type="button"
-          onClick={toggleCollapsed}
+          onClick={onToggle}
           aria-label="Pokaż pasek rekrutacji"
           title="Pokaż rekrutacje"
           className="relative rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -84,14 +128,13 @@ export function JobTabsRail({ className }: { className?: string }) {
           </span>
         </button>
       </aside>
-    );
-  }
+  );
 
-  return (
+  const panel = (onHide: () => void, panelClassName?: string) => (
     <aside
       className={cn(
         "w-60 shrink-0 flex flex-col rounded-xl border border-border bg-card/60 overflow-hidden",
-        className
+        panelClassName
       )}
       aria-label="Otwarte rekrutacje"
     >
@@ -100,7 +143,7 @@ export function JobTabsRail({ className }: { className?: string }) {
           <h2 className="text-base font-bold leading-tight">Rekrutacje</h2>
           <button
             type="button"
-            onClick={toggleCollapsed}
+            onClick={onHide}
             aria-label="Ukryj pasek rekrutacji"
             title="Ukryj"
             className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -176,4 +219,20 @@ export function JobTabsRail({ className }: { className?: string }) {
       </nav>
     </aside>
   );
+
+  if (!wide) {
+    return (
+      <div ref={overlayRef} className={cn("relative w-10 shrink-0", className)}>
+        {strip(() => setOverlayOpen((open) => !open))}
+        {overlayOpen
+          ? panel(
+              () => setOverlayOpen(false),
+              "absolute left-0 top-0 z-30 max-h-[calc(100dvh-7rem)] bg-card shadow-xl",
+            )
+          : null}
+      </div>
+    );
+  }
+
+  return collapsed ? strip(toggleCollapsed, className) : panel(toggleCollapsed, className);
 }

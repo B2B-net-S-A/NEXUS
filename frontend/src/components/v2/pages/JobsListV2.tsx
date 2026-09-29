@@ -841,22 +841,26 @@ export function JobsListV2() {
   const similarWithSuggestions = visibleItems.filter(
     (j: any) => j.similar?.suggested && j.can_open !== false,
   ).length;
-  const similarBanner = (className: string) =>
-    similarWithSuggestions > 0 ? (
+  const similarBanner = (className: string, short = false) => {
+    if (similarWithSuggestions === 0) return null;
+    const onPage = total > visibleItems.length ? " na tej stronie" : "";
+    // Liczone z wierszy na ekranie — przy wielu stronach mówimy to wprost,
+    // inaczej liczba wyglądała na sumę całej listy.
+    const full = `≈ ${similarWithSuggestions} ${pluralPl(similarWithSuggestions, "rekrutacja", "rekrutacje", "rekrutacji")}${onPage} ${pluralPl(similarWithSuggestions, "ma", "mają", "ma")} podobne z osobami u klienta — przepnij je`;
+    return (
       <span
         className={cn(
           "items-center gap-1 rounded-md border border-dashed border-primary/40 px-2 py-1 text-xs font-medium text-primary",
           className,
         )}
+        title={short ? full : undefined}
       >
-        ≈ {similarWithSuggestions}{" "}
-        {pluralPl(similarWithSuggestions, "rekrutacja", "rekrutacje", "rekrutacji")}
-        {/* Liczone z wierszy na ekranie — przy wielu stronach mówimy to
-            wprost, inaczej liczba wyglądała na sumę całej listy. */}
-        {total > visibleItems.length ? " na tej stronie" : ""}{" "}
-        {pluralPl(similarWithSuggestions, "ma", "mają", "ma")} podobne z osobami u klienta — przepnij je
+        {/* Poniżej 1536 px w rzędzie tytułu krótko — pełne zdanie łamało
+            ten rząd na dwie linie (produkcja 29.09.2026). */}
+        {short ? `≈ ${similarWithSuggestions} z podobnymi — przepnij` : full}
       </span>
-    ) : null;
+    );
+  };
 
   return (
     // `pb-24`: maskotka Jarvisa w prawym dolnym rogu zasłaniała ikony akcji
@@ -877,7 +881,7 @@ export function JobsListV2() {
               ? "Nie udało się pobrać listy"
               : listSummary}
         </p>
-        {similarBanner("inline-flex 2xl:hidden")}
+        {similarBanner("inline-flex 2xl:hidden", true)}
         <div className="ml-auto flex items-center gap-2">
           {/* Stany requestów ustawia DL (lustro bramki strony i API
               `request_work_states`) — bez tego linku ekran był osiągalny
