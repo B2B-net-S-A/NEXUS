@@ -1,7 +1,7 @@
 """Generator aneksów: stawki z ostatniego aneksu w wierszu rejestru umów B2B.
 
-Revision ID: 0398_b2b_annex_rates
-Revises: 0397_skill_catalog_tools
+Revision ID: 0401_b2b_annex_rates
+Revises: 0400_candidate_document_outdated
 
 ``b2b_generated_contracts.annex_rates`` (JSONB) — wiersz „Umów bieżących”
 dostaje stawki z aneksu zmiany stawki już przy jego wygenerowaniu (ticket
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services.b2b_documents.schema_sql import ANNEX_GENERATOR_DDL
 
-revision = "0398_b2b_annex_rates"
-down_revision = "0397_skill_catalog_tools"
+revision = "0401_b2b_annex_rates"
+down_revision = "0400_candidate_document_outdated"
 branch_labels = None
 depends_on = None
 

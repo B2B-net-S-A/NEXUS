@@ -92,7 +92,7 @@ BACKFILL_DDL: list[str] = [
 ]
 
 
-#: Generator aneksów (migracja 0398): stawki z ostatniego aneksu zmiany stawki
+#: Generator aneksów (migracja 0401): stawki z ostatniego aneksu zmiany stawki
 #: w wierszu rejestru — pokazuje je lista „Umowy bieżące”.
 ANNEX_GENERATOR_DDL: list[str] = [
     """ALTER TABLE b2b_generated_contracts

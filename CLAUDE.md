@@ -871,7 +871,7 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   - Wypowiedzenie złożone przez Partnera nie ma wzoru — to akcja bez
     dokumentu (`POST /documents/partner-notice`, koniec z okresu wypowiedzenia
     wersji umowy: 2026 = miesiąc na koniec miesiąca).
-- **Generator aneksów (`?tab=annexes`, 0398, 29.09.2026)** — KAŻDY aneks
+- **Generator aneksów (`?tab=annexes`, 0401, 29.09.2026)** — KAŻDY aneks
   powstaje w tej zakładce (Dokumenty tworzą rozwiązania i przedwstępną;
   `documentsHref` z typem `annex_*` przekierowuje tam). Trzy typy z ticketu
   (dane firmy, data startu, stawka) mają `allows_external`: umowa z „Umów

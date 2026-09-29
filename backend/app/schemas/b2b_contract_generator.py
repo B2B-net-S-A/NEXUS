@@ -526,7 +526,7 @@ class B2BGeneratedContractItem(BaseModel):
     job_id: Optional[int] = None
     client_id: Optional[int] = None
     contract_id: Optional[int] = None
-    # Stawki z ostatniego aneksu zmiany stawki (Generator aneksów, 0398) —
+    # Stawki z ostatniego aneksu zmiany stawki (Generator aneksów, 0401) —
     # tylko dla osób, które widzą stawki tej umowy; inaczej None.
     annex_rates: Optional[list[dict]] = None
     # Stan kontraktu powiązanego z umową (``ContractStatus``) i jego data końca.
