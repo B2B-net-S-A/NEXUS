@@ -470,7 +470,10 @@ export function ChampionProfileEditor({
               className="w-4 h-4 shrink-0 text-info-muted-foreground"
               aria-hidden="true"
             />
-            <p className="min-w-0 flex-1 text-xs text-info-muted-foreground">
+            {/* `basis-48`: w wąskim panelu „Wypełnij szybciej" przycisk
+                schodzi do nowej linii, zamiast ściskać tekst do kolumny
+                po jednym słowie. */}
+            <p className="min-w-0 flex-1 basis-48 text-xs text-info-muted-foreground">
               Profil można wygenerować z opisu klienta (AI) i poprawić ręcznie —
               import zostawia znacznik pochodzenia na całym profilu.
             </p>
@@ -1202,7 +1205,9 @@ export function ChampionProfileEditor({
   );
 
   const renderWorkspace = () => (
-    <div className="space-y-4" data-testid="champion-editor-workspace">
+    // Kotwice sekcji lądują POD przyklejonym paskiem sekcji (ok. 50 px) —
+    // samo `scroll-mt-4` zostawiało nagłówek sekcji pod paskiem.
+    <div className="space-y-4 [&_[id]]:scroll-mt-20" data-testid="champion-editor-workspace">
       <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/95 px-3 py-2 backdrop-blur-sm">
         <div className="min-w-0 flex-1">
           <ChampionSectionNav jobId={jobId} orientation="horizontal" />

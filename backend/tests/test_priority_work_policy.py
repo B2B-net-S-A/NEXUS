@@ -84,6 +84,48 @@ async def test_assignment_progress_requires_verified_before_cv_sent_in_same_atte
     assert params == {"assignment_ids": [77]}
 
 
+async def test_milestone_counts_scope_the_process_windows_to_the_asked_assignments() -> (
+    None
+):
+    """29.09.2026: panel Priority Work jednej rekrutacji czekał 16 s.
+
+    Przy JEDNYM przypisaniu planer Postgresa liczył okna procesów dla całej
+    historii firmy (15,7 s na produkcji; przy 16 przypisaniach 0,5 s).
+    Zawężenie `process_windows` do par (kandydat, rekrutacja) pytanych
+    przypisań daje 0,06 s i ten sam wynik — `LEAD` jest partycjonowany właśnie
+    po tej parze, a zapytanie nie czyta gałęzi `legacy_*`.
+    """
+    result = MagicMock()
+    result.all.return_value = []
+    db = SimpleNamespace(execute=AsyncMock(return_value=result))
+
+    await policy.assignment_milestone_counts(db, [16])
+
+    statement, params = db.execute.await_args.args
+    sql = " ".join(str(statement).lower().split())
+    process_windows = sql.split("first_classified as")[0]
+    assert "(rp.candidate_id, rp.job_id) in (" in process_windows
+    assert (
+        "scope.eligibility_assignment_id = any(cast(:assignment_ids as integer[]))"
+        in process_windows
+    )
+    assert params == {"assignment_ids": [16]}
+
+
+def test_scoped_cte_is_the_kpi_cte_plus_only_the_scope() -> None:
+    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+
+    scoped = policy._scoped_verifier_anchored_cte()
+    extra = scoped.replace(
+        VERIFIER_ANCHORED_CTE.split("WHERE rp.opened_at IS NOT NULL")[0], "", 1
+    )
+    # Wspólne CTE (KPI, wyścigi płacące nagrody) zostaje nietknięte.
+    assert VERIFIER_ANCHORED_CTE.count("scope.eligibility_assignment_id") == 0
+    assert scoped.count("scope.eligibility_assignment_id") == 1
+    assert len(scoped) > len(VERIFIER_ANCHORED_CTE)
+    assert extra
+
+
 def _milestone_db(*batches: list[SimpleNamespace]) -> SimpleNamespace:
     results = []
     for batch in batches:

@@ -20,6 +20,7 @@ from __future__ import annotations
 import enum
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import lru_cache
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable, Iterator, Optional
@@ -343,16 +344,48 @@ async def assignment_milestone_counts(
     }
 
 
+@lru_cache(maxsize=1)
+def _scoped_verifier_anchored_cte() -> str:
+    """`VERIFIER_ANCHORED_CTE` zawężone do par (kandydat, rekrutacja) przypisań.
+
+    29.09.2026: panel Priority Work jednej rekrutacji czekał 16 s — przy
+    JEDNYM przypisaniu planer liczył okna procesów dla całej historii firmy
+    (15,7 s na produkcji, przy 16 przypisaniach 0,5 s). Filtr w
+    `process_windows` obejmuje CAŁE pary, a `LEAD` jest partycjonowany właśnie
+    po parze, więc okna, `classified_process` i `classified_mf` tych par są
+    identyczne. Gałęzie `legacy_*` i `first_classified` przestają być
+    kompletne — dlatego ta kopia żyje tylko tutaj (zapytanie ich nie czyta),
+    a wspólne CTE (KPI, wyścigi płacące nagrody) zostaje nietknięte.
+    """
+    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+
+    anchor = "        FROM recruitment_processes rp\n        WHERE rp.opened_at IS NOT NULL\n"
+    if VERIFIER_ANCHORED_CTE.count(anchor) != 1:
+        raise RuntimeError(
+            "VERIFIER_ANCHORED_CTE zmieniło kształt `process_windows` — "
+            "popraw zawężenie w priority_work_policy._scoped_verifier_anchored_cte."
+        )
+    return VERIFIER_ANCHORED_CTE.replace(
+        anchor,
+        anchor
+        + """          AND (rp.candidate_id, rp.job_id) IN (
+              SELECT scope.candidate_id, scope.job_id
+              FROM recruitment_processes scope
+              WHERE scope.eligibility_assignment_id =
+                    ANY(CAST(:assignment_ids AS INTEGER[]))
+          )
+""",
+    )
+
+
 async def _query_milestone_counts(
     db: AsyncSession,
     ids: list[int],
 ) -> dict[int, dict[str, int]]:
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
-
     rows = (
         await db.execute(
             text(
-                VERIFIER_ANCHORED_CTE
+                _scoped_verifier_anchored_cte()
                 + """
                 SELECT cp.eligibility_assignment_id AS assignment_id,
                        count(DISTINCT cp.id) AS verifications,
