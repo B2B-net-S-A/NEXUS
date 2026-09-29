@@ -1310,3 +1310,70 @@ def select_all_files_with_priority(
         # Don't mutate input — return shallow-copied dict z is_primary marker
         result.append({**f, "is_primary": (i == 0)})
     return result
+
+
+# ── Data wgrania pliku (29.09.2026) ─────────────────────────────────────────
+#
+# Lista `/employees/{id}/files` niesie tylko `id` i `name`; datę wgrania ma
+# detal osoby (`files: [{filename, file_uploaded}]`), ale BEZ id pliku — plik
+# łączymy z datą po nazwie. Nazwa przycięta do 500 znaków jak w
+# `candidate_documents.filename`, porównanie bez wielkości liter i białych
+# znaków na brzegach.
+
+
+def _traffit_file_key(name: Any) -> Optional[str]:
+    if not isinstance(name, str):
+        return None
+    key = unicodedata.normalize("NFC", name[:500]).strip().casefold()
+    return key or None
+
+
+def employee_files_from_detail(payload: Any) -> list[Any]:
+    """Lista `files` z odpowiedzi `/employees/{id}` (obiekt albo lista z jednym)."""
+    if isinstance(payload, list):
+        payload = payload[0] if payload else None
+    if not isinstance(payload, dict):
+        return []
+    files = payload.get("files")
+    return files if isinstance(files, list) else []
+
+
+def traffit_file_upload_dates(files: Any) -> dict[str, Optional[datetime]]:
+    """Nazwa pliku (klucz) → data wgrania w UTC z `files` detalu osoby.
+
+    Dwa pliki o tej samej nazwie i różnych datach dają ``None`` — nie zgadujemy,
+    który jest który. Brak albo nieczytelna data też ``None`` (klucz zostaje,
+    żeby odróżnić „plik jest, daty nie ma” od „nie ma takiego pliku”).
+    """
+    out: dict[str, Optional[datetime]] = {}
+    if not isinstance(files, list):
+        return out
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        key = _traffit_file_key(item.get("filename") or item.get("name"))
+        if key is None:
+            continue
+        when = _parse_traffit_datetime(item.get("file_uploaded"))
+        if key in out:
+            if out[key] != when:
+                out[key] = None
+        else:
+            out[key] = when
+    return out
+
+
+def traffit_file_upload_lookup(
+    name: Any, dates: dict[str, Optional[datetime]]
+) -> tuple[bool, Optional[datetime]]:
+    """``(czy Traffit zna plik o tej nazwie, data albo None)``."""
+    key = _traffit_file_key(name)
+    if key is None or key not in dates:
+        return False, None
+    return True, dates[key]
+
+
+def traffit_file_upload_date(
+    name: Any, dates: dict[str, Optional[datetime]]
+) -> Optional[datetime]:
+    return traffit_file_upload_lookup(name, dates)[1]

@@ -38,6 +38,7 @@ from app.tasks.traffit_sync import (
     validate_phases,
 )
 
+from app.services import traffit_file_dates_repair as file_dates_repair
 from app.services import traffit_notes_repair as notes_repair
 from app.services.traffit.client import TraffitConfig
 from app.services.traffit_status import read_traffit_status
@@ -215,3 +216,52 @@ async def traffit_notes_repair_status(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     return await notes_repair.read_status(db)
+
+
+# ── Naprawa dat wgrania plików z Traffita (29.09.2026) ──────────────────────
+#
+# Jednorazowa, WYŁĄCZNIE ręczna: najpierw przebieg próbny (`dry_run=true`,
+# zero zapisów w dokumentach, raport z liczbami i do 20 przykładami w
+# statusie), potem — po akceptacji liczb — zapis (`dry_run=false`) partiami
+# `limit` osób z Traffita, wznawialny kursorem. Zmienia tylko
+# `candidate_documents.uploaded_at`. Szczegóły:
+# `app/services/traffit_file_dates_repair.py`.
+
+
+@router.post("/file-dates-repair")
+@limiter.limit(_service_rate_limit)
+async def trigger_traffit_file_dates_repair(
+    request: Request,
+    _caller: TraffitSyncCaller,
+    dry_run: bool = Query(True),
+    limit: int = Query(2000, ge=1, le=20000),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Daty wgrania dokumentów z Traffita (w tle, z kursorem)."""
+    _traffit_configured_or_503()
+    reason = file_dates_repair.spawn_running_guard()
+    if reason:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
+    if not dry_run and not await file_dates_repair.fresh_dry_run_exists(db):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Najpierw przebieg próbny (dry_run=true) — zapis wymaga raportu "
+                "próbnego z ostatnich 7 dni."
+            ),
+        )
+    spawn(
+        file_dates_repair.run_file_dates_repair(dry_run_mode=dry_run, limit=limit),
+        f"traffit_file_dates_repair(dry_run={dry_run}, limit={limit})",
+    )
+    return {"status": "started", "dry_run": dry_run, "limit": limit}
+
+
+@router.get("/file-dates-repair/status")
+@limiter.limit(_service_rate_limit)
+async def traffit_file_dates_repair_status(
+    request: Request,
+    _caller: TraffitReadCaller,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    return await file_dates_repair.read_status(db)
