@@ -23,6 +23,7 @@ import { api } from "@/lib/api";
 import { ToastProvider } from "@/components/Toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
+import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { useAuthStore } from "@/store/auth";
 
@@ -250,6 +251,49 @@ function PipelineV4Harness() {
     setReady(true);
   }, [asDl, viewerId]);
   const cols = useMemo(() => columns(viewerId), [viewerId]);
+  // Notatki w doku osoby (sekcja „Notatki”): ta sama lista co w profilu —
+  // odpowiedź pod notatką i notatka automatu za „Pokaż systemowe (1)”.
+  useMemo(() => {
+    for (const column of cols) {
+      for (const item of column.items) {
+        client.setQueryData([...candidateQueryKeys.notes(item.candidate_id), JOB_ID], {
+          items: [
+            {
+              id: item.candidate_id,
+              author_id: 3,
+              author_name: "Ola Rekruterka",
+              created_at: "2026-09-12T09:30:00Z",
+              pinned_at: "2026-09-13T08:00:00Z",
+              content:
+                "<p>@Kamil Próbny</p><p>&nbsp;</p><p>&nbsp;</p><p>Rozmowa wstępna — dostępny od października.</p><p>&nbsp;</p><p>Preferuje pracę hybrydową, 2 dni w biurze.</p><p>&nbsp;</p><p>Stawka 150 zł/h netto B2B.</p><p>Czeka na decyzję w innym procesie.</p>",
+              replies: [
+                {
+                  id: 100_000 + item.candidate_id,
+                  author_id: 5,
+                  author_name: "Kamil Próbny",
+                  created_at: "2026-09-13T10:15:00Z",
+                  content: "Klient potwierdził, że hybryda jest OK.",
+                  parent_note_id: item.candidate_id,
+                  replies: [],
+                },
+              ],
+            },
+            {
+              id: 200_000 + item.candidate_id,
+              author_id: null,
+              author_name: null,
+              created_at: "2026-09-10T07:00:00Z",
+              content: "Auto-match 72/100 — kandydat dodany automatycznie.",
+              external_source: "system",
+              is_system: true,
+              replies: [],
+            },
+          ],
+          total: 2,
+        });
+      }
+    }
+  }, [client, cols]);
   if (!ready) return null;
 
   return (

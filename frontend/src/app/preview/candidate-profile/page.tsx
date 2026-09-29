@@ -250,8 +250,22 @@ const NOTES = {
       is_system: true,
       replies: [],
     },
+    {
+      // Notatka z Traffita: HTML z pustymi akapitami `<p>&nbsp;</p>` —
+      // zwinięty podgląd ma pokazać tekst, nie same wzmianki i „…”.
+      id: 74,
+      created_at: daysAgo(30),
+      author_id: null,
+      author_name: null,
+      content:
+        "<p>@Ola Nowak</p><p>&nbsp;</p><p>&nbsp;</p><p>Rozmowa po prezentacji projektu — kandydatka zainteresowana.</p><p>&nbsp;</p><p>Pyta o skład zespołu i o to, jak wygląda wdrożenie.</p><p>&nbsp;</p><p>Oczekiwania bez zmian: 165 zł/h netto B2B.</p><p>&nbsp;</p><p>Wraca z decyzją w poniedziałek.</p><p>Do sprawdzenia: referencje z poprzedniego projektu.</p>",
+      job_id: 502,
+      job_title: "Backend Engineer",
+      external_source: "traffit",
+      replies: [],
+    },
   ],
-  total: 4,
+  total: 5,
 };
 
 const DOCUMENTS = [

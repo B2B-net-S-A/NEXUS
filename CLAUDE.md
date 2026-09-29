@@ -2069,8 +2069,16 @@ Decyzje Artura 29.09.2026 — historia kandydata ma być tym, co napisali ludzie
 - **Stare notatki automatów = `external_source='system'`** (jednorazowo,
   znacznik `0399_auto_match_notes_system`; SQL w `note_threads_schema.py`,
   lustro w `entrypoint.sh`) — nic nie jest kasowane. Lista notatek niesie
-  `is_system`, UI chowa je za „Pokaż systemowe (N)”, dok osoby i podgląd
-  kandydata ich nie pokazują.
+  `is_system`, UI chowa je za „Pokaż systemowe (N)”, podgląd kandydata ich
+  nie pokazuje.
+- **Notatki jednej rekrutacji = ta sama lista co w profilu**
+  (`candidate-profile/JobNotesList.tsx` na `NotesList`, akcje
+  `useNoteActions`): dok osoby na Tablicy, panel osoby i warsztaty kroków
+  (`DockNotesPanel`) pokazują odpowiedzi, przypięte pierwsze i systemowe za
+  przełącznikiem. Nie dokładaj czwartej, uproszczonej listy.
+- **Zwinięta notatka liczy wyłącznie linie z tekstem**
+  (`visibleNoteLines`/`collapsedNotePreview`): puste akapity Traffita
+  (`<p>&nbsp;</p>`) dawały podgląd z samych wzmianek i „…”.
 - **Przypięcie wspólne dla zespołu:** `POST/DELETE /api/notes/{id}/pin`
   (bramka `CandidateWriteAccess` jak dodanie notatki, `Activity`
   `note_pinned`/`note_unpinned`, odpowiedzi nie da się przypiąć). Przypięte są
