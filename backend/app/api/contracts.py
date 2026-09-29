@@ -34,6 +34,7 @@ from app.core.printable_html import (
     printable_document,
 )
 from app.core.database import get_db
+from app.core.pagination import MAX_PAGE
 from app.core.export_safety import safe_row
 from app.core.scheduling import business_today
 from app.core.upload_filename import fit_filename_column
@@ -2070,7 +2071,7 @@ async def _can_read_contract_finance(
 async def list_contracts(
     current_user: ContractReadUser,
     db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=MAX_PAGE),
     page_size: int = Query(20, ge=1, le=100),
     q: Optional[str] = Query(
         None,

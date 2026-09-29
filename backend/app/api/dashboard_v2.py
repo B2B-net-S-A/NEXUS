@@ -26,6 +26,7 @@ from app.api.deps import (
     require_roles,
 )
 from app.core.database import get_db
+from app.core.pagination import MAX_PAGE
 from app.models.user import User, UserRole
 from app.schemas.dashboard_v2 import (
     AdminOpsDashboardResponse,
@@ -250,7 +251,7 @@ async def recruitment_operations_list(
     current_user: RecruitmentOperationsUser,
     db: Database,
     preset: RecruitmentOperationsPreset = Query(...),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=MAX_PAGE),
     page_size: int = Query(50, ge=1, le=100),
     q: str | None = Query(None, max_length=200),
     category_id: int | None = Query(None, ge=1),
@@ -310,7 +311,7 @@ async def recruitment_activity_details(
     month: date | None = Query(None),
     subject_user_id: int | None = Query(None, ge=1),
     scope: Literal["auto", "team"] = Query("auto"),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=MAX_PAGE),
     page_size: int = Query(25, ge=1, le=100),
 ) -> RecruitmentActivityDetailResponse:
     """Candidate/job rows behind one visible KPI number."""

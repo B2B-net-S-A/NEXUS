@@ -28,6 +28,7 @@ from app.api.candidate_access import CandidateSearchAccess
 from app.api.deps import RecruiterPlus, get_db
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.config import settings
+from app.core.pagination import MAX_PAGE
 from app.services.marketplace_service import (
     add_candidate_to_marketplace,
     ensure_marketplace_pool,
@@ -157,7 +158,7 @@ async def get_marketplace_pool(
 async def list_candidates(
     current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=MAX_PAGE),
     page_size: int = Query(50, ge=1, le=200),
     q: Optional[str] = Query(None, description="Szukaj po imieniu/nazwisku/email"),
     source_event: Optional[str] = Query(

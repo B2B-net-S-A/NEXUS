@@ -23,6 +23,7 @@ from app.api.clients import polish_alphabetical_key
 from app.api.deps import AdminUser, OperationalUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.pagination import MAX_PAGE
 from app.core.export_safety import safe_cell
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -420,7 +421,7 @@ async def list_client_directory(
     db: AsyncSession = Depends(get_db),
     category: PortfolioCategory = Query(PortfolioCategory.active),
     q: Optional[str] = Query(None, max_length=200),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=MAX_PAGE),
     page_size: int = Query(50, ge=1, le=100),
     mine: bool = Query(False),
 ):

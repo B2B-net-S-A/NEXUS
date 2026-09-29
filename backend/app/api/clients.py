@@ -11,6 +11,7 @@ from starlette.responses import RedirectResponse
 
 from app.api.financial_access import can_read_client_finance
 from app.core.database import get_db
+from app.core.pagination import MAX_PAGE
 from app.core.scheduling import business_today
 from app.core.work_time import HOURS_PER_MONTH
 from app.models.activity import Activity
@@ -523,7 +524,7 @@ def _resolve_job(contract: Contract) -> tuple[Optional[int], Optional[str], bool
 async def list_clients(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=MAX_PAGE),
     page_size: int = Query(20, ge=1, le=100),
     q: Optional[str] = None,
 ):

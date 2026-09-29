@@ -41,6 +41,7 @@ from app.services.job_portals.service import (
 from app.core.cache import cache_invalidate
 from app.services.critical_events import audited_deletion
 from app.core.database import get_db
+from app.core.pagination import MAX_PAGE
 from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict, ConflictType
@@ -942,7 +943,7 @@ def jobs_sent_to_client_subquery(job_ids):
 async def list_jobs(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=MAX_PAGE),
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[list[JobStatus]] = Query(
         None,

@@ -25,6 +25,7 @@ from app.api.recruitment_access import ensure_job_membership, ensure_job_read_ac
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.pagination import MAX_PAGE
 from app.services.proposal_contract import snapshot_is_stale
 from app.core.rate_limit import limiter
 from app.models.candidate import Candidate
@@ -213,7 +214,7 @@ async def list_proposals(
     job_id: int,
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=MAX_PAGE),
     page_size: int = Query(10, ge=1, le=50),
 ):
     """Paginated history of proposal snapshots for `job_id`."""
