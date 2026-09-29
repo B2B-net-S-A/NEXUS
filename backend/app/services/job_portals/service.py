@@ -28,6 +28,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+from urllib.parse import urlencode
 
 from sqlalchemy import Text, and_, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -126,8 +127,26 @@ def _hash(payload: dict[str, Any], apply_url: str, options: Any) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def portal_apply_url(link_url: str, portal: Portal, job_id: int) -> str:
+    """Link aplikacyjny z portalu = link rekrutacji + znacznik portalu (UTM).
+
+    Kandydat z JJIT/RocketJobs aplikuje przez naszą stronę kariery, a ona
+    zapisuje ``utm_*`` w źródle kandydata — bez znacznika zgłoszenie z portalu
+    wyglądałoby jak każde inne wejście z linku. Dostawca potwierdził, że
+    parametry na ``apply.url`` są dozwolone (29.09.2026).
+    """
+    query = urlencode(
+        {
+            "utm_source": portal.value,
+            "utm_medium": "job_board",
+            "utm_campaign": f"nexus-job-{job_id}",
+        }
+    )
+    return f"{link_url}{'&' if '?' in link_url else '?'}{query}"
+
+
 async def build_content(
-    db: AsyncSession, job: Job, *, options: Any = None
+    db: AsyncSession, job: Job, *, portal: Portal, options: Any = None
 ) -> BuiltContent:
     """Treść ogłoszenia albo odmowa — wyłącznie z zatwierdzonego opisu."""
 
@@ -165,7 +184,7 @@ async def build_content(
         about=profile.about,
         sections=profile.sections,
     )
-    apply_url = job_link_url(slug)
+    apply_url = portal_apply_url(job_link_url(slug), portal, job.id)
     content = PostingContent(
         title=title,
         job=payload,
@@ -263,7 +282,7 @@ async def request_publish(
     normalized = jjit_payload.normalize_options(
         options if options is not None else default_listing_options(job)
     )
-    built = await build_content(db, job, options=normalized)
+    built = await build_content(db, job, portal=portal, options=normalized)
     _checked_options(portal, built.content, normalized)
     inherited_cleanup = await _cancel_stale_cleanup(db, job.id, portal)
     posting = JobPosting(
@@ -309,7 +328,7 @@ async def update_options(
             409, "posting_closing", "Ogłoszenie jest właśnie zamykane."
         )
     normalized = jjit_payload.normalize_options(options)
-    built = await build_content(db, job, options=normalized)
+    built = await build_content(db, job, portal=portal, options=normalized)
     _checked_options(portal, built.content, normalized)
     posting.options = normalized
     if posting.status == PostingStatus.published:
@@ -666,7 +685,7 @@ async def _run(db: AsyncSession, posting: JobPosting, action: str) -> _Outcome:
                 "give_up",
                 "Rekrutacja nie jest opublikowana — ogłoszenie nie zostało wysłane.",
             )
-        built = await build_content(db, job, options=options)
+        built = await build_content(db, job, portal=portal, options=options)
         content = dataclasses.replace(built.content, external_ref=ref)
         await db.rollback()  # odczyty skończone — bez transakcji w trakcie HTTP
         if action == ACTION_PUBLISH:
