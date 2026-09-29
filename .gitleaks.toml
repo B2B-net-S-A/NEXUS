@@ -62,6 +62,9 @@ regexes = [
   '''postgresql\+asyncpg://nexus:nexus@''',
   # Placeholder examples in docstrings / error messages (no real secret)
   '''postgresql://user:pass@db\.<project-ref>\.supabase\.co''',
+  # Slug publicznego posta LinkedIn (źródło bazy ról, historia PR #1929) —
+  # ``rpa-…`` ma kształt klucza Voyage. Dokładna wartość.
+  '''pa-automatyzacja-architekturait-activity-7088050127667441664-cqTG''',
   # Stały, publiczny nagłówek JWT — base64 z ``{"alg":"HS256","typ":"JWT"}``.
   # Nie niesie ŻADNEGO materiału klucza (podpis to trzeci segment, którego tu
   # nie ma), a pojawia się w testach redakcji logów jako realistyczna atrapa.
@@ -159,6 +162,13 @@ regexes = [
   # Fikcyjne GUID-y tenanta z testu callbacku M365 (runda 4 audytu, 25.09.2026) —
   # zostały w historii gałęzi PR #1844, a skan PR-a obejmuje cały zakres commitów.
   '''[19]{8}-2222-3333-4444-555555555555''',
+  # Identyfikatory publicznych ogłoszeń (tealhq, dice) ze źródeł bazy ról
+  # i fikcyjny UUID z testu filtra źródeł (29.09.2026) — zostały w historii
+  # gałęzi PR #1929, plik w repo już ich nie ma. Dokładne wartości.
+  '''e6579a20-9e3e-4d53-a953-f8c9f46654ae''',
+  '''54f040d5-ec50-4cc5-af66-ce6ff73688c9''',
+  '''687067bf-dc31-45df-9646-c4ba44d530af''',
+  '''54f04000-1111-2222-3333-444455556666''',
 ]
 
 [[rules]]
