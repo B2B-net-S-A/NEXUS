@@ -361,7 +361,12 @@ export function JobsFilterBar({
           onClick={onClearAll}
           className="ml-auto text-xs text-primary hover:underline"
         >
-          Wyczyść filtry{activeCount > 0 ? ` (${activeCount})` : ""}
+          {/* Poniżej 1536 px krótko — link spadał do osobnej linii. */}
+          <span className="max-2xl:sr-only">Wyczyść filtry</span>
+          <span aria-hidden="true" className="2xl:hidden">
+            Wyczyść
+          </span>
+          {activeCount > 0 ? ` (${activeCount})` : ""}
         </button>
       )}
     </div>
