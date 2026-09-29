@@ -13,6 +13,8 @@ Silnik wspiera operacje (Op = ``(kind, target, blocks)``):
   - ``append_appendix``    target=None → nowy Załącznik na końcu dokumentu (page-break)
   - ``after_table``        target=int  → wstaw akapity po tabeli (indeks)
   - ``after_sentence``     target=str  → wstaw akapity po akapicie zawierającym frazę
+  - ``replace_paragraph``  target=str  → podmień TREŚĆ akapitu zawierającego frazę
+    (jeden blok; formatowanie akapitu z szablonu zostaje — np. § 13 ust. 6 BIK)
 
 Blok = ``(kind, text)``. kind: ``h`` nagłówek (centrowany bold), ``sub`` podtytuł
 (centrowany bold), ``sh`` nagłówek sekcji wewnątrz załącznika (bold), ``p``
@@ -183,6 +185,20 @@ def _nth_table_end(rendered: str, idx: int) -> int:
     return pos + len("</table>")
 
 
+def _html_paragraph_inner_span(rendered: str, anchor: str) -> tuple[int, int] | None:
+    """(start, koniec) treści ``<p>`` zawierającego ``anchor`` albo None."""
+    pos = rendered.find(anchor)
+    if pos == -1:
+        return None
+    m = None
+    for m in re.finditer(r"<p(?:\s[^>]*)?>", rendered[:pos]):
+        pass
+    close = rendered.find("</p>", pos)
+    if m is None or close == -1:
+        return None
+    return (m.end(), close)
+
+
 def apply_ops_html_counted(rendered_html: str, ops: list[Op]) -> tuple[str, int]:
     """Jak ``apply_ops_html``, ale zwraca też liczbę WYKONANYCH operacji.
 
@@ -224,6 +240,12 @@ def apply_ops_html_counted(rendered_html: str, ops: list[Op]) -> tuple[str, int]
                     cut = close + len("</p>")
                     out = out[:cut] + "\n" + frag + out[cut:]
                     applied += 1
+        elif kind == "replace_paragraph":
+            span = _html_paragraph_inner_span(out, str(target))
+            if span:
+                text = html.escape(blocks[0][1], quote=False)
+                out = out[: span[0]] + text + out[span[1] :]
+                applied += 1
     return (out, applied)
 
 
@@ -445,4 +467,15 @@ def apply_ops_docx(doc, ops: list[Op]) -> int:
             if ref is not None:
                 _emit_after(ref, body_parent, blocks, styles)
                 applied += 1
+        elif kind == "replace_paragraph":
+            anchor = str(target)
+            for p in doc.paragraphs:
+                if anchor in (p.text or "") and p.runs:
+                    # Pierwszy run niesie formatowanie akapitu z szablonu;
+                    # reszta runów (EN ma ich trzy) zostaje wyczyszczona.
+                    p.runs[0].text = blocks[0][1]
+                    for run in p.runs[1:]:
+                        run.text = ""
+                    applied += 1
+                    break
     return applied
