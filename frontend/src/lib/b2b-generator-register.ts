@@ -2,6 +2,7 @@
 // (`components/v2/pages/B2BContractGeneratorV2.tsx`), bo tamten ma ponad 4 tys.
 // linii i te decyzje dają się sprawdzić bez montowania formularza.
 import type {
+  B2BAnnexRate,
   B2BContractStatus,
   B2BGeneratedContractRow,
 } from "@/lib/api";
@@ -14,6 +15,7 @@ export type GeneratorTab =
   | "generated"
   | "no-project"
   | "closed"
+  | "annexes"
   | "documents"
   | "roles";
 
@@ -22,6 +24,7 @@ export const GENERATOR_TABS: readonly GeneratorTab[] = [
   "generated",
   "no-project",
   "closed",
+  "annexes",
   "documents",
   "roles",
 ] as const;
@@ -32,6 +35,7 @@ const TAB_ALIASES: Record<string, GeneratorTab> = {
   current: "generated",
   "without-project": "no-project",
   ended: "closed",
+  aneksy: "annexes",
 };
 
 export function generatorTabFromParam(
@@ -393,4 +397,31 @@ export function needsContractLink(
     row.contract_id == null &&
     !isExcelRow(row)
   );
+}
+
+
+// ── Stawki z aneksu (Generator aneksów) ─────────────────────────────────────
+
+function plRate(value: number): string {
+  const fixed = value.toFixed(2).replace(".", ",");
+  return fixed.endsWith(",00") ? fixed.slice(0, -3) : fixed;
+}
+
+/**
+ * „Stawka z aneksu” w wierszu rejestru: „150 zł/h do 31.12.2026; 160,50 zł/h
+ * od 01.01.2027 · Bank Pocztowy S.A.”. `null` = brak aneksu stawki.
+ */
+export function annexRatesSummary(
+  items: readonly B2BAnnexRate[] | null | undefined,
+): string | null {
+  if (!items?.length) return null;
+  return items
+    .map((item) => {
+      const parts = [`${plRate(Number(item.rate))} zł/h`];
+      if (item.from) parts.push(`od ${formatIsoDatePl(item.from)}`);
+      if (item.to) parts.push(`do ${formatIsoDatePl(item.to)}`);
+      const text = parts.join(" ");
+      return item.client_name ? `${text} · ${item.client_name}` : text;
+    })
+    .join("; ");
 }

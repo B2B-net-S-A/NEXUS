@@ -48,9 +48,9 @@ def test_number_words_handle_millions():
 
 def test_money_of_a_million_is_rejected_before_render():
     doc_type = TYPES["annex_rate_change"]
-    problems = invalid_values(doc_type, {"new_rate": "1000000"})
+    problems = invalid_values(doc_type, {"rate_items": [{"rate": "1000000"}]})
     assert problems and "mniejsza niż 1 000 000" in problems[0]
-    assert invalid_values(doc_type, {"new_rate": "165.50"}) == []
+    assert invalid_values(doc_type, {"rate_items": [{"rate": "165.50"}]}) == []
 
 
 def test_last_service_after_termination_is_rejected():
@@ -279,7 +279,7 @@ async def test_rate_of_a_million_is_422_not_500(app_client, app_auth_headers):
             "document_type": "annex_rate_change",
             "parent_generated_contract_id": rid,
             "values": _values(
-                effective_date="2026-11-01", new_rate="1000000", currency="PLN"
+                effective_date="2026-11-01", rate_items=[{"rate": "1000000"}]
             ),
         },
     )
@@ -424,8 +424,7 @@ async def _rate_annex(app_client, app_auth_headers) -> tuple[int, int, int]:
         "annex_rate_change",
         rid,
         effective_date="2026-11-01",
-        new_rate="165",
-        currency="PLN",
+        rate_items=[{"rate": "165"}],
     )
     return doc_id, contract_id, client_id
 

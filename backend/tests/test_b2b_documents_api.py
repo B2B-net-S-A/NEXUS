@@ -63,6 +63,18 @@ def _values(**extra) -> dict:
         "gender": "k",
         "partner_name": "Anna Testowa",
         "partner_legal_name": "Anna Testowa IT",
+        # Pola wspólne generatora aneksów (29.09.2026) — innym typom nie
+        # przeszkadzają, bo formularz wysyła tylko pola swojego typu.
+        "contract_number": "1600/2026",
+        "contract_signing_date": "2026-08-03",
+        "effective_date": "2026-10-01",
+        "partner_variant": "sole_trader",
+        "partner_nip": "5270103391",
+        "partner_regon": "012345678",
+        "partner_business_address": "ul. Prosta 1, 00-001 Warszawa",
+        "paragraph": "13",
+        "paragraph_section": "2",
+        "current_start_date": "2026-10-01",
         **extra,
     }
 
@@ -246,8 +258,7 @@ async def test_rate_annex_goes_through_the_amendment_path(app_client, app_auth_h
         "annex_rate_change",
         rid,
         effective_date="2026-11-01",
-        new_rate="165",
-        currency="PLN",
+        rate_items=[{"rate": "165"}],
     )
     signed = await app_client.post(
         f"{BASE}/documents/{doc_id}/confirm-signed", headers=app_auth_headers
@@ -342,7 +353,14 @@ async def test_sensitive_values_never_reach_the_database(app_client, app_auth_he
     with_values = await app_client.post(
         f"{BASE}/documents/{doc_id}/docx",
         headers=app_auth_headers,
-        json={"values": {"partner_home_address": "ul. Tajna 1, Warszawa"}},
+        json={
+            "values": {
+                "partner_home_address": "ul. Tajna 1, Warszawa",
+                # Numer dowodu jest w aneksie uzupełnienia danych wymagany
+                # (ticket generatora aneksów) — też go nie przechowujemy.
+                "id_document": "ABC123456",
+            }
+        },
     )
     assert with_values.status_code == 200, with_values.text
 
@@ -420,8 +438,7 @@ async def test_rate_annex_is_hidden_from_someone_who_cannot_see_the_rate(
         "annex_rate_change",
         rid,
         effective_date="2026-11-01",
-        new_rate="165",
-        currency="PLN",
+        rate_items=[{"rate": "165"}],
     )
     recruiter_headers, _ = await _seed_user(app_client, "recruiter")
     for path in (f"/documents/{doc_id}/effects", f"/documents/{doc_id}/form"):
@@ -451,7 +468,6 @@ async def test_signed_document_is_frozen_and_foreign_edit_is_403(
         "annex_start_date",
         rid,
         new_start_date="2026-11-01",
-        new_start_date_mode="exact",
     )
     other_h, _ = await _seed_user(app_client, "tac")
     foreign = await app_client.delete(f"{BASE}/documents/{doc_id}", headers=other_h)
@@ -467,7 +483,7 @@ async def test_signed_document_is_frozen_and_foreign_edit_is_403(
         json={
             "document_type": "annex_start_date",
             "parent_generated_contract_id": rid,
-            "values": _values(new_start_date="2026-12-01", new_start_date_mode="exact"),
+            "values": _values(new_start_date="2026-12-01"),
         },
     )
     assert rerender.status_code == 409, rerender.text
@@ -481,7 +497,6 @@ async def test_documents_list_filters_by_parent(app_client, app_auth_headers):
         "annex_start_date",
         rid,
         new_start_date="2026-11-01",
-        new_start_date_mode="exact",
     )
     resp = await app_client.get(
         f"{BASE}/documents",
@@ -491,7 +506,7 @@ async def test_documents_list_filters_by_parent(app_client, app_auth_headers):
     assert resp.status_code == 200, resp.text
     [item] = resp.json()
     assert item["id"] == doc_id
-    assert item["label"].startswith("Aneks — zmiana daty rozpoczęcia z dnia 23.09.2026")
+    assert item["label"].startswith("Aneks — zmiana daty startu z dnia 23.09.2026")
     assert item["can_edit"] is True
 
 

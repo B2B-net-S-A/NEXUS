@@ -143,6 +143,70 @@ VOID_CONTRACT_BLOCKER = (
 )
 
 
+@dataclass(frozen=True)
+class RateStep:
+    """Pozycja aneksu stawki w postaci kroku harmonogramu kontraktu."""
+
+    effective: date | None
+    rate: Decimal
+    until: date | None
+    client_id: int | None
+    client_name: str | None
+
+
+def rate_steps(values: dict[str, Any], fallback: date | None) -> list[RateStep]:
+    """Pozycje stawki aneksu, chronologicznie. Pozycja bez daty „od” obowiązuje
+    od dnia wejścia zmian w życie. Dokument sprzed generatora aneksów niesie
+    jedną stawkę w ``new_rate``."""
+    from app.services.b2b_documents.registry import parse_amount
+
+    raw_items = values.get("rate_items")
+    if not isinstance(raw_items, list) or not raw_items:
+        raw_items = (
+            [{"rate": values.get("new_rate")}]
+            if values.get("new_rate") not in (None, "")
+            else []
+        )
+    effective = _date(values.get("effective_date")) or fallback
+    steps: list[RateStep] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        amount = parse_amount(item.get("rate"))
+        if amount is None:
+            continue
+        client_id = item.get("client_id")
+        steps.append(
+            RateStep(
+                effective=_date(item.get("from")) or effective,
+                rate=Decimal(str(round(amount, 2))),
+                until=_date(item.get("to")),
+                client_id=int(client_id) if client_id else None,
+                client_name=item.get("client_name") or None,
+            )
+        )
+    return sorted(steps, key=lambda s: s.effective or date.min)
+
+
+def split_rate_steps(
+    steps: list[RateStep], contract: Contract | None
+) -> tuple[list[RateStep], list[RateStep]]:
+    """(kroki dla klienta tego kontraktu albo bez klienta, kroki innych klientów).
+
+    Stawka dla innego klienta to inny projekt — inny kontrakt; aneks nie może
+    przepisać jej na kontrakt tej umowy."""
+    if contract is None:
+        return steps, []
+    mine = [s for s in steps if s.client_id in (None, contract.client_id)]
+    other = [s for s in steps if s.client_id not in (None, contract.client_id)]
+    return mine, other
+
+
+def _pl_rate(value: Decimal) -> str:
+    text = f"{value:.2f}".replace(".", ",")
+    return text[:-3] if text.endswith(",00") else text
+
+
 def _payload(doc: B2BContractDocument) -> dict[str, Any]:
     """Pola formularza dokumentu — `render_payload` trzyma je pod `values`
     (obok `refs` i migawki `base`)."""
@@ -237,15 +301,35 @@ async def describe(
     )
     key = doc_type.key
     if key == "annex_rate_change":
-        rate = values.get("new_rate")
-        eff = _date(values.get("effective_date"))
+        steps = rate_steps(values, doc.document_date)
+        currency_label = (values.get("currency") or "PLN").upper()
         if contract is None:
             plan.warnings.append(no_contract)
         else:
-            plan.changes.append(
-                f"Stawka Partnera {rate} {values.get('currency') or ''}/h od {_pl(eff)} "
-                "— nowy krok w harmonogramie stawek kontraktu."
-            )
+            mine, other = split_rate_steps(steps, contract)
+            for step in mine:
+                plan.changes.append(
+                    f"Stawka Partnera {_pl_rate(step.rate)} {currency_label}/h od "
+                    f"{_pl(step.effective)} — nowy krok w harmonogramie stawek "
+                    "kontraktu."
+                )
+                if step.until is not None and step is mine[-1]:
+                    plan.warnings.append(
+                        f"Ostatnia stawka ma datę „do” {_pl(step.until)} — "
+                        "harmonogram kontraktu zostawi ją także po tej dacie, "
+                        "dopóki nie przyjdzie kolejny aneks."
+                    )
+            for step in other:
+                plan.warnings.append(
+                    f"Stawka {_pl_rate(step.rate)} {currency_label}/h dla Klienta "
+                    f"{step.client_name or '…'} nie zmieni tego kontraktu (inny "
+                    "klient) — zmień ją w kontrakcie Partnera u tego klienta."
+                )
+            if not mine:
+                plan.warnings.append(
+                    "Żadna stawka aneksu nie dotyczy klienta tego kontraktu — "
+                    "kontrakt się nie zmieni."
+                )
             currency = (contract.rate_candidate_currency or "PLN").upper()
             if (values.get("currency") or "PLN").upper() != currency:
                 plan.blockers.append(
@@ -509,20 +593,29 @@ async def apply(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=RATE_ANNEX_CONFIRMER_BLOCKER,
             )
-        amendment = await contracts_api.apply_contract_amendment(
-            contract_id=contract.id,
-            data=ContractAmendmentCreate(
-                amendment_type=ContractAmendmentType.rate_change,
-                effective_date=_date(values.get("effective_date")),
-                new_rate_candidate=Decimal(str(values.get("new_rate"))),
-                reason=reason,
-                document_id=stored.id if stored else None,
-            ),
-            current_user=user,
-            db=db,
-            finance_write_authorized=True,
-        )
-        summary["amendment_id"] = amendment.id
+        # Każda pozycja (stawka progresywna) to osobny krok harmonogramu,
+        # chronologicznie. Pozycje innych klientów nie ruszają tego kontraktu.
+        mine, _other = split_rate_steps(rate_steps(values, doc.document_date), contract)
+        amendment_ids: list[int] = []
+        for step in mine:
+            amendment = await contracts_api.apply_contract_amendment(
+                contract_id=contract.id,
+                data=ContractAmendmentCreate(
+                    amendment_type=ContractAmendmentType.rate_change,
+                    effective_date=step.effective or doc.document_date,
+                    new_rate_candidate=step.rate,
+                    reason=reason,
+                    document_id=stored.id if stored else None,
+                ),
+                current_user=user,
+                db=db,
+                finance_write_authorized=True,
+            )
+            amendment_ids.append(amendment.id)
+        if amendment_ids:
+            summary["amendment_id"] = amendment_ids[0]
+            if len(amendment_ids) > 1:
+                summary["amendment_ids"] = amendment_ids
 
     elif key == "annex_start_date":
         new_start = _date(values.get("new_start_date"))
@@ -552,7 +645,9 @@ async def apply(
     elif key == "annex_party_data":
         legal_name = values.get("new_legal_name")
         nip = "".join(ch for ch in str(values.get("new_nip") or "") if ch.isdigit())
-        entity = values.get("entity_type")
+        # Aneks z generatora aneksów dotyczy zawsze JDG (ticket 29.09.2026);
+        # dokument sprzed niego niesie `entity_type` wybrany w formularzu.
+        entity = values.get("entity_type") or "sole_trader"
         candidate_id = doc.candidate_id or (parent.candidate_id if parent else None)
         if candidate_id is not None:
             candidate = await db.get(Candidate, candidate_id)
