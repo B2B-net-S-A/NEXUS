@@ -140,6 +140,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.prep_review: ("F24", "gpt-6-luna"),
     # F25 — decyzja 25.09.2026: jednorazowy import archiwum pytań z interview.
     AIFeatureKey.interview_question_import: ("F25", "gpt-6-luna"),
+    # F26 — decyzja 29.09.2026: research „Champion po ludzku” (web_search → Anthropic).
+    AIFeatureKey.plain_knowledge_research: ("F26", "claude-sonnet-5"),
 }
 
 

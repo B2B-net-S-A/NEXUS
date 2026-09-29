@@ -53,6 +53,12 @@ export interface ClientPlaybook {
   multi_project_cooldown_days: number | null;
   rate_policy: string | null;
   about_for_candidate: string | null;
+  /**
+   * `web` = opis ułożony z publicznych źródeł (AI) — karta pokazuje plakietkę
+   * „z internetu” i źródła. Pola opcjonalne: starsze odpowiedzi ich nie niosą.
+   */
+  about_for_candidate_origin?: "manual" | "web" | null;
+  about_for_candidate_sources?: { url: string; title: string | null }[];
   priority_rules: string | null;
   process_rules_md: string | null;
   onboarding_md: string | null;

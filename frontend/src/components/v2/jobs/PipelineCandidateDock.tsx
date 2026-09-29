@@ -76,6 +76,7 @@ import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { type KanbanColumn, type KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { NextAction } from "@/lib/pipeline-next-action";
+import { DockCallCheatsheet } from "@/components/v2/jobs/DockCallCheatsheet";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { CVShareLinkModal } from "@/components/v2/modals/CVShareLinkModal";
 import { SendEmailV2 } from "@/components/v2/modals/SendEmailV2";
@@ -1218,6 +1219,10 @@ export function PipelineCandidateDock({
             >
               <Sparkles className="h-3.5 w-3.5" /> Otwórz Screening Championa
             </Button>
+            {/* „Ściąga do rozmowy” (29.09.2026): tekst na start, odpowiedzi na
+                pytania kandydata i trzy pytania z profilu — z wyjaśnienia
+                „Po ludzku”. Pusta ściąga się nie renderuje. */}
+            <DockCallCheatsheet jobId={jobId} />
             {screeningQuery.isSuccess ? (
               // Sekcje 4 i 8 Championa — co sprawdzić i na co uważać, zanim
               // rekruter zadzwoni. Zwinięte: dok ma być krótki.

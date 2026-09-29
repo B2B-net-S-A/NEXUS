@@ -45,6 +45,7 @@ export type SettingsItemId =
   | "kpi-targets"
   | "mail"
   | "skills"
+  | "roles"
   | "trainee-rules"
   | "contracts"
   | "rates"
@@ -175,6 +176,14 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     description: "Technologie i ich aliasy rozpoznawane w CV i wyszukiwarce.",
     keywords: "umiejetnosci skille technologie aliasy taksonomia slownik cortex",
     // `/api/skills-admin`: HeadOfRecruitmentPlus + zapis sekcji Sourcing.
+    gate: { roles: ["admin", "head_of_recruitment"], section: "sourcing", required: "write" },
+  },
+  {
+    id: "roles", area: "rec", title: "Biblioteka ról",
+    description: "Opisy ról po ludzku, z których korzysta wyjaśnienie rekrutacji.",
+    keywords: "role biblioteka po ludzku opis stanowiska wyjasnienie champion",
+    // `/api/role-profiles` (zapis): admin + Head of Recruitment — ta sama
+    // bramka co Słownik umiejętności, obok którego żyje słowniczek „Po ludzku”.
     gate: { roles: ["admin", "head_of_recruitment"], section: "sourcing", required: "write" },
   },
   {

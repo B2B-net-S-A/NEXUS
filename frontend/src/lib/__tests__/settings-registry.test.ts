@@ -73,6 +73,16 @@ describe("settings-registry — widoczność jak przed przebudową", () => {
     expect(item("skills").area).toBe("rec");
   });
 
+  it("Biblioteka ról: ta sama bramka co słownik (admin i HoR z zapisem Sourcing)", () => {
+    expect(can(user("admin", { sourcing: "write" }), "roles")).toBe(true);
+    expect(can(user("head_of_recruitment", { sourcing: "write" }), "roles")).toBe(true);
+    expect(can(user("head_of_recruitment", { sourcing: "read" }), "roles")).toBe(false);
+    expect(can(user("delivery_lead", { sourcing: "write" }), "roles")).toBe(false);
+    expect(can(user("recruiter", { sourcing: "write" }), "roles")).toBe(false);
+    expect(item("roles").area).toBe("rec");
+    expect(item("roles").hidden).toBeFalsy();
+  });
+
   it("rekruter ma jeden obszar", () => {
     const r = user("recruiter", { pipeline: "write" });
     expect(listedSettingsAreas(r as never).map((a) => a.id)).toEqual(["me"]);

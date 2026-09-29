@@ -183,6 +183,9 @@ from app.api import hiring_manager_feedback as hiring_manager_feedback_api
 from app.api import proposals_bulk as proposals_bulk_api
 from app.api import job_proposals as job_proposals_api
 from app.api import job_similar as job_similar_api
+from app.api import plain_brief as plain_brief_api
+from app.api import plain_brief_refresh as plain_brief_refresh_api
+from app.api import role_profiles as role_profiles_api
 from app.api import invite_links as invite_links_api
 from app.api import career_links as career_links_api
 from app.api import public_career as public_career_api
@@ -1584,6 +1587,9 @@ app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
 app.include_router(job_proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(job_similar_api.router, prefix="/api", tags=["similar-jobs"])
+app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])
+app.include_router(plain_brief_refresh_api.router, prefix="/api", tags=["plain-brief"])
+app.include_router(role_profiles_api.router, prefix="/api", tags=["role-profiles"])
 app.include_router(job_shortlist_api.router, prefix="/api", tags=["shortlist"])
 app.include_router(
     hiring_manager_feedback_api.router,
@@ -2704,6 +2710,12 @@ async def api_health_deep_check():
     from app.models.cv_share_token import CVShareToken
     from app.models.client_playbook import ClientPlaybook
     from app.models.client_playbook_event import ClientPlaybookEvent
+    from app.models.plain_knowledge import (
+        JobPlainBrief,
+        PlainKnowledgeEvent,
+        PlainTerm,
+        RoleProfile,
+    )
     from app.models.client_executive_contract import ClientExecutiveContract
     from app.models.client_cleanup import ClientCleanupRun, PurgedClient
     from app.models.critical_event import CriticalEvent
@@ -2872,6 +2884,12 @@ async def api_health_deep_check():
         # jako 500 na profilu klienta i w Pomocy → Klienci. Sonda jest dowodem.
         ("client_playbooks", ClientPlaybook),
         ("client_playbook_events", ClientPlaybookEvent),
+        # 0403: „Champion po ludzku”. Brak tabel = 500 na Podglądzie Championa
+        # i w doku osoby (ściąga do rozmowy).
+        ("plain_terms", PlainTerm),
+        ("role_profiles", RoleProfile),
+        ("job_plain_briefs", JobPlainBrief),
+        ("plain_knowledge_events", PlainKnowledgeEvent),
         # 0312: umowy wykonawcze Centrum e-Zdrowia. Brak tabeli wyszedłby jako
         # 500 na profilu klienta 115 i w każdym formularzu zamówienia CeZ.
         ("client_executive_contracts", ClientExecutiveContract),

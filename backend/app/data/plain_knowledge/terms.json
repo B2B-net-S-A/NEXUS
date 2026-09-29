@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "note": "Słowniczek technologii „po ludzku”. Budowany skryptem scripts/build_plain_knowledge.py (research w internecie + przegląd człowieka). term_key = skill_normalize.canonical_of(nazwa).",
+  "terms": []
+}

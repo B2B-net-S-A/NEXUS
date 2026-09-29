@@ -270,6 +270,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'prep_review'",
     # 0383: import archiwum pytań z interview (GPT-6 Luna, jednorazowy skrypt).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'interview_question_import'",
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'plain_knowledge_research'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -819,6 +820,16 @@ except Exception as _b2b_register_err:  # noqa: BLE001
     print(f"b2b register import DDL unavailable: {_b2b_register_err!r}")
     _B2B_REGISTER_DDL = []
 
+# „Champion po ludzku” (migracja 0403): słowniczek, biblioteka ról, teksty
+# rekrutacji — JEDNO źródło z migracją (`app/services/plain_knowledge/schema_sql.py`).
+try:
+    from app.services.plain_knowledge import schema_sql as _plain
+
+    _PLAIN_KNOWLEDGE_DDL = list(_plain.TABLE_DDL)
+except Exception as _plain_err:  # noqa: BLE001
+    print(f"plain knowledge DDL unavailable: {_plain_err!r}")
+    _PLAIN_KNOWLEDGE_DDL = []
+
 # Dokumenty kontraktów z SharePointa (migracja 0402, ticket 9): przebiegi
 # pierwszego pobrania, stan plików synchronizacji i kolumny `contract_documents`
 # — JEDNO źródło z migracją (`app/services/contract_folder_docs/schema_sql.py`).
@@ -832,6 +843,7 @@ except Exception as _contract_docs_sp_err:  # noqa: BLE001
 
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
+    *_PLAIN_KNOWLEDGE_DDL,
     *_B2B_DOCUMENTS_DDL,
     *_B2B_REGISTER_DDL,
     *_CONTRACT_DOCS_SP_DDL,
@@ -6422,6 +6434,11 @@ _DATA_STATEMENTS = [
     "SELECT 'interview_question_import', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'interview_question_import')",
+    # 0403: seed feature'a AI `plain_knowledge_research` („Champion po ludzku”).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'plain_knowledge_research', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'plain_knowledge_research')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.
@@ -8912,6 +8929,19 @@ async def _lowercase_user_emails(conn):
         print(f"user emails lowercase skip: {type(e).__name__}")
 
 
+async def _seed_plain_knowledge(conn):
+    # „Champion po ludzku” (0403): słowniczek i role z plików w repo. Wiersz
+    # poprawiony w aplikacji (`origin='manual'`) nie jest nadpisywany. Błąd nie
+    # może urwać reszty startu (constraints i indeksy biegną po seedach).
+    try:
+        from app.services.plain_knowledge.seed import seed_async
+
+        terms, roles = await seed_async(conn)
+        print(f"plain knowledge seed: terms={terms} roles={roles}")
+    except Exception as e:  # noqa: BLE001
+        print(f"plain knowledge seed skip: {type(e).__name__}")
+
+
 async def _seed_client_playbooks(conn):
     entries = _read_playbook_seed()
     if not entries:
@@ -9051,6 +9081,7 @@ async def backfill():
                 print(f"backfill data skip: {stmt!r} -> {e!r}")
         await _seed_repo_procedures(conn)
         await _seed_client_playbooks(conn)
+        await _seed_plain_knowledge(conn)
         await _lowercase_user_emails(conn)
         _t = _timing("data statements + seeds", _t)
         await _apply_limits(conn, lock="'3s'", statement="'60s'")

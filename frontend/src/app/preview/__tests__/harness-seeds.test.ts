@@ -426,3 +426,31 @@ describe("/preview/b2b-generator (ticket 8) zasiewa stałe klucze formularza i n
     expect(harness).toContain("api.interceptors.request.use");
   });
 });
+
+describe("/preview/plain-brief zasiewa wyjaśnienie tymi samymi kluczami co komponenty", () => {
+  const harness = withoutComments(read("app/preview/plain-brief/page.tsx"));
+  const api = withoutComments(read("lib/api/plainKnowledge.ts"));
+
+  it("hooki biorą klucze z funkcji, a harness zasiewa je tymi funkcjami", () => {
+    // Stałych literałów nie ma — każdy klucz buduje eksportowana funkcja.
+    expect(literalQueryKeys(api)).toEqual([]);
+    expect(api).toContain("queryKey: plainBriefQueryKey(jobId)");
+    expect(api).toContain("queryKey: roleProfilesQueryKey(q)");
+    expect(harness).toMatch(/setQueryData\(\s*plainBriefQueryKey\(JOB_ID\)/);
+    expect(harness).toMatch(/setQueryData\(\s*roleProfilesQueryKey\(""\)/);
+  });
+
+  it("komponenty nie mają własnych stałych kluczy", () => {
+    for (const file of [
+      "components/champion/plain/PlainBriefBlock.tsx",
+      "components/v2/jobs/DockCallCheatsheet.tsx",
+    ]) {
+      expect(literalQueryKeys(read(file)), file).toEqual([]);
+    }
+  });
+
+  it("odcina sieć na czas życia harnessu", () => {
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
+  });
+});

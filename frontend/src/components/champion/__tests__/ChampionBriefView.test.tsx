@@ -30,6 +30,9 @@ vi.mock("@/components/RequestHistorySection", () => ({
     <div data-testid="request-history" data-read-only={String(readOnly)} data-narrow={String(!!narrow)} />
   ),
 }));
+vi.mock("@/components/champion/plain/PlainBriefBlock", () => ({
+  PlainBriefBlock: () => <div data-testid="plain-brief-block" />,
+}));
 vi.mock("@/components/ChampionClientQuestionsPanel", () => ({
   ChampionClientQuestionsPanel: ({ canEdit }: { canEdit: boolean }) => (
     <div data-testid="client-questions" data-can-edit={String(canEdit)} />

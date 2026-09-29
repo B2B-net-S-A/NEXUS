@@ -129,6 +129,12 @@ from app.models.client_cv_rule_publication import ClientCvRulePublication
 from app.models.client_cv_rule_preview import ClientCvRulePreview
 from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
+from app.models.plain_knowledge import (  # noqa: F401
+    JobPlainBrief,
+    PlainKnowledgeEvent,
+    PlainTerm,
+    RoleProfile,
+)
 from app.models.client_cleanup import ClientCleanupRun, PurgedClient
 from app.models.critical_event import CriticalEvent
 from app.models.order_change_check import OrderChangeCheck, OrderPdfDownload
@@ -442,6 +448,10 @@ __all__ = [
     "ClientCvRulePreview",
     "ClientPlaybook",
     "ClientPlaybookEvent",
+    "JobPlainBrief",
+    "PlainKnowledgeEvent",
+    "PlainTerm",
+    "RoleProfile",
     "ClientCleanupRun",
     "PurgedClient",
     "CriticalEvent",

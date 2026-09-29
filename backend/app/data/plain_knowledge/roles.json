@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "note": "Biblioteka ról „po ludzku”. Budowana skryptem scripts/build_plain_knowledge.py z grupowania historii rekrutacji + research w internecie + przegląd człowieka. Bez danych klientów.",
+  "roles": []
+}
