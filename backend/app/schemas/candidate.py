@@ -748,6 +748,8 @@ class CandidateQuickViewNote(BaseModel):
     content: str
     created_at: datetime
     author_name: Optional[str] = None
+    # 0399: przypięta notatka (wspólnie dla zespołu) — podgląd stawia ją pierwszą.
+    pinned: bool = False
 
 
 class CandidateCvHighlights(BaseModel):

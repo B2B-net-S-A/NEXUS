@@ -334,6 +334,32 @@ function TimelineCard({ item, fromStage }: { item: any; fromStage?: string }) {
           </p>
         )}
 
+        {item.type === "note" && item.is_system ? (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Wpis automatu (systemowy)
+          </p>
+        ) : null}
+
+        {/* 0399: odpowiedzi jadą pod notatką, nie jako osobne wpisy. */}
+        {item.type === "note" && Array.isArray(item.replies) && item.replies.length > 0 ? (
+          <div className="mt-2 space-y-1.5 border-l-2 border-border pl-3">
+            {item.replies.map((reply: any) => (
+              <div key={reply.id} className="text-sm">
+                <span className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">
+                    {reply.author_name ?? "Odpowiedź"}
+                  </span>
+                  {" · "}
+                  {timelineTime(reply.timestamp)}
+                </span>
+                <p className="whitespace-pre-line text-foreground">
+                  {unwrapNoteContent(reply.content_rendered ?? reply.content)}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         {item.notes && (
           <p className="mt-1.5 whitespace-pre-line rounded-md bg-muted/50 px-2.5 py-1.5 text-sm italic text-muted-foreground">
             {item.notes}

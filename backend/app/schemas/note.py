@@ -11,6 +11,9 @@ class NoteCreate(BaseModel):
     note_type: NoteType = NoteType.general
     candidate_id: Optional[int] = None
     job_id: Optional[int] = None
+    # 0399: odpowiedź na notatkę. Kandydata i rekrutację bierze serwer
+    # z notatki głównej — wartości z żądania są wtedy ignorowane.
+    parent_note_id: Optional[int] = Field(default=None, ge=1)
 
 
 class NoteUpdate(BaseModel):
@@ -36,6 +39,8 @@ class NoteResponse(BaseModel):
     author_id: Optional[int]
     created_at: datetime
     updated_at: datetime
+    parent_note_id: Optional[int] = None
+    pinned_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
@@ -58,8 +63,20 @@ class EnrichedNoteResponse(NoteResponse):
     author_email: Optional[str] = None
     content_rendered: Optional[str] = None
     job_title: Optional[str] = None
+    # 0399: `external_source` = pochodzenie (traffit, system, trainee_call…);
+    # `is_system` = wpis automatu, domyślnie schowany za „Pokaż systemowe”.
+    external_source: Optional[str] = None
+    is_system: bool = False
+    pinned_by_name: Optional[str] = None
+    # Odpowiedzi (jeden poziom, od najstarszej). Lista notatek NIE liczy ich
+    # jako osobnych notatek; odpowiedź zawsze ma tu pustą listę.
+    replies: list["EnrichedNoteResponse"] = Field(default_factory=list)
 
 
 class EnrichedNoteList(BaseModel):
     items: list[EnrichedNoteResponse]
+    # Liczba notatek głównych (bez odpowiedzi).
     total: int
+
+
+EnrichedNoteResponse.model_rebuild()

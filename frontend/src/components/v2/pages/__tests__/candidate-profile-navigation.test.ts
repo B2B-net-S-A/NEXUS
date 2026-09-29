@@ -141,9 +141,25 @@ describe("candidate profile navigation", () => {
       }),
     ).toMatchObject({
       section: "recruitments",
-      activity: "timeline",
+      activity: "notes",
       hasExplicitTab: false,
     });
+  });
+
+  it("opens Historia on Notatki by default, old timeline links keep Wszystko", () => {
+    // Decyzja 29.09.2026: domyślny filtr „Historii” to notatki.
+    expect(
+      parseCandidateProfileView(new URLSearchParams("tab=activity")),
+    ).toMatchObject({ section: "activity", activity: "notes" });
+    for (const legacy of ["timeline", "podglad"]) {
+      expect(
+        parseCandidateProfileView(new URLSearchParams(`tab=${legacy}`)),
+        legacy,
+      ).toMatchObject({ section: "activity", activity: "timeline", isLegacy: true });
+    }
+    expect(
+      parseCandidateProfileView(new URLSearchParams("tab=activity&activity=timeline")),
+    ).toMatchObject({ activity: "timeline" });
   });
 
   it("writes a canonical view while preserving nav, job and message context", () => {

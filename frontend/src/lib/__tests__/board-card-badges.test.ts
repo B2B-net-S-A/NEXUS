@@ -61,6 +61,18 @@ describe("odznaki karty — Pipeline v4", () => {
     expect(labels(free, ctx({ column: "screening" }))).toEqual(["Z ogłoszenia", "Wolny"]);
   });
 
+  it("wejście z automatu niesie wynik zamiast notatki (0399)", () => {
+    const auto = item({
+      entry_source: "auto_match",
+      entry_auto_match: { score: 67, source: "jjit", must_hit: ["Java"], must_total: 2 },
+    });
+    const badges = cardBadges(auto, ctx());
+    expect(badges.map((b) => b.label)).toEqual(["Auto-match 67/100 · JJIT", "Wolny"]);
+    expect(badges[0].title).toContain("Must-have: 1/2 (Java).");
+    // Proces sprzed 0399 (bez wyniku) — dawna etykieta.
+    expect(labels(item({ entry_source: "auto_match" }), ctx())[0]).toBe("Z automatu");
+  });
+
   it("przepięcie niesie rekrutację źródłową", () => {
     const re = item({ entry_source: "reassign", reassign_from_title: "Java · PKO BP" });
     expect(labels(re, ctx())[0]).toBe("Przepięcie · Java · PKO BP");

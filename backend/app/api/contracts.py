@@ -6284,6 +6284,9 @@ async def contract_timeline(
         select(Note, User.email)
         .outerjoin(User, Note.author_id == User.id)
         .where(Note.contract_id == contract_id)
+        # 0399: odpowiedzi pisze się trasą notatek kandydata (bez bramki
+        # Delivery) — na oś kontraktu nie trafiają nigdy.
+        .where(Note.parent_note_id.is_(None))
         .order_by(Note.created_at.desc())
         .limit(limit)
     )

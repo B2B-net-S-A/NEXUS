@@ -686,6 +686,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'trainee_program_decision'",
     # 0372: follow-up z kandydatem przyniósł zmianę — do właściciela procesu.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_followup_signal'",
+    # 0399: odpowiedź na notatkę — powiadomienie autora notatki głównej.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'note_reply'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -5390,6 +5392,15 @@ END $$""",
     "ALTER TABLE recruitment_processes ADD COLUMN IF NOT EXISTS "
     "reassign_from_job_id INTEGER NULL REFERENCES jobs(id) ON DELETE SET NULL",
     "ALTER TABLE candidate_stages ADD COLUMN IF NOT EXISTS ended_by VARCHAR(16) NULL",
+    # 0399: przypięte notatki, odpowiedzi (jeden poziom) i wynik auto-matcha
+    # przy procesie zamiast notatki. Lustro 1:1 z
+    # `app/services/note_threads_schema.py` (pilnuje test_notes_pin_replies).
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMPTZ NULL",
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS pinned_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS parent_note_id INTEGER NULL REFERENCES notes(id) ON DELETE CASCADE",
+    "CREATE INDEX IF NOT EXISTS ix_notes_parent_note_id ON notes (parent_note_id)",
+    "CREATE INDEX IF NOT EXISTS ix_notes_candidate_pinned ON notes (candidate_id, pinned_at) WHERE pinned_at IS NOT NULL",
+    "ALTER TABLE recruitment_processes ADD COLUMN IF NOT EXISTS entry_meta JSONB NULL",
     # 0352: debrief z jawnym „klient nie zadawał pytań” (bramka przed „Umową”).
     "ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS "
     "no_client_questions BOOLEAN NOT NULL DEFAULT false",
@@ -6001,6 +6012,10 @@ END $$
 
 _DATA_STATEMENTS = [
     *_B2B_DOCUMENTS_BACKFILL,
+    # 0399: stare notatki auto-matcha (z CV i ze scrapera JJIT) oznaczone jako
+    # systemowe — lista chowa je domyślnie, nic nie jest kasowane. Jednorazowo
+    # (znacznik w app_settings). Lustro `note_threads_schema.SYSTEM_NOTES_BACKFILL`.
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM app_settings WHERE key = '0399_auto_match_notes_system') THEN UPDATE notes SET external_source = 'system' WHERE external_source IS NULL AND (content LIKE '%Auto-match score:%' OR (content LIKE 'Auto-match %' AND content LIKE '%kandydat dodany automatycznie%')); INSERT INTO app_settings (key, value) VALUES ('0399_auto_match_notes_system', jsonb_build_object('completed_at', clock_timestamp())) ON CONFLICT (key) DO NOTHING; END IF; END $$",
     # 0366: symulowane „publikacje” SIM-… z dawnej zakładki portali — to nie
     # były prawdziwe ogłoszenia. Idempotentne (drugi start nic nie znajdzie).
     "DELETE FROM job_postings WHERE external_id LIKE 'SIM-%'",

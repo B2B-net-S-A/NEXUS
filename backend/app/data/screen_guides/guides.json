@@ -184,7 +184,8 @@
     "pitfalls": [
       "Osoba zarezerwowana przez kogoś innego (12 h) nie da się przesunąć, dopóki rezerwacja nie wygaśnie albo ktoś uprawniony jej nie przejmie.",
       "CV dla klienta wymagającego zgody RODO da się wygenerować bez zrzutu, ale nie da się go pobrać ani udostępnić, dopóki zrzut nie zostanie dołączony.",
-      "Odznaka „Follow-up: Anna K. · zaległy 2 dni” znaczy, że klient milczy od 14 dni i ta osoba zadzwoni do kandydata — jedna osoba, nawet gdy kandydat jest w kilku procesach. Nie dzwoń drugi raz: zapisz wynik albo kliknij „Zrobię to ja” w bloku „Kontakt z kandydatem”."
+      "Odznaka „Follow-up: Anna K. · zaległy 2 dni” znaczy, że klient milczy od 14 dni i ta osoba zadzwoni do kandydata — jedna osoba, nawet gdy kandydat jest w kilku procesach. Nie dzwoń drugi raz: zapisz wynik albo kliknij „Zrobię to ja” w bloku „Kontakt z kandydatem”.",
+      "Przypięte notatki kandydata (pinezka) są na górze karty — z każdej rekrutacji, nie tylko z tej. Przypina i odpina się je w profilu kandydata, w „Historia → Notatki”."
     ],
     "anchors": [
       {"id": "jobs.person.dock", "label": "Karta kandydata", "describe": "Panel osoby wysuwany z prawej po kliknięciu karty."},
@@ -366,7 +367,8 @@
       }
     ],
     "pitfalls": [
-      "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem."
+      "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem.",
+      "„Historia” otwiera się na „Notatkach”. Wpisy automatów (np. „Auto-match 67/100”) są schowane za „Pokaż systemowe” — wynik dopasowania widać jako plakietkę przy rekrutacji. Ważną notatkę przypnij pinezką: zobaczy ją cały zespół, także w karcie kandydata w rekrutacji."
     ],
     "anchors": [
       {"id": "candidate.profile.assign", "label": "Przypisz do rekrutacji", "describe": "Dodanie kandydata do rekrutacji."},

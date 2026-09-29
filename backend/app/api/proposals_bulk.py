@@ -41,6 +41,7 @@ from app.models.recruitment_pipeline import (
 )
 from app.models.recruitment_priority import PriorityChannel
 from app.services import candidate_claim
+from app.services.process_entry_meta import auto_match_entry_meta
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
 from app.services.candidate_job_eligibility import EligibilityReason
@@ -139,6 +140,28 @@ class BulkProposalsRequest(BaseModel):
     # the candidate (`emit_pipeline_additions`). Never guessed from history.
     run_id: Optional[str] = Field(default=None, max_length=64)
     source: Optional[BulkAddSource] = None
+    # 0399: wynik dopasowania od integracji (scraper JJIT/RocketJobs) — trafia
+    # do procesu jako plakietka „Auto-match 67/100 · JJIT” zamiast notatki.
+    # Serwer przyjmuje go WYŁĄCZNIE od tokenu integracji.
+    auto_match: Optional["AutoMatchEntryIn"] = None
+
+
+class AutoMatchEntryIn(BaseModel):
+    score: float = Field(ge=0, le=100)
+    source: str = Field(min_length=1, max_length=24, pattern=r"^[a-z0-9_]+$")
+    must_hit: list[str] = Field(default_factory=list, max_length=20)
+    must_total: Optional[int] = Field(default=None, ge=0, le=200)
+
+    def as_entry_meta(self) -> dict:
+        return auto_match_entry_meta(
+            score=self.score,
+            source=self.source,
+            must_hit=self.must_hit,
+            must_total=self.must_total,
+        )
+
+
+BulkProposalsRequest.model_rebuild()
 
 
 class BulkSkippedRow(BaseModel):
@@ -431,6 +454,7 @@ async def add_candidates_to_job(
     tags: Optional[list[str]] = None,
     entry_source: str = candidate_claim.ENTRY_ADDED_MANUAL,
     claim: bool = True,
+    entry_meta: Optional[dict] = None,
 ) -> IntakeResult:
     """Dodaj kandydatów do pipeline'u rekrutacji — jedna logika dla trasy i automatu.
 
@@ -576,6 +600,7 @@ async def add_candidates_to_job(
                 ),
                 reassign_from_job_id=reassign_sources.get(candidate_id),
                 claim_for_user_id=actor_user_id if claim else None,
+                entry_meta=entry_meta,
             )
             # M3-ACT-01: every stage-creating entry point must snapshot the CV that
             # was current at assignment (the evidence of what was submitted) + emit
@@ -673,6 +698,11 @@ async def bulk_add_proposals(
             else _entry_source_for(body.source)
         ),
         claim=not from_integration,
+        entry_meta=(
+            body.auto_match.as_entry_meta()
+            if from_integration and body.auto_match is not None
+            else None
+        ),
     )
     added, skipped, warnings = result.added, result.skipped, result.warnings
 

@@ -2025,6 +2025,44 @@ faktów (`PATCH /api/candidates/{id}/work-mode`). Jedna reguła:
   `_no_content`). ~16 tys. wierszy ≈ 3 tygodnie, ~0,004 USD/kandydata.
   Zmiana promptu = bump `PROMPT_VERSION`, a doganianie ruszy samo.
 
+## Notatki: przypięcie, odpowiedzi, automaty bez notatek (0399, 29.09.2026)
+
+Decyzje Artura 29.09.2026 — historia kandydata ma być tym, co napisali ludzie.
+
+- **Automaty nie piszą notatek.** Auto-match z CV (`auto_match_service`)
+  i scraper JJIT/RocketJobs (`integrations/jjit/nexus_client.py`, pole
+  `auto_match` w `proposals/bulk`, przyjmowane WYŁĄCZNIE od tokenu integracji)
+  zapisują wynik w `recruitment_processes.entry_meta`
+  (`services/process_entry_meta.py`); tablica i zakładka „Rekrutacje” niosą
+  `entry_auto_match` → plakietka „Auto-match 67/100 · JJIT”. Nie wracaj do
+  `note=` w automacie.
+- **Stare notatki automatów = `external_source='system'`** (jednorazowo,
+  znacznik `0399_auto_match_notes_system`; SQL w `note_threads_schema.py`,
+  lustro w `entrypoint.sh`) — nic nie jest kasowane. Lista notatek niesie
+  `is_system`, UI chowa je za „Pokaż systemowe (N)”, dok osoby i podgląd
+  kandydata ich nie pokazują.
+- **Przypięcie wspólne dla zespołu:** `POST/DELETE /api/notes/{id}/pin`
+  (bramka `CandidateWriteAccess` jak dodanie notatki, `Activity`
+  `note_pinned`/`note_unpinned`, odpowiedzi nie da się przypiąć). Przypięte są
+  pierwsze na liście, w szybkim podglądzie i w doku osoby w rekrutacji
+  (`PinnedCandidateNotes`, `?pinned_only=true` — z KAŻDEJ rekrutacji).
+- **Odpowiedzi: `notes.parent_note_id`, jeden poziom** (odpowiedź na odpowiedź
+  = 422), CASCADE z notatką główną. Serwer nadpisuje kandydata i rekrutację
+  z notatki głównej, a **kontraktu NIGDY nie dziedziczy** (`contract_id` =
+  NULL): notatki kontraktu pisze DL w zakresie klienta (F03), a `POST
+  /api/notes` wymaga tylko zapisu kandydata; oś kontraktu dodatkowo pomija
+  odpowiedzi. Lista (`GET /api/notes`) zwraca WYŁĄCZNIE notatki główne
+  z `replies[]`, `total` ich nie liczy, `notes_count` kandydata też nie; oś
+  czasu zagnieżdża odpowiedzi. Autor notatki głównej dostaje `note_reply`
+  (kategoria „Wzmianki”, sekcja Sourcing, bez maila); usunięcie odpowiedzi
+  (także kaskadą z notatką główną) czyści jej dzwonek jak wzmiankę.
+  Usunięcie kandydata kasuje odpowiedzi PRZED kaskadą ORM.
+- **„Historia” otwiera się na „Notatkach”** (`?tab=activity` bez filtra);
+  `?tab=timeline`/`podglad`/`activity=timeline` dalej otwierają „Wszystko”.
+  Licznik zakładki = notatki ludzi. Oś czasu nie pokazuje `traffit:Email`,
+  `traffit:Reply`, `traffit:Rozmowa telefoniczna`, `traffit:Spotkanie` —
+  promocja robi z nich notatki. Reguły listy: `lib/candidate-notes-view.ts`.
+
 ## Podsumowanie aktywności kandydata (AI)
 
 Karta „Podsumowanie aktywności" w szynie „Podsumowanie AI" profilu kandydata

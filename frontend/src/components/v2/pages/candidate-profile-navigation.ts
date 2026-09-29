@@ -15,7 +15,12 @@ export const PROFILE_SECTIONS = [
   "documents",
 ] as const;
 
-/** Filtry zakładki „Historia”. `timeline` = „Wszystko”. */
+/**
+ * Filtry zakładki „Historia”. `timeline` = „Wszystko”. Domyślny od
+ * 29.09.2026 to `notes` („Notatki”) — `?tab=activity` bez filtra otwiera
+ * notatki, a stare wejścia na oś czasu (`?tab=timeline`, `?tab=podglad`,
+ * `activity=timeline`) nadal ją otwierają.
+ */
 export const ACTIVITY_VIEWS = [
   "timeline",
   "notes",
@@ -159,7 +164,7 @@ type ViewTarget = Pick<
 >;
 
 const DEFAULT_TARGET: Omit<ViewTarget, "section"> = {
-  activity: "timeline",
+  activity: "notes",
   documents: "files",
   recruitments: "list",
 };
@@ -179,8 +184,8 @@ const LEGACY_TABS: Record<string, ViewTarget> = {
   emails: target("activity", { activity: "emails" }),
   // Zakładki sprzed PR2 (dziewięć zakładek).
   profil: target("summary"),
-  podglad: target("activity"),
-  timeline: target("activity"),
+  podglad: target("activity", { activity: "timeline" }),
+  timeline: target("activity", { activity: "timeline" }),
   rekrutacje: target("recruitments"),
   dopasowanie: target("recruitments", { recruitments: "matching" }),
   notatki: target("activity", { activity: "notes" }),
@@ -210,7 +215,7 @@ export function parseCandidateProfileView(
   if (isOneOf(rawTab, PROFILE_SECTIONS)) {
     return {
       section: rawTab,
-      activity: isOneOf(rawActivity, ACTIVITY_VIEWS) ? rawActivity : "timeline",
+      activity: isOneOf(rawActivity, ACTIVITY_VIEWS) ? rawActivity : "notes",
       documents: isOneOf(rawDocuments, DOCUMENT_VIEWS)
         ? rawDocuments
         : "files",

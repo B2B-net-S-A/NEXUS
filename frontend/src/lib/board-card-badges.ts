@@ -13,6 +13,7 @@
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { BoardColumnKey, StageBadgeKey } from "@/lib/board-stages";
 import { cardBadgeLabel } from "@/lib/candidate-followup";
+import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-view";
 
 export type CardBadgeTone =
   | "own"
@@ -117,7 +118,12 @@ function sourceBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null 
     case "proposal":
       return { key: "source", label: "Propozycja", tone: "neutral" };
     case "auto_match":
-      return { key: "source", label: "Z automatu", tone: "neutral" };
+      return {
+        key: "source",
+        label: autoMatchBadgeLabel(item.entry_auto_match) ?? "Z automatu",
+        tone: "neutral",
+        title: autoMatchBadgeTitle(item.entry_auto_match),
+      };
     default:
       return null;
   }
