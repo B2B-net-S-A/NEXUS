@@ -41,8 +41,15 @@ export const screenedOutQueryKey = (jobId: number) =>
   ["application-screenings", "screened-out", jobId] as const;
 
 export async function fetchScreenedOut(jobId: number): Promise<ScreenedOutResponse> {
-  const { data } = await api.get<ScreenedOutResponse>(`/api/jobs/${jobId}/screened-out`);
-  return data;
+  const { data } = await api.get<Partial<ScreenedOutResponse>>(`/api/jobs/${jobId}/screened-out`);
+  // Sekcja siedzi w kolumnie „Nowi” — odpowiedź innego kształtu nie może
+  // wywrócić całej tablicy rekrutacji.
+  const items = Array.isArray(data?.items) ? data.items : [];
+  return {
+    job_id: jobId,
+    total: typeof data?.total === "number" ? data.total : items.length,
+    items,
+  };
 }
 
 export function useScreenedOut(jobId: number, enabled = true) {
