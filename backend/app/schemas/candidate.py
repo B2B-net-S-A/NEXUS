@@ -894,7 +894,7 @@ class CandidateDocumentOut(BaseModel):
     uploaded_at: Optional[datetime] = None
     external_source: Optional[str] = None
     created_at: datetime
-    # 0398: kto wgrał plik i plakietka „nieaktualne”. Nazwiska uzupełnia
+    # 0400: kto wgrał plik i plakietka „nieaktualne”. Nazwiska uzupełnia
     # handler (`_documents_with_people`) — model nie ładuje relacji.
     uploaded_by_name: Optional[str] = None
     outdated_at: Optional[datetime] = None

@@ -1,4 +1,4 @@
-"""Pliki kandydata: plakietka „nieaktualne” i autor wgrania (0398, 29.09.2026).
+"""Pliki kandydata: plakietka „nieaktualne” i autor wgrania (0400, 29.09.2026).
 
 Decyzja: stare CV zostaje w teczce (nic nie kasuje CV), rekruter może je
 tylko oznaczyć jako nieaktualne. Kontrakt, który łatwo cicho złamać:

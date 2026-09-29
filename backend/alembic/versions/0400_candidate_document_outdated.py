@@ -1,7 +1,7 @@
 """Pliki kandydata: plakietka „nieaktualne” i autor wgrania.
 
-Revision ID: 0398_candidate_document_outdated
-Revises: 0397_skill_catalog_tools
+Revision ID: 0400_candidate_document_outdated
+Revises: 0399_notes_pin_replies
 
 Decyzja 29.09.2026: stare CV zostaje w teczce (nic nie kasuje CV), ale
 rekruter może je oznaczyć jako nieaktualne — plakietka na liście plików
@@ -14,8 +14,8 @@ Lustro DDL: `_COLUMN_STATEMENTS` w `entrypoint.sh`.
 
 from alembic import op
 
-revision = "0398_candidate_document_outdated"
-down_revision = "0397_skill_catalog_tools"
+revision = "0400_candidate_document_outdated"
+down_revision = "0399_notes_pin_replies"
 branch_labels = None
 depends_on = None
 

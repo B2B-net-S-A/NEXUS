@@ -2981,14 +2981,14 @@ orkiestratorem. Zasady, których łatwo nie zauważyć:
 - Harnessy wizualne (publiczne, zero zapytań): `/preview/candidates-list`
   (`?dialog=1` otwiera okno requestu) i `/preview/candidate-profile` (`?tab=`).
 
-**Pliki, języki i „Dodaj kandydata” od CV (0398, 29.09.2026):**
+**Pliki, języki i „Dodaj kandydata” od CV (0400, 29.09.2026):**
 - **„Nieaktualne” to tylko plakietka** (`candidate_documents.outdated_at/
   outdated_by`, `PATCH …/documents/{id}` z `outdated`). Plik zostaje, wyszukiwanie,
   `raw_cv_text` i wektory bez zmian. Głównego CV nie da się oznaczyć (409 „Najpierw
   ustaw inne CV jako główne.”), nieaktualnego nie da się ustawić jako głównego
   (409), chyba że w tym samym żądaniu `outdated: false`. Lista plików: główne CV,
   potem najnowsze (`uploaded_at ?? created_at`), podpis „dodano DD.MM.RRRR · osoba”
-  z `uploaded_by` (wiersze sprzed 0398 i importy — sama data albo „z Traffita”).
+  z `uploaded_by` (wiersze sprzed 0400 i importy — sama data albo „z Traffita”).
 - **Języki: jedna lista** `LANGUAGE_OPTIONS` (`lib/candidate-languages.ts`, filtr
   listy i okno „Języki kandydata”) ↔ `candidate_language_writer._LANGUAGE_CODES`
   (`test_candidate_language_options_mirror.py`). `PUT /languages` odrzuca 422 kod

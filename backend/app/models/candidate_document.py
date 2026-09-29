@@ -86,12 +86,12 @@ class CandidateDocument(Base, TimestampMixin):
     uploaded_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # 0398: kto wgrał plik (NULL = import, formularz kariery, wiersze sprzed
+    # 0400: kto wgrał plik (NULL = import, formularz kariery, wiersze sprzed
     # 29.09.2026). Nazwisko do listy plików rozwiązuje API.
     uploaded_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    # 0398: „nieaktualne” — tylko plakietka i blokada ustawienia jako głównego
+    # 0400: „nieaktualne” — tylko plakietka i blokada ustawienia jako głównego
     # CV. Plik zostaje (CV nie kasujemy nigdy), wyszukiwanie i wektory bez
     # zmian.
     outdated_at: Mapped[Optional[datetime]] = mapped_column(

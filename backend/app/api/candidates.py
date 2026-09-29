@@ -5286,7 +5286,7 @@ async def _documents_with_people(
     db: AsyncSession, documents: list[CandidateDocument]
 ) -> list[CandidateDocumentOut]:
     """Dokumenty z nazwiskami osoby, która wgrała plik i oznaczyła go jako
-    nieaktualny — jedno zapytanie o konta na całą listę (0398)."""
+    nieaktualny — jedno zapytanie o konta na całą listę (0400)."""
 
     user_ids = {
         user_id
@@ -5347,7 +5347,7 @@ async def update_candidate_document(
                 status_code=422,
                 detail="Only a document classified as CV can be primary",
             )
-        # 0398: nieaktualne CV nie wraca jako główne — najpierw „Cofnij”
+        # 0400: nieaktualne CV nie wraca jako główne — najpierw „Cofnij”
         # (w tym samym żądaniu wolno: `outdated: false` + `is_primary: true`).
         if doc.outdated_at is not None and payload.outdated is not False:
             raise HTTPException(

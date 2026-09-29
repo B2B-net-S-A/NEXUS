@@ -63,9 +63,9 @@ export interface CandidateDocument {
   uploaded_at: string | null;
   external_source: string | null;
   created_at: string;
-  /** 0398: kto wgrał plik (puste dla importów i starszych plików). */
+  /** 0400: kto wgrał plik (puste dla importów i starszych plików). */
   uploaded_by_name?: string | null;
-  /** 0398: plakietka „nieaktualne” — plik zostaje w teczce. */
+  /** 0400: plakietka „nieaktualne” — plik zostaje w teczce. */
   outdated_at?: string | null;
   outdated_by_name?: string | null;
 }
