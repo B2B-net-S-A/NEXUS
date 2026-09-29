@@ -55,8 +55,11 @@ Nad listą masz:
   zamyka w dniu jej daty końca. Samo przyszłe
   zamówienie ocenia się tak samo: jeśli ono z kolei kończy się w ciągu 30 dni
   i nic nie ma po nim, karta zostaje w zakładce, a plakietka mówi „przyszłe
-  zamówienie … kończy się za N dni". Przy zamówieniach MD/kosztowych
-  kontynuacją jest przedłużenie tego zamówienia,
+  zamówienie … kończy się za N dni" — słowo „przyszłe" dotyczy wyłącznie
+  zamówienia, którego okres jeszcze się nie zaczął. Zamówienie, które już
+  trwa i kończy się w ciągu 30 dni (także jutro albo dziś), ma plakietkę
+  „kończy się za N dni" — bez numeru i bez słowa „przyszłe". Przy zamówieniach
+  MD/kosztowych kontynuacją jest przedłużenie tego zamówienia,
 * wyszukiwarkę po numerze zamówienia albo imieniu i nazwisku konsultanta,
 * **Filtry i sortowanie** (zakresy dat, „Bliskie wyczerpania budżetu (≥80%)",
   „Kończące się w ciągu N dni"),
@@ -248,6 +251,23 @@ stawki **nie wznawia** zakończonego zamówienia. Zamówienia **Wstrzymane**
 i **Anulowane** nie wznawiają się od zmiany okresu. Jawnie wybrany status ma
 pierwszeństwo. Niekompletny szkic nadal wymaga uzupełnienia, a zamówienia MD,
 kosztowe i zbiorcze zachowują własne zasady aktywności.
+
+Zamówienie okresowe ze statusem **Zakończone**, którego okres jeszcze trwa
+(data końca w przyszłości), to rozjazd danych — „Zakończ zamówienie" zawsze
+skraca datę końca do dnia zamknięcia. Zostaje po edycji dat wykonanej zanim
+zapis okresu zaczął przeliczać status, i wtedy karta mówi „Brak aktywnego
+zamówienia" mimo trwającego okresu. **Nocny skaner sam przywraca takie
+zamówienie do Aktywnych** (razem z alertami 30/14/7 dni), o ile umowa jest
+aktywna albo kończąca się i nie kończy się przed końcem tego zamówienia. Jeśli
+ta sama umowa ma już **inne aktywne zamówienie obejmujące dziś**, stary wiersz
+jest duplikatem: zostaje w historii, a na karcie, w górnym miejscu, stoi
+zamówienie, które trwa. Osoba obsadzona na **zamówieniu MD albo kosztowym**
+(żywa linia) też zostaje bez zmian — zamówienie okresowe obok niej byłoby
+drugim zapisem tej samej współpracy. Zamówienie zamknięte dziś przyciskiem
+**Zakończ zamówienie** (data końca = dzisiaj) nie wraca.
+Skaner przywróci też zamówienie, które ktoś ustawił jako „Zakończone" wprost
+przez API, zostawiając datę końca w przyszłości — do zamykania zamówień służy
+„Zakończ zamówienie".
 
 Jeśli dane zapiszą się poprawnie, ale wgranie PDF-a się nie powiedzie, karta
 pokazuje już zapisany okres i status, a formularz zgłasza błąd pliku. Ponów

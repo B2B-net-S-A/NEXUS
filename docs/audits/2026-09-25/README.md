@@ -22,6 +22,7 @@ Te pliki są po to, żeby następny audyt **nie zaczynał od zera**: wiadomo, co
 | 12 | `ab01059fb` | domknięcie „Znalezione” z rundy 11 (wylogowanie po zmianie hasła potwierdzone, nocny test harnessów czerwony od 25.09) | PR #1884 (`9c4bcee01`) | [runda-12.md](runda-12.md) |
 | 13 | `6cfb45c8d` | domknięcie „Znalezione” z rundy 12 | PR #1887 (`79818095a`) | [runda-13.md](runda-13.md) |
 | 14 | `79818095a` | domknięcie „Znalezione” z rundy 13 | PR rundy 14 | [runda-14.md](runda-14.md) |
+| 15 | `56999335e` | audyt tygodnia 22–29.09 (24 agentów, także dane i logi produkcji oraz przeklikanie UI): 5 pilnych (backupy, stawki B2B dla współpracownika, podwójny kontrakt, CORS `X-Document-*`, panel powiadomień e-mail), 22 wysokie/średnie, ok. 90 średnich i niskich | brak — raport z rekomendacjami | [../2026-09-29/runda-15-audyt-tygodnia.md](../2026-09-29/runda-15-audyt-tygodnia.md) |
 
 Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji”), są w `CLAUDE.md`, sekcja „Audyt 25.09.2026 — reguły po naprawie” z podsekcjami „Runda 2” … „Runda 14”.
 
@@ -57,6 +58,15 @@ Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji�
 27. **Przenumerowanie migracji = przenumerowanie testów**, które ładują plik migracji po nazwie albo sprawdzają łańcuch `down_revision`.
 28. **Optymalizacja „pomiń niezmienione” zawęża zakres ponowień.** Pominięcie rekordu bez zmian (sha ładunku) wyrzuciło z delty plików kandydatów, u których poprzednia próba padła — każdy skip musi zostawić ścieżkę ponowienia.
 29. **Porównanie kolumny enum z parametrem wymaga typu enum** (`SAEnum(..., name=...)`), inaczej Postgres odmawia `enum = varchar` dopiero na prawdziwej bazie — testy z atrapą tego nie złapią.
+30. **Nagłówek CORS ustawiony w handlerze nie przeżywa `CORSMiddleware` z niepustym `expose_headers`** — każdy niestandardowy nagłówek czytany przez front musi być na liście globalnej; test bez `Origin` niczego nie dowodzi (r15, `X-Document-*`, `X-Generated-Contract-Id`).
+31. **Poluzowanie bramki w jednym miejscu otwiera regułę czytaną w drugim** — przy zmianie „kto może dodać” grep konsumentów, którzy traktują członkostwo jako uprawnienie (r15: współpracownik → stawki B2B).
+32. **Test z fixturą mniejszą niż realna domena nie może paść** — 1 para zamiast 3 (scalanie kontaktów), 5 rodzajów zamiast 8 (panel powiadomień), dwa zakresy zamiast jednego (katalog klientów), zbiór połykający duplikaty; przed zamknięciem poprawki test na PEŁNYM zestawie danych z produkcji.
+33. **Reguła po kluczu żądania wróciła** (`"status" in updates`) mimo wzorca 11 — przy każdej nowej walidacji w PATCH sprawdzaj wartość, nie klucz.
+34. **Jednorazowe bloki startowe mnożą czas startu** — każdy nowy `repair-*` to +2–3 s na każdy deploy na zawsze; po odhaczeniu na produkcji usuwać albo sprawdzać marker jednym zapytaniem (r15: start 85 s).
+35. **Dane testowe zostawione na produkcji wchodzą do statystyk** (rekrutacja QA z etapem „Zatrudniony” = 1 z 27 placementów września).
+36. **„Nieskonfigurowane” jako zielone** — job z `::warning::…skipping`, drill z „Not configured” i sonda z nieistniejącym plikiem statusu nie alarmują tygodniami; brak odczytu ma dawać błąd.
+37. **Maszyny i automaty nie mogą pisać jako ludzie** — integracja z tokenem OAuth zapisuje `note` jak człowiek; każda ścieżka wejścia integracji ma znacznik pochodzenia.
+38. **Słownik zasilający bramkę ma jedną definicję „technologii”** — kategoria dodana do `ALIAS_MAP` zmienia to, co bramkuje; test z pustą mapą przechodzi „przypadkiem”.
 
 ## Świadomie zostawione (nie zgłaszaj ponownie bez nowego faktu)
 
@@ -72,6 +82,7 @@ Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji�
 
 ## Obszary sprawdzone i czyste (skrót — szczegóły w raportach rund)
 
+- Runda 15 (audyt tygodnia, dane i UI): poprawki rund 11–14 (tokeny, `useConfirmV2`, `w-0`, `_render_bounded`, PKCE, trigger korpusu), migracje 0392–0401 i lustro DDL, naprawy danych Alior/Nordea/notatek Traffita (bez kosztu AI), liczby API vs niezależny SQL (jobs, kandydaci, klienci, kontrakty, Insights, Finanse → Zmiany, MD, dzwonek), koszty AI i automaty nocne, nowe trasy pod kątem IDOR/redakcji stawek — szczegóły w [runda-15-audyt-tygodnia.md](../2026-09-29/runda-15-audyt-tygodnia.md).
 - Runda 9: wypłaty konkursów, tokeny JWT, WebSocket, IDOR tras od 20.09, bramka zgody na plikach CV, idempotencja maili — szczegóły w [runda-9.md](runda-9.md).
 - Runda 8: poprawki rundy 7 (V1–V3), lustro DDL, CHECK-i i JSON `null` (N15), płacące konkursy poza punktacją za rozmowę — szczegóły w [runda-8.md](runda-8.md).
 - Runda 7: poprawki rundy 6 (A6, L1–L7, J1–J5, DL-01..05, IC-1/3, X1–X4, W1–W6, PERF, G1/G2), płacące konkursy nietknięte — szczegóły w [runda-7.md](runda-7.md).

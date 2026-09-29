@@ -11,6 +11,8 @@ import { RequireRole } from "@/components/RequireRole";
 import { OrderDocumentsSection } from "@/components/OrderDocumentsSection";
 import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import { apiErrorMessage } from "@/lib/api-error";
+import { sharePointBadge } from "@/lib/contract-docs-sharepoint";
+import { Badge } from "@/components/ui/badge";
 import {
   Upload,
   Trash2,
@@ -68,6 +70,21 @@ export interface ContractDocument {
   uploaded_by: number | null;
   uploaded_by_email: string | null;
   created_at: string;
+  // Ticket 9 (0402): pochodzenie i kopia w folderze „Umowy pracowników”.
+  source?: string | null;
+  sharepoint_item_id?: string | null;
+  sharepoint_push_status?: string | null;
+  sharepoint_push_error?: string | null;
+}
+
+function SharePointBadge({ doc }: { doc: ContractDocument }) {
+  const badge = sharePointBadge(doc);
+  if (!badge) return null;
+  return (
+    <Badge variant={badge.tone} size="sm" className="ml-2" title={badge.title}>
+      {badge.label}
+    </Badge>
+  );
 }
 
 function formatBytes(n: number | null | undefined): string {
@@ -327,6 +344,7 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
                     </td>
                     <td className="px-4 py-2">
                       {DOC_TYPE_LABEL[d.doc_type] ?? d.doc_type}
+                      <SharePointBadge doc={d} />
                     </td>
                     <td className="px-4 py-2 text-muted-foreground dark:text-muted-foreground">
                       {formatBytes(d.size_bytes)}

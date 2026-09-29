@@ -74,6 +74,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "403": "Brak dostępu",
   academy: "Akademia",
   "b2b-register-import": "Rejestr umów z Excela",
+  "contract-docs-sharepoint": "Dokumenty kontraktów z SharePointa",
   "competence-team": "Kategorie kompetencji",
   contractors: "Kontraktorzy",
   "kpi-targets": "Cele KPI",

@@ -1099,6 +1099,22 @@ class Settings(BaseSettings):
     # zanim prep dostanie stan „bez nagrania”.
     TEAMS_PREP_FETCH_DELAY_MINUTES: int = 10
     TEAMS_PREP_FETCH_GIVE_UP_HOURS: int = 48
+    # ── Dokumenty kontraktów z SharePointa (ticket 9, 0402, 29.09.2026) ─────
+    # Folder „Umowy pracowników” (podfolder „Nazwisko Imię” na osobę) ↔
+    # zakładka Dokumenty kontraktu. Dostęp app-only przez OSOBNĄ rejestrację
+    # („NEXUS Contract Documents”) z `Sites.Selected` nadanym WYŁĄCZNIE na
+    # witrynę z folderem — rejestracja nie widzi żadnej innej witryny ani
+    # skrzynki. Tenant = M365_MAIL_TENANT_ID. Bez poświadczeń panel mówi
+    # „dokończ konfigurację w Azure”, a sonda zdrowia = `unconfigured`.
+    CONTRACT_DOCS_SP_CLIENT_ID: str = ""
+    CONTRACT_DOCS_SP_CLIENT_SECRET: str = ""
+    # Link do folderu podaje admin w panelu (zapis w app_settings). Repo jest
+    # publiczne, więc linku udostępnienia nie trzymamy w kodzie.
+    # Synchronizacja w obie strony po pierwszym pobraniu. OFF = pętla robi
+    # tylko dokończenie przerwanych przebiegów pierwszego pobrania.
+    CONTRACT_DOCS_SP_SYNC_ENABLED: bool = False
+    CONTRACT_DOCS_SP_SYNC_MINUTES: int = 60
+
     # Progi oceny prepu (liczy kod, nie model). Udział kandydata = jego czas
     # mówienia / (kandydat + zespół).
     PREP_REVIEW_GOOD_COVERAGE: float = 0.8

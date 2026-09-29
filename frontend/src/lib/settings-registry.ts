@@ -50,6 +50,7 @@ export type SettingsItemId =
   | "contracts"
   | "rates"
   | "register-import"
+  | "contract-docs-sharepoint"
   | "ai"
   | "traffit"
   | "job-boards"
@@ -212,6 +213,14 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     description: "Wgraj plik działu „UMOWY I ZAMÓWIENIA” — podgląd, zapis i cofnięcie.",
     keywords: "import excel xlsx rejestr umowy b2b dzial numery aneks bez dzialalnosci",
     route: "/settings/b2b-register-import",
+    wide: true,
+    gate: { roles: ["admin"] },
+  },
+  {
+    id: "contract-docs-sharepoint", area: "deals", title: "Dokumenty kontraktów z SharePointa",
+    description: "Folder „Umowy pracowników” → zakładka Dokumenty kontraktów, synchronizacja w obie strony.",
+    keywords: "sharepoint folder umowy pracownikow dokumenty aneksy wypowiedzenia import synchronizacja",
+    route: "/settings/contract-docs-sharepoint",
     wide: true,
     gate: { roles: ["admin"] },
   },

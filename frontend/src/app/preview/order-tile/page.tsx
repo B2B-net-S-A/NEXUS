@@ -17,6 +17,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 
 import { ToastProvider } from "@/components/Toast";
 import { ContractorOrderCards } from "@/components/OrdersAndContractsTab";
@@ -138,6 +139,100 @@ const CONTRACTORS: ContractWithOrdersRead[] = [
   }),
 ];
 
+/** Data lokalna przesunięta o `days` dni — jak `todayLocalISO` na karcie. */
+function isoOffset(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * Komunikaty o zamówieniu kończącym się w najbliższych dniach (zgłoszenie
+ * 29.09.2026). Daty liczone od DZIŚ, więc harness zawsze pokazuje „jutro".
+ * Wszystkie trzy kafelki mają mówić to samo o zamówieniu, które trwa:
+ * „kończy się za 1 dzień" (bez numeru i bez słowa „przyszłe") i mieć przycisk
+ * „Zakończ zamówienie"; „przyszłe zamówienie …" tylko przy zamówieniu, które
+ * jeszcze się nie zaczęło.
+ */
+function endingSoonScenarios(): ContractWithOrdersRead[] {
+  const running = { start_date: isoOffset(-90), end_date: isoOffset(1) };
+  return [
+    // Stary wiersz `completed` z importu obok aktywnego wiersza TEGO SAMEGO
+    // okresu — API sortuje po starcie, więc martwy wiersz stoi pierwszy.
+    contractor({
+      contract_id: 479,
+      candidate_id: 11,
+      candidate_name: "Maria Duplikatowa",
+      days_to_latest_end: 1,
+      ending_without_successor_order_id: 12,
+      ending_without_successor_days: 1,
+      orders: [
+        order({
+          id: 11,
+          contract_id: 479,
+          candidate_id: 11,
+          title: "K/2026/000001/XX/1/26TEST",
+          status: "completed",
+          ...running,
+        }),
+        order({
+          id: 12,
+          contract_id: 479,
+          candidate_id: 11,
+          title: "K/2026/000001/XX/1/26TEST",
+          ...running,
+        }),
+      ],
+    }),
+    // Jedno aktywne zamówienie kończące się jutro.
+    contractor({
+      contract_id: 478,
+      candidate_id: 12,
+      candidate_name: "Piotr Jutrzejszy",
+      days_to_latest_end: 1,
+      ending_without_successor_order_id: 13,
+      ending_without_successor_days: 1,
+      orders: [
+        order({
+          id: 13,
+          contract_id: 478,
+          candidate_id: 12,
+          title: "K/2026/000002/XX/2/26TEST",
+          ...running,
+        }),
+      ],
+    }),
+    // Bieżące zamówienie ma kontynuację; PRZYSZŁE samo kończy się za 20 dni.
+    contractor({
+      contract_id: 480,
+      candidate_id: 13,
+      candidate_name: "Ewa Następna",
+      days_to_latest_end: 20,
+      ending_without_successor_order_id: 15,
+      ending_without_successor_days: 20,
+      orders: [
+        order({
+          id: 15,
+          contract_id: 480,
+          candidate_id: 13,
+          title: "K/2026/000003/XX/3/26NEXT",
+          start_date: isoOffset(5),
+          end_date: isoOffset(20),
+        }),
+        order({
+          id: 14,
+          contract_id: 480,
+          candidate_id: 13,
+          title: "K/2026/000003/XX/3/26CUR",
+          start_date: isoOffset(-100),
+          end_date: isoOffset(4),
+        }),
+      ],
+    }),
+  ];
+}
+
 /** Kontraktor bez zamówienia — najwyższy wariant kafelka (pas ostrzeżeń). */
 const NO_ORDER: ContractWithOrdersRead[] = [
   contractor({
@@ -185,6 +280,16 @@ function Block({
   );
 }
 
+/** Daty liczone od dziś w przeglądarce — po zamontowaniu, bez rozjazdu SSR. */
+function EndingSoonBlock() {
+  const [contractors, setContractors] = useState<ContractWithOrdersRead[] | null>(
+    null,
+  );
+  useEffect(() => setContractors(endingSoonScenarios()), []);
+  if (!contractors) return null;
+  return <Block title="Kończy się jutro (zgłoszenie 29.09.2026)" contractors={contractors} />;
+}
+
 export default function OrderTilePreview() {
   return (
     <QueryClientProvider client={client}>
@@ -200,6 +305,7 @@ export default function OrderTilePreview() {
             </p>
           </header>
           <Block title="Trzy typy zamówień" contractors={CONTRACTORS} />
+          <EndingSoonBlock />
           <Block title="Bez zamówienia" contractors={NO_ORDER} />
           <Block
             title="Wąski kontener (sprawdzenie zawijania)"

@@ -1,4 +1,5 @@
 import calendar
+import hashlib
 import logging
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -5135,6 +5136,18 @@ async def force_delete_signed_contract(
 # ── Documents (Phase 9 A4) ────────────────────────────────────────────────────
 
 
+def _stored_file_sha256(relative_path: str) -> Optional[str]:
+    try:
+        path = storage_service.get_contract_document_path(relative_path)
+    except FileNotFoundError:
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 64), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 async def _assert_contract(
     db: AsyncSession,
     contract_id: int,
@@ -5166,6 +5179,10 @@ async def _document_to_response(
         uploaded_by=doc.uploaded_by,
         uploaded_by_email=user_email,
         created_at=doc.created_at,
+        source=doc.source,
+        sharepoint_item_id=doc.sharepoint_item_id,
+        sharepoint_push_status=doc.sharepoint_push_status,
+        sharepoint_push_error=doc.sharepoint_push_error,
     )
 
 
@@ -5231,6 +5248,10 @@ async def upload_contract_document(
         doc_type=doc_type,
         expiry_date=expiry_date,
         uploaded_by=current_user.id,
+        # 0402: skrót treści — synchronizacja z SharePointem nie dokłada
+        # drugiej kopii tego samego pliku.
+        content_sha256=_stored_file_sha256(relative_path),
+        source="upload",
     )
     db.add(doc)
     db.add(

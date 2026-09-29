@@ -643,7 +643,9 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   roli TCM `confirm-fully-signed`, a #1421 zmianę statusu kontraktu
   (`PATCH /contracts/{id}/status`) — obie akcje bez zakresu klienta, bo nie ma
   modelu przypisania TCM do klienta. To jest stan docelowy, nie przeoczenie:
-  ścisły client-scope z punktu wyżej dotyczy DL/TAC. Jedyna granica TCM to
+  ścisły client-scope z punktu wyżej dotyczy DL/TAC — ale nie konta, które
+  ma też rolę TCM (29.09.2026: TCM + TAC bez przypisań nie mógł oznaczyć
+  podpisu). Jedyna granica TCM to
   sekcja Delivery: wyjątek TCM w `section_access.py` wymaga co najmniej
   odczytu Delivery, więc odebranie sekcji w panelu naprawdę odbiera akcję
   (do 10.09 wyjątek wracał, zanim porównał `granted`).
@@ -5580,6 +5582,43 @@ lokalną regułę — ta widziała zredagowane `rate_client` (audyt 24.09.2026).
 Pigułka „Anulowane” obejmuje kontraktora tylko wtedy, gdy nie ma żadnego
 zamówienia aktywnego, wstrzymanego ani szkicu.
 
+## Kafelek kontraktora: status zamówienia musi zgadzać się z okresem (29.09.2026)
+
+Zgłoszenie: kafelki z zamówieniem kończącym się jutro mówiły „Brak aktywnego
+zamówienia” albo „przyszłe zamówienie … kończy się za 1 dzień” i nie miały
+„Zakończ zamówienie”. Dwie niezależne przyczyny, obie łatwo cofnąć:
+
+- **Rozjazd danych: `completed` przy końcu w PRZYSZŁOŚCI.** Każda droga
+  zamykająca zamówienie (`close_order`, offboarding, sync terminacji) ucina
+  `end_date` do dnia zamknięcia, więc legalnie zamknięte kończy się najpóźniej
+  dziś. `completed` z późniejszym końcem to edycja dat sprzed #1638 (21.09) —
+  `refresh_periodic_order_status` przelicza status tylko przy zapisie OKRESU,
+  a późniejsza zmiana samej stawki go nie ruszała. Na produkcji cztery umowy
+  (stare wiersze z importów Excela/Nordea). Naprawia to nocny skaner:
+  `dl_portal_expiry_scanner.revive_stale_completed_periodic_orders`, wołany
+  z `run_once` PRZED `_promote_statuses` (pętla robi pierwszy bieg przy starcie
+  kontenera, więc naprawa wchodzi z deployem). Bezpieczniki (jedna definicja
+  `_revivable_clause` dla SELECT i UPDATE): koniec ŚCIŚLE po dziś (zamknięcie
+  „dziś” zostaje `completed`), start znany, umowa `active`/`ending`, ten sam
+  klient i data końca umowy NIE wcześniejsza niż koniec zamówienia (zamówienie
+  nie przeżywa umowy — inaczej nocny reconcile mógłby wskrzesić wypowiedzianą
+  umowę), tylko efektywny typ okresowy, nie ożywia duplikatu (umowa ma inne
+  aktywne/wstrzymane zamówienie obejmujące dziś) ani zamówienia osoby z żywą
+  linią MD/kosztową (jak ścieżki automatyczne, `order_engagement_separation`),
+  najwyżej jedno zamówienie na umowę na bieg. Krok jest w savepoincie — jego
+  błąd (`logger.exception` → Sentry) nie zatrzymuje przejść statusów ani
+  alertów. Kierunek odwrotny do `periodic_due` (koniec < dziś), więc bez
+  ping-ponga.
+- **UI: „bieżące” zamówienie ≠ pierwszy wiersz.** `splitOrders` wybiera do
+  górnego slotu zamówienie, które TRWA (`isCurrentOrder`), a dopiero bez
+  takiego ostatnie rozpoczęte. Kontrakt z dwoma wierszami tego samego okresu
+  (stary `completed` obok aktywnego) miał w slocie martwy wiersz. Plakietka
+  „przyszłe zamówienie … kończy się za N dni” pojawia się tylko dla
+  zamówienia z listy „Przyszłe zamówienie” tej karty (`futureOrders`, podział
+  po `orderNotStarted` — start po dziś), NIE z porównania id z górnym slotem;
+  zamówienie, które trwa (także jedyne, które jeszcze się nie zaczęło i stoi
+  w slocie), mówi „kończy się za N dni” bez numeru.
+
 ## Umowa B2B jest bezterminowa, dopóki ktoś jej ręcznie nie zakończy (11.09.2026)
 
 Data zakończenia umów B2B była przepisywana z końca ZAMÓWIENIA (pole
@@ -5675,6 +5714,48 @@ zakończone”), logika `lib/contract-termination.ts`.
 - Historia umowy: `b2b_generated_contract_status_events.details` (źródło,
   kontrakt, daty, tryb, strona); „Zakończone umowy” mają kolumny „Data
   zakończenia zamówienia”, „Tryb” i filtr `?termination_mode=`.
+
+## Dokumenty kontraktów z SharePointa (ticket 9, 0402, 29.09.2026)
+
+Folder „Umowy pracowników” (podfolder „Nazwisko Imię” na osobę) ↔ zakładka
+Dokumenty kontraktu. Kod: `services/contract_folder_docs/` (klasyfikator,
+matcher, plan, zapis, przebiegi, synchronizacja), `services/m365/sharepoint_docs.py`,
+`api/contract_folder_docs.py`, pętla `tasks/contract_docs_sharepoint.py`, panel
+Ustawienia → Umowy i stawki (`ContractDocsSharePointPanel`, harness
+`/preview/contract-docs-sharepoint`). Konfiguracja: `docs/contract-docs-sharepoint-setup.md`.
+
+- **Osobna rejestracja „NEXUS Contract Documents” z `Sites.Selected`** na jedną
+  witrynę — nie dokładaj tego uprawnienia do rejestracji poczty ani Teams.
+  Bez `CONTRACT_DOCS_SP_CLIENT_ID/SECRET` pętla kończy się przed `while`, a panel
+  mówi „dokończ konfigurację w Azure”. Linku udostępnienia nie trzymamy w repo
+  (publiczne) — admin wkleja go w panelu (`app_settings['contract_docs_sharepoint']`).
+- **Punktem wyjścia jest NEXUS:** folder bez kontraktu niczego nie zakłada.
+  Osoba z kilkoma kontraktami dostaje pliki na każdym. Filip Jabłoński
+  (`is_excluded_person`) jest pomijany w obu kierunkach. Dopasowanie
+  (`matching.py`) po zbiorze słów bez polskich znaków: `sure` / `uncertain`
+  (polskie znaki, drugie imię/człon nazwiska, literówka, dwa rekordy kandydata)
+  / `ambiguous` (kilka folderów — nie zgadujemy) / `none`.
+- **Typ z nazwy pliku** (`classify.py`): aneks/wypowiedzenie/porozumienie
+  sprawdzane PRZED formatem „numer B2B data” (umowa), „OC”/„NDA”/„ZUS” tylko
+  jako całe słowo. Tylko PDF i JPG, ≤ 20 MB.
+- **„Kontrakt ma już ten dokument” = ten sam SHA-256 albo ten sam plik
+  SharePointa** (`contract_documents.content_sha256`, `sharepoint_item_id`);
+  stare wiersze dostają skrót leniwie (`store.attach_file`, blokada doradcza
+  per kontrakt). Ręczny upload też liczy skrót.
+- **Pierwsze pobranie** = przebieg z dzierżawą (`listing → preview → applying →
+  applied`, cofnięcie tylko ostatniego); przerwany deployem podejmuje pętla.
+  Paragon `0402_contract_docs_sharepoint_run_<id>` = liczby i ID.
+- **Synchronizacja** (`CONTRACT_DOCS_SP_SYNC_ENABLED`, OFF): pełny spis
+  folderu co godzinę (delta nie działa na podfolderze), stan pliku w
+  `contract_doc_sp_items` — decyzja o pliku jest ostateczna, wracają tylko
+  `waiting_contract`; niepewne → kolejka „Do przypisania”. NEXUS → SharePoint:
+  dokumenty dodane PO pierwszym pobraniu (`push_since`), bez
+  `sharepoint_item_id`, nie z SharePointa i bez PDF-ów zamówień; folder
+  wspólny dla dwóch rekordów kandydata = pominięcie. `conflictBehavior=rename`,
+  PUT uploadu bez ponowienia po utracie odpowiedzi. Usunięcie po żadnej
+  stronie nie kasuje drugiej. Folder synchronizacji ustawia dopiero ZAPIS
+  pierwszego pobrania, nie podgląd. Klucz pliku na dysku nie niesie nazwy
+  (podfoldery miewają dwa „umowa.pdf”).
 
 ## Kontakt do konsultanta na umowie (09.2026, migracja 0320)
 

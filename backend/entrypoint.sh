@@ -830,11 +830,23 @@ except Exception as _plain_err:  # noqa: BLE001
     print(f"plain knowledge DDL unavailable: {_plain_err!r}")
     _PLAIN_KNOWLEDGE_DDL = []
 
+# Dokumenty kontraktów z SharePointa (migracja 0402, ticket 9): przebiegi
+# pierwszego pobrania, stan plików synchronizacji i kolumny `contract_documents`
+# — JEDNO źródło z migracją (`app/services/contract_folder_docs/schema_sql.py`).
+try:
+    from app.services.contract_folder_docs import schema_sql as _contract_docs_sp
+
+    _CONTRACT_DOCS_SP_DDL = list(_contract_docs_sp.TABLE_DDL)
+except Exception as _contract_docs_sp_err:  # noqa: BLE001
+    print(f"contract docs sharepoint DDL unavailable: {_contract_docs_sp_err!r}")
+    _CONTRACT_DOCS_SP_DDL = []
+
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
     *_PLAIN_KNOWLEDGE_DDL,
     *_B2B_DOCUMENTS_DDL,
     *_B2B_REGISTER_DDL,
+    *_CONTRACT_DOCS_SP_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
