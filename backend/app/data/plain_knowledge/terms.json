@@ -3452,6 +3452,31 @@
       ]
     },
     {
+      "term_key": "ferryt",
+      "display_name": "Ferryt",
+      "summary": "Ferryt to polska platforma low-code firmy DomData do budowania i automatyzacji procesów biznesowych – najczęściej w bankach, np. obsługi wniosku kredytowego od złożenia do decyzji.",
+      "does": "Osoba pracująca z Ferrytem modeluje procesy, projektuje ekrany i integracje z innymi systemami banku albo testuje aplikacje zbudowane na tej platformie.",
+      "cv_hints": [
+        "Ferryt",
+        "Ferryt Low-Code Platform",
+        "Ferryt Banking Suite",
+        "DomData",
+        "BPM",
+        "low-code"
+      ],
+      "confused_with": "Nie myl z ferrytem z elektroniki ani metalurgii (materiał i składnik stali) – w CV z IT chodzi zawsze o platformę DomData. Inne platformy low-code/BPM to np. Pega albo Appian.",
+      "sources": [
+        {
+          "url": "https://domdata.pl/platforma-ferryt-low-code-platform/",
+          "title": "Ferryt – Kompletna Platforma Low-Code AI | DomData"
+        },
+        {
+          "url": "https://domdata.pl/ferryt-banking-suite/",
+          "title": "Ferryt Banking Suite – DomData"
+        }
+      ]
+    },
+    {
       "term_key": "figma",
       "display_name": "Figma",
       "summary": "Figma to program do projektowania wyglądu stron internetowych i aplikacji, działający online w przeglądarce, jak Dokumenty Google, tylko do grafiki.",

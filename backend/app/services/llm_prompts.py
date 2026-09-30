@@ -1106,11 +1106,13 @@ PLAIN_WEB_RESEARCH = PromptTemplate(
 
 PLAIN_TERM_STRUCTURE = PromptTemplate(
     name="plain_term_structure",
-    version=1,
+    version=2,
     expected_format="json",
     system_prompt=_PLAIN_TONE,
     template=(
         "Technologia: {name}\n\nNotatki z researchu:\n{notes}\n\n"
+        "Opisz WYŁĄCZNIE znaczenie z branży IT; znaczenia spoza IT najwyżej "
+        "wspomnij w polu confused_with.\n\n"
         "Zwróć JSON:\n{{\n"
         '  "display_name": str,  // poprawna pisownia nazwy\n'
         '  "summary": str,       // jedno zdanie: co to jest, po ludzku, można z porównaniem do codzienności\n'
