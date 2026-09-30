@@ -18,7 +18,10 @@ const PopoverContent = React.forwardRef<
  ref={ref}
  align={align}
  sideOffset={sideOffset}
- className={cn("z-50 min-w-48 rounded-lg p-3",
+ // z-110: nad oknem `Modal` z AppShell (overlay z-100). Przy z-50 lista
+ // „Współpracownicy” w oknie edycji rekrutacji otwierała się POD oknem
+ // (zgłoszenie 30.09.2026). To samo w dropdown-menu, select i tooltip.
+ className={cn("z-110 min-w-48 rounded-lg p-3",
  // Nie wychodzi poza ekran telefonu (w poziomie ani w pionie) — dół długiej
  // treści przewija się zamiast znikać pod krawędzią.
  "max-h-(--radix-popover-content-available-height) max-w-[calc(100vw-1rem)] overflow-y-auto","bg-card text-foreground","border border-border shadow-md","data-[state=open]:animate-fadeIn","focus:outline-hidden",
