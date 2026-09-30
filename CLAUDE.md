@@ -1793,6 +1793,13 @@ blok „Po ludzku” na górze Podglądu Championa i „Ściąga do rozmowy” w
   Zestaw złożony z samych ogólnych słów („developer”, „it”) nie trafia do listy —
   pasowałby do każdej rekrutacji. `--write-seed` wycina źródła z domen klientów
   (słowo z nazwy klienta w adresie) — w repo nie ma nazw klientów.
+- **Rola z całym tytułem wygrywa z rolą dopasowaną częściowo** (`best_role`,
+  30.09.2026): „Senior IT Automation Tester” szedł do „ETL Tester” (samo
+  „tester” + jedyna umiejętność SQL). Zmiana wagi punktów zamiast tej reguły
+  psuła inne role (13× Python Developer → DataStage) — mierz na produkcji
+  wszystkie rekrutacje przed zmianą matchera.
+- **„Jak wygląda rekrutacja u klienta?” to etapy dla kandydata** — zasady
+  wysyłki CV z karty klienta (nazwa pliku, notatka) wycina `candidate_facing`.
 
 ## Karta klienta (`client_playbooks`)
 

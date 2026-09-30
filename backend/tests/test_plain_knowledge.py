@@ -266,6 +266,36 @@ def test_role_matcher_needs_title_or_half_of_the_skills() -> None:
     )
 
 
+def test_role_with_the_whole_title_beats_a_partial_title_with_one_skill() -> None:
+    # Prod 30.09: „Senior IT Automation Tester” trafiał do „ETL Tester”.
+    etl = role_matcher.rules_of(
+        1,
+        {
+            "title_words": ["etl", "tester"],
+            "skills": ["sql"],
+            "category": "security_quality",
+        },
+    )
+    automation = role_matcher.rules_of(
+        2,
+        {
+            "title_words": ["automatyzujący", "tester"],
+            "title_alternatives": [["automation", "it", "tester"]],
+            "skills": ["java", "selenium", "jenkins", "cucumber", "sql", "rest api"],
+            "category": "security_quality",
+        },
+    )
+    title = frozenset({"senior", "it", "automation", "tester"})
+    skills = frozenset({"python", "robot framework", "sql"})
+    assert role_matcher.score(
+        etl, title, skills, "security_quality"
+    ) > role_matcher.score(automation, title, skills, "security_quality")
+    assert (
+        role_matcher.best_role([etl, automation], title, skills, "security_quality")
+        == 2
+    )
+
+
 def test_research_output_is_trimmed_to_known_fields() -> None:
     out = research.clean_structured(
         "term",
