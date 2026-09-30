@@ -222,3 +222,17 @@ def test_skills_count_text_evidence_and_only_technologies():
     # Kafka z CV/notatek się liczy; „komunikatywność” nie rozcieńcza punktów.
     assert {m.lower() for m in matched} == {"java", "kafka"}
     assert "must 2/2" in layer.reason
+
+
+def test_evidence_labels_cover_must_scored_from_the_description(monkeypatch):
+    """Dowód z CV ma objąć każdą technologię, którą liczy ocena — także must
+    wyciągnięte z opisu, nie tylko podane wprost (pomiar 30.09.2026)."""
+    from app.services import scoring_service
+
+    monkeypatch.setattr(
+        scoring_service,
+        "job_skill_requirements",
+        lambda job: {"must": ["Java", "Kafka", "Spring"], "nice": ["Docker"]},
+    )
+    labels = dealbreaker_inputs_for_job(_job()).gate_evidence_labels
+    assert {"Java", "Kafka", "Spring", "Docker"} <= set(labels)

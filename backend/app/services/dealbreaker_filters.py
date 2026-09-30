@@ -622,15 +622,21 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
 
 
 def _evidence_labels(job, eligible_must: Sequence[str]) -> tuple[str, ...]:
-    """Technologie must i nice oferty, które da się sprawdzić w CV i notatkach."""
+    """Technologie must i nice oferty, które da się sprawdzić w CV i notatkach.
+
+    Obejmuje też must, które ocena wyciąga z opisu (``job_skill_requirements``
+    sięga dalej niż wymagania podane wprost) — inaczej ``_score_skills`` nie
+    widziałoby dowodu z CV dla tych pozycji (pomiar 30.09.2026 na produkcji).
+    """
     from app.services.scoring_service import job_skill_requirements
 
     try:
-        nice = job_skill_requirements(job).get("nice") or []
+        reqs = job_skill_requirements(job)
+        scored = list(reqs.get("must") or []) + list(reqs.get("nice") or [])
     except Exception:  # noqa: BLE001 — obiekt bez pól oferty (radar, atrapa)
-        nice = []
+        scored = []
     out = list(eligible_must)
-    for label in gate_eligible_must_skills(nice):
+    for label in gate_eligible_must_skills(scored):
         if label not in out:
             out.append(label)
     return tuple(out)
