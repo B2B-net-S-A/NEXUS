@@ -2753,6 +2753,13 @@ Raport naprawczy: `docs/manual-audit-2026-09-13-remediation-report.md`.
 - **Akceptacja szkicu Championa synchronizuje kolumny rekrutacji** jak zapis
   z edytora (`_sync_job_columns_from_applied_sections`): stack → `must_skills`/
   `nice_skills`, podstawy → `rate_budget_hourly` itd. (FILL_EMPTY).
+- **Pole sekcji 1 zmienione ręcznie w edytorze Championa nadpisuje kolumnę
+  rekrutacji** (30.09.2026, `champion_job_sync.overwrite_edited_job_columns`):
+  budżet, tryb pracy, dni w biurze, miasto — tylko ZMIENIONE w tym zapisie
+  i niepuste; import z pliku zostaje przy FILL_EMPTY i „Uzgodnij”. Do tej daty
+  poprawka „0 → 1 dzień” zapisywała się w profilu, a walidacja czytała 0
+  z kolumny. Pola liczbowe na `/jobs/new` i w edytorze mają
+  `blurNumberInputOnWheel` (kółko myszy nad aktywnym polem zmieniało liczbę).
 - **„W procesie” w AI Matching = `countInProcess` z kanbana** (bez odrzuconych).
   `pipeline_candidate_ids` obejmuje też etapy końcowe i służy wyłącznie
   plakietce „już w pipeline” (B71).
