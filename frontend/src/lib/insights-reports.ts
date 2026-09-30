@@ -21,6 +21,7 @@ export type ReportId =
   | "czas-konwersje"
   | "placementy"
   | "kompetencje"
+  | "propozycje-ai"
   | "aktywnosc-zespolu"
   | "obciazenie"
   | "prepy"
@@ -64,6 +65,9 @@ const isLeader = (user: ReportUser) =>
 // Imienne wyniki cudzej pracy — ta sama capability co `/api/insights/team/*`.
 const seesTeam = (user: ReportUser) =>
   hasRole(user, "admin") || hasAnalyticsCapability(user, "view_team_kpi");
+// Propozycje AI (30.09.2026): admin i HoR — cała firma, DL — swoje rekrutacje.
+const seesProposalOutcomes = (user: ReportUser) =>
+  hasRole(user, "admin", "head_of_recruitment", "delivery_lead");
 // Pieniądze firmy: tylko admin i Finanse (decyzja Artura 24.09.2026).
 const seesMoney = (user: ReportUser) => hasRole(user, "admin", "finance");
 
@@ -100,6 +104,17 @@ export const REPORTS: readonly ReportDef[] = [
     question: "Jakich profili szukamy teraz i na jakim są etapie?",
     window: "stan na dziś",
     defaultPeriod: null,
+  },
+  {
+    id: "propozycje-ai",
+    group: "Rekrutacja",
+    title: "Propozycje AI",
+    question:
+      "Co zespół robi z propozycjami z bazy — dodaje, pomija (i dlaczego) czy zostawia bez decyzji?",
+    window: "7 / 30 / 90 dni",
+    defaultPeriod: null,
+    note: "admin, HoR i Delivery Lead",
+    visible: seesProposalOutcomes,
   },
   {
     id: "aktywnosc-zespolu",

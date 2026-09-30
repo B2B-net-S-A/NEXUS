@@ -128,7 +128,7 @@
       },
       {
         "q": "Co robi „Pomiń”?",
-        "a": "Zdejmuje propozycję z listy tej rekrutacji. Da się ją przywrócić, a nowe CV tej osoby albo przekazanie od praktykanta po rozmowie zaproponuje ją ponownie."
+        "a": "Zdejmuje propozycję z listy tej rekrutacji. Najpierw wybierasz powód (np. „Za drogi”, „Brak kluczowej technologii”; przy „Inne” jedno zdanie) — trafia do raportu „Propozycje AI”. Da się ją przywrócić, a nowe CV tej osoby zaproponuje ją ponownie."
       }
     ],
     "pitfalls": [

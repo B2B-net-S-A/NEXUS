@@ -28,6 +28,7 @@ import {
 } from "@/lib/proposals-merge";
 import { cn } from "@/lib/utils";
 
+import { useDismissReasonPrompt } from "./DismissReasonDialog";
 import { PeopleTable } from "./PeopleTable";
 import { ProposalPanel } from "./ProposalPanel";
 import { PROPOSAL_SOURCE_LABEL, type PersonRow, type ProposalSource } from "./types";
@@ -171,6 +172,12 @@ export function ProposalsSegmentView({
     [rows, selectedKeys],
   );
   const clearSelection = () => setSelectedKeys(new Set());
+  // „Pomiń" pyta o powód (0405); zaznaczenie znika dopiero po potwierdzeniu.
+  const dismissPrompt = useDismissReasonPrompt((ids, feedback) => {
+    proposals.dismiss(ids, feedback);
+    const gone = new Set(ids);
+    setSelectedKeys((prev) => new Set([...prev].filter((key) => !rows.some((r) => r.key === key && gone.has(r.candidateId)))));
+  });
 
   const skillOptions = useMemo(() => {
     if (runData?.criteria?.must?.length) return runData.criteria.must;
@@ -190,7 +197,7 @@ export function ProposalsSegmentView({
       proposals.addToJob([activeEntry.row.candidateId]);
     } else if (key === "p") {
       event.preventDefault();
-      proposals.dismiss([activeEntry.row.candidateId]);
+      dismissPrompt.ask([activeEntry.row.candidateId]);
     }
   };
 
@@ -255,7 +262,7 @@ export function ProposalsSegmentView({
           <Button size="sm" variant="outline" disabled={busy || selectedIds.length === 0} onClick={() => { proposals.addToJob(selectedIds); clearSelection(); }}>
             Dodaj do rekrutacji
           </Button>
-          <Button size="sm" variant="outline" disabled={busy || selectedIds.length === 0} onClick={() => { proposals.dismiss(selectedIds); clearSelection(); }}>
+          <Button size="sm" variant="outline" disabled={busy || selectedIds.length === 0} onClick={() => dismissPrompt.ask(selectedIds)}>
             Pomiń
           </Button>
           <Button size="sm" variant="outline" disabled={busy || selectedIds.length === 0} onClick={() => { proposals.addToShortlist(selectedIds); clearSelection(); }}>
@@ -288,6 +295,7 @@ export function ProposalsSegmentView({
       data-testid="proposals-segment"
       onKeyDown={onKeyDown}
     >
+      {dismissPrompt.dialog}
       {/* ── Pasek stanu przeglądu bazy ───────────────────────────────────── */}
       <section aria-label="Przegląd bazy" className="space-y-2" data-help="jobs.proposals.review">
         <div className="flex flex-wrap items-center gap-2">
@@ -453,7 +461,7 @@ export function ProposalsSegmentView({
               busy={busy}
               onAdd={(id) => proposals.addToJob([id])}
               onShortlist={(id) => proposals.addToShortlist([id])}
-              onDismiss={(id) => proposals.dismiss([id])}
+              onDismiss={(id) => dismissPrompt.ask([id])}
               onWriteEmail={onWriteEmail}
               onVerified={() => { if (run.runId) void run.refresh(); }}
               adminTools={activeEntry && renderAdminTools ? renderAdminTools(activeEntry.row.candidateId) : undefined}

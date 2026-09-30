@@ -172,6 +172,16 @@ def _schema(
 
 INT = {"type": "integer"}
 STR = {"type": "string"}
+
+# Powód „Pomiń” propozycji (0405) — klucze = `DISMISS_REASONS` (test to pilnuje).
+_DISMISS_REASON_PL = {
+    "missing_critical": "brak kluczowej technologii",
+    "too_expensive": "za drogi",
+    "location_office": "miasto / biuro",
+    "too_junior": "za mało doświadczenia",
+    "outdated_cv": "nieaktualne CV",
+    "other": "inne",
+}
 BOOL = {"type": "boolean"}
 LIMIT = {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS}
 PERIOD = {
@@ -2189,10 +2199,23 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         label="Przygotowuję odrzucenie propozycji",
         description=(
             "PROPONUJE odrzucenie propozycji kandydata w rekrutacji (ekran „Do "
-            "przejrzenia”). Da się ją przywrócić; nowe CV tej osoby zaproponuje ją ponownie."
+            "przejrzenia”). Powód jest wymagany: missing_critical (brak kluczowej "
+            "technologii), too_expensive (za drogi), location_office (miasto / biuro), "
+            "too_junior (za mało doświadczenia), outdated_cv (nieaktualne CV), other "
+            "(inne — wtedy note z jednym zdaniem). Nie zgaduj powodu — zapytaj. "
+            "Da się ją przywrócić; nowe CV tej osoby zaproponuje ją ponownie."
         ),
         input_schema=_schema(
-            {"job_id": INT, "candidate_id": INT}, ("job_id", "candidate_id")
+            {
+                "job_id": INT,
+                "candidate_id": INT,
+                "reason": {
+                    "type": "string",
+                    "enum": list(_DISMISS_REASON_PL),
+                },
+                "note": {**STR, "maxLength": 500},
+            },
+            ("job_id", "candidate_id", "reason"),
         ),
         tier="write",
         method="POST",
@@ -2203,11 +2226,17 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         build=lambda a: RequestSpec(
             "POST",
             f"/api/jobs/{_int(a, 'job_id')}/proposal-inbox/{_int(a, 'candidate_id')}/dismiss",
-            json={},
+            json=_clean({"reason": a.get("reason"), "note": a.get("note")}),
         ),
         shape=as_is,
         preview=lambda a: (
             f"Odrzucę propozycję {_who(a)} w rekrutacji {_who(a, 'job_id', 'Rekrutacja')}"
+            f" — powód: {_DISMISS_REASON_PL.get(str(a.get('reason')), a.get('reason'))}"
+            + (
+                f" ({str(a.get('note')).strip()})"
+                if str(a.get("note") or "").strip()
+                else ""
+            )
         ),
     ),
     JarvisTool(

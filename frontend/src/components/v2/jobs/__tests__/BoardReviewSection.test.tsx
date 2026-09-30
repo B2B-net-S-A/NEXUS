@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const addToJob = vi.fn();
@@ -108,7 +108,10 @@ describe("Tablica — kolumna „Do przejrzenia”", () => {
   it("✕ pomija, a nadmiar prowadzi do pełnej listy", () => {
     render(<BoardReviewSection jobId={5} readOnly={false} />);
     fireEvent.click(screen.getByRole("button", { name: "Pomiń Osoba 2" }));
-    expect(dismiss).toHaveBeenCalledWith([2]);
+    const dialog = within(screen.getByRole("dialog"));
+    fireEvent.click(dialog.getByRole("radio", { name: "Za drogi" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Pomiń" }));
+    expect(dismiss).toHaveBeenCalledWith([2], { reason: "too_expensive" });
     expect(screen.getByRole("link", { name: "Przejrzyj wszystkich 14 →" })).toHaveAttribute(
       "href",
       "/jobs/5?tab=people&seg=proposals",
