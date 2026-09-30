@@ -152,3 +152,23 @@ def test_critical_eligibility_requires_every_option_in_taxonomy(label, eligible)
 
 def test_critical_eligibility_is_false_without_taxonomy():
     assert critical_eligible("Java") is False
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "QA",
+        "IT analysis",
+        "Data engineering",
+        "IT operations",
+        "Test automation",
+        "IT consulting",
+        "Quality assurance",
+        "PMO",
+        "System administration",
+    ],
+)
+def test_practices_outside_the_dictionary_do_not_gate(label):
+    """30.09.2026: praktyki i role spoza słownika przechodziły regułę
+    składniową; wysłani „mieli” je w 0–37% przypadków (audyt B2)."""
+    assert gate_requirement(label) is None

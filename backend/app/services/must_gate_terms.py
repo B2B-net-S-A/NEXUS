@@ -268,6 +268,18 @@ _CATEGORY_WORDS = frozenset(
         "principles",
         "zasady",
         "concepts",
+        # 30.09.2026 (audyt B2): praktyki spoza słownika, które przechodziły
+        # regułę składniową — „IT analysis” (3% wysłanych je „ma”), „Data
+        # engineering” (32%), „IT operations”, „Test automation”, „IT consulting”.
+        "analysis",
+        "analiza",
+        "engineering",
+        "operations",
+        "consulting",
+        "administration",
+        "assurance",
+        "automation",
+        "automatyzacja",
     }
 )
 # Słowa roli: „Java Developer” → Java; sama rola → nie bramkuje.
@@ -298,6 +310,8 @@ _ROLE_WORDS = frozenset(
         "admin",
         "administrator",
         "owner",
+        "qa",
+        "pmo",
     }
 )
 _REASONS = ("language", "domain", "soft", "category", "role", "prose")
