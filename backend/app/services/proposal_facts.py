@@ -192,3 +192,31 @@ def candidate_facts(
         "expected_rate_redacted": False,
         "client_history": history,
     }
+
+
+async def main_cv_uploaded_on(db: Any, candidate_ids: list[int]) -> dict[int, str]:
+    """Data wgrania głównego CV (ISO) — plakietka „CV z RRRR” (30.09.2026).
+
+    Tylko prawdziwa data wgrania (``uploaded_at``); bez niej osoba nie dostaje
+    plakietki — nigdy dnia importu (``created_at``), który mówi o migracji,
+    nie o świeżości CV. Główne CV wygrywa, nieaktualne pliki się nie liczą.
+    """
+    from sqlalchemy import text
+
+    if not candidate_ids:
+        return {}
+    rows = await db.execute(
+        text(
+            "SELECT DISTINCT ON (candidate_id) candidate_id, uploaded_at "
+            "FROM candidate_documents "
+            "WHERE candidate_id = ANY(:ids) AND document_kind = 'cv' "
+            "AND outdated_at IS NULL "
+            "ORDER BY candidate_id, is_primary DESC, uploaded_at DESC NULLS LAST"
+        ),
+        {"ids": list(candidate_ids)},
+    )
+    return {
+        int(cid): uploaded.date().isoformat()
+        for cid, uploaded in rows.all()
+        if uploaded is not None
+    }

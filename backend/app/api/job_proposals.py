@@ -339,10 +339,14 @@ async def job_proposal_facts(
             proposal_facts.StageRow(*row) for row in rows
         )
     by_id = {c.id: c for c in candidates}
+    cv_dates = await proposal_facts.main_cv_uploaded_on(db, ids)
     return {
         "job_id": job_id,
         "items": [
-            proposal_facts.candidate_facts(by_id[cid], history=history.get(cid))
+            {
+                **proposal_facts.candidate_facts(by_id[cid], history=history.get(cid)),
+                "cv_uploaded_on": cv_dates.get(cid),
+            }
             for cid in ids
             if cid in by_id
         ],
