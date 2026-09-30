@@ -11,6 +11,7 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     HTTPException,
+    Path,
     Query,
     Request,
     status,
@@ -160,6 +161,12 @@ from app.models.proposal_snapshot import SOURCE_HANDOFF
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
+
+# PostgreSQL stores job.id as int4 (max 2 147 483 647).  Values beyond that
+# cause an OverflowError in asyncpg's int4_encode, surfacing as a DBAPIError.
+# Using this alias on every /{job_id} path parameter makes FastAPI return 422
+# before the value ever reaches the database.
+JobId = Annotated[int, Path(ge=1, le=2_147_483_647)]
 
 
 # GET-only recruitment history/Champion surfaces. Finance gains organization-
@@ -2294,7 +2301,7 @@ async def list_hiring_manager_options(
 
 @router.get("/{job_id}", response_model=JobResponse)
 async def get_job(
-    job_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    job_id: JobId, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
@@ -2396,7 +2403,7 @@ async def _populate_hiring_manager_name(
 
 @router.patch("/{job_id}", response_model=JobResponse)
 async def update_job(
-    job_id: int,
+    job_id: JobId,
     data: JobUpdate,
     current_user: JobEditUser,
     background_tasks: BackgroundTasks,
@@ -2760,7 +2767,7 @@ async def update_job(
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_job(
-    job_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
+    job_id: JobId, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
 ):
     # Runda 7 (R7-N8-3): usunięcie rekrutacji trafia do Historii zdarzeń —
     # także odmowa. Do 26.09 ślad zostawał tylko w ``activities``.
@@ -2937,7 +2944,7 @@ async def delete_job(
 
 @router.post("/{job_id}/close", response_model=JobResponse)
 async def close_job(
-    job_id: int,
+    job_id: JobId,
     data: JobCloseRequest,
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
@@ -3034,7 +3041,7 @@ def _take_over_reopened_traffit_job(db: AsyncSession, job: Job, user) -> None:
 
 @router.post("/{job_id}/manage-in-nexus", response_model=JobResponse)
 async def set_job_managed_in_nexus(
-    job_id: int,
+    job_id: JobId,
     data: JobManageInNexusRequest,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
@@ -3123,7 +3130,7 @@ async def _assert_may_change_vetoing_manager(
 
 @router.put("/{job_id}/hiring-manager", response_model=JobResponse)
 async def set_job_hiring_manager(
-    job_id: int,
+    job_id: JobId,
     data: JobHiringManagerRequest,
     current_user: JobEditUser,
     db: AsyncSession = Depends(get_db),
@@ -3201,7 +3208,7 @@ async def set_job_hiring_manager(
 
 @router.post("/{job_id}/publish")
 async def publish_job(
-    job_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
+    job_id: JobId, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
 ):
     """Publish job — mark as published and queue portal syndication."""
     result = await db.execute(select(Job).where(Job.id == job_id))
@@ -3254,7 +3261,7 @@ _champion_response = champion_view.api_response
 
 @router.get("/{job_id}/champion-profile")
 async def get_champion_profile(
-    job_id: int,
+    job_id: JobId,
     request: Request,
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
@@ -3343,7 +3350,7 @@ async def _champion_profile_recipients(
 
 @router.put("/{job_id}/champion-profile")
 async def update_champion_profile(
-    job_id: int,
+    job_id: JobId,
     current_user: JobEditUser,
     db: AsyncSession = Depends(get_db),
     payload: dict | None = None,
@@ -3353,7 +3360,7 @@ async def update_champion_profile(
 
 @router.post("/{job_id}/champion-profile/apply-import")
 async def apply_champion_import(
-    job_id: int,
+    job_id: JobId,
     current_user: JobEditUser,
     payload: dict,
     db: AsyncSession = Depends(get_db),
@@ -3671,7 +3678,7 @@ _HANDOFF_RECRUITER_ROLES = (
 
 @router.get("/{job_id}/readiness")
 async def get_job_readiness(
-    job_id: int,
+    job_id: JobId,
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -3708,7 +3715,7 @@ async def get_job_readiness(
 
 @router.post("/{job_id}/handoff", status_code=202)
 async def handoff_job_to_search(
-    job_id: int,
+    job_id: JobId,
     current_user: DeliveryLeadPlus,
     background_tasks: BackgroundTasks,
     payload: JobHandoffRequest,
@@ -3833,7 +3840,7 @@ async def handoff_job_to_search(
 
 @router.post("/{job_id}/champion-profile/verification")
 async def update_champion_verification(
-    job_id: int,
+    job_id: JobId,
     payload: ChampionVerificationRequest,
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
@@ -3989,7 +3996,7 @@ async def update_champion_verification(
 
 @router.post("/{job_id}/champion-profile/client-history")
 async def refresh_champion_client_history(
-    job_id: int,
+    job_id: JobId,
     current_user: JobEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -4054,7 +4061,7 @@ async def refresh_champion_client_history(
 
 @router.get("/{job_id}/champion-profile/consultant-suggestions")
 async def champion_consultant_suggestions(
-    job_id: int,
+    job_id: JobId,
     current_user: RecruitmentHistoryReadUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
@@ -4182,7 +4189,7 @@ async def _write_briefing_block(db: AsyncSession, job: Job, briefing: dict) -> N
 
 @router.post("/{job_id}/champion-profile/briefing")
 async def set_champion_briefing(
-    job_id: int,
+    job_id: JobId,
     payload: ChampionBriefingRequest,
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
@@ -4323,7 +4330,7 @@ async def _briefing_audio_referenced_elsewhere(
 
 @router.delete("/{job_id}/champion-profile/briefing")
 async def clear_champion_briefing(
-    job_id: int,
+    job_id: JobId,
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -4371,7 +4378,7 @@ async def clear_champion_briefing(
 
 @router.get("/{job_id}/champion-profile/briefing/audio-url")
 async def champion_briefing_audio_url(
-    job_id: int,
+    job_id: JobId,
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -4402,7 +4409,7 @@ async def champion_briefing_audio_url(
 
 @router.post("/{job_id}/champion-profile/generate-from-jd")
 async def generate_champion_from_jd(
-    job_id: int,
+    job_id: JobId,
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
     payload: dict | None = None,
@@ -4457,7 +4464,7 @@ async def generate_champion_from_jd(
 
 @router.post("/{job_id}/champion-profile/generate-from-history")
 async def generate_champion_from_history(
-    job_id: int,
+    job_id: JobId,
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
     payload: dict | None = None,
@@ -4527,7 +4534,7 @@ async def generate_champion_from_history(
 
 @router.get("/{job_id}/champion-profile/historical-matches")
 async def get_champion_historical_matches(
-    job_id: int,
+    job_id: JobId,
     current_user: RecruitmentHistoryReadUser,
     db: AsyncSession = Depends(get_db),
     top_k: int = Query(default=5, ge=1, le=15),
@@ -4704,7 +4711,7 @@ def _split_entries(entries):
 
 @router.get("/{job_id}/request-history")
 async def get_request_history(
-    job_id: int,
+    job_id: JobId,
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
     top_k: int = Query(default=10, ge=1, le=30),
@@ -4898,7 +4905,7 @@ async def preview_request_history(
     status_code=status.HTTP_201_CREATED,
 )
 async def add_candidate_from_history(
-    job_id: int,
+    job_id: JobId,
     body: dict,
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
@@ -5005,7 +5012,7 @@ async def add_candidate_from_history(
 
 @router.get("/{job_id}/champion-profile/suggestions")
 async def list_champion_suggestions(
-    job_id: int,
+    job_id: JobId,
     current_user: RecruitmentHistoryReadUser,
     db: AsyncSession = Depends(get_db),
     status_filter: Optional[str] = Query(default=None, alias="status"),
@@ -5058,7 +5065,7 @@ async def list_champion_suggestions(
 
 @router.post("/{job_id}/owner", response_model=JobResponse)
 async def assign_owner(
-    job_id: int,
+    job_id: JobId,
     payload: JobOwnerAssignment,
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
@@ -5116,7 +5123,7 @@ async def assign_owner(
 
 @router.delete("/{job_id}/owner", response_model=JobResponse)
 async def release_owner(
-    job_id: int,
+    job_id: JobId,
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
@@ -5144,7 +5151,7 @@ async def release_owner(
 
 @router.post("/{job_id}/claim", response_model=JobResponse)
 async def claim_job(
-    job_id: int,
+    job_id: JobId,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
@@ -5219,7 +5226,7 @@ async def claim_job(
 
 @router.get("/{job_id}/collaborators", response_model=list[UserBrief])
 async def list_collaborators(
-    job_id: int,
+    job_id: JobId,
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ):
@@ -5249,7 +5256,7 @@ async def list_collaborators(
     status_code=status.HTTP_201_CREATED,
 )
 async def add_collaborator(
-    job_id: int,
+    job_id: JobId,
     payload: JobCollaboratorAdd,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
@@ -5336,7 +5343,7 @@ async def add_collaborator(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def remove_collaborator(
-    job_id: int,
+    job_id: JobId,
     user_id: int,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
@@ -5400,7 +5407,7 @@ def _cc_score_to_schema(score) -> CcSuggestion:
 
 @router.post("/{job_id}/classify-cc", response_model=CcSuggestionsResponse)
 async def classify_job_cc(
-    job_id: int,
+    job_id: JobId,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ) -> CcSuggestionsResponse:
@@ -5422,7 +5429,7 @@ async def classify_job_cc(
 
 @router.post("/{job_id}/cc-override", status_code=status.HTTP_201_CREATED)
 async def log_cc_override(
-    job_id: int,
+    job_id: JobId,
     body: CcOverrideRequest,
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
