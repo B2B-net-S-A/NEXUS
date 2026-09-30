@@ -536,6 +536,13 @@ describe("ContractorOrderPanel card", () => {
     expect(screen.getByText("3320")).toBeInTheDocument();
   });
 
+  it("„Uzupełnij zamówienie” przy przyszłym zamówieniu ma w nazwie jego numer", async () => {
+    // Obok stoi drugi „Uzupełnij zamówienie” (bieżące) — czytnik ekranu
+    // słyszał dwa identyczne przyciski.
+    renderPanel();
+    expect(await screen.findByRole("button", { name: "Uzupełnij zamówienie 3320" })).toBeInTheDocument();
+  });
+
   it.each(["tac", "delivery_lead"])(
     "hides candidate finance rows when the server says %s cannot manage them",
     async (role) => {

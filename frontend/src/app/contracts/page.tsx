@@ -206,7 +206,10 @@ function ContractsWorkspace({
   }
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-4">
+    // Otwarty panel szczegółów poszerza stronę (1820 px od 1600 px okna) —
+    // lista sama się poszerza, ale ta ramka trzymała ją w 1400 px i panel
+    // zabierał miejsce tabeli (ucięte nazwiska przy pustych bokach ekranu).
+    <div className="mx-auto max-w-[1400px] space-y-4 min-[1600px]:has-[[data-list-detail-panel]]:max-w-[1820px]">
       {modes.length > 1 && (
         <WorkspaceModeTabs
           label="Tryb modułu Kontrakty"
