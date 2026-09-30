@@ -148,6 +148,7 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
         evidence={
             "eligibility": _eligibility_annotation(decision(old_block)),
             "breakdown": {"total": 91, "matching_must": ["python"]},
+            "filters": {"rate": "over_budget", "office": "days_exceeded"},
             "requirements": [
                 {
                     "any_of": ["python"],
@@ -227,9 +228,12 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
         assert "matching_must" not in item["breakdown"]
         assert item["requirements"][0]["status"] == "unknown"
         assert item["requirements"][0]["matched"] == []
+        assert item["fit"] is None
     else:
         assert item["fit_score"] == 91
         assert item["requirements"][0]["status"] == "met"
+        # Budżet i dni w biurze nie ukrywają (v9) — plakietka z przeglądu.
+        assert item["fit"] == {"rate": "over_budget", "office": "days_exceeded"}
     for private_key in ("candidate_evidence", "usage_context", "verification_id"):
         assert private_key not in item["requirements"][0]
     assert item["match"] is None
