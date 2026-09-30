@@ -5283,13 +5283,20 @@ END $$""",
         cv_revision VARCHAR(64) NULL,
         dismissed_at TIMESTAMPTZ NULL,
         dismissed_cv_revision VARCHAR(64) NULL,
+        dismiss_reason VARCHAR(32) NULL,
+        dismiss_note VARCHAR(500) NULL,
         CONSTRAINT uq_job_proposals_pair_source
             UNIQUE (job_id, candidate_id, source),
         CONSTRAINT ck_job_proposals_source CHECK (
             source IN ('full_base', 'new_cv', 'similar_projects',
                        'recommendation', 'marketplace', 'reassign')),
         CONSTRAINT ck_job_proposals_status CHECK (
-            status IN ('proposed', 'dismissed', 'added'))
+            status IN ('proposed', 'dismissed', 'added')),
+        -- 0405: powód „Pomiń” (kolejny DO-blok niżej trzyma tę samą regułę).
+        CONSTRAINT ck_job_proposals_dismiss_reason CHECK (
+            dismiss_reason IS NULL OR dismiss_reason IN (
+                'missing_critical', 'too_expensive', 'location_office',
+                'too_junior', 'outdated_cv', 'other'))
     )""",
     "CREATE INDEX IF NOT EXISTS ix_job_proposals_job_status_seen "
     "ON job_proposals (job_id, status, first_seen_at)",
