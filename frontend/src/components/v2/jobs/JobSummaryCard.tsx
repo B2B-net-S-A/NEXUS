@@ -30,7 +30,7 @@ export interface JobSummaryCardJob {
   remote_policy?: string | null;
   /** `JobResponse.onsite_days_per_week` — dopisywane WYŁĄCZNIE przy hybrydzie. */
   onsite_days_per_week?: number | null;
-  /** 0406: klient liczy na miesiąc („1 dzień w miesiącu”). */
+  /** 0407: klient liczy na miesiąc („1 dzień w miesiącu”). */
   onsite_days_per_month?: number | null;
   deadline?: string | null;
 }

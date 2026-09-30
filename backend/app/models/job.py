@@ -109,7 +109,7 @@ class Job(Base, TimestampMixin):
     # (`champion_job_sync.fill_job_columns_from_champion`). Nie mylić z
     # `WorkMode` (fulltime/parttime/contract) — to inna oś.
     onsite_days_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    # Wpis „N dni w miesiącu” (0406). Gdy ustawiony, `onsite_days_per_week`
+    # Wpis „N dni w miesiącu” (0407). Gdy ustawiony, `onsite_days_per_week`
     # jest z niego wyliczone (`services/office_days.py`) — bramki czytają
     # wyłącznie liczbę tygodniową.
     onsite_days_per_month: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

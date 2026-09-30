@@ -111,7 +111,7 @@ class RequestIntake:
     rate_note: Optional[str] = None
     remote_policy: Optional[str] = None
     onsite_days_per_week: Optional[int] = None
-    # 0406: „N dni w miesiącu”; gdy podane, tygodniowe jest z niego wyliczone.
+    # 0407: „N dni w miesiącu”; gdy podane, tygodniowe jest z niego wyliczone.
     onsite_days_per_month: Optional[int] = None
     # Lista miast po przecinku (zapis `jobs.location`), polskie nazwy.
     office_city: Optional[str] = None

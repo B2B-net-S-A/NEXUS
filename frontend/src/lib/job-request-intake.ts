@@ -101,7 +101,7 @@ export interface IntakeForm {
   intakeNotes: string[];
   remotePolicy: RemotePolicyValue | "";
   onsiteDays: string;
-  /** 0406: „w tygodniu” albo „w miesiącu” (miesięcznie tylko hybrydowo). */
+  /** 0407: „w tygodniu” albo „w miesiącu” (miesięcznie tylko hybrydowo). */
   onsiteDaysPeriod: OfficeDaysPeriod;
   city: string;
   startDate: string;
@@ -148,7 +148,7 @@ export interface RequestIntakeResponse {
   rate_note: string | null;
   remote_policy: RemotePolicyValue | null;
   onsite_days_per_week: number | null;
-  /** 0406: gdy klient liczy na miesiąc. */
+  /** 0407: gdy klient liczy na miesiąc. */
   onsite_days_per_month?: number | null;
   office_city: string | null;
   /** v7: wszystkie miasta biura z maila, po polsku. */
@@ -422,7 +422,7 @@ export function parseOnsiteDays(value: string): number | null {
   return Number.isInteger(n) && n >= 0 && n <= 7 ? n : null;
 }
 
-/** Para pól zapisu dni w biurze z formularza (0406). */
+/** Para pól zapisu dni w biurze z formularza (0407). */
 export function formOfficeDays(form: IntakeForm): {
   onsite_days_per_week: number | null;
   onsite_days_per_month: number | null;

@@ -1,4 +1,4 @@
-"""Dni w biurze rekrutacji: „w tygodniu” albo „w miesiącu” (0406, 30.09.2026).
+"""Dni w biurze rekrutacji: „w tygodniu” albo „w miesiącu” (0407, 30.09.2026).
 
 Klienci piszą „raz w miesiącu”, „2 dni w miesiącu” — do tej daty rekrutacja
 znała tylko liczbę dni NA TYDZIEŃ (`onsite_days_per_week`), więc rekruter

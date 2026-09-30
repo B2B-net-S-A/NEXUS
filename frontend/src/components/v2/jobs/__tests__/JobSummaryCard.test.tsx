@@ -66,7 +66,7 @@ describe("JobSummaryCard — lokalizacja składa miasto, tryb i dni w biurze", (
     expect(screen.getByText("Warszawa / hybryda 2 dni")).toBeInTheDocument();
   });
 
-  it("dni w miesiącu (0406): „Gdynia / hybryda 1 dzień/mies.”", () => {
+  it("dni w miesiącu (0407): „Gdynia / hybryda 1 dzień/mies.”", () => {
     render(
       <JobSummaryCard
         job={{

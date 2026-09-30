@@ -1520,7 +1520,7 @@ interface JobFormData {
   remote_policy: string;
   // Trzecia rubryka rekrutacji (0278) — obok must-have i rate_budget_hourly.
   onsite_days_per_week: string;
-  // 0406: „w tygodniu” | „w miesiącu” — pole wyżej trzyma liczbę w tej jednostce.
+  // 0407: „w tygodniu” | „w miesiącu” — pole wyżej trzyma liczbę w tej jednostce.
   onsite_days_period: OfficeDaysPeriod;
   salary_min: string;
   salary_max: string;
@@ -1860,7 +1860,7 @@ export function EditJobModal({
         v !== "hybrid" &&
         current.onsite_days_period === "month"
       ) {
-        // Dni w miesiącu są tylko przy hybrydzie (0406).
+        // Dni w miesiącu są tylko przy hybrydzie (0407).
         return {
           ...current,
           remote_policy: v,

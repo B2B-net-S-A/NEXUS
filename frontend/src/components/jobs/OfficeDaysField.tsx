@@ -15,7 +15,7 @@ const PERIODS: { value: OfficeDaysPeriod; label: string; aria: string }[] = [
 ];
 
 /**
- * Dni w biurze: liczba + „w tygodniu / w miesiącu” (0406). Miesięcznie tylko
+ * Dni w biurze: liczba + „w tygodniu / w miesiącu” (0407). Miesięcznie tylko
  * przy pracy hybrydowej (`allowMonth`) — klient pisze „raz w miesiącu”.
  */
 export function OfficeDaysField({

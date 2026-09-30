@@ -352,7 +352,7 @@ export function ChampionProfileEditor({
   // edytor nie tknął, nie ma jak zniknąć.
   const patchBasics = (patch: Partial<ChampionProfile["basics"]>) =>
     setDraft((d) => ({ ...d, basics: { ...d.basics, ...patch } }));
-  // 0406: „w tygodniu / w miesiącu”. Wybór jednostki bez liczby trzyma stan
+  // 0407: „w tygodniu / w miesiącu”. Wybór jednostki bez liczby trzyma stan
   // lokalny — sam zapis nie mówi, którą jednostkę ktoś właśnie kliknął.
   const [officePeriodChoice, setOfficePeriodChoice] =
     useState<OfficeDaysPeriod | null>(null);

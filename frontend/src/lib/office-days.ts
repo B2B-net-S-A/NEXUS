@@ -1,5 +1,5 @@
 /**
- * Dni w biurze rekrutacji: „w tygodniu” albo „w miesiącu” (0406, 30.09.2026).
+ * Dni w biurze rekrutacji: „w tygodniu” albo „w miesiącu” (0407, 30.09.2026).
  *
  * Lustro `backend/app/services/office_days.py` — wspólne przypadki
  * w `__fixtures__/office-days-cases.json`. Człowiek podaje jedno z dwóch;

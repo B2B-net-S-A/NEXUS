@@ -269,7 +269,7 @@ def public_params(job: Job) -> dict[str, Any]:
         "city": _clean(job.location) or _clean(basics.get("candidate_location_pref")),
         "remote_policy": remote,
         "onsite_days_per_week": onsite,
-        # 0406: gdy klient liczy na miesiąc, strona pokazuje „N dni w miesiącu”.
+        # 0407: gdy klient liczy na miesiąc, strona pokazuje „N dni w miesiącu”.
         "onsite_days_per_month": onsite_month,
         "seniority": job.seniority.value if job.seniority else None,
         "contract": contract,

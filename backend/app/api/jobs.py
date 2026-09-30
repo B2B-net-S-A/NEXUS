@@ -1875,7 +1875,7 @@ def _office_days_error(exc: ValueError) -> HTTPException:
 
 
 def _normalize_office_days_for_create(payload: dict) -> None:
-    """Dni w biurze: wpis miesięczny wyznacza tygodniowy (0406)."""
+    """Dni w biurze: wpis miesięczny wyznacza tygodniowy (0407)."""
     from app.services import office_days
 
     try:

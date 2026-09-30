@@ -38,7 +38,7 @@ class JobCreate(BaseModel):
     remote_policy: Optional[RemotePolicy] = None
     # Trzecia rubryka rekrutacji (obok must-have i rate_budget_hourly, 0278).
     onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
-    # „N dni w miesiącu” (0406) — gdy podane, dni w tygodniu wylicza serwer.
+    # „N dni w miesiącu” (0407) — gdy podane, dni w tygodniu wylicza serwer.
     onsite_days_per_month: Optional[int] = Field(default=None, ge=1, le=22)
     status: JobStatus = JobStatus.draft
     priority: JobPriority = JobPriority.medium

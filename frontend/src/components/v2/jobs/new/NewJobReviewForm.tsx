@@ -560,7 +560,7 @@ export function NewJobReviewForm({
                     aria-checked={active}
                     onClick={() =>
                       onChange((f) =>
-                        // Dni w miesiącu są tylko przy hybrydzie (0406).
+                        // Dni w miesiącu są tylko przy hybrydzie (0407).
                         mode.value !== "hybrid" && f.onsiteDaysPeriod === "month"
                           ? {
                               ...f,

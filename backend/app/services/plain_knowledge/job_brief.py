@@ -173,7 +173,7 @@ def collect_inputs(
         "screening_questions": screening,
         "terms": [t["term_key"] for t in job_terms(job)],
     }
-    # 0406: klucz tylko przy wpisie miesięcznym — inaczej hash wejścia
+    # 0407: klucz tylko przy wpisie miesięcznym — inaczej hash wejścia
     # zmieniłby się każdej rekrutacji i wszystkie teksty byłyby „nieaktualne”.
     month = basics.get("onsite_days_per_month") or getattr(
         job, "onsite_days_per_month", None

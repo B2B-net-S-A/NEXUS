@@ -286,6 +286,7 @@ async def test_public_page_never_leaks_client_or_rate(api):
         "city",
         "remote_policy",
         "onsite_days_per_week",
+        "onsite_days_per_month",
         "seniority",
         "contract",
         "start",
@@ -870,7 +871,14 @@ async def test_hidden_sections_vanish_from_every_public_surface(api):
     job = page.json()["job"]
     assert job["must"] == [] and job["nice"] == []
     assert job["show"] == hidden
-    for key in ("city", "remote_policy", "onsite_days_per_week", "start", "duration"):
+    for key in (
+        "city",
+        "remote_policy",
+        "onsite_days_per_week",
+        "onsite_days_per_month",
+        "start",
+        "duration",
+    ):
         assert job["params"][key] is None, key
     serialized = json.dumps(job, ensure_ascii=False)
     for leaked in ("Java 17", "Kafka", "Warszawa", "10.2026", "12+ mies."):

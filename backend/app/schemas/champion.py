@@ -83,7 +83,7 @@ class ChampionBasics(BaseModel):
     rate_raw: Optional[str] = Field(default=None, max_length=255)
     work_mode: Optional[str] = Field(default=None, max_length=50)
     onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
-    # „N dni w biurze w miesiącu” (0406). Gdy ustawione, dni w tygodniu są
+    # „N dni w biurze w miesiącu” (0407). Gdy ustawione, dni w tygodniu są
     # z niego wyliczone (`services/office_days.py`). Znika z zapisu przy
     # `None`, żeby profile sprzed tej daty nie zmieniały kształtu JSONB.
     onsite_days_per_month: Optional[int] = Field(default=None, ge=1, le=22)

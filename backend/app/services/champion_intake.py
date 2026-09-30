@@ -576,7 +576,7 @@ def prepare_profile(
     normalizers = {
         "seniority_min_years": lambda v: number(v, 60, integer=True),
         "onsite_days_per_week": lambda v: number(v, 7, integer=True),
-        # 0406: „N dni w miesiącu”; zero nie jest wpisem miesięcznym.
+        # 0407: „N dni w miesiącu”; zero nie jest wpisem miesięcznym.
         "onsite_days_per_month": lambda v: number(v, 22, integer=True) or None,
         "work_mode": mode,
         "start_date": date,
@@ -1110,7 +1110,7 @@ def response_context(job):
             },
             "role_name": getattr(job, "title", None),
             "deadline": deadline.isoformat() if deadline else None,
-            # 0406: edytor startuje sekcję 1 z pary pól (tydzień / miesiąc).
+            # 0407: edytor startuje sekcję 1 z pary pól (tydzień / miesiąc).
             "onsite_days_per_month": getattr(job, "onsite_days_per_month", None),
         },
         "critical_resolution": critical_resolution_payload(job),
@@ -1390,7 +1390,7 @@ def sync_selected_rubrics(job, profile, fields):
             value = champion_work_mode_to_remote(value)
         apply_requirement_source_update(job, RUBRICS[key], value)
         if key == "onsite_days_per_week":
-            # 0406: wpis miesięczny idzie w parze z wyliczoną liczbą tygodniową.
+            # 0407: wpis miesięczny idzie w parze z wyliczoną liczbą tygodniową.
             job.onsite_days_per_month = profile["basics"].get("onsite_days_per_month")
 
 

@@ -4573,7 +4573,7 @@ export interface ChampionBasics {
   rate_raw?: string | null;
   work_mode?: string | null;
   onsite_days_per_week?: number | null;
-  /** 0406: „N dni w miesiącu”; gdy ustawione, dni w tygodniu wylicza serwer. */
+  /** 0407: „N dni w miesiącu”; gdy ustawione, dni w tygodniu wylicza serwer. */
   onsite_days_per_month?: number | null;
   /** LOKALIZACJA BIURA — gdzie jest praca. Nazwa klucza jest historyczna. */
   candidate_location_pref?: string | null;

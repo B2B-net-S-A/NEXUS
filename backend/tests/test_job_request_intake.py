@@ -102,7 +102,7 @@ def test_hybrid_without_days_and_city_is_reported() -> None:
 
 
 def test_office_days_per_month_are_kept_and_give_the_weekly_value() -> None:
-    # „Raz w miesiącu” (0406): liczba tygodniowa dla bramek nigdy nie jest zerem.
+    # „Raz w miesiącu” (0407): liczba tygodniowa dla bramek nigdy nie jest zerem.
     raw = {**FULL, "onsite_days_per_week": None, "onsite_days_per_month": 1}
     result = normalize_model_output(raw, REQUEST)
     assert result.onsite_days_per_month == 1

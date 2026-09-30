@@ -197,7 +197,7 @@ describe("payloady zapisu", () => {
     expect(payload.copy_questions).toBe(true);
   });
 
-  it("dni w miesiącu (0406): odczyt maila → formularz → oba zapisy", () => {
+  it("dni w miesiącu (0407): odczyt maila → formularz → oba zapisy", () => {
     const form = formFromIntake({
       ...INTAKE,
       onsite_days_per_week: 1,

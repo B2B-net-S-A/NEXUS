@@ -4573,7 +4573,7 @@ END $$""",
     # NULL / DROP DEFAULT są idempotentne — no-op, gdy kolumna już taka jest).
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS max_onsite_days_per_week INTEGER NULL",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS onsite_days_per_week INTEGER NULL",
-    # 0406: dni w biurze w miesiącu (services/office_days.py).
+    # 0407: dni w biurze w miesiącu (services/office_days.py).
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS onsite_days_per_month INTEGER NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP NOT NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP DEFAULT",

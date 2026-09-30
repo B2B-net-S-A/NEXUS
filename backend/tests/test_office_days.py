@@ -1,4 +1,4 @@
-"""Dni w biurze: tydzień albo miesiąc (0406) — reguła i jej lustro we froncie."""
+"""Dni w biurze: tydzień albo miesiąc (0407) — reguła i jej lustro we froncie."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def test_champion_basics_derive_weekly_and_hide_empty_monthly():
     basics = ChampionBasics.model_validate({"onsite_days_per_month": 2})
     assert basics.onsite_days_per_week == 1
     assert basics.model_dump()["onsite_days_per_month"] == 2
-    # Profile sprzed 0406 nie zmieniają kształtu JSONB.
+    # Profile sprzed 0407 nie zmieniają kształtu JSONB.
     assert "onsite_days_per_month" not in ChampionBasics().model_dump()
 
 
