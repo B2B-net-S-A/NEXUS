@@ -87,6 +87,9 @@ MISSING_OFFICE_CITY = "office_city"
 MISSING_CONTEXT = "context"
 MISSING_QUESTIONS = "questions"
 MISSING_SEARCH = "search"
+# 30.09.2026: DL potwierdza umiejętności krytyczne (albo „Brak krytycznych”),
+# gdy MUST ma co najmniej jedną technologię ze słownika.
+MISSING_CRITICAL = "critical"
 
 
 @dataclass(frozen=True)
@@ -594,6 +597,7 @@ def missing_fields(
     responsibilities: Optional[str],
     questions: list[IntakeQuestion],
     search_requirements: list[list[str]],
+    critical: Optional[list[str]] = None,
 ) -> list[str]:
     """Braki wobec „Przekaż do searchu” — lustro `job_readiness`."""
     missing: list[str] = []
@@ -616,7 +620,15 @@ def missing_fields(
         missing.append(MISSING_QUESTIONS)
     if not any(row for row in search_requirements):
         missing.append(MISSING_SEARCH)
+    if critical is None and _has_critical_candidates(must):
+        missing.append(MISSING_CRITICAL)
     return missing
+
+
+def _has_critical_candidates(must: list[str]) -> bool:
+    from app.services.must_gate_terms import critical_eligible
+
+    return any(critical_eligible(label) for label in must)
 
 
 def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:

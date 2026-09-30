@@ -35,6 +35,8 @@ READ_ONLY_POST_ROUTE_TEMPLATES: tuple[str, ...] = (
     "/api/candidates/bulk-cv-download",
     # Własna metryka pulpitu: definicja w ciele, bez zapisu (0337).
     "/api/dashboard-metrics/evaluate",
+    # Podpowiedź umiejętności krytycznych dla niezapisanej listy MUST (30.09.2026).
+    "/api/job-intake/critical-suggestion",
 )
 
 _READ_ONLY_POST_ROUTE_PATTERNS = tuple(

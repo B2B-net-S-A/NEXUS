@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import DeliveryLeadPlus, get_db
+from app.api.deps import DeliveryLeadPlus, OperationalUser, get_db
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.rate_limit import limiter, user_or_ip_key
@@ -188,6 +188,42 @@ async def public_draft(
         return await draft_for_request(db, request_job, user_id=current_user.id)
     except PublicDraftUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
+
+
+class CriticalSuggestionRequest(BaseModel):
+    must_skills: list[str] = Field(default_factory=list, max_length=60)
+    title: Optional[str] = Field(default=None, max_length=300)
+
+
+@router.post("/critical-suggestion")
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def critical_suggestion(
+    request: Request,
+    body: CriticalSuggestionRequest,
+    current_user: OperationalUser,
+) -> dict:
+    """Podpowiedź umiejętności krytycznych dla listy MUST (30.09.2026).
+
+    Dla listy, której jeszcze nie zapisano (/jobs/new, edytor Championa przed
+    zapisem). Czyta wyłącznie statystyki z historii — bez bazy i bez modelu.
+    ``eligible`` = pozycje, które wolno oznaczyć jako krytyczne (technologie
+    ze słownika); ``suggested`` = podpowiedź (≤2, ≥90% wysłanych ją ma).
+    """
+    from app.services.critical_skills import stat_for, suggest_from_must
+    from app.services.must_gate_terms import critical_eligible
+
+    must = [s.strip()[:500] for s in body.must_skills if s and s.strip()]
+    eligible = [label for label in must if critical_eligible(label)]
+    stats = {}
+    for label in eligible:
+        stat = stat_for(label)
+        if stat is not None:
+            stats[label] = {"rate": stat.rate, "jobs": stat.jobs}
+    return {
+        "suggested": list(suggest_from_must(must, body.title or "")),
+        "eligible": eligible,
+        "stats": stats,
+    }
 
 
 @router.get("/handoff-options")
