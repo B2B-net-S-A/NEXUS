@@ -1217,6 +1217,19 @@ procesu)”, a 94% tych osób było już w bazie (88% w procesie). Decyzje Artur
   `CvGeneratorDialog` na profilu kandydata (usunięta kopia `CVGeneratorV2`),
   karta `CvToClientCard` w panelu osoby rekrutacji. Kod:
   `components/v2/cv-generator/`. Harness `/preview/cv-generator?state=`.
+- **Word CV z rekrutacji ma układ szablonu firmowego** (30.09.2026, zgłoszenie
+  „szkic rozjechany”). Szkic, zatwierdzone CV, przegląd DL, kolejka Cpro
+  i karta „CV do klienta” robią DOCX z HTML-a edytora
+  (`services/cv_approved_docx.py`, `approved-html-2`), bo edycje i poprawki
+  QC muszą przetrwać. Do 30.09 był to ogólny konwerter (kropki jako tekst,
+  bez linii i tabel), więc do klienta szedł inny wygląd niż z profilu.
+  Sekcje rozpoznają znaczniki `data-cv-section` (edytor je zachowuje —
+  `lib/cv-editor-section.ts`), a w starszym HTML tytuły sekcji i kształt
+  akapitów. Tabela edukacji jest wspólna z generatorem (`add_education_table`,
+  `style_education_row`). Tekst i pogrubienia idą z edytora 1:1, dochodzą
+  tylko etykiety układu („Nazwa firmy:”, „Stanowisko:”, nagłówek tabeli).
+  Nie wracaj do ogólnej konwersji ani nie zdejmuj „Pobierz szkic DOCX” —
+  to ten sam plik, który dostaje klient.
 - **Wycofane:** stary szablon „CV firmowe / Stwórz brandowane” (HTML z pól
   profilu, bez reguł klienta, z telefonem i e-mailem kandydata —
   `cv_html_renderer.py` usunięty — jego arkusz żyje zamrożony w
