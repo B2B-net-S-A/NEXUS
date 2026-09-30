@@ -11,9 +11,13 @@
   osoby do „Nowych" (jeden klik zamiast „Biorę" przy każdej).
 * ``DELETE /api/jobs/{id}/similar/{other_id}`` — rozłącz (propozycje zostają).
 * ``POST /api/job-similarity/preview`` — sugestie dla rekrutacji jeszcze
-  niezapisanej (strona „Nowa rekrutacja").
+  niezapisanej (strona „Nowa rekrutacja"; szkic embedowany na żądanie).
 * ``POST /api/jobs/{id}/champion-found`` — Delivery Lead: „Mamy championa"
   (albo cofnięcie). Do tej chwili status requestu to „Szukamy".
+
+Sugestie od 30.09.2026 liczy wektor rekrutacji (``similarity_kind:
+"vector"``, ``similarity`` = kosinus × 100) z premią za tego samego klienta;
+bez wektora albo przy awarii Qdranta — dawny wzór (``"lexical"``).
 
 Uwaga: moduł bez ``from __future__ import annotations`` — slowapi/FastAPI
 czytają adnotacje ciała w czasie rejestracji trasy.
@@ -87,12 +91,12 @@ async def _job_briefs(db: AsyncSession, job_ids: list[int]) -> dict[int, dict]:
 async def _payload(db: AsyncSession, job: Job) -> dict:
     linked_ids = (await sim.linked_job_ids(db, [job.id])).get(job.id, [])
     suggestions = await sim.suggestions_for_job(db, job, exclude=linked_ids)
-    ids = list({*linked_ids, *(p.id for p, _ in suggestions)})
+    ids = list({*linked_ids, *(s.job.id for s in suggestions)})
     briefs = await _job_briefs(db, ids)
     sent = await sim.sent_counts(db, ids)
-    scores = {p.id: score for p, score in suggestions}
+    by_id = {s.job.id: s for s in suggestions}
     reassigned = (await sim.reassign_counts(db, [job.id])).get(job.id, 0)
-    suggested_ids = [p.id for p, _ in suggestions]
+    suggested_ids = [s.job.id for s in suggestions]
     reassignable, reassignable_people = await sim.reassignable_counts(
         db, job.id, suggested_ids
     )
@@ -101,9 +105,12 @@ async def _payload(db: AsyncSession, job: Job) -> dict:
         brief = briefs.get(job_id)
         if brief is None:
             return None
+        suggestion = by_id.get(job_id)
         return {
             **brief,
-            "similarity": scores.get(job_id),
+            "similarity": suggestion.similarity if suggestion else None,
+            # „vector” (kosinus × 100) albo „lexical” (dawny wzór, zapas).
+            "similarity_kind": suggestion.kind if suggestion else None,
             "sent_count": sent.get(job_id, 0),
             "reassignable_count": reassignable.get(job_id, 0),
             "linked": linked,
@@ -116,7 +123,7 @@ async def _payload(db: AsyncSession, job: Job) -> dict:
         # pasek w „Nowych” i „Najbliższy krok”.
         "reassignable_people": reassignable_people,
         "linked": [x for x in (item(i, True) for i in linked_ids) if x],
-        "suggestions": [x for x in (item(p.id, False) for p, _ in suggestions) if x],
+        "suggestions": [x for x in (item(s.job.id, False) for s in suggestions) if x],
     }
 
 
@@ -262,6 +269,7 @@ async def search_jobs_to_link(
             {
                 **briefs[i],
                 "similarity": None,
+                "similarity_kind": None,
                 "sent_count": sent.get(i, 0),
                 "linked": i in linked,
             }
@@ -400,6 +408,8 @@ class SimilarPreviewBody(BaseModel):
     title: str = Field("", max_length=300)
     must_skills: list[str] = Field(default_factory=list, max_length=60)
     competence_category_id: Optional[int] = None
+    # Klient ze szkicu — premia za tego samego klienta w rankingu wektorowym.
+    client_id: Optional[int] = Field(None, ge=1, le=2_147_483_647)
 
 
 class _Draft:
@@ -410,7 +420,7 @@ class _Draft:
         self.title = body.title
         self.must_skills = [s for s in body.must_skills if s.strip()]
         self.competence_category_id = body.competence_category_id
-        self.client_id = None
+        self.client_id = body.client_id
         self.reference_number = None
         self.status = None
         self.created_at = None
@@ -424,20 +434,21 @@ async def preview_similar_jobs(
 ):
     if not body.title.strip() and not body.must_skills:
         return {"suggestions": []}
-    suggestions = await sim.suggestions_for_job(db, _Draft(body))
-    ids = [p.id for p, _ in suggestions]
+    suggestions = await sim.preview_suggestions(db, _Draft(body))
+    ids = [s.job.id for s in suggestions]
     briefs = await _job_briefs(db, ids)
     sent = await sim.sent_counts(db, ids)
     return {
         "suggestions": [
             {
-                **briefs[p.id],
-                "similarity": score,
-                "sent_count": sent.get(p.id, 0),
+                **briefs[s.job.id],
+                "similarity": s.similarity,
+                "similarity_kind": s.kind,
+                "sent_count": sent.get(s.job.id, 0),
                 "linked": False,
             }
-            for p, score in suggestions
-            if p.id in briefs
+            for s in suggestions
+            if s.job.id in briefs
         ]
     }
 

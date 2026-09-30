@@ -356,6 +356,8 @@ export interface JobSimilarSummary {
   suggested: {
     count: number;
     sent_count: number;
+    /** `vector` — wektor rekrutacji ponad próg plakietki; `lexical` — dawny wzór. */
+    kind?: "vector" | "lexical";
     first: { id: number; title: string; reference_number: string | null };
   } | null;
 }
@@ -413,7 +415,11 @@ export function SimilarJobsCell({
       disabled={disabled}
       data-testid="job-similar-badge"
       className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-dashed border-primary/40 px-1.5 py-px text-[11px] text-primary hover:bg-primary/5"
-      title="System znalazł podobne rekrutacje z osobami wysłanymi do klienta"
+      title={
+        suggested.kind === "vector"
+          ? "Rekrutacje o podobnej treści (wektor) z osobami wysłanymi do klienta"
+          : "System znalazł podobne rekrutacje z osobami wysłanymi do klienta"
+      }
     >
       <span className="shrink-0 font-semibold">
         ≈ {countPl(suggested.count, "podobna", "podobne", "podobnych")}

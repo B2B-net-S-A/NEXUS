@@ -3579,13 +3579,29 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   suma `sent_count` liczyła zatrudnionych i obecnych, więc krok wisiał bez
   nikogo do przepięcia). Jedno przepięcie: najwyżej 100 osób.
   Karta niesie `reassign_from_reference` („↻ z ZOB-1725”).
-- **Sugestie są deterministyczne**: must-have (Jaccard) 0,55 + tytuł 0,30 +
+- **Sugestie liczy WEKTOR rekrutacji (decyzja Artura 30.09.2026)**:
+  kosinus wektorów z kolekcji `nexus_jobs` (zapytanie po id punktu, bez
+  przesyłania wektora), pula = rekrutacje z kimkolwiek od „CV wysłane” wzwyż
+  (`_sent_job_ids`, bez samej rekrutacji i już połączonych), porządek =
+  kosinus + **0,08 za tego samego klienta** (`VECTOR_CLIENT_BONUS`), top 5,
+  BEZ progu. `similarity` = kosinus × 100, `similarity_kind: "vector"` (UI:
+  „≈ N%”). Zmierzone na historii (1620 rekrutacji): prawdziwe źródło
+  przepięcia w top 5 dla 60,6% rekrutacji zamiast 39,7% przy dawnym wzorze
+  z progiem 55 (86% prawdziwych źródeł miało poniżej 55). **Zapas
+  leksykalny** (`similarity_kind: "lexical"`) — rekrutacja bez wektora albo
+  Qdrant nie odpowiada w ~2 s: must-have (Jaccard) 0,55 + tytuł 0,30 +
   ta sama kategoria 0,15, próg 55; **ten sam klient liczy się jak ta sama
   kategoria** (lepsze z dwóch, nie suma — od 25.09.2026; ZOB-3006 i ZOB-1725
   PKO BP w różnych kategoriach miały 30 pkt, teraz 60), pula = CAŁA historia (także zamknięte i archiwum z Traffita; do 24.09.2026 18 miesięcy) w pamięci
-  procesu 5 min z indeksem odwróconym. Lista pokazuje „≈" tylko przy
-  sugestiach z osobami u klienta. DL wskazuje podobne już przy tworzeniu
-  (`POST /api/job-similarity/preview` → po zapisie `POST …/similar`).
+  procesu 5 min z indeksem odwróconym. Lista rekrutacji liczy stronę jednym
+  wywołaniem Qdranta (`query_batch_points`, pamięć rankingu z kluczem
+  `vector-v1`; awarii nie pamięta) i pokazuje „≈" tylko przy sugestiach
+  z osobami u klienta — wektorowych wyłącznie z (kosinus + premia) ≥
+  `SIMILAR_JOBS_BADGE_MIN_COSINE` (bez progu plakietka świeciłaby przy każdej
+  rekrutacji). DL wskazuje podobne już przy tworzeniu
+  (`POST /api/job-similarity/preview` — szkic tytuł + must-have embedowany
+  `full_search_measurement.request_vector`, premia za klienta szkicu;
+  po zapisie `POST …/similar`).
   **Must-have = kolumna ∪ stack MUST Championa, jako KANONICZNE nazwy
   technologii z taksonomii** (`skill_set`, od 22.09.2026): surowe napisy
   z samej kolumny dawały podpowiedź 92 z 326 otwartym rekrutacjom, ten zbiór —

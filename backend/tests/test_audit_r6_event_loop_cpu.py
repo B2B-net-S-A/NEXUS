@@ -320,6 +320,13 @@ async def test_suggestion_summaries_rank_in_a_thread_and_keep_the_result(
         return {job_id: 1 for job_id in ids}
 
     monkeypatch.setattr(sim, "sent_counts", _sent)
+
+    async def _no_vectors(_db, _pool, _refs, **_k):
+        # Żadna rekrutacja nie ma wektora — ranking leksykalny w wątku
+        # (ranking wektorowy: test_job_similar_vector.py).
+        return {}
+
+    monkeypatch.setattr(sim, "_vector_neighbours", _no_vectors)
     rank_threads: list[int] = []
     original = sim._rank_many
 

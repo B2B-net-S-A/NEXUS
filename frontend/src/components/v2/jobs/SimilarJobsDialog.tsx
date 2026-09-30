@@ -31,6 +31,8 @@ import { api } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   selectedSentCount,
+  similarityHint,
+  similarityLabel,
   type SimilarJobItem,
   useLinkSimilarJobs,
   useSimilarJobs,
@@ -237,8 +239,11 @@ export function SimilarJobsDialog({
                         />
                         <JobLabel item={item} />
                         {item.similarity != null ? (
-                          <span className="ml-auto w-10 text-right text-sm font-semibold tabular-nums text-primary">
-                            {item.similarity}%
+                          <span
+                            className="ml-auto w-14 whitespace-nowrap text-right text-sm font-semibold tabular-nums text-primary"
+                            title={similarityHint(item)}
+                          >
+                            {similarityLabel(item)}
                           </span>
                         ) : (
                           <span className="ml-auto text-xs text-muted-foreground">dodana</span>
