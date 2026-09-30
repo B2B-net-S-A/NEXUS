@@ -216,6 +216,7 @@ export function OrderLinePanel({
 
   return (
     <DetailPanel
+      compact
       data-testid="order-line-panel"
       title={line.consultant_name}
       badges={statusChip}
@@ -273,6 +274,7 @@ export function OrderLinePanel({
 
           <DetailSection title="Na zamówieniu">
             <DetailFacts
+              compact
               items={[
                 ["Stawka kosztowa", displayLineRate(line, "cost")],
                 ["Stawka przychodowa", displayLineRate(line, "revenue")],

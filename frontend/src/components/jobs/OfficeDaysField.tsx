@@ -1,6 +1,7 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
+import { blurNumberInputOnWheel } from "@/lib/number-input";
 import { cn } from "@/lib/utils";
 import {
   MONTHLY_MAX,
@@ -49,6 +50,7 @@ export function OfficeDaysField({
         id={id}
         type="number"
         inputMode="numeric"
+        onWheel={blurNumberInputOnWheel}
         min={month ? 1 : 0}
         max={month ? MONTHLY_MAX : WEEKLY_MAX}
         disabled={disabled}

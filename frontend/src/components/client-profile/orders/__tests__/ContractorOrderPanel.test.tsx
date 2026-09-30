@@ -657,6 +657,21 @@ describe("ContractorOrderPanel card", () => {
     expect(screen.getByTitle("Stawka przychodowa")).toBeInTheDocument();
   });
 
+  it("bieżące zamówienie nie pokazuje pola „Marża” (ticket 09.2026)", async () => {
+    const withMargin = structuredClone(CONTRACTOR);
+    withMargin.orders = withMargin.orders.map((order) =>
+      order.id === ACTIVE.id ? { ...order, monthly_margin: 6846 } : order,
+    );
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: { contractors: [withMargin], total_contractors: 1, can_manage_finance: true },
+    } as never);
+    renderPanel();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    expect(screen.getByTitle("Stawka przychodowa")).toBeInTheDocument();
+    expect(screen.queryByText("Marża")).not.toBeInTheDocument();
+    expect(screen.queryByText(/6\s?846/)).not.toBeInTheDocument();
+  });
+
   it("shows finance rows to an assigned Delivery Lead", async () => {
     // Sedno poszerzenia uprawnień: rola sama w sobie niczego nie otwiera ani
     // nie zamyka — decyduje flaga policzona serwerowo dla TEGO klienta.

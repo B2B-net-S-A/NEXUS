@@ -206,9 +206,16 @@ def tech_alias_forms(name: str) -> list[str]:
 # „Java 8+”, „Python 3.x”, „Angular 15”, „.NET 6”, „Java 7/8”,
 # „React.js (v18 or higher)”, „Java 11 or higher”. Formy sklejone z nazwą
 # („ES6”, „S3”, „OAuth2”, „Log4j”) zostają — tam cyfra jest częścią nazwy.
+# Wersja bywa też słowna: „Java (minimalna 11)”, „Oracle (min. 19c)”, „Java
+# od 11” — bez tych słów cała pozycja wypadała z bramki i z wyboru krytycznych
+# (produkcja 30.09.2026).
+_VERSION_WORD = (
+    r"(?:v\.?|ver\.?|version|wersja|wersji|min\.?|minimum|minimaln\w*|od|from|"
+    r"at\s+least|co\s+najmniej|>=|≥)"
+)
 _VERSION_TAIL = re.compile(
-    r"(?:\s*\((?:v\.?\s?)?\d[^()]*\)"
-    r"|\s+v?\.?\s?\d+(?:[.,/]\d+)*(?:\.x)?\s*\+?"
+    rf"(?:\s*\((?:{_VERSION_WORD}\s?)?\d[^()]*\)"
+    rf"|\s+(?:{_VERSION_WORD}\s?)?\d+(?:[.,/]\d+)*(?:\.x|[a-z])?\s*\+?"
     r"(?:\s*(?:or|lub|and)\s*(?:higher|newer|above|wyżej|wyzej|nowsz\w*|nowsza|później|pozniej))?)\s*$",
     re.IGNORECASE,
 )

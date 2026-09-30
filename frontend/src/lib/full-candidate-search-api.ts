@@ -44,6 +44,9 @@ export interface CandidateSearchRow {
     requirement_evidence?: string | null;
   }>;
   eligibility: MatchEligibility | null;
+  /** Budżet i biuro z chwili przeglądu — plakietka, nie ukrycie (v9).
+   *  `null`, gdy dane kandydata zmieniły się od przeglądu. */
+  fit?: { rate?: string | null; office?: string | null } | null;
 }
 
 export interface CandidateSearchPage {

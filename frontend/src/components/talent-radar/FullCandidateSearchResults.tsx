@@ -7,6 +7,7 @@ import { extractErrorMsg } from "@/lib/api";
 import { searchFailed, searchIsRunning, type CandidateSearchPage } from "@/lib/full-candidate-search-api";
 import { RequirementVerificationDialog } from "./RequirementVerificationDialog";
 import { FullCandidateSearchStatus } from "./FullCandidateSearchStatus";
+import { fullSearchFitBadges } from "@/lib/fit-badges";
 import type { BulkAddSource } from "@/lib/candidate-search-api";
 import {
   AddToRecruitmentDialog,
@@ -77,6 +78,9 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
               {r.stale && " — dane zmienione"}
             </li>)}
           </ul>
+          {fullSearchFitBadges(row.fit).length > 0 && <ul className="flex flex-wrap gap-1.5" aria-label="Uwagi do stawki i biura">
+            {fullSearchFitBadges(row.fit).map(label => <li key={label} className="rounded-full border border-warning/40 bg-warning-muted px-2 py-0.5 text-xs text-warning-muted-foreground">{label}</li>)}
+          </ul>}
           {/* Konflikt z klientem = ostrzeżenie (17.09.2026); czerwień tylko dla weta HM. */}
           {row.eligibility && <p className={row.eligibility.assignment_allowed === false ? "text-sm text-destructive" : "text-sm text-warning-muted-foreground"}>{row.eligibility.reason}</p>}
           {jobId && canVerify && onVerified && <RequirementVerificationDialog jobId={jobId} candidateId={row.candidate.id} candidateName={[row.candidate.name, row.candidate.lastname].filter(Boolean).join(" ")} onSaved={onVerified} />}

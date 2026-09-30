@@ -103,7 +103,9 @@ def requirements_for_job(job) -> MatchingRequirements:
 # (0–2, decyzja DL albo podpowiedź z historii — `critical_skills`); budżet
 # i dni w biurze tylko plakietka; kandydat bez żadnych danych ukryty zawsze;
 # role i metodyki ze słownika nie są technologią (`must_gate_terms`).
-MUST_GATE_POLICY_VERSION = "critical-v9"
+# v9.1 (30.09.2026): słowna wersja („Java (minimalna 11)”, „Oracle (min.
+# 19c)”) jest odcinana jak „Java 11+” — wcześniej cała pozycja nie bramkowała.
+MUST_GATE_POLICY_VERSION = "critical-v9.1"
 
 
 def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):

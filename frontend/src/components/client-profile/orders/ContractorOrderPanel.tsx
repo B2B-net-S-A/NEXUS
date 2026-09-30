@@ -688,6 +688,7 @@ export function ContractorOrderPanel({
   const currentSection = (
     <DetailSection title={currentSectionTitle}>
       <DetailFacts
+        compact
         items={[
           ["Numer", numberField],
           ezdrowie && ["Umowa wykonawcza", executiveField],
@@ -696,14 +697,6 @@ export function ContractorOrderPanel({
           // się jak brak danych, a nie jak brak uprawnień (lustro tabeli).
           ["Koszt", canViewFinance ? costField : redactedAmount],
           ["Przychód", canViewFinance ? revenueField : redactedAmount],
-          canViewFinance &&
-            activeOrder?.monthly_margin != null && [
-              "Marża",
-              <span key="margin" className="text-success">
-                {fmtMoney(activeOrder.monthly_margin)}{" "}
-                {currencyLabel(activeOrder.rate_client_currency ?? activeOrder.currency)} / mc
-              </span>,
-            ],
           contractor.initial_job_title
             ? ["Z rekrutacji", <span key="job">{contractor.initial_job_title}</span>]
             : null,
@@ -1064,6 +1057,7 @@ export function ContractorOrderPanel({
   return (
     <>
       <DetailPanel
+        compact
         title={title}
         badges={badges}
         subtitle={subtitle}
@@ -1127,11 +1121,6 @@ function OrderPdfActions({
       </button>
     </span>
   );
-}
-
-/** Marża jest w walucie stawki przychodowej zamówienia. */
-function currencyLabel(currency: string | null | undefined): string {
-  return !currency || currency === "PLN" ? "zł" : currency;
 }
 
 /** „Uzupełnij zamówienie" przy wierszu przyszłym i historycznym. */

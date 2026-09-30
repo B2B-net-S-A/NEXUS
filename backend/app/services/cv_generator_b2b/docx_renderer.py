@@ -1162,8 +1162,30 @@ def add_consent_screenshot(doc: Any, image_bytes: bytes, heading: str) -> bool:
         return False
 
 
-def add_bottom_pinned_rodo(doc: Any, rodo_text: str) -> Any:
+def _rodo_run_xml(text: str, bold: bool, italic: bool, underline: bool) -> str:
+    emphasis = (
+        ("<w:b/>" if bold else "")
+        + ("<w:i/>" if italic else "")
+        + ('<w:u w:val="single"/>' if underline else "")
+    )
+    return (
+        '<w:r><w:rPr><w:rFonts w:ascii="Montserrat" w:hAnsi="Montserrat"/>'
+        f"{emphasis}"
+        '<w:color w:val="373535"/><w:sz w:val="10"/><w:szCs w:val="10"/></w:rPr>'
+        f'<w:t xml:space="preserve">{escape(text)}</w:t></w:r>'
+    )
+
+
+def add_bottom_pinned_rodo(
+    doc: Any,
+    rodo_text: str,
+    runs: list[tuple[str, bool, bool, bool]] | None = None,
+) -> Any:
     """Pin the RODO consent clause to the bottom of the last page.
+
+    ``runs`` — ``(text, bold, italic, underline)`` — carries a clause edited
+    in the recruitment editor with its emphasis (``cv_approved_docx``); the
+    generator passes plain ``rodo_text``.
 
     The clause lives inside a floating text box anchored to the bottom page
     margin, so — no matter where the CV body ends — it always lands at the foot
@@ -1225,10 +1247,14 @@ def add_bottom_pinned_rodo(doc: Any, rodo_text: str) -> Any:
             '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln>',
             "</wps:spPr><wps:txbx><w:txbxContent><w:p><w:pPr>",
             '<w:spacing w:before="40" w:after="0"/><w:jc w:val="both"/></w:pPr>',
-            '<w:r><w:rPr><w:rFonts w:ascii="Montserrat" w:hAnsi="Montserrat"/>',
-            '<w:color w:val="373535"/><w:sz w:val="10"/><w:szCs w:val="10"/></w:rPr>',
-            f'<w:t xml:space="preserve">{escape(rodo_text)}</w:t>',
-            "</w:r></w:p></w:txbxContent></wps:txbx>",
+            (
+                "".join(_rodo_run_xml(*run) for run in runs)
+                if runs is not None
+                else '<w:r><w:rPr><w:rFonts w:ascii="Montserrat" w:hAnsi="Montserrat"/>'
+                '<w:color w:val="373535"/><w:sz w:val="10"/><w:szCs w:val="10"/></w:rPr>'
+                f'<w:t xml:space="preserve">{escape(rodo_text)}</w:t></w:r>'
+            ),
+            "</w:p></w:txbxContent></wps:txbx>",
             '<wps:bodyPr rot="0" vert="horz" wrap="square" lIns="0" tIns="0"'
             ' rIns="0" bIns="0" anchor="b" anchorCtr="0"><a:spAutoFit/></wps:bodyPr>',
             "</wps:wsp></a:graphicData></a:graphic></wp:anchor></w:drawing>",
@@ -1304,6 +1330,98 @@ def add_bullet_list(
         is_last = i == len(items) - 1
         punctuation = "." if is_last else ","
         add_bullet_point(doc, item, punctuation, highlight_keywords, patterns=patterns)
+
+
+def add_education_table(doc: Any, row_count: int, t: dict[str, str]) -> Any:
+    """Education table frame: grey header row, light borders, cell padding.
+
+    Shared with the approved-CV renderer (``cv_approved_docx``) so a CV edited
+    in the recruitment editor keeps the same table as one downloaded from the
+    generator. Rows ``1..row_count`` are left empty for the caller, who fills
+    them and then calls :func:`style_education_row`.
+    """
+    table = doc.add_table(rows=row_count + 1, cols=2)
+    table.style = "Table Grid"
+    table.alignment = WD_TABLE_ALIGNMENT.LEFT
+    table.columns[0].width = Inches(1.8)
+    table.columns[1].width = Inches(5.0)
+
+    tbl = table._tbl
+    tblPr = tbl.tblPr if tbl.tblPr is not None else OxmlElement("w:tblPr")
+
+    tblBorders = OxmlElement("w:tblBorders")
+    for border_name in ["top", "left", "bottom", "right", "insideH", "insideV"]:
+        border = OxmlElement(f"w:{border_name}")
+        border.set(qn("w:val"), "single")
+        border.set(qn("w:sz"), "4")
+        border.set(qn("w:color"), "CCCCCC")
+        tblBorders.append(border)
+    tblPr.append(tblBorders)
+
+    tblCellMar = OxmlElement("w:tblCellMar")
+    for margin_name in ["top", "bottom"]:
+        margin = OxmlElement(f"w:{margin_name}")
+        margin.set(qn("w:w"), "80")
+        margin.set(qn("w:type"), "dxa")
+        tblCellMar.append(margin)
+    for margin_name in ["left", "right"]:
+        margin = OxmlElement(f"w:{margin_name}")
+        margin.set(qn("w:w"), "120")
+        margin.set(qn("w:type"), "dxa")
+        tblCellMar.append(margin)
+    tblPr.append(tblCellMar)
+
+    header_cells = table.rows[0].cells
+    header_cells[0].text = t["dates"]
+    header_cells[1].text = t["education_header"]
+
+    for cell in header_cells:
+        shading_elm = OxmlElement("w:shd")
+        shading_elm.set(qn("w:fill"), "E8E8E8")
+        shading_elm.set(qn("w:val"), "clear")
+        cell._element.get_or_add_tcPr().append(shading_elm)
+
+        for paragraph in cell.paragraphs:
+            paragraph.paragraph_format.space_before = Pt(4)
+            paragraph.paragraph_format.space_after = Pt(4)
+            for run in paragraph.runs:
+                run.font.name = "Montserrat"
+                run.font.bold = True
+                run.font.color.rgb = COLOR_TEXT
+                run.font.size = Pt(10)
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    return table
+
+
+def style_education_row(row_cells: Any, index: int) -> None:
+    """Zebra shading, spacing and 9 pt Montserrat for one filled education row.
+
+    Sets font face, colour and size only — bold/italic chosen by the caller
+    (institution in bold) survive.
+    """
+    if index % 2 == 0:
+        for cell in row_cells:
+            shading_elm = OxmlElement("w:shd")
+            shading_elm.set(qn("w:fill"), "F8F8F8")
+            shading_elm.set(qn("w:val"), "clear")
+            cell._element.get_or_add_tcPr().append(shading_elm)
+
+    for cell in row_cells:
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        for paragraph in cell.paragraphs:
+            paragraph.paragraph_format.space_before = Pt(6)
+            paragraph.paragraph_format.space_after = Pt(6)
+            paragraph.paragraph_format.line_spacing = 1.5
+            for run in paragraph.runs:
+                run.font.name = "Montserrat"
+                run.font.color.rgb = COLOR_TEXT
+                run.font.size = Pt(9)
+
+    for para in row_cells[0].paragraphs:
+        for run in para.runs:
+            run.font.name = "Montserrat"
+            run.font.color.rgb = COLOR_TEXT
+            run.font.size = Pt(9)
 
 
 def normalize_letterhead_layout(doc: Any) -> None:
@@ -1490,56 +1608,7 @@ def render_cv_to_bytes(
     if candidate_data.get("education"):
         add_section_header(doc, t["education"])
 
-        table = doc.add_table(rows=len(candidate_data["education"]) + 1, cols=2)
-        table.style = "Table Grid"
-        table.alignment = WD_TABLE_ALIGNMENT.LEFT
-        table.columns[0].width = Inches(1.8)
-        table.columns[1].width = Inches(5.0)
-
-        tbl = table._tbl
-        tblPr = tbl.tblPr if tbl.tblPr is not None else OxmlElement("w:tblPr")
-
-        tblBorders = OxmlElement("w:tblBorders")
-        for border_name in ["top", "left", "bottom", "right", "insideH", "insideV"]:
-            border = OxmlElement(f"w:{border_name}")
-            border.set(qn("w:val"), "single")
-            border.set(qn("w:sz"), "4")
-            border.set(qn("w:color"), "CCCCCC")
-            tblBorders.append(border)
-        tblPr.append(tblBorders)
-
-        tblCellMar = OxmlElement("w:tblCellMar")
-        for margin_name in ["top", "bottom"]:
-            margin = OxmlElement(f"w:{margin_name}")
-            margin.set(qn("w:w"), "80")
-            margin.set(qn("w:type"), "dxa")
-            tblCellMar.append(margin)
-        for margin_name in ["left", "right"]:
-            margin = OxmlElement(f"w:{margin_name}")
-            margin.set(qn("w:w"), "120")
-            margin.set(qn("w:type"), "dxa")
-            tblCellMar.append(margin)
-        tblPr.append(tblCellMar)
-
-        header_cells = table.rows[0].cells
-        header_cells[0].text = t["dates"]
-        header_cells[1].text = t["education_header"]
-
-        for cell in header_cells:
-            shading_elm = OxmlElement("w:shd")
-            shading_elm.set(qn("w:fill"), "E8E8E8")
-            shading_elm.set(qn("w:val"), "clear")
-            cell._element.get_or_add_tcPr().append(shading_elm)
-
-            for paragraph in cell.paragraphs:
-                paragraph.paragraph_format.space_before = Pt(4)
-                paragraph.paragraph_format.space_after = Pt(4)
-                for run in paragraph.runs:
-                    run.font.name = "Montserrat"
-                    run.font.bold = True
-                    run.font.color.rgb = COLOR_TEXT
-                    run.font.size = Pt(10)
-            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        table = add_education_table(doc, len(candidate_data["education"]), t)
 
         for i, edu in enumerate(candidate_data["education"], start=1):
             row_cells = table.rows[i].cells
@@ -1563,29 +1632,7 @@ def render_cv_to_bytes(
             run_degree.font.color.rgb = COLOR_TEXT
             run_degree.font.size = Pt(9)
 
-            if i % 2 == 0:
-                for cell in row_cells:
-                    shading_elm = OxmlElement("w:shd")
-                    shading_elm.set(qn("w:fill"), "F8F8F8")
-                    shading_elm.set(qn("w:val"), "clear")
-                    cell._element.get_or_add_tcPr().append(shading_elm)
-
-            for cell in row_cells:
-                cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-                for paragraph in cell.paragraphs:
-                    paragraph.paragraph_format.space_before = Pt(6)
-                    paragraph.paragraph_format.space_after = Pt(6)
-                    paragraph.paragraph_format.line_spacing = 1.5
-                    for run in paragraph.runs:
-                        run.font.name = "Montserrat"
-                        run.font.color.rgb = COLOR_TEXT
-                        run.font.size = Pt(9)
-
-            for para in row_cells[0].paragraphs:
-                for run in para.runs:
-                    run.font.name = "Montserrat"
-                    run.font.color.rgb = COLOR_TEXT
-                    run.font.size = Pt(9)
+            style_education_row(row_cells, i)
 
         doc.add_paragraph()
 
