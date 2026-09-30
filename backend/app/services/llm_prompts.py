@@ -1170,8 +1170,8 @@ PLAIN_JOB_BRIEF = PromptTemplate(
         '  "example": str,         // „Przykład z codzienności”: jak praca tej osoby wygląda w życiu firmy/klienta\n'
         '  "day_to_day": [str, str, str],  // czym będzie się zajmować\n'
         '  "pitch": str,           // 3–5 zdań do przeczytania kandydatowi na start rozmowy telefonicznej (ok. 30 s):\n'
-        '                          // klient i miasto, co robi zespół, kogo szukamy, tryb pracy i dni w biurze,\n'
-        '                          // stawka („do N zł netto za godzinę na B2B”), start i długość — tylko te, które są w danych\n'
+        "                          // klient i miasto, co robi zespół, kogo szukamy, tryb pracy i dni w biurze,\n"
+        "                          // stawka („do N zł netto za godzinę na B2B”), start i długość — tylko te, które są w danych\n"
         '  "answers": {{            // odpowiedzi rekrutera na pytania kandydata; null gdy danych brak\n'
         '    "client": str|null, "rate": str|null, "work": str|null, "mode": str|null,\n'
         '    "start": str|null, "process": str|null, "team": str|null\n'
