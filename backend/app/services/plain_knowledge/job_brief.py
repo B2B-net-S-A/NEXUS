@@ -272,6 +272,35 @@ def rate_sentence(inputs: dict[str, Any]) -> Optional[str]:
     return f"Do {budget} zł netto za godzinę na B2B."
 
 
+def start_sentence(inputs: dict[str, Any]) -> Optional[str]:
+    """Start i długość z profilu, gdy model ich nie podał (prod 30.09: profil
+    miał „long term cooperation”, a ściąga mówiła „brak w profilu”)."""
+    parts = []
+    if inputs.get("start_date"):
+        parts.append(f"Start: {inputs['start_date']}.")
+    if inputs.get("contract_length"):
+        parts.append(f"Długość współpracy: {inputs['contract_length']}.")
+    return " ".join(parts) or None
+
+
+# Zasady wysyłki CV z karty klienta to instrukcja dla rekrutera, nie odpowiedź
+# dla kandydata (prod 30.09: „Jak wygląda rekrutacja u klienta?” mówiło o nazwie
+# pliku CV). Zdanie o pliku, formacie CV albo notatce do wysyłki wypada.
+_RECRUITER_ONLY_RE = re.compile(
+    r"\b(plik\w*|nazw\w* plik\w*|format\w* CV|CV (należy|powinn\w*|musi)|notatk\w*|docx|pdf)\b",
+    re.IGNORECASE,
+)
+
+
+def candidate_facing(text: Optional[str]) -> Optional[str]:
+    """Usuwa zdania, które są instrukcją dla rekrutera (wysyłka i nazwa pliku CV)."""
+    if not text:
+        return text
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    kept = [s for s in sentences if s and not _RECRUITER_ONLY_RE.search(s)]
+    return " ".join(kept).strip() or None
+
+
 def _with_rate(pitch: Optional[str], inputs: dict[str, Any]) -> Optional[str]:
     """Tekst na start zawsze mówi stawkę, gdy profil ją zna (decyzja 29.09.2026)."""
     sentence = rate_sentence(inputs)
@@ -292,6 +321,10 @@ def shape_output(raw: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         answer = g.clean(answers.get(key), 600)
         if key == "rate":
             answer = rate_sentence(inputs)
+        if key == "process":
+            answer = candidate_facing(answer)
+        if key == "start" and not answer:
+            answer = start_sentence(inputs)
         if key == "client" and not inputs.get("client"):
             answer = None
         qa.append(
