@@ -129,6 +129,7 @@ const SOURCE_PILL_CLASS: Record<ProposalSource, string> = {
   similar_projects: "bg-info-muted text-info-muted-foreground",
   recommendation: "bg-success-muted text-success-muted-foreground",
   marketplace: "bg-warning-muted text-warning-muted-foreground",
+  job_board: "bg-info-muted text-info-muted-foreground",
 };
 
 const BADGE_CLASS: Record<RowBadgeTone, string> = {

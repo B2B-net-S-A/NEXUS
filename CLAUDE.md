@@ -2137,6 +2137,34 @@ Decyzje Artura 29.09.2026 — historia kandydata ma być tym, co napisali ludzie
   (`services/process_entry_meta.py`); tablica i zakładka „Rekrutacje” niosą
   `entry_auto_match` → plakietka „Auto-match 67/100 · JJIT”. Nie wracaj do
   `note=` w automacie.
+- **Dopasowania z portali NIE zakładają kart (decyzja Artura 30.09.2026).**
+  Zmierzone: 1 819 kart scrapera na „Ogłoszeniach”, każda osoba w ~3,9
+  rekrutacjach, dalej przeszły 2. `proposals/bulk` od tokenu integracji Z polem
+  `auto_match` idzie przez `proposals_bulk.propose_candidates_for_job`: te same
+  twarde bramki co dodanie (kandydat istnieje, czarna lista, już w rekrutacji,
+  weto HM — w `skipped`), potem propozycja `job_board` w „Do przejrzenia”
+  (wynik = `score`, `evidence.auto_match` + `matched_must`, `cv_revision` =
+  `candidate_revision`). Odpowiedź: `added=[]` + nowe `proposed`/`total_proposed`;
+  runner JJIT liczy `proposed` jako dopasowanie. Integracja BEZ `auto_match`
+  (zgłoszenia z pracuj.pl do konkretnej rekrutacji) i człowiek dodają kartę jak
+  dotąd. Front: etykieta „Z portalu (JJIT/RocketJobs)”. Stare karty przenosi
+  jednorazowo `POST /api/admin/proposals/convert-integration-cards?dry_run=true`
+  (admin; próba oddaje liczby per rekrutacja, `blocked_by` per powód i ≤ 20
+  przykładów z samymi ID) → `dry_run=false` (w tle, wymaga próby z 7 dni;
+  `GET …/status`). Bierze WYŁĄCZNIE nietknięte karty: rekrutacja opublikowana
+  spoza Traffita, jeden otwarty proces `auto_match` z plakietką integracji
+  (`source` ≠ `nexus`), jeden wiersz etapu `posting` bez screeningu/scorecardu,
+  bez notatek z tą rekrutacją, `application_screenings` i `screening_notes`,
+  CV etapu tylko jako automatyczna migawka z dodania, i zero wierszy w tabelach
+  z FK do tego etapu/procesu/migawki (lista FK z `pg_constraint` w chwili
+  biegu). Na parę w savepoincie ta sama droga co „Usuń z rekrutacji” (archiwum
+  `candidate_stage_removals` → `void_process` → `delete_voided_stage_history`
+  → zamknięcie okazji kontaktu; migawka etapów ze wspólnego
+  `candidate_stage_removal_snapshot`), wiersze skrzynki pary `added` wracają
+  do `proposed`, potem propozycja `job_board` z wynikiem z `entry_meta`. Pliki CV
+  kandydata zostają. Dane do odwrócenia pod
+  `repair_details_job_board_cards_to_proposals_2026_09`
+  (`services/job_board_cards_to_proposals.py`).
 - **Stare notatki automatów = `external_source='system'`** (jednorazowo,
   znacznik `0399_auto_match_notes_system`; SQL w `note_threads_schema.py`,
   lustro w `entrypoint.sh`) — nic nie jest kasowane. Lista notatek niesie

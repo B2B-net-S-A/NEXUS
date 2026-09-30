@@ -53,7 +53,9 @@ export type ProposalSource =
   | "new_cv"
   | "similar_projects"
   | "recommendation"
-  | "marketplace";
+  | "marketplace"
+  // 30.09.2026: dopasowanie ze scrapera JJIT/RocketJobs (dawniej karta na Tablicy).
+  | "job_board";
 
 export const PROPOSAL_SOURCE_LABEL: Record<ProposalSource, string> = {
   // Pierwsze w słowniku = pierwsze w kolumnie „Źródło" i na liście filtrów.
@@ -66,6 +68,7 @@ export const PROPOSAL_SOURCE_LABEL: Record<ProposalSource, string> = {
   similar_projects: "Podobne projekty",
   recommendation: "Rekomendowani",
   marketplace: "Targ",
+  job_board: "Z portalu (JJIT/RocketJobs)",
 };
 
 interface PersonRowBase {
