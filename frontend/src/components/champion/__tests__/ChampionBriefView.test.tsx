@@ -87,6 +87,40 @@ beforeEach(() => {
 });
 
 describe("ChampionBriefView", () => {
+  it("krytyczne: gwiazdka przy pozycji MUST i linia z decyzją albo podpowiedzią", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 5,
+        champion_profile: PROFILE,
+        critical_resolution: {
+          stored: null,
+          decided: false,
+          effective: ["Angular"],
+          source: "suggested",
+          suggested: ["Angular"],
+        },
+      },
+    });
+    renderBrief();
+    expect(await screen.findByTestId("brief-critical")).toHaveTextContent(
+      "Nie zdecydowano (podpowiedź: Angular)",
+    );
+    expect(screen.getByText("— krytyczna").closest("li")).toHaveTextContent("Angular");
+  });
+
+  it("krytyczne: „Brak krytycznych” bez gwiazdek", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 5,
+        champion_profile: PROFILE,
+        critical_resolution: { stored: [], decided: true, effective: [], source: "dl", suggested: ["Angular"] },
+      },
+    });
+    renderBrief();
+    expect(await screen.findByTestId("brief-critical")).toHaveTextContent("Brak krytycznych");
+    expect(screen.queryByText("— krytyczna")).toBeNull();
+  });
+
   it("czyta zlecenie jak brief: fakty, stack, wymagania do wyszukiwania, projekt, klient, do dopytania", async () => {
     renderBrief();
     expect(await screen.findByText("do 95,00 PLN/h")).toBeInTheDocument();

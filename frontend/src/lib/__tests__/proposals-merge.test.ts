@@ -158,6 +158,15 @@ describe("mergeProposals", () => {
     expect(byId.get(2)).toEqual(["client_nda", "over_budget"]);
   });
 
+  it("za mało dni w biurze (30.09.2026) to plakietka, nie ukrycie", () => {
+    const days = {
+      candidate: { id: 1, name: "Anna", lastname: "Nowak1" },
+      match_score: 0.8, matching_skills: [], gaps: [], office_fit: "days_exceeded",
+    } as unknown as CandidateSearchRow["match"];
+    const [entry] = mergeProposals({ run: { runId: "run-1", rows: [runRow(1, 80, { match: days })] } });
+    expect(entry.row.warnings).toContain("office_days");
+  });
+
   it("sprzeczny wymiar pracy (24.09.2026) to plakietka na wierszu, nie ukrycie", () => {
     const partTime = {
       candidate: { id: 1, name: "Anna", lastname: "Nowak1" },

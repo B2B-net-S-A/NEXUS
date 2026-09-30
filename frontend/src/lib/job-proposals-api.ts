@@ -160,6 +160,11 @@ export interface ProposalFacts {
   expected_rate_currency: string | null;
   expected_rate_redacted: boolean;
   client_history: ProposalClientHistory | null;
+  /**
+   * Data wgrania głównego CV (ISO, 30.09.2026). `null`/brak = nie znamy
+   * prawdziwej daty (import) — wtedy plakietki „CV z RRRR” nie ma.
+   */
+  cv_uploaded_on?: string | null;
 }
 
 /** Sufit jednego zapytania o fakty (`MAX_FACT_CANDIDATES`). */

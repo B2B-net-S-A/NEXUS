@@ -12,6 +12,7 @@
  *    odświeżenie w tle nie przetasowywało tabeli pod kursorem.
  */
 
+import { OFFICE_DAYS_WARNING } from "@/lib/fit-badges";
 import type {
   HistoricalCandidate,
   MatchEligibility,
@@ -431,6 +432,8 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     }
     // Inne miasto przy hybrydzie 1–3 dni nie ukrywa (27.09.2026) — plakietka.
     if (detail.officeFit === "city_mismatch") warnings.push("city_mismatch");
+    // 30.09.2026: dni w biurze już nie ukrywają — plakietka „mniej dni w biurze”.
+    if (detail.officeFit === "days_exceeded") warnings.push(OFFICE_DAYS_WARNING);
     if (detail.traineeHandover?.employment_only) warnings.push("employment_only");
     const handoverNote = detail.traineeHandover?.note?.trim() || null;
     entries.push({

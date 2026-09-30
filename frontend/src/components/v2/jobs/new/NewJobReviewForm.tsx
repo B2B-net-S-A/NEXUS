@@ -9,6 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { ChampionExperienceFields } from "@/components/champion/ChampionExperienceFields";
 import { SearchRequirementsEditor } from "@/components/champion/SearchRequirementsEditor";
+import { CriticalSkillsField } from "@/components/champion/CriticalSkillsField";
+import type { CriticalSuggestionState } from "@/lib/critical-skills";
 import { hasExperience } from "@/lib/champion-experience";
 import {
   FIELD_BASIS_LABEL,
@@ -288,6 +290,8 @@ interface NewJobReviewFormProps {
   clientId: number | null;
   /** Harness `/preview/new-job`: bez zapytania o liczbę osób w bazie. */
   countEnabled?: boolean;
+  /** Podpowiedź krytycznych dla bieżącej listy MUST (`useCriticalSuggestion`). */
+  criticalSuggestion: CriticalSuggestionState;
 }
 
 /** Krok 2 strony `/jobs/new`: pola, które wymaga „Przekaż do searchu”. */
@@ -298,6 +302,7 @@ export function NewJobReviewForm({
   highlightMissing,
   clientId,
   countEnabled = true,
+  criticalSuggestion,
 }: NewJobReviewFormProps) {
   const ids = {
     hiringManager: useId(),
@@ -440,6 +445,22 @@ export function NewJobReviewForm({
           missing={isMissing("must")}
           placeholder="np. Java, Spring Boot — Enter dodaje"
         />
+        {/* 30.09.2026: tylko krytyczne ukrywają kandydatów — DL decyduje
+            przed „Przekaż do searchu” (albo wybiera „Brak krytycznych”). */}
+        <div className="flex flex-col gap-1">
+          <CriticalSkillsField
+            must={form.must}
+            value={form.critical}
+            onChange={(critical) => onChange((f) => ({ ...f, critical }))}
+            suggestion={criticalSuggestion}
+            missing={isMissing("critical")}
+          />
+          {isMissing("critical") ? (
+            <span className="text-xs font-medium text-warning-muted-foreground">
+              Wybierz krytyczne, użyj podpowiedzi albo zaznacz „Brak krytycznych”.
+            </span>
+          ) : null}
+        </div>
         <TagListInput
           label="Mile widziane"
           values={form.nice}

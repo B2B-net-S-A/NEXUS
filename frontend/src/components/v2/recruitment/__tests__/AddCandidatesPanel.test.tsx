@@ -246,6 +246,7 @@ describe("AddCandidatesPanel", () => {
           candidate_id: 2, title: "Java Developer", company: "Firma", years_experience: 8, city: "Gdańsk",
           max_onsite_days_per_week: 0, remote_modes: [], availability_status: null, availability_date: null,
           expected_rate_hourly: 170, expected_rate_currency: "PLN", expected_rate_redacted: false,
+          cv_uploaded_on: "2019-04-02",
           client_history: { job_id: 77, title: "Senior Java", furthest_stage: "cv_sent", furthest_stage_label: "CV Wysłane", outcome: "rejected", last_moved_at: null },
         },
       ],
@@ -258,6 +259,11 @@ describe("AddCandidatesPanel", () => {
       within(list).getByText("Był(a) u tego klienta: Senior Java — doszedł(a) do etapu „CV Wysłane” (odrzucony/a)"),
     ).toBeTruthy();
     expect(within(list).queryByText(/stawka —/)).toBeNull();
+    // „CV z RRRR” tylko przy znanej dacie; stare CV w tonie ostrzeżenia.
+    const cvBadges = within(list).getAllByTestId("cv-year-badge");
+    expect(cvBadges).toHaveLength(1);
+    expect(cvBadges[0]).toHaveTextContent("CV z 2019");
+    expect(cvBadges[0]).toHaveAttribute("title", "CV może być nieaktualne");
     // Domyślnie na górze osoba z historią u klienta.
     const names = within(list).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"));
     expect(names).toEqual(["Zaznacz Bartek Drugi", "Zaznacz Anna Pierwsza"]);

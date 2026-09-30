@@ -13,7 +13,7 @@
  */
 
 import type { ReactNode } from "react";
-import { PencilLine } from "lucide-react";
+import { PencilLine, Star } from "lucide-react";
 
 import {
   ChampionInsightsDigest,
@@ -32,6 +32,7 @@ import { EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
 import { clientPlaybookEditHref } from "@/lib/client-playbooks";
 import { JOB_WORK_MODE_LABEL, seedChampionFromJob } from "@/lib/champion-job-seed";
 import { formatBudgetHourly } from "@/lib/job-budget";
+import { criticalBriefLine, includesLabel } from "@/lib/critical-skills";
 import { formatDate } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
@@ -132,21 +133,36 @@ function Fact({ label, value, muted = false }: { label: string; value: ReactNode
   );
 }
 
-function Chips({ items, tone }: { items: string[]; tone: "must" | "nice" }) {
+function Chips({
+  items,
+  tone,
+  critical = [],
+}: {
+  items: string[];
+  tone: "must" | "nice";
+  /** Pozycje, na których działa bramka (gwiazdka „krytyczna”). */
+  critical?: readonly string[];
+}) {
   return (
     <ul className="flex flex-wrap gap-1.5">
-      {items.map((name) => (
-        <li
-          key={`${tone}:${name}`}
-          className={
-            tone === "must"
-              ? "inline-flex h-[26px] items-center rounded-full bg-primary/10 px-2.5 text-xs font-medium text-primary"
-              : "inline-flex h-[26px] items-center rounded-full bg-muted px-2.5 text-xs font-medium text-muted-foreground"
-          }
-        >
-          {name}
-        </li>
-      ))}
+      {items.map((name) => {
+        const isCritical = includesLabel(critical, name);
+        return (
+          <li
+            key={`${tone}:${name}`}
+            className={
+              tone === "must"
+                ? `inline-flex h-[26px] items-center gap-1 rounded-full bg-primary/10 px-2.5 text-xs font-medium text-primary${isCritical ? " ring-1 ring-primary" : ""}`
+                : "inline-flex h-[26px] items-center rounded-full bg-muted px-2.5 text-xs font-medium text-muted-foreground"
+            }
+            data-critical={isCritical || undefined}
+          >
+            {isCritical ? <Star className="h-3 w-3 fill-current" aria-hidden /> : null}
+            {name}
+            {isCritical ? <span className="sr-only"> — krytyczna</span> : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -213,6 +229,9 @@ export function ChampionBriefView({
     : {};
   const basics = profile.basics ?? {};
   const must = stackNames(profile.stack?.must);
+  // Krytyczne (30.09.2026): decyzja DL albo podpowiedź, na której działa bramka.
+  const criticalResolution = query.data?.critical_resolution ?? null;
+  const criticalLine = criticalBriefLine(criticalResolution);
   const nice = stackNames(profile.stack?.nice);
   const questions = profile.screening_questions ?? [];
   const search = profile.search;
@@ -305,7 +324,23 @@ export function ChampionBriefView({
       >
         <div className="space-y-1.5">
           <Eyebrow>Musi mieć</Eyebrow>
-          {must.length > 0 ? <Chips items={must} tone="must" /> : <p className="text-[13px] text-muted-foreground">— brak</p>}
+          {must.length > 0 ? (
+            <Chips items={must} tone="must" critical={criticalResolution?.effective ?? []} />
+          ) : (
+            <p className="text-[13px] text-muted-foreground">— brak</p>
+          )}
+          {criticalLine ? (
+            <p
+              className={
+                criticalResolution?.decided
+                  ? "text-[13px] text-muted-foreground"
+                  : "text-[13px] text-warning-muted-foreground"
+              }
+              data-testid="brief-critical"
+            >
+              {criticalLine}
+            </p>
+          ) : null}
         </div>
         <div className="space-y-1.5">
           <Eyebrow>Mile widziane</Eyebrow>

@@ -8,6 +8,7 @@
  * świadomie otwarte okno weryfikacji wymagania.
  */
 
+import { overBudgetLabel } from "@/lib/fit-badges";
 import type { ReactNode } from "react";
 import Link from "next/link";
 
@@ -54,7 +55,8 @@ export interface ProposalPanelProps {
 
 const OFFICE_FIT_LABEL: Record<string, string> = {
   ok: "Pasuje do trybu pracy i biura",
-  days_exceeded: "Za dużo wymaganych dni w biurze",
+  // 30.09.2026: dni w biurze nie ukrywają — to plakietka, nie powód ukrycia.
+  days_exceeded: "Mniej dni w biurze, niż wymaga rekrutacja",
   over_consented: "Więcej dni w biurze — zgoda na telefon",
   city_mismatch: "Inne miasto niż biuro",
   not_required: "Biuro nie jest wymagane",
@@ -258,7 +260,7 @@ export function ProposalPanel({
                     detail.rateFit === "below_min_consented"
                       ? " — poniżej minimum — zgoda na telefon"
                       : rateFit === "over"
-                        ? " — ponad budżet"
+                        ? ` — ${overBudgetLabel(detail.rateHourly, budgetHourly)}`
                         : rateFit === "in"
                           ? " — w budżecie"
                           : ""

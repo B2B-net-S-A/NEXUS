@@ -12,6 +12,7 @@
  * pozostałe stany pokazują automat wyłączony, jak dziś na produkcji.
  */
 
+import { criticalSuggestionKey } from "@/lib/critical-skills-api";
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -52,6 +53,8 @@ const FULL_FORM: IntakeForm = {
   clientTitle: "Programista Java — płatności kartowe (ZOB 48213)",
   clientReference: "ZOB 48213",
   must: ["Java", "Spring Boot", "Kafka", "PostgreSQL"],
+  // Krytyczne (30.09.2026): DL użył podpowiedzi z historii.
+  critical: ["Java"],
   nice: ["Kubernetes"],
   seniorityYears: 5,
   rateBudget: "170",
@@ -156,6 +159,8 @@ const STATES: Record<string, NewJobPagePreview> = {
     form: {
       ...FULL_FORM,
       rateBudget: "",
+      // Brak decyzji o krytycznych — blokuje przekazanie do searchu.
+      critical: null,
       questions: FULL_FORM.questions.slice(0, 1),
       // Luna nie znalazła wymagań do wyszukiwania — brak blokuje przekazanie.
       searchRequirements: [],
@@ -248,6 +253,18 @@ function Harness() {
       defaultOptions: { queries: { staleTime: Infinity, retry: false } },
     });
     qc.setQueryData(["clients-lookup-new-job"], [CLIENT]);
+    // Podpowiedź krytycznych (30.09.2026) dla listy MUST formularza —
+    // `useCriticalSuggestion` w harnessie nie pyta serwera, czyta ten zasiew.
+    qc.setQueryData(criticalSuggestionKey(FULL_FORM.must, FULL_FORM.title), {
+      suggested: ["Java"],
+      eligible: FULL_FORM.must,
+      stats: {
+        Java: { rate: 0.96, jobs: 41 },
+        "Spring Boot": { rate: 0.71, jobs: 41 },
+        Kafka: { rate: 0.44, jobs: 41 },
+        PostgreSQL: { rate: 0.38, jobs: 41 },
+      },
+    });
     // Pole „Współpracownicy” (`JobCollaboratorsField`) — katalog osób.
     qc.setQueryData(["users-directory"], [
       { id: 31, name: "[Rekruterka A]", role: "recruiter", roles: [] },

@@ -13,6 +13,7 @@ import type { ChampionExperience, ExperienceItem, ExperienceKind } from "@/lib/a
 import type { HiringManagerChoice } from "@/lib/hiring-manager";
 import { composeWorkingTitle } from "@/lib/job-names";
 import { cleanRows, sanitizeKeyword } from "@/lib/keyword-requirements";
+import { includesLabel, pruneCritical, type CriticalValue } from "@/lib/critical-skills";
 
 export type RemotePolicyValue = "remote" | "hybrid" | "onsite";
 
@@ -82,6 +83,11 @@ export interface IntakeForm {
   workingTitle: string;
   workingTitleTouched: boolean;
   must: string[];
+  /**
+   * Umiejętności krytyczne (30.09.2026, `lib/critical-skills.ts`): `null` =
+   * nie zdecydowano, `[]` = „Brak krytycznych”, inaczej 1–2 pozycje z `must`.
+   */
+  critical: CriticalValue;
   nice: string[];
   seniorityYears: number | null;
   rateBudget: string;
@@ -208,6 +214,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   workingTitle: "",
   workingTitleTouched: false,
   must: [],
+  critical: null,
   nice: [],
   seniorityYears: null,
   rateBudget: "",
@@ -311,6 +318,8 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
     workingTitle: intake.working_title_suggestion ?? "",
     workingTitleTouched: false,
     must: intake.must ?? [],
+    // Krytyczne wybiera DL — odczyt maila ich nie ustawia (30.09.2026).
+    critical: null,
     nice: intake.nice ?? [],
     seniorityYears: intake.seniority_min_years ?? null,
     rateBudget:
@@ -369,7 +378,8 @@ export type MissingCode =
   | "office_city"
   | "context"
   | "questions"
-  | "search";
+  | "search"
+  | "critical";
 
 export const MISSING_LABEL: Record<MissingCode, string> = {
   role: "rola",
@@ -381,6 +391,7 @@ export const MISSING_LABEL: Record<MissingCode, string> = {
   context: "opis projektu",
   questions: "drugie pytanie screeningowe",
   search: "wymagania do wyszukiwania",
+  critical: "umiejętności krytyczne",
 };
 
 /** Budżet jak w `JobCreate.rate_budget_hourly`: > 0 i ≤ 2000. */
@@ -401,7 +412,16 @@ export function filledQuestions(form: IntakeForm): IntakeQuestionForm[] {
   return form.questions.filter((q) => q.question.trim().length > 0);
 }
 
-export function missingFor(form: IntakeForm): MissingCode[] {
+/**
+ * Lustro `job_request_intake.missing_fields`. `criticalEligible` = pozycje MUST,
+ * które wolno oznaczyć jako krytyczne (odpowiedź `critical-suggestion` dla
+ * BIEŻĄCEJ listy); `null`/brak = jeszcze nie wiadomo — wtedy „critical” nie
+ * wchodzi (nie zgadujemy, że lista ma technologie).
+ */
+export function missingFor(
+  form: IntakeForm,
+  opts: { criticalEligible?: readonly string[] | null } = {},
+): MissingCode[] {
   const missing: MissingCode[] = [];
   if (!form.title.trim()) missing.push("role");
   if (form.must.length === 0) missing.push("must");
@@ -416,6 +436,14 @@ export function missingFor(form: IntakeForm): MissingCode[] {
     missing.push("context");
   if (filledQuestions(form).length < 2) missing.push("questions");
   if (cleanRows(form.searchRequirements).length === 0) missing.push("search");
+  const eligible = opts.criticalEligible;
+  if (
+    pruneCritical(form.critical, form.must) === null &&
+    eligible != null &&
+    form.must.some((label) => includesLabel(eligible, label))
+  ) {
+    missing.push("critical");
+  }
   return missing;
 }
 
@@ -500,6 +528,8 @@ export function buildChampionPayload(
     stack: {
       must: form.must.map((name) => ({ name })),
       nice: form.nice.map((name) => ({ name })),
+      // `null` = nie zdecydowano, `[]` = „Brak krytycznych” — dwie różne decyzje.
+      critical: pruneCritical(form.critical, form.must),
     },
     experience: form.experience,
     search: {

@@ -41,6 +41,7 @@ import { assignErrorMessage } from "@/lib/assign-error";
 import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
 import { proposalsBulkApi } from "@/lib/candidate-search-api";
 import { eligibilityBadgeClass } from "@/lib/conflicts";
+import { OFFICE_DAYS_WARNING, overBudgetLabel } from "@/lib/fit-badges";
 import { searchIsRunning } from "@/lib/full-candidate-search-api";
 import { matchingRequirementsApi, requirementLabels } from "@/lib/matching-requirements";
 import {
@@ -61,6 +62,8 @@ import { unmeasuredReason } from "@/lib/match-breakdown";
 import {
   clientHistoryLine,
   proposalFactsLine,
+  cvYearBadge,
+  type CvYearBadge,
   sortByClientHistory,
   type ProposalSortMode,
 } from "@/lib/proposal-facts";
@@ -102,6 +105,8 @@ interface PickRow {
   note: string | null;
   /** Linia faktów (stanowisko, staż, miasto, tryb, dostępność, stawka). */
   facts?: string | null;
+  /** „CV z 2023” — tylko przy znanej dacie wgrania głównego CV. */
+  cvBadge?: CvYearBadge | null;
   sourceLabel: string | null;
   warnings: Array<{ key: string; label: string; blocking: boolean }>;
 }
@@ -109,6 +114,7 @@ interface PickRow {
 const WARNING_LABEL: Record<string, string> = {
   hm_veto: "Weto HM",
   over_budget: "Ponad budżet",
+  [OFFICE_DAYS_WARNING]: "Mniej dni w biurze",
   rejected_by_same_client: "Odrzucony przez tego klienta",
   employment_only: EMPLOYMENT_ONLY_WARNING_PL,
   city_mismatch: CITY_MISMATCH_WARNING_PL,
@@ -127,15 +133,29 @@ function eligibilityWarning(eligibility: MatchEligibility | null | undefined) {
   };
 }
 
-function proposalRow(entry: ProposalEntry, facts?: ProposalFacts | null): PickRow {
+/** 30.09.2026: budżet nie ukrywa — plakietka mówi, o ile ponad (gdy wiemy). */
+function overBudgetWarning(rateHourly: number | null | undefined, budgetHourly: number | null) {
+  const label = overBudgetLabel(rateHourly, budgetHourly);
+  return { key: "over_budget", label: label.charAt(0).toUpperCase() + label.slice(1), blocking: false };
+}
+
+function proposalRow(
+  entry: ProposalEntry,
+  facts?: ProposalFacts | null,
+  budgetHourly: number | null = null,
+): PickRow {
   const { row, detail } = entry;
   const source = row.sources.includes("reassign") ? "reassign" : row.sources[0];
   const warnings: PickRow["warnings"] = [];
   const elig = eligibilityWarning(detail.eligibility);
   if (elig) warnings.push(elig);
   for (const code of row.warnings) {
+    if (code === "over_budget") {
+      warnings.push(overBudgetWarning(detail.rateHourly, budgetHourly));
+      continue;
+    }
     if (
-      code === "over_budget" ||
+      code === OFFICE_DAYS_WARNING ||
       code === "rejected_by_same_client" ||
       code === "part_time_only" ||
       code === "full_time_only" ||
@@ -154,6 +174,7 @@ function proposalRow(entry: ProposalEntry, facts?: ProposalFacts | null): PickRo
     // Historia u TEGO klienta mówi więcej niż „był w podobnym projekcie”.
     note: clientHistoryLine(facts?.client_history) ?? row.reason ?? (facts ? null : detail.title),
     facts: proposalFactsLine(facts),
+    cvBadge: cvYearBadge(facts?.cv_uploaded_on),
     sourceLabel: source ? PROPOSAL_SOURCE_LABEL[source] : null,
     warnings,
   };
@@ -164,7 +185,7 @@ function myPeopleRow(row: ForJobRow, budgetHourly: number | null): PickRow {
   const elig = eligibilityWarning(row.eligibility);
   if (elig) warnings.push(elig);
   if (budgetHourly != null && row.expected_rate_hourly != null && row.expected_rate_hourly > budgetHourly) {
-    warnings.push({ key: "over_budget", label: WARNING_LABEL.over_budget, blocking: false });
+    warnings.push(overBudgetWarning(row.expected_rate_hourly, budgetHourly));
   }
   const sent = row.last_sent_client_name
     ? `Wysłany do: ${row.last_sent_client_name}${row.days_since_last_send != null ? ` · ${row.days_since_last_send} dni temu` : ""}`
@@ -179,6 +200,26 @@ function myPeopleRow(row: ForJobRow, budgetHourly: number | null): PickRow {
     sourceLabel: null,
     warnings,
   };
+}
+
+/** „CV z RRRR” — neutralnie; starsze niż 2 lata w tonie ostrzeżenia. */
+export function CvBadge({ badge }: { badge: CvYearBadge }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex rounded px-1.5 text-[10.5px] font-semibold",
+        badge.stale
+          ? "bg-warning-muted text-warning-muted-foreground"
+          : "bg-muted text-muted-foreground",
+      )}
+      title={badge.stale ? "CV może być nieaktualne" : undefined}
+      data-testid="cv-year-badge"
+      data-stale={badge.stale || undefined}
+    >
+      {badge.label}
+      {badge.stale ? <span className="sr-only"> — CV może być nieaktualne</span> : null}
+    </span>
+  );
 }
 
 function PickList({
@@ -242,8 +283,9 @@ function PickList({
                 </p>
               ) : null}
               {row.note && <p className="line-clamp-2 text-xs text-muted-foreground">{row.note}</p>}
-              {(row.sourceLabel || row.warnings.length > 0) && (
+              {(row.sourceLabel || row.cvBadge || row.warnings.length > 0) && (
                 <div className="mt-1 flex flex-wrap gap-1">
+                  {row.cvBadge ? <CvBadge badge={row.cvBadge} /> : null}
                   {row.sourceLabel && (
                     <span className="rounded bg-muted px-1.5 text-[10.5px] font-semibold text-muted-foreground">
                       {row.sourceLabel}
@@ -326,8 +368,8 @@ function AddCandidatesPanelOpen({
   const myPeople = useMyPeopleForJob(jobId, tab === "my_people");
 
   const searchRows = useMemo(
-    () => proposals.entries.filter((e) => e.detail.origins.includes("run")).map((e) => proposalRow(e)),
-    [proposals.entries],
+    () => proposals.entries.filter((e) => e.detail.origins.includes("run")).map((e) => proposalRow(e, null, budgetHourly)),
+    [proposals.entries, budgetHourly],
   );
   const proposalEntries = useMemo(
     () => proposals.entries.filter((e) => e.detail.origins.some((o) => o !== "run")),
@@ -363,9 +405,11 @@ function AddCandidatesPanelOpen({
     [factsQuery.data],
   );
   const proposalRows = useMemo(() => {
-    const rows = proposalEntries.map((e) => proposalRow(e, factsById.get(e.row.candidateId) ?? null));
+    const rows = proposalEntries.map((e) =>
+      proposalRow(e, factsById.get(e.row.candidateId) ?? null, budgetHourly),
+    );
     return sortMode === "client_first" ? sortByClientHistory(rows, factsById) : rows;
-  }, [proposalEntries, factsById, sortMode]);
+  }, [proposalEntries, factsById, sortMode, budgetHourly]);
 
   // Dopasowanie na żądanie — ta sama ścieżka co kolumna wyszukiwarki
   // (`/api/search/candidates/scores`, paczki po 20, limit i ponowienia 429

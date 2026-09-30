@@ -106,9 +106,10 @@ const FILLED_NEW: ChampionProfile = {
     exclude: ["junior"],
   },
   stack: {
-    must: [{ name: "Java" }, { name: "Spring Boot" }, { name: "Kafka" }],
+    must: [{ name: "Java" }, { name: "Spring Boot" }, { name: "Kafka" }, { name: "komunikatywność" }],
     nice: [{ name: "Kubernetes" }, { name: "AWS" }],
     notes: "Java 17+, Java 8 nie interesuje",
+    // Krytyczne (30.09.2026): brak decyzji — działa podpowiedź z historii.
   },
   documents: [
     { name: "NDA klienta", url: "https://b2bnetsa.sharepoint.com/nda" },
@@ -118,6 +119,8 @@ const FILLED_NEW: ChampionProfile = {
 
 const WITH_INSIGHTS: ChampionProfile = {
   ...FILLED_NEW,
+  // Krytyczne (30.09.2026): DL zdecydował — gwiazdka przy „Java”.
+  stack: { ...FILLED_NEW.stack, critical: ["Java"] },
   basics: { ...FILLED_NEW.basics, role_name: "Tester manualny — płatności kartowe" },
   experience: {
     domains: [
@@ -231,6 +234,22 @@ export default function ChampionProfilePreviewPage() {
         return local({ items: [], total: 214, page: 1, page_size: 1 });
       }
       if (config.url === "/api/candidates/keywords/suggest") return local({ items: [], wildcard: null });
+      // Podpowiedź krytycznych (30.09.2026) — lokalna odpowiedź, bez sieci:
+      // „komunikatywność” nie jest technologią, „Java” podpowiada historia.
+      if (config.url === "/api/job-intake/critical-suggestion") {
+        const body = typeof config.data === "string" ? JSON.parse(config.data) : (config.data ?? {});
+        const must: string[] = body.must_skills ?? [];
+        const eligible = must.filter((m) => !/komunikat|angielsk|bankow/i.test(m));
+        const stats: Record<string, { rate: number; jobs: number }> = {};
+        for (const label of eligible) {
+          stats[label] = { rate: /^java$/i.test(label) ? 0.96 : 0.62, jobs: 41 };
+        }
+        return local({
+          suggested: eligible.filter((m) => /^java$/i.test(m)).slice(0, 2),
+          eligible,
+          stats,
+        });
+      }
       return Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config));
     });
     setReady(true);
@@ -245,10 +264,19 @@ export default function ChampionProfilePreviewPage() {
       [2, FILLED_NEW],
       [3, WITH_INSIGHTS],
     ] as const) {
+      const hasJava = profile.stack.must.some((item) => item.name === "Java");
+      const stored = profile.stack.critical ?? null;
       qc.setQueryData(["champion-profile", jobId], {
         job_id: jobId,
         job_title: "Senior Java Developer",
         champion_profile: profile,
+        critical_resolution: {
+          stored,
+          decided: stored !== null,
+          effective: stored ?? (hasJava ? ["Java"] : []),
+          source: stored !== null ? "dl" : hasJava ? "suggested" : "none",
+          suggested: hasJava ? ["Java"] : [],
+        },
       });
       qc.setQueryData(["champion-consultant-suggestions", jobId], EMPTY_LIST);
       qc.setQueryData(["job-meeting-notes", jobId], EMPTY_LIST);
