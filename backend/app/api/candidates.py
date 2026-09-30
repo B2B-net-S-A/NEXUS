@@ -19,6 +19,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Path,
     Query,
     Request,
     Response,
@@ -214,6 +215,14 @@ from app.api import ws as ws_manager
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
+
+# Primary keys of candidates/jobs/documents are PostgreSQL ``integer`` (int4).
+# Python ``int`` is unbounded, so without an explicit bound an oversized path
+# segment (e.g. /candidates/99999999999) passes FastAPI validation and then
+# blows up inside asyncpg's int4 encoder (OverflowError -> DBAPIError -> 500).
+# Bounding the path params makes FastAPI answer 422 before any query is sent.
+_INT32_MAX = 2_147_483_647
+DbIdPath = Annotated[int, Path(ge=1, le=_INT32_MAX)]
 
 
 def _candidate_history_response_for_user(response: dict, current_user) -> dict:  # type: ignore[no-untyped-def]
@@ -4103,7 +4112,7 @@ async def check_exists(
 
 @router.get("/{candidate_id}", response_model=CandidateResponse)
 async def get_candidate(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -4367,7 +4376,7 @@ _HIDDEN_TIMELINE_ACTIONS = (
 
 @router.get("/{candidate_id}/timeline")
 async def get_candidate_timeline(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
@@ -4611,7 +4620,7 @@ async def get_candidate_hiring_manager_vetoes(
 
 @router.get("/{candidate_id}/history")
 async def get_candidate_history(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -4820,8 +4829,8 @@ async def get_candidate_history(
 
 @router.patch("/{candidate_id}/recruitments/{job_id}/client-rate")
 async def set_recruitment_client_rate(
-    candidate_id: int,
-    job_id: int,
+    candidate_id: DbIdPath,
+    job_id: DbIdPath,
     payload: ClientRateUpdate,
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
@@ -4915,8 +4924,8 @@ async def set_recruitment_client_rate(
 
 @router.patch("/{candidate_id}/recruitments/{job_id}/expected-rate")
 async def set_recruitment_expected_rate(
-    candidate_id: int,
-    job_id: int,
+    candidate_id: DbIdPath,
+    job_id: DbIdPath,
     payload: ClientRateUpdate,
     current_user: RecruitmentRateEditAccess,
     db: AsyncSession = Depends(get_db),
@@ -4980,8 +4989,8 @@ async def set_recruitment_expected_rate(
 
 @router.delete("/{candidate_id}/recruitments/{job_id}")
 async def remove_candidate_from_recruitment(
-    candidate_id: int,
-    job_id: int,
+    candidate_id: DbIdPath,
+    job_id: DbIdPath,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ):
@@ -5405,7 +5414,7 @@ async def update_candidate_document(
 @limiter.limit("10/minute")
 async def reparse_primary_cv(
     request: Request,
-    candidate_id: int,
+    candidate_id: DbIdPath,
     background_tasks: BackgroundTasks,
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
@@ -5476,8 +5485,8 @@ def _safe_document_disposition(
 
 @router.get("/{candidate_id}/documents/{doc_id}/content")
 async def download_candidate_document(
-    candidate_id: int,
-    doc_id: int,
+    candidate_id: DbIdPath,
+    doc_id: DbIdPath,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
     disposition: Literal["attachment", "inline"] = Query(
@@ -5562,8 +5571,8 @@ async def download_candidate_document(
 
 @router.get("/{candidate_id}/documents/{doc_id}/url")
 async def get_candidate_document_url(
-    candidate_id: int,
-    doc_id: int,
+    candidate_id: DbIdPath,
+    doc_id: DbIdPath,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
     disposition: Literal["attachment", "inline"] = Query(
@@ -5641,7 +5650,7 @@ async def get_candidate_document_url(
 
 @router.get("/{candidate_id}/risk")
 async def get_candidate_risk(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -5712,7 +5721,7 @@ _MISSING = object()
 
 @router.patch("/{candidate_id}", response_model=CandidateResponse)
 async def update_candidate(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     data: CandidateUpdate,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
@@ -5954,7 +5963,7 @@ async def restore_candidate_identity_from_traffit(
 
 @router.delete("/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_candidate(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     current_user: CandidateHardDeleteAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -7553,7 +7562,7 @@ async def _after_cv_commit(
 
 @router.post("/{candidate_id}/cv", response_model=CandidateResponse)
 async def upload_cv(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     current_user: RecruiterPlus,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
@@ -7749,7 +7758,7 @@ async def upload_candidate_document(
 
 @router.get("/{candidate_id}/cv-download")
 async def download_cv(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ):
