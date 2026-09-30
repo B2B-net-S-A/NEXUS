@@ -164,6 +164,9 @@ def test_glossary_skips_plain_polish_words_but_keeps_tools_and_jargon() -> None:
         "Dokumentacja",
         "Testy manualne",
         "Płatności",
+        "Optimization",
+        "Documentation",
+        "Testing",
     ):
         assert not knowledge.researchable_term(generic), generic
     for jargon in (
@@ -177,6 +180,8 @@ def test_glossary_skips_plain_polish_words_but_keeps_tools_and_jargon() -> None:
         "Treasury",
         "Core banking",
         "ISTQB",
+        "Performance testing",
+        "Fraud Management",
     ):
         assert knowledge.researchable_term(jargon), jargon
 
