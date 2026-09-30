@@ -60,10 +60,12 @@ def is_auto_run(run) -> bool:
     return isinstance(trace, dict) and trace.get(ORIGIN_KEY) == ORIGIN_AUTO
 
 
-def auto_origin_clause():
-    """SQL: przegląd automatyczny (NULL-safe — brak klucza to przegląd ręczny)."""
+def auto_origin_clause(run=CandidateSearchRun):
+    """SQL: przegląd automatyczny (NULL-safe — brak klucza to przegląd ręczny).
+
+    ``run`` — model albo alias (retencja porównuje przegląd z nowszym)."""
     return func.coalesce(
-        CandidateSearchRun.version_trace[ORIGIN_KEY].astext, literal("manual")
+        run.version_trace[ORIGIN_KEY].astext, literal("manual")
     ) == literal(ORIGIN_AUTO)
 
 
