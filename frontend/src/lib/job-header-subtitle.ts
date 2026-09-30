@@ -15,6 +15,8 @@
  * nie dostanie alertów deadline'u), więc mówimy o nim wprost.
  */
 
+import { formatDeadlineTime } from "@/lib/job-deadline";
+
 /** Etykiety trybu pracy — lustro `RemotePolicy` (`backend/app/models/job.py`). */
 const REMOTE_POLICY_LABEL: Record<string, string> = {
   onsite: "stacjonarnie",
@@ -90,6 +92,8 @@ export interface JobHeaderSubtitleInput {
   salaryMin?: number | null;
   salaryMax?: number | null;
   deadline?: string | null;
+  /** Godzina terminu (0406) — banki podają termin z godziną. */
+  deadlineTime?: string | null;
   ownerName?: string | null;
   /**
    * Delivery Lead rekrutacji (`jobs.delivery_lead_id`, M03-B03). Do 09.2026
@@ -112,6 +116,7 @@ export function buildJobHeaderSubtitle({
   salaryMin,
   salaryMax,
   deadline,
+  deadlineTime,
   ownerName,
   deliveryLeadName,
   hiringManagerName,
@@ -134,7 +139,8 @@ export function buildJobHeaderSubtitle({
   if (salary) segments.push(salary);
 
   const due = formatDeadlineShort(deadline);
-  if (due) segments.push(`deadline ${due}`);
+  const dueTime = formatDeadlineTime(deadlineTime);
+  if (due) segments.push(dueTime ? `deadline ${due}, ${dueTime}` : `deadline ${due}`);
 
   const owner = shortenPersonName(ownerName);
   segments.push(owner ?? "właściciel: nieprzypisany");

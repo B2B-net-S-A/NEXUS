@@ -27,7 +27,7 @@ import api from "@/lib/api";
 import { formatBudgetHourly, jobBudgetHourly } from "@/lib/job-budget";
 import { extractSkills } from "@/lib/job-skills";
 import { countPl } from "@/lib/plural-pl";
-import { formatDate } from "@/lib/utils";
+import { formatJobDeadline } from "@/lib/job-deadline";
 import { resolveViewState } from "@/lib/view-state";
 import { hasRole, useAuthStore } from "@/store/auth";
 
@@ -207,7 +207,7 @@ function OrderBody({
           <Fact label="Tryb i lokalizacja" value={formatJobLocation(job)} />
           <Fact
             label="Termin dla klienta"
-            value={job.deadline ? formatDate(job.deadline) : "nie ustawiono"}
+            value={formatJobDeadline(job.deadline, job.deadline_time) ?? "nie ustawiono"}
           />
           <Fact label="Klient" value={job.client_name?.trim() || "—"} />
           {/* 0380: to, co idzie do klienta — nazwa i numer z jego zapytania. */}

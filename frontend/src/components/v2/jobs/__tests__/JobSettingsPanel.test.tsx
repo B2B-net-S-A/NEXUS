@@ -54,6 +54,7 @@ const baseProps = {
   clientId: 42,
   deliveryLeadId: null as number | null,
   deadline: null as string | null,
+  deadlineTime: null as string | null,
   canEdit: true,
 };
 
@@ -154,7 +155,7 @@ describe("JobSettingsPanel — Delivery Lead", () => {
 });
 
 describe("JobSettingsPanel — Deadline", () => {
-  it("zmiana deadline'u wysyła PATCH {deadline: \"2026-12-01\"}", async () => {
+  it("zapis samej daty wysyła PATCH {deadline, deadline_time: null}", async () => {
     const user = userEvent.setup();
     renderPanel();
 
@@ -162,10 +163,42 @@ describe("JobSettingsPanel — Deadline", () => {
     const input = await screen.findByLabelText("Deadline");
     await user.clear(input);
     await user.type(input, "2026-12-01");
+    await user.click(screen.getByText("Zapisz"));
 
     await waitFor(() =>
-      expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", { deadline: "2026-12-01" }),
+      expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", {
+        deadline: "2026-12-01",
+        deadline_time: null,
+      }),
     );
+  });
+
+  it("data z godziną idzie jednym zapisem, a widok pokazuje „01.10.2026, 12:00”", async () => {
+    const user = userEvent.setup();
+    renderPanel({ deadline: "2026-10-01", deadlineTime: null });
+
+    await user.click(screen.getAllByText("Zmień")[1]);
+    const time = await screen.findByLabelText("Godzina terminu");
+    await user.type(time, "12:00");
+    await user.click(screen.getByText("Zapisz"));
+
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", {
+        deadline: "2026-10-01",
+        deadline_time: "12:00",
+      }),
+    );
+
+    renderPanel({ deadline: "2026-10-01", deadlineTime: "12:00:00" });
+    expect(screen.getByText("01.10.2026, 12:00")).toBeInTheDocument();
+  });
+
+  it("godzina jest zablokowana bez daty", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getAllByText("Zmień")[1]);
+    expect(await screen.findByLabelText("Godzina terminu")).toBeDisabled();
   });
 });
 

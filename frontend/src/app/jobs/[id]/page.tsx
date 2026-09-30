@@ -617,6 +617,7 @@ export default function JobDetailPage() {
       salaryMin: job.salary_min,
       salaryMax: job.salary_max,
       deadline: job.deadline,
+      deadlineTime: job.deadline_time,
       ownerName: job.primary_owner?.name,
       deliveryLeadName,
       // Widok „jedna tabela" obejmuje wszystkie kroki naraz, więc decydent

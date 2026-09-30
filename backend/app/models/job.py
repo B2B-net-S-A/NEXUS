@@ -1,5 +1,5 @@
 import enum
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Optional
 
@@ -13,6 +13,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    Time,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -182,6 +183,10 @@ class Job(Base, TimestampMixin):
     )
 
     deadline: Mapped[Optional[date]] = mapped_column(Date)
+    # 0406: godzina terminu (czas Europe/Warsaw) — banki (Alior, PKO) podają
+    # termin z godziną. Osobna kolumna, bo alerty, filtry i sortowanie liczą
+    # po samej dacie; bez daty godzina nie ma sensu (czyści ją zapis).
+    deadline_time: Mapped[Optional[time]] = mapped_column(Time)
 
     # Portale ogłoszeniowe — lista opublikowanych URL/statusów
     portals: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)

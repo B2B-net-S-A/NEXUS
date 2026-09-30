@@ -896,6 +896,22 @@ def jobs_nobody_working_clause():
     )
 
 
+def _normalize_deadline_time(updates: dict, current_deadline: Optional[date]) -> None:
+    """0406: godzina terminu istnieje tylko przy dacie.
+
+    Wyczyszczona data zabiera godzinę; godzina bez daty (także zapisanej) = 422.
+    """
+    if "deadline" in updates and updates["deadline"] is None:
+        updates["deadline_time"] = None
+        return
+    effective_deadline = updates.get("deadline", current_deadline)
+    if updates.get("deadline_time") is not None and effective_deadline is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Godzinę terminu można ustawić tylko razem z datą.",
+        )
+
+
 def jobs_deadline_clauses(
     deadline_from: Optional[date], deadline_to: Optional[date]
 ) -> list:
@@ -1872,6 +1888,7 @@ async def create_job(
     )
     secondary_cc_ids = data.secondary_cc_ids or []
     auto_suggest = data.auto_suggest_cc
+    _normalize_deadline_time(payload, None)
 
     # "Skopiuj jako template" — dociąg pól z source jobu zanim wstawimy nowy.
     # Pola, które caller już wpisał w formularzu, mają precedencję (sprawdzamy
@@ -2534,6 +2551,7 @@ async def update_job(
     )
 
     updates = data.model_dump(exclude_unset=True)
+    _normalize_deadline_time(updates, job.deadline)
     # Wejścia rankingu sprzed zapisu (runda 6 audytu): wektor i ranking
     # unieważnia REALNA zmiana wartości, nie sam klucz w żądaniu — okno edycji
     # odsyła tytuł, lokalizację i tryb pracy przy każdym zapisie.
