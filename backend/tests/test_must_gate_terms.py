@@ -27,6 +27,8 @@ from app.services.skill_normalize import strip_version
         ("C#", ("C#",)),
         ("Node.js", ("Node.js",)),
         ("oracle/pl/sql", ("oracle", "pl/sql")),
+        ("Java (minimalna 11)", ("Java",)),
+        ("Oracle (min. 19c)", ("Oracle",)),
     ],
 )
 def test_technology_labels_gate_with_normalized_options(label, options):
@@ -69,6 +71,16 @@ def test_non_technology_labels_do_not_gate(label, reason):
         ("Python 3.x", "Python", "3.x"),
         ("Java 7/8", "Java", "7/8"),
         ("Java 11 or higher", "Java", "11 or higher"),
+        # Produkcja 30.09.2026: słowna wersja w nawiasie wyłączała całą
+        # pozycję z bramki i z wyboru krytycznych („Java (minimalna 11)”).
+        ("Java (minimalna 11)", "Java", "minimalna 11"),
+        ("Java (min. 11)", "Java", "min. 11"),
+        ("Oracle (min. 19c)", "Oracle", "min. 19c"),
+        ("Java (minimum 17)", "Java", "minimum 17"),
+        ("Java (od 11)", "Java", "od 11"),
+        ("Java (wersja 17+)", "Java", "wersja 17+"),
+        ("Java min. 11", "Java", "min. 11"),
+        ("Angular (version 16 or higher)", "Angular", "version 16 or higher"),
         ("ES6", "ES6", None),
         ("OAuth2", "OAuth2", None),
         ("Log4j", "Log4j", None),

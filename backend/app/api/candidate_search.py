@@ -468,6 +468,17 @@ async def search_results(
                     ),
                 )
             )
+        # Budżet i dni w biurze nie ukrywają (v9, 30.09.2026) — wiersz niesie
+        # plakietkę z chwili przeglądu; przy zmienionych danych jej nie ma.
+        frozen_filters = (row.evidence or {}).get("filters") or {}
+        fit = (
+            None
+            if row_changed
+            else {
+                "rate": frozen_filters.get("rate"),
+                "office": frozen_filters.get("office"),
+            }
+        )
         results.append(
             {
                 "match": details,
@@ -477,6 +488,7 @@ async def search_results(
                 "breakdown": breakdown,
                 "requirements": requirements,
                 "eligibility": annotation,
+                "fit": fit,
             }
         )
     from app.services.dealbreaker_filters import resolve_job_budget_hourly

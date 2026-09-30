@@ -3431,8 +3431,13 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
 - **Krytyczne są zamrażane w żądaniu** (`request_matching_context`,
   `critical_effective` w `job_data`) — zmiana podpowiedzi po przeliczeniu
   statystyk zmienia odcisk, a worker bramkuje zestawem z chwili startu.
+- **Słowna wersja jest wersją** (v9.1, `skill_normalize._VERSION_WORD`):
+  „Java (minimalna 11)”, „Oracle (min. 19c)”, „Java od 11” odcinają się jak
+  „Java 11+”. Do 30.09.2026 taka pozycja nie bramkowała i nie dało się jej
+  oznaczyć jako krytycznej.
 - **Budżet i dni w biurze to plakietki** (`rate_fit`, `office_fit`); ocena
-  stawki jest neutralna z opisem „ponad budżet o X%”. **Kandydat bez CV,
+  stawki jest neutralna z opisem „ponad budżet o X%”. Wiersz pełnego przeglądu (Radar, cała
+  baza) niesie `fit` (`rate`/`office` z chwili przeglądu) → plakietki `fullSearchFitBadges`. **Kandydat bez CV,
   umiejętności i notatek jest ukryty zawsze** (`no_data`) na listach AI.
   Dowód z CV i notatek dołącza się RAZ dla wszystkich technologii must+nice
   (`DealbreakerInputs.gate_evidence_labels`; `evidence_for` przyjmuje

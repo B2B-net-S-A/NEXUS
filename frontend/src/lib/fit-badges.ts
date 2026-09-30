@@ -31,3 +31,18 @@ export const OFFICE_DAYS_BADGE_PL = "mniej dni w biurze";
 
 /** Kod plakietki w `ProposalRow.warnings` dla `office_fit === "days_exceeded"`. */
 export const OFFICE_DAYS_WARNING = "office_days";
+
+/** Plakietki wiersza pełnego przeglądu (Radar, cała baza) z `row.fit`.
+ *  Stawki kandydata ten widok nie niesie, więc bez procentu. */
+export function fullSearchFitBadges(
+  fit: { rate?: string | null; office?: string | null } | null | undefined,
+): string[] {
+  if (!fit) return [];
+  const out: string[] = [];
+  if (fit.rate === "over_budget") out.push("Ponad budżet");
+  else if (fit.rate === "below_min_consented") out.push("Poniżej minimum — zgoda na telefon");
+  if (fit.office === "days_exceeded") out.push("Mniej dni w biurze");
+  else if (fit.office === "over_consented") out.push("Więcej dni w biurze — zgoda na telefon");
+  else if (fit.office === "city_mismatch") out.push("Inne miasto niż biuro");
+  return out;
+}
