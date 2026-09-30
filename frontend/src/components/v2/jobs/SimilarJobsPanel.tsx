@@ -27,6 +27,8 @@ import { candidatesApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
 import {
+  similarityHint,
+  similarityLabel,
   similarJobsApi,
   similarJobsKey,
   similarPeopleKey,
@@ -416,7 +418,12 @@ function JobGroup({
         </label>
         {item.linked ? <Link2 className="h-4 w-4 shrink-0 text-primary" aria-label="połączona" /> : null}
         {item.similarity != null ? (
-          <span className="text-xs font-semibold tabular-nums text-primary">{item.similarity}%</span>
+          <span
+            className="whitespace-nowrap text-xs font-semibold tabular-nums text-primary"
+            title={similarityHint(item)}
+          >
+            {similarityLabel(item)}
+          </span>
         ) : null}
         <span className="whitespace-nowrap text-xs text-muted-foreground">
           <b className="font-semibold text-foreground">{item.sent_count}</b> u klienta

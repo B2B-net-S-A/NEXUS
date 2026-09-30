@@ -2137,6 +2137,34 @@ Decyzje Artura 29.09.2026 — historia kandydata ma być tym, co napisali ludzie
   (`services/process_entry_meta.py`); tablica i zakładka „Rekrutacje” niosą
   `entry_auto_match` → plakietka „Auto-match 67/100 · JJIT”. Nie wracaj do
   `note=` w automacie.
+- **Dopasowania z portali NIE zakładają kart (decyzja Artura 30.09.2026).**
+  Zmierzone: 1 819 kart scrapera na „Ogłoszeniach”, każda osoba w ~3,9
+  rekrutacjach, dalej przeszły 2. `proposals/bulk` od tokenu integracji Z polem
+  `auto_match` idzie przez `proposals_bulk.propose_candidates_for_job`: te same
+  twarde bramki co dodanie (kandydat istnieje, czarna lista, już w rekrutacji,
+  weto HM — w `skipped`), potem propozycja `job_board` w „Do przejrzenia”
+  (wynik = `score`, `evidence.auto_match` + `matched_must`, `cv_revision` =
+  `candidate_revision`). Odpowiedź: `added=[]` + nowe `proposed`/`total_proposed`;
+  runner JJIT liczy `proposed` jako dopasowanie. Integracja BEZ `auto_match`
+  (zgłoszenia z pracuj.pl do konkretnej rekrutacji) i człowiek dodają kartę jak
+  dotąd. Front: etykieta „Z portalu (JJIT/RocketJobs)”. Stare karty przenosi
+  jednorazowo `POST /api/admin/proposals/convert-integration-cards?dry_run=true`
+  (admin; próba oddaje liczby per rekrutacja, `blocked_by` per powód i ≤ 20
+  przykładów z samymi ID) → `dry_run=false` (w tle, wymaga próby z 7 dni;
+  `GET …/status`). Bierze WYŁĄCZNIE nietknięte karty: rekrutacja opublikowana
+  spoza Traffita, jeden otwarty proces `auto_match` z plakietką integracji
+  (`source` ≠ `nexus`), jeden wiersz etapu `posting` bez screeningu/scorecardu,
+  bez notatek z tą rekrutacją, `application_screenings` i `screening_notes`,
+  CV etapu tylko jako automatyczna migawka z dodania, i zero wierszy w tabelach
+  z FK do tego etapu/procesu/migawki (lista FK z `pg_constraint` w chwili
+  biegu). Na parę w savepoincie ta sama droga co „Usuń z rekrutacji” (archiwum
+  `candidate_stage_removals` → `void_process` → `delete_voided_stage_history`
+  → zamknięcie okazji kontaktu; migawka etapów ze wspólnego
+  `candidate_stage_removal_snapshot`), wiersze skrzynki pary `added` wracają
+  do `proposed`, potem propozycja `job_board` z wynikiem z `entry_meta`. Pliki CV
+  kandydata zostają. Dane do odwrócenia pod
+  `repair_details_job_board_cards_to_proposals_2026_09`
+  (`services/job_board_cards_to_proposals.py`).
 - **Stare notatki automatów = `external_source='system'`** (jednorazowo,
   znacznik `0399_auto_match_notes_system`; SQL w `note_threads_schema.py`,
   lustro w `entrypoint.sh`) — nic nie jest kasowane. Lista notatek niesie
@@ -2573,6 +2601,9 @@ web — jeden przegląd naraz, ~3 min.
   weryfikację rekrutera „nieznane” jako brak. Pomiar i świadomy koszt (długie
   listy must z maila chowają prawie wszystkich): `docs/audits/2026-09-26/
   tworzenie-rekrutacji-a-wyszukiwanie.md`, sekcja „Wdrożenie reguł wyszukiwania”.
+  **Od v9 (`critical-v9`, 30.09.2026) ukrywają WYŁĄCZNIE umiejętności
+  krytyczne** — sekcja „Umiejętności krytyczne i bramka v9” niżej; opis v8 wyżej
+  działa tylko przy `MUST_GATE_MODE=all`.
   `MUST_GATE_POLICY_VERSION` jest częścią odcisku requestu — zmiana znaczenia
   polityki = bump, inaczej stare rankingi udają aktualne. Kill-switch
   `RUBRIC_DEALBREAKERS_ENABLED` działa raz, w `apply_dealbreakers`.
@@ -3362,16 +3393,72 @@ template” → `/jobs/new?from=<id>`) prowadzi na stronę.
 - Strona jest dla admina i Delivery Leada (`job.create` + rola), bo odczyt,
   Champion i handoff to `DeliveryLeadPlus`. Harness `/preview/new-job`
   (`?state=request|review|gaps`, zero zapytań).
-- **Odczyt maila v7 (27.09.2026): must = same technologie, bo każda pozycja
-  must UKRYWA kandydatów** (bramka v8, `must_gate_terms`). Kod dopina to, czego
-  model nie zrobi (`job_request_intake.normalize_must`): bez wersji, przykłady
-  klienta jako jedna pozycja „A lub B”, język do pola języka, branża/miękkie do
-  „Mile widziane” z uwagą w `advisories`. Biuro to lista miast po polsku
+- **Odczyt maila v8 (30.09.2026): must 1:1 ze słowami klienta** — ukrywają
+  już tylko umiejętności krytyczne (wybiera DL), więc must nie jest okrajane
+  do technologii, nie traci wersji i nie przechodzi do „Mile widziane”
+  (`job_request_intake.normalize_must`: tylko duplikaty; pozycja językowa
+  dodatkowo w polu języka; `MAX_MUST` 25). Wersje odcina bramka. (v7 z 27.09
+  robiła odwrotnie, bo wtedy każde must ukrywało.) Biuro to lista miast po polsku
   (`office_cities` → `jobs.location` „Warszawa, Gdańsk”; chipy w formularzu,
   `splitCities`/`joinCities`), a Champion nie uznaje listy miast ze słownika za
   „dwuznaczną” ani różnej pisowni tego samego miasta za konflikt z rekrutacją
   (`champion_intake.office_places`). Lata dziedziny większe niż lata ogółem
   (albo > 25) odpadają z uwagą. Portal dostaje pierwsze miasto.
+
+## Umiejętności krytyczne i bramka v9 (0405, 30.09.2026)
+
+Audyt `docs/audits/2026-09-30/wyszukiwanie-kandydatow.md` (symulacje na
+historii): „każde must ukrywa” (v8) chowało 41,5% osób, które zespół potem
+wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.2026:
+
+- **Ukrywają tylko 0–2 umiejętności krytyczne** (`services/critical_skills.py`,
+  `MUST_GATE_POLICY_VERSION = "critical-v9"`). Pole Championa `stack.critical`:
+  `None` = DL nie zdecydował (działa podpowiedź), `[]` = „Brak krytycznych”
+  (bramka must nie ukrywa nikogo), lista = bramka. Serializer zdejmuje `None`
+  (stare profile nie zmieniają kształtu). Wybór nie zmienia wymagań roli
+  (`champion_view.without_critical` w `requirement_source` i w `user_edit`):
+  nie kasuje kontraktu wymagań i nie odpala przeliczeń. Idzie za listą MUST
+  (`_prune_critical`; stracone wszystkie = z powrotem `None`), kopia
+  rekrutacji ma `None`, zły wybór = 422 po polsku (`critical_errors`).
+- **Podpowiedź z historii:** technologia z MUST (każda opcja w słowniku,
+  także narzędzia/standardy/AI — `must_gate_terms.critical_eligible`), którą
+  ≥90% osób wysłanych w innych rekrutacjach ma w profilu, CV albo notatce
+  (≥5 rekrutacji); najpierw z tytułu, potem wg odsetka; najwyżej 2. Statystyki:
+  `compute_stats` → `app_settings['critical_skill_stats']` co tydzień w nocnej
+  pętli, do pierwszego przeliczenia seed `app/data/critical_skill_stats_seed.json`;
+  proces czyta je z pamięci (odświeżanie co godzinę). Pusta lista w
+  `POST /api/job-intake/critical-suggestion` (niezapisane MUST, /jobs/new).
+- **Krytyczne są zamrażane w żądaniu** (`request_matching_context`,
+  `critical_effective` w `job_data`) — zmiana podpowiedzi po przeliczeniu
+  statystyk zmienia odcisk, a worker bramkuje zestawem z chwili startu.
+- **Budżet i dni w biurze to plakietki** (`rate_fit`, `office_fit`); ocena
+  stawki jest neutralna z opisem „ponad budżet o X%”. **Kandydat bez CV,
+  umiejętności i notatek jest ukryty zawsze** (`no_data`) na listach AI.
+  Dowód z CV i notatek dołącza się RAZ dla wszystkich technologii must+nice
+  (`DealbreakerInputs.gate_evidence_labels`; `evidence_for` przyjmuje
+  nadzbiór) — czyta go bramka, plakietki i ocena (`_score_skills` liczy
+  technologię z profilu/CV/notatki, mianownik tylko z technologii).
+- **Reguła „co jest technologią”** (`must_gate_terms`): nazwa ze słownika
+  w kategorii `role_*` albo `methodology` nie bramkuje („QA”, „Software
+  developer”, „Scrum”); przykłady z nawiasu tylko po głowie-kategorii albo
+  technologii („Bazy danych (Oracle, PostgreSQL)”), nie po zdaniu.
+- **Przekazanie do searchu wymaga decyzji** o krytycznych, gdy MUST ma
+  technologię ze słownika (`MSG_CRITICAL`, lustro frontu; kod `critical`
+  w brakach /jobs/new).
+- **„Pomiń” propozycję wymaga powodu** (`job_proposals.dismiss_reason`:
+  `missing_critical`, `too_expensive`, `location_office`, `too_junior`,
+  `outdated_cv`, `other` + notatka ≤500; 0405, lustro w `entrypoint.sh`),
+  telemetria `reject` z `reason_code`, raport Insights „Propozycje AI”
+  (`GET /api/insights/proposals/outcomes`, admin/HoR/DL portfela) i
+  poniedziałkowy dzwonek do DL z liczbą propozycji bez decyzji
+  (`proposals_digest`, typ `auto_match_proposals`, dedup po tygodniu ISO).
+  Do 30.09 żadna z 57 nocnych propozycji nie miała decyzji.
+- **Plakietka „CV z RRRR”** czyta `proposal-facts.cv_uploaded_on` — tylko
+  prawdziwą datę wgrania głównego CV, nigdy dnia importu.
+- **Wyłącznik `MUST_GATE_MODE=all`** przywraca v8 w całości (każde must,
+  budżet i dni ukrywają, stawka w punktach) — na nim stoją stare testy
+  bramki (przypięte fixturą `_v8_must_gate`). Nowy test trybu domyślnego:
+  `tests/test_critical_gate.py`.
 
 ## Hiring manager rekrutacji: lista albo nowa osoba (25.09.2026)
 
@@ -3579,13 +3666,29 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   suma `sent_count` liczyła zatrudnionych i obecnych, więc krok wisiał bez
   nikogo do przepięcia). Jedno przepięcie: najwyżej 100 osób.
   Karta niesie `reassign_from_reference` („↻ z ZOB-1725”).
-- **Sugestie są deterministyczne**: must-have (Jaccard) 0,55 + tytuł 0,30 +
+- **Sugestie liczy WEKTOR rekrutacji (decyzja Artura 30.09.2026)**:
+  kosinus wektorów z kolekcji `nexus_jobs` (zapytanie po id punktu, bez
+  przesyłania wektora), pula = rekrutacje z kimkolwiek od „CV wysłane” wzwyż
+  (`_sent_job_ids`, bez samej rekrutacji i już połączonych), porządek =
+  kosinus + **0,08 za tego samego klienta** (`VECTOR_CLIENT_BONUS`), top 5,
+  BEZ progu. `similarity` = kosinus × 100, `similarity_kind: "vector"` (UI:
+  „≈ N%”). Zmierzone na historii (1620 rekrutacji): prawdziwe źródło
+  przepięcia w top 5 dla 60,6% rekrutacji zamiast 39,7% przy dawnym wzorze
+  z progiem 55 (86% prawdziwych źródeł miało poniżej 55). **Zapas
+  leksykalny** (`similarity_kind: "lexical"`) — rekrutacja bez wektora albo
+  Qdrant nie odpowiada w ~2 s: must-have (Jaccard) 0,55 + tytuł 0,30 +
   ta sama kategoria 0,15, próg 55; **ten sam klient liczy się jak ta sama
   kategoria** (lepsze z dwóch, nie suma — od 25.09.2026; ZOB-3006 i ZOB-1725
   PKO BP w różnych kategoriach miały 30 pkt, teraz 60), pula = CAŁA historia (także zamknięte i archiwum z Traffita; do 24.09.2026 18 miesięcy) w pamięci
-  procesu 5 min z indeksem odwróconym. Lista pokazuje „≈" tylko przy
-  sugestiach z osobami u klienta. DL wskazuje podobne już przy tworzeniu
-  (`POST /api/job-similarity/preview` → po zapisie `POST …/similar`).
+  procesu 5 min z indeksem odwróconym. Lista rekrutacji liczy stronę jednym
+  wywołaniem Qdranta (`query_batch_points`, pamięć rankingu z kluczem
+  `vector-v1`; awarii nie pamięta) i pokazuje „≈" tylko przy sugestiach
+  z osobami u klienta — wektorowych wyłącznie z (kosinus + premia) ≥
+  `SIMILAR_JOBS_BADGE_MIN_COSINE` = 0,65 (mediana wyniku prawdziwych źródeł
+  przepięć; kalibracja na produkcji 30.09.2026, liczby przy stałej). DL wskazuje podobne już przy tworzeniu
+  (`POST /api/job-similarity/preview` — szkic tytuł + must-have embedowany
+  `full_search_measurement.request_vector`, premia za klienta szkicu;
+  po zapisie `POST …/similar`).
   **Must-have = kolumna ∪ stack MUST Championa, jako KANONICZNE nazwy
   technologii z taksonomii** (`skill_set`, od 22.09.2026): surowe napisy
   z samej kolumny dawały podpowiedź 92 z 326 otwartym rekrutacjom, ten zbiór —
@@ -4070,7 +4173,8 @@ i polskim powodem.
   nie miało plakietki — a po zmianie zniknęłaby też plakietka NDA.
 - **Zwolnione z dealbreakerów w `/ai-matches` jest tylko weto HM**
   (`severity=hard ∧ visibility=warn`). Kandydat z NDA ponad budżet chowa się
-  do `over_budget` jak każdy inny — świadomie. Testy, które potrzebują „widoczny,
+  do `over_budget` jak każdy inny — świadomie (od 30.09.2026 budżet nie ukrywa
+  nikogo poza trybem `MUST_GATE_MODE=all`). Testy, które potrzebują „widoczny,
   ale zablokowany", seedują weto HM (`tests.test_manager_rejection_gate`), nie NDA.
 - **Scoring nie zeruje za konflikt ani `client_excluded`** — trafiają do
   `breakdown.warnings`; zeruje wyłącznie globalna `blacklist`. Zero trzymałoby
@@ -7013,20 +7117,27 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
 | C. auto-CV po ruchu na „Zweryfikowany" | `CV_AUTO_GENERATE_ON_VERIFIED` | `services/cv_auto_generate.py` |
 | D. podpowiedź stawki/dostępności w arkuszu screeningu | brak (czysty odczyt) | `services/screening_suggestions.py` |
 
-- **A. Sygnałem jest ZDARZENIE rekrutacji, nie „każda opublikowana".** Nocna
-  pętla (okno `AUTO_FULL_REVIEW_WINDOW_START/END_HOUR` = 1–5 w `BUSINESS_TZ`,
-  tick co 60 s, heartbeat `auto_full_review`) bierze rekrutacje opublikowane,
-  które mają w `candidate_match_outbox` zdarzenie nowsze niż ich ostatni
-  przegląd automatyczny (okno `AUTO_FULL_REVIEW_EVENT_LOOKBACK_DAYS` = 14).
-  Przegląd to ~100–130 MB wierszy — przemiatanie wszystkich otwartych
-  rekrutacji zapchałoby wolumen bazy. Zdarzenie zapisują: publikacja, PATCH
+- **A. Co noc WSZYSTKIE rekrutacje w pracy (decyzja Artura 30.09.2026).**
+  Nocna pętla (okno `AUTO_FULL_REVIEW_WINDOW_START/END_HOUR` = 1–5 w
+  `BUSINESS_TZ`, tick co 60 s, heartbeat `auto_full_review`) bierze każdą
+  opublikowaną rekrutację w pracy (`IN_WORK_STATES`) bez przeglądu tej nocy:
+  najpierw ze zdarzeniem nowszym niż ostatni przegląd, potem „Szukamy”, potem
+  najdawniej przeglądane. Do 30.09 sygnałem było samo zdarzenie i propozycje
+  dostawało 5 rekrutacji na noc — nowe CV w bazie nie jest zdarzeniem.
+  „Bez zmian” (ten sam odcisk) pomija przegląd tylko przez
+  `UNCHANGED_MAX_AGE` (20 h). Dysk trzyma retencja: przegląd automatyczny
+  zastąpiony nowszym zakończonym przeglądem tej rekrutacji jest kasowany
+  (`candidate_search_retention.expired_run_ids`) — stan ustalony to jeden
+  przegląd (~75 MB) na rekrutację. Raz na noc przed przeglądami
+  (`_nightly_maintenance`): przeliczenie statystyk umiejętności krytycznych
+  (co tydzień) i poniedziałkowy skrót propozycji do DL. Zdarzenie zapisują: publikacja, PATCH
   z `_SIGNIFICANT_FIELDS` **albo `_AUTO_REVIEW_EXTRA_FIELDS`** (budżet, tryb
   pracy, dni w biurze — osobna lista, żeby nie wywoływać rescanów Targu) oraz
   zapis Championa. `enqueue_job` pisze też przy `AUTO_MATCH_ENABLED=false`
   (`job_events_enabled`) — wtedy od razu jako `skipped`, bo `pending` bez
   workera wisiałby bez końca i częściowy UNIQUE połykałby kolejne zmiany.
 - **A. Limity:** najwyżej jeden przegląd na rekrutację na noc (także nieudany),
-  `AUTO_FULL_REVIEW_MAX_PER_NIGHT` (20) łącznie, jeden nowy przegląd na tick,
+  `AUTO_FULL_REVIEW_MAX_PER_NIGHT` (25 od 30.09.2026) łącznie, jeden nowy przegląd na tick,
   odcisk requestu równy ostatniemu nie-nieudanemu przeglądowi automatycznemu =
   pominięcie. **Automat ustępuje ludziom**: nie startuje, gdy JAKIKOLWIEK
   przegląd jest w kolejce/w toku, a worker i tak bierze ręczne pierwsze.
@@ -7393,7 +7504,7 @@ Raport: `docs/audit-2026-09-22-round2-completion-report.md`. Migracja `0351_audi
 - **Mail:** klucz wysyłki = użytkownik + `client_request_id` + `content_fingerprint` (temat, odbiorcy, treść) — poprawiona treść to nowa wysyłka. Maile odrzucenia mają stały klucz `scheduled-rejection:{id}`; `EmailSendConflict` zamyka wiersz jako `failed` (`send_outcome_*`) z prośbą o sprawdzenie Wysłanych, nigdy nie ponawia. `@removed` z delty nie kasuje maila powiązanego z kandydatem ani wysłanego z NEXUSA; adopcja po `internetMessageId` i dedup zależą od kierunku. Start kontenera: `pending` starsze niż minuta → `uncertain` (plakietki w wątku). Zaproszenie kalendarza niesie `client_request_id` okna → `transactionId`.
 - **Kontrola AI CV (v4) nie recenzuje `why_points`** jako twierdzeń (narracja = kontekst). OpenAI dostaje `strict: true` tylko dla schematów, które to spełniają (`_strict_compatible`). Błąd protokołu recenzenta przy zatwierdzaniu = `unverified/review_protocol_*`, nigdy „0 uwag”. Auto-CV idempotentne także po (kandydat, rekrutacja, wersja CV) → `already_generated`. `parse_cv` niesie `user_id`; ucięty JSON jest ratowany (`_truncated`). JJIT w dry-run nie woła modelu.
 - **Traffit:** czas bez strefy = Europe/Warsaw (`_parse_traffit_datetime`), termin z lokalnej daty. Przerwana próba delty wznawia się (`cursor_payload['attempt']`: `since, run_start, touched_at, done, held`; młodsza niż `TRAFFIT_SYNC_ATTEMPT_RESUME_HOURS`), `files_since` i watermark liczą się od startu PIERWSZEJ próby. Kolejność faz: `candidates → jobs → pipelines → pliki/CV → aktywności → źródła → talents → cortex → wzbogacanie → reconcile`. Delta `pipelines` czyta historię od najnowszych (`id DESC`) i kończy na stronie starszej niż `since` (bezpiecznik: rosnące id = pełny przegląd). `_UPSERT_JOB` ma `WHERE` — rekrutacja bez zmian nie jest przepisywana; intencja indeksu i zdarzenie `traffit_job` dla automatów tylko dla nowej rekrutacji albo zmiany tytułu/statusu. `responsible_person` bywa listą (prowadzący z detalu `/recruitments/{id}` — #1728, jedna reguła `responsible_user_id`). Etapy u klienta wstawione przez import (≤ 7 dni) też przepinają podobne rekrutacje (`TRAFFIT_IMPORT_REASSIGN_ENABLED`). Stary cron hosta `traffit-delta-sync.sh` ma być wyłączony — jedyną ścieżką jest pętla w aplikacji.
-- **Automaty i retencja:** nocny przegląd bazy domyślnie 5/noc, surowe wyniki przeglądów automatycznych żyją `AUTO_FULL_REVIEW_RETENTION_DAYS` (2). `queue_retention` (co 6 h) czyści dziennik auto-matcha (poza `added/proposed`) i zakończone kolejki po 30 dniach, zachowując najnowszy `done` z haszem każdej encji. Reconciler kolejkuje opublikowaną rekrutację bez wektora, jeśli nie ma intencji w toku.
+- **Automaty i retencja:** nocny przegląd bazy domyślnie 5/noc (od 30.09.2026 25/noc, wszystkie rekrutacje w pracy), surowe wyniki przeglądów automatycznych żyją `AUTO_FULL_REVIEW_RETENTION_DAYS` (2). `queue_retention` (co 6 h) czyści dziennik auto-matcha (poza `added/proposed`) i zakończone kolejki po 30 dniach, zachowując najnowszy `done` z haszem każdej encji. Reconciler kolejkuje opublikowaną rekrutację bez wektora, jeśli nie ma intencji w toku.
 - **Snapshot oryginalnego CV etapu to kopia w object storage** `stage-cv/<candidate_id>/<sha256>` (bajty w bazie tylko bez storage); czytaj przez `load_original_cv_bytes`/`snapshot_exists`. Stare bajty przenosi `python -m app.cli.stage_cv_snapshot_offload` (sucho → `--apply`), potem `VACUUM FULL candidate_stage_cvs` w oknie serwisowym.
 - **Startup:** `mail_delivery_schema` przy kompletnym schemacie nie wykonuje DDL (wcześniej deploy w trakcie `pg_dump` = pętla restartów). `/api/health` ma `backupVolumePercent`/`backupVolumeCheckedAt` z pliku crona hosta (`HOST_STATUS_DIR`, starszy niż 2 h = `null`); `disk-alert.yml` alarmuje od 80%.
 - **Pieniądze:** kasowanie zamówienia/linii woła `detach_order_rate_steps` (+`flush`) PRZED `db.delete` — kaskada zdejmowała krok przed synchronizacją. Gdy znika ostatni krok z zamówień, kontrakt zostaje **bez przychodu** (decyzja Artura), podgląd usunięcia mówi to wprost (`removes_revenue`, `context=order|group_line`). `sync_contract_to_live_order` nie wskrzesza umowy wypowiedzianej z datą ≥ dziś i nie zeruje daty końca umów nie-B2B. Lista kontraktorów i PATCH porównują stawki efektywne; przebieg dobowy odświeża oba cache stawek bez okna 31 dni.

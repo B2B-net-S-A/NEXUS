@@ -20,6 +20,11 @@ from tests.test_scoring_service import make_candidate, make_job
 async def test_review_drives_or_group_score_and_explicit_gate_without_inventing_skills(
     monkeypatch, status
 ):
+    # Stawka w punktach i bramka każdego must — tryb v8 (MUST_GATE_MODE=all)
+    # od 30.09.2026; tryb domyślny pilnuje test_critical_gate.py.
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "MUST_GATE_MODE", "all")
     contract = MatchingRequirements(
         reviewed=True,
         missing_evidence_policy="exclude",

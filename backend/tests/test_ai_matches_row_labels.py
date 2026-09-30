@@ -343,6 +343,7 @@ def _match(body: dict, cid: int) -> dict | None:
     return None
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_ai_matches_rows_carry_rubric_labels_on_both_branches(

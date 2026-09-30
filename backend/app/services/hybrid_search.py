@@ -229,6 +229,13 @@ def build_job_must_groups(job) -> list[list[str]]:
         skill_variant_groups,
     )
 
+    from app.services.critical_skills import effective_critical, gate_mode
+
+    if gate_mode() == "critical":
+        # Pula SQL wymaga tego samego, co bramka ukrywa: tylko krytycznych
+        # (30.09.2026). Wymóg WSZYSTKICH must odcinał osoby, które bramka
+        # przepuszcza — pula i bramka nie mogą się rozjechać.
+        return skill_variant_groups(list(effective_critical(job).labels))
     return skill_variant_groups(job_explicit_must_skills(job))
 
 

@@ -69,6 +69,21 @@ async def score_pair(db, context: RequestMatchingContext, candidate, measurement
     return CanonicalFit(breakdown, measurement.status)
 
 
+async def _attach_missing_evidence(db, job, candidates) -> None:
+    """Dowód z CV i notatek przed oceną (30.09.2026) — ocena umiejętności
+    czyta go tak samo jak bramka. Kandydaci z dowodem dołączonym już przez
+    bramkę tej rekrutacji nie są czytani drugi raz."""
+    if db is None:
+        return
+    from app.services.dealbreaker_filters import dealbreaker_inputs_for_job
+    from app.services.must_text_evidence import attach_gate_evidence, evidence_for
+
+    labels = dealbreaker_inputs_for_job(job).gate_evidence_labels
+    missing = [c for c in candidates if evidence_for(c, labels) is None]
+    if missing:
+        await attach_gate_evidence(db, missing, labels)
+
+
 async def score_candidates(db, context: RequestMatchingContext, candidates):
     """Score supplied identities against the same full request as Radar/C2.
 
@@ -79,7 +94,9 @@ async def score_candidates(db, context: RequestMatchingContext, candidates):
         return []
     from app.services.requirement_verification import load_verified_requirements
 
-    await load_verified_requirements(db, context.as_job(), candidates)
+    job = context.as_job()
+    await load_verified_requirements(db, job, candidates)
+    await _attach_missing_evidence(db, job, candidates)
     with stage("query_embedding") as outcome:
         try:
             vector = await request_vector(context.query_text)

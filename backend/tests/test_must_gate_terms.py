@@ -76,3 +76,99 @@ def test_non_technology_labels_do_not_gate(label, reason):
 )
 def test_strip_version(name, base, version):
     assert strip_version(name) == (base, version)
+
+
+# ── Reguła ze słownikiem (audyt 30.09.2026, B2) ──────────────────────────────
+from tests.taxonomy_fixture import hydrated_taxonomy  # noqa: E402
+from app.services.must_gate_terms import critical_eligible  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "label, reason",
+    [
+        # Nazwy ze słownika, które są rolą albo metodyką — do 30.09 skrót
+        # `in ALIAS_MAP` przepuszczał je jako technologię.
+        ("QA", "role"),
+        ("quality assurance", "role"),
+        ("software developer", "role"),
+        ("backend developer", "role"),
+        ("IT analysis", "role"),
+        ("release manager", "role"),
+        ("Scrum", "category"),
+        # Przykłady z nawiasu po ZDANIU nie są wymogiem.
+        ("Doświadczenie z integracją systemów (on-premise, hybrid, cloud)", "prose"),
+        (
+            "Umiejętność pracy w dynamicznym środowisku IT (DevOps / Application Operations)",
+            "prose",
+        ),
+        ("Wykształcenie wyższe kierunkowe (informatyka, matematyka)", "prose"),
+    ],
+)
+def test_taxonomy_roles_methodologies_and_prose_heads_do_not_gate(label, reason):
+    with hydrated_taxonomy():
+        assert gate_requirement(label) is None
+        assert ignored_reason(label) == reason
+
+
+@pytest.mark.parametrize(
+    "label, options",
+    [
+        ("Java 11+", ("Java",)),
+        ("Bazy danych (Oracle, PostgreSQL)", ("Oracle", "PostgreSQL")),
+        ("Znajomość baz danych (np. Oracle, PostgreSQL)", ("Oracle", "PostgreSQL")),
+        # CI/CD jest w słowniku metodyką — nie opcją, ale głowa przykładów zostaje.
+        ("CI/CD tools like Bitbucket, Jenkins", ("Bitbucket", "Jenkins")),
+        ("Pega", ("Pega",)),
+        ("UML", ("UML",)),
+    ],
+)
+def test_taxonomy_technologies_still_gate(label, options):
+    with hydrated_taxonomy():
+        requirement = gate_requirement(label)
+        assert requirement is not None and requirement.options == options
+
+
+@pytest.mark.parametrize(
+    "label, eligible",
+    [
+        ("Java 11+", True),
+        ("Angular", True),
+        ("React.js (v18 or higher)", True),
+        ("Kafka lub RabbitMQ", False),  # RabbitMQ spoza słownika
+        ("Docker/Kubernetes", True),
+        ("Pega", True),  # narzędzie — technologia w sensie bramki
+        ("BPMN", True),  # standard
+        ("Temenos T24", False),  # bramkuje w punktach, słownik go nie zna
+        ("QA", False),
+        ("Scrum", False),
+        ("team player", False),
+        ("dostępność asap / maksymalnie 1 miesiąc", False),
+    ],
+)
+def test_critical_eligibility_requires_every_option_in_taxonomy(label, eligible):
+    with hydrated_taxonomy():
+        assert critical_eligible(label) is eligible
+
+
+def test_critical_eligibility_is_false_without_taxonomy():
+    assert critical_eligible("Java") is False
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "QA",
+        "IT analysis",
+        "Data engineering",
+        "IT operations",
+        "Test automation",
+        "IT consulting",
+        "Quality assurance",
+        "PMO",
+        "System administration",
+    ],
+)
+def test_practices_outside_the_dictionary_do_not_gate(label):
+    """30.09.2026: praktyki i role spoza słownika przechodziły regułę
+    składniową; wysłani „mieli” je w 0–37% przypadków (audyt B2)."""
+    assert gate_requirement(label) is None

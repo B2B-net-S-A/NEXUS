@@ -2832,6 +2832,10 @@ export type HiddenCounters = Partial<Record<HiddenReason, number>>;
  *  jest ciche (reguła „awaria ≠ pustka"). */
 export const HIDDEN_LABELS_PL: Record<HiddenReason, string> = {
   employment_only: "tylko umowa o pracę",
+  // 30.09.2026 (bramka MUST v9): budżet i dni w biurze to tylko plakietki
+  // (`lib/fit-badges.ts`), liczniki `over_budget` i `office_days_exceeded`
+  // są zawsze 0. Etykiety zostają na wypadek `MUST_GATE_MODE=all` (powrót do
+  // v8) — wtedy ukrywanie nie może być ciche.
   over_budget: "powyżej budżetu rekrutacji",
   // 27.09.2026: must liczy się z profilu, CV i notatek; osoby bez żadnych
   // danych są ukrywane osobno.
@@ -4606,6 +4610,12 @@ export interface ChampionStack {
   must: StackItem[];
   nice: StackItem[];
   notes: string;
+  /**
+   * Umiejętności krytyczne (30.09.2026, `lib/critical-skills.ts`): 0–2 pozycje
+   * z `must`, które ukrywają kandydatów. Brak klucza / `null` = DL nie
+   * zdecydował (działa podpowiedź z historii), `[]` = „Brak krytycznych”.
+   */
+  critical?: string[] | null;
 }
 
 /** Sekcja 4 — doświadczenie poza stackiem (09.2026). */
@@ -4891,6 +4901,8 @@ export interface ChampionProfileResponse {
   job_id: number;
   job_title?: string;
   champion_profile: ChampionProfile | Record<string, never>;
+  /** Krytyczne: decyzja DL, podpowiedź i to, na czym działa bramka (30.09.2026). */
+  critical_resolution?: import("@/lib/critical-skills").CriticalResolution;
 }
 
 export interface ChampionVerificationRequest {

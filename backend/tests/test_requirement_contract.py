@@ -112,6 +112,7 @@ def test_multiple_alternatives_keep_both_groups():
     assert result["must"] == ["python lub go", "python lub java"]
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 @pytest.mark.asyncio
 @pytest.mark.parametrize("policy,expected_ids", [("review", [1]), ("exclude", [1])])
 async def test_shared_gate_hides_missing_proof_under_both_policies(
@@ -214,6 +215,7 @@ def test_legacy_query_preserves_request_tail_and_reviewed_alternatives():
     assert "RabbitMQ" in _build_job_query(target)
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 @pytest.mark.asyncio
 async def test_shared_gate_records_primary_exclusion_reason_without_double_count(
     monkeypatch,

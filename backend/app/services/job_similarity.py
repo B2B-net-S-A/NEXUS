@@ -11,12 +11,20 @@ Decyzje Artura (22.09.2026):
 * **Status requestu** jest liczony (:func:`request_status_subquery`) —
   „Szukamy" trwa, dopóki Delivery Lead nie oznaczy „Mamy championa".
 
-Sugestie liczy prosta, deterministyczna miara: wspólne must-have, wspólne
-słowa tytułu i ta sama kategoria kompetencji. Pula (CAŁA historia, także
-zamknięte i archiwum z Traffita — tam są osoby już wysłane; decyzja Artura
-24.09.2026, do tego dnia 18 miesięcy) trzymana jest
-w pamięci procesu przez kilka minut, a kandydaci do porównania wybierani są
-przez indeks odwrócony, więc lista rekrutacji nie porównuje każdej z każdą.
+Sugestie (decyzja Artura 30.09.2026) to rekrutacje najbliższe WEKTOROWO
+(kosinus wektorów rekrutacji z kolekcji ``nexus_jobs``) spośród tych, w których
+ktoś dotarł do klienta, z premią :data:`VECTOR_CLIENT_BONUS` za tego samego
+klienta. Zmierzone na historii (1620 rekrutacji docelowych): prawdziwe źródło
+przepięcia w top 5 dla 60,6% rekrutacji zamiast 39,7% przy wzorze
+leksykalnym z progiem 55 (86% prawdziwych źródeł miało poniżej 55 pkt).
+Gdy rekrutacja nie ma wektora albo Qdrant nie odpowiada, działa dawna miara
+leksykalna (:func:`similarity_score`: wspólne must-have, słowa tytułu,
+kategoria/klient) z progiem :data:`MIN_SCORE` — bez zmian. Pula (CAŁA
+historia, także zamknięte i archiwum z Traffita — tam są osoby już wysłane;
+decyzja Artura 24.09.2026, do tego dnia 18 miesięcy) trzymana jest
+w pamięci procesu przez kilka minut, a kandydaci do porównania leksykalnego
+wybierani są przez indeks odwrócony, więc lista rekrutacji nie porównuje
+każdej z każdą.
 
 Żadna funkcja tutaj nie commituje — transakcja należy do wołającego.
 """
@@ -29,7 +37,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Iterable, Mapping, Optional, Sequence
+from typing import Any, Iterable, Mapping, NamedTuple, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, case, exists, func, or_, select, update
@@ -99,9 +107,35 @@ REQUEST_STAGES = (
     "searching",
 )
 
+# Próg dawnej miary leksykalnej — działa już tylko jako zapas (rekrutacja bez
+# wektora, awaria Qdranta).
 MIN_SCORE = 55
 MAX_SUGGESTIONS = 5
 _POOL_TTL_SECONDS = 300
+
+# Ranking wektorowy (30.09.2026). Porządek = kosinus + premia za tego samego
+# klienta; progu nie ma — pięć najbliższych rekrutacji z osobami u klienta.
+KIND_VECTOR = "vector"
+KIND_LEXICAL = "lexical"
+VECTOR_CLIENT_BONUS = 0.08
+VECTOR_CANDIDATE_LIMIT = 60
+# Plakietka „≈” na liście rekrutacji liczy tylko sugestie wektorowe z
+# (kosinus + premia) co najmniej tyle — bez progu świeciłaby przy każdej
+# rekrutacji. Kalibracja 30.09.2026 na produkcji (1 620 rekrutacji, 27 037
+# prawdziwych przepięć, `similar_calibration.py`): źródło przepięcia ma
+# wynik 10. percentyl 0,45, mediana 0,65; najlepsza sugestia rekrutacji —
+# 10. percentyl 0,76. Próg = mediana prawdziwych źródeł: plakietka mówi „jest
+# rekrutacja co najmniej tak podobna jak typowe źródło przepięcia”. Świeci
+# przy większości rekrutacji — tak jak dawny próg 55 (średnio 3,1 sugestii).
+SIMILAR_JOBS_BADGE_MIN_COSINE = 0.65
+# Sufit czasu odczytu Qdranta: pojedyncza rekrutacja i szkic ~2 s, strona
+# listy (kilka paczek zapytań) dłużej. Po nim — miara leksykalna.
+_VECTOR_TIMEOUT_SECONDS = 2.0
+_VECTOR_LIST_TIMEOUT_SECONDS = 5.0
+# Embedding szkicu (Voyage) na /jobs/new.
+_DRAFT_EMBED_TIMEOUT_SECONDS = 5.0
+# Wersja rankingu w kluczu pamięci listy — inna miara to inny wynik.
+RANK_VERSION = "vector-v1"
 
 _STOPWORDS = frozenset(
     {
@@ -241,7 +275,12 @@ class _Pool:
     #: Ranking wiersza listy pamiętany na czas życia puli (runda 6 audytu) —
     #: klucz niesie całą referencję i wykluczenia, więc edycja rekrutacji albo
     #: nowe połączenie liczy się od nowa. Pisany wyłącznie na pętli zdarzeń.
-    rank_cache: dict[tuple, list[tuple[int, int]]] = field(default_factory=dict)
+    rank_cache: dict[tuple, list[tuple[int, int, str, float]]] = field(
+        default_factory=dict
+    )
+    #: Rekrutacje, w których ktoś dotarł do klienta — pula rankingu
+    #: wektorowego. Doczytywana leniwie, żyje tyle co pula.
+    sent_ids: Optional[frozenset[int]] = None
 
 
 _pool = _Pool()
@@ -249,6 +288,18 @@ _pool = _Pool()
 #: Jedno przeładowanie puli naraz (runda 6 audytu): po wygaśnięciu TTL każde
 #: równoległe żądanie listy budowało własny indeks całej historii rekrutacji.
 _pool_lock = asyncio.Lock()
+_sent_lock = asyncio.Lock()
+
+# (id rekrutacji, podobieństwo 0–100, rodzaj miary, porządek). Porządek to
+# kosinus + premia klienta (wektor) albo punkty / 100 (leksykalnie).
+_Ranked = tuple[int, int, str, float]
+
+
+class Suggestion(NamedTuple):
+    job: PoolJob
+    similarity: int
+    kind: str
+    score: float
 
 
 def reset_pool_cache() -> None:
@@ -347,6 +398,7 @@ def _rank(pool: _Pool, ref: PoolJob, exclude: set[int]) -> list[tuple[int, int]]
 
 def _rank_cache_key(ref: PoolJob, exclude: frozenset[int]) -> tuple:
     return (
+        RANK_VERSION,
         ref.id,
         ref.skills,
         ref.tokens,
@@ -356,14 +408,97 @@ def _rank_cache_key(ref: PoolJob, exclude: frozenset[int]) -> tuple:
     )
 
 
+def _lexical_ranked(pool: _Pool, ref: PoolJob, exclude: Iterable[int]) -> list[_Ranked]:
+    return [
+        (job_id, score, KIND_LEXICAL, score / 100)
+        for job_id, score in _rank(pool, ref, set(exclude))
+    ]
+
+
 def _rank_many(
     pool: _Pool, work: list[tuple[tuple, PoolJob, frozenset[int]]]
-) -> dict[tuple, list[tuple[int, int]]]:
-    """Ranking wielu wierszy naraz (w wątku) — pula tylko czytana."""
+) -> dict[tuple, list[_Ranked]]:
+    """Ranking leksykalny wielu wierszy naraz (w wątku) — pula tylko czytana."""
     return {
-        key: _rank(pool, ref, set(exclude))[:MAX_SUGGESTIONS]
+        key: _lexical_ranked(pool, ref, exclude)[:MAX_SUGGESTIONS]
         for key, ref, exclude in work
     }
+
+
+def _vector_ranked(
+    pool: _Pool,
+    ref: PoolJob,
+    hits: Iterable[tuple[int, float]],
+    exclude: Iterable[int],
+) -> list[_Ranked]:
+    """Sąsiedzi wektorowi → ranking z premią za tego samego klienta.
+
+    ``similarity`` to sam kosinus × 100 (to pokazuje ekran); porządek
+    i plakietka listy liczą kosinus + premię."""
+    skip = {ref.id, *exclude}
+    out: list[_Ranked] = []
+    for job_id, cosine in hits:
+        other = pool.jobs.get(job_id)
+        if other is None or job_id in skip:
+            continue
+        same_client = ref.client_id is not None and ref.client_id == other.client_id
+        score = cosine + (VECTOR_CLIENT_BONUS if same_client else 0.0)
+        similarity = max(0, min(100, round(cosine * 100)))
+        out.append((job_id, similarity, KIND_VECTOR, score))
+    out.sort(key=lambda item: (-item[3], -item[0]))
+    return out
+
+
+async def _sent_job_ids(db: AsyncSession, pool: _Pool) -> frozenset[int]:
+    """Rekrutacje z kimkolwiek, kto dotarł do klienta (od „CV wysłane”) —
+    ta sama reguła co :func:`sent_counts`, dla całej puli naraz."""
+    if pool.sent_ids is not None:
+        return pool.sent_ids
+    async with _sent_lock:
+        if pool.sent_ids is None:
+            rows = (
+                await db.execute(
+                    select(CandidateStage.job_id)
+                    .where(CandidateStage.stage.in_(CLIENT_STAGES))
+                    .distinct()
+                )
+            ).all()
+            pool.sent_ids = frozenset(int(row[0]) for row in rows)
+    return pool.sent_ids
+
+
+async def _vector_neighbours(
+    db: AsyncSession,
+    pool: _Pool,
+    refs: Sequence[tuple[PoolJob, frozenset[int]]],
+    *,
+    timeout: float = _VECTOR_TIMEOUT_SECONDS,
+) -> Optional[dict[int, list[tuple[int, float]]]]:
+    """Najbliższe wektorowo rekrutacje z osobami u klienta, per referencja.
+
+    Referencja bez wektora nie ma klucza w wyniku; ``None`` = Qdrant nie
+    odpowiedział (albo przekroczył czas) — wołający liczy wtedy leksykalnie.
+    """
+    from app.services import embedding_service  # noqa: PLC0415
+
+    wanted = [(ref, exclude) for ref, exclude in refs if ref.id]
+    if not wanted:
+        return {}
+    try:
+        sent = await _sent_job_ids(db, pool)
+        candidates = [job_id for job_id in pool.jobs if job_id in sent]
+        return await asyncio.wait_for(
+            embedding_service.nearest_jobs_for_job_ids(
+                [ref.id for ref, _ in wanted],
+                candidates,
+                exclude={ref.id: sorted(exclude) for ref, exclude in wanted},
+                limit=VECTOR_CANDIDATE_LIMIT,
+            ),
+            timeout=timeout,
+        )
+    except Exception:  # noqa: BLE001 — podpowiedź, nie warunek; zapas leksykalny
+        logger.warning("similar jobs: vector ranking unavailable", exc_info=True)
+        return None
 
 
 def _as_pool_job(job: Any) -> PoolJob:
@@ -483,19 +618,93 @@ async def reassign_counts(db: AsyncSession, job_ids: Sequence[int]) -> dict[int,
     return {job_id: int(n) for job_id, n in rows}
 
 
+def _as_suggestions(pool: _Pool, ranked: Iterable[_Ranked]) -> list[Suggestion]:
+    return [
+        Suggestion(pool.jobs[job_id], similarity, kind, score)
+        for job_id, similarity, kind, score in ranked
+    ]
+
+
 async def suggestions_for_job(
     db: AsyncSession,
     job: Any,
     *,
     exclude: Iterable[int] = (),
     limit: int = MAX_SUGGESTIONS,
-) -> list[tuple[PoolJob, int]]:
-    """Najbardziej podobne rekrutacje (bez już połączonych). Działa też dla
-    rekrutacji jeszcze niezapisanej — wystarczy obiekt z tytułem i must-have."""
+) -> list[Suggestion]:
+    """Najbardziej podobne rekrutacje (bez już połączonych).
+
+    Zapisana rekrutacja z wektorem → ranking wektorowy (tylko rekrutacje
+    z osobami u klienta, premia za tego samego klienta, bez progu). Bez
+    wektora, przy awarii Qdranta i dla obiektu bez id — miara leksykalna
+    z progiem :data:`MIN_SCORE`, jak przed 30.09.2026.
+    """
     pool = await _load_pool(db)
     ref = _as_pool_job(job)
-    ranked = _rank(pool, ref, set(exclude))[:limit]
-    return [(pool.jobs[job_id], score) for job_id, score in ranked]
+    excluded = frozenset(exclude)
+    if ref.id:
+        hits = await _vector_neighbours(db, pool, [(ref, excluded)])
+        if hits is not None and ref.id in hits:
+            ranked = _vector_ranked(pool, ref, hits[ref.id], excluded)
+            return _as_suggestions(pool, ranked[:limit])
+    return _as_suggestions(pool, _lexical_ranked(pool, ref, excluded)[:limit])
+
+
+def _draft_text(title: str, must_skills: Sequence[str]) -> str:
+    must = ", ".join(s.strip() for s in must_skills if s and s.strip())
+    return f"{title.strip()}\n{must}".strip()
+
+
+async def preview_suggestions(
+    db: AsyncSession,
+    draft: Any,
+    *,
+    limit: int = MAX_SUGGESTIONS,
+) -> list[Suggestion]:
+    """Podobne rekrutacje dla szkicu z /jobs/new (bez zapisanego wektora).
+
+    Szkic (tytuł + must-have) jest embedowany jak zapytanie wyszukiwarki
+    (``full_search_measurement.request_vector`` — z pamięcią podręczną) i
+    porównywany z wektorami rekrutacji z osobami u klienta. Awaria Voyage'a
+    albo Qdranta = miara leksykalna.
+    """
+    from app.services import embedding_service  # noqa: PLC0415
+    from app.services import full_search_measurement  # noqa: PLC0415
+
+    pool = await _load_pool(db)
+    ref = _as_pool_job(draft)
+    text = _draft_text(
+        getattr(draft, "title", "") or "", getattr(draft, "must_skills", None) or []
+    )
+    if text:
+        try:
+            vector = await asyncio.wait_for(
+                full_search_measurement.request_vector(text),
+                timeout=_DRAFT_EMBED_TIMEOUT_SECONDS,
+            )
+            if vector:
+                sent = await _sent_job_ids(db, pool)
+                candidates = [job_id for job_id in pool.jobs if job_id in sent]
+                hits = await asyncio.wait_for(
+                    embedding_service.nearest_jobs_for_vector(
+                        vector, candidates, limit=VECTOR_CANDIDATE_LIMIT
+                    ),
+                    timeout=_VECTOR_TIMEOUT_SECONDS,
+                )
+                if hits is not None:
+                    ranked = _vector_ranked(pool, ref, hits, ())
+                    return _as_suggestions(pool, ranked[:limit])
+        except Exception:  # noqa: BLE001 — podpowiedź; zapas leksykalny
+            logger.warning("similar jobs preview: vector unavailable", exc_info=True)
+    return _as_suggestions(pool, _lexical_ranked(pool, ref, ())[:limit])
+
+
+def counts_for_badge(item: _Ranked) -> bool:
+    """Czy sugestia zapala plakietkę „≈” na liście. Leksykalne przeszły już
+    próg :data:`MIN_SCORE`; wektorowe muszą mieć (kosinus + premia) co
+    najmniej :data:`SIMILAR_JOBS_BADGE_MIN_COSINE`."""
+    _job_id, _similarity, kind, score = item
+    return kind != KIND_VECTOR or score >= SIMILAR_JOBS_BADGE_MIN_COSINE
 
 
 async def suggestion_summaries(
@@ -504,9 +713,11 @@ async def suggestion_summaries(
     """Dla listy: ile podobnych (niepołączonych) rekrutacji z osobami
     wysłanymi do klienta ma każda rekrutacja. Tylko otwarte wiersze."""
     pool = await _load_pool(db)
-    # Referencje z obiektów ORM składamy na pętli (atrybuty są już wczytane),
-    # a ranking strony — ~0,4 s CPU przy 100 wierszach — idzie w wątku
-    # i zostaje w pamięci puli (runda 6 audytu).
+    # Referencje z obiektów ORM składamy na pętli (atrybuty są już wczytane).
+    # Ranking wektorowy strony to jedno wywołanie Qdranta (paczki zapytań),
+    # leksykalny zapas — ~0,4 s CPU przy 100 wierszach — idzie w wątku.
+    # Wynik zostaje w pamięci puli (runda 6 audytu), chyba że Qdrant nie
+    # odpowiedział — wtedy następna strona spróbuje wektora znowu.
     keys_by_job: dict[int, tuple] = {}
     work: list[tuple[tuple, PoolJob, frozenset[int]]] = []
     for job in jobs:
@@ -519,24 +730,46 @@ async def suggestion_summaries(
         keys_by_job[job.id] = key
         if key not in pool.rank_cache:
             work.append((key, ref, exclude))
+    uncached: dict[tuple, list[_Ranked]] = {}
     if work:
-        pool.rank_cache.update(await asyncio.to_thread(_rank_many, pool, work))
-    ranked_by_job: dict[int, list[tuple[int, int]]] = {}
+        hits = await _vector_neighbours(
+            db,
+            pool,
+            [(ref, exclude) for _key, ref, exclude in work],
+            timeout=_VECTOR_LIST_TIMEOUT_SECONDS,
+        )
+        lexical_work = []
+        for key, ref, exclude in work:
+            if hits is not None and ref.id in hits:
+                ranked = _vector_ranked(pool, ref, hits[ref.id], exclude)
+                pool.rank_cache[key] = ranked[:MAX_SUGGESTIONS]
+            else:
+                lexical_work.append((key, ref, exclude))
+        if lexical_work:
+            lexical = await asyncio.to_thread(_rank_many, pool, lexical_work)
+            # Brak wektora to stan (pamiętamy), awaria Qdranta — nie.
+            (uncached if hits is None else pool.rank_cache).update(lexical)
+    ranked_by_job: dict[int, list[_Ranked]] = {}
     wanted: set[int] = set()
     for job_id, key in keys_by_job.items():
-        ranked = pool.rank_cache[key]
+        ranked = uncached[key] if key in uncached else pool.rank_cache.get(key, [])
         ranked_by_job[job_id] = ranked
-        wanted.update(other_id for other_id, _ in ranked)
+        wanted.update(item[0] for item in ranked)
     sent = await sent_counts(db, wanted)
     out: dict[int, dict] = {}
     for job_id, ranked in ranked_by_job.items():
-        with_people = [(jid, score) for jid, score in ranked if sent.get(jid, 0) > 0]
+        with_people = [
+            item
+            for item in ranked
+            if sent.get(item[0], 0) > 0 and counts_for_badge(item)
+        ]
         if not with_people:
             continue
         first = pool.jobs[with_people[0][0]]
         out[job_id] = {
             "count": len(with_people),
-            "sent_count": sum(sent.get(jid, 0) for jid, _ in with_people),
+            "sent_count": sum(sent.get(item[0], 0) for item in with_people),
+            "kind": with_people[0][2],
             "first": {
                 "id": first.id,
                 "title": first.title,

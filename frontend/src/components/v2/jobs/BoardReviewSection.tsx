@@ -23,6 +23,7 @@ import { Check, RefreshCw, Sparkles, X } from "lucide-react";
 
 import { jobProposalsHref } from "@/components/v2/jobs/JobListCells";
 import { ScreenedOutSection } from "@/components/v2/jobs/ScreenedOutSection";
+import { useDismissReasonPrompt } from "@/components/v2/recruitment/DismissReasonDialog";
 import { PROPOSAL_SOURCE_LABEL } from "@/components/v2/recruitment/types";
 import { useJobProposals } from "@/components/v2/recruitment/useJobProposals";
 import { boardReviewCountLabel, boardReviewState } from "@/lib/board-review-state";
@@ -80,6 +81,8 @@ export function BoardReviewSection({
     readOnly,
   });
   const { entries, status } = proposals;
+  // „Pomiń" pyta o powód (0405) — bez niego nie wiadomo, czy propozycje są złe.
+  const dismissPrompt = useDismissReasonPrompt(proposals.dismiss);
   const shown = entries.slice(0, BOARD_REVIEW_LIMIT);
   const total = entries.length;
   const busy = proposals.adding || proposals.dismissing;
@@ -173,6 +176,7 @@ export function BoardReviewSection({
 
   return (
     <div className="space-y-1.5 border-b border-border p-2" data-testid="board-review" data-help="jobs.board.review">
+      {dismissPrompt.dialog}
       <div className="flex items-center justify-between px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         <span>Propozycje · z bazy i przepięcia</span>
         {view.kind === "list" || view.kind === "empty" || view.kind === "partial" ? (
@@ -268,7 +272,7 @@ export function BoardReviewSection({
                   </button>
                   <button
                     type="button"
-                    onClick={() => proposals.dismiss([row.candidateId])}
+                    onClick={() => dismissPrompt.ask([row.candidateId])}
                     disabled={busy}
                     className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 pointer-coarse:min-h-9 pointer-coarse:px-3 text-[11px] font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
                     aria-label={`Pomiń ${row.fullName}`}

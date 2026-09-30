@@ -22,7 +22,12 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Optional
 
-from app.services.skill_normalize import strip_version
+from app.services.skill_normalize import (
+    is_gate_technology,
+    is_non_technology_concept,
+    strip_version,
+    taxonomy_category,
+)
 
 # Przykłady klienta: „CI/CD tools like Bitbucket, Jenkins”, „bazy danych
 # (np. Oracle, PostgreSQL)”, „narzędzia takie jak Jira”. Głowa to zwykle
@@ -263,6 +268,18 @@ _CATEGORY_WORDS = frozenset(
         "principles",
         "zasady",
         "concepts",
+        # 30.09.2026 (audyt B2): praktyki spoza słownika, które przechodziły
+        # regułę składniową — „IT analysis” (3% wysłanych je „ma”), „Data
+        # engineering” (32%), „IT operations”, „Test automation”, „IT consulting”.
+        "analysis",
+        "analiza",
+        "engineering",
+        "operations",
+        "consulting",
+        "administration",
+        "assurance",
+        "automation",
+        "automatyzacja",
     }
 )
 # Słowa roli: „Java Developer” → Java; sama rola → nie bramkuje.
@@ -293,9 +310,88 @@ _ROLE_WORDS = frozenset(
         "admin",
         "administrator",
         "owner",
+        "qa",
+        "pmo",
     }
 )
 _REASONS = ("language", "domain", "soft", "category", "role", "prose")
+
+# Głowa przykładów klienta, po której opcje z nawiasu/„np.” liczą się jako
+# wymóg: kategoria („Bazy danych (Oracle, PostgreSQL)”) albo technologia.
+# Wstęp „znajomość / doświadczenie z” i odmiany słów kategorii nie zmieniają
+# tego; każde inne słowo robi z głowy zdanie („Doświadczenie z integracją
+# systemów (on-premise, hybrid)”) i przykłady przestają być wymogiem (30.09.2026).
+_HEAD_FILLER_WORDS = frozenset(
+    {
+        "znajomość",
+        "znajomosc",
+        "znajomości",
+        "znajomosci",
+        "knowledge",
+        "of",
+        "experience",
+        "with",
+        "in",
+        "doświadczenie",
+        "doswiadczenie",
+        "w",
+        "z",
+        "ze",
+        "praktyczna",
+        "praktyczne",
+        "practical",
+        "dobra",
+        "good",
+        "bardzo",
+        "hands-on",
+        "commercial",
+        "komercyjne",
+        "min.",
+        "minimum",
+    }
+)
+_HEAD_CATEGORY_WORDS = _CATEGORY_WORDS | frozenset(
+    {
+        "bazami",
+        "bazach",
+        "bazą",
+        "baza",
+        "narzędziami",
+        "narzedziami",
+        "narzędziach",
+        "narzedziach",
+        "frameworkami",
+        "frameworkach",
+        "chmurą",
+        "chmura",
+        "chmurze",
+        "chmurowymi",
+        "systemami",
+        "platformy",
+        "platforms",
+        "platform",
+        "platforma",
+        "platformami",
+        "kolejki",
+        "kolejkami",
+        "queues",
+        "messaging",
+        "języki",
+        "jezyki",
+        "językami",
+        "programowania",
+        "programming",
+        "biblioteki",
+        "libraries",
+        "technologie",
+        "technologies",
+        "rozwiązania",
+        "solutions",
+        "serwery",
+        "servers",
+        "ci/cd",
+    }
+)
 
 # Ukośnik w samej nazwie technologii — nie alternatywa.
 _SLASH_NAMES = frozenset(
@@ -353,16 +449,46 @@ def _normalize_option(raw: str) -> tuple[Optional[str], Optional[str]]:
     if not text:
         return None, "prose"
     if text.lower() in ALIAS_MAP or text.lower() in _SLASH_NAMES:
-        return text, None
+        # Nazwa ze słownika bywa rolą albo metodyką („QA”, „Software
+        # developer”, „IT analysis”, „Scrum”) — do 30.09 ten skrót omijał
+        # sprawdzenie i rola ukrywała 99,7% wysłanych (audyt B2).
+        concept = _taxonomy_concept_reason(text)
+        return (None, concept) if concept else (text, None)
     base, _version = strip_version(text)
     kept = [w for w in base.split() if w.lower().strip(".,") not in _ROLE_WORDS]
     if not kept:
         return None, "role"
     name = " ".join(kept)
     if name.lower() in ALIAS_MAP:
-        return name, None
+        concept = _taxonomy_concept_reason(name)
+        return (None, concept) if concept else (name, None)
     reason = _option_reason(name)
     return (None, reason) if reason else (name, None)
+
+
+def _taxonomy_concept_reason(name: str) -> Optional[str]:
+    """Powód, gdy nazwa ze słownika jest rolą albo metodyką; inaczej ``None``."""
+    if not is_non_technology_concept(name):
+        return None
+    return "role" if (taxonomy_category(name) or "").startswith("role_") else "category"
+
+
+def _head_allows_examples(head: str) -> bool:
+    """Czy głowa przykładów to kategoria albo technologia, a nie zdanie."""
+    from app.services.scoring_service import ALIAS_MAP
+
+    rest = [
+        w
+        for w in head.split()
+        if w.lower().strip(".,:") not in _HEAD_FILLER_WORDS
+        and w.lower().strip(".,:") not in _HEAD_CATEGORY_WORDS
+    ]
+    if not rest:
+        return True
+    # Reszta głowy musi być nazwą ze słownika; nazwa „składniowo poprawna”
+    # („integracją systemów”) to już zdanie.
+    phrase = " ".join(rest).lower().strip(".,:")
+    return phrase in ALIAS_MAP or phrase in _SLASH_NAMES
 
 
 def _guard_slash_names(text: str) -> str:
@@ -392,6 +518,8 @@ def _analyse(label: str) -> tuple[Optional[GateRequirement], Optional[str]]:
     example = _EXAMPLES.match(text) or _PAREN_LIST.match(text)
     if example:
         head = _clean(example.group("head")).strip("(:-–— ")
+        if not _head_allows_examples(head):
+            return None, "prose"
         raw_options = _split_options(example.group("opts"), _EXAMPLE_SPLIT)
         # Głowa będąca technologią („CI/CD tools like …” → CI/CD) też spełnia.
         head_name, _ = _normalize_option(
@@ -436,6 +564,20 @@ def ignored_reason(label: str) -> Optional[str]:
     """Dlaczego etykieta nie bramkuje: language/domain/soft/category/role/prose."""
     requirement, reason = _analyse(label)
     return None if requirement is not None else reason
+
+
+def critical_eligible(label: str) -> bool:
+    """Czy pozycję must wolno oznaczyć jako krytyczną: bramkuje, a KAŻDA
+    opcja jest technologią ze słownika (``is_gate_technology``).
+
+    Węższe niż ``gate_requirement``: nazwa spoza słownika („Temenos T24”)
+    dalej liczy się w punktach i dowodzie, ale krytyczną zostaje dopiero wtedy,
+    gdy słownik ją zna (audyt 30.09, B2: 41,5% → 6,0% wysłanych ukrytych).
+    """
+    requirement = gate_requirement(label)
+    return requirement is not None and all(
+        is_gate_technology(option) for option in requirement.options
+    )
 
 
 def clear_cache() -> None:

@@ -158,6 +158,15 @@ describe("mergeProposals", () => {
     expect(byId.get(2)).toEqual(["client_nda", "over_budget"]);
   });
 
+  it("za mało dni w biurze (30.09.2026) to plakietka, nie ukrycie", () => {
+    const days = {
+      candidate: { id: 1, name: "Anna", lastname: "Nowak1" },
+      match_score: 0.8, matching_skills: [], gaps: [], office_fit: "days_exceeded",
+    } as unknown as CandidateSearchRow["match"];
+    const [entry] = mergeProposals({ run: { runId: "run-1", rows: [runRow(1, 80, { match: days })] } });
+    expect(entry.row.warnings).toContain("office_days");
+  });
+
   it("sprzeczny wymiar pracy (24.09.2026) to plakietka na wierszu, nie ukrycie", () => {
     const partTime = {
       candidate: { id: 1, name: "Anna", lastname: "Nowak1" },
@@ -257,6 +266,25 @@ describe("mergeProposals", () => {
     expect(traineeHandoverReason({ by_name: null, note: null, at: null })).toBe(
       "Od praktykanta: praktykant",
     );
+  });
+
+  it("dopasowanie z portalu (job_board) zostaje swoim źródłem i pokazuje trafione must-have", () => {
+    const [entry] = mergeProposals({
+      inbox: [
+        inboxItem(1, {
+          sources: ["job_board"],
+          score: 72,
+          evidence: {
+            matched_must: ["Java", "Spring"],
+            auto_match: { score: 72, source: "jjit", must_hit: ["Java", "Spring"], must_total: 3 },
+          } as ProposalInboxItem["evidence"],
+        }),
+      ],
+    });
+    expect(entry.row.sources).toEqual(["job_board"]);
+    expect(PROPOSAL_SOURCE_LABEL.job_board).toBe("Z portalu (JJIT/RocketJobs)");
+    expect(entry.row.fitScore).toBe(72);
+    expect(entry.detail.requirements.map((r) => r.label)).toEqual(["Java", "Spring"]);
   });
 
   it("nieznane źródło z backendu nie wywraca scalenia", () => {

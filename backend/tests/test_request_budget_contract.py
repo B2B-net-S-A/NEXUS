@@ -16,6 +16,11 @@ def candidate(currency="PLN", amount=120):
 
 
 def test_explicit_job_budget_drives_both_filter_and_score(monkeypatch):
+    # Stawka w punktach i bramka każdego must — tryb v8 (MUST_GATE_MODE=all)
+    # od 30.09.2026; tryb domyślny pilnuje test_critical_gate.py.
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "MUST_GATE_MODE", "all")
     job = SimpleNamespace(rate_budget_hourly=150, salary_min=None, salary_max=None)
     monkeypatch.setattr(scoring, "get_champion_hourly_rate", lambda _: 90)
     budget = resolve_job_budget_hourly(job)
@@ -26,7 +31,12 @@ def test_explicit_job_budget_drives_both_filter_and_score(monkeypatch):
     assert "150 PLN/h" in result.reason
 
 
-def test_radar_manual_budget_reaches_score():
+def test_radar_manual_budget_reaches_score(monkeypatch):
+    # Stawka w punktach i bramka każdego must — tryb v8 (MUST_GATE_MODE=all)
+    # od 30.09.2026; tryb domyślny pilnuje test_critical_gate.py.
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "MUST_GATE_MODE", "all")
     job = build_ephemeral_job(
         RadarQuery(client_id=1, text="Python", budget_hourly_max=150)
     )

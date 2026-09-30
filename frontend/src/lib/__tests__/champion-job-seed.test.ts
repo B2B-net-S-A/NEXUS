@@ -78,6 +78,48 @@ describe("championSavePayload — stack", () => {
   });
 });
 
+describe("championSavePayload — krytyczne (30.09.2026)", () => {
+  const own: ChampionProfile = {
+    ...legacy,
+    stack: { must: [{ name: "Java" }, { name: "Kafka" }], nice: [], notes: "" },
+  };
+  const save = (profile: ChampionProfile) =>
+    championSavePayload(profile, { seededStack: null, seededBasics: null }) as ChampionProfile;
+
+  it("brak klucza = serwer zostawia zapis; null i [] to dwie różne decyzje", () => {
+    expect("critical" in save(own).stack).toBe(false);
+    expect(save({ ...own, stack: { ...own.stack, critical: null } }).stack.critical).toBeNull();
+    expect(save({ ...own, stack: { ...own.stack, critical: [] } }).stack.critical).toEqual([]);
+    expect(save({ ...own, stack: { ...own.stack, critical: ["Java"] } }).stack.critical).toEqual([
+      "Java",
+    ]);
+  });
+
+  it("krytyczna usunięta z MUST znika przed zapisem (ostatnia = nie zdecydowano)", () => {
+    const edited = { ...own, stack: { ...own.stack, critical: ["Scala"] } };
+    expect(save(edited).stack.critical).toBeNull();
+  });
+
+  it("przy nietkniętym stacku z kolumn jedzie SAMA decyzja o krytycznych", () => {
+    const { profile, seededStack } = seedStackFromJobColumns(legacy, jobValues);
+    const edited: ChampionProfile = {
+      ...profile,
+      stack: { ...profile.stack, critical: ["Python"] },
+    };
+    const payload = championSavePayload(edited, { seededStack, seededBasics: null });
+    expect((payload as ChampionProfile).stack).toEqual({ critical: ["Python"] });
+  });
+
+  it("krytyczne zapisane przy pustym stacku przeżywają wczytanie z kolumn", () => {
+    const withCritical: ChampionProfile = {
+      ...legacy,
+      stack: { must: [], nice: [], notes: "", critical: ["Python"] },
+    };
+    const { profile } = seedStackFromJobColumns(withCritical, jobValues);
+    expect(profile.stack.critical).toEqual(["Python"]);
+  });
+});
+
 describe("withoutSeededStackConflict", () => {
   const validation: ChampionValidation = {
     status: "draft",

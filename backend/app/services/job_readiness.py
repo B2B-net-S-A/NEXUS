@@ -48,6 +48,10 @@ MSG_OFFICE_DAYS = "Podaj liczbę dni w biurze w tygodniu (tryb hybrydowy/stacjon
 MSG_OFFICE_CITY = (
     "Podaj miasto biura w lokalizacji oferty (tryb hybrydowy/stacjonarny)."
 )
+MSG_CRITICAL = (
+    "Potwierdź umiejętności krytyczne w Profilu Championa (albo wybierz "
+    "„Brak krytycznych”)."
+)
 MSG_SEARCH_REQUIREMENTS = (
     "Dodaj co najmniej jedno wymaganie do wyszukiwania w bazie "
     "(sekcja „Co wpisać” w Profilu Championa)."
@@ -61,7 +65,7 @@ MSG_SEARCH_REQUIREMENTS = (
 # issue ZOSTAJE: pusta lista braków przy przycisku, który po kliknięciu
 # i tak dostałby 422 z ``enforce_operation``, byłaby kłamstwem.
 # Każdy inny kod (``column_conflict``, ``skill_column_conflict``,
-# ``unresolved_value``, ``ineligible_must``, ``conflicting_office_days``,
+# ``unresolved_value``, ``critical_not_in_must``, ``conflicting_office_days``,
 # ``ambiguous_office``, ...) jest realnym dodatkiem i zostaje zawsze.
 _MIRRORED_VALIDATION_CODES: dict[str, str] = {
     "missing_role": MSG_TITLE,
@@ -152,8 +156,26 @@ def job_rubric_blockers(job: Job) -> list[str]:
             blockers.append(MSG_OFFICE_DAYS)
         if not inputs.office_tokens:
             blockers.append(MSG_OFFICE_CITY)
+    if critical_decision_missing(job):
+        blockers.append(MSG_CRITICAL)
 
     return blockers
+
+
+def critical_decision_missing(job: Job) -> bool:
+    """Decyzja DL o umiejętnościach krytycznych (30.09.2026).
+
+    Wymagana, gdy MUST ma co najmniej jedną technologię ze słownika, a pole
+    ``stack.critical`` jest puste (``None``). „Brak krytycznych” (``[]``) to
+    decyzja. W trybie ``MUST_GATE_MODE=all`` bramka nie czyta krytycznych.
+    """
+    from app.services.critical_skills import gate_mode, stored_critical
+    from app.services.must_gate_terms import critical_eligible
+    from app.services.scoring_service import job_explicit_must_skills
+
+    if gate_mode() != "critical" or stored_critical(job) is not None:
+        return False
+    return any(critical_eligible(label) for label in job_explicit_must_skills(job))
 
 
 def job_search_blockers(job: Job) -> list[str]:

@@ -51,6 +51,10 @@ def test_is_due_weekly_monday_window(monkeypatch):
 )
 async def test_fresh_top_filters_staged_and_floor(monkeypatch, scores, expected):
     """Świeżość (spoza pipeline'u) + próg score + top-N — jedna ścieżka."""
+    # Bramka v8 (każde must ukrywa) — wyłącznik MUST_GATE_MODE=all od 30.09.2026.
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "MUST_GATE_MODE", "all")
     import app.tasks.match_digest as md
 
     # Atrapa oferty MUSI nieść pola czytane przez bramkę i dealbreakery:
@@ -260,6 +264,7 @@ def _wire_digest(monkeypatch, candidate_ids: list[int], scored: list) -> None:
     monkeypatch.setattr(settings, "MATCH_DIGEST_TOP_N", 5, raising=False)
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 @pytest.mark.asyncio
 async def test_ineligible_candidate_never_reaches_scoring(monkeypatch):
     """Zablokowany globalnie nie wchodzi do digestu ANI do scoringu."""
@@ -284,6 +289,7 @@ async def test_ineligible_candidate_never_reaches_scoring(monkeypatch):
     )
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 @pytest.mark.asyncio
 async def test_known_rate_above_budget_is_dropped_unknown_passes(monkeypatch):
     """Twardy sufit budżetu: znana stawka powyżej odpada, nieznana PRZECHODZI.

@@ -5,6 +5,8 @@ import { searchFailed, searchIsRunning, type CandidateSearchPage } from "@/lib/f
 
 const exclusionLabels: Record<string, string> = {
   employment_only: "Tylko umowa o pracę",
+  // 30.09.2026: budżet i dni w biurze nie ukrywają (plakietki) — te dwa powody
+  // mają dziś 0; zostają dla trybu `MUST_GATE_MODE=all`.
   over_budget: "Powyżej budżetu",
   // 27.09.2026 (decyzja Artura): must-have liczy się z profilu, CV i notatek;
   // osoba bez żadnych danych jest ukryta osobno.

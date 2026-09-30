@@ -24,7 +24,8 @@ export type ReadinessKey =
   | "work_mode"
   | "office_days"
   | "office_city"
-  | "search";
+  | "search"
+  | "critical";
 
 export const READINESS_MESSAGES: Record<ReadinessKey, string> = fixture.blockers;
 
@@ -45,6 +46,11 @@ const BASE_KEYS: readonly ReadinessKey[] = [
 const OFFICE_KEYS: readonly ReadinessKey[] = ["office_days", "office_city"];
 /** Wymagania do wyszukiwania — w bramce po rubrykach (25.09.2026). */
 const SEARCH_KEYS: readonly ReadinessKey[] = ["search"];
+/**
+ * Decyzja o krytycznych (30.09.2026) — serwer pyta o nią tylko wtedy, gdy MUST
+ * ma technologię ze słownika, więc pozycja liczy się, gdy o nią pyta.
+ */
+const CRITICAL_KEYS: readonly ReadinessKey[] = ["critical"];
 
 export const READINESS_LABEL: Record<ReadinessKey, string> = {
   title: "Rola",
@@ -57,6 +63,7 @@ export const READINESS_LABEL: Record<ReadinessKey, string> = {
   office_days: "Dni w biurze",
   office_city: "Miasto biura",
   search: "Wymagania do wyszukiwania",
+  critical: "Umiejętności krytyczne",
 };
 
 /** Kotwica sekcji Profilu Championa (`champion-section-state.ts`). */
@@ -71,6 +78,8 @@ export const READINESS_CHAMPION_ANCHOR: Record<ReadinessKey, string | null> = {
   office_days: "champion-section-basics",
   office_city: "champion-section-basics",
   search: SEARCH_REQUIREMENTS_ANCHOR,
+  // Pole „Krytyczne (0–2)” stoi na początku sekcji 3 (Stack technologiczny).
+  critical: "champion-section-stack",
 };
 
 /** Co da się zrobić z brakiem na miejscu. */
@@ -87,6 +96,7 @@ export const READINESS_ACTION: Record<ReadinessKey, ReadinessAction> = {
   office_days: "champion",
   office_city: "champion",
   search: "champion",
+  critical: "champion",
 };
 
 export interface ReadinessMissing {
@@ -124,7 +134,13 @@ export function buildReadinessChecklist(
     remotePolicy === "hybrid" ||
     remotePolicy === "onsite" ||
     OFFICE_KEYS.some((k) => missingKeys.has(k));
-  const applicable = [...BASE_KEYS, ...(officeApplies ? OFFICE_KEYS : []), ...SEARCH_KEYS];
+  const criticalApplies = CRITICAL_KEYS.some((k) => missingKeys.has(k));
+  const applicable = [
+    ...BASE_KEYS,
+    ...(officeApplies ? OFFICE_KEYS : []),
+    ...(criticalApplies ? CRITICAL_KEYS : []),
+    ...SEARCH_KEYS,
+  ];
   const done = applicable.filter((k) => !missingKeys.has(k));
   const unknown = missing.filter((m) => m.key == null).length;
   const total = applicable.length + unknown;

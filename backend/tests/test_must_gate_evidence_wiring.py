@@ -50,3 +50,15 @@ def test_every_gate_caller_attaches_text_evidence():
     assert not missing, (
         "Te funkcje wołają bramkę must bez attach_gate_evidence: " + ", ".join(missing)
     )
+
+
+def test_evidence_is_attached_for_every_technology_not_only_the_gate():
+    """30.09.2026: bramka czyta tylko krytyczne, ale plakietki i ocena biorą
+    dowód dla wszystkich technologii must i nice — dołączony raz na paczkę."""
+    offenders = []
+    for path in APP.rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if "attach_gate_evidence(" in line and ".must_skills" in line:
+                offenders.append(f"{path.relative_to(APP).as_posix()}: {line.strip()}")
+    assert not offenders, "Użyj .gate_evidence_labels: " + "; ".join(offenders)

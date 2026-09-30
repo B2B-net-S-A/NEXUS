@@ -9,6 +9,7 @@
 import { api, type MatchEligibility } from "@/lib/api";
 import type { SearchState } from "@/lib/full-candidate-search-api";
 import type { ProposalSource } from "@/components/v2/recruitment/types";
+import { dismissRequestBody, type DismissFeedback } from "@/lib/proposal-dismiss";
 
 export type ProposalInboxStatus = "proposed" | "dismissed" | "added";
 
@@ -159,6 +160,11 @@ export interface ProposalFacts {
   expected_rate_currency: string | null;
   expected_rate_redacted: boolean;
   client_history: ProposalClientHistory | null;
+  /**
+   * Data wgrania głównego CV (ISO, 30.09.2026). `null`/brak = nie znamy
+   * prawdziwej daty (import) — wtedy plakietki „CV z RRRR” nie ma.
+   */
+  cv_uploaded_on?: string | null;
 }
 
 /** Sufit jednego zapytania o fakty (`MAX_FACT_CANDIDATES`). */
@@ -186,17 +192,19 @@ export const jobProposalsApi = {
       .then((r) => r.data),
   /**
    * „Pomiń" działa dla DOWOLNEJ osoby: spoza skrzynki serwer zakłada wiersz od
-   * razu jako pominięty — `source` mówi mu, skąd ta osoba przyszła.
+   * razu jako pominięty — `source` mówi mu, skąd ta osoba przyszła. Powód jest
+   * wymagany (0405); przy „Inne" także opis.
    */
   dismiss: (
     jobId: number,
     candidateId: number,
-    source: ProposalSource = "full_base",
+    source: ProposalSource,
+    feedback: DismissFeedback,
   ): Promise<DismissProposalResponse> =>
     api
       .post<DismissProposalResponse>(
         `/api/jobs/${jobId}/proposal-inbox/${candidateId}/dismiss`,
-        { source },
+        dismissRequestBody(source, feedback),
       )
       .then((r) => r.data),
   /** „Cofnij" po „Pomiń" — osoba wraca do skrzynki całego zespołu. */

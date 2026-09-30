@@ -433,6 +433,7 @@ async def test_vetoed_over_budget_still_surfaces_with_reason(
         await _cleanup_over_budget_world(world)
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_nda_over_budget_is_hidden_into_over_budget(
@@ -575,6 +576,7 @@ async def gated_missing_must_fixture(request):
         await db.commit()
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_missing_must_hides_on_both_branches(

@@ -51,6 +51,7 @@ import {
   type ProposalEntry,
   type ProposalViewFilters,
 } from "@/lib/proposals-merge";
+import type { DismissFeedback } from "@/lib/proposal-dismiss";
 import { httpStatusFromError } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 import { jobShortlistQueryKey } from "@/components/v2/jobs/JobShortlist";
@@ -124,6 +125,12 @@ export function groupAddsByOrigin(
     else groups.set(key, { ...group, ids: [row.candidateId] });
   }
   return Array.from(groups.values());
+}
+
+/** „Pomiń" wymaga powodu (0405) — jeden powód dla całej zaznaczonej grupy. */
+interface DismissVariables {
+  candidateIds: number[];
+  feedback: DismissFeedback;
 }
 
 /** Źródło dla „Pomiń" osoby, której skrzynka jeszcze nie zna. */
@@ -399,7 +406,7 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
   const { mutate: restoreMutate } = restoreMutation;
 
   const dismissMutation = useMutation({
-    mutationFn: async (candidateIds: number[]) => {
+    mutationFn: async ({ candidateIds, feedback }: DismissVariables) => {
       if (readOnly) throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
       // „Pomiń" jest TRWAŁE dla każdej osoby — także spoza skrzynki (żywy
       // przegląd, podobne projekty, rekomendacje): serwer zakłada wtedy wiersz
@@ -407,7 +414,7 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       const dismissed: number[] = [];
       for (const id of candidateIds) {
         try {
-          await jobProposalsApi.dismiss(jobId, id, dismissSourceFor(entryById.get(id)));
+          await jobProposalsApi.dismiss(jobId, id, dismissSourceFor(entryById.get(id)), feedback);
           dismissed.push(id);
         } catch (error) {
           // 404 = kandydat zniknął; 409 = ktoś z zespołu właśnie dodał tę osobę
@@ -418,7 +425,7 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       }
       return dismissed;
     },
-    onMutate: async (candidateIds) => {
+    onMutate: async ({ candidateIds }) => {
       await queryClient.cancelQueries({ queryKey: inboxKey });
       const previousInbox = queryClient.getQueryData<InfiniteData<ProposalInboxPage>>(inboxKey);
       const previousHidden = hiddenIds;
@@ -437,7 +444,7 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       if (context) setHiddenIds(context.previousHidden);
       showError(apiErrorMessage(error, "Nie udało się pominąć propozycji."));
     },
-    onSuccess: (dismissed, ids) => {
+    onSuccess: (dismissed, { candidateIds: ids }) => {
       const message =
         ids.length === 1 ? "Pominięto — wróci tylko z nową wersją CV." : `Pominięto: ${ids.length}. Wrócą tylko z nową wersją CV.`;
       if (dismissed.length === 0) {
@@ -525,7 +532,10 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       [addMutate],
     ),
     adding: addMutation.isPending,
-    dismiss: useCallback((candidateIds: number[]) => dismissMutate(candidateIds), [dismissMutate]),
+    dismiss: useCallback(
+      (candidateIds: number[], feedback: DismissFeedback) => dismissMutate({ candidateIds, feedback }),
+      [dismissMutate],
+    ),
     dismissing: dismissMutation.isPending,
     addToShortlist: useCallback((candidateIds: number[]) => shortlistMutate(candidateIds), [shortlistMutate]),
     shortlisting: shortlistMutation.isPending,

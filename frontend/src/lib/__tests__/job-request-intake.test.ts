@@ -94,6 +94,30 @@ describe("missingFor — lustro bramki „Przekaż do searchu”", () => {
     );
   });
 
+  it("krytyczne: brak decyzji blokuje, gdy MUST ma technologię ze słownika", () => {
+    const form = complete();
+    expect(form.critical).toBeNull();
+    // Serwer powiedział, że „Java 17+” wolno oznaczyć — decyzja potrzebna.
+    expect(missingFor(form, { criticalEligible: ["Java 17+"] })).toEqual(["critical"]);
+    // „Brak krytycznych” i wybór to dwie decyzje — obie zdejmują brak.
+    expect(missingFor({ ...form, critical: [] }, { criticalEligible: ["Java 17+"] })).toEqual([]);
+    expect(
+      missingFor({ ...form, critical: ["Java 17+"] }, { criticalEligible: ["Java 17+"] }),
+    ).toEqual([]);
+  });
+
+  it("krytyczne: nie zgadujemy, dopóki serwer nie odpowie; bez technologii nic nie trzeba", () => {
+    const form = complete();
+    expect(missingFor(form)).toEqual([]);
+    expect(missingFor(form, { criticalEligible: null })).toEqual([]);
+    expect(missingFor(form, { criticalEligible: [] })).toEqual([]);
+  });
+
+  it("krytyczne: wybór spoza aktualnej listy MUST to znowu brak decyzji", () => {
+    const form = { ...complete(), critical: ["Kafka"] };
+    expect(missingFor(form, { criticalEligible: ["Java 17+"] })).toEqual(["critical"]);
+  });
+
   it("puste pytanie nie liczy się do dwóch wymaganych", () => {
     const form = complete();
     form.questions[1] = { ...form.questions[1], question: "  " };
@@ -536,5 +560,20 @@ describe("v7 (27.09.2026): miasta biura i uwagi z odczytu", () => {
     ]);
     expect(joinCities(["Gdańsk", "Gdynia", "gdańsk"])).toBe("Gdańsk, Gdynia");
     expect(splitCities("")).toEqual([]);
+  });
+});
+
+describe("buildChampionPayload — krytyczne", () => {
+  it("null (nie zdecydowano) i [] (Brak krytycznych) jadą jako różne wartości", () => {
+    const stackOf = (critical: string[] | null) =>
+      (buildChampionPayload({ ...complete(), critical }).stack as { critical: unknown }).critical;
+    expect(stackOf(null)).toBeNull();
+    expect(stackOf([])).toEqual([]);
+    expect(stackOf(["Java 17+"])).toEqual(["Java 17+"]);
+  });
+
+  it("krytyczna usunięta z MUST znika przed zapisem", () => {
+    const payload = buildChampionPayload({ ...complete(), critical: ["Kafka", "Spring Boot"] });
+    expect((payload.stack as { critical: unknown }).critical).toEqual(["Spring Boot"]);
   });
 });

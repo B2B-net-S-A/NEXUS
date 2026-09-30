@@ -99,7 +99,11 @@ def requirements_for_job(job) -> MatchingRequirements:
 # bramka tylko na technologiach (bez wersji, przykłady klienta jako „lub”);
 # kandydat bez żadnych danych ukryty (`no_data`); inne miasto ukrywa dopiero
 # od 4 dni w biurze; nazwy miast porównywane przez słownik miejscowości.
-MUST_GATE_POLICY_VERSION = "anywhere-evidence-v8"
+# v9 (30.09.2026, decyzje Artura): ukrywają tylko umiejętności krytyczne
+# (0–2, decyzja DL albo podpowiedź z historii — `critical_skills`); budżet
+# i dni w biurze tylko plakietka; kandydat bez żadnych danych ukryty zawsze;
+# role i metodyki ze słownika nie są technologią (`must_gate_terms`).
+MUST_GATE_POLICY_VERSION = "critical-v9"
 
 
 def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):

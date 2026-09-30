@@ -94,6 +94,7 @@ from app.api import integrations_compass
 from app.api import insights_performance_flags
 from app.api import insights_team
 from app.api import insights_team_signals
+from app.api import insights_proposals
 from app.api import client_knowledge
 from app.api import client_materials
 from app.api import client_framework_contracts
@@ -125,6 +126,7 @@ from app.api import admin_candidate_pii_orphans
 from app.api import admin_index_coverage, admin_schema_drift
 from app.api import admin_index_cleanup
 from app.api import admin_match_score_repair
+from app.api import admin_job_board_cards
 from app.api import admin_workflows
 from app.api import admin_recruitment_processes
 from app.api import ai_matching_diagnostics
@@ -1258,6 +1260,11 @@ app.include_router(
     tags=["admin-match-score-repair"],
 )
 app.include_router(
+    admin_job_board_cards.router,
+    prefix="/api/admin",
+    tags=["admin-job-board-cards"],
+)
+app.include_router(
     admin_workflows.router,
     prefix="/api/admin",
     tags=["admin-workflows"],
@@ -1418,6 +1425,13 @@ app.include_router(
 # Capability VIEW_TEAM_KPI — imienne wyniki cudzej pracy.
 app.include_router(
     insights_team_signals.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
+# Raport „Propozycje AI" (30.09.2026): decyzje o propozycjach z bazy.
+# Admin/HoR — cała firma, Delivery Lead — swoje rekrutacje i portfel.
+app.include_router(
+    insights_proposals.router,
     prefix="/api/insights",
     tags=["insights"],
 )

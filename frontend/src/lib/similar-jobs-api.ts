@@ -19,14 +19,26 @@ export interface SimilarJobItem {
   status: "draft" | "published" | "closed" | (string & {});
   closed_at: string | null;
   client_name: string | null;
-  /** 0–100; `null` dla rekrutacji połączonej ręcznie spoza sugestii. */
+  /**
+   * 0–100; `null` dla rekrutacji połączonej ręcznie spoza sugestii. Przy
+   * `similarity_kind: "vector"` to kosinus wektorów rekrutacji × 100.
+   */
   similarity: number | null;
+  /**
+   * Jak serwer policzył podobieństwo (30.09.2026): `vector` — wektor
+   * rekrutacji (+ premia za tego samego klienta w kolejności), `lexical` —
+   * dawny wzór (must-have, tytuł), gdy rekrutacja nie ma wektora albo Qdrant
+   * nie odpowiada. `null`/brak — rekrutacja spoza sugestii.
+   */
+  similarity_kind?: SimilarityKind | null;
   /** Ile różnych osób dotarło tam do klienta (od „CV wysłane"). */
   sent_count: number;
   /** Ilu z nich da się przepiąć tutaj (bez zatrudnionych i obecnych). */
   reassignable_count?: number;
   linked: boolean;
 }
+
+export type SimilarityKind = "vector" | "lexical";
 
 export interface SimilarJobsPayload {
   job_id: number;
@@ -77,6 +89,8 @@ export interface SimilarPreviewInput {
   title: string;
   must_skills: string[];
   competence_category_id?: number | null;
+  /** Klient szkicu — premia za tego samego klienta w rankingu wektorowym. */
+  client_id?: number | null;
 }
 
 export interface ChampionFoundResponse {
@@ -201,6 +215,28 @@ export function useReassignFromSimilar(jobId: number) {
       qc.invalidateQueries({ queryKey: ["pipeline-scores"] });
     },
   });
+}
+
+/**
+ * Podobieństwo do wyświetlenia: „≈ 72%” dla wektora rekrutacji (to nie wynik
+ * wzoru, tylko bliskość treści), „72%” dla dawnego wzoru leksykalnego.
+ * `null`, gdy serwer nie podał podobieństwa (rekrutacja spoza sugestii).
+ */
+export function similarityLabel(
+  item: Pick<SimilarJobItem, "similarity" | "similarity_kind">,
+): string | null {
+  if (item.similarity == null) return null;
+  return item.similarity_kind === "vector" ? `≈ ${item.similarity}%` : `${item.similarity}%`;
+}
+
+/** Podpowiedź (atrybut `title`) mówiąca, skąd liczba. */
+export function similarityHint(
+  item: Pick<SimilarJobItem, "similarity" | "similarity_kind">,
+): string | undefined {
+  if (item.similarity == null) return undefined;
+  return item.similarity_kind === "vector"
+    ? "Podobieństwo treści rekrutacji (wektor). Ten sam klient jest wyżej na liście."
+    : "Wspólne must-have, słowa stanowiska i kategoria/klient.";
 }
 
 /** Ile osób przepnie zaznaczenie (górna granica — serwer pomija już obecnych). */

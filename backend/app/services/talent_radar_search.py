@@ -332,13 +332,25 @@ def dealbreaker_inputs_for_radar(query: RadarQuery) -> DealbreakerInputs:
     office_tokens = frozenset(location_tokens(query.office_location))
     wants_office = bool(query.exclude_remote_only) or bool(days and days > 0)
 
+    from app.services.critical_skills import effective_critical, gate_mode
+
+    ephemeral = build_ephemeral_job(query)
+    eligible = tuple(gate_eligible_must_skills(job_explicit_must_skills(ephemeral)))
+    critical_source = None
+    if gate_mode() == "critical":
+        # Radar nie ma profilu Championa, więc działa podpowiedź z historii
+        # (30.09.2026) — ta sama reguła co w rekrutacji bez decyzji DL.
+        resolution = effective_critical(ephemeral)
+        must = tuple(m for m in eligible if m in set(resolution.labels))
+        critical_source = resolution.source
+    else:
+        must = eligible
     return DealbreakerInputs(
         budget_hourly=query.budget_hourly_max,
-        must_skills=tuple(
-            gate_eligible_must_skills(
-                job_explicit_must_skills(build_ephemeral_job(query))
-            )
-        ),
+        must_skills=must,
+        must_skills_ignored=tuple(m for m in eligible if m not in set(must)),
+        critical_source=critical_source,
+        evidence_labels=eligible,
         onsite_days_per_week=days,
         office_tokens=office_tokens,
         wants_office=wants_office,
@@ -483,7 +495,7 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     radar_inputs = dealbreaker_inputs_for_radar(query)
     from app.services.must_text_evidence import attach_gate_evidence
 
-    await attach_gate_evidence(db, candidates, radar_inputs.must_skills)
+    await attach_gate_evidence(db, candidates, radar_inputs.gate_evidence_labels)
     dealbreakers = await _apply_dealbreakers_yielding(candidates, inputs=radar_inputs)
     candidates = dealbreakers.kept
 

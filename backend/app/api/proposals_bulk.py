@@ -140,9 +140,10 @@ class BulkProposalsRequest(BaseModel):
     # the candidate (`emit_pipeline_additions`). Never guessed from history.
     run_id: Optional[str] = Field(default=None, max_length=64)
     source: Optional[BulkAddSource] = None
-    # 0399: wynik dopasowania od integracji (scraper JJIT/RocketJobs) — trafia
-    # do procesu jako plakietka „Auto-match 67/100 · JJIT” zamiast notatki.
-    # Serwer przyjmuje go WYŁĄCZNIE od tokenu integracji.
+    # 0399: wynik dopasowania od integracji (scraper JJIT/RocketJobs). Od
+    # 30.09.2026 taki wynik NIE zakłada karty: osoba trafia do „Do przejrzenia”
+    # jako propozycja ``job_board`` (``propose_candidates_for_job``). Serwer
+    # czyta go WYŁĄCZNIE od tokenu integracji — człowiek dodaje jak dotąd.
     auto_match: Optional["AutoMatchEntryIn"] = None
 
 
@@ -186,6 +187,11 @@ class BulkProposalsResponse(BaseModel):
     warnings: list[BulkWarningRow] = Field(default_factory=list)
     total_added: int
     total_skipped: int
+    # 30.09.2026: dopasowania z portali (token integracji + ``auto_match``)
+    # trafiają do „Do przejrzenia” (źródło ``job_board``), nie na Tablicę.
+    # ``added`` jest wtedy puste — integracja liczy sukces po ``proposed``.
+    proposed: list[int] = Field(default_factory=list)
+    total_proposed: int = 0
 
 
 class AssignableStage(BaseModel):
@@ -661,6 +667,128 @@ async def add_candidates_to_job(
     )
 
 
+@dataclass
+class ProposeResult:
+    proposed: list[int]
+    skipped: list[BulkSkippedRow]
+    warnings: list[BulkWarningRow]
+
+
+def job_board_evidence(entry_meta: Optional[dict]) -> Optional[dict]:
+    """Dowody propozycji ``job_board`` z wyniku auto-matcha integracji.
+
+    Wyłącznie liczby i nazwy wymagań (``sanitize_evidence`` i tak przepuszcza
+    tylko to): wynik, portal, trafione must-have. ``matched_must`` pozwala
+    skrzynce pokazać trafione wymagania tak jak przy innych źródłach.
+    """
+    if not isinstance(entry_meta, dict):
+        return None
+    evidence: dict = {"auto_match": entry_meta}
+    must_hit = entry_meta.get("must_hit")
+    if isinstance(must_hit, list) and must_hit:
+        evidence["matched_must"] = must_hit
+    return evidence
+
+
+async def propose_candidates_for_job(
+    db: AsyncSession,
+    *,
+    job: Job,
+    candidate_ids: list[int],
+    entry_meta: dict,
+) -> ProposeResult:
+    """Dopasowanie z portalu → propozycja ``job_board`` w „Do przejrzenia”.
+
+    Decyzja 30.09.2026: scraper JJIT/RocketJobs zakładał karty na Tablicy
+    (1 819 kart na „Ogłoszeniach”, każda osoba w ~3,9 rekrutacjach, dalej
+    przeszły 2). Teraz wynik czeka na decyzję człowieka w skrzynce propozycji.
+    Te same twarde bramki co przy dodaniu (kandydat istnieje, globalna czarna
+    lista, już w tej rekrutacji, weto hiring managera) — pominięci wracają
+    w ``skipped`` z tymi samymi powodami. Bez commita (robi to wołający).
+    """
+    from app.services.auto_match_outbox import candidate_revision  # noqa: PLC0415
+    from app.services.job_proposals import upsert_proposals  # noqa: PLC0415
+
+    ordered_ids = canonical_candidate_lock_order(candidate_ids)
+    cand_rows = (
+        (await db.execute(select(Candidate).where(Candidate.id.in_(ordered_ids))))
+        .scalars()
+        .all()
+    )
+    candidates_by_id: dict[int, Candidate] = {c.id: c for c in cand_rows}
+    already_in_job_set: set[int] = set(
+        (
+            await db.execute(
+                select(CandidateStage.candidate_id).where(
+                    CandidateStage.job_id == job.id,
+                    CandidateStage.candidate_id.in_(ordered_ids),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    decisions, manager_verdicts = await evaluate_candidates_for_job_with_verdicts(
+        db,
+        job=job,
+        candidate_ids=ordered_ids,
+        now=datetime.now(timezone.utc),
+        already_in_job_ids=already_in_job_set,
+        candidates=candidates_by_id,
+    )
+
+    evidence = job_board_evidence(entry_meta)
+    score = entry_meta.get("score") if isinstance(entry_meta, dict) else None
+    rows: list[dict] = []
+    skipped: list[BulkSkippedRow] = []
+    warnings: list[BulkWarningRow] = []
+    for candidate_id in ordered_ids:
+        candidate = candidates_by_id.get(candidate_id)
+        if candidate is None:
+            skipped.append(
+                BulkSkippedRow(candidate_id=candidate_id, reason="candidate_not_found")
+            )
+            continue
+        decision = decisions[candidate_id]
+        if not decision.assignment_allowed:
+            skipped.append(
+                BulkSkippedRow(
+                    candidate_id=candidate_id,
+                    reason=_SKIP_REASON_BY_ELIGIBILITY.get(
+                        decision.reason_code, "blacklisted"
+                    ),
+                    reason_label=detail_for(
+                        decision, manager_verdicts.get(candidate_id)
+                    ),
+                )
+            )
+            continue
+        warn_reason = _WARNING_REASON_BY_ELIGIBILITY.get(decision.reason_code)
+        if warn_reason is not None:
+            warnings.append(
+                BulkWarningRow(
+                    candidate_id=candidate_id,
+                    reason=warn_reason,
+                    reason_label=decision.reason,
+                )
+            )
+        rows.append(
+            {
+                "candidate_id": candidate_id,
+                "score": score,
+                "evidence": evidence,
+                "cv_revision": candidate_revision(candidate),
+            }
+        )
+    if rows:
+        await upsert_proposals(db, job.id, rows, source="job_board")
+    return ProposeResult(
+        proposed=[r["candidate_id"] for r in rows],
+        skipped=skipped,
+        warnings=warnings,
+    )
+
+
 @router.post(
     "/jobs/{job_id}/proposals/bulk",
     response_model=BulkProposalsResponse,
@@ -683,6 +811,27 @@ async def bulk_add_proposals(
     await ensure_job_membership(db, current_user, job_id)
     from_integration = candidate_claim.is_integration_request(request)
 
+    if from_integration and body.auto_match is not None:
+        # Dopasowanie z portalu (scraper JJIT/RocketJobs) → „Do przejrzenia”,
+        # nie karta na Tablicy. Integracja bez ``auto_match`` (np. zgłoszenia
+        # z pracuj.pl do konkretnej rekrutacji) dodaje jak dotąd.
+        proposal = await propose_candidates_for_job(
+            db,
+            job=job,
+            candidate_ids=body.candidate_ids,
+            entry_meta=body.auto_match.as_entry_meta(),
+        )
+        await db.commit()
+        return BulkProposalsResponse(
+            added=[],
+            skipped=proposal.skipped,
+            warnings=proposal.warnings,
+            total_added=0,
+            total_skipped=len(proposal.skipped),
+            proposed=proposal.proposed,
+            total_proposed=len(proposal.proposed),
+        )
+
     result = await add_candidates_to_job(
         db,
         job=job,
@@ -698,11 +847,6 @@ async def bulk_add_proposals(
             else _entry_source_for(body.source)
         ),
         claim=not from_integration,
-        entry_meta=(
-            body.auto_match.as_entry_meta()
-            if from_integration and body.auto_match is not None
-            else None
-        ),
     )
     added, skipped, warnings = result.added, result.skipped, result.warnings
 

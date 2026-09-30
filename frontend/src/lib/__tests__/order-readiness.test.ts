@@ -42,6 +42,21 @@ describe("order-readiness", () => {
     expect(parseBudgetInput("150 zł")).toHaveProperty("error");
   });
 
+  it("brak decyzji o krytycznych to wiersz z linkiem do sekcji stacku", () => {
+    const checklist = buildReadinessChecklist([READINESS_MESSAGES.critical], "remote");
+    expect(checklist.missing).toEqual([
+      {
+        key: "critical",
+        label: "Umiejętności krytyczne",
+        message: READINESS_MESSAGES.critical,
+      },
+    ]);
+    // Pozycja liczy się tylko wtedy, gdy serwer o nią pyta.
+    expect(checklist.total).toBe(9);
+    expect(buildReadinessChecklist([], "remote").done).not.toContain("critical");
+    expect(READINESS_CHAMPION_ANCHOR.critical).toBe("champion-section-stack");
+  });
+
   it("brak wymagań do wyszukiwania prowadzi do ich karty w Championie", () => {
     const checklist = buildReadinessChecklist([READINESS_MESSAGES.search], "remote");
     expect(checklist.missing).toEqual([

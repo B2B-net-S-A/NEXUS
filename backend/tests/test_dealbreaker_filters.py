@@ -10,6 +10,8 @@ właściciela produktu.
 
 from types import SimpleNamespace
 
+import pytest
+
 from app.services.dealbreaker_filters import (
     DealbreakerInputs,
     apply_dealbreakers,
@@ -26,6 +28,16 @@ from app.services.location_utils import (
     candidate_location_tokens,
     candidate_office_tokens,
 )
+
+
+@pytest.fixture(autouse=True)
+def _v8_must_gate(monkeypatch):
+    """Te testy opisują bramkę v8 (każde must-technologia, budżet i dni
+    ukrywają) — od 30.09.2026 to wyłącznik awaryjny ``MUST_GATE_MODE=all``.
+    Tryb domyślny (krytyczne) pilnuje ``test_critical_gate.py``."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "MUST_GATE_MODE", "all")
 
 
 def _cand(**kw):

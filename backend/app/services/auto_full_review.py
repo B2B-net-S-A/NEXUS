@@ -36,7 +36,7 @@ from datetime import datetime, time, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import DateTime, case, exists, func, or_, select
+from sqlalchemy import DateTime, and_, case, exists, func, or_, select
 
 from app.core.config import settings
 from app.models.activity import Activity
@@ -66,6 +66,7 @@ SEMANTIC_BLIND_METRIC = "auto_semantic_blind"
 INCOMPLETE_METRIC = "auto_incomplete_coverage"
 _NOT_A_FINAL_REVIEW = (SEMANTIC_BLIND_METRIC, INCOMPLETE_METRIC)
 _PICK_LIMIT = 50
+UNCHANGED_MAX_AGE = timedelta(hours=20)
 _RECONCILE_WINDOW = timedelta(days=2)
 
 
@@ -170,7 +171,14 @@ def _last_auto_run_at():
 
 
 async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> list[int]:
-    """Opublikowane rekrutacje ze zdarzeniem nowszym niż ostatni auto-przegląd."""
+    """Opublikowane rekrutacje w pracy, które tej nocy jeszcze nie miały przeglądu.
+
+    Od 30.09.2026 (decyzja Artura) co noc WSZYSTKIE rekrutacje w pracy, nie
+    tylko te ze zdarzeniem: nowe CV w bazie nie jest zdarzeniem rekrutacji,
+    a do 30.09 propozycje dostawało 5 rekrutacji na noc. Kolejność: najpierw
+    zdarzenie nowsze niż ostatni przegląd, potem „Szukamy”, potem najdawniej
+    przeglądane.
+    """
     lookback = now - timedelta(
         days=max(1, int(settings.AUTO_FULL_REVIEW_EVENT_LOOKBACK_DAYS))
     )
@@ -200,13 +208,26 @@ async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> lis
             # nikt nie pracuje — nocny limit przeglądów idzie na te w pracy.
             Job.work_state.in_(IN_WORK_STATES),
             or_(Job.recruiter_id.is_not(None), Job.tac_id.is_not(None)),
-            event_at.is_not(None),
-            or_(last_auto.is_(None), event_at > last_auto),
             ~ran_tonight,
         )
-        # „Szukamy kandydatów” pierwsze: od liczby pasujących w bazie zależy,
-        # czy automat przydziału da rekrutera, czy wystarczy sourcer.
-        .order_by(case((Job.work_state == "searching", 0), else_=1), event_at, Job.id)
+        # Zdarzenie od ostatniego przeglądu pierwsze, potem „Szukamy kandydatów”
+        # (od liczby pasujących zależy, czy automat przydziału da rekrutera,
+        # czy wystarczy sourcer), potem najdawniej przeglądane.
+        .order_by(
+            case(
+                (
+                    and_(
+                        event_at.is_not(None),
+                        or_(last_auto.is_(None), event_at > last_auto),
+                    ),
+                    0,
+                ),
+                else_=1,
+            ),
+            case((Job.work_state == "searching", 0), else_=1),
+            last_auto.asc().nulls_first(),
+            Job.id,
+        )
         .limit(limit)
     )
     return [int(job_id) for (job_id,) in rows.all()]
@@ -228,34 +249,48 @@ async def _author_id(db, job: Job) -> Optional[int]:
     return next((uid for uid in wanted if uid in active), wanted[0])
 
 
-async def _last_successful_fingerprint(db, job_id: int) -> Optional[str]:
-    fingerprint = await db.scalar(
-        select(CandidateSearchRun.request_fingerprint)
-        .where(
-            CandidateSearchRun.job_id == job_id,
-            store.auto_origin_clause(),
-            CandidateSearchRun.state.in_((*store.ACTIVE_STATES, *store.RESULT_STATES)),
-            # Odcisk przeglądu bez wektora (runda 6) albo z niepełnym
-            # pokryciem (runda 8) nie jest „bez zmian” — trzeba go powtórzyć.
-            *(~CandidateSearchRun.metrics.has_key(key) for key in _NOT_A_FINAL_REVIEW),
+async def _last_successful_fingerprint(
+    db, job_id: int
+) -> tuple[Optional[str], Optional[datetime]]:
+    row = (
+        await db.execute(
+            select(
+                CandidateSearchRun.request_fingerprint, CandidateSearchRun.created_at
+            )
+            .where(
+                CandidateSearchRun.job_id == job_id,
+                store.auto_origin_clause(),
+                CandidateSearchRun.state.in_(
+                    (*store.ACTIVE_STATES, *store.RESULT_STATES)
+                ),
+                # Odcisk przeglądu bez wektora (runda 6) albo z niepełnym
+                # pokryciem (runda 8) nie jest „bez zmian” — trzeba go powtórzyć.
+                *(
+                    ~CandidateSearchRun.metrics.has_key(key)
+                    for key in _NOT_A_FINAL_REVIEW
+                ),
+            )
+            .order_by(CandidateSearchRun.created_at.desc())
+            .limit(1)
         )
-        .order_by(CandidateSearchRun.created_at.desc())
-        .limit(1)
-    )
-    if fingerprint is not None:
-        return fingerprint
+    ).first()
+    if row is not None and row[0] is not None:
+        return row[0], row[1]
     # Przegląd skasowany przez retencję: odcisk zostaje we wpisie „Praca w tle”.
-    return await db.scalar(
-        select(Activity.details["fingerprint"].astext)
-        .where(
-            Activity.entity_type == ACTIVITY_ENTITY,
-            Activity.entity_id == job_id,
-            Activity.action == "auto_full_review_finished",
-            Activity.details["fingerprint"].astext.is_not(None),
+    row = (
+        await db.execute(
+            select(Activity.details["fingerprint"].astext, Activity.created_at)
+            .where(
+                Activity.entity_type == ACTIVITY_ENTITY,
+                Activity.entity_id == job_id,
+                Activity.action == "auto_full_review_finished",
+                Activity.details["fingerprint"].astext.is_not(None),
+            )
+            .order_by(Activity.created_at.desc())
+            .limit(1)
         )
-        .order_by(Activity.created_at.desc())
-        .limit(1)
-    )
+    ).first()
+    return (row[0], row[1]) if row is not None else (None, None)
 
 
 async def start_for_job(db, job_id: int) -> tuple[Optional[str], str]:
@@ -282,7 +317,14 @@ async def start_for_job(db, job_id: int) -> tuple[Optional[str], str]:
     # Profil BEZ użytkownika: wynik ma być wspólny dla zespołu.
     profile = await resolve_active_profile(db, user_id=None, client_id=job.client_id)
     context = build_request_context(job, profile)
-    if await _last_successful_fingerprint(db, job_id) == context.fingerprint:
+    fingerprint, reviewed_at = await _last_successful_fingerprint(db, job_id)
+    # „Bez zmian” pomija przegląd tylko przez UNCHANGED_MAX_AGE (30.09.2026):
+    # starszy przegląd nie widział CV dodanych od tamtej pory.
+    if (
+        fingerprint == context.fingerprint
+        and reviewed_at is not None
+        and datetime.now(timezone.utc) - reviewed_at < UNCHANGED_MAX_AGE
+    ):
         return None, "unchanged"
     run = await store.create_run(
         db,
@@ -364,6 +406,64 @@ async def _remember_unchanged(db, job_id: int, checked_at: datetime) -> None:
 # ich odcisku od nowa. Pamięć procesu wystarcza: restart najwyżej powtórzy tanie
 # sprawdzenie.
 _skipped_tonight: dict[int, datetime] = {}
+_maintenance_done: set[datetime] = set()
+_critical_cache_loaded_at: dict[str, datetime] = {}
+_CRITICAL_CACHE_TTL = timedelta(hours=1)
+
+
+async def _refresh_critical_stats_cache(now: datetime) -> None:
+    """Statystyki krytycznych z bazy do pamięci procesu (raz na godzinę).
+
+    Bramka czyta je synchronicznie; bez odświeżenia proces po deployu
+    pracowałby na seedzie z badania aż do niedzielnego przeliczenia.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.services import critical_skills
+
+    loaded = _critical_cache_loaded_at.get("at")
+    if loaded is not None and now - loaded < _CRITICAL_CACHE_TTL:
+        return
+    try:
+        async with AsyncSessionLocal() as db:
+            await critical_skills.refresh_cache(db)
+        _critical_cache_loaded_at["at"] = now
+    except Exception as exc:  # noqa: BLE001 — seed zostaje, pętla żyje
+        logger.warning(
+            "[auto_full_review] critical stats cache: %s", type(exc).__name__
+        )
+
+
+async def _nightly_maintenance(tonight: datetime, now: datetime) -> None:
+    """Raz na noc, przed przeglądami (30.09.2026):
+
+    - przeliczenie statystyk umiejętności krytycznych, gdy starsze niż tydzień
+      (po nim podpowiedzi mogą się zmienić — odciski przeglądów też);
+    - poniedziałkowy skrót propozycji bez decyzji do Delivery Leadów.
+
+    Błąd któregokolwiek nie blokuje przeglądów tej nocy.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.services import critical_skills
+    from app.services.proposals_digest import send_pending_proposals_digest
+
+    if tonight in _maintenance_done:
+        return
+    _maintenance_done.add(tonight)
+    try:
+        async with AsyncSessionLocal() as db:
+            if await critical_skills.stats_are_stale(db, now=now):
+                await critical_skills.recompute_and_store(db)
+                _critical_cache_loaded_at["at"] = now
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[auto_full_review] critical stats: %s", type(exc).__name__)
+    try:
+        async with AsyncSessionLocal() as db:
+            sent = await send_pending_proposals_digest(db, now)
+            await db.commit()
+            if sent:
+                logger.info("[auto_full_review] proposals digest: %s DL", sent)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[auto_full_review] proposals digest: %s", type(exc).__name__)
 
 
 async def tick(*, now: Optional[datetime] = None) -> dict:
@@ -374,12 +474,14 @@ async def tick(*, now: Optional[datetime] = None) -> dict:
     now = now or datetime.now(timezone.utc)
     if not enabled():
         return {"skipped": "disabled"}
+    await _refresh_critical_stats_cache(now)
     async with AsyncSessionLocal() as db:
         published = await reconcile_unpublished(db, now=now)
         await db.commit()
     if not in_window(now):
         return {"skipped": "outside_window", "reconciled": published}
     tonight = night_start(now)
+    await _nightly_maintenance(tonight, now)
     for job_id, at in list(_skipped_tonight.items()):
         if at < tonight:
             _skipped_tonight.pop(job_id, None)

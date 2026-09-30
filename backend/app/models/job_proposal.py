@@ -49,6 +49,8 @@ JOB_PROPOSAL_SOURCES = (
     "reassign",
     # 0374: przekazane przez praktykanta po rozmowie telefonicznej.
     "trainee",
+    # 0405: dopasowanie z integracji (JJIT/RocketJobs) — nigdy karta na tablicy.
+    "job_board",
 )
 JOB_PROPOSAL_STATUSES = ("proposed", "dismissed", "added")
 
@@ -61,8 +63,13 @@ class JobProposal(Base):
         ),
         CheckConstraint(
             "source IN ('full_base', 'new_cv', 'similar_projects', "
-            "'recommendation', 'marketplace', 'reassign', 'trainee')",
+            "'recommendation', 'marketplace', 'reassign', 'trainee', 'job_board')",
             name="ck_job_proposals_source",
+        ),
+        CheckConstraint(
+            "dismiss_reason IS NULL OR dismiss_reason IN ('missing_critical', "
+            "'too_expensive', 'location_office', 'too_junior', 'outdated_cv', 'other')",
+            name="ck_job_proposals_dismiss_reason",
         ),
         CheckConstraint(
             "status IN ('proposed', 'dismissed', 'added')",
@@ -109,3 +116,6 @@ class JobProposal(Base):
     dismissed_cv_revision: Mapped[Optional[str]] = mapped_column(
         String(64), nullable=True
     )
+    # 0405: powód „Pomiń” (wymagany od 30.09.2026) i opis przy „inny”.
+    dismiss_reason: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    dismiss_note: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)

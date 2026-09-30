@@ -138,7 +138,13 @@ describe("ProposalsSegment — stany", () => {
     expect(footer.getByRole("button", { name: "Dodaj do rekrutacji" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "zaznacz wszystkich (mock)" }));
     fireEvent.click(footer.getByRole("button", { name: "Pomiń" }));
-    expect(s.dismiss).toHaveBeenCalledWith([1, 2]);
+    // „Pomiń" pyta o powód (0405) — bez wyboru nic nie wychodzi.
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByText("Pomiń 2 osoby — dlaczego?")).toBeInTheDocument();
+    expect(s.dismiss).not.toHaveBeenCalled();
+    fireEvent.click(dialog.getByRole("radio", { name: "Brak kluczowej technologii" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Pomiń" }));
+    expect(s.dismiss).toHaveBeenCalledWith([1, 2], { reason: "missing_critical" });
     fireEvent.click(screen.getByRole("button", { name: "zaznacz wszystkich (mock)" }));
     fireEvent.click(footer.getByRole("button", { name: "Porównaj" }));
     expect(mocks.push).toHaveBeenCalledWith("/candidates/compare?ids=1%2C2&job=42");

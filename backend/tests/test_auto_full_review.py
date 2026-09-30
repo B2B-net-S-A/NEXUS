@@ -43,6 +43,18 @@ from app.services import candidate_search_store as store
 from app.tasks import candidate_search_retention as retention
 
 
+@pytest.fixture(autouse=True)
+def _no_nightly_maintenance(monkeypatch):
+    """Przeliczenie statystyk krytycznych i skrót propozycji mają własne testy
+    (``test_auto_full_review_maintenance``) — tu tylko wybór i przeglądy."""
+
+    async def _noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(afr, "_nightly_maintenance", _noop)
+    monkeypatch.setattr(afr, "_refresh_critical_stats_cache", _noop)
+
+
 def _at(hour: int) -> datetime:
     """Chwila o danej godzinie LOKALNEJ (Europe/Warsaw), dziś."""
     from zoneinfo import ZoneInfo
@@ -171,8 +183,10 @@ async def test_event_makes_the_job_due_once_per_night():
         async with AsyncSessionLocal() as db:
             due = await afr.pending_job_ids(db, now=_at(2), limit=10_000)
             assert world["job_id"] in due
-            # Bez zdarzenia (publikacja / istotna zmiana) nie ma przeglądu.
-            assert quiet["job_id"] not in due
+            # Od 30.09.2026 co noc WSZYSTKIE rekrutacje w pracy — nowe CV
+            # w bazie nie jest zdarzeniem rekrutacji. Zdarzenie idzie pierwsze.
+            assert quiet["job_id"] in due
+            assert due.index(world["job_id"]) < due.index(quiet["job_id"])
             run_id, reason = await afr.start_for_job(db, world["job_id"])
             assert reason == "started" and run_id
             await db.commit()
@@ -215,13 +229,11 @@ async def test_review_memory_survives_retention_of_the_run():
         )
         await db.commit()
     async with AsyncSessionLocal() as db:
-        assert world["job_id"] not in await afr.pending_job_ids(
-            db, now=_at(2) + timedelta(days=3), limit=10_000
+        fingerprint, reviewed_at = await afr._last_successful_fingerprint(
+            db, world["job_id"]
         )
-        assert (
-            await afr._last_successful_fingerprint(db, world["job_id"])
-            == "odcisk-sprzed-retencji"
-        )
+        assert fingerprint == "odcisk-sprzed-retencji"
+        assert reviewed_at is not None
 
 
 async def test_failed_auto_run_does_not_close_the_event():
@@ -254,12 +266,12 @@ async def test_unchanged_request_closes_the_event(monkeypatch):
         run = await db.get(CandidateSearchRun, run_id)
         run.state = "complete"
         run.completed_at = datetime.now(timezone.utc)
-        run.created_at = datetime.now(timezone.utc) - timedelta(days=2)
+        # Świeży przegląd (< 20 h): ten sam odcisk = „bez zmian”.
+        run.created_at = datetime.now(timezone.utc) - timedelta(hours=1)
         await db.commit()
     async with AsyncSessionLocal() as db:
-        # Zdarzenie jest nowsze niż przegląd sprzed dwóch dni → należna.
         assert world["job_id"] in await afr.pending_job_ids(
-            db, now=_at(2), limit=10_000
+            db, now=_at(2) + timedelta(days=1), limit=10_000
         )
 
     async def _only_mine(db, *, now, limit=50):
@@ -273,9 +285,6 @@ async def test_unchanged_request_closes_the_event(monkeypatch):
     assert (await afr.tick(now=_at(2)))["skipped"] == "nothing_due"
     monkeypatch.undo()
     async with AsyncSessionLocal() as db:
-        assert world["job_id"] not in await afr.pending_job_ids(
-            db, now=_at(2) + timedelta(days=1), limit=10_000
-        )
         # Wpis pamięci nie trafia do „Pracy w tle” i nie udaje odcisku.
         memo = (
             await db.scalars(
@@ -287,6 +296,30 @@ async def test_unchanged_request_closes_the_event(monkeypatch):
             )
         ).all()
         assert len(memo) == 1
+
+
+async def test_unchanged_request_is_reviewed_again_after_20_hours():
+    """30.09.2026: „bez zmian” pomija przegląd tylko przez 20 h — starszy
+    przegląd nie widział CV dodanych od tamtej pory."""
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id)
+    try:
+        async with AsyncSessionLocal() as db:
+            run_id, reason = await afr.start_for_job(db, world["job_id"])
+            assert reason == "started"
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            run = await db.get(CandidateSearchRun, run_id)
+            run.state = "complete"
+            run.completed_at = datetime.now(timezone.utc)
+            run.created_at = datetime.now(timezone.utc) - timedelta(hours=21)
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            new_run, reason = await afr.start_for_job(db, world["job_id"])
+            assert reason == "started" and new_run
+            await db.rollback()
+    finally:
+        await _finish_all(world["job_id"])
 
 
 async def test_job_without_owner_is_skipped():
@@ -822,7 +855,7 @@ async def test_run_without_query_vector_is_a_failure_not_unchanged(monkeypatch):
     async with AsyncSessionLocal() as db:
         run = await db.get(CandidateSearchRun, run_id)
         assert run.metrics[afr.SEMANTIC_BLIND_METRIC] is True
-        assert await afr._last_successful_fingerprint(db, world["job_id"]) is None
+        assert (await afr._last_successful_fingerprint(db, world["job_id"]))[0] is None
         actions = (
             await db.scalars(
                 select(Activity.action).where(
@@ -935,7 +968,7 @@ async def test_partial_coverage_publishes_but_does_not_close_the_event(monkeypat
     async with AsyncSessionLocal() as db:
         run = await db.get(CandidateSearchRun, run_id)
         assert run.metrics[afr.INCOMPLETE_METRIC] is True
-        assert await afr._last_successful_fingerprint(db, world["job_id"]) is None
+        assert (await afr._last_successful_fingerprint(db, world["job_id"]))[0] is None
         [event] = (
             await db.scalars(
                 select(Activity).where(
@@ -1014,4 +1047,6 @@ async def test_third_incomplete_review_with_same_fingerprint_closes_the_topic(
         assert all(r.metrics.get(afr.INCOMPLETE_METRIC) for r in runs[:-1])
         assert afr.INCOMPLETE_METRIC not in runs[-1].metrics
         assert runs[-1].metrics["auto_incomplete_accepted"] is True
-        assert await afr._last_successful_fingerprint(db, world["job_id"]) == "n" * 64
+        assert (await afr._last_successful_fingerprint(db, world["job_id"]))[
+            0
+        ] == "n" * 64

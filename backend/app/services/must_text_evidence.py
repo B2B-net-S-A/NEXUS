@@ -188,9 +188,11 @@ def text_met_labels(
 
 
 def evidence_for(candidate, must: Sequence[str]) -> Optional[MustTextEvidence]:
-    """Dowód dołączony przez ``attach_gate_evidence`` dla TEJ listy must."""
+    """Dowód dołączony przez ``attach_gate_evidence`` dla listy obejmującej ``must``."""
     evidence = getattr(candidate, "_must_text_evidence", None)
-    if isinstance(evidence, MustTextEvidence) and evidence.key == tuple(must):
+    # 30.09.2026: dowód dołącza się raz dla wszystkich technologii must+nice
+    # oferty; bramka (krytyczne), plakietki i ocena biorą z niego podzbiór.
+    if isinstance(evidence, MustTextEvidence) and set(must) <= set(evidence.key):
         return evidence
     return None
 
@@ -237,9 +239,11 @@ async def attach_gate_evidence(db, candidates: Sequence, must: Sequence[str]) ->
     """
     must = tuple(must)
     ids = [c.id for c in candidates if getattr(c, "id", None) is not None]
-    if not must or not ids:
+    if not ids:
         return
-    pattern = _loose_pg_pattern(must)
+    # Pusta lista też dołącza `has_notes`: kandydat bez CV i umiejętności,
+    # ale z notatką z rozmowy, nie jest „bez danych” (30.09.2026).
+    pattern = _loose_pg_pattern(must) if must else None
     try:
         # Savepoint: błąd zapytania (np. regex, timeout) nie może zostawić
         # transakcji wywołującego w stanie „aborted”.

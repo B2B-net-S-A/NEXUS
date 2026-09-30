@@ -46,6 +46,7 @@ import {
 import { cn } from "@/lib/utils";
 import { NewJobRequestStep } from "./NewJobRequestStep";
 import { NewJobReviewForm } from "./NewJobReviewForm";
+import { useCriticalSuggestion } from "@/lib/critical-skills-api";
 import { SimilarJobsPicker } from "./SimilarJobsPicker";
 import { ClientAskedBeforeHint } from "./ClientAskedBeforeHint";
 import { plural } from "@/components/v2/jobs/SimilarJobsDialog";
@@ -295,7 +296,16 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     }
   };
 
-  const missing = useMemo(() => missingFor(form), [form]);
+  // Krytyczne (30.09.2026): podpowiedź i pozycje dopuszczalne dla bieżącej
+  // listy MUST. Harness nie pyta serwera — czyta zasiany cache.
+  const criticalSuggestion = useCriticalSuggestion(form.must, form.title, {
+    enabled: !preview,
+  });
+  const criticalEligible = criticalSuggestion.eligible;
+  const missing = useMemo(
+    () => missingFor(form, { criticalEligible }),
+    [form, criticalEligible],
+  );
   const segments = useMemo(
     () => highlightSegments(requestText, evidence),
     [requestText, evidence],
@@ -637,11 +647,13 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
               highlightMissing={readByAi || templateJobId != null}
               clientId={client?.id ?? null}
               countEnabled={!preview}
+              criticalSuggestion={criticalSuggestion}
             />
             {!preview && (
               <SimilarJobsPicker
                 title={form.title}
                 must={form.must}
+                clientId={client?.id ?? null}
                 onChange={setSimilarJobIds}
               />
             )}

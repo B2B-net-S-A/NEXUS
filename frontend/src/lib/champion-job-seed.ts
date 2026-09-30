@@ -32,6 +32,7 @@
  */
 
 import type { ChampionValidation } from "@/components/ChampionIntake";
+import { pruneCritical } from "@/lib/critical-skills";
 import type {
   ChampionBasics,
   ChampionJobValues,
@@ -77,7 +78,10 @@ export function seedStackFromJobColumns(
     nice,
     notes: stack?.notes ?? "",
   };
-  return { profile: { ...profile, stack: seededStack }, seededStack };
+  // Krytyczne zapisane przy pustym stacku (sam klucz `critical`) zostają.
+  const withCritical =
+    stack?.critical !== undefined ? { ...seededStack, critical: stack.critical } : seededStack;
+  return { profile: { ...profile, stack: withCritical }, seededStack };
 }
 
 function sameItems(a: readonly StackItem[], b: readonly StackItem[]): boolean {
@@ -254,6 +258,7 @@ export function championSavePayload(
   const withBasics: ChampionProfile = {
     ...draft,
     basics: stripSeededBasicsKeys(draft.basics, seed.seededBasics),
+    stack: withPrunedCritical(draft.stack),
   };
   const { seededStack } = seed;
   if (
@@ -262,10 +267,28 @@ export function championSavePayload(
     sameItems(withBasics.stack.nice, seededStack.nice) &&
     withBasics.stack.notes === seededStack.notes
   ) {
-    const { stack: _untouched, ...rest } = withBasics;
+    const { stack, ...rest } = withBasics;
+    // Nietknięty stack z kolumn nie jedzie — ale decyzja o krytycznych tak:
+    // serwer scala `stack` o poziom w głąb, więc sam klucz `critical` nie
+    // zapisze MUST, a krytyczne sprawdzi wobec kolumn rekrutacji.
+    if (stack.critical !== undefined) {
+      return { ...rest, stack: { critical: stack.critical } } as unknown as ChampionProfile;
+    }
     return rest;
   }
   return withBasics;
+}
+
+/**
+ * Krytyczne jadą tylko wtedy, gdy ktoś o nich zdecydował (`undefined` = klucza
+ * nie ma w profilu, serwer zostawia zapis bez zmian). `null` i `[]` to dwie
+ * różne decyzje („nie zdecydowano” vs „Brak krytycznych”) i obie jadą.
+ * Krytyczna, której nie ma już w MUST, znika przed zapisem.
+ */
+function withPrunedCritical(stack: ChampionStack): ChampionStack {
+  if (stack.critical === undefined) return stack;
+  const must = (stack.must ?? []).map((item) => item.name);
+  return { ...stack, critical: pruneCritical(stack.critical ?? null, must) };
 }
 
 /**

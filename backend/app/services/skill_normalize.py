@@ -106,8 +106,15 @@ TECH_CATEGORIES = frozenset(
     }
 )
 
+# Technologie w sensie bramki must i umiejętności krytycznych (30.09.2026):
+# kategorie CV plus narzędzia (Pega, SAP, IBM MQ, Camunda, OpenShift), standardy
+# (UML, BPMN, OpenAPI) i AI. Osobny zbiór, bo TECH_CATEGORIES steruje też
+# pogrubianiem w CV — dopisanie tam narzędzi zmieniłoby wygląd każdego CV.
+GATE_TECH_CATEGORIES = TECH_CATEGORIES | frozenset({"tools", "standards", "ai"})
+
 # All keys/values lowercase. Empty until hydrated so offline use degrades.
 TECH_CANONICALS: set[str] = set()  # canonical names whose category ∈ TECH_CATEGORIES
+CANONICAL_CATEGORY: dict[str, str] = {}  # canonical -> category (ALL skills)
 ALIAS_TO_CANONICAL: dict[str, str] = {}  # alias -> canonical (ALL skills)
 CANONICAL_TO_ALIASES: dict[str, list[str]] = {}  # tech canonical -> [alias, ...]
 
@@ -117,8 +124,17 @@ def set_tech_taxonomy(
     tech_canonicals,
     alias_to_canonical: dict[str, str],
     canonical_to_aliases: dict[str, list[str]] | None = None,
+    categories: dict[str, str] | None = None,
 ) -> None:
     """Replace the in-memory tech taxonomy atomically (called at startup)."""
+    CANONICAL_CATEGORY.clear()
+    CANONICAL_CATEGORY.update(
+        {
+            c.strip().lower(): (cat or "").strip().lower()
+            for c, cat in (categories or {}).items()
+            if c
+        }
+    )
     TECH_CANONICALS.clear()
     TECH_CANONICALS.update(c.strip().lower() for c in tech_canonicals if c)
     ALIAS_TO_CANONICAL.clear()
@@ -149,6 +165,25 @@ def is_taxonomy_technology(name: str) -> bool:
     if not TECH_CANONICALS:
         return False
     return canonical_of(name) in TECH_CANONICALS
+
+
+def taxonomy_category(name: str) -> str | None:
+    """Kategoria nazwy ze słownika (``role_dev``, ``tools``…) albo ``None``,
+    gdy nazwy nie ma w słowniku albo słownik nie jest wczytany."""
+    return CANONICAL_CATEGORY.get(canonical_of(name)) or None
+
+
+def is_gate_technology(name: str) -> bool:
+    """Czy nazwa jest technologią ze słownika w sensie bramki must
+    (``GATE_TECH_CATEGORIES``). ``False`` bez wczytanego słownika."""
+    return taxonomy_category(name) in GATE_TECH_CATEGORIES
+
+
+def is_non_technology_concept(name: str) -> bool:
+    """Nazwa ze słownika, która jest rolą albo metodyką („QA”, „Software
+    developer”, „Scrum”) — nie technologią, więc nie bramkuje."""
+    category = taxonomy_category(name) or ""
+    return category.startswith("role_") or category == "methodology"
 
 
 def tech_alias_forms(name: str) -> list[str]:

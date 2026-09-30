@@ -49,6 +49,7 @@ vi.mock("@/store/auth", () => ({ useAuthStore: (sel: (s: unknown) => unknown) =>
 import { groupAddsByOrigin, useJobProposals } from "@/components/v2/recruitment/useJobProposals";
 
 const JOB = 42;
+const FEEDBACK = { reason: "too_expensive" as const };
 
 function inboxItem(id: number): ProposalInboxItem {
   return {
@@ -151,9 +152,9 @@ describe("useJobProposals", () => {
     mocks.dismiss.mockReturnValue(new Promise((resolve) => { release = () => resolve({}); }));
     const { result } = setup();
     await waitFor(() => expect(result.current.rows).toHaveLength(4));
-    act(() => result.current.dismiss([2]));
+    act(() => result.current.dismiss([2], FEEDBACK));
     await waitFor(() => expect(result.current.rows.map((r) => r.candidateId).sort()).toEqual([1, 3, 4]));
-    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 2, "new_cv");
+    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 2, "new_cv", FEEDBACK);
     await act(async () => release());
   });
 
@@ -162,10 +163,10 @@ describe("useJobProposals", () => {
     mocks.restore.mockResolvedValue({ restored: true });
     const { result } = setup();
     await waitFor(() => expect(result.current.rows).toHaveLength(4));
-    act(() => result.current.dismiss([1, 4]));
+    act(() => result.current.dismiss([1, 4], FEEDBACK));
     await waitFor(() => expect(mocks.toast.showActionToast).toHaveBeenCalled());
-    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 1, "full_base");
-    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 4, "similar_projects");
+    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 1, "full_base", FEEDBACK);
+    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 4, "similar_projects", FEEDBACK);
     const [, options] = mocks.toast.showActionToast.mock.calls[0];
     expect(options.actionLabel).toBe("Cofnij");
     await act(async () => { await options.onAction(); });
@@ -178,7 +179,7 @@ describe("useJobProposals", () => {
     mocks.dismiss.mockRejectedValue({ response: { status: 409, data: { detail: "Ta osoba jest już w tej rekrutacji" } } });
     const { result } = setup();
     await waitFor(() => expect(result.current.rows).toHaveLength(4));
-    act(() => result.current.dismiss([2]));
+    act(() => result.current.dismiss([2], FEEDBACK));
     await waitFor(() => expect(mocks.toast.showSuccess).toHaveBeenCalled());
     expect(mocks.toast.showError).not.toHaveBeenCalled();
     expect(mocks.toast.showActionToast).not.toHaveBeenCalled();
@@ -189,7 +190,7 @@ describe("useJobProposals", () => {
     // Po błędzie skrzynka jest czytana ponownie — osoba nadal w niej jest.
     const { result } = setup();
     await waitFor(() => expect(result.current.rows).toHaveLength(4));
-    act(() => result.current.dismiss([2]));
+    act(() => result.current.dismiss([2], FEEDBACK));
     await waitFor(() => expect(mocks.toast.showError).toHaveBeenCalledWith("Brak członkostwa w zespole rekrutacji"));
     await waitFor(() => expect(result.current.rows.map((r) => r.candidateId)).toContain(2));
   });

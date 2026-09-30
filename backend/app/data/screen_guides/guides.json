@@ -128,13 +128,13 @@
       },
       {
         "q": "Co robi „Pomiń”?",
-        "a": "Zdejmuje propozycję z listy tej rekrutacji. Da się ją przywrócić, a nowe CV tej osoby albo przekazanie od praktykanta po rozmowie zaproponuje ją ponownie."
+        "a": "Zdejmuje propozycję z listy tej rekrutacji. Najpierw wybierasz powód (np. „Za drogi”, „Brak kluczowej technologii”; przy „Inne” jedno zdanie) — trafia do raportu „Propozycje AI”. Da się ją przywrócić, a nowe CV tej osoby zaproponuje ją ponownie."
       }
     ],
     "pitfalls": [
       "Wynik „nie policzono” to brak danych, nie słabe dopasowanie.",
       "Osoby z ostrzeżeniem (np. konflikt z klientem) są widoczne i da się je dodać — sprawdź powód przed wysłaniem do klienta; weto hiring managera blokuje dodanie.",
-    "Plakietka „poniżej minimum — zgoda na telefon” znaczy, że budżet jest niższy niż minimalna stawka kandydata, ale kandydat zgodził się, żeby do niego dzwonić z taką ofertą.",
+    "Budżet i dni w biurze nikogo nie ukrywają — to plakietki: „oczekuje +X% ponad budżet”, „mniej dni w biurze”, „poniżej minimum — zgoda na telefon” (budżet niższy niż minimum kandydata, ale zgodził się na telefon z taką ofertą).",
     "Plakietka „Szuka części etatu” albo „Tylko pełny etat” znaczy, że wymiar pracy z rozmowy nie pasuje do rekrutacji. Osoba zostaje na liście — sprawdź to z nią przed dodaniem."
     ],
     "anchors": [
@@ -211,7 +211,7 @@
       },
       {
         "q": "Czego brakuje, żeby przekazać rekrutację do searchu?",
-        "a": "Zobacz zakładkę „Gotowość” w panelu z prawej: lista braków (rola, must-have, budżet, tryb pracy, opis projektu, pytania screeningowe, wymagania do wyszukiwania). Budżet i tryb pracy uzupełnisz na miejscu. Gdy nic nie brakuje, admin albo Delivery Lead używa „Przekaż do searchu”.",
+        "a": "Zobacz zakładkę „Gotowość” w panelu z prawej: lista braków (rola, must-have, budżet, tryb pracy, opis projektu, pytania screeningowe, wymagania do wyszukiwania, decyzja o umiejętnościach krytycznych). Budżet i tryb pracy uzupełnisz na miejscu. Gdy nic nie brakuje, admin albo Delivery Lead używa „Przekaż do searchu”.",
         "anchor": "job.champion.readiness"
       },
       {
@@ -231,6 +231,7 @@
     ],
     "pitfalls": [
       "Stack MUST z sekcji 3 jest tym, po czym system dopasowuje kandydatów — sama proza w opisie projektu wystarcza gorzej.",
+    "Kandydata z list AI ukrywa tylko brak umiejętności krytycznej (pole „Krytyczne (0–2)” w sekcji 3). Pozostałe MUST i NICE dają punkty. Bez decyzji działa podpowiedź z historii; „Brak krytycznych” znaczy, że MUST nikogo nie ukrywa.",
       "Budżet podany zakresem jest zapisywany jako górna granica stawki godzinowej.",
       "Tytuł w nagłówku to tytuł dla rekrutera: składa się sam z profilu (rola, must-have, lata, dziedzina), dopóki nikt go nie zmieni w „Edytuj rekrutację”. Do klienta idą nazwa i numer od klienta."
     ],

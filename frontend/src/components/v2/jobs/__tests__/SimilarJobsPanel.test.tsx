@@ -125,6 +125,20 @@ describe("Panel „Podobne rekrutacje” — przepięcie jednym kliknięciem", (
     expect(screen.queryByText(/System nie znalazł podobnych rekrutacji/)).toBeNull();
   });
 
+  it("podobieństwo z wektora ma „≈”, zapas leksykalny — sam procent (30.09)", () => {
+    payload = {
+      ...payload,
+      suggestions: [
+        job({ id: 1725, similarity: 72, similarity_kind: "vector" }),
+        job({ id: 1726, similarity: 58, similarity_kind: "lexical" }),
+      ],
+    };
+    renderPanel();
+    expect(screen.getByText("≈ 72%")).toBeTruthy();
+    expect(screen.getByText("58%")).toBeTruthy();
+    expect(screen.queryByText("≈ 58%")).toBeNull();
+  });
+
   it("nic nie jest zaznaczone samo (incydent 23.09)", () => {
     renderPanel();
     expect(screen.getByLabelText("Przepnij z: Analityk 1725")).not.toBeChecked();

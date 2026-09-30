@@ -202,7 +202,9 @@ class Settings(BaseSettings):
     # Podniesienie do 1000 jest bezpieczne dopiero po zbatchowaniu zapytań
     # per-para w scoringu (`build_job_scoring_context`) — bez tego zimna pula
     # 1000 to ~2000 round-tripów do bazy na jedno żądanie.
-    MATCH_POOL_SIZE: int = 1000
+    # 30.09.2026 (decyzja Artura, audyt wyszukiwania): 3000 — przy pomiarze
+    # pula 2000 obcinała osoby wysłane do klienta w szerokich rolach.
+    MATCH_POOL_SIZE: int = 3000
     # Warstwa bez sygnału jest USUWANA z budżetu zamiast dostawać stałą liczbę
     # punktów. Zmierzone na prodzie 2026-08-10, dlaczego to nie jest kosmetyka:
     #   * 90% ofert nie ma `nice_skills` → stara reguła dawała tam WSZYSTKIM 0/10,
@@ -414,6 +416,10 @@ class Settings(BaseSettings):
     # `scoring_service._SCORING_CACHE_INPUTS` (dealbreakery działają PO
     # scoringu, nie zmieniają punktacji, którą cache przechowuje).
     RUBRIC_DEALBREAKERS_ENABLED: bool = True
+    # Bramka must (30.09.2026): `critical` = ukrywają wyłącznie umiejętności
+    # krytyczne (decyzja DL albo podpowiedź z historii, `critical_skills`);
+    # `all` = awaryjny powrót do bramki v8 (każde must-technologia ukrywa).
+    MUST_GATE_MODE: str = "critical"
     # Rozmiar puli trybu semantycznego w RĘCZNEJ wyszukiwarce kandydatów.
     # To jednocześnie SUFIT liczby wyników, którą widzi rekruter, i liczba
     # dokumentów wysyłanych do rerankera Voyage przy KAŻDYM żądaniu strony
@@ -516,8 +522,11 @@ class Settings(BaseSettings):
     # do skrzynki „Propozycje" (źródło `full_base`). False = pętla kończy się
     # przed startem, nic się nie dzieje (stan sprzed 21.09).
     AUTO_FULL_REVIEW_ENABLED: bool = True
-    # audyt 22.09 r2 (PROD-03): 5/noc — przegląd to ~190 MB, 20/noc zapełniało wolumen.
-    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 5
+    # audyt 22.09 r2 (PROD-03): 5/noc — przegląd to ~190 MB, 20/noc zapełniało
+    # wolumen. 30.09.2026 (decyzja Artura): co noc wszystkie rekrutacje w pracy
+    # (~18) — dysk trzyma retencja zastąpionych przeglądów automatycznych
+    # (jeden na rekrutację, ~75 MB; `candidate_search_retention`).
+    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 25
     AUTO_FULL_REVIEW_TOP_K: int = 60
     # Osobny próg, bo pełny przegląd punktuje kanonicznym fitem, a auto-match
     # nowych CV starszym scoringiem — wspólny próg stroiłby dwa różne pomiary.

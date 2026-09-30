@@ -73,6 +73,8 @@ import { cn } from "@/lib/utils";
 import { warsawDateOf } from "@/lib/warsaw-date";
 import { countPl } from "@/lib/plural-pl";
 import { invalidateChampionDependents } from "@/lib/champion-cache";
+import { CriticalSkillsField } from "@/components/champion/CriticalSkillsField";
+import { useCriticalSuggestion } from "@/lib/critical-skills-api";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   CHAMPION_AI_PROVENANCE_LABEL,
@@ -224,6 +226,14 @@ export function ChampionProfileEditor({
     onDirtyChange?.(dirtySections > 0);
   }, [dirtySections, onDirtyChange]);
 
+  // Krytyczne (30.09.2026): podpowiedź i dopuszczalne pozycje dla BIEŻĄCEJ,
+  // jeszcze niezapisanej listy MUST.
+  const criticalSuggestion = useCriticalSuggestion(
+    (draft.stack.must ?? []).map((item) => item.name),
+    draft.basics.role_name ?? data?.job_title ?? "",
+    { enabled: Boolean(data) },
+  );
+
   // Live refresh when another user edits this job's Champion Profile.
   // The WS hook dispatches CHAMPION_PROFILE_CHANGED_EVENT on the window;
   // we invalidate the query and show a subtle banner so the Delivery
@@ -339,6 +349,15 @@ export function ChampionProfileEditor({
     setDraft((d) => ({ ...d, search: { ...d.search, ...patch } }));
   const patchStack = (patch: Partial<ChampionProfile["stack"]>) =>
     setDraft((d) => ({ ...d, stack: { ...d.stack, ...patch } }));
+  // Powrót do „nie zdecydowano” przy profilu, który nigdy nie miał decyzji,
+  // zdejmuje klucz — inaczej licznik niezapisanych zmian widziałby różnicę
+  // między brakiem klucza a `null`, choć to ten sam stan.
+  const setCritical = (next: string[] | null) =>
+    setDraft((d) => {
+      const stack: ChampionStack = { ...d.stack, critical: next };
+      if (next === null && baseline.stack.critical === undefined) delete stack.critical;
+      return { ...d, stack };
+    });
   const patchProject = (patch: Partial<ChampionProfile["project"]>) =>
     setDraft((d) => ({ ...d, project: { ...d.project, ...patch } }));
   const patchClient = (patch: Partial<ChampionProfile["client"]>) =>
@@ -733,6 +752,14 @@ export function ChampionProfileEditor({
             dopiero, gdy je zmienisz.
           </p>
         ) : null}
+        <CriticalSkillsField
+          className="mb-3"
+          must={(draft.stack.must || []).map((item) => item.name)}
+          value={draft.stack.critical ?? null}
+          onChange={setCritical}
+          suggestion={criticalSuggestion}
+          disabled={disabled}
+        />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <StackField
             label={`Musi mieć · ${(draft.stack.must || []).length}`}

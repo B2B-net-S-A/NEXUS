@@ -61,6 +61,31 @@ export function proposalFactsLine(facts: ProposalFacts | null | undefined, now: 
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
+/** Po ilu latach CV dostaje ton ostrzegawczy („CV może być nieaktualne”). */
+export const CV_STALE_YEARS = 2;
+
+export interface CvYearBadge {
+  label: string;
+  stale: boolean;
+}
+
+/**
+ * Plakietka „CV z 2023” z daty wgrania głównego CV. Bez prawdziwej daty —
+ * nic (nie zgadujemy z dnia importu). Starsze niż 2 lata = ostrzeżenie.
+ */
+export function cvYearBadge(
+  cvUploadedOn: string | null | undefined,
+  now: Date = new Date(),
+): CvYearBadge | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(cvUploadedOn?.trim() ?? "");
+  if (!match) return null;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  if (!year || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const staleBefore = new Date(now.getFullYear() - CV_STALE_YEARS, now.getMonth(), now.getDate());
+  const uploaded = new Date(year, month - 1, day);
+  return { label: `CV z ${year}`, stale: uploaded < staleBefore };
+}
+
 const OUTCOME_SUFFIX: Record<string, string> = {
   rejected: " (odrzucony/a)",
   withdrawn: " (zrezygnował/a)",

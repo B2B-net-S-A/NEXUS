@@ -47,7 +47,7 @@ describe("ProposalPanel", () => {
   it("pokazuje powód, wymagania ze statusami, stawkę wobec budżetu i powrót po pominięciu", () => {
     renderPanel();
     expect(screen.getByText("Spełnia: Java")).toBeInTheDocument();
-    expect(screen.getByText(/170 zł\/h \/ budżet 150,00 PLN\/h — ponad budżet/)).toBeInTheDocument();
+    expect(screen.getByText(/170 zł\/h \/ budżet 150,00 PLN\/h — oczekuje \+13% ponad budżet/)).toBeInTheDocument();
     expect(screen.getByText(/Wcześniej pominięta/)).toBeInTheDocument();
     expect(screen.getByText("Dopasowanie: 91")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Zweryfikuj wymaganie/ })).toBeInTheDocument();
