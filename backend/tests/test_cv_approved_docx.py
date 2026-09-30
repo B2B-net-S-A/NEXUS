@@ -29,10 +29,17 @@ def test_editor_text_bolding_and_nested_order_are_preserved():
     paragraphs = [p.text for p in doc.paragraphs]
     assert "Alpha Beta" in paragraphs
     assert (
-        paragraphs.index("• Przed")
-        < paragraphs.index("• Zagnieżdżone")
+        paragraphs.index("Przed")
+        < paragraphs.index("Zagnieżdżone")
         < paragraphs.index("Po")
     )
+    # Pozycje listy to punktory szablonu (lista Worda), nie wpisane „• ".
+    levels = {
+        p.text: p._p.pPr.numPr.ilvl.val
+        for p in doc.paragraphs
+        if p.text in {"Przed", "Zagnieżdżone"}
+    }
+    assert levels == {"Przed": 0, "Zagnieżdżone": 1}
     narrative = next(p for p in doc.paragraphs if p.text.startswith("Python"))
     assert narrative.text == "Python FastAPI oraz pytest. Bez AWS."
     assert [r.text for r in narrative.runs if r.bold] == ["FastAPI"]
@@ -65,17 +72,20 @@ def test_table_text_and_cell_merges_are_preserved():
     assert table.cell(1, 1).text == "123"
 
 
-def test_consent_style_survives_editor_serialization_without_rewriting_text():
+def test_consent_clause_is_pinned_like_the_generator_without_rewriting_text():
     clean = sanitize_cv_html(
         '<h1>Audyt Testowy</h1><p data-cv-section="rodo">Moja treść zgody.</p>'
     )
     doc = Document(BytesIO(render_approved_docx(clean, default_template())))
     assert doc.paragraphs[0].text == "Audyt Testowy"
     assert doc.paragraphs[0].style.font.all_caps is False
-    paragraph = doc.paragraphs[1]
-    assert paragraph.text == "Moja treść zgody."
-    assert paragraph.style.font.size.pt == 7
-    assert paragraph.style.paragraph_format.keep_together
+    # Klauzula stoi w ramce przypiętej do dołu ostatniej strony — jak w CV
+    # z generatora — a nie w treści, gdzie wisiała w połowie strony.
+    assert "Moja treść zgody." not in [p.text for p in doc.paragraphs]
+    boxes = doc.element.body.xpath(".//*[local-name()='txbxContent']")
+    assert [
+        "".join(box.xpath(".//*[local-name()='t']/text()")) for box in boxes
+    ] == ["Moja treść zgody."]
 
 
 def test_overlapping_table_spans_are_rejected_instead_of_losing_text():
@@ -137,7 +147,7 @@ async def test_approval_freezes_actual_edits_and_download_never_rerenders(monkey
     assert [p.text for p in doc.paragraphs] == [
         "Poprawione Python, bez dopisanej kompetencji."
     ]
-    assert version.render_metadata["renderer_version"] == "approved-html-1"
+    assert version.render_metadata["renderer_version"] == "approved-html-2"
     csv.branded_draft_html = "<p>Późniejsze poprawki</p>"
     csv.branded_version = 2
     csv.branded_status = "draft"
