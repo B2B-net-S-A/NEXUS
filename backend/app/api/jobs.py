@@ -16,6 +16,7 @@ from fastapi import (
     status,
 )
 from fastapi.concurrency import run_in_threadpool
+from pydantic import Field
 from sqlalchemy import (
     and_,
     case,
@@ -160,6 +161,12 @@ from app.models.proposal_snapshot import SOURCE_HANDOFF
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
+
+# Postgres INTEGER (int4) upper bound. Id filters bound against int4 columns
+# must stay within this range, otherwise asyncpg raises OverflowError while
+# encoding the parameter and the request fails with a 500 instead of a 422.
+PG_INT4_MAX = 2_147_483_647
+DbId = Annotated[int, Field(ge=1, le=PG_INT4_MAX)]
 
 
 # GET-only recruitment history/Champion surfaces. Finance gains organization-
@@ -967,7 +974,7 @@ async def list_jobs(
             "(`needs_action_count` DESC), then overdue deadlines, then deadline."
         ),
     ),
-    client_id: Optional[list[int]] = Query(
+    client_id: Optional[list[DbId]] = Query(
         None,
         description=(
             "Filter by client id — one or more ids. Repeat the param for "
@@ -976,14 +983,14 @@ async def list_jobs(
         ),
     ),
     q: Optional[str] = None,
-    owner_id: Optional[list[int]] = Query(
+    owner_id: Optional[list[DbId]] = Query(
         None,
         description=(
             "Filter by primary_owner user id (recruiter_id) — one or more ids. "
             "Repeat the param for multi-select. OR-combined."
         ),
     ),
-    responsible_id: Optional[list[int]] = Query(
+    responsible_id: Optional[list[DbId]] = Query(
         None,
         description=(
             "Filter by responsible person ('Osoba odpowiedzialna') — matches if "
@@ -992,7 +999,7 @@ async def list_jobs(
             "the two responsibility roles."
         ),
     ),
-    competence_category_id: Optional[list[int]] = Query(
+    competence_category_id: Optional[list[DbId]] = Query(
         None,
         description=(
             "Filter by primary Competence Category id — one or more ids. Repeat "
@@ -1051,7 +1058,7 @@ async def list_jobs(
             "job owner and collaborators."
         ),
     ),
-    delivery_lead_id: Optional[list[int]] = Query(
+    delivery_lead_id: Optional[list[DbId]] = Query(
         None,
         description=(
             "Filter by Job.delivery_lead_id — one or more user ids (repeat the "
@@ -1062,6 +1069,7 @@ async def list_jobs(
     min_sent: Optional[int] = Query(
         None,
         ge=0,
+        le=PG_INT4_MAX,
         description=(
             "Only jobs where AT LEAST this many people (distinct candidates) "
             "reached 'CV wysłane' or a later client-side stage "
@@ -1070,6 +1078,7 @@ async def list_jobs(
     ),
     max_sent: Optional[int] = Query(
         None,
+        le=PG_INT4_MAX,
         ge=0,
         description=(
             "Only jobs where AT MOST this many people reached 'CV wysłane' or "
@@ -1102,7 +1111,7 @@ async def list_jobs(
             "łączony przez LUB."
         ),
     ),
-    worked_by: Optional[list[int]] = Query(
+    worked_by: Optional[list[DbId]] = Query(
         None,
         description=(
             "„Kto pracuje” — id osób z żywym przypisaniem do requestu "
