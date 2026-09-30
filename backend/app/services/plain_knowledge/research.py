@@ -41,7 +41,10 @@ KIND_LABELS = {
 INSTRUCTIONS = {
     "term": (
         "Ustal: czym to jest, do czego się tego używa w firmach, jak to się nazywa "
-        "w CV (inne nazwy, wersje, produkty pokrewne) i z czym łatwo to pomylić."
+        "w CV (inne nazwy, wersje, produkty pokrewne) i z czym łatwo to pomylić. "
+        "Gdy nazwa ma kilka znaczeń, opisz WYŁĄCZNIE znaczenie z branży IT "
+        "(oprogramowanie, platforma, narzędzie, standard). Research 29.09 opisał "
+        "„Ferryt” (platformę low-code dla banków) jako materiał z metalurgii."
     ),
     "role": (
         "Ustal: czym zajmuje się osoba na tym stanowisku, jak wygląda jej zwykły dzień "

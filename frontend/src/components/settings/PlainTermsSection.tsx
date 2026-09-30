@@ -40,8 +40,9 @@ const SCOPES: { id: PlainTermScope; label: string }[] = [
 ];
 
 const ORIGIN_LABEL: Record<string, string> = {
-  seed: "dodane automatycznie",
-  ai: "opis z internetu",
+  // „seed” = baza startowa z researchu w internecie, „ai” = research przy nowej rekrutacji.
+  seed: "opis z internetu",
+  ai: "dodane automatycznie",
   manual: "poprawione ręcznie",
 };
 
@@ -187,6 +188,7 @@ export function PlainTermsSection() {
   const debounced = useDebouncedValue(search.trim(), 300);
   const query = usePlainTerms({ q: debounced, scope });
   const items = query.data?.items ?? [];
+  const total = query.data?.total ?? items.length;
   const state = resolveViewState({
     isLoading: query.isLoading,
     isError: query.isError,
@@ -244,7 +246,11 @@ export function PlainTermsSection() {
       ) : null}
       {state === "ready" ? (
         <>
-          <p className="text-sm text-muted-foreground">{countPl(items.length, "hasło", "hasła", "haseł")}</p>
+          <p className="text-sm text-muted-foreground">
+            {total > items.length
+              ? `Pokazano ${items.length} z ${countPl(total, "hasła", "haseł", "haseł")} — zawęź wyszukiwaniem.`
+              : countPl(items.length, "hasło", "hasła", "haseł")}
+          </p>
           <ul className="divide-y divide-border rounded-xl border border-border text-sm">
             {items.map((term) => (
               <TermRow key={term.id} term={term} />

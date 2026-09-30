@@ -58,6 +58,31 @@ _POLISH_COMMON = frozenset(
 )
 
 
+# Pojedyncze angielskie słowa ogólne z list must: research 30.09 opisał
+# „Optimization”. Hasło z bazy startowej i słownika wygrywa (sprawdzane wcześniej).
+_ENGLISH_GENERIC = frozenset(
+    {
+        "analysis",
+        "communication",
+        "debugging",
+        "design",
+        "development",
+        "documentation",
+        "integration",
+        "leadership",
+        "maintenance",
+        "optimisation",
+        "optimization",
+        "performance",
+        "reporting",
+        "support",
+        "teamwork",
+        "testing",
+        "troubleshooting",
+    }
+)
+
+
 def _polish_word(word: str, in_phrase: bool) -> bool:
     if any(ch.isupper() for ch in word[1:]):  # „RedMine”, „SoapUI”, „SIEM”
         return False
@@ -72,6 +97,8 @@ def _polish_word(word: str, in_phrase: bool) -> bool:
 
 def _generic_phrase(clean: str) -> bool:
     if clean == clean.lower() and not re.search(r"[\d#+.]", clean):
+        return True
+    if clean.casefold() in _ENGLISH_GENERIC:
         return True
     words = [w for w in clean.split(" ") if w[:1].isalpha()]
     return bool(words) and all(_polish_word(w, len(words) > 1) for w in words)

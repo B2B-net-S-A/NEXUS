@@ -264,6 +264,24 @@ class Grounding:
         return " ".join(kept).strip() or None
 
 
+def rate_sentence(inputs: dict[str, Any]) -> Optional[str]:
+    """Stawka z profilu słowami — liczy ją kod, nie model (model gubił ją 29.09)."""
+    budget = inputs.get("budget_pln_hourly_b2b_net")
+    if not budget:
+        return None
+    return f"Do {budget} zł netto za godzinę na B2B."
+
+
+def _with_rate(pitch: Optional[str], inputs: dict[str, Any]) -> Optional[str]:
+    """Tekst na start zawsze mówi stawkę, gdy profil ją zna (decyzja 29.09.2026)."""
+    sentence = rate_sentence(inputs)
+    if not pitch or not sentence:
+        return pitch
+    if str(inputs["budget_pln_hourly_b2b_net"]) in _numbers(pitch):
+        return pitch
+    return f"{pitch} Umowa B2B do {inputs['budget_pln_hourly_b2b_net']} zł netto za godzinę."
+
+
 def shape_output(raw: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     """Wynik modelu → pola tabeli, po kontroli ugruntowania. Czysta funkcja."""
     data = raw if isinstance(raw, dict) else {}
@@ -272,8 +290,8 @@ def shape_output(raw: Any, inputs: dict[str, Any]) -> dict[str, Any]:
     qa: list[dict[str, Any]] = []
     for key, question in CANDIDATE_QUESTIONS:
         answer = g.clean(answers.get(key), 600)
-        if key == "rate" and not inputs.get("budget_pln_hourly_b2b_net"):
-            answer = None
+        if key == "rate":
+            answer = rate_sentence(inputs)
         if key == "client" and not inputs.get("client"):
             answer = None
         qa.append(
@@ -327,7 +345,7 @@ def shape_output(raw: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         "one_liner": g.clean(data.get("one_liner"), 400),
         "example": g.clean(data.get("example"), 600),
         "day_to_day": day,
-        "pitch": g.clean(data.get("pitch"), 1200),
+        "pitch": _with_rate(g.clean(data.get("pitch"), 1200), inputs),
         "candidate_qa": qa,
         "screening_plain": screening,
         "term_notes": term_notes,

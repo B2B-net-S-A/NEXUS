@@ -34,8 +34,9 @@ import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
 export const ROLE_ORIGIN_LABEL: Record<PlainOrigin, string> = {
-  seed: "dodana automatycznie",
-  ai: "opis z internetu",
+  // „seed” = baza startowa z researchu w internecie, „ai” = research przy nowej rekrutacji.
+  seed: "opis z internetu",
+  ai: "dodana automatycznie",
   manual: "poprawiona ręcznie",
 };
 

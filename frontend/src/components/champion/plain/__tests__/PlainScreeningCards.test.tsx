@@ -2,7 +2,7 @@
  * „Jak rozpoznać dobrego kandydata”: warunki z profilu po ludzku. Bez powodu
  * odrzucenia w profilu nie ma wiersza „Odpada, gdy” — AI nie dopisuje warunków.
  */
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { PlainScreeningCards } from "@/components/champion/plain/PlainScreeningCards";
@@ -53,5 +53,13 @@ describe("PlainScreeningCards", () => {
   it("pusta lista nic nie renderuje", () => {
     const { container } = render(<PlainScreeningCards items={[]} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("pokazuje 3 pytania, resztę za „Pokaż wszystkie”", () => {
+    const five = Array.from({ length: 5 }, (_, i) => ({ ...ITEMS[0], question_id: `q${i}`, question: `Pytanie ${i + 1}` }));
+    render(<PlainScreeningCards items={five} />);
+    expect(screen.getAllByTestId("plain-screening-card")).toHaveLength(3);
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż wszystkie pytania (5)" }));
+    expect(screen.getAllByTestId("plain-screening-card")).toHaveLength(5);
   });
 });

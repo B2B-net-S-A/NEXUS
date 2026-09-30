@@ -263,7 +263,7 @@ export const plainKnowledgeApi = {
     api.put<RoleProfileDetail>(`/api/role-profiles/${id}`, payload).then((r) => r.data),
   terms: (params: { q?: string; scope?: PlainTermScope }) =>
     api
-      .get<{ items: PlainTerm[] }>("/api/skills-admin/plain-terms", {
+      .get<{ items: PlainTerm[]; total?: number }>("/api/skills-admin/plain-terms", {
         params: { q: params.q || undefined, scope: params.scope ?? "all" },
       })
       .then((r) => r.data),

@@ -255,13 +255,16 @@ async def list_plain_terms(
     elif scope == "outside":
         stmt = stmt.where(~in_dict)
     rows = (await db.execute(stmt.order_by(PlainTerm.display_name).limit(limit))).all()
+    # Lista jest przycinana limitem — bez sumy „100 haseł” czytało się jak cała baza.
+    total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
     return {
+        "total": int(total or 0),
         "items": [
             library.term_row_payload(
                 row, in_dictionary=bool(flag), updated_by_name=name
             )
             for row, flag, name in rows
-        ]
+        ],
     }
 
 

@@ -25,6 +25,12 @@ from app.services.plain_knowledge import job_brief, knowledge, role_matcher
 logger = logging.getLogger(__name__)
 
 MIN_HIRES_FOR_TITLES = 3
+# Stanowisko pokazujemy, gdy dzieli je co najmniej dwóch zatrudnionych. Na
+# produkcji 29.09 większość zatrudnionych nie miała stanowiska w profilu,
+# a pojedyncze tytuły („Cloud System Engineer…” przy testerze) wybierał remis.
+MIN_PEOPLE_PER_TITLE = 2
+# Makieta: 1–3 linki do źródeł; research zapisuje ich więcej.
+MAX_SOURCES = 3
 
 
 def _sources(value: Any) -> list[dict[str, str]]:
@@ -37,7 +43,7 @@ def _sources(value: Any) -> list[dict[str, str]]:
                     "title": str(item.get("title") or item["url"])[:200],
                 }
             )
-    return out[:8]
+    return out[:MAX_SOURCES]
 
 
 async def _client_and_playbook(
@@ -77,6 +83,21 @@ async def _category_slug(db: AsyncSession, job: Job) -> Optional[str]:
     )
 
 
+def top_hired_titles(titles: list[Optional[str]]) -> list[dict[str, Any]]:
+    """Najczęstsze stanowiska zatrudnionych — tylko wspólne dla ≥ 2 osób."""
+    if len(titles) < MIN_HIRES_FOR_TITLES:
+        return []
+    counts: dict[str, int] = {}
+    for title in titles:
+        if title:
+            counts[title[:80]] = counts.get(title[:80], 0) + 1
+    return [
+        {"title": t, "count": n}
+        for t, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        if n >= MIN_PEOPLE_PER_TITLE
+    ][:3]
+
+
 async def role_stats(db: AsyncSession, role_id: int) -> dict[str, Any]:
     """Liczby z historii NEXUSA dla roli — BEZ stawek (decyzja 29.09.2026)."""
     jobs, clients = (
@@ -101,21 +122,11 @@ async def role_stats(db: AsyncSession, role_id: int) -> dict[str, Any]:
         )
     ).all()
     hires = len(hired_rows)
-    titles: list[dict[str, Any]] = []
-    if hires >= MIN_HIRES_FOR_TITLES:
-        counts: dict[str, int] = {}
-        for (title,) in hired_rows:
-            if title:
-                counts[title[:80]] = counts.get(title[:80], 0) + 1
-        titles = [
-            {"title": t, "count": n}
-            for t, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:3]
-        ]
     return {
         "jobs": int(jobs or 0),
         "clients": int(clients or 0),
         "hires": hires,
-        "hired_titles": titles,
+        "hired_titles": top_hired_titles([t for (t,) in hired_rows]),
     }
 
 

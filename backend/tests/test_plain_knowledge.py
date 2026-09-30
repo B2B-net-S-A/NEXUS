@@ -70,7 +70,33 @@ def test_sentence_with_a_number_outside_the_profile_is_dropped() -> None:
     assert out["pitch"] == "Projekt w Banku Testowym, do 170 zł netto na B2B."
     qa = {q["key"]: q for q in out["candidate_qa"]}
     assert qa["team"]["answer"] is None and qa["team"]["source"] is None
-    assert qa["rate"]["answer"] == "Do 170 zł/h netto."
+    assert qa["rate"]["answer"] == "Do 170 zł netto za godzinę na B2B."
+
+
+def test_rate_comes_from_the_profile_even_when_the_model_omits_it() -> None:
+    """Prod 29.09: model zwracał ``rate: null`` przy budżecie 150 zł/h."""
+    raw = {
+        "one_liner": "Szukamy programisty Javy.",
+        "pitch": "Projekt w Banku Testowym. Praca hybrydowa w Warszawie.",
+        "answers": {"rate": None},
+    }
+    out = job_brief.shape_output(raw, _inputs())
+    qa = {q["key"]: q for q in out["candidate_qa"]}
+    assert qa["rate"]["answer"] == "Do 170 zł netto za godzinę na B2B."
+    assert qa["rate"]["source"] == "sekcja 1"
+    assert out["pitch"].endswith("Umowa B2B do 170 zł netto za godzinę.")
+
+
+def test_pitch_that_already_names_the_rate_is_not_extended() -> None:
+    raw = {"one_liner": "x", "pitch": "Umowa B2B, do 170 zł netto za godzinę."}
+    out = job_brief.shape_output(raw, _inputs())
+    assert out["pitch"] == "Umowa B2B, do 170 zł netto za godzinę."
+
+
+def test_pitch_without_a_budget_gets_no_rate() -> None:
+    raw = {"one_liner": "x", "pitch": "Projekt w Banku Testowym."}
+    out = job_brief.shape_output(raw, _inputs(budget_pln_hourly_b2b_net=None))
+    assert out["pitch"] == "Projekt w Banku Testowym."
 
 
 def test_rate_answer_is_empty_without_a_budget_and_client_without_a_client() -> None:
@@ -138,6 +164,9 @@ def test_glossary_skips_plain_polish_words_but_keeps_tools_and_jargon() -> None:
         "Dokumentacja",
         "Testy manualne",
         "Płatności",
+        "Optimization",
+        "Documentation",
+        "Testing",
     ):
         assert not knowledge.researchable_term(generic), generic
     for jargon in (
@@ -151,6 +180,8 @@ def test_glossary_skips_plain_polish_words_but_keeps_tools_and_jargon() -> None:
         "Treasury",
         "Core banking",
         "ISTQB",
+        "Performance testing",
+        "Fraud Management",
     ):
         assert knowledge.researchable_term(jargon), jargon
 
@@ -830,3 +861,29 @@ def test_seed_drops_sources_with_key_shaped_urls() -> None:
         {"url": "https://example.org/devops"},
     ]
     assert keep(sources) == [{"url": "https://example.org/devops"}]
+
+
+def test_hired_titles_skip_titles_held_by_a_single_person() -> None:
+    """Prod 29.09: 74 z 80 zatrudnionych testerów bez stanowiska, pozostałe po 1 —
+    pokazywaliśmy wtedy „Cloud System Engineer…” jako „najczęstsze”."""
+    from app.services.plain_knowledge.view import top_hired_titles
+
+    one_each = [None] * 74 + ["Cloud System Engineer", "Test Automation Engineer"]
+    assert top_hired_titles(one_each) == []
+    shared = ["QA Engineer", "QA Engineer", "Tester", "Tester", "Tester", "Solo"]
+    assert top_hired_titles(shared) == [
+        {"title": "Tester", "count": 3},
+        {"title": "QA Engineer", "count": 2},
+    ]
+    assert top_hired_titles(["QA", "QA"]) == [], "mniej niż 3 zatrudnionych"
+
+
+def test_view_keeps_at_most_three_sources() -> None:
+    from app.services.plain_knowledge.view import _sources
+
+    many = [{"url": f"https://example.com/{i}", "title": str(i)} for i in range(8)]
+    assert [s["url"] for s in _sources(many)] == [
+        "https://example.com/0",
+        "https://example.com/1",
+        "https://example.com/2",
+    ]
