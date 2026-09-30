@@ -5,6 +5,7 @@ import type { OrderGroupRead, OrderLineRead } from "@/lib/api/orderGroups";
 
 import {
   buildSectionRows,
+  buildSectionTiles,
   findGroup,
   findLine,
   groupRoster,
@@ -186,6 +187,32 @@ describe("buildSectionRows", () => {
     expect(buildSectionRows([{ kind: "contractor", contractor }], { expandedEnded: new Set(), collapsedEnded: new Set() })).toEqual([
       { kind: "contractor", key: "c:466", contractor },
     ]);
+  });
+});
+
+describe("buildSectionTiles (ticket 11)", () => {
+  it("każde zamówienie to kafelek z obsadą, „Zakończonymi” i przedłużeniem; kontraktor osobno", () => {
+    const future = group(31, [line({ id: 9 })], { order_number: "4500031" });
+    const first = group(30, [line(), ENDED_DONE], { future_orders: [future] });
+    const second = group(40, [line({ id: 11 })]);
+    const contractor = { contract_id: 466 } as ContractWithOrdersRead;
+    const rows = buildSectionRows(
+      [
+        { kind: "group", group: first },
+        { kind: "contractor", contractor },
+        { kind: "group", group: second },
+      ],
+      { expandedEnded: new Set(), collapsedEnded: new Set() },
+    );
+    const tiles = buildSectionTiles(rows);
+    expect(tiles.map((tile) => tile.key)).toEqual(["g:30", "c:466", "g:40"]);
+    expect(tiles[0].header?.group.id).toBe(30);
+    expect(tiles[0].rows.map((row) => row.key)).toEqual(["l:1", "e:30", "g:31"]);
+    expect(tiles[1].header).toBeNull();
+    expect(tiles[1].rows.map((row) => row.key)).toEqual(["c:466"]);
+    expect(tiles[2].rows.map((row) => row.key)).toEqual(["l:11"]);
+    // Nic nie ginie: wiersze kafelków to dokładnie wiersze sekcji.
+    expect(tiles.flatMap((tile) => [tile.header, ...tile.rows]).filter(Boolean)).toHaveLength(rows.length);
   });
 });
 

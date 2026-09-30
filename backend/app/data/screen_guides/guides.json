@@ -446,7 +446,7 @@
     "title": "Zamówienia klienta",
     "section": "delivery",
     "roles": ["delivery_lead", "finance", "admin"],
-    "what": "Tu masz wszystkie zamówienia klienta — okresowe, kosztowe i MD — w jednej tabeli. Kliknij wiersz, a po prawej otworzy się panel ze szczegółami i akcjami.",
+    "what": "Tu masz wszystkie zamówienia klienta — okresowe w tabeli, a każde zamówienie MD i kosztowe w osobnym kafelku. Kliknij wiersz, a po prawej otworzy się panel ze szczegółami i akcjami.",
     "tasks": [
       {
         "q": "Jak dodać zamówienie z PDF-a od klienta?",
@@ -487,7 +487,7 @@
       },
       {"id": "client.orders.pills", "label": "Aktywne / Bez kontynuacji / Zakończeni", "describe": "Pigułki stanu zamówień z licznikami."},
       {"id": "client.orders.search", "label": "Wyszukiwanie i eksport", "describe": "Szukanie po numerze i nazwisku, filtry i eksport."},
-      {"id": "client.orders.table", "label": "Tabela zamówień", "describe": "Zamówienia i osoby w wierszach; kliknięcie wiersza otwiera po prawej panel ze szczegółami i akcjami."}
+      {"id": "client.orders.table", "label": "Tabela zamówień", "describe": "Kafelki zamówień MD i kosztowych oraz tabela okresowych; kliknięcie wiersza otwiera po prawej panel ze szczegółami i akcjami."}
     ],
     "help_slug": "zamowienia-instrukcja-delivery-lead",
     "sources": [

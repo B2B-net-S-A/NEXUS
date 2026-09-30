@@ -1,9 +1,9 @@
 {
-  "entry": "f99dd62ea22a92f1b05ba935073de5ec03d3ed9bd4387af1e8cb2f9769f63598",
+  "entry": "c02de3e521ff4892929f5e2fd9e01a4e154ea56f95476e741b84f0fb94f0f310",
   "guide": "client.orders",
   "sources": {
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "a5158418479051f179f870c946fbcb518e38cc4bdf555dc416e93c4718fbbf6d",
-    "frontend/src/components/client-profile/orders/OrderLinePanel.tsx": "20b796a3c17bc13342524239df319216ccc0c12761b96e231fee51366d194eb2",
-    "frontend/src/components/client-profile/orders/OrdersTable.tsx": "e1097e09d4fb149ab94f35add981627feb0436b2dbf91deda9bb265e292994d1"
+    "frontend/src/components/client-profile/orders/OrderLinePanel.tsx": "f052cda959c8a13a37422f86dffcb0645f89cfef30fc98ebb92cebc533bfe21e",
+    "frontend/src/components/client-profile/orders/OrdersTable.tsx": "5f8c283596d9d2a5a98463e0d7938b045bfb19a0c80fd72afd90c611eac9c5b9"
   }
 }

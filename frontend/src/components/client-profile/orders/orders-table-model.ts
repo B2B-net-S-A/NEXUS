@@ -138,6 +138,34 @@ export function buildSectionRows(
   return rows;
 }
 
+/** Kafelek sekcji MD / kosztowej (ticket 11, 30.09.2026): zamówienie z obsadą,
+ *  „Zakończonymi" i przedłużeniami albo kontraktor z pojedynczym zamówieniem. */
+export interface OrdersTableTile {
+  key: string;
+  /** Wiersz zamówienia — nagłówek kafelka; `null` dla kafelka kontraktora. */
+  header: Extract<OrdersTableRow, { kind: "group" }> | null;
+  rows: OrdersTableRow[];
+}
+
+/** Dzieli płaskie wiersze sekcji na kafelki: każdy wiersz zamówienia otwiera
+ *  nowy kafelek, kontraktor jest kafelkiem sam dla siebie, reszta (osoby,
+ *  „Zakończone", przedłużenia) należy do bieżącego zamówienia. */
+export function buildSectionTiles(rows: readonly OrdersTableRow[]): OrdersTableTile[] {
+  const tiles: OrdersTableTile[] = [];
+  for (const row of rows) {
+    if (row.kind === "group") {
+      tiles.push({ key: row.key, header: row, rows: [] });
+    } else if (row.kind === "contractor") {
+      tiles.push({ key: row.key, header: null, rows: [row] });
+    } else {
+      const current = tiles[tiles.length - 1];
+      if (current) current.rows.push(row);
+      else tiles.push({ key: row.key, header: null, rows: [row] });
+    }
+  }
+  return tiles;
+}
+
 /** Klucze wierszy, które można zaznaczyć (↑/↓), w kolejności tabeli. */
 export function selectableKeys(sections: readonly OrdersTableSection[]): string[] {
   return sections.flatMap((section) =>

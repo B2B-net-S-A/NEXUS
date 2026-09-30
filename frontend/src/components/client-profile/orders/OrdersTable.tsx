@@ -28,7 +28,12 @@ import { OrderTypeBadge, orderTypeLabel } from "./OrderTypeBadge";
 import { contractorRowSummary } from "./contractor-order-row";
 import { displayLineRate, orderLineAnchorId } from "./order-line-display";
 import { executiveContractLabel, orderGroupAnchorId, periodLabel, STATUS_BADGE } from "./order-group-parts";
-import { perPersonMdTotals, type OrdersTableRow, type OrdersTableSection } from "./orders-table-model";
+import {
+  buildSectionTiles,
+  perPersonMdTotals,
+  type OrdersTableRow,
+  type OrdersTableSection,
+} from "./orders-table-model";
 
 /** Zakładka panelu linii otwierana wprost z tabeli (np. przycisk „Zużycie"). */
 export type LinePanelTab = "zuzycie" | "szczegoly" | "historia";
@@ -131,7 +136,6 @@ function lineBadge(group: OrderGroupRead, line: OrderLineRead): { label: string;
   if (line.status === "draft" && group.status !== "draft") return { label: "Draft — uzupełnij", tone: "mut" };
   if (line.assignment_kind === "takeover") return { label: "Zastępstwo", tone: "mut" };
   if (line.assignment_kind === "join") return { label: "Dołączona", tone: "mut" };
-  if (line.origin === "manual") return { label: "Dodany ręcznie", tone: "warn" };
   return null;
 }
 
@@ -179,6 +183,20 @@ export function OrdersTable({
     <div className="flex flex-col gap-4" data-orders-table data-help="client.orders.table">
       {sections.map((section) => {
         const periodic = section.type === "periodic";
+        const renderRow = (row: OrdersTableRow) => (
+          <OrdersTableRowView
+            key={row.key}
+            row={row}
+            selected={row.key === selectedKey}
+            onSelect={onSelect}
+            onToggleEnded={onToggleEnded}
+            searchHit={hit}
+            canDecide={canDecide}
+            canManage={canManage}
+            canViewFinance={canViewFinance}
+            periodicColumns={periodic}
+          />
+        );
         return (
           <section key={section.type} aria-labelledby={`orders-${section.type}-heading`} className="min-w-0">
             <h3
@@ -187,49 +205,65 @@ export function OrdersTable({
             >
               {orderTypeLabel(section.type)} ({section.itemCount})
             </h3>
-            <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
-              <table className="w-full min-w-[760px] border-collapse text-sm tabular-nums">
-                <thead>
-                  <tr className="border-b border-border bg-muted/50 text-left text-xs font-medium text-muted-foreground">
-                    {periodic ? (
-                      <>
-                        <th className="sticky left-0 z-[1] bg-muted px-2 py-1.5 font-medium">Konsultant</th>
-                        <th className="px-2 py-1.5 font-medium">Nr zamówienia</th>
-                        <th className="px-2 py-1.5 font-medium">Okres</th>
-                        <th className="px-2 py-1.5 text-right font-medium">Koszt</th>
-                        <th className="px-2 py-1.5 text-right font-medium">Przychód</th>
-                        <th className="px-2 py-1.5 font-medium">Stan</th>
-                      </>
-                    ) : (
-                      <>
-                        <th className="sticky left-0 z-[1] bg-muted px-2 py-1.5 font-medium">Zamówienie · konsultant</th>
-                        <th className="px-2 py-1.5 text-right font-medium">Koszt</th>
-                        <th className="px-2 py-1.5 text-right font-medium">Przychód</th>
-                        <th className="px-2 py-1.5 font-medium">{section.type === "cost" ? "Budżet" : "Zostało MD"}</th>
-                        <th className="px-2 py-1.5 font-medium">Zużycie</th>
-                        <th className="px-2 py-1.5 font-medium">Uwagi</th>
-                      </>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {section.rows.map((row) => (
-                    <OrdersTableRowView
-                      key={row.key}
-                      row={row}
-                      selected={row.key === selectedKey}
-                      onSelect={onSelect}
-                      onToggleEnded={onToggleEnded}
-                      searchHit={hit}
-                      canDecide={canDecide}
-                      canManage={canManage}
-                      canViewFinance={canViewFinance}
-                      periodicColumns={periodic}
-                    />
+            {periodic ? (
+              <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
+                <table className="w-full min-w-[760px] border-collapse text-sm tabular-nums">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/50 text-left text-xs font-medium text-muted-foreground">
+                      <th className="sticky left-0 z-[1] bg-muted px-2 py-1.5 font-medium">Konsultant</th>
+                      <th className="px-2 py-1.5 font-medium">Nr zamówienia</th>
+                      <th className="px-2 py-1.5 font-medium">Okres</th>
+                      <th className="px-2 py-1.5 text-right font-medium">Koszt</th>
+                      <th className="px-2 py-1.5 text-right font-medium">Przychód</th>
+                      <th className="px-2 py-1.5 font-medium">Stan</th>
+                    </tr>
+                  </thead>
+                  <tbody>{section.rows.map(renderRow)}</tbody>
+                </table>
+              </div>
+            ) : (
+              // Ticket 11: każde zamówienie MD / kosztowe to osobny kafelek.
+              // Wspólny przewijany kontener i `table-fixed` z tym samym
+              // <colgroup> trzymają kolumny w jednej linii we wszystkich kafelkach.
+              <div className="relative overflow-x-auto">
+                <div className="flex min-w-[940px] flex-col gap-3 pb-0.5">
+                  {buildSectionTiles(section.rows).map((tile) => (
+                    <div
+                      key={tile.key}
+                      data-order-tile={tile.header ? "group" : "contractor"}
+                      className="overflow-clip rounded-lg border border-border bg-card shadow-sm"
+                    >
+                      <table className="w-full table-fixed border-collapse text-sm tabular-nums">
+                        <colgroup>
+                          <col className="w-[26%]" />
+                          <col className="w-[7rem]" />
+                          <col className="w-[7rem]" />
+                          <col className="w-[11.5rem]" />
+                          <col className="w-[10.5rem]" />
+                          <col />
+                        </colgroup>
+                        <thead>
+                          {tile.header ? renderRow(tile.header) : null}
+                          <tr className="border-b border-border bg-card text-left text-[11px] font-medium text-muted-foreground">
+                            <th scope="col" className="sticky left-0 z-[1] bg-card px-2 py-1 font-medium">
+                              {tile.header ? "Konsultant" : "Kontraktor"}
+                            </th>
+                            <th scope="col" className="px-2 py-1 text-right font-medium">Koszt</th>
+                            <th scope="col" className="px-2 py-1 text-right font-medium">Przychód</th>
+                            <th scope="col" className="px-2 py-1 font-medium">
+                              {section.type === "cost" ? "Budżet" : "Zostało MD"}
+                            </th>
+                            <th scope="col" className="px-2 py-1 font-medium">Zużycie</th>
+                            <th scope="col" className="px-2 py-1 font-medium">Uwagi</th>
+                          </tr>
+                        </thead>
+                        <tbody>{tile.rows.map(renderRow)}</tbody>
+                      </table>
+                    </div>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </div>
+              </div>
+            )}
           </section>
         );
       })}
@@ -366,9 +400,10 @@ function OrdersTableRowView({
         id={orderGroupAnchorId(group.id)}
         aria-selected={selected}
         data-order-row={isFuture ? "future" : "group"}
-        className={rowClass(selected, cn(!isFuture && "bg-muted/40", isFuture && "text-sm"))}
+        className={rowClass(selected, cn(!isFuture && "[&>td]:py-2", !isFuture && !selected && "bg-muted", isFuture && "text-sm"))}
       >
-        <td className={cn(FIRST_CELL, isFuture ? "pl-6" : "bg-muted/40", selected && "bg-primary/5")}>
+        {/* Przedłużenie opisuje się jednym zdaniem — bez pustych komórek stawek. */}
+        <td colSpan={isFuture ? 3 : undefined} className={cn(FIRST_CELL, isFuture && "pl-6", !isFuture && !selected && "bg-muted", selected && "bg-primary/5")}>
           {isFuture ? (
             <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
               <CornerDownRight className="h-3.5 w-3.5" aria-hidden="true" />
@@ -378,7 +413,7 @@ function OrdersTableRowView({
           ) : (
             <>
               <span className="flex flex-wrap items-center gap-1.5">
-                <span className="select-text font-semibold text-foreground">Zamówienie nr {group.order_number}</span>
+                <span className="select-text text-[15px] font-semibold text-foreground">Zamówienie nr {group.order_number}</span>
                 <OrderTypeBadge type={effectiveGroupOrderType(group)} />
                 {group.status !== "active" ? (
                   <span
@@ -405,11 +440,18 @@ function OrdersTableRowView({
             </>
           )}
         </td>
-        <td className={CELL} />
-        <td className={CELL} />
-        <td className={cn(CELL, "min-w-[10rem]")}>{isFuture ? null : <GroupBudgetCell group={group} current={current} />}</td>
-        <td className={CELL} />
-        <td className={cn(CELL, "space-x-1")}>
+        {isFuture ? null : (
+          <>
+            <td className={CELL} />
+            <td className={CELL} />
+          </>
+        )}
+        {/* Łączne zużycie zamówienia zajmuje „Zostało MD” i „Zużycie” — w kafelku
+            ma miejsce na kwotę kosztowego („pozostało … z …”) w jednej linii. */}
+        <td colSpan={2} className={CELL}>
+          {isFuture ? null : <GroupBudgetCell group={group} current={current} />}
+        </td>
+        <td className={cn(CELL, "space-x-1 [&>span]:whitespace-normal")}>
           {missing > 0 ? <Chip tone="warn">{missing} bez zejścia</Chip> : null}
           {pending > 0 ? <Chip tone="bad">{pending === 1 ? "1 decyzja" : `${pending} decyzje`}</Chip> : null}
           {exhausted ? <Chip tone="bad">Budżet wyczerpany</Chip> : null}
@@ -489,7 +531,7 @@ function OrdersTableRowView({
           </span>
         ) : null}
       </td>
-      <td className={cn(CELL, "space-x-1")}>
+      <td className={cn(CELL, "space-x-1 [&>span]:whitespace-normal")}>
         {needsDecision ? (
           canDecide && (canManage || !hasPendingPoolDecision(line)) ? (
             <Chip tone="bad">Podejmij decyzję</Chip>

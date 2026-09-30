@@ -70,6 +70,40 @@ function renderTable(
 
 const rowOf = (lineId: number) => document.getElementById(`order-line-${lineId}`);
 
+describe("OrdersTable — kafelki zamówień MD i kosztowych (ticket 11)", () => {
+  it("każde zamówienie to osobny kafelek z nagłówkiem zamówienia i nagłówkami kolumn", () => {
+    renderTable([
+      group({ id: 30, order_number: "4500030845", lines: [line()] }),
+      group({ id: 31, order_number: "4500030744", lines: [line({ id: 5, consultant_name: "Robert Drugi" })] }),
+    ]);
+
+    const tiles = document.querySelectorAll('[data-order-tile="group"]');
+    expect(tiles).toHaveLength(2);
+    tiles.forEach((tile) => {
+      const headers = Array.from(tile.querySelectorAll("thead th")).map((th) => th.textContent);
+      expect(headers).toEqual(["Konsultant", "Koszt", "Przychód", "Zostało MD", "Zużycie", "Uwagi"]);
+      // Te same szerokości kolumn w każdym kafelku — kolumny trzymają linię.
+      expect(tile.querySelector("table")).toHaveClass("table-fixed");
+    });
+    const firstTile = tiles[0] as HTMLElement;
+    const header = firstTile.querySelector("thead tr")!;
+    expect(header).toHaveAttribute("data-order-row", "group");
+    expect(header).toHaveTextContent("Zamówienie nr 4500030845");
+    expect(firstTile).toContainElement(rowOf(1));
+    expect(firstTile).not.toContainElement(rowOf(5));
+    expect(tiles[1]).toContainElement(rowOf(5));
+  });
+
+  it("osoba dodana do zamówienia nie ma tagu „Dodany ręcznie”", () => {
+    renderTable([
+      group({
+        lines: [line({ origin: "manual", added_at: "2026-08-21T09:00:00Z", added_by_name: "Anna Przykładowa" })],
+      }),
+    ]);
+    expect(rowOf(1)).not.toHaveTextContent(/ręcznie/i);
+  });
+});
+
 describe("OrdersTable — podział obsady", () => {
   it("zakończony konsultant z nierozstrzygniętą sprawą jest w „Zakończone”, nie w obsadzie", () => {
     // Do 09.2026 sprawa `pending` przypinała wiersz do aktywnej obsady, żeby

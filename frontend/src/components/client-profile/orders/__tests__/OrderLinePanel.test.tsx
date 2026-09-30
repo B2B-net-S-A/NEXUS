@@ -101,7 +101,7 @@ describe("OrderLinePanel — osoba w obsadzie", () => {
     expect(orderGroupsApi.listConsumptions).not.toHaveBeenCalled();
   });
 
-  it("osoba dodana ręcznie ma swoją historię w szczegółach", async () => {
+  it("osoba dodana do zamówienia ma swoją historię w szczegółach (bez „Dodany ręcznie”)", async () => {
     const user = userEvent.setup();
     const substitute = line({
       id: 8,
@@ -126,7 +126,7 @@ describe("OrderLinePanel — osoba w obsadzie", () => {
 
     expect(
       screen.getByText(
-        /Dodany ręcznie 13\.08\.2026 przez Anna Przykładowa jako zastępstwo za Marian Odeszły\./,
+        /Dodano do zamówienia 13\.08\.2026 \(Anna Przykładowa\) jako zastępstwo za Marian Odeszły\./,
       ),
     ).toHaveTextContent(/PDF\) podpięto także do profilu tej osoby/);
   });

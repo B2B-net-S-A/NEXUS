@@ -331,8 +331,8 @@ export function OrderLinePanel({
               ) : null}
               {line.origin === "manual" && line.added_at ? (
                 <p>
-                  Dodany ręcznie {formatDate(line.added_at)}
-                  {line.added_by_name ? ` przez ${line.added_by_name}` : ""}
+                  Dodano do zamówienia {formatDate(line.added_at)}
+                  {line.added_by_name ? ` (${line.added_by_name})` : ""}
                   {line.replaces_name ? ` jako zastępstwo za ${line.replaces_name}` : ""}.
                   {group.has_file ? " Dokument zamówienia (PDF) podpięto także do profilu tej osoby." : ""}
                 </p>
