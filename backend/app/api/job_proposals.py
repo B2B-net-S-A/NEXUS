@@ -40,6 +40,7 @@ ProposalSource = Literal[
     "marketplace",
     "reassign",
     "trainee",
+    "job_board",
 ]
 
 

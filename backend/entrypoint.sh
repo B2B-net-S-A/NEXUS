@@ -855,8 +855,22 @@ except Exception as _contract_docs_sp_err:  # noqa: BLE001
     print(f"contract docs sharepoint DDL unavailable: {_contract_docs_sp_err!r}")
     _CONTRACT_DOCS_SP_DDL = []
 
+# Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
+# źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
+try:
+    from app.services import job_proposal_feedback_schema as _proposal_feedback
+
+    _JOB_PROPOSAL_FEEDBACK_COLUMNS = list(_proposal_feedback.COLUMN_DDL)
+    # Źródło (`ck_job_proposals_source`) stoi niżej literalnie; stąd tylko powód.
+    _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = list(_proposal_feedback.CONSTRAINT_DDL[1:])
+except Exception as _proposal_feedback_err:  # noqa: BLE001
+    print(f"job proposal feedback DDL unavailable: {_proposal_feedback_err!r}")
+    _JOB_PROPOSAL_FEEDBACK_COLUMNS = []
+    _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = []
+
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
+    *_JOB_PROPOSAL_FEEDBACK_COLUMNS,
     *_PLAIN_KNOWLEDGE_DDL,
     *_APPLICATION_SCREENING_DDL,
     *_B2B_DOCUMENTS_DDL,
@@ -7841,15 +7855,20 @@ _CONSTRAINT_STATEMENTS = [
             CHECK (termination_party IS NULL OR termination_party IN ('consultant', 'company'))
             NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0341 + 0374: przepięcie (`reassign`) i praktykant (`trainee`) jako źródła
+    # 0341 + 0374 + 0405: przepięcie (`reassign`), praktykant (`trainee`)
+    # i dopasowanie z integracji (`job_board`) jako źródła
     # propozycji. DROP+ADD w jednym
     # bloku — timeout zamka wycofuje oba, następny start ponawia.
     """DO $$ BEGIN
         ALTER TABLE job_proposals DROP CONSTRAINT IF EXISTS ck_job_proposals_source;
         ALTER TABLE job_proposals ADD CONSTRAINT ck_job_proposals_source CHECK (
             source IN ('full_base', 'new_cv', 'similar_projects',
-                       'recommendation', 'marketplace', 'reassign', 'trainee'));
+                       'recommendation', 'marketplace', 'reassign', 'trainee',
+                       'job_board'));
     END $$""",
+    # 0405: powód „Pomiń” — JEDNO źródło z migracją
+    # (`app/services/job_proposal_feedback_schema.py`).
+    *_JOB_PROPOSAL_FEEDBACK_CONSTRAINTS,
     """DO $$ BEGIN
         ALTER TABLE candidates ADD CONSTRAINT ck_candidates_b2b_willingness
             CHECK (b2b_willingness IS NULL OR b2b_willingness IN ('b2b', 'would_switch', 'employment_only')) NOT VALID;
