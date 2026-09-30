@@ -21,8 +21,9 @@ export function recruitmentStageLabel(
   return BOARD_COLUMN_LABEL[column];
 }
 
+// Ticket 11 (30.09.2026): bez etykiety „Dodany ręcznie” w całym NEXUSIE —
+// ręczne dodanie to zwykła droga, a nie wyjątek wart plakietki.
 const ENTRY_SOURCE_LABEL: Record<string, string> = {
-  added_manual: "Dodany ręcznie",
   application: "Z ogłoszenia",
   proposal: "Z propozycji",
   reassign: "Przepięcie z podobnej rekrutacji",

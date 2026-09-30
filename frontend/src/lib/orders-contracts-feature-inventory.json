@@ -556,9 +556,9 @@
   },
   {
    "id": "l.manual",
-   "opis": "„Dodany ręcznie”, PDF podpięty do profilu",
+   "opis": "Kto i kiedy dodał osobę do zamówienia, PDF podpięty do profilu",
    "file": "components/client-profile/orders/OrderLinePanel.tsx",
-   "marker": "Dodany ręcznie",
+   "marker": "Dodano do zamówienia",
    "b_home": "Panel, Szczegóły"
   },
   {

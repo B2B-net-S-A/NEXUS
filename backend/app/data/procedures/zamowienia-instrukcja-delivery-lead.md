@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 29.09.2026
+> **Zgodność z systemem sprawdzona:** 30.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -25,13 +25,14 @@ zamówienia, w stałej kolejności od góry: **MD**, **Kosztowe**, **Okresowe**
 (z liczbą pozycji w nawiasie). **Sekcja bez ani jednej pozycji w ogóle się nie
 pokazuje**, więc u większości klientów zobaczysz tylko jedną albo dwie.
 
-Każda sekcja to **tabela**. W sekcji **Okresowe** jeden wiersz to jedna osoba
+Sekcja **Okresowe** to jedna **tabela**: jeden wiersz to jedna osoba
 (numer zamówienia, okres, stawki i stan). W sekcjach **MD** i **Kosztowe**
-najpierw stoi szary wiersz **zamówienia** (numer, okres, pozostały budżet,
-uwagi), pod nim wiersze jego **konsultantów**, niżej zwijany wiersz
-**„Zakończone (N)"** i wiersze **przyszłych zamówień**. Obok zamówień
-zbiorczych potrafią tam stać wiersze pojedynczych osób, których zamówienie ma
-taki typ.
+**każde zamówienie to osobny kafelek**. Na górze kafelka stoi szary nagłówek
+**zamówienia** (numer, typ, okres, liczba osób, łączne zużycie i uwagi), pod nim
+nagłówki kolumn (Koszt, Przychód, Zostało MD albo Budżet, Zużycie, Uwagi —
+w każdym kafelku w tym samym miejscu), wiersze jego **konsultantów**, zwijany
+wiersz **„Zakończone (N)"** i wiersze **przyszłych zamówień**. Osoba, której
+pojedyncze zamówienie ma taki typ, ma własny kafelek.
 
 **Kliknij wiersz, a po prawej otworzy się panel** ze wszystkimi szczegółami
 i akcjami tego wiersza — zamówienia, osoby na zamówieniu albo osoby
