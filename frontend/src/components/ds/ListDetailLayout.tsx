@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { shouldCloseOnEscape } from "@/lib/panel-escape";
 
@@ -46,6 +46,43 @@ export function ListDetailLayout({ list, panel, onClose, panelLabel, className }
     wasOpen.current = open;
   }, [open]);
 
+  // Obok tabeli (≥ 1600 px) panel kończy się na dole okna, żeby stopka
+  // z akcjami była zawsze widoczna. Stała `100dvh - 5rem` wystarczała tylko
+  // po przewinięciu strony: nad listą kontraktów panel startuje ~200 px od
+  // góry, więc „Zakończ współpracę…” wypadało pod dolną krawędzią ekranu.
+  const panelRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (!open || typeof window === "undefined") return;
+    const el = panelRef.current;
+    if (!el) return;
+    const mq = window.matchMedia?.(LIST_DETAIL_SIDE_BY_SIDE_QUERY);
+    let frame = 0;
+    const fit = () => {
+      frame = 0;
+      if (!mq?.matches) {
+        el.style.removeProperty("max-height");
+        return;
+      }
+      const top = Math.max(el.getBoundingClientRect().top, 0);
+      el.style.maxHeight = `${Math.max(window.innerHeight - top - 16, 360)}px`;
+    };
+    const schedule = () => {
+      if (!frame) frame = window.requestAnimationFrame(fit);
+    };
+    fit();
+    // Baner albo filtry nad listą zmieniają górną krawędź panelu bez scrolla.
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
+    if (el.parentElement) observer?.observe(el.parentElement);
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, { capture: true, passive: true });
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, { capture: true });
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
@@ -68,6 +105,7 @@ export function ListDetailLayout({ list, panel, onClose, panelLabel, className }
       <div className="min-w-0">{list}</div>
       {open && (
         <aside
+          ref={panelRef}
           aria-label={panelLabel}
           data-list-detail-panel
           // Trzy rozłączne zakresy zamiast nadpisywania: Tailwind v4 nie

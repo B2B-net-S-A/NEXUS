@@ -700,7 +700,8 @@ export function ContractorOrderPanel({
             activeOrder?.monthly_margin != null && [
               "Marża",
               <span key="margin" className="text-success">
-                {fmtMoney(activeOrder.monthly_margin)}/mc
+                {fmtMoney(activeOrder.monthly_margin)}{" "}
+                {currencyLabel(activeOrder.rate_client_currency ?? activeOrder.currency)} / mc
               </span>,
             ],
           contractor.initial_job_title
@@ -1126,6 +1127,11 @@ function OrderPdfActions({
       </button>
     </span>
   );
+}
+
+/** Marża jest w walucie stawki przychodowej zamówienia. */
+function currencyLabel(currency: string | null | undefined): string {
+  return !currency || currency === "PLN" ? "zł" : currency;
 }
 
 /** „Uzupełnij zamówienie" przy wierszu przyszłym i historycznym. */
