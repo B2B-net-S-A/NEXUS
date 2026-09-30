@@ -343,6 +343,19 @@ def without_search_rows(search: Any) -> Any:
     return search
 
 
+def without_critical(stack: Any) -> Any:
+    """Sekcja `stack` bez umiejętności krytycznych (30.09.2026).
+
+    Wybór krytycznych zmienia bramkę, nie wymagania roli: nie może kasować
+    przejrzanego kontraktu wymagań ani odpalać przeliczenia dopasowań.
+    Bramka i tak czyta krytyczne na żywo, a odcisk zapytania niesie je osobno
+    (`request_matching_context`, wersja `critical`).
+    """
+    if isinstance(stack, Mapping) and "critical" in stack:
+        return {k: v for k, v in stack.items() if k != "critical"}
+    return stack
+
+
 def requirement_source(
     profile: Any, *, ignored: frozenset = _NON_REQUIREMENT_KEYS
 ) -> Any:
@@ -360,6 +373,8 @@ def requirement_source(
     out = {k: v for k, v in profile.items() if k not in ignored}
     if "search" in out:
         out["search"] = without_search_rows(out["search"])
+    if "stack" in out:
+        out["stack"] = without_critical(out["stack"])
     exp = out.get("experience")
     if (
         isinstance(exp, Mapping)

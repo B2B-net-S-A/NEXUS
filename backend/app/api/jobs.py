@@ -3480,8 +3480,24 @@ async def _save_champion_profile(
     # sekcję, a scoring, filtry i mapa wymagań dalej czytały skasowane
     # technologie. Payload BEZ sekcji `stack` nadal nie rusza kolumn — to
     # odróżnia „wyczyściłem" od „nie dotykałem".
+    patch_stack = (payload or {}).get("stack")
+    if isinstance(patch_stack, dict) and patch_stack.get("critical"):
+        # Krytyczne wybiera się z MUST i tylko spośród technologii ze słownika
+        # (30.09.2026) — zły wybór = 422 po polsku, nic się nie zapisuje.
+        from app.services.critical_skills import critical_errors
+        from app.services.scoring_service import job_explicit_must_skills
+
+        must_names = [item.name for item in profile.stack.must] or list(
+            job_explicit_must_skills(job)
+        )
+        errors = critical_errors(profile.stack.critical or [], must_names)
+        if errors:
+            raise HTTPException(422, errors[0][1])
     if "stack" in (payload or {}):
-        stack_changed = normalized_old["stack"] != new_profile["stack"]
+        # Sam wybór krytycznych nie zmienia kolumn MUST/NICE rekrutacji.
+        stack_changed = champion_view.without_critical(
+            normalized_old["stack"]
+        ) != champion_view.without_critical(new_profile["stack"])
         for key, items, column in (
             ("must", stack_must, "must_skills"),
             ("nice", stack_nice, "nice_skills"),

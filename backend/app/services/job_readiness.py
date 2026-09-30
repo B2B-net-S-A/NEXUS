@@ -61,7 +61,7 @@ MSG_SEARCH_REQUIREMENTS = (
 # issue ZOSTAJE: pusta lista braków przy przycisku, który po kliknięciu
 # i tak dostałby 422 z ``enforce_operation``, byłaby kłamstwem.
 # Każdy inny kod (``column_conflict``, ``skill_column_conflict``,
-# ``unresolved_value``, ``ineligible_must``, ``conflicting_office_days``,
+# ``unresolved_value``, ``critical_not_in_must``, ``conflicting_office_days``,
 # ``ambiguous_office``, ...) jest realnym dodatkiem i zostaje zawsze.
 _MIRRORED_VALIDATION_CODES: dict[str, str] = {
     "missing_role": MSG_TITLE,

@@ -871,16 +871,15 @@ def validation(profile, job=None, *, enforce=False):
             "Uzupełnij rzeczywiste wymagania MUST lub uzgodnij proces z DL.",
             ["search", "handoff"],
         )
-    elif active:
-        from app.services.dealbreaker_filters import gate_eligible_must_skills
+    # Do 30.09.2026 tu stał błąd `ineligible_must` („MUST nie zawiera
+    # wymagania obsługiwanego przez bramkę”). Bramka czyta teraz umiejętności
+    # krytyczne, a „Brak krytycznych” jest świadomą decyzją DL-a.
+    critical = stack.get("critical")
+    if isinstance(critical, list) and critical:
+        from app.services.critical_skills import critical_errors
 
-        if not gate_eligible_must_skills(names):
-            add(
-                "ineligible_must",
-                "stack.must",
-                "MUST nie zawiera wymagania obsługiwanego przez bramkę searchu.",
-                ["search", "handoff"],
-            )
+        for code, message in critical_errors(critical, names):
+            add(code, "stack.critical", message, ["search", "handoff"])
     overlap = {x["name"].casefold() for x in stack["must"]} & {
         x["name"].casefold() for x in stack["nice"]
     }
@@ -1100,6 +1099,21 @@ def response_context(job):
             "role_name": getattr(job, "title", None),
             "deadline": deadline.isoformat() if deadline else None,
         },
+        "critical_resolution": critical_resolution_payload(job),
+    }
+
+
+def critical_resolution_payload(job) -> dict:
+    """Krytyczne dla ekranu: decyzja DL, podpowiedź i to, na czym działa bramka."""
+    from app.services.critical_skills import effective_critical, stored_critical
+
+    resolution = effective_critical(job)
+    return {
+        "stored": stored_critical(job),
+        "decided": resolution.decided,
+        "effective": list(resolution.labels),
+        "source": resolution.source,
+        "suggested": list(resolution.suggested),
     }
 
 
@@ -1178,9 +1192,38 @@ async def preview_document(data, filename, *, db=None, model=None, max_text=None
 
 
 def _without_search_rows(section, value):
-    from app.services.champion_view import without_search_rows
+    """Sekcja bez pól, które nie zmieniają profilu roli: wiersze wyszukiwania
+    (sekcja 2) i umiejętności krytyczne (sekcja 3, 30.09.2026)."""
+    from app.services.champion_view import without_critical, without_search_rows
 
-    return without_search_rows(value) if section == "search" else value
+    if section == "search":
+        return without_search_rows(value)
+    if section == "stack":
+        return without_critical(value)
+    return value
+
+
+def _prune_critical(stack) -> None:
+    """Krytyczne idą za listą MUST: usunięta z MUST pozycja przestaje być
+    krytyczna, a gdy żadna nie zostanie — decyzja wraca do DL-a (`None`),
+    zamiast po cichu wyłączyć bramkę jak świadome „Brak krytycznych”."""
+    if not isinstance(stack, dict):
+        return
+    critical = stack.get("critical")
+    if not isinstance(critical, list) or not critical:
+        return
+    from app.services.critical_skills import match_must_labels
+
+    must = [
+        item.get("name")
+        for item in stack.get("must") or []
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    ]
+    if not must:
+        # MUST żyje w kolumnach rekrutacji — nie ma tu z czym porównać.
+        return
+    kept = [name for name in critical if match_must_labels([name], must)]
+    stack["critical"] = kept or None
 
 
 def user_edit(old, patch, actor_id, *, imported=False, actor_name=None):
@@ -1211,6 +1254,7 @@ def user_edit(old, patch, actor_id, *, imported=False, actor_name=None):
             actor_name=actor_name,
             default_origin="document" if imported else "manual",
         )
+    _prune_critical(merged.get("stack"))
     changed = any(merged[k] != normalized[k] for k in SECTION_KEYS)
     if not changed and not imported and old:
         return normalized
@@ -1303,6 +1347,10 @@ def copy_profile(profile, actor_id):
     # kopii kasował w magazynie nagranie, którego wciąż słucha źródło.
     for key in ("client_history", "verification", "briefing"):
         stored.pop(key, None)
+    # Krytyczne wybrał DL rekrutacji źródłowej — kopia czeka na własną
+    # decyzję (przekazanie do searchu jej wymaga, 30.09.2026).
+    if isinstance(stored.get("stack"), dict):
+        stored["stack"].pop("critical", None)
     return user_edit(stored, deepcopy(stored), actor_id, imported=True)
 
 

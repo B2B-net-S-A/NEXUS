@@ -18,7 +18,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 
 class _NullTolerantSection(BaseModel):
@@ -189,6 +195,8 @@ class ChampionSearch(_NullTolerantSection):
 # stored as "one requirement" (entries are split on newlines, commas and
 # semicolons first, so a real requirement never gets near it).
 STACK_ITEM_MAX_CHARS = 500
+# Umiejętności krytyczne — najwyżej dwie (decyzja Artura 30.09.2026).
+CRITICAL_MAX = 2
 
 
 class StackItem(BaseModel):
@@ -214,6 +222,37 @@ class ChampionStack(_NullTolerantSection):
     nice: List[StackItem] = Field(default_factory=list)
     # For the nuance a list cannot carry: "Java 17+, Java 8 nie interesuje".
     notes: str = ""
+    # Umiejętności krytyczne (30.09.2026): 0–2 pozycje z `must`, które ukrywają
+    # kandydatów. `None` = DL jeszcze nie zdecydował (działa podpowiedź
+    # z historii), `[]` = świadomie brak. Pole znika z zapisu przy `None`,
+    # żeby profile sprzed tej daty nie zmieniały kształtu JSONB.
+    critical: Optional[List[str]] = None
+
+    @field_validator("critical", mode="before")
+    @classmethod
+    def _clean_critical(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if not isinstance(value, list):
+            raise ValueError("Umiejętności krytyczne muszą być listą.")
+        out: list[str] = []
+        for item in value:
+            name = item.get("name") if isinstance(item, dict) else item
+            if not isinstance(name, str):
+                continue
+            name = " ".join(name.split())
+            if name and name.casefold() not in {o.casefold() for o in out}:
+                out.append(name[:STACK_ITEM_MAX_CHARS])
+        if len(out) > CRITICAL_MAX:
+            raise ValueError(f"Wybierz najwyżej {CRITICAL_MAX} umiejętności krytyczne.")
+        return out
+
+    @model_serializer(mode="wrap")
+    def _drop_undecided_critical(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and data.get("critical") is None:
+            data.pop("critical", None)
+        return data
 
     def names(self) -> List[str]:
         return [item.name for item in (*self.must, *self.nice)]

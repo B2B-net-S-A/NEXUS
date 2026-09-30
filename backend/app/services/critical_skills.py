@@ -265,6 +265,40 @@ def effective_critical(job) -> CriticalResolution:
     )
 
 
+def critical_errors(
+    critical: Sequence[str], must: Sequence[str]
+) -> list[tuple[str, str]]:
+    """Błędy wyboru krytycznych (kod, zdanie po polsku) — zapis je odrzuca."""
+    from app.services.must_gate_terms import critical_eligible
+
+    errors: list[tuple[str, str]] = []
+    if len(critical) > MAX_CRITICAL:
+        errors.append(
+            (
+                "critical_too_many",
+                f"Wybierz najwyżej {MAX_CRITICAL} umiejętności krytyczne.",
+            )
+        )
+    for name in critical:
+        matched = match_must_labels([name], must)
+        if not matched:
+            errors.append(
+                (
+                    "critical_not_in_must",
+                    f"„{name}” nie ma na liście MUST — krytyczne wybierasz z MUST.",
+                )
+            )
+        elif not all(critical_eligible(label) for label in matched):
+            errors.append(
+                (
+                    "critical_not_technology",
+                    f"„{name}” nie jest technologią ze słownika — nie może ukrywać "
+                    "kandydatów.",
+                )
+            )
+    return errors
+
+
 def gate_mode() -> str:
     """``critical`` (domyślnie) albo ``all`` — awaryjny powrót do bramki v8."""
     mode = str(getattr(settings, "MUST_GATE_MODE", "critical") or "critical").lower()
