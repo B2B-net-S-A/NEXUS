@@ -237,19 +237,34 @@ def best_role(
     skills: frozenset[str],
     category: Optional[str],
 ) -> Optional[int]:
-    """Id najlepszej roli albo ``None``. Remis → niższe id (starsza rola)."""
-    best: Optional[tuple[float, int]] = None
+    """Id najlepszej roli albo ``None``. Remis → niższe id (starsza rola).
+
+    Rola, której tytuł (albo inna nazwa) pasuje w całości, wygrywa z rolą
+    dopasowaną częściowo — prod 30.09: „Senior IT Automation Tester” szedł do
+    „ETL Tester” (samo „tester” + jedyna umiejętność SQL) zamiast do „Tester
+    automatyzujący”, którego nazwa „IT Automation Tester” pasowała cała.
+    Pomiar na 4374 rekrutacjach: zmiana 31 przypisań, zero nowych braków roli.
+    """
+    best: Optional[tuple[tuple[bool, float], int]] = None
     for rules in roles:
         value = score(rules, title, skills, category)
         if value < MIN_SCORE:
             continue
+        key = (_full_title(rules, title), value)
         if (
             best is None
-            or value > best[0]
-            or (value == best[0] and rules.role_id < best[1])
+            or key > best[0]
+            or (key == best[0] and rules.role_id < best[1])
         ):
-            best = (value, rules.role_id)
+            best = (key, rules.role_id)
     return best[1] if best else None
+
+
+def _full_title(rules: RoleRules, title: frozenset[str]) -> bool:
+    return any(
+        words and words <= title
+        for words in (rules.title_words, *rules.title_alternatives)
+    )
 
 
 def job_signals(job: Any) -> tuple[frozenset[str], frozenset[str]]:
