@@ -318,7 +318,9 @@ class JobResponse(BaseModel):
     # Delivery Lead rozwinięty do ``UserBrief`` — wypełnia tylko lista
     # (``GET /api/jobs``), żeby kafelek pokazał „DL: …” obok prowadzącego
     # (zgłoszenie 30.09.2026: DL widziała samo „Nieprzypisany”).
-    delivery_lead: Optional[UserBrief] = None
+    # Nazwa inna niż relacja ORM `Job.delivery_lead` — `model_validate(job)`
+    # czytałby ją leniwie (MissingGreenlet → 500 na liście).
+    delivery_lead_user: Optional[UserBrief] = None
     # Czy bieżący użytkownik może zapisać „stawkę do klienta" w tej rekrutacji
     # (`user_can_write_client_rate`: role zarządcze/Finanse albo właściciel/
     # twórca rekrutacji). Ustawiane tylko przez `GET /api/jobs/{id}`; tablica

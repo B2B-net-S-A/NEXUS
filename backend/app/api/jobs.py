@@ -1594,7 +1594,7 @@ async def list_jobs(
             if j.delivery_lead_id is not None
             else None
         )
-        d["delivery_lead"] = (
+        d["delivery_lead_user"] = (
             delivery_lead.model_dump() if delivery_lead is not None else None
         )
         d["collaborators"] = _collaborator_payload(

@@ -145,7 +145,7 @@ const MINE = [
     status: "published",
     tac_id: 3,
     primary_owner: null,
-    delivery_lead: { id: 9, name: "Ewa Przykładowa" },
+    delivery_lead_user: { id: 9, name: "Ewa Przykładowa" },
     deadline: null,
     created_at: inDays(-3),
     headcount: 1,

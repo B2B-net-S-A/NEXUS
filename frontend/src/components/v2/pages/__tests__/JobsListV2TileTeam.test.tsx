@@ -167,7 +167,7 @@ describe("JobsListV2 — zespół na kafelku", () => {
         id: 1,
         title: "Architekt Domenowy",
         primary_owner: null,
-        delivery_lead: { id: 9, name: "Martyna Witkowska" },
+        delivery_lead_user: { id: 9, name: "Martyna Witkowska" },
       }),
     ]);
     renderJobs();

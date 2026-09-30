@@ -282,12 +282,12 @@ function JobTileTeam({
 }: {
   job: {
     primary_owner?: UserBrief | null;
-    delivery_lead?: { name?: string | null } | null;
+    delivery_lead_user?: { name?: string | null } | null;
     collaborators?: readonly JobCollaboratorEntry[] | null;
   };
 }) {
   const team = collaboratorsSummary(job.collaborators);
-  const dlName = job.delivery_lead?.name ?? null;
+  const dlName = job.delivery_lead_user?.name ?? null;
   return (
     <>
       <OwnerBadge

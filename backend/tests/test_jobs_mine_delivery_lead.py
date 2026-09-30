@@ -84,7 +84,7 @@ async def test_draft_led_by_me_is_in_mine_and_carries_delivery_lead(
         assert draft in rows
         assert closed not in rows
         assert rows[draft]["primary_owner"] is None
-        assert rows[draft]["delivery_lead"]["id"] == me
+        assert rows[draft]["delivery_lead_user"]["id"] == me
         after = (
             await app_client.get("/api/jobs/quick-counts", headers=app_auth_headers)
         ).json()
