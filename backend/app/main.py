@@ -94,6 +94,7 @@ from app.api import integrations_compass
 from app.api import insights_performance_flags
 from app.api import insights_team
 from app.api import insights_team_signals
+from app.api import insights_proposals
 from app.api import client_knowledge
 from app.api import client_materials
 from app.api import client_framework_contracts
@@ -1418,6 +1419,13 @@ app.include_router(
 # Capability VIEW_TEAM_KPI — imienne wyniki cudzej pracy.
 app.include_router(
     insights_team_signals.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
+# Raport „Propozycje AI" (30.09.2026): decyzje o propozycjach z bazy.
+# Admin/HoR — cała firma, Delivery Lead — swoje rekrutacje i portfel.
+app.include_router(
+    insights_proposals.router,
     prefix="/api/insights",
     tags=["insights"],
 )

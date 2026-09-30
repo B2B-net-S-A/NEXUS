@@ -41,6 +41,7 @@ import { SourcesFunnelSection } from "@/components/insights/sections/SourcesFunn
 import { PrepQualitySection } from "@/components/insights/chapters/PrepQualitySection";
 import { StageBreakdownSection } from "@/components/insights/chapters/StageBreakdownSection";
 import { AllocationWorkloadBoard } from "@/components/v2/priority-work/AllocationWorkloadBoard";
+import { ProposalOutcomesReport } from "./ProposalOutcomesReport";
 import { StaleJobsReport } from "./StaleJobsReport";
 import { ViewHeader } from "./ViewKit";
 
@@ -188,6 +189,8 @@ function ReportBody({
       return <InsightsPlacementAnalysis period={p} />;
     case "kompetencje":
       return <CompetenceMatrix />;
+    case "propozycje-ai":
+      return <ProposalOutcomesReport />;
     case "aktywnosc-zespolu":
       return (
         <div className="space-y-6">

@@ -13,8 +13,13 @@ rekrutacji), więc wymaga tego, czego wymaga dodanie kandydata do rekrutacji:
 skrzynka nie zna (wyszukiwarka, rekomendacja) — wiersz powstaje od razu jako
 pominięty. Pominięta osoba wraca z nową wersją CV albo przez „Cofnij"
 (``…/restore``, ta sama bramka). Nie ma znacznika „widziane" per użytkownik.
+
+Od 30.09.2026 (0405) „Pomiń" wymaga powodu (``reason`` ze słownika
+``DISMISS_REASONS``, przy „other" także ``note``) — powód trafia do wiersza,
+telemetrii ``reject`` i raportu „Propozycje AI" w Insights.
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
@@ -28,6 +33,9 @@ from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.models.candidate import Candidate
 from app.services import job_proposals as proposals
+from app.services.job_proposal_feedback_schema import DISMISS_NOTE_MAX
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -341,10 +349,72 @@ async def job_proposal_facts(
     }
 
 
+# Lustro `job_proposal_feedback_schema.DISMISS_REASONS` (CHECK z 0405) —
+# `test_dismiss_reason_literal_mirrors_the_check` pilnuje zgodności.
+DismissReason = Literal[
+    "missing_critical",
+    "too_expensive",
+    "location_office",
+    "too_junior",
+    "outdated_cv",
+    "other",
+]
+
+MSG_REASON_REQUIRED = "Wybierz powód pominięcia — bez niego nie wiemy, co poprawić."
+MSG_NOTE_REQUIRED = "Przy powodzie „Inne” opisz w jednym zdaniu, dlaczego pomijasz."
+MSG_NOTE_TOO_LONG = "Opis powodu może mieć najwyżej 500 znaków."
+
+
 class DismissProposalBody(BaseModel):
-    """Skąd przyszło „Pomiń" osoby, której skrzynka jeszcze nie zna."""
+    """„Pomiń": powód (wymagany od 30.09.2026) i źródło osoby spoza skrzynki.
+
+    ``reason`` jest w modelu opcjonalny, żeby brak powodu dał 422 z polskim
+    zdaniem (walidacja Pydantica mówi po angielsku) — sprawdza go
+    :func:`validated_dismiss_feedback`.
+    """
 
     source: ProposalSource = "full_base"
+    reason: Optional[DismissReason] = None
+    note: Optional[str] = None
+
+
+def validated_dismiss_feedback(
+    body: Optional[DismissProposalBody],
+) -> tuple[str, Optional[str]]:
+    """Powód i opis „Pomiń" albo 422 po polsku. Czysta — testowana bez bazy."""
+    reason = body.reason if body is not None else None
+    if reason is None:
+        raise HTTPException(422, MSG_REASON_REQUIRED)
+    note = (body.note or "").strip() or None
+    if note is not None and len(note) > DISMISS_NOTE_MAX:
+        raise HTTPException(422, MSG_NOTE_TOO_LONG)
+    if reason == "other" and note is None:
+        raise HTTPException(422, MSG_NOTE_REQUIRED)
+    return reason, note
+
+
+async def _emit_reject_outcome(
+    db, *, job_id: int, candidate_id: int, reason: str
+) -> None:
+    """Telemetria `reject` z kodem powodu — nigdy nie wywraca „Pomiń"."""
+    from app.services.match_telemetry_service import (  # noqa: PLC0415
+        emit_match_outcome,
+    )
+
+    try:
+        await emit_match_outcome(
+            db,
+            event_type="reject",
+            candidate_id=candidate_id,
+            job_id=job_id,
+            reason_code=reason,
+        )
+    except Exception:  # noqa: BLE001 — telemetria nigdy nie psuje decyzji
+        logger.warning(
+            "[job_proposals] reject telemetry failed job=%s candidate=%s",
+            job_id,
+            candidate_id,
+        )
 
 
 async def _writable_pair(db, user, job_id: int, candidate_id: int) -> Candidate:
@@ -367,6 +437,7 @@ async def dismiss_job_proposal(
 ):
     from app.services.auto_match_outbox import candidate_revision  # noqa: PLC0415
 
+    reason, note = validated_dismiss_feedback(body)
     candidate = await _writable_pair(db, user, job_id, candidate_id)
     if await proposals.is_in_pipeline(db, job_id=job_id, candidate_id=candidate_id):
         raise HTTPException(
@@ -380,6 +451,8 @@ async def dismiss_job_proposal(
         candidate_id=candidate_id,
         user_id=user.id,
         cv_revision=revision,
+        reason=reason,
+        note=note,
     )
     if not changed:
         from app.models.job_proposal import JobProposal  # noqa: PLC0415
@@ -401,17 +474,25 @@ async def dismiss_job_proposal(
                 job_id=job_id,
                 candidate_id=candidate_id,
                 user_id=user.id,
-                source=(body or DismissProposalBody()).source,
+                source=body.source,
                 cv_revision=revision,
+                reason=reason,
+                note=note,
             ) or await proposals.dismiss(
                 db,
                 job_id=job_id,
                 candidate_id=candidate_id,
                 user_id=user.id,
                 cv_revision=revision,
+                reason=reason,
+                note=note,
             )
         # Inaczej idempotentne: druga próba albo wiersze `added` — nic do zrobienia.
     await db.commit()
+    if changed:
+        await _emit_reject_outcome(
+            db, job_id=job_id, candidate_id=candidate_id, reason=reason
+        )
     return {"job_id": job_id, "candidate_id": candidate_id, "dismissed": changed}
 
 

@@ -118,6 +118,14 @@ describe("raporty per rola", () => {
     expect(ids("recruiter")).not.toContain("bez-ruchu");
   });
 
+  it("propozycje AI — admin, HoR i Delivery Lead", () => {
+    expect(ids("admin")).toContain("propozycje-ai");
+    expect(ids("head_of_recruitment")).toContain("propozycje-ai");
+    expect(ids("delivery_lead")).toContain("propozycje-ai");
+    expect(ids("recruiter")).not.toContain("propozycje-ai");
+    expect(ids("finance")).not.toContain("propozycje-ai");
+  });
+
   it("nic nie znika: każdy raport ma pytanie i okno", () => {
     for (const report of REPORTS) {
       expect(report.question.length, report.id).toBeGreaterThan(10);

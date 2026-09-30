@@ -456,6 +456,10 @@ def _inbox(job_id: int) -> str:
     return f"/api/jobs/{job_id}/proposal-inbox"
 
 
+# Od 30.09.2026 „Pomiń" wymaga powodu (0405).
+_REASON = {"reason": "too_expensive"}
+
+
 async def _seed_inbox(world: dict) -> None:
     async with AsyncSessionLocal() as db:
         await proposals.upsert_proposals(
@@ -552,20 +556,24 @@ async def test_dismiss_flow(app_client: AsyncClient):
     assert [i["is_new"] for i in listed.json()["items"]] == [True, True]
 
     # Stara rola podglądu nie zmienia skrzynki zespołu.
-    refused = await app_client.post(f"{_inbox(job_id)}/{first}/dismiss", headers=viewer)
+    refused = await app_client.post(
+        f"{_inbox(job_id)}/{first}/dismiss", json=_REASON, headers=viewer
+    )
     assert refused.status_code == 403, refused.text
     assert (await _statuses(job_id))[(first, "full_base")] == "proposed"
 
     # Od 23.09.2026 pomija każdy rekruter — także spoza zespołu rekrutacji.
-    done = await app_client.post(f"{_inbox(job_id)}/{first}/dismiss", headers=outsider)
+    done = await app_client.post(
+        f"{_inbox(job_id)}/{first}/dismiss", json=_REASON, headers=outsider
+    )
     assert done.status_code == 200, done.text
     assert done.json()["dismissed"] == 1
     again = await app_client.post(
-        f"{_inbox(job_id)}/{first}/dismiss", headers=recruiter
+        f"{_inbox(job_id)}/{first}/dismiss", json=_REASON, headers=recruiter
     )
     assert again.status_code == 200 and again.json()["dismissed"] == 0
     unknown = await app_client.post(
-        f"{_inbox(job_id)}/2000000000/dismiss", headers=recruiter
+        f"{_inbox(job_id)}/2000000000/dismiss", json=_REASON, headers=recruiter
     )
     assert unknown.status_code == 404, unknown.text
 
@@ -616,31 +624,31 @@ async def test_dismiss_works_for_a_person_the_inbox_never_listed(
     # Ta sama bramka co dotąd: rola wewnętrzna i sekcja rekrutacji (przypisanie
     # do zespołu od 23.09.2026 nie jest wymagane).
     refused = await app_client.post(
-        f"{_inbox(job_id)}/{searched}/dismiss", headers=viewer
+        f"{_inbox(job_id)}/{searched}/dismiss", json=_REASON, headers=viewer
     )
     assert refused.status_code == 403, refused.text
     _, no_pipeline = await _user(UserRole.recruiter, pipeline="none")
     assert (
         await app_client.post(
-            f"{_inbox(job_id)}/{searched}/dismiss", headers=no_pipeline
+            f"{_inbox(job_id)}/{searched}/dismiss", json=_REASON, headers=no_pipeline
         )
     ).status_code == 403
     assert await _statuses(job_id) == {}
 
-    # Bez ciała → domyślne źródło; z ciałem → wskazane; spoza CHECK-a → 422.
+    # Bez źródła → domyślne; ze źródłem → wskazane; spoza CHECK-a → 422.
     plain = await app_client.post(
-        f"{_inbox(job_id)}/{searched}/dismiss", headers=recruiter
+        f"{_inbox(job_id)}/{searched}/dismiss", json=_REASON, headers=recruiter
     )
     assert plain.status_code == 200 and plain.json()["dismissed"] == 1, plain.text
     chosen = await app_client.post(
         f"{_inbox(job_id)}/{recommended}/dismiss",
-        json={"source": "recommendation"},
+        json={"source": "recommendation", "reason": "outdated_cv"},
         headers=recruiter,
     )
     assert chosen.status_code == 200 and chosen.json()["dismissed"] == 1, chosen.text
     bad = await app_client.post(
         f"{_inbox(job_id)}/{recommended}/dismiss",
-        json={"source": "cokolwiek"},
+        json={"source": "cokolwiek", "reason": "outdated_cv"},
         headers=recruiter,
     )
     assert bad.status_code == 422, bad.text
@@ -672,19 +680,21 @@ async def test_dismiss_works_for_a_person_the_inbox_never_listed(
 
     # Idempotentne: druga próba nie zakłada drugiego wiersza.
     again = await app_client.post(
-        f"{_inbox(job_id)}/{searched}/dismiss", headers=recruiter
+        f"{_inbox(job_id)}/{searched}/dismiss", json=_REASON, headers=recruiter
     )
     assert again.status_code == 200 and again.json()["dismissed"] == 0
     assert len(await _statuses(job_id)) == 2
 
     # Osoba już w rekrutacji → 409 po polsku, bez wiersza; brak kandydata → 404.
     conflict = await app_client.post(
-        f"{_inbox(job_id)}/{in_pipeline}/dismiss", headers=recruiter
+        f"{_inbox(job_id)}/{in_pipeline}/dismiss", json=_REASON, headers=recruiter
     )
     assert conflict.status_code == 409, conflict.text
     assert "już w tej rekrutacji" in conflict.json()["detail"]
     assert (
-        await app_client.post(f"{_inbox(job_id)}/2000000000/dismiss", headers=recruiter)
+        await app_client.post(
+            f"{_inbox(job_id)}/2000000000/dismiss", json=_REASON, headers=recruiter
+        )
     ).status_code == 404
     assert len(await _statuses(job_id)) == 2
 
@@ -707,6 +717,74 @@ async def test_dismiss_works_for_a_person_the_inbox_never_listed(
     assert (await _statuses(job_id))[(searched, "full_base")] == "proposed"
 
 
+async def test_dismiss_requires_a_reason_and_stores_it(app_client: AsyncClient):
+    recruiter_id, recruiter = await _user(UserRole.recruiter)
+    world = await _world(people=3, recruiter_id=recruiter_id)
+    await _seed_inbox(world)
+    job_id = world["job_id"]
+    first, second, unlisted = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        # `unlisted` nie ma wiersza — „Pomiń" z wyszukiwarki zakłada go od razu.
+        await db.execute(
+            JobProposal.__table__.delete().where(
+                JobProposal.job_id == job_id, JobProposal.candidate_id == unlisted
+            )
+        )
+        await db.commit()
+
+    # Bez ciała i bez powodu → 422 po polsku, nic się nie zmienia.
+    for payload in (None, {"source": "full_base"}):
+        missing = await app_client.post(
+            f"{_inbox(job_id)}/{first}/dismiss", json=payload, headers=recruiter
+        )
+        assert missing.status_code == 422, missing.text
+        assert "powód" in missing.json()["detail"]
+    unknown = await app_client.post(
+        f"{_inbox(job_id)}/{first}/dismiss",
+        json={"reason": "bo tak"},
+        headers=recruiter,
+    )
+    assert unknown.status_code == 422, unknown.text
+    other = await app_client.post(
+        f"{_inbox(job_id)}/{first}/dismiss",
+        json={"reason": "other", "note": "   "},
+        headers=recruiter,
+    )
+    assert other.status_code == 422 and "Inne" in other.json()["detail"]
+    assert (await _statuses(job_id))[(first, "full_base")] == "proposed"
+
+    ok = await app_client.post(
+        f"{_inbox(job_id)}/{first}/dismiss",
+        json={"reason": "other", "note": "  Klient nie chce freelancerów  "},
+        headers=recruiter,
+    )
+    assert ok.status_code == 200 and ok.json()["dismissed"] == 1, ok.text
+    await app_client.post(
+        f"{_inbox(job_id)}/{second}/dismiss",
+        json={"reason": "missing_critical", "note": ""},
+        headers=recruiter,
+    )
+    await app_client.post(
+        f"{_inbox(job_id)}/{unlisted}/dismiss",
+        json={"reason": "location_office", "source": "recommendation"},
+        headers=recruiter,
+    )
+    async with AsyncSessionLocal() as db:
+        rows = {
+            r.candidate_id: (r.dismiss_reason, r.dismiss_note)
+            for r in (
+                await db.scalars(
+                    select(JobProposal).where(JobProposal.job_id == job_id)
+                )
+            ).all()
+        }
+    assert rows == {
+        first: ("other", "Klient nie chce freelancerów"),
+        second: ("missing_critical", None),
+        unlisted: ("location_office", None),
+    }
+
+
 async def test_restore_undoes_a_dismiss(app_client: AsyncClient):
     recruiter_id, recruiter = await _user(UserRole.recruiter)
     _, outsider = await _user(UserRole.recruiter)
@@ -721,7 +799,9 @@ async def test_restore_undoes_a_dismiss(app_client: AsyncClient):
         )
         await db.commit()
 
-    done = await app_client.post(f"{_inbox(job_id)}/{first}/dismiss", headers=recruiter)
+    done = await app_client.post(
+        f"{_inbox(job_id)}/{first}/dismiss", json=_REASON, headers=recruiter
+    )
     assert done.json()["dismissed"] == 2
 
     refused = await app_client.post(f"{_inbox(job_id)}/{first}/restore", headers=viewer)
@@ -747,6 +827,8 @@ async def test_restore_undoes_a_dismiss(app_client: AsyncClient):
         r.dismissed_at is None
         and r.dismissed_by is None
         and r.dismissed_cv_revision is None
+        and r.dismiss_reason is None
+        and r.dismiss_note is None
         for r in rows
     )
     listed = await app_client.get(_inbox(job_id), headers=recruiter)

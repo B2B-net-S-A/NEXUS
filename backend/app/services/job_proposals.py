@@ -37,6 +37,7 @@ from app.models.job_proposal import (
     JobProposal,
 )
 from app.models.recruitment_pipeline import CandidateStage
+from app.services.job_proposal_feedback_schema import DISMISS_NOTE_MAX, DISMISS_REASONS
 
 _UPSERT_CHUNK = 500
 _MAX_NAME_LEN = 120
@@ -268,6 +269,8 @@ async def _resurrect_on_new_cv(
                 dismissed_at = NULL,
                 dismissed_by = NULL,
                 dismissed_cv_revision = NULL,
+                dismiss_reason = NULL,
+                dismiss_note = NULL,
                 evidence = (CASE WHEN jsonb_typeof(p.evidence) = 'object'
                                  THEN p.evidence ELSE '{}'::jsonb END)
                            || '{"previously_dismissed": true}'::jsonb
@@ -293,6 +296,20 @@ async def _resurrect_on_new_cv(
     return int(result.rowcount or 0)
 
 
+def _dismiss_reason(reason: Optional[str]) -> Optional[str]:
+    """Powód spoza słownika CHECK-a to błąd programisty, nie danych."""
+    if reason is None:
+        return None
+    if reason not in DISMISS_REASONS:
+        raise ValueError(f"Nieznany powód pominięcia: {reason!r}")
+    return reason
+
+
+def _dismiss_note(note: Optional[str]) -> Optional[str]:
+    clean = (note or "").strip()
+    return clean[:DISMISS_NOTE_MAX] or None
+
+
 async def dismiss(
     db: AsyncSession,
     *,
@@ -300,8 +317,13 @@ async def dismiss(
     candidate_id: int,
     user_id: Optional[int],
     cv_revision: Optional[str] = None,
+    reason: Optional[str] = None,
+    note: Optional[str] = None,
 ) -> int:
     """„Pomiń" — dla całego zespołu i ze WSZYSTKICH źródeł. Zwraca liczbę wierszy.
+
+    ``reason``/``note`` (0405) to powód decyzji — trasa wymaga powodu, ale
+    wołający wewnętrzni (testy, automaty) mogą go nie znać.
 
     Stempluje ``dismissed_at`` i ``dismissed_cv_revision``: bieżącą wersję CV
     (podaje ją wołający — ``candidate_revision``), a gdy jej nie zna, wersję,
@@ -322,6 +344,8 @@ async def dismiss(
             dismissed_cv_revision=func.coalesce(
                 _revision(cv_revision), JobProposal.cv_revision
             ),
+            dismiss_reason=_dismiss_reason(reason),
+            dismiss_note=_dismiss_note(note),
         )
     )
     return int(result.rowcount or 0)
@@ -349,6 +373,8 @@ async def dismiss_unlisted(
     user_id: Optional[int],
     source: str = "full_base",
     cv_revision: Optional[str] = None,
+    reason: Optional[str] = None,
+    note: Optional[str] = None,
 ) -> int:
     """„Pomiń" osoby, której skrzynka jeszcze nie zna (np. z wyszukiwarki).
 
@@ -370,6 +396,8 @@ async def dismiss_unlisted(
             dismissed_by=user_id,
             dismissed_at=func.now(),
             dismissed_cv_revision=revision,
+            dismiss_reason=_dismiss_reason(reason),
+            dismiss_note=_dismiss_note(note),
         )
         .on_conflict_do_nothing(constraint="uq_job_proposals_pair_source")
     )
@@ -394,6 +422,8 @@ async def restore(db: AsyncSession, *, job_id: int, candidate_id: int) -> int:
             dismissed_by=None,
             dismissed_at=None,
             dismissed_cv_revision=None,
+            dismiss_reason=None,
+            dismiss_note=None,
         )
     )
     return int(result.rowcount or 0)
