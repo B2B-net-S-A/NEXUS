@@ -1,9 +1,9 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -77,6 +77,11 @@ from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 _RATE_NOT_PROVIDED = object()
+
+# clients.id is a PostgreSQL int4 column; values outside this range cannot be
+# encoded by asyncpg (OverflowError -> DBAPIError 500). Reject them with 422.
+_INT4_MAX = 2_147_483_647
+ClientIdPath = Annotated[int, Path(ge=1, le=_INT4_MAX)]
 
 
 # ── Profile helpers ───────────────────────────────────────────────────────────
@@ -627,7 +632,9 @@ async def create_client(
 
 @router.get("/{client_id}", response_model=AnyClientResponse)
 async def get_client(
-    client_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
+    client_id: ClientIdPath,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Client).where(Client.id == client_id))
     client = result.scalar_one_or_none()
@@ -650,7 +657,7 @@ async def get_client(
 
 @router.get("/{client_id}/profile", response_model=ClientProfileResponse)
 async def get_client_profile(
-    client_id: int,
+    client_id: ClientIdPath,
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ):
@@ -1176,7 +1183,7 @@ async def get_client_profile(
 
 @router.patch("/{client_id}", response_model=AnyClientResponse)
 async def update_client(
-    client_id: int,
+    client_id: ClientIdPath,
     data: ClientUpdate,
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
@@ -1219,8 +1226,8 @@ async def update_client(
 
 @router.post("/{client_id}/merge-into/{target_id}", response_model=AnyClientResponse)
 async def merge_client_into(
-    client_id: int,
-    target_id: int,
+    client_id: ClientIdPath,
+    target_id: ClientIdPath,
     current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
