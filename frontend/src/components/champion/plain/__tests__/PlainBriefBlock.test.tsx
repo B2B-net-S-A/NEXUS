@@ -119,7 +119,7 @@ describe("PlainBriefBlock", () => {
     } as unknown as PlainBrief;
     render(<ResearchProgress brief={brief} refreshing />);
     const box = screen.getByTestId("plain-research-progress");
-    expect(box).toHaveTextContent("Rola: szukam opisu w internecie");
+    expect(box).toHaveTextContent("Rola: dopasowuję do biblioteki");
     expect(box).toHaveTextContent("SAP FI-CO");
     expect(box).toHaveTextContent("Teksty dla tej rekrutacji: w toku");
   });

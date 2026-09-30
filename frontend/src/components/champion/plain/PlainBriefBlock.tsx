@@ -83,7 +83,7 @@ export function ResearchProgress({ brief, refreshing }: { brief: PlainBrief; ref
       {roleSearching ? (
         <li className="flex items-center gap-1.5">
           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-          Rola: szukam opisu w internecie i zapisuję ją w bibliotece
+          Rola: dopasowuję do biblioteki, a nowej szukam opisu w internecie
         </li>
       ) : null}
       {searching.length > 0 ? (
