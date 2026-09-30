@@ -259,6 +259,25 @@ describe("mergeProposals", () => {
     );
   });
 
+  it("dopasowanie z portalu (job_board) zostaje swoim źródłem i pokazuje trafione must-have", () => {
+    const [entry] = mergeProposals({
+      inbox: [
+        inboxItem(1, {
+          sources: ["job_board"],
+          score: 72,
+          evidence: {
+            matched_must: ["Java", "Spring"],
+            auto_match: { score: 72, source: "jjit", must_hit: ["Java", "Spring"], must_total: 3 },
+          } as ProposalInboxItem["evidence"],
+        }),
+      ],
+    });
+    expect(entry.row.sources).toEqual(["job_board"]);
+    expect(PROPOSAL_SOURCE_LABEL.job_board).toBe("Z portalu (JJIT/RocketJobs)");
+    expect(entry.row.fitScore).toBe(72);
+    expect(entry.detail.requirements.map((r) => r.label)).toEqual(["Java", "Spring"]);
+  });
+
   it("nieznane źródło z backendu nie wywraca scalenia", () => {
     const [entry] = mergeProposals({ inbox: [inboxItem(1, { sources: ["jarvis_pick"] })] });
     expect(entry.row.sources).toEqual(["full_base"]);

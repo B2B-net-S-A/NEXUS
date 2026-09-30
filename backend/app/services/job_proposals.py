@@ -138,6 +138,24 @@ def sanitize_evidence(raw: Any) -> Optional[dict]:
             if trainee.get("employment_only") is True:
                 clean_trainee["employment_only"] = True
             out["trainee"] = clean_trainee
+    auto_match = raw.get("auto_match")
+    if isinstance(auto_match, Mapping):
+        # 30.09.2026: dopasowanie z portalu (JJIT/RocketJobs, źródło
+        # ``job_board``) — wynik, portal i trafione must-have. Same liczby
+        # i nazwy wymagań, jak reszta dowodów.
+        clean_auto: dict[str, Any] = {}
+        auto_score = auto_match.get("score")
+        if isinstance(auto_score, (int, float)) and not isinstance(auto_score, bool):
+            clean_auto["score"] = int(round(auto_score))
+        if (portal := _short(auto_match.get("source"))) is not None:
+            clean_auto["source"] = portal[:24]
+        if must_hit := _names(auto_match.get("must_hit")):
+            clean_auto["must_hit"] = must_hit[:8]
+        must_total = auto_match.get("must_total")
+        if isinstance(must_total, int) and not isinstance(must_total, bool):
+            clean_auto["must_total"] = must_total
+        if clean_auto:
+            out["auto_match"] = clean_auto
     if raw.get(PREVIOUSLY_DISMISSED_KEY) is True:
         out[PREVIOUSLY_DISMISSED_KEY] = True
     return out or None

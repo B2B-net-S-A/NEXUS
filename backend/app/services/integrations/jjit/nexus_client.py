@@ -231,8 +231,9 @@ class NexusLoopbackClient:
                     "must_total": len(must_hit) + len(rec.get("gap_must") or []),
                 },
                 "tags": ["auto-match", "jjit"],
-                # Kandydaci z ogłoszeń lądują w „Ogłoszeniach" (etap `posting`,
-                # migracja 0317), nie w „Nowi" — rekruter przenosi ręcznie.
+                # Serwer z ``auto_match`` od integracji zakłada propozycję
+                # w „Do przejrzenia” (30.09.2026) — etap i tagi czyta tylko
+                # starszy serwer, który jeszcze dodawał kartę na „Ogłoszenia”.
                 "initial_stage_legacy": "posting",
             },
             timeout=60,
@@ -240,7 +241,11 @@ class NexusLoopbackClient:
         if resp.status_code != 200:
             return False, f"HTTP {resp.status_code}: {resp.text[:120]}"
         body = resp.json()
-        if candidate_id in (body.get("added") or []):
+        # Od 30.09.2026 dopasowanie z portalu trafia do „Do przejrzenia”
+        # (``proposed``), nie na Tablicę — to też udane dopasowanie.
+        if candidate_id in (body.get("added") or []) or candidate_id in (
+            body.get("proposed") or []
+        ):
             return True, ""
         for row in body.get("skipped") or []:
             if row.get("candidate_id") == candidate_id:

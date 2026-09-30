@@ -5154,7 +5154,12 @@ async def remove_candidate_from_recruitment(
     # filtrować w 132 zapytaniach w 64 plikach, a pierwsze pominięte pokazywałoby
     # skasowaną rekrutację jako żywą. Tu zmienia się jedno miejsce zapisu i zero
     # ścieżek odczytu.
-    ordered = sorted(stage_rows, key=lambda s: (s.moved_at or s.created_at, s.id))
+    from app.services.candidate_stage_removal_snapshot import (
+        ordered_stage_rows,
+        stage_removal_snapshot,
+    )
+
+    ordered = ordered_stage_rows(stage_rows)
     db.add(
         CandidateStageRemoval(
             candidate_id=candidate_id,
@@ -5164,29 +5169,7 @@ async def remove_candidate_from_recruitment(
             # `if not stage_rows` wyżej zwraca 404, więc lista jest niepusta.
             last_stage=ordered[-1].stage.value,
             stage_count=len(stage_rows),
-            stages_snapshot=[
-                {
-                    "id": s.id,
-                    "stage": s.stage.value,
-                    "stage_def_id": s.stage_def_id,
-                    "moved_at": s.moved_at.isoformat() if s.moved_at else None,
-                    "moved_by": s.moved_by,
-                    "notes": s.notes,
-                    "rejection_reason_id": s.rejection_reason_id,
-                    "client_rate_value": (
-                        float(s.client_rate_value)
-                        if s.client_rate_value is not None
-                        else None
-                    ),
-                    "expected_rate_value": (
-                        float(s.expected_rate_value)
-                        if s.expected_rate_value is not None
-                        else None
-                    ),
-                    "created_at": s.created_at.isoformat() if s.created_at else None,
-                }
-                for s in ordered
-            ],
+            stages_snapshot=stage_removal_snapshot(ordered),
         )
     )
     await db.flush()
