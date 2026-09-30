@@ -19,6 +19,8 @@ export interface CareerJobParams {
   city: string | null;
   remote_policy: RemotePolicy | null;
   onsite_days_per_week: number | null;
+  /** 0407: gdy klient liczy na miesiąc (starsze odpowiedzi nie mają pola). */
+  onsite_days_per_month?: number | null;
   seniority: string | null;
   contract: string | null;
   start: string | null;

@@ -910,10 +910,13 @@ CV_REQUIREMENT_MAP = PromptTemplate(
 # tylko 1–2 umiejętności krytyczne, które wybiera DL (`critical_skills`), więc
 # must nie musi być okrojone do technologii — cała lista daje punkty i chipy
 # „do rozmowy”. Bez limitu 10 i bez przenoszenia do nice.
+#
+# v9 (30.09.2026): dni w biurze także „w miesiącu” (`onsite_days_per_month`)
+# — klienci piszą „raz w miesiącu”, a pole tygodniowe przyjmowało tylko int.
 
 JOB_REQUEST_INTAKE = PromptTemplate(
     name="job_request_intake",
-    version=8,
+    version=9,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
@@ -961,6 +964,7 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         '  "rate_quote": str|null,            // dosłowny fragment ze stawką/budżetem, np. "do 170 zł/h netto"\n'
         '  "work_mode": "zdalnie"|"hybrydowo"|"stacjonarnie"|null,\n'
         '  "onsite_days_per_week": int|null,  // dni w biurze w tygodniu, tylko gdy podane\n'
+        '  "onsite_days_per_month": int|null, // dni w biurze w MIESIĄCU, gdy klient liczy na miesiąc ("raz w miesiącu" = 1, "2 dni w miesiącu" = 2); wtedy onsite_days_per_week = null\n'
         '  "office_cities": [str],            // WSZYSTKIE miasta biura, zawsze po polsku, np. ["Gdańsk", "Warszawa"]\n'
         '  "start_date": str|null,            // RRRR-MM-DD, tylko gdy podana konkretna data\n'
         '  "language": str|null,              // język pracy wymagany od kandydata, np. "PL, EN B2"\n'

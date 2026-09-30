@@ -38,6 +38,8 @@ class JobCreate(BaseModel):
     remote_policy: Optional[RemotePolicy] = None
     # Trzecia rubryka rekrutacji (obok must-have i rate_budget_hourly, 0278).
     onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
+    # „N dni w miesiącu” (0407) — gdy podane, dni w tygodniu wylicza serwer.
+    onsite_days_per_month: Optional[int] = Field(default=None, ge=1, le=22)
     status: JobStatus = JobStatus.draft
     priority: JobPriority = JobPriority.medium
     needs_sourcing: bool = False
@@ -128,6 +130,7 @@ class JobUpdate(BaseModel):
     rate_budget_hourly: Optional[float] = Field(default=None, gt=0, le=2000)
     remote_policy: Optional[RemotePolicy] = None
     onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
+    onsite_days_per_month: Optional[int] = Field(default=None, ge=1, le=22)
     status: Optional[JobStatus] = None
     priority: Optional[JobPriority] = None
     needs_sourcing: Optional[bool] = None
@@ -251,6 +254,7 @@ class JobResponse(BaseModel):
     # 0278: nullable — patrz komentarz w JobCreate.
     remote_policy: Optional[RemotePolicy] = None
     onsite_days_per_week: Optional[int] = None
+    onsite_days_per_month: Optional[int] = None
     status: JobStatus
     # Czy rekrutacja jest aktywnie prowadzona w NEXUSIE (0270). NIE to samo co
     # `status`, który jest lustrem Traffita — patrz `models/job.py`.

@@ -4573,6 +4573,8 @@ export interface ChampionBasics {
   rate_raw?: string | null;
   work_mode?: string | null;
   onsite_days_per_week?: number | null;
+  /** 0407: „N dni w miesiącu”; gdy ustawione, dni w tygodniu wylicza serwer. */
+  onsite_days_per_month?: number | null;
   /** LOKALIZACJA BIURA — gdzie jest praca. Nazwa klucza jest historyczna. */
   candidate_location_pref?: string | null;
   /** JĘZYK PRACY wymagany od kandydata. Język dokumentu CV to `ClientCvRule.cv_language`. */
@@ -4884,6 +4886,7 @@ export interface ChampionJobValues {
   [key: string]: unknown;
   rate_value?: number | null;
   onsite_days_per_week?: number | null;
+  onsite_days_per_month?: number | null;
   work_mode?: "onsite" | "hybrid" | "remote" | null;
   candidate_location_pref?: string | null;
   must?: string | null;

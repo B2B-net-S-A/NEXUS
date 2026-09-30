@@ -41,7 +41,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client
-from app.services import champion_intake, keyword_suggest
+from app.services import champion_intake, keyword_suggest, office_days
 from app.services.champion_document import folded
 from app.services.llm_prompts import JOB_REQUEST_INTAKE
 
@@ -111,6 +111,8 @@ class RequestIntake:
     rate_note: Optional[str] = None
     remote_policy: Optional[str] = None
     onsite_days_per_week: Optional[int] = None
+    # 0407: „N dni w miesiącu”; gdy podane, tygodniowe jest z niego wyliczone.
+    onsite_days_per_month: Optional[int] = None
     # Lista miast po przecinku (zapis `jobs.location`), polskie nazwy.
     office_city: Optional[str] = None
     office_cities: list[str] = field(default_factory=list)
@@ -654,9 +656,20 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     work_mode = _text(data.get("work_mode"), 30)
     remote_policy = _WORK_MODES.get((work_mode or "").casefold())
     onsite_days = _int_in(data.get("onsite_days_per_week"), 0, 7)
+    onsite_days_month = _int_in(data.get("onsite_days_per_month"), 1, 22)
+    if onsite_days_month is not None:
+        if remote_policy in (None, "hybrid"):
+            # „Raz w miesiącu” bez trybu to i tak praca hybrydowa.
+            remote_policy = "hybrid"
+            onsite_days, onsite_days_month = office_days.normalize(
+                onsite_days, onsite_days_month
+            )
+        else:
+            onsite_days_month = None
     office_cities = _office_cities(data)
     if remote_policy == "remote":
         onsite_days = None
+        onsite_days_month = None
         office_cities = []
     office_city = ", ".join(office_cities)[:255] or None
 
@@ -801,6 +814,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         rate_note=rate_note,
         remote_policy=remote_policy,
         onsite_days_per_week=onsite_days,
+        onsite_days_per_month=onsite_days_month,
         office_city=office_city,
         office_cities=office_cities,
         start_date=start_date,

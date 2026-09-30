@@ -157,6 +157,7 @@ def _public_champion_projection(job) -> dict:
         # a nie ile nam płaci jego klient.
         "basics": {
             "onsite_days_per_week": basics.get("onsite_days_per_week"),
+            "onsite_days_per_month": basics.get("onsite_days_per_month"),
             "language": basics.get("language"),
         },
         "project": {

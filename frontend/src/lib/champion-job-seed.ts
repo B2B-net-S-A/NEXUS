@@ -174,6 +174,10 @@ export function seedBasicsFromJob(
     typeof values.onsite_days_per_week === "number"
   ) {
     seeded.onsite_days_per_week = values.onsite_days_per_week;
+    // 0407: „N dni w miesiącu” wędruje razem z liczbą tygodniową.
+    if (typeof values.onsite_days_per_month === "number") {
+      seeded.onsite_days_per_month = values.onsite_days_per_month;
+    }
   }
   if (
     isEmptyBasicsValue(basics.candidate_location_pref) &&

@@ -129,6 +129,14 @@ def fill_job_columns_from_champion(job: Job, basics: dict[str, Any]) -> list[str
     if job.onsite_days_per_week is None and days is not None and 0 <= days <= 7:
         job.onsite_days_per_week = days
         filled.append("onsite_days_per_week")
+        # 0407: „N dni w miesiącu” wędruje razem z liczbą tygodniową.
+        month_raw = _as_number(basics.get("onsite_days_per_month"))
+        if month_raw is not None and month_raw.is_integer() and 1 <= month_raw <= 22:
+            from app.services.office_days import weekly_from_monthly
+
+            job.onsite_days_per_month = int(month_raw)
+            job.onsite_days_per_week = weekly_from_monthly(int(month_raw))
+            filled.append("onsite_days_per_month")
 
     if job.remote_policy is None:
         remote = champion_work_mode_to_remote(basics.get("work_mode"))

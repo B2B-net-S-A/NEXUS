@@ -21,7 +21,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   buildChampionPayload,
   jobTitleFor,
-  parseOnsiteDays,
+  formOfficeDays,
   type IntakeForm,
 } from "@/lib/job-request-intake";
 
@@ -51,7 +51,9 @@ export function listingDefaultsFromForm(form: IntakeForm): PortalListingOptions 
     // Lustro `jjit_payload.default_options`: bez wskazania pracy na część etatu = pełny etat.
     working_time: "full_time",
     workplace_type: workplace,
-    office_days: workplace === "hybrid" ? parseOnsiteDays(form.onsiteDays) : null,
+    // Portal zna tylko dni w tygodniu — przy wpisie miesięcznym idzie wyliczona liczba.
+    office_days:
+      workplace === "hybrid" ? formOfficeDays(form).onsite_days_per_week : null,
     city: form.city.trim() || null,
   };
 }
@@ -70,7 +72,7 @@ export function publicDraftRequest(
     nice_skills: form.nice,
     location: remote === "remote" ? null : form.city.trim() || null,
     remote_policy: remote,
-    onsite_days_per_week: remote === "remote" ? null : parseOnsiteDays(form.onsiteDays),
+    onsite_days_per_week: formOfficeDays(form).onsite_days_per_week,
     champion_profile: buildChampionPayload(form),
   };
 }

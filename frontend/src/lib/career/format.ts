@@ -41,10 +41,13 @@ export function paramRows(params: CareerJobParams | null | undefined): ParamRow[
   if (city) rows.push({ key: "city", label: "lokalizacja", value: city });
   const mode = remoteLabel(params.remote_policy);
   if (mode) {
+    const hybrid = params.remote_policy === "hybrid";
     const days =
-      params.remote_policy === "hybrid" && params.onsite_days_per_week
-        ? ` · ${daysLabel(params.onsite_days_per_week)}`
-        : "";
+      hybrid && params.onsite_days_per_month
+        ? ` · ${daysLabel(params.onsite_days_per_month)} w miesiącu`
+        : hybrid && params.onsite_days_per_week
+          ? ` · ${daysLabel(params.onsite_days_per_week)}`
+          : "";
     rows.push({ key: "mode", label: "tryb", value: `${mode}${days}` });
   }
   const seniority = lower(params.seniority);

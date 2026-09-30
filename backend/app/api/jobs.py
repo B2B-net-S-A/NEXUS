@@ -2,7 +2,7 @@ import enum
 import logging
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
 import httpx
 
@@ -1866,6 +1866,60 @@ async def jobs_quick_counts(
     }
 
 
+def _policy_value(policy: Any) -> Optional[str]:
+    return getattr(policy, "value", policy)
+
+
+def _office_days_error(exc: ValueError) -> HTTPException:
+    return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+
+
+def _normalize_office_days_for_create(payload: dict) -> None:
+    """Dni w biurze: wpis miesięczny wyznacza tygodniowy (0407)."""
+    from app.services import office_days
+
+    try:
+        week, month = office_days.normalize(
+            payload.get("onsite_days_per_week"),
+            payload.get("onsite_days_per_month"),
+            _policy_value(payload.get("remote_policy")),
+        )
+    except ValueError as exc:
+        raise _office_days_error(exc) from exc
+    payload["onsite_days_per_week"] = week
+    payload["onsite_days_per_month"] = month
+
+
+def _normalize_office_days_for_update(job: Job, updates: dict) -> None:
+    """PATCH: wpis tygodniowy czyści miesięczny, miesięczny wyznacza tygodniowy.
+
+    Zmiana trybu na inny niż hybrydowy zdejmuje zapisany wpis miesięczny
+    (tygodniowa liczba zostaje); jawny wpis miesięczny przy takim trybie = 422.
+    """
+    from app.services import office_days
+
+    policy = _policy_value(updates.get("remote_policy", job.remote_policy))
+    if "onsite_days_per_month" in updates:
+        week = updates.get("onsite_days_per_week", job.onsite_days_per_week)
+        try:
+            week, month = office_days.normalize(
+                week, updates["onsite_days_per_month"], policy
+            )
+        except ValueError as exc:
+            raise _office_days_error(exc) from exc
+        if month is not None or "onsite_days_per_week" in updates:
+            updates["onsite_days_per_week"] = week
+        updates["onsite_days_per_month"] = month
+    elif "onsite_days_per_week" in updates:
+        updates["onsite_days_per_month"] = None
+    elif (
+        job.onsite_days_per_month is not None
+        and policy is not None
+        and policy != "hybrid"
+    ):
+        updates["onsite_days_per_month"] = None
+
+
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(
     data: JobCreate,
@@ -1946,6 +2000,8 @@ async def create_job(
         # budget fields into a DL-created role.
         payload["salary_min"] = None
         payload["salary_max"] = None
+
+    _normalize_office_days_for_create(payload)
 
     if payload.get("champion_profile"):
         # `JobCreate` carries no profile: the only source is the template copy
@@ -2588,6 +2644,7 @@ async def update_job(
             )
         except (ValueError, TypeError, AttributeError) as exc:
             raise invalid_champion_profile(exc) from exc
+    _normalize_office_days_for_update(job, updates)
     from app.services.requirement_contract import invalidate_changed_requirements
 
     invalidate_changed_requirements(job, updates)

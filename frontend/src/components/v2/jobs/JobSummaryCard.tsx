@@ -30,6 +30,8 @@ export interface JobSummaryCardJob {
   remote_policy?: string | null;
   /** `JobResponse.onsite_days_per_week` — dopisywane WYŁĄCZNIE przy hybrydzie. */
   onsite_days_per_week?: number | null;
+  /** 0407: klient liczy na miesiąc („1 dzień w miesiącu”). */
+  onsite_days_per_month?: number | null;
   deadline?: string | null;
 }
 
@@ -58,10 +60,13 @@ export function formatJobLocation(job: JobSummaryCardJob): string {
   if (policy) {
     const label = REMOTE_POLICY_LABEL[policy] ?? policy;
     const days = job.onsite_days_per_week;
+    const perMonth = job.onsite_days_per_month;
     parts.push(
-      policy === "hybrid" && typeof days === "number" && days > 0
-        ? `${label} ${countPl(days, "dzień", "dni", "dni")}`
-        : label,
+      policy === "hybrid" && typeof perMonth === "number" && perMonth > 0
+        ? `${label} ${countPl(perMonth, "dzień", "dni", "dni")}/mies.`
+        : policy === "hybrid" && typeof days === "number" && days > 0
+          ? `${label} ${countPl(days, "dzień", "dni", "dni")}`
+          : label,
     );
   }
 

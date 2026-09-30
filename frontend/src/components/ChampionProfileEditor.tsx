@@ -97,6 +97,12 @@ import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
 import { ChampionClientQuestionsPanel } from "./ChampionClientQuestionsPanel";
 import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
+import { OfficeDaysField } from "@/components/jobs/OfficeDaysField";
+import {
+  parseOfficeDaysInput,
+  weeklyFromMonthly,
+  type OfficeDaysPeriod,
+} from "@/lib/office-days";
 import { blurNumberInputOnWheel } from "@/lib/number-input";
 
 interface ChampionProfileEditorProps {
@@ -346,6 +352,25 @@ export function ChampionProfileEditor({
   // edytor nie tknął, nie ma jak zniknąć.
   const patchBasics = (patch: Partial<ChampionProfile["basics"]>) =>
     setDraft((d) => ({ ...d, basics: { ...d.basics, ...patch } }));
+  // 0407: „w tygodniu / w miesiącu”. Wybór jednostki bez liczby trzyma stan
+  // lokalny — sam zapis nie mówi, którą jednostkę ktoś właśnie kliknął.
+  const [officePeriodChoice, setOfficePeriodChoice] =
+    useState<OfficeDaysPeriod | null>(null);
+  const officePeriod: OfficeDaysPeriod =
+    officePeriodChoice ??
+    (draft.basics.onsite_days_per_month != null ? "month" : "week");
+  const officeHybrid = draft.basics.work_mode === "hybrydowo";
+  const patchOfficeDays = (value: string, period: OfficeDaysPeriod) => {
+    const n = parseOfficeDaysInput(value, period);
+    patchBasics(
+      period === "month"
+        ? {
+            onsite_days_per_month: n,
+            onsite_days_per_week: n == null ? null : weeklyFromMonthly(n),
+          }
+        : { onsite_days_per_week: n, onsite_days_per_month: null },
+    );
+  };
   const patchSearch = (patch: Partial<ChampionProfile["search"]>) =>
     setDraft((d) => ({ ...d, search: { ...d.search, ...patch } }));
   const patchStack = (patch: Partial<ChampionProfile["stack"]>) =>
@@ -647,21 +672,21 @@ export function ChampionProfileEditor({
               {draft.basics.work_mode && !["zdalnie", "hybrydowo", "stacjonarnie"].includes(draft.basics.work_mode) && <option value={draft.basics.work_mode}>{draft.basics.work_mode} — zapis wcześniejszy</option>}
             </select>
           </Labeled>
-          <Labeled label="Dni stacjonarne / tydzień" field="basics.onsite_days_per_week">
-            <input
-              type="number"
-              onWheel={blurNumberInputOnWheel}
-              min={0}
-              max={7}
+          <Labeled label="Dni w biurze" field="basics.onsite_days_per_week">
+            <OfficeDaysField
               disabled={disabled}
-              value={draft.basics.onsite_days_per_week ?? ""}
-              onChange={(e) =>
-                patchBasics({
-                  onsite_days_per_week:
-                    e.target.value === "" ? null : Number(e.target.value),
-                })
-              }
-              className={inputClass}
+              allowMonth={officeHybrid || officePeriod === "month"}
+              value={String(
+                (officePeriod === "month"
+                  ? draft.basics.onsite_days_per_month
+                  : draft.basics.onsite_days_per_week) ?? "",
+              )}
+              period={officePeriod}
+              onValueChange={(v) => patchOfficeDays(v, officePeriod)}
+              onPeriodChange={(p) => {
+                setOfficePeriodChoice(p);
+                patchOfficeDays("", p);
+              }}
             />
           </Labeled>
           <Labeled label="Lokalizacja biura" field="basics.candidate_location_pref">

@@ -63,6 +63,7 @@ export interface PublicJobParams {
   city: string | null;
   remote_policy: "remote" | "hybrid" | "onsite" | null;
   onsite_days_per_week: number | null;
+  onsite_days_per_month?: number | null;
   seniority: string | null;
   contract: string | null;
   start: string | null;

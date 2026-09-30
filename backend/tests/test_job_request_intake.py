@@ -101,6 +101,28 @@ def test_hybrid_without_days_and_city_is_reported() -> None:
     assert intake.MISSING_OFFICE_CITY in result.missing
 
 
+def test_office_days_per_month_are_kept_and_give_the_weekly_value() -> None:
+    # „Raz w miesiącu” (0407): liczba tygodniowa dla bramek nigdy nie jest zerem.
+    raw = {**FULL, "onsite_days_per_week": None, "onsite_days_per_month": 1}
+    result = normalize_model_output(raw, REQUEST)
+    assert result.onsite_days_per_month == 1
+    assert result.onsite_days_per_week == 1
+    assert result.remote_policy == "hybrid"
+    assert intake.MISSING_OFFICE_DAYS not in result.missing
+
+
+def test_office_days_per_month_are_dropped_for_onsite_work() -> None:
+    raw = {
+        **FULL,
+        "work_mode": "stacjonarnie",
+        "onsite_days_per_week": 5,
+        "onsite_days_per_month": 2,
+    }
+    result = normalize_model_output(raw, REQUEST)
+    assert result.onsite_days_per_month is None
+    assert result.onsite_days_per_week == 5
+
+
 def test_one_question_is_not_enough() -> None:
     raw = {**FULL, "screening_questions": FULL["screening_questions"][:1]}
     assert intake.MISSING_QUESTIONS in normalize_model_output(raw, REQUEST).missing

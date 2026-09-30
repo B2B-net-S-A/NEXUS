@@ -83,6 +83,10 @@ class ChampionBasics(BaseModel):
     rate_raw: Optional[str] = Field(default=None, max_length=255)
     work_mode: Optional[str] = Field(default=None, max_length=50)
     onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
+    # „N dni w biurze w miesiącu” (0407). Gdy ustawione, dni w tygodniu są
+    # z niego wyliczone (`services/office_days.py`). Znika z zapisu przy
+    # `None`, żeby profile sprzed tej daty nie zmieniały kształtu JSONB.
+    onsite_days_per_month: Optional[int] = Field(default=None, ge=1, le=22)
     # LOKALIZACJA BIURA — czyli gdzie jest praca, nie gdzie mieszka kandydat.
     #
     # Nazwa klucza kłamie i zostaje taka celowo: `scoring_service` porównuje tę
@@ -107,6 +111,21 @@ class ChampionBasics(BaseModel):
     # („mamy 5 dni roboczych"), bo tamto opisuje tempo, a to konkretną datę.
     deadline: Optional[str] = Field(default=None, max_length=100)
     contract_length: Optional[str] = Field(default=None, max_length=255)
+
+    @model_validator(mode="after")
+    def _derive_weekly_office_days(self) -> "ChampionBasics":
+        if self.onsite_days_per_month is not None:
+            from app.services.office_days import weekly_from_monthly
+
+            self.onsite_days_per_week = weekly_from_monthly(self.onsite_days_per_month)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _drop_unset_monthly_office_days(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and data.get("onsite_days_per_month") is None:
+            data.pop("onsite_days_per_month", None)
+        return data
 
 
 # Wymagania do wyszukiwania w bazie (25.09.2026) — te same limity co edytor

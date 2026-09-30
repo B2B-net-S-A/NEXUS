@@ -14,6 +14,11 @@ import type { HiringManagerChoice } from "@/lib/hiring-manager";
 import { composeWorkingTitle } from "@/lib/job-names";
 import { cleanRows, sanitizeKeyword } from "@/lib/keyword-requirements";
 import { includesLabel, pruneCritical, type CriticalValue } from "@/lib/critical-skills";
+import {
+  officeDaysFields,
+  officeDaysFormValue,
+  type OfficeDaysPeriod,
+} from "@/lib/office-days";
 
 export type RemotePolicyValue = "remote" | "hybrid" | "onsite";
 
@@ -96,6 +101,8 @@ export interface IntakeForm {
   intakeNotes: string[];
   remotePolicy: RemotePolicyValue | "";
   onsiteDays: string;
+  /** 0407: „w tygodniu” albo „w miesiącu” (miesięcznie tylko hybrydowo). */
+  onsiteDaysPeriod: OfficeDaysPeriod;
   city: string;
   startDate: string;
   about: string;
@@ -141,6 +148,8 @@ export interface RequestIntakeResponse {
   rate_note: string | null;
   remote_policy: RemotePolicyValue | null;
   onsite_days_per_week: number | null;
+  /** 0407: gdy klient liczy na miesiąc. */
+  onsite_days_per_month?: number | null;
   office_city: string | null;
   /** v7: wszystkie miasta biura z maila, po polsku. */
   office_cities?: string[];
@@ -222,6 +231,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   intakeNotes: [],
   remotePolicy: "",
   onsiteDays: "",
+  onsiteDaysPeriod: "week",
   city: "",
   startDate: "",
   about: "",
@@ -329,10 +339,14 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
     rateNote: intake.rate_note ?? null,
     intakeNotes: intake.advisories ?? [],
     remotePolicy: intake.remote_policy ?? "",
-    onsiteDays:
-      intake.onsite_days_per_week != null
-        ? String(intake.onsite_days_per_week)
-        : "",
+    onsiteDays: officeDaysFormValue(
+      intake.onsite_days_per_week,
+      intake.onsite_days_per_month,
+    ).value,
+    onsiteDaysPeriod: officeDaysFormValue(
+      intake.onsite_days_per_week,
+      intake.onsite_days_per_month,
+    ).period,
     city: intake.office_cities?.length
       ? joinCities(intake.office_cities)
       : (intake.office_city ?? ""),
@@ -408,6 +422,20 @@ export function parseOnsiteDays(value: string): number | null {
   return Number.isInteger(n) && n >= 0 && n <= 7 ? n : null;
 }
 
+/** Para pól zapisu dni w biurze z formularza (0407). */
+export function formOfficeDays(form: IntakeForm): {
+  onsite_days_per_week: number | null;
+  onsite_days_per_month: number | null;
+} {
+  if (form.remotePolicy === "remote")
+    return { onsite_days_per_week: null, onsite_days_per_month: null };
+  return officeDaysFields(
+    form.onsiteDays,
+    form.onsiteDaysPeriod,
+    form.remotePolicy || null,
+  );
+}
+
 export function filledQuestions(form: IntakeForm): IntakeQuestionForm[] {
   return form.questions.filter((q) => q.question.trim().length > 0);
 }
@@ -429,7 +457,8 @@ export function missingFor(
   if (!form.remotePolicy) {
     missing.push("work_mode");
   } else if (form.remotePolicy !== "remote") {
-    if (parseOnsiteDays(form.onsiteDays) == null) missing.push("office_days");
+    if (formOfficeDays(form).onsite_days_per_week == null)
+      missing.push("office_days");
     if (!form.city.trim()) missing.push("office_city");
   }
   if (!form.about.trim() && !form.responsibilities.trim())
@@ -466,8 +495,7 @@ export function buildJobPayload(
     client_id: opts.clientId,
     auto_suggest_cc: true,
     remote_policy: remote,
-    onsite_days_per_week:
-      remote === "remote" ? null : parseOnsiteDays(form.onsiteDays),
+    ...formOfficeDays(form),
   };
   const description = opts.requestText.trim();
   if (description) payload.description = description;
@@ -517,8 +545,7 @@ export function buildChampionPayload(
         : {}),
       rate_value: budget,
       work_mode: remote ? CHAMPION_WORK_MODE[remote] : null,
-      onsite_days_per_week:
-        remote === "remote" ? null : parseOnsiteDays(form.onsiteDays),
+      ...formOfficeDays(form),
       candidate_location_pref:
         remote === "remote" ? null : form.city.trim() || null,
       start_date: form.startDate || null,
@@ -635,6 +662,7 @@ export interface TemplateSourceJob {
   rate_budget_hourly?: number | null;
   remote_policy?: RemotePolicyValue | null;
   onsite_days_per_week?: number | null;
+  onsite_days_per_month?: number | null;
   must_skills?: unknown;
   nice_skills?: unknown;
   champion_profile?: unknown;
@@ -730,7 +758,12 @@ export function applyTemplate(
   if (!next.remotePolicy && src.remote_policy)
     next.remotePolicy = src.remote_policy;
   if (!next.onsiteDays && src.onsite_days_per_week != null) {
-    next.onsiteDays = String(src.onsite_days_per_week);
+    const office = officeDaysFormValue(
+      src.onsite_days_per_week,
+      src.onsite_days_per_month,
+    );
+    next.onsiteDays = office.value;
+    next.onsiteDaysPeriod = office.period;
   }
   if (!next.city && src.location) next.city = src.location;
   // Pola, które `POST /api/jobs` z `from_job_id` kopiuje z profilu źródłowego,

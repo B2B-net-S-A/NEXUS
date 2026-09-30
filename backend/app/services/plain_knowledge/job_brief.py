@@ -140,7 +140,7 @@ def collect_inputs(
         and _cap(q.get("id"), 40)
         and _cap(q.get("question"), 500)
     ]
-    return {
+    inputs = {
         "title": _cap(getattr(job, "title", None), 255),
         "working_title": _cap(getattr(job, "working_title", None), 255),
         "role": _cap(role_name, 200),
@@ -173,6 +173,14 @@ def collect_inputs(
         "screening_questions": screening,
         "terms": [t["term_key"] for t in job_terms(job)],
     }
+    # 0407: klucz tylko przy wpisie miesięcznym — inaczej hash wejścia
+    # zmieniłby się każdej rekrutacji i wszystkie teksty byłyby „nieaktualne”.
+    month = basics.get("onsite_days_per_month") or getattr(
+        job, "onsite_days_per_month", None
+    )
+    if month is not None:
+        inputs["onsite_days_per_month"] = month
+    return inputs
 
 
 def inputs_hash(inputs: dict[str, Any], model: str) -> str:

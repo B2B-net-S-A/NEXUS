@@ -101,6 +101,7 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "rate_budget_hourly",
         "remote_policy",
         "onsite_days_per_week",
+        "onsite_days_per_month",
         "priority",
         "recruitment_type",
         "portals",
