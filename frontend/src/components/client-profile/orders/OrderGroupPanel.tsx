@@ -183,6 +183,7 @@ export function OrderGroupPanel({
 
   return (
     <DetailPanel
+      compact
       data-testid="order-group-panel"
       title={<span className="select-text">Zamówienie nr {group.order_number}</span>}
       badges={
@@ -242,6 +243,7 @@ export function OrderGroupPanel({
 
           <DetailSection title="Zamówienie">
             <DetailFacts
+              compact
               items={[
                 ["Okres", periodLabel(group)],
                 group.closure_date ? ["Zakończone", formatDate(group.closure_date)] : null,
