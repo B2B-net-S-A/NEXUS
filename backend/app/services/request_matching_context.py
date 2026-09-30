@@ -101,7 +101,20 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
         stored_contract,
     )
 
+    from app.services.critical_skills import effective_critical, gate_mode
+
     values = {name: getattr(job, name, None) for name in _JOB_FIELDS}
+    # Krytyczne zamrożone w żądaniu (30.09.2026): profil niżej traci pole
+    # `stack.critical` (nie zmienia wymagań roli), a podpowiedź z historii
+    # zmienia się po cotygodniowym przeliczeniu — zapisany przegląd nie może
+    # udawać aktualnego, a worker musi bramkować tym samym zestawem.
+    resolution = effective_critical(job)
+    values["critical_effective"] = {
+        "labels": list(resolution.labels),
+        "source": resolution.source,
+        "suggested": list(resolution.suggested),
+        "decided": resolution.decided,
+    }
     if isinstance(values["champion_profile"], dict):
         from app.services import champion_view
 
@@ -134,6 +147,7 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
         # Which candidates the must-have gate hides; a ranking built under an
         # older policy must not be served as the current one.
         "must_gate_policy": MUST_GATE_POLICY_VERSION,
+        "must_gate_mode": gate_mode(),
     }
     fingerprint = hashlib.sha256(
         json.dumps(

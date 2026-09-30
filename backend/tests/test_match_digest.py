@@ -51,6 +51,10 @@ def test_is_due_weekly_monday_window(monkeypatch):
 )
 async def test_fresh_top_filters_staged_and_floor(monkeypatch, scores, expected):
     """Świeżość (spoza pipeline'u) + próg score + top-N — jedna ścieżka."""
+    # Bramka v8 (każde must ukrywa) — wyłącznik MUST_GATE_MODE=all od 30.09.2026.
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "MUST_GATE_MODE", "all")
     import app.tasks.match_digest as md
 
     # Atrapa oferty MUSI nieść pola czytane przez bramkę i dealbreakery:

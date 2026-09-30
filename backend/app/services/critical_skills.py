@@ -242,6 +242,17 @@ def effective_critical(job) -> CriticalResolution:
     from app.services.must_gate_terms import critical_eligible
     from app.services.scoring_service import job_explicit_must_skills
 
+    frozen = getattr(job, "critical_effective", None)
+    if isinstance(frozen, dict) and isinstance(frozen.get("labels"), list):
+        # Żądanie pełnego przeglądu (`request_matching_context`) niesie
+        # krytyczne z chwili startu — worker bramkuje dokładnie nimi.
+        source = frozen.get("source")
+        return CriticalResolution(
+            labels=tuple(str(x) for x in frozen["labels"]),
+            source=source if source in ("dl", "suggested", "none") else "none",
+            suggested=tuple(str(x) for x in frozen.get("suggested") or ()),
+            decided=bool(frozen.get("decided")),
+        )
     must = job_explicit_must_skills(job)
     suggested = suggest_from_must(must, _title(job))
     stored = stored_critical(job)

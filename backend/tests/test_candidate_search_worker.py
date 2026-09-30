@@ -16,6 +16,10 @@ from tests.test_scoring_service import make_candidate, make_job
 async def test_shared_batch_preserves_missing_measurement_and_uses_review_policy(
     monkeypatch,
 ):
+    # Bramka v8 (każde must ukrywa) — wyłącznik MUST_GATE_MODE=all od 30.09.2026.
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "MUST_GATE_MODE", "all")
     from app.api import matching
 
     candidate = make_candidate(skills=["Python"], expected_rate_currency="PLN")

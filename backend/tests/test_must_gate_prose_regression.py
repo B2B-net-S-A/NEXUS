@@ -162,7 +162,9 @@ def test_job_whose_musts_are_all_prose_hides_nobody():
     from app.services.dealbreaker_filters import DealbreakerInputs
 
     kandydaci = [_kandydat(["Apache Kafka", "AWS"]), _kandydat(["Java", "Spring"])]
-    inputs = DealbreakerInputs(must_skills=tuple(gate_eligible_must_skills(PROZA_Z_PRODUKCJI)))
+    inputs = DealbreakerInputs(
+        must_skills=tuple(gate_eligible_must_skills(PROZA_Z_PRODUKCJI))
+    )
     wynik = apply_dealbreakers(kandydaci, inputs=inputs)
     assert len(wynik.kept) == 2, "proza nadal opróżnia listę"
     assert wynik.hidden_meta()["missing_must"] == 0
@@ -181,9 +183,13 @@ def test_a_genuine_missing_technology_is_still_hidden():
     assert wynik.hidden_meta()["missing_must"] == 1
 
 
-def test_inputs_expose_what_the_gate_ignored():
+def test_inputs_expose_what_the_gate_ignored(monkeypatch):
     """Bramka, która po cichu nie działa, jest tym samym błędem co ciche
     ukrywanie — odpowiedź musi nieść, czego nie użyto."""
+    # Bramka v8 (każde must ukrywa) — wyłącznik MUST_GATE_MODE=all od 30.09.2026.
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "MUST_GATE_MODE", "all")
     from app.services.dealbreaker_filters import dealbreaker_inputs_for_job
 
     job = SimpleNamespace(

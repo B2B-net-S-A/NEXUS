@@ -681,7 +681,7 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
             )
             continue
         job_inputs = search_dealbreaker_inputs(job)
-        await attach_gate_evidence(db, [candidate], job_inputs.must_skills)
+        await attach_gate_evidence(db, [candidate], job_inputs.gate_evidence_labels)
         kept = apply_dealbreakers([candidate], inputs=job_inputs)
         if not kept.kept:
             ineligible.append(
@@ -806,7 +806,7 @@ async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
         db, job=job, candidates=list(candidates), now=now
     )
     job_inputs = search_dealbreaker_inputs(job)
-    await attach_gate_evidence(db, eligible, job_inputs.must_skills)
+    await attach_gate_evidence(db, eligible, job_inputs.gate_evidence_labels)
     kept = apply_dealbreakers(eligible, inputs=job_inputs).kept
     revisions = {c.id: candidate_revision(c) for c in candidates}
     job_changed_at = job.updated_at or job.created_at

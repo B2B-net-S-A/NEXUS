@@ -222,6 +222,20 @@ class DealbreakerInputs:
     # Tryb pracy rekrutacji (onsite | hybrid | remote) — decyduje, czy inne
     # miasto ukrywa, czy tylko ostrzega (`office_city_is_hard`).
     remote_policy: Optional[str] = None
+    # 30.09.2026: skąd są krytyczne (`dl` | `suggested` | `none`; `None` =
+    # tryb `all` albo radar) i technologie must+nice, dla których dowód z CV
+    # i notatek dołącza się RAZ na paczkę (bramka, plakietki, ocena).
+    critical_source: Optional[str] = None
+    evidence_labels: tuple[str, ...] = ()
+
+    @property
+    def gate_evidence_labels(self) -> tuple[str, ...]:
+        """Etykiety do ``attach_gate_evidence`` — nadzbiór ``must_skills``."""
+        labels = list(self.evidence_labels)
+        for label in self.must_skills:
+            if label not in labels:
+                labels.append(label)
+        return tuple(labels)
 
     @property
     def requires_office_days(self) -> bool:
@@ -520,6 +534,12 @@ def gate_eligible_must_skills(must: Sequence[str]) -> list[str]:
     return [m for m in must if is_gate_eligible_must(m)]
 
 
+def _has_any_data(candidate) -> bool:
+    from app.services.must_text_evidence import evidence_for, has_any_data
+
+    return has_any_data(candidate, evidence_for(candidate, ()))
+
+
 def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
     """Rozwiąż rubryki JEDNEJ oferty raz, dla wszystkich pięciu powierzchni.
 
@@ -540,8 +560,20 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
     # przepisane z ogłoszenia zostają w scoringu i w bramce gotowości, ale nie
     # ukrywają nikogo — patrz `gate_eligible_must_skills`.
     declared_must = tuple(job_explicit_must_skills(job))
-    must = tuple(gate_eligible_must_skills(declared_must))
+    eligible_must = tuple(gate_eligible_must_skills(declared_must))
+    critical_source: Optional[str] = None
+    from app.services.critical_skills import effective_critical, gate_mode
+
+    if gate_mode() == "critical":
+        # 30.09.2026: ukrywają tylko umiejętności krytyczne (decyzja DL albo
+        # podpowiedź z historii); reszta must daje punkty (audyt B1/B2).
+        resolution = effective_critical(job)
+        must = tuple(m for m in eligible_must if m in set(resolution.labels))
+        critical_source = resolution.source
+    else:
+        must = eligible_must
     must_ignored = tuple(m for m in declared_must if m not in set(must))
+    evidence_labels = _evidence_labels(job, eligible_must)
 
     days = getattr(job, "onsite_days_per_week", None)
     office_location = getattr(job, "office_location", None) or getattr(
@@ -584,7 +616,24 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
         wants_office=wants_office,
         job_work_mode=work_mode if isinstance(work_mode, str) else None,
         remote_policy=policy,
+        critical_source=critical_source,
+        evidence_labels=evidence_labels,
     )
+
+
+def _evidence_labels(job, eligible_must: Sequence[str]) -> tuple[str, ...]:
+    """Technologie must i nice oferty, które da się sprawdzić w CV i notatkach."""
+    from app.services.scoring_service import job_skill_requirements
+
+    try:
+        nice = job_skill_requirements(job).get("nice") or []
+    except Exception:  # noqa: BLE001 — obiekt bez pól oferty (radar, atrapa)
+        nice = []
+    out = list(eligible_must)
+    for label in gate_eligible_must_skills(nice):
+        if label not in out:
+            out.append(label)
+    return tuple(out)
 
 
 def rate_fit_status(candidate, inputs: DealbreakerInputs) -> str:
@@ -731,10 +780,24 @@ def apply_dealbreakers(
     if exclude_remote_only is None:
         exclude_remote_only = bool(effective_inputs.wants_office)
 
+    from app.services.critical_skills import gate_mode
+
+    # 30.09.2026 (decyzje Artura): budżet i dni w biurze tylko plakietka
+    # (`rate_fit_status`, `office_fit_status`) — ukrywały 32% i 8% osób,
+    # które zespół potem wysyłał; kandydat bez żadnych danych ukryty zawsze.
+    # `MUST_GATE_MODE=all` przywraca zachowanie v8 w całości.
+    critical_mode = gate_mode() == "critical"
     result = DealbreakerResult()
-    budget_active = exclude_over_budget and effective_budget is not None
+    budget_active = (
+        exclude_over_budget and effective_budget is not None and not critical_mode
+    )
     must_active = exclude_missing_must and bool(effective_inputs.must_skills)
-    days_active = exclude_office_days_exceeded and effective_inputs.requires_office_days
+    days_active = (
+        exclude_office_days_exceeded
+        and effective_inputs.requires_office_days
+        and not critical_mode
+    )
+    no_data_always = critical_mode and rubrics_enabled
     city_active = (
         exclude_office_city_mismatch
         and effective_inputs.requires_office_days
@@ -756,6 +819,11 @@ def apply_dealbreakers(
             result.hidden_over_budget += 1
             if (candidate_id := getattr(candidate, "id", None)) is not None:
                 result.exclusion_reasons[candidate_id] = "over_budget"
+            continue
+        if no_data_always and not _has_any_data(candidate):
+            result.hidden_no_data += 1
+            if (candidate_id := getattr(candidate, "id", None)) is not None:
+                result.exclusion_reasons[candidate_id] = "no_data"
             continue
         if must_active and missing_must_skills(
             candidate,

@@ -193,7 +193,7 @@ async def _fresh_top_matches(
     job_inputs = search_dealbreaker_inputs(job)
     from app.services.must_text_evidence import attach_gate_evidence
 
-    await attach_gate_evidence(db, candidates, job_inputs.must_skills)
+    await attach_gate_evidence(db, candidates, job_inputs.gate_evidence_labels)
     candidates = apply_dealbreakers(candidates, inputs=job_inputs).kept
     if not candidates:
         return []

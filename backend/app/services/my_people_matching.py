@@ -130,6 +130,18 @@ async def score_people_for_job(
         db, user_id=profile_user_id, client_id=job.client_id
     )
     context = build_request_context(job, profile)
+    from app.services.requirement_verification import load_verified_requirements
+
+    if candidates:
+        from app.services.must_text_evidence import attach_gate_evidence
+        from app.services.requirement_contract import search_dealbreaker_inputs
+
+        # Dowód z CV i notatek PRZED oceną (30.09.2026): ocena umiejętności
+        # czyta go tak samo jak bramka.
+        await load_verified_requirements(db, job, candidates)
+        await attach_gate_evidence(
+            db, candidates, search_dealbreaker_inputs(job).gate_evidence_labels
+        )
     fits = await score_candidates(db, context, candidates) if candidates else []
     decisions = await evaluate_candidates_for_job(
         db,
@@ -138,16 +150,6 @@ async def score_people_for_job(
         now=datetime.now(timezone.utc),
     )
 
-    from app.services.requirement_verification import load_verified_requirements
-
-    if candidates:
-        from app.services.must_text_evidence import attach_gate_evidence
-        from app.services.requirement_contract import search_dealbreaker_inputs
-
-        await load_verified_requirements(db, job, candidates)
-        await attach_gate_evidence(
-            db, candidates, search_dealbreaker_inputs(job).must_skills
-        )
     dealbreaker_hidden = dealbreaker_exclusions(job, candidates, decisions)
 
     by_id = {c.id: c for c in candidates}

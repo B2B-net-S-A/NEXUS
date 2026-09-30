@@ -395,7 +395,7 @@ async def _gate_and_dealbreakers(
 
     # 27.09.2026: must spełnia też CV i notatki — dowód dla całej widocznej
     # puli (także wiersze z wetem HM: chipy ✓/✗ muszą mówić to samo co bramka).
-    await attach_gate_evidence(db, visible, inputs.must_skills)
+    await attach_gate_evidence(db, visible, inputs.gate_evidence_labels)
     db_res = await _apply_dealbreakers_yielding(
         dealbreakable,
         inputs=inputs,

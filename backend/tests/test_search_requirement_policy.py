@@ -10,6 +10,16 @@ from app.services.requirement_contract import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _v8_must_gate(monkeypatch):
+    """Te testy opisują bramkę v8 (każde must-technologia, budżet i dni
+    ukrywają) — od 30.09.2026 to wyłącznik awaryjny ``MUST_GATE_MODE=all``.
+    Tryb domyślny (krytyczne) pilnuje ``test_critical_gate.py``."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "MUST_GATE_MODE", "all")
+
+
 def job(policy="review"):
     return SimpleNamespace(
         matching_requirements={
