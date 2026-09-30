@@ -1157,7 +1157,7 @@ PLAIN_CLIENT_STRUCTURE = PromptTemplate(
 
 PLAIN_JOB_BRIEF = PromptTemplate(
     name="plain_job_brief",
-    version=2,
+    version=3,
     expected_format="json",
     system_prompt=(
         _PLAIN_TONE
@@ -1178,6 +1178,9 @@ PLAIN_JOB_BRIEF = PromptTemplate(
         '    "client": str|null, "rate": str|null, "work": str|null, "mode": str|null,\n'
         '    "start": str|null, "process": str|null, "team": str|null\n'
         "  }},\n"
+        "  // process = etapy rekrutacji, które przejdzie KANDYDAT (rozmowy, ich liczba i język, zadanie).\n"
+        "  // Nie wpisuj tam instrukcji dla rekrutera z karty klienta (format i nazwa pliku CV,\n"
+        "  // zasady wysyłki, limity CV) — kandydata to nie dotyczy; bez etapów w danych = null.\n"
         '  "screening": [          // dla KAŻDEGO pytania z danych, te same id, bez nowych warunków\n'
         '    {{"id": str, "why": str, "good": str, "reject": str|null}}\n'
         "  ],\n"

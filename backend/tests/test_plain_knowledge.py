@@ -87,6 +87,41 @@ def test_rate_comes_from_the_profile_even_when_the_model_omits_it() -> None:
     assert out["pitch"].endswith("Umowa B2B do 170 zł netto za godzinę.")
 
 
+def test_start_answer_falls_back_to_the_profile() -> None:
+    raw = {"one_liner": "x", "pitch": "y", "answers": {"start": None}}
+    out = job_brief.shape_output(
+        raw, _inputs(start_date="", contract_length="long term cooperation")
+    )
+    qa = {q["key"]: q for q in out["candidate_qa"]}
+    assert qa["start"]["answer"] == "Długość współpracy: long term cooperation."
+    assert qa["start"]["source"] == "sekcja 1"
+    empty = job_brief.shape_output(raw, _inputs(start_date="", contract_length=""))
+    assert {q["key"]: q for q in empty["candidate_qa"]}["start"]["answer"] is None
+
+
+def test_process_answer_drops_cv_sending_rules_for_the_recruiter() -> None:
+    # Prod 30.09 (Bank Pocztowy): odpowiedź o etapach mówiła kandydatowi o nazwie pliku CV.
+    raw = {
+        "answers": {
+            "process": (
+                "CV należy przygotować po polsku. Plik powinien mieć nazwę w formacie X. "
+                "Do każdej rekrutacji potrzebna jest osobna notatka."
+            )
+        }
+    }
+    qa = {q["key"]: q for q in job_brief.shape_output(raw, _inputs())["candidate_qa"]}
+    assert qa["process"]["answer"] is None
+    assert qa["process"]["source"] is None
+
+    raw = {
+        "answers": {
+            "process": "Rozmowa rekrutacyjna odbywa się po angielsku. Plik CV po polsku."
+        }
+    }
+    qa = {q["key"]: q for q in job_brief.shape_output(raw, _inputs())["candidate_qa"]}
+    assert qa["process"]["answer"] == "Rozmowa rekrutacyjna odbywa się po angielsku."
+
+
 def test_pitch_that_already_names_the_rate_is_not_extended() -> None:
     raw = {"one_liner": "x", "pitch": "Umowa B2B, do 170 zł netto za godzinę."}
     out = job_brief.shape_output(raw, _inputs())
