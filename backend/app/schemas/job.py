@@ -315,6 +315,10 @@ class JobResponse(BaseModel):
     # owner badge. Both are ``None``/empty when the job is unassigned.
     primary_owner: Optional[UserBrief] = None
     collaborators: list[JobCollaboratorBrief] = []
+    # Delivery Lead rozwinięty do ``UserBrief`` — wypełnia tylko lista
+    # (``GET /api/jobs``), żeby kafelek pokazał „DL: …” obok prowadzącego
+    # (zgłoszenie 30.09.2026: DL widziała samo „Nieprzypisany”).
+    delivery_lead: Optional[UserBrief] = None
     # Czy bieżący użytkownik może zapisać „stawkę do klienta" w tej rekrutacji
     # (`user_can_write_client_rate`: role zarządcze/Finanse albo właściciel/
     # twórca rekrutacji). Ustawiane tylko przez `GET /api/jobs/{id}`; tablica

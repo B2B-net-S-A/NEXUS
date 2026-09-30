@@ -63,6 +63,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { OwnerBadge } from "@/components/v2/jobs/OwnerBadge";
+import type { UserBrief } from "@/components/v2/jobs/ownership-types";
 import {
   collaboratorsSummary,
   type JobCollaboratorEntry,
@@ -268,6 +269,52 @@ export function jobsListQueryKey(state: JobsListQueryState): unknown[] {
  */
 export function jobsQuickCountsQueryKey(): unknown[] {
   return ["jobs-quick-counts", deadlineQueryParams("overdue").deadline_to];
+}
+
+/**
+ * Zespół rekrutacji na kafelku: rekruter prowadzący, „+N” współpracowników
+ * i Delivery Lead. Zgłoszenie 30.09.2026: DL, która założyła rekrutację, widziała
+ * na kafelku samo „Nieprzypisany” i czytała to jako „nie jestem przypisana” —
+ * tymczasem brakowało wyłącznie rekrutera prowadzącego.
+ */
+function JobTileTeam({
+  job,
+}: {
+  job: {
+    primary_owner?: UserBrief | null;
+    delivery_lead?: { name?: string | null } | null;
+    collaborators?: readonly JobCollaboratorEntry[] | null;
+  };
+}) {
+  const team = collaboratorsSummary(job.collaborators);
+  const dlName = job.delivery_lead?.name ?? null;
+  return (
+    <>
+      <OwnerBadge
+        user={job.primary_owner ?? null}
+        size="sm"
+        unassignedLabel="Brak rekrutera"
+      />
+      {team.count > 0 && (
+        <span
+          className="inline-flex h-6 items-center rounded-full bg-muted px-2 text-[11px] font-medium text-muted-foreground"
+          title={team.tooltip}
+        >
+          <span aria-hidden="true">+{team.count}</span>
+          <span className="sr-only">{team.tooltip}</span>
+        </span>
+      )}
+      {dlName && (
+        <span
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+          title={`Delivery Lead: ${dlName}`}
+        >
+          <span className="font-medium">DL:</span>
+          <span className="truncate max-w-32">{shortenPersonName(dlName)}</span>
+        </span>
+      )}
+    </>
+  );
 }
 
 /**
@@ -1355,7 +1402,7 @@ export function JobsListV2() {
                       )}
 
                       <div className="mb-2 flex items-center gap-3 flex-wrap">
-                        <OwnerBadge user={job.primary_owner ?? null} size="sm" />
+                        <JobTileTeam job={job} />
                         {job.hiring_manager_name && (
                           <span
                             className="inline-flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-0.5 rounded"
