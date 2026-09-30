@@ -899,6 +899,7 @@ export function JobReadinessDock({
         clientId={job.client_id ?? null}
         deliveryLeadId={job.delivery_lead_id ?? null}
         deadline={job.deadline ?? null}
+        deadlineTime={job.deadline_time ?? null}
         canEdit={canManageJob}
       />
       <HiringManagerPicker

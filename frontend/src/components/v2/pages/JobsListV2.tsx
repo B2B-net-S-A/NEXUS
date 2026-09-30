@@ -492,7 +492,7 @@ function JobsTable({
               <TableCell
                 title={job.created_at ? `Dodano ${formatDate(job.created_at)}` : undefined}
               >
-                <JobDeadlineCell deadline={job.deadline} />
+                <JobDeadlineCell deadline={job.deadline} deadlineTime={job.deadline_time} />
               </TableCell>
               <TableCell>
                 <JobOwnerCell

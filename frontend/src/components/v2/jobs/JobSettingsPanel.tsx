@@ -7,7 +7,7 @@ import { Loader2, X } from "lucide-react";
 import api, { clientTeamApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { invalidateChampionDependents } from "@/lib/champion-cache";
-import { formatIsoDatePl } from "@/lib/date-pl";
+import { formatDeadlineTime, formatJobDeadline } from "@/lib/job-deadline";
 
 interface DirectoryUser {
   id: number;
@@ -21,6 +21,8 @@ export interface JobSettingsPanelProps {
   deliveryLeadId: number | null;
   /** ISO `YYYY-MM-DD` (`Job.deadline`), jak zwraca `GET /api/jobs/{id}`. */
   deadline: string | null;
+  /** Godzina terminu `HH:MM[:SS]` (`Job.deadline_time`, 0406, czas Europe/Warsaw). */
+  deadlineTime?: string | null;
   /** `canWritePipeline && job.update` — lustro `HiringManagerPicker` w tym
    *  samym doku (`JobReadinessDock`, `PATCH /api/jobs/{id}` to `TacPlus`). */
   canEdit: boolean;
@@ -38,7 +40,8 @@ const CONTROL_CLASS =
  * „Ustawienia zlecenia" — zakładka „Zespół" doku gotowości.
  *
  * Od 22.09.2026 (decyzja Artura przy stronie `/jobs/new`) DWA pola: Delivery
- * Lead i Deadline. Owner (TAC), Szablon procesu, Kategoria kompetencji,
+ * Lead i Deadline (data + opcjonalna godzina — banki podają termin z godziną,
+ * 0406). Owner (TAC), Szablon procesu, Kategoria kompetencji,
  * Program / Train i Priorytet zniknęły z tworzenia I z ustawień — ustawia je
  * backend (szablon z klienta, kategoria z klasyfikatora, priorytet domyślny),
  * a dane w bazie zostają. Nie przywracaj ich tu bez decyzji właściciela.
@@ -52,6 +55,7 @@ export function JobSettingsPanel({
   clientId,
   deliveryLeadId,
   deadline,
+  deadlineTime = null,
   canEdit,
 }: JobSettingsPanelProps) {
   const queryClient = useQueryClient();
@@ -65,11 +69,14 @@ export function JobSettingsPanel({
   };
   const cancelEdit = () => setEditingField(null);
 
-  const commit = async (field: FieldKey, value: unknown) => {
+  const commit = (field: FieldKey, value: unknown) =>
+    save(field, { [field]: value ?? null });
+
+  const save = async (field: FieldKey, body: Record<string, unknown>) => {
     setSavingField(field);
     setErrorByField((prev) => ({ ...prev, [field]: undefined }));
     try {
-      await api.patch(`/api/jobs/${jobId}`, { [field]: value ?? null });
+      await api.patch(`/api/jobs/${jobId}`, body);
       // Ten sam komplet unieważnień co zapis Profilu Championa (M04-B02).
       invalidateChampionDependents(queryClient, jobId);
       void queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
@@ -169,20 +176,73 @@ export function JobSettingsPanel({
         error={errorByField.deadline}
         onEdit={() => startEdit("deadline")}
         onCancel={cancelEdit}
-        value={deadline ? formatIsoDatePl(deadline) : "nie ustawiono"}
+        value={formatJobDeadline(deadline, deadlineTime) ?? "nie ustawiono"}
         editor={
-          <input
-            autoFocus
-            type="date"
-            aria-label="Deadline"
-            disabled={savingField === "deadline"}
-            defaultValue={deadline ?? ""}
-            onChange={(e) => commit("deadline", e.target.value || null)}
-            className={CONTROL_CLASS}
+          <DeadlineEditor
+            deadline={deadline}
+            deadlineTime={deadlineTime}
+            saving={savingField === "deadline"}
+            onSave={(date, time) =>
+              save("deadline", { deadline: date, deadline_time: date ? time : null })
+            }
           />
         }
       />
     </div>
+  );
+}
+
+/**
+ * Data i godzina terminu w jednym zapisie. Godzina jest opcjonalna (sam dzień
+ * nadal działa), a bez daty jest zablokowana — backend i tak by ją wyczyścił.
+ */
+function DeadlineEditor({
+  deadline,
+  deadlineTime,
+  saving,
+  onSave,
+}: {
+  deadline: string | null;
+  deadlineTime: string | null;
+  saving: boolean;
+  onSave: (date: string | null, time: string | null) => void;
+}) {
+  const [date, setDate] = useState(deadline ?? "");
+  const [time, setTime] = useState(formatDeadlineTime(deadlineTime) ?? "");
+  const submit = () => onSave(date || null, time || null);
+  return (
+    <form
+      className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      <input
+        autoFocus
+        type="date"
+        aria-label="Deadline"
+        disabled={saving}
+        value={date}
+        onChange={(e) => setDate(e.target.value)}
+        className={`${CONTROL_CLASS} min-w-[8.5rem]`}
+      />
+      <input
+        type="time"
+        aria-label="Godzina terminu"
+        disabled={saving || !date}
+        value={time}
+        onChange={(e) => setTime(e.target.value)}
+        className="w-[5.5rem] shrink-0 rounded border border-border bg-card px-2 py-1 text-xs dark:bg-muted"
+      />
+      <button
+        type="submit"
+        disabled={saving}
+        className="shrink-0 text-[11px] font-medium text-primary hover:underline disabled:opacity-50"
+      >
+        Zapisz
+      </button>
+    </form>
   );
 }
 

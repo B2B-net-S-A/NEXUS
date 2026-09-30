@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Literal, Any, List, Optional
 
 from pydantic import (
@@ -42,6 +42,8 @@ class JobCreate(BaseModel):
     priority: JobPriority = JobPriority.medium
     needs_sourcing: bool = False
     deadline: Optional[date] = None
+    # 0406: godzina terminu (Europe/Warsaw); bez daty zapis ją czyści.
+    deadline_time: Optional[time] = None
     # client_id: required od migracji 0120 (2026-05-27). NOT NULL na DB.
     # Tworzenie joba bez klienta zwraca 422 — orphan recordy nigdy nie wpadną
     # na listę /jobs (patrz QA sweep PR fix/qa-jobs-orphan-cleanup).
@@ -130,6 +132,8 @@ class JobUpdate(BaseModel):
     priority: Optional[JobPriority] = None
     needs_sourcing: Optional[bool] = None
     deadline: Optional[date] = None
+    # 0406: godzina terminu (Europe/Warsaw); bez daty zapis ją czyści.
+    deadline_time: Optional[time] = None
     client_id: Optional[int] = None
     recruiter_id: Optional[int] = None
     tac_id: Optional[int] = None
@@ -275,6 +279,7 @@ class JobResponse(BaseModel):
     cpro_sender_id: Optional[int] = None
     cpro_sender_name: Optional[str] = None
     deadline: Optional[date]
+    deadline_time: Optional[time] = None
     client_id: Optional[int]
     client_name: Optional[str] = None  # denormalized (coalesce(display_name, name))
     recruiter_id: Optional[int]
