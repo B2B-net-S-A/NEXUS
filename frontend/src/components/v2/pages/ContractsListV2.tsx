@@ -952,7 +952,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  <Download className="h-4 w-4" /> {exporting ? "Eksportuję…" : "Eksport"}
  </Button>
  </PopoverTrigger>
- <PopoverContent align="end" className="w-60 p-1">
+ <PopoverContent align="end" className="w-auto min-w-44 p-1">
  <button
  onClick={() => doExport("xlsx")}
  className="block w-full text-left px-3 py-1.5 text-sm rounded-md hover:bg-primary/10"
@@ -966,12 +966,15 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  CSV
  </button>
  {canSeeContractAnalytics && (
+ <>
+ <div className="my-1 h-px bg-border" aria-hidden="true" />
  <button
  onClick={() => void doMissingOrdersReport()}
- className="mt-1 block w-full border-t border-border px-3 pb-1.5 pt-2 text-left text-sm rounded-md hover:bg-primary/10"
+ className="block w-full whitespace-nowrap text-left px-3 py-1.5 text-sm rounded-md hover:bg-primary/10"
  >
  Kontrakty bez zamówienia (.xlsx)
  </button>
+ </>
  )}
  </PopoverContent>
  </Popover>}
