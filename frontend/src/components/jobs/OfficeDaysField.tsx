@@ -42,7 +42,9 @@ export function OfficeDaysField({
 }) {
   const month = period === "month";
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    // Zawija się: w wąskiej kolumnie (sekcja podstaw /jobs/new) przełącznik
+    // schodzi pod liczbę zamiast wyjść poza kolumnę.
+    <div className={cn("flex flex-wrap items-center gap-2", className)}>
       <Input
         id={id}
         type="number"
@@ -58,7 +60,7 @@ export function OfficeDaysField({
       <div
         role="radiogroup"
         aria-label="Jak często w biurze"
-        className="flex min-h-9 min-w-0 items-center gap-0.5 rounded-lg bg-muted p-0.5"
+        className="flex min-h-9 items-center gap-0.5 rounded-lg bg-muted p-0.5"
       >
         {PERIODS.map((p) => {
           const active = period === p.value;
