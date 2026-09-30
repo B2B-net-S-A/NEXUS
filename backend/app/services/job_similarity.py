@@ -121,8 +121,13 @@ VECTOR_CLIENT_BONUS = 0.08
 VECTOR_CANDIDATE_LIMIT = 60
 # Plakietka „≈” na liście rekrutacji liczy tylko sugestie wektorowe z
 # (kosinus + premia) co najmniej tyle — bez progu świeciłaby przy każdej
-# rekrutacji. Kalibrowane przed merge (dane produkcyjne).
-SIMILAR_JOBS_BADGE_MIN_COSINE = 0.55
+# rekrutacji. Kalibracja 30.09.2026 na produkcji (1 620 rekrutacji, 27 037
+# prawdziwych przepięć, `similar_calibration.py`): źródło przepięcia ma
+# wynik 10. percentyl 0,45, mediana 0,65; najlepsza sugestia rekrutacji —
+# 10. percentyl 0,76. Próg = mediana prawdziwych źródeł: plakietka mówi „jest
+# rekrutacja co najmniej tak podobna jak typowe źródło przepięcia”. Świeci
+# przy większości rekrutacji — tak jak dawny próg 55 (średnio 3,1 sugestii).
+SIMILAR_JOBS_BADGE_MIN_COSINE = 0.65
 # Sufit czasu odczytu Qdranta: pojedyncza rekrutacja i szkic ~2 s, strona
 # listy (kilka paczek zapytań) dłużej. Po nim — miara leksykalna.
 _VECTOR_TIMEOUT_SECONDS = 2.0

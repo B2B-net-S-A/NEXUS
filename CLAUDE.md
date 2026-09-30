@@ -3684,8 +3684,8 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   wywołaniem Qdranta (`query_batch_points`, pamięć rankingu z kluczem
   `vector-v1`; awarii nie pamięta) i pokazuje „≈" tylko przy sugestiach
   z osobami u klienta — wektorowych wyłącznie z (kosinus + premia) ≥
-  `SIMILAR_JOBS_BADGE_MIN_COSINE` (bez progu plakietka świeciłaby przy każdej
-  rekrutacji). DL wskazuje podobne już przy tworzeniu
+  `SIMILAR_JOBS_BADGE_MIN_COSINE` = 0,65 (mediana wyniku prawdziwych źródeł
+  przepięć; kalibracja na produkcji 30.09.2026, liczby przy stałej). DL wskazuje podobne już przy tworzeniu
   (`POST /api/job-similarity/preview` — szkic tytuł + must-have embedowany
   `full_search_measurement.request_vector`, premia za klienta szkicu;
   po zapisie `POST …/similar`).
