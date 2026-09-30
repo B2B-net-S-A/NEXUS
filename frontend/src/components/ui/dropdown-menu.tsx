@@ -38,7 +38,7 @@ const DropdownMenuSubContent = React.forwardRef<
 >(({ className, ...props }, ref) => (
  <DropdownMenuPrimitive.SubContent
  ref={ref}
- className={cn("z-50 min-w-32 max-h-(--radix-dropdown-menu-content-available-height) max-w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden rounded-lg p-1","bg-card text-foreground","border border-border shadow-md","data-[state=open]:animate-fadeIn",
+ className={cn("z-110 min-w-32 max-h-(--radix-dropdown-menu-content-available-height) max-w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden rounded-lg p-1","bg-card text-foreground","border border-border shadow-md","data-[state=open]:animate-fadeIn",
  className
  )}
  {...props}
@@ -57,7 +57,7 @@ const DropdownMenuContent = React.forwardRef<
  align={align}
  className={cn(
  // Długie menu na telefonie w poziomie przewija się w dostępnej wysokości.
- "z-50 min-w-40 max-h-(--radix-dropdown-menu-content-available-height) max-w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden rounded-lg p-1","bg-card text-foreground","border border-border shadow-md","data-[state=open]:animate-fadeIn",
+ "z-110 min-w-40 max-h-(--radix-dropdown-menu-content-available-height) max-w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden rounded-lg p-1","bg-card text-foreground","border border-border shadow-md","data-[state=open]:animate-fadeIn",
  className
  )}
  {...props}

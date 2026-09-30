@@ -746,12 +746,18 @@ def jobs_mine_clause(current_user: User):
     ręcznie na pulpicie „Requesty i obłożenie” pracują nad requestem, a do tej
     rundy nie widzieli go w „Moje”. Ta sama klauzula liczy listę, liczniki
     zakresu i „Moje następne kroki”.
+
+    Delivery Lead rekrutacji (``delivery_lead_id``) też jest „mój” (zgłoszenie
+    30.09.2026): DL ma „Moje” jako zakres domyślny, a świeżo założona przez
+    niego rekrutacja bez rekrutera pokazywała „Moje 0”. Kreator metryk pulpitu
+    liczył DL-a jako „moje” od początku.
     """
     collab_subq = select(JobCollaborator.job_id).where(
         JobCollaborator.user_id == current_user.id
     )
     return or_(
         operational_owner_clause(Job.recruiter_id, current_user),
+        operational_owner_clause(Job.delivery_lead_id, current_user),
         Job.id.in_(collab_subq),
         Job.id.in_(_live_work_assignment_job_ids([current_user.id])),
     )
@@ -1488,6 +1494,8 @@ async def list_jobs(
     for j in jobs:
         if j.recruiter_id is not None:
             user_ids.add(j.recruiter_id)
+        if j.delivery_lead_id is not None:
+            user_ids.add(j.delivery_lead_id)
     for entries in collab_map.values():
         user_ids.update(uid for uid, _source in entries)
     user_brief_map = await _hydrate_owner_map(db, user_ids)
@@ -1597,6 +1605,14 @@ async def list_jobs(
         )
         if d["primary_owner"] is not None:
             d["primary_owner"] = d["primary_owner"].model_dump()
+        delivery_lead = (
+            user_brief_map.get(j.delivery_lead_id)
+            if j.delivery_lead_id is not None
+            else None
+        )
+        d["delivery_lead_user"] = (
+            delivery_lead.model_dump() if delivery_lead is not None else None
+        )
         d["collaborators"] = _collaborator_payload(
             collab_map.get(j.id, []), user_brief_map
         )
