@@ -707,6 +707,38 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  }
  };
 
+ // Ticket 10: kontrakty bez zamówienia w zakładce „Dokumenty” (cała firma,
+ // bez filtrów listy — raport odpowiada na pytanie o wszystkie kontrakty).
+ // Backend: admin + Finanse (`FinanceModuleUser`), stąd ta sama bramka co
+ // Analityka.
+ const doMissingOrdersReport = async () => {
+ if (exporting) return;
+ setExporting(true);
+ try {
+ const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
+ const res = await fetch(`${apiBase}/api/contracts/missing-orders-report`, {
+ headers: getAuthenticatedRequestHeaders(),
+ });
+ if (!res.ok) {
+ flashToast("Nie udało się pobrać raportu kontraktów bez zamówienia.");
+ return;
+ }
+ const blob = await res.blob();
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement("a");
+ a.href = url;
+ a.download = `kontrakty-bez-zamowienia-${localTodayIso()}.xlsx`;
+ document.body.appendChild(a);
+ a.click();
+ document.body.removeChild(a);
+ setTimeout(() => URL.revokeObjectURL(url), 60_000);
+ } catch {
+ flashToast("Nie udało się pobrać raportu kontraktów bez zamówienia.");
+ } finally {
+ setExporting(false);
+ }
+ };
+
  // Bramka „Nowy kontrakt" = POST /api/contracts (TacPlus). Z rejestru, NIE
  // z lokalnej listy ról — to właśnie ten wzorzec rozjeżdżał się z backendem
  // (audyt F-19).
@@ -920,7 +952,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  <Download className="h-4 w-4" /> {exporting ? "Eksportuję…" : "Eksport"}
  </Button>
  </PopoverTrigger>
- <PopoverContent align="end" className="w-44 p-1">
+ <PopoverContent align="end" className="w-60 p-1">
  <button
  onClick={() => doExport("xlsx")}
  className="block w-full text-left px-3 py-1.5 text-sm rounded-md hover:bg-primary/10"
@@ -933,6 +965,14 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  >
  CSV
  </button>
+ {canSeeContractAnalytics && (
+ <button
+ onClick={() => void doMissingOrdersReport()}
+ className="mt-1 block w-full border-t border-border px-3 pb-1.5 pt-2 text-left text-sm rounded-md hover:bg-primary/10"
+ >
+ Kontrakty bez zamówienia (.xlsx)
+ </button>
+ )}
  </PopoverContent>
  </Popover>}
  {canCreateContract && (

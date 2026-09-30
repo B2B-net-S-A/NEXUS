@@ -203,7 +203,13 @@ from app.services.polish_ilike import (
     polish_folded_ilike,
 )
 from app.tasks.contract_alerts import run_contract_alerts_cycle
-from app.api.deps import AdminUser, DeliveryLeadPlus, get_current_user, require_roles
+from app.api.deps import (
+    AdminUser,
+    DeliveryLeadPlus,
+    FinanceModuleUser,
+    get_current_user,
+    require_roles,
+)
 from app.api.financial_access import (
     FinanceReadUser,
     assert_finance_manager_touches_only_amounts,
@@ -2938,6 +2944,41 @@ async def contract_candidate_contact_report(
     )
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"braki-kontaktu-konsultantow_{ts}.xlsx"
+    return StreamingResponse(
+        BytesIO(content),
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/missing-orders-report")
+async def contract_missing_orders_report(
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Kontrakty bez podpiętego zamówienia w zakładce „Dokumenty" (XLSX).
+
+    Reguła i kolumny: ``services/contract_missing_orders_report``. Admin
+    i Finanse — plik niesie nazwiska konsultantów wszystkich klientów.
+    """
+    from app.core.config import settings
+    from app.core.scheduling import local_now
+    from app.services.contract_missing_orders_report import (
+        build_missing_orders_workbook,
+        load_missing_orders_report,
+    )
+
+    report = await load_missing_orders_report(db)
+    generated_at = local_now()
+    content = await run_in_threadpool(
+        build_missing_orders_workbook,
+        report,
+        base_url=settings.PUBLIC_BASE_URL,
+        generated_at=generated_at,
+    )
+    filename = f"kontrakty-bez-zamowienia_{generated_at:%Y%m%d_%H%M%S}.xlsx"
     return StreamingResponse(
         BytesIO(content),
         media_type=(
