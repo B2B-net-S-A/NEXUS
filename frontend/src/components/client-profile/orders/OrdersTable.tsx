@@ -349,7 +349,6 @@ function OrdersTableRowView({
           {/* Nazwisko prowadzi do kontraktu Z TEGO WIERSZA (jak na dawnej
               karcie) — klik w link nie otwiera panelu (`rowActivationProps`). */}
           <ContractPersonLink contractId={summary.contractId} name={summary.name} className="font-medium text-foreground" />
-          <span className="block text-xs text-muted-foreground">Kontrakt #{summary.contractId}</span>
         </td>
         {periodicColumns ? (
           <>

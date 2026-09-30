@@ -707,6 +707,9 @@ describe("OrdersTable — kontraktor z pojedynczym zamówieniem", () => {
       "href",
       "/contracts/466",
     );
+    // Pod nazwiskiem nie ma drugiej linii — numer kontraktu jest w nagłówku panelu.
+    expect(cells[0]).toHaveTextContent(/^Mateusz Wzorcowy$/);
+    expect(row).not.toHaveTextContent("Kontrakt #");
   });
 
   it("w sekcji MD stawki stoją pod „Koszt”/„Przychód”, a nie pod kolumnami MD", () => {

@@ -3,7 +3,7 @@
   "guide": "client.orders",
   "sources": {
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "a5158418479051f179f870c946fbcb518e38cc4bdf555dc416e93c4718fbbf6d",
-    "frontend/src/components/client-profile/orders/OrderLinePanel.tsx": "f052cda959c8a13a37422f86dffcb0645f89cfef30fc98ebb92cebc533bfe21e",
-    "frontend/src/components/client-profile/orders/OrdersTable.tsx": "5f8c283596d9d2a5a98463e0d7938b045bfb19a0c80fd72afd90c611eac9c5b9"
+    "frontend/src/components/client-profile/orders/OrderLinePanel.tsx": "3c30e1c8c634edf293832dae33b67943498a4c2cae07bec780e7b559ce910f9a",
+    "frontend/src/components/client-profile/orders/OrdersTable.tsx": "7d1a0454de2e3f15cab3f49b995142cea6b8b9c75b69415a8803c22f7a882d43"
   }
 }

@@ -216,7 +216,7 @@
       },
       {
         "q": "Profil i pola rekrutacji się różnią — co zrobić?",
-        "a": "W „Edytuj” (kolumna „Wypełnij szybciej”) kliknij „Uzgodnij profil i pola rekrutacji”. Zobaczysz różnice obok siebie i zdecydujesz, która wartość zostaje.",
+        "a": "W „Edytuj” (kolumna „Wypełnij szybciej”) kliknij „Uzgodnij profil i pola rekrutacji”. Zobaczysz różnice obok siebie i zdecydujesz, która wartość zostaje. Budżet, tryb pracy, dni w biurze i miasto zmienione w „Edytuj” po „Zapisz” zmieniają też rekrutację.",
         "anchor": "job.champion.reconcile"
       },
       {

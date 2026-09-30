@@ -746,12 +746,18 @@ def jobs_mine_clause(current_user: User):
     ręcznie na pulpicie „Requesty i obłożenie” pracują nad requestem, a do tej
     rundy nie widzieli go w „Moje”. Ta sama klauzula liczy listę, liczniki
     zakresu i „Moje następne kroki”.
+
+    Delivery Lead rekrutacji (``delivery_lead_id``) też jest „mój” (zgłoszenie
+    30.09.2026): DL ma „Moje” jako zakres domyślny, a świeżo założona przez
+    niego rekrutacja bez rekrutera pokazywała „Moje 0”. Kreator metryk pulpitu
+    liczył DL-a jako „moje” od początku.
     """
     collab_subq = select(JobCollaborator.job_id).where(
         JobCollaborator.user_id == current_user.id
     )
     return or_(
         operational_owner_clause(Job.recruiter_id, current_user),
+        operational_owner_clause(Job.delivery_lead_id, current_user),
         Job.id.in_(collab_subq),
         Job.id.in_(_live_work_assignment_job_ids([current_user.id])),
     )
@@ -1472,6 +1478,8 @@ async def list_jobs(
     for j in jobs:
         if j.recruiter_id is not None:
             user_ids.add(j.recruiter_id)
+        if j.delivery_lead_id is not None:
+            user_ids.add(j.delivery_lead_id)
     for entries in collab_map.values():
         user_ids.update(uid for uid, _source in entries)
     user_brief_map = await _hydrate_owner_map(db, user_ids)
@@ -1581,6 +1589,14 @@ async def list_jobs(
         )
         if d["primary_owner"] is not None:
             d["primary_owner"] = d["primary_owner"].model_dump()
+        delivery_lead = (
+            user_brief_map.get(j.delivery_lead_id)
+            if j.delivery_lead_id is not None
+            else None
+        )
+        d["delivery_lead_user"] = (
+            delivery_lead.model_dump() if delivery_lead is not None else None
+        )
         d["collaborators"] = _collaborator_payload(
             collab_map.get(j.id, []), user_brief_map
         )
@@ -3412,7 +3428,10 @@ async def _save_champion_profile(
     """
     from app.schemas.champion import ChampionProfile
     from app.services import champion_view
-    from app.services.champion_job_sync import fill_job_columns_from_champion
+    from app.services.champion_job_sync import (
+        fill_job_columns_from_champion,
+        overwrite_edited_job_columns,
+    )
     from app.services.job_matching_refresh import refresh_job_matching
 
     job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
@@ -3519,7 +3538,18 @@ async def _save_champion_profile(
     # (generator uzasadnień dopasowania). FILL_EMPTY: nigdy nie nadpisuje
     # kolumny, która już ma wartość (ręczną albo z wcześniejszego zapisu
     # Championa) — patrz docstring `fill_job_columns_from_champion`.
-    columns_filled = fill_job_columns_from_champion(job, profile.basics.model_dump())
+    # Wyjątek (30.09.2026): pole sekcji 1 ZMIENIONE ręcznie w tym zapisie
+    # nadpisuje kolumnę — inaczej poprawka w edytorze nie docierała do
+    # rekrutacji (`overwrite_edited_job_columns`). Import z pliku zostaje przy
+    # FILL_EMPTY i jawnym „Uzgodnij”.
+    columns_filled = (
+        []
+        if imported
+        else overwrite_edited_job_columns(
+            job, normalized_old.get("basics") or {}, new_profile.get("basics") or {}
+        )
+    )
+    columns_filled += fill_job_columns_from_champion(job, profile.basics.model_dump())
 
     # Diff na ZNORMALIZOWANYM starym profilu. Porównanie kształtu sprzed
     # przebudowy z kształtem po niej zgłosiłoby zmianę każdej sekcji przy

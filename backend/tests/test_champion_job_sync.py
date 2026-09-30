@@ -20,6 +20,7 @@ from app.services.champion_job_sync import (
     WORK_MODE_PREFIXES,
     champion_work_mode_to_remote,
     fill_job_columns_from_champion,
+    overwrite_edited_job_columns,
 )
 
 
@@ -386,3 +387,142 @@ async def test_ingest_reports_no_columns_filled_when_nothing_to_fill():
 
     assert outcome["outcome"] == "champion_skipped_nonempty"
     assert outcome["columns_filled"] == []
+
+
+# ── Ręczna zmiana w edytorze nadpisuje kolumnę (30.09.2026) ─────────────────
+
+
+def test_edited_rubric_overwrites_filled_column():
+    job = _bare_job(onsite_days_per_week=0, remote_policy=RemotePolicy.hybrid)
+    changed = overwrite_edited_job_columns(
+        job,
+        {"onsite_days_per_week": 0, "work_mode": "hybrydowo"},
+        {"onsite_days_per_week": 1, "work_mode": "hybrydowo"},
+    )
+    assert changed == ["onsite_days_per_week"]
+    assert job.onsite_days_per_week == 1
+    assert job.remote_policy == RemotePolicy.hybrid
+
+
+def test_untouched_rubric_keeps_an_older_mismatch():
+    # Profil 140, kolumna 150 z formularza zlecenia: zapis innego pola nie
+    # rozstrzyga rozjazdu po cichu.
+    job = _bare_job(rate_budget_hourly=150)
+    basics = {"rate_value": 140, "candidate_location_pref": "Kraków"}
+    assert overwrite_edited_job_columns(job, basics, dict(basics)) == []
+    assert job.rate_budget_hourly == 150
+
+
+def test_cleared_or_invalid_edit_leaves_the_column():
+    job = _bare_job(
+        rate_budget_hourly=150,
+        onsite_days_per_week=2,
+        remote_policy=RemotePolicy.onsite,
+        location="Gdańsk",
+    )
+    changed = overwrite_edited_job_columns(
+        job,
+        {
+            "rate_value": 150,
+            "onsite_days_per_week": 2,
+            "work_mode": "stacjonarnie",
+            "candidate_location_pref": "Gdańsk",
+        },
+        {
+            "rate_value": 5000,
+            "onsite_days_per_week": None,
+            "work_mode": "raz tak, raz tak",
+            "candidate_location_pref": "",
+        },
+    )
+    assert changed == []
+    assert job.rate_budget_hourly == 150
+    assert job.onsite_days_per_week == 2
+    assert job.remote_policy == RemotePolicy.onsite
+    assert job.location == "Gdańsk"
+
+
+def test_edited_rubrics_overwrite_all_four_columns():
+    job = _bare_job(
+        rate_budget_hourly=150,
+        onsite_days_per_week=0,
+        remote_policy=RemotePolicy.onsite,
+        location="Gdańsk",
+    )
+    changed = overwrite_edited_job_columns(
+        job,
+        {
+            "rate_value": 150,
+            "onsite_days_per_week": 0,
+            "work_mode": "stacjonarnie",
+            "candidate_location_pref": "Gdańsk",
+        },
+        {
+            "rate_value": 120,
+            "onsite_days_per_week": 2,
+            "work_mode": "hybrydowo",
+            "candidate_location_pref": "Warszawa",
+        },
+    )
+    assert sorted(changed) == [
+        "location",
+        "onsite_days_per_week",
+        "rate_budget_hourly",
+        "remote_policy",
+    ]
+    assert job.rate_budget_hourly == 120
+    assert job.onsite_days_per_week == 2
+    assert job.remote_policy == RemotePolicy.hybrid
+    assert job.location == "Warszawa"
+
+
+async def test_editor_fix_of_office_days_reaches_the_recruitment(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Zgłoszenie 30.09.2026: rekrutacja powstała z 0 dni przy hybrydzie,
+    rekruterka wpisała 1 w edytorze Championa, „Zapisano” — a kolumna została 0
+    i walidacja dalej mówiła „podaj dodatnią liczbę dni” (plus konflikt
+    profilu z rekrutacją)."""
+    import app.services.job_matching_refresh as job_matching_refresh_module
+
+    async def _fake_refresh(job_id: int, db) -> None:
+        return None
+
+    monkeypatch.setattr(
+        job_matching_refresh_module, "refresh_job_matching", _fake_refresh
+    )
+
+    job_id = await _seed_job_for_sync(
+        rate_budget_hourly=120,
+        onsite_days_per_week=0,
+        remote_policy=RemotePolicy.hybrid,
+        location="warszawa",
+        champion_profile={
+            "basics": {
+                "role_name": "Senior Software Developer",
+                "rate_value": 120,
+                "onsite_days_per_week": 0,
+                "work_mode": "hybrydowo",
+                "candidate_location_pref": "warszawa",
+            }
+        },
+    )
+
+    resp = await app_client.put(
+        f"/api/jobs/{job_id}/champion-profile",
+        headers=app_auth_headers,
+        json={"basics": {"onsite_days_per_week": 1}},
+    )
+    assert resp.status_code == 200, resp.text
+    codes = {
+        (issue.get("code"), issue.get("path"))
+        for issue in (resp.json().get("validation") or {}).get("issues", [])
+    }
+    assert ("missing_office_days", "basics.onsite_days_per_week") not in codes
+    assert ("column_conflict", "basics.onsite_days_per_week") not in codes
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        assert job.onsite_days_per_week == 1
+        assert job.rate_budget_hourly == 120
+        assert job.remote_policy == RemotePolicy.hybrid

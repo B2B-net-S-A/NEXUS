@@ -24,6 +24,8 @@ export interface DetailPanelProps {
   footer?: ReactNode;
   children: ReactNode;
   className?: string;
+  /** Czcionka jak w tabeli obok (zakładka „Zamówienia”): nagłówek text-sm, treść text-xs. */
+  compact?: boolean;
   "data-testid"?: string;
 }
 
@@ -41,6 +43,7 @@ export function DetailPanel({
   footer,
   children,
   className,
+  compact = false,
   "data-testid": testId,
 }: DetailPanelProps) {
   return (
@@ -50,7 +53,7 @@ export function DetailPanel({
           {leading}
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <h2 className="min-w-0 truncate text-base font-semibold text-foreground">{title}</h2>
+              <h2 className={cn("min-w-0 truncate font-semibold text-foreground", compact ? "text-sm" : "text-base")}>{title}</h2>
               {badges}
             </div>
             {subtitle && <div className="mt-0.5 text-xs text-muted-foreground">{subtitle}</div>}
@@ -71,7 +74,14 @@ export function DetailPanel({
           <TabbedNav tabs={tabs} value={tab} onValueChange={onTabChange} ariaLabel={tabsLabel} overflow="scroll" dense />
         </div>
       )}
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-4 overflow-y-auto overflow-x-hidden px-4 py-3 text-sm">{children}</div>
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-4 overflow-y-auto overflow-x-hidden px-4 py-3",
+          compact ? "text-xs" : "text-sm",
+        )}
+      >
+        {children}
+      </div>
       {footer && (
         <footer className="flex flex-wrap items-center gap-2 border-t border-border bg-muted/40 px-4 py-2.5">{footer}</footer>
       )}
@@ -101,10 +111,16 @@ export function DetailSection({
   );
 }
 
-export function DetailFacts({ items }: { items: Array<[ReactNode, ReactNode] | null | false> }) {
+export function DetailFacts({
+  items,
+  compact = false,
+}: {
+  items: Array<[ReactNode, ReactNode] | null | false>;
+  compact?: boolean;
+}) {
   const rows = items.filter(Boolean) as Array<[ReactNode, ReactNode]>;
   return (
-    <dl className="grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
+    <dl className={cn("grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)] gap-x-3 gap-y-1", compact ? "text-xs" : "text-sm")}>
       {rows.map(([label, value], i) => (
         <div key={i} className="contents">
           <dt className="text-muted-foreground">{label}</dt>

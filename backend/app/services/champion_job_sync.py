@@ -20,6 +20,9 @@ stawki w Championie NIE podąża więc do `rate_budget_hourly`, gdy ta jest już
 ustawiona — `resolve_job_budget_hourly` i tak preferuje kolumnę nad
 Championem, więc rozjazd nie ma efektu na scoring, tylko na to, co widać
 w formularzu oferty.
+
+Wyjątek od 30.09.2026: pole, które człowiek ZMIENIŁ w edytorze Championa,
+nadpisuje kolumnę (`overwrite_edited_job_columns`) — patrz jej docstring.
 """
 
 from __future__ import annotations
@@ -143,3 +146,59 @@ def fill_job_columns_from_champion(job: Job, basics: dict[str, Any]) -> list[str
         filled.append("location")
 
     return filled
+
+
+def overwrite_edited_job_columns(
+    job: Job, old_basics: dict[str, Any], new_basics: dict[str, Any]
+) -> list[str]:
+    """Ręczna zmiana rubryki w edytorze Championa idzie też do kolumny oferty.
+
+    Wyjątek od FILL_EMPTY (30.09.2026): pole z sekcji 1, które człowiek
+    ZMIENIŁ w tym zapisie (nowa, niepusta, poprawna wartość), nadpisuje
+    kolumnę. Do tej daty poprawka „0 → 1 dzień w biurze” w edytorze zapisywała
+    się tylko w profilu, a walidacja i bramka czytały dalej 0 z rekrutacji —
+    ten sam błąd wisiał po „Zapisano”. Pola nietknięte w tym zapisie zostają
+    (starszy rozjazd rozstrzyga „Uzgodnij profil i pola rekrutacji”).
+    Te same progi co w `fill_job_columns_from_champion`. Zwraca nazwy kolumn,
+    których wartość się zmieniła.
+    """
+    from app.services.requirement_contract import apply_requirement_source_update
+
+    if not isinstance(old_basics, dict) or not isinstance(new_basics, dict):
+        return []
+
+    def edited(key: str) -> Any:
+        value = new_basics.get(key)
+        if value in (None, "") or value == old_basics.get(key):
+            return None
+        return value
+
+    targets: dict[str, Any] = {}
+
+    rate_value = _as_number(edited("rate_value"))
+    if rate_value is not None and 0 < rate_value <= _MAX_RATE_BUDGET_HOURLY:
+        targets["rate_budget_hourly"] = rate_value
+
+    days_raw = _as_number(edited("onsite_days_per_week"))
+    if days_raw is not None and days_raw.is_integer() and 0 <= days_raw <= 7:
+        targets["onsite_days_per_week"] = int(days_raw)
+
+    remote = champion_work_mode_to_remote(edited("work_mode"))
+    if remote is not None:
+        targets["remote_policy"] = RemotePolicy(remote)
+
+    location_pref = edited("candidate_location_pref")
+    if isinstance(location_pref, str) and location_pref.strip():
+        targets["location"] = location_pref.strip()[:_MAX_LOCATION_LENGTH]
+
+    changed: list[str] = []
+    for column, value in targets.items():
+        current = getattr(job, column, None)
+        if column == "rate_budget_hourly" and current is not None:
+            if float(current) == float(value):
+                continue
+        elif current == value:
+            continue
+        apply_requirement_source_update(job, column, value)
+        changed.append(column)
+    return changed
