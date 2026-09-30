@@ -282,6 +282,12 @@ def scoring_algorithm_version() -> str:
     payload["skill_canon_contract"] = "2026-09-22-significant-signs"
     payload["location_contract"] = "2026-09-27-place-dictionary"
     payload["alias_mention_contract"] = "2026-09-25-polish-short-aliases"
+    payload["skill_text_evidence"] = "2026-09-30-anywhere-tech-denominator"
+    from app.services.critical_skills import gate_mode
+
+    payload["salary_contract"] = (
+        "2026-09-30-neutral" if gate_mode() == "critical" else "linear-30"
+    )
     payload["default_weights"] = [
         SEMANTIC_MAX,
         SKILLS_MAX,
@@ -1197,18 +1203,28 @@ def _score_skills(
 
     from app.services.requirement_verification import reviewed_label_status
 
+    # 30.09.2026: technologia liczy się, gdy stoi w profilu, CV albo notatce
+    # z rozmowy — ten sam dowód co w bramce (`attach_gate_evidence`, dołączony
+    # przed oceną). Ablacja z audytu: top 100 wysłanych 63,5% → 74,2% razem
+    # z neutralną stawką. Bez dołączonego dowodu — sama lista umiejętności.
+    evidence = getattr(candidate, "_must_text_evidence", None)
+    text_met = getattr(evidence, "met", None) or frozenset()
+
     def matches(label, level):
         reviewed = reviewed_label_status(candidate, job, label, level)
-        return (
-            reviewed == "met"
-            if reviewed is not None
-            else skill_present(label, cand_skills)
-        )
+        if reviewed is not None:
+            return reviewed == "met"
+        return skill_present(label, cand_skills) or label in text_met
 
     must_match = [s for s in must if matches(s, "must")]
     must_gap = [s for s in must if not matches(s, "must")]
     nice_match = [s for s in nice if matches(s, "nice")]
     nice_gap = [s for s in nice if not matches(s, "nice")]
+    # Punkty liczą tylko technologie; „bankowość”, „komunikatywność” czy
+    # „QA” zostają w chipach „do rozmowy”, ale nie rozcieńczają oceny
+    # (nikt nie ma ich w CV dosłownie). Bez żadnej technologii — lista jak dotąd.
+    must_scored = _technology_labels(must)
+    nice_scored = _technology_labels(nice)
 
     must_max = profile.skills_must
     nice_max = profile.skills_nice
@@ -1218,15 +1234,19 @@ def _score_skills(
     # `must_skills`, więc obie gałęzie trafiały w większość korpusu i żadna
     # nikogo nie różnicowała.
     recency = _skill_recency_weights(candidate, job, must_match + nice_match)
+    must_hits = [s for s in must_match if s in must_scored]
+    nice_hits = [s for s in nice_match if s in nice_scored]
     if must:
-        must_pts = sum(recency.get(s, 1.0) for s in must_match) / len(must) * must_max
+        must_pts = (
+            sum(recency.get(s, 1.0) for s in must_hits) / len(must_scored) * must_max
+        )
     else:
         # Legacy handed out the full must budget here — a free 20 points on the
         # 13% of jobs with no must_skills. Under renormalisation the half simply
         # leaves the budget instead.
         must_pts = 0.0 if _renormalizing() else must_max
     nice_pts = (
-        (sum(recency.get(s, 1.0) for s in nice_match) / len(nice) * nice_max)
+        (sum(recency.get(s, 1.0) for s in nice_hits) / len(nice_scored) * nice_max)
         if nice
         else 0.0
     )
@@ -1240,11 +1260,11 @@ def _score_skills(
             suffix = " (z Championa)"
         elif must_source == "jd_text":
             suffix = " (z opisu)"
-        reason_bits.append(f"must {len(must_match)}/{len(must)}{suffix}")
+        reason_bits.append(f"must {len(must_hits)}/{len(must_scored)}{suffix}")
     else:
         reason_bits.append("must n/a")
     if nice:
-        reason_bits.append(f"nice {len(nice_match)}/{len(nice)}")
+        reason_bits.append(f"nice {len(nice_hits)}/{len(nice_scored)}")
     dated = sorted(s for s, w in recency.items() if w < 1.0)
     if dated:
         reason_bits.append("dawno używane: " + ", ".join(dated[:5]))
@@ -1264,6 +1284,18 @@ def _score_skills(
         nice_match,
         nice_gap,
     )
+
+
+def _technology_labels(labels: List[str]) -> List[str]:
+    """Etykiety liczone w punktach: te, które bramka uznaje za technologię.
+
+    Gdy żadna nie jest technologią, liczymy całą listę (jak przed 30.09.2026)
+    — pusty mianownik zrobiłby z wymagań „brak sygnału”.
+    """
+    from app.services.must_gate_terms import gate_requirement
+
+    tech = [label for label in labels if gate_requirement(label) is not None]
+    return tech or list(labels)
 
 
 def _champion_signals_enabled() -> bool:
@@ -1347,10 +1379,26 @@ def _score_salary(
     cand_rate = _candidate_rate_pln_hourly(candidate)
     champion_rate = resolve_job_budget_hourly(job)
     if champion_rate is not None and cand_rate is not None:
+        from app.services.critical_skills import gate_mode
+
+        cand = float(cand_rate)
+        if gate_mode() == "critical":
+            # 30.09.2026 (decyzja Artura): stawka to plakietka „oczekuje +X%”,
+            # nie punkty. 85% zatrudnionych ma umowę w budżecie mimo wyższego
+            # oczekiwania w profilu, a spadek punktów spychał trafnych (audyt B3).
+            over = cand > champion_rate
+            note = (
+                f"ponad budżet o {(cand - champion_rate) / champion_rate:.0%} "
+                f"({cand:.0f} > {champion_rate:.0f} PLN/h)"
+                if over
+                else f"w budżecie ({cand:.0f} ≤ {champion_rate:.0f} PLN/h)"
+            )
+            return _unscored(
+                max_pts, f"{note}; stawka nie wpływa na ocenę — plakietka", "info"
+            )
         # Jedyna para w tej samej jednostce (PLN/h vs PLN/h): stawka Championa
         # to budżet klienta NA KANDYDATA. Oczekiwania w budżecie = pełne
         # punkty; przekroczenie degraduje liniowo do zera przy +30%.
-        cand = float(cand_rate)
         if cand <= champion_rate:
             return LayerResult(
                 points=max_pts,

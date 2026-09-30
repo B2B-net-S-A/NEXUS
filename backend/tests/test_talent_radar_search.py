@@ -428,6 +428,9 @@ def test_salary_layer_is_really_scored_on_the_radar_path(monkeypatch):
     monkeypatch.setattr(
         scoring_service.settings, "CHAMPION_MATCH_SIGNALS_ENABLED", True
     )
+    # Stawka w punktach to tryb v8 (MUST_GATE_MODE=all) od 30.09.2026 —
+    # w trybie domyślnym jest plakietką (test_critical_gate.py).
+    monkeypatch.setattr(scoring_service.settings, "MUST_GATE_MODE", "all")
 
     job = build_ephemeral_job(
         RadarQuery(

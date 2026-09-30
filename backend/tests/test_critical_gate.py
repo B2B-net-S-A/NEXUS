@@ -187,3 +187,38 @@ def test_request_context_freezes_critical_and_changes_the_fingerprint():
     assert critical_skills.effective_critical(frozen).labels == ("Java",) or [
         x.lower() for x in critical_skills.effective_critical(frozen).labels
     ] == ["java"]
+
+
+def test_salary_is_neutral_and_says_so():
+    from app.services.scoring_service import (
+        UNKNOWN_NEUTRAL_FRACTION,
+        _renormalizing,
+        _score_salary,
+    )
+
+    job = _job(critical=[], salary_min=None, salary_max=None)
+    in_budget = _cand(1, expected_rate_hourly=90, expected_rate_currency="PLN")
+    over = _cand(2, expected_rate_hourly=150, expected_rate_currency="PLN")
+    a, b = _score_salary(in_budget, job), _score_salary(over, job)
+    assert a.points == b.points
+    expected = 0.0 if _renormalizing() else a.max_points * UNKNOWN_NEUTRAL_FRACTION
+    assert a.points == pytest.approx(expected)
+    assert "ponad budżet o 50%" in b.reason and b.status == "info"
+
+
+def test_skills_count_text_evidence_and_only_technologies():
+    from app.services.scoring_service import _score_skills
+
+    job = _job(
+        critical=[],
+        must_skills=["Java", "Kafka", "komunikatywność"],
+        nice_skills=[],
+    )
+    cand = _cand(1, skills=["Java"])
+    cand._must_text_evidence = MustTextEvidence(
+        key=("java", "kafka"), met=frozenset({"kafka"}), has_notes=False
+    )
+    layer, matched, gaps, _, _ = _score_skills(cand, job)
+    # Kafka z CV/notatek się liczy; „komunikatywność” nie rozcieńcza punktów.
+    assert {m.lower() for m in matched} == {"java", "kafka"}
+    assert "must 2/2" in layer.reason
