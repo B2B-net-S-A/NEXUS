@@ -14,7 +14,7 @@
  * zamontowanie (`shouldAutoRefresh`); zamknięta dostaje przycisk.
  */
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,7 +30,7 @@ import {
   type PlainBrief,
 } from "@/lib/api/plainKnowledge";
 import { countPl } from "@/lib/plural-pl";
-import { formatRelativeTime } from "@/lib/utils";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
 import {
@@ -42,12 +42,82 @@ import {
 import { PlainGlossaryTable } from "./PlainGlossaryTable";
 import { PlainScreeningCards } from "./PlainScreeningCards";
 
+/** Długi opis klienta (ręczne karty mają do ~1600 znaków) zwijamy do kilku linii. */
+const CLIENT_ABOUT_CLAMP = 420;
+
+export function ClientAbout({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > CLIENT_ABOUT_CLAMP;
+  return (
+    <div>
+      <p
+        className={cn(
+          "whitespace-pre-line text-[13px] leading-relaxed text-foreground",
+          long && !open && "line-clamp-4",
+        )}
+        data-testid="plain-client-about"
+      >
+        {text}
+      </p>
+      {long ? (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="mt-1 text-xs font-medium text-primary hover:underline"
+        >
+          {open ? "Pokaż mniej" : "Pokaż więcej"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Makieta 6: czego NEXUS szuka teraz w internecie dla tej rekrutacji. */
+export function ResearchProgress({ brief, refreshing }: { brief: PlainBrief; refreshing: boolean }) {
+  const searching = brief.glossary.filter((t) => t.status === "researching");
+  const roleSearching = refreshing && !brief.role;
+  if (!refreshing && searching.length === 0) return null;
+  return (
+    <ul className="space-y-1 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground" role="status" data-testid="plain-research-progress">
+      {roleSearching ? (
+        <li className="flex items-center gap-1.5">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+          Rola: szukam opisu w internecie i zapisuję ją w bibliotece
+        </li>
+      ) : null}
+      {searching.length > 0 ? (
+        <li className="flex items-center gap-1.5">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+          Słowniczek: szukam opisu w internecie —{" "}
+          {searching.slice(0, 4).map((t) => t.display_name).join(", ")}
+          {searching.length > 4 ? ` i ${searching.length - 4} więcej` : ""}
+        </li>
+      ) : null}
+      {refreshing ? (
+        <li className="flex items-center gap-1.5">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+          Teksty dla tej rekrutacji: w toku — to może potrwać do minuty
+        </li>
+      ) : null}
+    </ul>
+  );
+}
+
 const FAILED_DEFAULT = "Nie udało się przygotować wyjaśnienia — spróbuj „Odśwież”.";
 
 /** „N podobnych rekrutacji · N zatrudnionych · w CV zatrudnionych najczęściej: …” — bez stawek. */
 export function RoleHistoryStrip({ role }: { role: BriefRole }) {
   const { stats } = role;
   if (!stats || stats.jobs <= 0) return null;
+  if (stats.jobs <= 1 && stats.hires === 0) {
+    // Makieta 6: pierwsza rekrutacja na tę rolę — zamiast zer mówimy, czemu ich brak.
+    return (
+      <p className="text-xs text-muted-foreground" data-testid="role-history-first">
+        Pierwsza taka rekrutacja. Statystyki tej roli pojawią się po pierwszych zatrudnieniach.
+      </p>
+    );
+  }
   const titles = stats.hired_titles.filter((t) => t.title.trim()).slice(0, 3);
   return (
     <p
@@ -144,7 +214,7 @@ function BriefBody({ brief }: { brief: PlainBrief }) {
                 <PlainEyebrow>O kliencie{client.name ? ` · ${client.name}` : ""}</PlainEyebrow>
                 {client.origin === "web" ? <WebOriginChip /> : null}
               </div>
-              <p className="text-[13px] leading-relaxed text-foreground">{client.about}</p>
+              <ClientAbout text={client.about} />
               {client.origin === "web" ? <SourceLinks sources={client.sources} /> : null}
               <ProvenanceMark kind="client" />
             </div>
@@ -259,12 +329,7 @@ export function PlainBriefBlock({ jobId }: { jobId: number }) {
         {brief.role ? <RoleHistoryStrip role={brief.role} /> : null}
       </header>
 
-      {refreshing ? (
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-          Przygotowuję wyjaśnienie — to może potrwać do minuty.
-        </p>
-      ) : null}
+      <ResearchProgress brief={brief} refreshing={refreshing} />
       {refresh.isError ? (
         <p className="text-xs text-destructive" role="alert">
           {apiErrorMessage(refresh.error, "Nie udało się odświeżyć wyjaśnienia.")}

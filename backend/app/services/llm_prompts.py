@@ -1155,7 +1155,7 @@ PLAIN_CLIENT_STRUCTURE = PromptTemplate(
 
 PLAIN_JOB_BRIEF = PromptTemplate(
     name="plain_job_brief",
-    version=1,
+    version=2,
     expected_format="json",
     system_prompt=(
         _PLAIN_TONE
@@ -1169,7 +1169,9 @@ PLAIN_JOB_BRIEF = PromptTemplate(
         '  "one_liner": str,       // jedno zdanie: kogo szukamy i co ta osoba będzie robić, u kogo\n'
         '  "example": str,         // „Przykład z codzienności”: jak praca tej osoby wygląda w życiu firmy/klienta\n'
         '  "day_to_day": [str, str, str],  // czym będzie się zajmować\n'
-        '  "pitch": str,           // 3–5 zdań do przeczytania kandydatowi na start rozmowy telefonicznej (ok. 30 s)\n'
+        '  "pitch": str,           // 3–5 zdań do przeczytania kandydatowi na start rozmowy telefonicznej (ok. 30 s):\n'
+        '                          // klient i miasto, co robi zespół, kogo szukamy, tryb pracy i dni w biurze,\n'
+        '                          // stawka („do N zł netto za godzinę na B2B”), start i długość — tylko te, które są w danych\n'
         '  "answers": {{            // odpowiedzi rekrutera na pytania kandydata; null gdy danych brak\n'
         '    "client": str|null, "rate": str|null, "work": str|null, "mode": str|null,\n'
         '    "start": str|null, "process": str|null, "team": str|null\n'

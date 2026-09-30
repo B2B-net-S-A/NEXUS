@@ -1775,7 +1775,11 @@ blok „Po ludzku” na górze Podglądu Championa i „Ściąga do rozmowy” w
   każdą ścieżkę zapisu profilu.
 - **Stawka i nazwa klienta idą do kandydata od razu; statystyki roli BEZ stawek**
   (liczba rekrutacji, klientów, zatrudnień, stanowiska zatrudnionych od 3
-  zatrudnień). Bez wersji EN i bez wiadomości do kandydata (wycofane 29.09).
+  zatrudnień, tylko tytuły wspólne dla ≥ 2 osób). Bez wersji EN i bez
+  wiadomości do kandydata (wycofane 29.09). **Stawkę w odpowiedzi „Ile płacą?”
+  i w tekście na start wstawia KOD** z budżetu profilu (`job_brief.rate_sentence`)
+  — model gubił ją przy budżecie 150 zł/h (prod 30.09). Źródła pokazujemy
+  najwyżej 3 (`view.MAX_SOURCES`, `SourceLinks`); research zapisuje ich więcej.
 - **Poprawki biblioteki ról i słowniczka: admin + Head of Recruitment**
   (`HeadOfRecruitmentPlus`, historia `plain_knowledge_events`, `origin=manual`).
   Opis klienta nadal edytuje karta klienta (DL/admin); ręczny zapis zdejmuje `web`.

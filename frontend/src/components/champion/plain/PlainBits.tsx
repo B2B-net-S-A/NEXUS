@@ -64,14 +64,19 @@ function hostOf(url: string): string {
   }
 }
 
+/** Makieta: 1–3 linki; research zapisuje ich więcej. */
+export const MAX_SOURCE_LINKS = 3;
+
 export function SourceLinks({
   sources,
   className,
+  limit = MAX_SOURCE_LINKS,
 }: {
   sources: readonly PlainSource[] | null | undefined;
   className?: string;
+  limit?: number;
 }) {
-  const items = safeSources(sources);
+  const items = safeSources(sources).slice(0, limit);
   if (items.length === 0) return null;
   return (
     <ul className={cn("flex flex-wrap gap-x-3 gap-y-1 text-xs", className)} aria-label="Źródła">

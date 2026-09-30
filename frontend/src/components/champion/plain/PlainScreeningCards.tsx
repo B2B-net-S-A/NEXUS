@@ -7,7 +7,7 @@
  * dlatego pod każdą kartą jest oryginalne brzmienie z profilu.
  */
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import type { ScreeningPlain } from "@/lib/api/plainKnowledge";
 import { cn } from "@/lib/utils";
@@ -85,8 +85,14 @@ function ScreeningCard({ item, index }: { item: ScreeningPlain; index: number })
   );
 }
 
+/** Decyzja 29.09.2026: w Podglądzie 3 pytania, reszta za „Pokaż wszystkie”. */
+export const SCREENING_CARDS_VISIBLE = 3;
+
 export function PlainScreeningCards({ items }: { items: readonly ScreeningPlain[] }) {
+  const [all, setAll] = useState(false);
   if (items.length === 0) return null;
+  const hidden = items.length - SCREENING_CARDS_VISIBLE;
+  const shown = all || hidden <= 0 ? items : items.slice(0, SCREENING_CARDS_VISIBLE);
   return (
     <section className="space-y-2" aria-label="Jak rozpoznać dobrego kandydata" data-testid="plain-screening">
       <div className="space-y-0.5">
@@ -97,10 +103,20 @@ export function PlainScreeningCards({ items }: { items: readonly ScreeningPlain[
         </p>
       </div>
       <ol className="list-none space-y-2">
-        {items.map((item, index) => (
+        {shown.map((item, index) => (
           <ScreeningCard key={item.question_id || `${index}`} item={item} index={index} />
         ))}
       </ol>
+      {hidden > 0 ? (
+        <button
+          type="button"
+          onClick={() => setAll((v) => !v)}
+          className="text-xs font-medium text-primary hover:underline"
+          aria-expanded={all}
+        >
+          {all ? "Pokaż 3 pytania" : `Pokaż wszystkie pytania (${items.length})`}
+        </button>
+      ) : null}
     </section>
   );
 }
