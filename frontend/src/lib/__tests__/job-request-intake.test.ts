@@ -143,6 +143,7 @@ describe("payloady zapisu", () => {
       auto_suggest_cc: true,
       remote_policy: "hybrid",
       onsite_days_per_week: 2,
+      onsite_days_per_month: null,
       description: "mail klienta",
       must_skills: ["Java 17+", "Spring Boot"],
       nice_skills: ["Kubernetes"],
@@ -194,6 +195,33 @@ describe("payloady zapisu", () => {
     expect(payload).not.toHaveProperty("description");
     expect(payload.from_job_id).toBe(99);
     expect(payload.copy_questions).toBe(true);
+  });
+
+  it("dni w miesiącu (0406): odczyt maila → formularz → oba zapisy", () => {
+    const form = formFromIntake({
+      ...INTAKE,
+      onsite_days_per_week: 1,
+      onsite_days_per_month: 2,
+    });
+    expect(form.onsiteDays).toBe("2");
+    expect(form.onsiteDaysPeriod).toBe("month");
+    expect(missingFor(form)).not.toContain("office_days");
+    const payload = buildJobPayload(form, {
+      clientId: 7,
+      requestText: "",
+      templateJobId: null,
+    });
+    expect(payload.onsite_days_per_month).toBe(2);
+    expect(payload.onsite_days_per_week).toBe(1);
+    const champion = buildChampionPayload(form) as {
+      basics: Record<string, unknown>;
+    };
+    expect(champion.basics).toMatchObject({
+      onsite_days_per_week: 1,
+      onsite_days_per_month: 2,
+    });
+    // Miesięcznie tylko przy hybrydzie — przy stacjonarnej to brak.
+    expect(missingFor({ ...form, remotePolicy: "onsite" })).toContain("office_days");
   });
 
   it("profil Championa ma sekcje sprawdzane przez handoff", () => {

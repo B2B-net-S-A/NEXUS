@@ -233,9 +233,12 @@ def _champion_context_text(job: Job) -> str:
     basics = champion_view.basics(cp)
     loc = basics.get("candidate_location_pref")
     onsite = basics.get("onsite_days_per_week")
+    onsite_month = basics.get("onsite_days_per_month")
     if loc:
         bits.append(f"Preferowana lokalizacja: {loc}")
-    if onsite is not None:
+    if onsite_month is not None:
+        bits.append(f"Dni w biurze/mies.: {onsite_month}")
+    elif onsite is not None:
         bits.append(f"Dni w biurze/tydz.: {onsite}")
     return _truncate("\n".join(bits), MAX_CHAMPION_CHARS) or "(brak profilu Championa)"
 
@@ -302,7 +305,10 @@ def _job_work_facts(job: Job) -> str:
         f"tryb: {_REMOTE_MODE_PL.get(mode, mode) if mode else '(brak w ofercie)'}",
     ]
     onsite = getattr(job, "onsite_days_per_week", None)
-    if onsite is not None:
+    onsite_month = getattr(job, "onsite_days_per_month", None)
+    if onsite_month is not None:
+        bits.append(f"dni w biurze/mies.: {onsite_month}")
+    elif onsite is not None:
         bits.append(f"dni w biurze/tydz.: {onsite}")
     return "; ".join(bits)
 

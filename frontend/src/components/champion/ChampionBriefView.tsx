@@ -35,6 +35,7 @@ import { formatBudgetHourly } from "@/lib/job-budget";
 import { criticalBriefLine, includesLabel } from "@/lib/critical-skills";
 import { formatDate } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
+import { officeDaysLabel } from "@/lib/office-days";
 
 /** Pola rekrutacji, które Podgląd czyta obok profilu. */
 export interface ChampionBriefJob {
@@ -243,7 +244,11 @@ export function ChampionBriefView({
     ? (JOB_WORK_MODE_LABEL[basics.work_mode] ?? basics.work_mode)
     : null;
   const office = [
-    basics.onsite_days_per_week ? `${basics.onsite_days_per_week} dni w biurze` : null,
+    basics.onsite_days_per_month
+      ? `${officeDaysLabel(null, basics.onsite_days_per_month)} w biurze`
+      : basics.onsite_days_per_week
+        ? `${basics.onsite_days_per_week} dni w biurze`
+        : null,
     basics.candidate_location_pref?.trim() || null,
   ]
     .filter(Boolean)

@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, Plus, Trash2, X } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
+import { OfficeDaysField } from "@/components/jobs/OfficeDaysField";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { ChampionExperienceFields } from "@/components/champion/ChampionExperienceFields";
@@ -556,7 +557,19 @@ export function NewJobReviewForm({
                     type="button"
                     role="radio"
                     aria-checked={active}
-                    onClick={() => set("remotePolicy", mode.value)}
+                    onClick={() =>
+                      onChange((f) =>
+                        // Dni w miesiącu są tylko przy hybrydzie (0406).
+                        mode.value !== "hybrid" && f.onsiteDaysPeriod === "month"
+                          ? {
+                              ...f,
+                              remotePolicy: mode.value,
+                              onsiteDays: "",
+                              onsiteDaysPeriod: "week",
+                            }
+                          : { ...f, remotePolicy: mode.value },
+                      )
+                    }
                     className={cn(
                       "min-h-9 min-w-0 flex-1 rounded-md px-1 text-sm leading-tight transition-colors",
                       active
@@ -578,16 +591,15 @@ export function NewJobReviewForm({
             >
               Dni w biurze
             </FieldLabel>
-            <Input
+            <OfficeDaysField
               id={ids.days}
-              type="number"
-              min={0}
-              max={7}
               disabled={!officeNeeded}
-              value={officeNeeded ? form.onsiteDays : ""}
-              onChange={(e) => set("onsiteDays", e.target.value)}
-              placeholder={officeNeeded ? "np. 2" : "—"}
-              className={cn(
+              allowMonth={form.remotePolicy === "hybrid"}
+              value={form.onsiteDays}
+              period={form.onsiteDaysPeriod}
+              onValueChange={(v) => set("onsiteDays", v)}
+              onPeriodChange={(p) => set("onsiteDaysPeriod", p)}
+              inputClassName={cn(
                 officeNeeded && isMissing("office_days") && MISSING_RING,
               )}
             />

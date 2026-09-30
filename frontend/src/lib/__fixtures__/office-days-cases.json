@@ -1,0 +1,21 @@
+{
+  "_comment": "Wspólne przypadki reguły dni w biurze (tydzień / miesiąc): backend/app/services/office_days.py ↔ frontend/src/lib/office-days.ts.",
+  "weekly_from_monthly": [
+    {"month": 1, "week": 1},
+    {"month": 2, "week": 1},
+    {"month": 4, "week": 1},
+    {"month": 6, "week": 1},
+    {"month": 7, "week": 2},
+    {"month": 8, "week": 2},
+    {"month": 13, "week": 3},
+    {"month": 22, "week": 5}
+  ],
+  "label": [
+    {"week": null, "month": null, "label": null},
+    {"week": 0, "month": null, "label": "0 dni w tygodniu"},
+    {"week": 1, "month": null, "label": "1 dzień w tygodniu"},
+    {"week": 3, "month": null, "label": "3 dni w tygodniu"},
+    {"week": 1, "month": 1, "label": "1 dzień w miesiącu"},
+    {"week": 1, "month": 2, "label": "2 dni w miesiącu"}
+  ]
+}

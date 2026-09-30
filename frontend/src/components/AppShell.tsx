@@ -71,6 +71,12 @@ import {
   type CandidateChoice,
 } from "@/components/calendar/CandidateCombobox";
 import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
+import { OfficeDaysField } from "@/components/jobs/OfficeDaysField";
+import {
+  officeDaysFields,
+  officeDaysFormValue,
+  type OfficeDaysPeriod,
+} from "@/lib/office-days";
 import { JobCollaboratorsField } from "@/components/jobs/JobCollaboratorsField";
 import {
   collaboratorChanges,
@@ -1514,6 +1520,8 @@ interface JobFormData {
   remote_policy: string;
   // Trzecia rubryka rekrutacji (0278) — obok must-have i rate_budget_hourly.
   onsite_days_per_week: string;
+  // 0406: „w tygodniu” | „w miesiącu” — pole wyżej trzyma liczbę w tej jednostce.
+  onsite_days_period: OfficeDaysPeriod;
   salary_min: string;
   salary_max: string;
   rate_budget_hourly: string;
@@ -1541,7 +1549,8 @@ function jobToForm(j: any): JobFormData {
     requirements: j.requirements ?? "",
     location: j.location ?? "",
     remote_policy: j.remote_policy ?? "",
-    onsite_days_per_week: j.onsite_days_per_week != null ? String(j.onsite_days_per_week) : "",
+    onsite_days_per_week: officeDaysFormValue(j.onsite_days_per_week, j.onsite_days_per_month).value,
+    onsite_days_period: officeDaysFormValue(j.onsite_days_per_week, j.onsite_days_per_month).period,
     salary_min: j.salary_min ? String(j.salary_min) : "",
     salary_max: j.salary_max ? String(j.salary_max) : "",
     rate_budget_hourly: j.rate_budget_hourly ? String(j.rate_budget_hourly) : "",
@@ -1665,14 +1674,13 @@ function JobFormFields({
             <option value="remote">Remote</option>
           </Select>
         </FieldGroup>
-        <FieldGroup label="Dni w biurze / tydzień">
-          <Input
-            type="number"
-            min={0}
-            max={7}
+        <FieldGroup label="Dni w biurze">
+          <OfficeDaysField
+            allowMonth={form.remote_policy === "hybrid"}
             value={form.onsite_days_per_week}
-            onChange={e => onChange("onsite_days_per_week", e.target.value)}
-            placeholder="np. 2"
+            period={form.onsite_days_period}
+            onValueChange={v => onChange("onsite_days_per_week", v)}
+            onPeriodChange={p => onChange("onsite_days_period", p)}
           />
         </FieldGroup>
       </div>
@@ -1847,6 +1855,19 @@ export function EditJobModal({
 
   const onChange = (k: keyof JobFormData, v: string) =>
     setForm((current) => {
+      if (
+        k === "remote_policy" &&
+        v !== "hybrid" &&
+        current.onsite_days_period === "month"
+      ) {
+        // Dni w miesiącu są tylko przy hybrydzie (0406).
+        return {
+          ...current,
+          remote_policy: v,
+          onsite_days_per_week: "",
+          onsite_days_period: "week",
+        };
+      }
       if (k === "client_id" && current.client_id !== v) {
         // Hiring manager to osoba z firmy klienta — przy zmianie klienta
         // znika (serwer robi to samo, `update_job`).
@@ -1903,8 +1924,11 @@ export function EditJobModal({
         // (zachowałoby stary, wybrany wcześniej tryb w PATCH — patrz tac_id
         // niżej po ten sam wzorzec).
         remote_policy: form.remote_policy || null,
-        onsite_days_per_week:
-          form.onsite_days_per_week === "" ? null : Number(form.onsite_days_per_week),
+        ...officeDaysFields(
+          form.onsite_days_per_week,
+          form.onsite_days_period,
+          form.remote_policy || null,
+        ),
         // Czyszczalne (`null`, nie `undefined`): PATCH z pustym polem musi
         // móc zdjąć wcześniej ustawiony budżet, np. gdy DL chce z powrotem
         // polegać na stawce z Profilu Championa (`resolve_job_budget_hourly`

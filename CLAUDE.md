@@ -3393,6 +3393,17 @@ template” → `/jobs/new?from=<id>`) prowadzi na stronę.
 - Strona jest dla admina i Delivery Leada (`job.create` + rola), bo odczyt,
   Champion i handoff to `DeliveryLeadPlus`. Harness `/preview/new-job`
   (`?state=request|review|gaps`, zero zapytań).
+- **Dni w biurze: „w tygodniu” albo „w miesiącu” (0406, 30.09.2026).**
+  `jobs.onsite_days_per_month` i `basics.onsite_days_per_month` (1–22) trzymają
+  wpis „raz w miesiącu”; wtedy `onsite_days_per_week` wylicza serwer
+  (`services/office_days.py`, lustro `lib/office-days.ts`, wspólne przypadki
+  `__fixtures__/office-days-cases.json`) i nigdy nie jest zerem — bramki,
+  odcisk requestu i portale czytają WYŁĄCZNIE liczbę tygodniową, a zero
+  czytałyby jak „biuro niewymagane”. Wpis tygodniowy czyści miesięczny,
+  miesięcznie tylko przy hybrydzie (422 przy innym trybie). Pole miesięczne
+  znika z JSONB Championa przy `None` — stare profile nie zmieniają kształtu.
+  Kontrolka: `components/jobs/OfficeDaysField.tsx` (`/jobs/new`, edycja
+  rekrutacji, sekcja 1 Championa).
 - **Odczyt maila v8 (30.09.2026): must 1:1 ze słowami klienta** — ukrywają
   już tylko umiejętności krytyczne (wybiera DL), więc must nie jest okrajane
   do technologii, nie traci wersji i nie przechodzi do „Mile widziane”

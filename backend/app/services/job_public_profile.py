@@ -258,14 +258,19 @@ def public_params(job: Job) -> dict[str, Any]:
         mode = str(basics.get("work_mode") or "").strip().lower()
         remote = mode if mode in _REMOTE_VALUES else None
     onsite = job.onsite_days_per_week
+    onsite_month = getattr(job, "onsite_days_per_month", None)
     if onsite is None and isinstance(basics.get("onsite_days_per_week"), int):
         onsite = basics.get("onsite_days_per_week")
+        month = basics.get("onsite_days_per_month")
+        onsite_month = month if isinstance(month, int) else None
     # Bez typów rekrutacji (25.09.2026): każda rekrutacja to współpraca B2B.
     contract = "B2B"
     return {
         "city": _clean(job.location) or _clean(basics.get("candidate_location_pref")),
         "remote_policy": remote,
         "onsite_days_per_week": onsite,
+        # 0406: gdy klient liczy na miesiąc, strona pokazuje „N dni w miesiącu”.
+        "onsite_days_per_month": onsite_month,
         "seniority": job.seniority.value if job.seniority else None,
         "contract": contract,
         "start": _clean(basics.get("start_date"), 60),
@@ -369,6 +374,7 @@ _HIDEABLE_PARAMS = (
     "city",
     "remote_policy",
     "onsite_days_per_week",
+    "onsite_days_per_month",
     "seniority",
     "start",
     "duration",
@@ -451,6 +457,7 @@ def closed_job_payload(
             "city": None,
             "remote_policy": None,
             "onsite_days_per_week": None,
+            "onsite_days_per_month": None,
             "seniority": None,
             "contract": None,
             "start": None,
