@@ -27,6 +27,8 @@ import { contractStatusLabel } from "@/lib/status-labels";
 import { CONTRACT_STATUS_VARIANT } from "@/lib/contract-register";
 import { sharePointBadge } from "@/lib/contract-docs-sharepoint";
 import { openContractDocument } from "@/lib/contract-documents";
+import { dlPortalApi, type OrderDocumentItem } from "@/lib/api/dlPortal";
+import { openOrderDocument } from "@/lib/order-documents";
 import { documentsHref } from "@/lib/b2b-documents";
 import { contractAccess } from "@/lib/contract-access";
 import {
@@ -234,6 +236,17 @@ export function ContractSidePanel({
     queryFn: () => contractsApi.documents(contractId).then((r) => r.data),
     enabled: Boolean(contract) && access.canViewContractDocuments,
   });
+  // PDF-y przypięte do zamówień kontraktu — ta sama lista co „Dokumenty
+  // zamówień” na pełnej stronie (ten sam klucz, więc wspólny cache
+  // z `OrderDocumentsSection`). 403 = rola bez dostępu do zamówień klienta:
+  // lista po prostu pusta, jak tam.
+  const orderDocsQuery = useQuery<OrderDocumentItem[]>({
+    queryKey: ["order-documents", contractId, null],
+    queryFn: () =>
+      dlPortalApi.listContractOrderDocuments(contractId).then((r) => r.data.documents),
+    enabled: Boolean(contract) && access.canViewContractDocuments,
+    retry: false,
+  });
   const activitiesQuery = useQuery<ActivityEntry[]>({
     queryKey: ["contract-activities", contractId],
     queryFn: () => contractsApi.activities(contractId).then((r) => r.data),
@@ -252,6 +265,7 @@ export function ContractSidePanel({
     | "complete-draft"
   >(null);
   const [openingDocId, setOpeningDocId] = useState<number | null>(null);
+  const [openingOrderId, setOpeningOrderId] = useState<number | null>(null);
 
   const detailHref = (tab?: ContractDetailTab) => {
     const base = returnTarget
@@ -346,6 +360,12 @@ export function ContractSidePanel({
   const alerts = contractPanelAlerts(contract, today, access.canViewFinance);
   const siblings = contract.related_contracts ?? [];
   const docs = (docsQuery.data ?? []).slice(0, RECENT_LIMIT);
+  const orderDocsForbidden =
+    (orderDocsQuery.error as { response?: { status?: number } } | null)?.response
+      ?.status === 403;
+  const orderDocsFailed = orderDocsQuery.isError && !orderDocsForbidden;
+  const orderDocsSettled = orderDocsQuery.isSuccess || orderDocsQuery.isError;
+  const orderDocs = (orderDocsQuery.data ?? []).slice(0, RECENT_LIMIT);
   const activities = (activitiesQuery.data ?? []).slice(0, RECENT_LIMIT);
   const revenueCurrency = contract.rate_client_currency ?? contract.currency ?? "PLN";
   const costCurrency = contract.rate_candidate_currency ?? contract.currency ?? "PLN";
@@ -365,6 +385,18 @@ export function ContractSidePanel({
       setError(`Nie udało się otworzyć pliku „${doc.filename}”.`);
     } finally {
       setOpeningDocId(null);
+    }
+  };
+
+  const openOrderDoc = async (doc: OrderDocumentItem) => {
+    setOpeningOrderId(doc.order_id);
+    setError("");
+    try {
+      await openOrderDocument(doc);
+    } catch {
+      setError(`Nie udało się otworzyć pliku zamówienia „${doc.title}”.`);
+    } finally {
+      setOpeningOrderId(null);
     }
   };
 
@@ -732,10 +764,12 @@ export function ContractSidePanel({
         >
           {docsQuery.isError ? (
             <p className="text-xs text-destructive">Nie udało się pobrać dokumentów.</p>
-          ) : !docsQuery.isSuccess ? (
+          ) : !docsQuery.isSuccess || !orderDocsSettled ? (
             <p className="text-xs text-muted-foreground">Ładowanie…</p>
-          ) : docs.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Brak dokumentów.</p>
+          ) : docs.length === 0 && orderDocs.length === 0 ? (
+            orderDocsFailed ? null : (
+              <p className="text-xs text-muted-foreground">Brak dokumentów.</p>
+            )
           ) : (
             <ul className="grid gap-1">
               {docs.map((doc) => {
@@ -762,7 +796,31 @@ export function ContractSidePanel({
                   </li>
                 );
               })}
+              {orderDocs.map((doc) => (
+                <li
+                  key={`order-${doc.order_id}`}
+                  className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs"
+                >
+                  <button
+                    type="button"
+                    onClick={() => void openOrderDoc(doc)}
+                    disabled={openingOrderId === doc.order_id}
+                    className="min-w-0 truncate text-left text-primary hover:underline disabled:opacity-60"
+                    title={doc.filename ?? doc.title}
+                  >
+                    {doc.filename ?? doc.title}
+                  </button>
+                  <span className="text-muted-foreground">
+                    Zamówienie {doc.title}
+                  </span>
+                </li>
+              ))}
             </ul>
+          )}
+          {orderDocsFailed && (
+            <p className="text-xs text-destructive">
+              Nie udało się pobrać dokumentów zamówień.
+            </p>
           )}
         </DetailSection>
       )}

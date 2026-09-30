@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   activities: vi.fn(),
   update: vi.fn(),
   updateStatus: vi.fn(),
+  orderDocuments: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -30,6 +31,13 @@ vi.mock("@/lib/api", async (importOriginal) => ({
     activities: (...args: unknown[]) => mocks.activities(...args),
     update: (...args: unknown[]) => mocks.update(...args),
     updateStatus: (...args: unknown[]) => mocks.updateStatus(...args),
+  },
+}));
+
+vi.mock("@/lib/api/dlPortal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/dlPortal")>()),
+  dlPortalApi: {
+    listContractOrderDocuments: (...args: unknown[]) => mocks.orderDocuments(...args),
   },
 }));
 
@@ -119,6 +127,7 @@ beforeEach(() => {
   mocks.documents.mockResolvedValue({ data: [] });
   mocks.activities.mockResolvedValue({ data: [] });
   mocks.updateStatus.mockResolvedValue({ data: {} });
+  mocks.orderDocuments.mockResolvedValue({ data: { documents: [] } });
   login("admin", ["view_finance", "manage_finance"]);
 });
 
@@ -322,5 +331,47 @@ describe("ContractStatusControl — ta sama lista na karcie i w panelu", () => {
     );
     await user.selectOptions(screen.getByRole("combobox", { name: "Zmień status kontraktu" }), "draft");
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ queryKey: ["client-register"] }));
+  });
+});
+
+describe("ContractSidePanel — dokumenty zamówień w sekcji Dokumenty", () => {
+  const orderDoc = {
+    order_id: 9001,
+    client_id: 7,
+    contract_id: 501,
+    title: "OIT/0189/2026",
+    filename: "zamowienie-0189.pdf",
+    content_type: "application/pdf",
+    size_bytes: 1024,
+    created_at: "2026-09-01T10:00:00Z",
+    order_status: "active",
+    uploaded_by_email: null,
+    uploaded_at: null,
+  };
+
+  it("PDF zamówienia widać obok dokumentów kontraktu", async () => {
+    mocks.orderDocuments.mockResolvedValue({ data: { documents: [orderDoc] } });
+    renderPanel();
+    expect(
+      await screen.findByRole("button", { name: "zamowienie-0189.pdf" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Zamówienie OIT/0189/2026")).toBeInTheDocument();
+    expect(screen.queryByText("Brak dokumentów.")).toBeNull();
+  });
+
+  it("403 z listy zamówień: brak błędu, zwykłe „Brak dokumentów.”", async () => {
+    mocks.orderDocuments.mockRejectedValue({ response: { status: 403 } });
+    renderPanel();
+    expect(await screen.findByText("Brak dokumentów.")).toBeInTheDocument();
+    expect(screen.queryByText(/Nie udało się pobrać dokumentów zamówień/)).toBeNull();
+  });
+
+  it("inna awaria listy zamówień jest widoczna", async () => {
+    mocks.orderDocuments.mockRejectedValue({ response: { status: 500 } });
+    renderPanel();
+    expect(
+      await screen.findByText("Nie udało się pobrać dokumentów zamówień."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Brak dokumentów.")).toBeNull();
   });
 });

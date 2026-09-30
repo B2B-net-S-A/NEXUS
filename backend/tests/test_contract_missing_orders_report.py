@@ -124,6 +124,18 @@ async def _seed() -> dict[str, int]:
         formula = await contract("formula")
         ids["formula"] = formula.id
 
+        possible = await contract("possible")
+        for filename in ("Zamówienie 4500123456.pdf", "dowod.pdf"):
+            db.add(
+                ContractDocument(
+                    contract_id=possible.id,
+                    filename=filename,
+                    file_path=f"contracts/{possible.id}/{filename}",
+                    doc_type=ContractDocumentType.other,
+                )
+            )
+        ids["possible_order_file"] = possible.id
+
         await db.commit()
     return ids
 
@@ -157,7 +169,8 @@ async def test_report_lists_contracts_without_an_order_in_the_documents_tab(
     assert no_pdf[7] == "Aktywny"
     assert no_pdf[10] == 1, "anulowane zamówienie się nie liczy"
     assert no_pdf[11].startswith("PO-")
-    assert not no_pdf[12], "bez uwagi o PDF-ie grupy"
+    assert not no_pdf[12]
+    assert not no_pdf[13], "bez uwagi"
 
     other = rows[ids["only_contract_document"]]
     assert other[7] == "Kończący się"
@@ -166,7 +179,12 @@ async def test_report_lists_contracts_without_an_order_in_the_documents_tab(
 
     group = rows[ids["group_pdf_without_copy"]]
     assert group[11].startswith("GRP-"), "numer z zamówienia MD/kosztowego"
-    assert "nie ma kopii" in group[12]
+    assert not group[12]
+    assert "nie ma kopii" in group[13]
+
+    possible = rows[ids["possible_order_file"]]
+    assert possible[12] == "Zamówienie 4500123456.pdf", "„dowod.pdf” nie pasuje"
+    assert "zmień jego typ" in possible[13]
 
     formula = rows[ids["formula"]]
     assert not str(formula[2]).startswith("="), "formuła zneutralizowana"

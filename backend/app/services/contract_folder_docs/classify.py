@@ -5,6 +5,13 @@ i porozumienie sprawdzamy przed formatem numeru umowy (patrz niżej). Nazwę por
 po złożeniu polskich znaków i wielkości liter („Porozumienie_rozwiązanie” =
 „porozumienie rozwiazanie”). Słowa krótkie (NDA, OC, ZUS) muszą stać jako
 osobne słowo — „OC” w środku „ocena” nie jest polisą.
+
+Zamówienie klienta (30.09.2026, ticket 10): „zamówieni…”, słowo „zam”, „order”,
+„zlecenie wykonawcze” albo „PO” obok numeru z co najmniej 6 cyfr. Samo „po”
+to polski przyimek („Oświadczenie po zmianie”), dlatego bez numeru nie wystarcza.
+Reguła stoi PO aneksie i rozwiązaniu (aneks do zamówienia to aneks), a PRZED
+formatem numeru umowy. ``looks_like_order`` czyta też raport kontraktów bez
+zamówienia — dla plików zapisanych wcześniej jako „Inny”.
 """
 
 from __future__ import annotations
@@ -62,6 +69,21 @@ def is_importable(filename: str) -> bool:
     return extension(filename) in IMPORTABLE_EXTENSIONS
 
 
+def _order_words(base: str, words: set[str]) -> bool:
+    if "zamowieni" in base or "zlecenie wykonawcze" in base:
+        return True
+    if words & {"zam", "order"}:
+        return True
+    return "po" in words and any(w.isdigit() and len(w) >= 6 for w in words)
+
+
+def looks_like_order(filename: str) -> bool:
+    """Czy nazwa pliku wygląda na zamówienie klienta (bez kontekstu reguł)."""
+    base = fold(stem(filename))
+    words = {w for w in _WORD_SPLIT_RE.split(base) if w}
+    return _order_words(base, words)
+
+
 def classify_filename(filename: str) -> Classified:
     base = fold(stem(filename))
     words = {w for w in _WORD_SPLIT_RE.split(base) if w}
@@ -74,6 +96,8 @@ def classify_filename(filename: str) -> Classified:
         return Classified(ContractDocumentType.termination_notice)
     if "porozumieni" in base or "rozwiazani" in base:
         return Classified(ContractDocumentType.termination_agreement)
+    if _order_words(base, words):
+        return Classified(ContractDocumentType.order)
     if _CONTRACT_RE.match(base):
         return Classified(ContractDocumentType.contract)
     if "nda" in words:

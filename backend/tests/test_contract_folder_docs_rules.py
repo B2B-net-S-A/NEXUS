@@ -84,6 +84,19 @@ def test_browser_folder_link_cannot_switch_sites():
         # „OC” tylko jako osobne słowo — „ocena” nie jest polisą.
         ("ocena okresowa.pdf", "other"),
         ("Kodeks etyki.pdf", "other"),
+        # Zamówienie klienta (ticket 10).
+        ("Zamówienie 4500123456.pdf", "order"),
+        ("ZAMOWIENIE_OIT_0189_2026.pdf", "order"),
+        ("ZAM 12-2026.pdf", "order"),
+        ("PO 4500123456.pdf", "order"),
+        ("Purchase Order.pdf", "order"),
+        ("Zlecenie wykonawcze nr 5.pdf", "order"),
+        ("1401-2026 B2B 04.05.2026 zamówienie.pdf", "order"),
+        # Aneks do zamówienia to aneks; „po” bez numeru to przyimek.
+        ("Aneks do zamówienia.pdf", "annex"),
+        ("Oświadczenie po zmianie.pdf", "other"),
+        ("Umowa zlecenie.pdf", "other"),
+        ("Polisa OC.pdf", "oc_policy"),
     ],
 )
 def test_document_type_comes_from_the_filename(filename: str, expected: str) -> None:
