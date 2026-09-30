@@ -458,7 +458,13 @@ function OrdersTableRowView({
       <td className={cn(CELL, "whitespace-nowrap text-right text-xs")}>{displayLineRate(line, "revenue")}</td>
       <td className={cn(CELL, "min-w-[10rem]")}>
         {ended ? (
-          <span className="text-xs tabular-nums">{endedUsage(group, line) ?? ""}</span>
+          // Kolumna mówi „Zostało MD", a u osoby zakończonej to wykorzystanie —
+          // bez słowa „wykorzystano" „0 MD" czytało się jak pusta pula.
+          endedUsage(group, line) ? (
+            <span className="text-xs tabular-nums text-muted-foreground">
+              wykorzystano {endedUsage(group, line)}
+            </span>
+          ) : null
         ) : (
           <LineBudgetCell group={group} line={line} ended={false} />
         )}

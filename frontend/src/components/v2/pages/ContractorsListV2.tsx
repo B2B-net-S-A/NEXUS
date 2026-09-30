@@ -613,7 +613,7 @@ export function ContractorsListV2() {
  );
 
  return (
- <div ref={listRef} className="max-w-[1400px] mx-auto md:p-6">
+ <div ref={listRef} className="mx-auto max-w-[1400px] md:p-6 min-[1600px]:has-[[data-list-detail-panel]]:max-w-[1820px]">
  <ListDetailLayout
  list={listContent}
  onClose={() => setOpenContractId(null)}

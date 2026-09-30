@@ -1129,11 +1129,12 @@ function OrderPdfActions({
 }
 
 /** „Uzupełnij zamówienie" przy wierszu przyszłym i historycznym. */
-function CompleteOrderLink({ onClick }: { onClick: () => void }) {
+function CompleteOrderLink({ onClick, orderNumber }: { onClick: () => void; orderNumber: string | null }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-label={orderNumber ? `Uzupełnij zamówienie ${orderNumber}` : undefined}
       className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
     >
       <FilePlus2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1203,7 +1204,7 @@ function FutureOrderRow({
             {fmtDate(order.start_date)} → {fmtDate(order.end_date) || "bezterminowo"}
           </div>
         )}
-        {canManageOrders ? <CompleteOrderLink onClick={() => onEditOrder(order)} /> : null}
+        {canManageOrders ? <CompleteOrderLink onClick={() => onEditOrder(order)} orderNumber={order.title || null} /> : null}
       </div>
       {canManageOrders ? (
         <button
@@ -1332,7 +1333,7 @@ function HistoryOrderRow({
               PDF
             </button>
           )}
-          {canManageOrders ? <CompleteOrderLink onClick={() => onEditOrder(order)} /> : null}
+          {canManageOrders ? <CompleteOrderLink onClick={() => onEditOrder(order)} orderNumber={order.title || null} /> : null}
         </div>
       </div>
       {canManageOrders ? (
