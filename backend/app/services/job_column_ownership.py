@@ -89,6 +89,8 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "work_state",
         "work_state_changed_at",
         "work_state_changed_by",
+        # 0406: godzina terminu — Traffit zna tylko datę.
+        "deadline_time",
         "needs_sourcing",
         "favorite_sourcing_paused",
         "description",

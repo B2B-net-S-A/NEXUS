@@ -5,6 +5,7 @@
  * dla uzasadnienia wzorca (test wiąże się z tą samą funkcją co komponent).
  */
 
+import { formatIsoDatePl } from "@/lib/date-pl";
 import { countPl } from "@/lib/plural-pl";
 
 export type DeadlineUrgency = "none" | "overdue" | "soon" | "normal";
@@ -76,4 +77,30 @@ export function deadlineRelativeLabel(info: JobDeadlineInfo): string | null {
     return `po terminie ${countPl(-info.daysLeft, "dzień", "dni", "dni")}`;
   }
   return `za ${countPl(info.daysLeft, "dzień", "dni", "dni")}`;
+}
+
+// `HH:MM` albo `HH:MM:SS` (Pydantic `time` → JSON `"12:00:00"`).
+const TIME_ONLY = /^(\d{2}):(\d{2})/;
+
+/**
+ * Godzina terminu (`jobs.deadline_time`, 0406, czas Europe/Warsaw) → `12:00`.
+ * Banki (Alior, PKO) podają termin z godziną; bez niej `null`.
+ */
+export function formatDeadlineTime(value: string | null | undefined): string | null {
+  const match = TIME_ONLY.exec(value ?? "");
+  return match ? `${match[1]}:${match[2]}` : null;
+}
+
+/**
+ * Pełny termin rekrutacji: `01.10.2026, 12:00` albo sama data, gdy godziny
+ * nie wpisano. Brak daty → `null` (wołający decyduje, co pokazać).
+ */
+export function formatJobDeadline(
+  deadline: string | null | undefined,
+  deadlineTime?: string | null,
+): string | null {
+  if (!deadline || !DATE_ONLY.test(deadline)) return null;
+  const time = formatDeadlineTime(deadlineTime);
+  const date = formatIsoDatePl(deadline);
+  return time ? `${date}, ${time}` : date;
 }

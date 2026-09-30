@@ -35,6 +35,7 @@ import {
 import {
   classifyJobDeadline,
   deadlineRelativeLabel,
+  formatDeadlineTime,
   formatDateOnly,
   type DeadlineUrgency,
 } from "@/lib/job-deadline";
@@ -150,9 +151,12 @@ const DEADLINE_TONE_CLASS: Record<DeadlineUrgency, string> = {
  */
 export function JobDeadlineCell({
   deadline,
+  deadlineTime,
   now,
 }: {
   deadline: string | null | undefined;
+  /** Godzina terminu (0406) — banki podają termin z godziną. */
+  deadlineTime?: string | null;
   now?: Date;
 }) {
   const info = classifyJobDeadline(deadline, now);
@@ -168,6 +172,7 @@ export function JobDeadlineCell({
     >
       <span className="whitespace-nowrap text-xs tabular-nums text-foreground">
         {formatDateOnly(deadline)}
+        {formatDeadlineTime(deadlineTime) ? `, ${formatDeadlineTime(deadlineTime)}` : null}
       </span>
       <span
         className={cn(

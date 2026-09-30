@@ -21,7 +21,7 @@ describe("runda 10 (F04) — etap i źródło rekrutacji na profilu", () => {
   });
 
   it("źródło z procesu, nie z nazwy etapu", () => {
-    expect(entrySourceLabel("added_manual")).toBe("Dodany ręcznie");
+    expect(entrySourceLabel("added_manual")).toBeNull();
     expect(entrySourceLabel("application")).toBe("Z ogłoszenia");
     expect(entrySourceLabel(null)).toBeNull();
     expect(entrySourceLabel("coś_nowego")).toBeNull();

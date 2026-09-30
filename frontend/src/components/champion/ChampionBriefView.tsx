@@ -33,7 +33,7 @@ import { clientPlaybookEditHref } from "@/lib/client-playbooks";
 import { JOB_WORK_MODE_LABEL, seedChampionFromJob } from "@/lib/champion-job-seed";
 import { formatBudgetHourly } from "@/lib/job-budget";
 import { criticalBriefLine, includesLabel } from "@/lib/critical-skills";
-import { formatDate } from "@/lib/utils";
+import { formatJobDeadline } from "@/lib/job-deadline";
 import { resolveViewState } from "@/lib/view-state";
 import { officeDaysLabel } from "@/lib/office-days";
 
@@ -44,6 +44,7 @@ export interface ChampionBriefJob {
   client_name?: string | null;
   client_reference?: string | null;
   deadline?: string | null;
+  deadline_time?: string | null;
   description?: string | null;
 }
 
@@ -292,7 +293,7 @@ export function ChampionBriefView({
           <Fact label="Język CV" value={cvLanguage ? `${cvLanguage.toUpperCase()} (reguła klienta)` : "brak reguły klienta"} muted={!cvLanguage} />
           <Fact
             label="Termin dla klienta"
-            value={job.deadline ? formatDate(job.deadline) : "nie ustawiono"}
+            value={formatJobDeadline(job.deadline, job.deadline_time) ?? "nie ustawiono"}
             muted={!job.deadline}
           />
           <Fact label="Nazwa od klienta" value={job.title?.trim() || "—"} />

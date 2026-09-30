@@ -5797,6 +5797,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "CREATE INDEX IF NOT EXISTS ix_followup_meetings_queue ON followup_meetings (transcript_status, next_fetch_at)",
     # 0376: DL rekrutacji wpisany automatycznie idzie za głównym DL-em klienta.
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS delivery_lead_auto_filled BOOLEAN NOT NULL DEFAULT false",
+    # 0406: godzina terminu rekrutacji (czas Europe/Warsaw).
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS deadline_time TIME NULL",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
