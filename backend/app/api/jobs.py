@@ -3428,7 +3428,10 @@ async def _save_champion_profile(
     """
     from app.schemas.champion import ChampionProfile
     from app.services import champion_view
-    from app.services.champion_job_sync import fill_job_columns_from_champion
+    from app.services.champion_job_sync import (
+        fill_job_columns_from_champion,
+        overwrite_edited_job_columns,
+    )
     from app.services.job_matching_refresh import refresh_job_matching
 
     job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
@@ -3535,7 +3538,18 @@ async def _save_champion_profile(
     # (generator uzasadnień dopasowania). FILL_EMPTY: nigdy nie nadpisuje
     # kolumny, która już ma wartość (ręczną albo z wcześniejszego zapisu
     # Championa) — patrz docstring `fill_job_columns_from_champion`.
-    columns_filled = fill_job_columns_from_champion(job, profile.basics.model_dump())
+    # Wyjątek (30.09.2026): pole sekcji 1 ZMIENIONE ręcznie w tym zapisie
+    # nadpisuje kolumnę — inaczej poprawka w edytorze nie docierała do
+    # rekrutacji (`overwrite_edited_job_columns`). Import z pliku zostaje przy
+    # FILL_EMPTY i jawnym „Uzgodnij”.
+    columns_filled = (
+        []
+        if imported
+        else overwrite_edited_job_columns(
+            job, normalized_old.get("basics") or {}, new_profile.get("basics") or {}
+        )
+    )
+    columns_filled += fill_job_columns_from_champion(job, profile.basics.model_dump())
 
     # Diff na ZNORMALIZOWANYM starym profilu. Porównanie kształtu sprzed
     # przebudowy z kształtem po niej zgłosiłoby zmianę każdej sekcji przy

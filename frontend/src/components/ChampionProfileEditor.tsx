@@ -97,6 +97,7 @@ import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
 import { ChampionClientQuestionsPanel } from "./ChampionClientQuestionsPanel";
 import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
+import { blurNumberInputOnWheel } from "@/lib/number-input";
 
 interface ChampionProfileEditorProps {
   jobId: number;
@@ -586,8 +587,8 @@ export function ChampionProfileEditor({
             data-testid="champion-basics-seeded-from-job"
           >
             Pola {seededBasicsLabels} wczytane z rekrutacji — zapiszą się w
-            profilu dopiero, gdy je zmienisz. Wartość rekrutacji zmienisz w
-            zleceniu.
+            profilu dopiero, gdy je zmienisz. Zmiana budżetu, trybu pracy, dni
+            w biurze albo miasta biura zmienia też rekrutację.
           </p>
         ) : null}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -604,6 +605,7 @@ export function ChampionProfileEditor({
           <Labeled label="Doświadczenie łącznie w IT (lata)" field="basics.seniority_min_years">
             <input
               type="number"
+              onWheel={blurNumberInputOnWheel}
               min={0}
               max={60}
               disabled={disabled}
@@ -623,6 +625,7 @@ export function ChampionProfileEditor({
           <Labeled label="Maksymalna stawka PLN/h — twardy sufit" field="basics.rate_value">
             <input
               type="number"
+              onWheel={blurNumberInputOnWheel}
               min={0}
               max={2000}
               step="0.01"
@@ -647,6 +650,7 @@ export function ChampionProfileEditor({
           <Labeled label="Dni stacjonarne / tydzień" field="basics.onsite_days_per_week">
             <input
               type="number"
+              onWheel={blurNumberInputOnWheel}
               min={0}
               max={7}
               disabled={disabled}

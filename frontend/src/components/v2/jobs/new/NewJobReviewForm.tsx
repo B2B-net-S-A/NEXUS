@@ -27,6 +27,7 @@ import {
   type RemotePolicyValue,
   splitCities,
 } from "@/lib/job-request-intake";
+import { blurNumberInputOnWheel } from "@/lib/number-input";
 
 const WORK_MODES: { value: RemotePolicyValue; label: string }[] = [
   { value: "remote", label: "Zdalnie" },
@@ -581,6 +582,7 @@ export function NewJobReviewForm({
             <Input
               id={ids.days}
               type="number"
+              onWheel={blurNumberInputOnWheel}
               min={0}
               max={7}
               disabled={!officeNeeded}
@@ -613,6 +615,7 @@ export function NewJobReviewForm({
             <Input
               id={ids.years}
               type="number"
+              onWheel={blurNumberInputOnWheel}
               min={0}
               max={40}
               value={form.seniorityYears ?? ""}
