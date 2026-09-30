@@ -4,6 +4,6 @@
   "sources": {
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "a5158418479051f179f870c946fbcb518e38cc4bdf555dc416e93c4718fbbf6d",
     "frontend/src/components/client-profile/orders/OrderLinePanel.tsx": "20b796a3c17bc13342524239df319216ccc0c12761b96e231fee51366d194eb2",
-    "frontend/src/components/client-profile/orders/OrdersTable.tsx": "0f562322449654820fab0ff1508ecbbe65e191d9c50a09782cf14940526baa78"
+    "frontend/src/components/client-profile/orders/OrdersTable.tsx": "e1097e09d4fb149ab94f35add981627feb0436b2dbf91deda9bb265e292994d1"
   }
 }

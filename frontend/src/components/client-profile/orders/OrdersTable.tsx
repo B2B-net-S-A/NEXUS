@@ -154,6 +154,14 @@ function lineNotes(line: OrderLineRead): Array<{ label: string; tone: keyof type
   return notes;
 }
 
+/** Kolumna „Zostało MD” / „Budżet” u osoby, która już nie pracuje na zamówieniu. */
+function endedBudgetText(group: OrderGroupRead, line: OrderLineRead): string | null {
+  if (group.is_cost_based) {
+    return line.invoiced_total == null ? null : `zafakturowano ${formatPLN(line.invoiced_total)}`;
+  }
+  return line.md_remaining == null ? null : `zostało ${formatMd(line.md_remaining)} MD`;
+}
+
 export function OrdersTable({
   sections,
   selectedKey,
@@ -177,7 +185,6 @@ export function OrdersTable({
               id={`orders-${section.type}-heading`}
               className="mb-1.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
             >
-              <OrderTypeBadge type={section.type} />
               {orderTypeLabel(section.type)} ({section.itemCount})
             </h3>
             <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
@@ -458,19 +465,25 @@ function OrdersTableRowView({
       <td className={cn(CELL, "whitespace-nowrap text-right text-xs")}>{displayLineRate(line, "revenue")}</td>
       <td className={cn(CELL, "min-w-[10rem]")}>
         {ended ? (
-          // Kolumna mówi „Zostało MD", a u osoby zakończonej to wykorzystanie —
-          // bez słowa „wykorzystano" „0 MD" czytało się jak pusta pula.
-          endedUsage(group, line) ? (
-            <span className="text-xs tabular-nums text-muted-foreground">
-              wykorzystano {endedUsage(group, line)}
-            </span>
+          // Makieta B: w „Zostało MD” pozostała pula (ta, o której decyduje DL),
+          // w „Zużycie” to, co osoba wykorzystała. Samo „0 MD · 0,00 zł” w tej
+          // kolumnie czytało się jak pusta pula przy 63 MD czekających na decyzję.
+          endedBudgetText(group, line) ? (
+            <span className="text-xs tabular-nums text-muted-foreground">{endedBudgetText(group, line)}</span>
           ) : null
         ) : (
           <LineBudgetCell group={group} line={line} ended={false} />
         )}
       </td>
       <td className={CELL}>
-        {perPersonMd ? (
+        {ended ? (
+          // Kosztowe: „zafakturowano …” stoi już w kolumnie budżetu.
+          !group.is_cost_based && endedUsage(group, line) ? (
+            <span className="text-xs tabular-nums text-muted-foreground" title="Wykorzystane na tym zamówieniu">
+              {endedUsage(group, line)}
+            </span>
+          ) : null
+        ) : perPersonMd ? (
           <span data-row-stop>
             <ConsumptionButton line={line} onClick={() => onSelect(row.key, "zuzycie")} />
           </span>

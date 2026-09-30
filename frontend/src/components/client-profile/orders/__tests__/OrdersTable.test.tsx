@@ -96,7 +96,10 @@ describe("OrdersTable — podział obsady", () => {
     expect(rowOf(2)).toHaveAttribute("data-order-row", "ended-line");
     // Kolumna nazywa się „Zostało MD” — wykorzystanie osoby zakończonej musi
     // to powiedzieć, inaczej „0 MD” czyta się jak pusta pula.
-    expect(rowOf(2)).toHaveTextContent(/wykorzystano 25 MD/);
+    // Makieta B: „Zostało MD” = pula czekająca na decyzję, „Zużycie” = wykorzystane.
+    expect(rowOf(2)).toHaveTextContent(/zostało 30 MD/);
+    expect(rowOf(2)).toHaveTextContent(/25 MD/);
+    expect(rowOf(2)).not.toHaveTextContent(/wykorzystano/);
     const toggleRow = screen.getByRole("button", { name: /^Zakończone/ }).closest("tr")!;
     expect(rowOf(1)!.compareDocumentPosition(toggleRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(toggleRow.compareDocumentPosition(rowOf(2)!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
