@@ -414,6 +414,10 @@ class Settings(BaseSettings):
     # `scoring_service._SCORING_CACHE_INPUTS` (dealbreakery działają PO
     # scoringu, nie zmieniają punktacji, którą cache przechowuje).
     RUBRIC_DEALBREAKERS_ENABLED: bool = True
+    # Bramka must (30.09.2026): `critical` = ukrywają wyłącznie umiejętności
+    # krytyczne (decyzja DL albo podpowiedź z historii, `critical_skills`);
+    # `all` = awaryjny powrót do bramki v8 (każde must-technologia ukrywa).
+    MUST_GATE_MODE: str = "critical"
     # Rozmiar puli trybu semantycznego w RĘCZNEJ wyszukiwarce kandydatów.
     # To jednocześnie SUFIT liczby wyników, którą widzi rekruter, i liczba
     # dokumentów wysyłanych do rerankera Voyage przy KAŻDYM żądaniu strony
