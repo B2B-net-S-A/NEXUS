@@ -20,6 +20,11 @@ Dwie kolumny pomocnicze odróżniają przyczyny braku, bo każda ma inną napraw
 zamówienie jest w systemie, ale bez PDF-u (wgrać plik), albo PDF leży na
 zamówieniu MD/kosztowym, a kopia nie trafiła do dokumentów kontraktu (wgrać
 PDF zamówienia ponownie — kopia powstaje przy wgraniu).
+
+Trzecia kolumna wskazuje dokumenty typu „Inny”, których nazwa wygląda na
+zamówienie (ta sama reguła co klasyfikator plików z SharePointa,
+``looks_like_order``). Typ zmienia człowiek — nazwa pliku to za słaby dowód,
+żeby przestawiać go automatycznie.
 """
 
 from __future__ import annotations
@@ -43,6 +48,7 @@ from app.models.client_order_group import ClientOrderGroup
 from app.models.contract import Contract, ContractStatus
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.services.client_identity import client_display_name
+from app.services.contract_folder_docs.classify import looks_like_order
 
 SHEET_MISSING = "Bez zamówienia"
 SHEET_SUMMARY = "Podsumowanie"
@@ -60,10 +66,11 @@ HEADERS = (
     "Koniec umowy",
     "Zamówienia w systemie bez PDF",
     "Numery tych zamówień",
+    "Plik typu „Inny” wyglądający na zamówienie",
     "Uwaga",
 )
 
-_COLUMN_WIDTHS = (13, 40, 28, 28, 30, 18, 14, 16, 13, 14, 16, 32, 60)
+_COLUMN_WIDTHS = (13, 40, 28, 28, 30, 18, 14, 16, 13, 14, 16, 32, 36, 60)
 
 RULE_DESCRIPTION = (
     "Kontrakt ma podpięte zamówienie, gdy w zakładce „Dokumenty” jest dokument "
@@ -87,6 +94,9 @@ GROUP_PDF_NOTE = (
     "PDF zamówienia MD/kosztowego jest w systemie, ale nie ma kopii "
     "w Dokumentach — wgraj PDF zamówienia ponownie."
 )
+POSSIBLE_ORDER_NOTE = (
+    "Plik wygląda na zamówienie — zmień jego typ na „Zamówienie” w zakładce Dokumenty."
+)
 
 
 @dataclass(frozen=True)
@@ -103,6 +113,7 @@ class MissingOrderRow:
     orders_without_pdf: int = 0
     order_numbers: tuple[str, ...] = ()
     group_pdf_without_copy: bool = False
+    possible_order_files: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -170,6 +181,7 @@ async def load_missing_orders_report(db: AsyncSession) -> MissingOrdersReport:
     numbers: dict[int, list[str]] = defaultdict(list)
     counts: Counter[int] = Counter()
     group_pdf: set[int] = set()
+    possible: dict[int, list[str]] = defaultdict(list)
     ids = [contract.id for contract in contracts]
     for start in range(0, len(ids), _CHUNK):
         chunk = ids[start : start + _CHUNK]
@@ -199,6 +211,19 @@ async def load_missing_orders_report(db: AsyncSession) -> MissingOrdersReport:
                 numbers[contract_id].append(label)
             if group_file:
                 group_pdf.add(contract_id)
+        other_documents = (
+            await db.execute(
+                select(ContractDocument.contract_id, ContractDocument.filename)
+                .where(
+                    ContractDocument.contract_id.in_(chunk),
+                    ContractDocument.doc_type == ContractDocumentType.other,
+                )
+                .order_by(ContractDocument.contract_id, ContractDocument.id)
+            )
+        ).all()
+        for contract_id, filename in other_documents:
+            if looks_like_order(filename):
+                possible[contract_id].append(filename)
 
     rows = []
     for contract in contracts:
@@ -224,6 +249,7 @@ async def load_missing_orders_report(db: AsyncSession) -> MissingOrdersReport:
                 orders_without_pdf=counts.get(contract.id, 0),
                 order_numbers=tuple(numbers.get(contract.id, ())),
                 group_pdf_without_copy=contract.id in group_pdf,
+                possible_order_files=tuple(possible.get(contract.id, ())),
             )
         )
     return MissingOrdersReport(rows=rows, total_by_status=totals)
@@ -241,6 +267,15 @@ def _date(value: Optional[date], empty: str = "—") -> str:
     return value.strftime("%d.%m.%Y") if value else empty
 
 
+def _note(row: MissingOrderRow) -> str:
+    notes = []
+    if row.possible_order_files:
+        notes.append(POSSIBLE_ORDER_NOTE)
+    if row.group_pdf_without_copy:
+        notes.append(GROUP_PDF_NOTE)
+    return " ".join(notes)
+
+
 def report_row(row: MissingOrderRow, base_url: str) -> list[Any]:
     return [
         row.contract_id,
@@ -255,7 +290,8 @@ def report_row(row: MissingOrderRow, base_url: str) -> list[Any]:
         _date(row.end_date, "bezterminowo"),
         row.orders_without_pdf,
         _cell(", ".join(row.order_numbers)) if row.order_numbers else "—",
-        GROUP_PDF_NOTE if row.group_pdf_without_copy else "",
+        _cell(", ".join(row.possible_order_files)) if row.possible_order_files else "",
+        _note(row),
     ]
 
 
@@ -288,6 +324,10 @@ def _write_summary(
         (
             "— w tym z PDF-em zamówienia MD/kosztowego bez kopii",
             sum(1 for row in report.rows if row.group_pdf_without_copy),
+        ),
+        (
+            "— w tym z plikiem typu „Inny” wyglądającym na zamówienie",
+            sum(1 for row in report.rows if row.possible_order_files),
         ),
     )
     for label, value in lines:
