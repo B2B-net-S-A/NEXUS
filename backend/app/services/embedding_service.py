@@ -1603,3 +1603,139 @@ async def search_similar_jobs_by_job_id(
     except Exception as e:
         logger.error("[Search] search_similar_jobs_by_job_id error: %s", e)
         return None
+
+
+# ── Podobne rekrutacje: sąsiedzi w kolekcji OFERT (30.09.2026) ─────────────
+# Ranking „Podobnych rekrutacji” (`job_similarity`) liczy kosinus wektorów
+# rekrutacji zamiast wzoru leksykalnego. Oba odczyty zawężają wyniki do puli
+# wskazanej przez wołającego (`HasIdCondition`) i NIE przesyłają wektora
+# referencji — Qdrant sam czyta go po id punktu (Query API, `query=<id>`).
+# `None` = „nie wiem” (Qdrant nie odpowiedział): wołający wraca wtedy do wzoru
+# leksykalnego, a nie pokazuje pustki.
+
+_SIMILAR_JOBS_TIMEOUT_SECONDS = 2
+_SIMILAR_JOBS_BATCH = 16
+
+
+def _similar_jobs_filter(candidate_ids: Sequence[int], exclude: Sequence[int]):
+    from qdrant_client.models import Filter, HasIdCondition
+
+    return Filter(
+        must=[HasIdCondition(has_id=list(candidate_ids))],
+        must_not=[HasIdCondition(has_id=list(exclude))] if exclude else None,
+    )
+
+
+async def nearest_jobs_for_job_ids(
+    ref_job_ids: Sequence[int],
+    candidate_ids: Sequence[int],
+    *,
+    exclude: Optional[dict[int, Sequence[int]]] = None,
+    limit: int = 60,
+) -> Optional[dict[int, list[tuple[int, float]]]]:
+    """Najbliższe rekrutacje (kosinus) dla wielu rekrutacji naraz.
+
+    Zwraca ``{ref_id: [(job_id, kosinus), …]}`` malejąco, wyłącznie spośród
+    ``candidate_ids`` i bez samej referencji oraz ``exclude[ref_id]``.
+    Referencja BEZ wektora w kolekcji nie ma klucza w wyniku (wołający liczy
+    ją wzorem leksykalnym); ``None`` = Qdrant nie odpowiedział.
+    """
+    refs = list(dict.fromkeys(int(r) for r in ref_job_ids))
+    pool = sorted({int(c) for c in candidate_ids})
+    if not refs:
+        return {}
+    exclude = exclude or {}
+
+    def _run() -> dict[int, list[tuple[int, float]]]:
+        from qdrant_client import QdrantClient
+        from qdrant_client.models import QueryRequest
+
+        client = QdrantClient(
+            host=settings.QDRANT_HOST,
+            port=settings.QDRANT_PORT,
+            timeout=_SIMILAR_JOBS_TIMEOUT_SECONDS,
+        )
+        # Zapytanie po id punktu, którego nie ma, wywraca CAŁĄ paczkę — więc
+        # najpierw ustalamy, które referencje mają wektor.
+        present = {
+            int(p.id)
+            for p in client.retrieve(
+                collection_name=_jobs_collection(),
+                ids=refs,
+                with_payload=False,
+                with_vectors=False,
+            )
+        }
+        ordered = [r for r in refs if r in present]
+        out: dict[int, list[tuple[int, float]]] = {r: [] for r in ordered}
+        if not pool or not ordered:
+            return out
+        for start in range(0, len(ordered), _SIMILAR_JOBS_BATCH):
+            chunk = ordered[start : start + _SIMILAR_JOBS_BATCH]
+            requests = []
+            for ref in chunk:
+                skip = {ref, *(int(x) for x in exclude.get(ref, ()))}
+                requests.append(
+                    QueryRequest(
+                        query=ref,
+                        filter=_similar_jobs_filter(pool, sorted(skip)),
+                        limit=limit,
+                        with_payload=False,
+                    )
+                )
+            responses = client.query_batch_points(
+                collection_name=_jobs_collection(), requests=requests
+            )
+            for ref, response in zip(chunk, responses):
+                out[ref] = [
+                    (int(point.id), float(point.score))
+                    for point in response.points
+                    if int(point.id) != ref
+                ]
+        return out
+
+    try:
+        return await _run_qdrant(_run)
+    except Exception as e:  # noqa: BLE001 — „nie wiem”, wołający wraca do wzoru
+        logger.warning("[Search] nearest_jobs_for_job_ids failed: %s", e)
+        return None
+
+
+async def nearest_jobs_for_vector(
+    vector: Sequence[float],
+    candidate_ids: Sequence[int],
+    *,
+    exclude: Sequence[int] = (),
+    limit: int = 60,
+) -> Optional[list[tuple[int, float]]]:
+    """Najbliższe rekrutacje dla wektora spoza kolekcji (szkic na /jobs/new).
+
+    Ta sama pula i ten sam kształt co :func:`nearest_jobs_for_job_ids`;
+    ``None`` = Qdrant nie odpowiedział.
+    """
+    pool = sorted({int(c) for c in candidate_ids})
+    if not pool:
+        return []
+
+    def _run() -> list[tuple[int, float]]:
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(
+            host=settings.QDRANT_HOST,
+            port=settings.QDRANT_PORT,
+            timeout=_SIMILAR_JOBS_TIMEOUT_SECONDS,
+        )
+        response = client.query_points(
+            collection_name=_jobs_collection(),
+            query=list(vector),
+            query_filter=_similar_jobs_filter(pool, sorted(set(exclude))),
+            limit=limit,
+            with_payload=False,
+        )
+        return [(int(point.id), float(point.score)) for point in response.points]
+
+    try:
+        return await _run_qdrant(_run)
+    except Exception as e:  # noqa: BLE001 — „nie wiem”, wołający wraca do wzoru
+        logger.warning("[Search] nearest_jobs_for_vector failed: %s", e)
+        return None

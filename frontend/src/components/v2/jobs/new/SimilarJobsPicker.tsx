@@ -19,26 +19,37 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { selectedSentCount, similarJobsApi } from "@/lib/similar-jobs-api";
+import {
+  selectedSentCount,
+  similarityHint,
+  similarityLabel,
+  similarJobsApi,
+} from "@/lib/similar-jobs-api";
 import { cn } from "@/lib/utils";
 import { plural } from "@/components/v2/jobs/SimilarJobsDialog";
 
 export function SimilarJobsPicker({
   title,
   must,
+  clientId = null,
   onChange,
 }: {
   title: string;
   must: string[];
+  /** Klient szkicu — ta sama firma jest wyżej w rankingu wektorowym. */
+  clientId?: number | null;
   onChange: (jobIds: number[]) => void;
 }) {
   const input = useDebouncedValue(
-    useMemo(() => ({ title: title.trim(), must_skills: must.filter(Boolean) }), [title, must]),
+    useMemo(
+      () => ({ title: title.trim(), must_skills: must.filter(Boolean), client_id: clientId }),
+      [title, must, clientId],
+    ),
     500,
   );
   const enabled = input.title.length >= 3 || input.must_skills.length > 0;
   const query = useQuery({
-    queryKey: ["similar-jobs-preview", input.title, input.must_skills],
+    queryKey: ["similar-jobs-preview", input.title, input.must_skills, input.client_id],
     queryFn: () => similarJobsApi.preview(input),
     enabled,
     staleTime: 60_000,
@@ -131,8 +142,11 @@ export function SimilarJobsPicker({
                     </span>
                   </span>
                   {item.similarity != null && (
-                    <span className="text-sm font-semibold tabular-nums text-primary">
-                      {item.similarity}%
+                    <span
+                      className="whitespace-nowrap text-sm font-semibold tabular-nums text-primary"
+                      title={similarityHint(item)}
+                    >
+                      {similarityLabel(item)}
                     </span>
                   )}
                   <span className="w-24 text-right text-xs text-muted-foreground">

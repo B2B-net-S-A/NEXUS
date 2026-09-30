@@ -11,6 +11,7 @@ Prawdziwy Postgres, baza wspólna i nieczyszczona: każdy test zakłada własny
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -21,7 +22,13 @@ from app.models.job_similar_link import JobSimilarLink
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.services import job_similarity as sim
-from tests.test_job_similar_links import _world
+from tests.test_job_similar_links import _world, force_lexical_similarity
+
+
+@pytest.fixture(autouse=True)
+def _lexical_similarity(monkeypatch):
+    """Sugestie z zapasowego wzoru leksykalnego (Qdrant „nie odpowiada”)."""
+    force_lexical_similarity(monkeypatch)
 
 
 async def _world_with_outcomes() -> dict:

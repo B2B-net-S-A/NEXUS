@@ -28,6 +28,28 @@ from app.services import job_similarity as sim
 _BACKEND = Path(__file__).resolve().parents[1]
 
 
+def force_lexical_similarity(monkeypatch) -> None:
+    """Qdrant „nie odpowiada” — sugestie liczy zapasowy wzór leksykalny.
+
+    Od 30.09.2026 ranking idzie po wektorach rekrutacji; testy tego pliku
+    sprawdzają JAWNIE ścieżkę zapasową (bez wektorów w CI nie ma czego
+    porównać), a ranking wektorowy — ``test_job_similar_vector.py``."""
+    from app.services import embedding_service  # noqa: PLC0415
+    from app.services import full_search_measurement  # noqa: PLC0415
+
+    async def _unavailable(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(embedding_service, "nearest_jobs_for_job_ids", _unavailable)
+    monkeypatch.setattr(embedding_service, "nearest_jobs_for_vector", _unavailable)
+    monkeypatch.setattr(full_search_measurement, "request_vector", _unavailable)
+
+
+@pytest.fixture(autouse=True)
+def _lexical_similarity(monkeypatch):
+    force_lexical_similarity(monkeypatch)
+
+
 async def _user(role: UserRole) -> tuple[int, dict[str, str]]:
     tag = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
@@ -235,7 +257,9 @@ async def test_suggestions_find_similar_job_and_count_people_sent():
         job_b = await db.get(Job, world["b"])
         found = await sim.suggestions_for_job(db, job_b, limit=50)
         sent = await sim.sent_counts(db, [world["a"]])
-    ids = [p.id for p, _ in found]
+    ids = [s.job.id for s in found]
+    assert {s.kind for s in found} == {sim.KIND_LEXICAL}
+    assert all(s.similarity >= sim.MIN_SCORE for s in found)
     assert world["a"] in ids
     assert world["b"] not in ids
     assert sent[world["a"]] == 2
@@ -293,6 +317,8 @@ async def test_similar_api_links_and_lists_reassign_source(
     )
     assert got.status_code == 200, got.text
     assert world["a"] in [s["id"] for s in got.json()["suggestions"]]
+    # Bez wektora (Qdrant nie odpowiada) — dawny wzór, oznaczony jako taki.
+    assert {s["similarity_kind"] for s in got.json()["suggestions"]} == {"lexical"}
 
     linked = await app_client.post(
         f"/api/jobs/{world['b']}/similar",
@@ -394,6 +420,7 @@ async def test_preview_suggests_for_unsaved_job(
     assert response.status_code == 200, response.text
     ids = [s["id"] for s in response.json()["suggestions"]]
     assert world["a"] in ids and world["b"] in ids
+    assert {s["similarity_kind"] for s in response.json()["suggestions"]} == {"lexical"}
 
 
 async def test_champion_found_is_delivery_lead_decision(

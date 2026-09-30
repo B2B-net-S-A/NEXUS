@@ -642,6 +642,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
               <SimilarJobsPicker
                 title={form.title}
                 must={form.must}
+                clientId={client?.id ?? null}
                 onChange={setSimilarJobIds}
               />
             )}
