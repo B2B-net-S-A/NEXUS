@@ -737,3 +737,14 @@ def db_without_client_merges():
     db = AsyncMock()
     db.execute.return_value = SimpleNamespace(all=lambda: [], scalars=lambda: [])
     return db
+
+
+@pytest.fixture
+def v8_must_gate(monkeypatch):
+    """Bramka v8 (każde must-technologia, budżet i dni ukrywają; osoba bez
+    danych przechodzi, gdy nie ma bramki must) — od 30.09.2026 wyłącznik
+    awaryjny ``MUST_GATE_MODE=all``. Testy opisujące to zachowanie przypinają
+    się tą fixturą; tryb domyślny (krytyczne) pilnuje ``test_critical_gate.py``."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "MUST_GATE_MODE", "all")

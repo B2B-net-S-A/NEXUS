@@ -671,6 +671,7 @@ async def test_search_survives_the_real_eligibility_path(monkeypatch):
 # ── rubryki 0278: dni w biurze / miasto biura uzbrajają bramkę ──────────────
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 @pytest.mark.asyncio
 async def test_radar_office_fields_arm_the_gate(monkeypatch):
     """Kandydat z deklaracją 1 dnia w biurze odpada przy wymogu 3 dni."""

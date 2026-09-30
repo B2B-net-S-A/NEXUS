@@ -36,6 +36,7 @@ def _decision(severity: str, visibility: str):
 # ---------------------------------------------------------------- R9-N5-2
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 def test_r9_n5_2_my_people_hides_over_budget_but_keeps_hm_veto(monkeypatch):
     from app.services import requirement_contract
     from app.services.dealbreaker_filters import DealbreakerInputs
@@ -64,6 +65,7 @@ def test_r9_n5_2_my_people_hides_over_budget_but_keeps_hm_veto(monkeypatch):
     assert hidden == {2: "over_budget", 4: "employment_only"}
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 @pytest.mark.asyncio
 async def test_r9_n5_2_score_people_marks_dealbreaker_rows_hidden(monkeypatch):
     from app.services import (

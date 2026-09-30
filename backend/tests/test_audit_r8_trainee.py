@@ -94,6 +94,7 @@ def test_explicit_days_from_the_call_still_win():
     assert cand.max_onsite_days_per_week == 2
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 def test_office_only_call_passes_the_office_gate():
     from app.services.dealbreaker_filters import DealbreakerInputs, apply_dealbreakers
 

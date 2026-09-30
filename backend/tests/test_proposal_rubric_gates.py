@@ -85,6 +85,7 @@ async def rubric_gate_fixture(request):
         await db.commit()
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_snapshot_hides_missing_must_and_office_days_exceeded(

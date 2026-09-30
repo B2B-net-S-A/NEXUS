@@ -469,6 +469,9 @@ async def apply(
     ``only_process_ids`` zawęża bieg (testy na wspólnej bazie); endpoint go
     nie przekazuje.
     """
+    from app.models.user import User
+
+    actor_id = int(actor.id)
     disqualifiers = await load_disqualifiers(db)
     targets = [
         (int(r["process_id"]), int(r["candidate_id"]), int(r["job_id"]))
@@ -478,6 +481,9 @@ async def apply(
         if only_process_ids is None or int(r["process_id"]) in only_process_ids
     ]
     await db.rollback()
+    # Wycofanie wygasza obiekty sesji — także ``actor``; odczyt ``actor.id``
+    # w pętli doczytywałby leniwie (MissingGreenlet w async).
+    actor = await db.get(User, actor_id)
 
     counts: Counter[str] = Counter({"moved": 0, "changed_meanwhile": 0, "failed": 0})
     per_job: Counter[int] = Counter()
