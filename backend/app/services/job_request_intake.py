@@ -49,7 +49,8 @@ logger = logging.getLogger(__name__)
 
 MAX_REQUEST_CHARS = 20_000
 MIN_REQUEST_CHARS = 30
-MAX_MUST = 10
+# 30.09.2026: must 1:1 z maila (bez limitu 10); sufit chroni tylko formularz.
+MAX_MUST = 25
 MAX_NICE = 8
 MAX_QUESTIONS = 6
 MAX_EVIDENCE = 40
@@ -516,51 +517,33 @@ def _office_cities(data: dict[str, Any]) -> list[str]:
     return out
 
 
-def _gate_label(requirement) -> str:
-    return " lub ".join(requirement.options)
-
-
 def normalize_must(
     must: list[str], nice: list[str]
 ) -> tuple[list[str], list[str], Optional[str], list[str]]:
-    """Must przez regułę bramki: (must, nice, język, uwagi dla DL).
+    """Must 1:1 z maila: (must, nice, język, uwagi dla DL) — 30.09.2026.
 
-    Pozycja, która nie jest technologią, nie znika — trafia do nice (ranking)
-    albo do pola języka. Wersja jest odcinana („Java 8+” → „Java”), przykłady
-    klienta stają się jedną pozycją „A lub B”.
+    Must nie ukrywa już kandydatów (ukrywają tylko umiejętności krytyczne,
+    `critical_skills`), więc pozycje zostają słowami klienta, z wersją
+    i w kolejności z maila. Duplikaty znikają; pozycja językowa zostaje
+    w must i dodatkowo trafia do pola języka; nice nie powtarza must.
     """
-    from app.services.must_gate_terms import gate_requirement, ignored_reason
+    from app.services.must_gate_terms import ignored_reason
 
     out: list[str] = []
-    moved: list[str] = []
     language: Optional[str] = None
-    notes: list[str] = []
     for label in must:
-        requirement = gate_requirement(label)
-        if requirement is None:
-            if ignored_reason(label) == "language" and language is None:
-                language = label
-            else:
-                moved.append(label)
+        if not isinstance(label, str) or not label.strip():
             continue
-        name = _gate_label(requirement)
-        if name.casefold() != label.casefold():
-            notes.append(f"Must „{label}” zapisano jako „{name}”.")
-        if name.casefold() not in {m.casefold() for m in out}:
-            out.append(name)
-    if moved:
-        notes.append(
-            "Do nice przeniesiono pozycje, które nie są technologią (must ukrywa "
-            "kandydatów bez nich): " + ", ".join(f"„{m}”" for m in moved) + "."
-        )
-    merged_nice = list(nice)
-    for label in moved:
-        if label.casefold() not in {n.casefold() for n in merged_nice}:
-            merged_nice.append(label)
-    merged_nice = [
-        n for n in merged_nice if n.casefold() not in {m.casefold() for m in out}
-    ][:MAX_NICE]
-    return out, merged_nice, language, notes
+        name = " ".join(label.split())
+        if name.casefold() in {m.casefold() for m in out}:
+            continue
+        out.append(name)
+        if language is None and ignored_reason(name) == "language":
+            language = name
+    merged_nice = [n for n in nice if n.casefold() not in {m.casefold() for m in out}][
+        :MAX_NICE
+    ]
+    return out, merged_nice, language, []
 
 
 def _label_in_text(name: str, folded_text: str) -> bool:

@@ -43,8 +43,8 @@ def test_complete_request_has_nothing_missing() -> None:
     assert result.missing == []
     assert result.rate_budget_hourly == 170.0
     assert result.remote_policy == "hybrid"
-    # v7: wersja odcięta tą samą regułą co bramka must.
-    assert result.must == ["Java", "Spring Boot", "Kafka"]
+    # v8 (30.09.2026): must 1:1 ze słowami klienta — wersję odcina dopiero bramka.
+    assert result.must == ["Java 17+", "Spring Boot", "Kafka"]
     # Must-have nie jest powtarzany w „mile widzianych”.
     assert result.nice == ["Kubernetes"]
     assert [q.from_request for q in result.screening_questions] == [True, False]
@@ -401,7 +401,10 @@ async def test_prompt_carries_client_history_but_no_consultant_notes(
 # ── v7 (27.09.2026): must = technologie, miasta ze słownika ─────────────────
 
 
-def test_must_keeps_only_technologies_without_versions() -> None:
+def test_must_is_kept_word_for_word_from_the_request() -> None:
+    """v8 (30.09.2026, decyzja Artura): must 1:1 z maila. Ukrywają tylko
+    umiejętności krytyczne (wybiera DL), więc lista nie jest okrajana do
+    technologii ani przenoszona do nice."""
     text = (
         "Must have: Java 8+, CI/CD tools like Bitbucket, Jenkins, język "
         "angielski B2, bankowość, Agile. Nice: Docker."
@@ -413,15 +416,21 @@ def test_must_keeps_only_technologies_without_versions() -> None:
             "język angielski B2",
             "bankowość",
             "Agile",
+            "java 8+",
         ],
-        "nice": ["Docker"],
+        "nice": ["Docker", "Agile"],
     }
     result = normalize_model_output(raw, text)
-    assert result.must == ["Java", "CI/CD lub Bitbucket lub Jenkins"]
+    assert result.must == [
+        "Java 8+",
+        "CI/CD tools like Bitbucket, Jenkins",
+        "język angielski B2",
+        "bankowość",
+        "Agile",
+    ]
     assert result.language == "język angielski B2"
-    assert result.nice == ["Docker", "bankowość", "Agile"]
-    assert any("nie są technologią" in note for note in result.advisories)
-    # Przykłady klienta stoją w mailu — to nadal „z maila”, nie propozycja AI.
+    assert result.nice == ["Docker"]
+    assert not any("nie są technologią" in note for note in result.advisories)
     assert result.provenance["must"] == "request"
 
 
@@ -429,7 +438,7 @@ def test_explicit_language_wins_over_language_found_in_must() -> None:
     raw = {"must": ["Java", "angielski B2"], "language": "PL, EN B2"}
     result = normalize_model_output(raw, "Java, angielski B2")
     assert result.language == "PL, EN B2"
-    assert result.must == ["Java"]
+    assert result.must == ["Java", "angielski B2"]
 
 
 @pytest.mark.parametrize(

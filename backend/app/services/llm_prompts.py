@@ -905,10 +905,15 @@ CV_REQUIREMENT_MAP = PromptTemplate(
 # wersji, a przykłady klienta to jedna pozycja „A lub B”. Miasta biura to
 # lista polskich nazw (`office_cities`). Kod i tak normalizuje wynik tą samą
 # regułą co bramka (`job_request_intake.normalize_must`, `_office_cities`).
+#
+# v8 (30.09.2026, decyzja Artura): must 1:1 ze słowami klienta. Ukrywają już
+# tylko 1–2 umiejętności krytyczne, które wybiera DL (`critical_skills`), więc
+# must nie musi być okrojone do technologii — cała lista daje punkty i chipy
+# „do rozmowy”. Bez limitu 10 i bez przenoszenia do nice.
 
 JOB_REQUEST_INTAKE = PromptTemplate(
     name="job_request_intake",
-    version=7,
+    version=8,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
@@ -950,7 +955,7 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         '  "hiring_manager_name": str|null,     // imię i nazwisko osoby zamawiającej po stronie klienta, DOKŁADNIE z tekstu, np. "Anna Nowak"\n'
         '  "hiring_manager_position": str|null, // jej stanowisko DOKŁADNIE z tekstu (np. z podpisu), np. "Kierownik Zespołu Rozwoju"\n'
         '  "hiring_manager_email": str|null,    // jej adres e-mail DOKŁADNIE z tekstu\n'
-        '  "must": [str],                     // technologie, których klient WPROST wymaga, bez wersji, max 10 (zasady niżej)\n'
+        '  "must": [str],                     // WSZYSTKIE wymagania obowiązkowe słowami klienta, każde osobno (zasady niżej)\n'
         '  "nice": [str],                     // POJEDYNCZE technologie mile widziane, max 8\n'
         '  "seniority_min_years": int|null,   // minimalne lata doświadczenia, tylko gdy podane\n'
         '  "rate_quote": str|null,            // dosłowny fragment ze stawką/budżetem, np. "do 170 zł/h netto"\n'
@@ -986,16 +991,16 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "e-commerce, sektor publiczny) — NIE technologia. Certyfikaty to np. ISTQB, "
         "AWS Solutions Architect, PSM I. Regulacje i standardy to np. PSD2, PCI DSS, "
         "RODO, KNF, ISO 27001. level=must tylko gdy klient pisze, że to wymóg.\n\n"
-        "Must (must): kandydat bez KTÓREJKOLWIEK pozycji must jest ukrywany "
-        "w wyszukiwaniu, więc wpisuj tu wyłącznie nazwy technologii, których "
-        "klient wprost wymaga — nie cały stack z maila. Bez numerów wersji "
-        "(„Java”, nie „Java 8+”; wersję zostaw w treści maila). Gdy klient podaje "
+        "Must (must): każde wymaganie, które klient podaje jako obowiązkowe, "
+        "osobno i słowami klienta (z wersją, jeśli ją podał: „Java 11+”), w tej "
+        "samej kolejności co w mailu. Must nie ukrywa kandydatów samo — ukrywa "
+        "tylko 1–2 umiejętności krytyczne, które wybiera Delivery Lead — więc "
+        "nie skracaj listy i nie przenoś pozycji do nice. Gdy klient podaje "
         "przykłady albo zamienniki („CI/CD tools like Bitbucket, Jenkins”, "
         "„Kafka lub RabbitMQ”), wpisz JEDNĄ pozycję z wariantami rozdzielonymi "
-        "słowem „lub”: „CI/CD lub Bitbucket lub Jenkins”. Język pracy idzie do "
-        "language, dziedzina do experience.domains, lata do seniority_min_years, "
-        "umiejętności miękkie i metodyki (Agile, Scrum) — nigdzie w must. "
-        "Technologie, które klient wymienia, ale nie wymaga, idą do nice.\n\n"
+        "słowem „lub”. Język pracy wpisz także do language, dziedzinę także do "
+        "experience.domains, lata do seniority_min_years. Technologie, które "
+        "klient wymienia jako mile widziane, idą do nice.\n\n"
         "Miasta biura (office_cities): każde miasto osobno, polską nazwą "
         "(„Warsaw” → „Warszawa”, „Gdansk” → „Gdańsk”); „Trójmiasto” zostaje "
         "„Trójmiasto”. Pusta lista, gdy mail nie podaje miasta.\n\n"
