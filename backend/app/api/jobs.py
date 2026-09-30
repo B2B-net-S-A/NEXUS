@@ -1834,7 +1834,6 @@ async def jobs_quick_counts(
     }
 
 
-@router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 def _policy_value(policy: Any) -> Optional[str]:
     return getattr(policy, "value", policy)
 
@@ -1889,6 +1888,7 @@ def _normalize_office_days_for_update(job: Job, updates: dict) -> None:
         updates["onsite_days_per_month"] = None
 
 
+@router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(
     data: JobCreate,
     current_user: DeliveryLeadPlus,
