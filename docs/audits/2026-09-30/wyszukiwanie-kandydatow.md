@@ -526,3 +526,48 @@ Wdrożenia innych sesji restartują bazę i Qdranta (w badaniu 4 razy w 3 godzin
 błędem połączenia albo `Temporary failure in name resolution`. Długie biegi puszczaj w pętli
 wznawiającej (jak `loop_full.sh`: `./run.sh …; sleep 90` do skutku). `data.py` zapisuje w `cache/`
 identyfikatory kandydatów — katalog `cache/` usunięty z serwera po badaniu.
+
+## Wdrożenie (30.09.2026, gałąź `claude/search-critical-skills`)
+
+Rekomendacje wdrożone jednym PR-em wg decyzji Artura z 30.09.2026 (plan w opisie PR). Kod gałęzi
+zmierzony na produkcji tylko do odczytu (`run_branch.sh` montuje `branch_app/app` nad `/app/app`).
+
+**Bramka v9 (umiejętności krytyczne)** — `verify_critical_branch.py`, 1 199 rekrutacji, 9 362 pary
+wysłane do klienta:
+
+| | v8 (produkcja) | v9 (gałąź) |
+|---|---|---|
+| wysłani, których bramka ukryłaby | 41,5% | **2,9%** |
+| rekrutacje tracące > 50% wysłanych | — | 1,4% |
+| rekrutacje z podpowiedzią krytycznych | — | 45,5% (śr. 0,61 technologii) |
+| wysłani bez żadnych danych (`no_data`) | — | 0,3% |
+
+Przeliczenie statystyk historii (`compute_stats`) trwa 14,8 s (1 048 etykiet, 2 749 rekrutacji).
+Liczone bez leave-one-out — rekrutacja widzi własną historię, więc 2,9% jest lekko optymistyczne.
+Pomiar znalazł też praktyki spoza słownika technologii, które przechodziły regułę składniową
+(„QA”, „IT analysis”, „Data engineering”) — poprawione przed merge.
+
+**Ocena** — ablacja B4 na tej samej, dzisiejszej próbce (200 rekrutacji, pula 3 000 + wysłani;
+`ablation_study.py` na kodzie produkcji i `ablation_branch.py` na kodzie gałęzi, ta sama losowość —
+warstwa semantyczna: R@100 69,8% vs 69,4%):
+
+| | R@20 | R@100 | P@10 | MRR |
+|---|---|---|---|---|
+| produkcja | 40,4% | 60,8% | 20,3% | 0,483 |
+| **gałąź** | **43,3%** | **68,4%** | 20,5% | 0,485 |
+| wariant z badania (stawka neutralna + umiejętności gdziekolwiek) | 42,9% | 70,7% | 20,9% | 0,513 |
+
+Gałąź: top 20 +2,9 pp, top 100 +7,6 pp, MRR bez zmian. Do wariantu z badania brakuje 2,3 pp
+w top 100 i 0,03 MRR. Różnica to waga umiejętności: wariant z badania przy rekrutacji bez
+„nice” (≈90% ofert) liczy must za 2/3 wagi warstwy, gałąź — za pełną. Na tej samej próbce
+wariant ponad gałąź daje R@100 +1,2 pp (95%: −0,1…+2,6) i MRR +0,012 (−0,010…+0,035) —
+nieistotne, więc wag nie dopasowujemy pod jeden pomiar. Wczorajsze liczby B4 (63,5% → 74,2%)
+pochodzą z innej próbki (baza urosła, losowa pula tła się zmieniła) i nie są porównywalne
+z dzisiejszymi.
+
+**Podobne rekrutacje** — `similar_calibration.py`, 1 620 rekrutacji z przepięciami: prawdziwe źródło
+w top 5 60,6% (wektor + klient) wobec 39,7% (dawny wzór z progiem 55). Próg plakietki „≈” na
+liście = 0,65 (mediana wyniku prawdziwych źródeł).
+
+Kroki na produkcji po merge (każdy za zgodą Artura): przeniesienie kart z portali do propozycji
+(próba → lista → zapis), naprawa dat CV z Traffita (próba → raport → zapis), `MATCH_POOL_SIZE=3000`.

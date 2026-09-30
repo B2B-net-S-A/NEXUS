@@ -14,7 +14,7 @@ from collections import defaultdict
 import data
 
 ARGS = dict(a.split("=", 1) for a in os.environ.get("RESEARCH_ARGS", "").split() if "=" in a)
-N = int(ARGS.get("n", 200)); SEED = int(ARGS.get("seed", 7)); SINCE = ARGS.get("since", "2024-07-01"); POOL = int(ARGS.get("pool", 3000))
+OUT = ARGS.get("out", "out_ablation_branch.json"); N = int(ARGS.get("n", 200)); SEED = int(ARGS.get("seed", 7)); SINCE = ARGS.get("since", "2024-07-01"); POOL = int(ARGS.get("pool", 3000))
 
 
 def metrics(ranked, rel):
@@ -126,7 +126,7 @@ async def main():
             ci[name][k] = [round(statistics.mean(d), 4), round(boots[50], 4), round(boots[1949], 4)]
     out = {"jobs": used, "summary": summary, "diff_vs_prod_mean_ci95": ci}
     print(json.dumps(out, indent=1))
-    json.dump(out, open("/research/out_ablation_branch.json", "w"), indent=1)
+    json.dump(out, open("/research/" + OUT + "", "w"), indent=1)
 
 
 asyncio.run(main())
