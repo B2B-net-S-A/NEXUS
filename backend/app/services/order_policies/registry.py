@@ -607,8 +607,9 @@ def prepare_document_text(
     z ``layout_text`` (PKO BP) dopisuje nimi wiersze tabeli osób z kolumn PDF-a.
     """
     for policy in sorted(policies, key=lambda p: p.order):
-        if policy.layout_text is not None and words:
-            text = policy.layout_text(text, words)
+        layout_text = getattr(policy, "layout_text", None)
+        if layout_text is not None and words:
+            text = layout_text(text, words)
     if any(p.key == "nordea" for p in policies):
         return nordea.order_text_only(text)
     return text
@@ -673,7 +674,7 @@ def prepare_parser_text(text: str, policies: list[OrderClientPolicy]) -> str:
     Wiersze dopisane z układu PDF-a (PKO BP) też nie: model czyta surową
     tabelę jako niezależny czytelnik, a bramka porównuje go z dopiskiem.
     """
-    if any(p.layout_text is not None for p in policies):
+    if any(getattr(p, "layout_text", None) is not None for p in policies):
         text = pko_bp.without_layout_table(text)
     if any(p.key == "nordea" for p in policies):
         return nordea.parser_text(text)
