@@ -35,6 +35,7 @@ import {
 } from "@/lib/api";
 import { AppModal } from "@/components/ds/AppModal";
 import { InactiveClientsCleanupDialog } from "@/components/clients/InactiveClientsCleanupDialog";
+import { isClientPickerQueryKey } from "@/lib/client-selection";
 import { cn } from "@/lib/utils";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
@@ -416,6 +417,9 @@ export function ClientsListV2() {
     setShowAdd(false);
     setToast(message);
     void queryClient.invalidateQueries({ queryKey: ["clients-directory"] });
+    void queryClient.invalidateQueries({
+      predicate: (query) => isClientPickerQueryKey(query.queryKey),
+    });
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -423,6 +427,11 @@ export function ClientsListV2() {
     setPlacementTarget(null);
     setToast(message);
     void queryClient.invalidateQueries({ queryKey: ["clients-directory"] });
+    // Zakładka decyduje, czy klienta da się wybrać w Rekrutacjach
+    // i Kontraktach — listy wyboru muszą to zobaczyć od razu.
+    void queryClient.invalidateQueries({
+      predicate: (query) => isClientPickerQueryKey(query.queryKey),
+    });
     setTimeout(() => setToast(null), 3000);
   };
 

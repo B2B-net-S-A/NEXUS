@@ -276,7 +276,8 @@ async def clients_lookup(
         False,
         description=(
             "Gdy true -> zwroc tylko klientow z efektywnej zakladki "
-            "Aktywni albo Relacyjni w katalogu klientow."
+            "Aktywni albo Relacyjni w katalogu klientow (wybor klienta "
+            "w Rekrutacjach i Kontraktach; filtry list biora pelna liste)."
         ),
     ),
     delivery_scope: bool = Query(
@@ -297,7 +298,10 @@ async def clients_lookup(
     marker = istnienie ``display_name``; gdyby kiedyś potrzebny był trwały
     odrębny znacznik, należałoby dodać dedykowaną kolumnę/flagę.
 
-    ``contract_eligible=true`` jest filtrem formularza nowego kontraktu. Używa
+    ``contract_eligible=true`` jest filtrem WYBORU klienta w Rekrutacjach
+    i Kontraktach (nowa rekrutacja, edycja rekrutacji, nowy kontrakt, nowy
+    projekt, przepięcie kontraktu — ticket 30.09.2026); filtry list zostają
+    przy pełnej liście. Używa
     zakładek katalogu klientow (``ClientPortfolioScope``), a nie technicznego
     ``Client.status``. Manualne przeniesienie zakładki ma pierwszeństwo przed
     manifestem, dokładnie tak jak na liście klientow. Zapytanie ``EXISTS`` nie

@@ -63,6 +63,7 @@ export function NewJobRequestStep({
             value={client}
             onChange={onClientChange}
             queryKey="clients-lookup-new-job"
+            selectableOnly
             allowClear
             placeholder="Wybierz klienta…"
           />

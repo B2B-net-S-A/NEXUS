@@ -78,6 +78,7 @@ import {
   type OfficeDaysPeriod,
 } from "@/lib/office-days";
 import { JobCollaboratorsField } from "@/components/jobs/JobCollaboratorsField";
+import { withCurrentClient } from "@/lib/client-selection";
 import {
   collaboratorChanges,
   hasCollaboratorChanges,
@@ -1840,9 +1841,11 @@ export function EditJobModal({
   const [error, setError] = useState("");
   const contentOnly = scope === "content";
 
+  // Tylko Aktywni i Relacyjni; bieżący klient rekrutacji zostaje na liście,
+  // nawet jeśli przeszedł do „Nieaktywnych” (`withCurrentClient`).
   const { data: clientsData } = useQuery({
-    queryKey: ["clients-list-qa"],
-    queryFn: () => phase5Api.clientsLookup().then(r => r.data),
+    queryKey: ["clients-lookup-job-edit", "contract-eligible"],
+    queryFn: () => phase5Api.selectableClientsLookup().then(r => r.data),
     enabled: !contentOnly,
   });
   const { data: usersData } = useQuery({
@@ -1850,7 +1853,11 @@ export function EditJobModal({
     queryFn: () => api.get("/api/users").then(r => r.data),
     enabled: !contentOnly,
   });
-  const clients = clientsData ?? [];
+  const clients = withCurrentClient(
+    clientsData ?? [],
+    job.client_id,
+    job.client_name,
+  );
   const users = usersData ?? [];
 
   const onChange = (k: keyof JobFormData, v: string) =>
