@@ -24,8 +24,10 @@ Wynik nie jest zgadywany: wiersz bez nazwiska, dat albo czytelnych liczb ma
 powód niepewności, a tabela, której nie da się odczytać z położenia, zostawia
 tekst bez zmian — wtedy działa dotychczasowa reguła tekstowa (``pko_bp``).
 
-Wynik trafia do TEKSTU dokumentu (``render_table``) w miejsce surowej tabeli,
-więc model, reguła, bramka automatu i „Przelicz plan" czytają te same wiersze.
+Wynik jest DOPISYWANY do tekstu dokumentu (``render_table``): czyta go reguła,
+bramka automatu i „Przelicz plan". Model dostaje tekst bez dopisku i czyta
+surową tabelę sam — jest niezależnym czytelnikiem, z którym bramka porównuje
+wiersze z kolumn (osoba pominięta przez odczyt z układu = sprawdzenie).
 """
 
 from __future__ import annotations
@@ -152,15 +154,12 @@ def words_from_payload(payload: Optional[Iterable]) -> list[Word]:
     for item in payload or ():
         try:
             page, x0, x1, top, bottom, text = item
+            # NUL z zepsutej mapy fontu nie może trafić do jsonb (R10-N3-5).
+            clean = str(text).replace("\x00", "")
+            if not clean:
+                continue
             words.append(
-                Word(
-                    int(page),
-                    float(x0),
-                    float(x1),
-                    float(top),
-                    float(bottom),
-                    str(text),
-                )
+                Word(int(page), float(x0), float(x1), float(top), float(bottom), clean)
             )
         except (TypeError, ValueError):
             continue
@@ -308,6 +307,8 @@ def _assign_lines(
     n, m = len(lines), len(anchors)
     skip = height
     gap_limit = 1.5 * height
+    #: Ostatni wiersz sięga w dół najwyżej tyle, ile komórka pięciolinijkowa.
+    last_reach = 3.5 * height
     inf = float("inf")
     best = [[inf] * (m + 1) for _ in range(n + 1)]
     back: list[list[Optional[tuple]]] = [[None] * (m + 1) for _ in range(n + 1)]
@@ -322,6 +323,8 @@ def _assign_lines(
             return inf
         if k + 1 < m and bottom >= anchors[k + 1].cy:
             return inf
+        if k + 1 == m and bottom > anchors[k].cy + last_reach:
+            return inf  # ostatni wiersz nie ma sąsiada, który by go zamknął
         anchor = anchors[k]
         if alignment == "top":
             return abs(top - anchor.top)
@@ -348,6 +351,8 @@ def _assign_lines(
                         break  # komórka nie ma dziur wyższych niż linia
                     if k + 1 < m and lines[j - 1].bottom >= anchors[k + 1].cy:
                         break  # dłuższa grupa sięgnęłaby następnego wiersza
+                    if k + 1 == m and lines[j - 1].bottom > anchors[k].cy + last_reach:
+                        break
                     total = here + cost(i, j, k)
                     if total == inf:
                         continue

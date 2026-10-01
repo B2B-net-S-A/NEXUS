@@ -146,9 +146,9 @@ class OrderClientPolicy:
     #: 09.2026). ZMIEŃ wersję przy każdej zmianie reguły, która może zmienić
     #: werdykt dokumentu; ``None`` = bez automatycznego przeliczania.
     rule_version: Optional[str] = None
-    #: Tabela osób czytana z POŁOŻENIA słów PDF-a (PKO BP): funkcja podmienia
-    #: surową tabelę w tekście dokumentu na wiersze z kolumn, zanim tekst
-    #: dostanie model, reguła i bramka. Słowa niesie
+    #: Tabela osób czytana z POŁOŻENIA słów PDF-a (PKO BP): funkcja dopisuje
+    #: do tekstu dokumentu wiersze z kolumn, które czyta reguła i bramka; model
+    #: dostaje tekst bez dopisku (``prepare_parser_text``). Słowa niesie
     #: ``OrderDocumentText.words``; bez nich tekst zostaje bez zmian.
     layout_text: Optional[LayoutTextFn] = None
 
@@ -604,7 +604,7 @@ def prepare_document_text(
     """Zakres dokumentu wspólny dla modelu, reguł i kontroli deterministycznej.
 
     ``words`` — słowa PDF-a z położeniem (``OrderDocumentText.words``); reguła
-    z ``layout_text`` (PKO BP) podmienia nimi surową tabelę osób w tekście.
+    z ``layout_text`` (PKO BP) dopisuje nimi wiersze tabeli osób z kolumn PDF-a.
     """
     for policy in sorted(policies, key=lambda p: p.order):
         if policy.layout_text is not None and words:
@@ -668,7 +668,13 @@ def open_ended_period(policies: list[OrderClientPolicy]) -> bool:
 
 
 def prepare_parser_text(text: str, policies: list[OrderClientPolicy]) -> str:
-    """Kolumny ignorowane przez klienta nie są przekazywane do modelu."""
+    """Kolumny ignorowane przez klienta nie są przekazywane do modelu.
+
+    Wiersze dopisane z układu PDF-a (PKO BP) też nie: model czyta surową
+    tabelę jako niezależny czytelnik, a bramka porównuje go z dopiskiem.
+    """
+    if any(p.layout_text is not None for p in policies):
+        text = pko_bp.without_layout_table(text)
     if any(p.key == "nordea" for p in policies):
         return nordea.parser_text(text)
     return text

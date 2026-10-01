@@ -25,9 +25,9 @@ niepewny (do sprawdzenia), nigdy zgadywanie.
 Od 10.2026 (ticket 12) tabelę czytamy przede wszystkim z POŁOŻENIA słów pod
 nagłówkami kolumn (``pko_bp_layout``): wielolinijkowy profil („Inżynier /
 DevSecOpS / Senior") wstawiał środkową linię w linię wiersza, a słownik słów
-profilu nie zna każdego profilu. ``apply_layout_table`` podmienia surową tabelę
-w tekście na wiersze „Wykonawca N | kolumna: wartość | …", które czytają model,
-ta reguła i bramka automatu. Reguła tekstowa niżej zostaje dla dokumentów bez
+profilu nie zna każdego profilu. ``apply_layout_table`` dopisuje do tekstu wiersze
+„Wykonawca N | kolumna: wartość | …", które czytają ta reguła, bramka automatu
+i „Przelicz plan"; model dostaje tekst bez dopisku (niezależny odczyt). Reguła tekstowa niżej zostaje dla dokumentów bez
 warstwy tekstu z położeniem (DOCX, skan) i dla tabeli, której nie da się
 odczytać z układu.
 
@@ -398,45 +398,18 @@ def layout_entries(text: str) -> list[tuple[ConsultantOrderRow, str]]:
     return entries
 
 
-#: Nagłówek „Numer SSGW" jest tylko w tabeli Wykonawców; „Imię i nazwisko"
-#: bywa też przy osobie kontaktowej nad tabelą, więc od niego nie szukamy.
-_SSGW_RE = re.compile(r"\bSSGW\b")
-_FOOTNOTE_RE = re.compile(r"^\s*\*\s*\D")
-_HEADER_LINE_WORDS = frozenset(
-    {
-        "imie",
-        "i",
-        "nazwisko",
-        "wykonawcow",
-        "profil",
-        "poczatek",
-        "zaangazowania",
-        "planowany",
-        "koniec",
-        "liczba",
-        "md",
-        "stawka",
-        "pln/md",
-        "netto",
-        "brutto",
-        "lokalizacja",
-        "numer",
-        "ssgw",
-    }
-)
-
-
-def _is_header_line(line: str) -> bool:
-    tokens = fold(line).split()
-    return bool(tokens) and all(t in _HEADER_LINE_WORDS for t in tokens)
-
-
 def apply_layout_table(text: str, words: Optional[list]) -> str:
-    """Surowa tabela Wykonawców w tekście → wiersze odczytane z kolumn PDF-a.
+    """Do tekstu dokumentu dopisuje wiersze tabeli Wykonawców z kolumn PDF-a.
+
+    Surowa tabela ZOSTAJE: model czyta ją sam (``without_layout_table`` zdejmuje
+    dopisek z tekstu dla modelu), więc jest niezależnym czytelnikiem, a bramka
+    porównuje jego osoby z wierszami z kolumn. Gdyby dopisek zastępował surową
+    tabelę, wiersz, którego nie widzi ani odczyt z układu, ani reguła tekstowa,
+    znikałby z tekstu bez śladu — wzorzec reguły potwierdzającej samą siebie
+    (#1494). Reguła, bramka i „Przelicz plan" czytają wiersze z dopisku.
 
     Tekst zostaje bez zmian, gdy słów nie ma (DOCX, skan), tabeli nie da się
-    odczytać z układu albo układ dał MNIEJ wierszy niż reguła tekstowa — wtedy
-    zgubiłby osobę, a lepiej zostać przy starym, sprawdzonym odczycie.
+    odczytać z układu albo układ dał MNIEJ wierszy niż reguła tekstowa.
     """
     text = text or ""
     if not words or pko_bp_layout.TABLE_TITLE in text:
@@ -444,29 +417,14 @@ def apply_layout_table(text: str, words: Optional[list]) -> str:
     table = pko_bp_layout.read_table(pko_bp_layout.words_from_payload(words))
     if table is None or len(table.rows) < len(_extract_rows_from_text(text)):
         return text
-    block = pko_bp_layout.render_table(table)
-    lines = text.split("\n")
-    anchor = next((i for i, ln in enumerate(lines) if _SSGW_RE.search(ln)), None)
-    if anchor is None:
-        return f"{text.rstrip()}\n{block}\n"
-    # Nagłówek to linie złożone wyłącznie ze słów nagłówka tabeli — w górę od
-    # linii z „SSGW"; nic spoza tabeli nie zostanie wycięte.
-    start = anchor
-    while start > 0 and _is_header_line(lines[start - 1]):
-        start -= 1
-    end = next(
-        (
-            i
-            for i in range(anchor + 1, len(lines))
-            if _TABLE_END_RE.search(lines[i]) or _FOOTNOTE_RE.match(lines[i])
-        ),
-        None,
-    )
-    if end is None:
-        # Bez końca tabeli nie wiadomo, co jeszcze do niej należy — surowy
-        # tekst zostaje, a wiersze z układu stoją na końcu (czyta je reguła).
-        return f"{text.rstrip()}\n{block}\n"
-    return "\n".join([*lines[:start], block, *lines[end:]])
+    return f"{text.rstrip()}\n\n{pko_bp_layout.render_table(table)}\n"
+
+
+def without_layout_table(text: str) -> str:
+    """Tekst dla modelu: bez wierszy dopisanych z układu PDF-a."""
+    marker = "\n\n" + pko_bp_layout.TABLE_TITLE
+    index = (text or "").find(marker)
+    return text if index < 0 else text[:index] + "\n"
 
 
 def _extract_rows_cell_per_line(text: str) -> list[ConsultantOrderRow]:

@@ -349,7 +349,7 @@ def _worker_words(path: str) -> Optional[list]:
                             round(float(word["x1"]), 2),
                             round(float(word["top"]), 2),
                             round(float(word["bottom"]), 2),
-                            str(word["text"]),
+                            str(word["text"]).replace("\x00", ""),
                         ]
                     )
                     if len(out) >= _PDF_WORKER_MAX_WORDS:

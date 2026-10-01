@@ -24,6 +24,11 @@ from app.services.order_policies.registry import (
     apply_rate_kind,
     policy_by_key,
     prepare_document_text,
+    prepare_parser_text,
+)
+from app.services.order_mail_gate import (
+    CODE_ROW_EVIDENCE_COUNT,
+    _row_evidence_reasons,
 )
 
 # ── Budowa słów tabeli (bez PDF-a) ──────────────────────────────────────────
@@ -270,25 +275,49 @@ class TestDocumentText:
         assert row.consultant_name == "Konrad Przykładowy Cyberbezpieczeństwa"
         assert row.uncertain is True
 
-    def test_raw_table_is_replaced_by_rows_read_from_columns(self):
+    def test_rows_from_columns_are_appended_and_raw_table_stays(self):
         text = pko_bp.apply_layout_table(TEXT, _words())
-        assert pko_bp_layout.TABLE_TITLE in text
-        assert "Konrad Przykładowy DevSecOpS" not in text
+        assert text.startswith(TEXT.rstrip())
         assert "Imię i nazwisko Wykonawców: Konrad Przykładowy |" in text
-        assert text.startswith("PKO Bank Polski SA\nZamówienie nr 1830/2031")
-        assert "* stawka negocjowana\nŁączna wartość" in text
         # Idempotentne — tekst przygotowany drugi raz się nie zmienia.
         assert pko_bp.apply_layout_table(text, _words()) == text
 
-    def test_text_above_the_table_is_never_cut(self):
-        contact = "Osoba kontaktowa — imię i nazwisko: Anna Wzorcowa\n"
-        text = TEXT.replace("1. Wykonawcy", contact + "1. Wykonawcy")
-        out = pko_bp.apply_layout_table(text, _words())
-        assert contact in out
-        assert (
-            "1. Wykonawcy, Profile, Terminy, Stawki:\n" + pko_bp_layout.TABLE_TITLE
-            in out
+    def test_model_reads_the_raw_table_not_the_appended_rows(self):
+        policies = [policy_by_key("pko_bp")]
+        text = prepare_document_text(TEXT, policies, words=_words())
+        parser_text = prepare_parser_text(text, policies)
+        assert pko_bp_layout.TABLE_TITLE not in parser_text
+        assert parser_text.strip() == TEXT.strip()
+
+    def test_person_missed_by_the_layout_still_reaches_the_model_and_the_gate(self):
+        # Przegląd kodu: wiersz bez daty, której szuka odczyt z układu, nie może
+        # zniknąć z tekstu — model go czyta, a bramka widzi różną liczbę osób.
+        words, _ = _table_words(
+            [
+                TICKET_ROW,
+                _row("Ewa Testowa", "Tester Middle", start="2031-11-01*", md="20"),
+            ]
         )
+        raw = TEXT.replace(
+            "Senior\n",
+            "Senior\nEwa Testowa Tester Middle 2031-11-01* 2031-12-31 20 900,00 "
+            "Warszawa 104214-2\n",
+        )
+        policies = [policy_by_key("pko_bp")]
+        text = prepare_document_text(raw, policies, words=words)
+        assert "Ewa Testowa" in prepare_parser_text(text, policies)
+        evidence = tuple(pko_bp.extract_rows(text))
+        model_rows = [
+            ConsultantOrderRow(consultant_name="Konrad Przykładowy"),
+            ConsultantOrderRow(consultant_name="Ewa Testowa"),
+        ]
+        reasons = _row_evidence_reasons(model_rows, evidence)
+        assert [code for code, _ in reasons] == [CODE_ROW_EVIDENCE_COUNT]
+
+    def test_nul_from_the_pdf_never_reaches_the_name(self):
+        words, _ = _table_words([_row("Konrad Przyk\x00ładowy", "Tester Middle")])
+        rows = pko_bp.extract_rows(pko_bp.apply_layout_table(TEXT, words))
+        assert [r.consultant_name for r in rows] == ["Konrad Przykładowy"]
 
     def test_without_words_the_text_stays(self):
         assert pko_bp.apply_layout_table(TEXT, None) == TEXT
