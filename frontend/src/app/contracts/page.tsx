@@ -199,6 +199,23 @@ function ContractsWorkspace({
     );
   };
 
+  const modeTabs =
+    modes.length > 1 ? (
+      <WorkspaceModeTabs
+        label="Tryb modułu Kontrakty"
+        modes={modes}
+        value={activeView}
+        onChange={changeView}
+      />
+    ) : null;
+  const clientPicker = (
+    <ContractsClientPicker
+      compact
+      value={client}
+      onChange={handleClientChange}
+    />
+  );
+
   if (!mounted) {
     return (
       <div className="p-8 text-sm text-muted-foreground">Ładowanie kontraktów…</div>
@@ -210,15 +227,10 @@ function ContractsWorkspace({
     // lista sama się poszerza, ale ta ramka trzymała ją w 1400 px i panel
     // zabierał miejsce tabeli (ucięte nazwiska przy pustych bokach ekranu).
     <div className="mx-auto max-w-[1400px] space-y-4 min-[1600px]:has-[[data-list-detail-panel]]:max-w-[1820px]">
-      {modes.length > 1 && (
-        <WorkspaceModeTabs
-          label="Tryb modułu Kontrakty"
-          modes={modes}
-          value={activeView}
-          onChange={changeView}
-        />
-      )}
-
+      {/* Makieta B: tytuł widoku → tryby modułu → pasek filtrów z wyborem
+          klienta. Rejestr i obsługa kontraktorów same rysują tryby pod swoim
+          tytułem; skrzynka zamówień nie ma własnego tytułu, więc tryby stoją
+          nad nią. */}
       {showOperations ? (
         <Suspense
           fallback={
@@ -227,39 +239,43 @@ function ContractsWorkspace({
             </div>
           }
         >
-          <ContractorsListV2 />
+          <ContractorsListV2 modeTabs={modeTabs} />
         </Suspense>
       ) : showOrderMail ? (
-        <OrderMailQueue />
-      ) : (
         <>
-          <ContractsClientPicker value={client} onChange={handleClientChange} />
-          {client ? (
-            <Suspense
-              fallback={
-                <div className="p-8 text-sm text-muted-foreground">
-                  Ładowanie rejestru klienta…
-                </div>
-              }
-            >
-              <ClientContractRegister
-                clientId={client.id}
-                clientName={client.name}
-                navigationSearch={navigationSearch}
-              />
-            </Suspense>
-          ) : (
-            <Suspense
-              fallback={
-                <div className="p-8 text-sm text-muted-foreground">
-                  Ładowanie kontraktów…
-                </div>
-              }
-            >
-              <ContractsListV2 navigationSearch={navigationSearch} />
-            </Suspense>
-          )}
+          {modeTabs}
+          <OrderMailQueue />
         </>
+      ) : client ? (
+        <Suspense
+          fallback={
+            <div className="p-8 text-sm text-muted-foreground">
+              Ładowanie rejestru klienta…
+            </div>
+          }
+        >
+          <ClientContractRegister
+            clientId={client.id}
+            clientName={client.name}
+            navigationSearch={navigationSearch}
+            modeTabs={modeTabs}
+            toolbarLead={clientPicker}
+          />
+        </Suspense>
+      ) : (
+        <Suspense
+          fallback={
+            <div className="p-8 text-sm text-muted-foreground">
+              Ładowanie kontraktów…
+            </div>
+          }
+        >
+          <ContractsListV2
+            navigationSearch={navigationSearch}
+            modeTabs={modeTabs}
+            toolbarLead={clientPicker}
+          />
+        </Suspense>
       )}
     </div>
   );

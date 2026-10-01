@@ -185,8 +185,9 @@ describe("ClientsListV2 — opis zakładki aktywnych (runda 10, F07)", () => {
     mocks.currentSearch = "";
     mocks.list.mockResolvedValue({ data: BASE_RESPONSE });
     renderList();
+    // Opis kategorii jest podpowiedzią pigułki (title) — wersja B.
     expect(
-      await screen.findByText("Bieżący portfel — także prospekty przed podpisaniem umowy"),
+      await screen.findByTitle("Bieżący portfel — także prospekty przed podpisaniem umowy"),
     ).toBeInTheDocument();
     expect(screen.queryByText("Klienci z podpisaną współpracą")).toBeNull();
   });

@@ -52,15 +52,27 @@ function ClientsWorkspace() {
     });
   };
 
+  const modeTabs = (
+    <WorkspaceModeTabs
+      label="Tryb modułu Klienci"
+      modes={MODES}
+      value={view}
+      onChange={changeView}
+    />
+  );
+
   return (
     <div className="mx-auto max-w-[1400px] space-y-4">
-      <WorkspaceModeTabs
-        label="Tryb modułu Klienci"
-        modes={MODES}
-        value={view}
-        onChange={changeView}
-      />
-      {view === "contacts" ? <KeyRelationshipsPanel /> : <ClientsListV2 />}
+      {/* Lista klientów rysuje tryby pod swoim tytułem (jak Kontrakty);
+          kluczowe relacje nie mają tytułu, więc tryby stoją nad nimi. */}
+      {view === "contacts" ? (
+        <>
+          {modeTabs}
+          <KeyRelationshipsPanel />
+        </>
+      ) : (
+        <ClientsListV2 modeTabs={modeTabs} />
+      )}
     </div>
   );
 }

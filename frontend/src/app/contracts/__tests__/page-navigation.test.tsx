@@ -1,3 +1,4 @@
+import type React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,11 +10,22 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/components/v2/pages/ContractsListV2", () => ({
-  ContractsListV2: () => <div>Globalny rejestr</div>,
+  ContractsListV2: (props: { modeTabs?: React.ReactNode; toolbarLead?: React.ReactNode }) => (
+    <div>
+      {props.modeTabs}
+      {props.toolbarLead}
+      Globalny rejestr
+    </div>
+  ),
 }));
 
 vi.mock("@/components/v2/pages/ContractorsListV2", () => ({
-  ContractorsListV2: () => <div>Widok operacyjny</div>,
+  ContractorsListV2: (props: { modeTabs?: React.ReactNode }) => (
+    <div>
+      {props.modeTabs}
+      Widok operacyjny
+    </div>
+  ),
 }));
 
 vi.mock("@/components/contracts/ContractsClientPicker", () => ({
@@ -29,7 +41,13 @@ vi.mock("@/components/order-mail/useOrderMailPendingCount", () => ({
 }));
 
 vi.mock("@/components/contracts/ClientContractRegister", () => ({
-  ClientContractRegister: () => <div>Rejestr klienta</div>,
+  ClientContractRegister: (props: { modeTabs?: React.ReactNode; toolbarLead?: React.ReactNode }) => (
+    <div>
+      {props.modeTabs}
+      {props.toolbarLead}
+      Rejestr klienta
+    </div>
+  ),
 }));
 
 describe("ContractsPage — przełączanie widoków", () => {

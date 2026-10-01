@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import {
@@ -255,10 +255,16 @@ export function ClientContractRegister({
   clientId,
   clientName,
   navigationSearch,
+  modeTabs,
+  toolbarLead,
 }: {
   clientId: number;
   clientName?: string;
   navigationSearch?: string;
+  /** Przełącznik trybów modułu — pod tytułem (makieta B). */
+  modeTabs?: ReactNode;
+  /** Pierwsza kontrolka paska filtrów (wybór klienta). */
+  toolbarLead?: ReactNode;
 }) {
   const user = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
@@ -549,16 +555,14 @@ export function ClientContractRegister({
 
   const listContent = (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-end justify-between flex-wrap gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
-            Delivery · Kontrakty klienta
-          </p>
-          <h1 className="font-semibold text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
-            {clientName ?? "Kontrakty"}
+      {/* Nagłówek zwarty, jak w rejestrze globalnym: tytuł i licznik w jednej
+          linii — laptop 1280×720 ma zobaczyć tabelę w górnych 60% okna. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+          <h1 className="text-lg font-semibold text-foreground">
+            Kontrakty{clientName ? ` · ${clientName}` : ""}
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-xs text-muted-foreground">
             {isLoading
               ? "Ładowanie…"
               : failed
@@ -572,6 +576,8 @@ export function ClientContractRegister({
           </Button>
         )}
       </div>
+
+      {modeTabs}
 
       {/* Panel filtrów (logika AND, server-side) + eksport. Wyszukiwarka filtruje
           po nazwisku konsultanta; „Status", „Okres" (overlap) i „Podkategoria"
@@ -588,6 +594,7 @@ export function ClientContractRegister({
         }}
         filters={
           <>
+            {toolbarLead}
             <MultiSelectFilter<ContractStatusValue>
               value={statusFilter}
               onChange={(value) => {
