@@ -468,7 +468,13 @@ def read_table(words: Sequence[Word]) -> Optional[LayoutTable]:
                 row.cells[col] = _join_name(cell) if col == "name" else _join(cell)
                 if col == "name" and cell and cell_cost > 0.75 * height:
                     row.reasons.append(REASON_NAME_CELL)
-        rows.extend(page_rows)
+        # Sama data w kolumnie „Początek" bez nazwiska, końca, MD i stawki to
+        # nie wiersz osoby (np. data w nagłówku strony nad ciągiem tabeli).
+        rows.extend(
+            row
+            for row in page_rows
+            if any(row.cells.get(col) for col in ("name", "end", "md", "rate"))
+        )
         carried = (header, bounds) if end_y == float("inf") else None
     if first_header is None or not rows:
         return None

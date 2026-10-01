@@ -398,7 +398,9 @@ def layout_entries(text: str) -> list[tuple[ConsultantOrderRow, str]]:
     return entries
 
 
-_TABLE_START_RE = re.compile(r"Imi[ęe]\s+i\s+nazwisko", re.IGNORECASE)
+#: Nagłówek „Numer SSGW" jest tylko w tabeli Wykonawców; „Imię i nazwisko"
+#: bywa też przy osobie kontaktowej nad tabelą, więc od niego nie szukamy.
+_SSGW_RE = re.compile(r"\bSSGW\b")
 _FOOTNOTE_RE = re.compile(r"^\s*\*\s*\D")
 _HEADER_LINE_WORDS = frozenset(
     {
@@ -444,15 +446,18 @@ def apply_layout_table(text: str, words: Optional[list]) -> str:
         return text
     block = pko_bp_layout.render_table(table)
     lines = text.split("\n")
-    start = next((i for i, ln in enumerate(lines) if _TABLE_START_RE.search(ln)), None)
-    if start is None:
+    anchor = next((i for i, ln in enumerate(lines) if _SSGW_RE.search(ln)), None)
+    if anchor is None:
         return f"{text.rstrip()}\n{block}\n"
+    # Nagłówek to linie złożone wyłącznie ze słów nagłówka tabeli — w górę od
+    # linii z „SSGW"; nic spoza tabeli nie zostanie wycięte.
+    start = anchor
     while start > 0 and _is_header_line(lines[start - 1]):
         start -= 1
     end = next(
         (
             i
-            for i in range(start + 1, len(lines))
+            for i in range(anchor + 1, len(lines))
             if _TABLE_END_RE.search(lines[i]) or _FOOTNOTE_RE.match(lines[i])
         ),
         None,

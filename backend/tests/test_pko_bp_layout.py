@@ -175,7 +175,9 @@ class TestColumnsFromHeaders:
             ),
         ]
         words, _ = _table_words(rows)
-        got = [(r.cells["name"], r.cells["profile"], r.cells["md"]) for r in _read(words)]
+        got = [
+            (r.cells["name"], r.cells["profile"], r.cells["md"]) for r in _read(words)
+        ]
         assert got == [
             ("Konrad Przykładowy", "Inżynier DevSecOpS Senior", "63"),
             ("Anna Testowa-Nowak", "Tester Middle", "58"),
@@ -212,7 +214,10 @@ class TestColumnsFromHeaders:
     def test_table_continues_on_the_next_page_without_header(self):
         first, _ = _table_words([TICKET_ROW])
         second, _ = _table_words(
-            [_row("Ewa Testowa", "Tester Middle", md="20")], page=1, top=40, header=False
+            [_row("Ewa Testowa", "Tester Middle", md="20")],
+            page=1,
+            top=40,
+            header=False,
         )
         rows = _read(first + second)
         assert [r.cells["name"] for r in rows] == ["Konrad Przykładowy", "Ewa Testowa"]
@@ -228,7 +233,9 @@ class TestColumnsFromHeaders:
         assert pko_bp_layout.REASON_NAME in got.reasons
 
     def test_gross_rate_header_is_kept_for_the_rate_rule(self):
-        words, _ = _table_words([TICKET_ROW], header_rate=["Stawka", "PLN/MD", "brutto"])
+        words, _ = _table_words(
+            [TICKET_ROW], header_rate=["Stawka", "PLN/MD", "brutto"]
+        )
         table = pko_bp_layout.read_table(pko_bp_layout.words_from_payload(words))
         assert table is not None and "brutto" in table.rate_label
 
@@ -273,6 +280,16 @@ class TestDocumentText:
         # Idempotentne — tekst przygotowany drugi raz się nie zmienia.
         assert pko_bp.apply_layout_table(text, _words()) == text
 
+    def test_text_above_the_table_is_never_cut(self):
+        contact = "Osoba kontaktowa — imię i nazwisko: Anna Wzorcowa\n"
+        text = TEXT.replace("1. Wykonawcy", contact + "1. Wykonawcy")
+        out = pko_bp.apply_layout_table(text, _words())
+        assert contact in out
+        assert (
+            "1. Wykonawcy, Profile, Terminy, Stawki:\n" + pko_bp_layout.TABLE_TITLE
+            in out
+        )
+
     def test_without_words_the_text_stays(self):
         assert pko_bp.apply_layout_table(TEXT, None) == TEXT
 
@@ -288,7 +305,9 @@ class TestDocumentText:
         policies = [policy_by_key("pko_bp")]
         text = prepare_document_text(TEXT, policies, words=_words())
         result, _ = apply_policies(
-            OrderExtraction(source="claude"), PolicyContext(document_text=text), policies
+            OrderExtraction(source="claude"),
+            PolicyContext(document_text=text),
+            policies,
         )
         result = apply_rate_kind(result, text, policies)
         assert result.title == "1830/2031"
@@ -313,12 +332,16 @@ class TestDocumentText:
 
     def test_gross_rate_column_from_layout_goes_to_review(self):
         policies = [policy_by_key("pko_bp")]
-        words, _ = _table_words([TICKET_ROW], header_rate=["Stawka", "PLN/MD", "brutto"])
+        words, _ = _table_words(
+            [TICKET_ROW], header_rate=["Stawka", "PLN/MD", "brutto"]
+        )
         text = prepare_document_text(
             TEXT.replace("netto\n", "brutto\n", 1), policies, words=words
         )
         result, _ = apply_policies(
-            OrderExtraction(source="claude"), PolicyContext(document_text=text), policies
+            OrderExtraction(source="claude"),
+            PolicyContext(document_text=text),
+            policies,
         )
         result = apply_rate_kind(result, text, policies)
         assert pko_bp.REASON_GROSS_HEADER in result.uncertain_reasons
@@ -376,7 +399,9 @@ def _pdf_with_table() -> bytes:
 
     def put(x: float, top: float, text: str) -> None:
         y = page_h - top - 7
-        commands.append(b"BT /F1 8 Tf %.2f %.2f Td (%s) Tj ET\n" % (x, y, text.encode()))
+        commands.append(
+            b"BT /F1 8 Tf %.2f %.2f Td (%s) Tj ET\n" % (x, y, text.encode())
+        )
 
     put(40, 60, "Zamowienie nr 1830/2031")
     header = {
@@ -451,3 +476,13 @@ def test_words_are_read_only_for_documents_with_the_table(tmp_path, monkeypatch)
     monkeypatch.setattr(odt, "extract_pdf_words_sandboxed", _must_not_run)
     assert odt.extract_order_words("x.pdf", "x.pdf", "Zamówienie nr 7") is None
     assert odt.extract_order_words("x.docx", "x.docx", "Numer SSGW") is None
+
+
+def test_lone_date_above_a_continued_table_is_not_a_person():
+    first, _ = _table_words([TICKET_ROW])
+    stray = _line_words(1, "start", "2031-09-04", 20)
+    second, _ = _table_words(
+        [_row("Ewa Testowa", "Tester Middle", md="20")], page=1, top=60, header=False
+    )
+    rows = _read(first + stray + second)
+    assert [r.cells["name"] for r in rows] == ["Konrad Przykładowy", "Ewa Testowa"]
