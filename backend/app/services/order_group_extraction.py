@@ -195,7 +195,7 @@ async def extract_all_rows(
 
     policies = active_policies(client_id)
     plan = parse_plan(policies)
-    text = prepare_document_text(document.text, policies)
+    text = prepare_document_text(document.text, policies, words=document.words)
     parser_text = prepare_parser_text(text, policies)
     if plan.single_consultant_document:
         extraction = await parse_order_document(parser_text)

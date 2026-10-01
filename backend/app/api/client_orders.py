@@ -134,6 +134,7 @@ from app.services.order_types import (
     should_process_active_standalone_order,
 )
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
+from app.services.order_document_text import extract_order_words
 from app.services.order_settlements import (
     assert_order_has_no_settlements,
     settlement_blockers,
@@ -2460,6 +2461,8 @@ async def extract_order_pdf(
             text = await run_in_threadpool(extract_text, tmp_path, filename)
         except UnsupportedCvFormat as exc:
             raise HTTPException(400, detail=str(exc)) from exc
+        # Słowa z położeniem — tabela osób czytana z kolumn PDF-a (PKO BP).
+        words = await run_in_threadpool(extract_order_words, tmp_path, filename, text)
     finally:
         if tmp_path:
             try:
@@ -2486,7 +2489,7 @@ async def extract_order_pdf(
     #    gdy model odczytał wiersz osoby, ale pominął sam token jednostki.
     policies = active_policies(client_id)
     plan = parse_plan(policies)
-    text = prepare_document_text(text, policies)
+    text = prepare_document_text(text, policies, words=words)
 
     # Bramka kwoty MUSI obejmować wywołanie modelu: `ai_feature` deklaruje
     # kontekst tylko na czas swojego bloku, a bez deklaracji `parse_order_document`

@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 30.09.2026
+> **Zgodność z systemem sprawdzona:** 01.10.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -2107,10 +2107,18 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
     z tym powodem. Liczba MD zapisana ze spacją („1 200") wchodzi, ale
     z ostrzeżeniem — porównaj ją z PDF-em.
   * **Imię i nazwisko** bierze wyłącznie z kolumny „Imię i nazwisko
-    Wykonawców" — nazwa profilu z sąsiedniej kolumny („Tester Middle") nie jest
-    doklejana, więc system rozpoznaje istniejącego konsultanta i proponuje
-    przedłużenie. Gdy granicy między nazwiskiem a profilem nie da się ustalić
-    pewnie, osoba trafia do sprawdzenia z tym powodem.
+    Wykonawców" — nazwa profilu z sąsiedniej kolumny („Tester Middle",
+    „Inżynier DevSecOpS Senior") nie jest doklejana, więc system rozpoznaje
+    istniejącego konsultanta i proponuje przedłużenie. Od 01.10.2026 granice
+    kolumn system ustala z **nagłówków tabeli** (Imię i nazwisko Wykonawców,
+    Profil, Początek i Planowany Koniec Zaangażowania, Liczba MD, Stawka,
+    Lokalizacja, Numer SSGW) i z położenia tekstu w PDF-ie — także gdy tabela
+    nie ma widocznych linii, a nazwisko albo profil zajmują kilka linii. Każdy
+    wiersz tabeli to osobna osoba z własnym profilem.
+  * Gdy dokument nie ma warstwy tekstu z położeniem (skan, plik Word), system
+    czyta tabelę po staremu, ze słownika profili; jeśli wtedy granicy między
+    nazwiskiem a profilem nie da się ustalić pewnie, osoba trafia do
+    sprawdzenia z tym powodem.
   * **Stawka z kolumny „Stawka PLN/MD netto" jest zawsze netto** — system nie
     pyta, czy to brutto, i nie dzieli jej przez 1,23 („brutto" przy łącznej
     wartości zamówienia nie ma na to wpływu). Gwiazdka przy kwocie („stawka

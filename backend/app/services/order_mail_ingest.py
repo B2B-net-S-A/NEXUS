@@ -807,7 +807,12 @@ async def process_pdf_bytes(
             set_gate_hold(row, [(CODE_NON_ORDER, reason)])
             row.document_meta = {"ignored_non_order": True, "reason": reason}
             return row
-    doc = dataclasses.replace(doc, text=prepare_document_text(doc.text, policies))
+    doc = dataclasses.replace(
+        doc,
+        text=prepare_document_text(
+            doc.text, policies, words=getattr(doc, "words", None)
+        ),
+    )
     extraction = await read_order_with_model(
         db, prepare_parser_text(doc.text, policies), fallback_when_blocked=True
     )
@@ -970,7 +975,12 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
         # nowa wyżej, więc nie ma tam czego przenosić.)
         await _follow_client_merge(db, row)
     policies = active_policies(row.client_id)
-    doc = dataclasses.replace(doc, text=prepare_document_text(doc.text, policies))
+    doc = dataclasses.replace(
+        doc,
+        text=prepare_document_text(
+            doc.text, policies, words=getattr(doc, "words", None)
+        ),
+    )
     # Dokument przeczytany ZANIM rozpoznano klienta (ponowna weryfikacja
     # rozpoznała go dopiero później) nie przeszedł reguł klienta: Erste
     # zostawało brutto, Bank Pocztowy w MD, a ``policies_applied`` bramki
@@ -1230,7 +1240,10 @@ async def retry_ai_fallback_documents(db: AsyncSession, stats: IngestStats) -> N
         try:
             doc = await _reread_document_text(row)
             doc = dataclasses.replace(
-                doc, text=prepare_document_text(doc.text, policies)
+                doc,
+                text=prepare_document_text(
+                    doc.text, policies, words=getattr(doc, "words", None)
+                ),
             )
             if not doc.text.strip():
                 # Tekst dalej pusty — model nie ma czego czytać; próba się

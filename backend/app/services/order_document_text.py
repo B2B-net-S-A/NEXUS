@@ -19,12 +19,14 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Optional
 
 from app.core.log_safety import safe_filename
 from app.services.cv_text_extractor import (
     _OCR_FALLBACK_THRESHOLD_CHARS,
+    extract_pdf_words_sandboxed,
     extract_pdfminer_sandboxed,
     extract_text,
     pdf_page_count_sandboxed,
@@ -42,6 +44,10 @@ logger = logging.getLogger(__name__)
 LETTER_SPACING_RATIO_THRESHOLD = 0.30
 #: Lustro capu z ``cv_text_extractor._extract_pdf_ocr`` (``last_page=10``).
 OCR_PAGE_CAP = 10
+#: Tabele, które reguła klienta czyta z POŁOŻENIA słów (PKO BP: kolumna
+#: „Numer SSGW" w tabeli Wykonawców — ``order_policies.pko_bp_layout``).
+#: Słowa liczymy tylko wtedy: to dodatkowy proces odczytu PDF-a.
+_LAYOUT_TABLE_HINT_RE = re.compile(r"\bSSGW\b")
 
 
 @dataclass(frozen=True)
@@ -57,6 +63,10 @@ class OrderDocumentText:
     #: Tekst został wzięty ponownie innym ekstraktorem (literowanie spacjami).
     reextracted_with: Optional[str]
     letter_spacing_ratio: float
+    #: Słowa z położeniem (``[strona, x0, x1, góra, dół, tekst]``) dla tabel
+    #: czytanych z układu strony; ``None`` = dokument ich nie potrzebuje albo
+    #: odczyt się nie udał (reguła klienta wraca wtedy do samego tekstu).
+    words: Optional[list] = None
 
 
 def single_char_token_ratio(text: str) -> float:
@@ -72,6 +82,14 @@ def _pdf_page_count(path: str) -> Optional[int]:
 
 def _pdfminer_text(path: str) -> Optional[str]:
     return extract_pdfminer_sandboxed(path)
+
+
+def extract_order_words(path: str, filename: str, text: str) -> Optional[list]:
+    """Słowa z położeniem, gdy tekst ma tabelę czytaną z układu strony."""
+    is_pdf = os.path.splitext(filename or "")[1].lower() == ".pdf"
+    if not is_pdf or not _LAYOUT_TABLE_HINT_RE.search(text or ""):
+        return None
+    return extract_pdf_words_sandboxed(path)
 
 
 def extract_order_text(path: str, filename: str) -> OrderDocumentText:
@@ -100,6 +118,8 @@ def extract_order_text(path: str, filename: str) -> OrderDocumentText:
         native = _extract_pdf_native(path)
         ocr_used = not native or len(native.strip()) < _OCR_FALLBACK_THRESHOLD_CHARS
     ocr_capped = bool(ocr_used and page_count and page_count > OCR_PAGE_CAP)
+    # Skan (OCR) nie ma warstwy tekstu, więc nie ma też położenia słów.
+    words = None if ocr_used else extract_order_words(path, filename, text)
     return OrderDocumentText(
         # Runda 10 (R10-N3-5): pdfminer (ścieżka tekstu z rozstrzelonymi
         # literami) nie normalizuje U+0000 jak ``extract_text`` — a ten tekst
@@ -110,4 +130,5 @@ def extract_order_text(path: str, filename: str) -> OrderDocumentText:
         ocr_capped=ocr_capped,
         reextracted_with=reextracted,
         letter_spacing_ratio=round(ratio, 3),
+        words=words,
     )
