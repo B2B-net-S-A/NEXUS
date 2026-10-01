@@ -484,10 +484,13 @@ jobs:
           #    (4-6 min cold), not 3 quick retries.
           #  - HTTP 5xx (flaky webhook — audit-2026-05-07) heals within one or
           #    two 30s waits.
+          # Od aktualizacji Coolify (01.10.2026) webhook deployu przyjmuje
+          # wyłącznie POST — GET kończy się 405 „This endpoint has changed to
+          # a POST request” i wstrzymuje każde wdrożenie.
           http_code=""
           response=""
           for attempt in $(seq 1 20); do
-            raw=$(curl -sS -X GET \
+            raw=$(curl -sS -X POST \
               -H "Authorization: Bearer $CO_TOKEN" \
               -H "Accept: application/json" \
               -w $'\nHTTP_CODE:%{http_code}' \
