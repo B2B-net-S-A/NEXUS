@@ -25,6 +25,11 @@ from app.services import dashboard_v2_sources as sources
 PATH = "/api/dashboard/v2/recruitment-stats"
 CACHE_PREFIX = "dashv2:recruitment-stats"
 
+#: Okno sprzed `funnel_coverage.COVERAGE_STARTED_AT` (01.10.2026) — w nim
+#: `acceptance` nie ma pokrycia z Traffita. Domyślne okno (bieżący miesiąc) od
+#: października już je ma, więc testy wygaszania na nim padały 01.10.2026.
+UNCOVERED_WINDOW = "?period=custom&date_from=2026-09-01&date_to=2026-09-30"
+
 EXPECTED_SECTIONS = {
     "team_funnel",
     "quarterly_league",
@@ -257,7 +262,7 @@ async def test_conversions_without_coverage_are_null_and_flagged_partial(
     """
     await cache_invalidate(CACHE_PREFIX)
     headers = await _headers(rs_client, UserRole.admin)
-    resp = await rs_client.get(PATH, headers=headers)
+    resp = await rs_client.get(PATH + UNCOVERED_WINDOW, headers=headers)
     assert resp.status_code == 200, resp.text
     body = resp.json()
 
@@ -330,7 +335,7 @@ async def test_structural_partial_keeps_the_full_cache_ttl(
     headers = await _headers(rs_client, UserRole.admin)
 
     await cache_invalidate(CACHE_PREFIX)
-    resp = await rs_client.get(PATH, headers=headers)
+    resp = await rs_client.get(PATH + UNCOVERED_WINDOW, headers=headers)
     assert resp.status_code == 200, resp.text
     # Sama degradacja strukturalna → pełne 120 s.
     assert resp.json()["data_quality"]["status"] == "partial"
@@ -342,7 +347,7 @@ async def test_structural_partial_keeps_the_full_cache_ttl(
 
     monkeypatch.setattr(sources, "load_monthly_races", _boom)
     await cache_invalidate(CACHE_PREFIX)
-    resp = await rs_client.get(PATH, headers=headers)
+    resp = await rs_client.get(PATH + UNCOVERED_WINDOW, headers=headers)
     assert resp.status_code == 200, resp.text
     assert captured["ttl"] == 30
 
