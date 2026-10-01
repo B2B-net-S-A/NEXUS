@@ -59,10 +59,12 @@ class ReleaseConfigurationTests(unittest.TestCase):
 class RemoteBuildWrapperTests(unittest.TestCase):
     """A native CLI stand-in records calls; no Docker daemon or real CLI runs."""
 
-    def run_wrapper(self, images, exit_status=0):
+    def run_wrapper(self, images, exit_status=0, runtime_env=None):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "docker-compose.yml").write_text("services: {}\n")
+            if runtime_env is not None:
+                (root / ".env").write_text(runtime_env)
             # This file must never be sourced/evaluated by the wrapper.
             (root / "build.env").write_text("SECRET=synthetic-private-token\nTRAP=$(touch unexpected-file)\n")
             record = root / "calls.jsonl"
@@ -70,7 +72,8 @@ class RemoteBuildWrapperTests(unittest.TestCase):
             standin.write_text(
                 "#!" + sys.executable + "\n"
                 "import os,sys,json\n"
-                "with open(os.environ['CALLS'], 'a') as f: f.write(json.dumps(sys.argv[1:])+'\\n')\n"
+                "env_seen=os.path.exists(os.path.join(sys.argv[sys.argv.index('--project-directory')+1], '.env'))\n"
+                "with open(os.environ['CALLS'], 'a') as f: f.write(json.dumps(sys.argv[1:]+['ENV_SEEN=%s' % env_seen])+'\\n')\n"
                 "if sys.argv[-2:] == ['config','--images']: print(os.environ['IMAGES'])\n"
                 "elif 'build' in sys.argv: sys.exit(int(os.environ['BUILD_EXIT']))\n"
                 "else: sys.exit(90)\n"
@@ -84,6 +87,7 @@ class RemoteBuildWrapperTests(unittest.TestCase):
             calls = [json.loads(line) for line in record.read_text().splitlines()]
             self.assertFalse((root / "unexpected-file").exists())
             self.assertNotIn("synthetic-private-token", result.stdout + result.stderr)
+            self.env_after = (root / ".env").read_text() if (root / ".env").exists() else None
             return result, calls
 
     def test_actual_checkout_overrides_stale_workflow_sha_for_both_builds(self):
@@ -107,9 +111,22 @@ class RemoteBuildWrapperTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(any("build" in call for call in calls))
 
+    def test_missing_runtime_env_gets_a_placeholder_only_during_the_build(self):
+        # Coolify (01.10.2026) zapisuje `.env` dopiero po budowie.
+        result, calls = self.run_wrapper(f"app123_backend:{SHA}\napp123_frontend:{SHA}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(all(call[-1] == "ENV_SEEN=True" for call in calls))
+        self.assertIsNone(self.env_after)
+
+    def test_existing_runtime_env_is_left_untouched(self):
+        result, _ = self.run_wrapper(f"app123_backend:{SHA}\napp123_frontend:{SHA}", runtime_env="KEEP=1\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.env_after, "KEEP=1\n")
+
     def test_build_failure_propagates(self):
         result, _ = self.run_wrapper(f"app123_backend:{SHA}\napp123_frontend:{SHA}", 7)
         self.assertEqual(result.returncode, 7)
+        self.assertIsNone(self.env_after)
 
     def test_runtime_prefers_immutable_image_sha_over_platform_override(self):
         with tempfile.TemporaryDirectory() as tmp:
