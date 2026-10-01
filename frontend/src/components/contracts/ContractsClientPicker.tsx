@@ -23,9 +23,14 @@ export type { ClientRef };
 interface Props {
   value: ClientRef | null;
   onChange: (client: ClientRef | null) => void;
+  /**
+   * Przycisk w pasku filtrów („Klient: wszyscy ▾”, 32 px) zamiast osobnej
+   * karty nad listą — układ z makiety B (29.09.2026).
+   */
+  compact?: boolean;
 }
 
-export function ContractsClientPicker({ value, onChange }: Props) {
+export function ContractsClientPicker({ value, onChange, compact = false }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -54,31 +59,42 @@ export function ContractsClientPicker({ value, onChange }: Props) {
     if (canonical && canonical.name !== value.name) onChange(canonical);
   }, [clientsQuery.data, onChange, value]);
 
-  return (
-    <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground shrink-0">
-        Klient
+  const trigger = compact ? (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      aria-label={value ? `Klient: ${value.name}` : "Klient: wszyscy"}
+      className="h-8 max-w-[260px] justify-between gap-1.5 text-xs font-normal"
+    >
+      <span className="truncate">
+        Klient: <span className={value ? "font-medium" : undefined}>{value ? value.name : "wszyscy"}</span>
       </span>
+      <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+    </Button>
+  ) : (
+    <Button
+      type="button"
+      variant="outline"
+      className="min-w-0 flex-1 justify-between font-normal sm:min-w-[260px] sm:flex-none"
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        {value ? (
+          <Building2 className="h-4 w-4 shrink-0 text-primary" />
+        ) : (
+          <Users className="h-4 w-4 shrink-0 opacity-60" />
+        )}
+        <span className="truncate">
+          {value ? value.name : "Wszyscy klienci (lista globalna)"}
+        </span>
+      </span>
+      <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+    </Button>
+  );
+
+  const popover = (
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            className="min-w-0 flex-1 justify-between font-normal sm:min-w-[260px] sm:flex-none"
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              {value ? (
-                <Building2 className="h-4 w-4 shrink-0 text-primary" />
-              ) : (
-                <Users className="h-4 w-4 shrink-0 opacity-60" />
-              )}
-              <span className="truncate">
-                {value ? value.name : "Wszyscy klienci (lista globalna)"}
-              </span>
-            </span>
-            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
+        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
         <PopoverContent align="start" className="w-[min(320px,calc(100vw-2rem))] p-0">
           <Command shouldFilter={false}>
             <CommandInput
@@ -138,6 +154,35 @@ export function ContractsClientPicker({ value, onChange }: Props) {
           </Command>
         </PopoverContent>
       </Popover>
+  );
+
+  if (compact) {
+    return (
+      <div className="flex items-center">
+        {popover}
+        {value && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => onChange(null)}
+            aria-label="Wyczyść wybór klienta"
+            title="Wszyscy klienci"
+            className="h-8 px-1.5 text-muted-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
+      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground shrink-0">
+        Klient
+      </span>
+      {popover}
       {value && (
         <Button
           type="button"

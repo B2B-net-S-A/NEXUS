@@ -30,6 +30,8 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ContractsListV2 } from "@/components/v2/pages/ContractsListV2";
+import { ContractsClientPicker } from "@/components/contracts/ContractsClientPicker";
+import { WorkspaceModeTabs } from "@/components/ds/WorkspaceModeTabs";
 import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
 import { ToastProvider } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -335,6 +337,14 @@ function seededClient(): QueryClient {
       { id: 3, name: "UBEZPIECZENIA SIGMA - ODDZIAŁ W POLSCE" },
     ],
   );
+  // Wybór klienta w pasku filtrów (wersja B) — ten sam klucz co komponent.
+  qc.setQueryData(
+    ["clients-lookup-contracts-picker"],
+    [
+      { id: 1, name: "Bank Sigma" },
+      { id: 2, name: "Bank Omega" },
+    ],
+  );
   for (const cid of ["1", "2", "3"]) {
     qc.setQueryData(
       ["add-project-jobs", cid],
@@ -413,7 +423,23 @@ export default function ContractsConsolidationPreview() {
               1. Lista kontraktów — jeden wiersz na osobę (Paweł Makietowy: Bank
               Sigma + Bank Omega)
             </h2>
-            <ContractsListV2 />
+            <ContractsListV2
+              modeTabs={
+                <WorkspaceModeTabs
+                  label="Tryb modułu Kontrakty"
+                  modes={[
+                    { value: "operations", label: "Obsługa kontraktorów" },
+                    { value: "register", label: "Rejestr kontraktów" },
+                    { value: "order-mail", label: "Skrzynka zamówień", count: 3 },
+                  ]}
+                  value="register"
+                  onChange={() => {}}
+                />
+              }
+              toolbarLead={
+                <ContractsClientPicker compact value={null} onChange={() => {}} />
+              }
+            />
           </section>
 
           <section>

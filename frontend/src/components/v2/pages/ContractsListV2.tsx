@@ -508,9 +508,17 @@ function MobileFieldLabel({ children }: { children: string }) {
 interface ContractsListV2Props {
  /** Reactive search string from the App Router; omitted in isolated embeds/tests. */
  navigationSearch?: string;
+ /** Przełącznik trybów modułu — pod tytułem, jak w makiecie B. */
+ modeTabs?: ReactNode;
+ /** Pierwsza kontrolka paska filtrów (wybór klienta). */
+ toolbarLead?: ReactNode;
 }
 
-export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {}) {
+export function ContractsListV2({
+ navigationSearch,
+ modeTabs,
+ toolbarLead,
+}: ContractsListV2Props = {}) {
  const user = useAuthStore((state) => state.user);
  const canSeeFinance =
  hasRole(user, "admin") || hasAnalyticsCapability(user, "view_finance");
@@ -988,8 +996,11 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  </div>
  </div>
 
+ {modeTabs}
+
  {/* Filtry — wszystkie kontrolki mają 32 px wysokości (h-8). */}
  <div className="flex flex-wrap items-center gap-2">
+ {toolbarLead}
  <div className="flex-1 min-w-[220px] max-w-md">
  <Input
  className="h-8"

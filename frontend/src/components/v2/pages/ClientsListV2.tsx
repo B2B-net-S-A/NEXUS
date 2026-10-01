@@ -2,6 +2,7 @@
 
 import {
   type KeyboardEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useRef,
@@ -200,7 +201,12 @@ function countLabel(
   return `${count} ${noun}`;
 }
 
-export function ClientsListV2() {
+export function ClientsListV2({
+  modeTabs,
+}: {
+  /** Przełącznik trybów modułu (Lista / Kluczowe relacje) — pod tytułem. */
+  modeTabs?: ReactNode;
+} = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -482,17 +488,14 @@ export function ClientsListV2() {
   };
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
-            Delivery · Klienci
-          </p>
-          <h1 className="mt-1 text-3xl font-extrabold tracking-heading-tight text-foreground">
-            Klienci
-          </h1>
+    <div className="mx-auto max-w-[1400px] space-y-3">
+      {/* Nagłówek zwarty jak w Kontraktach (wersja B): tytuł i licznik w jednej
+          linii — laptop 1280×720 ma zobaczyć tabelę w górnych 60% okna. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+          <h1 className="text-lg font-semibold text-foreground">Klienci</h1>
           <p
-            className="mt-1 text-sm text-muted-foreground"
+            className="text-xs text-muted-foreground"
             aria-live="polite"
           >
             {isLoading
@@ -563,48 +566,99 @@ export function ClientsListV2() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-end gap-4">
-      {mineAvailable ? (
+      {modeTabs}
+
+      {/* Jeden pasek: kategorie jako pigułki, „Moi / Wszyscy” i wyszukiwarka
+          (32 px) — zamiast trzech dużych kafli i pola z etykietą nad nim. */}
+      <div className="flex flex-wrap items-center gap-2">
         <div
-          role="radiogroup"
-          aria-label="Zakres listy klientów"
-          className="inline-flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-1"
+          role="tablist"
+          aria-label="Kategorie klientów"
+          className="flex flex-wrap items-center gap-1.5"
         >
-          {([
-            [true, "Moi klienci"],
-            [false, "Wszyscy"],
-          ] as const).map(([value, label]) => (
-            <button
-              key={label}
-              type="button"
-              role="radio"
-              aria-checked={mine === value}
-              onClick={() => selectMine(value)}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                mine === value
-                  ? "bg-background text-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {label}
-            </button>
-          ))}
+          {CATEGORY_ORDER.map((itemCategory) => {
+            const meta = CATEGORY_META[itemCategory];
+            const Icon = meta.icon;
+            const selected = itemCategory === category;
+            return (
+              <button
+                id={`clients-category-${itemCategory}`}
+                key={itemCategory}
+                type="button"
+                role="tab"
+                aria-label={`${meta.title}, ${countLabel(
+                  counts[itemCategory],
+                  "klient",
+                  "klientów",
+                  "klientów",
+                )}`}
+                title={meta.description}
+                aria-selected={selected}
+                aria-controls="client-directory-panel"
+                tabIndex={selected ? 0 : -1}
+                onClick={() => selectCategory(itemCategory)}
+                onKeyDown={(event) =>
+                  handleCategoryKeyDown(event, itemCategory)
+                }
+                className={cn(
+                  "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors pointer-coarse:h-10",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  selected
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground",
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                {meta.title}
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 text-[11px] font-semibold leading-5 tabular-nums",
+                    selected ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
+                  )}
+                >
+                  {counts[itemCategory]}
+                </span>
+              </button>
+            );
+          })}
         </div>
-      ) : null}
-      <div className="w-full max-w-lg">
-        <label
-          htmlFor="client-directory-search"
-          className="mb-1.5 block text-sm font-medium text-foreground"
-        >
-          Wyszukaj klienta
-        </label>
-        <div className="relative">
+        {mineAvailable ? (
+          <div
+            role="radiogroup"
+            aria-label="Zakres listy klientów"
+            className="inline-flex h-8 items-center gap-0.5 rounded-md border border-border bg-muted/40 p-0.5"
+          >
+            {([
+              [true, "Moi klienci"],
+              [false, "Wszyscy"],
+            ] as const).map(([value, label]) => (
+              <button
+                key={label}
+                type="button"
+                role="radio"
+                aria-checked={mine === value}
+                onClick={() => selectMine(value)}
+                className={cn(
+                  "h-full rounded px-2.5 text-xs font-medium transition-colors",
+                  mine === value
+                    ? "bg-background text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <div className="relative min-w-[220px] max-w-sm flex-1">
+          <label htmlFor="client-directory-search" className="sr-only">
+            Wyszukaj klienta
+          </label>
           <Input
             id="client-directory-search"
             leadingIcon={<Search className="h-4 w-4" />}
-            className={cn(search && "pr-10")}
-            placeholder="Nazwa firmy lub branża"
+            className={cn("h-8", search && "pr-10")}
+            placeholder="Szukaj w kategorii: nazwa firmy lub branża"
             value={search}
             onChange={(event) => {
               searchSyncTarget.current = null;
@@ -617,88 +671,16 @@ export function ClientsListV2() {
             <button
               type="button"
               onClick={clearSearch}
-              className="absolute right-2 top-1/2 inline-flex h-7 w-7 pointer-coarse:h-9 pointer-coarse:w-9 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="absolute right-1 top-1/2 inline-flex h-6 w-6 pointer-coarse:h-9 pointer-coarse:w-9 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label="Wyczyść wyszukiwanie"
             >
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
           ) : null}
+          <p id="client-directory-search-help" className="sr-only">
+            Wyszukiwanie obejmuje tylko aktualnie wybraną kategorię.
+          </p>
         </div>
-        <p
-          id="client-directory-search-help"
-          className="mt-1.5 text-xs text-muted-foreground"
-        >
-          Wyszukiwanie obejmuje tylko aktualnie wybraną kategorię.
-        </p>
-      </div>
-      </div>
-
-      <div
-        role="tablist"
-        aria-label="Kategorie klientów"
-        className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3"
-      >
-        {CATEGORY_ORDER.map((itemCategory) => {
-          const meta = CATEGORY_META[itemCategory];
-          const Icon = meta.icon;
-          const selected = itemCategory === category;
-          return (
-            <button
-              id={`clients-category-${itemCategory}`}
-              key={itemCategory}
-              type="button"
-              role="tab"
-              aria-label={`${meta.title}, ${countLabel(
-                counts[itemCategory],
-                "klient",
-                "klientów",
-                "klientów",
-              )}`}
-              aria-selected={selected}
-              aria-controls="client-directory-panel"
-              tabIndex={selected ? 0 : -1}
-              onClick={() => selectCategory(itemCategory)}
-              onKeyDown={(event) =>
-                handleCategoryKeyDown(event, itemCategory)
-              }
-              className={cn(
-                // Na telefonie trzy kafle jeden pod drugim zajmowały ~330 px
-                // wysokości — opis schodzi do `sm`, kafel robi się niższy.
-                "flex items-center gap-3 rounded-xl border bg-card p-3 text-left transition-colors sm:min-h-24 sm:p-4",
-                "hover:border-primary/50 hover:bg-primary/5",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                selected
-                  ? "border-primary bg-primary/5 shadow-sm"
-                  : "border-border",
-              )}
-            >
-              <span
-                className={cn(
-                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-11 sm:w-11",
-                  meta.iconClassName,
-                )}
-              >
-                <Icon className="h-5 w-5" aria-hidden="true" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-foreground">
-                  {meta.title}
-                </span>
-                <span className="mt-0.5 hidden text-xs text-muted-foreground sm:block">
-                  {meta.description}
-                </span>
-              </span>
-              <span
-                className={cn(
-                  "text-xl font-semibold tabular-nums",
-                  selected ? "text-primary" : "text-foreground",
-                )}
-              >
-                {counts[itemCategory]}
-              </span>
-            </button>
-          );
-        })}
       </div>
 
       <section
@@ -708,7 +690,7 @@ export function ClientsListV2() {
         aria-busy={isFetching}
       >
         <TooltipProvider delayDuration={200}>
-          <Table density="cozy" className="min-w-[900px]">
+          <Table density="compact" className="min-w-[900px]">
             <TableHeader>
               <TableRow>
                 {/* Pierwsza kolumna przyklejona: tabela ma 900 px, na telefonie

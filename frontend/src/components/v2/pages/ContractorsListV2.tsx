@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from"react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from"react";
 import Link from"next/link";
 import dynamic from"next/dynamic";
 import { useSearchParams } from"next/navigation";
@@ -133,7 +133,12 @@ function rateUnitLabel(unit: ContractorListItem["rate_unit"]): string {
  return"/mies";
 }
 
-export function ContractorsListV2() {
+export function ContractorsListV2({
+ modeTabs,
+}: {
+ /** Przełącznik trybów modułu — pod tytułem (makieta B). */
+ modeTabs?: ReactNode;
+} = {}) {
  const user = useAuthStore((state) => state.user);
  const impersonating = useAuthStore((state) => state.realUser !== null);
  const canManageFinance = canManageCandidateFinance(user);
@@ -274,19 +279,14 @@ export function ContractorsListV2() {
 
  const listContent = (
  <div className="space-y-4">
- <div className="flex items-end justify-between flex-wrap gap-3">
- <div>
- <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
- Delivery · Kontraktorzy
- </p>
- <h1 className="font-semibold text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
- Kontraktorzy
- </h1>
- <p className="text-sm text-muted-foreground mt-1">
- Zatrudnieni kandydaci — aktywni, kończący się i drafty do uzupełnienia.
+ <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+ <h1 className="text-lg font-semibold text-foreground">Kontrakty</h1>
+ <p className="text-xs text-muted-foreground">
+ Obsługa kontraktorów — aktywni, kończący się i drafty do uzupełnienia.
  </p>
  </div>
- </div>
+
+ {modeTabs}
 
  {incompleteCount > 0 && tab !== "draft" && (
  <Card className="bg-warning-muted border-warning/25 flex flex-wrap items-center gap-3 p-4!">
