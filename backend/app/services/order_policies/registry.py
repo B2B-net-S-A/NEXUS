@@ -66,6 +66,7 @@ class PolicyContext:
 
 PolicyFn = Callable[[OrderExtraction, PolicyContext], OrderExtraction]
 RowsFn = Callable[[str], list[ConsultantOrderRow]]
+LayoutTextFn = Callable[[str, Optional[list]], str]
 RateRulesFn = Callable[[OrderExtraction, str], Optional[OrderExtraction]]
 
 
@@ -145,6 +146,11 @@ class OrderClientPolicy:
     #: 09.2026). ZMIEŃ wersję przy każdej zmianie reguły, która może zmienić
     #: werdykt dokumentu; ``None`` = bez automatycznego przeliczania.
     rule_version: Optional[str] = None
+    #: Tabela osób czytana z POŁOŻENIA słów PDF-a (PKO BP): funkcja dopisuje
+    #: do tekstu dokumentu wiersze z kolumn, które czyta reguła i bramka; model
+    #: dostaje tekst bez dopisku (``prepare_parser_text``). Słowa niesie
+    #: ``OrderDocumentText.words``; bez nich tekst zostaje bez zmian.
+    layout_text: Optional[LayoutTextFn] = None
 
 
 def client_ids_from_env(env_name: str) -> frozenset[int]:
@@ -380,10 +386,13 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         extract_rows=pko_bp.extract_rows,
         rate_rules=pko_bp.apply_rate_rules,
         reapply_on_refresh=True,
+        layout_text=pko_bp.apply_layout_table,
         # 09.2026: nazwisko bez doklejonego profilu, stawka zawsze netto.
         # 16.09.2026: jawny podział liczby MD i stawki (stawka ≥ 1 000 zł ze
         # spacją w tysiącach szła wcześniej jako MD — patrz `split_md_and_rate`).
-        rule_version="2026-09-16",
+        # 01.10.2026: tabela Wykonawców z kolumn PDF-a (ticket 12 — profil
+        # „Inżynier DevSecOpS Senior" doklejał się do nazwiska).
+        rule_version="2026-10-01",
     ),
     OrderClientPolicy(
         key="kir",
@@ -586,8 +595,21 @@ def apply_policies(
     return result, applied
 
 
-def prepare_document_text(text: str, policies: list[OrderClientPolicy]) -> str:
-    """Zakres dokumentu wspólny dla modelu, reguł i kontroli deterministycznej."""
+def prepare_document_text(
+    text: str,
+    policies: list[OrderClientPolicy],
+    *,
+    words: Optional[list] = None,
+) -> str:
+    """Zakres dokumentu wspólny dla modelu, reguł i kontroli deterministycznej.
+
+    ``words`` — słowa PDF-a z położeniem (``OrderDocumentText.words``); reguła
+    z ``layout_text`` (PKO BP) dopisuje nimi wiersze tabeli osób z kolumn PDF-a.
+    """
+    for policy in sorted(policies, key=lambda p: p.order):
+        layout_text = getattr(policy, "layout_text", None)
+        if layout_text is not None and words:
+            text = layout_text(text, words)
     if any(p.key == "nordea" for p in policies):
         return nordea.order_text_only(text)
     return text
@@ -647,7 +669,13 @@ def open_ended_period(policies: list[OrderClientPolicy]) -> bool:
 
 
 def prepare_parser_text(text: str, policies: list[OrderClientPolicy]) -> str:
-    """Kolumny ignorowane przez klienta nie są przekazywane do modelu."""
+    """Kolumny ignorowane przez klienta nie są przekazywane do modelu.
+
+    Wiersze dopisane z układu PDF-a (PKO BP) też nie: model czyta surową
+    tabelę jako niezależny czytelnik, a bramka porównuje go z dopiskiem.
+    """
+    if any(getattr(p, "layout_text", None) is not None for p in policies):
+        text = pko_bp.without_layout_table(text)
     if any(p.key == "nordea" for p in policies):
         return nordea.parser_text(text)
     return text

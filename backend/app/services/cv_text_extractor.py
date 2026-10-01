@@ -231,7 +231,9 @@ _PDF_WORKER_MAX_CHARS = 2_000_000
 _BACKEND_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
-_WORKER_OPS = ("pdf", "native", "pdfminer", "pages")
+_WORKER_OPS = ("pdf", "native", "pdfminer", "pages", "words")
+#: Sufit liczby słów z położeniem (tabela zamówienia ma ich kilkaset).
+_PDF_WORKER_MAX_WORDS = 50_000
 
 
 def _pdf_worker_command(op: str, path: str) -> list[str]:
@@ -320,6 +322,43 @@ def pdf_page_count_sandboxed(path: str) -> Optional[int]:
     return pages if isinstance(pages, int) else None
 
 
+def extract_pdf_words_sandboxed(path: str) -> Optional[list]:
+    """Słowa PDF z położeniem z procesu odczytu: ``[strona, x0, x1, góra, dół, tekst]``.
+
+    Tabele, których kolumn nie da się odtworzyć ze zwykłego tekstu (PKO BP:
+    wielolinijkowy profil sklejał się z nazwiskiem), reguła klienta czyta
+    z położenia słów pod nagłówkami.
+    """
+    result = _run_pdf_worker("words", path)
+    words = result.get("words") if result else None
+    return words if isinstance(words, list) else None
+
+
+def _worker_words(path: str) -> Optional[list]:
+    try:
+        import pdfplumber  # type: ignore[import-untyped]
+
+        out: list = []
+        with pdfplumber.open(path) as pdf:
+            for number, page in enumerate(pdf.pages):
+                for word in page.extract_words():
+                    out.append(
+                        [
+                            number,
+                            round(float(word["x0"]), 2),
+                            round(float(word["x1"]), 2),
+                            round(float(word["top"]), 2),
+                            round(float(word["bottom"]), 2),
+                            str(word["text"]).replace("\x00", ""),
+                        ]
+                    )
+                    if len(out) >= _PDF_WORKER_MAX_WORDS:
+                        return out
+        return out
+    except Exception:  # noqa: BLE001 — wynik best-effort
+        return None
+
+
 def _worker_pdfminer(path: str) -> Optional[str]:
     try:
         from pdfminer.high_level import extract_text as _pdfminer_extract
@@ -363,6 +402,8 @@ def _worker_main(argv: list[str]) -> int:
         payload["text"] = _extract_pdf_native(path)
     elif op == "pdfminer":
         payload["text"] = _worker_pdfminer(path)
+    elif op == "words":
+        payload["words"] = _worker_words(path)
     else:
         payload["pages"] = _worker_page_count(path)
     text = payload.get("text")
