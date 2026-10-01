@@ -3410,6 +3410,12 @@ template” → `/jobs/new?from=<id>`) prowadzi na stronę.
   `JobSettingsPanel` ma dwa pola (Delivery Lead, Deadline), `EditJobModal`
   ich nie renderuje ani NIE WYSYŁA (PATCH czyta `model_fields_set`, więc dane
   w bazie zostają). Ustawia je backend. Nie przywracaj bez decyzji.
+- **Wybór klienta w Rekrutacjach i Kontraktach = tylko „Aktywni” i „Relacyjni”**
+  (ticket 30.09.2026): `GET /api/clients-lookup?contract_eligible=true`
+  (`ClientSinglePicker selectableOnly`, `phase5Api.selectableClientsLookup`).
+  Edycja rekrutacji dokłada bieżącego klienta, nawet nieaktywnego
+  (`lib/client-selection.withCurrentClient`). Filtry list (`ClientMultiSelect`,
+  `ContractsClientPicker`) zostają przy pełnej liście.
 - Strona jest dla admina i Delivery Leada (`job.create` + rola), bo odczyt,
   Champion i handoff to `DeliveryLeadPlus`. Harness `/preview/new-job`
   (`?state=request|review|gaps`, zero zapytań).

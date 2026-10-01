@@ -3075,6 +3075,12 @@ export const phase5Api = {
   diagnostics: () => api.get("/api/embed-diagnostics"),
   initCollections: () => api.post("/api/embed-init"),
   clientsLookup: () => api.get<{ id: number; name: string }[]>("/api/clients-lookup"),
+  /** Wybór klienta w Rekrutacjach i Kontraktach: tylko zakładki „Aktywni”
+   * i „Relacyjni” katalogu klientów (filtry list biorą `clientsLookup`). */
+  selectableClientsLookup: () =>
+    api.get<{ id: number; name: string }[]>("/api/clients-lookup", {
+      params: { contract_eligible: true },
+    }),
   jobsLookup: () => api.get<{ id: number; title: string }[]>("/api/jobs-lookup"),
   rateHistory: {
     list: (candidateId: number) =>

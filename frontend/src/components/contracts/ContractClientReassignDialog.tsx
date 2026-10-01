@@ -161,6 +161,7 @@ export function ContractClientReassignDialog({ open, onOpenChange, contractId, c
               setError(null);
             }}
             queryKey="contract-reassign-clients"
+            selectableOnly
           />
         </div>
         {error ? (
