@@ -102,7 +102,7 @@ jobs:
           CO_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
         run: |
           sleep 10
-          code=$(curl -sS -o /tmp/deploy_body -w '%{http_code}' -X GET \
+          code=$(curl -sS -o /tmp/deploy_body -w '%{http_code}' -X POST \
             -H "Authorization: Bearer $CO_TOKEN" \
             -H "Accept: application/json" \
             "$CO_URL/api/v1/deploy?uuid=$CO_APP_UUID&force=true" || true)

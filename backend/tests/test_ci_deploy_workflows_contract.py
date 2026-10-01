@@ -19,6 +19,7 @@ cichym refaktorem:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -827,3 +828,14 @@ def test_preview_harness_flag_is_limited_to_the_e2e_stack() -> None:
         str(step.get("run", "")) for step in e2e["jobs"]["playwright"]["steps"]
     )
     assert "preview-chromium" not in prod_runs
+
+
+def test_coolify_deploy_webhook_is_called_with_post() -> None:
+    """Coolify od 01.10.2026 odrzuca GET na /api/v1/deploy (HTTP 405), więc
+    każde wywołanie webhooka deployu musi iść POST-em."""
+    for name in ("deploy.yml", "coolify-queue-maintenance.yml"):
+        raw = (_WORKFLOWS / name).read_text(encoding="utf-8")
+        calls = re.findall(r"curl[^\n]*(?:\\\n[^\n]*)*?/api/v1/deploy\?", raw)
+        assert calls, name
+        for call in calls:
+            assert "-X POST" in call and "-X GET" not in call, (name, call)
