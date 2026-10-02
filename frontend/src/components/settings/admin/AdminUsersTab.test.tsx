@@ -24,6 +24,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   adminApi: {
     listUsers: vi.fn(),
     startImpersonation: vi.fn(),
+    createUser: vi.fn(),
     updateUser: vi.fn(),
     getSectionPermissions: vi.fn(),
     getUserPermissions: vi.fn(),
@@ -315,6 +316,27 @@ describe("AdminUsersTab — Osoby i role", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Nie można łączyć roli Finanse z inną rolą.",
     );
+    expect(adminApi.updateUserSectionPermissions).not.toHaveBeenCalled();
+  });
+
+  it("zakładanie konta nie pyta o uprawnienia i nie wysyła ich", async () => {
+    vi.mocked(adminApi.createUser).mockResolvedValue({ data: {} } as never);
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByRole("row", { name: /Celina Wzorcowa/ });
+
+    await user.click(screen.getByRole("button", { name: "Dodaj użytkownika" }));
+    expect(
+      screen.queryByRole("group", { name: "Dodatkowe uprawnienia" }),
+    ).not.toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("Jan Kowalski"), "Gaja Nowa");
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() => expect(adminApi.createUser).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(adminApi.createUser).mock.calls[0][0]).not.toHaveProperty(
+      "permissions",
+    );
+    expect(adminApi.getUserPermissions).not.toHaveBeenCalled();
     expect(adminApi.updateUserSectionPermissions).not.toHaveBeenCalled();
   });
 
