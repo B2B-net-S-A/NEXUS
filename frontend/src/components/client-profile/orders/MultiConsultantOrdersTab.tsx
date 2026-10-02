@@ -107,23 +107,12 @@ import { OrderListControls } from "./OrderListControls";
 import { ReplaceWithTakeoverModal } from "./ReplaceWithTakeoverModal";
 import { SwapConsultantModal } from "./SwapConsultantModal";
 
-/** Odmowa zapisu kwot bez `message` w odpowiedzi (starszy backend). Bez nazw
- *  ról — o tym, kto zmienia stawki, decyduje uprawnienie, nie rola. */
-const AMOUNTS_DENIED_FALLBACK =
-  "Nie masz uprawnienia do zmiany stawek tego zamówienia. Poproś administratora o dostęp.";
-
 /** Czytelny komunikat z odpowiedzi API — wspólną regułą `apiErrorMessage`
  *  (audyt 24.09.2026, S12: lokalna kopia przepuszczała surowe komunikaty
- *  po angielsku). Odmowa `finance_fields_forbidden` niesie w `message` nazwę
- *  brakującego uprawnienia — pokazujemy ją dosłownie. */
+ *  po angielsku). Odmowę kwot (`finance_fields_forbidden`) nazywa ta sama
+ *  reguła: z `message` serwera albo zdaniem zastępczym bez nazw ról. */
 function apiError(err: unknown, fallback: string): string {
-  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data
-    ?.detail;
-  const amountsDenied =
-    Boolean(detail) &&
-    typeof detail === "object" &&
-    (detail as { code?: string }).code === "finance_fields_forbidden";
-  return apiErrorMessage(err, amountsDenied ? AMOUNTS_DENIED_FALLBACK : fallback);
+  return apiErrorMessage(err, fallback);
 }
 
 /** Wynik zapisu zamówienia razem z osobnym, drugim wywołaniem — wgraniem PDF-a.

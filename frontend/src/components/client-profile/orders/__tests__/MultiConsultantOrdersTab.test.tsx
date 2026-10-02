@@ -2872,7 +2872,7 @@ describe("MultiConsultantOrdersTab — uprawnienia zamiast ról", () => {
 
       const alert = await within(dialog).findByRole("alert");
       expect(alert).toHaveTextContent(
-        "Nie masz uprawnienia do zmiany stawek tego zamówienia. Poproś administratora o dostęp.",
+        "Nie masz uprawnienia do stawek i kwot — zapisz pozostałe pola bez nich. Poproś administratora o dostęp.",
       );
       expect(alert).not.toHaveTextContent(/administrator, Finanse|Delivery Lead/);
       // Zdanie ogólne „Nie udało się zapisać linii” ukryłoby powód odmowy.
