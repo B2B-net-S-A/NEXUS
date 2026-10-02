@@ -443,7 +443,9 @@ describe("AllocationProposalsSection — propozycje automatu do akceptacji", () 
     await user.click(screen.getByRole("button", { name: `Akceptuj wszystkie (${many.length})` }));
     await waitFor(() => expect(showSuccess).toHaveBeenCalledWith(`Zaakceptowano ${many.length} z ${many.length}.`));
     expect(post.mock.calls.map((call) => (call[1] as { items: unknown[] }).items.length)).toEqual([100, 5]);
-  });
+    // 105 wierszy z przyciskami: wyszukanie po roli trwa w jsdom kilka sekund
+    // na obciążonej maszynie — domyślne 5 s dawało losowy timeout.
+  }, 30_000);
 
   it("przy jednej propozycji nie ma „Akceptuj wszystkie” — to byłby ten sam przycisk co w wierszu", () => {
     renderSection([ROWS[0]]);
