@@ -96,16 +96,35 @@ Przegląd kodu: bezpieczeństwo, TypeScript i Python — bez blokerów.
   ustawionego w obu aplikacjach.
 - Tryb `auto` (automat przydziela sam): decyzja po zmierzeniu, jak często
   Head of Recruitment akceptuje propozycje (`Activity allocation_proposal_decided`).
-- Zdjęcie rekrutera z rekrutacji bez aktywnego przypisania przed włączeniem
-  flagi nie zostawia znacznika „zdjęty ręcznie” — automat może tę osobę
-  zaproponować ponownie.
-- Tryb `auto` (dziś nieużywany): poranny skrót może drugi raz wspomnieć
-  o przydziale zaakceptowanym w ostatniej dobie — osoba dostała już dzwonek
-  przy akceptacji.
-- Pulpit: sekcja „Czeka na Twój przegląd (DL)” przy 1280 px ucina nazwiska
-  (stan sprzed tej zmiany).
-- „Moje przypisane” w operacjach rekrutacji i zakres powiadomień rekrutacji
-  nadal liczą osoby „z kategorii” (`auto_cc`).
-- `POST /api/jobs/{id}/owner` działa także na zamkniętej rekrutacji (tak było
-  przed zmianą dla admina i Delivery Leada; teraz dotyczy też Head of
-  Recruitment).
+- Zakres powiadomień rekrutacji nadal obejmuje osoby „z kategorii”
+  (`auto_cc`) — świadomie: wiersze `auto_cc` zostają odbiorcami powiadomień.
+
+## Poprawki po wdrożeniu (03.10.2026)
+
+Sześć pozycji z pierwszej wersji tej listy poprawiono osobnym PR-em:
+
+- **Wieczorny „poranny” skrót.** Pierwszy przebieg automatu po deployu
+  (20:54) wysłał Delivery Leadom „Requesty do decyzji”. Przegląd wychodzi
+  teraz tylko między ustawioną godziną a 17:00 czasu firmy; godzina ustawiona
+  przez admina na 17:00 albo później działa bez okna.
+- **Zdjęcie rekrutera bez wiersza przypisania** zostawia ślad „zdjęty
+  ręcznie” (wiersz `source='owner'`, `released`, `manual`) — automat nie
+  proponuje tej osoby ponownie w tym stanie requestu. Tylko request w puli
+  i osoba z rolą roboczą.
+- **`POST /api/jobs/{id}/owner` na zamkniętej rekrutacji** = 409; zdjęcie
+  osoby zostaje dozwolone. Panel „Zespół” chowa „Przypisz…” i „Zmień”.
+- **„Moje przypisane” w operacjach rekrutacji** liczy tylko ręcznych
+  współpracowników, bez osób „z kategorii”.
+- **Tryb `auto`:** poranny skrót pomija request, o którym osoba dostała już
+  dzwonek przy akceptacji.
+- **Pulpit, „Czeka na Twój przegląd (DL)”:** przy wąskiej kolumnie plakietka
+  QC, czas i „Przejrzyj” schodzą pod nazwisko. Pomiar w harnessie przy
+  1280×720: nazwiska miały 90 z 147 px i 61 z 133 px, teraz mieszczą się
+  w całości (147/147, 133/133); przy 1920 px wiersz zostaje jednoliniowy.
+
+- **Przegląd kodu** nie znalazł blokerów; domknięta jedna uwaga: prowadzący wpisany
+  ponownie inną drogą niż `/owner` (plan priorytetów) nie był liczony jako
+  Rekruter — `assign_operator` znosi teraz ślad zdjęcia.
+
+Sprawdzono: 19 plików testów backendu z bazą (575 zaliczonych), testy frontu
+pulpitu i panelu „Zespół” (153), `tsc`, `ruff`, stemple przewodników.

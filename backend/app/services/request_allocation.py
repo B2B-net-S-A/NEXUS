@@ -37,7 +37,7 @@ nie widział prowadzącego. Takie wiersze nie są „zmianą” ani dzwonkiem.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
@@ -597,9 +597,19 @@ async def _set_owner_if_empty(db: AsyncSession, job_id: int, user_id: int) -> No
     )
 
 
+# Poranny przegląd nadrabia się w ciągu dnia pracy (pętla stała rano przez
+# deploy), ale nie wieczorem: 02.10.2026 automat włączony o 20:54 wysłał
+# „poranny” skrót od razu. Po tej godzinie przegląd czeka do następnego dnia.
+REVIEW_LATEST = time(17, 0)
+
+
 def _review_due(stats: dict[str, Any], rules: AllocationRules, now: datetime) -> bool:
     local = now.astimezone(ZoneInfo(settings.BUSINESS_TZ))
-    if local.time() < rules.review_clock:
+    clock = rules.review_clock
+    if local.time() < clock:
+        return False
+    # Godzinę przeglądu ustawia admin — ustawiona po 17:00 obowiązuje bez okna.
+    if clock < REVIEW_LATEST <= local.time():
         return False
     return stats.get("last_review_date") != local.date().isoformat()
 
@@ -712,6 +722,40 @@ async def run_request_allocation(
             logger.exception("[request_allocation] morning notices failed")
         stats["last_review_date"] = local_date.isoformat()
     return stats
+
+
+def job_in_pool(job: Job) -> bool:
+    """Request w puli przydziału — lustro ``_pool_clause`` dla wczytanego wiersza."""
+    return (
+        job.status == JobStatus.published
+        and job.work_state == "searching"
+        and job.champion_found_at is None
+    )
+
+
+async def remember_manual_release(
+    db: AsyncSession, *, job_id: int, user_id: int, role: str
+) -> None:
+    """Ślad „zdjęty ręcznie” dla osoby, która nie miała wiersza przypisania.
+
+    ``manual_remove`` zostawia powód ``manual`` na żywym wierszu. Prowadzący
+    sprzed włączenia automatu (albo wpisany między przebiegami) wiersza nie
+    miał, więc po zdjęciu planer mógł zaproponować tę samą osobę do tego samego
+    requestu. Zwolniony wiersz niczego nie przypisuje — czyta go ``_blocked``.
+    """
+    now = datetime.now(timezone.utc)
+    db.add(
+        JobWorkAssignment(
+            job_id=job_id,
+            user_id=user_id,
+            role=role,
+            source="owner",
+            state="released",
+            assigned_at=now,
+            released_at=now,
+            release_reason="manual",
+        )
+    )
 
 
 async def void_manual_release(db: AsyncSession, *, job_id: int, user_id: int) -> None:

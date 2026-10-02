@@ -4702,6 +4702,12 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
   razu po akceptacji propozycji) i `request_review_needed` do DL (nowe do
   przejrzenia, „Klient milczy” co 14 dni, w poniedziałek „Szukamy” bez pracy
   od 30 dni).
+  Przegląd wychodzi tylko między `review_time` a 17:00 czasu firmy
+  (`_review_due`, `REVIEW_LATEST`) — pierwszy przebieg po wieczornym deployu
+  wysłał „poranny” skrót o 20:54; godzina ustawiona przez admina na 17:00
+  albo później obowiązuje bez okna. Poranny skrót pomija request, o którym
+  osoba dostała już dzwonek przy akceptacji (para osoba × rekrutacja
+  z ostatniej doby).
 
 ## Role przy rekrutacji: Delivery Lead · Rekruter · Kategoria; propozycje automatu akceptuje Head of Recruitment (0409, 02.10.2026)
 
@@ -4737,13 +4743,23 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   są w zakresie **„Moja kategoria”** (`my_category`, URL `mycat=1`: GŁÓWNA
   kategoria rekrutacji ∈ kategorie osoby, tylko niezamknięte; osoba bez
   kategorii nie widzi zakresu — `quick-counts.my_category = null`). Wiersze
-  `auto_cc` zostają w bazie i jako odbiorcy powiadomień rekrutacji.
+  `auto_cc` zostają w bazie i jako odbiorcy powiadomień rekrutacji. „Moje
+  przypisane” w operacjach rekrutacji też liczy tylko ręcznych
+  współpracowników (`manual_collaborator_job_ids`).
 - **Zdjęcie osoby = `job_team.remove_recruiter`** — ze wszystkich trzech miejsc
   naraz (prowadzący przez `release_operator`, aktywne przypisanie z powodem
   `manual`, wiersz ręcznego współpracownika). Wołają je `DELETE /api/jobs/{id}/owner`
   i `DELETE /api/request-board/jobs/{id}/people/{user_id}` (każda niezamknięta
   rekrutacja). Prowadzący jest zdejmowany PRZED przypisaniem: `manual_remove`
   czyści `recruiter_id` UPDATE-em, który sesja odbija na obiekcie `job`.
+  Prowadzący bez wiersza przypisania (rekrutacja prowadzona przed włączeniem
+  automatu) zostawia przy zdjęciu ślad `remember_manual_release`: wiersz
+  `source='owner'`, `released`, powód `manual` — tylko gdy request jest w puli,
+  a osoba ma rolę roboczą. Czyta go `_blocked`, więc automat nie zaproponuje
+  jej ponownie w tym stanie requestu; „Zmiany od wczoraj” i poranny skrót go
+  nie widzą (pomijają `source='owner'`). `POST /owner` na zamkniętej
+  rekrutacji = 409 (jak `/claim`), zdjęcie osoby zostaje dozwolone; panel
+  „Zespół” chowa wtedy „Przypisz…” i „Zmień”.
 - **Zmiana rekrutera** (`POST /owner`, `/claim`, PATCH `recruiter_id` z okna
   edycji) przechodzi przez `_sync_work_assignments_with_owner` (`api/jobs.py`):
   poprzednia osoba traci aktywne przypisanie (`owner_changed`), a nowa w puli
@@ -4757,8 +4773,9 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   `proposal:excluded`), razem z prowadzeniem rekrutacji i współpracą.
 - **Ponowne przypisanie przez człowieka znosi wcześniejsze ręczne zdjęcie**
   (`request_allocation.void_manual_release`: powód `manual` → `reassigned`).
-  Woła je `manual_add` (pulpit, „Zmień” przy propozycji, nowy rekruter w puli)
-  i zmiana rekrutera poza pulą. Bez tego osoba zdjęta i dodana ponownie w tym
+  Woła je `manual_add` (pulpit, „Zmień” przy propozycji, nowy rekruter w puli),
+  zmiana rekrutera poza pulą i `assign_operator`, gdy wpisuje prowadzącego
+  (także z planu priorytetów). Bez tego osoba zdjęta i dodana ponownie w tym
   samym stanie requestu była prowadzącą, której reguła zespołu nie liczyła —
   kolejna dodana osoba wchodziła na jej miejsce. Nowa ścieżka, którą człowiek
   przypisuje osobę do requestu, idzie przez `manual_add` albo woła ten helper.

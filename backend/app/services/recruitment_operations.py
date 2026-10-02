@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import Subquery
 
 from app.api.jobs import _live_work_assignment_job_ids
+from app.services.job_team import manual_collaborator_job_ids
 from app.api.recruitment_access import job_scope_clause
 from app.services.workforce_availability import (
     operational_owner_ids,
@@ -219,12 +220,10 @@ def _job_filters(
                 operational_owner_clause(Job.recruiter_id, user),
                 operational_owner_clause(Job.delivery_lead_id, user),
                 operational_owner_clause(Job.tac_id, user),
-                Job.id.in_(
-                    select(JobCollaborator.job_id).where(
-                        JobCollaborator.user_id == user.id,
-                        JobCollaborator.removed_from_auto_cc.is_(False),
-                    )
-                ),
+                # Tylko dopisani RĘCZNIE: wiersz `auto_cc` to cała kategoria
+                # dopisana automatycznie, czyli „do wzięcia”, nie „moje” —
+                # ta sama reguła co zakres „Moje” na liście rekrutacji.
+                Job.id.in_(manual_collaborator_job_ids([user.id])),
                 # Runda 9 (bliźniak R9-N15-2): AKTYWNE przypisanie z przydziału
                 # requestów to też „moja” rekrutacja — ta sama reguła co „Moje”
                 # na liście /jobs. Propozycja automatu się nie liczy.
