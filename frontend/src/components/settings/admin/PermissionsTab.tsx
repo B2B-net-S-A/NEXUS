@@ -134,9 +134,9 @@ function PermissionGroupList({
     <div className="min-w-0 pb-2">
       {groups.map((group) => (
         <section key={group.key} aria-label={group.label}>
-          <h4 className="px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <h3 className="px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             {group.label}
-          </h4>
+          </h3>
           <ul>
             {group.rows.map((row) => (
               <PermissionSwitchRow
@@ -202,9 +202,6 @@ function ChangeSummary({
           </ul>
         </div>
       ) : null}
-      <p className="text-muted-foreground">
-        {logoutSentence(role.users_count, label)}
-      </p>
     </div>
   );
 }
@@ -266,7 +263,16 @@ function RolePermissionsEditor({
         changes,
       ),
     onSuccess: async (response) => {
+      // Okno potwierdzenia i szkic znikają dopiero z nową wersją z serwera:
+      // zdjęte wcześniej, przełączniki wróciłyby na chwilę do stanu sprzed
+      // zapisu, a kliknięcie w tym czasie wyglądałoby jak konflikt wersji.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin-section-permissions"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin-user-permissions"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
+      ]);
       setConfirmOpen(false);
+      setDraft(null);
       setConflict(false);
       const loggedOut = response.data.invalidated_users;
       showSuccess(
@@ -274,14 +280,6 @@ function RolePermissionsEditor({
           ? `Zapisano uprawnienia roli ${label}. ${loggedOut} ${pluralPl(loggedOut, "osoba zaloguje", "osoby zalogują", "osób zaloguje")} się ponownie.`
           : `Zapisano uprawnienia roli ${label}.`,
       );
-      // Szkic znika razem z nową wersją z serwera — wcześniej przełączniki
-      // na chwilę wróciłyby do stanu sprzed zapisu.
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["admin-section-permissions"] }),
-        queryClient.invalidateQueries({ queryKey: ["admin-user-permissions"] }),
-        queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
-      ]);
-      setDraft(null);
     },
     onError: async (error) => {
       setConfirmOpen(false);
@@ -417,6 +415,7 @@ function RolePermissionsEditor({
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title={`Potwierdź zmianę uprawnień roli ${label}`}
+        description={logoutSentence(role.users_count, label)}
         footer={
           <>
             <Button variant="outline" onClick={() => setConfirmOpen(false)}>
@@ -460,9 +459,9 @@ export function PermissionsTab({ onDirtyChange }: PermissionsTabProps = {}) {
       </div>
     );
   }
-  // Odpowiedź bez listy uprawnień albo bez ról do nadania to awaria odczytu —
-  // nie pokazujemy jej jako pustego ekranu ani jako roli bez uprawnień.
-  if (policyQuery.isError || !snapshotIsUsable(policyQuery.data)) {
+  // Brak odpowiedzi albo odpowiedź bez listy uprawnień i ról do nadania to
+  // awaria odczytu — nie pusty ekran i nie „rola bez uprawnień”.
+  if (!snapshotIsUsable(policyQuery.data)) {
     return (
       <QueryStateNotice
         state="error"
@@ -472,10 +471,21 @@ export function PermissionsTab({ onDirtyChange }: PermissionsTabProps = {}) {
     );
   }
   return (
-    <RolePermissionsEditor
-      snapshot={policyQuery.data}
-      onDirtyChange={onDirtyChange}
-    />
+    <div className="space-y-4">
+      {/* Nieudane odświeżenie w tle (powrót do karty) nie zdejmuje ekranu —
+          razem z nim przepadłyby niezapisane przełączniki. */}
+      {policyQuery.isError ? (
+        <Alert
+          variant="warning"
+          title="Nie udało się odświeżyć uprawnień"
+          description="Widzisz ostatnio wczytaną wersję. Odśwież stronę, zanim coś zapiszesz."
+        />
+      ) : null}
+      <RolePermissionsEditor
+        snapshot={policyQuery.data}
+        onDirtyChange={onDirtyChange}
+      />
+    </div>
   );
 }
 

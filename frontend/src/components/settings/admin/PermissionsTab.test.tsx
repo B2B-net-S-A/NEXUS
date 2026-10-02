@@ -448,6 +448,50 @@ describe("PermissionsTab — jedna rola, dziewięć przełączników", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("nieudane odświeżenie w tle zostawia ekran i niezapisane przełączniki", async () => {
+    const user = userEvent.setup();
+    const { queryClient } = renderTab();
+
+    const clientsEdit = await screen.findByRole("switch", {
+      name: "Finanse: Klienci: dodawanie i edycja",
+    });
+    await user.click(clientsEdit);
+
+    vi.mocked(adminApi.getSectionPermissions).mockRejectedValueOnce(new Error("sieć"));
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["admin-section-permissions"] });
+    });
+
+    expect(
+      await screen.findByText("Nie udało się odświeżyć uprawnień"),
+    ).toBeInTheDocument();
+    expect(clientsEdit).toBeChecked();
+    expect(screen.getByText("1 zmiana do zapisania")).toBeInTheDocument();
+  });
+
+  it("po zapisie okno potwierdzenia znika, a przełączniki pokazują stan z serwera", async () => {
+    const saved = permissionsSnapshot({ revision: 13 });
+    const finance = saved.roles.find((entry) => entry.role === "finance");
+    if (finance?.named.clients_edit) {
+      finance.named.clients_edit = { granted: true, effective: true, implied_by: [] };
+    }
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(
+      await screen.findByRole("switch", { name: "Finanse: Klienci: dodawanie i edycja" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    vi.mocked(adminApi.getSectionPermissions).mockResolvedValue({ data: saved } as never);
+    await user.click(screen.getByRole("button", { name: "Potwierdź i zapisz" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(permissionSwitch("Finanse: Klienci: dodawanie i edycja")).toBeChecked();
+    expect(screen.getByText("Brak niezapisanych zmian")).toBeInTheDocument();
+    expect(screen.queryByText("Wczytano nowszą wersję zasad")).not.toBeInTheDocument();
+    expect(screen.queryByText("zmiana · dziś: nie")).not.toBeInTheDocument();
+  });
+
   it("odpowiedź bez listy uprawnień jest awarią, a nie dziewięcioma wyłączonymi przełącznikami", async () => {
     vi.mocked(adminApi.getSectionPermissions).mockResolvedValue({
       data: {

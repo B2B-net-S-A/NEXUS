@@ -99,7 +99,9 @@ function useExtraPermissions(
 
   if (!enabled) return { status: "hidden" };
   if (snapshotQuery.isPending || personQuery.isPending) return { status: "loading" };
-  if (snapshotQuery.isError || personQuery.isError || !snapshot || !person) {
+  // Błędem jest brak danych. Nieudane odświeżenie w tle zostawia listę — zapis
+  // i tak sprawdza wersję zasad, a zaznaczenia nie powinny znikać.
+  if (!snapshot || !person) {
     return {
       status: "error",
       retry: () => {
