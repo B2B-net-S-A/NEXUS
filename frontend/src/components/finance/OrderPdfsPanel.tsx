@@ -1,16 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import {
-  Building2,
-  CalendarDays,
-  Download,
-  Eye,
-  FileText,
-  FolderArchive,
-  Loader2,
-  X,
-} from "lucide-react";
+import { Download, Eye, FolderArchive, Loader2, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -33,6 +24,7 @@ import {
   orderPdfPeriodInvalid,
   orderPdfStatusLabel,
 } from "@/lib/finance-order-pdfs";
+import { CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
 
 import { OrderPdfViewer, type OrderPdfLoader } from "./OrderPdfViewer";
@@ -72,12 +64,6 @@ const TYPE_FILTERS: { value: TypeFilter; label: string }[] = [
   { value: "extension", label: "Przedłużenia" },
   { value: "amendment", label: "Aneksy" },
 ];
-
-const TYPE_VARIANT: Record<OrderPdfEntryType, "success" | "info" | "soft"> = {
-  new: "success",
-  extension: "info",
-  amendment: "soft",
-};
 
 /**
  * Finanse → „Zamówienia PDF": miesiąc startu → klient → pliki do pobrania,
@@ -120,12 +106,9 @@ export function OrderPdfsPanel({
   return (
     <section
       aria-label="Zamówienia PDF"
-      className="grid gap-4 lg:grid-cols-[220px_280px_minmax(0,1fr)]"
+      className="grid gap-3.5 lg:grid-cols-[210px_260px_minmax(0,1fr)] lg:items-start"
     >
-      <Column
-        title="Miesiąc rozpoczęcia"
-        icon={<CalendarDays className="h-4 w-4" />}
-      >
+      <Column title="Miesiąc rozpoczęcia">
         {monthsNotice ??
           (months.length === 0 ? (
             <Empty>Brak zamówień z PDF-em w systemie.</Empty>
@@ -134,7 +117,7 @@ export function OrderPdfsPanel({
               <ul
                 role="listbox"
                 aria-label="Miesiąc rozpoczęcia"
-                className="max-h-64 space-y-1 overflow-y-auto lg:max-h-none lg:overflow-visible"
+                className="max-h-64 space-y-0.5 overflow-y-auto lg:max-h-none lg:overflow-visible"
               >
                 {months.map((item) => (
                   <li key={item.month}>
@@ -151,12 +134,12 @@ export function OrderPdfsPanel({
                 type="button"
                 onClick={onDownloadMonth}
                 disabled={!month || monthFiles === 0 || zipBusy !== null}
-                className="mt-3 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                className="mx-1 mb-1 mt-2 inline-flex h-8 w-[calc(100%-0.5rem)] items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50 pointer-coarse:min-h-10"
               >
                 {zipBusy === "month" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                 ) : (
-                  <Download className="h-4 w-4" aria-hidden />
+                  <Download className="h-3.5 w-3.5" aria-hidden />
                 )}
                 Pobierz cały miesiąc
               </button>
@@ -166,7 +149,6 @@ export function OrderPdfsPanel({
 
       <Column
         title={month ? `Klienci — ${orderPdfMonthLabel(month)}` : "Klienci"}
-        icon={<Building2 className="h-4 w-4" />}
       >
         {clientsNotice ??
           (!month ? (
@@ -176,7 +158,7 @@ export function OrderPdfsPanel({
               W tym miesiącu nie zaczyna się żadne zamówienie z PDF-em.
             </Empty>
           ) : (
-            <ul role="listbox" aria-label="Klienci" className="max-h-64 space-y-1 overflow-y-auto lg:max-h-none lg:overflow-visible">
+            <ul role="listbox" aria-label="Klienci" className="max-h-64 space-y-0.5 overflow-y-auto lg:max-h-none lg:overflow-visible">
               {clients.map((client) => {
                 const fresh = newFilesCount(client.files);
                 const busy = zipBusy === `client:${client.client_id}`;
@@ -209,16 +191,16 @@ export function OrderPdfsPanel({
                       aria-label={`Pobierz wszystkie pliki klienta: ${client.client_name}`}
                       title="Pobierz wszystkie pliki klienta (ZIP)"
                       className={cn(
-                        "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border transition-colors disabled:opacity-50",
+                        "mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-colors disabled:opacity-50 pointer-coarse:min-h-10 pointer-coarse:min-w-10",
                         client.client_id === clientId
                           ? "border-primary bg-primary text-primary-foreground"
                           : "border-border bg-background text-foreground hover:bg-muted",
                       )}
                     >
                       {busy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                       ) : (
-                        <Download className="h-4 w-4" aria-hidden />
+                        <Download className="h-3.5 w-3.5" aria-hidden />
                       )}
                     </button>
                   </li>
@@ -228,19 +210,18 @@ export function OrderPdfsPanel({
           ))}
       </Column>
 
-      <div className="min-w-0 rounded-xl border border-border bg-card p-3 sm:p-4">
+      <div className="min-w-0">
         {clientsNotice ? null : !selected ? (
-          <>
-            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
-              <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
-              Pliki
-            </h2>
-            <Empty>
-              {clients && clients.length > 0
-                ? "Wybierz klienta, aby zobaczyć PDF-y."
-                : "Brak plików do pokazania."}
-            </Empty>
-          </>
+          <div className="rounded-[10px] border border-border bg-card p-1.5">
+            <h2 className={cn("px-2.5 pb-1 pt-2", CALM_HEAD)}>Pliki</h2>
+            <div className="p-1.5">
+              <Empty>
+                {clients && clients.length > 0
+                  ? "Wybierz klienta, aby zobaczyć PDF-y."
+                  : "Brak plików do pokazania."}
+              </Empty>
+            </div>
+          </div>
         ) : (
           <ClientFiles
             key={`${month}:${selected.client_id}`}
@@ -342,9 +323,9 @@ function ClientFiles({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-start gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold text-foreground">
+          <h2 className="text-sm font-semibold text-foreground">
             {client.client_name}
             {month ? ` — ${orderPdfMonthLabel(month)}` : ""}
           </h2>
@@ -356,7 +337,7 @@ function ClientFiles({
               : ""}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <ZipButton
             onClick={() => onDownloadFiles(client, selectedFiles)}
             disabled={busy || selectedFiles.length === 0}
@@ -397,10 +378,10 @@ function ClientFiles({
                 aria-checked={active}
                 onClick={() => setTypeFilter(option.value)}
                 className={cn(
-                  "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                  "inline-flex h-7 items-center whitespace-nowrap rounded-full border px-2.5 text-xs font-medium tabular-nums transition-colors pointer-coarse:min-h-10",
                   active
                     ? "border-foreground bg-foreground text-background"
-                    : "border-border bg-background text-foreground hover:bg-muted",
+                    : "border-border bg-card text-muted-foreground hover:text-foreground",
                 )}
               >
                 {option.label} · {typeCount(option.value)}
@@ -408,7 +389,7 @@ function ClientFiles({
             );
           })}
         </div>
-        <label className="ml-auto inline-flex cursor-pointer items-center gap-2 text-sm text-foreground">
+        <label className="ml-auto inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-foreground">
           <Checkbox
             checked={onlyNew}
             onCheckedChange={(value) => setOnlyNew(value === true)}
@@ -418,74 +399,80 @@ function ClientFiles({
         </label>
       </div>
 
-      {visible.length === 0 ? (
-        <Empty>
-          {onlyNew
-            ? "Wszystkie pliki tego klienta są już pobrane przez Ciebie."
-            : "Brak plików tego typu."}
-        </Empty>
-      ) : (
-        <div className="relative overflow-x-auto">
-          <div
-            role="table"
-            aria-label={`Pliki — ${client.client_name}`}
-            className="min-w-[680px] space-y-2"
-          >
-            <div
-              role="row"
-              className={cn(
-                FILE_GRID,
-                "px-3 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground",
-              )}
-            >
-              <span role="columnheader">
-                <Checkbox
-                  checked={
-                    allVisibleChecked
-                      ? true
-                      : someVisibleChecked
-                        ? "indeterminate"
-                        : false
-                  }
-                  onCheckedChange={(value) => toggleAll(value === true)}
-                  aria-label="Zaznacz wszystkie"
-                />
-              </span>
-              <span role="columnheader">Zamówienie</span>
-              <span role="columnheader">Typ</span>
-              <span role="columnheader">Okres</span>
-              <span role="columnheader">Status</span>
-              <span role="columnheader" className="sr-only">
-                Akcje
-              </span>
-            </div>
-            {visible.map((file) => (
-              <FileRow
-                key={orderPdfKey(file)}
-                file={file}
-                checked={checked.has(orderPdfKey(file))}
-                onCheck={(value) => toggle(file, value)}
-                downloading={downloadingKey === orderPdfKey(file)}
-                onDownload={() => onDownload(file)}
-                onPreview={() => onPreview(file)}
-              />
-            ))}
+      {/* Jedna karta-tabela: nagłówek, wiersze oddzielone linią i stopka
+          (makieta 02.10.2026) — zamiast osobnej ramki na każdy plik. */}
+      <div className="rounded-[10px] border border-border bg-card">
+        {visible.length === 0 ? (
+          <div className="p-3">
+            <Empty>
+              {onlyNew
+                ? "Wszystkie pliki tego klienta są już pobrane przez Ciebie."
+                : "Brak plików tego typu."}
+            </Empty>
           </div>
-        </div>
-      )}
-
-      <p className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-        <FolderArchive className="h-4 w-4" aria-hidden />
-        Pliki w ZIP-ie: Klient_NrZam_Nazwisko_Typ_DataOd-DataDo.pdf (bez
-        polskich znaków i spacji)
-      </p>
+        ) : (
+          <div className="relative overflow-x-auto">
+            <div
+              role="table"
+              aria-label={`Pliki — ${client.client_name}`}
+              className="min-w-[720px]"
+            >
+              <div
+                role="row"
+                className={cn(
+                  FILE_GRID,
+                  "min-h-[34px] rounded-t-[10px] border-b border-border bg-background px-3.5",
+                  CALM_HEAD,
+                )}
+              >
+                <span role="columnheader" className="flex">
+                  <Checkbox
+                    checked={
+                      allVisibleChecked
+                        ? true
+                        : someVisibleChecked
+                          ? "indeterminate"
+                          : false
+                    }
+                    onCheckedChange={(value) => toggleAll(value === true)}
+                    aria-label="Zaznacz wszystkie"
+                  />
+                </span>
+                <span role="columnheader">Zamówienie · osoba</span>
+                <span role="columnheader">Typ</span>
+                <span role="columnheader">Okres</span>
+                <span role="columnheader">Status</span>
+                <span role="columnheader" className="text-right">
+                  Akcje
+                </span>
+              </div>
+              {visible.map((file) => (
+                <FileRow
+                  key={orderPdfKey(file)}
+                  file={file}
+                  checked={checked.has(orderPdfKey(file))}
+                  onCheck={(value) => toggle(file, value)}
+                  downloading={downloadingKey === orderPdfKey(file)}
+                  onDownload={() => onDownload(file)}
+                  onPreview={() => onPreview(file)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+        <p className="flex flex-wrap items-center gap-2 border-t border-border px-3.5 py-2 text-xs text-muted-foreground">
+          <FolderArchive className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          Pliki w ZIP-ie: Klient_NrZam_Nazwisko_Typ_DataOd-DataDo.pdf (bez
+          polskich znaków i spacji)
+        </p>
+      </div>
     </div>
   );
 }
 
 /** Kolumny: zaznaczenie · zamówienie · typ · okres · status · akcje. */
 const FILE_GRID =
-  "grid grid-cols-[28px_minmax(0,2.4fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.3fr)_76px] items-center gap-3";
+  "grid grid-cols-[20px_minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.4fr)_124px] items-center gap-3";
 
 function fileHeading(file: OrderPdfFile): string {
   const number = file.order_number
@@ -515,11 +502,12 @@ function FileRow({
       role="row"
       className={cn(
         FILE_GRID,
-        "rounded-lg border px-3 py-2.5 text-sm",
-        checked ? "border-primary/40 bg-primary/5" : "border-border bg-card",
+        CALM_ROW,
+        "min-h-[50px] px-3.5 py-1.5 text-[13px] last:border-b-0",
+        checked && "bg-primary/5",
       )}
     >
-      <span role="cell">
+      <span role="cell" className="flex">
         <Checkbox
           checked={checked}
           onCheckedChange={(value) => onCheck(value === true)}
@@ -528,7 +516,7 @@ function FileRow({
       </span>
       <span role="cell" className="min-w-0">
         <span className="block font-semibold text-foreground">{heading}</span>
-        <span className="block break-all text-xs text-muted-foreground">
+        <span className={cn(CALM_SUBLINE, "break-all")}>
           {file.download_name}
         </span>
         {file.consultant_name ? null : (
@@ -538,9 +526,7 @@ function FileRow({
         )}
       </span>
       <span role="cell" className="flex flex-col items-start gap-1">
-        <Badge size="sm" variant={TYPE_VARIANT[file.entry_type]}>
-          {orderPdfEntryTypeLabel(file.entry_type)}
-        </Badge>
+        <span>{orderPdfEntryTypeLabel(file.entry_type)}</span>
         {file.status === "draft" ? (
           <Badge size="sm" variant="warning">
             {orderPdfStatusLabel(file.status)}
@@ -550,28 +536,28 @@ function FileRow({
       <span
         role="cell"
         className={cn(
-          "text-xs",
+          "tabular-nums",
           orderPdfPeriodInvalid(file)
-            ? "font-medium text-warning-muted-foreground"
+            ? "text-xs font-medium text-warning-muted-foreground"
             : "text-foreground",
         )}
       >
         {orderPdfPeriod(file)}
       </span>
-      <span role="cell" className="text-xs">
+      <span role="cell" className="flex flex-col items-start gap-1 text-xs">
         <span
           className={
             file.downloaded_at
-              ? "text-success-muted-foreground"
-              : "font-medium text-primary"
+              ? "text-muted-foreground"
+              : "font-semibold text-primary"
           }
         >
           {downloadStatusLabel(file)}
         </span>
         {file.pending_change ? (
-          <span className="block font-medium text-primary">
+          <Badge size="sm" variant="warning">
             zmiana do rozliczenia
-          </span>
+          </Badge>
         ) : null}
       </span>
       <span role="cell" className="flex justify-end gap-1.5">
@@ -580,9 +566,10 @@ function FileRow({
           onClick={onPreview}
           aria-label={`Podgląd: ${file.download_name}`}
           title="Podgląd"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted"
+          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground hover:bg-muted pointer-coarse:min-h-10"
         >
           <Eye className="h-3.5 w-3.5" aria-hidden />
+          Podgląd
         </button>
         <button
           type="button"
@@ -590,7 +577,7 @@ function FileRow({
           disabled={downloading}
           aria-label={`Pobierz ${file.download_name}`}
           title="Pobierz"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted disabled:opacity-60"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted disabled:opacity-60 pointer-coarse:min-h-10 pointer-coarse:min-w-10"
         >
           {downloading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -618,7 +605,7 @@ function PreviewDialog({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-2 sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-2 sm:p-4"
       onClick={onClose}
     >
       <div
@@ -686,16 +673,16 @@ function ZipButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors disabled:opacity-50",
+        "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors disabled:opacity-50 pointer-coarse:min-h-10",
         primary
           ? "bg-primary font-semibold text-primary-foreground hover:bg-primary/90"
           : "border border-border bg-background text-foreground hover:bg-muted",
       )}
     >
       {busy ? (
-        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
       ) : primary ? (
-        <Download className="h-4 w-4" aria-hidden />
+        <Download className="h-3.5 w-3.5" aria-hidden />
       ) : null}
       {children}
     </button>
@@ -704,19 +691,14 @@ function ZipButton({
 
 function Column({
   title,
-  icon,
   children,
 }: {
   title: string;
-  icon: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <div className="h-fit min-w-0 rounded-xl border border-border bg-card p-3">
-      <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
-        <span className="text-muted-foreground">{icon}</span>
-        <span className="truncate">{title}</span>
-      </h2>
+    <div className="min-w-0 rounded-[10px] border border-border bg-card p-1.5">
+      <h2 className={cn("truncate px-2.5 pb-1 pt-2", CALM_HEAD)}>{title}</h2>
       {children}
     </div>
   );
@@ -740,14 +722,16 @@ function PickButton({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "w-full min-w-0 flex-1 rounded-md px-2.5 py-2 text-left transition-colors",
+        "w-full min-w-0 flex-1 rounded-lg px-2.5 py-2 text-left transition-colors",
         active
           ? "bg-primary/10 text-primary"
-          : "text-foreground hover:bg-muted",
+          : "text-foreground hover:bg-muted/60",
       )}
     >
-      <span className="block truncate text-sm font-medium">{title}</span>
-      <span className="block text-xs text-muted-foreground">{meta}</span>
+      <span className="block truncate text-[13px] font-semibold">{title}</span>
+      <span className="block text-[11.5px] leading-4 text-muted-foreground">
+        {meta}
+      </span>
     </button>
   );
 }

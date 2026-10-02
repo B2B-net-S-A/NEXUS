@@ -139,8 +139,13 @@ export function FinanceImportPanel({ onImported }: Props) {
   });
 
   return (
-    <div className="rounded-2xl border border-border bg-card p-4">
-      <div className="flex flex-wrap items-center gap-3">
+    // Jeden wąski pasek z przerywaną ramką (makieta 02.10.2026): etykieta,
+    // strefa pliku, miesiąc, przycisk i zdanie o Archiwum w jednym rzędzie.
+    <div className="relative rounded-[10px] border border-dashed border-border bg-card px-3.5 py-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="text-[13px] font-semibold">
+          Importuj plik Excel z wynikami
+        </span>
         <div
           onDragOver={(e) => {
             e.preventDefault();
@@ -154,21 +159,19 @@ export function FinanceImportPanel({ onImported }: Props) {
           }}
           onClick={() => fileInputRef.current?.click()}
           className={cn(
-            "flex flex-1 cursor-pointer items-center gap-3 rounded-lg border-2 border-dashed px-4 py-3 transition-colors",
+            "flex min-h-8 min-w-0 flex-1 basis-60 cursor-pointer items-center gap-2 rounded-md border border-dashed px-2.5 py-1 text-xs transition-colors pointer-coarse:min-h-10",
             dragOver
               ? "border-primary bg-primary/10"
               : "border-border bg-muted/40 hover:bg-muted/60",
+            file ? "font-medium text-foreground" : "text-muted-foreground",
           )}
         >
-          <Upload className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
-          <div className="min-w-0">
-            <div className="text-sm font-semibold">Importuj plik Excel z wynikami</div>
-            <div className="truncate text-xs text-muted-foreground">
-              {file
-                ? `${file.name} · ${(file.size / 1024).toFixed(0)} KB`
-                : ".xlsx · przeciągnij plik tutaj lub wybierz z dysku · maks. 15 MB"}
-            </div>
-          </div>
+          <Upload className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="truncate">
+            {file
+              ? `${file.name} · ${(file.size / 1024).toFixed(0)} KB`
+              : ".xlsx · przeciągnij plik tutaj lub wybierz z dysku · maks. 15 MB"}
+          </span>
         </div>
 
         <select
@@ -179,7 +182,7 @@ export function FinanceImportPanel({ onImported }: Props) {
             setYear(y);
             setMonth(m);
           }}
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm font-medium"
+          className="h-8 rounded-md border border-border bg-background px-2.5 text-sm font-medium pointer-coarse:h-10"
         >
           {Array.from({ length: 24 }, (_, i) => {
             const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -197,13 +200,19 @@ export function FinanceImportPanel({ onImported }: Props) {
           type="button"
           onClick={() => mutation.mutate(false)}
           disabled={!file || mutation.isPending}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 pointer-coarse:min-h-10"
         >
           {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
           {/* Przycisk WYSYŁA import — „Wybierz plik” obiecywało okno wyboru,
               a wybór pliku to pole obok. */}
           Importuj plik
         </button>
+
+        <p className="flex basis-full items-center gap-1.5 text-xs text-muted-foreground 2xl:ml-auto 2xl:basis-auto">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          Import miesiąca, który ma już dane, wymaga potwierdzenia — poprzednia
+          wersja trafia do Archiwum.
+        </p>
       </div>
 
       <input
@@ -213,12 +222,6 @@ export function FinanceImportPanel({ onImported }: Props) {
         className="sr-only"
         onChange={(e) => pick(e.target.files?.[0] ?? null)}
       />
-
-      <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <AlertCircle className="h-3.5 w-3.5" aria-hidden />
-        Import dla miesiąca, dla którego dane już istnieją, wymaga potwierdzenia
-        zastąpienia — poprzednia wersja zostanie zapisana w Archiwum.
-      </p>
 
       {error && (
         <p className="mt-2 text-sm text-destructive" role="alert">
@@ -286,7 +289,7 @@ export function FinanceImportPanel({ onImported }: Props) {
             {conflict.edited_row_count > 0 && (
               // Liczba ręcznych poprawek jest tu istotą ostrzeżenia: bez niej
               // nie da się ocenić, ile pracy przepadnie.
-              <p className="rounded-md border border-amber-400/50 bg-amber-50 p-2 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+              <p className="rounded-md border border-warning/40 bg-warning-muted p-2 text-warning-muted-foreground">
                 <strong>{conflict.edited_row_count}</strong>{" "}
                 {conflict.edited_row_count === 1 ? "wiersz zawiera" : "wierszy zawiera"}{" "}
                 ręczne poprawki, które zostaną zastąpione danymi z nowego pliku.

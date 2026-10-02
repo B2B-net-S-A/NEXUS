@@ -4,12 +4,12 @@ import {
   useEffect,
   useMemo,
   useState,
+  type CSSProperties,
   type MouseEvent,
   type ReactNode,
 } from "react";
 import {
   AlertTriangle,
-  Building2,
   Check,
   ChevronDown,
   ChevronUp,
@@ -37,10 +37,11 @@ import {
   type BoardItem,
   type StatusFilter,
 } from "@/lib/finance-order-board";
-import { formatMoment } from "@/lib/finance-order-changes";
+import { CALM_HEAD, CALM_SUBLINE } from "@/lib/calm-table";
+import { formatDay, formatMoment } from "@/lib/finance-order-changes";
 import { cn } from "@/lib/utils";
 
-import { ChangeRow, pdfKey } from "./OrderChangeRow";
+import { ChangeRow, labelVariant, pdfKey } from "./OrderChangeRow";
 import {
   OrderChangePreviewPanel,
   type OrderChangePreviewExtras,
@@ -76,8 +77,10 @@ export interface OrderChangesBoardProps {
 }
 
 /**
- * Układ „Zmian w zamówieniach": kafelki klientów → karty zamówień → panel
- * podglądu (domyślnie ukryty). Wzorowany na „Zamówieniach PDF".
+ * Układ „Zmian w zamówieniach": lista klientów → wiersze zamówień w jednej
+ * karcie klienta → panel podglądu (domyślnie ukryty). Wzorowany na
+ * „Zamówieniach PDF". Do 02.10.2026 każde zamówienie było osobną kartą
+ * z ramką — przy kilkudziesięciu zmianach miesiąca lista była ścianą ramek.
  *
  * Czysta prezentacja — zapytania i zapisy robi `OrderChangesTab`, a ten sam
  * komponent renderuje publiczny harness bez żadnego zapytania.
@@ -155,7 +158,7 @@ export function OrderChangesBoard({
   }
 
   const cardList = (list: BoardCard[]) => (
-    <ul className="space-y-3">
+    <ul className="divide-y divide-border/60">
       {list.map((card) => (
         <OrderCard
           key={card.key}
@@ -176,21 +179,20 @@ export function OrderChangesBoard({
   return (
     <div
       className={cn(
-        "grid gap-4",
+        "grid gap-3.5 lg:items-start",
         previewed
-          ? "lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_minmax(380px,440px)]"
+          ? "lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_minmax(360px,420px)]"
           : "lg:grid-cols-[260px_minmax(0,1fr)]",
       )}
     >
       <section
         aria-label="Klienci"
-        className="h-fit min-w-0 rounded-xl border border-border bg-card p-3"
+        className="min-w-0 rounded-[10px] border border-border bg-card p-1.5"
       >
-        <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Building2 className="h-4 w-4 text-muted-foreground" aria-hidden />
+        <h3 className={cn("px-2.5 pb-1 pt-2", CALM_HEAD)}>
           Klienci — {data.period.label}
         </h3>
-        <ul role="listbox" aria-label="Klienci" className="space-y-1">
+        <ul role="listbox" aria-label="Klienci" className="space-y-0.5">
           {tiles.map((tile) => {
             const active = tile.key === activeKey;
             const allDone = tile.todo === 0;
@@ -202,20 +204,20 @@ export function OrderChangesBoard({
                   aria-selected={active}
                   onClick={() => onSelectClient(tile.key)}
                   className={cn(
-                    "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors",
-                    active ? "bg-primary/10" : "hover:bg-muted",
+                    "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors",
+                    active ? "bg-primary/10" : "hover:bg-muted/60",
                   )}
                 >
                   <span className="min-w-0 flex-1">
                     <span
                       className={cn(
-                        "block truncate text-sm font-medium",
+                        "block truncate text-[13px] font-semibold",
                         active ? "text-primary" : "text-foreground",
                       )}
                     >
                       {tile.name}
                     </span>
-                    <span className="block text-xs text-muted-foreground">
+                    <span className="block text-[11.5px] leading-4 text-muted-foreground">
                       {changesLabel(tile.total)} ·{" "}
                       {allDone
                         ? "wszystko zrobione"
@@ -224,18 +226,18 @@ export function OrderChangesBoard({
                   </span>
                   {allDone ? (
                     <span
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-success-muted text-success-muted-foreground"
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success-muted text-success-muted-foreground"
                       aria-label="Wszystko zrobione"
                     >
-                      <Check className="h-3.5 w-3.5" aria-hidden />
+                      <Check className="h-3 w-3" aria-hidden />
                     </span>
                   ) : (
                     <span
                       className={cn(
-                        "flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-semibold",
+                        "flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums",
                         active
                           ? "bg-primary text-primary-foreground"
-                          : "bg-primary/10 text-primary",
+                          : "bg-muted text-muted-foreground",
                       )}
                       aria-label={`${tile.todo} do zrobienia`}
                     >
@@ -253,51 +255,59 @@ export function OrderChangesBoard({
         aria-label={
           activeTile ? `Zamówienia — ${activeTile.name}` : "Zamówienia"
         }
-        className="min-w-0 space-y-3 rounded-xl border border-border bg-card p-3 sm:p-4"
+        className="min-w-0 space-y-3"
       >
-        {activeTile ? (
-          <div>
-            <h3 className="text-base font-semibold text-foreground">
-              {activeTile.name}
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              {data.period.label} · {activeTile.todo}{" "}
-              {activeTile.todo === 1 ? "zmiana" : "zmian"} do zrobienia z{" "}
-              {activeTile.total}
-            </p>
-          </div>
-        ) : null}
         {banner}
-        {open.length === 0 ? (
-          <Empty>
-            {status === "done"
-              ? "U tego klienta nic jeszcze nie oznaczono jako zrobione."
-              : "U tego klienta wszystko jest zrobione."}
-          </Empty>
-        ) : (
-          cardList(open)
-        )}
-        {finished.length > 0 ? (
-          <div className="space-y-3 pt-1">
-            <button
-              type="button"
-              onClick={() => setFinishedOpen((value) => !value)}
-              aria-expanded={finishedOpen}
-              className="flex w-full items-center justify-between border-b border-border pb-1 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground hover:text-foreground"
-            >
-              <span>Zrobione ({finished.length})</span>
-              <span className="inline-flex items-center gap-1 normal-case tracking-normal text-primary">
-                {finishedOpen ? "Zwiń" : "Rozwiń"}
-                {finishedOpen ? (
-                  <ChevronUp className="h-3.5 w-3.5" aria-hidden />
-                ) : (
-                  <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+        <div className="rounded-[10px] border border-border bg-card">
+          {activeTile ? (
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-t-[10px] border-b border-border bg-background px-3.5 py-2">
+              <h3 className="text-[13px] font-semibold text-foreground">
+                {activeTile.name}
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                {data.period.label} · {activeTile.todo}{" "}
+                {activeTile.todo === 1 ? "zmiana" : "zmian"} do zrobienia z{" "}
+                {activeTile.total}
+              </p>
+            </div>
+          ) : null}
+          {open.length === 0 ? (
+            <div className="p-3">
+              <Empty>
+                {status === "done"
+                  ? "U tego klienta nic jeszcze nie oznaczono jako zrobione."
+                  : "U tego klienta wszystko jest zrobione."}
+              </Empty>
+            </div>
+          ) : (
+            cardList(open)
+          )}
+          {finished.length > 0 ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setFinishedOpen((value) => !value)}
+                aria-expanded={finishedOpen}
+                className={cn(
+                  "flex w-full items-center justify-between border-t border-border bg-background px-3.5 py-1.5 hover:text-foreground",
+                  finishedOpen ? "border-b" : "rounded-b-[10px]",
+                  CALM_HEAD,
                 )}
-              </span>
-            </button>
-            {finishedOpen ? cardList(finished) : null}
-          </div>
-        ) : null}
+              >
+                <span>Zrobione ({finished.length})</span>
+                <span className="inline-flex items-center gap-1 text-xs font-medium normal-case tracking-normal text-primary">
+                  {finishedOpen ? "Zwiń" : "Rozwiń"}
+                  {finishedOpen ? (
+                    <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                  )}
+                </span>
+              </button>
+              {finishedOpen ? cardList(finished) : null}
+            </>
+          ) : null}
+        </div>
       </section>
 
       {previewed ? (
@@ -352,9 +362,24 @@ function OrderCard({
   const title = cardTitle(card);
   const finished = card.todo === 0;
   const stop = (event: MouseEvent) => event.stopPropagation();
+  const period = `${card.orderStart ? formatDay(card.orderStart) : "—"} – ${
+    card.orderEnd ? formatDay(card.orderEnd) : "bezterminowo"
+  }`;
+  // Rodzaj każdej widocznej zmiany stoi przy niej (plakietka w `ChangeRow`);
+  // tu zostają tylko rodzaje, których w widocznych pozycjach nie ma.
+  const extraLabels = card.labels.filter(
+    (label) => !card.visible.some((entry) => entry.item.label === label),
+  );
+  const rows = Math.max(
+    1,
+    card.visible.length + (card.previous.length > 0 ? 1 : 0),
+  );
 
   return (
     <li>
+      {/* Wiersz zamówienia: [Zrobione] [osoba · numer · okres] [zmiana] [akcje].
+          Od `md` to jedna siatka — pola „Zrobione" kolejnych zmian stoją
+          w pierwszej kolumnie, osoba i akcje obejmują wszystkie wiersze zmian. */}
       <div
         role="button"
         tabIndex={0}
@@ -368,18 +393,24 @@ function OrderCard({
             onPreview();
           }
         }}
+        style={{ "--rows": rows } as CSSProperties}
         className={cn(
-          "cursor-pointer rounded-xl border bg-card p-3 transition-colors sm:p-4",
+          "grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 border-l-2 px-3.5 py-2.5 transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:grid-cols-[auto_minmax(150px,1.1fr)_minmax(240px,2.6fr)_auto]",
           selected
-            ? "border-2 border-primary shadow-sm"
-            : "border-border hover:border-primary/40",
+            ? "border-primary bg-primary/5"
+            : "border-transparent hover:bg-muted/40",
         )}
       >
-        <div className="flex flex-wrap items-start gap-2">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-foreground">{title}</p>
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {card.labels.map((label) => (
+        <div className="col-span-2 min-w-0 md:col-span-1 md:col-start-2 md:[grid-row:1/span_var(--rows)]">
+          <p className="text-[13px] font-semibold text-foreground">
+            {card.consultantName}
+          </p>
+          <p className={CALM_SUBLINE}>
+            zam. {card.orderNumber} · {period}
+          </p>
+          {extraLabels.length > 0 || card.changedAgain || finished ? (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {extraLabels.map((label) => (
                 <Badge key={label} size="sm" variant={labelVariant(label)}>
                   {BOARD_LABEL_TEXT[label]}
                 </Badge>
@@ -395,52 +426,10 @@ function OrderCard({
                 </Badge>
               ) : null}
             </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5" onClick={stop}>
-            {card.pdf ? (
-              <>
-                <button
-                  type="button"
-                  onClick={onPreview}
-                  aria-label={`Podgląd PDF: zamówienie ${card.orderNumber}`}
-                  className={cn(
-                    "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
-                    selected
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-background text-foreground hover:bg-muted",
-                  )}
-                >
-                  <Eye className="h-3.5 w-3.5" aria-hidden />
-                  Podgląd
-                </button>
-                <button
-                  type="button"
-                  onClick={onDownload}
-                  disabled={downloading}
-                  aria-label={`Pobierz PDF: zamówienie ${card.orderNumber}`}
-                  title="Pobierz PDF"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted disabled:opacity-60"
-                >
-                  {downloading ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                  ) : (
-                    <Download className="h-3.5 w-3.5" aria-hidden />
-                  )}
-                </button>
-              </>
-            ) : (
-              <span
-                role="note"
-                className="inline-flex max-w-[220px] items-center gap-1.5 rounded-md border border-warning/25 bg-warning-muted px-2 py-1 text-xs font-medium text-warning-muted-foreground"
-              >
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                Brak PDF – zmiana wprowadzona ręcznie
-              </span>
-            )}
-          </div>
+          ) : null}
         </div>
 
-        <ul className="mt-3 space-y-2" onClick={stop}>
+        <ul className="contents" onClick={stop}>
           {card.visible.map((entry) => (
             <ChangeRow
               key={entry.item.key}
@@ -449,11 +438,12 @@ function OrderCard({
               pending={pendingKeys.has(entry.item.key)}
               onToggle={onToggle}
               onSaveInvoiceLine={onSaveInvoiceLine}
+              layout="grid"
             />
           ))}
         </ul>
         {card.previous.length > 0 ? (
-          <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+          <ul className="col-span-2 space-y-0.5 text-[11.5px] leading-4 text-muted-foreground md:col-span-1 md:col-start-3">
             {card.previous.map((previous, index) => (
               <li key={index}>
                 Wcześniej: {previous.summary} — oznaczona jako zrobiona przez{" "}
@@ -462,30 +452,55 @@ function OrderCard({
             ))}
           </ul>
         ) : null}
+
+        <div
+          className="col-span-2 flex items-start gap-1.5 md:col-span-1 md:col-start-4 md:justify-end md:[grid-row:1/span_var(--rows)]"
+          onClick={stop}
+        >
+          {card.pdf ? (
+            <>
+              <button
+                type="button"
+                onClick={onPreview}
+                aria-label={`Podgląd PDF: zamówienie ${card.orderNumber}`}
+                className={cn(
+                  "inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors pointer-coarse:min-h-10",
+                  selected
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-background text-foreground hover:bg-muted",
+                )}
+              >
+                <Eye className="h-3.5 w-3.5" aria-hidden />
+                Podgląd
+              </button>
+              <button
+                type="button"
+                onClick={onDownload}
+                disabled={downloading}
+                aria-label={`Pobierz PDF: zamówienie ${card.orderNumber}`}
+                title="Pobierz PDF"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted disabled:opacity-60 pointer-coarse:min-h-10 pointer-coarse:min-w-10"
+              >
+                {downloading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <Download className="h-3.5 w-3.5" aria-hidden />
+                )}
+              </button>
+            </>
+          ) : (
+            <span
+              role="note"
+              className="inline-flex max-w-[220px] items-center gap-1.5 rounded-md bg-warning-muted px-2 py-1 text-[11.5px] font-medium text-warning-muted-foreground"
+            >
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              Brak PDF – zmiana wprowadzona ręcznie
+            </span>
+          )}
+        </div>
       </div>
     </li>
   );
-}
-
-function labelVariant(
-  label: string,
-): "info" | "success" | "warning" | "danger" | "neutral" | "soft" {
-  switch (label) {
-    case "new_order":
-      return "success";
-    case "extension":
-    case "period":
-      return "info";
-    case "rate_revenue":
-      return "soft";
-    case "rate_cost":
-      return "warning";
-    case "exit":
-    case "gap":
-      return "danger";
-    default:
-      return "neutral";
-  }
 }
 
 function Empty({ children }: { children: ReactNode }) {

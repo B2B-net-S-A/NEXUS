@@ -673,7 +673,7 @@ describe("stany wierszy importu (U14)", () => {
     expect(screen.getByText("Piotr Okresowy").className).not.toContain("text-destructive");
 
     const costBadge = screen.getByText("Rozliczono kwotowo").closest("span");
-    expect(costBadge?.className).toContain("text-sky-700");
+    expect(costBadge?.className).toContain("text-info-muted-foreground");
     expect(screen.getByText("Anna Kwota").className).not.toContain("text-destructive");
 
     const dangerBadge = screen.getByText("Brak pasującego zamówienia").closest("span");
