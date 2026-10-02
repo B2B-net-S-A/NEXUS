@@ -138,14 +138,14 @@ async def test_screening_sheet_carries_suggestions_without_saving_anything(
     assert body["suggestions"]["availability"]["notice_period"] == "1 miesiąc"
     assert body["screening_answers"] is None
 
-    # Sourcer nie może wpisać stawki przy ruchu na „Zweryfikowany" — i jej nie widzi.
-    narrow = await app_client.get(
+    # Od 02.10.2026 sourcer przenosi na „Zweryfikowany" — podpowiedź stawki też widzi.
+    as_sourcer = await app_client.get(
         f"/api/pipeline/stages/{sourcer_stage_id}/screening", headers=sourcer
     )
-    assert narrow.status_code == 200, narrow.text
-    assert "rate" not in narrow.json()["suggestions"]
-    assert narrow.json()["suggestions"]["rate_redacted"] is True
-    assert "availability" in narrow.json()["suggestions"]
+    assert as_sourcer.status_code == 200, as_sourcer.text
+    assert as_sourcer.json()["suggestions"]["rate"]["value"] == 150.0
+    assert as_sourcer.json()["suggestions"]["rate_redacted"] is False
+    assert "availability" in as_sourcer.json()["suggestions"]
 
     async with AsyncSessionLocal() as db:
         stage = await db.get(CandidateStage, stage_id)

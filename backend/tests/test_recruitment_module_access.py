@@ -7,8 +7,9 @@ Verifies the P0.3 containment contracts:
   funnel/TTH reports, calendar (list + CRUD), interview feedback,
   rejection-email preview/cancel/timeline, expected-rate PATCH.
 - **M4-SEC-02** — ``sourcer`` cannot execute terminal moves (``hired`` /
-  ``rejected`` / ``withdrawn``, single and bulk) nor the rate-bearing move to
-  ``verified``, nor edit expected rate; non-terminal moves keep working.
+  ``rejected`` / ``withdrawn``, single and bulk); non-terminal moves keep
+  working. Od 02.10.2026 (decyzja Artura) sourcer przenosi na ``verified``
+  i poprawia stawkę kandydata jak każda rola wewnętrzna.
 - **M4-SEC-03** — capability checks evaluate the UNION of primary and
   secondary roles (sourcer with secondary recruiter passes terminal guard;
   TAC with secondary delivery_lead can cancel a foreign rejection email).
@@ -74,6 +75,7 @@ RATE_EDIT_ROLES = {
     UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
+    UserRole.sourcer,
     UserRole.finance,
 }
 
@@ -270,7 +272,7 @@ async def test_operational_roles_not_blocked_on_reads(
         assert r.status_code != 403, f"{url} blocked for {role.value}"
 
 
-# ── M4-SEC-02: sourcer bez terminal/verified/rate ────────────────────────────
+# ── M4-SEC-02: sourcer bez ruchów terminalnych ────────────────────────────────
 
 
 async def test_sourcer_cannot_terminal_move(m4_client: AsyncClient, role_accounts):
@@ -299,40 +301,12 @@ async def test_sourcer_cannot_terminal_move(m4_client: AsyncClient, role_account
     assert r.status_code == 403, r.text
 
 
-async def test_sourcer_cannot_verified_move_nor_rate(
-    m4_client: AsyncClient, role_accounts
-):
-    sourcer_headers, sourcer_id = role_accounts[UserRole.sourcer]
-    cand, job = await _seed_candidate(), await _seed_job(owner_id=sourcer_id)
-    await _seed_stage(cand, job, "screening")
-    r = await m4_client.post(
-        "/api/pipeline/move",
-        json={
-            "candidate_id": cand,
-            "job_id": job,
-            "stage": "verified",
-            "expected_rate_value": 100,
-            "expected_rate_unit": "hourly",
-        },
-        headers=sourcer_headers,
-    )
-    assert r.status_code == 403, r.text
-
-    r = await m4_client.patch(
-        f"/api/candidates/{cand}/recruitments/{job}/expected-rate",
-        json={"rate_value": 120, "rate_unit": "hourly"},
-        headers=sourcer_headers,
-    )
-    assert r.status_code == 403, r.text
-
-
 @pytest.mark.parametrize("role", sorted(RATE_EDIT_ROLES, key=lambda r: r.value))
 async def test_rate_edit_roles_can_verified_move_and_rate(
     m4_client: AsyncClient, role_accounts, role
 ):
-    """Zgłoszenie 02.10.2026: Talent Community Manager dostawał 403 na
-    „Zweryfikowany", choć może zatrudnić i odrzucić. Z ról operacyjnych poza
-    bramką stawki zostaje wyłącznie sourcer (M4-SEC-02)."""
+    """Zgłoszenie 02.10.2026: Talent Community Manager (i sourcer) dostawał
+    403 na „Zweryfikowany". Decyzja Artura: przenosi każda rola wewnętrzna."""
     headers, uid = role_accounts[role]
     cand, job = await _seed_candidate(), await _seed_job(owner_id=uid)
     await _seed_stage(cand, job, "screening")
@@ -355,6 +329,18 @@ async def test_rate_edit_roles_can_verified_move_and_rate(
         headers=headers,
     )
     assert r.status_code != 403, f"{role.value}: {r.text}"
+
+
+async def test_viewer_cannot_verified_move(m4_client: AsyncClient, role_accounts):
+    headers, uid = role_accounts[UserRole.user]
+    cand, job = await _seed_candidate(), await _seed_job(owner_id=uid)
+    await _seed_stage(cand, job, "screening")
+    r = await m4_client.post(
+        "/api/pipeline/move",
+        json={"candidate_id": cand, "job_id": job, "stage": "verified"},
+        headers=headers,
+    )
+    assert r.status_code == 403, r.text
 
 
 async def test_sourcer_can_still_do_nonterminal_move(
