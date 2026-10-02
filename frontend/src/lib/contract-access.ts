@@ -6,8 +6,10 @@
  * karta chowa (albo odwrotnie), a backend i tak odmówi 403.
  *
  * Backend pozostaje arbitrem — to tylko lustro, które decyduje, czy przycisk
- * w ogóle się renderuje.
+ * w ogóle się renderuje. Od 0409 lustrem są uprawnienia z ekranu Ustawienia →
+ * Zespół i dostęp → Osoby i role (`lib/permissions.ts`), nie role.
  */
+import { hasPermission } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
 import {
   canManageCandidateFinance,
@@ -21,21 +23,21 @@ import {
 
 export interface ContractAccess {
   isAdmin: boolean;
-  /** Zmiana kwot kontraktu (admin/Finanse z `manage_finance`). */
+  /** Zmiana kwot kontraktu („Stawki i kwoty: zmiana”, u DL-a tylko klient z przypisania). */
   canManageFinance: boolean;
   /** Benchmark stawek — backend trzyma go za `view_finance` bez wyjątku portfela DL. */
   canViewBenchmark: boolean;
   canViewInvoices: boolean;
   canManageInvoices: boolean;
-  /** Edycja pól operacyjnych, dokumentów, aneksów, usunięcie (admin/DL + zapis Delivery). */
+  /** Edycja pól operacyjnych, dokumentów, aneksów, usunięcie („Kontrakty i zamówienia: tworzenie i edycja”). */
   canEditContract: boolean;
-  /** Finanse bez roli admin/DL: edycja ograniczona do kwot (`finance_amounts_only`). */
+  /** Sama zmiana kwot, bez edycji kontraktu: formularz ograniczony do kwot (`finance_amounts_only`). */
   financeAmountsOnly: boolean;
-  /** Lista statusu i „Zakończ współpracę” (admin/DL/TCM). */
+  /** Lista statusu i „Zakończ współpracę” („Zakończenie współpracy, zmiana statusu kontraktu”). */
   canEditContractStatus: boolean;
-  /** „Cofnij zakończenie” / „Powrót po przerwie” (admin/Finanse/TCM). */
+  /** „Cofnij zakończenie” / „Powrót po przerwie” (admin/Finanse/TCM — zostaje przy roli). */
   canRecoverTermination: boolean;
-  /** Stawki i marża TEGO kontraktu (portfel DL liczony per klient). */
+  /** Stawki i marża TEGO kontraktu („Stawki i kwoty: podgląd”, portfel DL liczony per klient). */
   canViewFinance: boolean;
   /** Dokumenty mogą nieść stawki — ta sama granica co finanse. */
   canViewContractDocuments: boolean;
@@ -50,15 +52,17 @@ export function contractAccess(
 ): ContractAccess {
   const { impersonating, clientId } = options;
   const isAdmin = hasRole(user, "admin");
-  const canManageFinance = canManageCandidateFinance(user);
+  const canManageFinance = canManageCandidateFinance(user, clientId);
   const canViewBenchmark = hasAnalyticsCapability(user, "view_finance");
+  // Sekcja jest sufitem trasy (zapis w Delivery); przy świeżym profilu wynika
+  // z uprawnienia, stary wyjątek osoby potrafi ją jeszcze ograniczyć.
   const canEditContract =
     !impersonating &&
-    hasRole(user, "admin", "delivery_lead") &&
+    hasPermission(user, "contracts_orders_edit") &&
     hasSectionAccess(user, "delivery", "write");
   const canViewFinance =
     clientId != null ? canViewClientFinance(user, clientId) : false;
-  const canViewContractDocuments = clientId != null && (isAdmin || canViewFinance);
+  const canViewContractDocuments = canViewFinance;
   return {
     isAdmin,
     canManageFinance,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { visibleNavSections as sidebarVisibleNavSections } from "@/components/v2/shell/SidebarV2";
 import {
+  CAPABILITY_PERMISSIONS,
   CAPABILITY_ROLES,
   hasCapability,
   type Capability,
@@ -23,10 +24,17 @@ import {
 } from "@/lib/nav-registry";
 import type { UserRole } from "@/store/auth";
 
+import { accessSnapshot } from "./fixtures/access-snapshot";
+
 // Rejestr jest wspólnym źródłem sidebara i palety ⌘K. Ten plik pilnuje trzech
 // rzeczy, które refaktor mógł po cichu zmienić: zgodności z rejestrem
 // capability, DOKŁADNEJ listy pozycji per rola (zamrożonej ze starego, ręcznie
 // pisanego `NAV_SECTIONS`) oraz tego, że paleta nie pokazuje więcej niż menu.
+//
+// `userOf(role)` to sama rola, czyli profil bez kompletu uprawnień z serwera:
+// pozycje Delivery i Finansów widzą wtedy DOMYŚLNI posiadacze uprawnień.
+// Co się dzieje po przełączeniu uprawnienia, pilnuje blok „menu idzie za
+// uprawnieniem”.
 
 const ALL_ROLES: UserRole[] = [
   "admin",
@@ -222,7 +230,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
   });
 });
 
-describe("rejestr nawigacji ↔ CAPABILITY_ROLES", () => {
+describe("rejestr nawigacji ↔ rejestr capability", () => {
   const withCapability = NAV_REGISTRY.filter((entry) => entry.capability);
 
   it("są wpisy z capability (test nie przechodzi na pustym zbiorze)", () => {
@@ -237,17 +245,123 @@ describe("rejestr nawigacji ↔ CAPABILITY_ROLES", () => {
       expect(sorted(entry.roles)).toEqual(sorted(CAPABILITY_ROLES[capability]));
     });
 
+    it(`${entry.href}: \`permission\` jest tym samym uprawnieniem co ${capability}`, () => {
+      // Capability z uprawnienia nie ma listy ról — wpis menu też nie.
+      expect(entry.permission).toBe(CAPABILITY_PERMISSIONS[capability]);
+      if (entry.permission) expect(entry.roles).toBeUndefined();
+    });
+
     it(`${entry.href}: widoczne dokładnie dla ról z ${capability}`, () => {
-      // Obejmuje też wpisy BEZ `roles` (bramkowane samą sekcją, np. Delivery
-      // i Finanse) — tam lustrem jest domyślna polityka sekcji.
+      // Użytkownik to sama rola, więc dla wpisów z uprawnieniem (Delivery,
+      // Finanse) liczą się domyślni posiadacze uprawnienia.
       const seeing = ALL_ROLES.filter((role) =>
         visibleNavEntries(userOf(role), { contactQueueEnabled: true }).some(
           (visible) => visible.id === entry.id,
         ),
       );
-      expect(sorted(seeing)).toEqual(sorted(CAPABILITY_ROLES[capability]));
+      expect(sorted(seeing)).toEqual(
+        sorted(ALL_ROLES.filter((role) => hasCapability(userOf(role), capability))),
+      );
     });
   }
+
+  it("Delivery i Finanse to wpisy z uprawnieniem — żaden nie zostaje przy samej sekcji", () => {
+    const gated = NAV_REGISTRY.filter(
+      (entry) => entry.section === "delivery" || entry.section === "finance",
+    );
+    expect(gated.map((entry) => [entry.id, entry.permission])).toEqual([
+      ["clients", "delivery_view"],
+      ["my-clients", "delivery_view"],
+      ["order-mail", "delivery_view"],
+      ["my-relationships", "delivery_view"],
+      ["contracts", "delivery_view"],
+      ["finance", "finance_module"],
+    ]);
+  });
+});
+
+describe("menu idzie za uprawnieniem, nie za rolą", () => {
+  const opts = { contactQueueEnabled: false };
+  const hrefs = (user: Parameters<typeof visibleNavHrefs>[0]) =>
+    visibleNavHrefs(user, opts);
+  const paletteIds = (user: Parameters<typeof visibleNavHrefs>[0]) =>
+    visiblePaletteEntries(user, opts, (capability) =>
+      hasCapability(user, capability),
+    ).map((entry) => entry.id);
+
+  it("rekruter z nadanym podglądem Delivery dostaje Klientów i Kontrakty (menu i paleta)", () => {
+    const viewer = accessSnapshot("recruiter", { grant: ["delivery_view"] });
+    expect(hrefs(viewer)).toEqual(expect.arrayContaining(["/clients", "/contracts"]));
+    expect(hrefs(viewer)).not.toContain("/finance");
+    expect(paletteIds(viewer)).toEqual(
+      expect.arrayContaining([
+        "clients",
+        "my-clients",
+        "order-mail",
+        "my-relationships",
+        "contracts",
+      ]),
+    );
+    expect(
+      visiblePrimaryGroups(viewer, opts).map((group) => group.title),
+    ).toEqual(["Praca", "Klienci i umowy", "Firma"]);
+  });
+
+  it("Delivery Lead bez podglądu Delivery traci obie pozycje i grupę szyny", () => {
+    const lead = accessSnapshot("delivery_lead", {
+      revoke: [
+        "delivery_view",
+        "clients_edit",
+        "contracts_orders_edit",
+        "contract_status",
+        "amounts_view",
+      ],
+    });
+    expect(hrefs(lead)).not.toContain("/clients");
+    expect(hrefs(lead)).not.toContain("/contracts");
+    expect(paletteIds(lead)).not.toContain("clients");
+    expect(
+      visiblePrimaryGroups(lead, opts).map((group) => group.title),
+    ).toEqual(["Praca", "Firma"]);
+  });
+
+  it("„Finanse” widzi posiadacz „Moduł Finanse”, kto by nim nie był", () => {
+    const granted = accessSnapshot("head_of_recruitment", { grant: ["finance_module"] });
+    expect(hrefs(granted)).toContain("/finance");
+    expect(paletteIds(granted)).toContain("finance");
+
+    const revoked = accessSnapshot("finance", { revoke: ["finance_module"] });
+    expect(hrefs(revoked)).not.toContain("/finance");
+    expect(paletteIds(revoked)).not.toContain("finance");
+    // Kontrakty zostają: „Kontrakty i zamówienia” Finanse mają nadal.
+    expect(hrefs(revoked)).toContain("/contracts");
+  });
+
+  it("stary profil z samą sekcją Delivery (bez uprawnienia) nie pokazuje pozycji", () => {
+    // Wyjątek sekcji sprzed 0409 już niczego nie otwiera — dostęp do Delivery
+    // wynika z uprawnień. Bez tego menu prowadziłoby do ekranu z samymi 403.
+    const legacy = {
+      role: "recruiter" as const,
+      roles: ["recruiter" as const],
+      effective_section_access: {
+        sourcing: "write" as const,
+        pipeline: "write" as const,
+        delivery: "read" as const,
+        insights: "read" as const,
+        finance: "read" as const,
+        system_admin: "none" as const,
+      },
+    };
+    expect(hrefs(legacy)).not.toContain("/clients");
+    expect(hrefs(legacy)).not.toContain("/contracts");
+    expect(hrefs(legacy)).not.toContain("/finance");
+  });
+
+  it("sufit sekcji zostaje: uprawnienie przy sekcji ograniczonej do zera nie pokazuje pozycji", () => {
+    const capped = accessSnapshot("delivery_lead", { sectionCaps: { delivery: "none" } });
+    expect(hrefs(capped)).not.toContain("/clients");
+    expect(hrefs(capped)).not.toContain("/contracts");
+  });
 });
 
 describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne jak przed refaktorem", () => {

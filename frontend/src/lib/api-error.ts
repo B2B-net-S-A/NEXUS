@@ -6,6 +6,7 @@
  * komponentów go nie zastępuje. `extractErrorMsg` z `lib/api.ts` stoi na tej
  * samej funkcji `messageFromApiResponse`.
  */
+import { isPermission, permissionLabel } from "@/lib/permissions";
 
 // Polskie etykiety pól kontraktu — wspólne dla formularzy i dla tłumaczenia
 // backendowego 409 {message: "Missing required fields", missing: [...]}
@@ -27,6 +28,58 @@ export const CONTRACT_FIELD_LABELS: Record<string, string> = {
 // żądanie 422, zanim cokolwiek zapisze. Znak jest niewidoczny (zwykle przychodzi
 // z wklejonego tekstu), dlatego komunikat mówi, co z nim zrobić.
 const NULL_CHARACTER_ERROR_TYPE = "null_character";
+
+const ASK_ADMIN_FOR_ACCESS = "Poproś administratora o dostęp.";
+
+/** Części NEXUSA z bramki sekcji (`backend/app/api/section_access.py`). */
+const SECTION_LABELS: Record<string, string> = {
+  sourcing: "Kandydaci",
+  pipeline: "Rekrutacje",
+  delivery: "Klienci, kontrakty i zamówienia",
+  insights: "Insights",
+  finance: "Finanse",
+  system_admin: "Administracja",
+};
+
+/**
+ * Zdanie dla odmowy dostępu, która niesie sam kod (bez `message`):
+ *  • `section_access_denied` — bramka sekcji (`{section, required, granted}`
+ *    albo `{any_section}`),
+ *  • `action_access_denied` — poziom akcji (Generator umów B2B) albo jedno
+ *    z uprawnień z ekranu Osoby i role,
+ *  • `finance_fields_forbidden` — zapis kwot bez uprawnienia do kwot (nowy
+ *    backend dokłada `message` z nazwą brakującego uprawnienia; to zdanie
+ *    zostaje dla odpowiedzi bez niego).
+ */
+function accessRefusalMessage(detail: Record<string, unknown>): string | undefined {
+  switch (detail.code) {
+    case "section_access_denied": {
+      const label =
+        typeof detail.section === "string" ? SECTION_LABELS[detail.section] : undefined;
+      if (!label) return `Nie masz dostępu do tej części NEXUSA. ${ASK_ADMIN_FOR_ACCESS}`;
+      // `granted: "read"` przy wymaganym zapisie = konto widzi tę część, ale
+      // niczego w niej nie zmienia.
+      if (detail.required === "write" && detail.granted === "read") {
+        return `W części „${label}” masz tylko podgląd — ta operacja wymaga uprawnienia do zmian. ${ASK_ADMIN_FOR_ACCESS}`;
+      }
+      return `Nie masz dostępu do części „${label}”. ${ASK_ADMIN_FOR_ACCESS}`;
+    }
+    case "action_access_denied": {
+      const action = typeof detail.action === "string" ? detail.action : "";
+      if (isPermission(action)) {
+        return `Brakuje Ci uprawnienia „${permissionLabel(action)}”. ${ASK_ADMIN_FOR_ACCESS}`;
+      }
+      if (action === "b2b_contract_generator") {
+        return `Twój poziom dostępu do Generatora umów B2B nie pozwala na tę operację. ${ASK_ADMIN_FOR_ACCESS}`;
+      }
+      return `Nie masz uprawnienia do tej operacji. ${ASK_ADMIN_FOR_ACCESS}`;
+    }
+    case "finance_fields_forbidden":
+      return `Nie masz uprawnienia do stawek i kwot — zapisz pozostałe pola bez nich. ${ASK_ADMIN_FOR_ACCESS}`;
+    default:
+      return undefined;
+  }
+}
 
 /**
  * Komunikat z ciała odpowiedzi API albo `undefined`, gdy nie ma w nim niczego
@@ -84,8 +137,15 @@ export function messageFromApiResponse(
     }
     // Domenowe konflikty mogą zwracać ustrukturyzowany detail, np.
     // {message, contract_ids}. Użytkownik powinien zobaczyć komunikat, nie
-    // "[object Object]" ani ogólny status HTTP.
+    // "[object Object]" ani ogólny status HTTP. Tędy idzie też odmowa bramki
+    // uprawnienia ({code: "permission_denied", message}) — zdanie z serwera
+    // nazywa brakujące uprawnienie.
     if (typeof detailMessage === "string") return detailMessage;
+    // Odmowy z samym kodem (bramka sekcji, poziom akcji, starszy backend bez
+    // `message`): bez tej gałęzi wołający spadał na angielskie
+    // „Request failed with status code 403” z axiosa.
+    const refusal = accessRefusalMessage(detail as Record<string, unknown>);
+    if (refusal) return refusal;
   }
   // FastAPI Pydantic ValidationError → list of { msg, loc, ... }
   if (Array.isArray(detail) && detail.length > 0) {

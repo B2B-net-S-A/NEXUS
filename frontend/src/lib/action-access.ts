@@ -1,5 +1,13 @@
+import { hasPermission, isPermission } from "@/lib/permissions";
 import type { UserRole } from "@/store/auth";
 
+/**
+ * Akcje z poziomami dostępu. `b2b_contract_generator` to drabinka podgląd /
+ * generowanie / zarządzanie. `b2b_signature_confirmation` jest jednym
+ * z dziewięciu uprawnień z ekranu Osoby i role — zostaje tu dla starego panelu
+ * i typów API, ale o to, czy konto je MA, pytaj `hasPermission`
+ * (`lib/permissions.ts`); `actionAccessForUser` odpowiada tym samym.
+ */
 export type ProductAction =
   "b2b_contract_generator" | "b2b_signature_confirmation";
 export type ActionAccess = "none" | "view" | "generate" | "manage";
@@ -87,6 +95,13 @@ export function actionAccessForUser(
   action: ProductAction,
 ): ActionAccess {
   if (!user) return "none";
+  // Podpis B2B jest jednym z dziewięciu uprawnień z ekranu Osoby i role
+  // (tak/nie), a te mają JEDNO źródło: `lib/permissions.ts`. Dwie kopie
+  // rozjeżdżały się na profilu sprzed 0409 — stary komplet niósł TAC-owi
+  // „manage”, którego katalog już nie daje.
+  if (isPermission(action)) {
+    return hasPermission(user, action) ? "manage" : "none";
+  }
   if (user.effective_action_access) {
     const effective = user.effective_action_access[action];
     return effective && effective in ACTION_ACCESS_RANK ? effective : "none";

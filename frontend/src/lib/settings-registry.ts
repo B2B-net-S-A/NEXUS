@@ -11,6 +11,7 @@
 // znikają z menu), ale dalej otwierają się pod adresem — stare linki działają.
 import { hasRole, type UserRole } from "@/store/auth";
 import { hasCapability, type Capability } from "@/lib/capabilities";
+import { hasPermission, type Permission } from "@/lib/permissions";
 import {
   hasSectionAccess,
   type ProductSection,
@@ -69,6 +70,12 @@ export type SettingsItemId =
 
 type Gate = {
   roles?: UserRole[];
+  /**
+   * Uprawnienie z ekranu Osoby i role (`lib/permissions.ts`), o które pyta
+   * trasa backendu. Pozycję widzi każdy jego posiadacz — także rola Finanse,
+   * jeśli administrator jej je nadał (filtr `finance` go nie zasłania).
+   */
+  permission?: Permission;
   /** Capability z `lib/capabilities.ts` — lustro strażnika backendu. */
   capability?: Capability;
   section?: ProductSection;
@@ -95,7 +102,7 @@ export interface SettingsItem {
 }
 
 type SettingsUser = Parameters<typeof hasRole>[0] &
-  Parameters<typeof hasSectionAccess>[0];
+  Parameters<typeof hasCapability>[0];
 
 export const SETTINGS_ITEMS: readonly SettingsItem[] = [
   {
@@ -146,7 +153,9 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     description: "Jak ma wyglądać CV wysyłane do danego klienta.",
     keywords: "generator cv plik jezyk klient reguly karta",
     route: "/settings/cv-rules",
-    gate: { roles: ["admin", "delivery_lead"], section: "delivery", required: "write" },
+    // Zapis reguły i karty klienta = „Klienci: dodawanie i edycja” (lustro
+    // capability `cv_rule.manage`); sekcja Delivery zostaje sufitem.
+    gate: { permission: "clients_edit", section: "delivery", required: "write" },
   },
   {
     id: "ranking", area: "rec", title: "Ranking kandydatów",
@@ -275,7 +284,8 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     description: "Kto co usunął i które próby zostały zablokowane.",
     keywords: "zdarzenia audyt log historia usuniecia",
     wide: true, ownHeader: true,
-    gate: { roles: ["admin", "finance"], section: "finance", finance: true },
+    // `GET /api/settings/event-history` = `FinanceModuleUser` („Moduł Finanse”).
+    gate: { permission: "finance_module", section: "finance", finance: true },
   },
   {
     id: "placements", area: "sys", title: "Wykluczone placementy",
@@ -321,8 +331,11 @@ export function isFinanceReadOnly(user: SettingsUser | null): boolean {
 export function canSeeSettingsItem(user: SettingsUser | null, item: SettingsItem): boolean {
   if (!user) return false;
   const { gate } = item;
-  if (isFinanceReadOnly(user) && !gate.finance) return false;
+  // Uprawnienie nadane na ekranie Osoby i role jest jawną decyzją
+  // administratora, więc pozycji z `permission` filtr Finansów nie zasłania.
+  if (isFinanceReadOnly(user) && !gate.finance && !gate.permission) return false;
   if (gate.roles && !hasRole(user, ...gate.roles)) return false;
+  if (gate.permission && !hasPermission(user, gate.permission)) return false;
   if (gate.capability && !hasCapability(user, gate.capability)) return false;
   if (gate.section && !hasSectionAccess(user, gate.section, gate.required ?? "read")) return false;
   return true;

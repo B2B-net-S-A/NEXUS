@@ -1,7 +1,11 @@
 import { create } from "zustand"
 
 import { clearSessionArtifacts, writeAuthCookie } from "@/lib/session"
-import type { Permission } from "@/lib/permissions"
+import {
+  hasPermission,
+  isDeliveryLeadGoverned,
+  type Permission,
+} from "@/lib/permissions"
 import { hasSectionAccess } from "@/lib/section-access"
 
 // ── Role model ──────────────────────────────────────────────────────────────
@@ -345,75 +349,107 @@ export function hasAnalyticsCapability(
   )
 }
 
+// ── Bramki uprawnień (0409) ─────────────────────────────────────────────────
+//
+// Te helpery decydują wyłącznie o tym, co POKAZAĆ; o dostępie decyduje backend.
+// Pytają o jedno z dziewięciu uprawnień z ekranu Ustawienia → Zespół i dostęp
+// → Osoby i role (`lib/permissions.ts`), nie o rolę: przycisk pojawia się
+// dokładnie wtedy, gdy trasa przyjmie kliknięcie — także u osoby, której
+// administrator nadał uprawnienie ponad jej rolę, i znika u roli, której je
+// wyłączył. Zakres klientów zostaje przy personie (`isClientInAssignedScope`).
+
 /**
- * Zmiana kwot kontraktu i zamówienia (stawki, wartość, waluta). Decyzja
- * Artura 22.09.2026 (audyt ról U6): Admin ORAZ Finanse — obie role wyłącznie
- * z backendowym capability `manage_finance` z `/api/auth/me`. Delivery Lead
- * własnego portfela ma osobną, węższą ścieżkę liczoną przez serwer
- * (`can_manage_finance` w odpowiedziach zamówień). Stary cache bez
- * capabilities = fail-closed.
+ * Pola profilu, z których liczą się bramki uprawnień, kwot i zakresu klientów.
+ * Wszystko poza rolą jest opcjonalne: profil bez kompletu z `/api/auth/me`
+ * (stary cache) liczy się z domyślnych uprawnień ról.
  */
-export function canManageCandidateFinance(
-  user:
-    | Pick<User, "role" | "roles" | "analytics_capabilities" | "capabilities">
-    | null
-    | undefined
+type PermissionGateUser = Pick<
+  User,
+  | "role"
+  | "roles"
+  | "analytics_capabilities"
+  | "capabilities"
+  | "effective_action_access"
+  | "effective_section_access"
+  | "data_scope"
+>
+
+/**
+ * Czy klient leży w granicy PRZYPISANIA konta. Uprawnienie mówi, CO konto
+ * może; zakres — U KOGO: konto rządzone portfelem Delivery Leada
+ * (`isDeliveryLeadGoverned`) działa u klientów z `data_scope.finance_client_ids`
+ * (lustro `resolve_delivery_lead_assigned_client_ids`), każdy inny posiadacz
+ * uprawnienia — u wszystkich.
+ *
+ * Fail-closed: konto z rolą Delivery Leada bez listy (stary cache
+ * localStorage) nie ma żadnego klienta, nigdy wszystkich.
+ */
+export function isClientInAssignedScope(
+  user: Pick<User, "role" | "roles" | "data_scope"> | null | undefined,
+  clientId: number
 ): boolean {
-  return (
-    hasRole(user, "admin", "finance") &&
-    hasAnalyticsCapability(user, "manage_finance")
-  )
+  if (!user) return false
+  if (!isDeliveryLeadGoverned(user)) return true
+  return (user.data_scope?.finance_client_ids ?? []).includes(clientId)
 }
 
 /**
- * Candidate-bearing Delivery resources expose rates to Admin/Finance and to a
- * Delivery Lead only when `/api/auth/me` reports at least one client in the
- * narrow finance portfolio. Row-level APIs remain authoritative and redact
- * each unassigned client independently.
+ * Zmiana kwot KONTRAKTU (stawki, wartość, waluta): uprawnienie „Stawki
+ * i kwoty: zmiana” — domyślnie Finanse (decyzja Artura 22.09.2026) i admin.
+ * Lustro `can_manage_finance_amounts` (`api/financial_access.py`).
+ *
+ * Konto rządzone portfelem Delivery Leada zmienia kwoty wyłącznie u klientów
+ * z przypisania: z `clientId` pytamy o tego klienta, a bez niego (lista,
+ * formularz przed wyborem klienta) wystarcza, że konto ma choć jednego.
+ * Kwoty ZAMÓWIEŃ mają szerszą regułę — `canEditOrderLineAmounts` oraz flaga
+ * `can_manage_finance` z odpowiedzi serwera.
+ */
+export function canManageCandidateFinance(
+  user: PermissionGateUser | null | undefined,
+  clientId?: number | null
+): boolean {
+  if (!user || !hasPermission(user, "amounts_edit")) return false
+  if (!isDeliveryLeadGoverned(user)) return true
+  const assigned = user.data_scope?.finance_client_ids ?? []
+  return clientId == null ? assigned.length > 0 : assigned.includes(clientId)
+}
+
+/**
+ * Czy konto w ogóle widzi stawki na listach z kandydatami i kontraktorami:
+ * admin, capability `view_finance` („Moduł Finanse”) albo uprawnienie „Stawki
+ * i kwoty: podgląd”. Konto rządzone portfelem Delivery Leada potrzebuje do
+ * tego choć jednego klienta z przypisania. API i tak redaguje kwoty każdego
+ * klienta spoza zakresu osobno.
  */
 export function canViewCandidateFinance(
-  user:
-    | Pick<
-        User,
-        "role" | "roles" | "analytics_capabilities" | "capabilities" | "data_scope"
-      >
-    | null
-    | undefined
+  user: PermissionGateUser | null | undefined
 ): boolean {
   if (!user) return false
   if (hasRole(user, "admin")) return true
-  if (
-    hasRole(user, "finance") &&
-    hasAnalyticsCapability(user, "view_finance")
-  ) {
-    return true
-  }
-  return (
-    hasRole(user, "delivery_lead") &&
-    user.data_scope?.kind === "delivery_clients" &&
-    (user.data_scope.finance_client_ids?.length ?? 0) > 0
-  )
+  if (hasAnalyticsCapability(user, "view_finance")) return true
+  if (!hasPermission(user, "amounts_view")) return false
+  if (!isDeliveryLeadGoverned(user)) return true
+  return (user.data_scope?.finance_client_ids?.length ?? 0) > 0
 }
 
-/** Kto może usuwać / kończyć / przywracać / przedłużać zamówienia klienta.
+/**
+ * Kto może usuwać / kończyć / przywracać / przedłużać zamówienia klienta:
+ * uprawnienie „Kontrakty i zamówienia: tworzenie i edycja” (domyślnie
+ * Delivery Lead i Finanse).
  *
- *  ŚWIADOMIE szerszy zbiór niż `canManageMultiConsultantOrders`, który rządzi
- *  STAWKAMI i zostaje przy admin + Delivery Lead. Granica sekcji Delivery
- *  odcina HoR/TAC/rekrutera/sourcera, a TCM ma tu wyłącznie odczyt.
- *
- *  Lustro backendowego `_ORDER_LIFECYCLE_ROLES` (`api/client_order_groups.py`).
- *  Rozjazd tych dwóch list kończy się przyciskiem, który na kliknięciu daje
- *  403 — a to czyta się jak „zapis nie działa", nie jak „nie masz uprawnień". */
+ * ŚWIADOMIE szersze niż `canManageMultiConsultantOrders`, które rządzi też
+ * STAWKAMI i dlatego wymaga podglądu kwot klienta. Rozjazd z backendem kończy
+ * się przyciskiem, który na kliknięciu daje 403 — a to czyta się jak „zapis
+ * nie działa", nie jak „nie masz uprawnień".
+ */
 export function canManageOrderLifecycle(
-  user:
-    | Pick<User, "role" | "roles" | "effective_section_access">
-    | null
-    | undefined
+  user: PermissionGateUser | null | undefined
 ): boolean {
-  // Rola to dopiero połowa bramki: backend liczy też sufit sekcji Delivery
-  // (zapis). DL z odebraną sekcją widziałby przyciski kończące się 403 (U8).
+  // Uprawnienie to dopiero połowa bramki: router liczy też sufit sekcji
+  // Delivery (zapis). Przy świeżym profilu sekcja wynika z uprawnienia; stary
+  // wyjątek osoby potrafi ją jeszcze ograniczyć i wtedy trasa odmawia (U8).
   return (
-    hasRole(user, "admin", "delivery_lead", "finance") &&
+    hasPermission(user, "contracts_orders_edit") &&
     hasSectionAccess(user, "delivery", "write")
   )
 }
@@ -433,91 +469,99 @@ export function canRecoverContractTermination(
   )
 }
 
-/** Status kontraktu jest operacyjnie utrzymywany także przez TCM.
- * Pozostałe pola kontraktu, dokumenty i finanse zachowują dotychczasowe bramki. */
-export function canManageContractStatus(
-  user: Pick<User, "role" | "roles" | "effective_section_access"> | null | undefined
-): boolean {
-  if (!hasRole(user, "admin", "delivery_lead", "talent_community_manager")) {
-    return false
-  }
-  return hasRole(user, "talent_community_manager")
-    ? hasSectionAccess(user, "delivery", "read")
-    : hasSectionAccess(user, "delivery", "write")
-}
-
 /**
- * Stawki i obsada zamówienia wielo-konsultantowego: Admin globalnie, Delivery
- * Lead tylko w finansowym portfelu konkretnego klienta. Backend pozostaje
- * ostatecznym arbitrem, a stary cache bez `finance_client_ids` fail-closed.
- */
-export function canManageMultiConsultantOrders(
-  user:
-    | Pick<
-        User,
-        "role" | "roles" | "analytics_capabilities" | "capabilities" | "data_scope"
-      >
-    | null
-    | undefined,
-  clientId: number
-): boolean {
-  if (hasRole(user, "admin")) return true
-  return hasRole(user, "delivery_lead") && canViewClientFinance(user, clientId)
-}
-
-/**
- * Edycja KWOT linii zamówienia MD/kosztowego (stawki i ich waluty).
+ * Lista statusu kontraktu, „Zakończ współpracę” i „Zakończ projekt”:
+ * uprawnienie „Zakończenie współpracy, zmiana statusu kontraktu” (domyślnie
+ * Delivery Lead i TCM). Pozostałe pola kontraktu, dokumenty i kwoty mają
+ * własne bramki.
  *
- * Szersza niż `canManageMultiConsultantOrders` o Finanse z `manage_finance`
- * (decyzja 22.09.2026; audyt 24.09.2026, S11): backend wpuszcza ich na PATCH
- * linii, ale wyłącznie z polami kwot (`finance_amounts_only` na resztę) —
- * reszta obsady (osoba, budżet MD, daty, zamiana) zostaje przy admin/DL.
+ * Sufit sekcji to dziś zapis dla każdego: osobny wyjątek „TCM zmienia status
+ * przy samym odczycie Delivery” zniknął w 0409 — z uprawnienia wynika zapis.
  */
-export function canEditOrderLineAmounts(
-  user:
-    | Pick<
-        User,
-        "role" | "roles" | "analytics_capabilities" | "capabilities" | "data_scope"
-      >
-    | null
-    | undefined,
-  clientId: number
+export function canManageContractStatus(
+  user: PermissionGateUser | null | undefined
 ): boolean {
-  if (canManageMultiConsultantOrders(user, clientId)) return true
   return (
-    hasRole(user, "finance") && hasAnalyticsCapability(user, "manage_finance")
+    hasPermission(user, "contract_status") &&
+    hasSectionAccess(user, "delivery", "write")
   )
 }
 
 /**
- * Kwoty JEDNEGO klienta: przychód, marża, stawki (profil klienta + zakładka
- * Analityka, zasilana przez `/api/my-clients/{id}/dashboard`).
+ * Stawki i obsada zamówienia wielo-konsultantowego („Nowe zamówienie”, edycja
+ * zamówienia i linii, przypisanie do zamówienia): uprawnienie „Kontrakty
+ * i zamówienia: tworzenie i edycja” u klienta z zakresu konta ORAZ podgląd
+ * kwot tego klienta — formularze niosą stawki i PDF, a backend odmawia ich
+ * bez podglądu kwot (`can_write_order_amounts`, `order_amounts_denied`).
+ *
+ * Kto ma samą zmianę kwot (bez edycji zamówień), dostaje wyłącznie tryb
+ * „Edytuj stawki” — `canEditOrderLineAmounts`.
+ */
+export function canManageMultiConsultantOrders(
+  user: PermissionGateUser | null | undefined,
+  clientId: number
+): boolean {
+  return (
+    hasPermission(user, "contracts_orders_edit") &&
+    isClientInAssignedScope(user, clientId) &&
+    canViewClientFinance(user, clientId)
+  )
+}
+
+/**
+ * Edycja KWOT linii zamówienia MD/kosztowego (stawki i ich waluty) — lustro
+ * `can_write_order_amounts` (`api/financial_access.py`): „Stawki i kwoty:
+ * zmiana” u klienta z zakresu konta albo prowadzenie zamówień razem
+ * z podglądem kwot tego klienta.
+ *
+ * Szersza niż `canManageMultiConsultantOrders` o osoby z samą zmianą kwot
+ * (audyt 24.09.2026, S11): backend wpuszcza je na PATCH linii, ale wyłącznie
+ * z polami kwot (`finance_amounts_only` na resztę) — osoba, budżet MD, daty
+ * i zamiana wymagają edycji zamówień.
+ */
+export function canEditOrderLineAmounts(
+  user: PermissionGateUser | null | undefined,
+  clientId: number
+): boolean {
+  if (
+    hasPermission(user, "amounts_edit") &&
+    isClientInAssignedScope(user, clientId)
+  ) {
+    return true
+  }
+  return (
+    hasPermission(user, "contracts_orders_edit") &&
+    canViewClientFinance(user, clientId)
+  )
+}
+
+/**
+ * Kwoty JEDNEGO klienta: przychód, marża, stawki (profil klienta, zakładka
+ * Analityka, kontrakty, zamówienia).
  *
  * Lustro backendowego `can_read_client_finance` (`api/financial_access.py`):
- * capability `view_finance` ALBO Delivery Lead w finansowej granicy WŁASNEGO
- * portfela. Operacyjne `allowed_client_ids` obejmują teraz wszystkich klientów,
- * dlatego kwoty muszą korzystać z osobnego `finance_client_ids`.
+ * capability `view_finance` („Moduł Finanse”) ALBO uprawnienie „Stawki
+ * i kwoty: podgląd” u klienta z zakresu konta. Operacyjne `allowed_client_ids`
+ * Delivery Leada obejmują wszystkich klientów, dlatego kwoty korzystają
+ * z osobnego `finance_client_ids` (`isClientInAssignedScope`).
  *
- * Dlaczego nie sam `hasRole(user, "delivery_lead")`: również hybryda HoR/TCM
- * + Delivery Lead musi mieć `delivery_clients` z konkretną listą finansową.
+ * Granicą jest portfel, nie rola: także hybryda HoR/TCM + Delivery Lead widzi
+ * kwoty wyłącznie u klientów z przypisania, a posiadacz uprawnienia bez roli
+ * Delivery Leada — u wszystkich.
  *
- * Fail-closed: brak `data_scope` (stary cache localStorage) = false.
+ * Fail-closed: konto z rolą Delivery Leada bez `data_scope` (stary cache
+ * localStorage) nie widzi kwot żadnego klienta.
  */
 export function canViewClientFinance(
-  user:
-    | Pick<
-        User,
-        "role" | "roles" | "analytics_capabilities" | "capabilities" | "data_scope"
-      >
-    | null
-    | undefined,
+  user: PermissionGateUser | null | undefined,
   clientId: number
 ): boolean {
   if (!user) return false
   if (hasAnalyticsCapability(user, "view_finance")) return true
-  const scope = user.data_scope
-  if (!scope || scope.kind !== "delivery_clients") return false
-  return (scope.finance_client_ids ?? []).includes(clientId)
+  return (
+    hasPermission(user, "amounts_view") &&
+    isClientInAssignedScope(user, clientId)
+  )
 }
 
 // ── Store ───────────────────────────────────────────────────────────────────

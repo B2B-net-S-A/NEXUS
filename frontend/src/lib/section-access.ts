@@ -268,6 +268,13 @@ export function canMutateSection(
   return !isImpersonating && hasSectionAccess(user, section, "write");
 }
 
+/**
+ * Role z dostępem do sekcji według macierzy STARTOWEJ — wyłącznie zapasowa
+ * lista dla middleware (stary token bez claimu `sa`). Menu i rejestr
+ * capability z niej NIE korzystają: Delivery i Finanse wynikają z uprawnień,
+ * które administrator przełącza per rola i per osoba (`lib/permissions.ts`),
+ * więc lista ról przestała mówić, kto te sekcje naprawdę ma.
+ */
 export function rolesWithSectionAccess(
   section: ProductSection,
   required: Exclude<SectionAccess, "none"> = "read",

@@ -1,7 +1,11 @@
 import { getUserRoles, type UserRole } from "@/store/auth";
 import {
+  hasPermission,
+  type Permission,
+  type PermissionUser,
+} from "@/lib/permissions";
+import {
   hasSectionAccess,
-  rolesWithSectionAccess,
   type ProductSection,
   type SectionAccess,
   type SectionUser,
@@ -22,15 +26,23 @@ import {
  * `deps.py` ani middleware — to defense in depth, nie zamek.
  *
  * Zasady utrzymania:
- *  • każdy wpis odwzorowuje KONKRETNY guard backendu (komentarz obok),
+ *  • każdy wpis odwzorowuje KONKRETNĄ bramkę backendu (komentarz obok): jedno
+ *    z dziewięciu uprawnień z ekranu Ustawienia → Zespół i dostęp → Osoby
+ *    i role (`CAPABILITY_PERMISSIONS`) albo strażnika rolowego
+ *    (`CAPABILITY_ROLES`),
  *  • hierarchia rang (`hasMinRole`) NIE jest tu używana — `head_of_recruitment`
  *    ma rangę wyższą od DL/TAC, a mimo to nie ma części ich uprawnień,
  *  • macierz jest domknięta na WSZYSTKIE role (`user`, `head_of_recruitment`
  *    włącznie) — test `capabilities.test.ts` to pilnuje.
  */
 
-/** Minimalny kształt usera potrzebny do decyzji — zgodny ze store'em auth. */
-export type CapabilityUser = SectionUser;
+/**
+ * Minimalny kształt usera potrzebny do decyzji — zgodny ze store'em auth.
+ * `effective_action_access` niesie uprawnienia z `GET /api/auth/me`; profil
+ * bez niego liczy się z domyślnych uprawnień ról (`lib/permissions.ts`).
+ */
+export type CapabilityUser = SectionUser &
+  Pick<PermissionUser, "effective_action_access">;
 
 export type Capability =
   // ── Akcje tworzenia ────────────────────────────────────────────────────────
@@ -99,10 +111,17 @@ const RECRUITER_PLUS: readonly UserRole[] = [
 ];
 
 /**
- * Pełna redakcja rekrutacji — lustro `JOB_FULL_EDIT_ROLES`
- * (backend/app/api/recruitment_access.py). Do 23.09.2026 lustro `TacPlus`.
+ * Pełną redakcję rekrutacji daje uprawnienie „Rekrutacje: zakładanie,
+ * zamykanie, wysyłka CV do klienta”, a obok niego — z tytułu ROLI — TAC:
+ * lustro `JOB_FULL_EDIT_LEGACY_ROLES` (backend/app/api/recruitment_access.py).
  */
-const JOB_FULL_EDITORS: readonly UserRole[] = ["admin", "delivery_lead", "tac"];
+const JOB_FULL_EDIT_LEGACY_ROLES: readonly UserRole[] = ["tac"];
+
+/**
+ * O capability rozstrzyga uprawnienie z ekranu (`CAPABILITY_PERMISSIONS`),
+ * więc żadna rola nie ma jej z samego tytułu roli.
+ */
+const BY_PERMISSION_ONLY: readonly UserRole[] = [];
 
 /**
  * KAŻDA zalogowana rola — dla powierzchni otwartych z decyzji produktowej
@@ -121,9 +140,13 @@ const ALL_ROLES: readonly UserRole[] = [
   "user",
 ];
 
-const DELIVERY_READ = rolesWithSectionAccess("delivery");
-const DELIVERY_TAC_WRITERS: readonly UserRole[] = ["admin", "delivery_lead"];
-
+/**
+ * Role, które mają capability Z TYTUŁU ROLI — lustra strażników rolowych
+ * backendu. Od 0409 capability, o której rozstrzyga uprawnienie z ekranu
+ * Osoby i role, ma tu PUSTĄ listę: jej posiadaczy wyznacza
+ * `CAPABILITY_PERMISSIONS` (administrator przełącza je per rola i per osoba,
+ * więc lista ról przestała być prawdą). Nie kopiuj takiej listy jako danych.
+ */
 export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // POST /api/candidates → RecruiterPlus (backend/app/api/candidates.py)
   "candidate.create": RECRUITER_PLUS,
@@ -133,43 +156,20 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // profilu kandydata — dotąd profil liczył je z sekcji (`canMutateSection`),
   // a backend z roli, i te dwie listy się rozjeżdżały.
   "candidate.write": RECRUITER_PLUS,
-  // Nowa rekrutacja powstaje WYŁĄCZNIE na stronie `/jobs/new` (22.09.2026):
-  // odczyt requestu (`POST /api/job-intake/read`), zapis Championa i handoff
-  // to `DeliveryLeadPlus` (backend/app/api/job_request_intake.py). TAC bez
-  // roli DL przechodził `POST /api/jobs`, ale strona odsyłała go na listę —
-  // przycisk „Nowa rekrutacja" i skróty `j` / ⌘⇧J prowadziły donikąd (audyt
-  // ról 22.09, U4). Decyzja Artura 22.09: rekrutacje zakłada admin i DL.
-  "job.create": ["admin", "delivery_lead"],
-  // PATCH /api/jobs/{id} → poziom `full` (recruitment_access.job_edit_level) — PEŁNA edycja
-  // (klient, budżet, właściciele, HM, termin, cykl życia). Od 22.09.2026
-  // rekruter prowadzący i współpracownicy edytują TREŚĆ swojej rekrutacji
-  // (opis, ogłoszenia, Champion) — o tym decyduje per rekrutacja pole
-  // `can_edit` z `GET /api/jobs/{id}` (`lib/job-edit-access.ts`), nie ta
-  // capability. HoR nadal poza: inline-edycja pól oferty dostałaby 403.
-  "job.update": JOB_FULL_EDITORS,
-  // POST /api/clients → DeliveryLeadPlus + the Delivery section write gate.
-  "client.create": DELIVERY_TAC_WRITERS,
-  // PATCH /api/clients/{id} → DeliveryLeadPlus + the Delivery section write
-  // gate. Bez tej
-  // bramki nie-TAC widział "Edytuj", wypełniał formularz i dostawał 403 na
-  // zapisie — czytało się jak "zapis nie działa".
-  "client.update": DELIVERY_TAC_WRITERS,
-  // PUT/POST confirm/DELETE /api/clients/{id}/cv-rule → DeliveryLeadPlus
-  // (backend/app/api/client_cv_rules.py). Decyzja produktowa 02.09.2026:
-  // reguły CV prowadzi Delivery Lead, TAC ich nie zmienia — choć kartę
-  // klienta (`client.update`) edytować może. Bramka przycisków na
-  // /settings/cv-rules i sekcji „Reguły CV" w oknie edycji firmy.
-  "cv_rule.manage": ["admin", "delivery_lead"],
-  // PUT /api/clients/{id}/playbook + GET …/playbook/history → DeliverySectionUser
-  // (backend/app/api/client_playbooks.py): zapis w sekcji Delivery. Kartę
-  // prowadzi DL; odczyt ma każdy OperationalUser — bramkujemy tylko przycisk
-  // „Edytuj kartę" i CTA „Załóż kartę".
-  "client_playbook.manage": ["admin", "delivery_lead"],
-  // POST /api/contracts → DeliveryLeadPlus + the Delivery section write gate.
-  "contract.create": DELIVERY_TAC_WRITERS,
-  // POST /api/clients/{id}/contacts → ClientAccess.can_edit_contacts =
-  // ADMIN_LIKE_ROLES ∪ CLIENT_TEAM_ROLES (backend/app/services/client_access.py)
-  "contact.create": DELIVERY_TAC_WRITERS,
+  // → uprawnienie `recruitment_manage` (`CAPABILITY_PERMISSIONS`).
+  "job.create": BY_PERMISSION_ONLY,
+  // → uprawnienie `recruitment_manage` ALBO rola TAC (gałąź legacy
+  // `job_edit_level`: funkcji TAC nie używamy, ale konta zostają).
+  "job.update": JOB_FULL_EDIT_LEGACY_ROLES,
+  // → uprawnienie `clients_edit`.
+  "client.create": BY_PERMISSION_ONLY,
+  "client.update": BY_PERMISSION_ONLY,
+  "cv_rule.manage": BY_PERMISSION_ONLY,
+  "client_playbook.manage": BY_PERMISSION_ONLY,
+  // → uprawnienie `contracts_orders_edit`.
+  "contract.create": BY_PERMISSION_ONLY,
+  // → uprawnienie `clients_edit`.
+  "contact.create": BY_PERMISSION_ONLY,
   // POST /api/calendar/events → CalendarWriteAccess = CALENDAR_WRITE_ROLES
   // (backend/app/api/recruitment_access.py) — parytet z RecruiterPlus.
   "calendar_event.create": RECRUITER_PLUS,
@@ -218,18 +218,14 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // na CurrentUser, middleware bez wpisu (= brak zawężenia).
   "nav.talent_radar": ALL_ROLES,
   "nav.sourcing": OPERATIONAL,
-  "nav.clients": DELIVERY_READ,
-  "nav.my_clients": DELIVERY_READ,
-  "nav.order_mail": DELIVERY_READ,
-  "nav.my_relationships": DELIVERY_READ,
-  // Odczyt kontraktów jest szerszy niż `contract.create`: Finance ma pełny
-  // business-read, ale nie dziedziczy przez to mutacji z `JOB_FULL_EDITORS`.
-  "nav.contracts": DELIVERY_READ,
-  // /api/finance/* → FinanceModuleUser = require_roles(admin, finance)
-  // (backend/app/api/deps.py). Rola `finance` jest WYŁĄCZNA (CHECK
-  // ck_users_exclusive_finance_viewer_roles), więc to dwie rozłączne
-  // publiczności, a nie suma uprawnień.
-  "nav.finance": ["admin", "finance"],
+  // Klienci, kontrakty, zamówienia → uprawnienie `delivery_view`.
+  "nav.clients": BY_PERMISSION_ONLY,
+  "nav.my_clients": BY_PERMISSION_ONLY,
+  "nav.order_mail": BY_PERMISSION_ONLY,
+  "nav.my_relationships": BY_PERMISSION_ONLY,
+  "nav.contracts": BY_PERMISSION_ONLY,
+  // → uprawnienie `finance_module`.
+  "nav.finance": BY_PERMISSION_ONLY,
   // Praktykant (0374) ma WYŁĄCZNIE „Telefony na dziś” — trasy praktykanta
   // `/api/trainee/today|items/*` przyjmują tylko rolę `trainee` (własna
   // lista). Rola jest wyłączna, więc nie dziedziczy niczego z pozostałych
@@ -240,15 +236,66 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "nav.trainees": ["admin", "head_of_recruitment"],
 };
 
+/**
+ * Capability, o której rozstrzyga jedno z dziewięciu uprawnień z ekranu
+ * Ustawienia → Zespół i dostęp → Osoby i role. Przycisk pojawia się dokładnie
+ * wtedy, gdy trasa przyjmie kliknięcie — kto by tego uprawnienia nie miał
+ * (rekruter z nadanym uprawnieniem widzi akcję, Delivery Lead z wyłączonym —
+ * nie). Zakres klientów (portfel Delivery Leada) zostaje przy bramkach z
+ * `clientId`, np. `canViewClientFinance`.
+ */
+export const CAPABILITY_PERMISSIONS: Partial<Record<Capability, Permission>> = {
+  // Nowa rekrutacja powstaje WYŁĄCZNIE na stronie `/jobs/new` (22.09.2026):
+  // odczyt requestu (`POST /api/job-intake/read`), zapis Championa i handoff
+  // to `RecruitmentManageUser` (backend/app/api/job_request_intake.py).
+  "job.create": "recruitment_manage",
+  // PATCH /api/jobs/{id} → poziom `full` (recruitment_access.job_edit_level) —
+  // PEŁNA edycja (klient, budżet, właściciele, HM, termin, cykl życia). Od
+  // 22.09.2026 rekruter prowadzący i współpracownicy edytują TREŚĆ swojej
+  // rekrutacji (opis, ogłoszenia, Champion) — o tym decyduje per rekrutacja
+  // pole `can_edit` z `GET /api/jobs/{id}` (`lib/job-edit-access.ts`), nie ta
+  // capability. HoR nadal poza: inline-edycja pól oferty dostałaby 403.
+  "job.update": "recruitment_manage",
+  // POST /api/clients, PATCH /api/clients/{id} → ClientsEditUser. Bez tej
+  // bramki osoba bez uprawnienia widziała „Edytuj", wypełniała formularz
+  // i dostawała 403 na zapisie — czytało się jak „zapis nie działa".
+  "client.create": "clients_edit",
+  "client.update": "clients_edit",
+  // Reguły CV, karta klienta i kontakty → `ClientAccess` (`can_edit_*` =
+  // „Klienci: dodawanie i edycja” w zakresie konta,
+  // backend/app/services/client_access.py). Bramka przycisków na
+  // /settings/cv-rules, „Edytuj kartę" / „Załóż kartę" i zapisu kontaktów.
+  "cv_rule.manage": "clients_edit",
+  "client_playbook.manage": "clients_edit",
+  "contact.create": "clients_edit",
+  // POST /api/contracts → ContractsOrdersEditUser. Od 0409 także Finanse
+  // (decyzja Artura 02.10.2026).
+  "contract.create": "contracts_orders_edit",
+  // Nawigacja Delivery: sekcja Delivery wynika z uprawnień, a jej odczyt to
+  // „Klienci, kontrakty i zamówienia: podgląd”. Odczyt jest szerszy niż
+  // `contract.create` — TCM i Finanse czytają, zanim cokolwiek zmienią.
+  "nav.clients": "delivery_view",
+  "nav.my_clients": "delivery_view",
+  "nav.order_mail": "delivery_view",
+  "nav.my_relationships": "delivery_view",
+  "nav.contracts": "delivery_view",
+  // /api/finance/* → FinanceModuleUser = „Moduł Finanse”
+  // (backend/app/api/deps.py).
+  "nav.finance": "finance_module",
+};
+
 type SectionRequirement = {
   section: ProductSection;
   required: Exclude<SectionAccess, "none">;
 };
 
 /**
- * Section access is a ceiling over the existing action-specific role rules.
- * A per-user exception may open the section, but it never silently turns a
- * recruiter into a Delivery Lead or grants an admin-only operation.
+ * Sekcja jest sufitem nad uprawnieniem albo rolą — lustro bramki sekcji na
+ * routerze. Wyjątek osoby może otworzyć Sourcing, Pipeline albo Insights, ale
+ * nie zrobi z rekrutera posiadacza capability (decyduje lista ról albo
+ * uprawnienie). Delivery i Finanse wynikają z uprawnień, więc przy świeżym
+ * profilu ich wymóg jest spełniony z definicji; zostaje dla starego wyjątku
+ * osoby, który te sekcje już tylko ogranicza (trasa odmówiłaby wtedy zapisu).
  */
 const CAPABILITY_SECTION_REQUIREMENTS: Partial<
   Record<Capability, SectionRequirement>
@@ -306,17 +353,34 @@ export const MUTATING_CAPABILITIES: ReadonlySet<Capability> = new Set([
 ]);
 
 /**
+ * Czy konto ma tytuł do capability — uprawnienie z `CAPABILITY_PERMISSIONS`
+ * ALBO rolę z `CAPABILITY_ROLES` (multi-role: primary `role` ∪ secondary
+ * `roles`) — BEZ sufitu sekcji. Dla wołających, którzy sufit liczą osobno
+ * (np. razem z trybem „podgląd jako”); przyciski pytają `hasCapability`.
+ */
+export function holdsCapabilityGrant(
+  user: CapabilityUser | null | undefined,
+  capability: Capability,
+): boolean {
+  if (!user) return false;
+  const permission = CAPABILITY_PERMISSIONS[capability];
+  const roles = CAPABILITY_ROLES[capability] ?? [];
+  return (
+    (permission !== undefined && hasPermission(user, permission)) ||
+    getUserRoles(user).some((role) => roles.includes(role))
+  );
+}
+
+/**
  * Czy user ma daną capability. Fail-closed: brak usera = brak uprawnień.
- * Multi-role aware — sprawdza primary `role` ∪ secondary `roles`.
+ * Tytuł (`holdsCapabilityGrant`: uprawnienie albo rola), a nad nim sufit
+ * sekcji.
  */
 export function hasCapability(
   user: CapabilityUser | null | undefined,
   capability: Capability,
 ): boolean {
-  if (!user) return false;
-  const allowed = CAPABILITY_ROLES[capability];
-  if (!allowed) return false;
-  if (!getUserRoles(user).some((role) => allowed.includes(role))) return false;
+  if (!holdsCapabilityGrant(user, capability)) return false;
   const requirement = CAPABILITY_SECTION_REQUIREMENTS[capability];
   return (
     !requirement ||
