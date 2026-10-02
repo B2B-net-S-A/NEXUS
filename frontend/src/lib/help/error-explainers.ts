@@ -54,8 +54,8 @@ export const ERROR_EXPLAINERS: Readonly<Record<string, ErrorExplainer>> = {
     text: `Masz uprawnienie „${permissionLabel("amounts_edit")}”, ale inne pola kontraktu i zamówienia wymagają uprawnienia „${permissionLabel("contracts_orders_edit")}”. Zmień wyłącznie kwoty albo poproś o resztę osobę, która je ma.`,
   },
   finance_fields_forbidden: {
-    title: "Brakuje uprawnienia do zmiany kwot",
-    text: `Stawki i kwoty zmienia osoba z uprawnieniem „${permissionLabel("amounts_edit")}”. Zapisz pozostałe pola bez kwot albo poproś administratora o to uprawnienie (${PERMISSIONS_SCREEN}).`,
+    title: "Brakuje uprawnienia do stawek i kwot",
+    text: `Kwoty zapisuje osoba z uprawnieniem „${permissionLabel("amounts_edit")}”, a w zamówieniach także ta, która prowadzi zamówienia i ma „${permissionLabel("amounts_view")}”. Zapisz pozostałe pola bez kwot albo poproś administratora o brakujące uprawnienie (${PERMISSIONS_SCREEN}).`,
   },
   b2b_end_date_requires_termination: {
     title: "Umowa B2B jest bezterminowa",

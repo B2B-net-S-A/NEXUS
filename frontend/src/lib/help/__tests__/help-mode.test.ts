@@ -163,9 +163,13 @@ describe("wyjaśnienia odmów", () => {
       const { title, text } = ERROR_EXPLAINERS[code];
       expect(`${title} ${text}`, code).not.toMatch(/Finans/);
     }
-    expect(ERROR_EXPLAINERS.finance_fields_forbidden.text).toContain(
-      permissionLabel("amounts_edit"),
-    );
+    // Kwoty zamówienia zapisuje też osoba prowadząca zamówienia, która widzi
+    // kwoty (`can_write_order_amounts`) — odmowa bywa wtedy o podgląd.
+    for (const permission of ["amounts_edit", "amounts_view"] as const) {
+      expect(ERROR_EXPLAINERS.finance_fields_forbidden.text).toContain(
+        permissionLabel(permission),
+      );
+    }
     expect(ERROR_EXPLAINERS.finance_amounts_only.text).toContain(
       permissionLabel("contracts_orders_edit"),
     );

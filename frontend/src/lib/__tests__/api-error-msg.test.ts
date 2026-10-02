@@ -140,6 +140,23 @@ describe("extractErrorMsg — odmowy dostępu (403)", () => {
     expect(apiErrorMessage(error, "Nie udało się zapisać")).toBe(expected);
   });
 
+  it("section_access_denied z `message` serwera (zapis w Delivery) pokazuje zdanie serwera", () => {
+    // Bramka sekcji Delivery dokłada własne zdanie — wygrywa z lokalnym.
+    const message =
+      "Do tej operacji potrzebujesz uprawnienia do zmian w klientach, kontraktach albo zamówieniach. Poproś administratora o dostęp.";
+    const error = axiosErrorWith(403, {
+      detail: {
+        code: "section_access_denied",
+        section: "delivery",
+        required: "write",
+        granted: "read",
+        message,
+      },
+    });
+    expect(extractErrorMsg(error)).toBe(message);
+    expect(apiErrorMessage(error, "Nie udało się zapisać")).toBe(message);
+  });
+
   it.each([
     [
       "generator umów B2B",
