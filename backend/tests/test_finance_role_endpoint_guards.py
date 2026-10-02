@@ -765,20 +765,56 @@ def test_finance_reads_client_overview_and_hiring_manager_reports():
     )
 
 
-def test_finance_reads_settings_audit_surfaces_without_gaining_mutations():
+def _with_permissions(user: User, *permissions: str) -> User:
+    """Konto z dołączoną polityką: uprawnienia z ekranu i wynikające z nich sekcje."""
+
+    from app.services import permission_catalog as catalog
+
+    held = catalog.close(permissions)
+    user.effective_action_access = {key: "manage" for key in held}
+    user.effective_section_access = catalog.derive_sections(held)
+    return user
+
+
+def test_finance_reads_global_chats_without_gaining_mutations():
     assert (
         _current_user_annotation(admin_chats.global_chats)
         == admin_chats.GlobalChatsReadUser
     )
-    for endpoint in (
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
         admin_client_portfolio.preview_client_portfolio_import,
         admin_client_portfolio.list_client_portfolio_import_runs,
         admin_client_portfolio.get_client_portfolio_import_run,
+    ],
+)
+async def test_client_portfolio_audit_follows_the_finance_module_permission(endpoint):
+    """Audyt importu portfela czyta posiadacz „Modułu Finanse”, nie lista ról."""
+
+    gate = _annotated_dependency(get_type_hints(endpoint, include_extras=True)["_user"])
+
+    for holder in (
+        _user(UserRole.admin),
+        _user(UserRole.finance),
+        # Uprawnienie nadane osobie spoza domyślnych ról.
+        _with_permissions(_user(UserRole.recruiter), "finance_module"),
     ):
-        assert (
-            get_type_hints(endpoint, include_extras=True)["_user"]
-            == admin_client_portfolio.ClientPortfolioReadUser
-        )
+        assert await gate(holder) is holder
+
+    for outsider in (
+        _user(UserRole.delivery_lead),
+        _user(UserRole.head_of_recruitment),
+        # Rola Finanse z wyłączonym przełącznikiem „Moduł Finanse”.
+        _with_permissions(_user(UserRole.finance), "delivery_view"),
+    ):
+        with pytest.raises(HTTPException) as denied:
+            await gate(outsider)
+        assert denied.value.status_code == 403
+        assert denied.value.detail["code"] == "permission_denied"
+        assert denied.value.detail["permission"] == "finance_module"
 
 
 def test_order_safe_gets_and_rate_bearing_documents_use_distinct_readers():

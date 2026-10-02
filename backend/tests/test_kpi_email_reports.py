@@ -206,10 +206,44 @@ async def test_monthly_report_on_first_business_day(
     }
 
 
+def _with_policy(role: UserRole, *permissions: str, insights: str = "read") -> User:
+    """Konto z dołączoną polityką — uprawnienia z ekranu i wynikające z nich sekcje."""
+    from app.services import permission_catalog as catalog
+
+    user = User(
+        id=random.randint(1, 10**6),
+        email=f"kpi-board-{role.value}-{uuid.uuid4().hex[:8]}@example.com",
+        name=role.value,
+        role=role,
+        roles=[role.value],
+        is_active=True,
+    )
+    held = catalog.close(permissions)
+    user.effective_action_access = {key: "manage" for key in held}
+    user.effective_section_access = {
+        **catalog.derive_sections(held),
+        "insights": insights,
+    }
+    return user
+
+
 def test_board_report_never_goes_to_head_of_recruitment() -> None:
-    """Mail zarządu niesie przychód i marżę — HoR ich nie widzi (24.09.2026)."""
-    assert UserRole.head_of_recruitment not in reports._BOARD_ROLES
-    assert set(reports._BOARD_ROLES) == {UserRole.admin, UserRole.finance}
+    """Mail zarządu niesie przychód i marżę — HoR ich nie widzi (24.09.2026).
+
+    Odbiorców wyznacza uprawnienie „Moduł Finanse”, nie lista ról: sama rola
+    Head of Recruitment (z pełnym Insights) nie wystarcza, a konto, któremu
+    admin nadał to uprawnienie, raport dostaje.
+    """
+    finance = _with_policy(UserRole.finance, "finance_module")
+    hor = _with_policy(UserRole.head_of_recruitment, insights="write")
+    hor_with_grant = _with_policy(
+        UserRole.head_of_recruitment, "finance_module", insights="write"
+    )
+
+    assert reports._board_readers([finance, hor, hor_with_grant]) == [
+        finance,
+        hor_with_grant,
+    ]
 
 
 # ── Runda 7 (R7-N5-2): otwarty bezpiecznik nie gubi raportu ─────────────────

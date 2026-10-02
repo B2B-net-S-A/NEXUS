@@ -3,9 +3,10 @@
 Następca `GET /api/reports/board`, usuniętego 15.09.2026 (liczył powtórne
 zatrudnienia z surowych wierszy etapów i nie miał już konsumenta — audyt
 statystyk 14.09). Numery linii `reports.py` niżej opisują kod sprzed usunięcia.
-Dostęp: kokpit z kwotami — admin · finance (``BoardReader``); tabele
-rok-do-roku — także Head of Recruitment, ale bez metryk pieniężnych
-(``BoardTrendReader``, decyzja Artura 24.09.2026: HoR nie widzi pieniędzy).
+Dostęp: kokpit z kwotami — uprawnienie „Moduł Finanse” (``BoardReader``;
+domyślnie admin i Finanse); tabele rok-do-roku — także Head of Recruitment,
+ale bez metryk pieniężnych (``BoardTrendReader``, decyzja Artura 24.09.2026:
+HoR nie widzi pieniędzy).
 
 Sześć defektów oryginału, których ten moduł NIE portuje:
 
@@ -93,7 +94,7 @@ from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.models.user import UserRole
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.insights_board_yoy import (
     DEFAULT_YEARS,
     MAX_YEARS,
@@ -148,9 +149,9 @@ async def insights_board(
 ):
     """Kokpit zarządu dla okna [start, end).
 
-    Widok Firma: tylko admin · finance (``BoardReader``, decyzja Artura
-    24.09.2026 — Head of Recruitment nie widzi pieniędzy). Kwoty NIE są
-    redagowane. Nie zastępuj tego guardu
+    Widok Firma: tylko uprawnienie „Moduł Finanse” (``BoardReader``; domyślnie
+    admin i Finanse — decyzja Artura 24.09.2026: Head of Recruitment nie
+    widzi pieniędzy). Kwoty NIE są redagowane. Nie zastępuj tego guardu
     capability — `VIEW_FINANCE` steruje 40+ innymi powierzchniami
     (`app/analytics/capabilities.py:64-115`), a HoR go nie ma.
     """
@@ -201,9 +202,10 @@ async def insights_board_yoy(
     „ostatnie 12 miesięcy" podpisaną nazwami miesięcy, czyli dwie różne rzeczy
     pod jedną etykietą. Okno wybiera się latami.
 
-    Admin · finance · Head of Recruitment (``BoardTrendReader``). Head of
-    Recruitment dostaje odpowiedź BEZ metryk pieniężnych (decyzja Artura
-    24.09.2026) — redakcja na gotowym wyniku, cache jeden dla wszystkich.
+    „Moduł Finanse” · Head of Recruitment (``BoardTrendReader``). Kto wchodzi
+    tu rolą Head of Recruitment bez uprawnienia „Moduł Finanse”, dostaje
+    odpowiedź BEZ metryk pieniężnych (decyzja Artura 24.09.2026) — redakcja
+    na gotowym wyniku, cache jeden dla wszystkich.
     """
     resolved_years = resolve_years(end_year, years, _today_warsaw())
     # Klucz niesie LATA i dzień — bez daty siatka z wczoraj wisiałaby przez TTL
@@ -221,6 +223,6 @@ async def insights_board_yoy(
             if result is None:
                 result = await compute_board_yoy(db, resolved_years, today)
                 await cache_set(cache_key, result, ttl_seconds=YOY_CACHE_TTL_SECONDS)
-    if current_user.has_any_role(UserRole.admin, UserRole.finance):
+    if has_permission(current_user, ProductAction.finance_module):
         return result
     return without_money(result)
