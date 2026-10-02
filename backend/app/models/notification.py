@@ -205,7 +205,7 @@ class NotificationType(str, enum.Enum):
     # 0404: rano JEDEN skrót na rekrutację — „N zgłoszeń odrzuconych przez AI”
     # (poprzednie dni). Do prowadzącego rekrutację; related_entity=(job, id).
     application_screening_digest = "application_screening_digest"
-    # 0408: propozycje automatu przydziału czekają na akceptację — JEDEN wpis
+    # 0409: propozycje automatu przydziału czekają na akceptację — JEDEN wpis
     # dziennie na Head of Recruitment z aktualną liczbą; related_entity=
     # (user, id). Osoba z propozycji nie dostaje nic, dopóki ktoś jej nie
     # zaakceptuje (wtedy `request_assignment_changed`).

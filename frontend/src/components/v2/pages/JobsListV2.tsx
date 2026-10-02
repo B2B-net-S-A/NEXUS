@@ -368,6 +368,11 @@ function JobCategoryCell({ categoryId }: { categoryId?: number | null }) {
   );
 }
 
+// Laptop (tabela poniżej 1100 px): węższe odstępy w krótkich kolumnach, żeby
+// lista mieściła się w oknie 1280 px bez poziomego przewijania (pomiar
+// 02.10.2026: 11 px ponad szerokość przy rozwiniętym menu).
+const NARROW_CELL = "@max-[1099px]:px-2";
+
 /** Compact table presentation of the jobs list (alternative to the tile grid). */
 function JobsTable({
   items,
@@ -407,18 +412,18 @@ function JobsTable({
           <TableHead className="max-md:sticky max-md:left-0 max-md:z-20 max-md:bg-background">Rekrutacja</TableHead>
           <TableHead className={cn(WIDE_ONLY_CELL, "w-[180px] @min-[2400px]:w-[280px]")}>Klient</TableHead>
           <TableHead className={cn(WIDE_ONLY_CELL, "w-[160px] @min-[2400px]:w-[300px]")}>Kategoria</TableHead>
-          <TableHead className="w-[150px]">Status</TableHead>
+          <TableHead className={cn("w-[150px]", NARROW_CELL)}>Status</TableHead>
           <TableHead className="w-[244px] px-2 py-1.5" title={STAGE_COUNTS_LEGEND}>
             <span className="sr-only">Etapy</span>
             <JobStageCountsHeader />
           </TableHead>
           <TableHead className={cn(WIDE_ONLY_CELL, "w-[100px]")}>Otwarta</TableHead>
-          <TableHead className="w-[120px]">Termin</TableHead>
+          <TableHead className={cn("w-[120px]", NARROW_CELL)}>Termin</TableHead>
           {/* „Rekruter” w obu układach (02.10.2026; dawniej „Prowadzi” /
               „Zespół”). Delivery Lead stoi drobnym drukiem pod osobami —
               bez własnej kolumny. */}
-          <TableHead className="w-[120px] @min-[1700px]:w-[220px] @min-[2400px]:w-[360px]">Rekruter</TableHead>
-          <TableHead className="w-[64px]" />
+          <TableHead className={cn("w-[120px] @min-[1700px]:w-[220px] @min-[2400px]:w-[360px]", NARROW_CELL)}>Rekruter</TableHead>
+          <TableHead className={cn("w-[64px]", NARROW_CELL)} />
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -534,7 +539,7 @@ function JobsTable({
               <TableCell className={WIDE_ONLY_CELL} data-testid="job-category-cell">
                 <JobCategoryCell categoryId={job.competence_category_id} />
               </TableCell>
-              <TableCell>
+              <TableCell className={NARROW_CELL}>
                 <RequestStageBadge
                   stage={job.request_stage}
                   fallbackStatus={job.request_status}
@@ -568,14 +573,15 @@ function JobsTable({
                 {formatDate(jobOpenedDate(job))}
               </TableCell>
               <TableCell
+                className={NARROW_CELL}
                 title={job.created_at ? `Dodano ${formatDate(job.created_at)}` : undefined}
               >
                 <JobDeadlineCell deadline={job.deadline} deadlineTime={job.deadline_time} />
               </TableCell>
-              <TableCell>
+              <TableCell className={NARROW_CELL}>
                 <JobRecruiterCell job={job} />
               </TableCell>
-              <TableCell>
+              <TableCell className={NARROW_CELL}>
                 <div className="flex items-center justify-end gap-0.5">
                   {job.status === "published" && onInvite && (
                     <button

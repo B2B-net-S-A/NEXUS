@@ -1,7 +1,7 @@
 """notificationtype: ``request_allocation_proposals`` — propozycje do akceptacji.
 
-Revision ID: 0408_request_allocation_proposals
-Revises: 0407_onsite_days_per_month
+Revision ID: 0409_request_allocation_proposals
+Revises: 0408_board_task_waiting_notif
 
 Decyzja Artura 02.10.2026: automat przydziału proponuje jedną osobę do
 requestu bez obsady, a Head of Recruitment albo admin ją akceptuje, zamienia
@@ -15,8 +15,8 @@ w ``job_work_assignments``, a powody zwolnienia mieszczą się w
 
 from alembic import op
 
-revision = "0408_request_allocation_proposals"
-down_revision = "0407_onsite_days_per_month"
+revision = "0409_request_allocation_proposals"
+down_revision = "0408_board_task_waiting_notif"
 branch_labels = None
 depends_on = None
 
@@ -33,7 +33,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'request_allocation_proposals'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0408 odmawia: notifications ma wpisy request_allocation_proposals, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0409 odmawia: notifications ma wpisy request_allocation_proposals, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

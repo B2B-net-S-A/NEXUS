@@ -1,4 +1,4 @@
-"""0408: typ powiadomienia o propozycjach przydziału ma lustro w entrypoincie
+"""0409: typ powiadomienia o propozycjach przydziału ma lustro w entrypoincie
 (prod alembic bywa osierocony), a downgrade odmawia, zanim stary kod trafi na
 wpis, którego nie odczyta."""
 
@@ -10,7 +10,7 @@ from pathlib import Path
 from app.models.notification import NotificationType
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0408_request_allocation_proposals.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0409_request_allocation_proposals.py"
 
 
 def _migration_module():
@@ -23,8 +23,8 @@ def _migration_module():
 
 def test_migration_chains_after_onsite_days_per_month() -> None:
     module = _migration_module()
-    assert module.revision == "0408_request_allocation_proposals"
-    assert module.down_revision == "0407_onsite_days_per_month"
+    assert module.revision == "0409_request_allocation_proposals"
+    assert module.down_revision == "0408_board_task_waiting_notif"
 
 
 def test_entrypoint_adds_the_same_enum_value_as_the_migration() -> None:
@@ -51,7 +51,7 @@ def test_downgrade_only_refuses_when_such_notifications_exist(monkeypatch) -> No
     module.downgrade()
     assert executed == [module.REFUSE_WITH_LIVE_ROWS]
     guard = executed[0]
-    assert "RAISE EXCEPTION 'Downgrade 0408 odmawia" in guard
+    assert "RAISE EXCEPTION 'Downgrade 0409 odmawia" in guard
     assert "notification_type::text = 'request_allocation_proposals'" in guard
     # Wartość enuma zostaje (Postgres nie ma DROP VALUE) i nic nie jest kasowane.
     assert "DROP" not in guard and "DELETE" not in guard

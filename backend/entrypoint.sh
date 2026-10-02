@@ -695,7 +695,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'note_reply'",
     # 0404: dzienny skrót zgłoszeń odrzuconych przez AI (do prowadzącego).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'application_screening_digest'",
-    # 0408: propozycje automatu przydziału czekają na akceptację (do Head of Recruitment).
+    # 0409: propozycje automatu przydziału czekają na akceptację (do Head of Recruitment).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'request_allocation_proposals'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.

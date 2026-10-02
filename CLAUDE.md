@@ -3440,7 +3440,9 @@ template” → `/jobs/new?from=<id>`) prowadzi na stronę.
   szkic” kończy po Championie.
 - **„Zaproponuje automat” czyta `GET /api/job-intake/handoff-options`**
   (`automatic_enabled` = `RECRUITMENT_ALLOCATION_ENABLED`, `mode` z
-  `recruitment_allocation_state`) — rekrutacji jeszcze nie ma, więc
+  `recruitment_allocation.effective_allocation_mode` — przy wyłączonej fladze
+  `off`, inaczej zapisany tryb; ta sama funkcja liczy gotowość rekrutacji
+  i odmowę 409 w handoffie) — rekrutacji jeszcze nie ma, więc
   `…/readiness` odpada. Flaga wyłączona ALBO tryb `off` = opcja widoczna,
   ale nieaktywna ze zdaniem o administratorze (w `off` automat nikogo nie
   zaproponuje). `shadow` tylko proponuje osobę (zatwierdza Head of
@@ -4575,7 +4577,7 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
   przejrzenia, „Klient milczy” co 14 dni, w poniedziałek „Szukamy” bez pracy
   od 30 dni).
 
-## Role przy rekrutacji: Delivery Lead · Rekruter · Kategoria; propozycje automatu akceptuje Head of Recruitment (0408, 02.10.2026)
+## Role przy rekrutacji: Delivery Lead · Rekruter · Kategoria; propozycje automatu akceptuje Head of Recruitment (0409, 02.10.2026)
 
 Feedback Olafa (Head of Recruitment) i decyzje Artura 02.10.2026, makiety
 https://claude.ai/artifact/Kt5dniKtgBLdryqMfzc122. Do tej daty panel rekrutacji
@@ -4621,7 +4623,12 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   poprzednia osoba traci aktywne przypisanie (`owner_changed`), a nowa w puli
   dostaje ręczne (`manual_add`). PATCH bierze `allocation_lock` PRZED wierszem
   rekrutacji, gdy żądanie niesie `recruiter_id` — ta sama kolejność blokad co
-  `/owner` i przebieg automatu.
+  `/owner` i przebieg automatu. Ręczne „Przekaż do searchu” woła tę samą
+  funkcję po `set_work_state` — ponowne przekazanie innej osobie zastępuje
+  rekrutera, a nie dokłada drugiego.
+- **Zmiana roli na Finanse zwalnia przypisania do requestów**
+  (`finance_role_cleanup`: aktywne → `excluded`, propozycja →
+  `proposal:excluded`), razem z prowadzeniem rekrutacji i współpracą.
 - **Ponowne przypisanie przez człowieka znosi wcześniejsze ręczne zdjęcie**
   (`request_allocation.void_manual_release`: powód `manual` → `reassigned`).
   Woła je `manual_add` (pulpit, „Zmień” przy propozycji, nowy rekruter w puli)
