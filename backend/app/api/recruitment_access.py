@@ -214,9 +214,10 @@ CalendarWriteAccess = Annotated[User, Depends(require_roles(*CALENDAR_WRITE_ROLE
 # i propozycjach, a profil kandydata po cichu gubił rekrutacje, w których nie
 # byli. Odpowiedź na pytanie o zapis brzmiała „każdy może wszystko", więc
 # bramka zespołu znika także dla poleceń — zostają wyłącznie bramki RÓL
-# (zatrudnienie bez sourcera, „CV wysłane” i stawka do klienta tylko DL/admin,
-# sekcje z ``allowed_sections``). Stara rola podglądu ``user`` jest poza tym
-# zbiorem i nadal przechodzi wyłącznie przez członkostwo.
+# (zatrudnienie bez sourcera, sekcje z ``allowed_sections``) oraz „CV wysłane”
+# i stawka do klienta — od 02.10.2026 jako uprawnienie ``recruitment_manage``
+# (domyślnie DL/admin). Stara rola podglądu ``user`` jest poza tym zbiorem
+# i nadal przechodzi wyłącznie przez członkostwo.
 #
 # ``oversight_bypass=False`` zostaje: to jawnie OSOBISTE widoki („moje
 # rekrutacje” w cyklu rozmów u klienta), które mają liczyć przypisanie.

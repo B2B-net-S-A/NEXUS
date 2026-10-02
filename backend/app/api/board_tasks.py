@@ -104,8 +104,9 @@ class BoardTasksResponse(BaseModel):
     window_days: int
     dl_review_window_days: int
     # Ruch na „CV wysłane" ze stawką do klienta (u klientów spoza Nordei)
-    # wykonuje wyłącznie admin albo Delivery Lead — Head of Recruitment widzi
-    # kolejkę, ale serwer odmówiłby mu wysyłki.
+    # wykonuje wyłącznie osoba z uprawnieniem `recruitment_manage` (domyślnie
+    # admin i Delivery Lead) — Head of Recruitment widzi kolejkę, ale serwer
+    # odmówiłby mu wysyłki.
     can_send_to_client: bool
     # 0370: brak prepu, prep słaby albo bez nagrania — organizator i HoR.
     prep_attention: list[PrepAttentionRow] = []

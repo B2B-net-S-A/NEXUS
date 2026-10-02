@@ -862,7 +862,8 @@ async def _assert_cv_qc_gate(
     # Osoba już w kolejce Cpro przeszła bramkę przy wejściu do niej (albo —
     # sprzed 24.09.2026 — ręczny przegląd DZ). „✓ Wrzucone” nie liczy QC
     # drugi raz: CV Nordei to zwykle pliki Word spoza NEXUSA, a obejście ma
-    # tylko DL/admin, więc osoba od Cpro dostawałaby odmowę na zaakceptowanych.
+    # tylko osoba z uprawnieniem `recruitment_manage` (domyślnie DL/admin),
+    # więc osoba od Cpro dostawałaby odmowę na zaakceptowanych.
     if (
         target_column == "cv_sent"
         and current is not None
@@ -3411,7 +3412,8 @@ class BulkMoveRequest(BaseModel):
     stage: PipelineStage
     notes: str | None = None
     # Pipeline v4: jedna stawka do klienta dla całej paczki „CV wysłane"
-    # (poza Nordeą wymagana i tylko Delivery Lead / admin).
+    # (poza Nordeą wymagana; wysyła osoba z uprawnieniem `recruitment_manage`,
+    # domyślnie Delivery Lead i admin).
     client_rate_value: Decimal | None = Field(None, gt=0)
     client_rate_unit: RateUnit | None = None
     client_rate_currency: str | None = Field(None, max_length=3)
