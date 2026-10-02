@@ -1608,7 +1608,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  hasRole(authUser, "admin") ||
  hasRole(authUser, "delivery_lead") ||
  hasRole(authUser, "head_of_recruitment");
- // Poza Nordeą CV do klienta wysyła osoba z uprawnieniem „Rekrutacje:
+ // Poza klientem z kolejką Cpro CV wysyła osoba z uprawnieniem „Rekrutacje:
  // zakładanie, zamykanie, wysyłka CV do klienta” (lustro
  // `pipeline_move_rules.assert_client_send_allowed`) — ona dostaje pełny
  // przegląd przed wysyłką zamiast okna „Przesuń dalej”.

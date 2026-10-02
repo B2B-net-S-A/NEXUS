@@ -103,7 +103,7 @@ function board(items: { fresh?: KanbanItem[]; client?: KanbanItem[] } = {}) {
 let controls: PipelineMoveControls;
 
 interface HarnessOptions {
-  /** Klient z kolejką Cpro (Nordea) — tam wysyłka nie pyta o uprawnienie. */
+  /** Klient z kolejką Cpro — tam wysyłka nie pyta o uprawnienie. */
   cproEnabled?: boolean;
   /** Tablica tylko do odczytu, m.in. w podglądzie jako inny użytkownik. */
   readOnly?: boolean;

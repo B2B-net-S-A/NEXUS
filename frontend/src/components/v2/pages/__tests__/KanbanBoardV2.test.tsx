@@ -722,7 +722,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(moveCalls()).toHaveLength(0);
   });
 
-  it("„CV Wysłane” poza Nordeą: rekruter bez uprawnienia dostaje komunikat z jego nazwą", async () => {
+  it("„CV Wysłane” bez kolejki Cpro: rekruter bez uprawnienia dostaje komunikat z jego nazwą", async () => {
     useAuthStore.setState({ user: { id: 5, role: "recruiter", roles: ["recruiter"] } } as never);
     renderBoard(gateColumns({}));
     const menu = await openDockStageMenu();
@@ -740,7 +740,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(moveCalls()).toHaveLength(0);
   });
 
-  it("„CV Wysłane” poza Nordeą: rekruter z nadanym uprawnieniem wpisuje stawkę jak Delivery Lead", async () => {
+  it("„CV Wysłane” bez kolejki Cpro: rekruter z nadanym uprawnieniem wpisuje stawkę jak Delivery Lead", async () => {
     useAuthStore.setState({
       user: {
         id: 5,
@@ -759,7 +759,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(moveCalls()).toHaveLength(0);
   });
 
-  it("„CV Wysłane” poza Nordeą: Delivery Lead z wyłączonym uprawnieniem nie wysyła mimo roli", async () => {
+  it("„CV Wysłane” bez kolejki Cpro: Delivery Lead z wyłączonym uprawnieniem nie wysyła mimo roli", async () => {
     useAuthStore.setState({
       user: {
         id: 6,
@@ -781,7 +781,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(moveCalls()).toHaveLength(0);
   });
 
-  // Osoba z zaliczonym QC CV poza Nordeą: kto ma uprawnienie do wysyłki,
+  // Osoba z zaliczonym QC CV u klienta bez kolejki Cpro: kto ma uprawnienie do wysyłki,
   // dostaje pełny przegląd przed wysłaniem zamiast samego okna stawki.
   function qcPassedColumns() {
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;

@@ -208,8 +208,8 @@ function debriefRequiredEventId(error: unknown): number | null {
   return typeof detail.event_id === "number" ? detail.event_id : null;
 }
 
-// Pipeline v4 (23.09.2026): poza Nordeą do klienta wysyła osoba z uprawnieniem
-// „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” (lustro
+// Pipeline v4 (23.09.2026): poza klientem z kolejką Cpro CV wysyła osoba
+// z uprawnieniem „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” (lustro
 // `pipeline_move_rules.assert_client_send_allowed`) — domyślnie Delivery Lead
 // i administrator, ale o tym, kto je ma, decyduje panel „Osoby i role”.
 // Odrzucenie „przez DL” (`DL_REJECT_ROLES`) zostaje przy rolach, jak w backendzie.
@@ -610,8 +610,8 @@ export function usePipelineMove({
         return;
       }
 
-      // „CV Wysłane" poza Nordeą (Pipeline v4): wysyła osoba z uprawnieniem do
-      // prowadzenia rekrutacji, stawka wymagana.
+      // „CV Wysłane" bez kolejki Cpro (Pipeline v4): wysyła osoba z uprawnieniem
+      // do prowadzenia rekrutacji, stawka wymagana.
       if (dialog === "client_rate" && !cproEnabled) {
         if (!canSendToClient) {
           showError(CLIENT_SEND_DENIED_MESSAGE);
@@ -902,8 +902,8 @@ export function usePipelineMove({
       }
 
       // „CV Wysłane" — stawka do klienta per kandydat → kolejka modali.
-      // Poza Nordeą (Pipeline v4) tylko z uprawnieniem do prowadzenia rekrutacji
-      // i bez pomijania stawki.
+      // Bez kolejki Cpro (Pipeline v4) tylko z uprawnieniem do prowadzenia
+      // rekrutacji i bez pomijania stawki.
       if (dst.stage === "cv_sent" && !cproEnabled && !canSendToClient) {
         showError(CLIENT_SEND_DENIED_MESSAGE);
         return;
