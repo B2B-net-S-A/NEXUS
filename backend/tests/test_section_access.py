@@ -146,7 +146,7 @@ def test_requested_delivery_and_finance_matrix() -> None:
             is SectionAccess.none
         )
 
-    # Od 0408 Delivery wynika z uprawnień: TCM zmienia status kontraktu, więc
+    # Od 0409 Delivery wynika z uprawnień: TCM zmienia status kontraktu, więc
     # ma w sekcji zapis (na produkcji miał go w panelu od 03.09.2026).
     assert (
         section_access_for_roles(
@@ -217,7 +217,7 @@ async def test_tcm_status_command_honours_a_revoked_delivery_section(
 ) -> None:
     """Zmiana statusu wymaga zapisu w Delivery — także u TCM.
 
-    Do 0408 TCM miał wyjątek w bramce sekcji (status przy samym odczycie).
+    Do 0409 TCM miał wyjątek w bramce sekcji (status przy samym odczycie).
     Status jest teraz uprawnieniem, z którego wynika zapis w sekcji, więc
     wyjątek zniknął: konto z samym odczytem (np. ograniczone starym wyjątkiem
     osoby) statusu nie zmieni.

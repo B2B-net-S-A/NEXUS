@@ -9,7 +9,7 @@ The Delivery boundary is enforced on every router backing that UI section.
 It deliberately treats safe HTTP methods as read access and every other method
 as write access.
 
-Od migracji 0408 poziom Delivery i Finansów wynika z uprawnień z ekranu
+Od migracji 0409 poziom Delivery i Finansów wynika z uprawnień z ekranu
 (``permission_catalog.derive_sections``): sam podgląd daje odczyt, a każde
 uprawnienie do zmiany (klienci, kontrakty i zamówienia, status kontraktu,
 kwoty) daje zapis. Bramka sekcji jest więc sufitem, a o konkretnej operacji
@@ -75,7 +75,7 @@ def require_section_access(section: ProductSection):
         granted = section_access_for_user(current_user, section)
         # „Cofnij zakończenie” / „Powrót po przerwie” to wąski wyjątek zapisu
         # WEWNĄTRZ Delivery, nie obejście: konto bez podglądu Delivery go nie ma.
-        # (Osobny wyjątek dla zmiany statusu przez TCM zniknął w 0408 — status
+        # (Osobny wyjątek dla zmiany statusu przez TCM zniknął w 0409 — status
         # jest uprawnieniem, z którego wynika zapis w sekcji.)
         if (
             section is ProductSection.delivery

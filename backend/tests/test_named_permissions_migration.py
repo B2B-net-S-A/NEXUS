@@ -1,4 +1,4 @@
-"""0408 na prawdziwym Postgresie: CHECK, zasiew i siatka przy starcie.
+"""0409 na prawdziwym Postgresie: CHECK, zasiew i siatka przy starcie.
 
 Każdy test, który coś zmienia, robi to w transakcji wycofywanej na końcu —
 macierz uprawnień wspólnej bazy testowej zostaje nietknięta.
@@ -147,7 +147,7 @@ async def test_bootstrap_on_a_migrated_database_changes_nothing(engine, capsys) 
 
 
 async def test_bootstrap_repairs_a_database_that_missed_the_migration(engine) -> None:
-    """Bookmark Alembica bez 0408: wąski CHECK i brak wierszy."""
+    """Bookmark Alembica bez 0409: wąski CHECK i brak wierszy."""
 
     async with engine.connect() as connection:
         transaction = await connection.begin()
@@ -182,7 +182,7 @@ async def test_bootstrap_repairs_a_database_that_missed_the_migration(engine) ->
 
 
 async def test_rerunning_the_signature_migration_keeps_the_wide_check(engine) -> None:
-    """Naprawa 0282 przy starcie nie może zwęzić CHECK-a po 0408."""
+    """Naprawa 0282 przy starcie nie może zwęzić CHECK-a po 0409."""
 
     async with engine.connect() as connection:
         transaction = await connection.begin()

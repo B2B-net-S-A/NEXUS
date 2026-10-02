@@ -1,4 +1,4 @@
-"""0408: siatka dla dziewięciu uprawnień przy osieroconym bookmarku Alembica.
+"""0409: siatka dla dziewięciu uprawnień przy osieroconym bookmarku Alembica.
 
 Sprawdza, że oba CHECK-i akcji znają nowe uprawnienia i że każda rola ma
 komplet wierszy; gdy czegoś brakuje, wykonuje te same instrukcje co migracja

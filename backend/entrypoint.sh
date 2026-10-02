@@ -922,7 +922,7 @@ _COLUMN_STATEMENTS = [
     # 0273: granular action permissions. Section access remains the outer
     # ceiling; these rows distinguish register view, document generation and
     # management without granting the Finance section.
-    # CHECK akcji = `permission_schema.ACTION_CHECK_SQL` (0408: generator
+    # CHECK akcji = `permission_schema.ACTION_CHECK_SQL` (0409: generator
     # + dziewięć uprawnień z ekranu); zgodność pilnuje test migracji.
     """CREATE TABLE IF NOT EXISTS rbac_role_action_permissions (
            role VARCHAR(64) NOT NULL,
@@ -9381,7 +9381,7 @@ PY
 startup_phase "signature-policy-bootstrap"
 python -m app.services.signature_policy_bootstrap
 
-# 0408: dziewięć uprawnień z ekranu Ustawienia → Osoby i role. Siatka dla
+# 0409: dziewięć uprawnień z ekranu Ustawienia → Osoby i role. Siatka dla
 # bookmarku Alembica bez tej rewizji: szeroki CHECK akcji + komplet wierszy
 # ról (te same instrukcje co migracja, `permission_schema`). PO polityce
 # podpisu — ta przy naprawie zakłada wiersze, z których korzysta zasiew.
