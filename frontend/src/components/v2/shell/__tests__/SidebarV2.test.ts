@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { isNavItemActive, visibleNavSections } from "@/components/v2/shell/SidebarV2";
 import { visibleNavHrefs, visiblePrimaryNav } from "@/lib/nav-registry";
 import type { UserRole } from "@/store/auth";
+import { accessSnapshot } from "@/test/fixtures/access-snapshot";
 
 // Czysta funkcja zamiast renderu — sidebar ciągnie `next/navigation`,
 // react-query, `api` i `useUiStore`, a przedmiotem testu jest wyłącznie zbiór
@@ -45,8 +46,15 @@ describe("visibleNavSections", () => {
     expect(hrefs("admin")).toContain("/finance");
   });
 
-  it("respektuje indywidualne nadanie i odebranie sekcji z backendu", () => {
+  it("respektuje indywidualne nadanie uprawnienia i odebranie sekcji z backendu", () => {
+    // Od 0409 Finanse i Delivery wynikają z uprawnień z ekranu Osoby i role:
+    // wejście „Finanse” daje nadany „Moduł Finanse”, nie sam wyjątek sekcji.
     const recruiterWithFinance = visibleNavSections(
+      accessSnapshot("recruiter", { grant: ["finance_module"] }),
+      { contactQueueEnabled: false },
+    ).flatMap((section) => section.items.map((item) => item.href));
+
+    const recruiterWithSectionOnly = visibleNavSections(
       {
         role: "recruiter",
         roles: ["recruiter"],
@@ -62,6 +70,8 @@ describe("visibleNavSections", () => {
       { contactQueueEnabled: false },
     ).flatMap((section) => section.items.map((item) => item.href));
 
+    // Stary wyjątek osoby potrafi sekcję już tylko ograniczyć — i dalej chowa
+    // pozycje, choć uprawnienia roli zostają.
     const deliveryLeadWithoutDelivery = visibleNavSections(
       {
         role: "delivery_lead",
@@ -79,6 +89,7 @@ describe("visibleNavSections", () => {
     ).flatMap((section) => section.items.map((item) => item.href));
 
     expect(recruiterWithFinance).toContain("/finance");
+    expect(recruiterWithSectionOnly).not.toContain("/finance");
     expect(deliveryLeadWithoutDelivery).not.toContain("/clients");
     expect(deliveryLeadWithoutDelivery).not.toContain("/contracts");
   });
