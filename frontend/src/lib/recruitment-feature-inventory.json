@@ -807,6 +807,14 @@
    "v3_home": "Pulpit → „Czeka na Ciebie”"
   },
   {
+   "id": "board.cv-in-transit",
+   "area": "pipeline",
+   "opis": "Lista „Twoje CV w drodze” na pulpicie dla rekrutera kandydata: co wróciło (odrzucenie przez DL, cofnięcie z QC, zwrot z kolejki Cpro), co czeka w przeglądzie i co poszło do klienta; każdy ma ją domyślnie, „Usuń z pulpitu” zapisuje się na koncie, przywraca „Dodaj kafelek”",
+   "file": "components/v2/dashboard/CvInTransitSection.tsx",
+   "marker": "CvInTransitSection",
+   "v3_home": "Pulpit → „Czeka na Ciebie” / pasek „Twoje CV w drodze”"
+  },
+  {
    "id": "board.dz-review",
    "area": "pipeline",
    "opis": "Przegląd przed DZ: CV dla klienta obok oryginalnego CV i zapytania klienta, sprawdzenie must-have (w CV, pogrubione, w każdej roli z oryginału), podpowiedzi GPT-6 Luny, „Zatwierdź DZ” z okna",

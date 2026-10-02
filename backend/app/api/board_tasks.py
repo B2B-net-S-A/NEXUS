@@ -12,6 +12,7 @@ Samo wrzucenie do Cpro i zwrot do rekrutera to zwykły ruch w pipeline
 obowiązywały bez kopii.
 """
 
+from dataclasses import asdict
 from datetime import date, datetime, timezone
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
@@ -34,6 +35,7 @@ from app.services import board_tasks as svc
 from app.services import (
     candidate_followups,
     cpro_sender,
+    cv_in_transit,
     move_requirements,
     prep_attention,
 )
@@ -97,6 +99,42 @@ class PrepAttentionRow(BaseModel):
     urgent: bool = False
 
 
+class CvTransitRow(BaseModel):
+    """Wiersz listy „Twoje CV w drodze” (`services/cv_in_transit.py`)."""
+
+    kind: Literal[
+        "rejected_by_dl",
+        "sent_back",
+        "cpro_returned",
+        "in_review",
+        "cpro_queue",
+        "sent",
+    ]
+    stage_id: int
+    candidate_id: int
+    candidate_name: str
+    job_id: int
+    job_title: str
+    job_working_title: Optional[str] = None
+    client_name: Optional[str] = None
+    since: datetime
+    actor_name: Optional[str] = None
+    holder_name: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class CvInTransitBlock(BaseModel):
+    returned: list[CvTransitRow]
+    in_review: list[CvTransitRow]
+    sent: list[CvTransitRow]
+    # Liczby przed przycięciem list do `MAX_ROWS`.
+    returned_total: int
+    in_review_total: int
+    sent_total: int
+    returned_window_days: int
+    sent_window_days: int
+
+
 class BoardTasksResponse(BaseModel):
     cpro_to_send: list[BoardTaskRow]
     cpro_sent: list[BoardTaskRow]
@@ -117,6 +155,9 @@ class BoardTasksResponse(BaseModel):
     # Czy ta osoba może ustawić osobę od Cpro (admin albo DL Nordei) — front
     # pokazuje przełącznik także wtedy, gdy nie widzi żadnego zadania Cpro.
     can_set_cpro_sender: bool = False
+    # „Twoje CV w drodze” — druga strona przekazań, dla rekrutera kandydata.
+    # `None` = osoba usunęła listę z pulpitu albo liczenie się nie powiodło.
+    cv_in_transit: Optional[CvInTransitBlock] = None
 
 
 class CproSenderRead(BaseModel):
@@ -204,6 +245,9 @@ async def list_board_tasks(
         candidate_followups.others_for_user(all_followups, current_user),
         today=today,
     )
+    transit = await cv_in_transit.load_safely(
+        db, current_user, portfolio=portfolio, now=now
+    )
     dl_review = mine[svc.KIND_DL_REVIEW]
     dl_cvs = (
         await move_requirements.company_cv_refs(
@@ -233,6 +277,7 @@ async def list_board_tasks(
             UserRole.admin, UserRole.delivery_lead
         ),
         can_set_cpro_sender=await cpro_sender.can_set_sender(db, current_user),
+        cv_in_transit=_transit_block(transit),
         prep_attention=[
             PrepAttentionRow(
                 reason=a.reason,
@@ -249,6 +294,23 @@ async def list_board_tasks(
             )
             for a in preps
         ],
+    )
+
+
+def _transit_block(
+    transit: Optional[cv_in_transit.CvInTransit],
+) -> Optional[CvInTransitBlock]:
+    if transit is None:
+        return None
+    return CvInTransitBlock(
+        returned=[CvTransitRow(**asdict(r)) for r in transit.returned],
+        in_review=[CvTransitRow(**asdict(r)) for r in transit.in_review],
+        sent=[CvTransitRow(**asdict(r)) for r in transit.sent],
+        returned_total=transit.returned_total,
+        in_review_total=transit.in_review_total,
+        sent_total=transit.sent_total,
+        returned_window_days=cv_in_transit.RETURNED_WINDOW_DAYS,
+        sent_window_days=cv_in_transit.SENT_WINDOW_DAYS,
     )
 
 

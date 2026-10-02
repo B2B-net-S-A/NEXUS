@@ -28,6 +28,7 @@ import {
   USER_DASHBOARD_QUERY_KEY,
   isDashboardVersionConflict,
   useSaveUserDashboard,
+  useSetDashboardPanelHidden,
   useUserDashboard,
   type DashboardTile,
   type TileConfig,
@@ -124,6 +125,7 @@ export function CustomDashboard() {
   const queryClient = useQueryClient()
   const { showError, showSuccess } = useToast()
   const query = useUserDashboard()
+  const setPanelHidden = useSetDashboardPanelHidden()
   const save = useSaveUserDashboard()
 
   const [editing, setEditing] = useState(false)
@@ -515,6 +517,20 @@ export function CustomDashboard() {
         user={user}
         onPick={pickTemplate}
         onCustomMetric={() => pickTemplate(CUSTOM_METRIC_TEMPLATE)}
+        hiddenPanels={query.data?.hidden_panels ?? []}
+        onRestorePanel={(panel) =>
+          setPanelHidden.mutate(
+            { panel, hidden: false },
+            {
+              onSuccess: () => {
+                setCatalogOpen(false)
+                showSuccess("Lista wróciła na pulpit.")
+              },
+              onError: (error) =>
+                showError(apiErrorMessage(error, "Nie udało się przywrócić listy.")),
+            },
+          )
+        }
       />
       <TileSettingsDialog
         tile={dialog?.tile ?? null}
