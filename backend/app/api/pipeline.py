@@ -2922,6 +2922,8 @@ async def submit_stage_screening(
     Also invalidates the (candidate, *) match score cache so the next
     recommendation read recomputes `champion_fit`.
     """
+    from pydantic import ValidationError
+
     from app.schemas.champion import ScreeningAnswers
     from app.services.match_score_cache import mark_stale_for_candidate
 
@@ -2942,7 +2944,24 @@ async def submit_stage_screening(
 
     from app.services import screening_sheets
 
-    answers = ScreeningAnswers.model_validate(payload or {})
+    # Ciało przychodzi jako słownik, więc błąd schematu nie jest błędem
+    # żądania FastAPI — bez zamiany na 422 arkusz ponad limit (albo z nieznaną
+    # wartością) kończył się 500 bez komunikatu.
+    try:
+        answers = ScreeningAnswers.model_validate(payload or {})
+    except ValidationError as exc:
+        too_long = any(
+            error.get("type") in ("string_too_long", "too_long")
+            for error in exc.errors()
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Arkusz screeningu jest za długi — skróć odpowiedzi albo notatkę."
+                if too_long
+                else "Arkusz screeningu ma nieprawidłowe dane."
+            ),
+        ) from None
     previous = stage.screening_answers
     if answers.answers and not _sheet_filled(previous):
         # Arkusz należy do pary — wiersz bez własnej kopii porównujemy

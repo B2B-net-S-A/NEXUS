@@ -152,6 +152,35 @@ def test_with_question_texts_fills_older_sheets_only() -> None:
     assert svc.with_question_texts(None, QUESTIONS) is None
 
 
+def test_sheet_size_is_bounded_at_the_input() -> None:
+    """Odpowiedzi pokazuje profil i czyta je Luna — arkusz nie może być dowolnie duży."""
+    from pydantic import ValidationError
+
+    from app.schemas.champion import SCREENING_ANSWERS_MAX, SCREENING_TEXT_MAX_CHARS
+
+    fits = {"question_id": "q1", "response": "x" * SCREENING_TEXT_MAX_CHARS}
+    assert ScreeningAnswers.model_validate(
+        {
+            "answers": [fits] * SCREENING_ANSWERS_MAX,
+            "notes": "y" * SCREENING_TEXT_MAX_CHARS,
+        }
+    )
+    for payload in (
+        {
+            "answers": [
+                {"question_id": "q1", "response": "x" * (SCREENING_TEXT_MAX_CHARS + 1)}
+            ]
+        },
+        {"answers": [fits] * (SCREENING_ANSWERS_MAX + 1)},
+        {"answers": [], "notes": "y" * (SCREENING_TEXT_MAX_CHARS + 1)},
+    ):
+        try:
+            ScreeningAnswers.model_validate(payload)
+        except ValidationError:
+            continue
+        raise AssertionError("arkusz ponad limit został przyjęty")
+
+
 def test_question_text_does_not_reach_the_client() -> None:
     sheet = _stamp(_sheet({"question_id": "q1", "response": "Tak"})).model_dump(
         mode="json"
@@ -354,6 +383,11 @@ async def test_profile_endpoint_returns_the_conversations(
         "/api/candidates/2000000000/screening-answers", headers=headers
     )
     assert missing.status_code == 404
+    # Identyfikator spoza zakresu kolumny to błąd wejścia, nie błąd bazy.
+    too_big = await app_client.get(
+        "/api/candidates/99999999999/screening-answers", headers=headers
+    )
+    assert too_big.status_code == 422
 
 
 async def test_saving_the_sheet_makes_it_visible_in_the_profile(
@@ -399,6 +433,24 @@ async def test_saving_the_sheet_makes_it_visible_in_the_profile(
         "Od kiedy dostępny?",
     ]
     assert stored["answered_by"] == author_id
+
+    # Arkusz ponad limit albo z nieznaną wartością to czytelna odmowa (422),
+    # a zapisany arkusz zostaje nietknięty.
+    for bad in (
+        {"answers": [{"question_id": "q1", "response": "x" * 10_001}]},
+        {"answers": [], "overall_fit": "świetny"},
+    ):
+        refused = await app_client.post(
+            f"/api/pipeline/stages/{stage_id}/screening", headers=headers, json=bad
+        )
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["detail"].startswith("Arkusz screeningu")
+    kept = await app_client.get(
+        f"/api/pipeline/stages/{stage_id}/screening", headers=headers
+    )
+    assert kept.json()["screening_answers"]["answers"][0]["response"] == (
+        "Tak, dwa projekty."
+    )
 
     # Delivery Lead zmienia pytania w profilu — identyfikatory zostają te same.
     async with AsyncSessionLocal() as db:

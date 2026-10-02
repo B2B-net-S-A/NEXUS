@@ -275,6 +275,53 @@ def test_money_is_masked_without_rate_rights() -> None:
     assert svc.mask_money("Java 17, 5 lat") == "Java 17, 5 lat"
 
 
+def test_money_mask_is_linear_on_long_digit_runs() -> None:
+    """Maskowanie biegnie na pętli zdarzeń — długi ciąg cyfr bez waluty nie
+    może go zatrzymać (wzorzec bez limitu cofał się kwadratowo)."""
+    import time
+
+    hostile = "1 " * 8000 + "x"
+    timings = []
+    for _ in range(3):
+        started = time.perf_counter()
+        assert svc.mask_money(hostile) == hostile
+        timings.append(time.perf_counter() - started)
+    assert min(timings) < 0.2
+    # Zwykłe kwoty maskują się jak dotąd, także z separatorami tysięcy.
+    assert svc.mask_money("stawka 1 200 000,50 zł rocznie") == (
+        f"stawka {svc.MONEY_MASK} rocznie"
+    )
+
+
+def test_earlier_answers_stop_at_the_prompt_budget() -> None:
+    """Trzy rozmowy z długimi arkuszami nie rozdymają promptu."""
+    long_answer = "a" * svc.ANSWER_CHAR_LIMIT
+    conversation = {
+        "job_id": 7,
+        "job_title": "Java Developer",
+        "client_name": "Bank Testowy",
+        "answered_at": datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc),
+        "answers": [
+            {
+                "question_id": f"q{n}",
+                "question_text": f"Pytanie {n}",
+                "response": long_answer,
+            }
+            for n in range(1, 21)
+        ],
+    }
+    picked = svc._earlier_answers([conversation, {**conversation, "job_id": 8}])
+    used = sum(len(a.question) + len(a.answer) for a in picked)
+    assert 0 < len(picked) < 40
+    assert used <= svc.EARLIER_ANSWERS_CHAR_LIMIT
+    # Kolejność rozmów zostaje: budżet zjada pierwsza (najważniejsza) rozmowa.
+    assert {a.job_id for a in picked} == {7}
+    assert picked[0].date == "2026-09-01"
+    # Krótkie arkusze mieszczą się w całości.
+    short = {**conversation, "answers": conversation["answers"][:2]}
+    assert len(svc._earlier_answers([short, {**short, "job_id": 8}])) == 4
+
+
 def test_suggestion_with_a_masked_amount_is_dropped() -> None:
     """„[kwota ukryta]” nie jest odpowiedzią — rola bez prawa do stawek nie
     dostaje takiej podpowiedzi wcale."""

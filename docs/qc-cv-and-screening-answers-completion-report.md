@@ -77,6 +77,19 @@ Uwagi z testów manualnych (02.10.2026) i odczyt z produkcji tego samego dnia:
   z podpowiedzi i poprawiona ręcznie zapisuje się jako odpowiedź z tej
   rozmowy. Awaria Luny to komunikat — arkusz działa ręcznie.
 
+### Po przeglądzie bezpieczeństwa
+
+Przegląd nie znalazł ustaleń krytycznych ani wysokich. Wprowadzone drobne
+zabezpieczenia:
+
+- arkusz screeningu ma limit rozmiaru na wejściu (100 odpowiedzi, 10 000
+  znaków na odpowiedź i notatkę; największy arkusz na produkcji: 6 odpowiedzi,
+  260 znaków),
+- do modelu idzie najwyżej 12 000 znaków wcześniejszych pytań i odpowiedzi,
+- wzorzec maskowania kwot ma ograniczony ciąg cyfr (bez limitu cofał się
+  kwadratowo na długim ciągu cyfr),
+- identyfikator kandydata w nowej trasie spoza zakresu kolumny daje 422.
+
 ## Weryfikacja
 
 - Backend: `ruff check app/`, `ruff format --check app/`, stemple przewodników
@@ -104,3 +117,8 @@ Uwagi z testów manualnych (02.10.2026) i odczyt z produkcji tego samego dnia:
   Championa po identyfikatorze; nowe zapisy mają własny tekst.
 - „Usuń z rekrutacji” nadal kasuje arkusz pary; generator CV i portal klienta
   nadal łączą odpowiedzi z pytaniami po identyfikatorze.
+- Podpowiedź może pochodzić z rozmowy u innego klienta (podpis pod pytaniem
+  mówi, z której rekrutacji i od którego klienta). Odpowiedzi z arkusza widzi
+  klient w portalu, więc przed „Użyj tej odpowiedzi” warto przeczytać, czy
+  odpowiedź nie mówi o poprzednim kliencie. Notatki rekruterów z innych
+  rekrutacji nie są materiałem podpowiedzi (poza przepięciem).

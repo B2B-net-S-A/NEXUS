@@ -5,7 +5,16 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Path,
+    Query,
+    Response,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -323,8 +332,9 @@ async def get_candidate_recent_recruitments(
     response_model=CandidateScreeningAnswersResponse,
 )
 async def get_candidate_screening_answers(
-    candidate_id: int,
     current_user: CandidatePIIAccess,
+    # Zakres kolumny `candidates.id` — większa liczba to 422, nie błąd bazy.
+    candidate_id: int = Path(ge=1, le=2_147_483_647),
     db: AsyncSession = Depends(get_db),
 ) -> CandidateScreeningAnswersResponse:
     """Co kandydat odpowiedział w rozmowach screeningowych — po jednej na rekrutację.

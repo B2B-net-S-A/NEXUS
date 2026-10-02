@@ -85,8 +85,11 @@ MONEY_MASK = "[kwota ukryta]"
 # Kwoty z walutą albo stawką za jednostkę czasu („150 zł/h", „1 200 PLN",
 # „25k", „150/h"). Zbyt szeroko jest bezpieczniej niż zbyt wąsko: rola bez
 # prawa do stawek dostaje najwyżej zamaskowaną liczbę, która kwotą nie była.
+# Ciąg cyfr i separatorów jest ograniczony: wzorzec bez limitu cofał się
+# kwadratowo na długim ciągu cyfr bez waluty (1 s na 6 KB), a maskowanie
+# biegnie na pętli zdarzeń. Realna kwota mieści się w limicie z zapasem.
 _MONEY_RE = re.compile(
-    r"\d[\d\s.,]*\s*(?:"
+    r"\d[\d\s.,]{0,30}(?:"
     r"(?:zł|zl|pln|złotych|eur|euro|€|usd|\$)(?:\s*/\s*(?:h|godz\.?|md|dzień|dzien|mc|mies\.?))?"
     r"|k\b(?:\s*(?:zł|zl|pln))?"
     r"|/\s*(?:h|godz\.?|md)\b"
@@ -96,6 +99,10 @@ _MONEY_RE = re.compile(
 
 NOTES_CHAR_LIMIT = 6000
 ANSWER_CHAR_LIMIT = 1500
+# Najwyżej tyle znaków wcześniejszych pytań i odpowiedzi razem idzie do
+# modelu — trzy rozmowy z długimi arkuszami nie rozdymają promptu.
+EARLIER_ANSWERS_CHAR_LIMIT = 12_000
+QUESTION_CHAR_LIMIT = 500
 SUGGESTION_TEXT_LIMIT = 1000
 QUOTE_MIN_CHARS = 3
 _CONFIDENCES = ("high", "medium", "low")
@@ -226,7 +233,12 @@ def _answer_pairs(
         if not answer:
             continue
         question = str(item.get("question_text") or "").strip()
-        pairs.append({"question": question, "answer": answer[:ANSWER_CHAR_LIMIT]})
+        pairs.append(
+            {
+                "question": question[:QUESTION_CHAR_LIMIT],
+                "answer": answer[:ANSWER_CHAR_LIMIT],
+            }
+        )
     return pairs
 
 
@@ -389,6 +401,34 @@ async def _job_scoped_notes(
     return build_notes_blob(list(rows))
 
 
+def _earlier_answers(conversations: Sequence[dict]) -> list[EarlierAnswer]:
+    """Odpowiedzi z wcześniejszych rozmów w kolejności rozmów, do limitu znaków.
+
+    Limit obejmuje pytania i odpowiedzi razem; po jego przekroczeniu kolejne
+    odpowiedzi nie idą do modelu (rozmowy są już ułożone od najważniejszej).
+    """
+    answers: list[EarlierAnswer] = []
+    budget = EARLIER_ANSWERS_CHAR_LIMIT
+    for conversation in conversations:
+        answered_at = conversation["answered_at"]
+        for pair in _answer_pairs(conversation, include_suggested=False):
+            budget -= len(pair["question"]) + len(pair["answer"])
+            if budget < 0:
+                return answers
+            answers.append(
+                EarlierAnswer(
+                    question=pair["question"],
+                    answer=pair["answer"],
+                    job_id=conversation["job_id"],
+                    job_title=conversation["job_title"]
+                    or f"Rekrutacja #{conversation['job_id']}",
+                    client_name=conversation["client_name"],
+                    date=answered_at.date().isoformat() if answered_at else None,
+                )
+            )
+    return answers
+
+
 async def suggestion_context(
     db: AsyncSession, *, candidate_id: int, job_id: int, user: User
 ) -> Optional[SuggestionContext]:
@@ -412,21 +452,7 @@ async def suggestion_context(
     conversations = conversations[:MAX_EARLIER_CONVERSATIONS]
     if reassign is None and not conversations:
         return None
-    answers: list[EarlierAnswer] = []
-    for conversation in conversations:
-        answered_at = conversation["answered_at"]
-        for pair in _answer_pairs(conversation, include_suggested=False):
-            answers.append(
-                EarlierAnswer(
-                    question=pair["question"],
-                    answer=pair["answer"],
-                    job_id=conversation["job_id"],
-                    job_title=conversation["job_title"]
-                    or f"Rekrutacja #{conversation['job_id']}",
-                    client_name=conversation["client_name"],
-                    date=answered_at.date().isoformat() if answered_at else None,
-                )
-            )
+    answers = _earlier_answers(conversations)
     return SuggestionContext(
         kind="reassign" if reassign is not None else "history",
         answers=answers,
