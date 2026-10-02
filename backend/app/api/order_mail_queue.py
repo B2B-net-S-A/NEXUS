@@ -34,7 +34,6 @@ from app.api.financial_access import (
 from app.api.permission_access import (
     AmountsViewUser,
     ContractsOrdersEditUser,
-    ContractsOrdersOrAmountsEditUser,
     DeliveryViewUser,
 )
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
@@ -141,8 +140,15 @@ def _can_read_amounts(
 def _can_write_orders(
     user, client_id: Optional[int], boundary: _FinanceBoundary
 ) -> bool:
-    """„Zastosuj” / „Odrzuć”: zapis zamówienia klienta z dokumentu."""
+    """„Zastosuj” / „Odrzuć”: zapis zamówienia klienta z dokumentu.
 
+    Prowadzenie zamówień (wymaga go trasa) ORAZ prawo do kwot zamówień tego
+    klienta — flagi ``can_apply`` / ``can_dismiss`` nie mogą obiecywać
+    przycisku, który skończy się odmową bramki.
+    """
+
+    if not has_permission(user, ProductAction.contracts_orders_edit):
+        return False
     return can_write_order_amounts(
         user,
         client_id=client_id if client_id else _NO_CLIENT_ID,
@@ -692,6 +698,10 @@ async def download_queue_file(
 async def _require_apply_rights(db: AsyncSession, doc: OrderMailDocument, user) -> None:
     """Zapis zamówienia z dokumentu: prawo do kwot zamówień JEGO klienta.
 
+    Trasa wymaga już „Kontrakty i zamówienia: tworzenie i edycja” — dokument
+    z maila zakłada zamówienie, kontrakt i kandydata, więc sama zmiana kwot
+    nie wystarcza (to nie jest edycja wyłącznie pól kwot).
+
     Odmowa nazywa to, czego brakuje: podgląd kwot (kto prowadzi zamówienia bez
     niego), portfel (konto z rolą Delivery Leada poza przypisaniem) albo
     zmianę kwot.
@@ -704,7 +714,7 @@ async def _require_apply_rights(db: AsyncSession, doc: OrderMailDocument, user) 
 @router.post("/queue/{doc_id}/refresh-plan")
 async def refresh_queue_plan(
     doc_id: int,
-    user: ContractsOrdersOrAmountsEditUser,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     doc = await _load_visible(db, doc_id, user, for_update=True)
@@ -763,7 +773,7 @@ async def _close_review_cards(db: AsyncSession, doc_id: int) -> None:
 @router.post("/queue/{doc_id}/apply")
 async def apply_queue_item(
     doc_id: int,
-    user: ContractsOrdersOrAmountsEditUser,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     doc = await _load_visible(db, doc_id, user, for_update=True)
@@ -809,7 +819,7 @@ def _order_type_of(doc: OrderMailDocument) -> str:
 @router.get("/queue/{doc_id}/order-target")
 async def queue_order_target(
     doc_id: int,
-    user: ContractsOrdersOrAmountsEditUser,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Dokąd prowadzi „Rozstrzygnij w oknie zamówienia".
@@ -867,7 +877,7 @@ class ResolvedInOrderRequest(BaseModel):
 async def mark_queue_item_resolved_in_order(
     doc_id: int,
     body: ResolvedInOrderRequest,
-    user: ContractsOrdersOrAmountsEditUser,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Dokument z maila rozstrzygnięty w oknie zamówienia — zdejmij z kolejki.
@@ -953,7 +963,7 @@ async def mark_queue_item_resolved_in_order(
 @router.post("/queue/{doc_id}/dismiss")
 async def dismiss_queue_item(
     doc_id: int,
-    user: ContractsOrdersOrAmountsEditUser,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     doc = await _load_visible(db, doc_id, user, for_update=True)

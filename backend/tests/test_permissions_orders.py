@@ -285,6 +285,62 @@ async def test_group_file_and_line_rates_follow_the_same_rule(monkeypatch) -> No
     assert exc.value.detail["permission"] == "amounts_view"
 
 
+async def test_amount_budget_of_a_line_is_an_amount(monkeypatch) -> None:
+    """Budżet linii w trybie „kwota” to złotówki: serwer liczy z niego
+    ``md_total = kwota / stawka`` i oddaje MD każdemu, kto widzi linię. Konto
+    bez prawa do kwot nie może go zmienić — inaczej odczytałoby stawkę
+    przychodową z odpowiedzi (przegląd pakietu zamówień, 02.10.2026)."""
+
+    monkeypatch.setattr(
+        client_order_groups,
+        "resolve_delivery_lead_finance_client_ids",
+        _delivery_lead_boundary,
+    )
+    guard = client_order_groups._assert_amount_budget_write_allowed
+    editor = _order_editor_without_amounts()
+    lead = _account(UserRole.delivery_lead)
+    md_line = SimpleNamespace(md_input_mode="md", md_input_value=Decimal("10"))
+    amount_line = SimpleNamespace(
+        md_input_mode="amount", md_input_value=Decimal("10000.000")
+    )
+    to_amount = {"input_mode": "amount", "input_value": Decimal("10000")}
+
+    with pytest.raises(HTTPException) as exc:
+        await guard(None, editor, CLIENT, md_line, to_amount)
+    assert exc.value.status_code == 403
+    assert exc.value.detail["code"] == "finance_fields_forbidden"
+    assert exc.value.detail["fields"] == ["input_mode", "input_value"]
+    assert exc.value.detail["permission"] == "amounts_view"
+    # Sama nowa kwota na linii, która już jest w trybie „kwota”.
+    with pytest.raises(HTTPException) as exc:
+        await guard(None, editor, CLIENT, amount_line, {"input_value": Decimal("1")})
+    assert exc.value.detail["fields"] == ["input_value"]
+
+    # Budżet w MD jest operacyjny; formularz odsyłający niezmieniony komplet
+    # pól linii „kwotowej” też przechodzi (liczy się zmiana); zapis bez pól
+    # budżetu w ogóle o kwoty nie pyta.
+    await guard(
+        None, editor, CLIENT, md_line, {"input_mode": "md", "input_value": Decimal("12")}
+    )
+    await guard(None, editor, CLIENT, amount_line, to_amount)
+    await guard(None, editor, CLIENT, amount_line, {"end_date": None})
+    # Z kwoty na MD: nowa wartość to dni, nie złotówki.
+    await guard(
+        None,
+        editor,
+        CLIENT,
+        amount_line,
+        {"input_mode": "md", "input_value": Decimal("20")},
+    )
+
+    # Prawo do kwot klienta otwiera zapis; rola Delivery Leada — w przypisaniu.
+    await guard(None, lead, CLIENT, md_line, to_amount)
+    await guard(None, _account(UserRole.finance), OTHER_CLIENT, md_line, to_amount)
+    with pytest.raises(HTTPException) as exc:
+        await guard(None, lead, OTHER_CLIENT, md_line, to_amount)
+    assert exc.value.detail["message"] == DL_CLIENT_OUT_OF_SCOPE_DETAIL
+
+
 async def test_order_lifecycle_asks_only_for_the_client_scope(monkeypatch) -> None:
     """Zakończenie, przywrócenie, usunięcie: uprawnienie na trasie, tu zakres."""
 
@@ -365,6 +421,14 @@ async def test_mail_queue_scope_and_write_rights(monkeypatch) -> None:
         )
     assert exc.value.detail["permission"] == "amounts_view"
 
+    # Sama zmiana kwot nie wystarcza: dokument z maila zakłada zamówienie,
+    # kontrakt i kandydata. Flagi „Zastosuj”/„Odrzuć” mówią to samo co trasa.
+    amounts_only = _account(UserRole.recruiter, "amounts_edit")
+    boundary = queue._FinanceBoundary(None)
+    assert queue._can_write_orders(amounts_only, CLIENT, boundary) is False
+    assert queue._can_write_orders(finance, CLIENT, boundary) is True
+    assert queue._can_write_orders(editor, CLIENT, boundary) is False
+
     # Dokument bez rozpoznanego klienta nie leży w niczyim portfelu: odrzuca
     # go konto, które prowadzi zamówienia u wszystkich klientów.
     orphan = SimpleNamespace(client_id=None)
@@ -372,6 +436,34 @@ async def test_mail_queue_scope_and_write_rights(monkeypatch) -> None:
     await queue._require_apply_rights(None, orphan, _account(UserRole.admin))
     with pytest.raises(HTTPException):
         await queue._require_apply_rights(None, orphan, lead)
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        queue.refresh_queue_plan,
+        queue.apply_queue_item,
+        queue.queue_order_target,
+        queue.mark_queue_item_resolved_in_order,
+        queue.dismiss_queue_item,
+    ],
+)
+async def test_mail_queue_writes_need_order_editing_not_just_amounts(endpoint) -> None:
+    """Trasy zapisu kolejki wymagają prowadzenia zamówień; „Stawki i kwoty:
+    zmiana” bez niego dostaje odmowę z nazwą brakującego uprawnienia."""
+
+    from typing import get_type_hints
+
+    gate = get_type_hints(endpoint, include_extras=True)["user"].__metadata__[0]
+    with pytest.raises(HTTPException) as exc:
+        await gate.dependency(
+            current_user=_account(UserRole.recruiter, "amounts_edit")
+        )
+    assert exc.value.status_code == 403
+    assert exc.value.detail["code"] == "permission_denied"
+    assert exc.value.detail["permission"] == "contracts_orders_edit"
+    finance = _account(UserRole.finance)
+    assert await gate.dependency(current_user=finance) is finance
 
 
 # ── Scenariusze HTTP (wymagają bazy) ────────────────────────────────────────

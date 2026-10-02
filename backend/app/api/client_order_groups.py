@@ -813,6 +813,44 @@ async def _assert_line_finance_write_allowed(
         raise amount_fields_forbidden(user, forbidden)
 
 
+async def _assert_amount_budget_write_allowed(
+    db: AsyncSession,
+    user: User,
+    client_id: int,
+    line: ClientOrder,
+    data: dict,
+) -> None:
+    """Budżet linii podany KWOTĄ jest kwotą — zmienia go konto z prawem do kwot.
+
+    ``input_value`` w trybie „kwota” to złotówki, a serwer liczy z niego
+    ``md_total = kwota / stawka`` i oddaje liczbę MD każdemu, kto widzi linię.
+    Bez tej bramki osoba prowadząca zamówienia bez podglądu kwot wpisywała
+    dowolną kwotę i z odpowiedzi odczytywała stawkę przychodową. Budżet w MD
+    zostaje operacyjny. Formularz odsyła komplet pól, więc liczy się ZMIANA.
+    """
+    if "input_mode" not in data and "input_value" not in data:
+        return
+    mode = data.get("input_mode", line.md_input_mode) or INPUT_MODE_MD
+    if mode != INPUT_MODE_AMOUNT:
+        return
+    value = data.get("input_value", line.md_input_value)
+    unchanged = mode == line.md_input_mode and (
+        value == line.md_input_value
+        or (
+            value is not None
+            and line.md_input_value is not None
+            and Decimal(str(value)) == Decimal(str(line.md_input_value))
+        )
+    )
+    if unchanged or await _can_write_amounts(db, user, client_id):
+        return
+    from app.api.client_orders import amount_fields_forbidden
+
+    raise amount_fields_forbidden(
+        user, sorted(field for field in ("input_mode", "input_value") if field in data)
+    )
+
+
 async def _can_see_finance(db: AsyncSession, user: User, client_id: int) -> bool:
     """Czy konto widzi kwoty zamówień TEGO klienta (stawki linii, budżety, PDF).
 
@@ -5384,6 +5422,7 @@ async def update_line(
         )
 
     data = payload.model_dump(exclude_unset=True)
+    await _assert_amount_budget_write_allowed(db, user, client_id, line, data)
     # Ticket 7 (25.09.2026): historia pokazuje „przed → po", a nie listę pól
     # wysłanych przez formularz (ten odsyła komplet przy każdym zapisie, więc
     # KAŻDA edycja mówiła „zmieniono: stawka kosztowa, data zakończenia,
