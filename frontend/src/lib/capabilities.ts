@@ -353,22 +353,34 @@ export const MUTATING_CAPABILITIES: ReadonlySet<Capability> = new Set([
 ]);
 
 /**
- * Czy user ma daną capability. Fail-closed: brak usera = brak uprawnień.
- * Wystarcza uprawnienie z `CAPABILITY_PERMISSIONS` ALBO rola z
- * `CAPABILITY_ROLES` (multi-role: primary `role` ∪ secondary `roles`); nad
- * jednym i drugim stoi sufit sekcji.
+ * Czy konto ma tytuł do capability — uprawnienie z `CAPABILITY_PERMISSIONS`
+ * ALBO rolę z `CAPABILITY_ROLES` (multi-role: primary `role` ∪ secondary
+ * `roles`) — BEZ sufitu sekcji. Dla wołających, którzy sufit liczą osobno
+ * (np. razem z trybem „podgląd jako”); przyciski pytają `hasCapability`.
  */
-export function hasCapability(
+export function holdsCapabilityGrant(
   user: CapabilityUser | null | undefined,
   capability: Capability,
 ): boolean {
   if (!user) return false;
   const permission = CAPABILITY_PERMISSIONS[capability];
   const roles = CAPABILITY_ROLES[capability] ?? [];
-  const held =
+  return (
     (permission !== undefined && hasPermission(user, permission)) ||
-    getUserRoles(user).some((role) => roles.includes(role));
-  if (!held) return false;
+    getUserRoles(user).some((role) => roles.includes(role))
+  );
+}
+
+/**
+ * Czy user ma daną capability. Fail-closed: brak usera = brak uprawnień.
+ * Tytuł (`holdsCapabilityGrant`: uprawnienie albo rola), a nad nim sufit
+ * sekcji.
+ */
+export function hasCapability(
+  user: CapabilityUser | null | undefined,
+  capability: Capability,
+): boolean {
+  if (!holdsCapabilityGrant(user, capability)) return false;
   const requirement = CAPABILITY_SECTION_REQUIREMENTS[capability];
   return (
     !requirement ||
