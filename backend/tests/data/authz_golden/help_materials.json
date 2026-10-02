@@ -14,12 +14,15 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/help-materials/{material_id}": "PDDDDDDDDDDDDDD",
-  "GET /api/help-materials": "PPPPPPPPPDPPPPP",
-  "POST /api/help-materials": "PDDDDDDDDDDDDDD",
-  "PUT /api/help-materials/{material_id}": "PDDDDDDDDDDDDDD"
+  "DELETE /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/help-materials": "PPPPPPPPPDPPPPPPPP",
+  "POST /api/help-materials": "PDDDDDDDDDDDDDDDDD",
+  "PUT /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDD"
  }
 }

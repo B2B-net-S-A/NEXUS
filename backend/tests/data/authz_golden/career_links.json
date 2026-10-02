@@ -14,17 +14,20 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/me/career-link": "PPPPPPPPDDPPPPP",
-  "GET /api/jobs/{job_id}/public-profile": "PPPPPPPPDDPPPPP",
-  "GET /api/me/career-link": "PPPPPPPPDDPPPPP",
-  "GET /api/me/career-link/slug-available": "PPPPPPPPDDPPPPP",
-  "POST /api/jobs/{job_id}/public-profile/approve": "PPPPPPPPDDPPPPP",
-  "POST /api/jobs/{job_id}/public-profile/draft": "PPPPPPPPDDPPPPP",
-  "PUT /api/jobs/{job_id}/public-profile": "PPPPPPPPDDPPPPP",
-  "PUT /api/jobs/{job_id}/public-profile/visibility": "PPPPPPPPDDPPPPP",
-  "PUT /api/me/career-link": "PPPPPPPPDDPPPPP"
+  "DELETE /api/me/career-link": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/jobs/{job_id}/public-profile": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/me/career-link": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/me/career-link/slug-available": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/jobs/{job_id}/public-profile/approve": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/jobs/{job_id}/public-profile/draft": "PPPPPPPPDDPPPPPPPP",
+  "PUT /api/jobs/{job_id}/public-profile": "PPPPPPPPDDPPPPPPPP",
+  "PUT /api/jobs/{job_id}/public-profile/visibility": "PPPPPPPPDDPPPPPPPP",
+  "PUT /api/me/career-link": "PPPPPPPPDDPPPPPPPP"
  }
 }

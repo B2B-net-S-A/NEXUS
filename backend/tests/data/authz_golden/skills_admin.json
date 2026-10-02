@@ -14,17 +14,20 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/skills-admin/plain-terms": "PDPDDDDDDDDPDPD",
-  "GET /api/skills-admin/plain-terms/{term_id}/history": "PDPDDDDDDDDPDPD",
-  "GET /api/skills-admin/skills": "PDPDDDDDDDDPDPD",
-  "GET /api/skills-admin/unmatched-terms": "PDPDDDDDDDDPDPD",
-  "POST /api/skills-admin/skills": "PDPDDDDDDDDPDPD",
-  "POST /api/skills-admin/skills/{skill_id}/aliases": "PDPDDDDDDDDPDPD",
-  "POST /api/skills-admin/unmatched-terms/{term_id}/ignore": "PDPDDDDDDDDPDPD",
-  "POST /api/skills-admin/unmatched-terms/{term_id}/map": "PDPDDDDDDDDPDPD",
-  "PUT /api/skills-admin/plain-terms/{term_id}": "PDPDDDDDDDDPDPD"
+  "GET /api/skills-admin/plain-terms": "PDPDDDDDDDDPDPDDDD",
+  "GET /api/skills-admin/plain-terms/{term_id}/history": "PDPDDDDDDDDPDPDDDD",
+  "GET /api/skills-admin/skills": "PDPDDDDDDDDPDPDDDD",
+  "GET /api/skills-admin/unmatched-terms": "PDPDDDDDDDDPDPDDDD",
+  "POST /api/skills-admin/skills": "PDPDDDDDDDDPDPDDDD",
+  "POST /api/skills-admin/skills/{skill_id}/aliases": "PDPDDDDDDDDPDPDDDD",
+  "POST /api/skills-admin/unmatched-terms/{term_id}/ignore": "PDPDDDDDDDDPDPDDDD",
+  "POST /api/skills-admin/unmatched-terms/{term_id}/map": "PDPDDDDDDDDPDPDDDD",
+  "PUT /api/skills-admin/plain-terms/{term_id}": "PDPDDDDDDDDPDPDDDD"
  }
 }

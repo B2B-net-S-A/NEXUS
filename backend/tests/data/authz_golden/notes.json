@@ -14,16 +14,19 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/notes/{note_id}": "PPPPPPPPDDPPPPP",
-  "DELETE /api/notes/{note_id}/pin": "PPPPPPPPDDPPPPP",
-  "GET /api/notes": "PPPPPPPPDDPPPPP",
-  "GET /api/notes/{note_id}": "PPPPPPPPDDPPPPP",
-  "PATCH /api/notes/{note_id}": "PPPPPPPPDDPPPPP",
-  "POST /api/notes": "PPPPPPPPDDPPPPP",
-  "POST /api/notes/{note_id}/link-job": "PDDPDDDDDDPPPDD",
-  "POST /api/notes/{note_id}/pin": "PPPPPPPPDDPPPPP"
+  "DELETE /api/notes/{note_id}": "PPPPPPPPDDPPPPPPPP",
+  "DELETE /api/notes/{note_id}/pin": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/notes": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/notes/{note_id}": "PPPPPPPPDDPPPPPPPP",
+  "PATCH /api/notes/{note_id}": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/notes": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/notes/{note_id}/link-job": "PDDPDDDDDDPPPDDDDD",
+  "POST /api/notes/{note_id}/pin": "PPPPPPPPDDPPPPPPPP"
  }
 }

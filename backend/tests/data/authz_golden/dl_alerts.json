@@ -14,12 +14,15 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/dl-alerts": "PPDPDDDDDDPPPDD",
-  "GET /api/dl-alerts/cards": "PPDPDDDDDDPPPDD",
-  "GET /api/dl-alerts/export": "PPDPDDDDDDPPPDD",
-  "POST /api/dl-alerts/{alert_id}/handled": "PPDPDDDDDDPPPDD"
+  "GET /api/dl-alerts": "PPDPDDDDDDPPPDDDDD",
+  "GET /api/dl-alerts/cards": "PPDPDDDDDDPPPDDDDD",
+  "GET /api/dl-alerts/export": "PPDPDDDDDDPPPDDDDD",
+  "POST /api/dl-alerts/{alert_id}/handled": "PPDPDDDDDDPPPDDDDD"
  }
 }

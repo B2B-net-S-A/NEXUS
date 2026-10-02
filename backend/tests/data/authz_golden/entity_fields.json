@@ -14,12 +14,15 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/entity-schema/{entity_type}": "PPPPPPPPPDPPPPP",
-  "GET /api/settings/entity-fields/types": "PDDDDDDDDDDDDDD",
-  "PATCH /api/settings/entity-fields/{field_id}": "PDDDDDDDDDDDDDD",
-  "POST /api/settings/entity-fields": "PDDDDDDDDDDDDDD"
+  "GET /api/entity-schema/{entity_type}": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/settings/entity-fields/types": "PDDDDDDDDDDDDDDDDD",
+  "PATCH /api/settings/entity-fields/{field_id}": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/settings/entity-fields": "PDDDDDDDDDDDDDDDDD"
  }
 }

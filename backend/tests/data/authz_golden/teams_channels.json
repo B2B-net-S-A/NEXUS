@@ -14,13 +14,16 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDD",
-  "GET /api/teams-channels": "PDDDDDDDDDDDDDD",
-  "PATCH /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDD",
-  "POST /api/teams-channels": "PDDDDDDDDDDDDDD",
-  "POST /api/teams-channels/{channel_db_id}/test": "PDDDDDDDDDDDDDD"
+  "DELETE /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/teams-channels": "PDDDDDDDDDDDDDDDDD",
+  "PATCH /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/teams-channels": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/teams-channels/{channel_db_id}/test": "PDDDDDDDDDDDDDDDDD"
  }
 }

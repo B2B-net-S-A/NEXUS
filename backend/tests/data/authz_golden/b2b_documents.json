@@ -14,21 +14,24 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/b2b-generator/documents/{doc_id}": "PPPBPPPPDDPPPPP",
-  "GET /api/b2b-generator/document-types": "PPPBPPPPDDPPPPP",
-  "GET /api/b2b-generator/documents": "PPPBPPPPDDPPPPP",
-  "GET /api/b2b-generator/documents/prefill": "PPPBPPPPDDPPPPP",
-  "GET /api/b2b-generator/documents/{doc_id}/effects": "PPPBPPPPDDPPPPP",
-  "GET /api/b2b-generator/documents/{doc_id}/form": "PPPBPPPPDDPPPPP",
-  "POST /api/b2b-generator/documents": "PPPBPPPPDDPPPPP",
-  "POST /api/b2b-generator/documents/partner-notice": "PPPBPPPPDDPPPPP",
-  "POST /api/b2b-generator/documents/preview": "PPPBPPPPDDPPPPP",
-  "POST /api/b2b-generator/documents/{doc_id}/cancel": "PPPBPPPPDDPPPPP",
-  "POST /api/b2b-generator/documents/{doc_id}/confirm-signed": "PPPBPPPPDDPPPPP",
-  "POST /api/b2b-generator/documents/{doc_id}/docx": "PPPBPPPPDDPPPPP",
-  "POST /api/b2b-generator/documents/{doc_id}/rerender": "PPPBPPPPDDPPPPP"
+  "DELETE /api/b2b-generator/documents/{doc_id}": "PPPBPPPPDDPPPPPPPP",
+  "GET /api/b2b-generator/document-types": "PPPBPPPPDDPPPPPPPP",
+  "GET /api/b2b-generator/documents": "PPPBPPPPDDPPPPPPPP",
+  "GET /api/b2b-generator/documents/prefill": "PPPBPPPPDDPPPPPPPP",
+  "GET /api/b2b-generator/documents/{doc_id}/effects": "PPPBPPPPDDPPPPPPPP",
+  "GET /api/b2b-generator/documents/{doc_id}/form": "PPPBPPPPDDPPPPPPPP",
+  "POST /api/b2b-generator/documents": "PPPBPPPPDDPPPPPPPP",
+  "POST /api/b2b-generator/documents/partner-notice": "PPPBPPPPDDPPPPPPPP",
+  "POST /api/b2b-generator/documents/preview": "PPPBPPPPDDPPPPPPPP",
+  "POST /api/b2b-generator/documents/{doc_id}/cancel": "PPPBPPPPDDPPPPPPPP",
+  "POST /api/b2b-generator/documents/{doc_id}/confirm-signed": "PPPBPPPPDDPPPPPPPP",
+  "POST /api/b2b-generator/documents/{doc_id}/docx": "PPPBPPPPDDPPPPPPPP",
+  "POST /api/b2b-generator/documents/{doc_id}/rerender": "PPPBPPPPDDPPPPPPPP"
  }
 }

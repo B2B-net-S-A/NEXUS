@@ -14,16 +14,19 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/notifications": "PPPPPPPPPDPPPPP",
-  "GET /api/notifications/count": "PPPPPPPPPDPPPPP",
-  "GET /api/notifications/preferences": "PPPPPPPPPDPPPPP",
-  "PATCH /api/notifications/read-all": "PPPPPPPPPDPPPPP",
-  "PATCH /api/notifications/{notification_id}/read": "PPPPPPPPPDPPPPP",
-  "PUT /api/notifications/preferences/{category}": "PPPPPPPPPDPPPPP",
-  "PUT /api/notifications/read-all": "PPPPPPPPPDPPPPP",
-  "PUT /api/notifications/{notification_id}/read": "PPPPPPPPPDPPPPP"
+  "GET /api/notifications": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/notifications/count": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/notifications/preferences": "PPPPPPPPPDPPPPPPPP",
+  "PATCH /api/notifications/read-all": "PPPPPPPPPDPPPPPPPP",
+  "PATCH /api/notifications/{notification_id}/read": "PPPPPPPPPDPPPPPPPP",
+  "PUT /api/notifications/preferences/{category}": "PPPPPPPPPDPPPPPPPP",
+  "PUT /api/notifications/read-all": "PPPPPPPPPDPPPPPPPP",
+  "PUT /api/notifications/{notification_id}/read": "PPPPPPPPPDPPPPPPPP"
  }
 }

@@ -14,13 +14,16 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/shortlist/{entry_id}": "PPPPPPPPDDPPPPP",
-  "GET /api/jobs/{job_id}/shortlist": "PPPPPPPPDDPPPPP",
-  "PATCH /api/shortlist/{entry_id}": "PPPPPPPPDDPPPPP",
-  "POST /api/jobs/{job_id}/shortlist": "PPPPPPPPDDPPPPP",
-  "POST /api/shortlist/{entry_id}/promote": "PPPPPPPPDDPPPPP"
+  "DELETE /api/shortlist/{entry_id}": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/jobs/{job_id}/shortlist": "PPPPPPPPDDPPPPPPPP",
+  "PATCH /api/shortlist/{entry_id}": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/jobs/{job_id}/shortlist": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/shortlist/{entry_id}/promote": "PPPPPPPPDDPPPPPPPP"
  }
 }

@@ -14,16 +14,19 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/notification-overrides/{override_id}": "PPDPPDDDDDPPPDP",
-  "DELETE /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDDDPPPDD",
-  "GET /api/clients/{client_id}/notification-overrides": "PPDPPDDDDDPPPDP",
-  "GET /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PPPPPPPPPDPPPPP",
-  "PATCH /api/clients/{client_id}/notification-overrides/{override_id}": "PPDPPDDDDDPPPDP",
-  "PATCH /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDDDPPPDD",
-  "POST /api/clients/{client_id}/notification-overrides": "PPDPPDDDDDPPPDP",
-  "POST /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PDDPDDDDDDPPPDD"
+  "DELETE /api/clients/{client_id}/notification-overrides/{override_id}": "PPDPPDDDDDPPPDPPPD",
+  "DELETE /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDDDPPPDDDDD",
+  "GET /api/clients/{client_id}/notification-overrides": "PPDPPDDDDDPPPDPPPP",
+  "GET /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PPPPPPPPPDPPPPPPPP",
+  "PATCH /api/clients/{client_id}/notification-overrides/{override_id}": "PPDPPDDDDDPPPDPPPD",
+  "PATCH /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDDDPPPDDDDD",
+  "POST /api/clients/{client_id}/notification-overrides": "PPDPPDDDDDPPPDPPPD",
+  "POST /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PDDPDDDDDDPPPDDDDD"
  }
 }

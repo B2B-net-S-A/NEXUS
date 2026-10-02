@@ -245,9 +245,14 @@ def test_contract_amount_write_guard_allows_finance_manager():
     )
 
 
-def test_contract_amount_write_guard_rejects_finance_without_finance_write():
+def test_contract_amount_write_guard_rejects_finance_without_amounts_edit():
+    """Kwoty kontraktu zmienia uprawnienie „Stawki i kwoty: zmiana”."""
+
     finance = _user(UserRole.finance)
-    finance.effective_section_access = {"finance": "read", "insights": "read"}
+    finance.effective_action_access = {
+        "delivery_view": "manage",
+        "amounts_view": "manage",
+    }
     with pytest.raises(HTTPException) as exc_info:
         contracts._assert_contract_finance_write_allowed(finance, {"rate_candidate"})
     assert exc_info.value.status_code == 403
@@ -601,9 +606,7 @@ async def test_impersonated_draft_preview_does_not_persist_lazy_initialization(
     monkeypatch.setattr(
         contracts, "_assert_contract_document_client_access", client_access
     )
-    monkeypatch.setattr(
-        contracts, "_list_templates_for_contract_type", list_templates
-    )
+    monkeypatch.setattr(contracts, "_list_templates_for_contract_type", list_templates)
     monkeypatch.setattr(
         contracts, "_render_draft_body", lambda *_args: "<p>Podgląd</p>"
     )

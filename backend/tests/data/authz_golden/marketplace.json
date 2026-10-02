@@ -14,13 +14,16 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/marketplace/candidates/{candidate_id}": "PPPPPPPPDDPPPPP",
-  "GET /api/marketplace/candidates": "PPPPPPPPDDPPPPP",
-  "GET /api/marketplace/candidates/{candidate_id}/matches": "PPPPPPPPDDPPPPP",
-  "GET /api/marketplace/pool": "PPPPPPPPDDPPPPP",
-  "POST /api/marketplace/candidates/{candidate_id}/add": "PPPPPPPPDDPPPPP"
+  "DELETE /api/marketplace/candidates/{candidate_id}": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/marketplace/candidates": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/marketplace/candidates/{candidate_id}/matches": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/marketplace/pool": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/marketplace/candidates/{candidate_id}/add": "PPPPPPPPDDPPPPPPPP"
  }
 }

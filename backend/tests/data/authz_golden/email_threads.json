@@ -14,16 +14,19 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/emails": "PPPPPPPPDDPPPPP",
-  "GET /api/candidates/{candidate_id}/emails/thread/{conversation_id:path}": "PPPPPPPPDDPPPPP",
-  "GET /api/emails/{email_id}": "PPPPPPPPDDPPPPP",
-  "GET /api/emails/{email_id}/attachments/{attachment_id}/download": "PPPPPPPPDDPPPPP",
-  "GET /api/microsoft365/emails/search": "PPPPPPPPDDPPPPP",
-  "POST /api/candidates/{candidate_id}/emails/compose": "PPPPPPPPDDPPPPP",
-  "POST /api/candidates/{candidate_id}/emails/reply": "PPPPPPPPDDPPPPP",
-  "POST /api/microsoft365/emails/bulk": "PPPPPPPPDDPPPPP"
+  "GET /api/candidates/{candidate_id}/emails": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/emails/thread/{conversation_id:path}": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/emails/{email_id}": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/emails/{email_id}/attachments/{attachment_id}/download": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/microsoft365/emails/search": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/candidates/{candidate_id}/emails/compose": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/candidates/{candidate_id}/emails/reply": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/microsoft365/emails/bulk": "PPPPPPPPDDPPPPPPPP"
  }
 }

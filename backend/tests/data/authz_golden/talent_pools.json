@@ -14,16 +14,19 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/talent-pools/{pool_id}": "PPPPPPPPDDPPPPP",
-  "DELETE /api/talent-pools/{pool_id}/remove/{candidate_id}": "PPPPPPPPDDPPPPP",
-  "GET /api/talent-pools": "PPPPPPPPDDPPPPP",
-  "GET /api/talent-pools/for-candidate/{candidate_id}": "PPPPPPPPDDPPPPP",
-  "GET /api/talent-pools/{pool_id}/candidates": "PPPPPPPPDDPPPPP",
-  "POST /api/talent-pools": "PPPPPPPPDDPPPPP",
-  "POST /api/talent-pools/{pool_id}/add": "PPPPPPPPDDPPPPP",
-  "POST /api/talent-pools/{pool_id}/bulk-add": "PPPPPPPPDDPPPPP"
+  "DELETE /api/talent-pools/{pool_id}": "PPPPPPPPDDPPPPPPPP",
+  "DELETE /api/talent-pools/{pool_id}/remove/{candidate_id}": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/talent-pools": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/talent-pools/for-candidate/{candidate_id}": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/talent-pools/{pool_id}/candidates": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/talent-pools": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/talent-pools/{pool_id}/add": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/talent-pools/{pool_id}/bulk-add": "PPPPPPPPDDPPPPPPPP"
  }
 }

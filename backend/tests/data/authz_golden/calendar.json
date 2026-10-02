@@ -14,18 +14,21 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/calendar/events/{event_id}": "PPPPPPPPDDPPPPP",
-  "GET /api/calendar/conflicts": "PPPPPPPPDDPPPPP",
-  "GET /api/calendar/conflicts-summary": "PPPPPPPPDDPPPPP",
-  "GET /api/calendar/events": "PPPPPPPPDDPPPPP",
-  "GET /api/calendar/events/{event_id}": "PPPPPPPPDDPPPPP",
-  "PATCH /api/calendar/events/{event_id}": "PPPPPPPPDDPPPPP",
-  "POST /api/calendar/events": "PPPPPPPPDDPPPPP",
-  "POST /api/calendar/events/m365-invite": "PPPPPPPPDDPPPPP",
-  "POST /api/calendar/events/{event_id}/cancel": "PPPPPPPPDDPPPPP",
-  "POST /api/calendar/import-ical": "PPPPPPPPDDPPPPP"
+  "DELETE /api/calendar/events/{event_id}": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/calendar/conflicts": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/calendar/conflicts-summary": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/calendar/events": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/calendar/events/{event_id}": "PPPPPPPPDDPPPPPPPP",
+  "PATCH /api/calendar/events/{event_id}": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/calendar/events": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/calendar/events/m365-invite": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/calendar/events/{event_id}/cancel": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/calendar/import-ical": "PPPPPPPPDDPPPPPPPP"
  }
 }

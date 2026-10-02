@@ -14,19 +14,22 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/interview-questions/{question_id}": "PPPPPPPPDDPPPPP",
-  "DELETE /api/jobs/{job_id}/questions/{question_id}": "PPPPPPPPDDPPPPP",
-  "GET /api/interview-questions": "PPPPPPPPPDPPPPP",
-  "GET /api/interview-questions/{question_id}": "PPPPPPPPPDPPPPP",
-  "GET /api/jobs/{job_id}/questions": "PPPPPPPPPDPPPPP",
-  "GET /api/jobs/{job_id}/suggested-questions": "PPPPPPPPPDPPPPP",
-  "PATCH /api/jobs/{job_id}/questions/reorder": "PPPPPPPPDDPPPPP",
-  "POST /api/interview-questions": "PPPPPPPPDDPPPPP",
-  "POST /api/interview-questions/{question_id}/rate": "PPPPPPPPDDPPPPP",
-  "POST /api/jobs/{job_id}/questions/pin": "PPPPPPPPDDPPPPP",
-  "PUT /api/interview-questions/{question_id}": "PPPPPPPPDDPPPPP"
+  "DELETE /api/interview-questions/{question_id}": "PPPPPPPPDDPPPPPPPP",
+  "DELETE /api/jobs/{job_id}/questions/{question_id}": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/interview-questions": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/interview-questions/{question_id}": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/jobs/{job_id}/questions": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/jobs/{job_id}/suggested-questions": "PPPPPPPPPDPPPPPPPP",
+  "PATCH /api/jobs/{job_id}/questions/reorder": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/interview-questions": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/interview-questions/{question_id}/rate": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/jobs/{job_id}/questions/pin": "PPPPPPPPDDPPPPPPPP",
+  "PUT /api/interview-questions/{question_id}": "PPPPPPPPDDPPPPPPPP"
  }
 }

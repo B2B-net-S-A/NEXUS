@@ -27,14 +27,13 @@ describe("central section access matrix", () => {
     },
   );
 
-  it("gives TCM all business sections except Finance and read-only Delivery", () => {
+  it("gives TCM all business sections except Finance; Delivery follows the status permission", () => {
     const user = { role: "talent_community_manager" as const };
     expect(sectionAccessForUser(user, "sourcing")).toBe("write");
     expect(sectionAccessForUser(user, "pipeline")).toBe("write");
-    expect(sectionAccessForUser(user, "delivery")).toBe("read");
+    expect(sectionAccessForUser(user, "delivery")).toBe("write");
     expect(sectionAccessForUser(user, "insights")).toBe("read");
     expect(sectionAccessForUser(user, "finance")).toBe("none");
-    expect(hasSectionAccess(user, "delivery", "write")).toBe(false);
   });
 
   it("keeps Delivery Lead in Delivery but outside the global Finance module", () => {
@@ -48,7 +47,7 @@ describe("central section access matrix", () => {
       role: "recruiter" as const,
       roles: ["recruiter", "talent_community_manager"] as const,
     };
-    expect(sectionAccessForUser(hybrid, "delivery")).toBe("read");
+    expect(sectionAccessForUser(hybrid, "delivery")).toBe("write");
     expect(sectionAccessForUser(hybrid, "finance")).toBe("none");
   });
 

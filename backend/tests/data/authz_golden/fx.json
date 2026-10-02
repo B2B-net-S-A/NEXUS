@@ -14,11 +14,14 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/fx": "PPPPPPPPPDPPPPP",
-  "POST /api/fx/backfill": "PDDDDDDDDDDDDDD",
-  "POST /api/fx/refresh": "PDDDDDDDDDDDDDD"
+  "GET /api/fx": "PPPPPPPPPDPPPPPPPP",
+  "POST /api/fx/backfill": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/fx/refresh": "PDDDDDDDDDDDDDDDDD"
  }
 }

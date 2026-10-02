@@ -50,8 +50,7 @@ from app.services.client_identity import visible_client_predicates
 from app.services import trainee_program
 from app.services.user_email import find_user_by_email, normalize_email
 from app.services.critical_events import record_executed
-from app.services.action_permissions import resolve_effective_action_access
-from app.services.section_permissions import resolve_effective_section_access
+from app.services.effective_access import resolve_effective_access
 from app.services.user_response import build_user_response
 
 router = APIRouter()
@@ -589,8 +588,7 @@ async def start_impersonation(
         )
     )
     await db.flush()
-    await resolve_effective_section_access(db, target)
-    await resolve_effective_action_access(db, target)
+    await resolve_effective_access(db, [target])
     return await build_user_response(target, db)
 
 

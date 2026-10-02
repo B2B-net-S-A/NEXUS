@@ -14,16 +14,19 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/contract-analytics/location-distribution": "PPDDDDDDDDDDDDD",
-  "GET /api/contract-analytics/margin-by-client": "PPDDDDDDDDDDDDD",
-  "GET /api/contract-analytics/margin-by-contractor": "PPDDDDDDDDDDDDD",
-  "GET /api/contract-analytics/margin-totals": "PPDDDDDDDDDDDDD",
-  "GET /api/contract-analytics/revenue-forecast": "PPDDDDDDDDDDDDD",
-  "GET /api/contract-analytics/role-client-mix": "PPDDDDDDDDDDDDD",
-  "GET /api/contract-analytics/termination-analysis": "PPDDDDDDDDDDDDD",
-  "GET /api/contract-analytics/utilization": "PPDDDDDDDDDDDDD"
+  "GET /api/contract-analytics/location-distribution": "PPDDDDDDDDDDDDDDDD",
+  "GET /api/contract-analytics/margin-by-client": "PPDDDDDDDDDDDDDDDD",
+  "GET /api/contract-analytics/margin-by-contractor": "PPDDDDDDDDDDDDDDDD",
+  "GET /api/contract-analytics/margin-totals": "PPDDDDDDDDDDDDDDDD",
+  "GET /api/contract-analytics/revenue-forecast": "PPDDDDDDDDDDDDDDDD",
+  "GET /api/contract-analytics/role-client-mix": "PPDDDDDDDDDDDDDDDD",
+  "GET /api/contract-analytics/termination-analysis": "PPDDDDDDDDDDDDDDDD",
+  "GET /api/contract-analytics/utilization": "PPDDDDDDDDDDDDDDDD"
  }
 }

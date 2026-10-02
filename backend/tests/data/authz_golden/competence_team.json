@@ -14,13 +14,16 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/competence-team/assignments/{assignment_id}": "PDPDDDDDDDDPDPD",
-  "GET /api/competence-team": "PDPDDDDDDDDPDPD",
-  "PATCH /api/competence-team/people/{user_id}/allocation": "PDPDDDDDDDDPDPD",
-  "PUT /api/competence-team/assignments": "PDPDDDDDDDDPDPD",
-  "PUT /api/competence-team/rules": "PDPDDDDDDDDPDPD"
+  "DELETE /api/competence-team/assignments/{assignment_id}": "PDPDDDDDDDDPDPDDDD",
+  "GET /api/competence-team": "PDPDDDDDDDDPDPDDDD",
+  "PATCH /api/competence-team/people/{user_id}/allocation": "PDPDDDDDDDDPDPDDDD",
+  "PUT /api/competence-team/assignments": "PDPDDDDDDDDPDPDDDD",
+  "PUT /api/competence-team/rules": "PDPDDDDDDDDPDPDDDD"
  }
 }

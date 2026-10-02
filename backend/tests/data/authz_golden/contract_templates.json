@@ -14,14 +14,17 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDD",
-  "GET /api/contract-templates": "PPDBDDDDDDBBBDD",
-  "GET /api/contract-templates/{template_id}": "PPDBDDDDDDBBBDD",
-  "GET /api/contract-templates/{template_id}/render": "PPDBDDDDDDBBBDD",
-  "PATCH /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDD",
-  "POST /api/contract-templates": "PDDDDDDDDDDDDDD"
+  "DELETE /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/contract-templates": "PPDBDDDDDDBBBDDDDD",
+  "GET /api/contract-templates/{template_id}": "PPDBDDDDDDBBBDDDDD",
+  "GET /api/contract-templates/{template_id}/render": "PPDBDDDDDDBBBDDDDD",
+  "PATCH /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-templates": "PDDDDDDDDDDDDDDDDD"
  }
 }

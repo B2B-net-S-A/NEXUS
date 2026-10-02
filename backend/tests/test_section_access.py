@@ -146,11 +146,13 @@ def test_requested_delivery_and_finance_matrix() -> None:
             is SectionAccess.none
         )
 
+    # Od 0408 Delivery wynika z uprawnień: TCM zmienia status kontraktu, więc
+    # ma w sekcji zapis (na produkcji miał go w panelu od 03.09.2026).
     assert (
         section_access_for_roles(
             [UserRole.talent_community_manager], ProductSection.delivery
         )
-        is SectionAccess.read
+        is SectionAccess.write
     )
     assert (
         section_access_for_roles(
@@ -166,39 +168,59 @@ def test_requested_delivery_and_finance_matrix() -> None:
         section_access_for_roles([UserRole.delivery_lead], ProductSection.finance)
         is SectionAccess.none
     )
+    assert (
+        section_access_for_roles([UserRole.finance], ProductSection.finance)
+        is SectionAccess.write
+    )
 
 
 @pytest.mark.asyncio
-async def test_delivery_dependency_is_read_only_for_talent_community_manager() -> None:
+async def test_delivery_dependency_is_read_only_with_view_permission_alone() -> None:
+    """Sam podgląd Delivery czyta, ale nie zapisuje — także statusu kontraktu."""
+
+    dependency = require_section_access(ProductSection.delivery)
+    reader = _user(UserRole.recruiter)
+    reader.effective_section_access = {
+        section.value: "none" for section in ProductSection
+    }
+    reader.effective_section_access[ProductSection.delivery.value] = "read"
+
+    assert await dependency(_request("GET"), reader) is reader
+    with pytest.raises(HTTPException) as exc_info:
+        await dependency(_request("POST"), reader)
+    assert getattr(exc_info.value, "status_code", None) == 403
+    assert exc_info.value.detail["code"] == "section_access_denied"
+    with pytest.raises(HTTPException):
+        await dependency(_request("PATCH", "/api/contracts/42/status"), reader)
+
+
+@pytest.mark.asyncio
+async def test_delivery_dependency_lets_talent_community_manager_write() -> None:
+    """TCM ma uprawnienie statusu, więc bramka sekcji przepuszcza zapis.
+
+    O tym, KTÓRY zapis wolno wykonać, decyduje bramka uprawnienia na trasie.
+    """
+
     dependency = require_section_access(ProductSection.delivery)
     tcm = _user(UserRole.talent_community_manager)
 
     assert await dependency(_request("GET"), tcm) is tcm
-    with pytest.raises(HTTPException) as exc_info:
-        await dependency(_request("POST"), tcm)
-    assert getattr(exc_info.value, "status_code", None) == 403
-    assert exc_info.value.detail["code"] == "section_access_denied"
-
     assert await dependency(_request("PATCH", "/api/contracts/42/status"), tcm) is tcm
-    with pytest.raises(HTTPException):
-        await dependency(_request("PATCH", "/api/contracts/42"), tcm)
-    with pytest.raises(HTTPException):
-        await dependency(_request("PATCH", "/api/contracts/not-a-number/status"), tcm)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "delivery,allowed", [("none", False), ("read", True), ("write", True)]
+    "delivery,allowed", [("none", False), ("read", False), ("write", True)]
 )
 async def test_tcm_status_command_honours_a_revoked_delivery_section(
     delivery, allowed
 ) -> None:
-    """Odebranie sekcji Delivery odbiera też wąską komendę statusu TCM.
+    """Zmiana statusu wymaga zapisu w Delivery — także u TCM.
 
-    Do 09.2026 wyjątek dla ``PATCH /api/contracts/{id}/status`` wracał PRZED
-    porównaniem uprawnień — TCM z odebraną sekcją (nadpisanie per osoba albo
-    wiersz roli = none) nadal zmieniał status kontraktu. Zakres TCM (cała
-    organizacja) zostaje bez zmian; zmienia się tylko to, że odebranie działa.
+    Do 0408 TCM miał wyjątek w bramce sekcji (status przy samym odczycie).
+    Status jest teraz uprawnieniem, z którego wynika zapis w sekcji, więc
+    wyjątek zniknął: konto z samym odczytem (np. ograniczone starym wyjątkiem
+    osoby) statusu nie zmieni.
     """
     tcm = _user(UserRole.talent_community_manager)
     tcm.effective_section_access = {section.value: "none" for section in ProductSection}
@@ -212,7 +234,7 @@ async def test_tcm_status_command_honours_a_revoked_delivery_section(
             await dependency(request, tcm)
         assert exc_info.value.status_code == 403
         assert exc_info.value.detail["code"] == "section_access_denied"
-        assert exc_info.value.detail["granted"] == "none"
+        assert exc_info.value.detail["granted"] == delivery
 
 
 @pytest.mark.asyncio
@@ -268,7 +290,7 @@ def test_multi_role_policy_is_union_without_finance_side_effect() -> None:
             [UserRole.recruiter, UserRole.talent_community_manager],
             ProductSection.delivery,
         )
-        is SectionAccess.read
+        is SectionAccess.write
     )
     assert (
         section_access_for_roles(
@@ -279,35 +301,87 @@ def test_multi_role_policy_is_union_without_finance_side_effect() -> None:
     )
 
 
-def test_persisted_role_union_and_user_override_replace_the_base() -> None:
+def test_delivery_and_finance_come_from_permissions_not_stored_rows() -> None:
     user = _user(UserRole.recruiter, UserRole.talent_community_manager)
     role_rows = [
         SimpleNamespace(role="recruiter", section="delivery", access="none"),
         SimpleNamespace(
-            role="talent_community_manager", section="delivery", access="read"
+            role="talent_community_manager", section="delivery", access="write"
         ),
+        SimpleNamespace(role="recruiter", section="pipeline", access="write"),
     ]
+    # Zapisany wiersz sekcji zostaje w bazie, ale nie nadaje już dostępu.
     assert (
         base_policy_from_rows(user.get_all_roles(), role_rows)[ProductSection.delivery]
-        is SectionAccess.read
+        is SectionAccess.write
     )
+    without_permissions = effective_policy_from_rows(user, role_rows, [])
+    assert without_permissions[ProductSection.delivery] is SectionAccess.none
+    assert without_permissions[ProductSection.finance] is SectionAccess.none
+    assert without_permissions[ProductSection.pipeline] is SectionAccess.write
 
+    view_only = effective_policy_from_rows(
+        user, role_rows, [], permissions=["delivery_view"]
+    )
+    assert view_only[ProductSection.delivery] is SectionAccess.read
+
+    editor = effective_policy_from_rows(
+        user, role_rows, [], permissions=["delivery_view", "contract_status"]
+    )
+    assert editor[ProductSection.delivery] is SectionAccess.write
+    assert editor[ProductSection.finance] is SectionAccess.none
+
+    finance = effective_policy_from_rows(
+        user,
+        role_rows,
+        [],
+        permissions=["delivery_view", "amounts_view", "finance_module"],
+    )
+    assert finance[ProductSection.delivery] is SectionAccess.read
+    assert finance[ProductSection.finance] is SectionAccess.write
+
+
+def test_legacy_user_override_only_restricts_a_derived_section() -> None:
+    """Stary wyjątek osoby dla Delivery/Finansów ogranicza, nigdy nie podnosi."""
+
+    user = _user(UserRole.talent_community_manager)
+    permissions = ["delivery_view", "contract_status"]
     override_rows = [
         SimpleNamespace(user_id=user.id, section="delivery", access="write")
     ]
     assert (
-        effective_policy_from_rows(user, role_rows, override_rows)[
+        effective_policy_from_rows(user, [], override_rows)[ProductSection.delivery]
+        is SectionAccess.none
+    )
+
+    override_rows[0].access = "read"
+    assert (
+        effective_policy_from_rows(user, [], override_rows, permissions=permissions)[
             ProductSection.delivery
         ]
-        is SectionAccess.write
+        is SectionAccess.read
     )
 
     override_rows[0].access = "none"
     assert (
-        effective_policy_from_rows(user, role_rows, override_rows)[
+        effective_policy_from_rows(user, [], override_rows, permissions=permissions)[
             ProductSection.delivery
         ]
         is SectionAccess.none
+    )
+
+
+def test_user_override_still_replaces_a_stored_section() -> None:
+    user = _user(UserRole.recruiter)
+    role_rows = [SimpleNamespace(role="recruiter", section="insights", access="read")]
+    override_rows = [
+        SimpleNamespace(user_id=user.id, section="insights", access="write")
+    ]
+    assert (
+        effective_policy_from_rows(user, role_rows, override_rows)[
+            ProductSection.insights
+        ]
+        is SectionAccess.write
     )
 
 
@@ -461,19 +535,51 @@ async def test_shared_search_requires_read_in_at_least_one_section(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("path,method,section,signature,allowed", [
-    ("/api/b2b-generator/generated/123/confirm-fully-signed", "POST", "read", "manage", True),
-    ("/api/b2b-generator/generated/123/confirm-fully-signed", "POST", "read", "none", False),
-    ("/api/b2b-generator/generated/123/confirm-fully-signed", "POST", "none", "manage", False),
-    ("/api/b2b-generator/generated/123", "PATCH", "read", "manage", False),
-    ("/api/b2b-generator/generated/123", "DELETE", "read", "manage", False),
-    ("/api/b2b-generator/generate", "POST", "read", "manage", False),
-    ("/api/b2b-generator/generated/123/confirm-fully-signed/extra", "POST", "read", "manage", False),
-])
-async def test_signature_command_is_narrowly_configurable(path, method, section, signature, allowed):
+@pytest.mark.parametrize(
+    "path,method,section,signature,allowed",
+    [
+        (
+            "/api/b2b-generator/generated/123/confirm-fully-signed",
+            "POST",
+            "read",
+            "manage",
+            True,
+        ),
+        (
+            "/api/b2b-generator/generated/123/confirm-fully-signed",
+            "POST",
+            "read",
+            "none",
+            False,
+        ),
+        (
+            "/api/b2b-generator/generated/123/confirm-fully-signed",
+            "POST",
+            "none",
+            "manage",
+            False,
+        ),
+        ("/api/b2b-generator/generated/123", "PATCH", "read", "manage", False),
+        ("/api/b2b-generator/generated/123", "DELETE", "read", "manage", False),
+        ("/api/b2b-generator/generate", "POST", "read", "manage", False),
+        (
+            "/api/b2b-generator/generated/123/confirm-fully-signed/extra",
+            "POST",
+            "read",
+            "manage",
+            False,
+        ),
+    ],
+)
+async def test_signature_command_is_narrowly_configurable(
+    path, method, section, signature, allowed
+):
     user = _user(UserRole.talent_community_manager)
     user.effective_section_access = {"sourcing": section}
-    user.effective_action_access = {"b2b_contract_generator": "view", "b2b_signature_confirmation": signature}
+    user.effective_action_access = {
+        "b2b_contract_generator": "view",
+        "b2b_signature_confirmation": signature,
+    }
     check = require_section_access(ProductSection.sourcing)
     if allowed:
         assert await check(_request(method, path), user) is user

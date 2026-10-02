@@ -14,11 +14,14 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/clients/directory/inactive-cleanup": "PDDDDDDDDDDDDDD",
-  "GET /api/clients/directory/inactive-cleanup/preview": "PDDDDDDDDDDDDDD",
-  "POST /api/clients/directory/inactive-cleanup/execute": "PDDDDDDDDDDDDDD"
+  "GET /api/clients/directory/inactive-cleanup": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/directory/inactive-cleanup/preview": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/clients/directory/inactive-cleanup/execute": "PDDDDDDDDDDDDDDDDD"
  }
 }

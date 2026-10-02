@@ -14,12 +14,15 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/champion-suggestions/{suggestion_id}": "PPPPPPPPDDPPPPP",
-  "POST /api/champion-suggestions/{suggestion_id}/apply": "PPPPPPPPDDPPPPP",
-  "POST /api/champion-suggestions/{suggestion_id}/rate": "PPPPPPPPDDPPPPP",
-  "POST /api/champion-suggestions/{suggestion_id}/reject": "PPPPPPPPDDPPPPP"
+  "GET /api/champion-suggestions/{suggestion_id}": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/champion-suggestions/{suggestion_id}/apply": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/champion-suggestions/{suggestion_id}/rate": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/champion-suggestions/{suggestion_id}/reject": "PPPPPPPPDDPPPPPPPP"
  }
 }

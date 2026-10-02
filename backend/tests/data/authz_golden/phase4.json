@@ -14,16 +14,19 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/saved-searches/{search_id}": "PPPPPPPPDDPPPPP",
-  "GET /api/match-history/{job_id}/{candidate_id}": "PPPPPPPPDDPPPPP",
-  "GET /api/saved-searches": "PPPPPPPPDDPPPPP",
-  "PATCH /api/saved-searches/{search_id}": "PPPPPPPPDDPPPPP",
-  "POST /api/match-history": "PPPPPPPPDDPPPPP",
-  "POST /api/saved-searches": "PPPPPPPPDDPPPPP",
-  "POST /api/saved-searches/migrate-semantics": "PDDDDDDDDDDDDDD",
-  "POST /api/saved-searches/{search_id}/viewed": "PPPPPPPPDDPPPPP"
+  "DELETE /api/saved-searches/{search_id}": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/match-history/{job_id}/{candidate_id}": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/saved-searches": "PPPPPPPPDDPPPPPPPP",
+  "PATCH /api/saved-searches/{search_id}": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/match-history": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/saved-searches": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/saved-searches/migrate-semantics": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/saved-searches/{search_id}/viewed": "PPPPPPPPDDPPPPPPPP"
  }
 }

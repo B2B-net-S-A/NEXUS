@@ -14,21 +14,24 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/candidates/{candidate_id}/chat/messages/{msg_id}": "PPPPPPPPDDPPPPP",
-  "DELETE /api/candidates/{candidate_id}/chat/messages/{msg_id}/pin": "PDDPDDDDDDPPPDD",
-  "DELETE /api/candidates/{candidate_id}/chat/messages/{msg_id}/reactions/{emoji}": "PPPPPPPPDDPPPPP",
-  "GET /api/candidates/{candidate_id}/chat/members": "PPPPPPPPDDPPPPP",
-  "GET /api/candidates/{candidate_id}/chat/messages": "PPPPPPPPDDPPPPP",
-  "GET /api/candidates/{candidate_id}/chat/messages/{msg_id}/read-by": "PPPPPPPPDDPPPPP",
-  "GET /api/candidates/{candidate_id}/chat/pinned": "PPPPPPPPDDPPPPP",
-  "GET /api/candidates/{candidate_id}/chat/unread-count": "PPPPPPPPDDPPPPP",
-  "PATCH /api/candidates/{candidate_id}/chat/messages/{msg_id}": "PPPPPPPPDDPPPPP",
-  "POST /api/candidates/{candidate_id}/chat/messages": "PPPPPPPPDDPPPPP",
-  "POST /api/candidates/{candidate_id}/chat/messages/{msg_id}/pin": "PDDPDDDDDDPPPDD",
-  "POST /api/candidates/{candidate_id}/chat/messages/{msg_id}/reactions": "PPPPPPPPDDPPPPP",
-  "PUT /api/candidates/{candidate_id}/chat/read": "PPPPPPPPDDPPPPP"
+  "DELETE /api/candidates/{candidate_id}/chat/messages/{msg_id}": "PPPPPPPPDDPPPPPPPP",
+  "DELETE /api/candidates/{candidate_id}/chat/messages/{msg_id}/pin": "PDDPDDDDDDPPPDDDDD",
+  "DELETE /api/candidates/{candidate_id}/chat/messages/{msg_id}/reactions/{emoji}": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/chat/members": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/chat/messages": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/chat/messages/{msg_id}/read-by": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/chat/pinned": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/chat/unread-count": "PPPPPPPPDDPPPPPPPP",
+  "PATCH /api/candidates/{candidate_id}/chat/messages/{msg_id}": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/candidates/{candidate_id}/chat/messages": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/candidates/{candidate_id}/chat/messages/{msg_id}/pin": "PDDPDDDDDDPPPDDDDD",
+  "POST /api/candidates/{candidate_id}/chat/messages/{msg_id}/reactions": "PPPPPPPPDDPPPPPPPP",
+  "PUT /api/candidates/{candidate_id}/chat/read": "PPPPPPPPDDPPPPPPPP"
  }
 }

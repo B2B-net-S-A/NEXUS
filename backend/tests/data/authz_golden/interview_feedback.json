@@ -14,13 +14,16 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/interview-feedback/{feedback_id}": "PPPPPPPPDDPPPPP",
-  "GET /api/interview-feedback": "PPPPPPPPDDPPPPP",
-  "GET /api/interview-feedback/{feedback_id}": "PPPPPPPPDDPPPPP",
-  "PATCH /api/interview-feedback/{feedback_id}": "PPPPPPPPDDPPPPP",
-  "POST /api/interview-feedback": "PPPPPPPPDDPPPPP"
+  "DELETE /api/interview-feedback/{feedback_id}": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/interview-feedback": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/interview-feedback/{feedback_id}": "PPPPPPPPDDPPPPPPPP",
+  "PATCH /api/interview-feedback/{feedback_id}": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/interview-feedback": "PPPPPPPPDDPPPPPPPP"
  }
 }

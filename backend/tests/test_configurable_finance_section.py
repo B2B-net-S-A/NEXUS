@@ -16,7 +16,7 @@ from app.services.access_scope import ScopeKind, resolve_dashboard_scope
 from app.services.section_permissions import ProductSection
 
 
-def _user(role: UserRole, finance: str) -> User:
+def _user(role: UserRole, finance: str, *, permissions: tuple[str, ...] = ()) -> User:
     user = User(
         id=41,
         email=f"{role.value}@example.com",
@@ -30,6 +30,7 @@ def _user(role: UserRole, finance: str) -> User:
         section.value: "none" for section in ProductSection
     }
     user.effective_section_access[ProductSection.finance.value] = finance
+    user.effective_action_access = {key: "manage" for key in permissions}
     return user
 
 
@@ -80,9 +81,11 @@ async def test_opaque_contract_documents_require_persona_and_finance_grant() -> 
 
 
 @pytest.mark.asyncio
-async def test_contract_template_legal_read_honours_finance_revoke(
+async def test_contract_template_legal_read_needs_the_amounts_view_permission(
     monkeypatch,
 ) -> None:
+    """Dokumenty prawne mogą nieść stawki — wymagają „Stawki i kwoty: podgląd”."""
+
     async def no_client_assignments(*_args, **_kwargs):
         return frozenset()
 
@@ -98,8 +101,11 @@ async def test_contract_template_legal_read_honours_finance_revoke(
             SimpleNamespace(),
         )
     assert exc.value.status_code == 403
+    assert exc.value.detail["permission"] == "amounts_view"
 
-    finance_reader = _user(UserRole.finance, "read")
+    finance_reader = _user(
+        UserRole.finance, "none", permissions=("delivery_view", "amounts_view")
+    )
     assert (
         await contract_access.require_contract_legal_read_access(
             finance_reader,
@@ -107,6 +113,16 @@ async def test_contract_template_legal_read_honours_finance_revoke(
         )
         is finance_reader
     )
+
+    # Konto z rolą Delivery Leada bez żadnego klienta nie wchodzi do narzędzi.
+    lead = _user(
+        UserRole.delivery_lead, "none", permissions=("delivery_view", "amounts_view")
+    )
+    with pytest.raises(HTTPException) as exc:
+        await contract_access.require_contract_legal_read_access(
+            lead, SimpleNamespace()
+        )
+    assert exc.value.status_code == 403
 
 
 @pytest.mark.asyncio

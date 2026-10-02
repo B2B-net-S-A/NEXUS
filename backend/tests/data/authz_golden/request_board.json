@@ -14,11 +14,14 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/request-board/jobs/{job_id}/people/{user_id}": "PDPPDDDDDDPPPPD",
-  "GET /api/request-board": "PPPPPPPPDDPPPPP",
-  "POST /api/request-board/jobs/{job_id}/people": "PDPPDDDDDDPPPPD"
+  "DELETE /api/request-board/jobs/{job_id}/people/{user_id}": "PDPPDDDDDDPPPPDDDD",
+  "GET /api/request-board": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/request-board/jobs/{job_id}/people": "PDPPDDDDDDPPPPDDDD"
  }
 }

@@ -1,6 +1,14 @@
-"""Make signature confirmation independently configurable, including TCM."""
+"""Make signature confirmation independently configurable, including TCM.
+
+CHECK akcji pochodzi ze wspólnego źródła (``permission_schema``), a nie
+z literału tej rewizji: ``signature_policy_bootstrap`` wykonuje ``upgrade()``
+ponownie przy starcie, gdy polityki brakuje, i literał z dwiema akcjami
+odrzuciłby wtedy wiersze uprawnień dodanych w 0408.
+"""
 
 from alembic import op
+
+from app.services.permission_schema import ACTION_CHECK_SQL
 
 revision = "0282_b2b_signature_permission"
 down_revision = "0281_candidate_skill_audit_index"
@@ -11,11 +19,7 @@ depends_on = None
 def upgrade() -> None:
     for table in ("rbac_role_action_permissions", "rbac_user_action_overrides"):
         op.drop_constraint(f"ck_{table}_action", table, type_="check")
-        op.create_check_constraint(
-            f"ck_{table}_action",
-            table,
-            "action IN ('b2b_contract_generator', 'b2b_signature_confirmation')",
-        )
+        op.create_check_constraint(f"ck_{table}_action", table, ACTION_CHECK_SQL)
     # Preserve existing grants for legacy signatories. TCM receives only this
     # command, with no change to generator, finance or document-edit access.
     op.execute("""

@@ -14,12 +14,15 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDD",
-  "GET /api/scoring-weights": "PDDPDDDDDDPPPDD",
-  "PATCH /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDD",
-  "POST /api/scoring-weights": "PDDDDDDDDDDDDDD"
+  "DELETE /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/scoring-weights": "PDDPDDDDDDPPPDDDDD",
+  "PATCH /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/scoring-weights": "PDDDDDDDDDDDDDDDDD"
  }
 }

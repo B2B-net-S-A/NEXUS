@@ -14,12 +14,15 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/conflicts": "PPPPPPPPDDPPPPP",
-  "GET /api/conflicts": "PPPPPPPPDDPPPPP",
-  "PATCH /api/conflicts/{conflict_id}/deactivate": "PDDPDDDDDDPPPDD",
-  "POST /api/candidates/{candidate_id}/conflicts": "PDDPDDDDDDPPPDD"
+  "GET /api/candidates/{candidate_id}/conflicts": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/conflicts": "PPPPPPPPDDPPPPPPPP",
+  "PATCH /api/conflicts/{conflict_id}/deactivate": "PDDPDDDDDDPPPDDDDD",
+  "POST /api/candidates/{candidate_id}/conflicts": "PDDPDDDDDDPPPDDDDD"
  }
 }

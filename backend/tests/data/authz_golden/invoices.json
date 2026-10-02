@@ -14,15 +14,18 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDD",
-  "GET /api/invoices": "PPDDDDDDDDDDDDD",
-  "GET /api/invoices/dso": "PPDDDDDDDDDDDDD",
-  "GET /api/invoices/export.csv": "PPDDDDDDDDDDDDD",
-  "GET /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDD",
-  "PATCH /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDD",
-  "POST /api/invoices": "PPDDDDDDDDDDDDD"
+  "DELETE /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDD",
+  "GET /api/invoices": "PPDDDDDDDDDDDDDDDD",
+  "GET /api/invoices/dso": "PPDDDDDDDDDDDDDDDD",
+  "GET /api/invoices/export.csv": "PPDDDDDDDDDDDDDDDD",
+  "GET /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDD",
+  "PATCH /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDD",
+  "POST /api/invoices": "PPDDDDDDDDDDDDDDDD"
  }
 }

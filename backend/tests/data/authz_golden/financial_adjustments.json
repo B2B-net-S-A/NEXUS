@@ -14,11 +14,14 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/financial-adjustments": "PPDDDDDDDDDDDDD",
-  "POST /api/financial-adjustments": "PPDDDDDDDDDDDDD",
-  "POST /api/financial-adjustments/{adjustment_id}/approve": "PDDDDDDDDDDDDDD"
+  "GET /api/financial-adjustments": "PPDDDDDDDDDDDDDDDD",
+  "POST /api/financial-adjustments": "PPDDDDDDDDDDDDDDDD",
+  "POST /api/financial-adjustments/{adjustment_id}/approve": "PDDDDDDDDDDDDDDDDD"
  }
 }

@@ -118,7 +118,9 @@ export const ALL_USER_ROLES: readonly UserRole[] = [
  * Coarse product-section policy. Endpoint-specific capabilities remain the
  * final authority for actions inside an allowed section.
  *
- * Keep in parity with backend/app/api/section_access.py.
+ * Macierz startowa dla profilu bez `effective_section_access`. Delivery
+ * i Finanse muszą zgadzać się z `deriveSections(defaultPermissionsForRoles)`
+ * — pilnuje tego `permissions.test.ts`.
  */
 export const ROLE_SECTION_ACCESS: Record<
   UserRole,
@@ -156,10 +158,12 @@ export const ROLE_SECTION_ACCESS: Record<
     finance: "none",
     system_admin: "none",
   },
+  // Od 0408 Delivery i Finanse wynikają z uprawnień (`lib/permissions.ts`):
+  // TCM zmienia status kontraktu, więc ma w Delivery zapis.
   talent_community_manager: {
     sourcing: "write",
     pipeline: "write",
-    delivery: "read",
+    delivery: "write",
     insights: "read",
     finance: "none",
     system_admin: "none",

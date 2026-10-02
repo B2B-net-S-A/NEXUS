@@ -67,6 +67,9 @@ _GATE_QUALNAME_MARKERS = (
     # 0374: trasy „Telefony na dziś” — wyłącznie konto praktykanta, a w serwisie
     # wyłącznie pozycje jego własnej listy (`_own_item`).
     "require_trainee",
+    # 0408: bramki dziewięciu uprawnień z ekranu Ustawienia → Osoby i role.
+    "require_permission",
+    "require_any_permission",
 )
 
 # The bare authentication dependency: proves identity, decides nothing.

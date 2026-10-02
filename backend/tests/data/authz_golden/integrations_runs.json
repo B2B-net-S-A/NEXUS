@@ -14,14 +14,17 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/insights/integrations/runs": "PPPPPPPPPDPPPPP",
-  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPPPPDPPPPP",
-  "GET /api/insights/integrations/summary": "PPPPPPPPPDPPPPP",
-  "PATCH /api/integrations/runs/{run_id}": "PPPPPPPPDDPPPPP",
-  "POST /api/integrations/runs": "PPPPPPPPDDPPPPP",
-  "POST /api/integrations/runs/{run_id}/events": "PPPPPPPPDDPPPPP"
+  "GET /api/insights/integrations/runs": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/insights/integrations/summary": "PPPPPPPPPDPPPPPPPP",
+  "PATCH /api/integrations/runs/{run_id}": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/integrations/runs": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/integrations/runs/{run_id}/events": "PPPPPPPPDDPPPPPPPP"
  }
 }

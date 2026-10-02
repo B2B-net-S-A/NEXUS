@@ -14,14 +14,17 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/public/apply/{token}": "PPPPPPPPPPPPPPP",
-  "GET /api/public/champion-card/{token}": "PPPPPPPPPPPPPPP",
-  "GET /api/public/cv-i/{token}": "PPPPPPPPPPPPPPP",
-  "GET /api/public/cv/{token}": "PPPPPPPPPPPPPPP",
-  "POST /api/public/apply/{token}": "PPPPPPPPPPPPPPP",
-  "POST /api/public/cv-i/{token}/chat": "PPPPPPPPPPPPPPP"
+  "GET /api/public/apply/{token}": "PPPPPPPPPPPPPPPPPP",
+  "GET /api/public/champion-card/{token}": "PPPPPPPPPPPPPPPPPP",
+  "GET /api/public/cv-i/{token}": "PPPPPPPPPPPPPPPPPP",
+  "GET /api/public/cv/{token}": "PPPPPPPPPPPPPPPPPP",
+  "POST /api/public/apply/{token}": "PPPPPPPPPPPPPPPPPP",
+  "POST /api/public/cv-i/{token}/chat": "PPPPPPPPPPPPPPPPPP"
  }
 }

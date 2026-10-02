@@ -14,18 +14,21 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/email-templates/{template_id}": "PDDDDDDDDDDDDDD",
-  "GET /api/email-templates": "PPPPPPPPDDPPPPP",
-  "GET /api/email-templates/{template_id}": "PPPPPPPPDDPPPPP",
-  "POST /api/email-templates": "PDPPDDDDDDPPPPD",
-  "POST /api/email-templates/seed": "PDDDDDDDDDDDDDD",
-  "POST /api/email-templates/{template_id}/preview": "PPPPPPPPDDPPPPP",
-  "POST /api/email-templates/{template_id}/send": "PPPPPPPPDDPPPPP",
-  "POST /api/emails/preview": "PPPPPPPPDDPPPPP",
-  "POST /api/emails/send": "PPPPPPPPDDPPPPP",
-  "PUT /api/email-templates/{template_id}": "PDPPDDDDDDPPPPD"
+  "DELETE /api/email-templates/{template_id}": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/email-templates": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/email-templates/{template_id}": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/email-templates": "PDPPDDDDDDPPPPDDDD",
+  "POST /api/email-templates/seed": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/email-templates/{template_id}/preview": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/email-templates/{template_id}/send": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/emails/preview": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/emails/send": "PPPPPPPPDDPPPPPPPP",
+  "PUT /api/email-templates/{template_id}": "PDPPDDDDDDPPPPDDDD"
  }
 }

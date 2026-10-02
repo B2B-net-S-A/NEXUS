@@ -14,15 +14,18 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/competitions/current": "PPPPPPPPPDPPPPP",
-  "GET /api/competitions/history": "PPPPPPPPPDPPPPP",
-  "GET /api/competitions/monthly-races": "PPPPPPPPPDPPPPP",
-  "GET /api/competitions/my-position": "PPPPPPPPPDPPPPP",
-  "GET /api/competitions/ties": "PDDDDDDDDDDDDDD",
-  "POST /api/competitions/freeze": "PDDDDDDDDDDDDDD",
-  "POST /api/competitions/{type}/{period}/resolve-tie": "PDDDDDDDDDDDDDD"
+  "GET /api/competitions/current": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/competitions/history": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/competitions/monthly-races": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/competitions/my-position": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/competitions/ties": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/competitions/freeze": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/competitions/{type}/{period}/resolve-tie": "PDDDDDDDDDDDDDDDDD"
  }
 }

@@ -4,6 +4,12 @@ The matrix in this module bootstraps a fresh database and supports isolated
 unit tests. Runtime requests resolve role rows and per-user overrides from
 Postgres on every authentication, so an admin change works across all API pods
 without a process-local cache.
+
+Od migracji 0408 sekcje **Delivery i Finanse nie są ustawiane ręcznie**:
+wynikają z dziewięciu uprawnień z ekranu (``permission_catalog.derive_sections``).
+Zapisane wiersze tych dwóch sekcji zostają w bazie (powrót do poprzedniej
+wersji, progi zasiewu), ale resolver ich nie czyta. Sourcing, Pipeline,
+Insights i System działają jak dotąd.
 """
 
 from __future__ import annotations
@@ -11,11 +17,11 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from enum import IntEnum, StrEnum
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.section_permission import RoleSectionPermission, UserSectionOverride
 from app.models.user import User, UserRole
+from app.services import permission_catalog as catalog
 
 
 class ProductSection(StrEnum):
@@ -35,6 +41,22 @@ class SectionAccess(IntEnum):
 
 _NONE = {section: SectionAccess.none for section in ProductSection}
 
+#: Sekcje wyliczane z uprawnień z ekranu zamiast z zapisanych wierszy.
+DERIVED_SECTIONS: frozenset[ProductSection] = frozenset(
+    {ProductSection.delivery, ProductSection.finance}
+)
+
+
+def derived_section_access(
+    permissions: Iterable[str],
+) -> dict[ProductSection, SectionAccess]:
+    """Poziom Delivery i Finansów wynikający z posiadanych uprawnień."""
+
+    return {
+        ProductSection(section): SectionAccess[access]
+        for section, access in catalog.derive_sections(permissions).items()
+    }
+
 
 def _policy(**overrides: SectionAccess) -> dict[ProductSection, SectionAccess]:
     policy = dict(_NONE)
@@ -46,6 +68,8 @@ def _policy(**overrides: SectionAccess) -> dict[ProductSection, SectionAccess]:
 
 # Bootstrap values for migration 0269. Runtime authorization never silently
 # falls back to this matrix once a request has been authenticated.
+# Wpisy Delivery i Finanse to historyczny zasiew — służą już tylko jako progi
+# zasiewu uprawnień (``permission_catalog.seed_rows_for_role``).
 DEFAULT_ROLE_SECTION_ACCESS: dict[UserRole, dict[ProductSection, SectionAccess]] = {
     UserRole.admin: _policy(
         sourcing=SectionAccess.write,
@@ -113,6 +137,11 @@ def section_access_for_roles(
 ) -> SectionAccess:
     """Return the bootstrap union, used only outside an authenticated request."""
 
+    if section in DERIVED_SECTIONS:
+        held: set[str] = set()
+        for role in roles:
+            held |= catalog.default_permissions_for_role(role.value)
+        return derived_section_access(held)[section]
     return max(
         (DEFAULT_ROLE_SECTION_ACCESS.get(role, _NONE)[section] for role in roles),
         default=SectionAccess.none,
@@ -182,13 +211,22 @@ def effective_policy_from_rows(
     user: User,
     role_rows: Iterable[RoleSectionPermission],
     override_rows: Iterable[UserSectionOverride],
+    *,
+    permissions: Iterable[str] = (),
 ) -> dict[ProductSection, SectionAccess]:
-    """Role union followed by explicit per-user replacement."""
+    """Role union, per-user replacement, then Delivery/Finance from permissions.
+
+    ``permissions`` to uprawnienia z ekranu, które konto ma PO domknięciu
+    zależności. Bez nich Delivery i Finanse są zamknięte — zapisane wiersze
+    tych sekcji nie nadają już dostępu. Stary wyjątek osoby dla Delivery albo
+    Finansów działa wyłącznie jako ograniczenie (nigdy nie podnosi poziomu).
+    """
 
     if user.has_role(UserRole.admin):
         return {section: SectionAccess.write for section in ProductSection}
 
     policy = base_policy_from_rows(user.get_all_roles(), role_rows)
+    policy.update(derived_section_access(permissions))
     for row in override_rows:
         if row.user_id != user.id:
             continue
@@ -196,7 +234,10 @@ def effective_policy_from_rows(
             section = ProductSection(row.section)
         except ValueError:
             continue
-        policy[section] = _coerce_access(row.access)
+        access = _coerce_access(row.access)
+        if section in DERIVED_SECTIONS:
+            access = min(policy[section], access)
+        policy[section] = access
 
     # Technical administration is deliberately not delegable from this panel.
     policy[ProductSection.system_admin] = SectionAccess.none
@@ -217,44 +258,13 @@ async def resolve_effective_section_access(
 async def resolve_effective_section_access_for_users(
     db: AsyncSession, users: Iterable[User]
 ) -> None:
-    """Attach effective policies to a fan-out list with two bounded queries."""
+    """Attach effective policies (sections and actions) to a fan-out list.
 
-    user_list = list(users)
-    if not user_list:
-        return
-    non_admins = [user for user in user_list if not user.has_role(UserRole.admin)]
-    role_values = sorted(
-        {role.value for user in non_admins for role in user.get_all_roles()}
-    )
-    user_ids = [user.id for user in non_admins]
-    role_rows = list(
-        (
-            await db.scalars(
-                select(RoleSectionPermission).where(
-                    RoleSectionPermission.role.in_(role_values or ["__none__"])
-                )
-            )
-        ).all()
-    )
-    override_rows = list(
-        (
-            await db.scalars(
-                select(UserSectionOverride).where(
-                    UserSectionOverride.user_id.in_(user_ids or [-1])
-                )
-            )
-        ).all()
-    )
-    overrides_by_user: dict[int, list[UserSectionOverride]] = {}
-    for row in override_rows:
-        overrides_by_user.setdefault(row.user_id, []).append(row)
+    Sekcje Delivery i Finanse wynikają z uprawnień, więc sekcji nie da się
+    policzyć bez akcji — jedno wejście ładuje jedno i drugie
+    (``effective_access.resolve_effective_access``, cztery ograniczone zapytania).
+    """
 
-    for user in user_list:
-        policy = (
-            {section: SectionAccess.write for section in ProductSection}
-            if user.has_role(UserRole.admin)
-            else effective_policy_from_rows(
-                user, role_rows, overrides_by_user.get(user.id, [])
-            )
-        )
-        user.effective_section_access = serialize_section_access(policy)
+    from app.services.effective_access import resolve_effective_access
+
+    await resolve_effective_access(db, users)

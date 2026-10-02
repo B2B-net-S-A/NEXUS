@@ -14,14 +14,17 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/clients": "PPDPPDDDDDPPPDP",
-  "GET /api/clients/{client_id}": "PPDPPDDDDDPPPDP",
-  "GET /api/clients/{client_id}/profile": "PPDPPDDDDDPPPDP",
-  "PATCH /api/clients/{client_id}": "PDDPDDDDDDPPPDD",
-  "POST /api/clients": "PDDPDDDDDDPPPDD",
-  "POST /api/clients/{client_id}/merge-into/{target_id}": "PDDDDDDDDDDDDDD"
+  "GET /api/clients": "PPDPPDDDDDPPPDPPPP",
+  "GET /api/clients/{client_id}": "PPDPPDDDDDPPPDPPPP",
+  "GET /api/clients/{client_id}/profile": "PPDPPDDDDDPPPDPPPP",
+  "PATCH /api/clients/{client_id}": "PDDPDDDDDDPPPDDDDD",
+  "POST /api/clients": "PDDPDDDDDDPPPDDDDD",
+  "POST /api/clients/{client_id}/merge-into/{target_id}": "PDDDDDDDDDDDDDDDDD"
  }
 }

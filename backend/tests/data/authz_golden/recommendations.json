@@ -14,17 +14,20 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/recommendations": "PPPPPPPPDDPPPPP",
-  "GET /api/jobs/{job_id}/candidates-from-similar": "PPPPPPPPDDPPPPP",
-  "GET /api/jobs/{job_id}/pipeline-scores": "PPPPPPPPDDPPPPP",
-  "GET /api/jobs/{job_id}/recommendations": "PPPPPPPPDDPPPPP",
-  "GET /api/recommendations/seeking-contractors": "PPPPPPPPDDPPPPP",
-  "POST /api/candidates/{candidate_id}/assign-to-job/{job_id}": "PPPPPPPPDDPPPPP",
-  "POST /api/jobs/{job_id}/generate-criteria-preview": "PDDPDDDDDDPPPDD",
-  "POST /api/jobs/{job_id}/recompute-scores": "PDDPDDDDDDPPPDD",
-  "POST /api/jobs/{job_id}/refresh-criteria": "PDDPDDDDDDPPPDD"
+  "GET /api/candidates/{candidate_id}/recommendations": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/jobs/{job_id}/candidates-from-similar": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/jobs/{job_id}/pipeline-scores": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/jobs/{job_id}/recommendations": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/recommendations/seeking-contractors": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/candidates/{candidate_id}/assign-to-job/{job_id}": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/jobs/{job_id}/generate-criteria-preview": "PDDPDDDDDDPPPDDDDD",
+  "POST /api/jobs/{job_id}/recompute-scores": "PDDPDDDDDDPPPDDDDD",
+  "POST /api/jobs/{job_id}/refresh-criteria": "PDDPDDDDDDPPPDDDDD"
  }
 }

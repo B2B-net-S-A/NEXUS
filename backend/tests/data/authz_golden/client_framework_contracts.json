@@ -14,16 +14,19 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}": "PDDBDDDDDDBBBDD",
-  "GET /api/clients/{client_id}/framework-contracts": "BBDBBDDDDDBBBDB",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}": "BBDBBDDDDDBBBDB",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/file": "BBDBBDDDDDBBBDB",
-  "PATCH /api/clients/{client_id}/framework-contracts/{fc_id}": "PDDBDDDDDDBBBDD",
-  "POST /api/clients/{client_id}/framework-contracts": "PDDBDDDDDDBBBDD",
-  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/send-autenti": "PDDBDDDDDDBBBDD",
-  "PUT /api/clients/{client_id}/framework-contracts/{fc_id}/file": "PDDBDDDDDDBBBDD"
+  "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}": "PDDBDDDDDDBBBDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts": "BBDBBDDDDDBBBDBBBB",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}": "BBDBBDDDDDBBBDBBBB",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/file": "BBDBBDDDDDBBBDBBBB",
+  "PATCH /api/clients/{client_id}/framework-contracts/{fc_id}": "PDDBDDDDDDBBBDDDDD",
+  "POST /api/clients/{client_id}/framework-contracts": "PDDBDDDDDDBBBDDDDD",
+  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/send-autenti": "PDDBDDDDDDBBBDDDDD",
+  "PUT /api/clients/{client_id}/framework-contracts/{fc_id}/file": "PDDBDDDDDDBBBDDDDD"
  }
 }

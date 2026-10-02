@@ -14,11 +14,14 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/admin/client-portfolio/import-preview": "PPDDDDDDDDDDDDD",
-  "GET /api/admin/client-portfolio/import-runs": "PPDDDDDDDDDDDDD",
-  "GET /api/admin/client-portfolio/import-runs/{run_id}": "PPDDDDDDDDDDDDD"
+  "GET /api/admin/client-portfolio/import-preview": "PPDDDDDDDDDDDDDDDD",
+  "GET /api/admin/client-portfolio/import-runs": "PPDDDDDDDDDDDDDDDD",
+  "GET /api/admin/client-portfolio/import-runs/{run_id}": "PPDDDDDDDDDDDDDDDD"
  }
 }

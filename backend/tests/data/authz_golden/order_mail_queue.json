@@ -14,19 +14,22 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/order-mail/queue": "PPDPPDDDDDPPPDP",
-  "GET /api/order-mail/queue/{doc_id}": "PPDPPDDDDDPPPDP",
-  "GET /api/order-mail/queue/{doc_id}/file": "PPDPDDDDDDPPPDD",
-  "GET /api/order-mail/queue/{doc_id}/order-target": "PPDPPDDDDDPPPDP",
-  "GET /api/order-mail/recheck-runs": "PPDPPDDDDDPPPDP",
-  "GET /api/order-mail/sync/status": "PPDPPDDDDDPPPDP",
-  "POST /api/order-mail/queue/{doc_id}/apply": "PPDPPDDDDDPPPDP",
-  "POST /api/order-mail/queue/{doc_id}/dismiss": "PPDPPDDDDDPPPDP",
-  "POST /api/order-mail/queue/{doc_id}/refresh-plan": "PPDPPDDDDDPPPDP",
-  "POST /api/order-mail/queue/{doc_id}/resolved-in-order": "PPDPPDDDDDPPPDP",
-  "POST /api/order-mail/sync": "PPDPDDDDDDPPPDD"
+  "GET /api/order-mail/queue": "PPDPPDDDDDPPPDPPDD",
+  "GET /api/order-mail/queue/{doc_id}": "PPDPPDDDDDPPPDPPDD",
+  "GET /api/order-mail/queue/{doc_id}/file": "PPDPDDDDDDPPPDDDDD",
+  "GET /api/order-mail/queue/{doc_id}/order-target": "PPDPPDDDDDPPPDPPDD",
+  "GET /api/order-mail/recheck-runs": "PPDPPDDDDDPPPDPPDD",
+  "GET /api/order-mail/sync/status": "PPDPPDDDDDPPPDPPDD",
+  "POST /api/order-mail/queue/{doc_id}/apply": "PPDPPDDDDDPPPDPPDD",
+  "POST /api/order-mail/queue/{doc_id}/dismiss": "PPDPPDDDDDPPPDPPDD",
+  "POST /api/order-mail/queue/{doc_id}/refresh-plan": "PPDPPDDDDDPPPDPPDD",
+  "POST /api/order-mail/queue/{doc_id}/resolved-in-order": "PPDPPDDDDDPPPDPPDD",
+  "POST /api/order-mail/sync": "PPDPDDDDDDPPPDDDDD"
  }
 }

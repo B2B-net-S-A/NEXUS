@@ -14,13 +14,16 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDD",
-  "GET /api/procedures": "PPPPPPPPPDPPPPP",
-  "GET /api/procedures/{id_or_slug}": "PPPPPPPPPDPPPPP",
-  "POST /api/procedures": "PDDDDDDDDDDDDDD",
-  "PUT /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDD"
+  "DELETE /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/procedures": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/procedures/{id_or_slug}": "PPPPPPPPPDPPPPPPPP",
+  "POST /api/procedures": "PDDDDDDDDDDDDDDDDD",
+  "PUT /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDD"
  }
 }

@@ -1,6 +1,7 @@
 import { create } from "zustand"
 
 import { clearSessionArtifacts, writeAuthCookie } from "@/lib/session"
+import type { Permission } from "@/lib/permissions"
 import { hasSectionAccess } from "@/lib/section-access"
 
 // ── Role model ──────────────────────────────────────────────────────────────
@@ -169,12 +170,14 @@ export interface User {
     >
   >
   /**
-   * Uprawnienia do konkretnych operacji wewnątrz dostępnej sekcji. Dla
-   * generatora B2B rozdziela podgląd rejestru, generowanie i zarządzanie.
+   * Uprawnienia do konkretnych operacji. Dla generatora B2B rozdziela podgląd
+   * rejestru, generowanie i zarządzanie; dziewięć uprawnień z ekranu
+   * Ustawienia → Osoby i role (`lib/permissions.ts`) ma wartość "manage"
+   * albo "none". Pytaj o nie przez `hasPermission`.
    */
   effective_action_access?: Partial<
     Record<
-      "b2b_contract_generator",
+      "b2b_contract_generator" | Permission,
       "none" | "view" | "generate" | "manage"
     >
   >

@@ -40,16 +40,17 @@ from app.api import deps
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User, UserRole
+from app.services import permission_catalog as catalog
 from app.services.action_permissions import (
     DEFAULT_ROLE_ACTION_ACCESS,
-    effective_action_policy_from_rows,
+    ProductAction,
     serialize_action_access,
 )
+from app.services.effective_access import effective_access_from_rows
 from app.services.section_permissions import (
     DEFAULT_ROLE_SECTION_ACCESS,
     ProductSection,
     SectionAccess,
-    effective_policy_from_rows,
     serialize_section_access,
 )
 from tests._route_introspection import iter_api_routes
@@ -64,11 +65,12 @@ _PATH_PARAM = re.compile(r"\{([^}:]+)(:[^}]+)?\}")
 
 @dataclass(frozen=True)
 class Persona:
-    """Jedno konto wzorcowe: rola główna i ewentualne role dodatkowe."""
+    """Konto wzorcowe: rola główna, role dodatkowe i uprawnienia nadane osobie."""
 
     key: str
     role: UserRole
     extra_roles: tuple[UserRole, ...] = ()
+    grants: tuple[str, ...] = ()
 
 
 PERSONAS: tuple[Persona, ...] = (
@@ -100,6 +102,14 @@ PERSONAS: tuple[Persona, ...] = (
         UserRole.talent_community_manager,
         (UserRole.sourcer,),
     ),
+    # Uprawnienie nadane jednej osobie ponad rolę (okno „Edytuj użytkownika”).
+    Persona(
+        "talent_community_manager+contracts_orders_edit",
+        UserRole.talent_community_manager,
+        grants=("contracts_orders_edit",),
+    ),
+    Persona("recruiter+clients_edit", UserRole.recruiter, grants=("clients_edit",)),
+    Persona("recruiter+delivery_view", UserRole.recruiter, grants=("delivery_view",)),
 )
 
 #: Odstępstwa produkcji od macierzy z kodu (odczyt 02.10.2026): TCM ma
@@ -123,11 +133,32 @@ def _section_rows() -> list[SimpleNamespace]:
 
 
 def _action_rows() -> list[SimpleNamespace]:
-    return [
-        SimpleNamespace(role=role.value, action=action.value, access=access.name)
-        for role, policy in DEFAULT_ROLE_ACTION_ACCESS.items()
-        for action, access in policy.items()
-    ]
+    """Wiersze akcji jak na produkcji po migracji 0408.
+
+    Generator i podpis B2B — wartości z kodu; pozostałe uprawnienia — funkcja
+    zasiewu policzona z sekcji powyżej (ta sama, którą wykonuje migracja).
+    """
+
+    section_levels: dict[str, dict[str, str]] = {}
+    for row in _section_rows():
+        section_levels.setdefault(row.role, {})[row.section] = row.access
+    rows = []
+    for role, policy in DEFAULT_ROLE_ACTION_ACCESS.items():
+        for action in (
+            ProductAction.b2b_contract_generator,
+            ProductAction.b2b_signature_confirmation,
+        ):
+            rows.append(
+                SimpleNamespace(
+                    role=role.value, action=action.value, access=policy[action].name
+                )
+            )
+        seeded = catalog.seed_rows_for_role(role.value, section_levels[role.value])
+        rows.extend(
+            SimpleNamespace(role=role.value, action=key, access=access)
+            for key, access in seeded.items()
+        )
+    return rows
 
 
 def build_user(persona: Persona, *, user_id: int) -> User:
@@ -146,12 +177,18 @@ def build_user(persona: Persona, *, user_id: int) -> User:
         can_delete_clients=False,
         allowed_sections=[],
     )
-    user.effective_section_access = serialize_section_access(
-        effective_policy_from_rows(user, _section_rows(), [])
+    access = effective_access_from_rows(
+        user,
+        section_role_rows=_section_rows(),
+        section_override_rows=[],
+        action_role_rows=_action_rows(),
+        action_override_rows=[
+            SimpleNamespace(user_id=user_id, action=key, access="manage")
+            for key in persona.grants
+        ],
     )
-    user.effective_action_access = serialize_action_access(
-        effective_action_policy_from_rows(user, _action_rows(), [])
-    )
+    user.effective_section_access = serialize_section_access(access.sections)
+    user.effective_action_access = serialize_action_access(access.actions)
     return user
 
 

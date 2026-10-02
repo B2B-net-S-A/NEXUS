@@ -14,11 +14,14 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/champion/template": "PPPPPPPPDDPPPPP",
-  "POST /api/champion/preview": "PPPPPPPPDDPPPPP",
-  "POST /api/champion/validate": "PPPPPPPPDDPPPPP"
+  "GET /api/champion/template": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/champion/preview": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/champion/validate": "PPPPPPPPDDPPPPPPPP"
  }
 }

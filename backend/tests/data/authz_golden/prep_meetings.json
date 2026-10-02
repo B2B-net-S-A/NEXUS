@@ -14,13 +14,16 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/interview-cycle/prep-quality": "PPPPPPPPDDPPPPP",
-  "GET /api/interview-cycle/preps/options": "PPPPPPPPDDPPPPP",
-  "GET /api/interview-cycle/preps/{event_id}": "PPPPPPPPDDPPPPP",
-  "GET /api/interview-cycle/preps/{event_id}/transcript": "PPPPPPPPDDPPPPP",
-  "POST /api/interview-cycle/preps": "PPPPPPPPDDPPPPP"
+  "GET /api/interview-cycle/prep-quality": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/interview-cycle/preps/options": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/interview-cycle/preps/{event_id}": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/interview-cycle/preps/{event_id}/transcript": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/interview-cycle/preps": "PPPPPPPPDDPPPPPPPP"
  }
 }

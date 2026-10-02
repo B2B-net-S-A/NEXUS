@@ -14,13 +14,16 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/job-intake/handoff-options": "PDDPDDDDDDPPPDD",
-  "POST /api/job-intake/critical-suggestion": "PPPPPPPPDDPPPPP",
-  "POST /api/job-intake/public-draft": "PDDPDDDDDDPPPDD",
-  "POST /api/job-intake/read": "PDDPDDDDDDPPPDD",
-  "POST /api/job-intake/read-file": "PDDPDDDDDDPPPDD"
+  "GET /api/job-intake/handoff-options": "PDDPDDDDDDPPPDDDDD",
+  "POST /api/job-intake/critical-suggestion": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/job-intake/public-draft": "PDDPDDDDDDPPPDDDDD",
+  "POST /api/job-intake/read": "PDDPDDDDDDPPPDDDDD",
+  "POST /api/job-intake/read-file": "PDDPDDDDDDPPPDDDDD"
  }
 }

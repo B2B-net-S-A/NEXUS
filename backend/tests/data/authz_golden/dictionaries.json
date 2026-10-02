@@ -14,13 +14,16 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/dictionaries/{slug}/items": "PPPPPPPPPDPPPPP",
-  "GET /api/settings/dictionaries": "PDDDDDDDDDDDDDD",
-  "GET /api/settings/dictionaries/{slug}": "PDDDDDDDDDDDDDD",
-  "PATCH /api/settings/dictionaries/{slug}/items/{item_id}": "PDDDDDDDDDDDDDD",
-  "POST /api/settings/dictionaries/{slug}/items": "PDDDDDDDDDDDDDD"
+  "GET /api/dictionaries/{slug}/items": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/settings/dictionaries": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/dictionaries/{slug}": "PDDDDDDDDDDDDDDDDD",
+  "PATCH /api/settings/dictionaries/{slug}/items/{item_id}": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/settings/dictionaries/{slug}/items": "PDDDDDDDDDDDDDDDDD"
  }
 }

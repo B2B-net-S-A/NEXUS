@@ -14,13 +14,16 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/tacs/{user_id}": "PDDDDDDDDDDPDDD",
-  "GET /api/clients/{client_id}/team": "PPDPPDDDDDPPPDP",
-  "POST /api/clients/{client_id}/tacs": "PDDDDDDDDDDPDDD",
-  "PUT /api/clients/{client_id}/tacs/{user_id}/first-priority": "PDDDDDDDDDDPDDD",
-  "PUT /api/clients/{client_id}/tacs/{user_id}/toggle-primary": "PDDDDDDDDDDPDDD"
+  "DELETE /api/clients/{client_id}/tacs/{user_id}": "PDDDDDDDDDDPDDDDDD",
+  "GET /api/clients/{client_id}/team": "PPDPPDDDDDPPPDPPPP",
+  "POST /api/clients/{client_id}/tacs": "PDDDDDDDDDDPDDDDDD",
+  "PUT /api/clients/{client_id}/tacs/{user_id}/first-priority": "PDDDDDDDDDDPDDDDDD",
+  "PUT /api/clients/{client_id}/tacs/{user_id}/toggle-primary": "PDDDDDDDDDDPDDDDDD"
  }
 }

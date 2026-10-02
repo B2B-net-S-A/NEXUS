@@ -14,12 +14,15 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/insights/delivery-leads": "PPPPPPPPPDPPPPP",
-  "GET /api/insights/delivery-leads/placements-by-client": "PPPPPPPPPDPPPPP",
-  "GET /api/insights/delivery-leads/portfolio": "PPPPPPPPPDPPPPP",
-  "GET /api/insights/delivery-leads/{dl_id}/trend": "PPPPPPPPPDPPPPP"
+  "GET /api/insights/delivery-leads": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/insights/delivery-leads/placements-by-client": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/insights/delivery-leads/portfolio": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/insights/delivery-leads/{dl_id}/trend": "PPPPPPPPPDPPPPPPPP"
  }
 }

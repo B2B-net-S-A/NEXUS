@@ -14,10 +14,13 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/admin/champion-profiles/coverage": "PDDDDDDDDDDDDDD",
-  "POST /api/admin/champion-profiles/ingest": "PDDDDDDDDDDDDDD"
+  "GET /api/admin/champion-profiles/coverage": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/champion-profiles/ingest": "PDDDDDDDDDDDDDDDDD"
  }
 }

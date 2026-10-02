@@ -7,11 +7,13 @@ administration at all.
 
 The Delivery boundary is enforced on every router backing that UI section.
 It deliberately treats safe HTTP methods as read access and every other method
-as write access.  Talent Community Manager therefore gets organization-wide,
-finance-redacted Delivery reads, while mutations fail before a handler runs.
-Delivery Lead keeps write access, with client assignment enforced by the
-resource-scope guards only for finance and consequential legal operations.
-Ordinary client operations are organization-wide for every Delivery Lead.
+as write access.
+
+Od migracji 0408 poziom Delivery i Finansów wynika z uprawnień z ekranu
+(``permission_catalog.derive_sections``): sam podgląd daje odczyt, a każde
+uprawnienie do zmiany (klienci, kontrakty i zamówienia, status kontraktu,
+kwoty) daje zapis. Bramka sekcji jest więc sufitem, a o konkretnej operacji
+decyduje bramka uprawnienia na trasie (``permission_access``).
 """
 
 from __future__ import annotations
@@ -33,20 +35,6 @@ from app.services.section_permissions import (
     SectionAccess,
     section_access_for_user,
 )
-
-
-def _is_tcm_contract_status_command(request: Request, current_user: User) -> bool:
-    """Admit only the dedicated, non-financial contract-status command."""
-
-    parts = request.url.path.strip("/").split("/")
-    return (
-        request.method.upper() == "PATCH"
-        and len(parts) == 4
-        and parts[:2] == ["api", "contracts"]
-        and parts[2].isdigit()
-        and parts[3] == "status"
-        and current_user.has_role(UserRole.talent_community_manager)
-    )
 
 
 _TERMINATION_RECOVERY_COMMANDS = frozenset(
@@ -85,16 +73,14 @@ def require_section_access(section: ProductSection):
         is_read = is_read_only_http_request(request.method, request.url.path)
         required = SectionAccess.read if is_read else SectionAccess.write
         granted = section_access_for_user(current_user, section)
-        # The TCM status command is a narrow write exception INSIDE Delivery,
-        # not a way around it: a user whose Delivery section was revoked
-        # (per-user override or role row = none) must not keep this mutation.
+        # „Cofnij zakończenie” / „Powrót po przerwie” to wąski wyjątek zapisu
+        # WEWNĄTRZ Delivery, nie obejście: konto bez podglądu Delivery go nie ma.
+        # (Osobny wyjątek dla zmiany statusu przez TCM zniknął w 0408 — status
+        # jest uprawnieniem, z którego wynika zapis w sekcji.)
         if (
             section is ProductSection.delivery
             and granted >= SectionAccess.read
-            and (
-                _is_tcm_contract_status_command(request, current_user)
-                or _is_contract_termination_recovery(request, current_user)
-            )
+            and _is_contract_termination_recovery(request, current_user)
         ):
             return current_user
         parts = request.url.path.strip("/").split("/")

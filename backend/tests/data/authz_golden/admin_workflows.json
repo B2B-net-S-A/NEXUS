@@ -14,14 +14,17 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/admin/workflows": "PDDDDDDDDDDDDDD",
-  "GET /api/admin/workflows/revisions/{revision_id}": "PDDDDDDDDDDDDDD",
-  "PATCH /api/admin/workflows/stage-revisions/{stage_revision_id}": "PDDDDDDDDDDDDDD",
-  "POST /api/admin/workflows/bootstrap": "PDDDDDDDDDDDDDD",
-  "POST /api/admin/workflows/revisions/{revision_id}/draft": "PDDDDDDDDDDDDDD",
-  "POST /api/admin/workflows/revisions/{revision_id}/publish": "PDDDDDDDDDDDDDD"
+  "GET /api/admin/workflows": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/workflows/revisions/{revision_id}": "PDDDDDDDDDDDDDDDDD",
+  "PATCH /api/admin/workflows/stage-revisions/{stage_revision_id}": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/workflows/bootstrap": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/workflows/revisions/{revision_id}/draft": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/workflows/revisions/{revision_id}/publish": "PDDDDDDDDDDDDDDDDD"
  }
 }

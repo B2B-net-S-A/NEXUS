@@ -14,14 +14,17 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/admin/audits/live-order-contract-repair": "PDDDDDDDDDDDDDD",
-  "GET /api/admin/import-talent-radar/{task_id}": "PDDDDDDDDDDDDDD",
-  "GET /api/admin/import-tasks": "PDDDDDDDDDDDDDD",
-  "POST /api/admin/clients/{client_id}/ezdrowie-md-orders/import": "PDDDDDDDDDDDDDD",
-  "POST /api/admin/clients/{client_id}/nordea-orders/import": "PDDDDDDDDDDDDDD",
-  "POST /api/admin/import-talent-radar": "PDDDDDDDDDDDDDD"
+  "GET /api/admin/audits/live-order-contract-repair": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/import-talent-radar/{task_id}": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/import-tasks": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/clients/{client_id}/ezdrowie-md-orders/import": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/clients/{client_id}/nordea-orders/import": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/import-talent-radar": "PDDDDDDDDDDDDDDDDD"
  }
 }

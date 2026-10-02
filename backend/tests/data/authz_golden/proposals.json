@@ -14,11 +14,14 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/proposals": "PPPPPPPPDDPPPPP",
-  "GET /api/jobs/{job_id}/proposals/latest": "PPPPPPPPDDPPPPP",
-  "POST /api/jobs/{job_id}/proposals/regenerate": "PPPPPPPPDDPPPPP"
+  "GET /api/jobs/{job_id}/proposals": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/jobs/{job_id}/proposals/latest": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/jobs/{job_id}/proposals/regenerate": "PPPPPPPPDDPPPPPPPP"
  }
 }

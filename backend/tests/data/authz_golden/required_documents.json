@@ -14,19 +14,22 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/required-documents/{doc_id}": "BBDBBDDDDDBBBDB",
-  "DELETE /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDD",
-  "GET /api/clients/{client_id}/required-documents": "BBDBBDDDDDBBBDB",
-  "GET /api/clients/{client_id}/required-documents/{doc_id}/download": "BBDBBDDDDDBBBDB",
-  "GET /api/required-document-templates": "PPPPPPPPDDPPPPP",
-  "PATCH /api/clients/{client_id}/required-documents/{doc_id}": "BBDBBDDDDDBBBDB",
-  "PATCH /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/required-documents": "BBDBBDDDDDBBBDB",
-  "POST /api/clients/{client_id}/required-documents/apply-templates": "BBDBBDDDDDBBBDB",
-  "POST /api/clients/{client_id}/required-documents/{doc_id}/upload": "BBDBBDDDDDBBBDB",
-  "POST /api/required-document-templates": "PDDDDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/required-documents/{doc_id}": "BBDBBDDDDDBBBDBBBD",
+  "DELETE /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/{client_id}/required-documents": "BBDBBDDDDDBBBDBBBB",
+  "GET /api/clients/{client_id}/required-documents/{doc_id}/download": "BBDBBDDDDDBBBDBBBB",
+  "GET /api/required-document-templates": "PPPPPPPPDDPPPPPPPP",
+  "PATCH /api/clients/{client_id}/required-documents/{doc_id}": "BBDBBDDDDDBBBDBBBD",
+  "PATCH /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/required-documents": "BBDBBDDDDDBBBDBBBD",
+  "POST /api/clients/{client_id}/required-documents/apply-templates": "BBDBBDDDDDBBBDBBBD",
+  "POST /api/clients/{client_id}/required-documents/{doc_id}/upload": "BBDBBDDDDDBBBDBBBD",
+  "POST /api/required-document-templates": "PDDDDDDDDDDDDDDDDD"
  }
 }

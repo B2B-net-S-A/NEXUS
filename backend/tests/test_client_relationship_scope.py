@@ -70,7 +70,10 @@ async def test_admin_and_head_keep_unrestricted_client_oversight(
 
     assert access.is_admin_like
     assert access.is_client_team
-    assert access.can_view_legal_documents
+    # Dokumenty Delivery wymagają podglądu kwot (ma go admin, HoR nie);
+    # generator umów B2B zostaje przy grafie organizacyjnym.
+    assert access.can_view_legal_documents is (role is UserRole.admin)
+    assert access.generator_can_view_legal
     assert access.can_view_materials
     assert access.can_edit_materials is (role is UserRole.admin)
     assert access.can_manage_client is (role is UserRole.admin)
@@ -165,9 +168,12 @@ async def test_assigned_client_team_role_can_read_client_surfaces(
     assert access.can_view_contacts
     assert access.can_view_knowledge
     assert access.can_view_materials
-    assert access.can_view_legal_documents
+    # TAC nie ma uprawnień Delivery; dokumenty widzi wyłącznie w generatorze B2B.
+    assert access.can_view_legal_documents is (role is UserRole.delivery_lead)
+    assert access.generator_can_view_legal
     assert access.can_edit_materials is (role is UserRole.delivery_lead)
     assert access.can_edit_legal_documents is (role is UserRole.delivery_lead)
+    assert access.generator_can_edit_legal is (role is UserRole.delivery_lead)
 
 
 @pytest.mark.asyncio
@@ -213,7 +219,10 @@ async def test_finance_has_organization_wide_client_read_without_edit() -> None:
     assert not access.can_edit_contacts
     assert not access.can_edit_knowledge
     assert not access.can_edit_materials
-    assert not access.can_edit_legal_documents
+    # Decyzja Artura 02.10.2026: Finanse prowadzą kontrakty i zamówienia,
+    # więc zapisują też umowy ramowe i wykonawcze. Klientów nie edytują.
+    assert access.can_edit_legal_documents
+    assert access.missing_edit_permission == "clients_edit"
     assert not access.can_manage_client
     assert access.can_view_contact_private_notes(
         SimpleNamespace(key_relationship_owner_id=999)

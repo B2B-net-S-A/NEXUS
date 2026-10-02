@@ -14,12 +14,15 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/users": "PPPPPPPPDDPPPPP",
-  "GET /api/users/me/preferences": "PPPPPPPPPDPPPPP",
-  "GET /api/users/mentionable": "PPPPPPPPDDPPPPP",
-  "PATCH /api/users/me/preferences": "PPPPPPPPPDPPPPP"
+  "GET /api/users": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/users/me/preferences": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/users/mentionable": "PPPPPPPPDDPPPPPPPP",
+  "PATCH /api/users/me/preferences": "PPPPPPPPPDPPPPPPPP"
  }
 }

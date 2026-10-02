@@ -15,13 +15,13 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.services.permission_schema import ACTION_CHECK_SQL
 
 
 _SECTION_VALUES = (
     "'sourcing', 'pipeline', 'delivery', 'insights', 'finance', 'system_admin'"
 )
 _ACCESS_VALUES = "'none', 'read', 'write'"
-_ACTION_VALUES = "'b2b_contract_generator', 'b2b_signature_confirmation'"
 _ACTION_ACCESS_VALUES = "'none', 'view', 'generate', 'manage'"
 _ROLE_VALUES = (
     "'admin', 'head_of_recruitment', 'delivery_lead', "
@@ -133,7 +133,7 @@ class RoleActionPermission(Base):
             name="ck_rbac_role_action_permissions_role",
         ),
         CheckConstraint(
-            f"action IN ({_ACTION_VALUES})",
+            ACTION_CHECK_SQL,
             name="ck_rbac_role_action_permissions_action",
         ),
         CheckConstraint(
@@ -162,7 +162,7 @@ class UserActionOverride(Base):
     __tablename__ = "rbac_user_action_overrides"
     __table_args__ = (
         CheckConstraint(
-            f"action IN ({_ACTION_VALUES})",
+            ACTION_CHECK_SQL,
             name="ck_rbac_user_action_overrides_action",
         ),
         CheckConstraint(

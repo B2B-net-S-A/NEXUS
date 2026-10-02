@@ -14,18 +14,21 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/contract-docs-sharepoint/review": "PDDDDDDDDDDDDDD",
-  "GET /api/contract-docs-sharepoint/runs": "PDDDDDDDDDDDDDD",
-  "GET /api/contract-docs-sharepoint/runs/{run_id}": "PDDDDDDDDDDDDDD",
-  "GET /api/contract-docs-sharepoint/runs/{run_id}/report.xlsx": "PDDDDDDDDDDDDDD",
-  "GET /api/contract-docs-sharepoint/status": "PDDDDDDDDDDDDDD",
-  "POST /api/contract-docs-sharepoint/preview": "PDDDDDDDDDDDDDD",
-  "POST /api/contract-docs-sharepoint/review/{item_id}": "PDDDDDDDDDDDDDD",
-  "POST /api/contract-docs-sharepoint/runs/{run_id}/apply": "PDDDDDDDDDDDDDD",
-  "POST /api/contract-docs-sharepoint/runs/{run_id}/rollback": "PDDDDDDDDDDDDDD",
-  "POST /api/contract-docs-sharepoint/sync-now": "PDDDDDDDDDDDDDD"
+  "GET /api/contract-docs-sharepoint/review": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/contract-docs-sharepoint/runs": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/contract-docs-sharepoint/runs/{run_id}": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/contract-docs-sharepoint/runs/{run_id}/report.xlsx": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/contract-docs-sharepoint/status": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-docs-sharepoint/preview": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-docs-sharepoint/review/{item_id}": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-docs-sharepoint/runs/{run_id}/apply": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-docs-sharepoint/runs/{run_id}/rollback": "PDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-docs-sharepoint/sync-now": "PDDDDDDDDDDDDDDDDD"
  }
 }

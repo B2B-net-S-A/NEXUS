@@ -14,14 +14,17 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/calls/cloudtalk-status": "PPPPPPPPDDPPPPP",
-  "GET /api/calls/stats": "PPPPPPPPDDPPPPP",
-  "GET /api/candidates/{candidate_id}/calls": "PPPPPPPPDDPPPPP",
-  "GET /api/candidates/{candidate_id}/calls/{call_id}": "PPPPPPPPDDPPPPP",
-  "POST /api/calls": "PPPPPPPPDDPPPPP",
-  "POST /api/calls/webhook": "PPPPPPPPPPPPPPP"
+  "GET /api/calls/cloudtalk-status": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/calls/stats": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/calls": "PPPPPPPPDDPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/calls/{call_id}": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/calls": "PPPPPPPPDDPPPPPPPP",
+  "POST /api/calls/webhook": "PPPPPPPPPPPPPPPPPP"
  }
 }

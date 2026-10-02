@@ -14,13 +14,16 @@
   "head_of_recruitment+delivery_lead",
   "delivery_lead+tac",
   "head_of_recruitment+tac",
-  "talent_community_manager+sourcer"
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/settings/candidates-columns": "PPPPPPPPPDPPPPP",
-  "GET /api/settings/candidates-columns/all": "PDDDDDDDDDDDDDD",
-  "GET /api/settings/notification-delivery": "PDDDDDDDDDDDDDD",
-  "PUT /api/settings/candidates-columns": "PDDDDDDDDDDDDDD",
-  "PUT /api/settings/notification-delivery": "PDDDDDDDDDDDDDD"
+  "GET /api/settings/candidates-columns": "PPPPPPPPPDPPPPPPPP",
+  "GET /api/settings/candidates-columns/all": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDD",
+  "PUT /api/settings/candidates-columns": "PDDDDDDDDDDDDDDDDD",
+  "PUT /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDD"
  }
 }
