@@ -1854,7 +1854,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
   );
 
   return (
-    <div className="mx-auto max-w-[2400px] space-y-4">
+    <div className="space-y-4">
       <div>
         <div className="min-w-0 space-y-3">
           <div className="space-y-1.5">

@@ -172,12 +172,13 @@ describe("JobsListV2 — kolumny szerokiej tabeli", () => {
     useUiStore.setState({ jobsView: "list" });
   });
 
-  it("strona i nagłówki: limit 2400 px, cztery kolumny tylko w szerokiej tabeli", async () => {
+  it("strona bez limitu szerokości, cztery kolumny tylko w szerokiej tabeli", async () => {
     mockJobsResponse([jobRow({ client_name: "Bank Przykładowy" })]);
     renderJobs();
     await screen.findByText("Senior Java Developer");
 
-    expect(screen.getByTestId("jobs-list-page")).toHaveClass("max-w-[2400px]");
+    // Jak pulpit: żadnego `max-w-*` ani wyśrodkowania na stronie listy.
+    expect(screen.getByTestId("jobs-list-page").className).not.toMatch(/max-w-|mx-auto/);
     const headers = screen.getAllByRole("columnheader");
     expect(
       headers

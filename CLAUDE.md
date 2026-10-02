@@ -2730,8 +2730,10 @@ Audyt i lista ustaleń: `docs/responsiveness-audit-2026-09-23/`. Reguły wspóln
   (decyzja 23.09.2026).
 - **Listy wypełniają duży monitor (02.10.2026, zgłoszenie: w Traffit kolumny
   szły na cały ekran, u nas lista kończyła się na 1400 px).** Rekrutacje,
-  Klienci, Kontrakty i Finanse mają limit 2400 px jak lista kandydatów
-  (`LIST_PAGE_MAX_WIDTH` w `lib/wide-table.ts`). Dane stojące drobnym drukiem
+  Kandydaci, Klienci, Kontrakty i Finanse nie mają limitu szerokości — idą do
+  krawędzi okna jak pulpit (decyzja Artura; pierwsza wersja z limitem 2400 px
+  zostawiała puste boki na pomniejszonym ekranie). Nie dokładaj `max-w-*`
+  ani `mx-auto` na stronie listy. Dane stojące drobnym drukiem
   pod główną wartością (klient pod tytułem, rekrutacja pod klientem, „umowa
   do” pod startem) dostają własne kolumny, gdy TABELA ma ≥ 1700 px — klasy
   `WIDE_ONLY_CELL` / `WIDE_HIDDEN` i `@container` na opakowaniu tabeli, nie
