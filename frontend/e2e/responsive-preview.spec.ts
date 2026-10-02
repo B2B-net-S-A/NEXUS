@@ -154,9 +154,11 @@ const PRIMARY_CONTENT = [
   { path: "/preview/candidates-list", selector: "[data-testid^='candidate-row-']", maxTop: 0.65, shell: false },
   // Profil: zakładki pod nagłówkiem i faktami — fakty SĄ treścią profilu (0,76).
   { path: "/preview/candidate-profile", selector: "[role='tablist']", maxTop: 0.8, shell: false },
-  // Zamówienia klienta (wersja B): pierwszy wiersz tabeli — pigułki w jednym
-  // rzędzie, filtr typu w wierszu wyszukiwania (≈0,5 przy 1280 × 720 z ramką).
-  { path: "/preview/client-orders", selector: "[data-orders-table] tbody tr", maxTop: 0.6, shell: false },
+  // Zamówienia klienta (wersja B): pierwszy kafelek zamówienia. Od #1959 każde
+  // zamówienie MD i kosztowe jest osobnym kafelkiem z numerem i okresem w
+  // nagłówku — to on jest pierwszą treścią listy, a `tbody tr` (pierwsza osoba)
+  // leży pod nim.
+  { path: "/preview/client-orders", selector: "[data-orders-table] [data-order-tile]", maxTop: 0.6, shell: false },
 ] as const;
 
 test.describe("okna laptopów z Windows — główna treść w górnej części ekranu", () => {
@@ -194,16 +196,33 @@ test.describe("okna laptopów z Windows — główna treść w górnej części 
  * pustych bokach ekranu. Tabela ma wypełniać okno bez limitu szerokości, a dane
  * spod głównej wartości dostają własne kolumny od 1700 px szerokości tabeli
  * (`lib/wide-table.ts`); na laptopie zostaje układ zwarty.
+ *
+ * Lista rekrutacji ma od #1985 jeden układ dla każdej szerokości (bez kolumn
+ * szerokiej tabeli) — `wideHeader: null`, sprawdzamy samo wypełnienie okna.
+ * Na listach stoi też szyna „Otwarte karty” (od 1920 px rozwinięta, 240 px),
+ * więc „wypełnia” znaczy: od szyny albo lewego marginesu do prawego marginesu.
  */
-const WIDE_TABLES = [
-  { path: "/preview/jobs-list-v3", wideHeader: "Klient", dismissDialog: false },
+const WIDE_TABLES: ReadonlyArray<{
+  path: string;
+  wideHeader: string | null;
+  dismissDialog: boolean;
+}> = [
+  { path: "/preview/jobs-list-v3", wideHeader: null, dismissDialog: false },
   { path: "/preview/contracts-consolidation", wideHeader: "Rekrutacja", dismissDialog: true },
-] as const;
+];
+
+/** Margines strony + odstęp szyna–tabela; z zapasem na przyszłe zmiany odstępów. */
+const WIDE_TABLE_EDGE_PX = 60;
 
 test.describe("duży monitor — tabela listy wypełnia ekran", () => {
   for (const { path, wideHeader, dismissDialog } of WIDE_TABLES) {
-    test(`${path}: szerokie kolumny przy 3440 px, zwarty układ przy 1280 px`, async ({ page }) => {
-      const header = page.locator("thead th", { hasText: new RegExp(`^${wideHeader}$`, "i") }).first();
+    const title = wideHeader
+      ? "szerokie kolumny przy 3440 px, zwarty układ przy 1280 px"
+      : "tabela od szyny do prawej krawędzi przy 3440 px, bez przelewu przy 1280 px";
+    test(`${path}: ${title}`, async ({ page }) => {
+      const header = wideHeader
+        ? page.locator("thead th", { hasText: new RegExp(`^${wideHeader}$`, "i") }).first()
+        : null;
       for (const [width, wide] of [
         [3440, true],
         [1280, false],
@@ -216,10 +235,19 @@ test.describe("duży monitor — tabela listy wypełnia ekran", () => {
         await expect(table).toBeVisible();
         const box = await table.boundingBox();
         if (wide) {
-          // Bez limitu szerokości: tabela zajmuje okno poza marginesami strony.
-          expect(box?.width ?? 0, "tabela wypełnia duży ekran").toBeGreaterThan(width - 120);
-          await expect(header).toBeVisible();
-        } else {
+          // Bez limitu szerokości: tabela zajmuje okno poza marginesami strony
+          // i szyną „Otwarte karty”, jeśli ta stoi po lewej.
+          const rail = page.locator("aside[aria-label^='Otwarte']").first();
+          const railBox = (await rail.isVisible()) ? await rail.boundingBox() : null;
+          const leftEdge = railBox ? railBox.x + railBox.width : 0;
+          expect(box?.x ?? width, "tabela zaczyna się przy lewej krawędzi albo szynie").toBeLessThan(
+            leftEdge + WIDE_TABLE_EDGE_PX,
+          );
+          expect((box?.x ?? 0) + (box?.width ?? 0), "tabela sięga prawej krawędzi okna").toBeGreaterThan(
+            width - WIDE_TABLE_EDGE_PX,
+          );
+          if (header) await expect(header).toBeVisible();
+        } else if (header) {
           await expect(header).toBeHidden();
         }
         expect(await pageOverflowPx(page), `poziomy scroll przy ${width} px`).toBeLessThanOrEqual(1);

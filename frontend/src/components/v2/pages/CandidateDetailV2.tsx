@@ -579,7 +579,13 @@ export function CandidateDetailV2({
     : null;
 
   return (
-    <div className={embedded ? "space-y-4" : "mx-auto max-w-[1440px] space-y-5"}>
+    // Laptop z Windows (1280–1536 px): mniejsze odstępy nad zakładkami, żeby
+    // zaczynały się w górnych 80% okna — pilnuje `e2e/responsive-preview.spec.ts`.
+    <div
+      className={
+        embedded ? "space-y-4" : "mx-auto max-w-[1440px] space-y-5 md:max-2xl:space-y-3"
+      }
+    >
       <ProfileTopBar
         embedded={Boolean(embedded)}
         nav={navProps}
