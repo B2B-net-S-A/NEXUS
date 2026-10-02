@@ -11,7 +11,6 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { JobsListV2 } from "@/components/v2/pages/JobsListV2";
 import { useAuthStore } from "@/store/auth";
-import { useUiStore } from "@/store/ui";
 
 const getMock = vi.fn();
 
@@ -168,7 +167,6 @@ describe("JobsListV2 — funkcja TAC wyłączona", () => {
     quickCountsMock.mockReset();
     mockQuickCounts();
     searchParamsMock.mockReturnValue(new URLSearchParams());
-    useUiStore.setState({ jobsView: "list" });
   });
 
   it("nie pokazuje plakietki ani szybkiego filtra „Brak opiekuna TAC”", async () => {

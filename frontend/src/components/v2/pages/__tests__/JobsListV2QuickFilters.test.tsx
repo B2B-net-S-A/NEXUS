@@ -16,7 +16,6 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { JobsListV2 } from "@/components/v2/pages/JobsListV2";
 import { useAuthStore } from "@/store/auth";
-import { useUiStore } from "@/store/ui";
 
 const getMock = vi.fn();
 
@@ -188,7 +187,6 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
     getMock.mockReset();
     quickCountsMock.mockReset();
     mockQuickCounts();
-    useUiStore.setState({ jobsView: "list" });
     mockJobsResponse([jobRow()]);
   });
 
@@ -373,7 +371,6 @@ describe("JobsListV2 — liczniki przełączników „wymaga uwagi”", () => {
   beforeEach(() => {
     getMock.mockReset();
     quickCountsMock.mockReset();
-    useUiStore.setState({ jobsView: "list" });
     mockJobsResponse([jobRow()]);
   });
 
@@ -422,7 +419,6 @@ describe("JobsListV2 — stan requestu w wierszu", () => {
     getMock.mockReset();
     quickCountsMock.mockReset();
     mockQuickCounts();
-    useUiStore.setState({ jobsView: "list" });
     mockJobsResponse([jobRow()]);
   });
 
@@ -450,7 +446,6 @@ describe("JobsListV2 — liczby per grupa etapów w wierszu", () => {
     getMock.mockReset();
     quickCountsMock.mockReset();
     mockQuickCounts();
-    useUiStore.setState({ jobsView: "list" });
   });
 
   it("pokazuje osiem liczb w kolejności kolumn Tablicy, bez rejected/withdrawn", async () => {
@@ -509,7 +504,6 @@ describe("JobsListV2 — status requestu i podobne rekrutacje (lista v4)", () =>
     getMock.mockReset();
     quickCountsMock.mockReset();
     mockQuickCounts();
-    useUiStore.setState({ jobsView: "list" });
     window.history.replaceState(null, "", "/jobs");
   });
 
@@ -592,7 +586,6 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
     getMock.mockReset();
     quickCountsMock.mockReset();
     mockQuickCounts();
-    useUiStore.setState({ jobsView: "list" });
     mockJobsResponse([jobRow()]);
     window.history.replaceState(null, "", "/jobs");
   });
@@ -739,32 +732,12 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
   });
 });
 
-describe("JobsListV2 — widok kafelków (domyślny)", () => {
-  beforeEach(() => {
-    getMock.mockReset();
-    quickCountsMock.mockReset();
-    mockQuickCounts();
-    useUiStore.setState({ jobsView: "tiles" });
-  });
-
-  it("pasek „Kandydaci” czyta `candidate_count`/`headcount` z odpowiedzi API, nie nieistniejące pola", async () => {
-    // Regresja: do 09.2026 kafelek czytał `candidates_count`/`filled_count`/
-    // `target_positions` — pól, których `GET /api/jobs` nigdy nie zwracał —
-    // więc na produkcji każdy kafelek pokazywał „0/N" niezależnie od pipeline'u.
-    mockJobsResponse([jobRow({ candidate_count: 3, headcount: 5 })]);
-    renderJobs();
-    expect(await screen.findByText("3/5")).toBeInTheDocument();
-    expect(screen.queryByText("0/5")).not.toBeInTheDocument();
-  });
-});
-
 describe("JobsListV2 — klik w wiersz otwiera rekrutację, dok ma ikonę „Podgląd”", () => {
   beforeEach(() => {
     getMock.mockReset();
     quickCountsMock.mockReset();
     pushMock.mockReset();
     mockQuickCounts();
-    useUiStore.setState({ jobsView: "list" });
   });
 
   it("klik w wiersz prowadzi do /jobs/{id}, a dok nie otwiera się sam", async () => {
@@ -819,10 +792,9 @@ describe("JobsListV2 — wiersz bez dostępu (can_open === false)", () => {
     getMock.mockReset();
     quickCountsMock.mockReset();
     mockQuickCounts();
-    useUiStore.setState({ jobsView: "list" });
   });
 
-  it("wiersz jest czytelny, ale nie udaje klikalnego — jak kafelek", async () => {
+  it("wiersz jest czytelny, ale nie udaje klikalnego", async () => {
     mockJobsResponse([
       jobRow({ id: 5, title: "Otwarta" }),
       jobRow({ id: 6, title: "Cudza", can_open: false }),
@@ -875,7 +847,6 @@ describe("JobsListV2 — lista v5: liczby statusów, termin, nowe filtry", () =>
   beforeEach(() => {
     getMock.mockReset();
     quickCountsMock.mockReset();
-    useUiStore.setState({ jobsView: "list" });
     window.history.replaceState(null, "", "/jobs");
     navState.search = "";
   });

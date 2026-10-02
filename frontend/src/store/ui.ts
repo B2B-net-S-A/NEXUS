@@ -2,7 +2,6 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type CandidatesView = "list" | "tiles";
-export type JobsView = "tiles" | "list";
 /** Rozmiar strony listy kandydatów — zapamiętany w przeglądarce. */
 export type CandidatesPageSize = 20 | 50 | 100;
 export const CANDIDATES_PAGE_SIZES: readonly CandidatesPageSize[] = [20, 50, 100];
@@ -10,8 +9,6 @@ export const CANDIDATES_PAGE_SIZES: readonly CandidatesPageSize[] = [20, 50, 100
 interface UiStoreState {
   sidebarCollapsed: boolean;
   candidatesView: CandidatesView;
-  /** Jobs list presentation — tile grid (default) vs. compact table. */
-  jobsView: JobsView;
   /**
    * Per-entity column preferences.
    *
@@ -33,7 +30,6 @@ interface UiStoreState {
   toggleSidebar: () => void;
   setSidebarCollapsed: (v: boolean) => void;
   setCandidatesView: (v: CandidatesView) => void;
-  setJobsView: (v: JobsView) => void;
   setColumnPreference: (entity: string, hidden: string[]) => void;
   clearColumnPreference: (entity: string) => void;
   setHideEmptyKanbanColumns: (v: boolean) => void;
@@ -45,7 +41,6 @@ export const useUiStore = create<UiStoreState>()(
     (set) => ({
       sidebarCollapsed: false,
       candidatesView: "list",
-      jobsView: "list",
       columnPreferences: {},
       hideEmptyKanbanColumns: true,
       candidatesPageSize: 50,
@@ -54,7 +49,6 @@ export const useUiStore = create<UiStoreState>()(
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
       setCandidatesView: (candidatesView) => set({ candidatesView }),
-      setJobsView: (jobsView) => set({ jobsView }),
       setColumnPreference: (entity, hidden) =>
         set((s) => ({
           columnPreferences: { ...s.columnPreferences, [entity]: hidden },
@@ -71,27 +65,17 @@ export const useUiStore = create<UiStoreState>()(
     }),
     {
       name: "nexus-ui",
-      version: 9,
+      version: 10,
       migrate: (persisted, fromVersion) => {
         let state = (persisted ?? {}) as Partial<UiStoreState>;
         if (fromVersion < 2) {
           state = { ...state, candidatesView: state.candidatesView ?? "list" };
-        }
-        if (fromVersion < 3) {
-          state = { ...state, jobsView: state.jobsView ?? "tiles" };
         }
         if (fromVersion < 4) {
           state = {
             ...state,
             hideEmptyKanbanColumns: state.hideEmptyKanbanColumns ?? false,
           };
-        }
-        if (fromVersion < 5) {
-          // Krok 01 „Lista rekrutacji" (flow C2, PR 4/7): widok listy z
-          // mini-lejkiem i dokiem gotowości jest teraz domyślny. Jednorazowy
-          // reset preferencji — do v4 domyślne „tiles" nie było odróżnialne
-          // od świadomego wyboru; kafelki wracają jednym kliknięciem.
-          state = { ...state, jobsView: "list" };
         }
         if (fromVersion < 6) {
           // Przegląd UX rekrutera (17.09.2026): puste kolumny kanbanu są
@@ -113,6 +97,14 @@ export const useUiStore = create<UiStoreState>()(
           // (cozy/kompaktowa) — pole znika.
           const { density: _dropped, ...rest } = state as Partial<UiStoreState> & {
             density?: unknown;
+          };
+          state = rest;
+        }
+        if (fromVersion < 10) {
+          // 02.10.2026: lista rekrutacji ma jeden widok (tabela) — wybór
+          // „lista / kafelki” (`jobsView`, v3–v9) znika.
+          const { jobsView: _dropped, ...rest } = state as Partial<UiStoreState> & {
+            jobsView?: unknown;
           };
           state = rest;
         }
