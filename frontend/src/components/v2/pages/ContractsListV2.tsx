@@ -30,6 +30,8 @@ import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
 import { ListDetailLayout } from"@/components/ds/ListDetailLayout";
 import { rowActivationProps, useRowNavigation } from"@/hooks/useRowNavigation";
 import { TruncatedText } from"@/components/ds/TruncatedText";
+import { StatusDot, type StatusDotTone } from"@/components/ds/StatusDot";
+import { CALM_EMPTY, CALM_UNIT } from"@/lib/calm-table";
 import {
  WIDE_HIDDEN,
  WIDE_ONLY_CELL,
@@ -37,7 +39,6 @@ import {
  WIDE_TABLE_CONTAINER,
 } from"@/lib/wide-table";
 import { useCapability } from"@/hooks/useCapability";
-import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
 import { Checkbox } from"@/components/ui/checkbox";
 import { Input } from"@/components/ui/input";
@@ -182,11 +183,23 @@ export const CONTRACT_STATUS_BADGE: Record<string, ContractStatusBadge> = {
  void: { label: "Anulowany", variant: "danger" },
 };
 
+// Status w wierszu to kropka + etykieta (makiety 02.10.2026): plakietka
+// w każdym wierszu robiła z kolumny szum. Ton wynika z tego samego wariantu,
+// co dawna plakietka, więc mapa statusów ma nadal jedno źródło.
+const STATUS_DOT_TONE: Record<ContractStatusBadge["variant"], StatusDotTone> = {
+ success: "success",
+ warning: "warning",
+ danger: "danger",
+ info: "info",
+ neutral: "neutral",
+ soft: "neutral",
+};
+
 function marginColor(margin: number | undefined, rateClient: number | undefined) {
- if (margin == null) return"text-muted-foreground";
+ if (margin == null) return CALM_EMPTY;
  if (rateClient == null || rateClient === 0) return"text-foreground";
  const pct = (margin / rateClient) * 100;
- if (pct < 15) return"text-destructive font-bold";
+ if (pct < 15) return"text-destructive font-semibold";
  if (pct < 25) return"text-warning-muted-foreground font-semibold";
  return"text-success-muted-foreground font-semibold";
 }
@@ -298,9 +311,53 @@ function RateUnitSuffix({ unit }: { unit?: string | null }) {
  const suffix = contractRateUnitSuffix(unit);
  if (!suffix) return null;
  return (
- <span className="ml-0.5 font-sans text-[10px] font-normal text-muted-foreground">
+ <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">
  {suffix}
  </span>
+ );
+}
+
+/** Jednostka domyślna rejestru — stoi raz, w nagłówku kolumn stawek. */
+const DEFAULT_RATE_UNIT_LABEL = "zł/h";
+
+/**
+ * Wiersz w jednostce domyślnej (stawka godzinowa, obie strony w PLN) pokazuje
+ * same liczby — „zł/h” stoi w nagłówku. Każdy inny (zł/MD, zł/mc, inna
+ * waluta, brak jednostki) zostaje przy pełnym zapisie z walutą i jednostką,
+ * żeby kwota nie udawała stawki godzinowej w złotych.
+ */
+function usesDefaultRateUnit(
+ row: RateCurrencyRow & { rate_unit?: string | null },
+): boolean {
+ return (
+ row.rate_unit === "hourly" &&
+ clientCurrency(row).toUpperCase() === "PLN" &&
+ candidateCurrency(row).toUpperCase() === "PLN"
+ );
+}
+
+const BARE_AMOUNT = new Intl.NumberFormat("pl-PL", {
+ minimumFractionDigits: 2,
+ maximumFractionDigits: 3,
+});
+
+function RateAmount({
+ value,
+ currency,
+ unit,
+ bare,
+}: {
+ value: number;
+ currency: string;
+ unit?: string | null;
+ bare: boolean;
+}) {
+ if (bare) return <>{BARE_AMOUNT.format(value)}</>;
+ return (
+ <>
+ {formatCurrency(value, currency)}
+ <RateUnitSuffix unit={unit} />
+ </>
  );
 }
 
@@ -415,6 +472,7 @@ function SortableHead({
  sort,
  onSort,
  align = "left",
+ unit,
  children,
 }: {
  label: string;
@@ -422,6 +480,8 @@ function SortableHead({
  sort: ContractsSort;
  onSort: (key: ContractSortKey) => void;
  align?: "left" | "right";
+ /** Jednostka kolumny („zł/h”) — drobnym drukiem obok nazwy. */
+ unit?: string;
  children?: ReactNode;
 }) {
  const active = sort.by === sortKey;
@@ -448,7 +508,10 @@ function SortableHead({
  active && "text-foreground",
  )}
  >
+ <span>
  {label}
+ {unit && <> <span className={CALM_UNIT}>{unit}</span></>}
+ </span>
  <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
  </button>
  </span>
@@ -500,10 +563,11 @@ function DateRangeFields({
  );
 }
 
-function MobileFieldLabel({ children }: { children: string }) {
+function MobileFieldLabel({ children, unit }: { children: string; unit?: string }) {
  return (
  <span className="mb-1 hidden text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground max-xl:block">
  {children}
+ {unit && <> <span className={CALM_UNIT}>{unit}</span></>}
  </span>
  );
 }
@@ -1269,6 +1333,7 @@ export function ContractsListV2({
  sort={sort}
  onSort={onSort}
  align="right"
+ unit={DEFAULT_RATE_UNIT_LABEL}
  />
  <SortableHead
  label="Stawka przychodowa"
@@ -1276,6 +1341,7 @@ export function ContractsListV2({
  sort={sort}
  onSort={onSort}
  align="right"
+ unit={DEFAULT_RATE_UNIT_LABEL}
  />
  <SortableHead
  label="Marża"
@@ -1283,6 +1349,7 @@ export function ContractsListV2({
  sort={sort}
  onSort={onSort}
  align="right"
+ unit={DEFAULT_RATE_UNIT_LABEL}
  />
  </>
  )}
@@ -1353,6 +1420,7 @@ export function ContractsListV2({
  const statusBadge = m.status
  ? CONTRACT_STATUS_BADGE[m.status]
  : undefined;
+ const bareAmounts = usesDefaultRateUnit(m);
  const futureStart = futureStartLabel(
  m.status,
  m.start_date,
@@ -1369,17 +1437,16 @@ export function ContractsListV2({
  {...rowActivationProps(String(m.id), () => openContract(m.id))}
  aria-selected={panelOpen}
  data-selected={panelOpen || undefined}
+ // Spokojna tabela: jedna cienka linia między wierszami, bez
+ // zebry. Wyróżnia się tylko wiersz zaznaczony i ten, którego
+ // panel jest otwarty.
  className={cn(
- "h-auto min-h-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+ "h-auto xl:h-[50px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
  rowSelected
  ?"bg-primary/10!"
  : panelOpen
  ?"bg-primary/5! shadow-[inset_3px_0_0_0_hsl(var(--primary))]"
- : memberIndex % 2 === 0
- ?"bg-info-muted/35"
- :"bg-primary/[0.04]",
- memberIndex === members.length - 1 &&
- "xl:border-border! xl:border-b-2!",
+ : undefined,
  "max-xl:grid max-xl:h-auto max-xl:grid-cols-2 max-xl:bg-card",
  )}
  >
@@ -1389,7 +1456,7 @@ export function ContractsListV2({
  data-label="Kandydat"
  className={cn(
  "align-top px-2 py-2 max-xl:col-span-2 max-xl:block max-xl:border-b max-xl:border-border max-xl:bg-muted/40",
- openContractId === c.id ?"bg-primary/5" :"bg-card",
+ openContractId === c.id && "bg-primary/5",
  )}
  // Komórka osoby otwiera umowę główną (`c.id`), nie pas,
  // w którym akurat leży; kwadracik i link zostają sobą.
@@ -1420,7 +1487,7 @@ export function ContractsListV2({
  {c.candidate_name ?? `#${c.id}`}
  </Link>
  {liveClientCount > 1 && (
- <div className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+ <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
  pracuje u {liveClientCount} klientów
  </div>
  )}
@@ -1431,13 +1498,7 @@ export function ContractsListV2({
 
  <TableCell
  data-label="Klient"
- className={cn(
- "border-l-2 px-2 py-1.5 align-top",
- memberIndex % 2 === 0
- ?"border-l-info/60"
- :"border-l-primary/70",
- "max-xl:block max-xl:min-w-0 max-xl:border-b max-xl:border-b-border/60",
- )}
+ className="px-2 py-1.5 align-top max-xl:block max-xl:min-w-0 max-xl:border-b max-xl:border-b-border/60"
  >
  <MobileFieldLabel>Klient</MobileFieldLabel>
  <Link
@@ -1450,7 +1511,7 @@ export function ContractsListV2({
  </TruncatedText>
  </Link>
  {m.job_title && (
- <TruncatedText className={cn("max-w-full text-[10px] leading-4 text-muted-foreground", WIDE_HIDDEN)}>
+ <TruncatedText className={cn("max-w-full text-[11px] leading-4 text-muted-foreground", WIDE_HIDDEN)}>
  {m.job_title}
  </TruncatedText>
  )}
@@ -1465,7 +1526,7 @@ export function ContractsListV2({
  {m.job_title}
  </TruncatedText>
  ) : (
- <span className="text-[12px] text-muted-foreground">—</span>
+ <span className={cn("text-[12px]", CALM_EMPTY)}>—</span>
  )}
  </TableCell>
 
@@ -1475,11 +1536,11 @@ export function ContractsListV2({
  >
  <MobileFieldLabel>Data rozpoczęcia</MobileFieldLabel>
  <div className="whitespace-nowrap text-[12px] font-medium leading-4 text-foreground">
- {m.start_date ? <CompactDate value={m.start_date} /> : "—"}
+ {m.start_date ? <CompactDate value={m.start_date} /> : <span className={CALM_EMPTY}>—</span>}
  </div>
  {m.end_date && (
  <div
- className={cn("whitespace-nowrap text-[10px] leading-4 text-muted-foreground", WIDE_HIDDEN)}
+ className={cn("whitespace-nowrap text-[11px] leading-4 text-muted-foreground", WIDE_HIDDEN)}
  title="Data zakończenia umowy"
  >
  umowa do <CompactDate value={m.end_date} />
@@ -1495,7 +1556,7 @@ export function ContractsListV2({
  {m.end_date ? (
  <CompactDate value={m.end_date} />
  ) : (
- <span className="text-muted-foreground">—</span>
+ <span className={CALM_EMPTY}>—</span>
  )}
  </TableCell>
  <TableCell
@@ -1506,7 +1567,7 @@ export function ContractsListV2({
  {m.client_order_start_date ? (
  <CompactDate value={m.client_order_start_date} />
  ) : (
- <span className="text-muted-foreground">—</span>
+ <span className={CALM_EMPTY}>—</span>
  )}
  </TableCell>
 
@@ -1527,7 +1588,7 @@ export function ContractsListV2({
  "bezterminowo"
  )}
  </div>
- <div className={cn("whitespace-nowrap text-[10px] leading-4 text-muted-foreground", WIDE_HIDDEN)}>
+ <div className={cn("whitespace-nowrap text-[11px] leading-4 text-muted-foreground", WIDE_HIDDEN)}>
  zam. od <CompactDate value={m.client_order_start_date} />
  </div>
  </>
@@ -1539,7 +1600,7 @@ export function ContractsListV2({
  <CompactDate value={m.latest_order_end_date} />
  </div>
  ) : (
- <span className="text-[12px] text-muted-foreground">—</span>
+ <span className={cn("text-[12px]", CALM_EMPTY)}>—</span>
  )}
  </TableCell>
 
@@ -1547,37 +1608,45 @@ export function ContractsListV2({
  <>
  <TableCell
  data-label="Stawka kosztowa"
- className="px-2 py-1.5 text-right align-top font-mono text-[12px] leading-5 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
+ className="px-2 py-1.5 text-right align-top tabular-nums text-[12px] leading-4 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
  >
- <MobileFieldLabel>Stawka kosztowa</MobileFieldLabel>
+ <MobileFieldLabel unit={bareAmounts ? DEFAULT_RATE_UNIT_LABEL : undefined}>Stawka kosztowa</MobileFieldLabel>
  {m.rate_candidate != null ? (
- <>
- {formatCurrency(m.rate_candidate, candidateCurrency(m))}
- <RateUnitSuffix unit={m.rate_unit} />
- </>
+ <RateAmount
+ value={m.rate_candidate}
+ currency={candidateCurrency(m)}
+ unit={m.rate_unit}
+ bare={bareAmounts}
+ />
  ) : (
-"—"
+ <span className={CALM_EMPTY}>—</span>
  )}
  </TableCell>
  <TableCell
  data-label="Stawka przychodowa"
- className="px-2 py-1.5 text-right align-top font-mono text-[12px] font-semibold leading-5 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
+ className="px-2 py-1.5 text-right align-top tabular-nums text-[12px] leading-4 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
  >
- <MobileFieldLabel>Stawka przychodowa</MobileFieldLabel>
+ <MobileFieldLabel unit={bareAmounts ? DEFAULT_RATE_UNIT_LABEL : undefined}>Stawka przychodowa</MobileFieldLabel>
  {m.rate_client != null ? (
- <>
- {formatCurrency(m.rate_client, clientCurrency(m))}
- <RateUnitSuffix unit={m.rate_unit} />
- </>
+ <RateAmount
+ value={m.rate_client}
+ currency={clientCurrency(m)}
+ unit={m.rate_unit}
+ bare={bareAmounts}
+ />
  ) : (
-"—"
+ <span className={CALM_EMPTY}>—</span>
  )}
  </TableCell>
  <TableCell
  data-label="Marża"
- className="px-2 py-1.5 text-right align-top font-mono text-[12px] leading-4 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
+ className="px-2 py-1.5 text-right align-top tabular-nums text-[12px] leading-4 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
  >
- <MobileFieldLabel>Marża</MobileFieldLabel>
+ <MobileFieldLabel unit={bareAmounts ? DEFAULT_RATE_UNIT_LABEL : undefined}>Marża</MobileFieldLabel>
+ {/* Marża = różnica stawek w jednostce kontraktu — ta sama
+ jednostka co przy stawkach obok: w nagłówku (zł/h) albo,
+ dla wiersza w innej jednostce, przy kwocie (bez niej
+ „43 zł” czytało się jak kwota miesięczna). */}
  <span
  className={marginColor(
  comparableMargin ?? undefined,
@@ -1585,15 +1654,16 @@ export function ContractsListV2({
  )}
  >
  {comparableMargin != null
- ? formatCurrency(comparableMargin, clientCurrency(m))
+ ? bareAmounts
+ ? BARE_AMOUNT.format(comparableMargin)
+ : formatCurrency(comparableMargin, clientCurrency(m))
  :"—"}
  </span>
- {/* Marża = różnica stawek w jednostce kontraktu — ta sama
- końcówka co przy stawkach obok (bez niej „43 zł” czytało
- się jak kwota miesięczna). */}
- {comparableMargin != null && <RateUnitSuffix unit={m.rate_unit} />}
+ {comparableMargin != null && !bareAmounts && (
+ <RateUnitSuffix unit={m.rate_unit} />
+ )}
  {marginPct && (
- <span className="block text-[10px] font-sans text-muted-foreground">
+ <span className="block text-[11px] font-normal text-muted-foreground">
  {marginPct}
  </span>
  )}
@@ -1606,9 +1676,13 @@ export function ContractsListV2({
  className="px-2 py-1.5 align-top max-xl:block"
  >
  <MobileFieldLabel>Typ</MobileFieldLabel>
- <Badge size="md" variant="soft" className="max-w-full px-1.5 text-[11px]">
- {m.contract_type ??"—"}
- </Badge>
+ {m.contract_type ? (
+ <span className="block truncate text-[11px] font-medium uppercase leading-4 tracking-[0.03em] text-muted-foreground">
+ {m.contract_type}
+ </span>
+ ) : (
+ <span className={cn("text-[12px]", CALM_EMPTY)}>—</span>
+ )}
  </TableCell>
  <TableCell
  data-label="Status"
@@ -1616,23 +1690,19 @@ export function ContractsListV2({
  >
  <MobileFieldLabel>Status</MobileFieldLabel>
  {m.status ? (
- <Badge
- size="md"
- variant={statusBadge?.variant ??"neutral"}
- className="max-w-full px-1.5 text-[11px]"
+ <StatusDot
+ tone={STATUS_DOT_TONE[statusBadge?.variant ??"neutral"]}
+ className="max-w-full"
+ note={
+ futureStart ? (
+ <span data-testid="contract-future-start">{futureStart}</span>
+ ) : undefined
+ }
  >
  {statusBadge?.label ?? m.status}
- </Badge>
+ </StatusDot>
  ) : (
- <span className="text-xs text-muted-foreground">—</span>
- )}
- {futureStart && (
- <span
- className="mt-0.5 block text-[11px] font-medium text-info-muted-foreground"
- data-testid="contract-future-start"
- >
- {futureStart}
- </span>
+ <span className={cn("text-xs", CALM_EMPTY)}>—</span>
  )}
  </TableCell>
  </TableRow>
