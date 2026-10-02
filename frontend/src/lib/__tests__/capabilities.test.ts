@@ -5,12 +5,15 @@ import { describe, expect, it } from "vitest";
 
 import { visibleNavSections } from "@/components/v2/shell/SidebarV2";
 import {
+  CAPABILITY_PERMISSIONS,
   CAPABILITY_ROLES,
   hasAnyCapability,
   hasCapability,
   type Capability,
 } from "@/lib/capabilities";
+import { PERMISSION_KEYS, type Permission } from "@/lib/permissions";
 import type { UserRole } from "@/store/auth";
+import { accessSnapshot } from "@/test/fixtures/access-snapshot";
 
 // Wszystkie role z backendu (backend/app/models/user.py). Macierz MUSI być
 // domknięta — `head_of_recruitment` bywał pomijany w listach testowych i to
@@ -36,6 +39,12 @@ const mkUser = (role: UserRole) => ({ role });
  * a nie cichym efektem ubocznym.
  *
  * `true` = akcja widoczna i klikalna, `false` = ukryta.
+ *
+ * Użytkownik to sama rola (`{ role }`), czyli profil bez kompletu uprawnień
+ * z serwera: capability z `CAPABILITY_PERMISSIONS` liczy się wtedy z DOMYŚLNYCH
+ * uprawnień ról (`lib/permission-catalog.json`). Macierz jest więc stanem
+ * startowym ekranu Osoby i role; co administrator przełączy, pilnują testy
+ * „capability z uprawnienia” niżej.
  */
 const EXPECTED: Record<
   Capability,
@@ -68,7 +77,7 @@ const EXPECTED: Record<
     admin: true, head_of_recruitment: true, delivery_lead: true,
     tac: true, recruiter: true, sourcer: true, user: false,
   },
-  // `/jobs/new` → DeliveryLeadPlus (job_request_intake.py). TAC poza (U4).
+  // `/jobs/new` → uprawnienie `recruitment_manage` (domyślnie DL). TAC poza (U4).
   "job.create": {
     admin: true,
     head_of_recruitment: false,
@@ -78,8 +87,9 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // PATCH /api/jobs/{id} → poziom `full` (admin/DL/TAC). HoR celowo na false: inline-edycja pól
-  // oferty dostałaby 403, więc kontrolka ma być dla niego niewidoczna.
+  // PATCH /api/jobs/{id} → poziom `full`: `recruitment_manage` albo rola TAC.
+  // HoR celowo na false: inline-edycja pól oferty dostałaby 403, więc
+  // kontrolka ma być dla niego niewidoczna.
   "job.update": {
     admin: true,
     head_of_recruitment: false,
@@ -89,7 +99,7 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // POST /api/clients → DeliveryLeadPlus + the Delivery section write gate
+  // POST /api/clients → uprawnienie `clients_edit` (domyślnie DL)
   "client.create": {
     admin: true,
     head_of_recruitment: false,
@@ -99,7 +109,7 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // PATCH /api/clients/{id} → DeliveryLeadPlus + the Delivery section write gate
+  // PATCH /api/clients/{id} → uprawnienie `clients_edit`
   "client.update": {
     admin: true,
     head_of_recruitment: false,
@@ -109,9 +119,8 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // PUT/POST confirm/DELETE /api/clients/{id}/cv-rule → DeliveryLeadPlus.
-  // TAC celowo na false (decyzja 02.09.2026): edytuje kartę klienta, ale
-  // reguł CV nie prowadzi — kontrolki mają być dla niego niewidoczne.
+  // PUT/POST confirm/DELETE /api/clients/{id}/cv-rule → `clients_edit`.
+  // TAC na false: reguł CV nie prowadzi — kontrolki mają być niewidoczne.
   "cv_rule.manage": {
     admin: true,
     head_of_recruitment: false,
@@ -121,9 +130,8 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // PUT /api/clients/{id}/playbook → DeliverySectionUser (zapis w sekcji
-  // Delivery). Kartę klienta prowadzi Delivery Lead; odczyt ma każda rola
-  // operacyjna, więc bramka dotyczy wyłącznie „Edytuj kartę" / „Załóż kartę".
+  // PUT /api/clients/{id}/playbook → `clients_edit`. Odczyt karty ma każda
+  // rola operacyjna, więc bramka dotyczy wyłącznie „Edytuj kartę" / „Załóż kartę".
   "client_playbook.manage": {
     admin: true,
     head_of_recruitment: false,
@@ -133,7 +141,8 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // POST /api/contracts → DeliveryLeadPlus + the Delivery section write gate
+  // POST /api/contracts → uprawnienie `contracts_orders_edit` (domyślnie DL
+  // i Finanse — te drugie w `financeExpected`).
   "contract.create": {
     admin: true,
     head_of_recruitment: false,
@@ -143,7 +152,7 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // ClientAccess.can_edit_contacts → ADMIN_LIKE ∪ CLIENT_TEAM
+  // ClientAccess.can_edit_contacts → uprawnienie `clients_edit`
   "contact.create": {
     admin: true,
     head_of_recruitment: false,
@@ -320,7 +329,7 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // /api/finance/* → require_roles(admin, finance) — moduł własny finance
+  // /api/finance/* → uprawnienie `finance_module` — moduł własny finance
   // (finance poza tym dziedziczy tier recruitera, patrz financeExpected).
   "nav.finance": {
     admin: true,
@@ -364,6 +373,9 @@ function traineeExpected(capability: Capability): boolean {
  * business-read kontraktów i klientów. Wyliczana z macierzy, nie ręczna
  * lista — dzięki temu nowa capability przyznana recruiterowi automatycznie obejmuje finance, a
  * odstępstwo od reguły wymaga świadomej zmiany tej funkcji.
+ *
+ * Od 0409 (decyzja Artura 02.10.2026) Finanse mają domyślnie „Kontrakty
+ * i zamówienia: tworzenie i edycja”, więc także `contract.create`.
  */
 function financeExpected(capability: Capability): boolean {
   if (
@@ -374,6 +386,7 @@ function financeExpected(capability: Capability): boolean {
       "nav.order_mail",
       "nav.my_relationships",
       "nav.contracts",
+      "contract.create",
     ].includes(capability)
   ) {
     return true;
@@ -420,10 +433,49 @@ describe("rejestr capability — kompletność", () => {
     }
   });
 
-  it("żadna capability nie jest pusta (martwa bramka blokująca wszystkich)", () => {
+  it("żadna capability nie jest martwa: ma uprawnienie z ekranu albo listę ról", () => {
     for (const capability of ALL_CAPABILITIES) {
-      expect(CAPABILITY_ROLES[capability].length).toBeGreaterThan(0);
+      const dead =
+        CAPABILITY_PERMISSIONS[capability] === undefined &&
+        CAPABILITY_ROLES[capability].length === 0;
+      expect(dead, capability).toBe(false);
     }
+  });
+
+  it("tabela uprawnień wymienia wyłącznie capability z rejestru i klucze z katalogu", () => {
+    for (const [capability, permission] of Object.entries(CAPABILITY_PERMISSIONS)) {
+      expect(ALL_CAPABILITIES).toContain(capability);
+      expect(PERMISSION_KEYS).toContain(permission);
+    }
+  });
+
+  it("uprawnienie zastępuje listę ról — obie drogi naraz ma tylko `job.update` (TAC)", () => {
+    const both = ALL_CAPABILITIES.filter(
+      (capability) =>
+        CAPABILITY_PERMISSIONS[capability] !== undefined &&
+        CAPABILITY_ROLES[capability].length > 0,
+    );
+    expect(both).toEqual(["job.update"]);
+    expect(CAPABILITY_ROLES["job.update"]).toEqual(["tac"]);
+  });
+
+  it("mapa capability → uprawnienie jest tą z planu (02.10.2026)", () => {
+    expect(CAPABILITY_PERMISSIONS).toEqual({
+      "job.create": "recruitment_manage",
+      "job.update": "recruitment_manage",
+      "client.create": "clients_edit",
+      "client.update": "clients_edit",
+      "cv_rule.manage": "clients_edit",
+      "client_playbook.manage": "clients_edit",
+      "contact.create": "clients_edit",
+      "contract.create": "contracts_orders_edit",
+      "nav.clients": "delivery_view",
+      "nav.my_clients": "delivery_view",
+      "nav.order_mail": "delivery_view",
+      "nav.my_relationships": "delivery_view",
+      "nav.contracts": "delivery_view",
+      "nav.finance": "finance_module",
+    });
   });
 });
 
@@ -455,7 +507,8 @@ describe("hasCapability — przypadki brzegowe", () => {
   });
 
   it("multi-role: druga rola nadaje uprawnienie, którego primary nie ma", () => {
-    // Hybryda HoR + DL — HoR sam nie zakłada rekrutacji (DeliveryLeadPlus), DL tak.
+    // Hybryda HoR + DL — HoR sam nie zakłada rekrutacji, DL ma domyślnie
+    // „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”.
     const hybrid = {
       role: "head_of_recruitment" as UserRole,
       roles: ["head_of_recruitment", "delivery_lead"] as UserRole[],
@@ -514,7 +567,7 @@ describe("hasCapability — przypadki brzegowe", () => {
     expect(hasCapability(mkUser("finance"), "nav.contracts")).toBe(true);
   });
 
-  it("Talent Community Manager ma biznes bez Finansów i tylko odczyt Delivery", () => {
+  it("Talent Community Manager ma biznes bez Finansów; Delivery czyta, klientów i kontraktów nie zakłada", () => {
     for (const capability of ALL_CAPABILITIES) {
       expect(hasCapability(mkUser("talent_community_manager"), capability)).toBe(
         talentCommunityManagerExpected(capability),
@@ -526,9 +579,16 @@ describe("hasCapability — przypadki brzegowe", () => {
     expect(hasCapability(mkUser("talent_community_manager"), "client.create")).toBe(
       false,
     );
+    // Zapis w sekcji Delivery TCM ma (zmienia status kontraktu), ale sekcja
+    // jest tylko sufitem — bez uprawnienia nie ma akcji.
+    expect(
+      hasCapability(mkUser("talent_community_manager"), "contract.create"),
+    ).toBe(false);
   });
 
   it("efektywna sekcja zawęża akcje do read i może całkiem ukryć nawigację", () => {
+    // Stary wyjątek osoby ograniczający sekcję Delivery: uprawnienia roli
+    // zostają, ale trasa odmówi zapisu (bramka sekcji na routerze).
     const deliveryReadOnly = {
       role: "delivery_lead" as UserRole,
       roles: ["delivery_lead"] as UserRole[],
@@ -556,7 +616,9 @@ describe("hasCapability — przypadki brzegowe", () => {
     expect(hasCapability(deliveryDenied, "nav.clients")).toBe(false);
   });
 
-  it("indywidualny grant sekcji nie omija węższej reguły roli", () => {
+  it("sama sekcja nie daje akcji — decyduje uprawnienie", () => {
+    // Profil sprzed 0409 z wyjątkiem sekcji Delivery: uprawnień rekruter
+    // domyślnie nie ma, więc zapis sekcji niczego mu nie otwiera.
     const recruiterWithDeliveryWrite = {
       role: "recruiter" as UserRole,
       roles: ["recruiter"] as UserRole[],
@@ -573,6 +635,142 @@ describe("hasCapability — przypadki brzegowe", () => {
     expect(hasCapability(recruiterWithDeliveryWrite, "client.create")).toBe(
       false,
     );
+    expect(hasCapability(recruiterWithDeliveryWrite, "nav.clients")).toBe(false);
+  });
+});
+
+describe("capability z uprawnienia — to, co administrator przełączył, decyduje", () => {
+  const CLIENT_EDIT_CAPABILITIES: Capability[] = [
+    "client.create",
+    "client.update",
+    "contact.create",
+    "cv_rule.manage",
+    "client_playbook.manage",
+  ];
+  const DELIVERY_NAV: Capability[] = [
+    "nav.clients",
+    "nav.my_clients",
+    "nav.order_mail",
+    "nav.my_relationships",
+    "nav.contracts",
+  ];
+
+  it("rekruter z nadanym „Klienci: dodawanie i edycja” zakłada i edytuje klientów", () => {
+    const recruiter = accessSnapshot("recruiter", { grant: ["clients_edit"] });
+    for (const capability of [...CLIENT_EDIT_CAPABILITIES, ...DELIVERY_NAV]) {
+      expect(hasCapability(recruiter, capability), capability).toBe(true);
+    }
+    // Jedno uprawnienie nie pociąga drugiego: kontraktów nie zakłada.
+    expect(hasCapability(recruiter, "contract.create")).toBe(false);
+    expect(hasCapability(recruiter, "job.create")).toBe(false);
+    expect(hasCapability(recruiter, "nav.finance")).toBe(false);
+  });
+
+  it("Delivery Lead z wyłączonym „Klienci: dodawanie i edycja” nie widzi tych akcji", () => {
+    const lead = accessSnapshot("delivery_lead", { revoke: ["clients_edit"] });
+    for (const capability of CLIENT_EDIT_CAPABILITIES) {
+      expect(hasCapability(lead, capability), capability).toBe(false);
+    }
+    // Reszta uprawnień roli zostaje.
+    expect(hasCapability(lead, "contract.create")).toBe(true);
+    expect(hasCapability(lead, "job.create")).toBe(true);
+    expect(hasCapability(lead, "nav.clients")).toBe(true);
+  });
+
+  it("kontrakty zakłada posiadacz „Kontrakty i zamówienia: tworzenie i edycja”", () => {
+    expect(
+      hasCapability(
+        accessSnapshot("talent_community_manager", {
+          grant: ["contracts_orders_edit"],
+        }),
+        "contract.create",
+      ),
+    ).toBe(true);
+    expect(
+      hasCapability(
+        accessSnapshot("finance", { revoke: ["contracts_orders_edit"] }),
+        "contract.create",
+      ),
+    ).toBe(false);
+    expect(
+      hasCapability(
+        accessSnapshot("delivery_lead", { revoke: ["contracts_orders_edit"] }),
+        "contract.create",
+      ),
+    ).toBe(false);
+  });
+
+  it("rekrutacje: uprawnienie albo rola TAC; wyłączone Delivery Leadowi — znika", () => {
+    const recruiter = accessSnapshot("recruiter", { grant: ["recruitment_manage"] });
+    expect(hasCapability(recruiter, "job.create")).toBe(true);
+    expect(hasCapability(recruiter, "job.update")).toBe(true);
+
+    const lead = accessSnapshot("delivery_lead", { revoke: ["recruitment_manage"] });
+    expect(hasCapability(lead, "job.create")).toBe(false);
+    expect(hasCapability(lead, "job.update")).toBe(false);
+
+    // TAC ma pełną edycję z tytułu roli (gałąź legacy), ale nie zakłada.
+    const tac = accessSnapshot("tac");
+    expect(hasCapability(tac, "job.update")).toBe(true);
+    expect(hasCapability(tac, "job.create")).toBe(false);
+  });
+
+  it("sufit Pipeline zostaje nad uprawnieniem do rekrutacji", () => {
+    const readOnlyPipeline = accessSnapshot("recruiter", {
+      grant: ["recruitment_manage"],
+      sectionCaps: { pipeline: "read" },
+    });
+    expect(hasCapability(readOnlyPipeline, "job.create")).toBe(false);
+    expect(hasCapability(readOnlyPipeline, "job.update")).toBe(false);
+  });
+
+  it("sam podgląd Delivery otwiera nawigację, nie akcje", () => {
+    const viewer = accessSnapshot("recruiter", { grant: ["delivery_view"] });
+    for (const capability of DELIVERY_NAV) {
+      expect(hasCapability(viewer, capability), capability).toBe(true);
+    }
+    for (const capability of [...CLIENT_EDIT_CAPABILITIES, "contract.create"] as Capability[]) {
+      expect(hasCapability(viewer, capability), capability).toBe(false);
+    }
+    const noDelivery = accessSnapshot("talent_community_manager", {
+      revoke: ["delivery_view", "contract_status"],
+    });
+    for (const capability of DELIVERY_NAV) {
+      expect(hasCapability(noDelivery, capability), capability).toBe(false);
+    }
+  });
+
+  it("Moduł Finanse: nadany Head of Recruitment otwiera wejście, wyłączony Finansom — zamyka", () => {
+    expect(
+      hasCapability(
+        accessSnapshot("head_of_recruitment", { grant: ["finance_module"] }),
+        "nav.finance",
+      ),
+    ).toBe(true);
+    expect(
+      hasCapability(
+        accessSnapshot("finance", { revoke: ["finance_module"] }),
+        "nav.finance",
+      ),
+    ).toBe(false);
+  });
+
+  it("stary wyjątek ograniczający sekcję Delivery chowa zapis mimo uprawnienia", () => {
+    const capped = accessSnapshot("delivery_lead", {
+      sectionCaps: { delivery: "read" },
+    });
+    expect(hasCapability(capped, "client.create")).toBe(false);
+    expect(hasCapability(capped, "contract.create")).toBe(false);
+    expect(hasCapability(capped, "nav.clients")).toBe(true);
+  });
+
+  it("role `user` i `trainee` nie dostają niczego nawet z kompletem z serwera", () => {
+    for (const role of ["user", "trainee"] as UserRole[]) {
+      const account = accessSnapshot(role);
+      for (const capability of Object.keys(CAPABILITY_PERMISSIONS) as Capability[]) {
+        expect(hasCapability(account, capability), `${role} ${capability}`).toBe(false);
+      }
+    }
   });
 });
 
@@ -647,7 +845,8 @@ describe("regresja F-19: Quick Actions nie pokazuje akcji bez capability", () =>
 
   it("head_of_recruitment nie dostaje akcji tworzenia z sekcji Delivery", () => {
     // Parytet z rekruterem (2026-09-17): kandydat, spotkanie, link — ale
-    // nadal bez rekrutacji/klienta/kontraktu/kontaktu (DeliveryLeadPlus / Delivery).
+    // nadal bez rekrutacji/klienta/kontraktu/kontaktu (uprawnień z ekranu
+    // HoR domyślnie nie ma).
     const visible = QUICK_ACTIONS.filter((c) =>
       hasCapability(mkUser("head_of_recruitment"), c),
     );
@@ -693,12 +892,18 @@ describe("regresja F-19: żadna akcja tworzenia nie omija rejestru", () => {
     }
   });
 
-  it("kontrakt i firma dzielą bramkę Delivery, a rekrutacja zostaje w Pipeline", () => {
-    for (const role of ALL_ROLES) {
-      const contract = hasCapability(mkUser(role), "contract.create");
-      expect(hasCapability(mkUser(role), "client.create")).toBe(contract);
-    }
-    // TAC nie zakłada rekrutacji (`/jobs/new` = DeliveryLeadPlus, U4 22.09).
+  it("kontrakt i firma to dwa uprawnienia, a rekrutacja — trzecie", () => {
+    // Do 0409 obie akcje dzieliły jedną listę ról. Teraz różni je domyślny
+    // posiadacz: Finanse zakładają kontrakty, klientów nie.
+    const differing = ALL_ROLES.filter(
+      (role) =>
+        hasCapability(mkUser(role), "contract.create") !==
+        hasCapability(mkUser(role), "client.create"),
+    );
+    expect(differing).toEqual(["finance"]);
+    expect(hasCapability(mkUser("finance"), "contract.create")).toBe(true);
+    expect(hasCapability(mkUser("finance"), "client.create")).toBe(false);
+    // TAC nie zakłada rekrutacji (`/jobs/new` wymaga uprawnienia, U4 22.09).
     expect(hasCapability(mkUser("tac"), "job.create")).toBe(false);
     expect(hasCapability(mkUser("delivery_lead"), "job.create")).toBe(true);
     expect(hasCapability(mkUser("tac"), "client.create")).toBe(false);
@@ -722,16 +927,24 @@ describe("regresja F-19: żadna akcja tworzenia nie omija rejestru", () => {
 // być niewidoczny: poszerzenie strażnika w Pythonie bez ruszenia rejestru (albo
 // odwrotnie) robi czerwono w CI, w zdaniu wskazującym capability i plik.
 //
+// Od 0409 część bramek to UPRAWNIENIA z ekranu Osoby i role, nie listy ról.
+// Dla nich lustrem nie jest zbiór ról (administrator go przełącza), tylko para:
+// capability wymaga uprawnienia P, a wskazana trasa backendu pyta o to samo P.
+//
 // Świadomie POZA zakresem: `middleware.ts` nie eksportuje `ROLE_ROUTES`, więc
 // jego lustro trzeba domknąć osobno — tam też zaczyna się od eksportu tablicy.
 // ───────────────────────────────────────────────────────────────────────────
 
 const BACKEND_FILES = {
   deps: "backend/app/api/deps.py",
+  permissionAccess: "backend/app/api/permission_access.py",
+  clients: "backend/app/api/clients.py",
   contracts: "backend/app/api/contracts.py",
+  jobIntake: "backend/app/api/job_request_intake.py",
   candidateAccess: "backend/app/api/candidate_access.py",
   recruitmentAccess: "backend/app/api/recruitment_access.py",
   clientAccess: "backend/app/services/client_access.py",
+  permissionCatalog: "backend/app/services/permission_catalog.py",
 } as const;
 
 type BackendFile = keyof typeof BACKEND_FILES;
@@ -752,8 +965,19 @@ const REPO_ROOT = resolve(process.cwd(), "..");
  *   NAME = Annotated[User, Depends(require_roles(UserRole.a, …))]        — deps.py
  *   NAME = Annotated[User, Depends(require_candidate_roles(*OTHER_NAME))] — candidate_access.py
  */
+const BACKEND_SOURCES = new Map<BackendFile, string>();
+
+function backendSource(file: BackendFile): string {
+  let source = BACKEND_SOURCES.get(file);
+  if (source === undefined) {
+    source = readFileSync(join(REPO_ROOT, BACKEND_FILES[file]), "utf8");
+    BACKEND_SOURCES.set(file, source);
+  }
+  return source;
+}
+
 function readBackendAssignments(file: BackendFile): Map<string, string> {
-  const source = readFileSync(join(REPO_ROOT, BACKEND_FILES[file]), "utf8");
+  const source = backendSource(file);
   const out = new Map<string, string>();
   const patterns = [
     /^([A-Z_][A-Za-z_0-9]*)(?:\s*:\s*tuple\[UserRole,\s*\.\.\.\])?\s*=\s*(\([\s\S]*?\)|[A-Za-z_][A-Za-z_0-9]*)\s*$/gm,
@@ -768,20 +992,22 @@ function readBackendAssignments(file: BackendFile): Map<string, string> {
   return out;
 }
 
-const BACKEND_ASSIGNMENTS = new Map<BackendFile, Map<string, string>>(
-  (Object.keys(BACKEND_FILES) as BackendFile[]).map(
-    (file): [BackendFile, Map<string, string>] => [
-      file,
-      readBackendAssignments(file),
-    ],
-  ),
-);
+const BACKEND_ASSIGNMENTS = new Map<BackendFile, Map<string, string>>();
+
+function backendAssignments(file: BackendFile): Map<string, string> {
+  let assignments = BACKEND_ASSIGNMENTS.get(file);
+  if (assignments === undefined) {
+    assignments = readBackendAssignments(file);
+    BACKEND_ASSIGNMENTS.set(file, assignments);
+  }
+  return assignments;
+}
 
 /** Zbiór ról stojący za nazwanym strażnikiem backendu. Rzuca, gdy symbol
  *  zniknął albo został przemianowany — cichy brak byłby gorszy niż czerwony
  *  test, bo zamieniłby kontrakt w zawsze-zielony no-op. */
 function backendRoles(file: BackendFile, symbol: string): UserRole[] {
-  const assignments = BACKEND_ASSIGNMENTS.get(file)!;
+  const assignments = backendAssignments(file);
   const seen = new Set<string>();
   let name = symbol;
   for (;;) {
@@ -811,46 +1037,153 @@ function backendRoles(file: BackendFile, symbol: string): UserRole[] {
 const sortRoles = (roles: readonly UserRole[]) => [...new Set(roles)].sort();
 
 /**
- * Capability → strażnik(-e) backendu, których jest lustrem. `guards` znaczy
- * „ma być DOKŁADNIE sumą tych zbiorów" (nie podzbiorem — podzbiór przepuszcza
- * drugi kierunek awarii: backend otwarty, a UI dalej chowa funkcję).
- * `productDecision` = świadomy brak pojedynczego strażnika; wymuszony wpis
+ * Uprawnienie, którego wymaga alias bramki trasy:
+ *   NAME = Annotated[User, Depends(require_permission(ProductAction.<klucz>))]
+ * (`permission_access.py`, a dla `FinanceModuleUser` — `deps.py`). `null`, gdy
+ * alias nie jest bramką jednego uprawnienia (np. strażnik rolowy).
+ */
+function aliasPermission(alias: string): string | null {
+  const pattern = new RegExp(
+    `^${alias}\\s*=\\s*Annotated\\[\\s*User,\\s*Depends\\(\\s*` +
+      `require_permission\\(\\s*ProductAction\\.(\\w+)\\s*\\)\\s*\\),?\\s*\\]`,
+    "m",
+  );
+  for (const file of ["permissionAccess", "deps"] as const) {
+    const match = pattern.exec(backendSource(file));
+    if (match) return match[1];
+  }
+  return null;
+}
+
+/**
+ * O co pyta `current_user` wskazanego handlera trasy: klucz uprawnienia albo
+ * opis strażnika rolowego (wtedy porównanie w teście mówi wprost, czym trasa
+ * jest dziś bramkowana). Rzuca, gdy handler zniknął — jak `backendRoles`.
+ */
+function handlerPermission(file: BackendFile, handler: string): string {
+  const params = new RegExp(`async def ${handler}\\(([\\s\\S]*?)\\n\\)`).exec(
+    backendSource(file),
+  )?.[1];
+  if (params === undefined) {
+    throw new Error(
+      `Backend nie ma już handlera ${handler} w ${BACKEND_FILES[file]}. ` +
+        `Zaktualizuj CAPABILITY_BACKEND_MIRROR.`,
+    );
+  }
+  const alias = /\bcurrent_user:\s*([A-Za-z_][A-Za-z_0-9]*)/.exec(params)?.[1];
+  if (!alias) {
+    throw new Error(
+      `Handler ${handler} w ${BACKEND_FILES[file]} nie ma parametru current_user.`,
+    );
+  }
+  return aliasPermission(alias) ?? `strażnik bez uprawnienia: ${alias}`;
+}
+
+/** Dowód, że backend pyta o to samo uprawnienie co capability. */
+type PermissionEvidence =
+  /** Handler trasy, którego `current_user` wymaga tego uprawnienia. */
+  | { handler: readonly [BackendFile, string] }
+  /** Alias bramki trasy = `require_permission(ProductAction.<klucz>)`. */
+  | { alias: string }
+  /** Miejsce w źródle, które wiąże regułę z tym uprawnieniem. */
+  | { source: readonly [BackendFile, RegExp] };
+
+type PermissionMirror = {
+  permission: Permission;
+  evidence: readonly PermissionEvidence[];
+  /** Role, które mają capability z tytułu roli OBOK uprawnienia. */
+  legacyGuards?: readonly GuardRef[];
+};
+
+// `ClientAccess` liczy `can_edit_contacts` / `can_edit_knowledge` /
+// `can_edit_materials` z jednego faktu: „Klienci: dodawanie i edycja”
+// w zakresie konta. Kontakty, karta klienta i reguły CV pytają o te flagi.
+const CLIENT_ACCESS_EDIT_EVIDENCE: readonly PermissionEvidence[] = [
+  {
+    source: [
+      "clientAccess",
+      /can_edit_clients=has_permission\(\s*user,\s*ProductAction\.clients_edit\s*\)/,
+    ],
+  },
+  { source: ["clientAccess", /can_edit = facts\.can_edit_clients and in_scope/] },
+];
+
+// Sekcja Delivery wynika z uprawnień: jej ODCZYT to „Klienci, kontrakty
+// i zamówienia: podgląd” (`derive_sections`), a trasy GET stoją za sekcją.
+const DELIVERY_VIEW_MIRROR: PermissionMirror = {
+  permission: "delivery_view",
+  evidence: [
+    { alias: "DeliveryViewUser" },
+    {
+      source: [
+        "permissionCatalog",
+        /elif DELIVERY_VIEW in held:\s*\n\s*delivery = "read"/,
+      ],
+    },
+  ],
+};
+
+/**
+ * Capability → bramka backendu, której jest lustrem.
+ *
+ * `guards` — strażnik ROLOWY: lista ról capability ma być DOKŁADNIE sumą tych
+ * zbiorów (nie podzbiorem — podzbiór przepuszcza drugi kierunek awarii:
+ * backend otwarty, a UI dalej chowa funkcję).
+ * `permission` — UPRAWNIENIE z ekranu Osoby i role: capability wymaga tego
+ * samego klucza, o który pyta wskazana trasa backendu (`evidence`).
+ * `productDecision` — świadomy brak pojedynczego strażnika; wymuszony wpis
  * sprawia, że nowa capability nie prześlizgnie się bez decyzji.
  */
 const CAPABILITY_BACKEND_MIRROR: Record<
   Capability,
-  { guards: readonly GuardRef[] } | { productDecision: string }
+  { guards: readonly GuardRef[] } | PermissionMirror | { productDecision: string }
 > = {
   "candidate.requirement.verify": { guards: [["candidateAccess", "CandidateWriteAccess"]] },
   "candidate.create": { guards: [["deps", "RecruiterPlus"]] },
   // PATCH /api/candidates/{id}, POST /api/notes, assign-to-job (CandidateWriteAccess).
   "candidate.write": { guards: [["candidateAccess", "CandidateWriteAccess"]] },
   // Najwęższe ogniwo tworzenia: `/jobs/new` woła `POST /api/job-intake/read`
-  // i handoff za `DeliveryLeadPlus` (job_request_intake.py importuje alias
-  // z deps.py — test niżej pilnuje, że dalej go używa).
-  "job.create": { guards: [["deps", "DeliveryLeadPlus"]] },
-  "job.update": { guards: [["recruitmentAccess", "JOB_FULL_EDIT_ROLES"]] },
+  // i handoff — obie trasy za `RecruitmentManageUser`.
+  "job.create": {
+    permission: "recruitment_manage",
+    evidence: [
+      { alias: "RecruitmentManageUser" },
+      { handler: ["jobIntake", "read_request"] },
+      { handler: ["jobIntake", "read_request_file"] },
+    ],
+  },
+  // `job_edit_level` = full: posiadacz uprawnienia albo — z tytułu roli — TAC.
+  "job.update": {
+    permission: "recruitment_manage",
+    evidence: [{ source: ["recruitmentAccess", /\brecruitment_manage\b/] }],
+    legacyGuards: [["recruitmentAccess", "JOB_FULL_EDIT_LEGACY_ROLES"]],
+  },
   "client.create": {
-    productDecision:
-      "DeliveryLeadPlus + the Delivery section write matrix — Admin and Delivery Lead.",
+    permission: "clients_edit",
+    evidence: [{ alias: "ClientsEditUser" }, { handler: ["clients", "create_client"] }],
   },
   "client.update": {
-    productDecision:
-      "DeliveryLeadPlus + the Delivery section write matrix — Admin and Delivery Lead.",
+    permission: "clients_edit",
+    evidence: [{ alias: "ClientsEditUser" }, { handler: ["clients", "update_client"] }],
   },
-  "cv_rule.manage": { guards: [["deps", "DeliveryLeadPlus"]] },
+  "cv_rule.manage": {
+    permission: "clients_edit",
+    evidence: CLIENT_ACCESS_EDIT_EVIDENCE,
+  },
   "client_playbook.manage": {
-    productDecision:
-      "DeliverySectionUser (Delivery section write) — default matrix leaves Admin and Delivery Lead; TAC, HoR and recruiter are section-denied. Finance has delivery write by matrix but no UI entry.",
+    permission: "clients_edit",
+    evidence: CLIENT_ACCESS_EDIT_EVIDENCE,
   },
   "contract.create": {
-    productDecision:
-      "DeliveryLeadPlus + the Delivery section write matrix — Admin and Delivery Lead.",
+    permission: "contracts_orders_edit",
+    evidence: [
+      { alias: "ContractsOrdersEditUser" },
+      { handler: ["contracts", "create_contract"] },
+    ],
   },
-  // ClientAccess.can_edit_contacts = ADMIN_LIKE ∪ CLIENT_TEAM.
   "contact.create": {
-    productDecision:
-      "ClientAccess writers intersected with the Delivery section write matrix; only Admin and scoped Delivery Lead remain.",
+    permission: "clients_edit",
+    evidence: CLIENT_ACCESS_EDIT_EVIDENCE,
   },
   "calendar_event.create": {
     guards: [["recruitmentAccess", "CALENDAR_WRITE_ROLES"]],
@@ -877,27 +1210,16 @@ const CAPABILITY_BACKEND_MIRROR: Record<
       "Oba endpointy radaru stoją na CurrentUser (decyzja 19.08) — nie ma zbioru ról do porównania, bramką jest samo zalogowanie.",
   },
   "nav.sourcing": { guards: [["candidateAccess", "CandidateSearchAccess"]] },
-  "nav.clients": {
-    productDecision:
-      "GET /api/clients is additionally protected by the central Delivery section dependency.",
+  "nav.clients": DELIVERY_VIEW_MIRROR,
+  "nav.my_clients": DELIVERY_VIEW_MIRROR,
+  "nav.order_mail": DELIVERY_VIEW_MIRROR,
+  "nav.my_relationships": DELIVERY_VIEW_MIRROR,
+  "nav.contracts": DELIVERY_VIEW_MIRROR,
+  // /api/finance/* → FinanceModuleUser (deps.py) = „Moduł Finanse”.
+  "nav.finance": {
+    permission: "finance_module",
+    evidence: [{ alias: "FinanceModuleUser" }],
   },
-  "nav.my_clients": {
-    productDecision:
-      "GET /api/my-clients is protected by Delivery section access; Admin, Finance, TCM and scoped Delivery Lead can read it.",
-  },
-  "nav.order_mail": {
-    productDecision:
-      "Order-mail is a Delivery surface: Admin/Finance/TCM/DL read organization-wide, and only Admin/assigned DL may apply rate-bearing data.",
-  },
-  "nav.my_relationships": {
-    productDecision:
-      "GET /api/my-relationships is protected by Delivery section access; Admin, Finance, TCM and scoped Delivery Lead can read it.",
-  },
-  "nav.contracts": {
-    productDecision:
-      "ContractReadUser is intersected with the central Delivery section read matrix.",
-  },
-  "nav.finance": { guards: [["deps", "FinanceModuleUser"]] },
   "nav.trainee": {
     productDecision:
       "Trasy praktykanta (/api/trainee/today|items/*) przyjmują tylko rolę trainee — bramka w api/trainee.py, bez aliasu w deps.py.",
@@ -909,14 +1231,21 @@ const CAPABILITY_BACKEND_MIRROR: Record<
 };
 
 describe("job.create = strażnik strony `/jobs/new`", () => {
-  it("odczyt requestu stoi za DeliveryLeadPlus", () => {
-    const source = readFileSync(
-      join(REPO_ROOT, "backend/app/api/job_request_intake.py"),
-      "utf8",
-    );
-    expect(source).toMatch(/current_user:\s*DeliveryLeadPlus/);
+  it("odczyt requestu stoi za RecruitmentManageUser, nie za rolą", () => {
+    const source = backendSource("jobIntake");
+    const guards = [...source.matchAll(/current_user:\s*(\w+)/g)].map((m) => m[1]);
+    expect(guards).toContain("RecruitmentManageUser");
+    expect(guards).not.toContain("DeliveryLeadPlus");
   });
 });
+
+function evidenceLabel(evidence: PermissionEvidence): string {
+  if ("handler" in evidence) {
+    return `${BACKEND_FILES[evidence.handler[0]]}::${evidence.handler[1]}`;
+  }
+  if ("alias" in evidence) return evidence.alias;
+  return `${BACKEND_FILES[evidence.source[0]]} ~ ${evidence.source[1].source}`;
+}
 
 describe("kontrakt backend ↔ rejestr capability", () => {
   it("każda capability ma zadeklarowane lustro w backendzie", () => {
@@ -926,15 +1255,59 @@ describe("kontrakt backend ↔ rejestr capability", () => {
     );
   });
 
+  it("lustro uprawnień obejmuje DOKŁADNIE capability z tabeli uprawnień", () => {
+    const mirrored = ALL_CAPABILITIES.filter(
+      (capability) => "permission" in CAPABILITY_BACKEND_MIRROR[capability],
+    );
+    expect([...mirrored].sort()).toEqual(Object.keys(CAPABILITY_PERMISSIONS).sort());
+  });
+
   for (const capability of ALL_CAPABILITIES) {
     const mirror = CAPABILITY_BACKEND_MIRROR[capability];
-    if (!("guards" in mirror)) continue;
-    const label = mirror.guards
-      .map(([file, symbol]) => `${file}.${symbol}`)
-      .join(" ∪ ");
-    it(`${capability} = ${label}`, () => {
+    if ("guards" in mirror) {
+      const label = mirror.guards
+        .map(([file, symbol]) => `${file}.${symbol}`)
+        .join(" ∪ ");
+      it(`${capability} = ${label}`, () => {
+        const expected = sortRoles(
+          mirror.guards.flatMap(([file, symbol]) => backendRoles(file, symbol)),
+        );
+        expect(sortRoles(CAPABILITY_ROLES[capability])).toEqual(expected);
+        // Strażnik rolowy: żadne uprawnienie z ekranu nie otwiera tej akcji.
+        expect(CAPABILITY_PERMISSIONS[capability]).toBeUndefined();
+      });
+      continue;
+    }
+    if (!("permission" in mirror)) continue;
+
+    it(`${capability} wymaga uprawnienia ${mirror.permission}`, () => {
+      expect(CAPABILITY_PERMISSIONS[capability]).toBe(mirror.permission);
+    });
+
+    for (const evidence of mirror.evidence) {
+      it(`${capability}: ${evidenceLabel(evidence)} pyta o ${mirror.permission}`, () => {
+        if ("handler" in evidence) {
+          expect(handlerPermission(...evidence.handler)).toBe(mirror.permission);
+        } else if ("alias" in evidence) {
+          expect(aliasPermission(evidence.alias)).toBe(mirror.permission);
+        } else {
+          // Wartość logiczna zamiast `toMatch`: przy porażce vitest wypisałby
+          // cały plik Pythona zamiast jednego zdania.
+          const [file, pattern] = evidence.source;
+          expect(
+            pattern.test(backendSource(file)),
+            `${BACKEND_FILES[file]} nie zawiera ${pattern}`,
+          ).toBe(true);
+        }
+      });
+    }
+
+    const legacy = mirror.legacyGuards ?? [];
+    const legacyLabel =
+      legacy.map(([file, symbol]) => `${file}.${symbol}`).join(" ∪ ") || "nikt";
+    it(`${capability}: z tytułu roli — ${legacyLabel}`, () => {
       const expected = sortRoles(
-        mirror.guards.flatMap(([file, symbol]) => backendRoles(file, symbol)),
+        legacy.flatMap(([file, symbol]) => backendRoles(file, symbol)),
       );
       expect(sortRoles(CAPABILITY_ROLES[capability])).toEqual(expected);
     });
@@ -969,7 +1342,11 @@ function rolesSeeingHref(href: string): UserRole[] {
   );
 }
 
-/** Pozycja sidebara → capability, której lista `roles` ma być lustrem. */
+/**
+ * Pozycja sidebara → capability, której ma być lustrem: lista ról albo — dla
+ * Delivery i Finansów — uprawnienie z ekranu (wtedy przy samej roli liczą się
+ * domyślni posiadacze).
+ */
 const SIDEBAR_HREF_CAPABILITY: Record<string, Capability> = {
   "/candidates": "nav.candidates",
   // Wyszukiwarka i Talent Radar od 21.09.2026 nie stoją w menu (tryby ekranu
@@ -1015,10 +1392,46 @@ describe("kontrakt sidebar ↔ rejestr capability", () => {
   for (const [href, capability] of Object.entries(SIDEBAR_HREF_CAPABILITY)) {
     it(`${href} widoczne dokładnie dla ról z ${capability}`, () => {
       expect(sortRoles(rolesSeeingHref(href))).toEqual(
-        sortRoles(CAPABILITY_ROLES[capability]),
+        sortRoles(
+          SIDEBAR_ROLES.filter((role) => hasCapability(mkUser(role), capability)),
+        ),
       );
     });
   }
+
+  it("pozycje Delivery i Finansów idą za uprawnieniem, nie za rolą", () => {
+    const seesHref = (user: Parameters<typeof visibleNavSections>[0], href: string) =>
+      visibleNavSections(user, { contactQueueEnabled: true }).some((section) =>
+        section.items.some((item) => item.href === href),
+      );
+
+    const viewer = accessSnapshot("recruiter", { grant: ["delivery_view"] });
+    expect(seesHref(viewer, "/clients")).toBe(true);
+    expect(seesHref(viewer, "/contracts")).toBe(true);
+    expect(seesHref(viewer, "/finance")).toBe(false);
+
+    const leadWithoutDelivery = accessSnapshot("delivery_lead", {
+      revoke: [
+        "delivery_view",
+        "clients_edit",
+        "contracts_orders_edit",
+        "contract_status",
+        "amounts_view",
+      ],
+    });
+    expect(seesHref(leadWithoutDelivery, "/clients")).toBe(false);
+    expect(seesHref(leadWithoutDelivery, "/contracts")).toBe(false);
+
+    expect(
+      seesHref(
+        accessSnapshot("head_of_recruitment", { grant: ["finance_module"] }),
+        "/finance",
+      ),
+    ).toBe(true);
+    expect(
+      seesHref(accessSnapshot("finance", { revoke: ["finance_module"] }), "/finance"),
+    ).toBe(false);
+  });
 
   it("żadna NOWA pozycja sidebara nie omija rejestru", () => {
     const gated = new Set<string>();
