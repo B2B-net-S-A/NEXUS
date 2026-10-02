@@ -12,6 +12,7 @@ from app.analytics.capabilities import (
     user_has_capability,
 )
 from app.models.user import User, UserRole
+from app.services import permission_catalog as catalog
 from app.services.access_scope import (
     DL_CLIENT_OUT_OF_SCOPE_DETAIL,
     is_delivery_lead_governed,
@@ -202,7 +203,11 @@ def assert_amounts_only(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
                 "code": "finance_amounts_only",
-                "message": "Finanse zmieniają tutaj wyłącznie kwoty.",
+                "message": (
+                    f"Uprawnienie „{catalog.label('amounts_edit')}” pozwala tu "
+                    "zmienić wyłącznie kwoty. Do pozostałych pól potrzebujesz "
+                    f"„{catalog.label('contracts_orders_edit')}”."
+                ),
                 "fields": extra,
             },
         )
