@@ -4,6 +4,7 @@ import type { SentPerson } from "@/lib/similar-jobs-api";
 import {
   personStatusLine,
   planReassign,
+  previewSequence,
   pluralPeople,
   similarPeopleWaiting,
 } from "@/lib/similar-reassign";
@@ -117,5 +118,31 @@ describe("opis osoby", () => {
       "osób",
       "osoby",
     ]);
+  });
+});
+
+describe("previewSequence — kolejność podglądu osób", () => {
+  it("idzie grupami w kolejności ekranu, osoba z dwóch rekrutacji wchodzi raz", () => {
+    const plan = planReassign(
+      [2, 1],
+      {
+        1: [person({ candidate_id: 10 }), person({ candidate_id: 11 })],
+        2: [person({ candidate_id: 11 }), person({ candidate_id: 12, selectable: false })],
+      },
+      new Set([10]),
+    );
+    // Kliknięto najpierw 2, ale na ekranie pierwsza stoi rekrutacja 1.
+    const sequence = previewSequence([1, 2], plan.rows);
+    expect(sequence.map((e) => [e.jobId, e.person.candidate_id])).toEqual([
+      [1, 10],
+      [1, 11],
+      [2, 12],
+    ]);
+  });
+
+  it("rekrutacja bez wczytanych osób i pusta nic nie dokładają", () => {
+    const plan = planReassign([1, 2, 3], { 1: [], 3: [person({ candidate_id: 7 })] }, new Set());
+    expect(previewSequence([1, 2, 3], plan.rows).map((e) => e.person.candidate_id)).toEqual([7]);
+    expect(previewSequence([], plan.rows)).toEqual([]);
   });
 });

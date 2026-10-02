@@ -703,6 +703,14 @@
    "v3_home": "nagłówek → Podobne rekrutacje (?win=similar)"
   },
   {
+   "id": "header.similar-person-preview",
+   "area": "naglowek",
+   "opis": "Podobne rekrutacje: klik w nazwisko otwiera kartę osoby obok panelu (dopasowanie do tej rekrutacji, fakty, notatka, CV, profil)",
+   "file": "components/v2/jobs/SimilarJobsPanel.tsx",
+   "marker": "SimilarPersonPreview",
+   "v3_home": "nagłówek → Podobne rekrutacje → klik w osobę"
+  },
+  {
    "id": "header.champion-found",
    "area": "naglowek",
    "opis": "„Mamy championa” — Delivery Lead zatrzymuje szukanie (status requestu)",

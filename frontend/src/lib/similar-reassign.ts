@@ -55,6 +55,32 @@ export function planReassign(
   return { rows, candidateIds };
 }
 
+export interface PreviewEntry {
+  jobId: number;
+  person: SentPerson;
+}
+
+/**
+ * Kolejność podglądu osób (‹ ›, „2 z 10”): rekrutacje tak, jak stoją na
+ * ekranie, w każdej osoby w kolejności wierszy. Osoba wysłana w dwóch
+ * rekrutacjach wchodzi raz — przy pierwszej widocznej.
+ */
+export function previewSequence(
+  jobOrder: readonly number[],
+  rows: Readonly<Record<number, readonly PlannedPerson[] | undefined>>,
+): PreviewEntry[] {
+  const seen = new Set<number>();
+  const out: PreviewEntry[] = [];
+  for (const jobId of jobOrder) {
+    for (const { person } of rows[jobId] ?? []) {
+      if (seen.has(person.candidate_id)) continue;
+      seen.add(person.candidate_id);
+      out.push({ jobId, person });
+    }
+  }
+  return out;
+}
+
 /**
  * Ile RÓŻNYCH osób z podpowiadanych, niepołączonych rekrutacji da się
  * przepiąć tutaj — liczy serwer tą samą regułą co panel (bez zatrudnionych

@@ -12,31 +12,17 @@ import {
 } from "@/components/v2/files/FilePreviewModal";
 
 /**
- * Kolumna „CV” na liście kandydatów: klik otwiera podgląd CV w oknie
- * (PDF przez pdf.js z wyszukiwaniem, DOCX renderowany), bez pobierania pliku.
- * Dokumenty pobieramy dopiero przy kliknięciu — lista nie płaci za nie
- * przy każdym wierszu. Klik NIE otwiera podglądu kandydata (stopPropagation).
+ * „Pobierz dokumenty CV → otwórz podgląd głównego” jako hook: kolumna listy
+ * i karta osoby w „Podobnych rekrutacjach” otwierają to samo okno.
+ * `modal` trzeba wyrenderować raz, obok przycisku.
  */
-export function CandidateCvCell({
-  candidateId,
-  candidateName,
-  hasCv,
-}: {
-  candidateId: number;
-  candidateName: string;
-  hasCv: boolean;
-}) {
+export function useCandidateCvPreview(candidateId: number) {
   const [loading, setLoading] = useState(false);
   const [previewDocumentId, setPreviewDocumentId] = useState<number | null>(null);
   const [documents, setDocuments] = useState<CandidateDocument[]>([]);
   const { showError } = useToast();
 
-  if (!hasCv) {
-    return <span className="text-xs text-muted-foreground">brak</span>;
-  }
-
-  const openCv = async (event: MouseEvent) => {
-    event.stopPropagation();
+  const open = async () => {
     if (loading) return;
     setLoading(true);
     try {
@@ -57,29 +43,62 @@ export function CandidateCvCell({
     }
   };
 
+  const modal = (
+    <FilePreviewModal
+      documents={documents}
+      initialDocumentId={previewDocumentId}
+      candidateId={candidateId}
+      onClose={() => setPreviewDocumentId(null)}
+      onDownload={(doc) => downloadDocumentBlob(candidateId, doc).catch(() => {})}
+    />
+  );
+
+  return { open, loading, modal };
+}
+
+/**
+ * Kolumna „CV” na liście kandydatów: klik otwiera podgląd CV w oknie
+ * (PDF przez pdf.js z wyszukiwaniem, DOCX renderowany), bez pobierania pliku.
+ * Dokumenty pobieramy dopiero przy kliknięciu — lista nie płaci za nie
+ * przy każdym wierszu. Klik NIE otwiera podglądu kandydata (stopPropagation).
+ */
+export function CandidateCvCell({
+  candidateId,
+  candidateName,
+  hasCv,
+}: {
+  candidateId: number;
+  candidateName: string;
+  hasCv: boolean;
+}) {
+  const cv = useCandidateCvPreview(candidateId);
+
+  if (!hasCv) {
+    return <span className="text-xs text-muted-foreground">brak</span>;
+  }
+
+  const openCv = (event: MouseEvent) => {
+    event.stopPropagation();
+    void cv.open();
+  };
+
   return (
     <div onClick={(event) => event.stopPropagation()}>
       <button
         type="button"
         onClick={openCv}
-        disabled={loading}
+        disabled={cv.loading}
         aria-label={`Podgląd CV: ${candidateName}`}
         className="hit-area inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
       >
-        {loading ? (
+        {cv.loading ? (
           <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
         ) : (
           <FileText className="h-3 w-3" aria-hidden />
         )}
         CV
       </button>
-      <FilePreviewModal
-        documents={documents}
-        initialDocumentId={previewDocumentId}
-        candidateId={candidateId}
-        onClose={() => setPreviewDocumentId(null)}
-        onDownload={(doc) => downloadDocumentBlob(candidateId, doc).catch(() => {})}
-      />
+      {cv.modal}
     </div>
   );
 }

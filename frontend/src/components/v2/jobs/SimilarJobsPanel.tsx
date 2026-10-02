@@ -12,17 +12,24 @@
  * Reguły zaznaczania żyją w `lib/similar-reassign.ts`: rekrutacja nigdy nie
  * jest zaznaczona sama, kliknięcie zaznacza jej wysłanych (także odrzuconych
  * przez klienta), zatrudnionych i obecnych w tej rekrutacji nie da się wybrać.
+ *
+ * Podgląd osoby (02.10.2026): klik w nazwisko otwiera kartę obok panelu
+ * (`SimilarPersonPreview`), Ctrl/⌘-klik — profil w nowej karcie. Zaznaczenie
+ * zmienia wyłącznie pole wyboru. Esc zamyka najpierw kartę, bo zamknięcie
+ * panelu kasuje zaznaczenia.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link2, Search, Unlink } from "lucide-react";
+import { ChevronLeft, ChevronRight, Link2, Search, Unlink } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { SimilarPersonPreview } from "@/components/v2/jobs/SimilarPersonPreview";
 import { RecruitmentSheet } from "@/components/v2/recruitment/slideovers/RecruitmentSheet";
+import { useCapability } from "@/hooks/useCapability";
 import { candidatesApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
@@ -46,6 +53,7 @@ import {
   planReassign,
   pluralJobs,
   pluralPeople,
+  previewSequence,
   selectableCount,
   type PlannedPerson,
 } from "@/lib/similar-reassign";
@@ -73,6 +81,9 @@ export function SimilarJobsPanel({
   const [manual, setManual] = useState<SimilarJobItem[]>([]);
   const [excluded, setExcluded] = useState<Set<number>>(() => new Set());
   const [query, setQuery] = useState("");
+  const [preview, setPreview] = useState<{ candidateId: number; jobId: number } | null>(null);
+  const previewTrigger = useRef<HTMLElement | null>(null);
+  const canOpenProfile = useCapability("nav.candidates");
 
   useEffect(() => {
     if (open) return;
@@ -80,6 +91,7 @@ export function SimilarJobsPanel({
     setManual([]);
     setExcluded(new Set());
     setQuery("");
+    setPreview(null);
   }, [open]);
 
   const q = query.trim();
@@ -121,8 +133,22 @@ export function SimilarJobsPanel({
   );
   const newLinks = chosen.filter((id) => !linkedIds.has(id));
 
-  const toggleJob = (id: number) =>
+  const toggleJob = (id: number) => {
+    // Odznaczona rekrutacja chowa swoje osoby — karta jednej z nich też znika.
+    if (preview?.jobId === id) setPreview(null);
     setChosen((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const openPreview = (otherId: number, candidateId: number, trigger: HTMLElement) => {
+    previewTrigger.current = trigger;
+    setPreview({ candidateId, jobId: otherId });
+  };
+
+  const closePreview = () => {
+    setPreview(null);
+    const trigger = previewTrigger.current;
+    if (trigger?.isConnected) trigger.focus();
+  };
 
   const togglePerson = (candidateId: number) =>
     setExcluded((prev) => {
@@ -210,10 +236,37 @@ export function SimilarJobsPanel({
     reassign.isPending ||
     (count === 0 && newLinks.length === 0);
 
+  // Kolejność ‹ › w karcie = kolejność grup na ekranie, nie kolejność kliknięć.
+  const shownJobs = [...extra, ...suggestions, ...linked];
+  const sequence = previewSequence(
+    [...new Set(shownJobs.map((j) => j.id))].filter((id) => chosen.includes(id)),
+    plan.rows,
+  );
+  const previewIndex = preview
+    ? sequence.findIndex((entry) => entry.person.candidate_id === preview.candidateId)
+    : -1;
+  const previewEntry = previewIndex >= 0 ? sequence[previewIndex] : null;
+  // Osoba kliknięta w drugiej z dwóch rekrutacji pokazuje TĘ rekrutację.
+  const previewRow =
+    preview && previewEntry
+      ? plan.rows[preview.jobId]?.find((r) => r.person.candidate_id === preview.candidateId)
+      : undefined;
+  const previewPerson = previewRow?.person ?? previewEntry?.person ?? null;
+  const previewJobId = previewRow && preview ? preview.jobId : previewEntry?.jobId;
+  const stepPreview = (delta: number) => {
+    const next = sequence[previewIndex + delta];
+    if (next) setPreview({ candidateId: next.person.candidate_id, jobId: next.jobId });
+  };
+
   const renderGroup = (item: SimilarJobItem) => (
     <JobGroup
       key={item.id}
       item={item}
+      jobId={jobId}
+      previewCandidateId={previewPerson && previewJobId === item.id ? previewPerson.candidate_id : null}
+      onPreview={(candidateId, trigger) => openPreview(item.id, candidateId, trigger)}
+      onClosePreview={closePreview}
+      canOpenProfile={canOpenProfile}
       checked={chosen.includes(item.id)}
       onToggle={() => toggleJob(item.id)}
       rows={plan.rows[item.id]}
@@ -242,8 +295,33 @@ export function SimilarJobsPanel({
       open={open}
       onOpenChange={onOpenChange}
       title="Podobne rekrutacje"
-      description="Kliknij rekrutację — zaznaczymy wszystkich wysłanych w niej do klienta. Jednym przyciskiem przepniesz ich do „Nowych”."
+      description="Kliknij rekrutację — zaznaczymy wszystkich wysłanych w niej do klienta. Kliknij osobę, żeby ją podejrzeć. Jednym przyciskiem przepniesz zaznaczonych do „Nowych”."
       data-testid="similar-jobs-panel"
+      onEscapeKeyDown={(event) => {
+        if (!previewPerson) return;
+        event.preventDefault();
+        closePreview();
+      }}
+      sidePane={
+        previewPerson ? (
+          <SimilarPersonPreview
+            key={previewPerson.candidate_id}
+            jobId={jobId}
+            person={previewPerson}
+            sourceJob={shownJobs.find((j) => j.id === previewJobId) ?? null}
+            position={{ index: previewIndex, total: sequence.length }}
+            onPrev={() => stepPreview(-1)}
+            onNext={() => stepPreview(1)}
+            onClose={closePreview}
+            canOpenProfile={canOpenProfile}
+            selection={{
+              checked: plan.candidateIds.includes(previewPerson.candidate_id),
+              disabled: readOnly || !previewPerson.selectable,
+              onToggle: () => togglePerson(previewPerson.candidate_id),
+            }}
+          />
+        ) : undefined
+      }
       toolbar={
         <div className="relative">
           <Search
@@ -372,6 +450,11 @@ function GroupSection({
 
 function JobGroup({
   item,
+  jobId,
+  previewCandidateId,
+  onPreview,
+  onClosePreview,
+  canOpenProfile,
   checked,
   onToggle,
   rows,
@@ -384,6 +467,12 @@ function JobGroup({
   readOnly,
 }: {
   item: SimilarJobItem;
+  /** Rekrutacja docelowa — do linku profilu (`?from=job&jobId=`). */
+  jobId: number;
+  previewCandidateId: number | null;
+  onPreview: (candidateId: number, trigger: HTMLElement) => void;
+  onClosePreview: () => void;
+  canOpenProfile: boolean;
   checked: boolean;
   onToggle: () => void;
   rows: PlannedPerson[] | undefined;
@@ -460,7 +549,18 @@ function JobGroup({
           ) : (
             <ul aria-label={`Osoby wysłane do klienta: ${item.title}`}>
               {rows.map((row) => (
-                <PersonRow key={row.person.candidate_id} row={row} onToggle={onTogglePerson} readOnly={readOnly} />
+                <PersonRow
+                  key={row.person.candidate_id}
+                  row={row}
+                  onToggle={onTogglePerson}
+                  readOnly={readOnly}
+                  profileHref={
+                    canOpenProfile ? `/candidates/${row.person.candidate_id}?from=job&jobId=${jobId}` : null
+                  }
+                  active={previewCandidateId === row.person.candidate_id}
+                  onPreview={onPreview}
+                  onClosePreview={onClosePreview}
+                />
               ))}
               {pickable === 0 ? (
                 <li className="px-3 py-2 text-xs text-muted-foreground">
@@ -487,19 +587,32 @@ function PersonRow({
   row,
   onToggle,
   readOnly,
+  profileHref,
+  active,
+  onPreview,
+  onClosePreview,
 }: {
   row: PlannedPerson;
   onToggle: (candidateId: number) => void;
   readOnly: boolean;
+  /** `null` = rola bez dostępu do profili kandydatów. */
+  profileHref: string | null;
+  active: boolean;
+  onPreview: (candidateId: number, trigger: HTMLElement) => void;
+  onClosePreview: () => void;
 }) {
   const { person, state } = row;
   const inputId = `similar-person-${person.candidate_id}-${state}`;
   const disabled = readOnly || state === "locked" || state === "duplicate";
+  const nameClass = cn(
+    "block max-w-full truncate text-left text-sm font-medium hover:text-primary hover:underline",
+    active && "text-primary",
+  );
   return (
     <li
       className={cn(
         "flex items-center gap-3 border-t border-border px-3 py-1.5 first:border-t-0",
-        disabled && "opacity-60",
+        active && "bg-primary/10",
       )}
     >
       <Checkbox
@@ -509,12 +622,36 @@ function PersonRow({
         disabled={disabled}
         aria-label={`Przepnij ${person.name}`}
       />
-      <label htmlFor={inputId} className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{person.name}</span>
+      <div className={cn("min-w-0 flex-1", disabled && !active && "opacity-60")}>
+        {profileHref ? (
+          // Zwykły klik = podgląd obok; Ctrl/⌘/Shift-klik i środkowy przycisk
+          // zostają przy linku (profil w nowej karcie) — jak nazwisko na Tablicy.
+          <a
+            href={profileHref}
+            target="_blank"
+            rel="noopener"
+            className={nameClass}
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              onPreview(person.candidate_id, event.currentTarget);
+            }}
+          >
+            {person.name}
+          </a>
+        ) : (
+          <button
+            type="button"
+            className={nameClass}
+            onClick={(event) => onPreview(person.candidate_id, event.currentTarget)}
+          >
+            {person.name}
+          </button>
+        )}
         <span className="block truncate text-xs text-muted-foreground">
           {state === "duplicate" ? "zaznaczona wyżej, w innej rekrutacji" : personStatusLine(person)}
         </span>
-      </label>
+      </div>
       <span
         className={cn(
           "whitespace-nowrap rounded px-1.5 text-[11px] font-medium",
@@ -523,6 +660,24 @@ function PersonRow({
       >
         {person.outcome === "hired" ? "pracuje u klienta" : person.already_in_job ? "już tutaj" : statusChip(person)}
       </span>
+      <button
+        type="button"
+        aria-label={`Podgląd: ${person.name}`}
+        aria-pressed={active}
+        onClick={(event) =>
+          active ? onClosePreview() : onPreview(person.candidate_id, event.currentTarget)
+        }
+        className={cn(
+          "hit-area rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground",
+          active && "text-primary",
+        )}
+      >
+        {active ? (
+          <ChevronLeft className="h-4 w-4" aria-hidden />
+        ) : (
+          <ChevronRight className="h-4 w-4" aria-hidden />
+        )}
+      </button>
     </li>
   );
 }
