@@ -125,9 +125,9 @@ export function EditableCell({
       )}
     >
       {needsCompletion ? (
-        <span className="inline-flex items-center gap-1.5 rounded border border-dashed border-destructive/50 px-1.5 py-0.5 text-xs italic">
+        <span className="inline-flex items-center gap-1.5 text-[11.5px]">
           Uzupełnij
-          <span className="rounded bg-destructive/10 px-1 not-italic text-destructive">
+          <span className="rounded bg-destructive/10 px-1.5 py-px font-medium text-destructive">
             brak danych
           </span>
         </span>

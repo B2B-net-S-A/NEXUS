@@ -2,6 +2,7 @@
 
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 
+import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_UNIT } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
 import type {
   FinanceEditableField,
@@ -12,18 +13,31 @@ import { EditableCell } from "@/components/finance/EditableCell";
 /** Dokładnie DZIEWIĘĆ kolumn (pkt 4.4 ticketu) — nic więcej nie pokazujemy
  *  nigdzie w interfejsie. Dwa nagłówki są PRZEMIANOWANE względem arkusza:
  *  „Średnia Stawka MD" → „Stawka kosztowa MD" i „Stawka MD" → „Stawka
- *  przychodowa MD"; nazwy w pliku Excel zostają bez zmian. */
+ *  przychodowa MD"; nazwy w pliku Excel zostają bez zmian.
+ *
+ *  Ta lista jest JEDYNYM źródłem kolejności: nagłówek i każdy wiersz mapują
+ *  ją tak samo (do 02.10.2026 wiersz składał się osobno i „Klient" był
+ *  wstawiany przed fakturą — kolejność dało się rozjechać jedną zmianą).
+ *  „Klient" stoi zaraz po „Kandydacie": to po nim czyta się wiersz.
+ *
+ *  `label` to pełna nazwa (nazwy dostępne sortowania i komórek); w nagłówku
+ *  stoi `head` i jednostka raz — w komórkach są same liczby. */
 const COLUMNS: Array<{
   key: string;
   label: string;
+  head?: string;
+  unit?: string;
   numeric: boolean;
   editable?: FinanceEditableField;
   money?: boolean;
 }> = [
   { key: "consultant_name", label: "Kandydat", numeric: false },
+  { key: "client_name", label: "Klient", numeric: false },
   {
     key: "cost_rate_md",
     label: "Stawka kosztowa MD",
+    head: "Stawka kosztowa",
+    unit: "zł/MD",
     numeric: true,
     editable: "cost_rate_md",
     money: true,
@@ -32,6 +46,7 @@ const COLUMNS: Array<{
   {
     key: "compensation",
     label: "Wynagrodzenie",
+    unit: "zł",
     numeric: true,
     editable: "compensation",
     money: true,
@@ -39,14 +54,16 @@ const COLUMNS: Array<{
   {
     key: "revenue_rate_md",
     label: "Stawka przychodowa MD",
+    head: "Stawka przychodowa",
+    unit: "zł/MD",
     numeric: true,
     editable: "revenue_rate_md",
     money: true,
   },
-  { key: "client_name", label: "Klient", numeric: false },
   {
     key: "invoice_amount",
     label: "Faktura",
+    unit: "zł",
     numeric: true,
     editable: "invoice_amount",
     money: true,
@@ -54,6 +71,8 @@ const COLUMNS: Array<{
   {
     key: "margin_pln",
     label: "Marża PLN",
+    head: "Marża",
+    unit: "zł",
     numeric: true,
     editable: "margin_pln",
     money: true,
@@ -66,12 +85,22 @@ const COLUMNS: Array<{
   },
 ];
 
+/** Kwota z „zł" — kafle i zdania; w tabeli jednostka stoi w nagłówku. */
 export function formatMoney(value: number | null): string {
   if (value == null) return "—";
   return `${value.toLocaleString("pl-PL", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 3,
   })} zł`;
+}
+
+/** Sama kwota, bez jednostki — komórka tabeli (jednostka jest w nagłówku). */
+function formatAmount(value: number | null): string {
+  if (value == null) return "—";
+  return value.toLocaleString("pl-PL", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 3,
+  });
 }
 
 function formatNumber(value: number | null): string {
@@ -127,21 +156,27 @@ export function FinanceResultsTable({
   return (
     // Ciało tabeli przewija się WEWNĄTRZ tego kontenera, a nie przez
     // przewijanie strony — nagłówek zostaje widoczny (pkt 4.4 ticketu).
-    <div className="max-h-[60dvh] overflow-auto rounded-lg border border-border">
-      <table className="w-full text-sm">
-        <thead className="sticky top-0 z-10 bg-muted text-xs uppercase text-muted-foreground">
+    <div className="relative max-h-[60dvh] overflow-auto rounded-[10px] border border-border bg-card">
+      <table className="w-full text-[13px]">
+        <thead className={cn("sticky top-0 z-10 bg-background", CALM_HEAD)}>
           <tr>
             {COLUMNS.map((col, index) => {
               const active = sort === col.key;
+              const heading = (
+                <>
+                  {col.head ?? col.label}
+                  {col.unit ? <span className={CALM_UNIT}>{col.unit}</span> : null}
+                </>
+              );
               return (
                 <th
                   key={col.key}
                   scope="col"
                   className={cn(
-                    "whitespace-nowrap px-3 py-2 font-medium",
+                    "whitespace-nowrap border-b border-border px-3 py-2 font-semibold",
                     col.numeric ? "text-right" : "text-left",
                     // Narożnik: „Konsultant" przyklejony w obu osiach.
-                    index === 0 && "sticky left-0 z-20 bg-muted",
+                    index === 0 && "sticky left-0 z-20 bg-background",
                   )}
                 >
                   {col.numeric ? (
@@ -149,9 +184,9 @@ export function FinanceResultsTable({
                       type="button"
                       onClick={() => onSort(col.key)}
                       aria-label={`Sortuj po ${col.label}`}
-                      className="inline-flex items-center gap-1 hover:text-foreground"
+                      className="inline-flex items-center gap-1 uppercase hover:text-foreground"
                     >
-                      {col.label}
+                      <span>{heading}</span>
                       {active ? (
                         direction === "desc" ? (
                           <ArrowDown className="h-3 w-3" />
@@ -163,7 +198,7 @@ export function FinanceResultsTable({
                       )}
                     </button>
                   ) : (
-                    col.label
+                    heading
                   )}
                 </th>
               );
@@ -172,13 +207,34 @@ export function FinanceResultsTable({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.id} className="border-t border-border hover:bg-muted/40">
-              {/* Nazwisko zostaje w kadrze przy przewijaniu kwot w poziomie. */}
-              <td className="sticky left-0 z-[1] whitespace-nowrap bg-card px-3 py-1.5 font-medium">
-                {row.consultant_name}
-              </td>
-              {COLUMNS.filter((c) => c.editable).map((col) => {
-                const field = col.editable!;
+            <tr
+              key={row.id}
+              className={cn(CALM_ROW, "h-10 last:border-b-0 hover:bg-muted/40")}
+            >
+              {COLUMNS.map((col) => {
+                if (col.key === "consultant_name") {
+                  return (
+                    // Nazwisko zostaje w kadrze przy przewijaniu kwot w poziomie.
+                    <td
+                      key={col.key}
+                      className="sticky left-0 z-[1] whitespace-nowrap bg-card px-3 py-1.5 font-semibold"
+                    >
+                      {row.consultant_name}
+                    </td>
+                  );
+                }
+                if (!col.editable) {
+                  return (
+                    <td key={col.key} className="whitespace-nowrap px-3 py-1.5">
+                      {row.client_name ? (
+                        row.client_name
+                      ) : (
+                        <span className={CALM_EMPTY}>—</span>
+                      )}
+                    </td>
+                  );
+                }
+                const field = col.editable;
                 // „Marża %" pokazujemy i edytujemy w punktach procentowych
                 // (`margin_percent`), bo surowa komórka bywa ułamkiem z Excela
                 // — doklejenie „%" do 0,17 dawało „0,2%" zamiast 16,7%.
@@ -186,34 +242,36 @@ export function FinanceResultsTable({
                   field === "margin_pct" ? row.margin_percent : row[field];
                 const isMargin = field === "margin_pln" || field === "margin_pct";
                 return (
-                  <ClientNameSlot key={col.key} col={col.key} row={row}>
-                    <EditableCell
-                      value={value}
-                      ariaLabel={`${col.label} — ${row.consultant_name}`}
-                      needsCompletion={
-                        value == null && !row.edited_fields.includes(field)
-                      }
-                      display={
-                        <span
-                          className={cn(
-                            isMargin &&
-                              value != null &&
-                              (value >= 0 ? "text-emerald-600" : "text-destructive"),
-                            isMargin && "font-medium",
-                          )}
-                        >
-                          {field === "margin_pct"
-                            ? formatPct(value)
-                            : col.money
-                              ? formatMoney(value)
-                              : formatNumber(value)}
-                        </span>
-                      }
-                      onSave={(next) => onEdit(row.id, field, next)}
-                      onError={onError}
-                      readOnly={readOnly}
-                    />
-                  </ClientNameSlot>
+                  <EditableCell
+                    key={col.key}
+                    value={value}
+                    ariaLabel={`${col.label} — ${row.consultant_name}`}
+                    needsCompletion={
+                      value == null && !row.edited_fields.includes(field)
+                    }
+                    display={
+                      <span
+                        className={cn(
+                          value == null && CALM_EMPTY,
+                          isMargin &&
+                            value != null &&
+                            (value >= 0
+                              ? "text-success-muted-foreground"
+                              : "text-destructive"),
+                          isMargin && "font-semibold",
+                        )}
+                      >
+                        {field === "margin_pct"
+                          ? formatPct(value)
+                          : col.money
+                            ? formatAmount(value)
+                            : formatNumber(value)}
+                      </span>
+                    }
+                    onSave={(next) => onEdit(row.id, field, next)}
+                    onError={onError}
+                    readOnly={readOnly}
+                  />
                 );
               })}
             </tr>
@@ -221,30 +279,5 @@ export function FinanceResultsTable({
         </tbody>
       </table>
     </div>
-  );
-}
-
-/**
- * „Klient" siedzi w środku bloku kolumn liczbowych (między stawką przychodową
- * a fakturą — kolejność z ticketu), a nie jest edytowalny. Ten slot wstawia go
- * w odpowiednim miejscu bez rozbijania mapowania kolumn edytowalnych.
- */
-function ClientNameSlot({
-  col,
-  row,
-  children,
-}: {
-  col: string;
-  row: FinanceResultRow;
-  children: React.ReactNode;
-}) {
-  if (col !== "invoice_amount") return <>{children}</>;
-  return (
-    <>
-      <td className="whitespace-nowrap px-3 py-1.5 text-muted-foreground">
-        {row.client_name ?? ""}
-      </td>
-      {children}
-    </>
   );
 }
