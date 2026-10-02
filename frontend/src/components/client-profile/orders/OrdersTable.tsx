@@ -3,7 +3,7 @@
 import { ChevronDown, CornerDownRight } from "lucide-react";
 
 import { ContractPersonLink } from "@/components/contracts/ContractPersonLink";
-import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import { StatusDot } from "@/components/ds/StatusDot";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
 import type { OrderGroupRead, OrderLineRead } from "@/lib/api/orderGroups";
@@ -28,7 +28,7 @@ import { formatMd, MdBudgetBar } from "./MdBudgetBar";
 import { MdScopeBars } from "./MdScopeBars";
 import { OrderTypeBadge, orderTypeLabel } from "./OrderTypeBadge";
 import { RateText } from "./RateTrio";
-import { contractorRowSummary, type ContractorRowStateKind } from "./contractor-order-row";
+import { CONTRACTOR_STATE_DOT, contractorRowSummary } from "./contractor-order-row";
 import { displayLineRate, orderLineAnchorId } from "./order-line-display";
 import { executiveContractLabel, GROUP_STATUS_TONE, orderGroupAnchorId, periodLabel } from "./order-group-parts";
 import {
@@ -58,17 +58,6 @@ const TONE_CLASS = {
   bad: "bg-destructive-muted text-destructive-muted-foreground",
   mut: "bg-muted text-muted-foreground",
 } as const;
-
-/** Stan kontraktora jako kropka + etykieta. Plakietką zostaje tylko to, co
- *  wymaga ruchu: brak zamówienia i zamówienie kończące się bez kontynuacji. */
-const CONTRACTOR_STATE_DOT: Partial<Record<ContractorRowStateKind, StatusDotTone>> = {
-  active: "success",
-  not_started: "info",
-  paused: "warning",
-  draft_order: "neutral",
-  closed_order: "neutral",
-  ended: "neutral",
-};
 
 function Chip({ tone, children }: { tone: keyof typeof TONE_CLASS; children: React.ReactNode }) {
   return (

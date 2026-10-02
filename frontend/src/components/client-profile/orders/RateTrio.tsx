@@ -27,10 +27,11 @@ export interface RateTrioItem {
   note?: ReactNode;
 }
 
-/** Stawki obok siebie (Koszt / Przychód / Marża) — w panelach zamówień. */
+/** Stawki obok siebie (Koszt / Przychód / Marża) — w panelach zamówień.
+ *  Dwie pozycje (bez marży) dzielą szerokość na pół. */
 export function RateTrio({ items, className }: { items: RateTrioItem[]; className?: string }) {
   return (
-    <dl className={cn("grid grid-cols-3 gap-2", className)}>
+    <dl className={cn("grid gap-2", items.length === 2 ? "grid-cols-2" : "grid-cols-3", className)}>
       {items.map((item) => (
         <div key={item.label} className="min-w-0 rounded-md bg-muted/50 px-2.5 py-2">
           <dt className="text-[11px] leading-4 text-muted-foreground">{item.label}</dt>
