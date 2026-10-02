@@ -313,7 +313,7 @@ export function FutureOrders({
                       onClick={() => onDeleteGroup(future)}
                       aria-label={`Usuń przyszłe zamówienie nr ${future.order_number}`}
                       title="Usuń przyszłe zamówienie"
-                      className="rounded p-1.5 pointer-coarse:p-2.5 text-destructive hover:bg-destructive/10"
+                      className="rounded p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:bg-destructive/10 focus-visible:text-destructive"
                     >
                       <Trash2 className="h-4 w-4" aria-hidden />
                     </button>
