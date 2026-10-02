@@ -16,12 +16,14 @@ Nazwiska, numery i liczby są zmyślone (repo jest publiczne).
 
 from __future__ import annotations
 
+import io
 import uuid
 from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
+from openpyxl import load_workbook
 
 from app.core.scheduling import business_today
 from tests.test_multi_consultant_orders import (
@@ -413,6 +415,40 @@ async def test_client_md_imports_show_only_this_clients_rows(
     )
     assert missing.status_code == 404
 
+    # Eksport do Excela: te same wiersze co ekran, bez wierszy innych klientów.
+    export = await app_client.get(
+        f"/api/clients/{client_a}/md-imports/{batch_id}/export",
+        headers=app_auth_headers,
+    )
+    assert export.status_code == 200, export.text
+    assert export.headers["content-disposition"].endswith('_2026-08.xlsx"')
+    table = list(
+        load_workbook(io.BytesIO(export.content)).active.iter_rows(values_only=True)
+    )
+    assert table[0] == (
+        "Wiersz",
+        "Osoba",
+        "Nr z importu",
+        "Zamówienie docelowe",
+        "MD",
+        "Kwota (PLN)",
+        "Status",
+        "Uwagi",
+    )
+    assert [(r[0], r[1], r[3], r[4], r[6]) for r in table[1:]] == [
+        (2, "Osoba A", group_a["order_number"], 10, "Zaksięgowano"),
+        (3, "Osoba A", group_a["order_number"], 19, "Zaksięgowano"),
+    ]
+    assert [r[7] for r in table[1:]] == [
+        None,
+        "Numer z importu inny niż zamówienie docelowe",
+    ]
+    foreign = await app_client.get(
+        f"/api/clients/{client_a}/md-imports/{other_id}/export",
+        headers=app_auth_headers,
+    )
+    assert foreign.status_code == 404
+
     # Okno zużycia osoby A: numer z importu i ostrzeżenie o obcym numerze.
     await app_client.put(
         f"/api/clients/{client_a}/order-groups/{group_a['id']}/lines/{line_a}"
@@ -495,3 +531,56 @@ async def test_client_md_imports_unbooked_row_needs_binding_number_and_own_perso
         f"/api/clients/{client_b}/md-imports/{batch_id}", headers=app_auth_headers
     )
     assert other.status_code == 404
+
+
+async def test_client_md_import_export_keeps_numbers_and_neutralises_formulas():
+    """Nazwisko z cudzego arkusza nie staje się formułą; MD i kwota to liczby."""
+    from datetime import datetime, timezone
+
+    from app.api.client_md_imports import (
+        ClientMdImportDetail,
+        ClientMdImportRow,
+        _build_export_xlsx,
+        export_filename,
+    )
+
+    detail = ClientMdImportDetail(
+        id=1,
+        period_month="2026-08",
+        created_at=datetime(2026, 9, 23, tzinfo=timezone.utc),
+        rows=[
+            ClientMdImportRow(
+                id=1,
+                row_number=7,
+                consultant_name='=HYPERLINK("https://zly.example")',
+                target_order_number="87_2026",
+                md_reported=Decimal("9.125"),
+                invoice_amount=Decimal("12045.00"),
+                state="booked",
+                state_label="Zaksięgowano",
+                status_label="Zaktualizowano",
+            ),
+            ClientMdImportRow(
+                id=2,
+                row_number=8,
+                consultant_name="Osoba B",
+                md_reported=Decimal("20"),
+                state="to_verify",
+                state_label="Do weryfikacji",
+                status_label="Wymaga przypisania",
+            ),
+        ],
+    )
+    sheet = load_workbook(_build_export_xlsx(detail)).active
+    assert sheet.title == "Import MD 2026-08"
+    assert sheet.cell(row=2, column=2).data_type == "s"
+    assert sheet.cell(row=2, column=2).value.startswith("'=HYPERLINK")
+    assert sheet.cell(row=2, column=5).value == 9.125
+    assert sheet.cell(row=2, column=6).value == 12045
+    # Brak dostępu do finansów = pusta komórka, jak „—" na ekranie.
+    assert sheet.cell(row=3, column=6).value is None
+    assert sheet.cell(row=3, column=8).value == "Wymaga przypisania"
+    assert export_filename("Bank Łódzki S.A.", "2026-08") == (
+        "Import_MD_Bank_Lodzki_S.A_2026-08.xlsx"
+    )
+    assert export_filename(None, "2026-08") == "Import_MD_Klient_2026-08.xlsx"

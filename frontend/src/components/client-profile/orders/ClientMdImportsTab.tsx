@@ -1,14 +1,18 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, FileSpreadsheet } from "lucide-react";
+import { ArrowLeft, Download, FileSpreadsheet } from "lucide-react";
+import { useState } from "react";
 
 import { QueryStateNotice } from "@/components/ds";
+import { useToast } from "@/components/Toast";
 import {
   orderGroupsApi,
   type ClientMdImportRowState,
   type ClientMdImportSummary,
 } from "@/lib/api/orderGroups";
+import { apiErrorMessage } from "@/lib/api-error";
+import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
 import { formatDateTimePl } from "@/lib/date-pl";
 import { monthLabelPl } from "@/lib/order-consumption";
 import { cn } from "@/lib/utils";
@@ -62,6 +66,23 @@ function ImportDetail({
     queryKey: [...clientMdImportsQueryKey(clientId), importId],
     queryFn: async () => (await orderGroupsApi.getClientMdImport(clientId, importId)).data,
   });
+  const { showToast } = useToast();
+  const [exporting, setExporting] = useState(false);
+
+  async function exportToExcel() {
+    setExporting(true);
+    try {
+      const file = await fetchAuthenticatedDownload(
+        `/api/clients/${clientId}/md-imports/${importId}/export`,
+      );
+      downloadBlob(file.blob, file.filename ?? "Import_MD.xlsx");
+      showToast("Pobrano import MD do Excela", "success");
+    } catch (error) {
+      showToast(apiErrorMessage(error, "Nie udało się przygotować pliku Excel."), "error");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <section aria-labelledby="md-import-detail-heading" className="flex flex-col gap-3">
@@ -82,18 +103,29 @@ function ImportDetail({
         <p className="text-sm text-muted-foreground">Wczytywanie importu…</p>
       ) : (
         <>
-          <div className="rounded-xl border border-border bg-card p-4">
-            <h3 id="md-import-detail-heading" className="text-sm font-semibold text-foreground">
-              Import MD za {monthLabelPl(detail.data.period_month)}
-            </h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {formatDateTimePl(detail.data.created_at)} ·{" "}
-              {detail.data.uploaded_by_name ?? "Automatycznie (system)"}
-              {detail.data.filename ? ` · ${detail.data.filename}` : ""}
-            </p>
-            <div className="mt-2">
-              <ImportCounts summary={detail.data} />
+          <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-card p-4">
+            <div className="min-w-0">
+              <h3 id="md-import-detail-heading" className="text-sm font-semibold text-foreground">
+                Import MD za {monthLabelPl(detail.data.period_month)}
+              </h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {formatDateTimePl(detail.data.created_at)} ·{" "}
+                {detail.data.uploaded_by_name ?? "Automatycznie (system)"}
+                {detail.data.filename ? ` · ${detail.data.filename}` : ""}
+              </p>
+              <div className="mt-2">
+                <ImportCounts summary={detail.data} />
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={exportToExcel}
+              disabled={exporting}
+              className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:h-10"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              {exporting ? "Przygotowuję…" : "Pobierz do Excela"}
+            </button>
           </div>
           <div className="overflow-x-auto rounded-xl border border-border bg-card">
             <table className="w-full min-w-[48rem] text-sm">
