@@ -73,7 +73,7 @@ from app.schemas.client_profile import (
 )
 from app.api.contracts import _effective_rate_fields
 from app.api.deps import AdminUser, OperationalUser
-from app.api.permission_access import ClientsEditUser
+from app.api.permission_access import ClientsEditUser, permission_denied
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.action_permissions import ProductAction, has_permission
 
@@ -344,6 +344,30 @@ def _client_schema_for(user: User) -> type[ClientResponse] | type[ClientSafeResp
     if has_permission(user, ProductAction.amounts_view):
         return ClientResponse
     return ClientSafeResponse
+
+
+# Pola klienta obecne wyłącznie w pełnej projekcji: dane prawne i notatki.
+_LEGAL_CLIENT_FIELDS = frozenset(ClientResponse.model_fields) - frozenset(
+    ClientSafeResponse.model_fields
+)
+
+
+def _keep_unreadable_legal_fields(user: User, updates: dict[str, object]) -> None:
+    """Konto, które nie widzi danych prawnych klienta, nie może ich zmienić.
+
+    Edycję klienta daje „Klienci: dodawanie i edycja”, a dane prawne pokazuje
+    „Stawki i kwoty: podgląd” — to dwa osobne przełączniki. Konto bez podglądu
+    dostaje klienta bez tych pól, a formularz „Edytuj firmę” odsyła komplet,
+    więc przysyła je PUSTE: zapis samej branży kasowałby notatki, których autor
+    zapisu nigdy nie widział. Puste pole pomijamy; wpisana wartość to próba
+    zmiany pola, którego konto nie widzi — odmowa nazywa uprawnienie (jak
+    ``order_amounts_denied`` przy kwotach zamówienia).
+    """
+    if _client_schema_for(user) is ClientResponse:
+        return
+    for field in _LEGAL_CLIENT_FIELDS.intersection(updates):
+        if updates.pop(field) not in (None, ""):
+            raise permission_denied(ProductAction.amounts_view)
 
 
 def _effective_client_name():
@@ -1196,6 +1220,7 @@ async def update_client(
     # (audyt 24.09.2026, S1).
     client = await assert_client_writable(db, client_id)
     updates = data.model_dump(exclude_unset=True)
+    _keep_unreadable_legal_fields(current_user, updates)
     from app.services.cv_generator_b2b import central_policies
 
     if central_policies.enabled() and "cv_content_mode_cap" in updates:

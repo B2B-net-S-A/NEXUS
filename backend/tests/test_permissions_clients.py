@@ -172,13 +172,19 @@ async def test_recruiter_with_granted_clients_edit_creates_and_edits_a_client(
     await grant_permissions(user_id, "clients_edit")
 
     created = await app_client.post(
-        "/api/clients", headers=headers, json={"name": name, "nip": "5252530321"}
+        "/api/clients",
+        headers=headers,
+        json={"name": name, "nip": "5252530321", "notes": "Notatka handlowa"},
     )
     assert created.status_code == 201, created.text
     client_id = created.json()["id"]
 
+    # Formularz „Edytuj firmę” odsyła komplet pól; konto bez podglądu danych
+    # prawnych przysyła je puste — zapis branży nie może ich skasować.
     edited = await app_client.patch(
-        f"/api/clients/{client_id}", headers=headers, json={"industry": "Bankowość"}
+        f"/api/clients/{client_id}",
+        headers=headers,
+        json={"industry": "Bankowość", "notes": None, "nip": ""},
     )
     assert edited.status_code == 200, edited.text
     assert edited.json()["industry"] == "Bankowość"
@@ -190,6 +196,16 @@ async def test_recruiter_with_granted_clients_edit_creates_and_edits_a_client(
     assert detail.status_code == 200, detail.text
     for field in ("nip", "regon", "legal_name", "notes"):
         assert field not in detail.json(), f"leaked legal field {field}"
+
+    # Wpisana wartość to próba zmiany pola, którego konto nie widzi.
+    blind = await app_client.patch(
+        f"/api/clients/{client_id}", headers=headers, json={"nip": "1111111111"}
+    )
+    assert _denied_permission(blind) == "amounts_view"
+    async with AsyncSessionLocal() as db:
+        stored = await db.get(Client, client_id)
+        assert stored.nip == "5252530321"
+        assert stored.notes == "Notatka handlowa"
 
     # Posiadacz bez roli Delivery Leada działa u każdego klienta…
     contact = await app_client.post(
@@ -207,6 +223,17 @@ async def test_recruiter_with_granted_clients_edit_creates_and_edits_a_client(
             )
         )
     assert assignment is None
+
+    # Z podglądem danych prawnych to samo konto zmienia je i czyści jak dotąd.
+    await grant_permissions(user_id, "amounts_view")
+    legal = await app_client.patch(
+        f"/api/clients/{client_id}",
+        headers=headers,
+        json={"nip": "1111111111", "notes": None},
+    )
+    assert legal.status_code == 200, legal.text
+    assert legal.json()["nip"] == "1111111111"
+    assert legal.json()["notes"] is None
 
 
 async def test_delivery_lead_without_clients_edit_reads_but_cannot_edit(
@@ -708,6 +735,38 @@ def test_client_legal_fields_follow_the_amounts_view_permission() -> None:
     ):
         assert clients._client_schema_for(reader) is ClientSafeResponse
         assert not client_directory._can_view_directory_legal(reader)
+
+
+def test_client_legal_fields_cannot_be_changed_without_seeing_them() -> None:
+    """Edycja klienta bez podglądu danych prawnych nie kasuje ich ani nie zmienia."""
+
+    for editor in (
+        _account(UserRole.recruiter, grants=("clients_edit",)),
+        _without(_account(UserRole.delivery_lead), "amounts_view"),
+    ):
+        # Formularz odsyła komplet pól: puste dane prawne są pomijane.
+        blank = {"industry": "IT", "notes": None, "nip": "", "legal_name": None}
+        clients._keep_unreadable_legal_fields(editor, blank)
+        assert blank == {"industry": "IT"}
+
+        # Wpisana wartość = próba zmiany pola, którego konto nie widzi.
+        for field in ("legal_name", "nip", "regon", "notes"):
+            with pytest.raises(HTTPException) as denied:
+                clients._keep_unreadable_legal_fields(
+                    editor, {"industry": "IT", field: "nowa wartość"}
+                )
+            assert denied.value.status_code == 403
+            assert denied.value.detail["permission"] == "amounts_view"
+
+    # Konto z podglądem zmienia i czyści dane prawne jak dotąd.
+    for holder in (
+        _account(UserRole.admin),
+        _account(UserRole.delivery_lead),
+        _account(UserRole.recruiter, grants=("clients_edit", "amounts_view")),
+    ):
+        full = {"industry": "IT", "notes": None, "nip": "1111111111"}
+        clients._keep_unreadable_legal_fields(holder, full)
+        assert full == {"industry": "IT", "notes": None, "nip": "1111111111"}
 
 
 async def test_legal_docs_writer_needs_both_permissions_and_the_dl_assignment() -> None:
