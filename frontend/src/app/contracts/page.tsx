@@ -18,6 +18,7 @@ import {
 import { useCapability } from "@/hooks/useCapability";
 import { resolveContractsView, type ContractsView } from "@/lib/clients-workspace";
 import { hasSectionAccess } from "@/lib/section-access";
+import { LIST_PAGE_MAX_WIDTH } from "@/lib/wide-table";
 import { hasRole, useAuthStore } from "@/store/auth";
 
 type ViewMode = ContractsView;
@@ -223,10 +224,9 @@ function ContractsWorkspace({
   }
 
   return (
-    // Otwarty panel szczegółów poszerza stronę (1820 px od 1600 px okna) —
-    // lista sama się poszerza, ale ta ramka trzymała ją w 1400 px i panel
-    // zabierał miejsce tabeli (ucięte nazwiska przy pustych bokach ekranu).
-    <div className="mx-auto max-w-[1400px] space-y-4 min-[1600px]:has-[[data-list-detail-panel]]:max-w-[1820px]">
+    // Wspólny limit list (2400 px) — panel szczegółów mieści się obok tabeli
+    // bez osobnego poszerzania ramki.
+    <div className={`mx-auto space-y-4 ${LIST_PAGE_MAX_WIDTH}`}>
       {/* Makieta B: tytuł widoku → tryby modułu → pasek filtrów z wyborem
           klienta. Rejestr i obsługa kontraktorów same rysują tryby pod swoim
           tytułem; skrzynka zamówień nie ma własnego tytułu, więc tryby stoją

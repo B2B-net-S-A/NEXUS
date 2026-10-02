@@ -2728,6 +2728,16 @@ Audyt i lista ustaleń: `docs/responsiveness-audit-2026-09-23/`. Reguły wspóln
 - **Tabela = `overflow-x-auto` + `min-w-[…]` + przyklejona 1. kolumna**, nigdy
   `overflow-hidden` wokół tabeli (ucinał kolumnę akcji). Bez widoków kart
   (decyzja 23.09.2026).
+- **Listy wypełniają duży monitor (02.10.2026, zgłoszenie: w Traffit kolumny
+  szły na cały ekran, u nas lista kończyła się na 1400 px).** Rekrutacje,
+  Klienci, Kontrakty i Finanse mają limit 2400 px jak lista kandydatów
+  (`LIST_PAGE_MAX_WIDTH` w `lib/wide-table.ts`). Dane stojące drobnym drukiem
+  pod główną wartością (klient pod tytułem, rekrutacja pod klientem, „umowa
+  do” pod startem) dostają własne kolumny, gdy TABELA ma ≥ 1700 px — klasy
+  `WIDE_ONLY_CELL` / `WIDE_HIDDEN` i `@container` na opakowaniu tabeli, nie
+  próg okna (menu, dok i panel szczegółów zabierają miejsce). Poniżej progu
+  układ zwarty bez zmian. Kolumna szeroka i jej drobny druk są w DOM naraz
+  (jsdom nie liczy CSS) — testy rozróżniają je po klasie.
 - **Widżet w kafelku/doku/oknie układa się po szerokości KONTENERA**
   (`@container` + `@lg:`), nie okna — kafelek pulpitu ma 400–600 px na
   szerokim ekranie.

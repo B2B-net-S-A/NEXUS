@@ -205,6 +205,17 @@ describe("ContractorsListV2 — stany zapytania", () => {
     renderList();
 
     const details = await screen.findByRole("link", { name: /Szczegóły/ });
+    // Szeroka tabela (≥ 1700 px): e-mail, rekrutacja i koniec we własnych
+    // komórkach — w DOM obok drobnego druku, przełącza je CSS.
+    for (const [testId, text] of [
+      ["contractor-email-cell", "jan@example.com"],
+      ["contractor-job-cell", "Cloud Engineer"],
+      ["contractor-end-cell", "01.09.2026"],
+    ] as const) {
+      const cell = screen.getByTestId(testId);
+      expect(cell).toHaveClass("@min-[1700px]:table-cell");
+      expect(cell).toHaveTextContent(text);
+    }
     await waitFor(() => {
       expect(mocks.list).toHaveBeenCalledWith({
         status: "ending",

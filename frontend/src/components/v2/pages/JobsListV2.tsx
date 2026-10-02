@@ -106,6 +106,17 @@ import { extractSkills } from "@/lib/job-skills";
 import { jobDisplayTitle } from "@/lib/job-names";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 import { stageSummaryOf } from "@/lib/job-pipeline-funnel";
+import {
+  LIST_PAGE_MAX_WIDTH,
+  WIDE_HIDDEN,
+  WIDE_ONLY_CELL,
+  WIDE_ONLY_INLINE,
+  WIDE_TABLE_CONTAINER,
+} from "@/lib/wide-table";
+import {
+  competenceTone,
+  useCompetenceCategories,
+} from "@/components/v2/CompetenceCategoryBadge";
 import type {
   PriorityChannel,
   PriorityRank,
@@ -337,15 +348,29 @@ function JobOwnerCell({
   // „+N” = współpracownicy dopisani ręcznie (decyzja 29.09.2026); `auto_cc`
   // (cała kategoria kompetencji) się nie liczy.
   const team = collaboratorsSummary(collaborators);
+  // Wąska tabela: „+N” z nazwiskami w podpowiedzi. Szeroka (kolumna „Zespół”):
+  // skrócone nazwiska wprost — tam jest na nie miejsce.
   const more =
     team.count > 0 ? (
-      <span
-        className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] font-medium text-muted-foreground"
-        title={team.tooltip}
-      >
-        <span aria-hidden="true">+{team.count}</span>
-        <span className="sr-only">{team.tooltip}</span>
-      </span>
+      <>
+        <span
+          className={cn(
+            "shrink-0 rounded-full bg-muted px-1.5 text-[10px] font-medium text-muted-foreground",
+            WIDE_HIDDEN,
+          )}
+          title={team.tooltip}
+        >
+          <span aria-hidden="true">+{team.count}</span>
+          <span className="sr-only">{team.tooltip}</span>
+        </span>
+        <span
+          className={cn(WIDE_ONLY_INLINE, "max-w-[110px] truncate text-muted-foreground")}
+          title={team.tooltip}
+          data-testid="job-team-names"
+        >
+          {team.names.map((name) => shortenPersonName(name) ?? name).join(", ")}
+        </span>
+      </>
     ) : null;
   if (!short) {
     return (
@@ -373,6 +398,28 @@ function JobOwnerCell({
       <span className="truncate">{short}</span>
       {more}
     </span>
+  );
+}
+
+/**
+ * Kategoria kompetencji w szerokiej tabeli. Nazwy są długie („Infra &
+ * Operations & Security / Data & AI”), więc plakietka jest przycinana,
+ * a pełna nazwa stoi w podpowiedzi. Brak kategorii albo katalogu = kreska.
+ */
+function JobCategoryCell({ categoryId }: { categoryId?: number | null }) {
+  const { data } = useCompetenceCategories();
+  const category =
+    categoryId != null ? data?.find((c) => c.id === categoryId) : undefined;
+  if (!category) return <span className="text-xs text-muted-foreground">—</span>;
+  return (
+    <Badge
+      size="sm"
+      variant={competenceTone(category.slug)}
+      title={category.name_pl}
+      className="max-w-[140px]"
+    >
+      <span className="truncate">{category.name_pl}</span>
+    </Badge>
   );
 }
 
@@ -404,6 +451,10 @@ function JobsTable({
   onSimilar: (id: number) => void;
 }) {
   return (
+    // Kolumny „Klient”, „Kategoria”, „Otwarta” i nazwiska zespołu pojawiają
+    // się, gdy tabela ma ≥ 1700 px (duży monitor) — poniżej zostają drobnym
+    // drukiem pod tytułem, jak dotąd.
+    <div className={WIDE_TABLE_CONTAINER}>
     <Table>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
@@ -415,13 +466,19 @@ function JobsTable({
               kolumna „Rekrutacja" stoi przyklejona — bez niej po przewinięciu
               nie wiadomo, czyj to status i termin. */}
           <TableHead className="max-md:sticky max-md:left-0 max-md:z-20 max-md:bg-background">Rekrutacja</TableHead>
+          <TableHead className={cn(WIDE_ONLY_CELL, "w-[180px]")}>Klient</TableHead>
+          <TableHead className={cn(WIDE_ONLY_CELL, "w-[160px]")}>Kategoria</TableHead>
           <TableHead className="w-[150px]">Status</TableHead>
           <TableHead className="w-[244px] px-2 py-1.5" title={STAGE_COUNTS_LEGEND}>
             <span className="sr-only">Etapy</span>
             <JobStageCountsHeader />
           </TableHead>
+          <TableHead className={cn(WIDE_ONLY_CELL, "w-[100px]")}>Otwarta</TableHead>
           <TableHead className="w-[120px]">Termin</TableHead>
-          <TableHead className="w-[120px]">Prowadzi</TableHead>
+          <TableHead className="w-[120px] @min-[1700px]:w-[220px]">
+            <span className={WIDE_HIDDEN}>Prowadzi</span>
+            <span className={WIDE_ONLY_INLINE}>Zespół</span>
+          </TableHead>
           <TableHead className="w-[64px]" />
         </TableRow>
       </TableHeader>
@@ -488,7 +545,10 @@ function JobsTable({
                 )}
                 <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
                   {job.client_name && (
-                    <span className="inline-flex min-w-0 max-w-[220px] items-center gap-0.5" title="Klient">
+                    <span
+                      className={cn("inline-flex min-w-0 max-w-[220px] items-center gap-0.5", WIDE_HIDDEN)}
+                      title="Klient"
+                    >
                       <Building2 className="h-3 w-3 shrink-0" />
                       <span className="truncate">{job.client_name}</span>
                     </span>
@@ -513,6 +573,21 @@ function JobsTable({
                   />
                 </div>
               </TableCell>
+              <TableCell className={WIDE_ONLY_CELL} data-testid="job-client-cell">
+                {job.client_name ? (
+                  <span
+                    className="line-clamp-2 break-words text-xs text-foreground"
+                    title={job.client_name}
+                  >
+                    {job.client_name}
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">—</span>
+                )}
+              </TableCell>
+              <TableCell className={WIDE_ONLY_CELL} data-testid="job-category-cell">
+                <JobCategoryCell categoryId={job.competence_category_id} />
+              </TableCell>
               <TableCell>
                 <RequestStageBadge
                   stage={job.request_stage}
@@ -535,6 +610,14 @@ function JobsTable({
                     </span>
                   </div>
                 )}
+              </TableCell>
+              {/* Jak Insights: data otwarcia, a bez niej data dodania
+                  (`created_at` rekrutacji z Traffita to dzień importu). */}
+              <TableCell
+                className={cn(WIDE_ONLY_CELL, "whitespace-nowrap text-xs tabular-nums text-muted-foreground")}
+                data-testid="job-opened-cell"
+              >
+                {formatDate(job.opened_at ?? job.created_at)}
               </TableCell>
               <TableCell
                 title={job.created_at ? `Dodano ${formatDate(job.created_at)}` : undefined}
@@ -597,6 +680,7 @@ function JobsTable({
         })}
       </TableBody>
     </Table>
+    </div>
   );
 }
 
@@ -940,7 +1024,7 @@ export function JobsListV2() {
   return (
     // `pb-24`: maskotka Jarvisa w prawym dolnym rogu zasłaniała ikony akcji
     // ostatnich wierszy — lista musi dać się przewinąć nad nią (audyt 24.09.2026).
-    <div className="max-w-[1400px] mx-auto space-y-3 pb-24" data-testid="jobs-list-page">
+    <div className={cn(LIST_PAGE_MAX_WIDTH, "mx-auto space-y-3 pb-24")} data-testid="jobs-list-page">
       {/* Nagłówek kompaktowy (makieta „01 Lista", `.lhead`): jedna linia
           zamiast eyebrow + H1 + podpis w trzech wierszach. Lista rekrutacji
           jest ekranem SKANOWANYM — trzy wiersze tytułu zabierały pionową
@@ -1177,7 +1261,7 @@ export function JobsListV2() {
                 ))}
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 min-[1800px]:grid-cols-3 min-[2300px]:grid-cols-4">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <Card key={i} className="animate-pulse h-48">
                     <div className="h-4 bg-[hsl(var(--border))] rounded w-3/4 mb-3" />
@@ -1262,7 +1346,7 @@ export function JobsListV2() {
               onSimilar={(id) => setSimilarForJob(id)}
             />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 min-[1800px]:grid-cols-3 min-[2300px]:grid-cols-4">
               {visibleItems.map((job: any) => {
                 const skills = extractSkills(job.must_skills);
                 const statusVariant = STATUS_VARIANT[job.status] ?? "neutral";

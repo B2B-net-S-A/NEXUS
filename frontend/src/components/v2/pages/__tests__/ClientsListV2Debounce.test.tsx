@@ -165,9 +165,14 @@ describe("ClientsListV2 — katalog klientów", () => {
       expect(
         screen.getByRole("tab", { name: /^Klienci relacyjni/i }),
       ).toHaveTextContent("4");
+      // jsdom nie liczy CSS: kolumny szerokiej tabeli (≥ 1700 px) są w DOM
+      // z klasą `hidden`, więc układ wąski i szeroki sprawdzamy osobno.
+      const headers = screen.getAllByRole("columnheader");
+      const wideOnly = (header: HTMLElement) =>
+        header.className.includes("@min-[1700px]:table-cell");
       expect(
-        screen
-          .getAllByRole("columnheader")
+        headers
+          .filter((header) => !wideOnly(header))
           .map((header) => header.textContent?.trim()),
       ).toEqual([
         "Firma",
@@ -177,6 +182,9 @@ describe("ClientsListV2 — katalog klientów", () => {
         "Koniec umowy",
         "Status klienta",
       ]);
+      expect(
+        headers.filter(wideOnly).map((header) => header.textContent?.trim()),
+      ).toEqual(["Nazwa prawna", "Zakres", "Aktywne kontrakty"]);
       expect(screen.getByText("2 zakresy dla 1 klienta")).toBeVisible();
       expect(
         screen.queryByRole("columnheader", { name: "Hit ratio" }),
@@ -190,8 +198,15 @@ describe("ClientsListV2 — katalog klientów", () => {
 
       expect(screen.getByText("01.02.2026")).toBeVisible();
       expect(screen.getByText("Bezterminowa")).toBeVisible();
-      expect(screen.getByText("Bankowość")).toBeVisible();
-      expect(screen.getByText("Technology")).toBeVisible();
+      // Zakres stoi pod nazwą firmy, a w szerokiej tabeli we własnej kolumnie.
+      expect(screen.getAllByText("Bankowość")).toHaveLength(2);
+      expect(screen.getAllByText("Technology")).toHaveLength(2);
+      expect(screen.getAllByTestId("client-scope-cell")[0]).toHaveTextContent(
+        "Bankowość",
+      );
+      expect(
+        screen.getAllByTestId("client-legal-name-cell")[0],
+      ).toHaveTextContent("Nordea Bank Abp Spółka Akcyjna Oddział w Polsce");
       expect(
         within(
           // \s* — nazwa firmy i etykieta zakresu to sąsiednie inline spany;

@@ -39,9 +39,10 @@ describe("job-collaborators", () => {
   it("„+N” i podpowiedź liczą tylko ręcznych", () => {
     expect(collaboratorsSummary(collaborators)).toEqual({
       count: 2,
+      names: ["Anna Ręczna", "Stary Wpis"],
       tooltip: "Współpracownicy: Anna Ręczna, Stary Wpis",
     });
-    expect(collaboratorsSummary([])).toEqual({ count: 0, tooltip: "" });
+    expect(collaboratorsSummary([])).toEqual({ count: 0, names: [], tooltip: "" });
   });
 
   it("„+N” pomija nieaktywne konta (ta sama reguła co „Kto pracuje”)", () => {
@@ -50,7 +51,7 @@ describe("job-collaborators", () => {
         { id: 1, name: "Aktywna", source: "manual", is_active: true },
         { id: 2, name: "Była Pracownica", source: "manual", is_active: false },
       ]),
-    ).toEqual({ count: 1, tooltip: "Współpracownicy: Aktywna" });
+    ).toEqual({ count: 1, names: ["Aktywna"], tooltip: "Współpracownicy: Aktywna" });
   });
 
   it("zapis woła trasy i zgłasza częściową awarię po polsku", async () => {

@@ -223,11 +223,14 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
 
     const table = container.querySelector("[data-contracts-responsive-table]");
     expect(table).toBeInTheDocument();
-    expect(
-      within(table as HTMLElement)
-        .getAllByRole("columnheader")
-        .map((header) => header.textContent?.replace(/\s+/g, " ").trim()),
-    ).toEqual([
+    // jsdom nie liczy CSS: kolumny szerokiej tabeli (≥ 1700 px) są w DOM
+    // z klasą `hidden`, więc układ wąski i szeroki sprawdzamy osobno.
+    const headers = within(table as HTMLElement).getAllByRole("columnheader");
+    const wideOnly = (header: HTMLElement) =>
+      header.className.includes("@min-[1700px]:table-cell");
+    const label = (header: HTMLElement) =>
+      header.textContent?.replace(/\s+/g, " ").trim();
+    expect(headers.filter((header) => !wideOnly(header)).map(label)).toEqual([
       "Kandydat",
       "Klient",
       "Data rozpoczęcia",
@@ -237,6 +240,11 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
       "Marża",
       "Typ",
       "Status",
+    ]);
+    expect(headers.filter(wideOnly).map(label)).toEqual([
+      "Rekrutacja",
+      "Koniec umowy",
+      "Start zamówienia",
     ]);
     expect(screen.queryByText("Stawka klient")).not.toBeInTheDocument();
   });
@@ -401,6 +409,54 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     expect(cells[0]).toHaveTextContent(/31\.12\.26/);
     expect(cells[0]).toHaveTextContent(/zam\. od 15\.09\.26/);
     expect(cells[1]).toHaveTextContent("bezterminowo");
+  });
+
+  it("szeroka tabela: rekrutacja, koniec umowy i start zamówienia mają własne komórki", async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url === "/api/contracts") {
+        return Promise.resolve({
+          data: {
+            items: [
+              {
+                id: 710,
+                candidate_id: 72,
+                candidate_name: "Iga Szeroka",
+                client_name: "Alior",
+                job_title: "Tester Mobile",
+                status: "active",
+                contract_type: "uz",
+                start_date: "2026-01-10",
+                end_date: "2026-11-30",
+                client_order_start_date: "2026-09-15",
+                client_order_end_date: "2026-12-31",
+                currency: "PLN",
+              },
+            ],
+            total: 1,
+            page: 1,
+            page_size: 20,
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderList();
+    await screen.findByText("Iga Szeroka");
+
+    const wideCell = "@min-[1700px]:table-cell";
+    const wideHide = "@min-[1700px]:hidden";
+    for (const [testId, text] of [
+      ["contract-job-cell", "Tester Mobile"],
+      ["contract-end-cell", "30.11.26"],
+      ["contract-order-start-cell", "15.09.26"],
+    ] as const) {
+      const cell = screen.getByTestId(testId);
+      expect(cell).toHaveClass(wideCell);
+      expect(cell).toHaveTextContent(text);
+    }
+    // Drobny druk pod klientem i datami znika, gdy ma własną kolumnę.
+    expect(screen.getByText(/umowa do/)).toHaveClass(wideHide);
+    expect(screen.getByText(/zam\. od/)).toHaveClass(wideHide);
   });
 
   it("klik w nagłówek sortuje po stronie serwera i przełącza kierunek", async () => {

@@ -85,6 +85,8 @@ const MINE = [
     location: "Warszawa",
     seniority: "Senior",
     client_name: "Bank Przykładowy",
+    competence_category_id: 2,
+    opened_at: inDays(-14),
     status: "published",
     tac_id: 3,
     primary_owner: { name: "Marta Kowalska" },
@@ -120,6 +122,8 @@ const MINE = [
     location: "Zdalnie",
     seniority: "Mid",
     client_name: "Ubezpieczenia Demo",
+    competence_category_id: 1,
+    opened_at: inDays(-30),
     status: "published",
     tac_id: null,
     needs_sourcing: true,
@@ -142,6 +146,8 @@ const MINE = [
     reference_number: "REF-2026-0903",
     location: "Kraków",
     client_name: "Telekom Demo",
+    competence_category_id: 4,
+    opened_at: inDays(-3),
     status: "published",
     tac_id: 3,
     primary_owner: null,
@@ -312,7 +318,15 @@ function seededClient(): QueryClient {
   // `harness-seeds.test.ts`).
   qc.setQueryData(["clients-lookup"], []);
   qc.setQueryData(["users-directory"], []);
-  qc.setQueryData(["competence-categories-active"], []);
+  // Kolumna „Kategoria” szerokiej tabeli (≥ 1700 px) czyta ten katalog.
+  qc.setQueryData(
+    ["competence-categories-active"],
+    [
+      { id: 1, slug: "infrastructure_operations", name_pl: "Infra & Operations & Security / Data & AI" },
+      { id: 2, slug: "software_development", name_pl: "Development" },
+      { id: 4, slug: "management_delivery", name_pl: "Management & Delivery (PM & BA)" },
+    ],
+  );
   return qc;
 }
 

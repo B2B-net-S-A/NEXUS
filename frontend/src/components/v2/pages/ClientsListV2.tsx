@@ -38,6 +38,12 @@ import { AppModal } from "@/components/ds/AppModal";
 import { InactiveClientsCleanupDialog } from "@/components/clients/InactiveClientsCleanupDialog";
 import { isClientPickerQueryKey } from "@/lib/client-selection";
 import { cn } from "@/lib/utils";
+import {
+  LIST_PAGE_MAX_WIDTH,
+  WIDE_HIDDEN,
+  WIDE_ONLY_CELL,
+  WIDE_TABLE_CONTAINER,
+} from "@/lib/wide-table";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
@@ -344,7 +350,9 @@ export function ClientsListV2({
   const canManagePortfolio = useCapability("client.portfolio.manage");
   // The actions column only exists for portfolio managers, so table-wide
   // colSpans (skeleton, empty, error) must track it.
-  const columnCount = canManagePortfolio ? 7 : 6;
+  // Z trzema kolumnami szerokiej tabeli — w wąskiej są ukryte, a `colSpan`
+  // ponad liczbę widocznych kolumn niczego nie dokłada.
+  const columnCount = canManagePortfolio ? 10 : 9;
   const items = data?.items ?? [];
   const totalRows = data?.total_rows ?? 0;
   const totalClients = data?.total_clients ?? 0;
@@ -488,7 +496,7 @@ export function ClientsListV2({
   };
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-3">
+    <div className={cn("mx-auto space-y-3", LIST_PAGE_MAX_WIDTH)}>
       {/* Nagłówek zwarty jak w Kontraktach (wersja B): tytuł i licznik w jednej
           linii — laptop 1280×720 ma zobaczyć tabelę w górnych 60% okna. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -690,14 +698,23 @@ export function ClientsListV2({
         aria-busy={isFetching}
       >
         <TooltipProvider delayDuration={200}>
+          {/* Szeroka tabela (≥ 1700 px): nazwa prawna i zakres mają własne
+              kolumny, a „konsultanci / kontrakty” rozdzielają się na dwie. */}
+          <div className={WIDE_TABLE_CONTAINER}>
           <Table density="compact" className="min-w-[900px]">
             <TableHeader>
               <TableRow>
                 {/* Pierwsza kolumna przyklejona: tabela ma 900 px, na telefonie
                     po przewinięciu w bok wiadomo, czyj to wiersz. */}
                 <TableHead className="sticky left-0 z-10 bg-background">Firma</TableHead>
+                <TableHead className={WIDE_ONLY_CELL}>Nazwa prawna</TableHead>
+                <TableHead className={WIDE_ONLY_CELL}>Zakres</TableHead>
                 <TableHead>Branża</TableHead>
-                <TableHead>Aktywni konsultanci / kontrakty</TableHead>
+                <TableHead>
+                  Aktywni konsultanci
+                  <span className={WIDE_HIDDEN}> / kontrakty</span>
+                </TableHead>
+                <TableHead className={WIDE_ONLY_CELL}>Aktywne kontrakty</TableHead>
                 <TableHead>Start umowy</TableHead>
                 <TableHead>Koniec umowy</TableHead>
                 <TableHead>
@@ -738,7 +755,7 @@ export function ClientsListV2({
                         </div>
                       </div>
                     </TableCell>
-                    {Array.from({ length: columnCount - 1 }, (_, cellIndex) => (
+                    {Array.from({ length: columnCount - 4 }, (_, cellIndex) => (
                       <TableCell key={cellIndex}>
                         <Skeleton className="h-4 w-24" />
                       </TableCell>
@@ -880,7 +897,7 @@ export function ClientsListV2({
                                 {item.display_name}
                               </span>
                               {item.scope_label ? (
-                                <span className="mt-0.5 block text-xs text-muted-foreground">
+                                <span className={cn("mt-0.5 block text-xs text-muted-foreground", WIDE_HIDDEN)}>
                                   {item.scope_label}
                                 </span>
                               ) : null}
@@ -903,6 +920,14 @@ export function ClientsListV2({
                           ) : null}
                         </div>
                       </TableCell>
+                      <TableCell className={WIDE_ONLY_CELL} data-testid="client-legal-name-cell">
+                        {item.legal_name && item.legal_name !== item.display_name
+                          ? item.legal_name
+                          : "—"}
+                      </TableCell>
+                      <TableCell className={WIDE_ONLY_CELL} data-testid="client-scope-cell">
+                        {item.scope_label || "—"}
+                      </TableCell>
                       <TableCell>{item.industry || "—"}</TableCell>
                       <TableCell>
                         <Tooltip>
@@ -917,7 +942,11 @@ export function ClientsListV2({
                               }
                             >
                               <span className="font-medium tabular-nums">
-                                {item.active_consultants_count} / {item.active_contracts_count}
+                                {item.active_consultants_count}
+                                <span className={WIDE_HIDDEN}>
+                                  {" / "}
+                                  {item.active_contracts_count}
+                                </span>
                               </span>
                               <Info
                                 className="h-3.5 w-3.5 text-muted-foreground"
@@ -931,6 +960,12 @@ export function ClientsListV2({
                               : "Liczba dla całego klienta: aktywni konsultanci / aktywne kontrakty, łącznie we wszystkich zakresach. Kontrakty przypięte do umowy ramowej innego zakresu liczą się tylko tam."}
                           </TooltipContent>
                         </Tooltip>
+                      </TableCell>
+                      <TableCell
+                        className={cn(WIDE_ONLY_CELL, "font-medium tabular-nums")}
+                        data-testid="client-contracts-count-cell"
+                      >
+                        {item.active_contracts_count}
                       </TableCell>
                       <TableCell>
                         {formatDirectoryDate(item.effective_date)}
@@ -959,6 +994,7 @@ export function ClientsListV2({
               )}
             </TableBody>
           </Table>
+          </div>
         </TooltipProvider>
       </section>
 
