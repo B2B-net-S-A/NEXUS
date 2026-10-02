@@ -4,7 +4,7 @@
     "title": "Lista rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "sourcer", "delivery_lead", "head_of_recruitment", "admin"],
-    "what": "Tu widzisz rekrutacje — swoje, z Twojej kategorii albo całej firmy: stan requestu, priorytet (P1 = pilne), etapy kandydatów i Rekrutera, czyli osoby, które nad nią pracują. Pod tytułem stoi klient i numer od klienta.",
+    "what": "Tu widzisz rekrutacje — swoje, z Twojej kategorii albo całej firmy: stan requestu, priorytet (P1 = pilne), etapy kandydatów i Rekrutera, czyli osoby, które nad nią pracują. Pod nazwą stanowiska stoi kategoria, klient i tryb pracy.",
     "tasks": [
       {
         "q": "Jak przełączyć między moimi, otwartymi i wszystkimi rekrutacjami?",
@@ -23,7 +23,7 @@
       },
       {
         "q": "Jak zajrzeć do rekrutacji bez otwierania jej?",
-        "a": "Kliknij ikonę „Podgląd” w wierszu — z prawej otworzy się dok z gotowością rekrutacji. Kliknięcie w sam wiersz otwiera rekrutację (z Ctrl/⌘ w nowej karcie)."
+        "a": "Kliknij ikonę oka („Podgląd”) w wierszu — z prawej otworzą się wymagania, nazwa od klienta, numery, tryb pracy z miastami, podobne rekrutacje i gotowość. Ikona ze strzałkami obok otwiera przepinanie osób z podobnych rekrutacji. Kliknięcie w sam wiersz otwiera rekrutację (z Ctrl/⌘ w nowej karcie)."
       },
       {
         "q": "Jak założyć nową rekrutację?",

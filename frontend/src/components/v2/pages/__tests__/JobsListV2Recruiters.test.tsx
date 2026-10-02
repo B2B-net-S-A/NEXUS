@@ -413,12 +413,9 @@ describe("JobsListV2 — kolumna „Rekruter” i priorytet w wierszu", () => {
 
     expect(screen.getByRole("columnheader", { name: "Rekruter" })).toBeInTheDocument();
 
-    // Komórka niesie dwie postaci naraz (wąska i szeroka tabela) — jsdom nie
-    // liczy CSS, więc obie są w DOM i obie mają tę samą podpowiedź.
+    // Jeden układ dla każdej szerokości: pierwsza osoba i „+N”.
     const one = cellOf("Jedna osoba");
-    const oneTitled = one.getAllByTitle("Rekruter: Anna Nowak");
-    expect(oneTitled).toHaveLength(2);
-    for (const el of oneTitled) expect(el).toHaveTextContent("Anna N.");
+    expect(one.getByTitle("Rekruter: Anna Nowak")).toHaveTextContent("Anna N.");
     expect(one.queryByText(/^\+/)).not.toBeInTheDocument();
 
     const two = cellOf("Dwie osoby");
@@ -470,7 +467,9 @@ describe("JobsListV2 — kolumna „Rekruter” i priorytet w wierszu", () => {
     renderJobs();
     const cell = within(await screen.findByTestId("job-recruiter-cell"));
     expect(cell.getByText("+1")).toBeInTheDocument();
-    expect(cell.getByTestId("job-recruiter-names")).toHaveTextContent("Anna N., Jan K.");
+    expect(
+      cell.getByTitle("Rekruterzy: Anna Nowak, Jan Kowalski"),
+    ).toHaveTextContent("Anna N.");
   });
 
   it("priorytet przy tytule: P1 i „Przyjmujemy” mają plakietkę, P2 — nie; bez osobnej kolumny", async () => {

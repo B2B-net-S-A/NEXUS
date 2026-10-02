@@ -2,14 +2,15 @@
 
 /**
  * Komórki wiersza listy rekrutacji: zwarte liczby per kolumna Tablicy,
- * termin, status requestu, plakietka podobnych rekrutacji, pigułka „Wymaga
- * ruchu", link „+N propozycji", kolumna „Rekruter” i krótka plakietka
- * kategorii.
+ * termin, status requestu, podobne rekrutacje (ikona w wierszu, plakietka
+ * w Podglądzie), pigułka „Wymaga ruchu", link „+N propozycji", kolumna
+ * „Rekruter” i krótka plakietka kategorii.
  *
  * Osobny plik, bo `JobsListV2.tsx` jest już długi, a te elementy mają
  * własną logikę tonu i odmiany — testowalną bez montowania całej listy.
  */
 import { countPl } from "@/lib/plural-pl";
+import { ArrowLeftRight } from "lucide-react";
 import Link from "next/link";
 import type { MouseEvent } from "react";
 
@@ -23,12 +24,10 @@ import { RecruiterChips } from "@/components/v2/jobs/RecruiterChips";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 import {
   recruitersOf,
-  recruitersSummary,
   type JobRecruiter,
   type JobTeamSource,
 } from "@/lib/job-team";
 import type { PriorityLevel } from "@/lib/request-priority";
-import { WIDE_HIDDEN, WIDE_ONLY_FLEX } from "@/lib/wide-table";
 import {
   REQUEST_STATUS_META,
   requestStatusOf,
@@ -384,11 +383,63 @@ export interface JobSimilarSummary {
   } | null;
 }
 
+/** Jest co pokazać: rekrutacje połączone albo podpowiedź z osobami u klienta. */
+export function hasSimilarJobs(
+  similar: JobSimilarSummary | null | undefined,
+): similar is JobSimilarSummary {
+  return !!similar && (similar.linked_count > 0 || !!similar.suggested);
+}
+
+/** Zdanie dla ikony w wierszu — to samo, co plakietka mówi tekstem. */
+export function similarJobsSummary(similar: JobSimilarSummary): string {
+  if (similar.linked_count > 0) {
+    const first = similar.linked_first;
+    const more = similar.linked_count > 1 ? ` +${similar.linked_count - 1}` : "";
+    return `Połączone rekrutacje: ${first?.reference_number ?? first?.title ?? "połączone"}${more} · przepięto ${similar.reassigned_count}`;
+  }
+  const suggested = similar.suggested!;
+  return `Podobne rekrutacje: ${countPl(suggested.count, "podobna", "podobne", "podobnych")} · ${suggested.sent_count} u klienta — przepnij`;
+}
+
 /**
- * Plakietka „Podobne rekrutacje" w linii pod tytułem (lista v5 — do
- * 24.09.2026 osobna kolumna). „↻" = rekrutacje połączone (osoby przepinają się
- * same), „≈" = system sugeruje podobne z osobami wysłanymi do klienta. Brak
- * obu = nic (w linii metadanych kreska byłaby szumem).
+ * Ikona „Podobne rekrutacje” w kolumnie akcji wiersza (02.10.2026). Tekstowa
+ * plakietka zeszła z wiersza do Podglądu; ikona zostawia przepięcie pod jednym
+ * kliknięciem i otwiera to samo okno. Bez połączeń i podpowiedzi — nic.
+ */
+export function SimilarJobsIconButton({
+  similar,
+  disabled,
+  onOpen,
+}: {
+  similar: JobSimilarSummary | null | undefined;
+  disabled?: boolean;
+  onOpen: () => void;
+}) {
+  if (!hasSimilarJobs(similar)) return null;
+  const label = similarJobsSummary(similar);
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!disabled) onOpen();
+      }}
+      disabled={disabled}
+      data-testid="job-similar-icon"
+      title={label}
+      aria-label={label}
+      className="rounded-md p-1 text-primary transition-colors hover:bg-primary/10 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 pointer-coarse:p-2.5"
+    >
+      <ArrowLeftRight className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+/**
+ * Plakietka „Podobne rekrutacje" — od 02.10.2026 w Podglądzie rekrutacji
+ * (`JobPreviewDetails`), nie pod tytułem w wierszu. „↻" = rekrutacje połączone
+ * (osoby przepinają się same), „≈" = system sugeruje podobne z osobami
+ * wysłanymi do klienta. Brak obu = nic.
  */
 export function SimilarJobsCell({
   similar,
@@ -399,9 +450,7 @@ export function SimilarJobsCell({
   disabled?: boolean;
   onOpen: () => void;
 }) {
-  if (!similar || (similar.linked_count === 0 && !similar.suggested)) {
-    return null;
-  }
+  if (!hasSimilarJobs(similar)) return null;
   const open = (e: MouseEvent) => {
     e.stopPropagation();
     if (!disabled) onOpen();
@@ -504,50 +553,25 @@ const shortName = (name: string) => shortenPersonName(name) ?? name;
  * Kolumna „Rekruter”: osoby, które pracują nad rekrutacją, a pod nimi
  * Delivery Lead drobnym drukiem (bez osobnej kolumny).
  *
- * Wąska tabela: pierwsza osoba i „+N”, reszta w podpowiedzi. Szeroka
- * (≥ 1700 px, kolumna 220 px): nazwiska wprost. Propozycja automatu ma
- * w obu układach przerywaną ramkę i dopisek „propozycja” — to jeszcze nie
- * praca, więc sama propozycja nie gasi filtra „Bez rekrutera”.
+ * Pierwsza osoba i „+N”, reszta w podpowiedzi — jeden układ dla każdej
+ * szerokości (02.10.2026). Propozycja automatu ma przerywaną ramkę i dopisek
+ * „propozycja” — to jeszcze nie praca, więc sama propozycja nie gasi filtra
+ * „Bez rekrutera”.
  */
 export function JobRecruiterCell({ job }: { job: JobListRowFields }) {
   const people = recruitersOf(job);
-  const summary = recruitersSummary(people);
   const dlName = job.delivery_lead_user?.name?.trim() || null;
   return (
     <div
-      className="flex min-w-0 max-w-[176px] flex-col gap-0.5 @min-[1700px]:max-w-[220px]"
+      className="flex min-w-0 max-w-[176px] flex-col gap-0.5"
       data-testid="job-recruiter-cell"
     >
       {people.length === 0 ? (
         <NoRecruiterPill />
       ) : (
-        <>
-          <span className={cn("flex min-w-0", WIDE_HIDDEN)}>
-            <RecruiterChips compact size="sm" people={people} />
-          </span>
-          <span
-            className={cn(
-              WIDE_ONLY_FLEX,
-              "min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-foreground",
-            )}
-            title={summary.tooltip}
-            data-testid="job-recruiter-names"
-          >
-            {summary.names.length > 0 && (
-              <span className="min-w-0 truncate">{summary.names.map(shortName).join(", ")}</span>
-            )}
-            {summary.proposedNames.map((name, index) => (
-              <span
-                key={`${name}-${index}`}
-                data-proposed="true"
-                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-dashed border-primary/60 px-2 py-0.5 text-[11px]"
-              >
-                {shortName(name)}
-                <span className="text-muted-foreground">propozycja</span>
-              </span>
-            ))}
-          </span>
-        </>
+        <span className="flex min-w-0">
+          <RecruiterChips compact size="sm" people={people} />
+        </span>
       )}
       {dlName && (
         <span
@@ -563,9 +587,9 @@ export function JobRecruiterCell({ job }: { job: JobListRowFields }) {
 }
 
 /**
- * Krótka plakietka kategorii („Dev”, „QA”) w linii pod tytułem — w wąskiej
- * tabeli, gdzie kolumny „Kategoria” nie ma. Pełna nazwa stoi w podpowiedzi.
- * Bez kategorii albo zanim katalog się wczyta — nic (nigdy surowy klucz).
+ * Krótka plakietka kategorii („Dev”, „QA”) w linii pod tytułem. Pełna nazwa
+ * stoi w podpowiedzi. Bez kategorii albo zanim katalog się wczyta — nic
+ * (nigdy surowy klucz).
  */
 export function JobCategoryShortBadge({
   categoryId,
@@ -584,7 +608,7 @@ export function JobCategoryShortBadge({
       variant={competenceTone(category.slug)}
       title={`Kategoria: ${category.name_pl}`}
       data-testid="job-category-short"
-      className={cn("max-w-[140px] shrink-0", WIDE_HIDDEN, className)}
+      className={cn("max-w-[140px] shrink-0", className)}
     >
       <span className="truncate">{competenceShortLabel(category.slug) ?? category.name_pl}</span>
     </Badge>
