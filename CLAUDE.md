@@ -4117,14 +4117,26 @@ znało tylko `jobs.recruiter_id` (osobę z automatu przydziału albo nikogo).
   aktywny DL z rekrutacji, bez niego DL-e z portfelem klienta); kolejka Cpro
   u Nordei → osoba od Cpro (firmowa, bez niej zapasowa rekrutacji); „CV
   wysłane” → rekruter kandydata (`interview_slots.default_recruiter_id`:
-  właściciel procesu → pierwszy weryfikator → prowadzący rekrutację). Tylko
-  dzwonek, nigdy mail; osoba, która sama przesunęła kartę, nic nie dostaje;
-  ruch wstecz nie powiadamia.
+  właściciel procesu → pierwszy weryfikator → prowadzący rekrutację) ORAZ
+  osoba, która przekazała kartę do wysłania (autor poprzedniego ruchu, gdy
+  karta stała w kolumnie sprzed „CV wysłane” — bywa nią ktoś inny niż pierwszy
+  weryfikator). Tylko dzwonek, nigdy mail; osoba, która sama przesunęła kartę,
+  nic nie dostaje; ruch wstecz nie powiadamia — z jednym wyjątkiem niżej.
+- **Zwrot z kolejki Cpro do „QC CV” (Nordea) dzwoni do osoby, która kartę
+  tam przekazała** (`REASON_CPRO_RETURNED`) — jedyne przekazanie będące
+  ruchem wstecz; resolver pomija wtedy reguły etapów, a zwykłe cofnięcie karty
+  dalej nikogo nie powiadamia.
+- **Zadanie ≠ informacja o ruchu (0408).** Przegląd DL, kolejka Cpro i zwrot
+  z Cpro (`TASK_REASONS`) idą typem `board_task_waiting` — kategoria
+  „Wzmianki”, której nie da się wyciszyć, bo na odbiorcę czeka kandydat.
+  „CV wysłane” zostaje przy `stage_rule` („Ruchy w rekrutacjach”, do
+  wyciszenia). Resolver sprawdza dostęp odbiorcy typem JEGO dzwonka — do 0408
+  Delivery Lead z wyciszonymi ruchami nie widział próśb o przegląd.
 - **Reguła „Rekruter projektu i kandydata” (`job_recruiter`)** powiadamia
   prowadzącego rekrutację ORAZ rekrutera kandydata — na każdym etapie
   z regułą (rozmowa u klienta, akceptacja, odrzucenie…).
-- Typ zostaje `stage_rule`, encja = wiersz etapu, więc reguła i przekazanie
-  dla tej samej osoby dają jeden dzwonek. Treść przekazania mówi, co zrobić,
+- Encja = wiersz etapu, a resolver scala odbiorców po osobie, więc reguła
+  i przekazanie dla tej samej osoby dają jeden dzwonek. Treść przekazania mówi, co zrobić,
   i prowadzi na Tablicę z otwartą osobą (`/jobs/{id}?candidate=`).
 - Nowy etap-przekazanie = gałąź w `handoff_kind` (po KOLUMNIE Tablicy, nie po
   id definicji), nie nowy wiersz reguły — reguły nie dochodzą do etapów
