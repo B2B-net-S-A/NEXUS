@@ -224,6 +224,49 @@ async def test_contract_patch_admits_contract_editors_and_amount_editors() -> No
     assert refusal["permissions"] == ["contracts_orders_edit", "amounts_edit"]
 
 
+class _ReachedDatabase(Exception):
+    """Handler przeszedł bramki i sięgnął po kontrakt."""
+
+
+class _NoDatabase:
+    async def execute(self, *_args, **_kwargs):
+        raise _ReachedDatabase
+
+
+async def _patch_contract(user: User, **fields):
+    await contracts.update_contract(
+        contract_id=1,
+        data=ContractUpdate(**fields),
+        current_user=user,
+        db=_NoDatabase(),
+    )
+
+
+async def test_amounts_only_holder_changes_nothing_but_amounts() -> None:
+    """Kto wszedł samą zmianą kwot, nie edytuje reszty kontraktu — odmowa
+    zapada, zanim handler odczyta wiersz."""
+
+    amounts_only = _holder("amounts_edit")
+
+    with pytest.raises(HTTPException) as denied:
+        await _patch_contract(amounts_only, project_name="Nowy projekt", rate_client=1)
+    assert denied.value.status_code == 403
+    assert denied.value.detail["code"] == "finance_amounts_only"
+    assert denied.value.detail["fields"] == ["project_name"]
+
+    with pytest.raises(_ReachedDatabase):
+        await _patch_contract(amounts_only, rate_client=175, rate_candidate=120)
+
+    # Edycja kontraktów zdejmuje to ograniczenie — także Finansom, które od
+    # 02.10.2026 mają ją domyślnie.
+    with pytest.raises(_ReachedDatabase):
+        await _patch_contract(
+            _holder("contracts_orders_edit"), project_name="Nowy projekt"
+        )
+    with pytest.raises(_ReachedDatabase):
+        await _patch_contract(_user(FINANCE), project_name="Nowy projekt")
+
+
 # Kto przechodzi bramkę przy DOMYŚLNYCH uprawnieniach ról (to, co admin widzi
 # na ekranie po migracji) — jedna trasa na każde uprawnienie.
 DEFAULT_HOLDERS = (
