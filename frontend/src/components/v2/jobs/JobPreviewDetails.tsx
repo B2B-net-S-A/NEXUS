@@ -25,6 +25,12 @@ import { extractSkills } from "@/lib/job-skills";
 import { formatDate } from "@/lib/utils";
 
 const MAX_REQUIREMENTS = 8;
+/**
+ * Wymaganie dłuższe niż to jest zdaniem („Minimum 5 lat doświadczenia w…”),
+ * nie nazwą technologii — w ramce chipa czyta się źle, więc idzie jako punkt
+ * listy. Krótkie pozycje (słowa kluczowe) zostają chipami.
+ */
+const CHIP_MAX_CHARS = 32;
 
 export interface JobPreviewDetailsJob extends JobRowSource, JobListRowFields {
   reference_number?: string | null;
@@ -51,6 +57,14 @@ export function JobPreviewDetails({
 }) {
   const { showSuccess, showError } = useToast();
   const requirements = extractSkills(job.must_skills);
+  const shownRequirements = requirements.slice(0, MAX_REQUIREMENTS);
+  const requirementChips = shownRequirements.filter(
+    (name) => name.length <= CHIP_MAX_CHARS,
+  );
+  const requirementLines = shownRequirements.filter(
+    (name) => name.length > CHIP_MAX_CHARS,
+  );
+  const hiddenRequirements = requirements.length - shownRequirements.length;
   const clientTitle = clean(job.title);
   const clientReference = clean(job.client_reference);
   const ourReference = clean(job.reference_number);
@@ -79,21 +93,35 @@ export function JobPreviewDetails({
       {requirements.length > 0 && (
         <section className="space-y-1.5">
           <h3 className={SECTION_LABEL}>Wymagania</h3>
-          <ul className="flex flex-wrap gap-1.5">
-            {requirements.slice(0, MAX_REQUIREMENTS).map((name) => (
-              <li
-                key={name}
-                className="rounded-md border border-border px-2 py-0.5 text-xs leading-snug text-foreground"
-              >
-                {name}
-              </li>
-            ))}
-            {requirements.length > MAX_REQUIREMENTS && (
-              <li className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                +{requirements.length - MAX_REQUIREMENTS}
-              </li>
-            )}
-          </ul>
+          {requirementChips.length > 0 && (
+            <ul className="flex flex-wrap gap-1.5" data-testid="job-preview-requirement-chips">
+              {requirementChips.map((name) => (
+                <li
+                  key={name}
+                  className="rounded-md border border-border px-2 py-0.5 text-xs leading-snug text-foreground"
+                >
+                  {name}
+                </li>
+              ))}
+            </ul>
+          )}
+          {requirementLines.length > 0 && (
+            <ul
+              className="list-disc space-y-1 pl-4 text-xs leading-snug text-foreground marker:text-muted-foreground"
+              data-testid="job-preview-requirement-lines"
+            >
+              {requirementLines.map((name) => (
+                <li key={name} className="break-words">
+                  {name}
+                </li>
+              ))}
+            </ul>
+          )}
+          {hiddenRequirements > 0 && (
+            <p className="text-xs text-muted-foreground">
+              +{hiddenRequirements} — pełna lista w rekrutacji
+            </p>
+          )}
         </section>
       )}
 
