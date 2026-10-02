@@ -1113,7 +1113,8 @@ async def move_candidate(
             status_code=403,
             detail=(
                 "Ruch na etap 'Zweryfikowany' może nieść stawkę kandydata i wymaga "
-                "roli admin, delivery_lead, tac, recruiter lub finance."
+                "roli admin, head_of_recruitment, delivery_lead, "
+                "talent_community_manager, tac, recruiter lub finance."
             ),
         )
 

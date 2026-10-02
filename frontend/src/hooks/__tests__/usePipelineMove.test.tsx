@@ -293,6 +293,18 @@ describe("usePipelineMove — ruch pojedynczy", () => {
     expect(screen.queryByRole("button", { name: "Pomiń stawkę" })).toBeNull();
   });
 
+  it("Talent Community Manager dostaje okno stawki, nie odmowę (02.10.2026)", async () => {
+    useAuthStore.setState({
+      user: { id: 3, role: "talent_community_manager", email: "t@example.com" },
+    } as never);
+    const item = card({ id: 10, candidate_id: 100 });
+    const b = board({ fresh: [item] });
+    mount(b.all);
+    React.act(() => controls.requestMove(item, b.fresh, b.verified));
+    expect(showError).not.toHaveBeenCalled();
+    expect(await screen.findByRole("button", { name: "Pomiń stawkę" })).toBeTruthy();
+  });
+
   it("409 ELIGIBILITY_WARNING → „Przenieś mimo to” → ten sam ruch z acknowledge_eligibility", async () => {
     const item = card({ id: 10, candidate_id: 100, process_state_version: 2 });
     const b = board({ fresh: [item] });

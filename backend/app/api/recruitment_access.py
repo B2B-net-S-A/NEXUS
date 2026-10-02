@@ -138,10 +138,13 @@ RECRUITMENT_TERMINAL_ROLES: tuple[UserRole, ...] = (
 )
 
 # Candidate expected-rate edits (PATCH + rate-bearing `verified` move).
+# talent_community_manager od 2026-10-02: zatrudnia i odrzuca, a na
+# „Zweryfikowany" dostawał 403. Poza listą zostaje tylko sourcer (M4-SEC-02).
 RECRUITMENT_RATE_EDIT_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,

@@ -430,12 +430,14 @@ WRITE_ENDPOINTS = [
 ]
 
 # M4 PR-01: stawka kandydata = osobne capability (bez sourcera) — audyt M4
-# P0.3. Finance dołączył 19.08 (tier recruitera, pełny dostęp operacyjny).
+# P0.3. Finance dołączył 19.08 (tier recruitera, pełny dostęp operacyjny),
+# Talent Community Manager 02.10.2026 (i tak zatrudnia i odrzuca).
 RATE_EDIT_ROLES = {
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.finance,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
 }
