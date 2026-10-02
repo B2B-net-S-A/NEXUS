@@ -151,6 +151,17 @@ export function prepTimingWarning(
 }
 
 /**
+ * Termin prepu, który już minął. Zaproszenie poszłoby do kandydata na
+ * spotkanie w przeszłości, a NEXUS zgłosiłby potem „prep bez nagrania”
+ * (02.10.2026: Prep 2 założony o 12:58 na 10:00 tego samego dnia). To prawie
+ * zawsze pomyłka w dacie, więc okno ostrzega; zapisu nie blokuje.
+ */
+export function prepStartInPast(startLocal: string, now: Date = new Date()): boolean {
+  const start = new Date(startLocal);
+  return !Number.isNaN(start.getTime()) && start.getTime() < now.getTime();
+}
+
+/**
  * Zaplanowana (przyszła) rozmowa z kroków cyklu — tam, gdzie widok ma tylko
  * kroki (Tablica, dok osoby). `end` dokłada wołający, jeśli go zna.
  */

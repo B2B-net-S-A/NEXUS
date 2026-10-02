@@ -8,6 +8,7 @@ import {
   defaultPrepStart,
   nextWorkdayAt,
   prepInterviewForPair,
+  prepStartInPast,
   prepTimingWarning,
   scheduledInterviewFromSteps,
   toLocalInput,
@@ -90,6 +91,15 @@ describe("prepTimingWarning", () => {
     );
     expect(prepTimingWarning("2026-09-25T10:00", 45, tentative)).toBeNull();
     expect(defaultPrepStart(tentative, 1, 45, NOW)).toBe("2026-09-25T10:00");
+  });
+});
+
+describe("prepStartInPast", () => {
+  it("termin przed „teraz” to przeszłość, późniejszy i nieczytelny — nie", () => {
+    // 02.10.2026: Prep 2 założono o 12:58 na 10:00 tego samego dnia.
+    expect(prepStartInPast("2026-09-24T08:45", NOW)).toBe(true);
+    expect(prepStartInPast("2026-09-24T09:15", NOW)).toBe(false);
+    expect(prepStartInPast("", NOW)).toBe(false);
   });
 });
 

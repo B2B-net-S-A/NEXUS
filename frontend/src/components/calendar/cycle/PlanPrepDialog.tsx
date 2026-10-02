@@ -11,7 +11,12 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { prepMeetingsApi, usePrepOptions } from "@/lib/api/prepMeetings";
 import { candidateLabel, pairContext, type PairInfo } from "@/lib/interview-cycle";
 import { renderInvitationPreview } from "@/lib/prep-invitation";
-import { defaultPrepStart, prepTimingWarning, type PrepInterview } from "@/lib/prep-timing";
+import {
+  defaultPrepStart,
+  prepStartInPast,
+  prepTimingWarning,
+  type PrepInterview,
+} from "@/lib/prep-timing";
 import { cn } from "@/lib/utils";
 
 const INPUT =
@@ -90,6 +95,7 @@ export function PlanPrepDialog({
   }, [options.data, prepNo]);
 
   const timingWarning = prepTimingWarning(start, duration, interview);
+  const startInPast = prepStartInPast(start);
 
   const team = useMemo(() => options.data?.team ?? [], [options.data]);
   const others = team.filter((p) => p.id !== organizerId);
@@ -284,6 +290,16 @@ export function PlanPrepDialog({
               </select>
             </div>
           </div>
+          {startInPast ? (
+            <p
+              role="status"
+              data-testid="prep-past-warning"
+              className="rounded-md bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
+            >
+              Ten termin już minął. Sprawdź datę i godzinę — kandydat dostałby zaproszenie na
+              spotkanie w przeszłości.
+            </p>
+          ) : null}
           {timingWarning ? (
             <p
               role="status"

@@ -75,6 +75,23 @@ describe("PlanPrepDialog — termin względem rozmowy u klienta", () => {
     );
   });
 
+  it("termin, który już minął, ostrzega przed zaproszeniem na przeszłość", () => {
+    const start = new Date();
+    start.setDate(start.getDate() + 4);
+    start.setHours(10, 0, 0, 0);
+    renderDialog({
+      start: start.toISOString(),
+      end: new Date(start.getTime() + 60 * 60_000).toISOString(),
+    });
+    expect(screen.queryByTestId("prep-past-warning")).toBeNull();
+
+    const earlier = new Date(Date.now() - 3 * 60 * 60_000);
+    fireEvent.change(screen.getByLabelText("Termin"), {
+      target: { value: toLocalInput(earlier) },
+    });
+    expect(screen.getByTestId("prep-past-warning")).toHaveTextContent(/Ten termin już minął/);
+  });
+
   it("pokazuje zaproszenie, które dostanie kandydat, z dopiskiem i podpisem prowadzącego", () => {
     const start = new Date();
     start.setDate(start.getDate() + 4);
