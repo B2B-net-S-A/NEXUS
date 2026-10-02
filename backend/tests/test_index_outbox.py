@@ -119,6 +119,9 @@ async def test_process_success_marks_done_and_records_hash():
 @pytest.mark.asyncio
 async def test_process_failure_then_dead_after_max(monkeypatch):
     monkeypatch.setattr(settings, "AI_INDEX_MAX_ATTEMPTS", 5)
+    # Stan zdrowia dostawcy żyje w pamięci procesu: test z tego samego shardu,
+    # który zostawił Voyage'a jako „unhealthy”, wyłączał tu liczenie prób.
+    monkeypatch.setattr(outbox, "_embedding_provider_down", lambda: False)
 
     async def _boom(_t, _i, _op):
         raise RuntimeError("qdrant down")

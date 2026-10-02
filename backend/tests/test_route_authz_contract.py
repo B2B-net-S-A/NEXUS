@@ -70,6 +70,8 @@ _GATE_QUALNAME_MARKERS = (
     # 0408: bramki dziewięciu uprawnień z ekranu Ustawienia → Osoby i role.
     "require_permission",
     "require_any_permission",
+    "require_client_contracts_edit",
+    "_require_board_trend_reader",
 )
 
 # The bare authentication dependency: proves identity, decides nothing.
