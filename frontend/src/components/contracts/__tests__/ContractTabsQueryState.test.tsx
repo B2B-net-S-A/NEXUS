@@ -54,10 +54,6 @@ vi.mock("@/components/Toast", () => ({
   }),
 }));
 
-vi.mock("@/components/RequireRole", () => ({
-  RequireRole: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}));
-
 vi.mock("@/store/auth", async () => {
   const actual =
     await vi.importActual<typeof import("@/store/auth")>("@/store/auth");

@@ -74,12 +74,9 @@ import {
  takeContractsListScroll,
 } from "@/lib/contracts-list-navigation";
 import { localTodayIso } from "@/lib/client-order-list";
+import { hasAnyPermission, hasPermission } from "@/lib/permissions";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
-import {
- hasAnalyticsCapability,
- hasRole,
- useAuthStore,
-} from "@/store/auth";
+import { hasAnalyticsCapability, useAuthStore } from "@/store/auth";
 
 // Panel ładowany leniwie: niesie okna zakończenia, aneksów i dokumentów, których
 // lista bez otwartego panelu nie potrzebuje.
@@ -526,9 +523,23 @@ export function ContractsListV2({
  toolbarLead,
 }: ContractsListV2Props = {}) {
  const user = useAuthStore((state) => state.user);
- const canSeeFinance =
- hasRole(user, "admin") || hasAnalyticsCapability(user, "view_finance");
- const canSeeContractAnalytics = hasRole(user, "admin", "finance");
+ const impersonating = useAuthStore((state) => state.realUser !== null);
+ // Analityka i raport „Kontrakty bez zamówienia" = uprawnienie „Moduł
+ // Finanse" (strona i trasa raportu pytają o to samo).
+ const canSeeContractAnalytics = hasPermission(user, "finance_module");
+ // Eksport = trasa `FinanceReadUser`, czyli capability `view_finance`, którą
+ // backend wyprowadza z „Modułu Finanse".
+ const canExport =
+ canSeeContractAnalytics || hasAnalyticsCapability(user, "view_finance");
+ // Kolumny stawek widzi też posiadacz „Stawki i kwoty: podgląd" — kwoty
+ // klientów spoza jego zakresu serwer i tak redaguje wiersz po wierszu.
+ const canSeeFinance = canExport || hasPermission(user, "amounts_view");
+ // Zaznaczanie i pasek akcji zbiorczych: przedłużenie („Kontrakty
+ // i zamówienia: tworzenie i edycja") albo „Oznacz zakończone" („Zakończenie
+ // współpracy…"). Sam odczyt Delivery nie dostaje martwych pól wyboru.
+ const canBulkAct =
+ !impersonating &&
+ hasAnyPermission(user, "contracts_orders_edit", "contract_status");
  // Queryless `/contracts` is a fresh module entry (Active by default). Every
  // in-module change is encoded back into the URL, including an explicit
  // `status=all`, so a return from details can never be confused with a new
@@ -723,8 +734,8 @@ export function ContractsListV2({
 
  // Ticket 10: kontrakty bez zamówienia w zakładce „Dokumenty” (cała firma,
  // bez filtrów listy — raport odpowiada na pytanie o wszystkie kontrakty).
- // Backend: admin + Finanse (`FinanceModuleUser`), stąd ta sama bramka co
- // Analityka.
+ // Backend: uprawnienie „Moduł Finanse" (`FinanceModuleUser`), stąd ta sama
+ // bramka co Analityka.
  const doMissingOrdersReport = async () => {
  if (exporting) return;
  setExporting(true);
@@ -753,8 +764,8 @@ export function ContractsListV2({
  }
  };
 
- // Bramka „Nowy kontrakt" = POST /api/contracts (TacPlus). Z rejestru, NIE
- // z lokalnej listy ról — to właśnie ten wzorzec rozjeżdżał się z backendem
+ // Bramka „Nowy kontrakt" = POST /api/contracts. Z rejestru capability, NIE
+ // z lokalnej reguły — to właśnie ten wzorzec rozjeżdżał się z backendem
  // (audyt F-19).
  const canCreateContract = useCapability("contract.create");
 
@@ -960,7 +971,7 @@ export function ContractsListV2({
  </Button>
  </Link>
  )}
- {canSeeFinance && <Popover>
+ {canExport && <Popover>
  <PopoverTrigger asChild>
  <Button size="sm" variant="outline" disabled={exporting}>
  <Download className="h-4 w-4" /> {exporting ? "Eksportuję…" : "Eksport"}
@@ -1153,9 +1164,10 @@ export function ContractsListV2({
  )}
  </div>
 
- {/* Bulk actions belong to the same effective Admin/DL audience as contract
- creation. Read-only Delivery users must not be offered inert selectors. */}
- {canCreateContract && (
+ {/* Pasek akcji zbiorczych dla posiadaczy przedłużania ALBO zakończenia
+ współpracy (każdy przycisk ma własne uprawnienie w samym pasku). Sam
+ odczyt Delivery nie dostaje martwych pól wyboru. */}
+ {canBulkAct && (
  <ContractsBulkActionsBarV2
  selectedIds={selectedIds}
  onClear={() => setSelectedIds(new Set())}
@@ -1217,7 +1229,7 @@ export function ContractsListV2({
  <TableHeader className="max-xl:hidden">
  <TableRow>
  <SortableHead label="Kandydat" sortKey="candidate" sort={sort} onSort={onSort}>
- {canCreateContract && (
+ {canBulkAct && (
  <Checkbox
  checked={
  allVisibleSelected
@@ -1295,7 +1307,7 @@ export function ContractsListV2({
  className="border-0"
  description={
  viewState === "forbidden"
- ?"Twoja rola nie ma dostępu do rejestru kontraktów (stawki i marże). Rejestr NIE jest pusty."
+ ?"Nie masz uprawnienia do rejestru kontraktów. Rejestr NIE jest pusty — poproś administratora o dostęp (Ustawienia → Zespół i dostęp → Osoby i role)."
  : undefined
  }
  onRetry={() => void refetch()}
@@ -1387,7 +1399,7 @@ export function ContractsListV2({
  }}
  >
  <div className="flex min-w-0 items-start gap-2">
- {canCreateContract && (
+ {canBulkAct && (
  <Checkbox
  checked={rowSelected}
  onCheckedChange={() => toggleIds(rowIds)}

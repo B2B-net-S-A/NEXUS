@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ContractsPage from "@/app/contracts/page";
 import { useAuthStore } from "@/store/auth";
+import {
+  permissionSnapshot,
+  sectionSnapshot,
+} from "@/test/fixtures/permission-snapshot";
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(window.location.search),
@@ -164,5 +168,75 @@ describe("ContractsPage — przełączanie widoków", () => {
         "/contracts?view=order-mail",
       ),
     );
+  });
+});
+
+describe("ContractsPage — „Obsługa kontraktorów” widzi posiadacz podglądu Delivery", () => {
+  const OPERATIONS = { name: "Obsługa kontraktorów" };
+
+  function signIn(user: Record<string, unknown>) {
+    useAuthStore.setState({
+      user: { id: 7, email: "osoba@example.com", name: "Osoba", ...user },
+      hydrated: true,
+    } as never);
+  }
+
+  beforeEach(() => {
+    window.history.replaceState({}, "", "/contracts");
+  });
+
+  afterEach(() => {
+    cleanup();
+    useAuthStore.setState({ user: null, hydrated: true });
+  });
+
+  it.each(["delivery_lead", "talent_community_manager", "finance"])(
+    "%s ma podgląd domyślnie i widzi tryb",
+    async (role) => {
+      signIn({ role, roles: [role] });
+      render(<ContractsPage />);
+
+      expect(await screen.findByRole("tab", OPERATIONS)).toBeInTheDocument();
+    },
+  );
+
+  it("rekruter z nadanym podglądem widzi tryb i otwiera go z adresu", async () => {
+    window.history.replaceState({}, "", "/contracts?view=operations&tab=active");
+    signIn({
+      role: "recruiter",
+      roles: ["recruiter"],
+      effective_action_access: permissionSnapshot("delivery_view"),
+      effective_section_access: sectionSnapshot(["delivery_view"]),
+    });
+    render(<ContractsPage />);
+
+    expect(await screen.findByText("Widok operacyjny")).toBeInTheDocument();
+    expect(screen.getByRole("tab", OPERATIONS)).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("rekruter bez uprawnienia nie ma trybu, a ?view=operations wraca do rejestru", async () => {
+    window.history.replaceState({}, "", "/contracts?view=operations&tab=active");
+    signIn({ role: "recruiter", roles: ["recruiter"] });
+    render(<ContractsPage />);
+
+    expect(await screen.findByText("Globalny rejestr")).toBeInTheDocument();
+    expect(screen.queryByText("Widok operacyjny")).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", OPERATIONS)).not.toBeInTheDocument();
+  });
+
+  it("Talent Community Manager z wyłączonym podglądem nie widzi trybu", async () => {
+    signIn({
+      role: "talent_community_manager",
+      roles: ["talent_community_manager"],
+      effective_action_access: permissionSnapshot(),
+      effective_section_access: sectionSnapshot([]),
+    });
+    render(<ContractsPage />);
+
+    expect(await screen.findByText("Globalny rejestr")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", OPERATIONS)).not.toBeInTheDocument();
   });
 });
