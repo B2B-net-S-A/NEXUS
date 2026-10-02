@@ -56,12 +56,19 @@ def _no_nightly_maintenance(monkeypatch):
 
 
 def _at(hour: int) -> datetime:
-    """Chwila o danej godzinie LOKALNEJ (Europe/Warsaw), dziś."""
+    """Chwila o danej godzinie LOKALNEJ (Europe/Warsaw) w nocy, do której należy „teraz”.
+
+    Przed początkiem okna (domyślnie 00:00–00:59) bieżąca noc zaczęła się
+    wczoraj. Wiersze zakładane przez test dostają czas z zegara bazy, więc
+    „dziś o 2:30” zaczynałoby noc dopiero za chwilę i przegląd sprzed minuty
+    nie liczyłby się do niej — testy padały co noc przez godzinę.
+    """
     from zoneinfo import ZoneInfo
 
-    local = datetime.now(ZoneInfo(settings.BUSINESS_TZ)).replace(
-        hour=hour, minute=30, second=0, microsecond=0
-    )
+    now = datetime.now(ZoneInfo(settings.BUSINESS_TZ))
+    local = now.replace(hour=hour, minute=30, second=0, microsecond=0)
+    if now.hour < int(settings.AUTO_FULL_REVIEW_WINDOW_START_HOUR) % 24:
+        local -= timedelta(days=1)
     return local.astimezone(timezone.utc)
 
 
