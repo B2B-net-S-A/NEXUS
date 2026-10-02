@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { hasCapability } from "@/lib/capabilities";
 import {
   ALL_USER_ROLES,
   ROLE_SECTION_ACCESS,
@@ -8,6 +9,7 @@ import {
   rolesWithSectionAccess,
   sectionAccessForUser,
 } from "@/lib/section-access";
+import { accessSnapshot } from "@/test/fixtures/access-snapshot";
 
 describe("central section access matrix", () => {
   it("has an explicit policy for every role", () => {
@@ -106,6 +108,34 @@ describe("central section access matrix", () => {
     expect(rolesWithSectionAccess("finance").sort()).toEqual(
       ["admin", "finance"].sort(),
     );
+  });
+
+  it("the static allowlist no longer decides Delivery and Finance navigation", () => {
+    // Lista ról z macierzy startowej zostaje dla middleware (stary token).
+    // Menu i capability idą za uprawnieniami, które administrator przełącza.
+    const viewer = accessSnapshot("recruiter", { grant: ["delivery_view"] });
+    expect(rolesWithSectionAccess("delivery")).not.toContain("recruiter");
+    expect(sectionAccessForUser(viewer, "delivery")).toBe("read");
+    expect(hasCapability(viewer, "nav.clients")).toBe(true);
+
+    const leadWithoutDelivery = accessSnapshot("delivery_lead", {
+      revoke: [
+        "delivery_view",
+        "clients_edit",
+        "contracts_orders_edit",
+        "contract_status",
+        "amounts_view",
+      ],
+    });
+    expect(rolesWithSectionAccess("delivery")).toContain("delivery_lead");
+    expect(sectionAccessForUser(leadWithoutDelivery, "delivery")).toBe("none");
+    expect(hasCapability(leadWithoutDelivery, "nav.clients")).toBe(false);
+
+    const financeModule = accessSnapshot("head_of_recruitment", {
+      grant: ["finance_module"],
+    });
+    expect(rolesWithSectionAccess("finance")).not.toContain("head_of_recruitment");
+    expect(hasCapability(financeModule, "nav.finance")).toBe(true);
   });
 
   it("preserves the legacy viewer's existing Pipeline and Insights reads", () => {

@@ -8,12 +8,21 @@
  * przemianowany po jednej stronie nie zostawi tu martwego wyjaśnienia.
  */
 
+import { permissionLabel } from "@/lib/permissions";
+
 export interface ErrorExplainer {
   title: string;
   text: string;
   /** Kotwica `data-help` do podświetlenia (opcjonalnie). */
   anchor?: string;
 }
+
+/**
+ * Gdzie administrator przełącza uprawnienia. Wyjaśnienia odmów nazywają
+ * UPRAWNIENIE (z katalogu, tą samą nazwą co ekran), nie rolę: od 0409 to ono
+ * decyduje na trasie, a role mają je tylko domyślnie.
+ */
+const PERMISSIONS_SCREEN = "Ustawienia → Zespół i dostęp → Osoby i role";
 
 export const ERROR_EXPLAINERS: Readonly<Record<string, ErrorExplainer>> = {
   DEBRIEF_REQUIRED: {
@@ -36,13 +45,17 @@ export const ERROR_EXPLAINERS: Readonly<Record<string, ErrorExplainer>> = {
     title: "Ktoś właśnie przesunął tę osobę",
     text: "Kartę przesunął ktoś inny, zanim zapisał się Twój ruch. Tablica się odświeżyła — sprawdź, gdzie jest teraz osoba, i zdecyduj jeszcze raz.",
   },
+  permission_denied: {
+    title: "Brakuje Ci uprawnienia do tej operacji",
+    text: `Ponowna próba nic nie zmieni — komunikat podaje nazwę uprawnienia, którego nie ma Twoje konto. Poproś administratora, żeby włączył je w ${PERMISSIONS_SCREEN}.`,
+  },
   finance_amounts_only: {
     title: "Możesz zmieniać tylko kwoty",
-    text: "Masz prawo zmieniać stawki i kwoty, ale nie inne pola kontraktu czy zamówienia. Zmień wyłącznie kwoty albo poproś Delivery Leada o resztę.",
+    text: `Masz uprawnienie „${permissionLabel("amounts_edit")}”, ale inne pola kontraktu i zamówienia wymagają uprawnienia „${permissionLabel("contracts_orders_edit")}”. Zmień wyłącznie kwoty albo poproś o resztę osobę, która je ma.`,
   },
   finance_fields_forbidden: {
-    title: "Kwoty zmienia inna rola",
-    text: "Stawki i kwoty zmieniają admin i Finanse. Zapisz pozostałe pola bez kwot albo poproś o zmianę osobę z Finansów.",
+    title: "Brakuje uprawnienia do zmiany kwot",
+    text: `Stawki i kwoty zmienia osoba z uprawnieniem „${permissionLabel("amounts_edit")}”. Zapisz pozostałe pola bez kwot albo poproś administratora o to uprawnienie (${PERMISSIONS_SCREEN}).`,
   },
   b2b_end_date_requires_termination: {
     title: "Umowa B2B jest bezterminowa",
@@ -54,11 +67,11 @@ export const ERROR_EXPLAINERS: Readonly<Record<string, ErrorExplainer>> = {
   },
   section_access_denied: {
     title: "Brak dostępu do tej części NEXUSA",
-    text: "Twoje konto nie ma uprawnień do tej sekcji (albo tylko do odczytu). Jeśli potrzebujesz dostępu, poproś administratora.",
+    text: `Twoje konto nie ma dostępu do tej części (albo ma tylko podgląd). Dostęp do klientów, kontraktów, zamówień i Finansów wynika z uprawnień — poproś administratora, żeby włączył właściwe w ${PERMISSIONS_SCREEN}.`,
   },
   action_access_denied: {
     title: "Brak uprawnienia do tej akcji",
-    text: "Widzisz ten ekran, ale ta konkretna akcja wymaga wyższego poziomu uprawnień. Poproś administratora, jeśli jest Ci potrzebna.",
+    text: "Widzisz ten ekran, ale ta konkretna akcja wymaga uprawnienia, którego Twoje konto nie ma. Poproś administratora, jeśli jest Ci potrzebna.",
   },
   metric_scope_denied: {
     title: "Za szeroki zakres danych",
