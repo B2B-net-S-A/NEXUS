@@ -2,7 +2,6 @@
 
 import { pluralPl } from "@/lib/plural-pl";
 import { useEffect, useMemo, useState } from "react";
-import { TAC_UI_ENABLED } from "@/lib/tac-ui";
 import {
   REQUEST_STAGE_CHIPS,
   REQUEST_STAGE_META,
@@ -22,21 +21,14 @@ import {
   Briefcase,
   Building2,
   ChevronRight,
-  DollarSign,
   Eye,
-  LayoutGrid,
   Link2,
-  List,
-  MapPin,
   Plus,
   Search,
-  Sparkles,
-  UserSquare2,
-  Users,
   X,
 } from "lucide-react";
 import api, { jobsApi } from "@/lib/api";
-import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapabilities } from "@/hooks/useCapability";
@@ -44,7 +36,6 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -65,24 +56,18 @@ import { JobPreviewDetails } from "@/components/v2/jobs/JobPreviewDetails";
 import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import {
   JobCategoryShortBadge,
-  JobClientNames,
   JobDeadlineCell,
   JobRecruiterCell,
-  NoRecruiterPill,
   RequestStageBadge,
   SimilarJobsIconButton,
   JobStageCounts,
   JobStageCountsHeader,
   STAGE_COUNTS_LEGEND,
   jobOpenedDate,
-  type JobListRowFields,
 } from "@/components/v2/jobs/JobListCells";
-import { RecruiterChips } from "@/components/v2/jobs/RecruiterChips";
 import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip";
-import { recruitersOf } from "@/lib/job-team";
 import { priorityLevelOf, type PriorityLevel } from "@/lib/request-priority";
 import { hasRole, useAuthStore } from "@/store/auth";
-import { useUiStore } from "@/store/ui";
 import {
   JOB_SCOPE_VALUES,
   deadlineQueryParams,
@@ -112,36 +97,14 @@ import {
   type JobSentFilterValue,
   type JobSortFilterValue,
 } from "@/lib/jobs-url-filters";
-import { extractSkills } from "@/lib/job-skills";
 import { jobDisplayTitle } from "@/lib/job-names";
 import { jobRowTitle, jobWorkModeParts } from "@/lib/job-row-summary";
-import { shortenPersonName } from "@/lib/job-header-subtitle";
 import { stageSummaryOf } from "@/lib/job-pipeline-funnel";
 import { WIDE_TABLE_CONTAINER } from "@/lib/wide-table";
 import type {
   PriorityChannel,
   PriorityRank,
 } from "@/lib/priority-work-api";
-
-const STATUS_VARIANT: Record<
-  string, "success" | "soft" | "neutral" | "warning" | "danger"
-> = {
-  open: "success",
-  published: "success",
-  closed: "neutral",
-  draft: "soft",
-  on_hold: "warning",
-  lost: "danger",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  open: "Otwarta",
-  published: "Opublikowana",
-  closed: "Zamknięta",
-  draft: "Draft",
-  on_hold: "Wstrzymana",
-  lost: "Utracona",
-};
 
 // Bez `title` na przyciskach: w Chrome `title` potrafi przejąć nazwę dostępną
 // przycisku, a nazwa ma zostać „Otwarte 318". Opis idzie w `aria-describedby`.
@@ -307,45 +270,12 @@ export function jobsQuickCountsQueryKey(): unknown[] {
   return ["jobs-quick-counts", deadlineQueryParams("overdue").deadline_to];
 }
 
-/**
- * Ludzie rekrutacji na kafelku: Rekruter (osoby, które nad nią pracują) i
- * Delivery Lead. Zgłoszenie 30.09.2026: DL, która założyła rekrutację, widziała
- * na kafelku samo „Nieprzypisany” i czytała to jako „nie jestem przypisana” —
- * tymczasem brakowało wyłącznie Rekrutera. Od 02.10.2026 te same nazwy co
- * w tabeli: „Rekruter”, „Bez rekrutera”, propozycja automatu w przerywanej ramce.
- */
-function JobTileTeam({ job }: { job: JobListRowFields }) {
-  const dlName = job.delivery_lead_user?.name ?? null;
-  return (
-    <>
-      <span className="inline-flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-        <span className="font-medium">Rekruter:</span>
-        <RecruiterChips
-          compact
-          size="sm"
-          people={recruitersOf(job)}
-          emptyLabel={<NoRecruiterPill />}
-        />
-      </span>
-      {dlName && (
-        <span
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground"
-          title={`Delivery Lead: ${dlName}`}
-        >
-          <span className="font-medium">DL:</span>
-          <span className="truncate max-w-32">{shortenPersonName(dlName)}</span>
-        </span>
-      )}
-    </>
-  );
-}
-
 // Laptop (tabela poniżej 1100 px): węższe odstępy w krótkich kolumnach, żeby
 // lista mieściła się w oknie 1280 px bez poziomego przewijania (pomiar
 // 02.10.2026: 11 px ponad szerokość przy rozwiniętym menu).
 const NARROW_CELL = "@max-[1099px]:px-2";
 
-/** Compact table presentation of the jobs list (alternative to the tile grid). */
+/** Tabela listy rekrutacji — jedyny widok (kafelki usunięte 02.10.2026). */
 function JobsTable({
   items,
   previewId,
@@ -404,7 +334,8 @@ function JobsTable({
             100,
             Math.round((filledCount / Math.max(1, targetCount)) * 100),
           );
-          // `can_open === false` — ten sam kontrakt co kafelki: wiersz zostaje
+          // `can_open === false`: rejestr pokazuje tę rekrutację (jest świadomie
+          // ogólnofirmowy), ale detal odpowie 403. Wiersz zostaje
           // czytelny, ale nie udaje klikalnego (detal zwróciłby 403).
           const locked = job.can_open === false;
           const workMode = jobWorkModeParts(job);
@@ -439,7 +370,7 @@ function JobsTable({
                 {/* Pełny tytuł roboczy w dymku stoi na opakowaniu: `title` na
                     samym linku przejąłby w Chrome jego nazwę dostępną. */}
                 <span className="block min-w-0 truncate" title={jobDisplayTitle(job)}>
-                {/* `can_open === false` — ta sama reguła co kafelki: rekrutacja
+                {/* `can_open === false`: rekrutacja
                     jest w rejestrze, ale detal odpowie 403, więc tytuł nie
                     udaje linku (tabela do 09.2026 prowadziła prosto w ścianę). */}
                 {job.can_open === false ? (
@@ -673,8 +604,6 @@ export function JobsListV2() {
   // zamyka dok, zamiast zostawić go bez podświetlonego wiersza.
   const [previewJobId, setPreviewJobId] = useState<number | null>(null);
   const router = useRouter();
-  const jobsView = useUiStore((s) => s.jobsView);
-  const setJobsView = useUiStore((s) => s.setJobsView);
   // Sortowanie bez jawnego wyboru samo idzie za zakresem; jawnie wybrane
   // zostaje. `null` = powrót do domyślnego zakresu roli („Wyczyść").
   const changeScope = (nextScope: JobScope | null) => {
@@ -1022,7 +951,7 @@ export function JobsListV2() {
           dockOpen && "xl:grid-cols-[minmax(0,1fr)_360px]",
         )}
       >
-        {/* ── Środek: wyszukiwarka, sortowanie, lista/kafelki ───────── */}
+        {/* ── Środek: wyszukiwarka, sortowanie, lista ───────── */}
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             {/* Zakres: domyślny zależy od roli („Moje" albo „Otwarte"); jawny
@@ -1100,44 +1029,6 @@ export function JobsListV2() {
                 ))}
               </SelectContent>
             </Select>
-            {/* Przełącznik widoku zjechał z nagłówka do wiersza narzędzi
-                (makieta `.tools .rt`) — stoi przy sortowaniu, czyli przy
-                pozostałych decyzjach o TYM, JAK oglądać wyniki, a nie przy
-                akcji tworzącej nową rekrutację. */}
-            <div
-              className="ml-auto flex items-center overflow-hidden rounded-md border border-border"
-              role="group"
-              aria-label="Widok rekrutacji"
-            >
-              <button
-                type="button"
-                onClick={() => setJobsView("list")}
-                title="Widok listy"
-                aria-pressed={jobsView === "list"}
-                className={cn(
-                  "flex h-9 w-9 items-center justify-center transition-colors",
-                  jobsView === "list"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-primary/10",
-                )}
-              >
-                <List className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setJobsView("tiles")}
-                title="Widok kafelków"
-                aria-pressed={jobsView === "tiles"}
-                className={cn(
-                  "flex h-9 w-9 items-center justify-center transition-colors",
-                  jobsView === "tiles"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-primary/10",
-                )}
-              >
-                <LayoutGrid className="h-4 w-4" />
-              </button>
-            </div>
           </div>
 
           {/* Stan requestu (25.09.2026) — JEDEN rząd zamiast „Status:” i „Praca:”.
@@ -1201,26 +1092,15 @@ export function JobsListV2() {
             onClearAll={resetFilters}
           />
 
-          {/* Wyniki — kafelki lub lista */}
+          {/* Wyniki — tabela (widok kafelków usunięty 02.10.2026) */}
           {isLoading ? (
-            jobsView === "list" ? (
-              <div className="rounded-lg border border-border bg-card divide-y divide-border/60">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="h-12 flex items-center px-4 animate-pulse">
-                    <div className="h-3 bg-[hsl(var(--border))] rounded w-1/3" />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 min-[1800px]:grid-cols-3 min-[2300px]:grid-cols-4">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <Card key={i} className="animate-pulse h-48">
-                    <div className="h-4 bg-[hsl(var(--border))] rounded w-3/4 mb-3" />
-                    <div className="h-3 bg-[hsl(var(--border))] rounded w-1/2" />
-                  </Card>
-                ))}
-              </div>
-            )
+            <div className="rounded-lg border border-border bg-card divide-y divide-border/60">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="h-12 flex items-center px-4 animate-pulse">
+                  <div className="h-3 bg-[hsl(var(--border))] rounded w-1/3" />
+                </div>
+              ))}
+            </div>
           ) : failed ? (
             <QueryStateNotice
               state={viewState as "forbidden" | "not_found" | "error"}
@@ -1287,7 +1167,7 @@ export function JobsListV2() {
                 </p>
               )}
             </div>
-          ) : jobsView === "list" ? (
+          ) : (
             <JobsTable
               items={visibleItems}
               previewId={effPreviewJobId}
@@ -1298,223 +1178,6 @@ export function JobsListV2() {
               onInvite={canInvite ? (id) => setInviteModalForJob(id) : undefined}
               onSimilar={(id) => setSimilarForJob(id)}
             />
-          ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 min-[1800px]:grid-cols-3 min-[2300px]:grid-cols-4">
-              {visibleItems.map((job: any) => {
-                const skills = extractSkills(job.must_skills);
-                const statusVariant = STATUS_VARIANT[job.status] ?? "neutral";
-                const statusLabel = STATUS_LABEL[job.status] ?? job.status;
-                // Te same klucze co w wierszu listy wyżej: `GET /api/jobs`
-                // zwraca `candidate_count` (`list_jobs` w `jobs.py`) i
-                // `headcount` (`JobResponse`). Do 09.2026 kafelek czytał
-                // `candidates_count`/`filled_count`/`target_positions` — pól,
-                // których odpowiedź nigdy nie miała — więc pasek „Kandydaci"
-                // pokazywał na produkcji zawsze 0/N, niezależnie od pipeline'u.
-                const filledCount = job.candidate_count ?? 0;
-                const targetCount = job.headcount ?? 1;
-                const progress = Math.min(
-                  100,
-                  Math.round((filledCount / Math.max(1, targetCount)) * 100)
-                );
-                return (
-                  // `can_open === false`: rejestr pokazuje tę rekrutację (jest
-                  // ŚWIADOMIE ogólnofirmowy — patrz komentarz przy zapytaniu
-                  // w `jobs.py`), ale detal egzekwuje dokładny zakres klient–TAC
-                  // i zwróci 403. Komunikat po 403 jest dobry, tylko przychodzi
-                  // ZA PÓŹNO: Delivery Lead bez przypisań klikał kolejne wiersze
-                  // i za każdym razem trafiał w ścianę. Mówimy o tym ZAWCZASU.
-                  //
-                  // Wiersz zostaje WIDOCZNY i czytelny — flaga nic nie ujawnia,
-                  // bo te rekrutacje i tak są na liście. Zmienia się tylko to, że
-                  // nie udaje klikalnego. `pointer-events-none` + `tabIndex={-1}`
-                  // odcinają myszkę i klawiaturę, `aria-disabled` mówi to samo
-                  // czytnikowi ekranu.
-                  <Link
-                    key={job.id}
-                    href={`/jobs/${job.id}`}
-                    aria-disabled={job.can_open === false || undefined}
-                    tabIndex={job.can_open === false ? -1 : undefined}
-                    title={
-                      job.can_open === false
-                        ? "Nie masz dostępu do tej rekrutacji — poproś o dodanie Cię do jej zespołu."
-                        : undefined
-                    }
-                    className={
-                      job.can_open === false
-                        ? "pointer-events-none opacity-60"
-                        : undefined
-                    }
-                  >
-                    <Card
-                      variant={job.can_open === false ? "default" : "interactive"}
-                      className="h-full flex flex-col"
-                    >
-                      {/* `flex-wrap` + `min-w-[160px]`: w środkowej kolumnie
-                          układu C2 kafelek jest wąski, a plakietki statusu
-                          (`shrink-0`) wypychały tytuł (`flex-1 min-w-0`) do
-                          zerowej szerokości — tytuł znikał z kafelka. */}
-                      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                        <div className="min-w-[160px] flex-1">
-                          <h3
-                            className="font-semibold text-foreground text-base truncate"
-                            title={jobDisplayTitle(job)}
-                          >
-                            {jobDisplayTitle(job)}
-                          </h3>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {job.client_name && (
-                              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Building2 className="h-3 w-3" />
-                                {job.client_name}
-                              </p>
-                            )}
-                            <JobClientNames job={job} />
-                            {job.reference_number && (
-                              <span
-                                className="font-mono text-[10px] text-muted-foreground/80"
-                                title="Nasz numer rekrutacji"
-                              >
-                                {job.reference_number}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {job.status === "published" && canInvite && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setInviteModalForJob(job.id);
-                              }}
-                              className="p-1 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors pointer-coarse:p-2.5"
-                              title="Wygeneruj link aplikacyjny"
-                              aria-label="Wygeneruj link aplikacyjny"
-                            >
-                              <Link2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                          {job.can_open !== false && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setPreviewJobId((current) =>
-                                  current === job.id ? null : job.id,
-                                );
-                              }}
-                              aria-pressed={effPreviewJobId === job.id}
-                              className={cn(
-                                "rounded-md p-1 transition-colors pointer-coarse:p-2.5",
-                                effPreviewJobId === job.id
-                                  ? "bg-primary/10 text-primary"
-                                  : "text-muted-foreground hover:bg-primary/10 hover:text-primary",
-                              )}
-                              title="Podgląd"
-                              aria-label={`Podgląd: ${job.title}`}
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                          <RequestPriorityChip level={priorityLevelOf(job)} />
-                          <Badge size="sm" variant={statusVariant}>
-                            {statusLabel}
-                          </Badge>
-                          {TAC_UI_ENABLED && job.tac_id == null && (
-                            <span title="Rekrutacja nie ma jawnie wybranego opiekuna TAC">
-                              <Badge size="sm" variant="warning">
-                                Brak opiekuna TAC
-                              </Badge>
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {(job.priority_assignment ||
-                        (job.priority_carry_over_count ?? 0) > 0) && (
-                        <div className="mb-2">
-                          <JobPriorityWorkBadges job={job} />
-                        </div>
-                      )}
-
-                      <div className="mb-2 flex items-center gap-3 flex-wrap">
-                        <JobTileTeam job={job} />
-                        {job.hiring_manager_name && (
-                          <span
-                            className="inline-flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-0.5 rounded"
-                            title="Hiring manager po stronie klienta"
-                          >
-                            <UserSquare2 className="h-3 w-3" />
-                            {job.hiring_manager_name}
-                          </span>
-                        )}
-                      </div>
-
-                      {(job.location || job.seniority) && (
-                        <div className="flex items-center gap-3 text-xs text-foreground mb-2">
-                          {job.location && (
-                            <span className="inline-flex items-center gap-1">
-                              <MapPin className="h-3 w-3" />
-                              {job.location}
-                            </span>
-                          )}
-                          {job.seniority && <Badge size="sm" variant="plum">{job.seniority}</Badge>}
-                        </div>
-                      )}
-
-                      {skills.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-3">
-                          {skills.slice(0, 5).map((s) => (
-                            <span
-                              key={s}
-                              className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary"
-                            >
-                              {s}
-                            </span>
-                          ))}
-                          {skills.length > 5 && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[hsl(var(--border))] text-muted-foreground">
-                              +{skills.length - 5}
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      <div className="mt-auto space-y-2">
-                        {targetCount > 0 && (
-                          <div className="flex items-center gap-2">
-                            <Users className="h-3 w-3 text-muted-foreground" />
-                            <div className="flex-1 h-1.5 rounded-full bg-border/60 overflow-hidden">
-                              <div
-                                className="h-full bg-primary rounded-full transition-all"
-                                style={{ width: `${progress}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] font-mono text-muted-foreground">
-                              {filledCount}/{targetCount}
-                            </span>
-                          </div>
-                        )}
-                        {job.salary_range && (
-                          <div className="flex items-center gap-1.5 text-xs text-foreground">
-                            <DollarSign className="h-3 w-3 text-primary" />
-                            {job.salary_range}
-                          </div>
-                        )}
-                        <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border">
-                          <span>
-                            {job.created_at ? formatRelativeTime(job.created_at) : "—"}
-                          </span>
-                          <Sparkles className="h-3 w-3 text-primary" />
-                        </div>
-                      </div>
-                    </Card>
-                  </Link>
-                );
-              })}
-            </div>
           )}
 
           {viewState === "ready" && total > pageSize && (

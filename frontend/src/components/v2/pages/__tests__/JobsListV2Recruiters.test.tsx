@@ -11,7 +11,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { JobsListV2 } from "@/components/v2/pages/JobsListV2";
 import { useAuthStore } from "@/store/auth";
-import { useUiStore } from "@/store/ui";
 
 const getMock = vi.fn();
 const quickCountsMock = vi.fn();
@@ -152,7 +151,6 @@ beforeEach(() => {
   signInAs("recruiter");
   getMock.mockReset();
   quickCountsMock.mockReset();
-  useUiStore.setState({ jobsView: "list" });
   mockJobsResponse([jobRow()]);
   setAddress("");
 });

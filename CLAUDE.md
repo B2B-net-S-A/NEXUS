@@ -2836,11 +2836,16 @@ miejsce, nie zbiór funkcji.
 
 - **Klik w wiersz listy OTWIERA rekrutację** (`router.push`, Ctrl/⌘ = nowa
   karta; tytuł zostaje linkiem). Dok gotowości (`JobReadinessDock`, wariant
-  `list`) otwiera ikona **„Podgląd"** w wierszu i na kafelku (`aria-label`
+  `list`) otwiera ikona **„Podgląd"** w wierszu (`aria-label`
   „Podgląd: {tytuł}", `aria-pressed`), zamyka „Zamknij podgląd". Dok nie
   otwiera się sam, a wiersz `can_open === false` nie ma ani nawigacji, ani
-  podglądu (dok pytałby o detal → 403). Gałąź kafelka z `pointer-events-none`
-  + `aria-disabled` czyta test backendu — nie ruszaj jej.
+  podglądu (dok pytałby o detal → 403). Gałąź `locked` wiersza
+  (`interactive`, `onClick`, `aria-disabled`, tytuł bez linku) czyta test
+  backendu `test_jobs_list_marks_unopenable_rows.py` — nie ruszaj jej.
+- **Lista ma jeden widok — tabelę (decyzja Artura 02.10.2026: „kafelki
+  opcję wywal całkowicie”).** Przełącznik „lista / kafelki”, siatka kafelków
+  i `jobsView` w `useUiStore` (migracja v10 zdejmuje pole) usunięte. Nie
+  dokładaj drugiego widoku listy.
 - **Zakres: „Moje | Moja kategoria | Otwarte | Wszystkie” (24.09.2026; „Moja
   kategoria” od 02.10.2026), domyślny zależy od
   ROLI** — `defaultScopeForUser` (`lib/jobs-url-filters.ts`, semantyka
@@ -2951,7 +2956,8 @@ miejsce, nie zbiór funkcji.
   chowa plakietkę i szybki filtr „Brak opiekuna TAC" (świeciły na ~4 250
   z 4 265 rekrutacji), a `?no_owner=1` ze starego linku nie zawęża listy
   ukrytym filtrem. Rola `tac`, kolumna `tac_id` i pole w ustawieniach
-  rekrutacji zostają — powrót = zmiana stałej.
+  rekrutacji zostają — powrót = zmiana stałej (filtr; plakietka żyła tylko
+  na kafelku, którego od 02.10.2026 nie ma — trzeba by ją dopisać do wiersza).
 - **Klucze react-query listy buduje `jobsListQueryKey` /
   `jobsQuickCountsQueryKey`** — harness `/preview/jobs-list-v3` zasiewa cache
   tymi samymi funkcjami, a zapytania doku odcina interceptorem (zero sieci).

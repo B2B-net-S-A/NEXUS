@@ -72,7 +72,19 @@ describe("useUiStore — migracja v8 (bez zwijanej kolumny filtrów rekrutacji)"
       { candidatesPageSize: 100, jobsView: "tiles", jobsFiltersCollapsed: true },
       7,
     ) as Record<string, unknown>;
-    expect(migrated).toMatchObject({ candidatesPageSize: 100, jobsView: "tiles" });
+    expect(migrated).toMatchObject({ candidatesPageSize: 100 });
     expect(migrated).not.toHaveProperty("jobsFiltersCollapsed");
+  });
+});
+
+describe("useUiStore — migracja v10 (lista rekrutacji bez widoku kafelków)", () => {
+  it("stan z v9 traci wybór „lista / kafelki”, reszta zostaje", () => {
+    const migrate = useUiStore.persist.getOptions().migrate;
+    const migrated = migrate!(
+      { candidatesPageSize: 100, candidatesView: "tiles", jobsView: "tiles" },
+      9,
+    ) as Record<string, unknown>;
+    expect(migrated).toMatchObject({ candidatesPageSize: 100, candidatesView: "tiles" });
+    expect(migrated).not.toHaveProperty("jobsView");
   });
 });
