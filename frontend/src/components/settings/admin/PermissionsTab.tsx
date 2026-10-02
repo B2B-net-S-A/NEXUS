@@ -16,6 +16,7 @@ import {
   changesCountLabel,
   grantableRoles,
   grantedPermissions,
+  isStalePolicyError,
   logoutSentence,
   peopleCountLabel,
   quotedPermissionLabels,
@@ -48,12 +49,6 @@ interface RoleDraft {
   role: UserRole;
   revision: number;
   granted: Set<Permission>;
-}
-
-function responseStatus(error: unknown): number | null {
-  const status = (error as { response?: { status?: unknown } })?.response
-    ?.status;
-  return typeof status === "number" ? status : null;
 }
 
 function roleLabel(role: string): string {
@@ -290,7 +285,7 @@ function RolePermissionsEditor({
     },
     onError: async (error) => {
       setConfirmOpen(false);
-      if (responseStatus(error) === 409) {
+      if (isStalePolicyError(error)) {
         setConflict(true);
         await queryClient.invalidateQueries({
           queryKey: ["admin-section-permissions"],

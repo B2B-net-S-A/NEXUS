@@ -313,6 +313,93 @@ describe("PermissionsTab — jedna rola, dziewięć przełączników", () => {
     expect(screen.queryByText(/Zapisano uprawnienia/)).not.toBeInTheDocument();
   });
 
+  it("odmowa bazy (też 409) pokazuje zdanie z serwera i zostawia szkic", async () => {
+    vi.mocked(adminApi.updateRoleSectionPermissions).mockRejectedValueOnce({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: "permission_storage_rejected",
+            message: "Baza nie przyjęła zmiany uprawnień. Zgłoś to administratorowi systemu.",
+          },
+        },
+      },
+    });
+    const user = userEvent.setup();
+    renderTab();
+
+    const clientsEdit = await screen.findByRole("switch", {
+      name: "Finanse: Klienci: dodawanie i edycja",
+    });
+    await user.click(clientsEdit);
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await user.click(screen.getByRole("button", { name: "Potwierdź i zapisz" }));
+
+    expect(
+      await screen.findByText(
+        "Baza nie przyjęła zmiany uprawnień. Zgłoś to administratorowi systemu.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Wczytano nowszą wersję zasad")).not.toBeInTheDocument();
+    expect(adminApi.getSectionPermissions).toHaveBeenCalledTimes(1);
+    expect(clientsEdit).toBeChecked();
+    expect(screen.getByText("1 zmiana do zapisania")).toBeInTheDocument();
+  });
+
+  it("odmowa bez zdania z serwera dostaje polski komunikat, nie surowy błąd", async () => {
+    vi.mocked(adminApi.updateRoleSectionPermissions).mockRejectedValueOnce({
+      response: { status: 500, data: {} },
+    });
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(
+      await screen.findByRole("switch", { name: "Finanse: Klienci: dodawanie i edycja" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await user.click(screen.getByRole("button", { name: "Potwierdź i zapisz" }));
+
+    expect(await screen.findByText("Nie udało się zapisać uprawnień.")).toBeInTheDocument();
+  });
+
+  it("zapis, który nikogo nie wylogował, nie mówi o wylogowaniu", async () => {
+    vi.mocked(adminApi.updateRoleSectionPermissions).mockResolvedValueOnce({
+      data: { revision: 12, changed: false, invalidated_users: 0 },
+    } as never);
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(
+      await screen.findByRole("switch", { name: "Finanse: Klienci: dodawanie i edycja" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await user.click(screen.getByRole("button", { name: "Potwierdź i zapisz" }));
+
+    expect(
+      await screen.findByText("Zapisano uprawnienia roli Finanse."),
+    ).toBeInTheDocument();
+  });
+
+  it("po udanym zapisie mówi, ile osób zaloguje się ponownie", async () => {
+    vi.mocked(adminApi.updateRoleSectionPermissions).mockResolvedValueOnce({
+      data: { revision: 13, changed: true, invalidated_users: 3 },
+    } as never);
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(
+      await screen.findByRole("switch", { name: "Finanse: Klienci: dodawanie i edycja" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await user.click(screen.getByRole("button", { name: "Potwierdź i zapisz" }));
+
+    expect(
+      await screen.findByText(
+        "Zapisano uprawnienia roli Finanse. 3 osoby zalogują się ponownie.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("nowa wersja zasad z serwera porzuca lokalny szkic i zamyka potwierdzenie", async () => {
     const user = userEvent.setup();
     const { queryClient } = renderTab();

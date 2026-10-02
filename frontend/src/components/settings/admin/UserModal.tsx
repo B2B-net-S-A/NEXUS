@@ -1,7 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
+import {
+  extraPermissionRows,
+  legacyLimits,
+  permissionsOfRoles,
+  requiredByCaption,
+  rolesAcceptGrants,
+  snapshotIsUsable,
+  togglePermission,
+  userPermissionsSave,
+  type ExtraPermissionRow,
+  type UserPermissionsSave,
+} from "@/lib/admin-permissions";
+import { adminApi } from "@/lib/api";
+import { isPermission, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import {
   AdminUser,
@@ -10,6 +25,240 @@ import {
   ROLE_LABELS,
   isExclusiveRole,
 } from "./types";
+
+interface GrantDraft {
+  revision: number;
+  granted: Set<Permission>;
+}
+
+type ExtraPermissionsState =
+  | { status: "hidden" }
+  | { status: "loading" }
+  | { status: "error"; retry: () => void }
+  | {
+      status: "ready";
+      rows: ExtraPermissionRow[];
+      /** Stare wyjątki osoby nazwane słowami (pusto = nie ma czego usuwać). */
+      legacy: string[];
+      removeLegacy: boolean;
+      /** Szkic przepadł, bo zasady zmieniły się, gdy okno było otwarte. */
+      refreshed: boolean;
+      /** Drugie żądanie zapisu albo `null`, gdy uprawnienia się nie zmieniają. */
+      save: UserPermissionsSave | null;
+      toggle: (key: Permission) => void;
+      setRemoveLegacy: (remove: boolean) => void;
+    };
+
+/**
+ * „Dodatkowe uprawnienia” jednej osoby. Lista idzie za rolami WYBRANYMI
+ * w formularzu, nie zapisanymi — zmiana roli w tym samym oknie od razu
+ * pokazuje, czego nowa rola nie daje.
+ */
+function useExtraPermissions(
+  userId: number | null,
+  roles: string[],
+): ExtraPermissionsState {
+  const enabled = userId !== null;
+  const snapshotQuery = useQuery({
+    queryKey: ["admin-section-permissions"],
+    queryFn: () =>
+      adminApi.getSectionPermissions().then((response) => response.data),
+    enabled,
+  });
+  const personQuery = useQuery({
+    queryKey: ["admin-user-permissions", userId],
+    queryFn: () =>
+      adminApi.getUserPermissions(userId as number).then((response) => response.data),
+    enabled,
+    // Okno startuje od bieżących nadań i bieżącej wersji zasad, nie z cache.
+    staleTime: 0,
+  });
+  const [draft, setDraft] = useState<GrantDraft | null>(null);
+  const [removeLegacy, setRemoveLegacy] = useState(false);
+  const [refreshed, setRefreshed] = useState(false);
+
+  const snapshot = snapshotIsUsable(snapshotQuery.data) ? snapshotQuery.data : null;
+  const person = personQuery.data ?? null;
+  const revision = person?.revision;
+
+  useEffect(() => {
+    if (!draft || revision === undefined || draft.revision === revision) return;
+    // Zaznaczenia powstały na starszej wersji zasad — nie przenosimy ich po
+    // cichu na nową (role mogą dawać już co innego).
+    setDraft(null);
+    setRefreshed(true);
+  }, [draft, revision]);
+
+  const stored = useMemo(
+    () => new Set((person?.user.grants ?? []).filter(isPermission)),
+    [person],
+  );
+  const granted = draft && draft.revision === revision ? draft.granted : stored;
+  const roleGiven = useMemo(
+    () => (snapshot ? permissionsOfRoles(snapshot, roles) : new Set<Permission>()),
+    [snapshot, roles],
+  );
+
+  if (!enabled) return { status: "hidden" };
+  if (snapshotQuery.isPending || personQuery.isPending) return { status: "loading" };
+  if (snapshotQuery.isError || personQuery.isError || !snapshot || !person) {
+    return {
+      status: "error",
+      retry: () => {
+        void snapshotQuery.refetch();
+        void personQuery.refetch();
+      },
+    };
+  }
+  if (!rolesAcceptGrants(snapshot, roles)) return { status: "hidden" };
+
+  const savedRoles = new Set<string>(person.user.roles);
+  const rolesChanged =
+    savedRoles.size !== new Set(roles).size ||
+    roles.some((role) => !savedRoles.has(role));
+  return {
+    status: "ready",
+    rows: extraPermissionRows(snapshot, roleGiven, granted),
+    legacy: legacyLimits(person.user),
+    removeLegacy,
+    refreshed,
+    save: userPermissionsSave({
+      response: person,
+      draft: granted,
+      roleGiven,
+      rolesChanged,
+      removeLegacy,
+    }),
+    toggle: (key) => {
+      setRefreshed(false);
+      setDraft({ revision: person.revision, granted: togglePermission(granted, key) });
+    },
+    setRemoveLegacy,
+  };
+}
+
+function rolesPhrase(roles: string[]): string {
+  const labels = roles.map((role) => ROLE_LABELS[role] ?? role);
+  return labels.length === 1
+    ? `rola ${labels[0]} nie daje`
+    : `role ${labels.join(", ")} nie dają`;
+}
+
+function ExtraPermissionRowField({
+  row,
+  onToggle,
+}: {
+  row: ExtraPermissionRow;
+  onToggle: (key: Permission) => void;
+}) {
+  const captionId = useId();
+  const locked = row.requiredBy.length > 0;
+  return (
+    <div>
+      <label
+        className={cn(
+          "flex items-start gap-2 py-0.5 text-sm pointer-coarse:min-h-10 pointer-coarse:items-center",
+          row.checked && "font-medium",
+        )}
+      >
+        <input
+          type="checkbox"
+          checked={row.checked}
+          disabled={locked}
+          onChange={() => onToggle(row.key)}
+          aria-describedby={locked ? captionId : undefined}
+          className="mt-0.5 shrink-0 rounded border-border pointer-coarse:mt-0"
+        />
+        <span>{row.label}</span>
+      </label>
+      {locked ? (
+        <p id={captionId} className="ml-6 text-xs text-muted-foreground">
+          {requiredByCaption(row.requiredBy)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ExtraPermissionsSection({
+  state,
+  roles,
+}: {
+  state: ExtraPermissionsState;
+  roles: string[];
+}) {
+  const headingId = useId();
+  if (state.status === "hidden") return null;
+  return (
+    <div role="group" aria-labelledby={headingId}>
+      <p id={headingId} className="block text-sm font-medium text-foreground mb-1">
+        Dodatkowe uprawnienia
+      </p>
+      {state.status === "loading" ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          Wczytywanie uprawnień…
+        </p>
+      ) : state.status === "error" ? (
+        <div
+          role="alert"
+          className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          Nie udało się wczytać uprawnień tej osoby. Zapis zmieni tylko dane konta.{" "}
+          <button
+            type="button"
+            onClick={state.retry}
+            className="hit-area font-medium underline underline-offset-2"
+          >
+            Ponów
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="border border-border rounded-lg px-3 py-2 space-y-1">
+            {state.rows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Role tej osoby dają już wszystkie uprawnienia.
+              </p>
+            ) : (
+              state.rows.map((row) => (
+                <ExtraPermissionRowField key={row.key} row={row} onToggle={state.toggle} />
+              ))
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Lista pokazuje tylko to, czego {rolesPhrase(roles)}. Zaznaczone działa
+            wyłącznie dla tej osoby.
+          </p>
+          {state.refreshed ? (
+            <p className="text-xs text-warning-muted-foreground mt-1">
+              Zasady uprawnień zmieniły się w międzyczasie — wczytaliśmy aktualne.
+              Zaznacz uprawnienia jeszcze raz.
+            </p>
+          ) : null}
+          {state.legacy.length > 0 ? (
+            <p className="text-xs text-muted-foreground mt-1">
+              {state.removeLegacy
+                ? "Stare ograniczenia tej osoby zostaną usunięte po zapisaniu."
+                : `Stare ograniczenia tej osoby: ${state.legacy.join("; ")}.`}{" "}
+              <button
+                type="button"
+                onClick={() => state.setRemoveLegacy(!state.removeLegacy)}
+                className="hit-area font-medium text-foreground underline underline-offset-2"
+              >
+                {state.removeLegacy ? "Zostaw ograniczenia" : "Usuń ograniczenia"}
+              </button>
+            </p>
+          ) : null}
+          {state.save ? (
+            <p className="text-xs font-medium text-warning-muted-foreground mt-1">
+              Po zapisaniu ta osoba zostanie wylogowana.
+            </p>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
 
 interface UserModalProps {
   initial?: Partial<AdminUser> | null;
@@ -87,6 +336,18 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
       return { ...f, roles: [f.role, ...f.roles] };
     });
   }, [form.role]);
+
+  const extraPermissions = useExtraPermissions(
+    isEdit ? (initial?.id as number) : null,
+    form.roles,
+  );
+  // Uprawnienia jadą obok danych konta — rodzic zapisuje je drugim żądaniem.
+  const handleSave = () =>
+    onSave(
+      extraPermissions.status === "ready"
+        ? { ...form, permissions: extraPermissions.save }
+        : form,
+    );
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -196,6 +457,8 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
             </p>
           </div>
 
+          <ExtraPermissionsSection state={extraPermissions} roles={form.roles} />
+
           {isEdit && (
             <div className="border border-border rounded-lg px-3 py-2">
               <label className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -252,7 +515,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
             Anuluj
           </button>
           <button
-            onClick={() => onSave(form)}
+            onClick={handleSave}
             disabled={loading}
             className="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50"
           >

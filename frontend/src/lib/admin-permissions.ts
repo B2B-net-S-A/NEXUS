@@ -12,6 +12,7 @@ import type {
   ProductAction,
   UserActionOverrideAccess,
 } from "@/lib/action-access";
+import { refusalCode } from "@/lib/help/refusal-tracker";
 import {
   PERMISSION_KEYS,
   closePermissions,
@@ -116,6 +117,22 @@ export interface RolePermissionChange {
 export interface UserPermissionChange {
   action: AdminActionKey;
   access: UserActionOverrideAccess;
+}
+
+/**
+ * 409 „ktoś zapisał w międzyczasie” — jedyna odmowa, po której wczytujemy
+ * zasady od nowa. Zapis potrafi odpowiedzieć 409 także wtedy, gdy baza nie
+ * przyjęła wiersza (`permission_storage_rejected`): wtedy szkic zostaje,
+ * a ekran pokazuje zdanie z serwera, więc sam status nie wystarcza.
+ */
+export function isStalePolicyError(error: unknown): boolean {
+  const response = (
+    error as { response?: { status?: unknown; data?: unknown } } | null
+  )?.response;
+  return (
+    typeof response?.status === "number" &&
+    refusalCode(response.status, response.data) === "stale_section_policy"
+  );
 }
 
 // ── Zakładka „Uprawnienia”: jedna rola, dziewięć przełączników ────────────────
