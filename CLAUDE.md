@@ -3719,6 +3719,10 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   zaznaczenie zmienia tylko pole wyboru. Karta jest `sidePane` w
   `RecruitmentSheet` (wewnątrz okna — poza nim Radix wyłącza kliknięcia),
   a Esc zamyka najpierw ją, bo zamknięcie panelu kasuje zaznaczenia.
+  W dopasowaniu karta pokazuje tylko technologie: `/scores` oddaje
+  `non_technology_must` (must spoza reguły `must_gate_terms.gate_requirement`
+  — zdania, branża, język, rola), a karta je pomija. Sam kraj w polu miasta
+  („PL”) to brak miasta (`proposal_facts._display_city`).
   `?tab=similar` z powiadomień
   o propozycjach AI zostaje przy „Do przejrzenia”, nie przy panelu. Pasek
   w „Nowych”, odznaka „N do przepięcia” i reguła „Najbliższego kroku”

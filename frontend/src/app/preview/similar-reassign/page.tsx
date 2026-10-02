@@ -35,6 +35,8 @@ import {
 import { useAuthStore } from "@/store/auth";
 
 const JOB_ID = 5;
+// Wymaganie wpisane zdaniem — karta ma je pominąć (tylko technologie).
+const PROSE_MUST = "umiejętność dekompozycji wymagań na zadania";
 
 function job(id: number, title: string, overrides: Partial<SimilarJobItem> = {}): SimilarJobItem {
   return {
@@ -120,7 +122,12 @@ const PEOPLE: Record<number, PersonSeed> = {
       cv_uploaded_on: "2023-04-02",
     },
     score: 74,
-    breakdown: { total: 74, measurement: "measured", matching_must: ["SQL", "UML"], gap_must: ["BPMN"] },
+    breakdown: {
+      total: 74,
+      measurement: "measured",
+      matching_must: ["SQL", "UML"],
+      gap_must: ["BPMN", PROSE_MUST],
+    },
     notes: [
       {
         content: "Woli pracę w pełni zdalną, do biura najwyżej raz w miesiącu.",
@@ -185,6 +192,7 @@ function seedPeople(qc: QueryClient): void {
     seedFresh(qc, similarPersonScoreKey(JOB_ID, id), {
       scores: seed.score === null ? {} : { [String(id)]: seed.score },
       breakdowns: { [String(id)]: seed.breakdown },
+      non_technology_must: [PROSE_MUST],
     });
     seedFresh(qc, candidateQueryKeys.quickView(id), {
       recent_notes: seed.notes.map((note, index) => ({ id: id * 10 + index, ...note })),
