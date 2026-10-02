@@ -53,6 +53,14 @@ export interface RecruitmentSheetProps {
   /** Stopka przyklejona do dołu (np. akcja niszcząca oddzielona od treści). */
   footer?: ReactNode;
   bodyClassName?: string;
+  /**
+   * Karta obok panelu (np. podgląd osoby). Żyje WEWNĄTRZ okna, bo otwarty
+   * dialog łapie fokus i wyłącza kliknięcia poza sobą. Od `lg` stoi na lewo
+   * od panelu; na węższym ekranie przykrywa panel i sama musi dać powrót.
+   */
+  sidePane?: ReactNode;
+  /** Np. Esc zamyka najpierw kartę z `sidePane`, a nie cały panel. */
+  onEscapeKeyDown?: (event: KeyboardEvent) => void;
   children: ReactNode;
   "data-testid"?: string;
 }
@@ -67,6 +75,8 @@ export function RecruitmentSheet({
   toolbar,
   footer,
   bodyClassName,
+  sidePane,
+  onEscapeKeyDown,
   children,
   "data-testid": testId,
 }: RecruitmentSheetProps) {
@@ -76,6 +86,7 @@ export function RecruitmentSheet({
         side="right"
         className={WIDTH_CLASS[width]}
         data-testid={testId}
+        onEscapeKeyDown={onEscapeKeyDown}
       >
         <SheetHeader className={cn("pr-12", toolbar ? "pb-0" : undefined)}>
           <SheetTitle>{title}</SheetTitle>
@@ -88,6 +99,14 @@ export function RecruitmentSheet({
         {footer ? (
           <div className="border-t border-border bg-background/40 px-6 py-3">
             {footer}
+          </div>
+        ) : null}
+        {sidePane ? (
+          <div
+            className="absolute inset-0 z-10 flex flex-col overflow-hidden bg-card lg:inset-y-4 lg:left-auto lg:right-full lg:mr-3 lg:w-[380px] lg:rounded-xl lg:border lg:border-border lg:shadow-lg"
+            data-testid="recruitment-sheet-side-pane"
+          >
+            {sidePane}
           </div>
         ) : null}
       </SheetContent>

@@ -12,6 +12,10 @@ const removeFromRecruitment = vi.fn();
 const showActionToast = vi.fn();
 const showSuccess = vi.fn();
 const showError = vi.fn();
+const facts = vi.fn();
+const matchScores = vi.fn();
+const apiGet = vi.fn();
+let canOpenProfile = true;
 
 let similarState: { isLoading: boolean; isError: boolean; isSuccess: boolean } = {
   isLoading: false,
@@ -45,11 +49,38 @@ vi.mock("@/lib/similar-jobs-api", async (importActual) => {
   };
 });
 
-vi.mock("@/lib/api", () => ({
-  api: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  candidatesApi: {
-    removeFromRecruitment: (...a: unknown[]) => removeFromRecruitment(...a),
-  },
+vi.mock("@/lib/api", () => {
+  const api = { get: (...a: unknown[]) => apiGet(...a), post: vi.fn(), delete: vi.fn() };
+  return {
+    default: api,
+    api,
+    candidatesApi: {
+      removeFromRecruitment: (...a: unknown[]) => removeFromRecruitment(...a),
+    },
+  };
+});
+
+// Karta osoby (podgląd obok panelu) czyta trzy istniejące trasy.
+vi.mock("@/lib/job-proposals-api", async (importActual) => {
+  const actual = await importActual<typeof import("@/lib/job-proposals-api")>();
+  return {
+    ...actual,
+    jobProposalsApi: { ...actual.jobProposalsApi, facts: (...a: unknown[]) => facts(...a) },
+  };
+});
+vi.mock("@/lib/candidate-search-api", async (importActual) => {
+  const actual = await importActual<typeof import("@/lib/candidate-search-api")>();
+  return {
+    ...actual,
+    candidateSearchApi: {
+      ...actual.candidateSearchApi,
+      matchScores: (...a: unknown[]) => matchScores(...a),
+    },
+  };
+});
+vi.mock("@/hooks/useCapability", () => ({ useCapability: () => canOpenProfile }));
+vi.mock("@/components/v2/candidates/CandidateCvCell", () => ({
+  useCandidateCvPreview: () => ({ open: vi.fn(), loading: false, modal: null }),
 }));
 
 vi.mock("@/components/Toast", () => ({
@@ -84,18 +115,28 @@ function person(overrides: Partial<SentPerson> & { candidate_id: number }): Sent
   };
 }
 
-function renderPanel() {
+function renderPanel(onOpenChange: (open: boolean) => void = vi.fn()) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <SimilarJobsPanel jobId={5} open onOpenChange={vi.fn()} />
+      <SimilarJobsPanel jobId={5} open onOpenChange={onOpenChange} />
     </QueryClientProvider>,
   );
+}
+
+/** Zaznacza rekrutację 1725 i czeka na jej osoby. */
+async function openGroup() {
+  fireEvent.click(screen.getByLabelText("Przepnij z: Analityk 1725"));
+  await screen.findByLabelText("Przepnij Ewa Marczak");
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   similarState = { isLoading: false, isError: false, isSuccess: true };
+  canOpenProfile = true;
+  facts.mockResolvedValue({ job_id: 5, items: [] });
+  matchScores.mockResolvedValue({ scores: {}, breakdowns: {} });
+  apiGet.mockResolvedValue({ data: { recent_notes: [] } });
   payload = {
     job_id: 5,
     reassigned_count: 0,
@@ -249,5 +290,127 @@ describe("Panel „Podobne rekrutacje” — przepięcie jednym kliknięciem", (
     expect(screen.getByTestId("similar-panel-summary")).toHaveTextContent(
       "najwyżej 100 osób — zaznaczonych jest 101",
     );
+  });
+});
+
+describe("Panel „Podobne rekrutacje” — podgląd osoby obok panelu", () => {
+  it("klik w nazwisko otwiera kartę i nie zmienia zaznaczenia", async () => {
+    facts.mockResolvedValue({
+      job_id: 5,
+      items: [
+        {
+          candidate_id: 10,
+          title: "Analityk Systemowy",
+          company: null,
+          years_experience: 7,
+          city: "Kraków",
+          max_onsite_days_per_week: null,
+          remote_modes: [],
+          availability_status: null,
+          availability_date: null,
+          expected_rate_hourly: null,
+          expected_rate_currency: null,
+          expected_rate_redacted: false,
+          client_history: null,
+        },
+      ],
+    });
+    renderPanel();
+    await openGroup();
+    expect(screen.queryByTestId("similar-person-preview")).toBeNull();
+
+    const name = screen.getByRole("link", { name: "Ewa Marczak" });
+    expect(name).toHaveAttribute("href", "/candidates/10?from=job&jobId=5");
+    fireEvent.click(name);
+
+    const card = screen.getByTestId("similar-person-preview");
+    expect(within(card).getByRole("heading", { name: "Ewa Marczak" })).toBeInTheDocument();
+    expect(await within(card).findByText("Kraków")).toBeInTheDocument();
+    expect(within(card).getByText("1 z 3")).toBeInTheDocument();
+    expect(facts).toHaveBeenCalledWith(5, [10], expect.anything());
+    expect(matchScores).toHaveBeenCalledWith(5, [10], expect.anything());
+    // Karta siedzi w oknie panelu — inaczej fokus i kliknięcia by nie działały.
+    expect(within(screen.getByRole("dialog")).getByTestId("similar-person-preview")).toBe(card);
+
+    expect(screen.getByLabelText("Przepnij Ewa Marczak")).toBeChecked();
+    expect(screen.getByTestId("similar-panel-submit")).toHaveTextContent(
+      "Przepnij 2 osoby do Nowych",
+    );
+  });
+
+  it("Ctrl-klik zostaje przy linku (profil w nowej karcie) i nie otwiera karty", async () => {
+    renderPanel();
+    await openGroup();
+    const name = screen.getByRole("link", { name: "Ewa Marczak" });
+    // jsdom nie nawiguje — sprawdzamy tylko, że panel nie przejął kliknięcia.
+    name.addEventListener("click", (event) => event.preventDefault());
+    fireEvent.click(name, { ctrlKey: true });
+    expect(screen.queryByTestId("similar-person-preview")).toBeNull();
+  });
+
+  it("Esc zamyka najpierw kartę — panel i zaznaczenia zostają", async () => {
+    const onOpenChange = vi.fn();
+    renderPanel(onOpenChange);
+    await openGroup();
+    fireEvent.click(screen.getByLabelText("Przepnij Marek Zając"));
+    fireEvent.click(screen.getByRole("link", { name: "Ewa Marczak" }));
+    expect(screen.getByTestId("similar-person-preview")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("similar-person-preview")).toBeNull();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Przepnij Marek Zając")).not.toBeChecked();
+    expect(screen.getByRole("link", { name: "Ewa Marczak" })).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("‹ › przechodzi po osobach w kolejności wierszy, także po zablokowanych", async () => {
+    renderPanel();
+    await openGroup();
+    fireEvent.click(screen.getByRole("button", { name: "Podgląd: Marek Zając" }));
+    let card = screen.getByTestId("similar-person-preview");
+    expect(within(card).getByText("2 z 3")).toBeInTheDocument();
+
+    fireEvent.click(within(card).getByRole("button", { name: "Następna osoba" }));
+    card = screen.getByTestId("similar-person-preview");
+    expect(within(card).getByRole("heading", { name: "Oskar Pietrzak" })).toBeInTheDocument();
+    expect(within(card).getByRole("checkbox")).toBeDisabled();
+    expect(within(card).getByRole("button", { name: "Następna osoba" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Podgląd: Oskar Pietrzak" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("pole „Przepnij” w karcie to to samo zaznaczenie co w wierszu", async () => {
+    renderPanel();
+    await openGroup();
+    fireEvent.click(screen.getByRole("link", { name: "Ewa Marczak" }));
+    const card = screen.getByTestId("similar-person-preview");
+    fireEvent.click(within(card).getByRole("checkbox"));
+    expect(screen.getByLabelText("Przepnij Ewa Marczak")).not.toBeChecked();
+    expect(screen.getByTestId("similar-panel-submit")).toHaveTextContent(
+      "Przepnij 1 osobę do Nowych",
+    );
+  });
+
+  it("odznaczenie rekrutacji zamyka kartę jej osoby", async () => {
+    renderPanel();
+    await openGroup();
+    fireEvent.click(screen.getByRole("link", { name: "Ewa Marczak" }));
+    fireEvent.click(screen.getByLabelText("Przepnij z: Analityk 1725"));
+    expect(screen.queryByTestId("similar-person-preview")).toBeNull();
+  });
+
+  it("rola bez dostępu do profili: nazwisko to przycisk, w karcie nie ma „Otwórz profil”", async () => {
+    canOpenProfile = false;
+    renderPanel();
+    await openGroup();
+    expect(screen.queryByRole("link", { name: "Ewa Marczak" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Ewa Marczak" }));
+    const card = screen.getByTestId("similar-person-preview");
+    expect(within(card).queryByRole("link", { name: /Otwórz profil/ })).toBeNull();
   });
 });

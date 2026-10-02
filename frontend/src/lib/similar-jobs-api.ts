@@ -105,6 +105,9 @@ export const similarPeopleKey = (jobId: number, otherId: number) =>
   ["similar-people", jobId, otherId] as const;
 export const similarSearchKey = (jobId: number, q: string) =>
   ["similar-jobs-search", jobId, q] as const;
+/** Dopasowanie jednej osoby do rekrutacji docelowej — karta podglądu osoby. */
+export const similarPersonScoreKey = (jobId: number, candidateId: number) =>
+  ["similar-person-score", jobId, candidateId] as const;
 
 export const similarJobsApi = {
   get: (jobId: number) =>

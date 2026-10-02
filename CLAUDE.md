@@ -3700,7 +3700,14 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   `entry_source=reassign`)
   i dodaje do „Nowych” ścieżką „Biorę” (blokada 12 h, weto HM = pominięcie).
   „Cofnij” w komunikacie zdejmuje dodanych i rozłącza nowe połączenia
-  (propozycje zostają `added` — świadomie). `?tab=similar` z powiadomień
+  (propozycje zostają `added` — świadomie). **Podgląd osoby (02.10.2026):**
+  klik w nazwisko otwiera kartę obok panelu (`SimilarPersonPreview`:
+  dopasowanie do TEJ rekrutacji z `/scores`, fakty z `proposal-facts`,
+  notatki z `quick-view`, CV, profil), Ctrl/⌘-klik — profil w nowej karcie;
+  zaznaczenie zmienia tylko pole wyboru. Karta jest `sidePane` w
+  `RecruitmentSheet` (wewnątrz okna — poza nim Radix wyłącza kliknięcia),
+  a Esc zamyka najpierw ją, bo zamknięcie panelu kasuje zaznaczenia.
+  `?tab=similar` z powiadomień
   o propozycjach AI zostaje przy „Do przejrzenia”, nie przy panelu. Pasek
   w „Nowych”, odznaka „N do przepięcia” i reguła „Najbliższego kroku”
   `similar` tylko otwierają panel i liczą `reassignable_people` z GET
