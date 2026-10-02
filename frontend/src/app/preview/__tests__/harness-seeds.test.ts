@@ -319,6 +319,42 @@ describe("/preview/kpi-targets zasiewa każdy stały klucz", () => {
   });
 });
 
+describe("/preview/permissions zasiewa ekran „Osoby i role” i nie ma sieci", () => {
+  const harness = withoutComments(read("app/preview/permissions/page.tsx")).replace(/\s+/g, " ");
+  const components = [
+    "components/settings/admin/AdminUsersTab.tsx",
+    "components/settings/admin/PermissionsTab.tsx",
+    "components/settings/admin/UserModal.tsx",
+  ];
+
+  it("nie zostawia klucza, który uruchomiłby zapytanie i przerzucił na /login", () => {
+    const keys = components.flatMap((file) => literalQueryKeys(read(file)));
+    // Lista osób, zasady ról (zakładka i okno osoby pytają tym samym kluczem).
+    expect([...new Set(keys)].sort()).toEqual([
+      '["admin-section-permissions"]',
+      '["admin-users"]',
+    ]);
+    for (const key of keys) expect(harness).toContain(key);
+  });
+
+  it("zasiewa uprawnienia każdej osoby (klucz z parametrem) i odcina sieć", () => {
+    // Ołówek w `?tab=users` otwiera okno dowolnej osoby — każda musi mieć
+    // zasiany odczyt, inaczej sekcja pokazałaby błąd zamiast listy.
+    expect(withoutComments(read("components/settings/admin/UserModal.tsx"))).toContain(
+      'queryKey: ["admin-user-permissions", userId]',
+    );
+    expect(harness).toContain("for (const person of PEOPLE)");
+    expect(harness).toContain('qc.setQueryData(["admin-user-permissions", person.id]');
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
+  });
+
+  it("montuje prawdziwy ekran i prawdziwe okno osoby", () => {
+    expect(harness).toContain("<AdminUsersTab embedded");
+    expect(harness).toContain("<UserModal");
+  });
+});
+
 describe("/preview/cv-qc — okno QC CV bez sieci", () => {
   const harness = withoutComments(read("app/preview/cv-qc/page.tsx")).replace(/\s+/g, " ");
 

@@ -208,12 +208,16 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     required: "write",
     enforceRoles: true,
   },
+  // Reguły CV edytuje posiadacz uprawnienia „Klienci: dodawanie i edycja”
+  // (0409). Token niesie sekcje (`sa`), nie uprawnienia, więc tutaj wymagamy
+  // zapisu w Delivery i nie zawężamy do ról: edycję bramkuje sama strona
+  // i backend, a osoba z zapisem Delivery bez tego uprawnienia widzi reguły
+  // tylko do odczytu. `roles` to fallback dla tokenów bez `sa`.
   {
     prefix: "/settings/cv-rules",
-    roles: ["admin", "delivery_lead"],
+    roles: sectionRoles("delivery", "write"),
     section: "delivery",
     required: "write",
-    enforceRoles: true,
   },
   { prefix: "/settings/templates", roles: NON_FINANCE_ROLES },
   {
@@ -367,7 +371,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/cv-generator`,
 //   `/preview/jobs-list-v3`, `/preview/calendar-cycle`, `/preview/cv-qc`,
 //   `/preview/cpro-queue`, `/preview/candidate-followup`,
-//   `/preview/kpi-targets`, `/preview/plain-brief`,
+//   `/preview/kpi-targets`, `/preview/plain-brief`, `/preview/permissions`,
 //   `/preview/b2b-documents`, `/preview/b2b-generator`, `/preview/similar-reassign`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
 //                — konkretne harnessy designu, po których może chodzić nightly
@@ -443,6 +447,8 @@ const PUBLIC_PATHS = [
   "/preview/cpro-queue",
   "/preview/candidate-followup",
   "/preview/kpi-targets",
+  // Ustawienia → „Osoby i role” (0409): dziewięć przełączników, okno osoby.
+  "/preview/permissions",
   "/preview/b2b-documents",
   "/preview/b2b-generator",
   "/preview/similar-reassign",
