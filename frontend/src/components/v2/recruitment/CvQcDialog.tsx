@@ -12,8 +12,9 @@
  * zwraca świeży wynik QC, który zastępuje cache.
  *
  * Treść CV i propozycji to TEKST — nic nie trafia na stronę jako HTML.
- * QC jest twardą bramką; „Przepuść mimo QC” widzą tylko admin i Delivery Lead
- * (serwer i tak odmawia reszcie).
+ * QC jest twardą bramką; „Przepuść mimo QC” widzą tylko osoby z uprawnieniem
+ * „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” (serwer i tak
+ * odmawia reszcie).
  */
 
 import dynamic from "next/dynamic";
@@ -68,9 +69,10 @@ import {
   segmentCv,
   unboldedTerms,
 } from "@/lib/cv-qc";
+import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
 import { cn, formatDate } from "@/lib/utils";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { useAuthStore } from "@/store/auth";
 
 const CVBrandedEditModal = dynamic(
   () =>
@@ -601,7 +603,8 @@ function OverrideForm({ stageId, onChanged }: { stageId: number; onChanged?: () 
     <section aria-label="Przepuść mimo QC" className="space-y-2 rounded-lg border border-dashed border-border p-3 text-sm">
       <h3 className="font-semibold">Przepuść mimo QC</h3>
       <p className="text-xs text-muted-foreground">
-        Tylko Delivery Lead i admin. Powód zostaje w historii kandydata i w raporcie QC.
+        Tylko z uprawnieniem „{permissionLabel("recruitment_manage")}”. Powód zostaje w historii
+        kandydata i w raporcie QC.
       </p>
       <label className="block text-xs font-medium">
         Powód (min. {QC_OVERRIDE_MIN_REASON} znaków)
@@ -804,7 +807,10 @@ export function CvQcDialogView({
   onRecheck,
 }: CvQcDialogViewProps) {
   const me = useAuthStore((s) => s.user);
-  const canOverride = hasRole(me, "admin", "delivery_lead");
+  const impersonating = useAuthStore((s) => s.realUser !== null);
+  // Obejście QC to decyzja osoby prowadzącej rekrutację (serwer: uprawnienie
+  // `recruitment_manage`); w podglądzie jako inny użytkownik — nikomu.
+  const canOverride = !impersonating && hasPermission(me, "recruitment_manage");
   const [editorOpen, setEditorOpen] = useState(false);
   const editorTarget = qcEditorTarget(data?.cv);
 

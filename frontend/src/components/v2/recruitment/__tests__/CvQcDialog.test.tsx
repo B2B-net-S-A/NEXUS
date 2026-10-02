@@ -33,7 +33,28 @@ vi.mock("next/dynamic", () => ({
 
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import type { QcResult } from "@/lib/api/cvQc";
+import type { Permission } from "@/lib/permissions";
 import { useAuthStore } from "@/store/auth";
+import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+
+/** Konto testowe. Bez `granted` uprawnienia liczą się z domyślnych dla roli;
+ *  z `granted` profil niesie pełną migawkę (dokładnie te uprawnienia). */
+function signIn(
+  role: string,
+  options: { granted?: Permission[]; realUser?: unknown } = {},
+) {
+  useAuthStore.setState({
+    user: {
+      id: 1,
+      role,
+      roles: [role],
+      ...(options.granted
+        ? { effective_action_access: permissionSnapshot(...options.granted) }
+        : {}),
+    },
+    realUser: options.realUser ?? null,
+  } as never);
+}
 
 function result(over: Partial<QcResult> = {}): QcResult {
   return {
@@ -120,7 +141,7 @@ function renderDialog(onChanged = vi.fn()) {
 describe("CvQcDialog — QC CV", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useAuthStore.setState({ user: { id: 1, role: "recruiter" } } as never);
+    signIn("recruiter");
     get.mockImplementation((url: string) =>
       url === "/api/pipeline/stages/7/qc" ? Promise.resolve({ data: result() }) : Promise.reject(new Error(url)),
     );
@@ -271,15 +292,49 @@ describe("CvQcDialog — QC CV", () => {
     expect(post).not.toHaveBeenCalled();
   });
 
-  it("„Przepuść mimo QC” tylko dla DL i admina, z powodem min. 10 znaków", async () => {
+  // „Przepuść mimo QC” idzie za uprawnieniem „Rekrutacje: zakładanie, zamykanie,
+  // wysyłka CV do klienta” (domyślnie Delivery Lead i administrator), nie za rolą.
+  async function overrideForm() {
     renderDialog();
     const dialog = await screen.findByRole("dialog");
     await within(dialog).findByText("Nie przechodzi · 2 blokujące");
-    expect(within(dialog).queryByRole("region", { name: "Przepuść mimo QC" })).toBeNull();
+    return within(dialog).queryByRole("region", { name: "Przepuść mimo QC" });
+  }
+
+  it("rekruter bez uprawnienia do prowadzenia rekrutacji nie widzi „Przepuść mimo QC”", async () => {
+    expect(await overrideForm()).toBeNull();
   });
 
-  it("Delivery Lead przepuszcza z powodem — wynik z `override`", async () => {
-    useAuthStore.setState({ user: { id: 2, role: "delivery_lead" } } as never);
+  it.each(["delivery_lead", "admin"])(
+    "%s ma uprawnienie domyślnie i widzi „Przepuść mimo QC”",
+    async (role) => {
+      signIn(role);
+      expect(await overrideForm()).not.toBeNull();
+    },
+  );
+
+  it("rekruter z nadanym uprawnieniem widzi „Przepuść mimo QC”, a opis nazywa uprawnienie", async () => {
+    signIn("recruiter", { granted: ["recruitment_manage"] });
+    const form = await overrideForm();
+    expect(form).not.toBeNull();
+    expect(form).toHaveTextContent(
+      "Tylko z uprawnieniem „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”.",
+    );
+    expect(form).not.toHaveTextContent(/Tylko Delivery Lead i admin/);
+  });
+
+  it("Delivery Lead z wyłączonym uprawnieniem nie widzi „Przepuść mimo QC”", async () => {
+    signIn("delivery_lead", { granted: ["delivery_view", "clients_edit"] });
+    expect(await overrideForm()).toBeNull();
+  });
+
+  it("w podglądzie jako inny użytkownik nie ma „Przepuść mimo QC”", async () => {
+    signIn("delivery_lead", { realUser: { id: 9, role: "admin", roles: ["admin"] } });
+    expect(await overrideForm()).toBeNull();
+  });
+
+  it("Delivery Lead przepuszcza z powodem (min. 10 znaków) — wynik z `override`", async () => {
+    signIn("delivery_lead");
     post.mockResolvedValue({
       data: result({ override: { reason: "Klient prosił o skrót", by_name: "Piotr Zając", at: "2026-09-24T10:00:00Z" } }),
     });

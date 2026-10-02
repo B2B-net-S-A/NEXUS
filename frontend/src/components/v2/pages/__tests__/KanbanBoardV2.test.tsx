@@ -75,9 +75,17 @@ vi.mock("@/components/v2/recruitment/CvQcDialog", () => ({
     open ? <div data-testid="cv-qc-dialog" data-stage-id={String(stageId)} /> : null,
 }));
 
+// Przegląd przed wysłaniem do klienta ma własne testy (`DlReviewPanel.test`) —
+// tu liczy się, KOMU tablica go otwiera i dla którego wiersza etapu.
+vi.mock("@/components/v2/recruitment/DlReviewPanel", () => ({
+  DlReviewPanel: ({ task, open }: { task: { stage_id: number } | null; open: boolean }) =>
+    open ? <div data-testid="dl-review-panel" data-stage-id={String(task?.stage_id)} /> : null,
+}));
+
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/store/auth";
+import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
 import { useUiStore } from "@/store/ui";
 import { KANBAN_VIEW_MODE_STORAGE_KEY } from "@/lib/kanban-view-preferences";
 
@@ -714,15 +722,138 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(moveCalls()).toHaveLength(0);
   });
 
-  it("„CV Wysłane” poza Nordeą: rekruter dostaje komunikat, że wysyła DL", async () => {
+  it("„CV Wysłane” poza Nordeą: rekruter bez uprawnienia dostaje komunikat z jego nazwą", async () => {
     useAuthStore.setState({ user: { id: 5, role: "recruiter", roles: ["recruiter"] } } as never);
     renderBoard(gateColumns({}));
     const menu = await openDockStageMenu();
     await userEvent.click(within(menu).getByRole("menuitem", { name: "CV wysłane" }));
 
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(expect.stringContaining("Delivery Lead")),
+      expect(toastError).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "uprawnieniem „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”",
+        ),
+      ),
     );
+    // O tym, kto wysyła, decyduje uprawnienie — komunikat nie wskazuje roli.
+    expect(toastError).not.toHaveBeenCalledWith(expect.stringContaining("Delivery Lead"));
+    expect(moveCalls()).toHaveLength(0);
+  });
+
+  it("„CV Wysłane” poza Nordeą: rekruter z nadanym uprawnieniem wpisuje stawkę jak Delivery Lead", async () => {
+    useAuthStore.setState({
+      user: {
+        id: 5,
+        role: "recruiter",
+        roles: ["recruiter"],
+        effective_action_access: permissionSnapshot("recruitment_manage"),
+      },
+    } as never);
+    renderBoard(gateColumns({}));
+    const menu = await openDockStageMenu();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "CV wysłane" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: "Przesuń i zapisz" })).toBeDisabled();
+    expect(toastError).not.toHaveBeenCalled();
+    expect(moveCalls()).toHaveLength(0);
+  });
+
+  it("„CV Wysłane” poza Nordeą: Delivery Lead z wyłączonym uprawnieniem nie wysyła mimo roli", async () => {
+    useAuthStore.setState({
+      user: {
+        id: 6,
+        role: "delivery_lead",
+        roles: ["delivery_lead"],
+        effective_action_access: permissionSnapshot("delivery_view", "clients_edit"),
+      },
+    } as never);
+    renderBoard(gateColumns({}));
+    const menu = await openDockStageMenu();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "CV wysłane" }));
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        expect.stringContaining("Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta"),
+      ),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(moveCalls()).toHaveLength(0);
+  });
+
+  // Osoba z zaliczonym QC CV poza Nordeą: kto ma uprawnienie do wysyłki,
+  // dostaje pełny przegląd przed wysłaniem zamiast samego okna stawki.
+  function qcPassedColumns() {
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[3] = {
+      ...columns[3],
+      count: 1,
+      items: [
+        {
+          id: 7301,
+          candidate_id: 8301,
+          stage: "new",
+          name: "Iga",
+          lastname: "Mazur",
+          days_in_stage: 1,
+          qc: { status: "passed", blocking_failed: 0 },
+        },
+      ],
+    };
+    return columns as never;
+  }
+
+  async function sendFromQcDock() {
+    renderBoard(qcPassedColumns());
+    const link = await screen.findByRole("link", { name: "Iga Mazur" });
+    fireEvent.click(link.closest("[data-kanban-card]") as HTMLElement);
+    await screen.findByRole("complementary", { name: "Karta kandydata" });
+    await userEvent.click(screen.getByRole("button", { name: "Inny etap…" }));
+    const menu = await screen.findByRole("menu");
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "CV wysłane" }));
+  }
+
+  it.each([
+    ["Delivery Lead (uprawnienie domyślne)", { id: 7, role: "delivery_lead", roles: ["delivery_lead"] }],
+    [
+      "rekruter z nadanym uprawnieniem",
+      {
+        id: 8,
+        role: "recruiter",
+        roles: ["recruiter"],
+        effective_action_access: permissionSnapshot("recruitment_manage"),
+      },
+    ],
+  ])("z „QC CV” do klienta: %s dostaje przegląd przed wysłaniem", async (_label, user) => {
+    useAuthStore.setState({ user } as never);
+    await sendFromQcDock();
+
+    expect(await screen.findByTestId("dl-review-panel")).toHaveAttribute("data-stage-id", "7301");
+    expect(toastError).not.toHaveBeenCalled();
+    expect(moveCalls()).toHaveLength(0);
+  });
+
+  it.each([
+    ["rekruter bez uprawnienia", { id: 9, role: "recruiter", roles: ["recruiter"] }],
+    [
+      "Delivery Lead z wyłączonym uprawnieniem",
+      {
+        id: 10,
+        role: "delivery_lead",
+        roles: ["delivery_lead"],
+        effective_action_access: permissionSnapshot("delivery_view", "clients_edit"),
+      },
+    ],
+  ])("z „QC CV” do klienta: %s nie dostaje przeglądu, tylko komunikat", async (_label, user) => {
+    useAuthStore.setState({ user } as never);
+    await sendFromQcDock();
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        expect.stringContaining("Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta"),
+      ),
+    );
+    expect(screen.queryByTestId("dl-review-panel")).toBeNull();
     expect(moveCalls()).toHaveLength(0);
   });
 

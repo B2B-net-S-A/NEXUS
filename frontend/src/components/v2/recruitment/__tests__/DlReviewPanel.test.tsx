@@ -51,6 +51,7 @@ vi.mock("@/components/v2/recruitment/PanelSavedViews", () => ({
 import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
 import type { BoardTaskRow } from "@/lib/api/boardTasks";
 import { useAuthStore } from "@/store/auth";
+import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
 
 const since = new Date(Date.now() - 2 * 86_400_000).toISOString();
 
@@ -204,15 +205,27 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("odmowa serwera (403) pokazuje jego komunikat po polsku", async () => {
+  it("odmowa serwera (403) pokazuje jego komunikat z nazwą brakującego uprawnienia", async () => {
     mockApi();
+    const message =
+      "Brakuje Ci uprawnienia „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”. Poproś administratora o dostęp.";
     post.mockRejectedValue({
-      response: { status: 403, data: { detail: "Do klienta wysyła Delivery Lead." } },
+      response: {
+        status: 403,
+        data: {
+          detail: {
+            code: "permission_denied",
+            permission: "recruitment_manage",
+            label: "Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta",
+            message,
+          },
+        },
+      },
     });
     renderPanel();
     await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
     await userEvent.click(screen.getByRole("button", { name: /Wyślij do klienta/ }));
-    await waitFor(() => expect(showError).toHaveBeenCalledWith("Do klienta wysyła Delivery Lead."));
+    await waitFor(() => expect(showError).toHaveBeenCalledWith(message));
   });
 
   it("CV bez zgody RODO: zamiast podglądu i pobrania komunikat i dołączenie zrzutu", async () => {
@@ -239,8 +252,94 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     renderPanel();
     expect(screen.getByRole("button", { name: /Wyślij do klienta/ })).toBeDisabled();
     expect(screen.queryByRole("button", { name: /Odrzuć \(DL\)/ })).toBeNull();
-    expect(screen.getByText(/Do klienta wysyła Delivery Lead/)).toBeTruthy();
+    // Zdanie nazywa uprawnienie, o które można poprosić — nie rolę.
+    expect(
+      screen.getByText(
+        /Do klienta wysyła osoba z uprawnieniem „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”/,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Do klienta wysyła Delivery Lead/)).toBeNull();
     expect(await screen.findByText(/nie ma jeszcze wygenerowanego CV/)).toBeTruthy();
+  });
+
+  describe("wysyłka do klienta za uprawnieniem, nie rolą", () => {
+    const send = () => screen.getByRole("button", { name: /Wyślij do klienta/ });
+    const denial = () => screen.queryByText(/Do klienta wysyła osoba z uprawnieniem/);
+
+    async function typeRate() {
+      await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
+    }
+
+    it.each(["delivery_lead", "admin"])(
+      "%s ma uprawnienie domyślnie i wysyła",
+      async (role) => {
+        useAuthStore.setState({ user: { id: 3, role, roles: [role] } } as never);
+        mockApi();
+        renderPanel();
+        await typeRate();
+        expect(send()).toBeEnabled();
+        expect(denial()).toBeNull();
+      },
+    );
+
+    it("rekruter z nadanym uprawnieniem wysyła, ale nie odrzuca „przez DL” (to zostaje przy rolach)", async () => {
+      useAuthStore.setState({
+        user: {
+          id: 4,
+          role: "recruiter",
+          roles: ["recruiter"],
+          effective_action_access: permissionSnapshot("recruitment_manage"),
+        },
+      } as never);
+      mockApi();
+      renderPanel();
+      await typeRate();
+      expect(send()).toBeEnabled();
+      expect(denial()).toBeNull();
+      expect(screen.queryByRole("button", { name: /Odrzuć \(DL\)/ })).toBeNull();
+    });
+
+    it("Delivery Lead z wyłączonym uprawnieniem nie wysyła, ale nadal odrzuca „przez DL”", async () => {
+      useAuthStore.setState({
+        user: {
+          id: 5,
+          role: "delivery_lead",
+          roles: ["delivery_lead"],
+          effective_action_access: permissionSnapshot("delivery_view", "clients_edit"),
+        },
+      } as never);
+      mockApi();
+      renderPanel();
+      expect(screen.getByLabelText("Stawka do klienta")).toBeDisabled();
+      expect(send()).toBeDisabled();
+      expect(denial()).not.toBeNull();
+      expect(screen.getByRole("button", { name: /Odrzuć \(DL\)/ })).toBeInTheDocument();
+    });
+
+    it("flaga z serwera wygrywa z regułą lokalną w obie strony", async () => {
+      // Kolejka pulpitu niesie `can_send_to_client` — to ona rozstrzyga.
+      useAuthStore.setState({ user: { id: 6, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+      mockApi();
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const view = render(
+        <QueryClientProvider client={qc}>
+          <DlReviewPanel task={task()} open onOpenChange={vi.fn()} canSendToClient={false} />
+        </QueryClientProvider>,
+      );
+      expect(send()).toBeDisabled();
+      expect(denial()).not.toBeNull();
+      view.unmount();
+
+      useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
+      render(
+        <QueryClientProvider client={qc}>
+          <DlReviewPanel task={task()} open onOpenChange={vi.fn()} canSendToClient />
+        </QueryClientProvider>,
+      );
+      await typeRate();
+      expect(send()).toBeEnabled();
+      expect(denial()).toBeNull();
+    });
   });
 
   it("pokazuje wynik QC CV i „Otwórz QC” otwiera okno QC dla etapu z kolejki", async () => {

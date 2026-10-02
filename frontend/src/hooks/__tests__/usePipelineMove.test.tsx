@@ -7,7 +7,7 @@
 import * as React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const post = vi.fn();
 const move = vi.fn();
@@ -41,12 +41,15 @@ vi.mock("@/components/v2/recruitment/DebriefRequiredDialog", () => ({
 }));
 
 import {
+  CLIENT_SEND_DENIED_MESSAGE,
   usePipelineMove,
   type PipelineMoveControls,
   type PipelineMoveOptimisticAdapter,
 } from "@/hooks/usePipelineMove";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import type { Permission } from "@/lib/permissions";
 import { useAuthStore } from "@/store/auth";
+import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
 
 const JOB_ID = 7;
 
@@ -99,30 +102,44 @@ function board(items: { fresh?: KanbanItem[]; client?: KanbanItem[] } = {}) {
 
 let controls: PipelineMoveControls;
 
+interface HarnessOptions {
+  /** Klient z kolejką Cpro (Nordea) — tam wysyłka nie pyta o uprawnienie. */
+  cproEnabled?: boolean;
+  /** Tablica tylko do odczytu, m.in. w podglądzie jako inny użytkownik. */
+  readOnly?: boolean;
+}
+
 function Harness({
   columns,
   optimistic,
+  options = {},
 }: {
   columns: KanbanColumn[];
   optimistic?: PipelineMoveOptimisticAdapter;
+  options?: HarnessOptions;
 }) {
   controls = usePipelineMove({
     jobId: JOB_ID,
     job: { budgetHourly: 150, rejectionReasons: [] },
     columns,
-    readOnly: false,
+    readOnly: options.readOnly ?? false,
     canWriteClientRate: false,
     optimistic,
+    cproEnabled: options.cproEnabled,
   });
   return <>{controls.dialogs}</>;
 }
 
-function mount(columns: KanbanColumn[], optimistic?: PipelineMoveOptimisticAdapter) {
+function mount(
+  columns: KanbanColumn[],
+  optimistic?: PipelineMoveOptimisticAdapter,
+  options?: HarnessOptions,
+) {
   const queryClient = new QueryClient();
   const invalidate = vi.spyOn(queryClient, "invalidateQueries");
   render(
     <QueryClientProvider client={queryClient}>
-      <Harness columns={columns} optimistic={optimistic} />
+      <Harness columns={columns} optimistic={optimistic} options={options} />
     </QueryClientProvider>
   );
   return { invalidate };
@@ -556,5 +573,125 @@ describe("usePipelineMove — ruch zbiorczy", () => {
     expect(showError).toHaveBeenCalledWith(
       "Zatrudnienie oznaczaj pojedynczo — przeciągnij kartę kandydata."
     );
+  });
+});
+
+// Poza klientem z kolejką Cpro do klienta wysyła osoba z uprawnieniem
+// „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” — domyślnie
+// Delivery Lead i administrator, ale rozstrzyga uprawnienie, nie rola.
+describe("usePipelineMove — wysyłka CV do klienta za uprawnieniem", () => {
+  const RATE_DIALOG = "Przesuń na „CV Wysłane\"";
+
+  function signIn(role: string, granted?: Permission[], realUser: unknown = null) {
+    useAuthStore.setState({
+      user: {
+        id: 9,
+        role,
+        roles: [role],
+        email: `${role}@example.com`,
+        // Bez `granted` liczą się domyślne uprawnienia roli.
+        ...(granted ? { effective_action_access: permissionSnapshot(...granted) } : {}),
+      },
+      realUser,
+    } as never);
+  }
+
+  function sendBoard(items: KanbanItem[]) {
+    const qc = column("interview", 5, "QC CV", "internal", items);
+    const cvSent = column("cv_sent", 6, "CV Wysłane", "external");
+    return { qc, cvSent, all: [qc, cvSent] };
+  }
+
+  function requestSend(options?: HarnessOptions) {
+    const item = card({ id: 60, candidate_id: 600, process_state_version: 2 });
+    const b = sendBoard([item]);
+    mount(b.all, undefined, options);
+    React.act(() => controls.requestMove(item, b.qc, b.cvSent));
+  }
+
+  afterEach(() => {
+    useAuthStore.setState({ realUser: null } as never);
+  });
+
+  it.each(["delivery_lead", "admin"])(
+    "%s ma uprawnienie domyślnie — dostaje okno stawki do klienta",
+    async (role) => {
+      signIn(role);
+      requestSend();
+
+      expect(await screen.findByText(RATE_DIALOG)).toBeInTheDocument();
+      expect(showError).not.toHaveBeenCalled();
+      // Okno można anulować — ruch idzie dopiero po wpisaniu stawki.
+      expect(post).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rekruter z nadanym uprawnieniem dostaje okno stawki do klienta", async () => {
+    signIn("recruiter", ["recruitment_manage"]);
+    requestSend();
+
+    expect(await screen.findByText(RATE_DIALOG)).toBeInTheDocument();
+    expect(showError).not.toHaveBeenCalled();
+  });
+
+  it("rekruter bez uprawnienia dostaje komunikat z jego nazwą zamiast okna", () => {
+    signIn("recruiter");
+    requestSend();
+
+    expect(showError).toHaveBeenCalledTimes(1);
+    expect(showError).toHaveBeenCalledWith(CLIENT_SEND_DENIED_MESSAGE);
+    expect(CLIENT_SEND_DENIED_MESSAGE).toContain(
+      "„Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”",
+    );
+    expect(CLIENT_SEND_DENIED_MESSAGE).not.toMatch(/Delivery Lead/);
+    expect(screen.queryByText(RATE_DIALOG)).toBeNull();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("Delivery Lead z wyłączonym uprawnieniem nie wysyła do klienta mimo roli", () => {
+    signIn("delivery_lead", ["delivery_view", "clients_edit"]);
+    requestSend();
+
+    expect(showError).toHaveBeenCalledWith(CLIENT_SEND_DENIED_MESSAGE);
+    expect(screen.queryByText(RATE_DIALOG)).toBeNull();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("ruch zbiorczy na „CV Wysłane” bez uprawnienia nie wysyła nikogo", async () => {
+    signIn("recruiter");
+    const items = [1, 2].map((n) => card({ id: 60 + n, candidate_id: 600 + n }));
+    const b = sendBoard(items);
+    const onHandled = vi.fn();
+    mount(b.all);
+
+    await React.act(async () => {
+      await controls.requestBulkMove(items, b.cvSent, { onHandled });
+    });
+
+    expect(showError).toHaveBeenCalledWith(CLIENT_SEND_DENIED_MESSAGE);
+    expect(post).not.toHaveBeenCalled();
+    expect(onHandled).not.toHaveBeenCalled();
+  });
+
+  it("u klienta z kolejką Cpro ruch nie pyta o to uprawnienie", async () => {
+    signIn("recruiter");
+    post.mockResolvedValue({ data: { id: 801, process_state_version: 3 } });
+    requestSend({ cproEnabled: true });
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post).toHaveBeenCalledWith(
+      "/api/pipeline/move",
+      expect.objectContaining({ candidate_id: 600, stage: "cv_sent" }),
+    );
+    expect(showError).not.toHaveBeenCalled();
+  });
+
+  it("w podglądzie jako inny użytkownik (tablica tylko do odczytu) ruch nie startuje", () => {
+    signIn("delivery_lead", undefined, { id: 1, role: "admin", roles: ["admin"] });
+    requestSend({ readOnly: true });
+
+    expect(screen.queryByText(RATE_DIALOG)).toBeNull();
+    expect(showError).not.toHaveBeenCalled();
+    expect(post).not.toHaveBeenCalled();
   });
 });

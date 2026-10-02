@@ -32,6 +32,7 @@ import api, {
 import { apiErrorMessage } from "@/lib/api-error";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
+import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { canMutateSection, hasSectionAccess } from "@/lib/section-access";
 import { canEditJobContent, jobEditScope } from "@/lib/job-edit-access";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -177,11 +178,12 @@ const CLAIM_ELIGIBLE_ROLES = [
   "sourcer",
 ] as const;
 
-// `GET /jobs/{id}/readiness` → `DeliveryLeadPlus` (admin + delivery_lead).
-// Dla pozostałych ról zapytanie kończy się 403 ZAWSZE — nie wysyłamy go
-// (z `retry: 1` byłyby to dwa 403 na każde zaznaczenie wiersza); notatka
-// „kto to widzi" renderuje się bez sieci.
-const GATE_ROLES = ["admin", "delivery_lead"] as const;
+// `GET /jobs/{id}/readiness` wymaga uprawnienia „Rekrutacje: zakładanie,
+// zamykanie, wysyłka CV do klienta” (`RecruitmentManageUser`). Bez niego
+// zapytanie kończy się 403 ZAWSZE — nie wysyłamy go (z `retry: 1` byłyby to
+// dwa 403 na każde zaznaczenie wiersza); notatka „kto to widzi" renderuje się
+// bez sieci.
+const GATE_PERMISSION = "recruitment_manage" as const;
 
 interface ReadinessItem {
   key: string;
@@ -201,11 +203,11 @@ function rowLinkClass() {
 /**
  * Bramka oficjalna „Przekaż do searchu” (`GET /api/jobs/{id}/readiness`).
  *
- * Widoczna WYŁĄCZNIE dla admina/DL przypisanego do klienta tej rekrutacji
- * (`DeliveryLeadPlus` + zakres klient–DL w handlerze) — dla każdej innej roli
- * to zapytanie kończy się 403. To NIE jest błąd do ukrycia: pokazujemy
- * czytelną notatkę „kto to widzi", żeby recruiter nie myślał, że coś się nie
- * wczytało.
+ * Widoczna WYŁĄCZNIE z uprawnieniem do prowadzenia rekrutacji (konto z rolą
+ * Delivery Leada — u klientów ze swojego zakresu, to sprawdza handler) — dla
+ * każdego innego konta to zapytanie kończy się 403. To NIE jest błąd do
+ * ukrycia: pokazujemy czytelną notatkę „kto to widzi", żeby recruiter nie
+ * myślał, że coś się nie wczytało.
  *
  * Od fali 3 werdykt jest JEDNĄ LINIĄ z licznikiem braków, rozwijaną kliknięciem
  * — pełna lista blokerów potrafiła zająć pół doku i spychała pod krawędź to,
@@ -216,15 +218,16 @@ function ReadinessGateBlock({
   canSeeGate,
 }: {
   query: UseQueryResult<any, unknown>;
-  /** Rola z `GATE_ROLES` — bez niej zapytanie nie jest wysyłane (patrz wyżej). */
+  /** Uprawnienie `GATE_PERMISSION` — bez niego zapytanie nie jest wysyłane
+   *  (patrz wyżej). */
   canSeeGate: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
   const notice = (
     <p className="rounded-md border border-dashed border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
-      Bramka „Przekaż do searchu” — widoczna dla Delivery Lead / admina
-      przypisanego do tego klienta.
+      Bramka „Przekaż do searchu” — widoczna z uprawnieniem „
+      {permissionLabel(GATE_PERMISSION)}” (Delivery Lead: u swoich klientów).
     </p>
   );
 
@@ -477,10 +480,10 @@ export function JobReadinessDock({
   const impersonating = useAuthStore((s) => s.realUser !== null);
   const canWritePipeline = canMutateSection(authUser, "pipeline", impersonating);
   const claimEligible = authUser ? hasRole(authUser, ...CLAIM_ELIGIBLE_ROLES) : false;
-  // Rola + sufit sekcji Pipeline (U8): DL z odebraną sekcją nie wysyła
-  // zapytania, które skończy się 403.
+  // Uprawnienie + sufit sekcji Pipeline (U8): konto z odebraną sekcją nie
+  // wysyła zapytania, które skończy się 403.
   const canSeeGate = authUser
-    ? hasRole(authUser, ...GATE_ROLES) &&
+    ? hasPermission(authUser, GATE_PERMISSION) &&
       hasSectionAccess(authUser, "pipeline", "read")
     : false;
   // Lustro `page.tsx` (dawny header „Zespół i priorytet") dla ról, którym
@@ -648,8 +651,9 @@ export function JobReadinessDock({
   const canManageJob = editScope === "full";
   const canEditChampion = canEditJobContent(job, {
     canWritePipeline,
-    // Lustro `PUT /champion-profile` sprzed pola `can_edit` (DeliveryLeadPlus).
-    fallback: hasRole(authUser, "admin", "delivery_lead"),
+    // Odpowiedź bez pola `can_edit` (starszy cache): pełną redakcję rekrutacji
+    // daje uprawnienie do jej prowadzenia.
+    fallback: hasPermission(authUser, GATE_PERMISSION),
   });
   // Na kroku 02 źródłem prawdy o Championie jest `["champion-profile", jobId]`
   // — ten sam klucz, który unieważnia edytor i checklista obok. Czytanie
@@ -1129,8 +1133,8 @@ export function JobReadinessDock({
             <div className="grid grid-cols-2 gap-2 pt-1">
               {/* Krok 02: handoff jest GŁÓWNĄ akcją tego doku — dopiero po nim
                   rekruter dostaje dostęp i ranking się generuje. Lustro backendu:
-                  `GET /readiness` i `POST /handoff` to `DeliveryLeadPlus`
-                  (admin + DL), więc rola z bramki gotowości i zapis Pipeline.
+                  `GET /readiness` i `POST /handoff` wymagają uprawnienia do
+                  prowadzenia rekrutacji, więc bramka gotowości i zapis Pipeline.
                   NIE `canEditChampion`: `can_edit` z serwera ma też rekruter
                   prowadzący, a dla niego oba endpointy to 403 (28.09.2026). */}
               {variant === "champion" && canSeeGate && canWritePipeline && (
