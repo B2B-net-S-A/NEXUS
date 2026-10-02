@@ -12,14 +12,18 @@
  * „Moja kategoria", „Otwarte" i „Wszystkie" (sort „Od najnowszej"), więc
  * przełącznik zakresu działa.
  *
+ * Wiersz to nazwa stanowiska, a pod nią kategoria, klient i tryb pracy
+ * (02.10.2026); wymagania, numery i podobne rekrutacje stoją w Podglądzie
+ * (ikona oka) — dok ma zasiane zlecenie i gotowość każdej otwieralnej rekrutacji.
+ *
  * Wiersze pokazują kolumnę „Rekruter” w każdym stanie (jedna osoba, dwie
  * z „+1”, sama propozycja automatu, nikt) oraz priorytety P1 i „Przyjmujemy”.
  * Po lewej stoi szyna „Otwarte karty” — ta sama co w `app/jobs/layout.tsx`,
  * tylko z fikcyjnymi kartami podanymi wprost (prawdziwa czyta store zapisywany
  * w `localStorage`, którego harness nie może nadpisać oglądającemu).
  *
- * Bezpiecznik sieci: dok „Podgląd" i rozwijane filtry mają własne zapytania,
- * których tu nie zasiewamy. Na czas życia harnessu interceptor odrzuca KAŻDE
+ * Bezpiecznik sieci: pozostałe zakładki doku „Podgląd" i rozwijane filtry mają
+ * własne zapytania, których tu nie zasiewamy. Na czas życia harnessu interceptor odrzuca KAŻDE
  * żądanie axiosa lokalnie (bez wyjścia do sieci, bez ponowień) — dok pokazuje
  * wtedy swój stan błędu zamiast strzelić w API i przerzucić na /login.
  */
@@ -113,7 +117,11 @@ const MINE = [
     working_title: "Senior Java Developer · Java, Kafka · 5+ lat · Płatności",
     client_reference: "ZOB 48213",
     reference_number: "REF-2026-0901",
-    location: "Warszawa",
+    working_title_auto: true,
+    must_skills: ["Java", "Kafka", "Spring Boot", "PostgreSQL"],
+    remote_policy: "hybrid",
+    onsite_days_per_week: 2,
+    location: "Warszawa, Gdańsk, Gdynia",
     seniority: "Senior",
     client_name: "Bank Przykładowy",
     competence_category_id: 2,
@@ -152,6 +160,9 @@ const MINE = [
     working_title: "DevOps Engineer · Azure, Terraform · 4+ lata",
     client_reference: "SAP 4500123456",
     reference_number: "REF-2026-0902",
+    working_title_auto: true,
+    must_skills: ["Azure", "Terraform", "Kubernetes"],
+    remote_policy: "remote",
     location: "Zdalnie",
     seniority: "Mid",
     client_name: "Ubezpieczenia Demo",
@@ -181,6 +192,8 @@ const MINE = [
     similar: { linked_count: 0, linked_first: null, reassigned_count: 0, suggested: null },
     title: "Analityk biznesowy",
     reference_number: "REF-2026-0903",
+    remote_policy: "hybrid",
+    onsite_days_per_month: 2,
     location: "Kraków",
     client_name: "Telekom Demo",
     competence_category_id: 4,
@@ -387,11 +400,24 @@ function seededClient(): QueryClient {
     attention: { overdue: 1, nobody_working: 2, nobody_sent: 5 },
     attention_mine: { overdue: 1, nobody_working: 0, nobody_sent: 1 },
   });
+  // Dok „Podgląd”: zlecenie i werdykt bramki każdej rekrutacji, którą da się
+  // otworzyć — te same klucze co `JobReadinessDock`.
+  for (const job of ALL) {
+    if ("can_open" in job && job.can_open === false) continue;
+    qc.setQueryData(["job", String(job.id)], { ...job, nice_skills: [] });
+    qc.setQueryData(["job-readiness", job.id], {
+      job_id: job.id,
+      ready: false,
+      blockers: [],
+      closed: job.status === "closed",
+      already_handed_off: job.status === "published",
+    });
+  }
   // Okienka paska filtrów (klucze z samych literałów — pilnuje ich
   // `harness-seeds.test.ts`).
   qc.setQueryData(["clients-lookup"], []);
   qc.setQueryData(["users-directory"], []);
-  // Kolumna „Kategoria” szerokiej tabeli (≥ 1700 px) czyta ten katalog.
+  // Krótka plakietka kategorii pod tytułem czyta ten katalog.
   qc.setQueryData(
     ["competence-categories-active"],
     [

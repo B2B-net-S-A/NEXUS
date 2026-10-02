@@ -542,7 +542,7 @@ describe("JobsListV2 — status requestu i podobne rekrutacje (lista v4)", () =>
     expect(window.location.search).toContain("stage=client_silent");
   });
 
-  it("„≈ podobne” otwiera okno przepięć, „↻” pokazuje połączoną rekrutację", async () => {
+  it("ikona podobnych rekrutacji otwiera okno przepięć; zdanie o połączonej stoi w jej nazwie", async () => {
     const user = userEvent.setup();
     mockJobsResponse([
       jobRow({
@@ -568,12 +568,21 @@ describe("JobsListV2 — status requestu i podobne rekrutacje (lista v4)", () =>
     ]);
     renderJobs();
     await screen.findByText("Z sugestią");
-    expect(screen.getByText("↻ #4588")).toBeInTheDocument();
-    expect(screen.getByText("przepięto 3")).toBeInTheDocument();
+    // Tekstowa plakietka zeszła z wiersza do Podglądu — w wierszu jest ikona.
+    expect(screen.queryByTestId("job-similar-badge")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Połączone rekrutacje: #4588 · przepięto 3",
+      }),
+    ).toBeInTheDocument();
     getMock.mockResolvedValueOnce({
       data: { job_id: 21, reassigned_count: 0, linked: [], suggestions: [] },
     });
-    await user.click(screen.getByText("≈ 2 podobne"));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Podobne rekrutacje: 2 podobne · 5 u klienta — przepnij",
+      }),
+    );
     expect(await screen.findByRole("dialog", { name: "Podobne rekrutacje" })).toBeInTheDocument();
   });
 });
@@ -953,7 +962,7 @@ describe("JobsListV2 — lista v5: liczby statusów, termin, nowe filtry", () =>
     expect(within(noDeadlineRow).queryByTestId("job-deadline")).not.toBeInTheDocument();
   });
 
-  it("tytuł w dwóch liniach, „Podobne rekrutacje” to plakietka pod tytułem (bez osobnej kolumny)", async () => {
+  it("tytuł w jednej linii, „Podobne rekrutacje” to ikona w kolumnie akcji (bez osobnej kolumny)", async () => {
     mockJobsResponse([
       jobRow({
         id: 31,
@@ -970,13 +979,20 @@ describe("JobsListV2 — lista v5: liczby statusów, termin, nowe filtry", () =>
     mockQuickCounts();
     renderJobs();
     const title = await screen.findByRole("link", { name: /Bardzo długi tytuł/ });
-    expect(title).toHaveClass("line-clamp-2");
+    // Długa nazwa przycina się wielokropkiem; pełna stoi w dymku opakowania.
+    expect(title.parentElement).toHaveClass("truncate");
+    expect(title.parentElement).toHaveAttribute(
+      "title",
+      "Bardzo długi tytuł rekrutacji z klientem i technologią w nazwie",
+    );
     expect(screen.queryByRole("columnheader", { name: /Podobne/ })).not.toBeInTheDocument();
-    const badge = screen.getByTestId("job-similar-badge");
-    expect(badge).toHaveTextContent("≈ 3 podobne");
-    expect(badge).toHaveTextContent("Przepnij →");
-    // Plakietka stoi w komórce tytułu, obok klienta.
-    expect(title.closest("td")).toContainElement(badge);
+    const icon = screen.getByTestId("job-similar-icon");
+    expect(icon).toHaveAccessibleName(
+      "Podobne rekrutacje: 3 podobne · 4 u klienta — przepnij",
+    );
+    // Ikona stoi w kolumnie akcji, nie pod tytułem.
+    expect(title.closest("td")).not.toContainElement(icon);
+    expect(title.closest("tr")).toContainElement(icon);
   });
 
   it("„Wysłanych do klienta” (w „Więcej filtrów”) wysyła min_sent/max_sent i liczy się do „Wyczyść filtry (N)”", async () => {

@@ -1249,3 +1249,33 @@ describe("JobReadinessDock — zwijanie doku (krok 02)", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+describe("JobReadinessDock — szczegóły z wiersza listy (02.10.2026)", () => {
+  it("`listDetails` stoi na górze „Gotowości”, a podtytuł pokazuje samego klienta", async () => {
+    mockGetByUrl({});
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <JobReadinessDock
+            jobId={501}
+            canOpen
+            listDetails={<div data-testid="details">Nasz numer 16/9/2026/MW/4903</div>}
+          />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+
+    const details = await screen.findByTestId("details");
+    // Numer stoi w sekcji szczegółów, więc nagłówek go nie powtarza.
+    expect(screen.getByText("PKO Bank Polski")).toBeInTheDocument();
+    expect(
+      screen.queryByText("PKO Bank Polski · 16/9/2026/MW/4903"),
+    ).not.toBeInTheDocument();
+    // Szczegóły przed licznikiem kompletności.
+    const score = screen.getByText(/kompletność zlecenia/);
+    expect(
+      details.compareDocumentPosition(score) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+});
