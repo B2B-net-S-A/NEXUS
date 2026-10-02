@@ -51,6 +51,9 @@ class TeamPerson:
     via: str  # owner | assignment | collaborator
     proposed: bool = False
     assigned_by_name: Optional[str] = None
+    # Źródło żywego wiersza przypisania osoby (``auto`` | ``manual``); brak =
+    # osoba jest przy rekrutacji bez takiego wiersza (prowadzący, współpracownik).
+    assignment_source: Optional[str] = None
 
 
 # Role, które pracują nad requestem (pulpit „Requesty i obłożenie”, planer).
@@ -269,6 +272,7 @@ async def recruiters_for_jobs(
                     role=WORK_ROLE,
                     via="owner",
                     assigned_by_name=own_row.assigner_name if own_row else None,
+                    assignment_source=own_row.source if own_row else None,
                 )
             )
             seen.add(owner.id)
@@ -282,6 +286,7 @@ async def recruiters_for_jobs(
                     role=WORK_ROLE,
                     via="assignment",
                     assigned_by_name=row.assigner_name,
+                    assignment_source=row.source,
                 )
             )
             seen.add(row.user_id)
@@ -308,6 +313,7 @@ async def recruiters_for_jobs(
                     role=WORK_ROLE,
                     via="assignment",
                     proposed=True,
+                    assignment_source=row.source,
                 )
             )
             seen.add(row.user_id)

@@ -209,7 +209,7 @@
       },
       {
         "q": "Czego brakuje, żeby przekazać rekrutację do searchu?",
-        "a": "Zobacz zakładkę „Gotowość” w panelu z prawej: lista braków (rola, must-have, budżet, tryb pracy, opis projektu, pytania screeningowe, wymagania do wyszukiwania, decyzja o umiejętnościach krytycznych). Budżet i tryb pracy uzupełnisz na miejscu. Gdy nic nie brakuje, osoba z uprawnieniem do rekrutacji używa „Przekaż do searchu”.",
+        "a": "Zobacz zakładkę „Gotowość” w panelu z prawej: lista braków (rola, must-have, budżet, tryb pracy, opis projektu, pytania screeningowe z odpowiedzią, która odpada, decyzja o umiejętnościach krytycznych). Budżet i tryb pracy uzupełnisz na miejscu. Gdy nic nie brakuje, osoba z uprawnieniem do rekrutacji używa „Przekaż do searchu”.",
         "anchor": "job.champion.readiness"
       },
       {
@@ -223,13 +223,13 @@
         "anchor": "job.champion.found"
       },
       {
-        "q": "Po co są wymagania do wyszukiwania w bazie?",
-        "a": "Od nich rekruter zaczyna „Szukaj ręcznie”: każdy wiersz musi się zgadzać, słowa w wierszu to warianty. Przy tworzeniu z maila proponuje je Luna — sprawdź je. Bez co najmniej jednego wiersza rekrutacja nie przejdzie do searchu. Automatyczne dopasowania ich nie czytają."
+        "q": "Jak wpisać wymagania jako słowa kluczowe?",
+        "a": "W sekcji 3 wymagania to jedna lista: wiersz to wymaganie, słowa w wierszu to warianty, a poziom to „Krytyczne”, „Musi mieć” albo „Mile widziane”. Od nich rekruter zaczyna „Szukaj ręcznie” — wymagane są tam tylko krytyczne. Starszy profil ma osobne pola; „Uprość do słów kluczowych” zamienia je na listę."
       }
     ],
     "pitfalls": [
       "Stack MUST z sekcji 3 jest tym, po czym system dopasowuje kandydatów — sama proza w opisie projektu wystarcza gorzej.",
-    "Kandydata z list AI ukrywa tylko brak umiejętności krytycznej (pole „Krytyczne (0–2)” w sekcji 3). Pozostałe MUST i NICE dają punkty. Bez decyzji działa podpowiedź z historii; „Brak krytycznych” znaczy, że MUST nikogo nie ukrywa.",
+    "Kandydata z list AI ukrywa tylko brak umiejętności krytycznej (poziom „Krytyczne” wiersza w sekcji 3, w starszym profilu pole „Krytyczne (0–2)”). Pozostałe wymagania dają punkty. Bez decyzji działa podpowiedź z historii; „Brak krytycznych” znaczy, że nikt nie jest ukrywany.",
       "Budżet podany zakresem jest zapisywany jako górna granica stawki godzinowej.",
       "Tytuł w nagłówku to tytuł dla rekrutera: składa się sam z profilu (rola, must-have, lata, dziedzina), dopóki nikt go nie zmieni w „Edytuj rekrutację”. Do klienta idą nazwa i numer od klienta."
     ],

@@ -267,16 +267,33 @@ def test_shadow_proposals_are_activated_when_mode_becomes_auto() -> None:
 
 
 @pytest.mark.unit
-def test_auto_mode_without_leave_data_assigns_nobody_but_shadow_still_proposes() -> (
+def test_auto_mode_with_stale_compass_leave_assigns_nobody_but_shadow_proposes() -> (
     None
 ):
+    # Urlopy z Compassa włączone, ale nieaktualne: request mógłby dostać ktoś
+    # na urlopie, więc tryb automatyczny czeka.
     data = dict(requests=[req(91)], people=[recruiter(1)], live=[])
-    assert (
-        plan_assignments(PlanInput(**data, mode="auto", availability_known=False)) == []
+    stale = dict(availability_known=False, leave_blocks_auto=True)
+    assert plan_assignments(PlanInput(**data, mode="auto", **stale)) == []
+    assert assigned(plan_assignments(PlanInput(**data, mode="shadow", **stale))) == {
+        91: 1
+    }
+
+
+@pytest.mark.unit
+def test_auto_mode_without_compass_assigns_right_away() -> None:
+    # Urlopy z Compassa wyłączone: danych nie będzie, więc nie ma na co
+    # czekać — automat przydziela od razu.
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(91)],
+            people=[recruiter(1)],
+            live=[],
+            mode="auto",
+            availability_known=False,
+        )
     )
-    assert assigned(
-        plan_assignments(PlanInput(**data, mode="shadow", availability_known=False))
-    ) == {91: 1}
+    assert assigned(changes) == {91: 1}
 
 
 @pytest.mark.unit
@@ -372,7 +389,22 @@ def test_nobody_assigned_when_every_capable_person_was_removed_by_hand() -> None
 
 
 @pytest.mark.unit
-def test_auto_mode_without_leave_data_does_not_activate_proposals() -> None:
+def test_auto_mode_with_stale_compass_leave_does_not_activate_proposals() -> None:
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, DEV)],
+            people=[recruiter(1, DEV)],
+            live=[LiveAssignment(10, 1, "recruiter", "auto", "proposed")],
+            mode="auto",
+            availability_known=False,
+            leave_blocks_auto=True,
+        )
+    )
+    assert [c.kind for c in changes] == []
+
+
+@pytest.mark.unit
+def test_auto_mode_without_compass_activates_proposals() -> None:
     changes = plan_assignments(
         PlanInput(
             requests=[req(10, DEV)],
@@ -382,7 +414,7 @@ def test_auto_mode_without_leave_data_does_not_activate_proposals() -> None:
             availability_known=False,
         )
     )
-    assert [c.kind for c in changes] == []
+    assert [(c.kind, c.job_id, c.user_id) for c in changes] == [("activate", 10, 1)]
 
 
 @pytest.mark.unit

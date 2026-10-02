@@ -679,7 +679,12 @@ async def _load_collaborator_map(
                 JobCollaborator.user_id,
                 JobCollaborator.source,
             )
-            .where(JobCollaborator.job_id.in_(job_ids))
+            .where(
+                JobCollaborator.job_id.in_(job_ids),
+                # Osoba zdjęta z rekrutacji zostaje w tabeli tylko jako blokada
+                # ponownego dodania z kategorii — uczestnikiem już nie jest.
+                JobCollaborator.removed_from_auto_cc.is_(False),
+            )
             .order_by(JobCollaborator.id)
         )
     ).all()
@@ -2190,11 +2195,19 @@ async def create_job(
 
     # 0380: numer u klienta i tytuł dla rekrutera. Jawny tytuł = ręczny
     # (automat wyłączony); brak = składa go `job_working_title` niżej.
-    from app.services.job_working_title import normalize_client_reference
+    from app.services.job_working_title import (
+        normalize_client_reference,
+        reference_from_title,
+    )
 
+    # 02.10.2026: numer klienta stoi w nazwie od klienta („… (ZOB 48213)”) —
+    # bez pola w żądaniu bierzemy go z tytułu, żeby CV i Cpro go miały. Pole
+    # wysłane puste to decyzja człowieka („To nie ten numer”): zostaje puste.
     payload["client_reference"] = normalize_client_reference(
         payload.get("client_reference")
     )
+    if "client_reference" not in data.model_fields_set:
+        payload["client_reference"] = reference_from_title(payload.get("title"))
     manual_working_title = (payload.get("working_title") or "").strip() or None
     payload["working_title"] = manual_working_title
     payload["working_title_auto"] = manual_working_title is None
@@ -2357,14 +2370,16 @@ async def create_job(
                 await db.commit()
                 await db.refresh(job)
         if job.competence_category_id is not None:
-            from app.services.auto_cc_collaborators import auto_add_cc_collaborators
+            from app.services.auto_cc_collaborators import sync_cc_participants
 
-            await auto_add_cc_collaborators(
-                db,
-                job_id=job.id,
-                competence_category_id=job.competence_category_id,
-                added_by=current_user.id,
-            )
+            # Uczestnicy = wszystkie osoby kategorii (1. i 2. priorytet).
+            # Savepoint: błąd synchronizacji nie może zostawić sesji w zerwanej
+            # transakcji przed końcowym odświeżeniem rekrutacji.
+            async with db.begin_nested():
+                await sync_cc_participants(
+                    db, job_ids=[job.id], added_by=current_user.id
+                )
+            await db.commit()
     except Exception as e:  # pragma: no cover — never block job creation
         logger.warning("[Job] CC auto-assignment failed for job %s: %s", job.id, e)
 
@@ -2773,6 +2788,7 @@ async def update_job(
     _status_before = job.status
     _hiring_manager_before = job.hiring_manager_contact_id
     _recruiter_before = job.recruiter_id
+    _category_before = job.competence_category_id
     for k, v in updates.items():
         setattr(job, k, v)
     _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
@@ -2910,6 +2926,24 @@ async def update_job(
                     actor_id=current_user.id,
                     reason="job_reopened",
                 )
+
+    # Inna kategoria = inni uczestnicy: osoby poprzedniej kategorii schodzą,
+    # osoby nowej dochodzą. Dopisani ręcznie i zdjęci z rekrutacji zostają.
+    if job.competence_category_id != _category_before:
+        from app.services.auto_cc_collaborators import sync_cc_participants
+
+        # Savepoint jak przy tworzeniu: błąd synchronizacji nie cofa zapisu
+        # rekrutacji — listę wyrówna pętla godzinowa.
+        try:
+            async with db.begin_nested():
+                await sync_cc_participants(
+                    db, job_ids=[job.id], added_by=current_user.id
+                )
+        except Exception:
+            logger.exception(
+                "[Job] synchronizacja uczestników kategorii nie powiodła się (job %s)",
+                job.id,
+            )
 
     changed = {f for f, old in _scoring_before.items() if getattr(job, f) != old}
     db.add(
@@ -3662,6 +3696,12 @@ async def _save_champion_profile(
     # polsku, nie 500 z normalizacji (audyt 25.09.2026, r3).
     from app.api.champion_intake import invalid_champion_profile
 
+    # Wiersze wymagań (02.10.2026): `stack.rows` jest źródłem, a `must`,
+    # `nice`, `critical` i `search.requirements` wyprowadza serwer — dalej
+    # zapis idzie tą samą drogą co zwykła edycja tych pól.
+    from app.services.champion_requirement_rows import expand_patch
+
+    payload = expand_patch(payload)
     try:
         new_profile = user_edit(
             old_profile,
@@ -5632,7 +5672,10 @@ async def list_collaborators(
             await db.execute(
                 select(User)
                 .join(JobCollaborator, JobCollaborator.user_id == User.id)
-                .where(JobCollaborator.job_id == job_id)
+                .where(
+                    JobCollaborator.job_id == job_id,
+                    JobCollaborator.removed_from_auto_cc.is_(False),
+                )
                 .order_by(User.name)
             )
         )
@@ -5753,15 +5796,21 @@ async def remove_collaborator(
             JobCollaborator.user_id == user_id,
         )
     )
-    if link is None:
-        # Idempotent: deleting a missing link is a success (204).
+    if link is None or link.removed_from_auto_cc:
+        # Idempotent: deleting a missing (or already removed) link is a
+        # success (204).
         return
     removed_source = link.source.value if link.source else "manual"
-    await db.delete(link)
+    if removed_source == "auto_cc":
+        # Osoba z kategorii: wiersz zostaje z flagą, bo samo skasowanie
+        # cofnęłaby najbliższa synchronizacja uczestników z kategorią.
+        link.removed_from_auto_cc = True
+        link.removed_at = datetime.now(timezone.utc)
+    else:
+        await db.delete(link)
     # Feedback loop: when an auto_cc collaborator is removed we log to Activity
     # so Head of Recruitment can spot patterns (e.g. one sourcer removed 10×
-    # from the same CC → revise user↔CC mapping). Stored on the Activity row
-    # rather than the deleted row for queryability.
+    # from the same CC → revise user↔CC mapping).
     db.add(
         Activity(
             entity_type="job",

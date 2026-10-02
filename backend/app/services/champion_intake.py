@@ -1317,6 +1317,14 @@ def user_edit(old, patch, actor_id, *, imported=False, actor_name=None):
                         # and rejoin the list in `prepare_profile`.
                         if path not in ("stack.must", "stack.nice"):
                             unresolved.pop(path, None)
+        patch_stack = patch.get("stack")
+        if isinstance(patch_stack, dict) and patch_stack.get("rows") is not None:
+            # Wiersze wymagań zastępują całą listę: pozycja odłożona przy
+            # dawnym imporcie nie może do niej wrócić — rozjechałaby `must`
+            # z wierszami i profil spadłby do starych pól.
+            for path in ("stack.must", "stack.nice"):
+                unresolved.pop(path, None)
+                advisory.pop(path, None)
         merged["intake"] = {**meta, "unresolved": unresolved, "advisory": advisory}
     patch_basics = patch.get("basics") or {}
     # A stored budget the save leaves UNCHANGED is kept whole by

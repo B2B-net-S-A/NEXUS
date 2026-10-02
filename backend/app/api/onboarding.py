@@ -26,7 +26,7 @@ from app.api.recruitment_access import job_scope_clause
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.job import Job, JobPriority, JobStatus
-from app.models.job_collaborator import JobCollaborator
+from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.user import User, UserRole
 from app.schemas.onboarding import (
     OnboardingJobOption,
@@ -173,8 +173,17 @@ async def _apply_recruiter_onboarding(
             for jid in set(payload.active_job_ids)
         ]
         stmt = pg_insert(JobCollaborator).values(rows)
-        # UNIQUE(job_id, user_id) — skip rows already present.
-        stmt = stmt.on_conflict_do_nothing(index_elements=["job_id", "user_id"])
+        # UNIQUE(job_id, user_id): istniejący wiersz zostaje, ale własny wybór
+        # robi z niego wiersz ręczny — także z wiersza kategorii (`auto_cc`)
+        # i z osoby wcześniej zdjętej z tej rekrutacji.
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["job_id", "user_id"],
+            set_={
+                "source": JobCollaboratorSource.manual,
+                "removed_from_auto_cc": False,
+                "removed_at": None,
+            },
+        )
         await db.execute(stmt)
 
     return payload

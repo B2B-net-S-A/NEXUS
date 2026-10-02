@@ -222,6 +222,30 @@ class StackItem(BaseModel):
     name: str = Field(min_length=1, max_length=STACK_ITEM_MAX_CHARS)
 
 
+# Wiersze wymagań (02.10.2026): jedna lista słów kluczowych zamiast osobnych
+# pól must / krytyczne / mile widziane / wymagania do wyszukiwania. Wiersz =
+# wymaganie, słowa = warianty (wystarczy jedno). Z wierszy serwer wyprowadza
+# `must`, `nice`, `critical` i `search.requirements`
+# (`services/champion_requirement_rows.py`).
+REQUIREMENT_ROW_LEVELS = ("critical", "must", "nice")
+REQUIREMENT_NICE_MAX_ROWS = 20
+
+
+class RequirementRow(BaseModel):
+    words: List[str] = Field(default_factory=list)
+    level: Literal["critical", "must", "nice"] = "must"
+
+    @field_validator("words", mode="before")
+    @classmethod
+    def _clean_words(cls, value: Any) -> Any:
+        return _search_words(value)
+
+    @field_validator("level", mode="before")
+    @classmethod
+    def _known_level(cls, value: Any) -> Any:
+        return value if value in REQUIREMENT_ROW_LEVELS else "must"
+
+
 class ChampionStack(_NullTolerantSection):
     """3. Stack technologiczny — STRUCTURED, and this is the whole point.
 
@@ -246,6 +270,19 @@ class ChampionStack(_NullTolerantSection):
     # z historii), `[]` = świadomie brak. Pole znika z zapisu przy `None`,
     # żeby profile sprzed tej daty nie zmieniały kształtu JSONB.
     critical: Optional[List[str]] = None
+    # Wiersze wymagań (02.10.2026). `None` = profil prowadzony starymi polami;
+    # lista = `must`, `nice`, `critical` i `search.requirements` są z niej
+    # wyprowadzone. Pole znika z zapisu przy `None` (jak `critical`).
+    rows: Optional[List[RequirementRow]] = None
+
+    @field_validator("rows", mode="before")
+    @classmethod
+    def _clean_rows(cls, value: Any) -> Any:
+        if not isinstance(value, list):
+            return None
+        from app.services.champion_requirement_rows import clean_rows
+
+        return clean_rows(value)
 
     @field_validator("critical", mode="before")
     @classmethod
@@ -271,6 +308,8 @@ class ChampionStack(_NullTolerantSection):
         data = handler(self)
         if isinstance(data, dict) and data.get("critical") is None:
             data.pop("critical", None)
+        if isinstance(data, dict) and data.get("rows") is None:
+            data.pop("rows", None)
         return data
 
     def names(self) -> List[str]:
@@ -773,6 +812,18 @@ class ChampionProfile(BaseModel):
     @classmethod
     def _absorb_legacy_shape(cls, data: Any) -> Any:
         return migrate_legacy_champion_shape(data)
+
+    @model_validator(mode="after")
+    def _drop_stale_requirement_rows(self) -> "ChampionProfile":
+        # Wiersze wymagań są źródłem `must` / `nice` / `search.requirements`
+        # tylko dopóty, dopóki te pola im odpowiadają. Import dokumentu, szkic
+        # AI i stary edytor piszą wprost do pól — wtedy profil wraca do nich.
+        if self.stack.rows is not None:
+            from app.services.champion_requirement_rows import rows_consistent
+
+            if not rows_consistent(self.stack.model_dump(), self.search.model_dump()):
+                self.stack.rows = None
+        return self
 
     def model_dump(self, *args: Any, **kwargs: Any) -> dict:
         """Dump the seven sections plus the underscore provenance keys.

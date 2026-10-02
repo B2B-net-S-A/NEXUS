@@ -1100,6 +1100,204 @@ async def test_manual_add_promotes_an_auto_cc_collaborator(
 
 
 @pytest.mark.asyncio
+async def test_removing_a_category_participant_keeps_a_flagged_row(
+    ownership_client: AsyncClient,
+):
+    """Wiersz ``auto_cc`` nie znika — flaga blokuje powrót osoby z kategorii."""
+    from app.models.activity import Activity
+    from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
+
+    owner_id, owner_email, owner_pass = await _seed_user(UserRole.recruiter)
+    collab_id, _, _ = await _seed_user(UserRole.recruiter)
+    job_id = await _seed_job(recruiter_id=owner_id)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            JobCollaborator(
+                job_id=job_id,
+                user_id=collab_id,
+                source=JobCollaboratorSource.auto_cc,
+            )
+        )
+        await db.commit()
+
+    headers = await _login(ownership_client, owner_email, owner_pass)
+    listed = await ownership_client.get(
+        f"/api/jobs/{job_id}/collaborators", headers=headers
+    )
+    assert [row["id"] for row in listed.json()] == [collab_id]
+
+    removed = await ownership_client.delete(
+        f"/api/jobs/{job_id}/collaborators/{collab_id}", headers=headers
+    )
+    assert removed.status_code == 204, removed.text
+    # Powtórzone zdjęcie jest sukcesem i nie zostawia drugiego wpisu w historii.
+    again = await ownership_client.delete(
+        f"/api/jobs/{job_id}/collaborators/{collab_id}", headers=headers
+    )
+    assert again.status_code == 204, again.text
+
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(JobCollaborator).where(
+                JobCollaborator.job_id == job_id,
+                JobCollaborator.user_id == collab_id,
+            )
+        )
+        assert row is not None
+        assert row.source == JobCollaboratorSource.auto_cc
+        assert row.removed_from_auto_cc is True
+        assert row.removed_at is not None
+        actions = (
+            await db.scalars(
+                select(Activity.action).where(
+                    Activity.entity_type == "job", Activity.entity_id == job_id
+                )
+            )
+        ).all()
+    assert list(actions).count("collaborator_removed_auto_cc") == 1
+
+    listed = await ownership_client.get(
+        f"/api/jobs/{job_id}/collaborators", headers=headers
+    )
+    assert listed.status_code == 200, listed.text
+    assert listed.json() == []
+    detail = await ownership_client.get(f"/api/jobs/{job_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["collaborators"] == []
+
+    # Ręczne dopisanie tej samej osoby zdejmuje flagę — to świadomy wybór.
+    back = await ownership_client.post(
+        f"/api/jobs/{job_id}/collaborators",
+        headers=headers,
+        json={"user_id": collab_id},
+    )
+    assert back.status_code == 201, back.text
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(JobCollaborator).where(
+                JobCollaborator.job_id == job_id,
+                JobCollaborator.user_id == collab_id,
+            )
+        )
+        assert row.source == JobCollaboratorSource.manual
+        assert row.removed_from_auto_cc is False
+        assert row.removed_at is None
+
+
+@pytest.mark.asyncio
+async def test_patch_category_swaps_category_participants(
+    ownership_client: AsyncClient,
+):
+    """Zmiana kategorii w PATCH wymienia uczestników w tej samej transakcji."""
+    from sqlalchemy import delete
+
+    from app.models.competence_category import (
+        CompetenceCategory,
+        UserCompetenceCategory,
+    )
+    from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
+
+    _, admin_email, admin_pass = await _seed_user(UserRole.admin)
+    old_member, _, _ = await _seed_user(UserRole.recruiter)
+    new_first, _, _ = await _seed_user(UserRole.recruiter)
+    new_second, _, _ = await _seed_user(UserRole.recruiter)
+    removed_earlier, _, _ = await _seed_user(UserRole.recruiter)
+    manual, _, _ = await _seed_user(UserRole.recruiter)
+    job_id = await _seed_job(status=JobStatus.published)
+    async with AsyncSessionLocal() as db:
+        categories = []
+        for _ in range(2):
+            tag = uuid.uuid4().hex[:8]
+            category = CompetenceCategory(
+                slug=f"own-{tag}",
+                name_pl=f"Kategoria {tag}",
+                name_en=f"Category {tag}",
+                description="kategoria testowa uczestników",
+                keywords=[],
+                is_active=True,
+                display_order=99,
+            )
+            db.add(category)
+            categories.append(category)
+        await db.flush()
+        old_cc, new_cc = categories[0].id, categories[1].id
+        for user_id, category_id, priority in (
+            (old_member, old_cc, 1),
+            (new_first, new_cc, 1),
+            (new_second, new_cc, 2),
+            (removed_earlier, new_cc, 2),
+        ):
+            db.add(
+                UserCompetenceCategory(
+                    user_id=user_id,
+                    competence_category_id=category_id,
+                    priority=priority,
+                    is_primary=priority == 1,
+                )
+            )
+        job = await db.get(Job, job_id)
+        job.competence_category_id = old_cc
+        db.add_all(
+            [
+                JobCollaborator(
+                    job_id=job_id,
+                    user_id=old_member,
+                    source=JobCollaboratorSource.auto_cc,
+                ),
+                JobCollaborator(
+                    job_id=job_id, user_id=manual, source=JobCollaboratorSource.manual
+                ),
+                JobCollaborator(
+                    job_id=job_id,
+                    user_id=removed_earlier,
+                    source=JobCollaboratorSource.auto_cc,
+                    removed_from_auto_cc=True,
+                ),
+            ]
+        )
+        await db.commit()
+
+    try:
+        headers = await _login(ownership_client, admin_email, admin_pass)
+        resp = await ownership_client.patch(
+            f"/api/jobs/{job_id}",
+            headers=headers,
+            json={"competence_category_id": new_cc},
+        )
+        assert resp.status_code == 200, resp.text
+
+        async with AsyncSessionLocal() as db:
+            rows = {
+                user_id: (source.value, removed)
+                for user_id, source, removed in (
+                    await db.execute(
+                        select(
+                            JobCollaborator.user_id,
+                            JobCollaborator.source,
+                            JobCollaborator.removed_from_auto_cc,
+                        ).where(JobCollaborator.job_id == job_id)
+                    )
+                ).all()
+            }
+        assert rows == {
+            new_first: ("auto_cc", False),
+            new_second: ("auto_cc", False),
+            manual: ("manual", False),
+            # Osoba zdjęta wcześniej z tej rekrutacji nie wraca z kategorią.
+            removed_earlier: ("auto_cc", True),
+        }
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Job).where(Job.id == job_id))
+            await db.execute(
+                delete(CompetenceCategory).where(
+                    CompetenceCategory.id.in_([old_cc, new_cc])
+                )
+            )
+            await db.commit()
+
+
+@pytest.mark.asyncio
 async def test_collaborator_add_duplicate_is_idempotent(
     ownership_client: AsyncClient,
 ):

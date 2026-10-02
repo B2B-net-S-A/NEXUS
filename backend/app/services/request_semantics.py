@@ -37,6 +37,8 @@ READ_ONLY_POST_ROUTE_TEMPLATES: tuple[str, ...] = (
     "/api/dashboard-metrics/evaluate",
     # Podpowiedź umiejętności krytycznych dla niezapisanej listy MUST (30.09.2026).
     "/api/job-intake/critical-suggestion",
+    "/api/job-intake/requirement-rows",
+    "/api/job-intake/category-suggestion",
 )
 
 _READ_ONLY_POST_ROUTE_PATTERNS = tuple(

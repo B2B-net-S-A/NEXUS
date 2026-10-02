@@ -29,9 +29,11 @@ zapisu to ``services/request_allocation``. Reguły:
   na pulpicie, a request stałby „pokryty” na zawsze (audyt 25.09.2026).
 * **Decyzja człowieka wygrywa:** osoba zdjęta z requestu ręcznie nie wraca
   do niego z automatu, dopóki request nie zmieni stanu (``blocked``).
-* **Bez świeżych urlopów** tryb ``auto`` niczego nie przydziela ani nie
-  aktywuje — ale osoba „Poza przydziałem” albo bez kategorii jest zwalniana
-  zawsze, bo to nie zależy od Compassa (``eligible_ids``).
+* **Nieaktualne urlopy z Compassa** (``leave_blocks_auto``): tryb ``auto``
+  niczego nie przydziela ani nie aktywuje, bo request mógłby dostać ktoś na
+  urlopie. Gdy urlopy z Compassa są wyłączone, nie ma na co czekać — automat
+  przydziela od razu. Osoba „Poza przydziałem” albo bez kategorii jest
+  zwalniana zawsze, bo to nie zależy od Compassa (``eligible_ids``).
 """
 
 from __future__ import annotations
@@ -134,9 +136,13 @@ class PlanInput:
     live: list[LiveAssignment]
     out_of_pool: dict[int, str] = field(default_factory=dict)
     mode: str = "shadow"
-    # False = brak świeżych danych o urlopach: w trybie automatycznym nikt
-    # nie dostaje nowego requestu, bo mógłby go dostać ktoś na urlopie.
+    # False = brak świeżych danych o urlopach: osoby spoza listy dostępnych
+    # nie zwalniamy z powodem „na urlopie”, bo tego nie wiemy.
     availability_known: bool = True
+    # True = urlopy z Compassa są włączone, ale nieaktualne: w trybie
+    # automatycznym nikt nie dostaje nowego requestu, bo mógłby go dostać ktoś
+    # na urlopie. Przy wyłączonych urlopach automat przydziela bez czekania.
+    leave_blocks_auto: bool = False
     # Osoby, które mogłyby dostać request, gdyby nie urlop (rola, kategoria,
     # „Poza przydziałem”). None = nie wiadomo — wtedy zwolnienie czeka na
     # dane o urlopach, jak dotąd.
@@ -313,14 +319,14 @@ def plan_assignments(data: PlanInput) -> list[Change]:
         if (
             data.mode == "auto"
             and row.state == "proposed"
-            and data.availability_known
+            and not data.leave_blocks_auto
             and row.user_id in people
         ):
             changes.append(Change("activate", row.job_id, row.user_id, row.role, ""))
         covered.add(row.job_id)
         load[row.user_id] = load.get(row.user_id, 0) + 1
 
-    if data.mode == "auto" and not data.availability_known:
+    if data.mode == "auto" and data.leave_blocks_auto:
         return changes
 
     sequence = sorted(

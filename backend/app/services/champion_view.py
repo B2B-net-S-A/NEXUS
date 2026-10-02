@@ -343,16 +343,26 @@ def without_search_rows(search: Any) -> Any:
     return search
 
 
+# Pola sekcji `stack`, które nie są wymaganiami roli: wybór krytycznych
+# (30.09.2026) i wiersze wymagań (02.10.2026 — ich treść niosą `must` i `nice`,
+# a warianty słów czyta wyłącznie „Szukaj ręcznie”).
+STACK_NON_REQUIREMENT_KEYS = ("critical", "rows")
+
+
 def without_critical(stack: Any) -> Any:
-    """Sekcja `stack` bez umiejętności krytycznych (30.09.2026).
+    """Sekcja `stack` bez umiejętności krytycznych i wierszy wymagań.
 
     Wybór krytycznych zmienia bramkę, nie wymagania roli: nie może kasować
     przejrzanego kontraktu wymagań ani odpalać przeliczenia dopasowań.
     Bramka i tak czyta krytyczne na żywo, a odcisk zapytania niesie je osobno
-    (`request_matching_context`, wersja `critical`).
+    (`request_matching_context`, wersja `critical`). Wiersze wymagań to zapis
+    edytora — zmiana, która nie rusza `must` ani `nice` (inny wariant słowa),
+    też nie jest zmianą wymagań.
     """
-    if isinstance(stack, Mapping) and "critical" in stack:
-        return {k: v for k, v in stack.items() if k != "critical"}
+    if isinstance(stack, Mapping) and any(
+        key in stack for key in STACK_NON_REQUIREMENT_KEYS
+    ):
+        return {k: v for k, v in stack.items() if k not in STACK_NON_REQUIREMENT_KEYS}
     return stack
 
 

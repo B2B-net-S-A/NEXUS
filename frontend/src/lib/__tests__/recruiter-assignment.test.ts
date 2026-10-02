@@ -11,6 +11,7 @@ import {
   RECRUITER_ASSIGNMENT_LABEL,
   automaticAssignmentAvailable,
   automaticAssignmentHint,
+  automaticAssignmentLabel,
   automaticHandoffOutcome,
   automaticTakenText,
   resolveRecruiterAssignment,
@@ -54,6 +55,15 @@ describe("zdania pola", () => {
     });
   });
 
+  it("nazwa opcji automatu zależy od trybu: „auto” przydziela, „shadow” proponuje", () => {
+    expect(automaticAssignmentLabel("auto")).toBe("Przydzieli automat");
+    expect(automaticAssignmentLabel("shadow")).toBe("Zaproponuje automat");
+    // Brak trybu (starszy serwer) i „off” nie obiecują przydziału.
+    expect(automaticAssignmentLabel(undefined)).toBe("Zaproponuje automat");
+    expect(automaticAssignmentLabel(null)).toBe("Zaproponuje automat");
+    expect(automaticAssignmentLabel("off")).toBe("Zaproponuje automat");
+  });
+
   it("w trybie „shadow” automat tylko proponuje — do akceptacji nikt nie jest przypisany", () => {
     const hint = automaticAssignmentHint("shadow");
     expect(hint).toContain("zaproponuje osobę");
@@ -63,11 +73,13 @@ describe("zdania pola", () => {
     expect(automaticAssignmentHint(undefined)).toBe(hint);
   });
 
-  it("w trybie „auto” automat przydziela sam", () => {
+  it("w trybie „auto” automat przydziela sam, a Head rekrutacji może to zmienić", () => {
     expect(automaticAssignmentHint("auto")).toBe(
-      "Automat przydzieli osobę według kategorii i obłożenia.",
+      "Automat przydzieli jedną osobę z kategorii — tę z najmniejszą liczbą requestów. Head rekrutacji zobaczy to na pulpicie i może zmienić.",
     );
-    expect(automaticHandoffOutcome("auto")).toBe("Rekrutera przydzieli automat.");
+    expect(automaticHandoffOutcome("auto")).toBe(
+      "Rekrutera prowadzącego przydzieli automat — zwykle w ciągu minuty.",
+    );
   });
 
   it("po przekazaniu: kto przydzieli rekrutera", () => {

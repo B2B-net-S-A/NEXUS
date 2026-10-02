@@ -24,11 +24,13 @@ FULL = {
         {
             "question": "Jak skalowałeś Kafkę?",
             "ideal_answer": "partycje",
+            "deal_breaker": "tylko teoria",
             "from_request": True,
         },
         {
             "question": "Czy 2 dni w biurze pasują?",
             "ideal_answer": "tak",
+            "deal_breaker": "tylko zdalnie",
             "from_request": False,
         },
     ],
@@ -142,8 +144,8 @@ def test_search_requirements_keep_only_whole_words_from_the_request(
     monkeypatch,
 ) -> None:
     """v5 (25.09.2026): słowo spoza maila odpada, kawałek słowa też („go”
-    w „google” to nie Go), puste wiersze znikają, najwyżej 4 wiersze.
-    Technologia spoza maila („Kotlin”) nie jest angielskim odpowiednikiem."""
+    w „google” to nie Go), puste wiersze znikają, najwyżej 10 wierszy.
+        Technologia spoza maila („Kotlin”) nie jest angielskim odpowiednikiem."""
     _technologies(monkeypatch, "Kotlin", "Go")
     text = "Szukamy dewelopera: Java, Kafka albo RabbitMQ. Znajomość google cloud."
     raw = {
@@ -353,7 +355,6 @@ def test_proposals_carry_their_basis_and_facts_are_marked_as_request() -> None:
         {
             **FULL,
             "search": {
-                "keywords": "Java, Spring, Kafka, płatności",
                 "target_companies": "Asseco, Comarch",
                 "disqualifiers": ["brak polskiego"],
                 "basis": "client_history",
@@ -364,7 +365,9 @@ def test_proposals_carry_their_basis_and_facts_are_marked_as_request() -> None:
         REQUEST,
     )
     assert result.provenance["role"] == "request"
-    assert result.provenance["search_keywords"] == "client_history"
+    # 02.10.2026: „frazy do wyszukiwarki” wypadły z odczytu.
+    assert "search_keywords" not in result.provenance
+    assert "search_keywords" not in result.as_dict()
     assert result.provenance["target_companies"] == "client_history"
     # Nieznana podstawa to propozycja AI, nie fakt z maila.
     assert result.provenance["selling_points"] == "ai"
@@ -416,7 +419,8 @@ async def test_prompt_carries_client_history_but_no_consultant_notes(
     assert result.role_name == "Tester"
     assert captured["max_tokens"] == 6000
     assert "Testy procesów kartowych" in captured["prompt"]
-    assert "tester, karty, acquiring" in captured["prompt"]
+    # 02.10.2026: frazy do LinkedIna z innych rekrutacji nie idą do promptu.
+    assert "tester, karty, acquiring" not in captured["prompt"]
     assert "Kowalski" not in captured["prompt"]
 
 
@@ -543,3 +547,109 @@ def test_domain_years_within_seniority_stay() -> None:
     result = normalize_model_output(raw, text)
     assert result.experience["domains"][0]["min_years"] == 3
     assert result.advisories == []
+
+
+# ── v10 (02.10.2026): jedna lista wymagań i odpowiedź dyskwalifikująca ───────
+
+KEYWORDS_REQUEST = (
+    "Szukamy Senior Java Developera do zespołu płatności kartowych. "
+    "Wymagania: Java 17+, Spring Boot, Kafka lub RabbitMQ, doświadczenie "
+    "w bankowości, angielski B2. Mile widziane: Kubernetes."
+)
+
+
+def _keywords_raw(**extra):
+    return {
+        "role_name": "Senior Java Developer",
+        "requirements": [
+            {"words": ["Java 17+"], "level": "must"},
+            {"words": ["Kafka", "RabbitMQ", "Scala"], "level": "must"},
+            {"words": ["bankowości", "bankow*", "banking"], "level": "must"},
+            {"words": ["Spring Boot"], "level": "must"},
+            {"words": ["Scala"], "level": "must"},
+            {"words": ["Kubernetes"], "level": "nice"},
+            {"words": ["Java"], "level": "nice"},
+        ],
+        "descriptive_requirements": ["Java 17+", "angielski B2", "zmyślone zdanie"],
+        **extra,
+    }
+
+
+def test_requirement_rows_are_keywords_grounded_in_the_request(monkeypatch) -> None:
+    """Wiersz = wymaganie, słowa = warianty. Słowo spoza maila odpada (jak
+    w wierszach wyszukiwania), wersja znika przy technologii ze słownika,
+    a poziom krytyczny wybiera DL — model daje tylko must albo nice."""
+    _technologies(monkeypatch, "Java", "Kafka", "Scala")
+    result = normalize_model_output(_keywords_raw(), KEYWORDS_REQUEST)
+    assert result.requirements == [
+        {"words": ["Java"], "level": "must"},
+        {"words": ["Kafka", "RabbitMQ"], "level": "must"},
+        {"words": ["bankowości", "bankow*", "banking"], "level": "must"},
+        {"words": ["Spring Boot"], "level": "must"},
+        {"words": ["Kubernetes"], "level": "nice"},
+    ]
+    # Pola, które czyta reszta systemu, są z wierszy wyprowadzone.
+    assert result.must == ["Java", "Kafka", "bankowości", "Spring Boot"]
+    assert result.nice == ["Kubernetes"]
+    assert result.search_requirements == [
+        ["Java"],
+        ["Kafka", "RabbitMQ"],
+        ["bankowości", "bankow*", "banking"],
+        ["Spring Boot"],
+    ]
+    # Angielski odpowiednik w wierszu must = „propozycja AI”.
+    assert result.provenance["must"] == "ai"
+    assert result.provenance["nice"] == "request"
+    assert intake.MISSING_MUST not in result.missing
+    assert intake.MISSING_SEARCH not in result.missing
+
+
+def test_descriptive_requirements_are_literal_quotes_and_carry_the_language() -> None:
+    result = normalize_model_output(_keywords_raw(), KEYWORDS_REQUEST)
+    assert result.descriptive_requirements == ["Java 17+", "angielski B2"]
+    assert result.language == "angielski B2"
+    explicit = normalize_model_output(
+        _keywords_raw(language="PL, EN B2"), KEYWORDS_REQUEST
+    )
+    assert explicit.language == "PL, EN B2"
+
+
+def test_legacy_shaped_answer_still_yields_rows() -> None:
+    """Odpowiedź w kształcie sprzed v10 (must + search.requirements) jest
+    czytana po staremu, a wiersze formularza powstają z niej zamianą."""
+    result = normalize_model_output(FULL, REQUEST)
+    assert result.must == ["Java 17+", "Spring Boot", "Kafka"]
+    assert result.requirements == [
+        {"words": ["Java 17+"], "level": "must"},
+        {"words": ["Spring Boot"], "level": "must"},
+        {"words": ["Kafka"], "level": "must"},
+        {"words": ["Kubernetes"], "level": "nice"},
+    ]
+    assert result.descriptive_requirements == ["Java 17+"]
+
+
+def test_every_question_needs_a_disqualifying_answer() -> None:
+    questions = [
+        {"question": "Jak skalowałeś Kafkę?", "ideal_answer": "partycje"},
+        {
+            "question": "Czy 2 dni w biurze pasują?",
+            "ideal_answer": "tak",
+            "deal_breaker": "tylko zdalnie",
+        },
+    ]
+    result = normalize_model_output({**FULL, "screening_questions": questions}, REQUEST)
+    assert result.missing == [intake.MISSING_DEAL_BREAKER]
+    assert [q.deal_breaker for q in result.screening_questions] == ["", "tylko zdalnie"]
+    assert normalize_model_output(FULL, REQUEST).missing == []
+
+
+def test_prompt_asks_for_keywords_and_a_deal_breaker() -> None:
+    from app.services.llm_prompts import JOB_REQUEST_INTAKE
+
+    rendered = JOB_REQUEST_INTAKE.render(
+        client_name="Klient", client_context="brak", request_text="mail"
+    )
+    assert JOB_REQUEST_INTAKE.version == 10
+    assert '"requirements"' in rendered and '"deal_breaker"' in rendered
+    assert '"keywords"' not in rendered
+    assert '"must": [str]' not in rendered

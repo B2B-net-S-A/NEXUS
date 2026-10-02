@@ -9,7 +9,11 @@
 // propozycji automatu przydziału (trzy przypadki: osoba z 1. priorytetem,
 // osoba bez requestów, osoba na urlopie) z banerem o braku
 // danych o urlopach; „Zmień” otwiera listę osób z zasianego obłożenia.
-// `?as=recruiter` — ten sam pulpit bez prawa decyzji (sekcji nie ma).
+// Pod propozycjami „Nowe rekrutacje — kto prowadzi”: prowadzący z automatu,
+// wskazany ręcznie, propozycja czekająca na akceptację, automat w trakcie
+// przydziału, „Przyjmujemy kandydatów” i rekrutacja bez prowadzącego. W wariantach
+// „CV w drodze” (nic nie czeka) ta lista stoi sama, we własnej ramce.
+// `?as=recruiter` — ten sam pulpit bez prawa decyzji (obu sekcji nie ma).
 
 import { useEffect, useState } from "react";
 import { AxiosError } from "axios";
@@ -35,6 +39,7 @@ import {
   type CproSender,
   type CvInTransit,
   type CvTransitRow,
+  type NewJobLeadRow,
 } from "@/lib/api/boardTasks";
 import {
   REQUEST_BOARD_QUERY_KEY,
@@ -184,6 +189,37 @@ const ALLOCATION_PROPOSALS: AllocationProposalRow[] = [
   proposal({ job_id: 303, title: "Tester automatyzujący · Python, Robot Framework", category_id: 4, category_name: "QA", category_slug: "security_quality", sent: 1, user_id: 43, user_name: "Tomasz Makietowy", fit: "other", load: 4, leave_until: "2026-10-09" }),
 ];
 
+// „Nowe rekrutacje — kto prowadzi” (dane fikcyjne): po jednym wierszu na każdy
+// stan prowadzącego. Lista informacyjna — nie dokłada nic do „Czeka na Ciebie”.
+const jobLead = (over: Partial<NewJobLeadRow>): NewJobLeadRow => ({
+  job_id: 1,
+  title: "Rekrutacja",
+  client_name: "Bank Północny",
+  category_id: 2,
+  category_name: "Development",
+  category_slug: "software_development",
+  participants: 6,
+  priority_level: "p2",
+  delivery_lead_name: "Marta Kowalczyk",
+  handed_off_at: daysAgo(0),
+  lead_user_id: null,
+  lead_name: null,
+  lead_role: null,
+  lead_source: null,
+  assigned_by_name: null,
+  proposed: false,
+  pending_reason: null,
+  ...over,
+});
+const NEW_JOB_LEADS: NewJobLeadRow[] = [
+  jobLead({ job_id: 311, title: "Backend Developer · Kotlin, Spring", priority_level: "p1", lead_user_id: 45, lead_name: "Julia Testowa", lead_role: "recruiter", lead_source: "auto" }),
+  jobLead({ job_id: 312, title: "Inżynier danych · Spark, Airflow", client_name: "Fundusz Przykładowy", category_id: 1, category_name: "Infra & Operations & Security / Data & AI", category_slug: "infrastructure_operations", participants: 4, delivery_lead_name: "Piotr Zieliński", lead_user_id: 44, lead_name: "Kinga Przykładowa", lead_role: "recruiter", lead_source: "manual", assigned_by_name: "Piotr Zieliński", handed_off_at: daysAgo(1) }),
+  jobLead({ job_id: 301, title: "Full Stack Java Developer · Spring Boot", priority_level: "p1", lead_user_id: 41, lead_name: "Marek Wzorcowy", lead_role: "recruiter", lead_source: "auto", proposed: true, handed_off_at: daysAgo(1) }),
+  jobLead({ job_id: 313, title: "Analityk biznesowy · bankowość", client_name: "Bank Kappa", category_id: 5, category_name: "Management & Delivery (PM & BA)", category_slug: "management_delivery", participants: 3, pending_reason: "assigning" }),
+  jobLead({ job_id: 314, title: "Tester manualny · aplikacje mobilne", client_name: "Ubezpieczenia Wzorcowe", category_id: 4, category_name: "QA", category_slug: "security_quality", participants: 1, priority_level: "accepting", pending_reason: "passive", handed_off_at: daysAgo(2) }),
+  jobLead({ job_id: 315, title: "Administrator sieci · Cisco", client_name: "Energetyka Wzorcowa", category_id: null, category_name: null, category_slug: null, participants: 0, pending_reason: "none", handed_off_at: daysAgo(3) }),
+];
+
 // Obłożenie dla listy „Zmień” — te same osoby co w propozycjach i kilka wolnych.
 const loadPerson = (over: Partial<LoadPerson> & Pick<LoadPerson, "user_id" | "name">): LoadPerson => ({
   count: 0,
@@ -288,7 +324,8 @@ function seededClient(
     dropped_tiles: [],
   });
   qc.setQueryData(METRIC_CATALOG_QUERY_KEY, CATALOG);
-  // Propozycje dostaje wyłącznie osoba, która o nich decyduje — jak z serwera.
+  // Propozycje i „Nowe rekrutacje — kto prowadzi” dostaje wyłącznie osoba,
+  // która o przydziale decyduje — jak z serwera.
   qc.setQueryData<BoardTasksResponse>(
     BOARD_TASKS_QUERY_KEY,
     persona === "hor"
@@ -297,6 +334,7 @@ function seededClient(
           can_decide_proposals: true,
           allocation_leave_known: false,
           allocation_proposals: ALLOCATION_PROPOSALS,
+          new_job_leads: NEW_JOB_LEADS,
         }
       : { ...boardTasks, can_decide_proposals: false },
   );

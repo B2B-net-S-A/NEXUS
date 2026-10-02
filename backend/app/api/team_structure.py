@@ -28,6 +28,7 @@ from app.models.competence_category import (
     CompetenceCategory,
     UserCompetenceCategory,
 )
+from app.services.auto_cc_collaborators import sync_cc_participants
 from app.services.client_access import assert_client_assignable
 from app.services.job_delivery_lead_fill import fill_missing_job_delivery_leads
 from app.services.pipeline_latest import latest_stage_ids
@@ -257,6 +258,12 @@ async def assign_sourcer_to_category(
                 is_primary=(payload.priority == 1),
             )
         )
+    # Osoba w kategorii = uczestnik jej otwartych rekrutacji.
+    await sync_cc_participants(
+        db,
+        category_ids=[row.competence_category_id for row in assignments]
+        + [payload.competence_category_id],
+    )
     await db.commit()
     return {"ok": True}
 
@@ -363,6 +370,8 @@ async def replace_operator_competences(
             row.priority = 2
             row.is_primary = False
 
+    # Uczestnicy rekrutacji idą za kategoriami osoby — także tymi zdjętymi.
+    await sync_cc_participants(db, category_ids=set(by_category) | wanted)
     await db.commit()
     return {
         "ok": True,
@@ -401,7 +410,11 @@ async def remove_sourcer_from_category(
                 status.HTTP_409_CONFLICT,
                 "Promote another competence before removing the primary",
             )
+    category_id = row.competence_category_id
     await db.delete(row)
+    # Osoba zdjęta z kategorii przestaje być uczestnikiem jej otwartych
+    # rekrutacji (dopisana ręcznie zostaje).
+    await sync_cc_participants(db, category_ids=[category_id])
     await db.commit()
     return {"ok": True}
 

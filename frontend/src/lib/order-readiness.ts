@@ -25,7 +25,8 @@ export type ReadinessKey =
   | "office_days"
   | "office_city"
   | "search"
-  | "critical";
+  | "critical"
+  | "deal_breaker";
 
 export const READINESS_MESSAGES: Record<ReadinessKey, string> = fixture.blockers;
 
@@ -51,6 +52,13 @@ const SEARCH_KEYS: readonly ReadinessKey[] = ["search"];
  * ma technologię ze słownika, więc pozycja liczy się, gdy o nią pyta.
  */
 const CRITICAL_KEYS: readonly ReadinessKey[] = ["critical"];
+/**
+ * Odpowiedź dyskwalifikująca przy każdym pytaniu screeningowym (02.10.2026) —
+ * serwer pyta o nią tylko przy pierwszym przekazaniu do searchu i tylko, gdy
+ * któreś pytanie jej nie ma, więc pozycja liczy się, gdy o nią pyta. W bramce
+ * stoi na końcu, po wymaganiach do wyszukiwania.
+ */
+const DEAL_BREAKER_KEYS: readonly ReadinessKey[] = ["deal_breaker"];
 
 export const READINESS_LABEL: Record<ReadinessKey, string> = {
   title: "Rola",
@@ -64,6 +72,7 @@ export const READINESS_LABEL: Record<ReadinessKey, string> = {
   office_city: "Miasto biura",
   search: "Wymagania do wyszukiwania",
   critical: "Umiejętności krytyczne",
+  deal_breaker: "Odpowiedź dyskwalifikująca przy pytaniach",
 };
 
 /** Kotwica sekcji Profilu Championa (`champion-section-state.ts`). */
@@ -80,6 +89,8 @@ export const READINESS_CHAMPION_ANCHOR: Record<ReadinessKey, string | null> = {
   search: SEARCH_REQUIREMENTS_ANCHOR,
   // Pole „Krytyczne (0–2)” stoi na początku sekcji 3 (Stack technologiczny).
   critical: "champion-section-stack",
+  // To samo miejsce co pytania: pole stoi przy każdym pytaniu screeningowym.
+  deal_breaker: "champion-section-screening",
 };
 
 /** Co da się zrobić z brakiem na miejscu. */
@@ -97,6 +108,7 @@ export const READINESS_ACTION: Record<ReadinessKey, ReadinessAction> = {
   office_city: "champion",
   search: "champion",
   critical: "champion",
+  deal_breaker: "champion",
 };
 
 export interface ReadinessMissing {
@@ -135,11 +147,13 @@ export function buildReadinessChecklist(
     remotePolicy === "onsite" ||
     OFFICE_KEYS.some((k) => missingKeys.has(k));
   const criticalApplies = CRITICAL_KEYS.some((k) => missingKeys.has(k));
+  const dealBreakerApplies = DEAL_BREAKER_KEYS.some((k) => missingKeys.has(k));
   const applicable = [
     ...BASE_KEYS,
     ...(officeApplies ? OFFICE_KEYS : []),
     ...(criticalApplies ? CRITICAL_KEYS : []),
     ...SEARCH_KEYS,
+    ...(dealBreakerApplies ? DEAL_BREAKER_KEYS : []),
   ];
   const done = applicable.filter((k) => !missingKeys.has(k));
   const unknown = missing.filter((m) => m.key == null).length;

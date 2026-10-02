@@ -208,7 +208,7 @@
   {
    "id": "team.category",
    "area": "naglowek",
-   "opis": "Wiersz „Kategoria”: plakietka kategorii i zwijana lista osób z kategorii (widzą rekrutację w „Moja kategoria”, ale nad nią nie pracują)",
+   "opis": "Wiersz „Kategoria”: plakietka kategorii, zwijana lista uczestników (osoby z kategorii: widzą rekrutację w „Moja kategoria” i dostają jej powiadomienia) i „Zmień” dla osoby z pełną edycją rekrutacji",
    "file": "components/v2/jobs/JobSettingsPanel.tsx",
    "marker": "JobCategoryRow",
    "v3_home": "Zlecenie i Champion → panel → Zespół → Kategoria"
@@ -529,7 +529,7 @@
   {
    "id": "champ.handoff-assignment",
    "area": "zlecenie",
-   "opis": "Pole „Rekruter” przy przekazaniu: „Zaproponuje automat” (domyślnie, gdy automat jest włączony; zatwierdza Head of Recruitment) albo „Wybieram sam”",
+   "opis": "Pole „Rekruter” przy przekazaniu: automat („Przydzieli automat” w trybie auto, „Zaproponuje automat” w trybie propozycji) albo „Wybieram sam”",
    "file": "components/v2/jobs/JobHandoffButton.tsx",
    "marker": "RecruiterAssignmentChoice",
    "v3_home": "Zlecenie i Champion → panel → Gotowość → Przekaż do searchu"
@@ -811,10 +811,10 @@
   {
    "id": "new.team-step",
    "area": "zlecenie",
-   "opis": "Sekcja „Rekruter i priorytet” (02.10.2026): „Zaproponuje automat” albo „Wybieram sam” z osobą i kolejnymi osobami, priorytet w trzech poziomach (domyślnie P2)",
+   "opis": "Sekcja „Kategoria i zespół” (02.10.2026): Delivery Lead potwierdza kategorię kompetencji (uczestnikami zostają wszyscy z kategorii), rekruter prowadzący — „Przydzieli automat” albo „Wskażę sam” — i priorytet w trzech poziomach (domyślnie P2)",
    "file": "components/v2/jobs/new/NewJobPage.tsx",
    "marker": "NewJobTeamStep",
-   "v3_home": "nowa rekrutacja → Rekruter i priorytet"
+   "v3_home": "nowa rekrutacja → 6 · Kategoria i zespół"
   },
   {
    "id": "board.review-column",
@@ -1172,6 +1172,88 @@
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "menu-my-people",
    "v3_home": "menu „⋯” → Moi ludzie do tej rekrutacji (panel „Moi ludzie”)"
+  },
+  {
+   "id": "new.source-tiles",
+   "area": "zlecenie",
+   "opis": "Krok 1 nowej rekrutacji: klient (wymagany, z komunikatem przy próbie przejścia bez niego) i trzy kafle źródła — wklej treść requestu, wgraj plik, wpisz ręcznie",
+   "file": "components/v2/jobs/new/NewJobPage.tsx",
+   "marker": "NewJobSourceStep",
+   "v3_home": "nowa rekrutacja → krok 1"
+  },
+  {
+   "id": "new.requirement-rows",
+   "area": "zlecenie",
+   "opis": "Wymagania jako jedna lista słów kluczowych: wiersz = wymaganie, słowa = warianty, poziom krytyczne / musi mieć / mile widziane, liczba osób w bazie, „Brak krytycznych”, „Wyklucz”",
+   "file": "components/v2/jobs/new/NewJobReviewForm.tsx",
+   "marker": "RequirementRowsEditor",
+   "v3_home": "nowa rekrutacja → 2 · Wymagania"
+  },
+  {
+   "id": "new.client-reference",
+   "area": "zlecenie",
+   "opis": "Numer u klienta czytany z nazwy od klienta, z korektą „To nie ten numer”",
+   "file": "components/v2/jobs/new/NewJobReviewForm.tsx",
+   "marker": "ClientReferenceLine",
+   "v3_home": "nowa rekrutacja → 1 · Nazwa"
+  },
+  {
+   "id": "new.questions-deal-breaker",
+   "area": "zlecenie",
+   "opis": "Pytania do kandydata: pytanie, dobra odpowiedź i odpowiedź, która odpada (wymagana); propozycje AI zatwierdza Delivery Lead („Zatwierdź”, „Zatwierdź wszystkie”)",
+   "file": "components/v2/jobs/new/NewJobReviewForm.tsx",
+   "marker": "QuestionsSection",
+   "v3_home": "nowa rekrutacja → 5 · Pytania do kandydata"
+  },
+  {
+   "id": "new.section-nav",
+   "area": "zlecenie",
+   "opis": "Pasek sześciu sekcji nad formularzem z liczbą braków w każdej; braki w stopce prowadzą do sekcji",
+   "file": "components/v2/jobs/new/NewJobReviewForm.tsx",
+   "marker": "NewJobSectionNav",
+   "v3_home": "nowa rekrutacja → krok 2"
+  },
+  {
+   "id": "champ.requirement-rows",
+   "area": "zlecenie",
+   "opis": "Wymagania w Profilu Championa jako lista słów kluczowych (profil prowadzony wierszami) i „Uprość do słów kluczowych” dla profilu na starych polach",
+   "file": "components/ChampionProfileEditor.tsx",
+   "marker": "simplifyToRows",
+   "v3_home": "Zlecenie i Champion → Edytuj → 3 · Stack technologiczny"
+  },
+  {
+   "id": "team.category-change",
+   "area": "naglowek",
+   "opis": "„Zmień” kategorię rekrutacji — uczestnicy idą za kategorią",
+   "file": "components/v2/jobs/JobCategoryRow.tsx",
+   "marker": "CategoryChange",
+   "v3_home": "Zlecenie i Champion → panel → Zespół → Kategoria"
+  },
+  {
+   "id": "dashboard.new-job-leads",
+   "area": "pulpit",
+   "opis": "„Nowe rekrutacje — kto prowadzi”: lista dla Head of Recruitment i admina z rekruterem prowadzącym (automat / wskazany ręcznie), kategorią, liczbą uczestników i „Zmień”",
+   "file": "components/v2/dashboard/BoardTasksPanel.tsx",
+   "marker": "NewJobLeadsSection",
+   "v3_home": "Pulpit → Czeka na Ciebie"
+  },
+  {
+   "id": "new.collaborators",
+   "area": "zlecenie",
+   "opis": "Pole „Kolejne osoby” przy tworzeniu rekrutacji",
+   "file": "components/v2/jobs/new/NewJobTeamStep.tsx",
+   "marker": "JobCollaboratorsField",
+   "v3_home": "nowa rekrutacja",
+   "removed_reason": "Decyzja Artura 02.10.2026: uczestnikami rekrutacji są wszyscy z potwierdzonej kategorii kompetencji (dopisuje ich serwer, w tle), a przy rekrutacji jest jeden rekruter prowadzący. Kolejną osobę nadal da się dopisać w panelu „Zespół” rekrutacji."
+  },
+  {
+   "id": "champ.linkedin-phrases",
+   "area": "zlecenie",
+   "opis": "Pole „Frazy do LinkedIna” w formularzu nowej rekrutacji i w Profilu Championa",
+   "file": "components/ChampionProfileEditor.tsx",
+   "marker": "champion-search-keywords",
+   "v3_home": "Zlecenie i Champion → Edytuj",
+   "removed_reason": "Decyzja Artura 02.10.2026: pole do usunięcia — słowa kluczowe wymagań są jedną listą, po której szuka się w bazie. Zapisane frazy zostają w profilu (dane), nie są już pokazywane ani zmieniane."
   }
  ]
 }

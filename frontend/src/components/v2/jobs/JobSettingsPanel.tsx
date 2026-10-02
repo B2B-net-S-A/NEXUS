@@ -71,9 +71,10 @@ const CONTROL_CLASS =
  * w stałej kolejności: Delivery Lead → Rekruter → Kategoria → Termin → Priorytet.
  * Trzy role zamiast „właściciela” i „współpracowników”: Delivery Lead otwiera
  * request, Rekruter nad nim pracuje, Kategoria tylko go widzi. Priorytet wrócił
- * w trzech poziomach (od 22.09 był niewidoczny). Owner (TAC), szablon procesu,
- * kategoria (zmiana) i Program / Train nadal ustawia backend — nie przywracaj
- * ich tu bez decyzji właściciela.
+ * w trzech poziomach (od 22.09 był niewidoczny). Kategorię potwierdza Delivery
+ * Lead przy tworzeniu, a zmienia tutaj osoba z pełną edycją rekrutacji
+ * (uczestnicy idą za kategorią). Owner (TAC), szablon procesu i Program / Train
+ * nadal ustawia backend — nie przywracaj ich tu bez decyzji właściciela.
  *
  * Delivery Lead i Termin to read-view + „Zmień" → kontrolka, która zapisuje
  * NATYCHMIAST przez `PATCH /api/jobs/{id}` z JEDNYM polem (`JobUpdate` czyta
@@ -208,7 +209,7 @@ export function JobSettingsPanel({
       ) : null}
 
       <StackedRow label="Kategoria">
-        <JobCategoryRow categoryId={categoryId} />
+        <JobCategoryRow categoryId={categoryId} jobId={jobId} canManage={canEdit} />
       </StackedRow>
 
       <SettingsRow

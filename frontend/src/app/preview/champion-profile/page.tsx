@@ -219,6 +219,32 @@ const WITH_INSIGHTS: ChampionProfile = {
   },
 };
 
+/**
+ * Profil zapisany z `/jobs/new` po 02.10.2026: wymagania jako wiersze słów
+ * kluczowych. `must` / `nice` / `search.requirements` są tu takie, jakie serwer
+ * wyprowadza z wierszy — inaczej walidator profilu skasowałby `rows`.
+ */
+const WITH_ROWS: ChampionProfile = {
+  ...MIGRATED_LEGACY,
+  search: {
+    ...MIGRATED_LEGACY.search,
+    requirements: [["Java"], ["Spring Boot", "Spring*"], ["Kafka", "RabbitMQ"]],
+    exclude: ["junior"],
+  },
+  stack: {
+    must: [{ name: "Java" }, { name: "Spring Boot" }, { name: "Kafka lub RabbitMQ" }],
+    nice: [{ name: "Kubernetes" }],
+    critical: ["Java"],
+    rows: [
+      { words: ["Java"], level: "must" },
+      { words: ["Spring Boot", "Spring*"], level: "must" },
+      { words: ["Kafka", "RabbitMQ"], level: "must" },
+      { words: ["Kubernetes", "k8s"], level: "nice" },
+    ],
+    notes: "Java 17+, Java 8 nie interesuje\nmin. 5 lat doświadczenia komercyjnego",
+  },
+};
+
 const EMPTY_LIST: unknown[] = [];
 
 export default function ChampionProfilePreviewPage() {
@@ -238,13 +264,16 @@ export default function ChampionProfilePreviewPage() {
       // „komunikatywność” nie jest technologią, „Java” podpowiada historia.
       if (config.url === "/api/job-intake/critical-suggestion") {
         const body = typeof config.data === "string" ? JSON.parse(config.data) : (config.data ?? {});
-        const must: string[] = body.must_skills ?? [];
+        // Profil z wierszami pyta wierszami — etykietą jest pierwsze słowo.
+        const rows: string[][] | undefined = body.rows;
+        const must: string[] = rows ? rows.map((row) => row[0]) : (body.must_skills ?? []);
         const eligible = must.filter((m) => !/komunikat|angielsk|bankow/i.test(m));
         const stats: Record<string, { rate: number; jobs: number }> = {};
         for (const label of eligible) {
           stats[label] = { rate: /^java$/i.test(label) ? 0.96 : 0.62, jobs: 41 };
         }
         return local({
+          ...(rows ? { labels: must } : {}),
           suggested: eligible.filter((m) => /^java$/i.test(m)).slice(0, 2),
           eligible,
           stats,
@@ -263,6 +292,7 @@ export default function ChampionProfilePreviewPage() {
       [1, MIGRATED_LEGACY],
       [2, FILLED_NEW],
       [3, WITH_INSIGHTS],
+      [4, WITH_ROWS],
     ] as const) {
       const hasJava = profile.stack.must.some((item) => item.name === "Java");
       const stored = profile.stack.critical ?? null;
@@ -345,6 +375,16 @@ export default function ChampionProfilePreviewPage() {
             3. Doświadczenie poza stackiem + wiedza z rozmów + historia klienta
           </h2>
           <ChampionProfileEditor jobId={3} canEdit clientId={1} />
+        </section>
+
+        <section
+          className="rounded-xl border border-dashed border-border p-4"
+          data-testid="case-requirement-rows"
+        >
+          <h2 className="mb-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+            4. Wymagania jako wiersze słów kluczowych (profil z /jobs/new)
+          </h2>
+          <ChampionProfileEditor jobId={4} canEdit clientId={null} />
         </section>
       </main>
     </QueryClientProvider>

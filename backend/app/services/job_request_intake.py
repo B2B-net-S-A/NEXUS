@@ -23,11 +23,16 @@ Zasady, które łatwo cofnąć „przy okazji”:
   (słowa w wierszu = warianty), a każde słowo MUSI stać w mailu jako całe
   słowo (`_word_in_text` — `_in_text` to podłańcuch, „go” przeszłoby
   w „google”). Słowo spoza maila odpada; DL poprawia wiersze na formularzu.
-* **Od v7 (27.09.2026) must = technologie, bo must UKRYWA** (bramka
-  `anywhere-evidence-v8`). Kod normalizuje listę tą samą regułą co bramka
-  (`must_gate_terms`): wersje odcięte, przykłady klienta jako jedna pozycja
-  „A lub B”, język idzie do pola języka, reszta (branża, metodyka, zdanie)
-  do nice. Miasta biura to lista nazw ze słownika miejscowości, po polsku.
+* **Od v10 (02.10.2026) wymagania to JEDNA lista słów kluczowych**
+  (`requirements`): wiersz = wymaganie, słowa = warianty, poziom must albo
+  nice. Te same reguły co wiersze wyszukiwania (każde słowo z maila, jeden
+  angielski odpowiednik). `must`, `nice` i `search_requirements` są z nich
+  wyprowadzone (`champion_requirement_rows.derive`), a zdania klienta, które
+  nie są słowami kluczowymi, wracają jako `descriptive_requirements`.
+  Odpowiedź w starym kształcie (`must` + `search.requirements`) jest dalej
+  czytana po staremu, a wiersze powstają z niej przez `rows_from_legacy`.
+* **Pytanie niesie dobrą odpowiedź I odpowiedź dyskwalifikującą** — obie to
+  propozycje dla DL, który je zatwierdza albo poprawia.
 """
 
 from __future__ import annotations
@@ -58,7 +63,9 @@ MAX_EVIDENCE = 40
 MAX_EXPERIENCE = 8
 MAX_ASK_CLIENT = 5
 MAX_DISQUALIFIERS = 8
-MAX_SEARCH_ROWS = 4
+# 02.10.2026: wiersze wymagań są też listą must — limit jak w zapisie profilu.
+MAX_SEARCH_ROWS = 10
+MAX_DESCRIPTIVE = 12
 MAX_SEARCH_WORDS = 6
 MAX_OFFICE_CITIES = 5
 # Lata w dziedzinie ponad staż całkowity (albo ponad ten sufit bez stażu) to
@@ -92,6 +99,8 @@ MISSING_SEARCH = "search"
 # 30.09.2026: DL potwierdza umiejętności krytyczne (albo „Brak krytycznych”),
 # gdy MUST ma co najmniej jedną technologię ze słownika.
 MISSING_CRITICAL = "critical"
+# 02.10.2026: każde pytanie screeningowe mówi też, która odpowiedź dyskwalifikuje.
+MISSING_DEAL_BREAKER = "deal_breaker"
 
 
 @dataclass(frozen=True)
@@ -99,6 +108,7 @@ class IntakeQuestion:
     question: str
     ideal_answer: str
     from_request: bool
+    deal_breaker: str = ""
 
 
 @dataclass(frozen=True)
@@ -129,12 +139,17 @@ class RequestIntake:
     experience: dict[str, list[dict[str, Any]]] = field(
         default_factory=lambda: {"domains": [], "certifications": [], "regulations": []}
     )
-    search_keywords: Optional[str] = None
     target_companies: Optional[str] = None
     disqualifiers: list[str] = field(default_factory=list)
     # ── od v5 (25.09.2026): wymagania do wyszukiwania w bazie (sekcja 2) ──
     # Wiersz = wymaganie, słowa = warianty; każde słowo dosłownie z maila.
     search_requirements: list[list[str]] = field(default_factory=list)
+    # ── od v10 (02.10.2026): jedna lista wymagań ──
+    # `[{"words": [...], "level": "must"|"nice"}]` — źródło dla `must`, `nice`
+    # i `search_requirements`; krytyczne wybiera DL na formularzu.
+    requirements: list[dict[str, Any]] = field(default_factory=list)
+    # Dosłowne zdania klienta, które nie są słowami kluczowymi (i wersje).
+    descriptive_requirements: list[str] = field(default_factory=list)
     selling_points: Optional[str] = None
     ask_client: list[str] = field(default_factory=list)
     # Ścieżka pola formularza → "request" | "client_history" | "ai".
@@ -345,9 +360,50 @@ def _translated_search_word(word: str, technologies: set[str]) -> Optional[str]:
     return None if keyword_suggest.fold(word) in technologies else word
 
 
+def _ground_row(
+    words: Any, folded_text: str, technologies: set[str]
+) -> tuple[Optional[list[str]], bool]:
+    """Jeden wiersz wymagań: słowa z maila i najwyżej jeden angielski
+    odpowiednik, tylko obok słowa z maila. ``(None, False)``, gdy żadne słowo
+    wiersza nie stoi w mailu. Drugi element: czy wiersz niesie odpowiednik."""
+    from app.services.skill_normalize import strip_version
+
+    row: list[str] = []
+    grounded = 0
+    extra: Optional[str] = None
+    for raw in words if isinstance(words, list) else [words]:
+        word = _text(raw, 100)
+        if not word:
+            continue
+        word = " ".join(word.replace("|", " ").split())
+        if len(word) < 2:
+            continue
+        kept = _grounded_search_word(word, folded_text, technologies)
+        is_extra = kept is None
+        if is_extra:
+            if extra is not None:
+                continue
+            kept = _translated_search_word(word, technologies)
+        elif not kept.endswith("*"):
+            # Wersja zawęża do osób, które napisały ten sam numer („Java 17+”).
+            # Tylko przy technologii ze słownika — „ISO 27001” to nazwa.
+            base, version = strip_version(kept)
+            if version and keyword_suggest.fold(base) in technologies:
+                kept = base
+        if kept is None or kept.casefold() in {w.casefold() for w in row}:
+            continue
+        if is_extra:
+            extra = kept
+        else:
+            grounded += 1
+        row.append(kept)
+        if len(row) >= MAX_SEARCH_WORDS:
+            break
+    return (row, extra is not None) if grounded else (None, False)
+
+
 def _search_rows(value: Any, folded_text: str) -> tuple[list[list[str]], bool]:
-    """Wiersze wymagań do wyszukiwania — słowa z maila i najwyżej jeden
-    angielski odpowiednik na wiersz, tylko obok słowa z maila. Drugi element:
+    """Wiersze wymagań do wyszukiwania (kształt sprzed v10). Drugi element:
     czy któryś wiersz niesie odpowiednik (wtedy to „propozycja AI”)."""
     if not isinstance(value, list):
         return [], False
@@ -355,40 +411,43 @@ def _search_rows(value: Any, folded_text: str) -> tuple[list[list[str]], bool]:
     rows: list[list[str]] = []
     translated = False
     for raw_row in value:
-        words = raw_row if isinstance(raw_row, list) else [raw_row]
-        row: list[str] = []
-        grounded = 0
-        extra: Optional[str] = None
-        for raw in words:
-            word = _text(raw, 100)
-            if not word:
-                continue
-            word = " ".join(word.replace("|", " ").split())
-            if len(word) < 2:
-                continue
-            kept = _grounded_search_word(word, folded_text, technologies)
-            is_extra = kept is None
-            if is_extra:
-                if extra is not None:
-                    continue
-                kept = _translated_search_word(word, technologies)
-            if kept is None or kept.casefold() in {w.casefold() for w in row}:
-                continue
-            if is_extra:
-                extra = kept
-            else:
-                grounded += 1
-            row.append(kept)
-            if len(row) >= MAX_SEARCH_WORDS:
-                break
-        if not grounded:
+        row, has_extra = _ground_row(raw_row, folded_text, technologies)
+        if row is None:
             continue
         if row not in rows:
             rows.append(row)
-            translated = translated or extra is not None
+            translated = translated or has_extra
         if len(rows) >= MAX_SEARCH_ROWS:
             break
     return rows, translated
+
+
+def _requirement_rows(
+    value: Any, folded_text: str
+) -> tuple[list[dict[str, Any]], bool, bool]:
+    """Wiersze wymagań v10 → (wiersze, must z odpowiednikiem, nice z odpowiednikiem).
+
+    Te same reguły słów co `_search_rows`; poziom to must albo nice —
+    krytyczne wybiera Delivery Lead, nie model."""
+    from app.services.champion_requirement_rows import clean_rows
+
+    technologies = _technology_keys()
+    rows: list[dict[str, Any]] = []
+    translated = {"must": False, "nice": False}
+    nice_count = 0
+    for item in value if isinstance(value, list) else []:
+        if not isinstance(item, dict):
+            continue
+        level = "nice" if item.get("level") == "nice" else "must"
+        if level == "nice" and nice_count >= MAX_NICE:
+            continue
+        row, has_extra = _ground_row(item.get("words"), folded_text, technologies)
+        if row is None:
+            continue
+        nice_count += level == "nice"
+        translated[level] = translated[level] or has_extra
+        rows.append({"words": row, "level": level})
+    return clean_rows(rows), translated["must"], translated["nice"]
 
 
 def _questions(value: Any) -> list[IntakeQuestion]:
@@ -406,6 +465,7 @@ def _questions(value: Any) -> list[IntakeQuestion]:
                 question=question,
                 ideal_answer=_text(item.get("ideal_answer"), 500) or "",
                 from_request=bool(item.get("from_request")),
+                deal_breaker=_text(item.get("deal_breaker"), 500) or "",
             )
         )
         if len(out) >= MAX_QUESTIONS:
@@ -617,8 +677,11 @@ def missing_fields(
             missing.append(MISSING_OFFICE_CITY)
     if not (project_about or responsibilities):
         missing.append(MISSING_CONTEXT)
-    if len([q for q in questions if q.question.strip()]) < 2:
+    filled = [q for q in questions if q.question.strip()]
+    if len(filled) < 2:
         missing.append(MISSING_QUESTIONS)
+    if any(not q.deal_breaker.strip() for q in filled):
+        missing.append(MISSING_DEAL_BREAKER)
     if not any(row for row in search_requirements):
         missing.append(MISSING_SEARCH)
     if critical is None and _has_critical_candidates(must):
@@ -726,9 +789,56 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     for quote in (client_title, client_reference, hm_name):
         if quote and quote not in evidence:
             evidence.append(quote)
-    must, nice, must_language, advisories = normalize_must(
-        _names(data.get("must"), MAX_MUST), _names(data.get("nice"), MAX_NICE)
-    )
+    search = data.get("search") if isinstance(data.get("search"), dict) else {}
+    descriptive = [
+        text
+        for text in _strings(data.get("descriptive_requirements"), MAX_DESCRIPTIVE, 300)
+        if _in_text(text, folded_text)
+    ]
+    advisories: list[str] = []
+    if isinstance(data.get("requirements"), list):
+        from app.services.champion_requirement_rows import derive
+        from app.services.must_gate_terms import ignored_reason
+
+        requirements, must_translated, nice_translated = _requirement_rows(
+            data["requirements"], folded_text
+        )
+        derived = derive(requirements)
+        must = [item["name"] for item in derived["must"]]
+        nice = [item["name"] for item in derived["nice"]]
+        search_requirements = derived["requirements"]
+        search_translated = must_translated
+        must_language = next(
+            (text for text in descriptive if ignored_reason(text) == "language"), None
+        )
+        must_basis = "ai" if must_translated else "request"
+        nice_basis = "ai" if nice_translated else "request"
+    else:
+        # Odpowiedź w kształcie sprzed v10: must słowami klienta i osobne
+        # wiersze wyszukiwania. Wiersze formularza powstają tą samą zamianą,
+        # której używa „Uprość do słów kluczowych”.
+        from app.services.champion_requirement_rows import rows_from_legacy
+
+        must, nice, must_language, advisories = normalize_must(
+            _names(data.get("must"), MAX_MUST), _names(data.get("nice"), MAX_NICE)
+        )
+        search_requirements, search_translated = _search_rows(
+            search.get("requirements"), folded_text
+        )
+        legacy = rows_from_legacy(
+            must=must, nice=nice, requirements=search_requirements
+        )
+        requirements = legacy["rows"]
+        descriptive = [*descriptive, *legacy["descriptive"]][:MAX_DESCRIPTIVE]
+        # Runda 8 (R8-N12-6): „z maila” tylko wtedy, gdy każda technologia stoi
+        # w mailu jako całe słowo — technologia dopisana przez model to
+        # „propozycja AI”, nie cytat klienta.
+        must_basis, nice_basis = (
+            "request"
+            if all(_label_in_text(name, folded_text) for name in names)
+            else "ai"
+            for names in (must, nice)
+        )
     project_about = _text(data.get("project_about"), 600)
     responsibilities = _text(data.get("responsibilities"), 2000)
     questions = _questions(data.get("screening_questions"))
@@ -742,13 +852,8 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         for item in items:
             if item["quote"] not in evidence:
                 evidence.append(item["quote"])
-    search = data.get("search") if isinstance(data.get("search"), dict) else {}
-    search_keywords = _text(search.get("keywords"), 500)
     target_companies = _text(search.get("target_companies"), 500)
     disqualifiers = _strings(search.get("disqualifiers"), MAX_DISQUALIFIERS, 200)
-    search_requirements, search_translated = _search_rows(
-        search.get("requirements"), folded_text
-    )
     selling_raw = data.get("selling_points")
     selling = selling_raw if isinstance(selling_raw, dict) else {}
     selling_points = _text(selling.get("text"), 800)
@@ -770,19 +875,11 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
             provenance[key] = "request"
     if search_translated:
         provenance["search_requirements"] = "ai"
-    # Runda 8 (R8-N12-6): „z maila” tylko wtedy, gdy każda technologia stoi
-    # w mailu jako całe słowo — technologia dopisana przez model to „propozycja
-    # AI”, nie cytat klienta.
-    for key, names in (("must", must), ("nice", nice)):
+    for key, names, basis in (("must", must, must_basis), ("nice", nice, nice_basis)):
         if names:
-            provenance[key] = (
-                "request"
-                if all(_label_in_text(name, folded_text) for name in names)
-                else "ai"
-            )
+            provenance[key] = basis
     search_basis = _basis(search.get("basis"))
     for key, present in (
-        ("search_keywords", search_keywords),
         ("target_companies", target_companies),
         ("disqualifiers", disqualifiers),
     ):
@@ -853,10 +950,11 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         language=_text(data.get("language"), 50) or _text(must_language, 50),
         contract_length=_text(data.get("contract_length"), 255),
         experience=experience,
-        search_keywords=search_keywords,
         target_companies=target_companies,
         disqualifiers=disqualifiers,
         search_requirements=search_requirements,
+        requirements=requirements,
+        descriptive_requirements=descriptive,
         selling_points=selling_points,
         ask_client=ask_client,
         provenance=provenance,

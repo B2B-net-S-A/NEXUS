@@ -300,7 +300,7 @@ describe("/preview/new-job zasiewa każdy stały klucz", () => {
     ];
     expect(keys.length).toBeGreaterThan(1);
     expect(keys.filter((key) => !harness.includes(key))).toEqual([]);
-    expect(read("components/v2/jobs/new/NewJobRequestStep.tsx")).toContain(
+    expect(read("components/v2/jobs/new/NewJobSourceStep.tsx")).toContain(
       'queryKey="clients-lookup-new-job"',
     );
   });

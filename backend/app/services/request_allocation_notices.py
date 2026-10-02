@@ -1,10 +1,16 @@
 """Powiadomienia automatu przydziału.
 
+Od razu, gdy osoba dostaje request (``notify_assigned``): akceptacja
+propozycji, ręczny wybór z pulpitu i — w trybie ``auto`` — przydział przez
+automat. ``request_assignment_changed``, jeden wpis na (osoba, request) na
+dzień: „Nowy request do pracy”.
+
 Rano, raz dziennie o ``review_time``:
 
-* ``request_assignment_changed`` — JEDEN wpis na osobę: „Od dziś: X, Y.
-  Zwolnione: Z (Mamy championa)”. Tylko w trybie ``auto``: propozycje trybu
-  podglądu nikogo do niczego nie zobowiązują, więc nikogo o nich nie budzimy.
+* ``request_assignment_changed`` — JEDEN wpis na osobę: „Zwolnione: Z (Mamy
+  championa)”, a „Od dziś: …” tylko dla requestów, o których osoba nie
+  dostała dzwonka od razu (nieudane powiadomienie). Tylko w trybie ``auto``:
+  propozycje trybu podglądu nikogo do niczego nie zobowiązują.
 * ``request_review_needed`` — JEDEN wpis na Delivery Leada: nowe requesty
   z Traffita „Do przejrzenia”, „Klient milczy” od 14+ dni, „Szukamy” bez
   pracy od 30+ dni. Link prowadzi do „Porządku w requestach”.
@@ -22,14 +28,16 @@ odbiorcy). Treść bez nazwisk kandydatów — same tytuły requestów.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.job_work_assignment import JobWorkAssignment
 from app.models.notification import Notification, NotificationType
@@ -39,6 +47,8 @@ from app.services.request_allocation_plan import (
     is_silent_release,
     release_reason_label,
 )
+
+logger = logging.getLogger(__name__)
 
 REVIEW_LINK = "/jobs/review-states"
 BOARD_LINK = "/dashboard"
@@ -55,6 +65,68 @@ def _titles(titles: list[str]) -> str:
     shown = ", ".join(titles[:MAX_TITLES])
     rest = len(titles) - MAX_TITLES
     return shown + (f" i {rest} więcej" if rest > 0 else "")
+
+
+async def notify_assigned(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    title: str,
+    client_name: Optional[str],
+    user_id: int,
+) -> None:
+    """Dzwonek dla osoby, która właśnie dostała request.
+
+    Propozycja nikogo nie budzi; od przydziału osoba pracuje, więc musi się
+    dowiedzieć od razu. Savepoint: nieudane powiadomienie nie cofa przydziału
+    ani nie zatrzymuje przebiegu automatu.
+    """
+    from app.services.notification_triggers import emit  # noqa: PLC0415
+
+    try:
+        async with db.begin_nested():
+            await emit(
+                db,
+                user_id=user_id,
+                title="Nowy request do pracy",
+                message=f"{title} · {client_name}" if client_name else title,
+                ntype=NotificationType.request_assignment_changed,
+                related_entity_type="job",
+                related_entity_id=job_id,
+                link=f"/jobs/{job_id}",
+            )
+    except Exception:  # noqa: BLE001 — dzwonek nie może cofnąć przydziału
+        logger.exception(
+            "[request_allocation] powiadomienie o przydziale nie wyszło job=%s",
+            job_id,
+        )
+
+
+async def notify_assigned_pairs(
+    db: AsyncSession, pairs: Iterable[tuple[int, int]]
+) -> None:
+    """``notify_assigned`` dla par (request, osoba) przydzielonych przez
+    automat — tytuły i klienci jednym zapytaniem."""
+    wanted = list(dict.fromkeys(pairs))
+    if not wanted:
+        return
+    jobs = {
+        job_id: (title, client_name)
+        for job_id, title, client_name in (
+            await db.execute(
+                select(Job.id, job_display_title_expr(), Client.name)
+                .outerjoin(Client, Client.id == Job.client_id)
+                .where(Job.id.in_(sorted({job_id for job_id, _ in wanted})))
+            )
+        ).all()
+    }
+    for job_id, user_id in wanted:
+        title, client_name = jobs.get(job_id, (None, None))
+        if title is None:
+            continue
+        await notify_assigned(
+            db, job_id=job_id, title=title, client_name=client_name, user_id=user_id
+        )
 
 
 async def _assignment_notices(db: AsyncSession, *, now: datetime) -> int:

@@ -22,9 +22,11 @@
  ],
  "routes": {
   "GET /api/job-intake/handoff-options": "PDDPDDDDPPPDDDDDPDD",
+  "POST /api/job-intake/category-suggestion": "PDDPDDDDPPPDDDDDPDD",
   "POST /api/job-intake/critical-suggestion": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/job-intake/public-draft": "PDDPDDDDPPPDDDDDPDD",
   "POST /api/job-intake/read": "PDDPDDDDPPPDDDDDPDD",
-  "POST /api/job-intake/read-file": "PDDPDDDDPPPDDDDDPDD"
+  "POST /api/job-intake/read-file": "PDDPDDDDPPPDDDDDPDD",
+  "POST /api/job-intake/requirement-rows": "PPPPPPDDPPPPPPPPPPP"
  }
 }

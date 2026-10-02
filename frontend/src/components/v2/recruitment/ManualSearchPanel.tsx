@@ -17,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { CandidatesListV2 } from "@/components/v2/pages/CandidatesListV2";
 import {
+  championCriticalRowFlags,
   championSearchRequirements,
   jobListFilters,
   type ManualSearchJob,
@@ -107,7 +108,9 @@ export function ManualSearchPanel({
         readOnly,
         onAdded: onBulkAdded,
         keywordsNote: hasRows
-          ? "Wymagania ustawione przy tworzeniu rekrutacji: technologie są obowiązkowe, pozostałe wiersze tylko podnoszą w kolejności. Zmiany tutaj nie zmieniają rekrutacji."
+          ? championCriticalRowFlags(source, search.rows) != null
+            ? "Wymagania ustawione przy tworzeniu rekrutacji: krytyczne są obowiązkowe, pozostałe wiersze tylko podnoszą w kolejności. Zmiany tutaj nie zmieniają rekrutacji."
+            : "Wymagania ustawione przy tworzeniu rekrutacji: technologie są obowiązkowe, pozostałe wiersze tylko podnoszą w kolejności. Zmiany tutaj nie zmieniają rekrutacji."
           : undefined,
       }}
     />
@@ -116,4 +119,9 @@ export function ManualSearchPanel({
 
 // Filtry startowe żyją w `lib/job-search-filters.ts` (wspólne z oknem
 // „Kandydaci do dodania”); eksport zostaje dla dotychczasowych importów.
-export { championSearchRequirements, jobListFilters, type ManualSearchJob };
+export {
+  championCriticalRowFlags,
+  championSearchRequirements,
+  jobListFilters,
+  type ManualSearchJob,
+};

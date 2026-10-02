@@ -290,6 +290,14 @@ export function championSavePayload(
  * Krytyczna, której nie ma już w MUST, znika przed zapisem.
  */
 function withPrunedCritical(stack: ChampionStack): ChampionStack {
+  if (Array.isArray(stack.rows)) {
+    // Profil prowadzony wierszami: krytyczne niosą poziomy wierszy, a lista
+    // `critical` to wyłącznie decyzja „Brak krytycznych” (`[]`) albo jej brak.
+    return {
+      ...stack,
+      rows: stack.rows.map(({ words, level }) => ({ words, level })),
+    };
+  }
   if (stack.critical === undefined) return stack;
   const must = (stack.must ?? []).map((item) => item.name);
   return { ...stack, critical: pruneCritical(stack.critical ?? null, must) };

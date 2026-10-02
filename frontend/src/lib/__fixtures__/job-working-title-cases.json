@@ -7,6 +7,11 @@
       "expected": "Java Developer · Java, Kafka · 5+ lat · Payments"
     },
     {
+      "name": "zamiennik po „lub” nie wchodzi do tytułu",
+      "input": {"role": "Java Developer", "must": ["Kafka lub RabbitMQ", "Spring Boot lub Spring"], "min_years": null, "domain": null},
+      "expected": "Java Developer · Kafka, Spring Boot"
+    },
+    {
       "name": "bez lat i dziedziny",
       "input": {"role": "Tester manualny", "must": ["Selenium"], "min_years": null, "domain": null},
       "expected": "Tester manualny · Selenium"

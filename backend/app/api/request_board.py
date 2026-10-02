@@ -17,7 +17,6 @@ Propozycje automatu akceptuje, zamienia i odrzuca admin albo Head of
 Recruitment (``PROPOSAL_DECISION_ROLES``).
 """
 
-import logging
 from datetime import date, datetime, timezone
 from typing import Annotated, Literal, Optional
 from zoneinfo import ZoneInfo
@@ -38,7 +37,6 @@ from app.models.client import Client
 from app.models.competence_category import CompetenceCategory, UserCompetenceCategory
 from app.models.job import Job, JobStatus
 from app.models.job_work_assignment import WORK_ROLE, JobWorkAssignment
-from app.models.notification import NotificationType
 from app.models.recruitment_allocation import RecruitmentAllocationState
 from app.models.user import User, UserRole
 from app.schemas.job_team import JobRecruiterOut
@@ -51,7 +49,6 @@ from app.services.job_team import (
     working,
 )
 from app.services.job_working_title import display_title, job_display_title_expr
-from app.services.notification_triggers import emit
 from app.services.recruitment_allocation import allocation_lock
 from app.services.request_allocation import (
     accept_proposal,
@@ -60,14 +57,13 @@ from app.services.request_allocation import (
     reject_proposal,
     replace_proposal,
 )
+from app.services.request_allocation_notices import notify_assigned
 from app.services.request_allocation_plan import (
     is_silent_release,
     release_reason_label,
 )
 from app.services.request_allocation_proposals import pending_pairs
 from app.services.workforce_availability import workforce_context
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -545,29 +541,15 @@ def _record_decision(
 async def _notify_assigned(
     db: AsyncSession, *, job: Job, client_name: Optional[str], user_id: int
 ) -> None:
-    """Dzwonek dla osoby, która właśnie dostała request.
-
-    Do akceptacji propozycja nikogo nie budzi; od akceptacji osoba pracuje,
-    więc musi się dowiedzieć. Savepoint: nieudane powiadomienie nie cofa
-    decyzji.
-    """
-    title = display_title(job)
-    try:
-        async with db.begin_nested():
-            await emit(
-                db,
-                user_id=user_id,
-                title="Nowy request do pracy",
-                message=f"{title} · {client_name}" if client_name else title,
-                ntype=NotificationType.request_assignment_changed,
-                related_entity_type="job",
-                related_entity_id=job.id,
-                link=f"/jobs/{job.id}",
-            )
-    except Exception:  # noqa: BLE001 — dzwonek nie może cofnąć decyzji
-        logger.exception(
-            "[request_board] powiadomienie o przydziale nie wyszło job=%s", job.id
-        )
+    """Dzwonek dla osoby, która właśnie dostała request (akceptacja propozycji
+    albo wybór człowieka) — ta sama treść co przy przydziale przez automat."""
+    await notify_assigned(
+        db,
+        job_id=job.id,
+        title=display_title(job),
+        client_name=client_name,
+        user_id=user_id,
+    )
 
 
 async def _client_names(db: AsyncSession, jobs: list[Job]) -> dict[int, str]:

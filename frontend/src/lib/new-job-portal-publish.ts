@@ -22,6 +22,8 @@ import {
   buildChampionPayload,
   jobTitleFor,
   formOfficeDays,
+  mustOf,
+  niceOf,
   type IntakeForm,
 } from "@/lib/job-request-intake";
 
@@ -68,8 +70,8 @@ export function publicDraftRequest(
     title: form.title.trim() || jobTitleFor(form),
     client_id: opts.clientId,
     description: opts.requestText.trim() || null,
-    must_skills: form.must,
-    nice_skills: form.nice,
+    must_skills: mustOf(form),
+    nice_skills: niceOf(form),
     location: remote === "remote" ? null : form.city.trim() || null,
     remote_policy: remote,
     onsite_days_per_week: formOfficeDays(form).onsite_days_per_week,

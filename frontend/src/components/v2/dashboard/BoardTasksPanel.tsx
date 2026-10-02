@@ -9,7 +9,12 @@
  *    admin ją akceptuje, zmienia albo odrzuca (`AllocationProposalsSection`).
  *    Pierwsza sekcja panelu; widzi ją wyłącznie osoba, która o propozycjach
  *    decyduje (`can_decide_proposals`),
- *  - „Czeka na Twój przegląd (DL)" (klienci spoza Nordei) — osoby w kolumnie
+ *  - „Nowe rekrutacje — kto prowadzi" — dla admina i Head of Recruitment:
+ *    kto jest rekruterem prowadzącym świeżo przekazanych rekrutacji (automat
+ *    albo osoba wskazana przez Delivery Leada) i „Zmień" tam, gdzie się nie
+ *    zgadzają (`NewJobLeadsSection`). To informacja, nie zadanie: nie liczy
+ *    się do tego, czy coś „czeka", a bez innych list stoi sama nad pulpitem,
+  *  - „Czeka na Twój przegląd (DL)" (klienci spoza Nordei) — osoby w kolumnie
  *    „QC CV", które Delivery Lead wysyła do klienta ze stawką albo odrzuca;
  *    wiersz otwiera `DlReviewPanel` (CV, QC, screening, stawka),
  *    Widzi go wyłącznie Delivery Lead rekrutacji (admin i HoR nie),
@@ -32,7 +37,8 @@
  *
  * Kolejka „Czeka na DZ" i przegląd DZ (0353) zniknęły — zastąpiło je QC CV.
  * Panel „Czeka na Ciebie" nie renderuje się, gdy nic nie czeka — pusta ramka
- * uczyłaby go ignorować (zostaje wtedy najwyżej pasek „Twoje CV w drodze"). Kotwica `#czeka-na-ciebie` = link z porannego dzwonka.
+ * uczyłaby go ignorować (zostają wtedy najwyżej listy informacyjne: „Nowe
+ * rekrutacje — kto prowadzi" i pasek „Twoje CV w drodze"). Kotwica `#czeka-na-ciebie` = link z porannego dzwonka.
  */
 
 import Link from "next/link";
@@ -60,6 +66,7 @@ import { countPl } from "@/lib/plural-pl";
 
 import { CproQueueDialog, CproSenderControl } from "./CproQueueDialog";
 import { CvInTransitSection } from "./CvInTransitSection";
+import { NewJobLeadsSection } from "./NewJobLeadsSection";
 
 export const BOARD_TASKS_ANCHOR = "czeka-na-ciebie";
 
@@ -193,8 +200,12 @@ export function BoardTasksPanel() {
   // w panelu; gdy nie — sam wąski pasek nad pulpitem (także z pustym stanem,
   // bo każdy ma tę listę domyślnie i może ją usunąć z pulpitu).
   const transit = data.cv_in_transit ?? null;
+  // „Nowe rekrutacje — kto prowadzi” to informacja dla Head of Recruitment
+  // i admina (serwer nie wysyła jej nikomu innemu): do `total` się nie liczy,
+  // a gdy nic nie czeka — stoi sama, we własnej ramce.
+  const leads = data.new_job_leads ?? [];
   if (total === 0 && (transit?.returned_total ?? 0) === 0) {
-    if (!canSetSender && !transit) return null;
+    if (!canSetSender && !transit && leads.length === 0) return null;
     return (
       <div className="flex flex-col gap-3">
         {canSetSender ? (
@@ -202,6 +213,7 @@ export function BoardTasksPanel() {
             <CproSenderControl sender={sender.data} loading={sender.isLoading} compact />
           </div>
         ) : null}
+        <NewJobLeadsSection rows={leads} standalone />
         {transit ? <CvInTransitSection transit={transit} standalone /> : null}
       </div>
     );
@@ -236,6 +248,7 @@ export function BoardTasksPanel() {
           rows={proposals}
           leaveKnown={data.allocation_leave_known !== false}
         />
+        <NewJobLeadsSection rows={leads} />
         <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
         {transit ? <CvInTransitSection transit={transit} /> : null}
         {dlReview.length > 0 && (

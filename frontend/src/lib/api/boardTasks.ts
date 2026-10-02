@@ -128,6 +128,47 @@ export interface AllocationProposalRow {
   proposed_at: string;
 }
 
+/** Skąd rekrutacja ma rekrutera prowadzącego. */
+export type NewJobLeadSource = "auto" | "manual";
+
+/**
+ * Dlaczego rekrutacja nie ma jeszcze prowadzącego: automat właśnie przydziela,
+ * priorytet „Przyjmujemy kandydatów” (automat takich nie obsadza) albo po
+ * prostu nikt nie jest przypisany.
+ */
+export type NewJobLeadPendingReason = "assigning" | "passive" | "none";
+
+/**
+ * „Nowe rekrutacje — kto prowadzi”: rekrutacje świeżo przekazane do searchu
+ * z rekruterem prowadzącym. Lista informacyjna — w trybie „auto” automat
+ * przydziela od razu, a Head of Recruitment zmienia tylko to, z czym się nie
+ * zgadza. Wiersze dostaje wyłącznie admin i Head of Recruitment.
+ */
+export interface NewJobLeadRow {
+  job_id: number;
+  title: string;
+  client_name: string | null;
+  category_id: number | null;
+  category_name: string | null;
+  category_slug: string | null;
+  /** Ile osób z kategorii jest uczestnikami rekrutacji. */
+  participants: number;
+  /** `PriorityLevel`; nieznaną wartość traktujemy jak brak plakietki. */
+  priority_level: string;
+  delivery_lead_name: string | null;
+  /** Kiedy rekrutację przekazano do searchu (ISO). */
+  handed_off_at: string;
+  lead_user_id: number | null;
+  lead_name: string | null;
+  lead_role: string | null;
+  lead_source: NewJobLeadSource | null;
+  /** Kto wskazał prowadzącego ręcznie. */
+  assigned_by_name: string | null;
+  /** Prowadzący to propozycja automatu czekająca na akceptację („shadow”). */
+  proposed: boolean;
+  pending_reason: NewJobLeadPendingReason | null;
+}
+
 /** „Twoje CV w drodze” — lustro `services/cv_in_transit.py`. */
 export type CvTransitKind =
   | "rejected_by_dl"
@@ -195,6 +236,9 @@ export interface BoardTasksResponse {
   can_decide_proposals?: boolean;
   /** Czy urlopy z Compassa są świeże; bez tego brak urlopu znaczy „nie wiadomo”. */
   allocation_leave_known?: boolean;
+  /** „Nowe rekrutacje — kto prowadzi” — tylko admin i Head of Recruitment
+   *  (reszta dostaje pustą listę); starszy backend pola nie oddaje. */
+  new_job_leads?: NewJobLeadRow[];
   /** „Twoje CV w drodze” — co dzieje się z CV po przekazaniu karty. `null`
    *  albo brak = osoba usunęła listę z pulpitu (albo serwer jej nie policzył). */
   cv_in_transit?: CvInTransit | null;
