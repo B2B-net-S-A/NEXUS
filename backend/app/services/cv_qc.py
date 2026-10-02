@@ -35,7 +35,7 @@ import json
 import logging
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
@@ -641,14 +641,33 @@ def critical_requirements(
     wybór Delivery Leada, a bez niego podpowiedź z historii. `MUST_GATE_MODE`
     nie ma tu znaczenia — „każde must blokuje” to dokładnie to, co QC porzuciło
     02.10.2026. Źródło: ``"dl"`` | ``"suggested"`` | ``"none"``.
+
+    Nazwy do wyszukania też bierzemy z bramki: „Bazy danych (Oracle,
+    PostgreSQL)” spełnia którakolwiek z nazw, a nie słowa „Bazy danych”.
     """
 
     from app.services.critical_skills import effective_critical, match_must_labels
+    from app.services.must_gate_terms import gate_requirement
 
     resolution = effective_critical(job)
     labels = set(match_must_labels(resolution.labels, [r.label for r in must]))
-    critical = [r for r in must if r.label in labels]
+    critical: list[Requirement] = []
+    for req in must:
+        if req.label not in labels:
+            continue
+        gate = gate_requirement(req.label)
+        critical.append(replace(req, terms=gate.options) if gate else req)
     return critical, (resolution.source if critical else "none")
+
+
+def with_critical_terms(
+    must: list[Requirement], critical: list[Requirement]
+) -> list[Requirement]:
+    """``must`` z krytycznymi w wersji z `critical_requirements` — te same
+    nazwy czytają pogrubienia, zgodność z oryginałem i poprawki AI."""
+
+    by_label = {req.label: req for req in critical}
+    return [by_label.get(req.label, req) for req in must]
 
 
 def _check(
@@ -773,7 +792,9 @@ def compute_checks(data: QcInput) -> list[dict]:
         return checks
 
     blocks = data.blocks
-    gen_text = dz.blocks_text(blocks)
+    # Wymagań szukamy w treści CV. Klauzula zgody to szablon („…przez B2B.net
+    # S.A.”), nie twierdzenie o kandydacie — „.NET” trafiało w nią w obie strony.
+    gen_text = dz.blocks_text([b for b in blocks if b.section != dz.RODO_SECTION])
     bolds = dz.bold_texts(blocks)
     bold_joined = "\n".join(bolds)
     original = data.original_text or ""
@@ -1068,7 +1089,9 @@ def compute_checks(data: QcInput) -> list[dict]:
         rule_items.append(
             _item(detail=f"Stawka w CV: „{quote}”. Usuń — stawek w CV nie wysyłamy.")
         )
-    for what in contact_leaks(gen_text, data.candidate_email, data.candidate_phone):
+    for what in contact_leaks(
+        dz.blocks_text(blocks), data.candidate_email, data.candidate_phone
+    ):
         rule_items.append(_item(detail=f"CV zawiera {what}. Usuń dane kontaktowe."))
     if data.consent == "missing":
         rule_items.append(
@@ -1362,12 +1385,21 @@ async def _latest_override(
     return {"reason": row.override_reason, "by_name": row.name, "at": row.created_at}
 
 
+async def _load_sources(db: AsyncSession, stage: CandidateStage) -> dz.ReviewSources:
+    """Źródła pary dla QC — krytyczne wymagania z nazwami z bramki wyszukiwania."""
+
+    src = await dz.load_sources(db, stage)
+    critical, _ = critical_requirements(src.job, src.must)
+    src.must = with_critical_terms(src.must, critical)
+    return src
+
+
 async def evaluate(
     db: AsyncSession, stage: CandidateStage
 ) -> tuple[dz.ReviewSources, list[dict], str]:
     """(źródła, sprawdzenia, tekst notatek) — bez zapisu."""
 
-    src = await dz.load_sources(db, stage)
+    src = await _load_sources(db, stage)
     notes = await _notes_text(db, src.candidate.id)
     consent = await _consent_state(db, src)
     return src, compute_checks(_qc_input(src, notes, consent)), notes
@@ -2455,7 +2487,7 @@ async def apply_action(
     from app.models.activity import Activity
     from app.services.html_sanitizer import sanitize_cv_html
 
-    src = await dz.load_sources(db, stage)
+    src = await _load_sources(db, stage)
     gen = src.generated
     if gen is None:
         raise HTTPException(

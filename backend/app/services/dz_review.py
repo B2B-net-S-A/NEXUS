@@ -232,7 +232,9 @@ def _term(text: str) -> str:
     head = _DESCRIPTION_SPLIT.split(text, maxsplit=1)[0]
     head = _PARENTHETICAL.sub(" ", head)
     head = head.replace("(", " ").replace(")", " ")
-    return _without_version(" ".join(head.split()).strip(" ,;."))
+    # Kropka z przodu należy do nazwy („.NET”) — bez niej „NET” trafia
+    # w „B2B.net” z klauzuli zgody. Tak samo czyta nazwę bramka wyszukiwania.
+    return _without_version(" ".join(head.split()).lstrip(" ,;").rstrip(" ,;."))
 
 
 def _without_version(term: str) -> str:

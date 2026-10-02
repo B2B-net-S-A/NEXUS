@@ -223,9 +223,10 @@ def _unguarded_manual_validations(root: Path) -> list[str]:
 def test_no_handler_validates_a_raw_body_outside_the_helper() -> None:
     hits = _unguarded_manual_validations(BACKEND / "app" / "api")
     assert hits == [], (
-        "Model budowany z surowego ciała żądania poza `validated_body` i poza "
-        "`try` — błędne ciało skończy się 500 zamiast 422 (app/api/…):\n  "
-        + "\n  ".join(hits)
+        "Model budowany z surowego słownika poza `try` (app/api/…). Dane "
+        "z żądania sprawdzaj przez `validated_body` — inaczej błędne ciało "
+        "kończy się 500 zamiast 422. Dane wewnętrzne: złap `ValidationError` "
+        "i zostaw błąd serwera.\n  " + "\n  ".join(hits)
     )
 
 
@@ -343,8 +344,8 @@ async def test_linking_a_note_refuses_a_malformed_body(
 
     async with AsyncSessionLocal() as db:
         assert (await db.get(Note, note_id)).job_id is None
-    # Poprawne ciało przechodzi tę samą ścieżką dalej (tu: do odmowy powiązania
-    # notatki bez kandydata albo do wzbogacenia) — walidacja go nie zatrzymuje.
+    # Poprawne ciało przechodzi walidację i idzie dalej — tu do 404, bo takiej
+    # notatki nie ma.
     passed = await app_client.post(
         f"/api/notes/{note_id + 10_000_000}/link-job",
         headers=app_auth_headers,

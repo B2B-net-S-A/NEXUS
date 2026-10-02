@@ -59,6 +59,8 @@ Krytyczne = wybór DL w Championie (`critical_source: "dl"`), a bez niego podpow
 bez krytycznych (`"none"`) sprawdzenie ma `status: "skip"`. QC nie czyta `MUST_GATE_MODE`.
 Wymaganie z wersją („Spring Boot 3.4+”) szuka w CV nazwy bez wersji; wersja wpisana wprost
 w CV, której nie ma w oryginale ani notatkach, nadal pada w `no_unsupported`.
+Krytyczne wymaganie jest czytane nazwami bramki wyszukiwania: „Bazy danych (Oracle, PostgreSQL)”
+spełnia którakolwiek z nazw. Wymagań nie szukamy w klauzuli zgody RODO (to szablon, nie treść CV).
 `status: "manual"` = nie da się policzyć (np. pogrubienia w PDF) — nie blokuje. Bez CV: `cv_present` = fail z `fix: "generate_cv"`, `cv: null`.
 `passed` = brak blokujących `fail`. `blocking_failed` = liczba RZECZY do poprawy (różne wymagania
 w niezaliczonych sprawdzeniach blokujących) — tę samą liczbę pokazują chip na Tablicy, okno QC

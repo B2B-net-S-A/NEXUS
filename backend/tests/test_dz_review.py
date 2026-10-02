@@ -173,6 +173,25 @@ def test_requirement_terms_keep_a_name_that_is_in_the_dictionary() -> None:
     assert svc.requirement_terms(("Dynamics 365",)) == ("Dynamics",)
 
 
+@pytest.mark.parametrize(
+    ("label", "term"),
+    [
+        (".NET 8", ".NET"),
+        (".NET 6+", ".NET"),
+        (".NET", ".NET"),
+        (".NET Core 6", ".NET Core"),
+    ],
+)
+def test_requirement_terms_keep_the_leading_dot(label: str, term: str) -> None:
+    """Kropka z przodu należy do nazwy. Bez niej „.NET 8” szukało słowa „NET”,
+    a to stoi w klauzuli zgody każdego CV firmowego („B2B.net S.A.”) — tak samo
+    czyta nazwę bramka wyszukiwania (`must_gate_terms._clean`)."""
+    assert svc.requirement_terms((label,)) == (term,)
+    req = svc.Requirement(label, (label,), svc.requirement_terms((label,)))
+    assert not svc._found("… dokumentach przez B2B.net S.A. w celach …", req)
+    assert svc._found("Programista C#/.NET, wcześniej ASP.NET Core.", req)
+
+
 def test_rodo_clause_gets_its_own_section_in_every_reader() -> None:
     """Klauzula zgody nie jest treścią ostatniej roli — w HTML-u, w pliku
     Word i w zwykłym tekście (PDF)."""

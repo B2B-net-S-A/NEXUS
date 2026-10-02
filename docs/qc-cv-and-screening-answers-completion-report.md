@@ -90,6 +90,23 @@ zabezpieczenia:
   kwadratowo na długim ciągu cyfr),
 - identyfikator kandydata w nowej trasie spoza zakresu kolumny daje 422.
 
+### Po przeglądzie kodu
+
+Przegląd znalazł jeden bloker i jedną rozbieżność z bramką wyszukiwania; oba
+odtworzone testem przed poprawką.
+
+- **Klauzula zgody udawała treść CV.** Wymaganie „.NET 8” traciło w QC kropkę
+  i wersję, a słowo „net” stoi w klauzuli każdego CV firmowego („B2B.net
+  S.A.”). QC blokowało wtedy pozycją „net — jest w CV, a nie ma tego
+  w oryginale”, której nie dało się poprawić, a krytyczne „.NET” przechodziło,
+  choć treść CV go nie opisuje. Teraz kropka z przodu nazwy zostaje, a wymagań
+  nie szukamy w klauzuli.
+- **Umiejętność krytyczna czytana jak w bramce wyszukiwania.** „Bazy danych
+  (Oracle, PostgreSQL)” bramka przyjmuje, gdy kandydat ma którąkolwiek z nazw;
+  QC szukało dosłownie słów „Bazy danych” i blokowało CV z opisanym Oracle.
+  QC bierze teraz te same nazwy co bramka — także w pogrubieniach, zgodności
+  z oryginałem i propozycjach AI.
+
 ### Błędne ciało żądania: 422 zamiast 500
 
 Przy arkuszu screeningu wyszło, że ten sam błąd jest w innych trasach: handler

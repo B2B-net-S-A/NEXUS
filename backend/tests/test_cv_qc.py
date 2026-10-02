@@ -369,6 +369,100 @@ def test_critical_requirements_follow_the_search_gate() -> None:
     assert qc.critical_requirements(job(["Kubernetes"]), must) == ([], "none")
 
 
+def test_critical_requirement_is_read_like_the_search_gate() -> None:
+    """„Bazy danych (Oracle, PostgreSQL)” wybrane jako krytyczne: bramka
+    wyszukiwania przyjmuje którąkolwiek z nazw, więc QC też. Do 02.10.2026 QC
+    szukało dosłownie „Bazy danych” i CV z opisanym Oracle dostawało blokadę
+    „Brak w CV i w oryginale”."""
+    label = "Bazy danych (Oracle, PostgreSQL)"
+    must = [
+        dz.Requirement(label=n, alternatives=(n,), terms=dz.requirement_terms((n,)))
+        for n in (label, "Kubernetes")
+    ]
+    job = SimpleNamespace(
+        id=1,
+        title="Administrator baz danych",
+        working_title=None,
+        must_skills=[label, "Kubernetes"],
+        nice_skills=[],
+        requirements_reviewed=True,
+        matching_requirements=None,
+        champion_profile={
+            "stack": {
+                "must": [{"name": label}, {"name": "Kubernetes"}],
+                "critical": [label],
+            }
+        },
+    )
+    html = (
+        "<p>Administrowałem bazą <b>Oracle</b> 19c w banku: strojenie zapytań "
+        "i kopie zapasowe.</p>"
+    )
+    with hydrated_taxonomy():
+        critical, source = qc.critical_requirements(job, must)
+        assert source == "dl"
+        assert [(r.label, r.terms) for r in critical] == [
+            (label, ("Oracle", "PostgreSQL"))
+        ]
+        # Te same nazwy czytają pozostałe sprawdzenia i poprawki (pogrubienia,
+        # zgodność z oryginałem, materiał dla AI).
+        assert [r.terms for r in qc.with_critical_terms(must, critical)] == [
+            ("Oracle", "PostgreSQL"),
+            ("Kubernetes",),
+        ]
+        by = _by_key(
+            qc.compute_checks(
+                _qc_input(
+                    html,
+                    must=qc.with_critical_terms(must, critical),
+                    critical=critical,
+                    original_text="Oracle 19c, strojenie zapytań.",
+                    experience=[],
+                )
+            )
+        )
+    assert by["critical_skills"]["status"] == "pass", by["critical_skills"]
+    bolded = {i["requirement"] for i in by["must_bolded"]["items"]}
+    assert label not in bolded
+
+
+def test_rodo_clause_is_not_cv_content_for_requirements() -> None:
+    """Klauzula zgody to szablon, nie treść CV. Do 02.10.2026 wymaganie „.NET 8”
+    trafiało w „B2B.net S.A.” z klauzuli: QC blokowało pozycją „net — jest w CV,
+    a nie ma tego w oryginale” (której nie dało się poprawić), a krytyczne
+    „.NET” przechodziło, choć treść CV go nie opisuje."""
+    from app.services.cv_generator_b2b.docx_renderer import TRANSLATIONS
+
+    def checks(**extra) -> dict[str, dict]:
+        html = (
+            "<p>Angular developer w zespole płatności.</p>"
+            f'<p class="rodo">{TRANSLATIONS["pl"]["rodo"]}</p>'
+        )
+        base = dict(must=_reqs("Angular"), experience=[])
+        base.update(extra)
+        return _by_key(qc.compute_checks(_qc_input(html, **base)))
+
+    def reqs(*names: str) -> list[dz.Requirement]:
+        return [
+            dz.Requirement(label=n, alternatives=(n,), terms=dz.requirement_terms((n,)))
+            for n in names
+        ]
+
+    # Mile widziane „.NET 8”, którego nie ma ani w treści CV, ani w oryginale.
+    by = checks(nice=reqs(".NET 8"), original_text="Angular developer")
+    assert by["no_unsupported"]["status"] == "pass", by["no_unsupported"]
+    # Słowo, które stoi wyłącznie w klauzuli, nie jest twierdzeniem o kandydacie.
+    by = checks(nice=_reqs("B2B.net"), original_text="Angular developer")
+    assert by["no_unsupported"]["status"] == "pass", by["no_unsupported"]
+    # Krytyczne „.NET” jest w oryginale, ale nie w treści CV — klauzula go nie udaje.
+    net = reqs(".NET")
+    by = checks(must=net, critical=net, original_text="Angular i .NET w banku")
+    assert by["critical_skills"]["status"] == "fail", by["critical_skills"]
+    assert by["critical_skills"]["items"][0]["detail"].startswith(
+        "Brak w CV — jest w oryginale"
+    )
+
+
 def test_pdf_cv_cannot_prove_bolding_so_it_is_manual_not_a_block() -> None:
     by = _by_key(qc.compute_checks(_qc_input(BRANDED_HTML, bold_known=False)))
     assert by["must_bolded"]["status"] == "manual"

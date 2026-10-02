@@ -3962,7 +3962,12 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   liczbę. Wymaganie z wersją („Spring Boot 3.4+”) szuka nazwy bez wersji
   (`dz_review._without_version`), a wersja wpisana wprost w CV bez pokrycia
   w oryginale dalej blokuje. Klauzula RODO to osobny blok (`section: "rodo"`,
-  `cv_rodo_clause.is_rodo_text`), nie część ostatniej roli. Blokujące liczy KOD;
+  `cv_rodo_clause.is_rodo_text`), nie część ostatniej roli i nie treść CV:
+  wymagań w niej nie szukamy, a kropka z przodu nazwy zostaje („.NET” bez
+  kropki trafiało w „B2B.net S.A.” z klauzuli — fałszywa blokada i fałszywe
+  zaliczenie krytycznej). Krytyczne wymaganie QC czyta nazwami bramki
+  wyszukiwania (`gate_requirement(label).options`): „Bazy danych (Oracle,
+  PostgreSQL)” spełnia którakolwiek z nazw. Blokujące liczy KOD;
   Luna tylko proponuje zdania z cytatem źródła (serwer odrzuca propozycję bez
   cytatu obecnego w oryginale/notatkach), rekruter klika „Zastosuj”. Poprawki
   edytują szkic CV firmowego pary; CV spoza NEXUSA (Word/PDF „…B2B…”) = 409
