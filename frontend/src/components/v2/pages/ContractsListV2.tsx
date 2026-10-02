@@ -31,7 +31,6 @@ import { ListDetailLayout } from"@/components/ds/ListDetailLayout";
 import { rowActivationProps, useRowNavigation } from"@/hooks/useRowNavigation";
 import { TruncatedText } from"@/components/ds/TruncatedText";
 import {
- LIST_PAGE_MAX_WIDTH,
  WIDE_HIDDEN,
  WIDE_ONLY_CELL,
  WIDE_ONLY_COL,
@@ -1661,10 +1660,7 @@ export function ContractsListV2({
  const openPreview = openContractId != null ? previews.get(openContractId) : undefined;
 
  return (
- <div
- ref={listRef}
- className={cn("mx-auto", LIST_PAGE_MAX_WIDTH)}
- >
+ <div ref={listRef}>
  <ListDetailLayout
  list={listContent}
  onClose={closePanel}

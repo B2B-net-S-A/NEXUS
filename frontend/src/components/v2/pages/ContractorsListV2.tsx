@@ -52,7 +52,6 @@ import { DraftCompletionModal } from"@/components/v2/modals/DraftCompletionModal
 import { ContractTerminationDialog } from"@/components/contracts/ContractTerminationDialog";
 import { ListDetailLayout } from"@/components/ds/ListDetailLayout";
 import {
- LIST_PAGE_MAX_WIDTH,
  WIDE_HIDDEN,
  WIDE_ONLY_CELL,
  WIDE_ONLY_INLINE,
@@ -652,7 +651,7 @@ export function ContractorsListV2({
  );
 
  return (
- <div ref={listRef} className={cn("mx-auto md:p-6", LIST_PAGE_MAX_WIDTH)}>
+ <div ref={listRef} className="md:p-6">
  <ListDetailLayout
  list={listContent}
  onClose={() => setOpenContractId(null)}

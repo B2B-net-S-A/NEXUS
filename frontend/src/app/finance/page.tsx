@@ -23,7 +23,6 @@ import { financeApi, type OrderPdfRef } from "@/lib/api/finance";
 import { ORDER_CHANGES_POLL_MS } from "@/lib/polling";
 import { hasSectionAccess } from "@/lib/section-access";
 import { cn } from "@/lib/utils";
-import { LIST_PAGE_MAX_WIDTH } from "@/lib/wide-table";
 import { useAuthStore } from "@/store/auth";
 
 import { parseFinanceView, type FinanceViewMode as ViewMode } from "@/lib/finance-view";
@@ -153,7 +152,7 @@ export default function FinancePage() {
       <Suspense fallback={null}>
         <FinanceViewSync onView={setView} />
       </Suspense>
-      <div className={cn("mx-auto space-y-4", LIST_PAGE_MAX_WIDTH)}>
+      <div className="space-y-4">
         <div
           role="tablist"
           aria-label="Tryb modułu Finanse"
