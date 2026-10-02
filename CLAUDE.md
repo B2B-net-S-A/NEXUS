@@ -5106,6 +5106,9 @@ osoby w 3 minuty, dwa razy „Zakończono zamówienie").
   zawieranie się — „2026" siedzi w „OIT/0189/2026/ITVM"). Wiersz zaksięgowany
   u innego klienta nie wychodzi nigdy (kwoty faktur). Import bez takich
   wierszy = 404. Rozstrzyganie wierszy zostaje w Finansach.
+  „Pobierz do Excela” (`GET …/md-imports/{id}/export`, 02.10.2026) i ekran
+  czytają te same wiersze z jednej funkcji `_load_detail` — plik nie może
+  pokazać więcej niż ekran (zakres klienta, redakcja kwot).
 
 ## Zamówienie MD i zamówienie okresowe to DWA niezależne byty
 
