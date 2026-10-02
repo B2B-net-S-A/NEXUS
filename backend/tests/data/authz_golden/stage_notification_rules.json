@@ -20,13 +20,13 @@
   "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/notification-overrides/{override_id}": "PPDPPDDDDDPPPDPPPD",
+  "DELETE /api/clients/{client_id}/notification-overrides/{override_id}": "PDDPDDDDDDPPPDDDPD",
   "DELETE /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDDDPPPDDDDD",
   "GET /api/clients/{client_id}/notification-overrides": "PPDPPDDDDDPPPDPPPP",
   "GET /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PPPPPPPPPDPPPPPPPP",
-  "PATCH /api/clients/{client_id}/notification-overrides/{override_id}": "PPDPPDDDDDPPPDPPPD",
+  "PATCH /api/clients/{client_id}/notification-overrides/{override_id}": "PDDPDDDDDDPPPDDDPD",
   "PATCH /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDDDPPPDDDDD",
-  "POST /api/clients/{client_id}/notification-overrides": "PPDPPDDDDDPPPDPPPD",
+  "POST /api/clients/{client_id}/notification-overrides": "PDDPDDDDDDPPPDDDPD",
   "POST /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PDDPDDDDDDPPPDDDDD"
  }
 }

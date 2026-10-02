@@ -35,7 +35,7 @@ from app.models.client_directory import (
 from app.models.client_framework_contract import ClientFrameworkContract
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.client_directory import (
     ClientDirectoryCategoryCounts,
     ClientDirectoryItem,
@@ -47,6 +47,7 @@ from app.schemas.client_directory import (
 )
 from app.models.team_structure import ClientTacAssignment, DeliveryLeadClientAssignment
 from app.services.access_scope import resolve_delivery_lead_client_ids
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
@@ -62,13 +63,14 @@ router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
 def _can_view_directory_legal(user: User) -> bool:
-    """Keep legal identity out of the TCM-safe Delivery projection."""
+    """Dane prawne klienta (nazwa prawna, NIP, REGON) w katalogu.
 
-    return user.has_any_role(
-        UserRole.admin,
-        UserRole.delivery_lead,
-        UserRole.finance,
-    )
+    Idą razem z dokumentami, które mogą nieść stawki — uprawnienie „Stawki
+    i kwoty: podgląd” (domyślnie admin, Finanse, Delivery Lead). Konto z samym
+    podglądem Delivery (np. Talent Community Manager) dostaje katalog bez nich.
+    """
+
+    return has_permission(user, ProductAction.amounts_view)
 
 
 def _effective_client_name():

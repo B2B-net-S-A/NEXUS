@@ -23,8 +23,8 @@
   "GET /api/clients": "PPDPPDDDDDPPPDPPPP",
   "GET /api/clients/{client_id}": "PPDPPDDDDDPPPDPPPP",
   "GET /api/clients/{client_id}/profile": "PPDPPDDDDDPPPDPPPP",
-  "PATCH /api/clients/{client_id}": "PDDPDDDDDDPPPDDDDD",
-  "POST /api/clients": "PDDPDDDDDDPPPDDDDD",
+  "PATCH /api/clients/{client_id}": "PDDPDDDDDDPPPDDDPD",
+  "POST /api/clients": "PDDPDDDDDDPPPDDDPD",
   "POST /api/clients/{client_id}/merge-into/{target_id}": "PDDDDDDDDDDDDDDDDD"
  }
 }

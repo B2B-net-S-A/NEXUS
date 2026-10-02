@@ -8,9 +8,11 @@ Trasy (wszystkie pod ``/api/clients/{client_id}``):
 - ``GET  /executive-contracts/review`` — konsultanci do ręcznego przypisania,
 - ``POST /executive-contracts/assignments`` — przypisanie konsultanta.
 
-Bramki jak w ``client_framework_contracts``: cały router za sekcją Delivery
-(odczyt — każdy zalogowany z sekcją), zapisy za ``DlAssignedOrAdmin`` (admin
-globalnie albo DL przypisany do klienta). Funkcja dotyczy WYŁĄCZNIE Centrum
+Cały router za sekcją Delivery (odczyt — każdy zalogowany z sekcją). Zapisy
+za ``ClientContractsEditUser``: uprawnienie „Kontrakty i zamówienia: tworzenie
+i edycja”; konto z rolą Delivery Leada — u klienta z przypisania, pozostali
+posiadacze u wszystkich. Bez podglądu kwot, bo umowa wykonawcza nie niesie
+stawek (inaczej niż umowa ramowa). Funkcja dotyczy WYŁĄCZNIE Centrum
 e-Zdrowia (``is_ezdrowie_client``) — u innego klienta każda trasa odpowiada
 422, żeby pusta struktura nie wyglądała jak „jeszcze nic nie dodano".
 """
@@ -21,8 +23,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DlAssignedOrAdmin
+from app.api.deps import CurrentUser
 from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
+from app.api.permission_access import ClientContractsEditUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.client import Client
@@ -105,7 +108,7 @@ async def get_contract_structure(
 async def create_executive_contract(
     client_id: int,
     payload: ExecutiveContractCreate,
-    user: DlAssignedOrAdmin,
+    user: ClientContractsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_ezdrowie_client(db, client_id, write=True)
@@ -125,7 +128,7 @@ async def update_executive_contract(
     client_id: int,
     ec_id: int,
     payload: ExecutiveContractUpdate,
-    user: DlAssignedOrAdmin,
+    user: ClientContractsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_ezdrowie_client(db, client_id, write=True)
@@ -158,7 +161,7 @@ async def review_executive_contract_assignments(
 async def assign_executive_contract(
     client_id: int,
     payload: ExecutiveContractAssignmentRequest,
-    user: DlAssignedOrAdmin,
+    user: ClientContractsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_ezdrowie_client(db, client_id, write=True)

@@ -23,7 +23,7 @@
   "GET /api/clients/{client_id}/playbook": "PPPPPPPPDDPPPPPPPP",
   "GET /api/clients/{client_id}/playbook/history": "PPDPPDDDDDPPPDPPPP",
   "GET /api/settings/client-playbooks": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/clients/{client_id}/playbook/seed": "PPDPPDDDDDPPPDPPPD",
-  "PUT /api/clients/{client_id}/playbook": "PPDPPDDDDDPPPDPPPD"
+  "POST /api/clients/{client_id}/playbook/seed": "PDDPDDDDDDPPPDDDPD",
+  "PUT /api/clients/{client_id}/playbook": "PDDPDDDDDDPPPDDDPD"
  }
 }

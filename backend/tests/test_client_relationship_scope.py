@@ -499,14 +499,28 @@ async def test_delivery_lead_finance_scope_still_uses_assignments() -> None:
 async def test_material_and_required_document_writes_use_central_edit_decision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    denied = SimpleNamespace(
-        can_edit_materials=False,
-        can_edit_legal_documents=False,
+    # Decyzje z prawdziwego resolvera (moduły wołają też jego nazwaną odmowę):
+    # konto bez uprawnień, konto z uprawnieniami poza portfelem i admin.
+    denied = await resolve_client_access(
+        SimpleNamespace(scalars=AsyncMock(return_value=_Rows([]))),
+        _user(UserRole.tac),
+        client_id=77,
     )
-    allowed = SimpleNamespace(
-        can_edit_materials=True,
-        can_edit_legal_documents=True,
+    out_of_portfolio = await resolve_client_access(
+        SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10]))),
+        _user(UserRole.delivery_lead),
+        client_id=77,
     )
+    allowed = await resolve_client_access(
+        SimpleNamespace(scalars=AsyncMock(), execute=AsyncMock()),
+        _user(UserRole.admin),
+        client_id=77,
+    )
+    assert not denied.can_edit_materials and not denied.can_edit_legal_documents
+    assert not out_of_portfolio.can_edit_materials
+    assert not out_of_portfolio.can_edit_legal_documents
+    assert allowed.can_edit_materials and allowed.can_edit_legal_documents
+
     material_resolver = AsyncMock(return_value=denied)
     docs_resolver = AsyncMock(return_value=denied)
     monkeypatch.setattr(
@@ -527,6 +541,9 @@ async def test_material_and_required_document_writes_use_central_edit_decision(
             77,
         )
     assert material_exc.value.status_code == 403
+    # Brak uprawnienia — odmowa nazywa je, zamiast mówić o roli.
+    assert material_exc.value.detail["code"] == "permission_denied"
+    assert material_exc.value.detail["permission"] == "clients_edit"
 
     with pytest.raises(HTTPException) as legal_exc:
         await client_materials._require_material_write(
@@ -536,6 +553,7 @@ async def test_material_and_required_document_writes_use_central_edit_decision(
             legal=True,
         )
     assert legal_exc.value.status_code == 403
+    assert legal_exc.value.detail["permission"] == "contracts_orders_edit"
 
     with pytest.raises(HTTPException) as docs_exc:
         await required_documents._require_required_docs_access(
@@ -545,6 +563,38 @@ async def test_material_and_required_document_writes_use_central_edit_decision(
             write=True,
         )
     assert docs_exc.value.status_code == 403
+    assert docs_exc.value.detail["permission"] == "clients_edit"
+
+    # Uprawnienie jest, klient leży poza portfelem — dotychczasowy komunikat
+    # (bez nazwy uprawnienia, bo to nie jego brakuje).
+    material_resolver.return_value = out_of_portfolio
+    docs_resolver.return_value = out_of_portfolio
+    with pytest.raises(HTTPException) as scope_exc:
+        await client_materials._require_material_write(
+            object(),  # type: ignore[arg-type]
+            _user(UserRole.delivery_lead),
+            77,
+        )
+    assert scope_exc.value.status_code == 403
+    assert str(scope_exc.value.detail).startswith("client_access_denied")
+    with pytest.raises(HTTPException) as legal_scope_exc:
+        await client_materials._require_material_write(
+            object(),  # type: ignore[arg-type]
+            _user(UserRole.delivery_lead),
+            77,
+            legal=True,
+        )
+    assert legal_scope_exc.value.status_code == 403
+    assert str(legal_scope_exc.value.detail).startswith("client_access_denied")
+    with pytest.raises(HTTPException) as docs_scope_exc:
+        await required_documents._require_required_docs_access(
+            object(),  # type: ignore[arg-type]
+            _user(UserRole.delivery_lead),
+            77,
+            write=True,
+        )
+    assert docs_scope_exc.value.status_code == 403
+    assert str(docs_scope_exc.value.detail).startswith("client_access_denied")
 
     material_resolver.return_value = allowed
     docs_resolver.return_value = allowed

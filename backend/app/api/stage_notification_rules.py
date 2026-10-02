@@ -7,8 +7,9 @@ Dwa routery:
   admin/delivery_lead.
 
 - ``client_router`` (mount pod ``/api/clients``) — overrides per klient,
-  wypierają baseline. Sekcja Delivery plus autorytatywny graf klienta:
-  admin i Delivery Lead globalnie.
+  wypierają baseline. Sekcja Delivery plus autorytatywny graf klienta: zapis
+  wymaga uprawnienia „Klienci: dodawanie i edycja” (domyślnie admin
+  i Delivery Lead u klientów z portfela).
 
 Walidacje cross-field żyją w schematach Pydantic (`schemas/stage_notification.py`),
 dodatkowo CHECK constraints w DB pełnią rolę safety net.
@@ -23,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, ManagerOrAdmin
+from app.api.permission_access import ClientsEditUser
 from app.api.section_access import (
     DELIVERY_SECTION_DEPENDENCIES,
     PIPELINE_SECTION_DEPENDENCIES,
@@ -219,8 +221,12 @@ async def _require_client_override_access(
     access = await resolve_client_access(db, current_user, client_id)
     allowed = access.can_edit_knowledge if write else access.can_view_knowledge
     if not allowed:
-        action = "edycja" if write else "odczyt"
-        raise deny(f"{action} reguł powiadomień klienta jest niedozwolony")
+        if write:
+            # Brak „Klienci: dodawanie i edycja” — odmowa nazywa uprawnienie.
+            raise access.edit_denial(
+                "edycja reguł powiadomień klienta jest niedozwolona"
+            )
+        raise deny("odczyt reguł powiadomień klienta jest niedozwolony")
 
 
 @client_router.get(
@@ -256,7 +262,7 @@ async def list_overrides(
 async def create_override(
     client_id: int,
     payload: ClientStageOverrideCreate,
-    current_user: CurrentUser,
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_client_exists(db, client_id)
@@ -294,7 +300,7 @@ async def update_override(
     client_id: int,
     override_id: int,
     payload: ClientStageOverrideUpdate,
-    current_user: CurrentUser,
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_client_exists(db, client_id)
@@ -334,7 +340,7 @@ async def update_override(
 async def delete_override(
     client_id: int,
     override_id: int,
-    current_user: CurrentUser,
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_client_exists(db, client_id)
