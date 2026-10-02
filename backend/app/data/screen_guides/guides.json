@@ -449,7 +449,7 @@
     "title": "Zamówienia klienta",
     "section": "delivery",
     "roles": ["delivery_lead", "finance", "admin"],
-    "what": "Tu masz wszystkie zamówienia klienta — okresowe w tabeli, a każde zamówienie MD i kosztowe w osobnym kafelku. Kliknij wiersz, a po prawej otworzy się panel ze szczegółami i akcjami.",
+    "what": "Tu masz wszystkie zamówienia klienta w sekcjach MD, Kosztowe i Okresowe. Zamówienie MD albo kosztowe to szary pas z numerem, a pod nim osoby. Kliknij wiersz, a po prawej otworzy się panel ze szczegółami i akcjami.",
     "tasks": [
       {
         "q": "Jak dodać zamówienie z PDF-a od klienta?",
@@ -490,7 +490,7 @@
       },
       {"id": "client.orders.pills", "label": "Aktywne / Bez kontynuacji / Zakończeni", "describe": "Pigułki stanu zamówień z licznikami."},
       {"id": "client.orders.search", "label": "Wyszukiwanie i eksport", "describe": "Szukanie po numerze i nazwisku, filtry i eksport."},
-      {"id": "client.orders.table", "label": "Tabela zamówień", "describe": "Kafelki zamówień MD i kosztowych oraz tabela okresowych; kliknięcie wiersza otwiera po prawej panel ze szczegółami i akcjami."}
+      {"id": "client.orders.table", "label": "Tabela zamówień", "describe": "Sekcje MD, Kosztowe i Okresowe z nagłówkiem kolumn raz na sekcję; kliknięcie wiersza otwiera po prawej panel ze szczegółami i akcjami."}
     ],
     "help_slug": "zamowienia-instrukcja-delivery-lead",
     "sources": [
@@ -513,7 +513,7 @@
       },
       {
         "q": "Co zrobić z wpisem „Do weryfikacji”?",
-        "a": "Otwórz wpis i przeczytaj powód wstrzymania. Gdy plan jest dobry — „Zastosuj”; gdy dotyczy osoby do rozstrzygnięcia — „Rozstrzygnij w oknie zamówienia”; gdy to nie zamówienie — „Odrzuć”.",
+        "a": "Otwórz wpis: obok planu masz podgląd PDF-a. Przeczytaj powód wstrzymania. Gdy plan jest dobry — „Zastosuj”; gdy dotyczy osoby do rozstrzygnięcia — „Rozstrzygnij w oknie zamówienia”; gdy to nie zamówienie — „Odrzuć”.",
         "anchor": "contracts.order_mail.detail"
       },
       {
@@ -545,7 +545,7 @@
         "requires": {"roles": ["admin", "finance", "delivery_lead"]}
       },
       {"id": "contracts.order_mail.tabs", "label": "Zakładki kolejki", "describe": "Do weryfikacji, Zapisane automatycznie, Zapisane ręcznie, Nierozpoznane, Nieudane."},
-      {"id": "contracts.order_mail.detail", "label": "Szczegóły wpisu", "describe": "Odczyt, plan i przyciski decyzji dla wybranego zamówienia."},
+      {"id": "contracts.order_mail.detail", "label": "Szczegóły wpisu", "describe": "Odczyt, plan, podgląd PDF-a obok i przyciski decyzji dla wybranego zamówienia."},
       {"id": "contracts.order_mail.history", "label": "Historia sprawdzeń", "describe": "Kiedy system ostatnio sprawdzał wstrzymane wpisy."}
     ],
     "help_slug": "zamowienia-instrukcja-delivery-lead",
@@ -618,7 +618,7 @@
       },
       {
         "q": "Skąd wziąć pozycję faktury cyklicznej dla Nordei?",
-        "a": "W „Zmianach w zamówieniach” → Wejścia karta nowego zamówienia Nordei ma pole „Pozycja faktury” (NIDS, IT Retail Banking, osoba kontaktowa i konsultant z PDF-a). Kliknij „Kopiuj”. Pole oznaczone „[brak]” popraw przez „Edytuj” — poprawka zapisuje się przy zamówieniu i zostaje po „Zrobione”.",
+        "a": "W „Zmianach w zamówieniach” → Wejścia wiersz nowego zamówienia Nordei ma pole „Pozycja faktury” (NIDS, IT Retail Banking, osoba kontaktowa i konsultant z PDF-a). Kliknij „Kopiuj”. Pole oznaczone „[brak]” popraw przez „Edytuj” — poprawka zapisuje się przy zamówieniu i zostaje po „Zrobione”.",
         "anchor": "finance.order_changes"
       },
       {

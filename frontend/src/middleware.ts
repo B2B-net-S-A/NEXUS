@@ -366,6 +366,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/client-playbook`, `/preview/inactive-clients-cleanup`,
 //   `/preview/order-new-from-pdf`, `/preview/finance-order-changes`,
 //   `/preview/finance-order-pdfs`, `/preview/order-takeover`,
+//   `/preview/clients-list`, `/preview/client-profile-tabs`, `/preview/finance-results`,
 //   `/preview/contract-candidate-contact`, `/preview/cv-search`,
 //   `/preview/recruitment-v3`, `/preview/pipeline-v4`, `/preview/job-detail`,
 //   `/preview/cv-generator`,
@@ -435,6 +436,11 @@ const PUBLIC_PATHS = [
   "/preview/new-job",
   "/preview/finance-order-changes",
   "/preview/finance-order-pdfs",
+  // Odświeżony wygląd Klientów i Finansów (02.10.2026): lista klientów
+  // z „Kluczowymi relacjami”, zakładki profilu klienta i „Wyniki miesięczne”.
+  "/preview/clients-list",
+  "/preview/client-profile-tabs",
+  "/preview/finance-results",
   "/preview/contract-candidate-contact",
   "/preview/cv-search",
   "/preview/jarvis",
