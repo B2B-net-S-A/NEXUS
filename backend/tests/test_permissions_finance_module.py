@@ -22,9 +22,12 @@ from typing import get_args, get_type_hints
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
+from starlette.requests import Request
 
 from app.api import insights_board
+from app.core import cache as cache_module
 from app.core.database import AsyncSessionLocal
+from app.core.rate_limit import limiter
 from app.core.security import hash_password
 from app.models.user import User, UserRole
 from app.services import permission_catalog as catalog
@@ -109,6 +112,60 @@ async def test_year_on_year_admits_the_permission_or_the_hor_role() -> None:
             await gate(refused)
         assert denied.value.status_code == 403
         _assert_names_the_permission(denied.value.detail)
+
+
+async def test_year_on_year_keeps_the_amounts_only_for_holders(monkeypatch) -> None:
+    async def compute(_db, years, _today):
+        return {
+            "years": years,
+            "metrics": [
+                {"key": "margin_monthly_pln", "unit": "pln"},
+                {"key": "placements", "unit": "count"},
+            ],
+            "component_series": {"margin_monthly_pln": {}, "closed_jobs_total": {}},
+        }
+
+    def request() -> Request:
+        return Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": YOY_URL,
+                "headers": [],
+                "query_string": b"",
+                "client": ("127.0.0.1", 1),
+            }
+        )
+
+    async def read(user: User) -> dict:
+        return await insights_board.insights_board_yoy(request(), user, None, None, 3)
+
+    monkeypatch.setattr(insights_board, "compute_board_yoy", compute)
+    cache_module._cache.clear()
+    limiter_was_enabled = limiter.enabled
+    limiter.enabled = False
+    try:
+        for holder in (
+            _account(UserRole.finance, FM),
+            _account(UserRole.recruiter, FM),
+            _account(UserRole.head_of_recruitment, FM, insights="write"),
+        ):
+            full = await read(holder)
+            assert "money_redacted" not in full
+            assert [m["key"] for m in full["metrics"]] == [
+                "margin_monthly_pln",
+                "placements",
+            ]
+
+        # Head of Recruitment wchodzi rolą — bez uprawnienia dostaje tabelę bez kwot.
+        redacted = await read(_account(UserRole.head_of_recruitment, insights="write"))
+        assert redacted["money_redacted"] is True
+        assert [m["key"] for m in redacted["metrics"]] == ["placements"]
+        assert set(redacted["component_series"]) == {"closed_jobs_total"}
+    finally:
+        limiter.enabled = limiter_was_enabled
+        # Wynik atrapy nie może zostać w pamięci dla testów przez trasy.
+        cache_module._cache.clear()
 
 
 # ── Przez trasy i pętlę maila (HTTP + baza) ─────────────────────────────────

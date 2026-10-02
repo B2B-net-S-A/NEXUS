@@ -21,14 +21,17 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import get_args, get_type_hints
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy import delete, select
+from starlette.requests import Request
 
-from app.api import job_request_intake, jobs
+from app.api import cv_qc, job_request_intake, jobs
 from app.api.candidate_access import (
     client_rate_write_allowed,
     client_rate_write_denied,
@@ -41,12 +44,14 @@ from app.api.recruitment_access import (
     job_edit_level,
 )
 from app.core.database import AsyncSessionLocal
+from app.core.rate_limit import limiter
 from app.core.security import hash_password
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job, JobStatus, RemotePolicy
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
+from app.schemas.job import JobManageInNexusRequest
 from app.services import permission_catalog as catalog
 from app.services import pipeline_move_rules as rules
 from tests._permission_grants import grant_permissions, role_permission
@@ -189,6 +194,73 @@ def test_client_rate_write_follows_the_permission_and_section_write() -> None:
     denied = client_rate_write_denied()
     assert denied.status_code == 403
     _assert_names_the_permission(denied.detail)
+
+
+async def test_return_to_traffit_is_refused_before_anything_is_written() -> None:
+    job = Job(
+        id=7,
+        title="Rekrutacja",
+        client_id=5,
+        external_source="traffit",
+        managed_in_nexus=True,
+    )
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: job)),
+        get=AsyncMock(return_value=job),
+        add=Mock(),
+        commit=AsyncMock(),
+    )
+
+    for outsider in (_account(UserRole.recruiter), _account(UserRole.delivery_lead)):
+        with pytest.raises(HTTPException) as denied:
+            await jobs.set_job_managed_in_nexus(
+                7, JobManageInNexusRequest(enabled=False), outsider, db
+            )
+        assert denied.value.status_code == 403
+        _assert_names_the_permission(denied.value.detail)
+
+    db.add.assert_not_called()
+    db.commit.assert_not_awaited()
+    assert job.managed_in_nexus is True
+
+
+async def test_qc_override_asks_for_the_permission_before_it_reads_the_stage() -> None:
+    def request() -> Request:
+        return Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/pipeline/stages/1/qc/override",
+                "headers": [],
+                "query_string": b"",
+                "client": ("127.0.0.1", 1),
+            }
+        )
+
+    payload = cv_qc.QcOverrideRequest(
+        reason="Klient zna kandydata z poprzedniego projektu."
+    )
+    db = SimpleNamespace(get=AsyncMock(return_value=None))
+    limiter_was_enabled = limiter.enabled
+    limiter.enabled = False
+    try:
+        for outsider in (
+            _account(UserRole.recruiter),
+            _account(UserRole.delivery_lead),
+        ):
+            with pytest.raises(HTTPException) as denied:
+                await cv_qc.override_stage_qc(request(), 1, payload, outsider, db)
+            assert denied.value.status_code == 403
+            _assert_names_the_permission(denied.value.detail)
+        db.get.assert_not_awaited()
+
+        # Posiadacz przechodzi bramkę i dochodzi do etapu, którego tu nie ma.
+        holder = _account(UserRole.recruiter, permissions=(RM,))
+        with pytest.raises(HTTPException) as missing_stage:
+            await cv_qc.override_stage_qc(request(), 1, payload, holder, db)
+        assert missing_stage.value.status_code == 404
+    finally:
+        limiter.enabled = limiter_was_enabled
 
 
 _PERMISSION_ROUTES = (
