@@ -683,3 +683,99 @@ describe("/preview/client-orders zasiewa klucze zakładki „Zamówienia” i od
     expect(harness).toContain("api.interceptors.request.eject(");
   });
 });
+
+/** Harness bez komentarzy i z jednym odstępem — do porównań literałów. */
+function flat(relativePath: string): string {
+  return withoutComments(read(relativePath)).replace(/\s+/g, " ");
+}
+
+function missingLiteralKeys(harness: string, components: string[]): string[] {
+  const missing: string[] = [];
+  for (const file of components) {
+    for (const key of literalQueryKeys(read(file))) {
+      if (!harness.includes(key)) missing.push(`${file}: ${key}`);
+    }
+  }
+  return missing;
+}
+
+describe("/preview/clients-list zasiewa listę klientów i kluczowe relacje", () => {
+  const harness = flat("app/preview/clients-list/page.tsx");
+
+  it("nie zostawia stałego klucza bez zasiewu", () => {
+    expect(
+      missingLiteralKeys(harness, [
+        "components/v2/pages/ClientsListV2.tsx",
+        "components/clients/KeyRelationshipsPanel.tsx",
+      ]),
+    ).toEqual([]);
+  });
+
+  it("zasiewa pierwszą stronę każdej zakładki portfela i odcina sieć", () => {
+    // Klucz listy ma parametry (zakładka, fraza, strona, „moi”) — strażnik
+    // literałów go nie widzi, a zakładki przełącza się jednym kliknięciem.
+    for (const category of ["active", "relationship", "inactive"]) {
+      expect(harness).toContain(`["clients-directory", "${category}", "", 1, false]`);
+    }
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
+  });
+});
+
+describe("/preview/client-profile-tabs zasiewa zakładki profilu klienta", () => {
+  const harness = flat("app/preview/client-profile-tabs/page.tsx");
+
+  it("nie zostawia stałego klucza bez zasiewu", () => {
+    expect(
+      missingLiteralKeys(harness, [
+        "app/clients/[id]/page.tsx",
+        "app/clients/[id]/ProfileTab.tsx",
+        "app/clients/[id]/ProjectsTab.tsx",
+        "app/clients/[id]/OwnersTab.tsx",
+        "app/clients/[id]/MaterialsTab.tsx",
+        "components/FrameworkContractsTab.tsx",
+        "components/RateCardsTab.tsx",
+        "components/AnalyticsTab.tsx",
+        "components/client-profile/orders/ClientMdImportsTab.tsx",
+      ]),
+    ).toEqual([]);
+  });
+
+  it("zasiewa klucze z id klienta, o które pytają zakładki, i odcina sieć", () => {
+    for (const key of [
+      "client-team",
+      "client-profile",
+      "client-contacts",
+      "client-knowledge",
+      "framework-contracts",
+      "rate-cards",
+      "client-playbook",
+      "client-order-groups",
+      "dl-orders-grouped",
+    ]) {
+      expect(harness).toContain(`["${key}", CLIENT_ID]`);
+    }
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
+  });
+});
+
+describe("/preview/finance-results zasiewa Wyniki, Archiwum i Import MD", () => {
+  const harness = flat("app/preview/finance-results/page.tsx");
+
+  it("nie zostawia stałego klucza bez zasiewu", () => {
+    expect(
+      missingLiteralKeys(harness, [
+        "components/finance/FinanceResultsTab.tsx",
+        "components/finance/FinanceArchiveTab.tsx",
+        "components/finance/MdImportWorkspace.tsx",
+        "components/finance/OrderPdfsTab.tsx",
+      ]),
+    ).toEqual([]);
+  });
+
+  it("odcina sieć na czas życia harnessu", () => {
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
+  });
+});

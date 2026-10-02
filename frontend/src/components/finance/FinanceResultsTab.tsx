@@ -165,7 +165,7 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
                   totals?.avg_margin_pct != null
                     ? // Marża % miesiąca = Σ marży / Σ faktur (ważona przychodem,
                       // liczy serwer) — nie średnia procentów wierszy.
-                      `Suma „Marża PLN” z arkusza · marża ${formatPct(totals.avg_margin_pct)} przychodu`
+                      `marża ${formatPct(totals.avg_margin_pct)} przychodu · suma „Marża PLN” z arkusza`
                     : "Suma „Marża PLN” z arkusza"
                 }
               />
@@ -203,7 +203,7 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
 
           <div className="order-3 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <div className="relative min-w-[14rem] flex-1">
+              <div className="relative min-w-[14rem] flex-1 xl:max-w-sm">
                 <Search
                   className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
                   aria-hidden
@@ -236,7 +236,7 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
               </select>
 
               {canWrite && (
-                <p className="basis-full text-xs text-muted-foreground xl:basis-auto">
+                <p className="min-w-0 basis-full text-xs leading-4 text-muted-foreground xl:flex-1 xl:basis-0">
                   Kliknij dwukrotnie komórkę, aby ją edytować.
                   {needsCompletion ? (
                     <>
@@ -301,30 +301,26 @@ function Kpi({
   return (
     <div
       className={cn(
-        "min-w-0 rounded-[10px] border px-3.5 py-2.5",
+        "min-w-0 rounded-[10px] border px-3.5 py-2",
         warning
           ? "border-transparent bg-warning-muted text-warning-muted-foreground"
           : "border-border bg-card",
       )}
     >
+      {/* Etykieta i dopowiedzenie w jednej linii (pełny tekst w dymku), pod
+          nimi liczba — kafel ma dwie linie zamiast trzech. */}
       <div
         className={cn(
-          "text-[11px] font-medium tracking-[0.04em]",
+          "flex min-w-0 items-baseline gap-1.5 text-[11px] leading-4",
           !warning && "text-muted-foreground",
         )}
+        title={note}
       >
-        {label}
+        <span className="shrink-0 font-medium tracking-[0.04em]">{label}</span>
+        <span className="truncate">· {note}</span>
       </div>
       <div className="font-display text-xl font-semibold leading-7 tabular-nums">
         {value}
-      </div>
-      <div
-        className={cn(
-          "text-[11.5px] leading-4",
-          !warning && "text-muted-foreground",
-        )}
-      >
-        {note}
       </div>
     </div>
   );

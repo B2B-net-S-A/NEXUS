@@ -115,32 +115,41 @@ export function FinanceArchiveTab({ canWrite = true }: { canWrite?: boolean }) {
       <table className="w-full min-w-[56rem] text-[13px]">
         <thead className={cn("bg-background", CALM_HEAD)}>
           <tr className="border-b border-border">
-            <th className="px-3.5 py-2 text-left font-semibold">Okres</th>
-            <th className="px-3.5 py-2 text-left font-semibold">Data importu</th>
-            <th className="px-3.5 py-2 text-left font-semibold">Plik</th>
-            <th className="px-3.5 py-2 text-left font-semibold">Osoba</th>
-            <th className="px-3.5 py-2 text-right font-semibold">Wiersze</th>
-            <th className="px-3.5 py-2 text-left font-semibold">Status</th>
-            <th className="px-3.5 py-2 text-right font-semibold">Akcje</th>
+            <th className="px-3 py-2 text-left font-semibold">Okres</th>
+            <th className="px-3 py-2 text-left font-semibold">Data importu</th>
+            <th className="px-3 py-2 text-left font-semibold">Plik</th>
+            <th className="px-3 py-2 text-left font-semibold">Osoba</th>
+            <th className="px-3 py-2 text-right font-semibold">Wiersze</th>
+            <th className="px-3 py-2 text-left font-semibold">Status</th>
+            <th className="px-3 py-2 text-right font-semibold">Akcje</th>
           </tr>
         </thead>
         <tbody>
           {runs.map((run) => (
             <tr key={run.id} className={cn(CALM_ROW, "h-[50px] last:border-b-0")}>
-              <td className="whitespace-nowrap px-3.5 py-1.5 font-semibold">{run.label}</td>
-              <td className="whitespace-nowrap px-3.5 py-1.5 tabular-nums">
+              <td className="whitespace-nowrap px-3 py-1.5 font-semibold">{run.label}</td>
+              <td className="whitespace-nowrap px-3 py-1.5 tabular-nums">
                 {formatDateTime(run.created_at)}
               </td>
-              <td className="px-3.5 py-1.5">
-                <span className="block max-w-[18rem] truncate font-semibold">
+              <td className="px-3 py-1.5">
+                <span
+                  className="block max-w-[14rem] truncate font-semibold"
+                  title={run.source_filename}
+                >
                   {run.source_filename}
                 </span>
                 <span className={CALM_SUBLINE}>{formatBytes(run.size_bytes)}</span>
               </td>
-              <td className="px-3.5 py-1.5">
-                {run.created_by_email ?? <span className={CALM_EMPTY}>—</span>}
+              <td className="px-3 py-1.5">
+                {run.created_by_email ? (
+                  <span className="block max-w-[12rem] truncate" title={run.created_by_email}>
+                    {run.created_by_email}
+                  </span>
+                ) : (
+                  <span className={CALM_EMPTY}>—</span>
+                )}
               </td>
-              <td className={cn("px-3.5 py-1.5", CALM_AMOUNT)}>
+              <td className={cn("px-3 py-1.5", CALM_AMOUNT)}>
                 {run.row_count}
                 {run.rejected_count > 0 && (
                   <span className="mt-0.5 block">
@@ -150,18 +159,19 @@ export function FinanceArchiveTab({ canWrite = true }: { canWrite?: boolean }) {
                   </span>
                 )}
               </td>
-              <td className="px-3.5 py-1.5">
+              <td className="px-3 py-1.5">
                 <StatusDot tone={run.status === "current" ? "success" : "neutral"}>
                   {run.status === "current" ? "Aktualny" : "Zastąpiony"}
                 </StatusDot>
               </td>
-              <td className="px-3.5 py-1.5 text-right">
-                <div className="inline-flex items-center gap-1.5">
+              <td className="px-3 py-1.5 text-right">
+                <div className="inline-flex items-center gap-1.5 whitespace-nowrap">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     title="Pobierz oryginalny plik"
+                    aria-label="Pobierz oryginał"
                     disabled={busyId === run.id}
                     onClick={() => handleDownload(run)}
                   >
@@ -170,7 +180,7 @@ export function FinanceArchiveTab({ canWrite = true }: { canWrite?: boolean }) {
                     ) : (
                       <Download className="h-3.5 w-3.5" aria-hidden />
                     )}
-                    Pobierz oryginał
+                    Pobierz
                   </Button>
                   {canWrite && run.status === "superseded" && (
                     <Button
@@ -178,12 +188,13 @@ export function FinanceArchiveTab({ canWrite = true }: { canWrite?: boolean }) {
                       variant="ghost"
                       size="sm"
                       title="Przywróć jako aktualny"
+                      aria-label="Przywróć jako aktualny"
                       disabled={restore.isPending}
                       onClick={() => setPendingRestore(run)}
                       className="text-muted-foreground hover:text-foreground"
                     >
                       <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-                      Przywróć jako aktualny
+                      Przywróć
                     </Button>
                   )}
                 </div>

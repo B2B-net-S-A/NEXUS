@@ -208,10 +208,18 @@ export function FinanceImportPanel({ onImported }: Props) {
           Importuj plik
         </button>
 
-        <p className="flex basis-full items-center gap-1.5 text-xs text-muted-foreground 2xl:ml-auto 2xl:basis-auto">
+        {/* Poniżej `2xl` zdanie chowa się za ikoną z dymkiem (czytnik ekranu
+            czyta je zawsze) — o potwierdzenie i tak zapyta okno przy imporcie,
+            a druga linia paska spychała tabelę w dół na laptopie. */}
+        <p
+          className="flex items-center gap-1.5 text-xs text-muted-foreground 2xl:ml-auto"
+          title="Import miesiąca, który ma już dane, wymaga potwierdzenia — poprzednia wersja trafia do Archiwum."
+        >
           <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          Import miesiąca, który ma już dane, wymaga potwierdzenia — poprzednia
-          wersja trafia do Archiwum.
+          <span className="sr-only 2xl:not-sr-only">
+            Import miesiąca, który ma już dane, wymaga potwierdzenia — poprzednia
+            wersja trafia do Archiwum.
+          </span>
         </p>
       </div>
 

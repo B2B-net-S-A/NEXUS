@@ -1,4 +1,4 @@
 {
-  "sha256": "3ba5e729c2fa1e564f9756e12ee8b34c5ec29b1ad74f53fa83ba3ca1bd8300b4",
+  "sha256": "7c1f442afc2be8e85a7a124e3d182f0d7602581cda158abf67f67ea04a8e7bad",
   "source": "frontend/src/components/client-profile/orders/OrderLinePanel.tsx"
 }

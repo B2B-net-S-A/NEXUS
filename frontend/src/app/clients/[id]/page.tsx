@@ -1664,13 +1664,17 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
                   return (
                     <div
                       key={p.month}
-                      className="flex-1 flex flex-col items-center justify-end gap-1"
+                      // `h-full`: wysokość słupka w procentach liczy się od
+                      // rodzica o określonej wysokości — bez niej słupki miały 0 px.
+                      className="flex h-full flex-1 flex-col items-center gap-1"
                       title={`${p.month_label}: ${p.hit_ratio.toFixed(1)}% (${p.filled_jobs}/${p.closed_jobs})`}
                     >
-                      <div
-                        className={`w-full rounded-t ${tone}`}
-                        style={{ height: `${heightPct}%` }}
-                      />
+                      <div className="flex min-h-0 w-full flex-1 items-end">
+                        <div
+                          className={`w-full rounded-t ${tone}`}
+                          style={{ height: `${heightPct}%` }}
+                        />
+                      </div>
                       <span className="text-[10px] text-muted-foreground">
                         {p.month_label.split(" ")[0]}
                       </span>

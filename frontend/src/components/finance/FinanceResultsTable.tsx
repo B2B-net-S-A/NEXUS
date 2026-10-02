@@ -173,8 +173,11 @@ export function FinanceResultsTable({
                   key={col.key}
                   scope="col"
                   className={cn(
-                    "whitespace-nowrap border-b border-border px-3 py-2 font-semibold",
-                    col.numeric ? "text-right" : "text-left",
+                    // Nagłówek liczbowy łamie się („Stawka / kosztowa zł/MD”):
+                    // w jednej linii siedem takich kolumn wypychało marżę
+                    // poza kadr na laptopie 1280 px.
+                    "border-b border-border px-2.5 py-2 align-bottom font-semibold leading-[1.25]",
+                    col.numeric ? "text-right" : "whitespace-nowrap text-left",
                     // Narożnik: „Konsultant" przyklejony w obu osiach.
                     index === 0 && "sticky left-0 z-20 bg-background",
                   )}
@@ -184,7 +187,7 @@ export function FinanceResultsTable({
                       type="button"
                       onClick={() => onSort(col.key)}
                       aria-label={`Sortuj po ${col.label}`}
-                      className="inline-flex items-center gap-1 uppercase hover:text-foreground"
+                      className="inline-flex items-end gap-1 text-right uppercase hover:text-foreground"
                     >
                       <span>{heading}</span>
                       {active ? (
@@ -217,7 +220,7 @@ export function FinanceResultsTable({
                     // Nazwisko zostaje w kadrze przy przewijaniu kwot w poziomie.
                     <td
                       key={col.key}
-                      className="sticky left-0 z-[1] whitespace-nowrap bg-card px-3 py-1.5 font-semibold"
+                      className="sticky left-0 z-[1] whitespace-nowrap bg-card px-2.5 py-1.5 font-semibold"
                     >
                       {row.consultant_name}
                     </td>
@@ -225,9 +228,13 @@ export function FinanceResultsTable({
                 }
                 if (!col.editable) {
                   return (
-                    <td key={col.key} className="whitespace-nowrap px-3 py-1.5">
+                    <td key={col.key} className="px-2.5 py-1.5">
                       {row.client_name ? (
-                        row.client_name
+                        // Limit na elemencie blokowym — `max-width` na samej
+                        // komórce tabela o automatycznym układzie ignoruje.
+                        <span className="block max-w-[11rem] truncate" title={row.client_name}>
+                          {row.client_name}
+                        </span>
                       ) : (
                         <span className={CALM_EMPTY}>—</span>
                       )}

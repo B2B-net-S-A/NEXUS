@@ -341,7 +341,10 @@ export function MdImportWorkspace() {
           </p>
         ) : null}
 
-        <p className="mt-1.5 text-xs text-muted-foreground">
+        <p
+          className="mt-1.5 line-clamp-1 text-xs text-muted-foreground 2xl:line-clamp-none"
+          title="Wgraj miesięczny raport (XLSX) z kolumnami konsultanta i liczby MD. Nagłówki rozpoznawane są automatycznie; dla zamówień kosztowych i wspólnej puli MD system dopasowuje również numer zamówienia z kolumny „Uwagi”."
+        >
           Wgraj miesięczny raport (XLSX) z kolumnami konsultanta i liczby MD.
           Nagłówki rozpoznawane są automatycznie — m.in. „Konsultant" / „Imię
           i nazwisko" oraz „MD" / „Osobodni". Dla zamówień kosztowych i
@@ -487,6 +490,53 @@ export function MdImportWorkspace() {
                 </p>
               ) : null}
 
+              <section className="rounded-[10px] border border-border bg-card">
+                <div className="relative overflow-x-auto">
+                  <table className="w-full min-w-[52rem] text-[13px]">
+                    <thead className={cn("bg-background", CALM_HEAD)}>
+                      <tr className="border-b border-border text-left">
+                        <th className="rounded-tl-[10px] px-3.5 py-2 font-semibold">Wiersz</th>
+                        <th className="px-3.5 py-2 font-semibold">Konsultant</th>
+                        <th className="px-3.5 py-2 text-right font-semibold">MD</th>
+                        <th className="px-3.5 py-2 text-right font-semibold">Faktura</th>
+                        <th className="px-3.5 py-2 font-semibold">Status</th>
+                        <th className="rounded-tr-[10px] px-3.5 py-2 font-semibold">Zamówienie</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.rows.map((row) => (
+                        <ImportRowLine
+                          key={row.id}
+                          row={row}
+                          busy={assign.isPending}
+                          onAssign={(orderId, confirmOverflow) =>
+                            assign.mutate({ rowId: row.id, orderId, confirmOverflow })
+                          }
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {detail.skipped_rows.length > 0 ? (
+                  <div className="border-t border-border px-3.5 py-2.5">
+                    <p className="text-xs font-medium text-foreground">
+                      Pominięte wiersze ({detail.skipped_rows.length})
+                    </p>
+                    <ul className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground">
+                      {detail.skipped_rows.slice(0, 20).map((s, i) => (
+                        <li key={`${s.row}-${i}`}>
+                          wiersz {s.row}: {s.reason}
+                          {s.consultant_name ? ` (${s.consultant_name})` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </section>
+
+              {/* Rzadkie narzędzie korekty stoi POD wierszami importu — nad nimi
+                  spychało tabelę poza ekran laptopa. */}
               <section className="rounded-[10px] border border-border bg-card px-3.5 py-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -648,51 +698,6 @@ export function MdImportWorkspace() {
                         </button>
                       </div>
                     ) : null}
-                  </div>
-                ) : null}
-              </section>
-
-              <section className="rounded-[10px] border border-border bg-card">
-                <div className="relative overflow-x-auto">
-                  <table className="w-full min-w-[52rem] text-[13px]">
-                    <thead className={cn("bg-background", CALM_HEAD)}>
-                      <tr className="border-b border-border text-left">
-                        <th className="rounded-tl-[10px] px-3.5 py-2 font-semibold">Wiersz</th>
-                        <th className="px-3.5 py-2 font-semibold">Konsultant</th>
-                        <th className="px-3.5 py-2 text-right font-semibold">MD</th>
-                        <th className="px-3.5 py-2 text-right font-semibold">Faktura</th>
-                        <th className="px-3.5 py-2 font-semibold">Status</th>
-                        <th className="rounded-tr-[10px] px-3.5 py-2 font-semibold">Zamówienie</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.rows.map((row) => (
-                        <ImportRowLine
-                          key={row.id}
-                          row={row}
-                          busy={assign.isPending}
-                          onAssign={(orderId, confirmOverflow) =>
-                            assign.mutate({ rowId: row.id, orderId, confirmOverflow })
-                          }
-                        />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {detail.skipped_rows.length > 0 ? (
-                  <div className="border-t border-border px-3.5 py-2.5">
-                    <p className="text-xs font-medium text-foreground">
-                      Pominięte wiersze ({detail.skipped_rows.length})
-                    </p>
-                    <ul className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground">
-                      {detail.skipped_rows.slice(0, 20).map((s, i) => (
-                        <li key={`${s.row}-${i}`}>
-                          wiersz {s.row}: {s.reason}
-                          {s.consultant_name ? ` (${s.consultant_name})` : ""}
-                        </li>
-                      ))}
-                    </ul>
                   </div>
                 ) : null}
               </section>
