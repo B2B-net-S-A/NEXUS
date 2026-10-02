@@ -28,6 +28,8 @@ import { positiveIntParam } from "@/lib/client-tab";
 import { resolveUrlTab } from "@/lib/url-tab";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import { buildJobHeaderSubtitle } from "@/lib/job-header-subtitle";
+import { recruitersOf, recruitersSummary } from "@/lib/job-team";
+import { invalidateJobTeam } from "@/lib/job-team-cache";
 import type { FullSearchSummary } from "@/lib/full-search-summary";
 import {
   JOB_DETAIL_DEFAULT_VIEW,
@@ -610,6 +612,7 @@ export default function JobDetailPage() {
   );
   const headerSubtitle = useMemo(() => {
     if (!job) return [];
+    const team = recruitersSummary(recruitersOf(job));
     return buildJobHeaderSubtitle({
       location: job.location,
       remotePolicy: job.remote_policy,
@@ -618,7 +621,9 @@ export default function JobDetailPage() {
       salaryMax: job.salary_max,
       deadline: job.deadline,
       deadlineTime: job.deadline_time,
-      ownerName: job.primary_owner?.name,
+      // „Rekruter: X +N” — wszyscy, którzy pracują nad rekrutacją (02.10.2026).
+      recruiterLead: team.lead,
+      recruiterMore: team.more,
       deliveryLeadName,
       // Widok „jedna tabela" obejmuje wszystkie kroki naraz, więc decydent
       // i obsada — dawniej tylko na krokach 07/08 — są w linijce zawsze.
@@ -941,9 +946,9 @@ export default function JobDetailPage() {
           scope={canEditJob ? "full" : "content"}
           onClose={() => setShowEditJob(false)}
           onSuccess={() => {
-            queryClient.invalidateQueries({ queryKey: ["job", id] });
-            // Lista /jobs pokazuje prowadzącego i „+N” współpracowników.
-            queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
+            // Okno zmienia też rekrutera i kolejne osoby — odświeżamy
+            // rekrutację, listę /jobs z licznikami i pulpit obłożenia.
+            invalidateJobTeam(queryClient, jobId);
             setShowEditJob(false);
           }}
         />

@@ -877,3 +877,121 @@ async def test_open_recruitment_without_dl_gets_the_clients_head_dl() -> None:
             )
             await db.commit()
         await _cleanup(world, [head_id, other_id])
+
+
+# ── Propozycje automatu przydziału w „Czeka na Ciebie” (02.10.2026) ─────────
+
+
+async def _seed_allocation_proposal(user_id: int, lead_id: int) -> dict:
+    from app.models.job import JobPriority
+    from app.models.job_work_assignment import JobWorkAssignment
+
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"BT alloc {unique}")
+        db.add(cli)
+        await db.flush()
+        job = Job(
+            title=f"BT alloc {unique}",
+            status=JobStatus.published,
+            work_state="searching",
+            client_id=cli.id,
+            delivery_lead_id=lead_id,
+            priority=JobPriority.urgent,
+        )
+        db.add(job)
+        await db.flush()
+        db.add(
+            JobWorkAssignment(
+                job_id=job.id,
+                user_id=user_id,
+                role="recruiter",
+                source="auto",
+                state="proposed",
+                assigned_at=datetime.now(timezone.utc) - timedelta(minutes=3),
+            )
+        )
+        await db.commit()
+        return {"job_id": job.id, "client_id": cli.id, "client_name": cli.name}
+
+
+async def _drop_allocation_proposal(seeded: dict) -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(Job).where(Job.id == seeded["job_id"]))
+        await db.execute(delete(Client).where(Client.id == seeded["client_id"]))
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_allocation_proposals_reach_only_those_who_decide(
+    api_client: AsyncClient,
+) -> None:
+    """Propozycje automatu akceptuje Head of Recruitment (i admin) — tylko oni
+    dostają wiersze. Delivery Lead i rekruter widzą pustą listę: propozycja
+    nikogo jeszcze do niczego nie zobowiązuje."""
+
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    seeded = await _seed_allocation_proposal(rec_id, dl_id)
+    try:
+        hor = await _login(api_client, hor_creds)
+        resp = await api_client.get("/api/board-tasks", headers=hor)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["can_decide_proposals"] is True
+        # Compass jest w testach wyłączony — urlopów nie znamy.
+        assert body["allocation_leave_known"] is False
+        (row,) = [
+            r for r in body["allocation_proposals"] if r["job_id"] == seeded["job_id"]
+        ]
+        async with AsyncSessionLocal() as db:
+            rec_name = await db.scalar(select(User.name).where(User.id == rec_id))
+            dl_name = await db.scalar(select(User.name).where(User.id == dl_id))
+        assert row["title"].startswith("BT alloc ")
+        assert row["client_name"] == seeded["client_name"]
+        assert (row["user_id"], row["user_name"], row["role"]) == (
+            rec_id,
+            rec_name,
+            "recruiter",
+        )
+        assert row["delivery_lead_name"] == dl_name
+        assert row["priority_level"] == "p1"
+        assert row["fit"] == "other"
+        assert (row["load"], row["sent"]) == (0, 0)
+        assert row["leave_until"] is None and row["base_matches"] is None
+        assert row["category_id"] is None and row["deadline"] is None
+        assert row["proposed_at"] is not None
+
+        for creds in (dl_creds, rec_creds):
+            headers = await _login(api_client, creds)
+            other = (await api_client.get("/api/board-tasks", headers=headers)).json()
+            assert other["can_decide_proposals"] is False
+            assert other["allocation_proposals"] == []
+            assert other["allocation_leave_known"] is False
+    finally:
+        await _drop_allocation_proposal(seeded)
+
+
+@pytest.mark.asyncio
+async def test_board_tasks_survive_a_failure_while_loading_proposals(
+    api_client: AsyncClient, monkeypatch
+) -> None:
+    """``GET /api/board-tasks`` zasila każdy pulpit — padnięte zapytanie
+    o propozycje daje pustą listę, a nie 500 całej kolejki."""
+
+    from app.services import request_allocation_proposals
+
+    async def boom(_db):
+        raise RuntimeError("proposals down")
+
+    monkeypatch.setattr(request_allocation_proposals, "load_pending", boom)
+    _, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    resp = await api_client.get("/api/board-tasks", headers=hor)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["allocation_proposals"] == []
+    assert body["can_decide_proposals"] is True
+    # Reszta kolejki liczy się normalnie.
+    assert isinstance(body["cpro_to_send"], list)

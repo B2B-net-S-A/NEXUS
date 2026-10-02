@@ -243,6 +243,9 @@ def redact_job_for_viewer(job_dict: dict, user: User) -> dict:
         job_dict["primary_owner"] = None
     if "collaborators" in job_dict:
         job_dict["collaborators"] = []
+    # Rola „Rekruter” (02.10.2026) to ta sama obsada pod inną nazwą.
+    if "recruiters" in job_dict:
+        job_dict["recruiters"] = []
     return job_dict
 
 

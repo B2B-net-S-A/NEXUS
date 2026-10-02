@@ -20,6 +20,42 @@ export function FieldLabel({ children, htmlFor }: { children: ReactNode; htmlFor
 }
 
 /**
+ * Gęstość przycisku. `auto` zależy od szerokości OKNA: poniżej 1536 px krótka
+ * etykieta, bez ikony i strzałki. Pasek, który sam mierzy swoją szerokość
+ * (lista rekrutacji — menu, szyna otwartych kart i dok zabierają mu miejsce
+ * niezależnie od okna), podaje `compact` albo `full` wprost.
+ */
+export type FilterPillDensity = "auto" | "compact" | "full";
+
+// Pełne literały klas — Tailwind zbiera je ze źródeł.
+const DENSITY_CLASSES: Record<
+  FilterPillDensity,
+  { pad: string; icon: string; fullLabel: string; shortLabel: string; chevron: string }
+> = {
+  auto: {
+    pad: "pl-2.5 2xl:pl-3",
+    icon: "hidden 2xl:inline",
+    fullLabel: "sr-only 2xl:not-sr-only",
+    shortLabel: "2xl:hidden",
+    chevron: "max-2xl:hidden",
+  },
+  compact: {
+    pad: "pl-2.5",
+    icon: "hidden",
+    fullLabel: "sr-only",
+    shortLabel: "",
+    chevron: "hidden",
+  },
+  full: {
+    pad: "pl-3",
+    icon: "inline",
+    fullLabel: "",
+    shortLabel: "hidden",
+    chevron: "",
+  },
+};
+
+/**
  * Przycisk filtra na pasku: otwiera okienko z polami grupy. Ustawiony filtr
  * jest wyróżniony i niesie swoją wartość (albo licznik), a ✕ obok czyści
  * grupę — ukryty, ale ustawiony filtr nie może wyglądać, jakby go nie było.
@@ -32,6 +68,7 @@ export function FilterPill({
   count,
   onClear,
   contentClassName,
+  density = "auto",
   children,
 }: {
   label: string;
@@ -47,9 +84,12 @@ export function FilterPill({
   count: number;
   onClear?: () => void;
   contentClassName?: string;
+  /** Domyślnie `auto` (zależnie od szerokości okna). */
+  density?: FilterPillDensity;
   children: ReactNode;
 }) {
   const active = count > 0;
+  const dense = DENSITY_CLASSES[density];
   return (
     <div
       className={cn(
@@ -64,20 +104,21 @@ export function FilterPill({
           <button
             type="button"
             className={cn(
-              "flex h-full items-center gap-1.5 rounded-full pl-2.5 2xl:pl-3 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+              "flex h-full items-center gap-1.5 rounded-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+              dense.pad,
               active && onClear ? "pr-1" : "pr-2.5",
             )}
           >
             {/* Ikona dopiero od 1536 px — na węższym oknie liczy się miejsce
                 na tekst (28.09.2026). */}
-            <span aria-hidden className="hidden 2xl:inline [&>svg]:h-3.5 [&>svg]:w-3.5">
+            <span aria-hidden className={cn(dense.icon, "[&>svg]:h-3.5 [&>svg]:w-3.5")}>
               {icon}
             </span>
             <span className="flex min-w-0 items-baseline">
               {shortLabel ? (
                 <>
-                  <span className="sr-only 2xl:not-sr-only">{label}</span>
-                  <span aria-hidden="true" className="2xl:hidden">
+                  <span className={dense.fullLabel || undefined}>{label}</span>
+                  <span aria-hidden="true" className={dense.shortLabel || undefined}>
                     {shortLabel}
                   </span>
                 </>
@@ -96,7 +137,7 @@ export function FilterPill({
             {/* Strzałka dopiero od 1536 px: na laptopie z Windows (okno
                 ≈ 1280 px) sześć strzałek spychało „Wyczyść filtry” listy
                 rekrutacji do drugiej linii (produkcja 29.09.2026). */}
-            <ChevronDown className="h-3.5 w-3.5 opacity-60 max-2xl:hidden" aria-hidden />
+            <ChevronDown className={cn("h-3.5 w-3.5 opacity-60", dense.chevron)} aria-hidden />
           </button>
         </PopoverTrigger>
         <PopoverContent

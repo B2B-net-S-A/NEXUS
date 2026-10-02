@@ -47,6 +47,10 @@ export type Capability =
   | "calendar_event.create"
   | "invite_link.create"
   | "hm_feedback.record"
+  // ── Obsada i priorytet rekrutacji (02.10.2026) ─────────────────────────────
+  | "job.recruiter.assign"
+  | "job.priority.update"
+  | "request.proposal.decide"
   // ── Teczka kandydata i fakty profilowe ─────────────────────────────────────
   | "candidate.document.manage"
   | "candidate.profile_fact.manage"
@@ -105,6 +109,35 @@ const RECRUITER_PLUS: readonly UserRole[] = [
 const JOB_FULL_EDITORS: readonly UserRole[] = ["admin", "delivery_lead", "tac"];
 
 /**
+ * Kto przydziela i zdejmuje ludzi w roli „Rekruter” — lustro
+ * `JOB_STAFFING_ROLES` (backend/app/api/recruitment_access.py). Decyzja Artura
+ * 02.10.2026: Head of Recruitment wszędzie tam, gdzie Delivery Lead.
+ */
+const JOB_STAFFING: readonly UserRole[] = [
+  "admin",
+  "delivery_lead",
+  "head_of_recruitment",
+];
+
+/**
+ * Kto ustawia priorytet rekrutacji (P1 / P2 / „Przyjmujemy kandydatów”) —
+ * lustro `JOB_PRIORITY_ROLES`: pełni redaktorzy oraz Head of Recruitment.
+ */
+const JOB_PRIORITY_SETTERS: readonly UserRole[] = [
+  "admin",
+  "delivery_lead",
+  "tac",
+  "head_of_recruitment",
+];
+
+/**
+ * Kto akceptuje, zmienia i odrzuca propozycje automatu przydziału — lustro
+ * `PROPOSAL_DECISION_ROLES`. Delivery Lead przydziela ludzi sam, ale propozycji
+ * automatu nie rozstrzyga.
+ */
+const PROPOSAL_DECIDERS: readonly UserRole[] = ["admin", "head_of_recruitment"];
+
+/**
  * KAŻDA zalogowana rola — dla powierzchni otwartych z decyzji produktowej
  * (Talent Radar, 19.08). Jawna lista zamiast pomijania bramki, żeby dodanie
  * nowej roli do systemu wymagało świadomej decyzji także tutaj.
@@ -147,6 +180,20 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // `can_edit` z `GET /api/jobs/{id}` (`lib/job-edit-access.ts`), nie ta
   // capability. HoR nadal poza: inline-edycja pól oferty dostałaby 403.
   "job.update": JOB_FULL_EDITORS,
+  // POST/DELETE /api/jobs/{id}/owner oraz dodanie i zdjęcie osoby na pulpicie
+  // „Requesty i obłożenie” (/api/request-board/jobs/{id}/people) →
+  // JOB_STAFFING_ROLES. Per rekrutacja rozstrzyga `can_staff` z
+  // `GET /api/jobs/{id}`; ta capability to bramka dla list i pulpitu.
+  // Współpracownika dopisuje i zdejmuje nadal każdy, kto redaguje rekrutację
+  // (`can_edit`) — to osobna, szersza bramka.
+  "job.recruiter.assign": JOB_STAFFING,
+  // PATCH /api/jobs/{id} {priority} → JOB_PRIORITY_ROLES (szerzej niż
+  // `job.update`: Head of Recruitment prowadzi kolejkę pracy zespołu).
+  // Per rekrutacja: `can_set_priority` z `GET /api/jobs/{id}`.
+  "job.priority.update": JOB_PRIORITY_SETTERS,
+  // POST /api/request-board/jobs/{id}/proposals/{userId} i
+  // POST /api/request-board/proposals/accept → PROPOSAL_DECISION_ROLES.
+  "request.proposal.decide": PROPOSAL_DECIDERS,
   // POST /api/clients → DeliveryLeadPlus + the Delivery section write gate.
   "client.create": DELIVERY_TAC_WRITERS,
   // PATCH /api/clients/{id} → DeliveryLeadPlus + the Delivery section write
@@ -257,6 +304,9 @@ const CAPABILITY_SECTION_REQUIREMENTS: Partial<
   "candidate.write": { section: "sourcing", required: "write" },
   "job.create": { section: "pipeline", required: "write" },
   "job.update": { section: "pipeline", required: "write" },
+  "job.recruiter.assign": { section: "pipeline", required: "write" },
+  "job.priority.update": { section: "pipeline", required: "write" },
+  "request.proposal.decide": { section: "pipeline", required: "write" },
   "client.create": { section: "delivery", required: "write" },
   "client.update": { section: "delivery", required: "write" },
   "cv_rule.manage": { section: "delivery", required: "write" },
@@ -290,6 +340,9 @@ export const MUTATING_CAPABILITIES: ReadonlySet<Capability> = new Set([
   "candidate.write",
   "job.create",
   "job.update",
+  "job.recruiter.assign",
+  "job.priority.update",
+  "request.proposal.decide",
   "client.create",
   "client.update",
   "cv_rule.manage",

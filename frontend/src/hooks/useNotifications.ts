@@ -12,6 +12,9 @@ import {
   setWsSender,
 } from "@/lib/wsBus";
 import { MY_PEOPLE_MATCH_EVENT, type MyPeopleMatchEventDetail } from "@/lib/my-people-summary";
+import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
+import { REQUEST_BOARD_QUERY_KEY } from "@/lib/api/requestAllocation";
+import { invalidateJobTeam } from "@/lib/job-team-cache";
 
 const WS_BASE =
   (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000")
@@ -74,6 +77,14 @@ interface UseNotificationsOptions {
 
 /** Okno zlewania odświeżeń dzwonka po wiadomościach czatu. */
 export const CHAT_REFRESH_COALESCE_MS = 1_500;
+
+/** `/jobs/42` albo `/jobs/42?tab=…` → 42; każdy inny link → `null`. */
+export function jobIdFromLink(link: string | null | undefined): number | null {
+  const match = /^\/jobs\/(\d+)(?:[/?#]|$)/.exec(link ?? "");
+  if (!match) return null;
+  const id = Number(match[1]);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
 
 export function useNotifications({ onNotification }: UseNotificationsOptions = {}) {
   const { token } = useAuthStore();
@@ -253,6 +264,21 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
                 }),
               );
             }
+          }
+          if (notif.notification_type === "request_allocation_proposals") {
+            // Automat zaproponował osobę do requestu: Head of Recruitment ma
+            // zobaczyć propozycję w „Czeka na Ciebie” i na pulpicie „Requesty
+            // i obłożenie” od razu, nie po 5-minutowej siatce odpytywania.
+            queryClient.invalidateQueries({ queryKey: BOARD_TASKS_QUERY_KEY });
+            queryClient.invalidateQueries({ queryKey: REQUEST_BOARD_QUERY_KEY });
+          } else if (notif.notification_type === "request_assignment_changed") {
+            // Ktoś właśnie dostał request do pracy (akceptacja propozycji,
+            // przydział automatu): zmienia się obsada rekrutacji, lista
+            // „Moje”, jej liczniki i obłożenie na pulpicie — ten sam zestaw co
+            // po zapisie z tego ekranu. Link po akceptacji to `/jobs/{id}`;
+            // poranny zbiorczy wpis prowadzi na pulpit, więc odświeża każdą
+            // wczytaną rekrutację.
+            invalidateJobTeam(queryClient, jobIdFromLink(notif.link));
           }
           setUnreadCount((c) => c + 1);
           // Call external handler (for toast)

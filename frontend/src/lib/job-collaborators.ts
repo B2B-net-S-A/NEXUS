@@ -1,19 +1,19 @@
 /**
- * Współpracownicy rekrutacji (decyzja Artura 29.09.2026).
+ * „Kolejne osoby” przy rekrutacji (decyzje Artura 29.09 i 02.10.2026).
  *
- * Rekrutację prowadzi jedna osoba (`jobs.recruiter_id`, „Rekruter
- * prowadzący”), ale pracuje nad nią kilka — współpracownicy z
- * `job_collaborators`. W oknie edycji, na `/jobs/new` i w kolumnie „Prowadzi”
- * widać WYŁĄCZNIE dodanych ręcznie (`source: "manual"`); wiersze `auto_cc` to
- * cała kategoria kompetencji, nie osoby przy tej rekrutacji (i nie liczą się
- * w „Kto pracuje”). Dopisuje i zdejmuje każdy, kto redaguje rekrutację —
+ * Nad rekrutacją pracuje jedna albo kilka osób w roli „Rekruter”: pierwsza
+ * siedzi w `jobs.recruiter_id`, kolejne w `job_collaborators` (stąd nazwy
+ * w kodzie). W oknie edycji i na `/jobs/new` pole „Kolejne osoby” pokazuje
+ * WYŁĄCZNIE dopisanych ręcznie (`source: "manual"`); wiersze `auto_cc` to
+ * cała kategoria kompetencji — te osoby widzą rekrutację w „Moja kategoria”,
+ * ale nad nią nie pracują. Dopisuje i zdejmuje każdy, kto redaguje rekrutację —
  * lustro `ensure_job_editor` w `POST/DELETE /api/jobs/{id}/collaborators`.
  */
 
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 
-/** Role, które serwer przyjmuje jako współpracownika (`_OWNERSHIP_ELIGIBLE_ROLES`). */
+/** Role, które serwer przyjmuje jako osobę przy rekrutacji (`_OWNERSHIP_ELIGIBLE_ROLES`). */
 export const COLLABORATOR_ROLES = [
   "admin",
   "delivery_lead",
@@ -27,7 +27,7 @@ export interface JobCollaboratorEntry {
   name?: string | null;
   /** Brak pola (starsze odpowiedzi) = dodany ręcznie. */
   source?: string | null;
-  /** Nieaktywne konto nie liczy się do „+N” (tak jak w „Kto pracuje”). */
+  /** Nieaktywne konto nie liczy się do „+N” (tak jak w filtrze „Rekruter”). */
   is_active?: boolean | null;
 }
 
@@ -49,8 +49,9 @@ export interface CollaboratorChanges {
 }
 
 /**
- * Różnica między ręcznymi współpracownikami przed i po edycji. Prowadzący nie
- * jest dopisywany jako współpracownik (serwer odpowiada wtedy 409).
+ * Różnica między ręcznie dopisanymi osobami przed i po edycji. Pierwszy
+ * rekruter (`recruiter_id`) nie jest dopisywany drugi raz (serwer odpowiada
+ * wtedy 409).
  */
 export function collaboratorChanges(
   before: readonly number[],
@@ -96,25 +97,6 @@ export async function saveCollaboratorChanges(
   if (failures.length === 0) return null;
   const total = changes.add.length + changes.remove.length;
   return failures.length === total
-    ? `nie zapisano zmian współpracowników (${failures[0]})`
-    : `zapisano ${total - failures.length} z ${total} zmian współpracowników (${failures[0]})`;
-}
-
-/**
- * „+N” obok prowadzącego w kolumnie „Prowadzi” i treść podpowiedzi. Liczy
- * tylko aktywne konta — ta sama reguła co filtr „Kto pracuje”, inaczej wiersz
- * mówiłby „+1” i jednocześnie „Nikt nie pracuje”.
- */
-export function collaboratorsSummary(
-  collaborators: readonly JobCollaboratorEntry[] | null | undefined,
-): { count: number; names: string[]; tooltip: string } {
-  const manual = manualCollaborators(collaborators).filter(
-    (c) => c.is_active !== false,
-  );
-  const names = manual.map((c) => c.name?.trim() || `#${c.id}`);
-  return {
-    count: manual.length,
-    names,
-    tooltip: names.length > 0 ? `Współpracownicy: ${names.join(", ")}` : "",
-  };
+    ? `nie zapisano kolejnych osób (${failures[0]})`
+    : `zapisano ${total - failures.length} z ${total} zmian na liście kolejnych osób (${failures[0]})`;
 }

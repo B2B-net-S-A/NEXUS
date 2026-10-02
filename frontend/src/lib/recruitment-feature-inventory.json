@@ -167,10 +167,66 @@
   {
    "id": "header.ownership",
    "area": "naglowek",
-   "opis": "Przejmij / współpracownicy",
+   "opis": "Wiersz „Rekruter” karty zespołu (02.10.2026, dawniej „Właściciel projektu” i „Współpracownicy”): osoby, które pracują nad rekrutacją, z podpisem, kto je przydzielił",
    "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "JobOwnershipPanel",
    "v3_home": "Zlecenie i Champion → panel → Zespół"
+  },
+  {
+   "id": "team.claim-join",
+   "area": "naglowek",
+   "opis": "„Biorę” przy wolnej rekrutacji (dawne „Przejmij rekrutację”) i „Dołącz” przy zajętej — rekruter, sourcer, TAC, Delivery Lead, admin",
+   "file": "components/v2/jobs/JobOwnershipPanel.tsx",
+   "marker": "joinJob",
+   "v3_home": "Zlecenie i Champion → panel → Zespół → Rekruter"
+  },
+  {
+   "id": "team.assign-recruiter",
+   "area": "naglowek",
+   "opis": "„Przypisz…” / „Zmień” — okno przypisania pierwszego rekrutera (admin, Delivery Lead, Head of Recruitment)",
+   "file": "components/v2/jobs/JobOwnershipPanel.tsx",
+   "marker": "ReassignOwnerV2",
+   "v3_home": "Zlecenie i Champion → panel → Zespół → Rekruter"
+  },
+  {
+   "id": "team.add-remove-person",
+   "area": "naglowek",
+   "opis": "„+ Dodaj osobę” (kolejna osoba przy rekrutacji) i zdjęcie osoby „×” z potwierdzeniem",
+   "file": "components/v2/jobs/JobOwnershipPanel.tsx",
+   "marker": "removeRecruiter",
+   "v3_home": "Zlecenie i Champion → panel → Zespół → Rekruter"
+  },
+  {
+   "id": "team.proposal-decision",
+   "area": "naglowek",
+   "opis": "Propozycja automatu przy rekrutacji: „Akceptuj” · „Zmień” · „Odrzuć” (admin, Head of Recruitment); do decyzji nikt nie jest przypisany",
+   "file": "components/v2/jobs/JobOwnershipPanel.tsx",
+   "marker": "decideProposal",
+   "v3_home": "Zlecenie i Champion → panel → Zespół → Rekruter"
+  },
+  {
+   "id": "team.category",
+   "area": "naglowek",
+   "opis": "Wiersz „Kategoria”: plakietka kategorii i zwijana lista osób z kategorii (widzą rekrutację w „Moja kategoria”, ale nad nią nie pracują)",
+   "file": "components/v2/jobs/JobSettingsPanel.tsx",
+   "marker": "JobCategoryRow",
+   "v3_home": "Zlecenie i Champion → panel → Zespół → Kategoria"
+  },
+  {
+   "id": "team.priority",
+   "area": "naglowek",
+   "opis": "Priorytet w trzech poziomach (P1 Pilne / P2 Standard / Przyjmujemy kandydatów), zapis kliknięciem — admin, Delivery Lead, TAC, Head of Recruitment",
+   "file": "components/v2/jobs/JobSettingsPanel.tsx",
+   "marker": "PriorityRow",
+   "v3_home": "Zlecenie i Champion → panel → Zespół → Priorytet"
+  },
+  {
+   "id": "header.recruiter-subtitle",
+   "area": "naglowek",
+   "opis": "Podtytuł nagłówka: „Rekruter: X +N” albo „Bez rekrutera” (dawniej „Prowadzi”)",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "recruiterLead",
+   "v3_home": "nagłówek rekrutacji → podtytuł"
   },
   {
    "id": "header.priority",
@@ -469,6 +525,14 @@
    "v3_home": "strona Champion"
   },
   {
+   "id": "champ.handoff-assignment",
+   "area": "zlecenie",
+   "opis": "Pole „Rekruter” przy przekazaniu: „Zaproponuje automat” (domyślnie, gdy automat jest włączony; zatwierdza Head of Recruitment) albo „Wybieram sam”",
+   "file": "components/v2/jobs/JobHandoffButton.tsx",
+   "marker": "RecruiterAssignmentChoice",
+   "v3_home": "Zlecenie i Champion → panel → Gotowość → Przekaż do searchu"
+  },
+  {
    "id": "champ.intake",
    "area": "zlecenie",
    "opis": "Import Championa z dokumentu",
@@ -496,10 +560,10 @@
   {
    "id": "champ.settings",
    "area": "zlecenie",
-   "opis": "Delivery Lead i termin (TAC, szablon, kategoria, Program/Train i priorytet usunięte 22.09.2026 decyzją Artura — ustawia je backend)",
+   "opis": "Karta zespołu: Delivery Lead → Rekruter → Kategoria → Termin → Priorytet (kolejność z 02.10.2026; TAC, szablon i Program/Train usunięte 22.09.2026 decyzją Artura — ustawia je backend)",
    "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "JobSettingsPanel",
-   "v3_home": "okno Zlecenie + strona Champion"
+   "v3_home": "Zlecenie i Champion → panel → Zespół"
   },
   {
    "id": "panel.saved-screening",
@@ -733,6 +797,14 @@
    "file": "components/v2/jobs/new/NewJobPage.tsx",
    "marker": "SimilarJobsPicker",
    "v3_home": "nowa rekrutacja"
+  },
+  {
+   "id": "new.team-step",
+   "area": "zlecenie",
+   "opis": "Sekcja „Rekruter i priorytet” (02.10.2026): „Zaproponuje automat” albo „Wybieram sam” z osobą i kolejnymi osobami, priorytet w trzech poziomach (domyślnie P2)",
+   "file": "components/v2/jobs/new/NewJobPage.tsx",
+   "marker": "NewJobTeamStep",
+   "v3_home": "nowa rekrutacja → Rekruter i priorytet"
   },
   {
    "id": "board.review-column",

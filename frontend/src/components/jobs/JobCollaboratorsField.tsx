@@ -13,8 +13,9 @@ interface DirectoryUser {
 }
 
 /**
- * „Współpracownicy” rekrutacji — osoby, które pracują nad nią obok
- * prowadzącego. Pole w oknie edycji i na `/jobs/new`; zapis robi wołający
+ * „Kolejne osoby” rekrutacji — osoby w roli „Rekruter”, które pracują nad nią
+ * obok pierwszego rekrutera (do 02.10.2026 pole nazywało się
+ * „Współpracownicy”). Pole w oknie edycji i na `/jobs/new`; zapis robi wołający
  * (`saveCollaboratorChanges`), bo rekrutacja na `/jobs/new` jeszcze nie istnieje.
  */
 export function JobCollaboratorsField({
@@ -25,7 +26,7 @@ export function JobCollaboratorsField({
 }: {
   value: number[];
   onChange: (ids: number[]) => void;
-  /** Prowadzący — nie da się go wybrać (serwer odpowiada 409). */
+  /** Pierwszy rekruter — nie da się go wybrać (serwer odpowiada 409). */
   primaryOwnerId?: number | null;
   /** Nazwiska już znane (np. `job.collaborators`) — zanim wczyta się katalog. */
   knownUsers?: ReadonlyArray<{ id: number; name?: string | null }>;
@@ -51,10 +52,10 @@ export function JobCollaboratorsField({
         triggerWidthClass="w-full"
         onlyRoles={COLLABORATOR_ROLES}
         excludeIds={primaryOwnerId != null ? [primaryOwnerId] : undefined}
-        ariaLabel="Współpracownicy"
+        ariaLabel="Kolejne osoby"
       />
       {selected.length > 0 && (
-        <ul className="flex flex-wrap gap-1.5" aria-label="Wybrani współpracownicy">
+        <ul className="flex flex-wrap gap-1.5" aria-label="Wybrane kolejne osoby">
           {selected.map((id) => {
             const name = names.get(id) ?? `#${id}`;
             return (
@@ -65,7 +66,7 @@ export function JobCollaboratorsField({
                 {name}
                 <button
                   type="button"
-                  aria-label={`Usuń ${name} ze współpracowników`}
+                  aria-label={`Zdejmij ${name}`}
                   className="rounded-full p-0.5 text-muted-foreground hover:text-foreground"
                   onClick={() => onChange(selected.filter((other) => other !== id))}
                 >

@@ -7,8 +7,9 @@
  * dok gotowości. Decyzje Artura: tworzenie przenosimy do NEXUSA, start od
  * maila klienta, AI wypełnia minimum, DL sprawdza i jednym kliknięciem
  * „Utwórz i przekaż do searchu”. Pola spoza minimum (TAC, szablon procesu,
- * kategoria, Program/Train, priorytet, typ, widełki mies.) nie istnieją ani
- * tu, ani w ustawieniach rekrutacji — ustawia je backend.
+ * kategoria, Program/Train, typ, widełki mies.) nie istnieją ani tu, ani
+ * w ustawieniach rekrutacji — ustawia je backend. Priorytet wrócił 02.10.2026
+ * w trzech poziomach (sekcja „Rekruter i priorytet”, `NewJobTeamStep`).
  *
  * Zapis idzie ZWYKŁYMI trasami (`POST /api/jobs` → `PUT …/champion-profile`
  * → `POST …/handoff` → `POST …/publish`), więc wszystkie bramki uprawnień
@@ -53,7 +54,16 @@ import { plural } from "@/components/v2/jobs/SimilarJobsDialog";
 import { similarJobsApi } from "@/lib/similar-jobs-api";
 import { saveHiringManager } from "@/lib/hiring-manager";
 import { collaboratorChanges, saveCollaboratorChanges } from "@/lib/job-collaborators";
-import { JobCollaboratorsField } from "@/components/jobs/JobCollaboratorsField";
+import {
+  automaticAssignmentAvailable,
+  automaticHandoffOutcome,
+  resolveRecruiterAssignment,
+  type AllocationMode,
+  type RecruiterAssignment,
+} from "@/lib/recruiter-assignment";
+import { rawPriorityForLevel, type PriorityLevel } from "@/lib/request-priority";
+import { invalidateJobTeam } from "@/lib/job-team-cache";
+import { NewJobTeamStep, type RecruiterOption } from "./NewJobTeamStep";
 import {
   fetchPortalConfig,
   fetchPublicDraft,
@@ -71,31 +81,12 @@ import {
 } from "@/lib/new-job-portal-publish";
 import { NewJobPortalsStep } from "./NewJobPortalsStep";
 
-interface RecruiterOption {
-  id: number;
-  name?: string | null;
-  email?: string | null;
-}
-
 export type Step = "request" | "review";
-
-/** „Prowadzi”: osoba wybrana ręcznie albo automat przydziału (0371). */
-export type RecruiterAssignment = "person" | "automatic";
 
 /** `GET /api/job-intake/handoff-options` — rekrutacji jeszcze nie ma. */
 interface HandoffOptions {
   automatic_enabled: boolean;
-  mode: "off" | "shadow" | "auto";
-}
-
-const AUTOMATIC_DISABLED_TEXT =
-  "Automatyczny przydział jest wyłączony — włącza go administrator.";
-
-/** Co zrobi automat po przekazaniu — zależy od trybu z panelu przydziału. */
-function automaticHint(mode: HandoffOptions["mode"] | undefined): string {
-  return mode === "auto"
-    ? "System przydzieli osobę według kategorii i obłożenia."
-    : "System zaproponuje osobę — przypisze ją Delivery Lead.";
+  mode: AllocationMode;
 }
 
 /** Odczyt modelem trwa kilkanaście–kilkadziesiąt sekund (OCR PDF-a dłużej). */
@@ -132,8 +123,10 @@ export interface NewJobPagePreview {
   form: IntakeForm;
   evidence: string[];
   recruiterId?: number | null;
+  /** Jawny wybór w polu „Rekruter”; brak = automat, o ile jest dostępny. */
   assignment?: RecruiterAssignment;
   collaboratorIds?: number[];
+  priorityLevel?: PriorityLevel;
   /** Krok „Ogłoszenie na portalach” (widoczny tylko przy gotowym portalu). */
   portalPlan?: NewJobPortalPlan;
   portalFindings?: PublicDraftRead["findings"];
@@ -168,12 +161,20 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const [recruiterId, setRecruiterId] = useState<number | null>(
     preview?.recruiterId ?? null,
   );
-  const [assignment, setAssignment] = useState<RecruiterAssignment>(
-    preview?.assignment ?? "person",
-  );
-  // Współpracownicy (decyzja 29.09.2026) — dopisywani po utworzeniu rekrutacji.
+  // Wybór trójstanowy (02.10.2026): `null` = Delivery Lead niczego nie
+  // zaznaczył — wtedy osobę proponuje automat, o ile jest dostępny. Wskazany
+  // rekruter (podgląd, kliknięcie w listę) to jawne „Wybieram sam”.
+  const [assignmentChoice, setAssignmentChoice] =
+    useState<RecruiterAssignment | null>(
+      preview?.assignment ?? (preview?.recruiterId != null ? "person" : null),
+    );
+  // Kolejne osoby (decyzja 29.09.2026) — dopisywane po utworzeniu rekrutacji.
   const [collaboratorIds, setCollaboratorIds] = useState<number[]>(
     preview?.collaboratorIds ?? [],
+  );
+  // Nowa rekrutacja zaczyna od P2 („Standard”).
+  const [priorityLevel, setPriorityLevel] = useState<PriorityLevel>(
+    preview?.priorityLevel ?? "p2",
   );
   const [saving, setSaving] = useState<"handoff" | "draft" | null>(null);
   // 0341: podobne rekrutacje zaznaczone przy tworzeniu — łączone po zapisie.
@@ -233,8 +234,8 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         .then((r) => r.data as RecruiterOption[]),
   });
 
-  // Czy da się wybrać „Przydziel automatycznie” — ta sama flaga co w handoffie.
-  // Tryb „off” znaczy, że automat nikogo nie przydzieli, więc też wyłączone.
+  // Czy da się wybrać „Zaproponuje automat” — ta sama flaga co w handoffie.
+  // Tryb „off” znaczy, że automat nikogo nie zaproponuje, więc też wyłączone.
   const handoffOptionsQuery = useQuery({
     queryKey: ["job-intake-handoff-options"],
     enabled: step === "review",
@@ -244,11 +245,16 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         .get("/api/job-intake/handoff-options")
         .then((r) => r.data as HandoffOptions),
   });
-  const automaticAvailable =
-    handoffOptionsQuery.data?.automatic_enabled === true &&
-    handoffOptionsQuery.data.mode !== "off";
-  const automatic = assignment === "automatic" && automaticAvailable;
+  const allocationMode = handoffOptionsQuery.data?.mode;
+  const automaticAvailable = automaticAssignmentAvailable(
+    handoffOptionsQuery.data?.automatic_enabled,
+    allocationMode,
+  );
+  const assignment = resolveRecruiterAssignment(assignmentChoice, automaticAvailable);
+  const automatic = assignment === "automatic";
   const automaticOffNotice = handoffOptionsQuery.isSuccess && !automaticAvailable;
+  // „Przyjmujemy kandydatów”: automat takim requestom nikogo nie proponuje.
+  const passive = priorityLevel === "accepting";
 
   // Portale wyłączone flagami (produkcja dziś) = `any_ready: false` → sekcji nie ma.
   const portalConfigQuery = useQuery({
@@ -376,9 +382,11 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     }
   };
 
-  const invalidateJobs = () => {
+  // Nowa rekrutacja, jej priorytet i obsada zmieniają też liczniki listy,
+  // pulpit „Requesty i obłożenie” i „Czeka na Ciebie” — stąd wspólne odświeżenie.
+  const invalidateJobs = (jobId: number) => {
     queryClient.invalidateQueries({ queryKey: ["jobs"] });
-    queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
+    invalidateJobTeam(queryClient, jobId);
   };
 
   const save = async (mode: "handoff" | "draft") => {
@@ -391,21 +399,22 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     setSaveError(null);
     let jobId: number | null = null;
     try {
-      const { data } = await api.post<{ id: number }>(
-        "/api/jobs",
-        buildJobPayload(form, {
+      const { data } = await api.post<{ id: number }>("/api/jobs", {
+        ...buildJobPayload(form, {
           clientId: client.id,
           requestText,
           templateJobId,
         }),
-      );
+        // Kolumna ma cztery wartości, ekran mówi trzema poziomami.
+        priority: rawPriorityForLevel(priorityLevel),
+      });
       jobId = data.id;
     } catch (e) {
       setSaveError(readErrorMessage(e, "Nie udało się zapisać rekrutacji."));
       setSaving(null);
       return;
     }
-    invalidateJobs();
+    invalidateJobs(jobId);
     // Hiring manager: osobna trasa, bo nową osobę zakłada jako kontakt
     // klienta. Dodatek — jego awaria nie cofa rekrutacji (da się go ustawić
     // w oknie zlecenia).
@@ -418,15 +427,19 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         );
       }
     }
-    // Współpracownicy: dodatek jak hiring manager — awaria nie cofa rekrutacji
-    // (da się ich dopisać w oknie edycji albo w zakładce „Zespół”).
-    const collaboratorsFailure = await saveCollaboratorChanges(
-      jobId,
-      collaboratorChanges([], collaboratorIds, automatic ? null : recruiterId),
-    );
+    // Kolejne osoby: dodatek jak hiring manager — awaria nie cofa rekrutacji
+    // (da się je dopisać w zakładce „Zespół”). Tylko przy „Wybieram sam”: przy
+    // automacie pole jest ukryte, a request z ręcznie dopisaną osobą ma już
+    // rekrutera, więc automat nikogo by mu nie zaproponował.
+    const collaboratorsFailure = automatic
+      ? null
+      : await saveCollaboratorChanges(
+          jobId,
+          collaboratorChanges([], collaboratorIds, recruiterId),
+        );
     if (collaboratorsFailure) {
       showError(
-        `Rekrutacja zapisana, ale ${collaboratorsFailure}. Dopisz ich w oknie edycji rekrutacji.`,
+        `Rekrutacja zapisana, ale ${collaboratorsFailure}. Dopisz je w zakładce „Zespół” rekrutacji.`,
       );
     }
     const championTab = `/jobs/${jobId}?tab=champion`;
@@ -476,7 +489,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     }
     try {
       if (automatic) {
-        // Prowadzącego wybierze automat przydziału (request trafia na „Szukamy”).
+        // Rekrutera zaproponuje automat przydziału (request trafia na „Szukamy”).
         await api.post(`/api/jobs/${jobId}/handoff`, {
           assignment_mode: "automatic",
           channel: "linkedin",
@@ -507,7 +520,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         `Rekrutacja w searchu, ale nie opublikowana: ${apiErrorMessage(e, "błąd")}. Opublikuj ją na stronie rekrutacji.`,
       );
     }
-    invalidateJobs();
+    invalidateJobs(jobId);
     const portalsTab = `/jobs/${jobId}?tab=portals`;
     if (activePortalPlan.portals.length > 0) {
       if (!published) {
@@ -540,7 +553,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     if (published) {
       showSuccess(
         automatic
-          ? "Rekrutacja utworzona i przekazana do searchu — prowadzącego wybierze automat przydziału."
+          ? `Rekrutacja utworzona i przekazana do searchu. ${automaticHandoffOutcome(allocationMode, passive)}`
           : "Rekrutacja utworzona i przekazana do searchu.",
       );
     }
@@ -548,9 +561,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   };
 
   const ready = missing.length === 0;
-  const hasLead = automatic || recruiterId != null;
+  const hasRecruiter = automatic || recruiterId != null;
   const canHandoff =
-    ready && hasLead && saving == null && portalBlocker == null;
+    ready && hasRecruiter && saving == null && portalBlocker == null;
   const recruiters = recruitersQuery.data ?? [];
 
   return (
@@ -670,6 +683,27 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                 disabled={saving != null}
               />
             )}
+            <NewJobTeamStep
+              assignment={assignment}
+              onAssignmentChange={setAssignmentChoice}
+              automaticAvailable={automaticAvailable}
+              automaticOff={automaticOffNotice}
+              mode={allocationMode}
+              recruiters={recruiters}
+              recruitersFailed={recruitersQuery.isError && !recruitersQuery.data}
+              onRecruitersRetry={() => void recruitersQuery.refetch()}
+              recruiterId={recruiterId}
+              onRecruiterChange={(id) => {
+                setRecruiterId(id);
+                // Wskazanie osoby to jawny wybór „Wybieram sam”.
+                if (id != null) setAssignmentChoice("person");
+              }}
+              collaboratorIds={collaboratorIds}
+              onCollaboratorsChange={setCollaboratorIds}
+              priorityLevel={priorityLevel}
+              onPriorityChange={setPriorityLevel}
+              disabled={saving != null}
+            />
           </div>
         </div>
       )}
@@ -698,13 +732,13 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                 <span className="truncate text-xs text-muted-foreground">
                   {!ready
                     ? missing.map((code) => MISSING_LABEL[code]).join(" · ")
-                    : !hasLead
-                      ? "Wybierz, kto poprowadzi rekrutację — wtedy przekażesz ją do searchu."
+                    : !hasRecruiter
+                      ? "Wybierz rekrutera w sekcji „Rekruter i priorytet” — wtedy przekażesz rekrutację do searchu."
                       : portalBlocker
                         ? `Ogłoszenie na portalach: ${portalBlocker}`
                         : automatic
-                          ? automaticHint(handoffOptionsQuery.data?.mode)
-                          : "Szablon procesu, kategoria i zespół ustawią się same."}
+                          ? automaticHandoffOutcome(allocationMode, passive)
+                          : "Szablon procesu i kategoria ustawią się same."}
                 </span>
               </div>
             </div>
@@ -717,79 +751,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                   {saveError}
                 </span>
               )}
-              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                <span id="new-job-lead-label">Prowadzi</span>
-                <div
-                  role="radiogroup"
-                  aria-labelledby="new-job-lead-label"
-                  className="inline-flex rounded-lg border border-border bg-card p-0.5"
-                >
-                  <AssignmentOption
-                    label="Wybieram osobę"
-                    checked={!automatic}
-                    onSelect={() => setAssignment("person")}
-                  />
-                  <AssignmentOption
-                    label="Przydziel automatycznie"
-                    checked={automatic}
-                    disabled={!automaticAvailable}
-                    describedBy={
-                      automaticOffNotice ? "new-job-automatic-off" : undefined
-                    }
-                    onSelect={() => setAssignment("automatic")}
-                  />
-                </div>
-                {!automatic && (
-                  <select
-                    aria-label="Rekruter prowadzący"
-                    className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground"
-                    value={recruiterId ?? ""}
-                    onChange={(e) =>
-                      setRecruiterId(
-                        e.target.value ? Number(e.target.value) : null,
-                      )
-                    }
-                  >
-                    <option value="">Wybierz rekrutera…</option>
-                    {recruiters.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name || r.email || `#${r.id}`}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {automaticOffNotice ? (
-                  <span id="new-job-automatic-off" className="text-xs">
-                    {AUTOMATIC_DISABLED_TEXT}
-                  </span>
-                ) : null}
-              </div>
-              {/* Runda 8 (R8-N14-6): pusta lista „Prowadzi” przy awarii
-                  blokowała przekazanie bez słowa wyjaśnienia. */}
-              {!automatic && recruitersQuery.isError && !recruitersQuery.data ? (
-                <span role="alert" className="text-xs text-destructive">
-                  Nie udało się wczytać listy rekruterów.{" "}
-                  <button
-                    type="button"
-                    className="font-medium underline"
-                    onClick={() => void recruitersQuery.refetch()}
-                  >
-                    Ponów
-                  </button>
-                </span>
-              ) : null}
-              {/* Decyzja 29.09.2026: obok prowadzącego pracują współpracownicy
-                  (liczą się w „Kto pracuje”). Dopisywani po utworzeniu rekrutacji. */}
-              <div className="flex flex-wrap items-start gap-2 text-sm text-muted-foreground">
-                <span className="pt-2.5">Współpracownicy</span>
-                <div className="w-60">
-                  <JobCollaboratorsField
-                    value={collaboratorIds}
-                    onChange={setCollaboratorIds}
-                    primaryOwnerId={automatic ? null : recruiterId}
-                  />
-                </div>
-              </div>
+              {/* Rekruter i priorytet mają własną sekcję nad stopką
+                  (`NewJobTeamStep`) — tu zostają tylko przyciski, żeby
+                  przyklejona stopka nie zabierała laptopowi jednej trzeciej okna. */}
               <Button
                 type="button"
                 variant="outline"
@@ -807,8 +771,10 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                 title={
                   !ready
                     ? "Uzupełnij braki, żeby przekazać do searchu"
-                    : !hasLead
-                      ? "Wybierz rekrutera, który poprowadzi rekrutację, albo przydział automatyczny"
+                    : !hasRecruiter
+                      ? automaticAvailable
+                        ? "Wybierz rekrutera albo zostaw propozycję automatowi"
+                        : "Wybierz rekrutera, żeby przekazać do searchu"
                       : portalBlocker
                         ? `Ogłoszenie na portalach: ${portalBlocker}`
                         : undefined
@@ -821,43 +787,6 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         </footer>
       )}
     </div>
-  );
-}
-
-function AssignmentOption({
-  label,
-  checked,
-  disabled = false,
-  describedBy,
-  onSelect,
-}: {
-  label: string;
-  checked: boolean;
-  disabled?: boolean;
-  describedBy?: string;
-  onSelect: () => void;
-}) {
-  return (
-    <label
-      className={cn(
-        "flex cursor-pointer items-center rounded-md px-3 py-1.5 text-sm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
-        checked
-          ? "bg-primary text-primary-foreground"
-          : "text-foreground hover:bg-accent",
-        disabled && "cursor-not-allowed opacity-50 hover:bg-transparent",
-      )}
-    >
-      <input
-        type="radio"
-        name="new-job-recruiter-assignment"
-        className="sr-only"
-        checked={checked}
-        disabled={disabled}
-        aria-describedby={describedBy}
-        onChange={onSelect}
-      />
-      {label}
-    </label>
   );
 }
 

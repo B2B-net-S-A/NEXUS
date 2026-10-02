@@ -66,6 +66,8 @@ vi.mock("@/components/v2/jobs/SimilarRequestsBanner", () => ({
 }));
 
 import { NewJobPage } from "@/components/v2/jobs/new/NewJobPage";
+import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
+import { REQUEST_BOARD_QUERY_KEY } from "@/lib/api/requestAllocation";
 import type { RequestIntakeResponse } from "@/lib/job-request-intake";
 
 const REQUEST =
@@ -95,16 +97,32 @@ const INTAKE: RequestIntakeResponse = {
   search_requirements: [["Java 17+"], ["Spring Boot"]],
 };
 
+/** Klient zapytań ostatnio wyrenderowanej strony — do sprawdzania unieważnień. */
+let lastQueryClient: QueryClient | null = null;
+
 function renderPage() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  lastQueryClient = client;
+  vi.spyOn(client, "invalidateQueries");
   return render(
     <QueryClientProvider client={client}>
       <NewJobPage />
     </QueryClientProvider>,
   );
 }
+
+function invalidatedKeys(): unknown[] {
+  return vi
+    .mocked(lastQueryClient!.invalidateQueries)
+    .mock.calls.map((call) => (call[0] as { queryKey: unknown[] })?.queryKey);
+}
+
+const jobPostBody = () =>
+  mocks.post.mock.calls.find(([url]) => url === "/api/jobs")?.[1] as
+    | Record<string, unknown>
+    | undefined;
 
 const SIMILAR = [
   {
@@ -198,7 +216,7 @@ describe("NewJobPage", () => {
     expect(handoffButton).toBeDisabled();
 
     await screen.findByRole("option", { name: "Rekruterka Ola" });
-    fireEvent.change(screen.getByLabelText("Rekruter prowadzący"), {
+    fireEvent.change(screen.getByLabelText("Wybierz rekrutera"), {
       target: { value: "31" },
     });
     fireEvent.click(handoffButton);
@@ -224,11 +242,16 @@ describe("NewJobPage", () => {
     expect(mocks.refreshClientHistory).toHaveBeenCalledWith(900);
   });
 
-  describe("„Przydziel automatycznie” (decyzja 29.09.2026)", () => {
+  describe("„Rekruter”: zaproponuje automat albo wybieram sam (decyzje 29.09 i 02.10.2026)", () => {
     function allocationOptions(automatic_enabled: boolean, mode: string) {
       mocks.get.mockImplementation((url: string) => {
         if (url === "/api/users") {
-          return Promise.resolve({ data: [{ id: 31, name: "Rekruterka Ola" }] });
+          return Promise.resolve({
+            data: [
+              { id: 31, name: "Rekruterka Ola", role: "recruiter", roles: [] },
+              { id: 32, name: "Sourcerka Iza", role: "sourcer", roles: [] },
+            ],
+          });
         }
         if (url === "/api/job-intake/handoff-options") {
           return Promise.resolve({ data: { automatic_enabled, mode } });
@@ -237,19 +260,26 @@ describe("NewJobPage", () => {
       });
     }
 
+    const recruiterGroup = () => screen.findByRole("radiogroup", { name: "Rekruter" });
+    const automatOption = (group: HTMLElement) =>
+      within(group).getByRole("radio", { name: "Zaproponuje automat" });
+    const personOption = (group: HTMLElement) =>
+      within(group).getByRole("radio", { name: "Wybieram sam" });
+
     it("przy wyłączonym automacie opcja jest widoczna, ale nieaktywna — z powodem", async () => {
       allocationOptions(false, "off");
       await readRequest();
-      const automatic = await screen.findByRole("radio", {
-        name: "Przydziel automatycznie",
-      });
-      expect(automatic).toBeDisabled();
+      const group = await recruiterGroup();
       expect(
-        screen.getByText(
+        await screen.findByText(
           "Automatyczny przydział jest wyłączony — włącza go administrator.",
         ),
       ).toBeInTheDocument();
-      expect(screen.getByRole("radio", { name: "Wybieram osobę" })).toBeChecked();
+      expect(automatOption(group)).toBeDisabled();
+      expect(automatOption(group)).toHaveAccessibleDescription(
+        "Automatyczny przydział jest wyłączony — włącza go administrator.",
+      );
+      expect(personOption(group)).toBeChecked();
       expect(
         screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }),
       ).toBeDisabled();
@@ -258,26 +288,28 @@ describe("NewJobPage", () => {
     it("tryb „off” przy włączonej fladze też nie pozwala wybrać automatu", async () => {
       allocationOptions(true, "off");
       await readRequest();
-      await waitFor(() =>
-        expect(
-          screen.getByRole("radio", { name: "Przydziel automatycznie" }),
-        ).toBeDisabled(),
+      const group = await recruiterGroup();
+      await screen.findByText(
+        "Automatyczny przydział jest wyłączony — włącza go administrator.",
       );
+      expect(automatOption(group)).toBeDisabled();
+      expect(personOption(group)).toBeChecked();
     });
 
-    it("automat bez rekrutera: przycisk aktywny, handoff z assignment_mode automatic", async () => {
+    it("włączony automat jest wyborem DOMYŚLNYM: bez żadnego kliknięcia handoff idzie z assignment_mode automatic", async () => {
       allocationOptions(true, "shadow");
       await readRequest();
-      const automatic = await screen.findByRole("radio", {
-        name: "Przydziel automatycznie",
-      });
-      await waitFor(() => expect(automatic).toBeEnabled());
-      fireEvent.click(automatic);
+      const group = await recruiterGroup();
+      await waitFor(() => expect(automatOption(group)).toBeChecked());
+      expect(automatOption(group)).toBeEnabled();
       expect(
-        screen.getByText("System zaproponuje osobę — przypisze ją Delivery Lead."),
+        screen.getByText(
+          "Automat zaproponuje osobę według kategorii i obłożenia. Propozycję zatwierdza Head of Recruitment — do tego czasu nikt nie jest przypisany.",
+        ),
       ).toBeInTheDocument();
-      // Lista osób znika — nie ma czego wybierać.
-      expect(screen.queryByLabelText("Rekruter prowadzący")).toBeNull();
+      // Listy osób ani „Kolejnych osób” nie ma — nie ma czego wybierać.
+      expect(screen.queryByLabelText("Wybierz rekrutera")).toBeNull();
+      expect(screen.queryByText("Kolejne osoby")).toBeNull();
 
       const handoffButton = screen.getByRole("button", {
         name: "Utwórz i przekaż do searchu",
@@ -292,19 +324,80 @@ describe("NewJobPage", () => {
       });
       expect(mocks.handoff).not.toHaveBeenCalled();
       expect(mocks.post).toHaveBeenCalledWith("/api/jobs/900/publish");
+      expect(
+        mocks.post.mock.calls.some(([url]) => url === "/api/jobs/900/collaborators"),
+      ).toBe(false);
+      expect(mocks.showSuccess).toHaveBeenCalledWith(
+        "Rekrutacja utworzona i przekazana do searchu. Rekrutera zaproponuje automat, a zatwierdzi Head of Recruitment.",
+      );
     });
 
-    it("tryb „auto” mówi, że system sam przydzieli osobę", async () => {
+    it("tryb „auto” mówi, że automat sam przydzieli osobę", async () => {
       allocationOptions(true, "auto");
       await readRequest();
-      const automatic = await screen.findByRole("radio", {
-        name: "Przydziel automatycznie",
-      });
-      await waitFor(() => expect(automatic).toBeEnabled());
-      fireEvent.click(automatic);
+      const group = await recruiterGroup();
+      await waitFor(() => expect(automatOption(group)).toBeChecked());
       expect(
-        screen.getByText("System przydzieli osobę według kategorii i obłożenia."),
+        screen.getByText("Automat przydzieli osobę według kategorii i obłożenia."),
       ).toBeInTheDocument();
+    });
+
+    it("„Wybieram sam” przy włączonym automacie: lista osób, przypisanie od razu, bez automatu", async () => {
+      allocationOptions(true, "shadow");
+      await readRequest();
+      const group = await recruiterGroup();
+      await waitFor(() => expect(automatOption(group)).toBeChecked());
+
+      fireEvent.click(personOption(group));
+
+      expect(personOption(group)).toBeChecked();
+      expect(
+        screen.getByText("Wskazane osoby są przypisane od razu, bez akceptacji."),
+      ).toBeInTheDocument();
+      const handoffButton = screen.getByRole("button", {
+        name: "Utwórz i przekaż do searchu",
+      });
+      // Sam wybór trybu to za mało — trzeba wskazać osobę.
+      expect(handoffButton).toBeDisabled();
+      await screen.findByRole("option", { name: "Rekruterka Ola" });
+      fireEvent.change(screen.getByLabelText("Wybierz rekrutera"), {
+        target: { value: "31" },
+      });
+      fireEvent.click(handoffButton);
+
+      await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900"));
+      expect(mocks.handoff).toHaveBeenCalledWith(900, 31, undefined, "linkedin");
+      expect(
+        mocks.post.mock.calls.some(([url]) => url === "/api/jobs/900/handoff"),
+      ).toBe(false);
+    });
+
+    it("priorytet „Przyjmujemy kandydatów” przy automacie: mówi wprost, że nikt nie zostanie zaproponowany", async () => {
+      allocationOptions(true, "shadow");
+      await readRequest();
+      const group = await recruiterGroup();
+      await waitFor(() => expect(automatOption(group)).toBeChecked());
+
+      fireEvent.click(
+        within(screen.getByRole("radiogroup", { name: "Priorytet" })).getByRole("radio", {
+          name: "Przyjmujemy kandydatów",
+        }),
+      );
+
+      expect(
+        screen.getByText(
+          "Przy priorytecie „Przyjmujemy kandydatów” automat nikogo nie proponuje — rekrutacja zostanie bez rekrutera, dopóki ktoś jej nie weźmie albo nie wskażesz osoby.",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/Propozycję zatwierdza Head of Recruitment/)).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }));
+
+      await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900"));
+      expect(jobPostBody()).toMatchObject({ priority: "low" });
+      expect(mocks.showSuccess).toHaveBeenCalledWith(
+        "Rekrutacja utworzona i przekazana do searchu. Rekrutacja zostaje bez rekrutera — przy priorytecie „Przyjmujemy kandydatów” automat nikogo nie proponuje.",
+      );
     });
 
     it("odmowa automatycznego handoffu: rekrutacja zostaje, przejście do Championa", async () => {
@@ -316,16 +409,13 @@ describe("NewJobPage", () => {
           ? Promise.reject({
               response: {
                 status: 409,
-                data: { detail: "Automatyczny przydział nie jest jeszcze włączony" },
+                data: { detail: "Automat przydziału jest wyłączony — wybierz rekrutera ręcznie." },
               },
             })
           : fallback(url, ...rest),
       );
-      const automatic = await screen.findByRole("radio", {
-        name: "Przydziel automatycznie",
-      });
-      await waitFor(() => expect(automatic).toBeEnabled());
-      fireEvent.click(automatic);
+      const group = await recruiterGroup();
+      await waitFor(() => expect(automatOption(group)).toBeChecked());
       fireEvent.click(
         screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }),
       );
@@ -333,17 +423,75 @@ describe("NewJobPage", () => {
         expect(mocks.push).toHaveBeenCalledWith("/jobs/900?tab=champion"),
       );
       expect(mocks.showError).toHaveBeenCalledWith(
-        expect.stringContaining("nie przekazano do searchu"),
+        "Rekrutacja zapisana jako szkic — nie przekazano do searchu: Automat przydziału jest wyłączony — wybierz rekrutera ręcznie.",
       );
       expect(mocks.post).not.toHaveBeenCalledWith("/api/jobs/900/publish");
     });
   });
 
-  it("awaria listy rekruterów → komunikat z „Ponów” przy polu „Prowadzi” (R8-N14-6)", async () => {
+  describe("priorytet (02.10.2026)", () => {
+    const priorityOption = (name: string) =>
+      within(screen.getByRole("radiogroup", { name: "Priorytet" })).getByRole("radio", {
+        name,
+      });
+
+    async function pickRecruiterAndHandoff() {
+      await screen.findByRole("option", { name: "Rekruterka Ola" });
+      fireEvent.change(screen.getByLabelText("Wybierz rekrutera"), {
+        target: { value: "31" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }));
+      await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900"));
+    }
+
+    it("nowa rekrutacja zaczyna od P2 i tak idzie do POST /api/jobs", async () => {
+      await readRequest();
+      expect(
+        within(screen.getByRole("radiogroup", { name: "Priorytet" }))
+          .getAllByRole("radio")
+          .map((radio) => radio.textContent),
+      ).toEqual(["P1 Pilne", "P2 Standard", "Przyjmujemy kandydatów"]);
+      expect(priorityOption("P2 Standard")).toBeChecked();
+
+      await pickRecruiterAndHandoff();
+
+      expect(jobPostBody()).toMatchObject({ priority: "medium" });
+    });
+
+    it("P1 idzie jako „urgent” — także przy zapisie szkicu", async () => {
+      await readRequest();
+      fireEvent.click(priorityOption("P1 Pilne"));
+      expect(priorityOption("P1 Pilne")).toBeChecked();
+
+      fireEvent.click(screen.getByRole("button", { name: "Zapisz szkic" }));
+
+      await waitFor(() =>
+        expect(mocks.push).toHaveBeenCalledWith("/jobs/900?tab=champion"),
+      );
+      expect(jobPostBody()).toMatchObject({ priority: "urgent" });
+    });
+
+    it("po utworzeniu odświeża listę, liczniki i pulpit „Requesty i obłożenie”", async () => {
+      await readRequest();
+      await pickRecruiterAndHandoff();
+
+      const keys = invalidatedKeys();
+      for (const key of [
+        ["jobs-v2"],
+        ["jobs-quick-counts"],
+        REQUEST_BOARD_QUERY_KEY,
+        BOARD_TASKS_QUERY_KEY,
+      ]) {
+        expect(keys).toContainEqual(key);
+      }
+    });
+  });
+
+  it("awaria listy rekruterów → komunikat z „Ponów” przy polu „Rekruter” (R8-N14-6)", async () => {
     let calls = 0;
     mocks.get.mockImplementation((url: string, config?: { params?: unknown }) => {
-      // Lista „Prowadzi” pyta z `params.roles`; katalog pola „Współpracownicy”
-      // (ten sam adres, bez parametrów) nie jest tu testowany.
+      // Lista pola „Rekruter” pyta z `params.roles`; katalog pola „Kolejne
+      // osoby” (ten sam adres, bez parametrów) nie jest tu testowany.
       if (url === "/api/users" && !config?.params) {
         return Promise.resolve({ data: [] });
       }
@@ -366,7 +514,7 @@ describe("NewJobPage", () => {
     mocks.refreshClientHistory.mockRejectedValue(new Error("503"));
     await readRequest();
     await screen.findByRole("option", { name: "Rekruterka Ola" });
-    fireEvent.change(screen.getByLabelText("Rekruter prowadzący"), {
+    fireEvent.change(screen.getByLabelText("Wybierz rekrutera"), {
       target: { value: "31" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }));
@@ -385,7 +533,7 @@ describe("NewJobPage", () => {
         : fallback(url, ...rest),
     );
     await screen.findByRole("option", { name: "Rekruterka Ola" });
-    fireEvent.change(screen.getByLabelText("Rekruter prowadzący"), {
+    fireEvent.change(screen.getByLabelText("Wybierz rekrutera"), {
       target: { value: "31" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }));
@@ -567,7 +715,7 @@ describe("NewJobPage — ogłoszenie na portalach", () => {
       return extra(url) ?? base(url, ...rest);
     });
     await screen.findByRole("option", { name: "Rekruterka Ola" });
-    fireEvent.change(screen.getByLabelText("Rekruter prowadzący"), { target: { value: "31" } });
+    fireEvent.change(screen.getByLabelText("Wybierz rekrutera"), { target: { value: "31" } });
   }
 
   it("bez gotowego portalu sekcji nie ma", async () => {
@@ -659,7 +807,7 @@ describe("NewJobPage — hiring manager z maila", () => {
 
   async function handoff() {
     await screen.findByRole("option", { name: "Rekruterka Ola" });
-    fireEvent.change(screen.getByLabelText("Rekruter prowadzący"), {
+    fireEvent.change(screen.getByLabelText("Wybierz rekrutera"), {
       target: { value: "31" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }));
@@ -704,15 +852,15 @@ describe("NewJobPage — hiring manager z maila", () => {
   });
 });
 
-describe("NewJobPage — współpracownicy (29.09.2026)", () => {
+describe("NewJobPage — kolejne osoby (29.09 i 02.10.2026)", () => {
   async function pickCollaboratorAndHandoff() {
     const user = userEvent.setup();
     await screen.findByRole("option", { name: "Rekruterka Ola" });
-    fireEvent.change(screen.getByLabelText("Rekruter prowadzący"), {
+    fireEvent.change(screen.getByLabelText("Wybierz rekrutera"), {
       target: { value: "31" },
     });
-    await user.click(screen.getByRole("button", { name: /^Współpracownicy:/ }));
-    // Prowadzącej nie da się wybrać — serwer odpowiedziałby 409.
+    await user.click(screen.getByRole("button", { name: /^Kolejne osoby:/ }));
+    // Pierwszej rekruterki nie da się wybrać drugi raz — serwer odpowiedziałby 409.
     const list = await screen.findByRole("listbox");
     expect(within(list).queryByText("Rekruterka Ola")).toBeNull();
     await user.click(within(list).getByText("Sourcerka Iza"));
@@ -720,6 +868,17 @@ describe("NewJobPage — współpracownicy (29.09.2026)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }));
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900"));
   }
+
+  it("sekcja „Rekruter i priorytet” mówi nowymi nazwami", async () => {
+    await readRequest();
+    expect(
+      screen.getByRole("heading", { name: "Rekruter i priorytet" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Kolejne osoby")).toBeInTheDocument();
+    for (const gone of ["Rekruter prowadzący", "Współpracownicy", "Prowadzi"]) {
+      expect(screen.queryByText(gone)).toBeNull();
+    }
+  });
 
   it("dopisuje wybranych po utworzeniu rekrutacji", async () => {
     await readRequest();
@@ -740,7 +899,7 @@ describe("NewJobPage — współpracownicy (29.09.2026)", () => {
     );
     await pickCollaboratorAndHandoff();
     expect(mocks.showError).toHaveBeenCalledWith(
-      expect.stringContaining("Rekrutacja zapisana, ale nie zapisano zmian współpracowników"),
+      "Rekrutacja zapisana, ale nie zapisano kolejnych osób (brak). Dopisz je w zakładce „Zespół” rekrutacji.",
     );
     expect(mocks.handoff).toHaveBeenCalled();
   });

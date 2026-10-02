@@ -722,6 +722,22 @@ async def decide_priority_work_access(
             priority_compliant=assignment_is_active,
         )
 
+    if mode is PriorityMode.off:
+        return PriorityWorkDecision(
+            allowed=True,
+            mode=mode,
+            reason=PriorityWorkReason.mode_off,
+            is_continuation=False,
+            assignment_owner_user_id=actor_user_id,
+            kpi_eligible=True,
+            priority_compliant=None,
+        )
+
+    # PO bramce `off`: przy wyłączonym Priority Work żadna praca człowieka nie
+    # jest odrzucana („Kanban bez bramek”). Do 02.10.2026 ta gałąź stała wyżej,
+    # więc samo włączenie automatu przydziału (`RECRUITMENT_ALLOCATION_ENABLED`)
+    # blokowałoby dodanie kandydata do każdej rekrutacji z
+    # `needs_sourcing = false` — czyli każdej nieprzekazanej jeszcze do searchu.
     if settings.RECRUITMENT_ALLOCATION_ENABLED:
         searching = await db.scalar(select(Job.needs_sourcing).where(Job.id == job_id))
         if searching is False:
@@ -733,17 +749,6 @@ async def decide_priority_work_access(
                 kpi_eligible=False,
                 priority_compliant=False,
             )
-
-    if mode is PriorityMode.off:
-        return PriorityWorkDecision(
-            allowed=True,
-            mode=mode,
-            reason=PriorityWorkReason.mode_off,
-            is_continuation=False,
-            assignment_owner_user_id=actor_user_id,
-            kpi_eligible=True,
-            priority_compliant=None,
-        )
 
     assignment = member = plan = None
     if actor_user_id is not None:

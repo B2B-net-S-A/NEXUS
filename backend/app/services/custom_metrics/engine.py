@@ -539,12 +539,19 @@ def _jobs_author_clause(author: str, user: User, author_ids: frozenset[int]):
 
     Runda 10 (R10-N1-3): kreator liczył tylko ``recruiter_id``/``tac_id``/
     ``delivery_lead_id``, a „Moje" na ``/jobs`` (R9-N15-2) bierze też
-    współpracowników i żywe przypisania do requestu — sourcer z przypisaniem
+    współpracowników i przypisania do requestu — sourcer z przypisaniem
     miał w kreatorze zawsze 0. TAC i Delivery Lead rekrutacji zostają (DL
     liczył „moje" rekrutacje po ``delivery_lead_id`` od początku kreatora).
+
+    Od 02.10.2026 jak „Moje”: tylko RĘCZNIE dopisani współpracownicy (wiersze
+    ``auto_cc`` to cała kategoria, nie osoby przy rekrutacji) i tylko AKTYWNE
+    przypisania (propozycja automatu to jeszcze nie praca).
     """
-    from app.api.jobs import _live_work_assignment_job_ids, jobs_mine_clause
-    from app.models.job_collaborator import JobCollaborator
+    from app.api.jobs import (
+        _live_work_assignment_job_ids,
+        _manual_collaborator_job_ids,
+        jobs_mine_clause,
+    )
 
     if author == "me":
         return or_(
@@ -557,9 +564,7 @@ def _jobs_author_clause(author: str, user: User, author_ids: frozenset[int]):
         Job.recruiter_id.in_(ids),
         Job.tac_id.in_(ids),
         Job.delivery_lead_id.in_(ids),
-        Job.id.in_(
-            select(JobCollaborator.job_id).where(JobCollaborator.user_id.in_(ids))
-        ),
+        Job.id.in_(_manual_collaborator_job_ids(ids)),
         Job.id.in_(_live_work_assignment_job_ids(ids)),
     )
 

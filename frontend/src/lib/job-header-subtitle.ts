@@ -2,7 +2,7 @@
  * Podtytuł jobbara rekrutacji (makieta „flow w języku C2", k2–k8).
  *
  * Jedna linia zamiast rzędu odznak z ikonami:
- * `Warszawa / hybryda · budżet do 122,50 PLN/h · deadline 30.09 · Marta K.`
+ * `Warszawa / hybryda · budżet do 122,50 PLN/h · deadline 30.09 · Rekruter: Marta K.`
  *
  * Czysta funkcja zwracająca SEGMENTY, nie gotowy JSX — dzięki temu test
  * sprawdza treść, a nie sposób jej złamania na wiersze, a warstwa widoku
@@ -11,8 +11,8 @@
  * Segment, którego nie ma, po prostu NIE WYCHODZI. Nie ma tu wartości
  * zastępczych typu „—": podtytuł jest ciągiem faktów, a pusty myślnik między
  * dwoma kropkami czyta się jak fakt, którego nikt nie podał.
- * Jedyny wyjątek to właściciel — jego brak jest sprawą do załatwienia (nikt
- * nie dostanie alertów deadline'u), więc mówimy o nim wprost.
+ * Jedyny wyjątek to rekruter — jego brak jest sprawą do załatwienia (nikt nad
+ * rekrutacją nie pracuje), więc mówimy o nim wprost: „Bez rekrutera”.
  */
 
 import { formatDeadlineTime } from "@/lib/job-deadline";
@@ -94,12 +94,19 @@ export interface JobHeaderSubtitleInput {
   deadline?: string | null;
   /** Godzina terminu (0406) — banki podają termin z godziną. */
   deadlineTime?: string | null;
-  ownerName?: string | null;
+  /**
+   * Rola „Rekruter” (02.10.2026): pierwsza osoba, która pracuje nad
+   * rekrutacją, i liczba kolejnych — `recruitersSummary(recruitersOf(job))`
+   * z `lib/job-team` (`lead`, `more`). Propozycja automatu to jeszcze nie
+   * praca, więc tu nie wchodzi; brak osoby = „Bez rekrutera”.
+   */
+  recruiterLead?: string | null;
+  recruiterMore?: number | null;
   /**
    * Delivery Lead rekrutacji (`jobs.delivery_lead_id`, M03-B03). Do 09.2026
    * nie było go nigdzie poza oknem edycji — nagłówek pokazywał tylko
-   * właściciela. Brak DL nie wychodzi (w odróżnieniu od właściciela to nie
-   * blokuje alertów), więc segment jest tylko wtedy, gdy znamy nazwisko.
+   * rekrutera. Brak DL nie wychodzi (w odróżnieniu od rekrutera nie jest
+   * sprawą do załatwienia), więc segment jest tylko wtedy, gdy znamy nazwisko.
    */
   deliveryLeadName?: string | null;
   /** Krok 07 — hiring manager jest tam decydentem, nie ciekawostką. */
@@ -117,7 +124,8 @@ export function buildJobHeaderSubtitle({
   salaryMax,
   deadline,
   deadlineTime,
-  ownerName,
+  recruiterLead,
+  recruiterMore,
   deliveryLeadName,
   hiringManagerName,
   hired,
@@ -142,13 +150,19 @@ export function buildJobHeaderSubtitle({
   const dueTime = formatDeadlineTime(deadlineTime);
   if (due) segments.push(dueTime ? `deadline ${due}, ${dueTime}` : `deadline ${due}`);
 
-  const owner = shortenPersonName(ownerName);
-  segments.push(owner ?? "właściciel: nieprzypisany");
+  // `shortenPersonName` jest idempotentne („Marta K.” zostaje „Marta K.”),
+  // więc wołający może podać i pełne nazwisko, i `lead` z `recruitersSummary`.
+  const recruiter = shortenPersonName(recruiterLead);
+  const more =
+    typeof recruiterMore === "number" && recruiterMore > 0
+      ? ` +${recruiterMore}`
+      : "";
+  segments.push(recruiter ? `Rekruter: ${recruiter}${more}` : "Bez rekrutera");
 
   const deliveryLead = shortenPersonName(deliveryLeadName);
   if (deliveryLead) segments.push(`DL: ${deliveryLead}`);
 
-  // Hiring manager idzie PEŁNYM nazwiskiem, w odróżnieniu od właściciela:
+  // Hiring manager idzie PEŁNYM nazwiskiem, w odróżnieniu od rekrutera:
   // to osoba po stronie klienta, o której rozmawia się z klientem — inicjał
   // zmuszałby do sprawdzania, kto to, zanim się o niej napisze.
   const manager = (hiringManagerName ?? "").trim();

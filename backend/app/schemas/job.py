@@ -19,7 +19,9 @@ from app.models.job import (
     WorkMode,
 )
 from app.schemas.candidate import _normalize_skill_list
+from app.schemas.job_team import JobRecruiterOut
 from app.schemas.matching_requirements import MatchingRequirements
+from app.services.job_priority import level_of
 
 
 class JobCreate(BaseModel):
@@ -237,7 +239,7 @@ class UserBrief(BaseModel):
 
 class JobCollaboratorBrief(UserBrief):
     """Współpracownik rekrutacji: ``manual`` (dodany ręcznie) albo ``auto_cc``
-    (cała kategoria kompetencji). Do „Kto pracuje” liczą się tylko ręczni."""
+    (cała kategoria kompetencji). „Rekruterem” rekrutacji są tylko ręczni."""
 
     source: str = "manual"
 
@@ -324,6 +326,11 @@ class JobResponse(BaseModel):
     # owner badge. Both are ``None``/empty when the job is unassigned.
     primary_owner: Optional[UserBrief] = None
     collaborators: list[JobCollaboratorBrief] = []
+    # Rola „Rekruter” (02.10.2026): osoby, które pracują nad rekrutacją —
+    # prowadzący, aktywne przypisania i ręcznie dopisani współpracownicy —
+    # plus propozycje automatu z ``proposed=True`` (`services/job_team`).
+    # Wypełniają lista i ``GET /api/jobs/{id}``; inne odpowiedzi niosą pustą.
+    recruiters: list[JobRecruiterOut] = []
     # Delivery Lead rozwinięty do ``UserBrief`` — wypełnia tylko lista
     # (``GET /api/jobs``), żeby kafelek pokazał „DL: …” obok prowadzącego
     # (zgłoszenie 30.09.2026: DL widziała samo „Nieprzypisany”).
@@ -342,10 +349,38 @@ class JobResponse(BaseModel):
     # Ustawiane tylko przez `GET /api/jobs/{id}`.
     can_edit: Optional[bool] = None
     can_manage: Optional[bool] = None
+    # Czy bieżący użytkownik przydziela i zdejmuje rekruterów (bramka
+    # `/owner`: admin, Delivery Lead, Head of Recruitment) i czy ustawia
+    # priorytet (te role + TAC). Head of Recruitment ma oba bez `can_manage`.
+    # Ustawiane tylko przez `GET /api/jobs/{id}`.
+    can_staff: Optional[bool] = None
+    can_set_priority: Optional[bool] = None
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @computed_field
+    @property
+    def priority_level(self) -> str:
+        """Priorytet w trzech poziomach: ``p1`` · ``p2`` · ``accepting``.
+
+        Ekrany i filtry mówią poziomami, kolumna zostaje przy czterech
+        wartościach enuma (`services/job_priority`). Pole wyliczane, żeby każda
+        odpowiedź (lista, szczegóły, PATCH) niosła je tą samą regułą.
+        """
+        return level_of(self.priority)
+
+    @computed_field
+    @property
+    def opened_effective_at(self) -> datetime:
+        """Data otwarcia do pokazania: ``opened_at``, a bez niej ``created_at``.
+
+        ``opened_at`` stempluje tylko import Traffita — rekrutacja założona
+        w NEXUSIE ma je puste. Filtr ``opened_from``/``opened_to`` listy liczy
+        tą samą wartością.
+        """
+        return self.opened_at or self.created_at
 
     @computed_field
     @property

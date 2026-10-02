@@ -2651,9 +2651,9 @@ async def my_next_steps(
     ).all()
     truncated = len(jobs) > MY_NEXT_STEPS_JOB_LIMIT
     jobs = jobs[:MY_NEXT_STEPS_JOB_LIMIT]
-    # Żywe przypisanie z przydziału to „moja” rekrutacja (R9-N15-2), ale
-    # bramka tablicy (`is_member_of_job`) go nie zna — dla nich decyduje
-    # zakres w SQL wyżej.
+    # Aktywne przypisanie z przydziału to „moja” rekrutacja (R9-N15-2) — dla
+    # nich decyduje zakres w SQL wyżej. Od 02.10.2026 zna je też bramka
+    # tablicy (`is_member_of_job`); ten zbiór oszczędza jej zapytań.
     assigned_job_ids = (
         set(await db.scalars(_live_work_assignment_job_ids([current_user.id])))
         if user_can_access_candidate_domain(current_user)
@@ -2662,8 +2662,8 @@ async def my_next_steps(
     out: list[MyNextStepsJob] = []
     for job in jobs:
         try:
-            # `jobs_mine_clause` keeps collaborators removed from the team;
-            # the board read guard is the one that decides. Widok OSOBISTY:
+            # The board read guard is the one that decides (`jobs_mine_clause`
+            # is a list scope, not an access rule). Widok OSOBISTY:
             # od 23.09.2026 tablicę każdej rekrutacji czyta każdy, więc
             # przypisanie liczymy jawnie (`oversight_bypass=False`).
             if job.id not in assigned_job_ids:

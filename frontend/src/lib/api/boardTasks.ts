@@ -12,7 +12,9 @@ import { useQuery } from "@tanstack/react-query";
 
 import api from "@/lib/api";
 import type { FollowupRow } from "@/lib/api/candidateFollowups";
+import type { RecruiterRole } from "@/lib/job-team";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
+import type { PriorityLevel } from "@/lib/request-priority";
 import { warsawToday } from "@/lib/warsaw-date";
 
 export type BoardTaskKind = "cpro_to_send" | "cpro_sent" | "dl_review";
@@ -90,6 +92,43 @@ export function prepAttentionLink(row: Pick<PrepAttentionRow, "candidate_id" | "
   return `/calendar?cycle=${row.candidate_id}-${row.job_id}`;
 }
 
+/** Jak osoba pasuje do kategorii requestu: 1. priorytet, 2. priorytet, spoza kategorii. */
+export type AllocationFit = "first" | "second" | "other";
+
+/**
+ * Propozycja automatu przydziału czekająca na decyzję (02.10.2026). Wiersze
+ * dostaje wyłącznie osoba, która o nich decyduje (admin, Head of Recruitment);
+ * decyzja idzie przez `decideProposal` / `acceptProposals`
+ * z `lib/api/requestAllocation`.
+ */
+export interface AllocationProposalRow {
+  job_id: number;
+  title: string;
+  client_name: string | null;
+  category_id: number | null;
+  category_name: string | null;
+  category_slug: string | null;
+  delivery_lead_name: string | null;
+  priority_level: PriorityLevel;
+  /** Termin requestu (`RRRR-MM-DD`). */
+  deadline: string | null;
+  /** Ile osób z tego requestu dotarło już do klienta. */
+  sent: number;
+  /** Proponowana osoba. */
+  user_id: number;
+  user_name: string;
+  role: RecruiterRole;
+  fit: AllocationFit;
+  /** Ile requestów „Szukamy” bez championa ta osoba ma teraz w pracy. */
+  load: number;
+  /** Do kiedy osoba jest dziś na urlopie (`RRRR-MM-DD`); `null` = pracuje,
+   *  a przy `allocation_leave_known: false` — nie wiadomo. */
+  leave_until: string | null;
+  /** Pasujący w bazie z nocnego przeglądu; `null` = przeglądu nie było. */
+  base_matches: number | null;
+  proposed_at: string;
+}
+
 export interface BoardTasksResponse {
   cpro_to_send: BoardTaskRow[];
   cpro_sent: BoardTaskRow[];
@@ -112,6 +151,13 @@ export interface BoardTasksResponse {
   /** Osobę od Cpro ustawia admin albo Delivery Lead Nordei (25.09.2026) —
    *  przełącznik stoi także wtedy, gdy sekcja Cpro jest pusta. */
   can_set_cpro_sender?: boolean;
+  /** 02.10.2026: propozycje automatu przydziału do akceptacji. Opcjonalne
+   *  w typie — starszy backend ich nie oddaje (brak = pusta lista). */
+  allocation_proposals?: AllocationProposalRow[];
+  /** Czy pytający rozstrzyga propozycje (admin, Head of Recruitment). */
+  can_decide_proposals?: boolean;
+  /** Czy urlopy z Compassa są świeże; bez tego brak urlopu znaczy „nie wiadomo”. */
+  allocation_leave_known?: boolean;
 }
 
 export const BOARD_TASKS_QUERY_KEY = ["board-tasks"] as const;

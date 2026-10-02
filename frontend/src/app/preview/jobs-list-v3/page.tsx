@@ -8,9 +8,15 @@
  *
  * Klucze listy i liczników pochodzą z TYCH SAMYCH funkcji co w komponencie
  * (`jobsListQueryKey`, `jobsQuickCountsQueryKey`) — zasiew nie może się z nim
- * rozjechać. Zasiane są trzy zakresy: domyślne „Moje" (sort „Wymaga uwagi"),
- * „Otwarte" i „Wszystkie" (sort „Od najnowszej"), więc przełącznik zakresu
- * działa.
+ * rozjechać. Zasiane są cztery zakresy: domyślne „Moje" (sort „Wymaga uwagi"),
+ * „Moja kategoria", „Otwarte" i „Wszystkie" (sort „Od najnowszej"), więc
+ * przełącznik zakresu działa.
+ *
+ * Wiersze pokazują kolumnę „Rekruter” w każdym stanie (jedna osoba, dwie
+ * z „+1”, sama propozycja automatu, nikt) oraz priorytety P1 i „Przyjmujemy”.
+ * Po lewej stoi szyna „Otwarte karty” — ta sama co w `app/jobs/layout.tsx`,
+ * tylko z fikcyjnymi kartami podanymi wprost (prawdziwa czyta store zapisywany
+ * w `localStorage`, którego harness nie może nadpisać oglądającemu).
  *
  * Bezpiecznik sieci: dok „Podgląd" i rozwijane filtry mają własne zapytania,
  * których tu nie zasiewamy. Na czas życia harnessu interceptor odrzuca KAŻDE
@@ -25,12 +31,22 @@ import { AxiosError } from "axios";
 import api from "@/lib/api";
 import { ToastProvider } from "@/components/Toast";
 import {
+  JOBS_LIST_RAIL_GAP_CLASS,
+  JobTabsRailView,
+} from "@/components/v2/jobs/JobTabsRail";
+import {
   JobsListV2,
   jobsListQueryKey,
   jobsQuickCountsQueryKey,
   type JobsListQueryState,
 } from "@/components/v2/pages/JobsListV2";
+import {
+  OPEN_TABS_RAIL_CLASS,
+  OpenTabsRailFrame,
+} from "@/components/v2/shell/OpenTabsRail";
+import type { JobRecruiter } from "@/lib/job-team";
 import { useAuthStore } from "@/store/auth";
+import type { Tab } from "@/store/tabs";
 
 const column = (
   stage: string,
@@ -67,6 +83,21 @@ const inDays = (days: number) => {
   return d.toISOString().slice(0, 10);
 };
 
+/** Osoba w roli „Rekruter” — kształt z `GET /api/jobs` (`recruiters[]`). */
+const recruiter = (
+  user_id: number,
+  name: string,
+  extra: Partial<JobRecruiter> = {},
+): JobRecruiter => ({
+  user_id,
+  name,
+  role: "recruiter",
+  via: "owner",
+  proposed: false,
+  assigned_by_name: null,
+  ...extra,
+});
+
 const MINE = [
   {
     id: 901,
@@ -89,13 +120,15 @@ const MINE = [
     opened_at: inDays(-14),
     status: "published",
     tac_id: 3,
-    primary_owner: { name: "Marta Kowalska" },
-    // Kolumna „Prowadzi”: „+N” ręcznych współpracowników (auto_cc się nie liczy).
-    collaborators: [
-      { id: 71, name: "Anna Współpracowniczka", source: "manual" },
-      { id: 72, name: "Piotr Sourcer", source: "manual" },
-      { id: 73, name: "Cała Kategoria", source: "auto_cc" },
+    // Kolumna „Rekruter”: dwie osoby pracują → pierwsza i „+1”.
+    recruiters: [
+      recruiter(41, "Marta Kowalska"),
+      recruiter(71, "Anna Współpracowniczka", { via: "collaborator" }),
     ],
+    delivery_lead_user: { id: 9, name: "Ewa Przykładowa" },
+    priority: "urgent",
+    priority_level: "p1",
+    opened_effective_at: inDays(-14),
     deadline: inDays(5),
     created_at: inDays(-12),
     headcount: 2,
@@ -127,7 +160,11 @@ const MINE = [
     status: "published",
     tac_id: null,
     needs_sourcing: true,
-    primary_owner: { name: "Marta Kowalska" },
+    recruiters: [recruiter(41, "Marta Kowalska")],
+    delivery_lead_user: { id: 9, name: "Ewa Przykładowa" },
+    priority: "low",
+    priority_level: "accepting",
+    opened_effective_at: inDays(-30),
     deadline: inDays(-2),
     created_at: inDays(-30),
     headcount: 1,
@@ -150,8 +187,14 @@ const MINE = [
     opened_at: inDays(-3),
     status: "published",
     tac_id: 3,
-    primary_owner: null,
+    // Sama propozycja automatu — to jeszcze nie praca („Bez rekrutera” w filtrze).
+    recruiters: [
+      recruiter(72, "Piotr Sourcer", { role: "sourcer", via: "assignment", proposed: true }),
+    ],
     delivery_lead_user: { id: 9, name: "Ewa Przykładowa" },
+    priority: "medium",
+    priority_level: "p2",
+    opened_effective_at: inDays(-3),
     deadline: null,
     created_at: inDays(-3),
     headcount: 1,
@@ -173,9 +216,15 @@ const OPEN = [
     reference_number: "REF-2026-0904",
     location: "Gdańsk",
     client_name: "Urząd Demo",
+    competence_category_id: 2,
     status: "draft",
     tac_id: 5,
-    primary_owner: { name: "Jan Nowak" },
+    // Nikt nie pracuje i nie ma propozycji → „Bez rekrutera”.
+    recruiters: [],
+    delivery_lead_user: { id: 10, name: "Jan Nowak" },
+    priority: "urgent",
+    priority_level: "p1",
+    opened_effective_at: inDays(-1),
     deadline: inDays(21),
     created_at: inDays(-1),
     headcount: 3,
@@ -195,7 +244,9 @@ const OPEN = [
     status: "published",
     tac_id: 5,
     can_open: false,
-    primary_owner: { name: "Jan Nowak" },
+    recruiters: [recruiter(10, "Jan Nowak")],
+    priority_level: "p2",
+    opened_effective_at: inDays(-60),
     deadline: inDays(40),
     created_at: inDays(-60),
     headcount: 1,
@@ -218,7 +269,9 @@ const ALL = [
     client_name: "Bank Przykładowy",
     status: "closed",
     tac_id: 5,
-    primary_owner: { name: "Jan Nowak" },
+    recruiters: [recruiter(10, "Jan Nowak")],
+    priority_level: "p2",
+    opened_effective_at: inDays(-400),
     deadline: inDays(-200),
     created_at: inDays(-400),
     headcount: 1,
@@ -228,6 +281,20 @@ const ALL = [
     stage_columns: pipeline([0, 0, 0, 0, 0, 0, 0, 0, 1, 10]),
   },
 ];
+
+/** Zakres „Moja kategoria”: niezamknięte rekrutacje z kategorii oglądającego (Development). */
+const MY_CATEGORY = OPEN.filter((job) => job.competence_category_id === 2);
+
+/** Fikcyjne karty szyny „Otwarte karty” — rekrutacje z listy niżej. */
+const OPEN_TABS: Tab[] = [
+  { id: "job-901", type: "job", entityId: 901, title: "Senior Java Developer · Java, Kafka", url: "/jobs/901" },
+  { id: "job-902", type: "job", entityId: 902, title: "DevOps Engineer · Azure, Terraform", url: "/jobs/902" },
+  { id: "job-903", type: "job", entityId: 903, title: "Analityk biznesowy", url: "/jobs/903" },
+  { id: "job-904", type: "job", entityId: 904, title: "Tester automatyzujący", url: "/jobs/904" },
+];
+
+/** Własny klucz — „Pokaż” / „Ukryj” w harnessie nie zmienia preferencji z aplikacji. */
+const RAIL_STORAGE_KEY = "nexus.preview.jobTabsRail.collapsed";
 
 const BASE: Omit<JobsListQueryState, "mine" | "openOnly" | "sort"> = {
   search: "",
@@ -264,6 +331,10 @@ function seededClient(): QueryClient {
     page(MINE),
   );
   qc.setQueryData(
+    jobsListQueryKey({ ...BASE, mine: false, myCategory: true, openOnly: false, sort: "newest" }),
+    page(MY_CATEGORY),
+  );
+  qc.setQueryData(
     jobsListQueryKey({ ...BASE, mine: false, openOnly: true, sort: "newest" }),
     page(OPEN),
   );
@@ -274,6 +345,8 @@ function seededClient(): QueryClient {
   qc.setQueryData(jobsQuickCountsQueryKey(), {
     all: 4286,
     mine: MINE.length,
+    // Liczba = oglądający ma kategorię, więc przełącznik pokazuje „Moja kategoria”.
+    my_category: MY_CATEGORY.length,
     open: 318,
     needs_sourcing: 41,
     active_in_search: 27,
@@ -333,6 +406,7 @@ function seededClient(): QueryClient {
 export default function JobsListV3Preview() {
   const [ready, setReady] = useState(false);
   const [qc] = useState(seededClient);
+  const [tabs, setTabs] = useState(OPEN_TABS);
 
   useEffect(() => {
     const blocker = api.interceptors.request.use((config) =>
@@ -370,7 +444,25 @@ export default function JobsListV3Preview() {
     <ToastProvider>
       <QueryClientProvider client={qc}>
         <div className="min-h-dvh bg-background p-6">
-          <JobsListV2 />
+          {/* Układ jak w `app/jobs/layout.tsx`: szyna po lewej, lista obok. */}
+          <OpenTabsRailFrame
+            className={JOBS_LIST_RAIL_GAP_CLASS}
+            rail={
+              <JobTabsRailView
+                tabs={tabs}
+                currentId={null}
+                variant="list"
+                storageKey={RAIL_STORAGE_KEY}
+                // Klik w kartę nie nawiguje — harness nie ma stron rekrutacji.
+                onOpen={() => undefined}
+                onClose={(tab) => setTabs((prev) => prev.filter((t) => t.id !== tab.id))}
+                onCloseAll={() => setTabs([])}
+                className={OPEN_TABS_RAIL_CLASS}
+              />
+            }
+          >
+            <JobsListV2 />
+          </OpenTabsRailFrame>
         </div>
       </QueryClientProvider>
     </ToastProvider>

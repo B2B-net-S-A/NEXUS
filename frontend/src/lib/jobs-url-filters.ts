@@ -8,6 +8,11 @@
  */
 
 import { hasRole, type UserRole } from "@/store/auth";
+import {
+  PRIORITY_LEVELS,
+  isPriorityLevel,
+  type PriorityLevel,
+} from "@/lib/request-priority";
 import type { RequestStage } from "@/lib/request-stage";
 
 /**
@@ -28,13 +33,20 @@ export const RECRUITMENT_RUNNING_ROLES: readonly UserRole[] = [
 type ScopeUser = Parameters<typeof hasRole>[0];
 
 /**
- * Zakres listy: „Moje" (prowadzę albo współpracuję, bez zamkniętych),
- * „Otwarte" (wszystko poza zamkniętymi — backend `open_only`) albo
- * „Wszystkie" (cały rejestr).
+ * Zakres listy: „Moje" (jestem Rekruterem albo Delivery Leadem, bez
+ * zamkniętych), „Moja kategoria" (niezamknięte rekrutacje z mojej kategorii
+ * kompetencji — do wzięcia, nie moje; 02.10.2026), „Otwarte" (wszystko poza
+ * zamkniętymi — backend `open_only`) albo „Wszystkie" (cały rejestr).
  */
-export type JobScope = "mine" | "open" | "all";
+export type JobScope = "mine" | "category" | "open" | "all";
 
-export const JOB_SCOPE_VALUES: readonly JobScope[] = ["mine", "open", "all"];
+/** Kolejność przełącznika zakresu na ekranie. */
+export const JOB_SCOPE_VALUES: readonly JobScope[] = [
+  "mine",
+  "category",
+  "open",
+  "all",
+];
 
 /**
  * Domyślny zakres użytkownika. Semantyka `hasRole` — konto wielorolowe
@@ -47,16 +59,38 @@ export function defaultScopeForUser(user: ScopeUser): JobScope {
 
 /**
  * Jawny zakres z adresu (zawsze wygrywa z domyślnym roli):
- * `?mine=1` → „Moje", `?open=1` → „Otwarte", `?mine=0` → „Wszystkie"
- * (stare linki pulpitu `mine=0&status=published` znaczą to samo co dotąd),
- * brak → `null` = „obowiązuje domyślny roli". `mine=0&open=1` → „Otwarte":
- * `mine=0` mówiło dawniej tylko „nie moje", a `open=1` zawęża dalej.
+ * `?mine=1` → „Moje", `?mycat=1` → „Moja kategoria", `?open=1` → „Otwarte",
+ * `?mine=0` → „Wszystkie" (stare linki pulpitu `mine=0&status=published`
+ * znaczą to samo co dotąd), brak → `null` = „obowiązuje domyślny roli".
+ * `mine=0&open=1` → „Otwarte": `mine=0` mówiło dawniej tylko „nie moje",
+ * a `open=1` zawęża dalej. Przy kilku kluczach naraz wygrywa węższy zakres.
  */
 export function scopeOverrideFromUrl(params: URLSearchParams): JobScope | null {
   if (params.get("mine") === "1") return "mine";
+  if (params.get("mycat") === "1") return "category";
   if (params.get("open") === "1") return "open";
   if (params.get("mine") === "0") return "all";
   return null;
+}
+
+/**
+ * Czy zalogowana osoba ma kategorię kompetencji. Wiemy to z liczników listy
+ * (`quick-counts.my_category`): liczba = ma, `null` albo brak pola = nie ma,
+ * a dopóki liczniki nie przyszły — jeszcze nie wiadomo.
+ */
+export type CategoryScopeState = "available" | "unavailable" | "pending";
+
+/**
+ * Jawny wybór zakresu po uwzględnieniu kategorii osoby. „Moja kategoria"
+ * istnieje tylko dla osoby z kategorią — `?mycat=1` u kogoś bez kategorii
+ * (link od kolegi, zakładka sprzed zmiany składu kategorii) znaczy „bez
+ * wyboru", czyli zakres domyślny roli. Póki nie wiadomo, wybór zostaje.
+ */
+export function effectiveScopeOverride(
+  override: JobScope | null,
+  category: CategoryScopeState,
+): JobScope | null {
+  return override === "category" && category === "unavailable" ? null : override;
 }
 
 /** Zakres faktycznie obowiązujący: jawny wybór albo domyślny roli. */
@@ -71,13 +105,19 @@ export function resolveScope(
  * Parametry zakresu dla `GET /api/jobs` (i klucza zapytania). „Moje" to moje
  * NIEZAMKNIĘTE (decyzja Artura 26.09.2026) — zamknięte, w tym archiwum
  * z Traffita, widać wyłącznie we „Wszystkie"; liczniki `quick-counts`
- * zakresu „Moje" liczą tym samym warunkiem.
+ * zakresu „Moje" liczą tym samym warunkiem. „Moja kategoria" idzie SAMA
+ * (`my_category=true`): serwer sam ogranicza ją do niezamkniętych.
  */
 export function scopeQueryFlags(scope: JobScope): {
   mine: boolean;
+  myCategory: boolean;
   openOnly: boolean;
 } {
-  return { mine: scope === "mine", openOnly: scope !== "all" };
+  return {
+    mine: scope === "mine",
+    myCategory: scope === "category",
+    openOnly: scope === "mine" || scope === "open",
+  };
 }
 
 // ── Typ, termin, sortowanie (M03-B01) ─────────────────────────────────────
@@ -207,8 +247,8 @@ export type JobSortFilterValue = (typeof JOB_SORT_VALUES)[number];
 
 /**
  * Domyślne sortowanie zależy od zakresu: w „Moich" pierwsze są rekrutacje,
- * w których ruch należy do rekrutera (`sort=attention`), w „Otwartych"
- * i „Wszystkich" — najnowsze, jak dotąd. Wartość domyślna dla danego zakresu
+ * w których ruch należy do rekrutera (`sort=attention`), w „Mojej kategorii",
+ * „Otwartych" i „Wszystkich" — najnowsze. Wartość domyślna dla danego zakresu
  * NIE trafia do adresu, więc `/jobs` i `/jobs?mine=0` zostają czyste.
  */
 export function defaultSortForScope(scope: JobScope): JobSortFilterValue {
@@ -290,6 +330,84 @@ export function initialSentFromUrl(params: URLSearchParams): JobSentFilterValue 
   return pickFromUrl(params, "sent", JOB_SENT_VALUES, "any");
 }
 
+// ── Priorytet i data otwarcia (02.10.2026) ────────────────────────────────
+
+/** Poziomy w kolejności ekranu (P1 · P2 · Przyjmujemy), bez powtórzeń. */
+function orderedPriorityLevels(values: readonly string[]): PriorityLevel[] {
+  return PRIORITY_LEVELS.filter((level) => values.includes(level));
+}
+
+/**
+ * `?prio=p1,accepting` → `["p1", "accepting"]`. Klucz to `prio`, NIE
+ * `priority`: `priority` należał do filtra Priority Work sprzed 25.09.2026
+ * i jest zdejmowany z adresu (`MANAGED_KEYS`). Nieznana wartość odpada.
+ */
+export function initialPriorityLevelsFromUrl(
+  params: URLSearchParams,
+): PriorityLevel[] {
+  const raw = params
+    .getAll("prio")
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(isPriorityLevel);
+  return orderedPriorityLevels(raw);
+}
+
+/** Zakres „Data otwarcia" (od–do, obie daty włącznie); puste pole = brak granicy. */
+export interface JobOpenedRange {
+  from?: string;
+  to?: string;
+}
+
+/** Granice, które przyjmuje serwer (`FILTER_DATE_MIN` / `FILTER_DATE_MAX`). */
+const FILTER_DATE_MIN = "1900-01-01";
+const FILTER_DATE_MAX = "2100-12-31";
+
+/**
+ * Data, którą można wysłać jako granicę zakresu: prawdziwy dzień kalendarza
+ * z lat 1900–2100. Pole daty podczas wpisywania roku oddaje wartości pośrednie
+ * („0002-10-01", „0020-10-01"…), a filtry tej listy działają od razu — bez
+ * tej bramki każda cyfra roku kończyłaby się odpowiedzią 422.
+ */
+export function isFilterDate(value: string | null | undefined): value is string {
+  if (!value || !ISO_DATE.test(value)) return false;
+  if (value < FILTER_DATE_MIN || value > FILTER_DATE_MAX) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+/** `?op_from=2026-09-01&op_to=2026-09-30` → zakres (tylko poprawne daty). */
+export function initialOpenedRangeFromUrl(params: URLSearchParams): JobOpenedRange {
+  const from = params.get("op_from");
+  const to = params.get("op_to");
+  return {
+    from: isFilterDate(from) ? from : undefined,
+    to: isFilterDate(to) ? to : undefined,
+  };
+}
+
+/** Data „od" późniejsza niż „do" — taki zakres nie zawęża niczego. */
+export function openedRangeReversed(range: JobOpenedRange): boolean {
+  return isFilterDate(range.from) && isFilterDate(range.to) && range.from > range.to;
+}
+
+/**
+ * „Data otwarcia" → `opened_from` / `opened_to` listy. Doby liczy SERWER
+ * w kalendarzu firmy (Europe/Warsaw), więc idą same daty. Odwrócony zakres
+ * i niepełna data nie są wysyłane wcale: serwer odpowiada na nie 422, a to
+ * tylko pomyłka w trakcie wpisywania drugiej daty — pasek prosi o poprawkę.
+ */
+export function openedQueryParams(range: JobOpenedRange = {}): {
+  opened_from?: string;
+  opened_to?: string;
+} {
+  if (openedRangeReversed(range)) return {};
+  const out: { opened_from?: string; opened_to?: string } = {};
+  if (isFilterDate(range.from)) out.opened_from = range.from;
+  if (isFilterDate(range.to)) out.opened_to = range.to;
+  return out;
+}
+
 export interface JobsListUrlState {
   scope: JobScope;
   /** Domyślny zakres ROLI (`defaultScopeForUser`) — jego nie zapisujemy. */
@@ -304,21 +422,27 @@ export interface JobsListUrlState {
   clientIds?: readonly number[];
   ccIds?: readonly number[];
   deliveryLeadIds?: readonly number[];
-  /** „Kto pracuje” — id osób (`who`). */
+  /** „Rekruter” — id osób (`who`). */
   workedBy?: readonly number[];
-  /** „Nikt nie pracuje” (`nobody=1`). */
+  /** „Bez rekrutera” (`nobody=1`). */
   nobodyWorking?: boolean;
   sent?: JobSentFilterValue;
+  /** „Priorytet” (`prio=p1,accepting`). */
+  priorityLevels?: readonly PriorityLevel[];
+  /** „Data otwarcia” (`op_from` / `op_to`). */
+  openedRange?: JobOpenedRange;
 }
 
 const SCOPE_URL: Record<JobScope, [key: string, value: string]> = {
   mine: ["mine", "1"],
+  category: ["mycat", "1"],
   open: ["open", "1"],
   all: ["mine", "0"],
 };
 
 const MANAGED_KEYS = [
   "mine",
+  "mycat",
   "open",
   "deadline",
   "dl_from",
@@ -332,10 +456,14 @@ const MANAGED_KEYS = [
   "who",
   "nobody",
   "sent",
+  "prio",
+  "op_from",
+  "op_to",
   // Klucze kolumny filtrów sprzed 25.09.2026 (typ, status, osoba
   // odpowiedzialna, „Szybkie”, Priority Work, dwa rzędy statusu). Lista ich
   // już nie czyta — zapisane zakładki przeglądarki działają, a pierwszy zapis
-  // filtrów zdejmuje je z adresu.
+  // filtrów zdejmuje je z adresu. `priority` to dawny filtr Priority Work —
+  // priorytet rekrutacji ma własny klucz `prio`.
   "type",
   "status",
   "responsible",
@@ -382,5 +510,10 @@ export function encodeJobsListUrl(
   for (const id of state.workedBy ?? []) next.append("who", String(id));
   if (state.nobodyWorking) next.set("nobody", "1");
   if (state.sent && state.sent !== "any") next.set("sent", state.sent);
+  const levels = orderedPriorityLevels(state.priorityLevels ?? []);
+  if (levels.length > 0) next.set("prio", levels.join(","));
+  const { from: openedFrom, to: openedTo } = state.openedRange ?? {};
+  if (isFilterDate(openedFrom)) next.set("op_from", openedFrom);
+  if (isFilterDate(openedTo)) next.set("op_to", openedTo);
   return next.toString();
 }

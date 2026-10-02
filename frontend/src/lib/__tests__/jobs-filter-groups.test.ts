@@ -4,6 +4,8 @@ import {
   deadlineSummary,
   jobsActiveFilterCount,
   namesSummary,
+  openedSummary,
+  prioritySummary,
   whoSummary,
 } from "@/lib/jobs-filter-groups";
 
@@ -35,12 +37,36 @@ describe("namesSummary", () => {
   });
 });
 
-describe("whoSummary", () => {
-  it("zalogowana osoba to „ja”, request bez osoby to „nikt”", () => {
+describe("whoSummary — filtr „Rekruter”", () => {
+  it("zalogowana osoba to „ja”, rekrutacja bez Rekrutera to „bez rekrutera”", () => {
     expect(whoSummary([1], false, 1, nameOf)).toBe("ja");
-    expect(whoSummary([1, 2], true, 1, nameOf)).toBe("ja, Piotr Mazur, nikt");
-    expect(whoSummary([], true, 1, nameOf)).toBe("nikt");
+    expect(whoSummary([1, 2], true, 1, nameOf)).toBe("ja, Piotr Mazur, bez rekrutera");
+    expect(whoSummary([], true, 1, nameOf)).toBe("bez rekrutera");
     expect(whoSummary([], false, 1, nameOf)).toBeNull();
+  });
+});
+
+describe("prioritySummary", () => {
+  it("krótkie nazwy w kolejności ekranu, brak wyboru to brak podsumowania", () => {
+    expect(prioritySummary([])).toBeNull();
+    expect(prioritySummary(["p1"])).toBe("P1");
+    expect(prioritySummary(["accepting", "p1"])).toBe("P1, Przyjmujemy");
+    expect(prioritySummary(["p2", "accepting", "p1"])).toBe("P1, P2, Przyjmujemy");
+  });
+});
+
+describe("openedSummary — „Data otwarcia”", () => {
+  it("pokazuje daty, które naprawdę filtrują", () => {
+    expect(openedSummary({})).toBeNull();
+    expect(openedSummary({ from: "2026-09-01", to: "2026-09-30" })).toBe("01.09–30.09");
+    expect(openedSummary({ from: "2026-09-01" })).toBe("od 01.09");
+    expect(openedSummary({ to: "2026-09-30" })).toBe("do 30.09");
+  });
+  it("odwrócony zakres i niedokończona data nie udają ustawionego filtra", () => {
+    expect(openedSummary({ from: "2026-09-30", to: "2026-09-01" })).toBe("popraw zakres");
+    expect(openedSummary({ from: "0002-09-01" })).toBe("niepełna data");
+    // Druga, poprawna granica filtruje mimo niedokończonej pierwszej.
+    expect(openedSummary({ from: "0002-09-01", to: "2026-09-30" })).toBe("do 30.09");
   });
 });
 
@@ -54,6 +80,8 @@ describe("jobsActiveFilterCount", () => {
     ccIds: [],
     deadline: "any" as const,
     sent: "any" as const,
+    priorityLevels: [],
+    openedRange: {},
   };
   it("pusty pasek to zero", () => {
     expect(jobsActiveFilterCount(empty)).toBe(0);
@@ -69,5 +97,16 @@ describe("jobsActiveFilterCount", () => {
         deadline: "overdue",
       }),
     ).toBe(4);
+  });
+  it("priorytet i data otwarcia liczą się po razie", () => {
+    expect(
+      jobsActiveFilterCount({
+        ...empty,
+        priorityLevels: ["p1", "accepting"],
+        openedRange: { from: "2026-09-01", to: "2026-09-30" },
+      }),
+    ).toBe(2);
+    // Sama data „od” (także odwrócony zakres) to ustawiony filtr — da się go wyczyścić.
+    expect(jobsActiveFilterCount({ ...empty, openedRange: { from: "2026-09-01" } })).toBe(1);
   });
 });

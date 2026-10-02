@@ -19,7 +19,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
-  AlertTriangle,
   Briefcase,
   Building2,
   ChevronRight,
@@ -62,42 +61,52 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { OwnerBadge } from "@/components/v2/jobs/OwnerBadge";
-import type { UserBrief } from "@/components/v2/jobs/ownership-types";
-import {
-  collaboratorsSummary,
-  type JobCollaboratorEntry,
-} from "@/lib/job-collaborators";
 import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import {
+  JobCategoryShortBadge,
   JobClientNames,
   JobDeadlineCell,
+  JobRecruiterCell,
+  NoRecruiterPill,
   RequestStageBadge,
   SimilarJobsCell,
   JobStageCounts,
   JobStageCountsHeader,
   STAGE_COUNTS_LEGEND,
+  jobOpenedDate,
+  type JobListRowFields,
 } from "@/components/v2/jobs/JobListCells";
+import { RecruiterChips } from "@/components/v2/jobs/RecruiterChips";
+import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip";
+import { recruitersOf } from "@/lib/job-team";
+import { priorityLevelOf, type PriorityLevel } from "@/lib/request-priority";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
 import {
+  JOB_SCOPE_VALUES,
   deadlineQueryParams,
   defaultScopeForUser,
   defaultSortForScope,
+  effectiveScopeOverride,
   encodeJobsListUrl,
   initialDeadlineFromUrl,
   initialDeadlineRangeFromUrl,
   initialFlagFromUrl,
   initialIdsFromUrl,
+  initialOpenedRangeFromUrl,
+  initialPriorityLevelsFromUrl,
   initialSearchFromUrl,
   initialSentFromUrl,
+  openedQueryParams,
   resolveScope,
   scopeOverrideFromUrl,
   scopeQueryFlags,
   sentQueryParams,
   sortOverrideFromUrl,
+  type CategoryScopeState,
   type JobDeadlinePreset,
   type JobDeadlineRange,
+  type JobOpenedRange,
   type JobScope,
   type JobSentFilterValue,
   type JobSortFilterValue,
@@ -110,7 +119,6 @@ import {
   LIST_PAGE_MAX_WIDTH,
   WIDE_HIDDEN,
   WIDE_ONLY_CELL,
-  WIDE_ONLY_INLINE,
   WIDE_TABLE_CONTAINER,
 } from "@/lib/wide-table";
 import {
@@ -144,11 +152,17 @@ const STATUS_LABEL: Record<string, string> = {
 
 // Bez `title` na przyciskach: w Chrome `title` potrafi przejąć nazwę dostępną
 // przycisku, a nazwa ma zostać „Otwarte 318". Opis idzie w `aria-describedby`.
-const SCOPE_OPTIONS: { value: JobScope; label: string; hint: string }[] = [
-  { value: "mine", label: "Moje", hint: "Prowadzę albo współpracuję." },
-  { value: "open", label: "Otwarte", hint: "Wszystkie poza zamkniętymi (otwarte i szkice)." },
-  { value: "all", label: "Wszystkie", hint: "Cały rejestr, także zamknięte." },
-];
+const SCOPE_META: Record<JobScope, { label: string; hint: string }> = {
+  mine: { label: "Moje", hint: "Jestem Rekruterem albo Delivery Leadem." },
+  // Tylko widok: rekrutacje z mojej kategorii kompetencji, które mogę wziąć.
+  // Opcja jest na przełączniku wyłącznie u osoby, która ma kategorię.
+  category: {
+    label: "Moja kategoria",
+    hint: "Niezamknięte rekrutacje z mojej kategorii kompetencji — do wzięcia, niekoniecznie moje.",
+  },
+  open: { label: "Otwarte", hint: "Wszystkie poza zamkniętymi (otwarte i szkice)." },
+  all: { label: "Wszystkie", hint: "Cały rejestr, także zamknięte." },
+};
 
 type JobSortValue = JobSortFilterValue;
 
@@ -221,6 +235,8 @@ const EMPTY_FILTERS: JobsFilterBarValue = {
   deadline: "any",
   deadlineRange: {},
   sent: "any",
+  priorityLevels: [],
+  openedRange: {},
 };
 
 /**
@@ -232,6 +248,8 @@ const EMPTY_FILTERS: JobsFilterBarValue = {
 export interface JobsListQueryState {
   search: string;
   mine: boolean;
+  /** Zakres „Moja kategoria” (`my_category=true`) — idzie bez `mine` i `open_only`. */
+  myCategory?: boolean;
   openOnly: boolean;
   sort: JobSortFilterValue;
   page: number;
@@ -241,15 +259,19 @@ export interface JobsListQueryState {
   ccIds: readonly number[];
   /** Delivery Lead rekrutacji (`delivery_lead_id`, LUB). */
   deliveryLeadIds: readonly number[];
-  /** „Kto pracuje” — id osób (`worked_by`, LUB). */
+  /** „Rekruter” — id osób (`worked_by`, LUB). */
   workedBy: readonly number[];
-  /** „Nikt nie pracuje” (`nobody_working=true`). */
+  /** „Bez rekrutera” (`nobody_working=true`). */
   nobodyWorking: boolean;
   deadline: JobDeadlinePreset;
   /** Granice presetu terminu `range` — brak = bez zakresu. */
   deadlineRange?: JobDeadlineRange;
   /** „Wysłanych do klienta" — brak = dowolnie. */
   sent?: JobSentFilterValue;
+  /** „Priorytet” (`priority_level`, LUB) — pusty = dowolny. */
+  priorityLevels?: readonly PriorityLevel[];
+  /** „Data otwarcia” (`opened_from` / `opened_to`). */
+  openedRange?: JobOpenedRange;
 }
 
 export function jobsListQueryKey(state: JobsListQueryState): unknown[] {
@@ -271,7 +293,17 @@ export function jobsListQueryKey(state: JobsListQueryState): unknown[] {
       ? [state.deadlineRange?.from ?? "", state.deadlineRange?.to ?? ""]
       : [],
     state.sent ?? "any",
+    state.myCategory ? 1 : 0,
+    state.priorityLevels ?? [],
+    // Daty, które NAPRAWDĘ idą do serwera: odwrócony albo niedokończony
+    // zakres nie zmienia klucza, więc lista nie migocze w trakcie wpisywania.
+    openedKey(state.openedRange),
   ];
+}
+
+function openedKey(range: JobOpenedRange | undefined): string[] {
+  const sent = openedQueryParams(range);
+  return [sent.opened_from ?? "", sent.opened_to ?? ""];
 }
 
 /**
@@ -283,38 +315,25 @@ export function jobsQuickCountsQueryKey(): unknown[] {
 }
 
 /**
- * Zespół rekrutacji na kafelku: rekruter prowadzący, „+N” współpracowników
- * i Delivery Lead. Zgłoszenie 30.09.2026: DL, która założyła rekrutację, widziała
+ * Ludzie rekrutacji na kafelku: Rekruter (osoby, które nad nią pracują) i
+ * Delivery Lead. Zgłoszenie 30.09.2026: DL, która założyła rekrutację, widziała
  * na kafelku samo „Nieprzypisany” i czytała to jako „nie jestem przypisana” —
- * tymczasem brakowało wyłącznie rekrutera prowadzącego.
+ * tymczasem brakowało wyłącznie Rekrutera. Od 02.10.2026 te same nazwy co
+ * w tabeli: „Rekruter”, „Bez rekrutera”, propozycja automatu w przerywanej ramce.
  */
-function JobTileTeam({
-  job,
-}: {
-  job: {
-    primary_owner?: UserBrief | null;
-    delivery_lead_user?: { name?: string | null } | null;
-    collaborators?: readonly JobCollaboratorEntry[] | null;
-  };
-}) {
-  const team = collaboratorsSummary(job.collaborators);
+function JobTileTeam({ job }: { job: JobListRowFields }) {
   const dlName = job.delivery_lead_user?.name ?? null;
   return (
     <>
-      <OwnerBadge
-        user={job.primary_owner ?? null}
-        size="sm"
-        unassignedLabel="Brak rekrutera"
-      />
-      {team.count > 0 && (
-        <span
-          className="inline-flex h-6 items-center rounded-full bg-muted px-2 text-[11px] font-medium text-muted-foreground"
-          title={team.tooltip}
-        >
-          <span aria-hidden="true">+{team.count}</span>
-          <span className="sr-only">{team.tooltip}</span>
-        </span>
-      )}
+      <span className="inline-flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+        <span className="font-medium">Rekruter:</span>
+        <RecruiterChips
+          compact
+          size="sm"
+          people={recruitersOf(job)}
+          emptyLabel={<NoRecruiterPill />}
+        />
+      </span>
       {dlName && (
         <span
           className="inline-flex items-center gap-1 text-xs text-muted-foreground"
@@ -325,79 +344,6 @@ function JobTileTeam({
         </span>
       )}
     </>
-  );
-}
-
-/**
- * Właściciel prowadzący w wierszu listy (makieta: `Marta K.` / `Nieprzypisany`).
- *
- * Świadomie NIE `OwnerBadge`: ten sam komponent rysuje właściciela w kafelkach,
- * na pulpicie i w nagłówku rekrutacji, a tutaj potrzebne są dwie rzeczy, które
- * tam byłyby regresją — skrócone nazwisko (wiersz ma jedną linię na osobę)
- * i **ton ostrzegawczy przy braku** (na liście „nieprzypisany" jest sprawą do
- * załatwienia, a nie neutralnym faktem: nikt nie dostanie alertów deadline'u).
- */
-function JobOwnerCell({
-  user,
-  collaborators,
-}: {
-  user?: { name?: string | null } | null;
-  collaborators?: readonly JobCollaboratorEntry[] | null;
-}) {
-  const short = shortenPersonName(user?.name);
-  // „+N” = współpracownicy dopisani ręcznie (decyzja 29.09.2026); `auto_cc`
-  // (cała kategoria kompetencji) się nie liczy.
-  const team = collaboratorsSummary(collaborators);
-  // Wąska tabela: „+N” z nazwiskami w podpowiedzi. Szeroka (kolumna „Zespół”):
-  // skrócone nazwiska wprost — tam jest na nie miejsce.
-  const more =
-    team.count > 0 ? (
-      <>
-        <span
-          className={cn(
-            "shrink-0 rounded-full bg-muted px-1.5 text-[10px] font-medium text-muted-foreground",
-            WIDE_HIDDEN,
-          )}
-          title={team.tooltip}
-        >
-          <span aria-hidden="true">+{team.count}</span>
-          <span className="sr-only">{team.tooltip}</span>
-        </span>
-        <span
-          className={cn(WIDE_ONLY_INLINE, "max-w-[110px] truncate text-muted-foreground")}
-          title={team.tooltip}
-          data-testid="job-team-names"
-        >
-          {team.names.map((name) => shortenPersonName(name) ?? name).join(", ")}
-        </span>
-      </>
-    ) : null;
-  if (!short) {
-    return (
-      <span
-        className="inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium text-warning"
-        title="Rekrutacja nie ma właściciela prowadzącego — nikt nie dostanie alertów deadline'u"
-      >
-        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-        Nieprzypisany
-        {more}
-      </span>
-    );
-  }
-  return (
-    <span
-      className="inline-flex min-w-0 items-center gap-1.5 text-xs text-foreground"
-      title={user?.name ?? undefined}
-    >
-      <span
-        aria-hidden="true"
-        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground"
-      >
-        {initialsOf(user?.name)}
-      </span>
-      <span className="truncate">{short}</span>
-      {more}
-    </span>
   );
 }
 
@@ -423,13 +369,6 @@ function JobCategoryCell({ categoryId }: { categoryId?: number | null }) {
   );
 }
 
-function initialsOf(name: string | null | undefined): string {
-  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
 /** Compact table presentation of the jobs list (alternative to the tile grid). */
 function JobsTable({
   items,
@@ -451,7 +390,7 @@ function JobsTable({
   onSimilar: (id: number) => void;
 }) {
   return (
-    // Kolumny „Klient”, „Kategoria”, „Otwarta” i nazwiska zespołu pojawiają
+    // Kolumny „Klient”, „Kategoria”, „Otwarta” i nazwiska Rekruterów pojawiają
     // się, gdy tabela ma ≥ 1700 px (duży monitor) — poniżej zostają drobnym
     // drukiem pod tytułem, jak dotąd.
     <div className={WIDE_TABLE_CONTAINER}>
@@ -475,10 +414,10 @@ function JobsTable({
           </TableHead>
           <TableHead className={cn(WIDE_ONLY_CELL, "w-[100px]")}>Otwarta</TableHead>
           <TableHead className="w-[120px]">Termin</TableHead>
-          <TableHead className="w-[120px] @min-[1700px]:w-[220px]">
-            <span className={WIDE_HIDDEN}>Prowadzi</span>
-            <span className={WIDE_ONLY_INLINE}>Zespół</span>
-          </TableHead>
+          {/* „Rekruter” w obu układach (02.10.2026; dawniej „Prowadzi” /
+              „Zespół”). Delivery Lead stoi drobnym drukiem pod osobami —
+              bez własnej kolumny. */}
+          <TableHead className="w-[120px] @min-[1700px]:w-[220px]">Rekruter</TableHead>
           <TableHead className="w-[64px]" />
         </TableRow>
       </TableHeader>
@@ -519,6 +458,10 @@ function JobsTable({
               className={locked ? "opacity-60" : undefined}
             >
               <TableCell className="max-w-[360px] max-md:sticky max-md:left-0 max-md:z-10 max-md:w-[200px] max-md:max-w-[200px] max-md:border-r max-md:border-border/60 max-md:bg-card">
+                {/* Priorytet stoi przy tytule (P2 nie ma plakietki), bez
+                    osobnej kolumny. Sam tytuł niżej — bez zmian. */}
+                <div className="flex min-w-0 items-start gap-1.5">
+                <RequestPriorityChip level={priorityLevelOf(job)} className="mt-0.5 shrink-0" />
                 {/* `can_open === false` — ta sama reguła co kafelki: rekrutacja
                     jest w rejestrze, ale detal odpowie 403, więc tytuł nie
                     udaje linku (tabela do 09.2026 prowadziła prosto w ścianę). */}
@@ -543,7 +486,10 @@ function JobsTable({
                     {jobDisplayTitle(job)}
                   </Link>
                 )}
+                </div>
                 <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
+                  {/* Wąska tabela nie ma kolumny „Kategoria” — krótka plakietka. */}
+                  <JobCategoryShortBadge categoryId={job.competence_category_id} />
                   {job.client_name && (
                     <span
                       className={cn("inline-flex min-w-0 max-w-[220px] items-center gap-0.5", WIDE_HIDDEN)}
@@ -612,12 +558,14 @@ function JobsTable({
                 )}
               </TableCell>
               {/* Jak Insights: data otwarcia, a bez niej data dodania
-                  (`created_at` rekrutacji z Traffita to dzień importu). */}
+                  (`created_at` rekrutacji z Traffita to dzień importu). Serwer
+                  oddaje ją w `opened_effective_at` — tę samą, po której
+                  filtruje „Data otwarcia”. */}
               <TableCell
                 className={cn(WIDE_ONLY_CELL, "whitespace-nowrap text-xs tabular-nums text-muted-foreground")}
                 data-testid="job-opened-cell"
               >
-                {formatDate(job.opened_at ?? job.created_at)}
+                {formatDate(jobOpenedDate(job))}
               </TableCell>
               <TableCell
                 title={job.created_at ? `Dodano ${formatDate(job.created_at)}` : undefined}
@@ -625,10 +573,7 @@ function JobsTable({
                 <JobDeadlineCell deadline={job.deadline} deadlineTime={job.deadline_time} />
               </TableCell>
               <TableCell>
-                <JobOwnerCell
-                  user={job.primary_owner ?? null}
-                  collaborators={job.collaborators}
-                />
+                <JobRecruiterCell job={job} />
               </TableCell>
               <TableCell>
                 <div className="flex items-center justify-end gap-0.5">
@@ -698,15 +643,38 @@ export function JobsListV2() {
   // (rola znana dopiero po mount) bez gubienia jawnego `mine=0/1` z adresu.
   const authUser = useAuthStore((s) => s.user);
   const authHydrated = useAuthStore((s) => s.hydrated);
-  // Zakres: „Moje" | „Otwarte" | „Wszystkie" (lista v5). Role prowadzące
-  // startują w „Moich", nadzorujące (admin, HoR, Finanse, viewer) —
+
+  // Liczniki zakresu, pigułek stanu i trzech przełączników — JEDNO zapytanie
+  // (`/api/jobs/quick-counts`, marker parytetu „quick-counts”), niezależne od
+  // stronicowania i od pozostałych filtrów. Datę „Po terminie” liczy
+  // PRZEGLĄDARKA — ta sama, którą dostaje filtr terminu. Stoi przed zakresem,
+  // bo to z liczników wiadomo, czy osoba ma kategorię („Moja kategoria”).
+  const overdueTo = deadlineQueryParams("overdue").deadline_to;
+  const { data: quickCounts, isPending: quickCountsPending } = useQuery({
+    queryKey: jobsQuickCountsQueryKey(),
+    queryFn: () => jobsApi.quickCounts({ overdue_to: overdueTo }).then((r) => r.data),
+    staleTime: 60_000,
+  });
+  // Liczba = osoba ma kategorię kompetencji; `null` albo brak pola = nie ma.
+  const categoryCount =
+    typeof quickCounts?.my_category === "number" ? quickCounts.my_category : null;
+  const categoryState: CategoryScopeState =
+    categoryCount !== null ? "available" : quickCountsPending ? "pending" : "unavailable";
+
+  // Zakres: „Moje" | „Moja kategoria" | „Otwarte" | „Wszystkie". Role
+  // prowadzące startują w „Moich", nadzorujące (admin, HoR, Finanse, viewer) —
   // w „Otwartych", nie w całym rejestrze z tysiącami zamkniętych.
   const defaultScope = defaultScopeForUser(authUser);
-  const [scopeOverride, setScopeOverride] = useState<JobScope | null>(() =>
+  const [scopeChoice, setScopeChoice] = useState<JobScope | null>(() =>
     scopeOverrideFromUrl(searchParams),
   );
+  // `?mycat=1` u osoby bez kategorii = brak wyboru (zakres domyślny roli).
+  const scopeOverride = effectiveScopeOverride(scopeChoice, categoryState);
   const scope = resolveScope(scopeOverride, authUser);
-  const { mine, openOnly } = scopeQueryFlags(scope);
+  // Wejście z `?mycat=1`, zanim przyszły liczniki: jeszcze nie wiadomo, czy
+  // ten zakres w ogóle obowiązuje — lista czeka, zamiast pytać dwa razy.
+  const scopePending = scopeChoice === "category" && categoryState === "pending";
+  const { mine, myCategory, openOnly } = scopeQueryFlags(scope);
   const [stages, setStages] = useState<RequestStage[]>(() =>
     initialStagesFromUrl(searchParams),
   );
@@ -719,6 +687,8 @@ export function JobsListV2() {
     deadline: initialDeadlineFromUrl(searchParams),
     deadlineRange: initialDeadlineRangeFromUrl(searchParams),
     sent: initialSentFromUrl(searchParams),
+    priorityLevels: initialPriorityLevelsFromUrl(searchParams),
+    openedRange: initialOpenedRangeFromUrl(searchParams),
   }));
   const [sortOverride, setSort] = useState<JobSortValue | null>(() =>
     sortOverrideFromUrl(searchParams),
@@ -743,7 +713,7 @@ export function JobsListV2() {
   // Sortowanie bez jawnego wyboru samo idzie za zakresem; jawnie wybrane
   // zostaje. `null` = powrót do domyślnego zakresu roli („Wyczyść").
   const changeScope = (nextScope: JobScope | null) => {
-    setScopeOverride(nextScope);
+    setScopeChoice(nextScope);
     setPage(1);
   };
 
@@ -770,6 +740,8 @@ export function JobsListV2() {
         workedBy: filterValue.workedBy,
         nobodyWorking: filterValue.nobodyWorking,
         sent: filterValue.sent,
+        priorityLevels: filterValue.priorityLevels,
+        openedRange: filterValue.openedRange,
       },
       new URLSearchParams(window.location.search),
     );
@@ -790,7 +762,7 @@ export function JobsListV2() {
     setSeenRouteQuery(routeQuery);
     if (routeQuery === "") {
       setSearch("");
-      setScopeOverride(null);
+      setScopeChoice(null);
       setStages([]);
       setFilterValue(EMPTY_FILTERS);
       setSort(null);
@@ -816,10 +788,11 @@ export function JobsListV2() {
   } = useQuery({
     // Domyślny zakres zależy od ROLI, a tę znamy dopiero po hydratacji store'u
     // — bez bramki rekruter strzelałby najpierw we „Wszystkie", potem w „Moje".
-    enabled: authHydrated,
+    enabled: authHydrated && !scopePending,
     queryKey: jobsListQueryKey({
       search: debouncedSearch,
       mine,
+      myCategory,
       openOnly,
       sort,
       page,
@@ -832,6 +805,8 @@ export function JobsListV2() {
       deadline: filterValue.deadline,
       deadlineRange: filterValue.deadlineRange,
       sent: filterValue.sent,
+      priorityLevels: filterValue.priorityLevels,
+      openedRange: filterValue.openedRange,
     }),
     queryFn: () =>
       api
@@ -839,6 +814,8 @@ export function JobsListV2() {
           params: {
             q: debouncedSearch || undefined,
             mine: mine ? true : undefined,
+            // „Moja kategoria” idzie sama — serwer sam pomija zamknięte.
+            my_category: myCategory ? true : undefined,
             open_only: openOnly ? true : undefined,
             request_stage: stages.length ? stages : undefined,
             client_id: filterValue.clientIds.length ? filterValue.clientIds : undefined,
@@ -848,9 +825,14 @@ export function JobsListV2() {
               : undefined,
             worked_by: filterValue.workedBy.length ? filterValue.workedBy : undefined,
             nobody_working: filterValue.nobodyWorking ? true : undefined,
+            priority_level: filterValue.priorityLevels.length
+              ? filterValue.priorityLevels
+              : undefined,
             sort,
             ...dl,
             ...sentQueryParams(filterValue.sent),
+            // Odwrócony zakres nie idzie wcale (serwer odpowiada 422).
+            ...openedQueryParams(filterValue.openedRange),
             page,
             // Osiem kolumn Tablicy w wierszu — JEDNO dodatkowe GROUP BY
             // na całą stronę wyników (`stage_breakdown` per wiersz), zero
@@ -865,16 +847,10 @@ export function JobsListV2() {
     placeholderData: keepPreviousData,
   });
 
-  // Liczniki zakresu, pigułek stanu i trzech przełączników — JEDNO zapytanie
-  // (`/api/jobs/quick-counts`, marker parytetu „quick-counts”), niezależne od
-  // stronicowania i od pozostałych filtrów. Datę „Po terminie” liczy
-  // PRZEGLĄDARKA — ta sama, którą dostaje filtr terminu.
-  const overdueTo = deadlineQueryParams("overdue").deadline_to;
-  const { data: quickCounts } = useQuery({
-    queryKey: jobsQuickCountsQueryKey(),
-    queryFn: () => jobsApi.quickCounts({ overdue_to: overdueTo }).then((r) => r.data),
-    staleTime: 60_000,
-  });
+  // Liczby przełączników i pigułek stanu są policzone dla „Moich” i dla
+  // rejestru. „Wszystkie” nie ma liczb przełączników (objęłyby archiwum),
+  // a „Moja kategoria” nie ma żadnych: serwer liczy dla niej tylko zakres,
+  // a liczby całego rejestru pod jej nagłówkiem byłyby nieprawdą.
   const attentionCounts =
     scope === "mine"
       ? quickCounts?.attention_mine
@@ -882,9 +858,23 @@ export function JobsListV2() {
         ? quickCounts?.attention
         : undefined;
   const stageCounts =
-    scope === "mine" ? quickCounts?.request_stage_mine : quickCounts?.request_stage;
+    scope === "mine"
+      ? quickCounts?.request_stage_mine
+      : scope === "category"
+        ? undefined
+        : quickCounts?.request_stage;
+  const scopeCounts: Record<JobScope, number | null | undefined> = {
+    mine: quickCounts?.mine,
+    category: categoryCount,
+    open: quickCounts?.open,
+    all: quickCounts?.all,
+  };
+  // „Moja kategoria” jest na przełączniku tylko u osoby, która ma kategorię.
+  const scopeOptions = JOB_SCOPE_VALUES.filter(
+    (value) => value !== "category" || categoryState === "available",
+  );
 
-  const isLoading = queryLoading || !authHydrated;
+  const isLoading = queryLoading || !authHydrated || scopePending;
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const pageSize = data?.page_size ?? 20;
@@ -1074,34 +1064,31 @@ export function JobsListV2() {
                 wybór żyje w adresie (`mine=1` / `open=1` / `mine=0`). Liczniki
                 są GLOBALNE (`/api/jobs/quick-counts`), a ich brak to brak
                 liczby, nie zero. */}
+            {/* Cztery pozycje z licznikami nie mieszczą się w 328 px telefonu —
+                tam przełącznik łamie się na dwa rzędy, zamiast rozpychać stronę. */}
             <div
-              className="flex items-center overflow-hidden rounded-md border border-border"
+              className="relative flex flex-wrap items-center overflow-hidden rounded-md border border-border"
               role="group"
               aria-label="Zakres rekrutacji"
               data-help="jobs.list.scope"
             >
-              {SCOPE_OPTIONS.map((option) => {
-                const count =
-                  option.value === "mine"
-                    ? quickCounts?.mine
-                    : option.value === "open"
-                      ? quickCounts?.open
-                      : quickCounts?.all;
+              {scopeOptions.map((value) => {
+                const count = scopeCounts[value];
                 return (
                   <button
-                    key={option.value}
+                    key={value}
                     type="button"
-                    onClick={() => changeScope(option.value)}
-                    aria-pressed={scope === option.value}
-                    aria-describedby={`jobs-scope-hint-${option.value}`}
+                    onClick={() => changeScope(value)}
+                    aria-pressed={scope === value}
+                    aria-describedby={`jobs-scope-hint-${value}`}
                     className={cn(
-                      "flex h-9 items-center gap-1.5 px-3 text-sm transition-colors",
-                      scope === option.value
+                      "flex h-9 grow items-center justify-center gap-1.5 whitespace-nowrap px-3 text-sm transition-colors",
+                      scope === value
                         ? "bg-primary font-medium text-primary-foreground"
                         : "text-muted-foreground hover:bg-primary/10",
                     )}
                   >
-                    {option.label}
+                    {SCOPE_META[value].label}
                     {count != null && (
                       <span className="text-xs tabular-nums opacity-80">
                         {count.toLocaleString("pl-PL")}
@@ -1110,17 +1097,16 @@ export function JobsListV2() {
                   </button>
                 );
               })}
-              {SCOPE_OPTIONS.map((option) => (
-                <span
-                  key={option.value}
-                  id={`jobs-scope-hint-${option.value}`}
-                  className="sr-only"
-                >
-                  {option.hint}
+              {scopeOptions.map((value) => (
+                <span key={value} id={`jobs-scope-hint-${value}`} className="sr-only">
+                  {SCOPE_META[value].hint}
                 </span>
               ))}
             </div>
-            <div className="min-w-[240px] max-w-lg flex-1" data-help="jobs.list.search">
+            {/* Minimum 160 px: przy ~910 px listy (okno 1280 px, przypięte menu,
+                pasek otwartych kart i pasek przewijania Windows) cały rząd
+                narzędzi z czterema zakresami zostaje w jednej linii. */}
+            <div className="min-w-[160px] max-w-lg flex-1" data-help="jobs.list.search">
               <Input
                 leadingIcon={<Search className="h-4 w-4" />}
                 placeholder="Tytuł, klient, technologia…"
@@ -1291,8 +1277,10 @@ export function JobsListV2() {
                 // rekrutacji nie może zobaczyć tu „Brak rekrutacji".
                 <p className="text-sm text-muted-foreground">
                   {scope === "mine"
-                    ? "Nie prowadzisz teraz żadnej rekrutacji."
-                    : "Nie ma otwartych rekrutacji."}{" "}
+                    ? "Nie masz teraz żadnej otwartej rekrutacji."
+                    : scope === "category"
+                      ? "W Twojej kategorii nie ma teraz otwartych rekrutacji."
+                      : "Nie ma otwartych rekrutacji."}{" "}
                   <button
                     type="button"
                     onClick={() => changeScope("all")}
@@ -1465,6 +1453,7 @@ export function JobsListV2() {
                               <Eye className="h-3.5 w-3.5" />
                             </button>
                           )}
+                          <RequestPriorityChip level={priorityLevelOf(job)} />
                           <Badge size="sm" variant={statusVariant}>
                             {statusLabel}
                           </Badge>

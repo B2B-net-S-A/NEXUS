@@ -89,6 +89,40 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
+  // POST/DELETE /api/jobs/{id}/owner + pulpit „Requesty i obłożenie” →
+  // JOB_STAFFING_ROLES (decyzja 02.10.2026: HoR tam, gdzie Delivery Lead).
+  // TAC celowo na false — redaguje rekrutację, ale ludzi nie przydziela.
+  "job.recruiter.assign": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: true,
+    tac: false,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
+  // PATCH /api/jobs/{id} {priority} → JOB_PRIORITY_ROLES: pełni redaktorzy
+  // (`job.update`) ORAZ Head of Recruitment.
+  "job.priority.update": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: true,
+    tac: true,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
+  // Propozycje automatu przydziału → PROPOSAL_DECISION_ROLES. Delivery Lead
+  // celowo na false: przydziela ludzi sam, ale propozycji nie rozstrzyga.
+  "request.proposal.decide": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: false,
+    tac: false,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
   // POST /api/clients → DeliveryLeadPlus + the Delivery section write gate
   "client.create": {
     admin: true,
@@ -599,6 +633,65 @@ describe("regresja C6: teczka plików \u2260 fakty profilowe (granica po sourcer
   });
 });
 
+describe("trzy role rekrutacji i priorytet (decyzja 02.10.2026)", () => {
+  const STAFFING: Capability[] = [
+    "job.recruiter.assign",
+    "job.priority.update",
+    "request.proposal.decide",
+  ];
+
+  it("Head of Recruitment przydziela, ustawia priorytet i rozstrzyga propozycje — bez pełnej edycji rekrutacji", () => {
+    for (const capability of STAFFING) {
+      expect(hasCapability(mkUser("head_of_recruitment"), capability)).toBe(true);
+    }
+    // `job.update` zostaje przy adminie, Delivery Leadzie i TAC.
+    expect(hasCapability(mkUser("head_of_recruitment"), "job.update")).toBe(false);
+    expect(sortRoles(CAPABILITY_ROLES["job.update"])).toEqual([
+      "admin",
+      "delivery_lead",
+      "tac",
+    ]);
+  });
+
+  it("Delivery Lead przydziela ludzi, ale propozycji automatu nie rozstrzyga", () => {
+    expect(hasCapability(mkUser("delivery_lead"), "job.recruiter.assign")).toBe(true);
+    expect(hasCapability(mkUser("delivery_lead"), "job.priority.update")).toBe(true);
+    expect(hasCapability(mkUser("delivery_lead"), "request.proposal.decide")).toBe(false);
+  });
+
+  it("TAC ustawia priorytet, ale nie przydziela ludzi", () => {
+    expect(hasCapability(mkUser("tac"), "job.priority.update")).toBe(true);
+    expect(hasCapability(mkUser("tac"), "job.recruiter.assign")).toBe(false);
+    expect(hasCapability(mkUser("tac"), "request.proposal.decide")).toBe(false);
+  });
+
+  it("rekruter i sourcer nie mają żadnej z trzech", () => {
+    for (const role of ["recruiter", "sourcer"] as UserRole[]) {
+      for (const capability of STAFFING) {
+        expect(hasCapability(mkUser(role), capability)).toBe(false);
+      }
+    }
+  });
+
+  it("bez zapisu w sekcji Pipeline żadna z trzech nie przechodzi", () => {
+    const pipelineReadOnly = {
+      role: "head_of_recruitment" as UserRole,
+      roles: ["head_of_recruitment"] as UserRole[],
+      effective_section_access: {
+        sourcing: "write" as const,
+        pipeline: "read" as const,
+        delivery: "none" as const,
+        insights: "write" as const,
+        finance: "none" as const,
+        system_admin: "none" as const,
+      },
+    };
+    for (const capability of STAFFING) {
+      expect(hasCapability(pipelineReadOnly, capability)).toBe(false);
+    }
+  });
+});
+
 describe("hasAnyCapability", () => {
   it("zwraca true gdy choć jedna capability przechodzi", () => {
     expect(
@@ -830,6 +923,15 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   // z deps.py — test niżej pilnuje, że dalej go używa).
   "job.create": { guards: [["deps", "DeliveryLeadPlus"]] },
   "job.update": { guards: [["recruitmentAccess", "JOB_FULL_EDIT_ROLES"]] },
+  "job.recruiter.assign": {
+    guards: [["recruitmentAccess", "JOB_STAFFING_ROLES"]],
+  },
+  "job.priority.update": {
+    guards: [["recruitmentAccess", "JOB_PRIORITY_ROLES"]],
+  },
+  "request.proposal.decide": {
+    guards: [["recruitmentAccess", "PROPOSAL_DECISION_ROLES"]],
+  },
   "client.create": {
     productDecision:
       "DeliveryLeadPlus + the Delivery section write matrix — Admin and Delivery Lead.",

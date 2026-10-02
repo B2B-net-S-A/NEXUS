@@ -1,4 +1,6 @@
-"""Poranne powiadomienia automatu przydziału (raz dziennie, o ``review_time``).
+"""Powiadomienia automatu przydziału.
+
+Rano, raz dziennie o ``review_time``:
 
 * ``request_assignment_changed`` — JEDEN wpis na osobę: „Od dziś: X, Y.
   Zwolnione: Z (Mamy championa)”. Tylko w trybie ``auto``: propozycje trybu
@@ -7,28 +9,45 @@
   z Traffita „Do przejrzenia”, „Klient milczy” od 14+ dni, „Szukamy” bez
   pracy od 30+ dni. Link prowadzi do „Porządku w requestach”.
 
-Oba idą przez ``notification_triggers.emit`` (dedup dobowy, sprawdzenie
+Po każdej nowej propozycji i rano (02.10.2026):
+
+* ``request_allocation_proposals`` — JEDEN wpis dziennie na Head of
+  Recruitment: ile propozycji automatu czeka na akceptację. Poranne
+  przypomnienie z niezmienioną liczbą nie dzwoni drugi raz
+  (``send_proposal_notices``).
+
+Wszystkie idą przez ``notification_triggers.emit`` (dedup dobowy, sprawdzenie
 odbiorcy). Treść bez nazwisk kandydatów — same tytuły requestów.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.job import Job, JobStatus
 from app.models.job_work_assignment import JobWorkAssignment
-from app.models.notification import NotificationType
+from app.models.notification import Notification, NotificationType
 from app.services.job_working_title import job_display_title_expr
-from app.services.request_allocation_plan import release_reason_label
+from app.services.notification_ws_after_commit import queue_ws_notification
+from app.services.request_allocation_plan import (
+    is_silent_release,
+    release_reason_label,
+)
 
 REVIEW_LINK = "/jobs/review-states"
 BOARD_LINK = "/dashboard"
+# Panel „Czeka na Ciebie” na pulpicie — tam są przyciski akceptacji.
+PROPOSALS_LINK = "/dashboard#czeka-na-ciebie"
+PROPOSALS_MESSAGE = (
+    "Automat zaproponował osoby do requestów. "
+    "Zaakceptuj, zmień albo odrzuć na pulpicie."
+)
 MAX_TITLES = 4
 
 
@@ -70,6 +89,10 @@ async def _assignment_notices(db: AsyncSession, *, now: datetime) -> int:
     ).all()
     per_user: dict[int, dict[str, list[str]]] = {}
     for user_id, state, _assigned, _released, reason, title in rows:
+        if state != "active" and is_silent_release(reason):
+            # Wycofana propozycja albo zdjęcie, po którym przypisano tę osobę
+            # ponownie — patrz `is_silent_release`.
+            continue
         bucket = per_user.setdefault(user_id, {"new": [], "gone": []})
         if state == "active":
             bucket["new"].append(title)
@@ -324,3 +347,103 @@ async def send_morning_notices(
         "review_notices": reviews,
         "silent_reminded": reminded,
     }
+
+
+async def _head_of_recruitment_ids(db: AsyncSession) -> list[int]:
+    from app.models.user import User, UserRole  # noqa: PLC0415
+
+    role = UserRole.head_of_recruitment
+    return sorted(
+        (
+            await db.scalars(
+                select(User.id).where(
+                    User.is_active.is_(True),
+                    or_(User.role == role, User.roles.contains([role.value])),
+                )
+            )
+        ).all()
+    )
+
+
+async def send_proposal_notices(
+    db: AsyncSession, *, new_proposals: bool = False
+) -> int:
+    """Dzwonek „propozycje czekają” — JEDEN wpis dziennie na Head of Recruitment.
+
+    Liczba pochodzi z tego samego źródła co panel na pulpicie
+    (``request_allocation_proposals.load_pending``), więc dzwonek nie obiecuje
+    wierszy, których na pulpicie nie ma. Pierwsza propozycja dnia tworzy wpis
+    (``emit``: bramka odbiorcy + dobowy dedup); potem ten sam wpis dostaje nową
+    liczbę i wraca jako nieprzeczytany — gdy liczba się zmieniła albo gdy
+    przebieg właśnie dołożył propozycję (``new_proposals``; jedna zaakceptowana
+    i jedna nowa dają tę samą liczbę, a to nadal nowa sprawa). Poranne
+    przypomnienie z niezmienioną liczbą nie dzwoni drugi raz.
+    Zwraca liczbę nowych albo podbitych wpisów.
+    """
+    from app.core.scheduling import business_today  # noqa: PLC0415
+    from app.services.notification_triggers import emit  # noqa: PLC0415
+    from app.services.request_allocation_proposals import (  # noqa: PLC0415
+        load_pending,
+    )
+
+    pending = len(await load_pending(db))
+    if not pending:
+        return 0
+    ntype = NotificationType.request_allocation_proposals
+    title = f"Propozycje przydziału do akceptacji: {pending}"
+    today = business_today(settings.BUSINESS_TZ)
+    sent = 0
+    for user_id in await _head_of_recruitment_ids(db):
+        created = await emit(
+            db,
+            user_id=user_id,
+            title=title,
+            message=PROPOSALS_MESSAGE,
+            ntype=ntype,
+            related_entity_type="user",
+            related_entity_id=user_id,
+            link=PROPOSALS_LINK,
+        )
+        if created is not None:
+            sent += 1
+            continue
+        # Dzisiejszy wpis już jest (albo odbiorca nie ma dostępu — wtedy nie
+        # ma czego podbić).
+        existing = await db.scalar(
+            select(Notification)
+            .where(
+                Notification.user_id == user_id,
+                Notification.notification_type == ntype,
+                Notification.related_entity_type == "user",
+                Notification.related_entity_id == user_id,
+                func.date(func.timezone(settings.BUSINESS_TZ, Notification.created_at))
+                == today,
+            )
+            .order_by(Notification.created_at.desc())
+            .limit(1)
+        )
+        if existing is not None and (new_proposals or existing.title != title):
+            existing.title = title
+            existing.is_read = False
+            # ``emit`` wysyła zdarzenie tylko przy NOWYM wpisie. Po odrzuceniu
+            # propozycji automat proponuje następną osobę jeszcze tego samego
+            # dnia, czyli podbija ten wpis — otwarty pulpit ma ją pokazać od
+            # razu, nie po kilku minutach odpytywania.
+            queue_ws_notification(
+                db,
+                user_id=user_id,
+                event_payload={
+                    "type": "notification",
+                    "data": {
+                        "id": existing.id,
+                        "title": title,
+                        "message": existing.message,
+                        "link": existing.link,
+                        "notification_type": ntype.value,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                },
+                row=existing,
+            )
+            sent += 1
+    return sent

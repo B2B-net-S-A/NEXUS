@@ -94,3 +94,8 @@ async def test_list_marks_the_collaborator_source(
         (person, "manual"),
         (other, "auto_cc"),
     }
+    # Rolę „Rekruter” (02.10.2026) ma tylko osoba dopisana ręcznie — wiersz
+    # `auto_cc` to cała kategoria, nie ktoś przy tej rekrutacji.
+    assert [(p["user_id"], p["via"], p["proposed"]) for p in row["recruiters"]] == [
+        (person, "collaborator", False)
+    ]

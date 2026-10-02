@@ -4,6 +4,12 @@
 // ZERO zapytań — każdy klucz jest zasiany, a interceptor odcina sieć, więc
 // strona nie przerzuca na /login (pilnuje `harness-seeds.test.ts`).
 // Zapis układu w podglądzie kończy się komunikatem o błędzie — to zamierzone.
+//
+// Domyślnie pulpit Head of Recruitment: „Czeka na Ciebie” zaczyna się od
+// propozycji automatu przydziału (trzy przypadki: rekruter z 1. priorytetem,
+// sourcer z liczbą pasujących w bazie, osoba na urlopie) z banerem o braku
+// danych o urlopach; „Zmień” otwiera listę osób z zasianego obłożenia.
+// `?as=recruiter` — ten sam pulpit bez prawa decyzji (sekcji nie ma).
 
 import { useEffect, useState } from "react";
 import { AxiosError } from "axios";
@@ -23,10 +29,16 @@ import { myPeopleSummaryQueryKey } from "@/lib/api/myPeople";
 import {
   BOARD_TASKS_QUERY_KEY,
   CPRO_SENDER_QUERY_KEY,
+  type AllocationProposalRow,
   type BoardTaskRow,
   type BoardTasksResponse,
   type CproSender,
 } from "@/lib/api/boardTasks";
+import {
+  REQUEST_BOARD_QUERY_KEY,
+  type LoadPerson,
+  type RequestBoard,
+} from "@/lib/api/requestAllocation";
 import {
   USER_DASHBOARD_QUERY_KEY,
   type DashboardTile,
@@ -142,7 +154,62 @@ const BOARD_TASKS: BoardTasksResponse = {
   ],
 };
 
-function seededClient(tiles: DashboardTile[]): QueryClient {
+// Propozycje automatu przydziału do akceptacji (dane fikcyjne). Kolejność jak
+// z serwera: P1 na górze, potem najdłużej czekające.
+const proposal = (over: Partial<AllocationProposalRow>): AllocationProposalRow => ({
+  job_id: 1,
+  title: "Request",
+  client_name: "Bank Północny",
+  category_id: 2,
+  category_name: "Development",
+  category_slug: "software_development",
+  delivery_lead_name: "Marta Kowalczyk",
+  priority_level: "p2",
+  deadline: null,
+  sent: 0,
+  user_id: 1,
+  user_name: "Osoba",
+  role: "recruiter",
+  fit: "first",
+  load: 0,
+  leave_until: null,
+  base_matches: null,
+  proposed_at: daysAgo(0),
+  ...over,
+});
+const ALLOCATION_PROPOSALS: AllocationProposalRow[] = [
+  proposal({ job_id: 301, title: "Full Stack Java Developer · Spring Boot", priority_level: "p1", deadline: "2026-10-10", user_id: 41, user_name: "Marek Wzorcowy", role: "recruiter", fit: "first", load: 2, proposed_at: daysAgo(1) }),
+  proposal({ job_id: 302, title: "Administrator chmury · Azure, Terraform", client_name: "Fundusz Przykładowy", category_id: 1, category_name: "Infra & Operations & Security / Data & AI", category_slug: "infrastructure_operations", delivery_lead_name: "Piotr Zieliński", user_id: 42, user_name: "Ewa Fikcyjna", role: "sourcer", fit: "first", load: 0, base_matches: 22 }),
+  proposal({ job_id: 303, title: "Tester automatyzujący · Python, Robot Framework", category_id: 4, category_name: "QA", category_slug: "security_quality", sent: 1, user_id: 43, user_name: "Tomasz Makietowy", role: "recruiter", fit: "other", load: 4, leave_until: "2026-10-09" }),
+];
+
+// Obłożenie dla listy „Zmień” — te same osoby co w propozycjach i kilka wolnych.
+const loadPerson = (over: Partial<LoadPerson> & Pick<LoadPerson, "user_id" | "name">): LoadPerson => ({
+  count: 0,
+  proposed: 0,
+  leave_until: null,
+  requests: [],
+  ...over,
+});
+const REQUEST_BOARD: RequestBoard = {
+  mode: "shadow",
+  availability_known: false,
+  groups: [],
+  requests: [],
+  load: [
+    loadPerson({ user_id: 44, name: "Kinga Przykładowa", count: 4 }),
+    loadPerson({ user_id: 43, name: "Tomasz Makietowy", count: 4, proposed: 1, leave_until: "2026-10-09" }),
+    loadPerson({ user_id: 41, name: "Marek Wzorcowy", count: 2, proposed: 1 }),
+    loadPerson({ user_id: 45, name: "Julia Testowa", count: 1 }),
+    loadPerson({ user_id: 42, name: "Ewa Fikcyjna", count: 0, proposed: 1 }),
+    loadPerson({ user_id: 46, name: "Maja Próbna", count: 0 }),
+  ],
+  changes: [],
+};
+
+type Persona = "hor" | "recruiter";
+
+function seededClient(tiles: DashboardTile[], persona: Persona): QueryClient {
   const qc = new QueryClient({
     defaultOptions: {
       queries: { staleTime: Infinity, retry: false, refetchOnMount: false, refetchOnWindowFocus: false },
@@ -154,7 +221,24 @@ function seededClient(tiles: DashboardTile[]): QueryClient {
     dropped_tiles: [],
   });
   qc.setQueryData(METRIC_CATALOG_QUERY_KEY, CATALOG);
-  qc.setQueryData<BoardTasksResponse>(BOARD_TASKS_QUERY_KEY, BOARD_TASKS);
+  // Propozycje dostaje wyłącznie osoba, która o nich decyduje — jak z serwera.
+  qc.setQueryData<BoardTasksResponse>(
+    BOARD_TASKS_QUERY_KEY,
+    persona === "hor"
+      ? {
+          ...BOARD_TASKS,
+          can_decide_proposals: true,
+          allocation_leave_known: false,
+          allocation_proposals: ALLOCATION_PROPOSALS,
+        }
+      : { ...BOARD_TASKS, can_decide_proposals: false },
+  );
+  // „Zmień” czyta obłożenie z pulpitu „Requesty i obłożenie”. Znacznik czasu
+  // w przyszłości: dane nigdy nie są „stare”, więc otwarcie listy nie próbuje
+  // ich odświeżyć (zero zapytań).
+  qc.setQueryData<RequestBoard>(REQUEST_BOARD_QUERY_KEY, REQUEST_BOARD, {
+    updatedAt: Date.now() + 24 * 60 * 60 * 1000,
+  });
   qc.setQueryData<CproSender>(CPRO_SENDER_QUERY_KEY, {
     user_id: 1,
     user_name: "Adam Wzorcowy",
@@ -229,34 +313,40 @@ function seededClient(tiles: DashboardTile[]): QueryClient {
 }
 
 export default function CustomDashboardPreview() {
-  const [ready, setReady] = useState(false);
+  const [persona, setPersona] = useState<Persona | null>(null);
   const [variant, setVariant] = useState<"filled" | "empty">("filled");
-  const [filled] = useState(() => seededClient(TILES));
-  const [empty] = useState(() => seededClient([]));
+  const [clients, setClients] = useState<{ filled: QueryClient; empty: QueryClient } | null>(null);
 
   useEffect(() => {
     const blocker = api.interceptors.request.use((config) =>
       Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config)),
     );
+    const as: Persona =
+      new URLSearchParams(window.location.search).get("as") === "recruiter" ? "recruiter" : "hor";
     useAuthStore.setState({
       user: {
         id: 1,
         email: "preview@example.com",
-        name: "Preview Rekruter",
-        role: "recruiter",
-        roles: ["recruiter", "delivery_lead"],
+        name: as === "hor" ? "Preview Head of Recruitment" : "Preview Rekruter",
+        role: as === "hor" ? "head_of_recruitment" : "recruiter",
+        // Delivery Lead w obu wariantach: kafelki kontraktów i zamówień oraz
+        // lista „Czeka na Twój przegląd (DL)” zostają takie same.
+        roles: as === "hor" ? ["head_of_recruitment", "delivery_lead"] : ["recruiter", "delivery_lead"],
         profile_completed: true,
         profile_completed_at: null,
         force_password_change: false,
         force_password_change_at: null,
       } as never,
+      realUser: null,
       hydrated: true,
     });
-    setReady(true);
+    setClients({ filled: seededClient(TILES, as), empty: seededClient([], as) });
+    setPersona(as);
     return () => api.interceptors.request.eject(blocker);
   }, []);
 
-  if (!ready) return <div className="p-8 text-sm text-muted-foreground">Ładowanie…</div>;
+  if (!persona || !clients) return <div className="p-8 text-sm text-muted-foreground">Ładowanie…</div>;
+  const { filled, empty } = clients;
 
   return (
     <ToastProvider>
@@ -274,6 +364,15 @@ export default function CustomDashboardPreview() {
               {v === "filled" ? "Pulpit z kafelkami" : "Pusty pulpit"}
             </button>
           ))}
+          <span className="ml-auto text-muted-foreground">
+            {persona === "hor" ? "Head of Recruitment" : "Rekruter"} ·{" "}
+            <a
+              className="text-primary hover:underline"
+              href={persona === "hor" ? "?as=recruiter" : "?as=hor"}
+            >
+              {persona === "hor" ? "pokaż jako rekruter" : "pokaż jako Head of Recruitment"}
+            </a>
+          </span>
         </div>
         {/* Padding powłoki (`<main>` ma `p-4 md:p-6`) — pulpit nie dokłada własnego. */}
         <div className="p-4 md:p-6">

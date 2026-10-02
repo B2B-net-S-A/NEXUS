@@ -176,9 +176,17 @@ async def test_quick_counts_agree_with_the_list_the_same_filter_returns(
                 "request_stage_mine",
                 "attention",
                 "attention_mine",
+                "my_category",
             )
         }
         assert flat == expected
+        # „Moja kategoria” (02.10.2026): `None` znaczy „ta osoba nie ma żadnej
+        # kategorii” — lista z tym zakresem jest wtedy pusta. Sam zakres ma
+        # własny test w `test_jobs_list_staffing_filters.py`; tu pilnujemy
+        # tylko, że licznik i lista nadal odpowiadają na to samo pytanie.
+        assert (counts["my_category"] or 0) == await _list_total(
+            app_client, app_auth_headers, "my_category=true"
+        )
         # Sanity: zasiane wiersze naprawdę weszły w te zbiory, więc test nie
         # przechodzi przez porównanie sześciu zer.
         assert counts["mine"] >= 2
@@ -268,6 +276,7 @@ async def test_quick_counts_route_is_not_swallowed_by_the_job_id_path(
     assert set(response.json()) == {
         "all",
         "mine",
+        "my_category",
         "open",
         "needs_sourcing",
         "active_in_search",

@@ -151,6 +151,40 @@ describe("NotificationsDropdown — dostępność, licznik i ładowanie", () => 
     expect(await screen.findByText("w zastępstwie za Anna Nowak")).toBeInTheDocument();
   });
 
+  it("powiadomienia o przydziale requestów mają własne ikony, nie zapasowy dzwonek", async () => {
+    listNotifications.mockResolvedValue({
+      data: {
+        items: [
+          {
+            ...makeItems(1)[0],
+            id: 11,
+            title: "Propozycje przydziału do akceptacji: 4",
+            notification_type: "request_allocation_proposals",
+            link: "/dashboard#czeka-na-ciebie",
+          },
+          {
+            ...makeItems(1)[0],
+            id: 12,
+            title: "Nowy request do pracy",
+            notification_type: "request_assignment_changed",
+            link: "/jobs/42",
+          },
+          { ...makeItems(1)[0], id: 13, title: "Typ z przyszłości", notification_type: "not_a_known_type" },
+        ],
+        unread_count: 3,
+      },
+    } as unknown as Awaited<ReturnType<typeof notificationsApi.list>>);
+    const user = userEvent.setup();
+    renderDropdown();
+    await user.click(screen.getByRole("button", { name: "Powiadomienia" }));
+    const iconOf = async (title: string) =>
+      (await screen.findByText(title)).closest("li")?.querySelector("svg")?.getAttribute("class") ?? "";
+    expect(await iconOf("Propozycje przydziału do akceptacji: 4")).toContain("lucide-user-check");
+    expect(await iconOf("Nowy request do pracy")).toContain("lucide-list-checks");
+    // Nieznany typ dostaje neutralny dzwonek — tak wyglądały oba typy bez wpisu.
+    expect(await iconOf("Typ z przyszłości")).toContain("lucide-bell-ring");
+  });
+
   it("po odświeżeniu listy zeruje deltę z gniazda (bez widmowego licznika)", async () => {
     mockAvailable(1);
     hookState.unreadCount = 7;

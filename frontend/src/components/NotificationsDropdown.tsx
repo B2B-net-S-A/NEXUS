@@ -52,6 +52,7 @@ import {
   BellOff,
   Settings2,
   Send,
+  UserCheck,
 } from "lucide-react";
 import { notificationsApi } from "@/lib/api";
 import {
@@ -435,10 +436,18 @@ const TYPE_CONFIG: Record<
     bgColor: "bg-primary/15",
   },
   // 0371: automat przydziału requestów i requesty do decyzji DL.
+  // „Nowy request do pracy” — po akceptacji propozycji albo przydziale automatu.
   request_assignment_changed: {
     icon: <ListChecks className="w-3.5 h-3.5" />,
     color: "text-primary",
     bgColor: "bg-primary/15",
+  },
+  // 02.10.2026: „Propozycje przydziału do akceptacji” — dla Head of Recruitment;
+  // link prowadzi do panelu „Czeka na Ciebie” na pulpicie. Ton „do zrobienia”.
+  request_allocation_proposals: {
+    icon: <UserCheck className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
   },
   request_review_needed: {
     icon: <BellRing className="w-3.5 h-3.5" />,

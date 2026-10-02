@@ -53,6 +53,21 @@ def test_mandatory_categories_are_the_agreed_ones():
     }
 
 
+def test_being_assigned_to_a_request_cannot_be_muted():
+    # 02.10.2026: „Nowy request do pracy” to imienne zadanie — jak wzmianka.
+    assigned = NotificationType.request_assignment_changed
+    assert CATEGORY_BY_TYPE[assigned] is NotificationCategory.mentions
+    muted = muted_types_for(
+        {
+            "reminders": "2026-10-02T08:00:00+00:00",
+            "mentions": "2026-10-02T08:00:00+00:00",
+        }
+    )
+    assert assigned not in muted
+    # „Propozycje czekają na akceptację” to przypomnienie — da się wyciszyć.
+    assert NotificationType.request_allocation_proposals in muted
+
+
 def test_entrypoint_mirrors_the_migration():
     import importlib.util
 

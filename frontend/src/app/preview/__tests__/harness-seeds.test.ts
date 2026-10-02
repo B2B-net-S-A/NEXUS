@@ -235,6 +235,58 @@ describe("/preview/custom-dashboard zasiewa każdy stały klucz", () => {
       expect(harness).toContain(fn);
     }
   });
+
+  it("propozycje automatu: „Zmień” czyta zasiane obłożenie, nie sieć", () => {
+    // Sekcja propozycji pyta o pulpit „Requesty i obłożenie” dopiero po
+    // otwarciu listy „Zmień” — kluczem ze stałej, którego strażnik literałów
+    // nie widzi. Harness pokazuje propozycje, więc musi zasiać też pulpit.
+    const section = withoutComments(read("components/v2/dashboard/AllocationProposalsSection.tsx"));
+    expect(literalQueryKeys(section)).toEqual([]);
+    expect(section).toContain("useRequestBoard({ enabled: open })");
+    expect(withoutComments(read("lib/api/requestAllocation.ts"))).toContain(
+      "queryKey: REQUEST_BOARD_QUERY_KEY",
+    );
+    expect(harness).toContain("allocation_proposals: ALLOCATION_PROPOSALS");
+    expect(harness).toMatch(/setQueryData<RequestBoard>\(REQUEST_BOARD_QUERY_KEY, REQUEST_BOARD, \{ updatedAt:/);
+    // Trzy przypadki z opisu: rekruter z 1. priorytetem, sourcer z liczbą
+    // pasujących w bazie i osoba na urlopie — plus baner o braku urlopów.
+    expect(harness).toContain('role: "sourcer", fit: "first", load: 0, base_matches: 22');
+    expect(harness).toContain('leave_until: "2026-10-09"');
+    expect(harness).toContain("allocation_leave_known: false");
+  });
+
+  it("odcina sieć na czas życia harnessu", () => {
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
+  });
+});
+
+describe("/preview/request-allocation renderuje pulpit z propsów", () => {
+  const harness = withoutComments(read("app/preview/request-allocation/page.tsx")).replace(/\s+/g, " ");
+
+  it("montuje widok, nie kontener z zapytaniem", () => {
+    // `RequestBoard` pobiera pulpit i zapisuje decyzje — harness bierze widok.
+    expect(harness).toContain("<RequestBoardView");
+    expect(harness).not.toMatch(/<RequestBoard[\s>]/);
+    for (const file of [
+      "components/v2/request-board/RequestBoard.tsx",
+      "components/v2/request-board/RequestBoardFilters.tsx",
+      "components/v2/request-board/LoadPanel.tsx",
+      "components/v2/jobs/RecruiterChips.tsx",
+      "components/v2/jobs/RequestPriorityChip.tsx",
+    ]) {
+      expect(literalQueryKeys(read(file)), file).toEqual([]);
+    }
+  });
+
+  it("pokazuje propozycję automatu, dwie pracujące osoby i request bez rekrutera — w trzech rolach", () => {
+    expect(harness).toContain("proposed: true");
+    expect(harness).toMatch(/job_id: 21,[^}]*people: \[\{[^\]]*proposed: false[^\]]*\}, \{[^\]]*proposed: false/);
+    expect(harness).toMatch(/job_id: 41,[^}]*people: \[\]/);
+    for (const persona of ["hor:", "dl:", "recruiter:"]) expect(harness).toContain(persona);
+    expect(harness).toContain("canStaff={access.canStaff}");
+    expect(harness).toContain("canDecide={access.canDecide}");
+  });
 });
 
 describe("/preview/new-job zasiewa każdy stały klucz", () => {
@@ -258,6 +310,84 @@ describe("/preview/new-job zasiewa każdy stały klucz", () => {
     expect(read("lib/hiring-manager.ts")).toContain('["hiring-manager-options", clientId]');
     expect(harness).toContain('["hiring-manager-options", 1]');
     expect(harness).toContain("const CLIENT = { id: 1,");
+  });
+});
+
+describe("/preview/job-team-panel zasiewa zakładkę „Zespół” i odcina sieć", () => {
+  const harness = withoutComments(read("app/preview/job-team-panel/page.tsx")).replace(/\s+/g, " ");
+  // Wszystko, co montuje zakładka „Zespół” doku (`JobTeamTab`): karta zespołu,
+  // wiersze Rekruter i Kategoria, okno przypisania, hiring manager klienta
+  // i kontekst Priority Work.
+  const components = [
+    "components/v2/jobs/JobSettingsPanel.tsx",
+    "components/v2/jobs/JobOwnershipPanel.tsx",
+    "components/v2/jobs/JobCategoryRow.tsx",
+    "components/v2/CompetenceCategoryBadge.tsx",
+    "components/v2/modals/ReassignOwnerV2.tsx",
+    "components/jobs/HiringManagerPicker.tsx",
+    "components/jobs/HiringManagerCombobox.tsx",
+    "components/v2/priority-work/JobPriorityContext.tsx",
+  ];
+
+  it("nie zostawia stałego klucza bez zasiewu", () => {
+    const missing: string[] = [];
+    let found = 0;
+    for (const file of components) {
+      for (const key of literalQueryKeys(read(file))) {
+        found += 1;
+        if (!harness.includes(key)) missing.push(`${file}: ${key}`);
+      }
+    }
+    // Lista osób, lista Delivery Leadów i katalog kategorii — co najmniej te trzy.
+    expect(found).toBeGreaterThanOrEqual(3);
+    expect(missing).toEqual([]);
+  });
+
+  it("zasiewa klucze z parametrem — TYMI SAMYMI funkcjami i literałami co komponenty", () => {
+    // `literalQueryKeys` pomija klucze z parametrem, a zakładka pyta o nie przy
+    // samym wejściu (Delivery Lead klienta, Priority Work) albo po kliknięciu.
+    const settings = withoutComments(read("components/v2/jobs/JobSettingsPanel.tsx"));
+    expect(settings).toContain('queryKey: ["client-team", clientId]');
+    expect(harness).toContain('setQueryData( ["client-team", CLIENT_ID]');
+
+    const allocation = withoutComments(read("lib/api/requestAllocation.ts"));
+    expect(allocation).toContain("queryKey: categoryRecruitersQueryKey(");
+    expect(harness).toContain("setQueryData(categoryRecruitersQueryKey(CATEGORY_ID)");
+
+    const priority = withoutComments(read("components/v2/priority-work/JobPriorityContext.tsx"));
+    expect(priority).toContain("queryKey: priorityWorkQueryKeys.job(jobId)");
+    expect(harness).toContain("setQueryData( priorityWorkQueryKeys.job(job.id)");
+    const summary = withoutComments(read("components/v2/priority-work/AllocationWorkloadBoard.tsx"));
+    expect(summary).toContain('queryKey: ["job-allocation", jobId]');
+    expect(harness).toContain('setQueryData(["job-allocation", job.id]');
+
+    const combobox = withoutComments(read("components/jobs/HiringManagerCombobox.tsx"));
+    expect(combobox).toContain("queryKey: hiringManagerOptionsKey(clientId)");
+    expect(harness).toContain("setQueryData( hiringManagerOptionsKey(CLIENT_ID)");
+  });
+
+  it("zasiewa listę okna „Przypisz rekrutera” kluczem z domyślnych ról pola", () => {
+    const field = withoutComments(read("components/v2/forms/fields/RecruiterPickerField.tsx"));
+    expect(field.replace(/\s+/g, "")).toContain('queryKey:["users","directory",roles.join(",")]');
+    const roles = [...(field.match(/DEFAULT_ROLES[^=]*=\s*\[([^\]]*)\]/)?.[1] ?? "").matchAll(/"([a-z_]+)"/g)].map(
+      (match) => match[1],
+    );
+    expect(roles.length).toBeGreaterThan(0);
+    expect(harness).toContain(`["users", "directory", "${roles.join(",")}"]`);
+  });
+
+  it("pokazuje propozycję, dwie pracujące osoby i rekrutację bez rekrutera — w trzech rolach", () => {
+    expect(harness).toContain("<JobTeamTab");
+    for (const persona of ["dl:", "hor:", "recruiter:"]) expect(harness).toContain(persona);
+    expect(harness).toContain('via: "assignment", proposed: true');
+    expect(harness).toContain('via: "owner", proposed: false');
+    expect(harness).toContain('via: "collaborator", proposed: false');
+    expect(harness).toContain("recruiters: []");
+  });
+
+  it("odcina sieć na czas życia harnessu — przyciski nie trafiają do API", () => {
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
   });
 });
 
@@ -354,6 +484,11 @@ describe("/preview/cpro-queue zasiewa każdy stały klucz", () => {
     for (const constant of ["BOARD_TASKS_QUERY_KEY", "CPRO_QUEUE_QUERY_KEY", "CPRO_SENDER_QUERY_KEY"]) {
       expect(harness).toMatch(new RegExp(`setQueryData<\\w+>\\(${constant}`));
     }
+    // Panel ma też sekcję propozycji automatu; jej lista „Zmień” pyta o pulpit
+    // „Requesty i obłożenie”. Ten harness propozycji nie zasiewa (sekcji nie
+    // ma), więc pulpitu zasiewać nie musi — dołożenie propozycji bez pulpitu
+    // otworzyłoby zapytanie.
+    expect(harness).not.toContain("allocation_proposals");
   });
 
   it("odcina sieć", () => {
