@@ -636,7 +636,8 @@ describe("MultiConsultantOrdersTab", () => {
       screen.getByRole("button", { name: /Nowe zamówienie/ }),
     ).toBeInTheDocument();
     // Backend nie redaguje mu stawek, bo to on je ustawia.
-    expect(within(await row("order-line-1")).getByText("1200,00 zł/MD")).toBeInTheDocument();
+    // Jednostka stoi drobnym drukiem w osobnym elemencie — liczy się tekst wiersza.
+    expect(await row("order-line-1")).toHaveTextContent("1200,00 zł/MD");
 
     await openRow("order-group-anchor-10");
     expect(
