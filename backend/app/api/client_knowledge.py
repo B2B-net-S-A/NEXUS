@@ -24,8 +24,9 @@ from pydantic import BaseModel, Field
 from app.core.database import get_db
 from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
 from app.models.user import User
-from app.api.deps import CurrentUser, get_current_user
+from app.api.deps import get_current_user
 from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
+from app.api.permission_access import ClientsEditUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.client_access import (
     assert_client_exists,
@@ -90,7 +91,7 @@ async def list_client_knowledge(
 async def create_client_knowledge(
     client_id: int,
     data: ClientKnowledgeCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     # Zapis tylko na widocznym kliencie (usunięty/scalony/ukryty → 404, S1).
@@ -127,7 +128,7 @@ async def create_client_knowledge(
 )
 async def delete_client_knowledge(
     knowledge_id: int,
-    current_user: CurrentUser,
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(

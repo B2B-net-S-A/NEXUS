@@ -211,17 +211,42 @@ def test_ending_soon_window_span():
 # The roster carries candidate PII + rates/margins. A read-only viewer
 # (UserRole.user) must be refused at the API — the unified /contracts workspace
 # hides the operations mode on the FE, but that is UX, not the security boundary.
+# Od 0409 wejście daje uprawnienie „Klienci, kontrakty i zamówienia: podgląd”
+# z ekranu Osoby i role (nie lista ról), a zakres klientów — portfel DL.
 # Locks _require_contractor_access so a future refactor can't quietly re-open it.
 
-from fastapi import HTTPException  # noqa: E402
+from unittest.mock import AsyncMock  # noqa: E402
 
-from app.api.contractors import _require_contractor_access  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
+from sqlalchemy import select  # noqa: E402
+
+from app.api.contractors import (  # noqa: E402
+    _apply_contractor_scope,
+    _require_contractor_access,
+)
+from app.models.contract import Contract  # noqa: E402
 from app.models.user import UserRole  # noqa: E402
 
 
 class _FakeUser:
-    def __init__(self, *roles: UserRole):
+    """Konto z rolami; ``permissions`` = polityka dołączona przy logowaniu.
+
+    Bez ``permissions`` decydują domyślne uprawnienia roli (jak poza żądaniem).
+    """
+
+    id = 41
+
+    def __init__(self, *roles: UserRole, permissions: tuple[str, ...] | None = None):
         self._roles = set(roles)
+        if permissions is not None:
+            self.effective_action_access = {key: "manage" for key in permissions}
+            self.effective_section_access = {}
+
+    def get_all_roles(self) -> list[UserRole]:
+        return list(self._roles)
+
+    def has_role(self, role: UserRole) -> bool:
+        return role in self._roles
 
     def has_any_role(self, *roles: UserRole) -> bool:
         return bool(self._roles.intersection(roles))
@@ -231,6 +256,9 @@ def test_contractor_access_denies_viewer():
     with pytest.raises(HTTPException) as exc:
         _require_contractor_access(_FakeUser(UserRole.user))
     assert exc.value.status_code == 403
+    # Odmowa nazywa brakujące uprawnienie zamiast mówić o roli.
+    assert exc.value.detail["code"] == "permission_denied"
+    assert exc.value.detail["permission"] == "delivery_view"
 
 
 def test_contractor_access_allows_operational_roles():
@@ -240,7 +268,8 @@ def test_contractor_access_allows_operational_roles():
         UserRole.finance,
         UserRole.talent_community_manager,
     ):
-        # Resource scope and redaction are applied later inside the endpoint.
+        # Domyślni posiadacze podglądu Delivery. Resource scope and redaction
+        # are applied later inside the endpoint.
         _require_contractor_access(_FakeUser(role))
 
 
@@ -254,3 +283,57 @@ def test_contractor_access_denies_roles_outside_delivery():
         with pytest.raises(HTTPException) as exc:
             _require_contractor_access(_FakeUser(role))
         assert exc.value.status_code == 403
+        assert exc.value.detail["permission"] == "delivery_view"
+
+
+def test_contractor_access_follows_the_permission_not_the_role():
+    # Rekruter z nadanym podglądem wchodzi do rostera…
+    _require_contractor_access(
+        _FakeUser(UserRole.recruiter, permissions=("delivery_view",))
+    )
+    # …a Delivery Lead, któremu admin wyłączył podgląd, już nie.
+    with pytest.raises(HTTPException) as exc:
+        _require_contractor_access(_FakeUser(UserRole.delivery_lead, permissions=()))
+    assert exc.value.status_code == 403
+    assert exc.value.detail["permission"] == "delivery_view"
+
+
+class _Rows:
+    def __init__(self, values):
+        self._values = values
+
+    def all(self):
+        return self._values
+
+
+@pytest.mark.asyncio
+async def test_contractor_scope_is_the_dl_portfolio_or_the_whole_organization():
+    query = select(Contract.id)
+    no_db = SimpleNamespace(scalars=AsyncMock())
+
+    # Każdy posiadacz podglądu bez roli DL czyta całą organizację — zapytanie
+    # zostaje nietknięte i nikt nie pyta bazy o portfel.
+    for holder in (
+        _FakeUser(UserRole.admin),
+        _FakeUser(UserRole.finance),
+        _FakeUser(UserRole.talent_community_manager),
+        _FakeUser(UserRole.recruiter, permissions=("delivery_view",)),
+    ):
+        assert await _apply_contractor_scope(query, holder, no_db) is query
+    no_db.scalars.assert_not_awaited()
+
+    # Konto z rolą Delivery Leada zostaje przy klientach z portfela.
+    portfolio_db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10, 20])))
+    scoped = await _apply_contractor_scope(
+        query, _FakeUser(UserRole.delivery_lead), portfolio_db
+    )
+    rendered = str(scoped.compile(compile_kwargs={"literal_binds": True}))
+    assert "contracts.client_id IN (10, 20)" in rendered
+
+    # Pusty portfel to nic, nigdy cała organizacja.
+    empty_db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([])))
+    nothing = await _apply_contractor_scope(
+        query, _FakeUser(UserRole.delivery_lead), empty_db
+    )
+    rendered = str(nothing.compile(compile_kwargs={"literal_binds": True}))
+    assert "contracts.client_id IN (-1)" in rendered

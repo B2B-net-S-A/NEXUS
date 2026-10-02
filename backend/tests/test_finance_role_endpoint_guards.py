@@ -725,8 +725,16 @@ def test_candidate_finance_read_is_split_from_candidate_finance_write():
     assert _current_user_annotation(contracts.export_contracts) == FinanceReadUser
 
 
-def test_finance_contractor_scope_is_global():
-    assert UserRole.finance in contractors._FULL_VISIBILITY_ROLES
+@pytest.mark.asyncio
+async def test_finance_contractor_scope_is_global():
+    # Zakres rostera wyznacza portfel Delivery Leada. Finanse mają podgląd
+    # Delivery bez roli DL, więc czytają całą organizację: zapytanie wraca
+    # nietknięte i nikt nie pyta bazy o portfel (``db=None``).
+    finance = _user(UserRole.finance)
+    query = object()
+
+    contractors._require_contractor_access(finance)
+    assert await contractors._apply_contractor_scope(query, finance, None) is query
 
 
 @pytest.mark.asyncio
@@ -870,13 +878,32 @@ def test_tcm_group_projection_recursively_hides_file_metadata():
         assert projected.file_uploaded_at is None
 
 
-def test_finance_is_org_reader_for_my_clients_without_becoming_a_dl():
-    assert UserRole.finance in my_clients._MY_CLIENTS_ORGANIZATION_READ_ROLES
-    assert (
-        UserRole.talent_community_manager
-        in my_clients._MY_CLIENTS_ORGANIZATION_READ_ROLES
+@pytest.mark.asyncio
+async def test_finance_is_org_reader_for_my_clients_without_becoming_a_dl():
+    # „Moi klienci”: wejście daje podgląd Delivery (bramka trasy), a cała
+    # organizacja to brak portfela Delivery Leada — nie lista ról.
+    from app.services.client_access import reads_delivery_organization_wide
+
+    gate = _annotated_dependency(_user_annotation(my_clients.list_my_clients))
+    dashboard_gate = _annotated_dependency(
+        _current_user_annotation(my_clients.require_client_dashboard_access_after_merge)
     )
-    assert UserRole.recruiter not in my_clients._MY_CLIENTS_ORGANIZATION_READ_ROLES
+    assert dashboard_gate is gate
+
+    for role in (UserRole.finance, UserRole.talent_community_manager):
+        reader = _user(role)
+        assert await gate(reader) is reader
+        assert reads_delivery_organization_wide(reader)
+
+    with pytest.raises(HTTPException) as denied:
+        await gate(_user(UserRole.recruiter))
+    assert denied.value.status_code == 403
+    assert denied.value.detail["permission"] == "delivery_view"
+
+    # Delivery Lead wchodzi, ale zostaje przy swoim portfelu.
+    lead = _user(UserRole.delivery_lead)
+    assert await gate(lead) is lead
+    assert not reads_delivery_organization_wide(lead)
 
 
 @pytest.mark.asyncio

@@ -49,6 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.api.deps import OperationalUser
+from app.api.permission_access import ClientsEditUser
 from app.api.section_access import DeliverySectionUser
 from app.core.database import get_db
 from app.models.ai_feature import AIFeatureKey
@@ -924,6 +925,7 @@ async def upsert_client_cv_rule(
     client_id: int,
     payload: ClientCvRulePayload,
     current_user: DeliverySectionUser,
+    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> ClientCvRuleRead:
     """Save an independent draft, or atomically publish the complete recipe."""
@@ -944,6 +946,7 @@ async def upsert_client_cv_rule(
 async def confirm_client_cv_rule(
     client_id: int,
     current_user: DeliverySectionUser,
+    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
     expected_revision: Optional[int] = Query(None, ge=0),
 ) -> ClientCvRuleRead:
@@ -972,6 +975,7 @@ async def confirm_client_cv_rule(
 async def delete_client_cv_rule(
     client_id: int,
     current_user: DeliverySectionUser,
+    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
     expected_revision: Optional[int] = Query(None, ge=0),
 ) -> None:
@@ -1016,6 +1020,7 @@ async def copy_client_cv_rule(
     client_id: int,
     source_client_id: int,
     current_user: DeliverySectionUser,
+    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
     expected_revision: Optional[int] = Query(None, ge=0),
 ) -> ClientCvRuleRead:
@@ -1086,6 +1091,7 @@ async def restore_cv_rule_version(
     client_id: int,
     version: int,
     current_user: DeliverySectionUser,
+    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
     expected_revision: Optional[int] = Query(None, ge=0),
 ) -> ClientCvRuleRead:
@@ -1234,6 +1240,7 @@ async def lint_client_cv_rule(
     client_id: int,
     payload: LintRequest,
     current_user: DeliverySectionUser,
+    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> LintResponse:
     """Oceń instrukcje linia po linii ZANIM trafią do reguły.

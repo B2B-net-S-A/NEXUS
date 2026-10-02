@@ -13,11 +13,14 @@ the join and exposes it as a dedicated listing so backoffice can:
   contract terminated for 31.12 sat in „Aktywni” while its badge said
   „Kończący się”)
 
-Role scoping:
-- admin / finance → sees the whole organization with financial fields
-- talent_community_manager → sees the whole organization without financial fields
-- delivery_lead → sees assigned clients (25.09.2026); financial fields only for assigned clients
-- every other role → 403 at the Delivery section boundary
+Access (od 0409 uprawnienia z ekranu Osoby i role, nie role):
+- wejście: „Klienci, kontrakty i zamówienia: podgląd” (domyślnie admin,
+  Finanse, Delivery Lead, Talent Community Manager); pozostali → 403
+- zakres: konto z rolą Delivery Leada widzi klientów z portfela (25.09.2026),
+  każdy inny posiadacz podglądu — całą organizację
+- kwoty: ``can_read_client_finance`` („Moduł Finanse” albo „Stawki i kwoty:
+  podgląd” u klienta z zakresu) — domyślnie TCM widzi roster bez kwot,
+  a Delivery Lead kwoty tylko u klientów z przypisania
 
 The "incomplete drafts" subcount drives the dashboard widget
 ("Drafty do uzupełnienia (N)").
@@ -25,19 +28,18 @@ The "incomplete drafts" subcount drives the dashboard widget
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import and_, case, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser
 from app.api.financial_access import can_read_client_finance
+from app.api.permission_access import DeliveryViewUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
-from app.models.user import UserRole
 from app.schemas.contract import (
     ContractorCandidateRef,
     ContractorList,
@@ -61,35 +63,24 @@ from app.services.access_scope import (
     resolve_delivery_lead_client_ids,
     resolve_delivery_lead_finance_client_ids,
 )
+from app.services.action_permissions import ProductAction
+from app.services.permission_denial import ensure_permission
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
-# Organization-wide readers. Delivery Lead is handled first so its concrete
-# all-client set and narrower assigned-client finance exception stay explicit.
-_FULL_VISIBILITY_ROLES = {
-    UserRole.admin,
-    UserRole.finance,
-    UserRole.talent_community_manager,
-}
-
-
 async def _apply_contractor_scope(query, current_user, db):  # type: ignore[no-untyped-def]
-    """Apply the concrete all-client Delivery Lead boundary."""
+    """Zakres klientów rostera: portfel Delivery Leada albo cała organizacja.
 
-    if current_user.has_role(UserRole.delivery_lead) and not current_user.has_any_role(
-        UserRole.admin,
-        UserRole.finance,
-    ):
-        return apply_delivery_lead_client_scope(
-            query,
-            Contract.client_id,
-            await resolve_delivery_lead_client_ids(current_user, db),
-        )
-    if current_user.has_any_role(*_FULL_VISIBILITY_ROLES):
-        return query
-    return query.join(Candidate, Contract.candidate_id == Candidate.id).where(
-        Candidate.created_by == current_user.id
+    Konto z rolą Delivery Leada dostaje z resolvera konkretny zbiór klientów
+    (portfel; pusty = nic). Każdy inny posiadacz podglądu Delivery — ``None``,
+    czyli brak zawężenia.
+    """
+
+    return apply_delivery_lead_client_scope(
+        query,
+        Contract.client_id,
+        await resolve_delivery_lead_client_ids(current_user, db),
     )
 
 
@@ -101,23 +92,14 @@ _PENDING_STATUSES = PENDING_CONTRACT_STATUSES
 _LIST_STATUSES = CONTRACTOR_STATUSES
 
 
-# Defense in depth underneath the section dependency. Only these Delivery
-# personas may reach the roster; TCM is redacted and DL is client-scoped below.
-_CONTRACTOR_ALLOWED_ROLES = (
-    UserRole.admin,
-    UserRole.delivery_lead,
-    UserRole.finance,
-    UserRole.talent_community_manager,
-)
-
-
 def _require_contractor_access(current_user) -> None:  # type: ignore[no-untyped-def]
-    """Fail closed if this function is called outside FastAPI dependencies."""
-    if not current_user.has_any_role(*_CONTRACTOR_ALLOWED_ROLES):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Contractor data requires an operational role",
-        )
+    """Fail closed if this function is called outside FastAPI dependencies.
+
+    Defense in depth pod zależnością trasy (``DeliveryViewUser``): roster
+    niesie dane osobowe kontraktorów, więc wymaga podglądu Delivery także
+    wtedy, gdy handler zawoła ktoś z pominięciem FastAPI.
+    """
+    ensure_permission(current_user, ProductAction.delivery_view)
 
 
 def _to_item(contract: Contract) -> ContractorListItem:
@@ -191,7 +173,7 @@ def _in_ending_bucket(contract: Contract) -> bool:
 
 @router.get("", response_model=ContractorList)
 async def list_contractors(
-    current_user: CurrentUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
     status_filter: Optional[ContractStatus] = Query(None, alias="status"),
     page: int = Query(1, ge=1),
@@ -200,7 +182,8 @@ async def list_contractors(
     """List contractors (Contracts with status in draft/active/ending).
 
     `status` query param narrows to a single status; default is all three.
-    Delivery Lead rows are client-scoped; TCM rows are finance-redacted.
+    Delivery Lead rows are client-scoped; rows are finance-redacted for
+    accounts without the amounts permission (TCM by default).
     """
     _require_contractor_access(current_user)
 
@@ -291,7 +274,7 @@ async def list_contractors(
 
 @router.get("/stats", response_model=ContractorStats)
 async def contractor_stats(
-    current_user: CurrentUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Aggregate counts for the contractors tab headers + dashboard widget.

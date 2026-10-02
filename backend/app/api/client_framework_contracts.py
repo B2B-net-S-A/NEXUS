@@ -32,15 +32,13 @@ from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
 from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
+from app.api.permission_access import AmountsViewUser, ContractsOrdersEditUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
-from app.services.action_permissions import ProductAction
 from app.services.client_access import (
     assert_client_writable,
     resolve_client_access,
 )
-from app.services.permission_denial import ensure_permission
 from app.services.client_portfolio_import import (
     SOURCE_SYSTEM as PORTFOLIO_MANIFEST_SOURCE_SYSTEM,
 )
@@ -153,10 +151,15 @@ def _validate_text_fields(
 
 async def _require_legal_docs_reader(
     client_id: int,
-    current_user=Depends(get_current_user),
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
-):
-    """Odczyt umów ramowych (MSA) = dokumenty prawne klienta."""
+) -> User:
+    """Odczyt umów ramowych (MSA) = dokumenty prawne klienta.
+
+    Dokument może nieść stawki, więc trasa deklaruje „Stawki i kwoty: podgląd”
+    (zależność — odmowa nazywa uprawnienie, zanim sięgniemy do bazy); zakres
+    klientów rozstrzyga ``ClientAccess``.
+    """
     await _assert_client(db, client_id)
     access = await resolve_client_access(db, current_user, client_id)
     if not access.can_view_legal_documents:
@@ -171,23 +174,23 @@ LegalDocsReader = Depends(_require_legal_docs_reader)
 
 async def require_client_legal_docs_write(
     client_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: ContractsOrdersEditUser,
+    _amounts_viewer: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """Zapis umów ramowych i ich aneksów = zapis dokumentów prawnych klienta.
 
     „Kontrakty i zamówienia: tworzenie i edycja” razem z podglądem kwot
-    (dokument może nieść stawki). Konto z rolą Delivery Leada zapisuje
-    u klienta z przypisania (``resolve_delivery_lead_assigned_client_ids`` —
-    razem ze scalonymi duplikatami), każdy inny posiadacz u wszystkich.
-    FastAPI bierze ``client_id`` z parametru ścieżki routera; istnienie klienta
-    sprawdza handler (``assert_client_writable``).
+    (dokument może nieść stawki) — oba uprawnienia trasa deklaruje
+    zależnościami, więc konto bez nich dostaje odmowę z nazwą brakującej
+    pozycji, zanim cokolwiek zapytamy o jego klientów. Konto z rolą Delivery
+    Leada zapisuje u klienta z przypisania
+    (``resolve_delivery_lead_assigned_client_ids`` — razem ze scalonymi
+    duplikatami), każdy inny posiadacz u wszystkich. FastAPI bierze
+    ``client_id`` z parametru ścieżki routera; istnienie klienta sprawdza
+    handler (``assert_client_writable``).
     """
 
-    # Uprawnienia przed grafem klienta: konto bez nich dostaje odmowę z nazwą
-    # brakującej pozycji, zanim cokolwiek zapytamy o jego klientów.
-    ensure_permission(current_user, ProductAction.contracts_orders_edit)
-    ensure_permission(current_user, ProductAction.amounts_view)
     access = await resolve_client_access(db, current_user, client_id)
     if not access.can_edit_legal_documents:
         raise access.legal_denial(

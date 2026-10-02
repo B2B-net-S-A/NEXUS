@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, ManagerOrAdmin
+from app.api.permission_access import ClientsEditUser
 from app.api.section_access import (
     DELIVERY_SECTION_DEPENDENCIES,
     PIPELINE_SECTION_DEPENDENCIES,
@@ -261,7 +262,7 @@ async def list_overrides(
 async def create_override(
     client_id: int,
     payload: ClientStageOverrideCreate,
-    current_user: CurrentUser,
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_client_exists(db, client_id)
@@ -299,7 +300,7 @@ async def update_override(
     client_id: int,
     override_id: int,
     payload: ClientStageOverrideUpdate,
-    current_user: CurrentUser,
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_client_exists(db, client_id)
@@ -339,7 +340,7 @@ async def update_override(
 async def delete_override(
     client_id: int,
     override_id: int,
-    current_user: CurrentUser,
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_client_exists(db, client_id)

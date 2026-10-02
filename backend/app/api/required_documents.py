@@ -29,6 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OperationalUser, require_roles
+from app.api.permission_access import ClientsEditUser
 from app.api.section_access import DeliverySectionUser
 from app.core.database import get_db
 from app.core.upload_filename import fit_filename_column
@@ -109,6 +110,7 @@ async def require_required_docs_read_access(
 async def require_required_docs_write_access(
     client_id: int,
     current_user: DeliverySectionUser,
+    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> User:
     # Runda 7 (R7-X5-4): usunięty klient nie ma profilu ani zapisów (0307) —

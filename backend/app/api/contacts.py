@@ -10,8 +10,11 @@ mógł zmieniać kontakty i prywatne notatki relacyjne. Teraz decyzje podejmuje
   pozostali dostają projekcję BEZ tego pola (nie ``null``);
 - create/update/delete: uprawnienie „Klienci: dodawanie i edycja” (domyślnie
   admin i Delivery Lead); konto z rolą DL — u klientów z portfela. Odmowa
-  nazywa brakujące uprawnienie (``ClientAccess.edit_denial``);
-- owner relacji może edytować pola relacyjne swojego kontaktu;
+  nazywa brakujące uprawnienie; tworzenie i usuwanie deklarują je zależnością
+  trasy (``ClientsEditUser``);
+- owner relacji może edytować pola relacyjne swojego kontaktu — dlatego
+  ``PUT`` NIE deklaruje uprawnienia i rozstrzyga w handlerze
+  (``ClientAccess.edit_denial``);
 - zmiana ``key_relationship_owner_id``: admin (wyjątek: claim None → self);
 - każda mutacja zostawia audit event w ``activities`` (bez wartości pól
   prywatnych — tylko nazwy pól).
@@ -31,6 +34,7 @@ from app.models.contact import Contact, RelationshipStrength
 from app.models.client import Client
 from app.models.user import User
 from app.api.deps import get_current_user
+from app.api.permission_access import ClientsEditUser
 from app.api.section_access import (
     DeliverySectionUser,
     ProductSection,
@@ -320,6 +324,7 @@ async def list_client_contacts(
 async def create_contact(
     data: ContactCreate,
     current_user: DeliverySectionUser,
+    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await assert_client_exists(db, data.client_id)
@@ -426,6 +431,7 @@ async def update_contact(
 async def delete_contact(
     contact_id: int,
     current_user: DeliverySectionUser,
+    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     contact = await _load_contact(db, contact_id)

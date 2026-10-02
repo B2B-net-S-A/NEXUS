@@ -26,8 +26,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.client_framework_contracts import LegalDocsWriter
-from app.api.deps import get_current_user
 from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
+from app.api.permission_access import AmountsViewUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
@@ -80,7 +80,7 @@ async def _assert_fc(
 async def _require_amendment_legal_read(
     client_id: int,
     fc_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """Read scope aneksów = dokumenty prawne klienta.

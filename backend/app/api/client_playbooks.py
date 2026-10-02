@@ -40,6 +40,7 @@ from sqlalchemy.orm import aliased
 
 from app.api.deps import OperationalUser
 from app.api.help_materials import _validate_url
+from app.api.permission_access import ClientsEditUser
 from app.api.section_access import DeliverySectionUser
 from app.core.database import get_db
 from app.models.client import Client
@@ -373,6 +374,7 @@ async def upsert_client_playbook(
     client_id: int,
     payload: ClientPlaybookPayload,
     current_user: DeliverySectionUser,
+    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> ClientPlaybookRead:
     """Zapisz kartę (pełna podmiana). Zmiana treści → bump `version` + wpis w historii.
@@ -452,6 +454,7 @@ async def seed_client_playbook(
     client_id: int,
     body: PlaybookSeedRequest,
     current_user: DeliverySectionUser,
+    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> ClientPlaybookRead:
     """Backfill: załóż kartę klienta z gotowej treści seeda (rodziny nazw).
