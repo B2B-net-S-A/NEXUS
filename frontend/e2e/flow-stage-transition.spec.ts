@@ -183,12 +183,17 @@ test.describe("Pipeline rekrutacji @stack", () => {
     // Przełącznik „Ukryj puste kolumny" (aria-pressed = puste ukryte) wyłączamy
     // jawnie; do 22.09.2026 nazywał się „Kolumny: pokaż puste" i test po
     // zmianie nazwy nic nie klikał, więc karta nie miała dokąd pojechać.
-    // Od 22.09.2026 przełącznik siedzi w „Filtry ▾" (makieta 2).
-    await page.getByRole("button", { name: /^Filtry/ }).click();
-    const hideEmpty = page.getByRole("button", { name: "Ukryj puste kolumny" });
-    await expect(hideEmpty).toBeVisible();
-    if ((await hideEmpty.getAttribute("aria-pressed")) === "true") await hideEmpty.click();
-    await expect(hideEmpty).toHaveAttribute("aria-pressed", "false");
+    // Od 02.10.2026 paska filtrów nie ma — przełącznik jest pozycją menu „⋯”
+    // w nagłówku rekrutacji, a jej nazwa mówi, co zrobi kliknięcie.
+    await page.getByRole("button", { name: "Więcej akcji rekrutacji" }).click();
+    const emptyColumns = page.getByTestId("toggle-empty-columns");
+    await expect(emptyColumns).toBeVisible();
+    if ((await emptyColumns.textContent())?.includes("Pokaż puste kolumny")) {
+      await emptyColumns.click();
+    } else {
+      await page.keyboard.press("Escape");
+    }
+    await expect(page.getByTestId("toggle-empty-columns")).toBeHidden();
     // Przeciąganie klawiaturą (@hello-pangea/dnd): Spacja podnosi kartę,
     // strzałka przenosi ją do sąsiedniej kolumny, Spacja upuszcza.
     await card.focus();
