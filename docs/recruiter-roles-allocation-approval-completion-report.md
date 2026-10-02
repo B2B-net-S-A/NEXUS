@@ -53,6 +53,10 @@ Lead · Rekruter · Kategoria; propozycje automatu akceptuje Head of Recruitment
 8. **Zabezpieczenie flagi automatu** — włączenie `RECRUITMENT_ALLOCATION_ENABLED`
    nie dokłada już bramki przy dodawaniu osób ani ciężkiego zapytania co 30 s
    (szczegóły w CLAUDE.md).
+9. **Poprawki po przeglądzie kodu** — ponowne „Przekaż do searchu” innej
+   osobie zastępuje rekrutera (wcześniej poprzednia osoba z aktywnym
+   przypisaniem zostawała obok nowej); zmiana roli na Finanse zwalnia
+   przypisania do requestów i propozycje tej osoby.
 
 Migracja: `0409_request_allocation_proposals` (nowy typ powiadomienia), lustro
 w `backend/entrypoint.sh`.
@@ -71,8 +75,10 @@ w `backend/entrypoint.sh`.
 
 ## Jak sprawdzono
 
-Wyniki komend i zrzuty: patrz opis PR-a. Testy backendu wymagające bazy
-uruchamia CI (lokalnie nie stawiamy kontenerów).
+Wyniki komend i zrzuty: patrz opis PR-a. Testy backendu z bazą biegną w CI
+(sito na PR-ze i pełny bieg w kolejce); lokalnie puszczone dodatkowo na
+tymczasowym Postgresie bez kontenerów, razem z migracją 0409 w górę i w dół.
+Przegląd kodu: bezpieczeństwo, TypeScript i Python — bez blokerów.
 
 ## Włączenie automatu (po wdrożeniu)
 
@@ -93,6 +99,13 @@ uruchamia CI (lokalnie nie stawiamy kontenerów).
 - Zdjęcie rekrutera z rekrutacji bez aktywnego przypisania przed włączeniem
   flagi nie zostawia znacznika „zdjęty ręcznie” — automat może tę osobę
   zaproponować ponownie.
+- Tryb `auto` (dziś nieużywany): poranny skrót może drugi raz wspomnieć
+  o przydziale zaakceptowanym w ostatniej dobie — osoba dostała już dzwonek
+  przy akceptacji.
+- Pulpit: sekcja „Czeka na Twój przegląd (DL)” przy 1280 px ucina nazwiska
+  (stan sprzed tej zmiany).
+- „Moje przypisane” w operacjach rekrutacji i zakres powiadomień rekrutacji
+  nadal liczą osoby „z kategorii” (`auto_cc`).
 - `POST /api/jobs/{id}/owner` działa także na zamkniętej rekrutacji (tak było
   przed zmianą dla admina i Delivery Leada; teraz dotyczy też Head of
   Recruitment).
