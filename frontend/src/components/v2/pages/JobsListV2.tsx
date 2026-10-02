@@ -948,7 +948,7 @@ export function JobsListV2() {
       <div
         className={cn(
           "grid grid-cols-1 gap-4",
-          dockOpen && "xl:grid-cols-[minmax(0,1fr)_360px]",
+          dockOpen && "min-[1680px]:grid-cols-[minmax(0,1fr)_360px]",
         )}
       >
         {/* ── Środek: wyszukiwarka, sortowanie, lista ───────── */}
@@ -1208,9 +1208,12 @@ export function JobsListV2() {
         </div>
 
         {/* ── Prawy dok: podgląd gotowości — otwiera go ikona „Podgląd" ──
-            Od `xl` dok jest kolumną siatki. Węziej siatka jest jednokolumnowa,
-            więc dok stałby POD całą listą i klik „Podgląd" nie dawałby
-            widocznego efektu — tam dok wysuwa się z prawej jak arkusz. */}
+            Od 1680 px dok jest kolumną siatki: tabela potrzebuje 904 px,
+            dok 376, a przypięte menu z szyną kart ~340. Węziej wysuwa się
+            z prawej jak arkusz NAD listą — kolumna 360 px przy 1280 px
+            zostawiała tabeli ~560 px i akcje uciekały w bok (02.10.2026).
+            Tło przygasa tylko poniżej `xl`; na laptopie lista zostaje
+            czytelna, a po wierszach chodzi się strzałkami w doku. */}
         {dockOpen && (
           <div
             aria-hidden="true"
@@ -1224,9 +1227,13 @@ export function JobsListV2() {
             aria-label="Podgląd rekrutacji"
             className={cn(
               "space-y-2",
-              "fixed inset-y-0 right-0 z-50 w-full overflow-y-auto border-l border-border bg-background p-4 shadow-xl sm:max-w-[420px]",
-              "xl:inset-auto xl:z-auto xl:w-auto xl:max-w-none xl:overflow-visible xl:border-0 xl:bg-transparent xl:p-0 xl:shadow-none",
-              "xl:sticky xl:top-4 xl:self-start",
+              // Zakresy ROZŁĄCZNE (`sm:max-[1679px]:`, `xl:max-[1679px]:`):
+              // Tailwind v4 nie gwarantuje, że `min-[1680px]:` wygra z `sm:`.
+              "fixed inset-y-0 right-0 z-50 w-full overflow-y-auto border-l border-border bg-background p-4 shadow-xl sm:max-[1679px]:max-w-[420px]",
+              // Laptop: arkusz pod górnym paskiem, jak panel w Kontraktach.
+              "xl:max-[1679px]:top-12 xl:max-[1679px]:z-40",
+              "min-[1680px]:inset-auto min-[1680px]:z-auto min-[1680px]:w-auto min-[1680px]:overflow-visible min-[1680px]:border-0 min-[1680px]:bg-transparent min-[1680px]:p-0 min-[1680px]:shadow-none",
+              "min-[1680px]:sticky min-[1680px]:top-4 min-[1680px]:self-start",
             )}
           >
             <div className="flex items-center justify-between gap-2">
@@ -1248,6 +1255,7 @@ export function JobsListV2() {
               stageBreakdown={stageSummaryOf(previewListItem)}
               canOpen={previewListItem?.can_open !== false}
               listNav={listNav}
+              stickyFrom="wide"
               listDetails={
                 previewListItem ? (
                   <JobPreviewDetails

@@ -71,6 +71,24 @@ def _at(hour: int) -> datetime:
     return local.astimezone(timezone.utc)
 
 
+def _tonight_at(hour: int) -> datetime:
+    """Godzina LOKALNA w nocy, do której należy „teraz”.
+
+    Przegląd założony w teście dostaje `created_at` z prawdziwego zegara. Między
+    północą a początkiem okna (00:00–01:00) „ta noc” zaczęła się wczoraj, więc
+    `_at(2)` wskazywało noc, która jeszcze się nie zaczęła, i przegląd sprzed
+    chwili nie liczył się jako „tej nocy” (kolejka merge'ów, 03.10.2026 00:07).
+    """
+    from zoneinfo import ZoneInfo
+
+    local = datetime.now(ZoneInfo(settings.BUSINESS_TZ))
+    if local.hour < settings.AUTO_FULL_REVIEW_WINDOW_START_HOUR:
+        local -= timedelta(days=1)
+    return local.replace(hour=hour, minute=30, second=0, microsecond=0).astimezone(
+        timezone.utc
+    )
+
+
 async def _user(role: UserRole = UserRole.recruiter) -> tuple[int, dict[str, str]]:
     tag = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
@@ -212,7 +230,7 @@ async def test_event_makes_the_job_due_once_per_night():
     quiet = await _job(owner_id=owner_id, event=False)
     try:
         async with AsyncSessionLocal() as db:
-            due = await afr.pending_job_ids(db, now=_at(2), limit=10_000)
+            due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
             assert world["job_id"] in due
             # Od 30.09.2026 co noc WSZYSTKIE rekrutacje w pracy — nowe CV
             # w bazie nie jest zdarzeniem rekrutacji. Zdarzenie idzie pierwsze.
@@ -228,7 +246,7 @@ async def test_event_makes_the_job_due_once_per_night():
         async with AsyncSessionLocal() as db:
             # Druga próba tej samej nocy: rekrutacja nie jest już należna…
             assert world["job_id"] not in await afr.pending_job_ids(
-                db, now=_at(2), limit=10_000
+                db, now=_tonight_at(2), limit=10_000
             )
             # …a ten sam odcisk requestu i tak by ją pominął.
             assert await afr.start_for_job(db, world["job_id"]) == (None, "unchanged")
