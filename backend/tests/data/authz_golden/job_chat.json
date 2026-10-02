@@ -1,0 +1,34 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "DELETE /api/jobs/{job_id}/chat/messages/{msg_id}": "PPPPPPPPDDPPPPP",
+  "DELETE /api/jobs/{job_id}/chat/messages/{msg_id}/pin": "PDDPDDDDDDPPPDD",
+  "DELETE /api/jobs/{job_id}/chat/messages/{msg_id}/reactions/{emoji}": "PPPPPPPPDDPPPPP",
+  "GET /api/jobs/{job_id}/chat/members": "PPPPPPPPDDPPPPP",
+  "GET /api/jobs/{job_id}/chat/messages": "PPPPPPPPDDPPPPP",
+  "GET /api/jobs/{job_id}/chat/messages/{msg_id}/read-by": "PPPPPPPPDDPPPPP",
+  "GET /api/jobs/{job_id}/chat/pinned": "PPPPPPPPDDPPPPP",
+  "GET /api/jobs/{job_id}/chat/unread-count": "PPPPPPPPDDPPPPP",
+  "PATCH /api/jobs/{job_id}/chat/messages/{msg_id}": "PPPPPPPPDDPPPPP",
+  "POST /api/jobs/{job_id}/chat/messages": "PPPPPPPPDDPPPPP",
+  "POST /api/jobs/{job_id}/chat/messages/{msg_id}/pin": "PDDPDDDDDDPPPDD",
+  "POST /api/jobs/{job_id}/chat/messages/{msg_id}/reactions": "PPPPPPPPDDPPPPP",
+  "PUT /api/jobs/{job_id}/chat/read": "PPPPPPPPDDPPPPP"
+ }
+}

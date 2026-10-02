@@ -1,0 +1,27 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "DELETE /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDD",
+  "GET /api/contract-templates": "PPDBDDDDDDBBBDD",
+  "GET /api/contract-templates/{template_id}": "PPDBDDDDDDBBBDD",
+  "GET /api/contract-templates/{template_id}/render": "PPDBDDDDDDBBBDD",
+  "PATCH /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDD",
+  "POST /api/contract-templates": "PDDDDDDDDDDDDDD"
+ }
+}

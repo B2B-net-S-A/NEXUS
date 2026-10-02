@@ -1,0 +1,26 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}": "PDDBDDDDDDBBBDD",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/amendments": "BBDBBDDDDDBBBDB",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}/file": "BBDBBDDDDDBBBDB",
+  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/amendments": "PDDBDDDDDDBBBDD",
+  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}/send-autenti": "PDDBDDDDDDBBBDD"
+ }
+}

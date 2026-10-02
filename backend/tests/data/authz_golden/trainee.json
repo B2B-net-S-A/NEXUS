@@ -1,0 +1,34 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "GET /api/trainee/items/{item_id}/open-jobs": "DDDDDDDDDPDDDDD",
+  "GET /api/trainee/overview": "PDPDDDDDDDDPDPD",
+  "GET /api/trainee/quality-sample": "PDPDDDDDDDDPDPD",
+  "GET /api/trainee/rules": "PDPDDDDDDDDPDPD",
+  "GET /api/trainee/rules/preview": "PDPDDDDDDDDPDPD",
+  "GET /api/trainee/today": "DDDDDDDDDPDDDDD",
+  "POST /api/trainee/items/{item_id}/call": "DDDDDDDDDPDDDDD",
+  "POST /api/trainee/items/{item_id}/handover": "DDDDDDDDDPDDDDD",
+  "POST /api/trainee/items/{item_id}/outcome": "DDDDDDDDDPDDDDD",
+  "POST /api/trainee/programs/{user_id}/decision": "PDPDDDDDDDDPDPD",
+  "POST /api/trainee/quality-sample/{item_id}": "PDPDDDDDDDDPDPD",
+  "PUT /api/trainee/programs/{user_id}": "PDPDDDDDDDDPDPD",
+  "PUT /api/trainee/rules": "PDPDDDDDDDDPDPD"
+ }
+}

@@ -67,6 +67,7 @@
 "tests/test_auth_microsoft.py": 0.9,
 "tests/test_auth_missing_credentials.py": 0.0,
 "tests/test_auth_register.py": 5.8,
+"tests/test_authz_guard_matrix.py": 22.0,
 "tests/test_auto_assign_owners.py": 3.1,
 "tests/test_auto_cc_collaborators.py": 1.8,
 "tests/test_auto_full_review.py": 6.0,

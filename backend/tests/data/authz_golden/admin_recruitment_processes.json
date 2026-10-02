@@ -1,0 +1,25 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "GET /api/admin/recruitment-processes/backfill/status": "PDDDDDDDDDDDDDD",
+  "GET /api/admin/recruitment-processes/by-pair/{candidate_id}/{job_id}": "PDDDDDDDDDDDDDD",
+  "GET /api/admin/recruitment-processes/shadow-compare": "PDDDDDDDDDDDDDD",
+  "POST /api/admin/recruitment-processes/backfill": "PDDDDDDDDDDDDDD"
+ }
+}

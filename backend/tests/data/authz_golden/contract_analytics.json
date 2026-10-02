@@ -1,0 +1,29 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "GET /api/contract-analytics/location-distribution": "PPDDDDDDDDDDDDD",
+  "GET /api/contract-analytics/margin-by-client": "PPDDDDDDDDDDDDD",
+  "GET /api/contract-analytics/margin-by-contractor": "PPDDDDDDDDDDDDD",
+  "GET /api/contract-analytics/margin-totals": "PPDDDDDDDDDDDDD",
+  "GET /api/contract-analytics/revenue-forecast": "PPDDDDDDDDDDDDD",
+  "GET /api/contract-analytics/role-client-mix": "PPDDDDDDDDDDDDD",
+  "GET /api/contract-analytics/termination-analysis": "PPDDDDDDDDDDDDD",
+  "GET /api/contract-analytics/utilization": "PPDDDDDDDDDDDDD"
+ }
+}

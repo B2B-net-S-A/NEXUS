@@ -1,0 +1,40 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "DELETE /api/candidates/stages/cv/share-token/{token}": "PPPPPPPPDDPPPPP",
+  "DELETE /api/candidates/stages/{stage_id}/cv/branded/review/{review_id}": "PPPPPPPPDDPPPPP",
+  "DELETE /api/candidates/stages/{stage_id}/cv/share-tokens": "PPPPPPPPDDPPPPP",
+  "GET /api/candidates/stages/{stage_id}/cv/branded": "PPPPPPPPDDPPPPP",
+  "GET /api/candidates/stages/{stage_id}/cv/branded/render-pdf": "PPPPPPPPDDPPPPP",
+  "GET /api/candidates/stages/{stage_id}/cv/branded/review/{review_id}": "PPPPPPPPDDPPPPP",
+  "GET /api/candidates/stages/{stage_id}/cv/branded/versions/{version_number}/docx": "PPPPPPPPDDPPPPP",
+  "GET /api/candidates/stages/{stage_id}/cv/original": "PPPPPPPPDDPPPPP",
+  "GET /api/candidates/stages/{stage_id}/cv/original/download": "PPPPPPPPDDPPPPP",
+  "GET /api/candidates/stages/{stage_id}/cv/share-tokens": "PPPPPPPPDDPPPPP",
+  "GET /api/pipeline/candidates/{candidate_id}/jobs/{job_id}/cv-share-tokens": "PPPPPPPPDDPPPPP",
+  "PATCH /api/candidates/stages/{stage_id}/cv/branded": "PPPPPPPPDDPPPPP",
+  "POST /api/candidates/stages/{stage_id}/cv/branded/finalize": "PPPPPPPPDDPPPPP",
+  "POST /api/candidates/stages/{stage_id}/cv/branded/new-draft": "PPPPPPPPDDPPPPP",
+  "POST /api/candidates/stages/{stage_id}/cv/branded/preview-docx": "PPPPPPPPDDPPPPP",
+  "POST /api/candidates/stages/{stage_id}/cv/branded/review": "PPPPPPPPDDPPPPP",
+  "POST /api/candidates/stages/{stage_id}/cv/branded/select-generated": "PPPPPPPPDDPPPPP",
+  "POST /api/candidates/stages/{stage_id}/cv/original/refresh": "PPPPPPPPDDPPPPP",
+  "POST /api/candidates/stages/{stage_id}/cv/share-token": "PPPPPPPPDDPPPPP"
+ }
+}

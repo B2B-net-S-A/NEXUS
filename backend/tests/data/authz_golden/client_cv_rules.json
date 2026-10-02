@@ -1,0 +1,33 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "DELETE /api/clients/{client_id}/cv-rule": "PPDPPDDDDDPPPDP",
+  "GET /api/clients/{client_id}/cv-rule": "PPPPPPPPDDPPPPP",
+  "GET /api/clients/{client_id}/cv-rule/feedback": "PPDPPDDDDDPPPDP",
+  "GET /api/clients/{client_id}/cv-rule/history": "PPDPPDDDDDPPPDP",
+  "GET /api/clients/{client_id}/cv-rule/prompt-preview": "PPDPPDDDDDPPPDP",
+  "GET /api/clients/{client_id}/cv-rule/versions": "PPDPPDDDDDPPPDP",
+  "GET /api/settings/cv-rules": "PPDPPDDDDDPPPDP",
+  "POST /api/clients/{client_id}/cv-rule/confirm": "PPDPPDDDDDPPPDP",
+  "POST /api/clients/{client_id}/cv-rule/copy-from/{source_client_id}": "PPDPPDDDDDPPPDP",
+  "POST /api/clients/{client_id}/cv-rule/lint": "PPDPPDDDDDPPPDP",
+  "POST /api/clients/{client_id}/cv-rule/versions/{version}/restore": "PPDPPDDDDDPPPDP",
+  "PUT /api/clients/{client_id}/cv-rule": "PPDPPDDDDDPPPDP"
+ }
+}

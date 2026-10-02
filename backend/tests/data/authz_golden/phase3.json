@@ -1,0 +1,29 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "GET /api/candidates/{candidate_id}/pipelines": "PPPPPPPPDDPPPPP",
+  "GET /api/pipeline-stages/{stage_def_id}/scorecard": "PPPPPPPPDDPPPPP",
+  "GET /api/pipeline/overview-sla": "PPPPPPPPDDPPPPP",
+  "GET /api/reports/funnel": "PPPPPPPPDDPPPPP",
+  "GET /api/reports/time-to-hire": "PPPPPPPPDDPPPPP",
+  "PATCH /api/pipeline/{candidate_stage_id}/scorecard": "PPPPPPPPDDPPPPP",
+  "POST /api/jobs/embed-all": "PDDPDDDDDDPPPDD",
+  "PUT /api/pipeline-stages/{stage_def_id}/scorecard": "PDDPDDDDDDPPPDD"
+ }
+}

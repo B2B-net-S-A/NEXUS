@@ -1,0 +1,29 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "DELETE /api/notes/{note_id}": "PPPPPPPPDDPPPPP",
+  "DELETE /api/notes/{note_id}/pin": "PPPPPPPPDDPPPPP",
+  "GET /api/notes": "PPPPPPPPDDPPPPP",
+  "GET /api/notes/{note_id}": "PPPPPPPPDDPPPPP",
+  "PATCH /api/notes/{note_id}": "PPPPPPPPDDPPPPP",
+  "POST /api/notes": "PPPPPPPPDDPPPPP",
+  "POST /api/notes/{note_id}/link-job": "PDDPDDDDDDPPPDD",
+  "POST /api/notes/{note_id}/pin": "PPPPPPPPDDPPPPP"
+ }
+}

@@ -1,0 +1,27 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "DELETE /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDD",
+  "GET /api/rate-cards": "PPDDDDDDDDDDDDD",
+  "GET /api/rate-cards/suggest": "PPDDDDDDDDDDDDD",
+  "GET /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDD",
+  "PATCH /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDD",
+  "POST /api/rate-cards": "PPDDDDDDDDDDDDD"
+ }
+}

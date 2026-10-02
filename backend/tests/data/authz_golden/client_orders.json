@@ -1,0 +1,39 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "DELETE /api/clients/{client_id}/orders/{order_id}": "PDDBDDDDDDBBBDD",
+  "DELETE /api/clients/{client_id}/orders/{order_id}/file": "PDDBDDDDDDBBBDD",
+  "GET /api/clients/order-documents/by-candidate/{candidate_id}": "PPDPDDDDDDPPPDD",
+  "GET /api/clients/order-documents/by-contract/{contract_id}": "PPDPDDDDDDPPPDD",
+  "GET /api/clients/{client_id}/contracts-with-orders": "PPDBPDDDDDBBBDP",
+  "GET /api/clients/{client_id}/orders": "PPDBPDDDDDBBBDP",
+  "GET /api/clients/{client_id}/orders/default-rate-unit": "PPDBPDDDDDBBBDP",
+  "GET /api/clients/{client_id}/orders/{order_id}": "PPDBPDDDDDBBBDP",
+  "GET /api/clients/{client_id}/orders/{order_id}/delete-preview": "PDDBDDDDDDBBBDD",
+  "GET /api/clients/{client_id}/orders/{order_id}/file": "PPDBDDDDDDBBBDD",
+  "PATCH /api/clients/{client_id}/orders/{order_id}": "PPDBDDDDDDBBBDD",
+  "POST /api/clients/{client_id}/contract-with-order": "PDDBDDDDDDBBBDD",
+  "POST /api/clients/{client_id}/contractors/{contract_id}/dismiss-draft": "PDDBDDDDDDBBBDD",
+  "POST /api/clients/{client_id}/orders": "PDDBDDDDDDBBBDD",
+  "POST /api/clients/{client_id}/orders/export": "PPDBDDDDDDBBBDD",
+  "POST /api/clients/{client_id}/orders/extract": "PDDBDDDDDDBBBDD",
+  "POST /api/clients/{client_id}/orders/{order_id}/close": "PDDBDDDDDDBBBDD",
+  "PUT /api/clients/{client_id}/orders/{order_id}/file": "PDDBDDDDDDBBBDD"
+ }
+}

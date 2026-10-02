@@ -1,0 +1,30 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "DELETE /api/me/career-link": "PPPPPPPPDDPPPPP",
+  "GET /api/jobs/{job_id}/public-profile": "PPPPPPPPDDPPPPP",
+  "GET /api/me/career-link": "PPPPPPPPDDPPPPP",
+  "GET /api/me/career-link/slug-available": "PPPPPPPPDDPPPPP",
+  "POST /api/jobs/{job_id}/public-profile/approve": "PPPPPPPPDDPPPPP",
+  "POST /api/jobs/{job_id}/public-profile/draft": "PPPPPPPPDDPPPPP",
+  "PUT /api/jobs/{job_id}/public-profile": "PPPPPPPPDDPPPPP",
+  "PUT /api/jobs/{job_id}/public-profile/visibility": "PPPPPPPPDDPPPPP",
+  "PUT /api/me/career-link": "PPPPPPPPDDPPPPP"
+ }
+}

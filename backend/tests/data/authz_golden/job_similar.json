@@ -1,0 +1,29 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "DELETE /api/jobs/{job_id}/similar/{other_id}": "PPPPPPPPDDPPPPP",
+  "GET /api/jobs/{job_id}/similar": "PPPPPPPPDDPPPPP",
+  "GET /api/jobs/{job_id}/similar/people": "PPPPPPPPDDPPPPP",
+  "GET /api/jobs/{job_id}/similar/search": "PPPPPPPPDDPPPPP",
+  "POST /api/job-similarity/preview": "PPPPPPPPDDPPPPP",
+  "POST /api/jobs/{job_id}/champion-found": "PPPPPPPPDDPPPPP",
+  "POST /api/jobs/{job_id}/similar": "PPPPPPPPDDPPPPP",
+  "POST /api/jobs/{job_id}/similar/reassign": "PPPPPPPPDDPPPPP"
+ }
+}

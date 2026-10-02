@@ -1,0 +1,25 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "GET /api/pipeline/stages/{stage_id}/qc": "PPPPPPPPDDPPPPP",
+  "POST /api/pipeline/stages/{stage_id}/qc/apply": "PPPPPPPPDDPPPPP",
+  "POST /api/pipeline/stages/{stage_id}/qc/fixes": "PPPPPPPPDDPPPPP",
+  "POST /api/pipeline/stages/{stage_id}/qc/override": "PPPPPPPPDDPPPPP"
+ }
+}

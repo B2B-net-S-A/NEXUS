@@ -1,0 +1,28 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "GET /api/kpis/me/goals": "PPPPPPPPPDPPPPP",
+  "GET /api/kpis/me/panel": "PPPPPPPPPDPPPPP",
+  "GET /api/kpis/me/today": "PPPPPPPPPDPPPPP",
+  "GET /api/kpis/team/panel": "PPPPPDDDDDPPPPP",
+  "GET /api/kpis/users/{user_id}/today": "PPPPPPPPDDPPPPP",
+  "POST /api/kpis/admin/debug-fire-nudge": "PDDDDDDDDDDDDDD",
+  "POST /api/kpis/admin/trigger-sweep": "PDDDDDDDDDDDDDD"
+ }
+}

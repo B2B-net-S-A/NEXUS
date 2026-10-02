@@ -1,0 +1,26 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "GET /api/md-consumption/imports": "PPDDDDDDDDDDDDD",
+  "GET /api/md-consumption/imports/{import_id}": "PPDDDDDDDDDDDDD",
+  "POST /api/md-consumption/imports": "PPDDDDDDDDDDDDD",
+  "POST /api/md-consumption/imports/{import_id}/reprocess-polkomtel": "PPDDDDDDDDDDDDD",
+  "POST /api/md-consumption/imports/{import_id}/rows/{row_id}/assign": "PPDDDDDDDDDDDDD"
+ }
+}

@@ -1,0 +1,38 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "DELETE /api/academy/programs/{program_id}/sources/{job_id}": "PDPDDDDDDDDPDPD",
+  "GET /api/academy/cohort-dates": "PPPPPPPPDDPPPPP",
+  "GET /api/academy/jobs": "PDPDDDDDDDDPDPD",
+  "GET /api/academy/programs": "PPPPPPPPDDPPPPP",
+  "GET /api/academy/programs/{program_id}": "PPPPPPPPDDPPPPP",
+  "GET /api/academy/programs/{program_id}/applications": "PPPPPPPPDDPPPPP",
+  "GET /api/academy/programs/{program_id}/sessions": "PPPPPPPPDDPPPPP",
+  "PATCH /api/academy/programs/{program_id}": "PDPDDDDDDDDPDPD",
+  "PATCH /api/academy/sessions/{session_id}": "PPPPPPPPDDPPPPP",
+  "POST /api/academy/applications/{application_id}/actions": "PPPPPPPPDDPPPPP",
+  "POST /api/academy/applications/{application_id}/documents": "PPPPPPPPDDPPPPP",
+  "POST /api/academy/programs": "PDPDDDDDDDDPDPD",
+  "POST /api/academy/programs/{program_id}/applications/bulk": "PPPPPPPPDDPPPPP",
+  "POST /api/academy/programs/{program_id}/sessions": "PPPPPPPPDDPPPPP",
+  "POST /api/academy/programs/{program_id}/sessions/rhythm": "PPPPPPPPDDPPPPP",
+  "POST /api/academy/programs/{program_id}/sources": "PDPDDDDDDDDPDPD",
+  "POST /api/academy/programs/{program_id}/sync": "PPPPPPPPDDPPPPP"
+ }
+}

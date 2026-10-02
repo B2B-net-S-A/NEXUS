@@ -1,0 +1,28 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "GET /api/insights/recruitment/available-periods": "PPPPPPPPPDPPPPP",
+  "GET /api/insights/recruitment/competence-matrix": "PPPPPPPPPDPPPPP",
+  "GET /api/insights/recruitment/funnel": "PPPPPPPPPDPPPPP",
+  "GET /api/insights/recruitment/invite-links": "PPPPPPPPPDPPPPP",
+  "GET /api/insights/recruitment/seniority": "PPPPPPPPPDPPPPP",
+  "GET /api/insights/recruitment/team-activity": "PPPPPPPPPDPPPPP",
+  "GET /api/insights/recruitment/time-to-hire": "PPPPPPPPPDPPPPP"
+ }
+}

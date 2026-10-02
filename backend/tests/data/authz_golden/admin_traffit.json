@@ -1,0 +1,28 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "GET /api/admin/traffit/file-dates-repair/status": "UUUUUUUUUUUUUUU",
+  "GET /api/admin/traffit/notes-repair/status": "UUUUUUUUUUUUUUU",
+  "GET /api/admin/traffit/sync/status": "UUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/file-dates-repair": "UUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/notes-repair": "UUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/notes-repair/recruitments": "UUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/sync": "UUUUUUUUUUUUUUU"
+ }
+}

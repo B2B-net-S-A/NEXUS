@@ -1,0 +1,26 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "DELETE /api/contacts/{contact_id}": "PPDPPDDDDDPPPDP",
+  "GET /api/clients/{client_id}/contacts": "PPPPPPPPPDPPPPP",
+  "GET /api/contacts": "PPPBPBBBDDBBBPP",
+  "POST /api/contacts": "PPDPPDDDDDPPPDP",
+  "PUT /api/contacts/{contact_id}": "PPDPPDDDDDPPPDP"
+ }
+}

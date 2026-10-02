@@ -1,0 +1,28 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "DELETE /api/microsoft365/connection": "PPPPPPPPDDPPPPP",
+  "GET /api/microsoft365/authorize": "PPPPPPPPDDPPPPP",
+  "GET /api/microsoft365/callback": "PPPPPPPPPPPPPPP",
+  "GET /api/microsoft365/connection": "PPPPPPPPDDPPPPP",
+  "POST /api/microsoft365/free-busy": "PPPPPPPPDDPPPPP",
+  "POST /api/microsoft365/sync/trigger": "PPPPPPPPDDPPPPP",
+  "POST /api/microsoft365/webhooks": "PPPPPPPPPPPPPPP"
+ }
+}

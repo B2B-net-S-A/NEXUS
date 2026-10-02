@@ -1,0 +1,38 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "GET /api/finance/imports": "PPDDDDDDDDDDDDD",
+  "GET /api/finance/imports/{run_id}/file": "PPDDDDDDDDDDDDD",
+  "GET /api/finance/order-changes": "PPDDDDDDDDDDDDD",
+  "GET /api/finance/order-changes/export": "PPDDDDDDDDDDDDD",
+  "GET /api/finance/order-changes/history": "PPDDDDDDDDDDDDD",
+  "GET /api/finance/order-changes/summary": "PPDDDDDDDDDDDDD",
+  "GET /api/finance/order-pdfs": "PPDDDDDDDDDDDDD",
+  "GET /api/finance/order-pdfs/months": "PPDDDDDDDDDDDDD",
+  "GET /api/finance/order-pdfs/zip": "PPDDDDDDDDDDDDD",
+  "GET /api/finance/order-pdfs/{kind}/{entry_id}/file": "PPDDDDDDDDDDDDD",
+  "GET /api/finance/periods": "PPDDDDDDDDDDDDD",
+  "GET /api/finance/results": "PPDDDDDDDDDDDDD",
+  "PATCH /api/finance/results/{row_id}": "PPDDDDDDDDDDDDD",
+  "POST /api/finance/imports": "PPDDDDDDDDDDDDD",
+  "POST /api/finance/imports/{run_id}/restore": "PPDDDDDDDDDDDDD",
+  "POST /api/finance/order-changes/checks": "PPDDDDDDDDDDDDD",
+  "PUT /api/finance/order-changes/invoice-lines/{order_id}": "PPDDDDDDDDDDDDD"
+ }
+}

@@ -1,0 +1,32 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "GET /api/order-mail/queue": "PPDPPDDDDDPPPDP",
+  "GET /api/order-mail/queue/{doc_id}": "PPDPPDDDDDPPPDP",
+  "GET /api/order-mail/queue/{doc_id}/file": "PPDPDDDDDDPPPDD",
+  "GET /api/order-mail/queue/{doc_id}/order-target": "PPDPPDDDDDPPPDP",
+  "GET /api/order-mail/recheck-runs": "PPDPPDDDDDPPPDP",
+  "GET /api/order-mail/sync/status": "PPDPPDDDDDPPPDP",
+  "POST /api/order-mail/queue/{doc_id}/apply": "PPDPPDDDDDPPPDP",
+  "POST /api/order-mail/queue/{doc_id}/dismiss": "PPDPPDDDDDPPPDP",
+  "POST /api/order-mail/queue/{doc_id}/refresh-plan": "PPDPPDDDDDPPPDP",
+  "POST /api/order-mail/queue/{doc_id}/resolved-in-order": "PPDPPDDDDDPPPDP",
+  "POST /api/order-mail/sync": "PPDPDDDDDDPPPDD"
+ }
+}

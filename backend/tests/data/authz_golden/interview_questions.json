@@ -1,0 +1,32 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "DELETE /api/interview-questions/{question_id}": "PPPPPPPPDDPPPPP",
+  "DELETE /api/jobs/{job_id}/questions/{question_id}": "PPPPPPPPDDPPPPP",
+  "GET /api/interview-questions": "PPPPPPPPPDPPPPP",
+  "GET /api/interview-questions/{question_id}": "PPPPPPPPPDPPPPP",
+  "GET /api/jobs/{job_id}/questions": "PPPPPPPPPDPPPPP",
+  "GET /api/jobs/{job_id}/suggested-questions": "PPPPPPPPPDPPPPP",
+  "PATCH /api/jobs/{job_id}/questions/reorder": "PPPPPPPPDDPPPPP",
+  "POST /api/interview-questions": "PPPPPPPPDDPPPPP",
+  "POST /api/interview-questions/{question_id}/rate": "PPPPPPPPDDPPPPP",
+  "POST /api/jobs/{job_id}/questions/pin": "PPPPPPPPDDPPPPP",
+  "PUT /api/interview-questions/{question_id}": "PPPPPPPPDDPPPPP"
+ }
+}

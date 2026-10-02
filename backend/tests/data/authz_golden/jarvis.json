@@ -1,0 +1,31 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "DELETE /api/jarvis/conversations/{conversation_id}": "PPPPPPPPPDPPPPP",
+  "GET /api/jarvis/conversations": "PPPPPPPPPDPPPPP",
+  "GET /api/jarvis/conversations/{conversation_id}": "PPPPPPPPPDPPPPP",
+  "GET /api/jarvis/status": "PPPPPPPPPDPPPPP",
+  "GET /api/jarvis/ui-events/summary": "PDDDDDDDDDDDDDD",
+  "POST /api/jarvis/actions/{action_id}/confirm": "PPPPPPPPPDPPPPP",
+  "POST /api/jarvis/actions/{action_id}/reject": "PPPPPPPPPDPPPPP",
+  "POST /api/jarvis/chat": "PPPPPPPPPDPPPPP",
+  "POST /api/jarvis/conversations/{conversation_id}/cancel": "PPPPPPPPPDPPPPP",
+  "POST /api/jarvis/ui-events": "PPPPPPPPPDPPPPP"
+ }
+}

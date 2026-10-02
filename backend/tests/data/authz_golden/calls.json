@@ -1,0 +1,27 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer"
+ ],
+ "routes": {
+  "GET /api/calls/cloudtalk-status": "PPPPPPPPDDPPPPP",
+  "GET /api/calls/stats": "PPPPPPPPDDPPPPP",
+  "GET /api/candidates/{candidate_id}/calls": "PPPPPPPPDDPPPPP",
+  "GET /api/candidates/{candidate_id}/calls/{call_id}": "PPPPPPPPDDPPPPP",
+  "POST /api/calls": "PPPPPPPPDDPPPPP",
+  "POST /api/calls/webhook": "PPPPPPPPPPPPPPP"
+ }
+}
