@@ -1769,80 +1769,118 @@ async def test_confirm_rbac_allows_admin_and_fails_closed_without_client_scope(
 
 
 @pytest.mark.asyncio
-async def test_delivery_lead_scope_allows_confirmation_but_tac_stays_outside_delivery(
+async def test_delivery_lead_scope_allows_confirmation_only_at_an_assigned_client(
     app_client: AsyncClient,
 ):
     admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    headers = await _headers_for_role(app_client, UserRole.delivery_lead)
+    user_id = int(headers["X-Test-User-Id"])
 
-    for role, assignment_field in (
-        (UserRole.delivery_lead, "delivery_lead_id"),
-        (UserRole.tac, "tac_id"),
-    ):
-        scenario = await _seed_bound_scenario(created_by=admin_id)
-        headers = await _headers_for_role(app_client, role)
-        user_id = int(headers["X-Test-User-Id"])
+    denied = await _confirm(app_client, headers, scenario["generated_id"])
+    assert denied.status_code == 403, (
+        f"out-of-scope delivery_lead got {denied.status_code}: {denied.text}"
+    )
+    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
+        0,
+        0,
+        0,
+    )
 
-        denied = await _confirm(app_client, headers, scenario["generated_id"])
-        assert denied.status_code == 403, (
-            f"out-of-scope {role.value} got {denied.status_code}: {denied.text}"
-        )
-        assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
-            0,
-            0,
-            0,
-        )
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, scenario["job_id"])
+        generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert job is not None
+        assert generated is not None
+        assert generated.signature_status == "unsigned"
+        job.delivery_lead_id = user_id
+        await db.commit()
 
-        async with AsyncSessionLocal() as db:
-            job = await db.get(Job, scenario["job_id"])
-            generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
-            assert job is not None
-            assert generated is not None
-            assert generated.signature_status == "unsigned"
-            setattr(job, assignment_field, user_id)
-            await db.commit()
+    job_only = await _confirm(app_client, headers, scenario["generated_id"])
+    assert job_only.status_code == 403, (
+        "delivery_lead without explicit client assignment got "
+        f"{job_only.status_code}: {job_only.text}"
+    )
 
-        job_only = await _confirm(app_client, headers, scenario["generated_id"])
-        assert job_only.status_code == 403, (
-            f"{role.value} without explicit client assignment got "
-            f"{job_only.status_code}: {job_only.text}"
-        )
-
-        async with AsyncSessionLocal() as db:
-            if role is UserRole.delivery_lead:
-                db.add(
-                    DeliveryLeadClientAssignment(
-                        delivery_lead_user_id=user_id,
-                        client_id=scenario["client_id"],
-                    )
-                )
-            else:
-                db.add(
-                    ClientTacAssignment(
-                        tac_user_id=user_id,
-                        client_id=scenario["client_id"],
-                    )
-                )
-            await db.commit()
-
-        allowed = await _confirm(app_client, headers, scenario["generated_id"])
-        if role is UserRole.tac:
-            assert allowed.status_code == 403, (
-                "TAC must remain outside Delivery even with legacy job/client "
-                f"assignments: {allowed.text}"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            DeliveryLeadClientAssignment(
+                delivery_lead_user_id=user_id,
+                client_id=scenario["client_id"],
             )
-            assert await _counts_for_pair(
-                scenario["candidate_id"], scenario["job_id"]
-            ) == (0, 0, 0)
-            continue
+        )
+        await db.commit()
 
+    allowed = await _confirm(app_client, headers, scenario["generated_id"])
+    assert allowed.status_code == 200, (
+        f"assigned delivery_lead got {allowed.status_code}: {allowed.text}"
+    )
+    assert allowed.json()["outcome"] == "created"
+    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
+        1,
+        1,
+        1,  # 23.09.2026: podpis przesuwa na „Zatrudniony"
+    )
+
+
+@pytest.mark.asyncio
+async def test_tac_confirms_only_with_the_signature_permission(
+    app_client: AsyncClient,
+):
+    """TAC nie ma już oznaczania podpisu domyślnie (0410), a przypisania
+    z rekrutacji i klienta go nie zastępują. Rola, której administrator
+    włączył uprawnienie, potwierdza podpis — u każdego klienta, bo zakres
+    klienta dotyczy wyłącznie konta z rolą Delivery Leada. Do 02.10.2026 TAC
+    miał uprawnienie włączone, ale zakres klienta odmawiał mu zawsze."""
+    from tests._permission_grants import grant_permissions, role_permission
+
+    admin_id = await _current_admin_id(app_client)
+    assigned = await _seed_bound_scenario(created_by=admin_id)
+    unassigned = await _seed_bound_scenario(created_by=admin_id)
+    headers = await _headers_for_role(app_client, UserRole.tac)
+    user_id = int(headers["X-Test-User-Id"])
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, assigned["job_id"])
+        assert job is not None
+        job.tac_id = user_id
+        db.add(
+            ClientTacAssignment(tac_user_id=user_id, client_id=assigned["client_id"])
+        )
+        await db.commit()
+
+    # Baza testowa jest wspólna — wartość roli przypinamy na czas odmowy.
+    async with role_permission("tac", "b2b_signature_confirmation", granted=False):
+        denied = await _confirm(app_client, headers, assigned["generated_id"])
+    assert denied.status_code == 403, (
+        f"TAC without the signature permission confirmed a legal status: {denied.text}"
+    )
+    detail = denied.json()["detail"]
+    assert detail["code"] == "action_access_denied"
+    assert detail["action"] == "b2b_signature_confirmation"
+    assert await _counts_for_pair(assigned["candidate_id"], assigned["job_id"]) == (
+        0,
+        0,
+        0,
+    )
+    async with AsyncSessionLocal() as db:
+        generated = await db.get(B2BGeneratedContract, assigned["generated_id"])
+        assert generated is not None
+        assert generated.signature_status == "unsigned"
+
+    # Uprawnienie nadane osobie działa także u klienta bez żadnego przypisania.
+    await grant_permissions(user_id, "b2b_signature_confirmation")
+    for scenario in (unassigned, assigned):
+        allowed = await _confirm(app_client, headers, scenario["generated_id"])
         assert allowed.status_code == 200, (
-            f"assigned {role.value} got {allowed.status_code}: {allowed.text}"
+            "TAC with the signature permission got "
+            f"{allowed.status_code}: {allowed.text}"
         )
         assert allowed.json()["outcome"] == "created"
         assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
             1,
             1,
-            1,  # 23.09.2026: podpis przesuwa na „Zatrudniony"
+            1,
         )
 
 

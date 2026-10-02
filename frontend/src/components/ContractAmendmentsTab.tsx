@@ -6,22 +6,17 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { documentsHref } from "@/lib/b2b-documents";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
-import { RequireRole } from "@/components/RequireRole";
 import { formatDateTimePl, formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import {
   contractDetailLabel,
   contractDetailValue,
 } from "@/components/contracts/contract-timeline-labels";
 import { B2B_EXTENSION_HINT } from "@/lib/contract-end-date";
+import { canAmendContractRates } from "@/lib/contract-rate-amendment";
 import { warsawToday } from "@/lib/warsaw-date";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { resolveViewState } from "@/lib/view-state";
-import {
-  canViewClientFinance,
-  hasAnalyticsCapability,
-  hasRole,
-  useAuthStore,
-} from "@/store/auth";
+import { canViewClientFinance, useAuthStore } from "@/store/auth";
 import {
   CalendarPlus,
   Banknote,
@@ -116,15 +111,10 @@ export function ContractAmendmentsTab({
 }) {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
-  // „Zmień stawkę” = to samo, co przepuszcza backend aneksów (audyt 24.09,
-  // S10): trasa `DeliveryLeadPlus` (admin / Delivery Lead) ORAZ zapis kwot
-  // (`can_manage_finance_amounts`: admin albo `manage_finance`). Dawne
-  // `canManageCandidateFinance` (admin/Finanse) pokazywało przycisk Finansom,
-  // którym trasa odmawia, i chowało go DL z `manage_finance`.
-  const canAmendRates =
-    hasRole(user, "admin") ||
-    (hasRole(user, "delivery_lead") &&
-      hasAnalyticsCapability(user, "manage_finance"));
+  // „Zmień stawkę” = to samo, co przepuszcza backend aneksów: trasa wymaga
+  // edycji kontraktów (to niesie `readOnly` z góry), a aneks `rate_change`
+  // dodatkowo uprawnienia „Stawki i kwoty: zmiana” u tego klienta.
+  const canAmendRates = canAmendContractRates(user, clientId);
   const canViewFinance = canViewClientFinance(user, clientId);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(() => emptyAmendmentForm());
@@ -200,10 +190,11 @@ export function ContractAmendmentsTab({
 
   return (
     <div className="space-y-4">
-      {!readOnly && (
-        <RequireRole roles={["admin", "delivery_lead"]}>
-          {!showForm && (
-            <div className="flex flex-wrap gap-2">
+      {/* Bramka zapisu jest jedna i przychodzi z góry (`readOnly`) — bez
+          zagnieżdżonej bramki po roli, która chowała przyciski posiadaczom
+          uprawnienia spoza ról admin/Delivery Lead. */}
+      {!readOnly && !showForm && (
+        <div className="flex flex-wrap gap-2">
             <button
               onClick={() => {
                 setForm(emptyAmendmentForm("extension"));
@@ -258,9 +249,7 @@ export function ContractAmendmentsTab({
                 {B2B_EXTENSION_HINT}
               </p>
             )}
-            </div>
-          )}
-        </RequireRole>
+        </div>
       )}
 
       {!readOnly && showForm && (

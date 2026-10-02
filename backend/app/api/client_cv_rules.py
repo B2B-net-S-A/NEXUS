@@ -12,8 +12,9 @@ czyta wyłącznie reguły zatwierdzone (``resolve_client_rule``), więc zasiane
 dopasowanie po nazwie klienta nie może wejść w życie bez decyzji człowieka.
 Własną regułę autor zatwierdza tym samym zapisem (``confirm=true``).
 
-Bramka zarządzania to centralne uprawnienie sekcji Delivery oraz resolver
-dostępu do konkretnego klienta. Admin i Delivery Lead mają zasięg globalny.
+Bramka zarządzania to sekcja Delivery oraz resolver dostępu do konkretnego
+klienta: zapis wymaga uprawnienia „Klienci: dodawanie i edycja” (domyślnie
+admin i Delivery Lead, obaj z zasięgiem globalnym — ``purpose="org"``).
 Pojedynczy odczyt
 reguły pozostaje dostępny z Pipeline dla rekrutera pracującego przy Jobie tego
 klienta — nadal przez ten sam resolver, nigdy organizacyjnie.
@@ -48,6 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.api.deps import OperationalUser
+from app.api.permission_access import require_permission
 from app.api.section_access import DeliverySectionUser
 from app.core.database import get_db
 from app.models.ai_feature import AIFeatureKey
@@ -59,6 +61,7 @@ from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.help_material import HelpMaterial
 from app.models.user import User
 from app.services.cv_generator_b2b.language_aliases import alias_catalog, resolve_alias
+from app.services.action_permissions import ProductAction
 from app.services.client_access import (
     assert_client_assignable,
     deny,
@@ -91,6 +94,13 @@ from app.services.section_permissions import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["client-cv-rules"])
+
+# Zapis reguły wymaga uprawnienia „Klienci: dodawanie i edycja”. Deklaruje je
+# TRASA (dekorator), nie parametr handlera: odmowa nazywa brakującą pozycję,
+# zanim sięgniemy do bazy — także wtedy, gdy zatrzymuje bramka sekcji —
+# a handlery zachowują sygnaturę (testy jednostkowe wołają je wprost).
+# U kogo wolno, rozstrzyga dalej ``_require_client_rule_access``.
+CLIENTS_EDIT_DEPENDENCIES = [Depends(require_permission(ProductAction.clients_edit))]
 
 # Slugi szablonów „Profil Championa — per klient" z migracji 0219. Ekran
 # weryfikacji pokazuje WSZYSTKIE czternaście, także te, dla których seed nie
@@ -625,8 +635,10 @@ async def _require_client_rule_access(
     access = await resolve_client_access(db, user, client_id, purpose="org")
     allowed = access.can_edit_knowledge if write else access.can_view_knowledge
     if not allowed:
-        action = "edycja" if write else "odczyt"
-        raise deny(f"{action} reguł CV klienta jest niedozwolony")
+        if write:
+            # Brak „Klienci: dodawanie i edycja” — odmowa nazywa uprawnienie.
+            raise access.edit_denial("edycja reguł CV klienta jest niedozwolona")
+        raise deny("odczyt reguł CV klienta jest niedozwolony")
 
 
 def _client_label(client: Client) -> str:
@@ -916,7 +928,11 @@ async def get_client_cv_rule(
     )
 
 
-@router.put("/clients/{client_id}/cv-rule", response_model=ClientCvRuleRead)
+@router.put(
+    "/clients/{client_id}/cv-rule",
+    response_model=ClientCvRuleRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def upsert_client_cv_rule(
     client_id: int,
     payload: ClientCvRulePayload,
@@ -937,7 +953,11 @@ async def upsert_client_cv_rule(
     )
 
 
-@router.post("/clients/{client_id}/cv-rule/confirm", response_model=ClientCvRuleRead)
+@router.post(
+    "/clients/{client_id}/cv-rule/confirm",
+    response_model=ClientCvRuleRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def confirm_client_cv_rule(
     client_id: int,
     current_user: DeliverySectionUser,
@@ -965,7 +985,11 @@ async def confirm_client_cv_rule(
     )
 
 
-@router.delete("/clients/{client_id}/cv-rule", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/clients/{client_id}/cv-rule",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def delete_client_cv_rule(
     client_id: int,
     current_user: DeliverySectionUser,
@@ -1008,6 +1032,7 @@ async def delete_client_cv_rule(
 @router.post(
     "/clients/{client_id}/cv-rule/copy-from/{source_client_id}",
     response_model=ClientCvRuleRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
 )
 async def copy_client_cv_rule(
     client_id: int,
@@ -1078,6 +1103,7 @@ async def list_cv_rule_versions(
 @router.post(
     "/clients/{client_id}/cv-rule/versions/{version}/restore",
     response_model=ClientCvRuleRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
 )
 async def restore_cv_rule_version(
     client_id: int,
@@ -1226,7 +1252,11 @@ async def client_cv_rule_feedback(
     )
 
 
-@router.post("/clients/{client_id}/cv-rule/lint", response_model=LintResponse)
+@router.post(
+    "/clients/{client_id}/cv-rule/lint",
+    response_model=LintResponse,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def lint_client_cv_rule(
     client_id: int,
     payload: LintRequest,

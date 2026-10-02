@@ -60,7 +60,6 @@ import {
   fetchAuthenticatedBlob,
   postAuthenticatedDownload,
 } from "@/lib/authenticated-files";
-import { hasSectionAccess } from "@/lib/section-access";
 import { cn } from "@/lib/utils";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import {
@@ -110,20 +109,9 @@ import { SwapConsultantModal } from "./SwapConsultantModal";
 
 /** Czytelny komunikat z odpowiedzi API — wspólną regułą `apiErrorMessage`
  *  (audyt 24.09.2026, S12: lokalna kopia przepuszczała surowe komunikaty
- *  po angielsku). Kod `finance_fields_forbidden` ma własne zdanie. */
+ *  po angielsku). Odmowę kwot (`finance_fields_forbidden`) nazywa ta sama
+ *  reguła: z `message` serwera albo zdaniem zastępczym bez nazw ról. */
 function apiError(err: unknown, fallback: string): string {
-  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data
-    ?.detail;
-  if (
-    detail &&
-    typeof detail === "object" &&
-    (detail as { code?: string }).code === "finance_fields_forbidden"
-  ) {
-    return (
-      "Stawki linii może ustawiać administrator, Finanse albo Delivery Lead " +
-      "przypisany do tego klienta."
-    );
-  }
   return apiErrorMessage(err, fallback);
 }
 
@@ -238,12 +226,10 @@ export function MultiConsultantOrdersTab({
   const canEditAmounts = canEditOrderLineAmounts(user, clientId);
   const amountsOnly = canEditAmounts && !canManage;
   const canLifecycle = canManageOrderLifecycle(user);
-  // Eksport = odczyt w sekcji Delivery (U8); TCM bez innej roli Delivery — bez
-  // eksportu, jak dotąd.
-  const canExport =
-    hasSectionAccess(user, "delivery", "read") &&
-    (!hasRole(user, "talent_community_manager") ||
-      hasRole(user, "admin", "delivery_lead", "finance"));
+  // Eksport niesie stawki, więc dostaje go ten, kto widzi kwoty tego klienta
+  // („Stawki i kwoty: podgląd” — trasa eksportu pyta o to samo). Sam podgląd
+  // Delivery, np. Talent Community Manager, zostaje bez eksportu.
+  const canExport = canViewFinance;
   const allowedOrderTypes = ALL_ORDER_TYPES;
 
   const [pill, setPill] = useState<OrdersPill>("all");
@@ -1499,7 +1485,9 @@ export function MultiConsultantOrdersTab({
 
       {query.isSuccess &&
       contractorQuery.isSuccess &&
-      (user?.role === "admin" || user?.roles?.includes("admin")) &&
+      // Import CSV zostaje wyłącznie dla administratora (także jako rola
+      // dodatkowa — stąd `hasRole`, nie porównanie `user.role`).
+      hasRole(user, "admin") &&
       // Klient z polityki Nordei liczony na serwerze (S13) — nazwa klienta
       // nie jest regułą (Traffit ją nadpisuje, „Nordea" bywa w kilku nazwach).
       contractorQuery.data.nordea_order_import_enabled === true ? (

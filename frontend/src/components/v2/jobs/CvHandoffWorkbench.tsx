@@ -42,6 +42,8 @@ import {
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { useCapability } from "@/hooks/useCapability";
+import { CLIENT_SEND_DENIED_MESSAGE } from "@/hooks/usePipelineMove";
+import { permissionLabel } from "@/lib/permissions";
 import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -353,7 +355,7 @@ export function CvHandoffWorkbench({
       (!cvSentCol
         ? "Szablon tej rekrutacji nie ma kolumny „CV Wysłane”."
         : !cproEnabled && !canWriteClientRate
-          ? "Do klienta wysyła Delivery Lead — osoba czeka w jego przeglądzie."
+          ? CLIENT_SEND_DENIED_MESSAGE
         : CV_CLIENT_LINKS_UI_ENABLED && brandedQuery.isLoading
           ? // Bez tego w oknie ładowania `brandedStatus` = "none", więc klik
             // wysłałby BEZ linku i zaraportował to jako świadomą decyzję.
@@ -838,8 +840,8 @@ export function CvHandoffWorkbench({
               ) : (
                 <p className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
                   {cproEnabled
-                    ? "Stawkę do klienta ustala Delivery Lead — wysyłka idzie bez stawki, DL ją uzupełni."
-                    : "Do klienta wysyła Delivery Lead i to on ustala stawkę — osoba czeka w jego przeglądzie."}
+                    ? `Stawkę do klienta ustala osoba z uprawnieniem „${permissionLabel("recruitment_manage")}” — wysyłka idzie bez stawki, zostanie uzupełniona później.`
+                    : `${CLIENT_SEND_DENIED_MESSAGE} Ona też ustala stawkę do klienta.`}
                 </p>
               )}
 

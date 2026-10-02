@@ -143,8 +143,13 @@ OPERATIONAL_ENDPOINTS = [
 # Delivery mutations additionally pass through the section boundary. Od
 # 22.09.2026 alias trasy to DeliveryLeadPlus (TAC i tak nie miał sekcji).
 DELIVERY_WRITE_ENDPOINTS = [
-    ("POST", "/api/contracts"),
     ("POST", "/api/clients"),
+]
+
+# Kontrakt zakłada posiadacz „Kontrakty i zamówienia: tworzenie i edycja” —
+# domyślnie Delivery Lead i (decyzja Artura 02.10.2026) Finanse.
+CONTRACT_WRITE_ENDPOINTS = [
+    ("POST", "/api/contracts"),
 ]
 
 # Delivery reads: TCM and Finance are organization-wide, while DL is narrowed
@@ -194,6 +199,7 @@ ADMIN_ONLY_ENDPOINTS = [
 ROLE_SETS = {
     "admin_only": {UserRole.admin},
     "delivery_lead_plus": {UserRole.admin, UserRole.delivery_lead},
+    "contract_write": {UserRole.admin, UserRole.delivery_lead, UserRole.finance},
     # Od 2026-09-17 head_of_recruitment ma parytet z rekruterem (decyzja Artura).
     "recruiter_plus": {
         UserRole.admin,
@@ -450,6 +456,27 @@ async def test_delivery_writes_require_delivery_write_section(
     role, headers = role_headers
     resp = await rbac_client.request(method, path, headers=headers, json={})
     if role in ROLE_SETS["delivery_lead_plus"]:
+        assert resp.status_code != 403, (
+            f"[{role.value}] {method} {path} got 403 but should be allowed"
+        )
+        assert resp.status_code < 500
+    else:
+        assert resp.status_code == 403, (
+            f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path", CONTRACT_WRITE_ENDPOINTS)
+async def test_contract_writes_follow_the_contract_editing_permission(
+    rbac_client: AsyncClient,
+    role_headers: tuple[UserRole, dict[str, str]],
+    method: str,
+    path: str,
+):
+    role, headers = role_headers
+    resp = await rbac_client.request(method, path, headers=headers, json={})
+    if role in ROLE_SETS["contract_write"]:
         assert resp.status_code != 403, (
             f"[{role.value}] {method} {path} got 403 but should be allowed"
         )

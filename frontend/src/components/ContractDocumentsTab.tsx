@@ -7,7 +7,6 @@ import {
   openContractDocument,
   downloadContractDocument,
 } from "@/lib/contract-documents";
-import { RequireRole } from "@/components/RequireRole";
 import { OrderDocumentsSection } from "@/components/OrderDocumentsSection";
 import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -96,6 +95,13 @@ function formatBytes(n: number | null | undefined): string {
 
 interface Props {
   contractId: number;
+  /**
+   * Bramka zapisu jest JEDNA i przychodzi z góry (`canEditContractDocuments`
+   * z `lib/contract-access.ts`: edycja kontraktów + podgląd kwot klienta).
+   * Do 02.10.2026 w środku siedział dodatkowo `RequireRole admin/delivery_lead`
+   * — posiadacz uprawnienia spoza tych ról był wpuszczany z zewnątrz
+   * i wyrzucany w środku (ten sam błąd co w `ContractInvoicesTab`).
+   */
   readOnly?: boolean;
 }
 
@@ -230,7 +236,6 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
         </div>
       )}
       {!readOnly && (
-        <RequireRole roles={["admin", "delivery_lead"]}>
         <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 space-y-3">
           <div className="flex flex-wrap items-end gap-3">
             <div>
@@ -291,7 +296,6 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
             system powiadomi o wygaśnięciu.
           </div>
         </div>
-        </RequireRole>
       )}
 
       <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-x-auto">
@@ -388,42 +392,39 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
                             <Download className="w-4 h-4" />
                           )}
                         </button>
-                        {!readOnly && (
-                          <RequireRole roles={["admin", "delivery_lead"]}>
-                            {confirmDeleteId === d.id ? (
-                              <span className="inline-flex items-center gap-1 text-xs">
-                                <span className="text-muted-foreground">Usunąć?</span>
-                                <button
-                                  type="button"
-                                  onClick={() => deleteMutation.mutate(d.id)}
-                                  disabled={deleteMutation.isPending}
-                                  aria-label={`Potwierdź usunięcie ${d.filename}`}
-                                  className="rounded px-2 py-1 font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
-                                >
-                                  Usuń
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setConfirmDeleteId(null)}
-                                  aria-label="Anuluj usuwanie"
-                                  className="rounded p-1 hover:bg-muted"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </span>
-                            ) : (
+                        {!readOnly &&
+                          (confirmDeleteId === d.id ? (
+                            <span className="inline-flex items-center gap-1 text-xs">
+                              <span className="text-muted-foreground">Usunąć?</span>
                               <button
-                                onClick={() => setConfirmDeleteId(d.id)}
+                                type="button"
+                                onClick={() => deleteMutation.mutate(d.id)}
                                 disabled={deleteMutation.isPending}
-                                className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-destructive disabled:opacity-50"
-                                title="Usuń"
-                                aria-label={`Usuń ${d.filename}`}
+                                aria-label={`Potwierdź usunięcie ${d.filename}`}
+                                className="rounded px-2 py-1 font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
                               >
-                                <Trash2 className="w-4 h-4" />
+                                Usuń
                               </button>
-                            )}
-                          </RequireRole>
-                        )}
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(null)}
+                                aria-label="Anuluj usuwanie"
+                                className="rounded p-1 hover:bg-muted"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDeleteId(d.id)}
+                              disabled={deleteMutation.isPending}
+                              className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-destructive disabled:opacity-50"
+                              title="Usuń"
+                              aria-label={`Usuń ${d.filename}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          ))}
                       </div>
                     </td>
                   </tr>

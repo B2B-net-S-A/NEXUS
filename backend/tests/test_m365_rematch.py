@@ -25,7 +25,9 @@ import pytest
 
 from app.models.m365 import EmailMatchMethod
 from app.models.section_permission import (
+    RoleActionPermission,
     RoleSectionPermission,
+    UserActionOverride,
     UserSectionOverride,
 )
 from app.models.user import User, UserRole
@@ -33,6 +35,15 @@ from app.services.m365.provider import MatchResult
 from app.services.section_permissions import DEFAULT_ROLE_SECTION_ACCESS
 from app.tasks import microsoft365_sync as rematch_mod
 from app.tasks.microsoft365_sync import RematchStats, _addresses, _rematch_pass
+
+# Resolver dostępu czyta sekcje i akcje jednym wejściem. Atrapa zwraca tylko
+# wiersze sekcji — rola bez wierszy akcji jest liczona regułą zasiewu.
+POLICY_ENTITIES = {
+    RoleActionPermission,
+    RoleSectionPermission,
+    UserActionOverride,
+    UserSectionOverride,
+}
 
 
 # ── _addresses helper ───────────────────────────────────────────────────────
@@ -135,7 +146,7 @@ def _make_db(emails: list[SimpleNamespace]) -> SimpleNamespace:
     async def _scalars(statement: Any) -> SimpleNamespace:
         entity = statement.column_descriptions[0].get("entity")
         rows = role_rows if entity is RoleSectionPermission else []
-        assert entity in {RoleSectionPermission, UserSectionOverride}
+        assert entity in POLICY_ENTITIES
         return SimpleNamespace(all=lambda: rows)
 
     return SimpleNamespace(

@@ -26,11 +26,14 @@ zamówień). Po przeglądzie:
 from __future__ import annotations
 
 import json
+from collections.abc import Collection
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.services import permission_catalog
 
 _THIS_DIR = Path(__file__).resolve().parent
 GUIDES_PATH = _THIS_DIR / "guides.json"
@@ -66,6 +69,19 @@ class AnchorRequires(BaseModel):
 
     roles: list[str] = Field(default_factory=list)
     section: Optional[str] = None
+    #: Uprawnienia z ekranu „Osoby i role” — wystarczy jedno. Przycisk, który
+    #: ekran pokazuje posiadaczom uprawnienia, opisujemy uprawnieniem, nie rolą:
+    #: lista ról przestaje być prawdą, gdy admin przełączy pozycję.
+    permissions: list[str] = Field(default_factory=list)
+
+    @field_validator("permissions")
+    @classmethod
+    def _known_permissions(cls, value: list[str]) -> list[str]:
+        unknown = [key for key in value if key not in permission_catalog.BY_KEY]
+        if unknown:
+            # Literówka ukryłaby kotwicę każdemu — lepiej paść przy starcie.
+            raise ValueError(f"Nieznane uprawnienie w przewodniku: {unknown}")
+        return value
 
 
 class GuideAnchor(BaseModel):
@@ -116,7 +132,10 @@ def load_guides() -> dict[str, ScreenGuide]:
 
 
 def _anchor_visible(
-    anchor: GuideAnchor, roles: set[str], sections: dict[str, int]
+    anchor: GuideAnchor,
+    roles: set[str],
+    sections: dict[str, int],
+    permissions: Collection[str],
 ) -> bool:
     requires = anchor.requires
     if requires is None:
@@ -125,17 +144,28 @@ def _anchor_visible(
         return False
     if requires.section and sections.get(requires.section, 0) < 1:
         return False
+    if requires.permissions and not (set(permissions) & set(requires.permissions)):
+        return False
     return True
 
 
 def guide_for_user(
-    guide: ScreenGuide, roles: set[str], sections: dict[str, int]
+    guide: ScreenGuide,
+    roles: set[str],
+    sections: dict[str, int],
+    permissions: Collection[str],
 ) -> Optional[dict[str, Any]]:
     """Przewodnik w kształcie dla odbiorcy — bez ``sources``, z kotwicami,
-    które ta osoba naprawdę widzi. ``None``: ekranu nie ma w jej menu."""
+    które ta osoba naprawdę widzi. ``None``: ekranu nie ma w jej menu.
+
+    ``permissions`` to uprawnienia z ekranu „Osoby i role”, które konto ma
+    (``action_permissions.named_permissions_of``).
+    """
     if guide.section and sections.get(guide.section, 0) < 1:
         return None
-    visible = [a for a in guide.anchors if _anchor_visible(a, roles, sections)]
+    visible = [
+        a for a in guide.anchors if _anchor_visible(a, roles, sections, permissions)
+    ]
     visible_ids = {a.id for a in visible}
     data = guide.model_dump(exclude={"sources"})
     data["anchors"] = [a.model_dump() for a in visible]

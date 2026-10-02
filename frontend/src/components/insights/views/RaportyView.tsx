@@ -13,11 +13,12 @@ import {
   REPORT_GROUPS,
   reportById,
   reportHref,
+  seesBoardTrend,
   visibleReports,
   type ReportDef,
   type ReportId,
 } from "@/lib/insights-reports";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { useAuthStore } from "@/store/auth";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
 import { useInsightsPeriod } from "@/components/insights/useInsightsPeriod";
 import { CompetenceMatrix } from "@/components/insights/sections/CompetenceMatrix";
@@ -224,9 +225,9 @@ function ReportBody({
     case "rok-do-roku":
       return (
         <div className="space-y-6">
-          {hasRole(user, "admin", "finance", "head_of_recruitment") ? (
-            <InsightsBoardYoY />
-          ) : null}
+          {/* Tabele Rady: „Moduł Finanse” albo Head of Recruitment (bez kwot —
+              redaguje serwer). Pozostali widzą same statystyki roczne. */}
+          {seesBoardTrend(user) ? <InsightsBoardYoY /> : null}
           <InsightsYearlyStats />
         </div>
       );

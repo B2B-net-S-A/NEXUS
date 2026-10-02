@@ -12,8 +12,9 @@ w Ustawieniach → Powiadomienia):
   z dodatkową rolą recruiter (reaudyt 14.09, R01).
 * ``board_monthly_report`` — **1. dzień roboczy miesiąca od 8:00**:
   podsumowanie Rady za zamknięty miesiąc (`insights_board.compute_board`
-  + tabela rok-do-roku) do admina i Finansów (= `BoardReader`; Head of
-  Recruitment nie dostaje kwot od 24.09.2026).
+  + tabela rok-do-roku) do osób z uprawnieniem „Moduł Finanse”
+  (= `BoardReader`; domyślnie admin i Finanse — Head of Recruitment nie
+  dostaje kwot od 24.09.2026).
 
 Bez duplikatu po restarcie: przed wysyłką pętla ZAKŁADA wiersz
 `kpi_email_report_runs` (UNIQUE kind+period_key). Od rundy 9 (R9-N6-3) raport
@@ -47,6 +48,8 @@ from app.models.app_setting import AppSetting
 from app.models.kpi_email_report_run import KpiEmailReportRun
 from app.models.user import User, UserRole
 from app.services import loop_heartbeat
+from app.services.action_permissions import ProductAction, has_permission
+from app.services.effective_access import resolve_effective_access
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -60,9 +63,9 @@ MONTHLY_KIND = "board_monthly_report"
 SEND_HOUR = 8
 CHECK_INTERVAL_SECONDS = 600
 
-# Bez Head of Recruitment (decyzja Artura 24.09.2026): mail niesie przychód
-# i marżę, a HoR nie widzi pieniędzy — lustro `BoardReader`.
-_BOARD_ROLES = (UserRole.admin, UserRole.finance)
+# Polityka dostępu jest doczytywana z bazy paczkami — lista kont trafia do
+# zapytań jako parametry, a asyncpg przyjmuje ich najwyżej 32 767.
+_ACCESS_BATCH = 1000
 _MONTHS_PL = (
     "styczeń",
     "luty",
@@ -244,6 +247,47 @@ async def _recipients(db: AsyncSession, roles: tuple[UserRole, ...]) -> list[Use
     ]
 
 
+def _board_readers(users: list[User]) -> list[User]:
+    """Kto z listy dostaje mail zarządu — konta z dołączoną polityką dostępu.
+
+    Mail niesie przychód i marżę, więc idzie do posiadaczy uprawnienia
+    „Moduł Finanse” (lustro `BoardReader`; domyślnie admin i Finanse), a nie
+    do listy ról: Head of Recruitment nie widzi pieniędzy (decyzja Artura
+    24.09.2026), dopóki admin nie nada mu tego uprawnienia. Odczyt sekcji
+    Insights jak przy raporcie tygodniowym.
+    """
+    return [
+        u
+        for u in users
+        if has_permission(u, ProductAction.finance_module)
+        and section_access_for_user(u, ProductSection.insights) >= SectionAccess.read
+    ]
+
+
+async def _board_recipients(db: AsyncSession) -> list[User]:
+    """Aktywne osoby z uprawnieniem „Moduł Finanse” i odczytem sekcji Insights.
+
+    Pętla w tle nie przechodzi przez uwierzytelnienie żądania, więc politykę
+    (uprawnienia ról, nadania osobom, sekcje) dołączamy z bazy sami — bez
+    tego `has_permission` liczyłby z wartości startowych z kodu, a nie
+    z tego, co admin ustawił na ekranie.
+    """
+    users = list(
+        (
+            await db.execute(
+                select(User)
+                .where(User.is_active.is_(True), User.email.is_not(None))
+                .order_by(User.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for start in range(0, len(users), _ACCESS_BATCH):
+        await resolve_effective_access(db, users[start : start + _ACCESS_BATCH])
+    return _board_readers(users)
+
+
 async def claim_report(db: AsyncSession, kind: str, period_key: str) -> Optional[int]:
     """Załóż znacznik raportu; `None` = inny kontener albo wcześniejszy bieg już go ma."""
     run_id = await db.scalar(
@@ -319,7 +363,7 @@ async def _monthly_mails(
     from app.services.insights_board import compute_board
     from app.services.insights_board_yoy import compute_board_yoy, resolve_years
 
-    recipients = await _recipients(db, _BOARD_ROLES)
+    recipients = await _board_recipients(db)
     if not recipients:
         return []
     year, month = (int(part) for part in period_key.split("-"))

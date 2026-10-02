@@ -11,8 +11,15 @@ from app.analytics.capabilities import (
     require_capability,
     user_has_capability,
 )
-from app.models.user import User, UserRole
+from app.models.user import User
+from app.services import permission_catalog as catalog
+from app.services.access_scope import (
+    DL_CLIENT_OUT_OF_SCOPE_DETAIL,
+    is_delivery_lead_governed,
+)
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.candidate_audit import CLIENT_RATE_CHANGED
+from app.services.permission_denial import permission_denied
 
 
 class _RoleAwareUser(Protocol):
@@ -42,49 +49,37 @@ def can_read_client_finance(
 ) -> bool:
     """Czy odbiorca widzi kwoty JEDNEGO klienta: stawki, marżę, przychód, MRR.
 
-    Role z ``VIEW_FINANCE`` — zawsze. Delivery Lead — **wyłącznie u klienta ze
-    swojego portfela**, mimo że tej capability nie ma. To delivery odpowiada za
-    obsadę i marżę swoich klientów, a bez tego wyjątku rola, dla której te
-    ekrany powstały, widziała w kolumnach finansowych same „—".
+    Dwie drogi:
+
+    * ``VIEW_FINANCE`` (uprawnienie „Moduł Finanse”) — kwoty każdego klienta,
+    * uprawnienie „Stawki i kwoty: podgląd” — u klientów z zakresu konta.
+      Konto z rolą Delivery Leada widzi kwoty **wyłącznie u klientów
+      z przypisania**, pozostali posiadacze — u wszystkich.
 
     **Capability ZOSTAJE nienadana globalnie.** ``VIEW_FINANCE`` steruje 40+
     powierzchniami (eksport kontraktów, ``/settings/clients-overview``,
-    dashboardy zarządcze), więc dopisanie jej roli ``delivery_lead``
-    w ``ROLE_CAPABILITIES`` otworzyłoby je wszystkie naraz. Ten sam kompromis
-    co ``_can_see_finance`` w module zamówień: wąska powierzchnia zamiast
-    szerokiej capability.
+    dashboardy zarządcze); podgląd kwot klienta jest od niej węższy.
 
-    Zakres jest wąski i trzeba go pilnować:
-
-    * ``client_id`` musi leżeć w finansowej granicy portfela wyznaczonej przez
-      ``resolve_delivery_lead_finance_client_ids``. Jest ona niezależna od
-      organizacyjnego dostępu operacyjnego DL do wszystkich klientów,
-    * ``None`` jako granica znaczy „ten odbiorca NIE jest rządzony personą DL"
-      (admin, Finance albo rola nie-DL) i finansów stąd nie dostaje. Każda
-      multi-rola zawierająca ``delivery_lead`` dostaje z resolvera konkretny
-      zbiór klientów, więc uprawnienie DL nie rozszerza się przez równoległą
-      rolę HoR/TCM na całą organizację,
-    * ``tac`` zostaje przy redakcji: jest w zespole klienta i widzi
-      konsultantów, ale obsady nie prowadzi, więc stawki go nie dotyczą.
+    ``delivery_lead_finance_client_ids`` to wynik
+    ``resolve_delivery_lead_finance_client_ids``: konkretny zbiór dla konta
+    rządzonego portfelem DL, ``None`` dla pozostałych. Zbiór wiąże także
+    konta wielorolowe — uprawnienie DL nie rozszerza się przez równoległą
+    rolę HoR/TCM na całą organizację. ``None`` u konta rządzonego portfelem
+    DL oznacza błąd wołającego i kończy się odmową.
 
     Konsumenci: profil klienta (``api/clients.py``), portal DL
-    (``api/my_clients.py``), kontrakty i roster kontraktorów. Reguła mieszka
-    tutaj, bo rozjazd lokalnych kopii kończy się ekranami, które pokazują inne
-    uprawnienia do tych samych kwot tego samego klienta.
+    (``api/my_clients.py``), kontrakty, zamówienia i roster kontraktorów.
+    Reguła mieszka tutaj, bo rozjazd lokalnych kopii kończy się ekranami,
+    które pokazują inne uprawnienia do tych samych kwot tego samego klienta.
     """
 
     if has_financial_access(user):
         return True
-    if delivery_lead_finance_client_ids is None:
+    if not has_permission(user, ProductAction.amounts_view):
         return False
-    # Test roli jest redundantny wobec kontraktu
-    # ``resolve_delivery_lead_finance_client_ids`` (konkretny zbiór = persona DL) —
-    # i ma taki zostać. Gdyby ta funkcja zaczęła kiedyś zwracać zbiór dla innej
-    # persony, sam warunek na granicy po cichu rozdałby jej kwoty.
-    return (
-        user.has_role(UserRole.delivery_lead)
-        and client_id in delivery_lead_finance_client_ids
-    )
+    if delivery_lead_finance_client_ids is None:
+        return not is_delivery_lead_governed(user)
+    return client_id in delivery_lead_finance_client_ids
 
 
 def require_financial_access(user: _RoleAwareUser) -> None:
@@ -111,57 +106,96 @@ FinanceApproveUser = Annotated[
 ]
 
 
-# ── Zapis kwot kontraktów i zamówień (decyzja Artura 22.09.2026) ────────────
+# ── Zapis kwot kontraktów i zamówień ────────────────────────────────────────
 #
-# Finanse zmieniają kwoty kontraktów i zamówień przez ``MANAGE_FINANCE``
-# (rola ``finance`` z zapisem w sekcji Finanse). Do 22.09 te pola zapisywał
-# wyłącznie admin (plus przypisany DL na zamówieniach), mimo że capability
-# istniała. Trasy mieszane (kontrakt, zamówienie, linia MD) wpuszczają osobę
-# z samym ``MANAGE_FINANCE`` wyłącznie po to, żeby zmieniła KWOTY — reszta
-# pól zostaje przy rolach operacyjnych danej trasy.
+# Kwoty kontraktu zmienia uprawnienie „Stawki i kwoty: zmiana” (domyślnie
+# Finanse; decyzja Artura 22.09.2026). Kwoty zamówienia i linii MD zmienia
+# dodatkowo osoba, która prowadzi zamówienia i widzi kwoty klienta — tak jak
+# od początku przypisany Delivery Lead. Trasy mieszane (kontrakt, zamówienie,
+# linia MD) wpuszczają osobę z samą zmianą kwot wyłącznie po to, żeby zmieniła
+# KWOTY — reszta pól wymaga prawa edycji rekordu.
 
 
-def can_manage_finance_amounts(user: User) -> bool:
-    """Zapis kwot kontraktu i zamówienia: admin albo ``MANAGE_FINANCE``."""
+def can_manage_finance_amounts(
+    user: User,
+    *,
+    client_id: int | None = None,
+    delivery_lead_finance_client_ids: frozenset[int] | None = None,
+) -> bool:
+    """Zmiana kwot kontraktu i zamówienia: „Stawki i kwoty: zmiana”.
 
-    return user.has_role(UserRole.admin) or user_has_capability(
-        user, AnalyticsCapability.MANAGE_FINANCE
+    Konto rządzone portfelem Delivery Leada zmienia kwoty wyłącznie u klientów
+    z przypisania, więc wołający podaje klienta i granicę
+    (``resolve_delivery_lead_finance_client_ids``); bez nich takie konto
+    dostaje odmowę. Pozostałych posiadaczy granica nie dotyczy.
+    """
+
+    if not has_permission(user, ProductAction.amounts_edit):
+        return False
+    if not is_delivery_lead_governed(user):
+        return True
+    return (
+        client_id is not None
+        and delivery_lead_finance_client_ids is not None
+        and client_id in delivery_lead_finance_client_ids
     )
 
 
-def require_roles_or_finance_manager(*roles: UserRole):
-    """Bramka trasy mieszanej: role operacyjne trasy albo ``MANAGE_FINANCE``.
+def can_write_order_amounts(
+    user: User,
+    *,
+    client_id: int,
+    delivery_lead_finance_client_ids: frozenset[int] | None,
+) -> bool:
+    """Kwoty zamówienia i linii MD.
 
-    Samo ``MANAGE_FINANCE`` daje wyłącznie zapis kwot — handler MUSI wołać
-    ``assert_finance_manager_touches_only_amounts``.
+    „Stawki i kwoty: zmiana” albo — jak dotąd przypisany Delivery Lead —
+    prowadzenie zamówień razem z podglądem kwot tego klienta.
     """
 
-    from app.api.deps import ROLE_DENIED_DETAIL, require_onboarded_user
+    if can_manage_finance_amounts(
+        user,
+        client_id=client_id,
+        delivery_lead_finance_client_ids=delivery_lead_finance_client_ids,
+    ):
+        return True
+    return has_permission(
+        user, ProductAction.contracts_orders_edit
+    ) and can_read_client_finance(
+        user,
+        client_id=client_id,
+        delivery_lead_finance_client_ids=delivery_lead_finance_client_ids,
+    )
 
-    async def _check(current_user: User = Depends(require_onboarded_user)) -> User:
-        if (
-            current_user.has_role(UserRole.admin)
-            or current_user.has_any_role(*roles)
-            or user_has_capability(current_user, AnalyticsCapability.MANAGE_FINANCE)
-        ):
-            return current_user
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail=ROLE_DENIED_DETAIL
+
+def order_amounts_denied(user: User) -> HTTPException:
+    """Odmowa zapisu kwot zamówienia, która nazywa to, czego brakuje.
+
+    Kto prowadzi zamówienia, ale nie widzi kwot, potrzebuje podglądu kwot;
+    kto ma komplet uprawnień, a mimo to trafił tutaj, jest poza swoim
+    portfelem; pozostałym brakuje zmiany kwot.
+    """
+
+    edits_orders = has_permission(user, ProductAction.contracts_orders_edit)
+    if edits_orders and not has_permission(user, ProductAction.amounts_view):
+        return permission_denied(ProductAction.amounts_view)
+    if edits_orders or has_permission(user, ProductAction.amounts_edit):
+        return HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=DL_CLIENT_OUT_OF_SCOPE_DETAIL,
         )
+    return permission_denied(ProductAction.amounts_edit)
 
-    return _check
 
-
-def assert_finance_manager_touches_only_amounts(
-    user: User,
+def assert_amounts_only(
     supplied_fields,
     amount_fields,
     *,
-    operational_roles: tuple[UserRole, ...],
+    can_edit_record: bool,
 ) -> None:
-    """Osoba wpuszczona wyłącznie przez ``MANAGE_FINANCE`` zmienia tylko kwoty."""
+    """Osoba bez prawa edycji rekordu (ma samą zmianę kwot) zmienia tylko kwoty."""
 
-    if user.has_role(UserRole.admin) or user.has_any_role(*operational_roles):
+    if can_edit_record:
         return
     extra = sorted(set(supplied_fields) - set(amount_fields))
     if extra:
@@ -169,7 +203,11 @@ def assert_finance_manager_touches_only_amounts(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
                 "code": "finance_amounts_only",
-                "message": "Finanse zmieniają tutaj wyłącznie kwoty.",
+                "message": (
+                    f"Uprawnienie „{catalog.label('amounts_edit')}” pozwala tu "
+                    "zmienić wyłącznie kwoty. Do pozostałych pól potrzebujesz "
+                    f"„{catalog.label('contracts_orders_edit')}”."
+                ),
                 "fields": extra,
             },
         )

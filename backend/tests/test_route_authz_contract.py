@@ -44,8 +44,6 @@ _GATE_QUALNAME_MARKERS = (
     "require_roles",
     "require_section_access",
     "require_candidate_roles",
-    "require_dl_assigned_or_admin",
-    "require_delivery_lead_or_admin",
     "require_financial_access",
     "require_capability",
     "_snapshot_auth",
@@ -67,6 +65,11 @@ _GATE_QUALNAME_MARKERS = (
     # 0374: trasy „Telefony na dziś” — wyłącznie konto praktykanta, a w serwisie
     # wyłącznie pozycje jego własnej listy (`_own_item`).
     "require_trainee",
+    # 0410: bramki dziewięciu uprawnień z ekranu Ustawienia → Osoby i role.
+    "require_permission",
+    "require_any_permission",
+    "require_client_contracts_edit",
+    "_require_board_trend_reader",
 )
 
 # The bare authentication dependency: proves identity, decides nothing.

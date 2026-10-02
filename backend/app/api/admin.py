@@ -21,6 +21,11 @@ from app.models.client import Client
 from app.models.contract import Contract
 from app.models.job import Job
 from app.models.notification import NotificationType
+from app.models.section_permission import (
+    RoleActionPermission,
+    RoleSectionPermission,
+    UserActionOverride,
+)
 from app.models.user import User, UserRole
 from app.models.user_activity import UserActivity
 from app.api.deps import AdminUser, ensure_exclusive_role_configuration
@@ -50,8 +55,10 @@ from app.services.client_identity import visible_client_predicates
 from app.services import trainee_program
 from app.services.user_email import find_user_by_email, normalize_email
 from app.services.critical_events import record_executed
-from app.services.action_permissions import resolve_effective_action_access
-from app.services.section_permissions import resolve_effective_section_access
+from app.services.effective_access import (
+    granted_beyond_roles,
+    resolve_effective_access,
+)
 from app.services.user_response import build_user_response
 
 router = APIRouter()
@@ -70,6 +77,9 @@ class AdminUserResponse(BaseModel):
     is_active: bool
     # Imienne uprawnienie do usuwania klientów (0307).
     can_delete_clients: bool = False
+    # Uprawnienia z ekranu nadane tej osobie ponad to, co dają jej role
+    # (plakietka „+N uprawnienie” na liście kont).
+    extra_permissions: list[str] = []
     activity_count: int
     last_activity: Optional[datetime] = None
     created_at: datetime
@@ -178,6 +188,21 @@ async def list_users(
         for row in activity_result.all()
     }
 
+    # Nadania osób: jedno zapytanie na całą listę; macierz ról doczytujemy
+    # tylko wtedy, gdy ktokolwiek ma nadanie (na co dzień to kilka kont).
+    grants_by_user: dict[int, list[UserActionOverride]] = {}
+    for grant in (
+        await db.scalars(
+            select(UserActionOverride).where(UserActionOverride.access == "manage")
+        )
+    ).all():
+        grants_by_user.setdefault(grant.user_id, []).append(grant)
+    section_rows: list[RoleSectionPermission] = []
+    action_rows: list[RoleActionPermission] = []
+    if grants_by_user:
+        section_rows = list((await db.scalars(select(RoleSectionPermission))).all())
+        action_rows = list((await db.scalars(select(RoleActionPermission))).all())
+
     return [
         AdminUserResponse(
             id=u.id,
@@ -187,6 +212,14 @@ async def list_users(
             roles=[UserRole(r) for r in (u.roles or []) if r in UserRole.__members__],
             is_active=u.is_active,
             can_delete_clients=bool(u.can_delete_clients),
+            extra_permissions=list(
+                granted_beyond_roles(
+                    u,
+                    section_role_rows=section_rows,
+                    action_role_rows=action_rows,
+                    action_override_rows=grants_by_user.get(u.id, []),
+                )
+            ),
             activity_count=activity_map.get(u.id, {}).get("count", 0),
             last_activity=activity_map.get(u.id, {}).get("last"),
             created_at=u.created_at,
@@ -589,8 +622,7 @@ async def start_impersonation(
         )
     )
     await db.flush()
-    await resolve_effective_section_access(db, target)
-    await resolve_effective_action_access(db, target)
+    await resolve_effective_access(db, [target])
     return await build_user_response(target, db)
 
 

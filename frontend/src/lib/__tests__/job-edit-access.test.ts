@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { canEditJobContent, jobEditScope } from "@/lib/job-edit-access";
+import { hasCapability } from "@/lib/capabilities";
+import {
+  canEditJobContent,
+  hasFullJobEditFallback,
+  jobEditScope,
+} from "@/lib/job-edit-access";
+import type { UserRole } from "@/store/auth";
+
+import { accessSnapshot } from "./fixtures/access-snapshot";
 
 const write = { canWritePipeline: true };
 
@@ -33,12 +41,12 @@ describe("jobEditScope — kto edytuje rekrutację (22.09.2026)", () => {
 });
 
 describe("canEditJobContent — Profil Championa", () => {
-  it("pole z serwera wygrywa z lustrem ról", () => {
+  it("pole z serwera wygrywa z regułą zapasową", () => {
     expect(canEditJobContent({ can_edit: true }, { ...write, fallback: false })).toBe(true);
     expect(canEditJobContent({ can_edit: false }, { ...write, fallback: true })).toBe(false);
   });
 
-  it("bez pola — dotychczasowe lustro (admin + DL)", () => {
+  it("bez pola — reguła zapasowa wołającego", () => {
     expect(canEditJobContent({}, { ...write, fallback: true })).toBe(true);
     expect(canEditJobContent(undefined, { ...write, fallback: false })).toBe(false);
   });
@@ -46,6 +54,54 @@ describe("canEditJobContent — Profil Championa", () => {
   it("bez zapisu Pipeline nigdy", () => {
     expect(
       canEditJobContent({ can_edit: true }, { canWritePipeline: false, fallback: true }),
+    ).toBe(false);
+  });
+});
+
+describe("hasFullJobEditFallback — reguła zapasowa pełnej edycji", () => {
+  const ALL_ROLES: UserRole[] = [
+    "admin",
+    "finance",
+    "head_of_recruitment",
+    "delivery_lead",
+    "talent_community_manager",
+    "tac",
+    "recruiter",
+    "sourcer",
+    "user",
+    "trainee",
+  ];
+
+  it("domyślnie admin i Delivery Lead (uprawnienie) oraz TAC (rola)", () => {
+    expect(ALL_ROLES.filter((role) => hasFullJobEditFallback({ role })).sort()).toEqual(
+      ["admin", "delivery_lead", "tac"].sort(),
+    );
+    expect(hasFullJobEditFallback(null)).toBe(false);
+  });
+
+  it("idzie za uprawnieniem do rekrutacji, a TAC zostaje z tytułu roli", () => {
+    expect(
+      hasFullJobEditFallback(accessSnapshot("recruiter", { grant: ["recruitment_manage"] })),
+    ).toBe(true);
+    expect(
+      hasFullJobEditFallback(
+        accessSnapshot("delivery_lead", { revoke: ["recruitment_manage"] }),
+      ),
+    ).toBe(false);
+    expect(hasFullJobEditFallback(accessSnapshot("tac"))).toBe(true);
+  });
+
+  it("to tytuł do `job.update` bez sufitu sekcji — sufit dokłada wołający", () => {
+    const readOnlyPipeline = accessSnapshot("delivery_lead", {
+      sectionCaps: { pipeline: "read" },
+    });
+    expect(hasFullJobEditFallback(readOnlyPipeline)).toBe(true);
+    expect(hasCapability(readOnlyPipeline, "job.update")).toBe(false);
+    expect(
+      canEditJobContent(
+        {},
+        { canWritePipeline: false, fallback: hasFullJobEditFallback(readOnlyPipeline) },
+      ),
     ).toBe(false);
   });
 });

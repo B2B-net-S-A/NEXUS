@@ -1,0 +1,132 @@
+{
+  "groups": [
+    {
+      "key": "clients_contracts",
+      "label": "Klienci i kontrakty",
+      "permissions": [
+        "delivery_view",
+        "clients_edit",
+        "contracts_orders_edit",
+        "contract_status",
+        "b2b_signature_confirmation"
+      ]
+    },
+    {
+      "key": "recruitment",
+      "label": "Rekrutacje",
+      "permissions": [
+        "recruitment_manage"
+      ]
+    },
+    {
+      "key": "money",
+      "label": "Pieniądze",
+      "permissions": [
+        "amounts_view",
+        "amounts_edit",
+        "finance_module"
+      ]
+    }
+  ],
+  "permissions": [
+    {
+      "key": "delivery_view",
+      "label": "Klienci, kontrakty i zamówienia: podgląd",
+      "group": "clients_contracts",
+      "requires": [],
+      "default_roles": [
+        "finance",
+        "delivery_lead",
+        "talent_community_manager"
+      ]
+    },
+    {
+      "key": "clients_edit",
+      "label": "Klienci: dodawanie i edycja",
+      "group": "clients_contracts",
+      "requires": [
+        "delivery_view"
+      ],
+      "default_roles": [
+        "delivery_lead"
+      ]
+    },
+    {
+      "key": "contracts_orders_edit",
+      "label": "Kontrakty i zamówienia: tworzenie i edycja",
+      "group": "clients_contracts",
+      "requires": [
+        "delivery_view"
+      ],
+      "default_roles": [
+        "delivery_lead",
+        "finance"
+      ]
+    },
+    {
+      "key": "contract_status",
+      "label": "Zakończenie współpracy, zmiana statusu kontraktu",
+      "group": "clients_contracts",
+      "requires": [
+        "delivery_view"
+      ],
+      "default_roles": [
+        "delivery_lead",
+        "talent_community_manager"
+      ]
+    },
+    {
+      "key": "b2b_signature_confirmation",
+      "label": "Umowy B2B: oznaczanie jako podpisane",
+      "group": "clients_contracts",
+      "requires": [],
+      "default_roles": [
+        "delivery_lead",
+        "talent_community_manager"
+      ]
+    },
+    {
+      "key": "recruitment_manage",
+      "label": "Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta",
+      "group": "recruitment",
+      "requires": [],
+      "default_roles": [
+        "delivery_lead"
+      ]
+    },
+    {
+      "key": "amounts_view",
+      "label": "Stawki i kwoty: podgląd",
+      "group": "money",
+      "requires": [
+        "delivery_view"
+      ],
+      "default_roles": [
+        "finance",
+        "delivery_lead"
+      ]
+    },
+    {
+      "key": "amounts_edit",
+      "label": "Stawki i kwoty: zmiana",
+      "group": "money",
+      "requires": [
+        "amounts_view"
+      ],
+      "default_roles": [
+        "finance"
+      ]
+    },
+    {
+      "key": "finance_module",
+      "label": "Moduł Finanse",
+      "group": "money",
+      "requires": [
+        "amounts_view"
+      ],
+      "default_roles": [
+        "finance"
+      ]
+    }
+  ]
+}

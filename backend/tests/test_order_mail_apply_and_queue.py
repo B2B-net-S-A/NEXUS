@@ -295,7 +295,13 @@ async def test_tcm_gets_safe_order_mail_read_and_hor_is_section_denied(
         f"/api/order-mail/queue/{seeded['doc_id']}/apply", headers=tcm_headers
     )
     assert apply_response.status_code == 403
-    assert apply_response.json()["detail"]["code"] == "section_access_denied"
+    # TCM ma zapis w sekcji Delivery (z „Zakończenie współpracy”), więc odmawia
+    # bramka uprawnienia trasy: zapis zamówienia z maila to prowadzenie
+    # zamówień. Sama „zmiana kwot” nie wystarcza — to zakładanie zamówienia,
+    # nie edycja kwot.
+    denial = apply_response.json()["detail"]
+    assert denial["code"] == "permission_denied"
+    assert denial["permissions"] == ["contracts_orders_edit"]
 
     hor_headers = await _headers_for_role(app_client, UserRole.head_of_recruitment)
     denied = await app_client.get(
@@ -433,12 +439,13 @@ async def test_refresh_plan_uses_saved_pdf_without_writing_orders(
 async def test_refresh_plan_rejects_read_only_roles_and_partially_applied_document(
     seeded, app_client
 ):
-    for role in (UserRole.finance, UserRole.talent_community_manager):
-        headers = await _headers_for_role(app_client, role)
-        response = await app_client.post(
-            f"/api/order-mail/queue/{seeded['doc_id']}/refresh-plan", headers=headers
-        )
-        assert response.status_code == 403
+    # Finanse prowadzą zamówienia (decyzja 02.10.2026) i przeliczają plan —
+    # `test_permissions_orders.py`. Z samym podglądem zostaje TCM.
+    headers = await _headers_for_role(app_client, UserRole.talent_community_manager)
+    response = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/refresh-plan", headers=headers
+    )
+    assert response.status_code == 403
     async with AsyncSessionLocal() as db:
         doc = await db.get(OrderMailDocument, seeded["doc_id"])
         doc.proposal = {
@@ -702,9 +709,11 @@ async def test_admin_can_dismiss_an_unrecognized_document(
         doc.client_id = None
         await db.commit()
 
-    finance = await _headers_for_role(app_client, UserRole.finance)
+    # Sam podgląd (TCM) nie odrzuca; dokument bez klienta odrzuca konto, które
+    # prowadzi zamówienia u wszystkich klientów.
+    tcm = await _headers_for_role(app_client, UserRole.talent_community_manager)
     refused = await app_client.post(
-        f"/api/order-mail/queue/{seeded['doc_id']}/dismiss", headers=finance
+        f"/api/order-mail/queue/{seeded['doc_id']}/dismiss", headers=tcm
     )
     assert refused.status_code == 403
 
@@ -756,9 +765,9 @@ async def test_failed_entry_can_be_dismissed_and_says_whether_it_is_retried(
     )
     assert no_file.json()["failed_retry_pending"] is False
 
-    finance = await _headers_for_role(app_client, UserRole.finance)
+    tcm = await _headers_for_role(app_client, UserRole.talent_community_manager)
     refused = await app_client.post(
-        f"/api/order-mail/queue/{seeded['doc_id']}/dismiss", headers=finance
+        f"/api/order-mail/queue/{seeded['doc_id']}/dismiss", headers=tcm
     )
     assert refused.status_code == 403
 

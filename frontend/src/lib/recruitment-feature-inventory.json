@@ -98,7 +98,8 @@
    "opis": "Widok kafelków",
    "file": "components/v2/pages/JobsListV2.tsx",
    "marker": "jobsView",
-   "v3_home": "bez zmian"
+   "v3_home": "bez zmian",
+   "removed_reason": "Decyzja Artura 02.10.2026 („kafelki opcję wywal całkowicie”): lista rekrutacji ma jeden widok — tabelę z prostym wierszem. To, co kafelek pokazywał dodatkowo (must-have, numery, miasta), jest w Podglądzie; plakietka „Brak opiekuna TAC” żyła tylko na kafelku i zniknęła razem z nim."
   },
   {
    "id": "list.unopenable",
@@ -754,10 +755,18 @@
   {
    "id": "list.similar-jobs",
    "area": "lista",
-   "opis": "Plakietka „Podobne rekrutacje” pod tytułem: ↻ połączone (przepięto N), ≈ sugestie z osobami u klienta → okno przepięć",
+   "opis": "„Podobne rekrutacje” w wierszu: ikona w kolumnie akcji (połączone albo sugestie z osobami u klienta) → okno przepięć",
    "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "SimilarJobsIconButton",
+   "v3_home": "lista → ikona w kolumnie akcji wiersza"
+  },
+  {
+   "id": "list.preview-details",
+   "area": "lista",
+   "opis": "Szczegóły w Podglądzie (02.10.2026): wymagania, nazwa od klienta, numer u klienta, nasz numer, tryb pracy i miasta, data otwarcia, plakietka „Podobne rekrutacje” (↻ połączone, ≈ sugestie + Przepnij), plakietki Priority Work",
+   "file": "components/v2/jobs/JobPreviewDetails.tsx",
    "marker": "SimilarJobsCell",
-   "v3_home": "lista → plakietka pod tytułem rekrutacji"
+   "v3_home": "lista → Podgląd (ikona oka), zakładka Gotowość"
   },
   {
    "id": "header.similar-jobs",

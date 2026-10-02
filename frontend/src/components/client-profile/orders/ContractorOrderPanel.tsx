@@ -58,6 +58,7 @@ import {
   type LegacyClientOrderType,
 } from "@/lib/client-order-list";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
+import { permissionLabel } from "@/lib/permissions";
 import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import { normalizeOrderCurrency } from "@/components/orders/OrderRateUnitToggle";
@@ -679,8 +680,13 @@ export function ContractorOrderPanel({
     </span>
   );
 
+  // Kto widzi kwoty, rozstrzyga uprawnienie (i zakres Delivery Leada), nie rola —
+  // podpowiedź nazywa uprawnienie, o które można poprosić administratora.
   const redactedAmount = (
-    <span className="text-muted-foreground" title="Kwoty widzi administrator, Finanse i Delivery Lead tego klienta">
+    <span
+      className="text-muted-foreground"
+      title={`Kwoty widzą osoby z uprawnieniem „${permissionLabel("amounts_view")}” (Delivery Lead — u swoich klientów)`}
+    >
       —
     </span>
   );

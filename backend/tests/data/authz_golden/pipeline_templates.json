@@ -1,0 +1,41 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
+ ],
+ "routes": {
+  "DELETE /api/pipeline-templates/{template_id}": "PDDPDDDDDDPPPDDDDDDDD",
+  "DELETE /api/pipeline-templates/{template_id}/rejection-reasons/{reason_id}": "PDDPDDDDDDPPPDDDDDDDD",
+  "DELETE /api/pipeline-templates/{template_id}/stages/{stage_id}": "PDDPDDDDDDPPPDDDDDDDD",
+  "GET /api/pipeline-templates": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/pipeline-templates/{template_id}": "PPPPPPPPPDPPPPPPPPPPP",
+  "PATCH /api/pipeline-templates/{template_id}": "PDDPDDDDDDPPPDDDDDDDD",
+  "PATCH /api/pipeline-templates/{template_id}/rejection-reasons/{reason_id}": "PDDPDDDDDDPPPDDDDDDDD",
+  "PATCH /api/pipeline-templates/{template_id}/stages/reorder": "PDDPDDDDDDPPPDDDDDDDD",
+  "PATCH /api/pipeline-templates/{template_id}/stages/{stage_id}": "PDDPDDDDDDPPPDDDDDDDD",
+  "POST /api/pipeline-templates": "PDDPDDDDDDPPPDDDDDDDD",
+  "POST /api/pipeline-templates/assign-to-job/{job_id}": "PDDPDDDDDDPPPDDDDDDDD",
+  "POST /api/pipeline-templates/{template_id}/clone": "PDDPDDDDDDPPPDDDDDDDD",
+  "POST /api/pipeline-templates/{template_id}/rejection-reasons": "PDDPDDDDDDPPPDDDDDDDD",
+  "POST /api/pipeline-templates/{template_id}/stages": "PDDPDDDDDDPPPDDDDDDDD"
+ }
+}

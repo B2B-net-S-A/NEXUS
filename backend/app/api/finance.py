@@ -46,7 +46,7 @@ from app.models.finance import (
     FinanceImportRunStatus,
     FinanceMonthlyResult,
 )
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.finance import (
     EDITABLE_NUMERIC_FIELDS,
     FinanceHeaderMismatch,
@@ -83,6 +83,7 @@ from app.core.upload_filename import fit_filename_column
 from app.services import finance_order_pdfs
 from app.services import nordea_invoice_lines, order_change_checks
 from app.services import storage_service
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -915,17 +916,19 @@ def _impersonating(request: Request) -> bool:
 
 
 def _can_check(request: Request, user: User) -> bool:
-    """Odhaczać mogą role Admin i Finanse z ZAPISEM sekcji Finanse.
+    """Odhaczać mogą osoby z uprawnieniem „Moduł Finanse” i zapisem sekcji.
 
-    Lustro bramek ``POST /order-changes/checks`` (rola + zapis sekcji z
-    ``FINANCE_SECTION_DEPENDENCIES``). Sama rola nie wystarczała: osoba
-    z sekcją odebraną do odczytu widziała aktywne checkboxy, a każde
-    kliknięcie kończyło się 403. Nigdy w trybie „podgląd jako".
+    Lustro bramek ``POST /order-changes/checks``: uprawnienie
+    (``FinanceModuleUser``; domyślnie Admin i Finanse) i zapis sekcji
+    z ``FINANCE_SECTION_DEPENDENCIES``. Sekcja Finanse wynika z uprawnienia,
+    ale stary wyjątek osoby potrafi ją ograniczyć do odczytu — taka osoba
+    widziałaby aktywne checkboxy, a każde kliknięcie kończyłoby się 403.
+    Nigdy w trybie „podgląd jako".
     """
 
     return (
         not _impersonating(request)
-        and user.has_any_role(UserRole.admin, UserRole.finance)
+        and has_permission(user, ProductAction.finance_module)
         and section_access_for_user(user, ProductSection.finance) >= SectionAccess.write
     )
 
@@ -959,7 +962,7 @@ async def set_order_change_check(
     user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Odhacza pozycję jako „Zrobione" albo cofa odhaczenie (Admin i Finanse).
+    """Odhacza pozycję jako „Zrobione" albo cofa odhaczenie („Moduł Finanse”).
 
     Pozycja musi istnieć w audycie wskazanego miesiąca — klucz spoza niego
     to nieaktualny widok (zamówienie zmieniono w międzyczasie), nie zapis.

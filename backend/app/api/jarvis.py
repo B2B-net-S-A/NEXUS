@@ -42,6 +42,7 @@ from app.models.jarvis import (
     JarvisMessage,
     JarvisUiEvent,
 )
+from app.services.action_permissions import named_permissions_of
 from app.services.ai_models import model_for
 from app.services.jarvis import actions as jarvis_actions
 from app.services.jarvis import agent, store
@@ -341,6 +342,7 @@ async def jarvis_chat(
         now=local_now(),
         notes=[] if payload.web else list(prefs.notes),
         sections={s.value: v for s, v in _section_map(current_user).items()},
+        permissions=sorted(named_permissions_of(current_user)),
         web=payload.web,
     )
     # Runda 8 (R8-N1-1): sesja requestu (auth, snapshot uprawnień) zamyka się

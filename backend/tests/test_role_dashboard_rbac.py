@@ -377,6 +377,24 @@ def test_scoped_job_operations_use_exact_delivery_scope_and_hide_budget() -> Non
         {"salary_min", "salary_max"},
         _user(UserRole.admin, roles=["admin", "delivery_lead"]),
     )
+    # Od 0410 rekrutację zakłada każdy posiadacz uprawnienia „Rekrutacje” —
+    # widełki zostają przy roli: admin albo TAC, jak mówi komunikat.
+    for role in (
+        UserRole.recruiter,
+        UserRole.sourcer,
+        UserRole.head_of_recruitment,
+        UserRole.finance,
+    ):
+        with pytest.raises(HTTPException) as exc:
+            _assert_delivery_lead_finance_write({"salary_min"}, _user(role))
+        assert exc.value.status_code == 403
+        _assert_delivery_lead_finance_write({"title", "deadline"}, _user(role))
+    _assert_delivery_lead_finance_write({"salary_min"}, _user(UserRole.tac))
+    with pytest.raises(HTTPException):
+        _assert_delivery_lead_finance_write(
+            {"salary_max"},
+            _user(UserRole.tac, roles=["tac", "delivery_lead"]),
+        )
 
 
 def test_shared_delivery_client_scope_is_deny_all_when_unassigned() -> None:

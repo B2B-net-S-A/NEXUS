@@ -8,8 +8,13 @@ mógł zmieniać kontakty i prywatne notatki relacyjne. Teraz decyzje podejmuje
 - odczyt listy jest współdzielony z Pipeline i zawężany grafem klient/Job;
 - ``relationship_notes`` (dane prywatne) tylko admin lub uprawniony owner —
   pozostali dostają projekcję BEZ tego pola (nie ``null``);
-- create/update/delete: admin lub Delivery Lead u klientów z portfela;
-- owner relacji może edytować pola relacyjne swojego kontaktu;
+- create/update/delete: uprawnienie „Klienci: dodawanie i edycja” (domyślnie
+  admin i Delivery Lead); konto z rolą DL — u klientów z portfela. Odmowa
+  nazywa brakujące uprawnienie; tworzenie i usuwanie deklarują je zależnością
+  trasy (``CLIENTS_EDIT_DEPENDENCIES``);
+- owner relacji może edytować pola relacyjne swojego kontaktu — dlatego
+  ``PUT`` NIE deklaruje uprawnienia i rozstrzyga w handlerze
+  (``ClientAccess.edit_denial``);
 - zmiana ``key_relationship_owner_id``: admin (wyjątek: claim None → self);
 - każda mutacja zostawia audit event w ``activities`` (bez wartości pól
   prywatnych — tylko nazwy pól).
@@ -29,12 +34,14 @@ from app.models.contact import Contact, RelationshipStrength
 from app.models.client import Client
 from app.models.user import User
 from app.api.deps import get_current_user
+from app.api.permission_access import require_permission
 from app.api.section_access import (
     DeliverySectionUser,
     ProductSection,
     SectionAccess,
     section_access_for_user,
 )
+from app.services.action_permissions import ProductAction
 from app.services.client_access import (
     contact_private_notes_checker,
     ClientAccess,
@@ -47,6 +54,12 @@ from app.services.client_access import (
 )
 
 router = APIRouter()
+
+# Tworzenie i usuwanie kontaktu wymaga uprawnienia „Klienci: dodawanie
+# i edycja”. Deklaruje je TRASA (dekorator), nie parametr handlera: odmowa
+# nazywa brakującą pozycję, zanim sięgniemy do bazy — także wtedy, gdy
+# zatrzymuje bramka sekcji. U kogo wolno, rozstrzyga dalej ``ClientAccess``.
+CLIENTS_EDIT_DEPENDENCIES = [Depends(require_permission(ProductAction.clients_edit))]
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -314,6 +327,7 @@ async def list_client_contacts(
     "/contacts",
     response_model=AnyContactResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
 )
 async def create_contact(
     data: ContactCreate,
@@ -323,7 +337,9 @@ async def create_contact(
     await assert_client_exists(db, data.client_id)
     access = await resolve_client_access(db, current_user, data.client_id)
     if not access.can_edit_contacts:
-        raise deny("tworzenie kontaktów wymaga roli admin lub Delivery Lead")
+        raise access.edit_denial(
+            "tworzenie kontaktów wymaga roli admin lub Delivery Lead"
+        )
     # Runda 7 (R7-X5-4): kontakt usuniętego albo scalonego klienta nie trafi na
     # żaden profil.
     await assert_client_assignable(db, data.client_id)
@@ -395,7 +411,9 @@ async def update_contact(
                     f"swojego kontaktu (niedozwolone: {sorted(illegal)})"
                 )
         else:
-            raise deny("edycja kontaktu wymaga roli admin lub Delivery Lead")
+            raise access.edit_denial(
+                "edycja kontaktu wymaga roli admin lub Delivery Lead"
+            )
 
     for k, v in payload.items():
         setattr(contact, k, v)
@@ -416,7 +434,11 @@ async def update_contact(
     return _contact_projection(contact, access)
 
 
-@router.delete("/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/contacts/{contact_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def delete_contact(
     contact_id: int,
     current_user: DeliverySectionUser,
@@ -425,7 +447,9 @@ async def delete_contact(
     contact = await _load_contact(db, contact_id)
     access = await resolve_client_access(db, current_user, contact.client_id)
     if not access.can_edit_contacts:
-        raise deny("usunięcie kontaktu wymaga roli admin lub Delivery Lead")
+        raise access.edit_denial(
+            "usunięcie kontaktu wymaga roli admin lub Delivery Lead"
+        )
 
     record_client_audit(
         db,

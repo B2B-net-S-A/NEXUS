@@ -23,7 +23,6 @@ from app.api.deps import (
     ensure_onboarding_complete,
     get_authenticated_user,
     get_current_user,
-    require_dl_assigned_or_admin,
 )
 from app.models.user import User, UserRole
 from app.services.access_scope import DashboardScope, ScopeKind
@@ -90,15 +89,6 @@ def test_direct_and_factory_domain_dependencies_use_global_boundary() -> None:
         inspect.signature(capability_guard)
         .parameters["current_user"]
         .default.dependency
-        is get_current_user
-    )
-    assert (
-        _annotated_dependency(
-            get_type_hints(
-                require_dl_assigned_or_admin,
-                include_extras=True,
-            )["current_user"]
-        )
         is get_current_user
     )
 

@@ -72,8 +72,10 @@ from app.schemas.client_profile import (
     RecruiterBrief,
 )
 from app.api.contracts import _effective_rate_fields
-from app.api.deps import AdminUser, OperationalUser, DeliveryLeadPlus
+from app.api.deps import AdminUser, OperationalUser
+from app.api.permission_access import ClientsEditUser, permission_denied
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
+from app.services.action_permissions import ProductAction, has_permission
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 _RATE_NOT_PROVIDED = object()
@@ -332,19 +334,40 @@ def _recruiter_brief(user: Optional[User]) -> Optional[RecruiterBrief]:
 
 
 def _client_schema_for(user: User) -> type[ClientResponse] | type[ClientSafeResponse]:
-    """Pełna projekcja dla zespołu klienta i Finance business read.
+    """Pełna projekcja dla kont z uprawnieniem „Stawki i kwoty: podgląd”.
 
-    Pozostałe role (recruiter/sourcer/viewer) dostają ``ClientSafeResponse``
-    bez ``legal_name``/``nip``/``regon``/``notes`` — pola nie występują
-    w odpowiedzi (nie są ``null``).
+    Dane prawne klienta (``legal_name``/``nip``/``regon``/``notes``) idą razem
+    z dokumentami, które mogą nieść stawki — domyślnie widzą je admin, Finanse
+    i Delivery Lead. Pozostali dostają ``ClientSafeResponse``: pola nie
+    występują w odpowiedzi (nie są ``null``).
     """
-    if user.has_any_role(
-        UserRole.admin,
-        UserRole.delivery_lead,
-        UserRole.finance,
-    ):
+    if has_permission(user, ProductAction.amounts_view):
         return ClientResponse
     return ClientSafeResponse
+
+
+# Pola klienta obecne wyłącznie w pełnej projekcji: dane prawne i notatki.
+_LEGAL_CLIENT_FIELDS = frozenset(ClientResponse.model_fields) - frozenset(
+    ClientSafeResponse.model_fields
+)
+
+
+def _keep_unreadable_legal_fields(user: User, updates: dict[str, object]) -> None:
+    """Konto, które nie widzi danych prawnych klienta, nie może ich zmienić.
+
+    Edycję klienta daje „Klienci: dodawanie i edycja”, a dane prawne pokazuje
+    „Stawki i kwoty: podgląd” — to dwa osobne przełączniki. Konto bez podglądu
+    dostaje klienta bez tych pól, a formularz „Edytuj firmę” odsyła komplet,
+    więc przysyła je PUSTE: zapis samej branży kasowałby notatki, których autor
+    zapisu nigdy nie widział. Puste pole pomijamy; wpisana wartość to próba
+    zmiany pola, którego konto nie widzi — odmowa nazywa uprawnienie (jak
+    ``order_amounts_denied`` przy kwotach zamówienia).
+    """
+    if _client_schema_for(user) is ClientResponse:
+        return
+    for field in _LEGAL_CLIENT_FIELDS.intersection(updates):
+        if updates.pop(field) not in (None, ""):
+            raise permission_denied(ProductAction.amounts_view)
 
 
 def _effective_client_name():
@@ -580,7 +603,7 @@ async def list_clients(
 @router.post("", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
 async def create_client(
     data: ClientCreate,
-    current_user: DeliveryLeadPlus,
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
     portfolio_category: PortfolioCategory = Query(PortfolioCategory.active),
 ):
@@ -1185,7 +1208,7 @@ async def get_client_profile(
 async def update_client(
     client_id: ClientIdPath,
     data: ClientUpdate,
-    current_user: DeliveryLeadPlus,
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     assert_delivery_lead_client_visible(
@@ -1197,6 +1220,7 @@ async def update_client(
     # (audyt 24.09.2026, S1).
     client = await assert_client_writable(db, client_id)
     updates = data.model_dump(exclude_unset=True)
+    _keep_unreadable_legal_fields(current_user, updates)
     from app.services.cv_generator_b2b import central_policies
 
     if central_policies.enabled() and "cv_content_mode_cap" in updates:

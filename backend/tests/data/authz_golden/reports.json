@@ -1,0 +1,36 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
+ ],
+ "routes": {
+  "GET /api/reports/clients": "PPPPPPDDDDPPPPPPDDDDD",
+  "GET /api/reports/clients/at-risk": "PPPPPPDDDDPPPPPPDDDDD",
+  "GET /api/reports/clients/{client_id}/trend": "PPPPPPDDDDPPPPPPDDDDD",
+  "GET /api/reports/delivery-leads": "PPPDPDDDDDPPDPPPDDDDD",
+  "GET /api/reports/delivery-leads/{dl_id}/trend": "PPPDPDDDDDPPDPPPDDDDD",
+  "GET /api/reports/invite-links": "PPPPPDDDDDPPPPPPDDDDD",
+  "GET /api/reports/my-delivery-lead": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/reports/recruitment": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/reports/sales": "PPDDDDDDDDDDDDDDDDDPD"
+ }
+}

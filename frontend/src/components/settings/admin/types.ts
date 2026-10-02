@@ -1,3 +1,5 @@
+import type { UserPermissionsSave } from "@/lib/admin-permissions";
+
 export interface AdminUser {
   id: number;
   email: string;
@@ -8,6 +10,8 @@ export interface AdminUser {
   is_active: boolean;
   /** Imienne uprawnienie do usuwania klientów z profilu (0307). */
   can_delete_clients?: boolean;
+  /** Uprawnienia nadane tej osobie, których nie dają jej role (plakietka „+N”). */
+  extra_permissions?: string[];
   activity_count: number;
   last_activity: string | null;
   created_at: string;
@@ -24,6 +28,11 @@ export interface UserFormData {
   can_delete_clients: boolean;
   /** Odpina tożsamość Microsoft — następne logowanie SSO przypnie nowe konto. */
   clear_microsoft_identity: boolean;
+  /**
+   * Zmiana dodatkowych uprawnień osoby — osobne żądanie po zapisie konta
+   * (tylko edycja; brak albo `null` = nie ma czego wysyłać).
+   */
+  permissions?: UserPermissionsSave | null;
 }
 
 // Pełna lista ról systemu (sync z backend/app/models/user.py:UserRole).

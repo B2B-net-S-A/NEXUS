@@ -1,19 +1,23 @@
 """Kolejka zamówień z maila: lista, szczegół, PDF, „Zastosuj", „Odrzuć",
 „Pobierz zamówienia z maila" i stan ostatniego sprawdzenia skrzynki.
 
-To powierzchnia Delivery. Admin i Finance widzą organizację, Delivery Lead
-wyłącznie jawnie przypisany portfel, a Talent Community Manager globalną,
-bezpieczną projekcję bez kwot, surowego PDF-u i komunikatów mogących cytować
-stawki. Pozostałe role, w tym Head of Recruitment, odcina bramka sekcji.
+To powierzchnia Delivery. Kolejkę czyta konto z uprawnieniem „Klienci,
+kontrakty i zamówienia: podgląd”: konto z rolą Delivery Leada — swój portfel,
+pozostali — całą organizację. Kto nie ma „Stawki i kwoty: podgląd”
+(domyślnie Talent Community Manager), dostaje bezpieczną projekcję bez kwot,
+surowego PDF-u i komunikatów mogących cytować stawki.
 
-„Zastosuj" i „Odrzuć" wymagają zapisu Delivery oraz
-``_can_manage_order_finance``: Admina albo przypisanego Delivery Leada.
+„Zastosuj", „Odrzuć" i „Przelicz plan" zapisują zamówienie klienta, więc
+wymagają prawa do kwot jego zamówień (``can_write_order_amounts``): „Stawki
+i kwoty: zmiana” albo prowadzenia zamówień razem z podglądem kwot tego klienta
+— jak dotąd przypisany Delivery Lead.
 """
 
 # Bez `from __future__ import annotations` (PEP 563 vs FastAPI/slowapi).
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Annotated, Any, Dict, Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
@@ -21,13 +25,17 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.client_orders import (
-    _can_manage_order_finance,
-    _dl_assigned_to_client,
-    _order_finance_visible,
-)
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-from app.api.deps import require_roles
+from app.api.financial_access import (
+    can_read_client_finance,
+    can_write_order_amounts,
+    order_amounts_denied,
+)
+from app.api.permission_access import (
+    AmountsViewUser,
+    ContractsOrdersEditUser,
+    DeliveryViewUser,
+)
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
@@ -48,9 +56,14 @@ from app.models.order_mail import (
     OrderMailDocument,
     OrderMailRecheckRun,
 )
-from app.models.user import User, UserRole
+from app.models.user import UserRole
 from app.services import storage_service
-from app.services.access_scope import resolve_delivery_lead_client_ids
+from app.services.access_scope import (
+    resolve_delivery_lead_client_ids,
+    resolve_delivery_lead_finance_client_ids,
+)
+from app.services.action_permissions import ProductAction, has_permission
+from app.services.client_access import reads_delivery_organization_wide
 from app.services.order_mail_apply import apply_document
 from app.services.order_mail_ingest import (
     ingest_is_running,
@@ -69,42 +82,19 @@ router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 #: Grupy przyjmujące nowych konsultantów — lustro bramki ``add_line``.
 _GROUP_STATUSES_ACCEPTING_LINES = (GROUP_STATUS_ACTIVE, GROUP_STATUS_SCHEDULED, "draft")
 
-# Bramka klasy roli jako ZALEŻNOŚĆ (widoczna w grafie FastAPI i w kontrakcie
-# `test_route_authz_contract`), lustro sidebara/middleware `/order-mail`.
-# Drobniejsze zawężenie — do własnego portfela (DL) i do prawa zapisu kwot
-# („Zastosuj") — jest per dokument i zostaje w handlerach.
-OrderMailUser = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.finance,
-            UserRole.delivery_lead,
-            UserRole.talent_community_manager,
-        )
-    ),
-]
-
-OrderMailFileUser = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.finance,
-            UserRole.delivery_lead,
-        )
-    ),
-]
-
-# „Pobierz zamówienia z maila" dotyczy CAŁEJ skrzynki, nie jednego dokumentu,
-# więc bramka jest rolowa, nie per klient: role, które w tej kolejce pracują
-# (Admin, Finance, Delivery Lead). Talent Community Manager ma tu wyłącznie
-# bezpieczny odczyt — stan sprawdzenia widzi (żeby wiedzieć, jak świeża jest
-# kolejka), przycisku nie dostaje.
-# Jedno źródło prawdy dla bramki HTTP i dla ``can_trigger`` w statusie —
-# rozjazd tych dwóch dałby przycisk widoczny komuś, kto po kliknięciu dostaje 403.
-_SYNC_TRIGGER_ROLES = (UserRole.admin, UserRole.finance, UserRole.delivery_lead)
-OrderMailSyncUser = Annotated[User, Depends(require_roles(*_SYNC_TRIGGER_ROLES))]
+# Bramki tras (``permission_access``) — widoczne w grafie FastAPI, w kontrakcie
+# `test_route_authz_contract` i w macierzy bramek:
+#
+# * odczyt kolejki, historii weryfikacji i stanu skrzynki — „Klienci, kontrakty
+#   i zamówienia: podgląd”,
+# * surowy PDF — „Stawki i kwoty: podgląd”,
+# * „Zastosuj”, „Odrzuć”, „Przelicz plan”, rozstrzygnięcie w oknie zamówienia —
+#   prowadzenie zamówień albo zmiana kwot (warunek konieczny zapisu zamówienia),
+# * „Pobierz zamówienia z maila” — prowadzenie zamówień; dotyczy CAŁEJ
+#   skrzynki, więc nie ma zawężenia do klienta.
+#
+# Drobniejsze zawężenie — do własnego portfela (konto z rolą Delivery Leada)
+# i do prawa zapisu kwot TEGO klienta — jest per dokument i zostaje w handlerach.
 
 _FINANCE_KEYS = (
     "rate_client",
@@ -113,34 +103,70 @@ _FINANCE_KEYS = (
     "total_value",
     "currency",
 )
-_ORG_WIDE_ROLES = {
-    UserRole.admin,
-    UserRole.finance,
-    UserRole.talent_community_manager,
-}
+
+#: Dokument bez rozpoznanego klienta nie leży w niczyim portfelu. Konto z rolą
+#: Delivery Leada takiego dokumentu nie widzi (``_load_visible``), a helpery
+#: kwot dostają id, którego nie ma w żadnej granicy przypisań.
+_NO_CLIENT_ID = -1
 
 
-def _user_roles(user) -> set:
-    roles = {user.role}
-    for r in getattr(user, "roles", None) or []:
-        try:
-            roles.add(UserRole(r))
-        except ValueError:
-            continue
-    return roles
+@dataclass(frozen=True)
+class _FinanceBoundary:
+    """Granica przypisań konta z rolą Delivery Leada — raz na żądanie.
 
-
-def _is_read_only_tcm(user) -> bool:
-    """TCM ceiling for Delivery mail, irrespective of HoR/TAC secondary roles.
-
-    HoR and TAC do not independently enter Delivery, so only Admin, Delivery
-    Lead, or Finance can supersede the TCM read-only projection here.
+    ``client_ids is None`` = konto nią nierządzone (działa u wszystkich
+    klientów). Osobny typ, żeby „nie policzono” nie myliło się z „bez granicy”.
     """
 
-    roles = _user_roles(user)
-    return UserRole.talent_community_manager in roles and not roles.intersection(
-        {UserRole.admin, UserRole.finance, UserRole.delivery_lead}
+    client_ids: Optional[frozenset[int]]
+
+
+async def _finance_boundary(db: AsyncSession, user) -> _FinanceBoundary:
+    return _FinanceBoundary(await resolve_delivery_lead_finance_client_ids(user, db))
+
+
+def _can_read_amounts(
+    user, client_id: Optional[int], boundary: _FinanceBoundary
+) -> bool:
+    """Kwoty i surowy PDF dokumentu: podgląd kwot klienta z dokumentu."""
+
+    return can_read_client_finance(
+        user,
+        client_id=client_id if client_id else _NO_CLIENT_ID,
+        delivery_lead_finance_client_ids=boundary.client_ids,
     )
+
+
+def _can_write_orders(
+    user, client_id: Optional[int], boundary: _FinanceBoundary
+) -> bool:
+    """„Zastosuj” / „Odrzuć”: zapis zamówienia klienta z dokumentu.
+
+    Prowadzenie zamówień (wymaga go trasa) ORAZ prawo do kwot zamówień tego
+    klienta — flagi ``can_apply`` / ``can_dismiss`` nie mogą obiecywać
+    przycisku, który skończy się odmową bramki.
+    """
+
+    if not has_permission(user, ProductAction.contracts_orders_edit):
+        return False
+    return can_write_order_amounts(
+        user,
+        client_id=client_id if client_id else _NO_CLIENT_ID,
+        delivery_lead_finance_client_ids=boundary.client_ids,
+    )
+
+
+def _reads_safe_projection(user) -> bool:
+    """Bezpieczna projekcja kolejki: konto bez „Stawki i kwoty: podgląd”.
+
+    Powody, błędy i identyfikacja klienta cytują nazwiska, nazwy załączników
+    i stawki, więc konto bez podglądu kwot (domyślnie Talent Community
+    Manager) dostaje zdania ogólne. Konto, które kwoty widzi, ale nie u TEGO
+    klienta (rola Delivery Leada poza przypisaniem), zachowuje treść
+    z zamaskowanymi kwotami — ``_hide_amounts``.
+    """
+
+    return not has_permission(user, ProductAction.amounts_view)
 
 
 async def _visible_client_ids(db: AsyncSession, user) -> Optional[set[int]]:
@@ -148,8 +174,7 @@ async def _visible_client_ids(db: AsyncSession, user) -> Optional[set[int]]:
     delivery_client_ids = await resolve_delivery_lead_client_ids(user, db)
     if delivery_client_ids is not None:
         return set(delivery_client_ids)
-    roles = _user_roles(user)
-    if roles & _ORG_WIDE_ROLES:
+    if reads_delivery_organization_wide(user):
         return None
     return set()
 
@@ -254,11 +279,11 @@ def _redact_proposal(
     proposal: Optional[dict],
     *,
     show_finance: bool,
-    read_only_tcm: bool = False,
+    safe_projection: bool = False,
     hide_other_clients: bool = False,
 ) -> Optional[dict]:
     if proposal is None or (
-        show_finance and not read_only_tcm and not hide_other_clients
+        show_finance and not safe_projection and not hide_other_clients
     ):
         return proposal
     rows = []
@@ -274,11 +299,12 @@ def _redact_proposal(
             row["reasons"] = [_hide_other_clients(x) for x in row.get("reasons") or []]
         if not show_finance:
             row["reasons"] = [_hide_amounts(x) for x in row.get("reasons") or []]
-        if read_only_tcm:
+        if safe_projection:
             row["existing_person_ids"] = []
             if row.get("reasons"):
-                # Lustro `gate_reasons` dla TCM: powody planu cytują szczegóły
-                # (np. datę końca kontraktu), a TCM ma tu bezpieczną projekcję.
+                # Lustro `gate_reasons`: powody planu cytują szczegóły (np. datę
+                # końca kontraktu), a konto bez podglądu kwot ma tu bezpieczną
+                # projekcję.
                 row["reasons"] = [_GENERIC_REVIEW]
         rows.append(row)
     out = {**proposal, "rows": rows}
@@ -300,7 +326,7 @@ def _redact_proposal(
             else r
             for r in out.get("resolved") or []
         ]
-    if read_only_tcm:
+    if safe_projection:
         out["blocking"] = [_GENERIC_REVIEW] if proposal.get("blocking") else []
         out["resolved"] = [
             {
@@ -317,15 +343,20 @@ def _redact_proposal(
     return out
 
 
-async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str, Any]:
-    dl_assigned = (
-        await _dl_assigned_to_client(db, user, doc.client_id)
-        if doc.client_id
-        else False
-    )
-    can_finance = _can_manage_order_finance(user, dl_assigned=dl_assigned)
-    show_finance = _order_finance_visible(user, can_finance=can_finance)
-    read_only_tcm = _is_read_only_tcm(user)
+async def _serialize(
+    db: AsyncSession,
+    doc: OrderMailDocument,
+    user,
+    *,
+    boundary: Optional[_FinanceBoundary] = None,
+) -> Dict[str, Any]:
+    """Dokument dla wołającego. ``boundary`` podaje lista — raz na żądanie."""
+
+    if boundary is None:
+        boundary = await _finance_boundary(db, user)
+    can_write = _can_write_orders(user, doc.client_id, boundary)
+    show_finance = _can_read_amounts(user, doc.client_id, boundary)
+    safe_projection = _reads_safe_projection(user)
     hide_other_clients = not _sees_other_clients(user)
     # Nazwa klienta osobnym zapytaniem — relacja `doc.client` w sesji async to
     # lazy load, czyli MissingGreenlet i 500 bez CORS („Network Error").
@@ -347,14 +378,14 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
         "identification_method": doc.identification_method,
         "identification_reason": (
             "Klient rozpoznany automatycznie."
-            if read_only_tcm and doc.identification_reason
+            if safe_projection and doc.identification_reason
             else doc.identification_reason
         ),
         "client_policy": doc.client_policy,
         "gate_verdict": doc.gate_verdict,
         "gate_reasons": (
             ["Sprawdź odczytane dane przed zapisem."]
-            if read_only_tcm and doc.gate_reasons
+            if safe_projection and doc.gate_reasons
             else [
                 _reason_for_viewer(
                     polish_gate_reason(r),
@@ -369,7 +400,7 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
         "proposal": _redact_proposal(
             doc.proposal,
             show_finance=show_finance,
-            read_only_tcm=read_only_tcm,
+            safe_projection=safe_projection,
             hide_other_clients=hide_other_clients,
         ),
         "applied_order_id": doc.applied_order_id,
@@ -377,14 +408,15 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
         "reviewed_at": doc.reviewed_at.isoformat() if doc.reviewed_at else None,
         "error": (
             "Przetwarzanie dokumentu zakończyło się błędem."
-            if read_only_tcm and doc.error
+            if safe_projection and doc.error
             else (doc.error if show_finance else _hide_amounts(doc.error))
         ),
-        "can_apply": can_finance and doc.outcome == OUTCOME_NEEDS_REVIEW,
-        "can_dismiss": can_finance and doc.outcome in _DISMISSABLE_OUTCOMES,
+        "can_apply": can_write and doc.outcome == OUTCOME_NEEDS_REVIEW,
+        "can_dismiss": can_write and doc.outcome in _DISMISSABLE_OUTCOMES,
         # Plik, którego nie ma na dysku (retencja, przeniesiony wolumen), nie
         # może pokazywać przycisku PDF ani „Przelicz plan" (audyt 24.09, N1).
-        "has_file": not read_only_tcm and file_exists,
+        # PDF niesie stawki — przycisk dostaje ten, kto plik pobierze.
+        "has_file": show_finance and file_exists,
         # Czy wpis „Nieudane” system jeszcze ponowi sam — ta sama reguła co
         # wybór wpisów do ponowienia (``order_mail_recheck``). Bez tego kolejka
         # obiecywała ponowienia wpisom bez pliku i starszym niż 7 dni.
@@ -396,7 +428,8 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
 
 #: Stany, z których dokument można odrzucić. „Nierozpoznane" też: bez tego
 #: dokument bez rozpoznanego klienta wisiał w kolejce na zawsze (audyt 24.09,
-#: N2). Bez klienta nie ma przypisanego Delivery Leada, więc odrzuca admin.
+#: N2). Bez klienta nie ma przypisanego Delivery Leada, więc odrzuca konto,
+#: które prowadzi zamówienia u wszystkich klientów (admin, Finanse).
 #: „Nieudane” też (runda 2 audytu 25.09.2026): wpis bez ponowień (bez pliku,
 #: starszy niż 7 dni, po 3 próbach) operator wprowadza ręcznie w oknie
 #: zamówienia i zdejmuje z listy — inaczej zakładka rosłaby bez końca.
@@ -449,7 +482,7 @@ async def _load_visible(
 
 @router.get("/sync/status")
 async def sync_status(
-    user: OrderMailUser, db: AsyncSession = Depends(get_db)
+    user: DeliveryViewUser, db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     """Kiedy skrzynka była ostatnio sprawdzana i co z tego wyszło.
 
@@ -460,9 +493,11 @@ async def sync_status(
     „2 do weryfikacji" i pustą listę.
     """
     snapshot = sync_snapshot(await read_state(db), running=ingest_is_running())
-    snapshot["can_trigger"] = bool(_user_roles(user) & set(_SYNC_TRIGGER_ROLES))
+    # To samo uprawnienie co bramka ``POST /sync`` — rozjazd dałby przycisk
+    # widoczny komuś, kto po kliknięciu dostaje 403.
+    snapshot["can_trigger"] = has_permission(user, ProductAction.contracts_orders_edit)
     last = snapshot.get("last_completed")
-    if last and _is_read_only_tcm(user):
+    if last and _reads_safe_projection(user):
         # Treść błędów cytuje nazwy załączników i odpowiedzi Graph — lustro
         # redakcji ``error`` w ``_serialize``.
         if last.get("error"):
@@ -474,7 +509,7 @@ async def sync_status(
 
 
 @router.post("/sync")
-async def trigger_sync(_user: OrderMailSyncUser) -> Dict[str, Any]:
+async def trigger_sync(_user: ContractsOrdersEditUser) -> Dict[str, Any]:
     """„Pobierz zamówienia z maila": sprawdź skrzynkę teraz, poza harmonogramem.
 
     Bieg idzie w tle (parsowanie PDF-ów modelem trwa minuty — dłużej niż
@@ -497,7 +532,7 @@ async def trigger_sync(_user: OrderMailSyncUser) -> Dict[str, Any]:
 
 @router.get("/recheck-runs")
 async def list_recheck_runs(
-    user: OrderMailUser,
+    user: DeliveryViewUser,
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
@@ -507,8 +542,8 @@ async def list_recheck_runs(
     są PRZELICZANE z widocznych wpisów. Globalne „sprawdzono 12" nad listą
     z jednym wierszem to ekran, który sam sobie przeczy.
 
-    TCM dostaje liczby bez powodów — te cytują nazwiska i nazwy załączników
-    (lustro redakcji w ``_serialize`` i w ``/sync/status``).
+    Konto bez podglądu kwot dostaje liczby bez powodów — te cytują nazwiska
+    i nazwy załączników (lustro redakcji w ``_serialize`` i w ``/sync/status``).
 
     Wiersz powstaje TYLKO wtedy, gdy bieg coś zmienił, więc sama lista nie
     odpowiada już na pytanie „czy to w ogóle działa". Odpowiada na nie znacznik
@@ -516,23 +551,10 @@ async def list_recheck_runs(
     klienta, i dlatego nie podlega ani zawężeniu po portfelu, ani redakcji TCM.
     """
     visible = await _visible_client_ids(db, user)
-    redact = _is_read_only_tcm(user)
-    finance_by_client: dict[Any, bool] = {}
-
-    async def _finance_visible_for(client_id: Any) -> bool:
-        # Lustro ``_serialize``: kwoty widzi rola z odczytem finansów albo
-        # admin / Delivery Lead przypisany do klienta tego wpisu.
-        if client_id not in finance_by_client:
-            dl_assigned = (
-                await _dl_assigned_to_client(db, user, client_id)
-                if client_id
-                else False
-            )
-            finance_by_client[client_id] = _order_finance_visible(
-                user,
-                can_finance=_can_manage_order_finance(user, dl_assigned=dl_assigned),
-            )
-        return finance_by_client[client_id]
+    redact = _reads_safe_projection(user)
+    # Lustro ``_serialize``: kwoty w powodach widzi konto z kwotami klienta
+    # tego wpisu.
+    boundary = await _finance_boundary(db, user)
 
     rows = (
         await db.execute(
@@ -554,7 +576,7 @@ async def list_recheck_runs(
         else:
             entries = [
                 e
-                if await _finance_visible_for(e.get("client_id"))
+                if _can_read_amounts(user, e.get("client_id"), boundary)
                 else {
                     **e,
                     "reasons": [_hide_amounts(x) for x in e.get("reasons") or []],
@@ -594,7 +616,7 @@ async def list_recheck_runs(
 
 @router.get("/queue")
 async def list_queue(
-    user: OrderMailUser,
+    user: DeliveryViewUser,
     outcome: str = Query(OUTCOME_NEEDS_REVIEW),
     client_id: Optional[int] = Query(None),
     limit: int = Query(50, ge=1, le=200),
@@ -636,12 +658,16 @@ async def list_queue(
         .scalars()
         .all()
     )
-    return {"total": total or 0, "items": [await _serialize(db, d, user) for d in docs]}
+    boundary = await _finance_boundary(db, user)
+    return {
+        "total": total or 0,
+        "items": [await _serialize(db, d, user, boundary=boundary) for d in docs],
+    }
 
 
 @router.get("/queue/{doc_id}")
 async def get_queue_item(
-    doc_id: int, user: OrderMailUser, db: AsyncSession = Depends(get_db)
+    doc_id: int, user: DeliveryViewUser, db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     doc = await _load_visible(db, doc_id, user)
     return await _serialize(db, doc, user)
@@ -649,16 +675,10 @@ async def get_queue_item(
 
 @router.get("/queue/{doc_id}/file")
 async def download_queue_file(
-    doc_id: int, user: OrderMailFileUser, db: AsyncSession = Depends(get_db)
+    doc_id: int, user: AmountsViewUser, db: AsyncSession = Depends(get_db)
 ):
     doc = await _load_visible(db, doc_id, user)
-    dl_assigned = (
-        await _dl_assigned_to_client(db, user, doc.client_id)
-        if doc.client_id
-        else False
-    )
-    can_finance = _can_manage_order_finance(user, dl_assigned=dl_assigned)
-    if not _order_finance_visible(user, can_finance=can_finance):
+    if not _can_read_amounts(user, doc.client_id, await _finance_boundary(db, user)):
         raise HTTPException(
             status_code=403,
             detail="Plik zamówienia z kwotami wymaga przypisania do klienta",
@@ -676,21 +696,26 @@ async def download_queue_file(
 
 
 async def _require_apply_rights(db: AsyncSession, doc: OrderMailDocument, user) -> None:
-    dl_assigned = (
-        await _dl_assigned_to_client(db, user, doc.client_id)
-        if doc.client_id
-        else False
-    )
-    if not _can_manage_order_finance(user, dl_assigned=dl_assigned):
-        raise HTTPException(
-            status_code=403,
-            detail="Zapis zamówienia wymaga uprawnień admina lub przypisanego Delivery Leada",
-        )
+    """Zapis zamówienia z dokumentu: prawo do kwot zamówień JEGO klienta.
+
+    Trasa wymaga już „Kontrakty i zamówienia: tworzenie i edycja” — dokument
+    z maila zakłada zamówienie, kontrakt i kandydata, więc sama zmiana kwot
+    nie wystarcza (to nie jest edycja wyłącznie pól kwot).
+
+    Odmowa nazywa to, czego brakuje: podgląd kwot (kto prowadzi zamówienia bez
+    niego), portfel (konto z rolą Delivery Leada poza przypisaniem) albo
+    zmianę kwot.
+    """
+
+    if not _can_write_orders(user, doc.client_id, await _finance_boundary(db, user)):
+        raise order_amounts_denied(user)
 
 
 @router.post("/queue/{doc_id}/refresh-plan")
 async def refresh_queue_plan(
-    doc_id: int, user: OrderMailUser, db: AsyncSession = Depends(get_db)
+    doc_id: int,
+    user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     doc = await _load_visible(db, doc_id, user, for_update=True)
     await _require_apply_rights(db, doc, user)
@@ -747,7 +772,9 @@ async def _close_review_cards(db: AsyncSession, doc_id: int) -> None:
 
 @router.post("/queue/{doc_id}/apply")
 async def apply_queue_item(
-    doc_id: int, user: OrderMailUser, db: AsyncSession = Depends(get_db)
+    doc_id: int,
+    user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     doc = await _load_visible(db, doc_id, user, for_update=True)
     await _require_apply_rights(db, doc, user)
@@ -791,7 +818,9 @@ def _order_type_of(doc: OrderMailDocument) -> str:
 
 @router.get("/queue/{doc_id}/order-target")
 async def queue_order_target(
-    doc_id: int, user: OrderMailUser, db: AsyncSession = Depends(get_db)
+    doc_id: int,
+    user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Dokąd prowadzi „Rozstrzygnij w oknie zamówienia".
 
@@ -848,7 +877,7 @@ class ResolvedInOrderRequest(BaseModel):
 async def mark_queue_item_resolved_in_order(
     doc_id: int,
     body: ResolvedInOrderRequest,
-    user: OrderMailUser,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Dokument z maila rozstrzygnięty w oknie zamówienia — zdejmij z kolejki.
@@ -933,7 +962,9 @@ async def mark_queue_item_resolved_in_order(
 
 @router.post("/queue/{doc_id}/dismiss")
 async def dismiss_queue_item(
-    doc_id: int, user: OrderMailUser, db: AsyncSession = Depends(get_db)
+    doc_id: int,
+    user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     doc = await _load_visible(db, doc_id, user, for_update=True)
     await _require_apply_rights(db, doc, user)

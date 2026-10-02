@@ -648,7 +648,10 @@ async def test_head_of_recruitment_cannot_enter_delivery_order_extraction(
         headers=headers,
     )
     assert resp.status_code == 403, resp.text
-    assert resp.json()["detail"]["code"] == "section_access_denied"
+    # Bramka sekcji nazywa uprawnienie, którego trasa wymaga, a konto nie ma.
+    detail = resp.json()["detail"]
+    assert detail["code"] == "permission_denied"
+    assert detail["permission"] == "contracts_orders_edit"
 
 
 async def test_extract_shows_finance_to_assigned_delivery_lead(
@@ -833,7 +836,12 @@ async def test_tcm_cannot_parse_rate_bearing_bnp_document(
     )
 
     assert resp.status_code == 403, resp.text
-    assert resp.json()["detail"]["code"] == "section_access_denied"
+    # TCM ma zapis w sekcji Delivery (z „Zakończenie współpracy”), więc
+    # odmawia bramka uprawnienia trasy — i nazywa, czego brakuje.
+    detail = resp.json()["detail"]
+    assert detail["code"] == "permission_denied"
+    assert detail["permission"] == "contracts_orders_edit"
+    assert "Kontrakty i zamówienia: tworzenie i edycja" in detail["message"]
 
 
 async def test_bnp_policy_does_not_leak_to_other_clients(

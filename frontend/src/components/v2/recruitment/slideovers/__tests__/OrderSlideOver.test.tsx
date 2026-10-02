@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => ({
   showSuccess: vi.fn(),
   showError: vi.fn(),
   roles: ["admin"] as string[],
+  // Pełna migawka uprawnień konta; `null` = profil liczony z domyślnych
+  // uprawnień ról.
+  access: null as Record<string, string> | null,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -20,7 +23,15 @@ vi.mock("@/components/Toast", () => ({
 }));
 vi.mock("@/store/auth", () => ({
   useAuthStore: (selector: (s: unknown) => unknown) =>
-    selector({ user: { id: 1, roles: mocks.roles }, realUser: null }),
+    selector({
+      user: {
+        id: 1,
+        role: mocks.roles[0],
+        roles: mocks.roles,
+        ...(mocks.access ? { effective_action_access: mocks.access } : {}),
+      },
+      realUser: null,
+    }),
   hasRole: (_user: unknown, ...roles: string[]) =>
     roles.some((r) => mocks.roles.includes(r)),
 }));
@@ -54,6 +65,8 @@ vi.mock("@/components/v2/jobs/JobCloseWithReasonDialog", () => ({
     defaultReason: string;
   }) => (open ? <div data-testid="close-dialog" data-reason={defaultReason} /> : null),
 }));
+
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 import { OrderSlideOver, type OrderSlideOverProps } from "../OrderSlideOver";
 import { renderWithQuery } from "./test-utils";
@@ -108,6 +121,7 @@ describe("OrderSlideOver", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.roles = ["admin"];
+    mocks.access = null;
   });
 
   it("zamknięte okno nie montuje treści i nie pyta o zlecenie", () => {
@@ -204,8 +218,38 @@ describe("OrderSlideOver", () => {
     });
   });
 
-  it("rola spoza bramki nie wysyła zapytania o gotowość i nie widzi bloku braków", async () => {
+  // Bramka gotowości (`GET …/readiness`) idzie za uprawnieniem „Rekrutacje:
+  // zakładanie, zamykanie, wysyłka CV do klienta”, nie za rolą.
+  it("konto bez uprawnienia nie wysyła zapytania o gotowość i nie widzi bloku braków", async () => {
     mocks.roles = ["recruiter"];
+    setup();
+    await screen.findByText("Java 17");
+    expect(screen.queryByTestId("order-missing-block")).not.toBeInTheDocument();
+    expect(mocks.get).not.toHaveBeenCalledWith("/api/jobs/7/readiness");
+  });
+
+  it("Delivery Lead ma uprawnienie domyślnie i widzi braki z serwera", async () => {
+    mocks.roles = ["delivery_lead"];
+    setup();
+    expect(
+      await screen.findByRole("region", { name: "Braki w zleceniu" }),
+    ).toBeInTheDocument();
+    expect(mocks.get).toHaveBeenCalledWith("/api/jobs/7/readiness");
+  });
+
+  it("rekruter z nadanym uprawnieniem widzi braki z serwera", async () => {
+    mocks.roles = ["recruiter"];
+    mocks.access = permissionSnapshot("recruitment_manage");
+    setup();
+    expect(
+      await screen.findByRole("region", { name: "Braki w zleceniu" }),
+    ).toBeInTheDocument();
+    expect(mocks.get).toHaveBeenCalledWith("/api/jobs/7/readiness");
+  });
+
+  it("Delivery Lead z wyłączonym uprawnieniem nie pyta o gotowość mimo roli", async () => {
+    mocks.roles = ["delivery_lead"];
+    mocks.access = permissionSnapshot("delivery_view", "clients_edit");
     setup();
     await screen.findByText("Java 17");
     expect(screen.queryByTestId("order-missing-block")).not.toBeInTheDocument();
@@ -290,6 +334,7 @@ describe("OrderSlideOver — braki z działaniem", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.roles = ["admin"];
+    mocks.access = null;
     mocks.put.mockResolvedValue({ data: {} });
   });
 

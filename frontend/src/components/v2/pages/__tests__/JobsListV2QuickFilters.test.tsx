@@ -16,7 +16,6 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { JobsListV2 } from "@/components/v2/pages/JobsListV2";
 import { useAuthStore } from "@/store/auth";
-import { useUiStore } from "@/store/ui";
 
 const getMock = vi.fn();
 
@@ -188,7 +187,6 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
     getMock.mockReset();
     quickCountsMock.mockReset();
     mockQuickCounts();
-    useUiStore.setState({ jobsView: "list" });
     mockJobsResponse([jobRow()]);
   });
 
@@ -373,7 +371,6 @@ describe("JobsListV2 — liczniki przełączników „wymaga uwagi”", () => {
   beforeEach(() => {
     getMock.mockReset();
     quickCountsMock.mockReset();
-    useUiStore.setState({ jobsView: "list" });
     mockJobsResponse([jobRow()]);
   });
 
@@ -422,7 +419,6 @@ describe("JobsListV2 — stan requestu w wierszu", () => {
     getMock.mockReset();
     quickCountsMock.mockReset();
     mockQuickCounts();
-    useUiStore.setState({ jobsView: "list" });
     mockJobsResponse([jobRow()]);
   });
 
@@ -450,7 +446,6 @@ describe("JobsListV2 — liczby per grupa etapów w wierszu", () => {
     getMock.mockReset();
     quickCountsMock.mockReset();
     mockQuickCounts();
-    useUiStore.setState({ jobsView: "list" });
   });
 
   it("pokazuje osiem liczb w kolejności kolumn Tablicy, bez rejected/withdrawn", async () => {
@@ -509,7 +504,6 @@ describe("JobsListV2 — status requestu i podobne rekrutacje (lista v4)", () =>
     getMock.mockReset();
     quickCountsMock.mockReset();
     mockQuickCounts();
-    useUiStore.setState({ jobsView: "list" });
     window.history.replaceState(null, "", "/jobs");
   });
 
@@ -542,7 +536,7 @@ describe("JobsListV2 — status requestu i podobne rekrutacje (lista v4)", () =>
     expect(window.location.search).toContain("stage=client_silent");
   });
 
-  it("„≈ podobne” otwiera okno przepięć, „↻” pokazuje połączoną rekrutację", async () => {
+  it("ikona podobnych rekrutacji otwiera okno przepięć; zdanie o połączonej stoi w jej nazwie", async () => {
     const user = userEvent.setup();
     mockJobsResponse([
       jobRow({
@@ -568,12 +562,21 @@ describe("JobsListV2 — status requestu i podobne rekrutacje (lista v4)", () =>
     ]);
     renderJobs();
     await screen.findByText("Z sugestią");
-    expect(screen.getByText("↻ #4588")).toBeInTheDocument();
-    expect(screen.getByText("przepięto 3")).toBeInTheDocument();
+    // Tekstowa plakietka zeszła z wiersza do Podglądu — w wierszu jest ikona.
+    expect(screen.queryByTestId("job-similar-badge")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Połączone rekrutacje: #4588 · przepięto 3",
+      }),
+    ).toBeInTheDocument();
     getMock.mockResolvedValueOnce({
       data: { job_id: 21, reassigned_count: 0, linked: [], suggestions: [] },
     });
-    await user.click(screen.getByText("≈ 2 podobne"));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Podobne rekrutacje: 2 podobne · 5 u klienta — przepnij",
+      }),
+    );
     expect(await screen.findByRole("dialog", { name: "Podobne rekrutacje" })).toBeInTheDocument();
   });
 });
@@ -583,7 +586,6 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
     getMock.mockReset();
     quickCountsMock.mockReset();
     mockQuickCounts();
-    useUiStore.setState({ jobsView: "list" });
     mockJobsResponse([jobRow()]);
     window.history.replaceState(null, "", "/jobs");
   });
@@ -730,32 +732,12 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
   });
 });
 
-describe("JobsListV2 — widok kafelków (domyślny)", () => {
-  beforeEach(() => {
-    getMock.mockReset();
-    quickCountsMock.mockReset();
-    mockQuickCounts();
-    useUiStore.setState({ jobsView: "tiles" });
-  });
-
-  it("pasek „Kandydaci” czyta `candidate_count`/`headcount` z odpowiedzi API, nie nieistniejące pola", async () => {
-    // Regresja: do 09.2026 kafelek czytał `candidates_count`/`filled_count`/
-    // `target_positions` — pól, których `GET /api/jobs` nigdy nie zwracał —
-    // więc na produkcji każdy kafelek pokazywał „0/N" niezależnie od pipeline'u.
-    mockJobsResponse([jobRow({ candidate_count: 3, headcount: 5 })]);
-    renderJobs();
-    expect(await screen.findByText("3/5")).toBeInTheDocument();
-    expect(screen.queryByText("0/5")).not.toBeInTheDocument();
-  });
-});
-
 describe("JobsListV2 — klik w wiersz otwiera rekrutację, dok ma ikonę „Podgląd”", () => {
   beforeEach(() => {
     getMock.mockReset();
     quickCountsMock.mockReset();
     pushMock.mockReset();
     mockQuickCounts();
-    useUiStore.setState({ jobsView: "list" });
   });
 
   it("klik w wiersz prowadzi do /jobs/{id}, a dok nie otwiera się sam", async () => {
@@ -810,10 +792,9 @@ describe("JobsListV2 — wiersz bez dostępu (can_open === false)", () => {
     getMock.mockReset();
     quickCountsMock.mockReset();
     mockQuickCounts();
-    useUiStore.setState({ jobsView: "list" });
   });
 
-  it("wiersz jest czytelny, ale nie udaje klikalnego — jak kafelek", async () => {
+  it("wiersz jest czytelny, ale nie udaje klikalnego", async () => {
     mockJobsResponse([
       jobRow({ id: 5, title: "Otwarta" }),
       jobRow({ id: 6, title: "Cudza", can_open: false }),
@@ -866,7 +847,6 @@ describe("JobsListV2 — lista v5: liczby statusów, termin, nowe filtry", () =>
   beforeEach(() => {
     getMock.mockReset();
     quickCountsMock.mockReset();
-    useUiStore.setState({ jobsView: "list" });
     window.history.replaceState(null, "", "/jobs");
     navState.search = "";
   });
@@ -953,7 +933,7 @@ describe("JobsListV2 — lista v5: liczby statusów, termin, nowe filtry", () =>
     expect(within(noDeadlineRow).queryByTestId("job-deadline")).not.toBeInTheDocument();
   });
 
-  it("tytuł w dwóch liniach, „Podobne rekrutacje” to plakietka pod tytułem (bez osobnej kolumny)", async () => {
+  it("tytuł w jednej linii, „Podobne rekrutacje” to ikona w kolumnie akcji (bez osobnej kolumny)", async () => {
     mockJobsResponse([
       jobRow({
         id: 31,
@@ -970,13 +950,20 @@ describe("JobsListV2 — lista v5: liczby statusów, termin, nowe filtry", () =>
     mockQuickCounts();
     renderJobs();
     const title = await screen.findByRole("link", { name: /Bardzo długi tytuł/ });
-    expect(title).toHaveClass("line-clamp-2");
+    // Długa nazwa przycina się wielokropkiem; pełna stoi w dymku opakowania.
+    expect(title.parentElement).toHaveClass("truncate");
+    expect(title.parentElement).toHaveAttribute(
+      "title",
+      "Bardzo długi tytuł rekrutacji z klientem i technologią w nazwie",
+    );
     expect(screen.queryByRole("columnheader", { name: /Podobne/ })).not.toBeInTheDocument();
-    const badge = screen.getByTestId("job-similar-badge");
-    expect(badge).toHaveTextContent("≈ 3 podobne");
-    expect(badge).toHaveTextContent("Przepnij →");
-    // Plakietka stoi w komórce tytułu, obok klienta.
-    expect(title.closest("td")).toContainElement(badge);
+    const icon = screen.getByTestId("job-similar-icon");
+    expect(icon).toHaveAccessibleName(
+      "Podobne rekrutacje: 3 podobne · 4 u klienta — przepnij",
+    );
+    // Ikona stoi w kolumnie akcji, nie pod tytułem.
+    expect(title.closest("td")).not.toContainElement(icon);
+    expect(title.closest("tr")).toContainElement(icon);
   });
 
   it("„Wysłanych do klienta” (w „Więcej filtrów”) wysyła min_sent/max_sent i liczy się do „Wyczyść filtry (N)”", async () => {

@@ -1,9 +1,9 @@
 {
-  "entry": "9b408801428caa02228ba9bc942a1f92f16c2c822fa5b2b9f08e7f202b2d9b62",
+  "entry": "0120611743e43d77c890a517a466a9d3cae8049f7166f2cf1ae44fc4921d260d",
   "guide": "jobs.board",
   "sources": {
-    "backend/app/services/pipeline_move_rules.py": "838a4ceb3d99722d5b17aabfc486ea9e9104f8c661d11b42c47eae202069df5f",
-    "frontend/src/components/v2/jobs/CandidateSourcesStrip.tsx": "4af43de83a53c1d5fa48993db07be5d93254566c4b0632dca591554dc2e62707",
-    "frontend/src/components/v2/pages/KanbanBoardV2.tsx": "3ca497f54fec994f52ff485be0568f9f49d9b6d33aa0ef4f052615b552787961"
+    "backend/app/services/pipeline_move_rules.py": "f84baf08db1e0a4926b9bf85a2df4d266c43801c0c7f899c987c893dc790ba77",
+    "frontend/src/components/v2/jobs/CandidateSourcesStrip.tsx": "797e75c11701e9606e6692058cdfede5739dd9b6ab1962e2e283f01a94db0d7d",
+    "frontend/src/components/v2/pages/KanbanBoardV2.tsx": "15b9dad0a1037bf0bed8956fce666041be87116d2e177249d702149728a75046"
   }
 }

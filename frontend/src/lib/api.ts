@@ -13,13 +13,15 @@ import type { RequestStage } from "./request-stage";
 import type { CompanyVerification } from "./b2b-registry-check";
 import { recordRefusal, refusalCode } from "./help/refusal-tracker";
 import type {
-  RoleActionPermissionChange,
+  AdminPermissionsSnapshot,
+  AdminUserPermissionsResponse,
+  RolePermissionChange,
+  UserPermissionChange,
+} from "./admin-permissions";
+import type {
   RoleSectionPermissionChange,
   SectionPermissionMutationResponse,
-  SectionPermissionsResponse,
-  UserActionPermissionChange,
   UserSectionPermissionChange,
-  UserSectionPermissionsResponse,
 } from "./section-access";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -1084,17 +1086,18 @@ export const adminApi = {
   getTalentRadarImportStatus: (taskId: string) =>
     api.get<ImportTaskStatus>(`/api/admin/import-talent-radar/${taskId}`),
   listImportTasks: () => api.get<ImportTaskStatus[]>("/api/admin/import-tasks"),
+  /** Uprawnienia ról: dziewięć przełączników + liczba osób z każdą rolą. */
   getSectionPermissions: () =>
-    api.get<SectionPermissionsResponse>("/api/admin/section-permissions"),
-  searchUserSectionPermissions: (search = "") =>
-    api.get<UserSectionPermissionsResponse>(
-      "/api/admin/section-permissions/users",
-      { params: search.trim() ? { search: search.trim() } : undefined },
+    api.get<AdminPermissionsSnapshot>("/api/admin/section-permissions"),
+  /** Dodatkowe uprawnienia jednej osoby (okno „Edytuj użytkownika”). */
+  getUserPermissions: (userId: number) =>
+    api.get<AdminUserPermissionsResponse>(
+      `/api/admin/section-permissions/users/${userId}`,
     ),
   updateRoleSectionPermissions: (
     revision: number,
     changes: RoleSectionPermissionChange[],
-    actionChanges: RoleActionPermissionChange[] = [],
+    actionChanges: RolePermissionChange[] = [],
   ) =>
     api.put<SectionPermissionMutationResponse>(
       "/api/admin/section-permissions/roles",
@@ -1110,7 +1113,7 @@ export const adminApi = {
     userId: number,
     revision: number,
     changes: UserSectionPermissionChange[],
-    actionChanges: UserActionPermissionChange[] = [],
+    actionChanges: UserPermissionChange[] = [],
   ) =>
     api.put<SectionPermissionMutationResponse>(
       `/api/admin/section-permissions/users/${userId}`,

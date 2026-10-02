@@ -924,6 +924,8 @@ _COLUMN_STATEMENTS = [
     # 0273: granular action permissions. Section access remains the outer
     # ceiling; these rows distinguish register view, document generation and
     # management without granting the Finance section.
+    # CHECK akcji = `permission_schema.ACTION_CHECK_SQL` (0410: generator
+    # + dziewięć uprawnień z ekranu); zgodność pilnuje test migracji.
     """CREATE TABLE IF NOT EXISTS rbac_role_action_permissions (
            role VARCHAR(64) NOT NULL,
            action VARCHAR(64) NOT NULL,
@@ -935,7 +937,7 @@ _COLUMN_STATEMENTS = [
                role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user','trainee')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_action CHECK (
-               action IN ('b2b_contract_generator')
+               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_access CHECK (
                access IN ('none','view','generate','manage')
@@ -949,7 +951,7 @@ _COLUMN_STATEMENTS = [
            updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
            PRIMARY KEY (user_id, action),
            CONSTRAINT ck_rbac_user_action_overrides_action CHECK (
-               action IN ('b2b_contract_generator')
+               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module')
            ),
            CONSTRAINT ck_rbac_user_action_overrides_access CHECK (
                access IN ('none','view','generate','manage')
@@ -9380,6 +9382,15 @@ PY
 # Postgresie (`test_entrypoint_lock_timeouts.py`).
 startup_phase "signature-policy-bootstrap"
 python -m app.services.signature_policy_bootstrap
+
+# 0410: dziewięć uprawnień z ekranu Ustawienia → Osoby i role. Siatka dla
+# bookmarku Alembica bez tej rewizji: szeroki CHECK akcji + komplet wierszy
+# ról (te same instrukcje co migracja, `permission_schema`). PO polityce
+# podpisu — ta przy naprawie zakłada wiersze, z których korzysta zasiew.
+# MIĘKKI wyłącznie przy timeoucie zamka: resolver liczy rolę bez wierszy
+# funkcją zasiewu, więc aplikacja działa, a następny start ponawia.
+startup_phase "named-permissions-bootstrap"
+python -m app.services.named_permissions_bootstrap
 
 # Availability/allocation must be in place before ORM reads at login or startup.
 # Reuse the exact idempotent migration in one transaction when the historical

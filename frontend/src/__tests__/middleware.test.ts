@@ -212,6 +212,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/job-team-panel",
     "/preview/plain-brief",
     "/preview/job-board-screening",
+    "/preview/permissions",
     "/kariera",
     "/kariera/r/senior-java-developer-7kq2",
     "/kariera/p/marta-n",
@@ -644,6 +645,73 @@ describe("zawężenia ról nadal obowiązują", () => {
       expect(destination(route, validRecruiter), route).toBe("/403")
     }
   })
+
+  describe("/settings/cv-rules — zapis w Delivery zamiast listy ról (0410)", () => {
+    const withSections = (
+      role: string,
+      delivery: "none" | "read" | "write",
+    ) =>
+      makeToken({
+        role,
+        roles: [role],
+        exp: now() + HOUR,
+        sa: {
+          sourcing: "write",
+          pipeline: "write",
+          delivery,
+          insights: "read",
+          finance: "none",
+          system_admin: "none",
+        },
+      });
+
+    it("wpuszcza każdego z zapisem Delivery — także rolę spoza admin/DL", () => {
+      // Rekruter z nadanym „Klienci: dodawanie i edycja” ma w tokenie Delivery
+      // „write”; do 0410 `enforceRoles` odsyłał go na /403 mimo uprawnienia.
+      expect(destination("/settings/cv-rules", withSections("recruiter", "write"))).toBe(
+        "pass",
+      );
+      expect(
+        destination("/settings/cv-rules?client=7&tab=playbook", withSections("tac", "write")),
+      ).toBe("pass");
+      expect(
+        destination("/settings/cv-rules", withSections("delivery_lead", "write")),
+      ).toBe("pass");
+    });
+
+    it("sam odczyt Delivery albo jego brak nie wystarcza", () => {
+      expect(destination("/settings/cv-rules", withSections("recruiter", "read"))).toBe(
+        "/403",
+      );
+      expect(destination("/settings/cv-rules", withSections("recruiter", "none"))).toBe(
+        "/403",
+      );
+      // Delivery Lead, któremu administrator zostawił sam podgląd.
+      expect(
+        destination("/settings/cv-rules", withSections("delivery_lead", "read")),
+      ).toBe("/403");
+    });
+
+    it("token bez sekcji: role z domyślnym zapisem Delivery", () => {
+      for (const token of [
+        validAdmin,
+        validDeliveryLead,
+        validFinance,
+        validTalentCommunityManager,
+      ]) {
+        expect(destination("/settings/cv-rules", token)).toBe("pass");
+      }
+      for (const token of [
+        validRecruiter,
+        validSourcer,
+        validTac,
+        validHeadOfRecruitment,
+        validViewer,
+      ]) {
+        expect(destination("/settings/cv-rules", token)).toBe("/403");
+      }
+    });
+  });
 
   it("Head of Recruitment zarządza strukturą także jako rola dodatkowa", () => {
     expect(

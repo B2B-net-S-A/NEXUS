@@ -2,8 +2,9 @@
 
 D7: /insights jest jawnie otwarte dla KAŻDEJ zalogowanej roli (decyzja Artura
 2026-08-31, plan §0 D7) — z wyjątkiem ``/ranking`` (przychody i MRR, zakładka
-Rada/Firma): od 24.09.2026 tylko admin · finance (``BoardReader``;
-Head of Recruitment nie widzi pieniędzy — decyzja Artura). Kwoty NIE są tu redagowane. Nie zastępuj guardów
+Rada/Firma): od 24.09.2026 tylko uprawnienie „Moduł Finanse” (``BoardReader``;
+domyślnie admin i Finanse — Head of Recruitment nie widzi pieniędzy, decyzja
+Artura). Kwoty NIE są tu redagowane. Nie zastępuj guardów
 ``CurrentUser``/``BoardReader`` żadną capability — ``VIEW_FINANCE`` steruje 40+ innymi
 powierzchniami (``analytics/capabilities.py:64-115``) i jego poszerzenie
 wyciekłoby stawki konsultantów daleko poza Insights.
@@ -180,8 +181,9 @@ async def insights_clients_ranking(
 ):
     """Ranking klientów: przychód lifetime, aktywne MRR, marża/mc, Head DL.
 
-    Widok Firma: tylko admin · finance (``BoardReader``, decyzja Artura
-    24.09.2026 — Head of Recruitment nie widzi pieniędzy). Skuteczność per klient (``/hit-ratio``)
+    Widok Firma: tylko uprawnienie „Moduł Finanse” (``BoardReader``; domyślnie
+    admin i Finanse — decyzja Artura 24.09.2026: Head of Recruitment nie
+    widzi pieniędzy). Skuteczność per klient (``/hit-ratio``)
     i hiring managerowie zostają otwarci dla każdej roli (D7).
 
     Okres steruje wyłącznie DNIEM WYCENY — którym krokiem harmonogramu stawek

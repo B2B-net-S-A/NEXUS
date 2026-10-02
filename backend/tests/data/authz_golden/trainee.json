@@ -1,0 +1,40 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
+ ],
+ "routes": {
+  "GET /api/trainee/items/{item_id}/open-jobs": "DDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/trainee/overview": "PDPDDDDDDDDPDPDDDDDDD",
+  "GET /api/trainee/quality-sample": "PDPDDDDDDDDPDPDDDDDDD",
+  "GET /api/trainee/rules": "PDPDDDDDDDDPDPDDDDDDD",
+  "GET /api/trainee/rules/preview": "PDPDDDDDDDDPDPDDDDDDD",
+  "GET /api/trainee/today": "DDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/trainee/items/{item_id}/call": "DDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/trainee/items/{item_id}/handover": "DDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/trainee/items/{item_id}/outcome": "DDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/trainee/programs/{user_id}/decision": "PDPDDDDDDDDPDPDDDDDDD",
+  "POST /api/trainee/quality-sample/{item_id}": "PDPDDDDDDDDPDPDDDDDDD",
+  "PUT /api/trainee/programs/{user_id}": "PDPDDDDDDDDPDPDDDDDDD",
+  "PUT /api/trainee/rules": "PDPDDDDDDDDPDPDDDDDDD"
+ }
+}

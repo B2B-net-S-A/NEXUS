@@ -205,12 +205,10 @@ async def test_queue_item_hides_amounts_in_reasons_for_role_without_finance(
 ):
     """Hybryda DL+TCM albo DL spoza portfela: kwoty w ``extraction`` były
     zredagowane, a ``gate_reasons`` i ``error`` cytowały stawki."""
-    monkeypatch.setattr(queue, "_dl_assigned_to_client", AsyncMock(return_value=False))
-    monkeypatch.setattr(queue, "_can_manage_order_finance", lambda *a, **k: False)
-    monkeypatch.setattr(queue, "_order_finance_visible", lambda *a, **k: False)
-    monkeypatch.setattr(queue, "_is_read_only_tcm", lambda user: False)
-    monkeypatch.setattr(queue, "_sees_other_clients", lambda user: True)
-    monkeypatch.setattr(queue, "_attachment_exists", lambda doc: False)
+    from app.models.user import User, UserRole
+
+    monkeypatch.setattr(queue, "_attachment_exists", lambda doc: True)
+    reason = "„Jan Kowalski”: stawka 1400 odbiega o 45% od obowiązującej 965"
     doc = SimpleNamespace(
         id=1,
         received_at=None,
@@ -224,7 +222,7 @@ async def test_queue_item_hides_amounts_in_reasons_for_role_without_finance(
         identification_reason="NIP",
         client_policy=None,
         gate_verdict="review",
-        gate_reasons=["„Jan Kowalski”: stawka 1400 odbiega o 45% od obowiązującej 965"],
+        gate_reasons=[reason],
         document_meta={},
         extraction=None,
         proposal=None,
@@ -236,11 +234,59 @@ async def test_queue_item_hides_amounts_in_reasons_for_role_without_finance(
     )
     db = AsyncMock()
     db.scalar = AsyncMock(return_value="Bank")
-    body = await queue._serialize(db, doc, SimpleNamespace())
+
+    # Konto z rolą Delivery Leada widzi kwoty („Stawki i kwoty: podgląd”), ale
+    # nie u TEGO klienta: treść zostaje, kwoty są maskowane, a przycisków
+    # pliku i zapisu nie ma.
+    lead = User(
+        id=7,
+        email="dl-outside@example.com",
+        role=UserRole.delivery_lead,
+        roles=["delivery_lead", "talent_community_manager"],
+    )
+    outside = queue._FinanceBoundary(frozenset({99}))
+    body = await queue._serialize(db, doc, lead, boundary=outside)
     assert body["gate_reasons"] == [
         "„Jan Kowalski”: stawka … odbiega o …% od obowiązującej …"
     ]
     assert "1400" not in body["error"]
+    assert body["identification_reason"] == "NIP"
+    assert body["has_file"] is False
+    assert body["can_apply"] is False and body["can_dismiss"] is False
+
+    # Ten sam DL u klienta z przypisania: pełna treść, plik i zapis.
+    assigned = queue._FinanceBoundary(frozenset({5}))
+    body = await queue._serialize(db, doc, lead, boundary=assigned)
+    assert body["gate_reasons"] == [reason]
+    assert "1400" in body["error"]
+    assert body["has_file"] is True
+    assert body["can_apply"] is True and body["can_dismiss"] is True
+
+    # Konto bez podglądu kwot (domyślnie TCM): bezpieczna projekcja — zdania
+    # ogólne zamiast treści, która cytuje nazwiska i stawki.
+    tcm = User(
+        id=8,
+        email="tcm@example.com",
+        role=UserRole.talent_community_manager,
+        roles=["talent_community_manager"],
+    )
+    body = await queue._serialize(db, doc, tcm, boundary=queue._FinanceBoundary(None))
+    assert body["gate_reasons"] == ["Sprawdź odczytane dane przed zapisem."]
+    assert body["identification_reason"] == "Klient rozpoznany automatycznie."
+    assert body["error"] == "Przetwarzanie dokumentu zakończyło się błędem."
+    assert body["has_file"] is False
+    assert body["can_apply"] is False and body["can_dismiss"] is False
+
+    # Finanse prowadzą zamówienia u wszystkich klientów (decyzja 02.10.2026).
+    finance = User(
+        id=9, email="fin@example.com", role=UserRole.finance, roles=["finance"]
+    )
+    body = await queue._serialize(
+        db, doc, finance, boundary=queue._FinanceBoundary(None)
+    )
+    assert body["gate_reasons"] == [reason]
+    assert body["has_file"] is True
+    assert body["can_apply"] is True and body["can_dismiss"] is True
 
 
 # ── R10-N3-9: odmowa writera bez nazwisk w logu ──────────────────────────────

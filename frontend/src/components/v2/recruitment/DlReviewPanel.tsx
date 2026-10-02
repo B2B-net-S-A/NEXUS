@@ -9,8 +9,9 @@
  * i odpowiedzi ze screeningu Championa. Dwie decyzje, obie to ZWYKŁY ruch
  * w pipeline (`POST /api/pipeline/move` z wersją procesu):
  *  - „Wyślij do klienta” → „CV wysłane” ze stawką do klienta w tym samym
- *    żądaniu (serwer odmawia bez stawki i poza rolami admin/DL, a CV, które
- *    nie przeszło QC, odbija 409 `CV_QC_FAILED` — wtedy otwiera się QC),
+ *    żądaniu (serwer odmawia bez stawki i bez uprawnienia „Rekrutacje:
+ *    zakładanie, zamykanie, wysyłka CV do klienta”, a CV, które nie przeszło
+ *    QC, odbija 409 `CV_QC_FAILED` — wtedy otwiera się QC),
  *  - „Odrzuć (DL)” → etap „Odrzucony” z powodem i `ended_by: "delivery_lead"`.
  *
  * Panel dostaje wiersz kolejki (`BoardTaskRow` z `GET /api/board-tasks`), więc
@@ -57,6 +58,7 @@ import {
   invalidateAfterPipelineVersionConflict,
   isPipelineVersionConflict,
 } from "@/lib/pipeline-version-conflict";
+import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { loadJobRejectionReasons } from "@/lib/rejection-reasons";
 import { formatDate } from "@/lib/utils";
 import { getUserRoles, useAuthStore } from "@/store/auth";
@@ -69,10 +71,10 @@ export const RATE_UNIT_LABEL: Record<ClientRateUnit, string> = {
   monthly: "zł/mies.",
 };
 
-// Lustra `CLIENT_SEND_ROLES` i `DL_REJECT_ROLES` z
-// `backend/app/services/pipeline_move_rules.py` — przycisk, którego serwer
-// i tak by odmówił, nie renderuje się jako aktywny.
-const CLIENT_SEND_ROLES = new Set(["admin", "delivery_lead"]);
+// Przycisk, którego serwer i tak by odmówił, nie renderuje się jako aktywny.
+// Wysyłka do klienta idzie za uprawnieniem `recruitment_manage`
+// (`pipeline_move_rules.assert_client_send_allowed`); odrzucenie „przez DL”
+// zostaje przy rolach — lustro `DL_REJECT_ROLES` z tego samego modułu.
 const DL_REJECT_ROLES = new Set(["admin", "delivery_lead", "head_of_recruitment"]);
 
 function parseAmount(raw: string): number | null {
@@ -354,7 +356,9 @@ export interface DlReviewPanelProps {
   task: BoardTaskRow | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Nadpisanie bramki wysyłki (domyślnie: rola admin albo Delivery Lead). */
+  /** Flaga wysyłki z serwera (`can_send_to_client` kolejki) — wygrywa z regułą
+   *  lokalną. Bez niej: uprawnienie „Rekrutacje: zakładanie, zamykanie,
+   *  wysyłka CV do klienta”. */
   canSendToClient?: boolean;
 }
 
@@ -365,7 +369,7 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
   const { showSuccess, showError } = useToast();
   const me = useAuthStore((s) => s.user);
   const roles = getUserRoles(me as never);
-  const canSend = canSendToClient ?? roles.some((r) => CLIENT_SEND_ROLES.has(r));
+  const canSend = canSendToClient ?? hasPermission(me, "recruitment_manage");
   const canReject = roles.some((r) => DL_REJECT_ROLES.has(r));
 
   const [rateRaw, setRateRaw] = useState("");
@@ -683,7 +687,10 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
             </div>
           </div>
           {!canSend ? (
-            <p className="text-xs text-muted-foreground">Do klienta wysyła Delivery Lead — możesz przejrzeć kandydata.</p>
+            <p className="text-xs text-muted-foreground">
+              Do klienta wysyła osoba z uprawnieniem „{permissionLabel("recruitment_manage")}” — możesz
+              przejrzeć kandydata.
+            </p>
           ) : task.target_stage_def_id == null ? (
             <p className="text-xs text-destructive">
               Szablon tej rekrutacji nie ma etapu „CV wysłane” — przenieś osobę na Tablicy.

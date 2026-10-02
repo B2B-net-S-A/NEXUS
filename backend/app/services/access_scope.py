@@ -227,6 +227,21 @@ async def _delivery_lead_operator_ids(user: User, db: AsyncSession) -> frozenset
     )
 
 
+def is_delivery_lead_governed(user: User) -> bool:
+    """Czy zakres klientów konta wyznacza portfel Delivery Leada.
+
+    Uprawnienia z ekranu mówią, CO konto może; ta funkcja mówi, U KOGO.
+    Konto z rolą Delivery Leada (także jako rolą dodatkową) działa u swoich
+    klientów; admin i Finanse — u wszystkich, tak jak każdy inny posiadacz
+    uprawnienia bez roli DL. To ten sam warunek, który w resolverach niżej
+    odróżnia zbiór klientów od ``None``.
+    """
+
+    return user.has_role(UserRole.delivery_lead) and not user.has_any_role(
+        UserRole.admin, UserRole.finance
+    )
+
+
 def delivery_lead_scope_is_assigned() -> bool:
     """``DL_CLIENT_SCOPE``: anything but ``all`` narrows (fail-closed)."""
 

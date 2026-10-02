@@ -1,0 +1,35 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
+ ],
+ "routes": {
+  "DELETE /api/my-people/{candidate_id}/pin": "PPPPPPPPDDPPPPPPPPPPP",
+  "DELETE /api/my-people/{candidate_id}/snooze": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/my-people": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/my-people/for-job/{job_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/my-people/summary": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/my-people/matches/seen": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/my-people/{candidate_id}/pin": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/my-people/{candidate_id}/snooze": "PPPPPPPPDDPPPPPPPPPPP"
+ }
+}

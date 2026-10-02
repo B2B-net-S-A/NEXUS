@@ -19,7 +19,6 @@ from app.core.security import (
 from app.models.oauth_client import OAuthClient
 from app.models.service_account import ServiceScope
 from app.models.user import User, UserRole
-from app.services.action_permissions import resolve_effective_action_access
 from app.services.onboarding_access import onboarding_persona_for_user
 from app.services.order_change_audit import stamp_actor
 from app.services.jarvis.via_tag import INTERNAL_HEADER as JARVIS_INTERNAL_HEADER
@@ -34,7 +33,9 @@ from app.services.request_semantics import (
     is_read_only_http_request,
     is_read_only_post_path,
 )
-from app.services.section_permissions import resolve_effective_section_access
+from app.services.action_permissions import ProductAction
+from app.services.effective_access import resolve_effective_access
+from app.services.permission_denial import ensure_any_permission, ensure_permission
 from app.services.service_account_auth import (
     API_KEY_HEADER,
     ServiceKeyError,
@@ -366,8 +367,7 @@ async def get_authenticated_user(
     )
     # Authoritative request-local snapshot. No process cache: policy edits are
     # immediately consistent across multiple API workers/pods.
-    await resolve_effective_section_access(db, effective_user)
-    await resolve_effective_action_access(db, effective_user)
+    await resolve_effective_access(db, [effective_user])
     return effective_user
 
 
@@ -504,6 +504,67 @@ def require_roles(*roles: UserRole):
     return _check_role
 
 
+def require_permission(permission: ProductAction):
+    """Zależność trasy: konto musi mieć jedno z uprawnień z ekranu Osoby i role.
+
+    Trasa pyta o UPRAWNIENIE, nie o rolę — to, co administrator zaznacza na
+    ekranie, jest tym, co decyduje, a odmowa nazywa brakującą pozycję. Zakres
+    klientów zostaje w handlerze (``access_scope``): konto z rolą Delivery
+    Leada działa u swoich klientów, pozostali posiadacze u wszystkich.
+    Gotowe aliasy: ``app/api/permission_access.py``.
+    """
+
+    async def _check(
+        current_user: User = Depends(require_onboarded_user),
+    ) -> User:
+        ensure_permission(current_user, permission)
+        return current_user
+
+    # Bramka sekcji (``section_access``) biegnie wcześniej; czyta ten atrybut,
+    # żeby jej odmowa też nazywała brakujące uprawnienie trasy.
+    _check.required_permissions = (permission,)
+    return _check
+
+
+def require_any_permission(*permissions: ProductAction):
+    """Zależność trasy: wystarczy jedno z ``permissions``."""
+
+    if not permissions:
+        raise ValueError("At least one permission is required")
+
+    async def _check(
+        current_user: User = Depends(require_onboarded_user),
+    ) -> User:
+        ensure_any_permission(current_user, *permissions)
+        return current_user
+
+    _check.required_permissions = tuple(permissions)
+    return _check
+
+
+def require_permission_or_roles(permission: ProductAction, *roles: UserRole):
+    """Zależność trasy: uprawnienie z ekranu ALBO jedna z ``roles``.
+
+    Dla czynności, którą decyzja produktowa daje też roli spoza ekranu
+    uprawnień (np. Head of Recruitment przydziela rekruterów bez prowadzenia
+    rekrutacji). Odmowa nazywa uprawnienie — to jedyna droga, którą
+    administrator może komuś tę czynność nadać.
+    """
+
+    if not roles:
+        raise ValueError("At least one role is required")
+
+    async def _check(
+        current_user: User = Depends(require_onboarded_user),
+    ) -> User:
+        if current_user.has_any_role(*roles):
+            return current_user
+        ensure_permission(current_user, permission)
+        return current_user
+
+    return _check
+
+
 # ── Named guards (hierarchiczne "role X or higher") ──────────────────────────
 #
 # Hierarchia:
@@ -539,13 +600,12 @@ TraineeUser = Annotated[User, Depends(require_trainee)]
 
 AdminUser = Annotated[User, Depends(require_roles(UserRole.admin))]
 
-# Moduł „Finanse" (import miesięcznych wyników kontraktorów). Dwie ROZŁĄCZNE
-# publiczności, nie suma uprawnień: CHECK `ck_users_exclusive_finance_viewer_roles`
-# sprawia, że użytkownik `finance` ma wyłącznie tę rolę i nigdy nie jest
-# jednocześnie adminem.
+# Moduł „Finanse" (wyniki miesięczne, zmiany w zamówieniach, PDF-y zamówień,
+# historia zdarzeń, widok „Firma" w Insights): uprawnienie „Moduł Finanse"
+# z ekranu Osoby i role. Domyślnie ma je rola Finanse (i admin).
 FinanceModuleUser = Annotated[
     User,
-    Depends(require_roles(UserRole.admin, UserRole.finance)),
+    Depends(require_permission(ProductAction.finance_module)),
 ]
 
 DeliveryLeadPlus = Annotated[
@@ -553,24 +613,28 @@ DeliveryLeadPlus = Annotated[
     Depends(require_roles(UserRole.admin, UserRole.delivery_lead)),
 ]
 
-# Widok „Firma" w /insights (kokpit z kwotami, ranking klientów z MRR): admin
-# (niejawnie przez `require_roles`) · finance. Decyzja Artura 24.09.2026:
-# Head of Recruitment zajmuje się rekrutacją i NIE widzi pieniędzy (marża,
-# przychód, kwoty per klient) — do tego dnia wchodził tu razem z Finansami.
-# Świadomie NIE `VIEW_FINANCE`: ta capability steruje 40+ innymi
-# powierzchniami, a admin może nadać HoR sekcję Finanse w panelu.
-BoardReader = Annotated[
-    User,
-    Depends(require_roles(UserRole.finance)),
-]
+# Widok „Firma" w /insights (kokpit z kwotami, ranking klientów z MRR):
+# uprawnienie „Moduł Finanse" (domyślnie admin i Finanse). Decyzja Artura
+# 24.09.2026: Head of Recruitment zajmuje się rekrutacją i NIE widzi pieniędzy
+# (marża, przychód, kwoty per klient) — do tego dnia wchodził tu razem
+# z Finansami.
+BoardReader = FinanceModuleUser
 
-# Tabele rok-do-roku: admin · finance · Head of Recruitment. HoR dostaje je
+
+async def _require_board_trend_reader(
+    current_user: User = Depends(require_onboarded_user),
+) -> User:
+    """„Moduł Finanse" albo Head of Recruitment (ten drugi bez kwot)."""
+
+    if not current_user.has_role(UserRole.head_of_recruitment):
+        ensure_permission(current_user, ProductAction.finance_module)
+    return current_user
+
+
+# Tabele rok-do-roku: „Moduł Finanse" · Head of Recruitment. HoR dostaje je
 # BEZ metryk pieniężnych (router redaguje odpowiedź) — placementy, hit ratio,
 # konsultanci i zejścia to jego praca, kwoty już nie.
-BoardTrendReader = Annotated[
-    User,
-    Depends(require_roles(UserRole.finance, UserRole.head_of_recruitment)),
-]
+BoardTrendReader = Annotated[User, Depends(_require_board_trend_reader)]
 
 # Head of Recruitment + admin — zarządzanie strukturą zespołu rekrutacji
 # (macierze sourcer×kategoria, TAC→DL, DL→klienci), edycja targetów KPI,
@@ -658,67 +722,6 @@ OperationalUser = Annotated[
 # consolidation it maps to DeliveryLeadPlus (admin + delivery_lead) — same
 # semantic: „privileged operations beyond regular recruiters".
 ManagerOrAdmin = DeliveryLeadPlus
-
-
-# ── DL Client Portal guards ──────────────────────────────────────────────────
-
-
-async def require_dl_assigned_or_admin(
-    client_id: int,
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    """Dependency: Admin globally or an explicitly assigned Delivery Lead.
-
-    FastAPI inferruje ``client_id`` z path parametru routera. Inne role
-    (recruiter, sourcer, tac, user) — zawsze 403.
-
-    Ten wąski guard pozostaje dla stawek, plików finansowych i konsekwentnych
-    zapisów prawnych. Zwykły dostęp operacyjny do klienta korzysta z
-    ``require_delivery_lead_or_admin`` albo centralnego ``ClientAccess``.
-    """
-    from sqlalchemy import select
-
-    from app.models.team_structure import DeliveryLeadClientAssignment
-
-    if current_user.has_role(UserRole.admin):
-        return current_user
-    if not current_user.has_role(UserRole.delivery_lead):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only Delivery Leads or admin may access this",
-        )
-    result = await db.execute(
-        select(DeliveryLeadClientAssignment).where(
-            DeliveryLeadClientAssignment.client_id == client_id,
-            DeliveryLeadClientAssignment.delivery_lead_user_id == current_user.id,
-        )
-    )
-    if result.scalar_one_or_none() is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not assigned to this client",
-        )
-    return current_user
-
-
-DlAssignedOrAdmin = Annotated[User, Depends(require_dl_assigned_or_admin)]
-
-
-async def require_delivery_lead_or_admin(
-    current_user: Annotated[User, Depends(get_current_user)],
-) -> User:
-    """Dependency for organization-wide operational Delivery client actions."""
-
-    if current_user.has_any_role(UserRole.admin, UserRole.delivery_lead):
-        return current_user
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Only Delivery Leads or admin may access this",
-    )
-
-
-DeliveryLeadOrAdmin = Annotated[User, Depends(require_delivery_lead_or_admin)]
 
 
 # ── Konta serwisowe / klucze API (nagłówek X-API-Key) ────────────────────────

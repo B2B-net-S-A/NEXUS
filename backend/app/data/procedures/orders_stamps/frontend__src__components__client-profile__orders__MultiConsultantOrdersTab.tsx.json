@@ -1,4 +1,4 @@
 {
-  "sha256": "a5158418479051f179f870c946fbcb518e38cc4bdf555dc416e93c4718fbbf6d",
+  "sha256": "c64269c7af9a540a5dad719f1bc82ad45e6a3f48264f6753840959cb76a3c072",
   "source": "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx"
 }

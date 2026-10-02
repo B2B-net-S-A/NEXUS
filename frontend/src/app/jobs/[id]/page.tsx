@@ -8,7 +8,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api, { jobChatApi, matchingApi } from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
-import { canEditJobContent, jobEditScope } from "@/lib/job-edit-access";
+import {
+  canEditJobContent,
+  hasFullJobEditFallback,
+  jobEditScope,
+} from "@/lib/job-edit-access";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { PipelineBoardGate } from "@/components/v2/jobs/PipelineBoardGate";
@@ -66,6 +70,7 @@ import { useTabsStore } from "@/store/tabs";
 import { useUiStore } from "@/store/ui";
 import { useMyPeoplePanel } from "@/store/my-people";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { hasPermission } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
 import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
 import {
@@ -149,15 +154,20 @@ export default function JobDetailPage() {
   const authUser = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
   const isAdmin = hasRole(authUser, "admin");
-  // 0325: powrót rekrutacji do Traffita — tylko admin / Delivery Lead.
-  const canRevertManaged = isAdmin || hasRole(authUser, "delivery_lead");
-  // Lustro `GATE_ROLES` doku gotowości: `GET /jobs/{id}/readiness` to
-  // `DeliveryLeadPlus` — dla innych ról zapytanie zawsze kończy się 403.
-  const canSeeReadinessGate = isAdmin || hasRole(authUser, "delivery_lead");
+  // Uprawnienie „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” —
+  // domyślnie administrator i Delivery Lead, ale rozstrzyga panel „Osoby
+  // i role”, nie rola. Serwer pyta o nie przy zamknięciu rekrutacji, bramce
+  // gotowości, przekazaniu do searchu i powrocie rekrutacji do Traffita.
+  const canManageRecruitment = hasPermission(authUser, "recruitment_manage");
+  // 0325: powrót rekrutacji do Traffita.
+  const canRevertManaged = canManageRecruitment;
+  // Lustro bramki doku gotowości: bez uprawnienia `GET /jobs/{id}/readiness`
+  // zawsze kończy się 403, więc zapytanie nie jest wysyłane.
+  const canSeeReadinessGate = canManageRecruitment;
   const canWritePipeline =
     !impersonating && hasSectionAccess(authUser, "pipeline", "write");
-  // PATCH /api/jobs/{id} to TacPlus — a TacPlus nie obejmuje HoR. Przez rejestr,
-  // żeby nie hodować drugiej listy ról obok niego (F-19).
+  // Pełna redakcja rekrutacji (PATCH /api/jobs/{id}). Przez rejestr, żeby nie
+  // hodować drugiej reguły obok niego (F-19).
   const canUpdateJob = useCapability("job.update");
   // 0341: „Mamy championa" oznacza Delivery Lead (lustro `_CHAMPION_ROLES`).
   const canMarkChampion =
@@ -622,10 +632,17 @@ export default function JobDetailPage() {
   });
   const canEditJob = editScope === "full";
   const canEditJobContentFields = editScope !== "none";
+  // Zamknięcie rekrutacji (`POST /api/jobs/{id}/close`) wymaga uprawnienia do
+  // jej prowadzenia — sama pełna redakcja nie wystarcza (TAC redaguje
+  // rekrutację, a zamknięcia serwer mu odmawia). Zapis w rekrutacjach i dostęp
+  // do tej rekrutacji niesie `editScope`.
+  const canCloseJob = canEditJobContentFields && canManageRecruitment;
   const canEditChampion = canEditJobContent(job, {
     canWritePipeline,
-    // Lustro `PUT /champion-profile` sprzed pola `can_edit` (DeliveryLeadPlus).
-    fallback: isAdmin || hasRole(authUser, "delivery_lead"),
+    // Odpowiedź bez pola `can_edit` (starszy cache): pełną redakcję rekrutacji
+    // daje uprawnienie do jej prowadzenia.
+    // Pełną redakcję bez flagi z serwera ma też TAC (reguła zapasowa backendu).
+    fallback: hasFullJobEditFallback(authUser),
   });
   // Bez prawa edycji zawsze „Podgląd” — nawet ze starym linkiem `?mode=edit`.
   const championMode: ChampionMode =
@@ -773,7 +790,7 @@ export default function JobDetailPage() {
           job.client_id != null ? `/help?tab=clients&client=${job.client_id}` : undefined
         }
         onCopyLink={copyJobLink}
-        onCloseJob={canEditJob && job.status !== "closed" ? () => setShowCloseJob(true) : undefined}
+        onCloseJob={canCloseJob && job.status !== "closed" ? () => setShowCloseJob(true) : undefined}
       />
 
       {/* Edit Job Modal */}
@@ -895,7 +912,7 @@ export default function JobDetailPage() {
         initialSection={orderSection}
         hiredCount={kanban ? countHired(kanbanColumns) : 0}
       />
-      {canEditJob && job.status !== "closed" ? (
+      {canCloseJob && job.status !== "closed" ? (
         <JobCloseWithReasonDialog
           open={showCloseJob}
           onOpenChange={setShowCloseJob}
@@ -1068,7 +1085,7 @@ export default function JobDetailPage() {
                 clientName: job.client_name ?? null,
                 onMoved: invalidateKanban,
                 onTabChange: handleLegacyTab,
-                canCloseJob: canUpdateJob,
+                canCloseJob,
                 headcount: typeof job.headcount === "number" ? job.headcount : null,
                 jobClosed: job.status === "closed",
                 onRequestCloseJob: () => openSlideOver("order", { orderSection: "close" }),

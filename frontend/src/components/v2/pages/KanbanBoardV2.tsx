@@ -96,6 +96,7 @@ import {
  type StageBadgeKey,
 } from "@/lib/board-stages";
 import { boardColumnPurpose } from "@/lib/board-column-purpose";
+import { hasPermission } from "@/lib/permissions";
 import { hasRole, useAuthStore } from "@/store/auth";
 import {
  CARD_BADGE_TONE_CLASS,
@@ -1571,9 +1572,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  hasRole(authUser, "admin") ||
  hasRole(authUser, "delivery_lead") ||
  hasRole(authUser, "head_of_recruitment");
- // Poza Nordeą CV do klienta wysyła DL albo admin (lustro
- // `pipeline_move_rules.CLIENT_SEND_ROLES`).
- const canReviewAsDl = hasRole(authUser, "admin") || hasRole(authUser, "delivery_lead");
+ // Poza klientem z kolejką Cpro CV wysyła osoba z uprawnieniem „Rekrutacje:
+ // zakładanie, zamykanie, wysyłka CV do klienta” (lustro
+ // `pipeline_move_rules.assert_client_send_allowed`) — ona dostaje pełny
+ // przegląd przed wysyłką zamiast okna „Przesuń dalej”.
+ const canReviewAsDl = hasPermission(authUser, "recruitment_manage");
  // Terminy od klienta dodaje DL (lustro bramki `interview_slots`: admin, HoR,
  // DL, TAC z członkostwem — serwer i tak sprawdza członkostwo).
  const canAddClientSlots =

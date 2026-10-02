@@ -1,0 +1,37 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
+ ],
+ "routes": {
+  "GET /api/candidates/{candidate_id}/languages": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/notes-facts": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/profile-rate": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/recent-recruitments": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/screening-answers": "PPPPPPPPDDPPPPPPPPPPP",
+  "PATCH /api/candidates/{candidate_id}/call-facts": "PPPPPPPPDDPPPPPPPPPPP",
+  "PATCH /api/candidates/{candidate_id}/profile-rate": "PPPPPPPPDDPPPPPPPPPPP",
+  "PATCH /api/candidates/{candidate_id}/work-mode": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/candidates/{candidate_id}/notes-facts/apply": "PPPPPPPPDDPPPPPPPPPPP",
+  "PUT /api/candidates/{candidate_id}/languages": "PPPPPPPPDDPPPPPPPPPPP"
+ }
+}

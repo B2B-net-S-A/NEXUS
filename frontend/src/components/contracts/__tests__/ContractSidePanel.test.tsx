@@ -44,6 +44,7 @@ vi.mock("@/lib/api/dlPortal", async (importOriginal) => ({
 import { ContractSidePanel } from "@/components/contracts/ContractSidePanel";
 import { ContractStatusControl } from "@/components/contracts/ContractStatusControl";
 import { useAuthStore } from "@/store/auth";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 type Role =
   | "admin"
@@ -52,7 +53,11 @@ type Role =
   | "talent_community_manager"
   | "recruiter";
 
-function login(role: Role, capabilities: string[] = []) {
+function login(
+  role: Role,
+  capabilities: string[] = [],
+  extra: Record<string, unknown> = {},
+) {
   useAuthStore.setState({
     user: {
       id: 1,
@@ -66,6 +71,7 @@ function login(role: Role, capabilities: string[] = []) {
       force_password_change_at: null,
       capabilities,
       analytics_capabilities: capabilities,
+      ...extra,
     } as never,
     realUser: null,
     hydrated: true,
@@ -217,6 +223,55 @@ describe("ContractSidePanel — aneksy", () => {
     const item = await screen.findByRole("menuitem", { name: "Przedłużenie" });
     expect(item.getAttribute("href")).toContain("tab=amendments");
   });
+
+  // „Zmiana stawki” = uprawnienie „Stawki i kwoty: zmiana” u klienta kontraktu
+  // (`lib/contract-rate-amendment.ts`), nie rola.
+  async function openAnnexMenu() {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click((await footer()).getByRole("button", { name: "Aneksy" }));
+    await screen.findByText("Zmiana zakresu");
+  }
+
+  it("admin (ma zmianę kwot) widzi „Zmiana stawki”", async () => {
+    await openAnnexMenu();
+    expect(screen.getByRole("menuitem", { name: "Zmiana stawki" })).toBeInTheDocument();
+  });
+
+  it("Delivery Lead bez zmiany kwot nie dostaje „Zmiana stawki”", async () => {
+    login("delivery_lead");
+    await openAnnexMenu();
+    expect(screen.queryByRole("menuitem", { name: "Zmiana stawki" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [7, true],
+    [99, false],
+  ])(
+    "Delivery Lead z nadaną zmianą kwot, klient %s w przypisaniu: %s",
+    async (assignedClientId, visible) => {
+      login("delivery_lead", [], {
+        effective_action_access: permissionSnapshot(
+          "clients_edit",
+          "contracts_orders_edit",
+          "contract_status",
+          "amounts_edit",
+        ),
+        data_scope: {
+          kind: "delivery_clients",
+          user_id: 1,
+          allowed_client_ids: [assignedClientId],
+          allowed_tac_user_ids: [],
+          allowed_operator_user_ids: [],
+          finance_client_ids: [assignedClientId],
+        },
+      });
+      await openAnnexMenu();
+      expect(Boolean(screen.queryByRole("menuitem", { name: "Zmiana stawki" }))).toBe(
+        visible,
+      );
+    },
+  );
 });
 
 describe("ContractSidePanel — bramki ról", () => {

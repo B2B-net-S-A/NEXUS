@@ -1,9 +1,5 @@
 import type { UserRole } from "@/store/auth";
-import type {
-  ActionAccess,
-  ProductAction,
-  UserActionOverrideAccess,
-} from "@/lib/action-access";
+import type { ActionAccess, ProductAction } from "@/lib/action-access";
 
 export type ProductSection =
   | "sourcing"
@@ -39,29 +35,6 @@ export interface SectionPermissionsResponse {
   actions?: ProductAction[];
 }
 
-export interface UserSectionPermissions {
-  user_id: number;
-  name: string;
-  email: string;
-  role: UserRole;
-  roles?: UserRole[];
-  is_active?: boolean;
-  locked?: boolean;
-  overrides: Partial<Record<ProductSection, SectionAccess>>;
-  inherited_permissions?: Record<ProductSection, SectionAccess>;
-  effective_permissions: Record<ProductSection, SectionAccess>;
-  action_overrides?: Partial<Record<ProductAction, ActionAccess>>;
-  inherited_action_permissions?: Record<ProductAction, ActionAccess>;
-  effective_action_permissions?: Record<ProductAction, ActionAccess>;
-  scope_summary?: string;
-}
-
-export interface UserSectionPermissionsResponse {
-  revision: number;
-  users: UserSectionPermissions[];
-  total?: number;
-}
-
 export interface RoleSectionPermissionChange {
   role: UserRole;
   section: ProductSection;
@@ -71,17 +44,6 @@ export interface RoleSectionPermissionChange {
 export interface UserSectionPermissionChange {
   section: ProductSection;
   access: UserSectionOverrideAccess;
-}
-
-export interface RoleActionPermissionChange {
-  role: UserRole;
-  action: ProductAction;
-  access: ActionAccess;
-}
-
-export interface UserActionPermissionChange {
-  action: ProductAction;
-  access: UserActionOverrideAccess;
 }
 
 export interface SectionPermissionMutationResponse {
@@ -118,7 +80,9 @@ export const ALL_USER_ROLES: readonly UserRole[] = [
  * Coarse product-section policy. Endpoint-specific capabilities remain the
  * final authority for actions inside an allowed section.
  *
- * Keep in parity with backend/app/api/section_access.py.
+ * Macierz startowa dla profilu bez `effective_section_access`. Delivery
+ * i Finanse muszą zgadzać się z `deriveSections(defaultPermissionsForRoles)`
+ * — pilnuje tego `permissions.test.ts`.
  */
 export const ROLE_SECTION_ACCESS: Record<
   UserRole,
@@ -156,10 +120,12 @@ export const ROLE_SECTION_ACCESS: Record<
     finance: "none",
     system_admin: "none",
   },
+  // Od 0410 Delivery i Finanse wynikają z uprawnień (`lib/permissions.ts`):
+  // TCM zmienia status kontraktu, więc ma w Delivery zapis.
   talent_community_manager: {
     sourcing: "write",
     pipeline: "write",
-    delivery: "read",
+    delivery: "write",
     insights: "read",
     finance: "none",
     system_admin: "none",
@@ -264,6 +230,13 @@ export function canMutateSection(
   return !isImpersonating && hasSectionAccess(user, section, "write");
 }
 
+/**
+ * Role z dostępem do sekcji według macierzy STARTOWEJ — wyłącznie zapasowa
+ * lista dla middleware (stary token bez claimu `sa`). Menu i rejestr
+ * capability z niej NIE korzystają: Delivery i Finanse wynikają z uprawnień,
+ * które administrator przełącza per rola i per osoba (`lib/permissions.ts`),
+ * więc lista ról przestała mówić, kto te sekcje naprawdę ma.
+ */
 export function rolesWithSectionAccess(
   section: ProductSection,
   required: Exclude<SectionAccess, "none"> = "read",

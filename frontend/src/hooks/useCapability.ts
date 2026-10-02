@@ -37,6 +37,8 @@ export function useCapabilities(): Record<Capability, boolean> {
   const impersonating = useAuthStore((s) => s.realUser !== null)
   return useMemo(() => {
     const out = {} as Record<Capability, boolean>
+    // `CAPABILITY_ROLES` ma wpis dla KAŻDEJ capability — także tych, o których
+    // rozstrzyga uprawnienie (pusta lista ról) — więc jego klucze to rejestr.
     for (const capability of Object.keys(CAPABILITY_ROLES) as Capability[]) {
       out[capability] =
         (!impersonating || !MUTATING_CAPABILITIES.has(capability)) &&

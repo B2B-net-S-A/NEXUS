@@ -28,7 +28,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.client_order_groups import (
-    OrderGroupSafeReadUser,
     _assert_multi_client,
     _can_see_finance,
     _require_safe_group_read,
@@ -39,6 +38,7 @@ from app.api.md_consumption import (
     _unmatched_reason,
 )
 from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
+from app.api.permission_access import DeliveryViewUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.export_safety import safe_row
@@ -278,7 +278,7 @@ def _summary(
 )
 async def list_client_md_imports(
     client_id: int,
-    user: OrderGroupSafeReadUser,
+    user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Importy MD, które dotknęły zamówień klienta — od najnowszego."""
@@ -413,7 +413,7 @@ async def _load_detail(
 async def get_client_md_import(
     client_id: int,
     import_id: int,
-    user: OrderGroupSafeReadUser,
+    user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Wiersze jednego importu — wyłącznie te, które dotyczą klienta."""
@@ -494,7 +494,7 @@ def export_filename(client_name: Optional[str], period_month: str) -> str:
 async def export_client_md_import(
     client_id: int,
     import_id: int,
-    user: OrderGroupSafeReadUser,
+    user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Otwarty import w XLSX — te same wiersze i ta sama redakcja kwot co ekran."""

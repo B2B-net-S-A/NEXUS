@@ -14,8 +14,8 @@
  * edytuje albo odrzuca. Każda zmiana zwraca świeży wynik QC.
  *
  * Treść CV i propozycji to TEKST — nic nie trafia na stronę jako HTML.
- * „Przepuść mimo QC” widzą tylko admin i Delivery Lead (serwer i tak odmawia
- * reszcie).
+ * „Przepuść mimo QC” widzą tylko osoby z uprawnieniem „Rekrutacje: zakładanie,
+ * zamykanie, wysyłka CV do klienta” (serwer i tak odmawia reszcie).
  */
 
 import dynamic from "next/dynamic";
@@ -79,9 +79,10 @@ import {
   type QcTask,
   type RoleGap,
 } from "@/lib/cv-qc";
+import { hasPermission } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
 import { cn, formatDate } from "@/lib/utils";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { useAuthStore } from "@/store/auth";
 
 const CVBrandedEditModal = dynamic(
   () =>
@@ -994,7 +995,10 @@ export function CvQcDialogView({
   onRecheck,
 }: CvQcDialogViewProps) {
   const me = useAuthStore((s) => s.user);
-  const canOverride = hasRole(me, "admin", "delivery_lead");
+  const impersonating = useAuthStore((s) => s.realUser !== null);
+  // Obejście QC to decyzja osoby prowadzącej rekrutację (serwer: uprawnienie
+  // `recruitment_manage`); w podglądzie jako inny użytkownik — nikomu.
+  const canOverride = !impersonating && hasPermission(me, "recruitment_manage");
   const [editorOpen, setEditorOpen] = useState(false);
   const [overrideOpen, setOverrideOpen] = useState(false);
   const editorTarget = qcEditorTarget(data?.cv);

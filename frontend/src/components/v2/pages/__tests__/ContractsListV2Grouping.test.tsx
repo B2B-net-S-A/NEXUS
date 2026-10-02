@@ -4,6 +4,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ContractsListV2 } from "@/components/v2/pages/ContractsListV2";
 import { useAuthStore } from "@/store/auth";
+import {
+  permissionSnapshot,
+  sectionSnapshot,
+} from "@/__tests__/fixtures/permission-snapshot";
 
 const getMock = vi.fn();
 vi.mock("@/lib/api", () => ({
@@ -152,7 +156,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
   });
 
   afterEach(() => {
-    useAuthStore.setState({ user: null, hydrated: true });
+    useAuthStore.setState({ user: null, realUser: null, hydrated: true });
     vi.restoreAllMocks();
   });
 
@@ -249,23 +253,42 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     expect(screen.queryByText("Stawka klient")).not.toBeInTheDocument();
   });
 
-  it("TCM widzi bezpieczny rejestr Delivery bez finansów i operacji", async () => {
+  // Konta spoza admina: tożsamość + to, co test chce zmienić w profilu.
+  function signIn(
+    role: string,
+    extra: Record<string, unknown> = {},
+    realUser: unknown = null,
+  ) {
     useAuthStore.setState({
       user: {
         id: 9,
-        email: "tcm@example.com",
-        name: "Talent Community Manager",
-        role: "talent_community_manager",
-        roles: ["talent_community_manager"],
+        email: `${role}@example.com`,
+        name: role,
+        role,
+        roles: [role],
         profile_completed: true,
         profile_completed_at: null,
         force_password_change: false,
         force_password_change_at: null,
         capabilities: [],
         analytics_capabilities: [],
+        ...extra,
       },
+      realUser,
       hydrated: true,
-    });
+    } as never);
+  }
+  const selectAll = () =>
+    screen.queryByRole("button", { name: /zaznacz widoczne/i });
+  // Nagłówek kolumny jest w DOM dwa razy (tabela i układ wąski) — liczy się,
+  // czy kolumna w ogóle istnieje.
+  const hasColumn = (label: string) => screen.queryAllByText(label).length > 0;
+
+  it("TCM widzi rejestr bez finansów i tworzenia, ale zaznacza kontrakty do „Oznacz zakończone”", async () => {
+    // Zbiorcze zakończenie to to samo uprawnienie co pojedyncze („Zakończenie
+    // współpracy…”), a TCM ma je domyślnie — do 02.10.2026 pasek był
+    // przypięty do tworzenia kontraktów i TCM go nie widział.
+    signIn("talent_community_manager");
 
     const { container } = renderList();
     await screen.findByText("Paweł Małek");
@@ -273,14 +296,115 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     expect(
       screen.queryByRole("button", { name: /nowy kontrakt/i }),
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /zaznacz widoczne/i }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(selectAll()).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox").length).toBeGreaterThan(0);
     expect(screen.queryByText("Stawka kosztowa")).not.toBeInTheDocument();
     expect(screen.queryByText("Stawka przychodowa")).not.toBeInTheDocument();
     expect(screen.queryByText("Marża")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /eksport/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /analityka/i })).not.toBeInTheDocument();
     expect(container.querySelectorAll("[data-contract-member]")).toHaveLength(3);
+  });
+
+  it("sam podgląd Delivery nie dostaje pól wyboru ani paska akcji zbiorczych", async () => {
+    signIn("recruiter", {
+      effective_action_access: permissionSnapshot("delivery_view"),
+      effective_section_access: sectionSnapshot(["delivery_view"]),
+    });
+
+    renderList();
+    await screen.findByText("Paweł Małek");
+
+    expect(selectAll()).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("TCM z wyłączonym zakończeniem współpracy traci zaznaczanie", async () => {
+    signIn("talent_community_manager", {
+      effective_action_access: permissionSnapshot("delivery_view"),
+      effective_section_access: sectionSnapshot(["delivery_view"]),
+    });
+
+    renderList();
+    await screen.findByText("Paweł Małek");
+
+    expect(selectAll()).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("rekruter z nadaną edycją kontraktów zaznacza kontrakty do przedłużenia", async () => {
+    signIn("recruiter", {
+      effective_action_access: permissionSnapshot("contracts_orders_edit"),
+      effective_section_access: sectionSnapshot(["contracts_orders_edit"]),
+    });
+
+    renderList();
+    await screen.findByText("Paweł Małek");
+
+    expect(selectAll()).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox").length).toBeGreaterThan(0);
+  });
+
+  it("w podglądzie jako inny użytkownik nie ma zaznaczania", async () => {
+    signIn("delivery_lead", {}, { id: 1, role: "admin", roles: ["admin"] });
+
+    renderList();
+    await screen.findByText("Paweł Małek");
+
+    expect(selectAll()).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("„Stawki i kwoty: podgląd” daje kolumny stawek, ale nie eksport ani Analitykę", async () => {
+    signIn("recruiter", {
+      effective_action_access: permissionSnapshot("amounts_view"),
+      effective_section_access: sectionSnapshot(["amounts_view"]),
+    });
+
+    renderList();
+    await screen.findByText("Paweł Małek");
+
+    expect(hasColumn("Stawka kosztowa")).toBe(true);
+    expect(hasColumn("Stawka przychodowa")).toBe(true);
+    expect(screen.queryByRole("button", { name: /eksport/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /analityka/i })).not.toBeInTheDocument();
+  });
+
+  it("„Moduł Finanse” daje eksport i Analitykę także roli spoza domyślnych", async () => {
+    signIn("recruiter", {
+      effective_action_access: permissionSnapshot("finance_module"),
+      effective_section_access: sectionSnapshot(["finance_module"]),
+      capabilities: ["view_finance", "manage_finance"],
+      analytics_capabilities: ["view_finance", "manage_finance"],
+    });
+
+    renderList();
+    await screen.findByText("Paweł Małek");
+
+    expect(screen.getByRole("button", { name: /eksport/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /analityka/i })).toBeInTheDocument();
+    expect(hasColumn("Marża")).toBe(true);
+  });
+
+  it("Finanse z wyłączonym „Modułem Finanse” tracą eksport i Analitykę, kolumny stawek zostają", async () => {
+    signIn("finance", {
+      effective_action_access: permissionSnapshot(
+        "contracts_orders_edit",
+        "amounts_edit",
+      ),
+      effective_section_access: sectionSnapshot([
+        "contracts_orders_edit",
+        "amounts_edit",
+      ]),
+    });
+
+    renderList();
+    await screen.findByText("Paweł Małek");
+
+    expect(screen.queryByRole("button", { name: /eksport/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /analityka/i })).not.toBeInTheDocument();
+    // „Stawki i kwoty: zmiana” pociąga podgląd kwot.
+    expect(hasColumn("Stawka kosztowa")).toBe(true);
   });
 
   it("osoba u 2 klientów ma 2 widoczne pasy bez rozwijania, ze wspólną komórką kandydata", async () => {

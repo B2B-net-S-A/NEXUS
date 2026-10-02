@@ -1,0 +1,40 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
+ ],
+ "routes": {
+  "DELETE /api/b2b-generator/documents/{doc_id}": "PPPBPPPPDDPPPPPPPPPPP",
+  "GET /api/b2b-generator/document-types": "PPPBPPPPDDPPPPPPPPPPP",
+  "GET /api/b2b-generator/documents": "PPPBPPPPDDPPPPPPPPPPP",
+  "GET /api/b2b-generator/documents/prefill": "PPPBPPPPDDPPPPPPPPPPP",
+  "GET /api/b2b-generator/documents/{doc_id}/effects": "PPPBPPPPDDPPPPPPPPPPP",
+  "GET /api/b2b-generator/documents/{doc_id}/form": "PPPBPPPPDDPPPPPPPPPPP",
+  "POST /api/b2b-generator/documents": "PPPBPPPPDDPPPPPPPPPPP",
+  "POST /api/b2b-generator/documents/partner-notice": "PPPBPPPPDDPPPPPPPPPPP",
+  "POST /api/b2b-generator/documents/preview": "PPPBPPPPDDPPPPPPPPPPP",
+  "POST /api/b2b-generator/documents/{doc_id}/cancel": "PPPBPPPPDDPPPPPPPPPPP",
+  "POST /api/b2b-generator/documents/{doc_id}/confirm-signed": "PPPBPPPPDDPPPPPPPPPPP",
+  "POST /api/b2b-generator/documents/{doc_id}/docx": "PPPBPPPPDDPPPPPPPPPPP",
+  "POST /api/b2b-generator/documents/{doc_id}/rerender": "PPPBPPPPDDPPPPPPPPPPP"
+ }
+}
