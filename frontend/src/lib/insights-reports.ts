@@ -13,6 +13,7 @@
 
 import type { InsightsPeriodParams } from "@/lib/insights-api";
 import { writePeriodToParams } from "@/lib/insights-period-url";
+import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasAnalyticsCapability, hasRole, type User } from "@/store/auth";
 
@@ -68,8 +69,19 @@ const seesTeam = (user: ReportUser) =>
 // Propozycje AI (30.09.2026): admin i HoR — cała firma, DL — swoje rekrutacje.
 const seesProposalOutcomes = (user: ReportUser) =>
   hasRole(user, "admin", "head_of_recruitment", "delivery_lead");
-// Pieniądze firmy: tylko admin i Finanse (decyzja Artura 24.09.2026).
-const seesMoney = (user: ReportUser) => hasRole(user, "admin", "finance");
+// Pieniądze firmy: uprawnienie „Moduł Finanse” (domyślnie administrator
+// i Finanse — decyzja Artura 24.09.2026; lustro `BoardReader` w API).
+const seesMoney = (user: ReportUser) => hasPermission(user, "finance_module");
+const MONEY_PERMISSION_LABEL = permissionLabel("finance_module");
+
+/**
+ * Tabele rok do roku Rady (`GET /api/insights/board/yoy`, `BoardTrendReader`):
+ * uprawnienie „Moduł Finanse” albo rola Head of Recruitment — ta druga dostaje
+ * je BEZ kwot (redaguje serwer).
+ */
+export function seesBoardTrend(user: ReportUser | null | undefined): boolean {
+  return hasPermission(user, "finance_module") || hasRole(user, "head_of_recruitment");
+}
 
 export const REPORTS: readonly ReportDef[] = [
   {
@@ -179,7 +191,7 @@ export const REPORTS: readonly ReportDef[] = [
     question: "Który klient ile daje przychodu i marży miesięcznie?",
     window: "kwartał",
     defaultPeriod: { period: "quarter", offset: 0 },
-    note: "admin i Finanse",
+    note: `uprawnienie „${MONEY_PERMISSION_LABEL}”`,
     visible: seesMoney,
   },
   {
@@ -189,7 +201,7 @@ export const REPORTS: readonly ReportDef[] = [
     question: "Jak wyglądają placementy, hit ratio i zejścia miesiąc po miesiącu w kolejnych latach?",
     window: "pełne lata",
     defaultPeriod: null,
-    note: "kwoty tylko admin i Finanse",
+    note: `kwoty z uprawnieniem „${MONEY_PERMISSION_LABEL}”`,
   },
   {
     id: "hall-of-fame",

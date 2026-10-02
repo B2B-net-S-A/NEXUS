@@ -1,16 +1,17 @@
 /**
  * Kontrakt dostępu do widoków /insights i adresów sprzed przebudowy.
  *
- * Przebudowa 24.09.2026: pięć widoków. Firma (pieniądze) — WYŁĄCZNIE admin
- * i Finanse; Head of Recruitment nie widzi kwot (decyzja Artura). Lustro po
- * stronie API to `BoardReader` na `/api/insights/board` i `/clients/ranking`
- * — zmiana listy ról tutaj bez zmiany tam robi split-brain (#1215).
+ * Przebudowa 24.09.2026: pięć widoków. Firma (pieniądze) — WYŁĄCZNIE
+ * z uprawnieniem „Moduł Finanse” (domyślnie administrator i Finanse); Head of
+ * Recruitment domyślnie nie widzi kwot (decyzja Artura). Lustro po stronie API
+ * to `BoardReader` na `/api/insights/board` i `/clients/ranking`, który pyta
+ * o to samo uprawnienie — inna reguła tutaj niż tam robi split-brain (#1215).
  */
 import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_INSIGHTS_TAB,
-  FIRMA_ROLES,
+  FIRMA_PERMISSION,
   LEGACY_ANCHORS,
   LEGACY_TAB_ALIASES,
   getDefaultTabForUser,
@@ -18,7 +19,9 @@ import {
   resolveInsightsLocation,
   type TabId,
 } from "@/components/insights/InsightsView";
-import { REPORTS, visibleReports } from "@/lib/insights-reports";
+import { REPORTS, reportById, seesBoardTrend, visibleReports } from "@/lib/insights-reports";
+import type { Permission } from "@/lib/permissions";
+import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
 
 type AuthUser = Parameters<typeof getVisibleInsightTabIds>[0];
 
@@ -36,17 +39,25 @@ const ALL_ROLES = [
   "trainee",
 ] as const;
 
+/**
+ * Konto testowe. Bez `granted` profil nie niesie migawki uprawnień, więc liczą
+ * się domyślne uprawnienia ról; z `granted` niesie pełną migawkę — dokładnie
+ * te uprawnienia (z zależnościami), niezależnie od roli.
+ */
 const user = (
   role: string,
-  extra: { roles?: string[]; capabilities?: string[] } = {},
-): NonNullable<AuthUser> =>
-  ({
+  extra: { roles?: string[]; capabilities?: string[]; granted?: Permission[] } = {},
+): NonNullable<AuthUser> => {
+  const { granted, ...rest } = extra;
+  return {
     id: 1,
     email: `${role}@example.com`,
     name: role,
     role,
-    ...extra,
-  }) as NonNullable<AuthUser>;
+    ...rest,
+    ...(granted ? { effective_action_access: permissionSnapshot(...granted) } : {}),
+  } as NonNullable<AuthUser>;
+};
 
 const ALL_TABS: TabId[] = ["rywalizacja", "moj-miesiac", "zespol", "firma", "raporty"];
 
@@ -57,26 +68,51 @@ describe("widoki Insights per rola", () => {
     expect(tabs[0]).toBe("rywalizacja");
   });
 
-  it("Firmę widzą wyłącznie admin i Finanse", () => {
-    expect(FIRMA_ROLES).toEqual(["admin", "finance"]);
+  it("Firma idzie za uprawnieniem „Moduł Finanse” — domyślnie mają je administrator i Finanse", () => {
+    expect(FIRMA_PERMISSION).toBe("finance_module");
     for (const role of ALL_ROLES) {
       const sees = getVisibleInsightTabIds(user(role)).includes("firma");
       expect(sees, role).toBe(role === "admin" || role === "finance");
     }
   });
 
-  it("Head of Recruitment NIE widzi Firmy (decyzja 24.09.2026)", () => {
+  it("Head of Recruitment domyślnie NIE widzi Firmy (decyzja 24.09.2026)", () => {
     expect(getVisibleInsightTabIds(user("head_of_recruitment"))).not.toContain(
       "firma",
     );
   });
 
-  it("hybryda HoR + Finanse widzi Firmę — przez rolę Finanse", () => {
+  it("hybryda HoR + Finanse widzi Firmę — rola Finanse ma uprawnienie domyślnie", () => {
     expect(
       getVisibleInsightTabIds(
         user("head_of_recruitment", { roles: ["finance"] }),
       ),
     ).toContain("firma");
+  });
+
+  it.each(["head_of_recruitment", "recruiter", "delivery_lead"])(
+    "%s z nadanym „Modułem Finanse” widzi Firmę",
+    (role) => {
+      expect(
+        getVisibleInsightTabIds(user(role, { granted: ["finance_module"] })),
+      ).toContain("firma");
+    },
+  );
+
+  it("Finanse z wyłączonym „Modułem Finanse” nie widzą Firmy mimo roli", () => {
+    expect(
+      getVisibleInsightTabIds(
+        user("finance", { granted: ["delivery_view", "amounts_view"] }),
+      ),
+    ).not.toContain("firma");
+  });
+
+  it("sam podgląd kwot („Stawki i kwoty: podgląd”) nie otwiera Firmy", () => {
+    // Delivery Lead widzi kwoty swoich klientów, a pieniędzy firmy — nie.
+    expect(getVisibleInsightTabIds(user("delivery_lead"))).not.toContain("firma");
+    expect(
+      getVisibleInsightTabIds(user("recruiter", { granted: ["amounts_view"] })),
+    ).not.toContain("firma");
   });
 
   it("Mój miesiąc mają role z własnymi KPI (lustro backendu)", () => {
@@ -104,11 +140,44 @@ describe("raporty per rola", () => {
   const ids = (role: string, extra = {}) =>
     visibleReports(user(role, extra)).map((r) => r.id);
 
-  it("ranking klientów z kwotami — tylko admin i Finanse", () => {
+  it("ranking klientów z kwotami — za uprawnieniem „Moduł Finanse”", () => {
+    // Domyślni posiadacze: administrator i Finanse.
     expect(ids("admin")).toContain("ranking-klientow");
     expect(ids("finance")).toContain("ranking-klientow");
     expect(ids("head_of_recruitment")).not.toContain("ranking-klientow");
     expect(ids("recruiter")).not.toContain("ranking-klientow");
+    // Nadane rekruterowi — widzi; wyłączone Finansom — nie widzą.
+    expect(ids("recruiter", { granted: ["finance_module"] })).toContain(
+      "ranking-klientow",
+    );
+    expect(
+      ids("finance", { granted: ["delivery_view", "amounts_view"] }),
+    ).not.toContain("ranking-klientow");
+  });
+
+  it("dopiski raportów o pieniądzach nazywają uprawnienie, nie role", () => {
+    expect(reportById("ranking-klientow").note).toBe("uprawnienie „Moduł Finanse”");
+    expect(reportById("rok-do-roku").note).toBe("kwoty z uprawnieniem „Moduł Finanse”");
+    for (const id of ["ranking-klientow", "rok-do-roku"] as const) {
+      expect(reportById(id).note).not.toMatch(/admin i Finanse/);
+    }
+  });
+
+  it("tabele rok do roku Rady: „Moduł Finanse” albo Head of Recruitment (bez kwot)", () => {
+    expect(seesBoardTrend(user("admin"))).toBe(true);
+    expect(seesBoardTrend(user("finance"))).toBe(true);
+    // HoR wchodzi rolą — kwoty redaguje mu serwer.
+    expect(seesBoardTrend(user("head_of_recruitment"))).toBe(true);
+    expect(seesBoardTrend(user("recruiter", { granted: ["finance_module"] }))).toBe(true);
+    // Sama rola Finanse bez uprawnienia nie wystarcza; reszta ról też nie.
+    expect(
+      seesBoardTrend(user("finance", { granted: ["delivery_view", "amounts_view"] })),
+    ).toBe(false);
+    expect(seesBoardTrend(user("delivery_lead"))).toBe(false);
+    expect(seesBoardTrend(user("recruiter"))).toBe(false);
+    expect(seesBoardTrend(null)).toBe(false);
+    // Raport zostaje widoczny dla każdego — bez tabel Rady ma statystyki roczne.
+    expect(ids("recruiter")).toContain("rok-do-roku");
   });
 
   it("rekrutacje bez ruchu — tylko z view_team_kpi", () => {
