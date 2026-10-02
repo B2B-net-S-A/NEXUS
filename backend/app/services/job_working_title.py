@@ -93,7 +93,10 @@ def compose_working_title(
     names: list[str] = []
     seen: set[str] = set()
     for item in must or ():
+        # „Kafka lub RabbitMQ” w tytule to sama „Kafka” — zamienniki widać
+        # w wymaganiach, a tytuł ma się mieścić w wierszu listy.
         name = _clean(item.get("name") if isinstance(item, dict) else item)
+        name = name.split(" lub ")[0].strip()
         if name and not _is_prose(name) and name.casefold() not in seen:
             seen.add(name.casefold())
             names.append(name)

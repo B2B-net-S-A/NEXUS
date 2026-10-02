@@ -10,6 +10,7 @@ import { searchRequestToListFilters } from "@/lib/candidates-search-redirect";
 import { buildJobSearchPrefill, parseJobLocationCities } from "@/lib/job-search-prefill";
 import { cleanRows } from "@/lib/keyword-requirements";
 import { splitRequirementRows } from "@/lib/requirement-row-kinds";
+import { rowHead } from "@/lib/requirement-rows";
 import type { CandidateFilters } from "@/lib/url-filters";
 
 /** Pola rekrutacji, z których powstaje prefill filtrów. */
@@ -48,6 +49,28 @@ export function championSearchRequirements(job: Pick<ManualSearchJob, "champion_
 }
 
 /**
+ * Rekrutacja prowadzona wierszami wymagań (`stack.rows`, 02.10.2026): które
+ * wiersze wyszukiwania są krytyczne. `null` = profil na starych polach —
+ * wtedy o obowiązkowości wiersza decyduje to, czy jest technologią.
+ */
+export function championCriticalRowFlags(
+  job: Pick<ManualSearchJob, "champion_profile">,
+  rows: readonly (readonly string[])[],
+): boolean[] | null {
+  const profile = job.champion_profile;
+  const stack =
+    profile && typeof profile === "object"
+      ? (profile as { stack?: { rows?: unknown; critical?: unknown } }).stack
+      : undefined;
+  if (!Array.isArray(stack?.rows) || stack.rows.length === 0) return null;
+  const critical = (Array.isArray(stack.critical) ? stack.critical : [])
+    .filter((label): label is string => typeof label === "string")
+    // Etykieta „Kafka lub RabbitMQ” wskazuje wiersz zaczynający się od „Kafka”.
+    .map((label) => label.split(" lub ")[0].trim().toLocaleLowerCase("pl"));
+  return rows.map((row) => critical.includes(rowHead(row).toLocaleLowerCase("pl")));
+}
+
+/**
  * Filtry startowe listy z rekrutacji. Status bez czarnej listy (serwer i tak
  * by ją odrzucił przy dodaniu).
  *
@@ -68,6 +91,12 @@ export function championSearchRequirements(job: Pick<ManualSearchJob, "champion_
  * 25.09.2026) start to wiersze i wykluczenia DL-a, a tytuł NIE idzie jako
  * tekst po znaczeniu: pula semantyczna zawęża wyniki i wycinałaby osoby,
  * które spełniają wymagania. Must-have zostają w rankingu jak dotąd.
+ *
+ * Rekrutacja prowadzona wierszami (02.10.2026): obowiązkowe są wyłącznie
+ * wiersze KRYTYCZNE, pozostałe „musi mieć” tylko podnoszą. Sześć–dziesięć
+ * wierszy łączonych przez „i” zostawiało garstkę osób (audyt 26.09: wszystkie
+ * wiersze naraz spełniało 39% wybranych), a krytyczne to te same słowa,
+ * którymi propozycje AI ukrywają kandydatów.
  */
 export function jobListFilters(
   job: ManualSearchJob,
@@ -86,7 +115,8 @@ export function jobListFilters(
   };
   const { rows, exclude } = championSearchRequirements(job);
   if (rows.length > 0) {
-    const { required, preferred } = splitRequirementRows(rows, techRows);
+    const criticalFlags = championCriticalRowFlags(job, rows);
+    const { required, preferred } = splitRequirementRows(rows, criticalFlags ?? techRows);
     return {
       ...filters,
       q: "",

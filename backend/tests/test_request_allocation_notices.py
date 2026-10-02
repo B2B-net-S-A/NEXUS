@@ -395,3 +395,54 @@ def test_review_time_set_after_working_hours_still_fires() -> None:
         _review_due({}, rules, datetime(2026, 10, 2, 16, 30, tzinfo=timezone.utc))
         is True
     )
+
+
+# ── Dzwonek od razu po przydziale (02.10.2026) ──────────────────────────────
+
+
+class _Savepoint:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _PairsDb(_FakeDb):
+    def begin_nested(self):
+        return _Savepoint()
+
+
+@pytest.mark.asyncio
+async def test_assigned_pairs_get_one_bell_each_and_a_failed_bell_stops_nothing(
+    monkeypatch,
+) -> None:
+    from app.models.notification import NotificationType
+    from app.services import notification_triggers
+    from app.services.request_allocation_notices import notify_assigned_pairs
+
+    sent: list[dict] = []
+
+    async def emit(db, **kwargs):
+        if kwargs["user_id"] == 7:
+            raise RuntimeError("baza odmówiła")
+        sent.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(notification_triggers, "emit", emit)
+    # (request, tytuł, klient)
+    rows = [(10, "Java Developer", "Bank"), (11, "Tester", None)]
+    db = _PairsDb(rows, active_leads=[], hor=[])
+    # Para powtórzona w przebiegu i request, którego już nie ma, nie dzwonią.
+    await notify_assigned_pairs(db, [(10, 7), (10, 8), (11, 8), (10, 8), (99, 8)])
+    assert [(call["user_id"], call["related_entity_id"]) for call in sent] == [
+        (8, 10),
+        (8, 11),
+    ]
+    assert sent[0]["title"] == "Nowy request do pracy"
+    assert sent[0]["message"] == "Java Developer · Bank"
+    assert sent[1]["message"] == "Tester"
+    for call in sent:
+        assert call["ntype"] is NotificationType.request_assignment_changed
+        assert call["related_entity_type"] == "job"
+        assert call["link"] == f"/jobs/{call['related_entity_id']}"

@@ -425,7 +425,9 @@ CHAMPION_PROFILE_FROM_JD = PromptTemplate(
     name="champion_profile_from_jd",
     # v2 (audyt 25.09.2026, r3): basics.rate_raw — dosłowny cytat stawki;
     # budżet liczy kod (`champion_draft_service._ground_basics_rate`).
-    version=2,
+    # v3 (02.10.2026): deal_breaker proponowany przy każdym pytaniu — jest
+    # wymagany przed „Przekaż do searchu”, a DL go zatwierdza albo poprawia.
+    version=3,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji staffing. "
@@ -498,8 +500,9 @@ CHAMPION_PROFILE_FROM_JD = PromptTemplate(
         "  }}\n"
         "}}\n\n"
         "Stawka: basics.rate_value podawaj WYŁĄCZNIE razem z basics.rate_raw = DOSŁOWNY fragment źródła, w którym stoi stawka (np. „do 140 zł/h netto”). Bez takiego fragmentu zostaw oba pola puste — budżet liczy system z fragmentu, nie z liczby. "
-        "Limity: screening_questions max 8 pozycji, każda z krótkim ideal_answer; "
-        "deal_breaker wypełnij TYLKO gdy klient wyraźnie wskazał dyskwalifikator. "
+        "Limity: screening_questions max 8 pozycji, każda z krótkim ideal_answer "
+        "i krótkim deal_breaker (jaka odpowiedź dyskwalifikuje kandydata) — oba "
+        "jako propozycja, którą Delivery Lead zatwierdza albo poprawia. "
         "project.about MUSI zmieścić się w 2 zdaniach — nadmiar POMIŃ, nie przenoś "
         "do innych pól. "
         'stack.must/nice to POJEDYNCZE technologie ("Java", "Kubernetes"), nie '
@@ -913,10 +916,20 @@ CV_REQUIREMENT_MAP = PromptTemplate(
 #
 # v9 (30.09.2026): dni w biurze także „w miesiącu” (`onsite_days_per_month`)
 # — klienci piszą „raz w miesiącu”, a pole tygodniowe przyjmowało tylko int.
+#
+# v10 (02.10.2026, decyzje Artura): wymagania to JEDNA lista słów kluczowych
+# (`requirements`: wiersz = wymaganie, słowa = warianty, poziom must | nice)
+# zamiast osobnych `must`, `nice` i `search.requirements`. Pomiar na 20
+# rekrutacjach: 53 ze 185 must to zdania, 59% słów z wierszy wyszukiwania
+# powtarzało must, tytuł dla rekrutera składał się ze zdań. Zdania klienta,
+# które nie są słowami kluczowymi, i wersje („Java 17+”) idą do
+# `descriptive_requirements`. Bez „fraz do wyszukiwarki”. Każde pytanie
+# screeningowe niesie dobrą odpowiedź ORAZ odpowiedź dyskwalifikującą — obie
+# jako propozycja, którą Delivery Lead zatwierdza albo poprawia.
 
 JOB_REQUEST_INTAKE = PromptTemplate(
     name="job_request_intake",
-    version=9,
+    version=10,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
@@ -927,8 +940,8 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "Nigdy nie zgaduj budżetu, trybu pracy, liczby dni, miasta, dziedziny, "
         "certyfikatów ani regulacji. Kontekst klienta (historia, karta klienta) "
         "NIE jest źródłem faktów o tej rekrutacji. "
-        "(2) PROPOZYCJE (frazy do wyszukiwarki, firmy docelowe, argumenty dla "
-        "kandydata, pytania screeningowe, pytania do klienta) możesz przygotować "
+        "(2) PROPOZYCJE (firmy docelowe, argumenty dla kandydata, pytania "
+        "screeningowe z odpowiedziami, pytania do klienta) możesz przygotować "
         'sam — oznacz basis: "request" (wprost z maila), "client_history" '
         '(z kontekstu klienta) albo "ai" (twoja propozycja). '
         "(3) Pola quote, evidence, rate_quote, client_title, client_reference "
@@ -958,8 +971,10 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         '  "hiring_manager_name": str|null,     // imię i nazwisko osoby zamawiającej po stronie klienta, DOKŁADNIE z tekstu, np. "Anna Nowak"\n'
         '  "hiring_manager_position": str|null, // jej stanowisko DOKŁADNIE z tekstu (np. z podpisu), np. "Kierownik Zespołu Rozwoju"\n'
         '  "hiring_manager_email": str|null,    // jej adres e-mail DOKŁADNIE z tekstu\n'
-        '  "must": [str],                     // WSZYSTKIE wymagania obowiązkowe słowami klienta, każde osobno (zasady niżej)\n'
-        '  "nice": [str],                     // POJEDYNCZE technologie mile widziane, max 8\n'
+        '  "requirements": [                  // wymagania jako SŁOWA KLUCZOWE, nie zdania (zasady niżej)\n'
+        '    {{"words": [str], "level": "must"|"nice"}}\n'
+        "  ],\n"
+        '  "descriptive_requirements": [str], // DOSŁOWNE zdania klienta, których nie da się zapisać słowem kluczowym, oraz wymagania z wersją ("Java 17+")\n'
         '  "seniority_min_years": int|null,   // minimalne lata doświadczenia, tylko gdy podane\n'
         '  "rate_quote": str|null,            // dosłowny fragment ze stawką/budżetem, np. "do 170 zł/h netto"\n'
         '  "work_mode": "zdalnie"|"hybrydowo"|"stacjonarnie"|null,\n'
@@ -977,15 +992,13 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         '  "project_about": str|null,         // cel projektu, MAKSYMALNIE 2 zdania po polsku\n'
         '  "responsibilities": str|null,      // obowiązki, krótko po polsku\n'
         '  "search": {{\n'
-        '    "requirements": [[str]],         // 2–4 wymagania do wyszukiwania w bazie; każde to lista wariantów tego samego wymagania, słowa z maila (odmieniane — rdzeń z gwiazdką) + najwyżej jeden angielski odpowiednik\n'
-        '    "keywords": str,                 // frazy do wyszukiwarki kandydatów, oddzielone przecinkami\n'
         '    "target_companies": str,         // firmy, z których warto szukać (może być pusty)\n'
         '    "disqualifiers": [str],          // kogo odrzucamy od razu, tylko gdy wynika z maila\n'
         '    "basis": "request"|"client_history"|"ai"\n'
         "  }},\n"
         '  "selling_points": {{"text": str|null, "basis": "request"|"client_history"|"ai"}},\n'
         '  "screening_questions": [\n'
-        '    {{"question": str, "ideal_answer": str, "from_request": bool}}\n'
+        '    {{"question": str, "ideal_answer": str, "deal_breaker": str, "from_request": bool}}\n'
         "  ],\n"
         '  "ask_client": [str],               // 2–5 pytań do klienta o to, czego brakuje w mailu\n'
         '  "evidence": [str]                  // dosłowne fragmenty, z których wziąłeś fakty powyżej\n'
@@ -995,46 +1008,52 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "e-commerce, sektor publiczny) — NIE technologia. Certyfikaty to np. ISTQB, "
         "AWS Solutions Architect, PSM I. Regulacje i standardy to np. PSD2, PCI DSS, "
         "RODO, KNF, ISO 27001. level=must tylko gdy klient pisze, że to wymóg.\n\n"
-        "Must (must): każde wymaganie, które klient podaje jako obowiązkowe, "
-        "osobno i słowami klienta (z wersją, jeśli ją podał: „Java 11+”), w tej "
-        "samej kolejności co w mailu. Must nie ukrywa kandydatów samo — ukrywa "
-        "tylko 1–2 umiejętności krytyczne, które wybiera Delivery Lead — więc "
-        "nie skracaj listy i nie przenoś pozycji do nice. Gdy klient podaje "
-        "przykłady albo zamienniki („CI/CD tools like Bitbucket, Jenkins”, "
-        "„Kafka lub RabbitMQ”), wpisz JEDNĄ pozycję z wariantami rozdzielonymi "
-        "słowem „lub”. Język pracy wpisz także do language, dziedzinę także do "
-        "experience.domains, lata do seniority_min_years. Technologie, które "
-        "klient wymienia jako mile widziane, idą do nice.\n\n"
+        "Wymagania (requirements): lista słów kluczowych, po których rekruter "
+        "przeszuka NASZĄ bazę CV i po których system ocenia kandydatów. Jeden "
+        "wiersz to jedno wymaganie; słowa w wierszu to warianty tego samego "
+        "wymagania (wystarczy jedno). level=must, gdy klient podaje to jako "
+        "wymóg; level=nice, gdy jako mile widziane. Najwyżej 10 wierszy must "
+        "i 8 nice — wybierz to, co odróżnia dobrego kandydata; ogólniki "
+        "(„komunikatywność”, „praca w zespole”) pomiń. Zasady słów:\n"
+        "- Pierwsze słowo wiersza to nazwa wymagania: technologia („Java”, "
+        "„Spring Boot”), narzędzie, standard albo krótka nazwa dziedziny "
+        "(„płatności”). Nie zdanie.\n"
+        "- Każde słowo musi stać w mailu (kod odrzuca inne). Zamiennik, który "
+        "klient sam dopuszcza („Kafka lub RabbitMQ”, „CI/CD tools like "
+        "Bitbucket, Jenkins”), to kolejne słowo TEGO SAMEGO wiersza: "
+        '{{"words": ["Kafka", "RabbitMQ"], "level": "must"}}.\n'
+        "- Wyszukiwarka szuka CAŁYCH słów, a polskie słowa się odmieniają: "
+        "„bankowości” nie znajdzie „bankowość” ani „bankowy”. Po nazwie dopisz "
+        "rdzeń z gwiazdką — początek słowa z maila, co najmniej 4 litery, np. "
+        '["bankowości", "bankow*"], ["płatności", "płatnoś*"].\n'
+        "- Większość CV jest po angielsku: gdy słowo z maila jest po polsku "
+        "(dziedzina, obszar biznesu), dodaj w tym samym wierszu JEDEN angielski "
+        'odpowiednik, np. ["bankowości", "bankow*", "banking"] — to jedyne '
+        "słowo, którego może nie być w mailu. Technologii nie tłumacz i nie "
+        "dopisuj innych.\n"
+        "- Nazwy technologii w całości, bez gwiazdki („Java”, bo „Java*” łapie "
+        "też JavaScript) i bez numeru wersji („Java”, nie „Java 17+”).\n"
+        "- Nie wpisuj miasta, stażu (junior/senior), języka ani nazwy roli — "
+        "do tego są osobne pola.\n"
+        "Zdania opisowe (descriptive_requirements): wymagania, których nie da "
+        "się uczciwie zapisać słowem kluczowym („doświadczenie we wdrażaniu "
+        "funkcjonalności w systemach bankowych”, „wykształcenie wyższe "
+        "techniczne”, „angielski B2”), oraz wymagania z wersją — DOSŁOWNIE "
+        "z maila. Język pracy wpisz także do language, dziedzinę także do "
+        "experience.domains, lata do seniority_min_years.\n\n"
         "Miasta biura (office_cities): każde miasto osobno, polską nazwą "
         "(„Warsaw” → „Warszawa”, „Gdansk” → „Gdańsk”); „Trójmiasto” zostaje "
         "„Trójmiasto”. Pusta lista, gdy mail nie podaje miasta.\n\n"
-        "Frazy do wyszukiwarki: 3–8 fraz, tak jak rekruter wpisze je w wyszukiwarkę "
-        "(nazwa roli, kluczowe technologie, dziedzina).\n\n"
-        "Wymagania do wyszukiwania (search.requirements): 2–4 najważniejsze wymagania "
-        "z maila, po których rekruter przeszuka NASZĄ bazę CV. Kandydat musi spełnić "
-        "KAŻDE wymaganie; w jednym wymaganiu wystarczy jeden wariant. Wariant to inny "
-        "zapis albo zamiennik, który klient sam dopuszcza, np. "
-        '[["Java"], ["Kafka", "RabbitMQ"]] dla „Java oraz Kafka lub RabbitMQ”. '
-        "Każde słowo musi stać w mailu (kod odrzuca inne). Wyszukiwarka szuka "
-        "CAŁYCH słów, a polskie słowa się odmieniają: „bankowości” nie znajdzie "
-        "„bankowość” ani „bankowy”. Słowo, które się odmienia, wpisz jako rdzeń "
-        "z gwiazdką — początek słowa z maila, co najmniej 4 litery, np. "
-        "„bankow*” dla „doświadczenie w bankowości”, „płatnoś*” dla „płatności "
-        "kartowych”. Nazwy technologii wpisuj w całości, bez gwiazdki („Java”, "
-        "bo „Java*” łapie też JavaScript). Większość CV jest po angielsku: gdy "
-        "słowo z maila jest po polsku (dziedzina, obszar biznesu), dodaj w tym "
-        "samym wierszu JEDEN angielski odpowiednik, np. "
-        '["bankow*", "banking"] — to jedyne słowo, którego może nie być w mailu. '
-        "Technologii nie tłumacz i nie dopisuj innych. Pojedyncze "
-        "technologie albo krótkie nazwy, nie zdania, bez numerów wersji "
-        "(„Java”, nie „Java 17+” — wersja zawęża do osób, które napisały ten sam "
-        "numer); nie wpisuj miasta, stażu (junior/senior) ani nazwy roli — do "
-        "tego są osobne pola.\n\n"
         "Pytania screeningowe: najpierw te, o które klient pyta albo które wynikają "
         "wprost z wymagań (from_request=true). Dla każdej dziedziny o level=must dodaj "
         "jedno pytanie o praktyczne doświadczenie w tej dziedzinie. Razem 3–6 pytań, "
-        "po polsku, do kandydata, jedno zdanie; ideal_answer — czego szukać w "
-        "odpowiedzi, krótko.\n\n"
+        "po polsku, do kandydata, jedno zdanie. Do KAŻDEGO pytania zaproponuj: "
+        "ideal_answer — czego szukać w dobrej odpowiedzi, krótko; deal_breaker — "
+        "jaka odpowiedź dyskwalifikuje kandydata w tej rekrutacji, jednym krótkim "
+        "zdaniem, konkretnie (np. „Tylko praca zdalna.”, „Zna tylko teorię, nie "
+        "robił tego w działającym systemie.”, „Stawka powyżej budżetu bez zgody "
+        "na rozmowę.”). Oba pola są propozycją dla Delivery Leada — nie zostawiaj "
+        "ich pustych.\n\n"
         "Pytania do klienta (ask_client): konkretne, krótkie — o brakujący budżet, "
         "tryb pracy, liczbę etapów rekrutacji, kto decyduje, wielkość zespołu, termin "
         "startu. Pomiń to, co mail już mówi."

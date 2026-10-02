@@ -7,6 +7,7 @@ import {
   AUTOMATIC_PASSIVE_NOTE,
   RECRUITER_ASSIGNMENT_LABEL,
   automaticAssignmentHint,
+  automaticAssignmentLabel,
   type AllocationMode,
   type RecruiterAssignment,
 } from "@/lib/recruiter-assignment";
@@ -19,7 +20,7 @@ export interface RecruiterAssignmentChoiceProps {
   labelledBy: string;
   automaticAvailable: boolean;
   /**
-   * Dlaczego „Zaproponuje automat” jest nieaktywne — zdanie pod polem
+   * Dlaczego opcja automatu jest nieaktywna — zdanie pod polem
    * (automat wyłączony, rekrutacja ma już rekrutera). `null`, gdy opcja jest
    * dostępna albo odczyt jeszcze trwa: wtedy jest nieaktywna bez wyjaśnienia.
    */
@@ -27,14 +28,18 @@ export interface RecruiterAssignmentChoiceProps {
   mode: AllocationMode | null | undefined;
   /** Priorytet „Przyjmujemy kandydatów” — automat nikogo wtedy nie proponuje. */
   passive?: boolean;
+  /** Nazwa opcji ręcznej; domyślnie „Wybieram sam”. */
+  manualLabel?: string;
   size?: "sm" | "md";
   disabled?: boolean;
 }
 
 /**
- * „Zaproponuje automat” albo „Wybieram sam” — wspólne dla `/jobs/new`
- * i „Przekaż do searchu”. Pod polem jedno zdanie o tym, co się stanie:
- * automat tylko proponuje, a do akceptacji nikt nie jest przypisany.
+ * Automat albo osoba wskazana ręcznie — wspólne dla `/jobs/new` i „Przekaż do
+ * searchu”. Nazwa opcji automatu i zdanie pod polem zależą od trybu: w „auto”
+ * automat przydziela rekrutera prowadzącego od razu („Przydzieli automat”),
+ * w „shadow” tylko proponuje i do akceptacji nikt nie jest przypisany
+ * („Zaproponuje automat”).
  */
 export function RecruiterAssignmentChoice({
   value,
@@ -44,6 +49,7 @@ export function RecruiterAssignmentChoice({
   unavailableReason,
   mode,
   passive = false,
+  manualLabel = RECRUITER_ASSIGNMENT_LABEL.person,
   size = "md",
   disabled = false,
 }: RecruiterAssignmentChoiceProps) {
@@ -62,11 +68,11 @@ export function RecruiterAssignmentChoice({
         options={[
           {
             value: "automatic",
-            label: RECRUITER_ASSIGNMENT_LABEL.automatic,
+            label: automaticAssignmentLabel(mode),
             disabled: !automaticAvailable,
             describedBy: reason ? reasonId : undefined,
           },
-          { value: "person", label: RECRUITER_ASSIGNMENT_LABEL.person },
+          { value: "person", label: manualLabel },
         ]}
       />
       {value === "automatic" ? (

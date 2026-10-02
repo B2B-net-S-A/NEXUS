@@ -39,8 +39,16 @@ _READY_CHAMPION = {
         "responsibilities": "Rozwój usług backendowych",
     },
     "screening_questions": [
-        {"id": "q1", "question": "Doświadczenie z Pythonem?"},
-        {"id": "q2", "question": "Doświadczenie z Postgres?"},
+        {
+            "id": "q1",
+            "question": "Doświadczenie z Pythonem?",
+            "deal_breaker": "Brak komercyjnego projektu w Pythonie.",
+        },
+        {
+            "id": "q2",
+            "question": "Doświadczenie z Postgres?",
+            "deal_breaker": "Nie pracował z relacyjną bazą.",
+        },
     ],
     # Wymagania do wyszukiwania w bazie (sekcja 2, bramka od 25.09.2026).
     "search": {"requirements": [["Python"]]},
@@ -212,7 +220,9 @@ def test_allocation_gate_stays_free_of_the_rubrics():
     )
     assert job_rubric_blockers(job), "rubryki miały tu być puste"
     assert job_handoff_blockers(job) == (
-        job_readiness_blockers(job) + job_rubric_blockers(job) + job_search_blockers(job)
+        job_readiness_blockers(job)
+        + job_rubric_blockers(job)
+        + job_search_blockers(job)
     )
 
 
@@ -318,3 +328,29 @@ def test_search_requirements_do_not_touch_allocation_brief():
     job = _job(champion_profile={**_READY_CHAMPION, "search": {}})
     assert job_readiness_blockers(job) == []
     assert job_rubric_blockers(job) == []
+
+
+def test_handoff_needs_a_disqualifying_answer_for_every_question():
+    """Decyzja Artura 02.10.2026: rekruter ma wiedzieć, która odpowiedź
+    kandydata skreśla. Brak jest OSTATNI na liście, dotyczy każdego pytania
+    z treścią i tylko pierwszego przekazania — rekrutacja już przekazana
+    (`is_open`) nie jest blokowana, a bramka briefu (automat) go nie widzi."""
+    from app.services.job_readiness import MSG_DEAL_BREAKER, job_question_blockers
+
+    questions = [
+        {"id": "q1", "question": "Python?", "deal_breaker": "Brak projektu."},
+        {"id": "q2", "question": "Postgres?", "deal_breaker": "  "},
+        {"id": "q3", "question": "", "deal_breaker": ""},
+    ]
+    champion = {**_READY_CHAMPION, "screening_questions": questions}
+    job = _job(champion_profile=champion)
+    assert job_handoff_blockers(job) == [MSG_DEAL_BREAKER]
+    assert job_readiness_blockers(job) == []
+    assert job_rubric_blockers(job) == []
+    # Pytanie bez treści nie liczy się ani jako pytanie, ani jako brak.
+    filled = {**champion, "screening_questions": [questions[0], questions[0]]}
+    assert job_question_blockers(_job(champion_profile=filled)) == []
+    # Rekrutacja już w searchu: stare pytania bez tego pola nie blokują.
+    assert job_handoff_blockers(_job(champion_profile=champion, is_open=True)) == []
+    blockers = job_handoff_blockers(_job(champion_profile={**champion, "search": {}}))
+    assert blockers == [MSG_SEARCH_REQUIREMENTS, MSG_DEAL_BREAKER]

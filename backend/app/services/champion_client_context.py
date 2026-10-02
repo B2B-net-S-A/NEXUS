@@ -62,7 +62,6 @@ def _compact_profile(job: Job) -> dict[str, Any]:
     return {
         "title": _cap(job.title, 160),
         "project_about": _cap(project.get("about")),
-        "search_keywords": _cap(search.get("keywords")),
         "target_companies": _cap(search.get("target_companies")),
         "selling_points": _cap(client.get("selling_points")),
         "domains": [item["name"] for item in experience.get("domains") or []][:6],

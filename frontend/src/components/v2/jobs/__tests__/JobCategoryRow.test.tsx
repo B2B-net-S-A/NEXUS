@@ -7,7 +7,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,12 +15,19 @@ import { JobCategoryRow } from "@/components/v2/jobs/JobCategoryRow";
 
 const getMock = vi.fn();
 const categoriesListMock = vi.fn();
+const jobUpdateMock = vi.fn();
+const showSuccess = vi.fn();
+const showError = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   default: { get: (...args: unknown[]) => getMock(...args) },
   competenceCategoriesApi: {
     list: (...args: unknown[]) => categoriesListMock(...args),
   },
+  jobsApi: { update: (...args: unknown[]) => jobUpdateMock(...args) },
+}));
+vi.mock("@/components/Toast", () => ({
+  useToast: () => ({ showSuccess, showError, showInfo: vi.fn() }),
 }));
 
 const CATEGORIES = [
@@ -33,6 +40,15 @@ const CATEGORIES = [
     keywords: [],
     display_order: 2,
   },
+  {
+    id: 4,
+    slug: "security_quality",
+    name_pl: "QA",
+    name_en: "QA",
+    description: "",
+    keywords: [],
+    display_order: 4,
+  },
 ];
 
 const PEOPLE = [
@@ -42,23 +58,34 @@ const PEOPLE = [
   { user_id: 31, name: "Anna Przykładowa", email: "a@example.com", role: "recruiter", is_primary: true, priority: 1 },
 ];
 
-function renderRow(categoryId: number | null) {
+function renderRow(
+  categoryId: number | null,
+  props: { jobId?: number; canManage?: boolean } = {},
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  const invalidate = vi.spyOn(client, "invalidateQueries");
+  const view = render(
     <QueryClientProvider client={client}>
-      <JobCategoryRow categoryId={categoryId} />
+      <JobCategoryRow categoryId={categoryId} {...props} />
     </QueryClientProvider>,
   );
+  const invalidated = () =>
+    invalidate.mock.calls.map((call) => JSON.stringify(call[0]?.queryKey));
+  return { ...view, invalidated };
 }
 
 const SENTENCE =
-  "Te osoby widzą rekrutację w „Moja kategoria”, ale nie pracują nad nią, dopóki ktoś ich nie przydzieli.";
+  "Te osoby są uczestnikami rekrutacji: widzą ją w „Moja kategoria” i dostają jej powiadomienia. Prowadzi ją osoba z pola „Rekruter”.";
 
 beforeEach(() => {
   getMock.mockReset();
   categoriesListMock.mockReset();
+  jobUpdateMock.mockReset();
+  jobUpdateMock.mockResolvedValue({ data: {} });
+  showSuccess.mockReset();
+  showError.mockReset();
   categoriesListMock.mockResolvedValue(CATEGORIES);
   getMock.mockResolvedValue({ data: PEOPLE });
 });
@@ -167,5 +194,109 @@ describe("JobCategoryRow", () => {
       await screen.findByText("Nie udało się pobrać nazwy kategorii"),
     ).toBeInTheDocument();
     expect(screen.queryByText("Kategoria spoza aktywnej listy")).not.toBeInTheDocument();
+  });
+});
+
+describe("JobCategoryRow — „Zmień” kategorię (tylko przy pełnej edycji rekrutacji)", () => {
+  it("bez `canManage` (albo bez rekrutacji) kontrolki nie ma", async () => {
+    const first = renderRow(2, { jobId: 7 });
+    expect(await screen.findByText("Development")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zmień kategorię" })).not.toBeInTheDocument();
+    first.unmount();
+
+    renderRow(2, { canManage: true });
+    expect(await screen.findByText("Development")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zmień kategorię" })).not.toBeInTheDocument();
+  });
+
+  it("wybór kategorii zapisuje jedno pole, mówi o uczestnikach i odświeża rekrutację", async () => {
+    const user = userEvent.setup();
+    const { invalidated } = renderRow(2, { jobId: 7, canManage: true });
+    await screen.findByText("Development");
+
+    await user.click(screen.getByRole("button", { name: "Zmień kategorię" }));
+    const items = await screen.findAllByRole("menuitemradio");
+    expect(items.map((item) => item.textContent)).toEqual(["Development", "QA"]);
+    expect(items[0]).toHaveAttribute("aria-checked", "true");
+
+    await user.click(screen.getByRole("menuitemradio", { name: "QA" }));
+
+    await waitFor(() =>
+      expect(jobUpdateMock).toHaveBeenCalledWith(7, { competence_category_id: 4 }),
+    );
+    await waitFor(() =>
+      expect(showSuccess).toHaveBeenCalledWith(
+        "Kategoria zmieniona — uczestnicy rekrutacji idą za nią.",
+      ),
+    );
+    expect(invalidated()).toEqual(
+      expect.arrayContaining([
+        JSON.stringify(["job", 7]),
+        JSON.stringify(["job", "7"]),
+        JSON.stringify(["jobs-v2"]),
+        JSON.stringify(["request-board"]),
+      ]),
+    );
+  });
+
+  it("wybór tej samej kategorii niczego nie zapisuje", async () => {
+    const user = userEvent.setup();
+    renderRow(2, { jobId: 7, canManage: true });
+    await screen.findByText("Development");
+
+    await user.click(screen.getByRole("button", { name: "Zmień kategorię" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Development" }));
+
+    expect(jobUpdateMock).not.toHaveBeenCalled();
+    expect(showSuccess).not.toHaveBeenCalled();
+  });
+
+  it("odmowa zapisu pokazuje komunikat serwera i nie mówi o sukcesie", async () => {
+    jobUpdateMock.mockRejectedValue({
+      response: { status: 403, data: { detail: "Kategorię zmienia admin albo Delivery Lead." } },
+    });
+    const user = userEvent.setup();
+    renderRow(2, { jobId: 7, canManage: true });
+    await screen.findByText("Development");
+
+    await user.click(screen.getByRole("button", { name: "Zmień kategorię" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "QA" }));
+
+    await waitFor(() =>
+      expect(showError).toHaveBeenCalledWith("Kategorię zmienia admin albo Delivery Lead."),
+    );
+    expect(showSuccess).not.toHaveBeenCalled();
+    // Po odmowie da się spróbować ponownie.
+    expect(screen.getByRole("button", { name: "Zmień kategorię" })).toBeEnabled();
+  });
+
+  it("rekrutacja bez kategorii: „Wybierz” ustawia pierwszą", async () => {
+    const user = userEvent.setup();
+    renderRow(null, { jobId: 7, canManage: true });
+
+    await user.click(screen.getByRole("button", { name: "Wybierz kategorię" }));
+    const items = await screen.findAllByRole("menuitemradio");
+    expect(items.map((item) => item.getAttribute("aria-checked"))).toEqual(["false", "false"]);
+    await user.click(items[1]);
+
+    await waitFor(() =>
+      expect(jobUpdateMock).toHaveBeenCalledWith(7, { competence_category_id: 4 }),
+    );
+  });
+
+  it("awaria katalogu kategorii to „Ponów” w menu, nie pusta lista", async () => {
+    categoriesListMock.mockRejectedValueOnce({ response: { status: 500, data: {} } });
+    const user = userEvent.setup();
+    renderRow(2, { jobId: 7, canManage: true });
+    await screen.findByText("Nie udało się pobrać nazwy kategorii");
+
+    await user.click(screen.getByRole("button", { name: "Zmień kategorię" }));
+    expect(screen.queryByText("Brak aktywnych kategorii.")).not.toBeInTheDocument();
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Nie udało się pobrać kategorii — Ponów" }),
+    );
+
+    expect(await screen.findAllByRole("menuitemradio")).toHaveLength(2);
+    expect(categoriesListMock).toHaveBeenCalledTimes(2);
   });
 });

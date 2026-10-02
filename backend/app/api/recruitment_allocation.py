@@ -150,7 +150,13 @@ async def set_allocation_mode(
         raise HTTPException(409, "Moduł przydziałów nie jest jeszcze uruchomiony")
     await allocation_lock(db)
     context = await workforce_context(db, refresh=True)
-    if body.mode == "auto" and not context.fresh:
+    # Urlopy z Compassa wyłączone = nie ma danych, na które warto czekać;
+    # automat przydziela wtedy bez nich. Włączone i nieaktualne — odmowa.
+    if (
+        body.mode == "auto"
+        and settings.COMPASS_AVAILABILITY_ENABLED
+        and not context.fresh
+    ):
         raise HTTPException(409, "Najpierw przywróć aktualne dane z COMPASS")
     await db.execute(
         insert(RecruitmentAllocationState).values(id=1).on_conflict_do_nothing()

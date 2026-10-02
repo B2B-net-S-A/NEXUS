@@ -172,6 +172,8 @@ async def public_draft(
         draft_for_request,
     )
 
+    from app.services.champion_requirement_rows import expand_patch
+
     if body.client_id is not None:
         await _assert_client(db, body.client_id)
     request_job = SimpleNamespace(
@@ -186,7 +188,8 @@ async def public_draft(
         remote_policy=RemotePolicy(body.remote_policy) if body.remote_policy else None,
         onsite_days_per_week=body.onsite_days_per_week,
         seniority=None,
-        champion_profile=body.champion_profile or {},
+        # Formularz wysyła wymagania jako wiersze — szkic czyta pola z nich wyprowadzone.
+        champion_profile=expand_patch(body.champion_profile or {}),
     )
     try:
         return await draft_for_request(db, request_job, user_id=current_user.id)
@@ -197,6 +200,9 @@ async def public_draft(
 class CriticalSuggestionRequest(BaseModel):
     must_skills: list[str] = Field(default_factory=list, max_length=60)
     title: Optional[str] = Field(default=None, max_length=300)
+    # 02.10.2026: wiersze wymagań (słowa = warianty). Gdy podane, lista MUST
+    # to ich etykiety — te same, które serwer zapisze w profilu.
+    rows: Optional[list[list[str]]] = Field(default=None, max_length=30)
 
 
 @router.post("/critical-suggestion")
@@ -216,7 +222,20 @@ async def critical_suggestion(
     from app.services.critical_skills import stat_for, suggest_from_must
     from app.services.must_gate_terms import critical_eligible
 
-    must = [s.strip()[:500] for s in body.must_skills if s and s.strip()]
+    labels: list[str] = []
+    if body.rows is not None:
+        from app.services.champion_requirement_rows import clean_rows, row_label
+
+        # Etykieta per wiersz w kolejności żądania (pusta dla wiersza bez słów).
+        labels = [
+            row_label(cleaned[0]["words"]) if cleaned else ""
+            for cleaned in (
+                clean_rows([{"words": row, "level": "must"}]) for row in body.rows
+            )
+        ]
+        must = [label for label in labels if label]
+    else:
+        must = [s.strip()[:500] for s in body.must_skills if s and s.strip()]
     eligible = [label for label in must if critical_eligible(label)]
     stats = {}
     for label in eligible:
@@ -227,6 +246,119 @@ async def critical_suggestion(
         "suggested": list(suggest_from_must(must, body.title or "")),
         "eligible": eligible,
         "stats": stats,
+        "labels": labels,
+    }
+
+
+class RequirementRowsRequest(BaseModel):
+    must: list[str] = Field(default_factory=list, max_length=60)
+    nice: list[str] = Field(default_factory=list, max_length=60)
+    requirements: list[list[str]] = Field(default_factory=list, max_length=30)
+    critical: Optional[list[str]] = Field(default=None, max_length=10)
+
+
+@router.post("/requirement-rows")
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def requirement_rows(
+    request: Request,
+    body: RequirementRowsRequest,
+    current_user: OperationalUser,
+) -> dict:
+    """Stare pola wymagań → wiersze słów kluczowych (02.10.2026).
+
+    Dla „Uprość do słów kluczowych” w Profilu Championa i dla kopii rekrutacji
+    z szablonu. Niczego nie zapisuje i nie woła modelu: technologię rozpoznaje
+    ta sama reguła co bramka must, zdania klienta wracają jako ``descriptive``.
+    """
+    from app.services.champion_requirement_rows import rows_from_legacy
+
+    return rows_from_legacy(
+        must=[s.strip()[:500] for s in body.must if s and s.strip()],
+        nice=[s.strip()[:500] for s in body.nice if s and s.strip()],
+        requirements=[
+            [w.strip()[:100] for w in row if isinstance(w, str) and w.strip()]
+            for row in body.requirements
+        ],
+        critical=body.critical,
+    )
+
+
+class CategorySuggestionRequest(BaseModel):
+    role: Optional[str] = Field(default=None, max_length=300)
+    client_title: Optional[str] = Field(default=None, max_length=300)
+    description: Optional[str] = Field(
+        default=None, max_length=intake.MAX_REQUEST_CHARS
+    )
+    must_skills: list[str] = Field(default_factory=list, max_length=60)
+    nice_skills: list[str] = Field(default_factory=list, max_length=60)
+
+
+@router.post("/category-suggestion")
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def category_suggestion(
+    request: Request,
+    body: CategorySuggestionRequest,
+    current_user: RecruitmentManageUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Podpowiedź kategorii kompetencji PRZED założeniem rekrutacji (02.10.2026).
+
+    Ta sama reguła co przy zapisie (`job_cc.resolve_job_cc_id`): najpierw nazwa
+    roli, potem klasyfikator po treści. Delivery Lead potwierdza kategorię na
+    formularzu, bo od niej zależy, kto dostanie rekrutację. ``participants`` to
+    liczba osób, które zostaną uczestnikami — bez nazwisk.
+    """
+    from types import SimpleNamespace
+
+    from app.models.competence_category import CompetenceCategory
+    from app.services.auto_cc_collaborators import participants_count
+    from app.services.job_cc import resolve_job_cc_id
+
+    categories = list(
+        (
+            await db.scalars(
+                select(CompetenceCategory)
+                .where(CompetenceCategory.is_active.is_(True))
+                .order_by(CompetenceCategory.display_order, CompetenceCategory.id)
+            )
+        ).all()
+    )
+    title = " ".join(
+        part.strip() for part in (body.role, body.client_title) if part and part.strip()
+    )
+    suggested_id: Optional[int] = None
+    if title:
+        try:
+            suggested_id = await resolve_job_cc_id(
+                SimpleNamespace(
+                    id=None,
+                    title=title,
+                    description=body.description,
+                    requirements=None,
+                    subcategory=None,
+                    industry=None,
+                    must_skills=body.must_skills,
+                    nice_skills=body.nice_skills,
+                ),
+                db,
+            )
+        except Exception:  # noqa: BLE001 — podpowiedź to dodatek, DL i tak wybiera
+            logger.warning(
+                "job_request_intake: category suggestion failed", exc_info=True
+            )
+    active_ids = {category.id for category in categories}
+    counts = await participants_count(db, sorted(active_ids))
+    return {
+        "suggested_id": suggested_id if suggested_id in active_ids else None,
+        "categories": [
+            {
+                "id": category.id,
+                "slug": category.slug,
+                "name": category.name_pl,
+                "participants": int(counts.get(category.id, 0)),
+            }
+            for category in categories
+        ],
     }
 
 

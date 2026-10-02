@@ -220,7 +220,12 @@ async def _user_assigned_to_client_job(
     collab = (
         select(JobCollaborator.id)
         .join(Job, Job.id == JobCollaborator.job_id)
-        .where(Job.client_id == client_id, JobCollaborator.user_id == user_id)
+        .where(
+            Job.client_id == client_id,
+            JobCollaborator.user_id == user_id,
+            # Osoba zdjęta z rekrutacji nie dziedziczy już dostępu do klienta.
+            JobCollaborator.removed_from_auto_cc.is_(False),
+        )
         .exists()
     )
     result = await db.execute(select(or_(direct, collab)))
@@ -251,7 +256,10 @@ async def _job_assigned_client_ids(
         await db.scalars(
             select(Job.client_id)
             .join(JobCollaborator, JobCollaborator.job_id == Job.id)
-            .where(JobCollaborator.user_id == user_id)
+            .where(
+                JobCollaborator.user_id == user_id,
+                JobCollaborator.removed_from_auto_cc.is_(False),
+            )
             .distinct()
         )
     ).all()

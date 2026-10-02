@@ -916,3 +916,121 @@ async def test_automat_proposes_nobody_to_a_request_that_only_accepts_candidates
             assert [tuple(row) for row in live] == [(urgent, "proposed")]
         finally:
             await db.rollback()
+
+
+# ── Tryb automatyczny: dzwonek od razu ───────────────────────────────────────
+
+
+async def test_automat_assignment_rings_the_person_right_away() -> None:
+    """Tryb ``auto``: osoba dowiaduje się o requeście w chwili przydziału, nie
+    rano. Propozycja trybu podglądu nikogo nie budzi — dopiero jej aktywacja."""
+    from app.services.request_allocation import _apply
+    from app.services.request_allocation_plan import Change
+
+    assigned, _ = await _user(UserRole.recruiter)
+    proposed, _ = await _user(UserRole.recruiter)
+    auto_job = await _job(working_title="Automat od razu")
+    shadow_job = await _job()
+    now = datetime.now(timezone.utc)
+
+    async with AsyncSessionLocal() as db:
+        counts = await _apply(
+            db,
+            [Change("assign", shadow_job, proposed, "recruiter", "")],
+            mode="shadow",
+            now=now,
+        )
+        await db.commit()
+    assert counts["assigned"] == 1
+    assert await _assignment_notices(proposed, shadow_job) == []
+
+    async with AsyncSessionLocal() as db:
+        await _apply(
+            db,
+            [
+                Change("assign", auto_job, assigned, "recruiter", ""),
+                Change("activate", shadow_job, proposed, "recruiter", ""),
+            ],
+            mode="auto",
+            now=now,
+        )
+        await db.commit()
+
+    assert await _owner(auto_job) == assigned
+    (notice,) = await _assignment_notices(assigned, auto_job)
+    assert notice.title == "Nowy request do pracy"
+    assert notice.link == f"/jobs/{auto_job}"
+    assert notice.message.startswith("Automat od razu · prop-client-")
+    (activated,) = await _assignment_notices(proposed, shadow_job)
+    assert activated.title == "Nowy request do pracy"
+
+
+async def test_auto_mode_assigns_without_compass_and_waits_for_stale_compass(
+    monkeypatch,
+) -> None:
+    """Cały przebieg w trybie ``auto``. Urlopy z Compassa włączone, ale
+    nieaktualne — automat czeka; wyłączone — przydziela od razu, wpisuje
+    prowadzącego i dzwoni. Przebiegi idą w transakcji wycofanej na końcu."""
+    from app.services.recruitment_allocation import allocation_lock
+    from app.services.request_allocation import run_request_allocation
+
+    category = await _category()
+    person, _ = await _user(UserRole.recruiter)
+    await _give_category(person, category)
+    job_id = await _job(
+        competence_category_id=category,
+        priority=JobPriority.urgent,
+        deadline=date(2000, 1, 1),
+    )
+    now = datetime.now(timezone.utc)
+    today = now.astimezone(ZoneInfo(settings.BUSINESS_TZ)).date().isoformat()
+
+    async def run(db):
+        return await run_request_allocation(
+            db,
+            mode="auto",
+            availability_fresh=False,
+            available_ids=set(),
+            stats={"last_review_date": today},
+            now=now,
+        )
+
+    async def rows(db):
+        return [
+            (r.user_id, r.source, r.state)
+            for r in (
+                await db.scalars(
+                    select(JobWorkAssignment)
+                    .where(JobWorkAssignment.job_id == job_id)
+                    .execution_options(populate_existing=True)
+                )
+            ).all()
+        ]
+
+    async with AsyncSessionLocal() as db:
+        try:
+            await allocation_lock(db)
+            monkeypatch.setattr(settings, "COMPASS_AVAILABILITY_ENABLED", True)
+            stats = await run(db)
+            assert stats["leave_blocks_auto"] is True
+            assert await rows(db) == []
+
+            monkeypatch.setattr(settings, "COMPASS_AVAILABILITY_ENABLED", False)
+            stats = await run(db)
+            assert stats["leave_blocks_auto"] is False
+            assert await rows(db) == [(person, "auto", "active")]
+            job = await db.get(Job, job_id, populate_existing=True)
+            assert job.recruiter_id == person
+            notice = await db.scalar(
+                select(Notification).where(
+                    Notification.user_id == person,
+                    Notification.notification_type
+                    == NotificationType.request_assignment_changed,
+                    Notification.related_entity_type == "job",
+                    Notification.related_entity_id == job_id,
+                )
+            )
+            assert notice is not None
+            assert notice.title == "Nowy request do pracy"
+        finally:
+            await db.rollback()

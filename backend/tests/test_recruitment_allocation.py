@@ -416,3 +416,51 @@ def test_cover_scope_requires_open_work_and_the_same_owners_membership():
             UPDATE candidate_contact_cases SET state='completed';
         """)
         assert visible_jobs() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("compass_enabled", "fresh", "allowed"),
+    [
+        # Urlopy z Compassa wyłączone: danych nie będzie, automat rusza bez nich.
+        (False, False, True),
+        # Włączone, ale nieaktualne: request mógłby dostać ktoś na urlopie.
+        (True, False, False),
+        (True, True, True),
+    ],
+)
+async def test_auto_mode_waits_for_compass_only_when_compass_is_enabled(
+    monkeypatch, compass_enabled: bool, fresh: bool, allowed: bool
+):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from fastapi import HTTPException
+
+    from app.api import recruitment_allocation as api
+
+    monkeypatch.setattr(api.settings, "RECRUITMENT_ALLOCATION_ENABLED", True)
+    monkeypatch.setattr(api.settings, "COMPASS_AVAILABILITY_ENABLED", compass_enabled)
+    monkeypatch.setattr(api, "allocation_lock", AsyncMock())
+    monkeypatch.setattr(
+        api, "workforce_context", AsyncMock(return_value=SimpleNamespace(fresh=fresh))
+    )
+    state = SimpleNamespace(mode="shadow")
+    db = SimpleNamespace(
+        execute=AsyncMock(),
+        get=AsyncMock(return_value=state),
+        add=MagicMock(),
+        commit=AsyncMock(),
+    )
+    call = api.set_allocation_mode(
+        api.AllocationModeUpdate(mode="auto"), SimpleNamespace(id=1), db
+    )
+    if allowed:
+        assert await call == {"mode": "auto"}
+        db.commit.assert_awaited_once()
+        return
+    with pytest.raises(HTTPException) as refused:
+        await call
+    assert refused.value.status_code == 409
+    assert refused.value.detail == "Najpierw przywróć aktualne dane z COMPASS"
+    assert state.mode == "shadow"
+    db.commit.assert_not_awaited()

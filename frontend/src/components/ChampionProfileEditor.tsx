@@ -91,6 +91,16 @@ import {
 import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
 import { ChampionExperienceFields } from "@/components/champion/ChampionExperienceFields";
 import { SearchRequirementsEditor } from "@/components/champion/SearchRequirementsEditor";
+import { RequirementRowsEditor } from "@/components/champion/RequirementRowsEditor";
+import {
+  criticalRows,
+  mustHeads,
+  niceHeads,
+  rowsFromStored,
+  searchRows,
+  type RequirementRowForm,
+} from "@/lib/requirement-rows";
+import { fetchRowsFromLegacy, useRowCriticalInfo } from "@/lib/requirement-rows-api";
 import { ChampionInsightsSection } from "@/components/champion/ChampionInsightsSection";
 import { syncLegacyInsight, type InsightChange } from "@/lib/champion-insights";
 import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
@@ -136,6 +146,25 @@ interface ChampionProfileEditorProps {
 
 function genId(): string {
   return `q${Date.now().toString(36).slice(-6)}`;
+}
+
+/**
+ * Profil prowadzony wierszami wymagań (02.10.2026): wiersze dostają klucze
+ * i poziom „krytyczne” z `stack.critical`, a `critical` w szkicu znaczy odtąd
+ * tylko „Brak krytycznych” (`[]`) albo brak tej decyzji (`null`).
+ */
+function withEditableRows(profile: ChampionProfile): ChampionProfile {
+  const stored = profile.stack.rows;
+  if (!Array.isArray(stored) || stored.length === 0) return profile;
+  const none = Array.isArray(profile.stack.critical) && profile.stack.critical.length === 0;
+  return {
+    ...profile,
+    stack: {
+      ...profile.stack,
+      rows: rowsFromStored(stored, profile.stack.critical),
+      critical: none ? [] : null,
+    },
+  };
 }
 
 export function ChampionProfileEditor({
@@ -216,8 +245,9 @@ export function ChampionProfileEditor({
         data.job_values,
         data.job_title,
       );
-      setDraft(seed.profile);
-      setBaseline(seed.profile);
+      const profile = withEditableRows(seed.profile);
+      setDraft(profile);
+      setBaseline(profile);
       setSeededStack(seed.seededStack);
       setSeededBasics(seed.seededBasics);
     }
@@ -235,11 +265,23 @@ export function ChampionProfileEditor({
 
   // Krytyczne (30.09.2026): podpowiedź i dopuszczalne pozycje dla BIEŻĄCEJ,
   // jeszcze niezapisanej listy MUST.
+  const requirementRows = Array.isArray(draft.stack.rows)
+    ? (draft.stack.rows as RequirementRowForm[])
+    : null;
   const criticalSuggestion = useCriticalSuggestion(
     (draft.stack.must ?? []).map((item) => item.name),
     draft.basics.role_name ?? data?.job_title ?? "",
-    { enabled: Boolean(data) },
+    { enabled: Boolean(data) && requirementRows == null },
   );
+  // Profil prowadzony wierszami: etykiety i dopuszczalność krytycznych liczy
+  // serwer dla bieżących, jeszcze niezapisanych wierszy.
+  const rowCriticalInfo = useRowCriticalInfo(
+    requirementRows ?? [],
+    draft.basics.role_name ?? data?.job_title ?? "",
+    { enabled: Boolean(data) && requirementRows != null },
+  );
+  const [simplifying, setSimplifying] = useState(false);
+  const [simplifyError, setSimplifyError] = useState<string | null>(null);
 
   // Live refresh when another user edits this job's Champion Profile.
   // The WS hook dispatches CHAMPION_PROFILE_CHANGED_EVENT on the window;
@@ -384,6 +426,61 @@ export function ChampionProfileEditor({
       if (next === null && baseline.stack.critical === undefined) delete stack.critical;
       return { ...d, stack };
     });
+  // Wiersze wymagań są źródłem: must-have, mile widziane i wiersze
+  // wyszukiwania w szkicu idą za nimi (serwer i tak wyprowadza je sam).
+  const setRequirementRows = (rows: RequirementRowForm[]) =>
+    setDraft((d) => ({
+      ...d,
+      stack: {
+        ...d.stack,
+        rows,
+        must: mustHeads(rows).map((name) => ({ name })),
+        nice: niceHeads(rows).map((name) => ({ name })),
+        critical: criticalRows(rows).length > 0 ? null : (d.stack.critical ?? null),
+      },
+      search: { ...d.search, requirements: searchRows(rows) },
+    }));
+  /**
+   * „Uprość do słów kluczowych”: stare pola (must, mile widziane, wiersze
+   * wyszukiwania) zamienia serwer — technologie zostają wierszami, zdania
+   * klienta trafiają do niuansów i przestają filtrować kandydatów. Nic się
+   * nie zapisuje, dopóki Delivery Lead nie kliknie „Zapisz”.
+   */
+  const simplifyToRows = async () => {
+    setSimplifying(true);
+    setSimplifyError(null);
+    try {
+      const result = await fetchRowsFromLegacy({
+        must: (draft.stack.must ?? []).map((item) => item.name),
+        nice: (draft.stack.nice ?? []).map((item) => item.name),
+        requirements: draft.search.requirements ?? [],
+        critical: draft.stack.critical ?? null,
+      });
+      const rows = rowsFromStored(result.rows);
+      if (rows.length === 0) {
+        setSimplifyError("Nie ma czego uprościć — dodaj najpierw wymagania.");
+        return;
+      }
+      setDraft((d) => ({
+        ...d,
+        stack: {
+          ...d.stack,
+          rows,
+          must: mustHeads(rows).map((name) => ({ name })),
+          nice: niceHeads(rows).map((name) => ({ name })),
+          critical: criticalRows(rows).length === 0 && result.no_critical ? [] : null,
+          notes: [d.stack.notes?.trim(), ...result.descriptive].filter(Boolean).join("\n"),
+        },
+        search: { ...d.search, requirements: searchRows(rows) },
+      }));
+    } catch (error) {
+      setSimplifyError(
+        apiErrorMessage(error, "Nie udało się uprościć wymagań — spróbuj ponownie."),
+      );
+    } finally {
+      setSimplifying(false);
+    }
+  };
   const patchProject = (patch: Partial<ChampionProfile["project"]>) =>
     setDraft((d) => ({ ...d, project: { ...d.project, ...patch } }));
   const patchClient = (patch: Partial<ChampionProfile["client"]>) =>
@@ -784,48 +881,115 @@ export function ChampionProfileEditor({
             dopiero, gdy je zmienisz.
           </p>
         ) : null}
-        <CriticalSkillsField
-          className="mb-3"
-          must={(draft.stack.must || []).map((item) => item.name)}
-          value={draft.stack.critical ?? null}
-          onChange={setCritical}
-          suggestion={criticalSuggestion}
-          disabled={disabled}
-        />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <StackField
-            label={`Musi mieć · ${(draft.stack.must || []).length}`}
-            testId="champion-stack-must"
-            field="stack.must"
-            value={draft.stack.must}
-            disabled={disabled}
-            onChange={(items) => patchStack({ must: items })}
-          />
-          <StackField
-            label={`Mile widziane · ${(draft.stack.nice || []).length}`}
-            testId="champion-stack-nice"
-            field="stack.nice"
-            value={draft.stack.nice}
-            disabled={disabled}
-            onChange={(items) => patchStack({ nice: items })}
-          />
-        </div>
-        <div className="mt-3">
-          <Labeled label="Niuanse wersji / zakresu" field="stack.notes">
-            <input
-              type="text"
-              disabled={disabled}
-              value={draft.stack.notes}
-              onChange={(e) => patchStack({ notes: e.target.value })}
-              placeholder="np. Java 17+, Java 8 nie interesuje"
-              className={inputClass}
+        {requirementRows != null ? (
+          <>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Jedna lista słów kluczowych. Po nich szukamy w bazie, a krytyczne
+              ukrywają w propozycjach AI osoby, które ich nie mają. Słowa w jednym
+              wierszu to warianty — wystarczy jedno.
+            </p>
+            {/* Kotwica „wymagań do wyszukiwania” — w tym trybie są to te same wiersze. */}
+            <span
+              id={SEARCH_REQUIREMENTS_ANCHOR}
+              className="block scroll-mt-4"
+              aria-hidden="true"
             />
-          </Labeled>
-        </div>
-        <p className="text-[11px] text-muted-foreground mt-3">
-          MUST to wymagania obowiązkowe, NICE to atuty opcjonalne. Oddzielaj wpisy nową linią.
-          Alternatywę zapisz w jednej pozycji jako „A lub B” — wystarczy jedna z tych umiejętności.
-        </p>
+            <div data-champion-field="stack.rows" data-testid="champion-requirement-rows">
+              <RequirementRowsEditor
+                rows={requirementRows}
+                onRowsChange={setRequirementRows}
+                noCritical={
+                  Array.isArray(draft.stack.critical) && draft.stack.critical.length === 0
+                }
+                onNoCriticalChange={(value) => patchStack({ critical: value ? [] : null })}
+                exclude={draft.search.exclude ?? []}
+                onExcludeChange={(exclude) => patchSearch({ exclude })}
+                critical={rowCriticalInfo}
+                disabled={disabled}
+              />
+            </div>
+            <div className="mt-3">
+              <Labeled label="Zdania klienta i niuanse — nie filtrują kandydatów" field="stack.notes">
+                <textarea
+                  disabled={disabled}
+                  value={draft.stack.notes}
+                  onChange={(e) => patchStack({ notes: e.target.value })}
+                  placeholder="np. Java 17+, Java 8 nie interesuje"
+                  rows={2}
+                  className={textareaClass}
+                />
+              </Labeled>
+            </div>
+          </>
+        ) : (
+          <>
+            <CriticalSkillsField
+              className="mb-3"
+              must={(draft.stack.must || []).map((item) => item.name)}
+              value={draft.stack.critical ?? null}
+              onChange={setCritical}
+              suggestion={criticalSuggestion}
+              disabled={disabled}
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <StackField
+                label={`Musi mieć · ${(draft.stack.must || []).length}`}
+                testId="champion-stack-must"
+                field="stack.must"
+                value={draft.stack.must}
+                disabled={disabled}
+                onChange={(items) => patchStack({ must: items })}
+              />
+              <StackField
+                label={`Mile widziane · ${(draft.stack.nice || []).length}`}
+                testId="champion-stack-nice"
+                field="stack.nice"
+                value={draft.stack.nice}
+                disabled={disabled}
+                onChange={(items) => patchStack({ nice: items })}
+              />
+            </div>
+            <div className="mt-3">
+              <Labeled label="Niuanse wersji / zakresu" field="stack.notes">
+                <input
+                  type="text"
+                  disabled={disabled}
+                  value={draft.stack.notes}
+                  onChange={(e) => patchStack({ notes: e.target.value })}
+                  placeholder="np. Java 17+, Java 8 nie interesuje"
+                  className={inputClass}
+                />
+              </Labeled>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-3">
+              MUST to wymagania obowiązkowe, NICE to atuty opcjonalne. Oddzielaj wpisy nową linią.
+              Alternatywę zapisz w jednej pozycji jako „A lub B” — wystarczy jedna z tych umiejętności.
+            </p>
+            {canEdit && (draft.stack.must ?? []).length > 0 ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-muted px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => void simplifyToRows()}
+                  disabled={simplifying}
+                  className="text-xs font-medium text-primary hover:underline disabled:opacity-60"
+                  data-testid="champion-simplify-requirements"
+                >
+                  {simplifying ? "Upraszczam…" : "Uprość do słów kluczowych"}
+                </button>
+                <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+                  Jedna lista zamiast trzech pól: technologie zostają słowami
+                  kluczowymi, zdania klienta przechodzą do niuansów. Zapiszesz
+                  dopiero przyciskiem „Zapisz”.
+                </span>
+                {simplifyError ? (
+                  <span role="alert" className="w-full text-xs text-destructive">
+                    {simplifyError}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+          </>
+        )}
       </Section>
 
       {/* 4. Doświadczenie poza stackiem — dziedzina, certyfikaty, regulacje.
@@ -854,6 +1018,7 @@ export function ChampionProfileEditor({
           co najmniej jednego. OSOBNA karta, poza grupą „proza”: pierwszy
           wiersz przełącza tę grupę ze skrótu na pełne sekcje, a pole w środku
           przełącznika montowało się od nowa i gubiło fokus po pierwszym słowie. */}
+      {requirementRows != null ? null : (
       <Section
         title="Wymagania do wyszukiwania w bazie"
         anchor={SEARCH_REQUIREMENTS_ANCHOR}
@@ -879,6 +1044,7 @@ export function ChampionProfileEditor({
           />
         </div>
       </Section>
+      )}
 
       {/* 2 · 5 · 6 — jeden blok „proza". Trzy osobne karty pustych pól były
           trzema ekranami niczego; chip nagłówka mówi, ilu z nich brakuje. */}
@@ -907,18 +1073,7 @@ export function ChampionProfileEditor({
               className="block scroll-mt-4"
               aria-hidden="true"
             />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Labeled label="Frazy do LinkedIna" field="search.keywords">
-                <textarea
-                  disabled={disabled}
-                  value={draft.search.keywords}
-                  onChange={(e) => patchSearch({ keywords: e.target.value })}
-                  placeholder="java, spring boot, kafka, mikroserwisy"
-                  rows={2}
-                  className={textareaClass}
-                  data-testid="champion-search-keywords"
-                />
-              </Labeled>
+            <div className="grid grid-cols-1 gap-3">
               <Labeled label="O projekcie (2 zdania)" field="project.about">
                 <textarea
                   disabled={disabled}
@@ -952,20 +1107,6 @@ export function ChampionProfileEditor({
         nested
       >
         <div className="space-y-3">
-          <Labeled
-            label="Frazy do LinkedIna — do szukania poza NEXUSEM"
-            field="search.keywords"
-          >
-            <textarea
-              disabled={disabled}
-              value={draft.search.keywords}
-              onChange={(e) => patchSearch({ keywords: e.target.value })}
-              placeholder="java, spring boot, kafka, mikroserwisy"
-              rows={2}
-              className={textareaClass}
-              data-testid="champion-search-keywords"
-            />
-          </Labeled>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Labeled label="Firmy docelowe" field="search.target_companies">
               <textarea
@@ -1098,7 +1239,7 @@ export function ChampionProfileEditor({
                   </button>
                 )}
               </div>
-              <Labeled label="Idealna odpowiedź">
+              <Labeled label="Dobra odpowiedź">
                 <textarea
                   disabled={disabled}
                   value={q.ideal_answer}
@@ -1107,7 +1248,7 @@ export function ChampionProfileEditor({
                   className={textareaClass}
                 />
               </Labeled>
-              <Labeled label="Deal-breaker (kiedy odpada)">
+              <Labeled label="Odpada, gdy… (wymagane przed przekazaniem do searchu)">
                 <textarea
                   disabled={disabled}
                   value={q.deal_breaker}

@@ -14,7 +14,8 @@ obowiązywały bez kopii.
 Od 02.10.2026 lista niesie też propozycje automatu przydziału do akceptacji
 (`services/request_allocation_proposals.py`) — wyłącznie dla admina i Head of
 Recruitment. Decyzje zapisuje `/api/request-board` (akceptacja, zamiana,
-odrzucenie).
+odrzucenie). Te same osoby dostają listę informacyjną „kto prowadzi nowe
+rekrutacje” (`services/new_job_leads.py`).
 """
 
 from dataclasses import asdict
@@ -43,6 +44,7 @@ from app.services import (
     cpro_sender,
     cv_in_transit,
     move_requirements,
+    new_job_leads,
     prep_attention,
     request_allocation_proposals,
 )
@@ -132,6 +134,37 @@ class AllocationProposalRow(BaseModel):
     proposed_at: datetime
 
 
+class NewJobLeadRow(BaseModel):
+    """Rekrutacja przekazana do searchu w ostatnich dniach i jej prowadzący.
+
+    Kształt = ``new_job_leads.NewJobLead``.
+    """
+
+    job_id: int
+    title: str
+    client_name: Optional[str] = None
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+    category_slug: Optional[str] = None
+    # Ilu uczestników z kategorii ma rekrutacja (bez osób z niej zdjętych).
+    participants: int
+    priority_level: Literal["p1", "p2", "accepting"]
+    delivery_lead_name: Optional[str] = None
+    handed_off_at: datetime
+    lead_user_id: Optional[int] = None
+    lead_name: Optional[str] = None
+    lead_role: Optional[Literal["recruiter", "sourcer"]] = None
+    # Kto wskazał prowadzącego: automat przydziału albo człowiek.
+    lead_source: Optional[Literal["auto", "manual"]] = None
+    assigned_by_name: Optional[str] = None
+    # Jedyna osoba to propozycja automatu czekająca na akceptację — wtedy
+    # pola `lead_*` opisują osobę proponowaną.
+    proposed: bool = False
+    # Nikt nie prowadzi: automat właśnie przydziela, rekrutacja tylko
+    # przyjmuje kandydatów albo po prostu nikogo nie ma.
+    pending_reason: Optional[Literal["assigning", "passive", "none"]] = None
+
+
 class CvTransitRow(BaseModel):
     """Wiersz listy „Twoje CV w drodze” (`services/cv_in_transit.py`)."""
 
@@ -196,6 +229,9 @@ class BoardTasksResponse(BaseModel):
     # Czy urlopy z Compassa są włączone i świeże. Bez tego puste „na urlopie
     # do” znaczy „nie wiadomo”, a nie „osoba dziś pracuje”.
     allocation_leave_known: bool = False
+    # Kto prowadzi rekrutacje przekazane do searchu w ostatnich dniach — lista
+    # informacyjna, tylko dla admina i Head of Recruitment.
+    new_job_leads: list[NewJobLeadRow] = []
     # „Twoje CV w drodze” — druga strona przekazań, dla rekrutera kandydata.
     # `None` = osoba usunęła listę z pulpitu albo liczenie się nie powiodło.
     cv_in_transit: Optional[CvInTransitBlock] = None
@@ -292,6 +328,9 @@ async def list_board_tasks(
         if can_decide_proposals
         else ([], False)
     )
+    job_leads = (
+        await new_job_leads.load_safely(db, now=now) if can_decide_proposals else []
+    )
     transit = await cv_in_transit.load_safely(
         db, current_user, portfolio=portfolio, now=now
     )
@@ -329,6 +368,7 @@ async def list_board_tasks(
         allocation_proposals=[AllocationProposalRow(**asdict(p)) for p in proposals],
         can_decide_proposals=can_decide_proposals,
         allocation_leave_known=leave_known,
+        new_job_leads=[NewJobLeadRow(**asdict(lead)) for lead in job_leads],
         cv_in_transit=_transit_block(transit),
         prep_attention=[
             PrepAttentionRow(
