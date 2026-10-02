@@ -31,10 +31,7 @@ from app.services.job_working_title import (
 BACKEND = Path(__file__).resolve().parents[1]
 ROOT = BACKEND.parent
 MIGRATION = (
-    BACKEND
-    / "alembic"
-    / "versions"
-    / "0380_job_client_reference_working_title.py"
+    BACKEND / "alembic" / "versions" / "0380_job_client_reference_working_title.py"
 )
 CASES = json.loads(
     (ROOT / "frontend/src/lib/__fixtures__/job-working-title-cases.json").read_text()
@@ -259,6 +256,33 @@ async def test_working_title_follows_edits_until_set_by_hand(
         job = await db.get(Job, job_id)
         assert job.working_title_auto is True
         assert job.working_title.startswith("Senior Java Developer · Java, Kafka")
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_reference_comes_from_the_title_unless_the_form_says_otherwise(
+    app_client, app_auth_headers
+) -> None:
+    client_id = await _client_id()
+
+    async def created_reference(**fields: object) -> object:
+        response = await app_client.post(
+            "/api/jobs",
+            json={
+                "title": "Programista Java (ZOB 48213)",
+                "client_id": client_id,
+                **fields,
+            },
+            headers=app_auth_headers,
+        )
+        assert response.status_code in (200, 201), response.text
+        return response.json()["client_reference"]
+
+    # Bez pola w żądaniu numer stoi w nazwie od klienta.
+    assert await created_reference() == "ZOB 48213"
+    # „To nie ten numer” z pustym polem: człowiek zdecydował, że numeru nie ma.
+    assert await created_reference(client_reference="") is None
+    assert await created_reference(client_reference="REQ-9") == "REQ-9"
 
 
 @needs_db

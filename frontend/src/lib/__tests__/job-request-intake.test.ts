@@ -479,9 +479,9 @@ describe("payloady zapisu", () => {
     expect(
       buildJobPayload({ ...form, referenceOverride: "REQ-9" }, opts).client_reference,
     ).toBe("REQ-9");
-    expect(buildJobPayload({ ...form, referenceOverride: "" }, opts)).not.toHaveProperty(
-      "client_reference",
-    );
+    // „To nie ten numer” z pustym polem jedzie jako pusty napis — bez pola
+    // w żądaniu serwer wziąłby numer z nazwy.
+    expect(buildJobPayload({ ...form, referenceOverride: "" }, opts).client_reference).toBe("");
     // Numer usunięty z nazwy przestaje obowiązywać.
     expect(
       buildJobPayload({ ...form, clientTitle: "Programista Java" }, opts),

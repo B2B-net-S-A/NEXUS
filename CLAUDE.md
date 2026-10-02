@@ -3659,9 +3659,10 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   („Zatwierdź wszystkie”; edycja pola też zatwierdza).
 - **Numer u klienta nie ma osobnego pola**: `clientReferenceFor` czyta go z nazwy
   od klienta (numer z odczytu, dopóki stoi w nazwie; inaczej jednoznaczny ZOB),
-  „To nie ten numer” pozwala wpisać inny albo żaden. `create_job` bez
-  `client_reference` bierze `reference_from_title`. Tytuł dla zespołu składa się
-  sam (podgląd + „Zmień”).
+  „To nie ten numer” pozwala wpisać inny albo żaden. `create_job` bez pola
+  `client_reference` w żądaniu bierze `reference_from_title`; pole wysłane puste
+  to decyzja „bez numeru” i zostaje puste (formularz wysyła je po „To nie ten
+  numer”). Tytuł dla zespołu składa się sam (podgląd + „Zmień”).
 - **Kategorię kompetencji potwierdza Delivery Lead** (sekcja 6):
   `POST /api/job-intake/category-suggestion` (ta sama reguła co przy zapisie,
   `job_cc.resolve_job_cc_id`; `participants` = liczba osób, bez nazwisk),
@@ -3692,7 +3693,12 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   do searchu w 7 dniach, prowadzący, źródło (automat / wskazany ręcznie),
   kategoria, liczba uczestników. Lista informacyjna — nie wchodzi do licznika;
   „Zmień” zapisuje przez `POST /api/jobs/{id}/owner`.
-- Harness `/preview/new-job?state=request|noclient|manual|review|gaps|shadow|passive|off`.
+- **Podpowiedź kategorii pyta tylko o rolę, która stoi w polu**
+  (`categoryInputCurrent` w `NewJobPage`): zapytanie idzie po chwili ciszy,
+  a zaraz po odczycie requestu opóźniona wartość to jeszcze puste pole —
+  podpowiedź dla pustej roli migała i znikała, razem z przyciskiem „Potwierdzam”.
+- Harness `/preview/new-job?state=request|noclient|manual|review|gaps|shadow|passive|off`;
+  profil z wierszami: przypadek 4 w `/preview/champion-profile`.
 
 ## Umiejętności krytyczne i bramka v9 (0405, 30.09.2026)
 

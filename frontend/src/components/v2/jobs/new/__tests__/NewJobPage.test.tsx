@@ -636,9 +636,11 @@ describe("NewJobPage", () => {
       const input = screen.getByLabelText("Numer u klienta");
       expect(input).toHaveValue("ZOB 48213");
 
+      // Puste pole jedzie jako pusty napis: bez pola w żądaniu serwer wziąłby
+      // numer z nazwy i „bez numeru” nie dałoby się zapisać.
       fireEvent.change(input, { target: { value: "" } });
       await saveDraft();
-      expect(jobPostBody()).not.toHaveProperty("client_reference");
+      expect(jobPostBody()).toMatchObject({ client_reference: "" });
     });
 
     it("nazwa bez numeru: strona mówi to wprost i daje „Wpisz numer”", async () => {
@@ -812,6 +814,17 @@ describe("NewJobPage", () => {
       await screen.findByRole("button", { name: "Potwierdzam: Development" });
       expect(categoryOption(/^Development/)).toBeChecked();
       expect(categoryOption(/^Development/)).toHaveTextContent("propozycja");
+    });
+
+    it("pyta tylko o rolę, która stoi w polu — nie o puste pole sprzed odczytu", async () => {
+      // Podpowiedź dla pustej roli mignęłaby i zniknęła po chwili: przycisk
+      // „Potwierdzam” kliknięty w tym oknie nie potwierdzał niczego.
+      await readRequest();
+      await categorySettled();
+      await screen.findByRole("button", { name: "Potwierdzam: Development" });
+      expect(
+        bodiesOf("/api/job-intake/category-suggestion").map((body) => body.role),
+      ).toEqual(["Senior Java Developer"]);
     });
 
     it("podpowiedź trzeba potwierdzić — dopiero wtedy da się przekazać", async () => {

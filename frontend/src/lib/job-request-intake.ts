@@ -675,8 +675,10 @@ export function buildJobPayload(
   };
   const description = opts.requestText.trim();
   if (description) payload.description = description;
+  // Numer wpisany ręcznie jedzie zawsze — także pusty („bez numeru”): serwer
+  // czyta numer z nazwy tylko wtedy, gdy pola w żądaniu nie ma.
   const reference = clientReferenceFor(form);
-  if (reference) payload.client_reference = reference;
+  if (reference || form.referenceOverride != null) payload.client_reference = reference;
   if (form.competenceCategoryId != null)
     payload.competence_category_id = form.competenceCategoryId;
   // Bez ręcznej zmiany serwer składa tytuł sam (i przelicza go po Championie).

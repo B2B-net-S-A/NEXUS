@@ -285,9 +285,15 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     ),
     600,
   );
+  // Pytamy dopiero o rolę, która stoi w polu: zaraz po odczycie requestu
+  // opóźniona wartość to jeszcze puste pole, a podpowiedź dla pustej roli
+  // mignęłaby na ekranie i zniknęła, zanim przyjdzie właściwa.
+  const categoryInputCurrent =
+    categoryInput.role === form.title.trim() &&
+    categoryInput.clientTitle === form.clientTitle.trim();
   const categoryQuery = useQuery({
     queryKey: ["job-intake-category-suggestion", categoryInput.role, categoryInput.clientTitle],
-    enabled: step === "review" && !preview,
+    enabled: step === "review" && !preview && categoryInputCurrent,
     staleTime: 5 * 60_000,
     retry: false,
     queryFn: () =>
@@ -303,7 +309,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const categories = preview?.categories ?? categoryQuery.data?.categories ?? [];
   const suggestedCategory = categoryQuery.data?.suggested_id;
   useEffect(() => {
-    if (suggestedCategory === undefined) return;
+    if (suggestedCategory === undefined || !categoryInputCurrent) return;
     setForm((f) => {
       // Potwierdzonej kategorii podpowiedź już nie zmienia.
       const chosen = f.categoryConfirmed ? f.competenceCategoryId : suggestedCategory;
@@ -311,7 +317,10 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         return f;
       return { ...f, suggestedCategoryId: suggestedCategory, competenceCategoryId: chosen };
     });
-  }, [suggestedCategory]);
+    // `form.suggestedCategoryId`: ponowny odczyt requestu zakłada formularz od
+    // nowa (podpowiedź wraca do `null`), a odpowiedź serwera dla tej samej roli
+    // się nie zmienia — bez tej zależności kategoria nie byłaby podpowiedziana.
+  }, [suggestedCategory, categoryInputCurrent, form.suggestedCategoryId]);
 
   // Czy da się wybrać automat — ta sama flaga co w handoffie.
   // Tryb „off” znaczy, że automat nikogo nie zaproponuje, więc też wyłączone.

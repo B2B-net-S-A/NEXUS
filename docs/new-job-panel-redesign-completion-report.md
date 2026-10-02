@@ -85,4 +85,38 @@ Bez migracji bazy: wiersze żyją w JSONB profilu, uczestnicy w istniejącej tab
 
 ## Weryfikacja
 
-Uzupełniana po CI i wdrożeniu — patrz opis PR-a.
+Przed otwarciem PR-a (02–03.10.2026):
+
+| Część | Stan | Dowód |
+|---|---|---|
+| Backend | zielony | pełne CI na gałęzi (`workflow_dispatch`, bieg 37063338198): 12 shardów pytest + scalenie pokrycia |
+| Frontend — typy i lint | zielony | `tsc --noEmit` całego frontu, `eslint` 44 zmienionych plików |
+| Frontend — testy | zielony | Vitest: formularz (`NewJobPage` 60, `job-request-intake`, `requirement-rows`, `RequirementRowsEditor`), edytor Championa, „Szukaj ręcznie”, strażnicy harnessów i inwentarza funkcji |
+| `/jobs/new` w przeglądarce | obejrzane | harness `/preview/new-job` przy 1280×720: `request`, `noclient` (komunikat po kliknięciu), `manual`, `review`, `gaps`, `shadow`, `off`; `review` przy 390 px bez poziomego przewijania |
+| Profil Championa z wierszami | obejrzane | harness `/preview/champion-profile`, przypadek 4, 1280×720 i 390 px |
+| Przegląd kodu | dwa przeglądy (backend, frontend) | backend bez blokerów; frontend: jeden błąd, poprawiony niżej |
+
+Poprawione po przeglądzie i testach:
+
+- „To nie ten numer” z pustym polem zapisywało numer z nazwy mimo decyzji „bez numeru”
+  (formularz nie wysyłał pola, serwer czytał numer z tytułu). Formularz wysyła teraz puste
+  pole, a serwer czyta numer z nazwy tylko, gdy pola w żądaniu nie ma.
+- Zaraz po odczycie requestu strona pytała o kategorię dla pustej roli: podpowiedź migała
+  i znikała po 0,6 s (testy formularza padały przez to losowo). Zapytanie idzie teraz tylko
+  dla roli, która stoi w polu; ponowny odczyt tego samego requestu znowu podpowiada kategorię.
+- Zmiana kategorii w edycji rekrutacji: błąd synchronizacji uczestników nie cofa już zapisu
+  (listę wyrówna pętla godzinowa).
+
+Świadomie zostawione (nie blokuje):
+
+- Uczestnik z kategorii liczy się jak osoba przypisana do rekrutacji klienta
+  (`client_access`), więc widzi klientów otwartych rekrutacji swojej kategorii — tak było
+  dla 1. priorytetu, teraz dotyczy też 2. Zgodne z decyzją z 23.09 („rekrutacje widzą wszyscy”).
+- PUT profilu z samym `stack.rows` bez klucza `critical` (inny klient API niż nasz front)
+  zdejmuje zapisany wybór krytycznych.
+- Wiersz, którego pierwsze słowo to „tbd”, „n/a” albo „brak”, przenosi profil z powrotem
+  na stare pola.
+- Import dokumentu Championa na profilu z wierszami nie był osobno sprawdzany w przeglądarce
+  (reguła serwera: zapis niezgodny z wierszami kasuje wiersze — pokryta testem).
+
+Po wdrożeniu: wynik sprawdzenia na produkcji i pomiaru odczytu v10 — w opisie PR-a.

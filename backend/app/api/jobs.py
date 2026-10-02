@@ -2205,10 +2205,13 @@ async def create_job(
     )
 
     # 02.10.2026: numer klienta stoi w nazwie od klienta („… (ZOB 48213)”) —
-    # bez jawnego numeru bierzemy go z tytułu, żeby CV i Cpro go miały.
+    # bez pola w żądaniu bierzemy go z tytułu, żeby CV i Cpro go miały. Pole
+    # wysłane puste to decyzja człowieka („To nie ten numer”): zostaje puste.
     payload["client_reference"] = normalize_client_reference(
         payload.get("client_reference")
-    ) or reference_from_title(payload.get("title"))
+    )
+    if "client_reference" not in data.model_fields_set:
+        payload["client_reference"] = reference_from_title(payload.get("title"))
     manual_working_title = (payload.get("working_title") or "").strip() or None
     payload["working_title"] = manual_working_title
     payload["working_title_auto"] = manual_working_title is None
@@ -2935,7 +2938,18 @@ async def update_job(
     if job.competence_category_id != _category_before:
         from app.services.auto_cc_collaborators import sync_cc_participants
 
-        await sync_cc_participants(db, job_ids=[job.id], added_by=current_user.id)
+        # Savepoint jak przy tworzeniu: błąd synchronizacji nie cofa zapisu
+        # rekrutacji — listę wyrówna pętla godzinowa.
+        try:
+            async with db.begin_nested():
+                await sync_cc_participants(
+                    db, job_ids=[job.id], added_by=current_user.id
+                )
+        except Exception:
+            logger.exception(
+                "[Job] synchronizacja uczestników kategorii nie powiodła się (job %s)",
+                job.id,
+            )
 
     changed = {f for f, old in _scoring_before.items() if getattr(job, f) != old}
     db.add(
