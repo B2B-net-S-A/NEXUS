@@ -2,8 +2,9 @@
 
 Kontrola jakości CV firmowego przed wysłaniem do klienta zastępuje ręczny
 przegląd DZ. Odczyt QC ma każda rola z odczytem rekrutacji; poprawki nakłada
-ten, kto może ruszać kartą w pipeline; obejście — Delivery Lead albo admin
-z powodem. Logika: `app/services/cv_qc.py`.
+ten, kto może ruszać kartą w pipeline; obejście — z powodem, osoba
+z uprawnieniem „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”
+(domyślnie Delivery Lead i admin). Logika: `app/services/cv_qc.py`.
 
 Bez ``from __future__ import annotations`` — slowapi #579 (PEP 563 zamienia
 guardy `Annotated` w parametry QUERY).
@@ -22,8 +23,9 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.recruitment_pipeline import CandidateStage
-from app.models.user import UserRole
 from app.services import cv_qc
+from app.services.action_permissions import ProductAction
+from app.services.permission_denial import ensure_permission
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -237,13 +239,9 @@ async def override_stage_qc(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> QcResponse:
-    """Przepuść parę mimo QC — tylko Delivery Lead i admin, z powodem."""
+    """Przepuść parę mimo QC — z powodem; decyzja tego, kto wysyła CV do klienta."""
 
-    if not current_user.has_any_role(UserRole.admin, UserRole.delivery_lead):
-        raise HTTPException(
-            status_code=403,
-            detail="QC może obejść tylko Delivery Lead albo admin.",
-        )
+    ensure_permission(current_user, ProductAction.recruitment_manage)
     stage = await _stage(db, stage_id)
     await ensure_job_read_access(db, current_user, stage.job_id)
     result = await cv_qc.record_override(

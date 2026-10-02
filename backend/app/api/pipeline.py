@@ -75,6 +75,7 @@ from app.schemas.pipeline import (
 )
 from app.api.candidate_access import (
     CandidatePIIAccess,
+    client_rate_write_denied,
     resolve_client_rate_write,
     user_can_access_candidate_domain,
     user_can_view_client_rate,
@@ -1140,8 +1141,9 @@ async def move_candidate(
     )
 
     # Pipeline v4 (23.09.2026): „CV wysłane" poza Nordeą wysyła Delivery Lead
-    # i wpisuje stawkę do klienta. Stawka zapisana wcześniej w tej rekrutacji
-    # (powrót na etap) wystarcza — nie trzeba jej przepisywać.
+    # (uprawnienie `recruitment_manage`) i wpisuje stawkę do klienta. Stawka
+    # zapisana wcześniej w tej rekrutacji (powrót na etap) wystarcza — nie
+    # trzeba jej przepisywać.
     client_rate_value = data.client_rate_value
     client_rate_unit = data.client_rate_unit
     client_rate_currency = (data.client_rate_currency or "PLN")[:3].upper()
@@ -1167,10 +1169,7 @@ async def move_candidate(
         db, current_user, job
     ):
         # Stawka do klienta w ruchu = ta sama bramka co `PATCH …/client-rate`.
-        raise HTTPException(
-            status_code=403,
-            detail=("Stawkę do klienta zapisuje Delivery Lead albo admin."),
-        )
+        raise client_rate_write_denied()
 
     # ── P1-PIPE-01: eligibility gate ── same hard block the assign ingresses
     # enforce (global blacklist / hiring-manager veto) → 409 with the Polish
@@ -3535,10 +3534,7 @@ async def bulk_move_candidates(
     elif data.client_rate_value is not None and not await resolve_client_rate_write(
         db, current_user, job
     ):
-        raise HTTPException(
-            status_code=403,
-            detail="Stawkę do klienta zapisuje Delivery Lead albo admin.",
-        )
+        raise client_rate_write_denied()
 
     # Rekrutacja v5 (0361): QC CV przed „CV wysłane” — jak pojedynczy /move.
     # Pierwsza osoba bez QC zatrzymuje całą paczkę (409 z jej `stage_id`).

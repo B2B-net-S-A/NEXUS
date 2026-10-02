@@ -47,6 +47,8 @@ from fastapi import Depends, HTTPException, status
 
 from app.api.deps import ROLE_DENIED_DETAIL, get_current_user
 from app.models.user import User, UserRole
+from app.services.action_permissions import ProductAction, has_permission
+from app.services.permission_denial import permission_denied
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -98,16 +100,15 @@ CANDIDATE_FINANCE_ROLES: tuple[UserRole, ...] = (UserRole.admin,)
 
 # „Stawka do klienta" (cena, za jaką kandydat idzie do klienta) — decyzje
 # Artura 23.09.2026 (Pipeline v4 + „rekrutacje widzą wszyscy”): stawkę ustala
-# i wpisuje WYŁĄCZNIE Delivery Lead (i admin). Rekruter, sourcer i TAC jej NIE
-# WIDZĄ — mają oczekiwania kandydata i budżet Championa. Widzą ją role
-# zarządcze (HoR, TCM) i Finanse. Osoba z kilkoma rolami widzi, jeśli
-# którakolwiek z nich jest na liście (``has_any_role``). Stawka KANDYDATA
-# (``expected_rate_*``) to inne pole i widzą ją wszyscy. Do 23.09 zapisywały
-# też HoR/TCM/TAC/Finanse i właściciel rekrutacji.
-CLIENT_RATE_WRITE_ROLES: tuple[UserRole, ...] = (
-    UserRole.admin,
-    UserRole.delivery_lead,
-)
+# i wpisuje WYŁĄCZNIE Delivery Lead (i admin) — od 02.10.2026 jako część
+# uprawnienia „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”
+# (``recruitment_manage``), tego samego, które wysyła CV. Rekruter, sourcer
+# i TAC jej NIE WIDZĄ — mają oczekiwania kandydata i budżet Championa. Widzą
+# ją role zarządcze (HoR, TCM) i Finanse; PODGLĄD zostaje przy rolach. Osoba
+# z kilkoma rolami widzi, jeśli którakolwiek z nich jest na liście
+# (``has_any_role``). Stawka KANDYDATA (``expected_rate_*``) to inne pole
+# i widzą ją wszyscy. Do 23.09 zapisywały też HoR/TCM/TAC/Finanse
+# i właściciel rekrutacji.
 CLIENT_RATE_VIEW_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
@@ -125,15 +126,15 @@ def user_can_view_client_rate(user: Optional[User]) -> bool:
 def user_can_write_client_rate(user: User, job=None) -> bool:
     """Czy `user` może ustawić stawkę do klienta.
 
-    Wyłącznie rola z `CLIENT_RATE_WRITE_ROLES` — własność rekrutacji nie nadaje
-    zapisu. Jedna funkcja dla bramki PATCH `…/client-rate`, ruchu na
+    Wyłącznie uprawnienie `recruitment_manage` — własność rekrutacji nie
+    nadaje zapisu. Jedna funkcja dla bramki PATCH `…/client-rate`, ruchu na
     „CV wysłane" i pola `can_write_client_rate` w `GET /api/jobs/{id}`.
     """
-    return user.has_any_role(*CLIENT_RATE_WRITE_ROLES)
+    return has_permission(user, ProductAction.recruitment_manage)
 
 
 def client_rate_write_allowed(user: User) -> bool:
-    """Rola z zapisem stawki do klienta + zapis w sekcji kandydatów/pipeline'u."""
+    """Uprawnienie do stawki do klienta + zapis w sekcji kandydatów/pipeline'u."""
     if not user_can_write_client_rate(user):
         return False
     if user.has_role(UserRole.admin):
@@ -148,7 +149,7 @@ def client_rate_write_allowed(user: User) -> bool:
 async def resolve_client_rate_write(db, user: User, job) -> bool:
     """Pełna decyzja zapisu stawki do klienta — lustro `PATCH …/client-rate`.
 
-    Rola i sekcja (`client_rate_write_allowed`). Członkostwo w rekrutacji nie
+    Uprawnienie i sekcja (`client_rate_write_allowed`). Członkostwo w rekrutacji nie
     jest już wymagane (23.09.2026 — rekrutacje widzi i obsługuje każdy). Jedna
     funkcja dla bramki i `can_write_client_rate` w `GET /api/jobs/{id}` — pole
     nie może obiecywać zapisu, który skończy się 403.
@@ -156,6 +157,16 @@ async def resolve_client_rate_write(db, user: User, job) -> bool:
     if job is None:
         return False
     return client_rate_write_allowed(user)
+
+
+def client_rate_write_denied() -> HTTPException:
+    """403 zapisu stawki do klienta — z nazwą brakującego uprawnienia.
+
+    Trasy, które pytają `resolve_client_rate_write` (PATCH `…/client-rate`,
+    `/move`, `/bulk-move`), stoją już za zapisem sekcji kandydatów albo
+    pipeline'u, więc odmowa oznacza tam brak uprawnienia, nie sekcji.
+    """
+    return permission_denied(ProductAction.recruitment_manage)
 
 
 # Global Talent 360 facts are a deliberately broader write capability than

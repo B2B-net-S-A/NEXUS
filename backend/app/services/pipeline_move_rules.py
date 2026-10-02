@@ -3,8 +3,11 @@
 Dwa wyjątki od „kanbanu bez bramek" (17.09.2026), oba świadome:
 
 * **„CV wysłane" poza Nordeą wysyła Delivery Lead i wpisuje stawkę do
-  klienta.** Stawka, za którą osobę wysłano, jest potrzebna później do
-  umowy i zamówienia — a do 23.09 była opcjonalna i zwykle pusta. Nordea
+  klienta.** O tym, kto wysyła, decyduje uprawnienie „Rekrutacje:
+  zakładanie, zamykanie, wysyłka CV do klienta” (``recruitment_manage``;
+  domyślnie Delivery Lead i admin). Stawka, za którą osobę wysłano, jest
+  potrzebna później do umowy i zamówienia — a do 23.09 była opcjonalna
+  i zwykle pusta. Nordea
   zostaje przy swojej ścieżce QC CV → kolejka Cpro (wysyła jedna osoba od
   Cpro na firmę, `services/cpro_sender.py`). Zatwierdzenia DZ od 24.09.2026
   nie ma — przed wysłaniem liczy się QC CV (`services/cv_qc.py`).
@@ -28,14 +31,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
+from app.services.action_permissions import ProductAction
 from app.services.board_stage_badges import (
     BOARD_COLUMN_ORDER,
     board_column_for,
     cpro_enabled_for_client,
 )
-
-# Kto może przenieść osobę na „CV wysłane" poza Nordeą.
-CLIENT_SEND_ROLES: tuple[UserRole, ...] = (UserRole.admin, UserRole.delivery_lead)
+from app.services.permission_denial import ensure_permission
 
 # Kto może zapisać „Odrzucony przez DL".
 DL_REJECT_ROLES: tuple[UserRole, ...] = (
@@ -172,16 +174,15 @@ async def arrives_from_before_client_send(
 
 
 def assert_client_send_allowed(user: User, rate_value: Optional[Decimal]) -> None:
-    """403 dla roli spoza DL/admina, 422 bez dodatniej stawki do klienta."""
+    """403 z nazwą uprawnienia, gdy konto nie wysyła CV do klienta; 422 bez
+    dodatniej stawki do klienta.
 
-    if not user.has_any_role(*CLIENT_SEND_ROLES):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Do klienta wysyła Delivery Lead — przekaż osobę do przeglądu "
-                "(zostaje w „QC CV”)."
-            ),
-        )
+    Wysyłka do klienta to część uprawnienia „Rekrutacje: zakładanie,
+    zamykanie, wysyłka CV do klienta” — kto go nie ma, przekazuje osobę do
+    przeglądu (zostaje w „QC CV”).
+    """
+
+    ensure_permission(user, ProductAction.recruitment_manage)
     if rate_value is None or Decimal(rate_value) <= 0:
         raise HTTPException(
             status_code=422,
