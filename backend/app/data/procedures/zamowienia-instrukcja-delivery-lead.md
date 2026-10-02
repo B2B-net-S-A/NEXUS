@@ -1565,7 +1565,8 @@ i zamiana konsultanta, wejście za konsultanta), budżety, plik PO, „Zczytaj d
 z dokumentu" oraz „Zastosuj", „Odrzuć" i „Przelicz plan" w zamówieniach z maila
 wymagają prowadzenia zamówień **i** podglądu kwot tego klienta. Osoba, która
 prowadzi zamówienia bez podglądu kwot, założy, przedłuży i zakończy zamówienie,
-ale przy pierwszej stawce albo pliku dostanie odmowę.
+ale przy pierwszej stawce albo pliku dostanie odmowę. Budżet konsultanta wpisany
+w MD zmieni, a wpisany kwotą (PLN) już nie — to kwota.
 
 **Finanse prowadzą zamówienia u wszystkich klientów** (od 02.10.2026): zakładają
 je, przedłużają, obsadzają, kończą i usuwają, wgrywają pliki PO oraz zapisują
@@ -1573,8 +1574,9 @@ i odrzucają zamówienia z maila.
 
 **Sama „zmiana kwot" nie otwiera reszty.** Osoba, która ma zmianę kwot, a zamówień
 nie prowadzi, zmienia wyłącznie stawki i wartości. Próba zmiany czegokolwiek
-innego (obsada, daty, numer) kończy się odmową „Finanse zmieniają tutaj wyłącznie
-kwoty".
+innego (obsada, daty, numer) kończy się odmową „Uprawnienie „Stawki i kwoty:
+zmiana” pozwala tu zmienić wyłącznie kwoty". Zamówień z maila taka osoba nie
+zapisuje ani nie odrzuca — to zakładanie zamówienia, nie zmiana kwot.
 
 **Talent Community Manager ma domyślnie sam podgląd.** Widzi dane operacyjne, ale
 nie widzi kwot, marż, przychodów, plików źródłowych PO ani eksportów mogących

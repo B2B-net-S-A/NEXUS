@@ -1,5 +1,5 @@
 {
-  "entry": "56b584c25edc60a86e8d1485b46f27acf249acb06bd634ec7cf06822c9242a87",
+  "entry": "8c14bbb95251017141a250220d36d65e360fba890f2c346653ece32d0db82f92",
   "guide": "job.champion",
   "sources": {
     "frontend/src/components/ChampionProfileEditor.tsx": "8a447a812b579799fa4dae12cc5f204e823c707c9b133b93c3b7194a34435b56",
