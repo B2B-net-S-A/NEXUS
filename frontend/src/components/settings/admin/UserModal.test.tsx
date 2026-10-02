@@ -403,6 +403,22 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     expect(onSave.mock.calls[0][0]).not.toHaveProperty("permissions");
   });
 
+  it("konto administratora nie pokazuje sekcji, gdy odczyt osoby jeszcze trwa", async () => {
+    vi.mocked(adminApi.getUserPermissions).mockReturnValue(
+      new Promise(() => undefined) as never,
+    );
+    renderModal({ initial: { id: 1, role: "admin", roles: ["admin"] } });
+
+    // Zasady wystarczą, żeby wiedzieć, że administratorowi nic się nie nadaje —
+    // nagłówek „Wczytywanie…” nie czeka na odczyt osoby, po którym by zniknął.
+    await waitFor(() => expect(adminApi.getSectionPermissions).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("group", { name: "Dodatkowe uprawnienia" }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
   it("zmiana roli na praktykanta chowa sekcję i nie wysyła uprawnień", async () => {
     personIs(userPermissionsResponse({ grants: ["contracts_orders_edit"] }));
     const { onSave } = renderModal({ initial: tcm });

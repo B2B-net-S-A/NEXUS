@@ -98,6 +98,10 @@ function useExtraPermissions(
   );
 
   if (!enabled) return { status: "hidden" };
+  // Same zasady wystarczą, żeby wiedzieć, że wybranym rolom nic się nie nadaje
+  // (administrator, Viewer, Praktykant) — sekcja nie pojawia się wtedy nawet
+  // na czas odczytu osoby.
+  if (snapshot && !rolesAcceptGrants(snapshot, roles)) return { status: "hidden" };
   if (snapshotQuery.isPending || personQuery.isPending) return { status: "loading" };
   // Błędem jest brak danych. Nieudane odświeżenie w tle zostawia listę — zapis
   // i tak sprawdza wersję zasad, a zaznaczenia nie powinny znikać.
@@ -110,7 +114,6 @@ function useExtraPermissions(
       },
     };
   }
-  if (!rolesAcceptGrants(snapshot, roles)) return { status: "hidden" };
 
   const savedRoles = new Set<string>(person.user.roles);
   const rolesChanged =
