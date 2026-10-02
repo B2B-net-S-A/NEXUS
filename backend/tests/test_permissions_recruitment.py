@@ -285,12 +285,17 @@ _PERMISSION_ROUTES = (
     jobs.publish_job,
     jobs.get_job_readiness,
     jobs.handoff_job_to_search,
-    jobs.assign_owner,
-    jobs.release_owner,
     job_request_intake.read_request,
     job_request_intake.read_request_file,
     job_request_intake.public_draft,
     job_request_intake.handoff_options,
+)
+
+# Rekrutera przypisuje posiadacz uprawnienia albo Head of Recruitment
+# (decyzja z 02.10.2026, `recruitment_access.require_job_staffing`).
+_STAFFING_ROUTES = (
+    jobs.assign_owner,
+    jobs.release_owner,
 )
 
 # Champion i „Dodaj championa” zostają przy roli (admin / Delivery Lead).
@@ -321,6 +326,32 @@ async def test_lifecycle_routes_ask_for_the_permission(endpoint) -> None:
         _account(UserRole.delivery_lead),
         _account(UserRole.tac),
         _account(UserRole.head_of_recruitment),
+        _account(UserRole.recruiter),
+    ):
+        with pytest.raises(HTTPException) as denied:
+            await gate(outsider)
+        assert denied.value.status_code == 403
+        _assert_names_the_permission(denied.value.detail)
+
+
+@pytest.mark.parametrize("endpoint", _STAFFING_ROUTES, ids=lambda e: e.__name__)
+async def test_staffing_routes_ask_for_the_permission_or_head_of_recruitment(
+    endpoint,
+) -> None:
+    gate = _route_gate(endpoint)
+
+    for holder in (
+        _account(UserRole.admin, permissions=catalog.KEYS),
+        _account(UserRole.delivery_lead, permissions=(RM,)),
+        _account(UserRole.recruiter, permissions=(RM,)),
+        # Head of Recruitment układa pracę zespołu bez uprawnienia.
+        _account(UserRole.head_of_recruitment),
+    ):
+        assert await gate(holder) is holder
+
+    for outsider in (
+        _account(UserRole.delivery_lead),
+        _account(UserRole.tac),
         _account(UserRole.recruiter),
     ):
         with pytest.raises(HTTPException) as denied:
