@@ -150,12 +150,20 @@ function renderPage() {
   );
 }
 
-const contractsTab = () => screen.queryByRole("button", { name: "Umowy" });
+// Pasek zakładek profilu to `role="tablist"` z zakładkami `role="tab"`.
+const contractsTab = () => screen.queryByRole("tab", { name: "Umowy" });
 
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.search = "";
-  mocks.apiGet.mockResolvedValue({ data: CLIENT });
+  // Karty zakładki Profil są rozwinięte i od razu pytają o statystyki
+  // współpracy, a nagłówek o liczby klienta — to nie jest przedmiot tego
+  // testu, więc poza samym klientem serwer odmawia (sekcje wtedy milczą).
+  mocks.apiGet.mockImplementation((url: string) =>
+    url === "/api/clients/7"
+      ? Promise.resolve({ data: CLIENT })
+      : Promise.reject({ response: { status: 403 } }),
+  );
   mocks.canViewClientFinance.mockReturnValue(true);
   mocks.canManageClientDelivery.mockReturnValue(true);
   mocks.canEditClientLegalDocuments.mockReturnValue(true);

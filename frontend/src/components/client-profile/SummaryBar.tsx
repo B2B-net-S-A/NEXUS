@@ -1,12 +1,14 @@
 "use client";
 
-import { Users, DollarSign } from "lucide-react";
-import { StatsCard } from "@/components/StatsCard";
+import { InlineStats, type InlineStat } from "@/components/ds/InlineStats";
 import type { ClientProfileSummary } from "@/types/client-profile";
 import { formatPLN } from "@/types/client-profile";
 
+import { useClientProfile } from "./useClientProfile";
+
 interface Props {
   summary: ClientProfileSummary;
+  className?: string;
 }
 
 /**
@@ -18,10 +20,6 @@ interface Props {
  *
  * Pole `summary.open_jobs` ZOSTAJE w typie i w API. Nie jest to zaszłość:
  * usunięcie go z payloadu to zmiana kontraktu, a testy backendu je asertują.
- * Odłożone do osobnego PR-a, żeby ten był czysto frontendowy i odwracalny
- * jednym revertem.
- *
- * Grid zwężony z 3 do 2 kolumn — inaczej po usunięciu kafla zostałaby dziura.
  */
 export function activeContractsWord(n: number): string {
   if (n === 1) return "aktywny kontrakt";
@@ -31,16 +29,33 @@ export function activeContractsWord(n: number): string {
   return "aktywnych kontraktów";
 }
 
-export function SummaryBar({ summary }: Props) {
+/**
+ * Podpis liczby: w dymku (`title`) przy myszy, a na dotyku — gdzie dymka nie
+ * ma — drobnym drukiem pod etykietą. Bywa jedynym wyjaśnieniem liczby („suma
+ * niepełna: pominięto N…”), więc czytnik ekranu dostaje go zawsze.
+ */
+function statLabel(label: string, subtitle: string) {
+  return (
+    <>
+      {label}
+      <span className="block pointer-fine:sr-only">{subtitle}</span>
+    </>
+  );
+}
+
+/**
+ * Dwie liczby klienta: aktywni konsultanci i aktywne MRR. JEDNO miejsce reguł
+ * „Brak stawek” / „Brak kursu” / „(niepełne)” — czyta je nagłówek strony
+ * klienta (widoczny na każdej zakładce).
+ */
+export function clientSummaryStats(summary: ClientProfileSummary): InlineStat[] {
   const unpriced = summary.active_mrr_unpriced_contracts ?? 0;
   // Runda 10 (R10-N9-4): brak kursu NBP to inny stan niż brak stawek — kwoty
   // nie da się policzyć, choć kontrakty są wycenione.
   const fxMissing = summary.active_mrr_fx_missing_contracts ?? 0;
   const mrrFxMissing = fxMissing > 0 && summary.active_mrr === null;
-  // Kontrakty bez stawki nie wchodzą do sumy — kafel mówi wprost, że kwota jest
-  // niepełna, zamiast podawać zaniżoną liczbę jako pewną.
-  // Podpis kafla idzie do natywnego tooltipa (StatsCard), więc samo „niepełne”
-  // musi być widoczne w tytule — inaczej zaniżona kwota czyta się jak pełna.
+  // Kontrakty bez stawki nie wchodzą do sumy — etykieta mówi wprost, że kwota
+  // jest niepełna, zamiast podawać zaniżoną liczbę jako pewną.
   const mrrIncomplete = unpriced > 0 && summary.active_mrr !== null;
   // `null` przy niewycenionych kontraktach to „brak stawek”, nie brak
   // uprawnień — redakcja zeruje licznik, więc oba stany się nie mylą (N3).
@@ -52,28 +67,48 @@ export function SummaryBar({ summary }: Props) {
       : mrrUnpriced
         ? `miesięczna marża — żaden z ${unpriced} ${activeContractsWord(unpriced)} nie ma stawki`
         : "miesięczna marża";
-  return (
-    <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
-      <StatsCard
-        title="Aktywni konsultanci"
-        value={summary.active_consultants}
-        subtitle={`${summary.active_contracts} ${activeContractsWord(summary.active_contracts)}`}
-        color="green"
-        icon={<Users className="w-4 h-4" />}
-      />
-      <StatsCard
-        title={mrrIncomplete ? "Aktywne MRR (niepełne)" : "Aktywne MRR"}
-        value={
-          mrrFxMissing
-            ? "Brak kursu"
-            : mrrUnpriced
-              ? "Brak stawek"
-              : formatPLN(summary.active_mrr)
-        }
-        subtitle={mrrSubtitle}
-        color="orange"
-        icon={<DollarSign className="w-4 h-4" />}
-      />
-    </div>
-  );
+  const consultantsSubtitle = `${summary.active_contracts} ${activeContractsWord(summary.active_contracts)}`;
+  return [
+    {
+      id: "active-consultants",
+      label: statLabel("Aktywni konsultanci", consultantsSubtitle),
+      value: summary.active_consultants,
+      title: consultantsSubtitle,
+    },
+    {
+      id: "active-mrr",
+      label: statLabel(
+        mrrIncomplete ? "Aktywne MRR (niepełne)" : "Aktywne MRR",
+        mrrSubtitle,
+      ),
+      value: mrrFxMissing
+        ? "Brak kursu"
+        : mrrUnpriced
+          ? "Brak stawek"
+          : formatPLN(summary.active_mrr),
+      title: mrrSubtitle,
+    },
+  ];
+}
+
+/** Zwarte liczby klienta (dawniej dwa kafle nad tabelą konsultantów). */
+export function SummaryBar({ summary, className }: Props) {
+  return <InlineStats stats={clientSummaryStats(summary)} className={className} />;
+}
+
+/**
+ * Liczby w nagłówku strony klienta. Dzieli zapytanie z zakładką „Profil”
+ * (`useClientProfile`). W trakcie ładowania, przy odmowie i przy awarii nie
+ * renderuje nic — nagłówek to skrót, komunikat o błędzie pokazuje zakładka.
+ */
+export function ClientHeaderStats({
+  clientId,
+  className,
+}: {
+  clientId: number;
+  className?: string;
+}) {
+  const { data } = useClientProfile(clientId);
+  if (!data?.summary) return null;
+  return <SummaryBar summary={data.summary} className={className} />;
 }

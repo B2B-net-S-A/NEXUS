@@ -2,9 +2,26 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Briefcase, ExternalLink, Search, UserPlus, XCircle } from "lucide-react";
+import { Search, UserPlus, XCircle } from "lucide-react";
 import api from "@/lib/api";
 import { TabbedNav } from "@/components/ds";
+import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_SUBLINE } from "@/lib/calm-table";
+import { formatIsoDatePl } from "@/lib/date-pl";
+import {
+  recruitersOf,
+  workingRecruiters,
+  type JobTeamSource,
+} from "@/lib/job-team";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
 import { AddCandidateToJobModal } from "@/components/client-profile/actions/AddCandidateToJobModal";
@@ -21,11 +38,31 @@ import { useAuthStore } from "@/store/auth";
 // aktywne vs zamknięte jest wyprowadzany z istniejącego `status` (draft |
 // published | closed) — dane NIE wymagają migracji: każdy rekord ma już status,
 // więc segregacja jest czysto prezentacyjna (grupowanie po statusie).
-interface ProjectJob {
+// Pola poniżej `status` to te same, które `/api/jobs` oddaje liście rekrutacji
+// (`JobListRowFields` w `v2/jobs/JobListCells`) — tu czytane do kolumn tabeli.
+interface ProjectJob extends JobTeamSource {
   id: number;
   title: string;
   location: string | null;
   status: string;
+  /** Numer zapytania u klienta (ZOB, SAP…). */
+  client_reference?: string | null;
+  /** Wszyscy kandydaci, którzy kiedykolwiek byli w tej rekrutacji. */
+  candidate_count?: number | null;
+  /** `opened_at`, a bez niej `created_at` — jak kolumna „Otwarta” listy rekrutacji. */
+  opened_effective_at?: string | null;
+  opened_at?: string | null;
+  created_at?: string | null;
+}
+
+const STATUS_VIEW: Record<string, { label: string; tone: StatusDotTone }> = {
+  published: { label: "Aktywna", tone: "success" },
+  draft: { label: "Szkic", tone: "neutral" },
+};
+const CLOSED_STATUS = { label: "Zamknięta", tone: "danger" } as const;
+
+function openedDate(job: ProjectJob): string | null {
+  return job.opened_effective_at ?? job.opened_at ?? job.created_at ?? null;
 }
 
 interface JobsPage {
@@ -75,62 +112,69 @@ async function fetchClientJobs(
 function ProjectRow({
   job,
   actions,
+  showActions,
 }: {
   job: ProjectJob;
-  /** Akcje rekrutacji (Dodaj / Lost) — przeniesione z usuniętej sekcji
+  /** Akcje rekrutacji (Dodaj / Przegrana) — przeniesione z usuniętej sekcji
       „Otwarte rekrutacje" w Profilu (ticket #3); Projekty są teraz jedynym
       miejscem zarządzania rekrutacjami klienta. */
   actions?: React.ReactNode;
+  /** Kolumna „Akcje" istnieje (aktywne projekty) — komórka jest zawsze. */
+  showActions: boolean;
 }) {
-  // Wiersz to <div>, nie <a> — akcje (przyciski) nie mogą być zagnieżdżone
-  // w linku; nawigacja do rekrutacji zostaje na tytule + ikonie.
+  const status = STATUS_VIEW[job.status] ?? CLOSED_STATUS;
+  const opened = openedDate(job);
+  const recruiters = workingRecruiters(recruitersOf(job));
+  const subline = [job.location, job.client_reference].filter(Boolean).join(" · ");
   return (
-    <div className="flex flex-wrap items-center gap-3 p-3 bg-card dark:bg-muted border border-border dark:border-border rounded-xl hover:border-purple-300 transition-colors group">
-      <a
-        href={`/jobs/${job.id}`}
-        className="flex items-center gap-3 flex-1 basis-48 min-w-0"
-      >
-        <div className="w-8 h-8 bg-purple-50 dark:bg-purple-900/30 rounded-lg flex items-center justify-center shrink-0">
-          <Briefcase className="w-4 h-4 text-purple-600" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-foreground dark:text-muted-foreground truncate">
-            {job.title}
-          </p>
-          {job.location && (
-            <p className="text-xs text-muted-foreground truncate">{job.location}</p>
-          )}
-        </div>
-      </a>
-      {/* Na telefonie akcje schodzą pod tytuł — przy `shrink-0` w jednym
-          rzędzie zjadały całą szerokość i tytuł był ucięty do „…". */}
-      <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:shrink-0">
-        {actions}
-        <span
-          className={cn(
-            "text-xs px-2 py-0.5 rounded-full font-medium",
-            job.status === "published"
-              ? "bg-green-100 text-green-700"
-              : job.status === "draft"
-                ? "bg-muted text-muted-foreground"
-                : "bg-destructive/15 text-destructive",
-          )}
-        >
-          {job.status === "published"
-            ? "Aktywna"
-            : job.status === "draft"
-              ? "Szkic"
-              : "Zamknięta"}
-        </span>
+    <TableRow className="h-[54px]">
+      <TableCell>
+        {/* Nawigacja do rekrutacji zostaje na tytule; akcje są osobnymi
+            przyciskami w ostatniej kolumnie (przycisk nie może siedzieć w linku). */}
         <a
           href={`/jobs/${job.id}`}
-          aria-label={`Przejdź do rekrutacji ${job.title}`}
-          className="hit-area"
+          className="block max-w-[460px] truncate font-semibold text-foreground hover:text-primary hover:underline"
         >
-          <ExternalLink className="w-3.5 h-3.5 text-muted-foreground group-hover:text-purple-500 transition-colors" />
+          {job.title}
         </a>
-      </div>
-    </div>
+        {subline ? (
+          <span className={cn(CALM_SUBLINE, "max-w-[460px] truncate")}>{subline}</span>
+        ) : null}
+      </TableCell>
+      <TableCell>
+        <StatusDot tone={status.tone}>{status.label}</StatusDot>
+      </TableCell>
+      <TableCell className="whitespace-nowrap tabular-nums">
+        {opened ? formatIsoDatePl(opened) : <span className={CALM_EMPTY}>—</span>}
+      </TableCell>
+      <TableCell className={CALM_AMOUNT}>
+        {typeof job.candidate_count === "number" ? (
+          job.candidate_count
+        ) : (
+          <span className={CALM_EMPTY}>—</span>
+        )}
+      </TableCell>
+      <TableCell>
+        {recruiters.length > 0 ? (
+          <span
+            className="block max-w-[220px] truncate"
+            title={recruiters.map((person) => person.name).join(", ")}
+          >
+            {recruiters[0].name}
+            {recruiters.length > 1 ? (
+              <span className="text-muted-foreground"> +{recruiters.length - 1}</span>
+            ) : null}
+          </span>
+        ) : (
+          <span className={CALM_EMPTY}>Bez rekrutera</span>
+        )}
+      </TableCell>
+      {showActions ? (
+        <TableCell className="text-right">
+          <div className="flex items-center justify-end gap-1.5">{actions}</div>
+        </TableCell>
+      ) : null}
+    </TableRow>
   );
 }
 
@@ -154,40 +198,63 @@ function ProjectsSection({
   renderActions?: (job: ProjectJob) => React.ReactNode;
 }) {
   const truncated = total > items.length;
-  return (
-    <div className="border border-border rounded-lg">
-      <div className="p-4 space-y-2">
-        {isLoading ? (
-          <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-            <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
-            Ładowanie…
-          </div>
-        ) : isError ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">
-            Nie udało się załadować projektów.
-          </div>
-        ) : items.length === 0 ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">
-            {/* Pustka po wyszukaniu ≠ brak projektów — inaczej czyta się jak
-                utratę danych (ten sam wzorzec co w rejestrze umów B2B). */}
-            {searching
-              ? "Brak projektów pasujących do wyszukiwania."
-              : emptyLabel}
-          </div>
-        ) : (
-          <>
-            {items.map((job) => (
-              <ProjectRow key={job.id} job={job} actions={renderActions?.(job)} />
-            ))}
-            {truncated && (
-              <p className="pt-1 text-center text-xs text-muted-foreground">
-                Pokazano {items.length} z {total}. Zawęź wyszukiwaniem, aby
-                znaleźć pozostałe.
-              </p>
-            )}
-          </>
-        )}
+  const showActions = Boolean(renderActions);
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center gap-2 rounded-lg border border-border py-6 text-sm text-muted-foreground">
+        <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        Ładowanie…
       </div>
+    );
+  }
+  if (isError) {
+    return (
+      <div className="rounded-lg border border-border py-6 text-center text-sm text-muted-foreground">
+        Nie udało się załadować projektów.
+      </div>
+    );
+  }
+  if (items.length === 0) {
+    return (
+      <div className="rounded-lg border border-border py-6 text-center text-sm text-muted-foreground">
+        {/* Pustka po wyszukaniu ≠ brak projektów — inaczej czyta się jak
+            utratę danych (ten sam wzorzec co w rejestrze umów B2B). */}
+        {searching ? "Brak projektów pasujących do wyszukiwania." : emptyLabel}
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <Table density="compact" className="min-w-[820px]">
+        <TableHeader>
+          <TableRow>
+            <TableHead className={CALM_HEAD}>Projekt</TableHead>
+            <TableHead className={CALM_HEAD}>Status</TableHead>
+            <TableHead className={CALM_HEAD}>Otwarty</TableHead>
+            <TableHead className={cn(CALM_HEAD, "text-right")}>Kandydaci</TableHead>
+            <TableHead className={CALM_HEAD}>Rekruter</TableHead>
+            {showActions ? (
+              <TableHead className={cn(CALM_HEAD, "text-right")}>Akcje</TableHead>
+            ) : null}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((job) => (
+            <ProjectRow
+              key={job.id}
+              job={job}
+              actions={renderActions?.(job)}
+              showActions={showActions}
+            />
+          ))}
+        </TableBody>
+      </Table>
+      {truncated && (
+        <p className="text-center text-xs text-muted-foreground">
+          Pokazano {items.length} z {total}. Zawęź wyszukiwaniem, aby znaleźć
+          pozostałe.
+        </p>
+      )}
     </div>
   );
 }
@@ -234,49 +301,54 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
   const closedJobs = closedQuery.data?.items ?? [];
 
   return (
-    <div className="space-y-4">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Szukaj projektu po nazwie…"
-          aria-label="Szukaj projektów"
-          className="w-full border border-border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
+    <div className="space-y-3">
+      {/* Przełącznik kubełków i wyszukiwarka w jednym rzędzie (makieta
+          02.10.2026) — tabela zaczyna się wyżej. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Liczniki: awaria NIE może wyrenderować się jako „(0)" — to czyta się
+            jako „nie ma zamkniętych projektów". Przy błędzie zdejmujemy liczbę
+            i dopisujemy „(—)" do etykiety, a w trakcie ładowania nie pokazujemy
+            nic (inaczej licznik mignąłby „0" zanim dojdą dane). */}
+        <TabbedNav
+          ariaLabel="Kubełki projektów klienta"
+          className="sm:w-auto"
+          listClassName="sm:w-auto"
+          value={bucket}
+          onValueChange={(v) => setBucket(v as Bucket)}
+          tabs={[
+            {
+              value: "active",
+              label: activeQuery.isError
+                ? "Aktywne projekty (—)"
+                : "Aktywne projekty",
+              count:
+                activeQuery.isError || activeQuery.isLoading
+                  ? undefined
+                  : (activeQuery.data?.total ?? 0),
+            },
+            {
+              value: "closed",
+              label: closedQuery.isError
+                ? "Zamknięte projekty (—)"
+                : "Zamknięte projekty",
+              count:
+                closedQuery.isError || closedQuery.isLoading
+                  ? undefined
+                  : (closedQuery.data?.total ?? 0),
+            },
+          ]}
         />
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Szukaj projektu po nazwie…"
+            aria-label="Szukaj projektów"
+            className="h-9 w-full rounded-lg border border-border bg-card pl-9 pr-3 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
+          />
+        </div>
       </div>
-
-      {/* Liczniki: awaria NIE może wyrenderować się jako „(0)" — to czyta się
-          jako „nie ma zamkniętych projektów". Przy błędzie zdejmujemy liczbę
-          i dopisujemy „(—)" do etykiety, a w trakcie ładowania nie pokazujemy
-          nic (inaczej licznik mignąłby „0" zanim dojdą dane). */}
-      <TabbedNav
-        ariaLabel="Kubełki projektów klienta"
-        value={bucket}
-        onValueChange={(v) => setBucket(v as Bucket)}
-        tabs={[
-          {
-            value: "active",
-            label: activeQuery.isError
-              ? "Aktywne projekty (—)"
-              : "Aktywne projekty",
-            count:
-              activeQuery.isError || activeQuery.isLoading
-                ? undefined
-                : (activeQuery.data?.total ?? 0),
-          },
-          {
-            value: "closed",
-            label: closedQuery.isError
-              ? "Zamknięte projekty (—)"
-              : "Zamknięte projekty",
-            count:
-              closedQuery.isError || closedQuery.isLoading
-                ? undefined
-                : (closedQuery.data?.total ?? 0),
-          },
-        ]}
-      />
 
       {/* Renderujemy DOKŁADNIE jedną listę — niewybrany kubełek wychodzi z DOM,
           nie jest ukrywany CSS-em (inaczej „aktywne znikają" byłoby pozorne). */}
@@ -292,24 +364,26 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
             job.status === "published" && (canAddCandidate || canCloseLost) ? (
               <>
                 {canAddCandidate ? (
-                  <button
+                  <Button
+                    size="sm"
+                    variant="outline"
                     onClick={() => setAddCandidateTo(job)}
                     title="Dodaj kandydata do pipeline"
-                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 rounded-md transition-colors"
                   >
-                    <UserPlus className="w-3 h-3" />
+                    <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
                     Dodaj
-                  </button>
+                  </Button>
                 ) : null}
                 {canCloseLost ? (
-                  <button
+                  <Button
+                    size="sm"
+                    variant="quiet"
                     onClick={() => setCloseJobAsLost(job)}
                     title="Zamknij jako przegraną"
-                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-destructive dark:text-red-300 hover:bg-destructive/10 dark:hover:bg-red-900/30 rounded-md transition-colors"
                   >
-                    <XCircle className="w-3 h-3" />
+                    <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
                     Przegrana
-                  </button>
+                  </Button>
                 ) : null}
               </>
             ) : null

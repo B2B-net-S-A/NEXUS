@@ -74,14 +74,14 @@ export function ClientConflictsSection({ clientId }: Props) {
 
   if (viewState === "empty") {
     return (
-      <p className="pt-4 text-sm text-muted-foreground">
+      <p className="text-sm text-muted-foreground">
         Żaden kandydat nie ma aktywnego konfliktu z tym klientem.
       </p>
     );
   }
 
   return (
-    <div className="space-y-2 pt-4">
+    <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
         Konflikt jest ostrzeżeniem — kandydat pozostaje widoczny w wyszukiwaniu
         i można go zaproponować, z plakietką z powodem. Konflikt dodaje się

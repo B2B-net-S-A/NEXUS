@@ -231,46 +231,52 @@ function FullCard({
   ];
 
   return (
-    <article className={cn("space-y-5", className)} data-testid="client-playbook-card">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold text-foreground">
-            {`Karta klienta${playbook.client_name ? ` — ${playbook.client_name}` : ""}`}
-          </h3>
-          <p className="text-xs text-muted-foreground">{metaLine(playbook)}</p>
-        </div>
+    <article
+      className={cn("@container space-y-4", className)}
+      data-testid="client-playbook-card"
+    >
+      {/* Jedna linia: tytuł, wersja, edycja — na wąskim ekranie się zawija. */}
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <h3 className="text-[13px] font-semibold text-foreground">
+          {`Karta klienta${playbook.client_name ? ` — ${playbook.client_name}` : ""}`}
+        </h3>
+        <p className="text-xs text-muted-foreground">{metaLine(playbook)}</p>
         {onEdit ? (
           <button
             type="button"
             onClick={onEdit}
-            className={buttonVariants({ variant: "outline", size: "sm" })}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "ml-auto")}
             data-testid="client-playbook-edit"
           >
-            <Pencil className="h-4 w-4" aria-hidden /> Edytuj kartę
+            <Pencil className="h-3.5 w-3.5" aria-hidden /> Edytuj kartę
           </button>
         ) : editHref ? (
           <Link
             href={editHref}
-            className={buttonVariants({ variant: "outline", size: "sm" })}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "ml-auto")}
             data-testid="client-playbook-edit"
           >
-            <Pencil className="h-4 w-4" aria-hidden /> Edytuj kartę
+            <Pencil className="h-3.5 w-3.5" aria-hidden /> Edytuj kartę
           </Link>
         ) : null}
       </header>
 
-      <KeyFacts columns={3} density="compact" facts={facts} />
+      <KeyFacts columns={4} density="compact" facts={facts} />
 
-      <TextBlock
-        title={PLAYBOOK_FIELD_LABELS.about_for_candidate}
-        text={playbook.about_for_candidate}
-        web={playbook.about_for_candidate_origin === "web"}
-        sources={playbook.about_for_candidate_sources}
-      />
-      <TextBlock title={PLAYBOOK_FIELD_LABELS.priority_rules} text={playbook.priority_rules} />
-      <MarkdownBlock title="Zasady procesu rekrutacji" md={playbook.process_rules_md} />
-      <MarkdownBlock title="Onboarding po akceptacji" md={playbook.onboarding_md} />
-      <DocumentsBlock documents={playbook.documents} />
+      {/* Bloki treści obok siebie, gdy karta ma na to miejsce (szerokość
+          karty, nie okna — ta sama karta stoi w profilu klienta i w Pomocy). */}
+      <div className="grid items-start gap-x-8 gap-y-4 @4xl:grid-cols-2">
+        <TextBlock
+          title={PLAYBOOK_FIELD_LABELS.about_for_candidate}
+          text={playbook.about_for_candidate}
+          web={playbook.about_for_candidate_origin === "web"}
+          sources={playbook.about_for_candidate_sources}
+        />
+        <TextBlock title={PLAYBOOK_FIELD_LABELS.priority_rules} text={playbook.priority_rules} />
+        <MarkdownBlock title="Zasady procesu rekrutacji" md={playbook.process_rules_md} />
+        <MarkdownBlock title="Onboarding po akceptacji" md={playbook.onboarding_md} />
+        <DocumentsBlock documents={playbook.documents} />
+      </div>
     </article>
   );
 }
