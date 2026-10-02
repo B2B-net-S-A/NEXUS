@@ -195,9 +195,12 @@ async def test_event_makes_the_job_due_once_per_night():
         assert run.version_trace["origin"] == "auto"
         assert run.state == "queued"
         async with AsyncSessionLocal() as db:
-            # Druga próba tej samej nocy: rekrutacja nie jest już należna…
+            # Druga próba tej samej nocy: rekrutacja nie jest już należna.
+            # Punkt odniesienia to chwila założenia przeglądu z bazy — przegląd
+            # powstaje o prawdziwej godzinie, a między 00:00 a 01:00 czasu PL
+            # „dziś 02:30” wypada już w następnym oknie.
             assert world["job_id"] not in await afr.pending_job_ids(
-                db, now=_at(2), limit=10_000
+                db, now=run.created_at, limit=10_000
             )
             # …a ten sam odcisk requestu i tak by ją pominął.
             assert await afr.start_for_job(db, world["job_id"]) == (None, "unchanged")

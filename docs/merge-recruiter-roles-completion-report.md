@@ -91,7 +91,7 @@ priorytet, terminy rozmów) mają własne testy.
 | Lustra migracji 0269 i 0273 (lokalnie) | 8 passed |
 | Frontend `npm run type-check`, `npm run lint` | bez błędów |
 | Frontend `vitest run --changed origin/main` | 491 plików, 5493 testy, wszystkie zielone |
-| Pełne CI na gałęzi (12 shardów pytest z Postgresem, frontend, Trivy) | zielone — bieg 37069129517 na commicie sprzed poprawek z przeglądów; po poprawkach bieg powtórzony, wynik w PR |
+| Pełne CI na gałęzi (12 shardów pytest z Postgresem, frontend, Trivy) | zielone — bieg 37069129517 na commicie sprzed poprawek z przeglądów; po poprawkach bieg 37070745003: 11 z 12 shardów zielonych, w shardzie 3 padł `test_auto_full_review.py::test_event_makes_the_job_due_once_per_night` — test zależny od godziny (czerwony między 00:00 a 01:00 czasu PL), poprawiony w tym PR: punkt odniesienia z bazy |
 | Podgląd przy 1280 × 720 (cele KPI, „Requesty i obłożenie”, „Kategorie kompetencji”, panel „Zespół”, „Osoby i role”, „Praktykanci”) | jedna rola „Rekruter”, bez błędów w konsoli |
 
 ## Poprawki po przeglądach (bezpieczeństwo i kod)
