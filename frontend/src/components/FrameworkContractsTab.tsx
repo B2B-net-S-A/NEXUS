@@ -14,8 +14,8 @@ import {
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
-import { hasSectionAccess } from "@/lib/section-access";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { hasPermission, permissionLabel } from "@/lib/permissions";
+import { canViewClientFinance, useAuthStore } from "@/store/auth";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { ConfirmButton } from "@/components/ConfirmDialog";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -44,17 +44,19 @@ const STATUS_LABELS: Record<FrameworkContractStatus, string> = {
 };
 
 /**
- * Kosmetyczne lustro zapisu sekcji Delivery i per-klientowego guarda prawnego:
- * Admin globalnie, Delivery Lead po przypisaniu do klienta. Front nie zna
- * przypisań, więc DL widzi przyciski, a ostatecznym arbitrem zostaje backend.
- * Pozostali czytelnicy nie dostają formularza kończącego się 403.
+ * Lustro `ClientAccess.can_edit_legal_documents`: „Kontrakty i zamówienia:
+ * tworzenie i edycja” razem z podglądem kwot TEGO klienta (umowa ramowa
+ * i aneksy niosą stawki; Delivery Lead widzi je u klientów z przypisania).
+ * Ostatecznym arbitrem zostaje backend; pozostali czytelnicy nie dostają
+ * formularza kończącego się 403, a „podgląd jako” jest tylko do odczytu.
  */
-function useCanEditLegalDocs(): boolean {
+function useCanEditLegalDocs(clientId: number): boolean {
   const user = useAuthStore((s) => s.user);
-  // Rola + zapis w sekcji Delivery (U8) — odebrana sekcja = brak przycisków.
+  const impersonating = useAuthStore((s) => s.realUser !== null);
   return (
-    hasRole(user, "admin", "delivery_lead") &&
-    hasSectionAccess(user, "delivery", "write")
+    !impersonating &&
+    hasPermission(user, "contracts_orders_edit") &&
+    canViewClientFinance(user, clientId)
   );
 }
 
@@ -79,7 +81,7 @@ export function FrameworkContractsTab({
   const [highlightedFcId, setHighlightedFcId] = useState<number | null>(null);
   const focusServed = useRef<number | null>(null);
 
-  const canEdit = useCanEditLegalDocs();
+  const canEdit = useCanEditLegalDocs(clientId);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["framework-contracts", clientId],
@@ -136,9 +138,9 @@ export function FrameworkContractsTab({
 
   const contracts = data?.items ?? [];
 
-  // Odczyt stoi za `can_view_legal_documents`: Admin, Finance i Delivery Lead
-  // globalnie. Zapis DL nadal wymaga przypisania; TCM nie czyta dokumentów.
-  // „Brak umów ramowych. Dodaj pierwszą MSA…" mówiło im wtedy nieprawdę
+  // Odczyt stoi za `can_view_legal_documents`: „Stawki i kwoty: podgląd”
+  // u klienta z zakresu konta (Delivery Lead — z przypisania). Kto go nie ma,
+  // dostaje 403; „Brak umów ramowych. Dodaj pierwszą MSA…" mówiło wtedy nieprawdę
   // handlową — w body leasingu brak MSA znaczy „nie możemy obsadzić klienta" —
   // i zapraszało do zduplikowania umowy, która już istnieje.
   const viewState = resolveViewState({
@@ -172,7 +174,7 @@ export function FrameworkContractsTab({
           state={viewState as "forbidden" | "not_found" | "error"}
           description={
             viewState === "forbidden"
-              ? "Twoja rola nie ma dostępu do dokumentów prawnych tego klienta. Klient MOŻE mieć umowę ramową — nie zakładaj nowej MSA."
+              ? `Dokumenty prawne tego klienta wymagają uprawnienia „${permissionLabel("amounts_view")}” u tego klienta. Klient MOŻE mieć umowę ramową — nie zakładaj nowej MSA; o dostęp poproś administratora.`
               : undefined
           }
           onRetry={() => void refetch()}
@@ -232,7 +234,7 @@ function FrameworkContractRow({
   onDelete,
 }: FrameworkContractRowProps) {
   const { showToast } = useToast();
-  const canEdit = useCanEditLegalDocs();
+  const canEdit = useCanEditLegalDocs(clientId);
   const expiringWarn =
     fc.days_to_expiry !== null && fc.days_to_expiry >= 0 && fc.days_to_expiry <= 30;
 
@@ -338,7 +340,7 @@ interface AmendmentsSectionProps {
 function AmendmentsSection({ clientId, fcId }: AmendmentsSectionProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const canEdit = useCanEditLegalDocs();
+  const canEdit = useCanEditLegalDocs(clientId);
   const [showCreate, setShowCreate] = useState(false);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -392,7 +394,7 @@ function AmendmentsSection({ clientId, fcId }: AmendmentsSectionProps) {
           className="py-6"
           description={
             viewState === "forbidden"
-              ? "Twoja rola nie ma dostępu do aneksów tej umowy. Aneksy MOGĄ istnieć."
+              ? `Aneksy tej umowy wymagają uprawnienia „${permissionLabel("amounts_view")}” u tego klienta. Aneksy MOGĄ istnieć.`
               : "Nie udało się wczytać aneksów — ta umowa może mieć aneksy zmieniające jej warunki."
           }
           onRetry={() => void refetch()}

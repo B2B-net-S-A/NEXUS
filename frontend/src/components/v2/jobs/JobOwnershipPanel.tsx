@@ -20,6 +20,7 @@ import {
  SelectValue,
 } from"@/components/ui/select";
 import { useAuthStore, ROLE_LABELS, hasRole } from"@/store/auth";
+import { hasPermission } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
 import { OwnerBadge } from"./OwnerBadge";
 import { ReassignOwnerV2 } from"@/components/v2/modals/ReassignOwnerV2";
@@ -35,7 +36,8 @@ interface JobOwnershipPanelProps {
  * Czy bieżąca osoba redaguje rekrutację (`can_edit` z `GET /api/jobs/{id}`
  * albo pełna edycja). Współpracowników dopisuje i zdejmuje każdy, kto
  * redaguje (decyzja 29.09.2026, lustro `ensure_job_editor`). Brak propa =
- * dawna reguła: admin, Delivery Lead albo prowadzący.
+ * osoba, która może zmienić prowadzącego (uprawnienie „Rekrutacje:
+ * zakładanie, zamykanie, wysyłka CV do klienta”), albo sam prowadzący.
  */
  canEdit?: boolean;
 }
@@ -60,13 +62,14 @@ export function JobOwnershipPanel({
  const [addOpen, setAddOpen] = useState(false);
  const [error, setError] = useState<string | null>(null);
 
- // Exact-role, NIE ranga: head_of_recruitment (ROLE_RANK 4.5 > delivery_lead)
- // przechodził przez hasMinRole i dostawał uprawnienia DL, których backend mu
- // NIE daje. Przejęcie/reassign ownera oferty = tylko admin + delivery_lead.
+ // Zmiana prowadzącego (`POST/DELETE /api/jobs/{id}/owner`) idzie za
+ // uprawnieniem „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”,
+ // nie za rolą ani rangą: Head of Recruitment ma wyższą rangę niż Delivery
+ // Lead, a tego uprawnienia domyślnie nie ma.
  const canWritePipeline =
  !impersonating && hasSectionAccess(currentUser, "pipeline", "write");
  const canReassign =
- canWritePipeline && hasRole(currentUser, "admin", "delivery_lead");
+ canWritePipeline && hasPermission(currentUser, "recruitment_manage");
  const canClaim =
  canWritePipeline &&
  !hasActiveOwner(primaryOwner) &&

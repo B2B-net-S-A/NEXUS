@@ -5,8 +5,9 @@
  * Stany widoku dla `GET /api/jobs/{id}` (odczyt PIERWSZORZĘDNY — widoczny dla
  * każdej roli): pusto (brak zaznaczenia) / 403 / awaria / dane. Osobno:
  * `GET /api/jobs/{id}/readiness` (bramka „Przekaż do searchu", DRUGORZĘDNA —
- * `DeliveryLeadPlus` tylko, więc dla większości ról KOŃCZY SIĘ 403 i to NIE
- * jest błąd do ukrycia).
+ * tylko z uprawnieniem „Rekrutacje: zakładanie, zamykanie, wysyłka CV do
+ * klienta”, więc dla większości kont KOŃCZY SIĘ 403 i to NIE jest błąd do
+ * ukrycia).
  *
  * `variant="champion"` (krok 02) dokłada zakładkę „Zespół i priorytet”
  * (zakładka „Wyszukiwania (AI)” usunięta 25.09.2026) — dzieci doku
@@ -28,6 +29,7 @@ import {
 } from "@/components/v2/jobs/JobReadinessDock";
 import { ToastProvider } from "@/components/Toast";
 import { useAuthStore, type User } from "@/store/auth";
+import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
 
 const getMock = vi.fn();
 const postMock = vi.fn();
@@ -133,8 +135,9 @@ const readOnlyUser = {
   effective_section_access: { pipeline: "read" },
 } satisfies User;
 
-// `DeliveryLeadPlus` — jedyna (poza adminem) rola, dla której backend w ogóle
-// odpowiada na GET /readiness.
+// Delivery Lead ma domyślnie uprawnienie do prowadzenia rekrutacji — bez niego
+// backend w ogóle nie odpowiada na GET /readiness. Profil bez migawki
+// uprawnień liczy się z domyślnych uprawnień roli.
 const deliveryLead = {
   ...recruiterWrite,
   id: 8,
@@ -529,26 +532,66 @@ describe("JobReadinessDock — readOnly (RBAC)", () => {
 });
 
 describe("JobReadinessDock — bramka „Przekaż do searchu”", () => {
-  it("403 na GET /readiness pokazuje notatkę o widoczności dla DL/admina, nie błąd", async () => {
+  // Notatka „kto to widzi” nazywa uprawnienie, o które można poprosić
+  // administratora — nie rolę.
+  const GATE_NOTICE =
+    "widoczna z uprawnieniem „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”";
+
+  it("403 na GET /readiness (Delivery Lead poza swoim klientem) pokazuje notatkę o widoczności, nie błąd", async () => {
+    useAuthStore.setState({ user: deliveryLead });
     mockGetByUrl({ readiness: () => Promise.reject(apiError(403)) });
     const { container } = renderDock(501);
 
     await screen.findByText("Programista Python (ZOB-2947)");
-    // Substring z JEDNEJ linii JSX źródła — nie przechodzi przez łamanie
-    // wiersza, żeby nie zależeć od dokładnego sposobu, w jaki JSX zwija
-    // białe znaki na granicy linii.
-    await waitFor(() =>
-      expect(container.textContent).toContain(
-        "widoczna dla Delivery Lead / admina",
-      ),
-    );
-    expect(container.textContent).toContain("przypisanego do tego klienta");
+    await waitFor(() => expect(container.textContent).toContain(GATE_NOTICE));
+    expect(container.textContent).toContain("(Delivery Lead: u swoich klientów)");
+    expect(container.textContent).not.toContain("Nie udało się sprawdzić bramki");
+    expect(getMock).toHaveBeenCalledWith("/api/jobs/501/readiness");
   });
 
-  it("recruiter NIE wysyła GET /readiness (backend: DeliveryLeadPlus) — notatka renderuje się bez sieci", async () => {
+  it("recruiter bez uprawnienia NIE wysyła GET /readiness — notatka renderuje się bez sieci", async () => {
     const { container } = renderDock(501);
     await screen.findByText("Programista Python (ZOB-2947)");
-    expect(container.textContent).toContain("widoczna dla Delivery Lead / admina");
+    expect(container.textContent).toContain(GATE_NOTICE);
+    expect(container.textContent).not.toContain("widoczna dla Delivery Lead / admina");
+    expect(getMock).not.toHaveBeenCalledWith("/api/jobs/501/readiness");
+  });
+
+  it("recruiter z nadanym uprawnieniem widzi bramkę jak Delivery Lead", async () => {
+    useAuthStore.setState({
+      user: {
+        ...recruiterWrite,
+        effective_action_access: permissionSnapshot("recruitment_manage"),
+      },
+    });
+    const { container } = renderDock(501);
+    await screen.findByText("Programista Python (ZOB-2947)");
+    await waitFor(() =>
+      expect(container.textContent).toContain("Bramka „Przekaż do searchu”: gotowa"),
+    );
+    expect(getMock).toHaveBeenCalledWith("/api/jobs/501/readiness");
+  });
+
+  it("Delivery Lead z wyłączonym uprawnieniem nie pyta o bramkę mimo roli", async () => {
+    useAuthStore.setState({
+      user: {
+        ...deliveryLead,
+        effective_action_access: permissionSnapshot("delivery_view", "clients_edit"),
+      },
+    });
+    const { container } = renderDock(501);
+    await screen.findByText("Programista Python (ZOB-2947)");
+    expect(container.textContent).toContain(GATE_NOTICE);
+    expect(getMock).not.toHaveBeenCalledWith("/api/jobs/501/readiness");
+  });
+
+  it("uprawnienie bez dostępu do sekcji rekrutacji nie wysyła zapytania o bramkę", async () => {
+    useAuthStore.setState({
+      user: { ...deliveryLead, effective_section_access: { pipeline: "none" } },
+    });
+    const { container } = renderDock(501);
+    await screen.findByText("Programista Python (ZOB-2947)");
+    expect(container.textContent).toContain(GATE_NOTICE);
     expect(getMock).not.toHaveBeenCalledWith("/api/jobs/501/readiness");
   });
 
@@ -898,7 +941,7 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
     expect(await screen.findByTestId("mock-priority-context")).toBeInTheDocument();
   });
 
-  it("JobHandoffButton NIE renderuje się dla recruitera — handoff to decyzja DL/admina", async () => {
+  it("JobHandoffButton NIE renderuje się dla recruitera bez uprawnienia do prowadzenia rekrutacji", async () => {
     // Domyślny user w beforeEach to `recruiterWrite`.
     renderDock(501, undefined, true, "champion");
     await screen.findByText(CHAMPION_DOCK_LABEL);
@@ -908,7 +951,38 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
     expect(checklist).toHaveAttribute("data-can-edit", "false");
   });
 
-  it("recruiter z prawem edycji treści (`can_edit`) też NIE dostaje „Przekaż do searchu” — backend to DeliveryLeadPlus", async () => {
+  it("recruiter z nadanym uprawnieniem do prowadzenia rekrutacji dostaje „Przekaż do searchu”", async () => {
+    useAuthStore.setState({
+      user: {
+        ...recruiterWrite,
+        effective_action_access: permissionSnapshot("recruitment_manage"),
+      },
+    });
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText(CHAMPION_DOCK_LABEL);
+    expect(await screen.findByTestId("mock-handoff-button")).toBeInTheDocument();
+  });
+
+  it("Delivery Lead z wyłączonym uprawnieniem nie dostaje „Przekaż do searchu” mimo roli", async () => {
+    useAuthStore.setState({
+      user: {
+        ...deliveryLead,
+        effective_action_access: permissionSnapshot("delivery_view", "clients_edit"),
+      },
+    });
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText(CHAMPION_DOCK_LABEL);
+    expect(screen.queryByTestId("mock-handoff-button")).not.toBeInTheDocument();
+  });
+
+  it("w podglądzie jako inny użytkownik nie ma „Przekaż do searchu”", async () => {
+    useAuthStore.setState({ user: deliveryLead, realUser: recruiterWrite });
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText(CHAMPION_DOCK_LABEL);
+    expect(screen.queryByTestId("mock-handoff-button")).not.toBeInTheDocument();
+  });
+
+  it("recruiter z prawem edycji treści (`can_edit`) też NIE dostaje „Przekaż do searchu” — to osobne uprawnienie", async () => {
     // Do 28.09.2026 przycisk wisiał na `canEditChampion`, a `can_edit` z
     // serwera dostaje też rekruter prowadzący: widział aktywny przycisk,
     // /readiness odpowiadało mu 403, a klik kończył się drugim 403.

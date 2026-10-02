@@ -28,8 +28,9 @@ import { formatBudgetHourly, jobBudgetHourly } from "@/lib/job-budget";
 import { extractSkills } from "@/lib/job-skills";
 import { countPl } from "@/lib/plural-pl";
 import { formatJobDeadline } from "@/lib/job-deadline";
+import { hasPermission } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { useAuthStore } from "@/store/auth";
 
 import { RecruitmentSheet } from "./RecruitmentSheet";
 
@@ -81,10 +82,10 @@ export interface OrderSlideOverProps {
   hiredCount?: number;
 }
 
-// Lustro `GATE_ROLES` z `JobReadinessDock`: `GET /jobs/{id}/readiness` to
-// `DeliveryLeadPlus`. Dla innych ról zapytanie ZAWSZE kończy się 403, więc go
-// nie wysyłamy.
-const GATE_ROLES = ["admin", "delivery_lead"] as const;
+// Lustro bramki z `JobReadinessDock`: `GET /jobs/{id}/readiness` wymaga
+// uprawnienia „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”.
+// Bez niego zapytanie ZAWSZE kończy się 403, więc go nie wysyłamy.
+const GATE_PERMISSION = "recruitment_manage" as const;
 
 
 
@@ -109,7 +110,7 @@ function OrderBody({
   closeSheet: () => void;
 }) {
   const authUser = useAuthStore((s) => s.user);
-  const canSeeGate = authUser ? hasRole(authUser, ...GATE_ROLES) : false;
+  const canSeeGate = hasPermission(authUser, GATE_PERMISSION);
 
   // Ten sam klucz co strona rekrutacji i dok gotowości (`["job", "<id>"]`) —
   // jedna kopia zlecenia; zapis budżetu albo trybu pracy odświeża okno i nagłówek.

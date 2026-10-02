@@ -54,6 +54,7 @@ import {
 import { celebrate } from "@/lib/celebrate";
 import { terminalOf } from "@/lib/kanban-terminal";
 import { moveDialogFor } from "@/lib/pipeline-move-dialog";
+import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { assignErrorMessage } from "@/lib/assign-error";
 import {
   formatExpectedRate,
@@ -207,12 +208,13 @@ function debriefRequiredEventId(error: unknown): number | null {
   return typeof detail.event_id === "number" ? detail.event_id : null;
 }
 
-// Pipeline v4 (23.09.2026): poza Nordeą do klienta wysyła Delivery Lead
-// (lustro `pipeline_move_rules.CLIENT_SEND_ROLES`).
-const CLIENT_SEND_ROLES = new Set(["admin", "delivery_lead"]);
+// Pipeline v4 (23.09.2026): poza klientem z kolejką Cpro CV wysyła osoba
+// z uprawnieniem „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” (lustro
+// `pipeline_move_rules.assert_client_send_allowed`) — domyślnie Delivery Lead
+// i administrator, ale o tym, kto je ma, decyduje panel „Osoby i role”.
+// Odrzucenie „przez DL” (`DL_REJECT_ROLES`) zostaje przy rolach, jak w backendzie.
 const DL_REJECT_ROLES = new Set(["admin", "delivery_lead", "head_of_recruitment"]);
-export const CLIENT_SEND_DENIED_MESSAGE =
-  "Do klienta wysyła Delivery Lead — osoba czeka w „QC CV” na jego przegląd.";
+export const CLIENT_SEND_DENIED_MESSAGE = `Do klienta wysyła osoba z uprawnieniem „${permissionLabel("recruitment_manage")}” — kandydat czeka w „QC CV” na jej przegląd.`;
 
 /** 409 `CV_QC_FAILED` (Rekrutacja v5): CV nie przeszło kontroli przed wysłaniem. */
 export interface CvQcFailure {
@@ -286,7 +288,7 @@ export function usePipelineMove({
   // widzi to, na co pozwala jej którakolwiek z nich (parity z backendem).
   const authUser = useAuthStore((s) => s.user);
   const canEditRates = getUserRoles(authUser).some((r) => RATE_EDIT_ROLES.has(r));
-  const canSendToClient = getUserRoles(authUser).some((r) => CLIENT_SEND_ROLES.has(r));
+  const canSendToClient = hasPermission(authUser, "recruitment_manage");
   const canEndAsDeliveryLead = getUserRoles(authUser).some((r) => DL_REJECT_ROLES.has(r));
 
   // Ref, nie zależność: adapter jest zwykle świeżym obiektem przy każdym
@@ -608,7 +610,8 @@ export function usePipelineMove({
         return;
       }
 
-      // „CV Wysłane" poza Nordeą (Pipeline v4): wysyła DL, stawka wymagana.
+      // „CV Wysłane" bez kolejki Cpro (Pipeline v4): wysyła osoba z uprawnieniem
+      // do prowadzenia rekrutacji, stawka wymagana.
       if (dialog === "client_rate" && !cproEnabled) {
         if (!canSendToClient) {
           showError(CLIENT_SEND_DENIED_MESSAGE);
@@ -899,7 +902,8 @@ export function usePipelineMove({
       }
 
       // „CV Wysłane" — stawka do klienta per kandydat → kolejka modali.
-      // Poza Nordeą (Pipeline v4) tylko DL/admin i bez pomijania stawki.
+      // Bez kolejki Cpro (Pipeline v4) tylko z uprawnieniem do prowadzenia
+      // rekrutacji i bez pomijania stawki.
       if (dst.stage === "cv_sent" && !cproEnabled && !canSendToClient) {
         showError(CLIENT_SEND_DENIED_MESSAGE);
         return;

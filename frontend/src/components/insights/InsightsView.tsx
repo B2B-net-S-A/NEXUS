@@ -16,6 +16,11 @@ import {
   visibleReports,
   type ReportId,
 } from "@/lib/insights-reports";
+import {
+  hasPermission,
+  permissionLabel,
+  type Permission,
+} from "@/lib/permissions";
 import { hasRole, useAuthStore, type UserRole } from "@/store/auth";
 import { FirmaView } from "@/components/insights/views/FirmaView";
 import { MojMiesiacView } from "@/components/insights/views/MojMiesiacView";
@@ -30,19 +35,23 @@ type TabDef = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   roles: UserRole[] | null;
+  /** Widok za uprawnieniem zamiast roli; gdy ustawione, `roles` nie rozstrzyga. */
+  permission?: Permission;
 };
 
 /**
- * Role, które widzą widok Firma (pieniądze firmy: przychód, marża, ranking
- * klientów z kwotami).
+ * Uprawnienie, które otwiera widok Firma (pieniądze firmy: przychód, marża,
+ * ranking klientów z kwotami): „Moduł Finanse”.
  *
- * Decyzja Artura z 24.09.2026: Head of Recruitment zajmuje się rekrutacją
- * i NIE widzi pieniędzy — do tego dnia zakładka Rada była otwarta także dla
- * niego. Lustro po stronie API to `BoardReader` (`backend/app/api/deps.py`)
- * na `/api/insights/board` i `/clients/ranking`; bez niego front chowałby
- * widok, którego API i tak by nie odmówiło (split-brain z #1215).
+ * Domyślnie mają je administrator i Finanse. Decyzja Artura z 24.09.2026:
+ * Head of Recruitment zajmuje się rekrutacją i NIE widzi pieniędzy — rola
+ * sama z siebie tego uprawnienia nie daje, ale administrator może je nadać
+ * w panelu „Osoby i role”. Lustro po stronie API to `BoardReader`
+ * (`backend/app/api/deps.py`) na `/api/insights/board` i `/clients/ranking`,
+ * który pyta o to samo uprawnienie; bez tej zgodności front chowałby widok,
+ * którego API i tak by nie odmówiło (split-brain z #1215).
  */
-export const FIRMA_ROLES: UserRole[] = ["admin", "finance"];
+export const FIRMA_PERMISSION: Permission = "finance_module";
 
 /**
  * Role z własnymi KPI rekrutacyjnymi — lustro `_OPERATIONAL_ROLES`
@@ -63,7 +72,7 @@ const TABS: TabDef[] = [
   { id: "rywalizacja", label: "Rywalizacja", icon: Trophy, roles: null },
   { id: "moj-miesiac", label: "Mój miesiąc", icon: UserRound, roles: PERSONAL_ROLES },
   { id: "zespol", label: "Zespół", icon: Users, roles: null },
-  { id: "firma", label: "Firma", icon: Landmark, roles: FIRMA_ROLES },
+  { id: "firma", label: "Firma", icon: Landmark, roles: null, permission: FIRMA_PERMISSION },
   { id: "raporty", label: "Raporty", icon: FileText, roles: null },
 ];
 
@@ -141,9 +150,11 @@ export function getDefaultTabForUser(_user: AuthUser): TabId {
  * store powie, że to admin.
  */
 export function getVisibleInsightTabIds(user: AuthUser): TabId[] {
-  return TABS.filter(
-    (tab) => !user || !tab.roles || hasRole(user, ...tab.roles),
-  ).map((tab) => tab.id);
+  return TABS.filter((tab) => {
+    if (!user) return true;
+    if (tab.permission) return hasPermission(user, tab.permission);
+    return !tab.roles || hasRole(user, ...tab.roles);
+  }).map((tab) => tab.id);
 }
 
 export function isTabId(v: string | null): v is TabId {
@@ -323,7 +334,7 @@ export function InsightsView() {
         </div>
         {firmaVisible ? (
           <p className="pb-3 text-xs text-muted-foreground">
-            Firma: widzą admin i Finanse
+            Firma: widzą osoby z uprawnieniem „{permissionLabel(FIRMA_PERMISSION)}”
           </p>
         ) : null}
       </div>

@@ -3,7 +3,9 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
+import type { Permission } from "@/lib/permissions";
 import { useAuthStore, type User } from "@/store/auth";
+import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
 
 vi.mock("@/lib/api", () => ({
   default: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
@@ -98,6 +100,78 @@ describe("JobOwnershipPanel section access", () => {
   });
 });
 
+// Zmiana prowadzącego idzie za uprawnieniem „Rekrutacje: zakładanie, zamykanie,
+// wysyłka CV do klienta” (domyślnie Delivery Lead i administrator), nie za rolą.
+describe("JobOwnershipPanel — „Zmień” prowadzącego za uprawnieniem", () => {
+  const change = () => screen.queryByRole("button", { name: "Zmień" });
+  const claim = () => screen.queryByRole("button", { name: "Przejmij rekrutację" });
+
+  function account(role: User["role"], granted?: Permission[]): User {
+    return {
+      ...deliveryLead,
+      id: 20,
+      name: role,
+      role,
+      roles: [role],
+      // Bez `granted` liczą się domyślne uprawnienia roli.
+      ...(granted ? { effective_action_access: permissionSnapshot(...granted) } : {}),
+    };
+  }
+
+  it.each(["delivery_lead", "admin"] as const)(
+    "%s ma uprawnienie domyślnie i zmienia prowadzącego",
+    (role) => {
+      useAuthStore.setState({ user: account(role) });
+      renderPanel();
+      expect(change()).toBeInTheDocument();
+    },
+  );
+
+  it("rekruter z nadanym uprawnieniem zmienia prowadzącego", () => {
+    useAuthStore.setState({ user: account("recruiter", ["recruitment_manage"]) });
+    renderPanel();
+    expect(change()).toBeInTheDocument();
+  });
+
+  it("Delivery Lead z wyłączonym uprawnieniem nie zmienia prowadzącego, ale nadal może przejąć rekrutację", () => {
+    useAuthStore.setState({
+      user: account("delivery_lead", ["delivery_view", "clients_edit"]),
+    });
+    renderPanel();
+    expect(change()).not.toBeInTheDocument();
+    // Przejęcie rekrutacji bez prowadzącego to osobna reguła (każda rola wewnętrzna).
+    expect(claim()).toBeInTheDocument();
+  });
+
+  it.each(["recruiter", "head_of_recruitment", "tac"] as const)(
+    "%s bez uprawnienia nie zmienia prowadzącego — ranga roli go nie daje",
+    (role) => {
+      useAuthStore.setState({ user: account(role) });
+      renderPanel();
+      expect(change()).not.toBeInTheDocument();
+    },
+  );
+
+  it("uprawnienie bez zapisu w rekrutacjach albo w podglądzie jako inny użytkownik nie wystarcza", () => {
+    useAuthStore.setState({
+      user: {
+        ...account("recruiter", ["recruitment_manage"]),
+        effective_section_access: { pipeline: "read" },
+      },
+    });
+    const first = renderPanel();
+    expect(change()).not.toBeInTheDocument();
+    first.unmount();
+
+    useAuthStore.setState({
+      user: account("recruiter", ["recruitment_manage"]),
+      realUser: account("admin"),
+    });
+    renderPanel();
+    expect(change()).not.toBeInTheDocument();
+  });
+});
+
 describe("JobOwnershipPanel — nieaktywny prowadzący (R9-V2-2)", () => {
   const owner = { id: 3, name: "Była Rekruterka", email: "b@example.com", role: "recruiter" as const };
 
@@ -130,7 +204,7 @@ describe("JobOwnershipPanel — współpracowników dopisuje każdy, kto redaguj
     useAuthStore.setState({ user: recruiter });
     renderPanel(owner, true);
     expect(screen.getByRole("button", { name: "Dodaj" })).toBeInTheDocument();
-    // Zmiana prowadzącego zostaje przy adminie i DL.
+    // Zmiana prowadzącego wymaga osobnego uprawnienia — sama edycja go nie daje.
     expect(screen.queryByRole("button", { name: "Zmień" })).not.toBeInTheDocument();
   });
 

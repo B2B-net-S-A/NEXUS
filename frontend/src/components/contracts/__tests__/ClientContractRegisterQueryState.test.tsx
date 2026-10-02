@@ -17,6 +17,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ClientContractRegister } from "@/components/contracts/ClientContractRegister";
 import { useAuthStore } from "@/store/auth";
+import {
+  permissionSnapshot,
+  sectionSnapshot,
+} from "@/test/fixtures/permission-snapshot";
 
 const getMock = vi.fn();
 vi.mock("@/lib/api", () => ({
@@ -122,7 +126,23 @@ describe("ClientContractRegister — awaria nie udaje pustego rejestru", () => {
     expect(screen.getByText(CTA)).toBeInTheDocument();
   });
 
-  it("Delivery read i impersonacja nie pokazują akcji tworzenia", async () => {
+});
+
+describe("ClientContractRegister — dodawanie wpisów za uprawnieniem, nie rolą", () => {
+  const account = (role: string, extra: Record<string, unknown> = {}) => ({
+    id: 2,
+    email: `${role}@example.com`,
+    name: role,
+    role,
+    roles: [role],
+    profile_completed: true,
+    profile_completed_at: null,
+    force_password_change: false,
+    force_password_change_at: null,
+    ...extra,
+  });
+
+  beforeEach(() => {
     getMock.mockImplementation((url: string) => {
       if (url === "/api/contracts/register/subcategories") {
         return Promise.resolve({ data: { subcategories: [] } });
@@ -131,39 +151,68 @@ describe("ClientContractRegister — awaria nie udaje pustego rejestru", () => {
         data: { items: [], total: 0, page: 1, page_size: 50 },
       });
     });
-    const baseUser = {
-      id: 2,
-      email: "dl@example.com",
-      name: "Delivery Lead",
-      role: "delivery_lead" as const,
-      roles: ["delivery_lead" as const],
-      profile_completed: true,
-      profile_completed_at: null,
-      force_password_change: false,
-      force_password_change_at: null,
-      effective_section_access: { delivery: "read" as const },
-    };
-    useAuthStore.setState({ user: baseUser, realUser: null });
+  });
 
-    const first = renderRegister();
+  it.each(["delivery_lead", "finance"])(
+    "%s ma edycję kontraktów domyślnie i widzi akcję tworzenia",
+    async (role) => {
+      useAuthStore.setState({ user: account(role), realUser: null } as never);
+
+      renderRegister();
+
+      expect(await screen.findByText(CTA)).toBeInTheDocument();
+    },
+  );
+
+  it("rekruter z nadaną edycją kontraktów widzi akcję tworzenia", async () => {
+    useAuthStore.setState({
+      user: account("recruiter", {
+        effective_action_access: permissionSnapshot("contracts_orders_edit"),
+        effective_section_access: sectionSnapshot(["contracts_orders_edit"]),
+      }),
+      realUser: null,
+    } as never);
+
+    renderRegister();
+
+    expect(await screen.findByText(CTA)).toBeInTheDocument();
+  });
+
+  it("Delivery Lead z samym podglądem nie dostaje akcji tworzenia", async () => {
+    useAuthStore.setState({
+      user: account("delivery_lead", {
+        effective_action_access: permissionSnapshot("delivery_view"),
+        effective_section_access: sectionSnapshot(["delivery_view"]),
+      }),
+      realUser: null,
+    } as never);
+
+    renderRegister();
+
     expect(await screen.findByText(EMPTY_TEXT)).toBeInTheDocument();
     expect(screen.queryByText(CTA)).not.toBeInTheDocument();
+  });
 
-    first.unmount();
+  it("Talent Community Manager (podgląd bez edycji) nie dostaje akcji tworzenia", async () => {
     useAuthStore.setState({
-      user: {
-        ...baseUser,
-        effective_section_access: { delivery: "write" },
-      },
-      realUser: {
-        ...baseUser,
-        id: 1,
-        role: "admin",
-        roles: ["admin"],
-        effective_section_access: { delivery: "write" },
-      },
-    });
+      user: account("talent_community_manager"),
+      realUser: null,
+    } as never);
+
     renderRegister();
+
+    expect(await screen.findByText(EMPTY_TEXT)).toBeInTheDocument();
+    expect(screen.queryByText(CTA)).not.toBeInTheDocument();
+  });
+
+  it("podgląd jako inny użytkownik jest tylko do odczytu", async () => {
+    useAuthStore.setState({
+      user: account("delivery_lead"),
+      realUser: account("admin", { id: 1 }),
+    } as never);
+
+    renderRegister();
+
     expect(await screen.findByText(EMPTY_TEXT)).toBeInTheDocument();
     expect(screen.queryByText(CTA)).not.toBeInTheDocument();
   });
