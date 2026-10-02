@@ -39,7 +39,6 @@ import { InactiveClientsCleanupDialog } from "@/components/clients/InactiveClien
 import { isClientPickerQueryKey } from "@/lib/client-selection";
 import { cn } from "@/lib/utils";
 import {
-  LIST_PAGE_MAX_WIDTH,
   WIDE_HIDDEN,
   WIDE_ONLY_CELL,
   WIDE_TABLE_CONTAINER,
@@ -496,7 +495,7 @@ export function ClientsListV2({
   };
 
   return (
-    <div className={cn("mx-auto space-y-3", LIST_PAGE_MAX_WIDTH)}>
+    <div className="space-y-3">
       {/* Nagłówek zwarty jak w Kontraktach (wersja B): tytuł i licznik w jednej
           linii — laptop 1280×720 ma zobaczyć tabelę w górnych 60% okna. */}
       <div className="flex flex-wrap items-center justify-between gap-2">

@@ -2730,8 +2730,10 @@ Audyt i lista ustaleń: `docs/responsiveness-audit-2026-09-23/`. Reguły wspóln
   (decyzja 23.09.2026).
 - **Listy wypełniają duży monitor (02.10.2026, zgłoszenie: w Traffit kolumny
   szły na cały ekran, u nas lista kończyła się na 1400 px).** Rekrutacje,
-  Klienci, Kontrakty i Finanse mają limit 2400 px jak lista kandydatów
-  (`LIST_PAGE_MAX_WIDTH` w `lib/wide-table.ts`). Dane stojące drobnym drukiem
+  Kandydaci, Klienci, Kontrakty i Finanse nie mają limitu szerokości — idą do
+  krawędzi okna jak pulpit (decyzja Artura; pierwsza wersja z limitem 2400 px
+  zostawiała puste boki na pomniejszonym ekranie). Nie dokładaj `max-w-*`
+  ani `mx-auto` na stronie listy. Dane stojące drobnym drukiem
   pod główną wartością (klient pod tytułem, rekrutacja pod klientem, „umowa
   do” pod startem) dostają własne kolumny, gdy TABELA ma ≥ 1700 px — klasy
   `WIDE_ONLY_CELL` / `WIDE_HIDDEN` i `@container` na opakowaniu tabeli, nie
@@ -4139,6 +4141,33 @@ przez nas / przez DL / przez klienta). Reguły, które łatwo cofnąć:
   (token klienta OAuth, np. scraper pracuj.pl/JJIT) nie zakłada blokady** —
   wejście `auto_match` (`candidate_claim.is_integration_request`).
 
+## Dzwonek przy przekazaniu karty: QC → DL, CV wysłane → rekruter (02.10.2026)
+
+Zgłoszenie z testów: rekruter przesunął kandydata na „QC CV”, Delivery Lead
+wysłał CV do klienta i nikt nie dostał powiadomienia. Reguły etapów
+(`stage_notification_rules`, 0066) są przypięte do wiersza definicji etapu
+i zasiane raz, w kwietniu — „QC CV” (0361) nie ma żadnej, a „CV wysłane”
+znało tylko `jobs.recruiter_id` (osobę z automatu przydziału albo nikogo).
+
+- **Trzy przekazania działają bez reguł** (`services/stage_handoff_recipients.py`,
+  wpięte w `stage_notification_resolver.resolve_recipients`): „QC CV” poza
+  Nordeą → Delivery Lead rekrutacji (lustro `board_tasks._sees_dl_review`:
+  aktywny DL z rekrutacji, bez niego DL-e z portfelem klienta); kolejka Cpro
+  u Nordei → osoba od Cpro (firmowa, bez niej zapasowa rekrutacji); „CV
+  wysłane” → rekruter kandydata (`interview_slots.default_recruiter_id`:
+  właściciel procesu → pierwszy weryfikator → prowadzący rekrutację). Tylko
+  dzwonek, nigdy mail; osoba, która sama przesunęła kartę, nic nie dostaje;
+  ruch wstecz nie powiadamia.
+- **Reguła „Rekruter projektu i kandydata” (`job_recruiter`)** powiadamia
+  prowadzącego rekrutację ORAZ rekrutera kandydata — na każdym etapie
+  z regułą (rozmowa u klienta, akceptacja, odrzucenie…).
+- Typ zostaje `stage_rule`, encja = wiersz etapu, więc reguła i przekazanie
+  dla tej samej osoby dają jeden dzwonek. Treść przekazania mówi, co zrobić,
+  i prowadzi na Tablicę z otwartą osobą (`/jobs/{id}?candidate=`).
+- Nowy etap-przekazanie = gałąź w `handoff_kind` (po KOLUMNIE Tablicy, nie po
+  id definicji), nie nowy wiersz reguły — reguły nie dochodzą do etapów
+  dodanych po zasiewie ani do szablonów z Traffita.
+
 ## Rekrutacje i kandydatów widzą wszyscy; stawki do klienta nie widzi rekruter (23.09.2026)
 
 Decyzje Artura: „notatki i wszystkie elementy w panelu rekrutacji i kandydata
@@ -4153,9 +4182,13 @@ stawki, za jaką osoby są wysyłane do klienta”.
   Finanse — tablica, historia etapów, screening, CV etapu, feedback, werdykt HM,
   shortlista, propozycje, cudze CV z generatora i profil kandydata nie ukrywają
   już niczego przed osobą spoza zespołu. Stara rola podglądu `user` nadal
-  przechodzi wyłącznie przez członkostwo. Zostają bramki RÓL (zatrudnienie bez
-  sourcera, „CV wysłane” poza Nordeą tylko DL/admin, sekcje `allowed_sections`,
-  pola cyklu życia rekrutacji `JOB_MEMBER_LOCKED_FIELDS` tylko DL/admin).
+  przechodzi wyłącznie przez członkostwo. Zostają bramki RÓL („CV wysłane”
+  poza Nordeą tylko DL/admin, sekcje `allowed_sections`, pola cyklu życia
+  rekrutacji `JOB_MEMBER_LOCKED_FIELDS` tylko DL/admin). Ruch na
+  „Zweryfikowany”, korektę stawki kandydata oraz zatrudnienie, odrzucenie
+  i rezygnację wykonuje od 02.10.2026 każda rola wewnętrzna, także Talent
+  Community Manager i sourcer (`RECRUITMENT_RATE_EDIT_ROLES`,
+  `RECRUITMENT_TERMINAL_ROLES`; lustro stawki w `hooks/usePipelineMove.tsx`).
 - **`oversight_bypass=False` = widok OSOBISTY i tak ma zostać** („Moja praca”
   rekrutera w operacjach rekrutacji, zakres „moje” w cyklu rozmów u klienta) —
   liczy przypisanie, nie dostęp. `is_member_of_job` i

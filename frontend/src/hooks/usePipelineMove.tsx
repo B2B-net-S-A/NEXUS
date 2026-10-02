@@ -77,18 +77,20 @@ import {
 // Lustro `RECRUITMENT_RATE_EDIT_ROLES` (backend/app/api/recruitment_access.py):
 // ruch na „Zweryfikowany" może zapisać stawkę kandydata i poza tymi rolami
 // serwer odpowiada 403. Okno stawki dla innej roli kończyłoby się odmową PO
-// wpisaniu kwoty, więc ekran mówi o tym przed. (Head of Recruitment ma
-// parytet z rekruterem od 17.09.2026.)
+// wpisaniu kwoty, więc ekran mówi o tym przed. Od 02.10.2026 to każda rola
+// wewnętrzna (także Talent Community Manager i sourcer) — bez roli podglądu.
 const RATE_EDIT_ROLES = new Set([
   "admin",
   "head_of_recruitment",
   "delivery_lead",
+  "talent_community_manager",
   "tac",
   "recruiter",
+  "sourcer",
   "finance",
 ]);
 export const RATE_EDIT_DENIED_MESSAGE =
-  "Ruch na „Zweryfikowany” może zapisać stawkę kandydata — mogą go wykonać: rekruter, TAC, Delivery Lead, Head of Recruitment, Finanse lub administrator.";
+  "Ruch na „Zweryfikowany” może zapisać stawkę kandydata — mogą go wykonać: rekruter, sourcer, TAC, Delivery Lead, Talent Community Manager, Head of Recruitment, Finanse lub administrator.";
 
 export interface PipelineRejectionReasonOption {
   id: string;

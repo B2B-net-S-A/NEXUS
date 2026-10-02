@@ -480,7 +480,7 @@ export default function FinanceOrderChangesPreview() {
   );
 
   return (
-    <div className="mx-auto max-w-[2400px] space-y-4 p-4 sm:p-6">
+    <div className="space-y-4 p-4 sm:p-6">
       <h1 className="text-lg font-semibold">Zmiany w zamówieniach — podgląd</h1>
       <OrderChangesPanel
         data={data}

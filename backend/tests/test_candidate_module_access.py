@@ -416,8 +416,7 @@ WRITE_ENDPOINTS = [
         "/api/candidates/999999/identity-quarantine/note/999999",
         {"provenance": "manual_review"},
     ),
-    # expected-rate przeniesiony z write- do rate-edit-matrix (M4 PR-01):
-    # sourcer stracił edycję stawek — patrz test niżej i
+    # expected-rate ma własną macierz (M4 PR-01) — patrz test niżej i
     # tests/test_recruitment_module_access.py.
     (
         "POST",
@@ -430,22 +429,25 @@ WRITE_ENDPOINTS = [
     ("POST", "/api/candidates/999999/documents", None),
 ]
 
-# M4 PR-01: stawka kandydata = osobne capability (bez sourcera) — audyt M4
-# P0.3. Finance dołączył 19.08 (tier recruitera, pełny dostęp operacyjny).
+# M4 PR-01: stawka kandydata = osobne capability — audyt M4 P0.3. Od
+# 02.10.2026 (decyzja Artura) ma je każda rola wewnętrzna, także Talent
+# Community Manager i sourcer; bez niego zostaje rola podglądu `user`.
 RATE_EDIT_ROLES = {
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.finance,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
+    UserRole.sourcer,
 }
 
 
 async def test_expected_rate_requires_rate_edit_capability(
     m2_client: AsyncClient, headers_by_role: dict[UserRole, dict[str, str]]
 ):
-    """Expected rate — rola sourcer i viewer 403 (M4 PR-01 zawężenie)."""
+    """Expected rate — viewer 403; role wewnętrzne przechodzą bramkę roli."""
     for role in ROLES:
         resp = await m2_client.patch(
             "/api/candidates/999999/recruitments/999999/expected-rate",
