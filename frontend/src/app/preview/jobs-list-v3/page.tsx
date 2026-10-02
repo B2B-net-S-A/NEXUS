@@ -160,7 +160,12 @@ const MINE = [
     client_reference: "SAP 4500123456",
     reference_number: "REF-2026-0902",
     working_title_auto: true,
-    must_skills: ["Azure", "Terraform", "Kubernetes"],
+    must_skills: [
+      "Azure",
+      "Terraform",
+      "Kubernetes",
+      "Minimum 4 lata doświadczenia w utrzymaniu środowisk produkcyjnych w chmurze",
+    ],
     remote_policy: "remote",
     location: "Zdalnie",
     seniority: "Mid",

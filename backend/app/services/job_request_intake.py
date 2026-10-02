@@ -41,6 +41,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client
+from app.schemas.champion import STACK_ITEM_MAX_CHARS
 from app.services import champion_intake, keyword_suggest, office_days
 from app.services.champion_document import folded
 from app.services.llm_prompts import JOB_REQUEST_INTAKE
@@ -168,6 +169,21 @@ def _text(value: Any, limit: int) -> Optional[str]:
     return cleaned[:limit] or None
 
 
+def _requirement(value: Any) -> Optional[str]:
+    """Wymaganie słowami klienta — całe, do limitu pozycji stacku Championa.
+
+    Do 02.10.2026 każda pozycja była cięta na 80. znaku, w pół słowa
+    („…i tworzenie d”), choć od v8 must idzie 1:1 z maila i bywa zdaniem.
+    Pozycja dłuższa niż limit stacku kończy się na granicy słowa i „…”.
+    """
+    cleaned = _text(value, 10_000)
+    if not cleaned or len(cleaned) <= STACK_ITEM_MAX_CHARS:
+        return cleaned
+    head = cleaned[: STACK_ITEM_MAX_CHARS - 1]
+    cut = head.rsplit(" ", 1)[0] if " " in head else head
+    return cut.rstrip(" ,;:-–") + "…"
+
+
 def _names(value: Any, limit: int) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -175,7 +191,7 @@ def _names(value: Any, limit: int) -> list[str]:
     out: list[str] = []
     for item in value:
         name = item.get("name") if isinstance(item, dict) else item
-        cleaned = _text(name, 80)
+        cleaned = _requirement(name)
         if not cleaned:
             continue
         key = cleaned.casefold()
