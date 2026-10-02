@@ -114,10 +114,16 @@ async def test_finance_changes_contract_and_order_amounts_but_nothing_else(
     )
     assert order.status_code == 200, order.text
 
-    order_other = await app_client.patch(
-        f"/api/clients/{client_id}/orders/{order_id}",
-        headers=headers,
-        json={"title": "Zmieniony tytuł"},
-    )
+    # „Tylko kwoty” dotyczy konta z samą zmianą kwot. Finanse prowadzą dziś
+    # także zamówienia (decyzja 02.10.2026), więc regułę widać dopiero po
+    # wyłączeniu im „Kontrakty i zamówienia: tworzenie i edycja”.
+    from tests._permission_grants import role_permission
+
+    async with role_permission("finance", "contracts_orders_edit", granted=False):
+        order_other = await app_client.patch(
+            f"/api/clients/{client_id}/orders/{order_id}",
+            headers=headers,
+            json={"title": "Zmieniony tytuł"},
+        )
     assert order_other.status_code == 403, order_other.text
     assert order_other.json()["detail"]["code"] == "finance_amounts_only"

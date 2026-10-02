@@ -268,18 +268,140 @@ def test_order_amount_write_guard_allows_finance_manager():
 
 @pytest.mark.asyncio
 async def test_md_line_rates_are_writable_by_finance_manager():
-    assert await client_order_groups._has_md_line_management_access(
+    assert await client_order_groups._can_write_amounts(
         None, _user(UserRole.finance), 1
     )
 
 
-def test_amount_routes_admit_finance_manager_at_the_role_gate():
-    assert _user_annotation(client_orders.update_order) == client_orders.OrderPatchUser
-    for endpoint in (
+async def _order_gate_refusal(endpoint, user: User) -> dict | None:
+    """Odmowa bramki uprawnienia trasy zamówień (``None`` = wpuszcza)."""
+
+    gate = _annotated_dependency(_user_annotation(endpoint))
+    try:
+        assert await gate(current_user=user) is user
+    except HTTPException as exc:
+        assert exc.status_code == 403
+        return exc.detail
+    return None
+
+
+def _with_permissions(role: UserRole, *permissions: str) -> User:
+    """Konto z rolą i DOKŁADNIE tymi uprawnieniami (już po zależnościach)."""
+
+    from app.services import permission_catalog
+
+    user = _user(role)
+    # Oba zrzuty razem i spójnie: sekcje Delivery/Finanse wynikają z uprawnień.
+    user.effective_section_access = permission_catalog.derive_sections(permissions)
+    user.effective_action_access = {key: "manage" for key in permissions}
+    return user
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        client_orders.update_order,
         client_order_groups.update_order_group,
         client_order_groups.update_line,
+    ],
+)
+async def test_order_patch_routes_admit_order_editors_and_amount_editors(endpoint):
+    """PATCH zamówienia, grupy i linii: prowadzenie zamówień albo zmiana kwot."""
+
+    for role in (UserRole.admin, UserRole.finance, UserRole.delivery_lead):
+        assert await _order_gate_refusal(endpoint, _user(role)) is None
+    # Sama zmiana kwot wystarcza do wejścia — handler zawęża ją do pól kwot.
+    amounts_only = _with_permissions(
+        UserRole.talent_community_manager,
+        "delivery_view",
+        "amounts_view",
+        "amounts_edit",
+    )
+    assert await _order_gate_refusal(endpoint, amounts_only) is None
+    order_editor = _with_permissions(
+        UserRole.talent_community_manager, "delivery_view", "contracts_orders_edit"
+    )
+    assert await _order_gate_refusal(endpoint, order_editor) is None
+
+    for role in (
+        UserRole.talent_community_manager,
+        UserRole.head_of_recruitment,
+        UserRole.recruiter,
     ):
-        assert _user_annotation(endpoint) == client_order_groups.OrderAmountUser
+        refusal = await _order_gate_refusal(endpoint, _user(role))
+        assert refusal["code"] == "permission_denied"
+        assert refusal["permissions"] == ["contracts_orders_edit", "amounts_edit"]
+
+
+def test_amount_only_account_changes_only_amount_fields_of_orders():
+    """Konto bez prowadzenia zamówień zmienia na PATCH-u wyłącznie kwoty."""
+
+    amounts_only = _with_permissions(
+        UserRole.talent_community_manager,
+        "delivery_view",
+        "amounts_view",
+        "amounts_edit",
+    )
+    client_order_groups._assert_amounts_only_without_order_edit(
+        amounts_only, {"rate_cost", "budget_amount"}
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        client_order_groups._assert_amounts_only_without_order_edit(
+            amounts_only, {"rate_cost", "order_number", "end_date"}
+        )
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail["code"] == "finance_amounts_only"
+    assert exc_info.value.detail["fields"] == ["end_date", "order_number"]
+
+    # Finanse prowadzą też zamówienia (02.10.2026) — nie są zawężane do kwot.
+    client_order_groups._assert_amounts_only_without_order_edit(
+        _user(UserRole.finance), {"order_number", "end_date"}
+    )
+    client_order_groups._assert_amounts_only_without_order_edit(
+        _user(UserRole.delivery_lead), {"order_number"}
+    )
+
+
+def test_order_amount_refusal_names_what_is_missing():
+    """``finance_fields_forbidden`` zostaje, a odmowa mówi, czego brakuje."""
+
+    # Prowadzi zamówienia, ale nie widzi kwot → brakuje podglądu kwot.
+    order_editor = _with_permissions(
+        UserRole.talent_community_manager, "delivery_view", "contracts_orders_edit"
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        client_orders._assert_order_finance_write_allowed(
+            order_editor, {"rate_client", "title"}
+        )
+    detail = exc_info.value.detail
+    assert exc_info.value.status_code == 403
+    assert detail["code"] == "finance_fields_forbidden"
+    assert detail["fields"] == ["rate_client"]
+    assert detail["permission"] == "amounts_view"
+    assert detail["label"] == "Stawki i kwoty: podgląd"
+    assert "Stawki i kwoty: podgląd" in detail["message"]
+
+    # Delivery Lead ma komplet uprawnień — odmowa mówi o portfelu, nie
+    # o uprawnieniu.
+    with pytest.raises(HTTPException) as exc_info:
+        client_orders._assert_order_finance_write_allowed(
+            _user(UserRole.delivery_lead), {"rate_client"}, can_finance=False
+        )
+    detail = exc_info.value.detail
+    assert detail["code"] == "finance_fields_forbidden"
+    assert detail["message"] == "Ten klient jest poza Twoim portfelem."
+    assert "permission" not in detail
+
+    # Bez prowadzenia zamówień i bez zmiany kwot → brakuje zmiany kwot.
+    with pytest.raises(HTTPException) as exc_info:
+        client_orders._assert_order_finance_write_allowed(
+            _user(UserRole.talent_community_manager), {"total_value"}
+        )
+    assert exc_info.value.detail["permission"] == "amounts_edit"
+
+    # Bez pól kwot bramka milczy także dla konta bez uprawnień do kwot.
+    client_orders._assert_order_finance_write_allowed(order_editor, {"title"})
 
 
 def test_flow_b_delivery_lead_can_create_operational_records_without_finance():
@@ -524,34 +646,103 @@ async def test_client_portfolio_audit_follows_the_finance_module_permission(endp
         assert denied.value.detail["permission"] == "finance_module"
 
 
-def test_order_safe_gets_and_rate_bearing_documents_use_distinct_readers():
+@pytest.mark.asyncio
+async def test_order_safe_gets_and_rate_bearing_documents_use_distinct_readers():
+    """Listy czyta podgląd Delivery; eksporty i pliki — dopiero podgląd kwot."""
+
+    tcm = _user(UserRole.talent_community_manager)
+    viewer = _with_permissions(UserRole.recruiter, "delivery_view")
     for endpoint in (
         client_orders.list_contractors_with_orders,
         client_orders.list_active_contracts_for_extension,
         client_orders.get_order,
+        client_order_groups.list_order_groups,
+        client_order_groups.list_group_events,
+        client_order_groups.list_group_history,
+        client_order_groups.list_line_consumptions,
     ):
-        assert _user_annotation(endpoint) == client_orders.OrderSafeReadUser
+        for user in (tcm, viewer, _user(UserRole.finance)):
+            assert await _order_gate_refusal(endpoint, user) is None
+        refusal = await _order_gate_refusal(endpoint, _user(UserRole.recruiter))
+        assert refusal["permission"] == "delivery_view"
 
     for endpoint in (
+        client_orders.export_client_orders,
         client_orders.download_order_po,
         client_orders.list_contract_order_documents,
         client_orders.list_candidate_order_documents,
+        client_order_groups.export_order_groups,
+        client_order_groups.download_order_group_file,
     ):
-        assert _user_annotation(endpoint) == client_orders.UnifiedOrderExportReader
+        for role in (UserRole.admin, UserRole.finance, UserRole.delivery_lead):
+            assert await _order_gate_refusal(endpoint, _user(role)) is None
+        for user in (tcm, viewer):
+            refusal = await _order_gate_refusal(endpoint, user)
+            assert refusal["code"] == "permission_denied"
+            assert refusal["permission"] == "amounts_view"
 
-    assert (
-        _user_annotation(client_order_groups.list_consultant_options_for_client)
-        == client_order_groups.ConsultantOptionsReader
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        client_orders.create_order_extension,
+        client_orders.extract_order_pdf,
+        client_orders.close_order,
+        client_orders.delete_order,
+        client_orders.preview_order_deletion,
+        client_orders.create_contract_with_order,
+        client_orders.replace_order_po,
+        client_orders.delete_order_po,
+        client_order_groups.list_consultant_options_for_client,
+        client_order_groups.extract_order_group_pdf,
+        client_order_groups.create_order_group,
+        client_order_groups.replace_order_group_file,
+        client_order_groups.delete_order_group_file,
+        client_order_groups.delete_order_group,
+        client_order_groups.delete_line,
+        client_order_groups.keep_line_as_history,
+        client_order_groups.close_order_group,
+        client_order_groups.reopen_order_group,
+        client_order_groups.cancel_order_group,
+        client_order_groups.restore_order_group,
+        client_order_groups.extend_order_group,
+        client_order_groups.add_line,
+        client_order_groups.add_lines_batch,
+        client_order_groups.resolve_md_offboarding_case,
+        client_order_groups.take_over_consultant,
+        client_order_groups.swap_consultant,
+        client_order_groups.upsert_line_consumption,
+        client_order_groups.delete_line_consumption,
+    ],
+)
+async def test_order_writes_require_the_order_editing_permission(endpoint):
+    """Każdy zapis zamówień: „Kontrakty i zamówienia: tworzenie i edycja”."""
+
+    # Finanse dostały prowadzenie zamówień decyzją z 02.10.2026.
+    for role in (UserRole.admin, UserRole.delivery_lead, UserRole.finance):
+        assert await _order_gate_refusal(endpoint, _user(role)) is None
+    granted = _with_permissions(
+        UserRole.talent_community_manager, "delivery_view", "contracts_orders_edit"
     )
-    for endpoint in (
-        client_order_groups.list_order_groups,
-        client_order_groups.list_group_events,
+    assert await _order_gate_refusal(endpoint, granted) is None
+
+    for role in (
+        UserRole.talent_community_manager,
+        UserRole.head_of_recruitment,
+        UserRole.tac,
+        UserRole.recruiter,
     ):
-        assert _user_annotation(endpoint) == client_order_groups.OrderGroupSafeReadUser
-    assert (
-        _user_annotation(client_order_groups.add_line)
-        == client_order_groups.DeliveryLeadOrAdmin
+        refusal = await _order_gate_refusal(endpoint, _user(role))
+        assert refusal["code"] == "permission_denied"
+        assert refusal["permission"] == "contracts_orders_edit"
+        assert "Kontrakty i zamówienia: tworzenie i edycja" in refusal["message"]
+    # Rola Delivery Leada z wyłączonym prowadzeniem zamówień też odpada.
+    switched_off = _with_permissions(
+        UserRole.delivery_lead, "delivery_view", "amounts_view", "clients_edit"
     )
+    refusal = await _order_gate_refusal(endpoint, switched_off)
+    assert refusal["permission"] == "contracts_orders_edit"
 
 
 def test_tcm_order_projection_redacts_finance_and_file_metadata():
@@ -569,10 +760,9 @@ def test_tcm_order_projection_redacts_finance_and_file_metadata():
         size_bytes=1234,
     )
 
-    projected = client_orders._order_response_for_user(
-        order,
-        _user(UserRole.talent_community_manager),
-    )
+    # Konto, które nie widzi kwot klienta (domyślnie TCM), nie dostaje też
+    # metadanych pliku PO — przycisk kończyłby się odmową.
+    projected = client_orders._order_response_for_user(order, show_finance=False)
 
     assert projected.rate_candidate is None
     assert projected.rate_client is None
