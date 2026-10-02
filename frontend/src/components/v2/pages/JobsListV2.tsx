@@ -61,6 +61,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { JobPreviewDetails } from "@/components/v2/jobs/JobPreviewDetails";
 import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import {
   JobCategoryShortBadge,
@@ -69,7 +70,7 @@ import {
   JobRecruiterCell,
   NoRecruiterPill,
   RequestStageBadge,
-  SimilarJobsCell,
+  SimilarJobsIconButton,
   JobStageCounts,
   JobStageCountsHeader,
   STAGE_COUNTS_LEGEND,
@@ -113,17 +114,10 @@ import {
 } from "@/lib/jobs-url-filters";
 import { extractSkills } from "@/lib/job-skills";
 import { jobDisplayTitle } from "@/lib/job-names";
+import { jobRowTitle, jobWorkModeParts } from "@/lib/job-row-summary";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 import { stageSummaryOf } from "@/lib/job-pipeline-funnel";
-import {
-  WIDE_HIDDEN,
-  WIDE_ONLY_CELL,
-  WIDE_TABLE_CONTAINER,
-} from "@/lib/wide-table";
-import {
-  competenceTone,
-  useCompetenceCategories,
-} from "@/components/v2/CompetenceCategoryBadge";
+import { WIDE_TABLE_CONTAINER } from "@/lib/wide-table";
 import type {
   PriorityChannel,
   PriorityRank,
@@ -346,28 +340,6 @@ function JobTileTeam({ job }: { job: JobListRowFields }) {
   );
 }
 
-/**
- * Kategoria kompetencji w szerokiej tabeli. Nazwy są długie („Infra &
- * Operations & Security / Data & AI”), więc plakietka jest przycinana,
- * a pełna nazwa stoi w podpowiedzi. Brak kategorii albo katalogu = kreska.
- */
-function JobCategoryCell({ categoryId }: { categoryId?: number | null }) {
-  const { data } = useCompetenceCategories();
-  const category =
-    categoryId != null ? data?.find((c) => c.id === categoryId) : undefined;
-  if (!category) return <span className="text-xs text-muted-foreground">—</span>;
-  return (
-    <Badge
-      size="sm"
-      variant={competenceTone(category.slug)}
-      title={category.name_pl}
-      className="max-w-[140px] @min-[2400px]:max-w-[280px]"
-    >
-      <span className="truncate">{category.name_pl}</span>
-    </Badge>
-  );
-}
-
 // Laptop (tabela poniżej 1100 px): węższe odstępy w krótkich kolumnach, żeby
 // lista mieściła się w oknie 1280 px bez poziomego przewijania (pomiar
 // 02.10.2026: 11 px ponad szerokość przy rozwiniętym menu).
@@ -390,40 +362,31 @@ function JobsTable({
   onPreview: (id: number) => void;
   /** `undefined` = brak capability `invite_link.create` — nie renderujemy akcji. */
   onInvite?: (id: number) => void;
-  /** Okno „Podobne rekrutacje" (0341) — plakietka pod tytułem. */
+  /** Okno „Podobne rekrutacje" (0341) — ikona w kolumnie akcji. */
   onSimilar: (id: number) => void;
 }) {
   return (
-    // Kolumny „Klient”, „Kategoria”, „Otwarta” i nazwiska Rekruterów pojawiają
-    // się, gdy tabela ma ≥ 1700 px (duży monitor) — poniżej zostają drobnym
-    // drukiem pod tytułem, jak dotąd. Od 2400 px te kolumny są szersze
-    // (pełna nazwa kategorii, więcej nazwisk), żeby tytuł nie brał całej reszty.
+    // Jeden układ dla każdej szerokości (02.10.2026): wiersz to nazwa stanowiska,
+    // a pod nią kategoria, klient i tryb pracy. Wymagania, nazwa od klienta,
+    // numery i data otwarcia stoją w Podglądzie (`JobPreviewDetails`).
+    // `@container` zostaje dla `NARROW_CELL`.
     <div className={WIDE_TABLE_CONTAINER}>
     <Table>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          {/* Lista v5 (24.09.2026): etapy = osiem kolumn Tablicy ze skrótami
-              RAZ w nagłówku, „Podobne rekrutacje" jako plakietka pod tytułem.
-              „Wymaga ruchu" i „W bazie" zdjęte decyzją Artura (22.09) —
-              kolejność nadal daje sortowanie „Wymaga uwagi". */}
-          {/* Telefon: tabela przewija się w poziomie (6 kolumn ≈ 850 px), więc
-              kolumna „Rekrutacja" stoi przyklejona — bez niej po przewinięciu
-              nie wiadomo, czyj to status i termin. */}
+          {/* Telefon: tabela przewija się w poziomie, więc kolumna „Rekrutacja"
+              stoi przyklejona — bez niej po przewinięciu nie wiadomo, czyj to
+              status i termin. */}
           <TableHead className="max-md:sticky max-md:left-0 max-md:z-20 max-md:bg-background">Rekrutacja</TableHead>
-          <TableHead className={cn(WIDE_ONLY_CELL, "w-[180px] @min-[2400px]:w-[280px]")}>Klient</TableHead>
-          <TableHead className={cn(WIDE_ONLY_CELL, "w-[160px] @min-[2400px]:w-[300px]")}>Kategoria</TableHead>
-          <TableHead className={cn("w-[150px]", NARROW_CELL)}>Status</TableHead>
+          <TableHead className={cn("w-[136px]", NARROW_CELL)}>Status</TableHead>
           <TableHead className="w-[244px] px-2 py-1.5" title={STAGE_COUNTS_LEGEND}>
             <span className="sr-only">Etapy</span>
             <JobStageCountsHeader />
           </TableHead>
-          <TableHead className={cn(WIDE_ONLY_CELL, "w-[100px]")}>Otwarta</TableHead>
-          <TableHead className={cn("w-[120px]", NARROW_CELL)}>Termin</TableHead>
-          {/* „Rekruter” w obu układach (02.10.2026; dawniej „Prowadzi” /
-              „Zespół”). Delivery Lead stoi drobnym drukiem pod osobami —
-              bez własnej kolumny. */}
-          <TableHead className={cn("w-[120px] @min-[1700px]:w-[220px] @min-[2400px]:w-[360px]", NARROW_CELL)}>Rekruter</TableHead>
-          <TableHead className={cn("w-[64px]", NARROW_CELL)} />
+          <TableHead className={cn("w-[108px]", NARROW_CELL)}>Termin</TableHead>
+          {/* Delivery Lead stoi drobnym drukiem pod osobami — bez własnej kolumny. */}
+          <TableHead className={cn("w-[120px]", NARROW_CELL)}>Rekruter</TableHead>
+          <TableHead className={cn("w-[96px]", NARROW_CELL)} />
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -444,6 +407,8 @@ function JobsTable({
           // `can_open === false` — ten sam kontrakt co kafelki: wiersz zostaje
           // czytelny, ale nie udaje klikalnego (detal zwróciłby 403).
           const locked = job.can_open === false;
+          const workMode = jobWorkModeParts(job);
+          const opened = jobOpenedDate(job);
           return (
             <TableRow
               key={job.id}
@@ -462,11 +427,18 @@ function JobsTable({
               }
               className={locked ? "opacity-60" : undefined}
             >
-              <TableCell className="max-w-[360px] max-md:sticky max-md:left-0 max-md:z-10 max-md:w-[200px] max-md:max-w-[200px] max-md:border-r max-md:border-border/60 max-md:bg-card">
+              {/* `md:w-full md:max-w-0`: kolumna bierze resztę szerokości, a długa
+                  nazwa przycina się wielokropkiem zamiast rozpychać tabelę.
+                  Minimum 200 px: z otwartym Podglądem na laptopie tabela
+                  przewija się w poziomie, zamiast ściskać nazwę do kilku liter. */}
+              <TableCell className="overflow-hidden md:w-full md:min-w-[200px] md:max-w-0 max-md:sticky max-md:left-0 max-md:z-10 max-md:w-[200px] max-md:max-w-[200px] max-md:border-r max-md:border-border/60 max-md:bg-card">
                 {/* Priorytet stoi przy tytule (P2 nie ma plakietki), bez
-                    osobnej kolumny. Sam tytuł niżej — bez zmian. */}
-                <div className="flex min-w-0 items-start gap-1.5">
-                <RequestPriorityChip level={priorityLevelOf(job)} className="mt-0.5 shrink-0" />
+                    osobnej kolumny. */}
+                <div className="flex min-w-0 items-center gap-1.5">
+                <RequestPriorityChip level={priorityLevelOf(job)} className="shrink-0" />
+                {/* Pełny tytuł roboczy w dymku stoi na opakowaniu: `title` na
+                    samym linku przejąłby w Chrome jego nazwę dostępną. */}
+                <span className="block min-w-0 truncate" title={jobDisplayTitle(job)}>
                 {/* `can_open === false` — ta sama reguła co kafelki: rekrutacja
                     jest w rejestrze, ale detal odpowie 403, więc tytuł nie
                     udaje linku (tabela do 09.2026 prowadziła prosto w ścianę). */}
@@ -474,70 +446,60 @@ function JobsTable({
                   <span
                     aria-disabled="true"
                     title="Nie masz dostępu do tej rekrutacji — poproś o dodanie Cię do jej zespołu."
-                    className="line-clamp-2 break-words font-medium leading-snug text-muted-foreground"
+                    className="font-medium leading-snug text-muted-foreground"
                   >
-                    {jobDisplayTitle(job)}
+                    {jobRowTitle(job)}
                   </span>
                 ) : (
-                  // Dwie linie zamiast jednej (lista v5): tytuły z Traffita
-                  // niosą klienta i technologię w nazwie, a ucięte do jednej
-                  // linii wyglądały identycznie.
                   <Link
                     href={`/jobs/${job.id}`}
                     onClick={(e) => e.stopPropagation()}
-                    title={jobDisplayTitle(job)}
-                    className="line-clamp-2 break-words font-medium leading-snug text-foreground hover:text-primary hover:underline"
+                    className="font-medium leading-snug text-foreground hover:text-primary hover:underline"
                   >
-                    {jobDisplayTitle(job)}
+                    {jobRowTitle(job)}
                   </Link>
                 )}
+                </span>
                 </div>
-                <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
-                  {/* Wąska tabela nie ma kolumny „Kategoria” — krótka plakietka. */}
+                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                   <JobCategoryShortBadge categoryId={job.competence_category_id} />
                   {job.client_name && (
                     <span
-                      className={cn("inline-flex min-w-0 max-w-[220px] items-center gap-0.5", WIDE_HIDDEN)}
-                      title="Klient"
+                      className="inline-flex min-w-0 items-center gap-1"
+                      title={`Klient: ${job.client_name}`}
+                      data-testid="job-row-client"
                     >
                       <Building2 className="h-3 w-3 shrink-0" />
                       <span className="truncate">{job.client_name}</span>
                     </span>
                   )}
-                  <JobClientNames job={job} />
-                  {job.reference_number && (
-                    <span className="font-mono text-[10px]" title="Nasz numer rekrutacji">
-                      {job.reference_number}
-                    </span>
+                  {/* Gdy brakuje miejsca, najpierw przycina się miasto, potem
+                      klient; nazwa trybu zostaje cała. */}
+                  {(workMode.mode || workMode.city) && (
+                    <>
+                      {job.client_name && <span aria-hidden="true">·</span>}
+                      <span className="contents" data-testid="job-row-work-mode">
+                        {workMode.mode && (
+                          <span
+                            className="shrink-0 whitespace-nowrap"
+                            title={`Tryb pracy: ${[workMode.mode, workMode.city].filter(Boolean).join(" · ")}`}
+                          >
+                            {workMode.mode}
+                          </span>
+                        )}{" "}
+                        {workMode.city && (
+                          <span
+                            className="min-w-0 shrink-[1000] truncate"
+                            title={`Miasto: ${workMode.city}`}
+                          >
+                            {workMode.mode ? "· " : ""}
+                            {workMode.city}
+                          </span>
+                        )}
+                      </span>
+                    </>
                   )}
-                  {job.location && (
-                    <span className="inline-flex min-w-0 max-w-[180px] items-center gap-0.5" title="Lokalizacja">
-                      <MapPin className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{job.location}</span>
-                    </span>
-                  )}
-                  <JobPriorityWorkBadges job={job} />
-                  <SimilarJobsCell
-                    similar={job.similar}
-                    disabled={locked}
-                    onOpen={() => onSimilar(job.id)}
-                  />
                 </div>
-              </TableCell>
-              <TableCell className={WIDE_ONLY_CELL} data-testid="job-client-cell">
-                {job.client_name ? (
-                  <span
-                    className="line-clamp-2 break-words text-xs text-foreground"
-                    title={job.client_name}
-                  >
-                    {job.client_name}
-                  </span>
-                ) : (
-                  <span className="text-xs text-muted-foreground">—</span>
-                )}
-              </TableCell>
-              <TableCell className={WIDE_ONLY_CELL} data-testid="job-category-cell">
-                <JobCategoryCell categoryId={job.competence_category_id} />
               </TableCell>
               <TableCell className={NARROW_CELL}>
                 <RequestStageBadge
@@ -562,19 +524,11 @@ function JobsTable({
                   </div>
                 )}
               </TableCell>
-              {/* Jak Insights: data otwarcia, a bez niej data dodania
-                  (`created_at` rekrutacji z Traffita to dzień importu). Serwer
-                  oddaje ją w `opened_effective_at` — tę samą, po której
-                  filtruje „Data otwarcia”. */}
-              <TableCell
-                className={cn(WIDE_ONLY_CELL, "whitespace-nowrap text-xs tabular-nums text-muted-foreground")}
-                data-testid="job-opened-cell"
-              >
-                {formatDate(jobOpenedDate(job))}
-              </TableCell>
+              {/* Dymek: data otwarcia, a bez niej data dodania — ta sama
+                  (`opened_effective_at`), po której filtruje „Data otwarcia”. */}
               <TableCell
                 className={NARROW_CELL}
-                title={job.created_at ? `Dodano ${formatDate(job.created_at)}` : undefined}
+                title={opened ? `Otwarta ${formatDate(opened)}` : undefined}
               >
                 <JobDeadlineCell deadline={job.deadline} deadlineTime={job.deadline_time} />
               </TableCell>
@@ -583,6 +537,11 @@ function JobsTable({
               </TableCell>
               <TableCell className={NARROW_CELL}>
                 <div className="flex items-center justify-end gap-0.5">
+                  <SimilarJobsIconButton
+                    similar={job.similar}
+                    disabled={locked}
+                    onOpen={() => onSimilar(job.id)}
+                  />
                   {job.status === "published" && onInvite && (
                     <button
                       type="button"
@@ -1626,6 +1585,15 @@ export function JobsListV2() {
               stageBreakdown={stageSummaryOf(previewListItem)}
               canOpen={previewListItem?.can_open !== false}
               listNav={listNav}
+              listDetails={
+                previewListItem ? (
+                  <JobPreviewDetails
+                    job={previewListItem}
+                    onSimilar={() => setSimilarForJob(previewListItem.id)}
+                    extra={<JobPriorityWorkBadges job={previewListItem} />}
+                  />
+                ) : null
+              }
             />
           </aside>
         )}

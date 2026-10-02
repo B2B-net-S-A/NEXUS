@@ -1,9 +1,9 @@
 {
-  "entry": "06b5297e148d8a8afbe28d36b95940bf5ad3d5b3db453dcb55914dea45e92475",
+  "entry": "1f81172cb6b83619ffff2700f8dc1d21af591c71e69a37fc2fa7b4ec92e3cf33",
   "guide": "jobs.list",
   "sources": {
     "frontend/src/components/v2/jobs/JobsFilterBar.tsx": "c1039d8eae6618b63efa6e83cd1ec92f55765879961882304530ac27f00a3654",
-    "frontend/src/components/v2/pages/JobsListV2.tsx": "8be451ba23191458720ad8631286cd1c7844636609877f2ffe8f5614a23908b9",
+    "frontend/src/components/v2/pages/JobsListV2.tsx": "8de867c8ab8252b3fd0edf8707f3f0883bff12eb6c17ac0b91626c7e177466b3",
     "frontend/src/lib/request-stage.ts": "7855b8d99d4a20e881ac3e47b7c109ef177ca0c63f638b00e893204a090280a1"
   }
 }

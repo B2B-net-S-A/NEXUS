@@ -2840,7 +2840,9 @@ Audyt i lista ustaleń: `docs/responsiveness-audit-2026-09-23/`. Reguły wspóln
   `WIDE_ONLY_CELL` / `WIDE_HIDDEN` i `@container` na opakowaniu tabeli, nie
   próg okna (menu, dok i panel szczegółów zabierają miejsce). Poniżej progu
   układ zwarty bez zmian. Kolumna szeroka i jej drobny druk są w DOM naraz
-  (jsdom nie liczy CSS) — testy rozróżniają je po klasie.
+  (jsdom nie liczy CSS) — testy rozróżniają je po klasie. **Lista rekrutacji
+  ma od 02.10.2026 jeden układ dla każdej szerokości** (decyzja Artura: osobny
+  wygląd na duży monitor odrzucony) — nie dokładaj tam kolumn szerokiej tabeli.
 - **Widżet w kafelku/doku/oknie układa się po szerokości KONTENERA**
   (`@container` + `@lg:`), nie okna — kafelek pulpitu ma 400–600 px na
   szerokim ekranie.
@@ -3014,14 +3016,24 @@ miejsce, nie zbiór funkcji.
 - **Kolumny:** „Etapy” = te same 8 kolumn co Tablica (Nowi … Zatrudniony),
   rozstrzygane `placeStage` z `lib/board-stages.ts` na `stage_columns` wiersza
   — tą samą regułą co Tablica (QC ma kod `interview`, a mimo to trafia do QC
-  CV); skróty raz w nagłówku, w wierszach same liczby. Tytuł w dwóch liniach,
-  „Podobne rekrutacje” to plakietka pod tytułem (bez osobnej kolumny).
-  „Termin” = data + „za N dni / po terminie N dni” (`lib/job-deadline.ts`).
-  Komórki: `v2/jobs/JobListCells.tsx`. Od 02.10.2026: ostatnia kolumna to
-  „Rekruter” (`JobRecruiterCell`: osoby z `recruiters`, „Bez rekrutera”,
-  propozycja automatu w przerywanej ramce, pod spodem „DL: …”), priorytet to
-  plakietka przy tytule (`RequestPriorityChip`; P2 bez plakietki), a kategoria
-  w układzie zwartym — krótka plakietka pod tytułem (`competenceShortLabel`).
+  CV); skróty raz w nagłówku, w wierszach same liczby. „Termin” = data + „za
+  N dni / po terminie N dni” (`lib/job-deadline.ts`), w dymku data otwarcia.
+  Komórki: `v2/jobs/JobListCells.tsx`. Ostatnia kolumna to „Rekruter”
+  (`JobRecruiterCell`: pierwsza osoba i „+N”, „Bez rekrutera”, propozycja
+  automatu w przerywanej ramce, pod spodem „DL: …”).
+- **Wiersz = nazwa stanowiska + jedna linia (decyzja Artura 02.10.2026,
+  makieta https://claude.ai/artifact/6o8S6SDErWyrBYqafTFCkY).** Linia 1:
+  plakietka priorytetu (`RequestPriorityChip`; P2 bez plakietki) i sama rola —
+  `jobRowTitle` z `lib/job-row-summary.ts` (pierwszy człon tytułu roboczego
+  z automatu; tytuł wpisany ręcznie w całości). Linia 2: krótka plakietka
+  kategorii (`competenceShortLabel`), klient, tryb pracy z pierwszym miastem
+  (`jobWorkModeParts`; gdy ciasno, najpierw znika miasto). Wymagania, nazwa od
+  klienta, numer u klienta, nasz numer, wszystkie miasta, data otwarcia
+  i plakietka „Podobne rekrutacje” stoją w Podglądzie (ikona oka →
+  `JobPreviewDetails` na górze zakładki „Gotowość” doku, prop `listDetails`),
+  a przepinanie ma w wierszu ikonę (`SimilarJobsIconButton`). Nie dokładaj tych
+  rzeczy z powrotem do wiersza ani drugiej linii pod tytułem. `title` z pełnym
+  tytułem stoi na opakowaniu linku, nie na samym `<a>` (nazwa dostępna).
 - **Szyna „Otwarte karty” stoi też na liście `/jobs` i u kandydatów
   (02.10.2026, `components/v2/shell/OpenTabsRail.tsx`).** Od 1536 px w układzie
   strony (na listach rozwinięta bez zapisanego wyboru od 1920 px rekrutacje /

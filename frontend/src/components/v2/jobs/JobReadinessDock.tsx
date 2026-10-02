@@ -133,6 +133,12 @@ interface JobReadinessDockProps {
   /** Patrz `JobReadinessDockListNav`. Tylko `variant="list"`. */
   listNav?: JobReadinessDockListNav;
   /**
+   * Szczegóły z wiersza listy (`JobPreviewDetails`: wymagania, nazwy i numery,
+   * podobne rekrutacje) — na górze zakładki „Gotowość”. Tylko `variant="list"`.
+   * Nagłówek doku pokazuje wtedy samego klienta: reszta stoi w tej sekcji.
+   */
+  listDetails?: ReactNode;
+  /**
    * Zwinięty dok kroku 02 (pasek 44 px z przyciskiem „Rozwiń" + licznikiem
    * `done/total`) — TYLKO `variant="champion"`. Od 29.09.2026 strona
    * rekrutacji panelu nie zwija (stoi obok „Podglądu”, nie obok edytora);
@@ -471,6 +477,7 @@ export function JobReadinessDock({
   canOpen = true,
   variant = "list",
   listNav,
+  listDetails,
   collapsed = false,
   onCollapsedChange,
   panelTab,
@@ -878,12 +885,10 @@ export function JobReadinessDock({
   ) : null;
 
   // 0380: klient · „nazwa od klienta” · numer u klienta, potem nasz numer.
-  const subtitle = [
-    jobClientLine(job),
-    job.reference_number,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const subtitle =
+    variant === "list" && listDetails
+      ? (job.client_name ?? "")
+      : [jobClientLine(job), job.reference_number].filter(Boolean).join(" · ");
 
   const tabs = variant === "champion" ? CHAMPION_DOCK_TABS : LIST_DOCK_TABS;
 
@@ -1022,6 +1027,7 @@ export function JobReadinessDock({
       <div className="flex-1 space-y-3 px-4 py-3">
         {dockTab === "readiness" && (
           <>
+            {variant === "list" ? listDetails : null}
             {variant === "champion" && canSeeGate ? (
               <MissingBlock
                 jobId={jobId}
