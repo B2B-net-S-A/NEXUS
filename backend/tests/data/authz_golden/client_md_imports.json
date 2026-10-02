@@ -20,7 +20,7 @@
   "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/clients/{client_id}/md-imports": "PPDBPDDDDDBBBDPPDD",
-  "GET /api/clients/{client_id}/md-imports/{import_id}": "PPDBPDDDDDBBBDPPDD"
+  "GET /api/clients/{client_id}/md-imports": "PPDBPDDDDDBBBDPPPP",
+  "GET /api/clients/{client_id}/md-imports/{import_id}": "PPDBPDDDDDBBBDPPPP"
  }
 }

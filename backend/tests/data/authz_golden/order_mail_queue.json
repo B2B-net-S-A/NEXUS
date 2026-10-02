@@ -20,16 +20,16 @@
   "recruiter+delivery_view"
  ],
  "routes": {
-  "GET /api/order-mail/queue": "PPDPPDDDDDPPPDPPDD",
-  "GET /api/order-mail/queue/{doc_id}": "PPDPPDDDDDPPPDPPDD",
+  "GET /api/order-mail/queue": "PPDPPDDDDDPPPDPPPP",
+  "GET /api/order-mail/queue/{doc_id}": "PPDPPDDDDDPPPDPPPP",
   "GET /api/order-mail/queue/{doc_id}/file": "PPDPDDDDDDPPPDDDDD",
-  "GET /api/order-mail/queue/{doc_id}/order-target": "PPDPPDDDDDPPPDPPDD",
-  "GET /api/order-mail/recheck-runs": "PPDPPDDDDDPPPDPPDD",
-  "GET /api/order-mail/sync/status": "PPDPPDDDDDPPPDPPDD",
-  "POST /api/order-mail/queue/{doc_id}/apply": "PPDPPDDDDDPPPDPPDD",
-  "POST /api/order-mail/queue/{doc_id}/dismiss": "PPDPPDDDDDPPPDPPDD",
-  "POST /api/order-mail/queue/{doc_id}/refresh-plan": "PPDPPDDDDDPPPDPPDD",
-  "POST /api/order-mail/queue/{doc_id}/resolved-in-order": "PPDPPDDDDDPPPDPPDD",
-  "POST /api/order-mail/sync": "PPDPDDDDDDPPPDDDDD"
+  "GET /api/order-mail/queue/{doc_id}/order-target": "PPDPDDDDDDPPPDDPDD",
+  "GET /api/order-mail/recheck-runs": "PPDPPDDDDDPPPDPPPP",
+  "GET /api/order-mail/sync/status": "PPDPPDDDDDPPPDPPPP",
+  "POST /api/order-mail/queue/{doc_id}/apply": "PPDPDDDDDDPPPDDPDD",
+  "POST /api/order-mail/queue/{doc_id}/dismiss": "PPDPDDDDDDPPPDDPDD",
+  "POST /api/order-mail/queue/{doc_id}/refresh-plan": "PPDPDDDDDDPPPDDPDD",
+  "POST /api/order-mail/queue/{doc_id}/resolved-in-order": "PPDPDDDDDDPPPDDPDD",
+  "POST /api/order-mail/sync": "PPDPDDDDDDPPPDDPDD"
  }
 }

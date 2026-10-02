@@ -20,23 +20,23 @@
   "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/orders/{order_id}": "PDDBDDDDDDBBBDDDDD",
-  "DELETE /api/clients/{client_id}/orders/{order_id}/file": "PDDBDDDDDDBBBDDDDD",
+  "DELETE /api/clients/{client_id}/orders/{order_id}": "PPDBDDDDDDBBBDDPDD",
+  "DELETE /api/clients/{client_id}/orders/{order_id}/file": "PPDBDDDDDDBBBDDPDD",
   "GET /api/clients/order-documents/by-candidate/{candidate_id}": "PPDPDDDDDDPPPDDDDD",
   "GET /api/clients/order-documents/by-contract/{contract_id}": "PPDPDDDDDDPPPDDDDD",
-  "GET /api/clients/{client_id}/contracts-with-orders": "PPDBPDDDDDBBBDPPDD",
-  "GET /api/clients/{client_id}/orders": "PPDBPDDDDDBBBDPPDD",
-  "GET /api/clients/{client_id}/orders/default-rate-unit": "PPDBPDDDDDBBBDPPDD",
-  "GET /api/clients/{client_id}/orders/{order_id}": "PPDBPDDDDDBBBDPPDD",
-  "GET /api/clients/{client_id}/orders/{order_id}/delete-preview": "PDDBDDDDDDBBBDDDDD",
+  "GET /api/clients/{client_id}/contracts-with-orders": "PPDBPDDDDDBBBDPPPP",
+  "GET /api/clients/{client_id}/orders": "PPDBPDDDDDBBBDPPPP",
+  "GET /api/clients/{client_id}/orders/default-rate-unit": "PPDBPDDDDDBBBDPPPP",
+  "GET /api/clients/{client_id}/orders/{order_id}": "PPDBPDDDDDBBBDPPPP",
+  "GET /api/clients/{client_id}/orders/{order_id}/delete-preview": "PPDBDDDDDDBBBDDPDD",
   "GET /api/clients/{client_id}/orders/{order_id}/file": "PPDBDDDDDDBBBDDDDD",
-  "PATCH /api/clients/{client_id}/orders/{order_id}": "PPDBDDDDDDBBBDDDDD",
-  "POST /api/clients/{client_id}/contract-with-order": "PDDBDDDDDDBBBDDDDD",
-  "POST /api/clients/{client_id}/contractors/{contract_id}/dismiss-draft": "PDDBDDDDDDBBBDDDDD",
-  "POST /api/clients/{client_id}/orders": "PDDBDDDDDDBBBDDDDD",
+  "PATCH /api/clients/{client_id}/orders/{order_id}": "PPDBDDDDDDBBBDDPDD",
+  "POST /api/clients/{client_id}/contract-with-order": "PPDBDDDDDDBBBDDPDD",
+  "POST /api/clients/{client_id}/contractors/{contract_id}/dismiss-draft": "PPDBDDDDDDBBBDDPDD",
+  "POST /api/clients/{client_id}/orders": "PPDBDDDDDDBBBDDPDD",
   "POST /api/clients/{client_id}/orders/export": "PPDBDDDDDDBBBDDDDD",
-  "POST /api/clients/{client_id}/orders/extract": "PDDBDDDDDDBBBDDDDD",
-  "POST /api/clients/{client_id}/orders/{order_id}/close": "PDDBDDDDDDBBBDDDDD",
-  "PUT /api/clients/{client_id}/orders/{order_id}/file": "PDDBDDDDDDBBBDDDDD"
+  "POST /api/clients/{client_id}/orders/extract": "PPDBDDDDDDBBBDDPDD",
+  "POST /api/clients/{client_id}/orders/{order_id}/close": "PPDBDDDDDDBBBDDPDD",
+  "PUT /api/clients/{client_id}/orders/{order_id}/file": "PPDBDDDDDDBBBDDPDD"
  }
 }
