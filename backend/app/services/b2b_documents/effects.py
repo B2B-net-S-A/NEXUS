@@ -54,6 +54,8 @@ from app.models.contract import (
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.user import User
+from app.services import permission_catalog
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.b2b_documents.registry import DocumentType
 from app.services.contract_termination_sync import (
     clear_pending_dissolution,
@@ -217,26 +219,46 @@ def _payload(doc: B2BContractDocument) -> dict[str, Any]:
 # ── opis (bez zapisu) ────────────────────────────────────────────────────────
 
 
-def _can_change_contracts(user: User) -> bool:
-    """Lustro bramek tras `/terminate`, `/reopen`, `/amendments`: rola admin
-    albo Delivery Lead (`DeliveryLeadPlus`) + zapis w sekcji Delivery. Samo
-    uprawnienie „Oznaczanie podpisu umowy B2B” (także TAC/TCM) nie wystarcza
-    — podpis dokumentu nie może być bocznymi drzwiami do zmian w kontrakcie."""
-    from app.models.user import UserRole
-    from app.services.section_permissions import (
-        ProductSection,
-        SectionAccess,
-        section_access_for_user,
-    )
+def contract_effect_permission(doc_type: DocumentType) -> ProductAction | None:
+    """Uprawnienie z ekranu Osoby i role, którego wymaga skutek w KONTRAKCIE.
 
-    if not (user.has_role(UserRole.admin) or user.has_role(UserRole.delivery_lead)):
-        return False
-    return section_access_for_user(user, ProductSection.delivery) >= SectionAccess.write
+    Samo „Umowy B2B: oznaczanie jako podpisane” nie wystarcza — podpis
+    dokumentu nie może być bocznymi drzwiami do zmian w kontrakcie, więc
+    każdy rodzaj skutku pyta o to samo uprawnienie co odpowiadająca mu trasa
+    modułu Kontrakty:
+
+    * rozwiązanie, wypowiedzenie i jego cofnięcie kończą albo przywracają
+      współpracę — jak ``/terminate``: „Zakończenie współpracy, zmiana statusu
+      kontraktu”,
+    * pozostałe aneksy zmieniają dane kontraktu — jak ``/amendments``:
+      „Kontrakty i zamówienia: tworzenie i edycja” (także typ dokumentu,
+      którego ta funkcja jeszcze nie zna),
+    * aneks stawki ma własną bramkę kwot (``can_confirm_rate_annex``),
+      a umowa przedwstępna niczego w kontraktach nie zmienia.
+    """
+
+    if doc_type.key in ("preliminary_cez", "annex_rate_change"):
+        return None
+    if doc_type.family == "termination":
+        return ProductAction.contract_status
+    return ProductAction.contracts_orders_edit
+
+
+def contract_effect_blocker(permission: ProductAction) -> str:
+    """Zdanie blokady w oknie „Oznacz jako podpisany” — nazywa brak wprost."""
+
+    return (
+        "Skutki tego dokumentu w kontrakcie zatwierdza osoba z uprawnieniem "
+        f"„{permission_catalog.label(permission.value)}”."
+    )
 
 
 RATE_ANNEX_CONFIRMER_BLOCKER = (
-    "Aneks zmiany stawki oznacza jako podpisany admin, Finanse albo Delivery "
-    "Lead u klienta ze swojego portfela."
+    "Aneks zmiany stawki oznacza jako podpisany osoba z uprawnieniem "
+    f"„{permission_catalog.label(ProductAction.amounts_edit.value)}” albo — "
+    "u klienta ze swojego zakresu — z uprawnieniami "
+    f"„{permission_catalog.label(ProductAction.contracts_orders_edit.value)}” "
+    f"i „{permission_catalog.label(ProductAction.amounts_view.value)}”."
 )
 
 
@@ -245,22 +267,27 @@ async def can_confirm_rate_annex(
 ) -> bool:
     """Kto potwierdza aneks zmiany stawki (decyzja Artura 27.09.2026).
 
-    Admin i Finanse (``MANAGE_FINANCE`` — kwoty kontraktu zmieniają Finanse,
-    decyzja 22.09) — zawsze; Delivery Lead z zapisem w sekcji Delivery —
-    wyłącznie u klienta ze swojego portfela (ta sama granica co wgląd DL-a
-    w kwoty klienta, ``resolve_delivery_lead_finance_client_ids``). Do rundy 10
-    (R10-N14-7) wymagane były naraz rola admin/DL i ``MANAGE_FINANCE``, a rola
-    Finanse jest wyłączna — w praktyce aneks potwierdzał tylko admin."""
-    from app.api.financial_access import can_manage_finance_amounts
-    from app.models.user import UserRole
+    Ta sama reguła co kwoty zamówienia (``can_write_order_amounts``):
+    „Stawki i kwoty: zmiana” (domyślnie admin i Finanse) albo prowadzenie
+    kontraktów razem z podglądem kwot tego klienta — czyli, jak dotąd,
+    Delivery Lead u klienta ze swojego portfela (granica
+    ``resolve_delivery_lead_finance_client_ids``). Dokument bez klienta
+    potwierdza wyłącznie posiadacz zmiany kwot, którego portfel nie wiąże.
+    """
+    from app.api.financial_access import (
+        can_manage_finance_amounts,
+        can_write_order_amounts,
+    )
     from app.services.access_scope import resolve_delivery_lead_finance_client_ids
 
-    if can_manage_finance_amounts(user):
-        return True
-    if not user.has_role(UserRole.delivery_lead) or not _can_change_contracts(user):
-        return False
     portfolio = await resolve_delivery_lead_finance_client_ids(user, db)
-    return portfolio is not None and client_id is not None and client_id in portfolio
+    if client_id is None:
+        return can_manage_finance_amounts(
+            user, client_id=None, delivery_lead_finance_client_ids=portfolio
+        )
+    return can_write_order_amounts(
+        user, client_id=client_id, delivery_lead_finance_client_ids=portfolio
+    )
 
 
 async def describe(
@@ -284,17 +311,14 @@ async def describe(
         # czytelna zamiast 409 z maszyny stanów w połowie zapisu (runda 6
         # audytu, DOC-2).
         plan.blockers.append(VOID_CONTRACT_BLOCKER)
+    required = contract_effect_permission(doc_type)
     if (
         user is not None
         and contract is not None
-        and doc_type.key
-        not in ("preliminary_cez", "notice_withdrawal", "annex_rate_change")
-        and not _can_change_contracts(user)
+        and required is not None
+        and not has_permission(user, required)
     ):
-        plan.blockers.append(
-            "Skutki w kontrakcie zatwierdza admin albo Delivery Lead z prawem "
-            "zapisu w sekcji Delivery."
-        )
+        plan.blockers.append(contract_effect_blocker(required))
     no_contract = (
         "Umowa nie jest powiązana z kontraktem w NEXUSIE — zmieni się tylko "
         "rejestr umów."
@@ -585,9 +609,10 @@ async def apply(
     if key == "annex_rate_change" and contract is not None:
         from app.schemas.contract_amendment import ContractAmendmentCreate
 
-        # Bramkę kwot (admin / Finanse / DL z portfela — decyzja 27.09.2026)
-        # sprawdza `describe` przed zapisem; handler aneksu dopuszcza sam
-        # wyłącznie MANAGE_FINANCE, więc wołamy jego wersję z bramką zdjętą.
+        # Bramkę kwot (zmiana kwot albo prowadzenie kontraktów z podglądem kwot
+        # klienta — decyzja 27.09.2026) sprawdza `describe` przed zapisem;
+        # handler aneksu dopuszcza sam wyłącznie „Stawki i kwoty: zmiana”,
+        # więc wołamy jego wersję z bramką zdjętą.
         if not await can_confirm_rate_annex(db, user, contract.client_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

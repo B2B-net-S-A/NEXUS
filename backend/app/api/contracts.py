@@ -25,7 +25,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.contract_templates import _contract_vars, render_contract_template
 from app.core.printable_html import (
     AUTOPRINT_HASH,
@@ -205,30 +204,36 @@ from app.services.polish_ilike import (
 from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import (
     AdminUser,
-    DeliveryLeadPlus,
     FinanceModuleUser,
-    get_current_user,
     require_roles,
 )
 from app.api.financial_access import (
     FinanceReadUser,
-    assert_finance_manager_touches_only_amounts,
+    assert_amounts_only,
     can_manage_finance_amounts,
     can_read_client_finance,
     has_financial_access,
-    require_financial_access,
-    require_roles_or_finance_manager,
     redact_feed_activity,
     redact_financial_fields,
 )
+from app.api.permission_access import (
+    AmountsViewUser,
+    ContractStatusUser,
+    ContractsOrdersEditUser,
+    ContractsOrdersOrAmountsEditUser,
+    DeliveryViewUser,
+)
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.access_scope import (
+    DL_CLIENT_OUT_OF_SCOPE_DETAIL,
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
-    resolve_delivery_lead_assigned_client_ids,
+    is_delivery_lead_governed,
     resolve_delivery_lead_client_ids,
     resolve_delivery_lead_finance_client_ids,
 )
+from app.services.action_permissions import ProductAction, has_permission
+from app.services.permission_denial import ensure_permission, permission_denied
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
@@ -239,28 +244,21 @@ router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 _INT32_MAX = 2_147_483_647
 _NUMERIC_16_6_MAX = 9_999_999_999
 
-# Mutacje kontraktów stoją na `DeliveryLeadPlus` (admin + Delivery Lead). Do
-# 22.09.2026 było tu `TacPlus`, ale TAC nie ma sekcji Delivery, więc bramka
-# routera i tak go odcinała (audyt U7) — alias mówił coś, czego kod nie robił.
+# Trasy kontraktów pytają o UPRAWNIENIE z ekranu Osoby i role (aliasy
+# z ``permission_access``), nie o rolę — to, co administrator zaznaczy, decyduje:
+#   * odczyt rejestru i szczegółów — „Klienci, kontrakty i zamówienia: podgląd”
+#     (kwoty w odpowiedzi redaguje ``can_read_client_finance``),
+#   * tworzenie, edycja, aktywacja, unieważnienie, usunięcie, aneksy, sprzęt,
+#     onboarding, notatki — „Kontrakty i zamówienia: tworzenie i edycja”,
+#   * zmiana statusu i zakończenie współpracy — „Zakończenie współpracy,
+#     zmiana statusu kontraktu”,
+#   * szkic umowy i pliki — „Stawki i kwoty: podgląd” (treści nie da się
+#     zredagować, więc bez podglądu kwot nie ma do niej dostępu),
+#   * kwoty kontraktu — „Stawki i kwoty: zmiana”.
+# Zakres klientów zostaje w handlerach: konto z rolą Delivery Leada działa
+# u swoich klientów (``_ensure_delivery_lead_contract_visible``), pozostali
+# posiadacze — u wszystkich.
 logger = logging.getLogger(__name__)
-
-# Structured contract readers admitted by the Delivery section. TCM receives a
-# finance-redacted projection; the organization-wide Finance business reader
-# keeps its existing access. This alias is used only by GET handlers; contract
-# commands keep their existing ``DeliveryLeadPlus``/``AdminUser`` dependencies and the
-# section-level write gate narrows their effective audience to Admin/DL.
-ContractReadUser = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.talent_community_manager,
-            UserRole.tac,
-            UserRole.finance,
-        )
-    ),
-]
 
 # „Cofnij zakończenie" i „Powrót po przerwie" (ticket 09.2026): Admin, Finanse
 # i Talent Community Manager. Świadomie BEZ Delivery Leada — to korekta
@@ -278,52 +276,6 @@ ContractTerminationRecoveryUser = Annotated[
     ),
 ]
 
-
-ContractStatusWriteUser = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.talent_community_manager,
-        )
-    ),
-]
-
-
-# Contract drafts and uploaded files are opaque legal artefacts: their HTML or
-# binary content can contain rates even when the structured API response is
-# redacted. TCM may read the operational Delivery register, but cannot cross
-# the Finance boundary through an unstructured document. Delivery Lead keeps
-# document access but opaque content remains scoped to assigned clients by the
-# dedicated guard below.
-async def require_contract_document_read_access(
-    current_user: User = Depends(get_current_user),
-) -> User:
-    """Guard opaque contract documents without making Finance a role shortcut.
-
-    Admin and Delivery Lead keep their established legal-document personas.
-    Finance is admitted only while its effective Finance section still grants
-    read access.  An individual Finance grant does not by itself expose legal
-    documents to a recruiter/sourcer: the document persona remains a separate
-    boundary and the concrete client scope is resolved by the handler.
-    """
-
-    if current_user.has_any_role(UserRole.admin, UserRole.delivery_lead):
-        return current_user
-    if current_user.has_role(UserRole.finance):
-        require_financial_access(current_user)
-        return current_user
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Contract documents require Admin, Delivery Lead or Finance access",
-    )
-
-
-ContractDocumentReadUser = Annotated[
-    User,
-    Depends(require_contract_document_read_access),
-]
 
 # Upload limit — nothing fancy, we're storing contracts + PDFs, not media.
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
@@ -1830,10 +1782,11 @@ async def _latest_order_end_dates(
     return {row[0]: row[1] for row in rows.all()}
 
 
-# P0.12: pola kwotowe kontraktu widzą tylko role z VIEW_FINANCE
-# (Admin/Finance). TAC i Delivery Lead zachowują
-# operacyjny widok listy/detalu, ale bez stawek, marży, harmonogramów oraz
-# parametrów interpretacji kwoty.
+# P0.12: pola kwotowe kontraktu widzi wyłącznie posiadacz podglądu kwot tego
+# klienta (``can_read_client_finance``: „Moduł Finanse” albo „Stawki i kwoty:
+# podgląd” w swoim zakresie). Pozostali czytelnicy zachowują operacyjny widok
+# listy/detalu, ale bez stawek, marży, harmonogramów oraz parametrów
+# interpretacji kwoty.
 _CONTRACT_FINANCE_SCALARS = (
     "rate_candidate",
     "rate_client",
@@ -1885,24 +1838,47 @@ _CONTRACT_FINANCE_WRITE_FIELDS = frozenset(
 )
 
 
-def _assert_contract_finance_write_allowed(
+async def _assert_contract_finance_write_allowed(
     current_user: User,
     supplied_fields,
+    *,
+    client_id: Optional[int],
+    db: AsyncSession,
 ) -> None:
-    """Reject hidden finance writes instead of merely redacting the response."""
+    """Reject hidden finance writes instead of merely redacting the response.
+
+    Kwoty kontraktu zmienia uprawnienie „Stawki i kwoty: zmiana” (domyślnie
+    Finanse, decyzja Artura 22.09.2026) — sama edycja kontraktów ich nie
+    daje. Konto z rolą Delivery Leada, któremu administrator nadał to
+    uprawnienie, zmienia kwoty wyłącznie u klienta z przypisania.
+    """
 
     forbidden = sorted(
         set(supplied_fields).intersection(_CONTRACT_FINANCE_WRITE_FIELDS)
     )
-    # Kwoty kontraktu zmienia admin albo osoba z MANAGE_FINANCE (Finanse,
-    # decyzja Artura 22.09.2026). Delivery Lead, TCM, TAC i reszta — nie.
-    if forbidden and not can_manage_finance_amounts(current_user):
+    if not forbidden:
+        return
+    if not has_permission(current_user, ProductAction.amounts_edit):
+        # Kod i lista pól zostają (czyta je front); nazwa brakującego
+        # uprawnienia i zdanie dla użytkownika — jak w każdej odmowie bramki.
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
+                **permission_denied(ProductAction.amounts_edit).detail,
                 "code": "finance_fields_forbidden",
                 "fields": forbidden,
             },
+        )
+    if not can_manage_finance_amounts(
+        current_user,
+        client_id=client_id,
+        delivery_lead_finance_client_ids=(
+            await resolve_delivery_lead_finance_client_ids(current_user, db)
+        ),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=DL_CLIENT_OUT_OF_SCOPE_DETAIL,
         )
 
 
@@ -2039,24 +2015,15 @@ async def _assert_contract_document_client_access(
 
     Structured contract data is safe to expose organization-wide after its
     financial fields are redacted. Draft HTML and uploaded files cannot be
-    redacted reliably, so a plain Delivery Lead still needs ownership of the
-    concrete client. Admin and the Finance reader retain their existing global
-    access.
+    redacted reliably, so they follow the same rule as the amounts of this
+    client: „Stawki i kwoty: podgląd”, and for an account with the Delivery
+    Lead role — only at an assigned client.
     """
 
-    if current_user.has_role(UserRole.admin):
+    if await _can_read_contract_finance(contract, current_user, db):
         return
-    if current_user.has_role(UserRole.finance) and has_financial_access(current_user):
-        return
-    if current_user.has_role(UserRole.delivery_lead):
-        assigned_client_ids = await resolve_delivery_lead_assigned_client_ids(
-            current_user, db
-        )
-        if (
-            assigned_client_ids is not None
-            and contract.client_id in assigned_client_ids
-        ):
-            return
+    if not has_permission(current_user, ProductAction.amounts_view):
+        raise permission_denied(ProductAction.amounts_view)
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Dokument umowy wymaga przypisania Delivery Leada do klienta",
@@ -2079,9 +2046,34 @@ async def _can_read_contract_finance(
     )
 
 
+async def _contract_finance_read_scope(
+    current_user: User,
+    db: AsyncSession,
+) -> tuple[bool, frozenset[int]]:
+    """Kwoty na LIŚCIE kontraktów — ta sama reguła co w szczegółach.
+
+    Zwraca ``(kwoty każdego klienta, klienci z widocznymi kwotami)``, czyli
+    ``can_read_client_finance`` policzone raz dla całej strony wyników:
+    „Moduł Finanse” albo „Stawki i kwoty: podgląd” bez portfela Delivery
+    Leada = kwoty każdego klienta, konto z rolą DL = klienci z przypisania,
+    bez podglądu kwot = nic. Dwie różne reguły dałyby listę i szczegóły, które
+    pokazują inne kwoty tego samego kontraktu.
+    """
+
+    if has_financial_access(current_user):
+        return True, frozenset()
+    if not has_permission(current_user, ProductAction.amounts_view):
+        return False, frozenset()
+    if not is_delivery_lead_governed(current_user):
+        return True, frozenset()
+    return False, (
+        await resolve_delivery_lead_finance_client_ids(current_user, db) or frozenset()
+    )
+
+
 @router.get("", response_model=ContractList)
 async def list_contracts(
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1, le=_INT32_MAX),
     page_size: int = Query(20, ge=1, le=100),
@@ -2171,18 +2163,16 @@ async def list_contracts(
 ):
     """List contracts with advanced filters (Phase 9 C5)."""
     allowed_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
-    finance_client_ids = (
-        await resolve_delivery_lead_finance_client_ids(current_user, db) or frozenset()
+    global_finance, finance_client_ids = await _contract_finance_read_scope(
+        current_user, db
     )
-    global_finance = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
     has_finance_filter = any(
         value is not None for value in (rate_client_min, rate_client_max, margin_min)
     )
+    # Niepusty zbiór ma wyłącznie konto z rolą Delivery Leada i podglądem kwot:
+    # filtr po stawce działa u niego tylko na klientach z przypisania.
     restrict_finance_filter_to_assigned = (
-        not global_finance
-        and current_user.has_role(UserRole.delivery_lead)
-        and bool(finance_client_ids)
-        and has_finance_filter
+        not global_finance and bool(finance_client_ids) and has_finance_filter
     )
     if not global_finance and not restrict_finance_filter_to_assigned:
         # F-13: the amount fields are redacted from the response below. The
@@ -2726,7 +2716,7 @@ def _register_export_row(c: Contract) -> list:
 
 @router.get("/register/export")
 async def export_client_register(
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
     client_id: int = Query(
         ...,
@@ -2990,7 +2980,7 @@ async def contract_missing_orders_report(
 
 @router.get("/register/subcategories", response_model=RegisterSubcategoriesResponse)
 async def list_client_register_subcategories(
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
     client_id: int = Query(
         ..., description="Klient, którego podkategorie rekrutacji zwracamy — WYMAGANY."
@@ -3179,10 +3169,15 @@ async def _create_manual_project_order_draft(
 @router.post("", response_model=ContractResponse, status_code=status.HTTP_201_CREATED)
 async def create_contract(
     data: ContractCreate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
-    _assert_contract_finance_write_allowed(current_user, data.model_fields_set)
+    await _assert_contract_finance_write_allowed(
+        current_user,
+        data.model_fields_set,
+        client_id=data.client_id,
+        db=db,
+    )
     assert_delivery_lead_client_visible(
         data.client_id,
         await resolve_delivery_lead_client_ids(current_user, db),
@@ -3429,7 +3424,7 @@ def _add_months_keeping_month_end(day: date, months: int) -> date:
 
 @router.post("/bulk-extend", status_code=status.HTTP_200_OK)
 async def bulk_extend_contracts(
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
     contract_ids: list[int] = Query(..., alias="ids"),
     months: int = Query(..., ge=1, le=24, description="Extension in months"),
@@ -3553,7 +3548,9 @@ async def bulk_extend_contracts(
 @router.post("/bulk-mark-ended", status_code=status.HTTP_200_OK)
 async def bulk_mark_ended(
     data: ContractBulkTerminateRequest,
-    current_user: DeliveryLeadPlus,
+    # To samo uprawnienie co pojedyncze „Zakończ współpracę” (`/terminate`):
+    # dyspozycja zbiorcza zapisuje dokładnie to samo zdarzenie na N umowach.
+    current_user: ContractStatusUser,
     db: AsyncSession = Depends(get_db),
     contract_ids: list[int] = Query(..., alias="ids"),
 ):
@@ -3614,7 +3611,7 @@ async def bulk_mark_ended(
 
 @router.get("/expiring", response_model=List[ContractResponse])
 async def expiring_contracts(
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
     days: int = Query(EXPIRY_WARNING_DAYS, ge=1, le=90),
 ):
@@ -3670,9 +3667,8 @@ async def expiring_contracts(
     ]
     # Banner is operational and all-client. TCM sees dates without rates; DL
     # sees rates only for rows in its still-assigned finance portfolio.
-    global_finance = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
-    finance_client_ids = (
-        await resolve_delivery_lead_finance_client_ids(current_user, db) or frozenset()
+    global_finance, finance_client_ids = await _contract_finance_read_scope(
+        current_user, db
     )
     if not global_finance:
         for item in items:
@@ -3682,7 +3678,7 @@ async def expiring_contracts(
 
 @router.get("/{contract_id}", response_model=ContractDetailResponse)
 async def get_contract(
-    contract_id: int, current_user: ContractReadUser, db: AsyncSession = Depends(get_db)
+    contract_id: int, current_user: DeliveryViewUser, db: AsyncSession = Depends(get_db)
 ):
     """Return contract with denormalized candidate/client/job names."""
     result = await db.execute(
@@ -3777,7 +3773,7 @@ async def _related_contracts_for(
 @router.get("/{contract_id}/activities", response_model=List[ContractActivityEntry])
 async def contract_activities(
     contract_id: int,
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -3900,7 +3896,7 @@ async def _order_line_technical_entries(
 )
 async def contract_rate_history(
     contract_id: int,
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Return rate history for this contract's candidate+client combination."""
@@ -3947,29 +3943,54 @@ async def contract_rate_history(
     ]
 
 
-# PATCH kontraktu: admin / Delivery Lead albo Finanse z MANAGE_FINANCE — te
-# ostatnie wyłącznie dla pól kwot (22.09.2026).
-_CONTRACT_PATCH_OPERATIONAL_ROLES = (UserRole.delivery_lead,)
-ContractPatchUser = Annotated[
-    User,
-    Depends(require_roles_or_finance_manager(*_CONTRACT_PATCH_OPERATIONAL_ROLES)),
-]
+# Pola zakończenia współpracy, które niesie zwykły PATCH kontraktu — te same,
+# które zapisuje okno „Zakończ współpracę”.
+_CONTRACT_TERMINATION_FIELDS = (
+    "termination_reason",
+    "termination_lessons",
+    "terminated_at",
+)
+
+
+def _assert_contract_status_change_allowed(
+    current_user: User, contract: Contract, data: ContractUpdate
+) -> None:
+    """Zmiana statusu albo danych zakończenia w zwykłym PATCH-u wymaga
+    uprawnienia „Zakończenie współpracy, zmiana statusu kontraktu”.
+
+    Liczy się wyłącznie wartość INNA niż zapisana: formularz edycji odsyła
+    ``status`` przy każdym zapisie, więc niezmieniony status nie może żądać
+    uprawnienia, którego ta edycja nie dotyka. Bez tej bramki osoba z samą
+    edycją kontraktów zmieniałaby status tutaj, omijając ``/status``
+    i ``/terminate``.
+    """
+
+    changed = "status" in data.model_fields_set and data.status != contract.status
+    changed = changed or any(
+        field in data.model_fields_set
+        and getattr(data, field) != getattr(contract, field)
+        for field in _CONTRACT_TERMINATION_FIELDS
+    )
+    if changed:
+        ensure_permission(current_user, ProductAction.contract_status)
 
 
 @router.patch("/{contract_id}", response_model=ContractDetailResponse)
 async def update_contract(
     contract_id: int,
     data: ContractUpdate,
-    current_user: ContractPatchUser,
+    # Trasa mieszana: edycja kontraktu ALBO sama zmiana kwot.
+    current_user: ContractsOrdersOrAmountsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
-    assert_finance_manager_touches_only_amounts(
-        current_user,
+    # Kto nie ma edycji kontraktów (wszedł samą zmianą kwot), zmienia tylko kwoty.
+    assert_amounts_only(
         data.model_fields_set,
         _CONTRACT_FINANCE_WRITE_FIELDS,
-        operational_roles=_CONTRACT_PATCH_OPERATIONAL_ROLES,
+        can_edit_record=has_permission(
+            current_user, ProductAction.contracts_orders_edit
+        ),
     )
-    _assert_contract_finance_write_allowed(current_user, data.model_fields_set)
     # FOR UPDATE na rodzicu — ta sama racja co w `update_contract_status`
     # (ocena statusu z pamięci obchodziła `void`), ten sam porządek blokad.
     # Znany dług (audyt 14.09): writery zamówień (`commit_order_write` →
@@ -3994,6 +4015,15 @@ async def update_contract(
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    # Obie bramki po odczycie wiersza: kwoty zależą od klienta kontraktu,
+    # a status — od wartości zapisanej (liczy się tylko realna zmiana).
+    await _assert_contract_finance_write_allowed(
+        current_user,
+        data.model_fields_set,
+        client_id=contract.client_id,
+        db=db,
+    )
+    _assert_contract_status_change_allowed(current_user, contract, data)
     previous_end_date = contract.end_date
     previous_start_date = contract.start_date
     state_before = ContractStateBefore.of(contract)
@@ -4452,7 +4482,7 @@ async def update_contract(
 async def update_contract_status(
     contract_id: int,
     data: ContractStatusUpdate,
-    current_user: ContractStatusWriteUser,
+    current_user: ContractStatusUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Change only the operational status; TCM cannot mutate other fields."""
@@ -4522,7 +4552,7 @@ async def update_contract_status(
 async def activate_contract(
     contract_id: int,
     _: ContractActivateRequest,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Explicitly flip a draft contract to ``active`` after validation.
@@ -4648,7 +4678,7 @@ def _render_draft_body(template: ContractTemplate, contract: Contract) -> str:
         raise HTTPException(status_code=422, detail=f"Template render error: {exc}")
 
 
-# Draft/contract HTML is authored by DeliveryLeadPlus (non-admin) users and served
+# Draft/contract HTML is authored by contract editors (non-admin users) and served
 # same-origin for preview. An explicit restrictive CSP is the browser-side
 # trust boundary against stored XSS (M5-P0.10): every script is blocked EXCEPT
 # our own auto-print snippet, allowed by its SHA-256 hash. Inline styles +
@@ -4718,16 +4748,17 @@ def _draft_response(
 async def get_contract_draft(
     contract_id: int,
     request: Request,
-    current_user: ContractDocumentReadUser,
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Return draft state for a contract.
 
     First call (`draft_content_html IS NULL`) lazy-renders the default
-    template for this `contract_type`. Existing write roles preserve the legacy
-    persisted initialization; Finance receives the same rendered preview
-    without mutating the contract or activity log. If no default exists, the
-    response carries an empty body.
+    template for this `contract_type`. A caller who may edit contracts
+    („Kontrakty i zamówienia: tworzenie i edycja”) gets the persisted
+    initialization; a reader with only the amounts view receives the same
+    rendered preview without mutating the contract or activity log. If no
+    default exists, the response carries an empty body.
     """
     contract = await _load_contract_with_relations(db, contract_id, current_user)
     await _assert_contract_document_client_access(contract, current_user, db)
@@ -4746,13 +4777,14 @@ async def get_contract_draft(
         if default is not None:
             rendered_from_default = True
             rendered = _render_draft_body(default, contract)
+            # Szkic zapisuje wyłącznie osoba, która może edytować kontrakty —
+            # czytelnik (sam podgląd kwot) dostaje podgląd bez zapisu.
             # Runda 9 (R9-N1-2): „podgląd jako” jest tylko do odczytu — admin
-            # dostaje ten sam podgląd co Finanse, bez zapisu szkicu z autorem
-            # = osoba podglądana i bez wpisu w historii kontraktu.
+            # dostaje ten sam podgląd, bez zapisu szkicu z autorem = osoba
+            # podglądana i bez wpisu w historii kontraktu.
             previewing = getattr(request.state, "impersonator_id", None) is not None
-            if previewing or (
-                current_user.has_role(UserRole.finance)
-                and has_financial_access(current_user)
+            if previewing or not has_permission(
+                current_user, ProductAction.contracts_orders_edit
             ):
                 preview_content_html = rendered
                 preview_template_id = default.id
@@ -4795,7 +4827,7 @@ async def get_contract_draft(
 async def update_contract_draft(
     contract_id: int,
     payload: ContractDraftUpdate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Update the draft body. Two mutually exclusive modes:
@@ -4864,7 +4896,7 @@ async def update_contract_draft(
 @router.get("/{contract_id}/draft/render-pdf", response_class=HTMLResponse)
 async def render_draft_for_print(
     contract_id: int,
-    current_user: ContractDocumentReadUser,
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Return the draft body wrapped in a printable HTML page.
@@ -4876,10 +4908,10 @@ async def render_draft_for_print(
     contract = await _load_contract_with_relations(db, contract_id, current_user)
     await _assert_contract_document_client_access(contract, current_user, db)
     body = contract.draft_content_html
-    if (
-        not body
-        and current_user.has_role(UserRole.finance)
-        and has_financial_access(current_user)
+    # Czytelnik bez edycji kontraktów nie ma zapisanego szkicu (GET /draft dał
+    # mu podgląd bez zapisu) — drukuje ten sam podgląd z domyślnego szablonu.
+    if not body and not has_permission(
+        current_user, ProductAction.contracts_orders_edit
     ):
         contract_type_value = (
             contract.contract_type.value
@@ -4913,7 +4945,7 @@ async def render_draft_for_print(
 )
 async def finalize_contract_draft(
     contract_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Snapshot the draft as a `ContractDocument(doc_type=contract)` and move
@@ -5011,7 +5043,7 @@ async def finalize_contract_draft(
 async def reopen_contract_endpoint(
     contract_id: int,
     data: ContractReopenRequest,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Audited revert to `draft` — the guarded replacement for free status writes.
@@ -5053,7 +5085,7 @@ async def reopen_contract_endpoint(
 async def void_contract_endpoint(
     contract_id: int,
     data: ContractVoidRequest,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Soft-delete (annul) a contract, preserving documents + signature evidence.
@@ -5091,7 +5123,9 @@ async def void_contract_endpoint(
 
 @router.delete("/{contract_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_contract(
-    contract_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
+    contract_id: int,
+    current_user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """Trwale usuń kontrakt z modułu Kontrakty — i TYLKO ten rekord.
 
@@ -5244,7 +5278,7 @@ async def _document_to_response(
 )
 async def list_contract_documents(
     contract_id: int,
-    current_user: ContractDocumentReadUser,
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _assert_contract(db, contract_id, current_user)
@@ -5265,7 +5299,7 @@ async def list_contract_documents(
 )
 async def upload_contract_document(
     contract_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
     doc_type: ContractDocumentType = Form(ContractDocumentType.other),
@@ -5338,7 +5372,7 @@ async def update_contract_document(
     contract_id: int,
     document_id: int,
     data: ContractDocumentUpdate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _assert_contract(db, contract_id, current_user)
@@ -5364,7 +5398,7 @@ async def update_contract_document(
 async def download_contract_document(
     contract_id: int,
     document_id: int,
-    current_user: ContractDocumentReadUser,
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _assert_contract(db, contract_id, current_user)
@@ -5396,7 +5430,7 @@ async def download_contract_document(
 async def delete_contract_document(
     contract_id: int,
     document_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _assert_contract(db, contract_id, current_user)
@@ -5494,7 +5528,7 @@ async def _amendment_to_response(
 )
 async def list_contract_amendments(
     contract_id: int,
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _assert_contract(db, contract_id, current_user)
@@ -5518,7 +5552,7 @@ async def list_contract_amendments(
 async def create_contract_amendment(
     contract_id: int,
     data: ContractAmendmentCreate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     return await apply_contract_amendment(
@@ -5543,8 +5577,6 @@ async def apply_contract_amendment(
     supplied_fields = set(data.model_fields_set)
     if data.amendment_type == ContractAmendmentType.rate_change:
         supplied_fields.add("rate_change")
-    if not finance_write_authorized:
-        _assert_contract_finance_write_allowed(current_user, supplied_fields)
 
     # FOR UPDATE: aneks przedłużający i wcześniejsze zakończenie zmieniają
     # status — oceniany musi być ten po commicie równoległego `void` (F03).
@@ -5562,6 +5594,14 @@ async def apply_contract_amendment(
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    # Bramka kwot po odczycie wiersza — zależy od klienta kontraktu.
+    if not finance_write_authorized:
+        await _assert_contract_finance_write_allowed(
+            current_user,
+            supplied_fields,
+            client_id=contract.client_id,
+            db=db,
+        )
     # Runda 8 (R8-N6-4): dokument aneksu musi należeć do TEGO kontraktu.
     # Dotąd przyjmowany był dowolny `document_id` — plik innego klienta
     # lądował w „Zamówieniach PDF” pod tym klientem i osobą, a nieistniejące
@@ -5871,7 +5911,7 @@ async def apply_contract_amendment(
 )
 async def list_onboarding_items(
     contract_id: int,
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -5891,7 +5931,7 @@ async def list_onboarding_items(
 async def create_onboarding_item(
     contract_id: int,
     data: OnboardingItemCreate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -5923,7 +5963,7 @@ DEFAULT_ONBOARDING_ITEMS: tuple[str, ...] = (
 )
 async def seed_onboarding_items(
     contract_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Załóż domyślną listę onboardingową — atomowo i idempotentnie.
@@ -5960,7 +6000,7 @@ async def update_onboarding_item(
     contract_id: int,
     item_id: int,
     data: OnboardingItemUpdate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -5986,7 +6026,7 @@ async def update_onboarding_item(
 async def delete_onboarding_item(
     contract_id: int,
     item_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -6010,7 +6050,7 @@ async def delete_onboarding_item(
 )
 async def list_contract_equipment(
     contract_id: int,
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -6030,7 +6070,7 @@ async def list_contract_equipment(
 async def create_contract_equipment(
     contract_id: int,
     data: ContractEquipmentCreate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     contract_res = await db.execute(select(Contract).where(Contract.id == contract_id))
@@ -6077,7 +6117,7 @@ async def update_contract_equipment(
     contract_id: int,
     equipment_id: int,
     data: ContractEquipmentUpdate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -6122,7 +6162,7 @@ async def update_contract_equipment(
 async def delete_contract_equipment(
     contract_id: int,
     equipment_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -6156,10 +6196,11 @@ async def delete_contract_equipment(
 async def terminate_contract(
     contract_id: int,
     data: ContractTerminateRequest,
-    # Te same role co lista statusu (`PATCH /{id}/status`): od 09.2026
-    # „Zakończony” z listy otwiera to okno, więc TCM — który mógł zakończyć
-    # kontrakt listą — musi móc je zapisać (decyzja 10.09: TCM w całej org.).
-    current_user: ContractStatusWriteUser,
+    # To samo uprawnienie co lista statusu (`PATCH /{id}/status`): od 09.2026
+    # „Zakończony” z listy otwiera to okno, więc kto mógł zakończyć kontrakt
+    # listą (domyślnie także TCM, w całej organizacji — decyzja 10.09), musi
+    # móc je zapisać.
+    current_user: ContractStatusUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Mark the contract as ended with a structured reason and optional lessons.
@@ -6346,7 +6387,7 @@ async def return_after_break(
 )
 async def contract_timeline(
     contract_id: int,
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(100, ge=1, le=500),
 ):
@@ -6424,12 +6465,12 @@ def _note_timeline_item(
 async def create_contract_note(
     contract_id: int,
     data: ContractNoteCreate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Notatka przy kontrakcie — widoczna tu i w profilu kandydata.
 
-    Runda 10 (F03): bramka jak przy sprzęcie kontraktu (`DeliveryLeadPlus` +
+    Runda 10 (F03): bramka jak przy sprzęcie kontraktu (edycja kontraktów +
     zakres klienta DL), nie `POST /api/notes` — tamta trasa stoi za zapisem
     kandydatów, czyli w innej domenie uprawnień niż umowa.
     """

@@ -52,7 +52,12 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract
 from app.models.user import User, UserRole
-from app.services.action_permissions import ActionAccess
+from app.services.access_scope import resolve_delivery_lead_finance_client_ids
+from app.services.action_permissions import (
+    ActionAccess,
+    ProductAction,
+    has_permission,
+)
 from app.services import ezdrowie
 from app.services.b2b_documents import annex_register, effects
 from app.services.b2b_documents.context import (
@@ -69,6 +74,7 @@ from app.services.b2b_documents.contract_versions import (
     refs_for,
 )
 from app.services.client_access import assert_client_assignable
+from app.services.permission_denial import ensure_permission
 from app.services.b2b_documents.registry import (
     REF_LABELS,
     TYPES,
@@ -496,9 +502,11 @@ async def _serialize(
         can_sign = True
     except HTTPException:
         can_sign = False
-    # Aneks stawki potwierdzają też Finanse (decyzja Artura 27.09.2026) —
-    # rola bez uprawnienia „Oznaczanie podpisu umowy B2B”.
-    finance_can_sign_rate = can_manage_finance_amounts(user)
+    # Aneks stawki potwierdza też posiadacz „Stawki i kwoty: zmiana” bez
+    # uprawnienia do oznaczania podpisu (domyślnie Finanse, decyzja Artura
+    # 27.09.2026). Konto z rolą Delivery Leada — tylko u klienta
+    # z przypisania, stąd granica i klient każdego wiersza.
+    rate_boundary = await resolve_delivery_lead_finance_client_ids(user, db)
     try:
         _require_generated_contract_management(user)
         can_manage = True
@@ -548,7 +556,14 @@ async def _serialize(
                 can_confirm_signed=open_unsigned
                 and (
                     can_sign
-                    or (finance_can_sign_rate and row.document_type == RATE_ANNEX_TYPE)
+                    or (
+                        row.document_type == RATE_ANNEX_TYPE
+                        and can_manage_finance_amounts(
+                            user,
+                            client_id=row.client_id,
+                            delivery_lead_finance_client_ids=rate_boundary,
+                        )
+                    )
                 ),
                 cancelled_reason=row.cancelled_reason,
             )
@@ -1229,20 +1244,30 @@ async def confirm_document_signed(
     db: AsyncSession = Depends(get_db),
 ):
     """Oznacz jako podpisany obustronnie i zastosuj skutki (idempotentnie)."""
-    # Aneks stawki potwierdzają admin, Finanse i DL z portfela (decyzja Artura
-    # 27.09.2026). Finanse nie mają uprawnienia „Oznaczanie podpisu umowy
-    # B2B” — wpuszczamy je wyłącznie do aneksu stawki (typ sprawdzany niżej),
-    # resztę bramek i blokad liczy `effects.describe`.
-    finance_rate_only = not _has_signature_permission(
-        current_user
-    ) and can_manage_finance_amounts(current_user)
-    if finance_rate_only:
+    # Aneks stawki potwierdza też posiadacz „Stawki i kwoty: zmiana” bez
+    # uprawnienia „Umowy B2B: oznaczanie jako podpisane” (domyślnie Finanse,
+    # decyzja Artura 27.09.2026). Wpuszczamy go wyłącznie do aneksu stawki
+    # u klienta, u którego zmienia kwoty — typ i klienta znamy dopiero po
+    # odczycie dokumentu; resztę bramek i blokad liczy `effects.describe`.
+    amounts_only = not _has_signature_permission(current_user) and has_permission(
+        current_user, ProductAction.amounts_edit
+    )
+    if amounts_only:
         assert_b2b_generator_action_access(current_user, ActionAccess.view)
     else:
         _require_signature_confirmation(current_user)
     locked_contract_id = await _lock_contract_first(db, doc_id=doc_id)
     doc, doc_type, parent = await _load_document(db, current_user, doc_id, lock=True)
-    if finance_rate_only and doc_type.key != RATE_ANNEX_TYPE:
+    if amounts_only and not (
+        doc_type.key == RATE_ANNEX_TYPE
+        and can_manage_finance_amounts(
+            current_user,
+            client_id=doc.client_id,
+            delivery_lead_finance_client_ids=(
+                await resolve_delivery_lead_finance_client_ids(current_user, db)
+            ),
+        )
+    ):
         _require_signature_confirmation(current_user)
     _assert_same_locked_contract(
         locked_contract_id, effects.current_contract_id(doc, parent)
@@ -1389,16 +1414,10 @@ async def register_partner_notice(
     await _assert_generator_client_access(
         db, current_user, parent.client_id, write=True
     )
-    if (
-        parent.contract_id is not None or matched_contract_id is not None
-    ) and not effects._can_change_contracts(current_user):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Wypowiedzenie w kontrakcie rejestruje admin albo Delivery Lead "
-                "z prawem zapisu w sekcji Delivery."
-            ),
-        )
+    if parent.contract_id is not None or matched_contract_id is not None:
+        # Wypowiedzenie kończy współpracę w kontrakcie — to samo uprawnienie
+        # co okno „Zakończ współpracę”; samo oznaczanie podpisu nie wystarcza.
+        ensure_permission(current_user, ProductAction.contract_status)
     refs = refs_for(getattr(parent, "template_version", None))
     if body.termination_date is None and refs is None:
         # Umowa bez znanej wersji wzoru (wiersz z Excela działu) — okresu

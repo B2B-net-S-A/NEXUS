@@ -24,7 +24,6 @@ from app.api import (
     admin_chats,
     admin_client_portfolio,
     admin_clients_overview,
-    autenti,
     calendar,
     calendar_access,
     candidate_access,
@@ -49,7 +48,6 @@ from app.api import (
     rate_benchmarks,
     rate_cards,
     reports,
-    signing,
 )
 from app.api.deps import AdminUser, DeliveryLeadPlus
 from app.api.financial_access import (
@@ -199,63 +197,9 @@ def test_candidate_finance_guard_is_admin_only_to_keep_finance_free_of_pii():
     assert set(candidate_access.CANDIDATE_FINANCE_ROLES) == {UserRole.admin}
 
 
-@pytest.mark.parametrize(
-    "role",
-    [
-        UserRole.delivery_lead,
-        UserRole.head_of_recruitment,
-        UserRole.talent_community_manager,
-        UserRole.tac,
-        UserRole.recruiter,
-        UserRole.sourcer,
-    ],
-)
-def test_contract_amount_write_guard_rejects_non_finance_roles(role):
-    with pytest.raises(HTTPException) as exc_info:
-        contracts._assert_contract_finance_write_allowed(
-            _user(role),
-            {
-                "rate_candidate",
-                "rate_client",
-                "candidate_rate_schedule",
-                "framework_rate",
-            },
-        )
-    assert getattr(exc_info.value, "status_code", None) == 403
-
-
-def test_contract_amount_write_guard_allows_admin():
-    contracts._assert_contract_finance_write_allowed(
-        _user(UserRole.admin),
-        {
-            "rate_candidate",
-            "rate_client",
-            "candidate_rate_schedule",
-            "framework_rate",
-        },
-    )
-
-
-def test_contract_amount_write_guard_allows_finance_manager():
-    """Decyzja Artura 22.09.2026: Finanse zmieniają kwoty przez MANAGE_FINANCE."""
-
-    contracts._assert_contract_finance_write_allowed(
-        _user(UserRole.finance),
-        {"rate_candidate", "rate_client", "candidate_rate_schedule"},
-    )
-
-
-def test_contract_amount_write_guard_rejects_finance_without_amounts_edit():
-    """Kwoty kontraktu zmienia uprawnienie „Stawki i kwoty: zmiana”."""
-
-    finance = _user(UserRole.finance)
-    finance.effective_action_access = {
-        "delivery_view": "manage",
-        "amounts_view": "manage",
-    }
-    with pytest.raises(HTTPException) as exc_info:
-        contracts._assert_contract_finance_write_allowed(finance, {"rate_candidate"})
-    assert exc_info.value.status_code == 403
+# Bramki tras kontraktów i podpisów oraz zapis kwot kontraktu pilnuje
+# ``test_permissions_contracts_rules.py`` — pytają o uprawnienia z ekranu Osoby
+# i role, więc sprawdzamy tam zachowanie bramki, a nie tożsamość aliasu.
 
 
 def test_finance_manager_on_mixed_routes_touches_only_amounts():
@@ -330,9 +274,6 @@ async def test_md_line_rates_are_writable_by_finance_manager():
 
 
 def test_amount_routes_admit_finance_manager_at_the_role_gate():
-    assert _current_user_annotation(contracts.update_contract) == (
-        contracts.ContractPatchUser
-    )
     assert _user_annotation(client_orders.update_order) == client_orders.OrderPatchUser
     for endpoint in (
         client_order_groups.update_order_group,
@@ -464,248 +405,6 @@ def test_mixed_contract_and_order_redaction_removes_finance_interpretation():
 def test_candidate_bearing_export_and_benchmark_are_finance_read():
     assert _current_user_annotation(contracts.export_contracts) == FinanceReadUser
     assert _current_user_annotation(contracts.contract_benchmark) == FinanceReadUser
-
-
-@pytest.mark.parametrize(
-    "endpoint",
-    [
-        contracts.list_contracts,
-        contracts.export_client_register,
-        contracts.list_client_register_subcategories,
-        contracts.expiring_contracts,
-        contracts.get_contract,
-        contracts.contract_activities,
-        contracts.contract_rate_history,
-        contracts.list_contract_amendments,
-        contracts.list_onboarding_items,
-        contracts.list_contract_equipment,
-        contracts.contract_timeline,
-    ],
-)
-def test_contract_business_reads_use_finance_extended_read_guard(endpoint):
-    assert _current_user_annotation(endpoint) == contracts.ContractReadUser
-
-
-@pytest.mark.parametrize(
-    "endpoint",
-    [
-        contracts.get_contract_draft,
-        contracts.render_draft_for_print,
-        contracts.list_contract_documents,
-        contracts.download_contract_document,
-    ],
-)
-def test_rate_bearing_contract_documents_exclude_tcm(endpoint):
-    assert _current_user_annotation(endpoint) == contracts.ContractDocumentReadUser
-
-
-@pytest.mark.asyncio
-async def test_finance_draft_preview_does_not_persist_lazy_initialization(monkeypatch):
-    finance = _user(UserRole.finance)
-    contract = SimpleNamespace(
-        id=17,
-        contract_type="b2b",
-        draft_content_html=None,
-        draft_template_id=None,
-        draft_updated_at=None,
-        draft_updated_by=None,
-    )
-    template = SimpleNamespace(
-        id=8,
-        name="B2B default",
-        contract_type="b2b",
-        content_jinja="<p>template</p>",
-        is_default=True,
-    )
-
-    async def load_contract(*_args, **_kwargs):
-        return contract
-
-    async def list_templates(*_args, **_kwargs):
-        return [template]
-
-    class ReadOnlyDb:
-        def add(self, *_args, **_kwargs):
-            raise AssertionError("Finance GET must not add Activity")
-
-        async def flush(self):
-            raise AssertionError("Finance GET must not flush writes")
-
-        async def scalar(self, *_args, **_kwargs):
-            raise AssertionError("No updated_by lookup is expected")
-
-    monkeypatch.setattr(contracts, "_load_contract_with_relations", load_contract)
-    monkeypatch.setattr(
-        contracts,
-        "_list_templates_for_contract_type",
-        list_templates,
-    )
-    monkeypatch.setattr(
-        contracts,
-        "_render_draft_body",
-        lambda *_args: "<p>Finance preview</p>",
-    )
-
-    response = await contracts.get_contract_draft(
-        17,
-        request=SimpleNamespace(state=SimpleNamespace()),
-        current_user=finance,
-        db=ReadOnlyDb(),
-    )
-
-    assert response.content_html == "<p>Finance preview</p>"
-    assert response.template_id == 8
-    assert response.rendered_from_default is True
-    assert contract.draft_content_html is None
-    assert contract.draft_template_id is None
-    assert contract.draft_updated_by is None
-
-
-@pytest.mark.asyncio
-async def test_impersonated_draft_preview_does_not_persist_lazy_initialization(
-    monkeypatch,
-):
-    """R9-N1-2: admin w „podglądzie jako” nie zapisuje szkicu za podglądanego."""
-    target = _user(UserRole.delivery_lead)
-    contract = SimpleNamespace(
-        id=17,
-        contract_type="b2b",
-        draft_content_html=None,
-        draft_template_id=None,
-        draft_updated_at=None,
-        draft_updated_by=None,
-    )
-    template = SimpleNamespace(
-        id=8,
-        name="B2B default",
-        contract_type="b2b",
-        content_jinja="<p>template</p>",
-        is_default=True,
-    )
-
-    async def load_contract(*_args, **_kwargs):
-        return contract
-
-    async def list_templates(*_args, **_kwargs):
-        return [template]
-
-    async def client_access(*_args, **_kwargs):
-        return None
-
-    class ReadOnlyDb:
-        def add(self, *_args, **_kwargs):
-            raise AssertionError("Preview GET must not add Activity")
-
-        async def flush(self):
-            raise AssertionError("Preview GET must not flush writes")
-
-        async def scalar(self, *_args, **_kwargs):
-            raise AssertionError("No updated_by lookup is expected")
-
-    monkeypatch.setattr(contracts, "_load_contract_with_relations", load_contract)
-    monkeypatch.setattr(
-        contracts, "_assert_contract_document_client_access", client_access
-    )
-    monkeypatch.setattr(contracts, "_list_templates_for_contract_type", list_templates)
-    monkeypatch.setattr(
-        contracts, "_render_draft_body", lambda *_args: "<p>Podgląd</p>"
-    )
-
-    response = await contracts.get_contract_draft(
-        17,
-        request=SimpleNamespace(state=SimpleNamespace(impersonator_id=1)),
-        current_user=target,
-        db=ReadOnlyDb(),
-    )
-
-    assert response.content_html == "<p>Podgląd</p>"
-    assert response.rendered_from_default is True
-    assert contract.draft_content_html is None
-    assert contract.draft_updated_by is None
-
-
-@pytest.mark.asyncio
-async def test_finance_draft_print_preview_does_not_persist_default_template(
-    monkeypatch,
-):
-    finance = _user(UserRole.finance)
-    contract = SimpleNamespace(
-        id=17,
-        contract_type="b2b",
-        draft_content_html=None,
-        draft_template_id=None,
-        draft_updated_at=None,
-        draft_updated_by=None,
-        candidate=SimpleNamespace(name="Jan", lastname="Kowalski"),
-    )
-    template = SimpleNamespace(
-        id=8,
-        name="B2B default",
-        contract_type="b2b",
-        content_jinja="<p>template</p>",
-        is_default=True,
-    )
-
-    async def load_contract(*_args, **_kwargs):
-        return contract
-
-    async def list_templates(*_args, **_kwargs):
-        return [template]
-
-    class ReadOnlyDb:
-        def add(self, *_args, **_kwargs):
-            raise AssertionError("Finance print GET must not add ORM rows")
-
-        async def flush(self):
-            raise AssertionError("Finance print GET must not flush writes")
-
-        async def commit(self):
-            raise AssertionError("Finance print GET must not commit writes")
-
-        async def refresh(self, *_args, **_kwargs):
-            raise AssertionError("Finance print GET must not refresh ORM rows")
-
-        async def scalar(self, *_args, **_kwargs):
-            raise AssertionError(
-                "Finance print GET must not query outside read helpers"
-            )
-
-    monkeypatch.setattr(contracts, "_load_contract_with_relations", load_contract)
-    monkeypatch.setattr(
-        contracts,
-        "_list_templates_for_contract_type",
-        list_templates,
-    )
-    monkeypatch.setattr(
-        contracts,
-        "_render_draft_body",
-        lambda *_args: "<p>Finance print preview</p>",
-    )
-
-    response = await contracts.render_draft_for_print(17, finance, ReadOnlyDb())
-
-    assert response.status_code == 200
-    assert b"Finance print preview" in response.body
-    assert contract.draft_content_html is None
-    assert contract.draft_template_id is None
-    assert contract.draft_updated_at is None
-    assert contract.draft_updated_by is None
-
-
-@pytest.mark.parametrize(
-    "endpoint",
-    [
-        contracts.create_contract,
-        contracts.delete_contract,
-        contracts.upload_contract_document,
-        contracts.create_contract_amendment,
-        contracts.create_onboarding_item,
-        contracts.create_contract_equipment,
-    ],
-)
-def test_contract_mutations_are_delivery_lead_plus(endpoint):
-    # Do 22.09.2026 TacPlus — TAC i tak odcinała sekcja Delivery (audyt U7).
-    assert _current_user_annotation(endpoint) == DeliveryLeadPlus
 
 
 def test_candidate_finance_read_is_split_from_candidate_finance_write():
@@ -933,24 +632,6 @@ def test_champion_suggestion_detail_is_finance_read_and_actions_are_job_editors(
     ):
         # Od 22.09.2026 zespół rekrutacji też (zakres: ensure_champion_job_editor).
         assert _current_user_annotation(endpoint) == champion_suggestions.JobEditUser
-
-
-def test_contract_signature_reads_include_finance_without_signature_actions():
-    for endpoint in (
-        autenti.list_signatures_for_contract,
-        autenti.get_signature_detail,
-    ):
-        assert _current_user_annotation(endpoint) == autenti.ContractSignatureReadUser
-    for endpoint in (signing.list_signatures, signing.get_signature):
-        assert _current_user_annotation(endpoint) == signing.ContractSignatureReadUser
-
-    for endpoint in (
-        autenti.send_contract_for_signature,
-        autenti.withdraw_signature,
-        signing.send_for_signature,
-        signing.withdraw_signature,
-    ):
-        assert _current_user_annotation(endpoint) == DeliveryLeadPlus
 
 
 def test_finance_calendar_oversight_is_read_only():

@@ -23,9 +23,9 @@
   "GET /api/autenti/contracts/{contract_id}/signatures": "PPDPDDDDDDPPPDDDDD",
   "GET /api/autenti/health": "PPPPPPPPPDPPPPPPPP",
   "GET /api/autenti/signatures/{signature_id}": "PPDPDDDDDDPPPDDDDD",
-  "POST /api/autenti/contracts/{contract_id}/send": "PDDPDDDDDDPPPDDDDD",
-  "POST /api/autenti/signatures/{signature_id}/remind": "PDDPDDDDDDPPPDDDDD",
-  "POST /api/autenti/signatures/{signature_id}/withdraw": "PDDPDDDDDDPPPDDDDD",
+  "POST /api/autenti/contracts/{contract_id}/send": "PPDPDDDDDDPPPDDPDD",
+  "POST /api/autenti/signatures/{signature_id}/remind": "PPDPDDDDDDPPPDDPDD",
+  "POST /api/autenti/signatures/{signature_id}/withdraw": "PPDPDDDDDDPPPDDPDD",
   "POST /api/autenti/webhook": "PPPPPPPPPPPPPPPPPP"
  }
 }

@@ -86,9 +86,18 @@ def test_matrix_tells_the_roles_apart(matrix) -> None:
     create_contract = "POST /api/contracts"
     assert _letter(matrix, create_contract, "admin") == "P"
     assert _letter(matrix, create_contract, "delivery_lead") in {"P", "B"}
-    assert _letter(matrix, create_contract, "finance") == "D"
+    # Decyzja Artura 02.10.2026: Finanse zakładają kontrakty i zamówienia.
+    assert _letter(matrix, create_contract, "finance") == "P"
     assert _letter(matrix, create_contract, "recruiter") == "D"
     assert _letter(matrix, create_contract, "trainee") == "D"
+    # Uprawnienie nadane osobie ponad rolę otwiera tę samą trasę.
+    assert _letter(matrix, create_contract, "talent_community_manager") == "D"
+    assert (
+        _letter(
+            matrix, create_contract, "talent_community_manager+contracts_orders_edit"
+        )
+        == "P"
+    )
 
     permissions_panel = "GET /api/admin/section-permissions"
     assert _letter(matrix, permissions_panel, "admin") == "P"

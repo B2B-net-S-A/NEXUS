@@ -23,9 +23,9 @@
   "GET /api/signing/contracts/{contract_id}/signatures": "PPDPDDDDDDPPPDDDDD",
   "GET /api/signing/health": "PPPPPPPPPDPPPPPPPP",
   "GET /api/signing/signatures/{signature_id}": "PPDPDDDDDDPPPDDDDD",
-  "POST /api/signing/contracts/{contract_id}/mark-sent-offline": "PDDPDDDDDDPPPDDDDD",
-  "POST /api/signing/contracts/{contract_id}/send-for-signature": "PDDPDDDDDDPPPDDDDD",
-  "POST /api/signing/signatures/{signature_id}/regenerate-link": "PDDPDDDDDDPPPDDDDD",
-  "POST /api/signing/signatures/{signature_id}/withdraw": "PDDPDDDDDDPPPDDDDD"
+  "POST /api/signing/contracts/{contract_id}/mark-sent-offline": "PPDPDDDDDDPPPDDPDD",
+  "POST /api/signing/contracts/{contract_id}/send-for-signature": "PPDPDDDDDDPPPDDPDD",
+  "POST /api/signing/signatures/{signature_id}/regenerate-link": "PPDPDDDDDDPPPDDPDD",
+  "POST /api/signing/signatures/{signature_id}/withdraw": "PPDPDDDDDDPPPDDPDD"
  }
 }
