@@ -13,12 +13,13 @@ from fastapi import APIRouter, HTTPException
 
 from app.api.deps import CurrentUser
 from app.data.screen_guides import guide_for_user, load_guides
+from app.services.action_permissions import named_permissions_of
 from app.services.section_permissions import ProductSection, section_access_for_user
 
 router = APIRouter()
 
 
-def _audience(user: Any) -> tuple[set[str], dict[str, int]]:
+def _audience(user: Any) -> tuple[set[str], dict[str, int], frozenset[str]]:
     try:
         roles = {getattr(r, "value", str(r)) for r in user.get_all_roles()}
     except Exception:  # noqa: BLE001 — rola główna wystarcza jako zapas
@@ -27,15 +28,15 @@ def _audience(user: Any) -> tuple[set[str], dict[str, int]]:
         section.value: int(section_access_for_user(user, section))
         for section in ProductSection
     }
-    return roles, sections
+    return roles, sections, named_permissions_of(user)
 
 
 @router.get("/help/screens")
 async def list_screen_guides(current_user: CurrentUser) -> list[dict[str, Any]]:
-    roles, sections = _audience(current_user)
+    roles, sections, permissions = _audience(current_user)
     out = []
     for guide in load_guides().values():
-        shaped = guide_for_user(guide, roles, sections)
+        shaped = guide_for_user(guide, roles, sections, permissions)
         if shaped is not None:
             out.append(shaped)
     return out
@@ -48,8 +49,8 @@ async def get_screen_guide(key: str, current_user: CurrentUser) -> dict[str, Any
         raise HTTPException(
             status_code=404, detail="Nie ma przewodnika dla tego ekranu."
         )
-    roles, sections = _audience(current_user)
-    shaped = guide_for_user(guide, roles, sections)
+    roles, sections, permissions = _audience(current_user)
+    shaped = guide_for_user(guide, roles, sections, permissions)
     if shaped is None:
         raise HTTPException(
             status_code=404, detail="Nie ma przewodnika dla tego ekranu."
