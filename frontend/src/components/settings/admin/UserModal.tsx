@@ -70,8 +70,6 @@ function useExtraPermissions(
     queryFn: () =>
       adminApi.getUserPermissions(userId as number).then((response) => response.data),
     enabled,
-    // Okno startuje od bieżących nadań i bieżącej wersji zasad, nie z cache.
-    staleTime: 0,
   });
   const [draft, setDraft] = useState<GrantDraft | null>(null);
   const [removeLegacy, setRemoveLegacy] = useState(false);

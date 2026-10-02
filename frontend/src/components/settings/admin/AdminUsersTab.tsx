@@ -53,6 +53,8 @@ interface AdminUsersTabProps {
    *  „Panel administracyjny" — strona ma własny. Pozostałe podzakładki dalej
    *  otwierają się adresem `?sub=`. */
   embedded?: boolean;
+  /** Podzakładka, gdy adres nie niesie `?sub=` (harness `/preview/permissions`). */
+  defaultSubTab?: SubTab;
 }
 
 const EMBEDDED_SUBTABS: readonly SubTab[] = ["users", "permissions"];
@@ -95,7 +97,10 @@ export function impersonationProfile(profile: User): User {
   };
 }
 
-export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
+export function AdminUsersTab({
+  embedded = false,
+  defaultSubTab,
+}: AdminUsersTabProps = {}) {
   const { user } = useAuthStore();
   const impersonate = useAuthStore((s) => s.impersonate);
   const queryClient = useQueryClient();
@@ -104,7 +109,7 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
   // `?sub=` w adresie (B42): F5 na „Uprawnieniach" nie wraca do „Użytkowników".
   const searchParams = useSearchParams();
   const [subTab, setSubTab] = useAdminSubTab(
-    searchParams?.get(ADMIN_SUBTAB_PARAM) ?? null,
+    searchParams?.get(ADMIN_SUBTAB_PARAM) ?? defaultSubTab ?? null,
   );
   const [permissionsDirty, setPermissionsDirty] = useState(false);
   const [modal, setModal] = useState<"create" | "edit" | "reset" | null>(null);
