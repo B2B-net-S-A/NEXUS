@@ -78,6 +78,43 @@ def effective_access_from_rows(
     return EffectiveAccess(sections=sections, actions=actions)
 
 
+def granted_beyond_roles(
+    user: User,
+    *,
+    section_role_rows: Iterable[RoleSectionPermission],
+    action_role_rows: Iterable[RoleActionPermission],
+    action_override_rows: Iterable[UserActionOverride],
+) -> tuple[str, ...]:
+    """Uprawnienia nadane OSOBIE, których nie dają jej role (kolejność katalogu).
+
+    Liczy się nadanie zapisane przy osobie. Uprawnienie, które tylko wynika
+    z nadanego (podgląd przy edycji), nie jest osobną pozycją — plakietka
+    „+1 uprawnienie” ma mówić, ile rzeczy admin tej osobie zaznaczył.
+    """
+
+    if user.has_role(UserRole.admin):
+        return ()
+    granted = {
+        row.action
+        for row in action_override_rows
+        if row.user_id == user.id and row.access == ActionAccess.manage.name
+    }
+    if not granted:
+        return ()
+    from_roles = effective_access_from_rows(
+        user,
+        section_role_rows=section_role_rows,
+        section_override_rows=(),
+        action_role_rows=action_role_rows,
+        action_override_rows=(),
+    ).permissions
+    return tuple(
+        action.value
+        for action in NAMED_PERMISSIONS
+        if action.value in granted and action.value not in from_roles
+    )
+
+
 async def resolve_effective_access(db: AsyncSession, users: Iterable[User]) -> None:
     """Dołącz bieżącą politykę (sekcje i akcje) do każdego konta z listy."""
 

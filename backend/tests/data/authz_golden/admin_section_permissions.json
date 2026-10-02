@@ -22,6 +22,7 @@
  "routes": {
   "GET /api/admin/section-permissions": "PDDDDDDDDDDDDDDDDD",
   "GET /api/admin/section-permissions/users": "PDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDD",
   "PUT /api/admin/section-permissions/roles": "PDDDDDDDDDDDDDDDDD",
   "PUT /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDD"
  }

@@ -20,12 +20,13 @@ import {
 
 export const API_URL = process.env.E2E_API_URL || "https://api.nexus.dynaminds.pl";
 
-export type E2ERole = "admin" | "recruiter" | "delivery_lead";
+export type E2ERole = "admin" | "recruiter" | "delivery_lead" | "finance";
 
 const ROLE_EMAILS: Record<E2ERole, string> = {
   admin: process.env.E2E_USER_EMAIL || "e2e-admin@example.com",
   recruiter: process.env.E2E_RECRUITER_EMAIL || "e2e-recruiter@example.com",
   delivery_lead: process.env.E2E_DL_EMAIL || "e2e-dl@example.com",
+  finance: process.env.E2E_FINANCE_EMAIL || "e2e-finance@example.com",
 };
 
 export interface ApiSession {

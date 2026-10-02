@@ -520,6 +520,9 @@ def require_permission(permission: ProductAction):
         ensure_permission(current_user, permission)
         return current_user
 
+    # Bramka sekcji (``section_access``) biegnie wcześniej; czyta ten atrybut,
+    # żeby jej odmowa też nazywała brakujące uprawnienie trasy.
+    _check.required_permissions = (permission,)
     return _check
 
 
@@ -535,6 +538,7 @@ def require_any_permission(*permissions: ProductAction):
         ensure_any_permission(current_user, *permissions)
         return current_user
 
+    _check.required_permissions = tuple(permissions)
     return _check
 
 

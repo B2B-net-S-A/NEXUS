@@ -116,4 +116,8 @@ async def require_client_contracts_edit(
     return current_user
 
 
+require_client_contracts_edit.required_permissions = (
+    ProductAction.contracts_orders_edit,
+)
+
 ClientContractsEditUser = Annotated[User, Depends(require_client_contracts_edit)]

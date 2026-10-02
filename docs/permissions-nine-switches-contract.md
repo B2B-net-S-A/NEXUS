@@ -71,6 +71,27 @@ Odmowa 403 z bramki uprawnienia:
 
 Front pokazuje `detail.message` (`lib/api-error.ts` już to robi).
 
+**Bramka sekcji też nazywa uprawnienie.** Zależności routera
+(`DELIVERY_SECTION_DEPENDENCIES`, `FINANCE_SECTION_DEPENDENCIES`,
+`require_section_access_any*`) biegną przed bramką uprawnienia trasy. Gdy
+odmawiają w sekcji Delivery albo Finanse, czytają uprawnienie zadeklarowane
+przez trasę (`require_permission`, `require_any_permission`,
+`require_client_contracts_edit` — atrybut `required_permissions`) i zwracają
+tę samą odmowę `permission_denied`:
+
+1. trasa deklaruje uprawnienie, którego konto nie ma → nazwane jest ono;
+2. inaczej odmowa ODCZYTU Delivery nazywa „podgląd” (`delivery_view`), a każda
+   odmowa sekcji Finanse — „Moduł Finanse” (`finance_module`), o ile konto ich
+   nie ma;
+3. w pozostałych przypadkach zostaje `section_access_denied` (dla zapisu
+   w Delivery z polskim `message`). Bramki Sourcing, Pipeline i Insights
+   działają jak dotąd.
+
+Nazywane jest wyłącznie uprawnienie, którego konto NIE ma — osoba ograniczona
+starym wyjątkiem sekcji dostaje zwykłą odmowę sekcji. Wniosek dla nowych tras:
+czyste wymaganie uprawnienia deklaruj zależnością trasy, nie sprawdzeniem
+w środku handlera — tylko zależność da się nazwać, zanim handler ruszy.
+
 ## 4. Reguły, które łatwo pomylić
 
 - **Kwoty kontraktu** zmienia 8. **Kwoty zamówienia i linii MD** zmienia 8 albo
@@ -203,6 +224,23 @@ których nie dają jej role (plakietka „+N uprawnienie”).
 
 Zmiana uprawnień roli albo osoby nadal unieważnia sesje dotkniętych kont
 (`invalidated_users` w odpowiedzi) — token niesie sekcje dla middleware.
+
+### Szczegóły zapisu
+
+- **Rola bez wierszy zasiewu.** Resolver liczy ją funkcją zasiewu z jej
+  zapisanych sekcji. Pierwsza prawdziwa zmiana uprawnienia zapisuje komplet
+  ośmiu wierszy (inaczej rola stałaby się „zasiana częściowo”, czyli
+  zamknięta), a audyt podaje jako stan „przed” wartość efektywną. Zapis tego,
+  co rola już ma z zasiewu, zwraca `changed: false` i nie pisze nic.
+- **Odmowa bazy** (CHECK akcji sprzed migracji 0409) → 409
+  `{"code": "permission_storage_rejected", "message": …}` zamiast 500.
+- **Historia zdarzeń.** `rbac.role_permissions`: jeden wpis na rolę, obiekt
+  „Uprawnienia roli”; `rbac.user_permissions`: obiekt „Uprawnienia
+  użytkownika”. `details.changes` niesie klucze uprawnień z wartościami
+  `from` / `to`; kolumna „powód” — zdanie z nazwami („Włączono: …”, „Nadano: …”,
+  „Usunięto ograniczenie: …”). Wpis powstaje w tej samej transakcji co zmiana.
+- `role_not_grantable` przy osobie dotyczy NADANIA (`manage`); zdjęcie starego
+  ograniczenia (`inherit`) przechodzi dla każdego konta poza adminem.
 
 ## 8. Ekran (makieta v3)
 

@@ -14,6 +14,12 @@ Od migracji 0409 poziom Delivery i Finansów wynika z uprawnień z ekranu
 uprawnienie do zmiany (klienci, kontrakty i zamówienia, status kontraktu,
 kwoty) daje zapis. Bramka sekcji jest więc sufitem, a o konkretnej operacji
 decyduje bramka uprawnienia na trasie (``permission_access``).
+
+Bramka sekcji biegnie PRZED bramką uprawnienia (zależności routera idą
+pierwsze), więc osoba bez żadnego zapisu w Delivery dostawałaby stąd ogólne
+„brak dostępu do sekcji”. Dlatego odmowa dla Delivery i Finansów czyta
+uprawnienie zadeklarowane przez trasę i nazywa je tak samo jak bramka
+uprawnienia (``_named_denial``).
 """
 
 from __future__ import annotations
@@ -28,9 +34,12 @@ from app.services.action_permissions import (
     ActionAccess,
     ProductAction,
     action_access_for_user,
+    has_permission,
 )
+from app.services.permission_denial import permission_denied
 from app.services.request_semantics import is_read_only_http_request
 from app.services.section_permissions import (
+    DERIVED_SECTIONS,
     ProductSection,
     SectionAccess,
     section_access_for_user,
@@ -61,6 +70,74 @@ def _is_contract_termination_recovery(request: Request, current_user: User) -> b
             UserRole.talent_community_manager, UserRole.finance
         )
     )
+
+
+#: Uprawnienie, z którego wynika odczyt sekcji wyliczanej. Sekcja Finanse
+#: to w całości „Moduł Finanse”.
+_SECTION_VIEW_PERMISSION: dict[ProductSection, ProductAction] = {
+    ProductSection.delivery: ProductAction.delivery_view,
+    ProductSection.finance: ProductAction.finance_module,
+}
+
+_DELIVERY_WRITE_MESSAGE = (
+    "Do tej operacji potrzebujesz uprawnienia do zmian w klientach, kontraktach "
+    "albo zamówieniach. Poproś administratora o dostęp."
+)
+
+
+def _declared_permissions(request: Request) -> list[tuple[ProductAction, ...]]:
+    """Uprawnienia, których trasa wymaga zależnością (``require_permission``).
+
+    Każda pozycja to grupa „wystarczy jedno z”. Kolejność jak w deklaracji
+    trasy, żeby ta sama osoba dostawała zawsze tę samą nazwę.
+    """
+
+    route = getattr(request, "scope", {}).get("route")
+    groups: list[tuple[ProductAction, ...]] = []
+    seen: set[int] = set()
+
+    def _walk(dependant: object) -> None:
+        if dependant is None or id(dependant) in seen:
+            return
+        seen.add(id(dependant))
+        declared = getattr(
+            getattr(dependant, "call", None), "required_permissions", None
+        )
+        if declared:
+            groups.append(tuple(declared))
+        for child in getattr(dependant, "dependencies", None) or ():
+            _walk(child)
+
+    _walk(getattr(route, "dependant", None))
+    return groups
+
+
+def _named_denial(
+    request: Request,
+    user: User,
+    sections: tuple[ProductSection, ...],
+    required: SectionAccess,
+) -> HTTPException | None:
+    """Odmowa z nazwą uprawnienia, jeśli da się je wskazać bez zgadywania.
+
+    Nazywamy wyłącznie uprawnienie, którego konto NIE ma — osoba ograniczona
+    starym wyjątkiem sekcji ma uprawnienie i dostaje zwykłą odmowę sekcji.
+    """
+
+    if DERIVED_SECTIONS.isdisjoint(sections):
+        return None
+    for group in _declared_permissions(request):
+        if not any(has_permission(user, action) for action in group):
+            return permission_denied(*group)
+    if len(sections) != 1:
+        return None
+    section = sections[0]
+    view = _SECTION_VIEW_PERMISSION[section]
+    if (
+        required is SectionAccess.read or section is ProductSection.finance
+    ) and not has_permission(user, view):
+        return permission_denied(view)
+    return None
 
 
 def require_section_access(section: ProductSection):
@@ -103,15 +180,18 @@ def require_section_access(section: ProductSection):
         ):
             return current_user
         if granted < required:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "code": "section_access_denied",
-                    "section": section.value,
-                    "required": required.name,
-                    "granted": granted.name,
-                },
-            )
+            named = _named_denial(request, current_user, (section,), required)
+            if named is not None:
+                raise named
+            detail = {
+                "code": "section_access_denied",
+                "section": section.value,
+                "required": required.name,
+                "granted": granted.name,
+            }
+            if section is ProductSection.delivery:
+                detail["message"] = _DELIVERY_WRITE_MESSAGE
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
         return current_user
 
     return _check
@@ -126,11 +206,17 @@ def require_section_access_any_read(*sections: ProductSection):
     if not sections:
         raise ValueError("At least one section is required")
 
-    async def _check(current_user: User = Depends(get_current_user)) -> User:
+    async def _check(
+        request: Request,
+        current_user: User = Depends(get_current_user),
+    ) -> User:
         if not any(
             section_access_for_user(current_user, section) >= SectionAccess.read
             for section in sections
         ):
+            named = _named_denial(request, current_user, sections, SectionAccess.read)
+            if named is not None:
+                raise named
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={
@@ -164,6 +250,9 @@ def require_section_access_any(*sections: ProductSection):
             section_access_for_user(current_user, section) >= required
             for section in sections
         ):
+            named = _named_denial(request, current_user, sections, required)
+            if named is not None:
+                raise named
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={
