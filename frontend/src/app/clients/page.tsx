@@ -6,6 +6,7 @@ import { ClientsListV2 } from "@/components/v2/pages/ClientsListV2";
 import { KeyRelationshipsPanel } from "@/components/clients/KeyRelationshipsPanel";
 import { WorkspaceModeTabs } from "@/components/ds/WorkspaceModeTabs";
 import { resolveClientsView, type ClientsView } from "@/lib/clients-workspace";
+import { LIST_PAGE_MAX_WIDTH } from "@/lib/wide-table";
 
 /**
  * „Klienci" = jeden ekran z dwoma trybami: lista klientów (z przełącznikiem
@@ -62,7 +63,7 @@ function ClientsWorkspace() {
   );
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-4">
+    <div className={`mx-auto space-y-4 ${LIST_PAGE_MAX_WIDTH}`}>
       {/* Lista klientów rysuje tryby pod swoim tytułem (jak Kontrakty);
           kluczowe relacje nie mają tytułu, więc tryby stoją nad nimi. */}
       {view === "contacts" ? (

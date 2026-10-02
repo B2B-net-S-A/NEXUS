@@ -51,6 +51,13 @@ import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
 import { DraftCompletionModal } from"@/components/v2/modals/DraftCompletionModal";
 import { ContractTerminationDialog } from"@/components/contracts/ContractTerminationDialog";
 import { ListDetailLayout } from"@/components/ds/ListDetailLayout";
+import {
+ LIST_PAGE_MAX_WIDTH,
+ WIDE_HIDDEN,
+ WIDE_ONLY_CELL,
+ WIDE_ONLY_INLINE,
+ WIDE_TABLE_CONTAINER,
+} from"@/lib/wide-table";
 import { rowActivationProps, useRowNavigation } from"@/hooks/useRowNavigation";
 import {
  buildContractDetailHref,
@@ -248,7 +255,8 @@ export function ContractorsListV2({
  canViewFinance || !["rate_candidate","rate_client"].includes(field)
  )
  .map(([, label]) => label);
- const visibleColumnCount = canViewFinance ? 8 : 6;
+ // Z trzema kolumnami szerokiej tabeli (w wąskiej są ukryte).
+ const visibleColumnCount = canViewFinance ? 11 : 9;
 
  // 403 (stawki = uprawnienie finansowe) i 5xx NIE mogą renderować się jako
  // „Brak aktywnych kontraktorów" — to zdanie o delivery, a nie o serwerze
@@ -355,12 +363,24 @@ export function ContractorsListV2({
  </p>
  )}
 
+ {/* Szeroka tabela (≥ 1700 px): e-mail, rekrutacja i data końca mają
+ własne kolumny zamiast drugiej linii pod kandydatem, klientem i startem. */}
+ <div className={WIDE_TABLE_CONTAINER}>
  <Table density="cozy">
  <TableHeader>
  <TableRow>
  <TableHead className="max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-card">Kandydat</TableHead>
- <TableHead className="max-w-[240px]">Klient · Rekrutacja</TableHead>
- <TableHead>Daty</TableHead>
+ <TableHead className={WIDE_ONLY_CELL}>E-mail</TableHead>
+ <TableHead className="max-w-[240px]">
+ Klient
+ <span className={WIDE_HIDDEN}> · Rekrutacja</span>
+ </TableHead>
+ <TableHead className={WIDE_ONLY_CELL}>Rekrutacja</TableHead>
+ <TableHead>
+ <span className={WIDE_HIDDEN}>Daty</span>
+ <span className={WIDE_ONLY_INLINE}>Start</span>
+ </TableHead>
+ <TableHead className={WIDE_ONLY_CELL}>Koniec</TableHead>
  <TableHead>Tryb</TableHead>
  {canViewFinance && (
  <>
@@ -457,25 +477,43 @@ export function ContractorsListV2({
  {c.candidate.name} {c.candidate.lastname}
  </Link>
  {c.candidate.email && (
- <TruncatedText className="text-xs text-muted-foreground">
+ <TruncatedText className={cn("text-xs text-muted-foreground", WIDE_HIDDEN)}>
  {c.candidate.email}
  </TruncatedText>
  )}
  </TableCell>
+ <TableCell className={WIDE_ONLY_CELL} data-testid="contractor-email-cell">
+ <TruncatedText className="text-xs text-muted-foreground">
+ {c.candidate.email || "—"}
+ </TruncatedText>
+ </TableCell>
  <TableCell>
  <TruncatedText className="text-sm">{c.client_name}</TruncatedText>
- <TruncatedText className="text-xs text-muted-foreground">
+ <TruncatedText className={cn("text-xs text-muted-foreground", WIDE_HIDDEN)}>
  {c.job_title}
  </TruncatedText>
+ </TableCell>
+ <TableCell className={WIDE_ONLY_CELL} data-testid="contractor-job-cell">
+ <TruncatedText className="text-sm">{c.job_title || "—"}</TruncatedText>
  </TableCell>
  <TableCell>
  <div className="flex items-center gap-1 text-xs text-foreground">
  <Calendar className="h-3 w-3" />
  {formatIsoDatePl(c.start_date)}
  </div>
- <div className="text-xs text-muted-foreground">
+ <div className={cn("text-xs text-muted-foreground", WIDE_HIDDEN)}>
  {c.end_date ? `→ ${formatIsoDatePl(c.end_date)}` :"brak daty końca"}
  </div>
+ </TableCell>
+ <TableCell
+ className={cn(WIDE_ONLY_CELL, "whitespace-nowrap text-xs")}
+ data-testid="contractor-end-cell"
+ >
+ {c.end_date ? (
+ formatIsoDatePl(c.end_date)
+ ) : (
+ <span className="text-muted-foreground">brak daty końca</span>
+ )}
  </TableCell>
  <TableCell>
  <Badge size="sm" variant="soft">
@@ -571,6 +609,7 @@ export function ContractorsListV2({
  )}
  </TableBody>
  </Table>
+ </div>
 
  {/* Stopka milczy przy awarii — „0 wyników" pod komunikatem o błędzie
  mówiłoby, że policzyliśmy i wyszło zero. */}
@@ -613,7 +652,7 @@ export function ContractorsListV2({
  );
 
  return (
- <div ref={listRef} className="mx-auto max-w-[1400px] md:p-6 min-[1600px]:has-[[data-list-detail-panel]]:max-w-[1820px]">
+ <div ref={listRef} className={cn("mx-auto md:p-6", LIST_PAGE_MAX_WIDTH)}>
  <ListDetailLayout
  list={listContent}
  onClose={() => setOpenContractId(null)}

@@ -107,13 +107,14 @@ export async function saveCollaboratorChanges(
  */
 export function collaboratorsSummary(
   collaborators: readonly JobCollaboratorEntry[] | null | undefined,
-): { count: number; tooltip: string } {
+): { count: number; names: string[]; tooltip: string } {
   const manual = manualCollaborators(collaborators).filter(
     (c) => c.is_active !== false,
   );
   const names = manual.map((c) => c.name?.trim() || `#${c.id}`);
   return {
     count: manual.length,
+    names,
     tooltip: names.length > 0 ? `Współpracownicy: ${names.join(", ")}` : "",
   };
 }

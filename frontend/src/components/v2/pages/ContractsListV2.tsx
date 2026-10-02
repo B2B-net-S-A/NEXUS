@@ -30,6 +30,13 @@ import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
 import { ListDetailLayout } from"@/components/ds/ListDetailLayout";
 import { rowActivationProps, useRowNavigation } from"@/hooks/useRowNavigation";
 import { TruncatedText } from"@/components/ds/TruncatedText";
+import {
+ LIST_PAGE_MAX_WIDTH,
+ WIDE_HIDDEN,
+ WIDE_ONLY_CELL,
+ WIDE_ONLY_COL,
+ WIDE_TABLE_CONTAINER,
+} from"@/lib/wide-table";
 import { useCapability } from"@/hooks/useCapability";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
@@ -1169,6 +1176,10 @@ export function ContractsListV2({
 
  {/* Compact client-band table. One semantic row per contract keeps every
  client/date/rate/status tuple aligned; the candidate cell spans the group. */}
+ {/* Szeroka tabela (≥ 1700 px): rekrutacja, koniec umowy i start
+ zamówienia mają własne kolumny zamiast drobnego druku pod klientem
+ i datami. Szerokości obu układów sumują się do 100%. */}
+ <div className={WIDE_TABLE_CONTAINER}>
  <Table
  density="compact"
  className="table-fixed text-xs max-xl:block"
@@ -1177,24 +1188,30 @@ export function ContractsListV2({
  <colgroup className="max-xl:hidden">
  {canSeeFinance ? (
  <>
- <col className="w-[15%]" />
- <col className="w-[14%]" />
- <col className="w-[9.5%]" />
- <col className="w-[11%]" />
- <col className="w-[12%]" />
- <col className="w-[12.5%]" />
- <col className="w-[9%]" />
- <col className="w-[7%]" />
- <col className="w-[10%]" />
+ <col className="w-[15%] @min-[1700px]:w-[13%]" />
+ <col className="w-[14%] @min-[1700px]:w-[11%]" />
+ <col className={cn(WIDE_ONLY_COL, "w-[13%]")} />
+ <col className="w-[9.5%] @min-[1700px]:w-[7%]" />
+ <col className={cn(WIDE_ONLY_COL, "w-[7%]")} />
+ <col className={cn(WIDE_ONLY_COL, "w-[7%]")} />
+ <col className="w-[11%] @min-[1700px]:w-[8%]" />
+ <col className="w-[12%] @min-[1700px]:w-[8%]" />
+ <col className="w-[12.5%] @min-[1700px]:w-[8.5%]" />
+ <col className="w-[9%] @min-[1700px]:w-[7%]" />
+ <col className="w-[7%] @min-[1700px]:w-[5%]" />
+ <col className="w-[10%] @min-[1700px]:w-[5.5%]" />
  </>
  ) : (
  <>
- <col className="w-[24%]" />
- <col className="w-[24%]" />
- <col className="w-[14%]" />
- <col className="w-[14%]" />
- <col className="w-[10%]" />
- <col className="w-[14%]" />
+ <col className="w-[24%] @min-[1700px]:w-[16%]" />
+ <col className="w-[24%] @min-[1700px]:w-[14%]" />
+ <col className={cn(WIDE_ONLY_COL, "w-[18%]")} />
+ <col className="w-[14%] @min-[1700px]:w-[9%]" />
+ <col className={cn(WIDE_ONLY_COL, "w-[9%]")} />
+ <col className={cn(WIDE_ONLY_COL, "w-[9%]")} />
+ <col className="w-[14%] @min-[1700px]:w-[9%]" />
+ <col className="w-[10%] @min-[1700px]:w-[7%]" />
+ <col className="w-[14%] @min-[1700px]:w-[9%]" />
  </>
  )}
  </colgroup>
@@ -1218,12 +1235,15 @@ export function ContractsListV2({
  )}
  </SortableHead>
  <SortableHead label="Klient" sortKey="client" sort={sort} onSort={onSort} />
+ <TableHead className={cn(WIDE_ONLY_CELL, "px-2")}>Rekrutacja</TableHead>
  <SortableHead
  label="Data rozpoczęcia"
  sortKey="start_date"
  sort={sort}
  onSort={onSort}
  />
+ <TableHead className={cn(WIDE_ONLY_CELL, "px-2")}>Koniec umowy</TableHead>
+ <TableHead className={cn(WIDE_ONLY_CELL, "px-2")}>Start zamówienia</TableHead>
  <SortableHead
  label="Data zakończenia zamówienia"
  sortKey="order_end_date"
@@ -1262,7 +1282,7 @@ export function ContractsListV2({
  {viewState === "loading" ? (
  <TableBody className="max-xl:block max-xl:w-full">
  <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
- <TableCell colSpan={canSeeFinance ? 9 : 6} className="text-center py-10 text-muted-foreground max-xl:block max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? 12 : 9} className="text-center py-10 text-muted-foreground max-xl:block max-xl:w-full">
  Ładowanie…
  </TableCell>
  </TableRow>
@@ -1270,7 +1290,7 @@ export function ContractsListV2({
  ) : failed ? (
  <TableBody className="max-xl:block max-xl:w-full">
  <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
- <TableCell colSpan={canSeeFinance ? 9 : 6} className="p-0 max-xl:block max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? 12 : 9} className="p-0 max-xl:block max-xl:w-full">
  <QueryStateNotice
  state={viewState as "forbidden" | "not_found" | "error"}
  className="border-0"
@@ -1287,7 +1307,7 @@ export function ContractsListV2({
  ) : viewState === "empty" ? (
  <TableBody className="max-xl:block max-xl:w-full">
  <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
- <TableCell colSpan={canSeeFinance ? 9 : 6} className="text-center py-10 max-xl:block max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? 12 : 9} className="text-center py-10 max-xl:block max-xl:w-full">
  <FileText className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
  <p className="text-sm text-muted-foreground">
  Brak kontraktów spełniających kryteria.
@@ -1419,9 +1439,22 @@ export function ContractsListV2({
  </TruncatedText>
  </Link>
  {m.job_title && (
- <TruncatedText className="max-w-full text-[10px] leading-4 text-muted-foreground">
+ <TruncatedText className={cn("max-w-full text-[10px] leading-4 text-muted-foreground", WIDE_HIDDEN)}>
  {m.job_title}
  </TruncatedText>
+ )}
+ </TableCell>
+
+ <TableCell
+ data-testid="contract-job-cell"
+ className={cn(WIDE_ONLY_CELL, "px-2 py-1.5 align-top")}
+ >
+ {m.job_title ? (
+ <TruncatedText className="max-w-full text-[12px] leading-4">
+ {m.job_title}
+ </TruncatedText>
+ ) : (
+ <span className="text-[12px] text-muted-foreground">—</span>
  )}
  </TableCell>
 
@@ -1435,11 +1468,34 @@ export function ContractsListV2({
  </div>
  {m.end_date && (
  <div
- className="whitespace-nowrap text-[10px] leading-4 text-muted-foreground"
+ className={cn("whitespace-nowrap text-[10px] leading-4 text-muted-foreground", WIDE_HIDDEN)}
  title="Data zakończenia umowy"
  >
  umowa do <CompactDate value={m.end_date} />
  </div>
+ )}
+ </TableCell>
+
+ <TableCell
+ data-testid="contract-end-cell"
+ title="Data zakończenia umowy"
+ className={cn(WIDE_ONLY_CELL, "px-2 py-1.5 align-top whitespace-nowrap text-[12px] leading-4")}
+ >
+ {m.end_date ? (
+ <CompactDate value={m.end_date} />
+ ) : (
+ <span className="text-muted-foreground">—</span>
+ )}
+ </TableCell>
+ <TableCell
+ data-testid="contract-order-start-cell"
+ title="Początek okresu zamówienia — z najnowszego uzupełnionego zamówienia tej osoby."
+ className={cn(WIDE_ONLY_CELL, "px-2 py-1.5 align-top whitespace-nowrap text-[12px] leading-4")}
+ >
+ {m.client_order_start_date ? (
+ <CompactDate value={m.client_order_start_date} />
+ ) : (
+ <span className="text-muted-foreground">—</span>
  )}
  </TableCell>
 
@@ -1460,7 +1516,7 @@ export function ContractsListV2({
  "bezterminowo"
  )}
  </div>
- <div className="whitespace-nowrap text-[10px] leading-4 text-muted-foreground">
+ <div className={cn("whitespace-nowrap text-[10px] leading-4 text-muted-foreground", WIDE_HIDDEN)}>
  zam. od <CompactDate value={m.client_order_start_date} />
  </div>
  </>
@@ -1576,6 +1632,7 @@ export function ContractsListV2({
  })
  )}
  </Table>
+ </div>
 
  {/* Pagination */}
  {viewState === "ready" && total > pageSize && (
@@ -1606,10 +1663,7 @@ export function ContractsListV2({
  return (
  <div
  ref={listRef}
- className={cn(
- "mx-auto max-w-[1400px]",
- openContractId != null && "min-[1600px]:max-w-[1820px]",
- )}
+ className={cn("mx-auto", LIST_PAGE_MAX_WIDTH)}
  >
  <ListDetailLayout
  list={listContent}
