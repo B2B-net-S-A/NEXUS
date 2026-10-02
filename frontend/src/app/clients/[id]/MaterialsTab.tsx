@@ -154,8 +154,11 @@ export function MaterialsTab({
   const [active, setActive] = useState<SubTab>("one_pagers");
 
   return (
-    <div className="space-y-4">
-      <div className="inline-flex items-center gap-1 p-1 bg-muted dark:bg-muted rounded-xl">
+    // `@container`: sekcja stoi w wąskiej karcie obok tabeli konsultantów
+    // (ok. 340 px) albo na całą szerokość pod nią — siatki pól liczą się od
+    // szerokości karty, nie okna.
+    <div className="@container min-w-0 space-y-3">
+      <div className="flex flex-wrap items-center gap-1 rounded-lg bg-muted p-1">
         <SubTabButton
           active={active === "one_pagers"}
           onClick={() => setActive("one_pagers")}
@@ -203,10 +206,12 @@ function SubTabButton({
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+      type="button"
+      aria-pressed={active}
+      className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors pointer-coarse:min-h-10 ${
         active
-          ? "bg-card dark:bg-muted text-purple-700 dark:text-purple-300 shadow-xs"
-          : "text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground"
+          ? "bg-card text-foreground shadow-xs"
+          : "text-muted-foreground hover:text-foreground"
       }`}
     >
       {label}
@@ -266,21 +271,21 @@ function OnePagersSection({
   }
 
   return (
-    <section className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
+    <section className="min-w-0">
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
-          <h2 className="text-lg font-bold text-foreground dark:text-foreground flex items-center gap-2">
-            <FileText className="w-5 h-5 text-purple-600" />
+          <h2 className="text-[13px] font-semibold text-foreground flex items-center gap-2">
+            <FileText className="w-4 h-4 text-muted-foreground" />
             One-pagery
           </h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             Materiały sprzedażowe (PDF/DOCX) przypięte do tego klienta
           </p>
         </div>
         {!readOnly && (
           <button
             onClick={() => setShowUpload(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-medium transition-colors"
           >
             <Plus className="w-4 h-4" /> Dodaj
           </button>
@@ -305,7 +310,7 @@ function OnePagersSection({
             : "Brak one-pagerów. Dodaj pierwszy, aby zacząć."}
         </div>
       ) : (
-        <ul className="divide-y divide-gray-100 dark:divide-gray-700">
+        <ul className="divide-y divide-border">
           {pagers.map((p) => (
             <li
               key={p.id}
@@ -345,7 +350,7 @@ function OnePagersSection({
               <div className="flex items-center gap-1 shrink-0">
                 <button
                   onClick={() => handleDownload(p)}
-                  className="p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:text-purple-600 transition-colors"
+                  className="p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:text-primary transition-colors"
                   title="Pobierz"
                 >
                   <Download className="w-4 h-4" />
@@ -462,7 +467,7 @@ function UploadSheet({
               <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
                 Plik (PDF/DOCX, max {MAX_UPLOAD_MB} MB) *
               </label>
-              <label className="flex items-center justify-center gap-2 px-3 py-3 border-2 border-dashed border-border dark:border-border rounded-lg hover:border-purple-500 cursor-pointer transition-colors">
+              <label className="flex items-center justify-center gap-2 px-3 py-3 border-2 border-dashed border-border dark:border-border rounded-lg hover:border-primary cursor-pointer transition-colors">
                 <Upload className="w-4 h-4 text-muted-foreground" />
                 <span className="text-sm text-muted-foreground dark:text-muted-foreground truncate">
                   {file ? file.name : "Wybierz plik…"}
@@ -484,7 +489,7 @@ function UploadSheet({
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+                className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
                 placeholder="Oferta B2B dla ACME"
               />
             </div>
@@ -497,7 +502,7 @@ function UploadSheet({
                 type="text"
                 value={version}
                 onChange={(e) => setVersion(e.target.value)}
-                className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+                className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
                 placeholder="1.0"
               />
             </div>
@@ -510,7 +515,7 @@ function UploadSheet({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
-                className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+                className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
                 placeholder="Notatki dla zespołu…"
               />
             </div>
@@ -532,7 +537,7 @@ function UploadSheet({
             <button
               type="submit"
               disabled={submitting || !file || !title.trim()}
-              className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white text-sm font-medium transition-colors"
+              className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground text-sm font-medium transition-colors"
             >
               {submitting ? "Wysyłam…" : "Wyślij"}
             </button>
@@ -637,21 +642,21 @@ function RequiredDocumentsSection({
   });
 
   return (
-    <section className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
+    <section className="min-w-0">
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
-          <h2 className="text-lg font-bold text-foreground dark:text-foreground flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5 text-purple-600" />
+          <h2 className="text-[13px] font-semibold text-foreground flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-muted-foreground" />
             Wymagane dokumenty
           </h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             NDA, RODO, klauzule off-limits — wymogi przed startem współpracy
           </p>
         </div>
         {!readOnly && (
           <button
             onClick={() => setShowApply(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-medium transition-colors"
           >
             <Plus className="w-4 h-4" /> Z szablonu
           </button>
@@ -678,7 +683,7 @@ function RequiredDocumentsSection({
             : "Brak wymogów. Kliknij „Z szablonu”, aby zaaplikować NDA / RODO / off-limits / warunki płatności."}
         </div>
       ) : (
-        <ul className="divide-y divide-gray-100 dark:divide-gray-700">
+        <ul className="divide-y divide-border">
           {docs.map((d) => (
             <RequiredDocRow
               key={d.id}
@@ -835,7 +840,7 @@ function RequiredDocRow({
                   type="button"
                   disabled={statusMutation.isPending}
                   title="Zmień status"
-                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded ${meta.bg} ${meta.text} hover:ring-1 hover:ring-purple-400/40 transition disabled:opacity-50`}
+                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded ${meta.bg} ${meta.text} hover:ring-1 hover:ring-primary/40 transition disabled:opacity-50`}
                 >
                   {meta.icon}
                   {meta.label}
@@ -864,7 +869,7 @@ function RequiredDocRow({
                         <span className={`inline-flex ${m.text}`}>{m.icon}</span>
                         <span className="flex-1">{m.label}</span>
                         {isCurrent && (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-purple-600" />
+                          <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
                         )}
                       </button>
                     );
@@ -908,7 +913,7 @@ function RequiredDocRow({
         {doc.filename && (
           <button
             onClick={handleDownload}
-            className="p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:text-purple-600 transition-colors"
+            className="p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:text-primary transition-colors"
             title="Pobierz"
           >
             <Download className="w-4 h-4" />
@@ -916,7 +921,7 @@ function RequiredDocRow({
         )}
         {!readOnly && (
           <>
-            <label className="p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:text-purple-600 transition-colors cursor-pointer" title="Wgraj plik">
+            <label className="p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" title="Wgraj plik">
               <Upload className="w-4 h-4" />
               <input
                 type="file"
@@ -927,7 +932,7 @@ function RequiredDocRow({
             </label>
             <button
               onClick={onEdit}
-              className="px-2 py-1 text-xs text-muted-foreground hover:text-purple-600 transition-colors"
+              className="px-2 py-1 text-xs text-muted-foreground hover:text-primary transition-colors"
             >
               Edytuj
             </button>
@@ -1062,7 +1067,7 @@ function ApplyTemplatesDialog({
             type="button"
             onClick={() => submit(true)}
             disabled={submitting || templates.length === 0}
-            className="px-3 py-1.5 rounded-lg text-sm text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-colors"
+            className="px-3 py-1.5 rounded-lg text-sm text-primary hover:bg-primary/10 transition-colors"
           >
             Aplikuj wszystkie domyślne
           </button>
@@ -1070,7 +1075,7 @@ function ApplyTemplatesDialog({
             type="button"
             onClick={() => submit(false)}
             disabled={submitting || selected.size === 0}
-            className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white text-sm font-medium transition-colors"
+            className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground text-sm font-medium transition-colors"
           >
             Aplikuj wybrane ({selected.size})
           </button>
@@ -1216,7 +1221,7 @@ function EditDocDialog({
             <button
               type="submit"
               disabled={submitting || !name.trim()}
-              className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white text-sm font-medium transition-colors"
+              className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground text-sm font-medium transition-colors"
             >
               {submitting ? "Zapisuję…" : "Zapisz"}
             </button>
@@ -1264,7 +1269,7 @@ function ContractTermsSection({
 
   if (termsState === "loading") {
     return (
-      <section className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
+      <section className="min-w-0">
         <p className="text-sm text-muted-foreground">Ładowanie warunków umowy…</p>
       </section>
     );
@@ -1273,7 +1278,7 @@ function ContractTermsSection({
   // nadpisałby prawdziwe warunki pustymi polami (audyt S10).
   if (isBlockingViewState(termsState)) {
     return (
-      <section className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
+      <section className="min-w-0">
         <QueryStateNotice
           state={termsState as BlockingViewState}
           description={
@@ -1331,14 +1336,14 @@ function TermsEditor({ initial, onSave, saving, readOnly }: TermsEditorProps) {
   return (
     <form
       onSubmit={submit}
-      className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6 space-y-6"
+      className="min-w-0 space-y-4"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-foreground dark:text-foreground">
+          <h2 className="text-[13px] font-semibold text-foreground">
             Najważniejsze rzeczy w umowie
           </h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             Kluczowe klauzule z umowy ramowej — internalizacja, płatności
           </p>
           {initial.updated_at && (
@@ -1358,7 +1363,7 @@ function TermsEditor({ initial, onSave, saving, readOnly }: TermsEditorProps) {
       <fieldset disabled={readOnly} className="contents">
       {/* Internalization */}
       <FieldGroup title="Internalizacja (klient bierze kontraktora na etat)">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 @md:grid-cols-3 gap-3">
           <TextField
             label="Opłata (% rocznej pensji)"
             value={form.internalization_fee_pct}
@@ -1388,7 +1393,7 @@ function TermsEditor({ initial, onSave, saving, readOnly }: TermsEditorProps) {
 
       {/* Payments */}
       <FieldGroup title="Płatności">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 @md:grid-cols-3 gap-3">
           <NumberField
             label="Termin płatności (dni, net)"
             value={form.payment_net_days}
@@ -1435,7 +1440,7 @@ function TermsEditor({ initial, onSave, saving, readOnly }: TermsEditorProps) {
 
       {/* Termination & warranty */}
       <FieldGroup title="Wypowiedzenie i gwarancje">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 @md:grid-cols-2 gap-3">
           <NumberField
             label="Okres wypowiedzenia umowy ramowej (dni)"
             value={form.notice_period_days}
@@ -1473,7 +1478,7 @@ function TermsEditor({ initial, onSave, saving, readOnly }: TermsEditorProps) {
             <button
               type="submit"
               disabled={saving}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white text-sm font-medium transition-colors"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground text-sm font-medium transition-colors"
             >
               <Save className="w-4 h-4" />
               {saving ? "Zapisywanie…" : "Zapisz"}
@@ -1530,7 +1535,7 @@ function TextField({
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value || null)}
         placeholder={placeholder}
-        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
       />
     </div>
   );
@@ -1557,7 +1562,7 @@ function NumberField({
           onChange(e.target.value === "" ? null : Number(e.target.value))
         }
         placeholder={placeholder}
-        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
       />
     </div>
   );
@@ -1586,7 +1591,7 @@ function TextareaField({
         onChange={(e) => onChange(e.target.value || null)}
         rows={rows}
         placeholder={placeholder}
-        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
       />
     </div>
   );
@@ -1610,7 +1615,7 @@ function SelectField({
       <select
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value || null)}
-        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+        className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>

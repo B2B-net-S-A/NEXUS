@@ -1,16 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Users, FileText, CalendarClock } from "lucide-react";
-import api from "@/lib/api";
 import {
   filterConsultantsByExecutiveContract,
   isEzdrowieClient,
   type ConsultantAssignmentFilter,
 } from "@/lib/ezdrowie";
 import type { ClientProfileResponse } from "@/types/client-profile";
-import { SummaryBar } from "@/components/client-profile/SummaryBar";
+import { useClientProfile } from "@/components/client-profile/useClientProfile";
 import {
   ConsultantsTable,
   toConsultantRow,
@@ -29,11 +27,9 @@ interface Props {
 }
 
 export function ProfileTab({ clientId }: Props) {
-  const query = useQuery<ClientProfileResponse>({
-    queryKey: ["client-profile", clientId],
-    queryFn: () =>
-      api.get(`/api/clients/${clientId}/profile`).then((r) => r.data),
-  });
+  // To samo zapytanie czyta nagłówek strony klienta (liczby „Aktywni
+  // konsultanci” i „Aktywne MRR”) — jeden klucz, jedno żądanie.
+  const query = useClientProfile(clientId);
   const { data } = query;
   // 403 ≠ awaria ≠ pusty profil — i awaria ma „Spróbuj ponownie” (audyt S10).
   const viewState = resolveViewState({
@@ -57,7 +53,7 @@ export function ProfileTab({ clientId }: Props) {
   if (viewState === "loading") {
     return (
       <div className="flex items-center justify-center py-12 text-muted-foreground">
-        <div className="w-5 h-5 border-2 border-purple-400 border-t-transparent rounded-full animate-spin mr-2" />
+        <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2" />
         Ładowanie profilu...
       </div>
     );
@@ -80,9 +76,9 @@ export function ProfileTab({ clientId }: Props) {
   }
 
   return (
-    <div className="space-y-6">
-      <SummaryBar summary={data.summary} />
-
+    <div className="space-y-4">
+      {/* Liczby klienta (aktywni konsultanci, aktywne MRR) stoją w nagłówku
+          strony — widać je na każdej zakładce, a tabela zaczyna się wyżej. */}
       {/* Centrum e-Zdrowia: struktura umów (ramowa → wykonawcze) NAD listą
           konsultantów — filtr i badge w tabeli czytają umowy stąd. */}
       {isEzdrowieClient(clientId) ? (
@@ -129,7 +125,7 @@ function ConsultantsSection({
   archived: ClientProfileResponse["historical"]["placements"];
   /** Wszystkie zakończone kontrakty — `archived` jest przycięte (audyt S7). */
   archivedTotal?: number;
-  /** Osoby na obecnych kontraktach (kafel „Aktywni konsultanci”). */
+  /** Osoby na obecnych kontraktach (liczba „Aktywni konsultanci” w nagłówku). */
   activePeople: number;
   clientId: number;
 }) {
@@ -151,7 +147,7 @@ function ConsultantsSection({
   const archiveCount = Math.max(archivedTotal ?? 0, archived.length);
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-2">
       {/* Podzakładki na `ds/TabbedNav` — jak w sąsiedniej zakładce Projekty.
           Poprzedni, ręcznie zrobiony przełącznik nie miał `role="tab"` ani
           `aria-selected`, więc czytnik ekranu widział dwa zwykłe przyciski. */}
@@ -183,32 +179,13 @@ function ConsultantsSection({
         ]}
       />
 
-      <SectionHeader
-        icon={
-          isArchive ? (
-            <FileText className="w-4 h-4 text-emerald-600" />
-          ) : isPlanned ? (
-            <CalendarClock className="w-4 h-4 text-emerald-600" />
-          ) : (
-            <Users className="w-4 h-4 text-emerald-600" />
-          )
-        }
-        title={
-          isArchive
-            ? "Archiwum konsultantów"
-            : isPlanned
-              ? "Planowani konsultanci"
-              : "Obecni konsultanci"
-        }
-        count={isArchive ? archiveCount : isPlanned ? planned.length : activeCount}
-      />
       <p className="text-xs text-muted-foreground">
         {isPlanned
           ? "Kontrakty, które jeszcze nie wystartowały (data startu umowy — a gdy jej brak, bieżącego zamówienia — jest w przyszłości). Nie wchodzą do „Obecnych” ani do „Aktywnego MRR”."
           : "Widok informacyjny. Zakończenie projektu odbywa się w Zamówieniach lub Kontraktach."}
       </p>
-      {/* Liczniki zakładek liczą KONTRAKTY (wiersz tabeli), kafel nad nimi —
-          OSOBY. Gdy się różnią, mówimy dlaczego (audyt N1). */}
+      {/* Liczniki zakładek liczą KONTRAKTY (wiersz tabeli), liczba w nagłówku
+          strony — OSOBY. Gdy się różnią, mówimy dlaczego (audyt N1). */}
       {!isArchive && !isPlanned && activePeople !== active.length ? (
         <p className="text-xs text-muted-foreground">
           {countPl(active.length, "kontrakt", "kontrakty", "kontraktów")} ·{" "}
@@ -304,33 +281,6 @@ function statusOf(
   contractId: number,
 ): string | null {
   return rows.find((row) => row.contract_id === contractId)?.contract_status ?? null;
-}
-
-function SectionHeader({
-  icon,
-  title,
-  count,
-  action,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  count: number;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        {icon}
-        <h3 className="text-sm font-semibold text-foreground dark:text-muted-foreground">
-          {title}
-        </h3>
-        <span className="text-xs px-2 py-0.5 bg-muted dark:bg-muted text-muted-foreground dark:text-muted-foreground rounded-full font-semibold">
-          {count}
-        </span>
-      </div>
-      {action}
-    </div>
-  );
 }
 
 function EmptyState({
