@@ -17,6 +17,7 @@ from app.core.database import engine, Base
 from app.core.http_headers import apply_credentialed_cache_policy
 from app.core.logging_config import configure_json_logging
 from app.core.rate_limit import limiter
+from app.core.integer_range import OUT_OF_RANGE, is_integer_out_of_range
 from app.core.null_character_guard import NullCharacterGuardMiddleware
 from app.core.body_size_limit import BodySizeLimitMiddleware
 from app.core.request_correlation import RequestCorrelationMiddleware
@@ -408,6 +409,14 @@ class UnhandledErrorMiddleware(BaseHTTPMiddleware):
         try:
             return await call_next(request)
         except Exception as exc:  # noqa: BLE001 - to jest sieć bezpieczeństwa
+            if is_integer_out_of_range(exc):
+                # Liczba z żądania większa niż kolumna (int4): asyncpg nie
+                # wysłał zapytania, więc to błąd żądania. Jedno miejsce zamiast
+                # górnej granicy na każdym parametrze i polu każdej trasy.
+                logger.warning(
+                    "Integer out of range on %s %s", request.method, request.url.path
+                )
+                return JSONResponse(status_code=422, content={"detail": OUT_OF_RANGE})
             logger.exception(
                 "Unhandled error on %s %s", request.method, request.url.path
             )

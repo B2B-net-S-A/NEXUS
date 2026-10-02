@@ -84,9 +84,26 @@ describe("JobPreviewDetails", () => {
   it("wymagań jest najwyżej osiem, reszta jako „+N”", () => {
     const many = Array.from({ length: 11 }, (_, i) => `Skill ${i + 1}`);
     render(<JobPreviewDetails job={{ id: 1, must_skills: many }} onSimilar={vi.fn()} />);
-    const items = screen.getAllByRole("listitem");
-    expect(items).toHaveLength(9);
-    expect(items[8]).toHaveTextContent("+3");
+    expect(screen.getAllByRole("listitem")).toHaveLength(8);
+    expect(screen.getByText("+3 — pełna lista w rekrutacji")).toBeInTheDocument();
+  });
+
+  it("wymaganie-zdanie stoi jako punkt listy, a słowo kluczowe jako chip", () => {
+    const sentence =
+      "Minimum 5 lat doświadczenia w analizie biznesowo-systemowej w dużych projektach";
+    render(
+      <JobPreviewDetails
+        job={{ id: 1, must_skills: ["BPMN 2.0", sentence, "JIRA"] }}
+        onSimilar={vi.fn()}
+      />,
+    );
+    const chips = within(screen.getByTestId("job-preview-requirement-chips"));
+    expect(chips.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "BPMN 2.0",
+      "JIRA",
+    ]);
+    const lines = within(screen.getByTestId("job-preview-requirement-lines"));
+    expect(lines.getAllByRole("listitem").map((li) => li.textContent)).toEqual([sentence]);
   });
 
   it("kopiuje numer u klienta i mówi, gdy się nie udało", async () => {

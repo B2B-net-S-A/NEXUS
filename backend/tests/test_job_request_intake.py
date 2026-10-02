@@ -460,6 +460,29 @@ def test_must_is_kept_word_for_word_from_the_request() -> None:
     assert result.provenance["must"] == "request"
 
 
+def test_long_requirement_is_not_cut_in_the_middle_of_a_word() -> None:
+    """Zgłoszenie 02.10.2026: wymaganie z maila kończyło się „…i tworzenie d”,
+    bo każda pozycja była cięta na 80. znaku."""
+    sentence = (
+        "Modelowanie procesów biznesowych, dokumentowanie reguł biznesowych "
+        "i tworzenie dokumentacji analitycznej"
+    )
+    assert len(sentence) > 80
+    result = normalize_model_output({"must": [sentence], "nice": [sentence + " 2"]}, sentence)
+    assert result.must == [sentence]
+    assert result.nice == [sentence + " 2"]
+
+
+def test_requirement_over_the_stack_limit_ends_on_a_word_boundary() -> None:
+    from app.schemas.champion import STACK_ITEM_MAX_CHARS
+
+    essay = " ".join(["wymaganie"] * 80)
+    assert len(essay) > STACK_ITEM_MAX_CHARS
+    (kept,) = normalize_model_output({"must": [essay]}, essay).must
+    assert len(kept) <= STACK_ITEM_MAX_CHARS
+    assert kept.endswith("wymaganie…")
+
+
 def test_explicit_language_wins_over_language_found_in_must() -> None:
     raw = {"must": ["Java", "angielski B2"], "language": "PL, EN B2"}
     result = normalize_model_output(raw, "Java, angielski B2")
