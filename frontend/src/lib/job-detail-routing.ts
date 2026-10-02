@@ -17,10 +17,12 @@
  *   &wintab=<…>                  zakładka/sekcja startowa okna
  */
 
-import type {
-  PersonPanelSection,
-  RecruitmentSegment,
-  RecruitmentSlideOver,
+import {
+  CANDIDATE_SOURCE_TABS,
+  type CandidateSourceTab,
+  type PersonPanelSection,
+  type RecruitmentSegment,
+  type RecruitmentSlideOver,
 } from "@/components/v2/recruitment/types";
 
 export type JobDetailView = "people" | "board" | "champion";
@@ -109,6 +111,7 @@ const SLIDE_OVERS: readonly RecruitmentSlideOver[] = [
   "history-chat",
   "manual-search",
   "similar",
+  "add",
 ];
 const HISTORY_TABS: readonly JobHistoryChatTab[] = [
   "all",
@@ -163,6 +166,8 @@ export interface JobDetailUrlState {
   slideOver: RecruitmentSlideOver | null;
   slideOverTab: JobHistoryChatTab | null;
   orderSection: JobOrderSection | null;
+  /** Zakładka okna „Kandydaci do dodania” (`?win=add&wintab=…`). */
+  sourceTab: CandidateSourceTab | null;
   /** `?highlight=ai-proposals` — podświetl segment propozycji po wejściu. */
   highlightProposals: boolean;
 }
@@ -179,7 +184,9 @@ export function readJobDetailUrlState(params: ParamReader | null | undefined): J
   const view = parseJobDetailView(rawTab);
   const legacy = view ? null : resolveLegacyJobTab(rawTab);
   const highlightProposals = get("highlight") === "ai-proposals";
-  const slideOver = parseRecruitmentSlideOver(get("win")) ?? legacy?.slideOver ?? null;
+  const rawSlideOver = parseRecruitmentSlideOver(get("win")) ?? legacy?.slideOver ?? null;
+  // Dawne `?win=similar` (panel przepięć) = okno źródeł na „Podobnych rekrutacjach”.
+  const slideOver: RecruitmentSlideOver | null = rawSlideOver === "similar" ? "add" : rawSlideOver;
   const rawWinTab = get("wintab");
   return {
     view:
@@ -199,6 +206,12 @@ export function readJobDetailUrlState(params: ParamReader | null | undefined): J
     orderSection:
       slideOver === "order"
         ? (oneOf(rawWinTab, ORDER_SECTIONS) ?? legacy?.orderSection ?? null)
+        : null,
+    sourceTab:
+      slideOver === "add"
+        ? rawSlideOver === "similar"
+          ? "similar"
+          : (oneOf(rawWinTab, CANDIDATE_SOURCE_TABS) ?? "base")
         : null,
     highlightProposals,
   };
@@ -233,7 +246,7 @@ export function rewriteLegacyJobParams(
   if (state.segment) next.set("seg", state.segment);
   if (state.panelSection) next.set("panel", state.panelSection);
   if (state.slideOver) next.set("win", state.slideOver);
-  const winTab = state.slideOverTab ?? state.orderSection;
+  const winTab = state.slideOverTab ?? state.orderSection ?? state.sourceTab;
   if (winTab) next.set("wintab", winTab);
   return next;
 }

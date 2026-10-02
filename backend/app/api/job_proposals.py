@@ -14,13 +14,16 @@ skrzynka nie zna (wyszukiwarka, rekomendacja) — wiersz powstaje od razu jako
 pominięty. Pominięta osoba wraca z nową wersją CV albo przez „Cofnij"
 (``…/restore``, ta sama bramka). Nie ma znacznika „widziane" per użytkownik.
 
+``…/proposal-counts`` (02.10.2026) dzieli otwarte propozycje na świeże
+z ogłoszeń (nowe CV, portale) i resztę — te same pary co lista skrzynki.
+
 Od 30.09.2026 (0405) „Pomiń" wymaga powodu (``reason`` ze słownika
 ``DISMISS_REASONS``, przy „other" także ``note``) — powód trafia do wiersza,
 telemetrii ``reject`` i raportu „Propozycje AI" w Insights.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -235,6 +238,11 @@ async def list_job_proposals(
     )
     reassign_from = await _reassign_sources(db, job_id, ids)
     trainee_handover = await _trainee_handovers(db, job_id, ids)
+    # „Z ogłoszeń w ostatnich dniach” — to samo okno co domyślny podział
+    # licznika (`…/proposal-counts`), liczone zegarem serwera.
+    posting_since = datetime.now(timezone.utc) - timedelta(
+        days=proposals.POSTING_RECENT_DAYS
+    )
     items = []
     hidden = 0
     for row in rows:
@@ -254,6 +262,11 @@ async def list_job_proposals(
                 "first_seen_at": row.first_seen_at,
                 "last_seen_at": row.last_seen_at,
                 "is_new": row.is_new,
+                "posting_seen_at": row.posting_seen_at,
+                "posting_recent": (
+                    row.posting_seen_at is not None
+                    and row.posting_seen_at >= posting_since
+                ),
                 "status": row.status,
                 "run_id": row.run_id,
                 "eligibility": (
@@ -281,6 +294,52 @@ async def list_job_proposals(
         "limit": limit,
         "offset": offset,
         "next_offset": offset + limit if offset + limit < total else None,
+    }
+
+
+@router.get("/jobs/{job_id}/proposal-counts")
+async def job_proposal_counts(
+    job_id: int,
+    user: CurrentUser,
+    days: int = Query(proposals.POSTING_RECENT_DAYS, ge=1, le=30),
+    db: AsyncSession = Depends(get_db),
+):
+    """Liczby do nagłówka „Do przejrzenia” — ta sama bramka co skrzynka.
+
+    ``postings_recent`` + ``base`` = ``total`` skrzynki (otwarte propozycje:
+    świeże z ogłoszeń i reszta). ``screened_out`` = lista „Odrzuceni przez AI”
+    (ta sama reguła i ta sama bramka co ``…/screened-out``). ``not_searchable_must``
+    = pozycje must rekrutacji, których nie da się szukać w CV (zdanie, branża,
+    język, rola) — ta sama reguła co ``non_technology_must`` w ``/scores``.
+    """
+    from app.api.search import _non_technology_must  # noqa: PLC0415
+    from app.models.application_screening import (  # noqa: PLC0415
+        ApplicationScreening,
+    )
+    from app.services import application_screening as screening  # noqa: PLC0415
+    from app.services.scoring_service import job_skill_requirements  # noqa: PLC0415
+
+    job = await _job(db, user, job_id)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    split = await proposals.open_split_counts(db, job_id=job_id, since=since)
+    screened_out = int(
+        await db.scalar(
+            select(func.count(ApplicationScreening.id)).where(
+                ApplicationScreening.job_id == job_id, screening.listed_clause()
+            )
+        )
+        or 0
+    )
+    # Te same etykiety must, które punktuje `/scores` (`matching_must` +
+    # `gap_must` każdej osoby to razem wymagania must rekrutacji).
+    must = job_skill_requirements(job).get("must") or []
+    return {
+        "job_id": job_id,
+        "days": days,
+        "postings_recent": split["postings_recent"],
+        "base": split["base"],
+        "screened_out": screened_out,
+        "not_searchable_must": _non_technology_must({"job": {"matching_must": must}}),
     }
 
 

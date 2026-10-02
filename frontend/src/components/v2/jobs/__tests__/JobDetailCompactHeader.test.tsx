@@ -5,6 +5,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import { JobDetailCompactHeader } from "@/components/v2/jobs/JobDetailCompactHeader";
 import type { JobDetailView } from "@/lib/job-detail-routing";
+import type { JobHeaderFact } from "@/lib/job-header-facts";
+
+const FACTS: JobHeaderFact[] = [
+  { key: "client", label: "Klient", value: "Bank Przykładowy S.A." },
+  { key: "budget", label: "Budżet", value: "do 93,00 PLN/h" },
+  { key: "work_mode", label: "Tryb pracy", value: "Zdalnie" },
+];
 
 function renderHeader(
   overrides: Partial<React.ComponentProps<typeof JobDetailCompactHeader>> = {},
@@ -13,335 +20,246 @@ function renderHeader(
   const onOpenOrder = vi.fn();
   const onOpenHistoryChat = vi.fn();
   const onOpenQuestions = vi.fn();
-  const onAddCandidate = vi.fn();
-  const onEdit = vi.fn();
 
   const { unmount } = render(
     <JobDetailCompactHeader
-      title="Senior Java Developer"
+      title="Analityk KYC/AML"
       referenceNumber="REF-505734"
-      badges={<span>Aktywna</span>}
-      metadata={<span>Warszawa</span>}
+      badges={<span>Szukamy</span>}
+      facts={FACTS}
       activeView="board"
       onViewChange={onViewChange}
       onOpenOrder={onOpenOrder}
       onOpenHistoryChat={onOpenHistoryChat}
       onOpenQuestions={onOpenQuestions}
-      onAddCandidate={onAddCandidate}
-      onEdit={onEdit}
       chatUnreadCount={3}
       {...overrides}
     />,
   );
 
-  return {
-    onViewChange,
-    onOpenOrder,
-    onOpenHistoryChat,
-    onOpenQuestions,
-    onAddCandidate,
-    onEdit,
-    unmount,
-  };
+  return { onViewChange, onOpenOrder, onOpenHistoryChat, onOpenQuestions, unmount };
+}
+
+async function openMenu() {
+  await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
+  return screen.findByRole("menu");
 }
 
 describe("JobDetailCompactHeader", () => {
-  it("zawsze pokazuje identyfikację, status i główną akcję", async () => {
-    const { onAddCandidate } = renderHeader();
+  it("na górze: tytuł stanowiska, status i linia z nazwą od klienta", () => {
+    renderHeader({
+      clientTitle: "Analityk Biznesowo-Systemowy KYC/AML",
+      clientReference: "CABP/001/2026",
+    });
 
-    expect(
-      screen.getByRole("heading", { name: "Senior Java Developer" }),
-    ).toBeTruthy();
-    expect(screen.getByText("REF-505734")).toBeTruthy();
-    expect(screen.getByText("Aktywna")).toBeTruthy();
-
-    await userEvent.click(
-      screen.getByRole("button", { name: "Dodaj kandydatów" }),
+    expect(screen.getByRole("heading", { level: 1, name: "Analityk KYC/AML" })).toBeTruthy();
+    expect(screen.getByText("Szukamy")).toBeTruthy();
+    expect(screen.getByTestId("header-client-title")).toHaveTextContent(
+      "U klienta: „Analityk Biznesowo-Systemowy KYC/AML”",
     );
-    expect(onAddCandidate).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("header-client-reference")).toHaveTextContent(
+      "nr u klienta CABP/001/2026",
+    );
+    expect(screen.getByTestId("header-client-line")).toHaveTextContent("nasz nr REF-505734");
   });
 
-  it("nie pokazuje głównej akcji, gdy sekcja jest tylko do odczytu", async () => {
-    renderHeader({
-      onAddCandidate: undefined,
-      onEdit: undefined,
-      onWriteAnnouncement: undefined,
-      onGenerateInviteLink: undefined,
-    });
-
-    expect(
-      screen.queryByRole("button", { name: "Dodaj kandydatów" }),
-    ).toBeNull();
-    // Menu „⋯" zostaje, ale niesie wyłącznie odczyt — „Bazę pytań".
-    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
-    const items = await screen.findAllByRole("menuitem");
-    expect(items.map((i) => i.textContent?.trim())).toEqual(["Baza pytań"]);
-    // Okna zostają także w trybie tylko-do-odczytu.
-    expect(screen.getByTestId("open-order")).toBeTruthy();
+  it("bez nazwy od klienta i numerów linii pod tytułem nie ma", () => {
+    renderHeader({ referenceNumber: null });
+    expect(screen.queryByTestId("header-client-line")).toBeNull();
   });
 
-  it("dawne kroki nie są nawigacją strony", () => {
+  it("trzy wyróżnione fakty: klient, budżet, tryb pracy", () => {
     renderHeader();
-    for (const name of ["Pipeline", "Screening", "CV do klienta", "Umowa", "Pozyskaj kandydatów", "Tabela"]) {
-      expect(screen.queryByRole("button", { name })).toBeNull();
-    }
+    const facts = screen.getByTestId("job-header-facts");
+    expect(within(facts).getByText("Klient")).toBeTruthy();
+    expect(within(facts).getByText("Bank Przykładowy S.A.")).toBeTruthy();
+    expect(within(facts).getByText("Budżet")).toBeTruthy();
+    expect(within(facts).getByText("do 93,00 PLN/h")).toBeTruthy();
+    expect(within(facts).getByText("Tryb pracy")).toBeTruthy();
+    expect(within(facts).getByText("Zdalnie")).toBeTruthy();
   });
 
-  it("„Zlecenie”, „Historia i czat” i „Baza pytań” otwierają okna obok tabeli", async () => {
-    const { onOpenOrder, onOpenHistoryChat, onOpenQuestions } = renderHeader();
-    const nav = screen.getByRole("navigation", { name: "Sekcje rekrutacji" });
-
-    await userEvent.click(within(nav).getByTestId("open-order"));
-    expect(onOpenOrder).toHaveBeenCalledOnce();
-    await userEvent.click(within(nav).getByRole("button", { name: /Historia i czat/ }));
-    expect(onOpenHistoryChat).toHaveBeenCalledOnce();
-    // „Baza pytań" zeszła z paska do menu „⋯" (makieta 22.09.2026).
-    expect(within(nav).queryByRole("button", { name: "Baza pytań" })).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
-    await userEvent.click(await screen.findByRole("menuitem", { name: /Baza pytań/ }));
-    await waitFor(() => expect(onOpenQuestions).toHaveBeenCalledOnce());
-  });
-
-  it("odznaka „brakuje N” stoi przy zakładce „Zlecenie i Champion” — tylko przy ZNANYCH brakach", () => {
-    const { unmount } = renderHeader({ orderMissingCount: 2 });
-    expect(screen.getByTestId("open-champion-profile")).toHaveTextContent("brakuje 2");
-    unmount();
-
-    const zero = renderHeader({ orderMissingCount: 0 });
-    expect(screen.getByTestId("open-champion-profile")).not.toHaveTextContent("brakuje");
-    zero.unmount();
-
-    renderHeader({ orderMissingCount: null });
-    expect(screen.getByTestId("open-champion-profile")).not.toHaveTextContent("brakuje");
-  });
-
-  it("ze „Ścieżką rekrutacji” krok 1 zastępuje przycisk „Zlecenie” — bez dublowania", () => {
+  it("brak wartości faktu to „nie podano”, nie pustka", () => {
     renderHeader({
-      orderMissingCount: 2,
-      path: <div data-testid="path-slot">ścieżka</div>,
+      facts: [
+        { key: "client", label: "Klient", value: "Bank Przykładowy S.A." },
+        { key: "budget", label: "Budżet", value: null },
+        { key: "work_mode", label: "Tryb pracy", value: null },
+      ],
     });
-    expect(screen.getByTestId("path-slot")).toBeTruthy();
-    expect(screen.queryByTestId("open-order")).toBeNull();
-    // Pozostałe przyciski rzędu zostają pod ścieżką.
-    expect(screen.getByTestId("open-history-chat")).toBeTruthy();
+    expect(
+      within(screen.getByTestId("job-header-fact-budget")).getByText("nie podano"),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByTestId("job-header-fact-work_mode")).getByText("nie podano"),
+    ).toBeTruthy();
   });
 
-  it("licznik nieprzeczytanych czatu jest w nazwie przycisku i na odznace", () => {
-    const { unmount } = renderHeader({ chatUnreadCount: 3 });
-    const button = screen.getByRole("button", { name: "Historia i czat, 3 nieprzeczytane" });
-    expect(button).toHaveTextContent("3");
-    unmount();
-
-    renderHeader({ chatUnreadCount: 0 });
-    expect(screen.getByRole("button", { name: "Historia i czat" })).toBeTruthy();
+  it("nie ma liczników, ścieżki ani przycisków, które zeszły do menu i na kafle", () => {
+    renderHeader({ onToggleChampion: vi.fn(), onAddByName: vi.fn() });
+    expect(screen.queryByTestId("job-header-kpis")).toBeNull();
+    expect(screen.queryByTestId("job-recruitment-path")).toBeNull();
+    expect(screen.queryByText(/Najbliższy krok/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dodaj kandydatów" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Podobne rekrutacje/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /mamy championa/i })).toBeNull();
   });
 
-  it("widoki to dwie zakładki: „Tablica” i „Zlecenie i Champion” — bez trybu „Tabela”", () => {
-    renderHeader({ activeView: "board" });
-    expect(screen.queryByTestId("view-people")).toBeNull();
+  it("zakładki przełączają widok; bieżący ma aria-current", async () => {
+    const { onViewChange } = renderHeader();
     const nav = screen.getByRole("navigation", { name: "Widok rekrutacji" });
     expect(within(nav).getByTestId("view-board")).toHaveAttribute("aria-current", "page");
     expect(within(nav).getByTestId("open-champion-profile")).not.toHaveAttribute("aria-current");
-  });
 
-  it("z „Zlecenia i Championa” wraca się zakładką „Tablica”; okna „Zlecenie” tam nie ma (panel obok)", async () => {
-    const { onViewChange } = renderHeader({ activeView: "champion" });
-    expect(screen.getByTestId("open-champion-profile")).toHaveAttribute("aria-current", "page");
-    expect(screen.queryByTestId("open-order")).toBeNull();
-    await userEvent.click(screen.getByTestId("view-board"));
-    expect(onViewChange).toHaveBeenCalledWith("board");
-  });
-
-  it("zakładka „Zlecenie i Champion” otwiera widok z Tablicy", async () => {
-    const { onViewChange } = renderHeader({ activeView: "board" });
-    await userEvent.click(screen.getByRole("button", { name: /Zlecenie i Champion/ }));
+    await userEvent.click(within(nav).getByTestId("open-champion-profile"));
     expect(onViewChange).toHaveBeenCalledWith("champion");
   });
 
-  it("menu „⋯” niesie Kartę klienta, Kopiuj link i Zamknij rekrutację, gdy strona je podaje", async () => {
-    const onCopyLink = vi.fn();
-    const onCloseJob = vi.fn();
-    renderHeader({ clientCardHref: "/help?tab=clients&client=4", onCopyLink, onCloseJob });
-    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
-    expect(await screen.findByRole("menuitem", { name: /Karta klienta/ })).toHaveAttribute(
-      "href",
-      "/help?tab=clients&client=4",
-    );
-    await userEvent.click(screen.getByRole("menuitem", { name: /Zamknij rekrutację/ }));
-    await waitFor(() => expect(onCloseJob).toHaveBeenCalledOnce());
+  it("odznaka „brakuje N” przy „Zlecenie i Champion” tylko dla liczby większej od zera", () => {
+    const first = renderHeader({ orderMissingCount: 2 });
+    expect(screen.getByTestId("open-champion-profile")).toHaveTextContent("brakuje 2");
+    first.unmount();
+
+    renderHeader({ orderMissingCount: 0 });
+    expect(screen.getByTestId("open-champion-profile")).not.toHaveTextContent("brakuje");
   });
 
-  it("zamyka menu przed odroczonym otwarciem modala akcji", async () => {
-    const { onEdit } = renderHeader();
-
-    await userEvent.click(
-      screen.getByRole("button", { name: "Więcej akcji rekrutacji" }),
-    );
-    await userEvent.click(await screen.findByRole("menuitem", { name: "Edytuj" }));
-
-    await waitFor(() => expect(onEdit).toHaveBeenCalledOnce());
-    expect(screen.queryByRole("menuitem", { name: "Edytuj" })).toBeNull();
+  it("„Historia i czat” mówi o nieprzeczytanych także czytnikowi ekranu", async () => {
+    const { onOpenHistoryChat } = renderHeader({ chatUnreadCount: 120 });
+    const button = screen.getByRole("button", {
+      name: "Historia i czat, ponad 99 nieprzeczytane",
+    });
+    expect(button).toHaveTextContent("99+");
+    await userEvent.click(button);
+    expect(onOpenHistoryChat).toHaveBeenCalled();
   });
 
-  it("menu „…” niesie Edytuj, Szkic ogłoszenia i Wygeneruj link", async () => {
-    renderHeader({ onWriteAnnouncement: vi.fn(), onGenerateInviteLink: vi.fn() });
-    await userEvent.click(
-      screen.getByRole("button", { name: "Więcej akcji rekrutacji" }),
-    );
-    for (const name of ["Edytuj", "Szkic ogłoszenia", "Wygeneruj link"]) {
-      expect(await screen.findByRole("menuitem", { name })).toBeTruthy();
-    }
+  it("menu „⋯”: skrót zlecenia i baza pytań są zawsze", async () => {
+    const { onOpenOrder, onOpenQuestions } = renderHeader();
+    const menu = await openMenu();
+    await userEvent.click(within(menu).getByTestId("open-order"));
+    await waitFor(() => expect(onOpenOrder).toHaveBeenCalled());
+
+    const again = await openMenu();
+    await userEvent.click(within(again).getByTestId("open-questions"));
+    await waitFor(() => expect(onOpenQuestions).toHaveBeenCalled());
   });
 
-  it("narzędzia AI w menu „…” tylko gdy strona je poda (admin) — także bez innych akcji menu", async () => {
-    const onOpenAiTools = vi.fn();
-    const first = renderHeader({ onEdit: undefined, onOpenAiTools });
-    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
-    await userEvent.click(
-      await screen.findByRole("menuitem", { name: "Narzędzia AI (administrator)" }),
-    );
-    await waitFor(() => expect(onOpenAiTools).toHaveBeenCalledOnce());
+  it("menu „⋯”: „Zespół” mówi, kto jest rekruterem, i otwiera panel zespołu", async () => {
+    const onOpenTeam = vi.fn();
+    const first = renderHeader({ onOpenTeam, teamSummary: "Rekruter: Marta N. +1" });
+    const item = within(await openMenu()).getByTestId("menu-team");
+    expect(item).toHaveTextContent("Zespół");
+    expect(item).toHaveTextContent("Rekruter: Marta N. +1");
+    await userEvent.click(item);
+    await waitFor(() => expect(onOpenTeam).toHaveBeenCalled());
     first.unmount();
 
     renderHeader();
-    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
-    await screen.findByRole("menuitem", { name: "Edytuj" });
-    expect(screen.queryByRole("menuitem", { name: /Narzędzia AI/ })).toBeNull();
+    expect(within(await openMenu()).queryByTestId("menu-team")).toBeNull();
   });
 
-  it("panel „Zespół i priorytet” istnieje tylko, gdy strona go poda (widok Championa)", async () => {
-    // W „Tabeli" i na „Tablicy" panel żyje w oknie „Zlecenie".
-    const { unmount } = renderHeader();
-    expect(screen.queryByRole("button", { name: /Zespół i priorytet/ })).toBeNull();
-    unmount();
+  it("menu „⋯”: „Mamy championa” tylko dla roli z prawem i z etykietą stanu", async () => {
+    const onToggleChampion = vi.fn();
+    const first = renderHeader({ onToggleChampion, championFound: false });
+    const menu = await openMenu();
+    const item = within(menu).getByTestId("toggle-champion");
+    expect(item).toHaveTextContent("Oznacz: mamy championa");
+    await userEvent.click(item);
+    await waitFor(() => expect(onToggleChampion).toHaveBeenCalled());
+    first.unmount();
 
-    function Harness() {
-      const [open, setOpen] = React.useState(false);
-      return (
-        <JobDetailCompactHeader
-          title="Senior Java Developer"
-          activeView="champion"
-          onViewChange={vi.fn()}
-          onOpenOrder={vi.fn()}
-          onOpenHistoryChat={vi.fn()}
-          onOpenQuestions={vi.fn()}
-          contextOpen={open}
-          onContextOpenChange={setOpen}
-          contextContent={<div>Zespół operacyjny</div>}
-        />
-      );
-    }
-
-    render(<Harness />);
-    expect(screen.queryByText("Zespół operacyjny")).toBeNull();
-
-    await userEvent.click(
-      screen.getByRole("button", { name: /Zespół i priorytet/ }),
+    const second = renderHeader({ onToggleChampion, championFound: true });
+    expect(within(await openMenu()).getByTestId("toggle-champion")).toHaveTextContent(
+      "Cofnij „Mamy championa”",
     );
-    expect(await screen.findByText("Zespół operacyjny")).toBeTruthy();
+    second.unmount();
+
+    renderHeader();
+    expect(within(await openMenu()).queryByTestId("toggle-champion")).toBeNull();
   });
-});
 
-/**
- * Jobbar z makiety (k2–k8): klient w tytule, jedna linia faktów pod nim,
- * trzy liczby po prawej.
- */
-describe("JobDetailCompactHeader — jobbar", () => {
-  it("dokleja klienta do tytułu — bez niego nie wiadomo, czyja to rekrutacja", () => {
-    renderHeader({ clientName: "PKO Bank Polski" });
+  it("menu „⋯”: dodanie po nazwisku, z pliku CV i przegląd całej bazy przez AI", async () => {
+    const onAddByName = vi.fn();
+    const onAddFromCv = vi.fn();
+    const onStartFullReview = vi.fn();
+    const onOpenMyPeople = vi.fn();
+    renderHeader({ onAddByName, onAddFromCv, onStartFullReview, onOpenMyPeople });
 
-    // `toHaveTextContent`, nie dopasowanie po nazwie dostępnej: implementacja
-    // accname w testing-library przycina białe znaki NA GRANICY węzłów, więc
-    // sprawdzałaby własny artefakt zamiast tego, co widzi użytkownik.
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
-      "Senior Java Developer · PKO Bank Polski",
+    await userEvent.click(within(await openMenu()).getByTestId("menu-add-by-name"));
+    await waitFor(() => expect(onAddByName).toHaveBeenCalled());
+    await userEvent.click(within(await openMenu()).getByTestId("menu-add-from-cv"));
+    await waitFor(() => expect(onAddFromCv).toHaveBeenCalled());
+    const review = within(await openMenu()).getByTestId("menu-full-review");
+    expect(review).toHaveTextContent("Przeszukaj całą bazę (AI)");
+    await userEvent.click(review);
+    await waitFor(() => expect(onStartFullReview).toHaveBeenCalled());
+    const mine = within(await openMenu()).getByTestId("menu-my-people");
+    expect(mine).toHaveTextContent("Moi ludzie do tej rekrutacji");
+    await userEvent.click(mine);
+    await waitFor(() => expect(onOpenMyPeople).toHaveBeenCalled());
+  });
+
+  it("bez prawa dodawania menu nie ma sekcji „Kandydaci”", async () => {
+    renderHeader();
+    const menu = await openMenu();
+    expect(within(menu).queryByText("Kandydaci")).toBeNull();
+    expect(within(menu).queryByTestId("menu-full-review")).toBeNull();
+    expect(within(menu).queryByTestId("menu-my-people")).toBeNull();
+  });
+
+  it("menu „⋯”: puste kolumny Tablicy — etykieta mówi, co zrobi kliknięcie", async () => {
+    const onToggleEmptyColumns = vi.fn();
+    const first = renderHeader({ onToggleEmptyColumns, emptyColumnsHidden: true });
+    const item = within(await openMenu()).getByTestId("toggle-empty-columns");
+    expect(item).toHaveTextContent("Pokaż puste kolumny");
+    await userEvent.click(item);
+    await waitFor(() => expect(onToggleEmptyColumns).toHaveBeenCalled());
+    first.unmount();
+
+    renderHeader({ onToggleEmptyColumns, emptyColumnsHidden: false });
+    expect(within(await openMenu()).getByTestId("toggle-empty-columns")).toHaveTextContent(
+      "Ukryj puste kolumny",
     );
   });
 
-  it("bez klienta tytuł zostaje sam — żadnej kropki wiszącej w powietrzu", () => {
-    renderHeader({ clientName: null });
-
-    expect(
-      screen.getByRole("heading", { name: "Senior Java Developer" }),
-    ).toBeTruthy();
-  });
-
-  it("pokazuje trzy KPI kroku, a niepoliczoną liczbę rysuje jako „—”, nie zero", () => {
-    renderHeader({
-      kpis: [
-        { key: "in-process", label: "w procesie", value: 15, tone: "neutral" },
-        { key: "stalled", label: "utknęli > 7 d", value: 3, tone: "warn" },
-        { key: "at-client", label: "u klienta", value: null, tone: "neutral" },
-      ],
+  it("menu „⋯”: pozycje zależne od uprawnień pojawiają się tylko z funkcją", async () => {
+    const onEdit = vi.fn();
+    const onCloseJob = vi.fn();
+    const onCopyLink = vi.fn();
+    const onOpenAiTools = vi.fn();
+    const first = renderHeader({
+      onEdit,
+      onCloseJob,
+      onCopyLink,
+      onOpenAiTools,
+      clientCardHref: "/help?tab=clients&client=7",
     });
+    const menu = await openMenu();
+    expect(within(menu).getByRole("menuitem", { name: "Edytuj" })).toBeTruthy();
+    expect(within(menu).getByTestId("open-client-card")).toHaveAttribute(
+      "href",
+      "/help?tab=clients&client=7",
+    );
+    expect(within(menu).getByTestId("copy-job-link")).toBeTruthy();
+    expect(within(menu).getByTestId("open-ai-tools")).toBeTruthy();
+    await userEvent.click(within(menu).getByTestId("close-job"));
+    await waitFor(() => expect(onCloseJob).toHaveBeenCalled());
+    first.unmount();
 
-    const cluster = screen.getByTestId("job-header-kpis");
-    expect(within(cluster).getByText("15")).toBeTruthy();
-    expect(within(cluster).getByText("utknęli > 7 d")).toBeTruthy();
-    expect(within(cluster).getByText("3")).toBeTruthy();
-    expect(within(cluster).getByText("—")).toBeTruthy();
-    expect(within(cluster).queryByText("0")).toBeNull();
-  });
-
-  it("klaster pokazuje dokładnie te KPI, które dostał — policzone zero też", () => {
-    const { unmount } = renderHeader({
-      kpis: [
-        { key: "screening", label: "w screeningu", value: 2, tone: "neutral" },
-        {
-          key: "pending",
-          label: "czeka na akceptację",
-          value: 1,
-          tone: "warn",
-        },
-        { key: "verified", label: "zweryfikowani", value: 0, tone: "neutral" },
-      ],
-    });
-    expect(screen.getByText("czeka na akceptację")).toBeTruthy();
-    // Policzone zero JEST pokazywane — to wynik, nie brak danych.
-    expect(
-      within(screen.getByTestId("job-header-kpis")).getByText("0"),
-    ).toBeTruthy();
-    unmount();
-
-    renderHeader({
-      kpis: [
-        { key: "in-process", label: "w procesie", value: 15, tone: "neutral" },
-        { key: "stalled", label: "utknęli > 7 d", value: 0, tone: "neutral" },
-        { key: "at-client", label: "u klienta", value: 0, tone: "neutral" },
-      ],
-    });
-    expect(screen.queryByText("czeka na akceptację")).toBeNull();
-    expect(screen.getByText("w procesie")).toBeTruthy();
-  });
-
-  it("bez KPI klaster w ogóle się nie renderuje", () => {
-    renderHeader({ kpis: [] });
-    expect(screen.queryByTestId("job-header-kpis")).toBeNull();
-  });
-
-  it("renderuje podtytuł jedną linią pod tytułem", () => {
-    renderHeader({
-      subtitle: "Warszawa / hybryda · deadline 30.09 · Marta K.",
-    });
-    expect(
-      screen.getByText("Warszawa / hybryda · deadline 30.09 · Marta K."),
-    ).toBeTruthy();
-  });
-
-  it("„Baza pytań” ma PEŁNĄ etykietę, nie samą ikonę", async () => {
-    // Regresja z produkcji: ucięta etykieta czyta się jak brak funkcji.
     renderHeader();
-    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
-    const questions = await screen.findByTestId("open-questions");
-    expect(questions).toHaveTextContent("Baza pytań");
-    expect(questions.className).not.toContain("sr-only");
+    const bare = await openMenu();
+    expect(within(bare).queryByRole("menuitem", { name: "Edytuj" })).toBeNull();
+    expect(within(bare).queryByTestId("close-job")).toBeNull();
+    expect(within(bare).queryByTestId("open-ai-tools")).toBeNull();
+    expect(within(bare).queryByTestId("toggle-empty-columns")).toBeNull();
   });
 
-  it("pasek zawija się zamiast chować końcówkę za przewijaniem", () => {
-    renderHeader();
-    const nav = screen.getByRole("navigation", { name: "Sekcje rekrutacji" });
-    expect(nav.className).toContain("flex-wrap");
-    expect(nav.className).not.toContain("overflow-x-auto");
-    expect(nav.parentElement?.className).toContain("flex-wrap");
+  it("z listy „Do przejrzenia” zakładka „Tablica” jest powrotem", async () => {
+    const { onViewChange } = renderHeader({ activeView: "people" });
+    const board = screen.getByTestId("view-board");
+    expect(board).not.toHaveAttribute("aria-current");
+    await userEvent.click(board);
+    expect(onViewChange).toHaveBeenCalledWith("board");
   });
 });

@@ -27,8 +27,10 @@ const seen = vi.hoisted(() => ({
   brief: null as Record<string, unknown> | null,
   dock: null as Record<string, unknown> | null,
   close: null as Record<string, unknown> | null,
+  add: null as Record<string, unknown> | null,
+  strip: null as Record<string, unknown> | null,
 }));
-const apiMock = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn() }));
+const apiMock = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn(), post: vi.fn() }));
 // Atrapa dziecka: zapamiętuje propsy; zamknięte okno nie renderuje nic.
 const stub = vi.hoisted(
   () =>
@@ -87,7 +89,20 @@ vi.mock("@/store/tabs", () => ({
   useTabsStore: (sel: (s: unknown) => unknown) => sel({ openTab: vi.fn() }),
 }));
 
-vi.mock("@/components/v2/pages/KanbanBoardV2", () => ({ KanbanBoardV2: stub("kanban", "kanban") }));
+// Tablica renderuje to, co strona wkłada nad kolumny (pasek „Kandydaci do dodania”).
+vi.mock("@/components/v2/pages/KanbanBoardV2", () => ({
+  KanbanBoardV2: (props: Record<string, unknown>) => {
+    seen.kanban = props;
+    const above = props.renderAbove as ((controls: React.ReactNode) => React.ReactNode) | undefined;
+    return <div data-testid="kanban">{above ? above(null) : null}</div>;
+  },
+}));
+vi.mock("@/components/v2/jobs/CandidateSourcesStrip", () => ({
+  CandidateSourcesStrip: stub("strip", "sources-strip"),
+}));
+vi.mock("@/components/v2/recruitment/AddCandidatesPanel", () => ({
+  AddCandidatesPanel: stub("add", "add-window"),
+}));
 vi.mock("@/components/v2/recruitment/slideovers/OrderSlideOver", () => ({
   OrderSlideOver: stub("order", "order-window"),
 }));
@@ -206,9 +221,14 @@ describe("strona rekrutacji — widoki", () => {
         workbenchContext: expect.objectContaining({ clientId: 3, clientName: "Bank Alfa", canCloseJob: true }),
       }),
     );
-    // Krok 1 „Ścieżki rekrutacji" niesie braki zlecenia (zamiast przycisku „Zlecenie").
-    expect(await screen.findByText("brakuje 2 — uzupełnij")).toBeInTheDocument();
-    expect(screen.queryByTestId("open-order")).not.toBeInTheDocument();
+    // Braki zlecenia niesie odznaka przy zakładce „Zlecenie i Champion”.
+    await waitFor(() =>
+      expect(screen.getByTestId("open-champion-profile")).toHaveTextContent("brakuje 2"),
+    );
+    // Ścieżki „Zlecenie → … → Umowa” i liczników już nie ma (02.10.2026).
+    expect(screen.queryByTestId("job-recruitment-path")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("job-nearest-step")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("job-header-kpis")).not.toBeInTheDocument();
   });
 
   it("„Do przejrzenia” (propozycje z bazy i shortlista) to osobny ekran z powrotem na Tablicę", async () => {
@@ -313,7 +333,8 @@ describe("strona rekrutacji — okna z nagłówka i z warsztatów", () => {
   it("przyciski nagłówka otwierają okna i zapisują je w adresie", async () => {
     renderPage();
     await screen.findByTestId("kanban");
-    await userEvent.click(screen.getByTestId("path-step-order"));
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
+    await userEvent.click(await screen.findByTestId("open-order"));
     expect(await screen.findByTestId("order-window")).toBeInTheDocument();
     expect(window.location.search).toBe("?win=order");
     act(() => (seen.order?.onOpenChange as (open: boolean) => void)(false));
@@ -383,54 +404,83 @@ describe("strona rekrutacji — poprawki po integracji v3", () => {
   });
 });
 
-describe("strona rekrutacji — ścieżka rekrutacji i najbliższy krok", () => {
-  const COLUMNS = [
-    { stage: "new", name: "Nowi", category: "internal", stage_def_id: 1, count: 1, items: [{ id: 11, candidate_id: 101, stage: "new" }] },
-    { stage: "screening", name: "Screening", category: "internal", stage_def_id: 2, count: 0, items: [] },
-    { stage: "verified", name: "Zweryfikowany", category: "internal", stage_def_id: 3, count: 0, items: [] },
-    { stage: "new", name: "QC CV", category: "internal", stage_def_id: 4, count: 2, items: [{ id: 41, candidate_id: 401, stage: "new" }, { id: 42, candidate_id: 402, stage: "new" }] },
-    { stage: "cv_sent", name: "CV Wysłane", category: "internal", stage_def_id: 5, count: 0, items: [] },
-    { stage: "client_interview", name: "Interview Klient", category: "external", stage_def_id: 6, count: 0, items: [] },
-  ];
-
-  it("kolejność reguł: braki zlecenia wygrywają, a „Zlecenie” w ścieżce otwiera okno", async () => {
+describe("strona rekrutacji — nagłówek i „Kandydaci do dodania” (02.10.2026)", () => {
+  it("nagłówek pokazuje trzy fakty: klient, budżet i tryb pracy", async () => {
     apiMock.get.mockImplementation((url: string) => {
-      if (url === "/api/jobs/42") return Promise.resolve({ data: { ...JOB, headcount: 1 } });
-      if (url === "/api/pipeline/kanban/42") return Promise.resolve({ data: { columns: COLUMNS, off_template: null } });
-      if (url === "/api/jobs/42/readiness") {
-        return Promise.resolve({ data: { ready: false, blockers: ["Brak HM", "Brak budżetu"] } });
+      if (url === "/api/jobs/42") {
+        return Promise.resolve({
+          data: { ...JOB, working_title: "Java · Spring", client_reference: "ZOB-1", remote_policy: "remote" },
+        });
       }
+      if (url === "/api/pipeline/kanban/42") return Promise.resolve({ data: KANBAN });
       return Promise.resolve({ data: [] });
     });
     renderPage();
-    const nearest = await screen.findByTestId("job-nearest-step");
-    expect(nearest).toHaveAttribute("data-rule", "order");
-    expect(nearest).toHaveTextContent("Uzupełnij zlecenie (brakuje 2)");
-    expect(screen.getByTestId("path-step-cv")).toHaveTextContent("2 w QC · 0 wysłanych");
-    expect(screen.getByTestId("path-step-contract")).toHaveTextContent("obsada 0 / 1");
-    await userEvent.click(screen.getByRole("button", { name: /Otwórz zlecenie/ }));
-    await waitFor(() => expect(seen.order).toMatchObject({ open: true }));
+    const facts = await screen.findByTestId("job-header-facts");
+    expect(facts).toHaveTextContent("Bank Alfa");
+    expect(facts).toHaveTextContent("190");
+    expect(facts).toHaveTextContent("Zdalnie");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Java · Spring");
+    expect(screen.getByTestId("header-client-title")).toHaveTextContent("Senior Java Developer");
+    expect(screen.getByTestId("header-client-reference")).toHaveTextContent("ZOB-1");
   });
 
-  it("bez braków zlecenia najbliższy krok to QC CV, a klik przekazuje Tablicy skok do kolumny", async () => {
-    apiMock.get.mockImplementation((url: string) => {
-      if (url === "/api/jobs/42") return Promise.resolve({ data: JOB });
-      if (url === "/api/pipeline/kanban/42") return Promise.resolve({ data: { columns: COLUMNS, off_template: null } });
-      if (url === "/api/jobs/42/readiness") return Promise.resolve({ data: { ready: true, blockers: [] } });
-      return Promise.resolve({ data: [] });
-    });
+  it("kafel nad Tablicą otwiera okno źródeł na swojej zakładce i zapisuje to w adresie", async () => {
     renderPage();
-    const nearest = await screen.findByTestId("job-nearest-step");
-    await waitFor(() => expect(nearest).toHaveAttribute("data-rule", "qc"));
-    expect(nearest).toHaveTextContent("Sprawdź CV w QC (2)");
-    await userEvent.click(screen.getByRole("button", { name: /Pokaż QC CV/ }));
+    await screen.findByTestId("sources-strip");
+    expect(seen.strip).toMatchObject({ jobId: 42, canSeeSimilar: true });
+    expect(seen.add).toMatchObject({ open: false });
+
+    act(() => (seen.strip?.onOpen as (tab: string) => void)("postings"));
+    expect(await screen.findByTestId("add-window")).toBeInTheDocument();
+    expect(seen.add).toMatchObject({ open: true, tab: "postings", jobId: 42 });
+    expect(window.location.search).toBe("?win=add&wintab=postings");
+
+    // Zmiana zakładki w oknie zostaje w adresie; zamknięcie go czyści.
+    act(() => (seen.add?.onTabChange as (tab: string) => void)("search"));
+    await waitFor(() => expect(window.location.search).toBe("?win=add&wintab=search"));
+    act(() => (seen.add?.onOpenChange as (open: boolean) => void)(false));
+    await waitFor(() => expect(window.location.search).toBe(""));
+  });
+
+  it("stary adres ?win=similar otwiera to samo okno na „Podobnych rekrutacjach”", async () => {
+    renderPage("win=similar");
+    expect(await screen.findByTestId("add-window")).toBeInTheDocument();
+    expect(seen.add).toMatchObject({ open: true, tab: "similar" });
+  });
+
+  it("„Przeszukaj całą bazę (AI)” z menu „⋯” otwiera „Propozycje z bazy” i zleca przegląd", async () => {
+    renderPage();
+    await screen.findByTestId("kanban");
+    const before = (seen.add?.fullReviewRequest as number | undefined) ?? 0;
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
+    await userEvent.click(await screen.findByTestId("menu-full-review"));
+    await waitFor(() => expect(seen.add).toMatchObject({ open: true, tab: "base" }));
+    expect(seen.add?.fullReviewRequest).toBe(before + 1);
+    // Okno oddaje żądanie — po zamknięciu i ponownym otwarciu skan nie rusza drugi raz.
+    act(() => (seen.add?.onFullReviewHandled as () => void)());
+    await waitFor(() => expect(seen.add?.fullReviewRequest).toBeNull());
+  });
+
+  it("„Mamy championa” jest w menu „⋯” i zapisuje stan", async () => {
+    apiMock.post.mockResolvedValue({ data: {} });
+    renderPage();
+    await screen.findByTestId("kanban");
+    expect(screen.queryByRole("button", { name: /mamy championa/i })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
+    await userEvent.click(await screen.findByTestId("toggle-champion"));
     await waitFor(() =>
-      expect(seen.kanban).toMatchObject({ focusColumnRequest: { column: "cv_qc", seq: 1 } }),
+      expect(apiMock.post).toHaveBeenCalledWith("/api/jobs/42/champion-found", { found: true }),
     );
-    await userEvent.click(screen.getByTestId("path-step-interviews"));
-    await waitFor(() =>
-      expect(seen.kanban).toMatchObject({ focusColumnRequest: { column: "client_interview", seq: 2 } }),
-    );
+  });
+
+  it("Tablica nie dostaje już skoku do kolumny ani panelu dodawania w „Nowych”", async () => {
+    renderPage();
+    await screen.findByTestId("kanban");
+    await waitFor(() => expect(seen.kanban?.workbenchContext).toBeTruthy());
+    expect(seen.kanban).not.toHaveProperty("focusColumnRequest");
+    expect(seen.kanban).not.toHaveProperty("onOpenAddCandidates");
+    expect(typeof seen.kanban?.renderAbove).toBe("function");
   });
 });
 

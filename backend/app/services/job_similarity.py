@@ -73,6 +73,17 @@ CONTRACT_STAGES: tuple[PipelineStage, ...] = (
     PipelineStage.acceptance,
     PipelineStage.negotiation,
 )
+# „Reszta” w panelu podobnych rekrutacji (02.10.2026): osoby, z którymi ktoś
+# już rozmawiał albo je zweryfikował, ale które nie dotarły do klienta.
+# Kolejność = jak daleko zaszły. Same „Ogłoszenia”/„Nowi” to szum zgłoszeń —
+# takich osób panel nie pokazuje.
+REST_STAGES: tuple[PipelineStage, ...] = (
+    PipelineStage.prep_call,
+    PipelineStage.screening,
+    PipelineStage.verified,
+    PipelineStage.interview,
+)
+MAX_REST_PEOPLE_PER_JOB = 50
 # Runda 10 (R10-X2-2): Onboarding leży na Tablicy w kolumnie „Zatrudniony”
 # (`board_stage_badges._COLUMN_BY_ENUM`), więc w statusie requestu liczy się
 # jak zatrudnienie — do tej rundy odznaka Onboarding cofała „Obsadzona” na
@@ -601,6 +612,62 @@ async def reassignable_counts(
     return per_job, len(people)
 
 
+async def rest_counts(
+    db: AsyncSession, target_job_id: int, source_job_ids: Iterable[int]
+) -> tuple[dict[int, int], int]:
+    """Ile osób „reszty” z każdej rekrutacji źródłowej da się dodać do celu
+    i ile to różnych osób łącznie — jedno zapytanie.
+
+    Ta sama reguła co ``sent=False`` w :func:`sent_people`: wiersz w
+    ``REST_STAGES``, żadnego wiersza u klienta w tej rekrutacji i żadnego
+    wiersza w celu. Liczba łączna pomija osoby, które w KTÓREJKOLWIEK z tych
+    rekrutacji dotarły do klienta — te liczy już ``reassignable_people``
+    (albo są zatrudnione), więc obie liczby dają się dodać.
+    """
+    sources = [sid for sid in set(source_job_ids) if sid != target_job_id]
+    if not sources:
+        return {}, 0
+    at_client = aliased(CandidateStage)
+    in_target = aliased(CandidateStage)
+    sent_anywhere = aliased(CandidateStage)
+    rows = (
+        await db.execute(
+            select(
+                CandidateStage.job_id,
+                CandidateStage.candidate_id,
+                exists()
+                .where(
+                    sent_anywhere.candidate_id == CandidateStage.candidate_id,
+                    sent_anywhere.job_id.in_(sources),
+                    sent_anywhere.stage.in_(CLIENT_STAGES),
+                )
+                .label("sent_anywhere"),
+            )
+            .distinct()
+            .where(
+                CandidateStage.job_id.in_(sources),
+                CandidateStage.stage.in_(REST_STAGES),
+                ~exists().where(
+                    at_client.candidate_id == CandidateStage.candidate_id,
+                    at_client.job_id == CandidateStage.job_id,
+                    at_client.stage.in_(CLIENT_STAGES),
+                ),
+                ~exists().where(
+                    in_target.candidate_id == CandidateStage.candidate_id,
+                    in_target.job_id == target_job_id,
+                ),
+            )
+        )
+    ).all()
+    per_job: dict[int, int] = {}
+    people: set[int] = set()
+    for job_id, candidate_id, sent in rows:
+        per_job[job_id] = per_job.get(job_id, 0) + 1
+        if not sent:
+            people.add(candidate_id)
+    return per_job, len(people)
+
+
 async def reassign_counts(db: AsyncSession, job_ids: Sequence[int]) -> dict[int, int]:
     from app.models.job_proposal import JobProposal  # noqa: PLC0415
 
@@ -892,9 +959,39 @@ _OUTCOME_ORDER = {
 }
 
 
+class SentPeople(dict[int, list[dict]]):
+    """``{rekrutacja źródłowa: [osoby]}`` z :func:`sent_people`.
+
+    ``rest_total`` — ile osób „reszty” ma każda rekrutacja PRZED przycięciem
+    do :data:`MAX_REST_PEOPLE_PER_JOB` (puste, gdy o resztę nie proszono).
+    """
+
+    rest_total: dict[int, int]
+
+    def __init__(self, sources: Iterable[int]) -> None:
+        super().__init__({sid: [] for sid in sources})
+        self.rest_total = {}
+
+
+def _process_outcome(history: Sequence[Any]) -> str:
+    """Jak skończył się proces pary — z jej wierszy etapów, od najstarszego."""
+    latest = history[-1]
+    if any(r.stage == PipelineStage.hired for r in history):
+        return "hired"
+    if latest.stage == PipelineStage.rejected:
+        return "rejected_by_client" if latest.ended_by == "client" else "rejected"
+    if latest.stage == PipelineStage.withdrawn:
+        return "withdrawn"
+    return "in_progress"
+
+
 async def sent_people(
-    db: AsyncSession, target_job_id: int, source_job_ids: Sequence[int]
-) -> dict[int, list[dict]]:
+    db: AsyncSession,
+    target_job_id: int,
+    source_job_ids: Sequence[int],
+    *,
+    include_rest: bool = False,
+) -> SentPeople:
     """Osoby wysłane do klienta w ``source_job_ids`` — do panelu przepięć.
 
     Ta sama reguła „był u klienta" co :func:`reassign_into`: jakikolwiek
@@ -904,13 +1001,24 @@ async def sent_people(
 
     Wynik pamięta, jak skończył się tamten proces (``outcome``), bo odrzucony
     przez klienta też jest zaznaczany i rekruter ma to widzieć przed kliknięciem.
+
+    ``include_rest`` (02.10.2026) dokłada ZA wysłanymi „resztę” rekrutacji:
+    osoby bez żadnego wiersza u klienta, które doszły co najmniej do jednego
+    z ``REST_STAGES`` (``sent=False``, ``sent_at=None``, ``furthest_stage`` =
+    najdalszy z tych etapów). Kolejność reszty: najpierw osoby do wybrania,
+    potem od ostatnio ruszanych; najwyżej :data:`MAX_REST_PEOPLE_PER_JOB` na
+    rekrutację, pełna liczba w ``rest_total``. Bez flagi wynik jest taki jak
+    dotąd — na nim stoi walidacja przepięcia (``/similar/reassign``), która
+    reszty nie przyjmuje.
     """
     from app.models.candidate import Candidate  # noqa: PLC0415
 
     sources = [sid for sid in dict.fromkeys(source_job_ids) if sid != target_job_id]
+    out = SentPeople(sources)
     if not sources:
-        return {}
+        return out
     reached = aliased(CandidateStage)
+    reached_stages = REASSIGN_STAGES + (REST_STAGES if include_rest else ())
     rows = (
         await db.execute(
             select(
@@ -928,7 +1036,7 @@ async def sent_people(
                 exists().where(
                     reached.candidate_id == CandidateStage.candidate_id,
                     reached.job_id == CandidateStage.job_id,
-                    reached.stage.in_(REASSIGN_STAGES),
+                    reached.stage.in_(reached_stages),
                 ),
             )
             .order_by(
@@ -958,36 +1066,54 @@ async def sent_people(
         pairs.setdefault((row.job_id, row.candidate_id), []).append(row)
 
     client_order = {stage: i for i, stage in enumerate(CLIENT_STAGES)}
-    out: dict[int, list[dict]] = {sid: [] for sid in sources}
+    rest_order = {stage: i for i, stage in enumerate(REST_STAGES)}
+    rest: dict[int, list[tuple[datetime, dict]]] = {sid: [] for sid in sources}
     for (job_id, candidate_id), history in pairs.items():
         sent_rows = [r for r in history if r.stage in REASSIGN_STAGES]
-        hired = any(r.stage == PipelineStage.hired for r in history)
+        latest = history[-1]
+        outcome = _process_outcome(history)
+        already = candidate_id in in_target
+        name = f"{latest.name or ''} {latest.lastname or ''}".strip()
+        if not sent_rows:
+            # Reszta: bez żadnego wiersza u klienta (zatrudniony albo
+            # w onboardingu bez „CV wysłane” to nie jest ktoś do wzięcia).
+            reached_rest = [r.stage for r in history if r.stage in rest_order]
+            if not reached_rest or any(r.stage in client_order for r in history):
+                continue
+            rest[job_id].append(
+                (
+                    latest.moved_at,
+                    {
+                        "candidate_id": candidate_id,
+                        "name": name,
+                        "furthest_stage": max(
+                            reached_rest, key=lambda stage: rest_order[stage]
+                        ).value,
+                        "sent_at": None,
+                        "outcome": outcome,
+                        "already_in_job": already,
+                        "selectable": not already,
+                        "sent": False,
+                    },
+                )
+            )
+            continue
+        hired = outcome == "hired"
         furthest = max(
             (r.stage for r in history if r.stage in client_order),
             key=lambda stage: client_order[stage],
         )
-        latest = history[-1]
-        if hired:
-            outcome = "hired"
-        elif latest.stage == PipelineStage.rejected:
-            outcome = (
-                "rejected_by_client" if latest.ended_by == "client" else "rejected"
-            )
-        elif latest.stage == PipelineStage.withdrawn:
-            outcome = "withdrawn"
-        else:
-            outcome = "in_progress"
         last_sent = sent_rows[-1]
-        already = candidate_id in in_target
         out[job_id].append(
             {
                 "candidate_id": candidate_id,
-                "name": f"{latest.name or ''} {latest.lastname or ''}".strip(),
+                "name": name,
                 "furthest_stage": furthest.value,
                 "sent_at": _local_day_iso(sent_rows[0].moved_at),
                 "outcome": outcome,
                 "already_in_job": already,
                 "selectable": not hired and not already,
+                "sent": True,
                 "reassign_stage": last_sent.stage.value,
                 "reassign_at": last_sent.moved_at,
             }
@@ -1000,6 +1126,15 @@ async def sent_people(
                 p["sent_at"] or "",
             )
         )
+    if include_rest:
+        for job_id, entries in rest.items():
+            out.rest_total[job_id] = len(entries)
+            # Najpierw od ostatnio ruszanych, potem (stabilnie) do wybrania.
+            entries.sort(key=lambda entry: entry[0], reverse=True)
+            entries.sort(key=lambda entry: not entry[1]["selectable"])
+            out[job_id].extend(
+                person for _moved, person in entries[:MAX_REST_PEOPLE_PER_JOB]
+            )
     return out
 
 
