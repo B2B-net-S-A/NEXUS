@@ -12,6 +12,7 @@ import ast
 from pathlib import Path
 
 import pytest
+from pydantic import TypeAdapter
 from sqlalchemy.dialects import postgresql
 
 from app.models.kpi_target import KpiRoleDefault
@@ -82,3 +83,15 @@ def test_role_lists_fold_retired_roles_and_drop_unknown_ones() -> None:
 
     lead = User(role=UserRole.delivery_lead, roles=["delivery_lead", "tac"])
     assert lead.get_all_roles() == {UserRole.delivery_lead, UserRole.recruiter}
+    # `has_role` i `get_all_roles` odpowiadają tak samo na starą etykietę.
+    assert lead.has_role(UserRole.recruiter)
+    assert lead.has_role("tac")
+    assert not lead.has_role(UserRole.finance)
+
+
+def test_openapi_lists_each_role_once() -> None:
+    """Pydantic buduje `enum` z `__members__` — aliasy nie mogą się tam powtarzać."""
+
+    listed = TypeAdapter(UserRole).json_schema()["enum"]
+    assert listed == [role.value for role in UserRole]
+    assert not set(listed) & set(RETIRED_ROLE_VALUES)

@@ -59,6 +59,16 @@ class UserRole(str, enum.Enum):
     sourcer = "recruiter"
     tac = "recruiter"
 
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        # Pydantic buduje listę `enum` z `__members__`, więc aliasy dawałyby
+        # w OpenAPI trzy razy „recruiter”.
+        schema = handler(core_schema)
+        resolved = handler.resolve_ref_schema(schema)
+        if "enum" in resolved:
+            resolved["enum"] = list(dict.fromkeys(resolved["enum"]))
+        return schema
+
 
 def known_roles(values: Optional[Iterable[object]]) -> list[UserRole]:
     """Role z listy napisów (JSONB ``roles``, wejście API), w podanej kolejności.
@@ -321,10 +331,14 @@ class User(Base, TimestampMixin):
 
     def has_role(self, role: UserRole | str) -> bool:
         """True if user holds ``role`` (primary or secondary)."""
-        target = role.value if isinstance(role, UserRole) else str(role)
+        target = normalize_role_value(
+            role.value if isinstance(role, UserRole) else str(role)
+        )
         if self.role is not None and self.role.value == target:
             return True
-        return target in (self.roles or [])
+        # Stara etykieta w liście (`tac`, `sourcer`) liczy się jak rekruter —
+        # tak samo jak w `get_all_roles`.
+        return any(normalize_role_value(str(v)) == target for v in self.roles or [])
 
     def has_any_role(self, *roles: UserRole) -> bool:
         """True if user holds at least one of the given roles."""

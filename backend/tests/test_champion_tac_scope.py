@@ -6,8 +6,9 @@ każdego, kto nie jest Delivery Leadem. Bez własnego zawężenia każda rola sp
 Delivery dostałaby wgląd w Championa KAŻDEJ oferty, czyli odtworzyłaby wyciek
 zamknięty w #1069 inną drogą.
 
-Roli TAC nie ma od 0411 (02.10.2026): zostało samo przypisanie `jobs.tac_id`,
-bez wymogu roli — tu sprawdzamy je na koncie rekrutera.
+Roli TAC nie ma od 0411 (02.10.2026) — jej konta są rekruterami, więc ścieżka
+opiekuna wymaga dziś roli rekrutera i przypisania `jobs.tac_id`. Sam wpis
+w `tac_id` nie poszerza zakresu Delivery Leada.
 """
 
 from types import SimpleNamespace
@@ -39,7 +40,7 @@ def _job(job_id: int = 1, client_id: int = 10, tac_id: int | None = None):
 
 
 @pytest.mark.asyncio
-async def test_assigned_guardian_reaches_their_job_without_any_special_role():
+async def test_assigned_guardian_reaches_their_job():
     await ensure_champion_job_visible(
         _job(tac_id=7), _user(7, UserRole.recruiter), db=None
     )
@@ -84,8 +85,8 @@ async def test_admin_and_head_of_recruitment_stay_unrestricted():
 async def test_delivery_lead_who_is_also_the_guardian_passes_on_the_second_path():
     """Ścieżki są alternatywą, nie łańcuchem.
 
-    Odmowa po stronie delivery nie kończy sprawy, jeśli ten sam człowiek jest
-    opiekunem (`tac_id`) tej oferty.
+    Odmowa po stronie delivery nie kończy sprawy, jeśli ten sam człowiek ma
+    też rolę rekrutera (dawny TAC) i jest opiekunem (`tac_id`) tej oferty.
     """
 
     import app.api.recruitment_access as ra
@@ -96,12 +97,30 @@ async def test_delivery_lead_who_is_also_the_guardian_passes_on_the_second_path(
     original = ra.delivery_lead_job_pairs
     ra.delivery_lead_job_pairs = _deny_everything
     try:
-        await ensure_champion_job_visible(
-            _job(tac_id=7), _user(7, UserRole.delivery_lead), db=None
-        )
+        hybrid = _user(7, UserRole.delivery_lead, UserRole.recruiter)
+        await ensure_champion_job_visible(_job(tac_id=7), hybrid, db=None)
+        with pytest.raises(HTTPException) as exc:
+            await ensure_champion_job_visible(_job(tac_id=999), hybrid, db=None)
+        assert exc.value.status_code == 403
+    finally:
+        ra.delivery_lead_job_pairs = original
+
+
+@pytest.mark.asyncio
+async def test_guardian_entry_alone_does_not_widen_a_delivery_leads_scope():
+    """Opiekunem bywa dziś Delivery Lead — wpis w `tac_id` to nie zakres."""
+
+    import app.api.recruitment_access as ra
+
+    async def _deny_everything(_user, _db):
+        return frozenset()
+
+    original = ra.delivery_lead_job_pairs
+    ra.delivery_lead_job_pairs = _deny_everything
+    try:
         with pytest.raises(HTTPException) as exc:
             await ensure_champion_job_visible(
-                _job(tac_id=999), _user(7, UserRole.delivery_lead), db=None
+                _job(tac_id=7), _user(7, UserRole.delivery_lead), db=None
             )
         assert exc.value.status_code == 403
     finally:

@@ -686,8 +686,9 @@ async def ensure_champion_job_visible(
     # `job.tac_id` bywa NULL (oferta bez przypisanego opiekuna), a
     # `current_user.id` nigdy — więc nieprzypisana oferta wypada z zakresu,
     # zamiast wpadać w niego przez porównanie dwóch pustych wartości. Roli TAC
-    # nie ma od 0411; zostaje samo przypisanie (`TAC_ASSIGNABLE_ROLES`).
-    if job.tac_id == current_user.id:
+    # nie ma od 0411 — jej konta są rekruterami, więc warunek roli zostaje:
+    # sam wpis w `tac_id` nie poszerza zakresu Delivery Leada.
+    if current_user.has_role(UserRole.recruiter) and job.tac_id == current_user.id:
         return
 
     raise HTTPException(

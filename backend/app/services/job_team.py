@@ -261,7 +261,7 @@ async def recruiters_for_jobs(
                 TeamPerson(
                     user_id=owner.id,
                     name=owner.name,
-                    role=own_row.role if own_row else WORK_ROLE,
+                    role=WORK_ROLE,
                     via="owner",
                     assigned_by_name=own_row.assigner_name if own_row else None,
                 )
@@ -274,7 +274,7 @@ async def recruiters_for_jobs(
                 TeamPerson(
                     user_id=row.user_id,
                     name=row.user_name,
-                    role=row.role,
+                    role=WORK_ROLE,
                     via="assignment",
                     assigned_by_name=row.assigner_name,
                 )
@@ -300,7 +300,7 @@ async def recruiters_for_jobs(
                 TeamPerson(
                     user_id=row.user_id,
                     name=row.user_name,
-                    role=row.role,
+                    role=WORK_ROLE,
                     via="assignment",
                     proposed=True,
                 )

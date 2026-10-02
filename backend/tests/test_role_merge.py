@@ -146,7 +146,15 @@ async def test_restore_brings_back_only_accounts_nobody_changed_since():
         restored = await _account(db, "tac", ["tac"])
         hybrid = await _account(db, "delivery_lead", ["delivery_lead", "sourcer"])
         changed_later = await _account(db, "sourcer", ["sourcer"])
+        lost_secondary = await _account(
+            db, "recruiter", ["recruiter", "delivery_lead", "tac"]
+        )
         await _run(db, role_merge.ROLE_MERGE_STATEMENTS)
+        # Admin odebrał po migracji rolę dodatkową — przywrócenie jej nie oddaje.
+        await db.execute(
+            text("UPDATE users SET roles = '[\"recruiter\"]'::jsonb WHERE id = :id"),
+            {"id": lost_secondary},
+        )
         await db.execute(
             text(
                 "UPDATE users SET role = 'delivery_lead', "
@@ -157,13 +165,15 @@ async def test_restore_brings_back_only_accounts_nobody_changed_since():
 
         await _run(db, role_merge.ROLE_MERGE_RESTORE_STATEMENTS[:1])
         states = {
-            uid: await _state(db, uid) for uid in (restored, hybrid, changed_later)
+            uid: await _state(db, uid)
+            for uid in (restored, hybrid, changed_later, lost_secondary)
         }
         await db.rollback()
 
     assert states[restored][:2] == ("tac", ["tac"])
     assert states[hybrid][:2] == ("delivery_lead", ["delivery_lead", "sourcer"])
     assert states[changed_later][:2] == ("delivery_lead", ["delivery_lead"])
+    assert states[lost_secondary][:2] == ("recruiter", ["recruiter"])
 
 
 @pytest.mark.asyncio

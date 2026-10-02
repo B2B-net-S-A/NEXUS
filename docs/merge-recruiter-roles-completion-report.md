@@ -91,7 +91,25 @@ priorytet, terminy rozmów) mają własne testy.
 | Lustra migracji 0269 i 0273 (lokalnie) | 8 passed |
 | Frontend `npm run type-check`, `npm run lint` | bez błędów |
 | Frontend `vitest run --changed origin/main` | 491 plików, 5493 testy, wszystkie zielone |
-| Testy backendu z Postgresem | pełny bieg CI na gałęzi (`gh workflow run CI --ref …`) — wynik w PR |
+| Pełne CI na gałęzi (12 shardów pytest z Postgresem, frontend, Trivy) | zielone — bieg 37069129517 na commicie sprzed poprawek z przeglądów; po poprawkach bieg powtórzony, wynik w PR |
+| Podgląd przy 1280 × 720 (cele KPI, „Requesty i obłożenie”, „Kategorie kompetencji”, panel „Zespół”, „Osoby i role”, „Praktykanci”) | jedna rola „Rekruter”, bez błędów w konsoli |
+
+## Poprawki po przeglądach (bezpieczeństwo i kod)
+
+Oba przeglądy bez blokerów. Poprawione przed otwarciem PR:
+
+- **Zakres Championa:** ścieżka opiekuna wymaga roli rekrutera obok wpisu w `jobs.tac_id`. Opiekunem
+  bywa dziś Delivery Lead, a sam wpis nie może poszerzać jego zakresu poza portfel.
+- **`User.has_role`** normalizuje stare etykiety tak samo jak `get_all_roles` — lista `roles`
+  ze starym napisem nie daje dwóch różnych odpowiedzi.
+- **Przywracanie ze snapshotu** porównuje też listę ról: konto, któremu admin po migracji odebrał
+  rolę dodatkową, nie wraca do stanu sprzed migracji.
+- **Rola pracy w odpowiedziach** to stała `recruiter`, a nie wartość z wiersza — wiersz ze starą
+  etykietą (stary obraz po rollbacku) nie wywróci listy rekrutacji na walidacji odpowiedzi.
+- **OpenAPI** wymienia każdą rolę raz (aliasy enuma dawały trzy razy „recruiter”).
+
+Świadomie bez zmian: usuwanie zdublowanych reguł powiadomień etapu zostawia regułę rekrutera także
+wtedy, gdy jest wyłączona, a reguła wycofanej roli była włączona. Produkcja nie ma takich wierszy.
 
 ## Po wdrożeniu — do sprawdzenia
 

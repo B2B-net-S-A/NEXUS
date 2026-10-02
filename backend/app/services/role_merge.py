@@ -250,8 +250,8 @@ ROLE_MERGE_STATEMENTS: tuple[str, ...] = (
 
 # Przywrócenie (downgrade 0411 albo ręcznie po rollbacku obrazu — stary obraz
 # nie uruchamia `alembic downgrade`). Wraca wyłącznie konto, którego rola
-# główna jest nadal taka, jaką zostawiła konwersja: późniejsza zmiana roli
-# przez administratora wygrywa. Reguły powiadomień, cele ról i role pracy nie
+# główna i lista ról są nadal takie, jakie zostawiła konwersja: późniejsza
+# zmiana przez administratora (także odebrana rola dodatkowa) wygrywa. Reguły powiadomień, cele ról i role pracy nie
 # są przywracane — w dniu migracji produkcja nie miała takich wierszy.
 _RESTORE_ACCOUNTS_SQL = f"""
 UPDATE users AS u
@@ -266,6 +266,26 @@ WHERE a.migration_key = '{ROLE_MERGE_KEY}'
       WHEN a.original_state ->> 'role' IN ('sourcer', 'tac') THEN 'recruiter'
       ELSE a.original_state ->> 'role'
   END
+  AND jsonb_typeof(u.roles) = 'array'
+  AND (
+      SELECT COALESCE(array_agg(DISTINCT c.value ORDER BY c.value), '{{}}')
+      FROM jsonb_array_elements_text(u.roles) AS c(value)
+  ) = (
+      SELECT array_agg(DISTINCT m.value ORDER BY m.value)
+      FROM (
+          SELECT CASE
+                     WHEN e.value IN ('sourcer', 'tac') THEN 'recruiter'
+                     ELSE e.value
+                 END AS value
+          FROM jsonb_array_elements_text(a.original_state -> 'roles') AS e(value)
+          UNION
+          SELECT CASE
+                     WHEN a.original_state ->> 'role' IN ('sourcer', 'tac')
+                         THEN 'recruiter'
+                     ELSE a.original_state ->> 'role'
+                 END
+      ) AS m
+  )
 """
 
 _RESTORE_RBAC_SECTIONS_SQL = f"""
