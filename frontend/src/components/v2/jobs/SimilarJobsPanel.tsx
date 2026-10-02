@@ -17,9 +17,14 @@
  * (`SimilarPersonPreview`), Ctrl/⌘-klik — profil w nowej karcie. Zaznaczenie
  * zmienia wyłącznie pole wyboru. Esc zamyka najpierw kartę, bo zamknięcie
  * panelu kasuje zaznaczenia.
+ *
+ * Od 02.10.2026 treść żyje w `useSimilarJobsTab` — ta sama lista jest zakładką
+ * „Podobne rekrutacje” okna „Kandydaci do dodania”. Pod wysłanymi do klienta
+ * stoją „pozostali” z tej samej rekrutacji (od Screeningu wzwyż): nie
+ * zaznaczają się sami i wchodzą do „Nowych” zwykłym dodaniem, nie przepięciem.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Link2, Search, Unlink } from "lucide-react";
 
@@ -33,12 +38,13 @@ import { useCapability } from "@/hooks/useCapability";
 import { candidatesApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
+import { proposalsBulkApi, type BulkProposalsResponse } from "@/lib/candidate-search-api";
 import {
   similarityHint,
   similarityLabel,
   similarJobsApi,
   similarJobsKey,
-  similarPeopleKey,
+  similarPeopleWithRestKey,
   similarSearchKey,
   type ReassignResponse,
   type SentPerson,
@@ -72,6 +78,55 @@ export function SimilarJobsPanel({
   onOpenChange,
   readOnly = false,
 }: SimilarJobsPanelProps) {
+  const tab = useSimilarJobsTab(jobId, {
+    enabled: open,
+    readOnly,
+    onDone: () => onOpenChange(false),
+  });
+  return (
+    <RecruitmentSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Podobne rekrutacje"
+      description={SIMILAR_TAB_DESCRIPTION}
+      data-testid="similar-jobs-panel"
+      onEscapeKeyDown={tab.onEscapeKeyDown}
+      sidePane={tab.sidePane}
+      toolbar={tab.toolbar}
+      footer={tab.footer}
+    >
+      {tab.body}
+    </RecruitmentSheet>
+  );
+}
+
+export const SIMILAR_TAB_DESCRIPTION =
+  "Kliknij rekrutację — zaznaczymy wszystkich wysłanych w niej do klienta. Kliknij osobę, żeby ją podejrzeć. Jednym przyciskiem przepniesz zaznaczonych do „Nowych”.";
+
+/** Części okna, które zakładka oddaje powłoce (`RecruitmentSheet`). */
+export interface SourceTabSlots {
+  toolbar: ReactNode;
+  body: ReactNode;
+  footer: ReactNode;
+  sidePane: ReactElement | undefined;
+  onEscapeKeyDown: (event: KeyboardEvent) => void;
+}
+
+interface SimilarPeople {
+  people: SentPerson[];
+  /** Ilu „pozostałych” ma rekrutacja naprawdę (lista jest ucinana). */
+  restTotal: number;
+}
+
+export function useSimilarJobsTab(
+  jobId: number,
+  {
+    enabled,
+    readOnly = false,
+    onDone,
+  }: { enabled: boolean; readOnly?: boolean; onDone?: () => void },
+): SourceTabSlots {
+  const open = enabled;
   const qc = useQueryClient();
   const { showSuccess, showError, showActionToast } = useToast();
   const similar = useSimilarJobs(jobId, open);
@@ -80,6 +135,9 @@ export function SimilarJobsPanel({
   const [chosen, setChosen] = useState<number[]>([]);
   const [manual, setManual] = useState<SimilarJobItem[]>([]);
   const [excluded, setExcluded] = useState<Set<number>>(() => new Set());
+  // „Pozostali” (klient ich nie widział) — nikt nie jest zaznaczony sam.
+  const [included, setIncluded] = useState<Set<number>>(() => new Set());
+  const [addingRest, setAddingRest] = useState(false);
   const [query, setQuery] = useState("");
   const [preview, setPreview] = useState<{ candidateId: number; jobId: number } | null>(null);
   const previewTrigger = useRef<HTMLElement | null>(null);
@@ -90,6 +148,7 @@ export function SimilarJobsPanel({
     setChosen([]);
     setManual([]);
     setExcluded(new Set());
+    setIncluded(new Set());
     setQuery("");
     setPreview(null);
   }, [open]);
@@ -104,17 +163,20 @@ export function SimilarJobsPanel({
 
   const peopleQueries = useQueries({
     queries: chosen.map((otherId) => ({
-      queryKey: similarPeopleKey(jobId, otherId),
-      queryFn: () =>
-        similarJobsApi
-          .people(jobId, [otherId])
-          .then((data) => data.jobs[0]?.people ?? []),
+      queryKey: similarPeopleWithRestKey(jobId, otherId),
+      queryFn: (): Promise<SimilarPeople> =>
+        similarJobsApi.people(jobId, [otherId], { includeRest: true }).then((data) => ({
+          people: data.jobs[0]?.people ?? [],
+          restTotal: data.jobs[0]?.rest_total ?? 0,
+        })),
       staleTime: 30_000,
     })),
   });
   const peopleByJob: Record<number, SentPerson[] | undefined> = {};
+  const restTotalByJob: Record<number, number> = {};
   chosen.forEach((otherId, index) => {
-    peopleByJob[otherId] = peopleQueries[index]?.data;
+    peopleByJob[otherId] = peopleQueries[index]?.data?.people;
+    restTotalByJob[otherId] = peopleQueries[index]?.data?.restTotal ?? 0;
   });
   // Przepinamy dopiero, gdy znamy ludzi KAŻDEJ zaznaczonej rekrutacji —
   // grupa w błędzie albo w toku wypadłaby z planu po cichu.
@@ -122,8 +184,8 @@ export function SimilarJobsPanel({
   const peopleFailed = peopleQueries.some(
     (query) => query.isError && query.data === undefined,
   );
-  const plan = planReassign(chosen, peopleByJob, excluded);
-  const count = plan.candidateIds.length;
+  const plan = planReassign(chosen, peopleByJob, excluded, included);
+  const count = plan.candidateIds.length + plan.restIds.length;
 
   const linked = useMemo(() => similar.data?.linked ?? [], [similar.data]);
   const linkedIds = useMemo(() => new Set(linked.map((j) => j.id)), [linked]);
@@ -150,13 +212,16 @@ export function SimilarJobsPanel({
     if (trigger?.isConnected) trigger.focus();
   };
 
-  const togglePerson = (candidateId: number) =>
-    setExcluded((prev) => {
+  const togglePerson = (person: SentPerson) => {
+    const flip = (prev: Set<number>) => {
       const next = new Set(prev);
-      if (next.has(candidateId)) next.delete(candidateId);
-      else next.add(candidateId);
+      if (next.has(person.candidate_id)) next.delete(person.candidate_id);
+      else next.add(person.candidate_id);
       return next;
-    });
+    };
+    if (person.sent === false) setIncluded(flip);
+    else setExcluded(flip);
+  };
 
   const pickFromSearch = (item: SimilarJobItem) => {
     if (!manual.some((m) => m.id === item.id)) setManual((prev) => [...prev, item]);
@@ -164,9 +229,11 @@ export function SimilarJobsPanel({
     setQuery("");
   };
 
-  const undo = async (result: ReassignResponse) => {
+  const undo = async (result: ReassignResponse, rest: BulkProposalsResponse | null) => {
     const removed = await Promise.allSettled(
-      result.added.map((candidateId) => candidatesApi.removeFromRecruitment(candidateId, jobId)),
+      [...result.added, ...(rest?.added ?? [])].map((candidateId) =>
+        candidatesApi.removeFromRecruitment(candidateId, jobId),
+      ),
     );
     await Promise.allSettled(result.linked_now.map((otherId) => similarJobsApi.unlink(jobId, otherId)));
     qc.invalidateQueries({ queryKey: similarJobsKey(jobId) });
@@ -191,32 +258,62 @@ export function SimilarJobsPanel({
         jobIds: chosen,
         candidateIds: plan.candidateIds,
       });
+      // „Pozostali” nie byli u klienta — zwykłe dodanie do „Nowych”, już po
+      // połączeniu rekrutacji. Błąd tutaj nie cofa udanego przepięcia.
+      let rest: BulkProposalsResponse | null = null;
+      let restFailed = false;
+      if (plan.restIds.length > 0) {
+        setAddingRest(true);
+        try {
+          rest = await proposalsBulkApi.add(jobId, {
+            candidate_ids: plan.restIds,
+            initial_stage_legacy: "new",
+            source: "historical",
+          });
+        } catch {
+          restFailed = true;
+        } finally {
+          setAddingRest(false);
+        }
+      }
       const summary = summarizeBulkResult(result);
+      const restSummary = rest ? summarizeBulkResult(rest) : null;
+      const restAdded = rest?.total_added ?? 0;
       const parts: string[] = [];
       parts.push(
         result.total_added > 0
           ? `Przepięto ${result.total_added} ${pluralPeople(result.total_added)} do Nowych.`
-          : "Połączono rekrutacje.",
+          : restAdded > 0
+            ? `Dodano ${restAdded} ${pluralPeople(restAdded)} do Nowych.`
+            : "Połączono rekrutacje.",
       );
-      if (result.linked_now.length > 0 && result.total_added > 0) {
+      if (result.total_added > 0 && restAdded > 0) {
+        parts.push(`Dodano też ${restAdded} ${pluralPeople(restAdded)} spoza wysłanych do klienta.`);
+      }
+      if (result.linked_now.length > 0 && result.total_added + restAdded > 0) {
         parts.push(`Połączono ${result.linked_now.length} ${pluralJobs(result.linked_now.length)}.`);
       }
-      if (summary.skipped.length > 0) {
-        parts.push(`Pominięto: ${formatReasonCounts(summary.skipped)}.`);
+      const skipped = [...summary.skipped, ...(restSummary?.skipped ?? [])];
+      if (skipped.length > 0) {
+        parts.push(`Pominięto: ${formatReasonCounts(skipped)}.`);
+      }
+      if (restFailed) {
+        parts.push("Nie udało się dodać osób spoza wysłanych do klienta — spróbuj ponownie.");
       }
       const message = parts.join(" ");
-      if (result.total_added > 0 || result.linked_now.length > 0) {
-        showActionToast(message, { actionLabel: "Cofnij", onAction: () => undo(result) });
+      if (result.total_added + restAdded > 0 || result.linked_now.length > 0) {
+        showActionToast(message, { actionLabel: "Cofnij", onAction: () => undo(result, rest) });
       } else {
         showSuccess(message);
       }
-      onOpenChange(false);
+      onDone?.();
     } catch (error) {
       showError(apiErrorMessage(error, "Nie udało się przepiąć osób."));
     }
   };
 
-  const tooMany = count > MAX_REASSIGN_PEOPLE;
+  const tooMany =
+    plan.candidateIds.length > MAX_REASSIGN_PEOPLE || plan.restIds.length > MAX_REASSIGN_PEOPLE;
   const summaryText = peopleFailed
     ? "Nie wczytano osób z jednej z zaznaczonych rekrutacji — kliknij „Ponów” przy niej albo ją odznacz."
     : tooMany
@@ -227,13 +324,18 @@ export function SimilarJobsPanel({
         ? `${count === 1 ? "1 osoba" : `${count} ${pluralPeople(count)}`} z ${chosen.length} rekrutacji. Połączone rekrutacje przepną kolejne wysłane osoby same.`
         : "Nikogo nie zaznaczono — rekrutacje zostaną tylko połączone.";
   const submitLabel =
-    count > 0 ? `Przepnij ${count} ${pluralPeople(count)} do Nowych` : "Tylko połącz";
+    count === 0
+      ? "Tylko połącz"
+      : plan.restIds.length > 0
+        ? `Dodaj ${count} ${pluralPeople(count)} do Nowych`
+        : `Przepnij ${count} ${pluralPeople(count)} do Nowych`;
+  const busy = reassign.isPending || addingRest;
   const submitDisabled =
     readOnly ||
     chosen.length === 0 ||
     peopleNotReady ||
     tooMany ||
-    reassign.isPending ||
+    busy ||
     (count === 0 && newLinks.length === 0);
 
   // Kolejność ‹ › w karcie = kolejność grup na ekranie, nie kolejność kliknięć.
@@ -270,6 +372,7 @@ export function SimilarJobsPanel({
       checked={chosen.includes(item.id)}
       onToggle={() => toggleJob(item.id)}
       rows={plan.rows[item.id]}
+      restTotal={restTotalByJob[item.id] ?? 0}
       loading={
         chosen.includes(item.id) &&
         peopleByJob[item.id] === undefined &&
@@ -280,7 +383,7 @@ export function SimilarJobsPanel({
         peopleByJob[item.id] === undefined &&
         Boolean(peopleQueries[chosen.indexOf(item.id)]?.isError)
       }
-      onRetry={() => qc.refetchQueries({ queryKey: similarPeopleKey(jobId, item.id) })}
+      onRetry={() => qc.refetchQueries({ queryKey: similarPeopleWithRestKey(jobId, item.id) })}
       onTogglePerson={togglePerson}
       onUnlink={item.linked && !readOnly ? () => unlink.mutate(item.id) : undefined}
       unlinking={unlink.isPending}
@@ -290,20 +393,8 @@ export function SimilarJobsPanel({
 
   const results = (search.data ?? []).filter((r) => r.id !== jobId);
 
-  return (
-    <RecruitmentSheet
-      open={open}
-      onOpenChange={onOpenChange}
-      title="Podobne rekrutacje"
-      description="Kliknij rekrutację — zaznaczymy wszystkich wysłanych w niej do klienta. Kliknij osobę, żeby ją podejrzeć. Jednym przyciskiem przepniesz zaznaczonych do „Nowych”."
-      data-testid="similar-jobs-panel"
-      onEscapeKeyDown={(event) => {
-        if (!previewPerson) return;
-        event.preventDefault();
-        closePreview();
-      }}
-      sidePane={
-        previewPerson ? (
+  const sidePane =
+    previewPerson ? (
           <SimilarPersonPreview
             key={previewPerson.candidate_id}
             jobId={jobId}
@@ -315,14 +406,15 @@ export function SimilarJobsPanel({
             onClose={closePreview}
             canOpenProfile={canOpenProfile}
             selection={{
-              checked: plan.candidateIds.includes(previewPerson.candidate_id),
+              checked:
+                plan.candidateIds.includes(previewPerson.candidate_id) ||
+                plan.restIds.includes(previewPerson.candidate_id),
               disabled: readOnly || !previewPerson.selectable,
-              onToggle: () => togglePerson(previewPerson.candidate_id),
+              onToggle: () => togglePerson(previewPerson),
             }}
           />
-        ) : undefined
-      }
-      toolbar={
+        ) : undefined;
+  const toolbar = (
         <div className="relative">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -371,8 +463,8 @@ export function SimilarJobsPanel({
             </ul>
           ) : null}
         </div>
-      }
-      footer={
+  );
+  const footer = (
         <div className="flex flex-col gap-2">
           <p className="text-xs text-muted-foreground" data-testid="similar-panel-summary">
             {summaryText}
@@ -381,12 +473,12 @@ export function SimilarJobsPanel({
             <p className="text-xs text-muted-foreground">Masz tu tylko podgląd — przepinać może zespół rekrutacji.</p>
           ) : (
             <Button onClick={submit} disabled={submitDisabled} data-testid="similar-panel-submit">
-              {reassign.isPending ? "Przepinam…" : submitLabel}
+              {busy ? "Przepinam…" : submitLabel}
             </Button>
           )}
         </div>
-      }
-    >
+  );
+  const body = (
       <div className="space-y-5">
         {similar.isError ? (
           <p className="text-sm text-destructive">
@@ -424,8 +516,18 @@ export function SimilarJobsPanel({
           </GroupSection>
         ) : null}
       </div>
-    </RecruitmentSheet>
   );
+  return {
+    toolbar,
+    body,
+    footer,
+    sidePane,
+    onEscapeKeyDown: (event) => {
+      if (!previewPerson) return;
+      event.preventDefault();
+      closePreview();
+    },
+  };
 }
 
 function GroupSection({
@@ -458,6 +560,7 @@ function JobGroup({
   checked,
   onToggle,
   rows,
+  restTotal,
   loading,
   error,
   onRetry,
@@ -476,16 +579,33 @@ function JobGroup({
   checked: boolean;
   onToggle: () => void;
   rows: PlannedPerson[] | undefined;
+  /** Ilu „pozostałych” ma ta rekrutacja (serwer oddaje najwyżej 50). */
+  restTotal: number;
   loading: boolean;
   error: boolean;
   onRetry: () => void;
-  onTogglePerson: (candidateId: number) => void;
+  onTogglePerson: (person: SentPerson) => void;
   onUnlink?: () => void;
   unlinking: boolean;
   readOnly: boolean;
 }) {
-  const people = rows?.map((r) => r.person);
-  const pickable = selectableCount(people);
+  const sentRows = rows?.filter((r) => r.person.sent !== false) ?? [];
+  const restRows = rows?.filter((r) => r.person.sent === false) ?? [];
+  const pickable = selectableCount(sentRows.map((r) => r.person));
+  const personRow = (row: PlannedPerson) => (
+    <PersonRow
+      key={row.person.candidate_id}
+      row={row}
+      onToggle={onTogglePerson}
+      readOnly={readOnly}
+      profileHref={
+        canOpenProfile ? `/candidates/${row.person.candidate_id}?from=job&jobId=${jobId}` : null
+      }
+      active={previewCandidateId === row.person.candidate_id}
+      onPreview={onPreview}
+      onClosePreview={onClosePreview}
+    />
+  );
   return (
     <div
       className={cn(
@@ -516,6 +636,7 @@ function JobGroup({
         ) : null}
         <span className="whitespace-nowrap text-xs text-muted-foreground">
           <b className="font-semibold text-foreground">{item.sent_count}</b> u klienta
+          {item.other_count ? ` · +${item.other_count}` : null}
         </span>
         {onUnlink ? (
           <Button
@@ -547,27 +668,36 @@ function JobGroup({
               Nikt nie został tu wysłany do klienta — nie ma kogo przepiąć.
             </p>
           ) : (
-            <ul aria-label={`Osoby wysłane do klienta: ${item.title}`}>
-              {rows.map((row) => (
-                <PersonRow
-                  key={row.person.candidate_id}
-                  row={row}
-                  onToggle={onTogglePerson}
-                  readOnly={readOnly}
-                  profileHref={
-                    canOpenProfile ? `/candidates/${row.person.candidate_id}?from=job&jobId=${jobId}` : null
-                  }
-                  active={previewCandidateId === row.person.candidate_id}
-                  onPreview={onPreview}
-                  onClosePreview={onClosePreview}
-                />
-              ))}
-              {pickable === 0 ? (
-                <li className="px-3 py-2 text-xs text-muted-foreground">
-                  Nikogo z tej rekrutacji nie da się przepiąć.
-                </li>
+            <>
+              {sentRows.length > 0 ? (
+                <ul aria-label={`Osoby wysłane do klienta: ${item.title}`}>
+                  {sentRows.map(personRow)}
+                  {pickable === 0 ? (
+                    <li className="px-3 py-2 text-xs text-muted-foreground">
+                      Nikogo z tej rekrutacji nie da się przepiąć.
+                    </li>
+                  ) : null}
+                </ul>
+              ) : (
+                <p className="px-3 py-2 text-xs text-muted-foreground">
+                  Nikt nie został tu wysłany do klienta.
+                </p>
+              )}
+              {restRows.length > 0 ? (
+                <>
+                  <p className="border-t border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
+                    <b className="font-semibold text-foreground">Pozostali z tej rekrutacji</b> —
+                    klient ich nie widział. Zaznacz, kogo chcesz dodać.
+                    {restTotal > restRows.length
+                      ? ` Pokazano ${restRows.length} z ${restTotal}.`
+                      : null}
+                  </p>
+                  <ul aria-label={`Pozostali z rekrutacji: ${item.title}`}>
+                    {restRows.map(personRow)}
+                  </ul>
+                </>
               ) : null}
-            </ul>
+            </>
           )}
         </div>
       ) : null}
@@ -593,7 +723,7 @@ function PersonRow({
   onClosePreview,
 }: {
   row: PlannedPerson;
-  onToggle: (candidateId: number) => void;
+  onToggle: (person: SentPerson) => void;
   readOnly: boolean;
   /** `null` = rola bez dostępu do profili kandydatów. */
   profileHref: string | null;
@@ -618,9 +748,9 @@ function PersonRow({
       <Checkbox
         id={inputId}
         checked={state === "selected"}
-        onCheckedChange={() => onToggle(person.candidate_id)}
+        onCheckedChange={() => onToggle(person)}
         disabled={disabled}
-        aria-label={`Przepnij ${person.name}`}
+        aria-label={`${person.sent === false ? "Dodaj" : "Przepnij"} ${person.name}`}
       />
       <div className={cn("min-w-0 flex-1", disabled && !active && "opacity-60")}>
         {profileHref ? (
@@ -658,7 +788,13 @@ function PersonRow({
           CHIP[person.outcome] ?? "bg-muted text-muted-foreground",
         )}
       >
-        {person.outcome === "hired" ? "pracuje u klienta" : person.already_in_job ? "już tutaj" : statusChip(person)}
+        {person.outcome === "hired"
+          ? "pracuje u klienta"
+          : person.already_in_job
+            ? "już tutaj"
+            : person.sent === false
+              ? "nie u klienta"
+              : statusChip(person)}
       </span>
       <button
         type="button"

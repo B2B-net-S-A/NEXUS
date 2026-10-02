@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
-from sqlalchemy import case, exists, func, literal, select, text, update
+from sqlalchemy import and_, case, exists, func, literal, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +49,11 @@ PREVIOUSLY_DISMISSED_KEY = "previously_dismissed"
 _MAX_REVISION_LEN = 64
 # Inbox: „nowa" = pierwszy raz zaproponowana w ostatniej dobie (kosmetyka).
 NEW_PROPOSAL_WINDOW = timedelta(hours=24)
+# Źródła „z ogłoszeń": nowe CV w bazie i dopasowania z portali. Skrzynka dzieli
+# otwarte propozycje na świeże z ogłoszeń (ostatnie POSTING_RECENT_DAYS dni)
+# i resztę („z bazy") — ta sama osoba liczy się RAZ, po stronie ogłoszeń.
+POSTING_SOURCES = ("new_cv", "job_board")
+POSTING_RECENT_DAYS = 7
 
 
 def _short(value: Any) -> Optional[str]:
@@ -592,6 +597,68 @@ class ProposalRow:
     # Przegląd, z którego pochodzi propozycja (wiersz o najwyższym wyniku, który
     # go niesie). Bez FK — retencja kasuje przeglądy, więc bywa już nieaktualny.
     run_id: Optional[str] = None
+    # Kiedy osoba ostatnio przyszła ze źródła „z ogłoszeń” (`POSTING_SOURCES`);
+    # `None` = żaden wiersz pary nie pochodzi z ogłoszeń.
+    posting_seen_at: Optional[datetime] = None
+
+
+def _posting_seen_at():
+    return func.max(JobProposal.first_seen_at).filter(
+        JobProposal.source.in_(POSTING_SOURCES)
+    )
+
+
+def _pairs_for_job(job_id: int, status: str, *columns):
+    """Pary (kandydat, rekrutacja) o danym statusie — jedna pozycja na osobę.
+
+    Jedyna definicja „co jest na liście”: czytają ją strona skrzynki
+    (:func:`list_for_job`) i podział licznika (:func:`open_split_counts`),
+    więc suma podziału nie może rozjechać się z ``total`` listy.
+    """
+    grouped = (
+        select(JobProposal.candidate_id.label("candidate_id"), *columns)
+        .where(JobProposal.job_id == job_id)
+        .group_by(JobProposal.candidate_id)
+        .having(_pair_status() == status)
+    )
+    if status == "proposed":
+        grouped = grouped.where(
+            ~_in_pipeline(JobProposal.job_id, JobProposal.candidate_id),
+            ~_globally_blacklisted(JobProposal.candidate_id),
+        )
+    return grouped
+
+
+async def open_split_counts(
+    db: AsyncSession, *, job_id: int, since: datetime
+) -> dict[str, int]:
+    """Otwarte propozycje w podziale: świeże z ogłoszeń i reszta („z bazy”).
+
+    ``postings_recent`` = osoby, które mają wiersz ze źródła z
+    ``POSTING_SOURCES`` zaproponowany od ``since``; ``base`` = pozostałe.
+    Te same pary co :func:`list_for_job` ze ``status="proposed"``, więc
+    ``postings_recent + base`` równa się ``total`` listy (przed ukryciem
+    osób przez bramkę widoczności na stronie).
+    """
+    recent = func.coalesce(
+        func.bool_or(
+            and_(
+                JobProposal.source.in_(POSTING_SOURCES),
+                JobProposal.first_seen_at >= since,
+            )
+        ),
+        False,
+    )
+    sub = _pairs_for_job(job_id, "proposed", recent.label("posting_recent")).subquery()
+    row = (
+        await db.execute(
+            select(
+                func.count().filter(sub.c.posting_recent),
+                func.count().filter(~sub.c.posting_recent),
+            ).select_from(sub)
+        )
+    ).one()
+    return {"postings_recent": int(row[0] or 0), "base": int(row[1] or 0)}
 
 
 async def list_for_job(
@@ -612,27 +679,19 @@ async def list_for_job(
     if status not in JOB_PROPOSAL_STATUSES:
         raise ValueError(f"Unknown job proposal status: {status!r}")
     new_since = (now or datetime.now(timezone.utc)) - NEW_PROPOSAL_WINDOW
-    grouped = (
-        select(
-            JobProposal.candidate_id.label("candidate_id"),
-            func.array_agg(func.distinct(JobProposal.source)).label("sources"),
-            func.max(JobProposal.score).label("score"),
-            func.min(JobProposal.first_seen_at).label("first_seen_at"),
-            func.max(JobProposal.first_seen_at).label("newest_seen_at"),
-            func.max(JobProposal.last_seen_at).label("last_seen_at"),
-            # 0341: przepięcia (osoby już wysłane do klienta przy podobnym
-            # requeście) stoją w kolejce przed resztą propozycji.
-            func.bool_or(JobProposal.source == "reassign").label("is_reassign"),
-        )
-        .where(JobProposal.job_id == job_id)
-        .group_by(JobProposal.candidate_id)
-        .having(_pair_status() == status)
+    grouped = _pairs_for_job(
+        job_id,
+        status,
+        func.array_agg(func.distinct(JobProposal.source)).label("sources"),
+        func.max(JobProposal.score).label("score"),
+        func.min(JobProposal.first_seen_at).label("first_seen_at"),
+        func.max(JobProposal.first_seen_at).label("newest_seen_at"),
+        func.max(JobProposal.last_seen_at).label("last_seen_at"),
+        # 0341: przepięcia (osoby już wysłane do klienta przy podobnym
+        # requeście) stoją w kolejce przed resztą propozycji.
+        func.bool_or(JobProposal.source == "reassign").label("is_reassign"),
+        _posting_seen_at().label("posting_seen_at"),
     )
-    if status == "proposed":
-        grouped = grouped.where(
-            ~_in_pipeline(JobProposal.job_id, JobProposal.candidate_id),
-            ~_globally_blacklisted(JobProposal.candidate_id),
-        )
     sub = grouped.subquery()
     total = int(await db.scalar(select(func.count()).select_from(sub)) or 0)
     page = (
@@ -689,6 +748,7 @@ async def list_for_job(
             is_new=row.newest_seen_at >= new_since,
             status=status,
             run_id=run_by_candidate.get(row.candidate_id),
+            posting_seen_at=row.posting_seen_at,
         )
         for row in page
     ]

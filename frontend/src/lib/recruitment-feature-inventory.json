@@ -115,7 +115,7 @@
    "opis": "Dodaj kandydata (szybko po nazwisku)",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "AddCandidatesQuickModal",
-   "v3_home": "+ Dodaj kandydatów"
+   "v3_home": "menu „⋯” → Dodaj po nazwisku; link nad Tablicą w pasku „Kandydaci do dodania”"
   },
   {
    "id": "header.ai-writer",
@@ -224,10 +224,10 @@
   {
    "id": "header.recruiter-subtitle",
    "area": "naglowek",
-   "opis": "Podtytuł nagłówka: „Rekruter: X +N” albo „Bez rekrutera” (dawniej „Prowadzi”)",
+   "opis": "Kto jest rekruterem rekrutacji: „Rekruter: X +N” albo „Bez rekrutera” (dawniej podtytuł nagłówka)",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "recruiterLead",
-   "v3_home": "nagłówek rekrutacji → podtytuł"
+   "v3_home": "menu „⋯” → Zespół (otwiera panel „Zespół”)"
   },
   {
    "id": "header.priority",
@@ -291,7 +291,8 @@
    "opis": "Filtry: utknęli / bez akcji / ostrzeżenia / rekruter / SLA",
    "file": "components/v2/jobs/PipelineFiltersRail.tsx",
    "marker": "Bez następnej akcji",
-   "v3_home": "pasek filtrów nad Tablicą"
+   "v3_home": "pasek filtrów nad Tablicą",
+   "removed_reason": "Decyzja Artura 02.10.2026 (prostszy ekran rekrutacji): filtry Tablicy (utknęli, bez akcji, ostrzeżenia, rekruter, SLA) zdjęte bez zamiennika — „za dużo się dzieje”. Plakietki „Twój ruch”, SLA kolumny i „Brak następnej akcji” zostają na kartach i w nagłówkach kolumn."
   },
   {
    "id": "kanban.off-template",
@@ -315,7 +316,7 @@
    "opis": "Widok przeglądowy / kolumnowy",
    "file": "components/v2/pages/KanbanBoardV2.tsx",
    "marker": "kanban-view",
-   "v3_home": "widok Tablica"
+   "v3_home": "pasek „Kandydaci do dodania” nad Tablicą (prawa strona)"
   },
   {
    "id": "src.ai-admin",
@@ -770,10 +771,10 @@
   {
    "id": "header.similar-jobs",
    "area": "naglowek",
-   "opis": "Panel „Podobne rekrutacje”: sugestie, dodanie własnej, osoby wysłane do klienta i przepięcie ich do Nowych jednym kliknięciem",
-   "file": "app/jobs/[id]/page.tsx",
-   "marker": "SimilarJobsPanel",
-   "v3_home": "nagłówek → Podobne rekrutacje (?win=similar)"
+   "opis": "„Podobne rekrutacje”: sugestie, dodanie własnej, osoby wysłane do klienta i pozostali z tych rekrutacji, przepięcie do Nowych jednym kliknięciem",
+   "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
+   "marker": "useSimilarJobsTab",
+   "v3_home": "kafel „Podobne rekrutacje” nad Tablicą → okno „Kandydaci do dodania” (?win=add&wintab=similar; stary ?win=similar działa)"
   },
   {
    "id": "header.similar-person-preview",
@@ -789,7 +790,7 @@
    "opis": "„Mamy championa” — Delivery Lead zatrzymuje szukanie (status requestu)",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "toggle-champion",
-   "v3_home": "nagłówek"
+   "v3_home": "menu „⋯” → Oznacz: mamy championa"
   },
   {
    "id": "src.reassign",
@@ -821,7 +822,8 @@
    "opis": "Tablica: pierwsza kolumna „Do przejrzenia” — przepięcia i propozycje z bazy nad osobami z ogłoszeń; ✓ do Screening, ✕ pomiń",
    "file": "components/v2/pages/KanbanBoardV2.tsx",
    "marker": "BoardReviewSection",
-   "v3_home": "Tablica → Do przejrzenia"
+   "v3_home": "Tablica → Do przejrzenia",
+   "removed_reason": "Decyzja Artura 02.10.2026: blok propozycji w kolumnie „Nowi” zastąpił pasek „Kandydaci do dodania” z czterema kaflami (Podobne rekrutacje, Nowi z ogłoszeń, Propozycje z bazy, Szukaj w bazie) i jedno okno z podglądem osoby; „Nowi” to zwykła kolumna."
   },
   {
    "id": "view.board-default",
@@ -853,7 +855,7 @@
    "opis": "Skrót zlecenia (29.09.2026): braki z szybką poprawką, fakty i wymagania; zespół, ogłoszenie i priorytet otwierają panel obok Profilu Championa",
    "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
    "marker": "OrderBlock",
-   "v3_home": "okno Zlecenie (krok „Zlecenie” na Tablicy)"
+   "v3_home": "menu „⋯” → Zlecenie — skrót (?win=order)"
   },
   {
    "id": "board.filter-bar",
@@ -861,7 +863,8 @@
    "opis": "Pasek filtrów Tablicy zamiast lewej kolumny: nazwisko, Mój ruch, utknęli, bez akcji, ostrzeżenia, poza szablonem, rekruter, puste kolumny, SLA",
    "file": "components/v2/jobs/PipelineFiltersRail.tsx",
    "marker": "PipelineFilterBar",
-   "v3_home": "Tablica → pasek filtrów"
+   "v3_home": "Tablica → pasek filtrów",
+   "removed_reason": "Decyzja Artura 02.10.2026: pasek filtrów nad Tablicą (nazwisko, „Mój ruch”, „Filtry”, „N w procesie”, SLA) usunięty. „Ukryj puste kolumny” przeszło do menu „⋯”, zamknięci do wąskiej kolumny „Zamknięci” obok Tablicy."
   },
   {
    "id": "board.workbench",
@@ -940,10 +943,10 @@
   {
    "id": "board.add-candidates",
    "area": "pipeline",
-   "opis": "„Dodaj kandydatów”: jedno okno z wyszukiwaniem w bazie (AI) według Championa, propozycjami, „Moimi ludźmi” i ręcznym dodaniem; dodani trafiają do „Nowych” z blokadą 12 h",
+   "opis": "„Kandydaci do dodania”: jedno okno z czterema źródłami (podobne rekrutacje, nowi z ogłoszeń, propozycje z bazy, szukaj w bazie); dodani trafiają do „Nowych” z blokadą 12 h",
    "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
    "marker": "AddCandidatesPanel",
-   "v3_home": "Tablica → nagłówek / kolumna Nowi → Dodaj kandydatów"
+   "v3_home": "kafle nad Tablicą → okno „Kandydaci do dodania”"
   },
   {
    "id": "cv.to-client-card",
@@ -975,7 +978,8 @@
    "opis": "„Ścieżka rekrutacji” (Zlecenie → Kandydaci → CV do klienta → Rozmowy → Umowa, kropka stanu + linia faktu) i pole „Najbliższy krok” (jedno zdanie + przycisk)",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "JobRecruitmentPath",
-   "v3_home": "nagłówek rekrutacji, pod metadanymi"
+   "v3_home": "nagłówek rekrutacji, pod metadanymi",
+   "removed_reason": "Decyzja Artura 02.10.2026: ścieżka „Zlecenie → … → Umowa” i pole „Najbliższy krok” usunięte z nagłówka. Braki zlecenia niesie odznaka „brakuje N” przy zakładce „Zlecenie i Champion”, źródła kandydatów — kafle nad Tablicą."
   },
   {
    "id": "board.column-purpose",
@@ -1064,6 +1068,110 @@
    "file": "components/v2/jobs/ScreeningReassignSuggestions.tsx",
    "marker": "Użyj tej odpowiedzi",
    "v3_home": "Arkusz screeningu (okno z Tablicy i warsztat w panelu osoby)"
+  },
+  {
+   "id": "header.fact-tiles",
+   "area": "naglowek",
+   "opis": "Trzy wyróżnione fakty pod tytułem: Klient · Budżet · Tryb pracy; brak wartości = „nie podano”, budżet ukryty dla roli bez wglądu",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "job-header-facts",
+   "v3_home": "nagłówek rekrutacji"
+  },
+  {
+   "id": "header.client-line",
+   "area": "naglowek",
+   "opis": "Linia pod tytułem: nazwa stanowiska od klienta, numer zapytania klienta i nasz numer",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "header-client-line",
+   "v3_home": "nagłówek rekrutacji"
+  },
+  {
+   "id": "header.menu-full-review",
+   "area": "naglowek",
+   "opis": "Ręczny pełny przegląd bazy przez AI — otwiera „Propozycje z bazy” i startuje przegląd raz na kliknięcie",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "menu-full-review",
+   "v3_home": "menu „⋯” → Przeszukaj całą bazę (AI)"
+  },
+  {
+   "id": "header.menu-add-from-cv",
+   "area": "naglowek",
+   "opis": "Dodanie kandydata z pliku CV do rekrutacji",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "menu-add-from-cv",
+   "v3_home": "menu „⋯” → Dodaj z pliku CV; link „albo z pliku CV” nad Tablicą"
+  },
+  {
+   "id": "header.menu-empty-columns",
+   "area": "naglowek",
+   "opis": "Ukryj / pokaż puste kolumny Tablicy (ustawienie w przeglądarce)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "toggle-empty-columns",
+   "v3_home": "menu „⋯” → Ukryj puste kolumny"
+  },
+  {
+   "id": "board.sources-strip",
+   "area": "pipeline",
+   "opis": "Pasek „Kandydaci do dodania”: cztery kafle źródeł z liczbami (Podobne rekrutacje, Nowi z ogłoszeń z 7 dni, Propozycje z bazy, Szukaj w bazie)",
+   "file": "components/v2/jobs/CandidateSourcesStrip.tsx",
+   "marker": "candidate-sources-strip",
+   "v3_home": "nad Tablicą"
+  },
+  {
+   "id": "board.sources-window",
+   "area": "pipeline",
+   "opis": "Jedno okno „Kandydaci do dodania” z czterema zakładkami; w każdej lista + podgląd osoby obok, zaznaczenie, „Dodaj N do Nowych”, „Pomiń” z powodem",
+   "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
+   "marker": "Źródło kandydatów",
+   "v3_home": "kafel nad Tablicą (?win=add&wintab=…)"
+  },
+  {
+   "id": "board.sources-postings",
+   "area": "pipeline",
+   "opis": "„Nowi z ogłoszeń”: osoby z ogłoszeń z ostatnich 7 dni pasujące do rekrutacji + zgłoszenia odłożone przez AI",
+   "file": "lib/proposals-merge.ts",
+   "marker": "splitByPostings",
+   "v3_home": "okno „Kandydaci do dodania” → Nowi z ogłoszeń"
+  },
+  {
+   "id": "board.sources-search",
+   "area": "pipeline",
+   "opis": "„Szukaj w bazie”: wyszukiwanie po słowach z Championa uruchamiane od razu; słowa i „Po tym nie szukamy” (zdania z must-have), trafienia w CV, „Zmień słowa i filtry” do pełnego „Szukaj ręcznie”",
+   "file": "components/v2/recruitment/useSearchBaseTab.tsx",
+   "marker": "Po tym nie szukamy",
+   "v3_home": "okno „Kandydaci do dodania” → Szukaj w bazie"
+  },
+  {
+   "id": "board.sources-similar-rest",
+   "area": "pipeline",
+   "opis": "W podobnej rekrutacji pod wysłanymi do klienta: „Pozostali z tej rekrutacji” (od Screeningu wzwyż), dodawani na życzenie",
+   "file": "components/v2/jobs/SimilarJobsPanel.tsx",
+   "marker": "Pozostali z tej rekrutacji",
+   "v3_home": "okno „Kandydaci do dodania” → Podobne rekrutacje"
+  },
+  {
+   "id": "board.person-preview",
+   "area": "pipeline",
+   "opis": "Podgląd osoby obok listy w KAŻDYM źródle: dopasowanie do tej rekrutacji, fakty, skąd osoba, notatki, CV, profil; strzałki ↑/↓",
+   "file": "components/v2/recruitment/PersonPreview.tsx",
+   "marker": "person-preview",
+   "v3_home": "okno „Kandydaci do dodania” → klik w nazwisko"
+  },
+  {
+   "id": "board.closed-column",
+   "area": "pipeline",
+   "opis": "Wąska kolumna „Zamknięci” obok Tablicy: cztery strefy upuszczenia (przez nas / DL / klienta / zrezygnował) z licznikami; klik rozwija kolumny zamkniętych",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "board-closed-column",
+   "v3_home": "Tablica → prawa krawędź"
+  },
+  {
+   "id": "header.menu-my-people",
+   "area": "naglowek",
+   "opis": "„Moi ludzie do tej rekrutacji” — lista własnych ludzi z dopasowaniem do rekrutacji i dodaniem (dawniej zakładka okna „Dodaj kandydatów”)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "menu-my-people",
+   "v3_home": "menu „⋯” → Moi ludzie do tej rekrutacji (panel „Moi ludzie”)"
   }
  ]
 }

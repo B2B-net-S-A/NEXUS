@@ -87,6 +87,9 @@ export interface ProposalDetail {
   reassignFrom: ProposalReassignFrom | null;
   /** Praktykant przekazał osobę po rozmowie (0374). */
   traineeHandover?: ProposalTraineeHandover | null;
+  /** Przyszła z ogłoszenia w ostatnich 7 dniach (liczy serwer) — zakładka „Nowi z ogłoszeń”. */
+  postingRecent?: boolean;
+  postingSeenAt?: string | null;
 }
 
 export interface ProposalEntry {
@@ -319,6 +322,8 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     d.detail.availabilityDate ??= c.availability_date;
     d.detail.eligibility ??= item.eligibility;
     d.detail.firstSeenAt ??= item.first_seen_at;
+    if (item.posting_recent === true) d.detail.postingRecent = true;
+    d.detail.postingSeenAt ??= item.posting_seen_at ?? null;
     // Przegląd, który tę osobę zaproponował — telemetria dodania (żywy
     // przegląd użytkownika, jeśli jest, nadpisze go niżej).
     d.runId ??= item.run_id ?? null;
@@ -571,6 +576,21 @@ export function filterProposals(
     if (skill && !detail.requirements.some((r) => r.status === "met" && fold(r.label).includes(skill))) return false;
     return true;
   });
+}
+
+/**
+ * Podział scalonej listy na zakładki okna „Kandydaci do dodania”: osoby
+ * z ogłoszeń z ostatnich 7 dni osobno, cała reszta w „Propozycjach z bazy”.
+ * Każda osoba trafia do dokładnie jednej zakładki — nic nie wypada.
+ */
+export function splitByPostings(entries: readonly ProposalEntry[]): {
+  postings: ProposalEntry[];
+  base: ProposalEntry[];
+} {
+  const postings: ProposalEntry[] = [];
+  const base: ProposalEntry[] = [];
+  for (const entry of entries) (entry.detail.postingRecent ? postings : base).push(entry);
+  return { postings, base };
 }
 
 export function countBySource(

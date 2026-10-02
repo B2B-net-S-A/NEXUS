@@ -17,6 +17,7 @@ from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
+from app.models.job import Job, JobStatus
 from app.models.job_proposal import JobProposal
 from app.models.job_similar_link import JobSimilarLink
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -361,3 +362,222 @@ def test_sent_day_is_the_polish_calendar_day_not_utc() -> None:
     assert sim._reassign_evidence(11, PipelineStage.cv_sent, None)["reassign"][
         "sent_at"
     ] is None
+
+
+# ── „Reszta”: rozmowa albo weryfikacja, bez wysłania (02.10.2026) ──────────
+
+
+async def _world_with_rest() -> dict:
+    """Świat z testów połączeń + osoby, które w A nie dotarły do klienta.
+
+    W A (poza ``sent``, ``hired`` i ``screening`` sprzed 3 dni) dochodzą:
+    zweryfikowana wczoraj, odrzucona po prep callu 4 dni temu, osoba po
+    interview, która już jest w B, oraz dwie z samych „Nowych”/„Ogłoszeń”.
+    """
+    world = await _world()
+    now = datetime.now(timezone.utc)
+    names = ("verified", "rest_rejected", "rest_in_target", "new_only", "posting_only")
+    async with AsyncSessionLocal() as db:
+        people = {
+            key: Candidate(
+                name="Reszta",
+                lastname=f"{key}-{world['tag']}",
+                email=f"similar-rest-{key}-{world['tag']}@example.com",
+            )
+            for key in names
+        }
+        db.add_all(people.values())
+        await db.flush()
+
+        def stage(key: str, job: str, step: PipelineStage, days: float, **extra):
+            return CandidateStage(
+                candidate_id=people[key].id,
+                job_id=world[job],
+                stage=step,
+                moved_at=now - timedelta(days=days),
+                **extra,
+            )
+
+        db.add_all(
+            [
+                stage("verified", "a", PipelineStage.new, 6),
+                stage("verified", "a", PipelineStage.screening, 2),
+                stage("verified", "a", PipelineStage.verified, 1),
+                stage("rest_rejected", "a", PipelineStage.prep_call, 5),
+                stage("rest_rejected", "a", PipelineStage.rejected, 4),
+                stage("rest_in_target", "a", PipelineStage.interview, 0.5),
+                stage("rest_in_target", "b", PipelineStage.new, 0.2),
+                stage("new_only", "a", PipelineStage.new, 1),
+                stage("posting_only", "a", PipelineStage.posting, 1),
+            ]
+        )
+        await db.commit()
+        return {**world, **{key: person.id for key, person in people.items()}}
+
+
+async def test_rest_people_come_only_on_request_and_after_the_sent():
+    world = await _world_with_rest()
+    async with AsyncSessionLocal() as db:
+        plain = await sim.sent_people(db, world["b"], [world["a"]])
+        full = await sim.sent_people(db, world["b"], [world["a"]], include_rest=True)
+
+    # Bez flagi — wyłącznie wysłani, jak dotąd.
+    assert {p["candidate_id"] for p in plain[world["a"]]} == {
+        world["sent"],
+        world["hired"],
+    }
+    assert all(p["sent"] is True for p in plain[world["a"]])
+    assert plain.rest_total == {}
+
+    people = full[world["a"]]
+    assert people[: len(plain[world["a"]])] == plain[world["a"]]
+    rest = people[len(plain[world["a"]]) :]
+    # Do wybrania pierwsi, od ostatnio ruszanych; osoba już w B na końcu.
+    assert [p["candidate_id"] for p in rest] == [
+        world["verified"],
+        world["screening"],
+        world["rest_rejected"],
+        world["rest_in_target"],
+    ]
+    assert full.rest_total == {world["a"]: 4}
+    # Same „Nowi”/„Ogłoszenia” to szum zgłoszeń — nie ma ich na liście.
+    shown = {p["candidate_id"] for p in people}
+    assert world["new_only"] not in shown and world["posting_only"] not in shown
+
+    by_id = {p["candidate_id"]: p for p in rest}
+    assert all(p["sent"] is False and p["sent_at"] is None for p in rest)
+    assert "reassign_stage" not in by_id[world["verified"]]
+    assert by_id[world["verified"]]["furthest_stage"] == "verified"
+    assert by_id[world["verified"]]["outcome"] == "in_progress"
+    assert by_id[world["verified"]]["selectable"] is True
+    assert by_id[world["screening"]]["furthest_stage"] == "screening"
+    assert by_id[world["rest_rejected"]]["furthest_stage"] == "prep_call"
+    assert by_id[world["rest_rejected"]]["outcome"] == "rejected"
+    assert by_id[world["rest_rejected"]]["selectable"] is True
+    assert by_id[world["rest_in_target"]]["furthest_stage"] == "interview"
+    assert by_id[world["rest_in_target"]]["already_in_job"] is True
+    assert by_id[world["rest_in_target"]]["selectable"] is False
+
+
+async def test_rest_is_capped_per_recruitment_and_reports_the_full_number(
+    monkeypatch,
+):
+    world = await _world_with_rest()
+    monkeypatch.setattr(sim, "MAX_REST_PEOPLE_PER_JOB", 2)
+    async with AsyncSessionLocal() as db:
+        full = await sim.sent_people(db, world["b"], [world["a"]], include_rest=True)
+    rest = [p for p in full[world["a"]] if not p["sent"]]
+    assert [p["candidate_id"] for p in rest] == [world["verified"], world["screening"]]
+    assert full.rest_total == {world["a"]: 4}
+    # Limit dotyczy reszty — wysłani zostają wszyscy.
+    assert sum(p["sent"] for p in full[world["a"]]) == 2
+
+
+async def test_people_endpoint_adds_the_rest_only_when_asked(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    world = await _world_with_rest()
+    url = f"/api/jobs/{world['b']}/similar/people"
+
+    plain = await app_client.get(
+        url, params={"job_ids": [world["a"]]}, headers=app_auth_headers
+    )
+    assert plain.status_code == 200, plain.text
+    entry = plain.json()["jobs"][0]
+    assert entry["rest_total"] == 0
+    assert {p["candidate_id"] for p in entry["people"]} == {
+        world["sent"],
+        world["hired"],
+    }
+    assert all(p["sent"] is True for p in entry["people"])
+
+    full = await app_client.get(
+        url,
+        params={"job_ids": [world["a"]], "include_rest": "true"},
+        headers=app_auth_headers,
+    )
+    assert full.status_code == 200, full.text
+    entry = full.json()["jobs"][0]
+    assert entry["rest_total"] == 4
+    rest = [p for p in entry["people"] if not p["sent"]]
+    assert [p["candidate_id"] for p in rest][0] == world["verified"]
+    assert len(rest) == 4
+    assert all("reassign_at" not in p for p in entry["people"])
+
+
+async def test_other_people_counts_the_rest_once_and_never_the_sent(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    world = await _world_with_rest()
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        a = await db.get(Job, world["a"])
+        c = Job(
+            title=f"Kotlin Engineer {world['tag']}",
+            client_id=a.client_id,
+            status=JobStatus.closed,
+            must_skills=["Kotlin", "Spring Boot", "Kafka"],
+        )
+        db.add(c)
+        await db.flush()
+        db.add_all(
+            [
+                # Reszta w A, ale w C wysłana do klienta — liczy ją przepięcie.
+                CandidateStage(
+                    candidate_id=world["screening"],
+                    job_id=c.id,
+                    stage=PipelineStage.cv_sent,
+                    moved_at=now - timedelta(days=2),
+                ),
+                # Reszta w obu rekrutacjach — jedna osoba.
+                CandidateStage(
+                    candidate_id=world["verified"],
+                    job_id=c.id,
+                    stage=PipelineStage.screening,
+                    moved_at=now - timedelta(days=2),
+                ),
+            ]
+        )
+        await db.commit()
+        c_id = c.id
+
+    async with AsyncSessionLocal() as db:
+        per_job, people = await sim.rest_counts(db, world["b"], [world["a"], c_id])
+        _, reassignable = await sim.reassignable_counts(
+            db, world["b"], [world["a"], c_id]
+        )
+        assert await sim.rest_counts(db, world["b"], []) == ({}, 0)
+    # W A: zweryfikowana, po screeningu i odrzucona po prep callu (osoba już
+    # w B odpada); w C: tylko ta po screeningu.
+    assert per_job == {world["a"]: 3, c_id: 1}
+    # Zweryfikowana raz, odrzucona raz; wysłana w C należy do przepięć.
+    assert people == 2
+    assert reassignable == 2  # `sent` z A i ta wysłana w C
+
+    sim.reset_pool_cache()
+    response = await app_client.get(
+        f"/api/jobs/{world['b']}/similar", headers=app_auth_headers
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    item = next(s for s in body["suggestions"] if s["id"] == world["a"])
+    assert item["other_count"] == 3
+    assert item["reassignable_count"] == 1
+    assert body["other_people"] >= 2
+    assert all("other_count" in entry for entry in body["suggestions"])
+
+
+async def test_reassign_refuses_a_person_who_was_never_sent(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """„Reszta” jest do obejrzenia — przepięcie przyjmuje tylko wysłanych."""
+    world = await _world_with_rest()
+    for candidate in ("screening", "verified"):
+        response = await app_client.post(
+            f"/api/jobs/{world['b']}/similar/reassign",
+            json={"job_ids": [world["a"]], "candidate_ids": [world[candidate]]},
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 422, response.text
+        assert await _process(world[candidate], world["b"]) is None
+    assert await _links(world["b"]) == set()

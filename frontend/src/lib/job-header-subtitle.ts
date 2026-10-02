@@ -1,28 +1,11 @@
 /**
- * Podtytuł jobbara rekrutacji (makieta „flow w języku C2", k2–k8).
+ * Skróty do ciasnych miejsc: nazwisko („Marta K.”) i termin („30.09”).
  *
- * Jedna linia zamiast rzędu odznak z ikonami:
- * `Warszawa / hybryda · budżet do 122,50 PLN/h · deadline 30.09 · Rekruter: Marta K.`
- *
- * Czysta funkcja zwracająca SEGMENTY, nie gotowy JSX — dzięki temu test
- * sprawdza treść, a nie sposób jej złamania na wiersze, a warstwa widoku
- * decyduje, czym je rozdzielić.
- *
- * Segment, którego nie ma, po prostu NIE WYCHODZI. Nie ma tu wartości
- * zastępczych typu „—": podtytuł jest ciągiem faktów, a pusty myślnik między
- * dwoma kropkami czyta się jak fakt, którego nikt nie podał.
- * Jedyny wyjątek to rekruter — jego brak jest sprawą do załatwienia (nikt nad
- * rekrutacją nie pracuje), więc mówimy o nim wprost: „Bez rekrutera”.
+ * Do 02.10.2026 moduł składał też linijkę faktów pod tytułem rekrutacji
+ * (lokalizacja, budżet, rekruter, DL, hiring manager, obsada). Nagłówek
+ * pokazuje dziś trzy wyróżnione fakty (`lib/job-header-facts.ts`), a reszta
+ * jest w widoku „Zlecenie i Champion”.
  */
-
-import { formatDeadlineTime } from "@/lib/job-deadline";
-
-/** Etykiety trybu pracy — lustro `RemotePolicy` (`backend/app/models/job.py`). */
-const REMOTE_POLICY_LABEL: Record<string, string> = {
-  onsite: "stacjonarnie",
-  hybrid: "hybryda",
-  remote: "zdalnie",
-};
 
 /**
  * „Marta Kowalska" → „Marta K.".
@@ -51,126 +34,4 @@ export function formatDeadlineShort(
   if (!match) return null;
   const [, , month, day] = match;
   return `${day}.${month}`;
-}
-
-/** `122.5` → `122,50` (waluta dopisuje wołający). */
-function formatRate(value: number): string {
-  return value.toLocaleString("pl-PL", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-/** `15000`, `20000` → `15 000–20 000 PLN`; jedna granica też ma sens. */
-function formatSalaryRange(
-  min: number | null | undefined,
-  max: number | null | undefined,
-): string | null {
-  const fmt = (v: number) => v.toLocaleString("pl-PL");
-  if (typeof min === "number" && typeof max === "number") {
-    return `${fmt(min)}–${fmt(max)} PLN`;
-  }
-  if (typeof min === "number") return `od ${fmt(min)} PLN`;
-  if (typeof max === "number") return `do ${fmt(max)} PLN`;
-  return null;
-}
-
-export interface JobHeaderSubtitleInput {
-  location?: string | null;
-  remotePolicy?: string | null;
-  /**
-   * Twardy sufit stawki kandydackiej. Pole podlega redakcji finansowej — rola
-   * bez uprawnień dostaje je jako `null` i wtedy segment po prostu nie
-   * wychodzi (kwota zastąpiona myślnikiem sugerowałaby, że jej nie ustalono).
-   */
-  rateBudgetHourly?: number | null;
-  /**
-   * Widełki z ogłoszenia — DAWNA odznaka nagłówka, przeniesiona do tej linii.
-   * To inna liczba niż `rateBudgetHourly` (sufit z Championa dla kandydata),
-   * więc oba segmenty wychodzą obok siebie, a nie zamiast siebie.
-   */
-  salaryMin?: number | null;
-  salaryMax?: number | null;
-  deadline?: string | null;
-  /** Godzina terminu (0406) — banki podają termin z godziną. */
-  deadlineTime?: string | null;
-  /**
-   * Rola „Rekruter” (02.10.2026): pierwsza osoba, która pracuje nad
-   * rekrutacją, i liczba kolejnych — `recruitersSummary(recruitersOf(job))`
-   * z `lib/job-team` (`lead`, `more`). Propozycja automatu to jeszcze nie
-   * praca, więc tu nie wchodzi; brak osoby = „Bez rekrutera”.
-   */
-  recruiterLead?: string | null;
-  recruiterMore?: number | null;
-  /**
-   * Delivery Lead rekrutacji (`jobs.delivery_lead_id`, M03-B03). Do 09.2026
-   * nie było go nigdzie poza oknem edycji — nagłówek pokazywał tylko
-   * rekrutera. Brak DL nie wychodzi (w odróżnieniu od rekrutera nie jest
-   * sprawą do załatwienia), więc segment jest tylko wtedy, gdy znamy nazwisko.
-   */
-  deliveryLeadName?: string | null;
-  /** Krok 07 — hiring manager jest tam decydentem, nie ciekawostką. */
-  hiringManagerName?: string | null;
-  /** Krok 08 — ilu z `headcount` etatów jest już obsadzonych. */
-  hired?: number | null;
-  headcount?: number | null;
-}
-
-export function buildJobHeaderSubtitle({
-  location,
-  remotePolicy,
-  rateBudgetHourly,
-  salaryMin,
-  salaryMax,
-  deadline,
-  deadlineTime,
-  recruiterLead,
-  recruiterMore,
-  deliveryLeadName,
-  hiringManagerName,
-  hired,
-  headcount,
-}: JobHeaderSubtitleInput): string[] {
-  const segments: string[] = [];
-
-  const place = (location ?? "").trim();
-  const mode = remotePolicy ? REMOTE_POLICY_LABEL[remotePolicy] : undefined;
-  if (place && mode) segments.push(`${place} / ${mode}`);
-  else if (place) segments.push(place);
-  else if (mode) segments.push(mode);
-
-  if (typeof rateBudgetHourly === "number" && rateBudgetHourly > 0) {
-    segments.push(`budżet do ${formatRate(rateBudgetHourly)} PLN/h`);
-  }
-
-  const salary = formatSalaryRange(salaryMin, salaryMax);
-  if (salary) segments.push(salary);
-
-  const due = formatDeadlineShort(deadline);
-  const dueTime = formatDeadlineTime(deadlineTime);
-  if (due) segments.push(dueTime ? `deadline ${due}, ${dueTime}` : `deadline ${due}`);
-
-  // `shortenPersonName` jest idempotentne („Marta K.” zostaje „Marta K.”),
-  // więc wołający może podać i pełne nazwisko, i `lead` z `recruitersSummary`.
-  const recruiter = shortenPersonName(recruiterLead);
-  const more =
-    typeof recruiterMore === "number" && recruiterMore > 0
-      ? ` +${recruiterMore}`
-      : "";
-  segments.push(recruiter ? `Rekruter: ${recruiter}${more}` : "Bez rekrutera");
-
-  const deliveryLead = shortenPersonName(deliveryLeadName);
-  if (deliveryLead) segments.push(`DL: ${deliveryLead}`);
-
-  // Hiring manager idzie PEŁNYM nazwiskiem, w odróżnieniu od rekrutera:
-  // to osoba po stronie klienta, o której rozmawia się z klientem — inicjał
-  // zmuszałby do sprawdzania, kto to, zanim się o niej napisze.
-  const manager = (hiringManagerName ?? "").trim();
-  if (manager) segments.push(`HM: ${manager} (decydent)`);
-
-  if (typeof hired === "number" && typeof headcount === "number") {
-    segments.push(`obsada ${hired} / ${headcount}`);
-  }
-
-  return segments;
 }

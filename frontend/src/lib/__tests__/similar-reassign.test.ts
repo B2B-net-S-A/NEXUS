@@ -6,6 +6,7 @@ import {
   planReassign,
   previewSequence,
   pluralPeople,
+  similarPeopleTotal,
   similarPeopleWaiting,
 } from "@/lib/similar-reassign";
 
@@ -144,5 +145,68 @@ describe("previewSequence — kolejność podglądu osób", () => {
     const plan = planReassign([1, 2, 3], { 1: [], 3: [person({ candidate_id: 7 })] }, new Set());
     expect(previewSequence([1, 2, 3], plan.rows).map((e) => e.person.candidate_id)).toEqual([7]);
     expect(previewSequence([], plan.rows)).toEqual([]);
+  });
+});
+
+describe("planReassign — „pozostali” z rekrutacji (klient ich nie widział)", () => {
+  const people = {
+    1: [
+      person({ candidate_id: 10 }),
+      person({ candidate_id: 20, sent: false, sent_at: null, furthest_stage: "screening" }),
+      person({ candidate_id: 21, sent: false, sent_at: null, furthest_stage: "verified" }),
+    ],
+  };
+
+  it("nie zaznaczają się sami — wybiera ich człowiek", () => {
+    const plan = planReassign([1], people, new Set());
+    expect(plan.candidateIds).toEqual([10]);
+    expect(plan.restIds).toEqual([]);
+    expect(plan.rows[1].map((r) => r.state)).toEqual(["selected", "unselected", "unselected"]);
+  });
+
+  it("zaznaczony „pozostały” idzie osobną listą, nie przepięciem", () => {
+    const plan = planReassign([1], people, new Set(), new Set([21]));
+    expect(plan.candidateIds).toEqual([10]);
+    expect(plan.restIds).toEqual([21]);
+    expect(plan.rows[1].map((r) => r.state)).toEqual(["selected", "unselected", "selected"]);
+  });
+
+  it("osoba wysłana do klienta w innej wybranej rekrutacji jest przepięciem, nie „pozostałą”", () => {
+    const plan = planReassign(
+      [1, 2],
+      {
+        1: [person({ candidate_id: 30, sent: false, sent_at: null, furthest_stage: "screening" })],
+        2: [person({ candidate_id: 30 })],
+      },
+      new Set(),
+      new Set([30]),
+    );
+    expect(plan.candidateIds).toEqual([30]);
+    expect(plan.restIds).toEqual([]);
+    expect(plan.rows[1][0].state).toBe("duplicate");
+    expect(plan.rows[2][0].state).toBe("selected");
+  });
+
+  it("opis mówi, dokąd osoba doszła", () => {
+    expect(
+      personStatusLine(
+        person({ candidate_id: 20, sent: false, sent_at: null, furthest_stage: "screening", outcome: "rejected" }),
+      ),
+    ).toBe("najdalej: screening · odrzucony");
+  });
+});
+
+describe("similarPeopleTotal — liczba na kaflu „Podobne rekrutacje”", () => {
+  it("sumuje wysłanych i pozostałych", () => {
+    expect(similarPeopleTotal({ reassignable_people: 19, other_people: 6 })).toEqual({
+      sent: 19,
+      other: 6,
+      total: 25,
+    });
+  });
+
+  it("starszy serwer bez „pozostałych” = sami wysłani; brak danych = null", () => {
+    expect(similarPeopleTotal({ reassignable_people: 3 })).toEqual({ sent: 3, other: 0, total: 3 });
+    expect(similarPeopleTotal(undefined)).toBeNull();
   });
 });

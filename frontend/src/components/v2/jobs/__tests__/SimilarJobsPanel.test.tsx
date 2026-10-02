@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SentPerson, SimilarJobItem } from "@/lib/similar-jobs-api";
 
 const people = vi.fn();
+const bulkAdd = vi.fn();
 const search = vi.fn();
 const unlinkApi = vi.fn();
 const reassign = vi.fn();
@@ -76,6 +77,7 @@ vi.mock("@/lib/candidate-search-api", async (importActual) => {
       ...actual.candidateSearchApi,
       matchScores: (...a: unknown[]) => matchScores(...a),
     },
+    proposalsBulkApi: { add: (...a: unknown[]) => bulkAdd(...a) },
   };
 });
 vi.mock("@/hooks/useCapability", () => ({ useCapability: () => canOpenProfile }));
@@ -204,7 +206,7 @@ describe("Panel „Podobne rekrutacje” — przepięcie jednym kliknięciem", (
     const hired = screen.getByLabelText("Przepnij Oskar Pietrzak");
     expect(hired).not.toBeChecked();
     expect(hired).toBeDisabled();
-    expect(people).toHaveBeenCalledWith(5, [1725]);
+    expect(people).toHaveBeenCalledWith(5, [1725], { includeRest: true });
 
     const submit = screen.getByTestId("similar-panel-submit");
     expect(submit).toHaveTextContent("Przepnij 2 osoby do Nowych");
@@ -226,6 +228,67 @@ describe("Panel „Podobne rekrutacje” — przepięcie jednym kliknięciem", (
     expect(removeFromRecruitment).toHaveBeenCalledWith(11, 5);
     expect(unlinkApi).toHaveBeenCalledWith(5, 1725);
     expect(showSuccess).toHaveBeenCalledWith("Cofnięto przepięcie.");
+  });
+
+  it("„pozostali” z rekrutacji nie zaznaczają się sami i wchodzą zwykłym dodaniem", async () => {
+    people.mockResolvedValue({
+      job_id: 5,
+      jobs: [
+        {
+          job_id: 1725,
+          rest_total: 1,
+          people: [
+            person({ candidate_id: 10, name: "Ewa Marczak" }),
+            person({
+              candidate_id: 30,
+              name: "Olga Reszta",
+              sent: false,
+              sent_at: null,
+              furthest_stage: "screening",
+            }),
+          ],
+        },
+      ],
+    });
+    reassign.mockResolvedValue({
+      added: [10],
+      skipped: [],
+      total_added: 1,
+      total_skipped: 0,
+      linked_now: [1725],
+    });
+    bulkAdd.mockResolvedValue({ added: [30], skipped: [], total_added: 1, total_skipped: 0 });
+    renderPanel();
+    fireEvent.click(screen.getByLabelText("Przepnij z: Analityk 1725"));
+
+    const rest = await screen.findByLabelText("Dodaj Olga Reszta");
+    expect(rest).not.toBeChecked();
+    expect(screen.getByText(/Pozostali z tej rekrutacji/)).toBeTruthy();
+    expect(screen.getByTestId("similar-panel-submit")).toHaveTextContent(
+      "Przepnij 1 osobę do Nowych",
+    );
+
+    fireEvent.click(rest);
+    const submit = screen.getByTestId("similar-panel-submit");
+    expect(submit).toHaveTextContent("Dodaj 2 osoby do Nowych");
+    fireEvent.click(submit);
+
+    await waitFor(() =>
+      expect(reassign).toHaveBeenCalledWith({ jobIds: [1725], candidateIds: [10] }),
+    );
+    await waitFor(() =>
+      expect(bulkAdd).toHaveBeenCalledWith(5, {
+        candidate_ids: [30],
+        initial_stage_legacy: "new",
+        source: "historical",
+      }),
+    );
+    await waitFor(() =>
+      expect(showActionToast).toHaveBeenCalledWith(
+        expect.stringContaining("Dodano też 1 osobę spoza wysłanych do klienta."),
+        expect.objectContaining({ actionLabel: "Cofnij" }),
+      ),
+    );
   });
 
   it("odznaczona osoba nie jedzie; bez nikogo zostaje „Tylko połącz”", async () => {
