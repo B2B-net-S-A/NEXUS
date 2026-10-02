@@ -37,7 +37,12 @@ vi.mock("@/components/contracts/ContractsClientPicker", () => ({
 }));
 
 vi.mock("@/components/order-mail/OrderMailQueue", () => ({
-  OrderMailQueue: () => <div>Skrzynka zamówień z maila</div>,
+  OrderMailQueue: (props: { modeTabs?: React.ReactNode }) => (
+    <div>
+      {props.modeTabs}
+      Skrzynka zamówień z maila
+    </div>
+  ),
 }));
 
 vi.mock("@/components/order-mail/useOrderMailPendingCount", () => ({

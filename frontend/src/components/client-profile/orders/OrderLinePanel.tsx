@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Ellipsis, Pencil, Repeat, Trash2 } from "lucide-react";
 
 import { ContractPersonLink } from "@/components/contracts/ContractPersonLink";
 import { DetailFacts, DetailPanel, DetailSection } from "@/components/ds/DetailPanel";
+import { StatusDot } from "@/components/ds/StatusDot";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -34,6 +35,7 @@ import { formatMd, MdBudgetBar } from "./MdBudgetBar";
 import { MdScopeBars, MdScopePanels, MdScopeTotalBar } from "./MdScopeBars";
 import { OrderHistoryPanel } from "./OrderHistoryPanel";
 import type { LinePanelTab } from "./OrdersTable";
+import { RateText, RateTrio } from "./RateTrio";
 import { displayLineRate } from "./order-line-display";
 import { isCurrentLine } from "./orders-table-model";
 
@@ -116,14 +118,18 @@ export function OrderLinePanel({
   ];
 
   const statusChip = ended ? (
-    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-      {ENDED_STATUS_LABEL[endedStatus(line)]}
-    </span>
+    <StatusDot tone="neutral">{ENDED_STATUS_LABEL[endedStatus(line)]}</StatusDot>
   ) : scheduledTakeover ? (
-    <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-      Zaplanowane zastępstwo od {formatDate(line.start_date)}
-    </span>
+    <StatusDot tone="info">Zaplanowane zastępstwo od {formatDate(line.start_date)}</StatusDot>
   ) : null;
+
+  const endedFacts: Array<[string, ReactNode] | null> = ended
+    ? [
+        ["Okres", endedPeriod(line)],
+        endedUsage(group, line) ? ["Wykorzystanie", endedUsage(group, line)] : null,
+        decisionLabel(line) ? ["Decyzja", decisionLabel(line)] : null,
+      ]
+    : [];
 
   const budget = group.is_cost_based ? (
     <p className="text-sm">
@@ -223,7 +229,7 @@ export function OrderLinePanel({
       subtitle={
         <>
           Zamówienie{" "}
-          <button type="button" className="font-mono text-primary underline-offset-2 hover:underline" onClick={() => onSelectGroup(group.id)}>
+          <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={() => onSelectGroup(group.id)}>
             {group.order_number}
           </button>
           {line.start_date ? ` · od ${formatDate(line.start_date)}` : ""}
@@ -248,7 +254,7 @@ export function OrderLinePanel({
       ) : (
         <>
           {needsDecision && pendingPool && line.offboarding_case ? (
-            <p role="status" className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs font-medium text-destructive">
+            <p role="status" className="rounded-md bg-destructive-muted p-2 text-xs font-medium text-destructive-muted-foreground">
               Wymagana decyzja o pozostałej puli MD
               {line.offboarding_case.uses_shared_md_pool
                 ? " (wspólna pula pozostaje bez zmian)."
@@ -257,7 +263,7 @@ export function OrderLinePanel({
                   : ": pula wykorzystana w całości (0 MD do przeniesienia)."}
             </p>
           ) : needsDecision ? (
-            <p role="status" className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs font-medium text-destructive">
+            <p role="status" className="rounded-md bg-destructive-muted p-2 text-xs font-medium text-destructive-muted-foreground">
               Osoba zakończyła współpracę — zdecyduj, co z nią na tym zamówieniu.
             </p>
           ) : null}
@@ -267,23 +273,25 @@ export function OrderLinePanel({
             </p>
           ) : null}
           {line.unsettled_total != null && line.unsettled_total > 0 ? (
-            <p className="rounded-md bg-destructive/10 p-2 text-xs text-destructive">
+            <p className="rounded-md bg-destructive-muted p-2 text-xs text-destructive-muted-foreground">
               Nie udało się rozliczyć pełnej kwoty faktury — brakuje {formatPLN(line.unsettled_total)} na zamówieniu.
             </p>
           ) : null}
 
-          <DetailSection title="Na zamówieniu">
-            <DetailFacts
-              compact
+          <DetailSection title="Stawki">
+            <RateTrio
               items={[
-                ["Stawka kosztowa", displayLineRate(line, "cost")],
-                ["Stawka przychodowa", displayLineRate(line, "revenue")],
-                ended ? ["Okres", endedPeriod(line)] : null,
-                ended && endedUsage(group, line) ? ["Wykorzystanie", endedUsage(group, line)] : null,
-                ended && decisionLabel(line) ? ["Decyzja", decisionLabel(line)] : null,
+                { label: "Koszt", value: <RateText label={displayLineRate(line, "cost")} /> },
+                { label: "Przychód", value: <RateText label={displayLineRate(line, "revenue")} /> },
               ]}
             />
           </DetailSection>
+
+          {ended ? (
+            <DetailSection title="Na zamówieniu">
+              <DetailFacts compact items={endedFacts} />
+            </DetailSection>
+          ) : null}
 
           <DetailSection title="Budżet">
             {group.is_cost_based ? (

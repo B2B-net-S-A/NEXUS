@@ -21,3 +21,13 @@ export function displayLineRate(line: OrderLineRead, side: "cost" | "revenue"): 
   if (currency === "PLN") return `${formatPLN(amount)}/MD`;
   return `${new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 3 }).format(amount)} ${currency}/MD`;
 }
+
+/** Kwota i jednostka stawki osobno („1 000,00” + „zł/MD”) — tabela i panele
+ *  pokazują jednostkę drobnym drukiem. `null` = brak stawki („—”). */
+export function splitRateLabel(
+  label: string | null | undefined,
+): { amount: string; unit: string } | null {
+  if (!label) return null;
+  const match = /^(.*\d)\s+(\D+)$/.exec(label.trim());
+  return match ? { amount: match[1], unit: match[2] } : null;
+}

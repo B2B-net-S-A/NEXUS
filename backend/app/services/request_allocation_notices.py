@@ -8,9 +8,9 @@ dzień: „Nowy request do pracy”.
 Rano, raz dziennie o ``review_time``:
 
 * ``request_assignment_changed`` — JEDEN wpis na osobę: „Zwolnione: Z (Mamy
-  championa)”. Tylko w trybie ``auto`` i tylko zwolnienia — o nowym requeście
-  osoba dowiedziała się od razu, a propozycje trybu podglądu nikogo do
-  niczego nie zobowiązują.
+  championa)”, a „Od dziś: …” tylko dla requestów, o których osoba nie
+  dostała dzwonka od razu (nieudane powiadomienie). Tylko w trybie ``auto``:
+  propozycje trybu podglądu nikogo do niczego nie zobowiązują.
 * ``request_review_needed`` — JEDEN wpis na Delivery Leada: nowe requesty
   z Traffita „Do przejrzenia”, „Klient milczy” od 14+ dni, „Szukamy” bez
   pracy od 30+ dni. Link prowadzi do „Porządku w requestach”.
@@ -129,9 +129,7 @@ async def notify_assigned_pairs(
         )
 
 
-async def _release_notices(db: AsyncSession, *, now: datetime) -> int:
-    """Poranny wpis „Zwolnione: …” — komu automat albo człowiek zdjął request
-    w ostatniej dobie. Osoba bez zwolnień nie dostaje nic."""
+async def _assignment_notices(db: AsyncSession, *, now: datetime) -> int:
     from app.services.notification_triggers import emit  # noqa: PLC0415
 
     since = now - timedelta(hours=24)
@@ -139,34 +137,73 @@ async def _release_notices(db: AsyncSession, *, now: datetime) -> int:
         await db.execute(
             select(
                 JobWorkAssignment.user_id,
+                JobWorkAssignment.job_id,
+                JobWorkAssignment.state,
+                JobWorkAssignment.assigned_at,
+                JobWorkAssignment.released_at,
                 JobWorkAssignment.release_reason,
                 job_display_title_expr(),
             )
             .join(Job, Job.id == JobWorkAssignment.job_id)
             .where(
                 JobWorkAssignment.source != "owner",
-                JobWorkAssignment.state == "released",
-                JobWorkAssignment.released_at >= since,
+                or_(
+                    and_(
+                        JobWorkAssignment.state == "active",
+                        JobWorkAssignment.assigned_at >= since,
+                    ),
+                    and_(
+                        JobWorkAssignment.state == "released",
+                        JobWorkAssignment.released_at >= since,
+                    ),
+                ),
             )
         )
     ).all()
-    per_user: dict[int, list[str]] = {}
-    for user_id, reason, title in rows:
-        if is_silent_release(reason):
+    # Zaakceptowana propozycja i osoba wybrana przez człowieka dostają dzwonek
+    # od razu („Nowy request do pracy”) — rano nie wspominamy o tym samym
+    # requeście drugi raz.
+    announced: set[tuple[int, int]] = set()
+    if any(state == "active" for _u, _j, state, *_rest in rows):
+        announced = {
+            (user_id, job_id)
+            for user_id, job_id in (
+                await db.execute(
+                    select(Notification.user_id, Notification.related_entity_id).where(
+                        Notification.notification_type
+                        == NotificationType.request_assignment_changed,
+                        Notification.related_entity_type == "job",
+                        Notification.created_at >= since,
+                    )
+                )
+            ).all()
+        }
+    per_user: dict[int, dict[str, list[str]]] = {}
+    for user_id, job_id, state, _assigned, _released, reason, title in rows:
+        if state != "active" and is_silent_release(reason):
             # Wycofana propozycja albo zdjęcie, po którym przypisano tę osobę
             # ponownie — patrz `is_silent_release`.
             continue
-        label = release_reason_label(reason, "")
-        per_user.setdefault(user_id, []).append(
-            f"{title} ({label})" if label else title
-        )
+        if state == "active" and (user_id, job_id) in announced:
+            continue
+        bucket = per_user.setdefault(user_id, {"new": [], "gone": []})
+        if state == "active":
+            bucket["new"].append(title)
+        else:
+            label = release_reason_label(reason, "")
+            bucket["gone"].append(f"{title} ({label})" if label else title)
     sent = 0
-    for user_id, gone in sorted(per_user.items()):
+    for user_id, bucket in sorted(per_user.items()):
+        parts = []
+        if bucket["new"]:
+            parts.append("Od dziś: " + _titles(bucket["new"]) + ".")
+        if bucket["gone"]:
+            parts.append("Zwolnione: " + _titles(bucket["gone"]) + ".")
         created = await emit(
             db,
             user_id=user_id,
             title="Twoje requesty na dziś",
-            message="Zwolnione: " + _titles(gone) + ".",
+            message=" ".join(parts),
             ntype=NotificationType.request_assignment_changed,
             related_entity_type="user",
             related_entity_id=user_id,
@@ -396,7 +433,7 @@ async def send_morning_notices(
     silent_reminded: Optional[dict[str, str]] = None,
 ) -> dict:
     """Liczniki + ``silent_reminded`` (do zapisania w ``stats`` automatu)."""
-    assignments = await _release_notices(db, now=now) if mode == "auto" else 0
+    assignments = await _assignment_notices(db, now=now) if mode == "auto" else 0
     reviews, reminded = await _review_notices(db, now=now, reminded=silent_reminded)
     return {
         "assignment_notices": assignments,

@@ -5,6 +5,8 @@ import { ArrowLeft, Download, FileSpreadsheet } from "lucide-react";
 import { useState } from "react";
 
 import { QueryStateNotice } from "@/components/ds";
+import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
 import {
   orderGroupsApi,
@@ -12,6 +14,7 @@ import {
   type ClientMdImportSummary,
 } from "@/lib/api/orderGroups";
 import { apiErrorMessage } from "@/lib/api-error";
+import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW } from "@/lib/calm-table";
 import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
 import { formatDateTimePl } from "@/lib/date-pl";
 import { monthLabelPl } from "@/lib/order-consumption";
@@ -20,12 +23,14 @@ import { formatPLN } from "@/types/client-profile";
 
 import { formatMd } from "./MdBudgetBar";
 
-const STATE_CLASS: Record<ClientMdImportRowState, string> = {
-  booked: "bg-success-muted text-success-muted-foreground",
-  to_verify: "bg-warning-muted text-warning-muted-foreground",
-  error: "bg-destructive-muted text-destructive-muted-foreground",
-  neutral: "bg-muted text-muted-foreground",
+const STATE_TONE: Record<ClientMdImportRowState, StatusDotTone> = {
+  booked: "success",
+  to_verify: "warning",
+  error: "danger",
+  neutral: "neutral",
 };
+
+const HEAD_CELL = cn(CALM_HEAD, "px-3 py-2");
 
 export function clientMdImportsQueryKey(clientId: number) {
   return ["client-md-imports", clientId] as const;
@@ -85,11 +90,16 @@ function ImportDetail({
   }
 
   return (
-    <section aria-labelledby="md-import-detail-heading" className="flex flex-col gap-3">
+    <section
+      aria-labelledby="md-import-detail-heading"
+      className="flex min-w-0 flex-col gap-2"
+    >
+      {/* Poniżej `lg` lista i szczegóły to dwa widoki — stąd powrót. Od `lg`
+          lista stoi obok, więc przycisk jest zbędny. */}
       <button
         type="button"
         onClick={onBack}
-        className="inline-flex w-fit items-center gap-1 text-xs font-medium text-primary hover:underline"
+        className="inline-flex w-fit items-center gap-1 text-xs font-medium text-primary hover:underline pointer-coarse:min-h-10 lg:hidden"
       >
         <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Wszystkie importy
       </button>
@@ -102,8 +112,8 @@ function ImportDetail({
       ) : !detail.isSuccess ? (
         <p className="text-sm text-muted-foreground">Wczytywanie importu…</p>
       ) : (
-        <>
-          <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-card p-4">
+        <div className="min-w-0 rounded-lg border border-border bg-card">
+          <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
             <div className="min-w-0">
               <h3 id="md-import-detail-heading" className="text-sm font-semibold text-foreground">
                 Import MD za {monthLabelPl(detail.data.period_month)}
@@ -113,88 +123,102 @@ function ImportDetail({
                 {detail.data.uploaded_by_name ?? "Automatycznie (system)"}
                 {detail.data.filename ? ` · ${detail.data.filename}` : ""}
               </p>
-              <div className="mt-2">
+              <div className="mt-1.5">
                 <ImportCounts summary={detail.data} />
               </div>
             </div>
-            <button
+            <Button
               type="button"
+              size="sm"
+              variant="outline"
+              className="shrink-0"
               onClick={exportToExcel}
               disabled={exporting}
-              className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:h-10"
             >
               <Download className="h-4 w-4" aria-hidden="true" />
               {exporting ? "Przygotowuję…" : "Pobierz do Excela"}
-            </button>
+            </Button>
           </div>
-          <div className="overflow-x-auto rounded-xl border border-border bg-card">
+          <div className="relative overflow-x-auto border-t border-border">
             <table className="w-full min-w-[48rem] text-sm">
               <thead>
-                <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-3 py-2 font-semibold">Wiersz</th>
-                  <th className="px-3 py-2 font-semibold">Osoba</th>
-                  <th className="px-3 py-2 font-semibold">Nr z importu</th>
-                  <th className="px-3 py-2 font-semibold">Zamówienie docelowe</th>
-                  <th className="px-3 py-2 text-right font-semibold">MD</th>
-                  <th className="px-3 py-2 text-right font-semibold">Kwota</th>
-                  <th className="px-3 py-2 font-semibold">Status</th>
+                <tr className="border-b border-border text-left">
+                  <th className={HEAD_CELL}>Wiersz</th>
+                  <th className={HEAD_CELL}>Osoba</th>
+                  <th className={HEAD_CELL}>Nr z importu</th>
+                  <th className={HEAD_CELL}>Zamówienie docelowe</th>
+                  <th className={cn(HEAD_CELL, "text-right")}>MD</th>
+                  <th className={cn(HEAD_CELL, "text-right")}>Kwota</th>
+                  <th className={HEAD_CELL}>Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
+              <tbody>
                 {detail.data.rows.map((row) => (
                   <tr
                     key={row.id}
-                    className={cn(row.number_mismatch && "bg-warning-muted/40")}
+                    className={cn(
+                      CALM_ROW,
+                      "h-11 last:border-b-0",
+                      row.number_mismatch && "bg-warning-muted/40",
+                    )}
                     data-mismatch={row.number_mismatch ? "true" : undefined}
                   >
-                    <td className="px-3 py-2 tabular-nums text-muted-foreground">
+                    <td className="px-3 py-1.5 tabular-nums text-muted-foreground">
                       {row.row_number}
                     </td>
-                    <td className="px-3 py-2 font-medium text-foreground">{row.consultant_name}</td>
+                    <td className="px-3 py-1.5 font-medium text-foreground">{row.consultant_name}</td>
                     <td
                       className={cn(
-                        "whitespace-nowrap px-3 py-2 tabular-nums",
+                        "whitespace-nowrap px-3 py-1.5 tabular-nums",
                         row.number_mismatch
                           ? "font-semibold text-warning-muted-foreground"
                           : "text-muted-foreground",
                       )}
                     >
-                      {row.order_number_hint ?? "—"}
+                      {row.order_number_hint ?? <span className={CALM_EMPTY}>—</span>}
                       {row.number_mismatch ? (
                         <span className="ml-1 text-[11px] font-normal">(inny numer)</span>
                       ) : null}
                     </td>
-                    <td className="px-3 py-2 tabular-nums text-foreground">
-                      {row.target_order_number ?? "—"}
+                    <td className="px-3 py-1.5 tabular-nums text-foreground">
+                      {row.target_order_number ?? <span className={CALM_EMPTY}>—</span>}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-foreground">
+                    <td className={cn(CALM_AMOUNT, "px-3 py-1.5 text-foreground")}>
                       {formatMd(row.md_reported)}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                      {row.invoice_amount == null ? "—" : formatPLN(row.invoice_amount)}
+                    <td className={cn(CALM_AMOUNT, "px-3 py-1.5 text-muted-foreground")}>
+                      {row.invoice_amount == null ? (
+                        <span className={CALM_EMPTY}>—</span>
+                      ) : (
+                        formatPLN(row.invoice_amount)
+                      )}
                     </td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={cn(
-                          "inline-flex rounded px-1.5 py-0.5 text-xs font-medium",
-                          STATE_CLASS[row.state],
-                        )}
+                    <td className="px-3 py-1.5">
+                      <StatusDot
+                        tone={STATE_TONE[row.state]}
                         title={row.status_label}
+                        className="max-w-[22rem]"
+                        note={
+                          row.state !== "booked" && (row.status_reason || row.status_label) ? (
+                            <span className="whitespace-normal">
+                              {row.status_reason ?? row.status_label}
+                            </span>
+                          ) : undefined
+                        }
                       >
                         {row.state_label}
-                      </span>
-                      {row.state !== "booked" && (row.status_reason || row.status_label) ? (
-                        <p className="mt-0.5 max-w-[22rem] text-xs text-muted-foreground">
-                          {row.status_reason ?? row.status_label}
-                        </p>
-                      ) : null}
+                      </StatusDot>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </>
+          <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
+            Widać tylko wiersze tego klienta. Wiersze rozstrzyga dział finansów
+            w Finanse → Import zużycia MD.
+          </p>
+        </div>
       )}
     </section>
   );
@@ -212,65 +236,87 @@ interface Props {
  * klienta (ticket 7, 25.09.2026). Wiersze innych klientów nie wychodzą z API.
  */
 export function ClientMdImportsTab({ clientId, selectedImportId, onSelectImport }: Props) {
+  // Lista jest potrzebna także przy otwartym imporcie: od `lg` stoi obok
+  // szczegółów (makieta 02.10.2026), więc zapytanie leci zawsze.
   const list = useQuery({
     queryKey: clientMdImportsQueryKey(clientId),
     queryFn: async () => (await orderGroupsApi.listClientMdImports(clientId)).data,
-    enabled: selectedImportId == null,
   });
+  const detailOpen = selectedImportId != null;
 
-  if (selectedImportId != null) {
-    return (
-      <ImportDetail
-        clientId={clientId}
-        importId={selectedImportId}
-        onBack={() => onSelectImport(null)}
-      />
-    );
-  }
-  if (list.isError) {
-    return (
-      <QueryStateNotice
-        state="error"
-        description="Nie udało się wczytać importów MD."
-        onRetry={() => list.refetch()}
-      />
-    );
-  }
-  if (!list.isSuccess) {
-    return <p className="text-sm text-muted-foreground">Wczytywanie importów MD…</p>;
-  }
-  if (list.data.imports.length === 0) {
-    return (
-      <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-        Żaden import MD nie dotyczył jeszcze zamówień tego klienta.
-      </p>
-    );
-  }
-  return (
-    <ul className="flex flex-col divide-y divide-border rounded-xl border border-border bg-card">
-      {list.data.imports.map((summary) => (
-        <li key={summary.id}>
-          <button
-            type="button"
-            onClick={() => onSelectImport(summary.id)}
-            className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-left hover:bg-muted/50"
-            aria-label={`Otwórz import MD za ${monthLabelPl(summary.period_month)} z ${formatDateTimePl(summary.created_at)}`}
-          >
-            <FileSpreadsheet className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="min-w-[9rem] text-sm font-semibold text-foreground">
-              {monthLabelPl(summary.period_month)}
-            </span>
-            <span className="min-w-[14rem] text-xs text-muted-foreground">
-              {formatDateTimePl(summary.created_at)} ·{" "}
-              {summary.uploaded_by_name ?? "Automatycznie (system)"}
-            </span>
-            <span className="min-w-[10rem] flex-1 truncate text-xs text-muted-foreground">
-              {summary.filename ?? "—"}
-            </span>
-            <ImportCounts summary={summary} />
-          </button>
-        </li>
-      ))}
+  const listPane = list.isError ? (
+    <QueryStateNotice
+      state="error"
+      description="Nie udało się wczytać importów MD."
+      onRetry={() => list.refetch()}
+    />
+  ) : !list.isSuccess ? (
+    <p className="text-sm text-muted-foreground">Wczytywanie importów MD…</p>
+  ) : list.data.imports.length === 0 ? (
+    <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+      Żaden import MD nie dotyczył jeszcze zamówień tego klienta.
+    </p>
+  ) : (
+    <ul className="flex flex-col gap-0.5 rounded-lg border border-border bg-card p-1.5">
+      {list.data.imports.map((summary) => {
+        const selected = summary.id === selectedImportId;
+        return (
+          <li key={summary.id}>
+            <button
+              type="button"
+              onClick={() => onSelectImport(summary.id)}
+              aria-current={selected ? "true" : undefined}
+              className={cn(
+                "flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left transition-colors",
+                selected ? "bg-primary/10" : "hover:bg-muted/50",
+              )}
+              aria-label={`Otwórz import MD za ${monthLabelPl(summary.period_month)} z ${formatDateTimePl(summary.created_at)}`}
+            >
+              <FileSpreadsheet
+                className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                aria-hidden
+              />
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="text-sm font-semibold text-foreground">
+                  {monthLabelPl(summary.period_month)}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {formatDateTimePl(summary.created_at)} ·{" "}
+                  {summary.uploaded_by_name ?? "Automatycznie (system)"}
+                </span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {summary.filename ?? "—"}
+                </span>
+                <ImportCounts summary={summary} />
+              </span>
+            </button>
+          </li>
+        );
+      })}
     </ul>
+  );
+
+  // Bez importów (albo przy awarii listy) i bez otwartego importu nie ma
+  // czego dzielić na dwie kolumny — komunikat na całą szerokość.
+  const listHasItems = list.isSuccess && list.data.imports.length > 0;
+  if (!detailOpen && !listHasItems) return listPane;
+
+  return (
+    // Od `lg`: lista po lewej, wybrany import po prawej. Poniżej `lg` jak
+    // dotąd — jeden widok naraz (lista → szczegóły → „Wszystkie importy”).
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start">
+      <div className={cn("min-w-0", detailOpen && "max-lg:hidden")}>{listPane}</div>
+      {selectedImportId != null ? (
+        <ImportDetail
+          clientId={clientId}
+          importId={selectedImportId}
+          onBack={() => onSelectImport(null)}
+        />
+      ) : (
+        <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground max-lg:hidden">
+          Wybierz import z listy, żeby zobaczyć jego wiersze.
+        </p>
+      )}
+    </div>
   );
 }

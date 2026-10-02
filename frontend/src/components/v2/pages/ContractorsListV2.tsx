@@ -7,7 +7,6 @@ import { useSearchParams } from"next/navigation";
 import { useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  AlertTriangle,
- Calendar,
  CheckCircle2,
  FileText,
  UserCog,
@@ -37,7 +36,6 @@ import {
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { Badge } from"@/components/ui/badge";
 import { Button, buttonVariants } from"@/components/ui/button";
-import { Card } from"@/components/ui/card";
 import {
  Table,
  TableBody,
@@ -48,6 +46,8 @@ import {
 } from"@/components/ui/table";
 import { TruncatedText } from"@/components/ds/TruncatedText";
 import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
+import { StatusDot } from"@/components/ds/StatusDot";
+import { CALM_AMOUNT, CALM_EMPTY, CALM_SUBLINE, CALM_UNIT } from"@/lib/calm-table";
 import { DraftCompletionModal } from"@/components/v2/modals/DraftCompletionModal";
 import { ContractTerminationDialog } from"@/components/contracts/ContractTerminationDialog";
 import { ListDetailLayout } from"@/components/ds/ListDetailLayout";
@@ -138,6 +138,13 @@ function rateUnitLabel(unit: ContractorListItem["rate_unit"]): string {
  if (unit === "daily") return"/dz";
  return"/mies";
 }
+
+// „zł/h” stoi raz, w nagłówku kolumn kwot. Wiersz w tej jednostce pokazuje
+// samą liczbę; każdy inny (zł/dz, zł/mies, inna waluta) — pełny zapis.
+const BARE_AMOUNT = new Intl.NumberFormat("pl-PL", {
+ minimumFractionDigits: 2,
+ maximumFractionDigits: 3,
+});
 
 export function ContractorsListV2({
  modeTabs,
@@ -287,7 +294,7 @@ export function ContractorsListV2({
  }, [initialListState, viewState]);
 
  const listContent = (
- <div className="space-y-4">
+ <div className="space-y-3">
  <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
  <h1 className="text-lg font-semibold text-foreground">Kontrakty</h1>
  <p className="text-xs text-muted-foreground">
@@ -297,26 +304,30 @@ export function ContractorsListV2({
 
  {modeTabs}
 
+ {/* Wąski pasek ostrzeżenia w jednej linii — duża karta spychała tabelę
+ w dół na laptopie. */}
  {incompleteCount > 0 && tab !== "draft" && (
- <Card className="bg-warning-muted border-warning/25 flex flex-wrap items-center gap-3 p-4!">
- <AlertTriangle className="h-5 w-5 text-warning-muted-foreground shrink-0" />
- <div className="min-w-0 flex-1">
- <p className="text-sm font-semibold text-warning-muted-foreground">
+ <div
+ role="status"
+ className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-warning/25 bg-warning-muted px-2 py-1 text-xs text-warning-muted-foreground"
+ >
+ <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+ <span className="min-w-0">
+ <span className="font-semibold">
  {incompleteCount} draft{incompleteCount > 1 ?"y" :""} czeka na
  uzupełnienie
- </p>
- <p className="text-xs text-warning-muted-foreground">
- Bez wymaganych danych operacyjnych kontraktu nie możemy go aktywować.
- </p>
- </div>
+ </span>
+ {" "}— bez wymaganych danych operacyjnych kontraktu nie możemy go aktywować.
+ </span>
  <Button
  size="sm"
  variant="outline"
+ className="ml-auto h-6 px-2"
  onClick={() => selectTab("draft")}
  >
  Pokaż drafty
  </Button>
- </Card>
+ </div>
  )}
 
  <div
@@ -335,7 +346,7 @@ export function ContractorsListV2({
  aria-selected={isActive}
  title={TAB_HINTS[t]}
  onClick={() => selectTab(t)}
- className={cn("shrink-0 whitespace-nowrap px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+ className={cn("shrink-0 whitespace-nowrap px-3 py-1.5 text-[13px] font-medium border-b-2 transition-colors",
  isActive
  ?"border-primary text-foreground"
  :"border-transparent text-muted-foreground hover:text-foreground"
@@ -385,8 +396,12 @@ export function ContractorsListV2({
  <TableHead>Tryb</TableHead>
  {canViewFinance && (
  <>
- <TableHead className="text-right">Stawka klient</TableHead>
- <TableHead className="text-right">Marża</TableHead>
+ <TableHead className="text-right">
+ Stawka klient <span className={CALM_UNIT}>zł/h</span>
+ </TableHead>
+ <TableHead className="text-right">
+ Marża <span className={CALM_UNIT}>zł/h</span>
+ </TableHead>
  </>
  )}
  <TableHead>Status</TableHead>
@@ -457,6 +472,12 @@ export function ContractorsListV2({
  const costCurrency = c.rate_candidate_currency ?? c.currency ?? "PLN";
  const hasComparableCurrencies =
  revenueCurrency.toUpperCase() === costCurrency.toUpperCase();
+ // Jednostka domyślna (zł/h) stoi w nagłówku — wtedy w komórce
+ // zostaje sama liczba.
+ const bareAmounts =
+ c.rate_unit === "hourly" &&
+ revenueCurrency.toUpperCase() === "PLN" &&
+ costCurrency.toUpperCase() === "PLN";
  return (
  <TableRow
  key={c.contract_id}
@@ -467,7 +488,7 @@ export function ContractorsListV2({
  aria-selected={openContractId === c.contract_id}
  data-selected={openContractId === c.contract_id || undefined}
  className={cn(
- "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+ "h-[50px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
  openContractId === c.contract_id &&
  "bg-primary/5 shadow-[inset_3px_0_0_0_hsl(var(--primary))]",
  )}
@@ -480,59 +501,81 @@ export function ContractorsListV2({
  {c.candidate.name} {c.candidate.lastname}
  </Link>
  {c.candidate.email && (
- <TruncatedText className={cn("text-xs text-muted-foreground", WIDE_HIDDEN)}>
+ <TruncatedText className={cn(CALM_SUBLINE, "mt-0", WIDE_HIDDEN)}>
  {c.candidate.email}
  </TruncatedText>
  )}
  </TableCell>
  <TableCell className={WIDE_ONLY_CELL} data-testid="contractor-email-cell">
+ {c.candidate.email ? (
  <TruncatedText className="text-xs text-muted-foreground">
- {c.candidate.email || "—"}
+ {c.candidate.email}
  </TruncatedText>
+ ) : (
+ <span className={CALM_EMPTY}>—</span>
+ )}
  </TableCell>
  <TableCell>
  <TruncatedText className="text-sm">{c.client_name}</TruncatedText>
- <TruncatedText className={cn("text-xs text-muted-foreground", WIDE_HIDDEN)}>
+ <TruncatedText className={cn(CALM_SUBLINE, "mt-0", WIDE_HIDDEN)}>
  {c.job_title}
  </TruncatedText>
  </TableCell>
  <TableCell className={WIDE_ONLY_CELL} data-testid="contractor-job-cell">
- <TruncatedText className="text-sm">{c.job_title || "—"}</TruncatedText>
+ {c.job_title ? (
+ <TruncatedText className="text-sm">{c.job_title}</TruncatedText>
+ ) : (
+ <span className={CALM_EMPTY}>—</span>
+ )}
  </TableCell>
  <TableCell>
- <div className="flex items-center gap-1 text-xs text-foreground">
- <Calendar className="h-3 w-3" />
+ <div className="whitespace-nowrap text-xs tabular-nums text-foreground">
  {formatIsoDatePl(c.start_date)}
  </div>
- <div className={cn("text-xs text-muted-foreground", WIDE_HIDDEN)}>
+ <div className={cn(CALM_SUBLINE, "mt-0 whitespace-nowrap tabular-nums", WIDE_HIDDEN)}>
  {c.end_date ? `→ ${formatIsoDatePl(c.end_date)}` :"brak daty końca"}
  </div>
  </TableCell>
  <TableCell
- className={cn(WIDE_ONLY_CELL, "whitespace-nowrap text-xs")}
+ className={cn(WIDE_ONLY_CELL, "whitespace-nowrap text-xs tabular-nums")}
  data-testid="contractor-end-cell"
  >
  {c.end_date ? (
  formatIsoDatePl(c.end_date)
  ) : (
- <span className="text-muted-foreground">brak daty końca</span>
+ <span className={CALM_EMPTY}>brak daty końca</span>
  )}
  </TableCell>
- <TableCell>
- <Badge size="sm" variant="soft">
- {c.work_mode ??"—"}
- </Badge>
+ <TableCell className="text-xs">
+ {c.work_mode ? (
+ <span className="text-muted-foreground">{c.work_mode}</span>
+ ) : (
+ <span className={CALM_EMPTY}>—</span>
+ )}
  </TableCell>
  {canViewFinance && (
  <>
- <TableCell className="text-right font-mono text-sm">
- {c.rate_client != null
- ? `${formatCurrency(c.rate_client, revenueCurrency)}${rateUnitLabel(c.rate_unit)}`
- :"—"}
+ <TableCell className={cn(CALM_AMOUNT, "text-sm")}>
+ {c.rate_client != null ? (
+ bareAmounts ? (
+ BARE_AMOUNT.format(c.rate_client)
+ ) : (
+ `${formatCurrency(c.rate_client, revenueCurrency)}${rateUnitLabel(c.rate_unit)}`
+ )
+ ) : (
+ <span className={CALM_EMPTY}>—</span>
+ )}
  </TableCell>
- <TableCell className="text-right font-mono text-sm">
- {c.margin != null && hasComparableCurrencies
- ? formatCurrency(c.margin, revenueCurrency) : "—"}
+ <TableCell className={cn(CALM_AMOUNT, "text-sm")}>
+ {c.margin != null && hasComparableCurrencies ? (
+ bareAmounts ? (
+ BARE_AMOUNT.format(c.margin)
+ ) : (
+ `${formatCurrency(c.margin, revenueCurrency)}${rateUnitLabel(c.rate_unit)}`
+ )
+ ) : (
+ <span className={CALM_EMPTY}>—</span>
+ )}
  </TableCell>
  </>
  )}
@@ -551,26 +594,25 @@ export function ContractorsListV2({
  Czeka na uzupełnienie stawek
  </Badge>
  ) : isReadyForSignature ? (
- <Badge size="sm" variant="soft">
- Do aktywacji
- </Badge>
+ <StatusDot tone="info">Do aktywacji</StatusDot>
  ) : readyToActivate ? (
- <Badge size="sm" variant="soft">
- gotowy
- </Badge>
+ <StatusDot tone="info">gotowy</StatusDot>
  ) : (
- <Badge
- size="sm"
- variant={c.status === "active" ?"success" :"warning"}
+ // Zwykły status to kropka + etykieta; plakietki zostają dla
+ // wierszy wymagających uwagi (braki, czekające stawki).
+ <StatusDot
+ tone={c.status === "active" ?"success" :"warning"}
+ note={
+ contractorLacksCurrentOrder(c) ? (
+ <span className="text-warning-muted-foreground">
+ Brak aktywnego zamówienia
+ </span>
+ ) : undefined
+ }
  >
  {CONTRACT_STATUS_LABEL[c.status] ?? c.status}
- </Badge>
+ </StatusDot>
  )}
- {contractorLacksCurrentOrder(c) ? (
- <div className="mt-1 text-xs text-warning-muted-foreground">
- Brak aktywnego zamówienia
- </div>
- ) : null}
  </TableCell>
  <TableCell className="text-right">
  <div className="flex items-center justify-end gap-1">
@@ -601,8 +643,7 @@ export function ContractorsListV2({
  (c.status === "active" || c.status === "ending") && (
  <Button
  size="sm"
- variant="ghost"
- className="text-destructive hover:bg-destructive/10"
+ variant="quiet"
  onClick={() => setTerminating(c)}
  >
  Zakończ projekt

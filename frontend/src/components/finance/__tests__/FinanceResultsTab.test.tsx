@@ -145,7 +145,8 @@ describe("FinanceResultsTab — stany", () => {
 
     expect(await screen.findByText("Adrian Kruk")).toBeInTheDocument();
     expect(screen.getByText("22,375")).toBeInTheDocument();
-    expect(screen.getByText(/20.*900,125 zł/)).toBeInTheDocument();
+    // Komórka niesie samą kwotę — jednostka stoi raz, w nagłówku kolumny.
+    expect(screen.getByText(/^20.*900,125$/)).toBeInTheDocument();
     expect(screen.getByText("KOSZT")).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByLabelText("Miesiąc")).toBeInTheDocument(),

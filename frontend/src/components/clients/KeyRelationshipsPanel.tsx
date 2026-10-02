@@ -3,18 +3,22 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import {
-  AlertCircle,
-  Building2,
-  Crown,
-  Heart,
-  Mail,
-  Phone,
-  Star,
-} from "lucide-react";
+import { Crown, Heart, Star } from "lucide-react";
 import { api } from "@/lib/api";
 import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { CALM_EMPTY, CALM_HEAD, CALM_SUBLINE } from "@/lib/calm-table";
 import {
   hasPermission,
   isDeliveryLeadGoverned,
@@ -42,18 +46,26 @@ interface MyRelationshipRow {
 }
 
 export const RELATIONSHIP_STRENGTH_COLORS: Record<RelationshipStrength, string> = {
-  cold: "bg-blue-50 text-blue-700",
-  warm: "bg-yellow-50 text-yellow-700",
-  strong: "bg-green-50 text-green-700",
-  champion: "bg-violet-100 text-violet-800",
+  cold: "bg-muted text-muted-foreground",
+  warm: "bg-warning-muted text-warning-muted-foreground",
+  strong: "bg-primary/10 text-primary",
+  champion: "bg-success-muted text-success-muted-foreground",
 };
 
+// Etykiety czyta też zakładka „Kontakty klienta” w profilu klienta.
 export const RELATIONSHIP_STRENGTH_LABELS: Record<RelationshipStrength, string> = {
-  cold: "🥶 Cold",
-  warm: "🌤️ Warm",
-  strong: "🤝 Strong",
-  champion: "⭐ Champion",
+  cold: "Chłodna",
+  warm: "Ciepła",
+  strong: "Mocna",
+  champion: "Champion",
 };
+
+/** Kropka przy „Ostatnim kontakcie”: im dawniej, tym pilniej. */
+function touchpointTone(days: number): StatusDotTone {
+  if (days > 90) return "danger";
+  if (days > 30) return "warning";
+  return "success";
+}
 
 /**
  * Kluczowe relacje z klientami — tryb „Kontakty" ekranu Klienci
@@ -111,127 +123,135 @@ export function KeyRelationshipsPanel() {
   const rows = data ?? [];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <header>
-        <h2 className="text-xl font-bold flex items-center gap-2">
-          <Heart className="w-6 h-6 text-pink-600" />
+        <h2 className="font-display text-base font-semibold text-foreground">
           {ownRelationships ? "Moje kluczowe relacje" : "Kluczowe relacje w organizacji"}
         </h2>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="mt-0.5 text-xs text-muted-foreground">
           {ownRelationships
             ? "Osoby u klientów, z którymi masz zbudowaną relację. "
             : "Wszystkie oznaczone relacje z klientami w organizacji. "}
           Oznaczasz je w profilu klienta: <strong>Kontakty klienta</strong> → ikona{" "}
-          <Heart className="w-3 h-3 inline text-pink-600" aria-label="serca" /> →
-          „Kluczowa relacja”. Oznaczony kontakt dostaje{" "}
-          <Star className="w-3 h-3 inline text-yellow-500 fill-yellow-500" aria-label="gwiazdkę" />.
-          Sortowanie: najpilniejsze (najstarszy personal touchpoint) na górze.
+          <Heart className="inline h-3 w-3 text-primary" aria-label="serca" /> →
+          „Kluczowa relacja”. Najdawniej kontaktowane osoby są na górze.
         </p>
       </header>
 
       {rows.length === 0 ? (
-        <div className="border border-dashed border-border rounded-lg p-12 text-center text-muted-foreground">
-          <Heart className="w-12 h-12 mx-auto mb-2 opacity-40" />
+        <div className="rounded-lg border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
+          <Heart className="mx-auto mb-2 h-10 w-10 opacity-40" aria-hidden="true" />
           {ownRelationships
             ? "Nie masz jeszcze oznaczonych żadnych kluczowych relacji. Wejdź w profil klienta → Kontakty klienta, kliknij ikonę serca przy osobie i zaznacz „Kluczowa relacja”."
             : "W organizacji nie ma jeszcze oznaczonych kluczowych relacji."}
         </div>
       ) : (
-        <ul className="space-y-3">
-          {rows.map((r) => (
-            <li
-              key={r.contact_id}
-              className="border border-border rounded-lg p-4 bg-card hover:bg-accent/30 transition-colors"
-            >
-              <div className="flex items-start justify-between gap-4 flex-wrap">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                    <h3 className="font-semibold">{r.name}</h3>
-                    {r.relationship_strength && (
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded ${RELATIONSHIP_STRENGTH_COLORS[r.relationship_strength]}`}
-                      >
-                        {RELATIONSHIP_STRENGTH_LABELS[r.relationship_strength]}
-                      </span>
-                    )}
-                    {r.is_decision_maker && (
-                      <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-semibold">
-                        <Crown className="w-3 h-3" />
+        <Table density="compact" className="min-w-[900px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead className={CALM_HEAD}>Osoba</TableHead>
+              <TableHead className={CALM_HEAD}>Klient</TableHead>
+              <TableHead className={CALM_HEAD}>Siła relacji</TableHead>
+              <TableHead className={CALM_HEAD}>Ostatni kontakt</TableHead>
+              <TableHead className={CALM_HEAD}>Notatka</TableHead>
+              {canEdit ? (
+                <TableHead className={`${CALM_HEAD} text-right`}>Akcje</TableHead>
+              ) : null}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((r) => (
+              <TableRow key={r.contact_id} className="h-[54px]">
+                <TableCell>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <Star
+                      className="h-3.5 w-3.5 shrink-0 fill-warning text-warning"
+                      aria-hidden="true"
+                    />
+                    <span className="font-medium text-foreground">{r.name}</span>
+                    {r.is_decision_maker ? (
+                      <Badge size="sm" variant="warning">
+                        <Crown className="h-2.5 w-2.5" aria-hidden="true" />
                         Decydent
-                      </span>
-                    )}
+                      </Badge>
+                    ) : null}
                   </div>
-                  <div className="text-sm text-muted-foreground mt-1">
-                    {r.position && <span>{r.position}</span>}
-                    {r.position && " · "}
-                    <Link
-                      href={`/clients/${r.client_id}`}
-                      className="hover:text-violet-600 inline-flex items-center gap-1"
+                  {r.position || r.email || r.phone ? (
+                    <span className={`${CALM_SUBLINE} flex flex-wrap items-center gap-x-1.5`}>
+                      {r.position ? <span>{r.position}</span> : null}
+                      {r.email ? (
+                        <>
+                          {r.position ? <span aria-hidden="true">·</span> : null}
+                          <a
+                            href={`mailto:${r.email}`}
+                            className="break-all hover:text-foreground hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center"
+                          >
+                            {r.email}
+                          </a>
+                        </>
+                      ) : null}
+                      {r.phone ? (
+                        <>
+                          {r.position || r.email ? <span aria-hidden="true">·</span> : null}
+                          <a
+                            href={`tel:${r.phone}`}
+                            className="whitespace-nowrap tabular-nums hover:text-foreground hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center"
+                          >
+                            {r.phone}
+                          </a>
+                        </>
+                      ) : null}
+                    </span>
+                  ) : null}
+                </TableCell>
+                <TableCell>
+                  <Link
+                    href={`/clients/${r.client_id}`}
+                    className="font-medium text-primary hover:underline"
+                  >
+                    {r.client_name}
+                  </Link>
+                </TableCell>
+                <TableCell>
+                  {r.relationship_strength ? (
+                    <span
+                      className={`inline-flex whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium ${RELATIONSHIP_STRENGTH_COLORS[r.relationship_strength]}`}
                     >
-                      <Building2 className="w-3 h-3" />
-                      {r.client_name}
-                    </Link>
-                  </div>
-                  <div className="flex flex-wrap gap-3 mt-2 text-xs">
-                    {r.email && (
-                      <a
-                        href={`mailto:${r.email}`}
-                        className="flex min-w-0 max-w-full items-center gap-1 text-primary hover:underline pointer-coarse:min-h-10"
-                      >
-                        <Mail className="w-3 h-3 shrink-0" />
-                        <span className="break-all">{r.email}</span>
-                      </a>
-                    )}
-                    {r.phone && (
-                      <a
-                        href={`tel:${r.phone}`}
-                        className="flex items-center gap-1 text-muted-foreground hover:text-foreground pointer-coarse:min-h-10"
-                      >
-                        <Phone className="w-3 h-3" />
-                        {r.phone}
-                      </a>
-                    )}
-                  </div>
-                  {r.relationship_notes && (
-                    <p className="mt-2 text-xs text-pink-700 italic border-l-2 border-pink-200 pl-2">
-                      {r.relationship_notes}
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-col items-end gap-2 shrink-0">
-                  {r.days_since_personal_touchpoint === null ? (
-                    <span className="text-xs text-orange-700 bg-orange-50 px-2 py-1 rounded flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3" />
-                      Brak personal touchpoint
+                      {RELATIONSHIP_STRENGTH_LABELS[r.relationship_strength]}
                     </span>
                   ) : (
-                    <span
-                      className={
-                        "text-xs px-2 py-1 rounded " +
-                        (r.days_since_personal_touchpoint > 90
-                          ? "bg-red-50 text-red-700"
-                          : r.days_since_personal_touchpoint > 30
-                          ? "bg-yellow-50 text-yellow-700"
-                          : "bg-green-50 text-green-700")
-                      }
-                    >
+                    <span className={CALM_EMPTY}>—</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {r.days_since_personal_touchpoint === null ? (
+                    <StatusDot tone="neutral">Brak kontaktu</StatusDot>
+                  ) : (
+                    <StatusDot tone={touchpointTone(r.days_since_personal_touchpoint)}>
                       {r.days_since_personal_touchpoint} dni temu
+                    </StatusDot>
+                  )}
+                </TableCell>
+                <TableCell className="max-w-[340px] text-xs text-muted-foreground">
+                  {r.relationship_notes ? (
+                    <span className="line-clamp-2" title={r.relationship_notes}>
+                      {r.relationship_notes}
                     </span>
+                  ) : (
+                    <span className={CALM_EMPTY}>—</span>
                   )}
-                  {canEdit && (
-                    <button
-                      onClick={() => setEditing(r)}
-                      className="text-xs text-violet-600 hover:text-violet-700 underline"
-                    >
+                </TableCell>
+                {canEdit ? (
+                  <TableCell className="text-right">
+                    <Button size="sm" variant="outline" onClick={() => setEditing(r)}>
                       Aktualizuj
-                    </button>
-                  )}
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
+                    </Button>
+                  </TableCell>
+                ) : null}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       )}
 
       {canEdit && editing && (

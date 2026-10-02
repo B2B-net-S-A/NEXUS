@@ -234,14 +234,15 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
       header.className.includes("@min-[1700px]:table-cell");
     const label = (header: HTMLElement) =>
       header.textContent?.replace(/\s+/g, " ").trim();
+    // Jednostka stoi raz, w nagłówku kolumn stawek (spokojna tabela).
     expect(headers.filter((header) => !wideOnly(header)).map(label)).toEqual([
       "Kandydat",
       "Klient",
       "Data rozpoczęcia",
       "Data zakończenia zamówienia",
-      "Stawka kosztowa",
-      "Stawka przychodowa",
-      "Marża",
+      "Stawka kosztowa zł/h",
+      "Stawka przychodowa zł/h",
+      "Marża zł/h",
       "Typ",
       "Status",
     ]);
@@ -473,15 +474,72 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     expect(multiGroup).not.toHaveTextContent(/2026/);
   });
 
-  it("marża ma tę samą jednostkę co stawki obok (zł/h)", async () => {
+  it("marża ma tę samą jednostkę co stawki obok (zł/h) — raz, przy nazwie kolumny", async () => {
     const { container } = renderList();
     await screen.findByText("Paweł Małek");
     const margins = Array.from(container.querySelectorAll('[data-label="Marża"]'));
     const priced = margins.find((cell) => /42,50/.test(cell.textContent ?? ""));
     expect(priced).toBeDefined();
-    expect(priced).toHaveTextContent(/42,50\s*zł\s*\/h/);
+    // Jednostka stoi przy nazwie kolumny (nagłówek tabeli, a w układzie kart
+    // etykieta pola), przy kwocie zostaje sama liczba.
+    expect(
+      screen
+        .getAllByRole("columnheader")
+        .some((header) => /Marża\s*zł\/h/.test(header.textContent ?? "")),
+    ).toBe(true);
+    expect(priced).toHaveTextContent(/Marża\s*zł\/h\s*42,50/);
+    expect(priced).not.toHaveTextContent(/42,50\s*zł/);
     // Brak marży zostaje kreską — bez samotnej jednostki.
     expect(margins.find((cell) => /—/.test(cell.textContent ?? ""))).not.toHaveTextContent("/h");
+  });
+
+  it("wiersz w jednostce innej niż godzinowa niesie ją przy kwocie", async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url === "/api/contracts") {
+        return Promise.resolve({
+          data: {
+            items: [
+              {
+                id: 801,
+                candidate_id: 81,
+                candidate_name: "Daria Dzienna",
+                client_name: "Klient Dzienny",
+                status: "active",
+                contract_type: "b2b",
+                start_date: "2026-07-01",
+                end_date: null,
+                currency: "PLN",
+                group_members: [
+                  groupedMember({
+                    id: 801,
+                    client_id: 8,
+                    client_name: "Klient Dzienny",
+                    rate_candidate: 960,
+                    rate_client: 1340,
+                    margin: 380,
+                    rate_unit: "daily",
+                  }),
+                ],
+              },
+            ],
+            total: 1,
+            contractors_total: 1,
+            contracts_total: 1,
+            page_size: 20,
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    const { container } = renderList();
+    await screen.findByText("Daria Dzienna");
+    const row = container.querySelector('[data-contract-member="801"]');
+    expect(row?.querySelector('[data-label="Stawka kosztowa"]')).toHaveTextContent(
+      /960,00\s*zł\s*\/MD/,
+    );
+    expect(row?.querySelector('[data-label="Marża"]')).toHaveTextContent(
+      /380,00\s*zł\s*\/MD/,
+    );
   });
 
   it("koniec zamówienia ma własną kolumnę: data, bezterminowo albo brak", async () => {

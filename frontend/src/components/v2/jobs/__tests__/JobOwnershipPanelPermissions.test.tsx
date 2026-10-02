@@ -350,6 +350,23 @@ describe("JobOwnershipPanel — kto widzi który przycisk", () => {
     renderPanel({ ...JOBS.empty, status: "closed" }, { as: recruiter });
     expect(actions()).toEqual(["+ Dodaj osobę"]);
   });
+
+  it("zamkniętej rekrutacji nie da się nikomu przypisać — zostaje zdjęcie osoby", () => {
+    // Serwer odmawia `POST /owner` na zamkniętej rekrutacji (409), więc
+    // „Przypisz…” i „Zmień” prowadziłyby do błędu.
+    const empty = renderPanel(
+      { ...JOBS.empty, status: "closed", can_staff: true },
+      { as: headOfRecruitment },
+    );
+    expect(actions()).not.toContain("Przypisz…");
+    empty.unmount();
+
+    renderPanel(
+      { ...JOBS.staffed, status: "closed", can_staff: true },
+      { as: headOfRecruitment },
+    );
+    expect(screen.queryByRole("button", { name: "Zmień rekrutera" })).toBeNull();
+  });
 });
 
 describe("JobOwnershipPanel — co widać w wierszu", () => {

@@ -23,6 +23,10 @@ const buttonVariants = cva(
         tertiary: "bg-transparent text-primary hover:text-primary/80 underline-offset-4 hover:underline",
         destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-xs",
         outline: "bg-transparent border border-border text-foreground hover:bg-muted",
+        // Rzadka albo niebezpieczna akcja, która ma zostać na wierzchu, ale nie
+        // krzyczeć (decyzja 02.10.2026): szara, czerwona dopiero po najechaniu.
+        quiet:
+          "bg-transparent text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:bg-destructive/10 focus-visible:text-destructive",
       },
       // Na dotyku (pointer: coarse) małe rozmiary rosną do 40 px celu —
       // 32 px to za mało dla palca (audyt responsywności 23.09.2026).

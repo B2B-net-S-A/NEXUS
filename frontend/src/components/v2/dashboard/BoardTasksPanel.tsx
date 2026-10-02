@@ -260,31 +260,40 @@ export function BoardTasksPanel() {
             onToggle={() => toggle("dl_review")}
           >
             {shown("dl_review", dlReview).map((row) => (
-              <li key={row.stage_id} className="flex items-center gap-2 px-3 py-2">
-                <div className="min-w-0 flex-1">
+              // Kolumna panelu ma na laptopie ~300 px: plakietka QC, czas
+              // i przycisk w jednej linii zostawiały nazwisku 60–90 px.
+              // Gdy nazwisko nie ma 12rem, akcje schodzą pod nie.
+              <li
+                key={row.stage_id}
+                className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2"
+              >
+                <div className="min-w-[12rem] flex-1">
                   <button
                     type="button"
                     onClick={() => setReviewing(row)}
+                    title={row.candidate_name}
                     className="block max-w-full truncate text-left text-sm font-medium hover:underline"
                   >
                     {row.candidate_name}
                   </button>
                   <RowMeta row={row} />
                 </div>
-                <QcStatusBadge row={row} />
-                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                  {waitingFor(row.since)}
-                </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="shrink-0"
-                  onClick={() => setReviewing(row)}
-                  aria-label={`Przejrzyj: ${row.candidate_name}`}
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                  Przejrzyj
-                </Button>
+                <div className="ml-auto flex shrink-0 items-center gap-2">
+                  <QcStatusBadge row={row} />
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    {waitingFor(row.since)}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    onClick={() => setReviewing(row)}
+                    aria-label={`Przejrzyj: ${row.candidate_name}`}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    Przejrzyj
+                  </Button>
+                </div>
               </li>
             ))}
           </Section>

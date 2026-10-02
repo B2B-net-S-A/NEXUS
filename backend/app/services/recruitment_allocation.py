@@ -52,6 +52,7 @@ from app.services.priority_work_service import (
     next_free_position,
     role_values,
 )
+from app.services.request_allocation import void_manual_release
 from app.services.workforce_availability import WARSAW, WorkforceContext
 
 ALLOCATION_LOCK = 734092771
@@ -471,6 +472,10 @@ async def assign_operator(
         if previous_owner is not None and previous_owner != assignee.id:
             await release_operator(db, job=job)
         job.recruiter_id = assignee.id
+        # Człowiek wpisał prowadzącego — wcześniejsze ręczne zdjęcie tej osoby
+        # przestaje obowiązywać, inaczej reguła zespołu nie liczy jej jako
+        # Rekrutera.
+        await void_manual_release(db, job_id=job.id, user_id=assignee.id)
     audit_event(
         db,
         "allocation_assigned",
