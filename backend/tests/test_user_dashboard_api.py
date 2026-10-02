@@ -78,7 +78,12 @@ async def test_empty_dashboard_before_first_save(app_client):
     headers, _ = await _login()
     resp = await app_client.get(URL, headers=headers)
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"tiles": [], "version": 0, "dropped_tiles": []}
+    assert resp.json() == {
+        "tiles": [],
+        "version": 0,
+        "dropped_tiles": [],
+        "hidden_panels": [],
+    }
 
 
 @needs_db
@@ -224,6 +229,56 @@ async def test_rejected_first_save_leaves_an_empty_dashboard(app_client):
     assert read.status_code == 200
     assert read.json()["tiles"] == []
     assert read.json()["version"] == 0
+
+
+PANEL_URL = f"{URL}/panels/cv_in_transit"
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_panel_removed_from_the_dashboard_survives_a_tile_save(app_client):
+    """„Usuń z pulpitu” listy nad kafelkami zapisuje się na koncie i nie ginie
+    przy zapisie układu (zapis kafelków przepisuje cały `layout`)."""
+    headers, _ = await _login()
+    hide = await app_client.put(PANEL_URL, headers=headers, json={"hidden": True})
+    assert hide.status_code == 200, hide.text
+    # Sama decyzja o liście nie rusza wersji układu ani pustego pulpitu.
+    assert hide.json() == {
+        "tiles": [],
+        "version": 0,
+        "dropped_tiles": [],
+        "hidden_panels": ["cv_in_transit"],
+    }
+
+    saved = await app_client.put(
+        URL, headers=headers, json={"tiles": [_tile()], "expected_version": 0}
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["hidden_panels"] == ["cv_in_transit"]
+    read = await app_client.get(URL, headers=headers)
+    assert read.json()["hidden_panels"] == ["cv_in_transit"]
+    assert len(read.json()["tiles"]) == 1
+
+    restore = await app_client.put(PANEL_URL, headers=headers, json={"hidden": False})
+    assert restore.status_code == 200
+    assert restore.json()["hidden_panels"] == []
+    assert restore.json()["version"] == 1
+    assert len(restore.json()["tiles"]) == 1
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_unknown_panel_is_rejected_and_each_person_hides_their_own(app_client):
+    headers, _ = await _login()
+    other, _ = await _login()
+    bad = await app_client.put(
+        f"{URL}/panels/my_tasks", headers=headers, json={"hidden": True}
+    )
+    assert bad.status_code == 422
+    assert (
+        await app_client.put(PANEL_URL, headers=headers, json={"hidden": True})
+    ).status_code == 200
+    assert (await app_client.get(URL, headers=other)).json()["hidden_panels"] == []
 
 
 def test_first_save_inserts_the_row_before_locking_it():

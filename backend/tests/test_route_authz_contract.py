@@ -247,6 +247,7 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     # pobierają ich własne endpointy za bramkami sekcji.
     ("GET", "/api/users/me/dashboard"),
     ("PUT", "/api/users/me/dashboard"),
+    ("PUT", "/api/users/me/dashboard/panels/{panel}"),
     ("PATCH", "/api/notifications/read-all"),
     ("PATCH", "/api/notifications/{notification_id}/read"),
     ("PATCH", "/api/users/me/preferences"),

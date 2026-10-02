@@ -26,6 +26,8 @@ import {
   type BoardTaskRow,
   type BoardTasksResponse,
   type CproSender,
+  type CvInTransit,
+  type CvTransitRow,
 } from "@/lib/api/boardTasks";
 import {
   USER_DASHBOARD_QUERY_KEY,
@@ -142,7 +144,69 @@ const BOARD_TASKS: BoardTasksResponse = {
   ],
 };
 
-function seededClient(tiles: DashboardTile[]): QueryClient {
+const transitRow = (over: Partial<CvTransitRow>): CvTransitRow => ({
+  kind: "in_review",
+  stage_id: 301,
+  candidate_id: 401,
+  candidate_name: "Adam Wrona",
+  job_id: 900,
+  job_title: "Java Developer",
+  job_working_title: "Java · Spring · 5+ lat",
+  client_name: "Bank Kappa",
+  since: daysAgo(1),
+  actor_name: null,
+  holder_name: null,
+  reason: null,
+  ...over,
+});
+
+const TRANSIT_INFO: Pick<CvInTransit, "in_review" | "sent"> = {
+  in_review: [
+    transitRow({ stage_id: 311, candidate_id: 411, candidate_name: "Tomasz Żak", job_working_title: "DevOps · AWS · Terraform", client_name: "Energetyka Wzorcowa", holder_name: "Jan Dąb", since: daysAgo(3) }),
+    transitRow({ stage_id: 312, candidate_id: 412, candidate_name: "Karolina Mróz", holder_name: "Marta Kowalczyk", since: daysAgo(1) }),
+    transitRow({ kind: "cpro_queue", stage_id: 313, candidate_id: 413, candidate_name: "Michał Kruk", job_working_title: "Analityk biznesowy · bankowość", client_name: "Bank Północny", holder_name: "Adam Wzorcowy", since: daysAgo(0) }),
+  ],
+  sent: [
+    transitRow({ kind: "sent", stage_id: 321, candidate_id: 421, candidate_name: "Anna Sroka", actor_name: "Marta Kowalczyk", since: daysAgo(1) }),
+    transitRow({ kind: "sent", stage_id: 322, candidate_id: 422, candidate_name: "Paweł Gil", job_working_title: "Tester automatyzujący · Selenium", client_name: "Ubezpieczenia Wzorcowe", actor_name: "Jan Dąb", since: daysAgo(4) }),
+  ],
+};
+
+function transit(returned: CvTransitRow[], info = TRANSIT_INFO): CvInTransit {
+  return {
+    returned,
+    ...info,
+    returned_total: returned.length,
+    in_review_total: info.in_review.length,
+    sent_total: info.sent.length,
+    returned_window_days: 14,
+    sent_window_days: 7,
+  };
+}
+
+const TRANSIT_RETURNED = transit([
+  transitRow({ kind: "rejected_by_dl", stage_id: 331, candidate_id: 431, candidate_name: "Adam Wrona", actor_name: "Marta Kowalczyk", reason: "stawka ponad budżet", since: daysAgo(0) }),
+  transitRow({ kind: "sent_back", stage_id: 332, candidate_id: 432, candidate_name: "Julia Bąk", job_working_title: "Tester automatyzujący · Selenium", client_name: "Ubezpieczenia Wzorcowe", actor_name: "Jan Dąb", since: daysAgo(1) }),
+]);
+
+const NO_TASKS: BoardTasksResponse = {
+  window_days: 14,
+  dl_review_window_days: 30,
+  dl_review: [],
+  cpro_to_send: [],
+  cpro_sent: [],
+};
+
+type Variant = "filled" | "empty" | "bar" | "bar-empty";
+
+const VARIANT_LABEL: Record<Variant, string> = {
+  filled: "Pulpit z kafelkami",
+  empty: "Pusty pulpit",
+  bar: "CV w drodze: pasek",
+  "bar-empty": "CV w drodze: pusto",
+};
+
+function seededClient(tiles: DashboardTile[], boardTasks: BoardTasksResponse): QueryClient {
   const qc = new QueryClient({
     defaultOptions: {
       queries: { staleTime: Infinity, retry: false, refetchOnMount: false, refetchOnWindowFocus: false },
@@ -154,7 +218,7 @@ function seededClient(tiles: DashboardTile[]): QueryClient {
     dropped_tiles: [],
   });
   qc.setQueryData(METRIC_CATALOG_QUERY_KEY, CATALOG);
-  qc.setQueryData<BoardTasksResponse>(BOARD_TASKS_QUERY_KEY, BOARD_TASKS);
+  qc.setQueryData<BoardTasksResponse>(BOARD_TASKS_QUERY_KEY, boardTasks);
   qc.setQueryData<CproSender>(CPRO_SENDER_QUERY_KEY, {
     user_id: 1,
     user_name: "Adam Wzorcowy",
@@ -230,9 +294,16 @@ function seededClient(tiles: DashboardTile[]): QueryClient {
 
 export default function CustomDashboardPreview() {
   const [ready, setReady] = useState(false);
-  const [variant, setVariant] = useState<"filled" | "empty">("filled");
-  const [filled] = useState(() => seededClient(TILES));
-  const [empty] = useState(() => seededClient([]));
+  const [variant, setVariant] = useState<Variant>("filled");
+  const [clients] = useState<Record<Variant, QueryClient>>(() => ({
+    filled: seededClient(TILES, { ...BOARD_TASKS, cv_in_transit: TRANSIT_RETURNED }),
+    empty: seededClient([], { ...BOARD_TASKS, cv_in_transit: TRANSIT_RETURNED }),
+    bar: seededClient(TILES, { ...NO_TASKS, cv_in_transit: transit([]) }),
+    "bar-empty": seededClient(TILES, {
+      ...NO_TASKS,
+      cv_in_transit: transit([], { in_review: [], sent: [] }),
+    }),
+  }));
 
   useEffect(() => {
     const blocker = api.interceptors.request.use((config) =>
@@ -261,9 +332,9 @@ export default function CustomDashboardPreview() {
   return (
     <ToastProvider>
       <div className="min-h-screen bg-background">
-        <div className="flex gap-2 border-b border-border px-6 py-3 text-sm">
+        <div className="flex flex-wrap gap-2 border-b border-border px-6 py-3 text-sm">
           <span className="text-muted-foreground">Podgląd:</span>
-          {(["filled", "empty"] as const).map((v) => (
+          {(Object.keys(VARIANT_LABEL) as Variant[]).map((v) => (
             <button
               key={v}
               type="button"
@@ -271,13 +342,13 @@ export default function CustomDashboardPreview() {
               onClick={() => setVariant(v)}
               className={variant === v ? "font-semibold text-primary" : "text-foreground"}
             >
-              {v === "filled" ? "Pulpit z kafelkami" : "Pusty pulpit"}
+              {VARIANT_LABEL[v]}
             </button>
           ))}
         </div>
         {/* Padding powłoki (`<main>` ma `p-4 md:p-6`) — pulpit nie dokłada własnego. */}
         <div className="p-4 md:p-6">
-          <QueryClientProvider key={variant} client={variant === "filled" ? filled : empty}>
+          <QueryClientProvider key={variant} client={clients[variant]}>
             <CustomDashboard />
           </QueryClientProvider>
         </div>

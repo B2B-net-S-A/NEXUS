@@ -5,7 +5,7 @@
 // — znikający kafelek czytałby się jak brak funkcji, a nie brak uprawnień.
 
 import { useMemo, useState } from "react"
-import { Lock, Plus, Search, Wand2 } from "lucide-react"
+import { Lock, Plus, Search, Undo2, Wand2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,6 +23,8 @@ import {
   type TileCategory,
   type TileTemplate,
 } from "@/lib/dashboard-tiles/catalog"
+import type { DashboardPanelKey } from "@/lib/api/userDashboard"
+import { CV_TRANSIT_TITLE } from "@/lib/cv-in-transit"
 import { cn } from "@/lib/utils"
 import type { User } from "@/store/auth"
 
@@ -39,6 +41,8 @@ export function TileCatalogSheet({
   onPick,
   onCustomMetric,
   highlightKey,
+  hiddenPanels = [],
+  onRestorePanel,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -46,6 +50,9 @@ export function TileCatalogSheet({
   onPick: (template: TileTemplate) => void
   onCustomMetric: () => void
   highlightKey?: string | null
+  /** Listy nad kafelkami usunięte z pulpitu — katalog pozwala je przywrócić. */
+  hiddenPanels?: DashboardPanelKey[]
+  onRestorePanel?: (panel: DashboardPanelKey) => void
 }) {
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState<CategoryFilter>("all")
@@ -133,6 +140,27 @@ export function TileCatalogSheet({
             ))}
           </nav>
           <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-1 gap-3 overflow-y-auto p-4 md:grid-cols-2">
+            {onRestorePanel && hiddenPanels.includes("cv_in_transit") ? (
+              <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3 md:col-span-2">
+                <div>
+                  <div className="text-sm font-semibold text-foreground">{CV_TRANSIT_TITLE}</div>
+                  <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                    Lista nad kafelkami: co dzieje się z CV po przekazaniu do QC — co wróciło, co
+                    czeka w przeglądzie i co poszło do klienta. Usunięta z Twojego pulpitu.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="self-start"
+                  aria-label={`Przywróć listę ${CV_TRANSIT_TITLE}`}
+                  onClick={() => onRestorePanel("cv_in_transit")}
+                >
+                  <Undo2 className="h-4 w-4" />
+                  Przywróć
+                </Button>
+              </div>
+            ) : null}
             <div className="flex flex-col gap-2 rounded-xl border border-primary bg-primary/5 p-3 md:col-span-2">
               <div className="flex items-center gap-2 text-sm font-semibold text-primary">
                 <Wand2 className="h-4 w-4" aria-hidden />

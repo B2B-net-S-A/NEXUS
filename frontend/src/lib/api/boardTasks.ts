@@ -91,6 +91,44 @@ export function prepAttentionLink(row: Pick<PrepAttentionRow, "candidate_id" | "
   return `/calendar?cycle=${row.candidate_id}-${row.job_id}`;
 }
 
+/** „Twoje CV w drodze” — lustro `services/cv_in_transit.py`. */
+export type CvTransitKind =
+  | "rejected_by_dl"
+  | "sent_back"
+  | "cpro_returned"
+  | "in_review"
+  | "cpro_queue"
+  | "sent";
+
+export interface CvTransitRow {
+  kind: CvTransitKind;
+  stage_id: number;
+  candidate_id: number;
+  candidate_name: string;
+  job_id: number;
+  job_title: string;
+  job_working_title?: string | null;
+  client_name?: string | null;
+  since: string;
+  /** Kto odrzucił, cofnął albo wysłał. */
+  actor_name?: string | null;
+  /** U kogo karta czeka (w przeglądzie). */
+  holder_name?: string | null;
+  reason?: string | null;
+}
+
+export interface CvInTransit {
+  returned: CvTransitRow[];
+  in_review: CvTransitRow[];
+  sent: CvTransitRow[];
+  /** Liczby przed przycięciem list przez serwer. */
+  returned_total: number;
+  in_review_total: number;
+  sent_total: number;
+  returned_window_days: number;
+  sent_window_days: number;
+}
+
 export interface BoardTasksResponse {
   cpro_to_send: BoardTaskRow[];
   cpro_sent: BoardTaskRow[];
@@ -113,6 +151,9 @@ export interface BoardTasksResponse {
   /** Osobę od Cpro ustawia admin albo Delivery Lead Nordei (25.09.2026) —
    *  przełącznik stoi także wtedy, gdy sekcja Cpro jest pusta. */
   can_set_cpro_sender?: boolean;
+  /** „Twoje CV w drodze” — co dzieje się z CV po przekazaniu karty. `null`
+   *  albo brak = osoba usunęła listę z pulpitu (albo serwer jej nie policzył). */
+  cv_in_transit?: CvInTransit | null;
 }
 
 export const BOARD_TASKS_QUERY_KEY = ["board-tasks"] as const;
