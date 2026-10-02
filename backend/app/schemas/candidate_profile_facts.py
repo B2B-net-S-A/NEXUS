@@ -205,6 +205,48 @@ class CandidateRecentRecruitmentsResponse(BaseModel):
     items: list[RecentRecruitmentItem]
 
 
+# ── Odpowiedzi z rozmów screeningowych (02.10.2026) ────────────────────────
+
+
+class ScreeningConversationAnswer(BaseModel):
+    question_id: str
+    # Treść pytania z chwili odpowiedzi; ``None`` = pytanie usunięto z profilu
+    # Championa, zanim odpowiedzi zaczęły nieść własny tekst.
+    question_text: Optional[str] = None
+    response: str = ""
+    deal_breaker_hit: bool = False
+    skipped: bool = False
+
+
+class ScreeningConversationCheck(BaseModel):
+    kind: Literal["domains", "certifications", "regulations"] = "domains"
+    name: str
+    status: Literal["confirmed", "not_confirmed", "unknown"] = "unknown"
+    note: str = ""
+
+
+class ScreeningConversation(BaseModel):
+    """Arkusz screeningu jednej rekrutacji — najnowszy wypełniony wiersz pary."""
+
+    stage_id: int
+    job_id: int
+    job_title: Optional[str] = None
+    client_name: Optional[str] = None
+    answered_at: Optional[datetime] = None
+    answered_by_name: Optional[str] = None
+    overall_fit: Literal["fit", "uncertain", "miss"] = "uncertain"
+    match_percent: float = 0.0
+    answers: list[ScreeningConversationAnswer]
+    experience_checks: list[ScreeningConversationCheck]
+    notes: str = ""
+    internal_note: Optional[str] = None
+
+
+class CandidateScreeningAnswersResponse(BaseModel):
+    candidate_id: int
+    conversations: list[ScreeningConversation]
+
+
 # ── Fakty z notatek rekruterów (22.09.2026) ────────────────────────────────
 
 WorkMode = Literal["remote", "hybrid", "onsite"]

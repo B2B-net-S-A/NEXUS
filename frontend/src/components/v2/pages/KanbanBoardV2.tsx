@@ -2492,6 +2492,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  moveNextSuspended.current = true;
  setMoveNextOpen(false);
  }, []);
+ // „Przesuń dalej" z okna QC: okno otwarte z listy braków wraca do swojego
+ // „Przesuń dalej", otwarte z karty — otwiera je dla następnej kolumny. Ruch
+ // etapu ma jedną drogę (`MoveNextDialog` → `usePipelineMove`).
+ const handleQcMoveNext = useCallback(
+ (candidateId: number) => {
+ const suspended = moveNextSuspended.current;
+ setQcStageId(null);
+ resumeMoveNext();
+ if (suspended) return;
+ const item = cols.flatMap((c) => c.items).find((i) => i.candidate_id === candidateId);
+ if (item) onAdvance(item);
+ },
+ [cols, onAdvance, resumeMoveNext]
+ );
  const handleMoveNextAction = useCallback(
  (action: MoveRequirementAction, item: KanbanItem) => {
  const name = itemFullName(item);
@@ -3175,6 +3189,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  nextAction={dockNextAction}
  primaryTarget={dockPrimaryMove?.target ?? null}
  primaryBlocked={dockPrimaryMove?.blocked ?? null}
+ onAdvance={readOnly ? undefined : () => onAdvance(dockItem)}
  onClose={closeDock}
  onMoveTo={handleDockMove}
  onMoveToStageDef={handleDockMoveToStageDef}
@@ -3251,6 +3266,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setQcStageId(null);
  resumeMoveNext();
  }}
+ onMoveNext={readOnly ? undefined : (result) => handleQcMoveNext(result.candidate_id)}
  onChanged={() => {
  queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
  queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });

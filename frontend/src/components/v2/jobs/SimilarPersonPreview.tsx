@@ -358,7 +358,14 @@ function ScoreBody({ query, candidateId }: { query: ScoreQuery; candidateId: num
   const measured = typeof query.data.scores[key] === "number";
   const summary = summarizeBreakdown(breakdown);
   const reason = unmeasuredReason(breakdown?.measurement);
-  const hasMust = summary.matchedMust.length > 0 || summary.gapMust.length > 0;
+  // Tylko technologie: wymagania wpisanego zdaniem nie da się znaleźć w CV,
+  // więc „— nie znaleziono” przy nim nic nie mówi (zgłoszenie 02.10.2026).
+  const notTechnology = new Set(query.data.non_technology_must ?? []);
+  const matchedMust = summary.matchedMust.filter((skill) => !notTechnology.has(skill));
+  const gapMust = summary.gapMust.filter((skill) => !notTechnology.has(skill));
+  const hasMust = matchedMust.length > 0 || gapMust.length > 0;
+  const onlyProse =
+    !hasMust && summary.matchedMust.length + summary.gapMust.length > 0;
   return (
     <div className="space-y-2">
       {!measured ? (
@@ -368,7 +375,7 @@ function ScoreBody({ query, candidateId }: { query: ScoreQuery; candidateId: num
       ) : null}
       {hasMust ? (
         <ul className="flex flex-wrap gap-1.5" aria-label="Wymagania must-have">
-          {summary.matchedMust.map((skill) => (
+          {matchedMust.map((skill) => (
             <li
               key={`met-${skill}`}
               className="inline-flex items-center gap-1 rounded-md bg-success-muted px-2 py-0.5 text-xs text-success-muted-foreground"
@@ -377,7 +384,7 @@ function ScoreBody({ query, candidateId }: { query: ScoreQuery; candidateId: num
               {skill}
             </li>
           ))}
-          {summary.gapMust.map((skill) => (
+          {gapMust.map((skill) => (
             <li
               key={`gap-${skill}`}
               className="rounded-md bg-warning-muted px-2 py-0.5 text-xs text-warning-muted-foreground"
@@ -387,7 +394,11 @@ function ScoreBody({ query, candidateId }: { query: ScoreQuery; candidateId: num
           ))}
         </ul>
       ) : measured ? (
-        <Muted>Ta rekrutacja nie ma wymagań must-have do porównania.</Muted>
+        <Muted>
+          {onlyProse
+            ? "Wymagania tej rekrutacji są opisane zdaniami — nie ma technologii do porównania."
+            : "Ta rekrutacja nie ma wymagań must-have do porównania."}
+        </Muted>
       ) : null}
     </div>
   );

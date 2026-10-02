@@ -31,6 +31,8 @@ import {
   useScreeningForm,
 } from "@/components/v2/screening/ScreeningForm";
 import { ScreeningReassignSuggestions } from "@/components/v2/jobs/ScreeningReassignSuggestions";
+import { hasSectionAccess } from "@/lib/section-access";
+import { useAuthStore } from "@/store/auth";
 
 interface Props {
   open: boolean;
@@ -47,13 +49,18 @@ export function ScreeningSheet({
   candidateName,
   onSubmitted,
 }: Props) {
-  const { query, questions, methods, submitMut, onSubmit, submitError } =
+  const { query, questions, existing, methods, submitMut, onSubmit, submitError } =
     useScreeningForm({
       stageId,
       enabled: open,
       onSubmitted,
       onAfterSubmit: () => onOpenChange(false),
     });
+  // Lustro `canWritePipeline` ze strony rekrutacji: bez prawa zapisu (albo
+  // w podglądzie jako) Luna nie jest wołana, a podpowiedzi nie da się użyć.
+  const canWrite = useAuthStore(
+    (s) => s.realUser === null && hasSectionAccess(s.user, "pipeline", "write"),
+  );
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -88,19 +95,32 @@ export function ScreeningSheet({
             className="flex h-full flex-col overflow-hidden"
           >
             <SheetBody>
-              {/* Przepięcie (Pipeline v4): Luna podpowiada odpowiedzi także
-                  w arkuszu z panelu osoby, nie tylko w szerokim warsztacie. */}
+              {/* Wcześniejsze odpowiedzi tej osoby (przepięcie albo inne
+                  rekrutacje) stoją pod pytaniami — także w arkuszu z panelu
+                  osoby, nie tylko w szerokim warsztacie. */}
               <ScreeningReassignSuggestions
                 key={stageId}
                 stageId={stageId}
                 questions={questions}
                 methods={methods}
-              />
-              <ScreeningFormFields questions={questions} methods={methods} />
+                saved={existing}
+                readOnly={!canWrite}
+              >
+                {(renderQuestionExtra) => (
+                  <ScreeningFormFields
+                    questions={questions}
+                    methods={methods}
+                    renderQuestionExtra={renderQuestionExtra}
+                  />
+                )}
+              </ScreeningReassignSuggestions>
               {submitError && <ScreeningSubmitError message={submitError} />}
             </SheetBody>
 
             <SheetFooter>
+              <p className="mr-auto text-xs text-muted-foreground">
+                Odpowiedzi zobaczysz potem w profilu kandydata.
+              </p>
               <Button
                 type="button"
                 variant="ghost"

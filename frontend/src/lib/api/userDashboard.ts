@@ -9,6 +9,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
 
 export const TILE_TYPES = [
   "my_tasks",
@@ -111,7 +112,13 @@ export interface UserDashboardResponse {
   tiles: DashboardTile[];
   version: number;
   dropped_tiles: { id: string | null; type: string | null }[];
+  /** Listy nad kafelkami usunięte z pulpitu („Usuń z pulpitu”). */
+  hidden_panels?: DashboardPanelKey[];
 }
+
+/** Listy stojące nad kafelkami: każdy ma je domyślnie i może usunąć.
+ *  Lustro `PANEL_KEYS` w `backend/app/services/dashboard_tiles.py`. */
+export type DashboardPanelKey = "cv_in_transit";
 
 export const USER_DASHBOARD_QUERY_KEY = ["user-dashboard"] as const;
 
@@ -124,6 +131,10 @@ export const userDashboardApi = {
         tiles,
         expected_version: expectedVersion,
       })
+      .then((r) => r.data),
+  setPanelHidden: (panel: DashboardPanelKey, hidden: boolean) =>
+    api
+      .put<UserDashboardResponse>(`/api/users/me/dashboard/panels/${panel}`, { hidden })
       .then((r) => r.data),
 };
 
@@ -142,6 +153,20 @@ export function useSaveUserDashboard() {
       userDashboardApi.save(tiles, version),
     onSuccess: (data) => {
       queryClient.setQueryData(USER_DASHBOARD_QUERY_KEY, data);
+    },
+  });
+}
+
+/** „Usuń z pulpitu” / „Przywróć” listy nad kafelkami — zapis na koncie. */
+export function useSetDashboardPanelHidden() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ panel, hidden }: { panel: DashboardPanelKey; hidden: boolean }) =>
+      userDashboardApi.setPanelHidden(panel, hidden),
+    onSuccess: (data) => {
+      queryClient.setQueryData(USER_DASHBOARD_QUERY_KEY, data);
+      // Listę liczy `GET /api/board-tasks` — po zmianie ma zniknąć albo wrócić.
+      void queryClient.invalidateQueries({ queryKey: BOARD_TASKS_QUERY_KEY });
     },
   });
 }

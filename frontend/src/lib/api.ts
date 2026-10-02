@@ -5188,6 +5188,11 @@ export interface ScreeningAnswerItem {
   origin?: "manual" | "reassign_suggested";
   /** Pytanie pominięte przy przepięciu — nie idzie do klienta ani do dopasowania. */
   skipped?: boolean;
+  /**
+   * Treść pytania z chwili odpowiedzi (02.10.2026) — stempluje serwer, bo
+   * identyfikatory pytań są pozycyjne. `null` = pytanie usunięte z profilu.
+   */
+  question_text?: string | null;
 }
 
 /** „Sprawdź w rozmowie” — pozycja sekcji 4 Championa po rozmowie z kandydatem. */
@@ -5216,25 +5221,48 @@ export interface ScreeningReassignSource {
   date: string | null;
 }
 
+/**
+ * Skąd Luna może podpowiadać: `reassign` = osoba przepięta (odpowiedzi
+ * i notatki z rekrutacji źródłowej), `history` = wcześniejsze rozmowy w innych
+ * rekrutacjach (od 02.10.2026).
+ */
+export type ScreeningSuggestionKind = "reassign" | "history";
+
 export interface ScreeningReassignContext {
   stage_id: number;
+  candidate_id?: number;
   available: boolean;
+  kind?: ScreeningSuggestionKind | null;
   source: ScreeningReassignSource | null;
   previous_answers_count: number;
+  earlier_conversations?: number;
+}
+
+/** Rozmowa, z której pochodzi podpowiadana odpowiedź. */
+export interface ScreeningSuggestionSource {
+  job_id: number;
+  job_title: string;
+  client_name: string | null;
+  date: string | null;
 }
 
 export interface ScreeningReassignSuggestion {
   question_id: string;
+  /** Z wcześniejszej odpowiedzi — dosłowna odpowiedź kandydata; z notatki — zdanie Luny. */
   text: string;
   source_kind: "answer" | "note";
   source_quote: string;
   confidence: "high" | "medium" | "low";
+  source?: ScreeningSuggestionSource | null;
+  /** Pytanie, na które kandydat wtedy odpowiadał. */
+  source_question?: string | null;
 }
 
 export interface ScreeningReassignSuggestionsResponse {
   stage_id: number;
   available: boolean;
   message: string | null;
+  kind?: ScreeningSuggestionKind | null;
   source: ScreeningReassignSource | null;
   suggestions: ScreeningReassignSuggestion[];
 }
@@ -5252,12 +5280,12 @@ export interface StageScreeningResponse {
 export const screeningApi = {
   getForStage: (stageId: number) =>
     api.get<StageScreeningResponse>(`/api/pipeline/stages/${stageId}/screening`),
-  /** Przepięcie: skąd osoba przyszła — bez wywołania modelu. */
+  /** Czy są wcześniejsze rozmowy, z których Luna może podpowiadać — bez wywołania modelu. */
   reassignContext: (stageId: number) =>
     api.get<ScreeningReassignContext>(
       `/api/pipeline/stages/${stageId}/screening/reassign-context`,
     ),
-  /** Przepięcie: podpowiedzi Luny (płatne wywołanie modelu, nic nie zapisuje). */
+  /** Podpowiedzi Luny z wcześniejszych rozmów (płatne wywołanie modelu, nic nie zapisuje). */
   reassignSuggestions: (stageId: number) =>
     api.post<ScreeningReassignSuggestionsResponse>(
       `/api/pipeline/stages/${stageId}/screening/reassign-suggestions`,

@@ -742,9 +742,6 @@ describe("MultiConsultantOrdersTab", () => {
       "aria-valuenow",
       "0",
     );
-    // Wiersz zamówienia sumuje obsadę tą samą regułą — też bez ścinania.
-    const groupRow = await row("order-group-anchor-10");
-    expect(within(groupRow).getByText("-12")).toBeInTheDocument();
   });
 });
 
@@ -1073,11 +1070,10 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     renderTab();
 
     expect((await screen.findAllByText("MD")).length).toBeGreaterThanOrEqual(1);
-    // Tabela: linia nie ma własnej puli, wiersz zamówienia nie schodzi pod zero.
+    // Tabela: linia nie ma własnej puli, nagłówek zamówienia mówi tylko o wyczerpaniu.
     expect(within(await row("order-line-1")).getByText("wspólna pula")).toBeInTheDocument();
     const groupRow = await row("order-group-anchor-10");
     expect(within(groupRow).getByText("Budżet wyczerpany")).toBeInTheDocument();
-    expect(within(groupRow).getByText("0")).toBeInTheDocument();
 
     await openRow("order-group-anchor-10");
     const budget = groupPanel().getByText(/Budżet 100 MD/);

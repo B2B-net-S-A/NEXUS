@@ -359,7 +359,7 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
         data: {
           detail: {
             code: "CV_QC_FAILED",
-            message: "CV nie przeszło QC: 3 sprawdzenia do poprawy.",
+            message: "CV nie przeszło QC — do poprawy: 3.",
             blocking_failed: 3,
             stage_id: 12,
           },
@@ -369,7 +369,7 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     const { onOpenChange } = renderPanel();
     await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
     await userEvent.click(screen.getByRole("button", { name: /Wyślij do klienta/ }));
-    await waitFor(() => expect(showError).toHaveBeenCalledWith("CV nie przeszło QC: 3 sprawdzenia do poprawy."));
+    await waitFor(() => expect(showError).toHaveBeenCalledWith("CV nie przeszło QC — do poprawy: 3."));
     expect(await screen.findByRole("dialog", { name: "QC CV" })).toHaveTextContent("QC etapu 12");
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });

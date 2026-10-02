@@ -5,14 +5,28 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Path,
+    Query,
+    Response,
+    status,
+)
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import (
+    CandidatePIIAccess,
     CandidateProfileFactsReadAccess,
     CandidateProfileFactsWriteAccess,
 )
+from app.api.recruitment_access import job_read_scope_clause
 from app.core.database import get_db
+from app.models.candidate import Candidate
+from app.models.recruitment_pipeline import CandidateStage
 from app.schemas.candidate_profile_facts import (
     CandidateCallFactsResponse,
     CandidateCallFactsUpdate,
@@ -25,9 +39,11 @@ from app.schemas.candidate_profile_facts import (
     CandidateProfileRatePatch,
     CandidateProfileRateResponse,
     CandidateRecentRecruitmentsResponse,
+    CandidateScreeningAnswersResponse,
 )
 from app.services import candidate_audit
 from app.services import candidate_profile_facts as facts
+from app.services import screening_sheets
 from app.services.candidate_notes_facts import (
     NotesFactUnavailable,
     apply_notes_fact,
@@ -305,6 +321,39 @@ async def get_candidate_recent_recruitments(
     return CandidateRecentRecruitmentsResponse(
         candidate_id=candidate_id,
         items=items,
+    )
+
+
+# ── Odpowiedzi z rozmów screeningowych (02.10.2026) ────────────────────────
+
+
+@router.get(
+    "/{candidate_id}/screening-answers",
+    response_model=CandidateScreeningAnswersResponse,
+)
+async def get_candidate_screening_answers(
+    current_user: CandidatePIIAccess,
+    # Zakres kolumny `candidates.id` — większa liczba to 422, nie błąd bazy.
+    candidate_id: int = Path(ge=1, le=2_147_483_647),
+    db: AsyncSession = Depends(get_db),
+) -> CandidateScreeningAnswersResponse:
+    """Co kandydat odpowiedział w rozmowach screeningowych — po jednej na rekrutację.
+
+    Arkusz Championa zapisuje się przy wierszu etapu, więc do 02.10.2026 nie
+    było go widać w profilu: rekruter pytał o to samo w kolejnej rekrutacji.
+    Zakres rekrutacji jak w `GET …/history`.
+    """
+
+    exists = await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))
+    if exists is None:
+        raise _not_found()
+    conversations = await screening_sheets.candidate_conversations(
+        db,
+        candidate_id=candidate_id,
+        job_scope=job_read_scope_clause(current_user, CandidateStage.job_id),
+    )
+    return CandidateScreeningAnswersResponse(
+        candidate_id=candidate_id, conversations=conversations
     )
 
 

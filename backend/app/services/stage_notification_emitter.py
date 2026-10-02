@@ -38,6 +38,7 @@ from app.services.stage_handoff_recipients import (
     REASON_CPRO_RETURNED,
     REASON_CV_SENT,
     REASON_DL_REVIEW,
+    REASON_STAGE_REACHED,
     TASK_REASONS,
 )
 from app.services.stage_notification_email_template import render_stage_email
@@ -113,6 +114,14 @@ def _inapp_content(
             f"CV wysłane: {candidate_full_name}",
             f"{who} wysłał(a) CV kandydata {candidate_full_name} w rekrutacji "
             f"„{job_title}” (etap „{stage_display_name}”).",
+            board_link,
+        )
+    if reason == REASON_STAGE_REACHED:
+        return (
+            f"{stage_display_name}: {candidate_full_name}",
+            f"Kandydat {candidate_full_name} jest na etapie "
+            f"„{stage_display_name}” w rekrutacji „{job_title}” — kartę "
+            f"przesunął(-ęła) {who}.",
             board_link,
         )
     mover_part = f" przez {mover.name}" if mover else ""

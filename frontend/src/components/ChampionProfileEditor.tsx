@@ -577,7 +577,10 @@ export function ChampionProfileEditor({
               {generateMutation.error && (
                 <div className="text-xs px-2 py-1 rounded bg-destructive/10 border border-destructive/20 text-destructive inline-flex items-center gap-1.5">
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  Nie udało się wygenerować draftu.
+                  {apiErrorMessage(
+                    generateMutation.error,
+                    "Nie udało się wygenerować draftu.",
+                  )}
                 </div>
               )}
             </div>

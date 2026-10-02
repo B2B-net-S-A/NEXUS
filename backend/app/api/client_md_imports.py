@@ -14,12 +14,15 @@ klientów (nazwiska, kwoty) nie wychodzą — ta sama bramka co karta zamówień
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
+from io import BytesIO
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,7 +41,9 @@ from app.api.md_consumption import (
 from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.export_safety import safe_row
 from app.models.candidate import Candidate
+from app.models.client import Client
 from app.models.client_order import ClientOrder
 from app.models.client_order_group import ClientOrderGroup
 from app.models.contract import Contract
@@ -55,7 +60,9 @@ from app.models.md_consumption import (
 from app.models.user import User
 from app.schemas.client_order_group import MdValue, MoneyPLN
 from app.services import finance_order_matching
+from app.services.client_identity import client_display_name
 from app.services.client_order_lines import name_tokens
+from app.services.finance_order_pdfs import ascii_slug
 from app.services.md_consumption_view import (
     binds_as_order_number,
     is_foreign_number,
@@ -323,17 +330,10 @@ async def list_client_md_imports(
     )
 
 
-@router.get(
-    "/{client_id}/md-imports/{import_id}",
-    response_model=ClientMdImportDetail,
-)
-async def get_client_md_import(
-    client_id: int,
-    import_id: int,
-    user: OrderGroupSafeReadUser,
-    db: AsyncSession = Depends(get_db),
-):
-    """Wiersze jednego importu — wyłącznie te, które dotyczą klienta."""
+async def _load_detail(
+    db: AsyncSession, user: User, client_id: int, import_id: int
+) -> ClientMdImportDetail:
+    """Wiersze jednego importu dla klienta — jedno źródło ekranu i eksportu."""
     await _require_safe_group_read(db, user, client_id)
     _assert_multi_client(client_id)
     found = (
@@ -404,3 +404,108 @@ async def get_client_md_import(
         )
     summary = _summary(batch, uploader, states)
     return ClientMdImportDetail(**summary.model_dump(), rows=reads)
+
+
+@router.get(
+    "/{client_id}/md-imports/{import_id}",
+    response_model=ClientMdImportDetail,
+)
+async def get_client_md_import(
+    client_id: int,
+    import_id: int,
+    user: OrderGroupSafeReadUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Wiersze jednego importu — wyłącznie te, które dotyczą klienta."""
+    return await _load_detail(db, user, client_id, import_id)
+
+
+_XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_EXPORT_HEADER = (
+    "Wiersz",
+    "Osoba",
+    "Nr z importu",
+    "Zamówienie docelowe",
+    "MD",
+    "Kwota (PLN)",
+    "Status",
+    "Uwagi",
+)
+_EXPORT_WIDTHS = (9, 32, 18, 24, 10, 16, 18, 60)
+_MISMATCH_NOTE = "Numer z importu inny niż zamówienie docelowe"
+
+
+def _export_note(row: ClientMdImportRow) -> Optional[str]:
+    """To, co ekran pokazuje pod statusem i przy numerze („inny numer")."""
+    notes = []
+    if row.number_mismatch:
+        notes.append(_MISMATCH_NOTE)
+    if row.state != "booked":
+        notes.append(row.status_reason or row.status_label)
+    return "; ".join(note for note in notes if note) or None
+
+
+def _build_export_xlsx(detail: ClientMdImportDetail) -> BytesIO:
+    """Arkusz importu — CPU (openpyxl), wołane przez ``asyncio.to_thread``."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = f"Import MD {detail.period_month}"
+    sheet.append(_EXPORT_HEADER)
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    for index, width in enumerate(_EXPORT_WIDTHS, start=1):
+        sheet.column_dimensions[get_column_letter(index)].width = width
+    sheet.freeze_panes = "A2"
+    for row in detail.rows:
+        # Nazwisko i numer z „Uwag" pochodzą z cudzego arkusza — tekst nie
+        # może zostać formułą (safe_row); MD i kwota zostają liczbami.
+        sheet.append(
+            safe_row(
+                [
+                    row.row_number,
+                    row.consultant_name,
+                    row.order_number_hint,
+                    row.target_order_number,
+                    row.md_reported,
+                    row.invoice_amount,
+                    row.state_label,
+                    _export_note(row),
+                ]
+            )
+        )
+        sheet.cell(row=sheet.max_row, column=5).number_format = "#,##0.###"
+        sheet.cell(row=sheet.max_row, column=6).number_format = "#,##0.00"
+    sheet.auto_filter.ref = sheet.dimensions
+    buffer = BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def export_filename(client_name: Optional[str], period_month: str) -> str:
+    return f"Import_MD_{ascii_slug(client_name) or 'Klient'}_{period_month}.xlsx"
+
+
+@router.get("/{client_id}/md-imports/{import_id}/export")
+async def export_client_md_import(
+    client_id: int,
+    import_id: int,
+    user: OrderGroupSafeReadUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Otwarty import w XLSX — te same wiersze i ta sama redakcja kwot co ekran."""
+    detail = await _load_detail(db, user, client_id, import_id)
+    client = await db.get(Client, client_id)
+    buffer = await asyncio.to_thread(_build_export_xlsx, detail)
+    filename = export_filename(
+        client_display_name(client) if client else None, detail.period_month
+    )
+    return StreamingResponse(
+        buffer,
+        media_type=_XLSX_MEDIA,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

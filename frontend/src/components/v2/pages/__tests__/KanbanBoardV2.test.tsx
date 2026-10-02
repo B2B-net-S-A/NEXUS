@@ -69,10 +69,28 @@ vi.mock("@/components/v2/jobs/BoardReviewSection", async () => {
   };
 });
 
-// Okno QC CV (F2) ma własne zapytania — tu sprawdzamy tylko, KTÓRY etap otwiera.
+// Okno QC CV (F2) ma własne zapytania — tu sprawdzamy tylko, KTÓRY etap
+// otwiera i dokąd prowadzi jego „Przesuń dalej”.
+const qcResultCandidate = { id: 0 };
 vi.mock("@/components/v2/recruitment/CvQcDialog", () => ({
-  CvQcDialog: ({ stageId, open }: { stageId: number | null; open: boolean }) =>
-    open ? <div data-testid="cv-qc-dialog" data-stage-id={String(stageId)} /> : null,
+  CvQcDialog: ({
+    stageId,
+    open,
+    onMoveNext,
+  }: {
+    stageId: number | null;
+    open: boolean;
+    onMoveNext?: (result: { candidate_id: number }) => void;
+  }) =>
+    open ? (
+      <div data-testid="cv-qc-dialog" data-stage-id={String(stageId)}>
+        {onMoveNext ? (
+          <button type="button" onClick={() => onMoveNext({ candidate_id: qcResultCandidate.id })}>
+            QC: przesuń dalej
+          </button>
+        ) : null}
+      </div>
+    ) : null,
 }));
 
 // Przegląd przed wysłaniem do klienta ma własne testy (`DlReviewPanel.test`) —
@@ -1492,6 +1510,81 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(within(card).getByTestId("card-next-who")).toHaveTextContent("Twój ruch");
     await userEvent.click(chip);
     expect(await screen.findByTestId("cv-qc-dialog")).toHaveAttribute("data-stage-id", "7302");
+  });
+
+  const qcColumns = (qc: { status: string; blocking_failed: number }) => {
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[3] = {
+      ...columns[3],
+      count: 1,
+      items: [{ id: 7302, candidate_id: 8302, stage: "new", name: "Kuba", lastname: "Braki", days_in_stage: 1, qc }],
+    };
+    return columns;
+  };
+  const moveRequirements = (items: unknown[]) =>
+    get.mockImplementation((url: string) =>
+      url === "/api/pipeline/move-requirements"
+        ? Promise.resolve({
+            data: {
+              from_column: "cv_qc",
+              to_column: "cv_sent",
+              skipped_columns: [],
+              items,
+              primary: { kind: "move", label: "Przesuń na „CV wysłane”" },
+              owner_note: null,
+            },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+
+  it("„Przesuń dalej” z okna QC otwiera okno ruchu na następną kolumnę — nie przesuwa samo", async () => {
+    qcResultCandidate.id = 8302;
+    moveRequirements([]);
+    renderBoard(qcColumns({ status: "passed", blocking_failed: 0 }) as never);
+    await userEvent.click(await screen.findByRole("button", { name: /otwórz QC CV dla Kuba Braki/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "QC: przesuń dalej" }));
+    await waitFor(() => expect(screen.queryByTestId("cv-qc-dialog")).toBeNull());
+    const dialog = await screen.findByTestId("move-next-dialog");
+    expect(dialog).toHaveTextContent("Kuba Braki");
+    // Ruch etapu ma jedną drogę: okno „Przesuń dalej” i `usePipelineMove`.
+    expect(post.mock.calls.filter((c) => c[0] === "/api/pipeline/move")).toHaveLength(0);
+  });
+
+  it("QC otwarte z listy braków wraca po „Przesuń dalej” do tego samego okna ruchu", async () => {
+    qcResultCandidate.id = 8302;
+    moveRequirements([
+      {
+        key: "cv_qc",
+        label: "QC CV",
+        detail: "do poprawy: 1",
+        status: "missing",
+        blocking: true,
+        action: { kind: "open_qc", label: "Otwórz QC CV", stage_id: 7302 },
+      },
+    ]);
+    renderBoard(qcColumns({ status: "failed", blocking_failed: 1 }) as never);
+    await screen.findByTestId("pipeline-board");
+    const card = document.querySelector('[data-candidate-id="8302"]') as HTMLElement;
+    await userEvent.click(within(card).getByRole("button", { name: /Przesuń Kuba Braki na następny etap/ }));
+    const dialog = await screen.findByTestId("move-next-dialog");
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Otwórz QC CV" }));
+    await waitFor(() => expect(screen.queryByTestId("move-next-dialog")).toBeNull());
+    expect(screen.getByTestId("cv-qc-dialog")).toHaveAttribute("data-stage-id", "7302");
+    const before = get.mock.calls.filter((c) => c[0] === "/api/pipeline/move-requirements").length;
+    await userEvent.click(screen.getByRole("button", { name: "QC: przesuń dalej" }));
+    expect(await screen.findByTestId("move-next-dialog")).toBeTruthy();
+    expect(screen.queryByTestId("cv-qc-dialog")).toBeNull();
+    // Wymagania liczone od nowa — QC mogło się w międzyczasie zaliczyć.
+    await waitFor(() =>
+      expect(get.mock.calls.filter((c) => c[0] === "/api/pipeline/move-requirements").length).toBeGreaterThan(before),
+    );
+  });
+
+  it("tablica tylko do odczytu: okno QC nie ma „Przesuń dalej”", async () => {
+    renderBoard(qcColumns({ status: "passed", blocking_failed: 0 }) as never, undefined, true);
+    await userEvent.click(await screen.findByRole("button", { name: /otwórz QC CV dla Kuba Braki/ }));
+    expect(await screen.findByTestId("cv-qc-dialog")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "QC: przesuń dalej" })).toBeNull();
   });
 
   it("dok nie ma już przełączników DZ ani Cpro (także u Nordei)", async () => {

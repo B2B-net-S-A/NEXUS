@@ -19,6 +19,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.models.job import Job
 from app.models.notification import Notification, NotificationType
+from app.models.pipeline_template import PipelineStageDef, StageCategoryEnum
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
@@ -65,6 +66,21 @@ def _def(name: str, enum: str | None, category: str = "internal"):
         (_def("Interview Klient", "client_interview", "external"), False, None),
         # Etap końcowy z „QC” w nazwie to zamknięcie, nie kolumna QC CV.
         (_def("Odrzucony po QC", "rejected", "terminal"), False, None),
+        # Etapy-odznaki bez reguły z zasiewu — u każdego klienta.
+        (_def("Preparation Meeting", None), False, handoff.REASON_STAGE_REACHED),
+        (_def("Interview - Prep", "interview"), True, handoff.REASON_STAGE_REACHED),
+        (
+            _def("Umowa wysłana", None, "external"),
+            False,
+            handoff.REASON_STAGE_REACHED,
+        ),
+        (
+            _def("Umowa podpisana", None, "external"),
+            True,
+            handoff.REASON_STAGE_REACHED,
+        ),
+        (_def("Akceptacja", "acceptance", "external"), False, None),
+        (_def("Odrzucony po prepie", "rejected", "terminal"), False, None),
     ],
 )
 def test_handoff_kind(monkeypatch, stage, nordea, expected) -> None:
@@ -106,6 +122,8 @@ def test_waiting_tasks_cannot_be_muted_and_cv_sent_stays_a_stage_move() -> None:
     assert category == NotificationCategory.mentions
     assert CATEGORY_INFO[category].mandatory
     assert not CATEGORY_INFO[CATEGORY_BY_TYPE[NotificationType.stage_rule]].mandatory
+    # Wejście na etap-odznakę to informacja, nie zadanie.
+    assert handoff.REASON_STAGE_REACHED not in handoff.TASK_REASONS
 
 
 def test_migration_and_entrypoint_add_the_notification_type() -> None:
@@ -150,6 +168,21 @@ def test_handoff_bell_says_what_to_do_and_opens_the_person_on_the_board() -> Non
     title, message, link = _content(handoff.REASON_CPRO_RETURNED)
     assert title == "Wrócił z kolejki Cpro: Jan Testowy"
     assert "Sandra S. zwrócił(a) kandydata Jan Testowy z kolejki Cpro" in message
+    assert link == "/jobs/3?candidate=9"
+
+
+def test_badge_stage_bell_names_the_stage_and_opens_the_board() -> None:
+    title, message, link = emitter._inapp_content(
+        reason=handoff.REASON_STAGE_REACHED,
+        candidate=SimpleNamespace(id=9),
+        candidate_full_name="Jan Testowy",
+        stage_display_name="Umowa podpisana",
+        job=SimpleNamespace(id=3, title="ZOB-1 Java", working_title="Java · Spring"),
+        mover=SimpleNamespace(name="Klaudia K."),
+    )
+    assert title == "Umowa podpisana: Jan Testowy"
+    assert "na etapie „Umowa podpisana” w rekrutacji „Java · Spring”" in message
+    assert "Klaudia K." in message
     assert link == "/jobs/3?candidate=9"
 
 
@@ -478,3 +511,100 @@ async def test_return_from_the_cpro_queue_rings_the_person_who_queued_the_card(
             assert len(await _stage_bells(sender_id, cid)) == 1
     finally:
         await _cleanup(world, [admin_id, rec_id, sender_id])
+
+
+async def _add_badge_stages(world: dict) -> None:
+    """Etapy-odznaki z „Default B2B”, których zasiew reguł nie objął."""
+
+    async with AsyncSessionLocal() as db:
+        for order, (key, name) in enumerate(
+            [
+                ("prep", "Preparation Meeting"),
+                ("contract_sent", "Umowa wysłana"),
+                ("contract_signed", "Umowa podpisana"),
+            ],
+            start=10,
+        ):
+            stage_def = PipelineStageDef(
+                template_id=world["template_id"],
+                name=name,
+                order=order,
+                category=StageCategoryEnum.external,
+                legacy_enum_value=None,
+            )
+            db.add(stage_def)
+            await db.flush()
+            world["defs"][key] = stage_def.id
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_prep_and_contract_stages_ring_the_recruiters_and_the_delivery_lead(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """„Preparation Meeting”, „Umowa wysłana” i „Umowa podpisana” nie mają
+    żadnej reguły, a i tak powiadamiają osoby pracujące z kandydatem."""
+
+    world = await _seed_world()
+    await _add_badge_stages(world)
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    owner_id, _ = await _seed_user(UserRole.recruiter)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    rec = await _login(api_client, rec_creds)
+    dl = await _login(api_client, dl_creds)
+    cid, jid = world["candidate_id"], world["job_id"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, jid)
+        job.recruiter_id = owner_id
+        job.delivery_lead_id = dl_id
+        await db.commit()
+
+    def titles(bells: list[Notification]) -> list[str]:
+        return [b.title.split(":")[0] for b in bells]
+
+    try:
+        await _seed_screening(world, rec_id)
+        await _move(api_client, rec, world, "verified")
+        await _move(api_client, rec, world, "qc")
+        await _move(
+            api_client,
+            dl,
+            world,
+            "cv_sent",
+            client_rate_value="170",
+            client_rate_unit="hourly",
+            client_rate_currency="PLN",
+        )
+        # Dotąd: DL ma prośbę o przegląd, rekruter — „CV wysłane”.
+        assert titles(await _stage_bells(dl_id, cid)) == ["CV do przeglądu"]
+        assert titles(await _stage_bells(rec_id, cid)) == ["CV wysłane"]
+
+        await _move(api_client, rec, world, "prep")
+        dl_bells = await _stage_bells(dl_id, cid)
+        assert titles(dl_bells) == ["CV do przeglądu", "Preparation Meeting"]
+        assert dl_bells[-1].notification_type == NotificationType.stage_rule
+        assert dl_bells[-1].link == f"/jobs/{jid}?candidate={cid}"
+        assert titles(await _stage_bells(owner_id, cid))[-1] == "Preparation Meeting"
+        # Rekruter sam przesunął kartę.
+        assert titles(await _stage_bells(rec_id, cid)) == ["CV wysłane"]
+
+        await _move(api_client, dl, world, "contract_sent")
+        assert titles(await _stage_bells(rec_id, cid)) == [
+            "CV wysłane",
+            "Umowa wysłana",
+        ]
+        assert titles(await _stage_bells(owner_id, cid))[-1] == "Umowa wysłana"
+        assert len(await _stage_bells(dl_id, cid)) == 2
+
+        await _move(api_client, dl, world, "contract_signed")
+        assert titles(await _stage_bells(rec_id, cid)) == [
+            "CV wysłane",
+            "Umowa wysłana",
+            "Umowa podpisana",
+        ]
+        # Cofnięcie karty nikogo nie powiadamia.
+        await _move(api_client, dl, world, "contract_sent")
+        assert len(await _stage_bells(rec_id, cid)) == 3
+    finally:
+        await _cleanup(world, [owner_id, rec_id, dl_id])

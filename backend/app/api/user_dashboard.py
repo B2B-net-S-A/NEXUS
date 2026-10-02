@@ -25,6 +25,8 @@ from app.services.dashboard_tiles import (
     MAX_TILES,
     DashboardLayout,
     DashboardTile,
+    PanelKey,
+    hidden_panels,
     load_layout,
 )
 
@@ -35,6 +37,12 @@ class UserDashboardResponse(BaseModel):
     tiles: list[DashboardTile]
     version: int
     dropped_tiles: list[dict[str, Any]] = Field(default_factory=list)
+    # Listy nad kafelkami usunięte z pulpitu („Twoje CV w drodze”).
+    hidden_panels: list[str] = Field(default_factory=list)
+
+
+class PanelVisibilityUpdate(BaseModel):
+    hidden: bool
 
 
 class UserDashboardUpdate(BaseModel):
@@ -62,7 +70,10 @@ async def get_my_dashboard(
         return UserDashboardResponse(tiles=[], version=0)
     layout, dropped = load_layout(row.layout)
     return UserDashboardResponse(
-        tiles=layout.tiles, version=row.version, dropped_tiles=dropped
+        tiles=layout.tiles,
+        version=row.version,
+        dropped_tiles=dropped,
+        hidden_panels=hidden_panels(row.layout),
     )
 
 
@@ -107,7 +118,51 @@ async def save_my_dashboard(
     if row is None:
         row = UserDashboard(user_id=current_user.id, layout={}, version=0)
         db.add(row)
-    row.layout = layout.to_storage()
+    # Zapis kafelków nie rusza list usuniętych z pulpitu — to osobna decyzja.
+    hidden = hidden_panels(row.layout)
+    row.layout = {**layout.to_storage(), "hidden_panels": hidden}
     row.version = current_version + 1
     await db.commit()
-    return UserDashboardResponse(tiles=layout.tiles, version=current_version + 1)
+    return UserDashboardResponse(
+        tiles=layout.tiles, version=current_version + 1, hidden_panels=hidden
+    )
+
+
+@router.put("/panels/{panel}", response_model=UserDashboardResponse)
+async def set_panel_visibility(
+    panel: PanelKey,
+    payload: PanelVisibilityUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> UserDashboardResponse:
+    """„Usuń z pulpitu” / „Przywróć” dla listy stojącej nad kafelkami.
+
+    Wersja układu zostaje bez zmian: chroni kafelki, a ta decyzja ich nie
+    dotyczy — otwarta druga karta nie dostaje 409 przy zapisie układu.
+    """
+    await db.execute(
+        pg_insert(UserDashboard)
+        .values(user_id=current_user.id, layout={}, version=0)
+        .on_conflict_do_nothing(index_elements=["user_id"])
+    )
+    row = (
+        await db.execute(
+            select(UserDashboard)
+            .where(UserDashboard.user_id == current_user.id)
+            .with_for_update()
+        )
+    ).scalar_one()
+    hidden = [key for key in hidden_panels(row.layout) if key != panel]
+    if payload.hidden:
+        hidden.append(panel)
+    stored = {**(row.layout or {}), "hidden_panels": hidden}
+    row.layout = stored
+    version = row.version
+    await db.commit()
+    layout, dropped = load_layout(stored)
+    return UserDashboardResponse(
+        tiles=layout.tiles,
+        version=version,
+        dropped_tiles=dropped,
+        hidden_panels=hidden,
+    )

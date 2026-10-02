@@ -29,6 +29,7 @@ from app.services.note_mention_render import (
     collect_traffit_user_ids,
     render_traffit_mentions,
 )
+from app.api.body_validation import validated_body
 from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
 from app.api.deps import DeliveryLeadPlus
 from app.api.recruitment_access import ensure_delivery_lead_job_visible
@@ -653,7 +654,7 @@ async def link_note_to_job(
     )
     from app.services.champion_draft_service import enrich_from_meeting
 
-    body = LinkNoteJobPayload.model_validate(payload or {})
+    body = validated_body(LinkNoteJobPayload, payload or {})
 
     note = await db.scalar(select(Note).where(Note.id == note_id))
     if not note:

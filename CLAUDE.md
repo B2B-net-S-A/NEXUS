@@ -3140,10 +3140,17 @@ orkiestratorem. Zasady, których łatwo nie zauważyć:
 - **Każdy fakt pokazany RAZ:** dostępność, stawka, lokalizacja i języki żyją
   wyłącznie w pasku faktów (`CandidateProfileFactsBar`, edycja za
   `candidate.profile_fact.manage`); nagłówek mówi tylko „stanowisko · lata”.
-- **Jedna karta AI** („Podsumowanie” = `CandidateActivitySummaryCard`). Wynik
-  screeningów (dane strukturalne, nie AI) to kompaktowa `ScreeningSummaryCard`
-  na zakładce Rekrutacje; potwierdzone umiejętności dostają ✓ w sekcji
-  Umiejętności.
+- **Jedna karta AI** („Podsumowanie” = `CandidateActivitySummaryCard`). Pod nią
+  „Odpowiedzi z rozmów screeningowych” (`CandidateScreeningAnswersCard`,
+  02.10.2026): jedna rozmowa na rekrutację z pytaniami i odpowiedziami arkusza
+  Championa (`GET /api/candidates/{id}/screening-answers`, tylko rekrutacje
+  widoczne dla patrzącego), najnowsza rozwinięta, szukanie od dwóch rozmów,
+  bez rozmów karty nie ma. Zastąpiła kartę „Screeningi” z zakładki Rekrutacje,
+  która czytała nieużywaną tabelę `screening_notes` — rekruter nie widział
+  w profilu, co kandydat już odpowiedział, i pytał o to samo w kolejnej
+  rekrutacji. Odpowiedzi renderuje JEDEN komponent
+  `screening/ScreeningAnswersList` (profil, dok osoby, panel osoby) — nie
+  dokładaj drugiego. Potwierdzone umiejętności dostają ✓ w sekcji Umiejętności.
 - **Stare klucze `?tab=` i podparametry żyją jako aliasy**
   (`candidate-profile-navigation.ts`): `matching` → Rekrutacje z otwartym
   „Dopasowaniem”, `emails`/`notes`/`calls`/`chat` → Historia z filtrem,
@@ -3513,6 +3520,11 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   budżet i dni ukrywają, stawka w punktach) — na nim stoją stare testy
   bramki (przypięte fixturą `_v8_must_gate`). Nowy test trybu domyślnego:
   `tests/test_critical_gate.py`.
+- **QC CV blokuje na tych samych krytycznych** (02.10.2026,
+  `cv_qc.critical_requirements` = `effective_critical(job)` dopasowane do must
+  rekrutacji): wybór DL, a bez niego podpowiedź z historii — niezależnie od
+  `MUST_GATE_MODE`. Podpowiedź przelicza się co tydzień, więc werdykt QC
+  rekrutacji bez wyboru DL może się zmienić bez zmiany CV; okno QC nazywa źródło.
 
 ## Hiring manager rekrutacji: lista albo nowa osoba (25.09.2026)
 
@@ -3719,6 +3731,10 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   zaznaczenie zmienia tylko pole wyboru. Karta jest `sidePane` w
   `RecruitmentSheet` (wewnątrz okna — poza nim Radix wyłącza kliknięcia),
   a Esc zamyka najpierw ją, bo zamknięcie panelu kasuje zaznaczenia.
+  W dopasowaniu karta pokazuje tylko technologie: `/scores` oddaje
+  `non_technology_must` (must spoza reguły `must_gate_terms.gate_requirement`
+  — zdania, branża, język, rola), a karta je pomija. Sam kraj w polu miasta
+  („PL”) to brak miasta (`proposal_facts._display_city`).
   `?tab=similar` z powiadomień
   o propozycjach AI zostaje przy „Do przejrzenia”, nie przy panelu. Pasek
   w „Nowych”, odznaka „N do przepięcia” i reguła „Najbliższego kroku”
@@ -3930,20 +3946,43 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   brak ma przycisk, który go usuwa. Przeciągnięcie na sąsiednią kolumnę bez braków
   przesuwa od razu; skok, znany brak albo „CV wysłane” otwiera okno. Serwer
   wymusza wyłącznie bramkę QC, stawkę DL i debrief — reszta wymagań to podpowiedź.
-- **QC CV zamiast DZ** (`services/cv_qc.py`, `api/cv_qc.py`, tabela `cv_qc_runs`):
-  blokujące — must-have w CV, pogrubione, OPISANE zdaniem (≥ 6 słów, nie lista
-  technologii) w każdej roli, w której oryginał je wymienia, nic must/nice spoza
-  oryginału i notatek, lata w nagłówku, daty ról, reguły klienta (bez stawek
-  i kontaktu, zrzut zgody RODO); uwagi — nice-to-have pogrubione, pisownia,
-  tytuł, pogrubienia spoza oryginału (uwaga, bo CV EN z oryginału PL pogrubia
-  tłumaczenia). Blokujące liczy KOD; Luna tylko proponuje zdania z cytatem źródła
-  (serwer odrzuca propozycję bez cytatu obecnego w oryginale/notatkach), rekruter
-  klika „Zastosuj”. Poprawki edytują szkic CV firmowego pary; CV spoza NEXUSA
-  (Word/PDF „…B2B…”) = 409 `CV_NOT_EDITABLE`.
+- **QC CV zamiast DZ** (`services/cv_qc.py`, `api/cv_qc.py`, tabela `cv_qc_runs`).
+  **Od 02.10.2026 blokują CZTERY sprawdzenia** (decyzja Artura; do tej daty
+  blokowało siedem i QC przeszła 1 z 8 par, bo „każde must z maila klienta
+  w CV” padało w 7 z 8): brak CV firmowego (`cv_present`), umiejętności
+  krytyczne (`critical_skills` — w CV i OPISANE zdaniem ≥ 6 słów, nie listą
+  technologii, w każdej roli, w której oryginał je wymienia), nic must/nice
+  spoza oryginału i notatek (`no_unsupported`), reguły klienta (bez stawek
+  i kontaktu, zrzut zgody RODO). Uwagi, które NIE blokują: pozostałe must w CV
+  i w rolach, pogrubienia must i nice, lata w nagłówku, daty ról, pisownia,
+  tytuł, pogrubienia spoza oryginału (CV EN z oryginału PL pogrubia
+  tłumaczenia). Nie przenoś uwag z powrotem do blokad bez decyzji.
+  `blocking_failed` liczy RZECZY do poprawy (różne wymagania), lustro
+  `blockingTasks` w `lib/cv-qc.ts` — chip na Tablicy, okno i 409 podają tę samą
+  liczbę. Wymaganie z wersją („Spring Boot 3.4+”) szuka nazwy bez wersji
+  (`dz_review._without_version`), a wersja wpisana wprost w CV bez pokrycia
+  w oryginale dalej blokuje. Klauzula RODO to osobny blok (`section: "rodo"`,
+  `cv_rodo_clause.is_rodo_text`), nie część ostatniej roli i nie treść CV:
+  wymagań w niej nie szukamy, a kropka z przodu nazwy zostaje („.NET” bez
+  kropki trafiało w „B2B.net S.A.” z klauzuli — fałszywa blokada i fałszywe
+  zaliczenie krytycznej). Krytyczne wymaganie QC czyta nazwami bramki
+  wyszukiwania (`gate_requirement(label).options`): „Bazy danych (Oracle,
+  PostgreSQL)” spełnia którakolwiek z nazw. Blokujące liczy KOD;
+  Luna tylko proponuje zdania z cytatem źródła (serwer odrzuca propozycję bez
+  cytatu obecnego w oryginale/notatkach), rekruter klika „Zastosuj”. Poprawki
+  edytują szkic CV firmowego pary; CV spoza NEXUSA (Word/PDF „…B2B…”) = 409
+  `CV_NOT_EDITABLE`. Okno (`CvQcDialog`): „Co sprawdza QC” z nazwami krytycznych
+  i ich źródłem, „Do poprawy przed wysłaniem” (karta na wymaganie z przyciskiem
+  naprawy), „Warto poprawić — nie blokuje”, „W porządku”, w stopce „Przesuń
+  dalej” (ten sam ruch co strzałka na karcie, `handleQcMoveNext`).
 - **Bramka:** `/move` i `/bulk-move` na „CV wysłane” albo etap Cpro z kolumn
   przed wysłaniem → 409 `CV_QC_FAILED` (z `stage_id` do otwarcia QC), chyba że QC
-  przechodzi albo Delivery Lead/admin przepuścił parę z powodem (≥ 10 znaków,
-  `Activity cv_qc_override`, ważne dla pary także po zmianie CV). Wyłącznik
+  przechodzi albo Delivery Lead/admin przepuścił parę z powodem
+  (`QcOverrideDialog`: cztery gotowe powody, opis wymagany tylko przy „Inny
+  powód”, bez minimum znaków — przy minimum 10 znaków powodem bywał ciąg
+  losowych liter; lustro `cv_qc.OVERRIDE_REASONS` ↔ `QC_OVERRIDE_REASONS`;
+  `Activity cv_qc_override` z `reason_code`, ważne dla pary także po zmianie
+  CV). Wyłącznik
   `CV_QC_GATE_ENABLED`; w testach wyłączony autouse-fixturą (dziesiątki testów
   przesuwa na „CV wysłane” bez CV firmowego). U Nordei ta sama bramka pilnuje, że
   na „Wysłane do Cpro” przesuwa osoba od Cpro, admin, DL albo HoR.
@@ -4059,12 +4098,20 @@ przez nas / przez DL / przez klienta). Reguły, które łatwo cofnąć:
   sprzed 0352). Otwarta propozycja przepięcia (`JobProposal source=reassign`)
   daje `reassign` + `reassign_from_job_id`, niezależnie od ekranu dodania.
 - **Rozmowa w Nowych.** Arkusz pytań Championa działa dla kart Nowych
-  (`isNewColumn` w `lib/pipeline-flow.ts`). Przepięcie: Luna
+  (`isNewColumn` w `lib/pipeline-flow.ts`). Luna
   (`AIFeatureKey.screening_reassign_suggest`, `services/screening_reassign.py`)
-  podpowiada odpowiedzi z poprzedniej rekrutacji — tylko podpowiedź, awaria =
-  `available:false`. Odpowiedź `skipped` i `internal_note` („pominięte —
-  przepięcie”) NIGDY nie idą do klienta: share portal i generator CV czytają
-  `client_safe_screening`.
+  podpowiada z wcześniejszych rozmów tej osoby: przy przepięciu z rekrutacji
+  źródłowej (odpowiedzi i notatki), a od 02.10.2026 także z najwyżej trzech
+  rozmów w innych rekrutacjach (same odpowiedzi, bez notatek). Rusza RAZ, po
+  otwarciu arkusza, gdy jest puste pytanie i prawo zapisu; pod pytaniem stoi
+  DOSŁOWNA wcześniejsza odpowiedź ze źródłem (rekrutacja, klient, data)
+  i „Użyj tej odpowiedzi”. Tylko podpowiedź — awaria = `available:false`,
+  a odpowiedzi przeniesione z podpowiedzi (`origin: reassign_suggested`) nie są
+  materiałem dla kolejnych. Odpowiedź niesie `question_text` (stempel serwera,
+  `services/screening_sheets.py`), bo identyfikatory pytań są pozycyjne i po
+  edycji Championa wskazują inne pytanie. Odpowiedź `skipped` i `internal_note`
+  („pominięte — przepięcie”) NIGDY nie idą do klienta: share portal i generator
+  CV czytają `client_safe_screening` (bez `question_text`).
 - **„CV wysłane” poza Nordeą wysyła DL** (`services/pipeline_move_rules.py`):
   rola admin/delivery_lead (403) i stawka do klienta w TYM SAMYM żądaniu ruchu
   (`client_rate_*` w `StageMove`/`BulkMoveRequest`, 422 bez niej; stawka
@@ -4132,6 +4179,12 @@ znało tylko `jobs.recruiter_id` (osobę z automatu przydziału albo nikogo).
   „CV wysłane” zostaje przy `stage_rule` („Ruchy w rekrutacjach”, do
   wyciszenia). Resolver sprawdza dostęp odbiorcy typem JEGO dzwonka — do 0408
   Delivery Lead z wyciszonymi ruchami nie widział próśb o przegląd.
+- **Etapy-odznaki bez reguły też dzwonią** (`REASON_STAGE_REACHED`):
+  „Preparation Meeting”, „Umowa wysłana” i „Umowa podpisana” (rozpoznawane
+  po nazwie jak na Tablicy — `stage_badge_kind` `prep` / `contract_sent` /
+  `contract_signed`, także odpowiedniki z szablonów Traffita) → prowadzący
+  rekrutację, rekruter kandydata i Delivery Lead rekrutacji. To informacja
+  (`stage_rule`, do wyciszenia), nie zadanie.
 - **Reguła „Rekruter projektu i kandydata” (`job_recruiter`)** powiadamia
   prowadzącego rekrutację ORAZ rekrutera kandydata — na każdym etapie
   z regułą (rozmowa u klienta, akceptacja, odrzucenie…).
@@ -4141,6 +4194,37 @@ znało tylko `jobs.recruiter_id` (osobę z automatu przydziału albo nikogo).
 - Nowy etap-przekazanie = gałąź w `handoff_kind` (po KOLUMNIE Tablicy, nie po
   id definicji), nie nowy wiersz reguły — reguły nie dochodzą do etapów
   dodanych po zasiewie ani do szablonów z Traffita.
+
+## „Twoje CV w drodze” na pulpicie — domyślnie u każdego, z „Usuń z pulpitu” (02.10.2026)
+
+Druga strona przekazań karty: dzwonek znika po kliknięciu, a rekruter nie miał
+na pulpicie nic (panel „Czeka na Ciebie” pokazywał przegląd tylko DL-owi,
+kolejkę tylko osobie od Cpro). Makieta: https://claude.ai/artifact/LaqZviMeU41VRcWX71bFMG.
+
+- **Lista jest liczona przy odczycie, bez tabeli** (`services/cv_in_transit.py`,
+  pole `cv_in_transit` w `GET /api/board-tasks`): najnowszy wiersz pary na
+  opublikowanej rekrutacji + wiersz tuż przed nim, kolumny przez
+  `board_column_for`. „Wróciło” (14 dni, znika po kolejnym ruchu): odrzucenie
+  z `ended_by='delivery_lead'`, cofnięcie z „QC CV” do wcześniejszej kolumny
+  przez kogoś innego, u Nordei zwrot z kolejki Cpro. „W przeglądzie” (30 dni):
+  QC CV poza Nordeą albo kolejka Cpro. „Wysłane do klienta”: 7 dni.
+- **„Moje” = rekruter kandydata** (`default_recruiter_ids`) **albo autor
+  wiersza sprzed ruchu** — ta sama reguła odbiorcy co dzwonki przekazań. Własny
+  ruch nie jest „wróciło”; wiersz, który DL ma w „Czeka na Twój przegląd”, nie
+  dubluje się tutaj.
+- **Nie jest kafelkiem siatki** (decyzja Artura 02.10.2026: każdy ma ją
+  domyślnie, komu się nie podoba — usuwa). Stoi w panelu jako kolumna, a gdy
+  panel jest pusty i nic nie wróciło — jako wąski pasek, także z pustym stanem
+  („Nie masz teraz CV w drodze…”). „Usuń z pulpitu” zapisuje się na koncie:
+  `user_dashboards.layout["hidden_panels"]`, `PUT /api/users/me/dashboard/panels/{panel}`
+  (bez podbijania `version`); zapis kafelków MUSI ten klucz zachować
+  (`save_my_dashboard`). Przywraca wiersz na górze katalogu „Dodaj kafelek”.
+  Nowa lista tego rodzaju = wpis w `dashboard_tiles.PANEL_KEYS` i w
+  `DashboardPanelKey` we froncie.
+- **Awaria liczenia albo lista usunięta = `cv_in_transit: null`** i panel
+  działa jak wcześniej (`load_safely`, savepoint). Do porannego dzwonka
+  zbiorczego lista nie wchodzi; licznik przy nagłówku to tylko „wróciło”.
+- Harness: `/preview/custom-dashboard` (stany „CV w drodze: pasek / pusto”).
 
 ## Rekrutacje i kandydatów widzą wszyscy; stawki do klienta nie widzi rekruter (23.09.2026)
 
@@ -5106,6 +5190,9 @@ osoby w 3 minuty, dwa razy „Zakończono zamówienie").
   zawieranie się — „2026" siedzi w „OIT/0189/2026/ITVM"). Wiersz zaksięgowany
   u innego klienta nie wychodzi nigdy (kwoty faktur). Import bez takich
   wierszy = 404. Rozstrzyganie wierszy zostaje w Finansach.
+  „Pobierz do Excela” (`GET …/md-imports/{id}/export`, 02.10.2026) i ekran
+  czytają te same wiersze z jednej funkcji `_load_detail` — plik nie może
+  pokazać więcej niż ekran (zakres klienta, redakcja kwot).
 
 ## Zamówienie MD i zamówienie okresowe to DWA niezależne byty
 
@@ -7520,6 +7607,17 @@ a testy na PostgreSQL — że `location`, `q_all`, `q_any`, `q_none` miały ten 
   Pilnuje `test_nul_guard_sits_inside_cors_and_outside_the_unhandled_error_net`.
   Nie dokładaj `pattern=` NUL do kolejnych parametrów; ten przy `q` zostaje, bo
   opisuje kontrakt w OpenAPI, z którego generator Schemathesis bierze wartości.
+- **Ciało żądania sprawdzane ręcznie w handlerze idzie przez `validated_body`**
+  (`app/api/body_validation.py`, 02.10.2026). FastAPI zamienia na 422 tylko
+  błędy modeli z sygnatury trasy; model budowany w ciele handlera (ciało
+  przyjęte jako `dict`, ponowna walidacja po PATCH-u) rzucał
+  `pydantic.ValidationError` → 500, a wyjątek z wartościami z żądania szedł do
+  logu i Sentry (12 tras, m.in. opis stanowiska ponad 50 000 znaków w „Generuj
+  draft”). Odmowa to zdanie po polsku z nazwami pól albo własne zdanie
+  wołającego. **Globalnego handlera na `ValidationError` nie dokładaj** — ten
+  sam wyjątek rzucają modele budowane z danych wewnętrznych (odpowiedzi, JSON
+  z bazy, odczyt AI) i tam ma zostać błędem serwera widocznym w Sentry. Pilnuje
+  strażnik AST w `tests/test_body_validation.py`.
 - **Publiczny formularz aplikacyjny stawia odmowę PRZY POLU** (18.09.2026):
   `lib/apply-form-errors.ts` mapuje `loc: ["body", <pole>]` na komunikat obok
   inputa, a `status` wraca do `idle` — kandydat poprawia i wysyła ponownie

@@ -12,7 +12,7 @@
  */
 
 import type { ComponentProps } from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -877,6 +877,33 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     await user.click(screen.getByRole("button", { name: "Otwórz QC CV" }));
     expect(screen.getByTestId("cv-qc-dialog")).toBeInTheDocument();
     expect(qcDialog).toHaveBeenLastCalledWith(expect.objectContaining({ stageId: 501 }));
+    // Dok bez `onAdvance` nie umie przesunąć — okno QC nie dostaje przycisku ruchu.
+    expect(qcDialog.mock.lastCall![0].onMoveNext).toBeUndefined();
+  });
+
+  it("„Przesuń dalej” z okna QC zamyka je i woła ruch Tablicy", async () => {
+    routeApiGet({
+      requirements: requirements({
+        to_column: "cv_sent",
+        items: [
+          {
+            key: "cv_qc",
+            label: "QC CV",
+            status: "missing",
+            blocking: true,
+            action: { kind: "open_qc", label: "Otwórz QC CV", stage_id: 501 },
+          },
+        ],
+      }),
+    });
+    const user = userEvent.setup();
+    const onAdvance = vi.fn();
+    renderDock({ primaryTarget: stageCol("cv_sent", "CV wysłane", { stage_def_id: 9 }), onAdvance });
+    await user.click(await screen.findByRole("button", { name: "Otwórz QC CV" }));
+    const onMoveNext = qcDialog.mock.lastCall![0].onMoveNext as () => void;
+    act(() => onMoveNext());
+    expect(onAdvance).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByTestId("cv-qc-dialog")).toBeNull());
   });
 
   it("przycisk, którego dok nie umie obsłużyć, się nie renderuje", async () => {
@@ -999,6 +1026,45 @@ describe("PipelineCandidateDock — awaria odczytu to nie pustka", () => {
     });
     await user.click(screen.getByRole("button", { name: "Ponów" }));
     expect(await screen.findByText(/Brak jeszcze wypełnionego screeningu/)).toBeTruthy();
+  });
+
+  // 02.10.2026: dok mówił tylko „Odpowiedziano na N pytań” — rekruter nie
+  // widział, co kandydat odpowiedział, bez otwierania arkusza.
+  it("screening: pod wynikiem stoją pytania z odpowiedziami, nie sama liczba", async () => {
+    apiGet.mockResolvedValue({ data: { items: [] } });
+    getForStage.mockResolvedValue({
+      data: {
+        stage_id: 501,
+        candidate_id: 42,
+        job_id: 10,
+        champion_profile: {},
+        screening_answers: {
+          answers: [
+            {
+              question_id: "q1",
+              question_text: "Czy pracowałeś na mikroserwisach?",
+              response: "Tak, 3 lata. Kafka i Spring Boot.",
+              deal_breaker_hit: false,
+            },
+            { question_id: "q2", question_text: "Od kiedy dostępny?", response: "", deal_breaker_hit: false, skipped: true },
+          ],
+          experience_checks: [{ kind: "domains", name: "Bankowość", status: "confirmed", note: "" }],
+          overall_fit: "fit",
+          notes: "Dobra komunikacja.",
+          internal_note: null,
+          answered_at: "2026-09-30T10:00:00Z",
+        },
+      },
+    });
+    renderDock({ item: baseItem({ stage: "new" }) });
+
+    expect(await screen.findByText("Odpowiedziano na 2 pytania")).toBeTruthy();
+    const answers = screen.getByRole("list", { name: "Pytania i odpowiedzi" });
+    expect(within(answers).getByText(/Czy pracowałeś na mikroserwisach\?/)).toBeTruthy();
+    expect(within(answers).getByText("Tak, 3 lata. Kafka i Spring Boot.")).toBeTruthy();
+    expect(within(answers).getByText("— pominięte —")).toBeTruthy();
+    expect(screen.getByText("Sprawdzone w rozmowie")).toBeTruthy();
+    expect(screen.getByText("Dobra komunikacja.")).toBeTruthy();
   });
 
   it("notatki: 500 daje „Nie udało się wczytać”, nie „Brak notatek”", async () => {

@@ -109,6 +109,28 @@ def test_candidate_facts_show_the_candidate_rate_and_carry_no_contact():
     assert facts["expected_rate_currency"] == "PLN"
 
 
+def _facts_for_place(city, location):
+    candidate = SimpleNamespace(
+        id=6,
+        linkedin_current_title=None,
+        linkedin_current_company=None,
+        experience=[],
+        city=city,
+        location=location,
+    )
+    return proposal_facts.candidate_facts(candidate, history=None)
+
+
+def test_a_country_in_the_city_field_is_not_shown_as_a_city():
+    # Produkcja 02.10.2026: karta podglądu pokazywała „Miasto: PL”.
+    assert _facts_for_place("PL", "Wrocław")["city"] == "Wrocław"
+    assert _facts_for_place(" Polska ", None)["city"] is None
+    assert _facts_for_place("PL", "Poland")["city"] is None
+    # Miasto z dopiskiem kraju zostaje takie, jak wpisano.
+    assert _facts_for_place("Gdańsk, Polska", None)["city"] == "Gdańsk, Polska"
+    assert _facts_for_place(None, None)["city"] is None
+
+
 # ── API ─────────────────────────────────────────────────────────────────────
 
 

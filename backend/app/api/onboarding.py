@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.body_validation import INVALID_BODY, validated_body
 from app.api.deps import AuthenticatedUser, ensure_exclusive_role_configuration
 from app.api.recruitment_access import job_scope_clause
 from app.core.database import get_db
@@ -136,7 +137,7 @@ async def _apply_dl_onboarding(
     user: User,
     persona: UserRole,
 ) -> OnboardingPayloadDL:
-    payload = OnboardingPayloadDL.model_validate(payload_raw)
+    payload = validated_body(OnboardingPayloadDL, payload_raw)
     scoped_jobs = await _load_selected_scoped_jobs(
         db,
         user,
@@ -158,7 +159,7 @@ async def _apply_recruiter_onboarding(
     user: User,
     persona: UserRole,
 ) -> OnboardingPayloadRecruiter:
-    payload = OnboardingPayloadRecruiter.model_validate(payload_raw)
+    payload = validated_body(OnboardingPayloadRecruiter, payload_raw)
     await _load_selected_scoped_jobs(
         db,
         user,
@@ -244,7 +245,12 @@ async def complete_onboarding(
     0031 and should never hit this endpoint.
     """
     persona = _require_incomplete_onboarding_persona(current_user)
-    payload_raw = await request.json()
+    # Kształt ciała zależy od persony, więc trasa czyta je sama — puste albo
+    # ucięte ciało to odmowa, nie nieobsłużony błąd dekodowania.
+    try:
+        payload_raw = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=422, detail=INVALID_BODY) from None
 
     if persona is UserRole.delivery_lead:
         await _apply_dl_onboarding(

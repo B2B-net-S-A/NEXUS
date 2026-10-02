@@ -30,6 +30,9 @@ vi.mock("@/components/v2/pages/CandidateActivitySummaryCard", () => ({
 vi.mock("@/components/v2/pages/CandidateNotesFactsCard", () => ({
   CandidateNotesFactsCard: () => null,
 }));
+vi.mock("@/components/v2/candidate-profile/CandidateScreeningAnswersCard", () => ({
+  CandidateScreeningAnswersCard: () => null,
+}));
 vi.mock("@/components/v2/pages/CandidateRecentRecruitmentsCard", () => ({
   CandidateRecentRecruitmentsCard: () => null,
 }));

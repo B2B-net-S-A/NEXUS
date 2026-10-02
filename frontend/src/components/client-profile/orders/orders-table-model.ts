@@ -45,23 +45,6 @@ export function groupRoster(group: OrderGroupRead): GroupRoster {
   return { current, ended, pendingDecisions: ended.filter(requiresDecision).length };
 }
 
-/** Suma MD obsady zamówienia rozliczanego per osoba (wiersz zamówienia
- *  w tabeli). `null`, gdy żadna bieżąca linia nie ma budżetu MD. */
-export function perPersonMdTotals(
-  lines: readonly OrderLineRead[],
-): { remaining: number; total: number } | null {
-  let remaining = 0;
-  let total = 0;
-  let any = false;
-  for (const line of lines) {
-    if (line.md_total == null) continue;
-    any = true;
-    total += line.md_total;
-    remaining += line.md_remaining ?? 0;
-  }
-  return any ? { remaining, total } : null;
-}
-
 export type OrdersTableRow =
   | { kind: "group"; key: string; group: OrderGroupRead; roster: GroupRoster }
   | { kind: "line"; key: string; group: OrderGroupRead; line: OrderLineRead; ended: false }
