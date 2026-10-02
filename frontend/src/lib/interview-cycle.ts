@@ -149,6 +149,12 @@ export interface CycleItem extends PairInfo {
   current_step: StepKey | null;
   latest_stage: string | null;
   slot_request: SlotRequest | null;
+  /**
+   * Termin rozmowy, który czeka jeszcze na wybór albo potwierdzenie (wybrany
+   * z kandydatem albo najwcześniejsza propozycja klienta). Okno „Zaplanuj
+   * prep” liczy względem niego podpowiedź i ostrzeżenie.
+   */
+  tentative_interview_at?: string | null;
   interview_event_id: number | null;
   debrief: {
     id: number;
@@ -172,6 +178,8 @@ export interface AgendaEntry extends PairInfo {
   from_nexus?: boolean;
   prep_quality?: PrepQuality | null;
   prep_meta?: string | null;
+  /** Prep zaplanowany po rozmowie u klienta, do której miał przygotować. */
+  late?: boolean;
 }
 
 export type TodoKind =
@@ -181,6 +189,7 @@ export type TodoKind =
   | "slots_confirm"
   | "prep_missing"
   | "prep2_missing"
+  | "prep_late"
   | "prep_weak"
   | "prep_unrecorded"
   | "slots_missing";
@@ -279,6 +288,7 @@ export const TODO_LABELS: Record<TodoKind, string> = {
   slots_confirm: "Potwierdź termin u klienta",
   prep_missing: "Prep 1 bez terminu",
   prep2_missing: "Prep 2 bez terminu",
+  prep_late: "Prep po rozmowie u klienta — przełóż",
   prep_weak: "Prep słaby — popraw przed rozmową",
   prep_unrecorded: "Prep bez nagrania",
   slots_missing: "Brak terminów od klienta",
@@ -291,6 +301,7 @@ export const TODO_ACTIONS: Record<TodoKind, string> = {
   slots_confirm: "Potwierdź",
   prep_missing: "Zaplanuj Prep 1",
   prep2_missing: "Zaplanuj Prep 2",
+  prep_late: "Przełóż",
   prep_weak: "Zobacz ocenę",
   prep_unrecorded: "Szczegóły",
   slots_missing: "Dodaj terminy",
@@ -590,6 +601,10 @@ export function actionForTodo(todo: TodoEntry, items: CycleItem[]): CycleAction 
       return { type: "plan_prep", pair, second: false };
     case "prep2_missing":
       return { type: "plan_prep", pair, second: true };
+    case "prep_late":
+      // Prep już jest w kalendarzu organizatora i kandydata — przekładamy go,
+      // nie zakładamy drugiego.
+      return todo.event_id != null ? { type: "open_event", eventId: todo.event_id } : null;
     case "prep_weak":
     case "prep_unrecorded":
       return todo.event_id != null ? { type: "prep_review", pair, eventId: todo.event_id } : null;
@@ -629,6 +644,14 @@ export function actionForItem(
       return null;
     case "prep":
     case "prep2":
+      // „Po terminie” z wydarzeniem = prep zaplanowany po rozmowie u klienta.
+      if (current.state === "overdue" && current.event_id != null) {
+        return {
+          stepKey: current.key,
+          label: "Przełóż",
+          action: { type: "open_event", eventId: current.event_id },
+        };
+      }
       return {
         stepKey: current.key,
         label: "Zaplanuj",

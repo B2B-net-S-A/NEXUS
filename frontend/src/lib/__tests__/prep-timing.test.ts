@@ -8,6 +8,7 @@ import {
   defaultPrepStart,
   nextWorkdayAt,
   prepInterviewForPair,
+  prepStartInPast,
   prepTimingWarning,
   scheduledInterviewFromSteps,
   toLocalInput,
@@ -80,6 +81,26 @@ describe("prepTimingWarning", () => {
   it("bez rozmowy nie ma ostrzeżenia", () => {
     expect(prepTimingWarning("2026-09-28T10:00", 45, null)).toBeNull();
   });
+
+  it("termin jeszcze niepotwierdzony: prep po propozycji klienta ostrzega, przed nią nie", () => {
+    // 02.10.2026: Prep 1 zaplanowano dwa dni po obu terminach od klienta,
+    // bo okno nie wiedziało o żadnym.
+    const tentative = { start: local(2026, 9, 28, 10), tentative: true };
+    expect(prepTimingWarning("2026-09-30T14:00", 30, tentative)).toMatch(
+      /nie jest jeszcze potwierdzony/,
+    );
+    expect(prepTimingWarning("2026-09-25T10:00", 45, tentative)).toBeNull();
+    expect(defaultPrepStart(tentative, 1, 45, NOW)).toBe("2026-09-25T10:00");
+  });
+});
+
+describe("prepStartInPast", () => {
+  it("termin przed „teraz” to przeszłość, późniejszy i nieczytelny — nie", () => {
+    // 02.10.2026: Prep 2 założono o 12:58 na 10:00 tego samego dnia.
+    expect(prepStartInPast("2026-09-24T08:45", NOW)).toBe(true);
+    expect(prepStartInPast("2026-09-24T09:15", NOW)).toBe(false);
+    expect(prepStartInPast("", NOW)).toBe(false);
+  });
 });
 
 describe("rozmowa z kroków i z agendy", () => {
@@ -108,5 +129,23 @@ describe("rozmowa z kroków i z agendy", () => {
       end: "2026-09-28T09:00:00Z",
     });
     expect(toLocalInput(new Date(2026, 0, 5, 7, 5))).toBe("2026-01-05T07:05");
+  });
+
+  it("bez potwierdzonej rozmowy bierze termin, który czeka na potwierdzenie", () => {
+    const data = {
+      items: [
+        {
+          candidate_id: 1,
+          job_id: 2,
+          steps: [{ key: "interview", state: "todo", at: null, event_id: null }],
+          tentative_interview_at: "2026-10-05T08:00:00+00:00",
+        },
+      ],
+      agenda: [],
+    } as unknown as CycleOverview;
+    expect(prepInterviewForPair(data, { candidate_id: 1, job_id: 2 })).toEqual({
+      start: "2026-10-05T08:00:00+00:00",
+      tentative: true,
+    });
   });
 });

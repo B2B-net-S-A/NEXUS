@@ -8659,7 +8659,12 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
   `action=feedback` bez zmian) domyślnie chowa zwykłe spotkania z Outlooka/iCal
   bez kandydata i rekrutacji (`isOtherOutlookMeeting`, przełącznik w tej
   przeglądarce). Zakres `?scope=mine|jobs|all` (lista „Pokaż”): DL/TAC
-  domyślnie `jobs`, reszta `mine`, `all` tylko admin/HoR (403).
+  domyślnie `jobs`, reszta `mine`, `all` tylko admin/HoR (403). **`jobs`
+  zawiera też pary z `mine`** (`_scope_pairs.in_scope`, 02.10.2026): osoba
+  z rolą TAC dostała dzwonek „Terminy rozmowy od klienta” jako rekruter
+  kandydata w rekrutacji, w której nie jest w zespole — „Moje rekrutacje” były
+  puste, a link z dzwonka mówił „nie ma w Twoim zakresie”. Domyślny widok nie
+  może chować zadania przypisanego osobie imiennie; nie zawężaj `jobs` z powrotem.
 - **Odznaka rozmowy na Tablicy rekrutacji stoi w KAŻDEJ kolumnie** i niesie
   `steps` (7 kresek) + `interview_event_id` (`interview_badges_for_job`) —
   osoba przesunięta dalej z zaległym telefonem wyglądała na załatwioną. Dok
@@ -8764,10 +8769,40 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   `prep_meetings` 1:1 z wydarzeniem). Spotkania z Outlooka nie są wciągane
   (decyzja). Organizator podpowiadany: Prep 1 → `job.delivery_lead_id`, Prep 2 →
   `interview_slots.default_recruiter_id`; organizator i uczestnicy muszą być
-  w zespole rekrutacji. Zaproszenie niesie akapit o nagrywaniu
-  (`PREP_NOTICE_TEXT`, wersja robocza do akceptacji prawnej); tytuł bez klienta
-  (widzi go kandydat). Po utworzeniu PATCH `recordAutomatically` — porażka nie
+  w zespole rekrutacji. Po utworzeniu PATCH `recordAutomatically` — porażka nie
   cofa prepu (`transcription_setup=failed` + „włącz ręcznie”).
+- **Zaproszenie na prep = `services/prep_invitation.py`** (02.10.2026,
+  zgłoszenie DL). Tytuł jak w dotychczasowych zaproszeniach zespołu z Outlooka:
+  „Przygotowanie do spotkania z Klientem <klient> - <kandydat>” (Prep 2:
+  „(spotkanie 2)”) — z nazwą klienta, bez „Prep” i bez półpauz; do tej daty
+  „Prep 1: <kandydat> — <stanowisko>” (kandydat przed rozmową u klienta i tak
+  go zna). Treść to stałe akapity (powitanie, zaproszenie z klientem
+  i stanowiskiem, termin rozmowy tylko gdy prep jest PRZED nią, dopisek
+  z okna, zakończenie, podpis organizatora), a informacja o nagrywaniu
+  i administratorze danych (`NOTICE_TEXT`, wersja robocza do akceptacji
+  prawnej) stoi pod kreską jako adnotacja. Do Outlooka idzie HTML
+  (`as_html` — do tej daty zwykły tekst w treści HTML sklejał wszystko w jeden
+  akapit), w NEXUSIE opis jest zwykłym tekstem (`as_plain`). Terminu samego
+  prepu w treści NIE ma — niesie go zaproszenie, a wpisany tekstem zostałby
+  nieaktualny po przełożeniu spotkania (zmiana terminu nie przepisuje treści). Okno
+  „Zaplanuj prep” pokazuje podgląd z tego samego szablonu
+  (`options.invitation`, pola `{note}`/`{organizer}` podstawia
+  `lib/prep-invitation.ts`) i mówi, w czyim kalendarzu powstaje spotkanie
+  i kto dostaje zaproszenie.
+- **Prep po rozmowie u klienta należy do jej rundy** (`PairSnapshot.late_preps`,
+  lustro w `prep_meetings.active_prep`, 02.10.2026). Rekruter zaplanował
+  Prep 1, zanim DL potwierdził termin rozmowy na dwa dni wcześniej; prep nie
+  należał do żadnej rundy, ekran pokazał „Prep 1 bez terminu”, serwer założył
+  drugi i kandydat miał dwa zaproszenia. Teraz prep po OSTATNIEJ zaplanowanej
+  rozmowie pary to krok „po terminie” z akcją „Przełóż” (`open_event`), zadanie
+  `prep_late`, powód `late` w `prep_attention` (dzwonek od razu), a drugi prep
+  o tym numerze = 409 ze zdaniem, kiedy jest istniejący. Między dwiema
+  zaplanowanymi rozmowami prep nadal należy do następnej. Okno prepu liczy
+  podpowiedź i ostrzeżenie także względem terminu, który dopiero czeka na
+  wybór albo potwierdzenie (`tentative_interview_at` w pozycji ekranu
+  i w odznace doku). Kroki w odznace doku niosą `at` — do tej daty miały tylko
+  `key` i `state`, więc okno prepu otwarte z doku nie znało terminu rozmowy,
+  podpowiadało „jutro 10:00” i nie ostrzegało.
 - **Pętla `teams_prep_transcripts`** (`TEAMS_PREP_TRANSCRIPTS_ENABLED`, OFF
   kończy ją przed pętlą; heartbeat). Stan kolejki w bazie, odświeża termin
   z Outlooka przed pobraniem, backoff, po `TEAMS_PREP_FETCH_GIVE_UP_HOURS` →

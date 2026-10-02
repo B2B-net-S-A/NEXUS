@@ -12,6 +12,9 @@ import { scheduledInterviewFromSteps } from "@/lib/prep-timing";
 import { cn } from "@/lib/utils";
 
 const OPEN_STEP: ReadonlySet<StepState> = new Set(["todo", "current", "overdue"]);
+// Prep „po terminie” to prep zaplanowany po rozmowie u klienta — spotkanie już
+// istnieje, więc nie jest krokiem do zaplanowania (od tego jest „Przełóż”).
+const PREP_TO_PLAN: ReadonlySet<StepState> = new Set(["todo", "current"]);
 
 const TONE: Record<NonNullable<KanbanItem["interview_badge"]>["tone"], string> = {
   urgent: "bg-destructive/10 text-destructive",
@@ -45,9 +48,9 @@ export function DockInterviewCycle({
   const interviewDone = state("interview") === "done";
   const nextPrep: 1 | 2 | null = interviewDone
     ? null
-    : OPEN_STEP.has(state("prep") ?? "done")
+    : PREP_TO_PLAN.has(state("prep") ?? "done")
       ? 1
-      : OPEN_STEP.has(state("prep2") ?? "done")
+      : PREP_TO_PLAN.has(state("prep2") ?? "done")
         ? 2
         : null;
   const debriefOpen =
@@ -56,6 +59,15 @@ export function DockInterviewCycle({
     interviewDone;
   const slotsOpen = OPEN_STEP.has(state("slots") ?? "done");
   const calendarHref = `/calendar?cycle=${pair.candidate_id}-${pair.job_id}`;
+  // Prep po rozmowie u klienta: krok jest „po terminie”, ale spotkanie już
+  // istnieje — przekładamy je w kalendarzu, zamiast zakładać drugie.
+  const latePrepId = badge.late_prep_event_id ?? null;
+  // Termin rozmowy bywa dopiero proponowany — okno prepu liczy względem niego.
+  const prepInterview =
+    scheduledInterviewFromSteps(steps) ??
+    (badge.tentative_interview_at
+      ? { start: badge.tentative_interview_at, tentative: true }
+      : null);
 
   return (
     <div
@@ -76,7 +88,7 @@ export function DockInterviewCycle({
       </div>
       <div className={cn("rounded-md px-2 py-1 font-semibold", TONE[badge.tone])}>{badge.label}</div>
       {steps.length ? <InterviewCycleProgress steps={steps} labels /> : null}
-      {!readOnly && (debriefOpen || nextPrep || (slotsOpen && onAddClientSlots)) ? (
+      {!readOnly && (debriefOpen || nextPrep || latePrepId || (slotsOpen && onAddClientSlots)) ? (
         <div className="flex flex-wrap gap-2 pt-0.5">
           {debriefOpen ? (
             <button
@@ -86,6 +98,14 @@ export function DockInterviewCycle({
             >
               Zapisz debrief
             </button>
+          ) : null}
+          {latePrepId ? (
+            <Link
+              href={`/calendar?view=week&event=${latePrepId}`}
+              className="inline-flex h-8 items-center rounded-md border border-destructive/40 bg-card px-3 text-xs font-semibold text-destructive hover:bg-destructive/10"
+            >
+              Przełóż prep (wypada po rozmowie)
+            </Link>
           ) : null}
           {nextPrep ? (
             <button
@@ -113,7 +133,7 @@ export function DockInterviewCycle({
           onOpenChange={(o) => !o && setPrepNo(null)}
           pair={pair}
           prepNo={prepNo}
-          interview={scheduledInterviewFromSteps(steps)}
+          interview={prepInterview}
         />
       ) : null}
     </div>

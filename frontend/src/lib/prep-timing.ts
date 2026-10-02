@@ -11,6 +11,12 @@ import type { CycleOverview } from "@/lib/interview-cycle";
 export interface PrepInterview {
   start: string;
   end?: string | null;
+  /**
+   * Termin jeszcze niepotwierdzony u klienta: wybrany z kandydatem albo
+   * najwcześniejsza propozycja klienta. Podpowiedź liczy się tak samo,
+   * ostrzeżenie mówi o tym wprost.
+   */
+  tentative?: boolean;
 }
 
 const DEFAULT_INTERVIEW_MINUTES = 60;
@@ -128,6 +134,13 @@ export function prepTimingWarning(
   const start = new Date(startLocal);
   if (!win || Number.isNaN(start.getTime())) return null;
   const end = new Date(start.getTime() + durationMinutes * 60_000);
+  if (interview?.tentative) {
+    // Termin rozmowy dopiero się ustala — prep po nim skończy jako prep po
+    // rozmowie (zgłoszenie 02.10.2026: Prep 1 dwa dni po obu propozycjach).
+    return end > win.start
+      ? `Termin rozmowy u klienta nie jest jeszcze potwierdzony (propozycja: ${WHEN.format(win.start)}). Ten prep wypadłby po nim — zaplanuj go wcześniej albo poczekaj na potwierdzenie terminu.`
+      : null;
+  }
   if (start >= win.end) {
     return `Prep wypada po rozmowie u klienta (${windowLabel(win)}) — zaplanuj go przed rozmową.`;
   }
@@ -135,6 +148,17 @@ export function prepTimingWarning(
     return `Prep nakłada się na rozmowę u klienta (${windowLabel(win)}) — przesuń go przed rozmowę.`;
   }
   return null;
+}
+
+/**
+ * Termin prepu, który już minął. Zaproszenie poszłoby do kandydata na
+ * spotkanie w przeszłości, a NEXUS zgłosiłby potem „prep bez nagrania”
+ * (02.10.2026: Prep 2 założony o 12:58 na 10:00 tego samego dnia). To prawie
+ * zawsze pomyłka w dacie, więc okno ostrzega; zapisu nie blokuje.
+ */
+export function prepStartInPast(startLocal: string, now: Date = new Date()): boolean {
+  const start = new Date(startLocal);
+  return !Number.isNaN(start.getTime()) && start.getTime() < now.getTime();
 }
 
 /**
@@ -157,7 +181,11 @@ export function prepInterviewForPair(
     (i) => i.candidate_id === pair.candidate_id && i.job_id === pair.job_id,
   );
   const step = item?.steps.find((s) => s.key === "interview" && s.state === "scheduled");
-  if (!step?.at) return null;
+  if (!step?.at) {
+    return item?.tentative_interview_at
+      ? { start: item.tentative_interview_at, tentative: true }
+      : null;
+  }
   const entry = data?.agenda.find(
     (a) => a.kind === "interview" && step.event_id != null && a.event_id === step.event_id,
   );
