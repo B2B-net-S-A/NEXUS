@@ -16,19 +16,32 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 interface TestUser {
   role: string;
   roles?: string[];
+  effective_action_access?: Record<string, string>;
 }
 
-const authState: { user: TestUser | null } = { user: null };
+interface AuthState {
+  user: TestUser | null;
+  realUser: TestUser | null;
+}
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), showToast: vi.fn() }));
+const authState: AuthState = { user: null, realUser: null };
+
+const mocks = vi.hoisted(() => ({
+  list: vi.fn(),
+  create: vi.fn(),
+  showToast: vi.fn(),
+  // Podgląd kwot klienta liczy `store/auth` (zakres Delivery Leada itd.) —
+  // tutaj sterujemy samym wynikiem.
+  canViewClientFinance: vi.fn(),
+}));
 
 vi.mock("@/store/auth", async () => {
   const actual =
     await vi.importActual<typeof import("@/store/auth")>("@/store/auth");
   return {
     ...actual,
-    useAuthStore: (selector: (s: { user: TestUser | null }) => unknown) =>
-      selector(authState),
+    useAuthStore: (selector: (s: AuthState) => unknown) => selector(authState),
+    canViewClientFinance: (...a: unknown[]) => mocks.canViewClientFinance(...a),
   };
 });
 
@@ -51,6 +64,7 @@ vi.mock("@/lib/api/dlPortal", () => ({
 }));
 
 import { FrameworkContractsTab } from "@/components/FrameworkContractsTab";
+import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
 
 const FALSE_CLAIM = /Brak umów ramowych\. Dodaj pierwszą MSA/;
 const NEW_BUTTON = /Nowa umowa/;
@@ -74,7 +88,10 @@ beforeEach(() => {
   mocks.list.mockReset();
   mocks.create.mockReset();
   mocks.showToast.mockReset();
+  mocks.canViewClientFinance.mockReset();
+  mocks.canViewClientFinance.mockReturnValue(true);
   authState.user = { role: "admin" };
+  authState.realUser = null;
 });
 
 describe("FrameworkContractsTab", () => {
@@ -119,6 +136,68 @@ describe("FrameworkContractsTab", () => {
 
     expect(await screen.findByText(FALSE_CLAIM)).toBeInTheDocument();
     expect(screen.getByText(NEW_BUTTON)).toBeInTheDocument();
+  });
+});
+
+describe("FrameworkContractsTab — zapis: edycja kontraktów + kwoty tego klienta", () => {
+  async function renderEmptyList() {
+    mocks.list.mockResolvedValue({ data: { items: [] } });
+    renderTab();
+    await screen.findByText(/Brak umów ramowych/);
+  }
+
+  it.each(["delivery_lead", "finance"])(
+    "%s ma edycję kontraktów domyślnie i dodaje umowę ramową",
+    async (role) => {
+      authState.user = { role };
+      await renderEmptyList();
+
+      expect(screen.getByText(NEW_BUTTON)).toBeInTheDocument();
+      // Kwoty liczą się per klient — pytanie dotyczy klienta tej zakładki.
+      expect(mocks.canViewClientFinance).toHaveBeenCalledWith(authState.user, 3);
+    },
+  );
+
+  it("rekruter z nadaną edycją kontraktów i podglądem kwot dodaje umowę ramową", async () => {
+    authState.user = {
+      role: "recruiter",
+      effective_action_access: permissionSnapshot(
+        "contracts_orders_edit",
+        "amounts_view",
+      ),
+    };
+    await renderEmptyList();
+
+    expect(screen.getByText(NEW_BUTTON)).toBeInTheDocument();
+  });
+
+  it("Delivery Lead z wyłączoną edycją kontraktów nie dostaje „Nowa umowa”", async () => {
+    authState.user = {
+      role: "delivery_lead",
+      effective_action_access: permissionSnapshot("clients_edit", "amounts_view"),
+    };
+    await renderEmptyList();
+
+    expect(screen.queryByText(NEW_BUTTON)).not.toBeInTheDocument();
+    expect(screen.getByText("Brak umów ramowych dla tego klienta.")).toBeInTheDocument();
+  });
+
+  it("edycja kontraktów bez podglądu kwot tego klienta nie wystarcza", async () => {
+    // Np. Delivery Lead u klienta spoza przypisania albo osoba z samą edycją
+    // kontraktów — umowa ramowa niesie stawki.
+    mocks.canViewClientFinance.mockReturnValue(false);
+    authState.user = { role: "delivery_lead" };
+    await renderEmptyList();
+
+    expect(screen.queryByText(NEW_BUTTON)).not.toBeInTheDocument();
+  });
+
+  it("w podglądzie jako inny użytkownik zakładka jest tylko do odczytu", async () => {
+    authState.user = { role: "delivery_lead" };
+    authState.realUser = { role: "admin" };
+    await renderEmptyList();
+
+    expect(screen.queryByText(NEW_BUTTON)).not.toBeInTheDocument();
   });
 });
 

@@ -15,8 +15,13 @@ import {
 import { api } from "@/lib/api";
 import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import {
+  hasPermission,
+  isDeliveryLeadGoverned,
+  permissionLabel,
+} from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { useAuthStore } from "@/store/auth";
 
 type RelationshipStrength = "cold" | "warm" | "strong" | "champion";
 
@@ -57,14 +62,16 @@ export const RELATIONSHIP_STRENGTH_LABELS: Record<RelationshipStrength, string> 
  */
 export function KeyRelationshipsPanel() {
   const user = useAuthStore((state) => state.user);
-  const isFinance = hasRole(user, "finance");
-  const canEdit = hasRole(
-    user,
-    "admin",
-    "head_of_recruitment",
-    "delivery_lead",
-    "tac",
-  );
+  const impersonating = useAuthStore((state) => state.realUser !== null);
+  // Konto rządzone portfelem Delivery Leada dostaje z API wyłącznie relacje,
+  // których samo jest właścicielem; każdy inny czytelnik Delivery — wszystkie
+  // relacje w organizacji (`reads_delivery_organization_wide` w backendzie).
+  const ownRelationships = isDeliveryLeadGoverned(user);
+  // „Aktualizuj” zapisuje pola relacji kontaktu: wolno właścicielowi relacji
+  // (czyli każdemu wierszowi listy „moich” relacji) albo posiadaczowi
+  // „Klienci: dodawanie i edycja”. W podglądzie jako inny użytkownik — nikomu.
+  const canEdit =
+    !impersonating && (ownRelationships || hasPermission(user, "clients_edit"));
   const [editing, setEditing] = useState<MyRelationshipRow | null>(null);
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -83,8 +90,8 @@ export function KeyRelationshipsPanel() {
     );
   }
   if (error) {
-    // UAT A-B04: 403 (brak sekcji — np. w podglądzie jako użytkownik) to
-    // odmowa, nie „Błąd ładowania. Czy jesteś zalogowany?".
+    // UAT A-B04: 403 (brak podglądu Delivery — np. w podglądzie jako
+    // użytkownik) to odmowa, nie „Błąd ładowania. Czy jesteś zalogowany?".
     const state = resolveViewState({ isLoading: false, isError: true, error });
     return (
       <div>
@@ -92,7 +99,7 @@ export function KeyRelationshipsPanel() {
           state={state === "forbidden" ? "forbidden" : "error"}
           description={
             state === "forbidden"
-              ? "Kluczowe relacje z klientami nie są dostępne dla Twojej roli."
+              ? `Kluczowe relacje z klientami wymagają uprawnienia „${permissionLabel("delivery_view")}”. Poproś administratora o dostęp (Ustawienia → Zespół i dostęp → Osoby i role).`
               : "Nie udało się wczytać kluczowych relacji."
           }
           onRetry={() => refetch()}
@@ -108,12 +115,12 @@ export function KeyRelationshipsPanel() {
       <header>
         <h2 className="text-xl font-bold flex items-center gap-2">
           <Heart className="w-6 h-6 text-pink-600" />
-          {isFinance ? "Kluczowe relacje w organizacji" : "Moje kluczowe relacje"}
+          {ownRelationships ? "Moje kluczowe relacje" : "Kluczowe relacje w organizacji"}
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
-          {isFinance
-            ? "Wszystkie oznaczone relacje z klientami w organizacji. "
-            : "Osoby u klientów, z którymi DL/TAC ma zbudowaną relację. "}
+          {ownRelationships
+            ? "Osoby u klientów, z którymi masz zbudowaną relację. "
+            : "Wszystkie oznaczone relacje z klientami w organizacji. "}
           Oznaczasz je w profilu klienta: <strong>Kontakty klienta</strong> → ikona{" "}
           <Heart className="w-3 h-3 inline text-pink-600" aria-label="serca" /> →
           „Kluczowa relacja”. Oznaczony kontakt dostaje{" "}
@@ -125,9 +132,9 @@ export function KeyRelationshipsPanel() {
       {rows.length === 0 ? (
         <div className="border border-dashed border-border rounded-lg p-12 text-center text-muted-foreground">
           <Heart className="w-12 h-12 mx-auto mb-2 opacity-40" />
-          {isFinance
-            ? "W organizacji nie ma jeszcze oznaczonych kluczowych relacji."
-            : "Nie masz jeszcze oznaczonych żadnych kluczowych relacji. Wejdź w profil klienta → Kontakty klienta, kliknij ikonę serca przy osobie i zaznacz „Kluczowa relacja”."}
+          {ownRelationships
+            ? "Nie masz jeszcze oznaczonych żadnych kluczowych relacji. Wejdź w profil klienta → Kontakty klienta, kliknij ikonę serca przy osobie i zaznacz „Kluczowa relacja”."
+            : "W organizacji nie ma jeszcze oznaczonych kluczowych relacji."}
         </div>
       ) : (
         <ul className="space-y-3">

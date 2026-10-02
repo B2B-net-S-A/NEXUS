@@ -81,8 +81,7 @@ import {
 } from "@/components/clients/KeyRelationshipsPanel";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
-import { hasSectionAccess } from "@/lib/section-access";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { canViewClientFinance, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { useCanonicalClientRedirect } from "@/hooks/useCanonicalClientRedirect";
 
@@ -859,17 +858,13 @@ function ContactsTab({ clientId }: { clientId: number }) {
 export default function ClientDetailPage() {
   const { id } = useParams();
   const user = useAuthStore((state) => state.user);
-  // Rola + zapis w sekcji Delivery (U8): DL z odebraną sekcją nie widzi
-  // przycisków, które kończą się 403.
-  const canEditDelivery =
-    hasRole(user, "admin", "delivery_lead") &&
-    hasSectionAccess(user, "delivery", "write");
-  const canViewDeliveryLegal = hasRole(
-    user,
-    "admin",
-    "delivery_lead",
-    "finance",
-  );
+  // Materiały sprzedażowe klienta: ta sama bramka co wiedza o kliencie
+  // („Klienci: dodawanie i edycja”) — bez niej przyciski kończą się 403.
+  const canEditDelivery = canManageClientDelivery(user);
+  // Umowy ramowe, cennik i warunki umowy niosą stawki, więc widzi je ten, kto
+  // widzi kwoty TEGO klienta („Stawki i kwoty: podgląd”; Delivery Lead —
+  // u klientów z przypisania). Serwer odmawia tak samo.
+  const canViewDeliveryLegal = canViewClientFinance(user, Number(id));
   // `?tab=` NIE jest ozdobnikiem — trzy źródła powiadomień linkują wprost do
   // zakładki, w której jest sprawa do załatwienia: skaner alertów Delivery
   // Leada (`dl_alerts_scanner.py`), skaner wygasania zamówień
@@ -941,8 +936,9 @@ export default function ClientDetailPage() {
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();
   const { showSuccess } = useToast();
-  // PATCH /api/clients/{id} → TacPlus. Bez bramki nie-TAC widział "Edytuj"
-  // i dostawał 403 dopiero na zapisie (czytało się jak "zapis nie działa").
+  // PATCH /api/clients/{id} wymaga uprawnienia „Klienci: dodawanie i edycja”.
+  // Bez bramki konto bez niego widziało "Edytuj" i dostawało 403 dopiero na
+  // zapisie (czytało się jak "zapis nie działa").
   const canUpdateClient = useCapability("client.update");
   // Imienne uprawnienie (0307) — nie wynika z roli. W trybie podglądu jako
   // inny użytkownik backend i tak odmówi, więc przycisku też nie pokazujemy.
