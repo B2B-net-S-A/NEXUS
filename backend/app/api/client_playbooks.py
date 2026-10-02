@@ -40,13 +40,14 @@ from sqlalchemy.orm import aliased
 
 from app.api.deps import OperationalUser
 from app.api.help_materials import _validate_url
-from app.api.permission_access import ClientsEditUser
+from app.api.permission_access import require_permission
 from app.api.section_access import DeliverySectionUser
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
 from app.models.user import User
+from app.services.action_permissions import ProductAction
 from app.services.client_access import (
     assert_client_writable,
     deny,
@@ -55,6 +56,12 @@ from app.services.client_access import (
 from app.services.client_playbook_seed import seed_entry
 
 router = APIRouter(tags=["client-playbooks"])
+
+# Zapis karty wymaga uprawnienia „Klienci: dodawanie i edycja”. Deklaruje je
+# TRASA (dekorator), nie parametr handlera: odmowa nazywa brakującą pozycję,
+# zanim sięgniemy do bazy — także wtedy, gdy zatrzymuje bramka sekcji.
+# U kogo wolno, rozstrzyga dalej ``_require_client_playbook_access``.
+CLIENTS_EDIT_DEPENDENCIES = [Depends(require_permission(ProductAction.clients_edit))]
 
 # Pola objęte wersjonowaniem i diffem w historii (kolejność = kolejność w `changes`).
 PLAYBOOK_FIELDS: tuple[str, ...] = (
@@ -369,12 +376,15 @@ async def get_client_playbook(
     )
 
 
-@router.put("/clients/{client_id}/playbook", response_model=ClientPlaybookRead)
+@router.put(
+    "/clients/{client_id}/playbook",
+    response_model=ClientPlaybookRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def upsert_client_playbook(
     client_id: int,
     payload: ClientPlaybookPayload,
     current_user: DeliverySectionUser,
-    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> ClientPlaybookRead:
     """Zapisz kartę (pełna podmiana). Zmiana treści → bump `version` + wpis w historii.
@@ -449,12 +459,15 @@ async def upsert_client_playbook(
     )
 
 
-@router.post("/clients/{client_id}/playbook/seed", response_model=ClientPlaybookRead)
+@router.post(
+    "/clients/{client_id}/playbook/seed",
+    response_model=ClientPlaybookRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def seed_client_playbook(
     client_id: int,
     body: PlaybookSeedRequest,
     current_user: DeliverySectionUser,
-    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> ClientPlaybookRead:
     """Backfill: załóż kartę klienta z gotowej treści seeda (rodziny nazw).

@@ -49,7 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.api.deps import OperationalUser
-from app.api.permission_access import ClientsEditUser
+from app.api.permission_access import require_permission
 from app.api.section_access import DeliverySectionUser
 from app.core.database import get_db
 from app.models.ai_feature import AIFeatureKey
@@ -61,6 +61,7 @@ from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.help_material import HelpMaterial
 from app.models.user import User
 from app.services.cv_generator_b2b.language_aliases import alias_catalog, resolve_alias
+from app.services.action_permissions import ProductAction
 from app.services.client_access import (
     assert_client_assignable,
     deny,
@@ -93,6 +94,13 @@ from app.services.section_permissions import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["client-cv-rules"])
+
+# Zapis reguły wymaga uprawnienia „Klienci: dodawanie i edycja”. Deklaruje je
+# TRASA (dekorator), nie parametr handlera: odmowa nazywa brakującą pozycję,
+# zanim sięgniemy do bazy — także wtedy, gdy zatrzymuje bramka sekcji —
+# a handlery zachowują sygnaturę (testy jednostkowe wołają je wprost).
+# U kogo wolno, rozstrzyga dalej ``_require_client_rule_access``.
+CLIENTS_EDIT_DEPENDENCIES = [Depends(require_permission(ProductAction.clients_edit))]
 
 # Slugi szablonów „Profil Championa — per klient" z migracji 0219. Ekran
 # weryfikacji pokazuje WSZYSTKIE czternaście, także te, dla których seed nie
@@ -920,12 +928,15 @@ async def get_client_cv_rule(
     )
 
 
-@router.put("/clients/{client_id}/cv-rule", response_model=ClientCvRuleRead)
+@router.put(
+    "/clients/{client_id}/cv-rule",
+    response_model=ClientCvRuleRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def upsert_client_cv_rule(
     client_id: int,
     payload: ClientCvRulePayload,
     current_user: DeliverySectionUser,
-    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> ClientCvRuleRead:
     """Save an independent draft, or atomically publish the complete recipe."""
@@ -942,11 +953,14 @@ async def upsert_client_cv_rule(
     )
 
 
-@router.post("/clients/{client_id}/cv-rule/confirm", response_model=ClientCvRuleRead)
+@router.post(
+    "/clients/{client_id}/cv-rule/confirm",
+    response_model=ClientCvRuleRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def confirm_client_cv_rule(
     client_id: int,
     current_user: DeliverySectionUser,
-    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
     expected_revision: Optional[int] = Query(None, ge=0),
 ) -> ClientCvRuleRead:
@@ -971,11 +985,14 @@ async def confirm_client_cv_rule(
     )
 
 
-@router.delete("/clients/{client_id}/cv-rule", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/clients/{client_id}/cv-rule",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def delete_client_cv_rule(
     client_id: int,
     current_user: DeliverySectionUser,
-    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
     expected_revision: Optional[int] = Query(None, ge=0),
 ) -> None:
@@ -1015,12 +1032,12 @@ async def delete_client_cv_rule(
 @router.post(
     "/clients/{client_id}/cv-rule/copy-from/{source_client_id}",
     response_model=ClientCvRuleRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
 )
 async def copy_client_cv_rule(
     client_id: int,
     source_client_id: int,
     current_user: DeliverySectionUser,
-    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
     expected_revision: Optional[int] = Query(None, ge=0),
 ) -> ClientCvRuleRead:
@@ -1086,12 +1103,12 @@ async def list_cv_rule_versions(
 @router.post(
     "/clients/{client_id}/cv-rule/versions/{version}/restore",
     response_model=ClientCvRuleRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
 )
 async def restore_cv_rule_version(
     client_id: int,
     version: int,
     current_user: DeliverySectionUser,
-    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
     expected_revision: Optional[int] = Query(None, ge=0),
 ) -> ClientCvRuleRead:
@@ -1235,12 +1252,15 @@ async def client_cv_rule_feedback(
     )
 
 
-@router.post("/clients/{client_id}/cv-rule/lint", response_model=LintResponse)
+@router.post(
+    "/clients/{client_id}/cv-rule/lint",
+    response_model=LintResponse,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def lint_client_cv_rule(
     client_id: int,
     payload: LintRequest,
     current_user: DeliverySectionUser,
-    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> LintResponse:
     """Oceń instrukcje linia po linii ZANIM trafią do reguły.

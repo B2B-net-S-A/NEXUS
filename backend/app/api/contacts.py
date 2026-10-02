@@ -11,7 +11,7 @@ mógł zmieniać kontakty i prywatne notatki relacyjne. Teraz decyzje podejmuje
 - create/update/delete: uprawnienie „Klienci: dodawanie i edycja” (domyślnie
   admin i Delivery Lead); konto z rolą DL — u klientów z portfela. Odmowa
   nazywa brakujące uprawnienie; tworzenie i usuwanie deklarują je zależnością
-  trasy (``ClientsEditUser``);
+  trasy (``CLIENTS_EDIT_DEPENDENCIES``);
 - owner relacji może edytować pola relacyjne swojego kontaktu — dlatego
   ``PUT`` NIE deklaruje uprawnienia i rozstrzyga w handlerze
   (``ClientAccess.edit_denial``);
@@ -34,13 +34,14 @@ from app.models.contact import Contact, RelationshipStrength
 from app.models.client import Client
 from app.models.user import User
 from app.api.deps import get_current_user
-from app.api.permission_access import ClientsEditUser
+from app.api.permission_access import require_permission
 from app.api.section_access import (
     DeliverySectionUser,
     ProductSection,
     SectionAccess,
     section_access_for_user,
 )
+from app.services.action_permissions import ProductAction
 from app.services.client_access import (
     contact_private_notes_checker,
     ClientAccess,
@@ -53,6 +54,12 @@ from app.services.client_access import (
 )
 
 router = APIRouter()
+
+# Tworzenie i usuwanie kontaktu wymaga uprawnienia „Klienci: dodawanie
+# i edycja”. Deklaruje je TRASA (dekorator), nie parametr handlera: odmowa
+# nazywa brakującą pozycję, zanim sięgniemy do bazy — także wtedy, gdy
+# zatrzymuje bramka sekcji. U kogo wolno, rozstrzyga dalej ``ClientAccess``.
+CLIENTS_EDIT_DEPENDENCIES = [Depends(require_permission(ProductAction.clients_edit))]
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -320,11 +327,11 @@ async def list_client_contacts(
     "/contacts",
     response_model=AnyContactResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
 )
 async def create_contact(
     data: ContactCreate,
     current_user: DeliverySectionUser,
-    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await assert_client_exists(db, data.client_id)
@@ -427,11 +434,14 @@ async def update_contact(
     return _contact_projection(contact, access)
 
 
-@router.delete("/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/contacts/{contact_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def delete_contact(
     contact_id: int,
     current_user: DeliverySectionUser,
-    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     contact = await _load_contact(db, contact_id)
