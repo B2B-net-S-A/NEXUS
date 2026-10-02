@@ -20,8 +20,8 @@
   "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/client-knowledge/{knowledge_id}": "PPDPPDDDDDPPPDPPPD",
+  "DELETE /api/client-knowledge/{knowledge_id}": "PDDPDDDDDDPPPDDDPD",
   "GET /api/clients/{client_id}/knowledge": "PPDBPDDDDDBBBDPPPP",
-  "POST /api/clients/{client_id}/knowledge": "PPDBPDDDDDBBBDPPPD"
+  "POST /api/clients/{client_id}/knowledge": "PDDBDDDDDDBBBDDDPD"
  }
 }

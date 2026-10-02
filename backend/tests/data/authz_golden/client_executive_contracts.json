@@ -22,8 +22,8 @@
  "routes": {
   "GET /api/clients/{client_id}/contract-structure": "PPDBPDDDDDBBBDPPPP",
   "GET /api/clients/{client_id}/executive-contracts/review": "PPDBPDDDDDBBBDPPPP",
-  "PATCH /api/clients/{client_id}/executive-contracts/{ec_id}": "PDDBDDDDDDBBBDDDDD",
-  "POST /api/clients/{client_id}/executive-contracts": "PDDBDDDDDDBBBDDDDD",
-  "POST /api/clients/{client_id}/executive-contracts/assignments": "PDDBDDDDDDBBBDDDDD"
+  "PATCH /api/clients/{client_id}/executive-contracts/{ec_id}": "PPDBDDDDDDBBBDDPDD",
+  "POST /api/clients/{client_id}/executive-contracts": "PPDBDDDDDDBBBDDPDD",
+  "POST /api/clients/{client_id}/executive-contracts/assignments": "PPDBDDDDDDBBBDDPDD"
  }
 }

@@ -20,13 +20,13 @@
   "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}": "PDDBDDDDDDBBBDDDDD",
-  "GET /api/clients/{client_id}/framework-contracts": "BBDBBDDDDDBBBDBBBB",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}": "BBDBBDDDDDBBBDBBBB",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/file": "BBDBBDDDDDBBBDBBBB",
-  "PATCH /api/clients/{client_id}/framework-contracts/{fc_id}": "PDDBDDDDDDBBBDDDDD",
-  "POST /api/clients/{client_id}/framework-contracts": "PDDBDDDDDDBBBDDDDD",
-  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/send-autenti": "PDDBDDDDDDBBBDDDDD",
-  "PUT /api/clients/{client_id}/framework-contracts/{fc_id}/file": "PDDBDDDDDDBBBDDDDD"
+  "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDDDBBBDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts": "BBDBDDDDDDBBBDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}": "BBDBDDDDDDBBBDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/file": "BBDBDDDDDDBBBDDDDD",
+  "PATCH /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDDDBBBDDDDD",
+  "POST /api/clients/{client_id}/framework-contracts": "PPDBDDDDDDBBBDDDDD",
+  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/send-autenti": "PPDBDDDDDDBBBDDDDD",
+  "PUT /api/clients/{client_id}/framework-contracts/{fc_id}/file": "PPDBDDDDDDBBBDDDDD"
  }
 }

@@ -20,10 +20,10 @@
   "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/contacts/{contact_id}": "PPDPPDDDDDPPPDPPPD",
+  "DELETE /api/contacts/{contact_id}": "PDDPDDDDDDPPPDDDPD",
   "GET /api/clients/{client_id}/contacts": "PPPPPPPPPDPPPPPPPP",
   "GET /api/contacts": "PPPBPBBBDDBBBPPPPP",
-  "POST /api/contacts": "PPDPPDDDDDPPPDPPPD",
+  "POST /api/contacts": "PDDPDDDDDDPPPDDDPD",
   "PUT /api/contacts/{contact_id}": "PPDPPDDDDDPPPDPPPD"
  }
 }

@@ -20,11 +20,11 @@
   "recruiter+delivery_view"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/one-pagers/{one_pager_id}": "BBDBBDDDDDBBBDBBBD",
-  "GET /api/clients/{client_id}/contract-terms": "BBDBBDDDDDBBBDBBBB",
+  "DELETE /api/clients/{client_id}/one-pagers/{one_pager_id}": "BDDBDDDDDDBBBDDDBD",
+  "GET /api/clients/{client_id}/contract-terms": "BBDBDDDDDDBBBDDDDD",
   "GET /api/clients/{client_id}/one-pagers": "BBDBBDDDDDBBBDBBBB",
   "GET /api/clients/{client_id}/one-pagers/{one_pager_id}/download": "BBDBBDDDDDBBBDBBBB",
-  "POST /api/clients/{client_id}/one-pagers": "BBDBBDDDDDBBBDBBBD",
-  "PUT /api/clients/{client_id}/contract-terms": "BBDBBDDDDDBBBDBBBD"
+  "POST /api/clients/{client_id}/one-pagers": "BDDBDDDDDDBBBDDDBD",
+  "PUT /api/clients/{client_id}/contract-terms": "BBDBDDDDDDBBBDDDDD"
  }
 }
