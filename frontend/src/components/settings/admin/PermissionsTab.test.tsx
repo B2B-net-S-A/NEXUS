@@ -431,6 +431,8 @@ describe("PermissionsTab — jedna rola, dziewięć przełączników", () => {
     expect(
       await screen.findByText("Wczytano nowszą wersję zasad"),
     ).toBeInTheDocument();
+    // Tu nikt nie zapisywał — komunikat mówi o zmianach, nie o „poprzednim zapisie”.
+    expect(screen.getByText(/Twoje zmiany nie zostały zapisane/)).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Potwierdź zmianę uprawnień roli Finanse" }),
     ).not.toBeInTheDocument();
@@ -499,6 +501,49 @@ describe("PermissionsTab — jedna rola, dziewięć przełączników", () => {
     expect(screen.getByText("Brak niezapisanych zmian")).toBeInTheDocument();
     expect(screen.queryByText("Wczytano nowszą wersję zasad")).not.toBeInTheDocument();
     expect(screen.queryByText("zmiana · dziś: nie")).not.toBeInTheDocument();
+  });
+
+  it("w trakcie zapisu okna nie da się zamknąć, a przełączniki czekają na odpowiedź", async () => {
+    let finishSave: (value: unknown) => void = () => undefined;
+    vi.mocked(adminApi.updateRoleSectionPermissions).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishSave = resolve;
+      }) as never,
+    );
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(
+      await screen.findByRole("switch", { name: "Finanse: Klienci: dodawanie i edycja" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Potwierdź i zapisz" }));
+
+    // Zamknięte w trakcie zapisu okno odsłaniało przełączniki: zmiana zrobiona
+    // w tym czasie znikała bez słowa razem ze szkicem, gdy zapis się kończył.
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: "Anuluj" })).toBeDisabled(),
+    );
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    for (const control of screen.getAllByRole("switch", { hidden: true })) {
+      expect(control).toBeDisabled();
+    }
+    for (const name of ["Finanse", "Rekruter", "Sourcer"]) {
+      expect(screen.getByRole("button", { name, hidden: true })).toBeDisabled();
+    }
+
+    await act(async () => {
+      finishSave({ data: { revision: 13, changed: true, invalidated_users: 1 } });
+    });
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(
+      await screen.findByText(/Zapisano uprawnienia roli Finanse/),
+    ).toBeInTheDocument();
+    expect(adminApi.updateRoleSectionPermissions).toHaveBeenCalledTimes(1);
+    expect(permissionSwitch("Finanse: Moduł Finanse")).toBeEnabled();
   });
 
   it("odpowiedź bez listy uprawnień jest awarią, a nie dziewięcioma wyłączonymi przełącznikami", async () => {

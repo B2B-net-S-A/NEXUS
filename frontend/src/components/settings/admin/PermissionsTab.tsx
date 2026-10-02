@@ -77,10 +77,13 @@ function splitIntoColumns(
 function PermissionSwitchRow({
   row,
   role,
+  busy,
   onToggle,
 }: {
   row: PermissionRow;
   role: string;
+  /** Trwa zapis — przełącznik czeka na odpowiedź serwera. */
+  busy: boolean;
   onToggle: (key: Permission) => void;
 }) {
   const id = useId();
@@ -91,7 +94,7 @@ function PermissionSwitchRow({
         htmlFor={id}
         className={cn(
           "flex min-h-9 items-center justify-between gap-4 px-4 py-1.5 pointer-coarse:min-h-11",
-          locked ? "cursor-not-allowed" : "cursor-pointer hover:bg-muted/50",
+          locked || busy ? "cursor-not-allowed" : "cursor-pointer hover:bg-muted/50",
           row.changed && "bg-warning-muted hover:bg-warning-muted",
         )}
       >
@@ -111,7 +114,7 @@ function PermissionSwitchRow({
         <Switch
           id={id}
           checked={row.on}
-          disabled={locked}
+          disabled={locked || busy}
           onCheckedChange={() => onToggle(row.key)}
           aria-label={`${role}: ${row.label}`}
           aria-describedby={locked ? `${id}-why` : undefined}
@@ -124,10 +127,12 @@ function PermissionSwitchRow({
 function PermissionGroupList({
   groups,
   role,
+  busy,
   onToggle,
 }: {
   groups: PermissionRowGroup[];
   role: string;
+  busy: boolean;
   onToggle: (key: Permission) => void;
 }) {
   const id = useId();
@@ -147,6 +152,7 @@ function PermissionGroupList({
                 key={row.key}
                 row={row}
                 role={role}
+                busy={busy}
                 onToggle={onToggle}
               />
             ))}
@@ -300,6 +306,10 @@ function RolePermissionsEditor({
       showError(apiErrorMessage(error, "Nie udało się zapisać uprawnień."));
     },
   });
+  // Do odpowiedzi serwera ekran stoi: okno potwierdzenia się nie zamyka,
+  // a przełączniki i role czekają. Zmiana zrobiona w trakcie zapisu znikałaby
+  // bez słowa razem ze szkicem, gdy zapis się kończy.
+  const saving = mutation.isPending;
 
   const toggle = (key: Permission) => {
     setConflict(false);
@@ -337,7 +347,7 @@ function RolePermissionsEditor({
         <Alert
           variant="warning"
           title="Wczytano nowszą wersję zasad"
-          description="Poprzedni zapis nie został wykonany. Sprawdź przełączniki przed ponowną edycją."
+          description="Ktoś zmienił uprawnienia w międzyczasie, więc Twoje zmiany nie zostały zapisane. Sprawdź przełączniki i wprowadź je ponownie."
         />
       ) : null}
 
@@ -355,10 +365,12 @@ function RolePermissionsEditor({
                 key={entry.role}
                 type="button"
                 aria-pressed={selected}
+                disabled={saving}
                 onClick={() => selectRole(entry.role)}
                 className={cn(
                   "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors pointer-coarse:min-h-10",
                   "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                  "disabled:cursor-not-allowed",
                   selected
                     ? "bg-primary text-primary-foreground"
                     : "bg-muted text-muted-foreground hover:text-foreground",
@@ -385,9 +397,19 @@ function RolePermissionsEditor({
             przyklejony do okna, a zawieranie układu mogłoby mu to odebrać. */}
         <div className="@container">
           <div className="grid divide-border @4xl:grid-cols-2 @4xl:divide-x">
-            <PermissionGroupList groups={leftGroups} role={label} onToggle={toggle} />
+            <PermissionGroupList
+              groups={leftGroups}
+              role={label}
+              busy={saving}
+              onToggle={toggle}
+            />
             {rightGroups.length > 0 ? (
-              <PermissionGroupList groups={rightGroups} role={label} onToggle={toggle} />
+              <PermissionGroupList
+                groups={rightGroups}
+                role={label}
+                busy={saving}
+                onToggle={toggle}
+              />
             ) : null}
           </div>
         </div>
@@ -397,17 +419,13 @@ function RolePermissionsEditor({
             {changesCountLabel(changed.length)}
           </p>
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={resetDraft}
-              disabled={!dirty || mutation.isPending}
-            >
+            <Button variant="outline" onClick={resetDraft} disabled={!dirty || saving}>
               <RotateCcw className="size-4" aria-hidden /> Cofnij
             </Button>
             <Button
               onClick={() => setConfirmOpen(true)}
               disabled={!dirty}
-              loading={mutation.isPending}
+              loading={saving}
             >
               <Save className="size-4" aria-hidden /> Zapisz zmiany
             </Button>
@@ -417,18 +435,25 @@ function RolePermissionsEditor({
 
       <AppModal
         open={confirmOpen}
-        onOpenChange={setConfirmOpen}
+        onOpenChange={(open) => {
+          // Esc, „×” i kliknięcie obok nie zamykają okna w trakcie zapisu.
+          if (!saving) setConfirmOpen(open);
+        }}
         title={`Potwierdź zmianę uprawnień roli ${label}`}
         description={logoutSentence(role.users_count, label)}
         footer={
           <>
-            <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmOpen(false)}
+              disabled={saving}
+            >
               Anuluj
             </Button>
             <Button
               onClick={() => mutation.mutate()}
               disabled={!dirty}
-              loading={mutation.isPending}
+              loading={saving}
             >
               Potwierdź i zapisz
             </Button>
