@@ -30,11 +30,11 @@ import {
 } from"@/lib/view-state";
 import {
  canManageCandidateFinance,
+ canManageContractStatus,
  canViewCandidateFinance,
- hasRole,
  useAuthStore,
 } from"@/store/auth";
-import { hasSectionAccess } from "@/lib/section-access";
+import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { Badge } from"@/components/ui/badge";
 import { Button, buttonVariants } from"@/components/ui/button";
 import { Card } from"@/components/ui/card";
@@ -149,10 +149,12 @@ export function ContractorsListV2({
  const impersonating = useAuthStore((state) => state.realUser !== null);
  const canManageFinance = canManageCandidateFinance(user);
  const canViewFinance = canViewCandidateFinance(user);
- const canOperateContracts =
- !impersonating &&
- hasRole(user,"admin","delivery_lead") &&
- hasSectionAccess(user,"delivery","write");
+ // „Uzupełnij" / „Aktywuj" szkicu = „Kontrakty i zamówienia: tworzenie
+ // i edycja". „Zakończ projekt" to osobne uprawnienie (zakończenie
+ // współpracy) — ma je domyślnie także Talent Community Manager.
+ const canCompleteDrafts =
+ !impersonating && hasPermission(user,"contracts_orders_edit");
+ const canTerminate = !impersonating && canManageContractStatus(user);
  const searchParams = useSearchParams();
  const navigationSearch = searchParams.toString();
  const [initialListState] = useState(() => {
@@ -414,7 +416,7 @@ export function ContractorsListV2({
  className="border-0"
  description={
  viewState === "forbidden"
- ?"Twoja rola nie ma dostępu do listy kontraktorów. Lista NIE jest pusta — poproś administratora o uprawnienia."
+ ? `Lista kontraktorów wymaga uprawnienia „${permissionLabel("delivery_view")}”. Lista NIE jest pusta — poproś administratora o dostęp (Ustawienia → Zespół i dostęp → Osoby i role).`
  : viewState === "error" &&
  httpStatusFromError(error) === undefined
  ?"Nie udało się połączyć z serwerem. Sprawdź internet lub VPN i spróbuj ponownie."
@@ -445,7 +447,9 @@ export function ContractorsListV2({
  const visibleMissingFields = c.missing_fields.filter(
  (field) => canViewFinance || !FINANCE_COMPLETION_FIELDS.has(field)
  );
- const waitsForAdmin =
+ // Szkic, któremu brakuje stawek, a to konto ich nie zmienia — czeka na
+ // osobę z uprawnieniem „Stawki i kwoty: zmiana".
+ const waitsForRates =
  isDraft &&
  !canManageFinance &&
  c.missing_fields.some((field) => FINANCE_COMPLETION_FIELDS.has(field));
@@ -538,9 +542,13 @@ export function ContractorsListV2({
  {visibleMissingFields.length} brak
  {visibleMissingFields.length === 1 ?"" :"ów"}
  </Badge>
- ) : waitsForAdmin ? (
- <Badge size="sm" variant="warning">
- Wymaga uzupełnienia przez Admina
+ ) : waitsForRates ? (
+ <Badge
+ size="sm"
+ variant="warning"
+ title={`Stawki uzupełnia osoba z uprawnieniem „${permissionLabel("amounts_edit")}”`}
+ >
+ Czeka na uzupełnienie stawek
  </Badge>
  ) : isReadyForSignature ? (
  <Badge size="sm" variant="soft">
@@ -566,9 +574,9 @@ export function ContractorsListV2({
  </TableCell>
  <TableCell className="text-right">
  <div className="flex items-center justify-end gap-1">
- {canOperateContracts &&
+ {canCompleteDrafts &&
  isDraft &&
- (!waitsForAdmin || visibleMissingFields.length > 0) ? (
+ (!waitsForRates || visibleMissingFields.length > 0) ? (
  <Button
  size="sm"
  variant={readyToActivate ?"primary" :"outline"}
@@ -589,7 +597,7 @@ export function ContractorsListV2({
  >
  <FileText className="h-3.5 w-3.5" /> Szczegóły
  </Link>
- {canOperateContracts &&
+ {canTerminate &&
  (c.status === "active" || c.status === "ending") && (
  <Button
  size="sm"
@@ -680,7 +688,7 @@ export function ContractorsListV2({
  }
  />
 
- {canOperateContracts && terminating && (
+ {canTerminate && terminating && (
  <ContractTerminationDialog
  contractIds={[terminating.contract_id]}
  candidateName={`${terminating.candidate.name} ${terminating.candidate.lastname}`.trim()}
@@ -689,7 +697,7 @@ export function ContractorsListV2({
  />
  )}
 
- {canOperateContracts && draftToComplete && (
+ {canCompleteDrafts && draftToComplete && (
  <DraftCompletionModal
  contractor={draftToComplete}
  open={!!draftToComplete}

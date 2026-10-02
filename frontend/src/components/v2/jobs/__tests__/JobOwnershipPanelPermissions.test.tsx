@@ -20,6 +20,7 @@ import {
 import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
 import { REQUEST_BOARD_QUERY_KEY } from "@/lib/api/requestAllocation";
 import type { JobRecruiter } from "@/lib/job-team";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 import { useAuthStore, type User, type UserRole } from "@/store/auth";
 
 const apiMock = vi.hoisted(() => ({
@@ -299,6 +300,34 @@ describe("JobOwnershipPanel — kto widzi który przycisk", () => {
 
   it("`can_staff` z serwera wygrywa z rolą — Delivery Lead spoza zakresu nie przydziela", () => {
     renderPanel({ ...JOBS.staffed, can_staff: false });
+    expect(actions()).toEqual(["Zdejmij Celina Wzorcowa", "Dołącz", "+ Dodaj osobę"]);
+  });
+
+  // Przydział idzie za uprawnieniem „Rekrutacje: zakładanie, zamykanie,
+  // wysyłka CV do klienta” (albo rolą Head of Recruitment), nie za rolą DL.
+  it("rekruter z nadanym uprawnieniem do prowadzenia rekrutacji przydziela jak Delivery Lead", () => {
+    renderPanel(JOBS.staffed, {
+      as: {
+        ...recruiter,
+        effective_action_access: permissionSnapshot("recruitment_manage"),
+      },
+    });
+    expect(actions()).toEqual([
+      "Zdejmij Bartek Testowy",
+      "Zdejmij Celina Wzorcowa",
+      "Dołącz",
+      "Zmień rekrutera",
+      "+ Dodaj osobę",
+    ]);
+  });
+
+  it("Delivery Lead z wyłączonym uprawnieniem nie przydziela — zostaje mu to, co ma każdy redagujący", () => {
+    renderPanel(JOBS.staffed, {
+      as: {
+        ...deliveryLead,
+        effective_action_access: permissionSnapshot("delivery_view", "clients_edit"),
+      },
+    });
     expect(actions()).toEqual(["Zdejmij Celina Wzorcowa", "Dołącz", "+ Dodaj osobę"]);
   });
 

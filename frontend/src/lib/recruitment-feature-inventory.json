@@ -98,7 +98,8 @@
    "opis": "Widok kafelków",
    "file": "components/v2/pages/JobsListV2.tsx",
    "marker": "jobsView",
-   "v3_home": "bez zmian"
+   "v3_home": "bez zmian",
+   "removed_reason": "Decyzja Artura 02.10.2026 („kafelki opcję wywal całkowicie”): lista rekrutacji ma jeden widok — tabelę z prostym wierszem. To, co kafelek pokazywał dodatkowo (must-have, numery, miasta), jest w Podglądzie; plakietka „Brak opiekuna TAC” żyła tylko na kafelku i zniknęła razem z nim."
   },
   {
    "id": "list.unopenable",

@@ -24,7 +24,6 @@ from app.api import (
     admin_chats,
     admin_client_portfolio,
     admin_clients_overview,
-    autenti,
     calendar,
     calendar_access,
     candidate_access,
@@ -49,7 +48,6 @@ from app.api import (
     rate_benchmarks,
     rate_cards,
     reports,
-    signing,
 )
 from app.api.deps import AdminUser, DeliveryLeadPlus
 from app.api.financial_access import (
@@ -199,86 +197,9 @@ def test_candidate_finance_guard_is_admin_only_to_keep_finance_free_of_pii():
     assert set(candidate_access.CANDIDATE_FINANCE_ROLES) == {UserRole.admin}
 
 
-@pytest.mark.parametrize(
-    "role",
-    [
-        UserRole.delivery_lead,
-        UserRole.head_of_recruitment,
-        UserRole.talent_community_manager,
-        UserRole.tac,
-        UserRole.recruiter,
-        UserRole.sourcer,
-    ],
-)
-def test_contract_amount_write_guard_rejects_non_finance_roles(role):
-    with pytest.raises(HTTPException) as exc_info:
-        contracts._assert_contract_finance_write_allowed(
-            _user(role),
-            {
-                "rate_candidate",
-                "rate_client",
-                "candidate_rate_schedule",
-                "framework_rate",
-            },
-        )
-    assert getattr(exc_info.value, "status_code", None) == 403
-
-
-def test_contract_amount_write_guard_allows_admin():
-    contracts._assert_contract_finance_write_allowed(
-        _user(UserRole.admin),
-        {
-            "rate_candidate",
-            "rate_client",
-            "candidate_rate_schedule",
-            "framework_rate",
-        },
-    )
-
-
-def test_contract_amount_write_guard_allows_finance_manager():
-    """Decyzja Artura 22.09.2026: Finanse zmieniają kwoty przez MANAGE_FINANCE."""
-
-    contracts._assert_contract_finance_write_allowed(
-        _user(UserRole.finance),
-        {"rate_candidate", "rate_client", "candidate_rate_schedule"},
-    )
-
-
-def test_contract_amount_write_guard_rejects_finance_without_finance_write():
-    finance = _user(UserRole.finance)
-    finance.effective_section_access = {"finance": "read", "insights": "read"}
-    with pytest.raises(HTTPException) as exc_info:
-        contracts._assert_contract_finance_write_allowed(finance, {"rate_candidate"})
-    assert exc_info.value.status_code == 403
-
-
-def test_finance_manager_on_mixed_routes_touches_only_amounts():
-    from app.api.financial_access import assert_finance_manager_touches_only_amounts
-
-    finance = _user(UserRole.finance)
-    assert_finance_manager_touches_only_amounts(
-        finance,
-        {"rate_client"},
-        contracts._CONTRACT_FINANCE_WRITE_FIELDS,
-        operational_roles=(UserRole.delivery_lead, UserRole.tac),
-    )
-    with pytest.raises(HTTPException) as exc_info:
-        assert_finance_manager_touches_only_amounts(
-            finance,
-            {"rate_client", "status", "end_date"},
-            contracts._CONTRACT_FINANCE_WRITE_FIELDS,
-            operational_roles=(UserRole.delivery_lead, UserRole.tac),
-        )
-    assert exc_info.value.status_code == 403
-    assert exc_info.value.detail["fields"] == ["end_date", "status"]
-    # Rola operacyjna trasy nie jest zawężana do kwot.
-    assert_finance_manager_touches_only_amounts(
-        _user(UserRole.delivery_lead),
-        {"status"},
-        contracts._CONTRACT_FINANCE_WRITE_FIELDS,
-        operational_roles=(UserRole.delivery_lead, UserRole.tac),
-    )
+# Bramki tras kontraktów i podpisów oraz zapis kwot kontraktu pilnuje
+# ``test_permissions_contracts_rules.py`` — pytają o uprawnienia z ekranu Osoby
+# i role, więc sprawdzamy tam zachowanie bramki, a nie tożsamość aliasu.
 
 
 @pytest.mark.parametrize(
@@ -319,21 +240,140 @@ def test_order_amount_write_guard_allows_finance_manager():
 
 @pytest.mark.asyncio
 async def test_md_line_rates_are_writable_by_finance_manager():
-    assert await client_order_groups._has_md_line_management_access(
+    assert await client_order_groups._can_write_amounts(
         None, _user(UserRole.finance), 1
     )
 
 
-def test_amount_routes_admit_finance_manager_at_the_role_gate():
-    assert _current_user_annotation(contracts.update_contract) == (
-        contracts.ContractPatchUser
-    )
-    assert _user_annotation(client_orders.update_order) == client_orders.OrderPatchUser
-    for endpoint in (
+async def _order_gate_refusal(endpoint, user: User) -> dict | None:
+    """Odmowa bramki uprawnienia trasy zamówień (``None`` = wpuszcza)."""
+
+    gate = _annotated_dependency(_user_annotation(endpoint))
+    try:
+        assert await gate(current_user=user) is user
+    except HTTPException as exc:
+        assert exc.status_code == 403
+        return exc.detail
+    return None
+
+
+def _with_permissions(role: UserRole, *permissions: str) -> User:
+    """Konto z rolą i DOKŁADNIE tymi uprawnieniami (już po zależnościach)."""
+
+    from app.services import permission_catalog
+
+    user = _user(role)
+    # Oba zrzuty razem i spójnie: sekcje Delivery/Finanse wynikają z uprawnień.
+    user.effective_section_access = permission_catalog.derive_sections(permissions)
+    user.effective_action_access = {key: "manage" for key in permissions}
+    return user
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        client_orders.update_order,
         client_order_groups.update_order_group,
         client_order_groups.update_line,
+    ],
+)
+async def test_order_patch_routes_admit_order_editors_and_amount_editors(endpoint):
+    """PATCH zamówienia, grupy i linii: prowadzenie zamówień albo zmiana kwot."""
+
+    for role in (UserRole.admin, UserRole.finance, UserRole.delivery_lead):
+        assert await _order_gate_refusal(endpoint, _user(role)) is None
+    # Sama zmiana kwot wystarcza do wejścia — handler zawęża ją do pól kwot.
+    amounts_only = _with_permissions(
+        UserRole.talent_community_manager,
+        "delivery_view",
+        "amounts_view",
+        "amounts_edit",
+    )
+    assert await _order_gate_refusal(endpoint, amounts_only) is None
+    order_editor = _with_permissions(
+        UserRole.talent_community_manager, "delivery_view", "contracts_orders_edit"
+    )
+    assert await _order_gate_refusal(endpoint, order_editor) is None
+
+    for role in (
+        UserRole.talent_community_manager,
+        UserRole.head_of_recruitment,
+        UserRole.recruiter,
     ):
-        assert _user_annotation(endpoint) == client_order_groups.OrderAmountUser
+        refusal = await _order_gate_refusal(endpoint, _user(role))
+        assert refusal["code"] == "permission_denied"
+        assert refusal["permissions"] == ["contracts_orders_edit", "amounts_edit"]
+
+
+def test_amount_only_account_changes_only_amount_fields_of_orders():
+    """Konto bez prowadzenia zamówień zmienia na PATCH-u wyłącznie kwoty."""
+
+    amounts_only = _with_permissions(
+        UserRole.talent_community_manager,
+        "delivery_view",
+        "amounts_view",
+        "amounts_edit",
+    )
+    client_order_groups._assert_amounts_only_without_order_edit(
+        amounts_only, {"rate_cost", "budget_amount"}
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        client_order_groups._assert_amounts_only_without_order_edit(
+            amounts_only, {"rate_cost", "order_number", "end_date"}
+        )
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail["code"] == "finance_amounts_only"
+    assert exc_info.value.detail["fields"] == ["end_date", "order_number"]
+
+    # Finanse prowadzą też zamówienia (02.10.2026) — nie są zawężane do kwot.
+    client_order_groups._assert_amounts_only_without_order_edit(
+        _user(UserRole.finance), {"order_number", "end_date"}
+    )
+    client_order_groups._assert_amounts_only_without_order_edit(
+        _user(UserRole.delivery_lead), {"order_number"}
+    )
+
+
+def test_order_amount_refusal_names_what_is_missing():
+    """``finance_fields_forbidden`` zostaje, a odmowa mówi, czego brakuje."""
+
+    # Prowadzi zamówienia, ale nie widzi kwot → brakuje podglądu kwot.
+    order_editor = _with_permissions(
+        UserRole.talent_community_manager, "delivery_view", "contracts_orders_edit"
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        client_orders._assert_order_finance_write_allowed(
+            order_editor, {"rate_client", "title"}
+        )
+    detail = exc_info.value.detail
+    assert exc_info.value.status_code == 403
+    assert detail["code"] == "finance_fields_forbidden"
+    assert detail["fields"] == ["rate_client"]
+    assert detail["permission"] == "amounts_view"
+    assert detail["label"] == "Stawki i kwoty: podgląd"
+    assert "Stawki i kwoty: podgląd" in detail["message"]
+
+    # Delivery Lead ma komplet uprawnień — odmowa mówi o portfelu, nie
+    # o uprawnieniu.
+    with pytest.raises(HTTPException) as exc_info:
+        client_orders._assert_order_finance_write_allowed(
+            _user(UserRole.delivery_lead), {"rate_client"}, can_finance=False
+        )
+    detail = exc_info.value.detail
+    assert detail["code"] == "finance_fields_forbidden"
+    assert detail["message"] == "Ten klient jest poza Twoim portfelem."
+    assert "permission" not in detail
+
+    # Bez prowadzenia zamówień i bez zmiany kwot → brakuje zmiany kwot.
+    with pytest.raises(HTTPException) as exc_info:
+        client_orders._assert_order_finance_write_allowed(
+            _user(UserRole.talent_community_manager), {"total_value"}
+        )
+    assert exc_info.value.detail["permission"] == "amounts_edit"
+
+    # Bez pól kwot bramka milczy także dla konta bez uprawnień do kwot.
+    client_orders._assert_order_finance_write_allowed(order_editor, {"title"})
 
 
 def test_flow_b_delivery_lead_can_create_operational_records_without_finance():
@@ -461,250 +501,6 @@ def test_candidate_bearing_export_and_benchmark_are_finance_read():
     assert _current_user_annotation(contracts.contract_benchmark) == FinanceReadUser
 
 
-@pytest.mark.parametrize(
-    "endpoint",
-    [
-        contracts.list_contracts,
-        contracts.export_client_register,
-        contracts.list_client_register_subcategories,
-        contracts.expiring_contracts,
-        contracts.get_contract,
-        contracts.contract_activities,
-        contracts.contract_rate_history,
-        contracts.list_contract_amendments,
-        contracts.list_onboarding_items,
-        contracts.list_contract_equipment,
-        contracts.contract_timeline,
-    ],
-)
-def test_contract_business_reads_use_finance_extended_read_guard(endpoint):
-    assert _current_user_annotation(endpoint) == contracts.ContractReadUser
-
-
-@pytest.mark.parametrize(
-    "endpoint",
-    [
-        contracts.get_contract_draft,
-        contracts.render_draft_for_print,
-        contracts.list_contract_documents,
-        contracts.download_contract_document,
-    ],
-)
-def test_rate_bearing_contract_documents_exclude_tcm(endpoint):
-    assert _current_user_annotation(endpoint) == contracts.ContractDocumentReadUser
-
-
-@pytest.mark.asyncio
-async def test_finance_draft_preview_does_not_persist_lazy_initialization(monkeypatch):
-    finance = _user(UserRole.finance)
-    contract = SimpleNamespace(
-        id=17,
-        contract_type="b2b",
-        draft_content_html=None,
-        draft_template_id=None,
-        draft_updated_at=None,
-        draft_updated_by=None,
-    )
-    template = SimpleNamespace(
-        id=8,
-        name="B2B default",
-        contract_type="b2b",
-        content_jinja="<p>template</p>",
-        is_default=True,
-    )
-
-    async def load_contract(*_args, **_kwargs):
-        return contract
-
-    async def list_templates(*_args, **_kwargs):
-        return [template]
-
-    class ReadOnlyDb:
-        def add(self, *_args, **_kwargs):
-            raise AssertionError("Finance GET must not add Activity")
-
-        async def flush(self):
-            raise AssertionError("Finance GET must not flush writes")
-
-        async def scalar(self, *_args, **_kwargs):
-            raise AssertionError("No updated_by lookup is expected")
-
-    monkeypatch.setattr(contracts, "_load_contract_with_relations", load_contract)
-    monkeypatch.setattr(
-        contracts,
-        "_list_templates_for_contract_type",
-        list_templates,
-    )
-    monkeypatch.setattr(
-        contracts,
-        "_render_draft_body",
-        lambda *_args: "<p>Finance preview</p>",
-    )
-
-    response = await contracts.get_contract_draft(
-        17,
-        request=SimpleNamespace(state=SimpleNamespace()),
-        current_user=finance,
-        db=ReadOnlyDb(),
-    )
-
-    assert response.content_html == "<p>Finance preview</p>"
-    assert response.template_id == 8
-    assert response.rendered_from_default is True
-    assert contract.draft_content_html is None
-    assert contract.draft_template_id is None
-    assert contract.draft_updated_by is None
-
-
-@pytest.mark.asyncio
-async def test_impersonated_draft_preview_does_not_persist_lazy_initialization(
-    monkeypatch,
-):
-    """R9-N1-2: admin w „podglądzie jako” nie zapisuje szkicu za podglądanego."""
-    target = _user(UserRole.delivery_lead)
-    contract = SimpleNamespace(
-        id=17,
-        contract_type="b2b",
-        draft_content_html=None,
-        draft_template_id=None,
-        draft_updated_at=None,
-        draft_updated_by=None,
-    )
-    template = SimpleNamespace(
-        id=8,
-        name="B2B default",
-        contract_type="b2b",
-        content_jinja="<p>template</p>",
-        is_default=True,
-    )
-
-    async def load_contract(*_args, **_kwargs):
-        return contract
-
-    async def list_templates(*_args, **_kwargs):
-        return [template]
-
-    async def client_access(*_args, **_kwargs):
-        return None
-
-    class ReadOnlyDb:
-        def add(self, *_args, **_kwargs):
-            raise AssertionError("Preview GET must not add Activity")
-
-        async def flush(self):
-            raise AssertionError("Preview GET must not flush writes")
-
-        async def scalar(self, *_args, **_kwargs):
-            raise AssertionError("No updated_by lookup is expected")
-
-    monkeypatch.setattr(contracts, "_load_contract_with_relations", load_contract)
-    monkeypatch.setattr(
-        contracts, "_assert_contract_document_client_access", client_access
-    )
-    monkeypatch.setattr(
-        contracts, "_list_templates_for_contract_type", list_templates
-    )
-    monkeypatch.setattr(
-        contracts, "_render_draft_body", lambda *_args: "<p>Podgląd</p>"
-    )
-
-    response = await contracts.get_contract_draft(
-        17,
-        request=SimpleNamespace(state=SimpleNamespace(impersonator_id=1)),
-        current_user=target,
-        db=ReadOnlyDb(),
-    )
-
-    assert response.content_html == "<p>Podgląd</p>"
-    assert response.rendered_from_default is True
-    assert contract.draft_content_html is None
-    assert contract.draft_updated_by is None
-
-
-@pytest.mark.asyncio
-async def test_finance_draft_print_preview_does_not_persist_default_template(
-    monkeypatch,
-):
-    finance = _user(UserRole.finance)
-    contract = SimpleNamespace(
-        id=17,
-        contract_type="b2b",
-        draft_content_html=None,
-        draft_template_id=None,
-        draft_updated_at=None,
-        draft_updated_by=None,
-        candidate=SimpleNamespace(name="Jan", lastname="Kowalski"),
-    )
-    template = SimpleNamespace(
-        id=8,
-        name="B2B default",
-        contract_type="b2b",
-        content_jinja="<p>template</p>",
-        is_default=True,
-    )
-
-    async def load_contract(*_args, **_kwargs):
-        return contract
-
-    async def list_templates(*_args, **_kwargs):
-        return [template]
-
-    class ReadOnlyDb:
-        def add(self, *_args, **_kwargs):
-            raise AssertionError("Finance print GET must not add ORM rows")
-
-        async def flush(self):
-            raise AssertionError("Finance print GET must not flush writes")
-
-        async def commit(self):
-            raise AssertionError("Finance print GET must not commit writes")
-
-        async def refresh(self, *_args, **_kwargs):
-            raise AssertionError("Finance print GET must not refresh ORM rows")
-
-        async def scalar(self, *_args, **_kwargs):
-            raise AssertionError(
-                "Finance print GET must not query outside read helpers"
-            )
-
-    monkeypatch.setattr(contracts, "_load_contract_with_relations", load_contract)
-    monkeypatch.setattr(
-        contracts,
-        "_list_templates_for_contract_type",
-        list_templates,
-    )
-    monkeypatch.setattr(
-        contracts,
-        "_render_draft_body",
-        lambda *_args: "<p>Finance print preview</p>",
-    )
-
-    response = await contracts.render_draft_for_print(17, finance, ReadOnlyDb())
-
-    assert response.status_code == 200
-    assert b"Finance print preview" in response.body
-    assert contract.draft_content_html is None
-    assert contract.draft_template_id is None
-    assert contract.draft_updated_at is None
-    assert contract.draft_updated_by is None
-
-
-@pytest.mark.parametrize(
-    "endpoint",
-    [
-        contracts.create_contract,
-        contracts.delete_contract,
-        contracts.upload_contract_document,
-        contracts.create_contract_amendment,
-        contracts.create_onboarding_item,
-        contracts.create_contract_equipment,
-    ],
-)
-def test_contract_mutations_are_delivery_lead_plus(endpoint):
-    # Do 22.09.2026 TacPlus — TAC i tak odcinała sekcja Delivery (audyt U7).
-    assert _current_user_annotation(endpoint) == DeliveryLeadPlus
-
-
 def test_candidate_finance_read_is_split_from_candidate_finance_write():
     assert UserRole.finance in candidate_access.CANDIDATE_EXPORT_ROLES
     assert UserRole.finance in candidate_access.CANDIDATE_FINANCE_READ_ROLES
@@ -722,8 +518,16 @@ def test_candidate_finance_read_is_split_from_candidate_finance_write():
     assert _current_user_annotation(contracts.export_contracts) == FinanceReadUser
 
 
-def test_finance_contractor_scope_is_global():
-    assert UserRole.finance in contractors._FULL_VISIBILITY_ROLES
+@pytest.mark.asyncio
+async def test_finance_contractor_scope_is_global():
+    # Zakres rostera wyznacza portfel Delivery Leada. Finanse mają podgląd
+    # Delivery bez roli DL, więc czytają całą organizację: zapytanie wraca
+    # nietknięte i nikt nie pyta bazy o portfel (``db=None``).
+    finance = _user(UserRole.finance)
+    query = object()
+
+    contractors._require_contractor_access(finance)
+    assert await contractors._apply_contractor_scope(query, finance, None) is query
 
 
 @pytest.mark.asyncio
@@ -762,50 +566,155 @@ def test_finance_reads_client_overview_and_hiring_manager_reports():
     )
 
 
-def test_finance_reads_settings_audit_surfaces_without_gaining_mutations():
+def _with_permissions(user: User, *permissions: str) -> User:
+    """Konto z dołączoną polityką: uprawnienia z ekranu i wynikające z nich sekcje."""
+
+    from app.services import permission_catalog as catalog
+
+    held = catalog.close(permissions)
+    user.effective_action_access = {key: "manage" for key in held}
+    user.effective_section_access = catalog.derive_sections(held)
+    return user
+
+
+def test_finance_reads_global_chats_without_gaining_mutations():
     assert (
         _current_user_annotation(admin_chats.global_chats)
         == admin_chats.GlobalChatsReadUser
     )
-    for endpoint in (
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
         admin_client_portfolio.preview_client_portfolio_import,
         admin_client_portfolio.list_client_portfolio_import_runs,
         admin_client_portfolio.get_client_portfolio_import_run,
+    ],
+)
+async def test_client_portfolio_audit_follows_the_finance_module_permission(endpoint):
+    """Audyt importu portfela czyta posiadacz „Modułu Finanse”, nie lista ról."""
+
+    gate = _annotated_dependency(get_type_hints(endpoint, include_extras=True)["_user"])
+
+    for holder in (
+        _user(UserRole.admin),
+        _user(UserRole.finance),
+        # Uprawnienie nadane osobie spoza domyślnych ról.
+        _with_permissions(_user(UserRole.recruiter), "finance_module"),
     ):
-        assert (
-            get_type_hints(endpoint, include_extras=True)["_user"]
-            == admin_client_portfolio.ClientPortfolioReadUser
-        )
+        assert await gate(holder) is holder
+
+    for outsider in (
+        _user(UserRole.delivery_lead),
+        _user(UserRole.head_of_recruitment),
+        # Rola Finanse z wyłączonym przełącznikiem „Moduł Finanse”.
+        _with_permissions(_user(UserRole.finance), "delivery_view"),
+    ):
+        with pytest.raises(HTTPException) as denied:
+            await gate(outsider)
+        assert denied.value.status_code == 403
+        assert denied.value.detail["code"] == "permission_denied"
+        assert denied.value.detail["permission"] == "finance_module"
 
 
-def test_order_safe_gets_and_rate_bearing_documents_use_distinct_readers():
+@pytest.mark.asyncio
+async def test_order_safe_gets_and_rate_bearing_documents_use_distinct_readers():
+    """Listy czyta podgląd Delivery; eksporty i pliki — dopiero podgląd kwot."""
+
+    tcm = _user(UserRole.talent_community_manager)
+    viewer = _with_permissions(UserRole.recruiter, "delivery_view")
     for endpoint in (
         client_orders.list_contractors_with_orders,
         client_orders.list_active_contracts_for_extension,
         client_orders.get_order,
+        client_order_groups.list_order_groups,
+        client_order_groups.list_group_events,
+        client_order_groups.list_group_history,
+        client_order_groups.list_line_consumptions,
     ):
-        assert _user_annotation(endpoint) == client_orders.OrderSafeReadUser
+        for user in (tcm, viewer, _user(UserRole.finance)):
+            assert await _order_gate_refusal(endpoint, user) is None
+        refusal = await _order_gate_refusal(endpoint, _user(UserRole.recruiter))
+        assert refusal["permission"] == "delivery_view"
 
     for endpoint in (
+        client_orders.export_client_orders,
         client_orders.download_order_po,
         client_orders.list_contract_order_documents,
         client_orders.list_candidate_order_documents,
+        client_order_groups.export_order_groups,
+        client_order_groups.download_order_group_file,
     ):
-        assert _user_annotation(endpoint) == client_orders.UnifiedOrderExportReader
+        for role in (UserRole.admin, UserRole.finance, UserRole.delivery_lead):
+            assert await _order_gate_refusal(endpoint, _user(role)) is None
+        for user in (tcm, viewer):
+            refusal = await _order_gate_refusal(endpoint, user)
+            assert refusal["code"] == "permission_denied"
+            assert refusal["permission"] == "amounts_view"
 
-    assert (
-        _user_annotation(client_order_groups.list_consultant_options_for_client)
-        == client_order_groups.ConsultantOptionsReader
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        client_orders.create_order_extension,
+        client_orders.extract_order_pdf,
+        client_orders.close_order,
+        client_orders.delete_order,
+        client_orders.preview_order_deletion,
+        client_orders.create_contract_with_order,
+        client_orders.replace_order_po,
+        client_orders.delete_order_po,
+        client_order_groups.list_consultant_options_for_client,
+        client_order_groups.extract_order_group_pdf,
+        client_order_groups.create_order_group,
+        client_order_groups.replace_order_group_file,
+        client_order_groups.delete_order_group_file,
+        client_order_groups.delete_order_group,
+        client_order_groups.delete_line,
+        client_order_groups.keep_line_as_history,
+        client_order_groups.close_order_group,
+        client_order_groups.reopen_order_group,
+        client_order_groups.cancel_order_group,
+        client_order_groups.restore_order_group,
+        client_order_groups.extend_order_group,
+        client_order_groups.add_line,
+        client_order_groups.add_lines_batch,
+        client_order_groups.resolve_md_offboarding_case,
+        client_order_groups.take_over_consultant,
+        client_order_groups.swap_consultant,
+        client_order_groups.upsert_line_consumption,
+        client_order_groups.delete_line_consumption,
+    ],
+)
+async def test_order_writes_require_the_order_editing_permission(endpoint):
+    """Każdy zapis zamówień: „Kontrakty i zamówienia: tworzenie i edycja”."""
+
+    # Finanse dostały prowadzenie zamówień decyzją z 02.10.2026.
+    for role in (UserRole.admin, UserRole.delivery_lead, UserRole.finance):
+        assert await _order_gate_refusal(endpoint, _user(role)) is None
+    granted = _with_permissions(
+        UserRole.talent_community_manager, "delivery_view", "contracts_orders_edit"
     )
-    for endpoint in (
-        client_order_groups.list_order_groups,
-        client_order_groups.list_group_events,
+    assert await _order_gate_refusal(endpoint, granted) is None
+
+    for role in (
+        UserRole.talent_community_manager,
+        UserRole.head_of_recruitment,
+        UserRole.tac,
+        UserRole.recruiter,
     ):
-        assert _user_annotation(endpoint) == client_order_groups.OrderGroupSafeReadUser
-    assert (
-        _user_annotation(client_order_groups.add_line)
-        == client_order_groups.DeliveryLeadOrAdmin
+        refusal = await _order_gate_refusal(endpoint, _user(role))
+        assert refusal["code"] == "permission_denied"
+        assert refusal["permission"] == "contracts_orders_edit"
+        assert "Kontrakty i zamówienia: tworzenie i edycja" in refusal["message"]
+    # Rola Delivery Leada z wyłączonym prowadzeniem zamówień też odpada.
+    switched_off = _with_permissions(
+        UserRole.delivery_lead, "delivery_view", "amounts_view", "clients_edit"
     )
+    refusal = await _order_gate_refusal(endpoint, switched_off)
+    assert refusal["permission"] == "contracts_orders_edit"
 
 
 def test_tcm_order_projection_redacts_finance_and_file_metadata():
@@ -823,10 +732,9 @@ def test_tcm_order_projection_redacts_finance_and_file_metadata():
         size_bytes=1234,
     )
 
-    projected = client_orders._order_response_for_user(
-        order,
-        _user(UserRole.talent_community_manager),
-    )
+    # Konto, które nie widzi kwot klienta (domyślnie TCM), nie dostaje też
+    # metadanych pliku PO — przycisk kończyłby się odmową.
+    projected = client_orders._order_response_for_user(order, show_finance=False)
 
     assert projected.rate_candidate is None
     assert projected.rate_client is None
@@ -867,13 +775,32 @@ def test_tcm_group_projection_recursively_hides_file_metadata():
         assert projected.file_uploaded_at is None
 
 
-def test_finance_is_org_reader_for_my_clients_without_becoming_a_dl():
-    assert UserRole.finance in my_clients._MY_CLIENTS_ORGANIZATION_READ_ROLES
-    assert (
-        UserRole.talent_community_manager
-        in my_clients._MY_CLIENTS_ORGANIZATION_READ_ROLES
+@pytest.mark.asyncio
+async def test_finance_is_org_reader_for_my_clients_without_becoming_a_dl():
+    # „Moi klienci”: wejście daje podgląd Delivery (bramka trasy), a cała
+    # organizacja to brak portfela Delivery Leada — nie lista ról.
+    from app.services.client_access import reads_delivery_organization_wide
+
+    gate = _annotated_dependency(_user_annotation(my_clients.list_my_clients))
+    dashboard_gate = _annotated_dependency(
+        _current_user_annotation(my_clients.require_client_dashboard_access_after_merge)
     )
-    assert UserRole.recruiter not in my_clients._MY_CLIENTS_ORGANIZATION_READ_ROLES
+    assert dashboard_gate is gate
+
+    for role in (UserRole.finance, UserRole.talent_community_manager):
+        reader = _user(role)
+        assert await gate(reader) is reader
+        assert reads_delivery_organization_wide(reader)
+
+    with pytest.raises(HTTPException) as denied:
+        await gate(_user(UserRole.recruiter))
+    assert denied.value.status_code == 403
+    assert denied.value.detail["permission"] == "delivery_view"
+
+    # Delivery Lead wchodzi, ale zostaje przy swoim portfelu.
+    lead = _user(UserRole.delivery_lead)
+    assert await gate(lead) is lead
+    assert not reads_delivery_organization_wide(lead)
 
 
 @pytest.mark.asyncio
@@ -930,24 +857,6 @@ def test_champion_suggestion_detail_is_finance_read_and_actions_are_job_editors(
     ):
         # Od 22.09.2026 zespół rekrutacji też (zakres: ensure_champion_job_editor).
         assert _current_user_annotation(endpoint) == champion_suggestions.JobEditUser
-
-
-def test_contract_signature_reads_include_finance_without_signature_actions():
-    for endpoint in (
-        autenti.list_signatures_for_contract,
-        autenti.get_signature_detail,
-    ):
-        assert _current_user_annotation(endpoint) == autenti.ContractSignatureReadUser
-    for endpoint in (signing.list_signatures, signing.get_signature):
-        assert _current_user_annotation(endpoint) == signing.ContractSignatureReadUser
-
-    for endpoint in (
-        autenti.send_contract_for_signature,
-        autenti.withdraw_signature,
-        signing.send_for_signature,
-        signing.withdraw_signature,
-    ):
-        assert _current_user_annotation(endpoint) == DeliveryLeadPlus
 
 
 def test_finance_calendar_oversight_is_read_only():

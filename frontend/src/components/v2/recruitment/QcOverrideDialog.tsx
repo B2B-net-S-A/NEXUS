@@ -4,7 +4,8 @@
  * „Przepuść mimo QC” (decyzja Artura 02.10.2026): cztery gotowe powody, opis
  * wymagany tylko przy „Inny powód”, bez minimum znaków. Do 02.10 pole
  * wymagało 10 znaków i zbierało wpisy bez treści. Okno mówi wprost, z czym
- * CV pójdzie dalej. Tylko admin i Delivery Lead (serwer odmawia reszcie).
+ * CV pójdzie dalej. Tylko osoby z uprawnieniem „Rekrutacje: zakładanie,
+ * zamykanie, wysyłka CV do klienta” (serwer odmawia reszcie).
  */
 
 import { useId, useState } from "react";

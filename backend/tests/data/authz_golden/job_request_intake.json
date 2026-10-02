@@ -1,0 +1,34 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
+ ],
+ "routes": {
+  "GET /api/job-intake/handoff-options": "PDDPDDDDDDPPPDDDDDPDD",
+  "POST /api/job-intake/category-suggestion": "PDDPDDDDDDPPPDDDDDPDD",
+  "POST /api/job-intake/critical-suggestion": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/job-intake/public-draft": "PDDPDDDDDDPPPDDDDDPDD",
+  "POST /api/job-intake/read": "PDDPDDDDDDPPPDDDDDPDD",
+  "POST /api/job-intake/read-file": "PDDPDDDDDDPPPDDDDDPDD",
+  "POST /api/job-intake/requirement-rows": "PPPPPPPPDDPPPPPPPPPPP"
+ }
+}

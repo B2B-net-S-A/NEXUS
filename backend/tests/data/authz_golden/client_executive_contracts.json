@@ -1,0 +1,32 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
+ ],
+ "routes": {
+  "GET /api/clients/{client_id}/contract-structure": "PPDBPDDDDDBBBDPPPPDPP",
+  "GET /api/clients/{client_id}/executive-contracts/review": "PPDBPDDDDDBBBDPPPPDPP",
+  "PATCH /api/clients/{client_id}/executive-contracts/{ec_id}": "PPDBDDDDDDBBBDDPDDDDD",
+  "POST /api/clients/{client_id}/executive-contracts": "PPDBDDDDDDBBBDDPDDDDD",
+  "POST /api/clients/{client_id}/executive-contracts/assignments": "PPDBDDDDDDBBBDDPDDDDD"
+ }
+}

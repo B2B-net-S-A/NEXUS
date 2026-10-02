@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import os
 import tempfile
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Annotated, Literal, Optional
+from typing import Literal, Optional
 
 from fastapi import (
     APIRouter,
@@ -36,20 +36,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
-from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.contracts import (
     _normalize_contract_currency,
     _raise_currency_conflict,
     _reject_b2b_end_date,
 )
-from app.api.deps import DeliveryLeadOrAdmin, require_roles
 from app.api.financial_access import (
-    assert_finance_manager_touches_only_amounts,
+    assert_amounts_only,
     can_manage_finance_amounts,
-    require_roles_or_finance_manager,
+    can_read_client_finance,
+    can_write_order_amounts,
+    order_amounts_denied,
 )
 from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
+from app.api.permission_access import (
+    AmountsViewUser,
+    ClientContractsEditUser,
+    ContractsOrdersEditUser,
+    ContractsOrdersOrAmountsEditUser,
+    DeliveryViewUser,
+)
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
+from app.services.access_scope import resolve_delivery_lead_finance_client_ids
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.contract_lifecycle import (
     lock_contract_then_orders,
     sync_contract_to_live_order,
@@ -173,36 +182,18 @@ router = APIRouter(
 )
 
 
-# The combined export can contain group cards. The section gate narrows this
-# legacy role alias to Admin, Finance and Delivery Lead; standalone order items
-# still pass their own client-aware guards inside the handler below.
-# HoR i TAC zdjęci 22.09.2026 (audyt U7): nie mają sekcji Delivery, więc bramka
-# routera i tak ich odcinała — lista ról mówiła coś, czego kod nie robił.
-UnifiedOrderExportReader = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.finance,
-        )
-    ),
-]
-
-# Structured GET responses are finance-redacted below and may be shown to TCM.
-# Keep this distinct from ``UnifiedOrderExportReader``: exports and PO files are
-# opaque rate-bearing artefacts and deliberately do not admit TCM.
-OrderSafeReadUser = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.talent_community_manager,
-            UserRole.finance,
-        )
-    ),
-]
+# Trasy pytają o uprawnienie z ekranu Osoby i role (``permission_access``):
+#
+# * listy i szczegóły zamówień — „Klienci, kontrakty i zamówienia: podgląd”;
+#   odpowiedź jest redagowana z kwot i metadanych pliku dla kont, które nie
+#   widzą kwot tego klienta,
+# * eksport i pliki PO (nieprzejrzyste artefakty ze stawkami) — „Stawki
+#   i kwoty: podgląd”,
+# * każdy zapis — „Kontrakty i zamówienia: tworzenie i edycja”; PATCH wpuszcza
+#   też samą „Stawki i kwoty: zmiana”, wyłącznie dla pól kwot.
+#
+# Zakres klientów zostaje w handlerach: konto z rolą Delivery Leada działa
+# u klientów z portfela (bramka routera), a kwoty i pliki — u przypisanych.
 
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -266,12 +257,20 @@ async def _require_client_order_read(
     user,
     client_id: int,
 ) -> None:
-    """Require operational Delivery access before any order-specific guard."""
+    """Dokument zamówienia (plik PO, odczyt PDF-a) może nieść stawki.
+
+    Wymaga „Stawki i kwoty: podgląd” w zakresie klienta; odmowa nazywa
+    brakujące uprawnienie. Zapisy czysto operacyjne (zamówienie bez kwot
+    i bez pliku, zakończenie, usunięcie) tej bramki NIE wołają — tam wystarcza
+    uprawnienie trasy i zakres klienta z bramki routera.
+    """
 
     await _assert_client(db, client_id)
     access = await resolve_client_access(db, user, client_id)
     if not access.can_view_legal_documents:
-        raise deny("zamówienia klienta wymagają dostępu operacyjnego Delivery")
+        raise access.legal_denial(
+            "zamówienia klienta wymagają dostępu operacyjnego Delivery"
+        )
 
 
 async def _require_safe_client_order_read(
@@ -287,21 +286,57 @@ async def _require_safe_client_order_read(
         raise deny("zamówienia klienta wymagają dostępu operacyjnego do klienta")
 
 
-async def _can_read_order_file(db: AsyncSession, user: User, client_id: int) -> bool:
-    """Opaque PO files keep the assigned-client finance boundary for DLs."""
+@dataclass(frozen=True)
+class _OrderAmounts:
+    """Kwoty zamówień JEDNEGO klienta dla wołającego — liczone raz na żądanie.
 
-    dl_assigned = await _dl_assigned_to_client(db, user, client_id)
-    can_finance = _can_manage_order_finance(user, dl_assigned=dl_assigned)
-    return _order_finance_visible(user, can_finance=can_finance)
+    ``can_read``: stawki w odpowiedzi i plik PO („Moduł Finanse” albo „Stawki
+    i kwoty: podgląd” u klienta z przypisania). ``can_write``: zapis kwot
+    zamówienia („Stawki i kwoty: zmiana” albo prowadzenie zamówień razem
+    z podglądem kwot tego klienta — jak dotąd przypisany Delivery Lead).
+    """
+
+    can_read: bool
+    can_write: bool
+
+
+def _order_amounts_within(
+    user: User, client_id: int, boundary: frozenset[int] | None
+) -> _OrderAmounts:
+    return _OrderAmounts(
+        can_read=can_read_client_finance(
+            user, client_id=client_id, delivery_lead_finance_client_ids=boundary
+        ),
+        can_write=can_write_order_amounts(
+            user, client_id=client_id, delivery_lead_finance_client_ids=boundary
+        ),
+    )
+
+
+async def _order_amounts(db: AsyncSession, user: User, client_id: int) -> _OrderAmounts:
+    # Granica przypisań (razem ze scalonymi duplikatami klienta) — jedno
+    # zapytanie dla konta z rolą Delivery Leada, zero dla pozostałych.
+    boundary = await resolve_delivery_lead_finance_client_ids(user, db)
+    return _order_amounts_within(user, client_id, boundary)
 
 
 async def _require_order_file_read(
     db: AsyncSession,
     user: User,
     client_id: int,
+    *,
+    amounts: _OrderAmounts | None = None,
 ) -> None:
+    """Plik PO: podgląd kwot w zakresie klienta ORAZ kwoty TEGO klienta.
+
+    Druga połowa rozróżnia konto z rolą Delivery Leada, które klienta widzi,
+    ale nie jest do niego przypisane — pliki zostają przy przypisaniu.
+    """
+
     await _require_client_order_read(db, user, client_id)
-    if not await _can_read_order_file(db, user, client_id):
+    if amounts is None:
+        amounts = await _order_amounts(db, user, client_id)
+    if not amounts.can_read:
         raise deny("plik zamówienia z kwotami wymaga przypisania do klienta")
 
 
@@ -1169,6 +1204,9 @@ _CONTRACTOR_FINANCE_FIELDS = (
     "latest_order_rate_client",
     "latest_order_monthly_margin",
 )
+# Pola kwot zamówienia. Wszystkie opisują wyłącznie snapshot jednego zamówienia:
+# zmiana jednostki albo godzin przelicza jego dwie stawki, ale nie dotyka
+# Contract ani sąsiednich zamówień.
 _ORDER_FINANCE_WRITE_FIELDS = frozenset(
     {
         "rate_client",
@@ -1181,108 +1219,47 @@ _ORDER_FINANCE_WRITE_FIELDS = frozenset(
         "billing_hours_per_month",
     }
 )
-# Podzbiór, który wolno zapisać PRZYPISANEMU Delivery Leadowi. Admin ma pełen
-# zestaw. Wszystkie pola poniżej opisują wyłącznie snapshot jednego zamówienia;
-# zmiana jednostki przelicza jego dwie stawki, ale nie dotyka Contract ani
-# sąsiednich zamówień. Pozostałe admin-only pola nie są tu dopuszczane.
-_DL_ORDER_FINANCE_WRITE_FIELDS = frozenset(
-    {
-        "rate_client",
-        "rate_candidate",
-        "total_value",
-        "currency",
-        "rate_client_currency",
-        "rate_candidate_currency",
-        # These fields now describe one order snapshot; they no longer rewrite
-        # Contract or the history of sibling orders.
-        "rate_unit",
-        "billing_hours_per_month",
-    }
-)
 
 
-async def _dl_assigned_to_client(db: AsyncSession, user, client_id: int) -> bool:
-    """Czy ten user ma JAWNE przypisanie Delivery Leada do tego klienta.
+def amount_fields_forbidden(user, fields: list[str]) -> HTTPException:
+    """403 zapisu kwot zamówienia: stały kod i lista pól + czego brakuje.
 
-    Dostęp operacyjny do klienta jest globalny dla roli DL, ale ten helper
-    celowo zachowuje węższy wyjątek finansowy własnego portfela.
+    ``code`` i ``fields`` czyta frontend; ``message`` (oraz ``permission``
+    i ``label``, gdy brakuje uprawnienia) pochodzą z ``order_amounts_denied``:
+    kto prowadzi zamówienia bez podglądu kwot, dostaje nazwę „Stawki i kwoty:
+    podgląd”, a konto z rolą Delivery Leada poza przypisaniem — zdanie
+    o portfelu. Wspólne dla zamówień okresowych i linii MD.
     """
 
-    from app.models.team_structure import DeliveryLeadClientAssignment
-
-    row = await db.scalar(
-        select(DeliveryLeadClientAssignment.id).where(
-            DeliveryLeadClientAssignment.client_id == client_id,
-            DeliveryLeadClientAssignment.delivery_lead_user_id == user.id,
+    denial = order_amounts_denied(user).detail
+    detail: dict[str, object] = {"code": "finance_fields_forbidden", "fields": fields}
+    if isinstance(denial, dict):
+        detail.update(
+            message=denial["message"],
+            permission=denial["permission"],
+            label=denial["label"],
         )
-    )
-    return row is not None
-
-
-def _can_manage_order_finance(user, *, dl_assigned: bool) -> bool:
-    """Kto zapisuje kwoty na zamówieniach TEGO klienta.
-
-    Admin zawsze; Delivery Lead WYŁĄCZNIE na kliencie, do którego jest jawnie
-    przypisany. To rozszerzenie pierwotnej reguły „tylko admin" (F-13/P0.12):
-    DL prowadzi zamówienia klienta na co dzień i to on uzupełnia draft, więc
-    odsyłanie każdej stawki do admina zamieniało rejestr w prośbę o czynność,
-    której adresat nie mógł wykonać.
-
-    Predykat CELOWO sprawdza rolę i przypisanie niezależnie. TAC, HoR, TCM,
-    recruiter i sourcer: zawsze False.
-
-    Tego predykatu używa też kolejka poczty zamówień (zapis CAŁEGO zamówienia
-    z maila), więc NIE jest poszerzony o Finanse. Zapis samych kwot przez
-    ``MANAGE_FINANCE`` (decyzja 22.09.2026) rozstrzyga
-    ``_assert_order_finance_write_allowed``.
-    """
-
-    if user.has_role(UserRole.admin):
-        return True
-    return user.has_role(UserRole.delivery_lead) and dl_assigned
-
-
-def _order_finance_visible(user, *, can_finance: bool) -> bool:
-    """Czy pokazywać kwoty: klasyczne VIEW_FINANCE albo przypisany DL."""
-
-    return can_finance or user_has_capability(user, AnalyticsCapability.VIEW_FINANCE)
+    else:
+        detail["message"] = denial
+    return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
 def _assert_order_finance_write_allowed(
     user, supplied_fields, *, can_finance: bool = False
 ) -> None:
-    """Reject amount writes from operational-only roles before touching the DB.
+    """Odrzuć zapis kwot bez prawa do kwot zamówień, zanim cokolwiek dotknie bazy.
 
-    ``can_finance`` DOMYŚLNIE False i jest tylko ROZSZERZENIEM: admin przechodzi
-    niezależnie od niego. Dzięki temu endpoint, który zapomni policzyć flagę,
-    zamyka się dla wszystkich poza adminem, zamiast otwierać dla wszystkich —
-    bramka nie zależy od tego, czy wywołujący pamiętał o argumencie.
-
-    Przypisany Delivery Lead dostaje wyłącznie jawnie allowlistowane pola
-    finansowe zamówienia. Jednostka i godziny są snapshotem jednego zamówienia,
-    więc mogą być zmieniane razem ze stawkami bez przepisywania Contract ani
-    zamówień historycznych.
+    ``can_finance`` to ``_OrderAmounts.can_write`` dla klienta zamówienia.
+    DOMYŚLNIE False i jest tylko ROZSZERZENIEM: „Stawki i kwoty: zmiana” bez
+    portfela Delivery Leada przechodzi niezależnie od niego. Dzięki temu
+    endpoint, który zapomni policzyć flagę, zamyka się dla wszystkich poza
+    posiadaczami zmiany kwot, zamiast otwierać dla wszystkich — bramka nie
+    zależy od tego, czy wywołujący pamiętał o argumencie.
     """
 
-    full_finance = can_manage_finance_amounts(user)
-    allowed = (
-        _ORDER_FINANCE_WRITE_FIELDS
-        if full_finance
-        else (_DL_ORDER_FINANCE_WRITE_FIELDS if can_finance else frozenset())
-    )
-    forbidden = sorted(
-        set(supplied_fields).intersection(_ORDER_FINANCE_WRITE_FIELDS) - allowed
-    )
-    # Kwoty zamówienia zmieniają admin, Finanse (MANAGE_FINANCE, 22.09.2026)
-    # i przypisany Delivery Lead (węższa lista pól).
-    if forbidden:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "code": "finance_fields_forbidden",
-                "fields": forbidden,
-            },
-        )
+    forbidden = sorted(set(supplied_fields).intersection(_ORDER_FINANCE_WRITE_FIELDS))
+    if forbidden and not (can_finance or can_manage_finance_amounts(user)):
+        raise amount_fields_forbidden(user, forbidden)
 
 
 async def _assert_no_pending_group_line_offboarding(
@@ -1408,22 +1385,13 @@ def _redact_order_finance(order: ClientOrderRead) -> ClientOrderRead:
     return order
 
 
-def _is_read_only_tcm(user: User) -> bool:
-    """TCM ceiling for Delivery orders, irrespective of HoR/TAC secondary roles.
-
-    HoR and TAC do not independently enter Delivery, so only Admin, assigned
-    Delivery Lead, or Finance can supersede the TCM read-only projection here.
-    """
-
-    return user.has_role(UserRole.talent_community_manager) and not user.has_any_role(
-        UserRole.admin,
-        UserRole.delivery_lead,
-        UserRole.finance,
-    )
-
-
 def _redact_order_document_metadata(order: ClientOrderRead) -> ClientOrderRead:
-    """Hide affordances for PO files that the TCM role cannot download."""
+    """Hide affordances for PO files that the caller cannot download.
+
+    Plik PO niesie stawki, więc pobiera go ten, kto widzi kwoty klienta
+    (``_OrderAmounts.can_read``). Pozostali nie dostają też nazwy ani rozmiaru
+    pliku — przycisk kończyłby się odmową.
+    """
 
     order.filename = None
     order.has_file = False
@@ -1442,13 +1410,17 @@ def _redact_contractor_finance(item: ContractWithOrdersRead) -> ContractWithOrde
 
 def _order_response_for_user(
     order: ClientOrderRead,
-    user,
     *,
-    can_finance: bool = False,
+    show_finance: bool = False,
 ) -> ClientOrderRead:
-    if not _order_finance_visible(user, can_finance=can_finance):
+    """Zamówienie dla wołającego: bez ``show_finance`` znikają kwoty i plik PO.
+
+    ``show_finance`` to ``_OrderAmounts.can_read``. Domyślnie False — handler,
+    który zapomni policzyć flagę, oddaje odpowiedź zredagowaną.
+    """
+
+    if not show_finance:
         _redact_order_finance(order)
-    if _is_read_only_tcm(user):
         _redact_order_document_metadata(order)
     return order
 
@@ -1580,7 +1552,7 @@ async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRea
 )
 async def get_client_default_rate_unit(
     client_id: int,
-    user: OrderSafeReadUser,
+    user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Jednostka stawki proponowana domyślnie w formularzach zamówień klienta.
@@ -1602,7 +1574,7 @@ async def get_client_default_rate_unit(
 @router.get("/{client_id}/orders", response_model=ClientOrdersGroupedResponse)
 async def list_contractors_with_orders(
     client_id: int,
-    user: OrderSafeReadUser,
+    user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Zwraca listę kontraktorów (per Contract) z historią Orderów per Contract.
@@ -1733,14 +1705,10 @@ async def list_contractors_with_orders(
             )
         )
 
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-    )
-    if not _order_finance_visible(user, can_finance=can_finance):
+    amounts = await _order_amounts(db, user, client_id)
+    if not amounts.can_read:
         for item in items:
             _redact_contractor_finance(item)
-    if _is_read_only_tcm(user):
-        for item in items:
             for order in item.orders:
                 _redact_order_document_metadata(order)
 
@@ -1751,7 +1719,7 @@ async def list_contractors_with_orders(
         # czy pokazać pola stawek — i pokazywałby kontrolkę, która kończy się
         # 403 na zapisie. Cała zakładka dotyczy jednego klienta, więc jedna
         # flaga na odpowiedź wystarcza.
-        can_manage_finance=can_finance,
+        can_manage_finance=amounts.can_write,
         nordea_order_import_enabled=is_client_in_policy("nordea", client_id),
         shared_md_pool_client=client_uses_shared_md_pool(client_id),
     )
@@ -1761,7 +1729,7 @@ async def list_contractors_with_orders(
 async def export_client_orders(
     client_id: int,
     payload: ClientOrderExportRequest,
-    user: UnifiedOrderExportReader,
+    user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Export exactly the ordered rows visible in the unified client view.
@@ -1792,18 +1760,9 @@ async def export_client_orders(
 
     orders_by_id: dict[int, tuple[ContractWithOrdersRead, ClientOrderRead]] = {}
     if not unified or requested_order_ids:
-        # Standalone order rows use the same business-read audience as the
-        # unified order list. Finance is organization-wide; Delivery Lead still
-        # passes the normal client-assignment resolver inside the list handler.
-        if not user.has_any_role(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.finance,
-        ):
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
-                detail="Brak dostępu do zamówień okresowych tego klienta",
-            )
+        # Standalone order rows reuse the unified order list: its client guard
+        # and its per-client amount redaction („Stawki i kwoty: podgląd” na
+        # trasie mówi, że konto widzi kwoty; lista — czy u TEGO klienta).
         grouped = await list_contractors_with_orders(client_id, user, db)
         for contractor in grouped.contractors:
             for order in contractor.orders:
@@ -1998,7 +1957,7 @@ async def export_client_orders(
 )
 async def list_active_contracts_for_extension(
     client_id: int,
-    user: OrderSafeReadUser,
+    user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Lista aktywnych Contractów + ich latest Order — dla autocomplete w
@@ -2020,7 +1979,7 @@ async def list_active_contracts_for_extension(
 async def get_order(
     client_id: int,
     order_id: int,
-    user: OrderSafeReadUser,
+    user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _require_safe_client_order_read(db, user, client_id)
@@ -2037,15 +1996,10 @@ async def get_order(
     )
     if order is None:
         raise HTTPException(404, detail="Order not found")
-    result = await _order_to_read(db, order)
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
+    amounts = await _order_amounts(db, user, client_id)
+    return _order_response_for_user(
+        await _order_to_read(db, order), show_finance=amounts.can_read
     )
-    if not _order_finance_visible(user, can_finance=can_finance):
-        _redact_order_finance(result)
-    if _is_read_only_tcm(user):
-        _redact_order_document_metadata(result)
-    return result
 
 
 @router.post(
@@ -2055,7 +2009,7 @@ async def get_order(
 )
 async def create_order_extension(
     client_id: int,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
     file: Optional[UploadFile] = File(None),
     contract_id: int = Form(...),
@@ -2111,14 +2065,14 @@ async def create_order_extension(
         )
     _assert_order_period(start_date, end_date)
     await _assert_job_of_client(db, client_id, job_id)
+    amounts = await _order_amounts(db, user, client_id)
     if file is not None:
-        await _require_order_file_read(db, user, client_id)
+        # Plik PO niesie stawki — wymaga podglądu kwot klienta. Samo
+        # zamówienie bez kwot i bez pliku zakłada każdy, kto prowadzi zamówienia.
+        await _require_order_file_read(db, user, client_id, amounts=amounts)
     _assert_allowed_order_type(client_id, order_type)
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-    )
     _assert_order_finance_write_allowed(
-        user, supplied_finance_fields, can_finance=can_finance
+        user, supplied_finance_fields, can_finance=amounts.can_write
     )
 
     # Umowa wykonawcza — wymagana dla Centrum e-Zdrowia (także przy
@@ -2365,7 +2319,7 @@ async def create_order_extension(
     await db.refresh(order)
     await commit_order_write(db)
     return _order_response_for_user(
-        await _order_to_read(db, order), user, can_finance=can_finance
+        await _order_to_read(db, order), show_finance=amounts.can_read
     )
 
 
@@ -2376,7 +2330,7 @@ async def create_order_extension(
 )
 async def extract_order_pdf(
     client_id: int,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
     candidate_id: Optional[int] = Form(None, gt=0),
@@ -2390,12 +2344,14 @@ async def extract_order_pdf(
     dokładnie jednym wierszem osoby w zamówieniu wieloosobowym; brak lub
     niejednoznaczność zostawia oba pola puste. Przy jakiejkolwiek niepewności
     ``uncertain=True`` → front pokazuje baner „Sprawdź dane!". Kwoty zredagowane
-    dla ról bez VIEW_FINANCE.
+    dla kont, które nie widzą kwot tego klienta.
 
-    Bramkowane: Delivery Lead lub Admin, plus quota AI
+    Bramkowane: „Kontrakty i zamówienia: tworzenie i edycja” oraz — bo
+    dokument niesie stawki — „Stawki i kwoty: podgląd” w zakresie klienta
+    (ta sama bramka co ``/order-groups/extract``), plus quota AI
     ``AIFeatureKey.order_parser`` (master → feature → miesięczny limit).
     """
-    await _assert_client(db, client_id)
+    await _require_client_order_read(db, user, client_id)
 
     target_consultant: Optional[str] = None
     target_given_names: Optional[str] = None
@@ -2540,9 +2496,9 @@ async def extract_order_pdf(
     # MD bywa jedną liczbą na całe zamówienie) — `drop_md_absence_reasons`.
     extraction = drop_md_absence_reasons(extraction)
 
-    # Finance redaction — kwoty widzą tylko role z VIEW_FINANCE (spójne z
-    # _order_response_for_user). Redagujemy NIE TYLKO wartości pól, ale też
-    # kanały poboczne, które zdradzałyby sygnał finansowy roli bez VIEW_FINANCE:
+    # Finance redaction — kwoty widzi tylko konto z kwotami tego klienta (spójne
+    # z _order_response_for_user). Redagujemy NIE TYLKO wartości pól, ale też
+    # kanały poboczne, które zdradzałyby sygnał finansowy kontu bez kwot:
     #  - fields_confidence z kluczami finansowymi (np. {"rate_client": 0.97})
     #    ujawnia, że PO zawiera stawkę i jak pewnie ją odczytano;
     #  - uncertain_reasons to tekst (regułowy „Niepewny odczyt: stawka…" ORAZ
@@ -2551,12 +2507,7 @@ async def extract_order_pdf(
     # Bramka MUSI być tą samą zmienną co przy kwotach — dwa niezależne
     # sprawdzenia dałyby stan, w którym przypisany DL widzi stawkę, ale nie
     # pewność jej odczytu (albo odwrotnie).
-    show_finance = _order_finance_visible(
-        user,
-        can_finance=_can_manage_order_finance(
-            user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-        ),
-    )
+    show_finance = (await _order_amounts(db, user, client_id)).can_read
     if show_finance:
         reasons = extraction.uncertain_reasons
         confidence = extraction.confidence
@@ -2618,33 +2569,26 @@ async def extract_order_pdf(
     return result
 
 
-# PATCH zamówienia: admin / Delivery Lead jak dotąd albo Finanse
-# z MANAGE_FINANCE — te ostatnie wyłącznie dla pól kwot (22.09.2026).
-OrderPatchUser = Annotated[
-    User, Depends(require_roles_or_finance_manager(UserRole.delivery_lead))
-]
-
-
+# PATCH zamówienia to trasa mieszana: prowadzenie zamówień („Kontrakty
+# i zamówienia: tworzenie i edycja”) albo sama „Stawki i kwoty: zmiana” —
+# ta druga wyłącznie dla pól kwot (decyzja 22.09.2026).
 @router.patch("/{client_id}/orders/{order_id}", response_model=ClientOrderRead)
 async def update_order(
     client_id: int,
     order_id: int,
     payload: ClientOrderUpdate,
-    user: OrderPatchUser,
+    user: ContractsOrdersOrAmountsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
-    assert_finance_manager_touches_only_amounts(
-        user,
+    assert_amounts_only(
         payload.model_fields_set,
         _ORDER_FINANCE_WRITE_FIELDS,
-        operational_roles=(UserRole.delivery_lead,),
+        can_edit_record=has_permission(user, ProductAction.contracts_orders_edit),
     )
     await _assert_client(db, client_id, for_write=True)
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-    )
+    amounts = await _order_amounts(db, user, client_id)
     _assert_order_finance_write_allowed(
-        user, payload.model_fields_set, can_finance=can_finance
+        user, payload.model_fields_set, can_finance=amounts.can_write
     )
     await lock_contract_then_orders(db, order_ids=[order_id])  # kontrakt → zamówienie
     order = await db.scalar(
@@ -3002,7 +2946,7 @@ async def update_order(
     await commit_order_write(db)
     await db.refresh(order)
     return _order_response_for_user(
-        await _order_to_read(db, order), user, can_finance=can_finance
+        await _order_to_read(db, order), show_finance=amounts.can_read
     )
 
 
@@ -3014,7 +2958,7 @@ async def close_order(
     client_id: int,
     order_id: int,
     payload: ClientOrderClose,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Zakończ JEDNO zamówienie — bez dotykania umowy i pozostałych zamówień.
@@ -3132,11 +3076,9 @@ async def close_order(
     await db.flush()
     await db.refresh(order)
     await commit_order_write(db)
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-    )
+    amounts = await _order_amounts(db, user, client_id)
     return _order_response_for_user(
-        await _order_to_read(db, order), user, can_finance=can_finance
+        await _order_to_read(db, order), show_finance=amounts.can_read
     )
 
 
@@ -3144,7 +3086,7 @@ async def close_order(
 async def delete_order(
     client_id: int,
     order_id: int,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Usuń JEDNO zamówienie — bez żadnych skutków dla innych zamówień i umowy.
@@ -3283,7 +3225,10 @@ def is_draft_card(contract: Contract) -> bool:
 async def dismiss_draft_card(
     client_id: int,
     contract_id: int,
-    user: DeliveryLeadOrAdmin,
+    # Prowadzenie zamówień u klienta z PRZYPISANIA: konto z rolą Delivery
+    # Leada usuwa kartę wyłącznie u swojego klienta (razem ze scalonymi
+    # duplikatami), pozostali posiadacze uprawnienia — u każdego.
+    user: ClientContractsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """„Usuń szkic" — pusta karta kontraktora znika z zakładki Zamówienia.
@@ -3295,11 +3240,6 @@ async def dismiss_draft_card(
     Karta z zamówieniem innym niż szkic → 409: to nie jest szkic.
     """
     client = await _assert_client(db, client_id)
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-    )
-    if not can_finance:
-        raise deny("szkic karty usuwa administrator albo Delivery Lead klienta")
     contract = await db.scalar(
         select(Contract)
         .options(selectinload(Contract.client_orders))
@@ -3375,7 +3315,7 @@ async def dismiss_draft_card(
 async def preview_order_deletion(
     client_id: int,
     order_id: int,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
     context: Literal["order", "group_line"] = Query("order"),
 ):
@@ -3394,8 +3334,8 @@ async def preview_order_deletion(
     kontraktów ma więcej niż jeden, 5 z RÓŻNYMI stawkami (np. kontrakt 167:
     usunięcie zamówienia 351 przecenia marzec–sierpień z 185,00 na 178,00 zł/h).
 
-    Kwoty są redagowane tak jak wszędzie w module (``_can_see_finance``):
-    rola bez finansów widzi, ŻE stawka się zmieni, i od kiedy — bez kwot.
+    Kwoty są redagowane tak jak wszędzie w module (``_OrderAmounts.can_read``):
+    konto bez kwot klienta widzi, ŻE stawka się zmieni, i od kiedy — bez kwot.
 
     ``context=group_line`` (audyt 22.09 r2, FE-N02): podgląd dla kosza linii
     w zakładce zamówień MD/kosztowych, która woła ``DELETE …/lines/{id}``.
@@ -3412,9 +3352,7 @@ async def preview_order_deletion(
     if order is None:
         raise HTTPException(404, detail="Order not found")
 
-    from app.api.client_order_groups import _can_see_finance
-
-    with_finance = await _can_see_finance(db, user, client_id)
+    with_finance = (await _order_amounts(db, user, client_id)).can_read
     blockers = await settlement_blockers(db, [order.id])
 
     steps = list(
@@ -3506,7 +3444,7 @@ async def preview_order_deletion(
 async def download_order_po(
     client_id: int,
     order_id: int,
-    user: UnifiedOrderExportReader,
+    user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _require_order_file_read(db, user, client_id)
@@ -3563,7 +3501,7 @@ def _order_to_document_item(order: ClientOrder) -> OrderDocumentItem:
 )
 async def list_contract_order_documents(
     contract_id: int,
-    user: UnifiedOrderExportReader,
+    user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """PO PDF-y zamówień danego kontraktu — sekcja „Dokumenty zamówień" w
@@ -3616,7 +3554,7 @@ async def list_contract_order_documents(
 )
 async def list_candidate_order_documents(
     candidate_id: int,
-    user: UnifiedOrderExportReader,
+    user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """PO PDF-y wszystkich zamówień osoby/kontraktora — sekcja „Dokumenty
@@ -3647,15 +3585,12 @@ async def list_candidate_order_documents(
         .all()
     )
 
-    access_cache: dict[int, bool] = {}
-    visible: list[OrderDocumentItem] = []
-    for o in orders:
-        can = access_cache.get(o.client_id)
-        if can is None:
-            can = await _can_read_order_file(db, user, o.client_id)
-            access_cache[o.client_id] = can
-        if can:
-            visible.append(_order_to_document_item(o))
+    boundary = await resolve_delivery_lead_finance_client_ids(user, db)
+    visible = [
+        _order_to_document_item(o)
+        for o in orders
+        if _order_amounts_within(user, o.client_id, boundary).can_read
+    ]
     return OrderDocumentsResponse(documents=visible)
 
 
@@ -3670,7 +3605,7 @@ async def list_candidate_order_documents(
 async def create_contract_with_order(
     client_id: int,
     payload: NewContractorOrderRequest,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Flow B — "Nowy kontraktor / zamówienie": atomic Contract + Order create."""
@@ -3691,11 +3626,9 @@ async def create_contract_with_order(
                 "kosztowe lub MD utwórz jako grupę i dodaj konsultanta."
             ),
         )
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-    )
+    amounts = await _order_amounts(db, user, client_id)
     contract_finance_kwargs, order_finance_kwargs = _flow_b_finance_kwargs(
-        payload, user, can_finance=can_finance
+        payload, user, can_finance=amounts.can_write
     )
 
     # Jednostka stawki NIE jest już twardo `monthly`. Jeśli wywołujący ją podał
@@ -3822,7 +3755,7 @@ async def create_contract_with_order(
 
     # Callers without finance access never receive a computed/inferred value.
     monthly_margin: Optional[Decimal | int] = None
-    if can_finance:
+    if amounts.can_read:
         # Umowa powstała przed chwilą w tym żądaniu, więc jej harmonogramy
         # stawek nie są wczytane — a `effective_rate_fields` sięga po nie
         # atrybutem i lazy-load na sesji async to `MissingGreenlet` (500 bez
@@ -3851,7 +3784,7 @@ async def create_contract_with_order(
 async def replace_order_po(
     client_id: int,
     order_id: int,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
 ):
@@ -3928,11 +3861,9 @@ async def replace_order_po(
     if superseded_path:
         storage_service.delete_client_order_po(superseded_path)
     await db.refresh(order)
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-    )
+    amounts = await _order_amounts(db, user, client_id)
     return _order_response_for_user(
-        await _order_to_read(db, order), user, can_finance=can_finance
+        await _order_to_read(db, order), show_finance=amounts.can_read
     )
 
 
@@ -3943,7 +3874,7 @@ async def replace_order_po(
 async def delete_order_po(
     client_id: int,
     order_id: int,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Usuń wyłącznie aktualny PDF zamówienia, bez zmiany innych pól."""

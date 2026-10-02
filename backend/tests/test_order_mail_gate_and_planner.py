@@ -879,8 +879,9 @@ def test_queue_redacts_amounts_and_other_clients_for_roles_without_finance():
     assert dl["rows"][0]["rate_client"] == "900"  # przypisany DL widzi kwoty
     assert "Bank Inny" not in str(dl)
     assert dl["rows"][0]["existing_person_ids"] == [7]
+    # Konto bez „Stawki i kwoty: podgląd” (domyślnie TCM): bezpieczna projekcja.
     tcm = _redact_proposal(
-        proposal, show_finance=False, read_only_tcm=True, hide_other_clients=True
+        proposal, show_finance=False, safe_projection=True, hide_other_clients=True
     )
     row = tcm["rows"][0]
     assert (row["rate_client"], row["total_value"], row["currency"]) == (None,) * 3

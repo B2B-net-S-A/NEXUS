@@ -340,47 +340,44 @@ async def test_get_order_shows_finance_to_assigned_delivery_lead(
     assert body["rate_client"] is not None
 
 
-async def test_head_of_recruitment_never_gains_order_finance(
-    app_client: AsyncClient,
-) -> None:
+async def test_head_of_recruitment_never_gains_order_finance() -> None:
     """HoR nie zyskuje kwot ani ich zapisu przy poszerzeniu dla DL.
 
-    Sekcja Delivery odcina HoR przed handlerem, a lokalny predykat pozostaje
-    drugą warstwą: samo przekazanie ``dl_assigned=True`` nie może zmienić
-    innej persony w Delivery Leada.
+    Sekcja Delivery odcina HoR przed handlerem, a lokalna reguła pozostaje
+    drugą warstwą: sam klient „w granicy przypisań" nie może zmienić innej
+    persony w Delivery Leada — bez uprawnień do zamówień i kwot nie ma ani
+    odczytu, ani zapisu kwot.
     """
     from app.api import client_orders
+    from app.models.user import User
     from app.models.user import UserRole as Role
 
-    class _FakeUser:
-        def __init__(self, role: Role) -> None:
-            self._roles = {role}
+    def _account(role: Role) -> User:
+        return User(
+            id=1, email=f"{role.value}@example.com", role=role, roles=[role.value]
+        )
 
-        def has_role(self, role: Role) -> bool:
-            return role in self._roles
-
-        def get_all_roles(self) -> list[Role]:
-            return list(self._roles)
-
+    client_id = 77
     for role in (Role.head_of_recruitment, Role.tac, Role.recruiter):
-        assert (
-            client_orders._can_manage_order_finance(_FakeUser(role), dl_assigned=True)
-            is False
-        ), f"{role.value} nie może zarządzać kwotami zamówień"
+        amounts = client_orders._order_amounts_within(
+            _account(role), client_id, frozenset({client_id})
+        )
+        assert amounts.can_write is False, (
+            f"{role.value} nie może zarządzać kwotami zamówień"
+        )
+        assert amounts.can_read is False, f"{role.value} nie widzi kwot zamówień"
 
     # A przypisany DL — może; nieprzypisany nie.
-    assert (
-        client_orders._can_manage_order_finance(
-            _FakeUser(Role.delivery_lead), dl_assigned=True
-        )
-        is True
+    lead = _account(Role.delivery_lead)
+    assigned = client_orders._order_amounts_within(
+        lead, client_id, frozenset({client_id})
     )
-    assert (
-        client_orders._can_manage_order_finance(
-            _FakeUser(Role.delivery_lead), dl_assigned=False
-        )
-        is False
-    )
+    assert assigned.can_write is True and assigned.can_read is True
+    unassigned = client_orders._order_amounts_within(lead, client_id, frozenset({5}))
+    assert unassigned.can_write is False and unassigned.can_read is False
+    # Brak granicy u konta z rolą DL to błąd wołającego — kończy się odmową.
+    missing = client_orders._order_amounts_within(lead, client_id, None)
+    assert missing.can_write is False and missing.can_read is False
 
 
 async def test_only_assigned_delivery_lead_can_rewrite_order_rate_unit(

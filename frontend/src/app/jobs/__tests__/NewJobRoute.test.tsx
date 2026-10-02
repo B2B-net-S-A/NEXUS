@@ -8,7 +8,11 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { useAuthStore, type User } from "@/store/auth";
+import {
+  accessSnapshot,
+  type AccessSnapshotOptions,
+} from "@/lib/__tests__/fixtures/access-snapshot";
+import { useAuthStore, type User, type UserRole } from "@/store/auth";
 
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -33,6 +37,11 @@ function user(role: "admin" | "recruiter"): User {
     force_password_change: false,
     force_password_change_at: null,
   } as User;
+}
+
+/** Konto po `GET /api/auth/me`: z nadanym albo wyłączonym uprawnieniem. */
+function account(role: UserRole, options: AccessSnapshotOptions = {}): User {
+  return { ...user("recruiter"), email: `${role}@example.com`, name: role, ...accessSnapshot(role, options) };
 }
 
 afterEach(() => {
@@ -60,6 +69,40 @@ describe("/jobs/new — okno przed hydracją", () => {
 
   it("bez job.create — nic i przekierowanie na listę", () => {
     useAuthStore.setState({ user: user("recruiter"), hydrated: true });
+    const { container } = render(<NewJobRoute />);
+    expect(container).toBeEmptyDOMElement();
+    expect(replace).toHaveBeenCalledWith("/jobs");
+  });
+
+  it("rekruter z nadanym uprawnieniem do rekrutacji dostaje formularz", () => {
+    useAuthStore.setState({
+      user: account("recruiter", { grant: ["recruitment_manage"] }),
+      hydrated: true,
+    });
+    render(<NewJobRoute />);
+    expect(screen.getByTestId("new-job-page")).toBeInTheDocument();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("Delivery Lead z wyłączonym uprawnieniem wraca na listę, z domyślnym — zostaje", () => {
+    useAuthStore.setState({
+      user: account("delivery_lead", { revoke: ["recruitment_manage"] }),
+      hydrated: true,
+    });
+    const revoked = render(<NewJobRoute />);
+    expect(revoked.container).toBeEmptyDOMElement();
+    expect(replace).toHaveBeenCalledWith("/jobs");
+    revoked.unmount();
+    replace.mockReset();
+
+    useAuthStore.setState({ user: account("delivery_lead"), hydrated: true });
+    render(<NewJobRoute />);
+    expect(screen.getByTestId("new-job-page")).toBeInTheDocument();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("TAC ma pełną edycję rekrutacji, ale nowej nie zakłada", () => {
+    useAuthStore.setState({ user: account("tac"), hydrated: true });
     const { container } = render(<NewJobRoute />);
     expect(container).toBeEmptyDOMElement();
     expect(replace).toHaveBeenCalledWith("/jobs");

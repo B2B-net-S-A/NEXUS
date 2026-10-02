@@ -13,7 +13,9 @@ from app.models.m365 import M365Connection, M365SyncStatus
 from app.models.recruitment_pipeline import PipelineStage
 from app.models.rejection_email import RejectionEmailStatus
 from app.models.section_permission import (
+    RoleActionPermission,
     RoleSectionPermission,
+    UserActionOverride,
     UserSectionOverride,
 )
 from app.models.user import User, UserRole
@@ -26,6 +28,15 @@ from app.services.section_permissions import (
     ProductSection,
 )
 from app.tasks import m365_cv_parse, microsoft365_sync
+
+# Resolver dostępu czyta sekcje i akcje jednym wejściem. Atrapa zwraca tylko
+# wiersze sekcji — rola bez wierszy akcji jest liczona regułą zasiewu.
+POLICY_ENTITIES = {
+    RoleActionPermission,
+    RoleSectionPermission,
+    UserActionOverride,
+    UserSectionOverride,
+}
 
 
 def _user(role: UserRole) -> User:
@@ -71,7 +82,7 @@ def _policy_db() -> AsyncMock:
     async def _scalars(statement):
         entity = statement.column_descriptions[0].get("entity")
         rows = role_rows if entity is RoleSectionPermission else []
-        assert entity in {RoleSectionPermission, UserSectionOverride}
+        assert entity in POLICY_ENTITIES
         return SimpleNamespace(all=lambda: rows)
 
     db.scalars.side_effect = _scalars

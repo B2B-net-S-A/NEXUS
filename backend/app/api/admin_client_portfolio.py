@@ -3,11 +3,14 @@
 The first rollout intentionally exposes only planning and historical run
 inspection.  Applying the checked-in manifest is wired in the cutover rollout,
 after this preview has been exercised against production data.
+
+Reads belong to the Finance module: the „Moduł Finanse” permission from the
+Osoby i role screen (``FinanceModuleUser``; admin and Finance by default).
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -15,18 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
-from app.api.deps import require_roles
+from app.api.deps import FinanceModuleUser
 from app.core.database import get_db
 from app.models.client_directory import ClientImportRun
-from app.models.user import User, UserRole
 from app.services.client_portfolio_import import build_client_portfolio_plan
 
 router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
-
-ClientPortfolioReadUser = Annotated[
-    User,
-    Depends(require_roles(UserRole.admin, UserRole.finance)),
-]
 
 
 def _run_payload(run: ClientImportRun, *, include_rows: bool = False) -> dict[str, Any]:
@@ -68,7 +65,7 @@ def _run_payload(run: ClientImportRun, *, include_rows: bool = False) -> dict[st
 
 @router.get("/import-preview")
 async def preview_client_portfolio_import(
-    _user: ClientPortfolioReadUser,
+    _user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Build the deterministic production plan without writing any data."""
@@ -78,7 +75,7 @@ async def preview_client_portfolio_import(
 
 @router.get("/import-runs")
 async def list_client_portfolio_import_runs(
-    _user: ClientPortfolioReadUser,
+    _user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
@@ -97,7 +94,7 @@ async def list_client_portfolio_import_runs(
 @router.get("/import-runs/{run_id}")
 async def get_client_portfolio_import_run(
     run_id: int,
-    _user: ClientPortfolioReadUser,
+    _user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     run = await db.scalar(

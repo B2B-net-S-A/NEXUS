@@ -99,14 +99,17 @@ from app.api.deps import (
     RecruiterPlus,
     require_roles,
 )
+from app.api.permission_access import RecruitmentManageUser
+from app.services.action_permissions import ProductAction, has_permission
+from app.services.permission_denial import ensure_permission
 from app.services.auto_assign_owners import resolve_default_owners
 from app.services.client_access import assert_client_assignable
 from app.api.notifications import create_notification
 from app.api.recruitment_access import (
-    JOB_FULL_EDIT_ROLES,
-    JOB_STAFFING_ROLES,
+    JOB_FULL_EDIT_LEGACY_ROLES,
     JobEditLevel,
     JobEditUser,
+    JobStaffingUser,
     assert_delivery_lead_job_visible,
     delivery_lead_job_pairs,
     ensure_champion_job_editor,
@@ -308,19 +311,30 @@ def _history_entry_payload(entry, *, show_fee: bool) -> dict:
     return data
 
 
+def _may_write_salary_range(current_user: User) -> bool:
+    """Widełki wynagrodzenia zostają przy roli: admin albo TAC.
+
+    Do 0410 rekrutację zakładał tylko admin i Delivery Lead, więc wystarczało
+    odmówić DL/TCM. Uprawnienie „Rekrutacje” może dostać każda rola — nadanie
+    nie może dawać więcej niż ma jego domyślny posiadacz (Delivery Lead).
+    """
+
+    if current_user.has_role(UserRole.admin):
+        return True
+    return current_user.has_role(UserRole.tac) and not current_user.has_any_role(
+        UserRole.delivery_lead,
+        UserRole.talent_community_manager,
+    )
+
+
 def _assert_delivery_lead_finance_write(
     fields_set: set[str],
     current_user: User,
 ) -> None:
-    """DL/TCM may never create or mutate recruitment budget fields."""
+    """Only admin or TAC may create or mutate recruitment budget fields."""
 
-    if (
-        current_user.has_any_role(
-            UserRole.delivery_lead,
-            UserRole.talent_community_manager,
-        )
-        and not current_user.has_role(UserRole.admin)
-        and {"salary_min", "salary_max"} & fields_set
+    if {"salary_min", "salary_max"} & fields_set and not _may_write_salary_range(
+        current_user
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1999,7 +2013,7 @@ def _normalize_office_days_for_update(job: Job, updates: dict) -> None:
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(
     data: JobCreate,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentManageUser,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
@@ -2069,11 +2083,9 @@ async def create_job(
         ):
             payload["champion_profile"] = dict(src_job.champion_profile)
 
-    if current_user.has_role(UserRole.delivery_lead) and not current_user.has_role(
-        UserRole.admin
-    ):
+    if data.from_job_id is not None and not _may_write_salary_range(current_user):
         # A template must not become a side channel for copying recruitment
-        # budget fields into a DL-created role.
+        # budget fields into a role created by someone who may not set them.
         payload["salary_min"] = None
         payload["salary_max"] = None
 
@@ -2600,11 +2612,13 @@ async def update_job(
     # Zmiana rekrutera rusza przypisania do requestu, a te chroni blokada
     # przydziału — bierzemy ją PRZED wierszem rekrutacji (kolejność z
     # `allocation_lock`, ta sama co `/owner`) i tylko gdy żądanie niesie to pole.
-    # Rekrutera zmienia w PATCH wyłącznie rola z pełną redakcją
-    # (`JOB_MEMBER_LOCKED_FIELDS`); pozostali dostaną 403 niżej, więc nie
-    # zajmują globalnej blokady na czas odmowy.
-    if "recruiter_id" in data.model_fields_set and current_user.has_any_role(
-        *JOB_FULL_EDIT_ROLES
+    # Rekrutera zmienia w PATCH wyłącznie osoba z pełną redakcją (uprawnienie
+    # do prowadzenia rekrutacji albo konto TAC — `JOB_MEMBER_LOCKED_FIELDS`);
+    # pozostali dostaną 403 niżej, więc nie zajmują globalnej blokady na czas
+    # odmowy.
+    if "recruiter_id" in data.model_fields_set and (
+        has_permission(current_user, ProductAction.recruitment_manage)
+        or current_user.has_any_role(*JOB_FULL_EDIT_LEGACY_ROLES)
     ):
         await allocation_lock(db)
     result = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
@@ -2991,7 +3005,9 @@ async def update_job(
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_job(
-    job_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
+    job_id: int,
+    current_user: RecruitmentManageUser,
+    db: AsyncSession = Depends(get_db),
 ):
     # Runda 7 (R7-N8-3): usunięcie rekrutacji trafia do Historii zdarzeń —
     # także odmowa. Do 26.09 ślad zostawał tylko w ``activities``.
@@ -3170,7 +3186,7 @@ async def delete_job(
 async def close_job(
     job_id: int,
     data: JobCloseRequest,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentManageUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Close a job with a structured reason.
@@ -3276,8 +3292,9 @@ async def set_job_managed_in_nexus(
     z poprzednią wartością, a formularz edycji nie może przełączyć „przy okazji".
     Idempotentna. Włącza każdy członek zespołu rekrutacji (``RecruiterPlus``
     + ``ensure_job_membership``; od 23.09.2026 bez wymogu roli TAC).
-    Wyłączenie tylko admin / delivery_lead — powrót do Traffita oznacza, że
-    najbliższy import nadpisze ruchy zrobione w NEXUSIE.
+    Wyłączenie tylko z uprawnieniem „Rekrutacje: zakładanie, zamykanie,
+    wysyłka CV do klienta” (domyślnie admin i Delivery Lead) — powrót do
+    Traffita oznacza, że najbliższy import nadpisze ruchy zrobione w NEXUSIE.
 
     Członkostwo sprawdzane PO odczycie oferty: `ensure_job_membership` na
     nieistniejącej ofercie daje osobie spoza ról nadzoru 403, a nie 404.
@@ -3297,13 +3314,10 @@ async def set_job_managed_in_nexus(
                 "zastosowania."
             ),
         )
-    if not data.enabled and not current_user.has_any_role(
-        UserRole.admin, UserRole.delivery_lead
-    ):
-        raise HTTPException(
-            status_code=403,
-            detail="Powrót do Traffita może wykonać tylko admin lub Delivery Lead.",
-        )
+    if not data.enabled:
+        # Powrót do Traffita to decyzja o cyklu życia rekrutacji — to samo
+        # uprawnienie co jej zamknięcie (odmowa nazywa je).
+        ensure_permission(current_user, ProductAction.recruitment_manage)
     previous = bool(job.managed_in_nexus)
     if previous != data.enabled:
         job.managed_in_nexus = data.enabled
@@ -3432,7 +3446,9 @@ async def set_job_hiring_manager(
 
 @router.post("/{job_id}/publish")
 async def publish_job(
-    job_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
+    job_id: int,
+    current_user: RecruitmentManageUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """Publish job — mark as published and queue portal syndication."""
     result = await db.execute(select(Job).where(Job.id == job_id))
@@ -3939,7 +3955,7 @@ _HANDOFF_RECRUITER_ROLES = (
 @router.get("/{job_id}/readiness")
 async def get_job_readiness(
     job_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentManageUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Czego brakuje, żeby przekazać rekrutację do searchu — PRZED kliknięciem.
@@ -4001,7 +4017,7 @@ async def _queue_handoff_ranking(
 @router.post("/{job_id}/handoff", status_code=202)
 async def handoff_job_to_search(
     job_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentManageUser,
     background_tasks: BackgroundTasks,
     payload: JobHandoffRequest,
     db: AsyncSession = Depends(get_db),
@@ -5379,14 +5395,14 @@ async def list_champion_suggestions(
 
 
 # ── Recruiter ownership endpoints ───────────────────────────────────────────
-# Rekrutera prowadzącego (`recruiter_id`) zmienia admin, Delivery Lead i — od
-# 02.10.2026 — Head of Recruitment (`JOB_STAFFING_ROLES`): to on układa pracę
-# zespołu, a do tej daty nie mógł zmienić rekrutera w żadnej rekrutacji.
+# Rekrutera prowadzącego (`recruiter_id`) zmienia posiadacz uprawnienia
+# „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” (domyślnie admin
+# i Delivery Lead) oraz — od 02.10.2026, z tytułu roli — Head of Recruitment
+# (`JobStaffingUser`): to on układa pracę zespołu, a do tej daty nie mógł
+# zmienić rekrutera w żadnej rekrutacji.
 # "Claim" is self-assign on an unassigned job — open to anyone who can write
 # to jobs (admin/DL/TAC/recruiter/sourcer). The `user` read-only role is
 # blocked.
-
-JobStaffingUser = Annotated[User, Depends(require_roles(*JOB_STAFFING_ROLES))]
 
 # Role, którym przypisanie do requestu zakłada wiersz pracy — lustro pulpitu
 # „Requesty i obłożenie” (`request_board.add_person`).
@@ -5472,7 +5488,7 @@ async def assign_owner(
 ):
     """Ustaw albo zmień rekrutera prowadzącego (``recruiter_id``).
 
-    Admin, Delivery Lead i Head of Recruitment (``JOB_STAFFING_ROLES``).
+    Uprawnienie „Rekrutacje: zakładanie…” albo Head of Recruitment.
     """
     await allocation_lock(db)
     job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
@@ -5538,7 +5554,7 @@ async def release_owner(
     current_user: JobStaffingUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Zdejmij rekrutera prowadzącego. Admin, Delivery Lead i Head of Recruitment.
+    """Zdejmij rekrutera prowadzącego. Ta sama bramka co przypisanie.
 
     Osoba znika z roli „Rekruter” w całości (``job_team.remove_recruiter``):
     przestaje być prowadzącą, traci aktywne przypisanie i ręczne dopisanie jako

@@ -11,7 +11,8 @@ Propozycja automatu to jeszcze nie praca — pulpit pokazuje ją osobno i nie
 wlicza do obłożenia (decyzja Artura 02.10.2026).
 
 Czyta każda rola z odczytem sekcji Rekrutacje. Ręczne dodanie i zdjęcie
-osoby: admin, Delivery Lead, Head of Recruitment (``JOB_STAFFING_ROLES``).
+osoby: uprawnienie do prowadzenia rekrutacji albo Head of Recruitment
+(``require_job_staffing``).
 Propozycje automatu akceptuje, zamienia i odrzuca admin albo Head of
 Recruitment (``PROPOSAL_DECISION_ROLES``).
 """
@@ -27,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.competence_team import operator_clause
 from app.api.deps import ROLE_DENIED_DETAIL, OperationalUser, require_roles
-from app.api.recruitment_access import JOB_STAFFING_ROLES, PROPOSAL_DECISION_ROLES
+from app.api.recruitment_access import PROPOSAL_DECISION_ROLES, require_job_staffing
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
@@ -67,7 +68,7 @@ from app.services.workforce_availability import workforce_context
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
-BoardEditor = require_roles(*JOB_STAFFING_ROLES)
+BoardEditor = require_job_staffing
 ProposalDecider = require_roles(*PROPOSAL_DECISION_ROLES)
 
 MAX_BULK_ACCEPT = 100

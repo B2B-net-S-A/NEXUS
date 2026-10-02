@@ -19,8 +19,16 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { adminApi, extractErrorMsg } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
+import {
+  extraPermissionsLabel,
+  extraPermissionsTitle,
+  isStalePolicyError,
+  type UserPermissionsSave,
+} from "@/lib/admin-permissions";
 import { useToast } from "@/components/Toast";
-import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { useAuthStore, hasRole, type User } from "@/store/auth";
 import {
   AdminUser,
   UserFormData,
@@ -33,7 +41,7 @@ import { SystemTab } from "./SystemTab";
 import { AuditLogTab } from "./AuditLogTab";
 import { ImportTab } from "./ImportTab";
 import { AdminToolsGrid } from "./AdminToolsGrid";
-import { PermissionsTab } from "./PermissionsTab";
+import { DISCARD_PERMISSION_CHANGES, PermissionsTab } from "./PermissionsTab";
 import {
   ADMIN_SUBTAB_PARAM,
   useAdminSubTab,
@@ -45,20 +53,66 @@ interface AdminUsersTabProps {
    *  „Panel administracyjny" — strona ma własny. Pozostałe podzakładki dalej
    *  otwierają się adresem `?sub=`. */
   embedded?: boolean;
+  /** Podzakładka, gdy adres nie niesie `?sub=` (harness `/preview/permissions`). */
+  defaultSubTab?: SubTab;
 }
 
 const EMBEDDED_SUBTABS: readonly SubTab[] = ["users", "permissions"];
 
-export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
+/**
+ * Błędy drugiego żądania zapisu: dane konta już się zapisały, dodatkowe
+ * uprawnienia nie. Okno ma wtedy zostać otwarte i powiedzieć, która połowa
+ * przeszła. Błąd zostaje oryginalnym błędem axios (telemetria odróżnia po nim
+ * odmowę 4xx od awarii) — ten zbiór pamięta tylko, z którego żądania pochodzi.
+ */
+const permissionStageFailures = new WeakSet<object>();
+
+function failedOnPermissions(error: unknown): boolean {
+  return typeof error === "object" && error !== null && permissionStageFailures.has(error);
+}
+
+function updateErrorMessage(error: unknown): string {
+  if (!failedOnPermissions(error)) return extractErrorMsg(error);
+  if (isStalePolicyError(error)) {
+    return "Dane konta zostały zapisane, ale uprawnienia nie: ktoś zmienił zasady w międzyczasie. Wczytaliśmy aktualną wersję — zaznacz uprawnienia jeszcze raz i zapisz.";
+  }
+  return `Dane konta zostały zapisane, ale uprawnień nie udało się zapisać. ${apiErrorMessage(error, "Spróbuj ponownie za chwilę.")}`;
+}
+
+/**
+ * Profil do „podglądu jako”: odpowiedź serwera w całości. Ręcznie przepisywana
+ * lista pól gubiła `effective_action_access`, `can_delete_clients`
+ * i `delivery_client_scope`, więc podgląd liczył uprawnienia z domyślnych ról
+ * zamiast z tego, co konto naprawdę ma.
+ */
+export function impersonationProfile(profile: User): User {
+  return {
+    ...profile,
+    roles: profile.roles?.length ? profile.roles : [profile.role],
+    // Podgląd nie przechodzi za kogoś onboardingu ani wymuszonej zmiany hasła.
+    profile_completed: true,
+    profile_completed_at: null,
+    force_password_change: false,
+    force_password_change_at: null,
+    allowed_sections: [],
+  };
+}
+
+export function AdminUsersTab({
+  embedded = false,
+  defaultSubTab,
+}: AdminUsersTabProps = {}) {
   const { user } = useAuthStore();
   const impersonate = useAuthStore((s) => s.impersonate);
   const queryClient = useQueryClient();
   const { showError } = useToast();
+  const { askConfirm, confirmDialog } = useConfirmV2();
   // `?sub=` w adresie (B42): F5 na „Uprawnieniach" nie wraca do „Użytkowników".
   const searchParams = useSearchParams();
   const [subTab, setSubTab] = useAdminSubTab(
-    searchParams?.get(ADMIN_SUBTAB_PARAM) ?? null,
+    searchParams?.get(ADMIN_SUBTAB_PARAM) ?? defaultSubTab ?? null,
   );
+  const [permissionsDirty, setPermissionsDirty] = useState(false);
   const [modal, setModal] = useState<"create" | "edit" | "reset" | null>(null);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
@@ -72,6 +126,15 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
     enabled: subTab === "users",
   });
 
+  // Zmiana konta rusza też ekran uprawnień: liczbę osób z rolą i to, co role
+  // dają tej osobie.
+  const invalidateAccounts = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin-section-permissions"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin-user-permissions"] }),
+    ]);
+
   const createMutation = useMutation({
     mutationFn: (data: UserFormData) =>
       adminApi.createUser({
@@ -79,20 +142,48 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
         roles: data.roles,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      void invalidateAccounts();
       setModal(null);
     },
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<UserFormData> }) =>
-      adminApi.updateUser(id, {
+    mutationFn: async ({
+      id,
+      data,
+      permissions,
+    }: {
+      id: number;
+      data: Partial<UserFormData>;
+      permissions: UserPermissionsSave | null;
+    }) => {
+      await adminApi.updateUser(id, {
         ...data,
         roles: data.roles,
-      }),
+      });
+      if (!permissions) return;
+      try {
+        await adminApi.updateUserSectionPermissions(
+          id,
+          permissions.revision,
+          permissions.changes,
+          permissions.actionChanges,
+        );
+      } catch (reason) {
+        if (typeof reason === "object" && reason !== null) {
+          permissionStageFailures.add(reason);
+        }
+        throw reason;
+      }
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      void invalidateAccounts();
       setModal(null);
+    },
+    onError: (error) => {
+      // Okno zostaje otwarte. Lista pod nim ma już nowe dane konta, a po 409
+      // okno dostaje świeże zasady i świeże nadania tej osoby.
+      if (failedOnPermissions(error)) void invalidateAccounts();
     },
   });
 
@@ -101,7 +192,7 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
       u.is_active
         ? adminApi.deactivateUser(u.id)
         : adminApi.updateUser(u.id, { is_active: true }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
+    onSuccess: () => invalidateAccounts(),
   });
 
   const resetPasswordMutation = useMutation({
@@ -144,27 +235,7 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
   const handleImpersonate = async (u: AdminUser) => {
     try {
       const res = await adminApi.startImpersonation(u.id);
-      const d = res.data;
-      impersonate({
-        id: d.id,
-        email: d.email,
-        name: d.name,
-        role: d.role as UserRole,
-        roles: (d.roles?.length ? d.roles : [d.role]) as UserRole[],
-        profile_completed: true,
-        profile_completed_at: null,
-        force_password_change: false,
-        force_password_change_at: null,
-        allowed_sections: [],
-        analytics_capabilities: d.analytics_capabilities,
-        capabilities: d.capabilities,
-        available_dashboard_presets: d.available_dashboard_presets,
-        default_dashboard_preset: d.default_dashboard_preset,
-        authorization_version: d.authorization_version,
-        data_scope: d.data_scope,
-        analytics_v1_mode: d.analytics_v1_mode,
-        effective_section_access: d.effective_section_access,
-      });
+      impersonate(impersonationProfile(res.data as User));
       // impersonate() przekierowuje na "/" po ustawieniu stanu.
     } catch (e) {
       showError(extractErrorMsg(e));
@@ -186,56 +257,58 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
             ? { clear_microsoft_identity: true }
             : {}),
         },
+        permissions: data.permissions ?? null,
       });
     }
   };
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {embedded ? (
-          <div />
-        ) : (
-          <div className="flex items-center gap-3">
-            <Shield className="w-6 h-6 text-primary" />
-            <div>
-              <h2 className="text-xl font-bold">Panel administracyjny</h2>
-              <p className="text-sm text-muted-foreground dark:text-muted-foreground">
-                Zarządzaj użytkownikami, uprawnieniami i systemem
-              </p>
-            </div>
-          </div>
-        )}
-        {subTab === "users" && (
-          <button
-            onClick={() => {
-              setSelectedUser(null);
-              setModal("create");
-            }}
-            className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Dodaj użytkownika
-          </button>
-        )}
-      </div>
+  // Niezapisane przełączniki roli przepadają razem z zakładką — pytamy
+  // w oknie aplikacji, zanim ją przełączymy.
+  const selectSubTab = (next: SubTab) => {
+    if (next === subTab) return;
+    if (subTab !== "permissions" || !permissionsDirty) {
+      setSubTab(next);
+      return;
+    }
+    void askConfirm(DISCARD_PERMISSION_CHANGES).then((ok) => {
+      if (ok) setSubTab(next);
+    });
+  };
 
-      <div className="overflow-x-auto overscroll-x-contain">
-        <div className="flex w-max min-w-full gap-1 rounded-lg bg-muted p-1">
-          {[
-            { id: "users" as SubTab, label: "Użytkownicy", icon: Users },
-            { id: "permissions" as SubTab, label: "Uprawnienia", icon: ShieldCheck },
-            { id: "system" as SubTab, label: "System", icon: Server },
-            { id: "audit" as SubTab, label: "Log aktywności", icon: Activity },
-            { id: "import" as SubTab, label: "Import CV", icon: Database },
-            { id: "tools" as SubTab, label: "Narzędzia", icon: Wrench },
-          ]
-            .filter(({ id }) => !embedded || EMBEDDED_SUBTABS.includes(id))
-            .map(({ id, label, icon: Icon }) => (
+  const addUserButton =
+    subTab === "users" ? (
+      <button
+        onClick={() => {
+          setSelectedUser(null);
+          setModal("create");
+        }}
+        className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+      >
+        <Plus className="w-4 h-4" />
+        Dodaj użytkownika
+      </button>
+    ) : null;
+
+  const subTabs = (
+    <div className="min-w-0 overflow-x-auto overscroll-x-contain">
+      <div
+        className={`flex w-max gap-1 rounded-lg bg-muted p-1 ${embedded ? "" : "min-w-full"}`}
+      >
+        {[
+          { id: "users" as SubTab, label: "Użytkownicy", icon: Users },
+          { id: "permissions" as SubTab, label: "Uprawnienia", icon: ShieldCheck },
+          { id: "system" as SubTab, label: "System", icon: Server },
+          { id: "audit" as SubTab, label: "Log aktywności", icon: Activity },
+          { id: "import" as SubTab, label: "Import CV", icon: Database },
+          { id: "tools" as SubTab, label: "Narzędzia", icon: Wrench },
+        ]
+          .filter(({ id }) => !embedded || EMBEDDED_SUBTABS.includes(id))
+          .map(({ id, label, icon: Icon }) => (
             <button
               key={id}
-              onClick={() => setSubTab(id)}
-              className={`flex items-center gap-2 whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              onClick={() => selectSubTab(id)}
+              aria-pressed={subTab === id}
+              className={`flex items-center gap-2 whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium transition-colors pointer-coarse:min-h-10 ${
                 subTab === id
                   ? "bg-card text-foreground shadow-xs dark:bg-card"
                   : "text-muted-foreground hover:text-foreground"
@@ -245,8 +318,38 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
               {label}
             </button>
           ))}
-        </div>
       </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      {confirmDialog}
+      {embedded ? (
+        // W Ustawieniach zakładki i „Dodaj użytkownika” stoją w jednym rzędzie
+        // (makieta 02.10.2026). Osobny, pusty rząd nad zakładkami zabierał
+        // wysokość, której na laptopie 1280 × 720 brakuje przełącznikom.
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {subTabs}
+          {addUserButton}
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Shield className="w-6 h-6 text-primary" />
+              <div>
+                <h2 className="text-xl font-bold">Panel administracyjny</h2>
+                <p className="text-sm text-muted-foreground dark:text-muted-foreground">
+                  Zarządzaj użytkownikami, uprawnieniami i systemem
+                </p>
+              </div>
+            </div>
+            {addUserButton}
+          </div>
+          {subTabs}
+        </>
+      )}
 
       {subTab === "users" && (
         <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-x-auto">
@@ -337,6 +440,14 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
                               {ROLE_LABELS[r] ?? r}
                             </span>
                           ))}
+                        {(u.extra_permissions?.length ?? 0) > 0 && (
+                          <span
+                            className="px-2 py-0.5 rounded-full text-xs font-medium bg-warning-muted text-warning-muted-foreground"
+                            title={extraPermissionsTitle(u.extra_permissions ?? [])}
+                          >
+                            {extraPermissionsLabel(u.extra_permissions?.length ?? 0)}
+                          </span>
+                        )}
                         {u.can_delete_clients && (
                           <span
                             className="px-2 py-0.5 rounded-full text-xs font-medium bg-destructive/10 text-destructive"
@@ -430,7 +541,9 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
       )}
 
       {subTab === "system" && <SystemTab />}
-      {subTab === "permissions" && <PermissionsTab />}
+      {subTab === "permissions" && (
+        <PermissionsTab onDirtyChange={setPermissionsDirty} />
+      )}
       {subTab === "import" && <ImportTab />}
       {subTab === "tools" && <AdminToolsGrid />}
       {subTab === "audit" && <AuditLogTab />}
@@ -449,7 +562,7 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
             createMutation.error
               ? extractErrorMsg(createMutation.error)
               : updateMutation.error
-                ? extractErrorMsg(updateMutation.error)
+                ? updateErrorMessage(updateMutation.error)
                 : null
           }
         />

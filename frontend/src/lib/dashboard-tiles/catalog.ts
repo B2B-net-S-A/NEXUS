@@ -19,6 +19,7 @@ import type {
   TileType,
 } from "@/lib/api/userDashboard";
 import { hasCapability } from "@/lib/capabilities";
+import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
 import { getUserRoles, type User, type UserRole } from "@/store/auth";
 
@@ -598,10 +599,15 @@ export function templateAvailability(
   const base = TILE_DEFINITIONS[template.type].availability(user);
   if (!base.ok) return base;
   if (template.metricSection === "finance") {
-    const roles = getUserRoles(user);
-    return roles.some((r) => ["admin", "finance", "delivery_lead"].includes(r))
+    // Kafelki kwot idą za uprawnieniem „Stawki i kwoty: podgląd”, nie za rolą.
+    // U KOGO konto widzi kwoty (Delivery Lead: u swoich klientów), liczy serwer
+    // przy każdym zapytaniu metryki.
+    return hasPermission(user, "amounts_view")
       ? { ok: true }
-      : { ok: false, reason: "Kwoty widzą Finanse, administrator i Delivery Lead" };
+      : {
+          ok: false,
+          reason: `Wymaga uprawnienia „${permissionLabel("amounts_view")}”`,
+        };
   }
   if (template.metricSection) {
     const labels = {

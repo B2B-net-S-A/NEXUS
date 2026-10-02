@@ -1,8 +1,8 @@
 """Ustawienia → Historia zdarzeń — odczyt dziennika krytycznych operacji.
 
-Widoczne wyłącznie dla ról Admin i Finanse (``FinanceModuleUser``). Tylko
-odczyt: wpisów nie da się edytować ani kasować przez API — dziennik, który
-można wyczyścić, przestaje być dowodem.
+Widoczne wyłącznie z uprawnieniem „Moduł Finanse” (``FinanceModuleUser``;
+domyślnie Admin i Finanse). Tylko odczyt: wpisów nie da się edytować ani
+kasować przez API — dziennik, który można wyczyścić, przestaje być dowodem.
 """
 
 from __future__ import annotations

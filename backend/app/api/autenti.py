@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import or_, select
@@ -25,14 +24,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.contract_access import assert_contract_legal_contract_access
-from app.api.deps import CurrentUser, DeliveryLeadPlus, require_roles
+from app.api.deps import CurrentUser
+from app.api.permission_access import AmountsViewUser, ContractsOrdersEditUser
 from app.api.section_access import ProductSection, require_section_access
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.tasks import spawn
 from app.models.activity import Activity
 from app.models.document_signature import DocumentSignature, SignatureStatus
-from app.models.user import User, UserRole
 from app.schemas.document_signature import (
     AutentiSendRequest,
     AutentiSendResponse,
@@ -56,17 +55,10 @@ _DELIVERY_SECTION_DEPENDENCIES = [
     Depends(require_section_access(ProductSection.delivery))
 ]
 
-
-ContractSignatureReadUser = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.finance,
-        )
-    ),
-]
+# Wysyłka do podpisu i jej cofnięcie to edycja kontraktu („Kontrakty
+# i zamówienia: tworzenie i edycja”); historia podpisów niesie dokument ze
+# stawkami, więc czyta ją posiadacz „Stawki i kwoty: podgląd”. Klienta
+# rozstrzyga ``assert_contract_legal_contract_access`` w handlerze.
 
 
 def _require_enabled() -> None:
@@ -87,7 +79,7 @@ def _require_enabled() -> None:
 async def send_contract_for_signature(
     contract_id: int,
     payload: AutentiSendRequest,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> AutentiSendResponse:
     """Validate and dispatch a contract to Autenti.
@@ -123,7 +115,7 @@ async def send_contract_for_signature(
 )
 async def list_signatures_for_contract(
     contract_id: int,
-    current_user: ContractSignatureReadUser,
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[DocumentSignature]:
     """Most-recent-first list of every send attempt on this contract.
@@ -148,7 +140,7 @@ async def list_signatures_for_contract(
 )
 async def get_signature_detail(
     signature_id: int,
-    current_user: ContractSignatureReadUser,
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     """Single signature + chronological event timeline (Phase 3 webhooks)."""
@@ -170,7 +162,7 @@ async def get_signature_detail(
 )
 async def withdraw_signature(
     signature_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     """Cancel a sent process. Calls Autenti `withdraw` action."""
@@ -231,7 +223,7 @@ async def withdraw_signature(
 )
 async def remind_signer(
     signature_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     """Trigger Autenti `remind` action. Throttled at 1 reminder / hour."""

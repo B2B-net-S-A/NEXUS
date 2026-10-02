@@ -840,21 +840,49 @@ async def test_lifecycle_actions_allowed_for_finance(
     assert deleted_group.status_code == 204, deleted_group.text
 
 
-async def test_rate_gate_did_not_leak_to_lifecycle_roles(
-    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
-):
+async def test_rate_gate_did_not_leak_to_lifecycle_roles(monkeypatch):
     """Poszerzenie cyklu życia NIE otworzyło stawek linii.
 
-    `_has_md_line_management_role` zostaje przy admin + Delivery Lead; ten test
-    broni tej granicy przed „uproszczeniem" do jednej listy ról.
+    Cykl życia zamówienia otwiera „Kontrakty i zamówienia: tworzenie
+    i edycja”. Stawki linii wymagają osobno prawa do kwot klienta
+    (`_can_write_amounts`); ten test broni tej granicy przed „uproszczeniem"
+    do jednego uprawnienia.
     """
-    from app.api.client_order_groups import _has_md_line_management_role
+    from app.api import client_order_groups
+    from app.api.client_order_groups import _can_write_amounts
     from app.models.user import User, UserRole
 
-    for role in (UserRole.head_of_recruitment, UserRole.finance):
-        assert not _has_md_line_management_role(User(role=role, roles=[role.value]))
-    for role in (UserRole.admin, UserRole.delivery_lead):
-        assert _has_md_line_management_role(User(role=role, roles=[role.value]))
+    def _account(role: UserRole) -> User:
+        return User(
+            id=1, email=f"{role.value}@example.com", role=role, roles=[role.value]
+        )
+
+    # Prowadzenie zamówień bez podglądu kwot: cykl życia tak, stawki nie.
+    order_editor = _account(UserRole.talent_community_manager)
+    order_editor.effective_section_access = {"delivery": "write"}
+    order_editor.effective_action_access = {
+        "delivery_view": "manage",
+        "contracts_orders_edit": "manage",
+    }
+    assert not await _can_write_amounts(None, order_editor, 1)
+    assert not await _can_write_amounts(None, _account(UserRole.head_of_recruitment), 1)
+
+    # Zmiana kwot (admin, Finanse) pisze stawki u każdego klienta.
+    for role in (UserRole.admin, UserRole.finance):
+        assert await _can_write_amounts(None, _account(role), 1)
+
+    # Delivery Lead — wyłącznie u klienta z przypisania.
+    async def _assigned_to_client_one(_user, _db):
+        return frozenset({1})
+
+    monkeypatch.setattr(
+        client_order_groups,
+        "resolve_delivery_lead_finance_client_ids",
+        _assigned_to_client_one,
+    )
+    lead = _account(UserRole.delivery_lead)
+    assert await _can_write_amounts(None, lead, 1)
+    assert not await _can_write_amounts(None, lead, 2)
 
 
 # ── Zamówienie kosztowe: rozliczenie fakturami ──────────────────────────────

@@ -20,8 +20,9 @@ Model dostępu (decyzja 03.09.2026, świadome odstępstwo od reguł CV):
   zalogowany; rekruter czyta ją PRZED przypisaniem do rekrutacji — po to jest.
   Treść to procedura, nie kwoty.
 * ZAPIS i historia idą jak reguły CV po #1351: sekcja Delivery
-  (``DeliverySectionUser``) plus graf klienta (``resolve_client_access``):
-  admin i Delivery Lead org-wide.
+  (``DeliverySectionUser``) plus graf klienta (``resolve_client_access``).
+  Zapis wymaga uprawnienia „Klienci: dodawanie i edycja” — domyślnie admin
+  i Delivery Lead, obaj org-wide (``purpose="org"``).
 * Off-limits (``client_contract_terms.off_limits_*``) NIE jedzie w karcie —
   funkcja usunięta 27.09.2026 decyzją Artura (runda 9, R9-N4-8); kolumny
   w bazie zostają.
@@ -39,12 +40,14 @@ from sqlalchemy.orm import aliased
 
 from app.api.deps import OperationalUser
 from app.api.help_materials import _validate_url
+from app.api.permission_access import require_permission
 from app.api.section_access import DeliverySectionUser
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
 from app.models.user import User
+from app.services.action_permissions import ProductAction
 from app.services.client_access import (
     assert_client_writable,
     deny,
@@ -53,6 +56,12 @@ from app.services.client_access import (
 from app.services.client_playbook_seed import seed_entry
 
 router = APIRouter(tags=["client-playbooks"])
+
+# Zapis karty wymaga uprawnienia „Klienci: dodawanie i edycja”. Deklaruje je
+# TRASA (dekorator), nie parametr handlera: odmowa nazywa brakującą pozycję,
+# zanim sięgniemy do bazy — także wtedy, gdy zatrzymuje bramka sekcji.
+# U kogo wolno, rozstrzyga dalej ``_require_client_playbook_access``.
+CLIENTS_EDIT_DEPENDENCIES = [Depends(require_permission(ProductAction.clients_edit))]
 
 # Pola objęte wersjonowaniem i diffem w historii (kolejność = kolejność w `changes`).
 PLAYBOOK_FIELDS: tuple[str, ...] = (
@@ -206,15 +215,18 @@ async def _require_client_playbook_access(
 ) -> None:
     """Graf klienta pod sufitem sekcji — lustro `_require_client_rule_access`.
 
-    `can_edit_knowledge` = zapis w sekcji Delivery AND (admin-like OR zespół
-    klienta); `can_view_knowledge` = admin-like OR czytelnik organizacyjny OR
-    zespół klienta OR przypisanie do rekrutacji u tego klienta.
+    `can_edit_knowledge` = uprawnienie „Klienci: dodawanie i edycja” u klienta
+    z zakresu (`purpose="org"`: Delivery Lead prowadzi kartę KAŻDEGO klienta);
+    `can_view_knowledge` = admin-like OR czytelnik organizacyjny OR zespół
+    klienta OR przypisanie do rekrutacji u tego klienta. Odmowa zapisu nazywa
+    brakujące uprawnienie.
     """
     access = await resolve_client_access(db, user, client_id, purpose="org")
     allowed = access.can_edit_knowledge if write else access.can_view_knowledge
     if not allowed:
-        action = "edycja" if write else "odczyt historii"
-        raise deny(f"{action} karty klienta jest niedozwolony")
+        if write:
+            raise access.edit_denial("edycja karty klienta jest niedozwolona")
+        raise deny("odczyt historii karty klienta jest niedozwolony")
 
 
 def _state(row: Optional[ClientPlaybook]) -> dict[str, Any]:
@@ -364,7 +376,11 @@ async def get_client_playbook(
     )
 
 
-@router.put("/clients/{client_id}/playbook", response_model=ClientPlaybookRead)
+@router.put(
+    "/clients/{client_id}/playbook",
+    response_model=ClientPlaybookRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def upsert_client_playbook(
     client_id: int,
     payload: ClientPlaybookPayload,
@@ -443,7 +459,11 @@ async def upsert_client_playbook(
     )
 
 
-@router.post("/clients/{client_id}/playbook/seed", response_model=ClientPlaybookRead)
+@router.post(
+    "/clients/{client_id}/playbook/seed",
+    response_model=ClientPlaybookRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def seed_client_playbook(
     client_id: int,
     body: PlaybookSeedRequest,

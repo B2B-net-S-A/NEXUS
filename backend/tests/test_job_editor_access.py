@@ -369,5 +369,8 @@ async def test_priority_is_the_only_locked_field_open_to_head_of_recruitment(
     with pytest.raises(HTTPException) as refused:
         await ensure_job_editor(None, user, _job(), fields=fields)
     assert refused.value.status_code == 403
-    # Odmowa mówi, kto może — także o wyjątku dla priorytetu.
-    assert "Head of Recruitment" in refused.value.detail
+    # Odmowa nazywa uprawnienie i mówi o wyjątku dla priorytetu.
+    detail = refused.value.detail
+    assert detail["code"] == "permission_denied"
+    assert detail["permission"] == "recruitment_manage"
+    assert "Head of Recruitment" in detail["message"]

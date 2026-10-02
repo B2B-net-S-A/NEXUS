@@ -8,6 +8,7 @@ import {
   templateAvailability,
 } from "@/lib/dashboard-tiles/catalog";
 import type { User, UserRole } from "@/store/auth";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 function user(role: UserRole, extra: Partial<User> = {}): User {
   return {
@@ -38,9 +39,49 @@ describe("katalog kafelków", () => {
     const recruiter = user("recruiter");
     const margin = templateAvailability(template("margin_monthly"), recruiter);
     expect(margin.ok).toBe(false);
-    expect(margin.ok ? "" : margin.reason).toMatch(/Kwoty/);
+    // Powód nazywa uprawnienie, o które można poprosić — nie listę ról.
+    expect(margin.ok ? "" : margin.reason).toBe(
+      "Wymaga uprawnienia „Stawki i kwoty: podgląd”",
+    );
     expect(templateAvailability(template("contact_oversight"), recruiter).ok).toBe(false);
     expect(templateAvailability(template("cv_sent_week"), recruiter).ok).toBe(true);
+  });
+
+  describe("kafelki kwot idą za uprawnieniem „Stawki i kwoty: podgląd”", () => {
+    const MONEY_TILES = ["margin_monthly", "margin_by_client"];
+    const available = (u: User) =>
+      MONEY_TILES.map((key) => templateAvailability(template(key), u).ok);
+
+    it.each(["admin", "finance", "delivery_lead"] as UserRole[])(
+      "%s ma uprawnienie domyślnie i dodaje kafelki kwot",
+      (role) => {
+        expect(available(user(role))).toEqual([true, true]);
+      },
+    );
+
+    it("rekruter z nadanym uprawnieniem dodaje kafelki kwot", () => {
+      const recruiter = user("recruiter", {
+        effective_action_access: permissionSnapshot("amounts_view"),
+      });
+      expect(available(recruiter)).toEqual([true, true]);
+    });
+
+    it.each(["delivery_lead", "finance"] as UserRole[])(
+      "%s z wyłączonym uprawnieniem nie dodaje kafelków kwot mimo roli",
+      (role) => {
+        const account = user(role, {
+          effective_action_access: permissionSnapshot("delivery_view", "clients_edit"),
+        });
+        expect(available(account)).toEqual([false, false]);
+      },
+    );
+
+    it.each(["head_of_recruitment", "talent_community_manager", "tac", "sourcer"] as UserRole[])(
+      "%s bez uprawnienia nie dodaje kafelków kwot",
+      (role) => {
+        expect(available(user(role))).toEqual([false, false]);
+      },
+    );
   });
 
   it("sprawy klientów wymagają roli z dostępem do /api/dl-alerts (FE-N05)", () => {

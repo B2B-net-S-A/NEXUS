@@ -27,6 +27,12 @@ const seen = vi.hoisted(() => ({
   brief: null as Record<string, unknown> | null,
   dock: null as Record<string, unknown> | null,
   close: null as Record<string, unknown> | null,
+  chip: null as Record<string, unknown> | null,
+}));
+// Zalogowane konto. Domyślnie administrator; testy uprawnień podstawiają inne.
+const auth = vi.hoisted(() => ({
+  user: { id: 9, role: "admin" } as Record<string, unknown>,
+  realUser: null as Record<string, unknown> | null,
 }));
 const apiMock = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn() }));
 // Atrapa dziecka: zapamiętuje propsy; zamknięte okno nie renderuje nic.
@@ -78,8 +84,12 @@ vi.mock("@/hooks/useJobPipelineTemplate", () => ({
     canWriteClientRate: false,
   }),
 }));
-vi.mock("@/store/auth", () => ({
-  useAuthStore: (sel: (s: unknown) => unknown) => sel({ user: { id: 9, role: "admin" }, realUser: null }),
+// Pomocniki ról (`getUserRoles` i reszta) zostają prawdziwe — czyta je reguła
+// pełnej edycji (`hasFullJobEditFallback`); podmieniamy tylko stan i `hasRole`.
+vi.mock("@/store/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/store/auth")>()),
+  useAuthStore: (sel: (s: unknown) => unknown) =>
+    sel({ user: auth.user, realUser: auth.realUser }),
   hasRole: () => true,
 }));
 vi.mock("@/lib/section-access", () => ({ hasSectionAccess: () => true }));
@@ -124,7 +134,10 @@ vi.mock("@/components/v2/jobs/JobCloseWithReasonDialog", () => ({
 }));
 vi.mock("@/components/v2/jobs/ManagedInNexusSwitch", () => ({
   ManagedInTraffitNotice: () => null,
-  ManagedInNexusChip: () => null,
+  ManagedInNexusChip: (props: Record<string, unknown>) => {
+    (seen as Record<string, unknown>).chip = props;
+    return null;
+  },
 }));
 vi.mock("@/components/v2/jobs/JobShortlist", () => ({
   JobShortlist: () => <div data-testid="shortlist-screen" />,
@@ -140,6 +153,7 @@ vi.mock("@/components/v2/modals/GenerateInviteLinkV2", () => ({ GenerateInviteLi
 vi.mock("@/components/v2/presence/ActiveViewers", () => ({ ActiveViewers: () => null }));
 
 import JobDetailPage from "@/app/jobs/[id]/page";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 const JOB = {
   id: 42,
@@ -174,6 +188,8 @@ function renderPage(search = "") {
 beforeEach(() => {
   vi.clearAllMocks();
   for (const key of Object.keys(seen) as Array<keyof typeof seen>) seen[key] = null;
+  auth.user = { id: 9, role: "admin" };
+  auth.realUser = null;
   window.history.replaceState(null, "", "/jobs/42");
   apiMock.get.mockImplementation((url: string) => {
     if (url === "/api/jobs/42") return Promise.resolve({ data: JOB });
@@ -448,5 +464,87 @@ describe("strona rekrutacji — „Zlecenie i Champion”: szkic przeżywa prze�
     expect(screen.getByTestId("champion-mode-edit")).toHaveTextContent("niezapisane");
     await userEvent.click(screen.getByTestId("champion-mode-edit"));
     expect(seen.champion?.jobId).toBe(firstProps?.jobId);
+  });
+});
+
+// Zamknięcie rekrutacji, bramka gotowości i powrót do Traffita idą za
+// uprawnieniem „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”.
+// `useCapability` jest tu atrapą (pełna redakcja = tak), więc każde konto
+// niżej REDAGUJE rekrutację — różni je tylko to uprawnienie.
+describe("strona rekrutacji — prowadzenie rekrutacji za uprawnieniem", () => {
+  const readinessAsked = () =>
+    apiMock.get.mock.calls.some(([url]) => url === "/api/jobs/42/readiness");
+
+  async function openPage() {
+    renderPage();
+    await screen.findByTestId("kanban");
+    await waitFor(() => expect(seen.kanban?.workbenchContext).toBeTruthy());
+    await waitFor(() => expect(seen.chip).toBeTruthy());
+  }
+
+  async function closeMenuItem() {
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
+    await screen.findByRole("menuitem", { name: /Kopiuj link/ });
+    return screen.queryByRole("menuitem", { name: /Zamknij rekrutację/ });
+  }
+
+  function expectManages(manages: boolean) {
+    const ctx = seen.kanban?.workbenchContext as { canCloseJob: boolean };
+    expect(ctx.canCloseJob).toBe(manages);
+    expect(seen.chip).toMatchObject({ canRevert: manages });
+    expect(readinessAsked()).toBe(manages);
+    // Dialog zamknięcia w ogóle nie jest montowany bez uprawnienia.
+    expect(seen.close !== null).toBe(manages);
+  }
+
+  it.each([
+    ["Delivery Lead (uprawnienie domyślne)", { id: 10, role: "delivery_lead", roles: ["delivery_lead"] }],
+    [
+      "rekruter z nadanym uprawnieniem",
+      {
+        id: 11,
+        role: "recruiter",
+        roles: ["recruiter"],
+        effective_action_access: permissionSnapshot("recruitment_manage"),
+      },
+    ],
+  ])("%s zamyka rekrutację, widzi bramkę gotowości i może cofnąć rekrutację do Traffita", async (_label, user) => {
+    auth.user = user;
+    await openPage();
+
+    await waitFor(() => expectManages(true));
+    expect(await closeMenuItem()).toBeInTheDocument();
+  });
+
+  it.each([
+    // TAC ma pełną redakcję rekrutacji, ale zamknięcia serwer mu odmawia.
+    ["TAC z pełną redakcją, bez uprawnienia", { id: 12, role: "tac", roles: ["tac"] }],
+    [
+      "Delivery Lead z wyłączonym uprawnieniem",
+      {
+        id: 13,
+        role: "delivery_lead",
+        roles: ["delivery_lead"],
+        effective_action_access: permissionSnapshot("delivery_view", "clients_edit"),
+      },
+    ],
+  ])("%s nie zamyka rekrutacji i nie pyta o bramkę gotowości", async (_label, user) => {
+    auth.user = user;
+    await openPage();
+
+    expectManages(false);
+    expect(await closeMenuItem()).not.toBeInTheDocument();
+  });
+
+  it("w podglądzie jako inny użytkownik nie ma zamknięcia ani powrotu do Traffita", async () => {
+    auth.user = { id: 10, role: "delivery_lead", roles: ["delivery_lead"] };
+    auth.realUser = { id: 9, role: "admin", roles: ["admin"] };
+    await openPage();
+
+    const ctx = seen.kanban?.workbenchContext as { canCloseJob: boolean };
+    expect(ctx.canCloseJob).toBe(false);
+    expect(seen.chip).toMatchObject({ canRevert: false });
+    expect(seen.close).toBeNull();
+    expect(await closeMenuItem()).not.toBeInTheDocument();
   });
 });

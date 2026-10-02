@@ -3,7 +3,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
-import { RequireRole } from "@/components/RequireRole";
 import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useToast } from "@/components/Toast";
@@ -51,6 +50,12 @@ const NEXT_STATUS: Record<string, "pending" | "done" | "na"> = {
   na: "pending",
 };
 
+/**
+ * Lista onboardingowa kontraktu. Bramka zapisu jest JEDNA i przychodzi z góry
+ * (`readOnly` = brak uprawnienia „Kontrakty i zamówienia: tworzenie i edycja”
+ * albo tryb podglądu) — bez drugiej, zagnieżdżonej bramki po roli, która
+ * chowała przyciski posiadaczom uprawnienia spoza ról admin/Delivery Lead.
+ */
 export function ContractOnboardingTab({
   contractId,
   readOnly = false,
@@ -159,23 +164,21 @@ export function ContractOnboardingTab({
       )}
 
       {viewState === "empty" && !readOnly && (
-        <RequireRole roles={["admin", "delivery_lead"]}>
-          <div className="bg-primary/10 dark:bg-primary/10 border border-primary/20 dark:border-primary/10 rounded-2xl p-5">
-            <p className="text-sm text-primary dark:text-primary mb-3">
-              Brak listy onboardingowej. Zacznij od domyślnego zestawu (BHP,
-              sprzęt, dostępy, VPN, Slack klient, email, repo) i dostosuj.
-            </p>
-            <button
-              type="button"
-              onClick={handleSeed}
-              disabled={seedMutation.isPending}
-              className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
-            >
-              {seedMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-              Wygeneruj domyślny checklist
-            </button>
-          </div>
-        </RequireRole>
+        <div className="bg-primary/10 dark:bg-primary/10 border border-primary/20 dark:border-primary/10 rounded-2xl p-5">
+          <p className="text-sm text-primary dark:text-primary mb-3">
+            Brak listy onboardingowej. Zacznij od domyślnego zestawu (BHP,
+            sprzęt, dostępy, VPN, Slack klient, email, repo) i dostosuj.
+          </p>
+          <button
+            type="button"
+            onClick={handleSeed}
+            disabled={seedMutation.isPending}
+            className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          >
+            {seedMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+            Wygeneruj domyślny checklist
+          </button>
+        </div>
       )}
 
       {viewState === "empty" && readOnly && (
@@ -202,32 +205,30 @@ export function ContractOnboardingTab({
       )}
 
       {!readOnly && !isBlocked && (
-        <RequireRole roles={["admin", "delivery_lead"]}>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const label = newLabel.trim();
-              if (label) {
-                createMutation.mutate({ label, order: items.length });
-              }
-            }}
-            className="flex gap-2"
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const label = newLabel.trim();
+            if (label) {
+              createMutation.mutate({ label, order: items.length });
+            }
+          }}
+          className="flex gap-2"
+        >
+          <input
+            value={newLabel}
+            onChange={(e) => setNewLabel(e.target.value)}
+            placeholder="Dodaj pozycję (np. 'Karta dostępu do biura')"
+            className="w-0 flex-1 px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+          />
+          <button
+            type="submit"
+            disabled={createMutation.isPending || !newLabel.trim()}
+            className="flex items-center gap-1 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-3 py-2 rounded-lg text-sm font-medium"
           >
-            <input
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              placeholder="Dodaj pozycję (np. 'Karta dostępu do biura')"
-              className="w-0 flex-1 px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
-            />
-            <button
-              type="submit"
-              disabled={createMutation.isPending || !newLabel.trim()}
-              className="flex items-center gap-1 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-3 py-2 rounded-lg text-sm font-medium"
-            >
-              <Plus className="w-4 h-4" /> Dodaj
-            </button>
-          </form>
-        </RequireRole>
+            <Plus className="w-4 h-4" /> Dodaj
+          </button>
+        </form>
       )}
 
       {viewState === "loading" ? (
@@ -248,31 +249,29 @@ export function ContractOnboardingTab({
                 }`}
               >
                 {!readOnly && (
-                  <RequireRole roles={["admin", "delivery_lead"]}>
-                    <button
-                      onClick={() =>
-                        updateMutation.mutate({
-                          id: item.id,
-                          payload: { status: NEXT_STATUS[item.status] },
-                        })
-                      }
-                      className={
-                        isDone
-                          ? "text-emerald-600"
-                          : isNa
-                            ? "text-muted-foreground"
-                            : "text-muted-foreground hover:text-primary"
-                      }
-                      title={`Zmień status (obecnie: ${
-                        ONBOARDING_STATUS_LABELS[item.status] ?? item.status
-                      })`}
-                      aria-label={`${item.label}: zmień status (obecnie: ${
-                        ONBOARDING_STATUS_LABELS[item.status] ?? item.status
-                      })`}
-                    >
-                      <Icon className="w-5 h-5" />
-                    </button>
-                  </RequireRole>
+                  <button
+                    onClick={() =>
+                      updateMutation.mutate({
+                        id: item.id,
+                        payload: { status: NEXT_STATUS[item.status] },
+                      })
+                    }
+                    className={
+                      isDone
+                        ? "text-emerald-600"
+                        : isNa
+                          ? "text-muted-foreground"
+                          : "text-muted-foreground hover:text-primary"
+                    }
+                    title={`Zmień status (obecnie: ${
+                      ONBOARDING_STATUS_LABELS[item.status] ?? item.status
+                    })`}
+                    aria-label={`${item.label}: zmień status (obecnie: ${
+                      ONBOARDING_STATUS_LABELS[item.status] ?? item.status
+                    })`}
+                  >
+                    <Icon className="w-5 h-5" />
+                  </button>
                 )}
                 <span
                   className={`flex-1 text-sm ${isDone ? "line-through text-muted-foreground" : ""}`}
@@ -284,46 +283,43 @@ export function ContractOnboardingTab({
                     → {formatDate(item.due_date)}
                   </span>
                 )}
-                {!readOnly && (
-                  <RequireRole roles={["admin", "delivery_lead"]}>
-                    {confirmDeleteId === item.id ? (
-                      <span className="inline-flex items-center gap-1 text-xs">
-                        <span className="text-muted-foreground">Usunąć?</span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            deleteMutation.mutate(item.id, {
-                              onSettled: () => setConfirmDeleteId(null),
-                            })
-                          }
-                          disabled={deleteMutation.isPending}
-                          aria-label={`Potwierdź usunięcie pozycji ${item.label}`}
-                          className="rounded px-2 py-1 font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
-                        >
-                          Usuń
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteId(null)}
-                          aria-label="Anuluj usuwanie"
-                          className="rounded p-1 hover:bg-muted"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </span>
-                    ) : (
+                {!readOnly &&
+                  (confirmDeleteId === item.id ? (
+                    <span className="inline-flex items-center gap-1 text-xs">
+                      <span className="text-muted-foreground">Usunąć?</span>
                       <button
                         type="button"
-                        onClick={() => setConfirmDeleteId(item.id)}
-                        className="p-1 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-red-400 hover:text-destructive"
-                        title="Usuń"
-                        aria-label={`Usuń pozycję ${item.label}`}
+                        onClick={() =>
+                          deleteMutation.mutate(item.id, {
+                            onSettled: () => setConfirmDeleteId(null),
+                          })
+                        }
+                        disabled={deleteMutation.isPending}
+                        aria-label={`Potwierdź usunięcie pozycji ${item.label}`}
+                        className="rounded px-2 py-1 font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        Usuń
                       </button>
-                    )}
-                  </RequireRole>
-                )}
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(null)}
+                        aria-label="Anuluj usuwanie"
+                        className="rounded p-1 hover:bg-muted"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteId(item.id)}
+                      className="p-1 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-red-400 hover:text-destructive"
+                      title="Usuń"
+                      aria-label={`Usuń pozycję ${item.label}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  ))}
               </li>
             );
           })}

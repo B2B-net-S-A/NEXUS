@@ -11,7 +11,12 @@ import {
   searchSettingsItems,
 } from "@/lib/settings-registry";
 
-type U = { role: string; roles: string[]; effective_section_access: Record<string, string> };
+import { accessSnapshot } from "./fixtures/access-snapshot";
+
+// `user(role, access)` to profil bez kompletu uprawnień z serwera: pozycje
+// z `gate.permission` liczą się wtedy z domyślnych uprawnień ról.
+// `accessSnapshot(...)` to profil po `GET /api/auth/me`.
+type U ={ role: string; roles: string[]; effective_section_access: Record<string, string> };
 const user = (role: string, access: Record<string, string>): U => ({
   role,
   roles: [role],
@@ -43,10 +48,44 @@ describe("settings-registry — widoczność jak przed przebudową", () => {
     expect(can(user(role, access), "conflicts")).toBe(expected);
   });
 
-  it("Reguły CV: DL z zapisem Delivery tak, bez zapisu nie, Finanse nigdy", () => {
+  it("Reguły CV: DL z zapisem Delivery tak, bez zapisu nie, Finanse domyślnie nie", () => {
     expect(can(user("delivery_lead", { delivery: "write" }), "cv")).toBe(true);
     expect(can(user("delivery_lead", { delivery: "read" }), "cv")).toBe(false);
     expect(can(user("finance", { delivery: "write" }), "cv")).toBe(false);
+  });
+
+  it("Reguły CV idą za uprawnieniem „Klienci: dodawanie i edycja”, nie za rolą", () => {
+    const see = (account: ReturnType<typeof accessSnapshot>) =>
+      canSeeSettingsItem(account, item("cv"));
+
+    expect(see(accessSnapshot("admin"))).toBe(true);
+    expect(see(accessSnapshot("delivery_lead"))).toBe(true);
+    // Rekruter z nadanym uprawnieniem widzi pozycję, DL z wyłączonym — nie.
+    expect(see(accessSnapshot("recruiter", { grant: ["clients_edit"] }))).toBe(true);
+    expect(see(accessSnapshot("delivery_lead", { revoke: ["clients_edit"] }))).toBe(false);
+    // Samo „Kontrakty i zamówienia” (zapis w Delivery) to nie reguły CV.
+    expect(see(accessSnapshot("finance"))).toBe(false);
+    expect(see(accessSnapshot("talent_community_manager"))).toBe(false);
+    // Uprawnienie nadane roli Finanse jest decyzją administratora — filtr
+    // „Finanse widzą tylko swoje powierzchnie” go nie zasłania.
+    expect(see(accessSnapshot("finance", { grant: ["clients_edit"] }))).toBe(true);
+    // Stary wyjątek ograniczający sekcję Delivery zostaje sufitem.
+    expect(
+      see(accessSnapshot("delivery_lead", { sectionCaps: { delivery: "read" } })),
+    ).toBe(false);
+  });
+
+  it("Historia zdarzeń idzie za „Moduł Finanse” (lustro FinanceModuleUser)", () => {
+    const see = (account: ReturnType<typeof accessSnapshot>) =>
+      canSeeSettingsItem(account, item("history"));
+
+    expect(see(accessSnapshot("admin"))).toBe(true);
+    expect(see(accessSnapshot("finance"))).toBe(true);
+    expect(see(accessSnapshot("delivery_lead"))).toBe(false);
+    expect(see(accessSnapshot("head_of_recruitment", { grant: ["finance_module"] }))).toBe(
+      true,
+    );
+    expect(see(accessSnapshot("finance", { revoke: ["finance_module"] }))).toBe(false);
   });
 
   it("Finanse bez admina widzą swoje powierzchnie i Outlooka (U6, 22.09)", () => {

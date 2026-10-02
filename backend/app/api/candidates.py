@@ -167,6 +167,7 @@ from app.api.candidate_access import (
     CANDIDATE_DOCUMENT_ROLES,
     CANDIDATE_WRITE_ROLES,
     client_rate_write_allowed,
+    client_rate_write_denied,
     resolve_client_rate_write,
     user_can_view_client_rate,
 )
@@ -4845,19 +4846,17 @@ async def set_recruitment_client_rate(
     `rate_value=None` czyści stawkę. Każdy ruch na nowy etap startuje z pustą
     stawką — wtedy wystarczy uzupełnić ją ponownie.
     """
-    # Bramka: `resolve_client_rate_write` — admin albo Delivery Lead z zapisem
-    # w sekcji (decyzja Artura 23.09.2026; do tej daty także TAC, HoR, TCM,
-    # Finanse i właściciel rekrutacji). Ta sama funkcja zasila
+    # Bramka: `resolve_client_rate_write` — uprawnienie „Rekrutacje:
+    # zakładanie, zamykanie, wysyłka CV do klienta” (domyślnie admin i Delivery
+    # Lead) z zapisem w sekcji (decyzja Artura 23.09.2026; do tej daty także
+    # TAC, HoR, TCM, Finanse i właściciel rekrutacji). Ta sama funkcja zasila
     # `can_write_client_rate` w `GET /api/jobs/{id}`. Zmiana audytowana
     # old→new poniżej.
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if job is None:
         raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
     if not await resolve_client_rate_write(db, current_user, job):
-        raise HTTPException(
-            status_code=403,
-            detail="Stawkę do klienta zapisuje Delivery Lead albo admin.",
-        )
+        raise client_rate_write_denied()
 
     latest, previous_rate = await update_latest_client_rate(
         db,

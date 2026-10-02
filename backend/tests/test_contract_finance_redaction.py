@@ -502,7 +502,10 @@ async def test_tac_cannot_enter_delivery_to_create_contract(
     }
     r = await app_client.post("/api/contracts", json=body, headers=tac)
     assert r.status_code == 403, r.text
-    assert r.json()["detail"]["code"] == "section_access_denied"
+    # Odmowa nazywa uprawnienie, którego trasa wymaga, a którego TAC nie ma.
+    detail = r.json()["detail"]
+    assert detail["code"] == "permission_denied"
+    assert detail["permission"] == "contracts_orders_edit"
 
 
 async def test_tcm_expiring_list_redacted(app_client: AsyncClient):
@@ -540,7 +543,11 @@ async def test_tac_cannot_enter_delivery_to_patch_finance_fields(
         f"/api/contracts/{cid}", json={"rate_client": 321.0}, headers=tac
     )
     assert r.status_code == 403, r.text
-    assert r.json()["detail"]["code"] == "section_access_denied"
+    # Trasa mieszana: wystarczy edycja kontraktów ALBO zmiana kwot — TAC nie
+    # ma żadnego z nich, więc odmowa wymienia oba.
+    detail = r.json()["detail"]
+    assert detail["code"] == "permission_denied"
+    assert detail["permissions"] == ["contracts_orders_edit", "amounts_edit"]
 
     currency_write = await app_client.patch(
         f"/api/contracts/{cid}",
@@ -548,7 +555,7 @@ async def test_tac_cannot_enter_delivery_to_patch_finance_fields(
         headers=tac,
     )
     assert currency_write.status_code == 403, currency_write.text
-    assert currency_write.json()["detail"]["code"] == "section_access_denied"
+    assert currency_write.json()["detail"]["code"] == "permission_denied"
 
     unchanged = await app_client.get(f"/api/contracts/{cid}", headers=app_auth_headers)
     assert unchanged.status_code == 200, unchanged.text

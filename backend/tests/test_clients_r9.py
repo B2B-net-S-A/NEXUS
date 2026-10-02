@@ -86,6 +86,7 @@ async def test_global_contact_notes_use_the_per_client_rule(monkeypatch) -> None
         id=7,
         has_role=lambda role: role in roles,
         has_any_role=lambda *rs: any(r in roles for r in rs),
+        get_all_roles=lambda: set(roles),
     )
     monkeypatch.setattr(ca, "has_financial_access", lambda user: False)
 

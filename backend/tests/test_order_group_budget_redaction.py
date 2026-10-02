@@ -265,7 +265,10 @@ async def test_recruitment_roles_cannot_enter_delivery_order_groups(
     )
 
     assert resp.status_code == 403, resp.text
-    assert resp.json()["detail"]["code"] == "section_access_denied"
+    # Bramka sekcji nazywa uprawnienie, którego trasa wymaga, a konto nie ma.
+    detail = resp.json()["detail"]
+    assert detail["code"] == "permission_denied"
+    assert detail["permission"] == "delivery_view"
 
 
 # ── Faza B: sumy umowy MD per osoba ─────────────────────────────────────────

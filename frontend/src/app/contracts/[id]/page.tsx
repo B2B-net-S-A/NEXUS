@@ -85,6 +85,7 @@ import {
 } from "@/components/contracts/ContractStatusControl";
 import { useAuthStore } from "@/store/auth";
 import { contractAccess } from "@/lib/contract-access";
+import { permissionLabel } from "@/lib/permissions";
 import {
   buildContractDetailHref,
   parseContractsReturnContext,
@@ -498,8 +499,8 @@ export default function ContractDetailPage() {
   const impersonating = useAuthStore((state) => state.realUser !== null);
   // Bramki akcji — wspólne z bocznym panelem rejestru (`lib/contract-access.ts`).
   // Benchmark i faktury: `view_finance`/`manage_finance` bez wyjątku portfela
-  // DL (audyt 24.09, S1/S10); Finanse bez roli admin/DL edytują wyłącznie kwoty
-  // (backend: `finance_amounts_only`).
+  // DL (audyt 24.09, S1/S10); konto ze zmianą kwot, ale bez edycji kontraktów,
+  // edytuje wyłącznie kwoty (backend: `finance_amounts_only`).
   const {
     canManageFinance,
     canViewBenchmark,
@@ -1584,12 +1585,22 @@ export default function ContractDetailPage() {
                     <label htmlFor="contract-edit-status" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Status
                     </label>
+                    {/* Edycja kontraktu i zmiana statusu to dwa uprawnienia:
+                        formularz odsyła status przy każdym zapisie, ale jego
+                        ZMIANĘ serwer przyjmuje tylko od posiadacza
+                        „Zakończenie współpracy, zmiana statusu kontraktu”. */}
                     <select id="contract-edit-status"
                       value={form.status}
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, status: e.target.value } : f))
                       }
-                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
+                      disabled={!canEditContractStatus}
+                      title={
+                        canEditContractStatus
+                          ? undefined
+                          : `Status zmienia osoba z uprawnieniem „${permissionLabel("contract_status")}”`
+                      }
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground disabled:opacity-60"
                     >
                       {SELECTABLE_STATUSES.filter(
                         (value) =>
@@ -2337,11 +2348,17 @@ export default function ContractDetailPage() {
           clientId={contract.client_id}
           readOnly={!canEditContract}
           extensionLocked={b2bExtensionLocked(contract)}
-          // „Zakończ wcześniej" to też zakończenie kontraktu — przez to samo okno.
-          onRequestTermination={() => {
-            setTerminationDate(undefined);
-            setShowTerminationDialog(true);
-          }}
+          // „Zakończ wcześniej" to też zakończenie kontraktu — przez to samo
+          // okno i za tym samym uprawnieniem co „Zakończ współpracę" (edycja
+          // kontraktu go nie daje; bez callbacku przycisku nie ma).
+          onRequestTermination={
+            canEditContractStatus
+              ? () => {
+                  setTerminationDate(undefined);
+                  setShowTerminationDialog(true);
+                }
+              : undefined
+          }
         />
       )}
 
