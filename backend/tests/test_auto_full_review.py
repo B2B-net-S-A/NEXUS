@@ -56,11 +56,25 @@ def _no_nightly_maintenance(monkeypatch):
 
 
 def _at(hour: int) -> datetime:
-    """Chwila o danej godzinie LOKALNEJ (Europe/Warsaw), dziś."""
+    """Chwila o danej godzinie LOKALNEJ (Europe/Warsaw) w dniu bieżącej nocy.
+
+    Dzień liczy się od początku okna, nie od północy: przegląd założony
+    w teście dostaje `created_at` z zegara bazy, więc między 00:00 a początkiem
+    okna „dziś o 2:30” wypadało PO tym stemplu i przegląd nie należał do „tej
+    nocy” — test padał co noc o tej porze i wyrzucał PR-y z kolejki.
+    """
     from zoneinfo import ZoneInfo
 
-    local = datetime.now(ZoneInfo(settings.BUSINESS_TZ)).replace(
-        hour=hour, minute=30, second=0, microsecond=0
+    tz = ZoneInfo(settings.BUSINESS_TZ)
+    day = afr.night_start(datetime.now(timezone.utc)).astimezone(tz).date()
+    local = datetime.now(tz).replace(
+        year=day.year,
+        month=day.month,
+        day=day.day,
+        hour=hour,
+        minute=30,
+        second=0,
+        microsecond=0,
     )
     return local.astimezone(timezone.utc)
 
