@@ -19,11 +19,14 @@ ktoś dopisał regułę do etapu:
 * „CV wysłane” → rekruter, który prowadzi kandydata w tej rekrutacji
   (`interview_slots.default_recruiter_id`: właściciel procesu → pierwszy
   weryfikator → prowadzący rekrutację) ORAZ osoba, która przekazała kartę
-  do wysłania — bywa nią ktoś inny niż pierwszy weryfikator.
+  do wysłania — bywa nią ktoś inny niż pierwszy weryfikator;
+* etapy-odznaki bez własnej reguły („Preparation Meeting”, „Umowa wysłana”,
+  „Umowa podpisana”) → prowadzący rekrutację, rekruter kandydata i Delivery
+  Lead rekrutacji — ci sami ludzie, którzy dowiadują się o sąsiednich etapach.
 
 Pierwsze trzy to imienne zadania (`TASK_REASONS`): idą typem
 ``board_task_waiting`` (kategoria „Wzmianki”, nie do wyciszenia). „CV wysłane”
-jest informacją i zostaje przy ``stage_rule``.
+i etapy-odznaki są informacją i zostają przy ``stage_rule``.
 
 Osoba, która sama przesunęła kartę, jest odsiewana w resolverze.
 """
@@ -52,6 +55,7 @@ REASON_DL_REVIEW = "dl_review"
 REASON_CPRO_QUEUE = "cpro_queue"
 REASON_CPRO_RETURNED = "cpro_returned"
 REASON_CV_SENT = "cv_sent"
+REASON_STAGE_REACHED = "stage_reached"
 
 # Karta czeka na odbiorcę — zadanie, nie informacja o ruchu.
 TASK_REASONS = frozenset({REASON_DL_REVIEW, REASON_CPRO_QUEUE, REASON_CPRO_RETURNED})
@@ -60,6 +64,9 @@ CV_SENT_COLUMN = "cv_sent"
 # Kolumny, z których ruch na „CV wysłane” jest wysłaniem karty przekazanej
 # przez poprzednią osobę.
 _BEFORE_SEND_COLUMNS = frozenset({"new", "screening", "verified", CV_QC_COLUMN})
+# Etapy-odznaki (rozpoznawane po nazwie, jak na Tablicy), które nie dostały
+# reguły przy zasiewie: przygotowanie do rozmowy i dwa kroki umowy.
+_INFO_BADGE_KINDS = frozenset({"prep", "contract_sent", "contract_signed"})
 
 
 def _value(raw: object) -> Optional[str]:
@@ -113,6 +120,11 @@ def handoff_kind(
         return REASON_DL_REVIEW
     if column == CV_SENT_COLUMN:
         return REASON_CV_SENT
+    if (
+        stage_badge_kind(stage_def.name) in _INFO_BADGE_KINDS
+        and _value(stage_def.category) != "terminal"
+    ):
+        return REASON_STAGE_REACHED
     return None
 
 
@@ -221,6 +233,12 @@ async def handoff_recipients(
         )
         ids = (recruiter, _handed_over_by(previous_stage, previous_def))
         return kind, [uid for uid in dict.fromkeys(ids) if uid is not None]
+    if kind == REASON_STAGE_REACHED:
+        recruiter = await pair_recruiter_id(
+            db, candidate_id=candidate_id, job_id=job.id
+        )
+        ids = (job.recruiter_id, recruiter, *await _dl_reviewers(db, job))
+        return kind, [uid for uid in dict.fromkeys(ids) if uid is not None]
     return None, []
 
 
@@ -229,6 +247,7 @@ __all__ = [
     "REASON_CPRO_RETURNED",
     "REASON_CV_SENT",
     "REASON_DL_REVIEW",
+    "REASON_STAGE_REACHED",
     "TASK_REASONS",
     "handoff_kind",
     "handoff_recipients",
