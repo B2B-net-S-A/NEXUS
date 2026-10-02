@@ -97,6 +97,9 @@ from app.api.deps import (
     RecruiterPlus,
     require_roles,
 )
+from app.api.permission_access import RecruitmentManageUser
+from app.services.action_permissions import ProductAction
+from app.services.permission_denial import ensure_permission
 from app.services.auto_assign_owners import resolve_default_owners
 from app.services.client_access import assert_client_assignable
 from app.api.notifications import create_notification
@@ -1924,7 +1927,7 @@ def _normalize_office_days_for_update(job: Job, updates: dict) -> None:
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(
     data: JobCreate,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentManageUser,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
@@ -2861,7 +2864,9 @@ async def update_job(
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_job(
-    job_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
+    job_id: int,
+    current_user: RecruitmentManageUser,
+    db: AsyncSession = Depends(get_db),
 ):
     # Runda 7 (R7-N8-3): usunięcie rekrutacji trafia do Historii zdarzeń —
     # także odmowa. Do 26.09 ślad zostawał tylko w ``activities``.
@@ -3040,7 +3045,7 @@ async def delete_job(
 async def close_job(
     job_id: int,
     data: JobCloseRequest,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentManageUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Close a job with a structured reason.
@@ -3146,8 +3151,9 @@ async def set_job_managed_in_nexus(
     z poprzednią wartością, a formularz edycji nie może przełączyć „przy okazji".
     Idempotentna. Włącza każdy członek zespołu rekrutacji (``RecruiterPlus``
     + ``ensure_job_membership``; od 23.09.2026 bez wymogu roli TAC).
-    Wyłączenie tylko admin / delivery_lead — powrót do Traffita oznacza, że
-    najbliższy import nadpisze ruchy zrobione w NEXUSIE.
+    Wyłączenie tylko z uprawnieniem „Rekrutacje: zakładanie, zamykanie,
+    wysyłka CV do klienta” (domyślnie admin i Delivery Lead) — powrót do
+    Traffita oznacza, że najbliższy import nadpisze ruchy zrobione w NEXUSIE.
 
     Członkostwo sprawdzane PO odczycie oferty: `ensure_job_membership` na
     nieistniejącej ofercie daje osobie spoza ról nadzoru 403, a nie 404.
@@ -3167,13 +3173,10 @@ async def set_job_managed_in_nexus(
                 "zastosowania."
             ),
         )
-    if not data.enabled and not current_user.has_any_role(
-        UserRole.admin, UserRole.delivery_lead
-    ):
-        raise HTTPException(
-            status_code=403,
-            detail="Powrót do Traffita może wykonać tylko admin lub Delivery Lead.",
-        )
+    if not data.enabled:
+        # Powrót do Traffita to decyzja o cyklu życia rekrutacji — to samo
+        # uprawnienie co jej zamknięcie (odmowa nazywa je).
+        ensure_permission(current_user, ProductAction.recruitment_manage)
     previous = bool(job.managed_in_nexus)
     if previous != data.enabled:
         job.managed_in_nexus = data.enabled
@@ -3302,7 +3305,9 @@ async def set_job_hiring_manager(
 
 @router.post("/{job_id}/publish")
 async def publish_job(
-    job_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
+    job_id: int,
+    current_user: RecruitmentManageUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """Publish job — mark as published and queue portal syndication."""
     result = await db.execute(select(Job).where(Job.id == job_id))
@@ -3803,7 +3808,7 @@ _HANDOFF_RECRUITER_ROLES = (
 @router.get("/{job_id}/readiness")
 async def get_job_readiness(
     job_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentManageUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Czego brakuje, żeby przekazać rekrutację do searchu — PRZED kliknięciem.
@@ -3840,7 +3845,7 @@ async def get_job_readiness(
 @router.post("/{job_id}/handoff", status_code=202)
 async def handoff_job_to_search(
     job_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentManageUser,
     background_tasks: BackgroundTasks,
     payload: JobHandoffRequest,
     db: AsyncSession = Depends(get_db),
@@ -5182,7 +5187,9 @@ async def list_champion_suggestions(
 
 
 # ── Recruiter ownership endpoints ───────────────────────────────────────────
-# Primary owner (`recruiter_id`) is changed by Admin + Delivery Lead only.
+# Primary owner (`recruiter_id`) is changed only by holders of the permission
+# „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” (by default Admin
+# + Delivery Lead).
 # "Claim" is self-assign on an unassigned job — open to anyone who can write
 # to jobs (admin/DL/TAC/recruiter/sourcer). The `user` read-only role is
 # blocked.
@@ -5192,10 +5199,10 @@ async def list_champion_suggestions(
 async def assign_owner(
     job_id: int,
     payload: JobOwnerAssignment,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentManageUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Set/change the primary owner (recruiter_id). Admin + Delivery Lead only."""
+    """Set/change the primary owner (recruiter_id). „Rekrutacje: zakładanie…” only."""
     await allocation_lock(db)
     job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if not job:
@@ -5249,10 +5256,10 @@ async def assign_owner(
 @router.delete("/{job_id}/owner", response_model=JobResponse)
 async def release_owner(
     job_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentManageUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Unassign the primary owner (sets recruiter_id = NULL). Admin + DL only."""
+    """Unassign the primary owner (sets recruiter_id = NULL). Same permission."""
     await allocation_lock(db)
     job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if not job:
