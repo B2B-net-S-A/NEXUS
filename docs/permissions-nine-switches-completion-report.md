@@ -93,6 +93,9 @@ zamówień, budżet linii w kwocie jest kwotą) są wypisane w tym samym paragra
   kontrakt i zamówienie; przełącznik roli kliknięty na ekranie otwiera
   i zamyka trasę; uprawnienie nadane osobie daje kontrakt bez kwot, a ze
   stawką — odmowę z nazwą „Stawki i kwoty: zmiana”.
+  Scenariusze pamiętają token roli w procesie workera (`e2e/helpers/api.ts`)
+  — logowanie ma limit 30/min, a jedno logowanie na test wyczerpywało go
+  w połowie zestawu.
 - **Przeglądy** na scalonym drzewie (commit `fe8ec0ced`): bezpieczeństwo,
   backend, frontend i przegląd adwersarialny „persona × trasa” (wzorzec
   bramek sprzed przepięcia porównany trasa po trasie; poza zamierzonymi
@@ -115,14 +118,20 @@ zamówień, budżet linii w kwocie jest kwotą) są wypisane w tym samym paragra
 
 ## Po wdrożeniu — po stronie administratora
 
-Zaznaczyć kontu ze zgłoszenia „Kontrakty i zamówienia: tworzenie i edycja”
-w oknie „Edytuj użytkownika”. Bez podglądu stawek założy kontrakt bez kwot
-(tak jak dotąd Delivery Lead bez wpisywania stawek), a kwoty wpisują Finanse.
-Przycisk „Nowe zamówienie” i formularze zamówień pokazują się dopiero razem
-z „Stawki i kwoty: podgląd” — niosą stawki i PDF zamówienia; jeśli konto ma
-też zakładać zamówienia, wystarczy dołożyć tę drugą pozycję. Nadanie robi człowiek, nie migracja — wpis
-w Historii zdarzeń ma mieć autora, a stałe id w migracji działałoby też na
-bazach testowych.
+Zaznaczyć kontu ze zgłoszenia dwie pozycje w oknie „Edytuj użytkownika” →
+„Dodatkowe uprawnienia” (decyzja Artura 02.10.2026):
+
+- „Kontrakty i zamówienia: tworzenie i edycja” — zakładanie i prowadzenie
+  kontraktów oraz zamówień;
+- „Stawki i kwoty: podgląd” — bez niej przycisk „Nowe zamówienie” i formularze
+  zamówień się nie pokazują, bo niosą stawki i PDF zamówienia.
+
+Z tym kompletem konto zakłada kontrakt (bez kwot kontraktu — te zmienia
+„Stawki i kwoty: zmiana”, czyli Finanse) oraz zamówienia ze stawkami i PDF-em
+u wszystkich klientów. Połączenie obu pozycji u Talent Community Managera
+pilnuje `test_order_editor_needs_amounts_view_for_amounts_and_files`.
+Nadanie robi człowiek, nie migracja — wpis w Historii zdarzeń ma mieć autora,
+a stałe id w migracji działałoby też na bazach testowych.
 
 ## Poza zakresem (świadomie)
 

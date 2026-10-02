@@ -164,11 +164,9 @@ test.describe("Uprawnienia z ekranu Osoby i role @stack", () => {
     try {
       await setUserPermission(admin.api, before.userId, "contracts_orders_edit", true);
       // Panel mówi, skąd osoba ma uprawnienie: z nadania, nie z roli.
-      const panel = await jsonOf<{ grants: string[]; effective: string[] }>(
-        await admin.api.get(`${PANEL}/users/${before.userId}`),
-        200,
-        "GET panelu osoby"
-      );
+      const { user: panel } = await jsonOf<{
+        user: { grants: string[]; effective: string[] };
+      }>(await admin.api.get(`${PANEL}/users/${before.userId}`), 200, "GET panelu osoby");
       expect(panel.grants).toContain("contracts_orders_edit");
       // Edycja pociąga podgląd Delivery, ale nie kwoty.
       expect(panel.effective).toContain("delivery_view");
