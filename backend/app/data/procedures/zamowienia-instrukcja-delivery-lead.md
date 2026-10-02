@@ -547,9 +547,10 @@ zamówienia i zakładkę **Historia**.
 | **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Razem z zamówieniem znikają jego linie — **nie powstają z nich osobne zamówienia okresowe**. Okno usuwania pokazuje skutki dla umów: jeśli zamówienie niosło jedyną stawkę klienta na umowie, umowa zostaje **bez przychodu** (stawka klienta i marża znikają), a gdy są inne zamówienia — okres, którego dotyczyło, przejdzie na ich stawkę |
 | **Historia** (zakładka panelu zamówienia) | lista **zdarzeń biznesowych**: data · autor (wpis bez osoby = zmiana automatyczna) · rodzaj · osoba · co zmieniono w formie „przed → po" · saldo osoby po zmianie (ujemne na czerwono, obok „było …"). Są w niej: utworzenie, przedłużenie, zakończenie i anulowanie zamówienia, dodanie, zamiana i usunięcie konsultanta, decyzje o osobie i o puli MD, zmiany stawek i budżetu MD osoby oraz **jeden wpis na każdy import MD** („Import MD za sierpień 2026 – 2 osoby, 25 MD") z odsyłaczem **„Otwórz import →"** do zakładki **Importy MD**. Kilka edycji tej samej osoby przez tę samą osobę w odstępie do 15 minut to **jeden wpis z wynikiem netto** — pojedyncze zmiany rozwiniesz przyciskiem „▸ N zmian". Nad listą są filtry: **typ zdarzenia** (Wszystko / Zamówienie / Konsultanci / Zużycie MD / Edycje) i **osoba**. **Nie ma tu** pojedynczych zejść i korekt MD (są w oknie **Zużycie MD** osoby) ani technicznych zmian pól, np. waluty czy jednostki stawki (są w zakładce **Timeline** kontraktu osoby, z polskimi nazwami pól). Zapis nowego szkicu MD, zmiana jego trybu, aktywacja i zapis miesięcznego zużycia wspólnej puli również zostawiają wpis |
 
-Kliknij wiersz konsultanta, a jego panel ma: **Edytuj linię** (Finanse:
-**Edytuj stawki**), **Zamień kontraktora** (tylko przy aktywnej linii) i w menu
-**„⋯"** **Usuń konsultanta z zamówienia**.
+Kliknij wiersz konsultanta, a jego panel ma: **Edytuj linię** (osoba, która
+zmienia same kwoty, a zamówień nie prowadzi, widzi tu **Edytuj stawki**),
+**Zamień kontraktora** (tylko przy aktywnej linii) i w menu **„⋯"** **Usuń
+konsultanta z zamówienia**.
 
 ### Zużycie MD osoby
 
@@ -915,14 +916,18 @@ dwie daty i pierwszą kwotę z dokumentu, a **numeru zamówienia sam nie znajduj
 numer wyszukiwany jest po etykiecie i działa też w trybie awaryjnym). Poznasz go
 po powodzie „Odczyt awaryjny (bez AI) — zweryfikuj wszystkie pola" w banerze.
 
-**W interfejsie przycisk „Zczytaj dane z dokumentu" jest dostępny administratorowi
-i Delivery Leadowi przypisanemu do tego klienta.** Od 25.09.2026 Delivery Lead
-widzi w Klientach, Kontraktach i Zamówieniach wyłącznie klientów, do których jest
-przypisany — zamówień innego klienta nie zobaczy wcale. Pozostałe role — w tym Finanse, Talent Community
-Manager i Head of Recruitment — nie wykonują tego odczytu.
+**„Zczytaj dane z dokumentu" wykonuje osoba, która prowadzi zamówienia i widzi
+kwoty tego klienta** — potrzebne są dwa uprawnienia: „Kontrakty i zamówienia:
+tworzenie i edycja” oraz „Stawki i kwoty: podgląd”. Domyślnie mają je Delivery
+Lead i Finanse, administrator zawsze. Od 25.09.2026 Delivery Lead widzi
+w Klientach, Kontraktach i Zamówieniach wyłącznie klientów, do których jest
+przypisany — zamówień innego klienta nie zobaczy wcale. Kto tych uprawnień nie
+ma — domyślnie Talent Community Manager i Head of Recruitment — odczytu nie
+wykona, a odmowa nazwie brakujące uprawnienie.
 
-**Kwoty z odczytu widzi tylko administrator i przypisany Delivery Lead.** Liczba
-MD jest wielkością operacyjną, nie finansową.
+**Kwoty z odczytu widzi ten, kto widzi kwoty tego klienta:** administrator
+i Finanse u każdego klienta, Delivery Lead u klienta, do którego jest przypisany.
+Liczba MD jest wielkością operacyjną, nie finansową.
 
 ---
 
@@ -1129,8 +1134,10 @@ regułę odczytu klienta do zachowanego PDF-a — wpis zatrzymany przed poprawk�
 reguły przelicza się według aktualnej. Dla pozostałych klientów zachowuje
 rozpoznanego klienta, numer i okres. Ponownie sprawdza stawki oraz dopasowanie osób.
 **Pewny plan zapisuje się automatycznie (gdy automat jest włączony); plan
-z konkretną wątpliwością pozostaje w weryfikacji.** Przycisk jest dostępny administratorowi albo
-Delivery Leadowi przypisanemu do klienta, jeśli wpis ma plik źródłowy.
+z konkretną wątpliwością pozostaje w weryfikacji.** Przycisk ma ten, kto może
+zapisać zamówienie tego klienta — administrator, Finanse albo Delivery Lead
+przypisany do klienta — jeśli wpis ma plik źródłowy. Tak samo jest
+z **„Zastosuj”** i **„Odrzuć”**.
 Przeliczenie jest możliwe tylko przed zapisaniem pierwszego zamówienia
 z danego wpisu.
 
@@ -1140,8 +1147,9 @@ czeka w „Do weryfikacji" i w „Nierozpoznane", i robi z tym dokładnie to, co
 „Przelicz plan": pewny plan zapisuje się automatycznie, plan z wątpliwością
 zostaje w weryfikacji już z aktualnymi powodami. Nie trzeba przesyłać zamówienia
 ponownie — ten sam PDF wysłany drugi raz system i tak rozpoznaje jako duplikat
-i pomija. Dokument, którego klienta nie udało się rozpoznać, administrator może
-zdjąć z zakładki „Nierozpoznane” przyciskiem **„Odrzuć”**.
+i pomija. Dokument, którego klienta nie udało się rozpoznać, administrator albo
+Finanse mogą zdjąć z zakładki „Nierozpoznane” przyciskiem **„Odrzuć”** (Delivery
+Lead takiego dokumentu nie widzi — nie należy do żadnego portfela).
 
 **Pocztę system sprawdza dalej całą dobę** — nowe zamówienie przysłane
 wieczorem pojawia się w kolejce tego samego dnia. Gdy przy sprawdzeniu nie da się
@@ -1211,8 +1219,8 @@ zapisanego PDF-a (Graph nie oddał treści załącznika, plik za duży albo nie
 udało się pobrać załączników), wpisu starszego niż 7 dni ani wpisu po trzech
 nieudanych próbach — przy takim wpisie widać zdanie „Nie będzie ponawiany”.
 Wprowadź wtedy zamówienie ręcznie w oknie zamówienia klienta, a wpis zdejmij
-z zakładki przyciskiem **„Odrzuć”** (administrator; Delivery Lead — przy wpisie
-jego klienta). Odrzucenie kończy też automatyczne ponowienia. Ten sam PDF
+z zakładki przyciskiem **„Odrzuć”** (administrator i Finanse; Delivery Lead —
+przy wpisie jego klienta). Odrzucenie kończy też automatyczne ponowienia. Ten sam PDF
 przysłany ponownie po nieudanym przetworzeniu jest czytany od nowa (nie jest
 już pomijany jako duplikat).
 
@@ -1527,45 +1535,73 @@ która akcja); wpisy o zakończeniu zostają.
 
 ## Kto co może
 
-Uprawnienia rozkładają się na **trzy niezależne poziomy** i to tłumaczy większość
-pytań „dlaczego nie widzę przycisku".
+O tym, co możesz zrobić w zamówieniach, decydują **uprawnienia** z ekranu
+**Ustawienia → Zespół i dostęp → Osoby i role** — nie sama nazwa roli.
+Administrator włącza je całej roli albo dodatkowo jednej osobie, a sam ma zawsze
+wszystkie. To tłumaczy większość pytań „dlaczego nie widzę przycisku".
 
-| Poziom | Kto |
-|---|---|
-| **Bezpieczny odczyt zamówień** | administrator i Finanse — wszyscy klienci; każdy Delivery Lead — wszyscy klienci, ale poza przypisanym portfelem bez kwot i plików PO; Talent Community Manager — wszyscy klienci, ale bez kwot, plików PO i eksportu |
-| **Cykl życia** (zakończ, przywróć, usuń — także usunięcie konsultanta) | administrator i każdy Delivery Lead; Finanse dodatkowo przy zamówieniach zbiorczych |
-| **Stawki, budżety, pliki PO i obsada** (dodanie/edycja konsultanta, finansowa edycja zamówienia) | administrator i Delivery Lead przypisany do klienta; **Finanse — same kwoty** (stawki i wartości), bez obsady i plików PO |
+| Uprawnienie | Co otwiera w zamówieniach | Kto ma je domyślnie |
+|---|---|---|
+| **Klienci, kontrakty i zamówienia: podgląd** | lista zamówień, historia, zużycie MD, zakładka Importy MD i kolejka zamówień z maila — bez kwot, plików i eksportu | Delivery Lead, Finanse, Talent Community Manager |
+| **Kontrakty i zamówienia: tworzenie i edycja** | nowe zamówienie i przedłużenie, zakończenie, przywrócenie, anulowanie i usunięcie, usunięcie konsultanta, wpis zużycia MD, „Usuń szkic", „Pobierz zamówienia z maila" | Delivery Lead, Finanse |
+| **Stawki i kwoty: podgląd** | stawki, budżety i marże na zamówieniach, pliki PO i PDF-y zamówień, eksport do Excela | Delivery Lead, Finanse |
+| **Stawki i kwoty: zmiana** | zmiana samych kwot zamówienia i linii — także przez osobę, która zamówień nie prowadzi | Finanse |
 
-**Finanse przechodzą bramkę odczytu u wszystkich klientów bez przypisania**
-i widzą kwoty. Od 22.09.2026 zmieniają też **same kwoty** — stawki kontraktu,
-zamówienia i linii MD. Próba zmiany czegokolwiek innego (obsada, daty, numer,
-plik PO) kończy się odmową „Finanse zmieniają tutaj wyłącznie kwoty". Delivery Lead nie potrzebuje
-przypisania, aby widzieć i obsługiwać klienta operacyjnie; przypisanie nadal
-wyznacza jego dostęp do stawek, budżetów, plików PO i operacji, które je zapisują.
+**U kogo.** Delivery Lead działa u klientów ze swojego portfela (profil klienta →
+zakładka „Delivery Lead") — zamówień innych klientów nie widzi wcale. Każda inna
+osoba z danym uprawnieniem działa u wszystkich klientów. Wyjątek: Delivery Lead,
+który ma też rolę Talent Community Managera, widzi wszystkich klientów, ale poza
+swoim portfelem bez kwot i plików PO.
 
-**Talent Community Manager ma globalny, bezpieczny odczyt Delivery.** Widzi
-dane operacyjne, ale nie widzi kwot, marż, przychodów, plików źródłowych PO ani
-eksportów mogących zawierać stawki; nie może też wykonywać żadnych zmian.
+**Wszystko, co niesie stawki, wymaga kwot tego klienta.** Obsada (dodanie
+i zamiana konsultanta, wejście za konsultanta), budżety, plik PO, „Zczytaj dane
+z dokumentu" oraz „Zastosuj", „Odrzuć" i „Przelicz plan" w zamówieniach z maila
+wymagają prowadzenia zamówień **i** podglądu kwot tego klienta. Osoba, która
+prowadzi zamówienia bez podglądu kwot, założy, przedłuży i zakończy zamówienie,
+ale przy pierwszej stawce albo pliku dostanie odmowę.
 
-**Head of Recruitment, TAC, Rekruter i Sourcer nie mają dostępu do sekcji
-Delivery**, więc nie widzą zamówień ani tych akcji.
+**Finanse prowadzą zamówienia u wszystkich klientów** (od 02.10.2026): zakładają
+je, przedłużają, obsadzają, kończą i usuwają, wgrywają pliki PO oraz zapisują
+i odrzucają zamówienia z maila.
 
-**Odebranie dostępu do sekcji Delivery (roli albo konkretnej osobie) działa
-w całości** — także wąski wyjątek, w którym Talent Community Manager zmienia
-status umowy, przestaje wtedy działać.
+**Sama „zmiana kwot" nie otwiera reszty.** Osoba, która ma zmianę kwot, a zamówień
+nie prowadzi, zmienia wyłącznie stawki i wartości. Próba zmiany czegokolwiek
+innego (obsada, daty, numer) kończy się odmową „Finanse zmieniają tutaj wyłącznie
+kwoty".
 
-**Przedłużenie zamówienia zbiorczego** może rozpocząć administrator, przypisany
-Delivery Lead albo Finanse. Jeżeli przedłużenie od razu zawiera konsultantów ze
-stawkami, wymaga administratora albo przypisanego Delivery Leada. Talent
-Community Manager nie otworzy formularza i nie zapisze przedłużenia.
+**Talent Community Manager ma domyślnie sam podgląd.** Widzi dane operacyjne, ale
+nie widzi kwot, marż, przychodów, plików źródłowych PO ani eksportów mogących
+zawierać stawki; w zamówieniach niczego nie zmienia. Zmiana statusu umowy to
+osobne uprawnienie („Zakończenie współpracy, zmiana statusu kontraktu").
 
-Talent Community Manager widzi na zamówieniach zbiorczych **myślnik „—"** — nie
-zero i nie komunikat o błędzie — a na kartach pojedynczych konsultantów wiersze
-z pieniędzmi w ogóle się nie pokazują.
+**Head of Recruitment, TAC, Rekruter i Sourcer nie mają domyślnie żadnego z tych
+uprawnień**, więc nie widzą zamówień ani tych akcji — dopóki administrator
+któregoś im nie nada.
 
-**Importu zużycia MD nie robi Delivery Lead.** Moduł Finanse jest dostępny tylko
-dla ról administrator i Finanse — ale wynik tego importu natychmiast zmienia to,
-co widzisz w zakładce „Zamówienia", i uruchamia powiadomienia o budżecie.
+**Odmowa mówi, czego brakuje.** Gdy brakuje uprawnienia, komunikat je nazywa,
+np. „Brakuje Ci uprawnienia „Stawki i kwoty: podgląd". Poproś administratora
+o dostęp." Gdy uprawnienia masz, a klient leży poza Twoim portfelem, zobaczysz
+„Ten klient jest poza Twoim portfelem." albo informację, że plik zamówienia
+wymaga przypisania do klienta.
+
+**Dostępu do Delivery nie ustawia się osobno** — wynika z uprawnień. Bez podglądu
+zamówienia są niedostępne w całości; wyłączenie samego „tworzenia i edycji"
+zostawia odczyt.
+
+**Przedłużenie zamówienia zbiorczego** rozpoczyna osoba, która prowadzi
+zamówienia — domyślnie Delivery Lead u swojego klienta i Finanse. Jeżeli
+przedłużenie od razu zawiera konsultantów ze stawkami albo budżet, potrzebne są
+też kwoty tego klienta.
+
+Osoba bez podglądu kwot (domyślnie Talent Community Manager) widzi na
+zamówieniach zbiorczych **myślnik „—"** — nie zero i nie komunikat o błędzie —
+a na kartach pojedynczych konsultantów wiersze z pieniędzmi w ogóle się nie
+pokazują.
+
+**Importu zużycia MD nie robi Delivery Lead.** Moduł Finanse otwiera osobne
+uprawnienie „Moduł Finanse" — domyślnie mają je Finanse i administrator — ale
+wynik tego importu natychmiast zmienia to, co widzisz w zakładce „Zamówienia",
+i uruchamia powiadomienia o budżecie.
 
 ---
 
@@ -2338,9 +2374,10 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
    drugi raz.
 6. **„Kliknąłem Oznacz jako obsłużone, a problem trwa."** Ta sprawa już nie
    wróci. Trzymaj to kliknięcie na moment, w którym naprawdę ją zamykasz.
-7. **„Kwoty pokazują myślnik."** Jeżeli nie jesteś przypisany do klienta, to
-   oczekiwany bezpieczny widok: widzisz dane operacyjne, ale nie stawki ani
-   budżety. Jako Delivery Lead przypisany do klienta stawki widzisz — wtedy
+7. **„Kwoty pokazują myślnik."** Jeżeli nie jesteś przypisany do klienta albo nie
+   masz uprawnienia „Stawki i kwoty: podgląd", to oczekiwany bezpieczny widok:
+   widzisz dane operacyjne, ale nie stawki ani budżety. Jako Delivery Lead
+   przypisany do klienta stawki widzisz — wtedy
    myślnik oznacza **brak wpisanej stawki** i trzeba ją uzupełnić. Przy brakującej
    stawce przychodowej na aktywnym zamówieniu przyjdzie o tym osobne
    powiadomienie.
