@@ -5,6 +5,7 @@ client scope remain independent boundaries.
 """
 
 from types import SimpleNamespace
+from typing import get_args, get_type_hints
 
 import pytest
 from fastapi import HTTPException
@@ -61,23 +62,35 @@ def test_insights_revoke_removes_non_financial_analytics_capabilities() -> None:
 
 
 @pytest.mark.asyncio
-async def test_opaque_contract_documents_require_persona_and_finance_grant() -> None:
+async def test_opaque_contract_documents_require_the_amounts_view_permission() -> None:
+    """Szkic i pliki kontraktu niosą stawki — czyta je „Stawki i kwoty: podgląd”."""
+
+    annotation = get_type_hints(contracts.list_contract_documents, include_extras=True)
+    gate = get_args(annotation["current_user"])[1].dependency
+
     finance_revoked = _user(UserRole.finance, "none")
     with pytest.raises(HTTPException) as exc:
-        await contracts.require_contract_document_read_access(finance_revoked)
+        await gate(finance_revoked)
     assert exc.value.status_code == 403
+    assert exc.value.detail["permission"] == "amounts_view"
 
-    finance_reader = _user(UserRole.finance, "read")
-    assert (
-        await contracts.require_contract_document_read_access(finance_reader)
-        is finance_reader
+    finance_reader = _user(
+        UserRole.finance, "none", permissions=("delivery_view", "amounts_view")
     )
+    assert await gate(finance_reader) is finance_reader
 
-    # A section exception grants financial data, not the separate legal persona.
-    recruiter_reader = _user(UserRole.recruiter, "read")
+    # Decyduje uprawnienie, nie rola: rekruter z nadanym podglądem kwot czyta
+    # dokumenty, a sam stary poziom sekcji Finanse niczego nie otwiera.
+    recruiter_reader = _user(
+        UserRole.recruiter, "none", permissions=("delivery_view", "amounts_view")
+    )
+    assert await gate(recruiter_reader) is recruiter_reader
+
+    section_only = _user(UserRole.recruiter, "read")
     with pytest.raises(HTTPException) as exc:
-        await contracts.require_contract_document_read_access(recruiter_reader)
+        await gate(section_only)
     assert exc.value.status_code == 403
+    assert exc.value.detail["permission"] == "amounts_view"
 
 
 @pytest.mark.asyncio
