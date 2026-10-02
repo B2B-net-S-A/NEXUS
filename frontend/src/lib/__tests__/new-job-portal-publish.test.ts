@@ -17,8 +17,11 @@ const FORM: IntakeForm = {
   ...EMPTY_INTAKE_FORM,
   title: "Senior Java Developer",
   clientTitle: "Programista Java (ZOB 1)",
-  must: ["Java", "Kafka"],
-  nice: ["Kubernetes"],
+  rows: [
+    { key: "java", words: ["Java"], level: "critical" },
+    { key: "kafka", words: ["Kafka", "RabbitMQ"], level: "must" },
+    { key: "k8s", words: ["Kubernetes", "k8s"], level: "nice" },
+  ],
   remotePolicy: "hybrid",
   onsiteDays: "2",
   city: " Warszawa ",
@@ -77,7 +80,9 @@ describe("domyślne parametry ogłoszenia z formularza", () => {
       title: "Senior Java Developer",
       client_id: 7,
       description: "mail",
+      // Pierwsze słowa wierszy: krytyczne i „musi mieć” razem, warianty odpadają.
       must_skills: ["Java", "Kafka"],
+      nice_skills: ["Kubernetes"],
       location: "Warszawa",
       remote_policy: "hybrid",
       onsite_days_per_week: 2,
