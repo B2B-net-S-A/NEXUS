@@ -5,9 +5,11 @@ P0.6a containment: ``GET .../amendments`` (list) i ``.../amendments/{id}/file``
 więc read-only viewer (``user``) oraz recruiter/sourcer mogli iterować i pobierać
 dokumenty prawne (aneksy) dowolnego klienta. Po zmianie chroni je scope
 ``resolve_client_access.can_view_legal_documents`` oraz centralna granica
-sekcji Delivery. Admin/Finance mają nadzór organizacyjny, a Delivery Lead
-dostęp wyłącznie przez jawną relację z klientem. TCM widzi bezpieczne dane
-Delivery, ale nie surowe dokumenty prawne; pozostałe role nie wchodzą do sekcji.
+sekcji Delivery. Od 0409 odczyt wymaga uprawnienia „Stawki i kwoty: podgląd”:
+domyślnie Admin/Finance mają nadzór organizacyjny, a Delivery Lead dostęp
+wyłącznie przez jawną relację z klientem. TCM widzi bezpieczne dane Delivery,
+ale nie surowe dokumenty prawne (nie ma podglądu kwot — odmowa to nazywa);
+pozostałe role nie wchodzą do sekcji.
 """
 
 from __future__ import annotations
@@ -111,12 +113,14 @@ async def test_denied_roles_cannot_list_amendments(
     headers = await _headers_for(app_client, role_value)
     r = await app_client.get(_list_url(client_id, fc_id), headers=headers)
     assert r.status_code == 403, f"{role_value} → {r.status_code}: {r.text}"
-    expected_code = (
-        "client_access_denied"
-        if role_value == "talent_community_manager"
-        else "section_access_denied"
-    )
-    assert expected_code in r.text
+    if role_value == "talent_community_manager":
+        # TCM ma podgląd Delivery, ale bez kwot — odmowa nazywa to, czego
+        # brakuje, zamiast mówić o roli.
+        detail = r.json()["detail"]
+        assert detail["code"] == "permission_denied"
+        assert detail["permission"] == "amounts_view"
+    else:
+        assert "section_access_denied" in r.text
 
 
 @pytest.mark.parametrize("role_value", ALLOWED_ROLES)

@@ -1,10 +1,14 @@
 """Router `/api/clients/{client_id}/framework-contracts` — MSA per klient.
 
-Reads (GET) — admin/Finance i Delivery Lead globalnie.
-Talent Community Manager ma bezpieczny odczyt Delivery, ale nie dostaje
-nieprzezroczystych dokumentów prawnych, które mogą zawierać stawki.
-Writes (POST/PATCH/DELETE) — `DlAssignedOrAdmin` (admin globalnie albo DL
-przypisany do klienta). Bramka sekcji odcina HoR/TAC i zapis TCM.
+Umowy ramowe to dokumenty prawne klienta — mogą nieść stawki.
+
+Reads (GET) — uprawnienie „Stawki i kwoty: podgląd” u klienta z zakresu
+(domyślnie admin, Finanse i Delivery Lead u swoich klientów). Talent Community
+Manager ma podgląd Delivery, ale bez kwot, więc tych dokumentów nie dostaje.
+Writes (POST/PATCH/PUT/DELETE) — `LegalDocsWriter`: „Kontrakty i zamówienia:
+tworzenie i edycja” razem z podglądem kwot; konto z rolą Delivery Leada
+zapisuje u klienta z przypisania, pozostali posiadacze (admin, Finanse) —
+u wszystkich. Odmowa nazywa brakujące uprawnienie.
 
 Pattern multipart upload — zaczerpnięte z `client_materials.py` (one-pagers).
 """
@@ -12,7 +16,7 @@ Pattern multipart upload — zaczerpnięte z `client_materials.py` (one-pagers).
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import (
     APIRouter,
@@ -28,17 +32,15 @@ from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import (
-    DlAssignedOrAdmin,
-    get_current_user,
-)
+from app.api.deps import get_current_user
 from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
+from app.services.action_permissions import ProductAction
 from app.services.client_access import (
     assert_client_writable,
-    deny,
     resolve_client_access,
 )
+from app.services.permission_denial import ensure_permission
 from app.services.client_portfolio_import import (
     SOURCE_SYSTEM as PORTFOLIO_MANIFEST_SOURCE_SYSTEM,
 )
@@ -56,6 +58,7 @@ from app.models.client_framework_contract import (
     FrameworkContractStatus,
 )
 from app.models.client_order import ClientOrder
+from app.models.user import User
 from app.schemas.client_framework_contract import (
     ClientFrameworkContractListResponse,
     ClientFrameworkContractRead,
@@ -157,11 +160,44 @@ async def _require_legal_docs_reader(
     await _assert_client(db, client_id)
     access = await resolve_client_access(db, current_user, client_id)
     if not access.can_view_legal_documents:
-        raise deny("umowy ramowe klienta wymagają dostępu prawnego do klienta")
+        raise access.legal_denial(
+            "umowy ramowe klienta wymagają dostępu prawnego do klienta"
+        )
     return current_user
 
 
 LegalDocsReader = Depends(_require_legal_docs_reader)
+
+
+async def require_client_legal_docs_write(
+    client_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Zapis umów ramowych i ich aneksów = zapis dokumentów prawnych klienta.
+
+    „Kontrakty i zamówienia: tworzenie i edycja” razem z podglądem kwot
+    (dokument może nieść stawki). Konto z rolą Delivery Leada zapisuje
+    u klienta z przypisania (``resolve_delivery_lead_assigned_client_ids`` —
+    razem ze scalonymi duplikatami), każdy inny posiadacz u wszystkich.
+    FastAPI bierze ``client_id`` z parametru ścieżki routera; istnienie klienta
+    sprawdza handler (``assert_client_writable``).
+    """
+
+    # Uprawnienia przed grafem klienta: konto bez nich dostaje odmowę z nazwą
+    # brakującej pozycji, zanim cokolwiek zapytamy o jego klientów.
+    ensure_permission(current_user, ProductAction.contracts_orders_edit)
+    ensure_permission(current_user, ProductAction.amounts_view)
+    access = await resolve_client_access(db, current_user, client_id)
+    if not access.can_edit_legal_documents:
+        raise access.legal_denial(
+            "zapis dokumentów prawnych klienta wymaga jawnego przypisania klienta",
+            write=True,
+        )
+    return current_user
+
+
+LegalDocsWriter = Annotated[User, Depends(require_client_legal_docs_write)]
 
 
 def _validate_upload(file: UploadFile) -> None:
@@ -286,7 +322,7 @@ async def get_framework_contract(
 )
 async def create_framework_contract(
     client_id: int,
-    user: DlAssignedOrAdmin,
+    user: LegalDocsWriter,
     db: AsyncSession = Depends(get_db),
     file: Optional[UploadFile] = File(None),
     name: str = Form(...),
@@ -385,7 +421,7 @@ async def update_framework_contract(
     client_id: int,
     fc_id: int,
     payload: ClientFrameworkContractUpdate,
-    user: DlAssignedOrAdmin,
+    user: LegalDocsWriter,
     db: AsyncSession = Depends(get_db),
 ):
     await assert_client_writable(db, client_id)
@@ -503,7 +539,7 @@ async def _draft_delete_blockers(db: AsyncSession, fc_id: int) -> list[str]:
 async def delete_framework_contract(
     client_id: int,
     fc_id: int,
-    user: DlAssignedOrAdmin,
+    user: LegalDocsWriter,
     db: AsyncSession = Depends(get_db),
 ):
     """Soft-delete: status → `superseded`. Hard delete tylko gdy `draft`.
@@ -615,7 +651,7 @@ async def delete_framework_contract(
 async def replace_framework_contract_file(
     client_id: int,
     fc_id: int,
-    user: DlAssignedOrAdmin,
+    user: LegalDocsWriter,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
 ):
@@ -664,7 +700,7 @@ async def send_framework_contract_to_autenti(
     client_id: int,
     fc_id: int,
     payload: ClientDocSendRequest,
-    user: DlAssignedOrAdmin,
+    user: LegalDocsWriter,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
