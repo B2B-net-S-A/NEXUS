@@ -9,7 +9,8 @@ Templates (admin only):
   PATCH  /required-document-templates/{id}
   DELETE /required-document-templates/{id}
 
-Per-klient instancje (jawny scope klienta/Joba do view, Admin/DL do edycji):
+Per-klient instancje (jawny scope klienta/Joba do view; edycja = uprawnienie
+„Klienci: dodawanie i edycja” u klienta z zakresu, odmowa je nazywa):
   GET    /clients/{client_id}/required-documents
   POST   /clients/{client_id}/required-documents              (ad-hoc, bez pliku)
   POST   /clients/{client_id}/required-documents/apply-templates  (bulk z szablonów)
@@ -28,6 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OperationalUser, require_roles
+from app.api.permission_access import ClientsEditUser
 from app.api.section_access import DeliverySectionUser
 from app.core.database import get_db
 from app.core.upload_filename import fit_filename_column
@@ -83,8 +85,11 @@ async def _require_required_docs_access(
     access = await resolve_client_access(db, current_user, client_id)
     allowed = access.can_edit_materials if write else access.can_view_materials
     if not allowed:
-        operation = "edycja" if write else "odczyt"
-        raise deny(f"{operation} wymaganych dokumentów wymaga jawnego zakresu klienta")
+        if write:
+            raise access.edit_denial(
+                "edycja wymaganych dokumentów wymaga jawnego zakresu klienta"
+            )
+        raise deny("odczyt wymaganych dokumentów wymaga jawnego zakresu klienta")
 
 
 async def require_required_docs_read_access(
@@ -105,6 +110,7 @@ async def require_required_docs_read_access(
 async def require_required_docs_write_access(
     client_id: int,
     current_user: DeliverySectionUser,
+    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> User:
     # Runda 7 (R7-X5-4): usunięty klient nie ma profilu ani zapisów (0307) —

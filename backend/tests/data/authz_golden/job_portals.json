@@ -1,0 +1,34 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
+ ],
+ "routes": {
+  "GET /api/job-boards/{board}/dictionaries": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/job-portals/config": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/jobs/{job_id}/portal-listing-defaults": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/jobs/{job_id}/portals": "PPPPPPPPDDPPPPPPPPPPP",
+  "PATCH /api/jobs/{job_id}/portals/{portal}/options": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/portals/{portal}/publish": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/portals/{portal}/unpublish": "PPPPPPPPDDPPPPPPPPPPP"
+ }
+}

@@ -39,9 +39,9 @@ const CLIENT = {
   notes: null,
 };
 
-function renderModal() {
+function renderModal(client: Record<string, unknown> = CLIENT) {
   return render(
-    <EditClientModal client={CLIENT} onClose={() => {}} onSuccess={() => {}} />,
+    <EditClientModal client={client} onClose={() => {}} onSuccess={() => {}} />,
   );
 }
 
@@ -104,6 +104,53 @@ describe("EditClientModal — display_name contract", () => {
     expect(api.patch).toHaveBeenCalledWith(
       "/api/clients/42",
       expect.objectContaining({ display_name: null }),
+    );
+  });
+});
+
+/**
+ * Notatki klienta idą razem z danymi prawnymi (uprawnienie „Stawki i kwoty:
+ * podgląd”). Konto bez niego dostaje klienta BEZ pola `notes`, a formularz
+ * wysyłał `notes: null` przy każdym zapisie — edycja branży kasowała cudzy wpis.
+ */
+describe("EditClientModal — notatki", () => {
+  async function saveIndustry() {
+    const user = userEvent.setup();
+    const industry = screen.getByPlaceholderText("IT / Finance...");
+    await user.clear(industry);
+    await user.type(industry, "Fintech");
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    return vi.mocked(api.patch).mock.calls[0][1] as Record<string, unknown>;
+  }
+
+  it("konto bez danych prawnych nie widzi pola i nie wysyła notatek", async () => {
+    const { notes: _hidden, ...withoutLegal } = CLIENT;
+    renderModal(withoutLegal);
+
+    expect(screen.queryByPlaceholderText("Dodatkowe informacje...")).toBeNull();
+    const payload = await saveIndustry();
+    expect("notes" in payload).toBe(false);
+  });
+
+  it("nietknięte notatki nie jadą w zapisie innego pola", async () => {
+    renderModal({ ...CLIENT, notes: "Faktury do 10. dnia miesiąca" });
+
+    const payload = await saveIndustry();
+    expect("notes" in payload).toBe(false);
+  });
+
+  it("zmienione notatki są wysyłane, a wyczyszczone zapisują null", async () => {
+    const user = userEvent.setup();
+    renderModal({ ...CLIENT, notes: "Stara notatka" });
+
+    await user.clear(screen.getByPlaceholderText("Dodatkowe informacje..."));
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    expect(api.patch).toHaveBeenCalledWith(
+      "/api/clients/42",
+      expect.objectContaining({ notes: null }),
     );
   });
 });

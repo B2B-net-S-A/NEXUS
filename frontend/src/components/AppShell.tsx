@@ -2057,13 +2057,17 @@ function clientToForm(c: any): ClientFormData {
   };
 }
 
-function ClientFormFields({ form, onChange, onCheckbox, nameRequired = true }: {
+function ClientFormFields({ form, onChange, onCheckbox, nameRequired = true, showNotes = true }: {
   form: ClientFormData;
   onChange: (k: keyof ClientFormData, v: string) => void;
   onCheckbox: (k: keyof ClientFormData, v: boolean) => void;
   /** Edycja pozwala wyczyścić nazwę (powrót do nazwy źródłowej z Traffita) —
       tworzenie nadal jej wymaga. */
   nameRequired?: boolean;
+  /** Notatki klienta idą razem z danymi prawnymi (uprawnienie „Stawki i kwoty:
+      podgląd”). Konto bez niego nie dostaje ich z API — puste pole wyglądałoby
+      jak brak notatek i kusiło do nadpisania. */
+  showNotes?: boolean;
 }) {
   return (
     <>
@@ -2101,9 +2105,11 @@ function ClientFormFields({ form, onChange, onCheckbox, nameRequired = true }: {
       <FieldGroup label="Adres">
         <Input value={form.address} onChange={e => onChange("address", e.target.value)} placeholder="ul. Przykładowa 1, Warszawa" />
       </FieldGroup>
-      <FieldGroup label="Notatki">
-        <Textarea value={form.notes} onChange={e => onChange("notes", e.target.value)} rows={3} placeholder="Dodatkowe informacje..." />
-      </FieldGroup>
+      {showNotes && (
+        <FieldGroup label="Notatki">
+          <Textarea value={form.notes} onChange={e => onChange("notes", e.target.value)} rows={3} placeholder="Dodatkowe informacje..." />
+        </FieldGroup>
+      )}
       <label className="flex items-center gap-2 cursor-pointer">
         <input
           type="checkbox"
@@ -2186,6 +2192,9 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
   // Nazwa z chwili otwarcia (GET zwraca nazwę EFEKTYWNĄ = display_name ?? name)
   // — dirty-check decyduje, czy w ogóle wysyłamy display_name.
   const [initialName] = useState<string>(() => clientToForm(client).name);
+  const [initialNotes] = useState<string>(() => clientToForm(client).notes);
+  // Odpowiedź bez pola `notes` = projekcja bez danych prawnych klienta.
+  const notesVisible = client?.notes !== undefined;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -2203,8 +2212,13 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
         status: form.status,
         nda_signed: form.nda_signed,
         contract_type: form.contract_type || null,
-        notes: form.notes || null,
       };
+      // Notatki wysyłamy tylko po zmianie: konto bez podglądu danych prawnych
+      // nie dostaje ich z API, więc bezwarunkowe `notes: null` kasowałoby
+      // cudzy wpis przy zapisie np. samej branży.
+      if (notesVisible && form.notes !== initialNotes) {
+        payload.notes = form.notes || null;
+      }
       // Edycja nazwy pisze do sync-odpornego `display_name` — Traffit nadpisuje
       // `name` przy każdym daily sync, a wyświetlanie i tak robi
       // coalesce(display_name, name). Wysyłamy TYLKO gdy pole faktycznie
@@ -2226,7 +2240,7 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
     <Modal title={`Edytuj: ${client.name}`} onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
-        <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} nameRequired={false} />
+        <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} nameRequired={false} showNotes={notesVisible} />
         {/* Reguły CV mają WŁASNĄ tabelę i własny zapis — celowo poza payloadem
             PATCH klienta i poza `ClientFormFields`, który jest współdzielony
             z oknem DODAWANIA klienta. Zakładanie reguł przy tworzeniu firmy

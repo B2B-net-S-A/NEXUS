@@ -1,13 +1,18 @@
 import { describe, it, expect } from "vitest"
 
 import { hasCapability } from "@/lib/capabilities"
+import { accessSnapshot } from "@/lib/__tests__/fixtures/access-snapshot"
 
 import {
+  canEditOrderLineAmounts,
   canManageCandidateFinance,
   canManageContractStatus,
   canManageMultiConsultantOrders,
+  canManageOrderLifecycle,
+  canRecoverContractTermination,
   canViewCandidateFinance,
   canViewClientFinance,
+  isClientInAssignedScope,
   hasSection,
   hasRole,
   hasMinRole,
@@ -39,28 +44,96 @@ const ALL_ROLES: UserRole[] = [
 
 const mkUser = (role: UserRole) => ({ role })
 
-describe("contract status access", () => {
-  it("pozwala TCM zmieniać wyłącznie status przy odczycie Delivery", () => {
+// Bramki z uprawnień (0410). `mkUser(role)` to profil bez kompletu z serwera —
+// liczy się z DOMYŚLNYCH uprawnień ról, czyli ze stanu startowego ekranu Osoby
+// i role. `accessSnapshot(...)` to profil po `GET /api/auth/me`: z nadanym
+// (`grant`) albo wyłączonym (`revoke`) uprawnieniem i portfelem Delivery Leada.
+
+describe("canManageContractStatus — „Zakończenie współpracy, zmiana statusu kontraktu”", () => {
+  it("domyślnie: admin, Delivery Lead i TCM", () => {
+    const allowed = ALL_ROLES.filter((role) => canManageContractStatus(mkUser(role)))
+    expect(allowed.sort()).toEqual(
+      ["admin", "delivery_lead", "talent_community_manager"].sort(),
+    )
+    expect(canManageContractStatus(null)).toBe(false)
+  })
+
+  it("nadane rekruterowi — działa; wyłączone TCM i Delivery Leadowi — znika", () => {
     expect(
-      canManageContractStatus({
-        role: "talent_community_manager",
-        effective_section_access: { delivery: "read" },
-      }),
+      canManageContractStatus(accessSnapshot("recruiter", { grant: ["contract_status"] })),
     ).toBe(true)
     expect(
-      canManageContractStatus({
-        role: "talent_community_manager",
-        effective_section_access: { delivery: "none" },
-      }),
+      canManageContractStatus(
+        accessSnapshot("talent_community_manager", { revoke: ["contract_status"] }),
+      ),
+    ).toBe(false)
+    expect(
+      canManageContractStatus(
+        accessSnapshot("delivery_lead", { revoke: ["contract_status"] }),
+      ),
     ).toBe(false)
   })
 
-  it("nie rozszerza uprawnienia na pozostałe role z odczytem Delivery", () => {
+  it("Finanse zakładają kontrakty, ale statusu nie zmieniają", () => {
+    expect(canManageContractStatus(accessSnapshot("finance"))).toBe(false)
+  })
+
+  it("sam odczyt Delivery już nie wystarcza TCM — status jest uprawnieniem z zapisem", () => {
+    // Do 0410 TCM zmieniał status przy odczycie Delivery (wyjątek w bramce
+    // sekcji). Teraz trasa wymaga zapisu, który wynika z uprawnienia; stary
+    // wyjątek osoby ograniczający sekcję chowa kontrolkę.
     expect(
-      canManageContractStatus({
-        role: "finance",
-        effective_section_access: { delivery: "read" },
-      }),
+      canManageContractStatus(
+        accessSnapshot("talent_community_manager", { sectionCaps: { delivery: "read" } }),
+      ),
+    ).toBe(false)
+    expect(canManageContractStatus(accessSnapshot("talent_community_manager"))).toBe(true)
+  })
+})
+
+describe("canManageOrderLifecycle — „Kontrakty i zamówienia: tworzenie i edycja”", () => {
+  it("domyślnie: admin, Delivery Lead i Finanse", () => {
+    const allowed = ALL_ROLES.filter((role) => canManageOrderLifecycle(mkUser(role)))
+    expect(allowed.sort()).toEqual(["admin", "delivery_lead", "finance"].sort())
+  })
+
+  it("TCM z nadanym uprawnieniem kończy i przedłuża zamówienia; DL z wyłączonym — nie", () => {
+    expect(
+      canManageOrderLifecycle(
+        accessSnapshot("talent_community_manager", { grant: ["contracts_orders_edit"] }),
+      ),
+    ).toBe(true)
+    expect(
+      canManageOrderLifecycle(
+        accessSnapshot("delivery_lead", { revoke: ["contracts_orders_edit"] }),
+      ),
+    ).toBe(false)
+  })
+
+  it("sufit sekcji Delivery zostaje (stary wyjątek osoby, U8)", () => {
+    expect(
+      canManageOrderLifecycle(
+        accessSnapshot("delivery_lead", { sectionCaps: { delivery: "read" } }),
+      ),
+    ).toBe(false)
+  })
+})
+
+describe("canRecoverContractTermination — zostaje przy roli", () => {
+  it("admin, Finanse i TCM z odczytem Delivery; Delivery Lead nie — także z kompletem uprawnień", () => {
+    const allowed = ALL_ROLES.filter((role) => canRecoverContractTermination(mkUser(role)))
+    expect(allowed.sort()).toEqual(["admin", "finance", "talent_community_manager"].sort())
+    expect(canRecoverContractTermination(accessSnapshot("delivery_lead"))).toBe(false)
+    // Uprawnienie do statusu nie jest tytułem do cofnięcia zakończenia.
+    expect(
+      canRecoverContractTermination(
+        accessSnapshot("recruiter", { grant: ["contract_status", "contracts_orders_edit"] }),
+      ),
+    ).toBe(false)
+    expect(
+      canRecoverContractTermination(
+        accessSnapshot("talent_community_manager", { sectionCaps: { delivery: "none" } }),
+      ),
     ).toBe(false)
   })
 })
@@ -154,71 +227,90 @@ describe("hasRole", () => {
   })
 })
 
-describe("canManageCandidateFinance", () => {
-  it("wymaga roli Admin/Finanse i capability manage_finance (U6, 22.09)", () => {
-    expect(
-      canManageCandidateFinance({
-        role: "admin",
-        capabilities: ["manage_finance"],
-      })
-    ).toBe(true)
-    expect(
-      canManageCandidateFinance({
-        role: "admin",
-        capabilities: [],
-      })
-    ).toBe(false)
-    // Decyzja Artura 22.09.2026: Finanse zmieniają kwoty kontraktów
-    // i zamówień przez `manage_finance`.
-    expect(
-      canManageCandidateFinance({
-        role: "finance",
-        capabilities: ["manage_finance"],
-      })
-    ).toBe(true)
-    expect(
-      canManageCandidateFinance({
-        role: "finance",
-        capabilities: ["view_finance"],
-      })
-    ).toBe(false)
-    expect(
-      canManageCandidateFinance({
-        role: "delivery_lead",
-        capabilities: ["manage_finance"],
-      })
-    ).toBe(false)
+describe("isClientInAssignedScope — uprawnienie mówi CO, zakres U KOGO", () => {
+  it("konto z rolą Delivery Leada działa u klientów z przypisania", () => {
+    const lead = accessSnapshot("delivery_lead", { assignedClientIds: [17] })
+    expect(isClientInAssignedScope(lead, 17)).toBe(true)
+    expect(isClientInAssignedScope(lead, 18)).toBe(false)
+    // Rola dodatkowa też wiąże — hybryda HoR + DL nie wychodzi poza portfel.
+    const hybrid = accessSnapshot("head_of_recruitment", {
+      roles: ["delivery_lead"],
+      assignedClientIds: [17],
+    })
+    expect(isClientInAssignedScope(hybrid, 18)).toBe(false)
   })
 
-  it("fail-closed dla braku użytkownika i starego cache bez capabilities", () => {
-    expect(canManageCandidateFinance(null)).toBe(false)
-    expect(canManageCandidateFinance(undefined)).toBe(false)
-    expect(canManageCandidateFinance({ role: "admin" })).toBe(false)
+  it("pozostałych posiadaczy granica nie dotyczy, także admina z rolą DL", () => {
+    expect(isClientInAssignedScope(accessSnapshot("finance"), 99)).toBe(true)
+    expect(isClientInAssignedScope(accessSnapshot("recruiter"), 99)).toBe(true)
+    expect(
+      isClientInAssignedScope(accessSnapshot("admin", { roles: ["delivery_lead"] }), 99),
+    ).toBe(true)
+  })
+
+  it("fail-closed: Delivery Lead bez listy z serwera nie ma żadnego klienta", () => {
+    expect(isClientInAssignedScope({ role: "delivery_lead" }, 17)).toBe(false)
+    expect(isClientInAssignedScope(null, 17)).toBe(false)
   })
 })
 
-describe("canViewCandidateFinance", () => {
+describe("canManageCandidateFinance — „Stawki i kwoty: zmiana” (kwoty kontraktu)", () => {
+  it("domyślnie: admin i Finanse (U6, 22.09)", () => {
+    const allowed = ALL_ROLES.filter((role) => canManageCandidateFinance(mkUser(role)))
+    expect(allowed.sort()).toEqual(["admin", "finance"].sort())
+    expect(canManageCandidateFinance(accessSnapshot("finance"))).toBe(true)
+    expect(canManageCandidateFinance(accessSnapshot("delivery_lead"))).toBe(false)
+  })
+
+  it("idzie za uprawnieniem, nie za rolą ani capability Finansów", () => {
+    expect(
+      canManageCandidateFinance(accessSnapshot("recruiter", { grant: ["amounts_edit"] })),
+    ).toBe(true)
+    expect(
+      canManageCandidateFinance(accessSnapshot("finance", { revoke: ["amounts_edit"] })),
+    ).toBe(false)
+    // „Moduł Finanse” i zmiana kwot to dwa osobne przełączniki.
+    expect(
+      canManageCandidateFinance(accessSnapshot("finance", { revoke: ["finance_module"] })),
+    ).toBe(true)
+    // Samo `manage_finance` (capability modułu) nie daje zmiany kwot kontraktu.
+    expect(
+      canManageCandidateFinance({
+        ...accessSnapshot("delivery_lead"),
+        capabilities: ["manage_finance"],
+      }),
+    ).toBe(false)
+  })
+
+  it("Delivery Lead z nadaną zmianą kwot: tylko klienci z przypisania", () => {
+    const lead = accessSnapshot("delivery_lead", {
+      grant: ["amounts_edit"],
+      assignedClientIds: [17],
+    })
+    expect(canManageCandidateFinance(lead, 17)).toBe(true)
+    expect(canManageCandidateFinance(lead, 18)).toBe(false)
+    // Bez klienta (lista, formularz przed wyborem) wystarcza niepusty portfel.
+    expect(canManageCandidateFinance(lead)).toBe(true)
+    expect(
+      canManageCandidateFinance(accessSnapshot("delivery_lead", { grant: ["amounts_edit"] })),
+    ).toBe(false)
+  })
+
+  it("brak użytkownika = brak; profil sprzed 0410 liczy się z domyślnych uprawnień roli", () => {
+    expect(canManageCandidateFinance(null)).toBe(false)
+    expect(canManageCandidateFinance(undefined)).toBe(false)
+    expect(canManageCandidateFinance({ role: "admin" })).toBe(true)
+    expect(canManageCandidateFinance({ role: "recruiter" })).toBe(false)
+  })
+})
+
+describe("canViewCandidateFinance — „Stawki i kwoty: podgląd”", () => {
   it("pozwala Adminowi, Finance i DL z autorytatywnym zakresem klientów", () => {
     expect(canViewCandidateFinance({ role: "admin" })).toBe(true)
     expect(
       canViewCandidateFinance({
         role: "finance",
         capabilities: ["view_finance"],
-      })
-    ).toBe(true)
-    expect(
-      canViewCandidateFinance({
-        role: "delivery_lead",
-        roles: ["delivery_lead", "finance"],
-        analytics_capabilities: ["view_finance"],
-        data_scope: {
-          kind: "delivery_clients",
-          user_id: 1,
-          allowed_client_ids: [17],
-          finance_client_ids: [17],
-          allowed_tac_user_ids: [],
-          allowed_operator_user_ids: [],
-        },
       })
     ).toBe(true)
     expect(
@@ -255,26 +347,68 @@ describe("canViewCandidateFinance", () => {
     expect(canViewClientFinance(deliveryLead, 18)).toBe(false)
   })
 
-  it("nie zamienia prawa odczytu Finance w prawo edycji", () => {
-    const finance = {
-      role: "finance" as const,
-      capabilities: ["view_finance"],
-    }
+  it("nie zamienia prawa odczytu w prawo edycji", () => {
+    const viewer = accessSnapshot("finance", { revoke: ["amounts_edit"] })
 
-    expect(canViewCandidateFinance(finance)).toBe(true)
-    expect(canManageCandidateFinance(finance)).toBe(false)
+    expect(canViewCandidateFinance(viewer)).toBe(true)
+    expect(canManageCandidateFinance(viewer)).toBe(false)
   })
 
-  it("fail-closed dla Finance bez capability, DL bez scope i zwykłego TCM", () => {
+  it("rekruter z nadanym podglądem kwot widzi stawki u wszystkich klientów", () => {
+    const recruiter = accessSnapshot("recruiter", { grant: ["amounts_view"] })
+    expect(canViewCandidateFinance(recruiter)).toBe(true)
+    expect(canViewClientFinance(recruiter, 17)).toBe(true)
+    expect(canViewClientFinance(recruiter, 999)).toBe(true)
+    // …ale zmiany kwot to nie daje.
+    expect(canManageCandidateFinance(recruiter)).toBe(false)
+  })
+
+  it("Delivery Lead z wyłączonym podglądem kwot nie widzi stawek nawet u swoich klientów", () => {
+    const lead = accessSnapshot("delivery_lead", {
+      revoke: ["amounts_view"],
+      assignedClientIds: [17],
+    })
+    expect(canViewCandidateFinance(lead)).toBe(false)
+    expect(canViewClientFinance(lead, 17)).toBe(false)
+  })
+
+  it("„Moduł Finanse” (capability view_finance) daje kwoty każdego klienta, także Delivery Leadowi", () => {
+    const lead = accessSnapshot("delivery_lead", {
+      grant: ["finance_module"],
+      assignedClientIds: [17],
+    })
+    expect(lead.capabilities).toContain("view_finance")
+    expect(canViewCandidateFinance(lead)).toBe(true)
+    expect(canViewClientFinance(lead, 18)).toBe(true)
+    // Starsze pole `analytics_capabilities` niesie to samo.
+    expect(
+      canViewClientFinance(
+        {
+          ...accessSnapshot("delivery_lead", {
+            revoke: ["amounts_view"],
+            assignedClientIds: [17],
+          }),
+          capabilities: undefined,
+          analytics_capabilities: ["view_finance"],
+        },
+        18,
+      ),
+    ).toBe(true)
+  })
+
+  it("Finanse bez „Moduł Finanse” nadal widzą kwoty — podgląd kwot to osobne uprawnienie", () => {
+    const finance = accessSnapshot("finance", { revoke: ["finance_module"] })
+    expect(finance.capabilities).toEqual([])
+    expect(canViewCandidateFinance(finance)).toBe(true)
+    expect(canViewClientFinance(finance, 17)).toBe(true)
+  })
+
+  it("fail-closed: brak użytkownika, DL bez portfela i zwykły TCM", () => {
     expect(canViewCandidateFinance(null)).toBe(false)
     expect(canViewCandidateFinance(undefined)).toBe(false)
-    expect(canViewCandidateFinance({ role: "finance" })).toBe(false)
-    expect(
-      canViewCandidateFinance({
-        role: "delivery_lead",
-        capabilities: ["view_finance"],
-      })
-    ).toBe(false)
+    expect(canViewCandidateFinance({ role: "delivery_lead" })).toBe(false)
+    expect(canViewCandidateFinance(accessSnapshot("delivery_lead"))).toBe(false)
+    expect(canViewClientFinance({ role: "delivery_lead" }, 17)).toBe(false)
     expect(
       canViewCandidateFinance({
         role: "talent_community_manager",
@@ -287,6 +421,15 @@ describe("canViewCandidateFinance", () => {
         },
       })
     ).toBe(false)
+    expect(canViewClientFinance(accessSnapshot("talent_community_manager"), 17)).toBe(false)
+  })
+
+  it("profil Finansów sprzed 0410 (bez capabilities) liczy się z domyślnych uprawnień roli", () => {
+    // Do 0410 taki profil był zamknięty (brak `view_finance`). Teraz podgląd
+    // kwot jest uprawnieniem, a stary profil czyta domyślne uprawnienia ról
+    // do chwili, gdy `AppShellV2` dociągnie świeże `/api/auth/me`.
+    expect(canViewCandidateFinance({ role: "finance" })).toBe(true)
+    expect(canViewClientFinance({ role: "finance" }, 17)).toBe(true)
   })
 })
 
@@ -502,10 +645,12 @@ describe("praktykant (0374) — jeden ekran", () => {
 })
 
 describe("canManageMultiConsultantOrders", () => {
-  // Lustro backendowego `_has_md_line_management_role` (api/client_order_groups.py).
-  // Świadomie SZERSZE niż `canManageCandidateFinance`: obsadę zamówienia
-  // prowadzi delivery, więc wymóg admina czynił zakładkę bezużyteczną dla
-  // osób, które ją faktycznie obsługują.
+  // „Kontrakty i zamówienia: tworzenie i edycja” u klienta z zakresu konta
+  // razem z podglądem jego kwot (lustro `ClientContractsEditUser`
+  // + `can_write_order_amounts`). Świadomie SZERSZE niż
+  // `canManageCandidateFinance`: obsadę zamówienia prowadzi delivery, więc
+  // wymóg zmiany kwot czynił zakładkę bezużyteczną dla osób, które ją
+  // faktycznie obsługują.
   it("przepuszcza admina i delivery leada", () => {
     expect(canManageMultiConsultantOrders({ role: "admin", roles: [] }, 17)).toBe(true)
     expect(
@@ -538,20 +683,60 @@ describe("canManageMultiConsultantOrders", () => {
     ).toBe(false)
   })
 
+  it("Finanse prowadzą zamówienia u każdego klienta (decyzja Artura 02.10.2026)", () => {
+    expect(canManageMultiConsultantOrders({ role: "finance", roles: [] }, 17)).toBe(true)
+    expect(canManageMultiConsultantOrders(accessSnapshot("finance"), 999)).toBe(true)
+  })
+
   it("nie przepuszcza pozostałych ról", () => {
-    // Head of Recruitment nie ma sekcji Delivery; TCM ma w niej tylko odczyt.
+    // Head of Recruitment nie ma podglądu Delivery; TCM czyta i zmienia status,
+    // ale zamówień nie prowadzi.
     for (const role of [
       "head_of_recruitment",
       "talent_community_manager",
       "tac",
       "recruiter",
       "sourcer",
-      "finance",
       "user",
+      "trainee",
     ] as UserRole[]) {
       expect(canManageMultiConsultantOrders({ role, roles: [] }, 17)).toBe(false)
     }
     expect(canManageMultiConsultantOrders(null, 17)).toBe(false)
+  })
+
+  it("nadane uprawnienie bez podglądu kwot nie wystarcza — formularze niosą stawki", () => {
+    // TCM z „Kontrakty i zamówienia” (bez „Stawki i kwoty: podgląd”): backend
+    // odmówiłby stawek i PDF-u z nazwą brakującego uprawnienia.
+    const tcm = accessSnapshot("talent_community_manager", {
+      grant: ["contracts_orders_edit"],
+    })
+    expect(canManageMultiConsultantOrders(tcm, 17)).toBe(false)
+    expect(canEditOrderLineAmounts(tcm, 17)).toBe(false)
+    const withAmounts = accessSnapshot("talent_community_manager", {
+      grant: ["contracts_orders_edit", "amounts_view"],
+    })
+    expect(canManageMultiConsultantOrders(withAmounts, 17)).toBe(true)
+    expect(canEditOrderLineAmounts(withAmounts, 17)).toBe(true)
+  })
+
+  it("Delivery Lead z wyłączonym uprawnieniem nie prowadzi zamówień nawet u swoich klientów", () => {
+    const lead = accessSnapshot("delivery_lead", {
+      revoke: ["contracts_orders_edit"],
+      assignedClientIds: [17],
+    })
+    expect(canManageMultiConsultantOrders(lead, 17)).toBe(false)
+    expect(canEditOrderLineAmounts(lead, 17)).toBe(false)
+  })
+
+  it("Delivery Lead z „Moduł Finanse” widzi kwoty wszędzie, ale zamówienia prowadzi tylko u swoich klientów", () => {
+    const lead = accessSnapshot("delivery_lead", {
+      grant: ["finance_module"],
+      assignedClientIds: [17],
+    })
+    expect(canViewClientFinance(lead, 18)).toBe(true)
+    expect(canManageMultiConsultantOrders(lead, 17)).toBe(true)
+    expect(canManageMultiConsultantOrders(lead, 18)).toBe(false)
   })
 
   it("czyta też role dodatkowe, nie tylko primary", () => {
@@ -569,5 +754,59 @@ describe("canManageMultiConsultantOrders", () => {
         },
       }, 17)
     ).toBe(true)
+  })
+})
+
+describe("canEditOrderLineAmounts — kwoty linii zamówienia", () => {
+  // Lustro `can_write_order_amounts`: „Stawki i kwoty: zmiana” w zakresie konta
+  // ALBO prowadzenie zamówień z podglądem kwot klienta.
+  it("domyślnie: admin, Finanse i Delivery Lead u klienta z przypisania", () => {
+    expect(canEditOrderLineAmounts(accessSnapshot("admin"), 17)).toBe(true)
+    expect(canEditOrderLineAmounts(accessSnapshot("finance"), 17)).toBe(true)
+    const lead = accessSnapshot("delivery_lead", { assignedClientIds: [17] })
+    expect(canEditOrderLineAmounts(lead, 17)).toBe(true)
+    expect(canEditOrderLineAmounts(lead, 18)).toBe(false)
+    for (const role of [
+      "head_of_recruitment",
+      "talent_community_manager",
+      "tac",
+      "recruiter",
+      "sourcer",
+      "user",
+      "trainee",
+    ] as UserRole[]) {
+      expect(canEditOrderLineAmounts(accessSnapshot(role), 17)).toBe(false)
+    }
+    expect(canEditOrderLineAmounts(null, 17)).toBe(false)
+  })
+
+  it("sama zmiana kwot (bez prowadzenia zamówień) daje wyłącznie tryb „Edytuj stawki”", () => {
+    // `amountsOnly` w zakładce zamówień = canEditOrderLineAmounts && !canManage:
+    // backend wpuszcza taką osobę na PATCH linii tylko z polami kwot.
+    const amountsOnly = accessSnapshot("recruiter", { grant: ["amounts_edit"] })
+    expect(canEditOrderLineAmounts(amountsOnly, 17)).toBe(true)
+    expect(canManageMultiConsultantOrders(amountsOnly, 17)).toBe(false)
+
+    const financeWithoutOrders = accessSnapshot("finance", {
+      revoke: ["contracts_orders_edit"],
+    })
+    expect(canEditOrderLineAmounts(financeWithoutOrders, 17)).toBe(true)
+    expect(canManageMultiConsultantOrders(financeWithoutOrders, 17)).toBe(false)
+  })
+
+  it("Finanse bez zmiany kwot nadal zmieniają kwoty zamówień, bo je prowadzą i widzą", () => {
+    const finance = accessSnapshot("finance", { revoke: ["amounts_edit"] })
+    expect(canEditOrderLineAmounts(finance, 17)).toBe(true)
+    expect(canManageCandidateFinance(finance)).toBe(false)
+  })
+
+  it("Delivery Lead z nadaną zmianą kwot zostaje w swoim portfelu", () => {
+    const lead = accessSnapshot("delivery_lead", {
+      grant: ["amounts_edit"],
+      revoke: ["contracts_orders_edit"],
+      assignedClientIds: [17],
+    })
+    expect(canEditOrderLineAmounts(lead, 17)).toBe(true)
+    expect(canEditOrderLineAmounts(lead, 18)).toBe(false)
   })
 })

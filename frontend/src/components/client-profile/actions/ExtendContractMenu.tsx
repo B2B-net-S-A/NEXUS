@@ -11,7 +11,7 @@ import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { useAuthStore } from "@/store/auth";
-import { canManageClientDelivery } from "@/components/client-profile/permissions";
+import { canManageClientContracts } from "@/components/client-profile/permissions";
 
 interface Props {
   contractId: number;
@@ -25,15 +25,16 @@ const DURATIONS = [3, 6, 12];
 /**
  * Czy wiersz konsultanta pokazuje „Przedłuż” (audyt 24.09.2026, W2).
  *
- * `POST /api/contracts/bulk-extend` wymaga `DeliveryLeadPlus` (admin + DL),
- * a przycisk widziały też Finanse i TCM — klik kończył się 403. Sensowny jest
- * tylko dla kontraktu „Kończący się”: umowę bezterminową backend pomija.
+ * `POST /api/contracts/bulk-extend` wymaga uprawnienia „Kontrakty i zamówienia:
+ * tworzenie i edycja” (domyślnie Delivery Lead i Finanse); kto go nie ma —
+ * np. TCM — dostałby 403, więc przycisku nie widzi. Sensowny jest tylko dla
+ * kontraktu „Kończący się”: umowę bezterminową backend pomija.
  */
 export function canExtendContract(
-  user: Parameters<typeof canManageClientDelivery>[0],
+  user: Parameters<typeof canManageClientContracts>[0],
   contractStatus: string | null | undefined,
 ): boolean {
-  return contractStatus === "ending" && canManageClientDelivery(user);
+  return contractStatus === "ending" && canManageClientContracts(user);
 }
 
 /** Klucze odświeżane po przedłużeniu — profil, zamówienia i rejestr kontraktów. */

@@ -1,58 +1,99 @@
 # RBAC — Role-Based Access Control
 
-## Stan aktualny — macierz sekcji (2026-09-02)
+## Stan aktualny — dziewięć uprawnień (2026-10-02)
 
-Źródłem prawdy backendu jest `backend/app/api/section_access.py`, a jego
-frontendowym lustrem `frontend/src/lib/section-access.ts`. Legenda: **RW** —
-odczyt i zapis, **R** — odczyt, **—** — brak dostępu. To maksymalny dostęp do
-sekcji; guard konkretnej akcji lub rekordu może go dodatkowo zawęzić.
+Od migracji 0410 administrator ustawia na ekranie **Ustawienia → Zespół
+i dostęp → „Osoby i role”** dziewięć uprawnień tak/nie na rolę, a pojedynczej
+osobie może dodać uprawnienie ponad jej rolę („Edytuj użytkownika” →
+„Dodatkowe uprawnienia”). To, co zaznaczone, decyduje na trasie; odmowa nazywa
+brakującą pozycję. Pełny opis: `docs/permissions-nine-switches-contract.md`.
 
-| Rola | Sourcing | Pipeline | Delivery | Insights | Finanse | Administracja techniczna |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Administrator | RW | RW | RW | RW | RW | RW |
-| Finanse | RW | RW | RW* | R | RW | — |
-| Head of Recruitment | RW | RW | — | RW | — | — |
-| Delivery Lead | RW | RW | RW** | R | — | — |
-| Talent Community Manager | RW | RW | R*** | R | — | — |
-| TAC | RW | RW | — | R | — | — |
-| Rekruter | RW | RW | — | R | — | — |
-| Sourcer | RW | RW | — | R | — | — |
-| Viewer `user` (legacy) | R | R | — | R | — | — |
+| # | Klucz | Nazwa na ekranie | Domyślnie (poza adminem) |
+|---|---|---|---|
+| 1 | `delivery_view` | Klienci, kontrakty i zamówienia: podgląd | Finanse, DL, TCM |
+| 2 | `clients_edit` | Klienci: dodawanie i edycja | DL |
+| 3 | `contracts_orders_edit` | Kontrakty i zamówienia: tworzenie i edycja | DL, Finanse |
+| 4 | `contract_status` | Zakończenie współpracy, zmiana statusu kontraktu | DL, TCM |
+| 5 | `b2b_signature_confirmation` | Umowy B2B: oznaczanie jako podpisane | DL, TCM |
+| 6 | `recruitment_manage` | Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta | DL |
+| 7 | `amounts_view` | Stawki i kwoty: podgląd | Finanse, DL |
+| 8 | `amounts_edit` | Stawki i kwoty: zmiana | Finanse |
+| 9 | `finance_module` | Moduł Finanse | Finanse |
 
-\* Finanse zachowują istniejące procesy rozliczeniowe w Delivery, ale konkretne
-operacje nadal mają osobne guardy.
+Źródła prawdy:
 
-\** Delivery Lead działa wyłącznie na klientach jawnie przypisanych w relacji
-DL→klient. Pusty portfel oznacza brak rekordów, a nie dostęp globalny.
+- katalog (nazwy, grupy, zależności, domyślni posiadacze):
+  `backend/app/services/permission_catalog.py`; ten sam plik JSON czyta front
+  (`frontend/src/lib/permission-catalog.json`, `frontend/src/lib/permissions.ts`);
+- zapis: `rbac_role_action_permissions` (rola) i `rbac_user_action_overrides`
+  (osoba), wartości `manage` / `none`;
+- odczyt przy każdym żądaniu: `backend/app/services/effective_access.py`;
+- bramki tras: `backend/app/api/permission_access.py`
+  (`ContractsOrdersEditUser`, `ClientsEditUser`, …), odmowa:
+  `backend/app/services/permission_denial.py`;
+- API ekranu: `backend/app/api/admin_section_permissions.py`.
 
-\*** Talent Community Manager ma globalny, bezpieczny odczyt operacyjny Delivery.
+### Reguły
 
-### Kluczowe granice
+- **Zależności liczą się przy odczycie:** 2, 3, 4, 7 ⇒ 1; 8 ⇒ 7; 9 ⇒ 7. Ekran
+  pokazuje wymuszoną pozycję jako włączoną i zablokowaną.
+- **Sekcje Delivery i Finanse wynikają z uprawnień** (Delivery: zapis przy
+  2/3/4/8, odczyt przy 1; Finanse: zapis przy 9) i nie da się ich ustawić
+  ręcznie. Sourcing, Pipeline, Insights i poziomy Generatora umów B2B działają
+  z zapisanych wierszy jak dotąd, ale ekran ich nie pokazuje.
+- **Uprawnienie mówi CO, zakres mówi U KOGO.** Konto z rolą Delivery Leada
+  (bez roli admin/Finanse) działa u swoich klientów — granica widoczności dla
+  odczytu i zwykłych zapisów, granica przypisania dla kwot, plików
+  i konsekwentnych zapisów prawnych. Każdy inny posiadacz działa u wszystkich
+  klientów.
+- **Uprawnienia osoby tylko dodają.** Żeby komuś coś odebrać, zmienia się
+  uprawnienia roli albo rolę tej osoby. Role Viewer (`user`) i Praktykant nie
+  przyjmują uprawnień; administrator ma wszystkie zawsze.
+- **Zmiana uprawnień wylogowuje dotknięte konta** i zostawia wpis w Historii
+  zdarzeń („Zmiana uprawnień roli” / „Zmiana uprawnień osoby”).
+- **Odmowa nazywa uprawnienie:** 403 `{"code": "permission_denied",
+  "permission", "label", "message"}` — także z bramki sekcji, gdy trasa
+  deklaruje wymagane uprawnienie zależnością.
 
-- **TCM:** pełny Sourcing i Pipeline, odczyt Insights oraz globalny odczyt
-  ustrukturyzowanych danych Delivery. W Delivery: bez zapisów, stawek, marż,
-  przychodu, surowych umów/aneksów/PO i rate-bearing eksportów. Nie ma dostępu
-  do modułu Finanse.
-- **Delivery Lead:** nie wchodzi do globalnego modułu Finanse. W swoim portfelu
-  Delivery widzi stawki i marże potrzebne do obsługi klienta. Wyjątek jest
-  liczony per klient i nie nadaje globalnej capability `view_finance`.
-- **Sourcer, Rekruter, TAC i HoR:** mają Sourcing, Pipeline i Insights, ale UI
-  nie pokazuje im Delivery/Finansów, a bezpośrednie wejście do API kończy się
-  `403`.
-- **Administracja techniczna:** użytkownicy/role, globalne AI, klucze
-  integracji, diagnostyka, słowniki systemowe i konfiguracja pól pozostają
-  Administrator-only. Ustawienia biznesowe mają własne jawne publiczności.
-- **Wielorola:** dostęp sekcyjny jest sumą ról, ale obecność roli Delivery Lead
-  nadal wymusza zakres przypisanych klientów (poza Administratorem). Rola
-  Finanse pozostaje ekskluzywna.
-- **Insights:** zachowuje osobną, istniejącą politykę transparentności D7 dla
-  całej firmy, również dla części kwot i danych imiennych. Brak dostępu do
-  modułu Finanse nie oznacza redakcji uzgodnionych metryk wewnątrz Insights.
+### Co zostaje przy roli
 
-Autoryzacja działa warstwowo: bramka sekcji → guard akcji → scope rekordu →
-redakcja odpowiedzi. Middleware i sidebar są warstwą UX; backend pozostaje
-ostatecznym arbitrem. Nowa rola lub endpoint muszą zostać jawnie dopisane do
-obu macierzy, otrzymać guard akcji i test pełnej macierzy ról.
+Trasy tylko dla administratora · „Cofnij zakończenie” i „Powrót po przerwie”
+(admin, Finanse, TCM) · skrzynka alertów Delivery Leada · struktura zespołu
+i przypisania DL↔klient · Champion (weryfikacja, briefing, generowanie) ·
+przypinanie w czacie · szablony pipeline'u · kolejka przeglądu DL · pełna
+edycja rekrutacji przez TAC · tabela rok do roku dla Head of Recruitment bez
+kwot · podgląd stawki do klienta w rekrutacji · stawki w Generatorze B2B ·
+imienne „Może usuwać klientów”.
+
+### Sekcje ustawiane z zapisanych wierszy
+
+| Rola | Sourcing | Pipeline | Insights | Administracja techniczna |
+|---|:---:|:---:|:---:|:---:|
+| Administrator | RW | RW | RW | RW |
+| Finanse | RW | RW | R | — |
+| Head of Recruitment | RW | RW | RW | — |
+| Delivery Lead | RW | RW | R | — |
+| Talent Community Manager | RW | RW | R | — |
+| TAC | RW | RW | R | — |
+| Rekruter | RW | RW | R | — |
+| Sourcer | RW | RW | R | — |
+| Viewer `user` (legacy) | R | R | R | — |
+| Praktykant | — | — | — | — |
+
+Autoryzacja działa warstwowo: bramka sekcji → bramka uprawnienia albo roli →
+zakres rekordu → redakcja odpowiedzi. Middleware i menu są warstwą wygody;
+backend pozostaje ostatecznym arbitrem.
+
+### Nowa trasa
+
+1. Delivery, kontrakty, zamówienia, kwoty, moduł Finanse: alias
+   z `permission_access.py` jako zależność trasy (nie `require_roles`),
+   a w handlerze helper zakresu z `access_scope` / `client_access`.
+2. Zapis wzorca bramek: `cd backend && AUTHZ_GOLDEN_WRITE=1 python -m pytest
+   tests/test_authz_guard_matrix.py`; diff plików
+   `tests/data/authz_golden/` jest listą zmian dostępu do przeglądu w PR.
+3. Front: przycisk pokazuj przez `hasPermission(user, "<klucz>")` albo
+   `<RequirePermission>`, nie przez listę ról.
 
 ---
 

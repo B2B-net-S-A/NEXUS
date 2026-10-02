@@ -5,7 +5,10 @@
 Trasy tylko do odczytu — niczego nie zapisują w bazie poza
 telemetrią AI (`ai_feature`). Rekrutację zakłada potem zwykłe `POST /api/jobs`,
 a przekazanie do searchu zwykłe `POST /api/jobs/{id}/handoff`, więc ta
-powierzchnia nie ma własnych reguł uprawnień do rekrutacji.
+powierzchnia nie ma własnych reguł uprawnień do rekrutacji: odczyt requestu,
+szkic ogłoszenia i opcje przekazania stoją za tym samym uprawnieniem co
+założenie rekrutacji („Rekrutacje: zakładanie, zamykanie, wysyłka CV do
+klienta” — `RecruitmentManageUser`).
 """
 
 import logging
@@ -20,7 +23,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import DeliveryLeadPlus, OperationalUser, get_db
+from app.api.deps import OperationalUser, get_db
+from app.api.permission_access import RecruitmentManageUser
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.rate_limit import limiter, user_or_ip_key
@@ -83,7 +87,7 @@ async def _read(db: AsyncSession, user_id: int, client_id: int, text: str) -> di
 async def read_request(
     request: Request,
     body: ReadRequestBody,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentManageUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     await _assert_client(db, body.client_id)
@@ -97,7 +101,7 @@ async def read_request(
 @limiter.limit("20/minute", key_func=user_or_ip_key)
 async def read_request_file(
     request: Request,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentManageUser,
     client_id: Annotated[int, Form(gt=0)],
     file: Annotated[UploadFile, File()],
     db: AsyncSession = Depends(get_db),
@@ -152,7 +156,7 @@ class PublicDraftRequest(BaseModel):
 async def public_draft(
     request: Request,
     body: PublicDraftRequest,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentManageUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Szkic ogłoszenia na portale (0381) — tytuł bez klienta, opis, uwagi kontroli.
@@ -230,7 +234,7 @@ async def critical_suggestion(
 @limiter.limit("60/minute", key_func=user_or_ip_key)
 async def handoff_options(
     request: Request,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentManageUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Czy „Przydziel automatycznie” da się wybrać przed założeniem rekrutacji.

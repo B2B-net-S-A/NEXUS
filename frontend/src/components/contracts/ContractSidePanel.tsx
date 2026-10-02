@@ -38,12 +38,14 @@ import {
   type ContractPanelFacts,
 } from "@/lib/contract-panel";
 import { contractDetailTabHref, type ContractDetailTab } from "@/lib/contract-detail-tab";
+import { canAmendContractRates } from "@/lib/contract-rate-amendment";
+import { permissionLabel } from "@/lib/permissions";
 import {
   buildContractDetailHref,
   rememberContractsListScroll,
 } from "@/lib/contracts-list-navigation";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
-import { hasAnalyticsCapability, hasRole, useAuthStore } from "@/store/auth";
+import { useAuthStore } from "@/store/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -225,11 +227,9 @@ export function ContractSidePanel({
     impersonating,
     clientId: contract?.client_id,
   });
-  // Lustro `ContractAmendmentsTab`: zmiana stawki aneksem = admin albo DL
-  // z `manage_finance`.
-  const canAmendRates =
-    hasRole(user, "admin") ||
-    (hasRole(user, "delivery_lead") && hasAnalyticsCapability(user, "manage_finance"));
+  // Ta sama reguła co „Zmień stawkę” w `ContractAmendmentsTab`: uprawnienie
+  // „Stawki i kwoty: zmiana” u klienta tego kontraktu.
+  const canAmendRates = canAmendContractRates(user, contract?.client_id);
 
   const docsQuery = useQuery<ContractDocument[]>({
     queryKey: ["contract-documents", contractId],
@@ -729,7 +729,8 @@ export function ContractSidePanel({
       ) : (
         <DetailSection title="Stawki i marża">
           <p className="text-xs text-muted-foreground" data-testid="contract-panel-finance-redacted">
-            Stawki widzą Admin, Finanse i Delivery Lead tego klienta.
+            Stawki widzą osoby z uprawnieniem „{permissionLabel("amounts_view")}”
+            (Delivery Lead — u swoich klientów).
           </p>
         </DetailSection>
       )}

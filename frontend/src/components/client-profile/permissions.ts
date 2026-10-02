@@ -5,36 +5,80 @@
  * kończyły się 403 („Dodaj wiedzę", umowy wykonawcze, „Przedłuż", „Dodaj"
  * w Projektach). Źródłem prawdy zostaje backend — tu tylko nie pokazujemy
  * akcji, której serwer i tak odmówi.
+ *
+ * Od 0410 backend pyta o uprawnienia z ekranu Ustawienia → Zespół i dostęp →
+ * Osoby i role, więc te bramki też (`lib/permissions.ts`): przycisk widzi
+ * każdy posiadacz uprawnienia, a rola, której je wyłączono — nie.
  */
 
+import { hasPermission } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
-import { hasRole, type User } from "@/store/auth";
+import { hasRole, isClientInAssignedScope, type User } from "@/store/auth";
 
 type PermissionUser =
-  | Pick<User, "role" | "roles" | "effective_section_access" | "data_scope">
+  | Pick<
+      User,
+      | "role"
+      | "roles"
+      | "effective_section_access"
+      | "effective_action_access"
+      | "data_scope"
+    >
   | null
   | undefined;
 
 /**
- * Admin albo Delivery Lead z zapisem sekcji Delivery — lustro
- * `DeliveryLeadPlus` (backend/app/api/deps.py) pod bramką sekcji Delivery:
- * `POST /api/contracts/bulk-extend`, `POST /api/jobs/{id}/close`, wiedza
- * o kliencie (`ClientAccess.can_edit_knowledge`).
+ * „Klienci: dodawanie i edycja” — wiedza o kliencie, materiały, kontakty
+ * (`ClientAccess.can_edit_*` w backendzie). Sekcja Delivery (zapis) jest
+ * sufitem trasy: przy świeżym profilu wynika z uprawnienia, stary wyjątek
+ * osoby potrafi ją jeszcze ograniczyć.
  */
 export function canManageClientDelivery(user: PermissionUser): boolean {
   return (
-    hasRole(user, "admin", "delivery_lead") &&
+    hasPermission(user, "clients_edit") &&
     hasSectionAccess(user, "delivery", "write")
   );
 }
 
 /**
- * „Przegrana” w Projektach — `POST /api/jobs/{id}/close` = `DeliveryLeadPlus`
- * pod bramką sekcji Pipeline (zapis).
+ * „Kontrakty i zamówienia: tworzenie i edycja” — „Przedłuż” na profilu klienta
+ * (`POST /api/contracts/bulk-extend`). Osobne od `canManageClientDelivery`:
+ * Finanse przedłużają kontrakty, a klientów nie edytują.
+ */
+export function canManageClientContracts(user: PermissionUser): boolean {
+  return (
+    hasPermission(user, "contracts_orders_edit") &&
+    hasSectionAccess(user, "delivery", "write")
+  );
+}
+
+/**
+ * Warunki kontraktowe klienta — lustro `ClientAccess.can_edit_legal_documents`
+ * (`PUT /api/clients/{id}/contract-terms`): „Kontrakty i zamówienia: tworzenie
+ * i edycja” ORAZ „Stawki i kwoty: podgląd” (dokument może nieść stawki),
+ * u klienta z przypisania, gdy konto ma rolę Delivery Leada. Osobne od
+ * `canManageClientDelivery`: Finanse zapisują warunki, a klientów nie edytują;
+ * osoba z samą edycją klientów — odwrotnie.
+ */
+export function canEditClientLegalDocuments(
+  user: PermissionUser,
+  clientId: number,
+): boolean {
+  return (
+    canManageClientContracts(user) &&
+    hasPermission(user, "amounts_view") &&
+    isClientInAssignedScope(user, clientId)
+  );
+}
+
+/**
+ * „Przegrana” w Projektach — `POST /api/jobs/{id}/close` wymaga uprawnienia
+ * „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” pod bramką
+ * sekcji Pipeline (zapis).
  */
 export function canCloseJobAsLost(user: PermissionUser): boolean {
   return (
-    hasRole(user, "admin", "delivery_lead") &&
+    hasPermission(user, "recruitment_manage") &&
     hasSectionAccess(user, "pipeline", "write")
   );
 }
@@ -42,7 +86,8 @@ export function canCloseJobAsLost(user: PermissionUser): boolean {
 /**
  * „Dodaj” kandydata do rekrutacji z Projektów — `POST /api/pipeline/move`
  * = `RecruiterPlus` (każda rola operacyjna, bez podglądu `user`) pod bramką
- * sekcji Pipeline (zapis).
+ * sekcji Pipeline (zapis). Zostaje przy roli: to nie jest jedno z uprawnień
+ * z ekranu.
  */
 export function canMoveInPipeline(user: PermissionUser): boolean {
   return (
@@ -61,18 +106,14 @@ export function canMoveInPipeline(user: PermissionUser): boolean {
 }
 
 /**
- * Admin albo Delivery Lead PRZYPISANY do tego klienta — lustro
- * `DlAssignedOrAdmin` (umowy wykonawcze, przypisania). Przypisanie DL-a
- * czytamy z `data_scope.finance_client_ids` (portfel z `GET /api/auth/me`).
+ * Umowy wykonawcze i przypisania do nich — lustro `ClientContractsEditUser`:
+ * „Kontrakty i zamówienia: tworzenie i edycja” u klienta z przypisania. Konto
+ * z rolą Delivery Leada ma go w `data_scope.finance_client_ids` (portfel
+ * z `GET /api/auth/me`); pozostałych posiadaczy przypisanie nie dotyczy.
  */
 export function canManageAssignedClient(
   user: PermissionUser,
   clientId: number,
 ): boolean {
-  if (!hasSectionAccess(user, "delivery", "write")) return false;
-  if (hasRole(user, "admin")) return true;
-  if (!hasRole(user, "delivery_lead")) return false;
-  const scope = user?.data_scope;
-  if (!scope || scope.kind !== "delivery_clients") return false;
-  return (scope.finance_client_ids ?? []).includes(clientId);
+  return canManageClientContracts(user) && isClientInAssignedScope(user, clientId);
 }

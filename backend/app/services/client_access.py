@@ -6,36 +6,44 @@ zalogowany użytkownik — także rola ``user``/viewer). Ten moduł jest jedynym
 źródłem decyzji "kto może co" per klient; routery mają pytać ``ClientAccess``
 zamiast utrzymywać lokalne warunki.
 
-Polityka (fail-closed; decyzje produktowe "wg polityki" domyślnie NA NIE):
+Od migracji 0410 decyzję składają dwie rzeczy:
 
-- ``admin`` — pełna powierzchnia Delivery.
-- ``head_of_recruitment`` / ``tac`` — zachowują historyczny graf potrzebny
-  współdzielonym narzędziom Sourcing/Pipeline, ale bramka sekcji odcina ich od
-  endpointów Delivery.
-- ``delivery_lead`` — zarządzanie kontaktami/wiedzą i wgląd w dokumenty
-  prawne klientów, do których ma przypisanie (od 25.09.2026,
-  ``DL_CLIENT_SCOPE``; ``purpose="org"`` = wszyscy klienci dla narzędzi
-  rekrutacji i generatora B2B). Przypisanie nadal bramkuje finanse oraz
-  konsekwentne zapisy prawne.
-- ``tac`` — ten sam resolver wyłącznie klienta z jawnym
-  ``ClientTacAssignment``. Brak przypisań jest prawdziwym deny-all, nigdy
-  fallbackiem do całej organizacji.
-- ``recruiter`` / ``sourcer`` — tylko odczyt bezpiecznej projekcji i tylko
-  w kontekście stanowiska tego klienta (przypisanie do Joba: recruiter_id /
-  delivery_lead_id / tac_id / created_by / JobCollaborator).
-- ``user`` (viewer, np. QC/klient) — brak dostępu do kontaktów, wiedzy,
-  materiałów, dokumentów i finansów.
-- ``talent_community_manager`` — organizacyjny odczyt bez dokumentów
-  prawnych, prywatnych notatek relacyjnych i finansów; zapis blokuje granica
-  sekcji Delivery.
-- Właściciel relacji (``Contact.key_relationship_owner_id``) — może czytać
-  prywatne notatki i edytować pola relacyjne SWOJEGO kontaktu, ale nie może
-  sam przepisać ownera.
+**1. Uprawnienia z ekranu** (``permission_catalog``) mówią, CO konto może:
+
+- „Klienci, kontrakty i zamówienia: podgląd” — odczyt kontaktów, wiedzy
+  i materiałów klienta,
+- „Klienci: dodawanie i edycja” — zapis tych samych rzeczy,
+- „Stawki i kwoty: podgląd” — dokumenty prawne i pliki (mogą nieść stawki),
+- „Kontrakty i zamówienia: tworzenie i edycja” razem z podglądem kwot —
+  zapis dokumentów prawnych (umowy ramowe, aneksy, umowy wykonawcze).
+
+**2. Zakres klientów** mówi, U KOGO. Konto z rolą Delivery Leada działa
+u klientów z przypisania (od 25.09.2026, ``DL_CLIENT_SCOPE``;
+``purpose="org"`` = wszyscy klienci dla narzędzi rekrutacji i generatora B2B);
+konsekwentne zapisy prawne wymagają u niego jawnego przypisania. Każdy inny
+posiadacz uprawnienia działa u wszystkich klientów.
+
+Obok tego zostaje historyczny graf organizacyjny, z którego korzystają
+współdzielone narzędzia Sourcing/Pipeline (te trasy nie stoją za sekcją
+Delivery, więc uprawnienia z ekranu ich nie dotyczą):
+
+- ``admin`` / ``head_of_recruitment`` — odczyt każdego klienta,
+- ``tac`` — klient z jawnym ``ClientTacAssignment``; brak przypisań jest
+  prawdziwym deny-all, nigdy fallbackiem do całej organizacji,
+- ``recruiter`` / ``sourcer`` — odczyt bezpiecznej projekcji w kontekście
+  stanowiska tego klienta (recruiter_id / delivery_lead_id / tac_id /
+  created_by / JobCollaborator),
+- ``user`` (viewer) — brak dostępu.
+
+Reguły, które zostają przy ROLI, bo dotyczą danych prywatnych, nie pracy:
+
+- Prywatne notatki relacyjne kontaktu czyta właściciel relacji, admin oraz
+  Finanse (organizacyjnie); Talent Community Manager nie czyta ich wcale.
 - Zmiana ownera relacji — wyłącznie admin; wyjątek: użytkownik z prawem
   edycji może "zaklaimować" pustego ownera na siebie (None → self).
-- Finanse — istniejący helper capability z ``app.api.financial_access``;
-  wydzielona persona Finance korzysta z person-free API i nie otwiera przez
-  samą capability mieszanych powierzchni klienta.
+
+Generator umów B2B (``purpose="org"``) czyta własne pola
+``generator_can_*`` liczone formułą sprzed 0410 — jego dostęp się nie zmienił.
 """
 
 from __future__ import annotations
@@ -67,8 +75,11 @@ from app.services.client_identity import client_display_name
 from app.services.access_scope import (
     delivery_lead_scope_is_assigned,
     delivery_lead_sees_whole_delivery,
+    is_delivery_lead_governed,
     resolve_delivery_lead_assigned_client_ids,
 )
+from app.services.action_permissions import ProductAction, has_permission
+from app.services.permission_denial import permission_denied
 
 # ``delivery`` = moduły Delivery (Klienci, Kontrakty, Zamówienia): DL tylko
 # swoich klientów. ``org`` = narzędzia rekrutacji i generator B2B: DL
@@ -82,10 +93,10 @@ ADMIN_LIKE_ROLES = (UserRole.admin, UserRole.head_of_recruitment)
 CLIENT_TEAM_ROLES = (UserRole.delivery_lead, UserRole.tac)
 # Role operacyjne delivery — odczyt w kontekście przypisanego stanowiska.
 DELIVERY_ROLES = (UserRole.recruiter, UserRole.sourcer)
-ORGANIZATION_READ_ROLES = (
-    UserRole.finance,
-    UserRole.talent_community_manager,
-)
+# Prywatne notatki relacyjne (dane osobiste kontaktu) czyta organizacyjnie
+# wyłącznie persona Finanse. To reguła o danych, nie o pracy — zostaje przy
+# roli i NIE wynika z uprawnienia „podgląd” (które może dostać każdy).
+PRIVATE_NOTES_ORGANIZATION_ROLES = (UserRole.finance,)
 
 # Stabilny kod błędu w response 403 (kryterium akceptacji PR1) — frontend
 # i monitoring mogą filtrować po prefiksie zamiast po polskim tekście.
@@ -116,6 +127,16 @@ class ClientAccess:
     can_view_financials: bool
     can_manage_client: bool
     private_contact_notes_allowed: bool
+    # Finanse czytają prywatne notatki relacyjne w całej organizacji (rola).
+    reads_private_notes_org_wide: bool = False
+    # Generator umów B2B (``purpose="org"``): formuła sprzed 0410, niezależna
+    # od uprawnień Delivery — patrz ``contract_access``.
+    generator_can_view_legal: bool = False
+    generator_can_edit_legal: bool = False
+    # Czego brakuje do edycji / dokumentów — do nazwanej odmowy.
+    missing_edit_permission: str | None = None
+    missing_legal_view_permission: str | None = None
+    missing_legal_edit_permission: str | None = None
 
     def can_view_contact_private_notes(self, contact: Contact) -> bool:
         """Prywatne notatki relacyjne: admin/owner z właściwym ceilingiem.
@@ -133,7 +154,7 @@ class ClientAccess:
         # Finance keeps its established organization-wide read of client
         # contacts, including private relationship notes, without gaining any
         # contact write capability. TCM is stopped by the guard above.
-        if self.is_organization_reader or (
+        if self.reads_private_notes_org_wide or (
             self.is_admin_like and self.can_edit_contacts
         ):
             return True
@@ -146,6 +167,29 @@ class ClientAccess:
             contact.key_relationship_owner_id is not None
             and contact.key_relationship_owner_id == self.user_id
         )
+
+    def edit_denial(self, detail: str) -> HTTPException:
+        """Odmowa edycji kontaktów, wiedzy albo materiałów klienta.
+
+        Gdy brakuje uprawnienia — odmowa nazywa je. Gdy uprawnienie jest,
+        a klient leży poza portfelem — dotychczasowy komunikat z ``detail``.
+        """
+
+        if self.missing_edit_permission is not None:
+            return permission_denied(self.missing_edit_permission)
+        return deny(detail)
+
+    def legal_denial(self, detail: str, *, write: bool = False) -> HTTPException:
+        """Odmowa dostępu do dokumentów prawnych klienta (odczyt albo zapis)."""
+
+        missing = (
+            self.missing_legal_edit_permission
+            if write
+            else self.missing_legal_view_permission
+        )
+        if missing is not None:
+            return permission_denied(missing)
+        return deny(detail)
 
 
 def deny(detail: str) -> HTTPException:
@@ -262,6 +306,20 @@ async def resolve_client_team_client_ids(
     return frozenset(int(client_id) for client_id in client_ids)
 
 
+def reads_delivery_organization_wide(user: User) -> bool:
+    """Podgląd Delivery u WSZYSTKICH klientów.
+
+    Uprawnienie „Klienci, kontrakty i zamówienia: podgląd” bez portfela
+    Delivery Leada. Domyślnie: Finanse i Talent Community Manager; każde konto,
+    któremu admin nada podgląd, czyta tak samo. Konto z rolą DL zostaje przy
+    swoich klientach (``resolve_delivery_lead_client_ids``).
+    """
+
+    return has_permission(
+        user, ProductAction.delivery_view
+    ) and not is_delivery_lead_governed(user)
+
+
 async def resolve_client_visible_client_ids(
     db: AsyncSession,
     user: User,
@@ -270,7 +328,8 @@ async def resolve_client_visible_client_ids(
 ) -> frozenset[int] | None:
     """Resolve all clients whose operational surface the user may read.
 
-    Admin/HoR and organization readers remain unrestricted. Delivery Lead gets
+    Admin/HoR and organization readers (the Delivery view permission without
+    the Delivery Lead portfolio) remain unrestricted. Delivery Lead gets
     the client-team set of ``purpose`` (assigned clients for Delivery, every
     client for ``org``). TAC contributes only explicit relationship
     assignments. Recruiter/Sourcer contribute only clients reached through
@@ -279,11 +338,8 @@ async def resolve_client_visible_client_ids(
     Empty is authoritative deny-all and never means organization-wide fallback.
     """
 
-    delivery_scoped = user.has_role(UserRole.delivery_lead) and not user.has_any_role(
-        UserRole.admin,
-        UserRole.finance,
-    )
-    if user.has_any_role(*ORGANIZATION_READ_ROLES) and not delivery_scoped:
+    delivery_scoped = is_delivery_lead_governed(user)
+    if reads_delivery_organization_wide(user):
         return None
 
     client_ids = await resolve_client_team_client_ids(db, user, purpose=purpose)
@@ -302,40 +358,49 @@ class _UserClientFacts:
 
     is_admin_like: bool
     is_organization_reader: bool
-    is_finance_reader: bool
+    reads_private_notes_org_wide: bool
     is_read_only_tcm: bool
-    has_delivery_write: bool
+    is_delivery_scoped: bool
     delivery_lead_assignment_required: bool
     is_delivery: bool
     has_financial_access: bool
+    # Uprawnienia z ekranu (po domknięciu zależności).
+    can_edit_clients: bool
+    can_view_amounts: bool
+    can_edit_contracts: bool
+    # Generator umów B2B — formuła sprzed 0410.
+    legacy_is_finance_reader: bool
+    legacy_has_delivery_write: bool
 
 
 def _user_client_facts(user: User) -> _UserClientFacts:
-    delivery_scoped = user.has_role(UserRole.delivery_lead) and not user.has_any_role(
-        UserRole.admin,
-        UserRole.finance,
-    )
+    delivery_scoped = is_delivery_lead_governed(user)
     return _UserClientFacts(
         is_admin_like=user.has_any_role(*ADMIN_LIKE_ROLES) and not delivery_scoped,
-        is_organization_reader=(
-            user.has_any_role(*ORGANIZATION_READ_ROLES) and not delivery_scoped
-        ),
-        is_finance_reader=(
-            user.has_role(UserRole.finance) and has_financial_access(user)
+        is_organization_reader=reads_delivery_organization_wide(user),
+        reads_private_notes_org_wide=(
+            user.has_any_role(*PRIVATE_NOTES_ORGANIZATION_ROLES) and not delivery_scoped
         ),
         is_read_only_tcm=(
             user.has_role(UserRole.talent_community_manager)
             and not user.has_any_role(UserRole.admin, UserRole.delivery_lead)
         ),
-        has_delivery_write=(
-            section_access_for_user(user, ProductSection.delivery)
-            >= SectionAccess.write
-        ),
+        is_delivery_scoped=delivery_scoped,
         delivery_lead_assignment_required=(
             user.has_role(UserRole.delivery_lead) and not user.has_role(UserRole.admin)
         ),
         is_delivery=user.has_any_role(*DELIVERY_ROLES) and not delivery_scoped,
         has_financial_access=has_financial_access(user),
+        can_edit_clients=has_permission(user, ProductAction.clients_edit),
+        can_view_amounts=has_permission(user, ProductAction.amounts_view),
+        can_edit_contracts=has_permission(user, ProductAction.contracts_orders_edit),
+        legacy_is_finance_reader=(
+            user.has_role(UserRole.finance) and has_financial_access(user)
+        ),
+        legacy_has_delivery_write=(
+            section_access_for_user(user, ProductSection.delivery)
+            >= SectionAccess.write
+        ),
     )
 
 
@@ -355,7 +420,23 @@ def _build_client_access(
         or is_client_team
         or is_job_assigned
     )
-    can_edit = facts.has_delivery_write and (is_admin_like or is_client_team)
+    # Zakres: konto z rolą Delivery Leada działa u klientów ze swojego zbioru
+    # (``is_client_team`` niesie ``purpose``), każde inne — u wszystkich.
+    in_scope = not facts.is_delivery_scoped or is_client_team
+    assigned = not facts.delivery_lead_assignment_required or is_delivery_lead_assigned
+    can_edit = facts.can_edit_clients and in_scope
+    can_view_legal = facts.can_view_amounts and in_scope
+    can_edit_legal = facts.can_edit_contracts and facts.can_view_amounts and assigned
+
+    missing_legal_edit: str | None = None
+    if not facts.can_edit_contracts:
+        missing_legal_edit = ProductAction.contracts_orders_edit.value
+    elif not facts.can_view_amounts:
+        missing_legal_edit = ProductAction.amounts_view.value
+
+    legacy_can_edit = facts.legacy_has_delivery_write and (
+        is_admin_like or is_client_team
+    )
 
     return ClientAccess(
         user_id=user.id,
@@ -367,26 +448,32 @@ def _build_client_access(
         is_job_assigned=is_job_assigned,
         can_view_contacts=can_view_team_surfaces,
         can_edit_contacts=can_edit,
-        can_reassign_relationship_owner=is_admin_like and facts.has_delivery_write,
+        can_reassign_relationship_owner=is_admin_like and facts.can_edit_clients,
         can_view_knowledge=can_view_team_surfaces,
         can_edit_knowledge=can_edit,
         # Materiały klienta są częścią jego powierzchni operacyjnej. Recruiter
         # i sourcer widzą je wyłącznie przez przypisany Job tego klienta.
         can_view_materials=can_view_team_surfaces,
         can_edit_materials=can_edit,
-        can_view_legal_documents=(
-            not facts.is_read_only_tcm
-            and (is_admin_like or facts.is_finance_reader or is_client_team)
-        ),
-        can_edit_legal_documents=(
-            can_edit
-            and (
-                not facts.delivery_lead_assignment_required or is_delivery_lead_assigned
-            )
-        ),
+        # Dokumenty prawne i pliki mogą nieść stawki — wymagają podglądu kwot.
+        can_view_legal_documents=can_view_legal,
+        can_edit_legal_documents=can_edit_legal,
         can_view_financials=can_view_team_surfaces and facts.has_financial_access,
-        can_manage_client=is_admin_like and facts.has_delivery_write,
+        can_manage_client=is_admin_like and facts.can_edit_clients,
         private_contact_notes_allowed=not facts.is_read_only_tcm,
+        reads_private_notes_org_wide=facts.reads_private_notes_org_wide,
+        generator_can_view_legal=(
+            not facts.is_read_only_tcm
+            and (is_admin_like or facts.legacy_is_finance_reader or is_client_team)
+        ),
+        generator_can_edit_legal=legacy_can_edit and assigned,
+        missing_edit_permission=(
+            None if facts.can_edit_clients else ProductAction.clients_edit.value
+        ),
+        missing_legal_view_permission=(
+            None if facts.can_view_amounts else ProductAction.amounts_view.value
+        ),
+        missing_legal_edit_permission=missing_legal_edit,
     )
 
 

@@ -66,6 +66,14 @@ _ALWAYS = (
     "tests/test_contract_order_workflows_migration.py",
 )
 
+# Macierz bramek tras (werdykt trasa × persona, wzorzec w
+# ``tests/data/authz_golden``). Bramki siedzą w zależnościach rozsianych po
+# całym ``app/``, więc zmiana dowolnego pliku aplikacji może zmienić werdykt
+# którejś trasy — a żadna reguła niżej nie wybierze testu, który nie wymienia
+# modułu z nazwy. Bez bazy, ~20 s.
+_AUTHZ_MATRIX = "tests/test_authz_guard_matrix.py"
+_AUTHZ_GOLDEN_DIR = "tests/data/authz_golden/"
+
 
 def _test_files() -> dict[str, str]:
     found: dict[str, str] = {}
@@ -108,6 +116,11 @@ def select(changed: list[str]) -> tuple[set[str], set[str]]:
         if path.startswith("backend/"):
             rel = path[len("backend/") :]
             name = Path(rel).name
+            if _AUTHZ_MATRIX in tests and (
+                rel.startswith(_AUTHZ_GOLDEN_DIR)
+                or (rel.startswith("app/") and rel.endswith(".py"))
+            ):
+                direct.add(_AUTHZ_MATRIX)
             if (
                 rel.startswith("tests/")
                 and name.startswith("test_")

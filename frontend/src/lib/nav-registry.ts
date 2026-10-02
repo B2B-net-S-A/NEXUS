@@ -36,11 +36,13 @@ import type { ComponentType } from "react";
 
 import { hasActionAccess, type ProductAction } from "@/lib/action-access";
 import {
+  CAPABILITY_PERMISSIONS,
   CAPABILITY_ROLES,
   hasCapability,
   type Capability,
 } from "@/lib/capabilities";
 import { dashboardHref } from "@/lib/dashboard-presets";
+import { hasPermission, type Permission } from "@/lib/permissions";
 import {
   hasSectionAccess,
   type ProductSection,
@@ -106,11 +108,18 @@ export type NavEntry = {
   icon: NavIcon;
   section: NavSectionKey;
   roles?: UserRole[];
+  /**
+   * Uprawnienie z ekranu Osoby i role, bez którego pozycji nie ma — Delivery
+   * („Klienci, kontrakty i zamówienia: podgląd”) i Finanse („Moduł Finanse”).
+   * Te wejścia nie mają listy ról: kto ma uprawnienie, ten widzi pozycję.
+   */
+  permission?: Permission;
   action?: ProductAction;
   /**
-   * Capability z `lib/capabilities.ts`, której lista ról ma być lustrem tej
-   * pozycji. Sidebar jej NIE sprawdza (bramkuje sekcją i `roles`, jak dotąd);
-   * paleta dokłada ją jako drugi filtr, a zgodność obu list pilnuje test.
+   * Capability z `lib/capabilities.ts`, której bramka (lista ról albo
+   * uprawnienie) ma być lustrem tej pozycji. Sidebar jej NIE sprawdza
+   * (bramkuje sekcją, `roles` i `permission`); paleta dokłada ją jako drugi
+   * filtr, a zgodność obu pilnuje test.
    */
   capability?: Capability;
   badgeKey?: NavBadgeKey;
@@ -119,7 +128,7 @@ export type NavEntry = {
    * `primary` = pozycja stoi na szynie (w jednej z grup `NAV_PRIMARY_GROUPS`);
    * `more` = w wysuwanym panelu „Więcej". Podział jest per WPIS, niezależny od
    * roli: o tym, KTO co widzi, decyduje wyłącznie bramka widoczności (sekcja /
-   * role / akcja / flaga). Rdzeń pracy każdej persony jest `primary` — „Praca"
+   * role / uprawnienie / akcja / flaga). Rdzeń pracy każdej persony jest `primary` — „Praca"
    * (Dashboard, Rekrutacje, Kandydaci, Kalendarz), „Klienci i umowy" (Klienci,
    * Kontrakty, Finanse) i „Firma" (Insights) — więc rekruter widzi pięć
    * pozycji, a admin osiem, bez osobnych drzew per rola.
@@ -419,12 +428,16 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     paletteKeywords: ["praktykant", "telefony", "lista telefonów", "program"],
     inPalette: true,
   },
+  // Pozycje Delivery i Finansów nie mają listy ról: wejście daje uprawnienie
+  // z ekranu Osoby i role — to samo, którego wymaga ich capability (jedna
+  // kopia, jak `roles` wyżej). Sekcja zostaje sufitem (stary wyjątek osoby).
   {
     id: "clients",
     href: "/clients",
     label: "Klienci",
     icon: Building2,
     section: "delivery",
+    permission: CAPABILITY_PERMISSIONS["nav.clients"],
     capability: "nav.clients",
     placement: "primary",
     inPalette: true,
@@ -439,6 +452,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Moi klienci",
     icon: Briefcase,
     section: "delivery",
+    permission: CAPABILITY_PERMISSIONS["nav.my_clients"],
     capability: "nav.my_clients",
     placement: "primary",
     paletteKeywords: ["panel klientów", "portfel", "moi klienci"],
@@ -446,13 +460,14 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     inSidebar: false,
   },
   {
-    // Zamówienia z maila są częścią Delivery. Backend daje TCM wyłącznie
-    // bezpieczny odczyt, a DL widzi wszystkich klientów bez obcych kwot.
+    // Zamówienia z maila są częścią Delivery. Sam podgląd daje bezpieczny
+    // odczyt; kwoty i „Zastosuj” rozstrzyga serwer flagami wpisu.
     id: "order-mail",
     href: "/contracts?view=order-mail",
     label: "Skrzynka zamówień (zamówienia z maila)",
     icon: Inbox,
     section: "delivery",
+    permission: CAPABILITY_PERMISSIONS["nav.order_mail"],
     capability: "nav.order_mail",
     placement: "primary",
     paletteKeywords: ["zamówienia z maila", "skrzynka", "order mail"],
@@ -465,6 +480,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Kluczowe relacje z klientami",
     icon: Heart,
     section: "delivery",
+    permission: CAPABILITY_PERMISSIONS["nav.my_relationships"],
     capability: "nav.my_relationships",
     placement: "primary",
     paletteKeywords: ["moje relacje", "kontakty", "relacje"],
@@ -474,15 +490,16 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
   // „Kontrakty" to jeden workspace z dwoma trybami (Obsługa kontraktorów /
   // Rejestr kontraktów); dawna pozycja „Kontraktorzy" została wchłonięta —
   // /contractors przekierowuje do /contracts?view=operations, a tryb operacyjny
-  // jest bramkowany rolami wewnątrz strony. Backend zwraca TCM bezpieczny
-  // rejestr bez stawek; DL widzi wszystkich klientów, a stawki tylko dla
-  // przypisanych. Dokumenty mają osobny gate.
+  // jest bramkowany wewnątrz strony. Kto nie ma podglądu kwot, dostaje
+  // z backendu rejestr bez stawek; Delivery Lead widzi stawki tylko u klientów
+  // z przypisania. Dokumenty mają osobny gate.
   {
     id: "contracts",
     href: "/contracts",
     label: "Kontrakty",
     icon: FileText,
     section: "delivery",
+    permission: CAPABILITY_PERMISSIONS["nav.contracts"],
     capability: "nav.contracts",
     // Plakietka = dokumenty w Skrzynce zamówień czekające na sprawdzenie
     // (skrzynka jest trybem Kontraktów, nie ma własnej pozycji).
@@ -507,6 +524,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Finanse",
     icon: Wallet,
     section: "finance",
+    permission: CAPABILITY_PERMISSIONS["nav.finance"],
     capability: "nav.finance",
     placement: "primary",
     inPalette: true,
@@ -590,6 +608,7 @@ function isEntryVisible(
   return (
     (!productSection || hasSectionAccess(user, productSection)) &&
     (!entry.roles || hasRole(user, ...entry.roles)) &&
+    (!entry.permission || hasPermission(user, entry.permission)) &&
     (!entry.action || hasActionAccess(user, entry.action)) &&
     featureFlagOn(entry.featureFlag, opts)
   );
@@ -621,9 +640,9 @@ export function visibleNavEntries(
  * dostawała cztery pozycje (Dashboard · Finanse · Pomoc · Ustawienia), mimo że
  * KAŻDA lista `roles` już ją wymienia — backend przepuszcza ją wszędzie tam,
  * gdzie recruitera (decyzja 19.08), więc menu było jedyną warstwą, która ją
- * odcinała. Własny moduł „Finanse" jest filtrowany przez autorytatywny
- * `section: "finance"`, dzięki czemu działa też indywidualny wyjątek nadany
- * w panelu uprawnień.
+ * odcinała. Własny moduł „Finanse" jest filtrowany uprawnieniem „Moduł
+ * Finanse” (z niego wynika sekcja), dzięki czemu wejście widzi też osoba,
+ * której administrator nadał je na ekranie Osoby i role.
  */
 export function visibleNavSections(
   user: NavUser,

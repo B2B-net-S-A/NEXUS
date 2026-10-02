@@ -91,16 +91,38 @@ function getCallsFor(url: string) {
   return mocks.get.mock.calls.filter(([u]) => u === url).length;
 }
 
-function renderTab() {
+function renderTab(
+  props: { readOnly?: boolean; contractTermsReadOnly?: boolean } = {},
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MaterialsTab clientId={CLIENT_ID} />
+      <MaterialsTab clientId={CLIENT_ID} {...props} />
     </QueryClientProvider>,
   );
 }
+
+const TERMS = {
+  id: 1,
+  client_id: CLIENT_ID,
+  internalization_fee_pct: null,
+  internalization_min_months: null,
+  internalization_notice_days: null,
+  internalization_notes: null,
+  payment_net_days: 30,
+  payment_currency: "PLN",
+  payment_invoice_cycle: null,
+  payment_late_fees: null,
+  payment_notes: null,
+  notice_period_days: null,
+  warranty_replacement_days: null,
+  warranty_notes: null,
+  other_clauses: "cała grupa",
+  updated_at: "2026-09-01T10:00:00Z",
+  updated_by_email: "dl@example.com",
+};
 
 function uploadDialog() {
   return screen.getByRole("heading", { name: "Dodaj one-pager" }).closest(
@@ -350,5 +372,43 @@ describe("MaterialsTab — wymagane dokumenty i warunki (zapis)", () => {
     );
     await waitFor(() => expect(mocks.showError).toHaveBeenCalledWith("Nie udało się zapisać"));
     expect(mocks.showSuccess).not.toHaveBeenCalled();
+  });
+
+  // Warunki kontraktowe mają własną bramkę zapisu (`PUT …/contract-terms`:
+  // „Kontrakty i zamówienia” + podgląd kwot), niezależną od edycji klientów.
+  it("Finanse: materiały tylko do odczytu, ale warunki kontraktowe da się zapisać", async () => {
+    routeGets({ [ONE_PAGERS_URL]: [[]], [TERMS_URL]: [TERMS] });
+    mocks.put.mockResolvedValueOnce({ data: TERMS });
+
+    renderTab({ readOnly: true, contractTermsReadOnly: false });
+    fireEvent.click(screen.getByRole("button", { name: "Warunki kontraktowe" }));
+    const scope = await screen.findByDisplayValue("cała grupa");
+
+    expect(screen.queryByText("Widok tylko do odczytu.")).not.toBeInTheDocument();
+    expect(scope).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Zapisz" })).toBeInTheDocument();
+  });
+
+  it("sama edycja klientów: materiały do zapisu, warunki kontraktowe tylko do odczytu", async () => {
+    routeGets({ [ONE_PAGERS_URL]: [[]], [TERMS_URL]: [TERMS] });
+
+    renderTab({ readOnly: false, contractTermsReadOnly: true });
+    expect(await screen.findByRole("button", { name: "Dodaj" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Warunki kontraktowe" }));
+    const scope = await screen.findByDisplayValue("cała grupa");
+
+    expect(screen.getByText("Widok tylko do odczytu.")).toBeInTheDocument();
+    expect(scope).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Zapisz" })).not.toBeInTheDocument();
+  });
+
+  it("bez osobnej flagi warunki idą za `readOnly` (dotychczasowe wywołania)", async () => {
+    routeGets({ [ONE_PAGERS_URL]: [[]], [TERMS_URL]: [TERMS] });
+
+    renderTab({ readOnly: true });
+    fireEvent.click(screen.getByRole("button", { name: "Warunki kontraktowe" }));
+    await screen.findByDisplayValue("cała grupa");
+
+    expect(screen.getByText("Widok tylko do odczytu.")).toBeInTheDocument();
   });
 });

@@ -36,8 +36,8 @@ from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.recruitment_pipeline import CandidateStage
-from app.models.user import UserRole
 from app.services import board_tasks as svc
+from app.services.action_permissions import ProductAction, has_permission
 from app.services import (
     candidate_followups,
     cpro_sender,
@@ -175,8 +175,9 @@ class BoardTasksResponse(BaseModel):
     window_days: int
     dl_review_window_days: int
     # Ruch na „CV wysłane" ze stawką do klienta (u klientów spoza Nordei)
-    # wykonuje wyłącznie admin albo Delivery Lead — Head of Recruitment widzi
-    # kolejkę, ale serwer odmówiłby mu wysyłki.
+    # wykonuje wyłącznie osoba z uprawnieniem `recruitment_manage` (domyślnie
+    # admin i Delivery Lead) — Head of Recruitment widzi kolejkę, ale serwer
+    # odmówiłby mu wysyłki.
     can_send_to_client: bool
     # 0370: brak prepu, prep słaby albo bez nagrania — organizator i HoR.
     prep_attention: list[PrepAttentionRow] = []
@@ -319,8 +320,10 @@ async def list_board_tasks(
         ],
         window_days=svc.WINDOW_DAYS,
         dl_review_window_days=svc.DL_REVIEW_WINDOW_DAYS,
-        can_send_to_client=current_user.has_any_role(
-            UserRole.admin, UserRole.delivery_lead
+        # Ta sama reguła co `/move` na „CV wysłane” poza Nordeą
+        # (`pipeline_move_rules.assert_client_send_allowed`).
+        can_send_to_client=has_permission(
+            current_user, ProductAction.recruitment_manage
         ),
         can_set_cpro_sender=await cpro_sender.can_set_sender(db, current_user),
         allocation_proposals=[AllocationProposalRow(**asdict(p)) for p in proposals],

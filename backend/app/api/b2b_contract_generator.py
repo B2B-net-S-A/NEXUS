@@ -70,7 +70,10 @@ from app.services.action_permissions import (
     ProductAction,
     action_access_for_user,
 )
-from app.services.access_scope import resolve_delivery_lead_assigned_client_ids
+from app.services.access_scope import (
+    is_delivery_lead_governed,
+    resolve_delivery_lead_assigned_client_ids,
+)
 from app.services.b2b_documents.contract_versions import version_for_variant
 from app.services.critical_events import audited_deletion
 from app.schemas.b2b_contract_generator import (
@@ -465,15 +468,16 @@ def _require_signature_confirmation(user: User) -> None:
 async def _assert_signature_client_access(
     db: AsyncSession, user: User, client_id: int | None
 ) -> None:
-    # Preserve existing legal scope for DL/TAC. The separately granted command
-    # lets operational users confirm signatures without granting document edits.
+    # Uprawnienie „Umowy B2B: oznaczanie jako podpisane” mówi, CO konto może;
+    # tutaj rozstrzyga się, U KOGO. Konto rządzone portfelem Delivery Leada
+    # potwierdza u klientów z przypisania, każdy inny posiadacz — u wszystkich
+    # (rola, której administrator jawnie włączył uprawnienie, ma działać).
     # TCM potwierdza podpisy w całej organizacji (decyzja 10.09.2026) — także
-    # wtedy, gdy ma dodatkowo rolę DL albo TAC. Do 29.09.2026 dodatkowa rola
-    # TAC włączała zakres klienta i konto TCM + TAC bez przypisań dostawało
-    # „Brak uprawnień do potwierdzania podpisu dla tego klienta”.
+    # wtedy, gdy ma dodatkowo rolę DL. Do 02.10.2026 zakres klienta obejmował
+    # też TAC, który bez zapisu w Delivery nie przechodził go nigdy.
     if user.has_role(UserRole.talent_community_manager):
         return
-    if user.has_any_role(UserRole.delivery_lead, UserRole.tac):
+    if is_delivery_lead_governed(user):
         await assert_contract_legal_client_access(
             db, user, client_id, write=True, purpose="org"
         )

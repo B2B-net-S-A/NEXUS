@@ -97,6 +97,9 @@ class TurnInput:
     # Poziomy sekcji pytającego — do kotwic ``show_on_screen`` (element, którego
     # ta osoba nie widzi, nie jest podświetlany).
     sections: dict[str, int] = field(default_factory=dict)
+    # Uprawnienia z ekranu „Osoby i role” — przycisk dla ich posiadaczy
+    # (np. „Nowa rekrutacja”) nie jest wskazywany komuś, kto go nie ma.
+    permissions: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -422,7 +425,7 @@ def screen_anchor(
     sections = turn.sections or {
         s: 2 for s in ("sourcing", "pipeline", "delivery", "insights", "finance")
     }
-    shaped = guide_for_user(guide, set(turn.roles), sections)
+    shaped = guide_for_user(guide, set(turn.roles), sections, turn.permissions)
     anchors = (shaped or {}).get("anchors") or []
     valid = [a["id"] for a in anchors]
     for anchor in anchors:

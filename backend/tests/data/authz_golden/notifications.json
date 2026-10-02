@@ -1,0 +1,35 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
+ ],
+ "routes": {
+  "GET /api/notifications": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/notifications/count": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/notifications/preferences": "PPPPPPPPPDPPPPPPPPPPP",
+  "PATCH /api/notifications/read-all": "PPPPPPPPPDPPPPPPPPPPP",
+  "PATCH /api/notifications/{notification_id}/read": "PPPPPPPPPDPPPPPPPPPPP",
+  "PUT /api/notifications/preferences/{category}": "PPPPPPPPPDPPPPPPPPPPP",
+  "PUT /api/notifications/read-all": "PPPPPPPPPDPPPPPPPPPPP",
+  "PUT /api/notifications/{notification_id}/read": "PPPPPPPPPDPPPPPPPPPPP"
+ }
+}

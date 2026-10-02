@@ -27,7 +27,7 @@
       },
       {
         "q": "Jak założyć nową rekrutację?",
-        "a": "Kliknij „Nowa rekrutacja”. Wklej mail albo plik od klienta — system wypełni pola i pokaże braki. Przycisk widzą admin i Delivery Lead.",
+        "a": "Kliknij „Nowa rekrutacja”. Wklej mail albo plik od klienta — system wypełni pola i pokaże braki. Przycisk widzą osoby z uprawnieniem do zakładania rekrutacji (domyślnie admin i Delivery Lead).",
         "anchor": "jobs.list.new"
       }
     ],
@@ -47,7 +47,7 @@
         "id": "jobs.list.new",
         "label": "Nowa rekrutacja",
         "describe": "Założenie rekrutacji z maila albo pliku od klienta.",
-        "requires": {"roles": ["admin", "delivery_lead"]}
+        "requires": {"permissions": ["recruitment_manage"]}
       }
     ],
     "help_slug": null,
@@ -86,9 +86,9 @@
       }
     ],
     "pitfalls": [
-      "Wysłanie na „CV wysłane” poza Nordeą robi tylko Delivery Lead albo admin, podając w tym samym kroku stawkę do klienta. Cofnięcie karty z „Rozmowy u klienta” tego nie wymaga.",
+      "Wysłanie na „CV wysłane” poza Nordeą robi tylko osoba z uprawnieniem do wysyłki CV do klienta (domyślnie Delivery Lead i admin), podając w tym samym kroku stawkę do klienta. Cofnięcie karty z „Rozmowy u klienta” tego nie wymaga.",
       "Wyjście z „Rozmowy u klienta” wymaga debriefu: pytań klienta albo potwierdzenia, że ich nie było.",
-      "Bez zielonego QC CV kandydat nie przejdzie na „CV wysłane” ani do kolejki Cpro (u Nordei wrzuca osoba od Cpro wyznaczona dla firmy, a gdy jej nie ma — osoba wskazana w rekrutacji). QC zatrzymuje tylko cztery rzeczy: brak CV firmowego, umiejętności krytyczne nieopisane w rolach, treść spoza oryginalnego CV i reguły klienta — reszta to uwagi. Przepuścić mimo QC może Delivery Lead albo admin, wybierając powód. Powrót z „Zamkniętych” tego nie omija.",
+      "Bez zielonego QC CV kandydat nie przejdzie na „CV wysłane” ani do kolejki Cpro (u Nordei wrzuca osoba od Cpro wyznaczona dla firmy, a gdy jej nie ma — osoba wskazana w rekrutacji). QC zatrzymuje tylko cztery rzeczy: brak CV firmowego, umiejętności krytyczne nieopisane w rolach, treść spoza oryginalnego CV i reguły klienta — reszta to uwagi. Przepuścić mimo QC może osoba z uprawnieniem do wysyłki CV do klienta, wybierając powód. Powrót z „Zamkniętych” tego nie omija.",
       "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin."
     ],
     "anchors": [
@@ -211,7 +211,7 @@
       },
       {
         "q": "Czego brakuje, żeby przekazać rekrutację do searchu?",
-        "a": "Zobacz zakładkę „Gotowość” w panelu z prawej: lista braków (rola, must-have, budżet, tryb pracy, opis projektu, pytania screeningowe, wymagania do wyszukiwania, decyzja o umiejętnościach krytycznych). Budżet i tryb pracy uzupełnisz na miejscu. Gdy nic nie brakuje, admin albo Delivery Lead używa „Przekaż do searchu”.",
+        "a": "Zobacz zakładkę „Gotowość” w panelu z prawej: lista braków (rola, must-have, budżet, tryb pracy, opis projektu, pytania screeningowe, wymagania do wyszukiwania, decyzja o umiejętnościach krytycznych). Budżet i tryb pracy uzupełnisz na miejscu. Gdy nic nie brakuje, osoba z uprawnieniem do rekrutacji używa „Przekaż do searchu”.",
         "anchor": "job.champion.readiness"
       },
       {
@@ -486,7 +486,7 @@
         "id": "client.orders.new",
         "label": "Nowe zamówienie",
         "describe": "Dodanie zamówienia, także z odczytem PDF.",
-        "requires": {"roles": ["admin", "delivery_lead"]}
+        "requires": {"permissions": ["contracts_orders_edit"]}
       },
       {"id": "client.orders.pills", "label": "Aktywne / Bez kontynuacji / Zakończeni", "describe": "Pigułki stanu zamówień z licznikami."},
       {"id": "client.orders.search", "label": "Wyszukiwanie i eksport", "describe": "Szukanie po numerze i nazwisku, filtry i eksport."},

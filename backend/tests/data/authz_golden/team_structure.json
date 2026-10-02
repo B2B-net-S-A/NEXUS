@@ -1,0 +1,42 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
+ ],
+ "routes": {
+  "DELETE /api/team-structure/dl-clients/{assignment_id}": "PDPDDDDDDDDPDPDDDDDDD",
+  "DELETE /api/team-structure/sourcer-categories/{assignment_id}": "PDPDDDDDDDDPDPDDDDDDD",
+  "DELETE /api/team-structure/tac-delivery-leads/{tac_user_id}": "PDPDDDDDDDDPDPDDDDDDD",
+  "DELETE /api/team-structure/tac-linkedin-farming/{assignment_id}": "PDPDDDDDDDDPDPDDDDDDD",
+  "GET /api/team-structure/dl-clients": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/team-structure/my-team": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/team-structure/sourcer-categories": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/team-structure/summary": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/team-structure/tac-delivery-leads": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/team-structure/dl-clients": "PDPDDDDDDDDPDPDDDDDDD",
+  "POST /api/team-structure/sourcer-categories": "PDPDDDDDDDDPDPDDDDDDD",
+  "POST /api/team-structure/tac-delivery-leads": "PDPDDDDDDDDPDPDDDDDDD",
+  "POST /api/team-structure/tac-linkedin-farming": "PDPDDDDDDDDPDPDDDDDDD",
+  "PUT /api/team-structure/dl-clients/{assignment_id}/toggle-head": "PDPDDDDDDDDPDPDDDDDDD",
+  "PUT /api/team-structure/operators/{user_id}/competences": "PDPDDDDDDDDPDPDDDDDDD"
+ }
+}

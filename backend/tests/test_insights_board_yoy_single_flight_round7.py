@@ -13,7 +13,7 @@ from starlette.requests import Request
 from app.api import insights_board as board_api
 from app.core import cache as cache_module
 from app.core.rate_limit import limiter
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.services import insights_board_yoy
 
 
@@ -43,7 +43,9 @@ async def test_parallel_requests_compute_the_grid_once(monkeypatch) -> None:
         return {"years": years, "metrics": []}
 
     monkeypatch.setattr(board_api, "compute_board_yoy", _compute)
-    admin = SimpleNamespace(has_any_role=lambda *roles: UserRole.admin in roles)
+    # Trasa pyta o uprawnienie „Moduł Finanse”, więc konto musi być obiektem,
+    # z którego da się je odczytać (bez migawki = domyślne ustawienia roli).
+    admin = User(role=UserRole.admin, roles=[UserRole.admin.value])
 
     try:
         first, second = await asyncio.gather(

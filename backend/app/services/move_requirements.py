@@ -16,8 +16,8 @@ wszystkich kolumn po drodze — pominięta kolumna nie zwalnia z jej wymagań.
 Ruch wstecz i zamknięcie procesu niczego nie wymagają.
 
 Lista jest podpowiedzią dla ekranu, nie bramką: bramki (stawka przy
-„Zweryfikowanym", QC CV przed wysłaniem, debrief przed umową, wysyłka przez
-Delivery Leada) egzekwuje `POST /api/pipeline/move`.
+„Zweryfikowanym", QC CV przed wysłaniem, debrief przed umową, wysyłka do
+klienta tylko z uprawnieniem) egzekwuje `POST /api/pipeline/move`.
 """
 
 from __future__ import annotations
@@ -92,7 +92,8 @@ class PairFacts:
     qc_status: str = "unchecked"
     qc_blocking_failed: int = 0
     client_rate: bool = False
-    # Użytkownik może wysłać CV do klienta (admin / Delivery Lead).
+    # Użytkownik może wysłać CV do klienta (uprawnienie „Rekrutacje:
+    # zakładanie, zamykanie, wysyłka CV do klienta”).
     is_client_sender: bool = False
     nordea: bool = False
     cpro_stage_def_id: Optional[int] = None
@@ -648,7 +649,10 @@ async def load_pair_facts(
     from app.services.board_tasks import classify_template  # noqa: PLC0415
     from app.services.debrief_gate import missing_debrief  # noqa: PLC0415
     from app.core.config import settings  # noqa: PLC0415
-    from app.services.pipeline_move_rules import CLIENT_SEND_ROLES  # noqa: PLC0415
+    from app.services.action_permissions import (  # noqa: PLC0415
+        ProductAction,
+        has_permission,
+    )
 
     pair = (candidate.id, job.id)
     rows = (
@@ -800,7 +804,7 @@ async def load_pair_facts(
         qc_status=qc.get("status") or "unchecked",
         qc_blocking_failed=int(qc.get("blocking_failed") or 0),
         client_rate=client_rate,
-        is_client_sender=user.has_any_role(*CLIENT_SEND_ROLES),
+        is_client_sender=has_permission(user, ProductAction.recruitment_manage),
         nordea=nordea,
         cpro_stage_def_id=stages.cpro_id if stages is not None else None,
         qc_stage_def_id=stages.qc_id if stages is not None else None,

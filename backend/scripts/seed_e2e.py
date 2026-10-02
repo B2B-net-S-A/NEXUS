@@ -57,6 +57,7 @@ ACCOUNTS: tuple[E2EAccount, ...] = (
     E2EAccount("e2e-admin@example.com", "E2E Admin", UserRole.admin),
     E2EAccount("e2e-recruiter@example.com", "E2E Rekruter", UserRole.recruiter),
     E2EAccount("e2e-dl@example.com", "E2E Delivery Lead", UserRole.delivery_lead),
+    E2EAccount("e2e-finance@example.com", "E2E Finanse", UserRole.finance),
 )
 
 

@@ -221,7 +221,7 @@ def test_selector_hub_modules_do_not_select_half_the_suite() -> None:
     assert not indirect, "config.py importuje prawie każdy test — to zadanie kolejki."
     assert all(
         Path(t).name == "test_config.py" or Path(t).name.startswith("test_config_")
-        for t in direct - set(sel._ALWAYS)
+        for t in direct - set(sel._ALWAYS) - {sel._AUTHZ_MATRIX}
     )
 
 
@@ -239,6 +239,21 @@ def test_selector_always_runs_repo_guards_even_for_frontend_only_prs() -> None:
     for guard in sel._ALWAYS:
         assert (_REPO / "backend" / guard).is_file(), f"Strażnik {guard} zniknął."
         assert guard in direct
+
+
+def test_selector_runs_the_route_guard_matrix_for_any_application_change() -> None:
+    """Zmiana bramki ma wyjść na PR-ze, nie dopiero w kolejce merge'ów."""
+    sel = _selector()
+    for changed in (
+        "backend/app/api/contracts.py",
+        "backend/app/core/config.py",
+        "backend/app/services/client_access.py",
+        "backend/tests/data/authz_golden/contracts.json",
+    ):
+        direct, _ = sel.select([changed])
+        assert sel._AUTHZ_MATRIX in direct, changed
+    direct, indirect = sel.select(["frontend/src/components/EditOrderDialog.tsx"])
+    assert sel._AUTHZ_MATRIX not in direct | indirect
 
 
 def test_selector_budget_keeps_direct_and_drops_slowest_indirect() -> None:

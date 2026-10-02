@@ -28,7 +28,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.core.config import settings
-from app.models.section_permission import RoleSectionPermission, UserSectionOverride
+from app.models.section_permission import (
+    RoleActionPermission,
+    RoleSectionPermission,
+    UserActionOverride,
+    UserSectionOverride,
+)
 from app.models.user import User, UserRole
 from app.services.m365 import sender as sender_mod
 from app.services.m365 import signature_cache
@@ -39,6 +44,15 @@ from app.services.m365.signature_cache import (
     get_outlook_signature,
 )
 from app.services.section_permissions import DEFAULT_ROLE_SECTION_ACCESS
+
+# Resolver dostępu czyta sekcje i akcje jednym wejściem. Atrapa zwraca tylko
+# wiersze sekcji — rola bez wierszy akcji jest liczona regułą zasiewu.
+POLICY_ENTITIES = {
+    RoleActionPermission,
+    RoleSectionPermission,
+    UserActionOverride,
+    UserSectionOverride,
+}
 
 
 # ── extract_signature ────────────────────────────────────────────────────────
@@ -544,7 +558,7 @@ class _FakeAsyncSession:
     async def scalars(self, statement: Any) -> Any:
         entity = statement.column_descriptions[0].get("entity")
         rows = self.role_rows if entity is RoleSectionPermission else []
-        assert entity in {RoleSectionPermission, UserSectionOverride}
+        assert entity in POLICY_ENTITIES
         return SimpleNamespace(all=lambda: rows)
 
 

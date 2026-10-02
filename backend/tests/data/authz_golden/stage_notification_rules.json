@@ -1,0 +1,35 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
+ ],
+ "routes": {
+  "DELETE /api/clients/{client_id}/notification-overrides/{override_id}": "PDDPDDDDDDPPPDDDPDDDD",
+  "DELETE /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDDDPPPDDDDDDDD",
+  "GET /api/clients/{client_id}/notification-overrides": "PPDPPDDDDDPPPDPPPPDPP",
+  "GET /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PPPPPPPPPDPPPPPPPPPPP",
+  "PATCH /api/clients/{client_id}/notification-overrides/{override_id}": "PDDPDDDDDDPPPDDDPDDDD",
+  "PATCH /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDDDPPPDDDDDDDD",
+  "POST /api/clients/{client_id}/notification-overrides": "PDDPDDDDDDPPPDDDPDDDD",
+  "POST /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PDDPDDDDDDPPPDDDDDDDD"
+ }
+}

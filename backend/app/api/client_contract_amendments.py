@@ -1,4 +1,10 @@
-"""Router aneksów: `/api/clients/{client_id}/framework-contracts/{fc_id}/amendments`."""
+"""Router aneksów: `/api/clients/{client_id}/framework-contracts/{fc_id}/amendments`.
+
+Aneksy to dokumenty prawne klienta, jak umowa ramowa, której dotyczą: odczyt
+wymaga „Stawki i kwoty: podgląd” u klienta z zakresu, zapis — ``LegalDocsWriter``
+(„Kontrakty i zamówienia: tworzenie i edycja” razem z podglądem kwot; konto
+z rolą Delivery Leada u klienta z przypisania).
+"""
 
 from __future__ import annotations
 
@@ -19,8 +25,9 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import DlAssignedOrAdmin, get_current_user
+from app.api.client_framework_contracts import LegalDocsWriter
 from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
+from app.api.permission_access import AmountsViewUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
@@ -33,7 +40,6 @@ from app.schemas.client_contract_amendment import ClientContractAmendmentRead
 from app.services import storage_service
 from app.services.client_access import (
     assert_client_writable,
-    deny,
     resolve_client_access,
 )
 
@@ -74,7 +80,7 @@ async def _assert_fc(
 async def _require_amendment_legal_read(
     client_id: int,
     fc_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """Read scope aneksów = dokumenty prawne klienta.
@@ -83,13 +89,16 @@ async def _require_amendment_legal_read(
     istnienia client/framework, więc read-only viewer (``user``) oraz
     recruiter/sourcer mogli iterować i pobierać aneksy dowolnego klienta.
     Mirrors ``client_framework_contracts._require_legal_docs_reader`` — raw
-    legal content is limited to Admin, Finance and Delivery Lead.
+    legal content requires „Stawki i kwoty: podgląd” (by default Admin, Finance
+    and Delivery Lead at their clients); the denial names the permission.
     TCM receives only structured, finance-redacted Delivery data.
     """
     await _assert_fc(db, client_id, fc_id)
     access = await resolve_client_access(db, current_user, client_id)
     if not access.can_view_legal_documents:
-        raise deny("aneksy wymagają roli admin, finance lub Delivery Lead")
+        raise access.legal_denial(
+            "aneksy wymagają roli admin, finance lub Delivery Lead"
+        )
     return current_user
 
 
@@ -146,7 +155,7 @@ async def list_amendments(
 async def create_amendment(
     client_id: int,
     fc_id: int,
-    user: DlAssignedOrAdmin,
+    user: LegalDocsWriter,
     db: AsyncSession = Depends(get_db),
     file: Optional[UploadFile] = File(None),
     name: str = Form(...),
@@ -271,7 +280,7 @@ async def send_amendment_to_autenti(
     fc_id: int,
     amendment_id: int,
     payload: ClientDocSendRequest,
-    user: DlAssignedOrAdmin,
+    user: LegalDocsWriter,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
@@ -304,7 +313,7 @@ async def delete_amendment(
     client_id: int,
     fc_id: int,
     amendment_id: int,
-    user: DlAssignedOrAdmin,
+    user: LegalDocsWriter,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_fc(db, client_id, fc_id, write=True)

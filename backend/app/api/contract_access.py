@@ -19,12 +19,21 @@ delivery ``recruiter``/``sourcer`` personas — do things they must not:
   any logged-in user.
 - ``contract_templates`` ``GET .../render`` rendered any template + Contract.
 
-**Fix:** legal surfaces use the same authoritative client relationship graph as
-``client_access.can_view_legal_documents``. Admin/Head of Recruitment and
-Finance keep organization-wide read oversight. Delivery Lead may read legal
-metadata for every concrete client, while consequential writes still require
-an explicit assignment. TAC keeps its relationship-bound client graph.
-Recruiter/Sourcer and the legacy viewer are excluded from legal PII.
+**Fix:** legal surfaces use the same authoritative decision as
+``client_access.can_view_legal_documents``.
+
+Od migracji 0410 są tu dwie ścieżki:
+
+* **Delivery** (umowy ramowe, aneksy, szablony umów, podpisy kontraktów):
+  dokumenty mogą nieść stawki, więc odczyt wymaga uprawnienia „Stawki i kwoty:
+  podgląd”, a zapis dodatkowo „Kontrakty i zamówienia: tworzenie i edycja”.
+  Konto z rolą Delivery Leada działa u klientów z przypisania, pozostali
+  posiadacze — u wszystkich.
+* **Generator umów B2B** (``purpose="org"``): graf organizacyjny sprzed 0410
+  (``ClientAccess.generator_can_*``) — Admin/Head of Recruitment i Finanse
+  czytają całą organizację, Delivery Lead każdego klienta, a konsekwentne
+  zapisy wymagają u niego jawnego przypisania; TAC zostaje przy swoim grafie.
+  Dostęp do generatora się nie zmienił.
 
 Owner/admin checks that already gate mutating ``generated`` rows
 (PATCH/DELETE) stay in place as a second layer; this guard only ensures the
@@ -45,7 +54,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
-from app.api.financial_access import has_financial_access
 from app.core.database import get_db
 from app.models.contract import Contract
 from app.models.user import User, UserRole
@@ -54,6 +62,7 @@ from app.services.action_permissions import (
     ProductAction,
     action_access_for_user,
 )
+from app.services.access_scope import is_delivery_lead_governed
 from app.services.client_access import (
     ADMIN_LIKE_ROLES,
     ClientScopePurpose,
@@ -61,6 +70,7 @@ from app.services.client_access import (
     resolve_client_access,
     resolve_client_team_client_ids,
 )
+from app.services.permission_denial import ensure_permission
 
 # Legal-team personas trusted with contract legal documents. Mirrors
 # ``client_access.can_view_legal_documents`` (admin_like ∪ client_team).
@@ -82,27 +92,45 @@ def user_is_contract_legal_team(user: User) -> bool:
     return user.has_any_role(*CONTRACT_LEGAL_ROLES)
 
 
+async def _require_legal_client_graph(current_user: User, db: AsyncSession) -> None:
+    """Konto rządzone portfelem DL bez żadnego klienta nie wchodzi do narzędzi."""
+
+    if not is_delivery_lead_governed(current_user):
+        return
+    if not await resolve_client_team_client_ids(db, current_user):
+        raise deny("dostęp prawny wymaga jawnego przypisania klienta")
+
+
 async def require_contract_legal_access(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Gate global legal tools; an empty resolved client graph fails closed."""
+    """Gate global legal tools that can mutate; an empty client graph fails closed."""
 
-    client_ids = await resolve_client_team_client_ids(db, current_user)
-    if client_ids is None or client_ids:
-        return current_user
-    raise deny("dostęp prawny wymaga jawnego przypisania klienta")
+    ensure_permission(current_user, ProductAction.contracts_orders_edit)
+    ensure_permission(current_user, ProductAction.amounts_view)
+    await _require_legal_client_graph(current_user, db)
+    return current_user
 
 
 async def require_contract_legal_read_access(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Read-only legal-document gate with organization-wide Finance access."""
+    """Read-only legal-document gate: dokumenty mogą nieść stawki."""
 
-    if current_user.has_role(UserRole.finance) and has_financial_access(current_user):
-        return current_user
-    return await require_contract_legal_access(current_user, db)
+    ensure_permission(current_user, ProductAction.amounts_view)
+    await _require_legal_client_graph(current_user, db)
+    return current_user
+
+
+# Bramka sekcji biegnie przed tymi zależnościami; po tych atrybutach nazywa
+# w odmowie uprawnienie, którego konto nie ma (``section_access._named_denial``).
+require_contract_legal_access.required_permission_groups = (
+    (ProductAction.contracts_orders_edit,),
+    (ProductAction.amounts_view,),
+)
+require_contract_legal_read_access.required_permissions = (ProductAction.amounts_view,)
 
 
 async def assert_contract_legal_client_access(
@@ -116,8 +144,9 @@ async def assert_contract_legal_client_access(
     """Authorize one legal entity against its authoritative client relation.
 
     ``purpose="org"`` is used by the B2B generator: a Delivery Lead reads every
-    client there (decision 25.09.2026); Delivery legal surfaces keep the
-    assigned-client scope.
+    client there (decision 25.09.2026) and the decision follows the
+    organizational graph (``generator_can_*``). Delivery legal surfaces follow
+    the permissions from the settings screen and keep the assigned-client scope.
     """
 
     if client_id is None:
@@ -126,16 +155,26 @@ async def assert_contract_legal_client_access(
         raise deny("dokument prawny bez klienta jest dostępny tylko Admin/HoR")
 
     access = await resolve_client_access(db, user, client_id, purpose=purpose)
+    detail = (
+        "edycja dokumentu wymaga jawnego przypisania klienta"
+        if write
+        else "brak dostępu do dokumentu tego klienta"
+    )
+    if purpose == "org":
+        allowed = (
+            access.generator_can_edit_legal
+            if write
+            else access.generator_can_view_legal
+        )
+        if not allowed:
+            raise deny(detail)
+        return
+
     allowed = (
         access.can_edit_legal_documents if write else access.can_view_legal_documents
     )
     if not allowed:
-        detail = (
-            "edycja dokumentu wymaga jawnego przypisania klienta"
-            if write
-            else "brak dostępu do dokumentu tego klienta"
-        )
-        raise deny(detail)
+        raise access.legal_denial(detail, write=write)
 
 
 async def assert_contract_legal_contract_access(

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "@/components/Toast";
 import { MultiConsultantOrdersTab } from "@/components/client-profile/orders/MultiConsultantOrdersTab";
@@ -14,7 +14,15 @@ import type { OrderType } from "@/lib/api/dlPortal";
 
 const authState = vi.hoisted(() => ({
   role: "admin" as string,
+  roles: undefined as string[] | undefined,
   capabilities: ["manage_finance"] as string[],
+}));
+
+// Podgląd kwot klienta liczy `store/auth` (uprawnienie + zakres Delivery
+// Leada). `answer` ustawia wynik wprost; `null` = stała odpowiedź atrapy niżej.
+const clientFinance = vi.hoisted(() => ({
+  answer: null as boolean | null,
+  askedFor: [] as number[],
 }));
 
 const downloadMocks = vi.hoisted(() => ({
@@ -28,19 +36,23 @@ vi.mock("@/lib/authenticated-files", async (importOriginal) => ({
   downloadBlob: downloadMocks.save,
 }));
 
+// Zakładka pyta helpery ze `store/auth`; ich reguły (uprawnienia i zakres) mają
+// własne testy. Tu każdy helper jest atrapą o stałej odpowiedzi dla konta
+// testowego — sprawdzamy, co zakładka robi z odpowiedzią, nie samą regułę.
 vi.mock("@/store/auth", () => ({
   useAuthStore: (
     selector: (s: {
-      user: { role: string; capabilities: string[] };
+      user: { role: string; roles?: string[]; capabilities: string[] };
     }) => unknown,
   ) => selector({ user: authState }),
-  hasRole: (user: { role?: string } | null, ...roles: string[]) =>
-    roles.includes(user?.role ?? ""),
-  // Lustro backendowego `_has_md_line_management_role`: obsadę zamówienia prowadzi
-  // delivery, nie tylko admin.
+  hasRole: (
+    user: { role?: string; roles?: string[] } | null,
+    ...roles: string[]
+  ) => [user?.role ?? "", ...(user?.roles ?? [])].some((r) => roles.includes(r)),
+  // Obsada zamówienia (linie, zamiana, dodanie osoby).
   canManageMultiConsultantOrders: (user: { role?: string } | null) =>
     user?.role === "admin" || user?.role === "delivery_lead",
-  // S11 (audyt 24.09.2026): Finanse z `manage_finance` edytują kwoty linii.
+  // S11 (audyt 24.09.2026): same kwoty linii bez prowadzenia obsady.
   canEditOrderLineAmounts: (
     user: { role?: string; capabilities?: string[] } | null,
   ) =>
@@ -48,17 +60,21 @@ vi.mock("@/store/auth", () => ({
     user?.role === "delivery_lead" ||
     (user?.role === "finance" &&
       (user.capabilities ?? []).includes("manage_finance")),
-  // Lustro backendowego `_ORDER_LIFECYCLE_ROLES`: granica sekcji odcina HoR,
-  // TAC i TCM, a Finanse zachowują operacyjny lifecycle.
+  // Cykl życia zamówienia (zakończenie, przedłużenie, usunięcie).
   canManageOrderLifecycle: (user: { role?: string } | null) =>
     ["admin", "delivery_lead", "finance"].includes(user?.role ?? ""),
   canViewClientFinance: (
     user: { role?: string; capabilities?: string[] } | null,
-    _clientId: number,
-  ) =>
-    user?.role === "admin" ||
-    (user?.role === "finance" &&
-      (user.capabilities ?? []).includes("view_finance")),
+    clientId: number,
+  ) => {
+    clientFinance.askedFor.push(clientId);
+    return (
+      clientFinance.answer ??
+      (user?.role === "admin" ||
+        (user?.role === "finance" &&
+          (user.capabilities ?? []).includes("view_finance")))
+    );
+  },
 }));
 
 vi.mock("@/lib/api/orderGroups", () => ({
@@ -2739,5 +2755,196 @@ describe("MultiConsultantOrdersTab — tabela z panelem szczegółów (wersja B)
         { items: [{ kind: "group", id: 11 }] },
       ),
     );
+  });
+});
+
+describe("MultiConsultantOrdersTab — uprawnienia zamiast ról", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    authState.role = "admin";
+    authState.roles = undefined;
+    authState.capabilities = ["manage_finance"];
+    clientFinance.answer = null;
+    clientFinance.askedFor.length = 0;
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: { groups: [group()], total_groups: 1, total_consultants: 1 },
+    } as never);
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: { contractors: [], total_contractors: 0, can_manage_finance: true },
+    } as never);
+  });
+
+  afterEach(() => {
+    authState.roles = undefined;
+    clientFinance.answer = null;
+  });
+
+  const exportButton = () =>
+    screen.queryByRole("button", { name: "Pobierz do Excela" });
+
+  describe("eksport do Excela = podgląd kwot tego klienta", () => {
+    it("konto, które widzi kwoty klienta, dostaje eksport — pytanie dotyczy klienta zakładki", async () => {
+      authState.role = "recruiter";
+      authState.capabilities = [];
+      clientFinance.answer = true;
+
+      renderTab();
+      await screen.findByText("Zamówienie nr 445");
+
+      expect(exportButton()).toBeInTheDocument();
+      expect(clientFinance.askedFor).toContain(7);
+    });
+
+    it("sam podgląd Delivery bez kwot (np. Talent Community Manager) nie dostaje eksportu", async () => {
+      authState.role = "talent_community_manager";
+      authState.capabilities = [];
+      clientFinance.answer = false;
+
+      renderTab();
+      await screen.findByText("Zamówienie nr 445");
+
+      expect(exportButton()).not.toBeInTheDocument();
+    });
+
+    it("Delivery Lead u klienta, którego kwot nie widzi, nie dostaje eksportu mimo roli", async () => {
+      authState.role = "delivery_lead";
+      authState.capabilities = [];
+      clientFinance.answer = false;
+
+      renderTab();
+      await screen.findByText("Zamówienie nr 445");
+
+      expect(exportButton()).not.toBeInTheDocument();
+      // Obsadę prowadzi dalej — eksport i obsada to dwa różne uprawnienia.
+      expect(
+        screen.getByRole("button", { name: /Nowe zamówienie/ }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  describe("odmowa zapisu kwot", () => {
+    function amountsDenied(detail: Record<string, unknown>) {
+      return Object.assign(new Error("Request failed with status code 403"), {
+        response: {
+          status: 403,
+          data: { detail: { code: "finance_fields_forbidden", ...detail } },
+        },
+      });
+    }
+
+    async function saveLineAsDeliveryLead(user = userEvent.setup()) {
+      authState.role = "delivery_lead";
+      authState.capabilities = [];
+      renderTab();
+      await openRow("order-line-1", user);
+      await user.click(linePanel().getByRole("button", { name: "Edytuj linię" }));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: "Zapisz" }));
+      return dialog;
+    }
+
+    it("pokazuje komunikat serwera z nazwą brakującego uprawnienia", async () => {
+      vi.mocked(orderGroupsApi.updateLine).mockRejectedValue(
+        amountsDenied({
+          fields: ["rate_revenue"],
+          permission: "amounts_edit",
+          label: "Stawki i kwoty: zmiana",
+          message:
+            "Brakuje Ci uprawnienia „Stawki i kwoty: zmiana”. Poproś administratora o dostęp.",
+        }),
+      );
+
+      const dialog = await saveLineAsDeliveryLead();
+
+      const alert = await within(dialog).findByRole("alert");
+      expect(alert).toHaveTextContent(
+        "Brakuje Ci uprawnienia „Stawki i kwoty: zmiana”. Poproś administratora o dostęp.",
+      );
+      expect(alert).not.toHaveTextContent(/Finanse albo Delivery Lead/);
+    });
+
+    it("odmowa bez komunikatu dostaje zdanie zastępcze bez nazw ról", async () => {
+      vi.mocked(orderGroupsApi.updateLine).mockRejectedValue(
+        amountsDenied({ fields: ["rate_revenue"] }),
+      );
+
+      const dialog = await saveLineAsDeliveryLead();
+
+      const alert = await within(dialog).findByRole("alert");
+      expect(alert).toHaveTextContent(
+        "Nie masz uprawnienia do stawek i kwot — zapisz pozostałe pola bez nich. Poproś administratora o dostęp.",
+      );
+      expect(alert).not.toHaveTextContent(/administrator, Finanse|Delivery Lead/);
+      // Zdanie ogólne „Nie udało się zapisać linii” ukryłoby powód odmowy.
+      expect(alert).not.toHaveTextContent("Nie udało się zapisać linii.");
+    });
+
+    it("błąd bez treści zostaje przy zdaniu ogólnym operacji", async () => {
+      vi.mocked(orderGroupsApi.updateLine).mockRejectedValue(
+        Object.assign(new Error("boom"), { response: { status: 500, data: {} } }),
+      );
+
+      const dialog = await saveLineAsDeliveryLead();
+
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+        "Nie udało się zapisać linii.",
+      );
+    });
+  });
+
+  describe("import CSV u klienta z polityką importu — tylko administrator", () => {
+    const IMPORT_PANEL = /Import zamówień .* z CSV/;
+
+    beforeEach(() => {
+      vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+        data: {
+          contractors: [],
+          total_contractors: 0,
+          can_manage_finance: true,
+          nordea_order_import_enabled: true,
+        },
+      } as never);
+    });
+
+    it("administrator widzi panel importu", async () => {
+      renderTab();
+
+      expect(await screen.findByText(IMPORT_PANEL)).toBeInTheDocument();
+    });
+
+    it("administrator jako rola dodatkowa też widzi panel", async () => {
+      authState.role = "delivery_lead";
+      authState.roles = ["delivery_lead", "admin"];
+
+      renderTab();
+
+      expect(await screen.findByText(IMPORT_PANEL)).toBeInTheDocument();
+    });
+
+    it("Delivery Lead i Finanse z kompletem uprawnień do zamówień nie dostają importu", async () => {
+      authState.role = "delivery_lead";
+      clientFinance.answer = true;
+      const first = renderTab();
+      await screen.findByText("Zamówienie nr 445");
+      expect(screen.queryByText(IMPORT_PANEL)).not.toBeInTheDocument();
+      first.unmount();
+
+      authState.role = "finance";
+      authState.capabilities = ["view_finance", "manage_finance"];
+      renderTab();
+      await screen.findByText("Zamówienie nr 445");
+      expect(screen.queryByText(IMPORT_PANEL)).not.toBeInTheDocument();
+    });
+
+    it("administrator u klienta bez tej polityki nie widzi panelu", async () => {
+      vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+        data: { contractors: [], total_contractors: 0, can_manage_finance: true },
+      } as never);
+
+      renderTab();
+      await screen.findByText("Zamówienie nr 445");
+
+      expect(screen.queryByText(IMPORT_PANEL)).not.toBeInTheDocument();
+    });
   });
 });

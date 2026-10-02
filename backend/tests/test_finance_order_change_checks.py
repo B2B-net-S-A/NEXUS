@@ -488,20 +488,22 @@ async def test_filled_draft_comes_back_as_todo_after_it_was_checked(
     assert entry_after["done"] is None
 
 
-def test_can_check_needs_finance_section_write_not_only_the_role():
-    """Checkbox aktywny przy sekcji Finanse tylko do odczytu kończył się 403.
+def test_can_check_follows_the_finance_module_permission_and_section_write():
+    """Checkbox aktywny bez prawa zapisu kończył się 403.
 
-    ``POST /order-changes/checks`` wymaga roli i ZAPISU sekcji — flaga
-    ``can_check`` musi liczyć to samo.
+    ``POST /order-changes/checks`` wymaga uprawnienia „Moduł Finanse” i ZAPISU
+    sekcji Finanse — flaga ``can_check`` musi liczyć to samo.
     """
 
     from types import SimpleNamespace
 
     from app.api.finance import _can_check
     from app.models.user import User, UserRole
-    from app.services.section_permissions import ProductSection
+    from app.services import permission_catalog as catalog
 
-    def user(role: UserRole, finance: str) -> User:
+    def user(
+        role: UserRole, *permissions: str, finance_section: str | None = None
+    ) -> User:
         person = User(
             id=77,
             email=f"{role.value}-check@example.com",
@@ -511,18 +513,26 @@ def test_can_check_needs_finance_section_write_not_only_the_role():
             is_active=True,
             profile_completed=True,
         )
-        person.effective_section_access = {
-            section.value: "none" for section in ProductSection
-        }
-        person.effective_section_access[ProductSection.finance.value] = finance
+        held = catalog.close(permissions)
+        person.effective_action_access = {key: "manage" for key in held}
+        person.effective_section_access = catalog.derive_sections(held)
+        if finance_section is not None:
+            # Stary wyjątek osoby: sekcję Finanse da się już tylko ograniczyć.
+            person.effective_section_access["finance"] = finance_section
         return person
 
     request = SimpleNamespace(state=SimpleNamespace())
-    assert _can_check(request, user(UserRole.finance, "write")) is True
-    assert _can_check(request, user(UserRole.finance, "read")) is False
-    assert _can_check(request, user(UserRole.recruiter, "write")) is False
+    assert _can_check(request, user(UserRole.finance, "finance_module")) is True
+    # Uprawnienie nadane osobie spoza roli Finanse.
+    assert _can_check(request, user(UserRole.recruiter, "finance_module")) is True
+    # Rola Finanse z wyłączonym przełącznikiem „Moduł Finanse”.
+    assert _can_check(request, user(UserRole.finance, "amounts_view")) is False
+    assert _can_check(request, user(UserRole.recruiter)) is False
+    # Sekcja ograniczona do odczytu — POST odmówiłby na bramce sekcji.
+    capped = user(UserRole.finance, "finance_module", finance_section="read")
+    assert _can_check(request, capped) is False
     impersonated = SimpleNamespace(state=SimpleNamespace(impersonator_id=1))
-    assert _can_check(impersonated, user(UserRole.admin, "write")) is False
+    assert _can_check(impersonated, user(UserRole.admin, *catalog.KEYS)) is False
 
 
 def test_reopened_gap_gets_a_new_check_key():

@@ -70,7 +70,10 @@ async def test_admin_and_head_keep_unrestricted_client_oversight(
 
     assert access.is_admin_like
     assert access.is_client_team
-    assert access.can_view_legal_documents
+    # Dokumenty Delivery wymagają podglądu kwot (ma go admin, HoR nie);
+    # generator umów B2B zostaje przy grafie organizacyjnym.
+    assert access.can_view_legal_documents is (role is UserRole.admin)
+    assert access.generator_can_view_legal
     assert access.can_view_materials
     assert access.can_edit_materials is (role is UserRole.admin)
     assert access.can_manage_client is (role is UserRole.admin)
@@ -165,9 +168,12 @@ async def test_assigned_client_team_role_can_read_client_surfaces(
     assert access.can_view_contacts
     assert access.can_view_knowledge
     assert access.can_view_materials
-    assert access.can_view_legal_documents
+    # TAC nie ma uprawnień Delivery; dokumenty widzi wyłącznie w generatorze B2B.
+    assert access.can_view_legal_documents is (role is UserRole.delivery_lead)
+    assert access.generator_can_view_legal
     assert access.can_edit_materials is (role is UserRole.delivery_lead)
     assert access.can_edit_legal_documents is (role is UserRole.delivery_lead)
+    assert access.generator_can_edit_legal is (role is UserRole.delivery_lead)
 
 
 @pytest.mark.asyncio
@@ -213,7 +219,10 @@ async def test_finance_has_organization_wide_client_read_without_edit() -> None:
     assert not access.can_edit_contacts
     assert not access.can_edit_knowledge
     assert not access.can_edit_materials
-    assert not access.can_edit_legal_documents
+    # Decyzja Artura 02.10.2026: Finanse prowadzą kontrakty i zamówienia,
+    # więc zapisują też umowy ramowe i wykonawcze. Klientów nie edytują.
+    assert access.can_edit_legal_documents
+    assert access.missing_edit_permission == "clients_edit"
     assert not access.can_manage_client
     assert access.can_view_contact_private_notes(
         SimpleNamespace(key_relationship_owner_id=999)
@@ -340,10 +349,21 @@ async def test_viewer_cannot_open_mixed_client_surface() -> None:
 async def test_client_order_read_helper_uses_central_fail_closed_decision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from app.services.client_access import deny
+    from app.services.permission_denial import permission_denied
+
+    def decision(allowed: bool, *, missing: str | None = None) -> SimpleNamespace:
+        # Lustro ``ClientAccess.legal_denial``: brak uprawnienia → nazwana
+        # odmowa, uprawnienie poza zakresem klienta → dotychczasowy komunikat.
+        return SimpleNamespace(
+            can_view_legal_documents=allowed,
+            legal_denial=lambda detail, write=False: (
+                permission_denied(missing) if missing else deny(detail)
+            ),
+        )
+
     assert_client = AsyncMock()
-    resolve_access = AsyncMock(
-        return_value=SimpleNamespace(can_view_legal_documents=False)
-    )
+    resolve_access = AsyncMock(return_value=decision(False))
     monkeypatch.setattr(client_orders, "_assert_client", assert_client)
     monkeypatch.setattr(client_orders, "resolve_client_access", resolve_access)
 
@@ -356,15 +376,28 @@ async def test_client_order_read_helper_uses_central_fail_closed_decision(
     assert exc.value.status_code == 403
     assert str(exc.value.detail).startswith("client_access_denied")
 
-    resolve_access.return_value = SimpleNamespace(can_view_legal_documents=True)
+    # Dokument zamówienia niesie stawki: brak „Stawki i kwoty: podgląd”
+    # kończy się odmową, która nazywa to uprawnienie.
+    resolve_access.return_value = decision(False, missing="amounts_view")
+    with pytest.raises(HTTPException) as exc:
+        await client_orders._require_client_order_read(
+            db=object(),  # type: ignore[arg-type]
+            user=_user(UserRole.tac),
+            client_id=77,
+        )
+    assert exc.value.status_code == 403
+    assert exc.value.detail["code"] == "permission_denied"
+    assert exc.value.detail["permission"] == "amounts_view"
+
+    resolve_access.return_value = decision(True)
     await client_orders._require_client_order_read(
         db=object(),  # type: ignore[arg-type]
         user=_user(UserRole.tac),
         client_id=77,
     )
 
-    assert assert_client.await_count == 2
-    assert resolve_access.await_count == 2
+    assert assert_client.await_count == 3
+    assert resolve_access.await_count == 3
 
 
 @pytest.mark.asyncio
@@ -490,14 +523,28 @@ async def test_delivery_lead_finance_scope_still_uses_assignments() -> None:
 async def test_material_and_required_document_writes_use_central_edit_decision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    denied = SimpleNamespace(
-        can_edit_materials=False,
-        can_edit_legal_documents=False,
+    # Decyzje z prawdziwego resolvera (moduły wołają też jego nazwaną odmowę):
+    # konto bez uprawnień, konto z uprawnieniami poza portfelem i admin.
+    denied = await resolve_client_access(
+        SimpleNamespace(scalars=AsyncMock(return_value=_Rows([]))),
+        _user(UserRole.tac),
+        client_id=77,
     )
-    allowed = SimpleNamespace(
-        can_edit_materials=True,
-        can_edit_legal_documents=True,
+    out_of_portfolio = await resolve_client_access(
+        SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10]))),
+        _user(UserRole.delivery_lead),
+        client_id=77,
     )
+    allowed = await resolve_client_access(
+        SimpleNamespace(scalars=AsyncMock(), execute=AsyncMock()),
+        _user(UserRole.admin),
+        client_id=77,
+    )
+    assert not denied.can_edit_materials and not denied.can_edit_legal_documents
+    assert not out_of_portfolio.can_edit_materials
+    assert not out_of_portfolio.can_edit_legal_documents
+    assert allowed.can_edit_materials and allowed.can_edit_legal_documents
+
     material_resolver = AsyncMock(return_value=denied)
     docs_resolver = AsyncMock(return_value=denied)
     monkeypatch.setattr(
@@ -518,6 +565,9 @@ async def test_material_and_required_document_writes_use_central_edit_decision(
             77,
         )
     assert material_exc.value.status_code == 403
+    # Brak uprawnienia — odmowa nazywa je, zamiast mówić o roli.
+    assert material_exc.value.detail["code"] == "permission_denied"
+    assert material_exc.value.detail["permission"] == "clients_edit"
 
     with pytest.raises(HTTPException) as legal_exc:
         await client_materials._require_material_write(
@@ -527,6 +577,7 @@ async def test_material_and_required_document_writes_use_central_edit_decision(
             legal=True,
         )
     assert legal_exc.value.status_code == 403
+    assert legal_exc.value.detail["permission"] == "contracts_orders_edit"
 
     with pytest.raises(HTTPException) as docs_exc:
         await required_documents._require_required_docs_access(
@@ -536,6 +587,38 @@ async def test_material_and_required_document_writes_use_central_edit_decision(
             write=True,
         )
     assert docs_exc.value.status_code == 403
+    assert docs_exc.value.detail["permission"] == "clients_edit"
+
+    # Uprawnienie jest, klient leży poza portfelem — dotychczasowy komunikat
+    # (bez nazwy uprawnienia, bo to nie jego brakuje).
+    material_resolver.return_value = out_of_portfolio
+    docs_resolver.return_value = out_of_portfolio
+    with pytest.raises(HTTPException) as scope_exc:
+        await client_materials._require_material_write(
+            object(),  # type: ignore[arg-type]
+            _user(UserRole.delivery_lead),
+            77,
+        )
+    assert scope_exc.value.status_code == 403
+    assert str(scope_exc.value.detail).startswith("client_access_denied")
+    with pytest.raises(HTTPException) as legal_scope_exc:
+        await client_materials._require_material_write(
+            object(),  # type: ignore[arg-type]
+            _user(UserRole.delivery_lead),
+            77,
+            legal=True,
+        )
+    assert legal_scope_exc.value.status_code == 403
+    assert str(legal_scope_exc.value.detail).startswith("client_access_denied")
+    with pytest.raises(HTTPException) as docs_scope_exc:
+        await required_documents._require_required_docs_access(
+            object(),  # type: ignore[arg-type]
+            _user(UserRole.delivery_lead),
+            77,
+            write=True,
+        )
+    assert docs_scope_exc.value.status_code == 403
+    assert str(docs_scope_exc.value.detail).startswith("client_access_denied")
 
     material_resolver.return_value = allowed
     docs_resolver.return_value = allowed

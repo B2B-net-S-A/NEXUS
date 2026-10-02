@@ -405,9 +405,13 @@ async def test_signing_without_sensitive_values_does_not_archive_an_empty_file(
 async def test_signature_permission_alone_does_not_terminate_a_contract(
     app_client, app_auth_headers
 ):
-    """TAC/TCM mają „Oznaczanie podpisu”, ale nie trasy /terminate — podpis
-    dokumentu nie może być bocznymi drzwiami do zmian w kontrakcie."""
+    """Samo „Umowy B2B: oznaczanie jako podpisane” nie kończy współpracy —
+    podpis dokumentu nie może być bocznymi drzwiami do zmian w kontrakcie.
+    Skutek rozwiązania wymaga tego samego uprawnienia co okno „Zakończ
+    współpracę” (02.10.2026; wcześniej: admin albo Delivery Lead)."""
     from app.models.contract import Contract
+    from app.services import permission_catalog
+    from tests._permission_grants import grant_permissions
 
     rid, contract_id = await _signed_parent(app_client)
     doc_id = await _create(
@@ -418,14 +422,35 @@ async def test_signature_permission_alone_does_not_terminate_a_contract(
         termination_date="2026-10-31",
         last_service_date="2026-10-31",
     )
-    tac_headers, _ = await _seed_user(app_client, "tac")
-    resp = await app_client.post(
-        f"{BASE}/documents/{doc_id}/confirm-signed", headers=tac_headers
+    # Rekruter z nadanym oznaczaniem podpisu, bez zakończenia współpracy.
+    signer_headers, signer_id = await _seed_user(app_client, "recruiter")
+    await grant_permissions(signer_id, "b2b_signature_confirmation")
+
+    effects = await app_client.get(
+        f"{BASE}/documents/{doc_id}/effects", headers=signer_headers
     )
-    assert resp.status_code in (403, 409), resp.text
+    assert effects.status_code == 200, effects.text
+    missing = permission_catalog.label("contract_status")
+    assert any(missing in blocker for blocker in effects.json()["blockers"])
+
+    resp = await app_client.post(
+        f"{BASE}/documents/{doc_id}/confirm-signed", headers=signer_headers
+    )
+    assert resp.status_code == 409, resp.text
+    assert missing in resp.json()["detail"]
     async with AsyncSessionLocal() as db:
         contract = await db.get(Contract, contract_id)
         assert contract.terminated_at is None
+
+    # To samo uprawnienie, które daje „Zakończ współpracę”, odblokowuje skutek.
+    await grant_permissions(signer_id, "contract_status")
+    signed = await app_client.post(
+        f"{BASE}/documents/{doc_id}/confirm-signed", headers=signer_headers
+    )
+    assert signed.status_code == 200, signed.text
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        assert contract.terminated_at == date(2026, 10, 31)
 
 
 async def test_rate_annex_is_hidden_from_someone_who_cannot_see_the_rate(

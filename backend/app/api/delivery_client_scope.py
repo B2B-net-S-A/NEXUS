@@ -2,8 +2,8 @@
 
 Od 25.09.2026 Delivery Lead widzi w modułach Delivery wyłącznie klientów
 z przypisania (``access_scope.resolve_delivery_lead_client_ids``). Część tras
-zamówień, umów ramowych i wykonawczych autoryzowała zapis samą rolą
-(``DeliveryLeadOrAdmin``) — bez tej bramki DL mógłby założyć zamówienie
+zamówień, umów ramowych i wykonawczych autoryzuje zapis samym uprawnieniem
+(do 0410: rolą) — bez tej bramki DL mógłby założyć zamówienie
 u klienta, którego nie widzi. Zależność czyta ``client_id`` z adresu, więc
 jedna linijka na routerze obejmuje wszystkie jego trasy; trasa bez
 ``client_id`` w adresie przechodzi bez zmian.

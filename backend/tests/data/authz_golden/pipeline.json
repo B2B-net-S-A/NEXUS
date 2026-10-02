@@ -1,0 +1,40 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+tac",
+  "head_of_recruitment+tac",
+  "talent_community_manager+sourcer",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
+ ],
+ "routes": {
+  "DELETE /api/pipeline/stages/share-token/{token}": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/pipeline/history/{candidate_id}/{job_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/pipeline/job/{job_id}/moves": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/pipeline/kanban/{job_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/pipeline/my-next-steps": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/pipeline/overview": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/pipeline/stages": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/pipeline/bulk-move": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/pipeline/claim": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/pipeline/move": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/pipeline/stages/{stage_id}/screening": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/pipeline/stages/{stage_id}/share-token": "PPPPPPPPDDPPPPPPPPPPP"
+ }
+}

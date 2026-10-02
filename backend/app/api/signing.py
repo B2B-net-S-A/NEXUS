@@ -9,7 +9,6 @@ Plan: ``docs/in-house-qes-signature-plan.md`` §7.
 
 import logging
 from datetime import datetime, timezone
-from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, update
@@ -17,14 +16,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.contract_access import assert_contract_legal_contract_access
-from app.api.deps import CurrentUser, DeliveryLeadPlus, require_roles
+from app.api.deps import CurrentUser
+from app.api.permission_access import AmountsViewUser, ContractsOrdersEditUser
 from app.api.section_access import ProductSection, require_section_access
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.signature_link import SignatureLink
-from app.models.user import User, UserRole
 from app.schemas.document_signature import (
     DocumentSignatureDetailResponse,
     DocumentSignatureResponse,
@@ -44,17 +43,10 @@ _DELIVERY_SECTION_DEPENDENCIES = [
     Depends(require_section_access(ProductSection.delivery))
 ]
 
-
-ContractSignatureReadUser = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.finance,
-        )
-    ),
-]
+# Wysyłka do podpisu i jej cofnięcie to edycja kontraktu („Kontrakty
+# i zamówienia: tworzenie i edycja”); historia podpisów niesie dokument ze
+# stawkami, więc czyta ją posiadacz „Stawki i kwoty: podgląd”. Klienta
+# rozstrzyga ``assert_contract_legal_contract_access`` w handlerze.
 
 
 def _require_enabled() -> None:
@@ -74,7 +66,7 @@ def _require_enabled() -> None:
 async def send_for_signature(
     contract_id: int,
     payload: SignForSignatureRequest,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> SignForSignatureResponse:
     """Create the signature, mint the link, return the shareable URL. 202."""
@@ -101,7 +93,7 @@ async def send_for_signature(
 )
 async def mark_sent_offline(
     contract_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     """Offline (e-mail) flow: record the contract as sent → 'Umowa wysłana'.
@@ -154,7 +146,7 @@ async def mark_sent_offline(
 )
 async def list_signatures(
     contract_id: int,
-    current_user: ContractSignatureReadUser,
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[DocumentSignature]:
     """Most-recent-first signatures for a contract."""
@@ -174,7 +166,7 @@ async def list_signatures(
 )
 async def get_signature(
     signature_id: int,
-    current_user: ContractSignatureReadUser,
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     sig = await db.scalar(
@@ -195,7 +187,7 @@ async def get_signature(
 )
 async def withdraw_signature(
     signature_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     """Withdraw a pending signature (revokes the public link via expiry)."""
@@ -248,7 +240,7 @@ async def withdraw_signature(
 )
 async def regenerate_link(
     signature_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Mint a fresh single-use link for a still-pending signature."""

@@ -16,8 +16,8 @@ import { cn } from "@/lib/utils";
 import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
-import { hasSectionAccess } from "@/lib/section-access";
-import { useAuthStore, hasRole } from "@/store/auth";
+import { hasPermission } from "@/lib/permissions";
+import { useAuthStore } from "@/store/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -268,10 +268,10 @@ export function ClientContractRegister({
 }) {
   const user = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
-  const canEdit =
-    !impersonating &&
-    hasRole(user, "admin", "delivery_lead") &&
-    hasSectionAccess(user, "delivery", "write");
+  // Dodawanie i edycja wpisów rejestru = „Kontrakty i zamówienia: tworzenie
+  // i edycja" (te same trasy co formularz „Nowy kontrakt"); w podglądzie jako
+  // inny użytkownik rejestr jest tylko do odczytu.
+  const canEdit = !impersonating && hasPermission(user, "contracts_orders_edit");
 
   const [initialListState] = useState(() => {
     const parsed = parseClientContractRegisterState(navigationSearch ?? "");
@@ -712,7 +712,7 @@ export function ClientContractRegister({
                   className="border-0"
                   description={
                     viewState === "forbidden"
-                      ? "Twoja rola nie ma dostępu do rejestru kontraktów tego klienta. Rejestr NIE jest pusty — nie zakładaj kontraktu od nowa."
+                      ? "Nie masz dostępu do rejestru kontraktów tego klienta. Rejestr NIE jest pusty — nie zakładaj kontraktu od nowa; o dostęp poproś administratora (Ustawienia → Zespół i dostęp → Osoby i role)."
                       : undefined
                   }
                   onRetry={() => void refetch()}
