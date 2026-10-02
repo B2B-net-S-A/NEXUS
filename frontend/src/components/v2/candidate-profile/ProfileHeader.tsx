@@ -181,7 +181,7 @@ export function ProfileHeader({
 
   return (
     <Card variant="default" size="md" className="overflow-hidden p-0!">
-      <div className="space-y-5 p-5 sm:p-6">
+      <div className="space-y-5 p-5 sm:max-md:p-6 md:max-2xl:space-y-3 md:max-2xl:p-4 2xl:p-6">
         <div className="flex flex-wrap items-start gap-4">
           <Avatar size="xl">
             <AvatarFallback>{initials}</AvatarFallback>
