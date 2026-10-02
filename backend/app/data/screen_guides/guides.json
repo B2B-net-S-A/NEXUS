@@ -4,7 +4,7 @@
     "title": "Lista rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "sourcer", "delivery_lead", "head_of_recruitment", "admin"],
-    "what": "Tu widzisz wszystkie rekrutacje: swoje albo całej firmy, ze statusem requestu, etapami kandydatów i liczbą nowych propozycji. Pierwsza linia to tytuł dla rekrutera, pod nią klient oraz nazwa i numer od klienta. Na dużym monitorze klient, kategoria, data otwarcia i zespół mają własne kolumny.",
+    "what": "Tu widzisz wszystkie rekrutacje: swoje albo całej firmy, ze statusem requestu, etapami kandydatów i liczbą nowych propozycji. Pod tytułem stoi klient oraz nazwa i numer od klienta; na dużym monitorze klient ma własną kolumnę.",
     "tasks": [
       {
         "q": "Jak przełączyć między moimi, otwartymi i wszystkimi rekrutacjami?",
