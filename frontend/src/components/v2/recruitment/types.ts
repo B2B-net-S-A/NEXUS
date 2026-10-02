@@ -43,7 +43,21 @@ export type RecruitmentSlideOver =
   | "history-chat"
   | "manual-search"
   // Panel „Podobne rekrutacje” — przepięcia jednym kliknięciem (25.09.2026).
-  | "similar";
+  // Od 02.10.2026 to zakładka okna „Kandydaci do dodania”; adres zostaje
+  // czytany (stare linki), stan strony zna już tylko `add`.
+  | "similar"
+  // Okno „Kandydaci do dodania” — cztery źródła, `?win=add&wintab=<źródło>`.
+  | "add";
+
+/** Źródła kandydatów: kafle nad Tablicą i zakładki okna (02.10.2026). */
+export type CandidateSourceTab = "similar" | "postings" | "base" | "search";
+
+export const CANDIDATE_SOURCE_TABS: readonly CandidateSourceTab[] = [
+  "similar",
+  "postings",
+  "base",
+  "search",
+];
 
 /** Skąd pochodzi propozycja (kolumna „Źródło"; jedna osoba może mieć kilka). */
 export type ProposalSource =

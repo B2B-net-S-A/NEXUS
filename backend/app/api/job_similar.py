@@ -4,7 +4,8 @@
 * ``POST /api/jobs/{id}/similar`` — połącz (oba kierunki) i od razu przepnij
   osoby wysłane wcześniej do klienta do „Do przejrzenia".
 * ``GET  /api/jobs/{id}/similar/people?job_ids=`` — osoby wysłane do klienta
-  w wybranych rekrutacjach (panel przepięć, 25.09.2026).
+  w wybranych rekrutacjach (panel przepięć, 25.09.2026); z ``include_rest``
+  także „reszta” (rozmowa albo weryfikacja, bez wysłania — 02.10.2026).
 * ``GET  /api/jobs/{id}/similar/search?q=`` — wyszukiwarka rekrutacji do
   połączenia (także zamkniętych i z archiwum), z liczbą wysłanych.
 * ``POST /api/jobs/{id}/similar/reassign`` — połącz i od razu dodaj wskazane
@@ -100,6 +101,7 @@ async def _payload(db: AsyncSession, job: Job) -> dict:
     reassignable, reassignable_people = await sim.reassignable_counts(
         db, job.id, suggested_ids
     )
+    other, other_people = await sim.rest_counts(db, job.id, suggested_ids)
 
     def item(job_id: int, linked: bool) -> Optional[dict]:
         brief = briefs.get(job_id)
@@ -113,6 +115,8 @@ async def _payload(db: AsyncSession, job: Job) -> dict:
             "similarity_kind": suggestion.kind if suggestion else None,
             "sent_count": sent.get(job_id, 0),
             "reassignable_count": reassignable.get(job_id, 0),
+            # „Reszta”: rozmowa albo weryfikacja w tej rekrutacji, bez wysłania.
+            "other_count": other.get(job_id, 0),
             "linked": linked,
         }
 
@@ -122,6 +126,9 @@ async def _payload(db: AsyncSession, job: Job) -> dict:
         # Różne osoby do przepięcia z niepołączonych podpowiedzi — nagłówek,
         # pasek w „Nowych” i „Najbliższy krok”.
         "reassignable_people": reassignable_people,
+        # Różne osoby „reszty” z tych samych podpowiedzi, których nie liczy
+        # `reassignable_people` (nigdzie w nich nie dotarły do klienta).
+        "other_people": other_people,
         "linked": [x for x in (item(i, True) for i in linked_ids) if x],
         "suggestions": [x for x in (item(s.job.id, False) for s in suggestions) if x],
     }
@@ -205,16 +212,27 @@ async def similar_jobs_people(
     job_id: int,
     user: RecruiterPlus,
     job_ids: list[int] = Query(..., min_length=1),
+    include_rest: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
-    """Osoby wysłane do klienta w wybranych rekrutacjach — per rekrutacja."""
+    """Osoby wysłane do klienta w wybranych rekrutacjach — per rekrutacja.
+
+    ``include_rest`` dokłada za nimi „resztę” (``sent: false``): osoby po
+    rozmowie albo weryfikacji, które do klienta nie dotarły — najwyżej 50 na
+    rekrutację, pełna liczba w ``rest_total``. Przepięcie
+    (``…/similar/reassign``) przyjmuje wyłącznie wysłanych.
+    """
     await _job(db, user, job_id)
     wanted = await _other_jobs(db, user, job_id, job_ids)
-    people = await sim.sent_people(db, job_id, wanted)
+    people = await sim.sent_people(db, job_id, wanted, include_rest=include_rest)
     return {
         "job_id": job_id,
         "jobs": [
-            {"job_id": oid, "people": [_person_out(p) for p in people.get(oid, [])]}
+            {
+                "job_id": oid,
+                "people": [_person_out(p) for p in people.get(oid, [])],
+                "rest_total": people.rest_total.get(oid, 0),
+            }
             for oid in wanted
         ],
     }

@@ -437,7 +437,9 @@ describe("MultiConsultantOrdersTab", () => {
     // Regresja układu: etykieta stała NAD wartością (dwa osobne `<p>`), więc
     // każda stawka zajmowała dwie linijki. W tabeli (wersja B) etykietą jest
     // nagłówek kolumny, a komórka trzyma kwotę w jednej linii; w panelu
-    // etykieta i kwota stoją w JEDNYM wierszu listy faktów.
+    // stawki (Koszt / Przychód) stoją OBOK siebie, każda jako etykieta z kwotą
+    // tuż pod nią (02.10.2026). Marży panel osoby nie liczy — jak panel
+    // zamówienia okresowego (ticket 09.2026).
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {
         groups: [group({ lines: [line()], active_consultants: 1 })],
@@ -462,11 +464,14 @@ describe("MultiConsultantOrdersTab", () => {
 
     await openRow("order-line-1");
     await userEvent.click(linePanel().getByRole("tab", { name: "Szczegóły" }));
-    const label = linePanel().getByText("Stawka kosztowa");
+    const label = linePanel().getByText("Koszt");
     expect(label.nextElementSibling).toHaveTextContent(/^1\D?000,00 zł\/MD$/);
-    expect(linePanel().getByText("Stawka przychodowa").nextElementSibling).toHaveTextContent(
+    expect(linePanel().getByText("Przychód").nextElementSibling).toHaveTextContent(
       /^1\D?200,00 zł\/MD$/,
     );
+    expect(linePanel().queryByText("Marża")).not.toBeInTheDocument();
+    // Jedna linia siatki: obie stawki są dziećmi tego samego <dl>.
+    expect(label.closest("dl")).toBe(linePanel().getByText("Przychód").closest("dl"));
   });
 
   it("wyszukuje na żywo po nazwisku w dowolnej kolejności i podświetla osobę", async () => {
@@ -632,7 +637,8 @@ describe("MultiConsultantOrdersTab", () => {
       screen.getByRole("button", { name: /Nowe zamówienie/ }),
     ).toBeInTheDocument();
     // Backend nie redaguje mu stawek, bo to on je ustawia.
-    expect(within(await row("order-line-1")).getByText("1200,00 zł/MD")).toBeInTheDocument();
+    // Jednostka stoi drobnym drukiem w osobnym elemencie — liczy się tekst wiersza.
+    expect(await row("order-line-1")).toHaveTextContent("1200,00 zł/MD");
 
     await openRow("order-group-anchor-10");
     expect(

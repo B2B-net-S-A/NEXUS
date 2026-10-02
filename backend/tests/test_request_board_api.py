@@ -299,10 +299,20 @@ async def test_delete_removes_owner_and_collaborator_and_rejects_a_proposal(
             )
         ).all()
         assert list(links) == []
-        row = await db.scalar(
-            select(JobWorkAssignment).where(JobWorkAssignment.job_id == job_id)
-        )
-        assert (row.state, row.release_reason) == ("released", "proposal:rejected")
+        rows = {
+            row.user_id: (row.state, row.release_reason)
+            for row in (
+                await db.scalars(
+                    select(JobWorkAssignment).where(JobWorkAssignment.job_id == job_id)
+                )
+            ).all()
+        }
+        assert rows == {
+            proposed: ("released", "proposal:rejected"),
+            # Prowadzący nie miał wiersza przypisania — zdjęcie zostawia ślad,
+            # żeby automat nie zaproponował go do tego requestu ponownie.
+            owner: ("released", "manual"),
+        }
 
     # Zamknięta rekrutacja jest historią — prowadzący zostaje przy niej.
     async with AsyncSessionLocal() as db:

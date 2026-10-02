@@ -148,6 +148,9 @@ export function JobOwnershipPanel({
     !onList &&
     !canClaim &&
     (working.length > 0 || ownerSeatTaken);
+  // Zamkniętej rekrutacji nikt nie dostaje do prowadzenia (serwer: 409) —
+  // zostaje samo zdjęcie osoby.
+  const canAssign = canStaff && job.status !== "closed";
   // Rola przydzielająca bez pracującego pierwszego rekrutera ma „Przypisz…”;
   // „+ Dodaj osobę” zrobiłoby wtedy to samo (`addRecruiter` ustawia pierwszego).
   const canAdd = canStaff ? ownerWorking : access.canEdit;
@@ -329,7 +332,7 @@ export function JobOwnershipPanel({
       ) : null}
       {hasActions ? (
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-          {canStaff && !ownerWorking ? (
+          {canAssign && !ownerWorking ? (
             <Button
               type="button"
               size="sm"
@@ -374,7 +377,7 @@ export function JobOwnershipPanel({
               Dołącz
             </Button>
           ) : null}
-          {canStaff && ownerWorking ? (
+          {canAssign && ownerWorking ? (
             <button
               type="button"
               className={LINK_BUTTON_CLASS}

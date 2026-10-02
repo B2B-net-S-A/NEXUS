@@ -276,13 +276,122 @@ async def test_withdrawn_proposal_is_not_announced_as_a_taken_away_request(
     monkeypatch.setattr(notification_triggers, "emit", emit)
     now = datetime(2026, 10, 2, 7, 0, tzinfo=timezone.utc)
     rows = [
-        # (osoba, stan, przypisano, zwolniono, powód, tytuł)
-        (7, "released", now, now, "proposal:rejected", "Java"),
-        (7, "released", now, now, "proposal:superseded", "Kotlin"),
-        (8, "released", now, now, "champion", "Tester"),
-        (8, "active", now, None, None, "DevOps"),
+        # (osoba, rekrutacja, stan, przypisano, zwolniono, powód, tytuł)
+        (7, 1, "released", now, now, "proposal:rejected", "Java"),
+        (7, 2, "released", now, now, "proposal:superseded", "Kotlin"),
+        (8, 3, "released", now, now, "champion", "Tester"),
+        (8, 4, "active", now, None, None, "DevOps"),
     ]
-    count = await _assignment_notices(_FakeDb(rows, active_leads=[], hor=[]), now=now)
+    count = await _assignment_notices(_SeqDb(rows, []), now=now)
     assert count == 1
     assert [call["user_id"] for call in sent] == [8]
     assert sent[0]["message"] == "Od dziś: DevOps. Zwolnione: Tester (Mamy championa)."
+
+
+class _SeqDb:
+    """Kolejne ``execute`` oddają kolejne zestawy wierszy."""
+
+    def __init__(self, *results):
+        self._results = list(results)
+
+    async def execute(self, _statement):
+        return _Rows(self._results.pop(0))
+
+
+@pytest.mark.asyncio
+async def test_morning_digest_skips_requests_already_announced_on_the_spot(
+    monkeypatch,
+) -> None:
+    """Zaakceptowana propozycja dzwoni od razu („Nowy request do pracy”).
+
+    W trybie ``auto`` poranny skrót czytał każde aktywne przypisanie z ostatniej
+    doby, więc ta sama osoba dostawała rano drugą wzmiankę o tym samym
+    requeście.
+    """
+    from app.services import notification_triggers
+    from app.services.request_allocation_notices import _assignment_notices
+
+    sent: list[dict] = []
+
+    async def emit(db, **kwargs):
+        sent.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(notification_triggers, "emit", emit)
+    now = datetime(2026, 10, 2, 7, 0, tzinfo=timezone.utc)
+    rows = [
+        (8, 4, "active", now, None, None, "DevOps"),
+        (8, 5, "active", now, None, None, "Java"),
+        (9, 4, "active", now, None, None, "DevOps"),
+    ]
+    # Osoba 8 dostała już dzwonek o rekrutacji 4; osoba 9 — o żadnej.
+    count = await _assignment_notices(_SeqDb(rows, [(8, 4)]), now=now)
+    assert count == 2
+    assert {call["user_id"]: call["message"] for call in sent} == {
+        8: "Od dziś: Java.",
+        9: "Od dziś: DevOps.",
+    }
+
+
+@pytest.mark.asyncio
+async def test_morning_digest_is_silent_when_everything_was_announced(
+    monkeypatch,
+) -> None:
+    from app.services import notification_triggers
+    from app.services.request_allocation_notices import _assignment_notices
+
+    sent: list[dict] = []
+
+    async def emit(db, **kwargs):
+        sent.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(notification_triggers, "emit", emit)
+    now = datetime(2026, 10, 2, 7, 0, tzinfo=timezone.utc)
+    rows = [(8, 4, "active", now, None, None, "DevOps")]
+    assert await _assignment_notices(_SeqDb(rows, [(8, 4)]), now=now) == 0
+    assert sent == []
+
+
+# ── Pora porannego przeglądu (02.10.2026) ───────────────────────────────────
+
+
+@pytest.mark.unit
+def test_morning_review_is_not_sent_in_the_evening() -> None:
+    """Automat włączony wieczorem (albo pierwszy przebieg po deployu o 20:54)
+    wysyłał „poranny” skrót od razu. Po 17:00 czasu firmy skrót czeka do rana."""
+    from app.services.request_allocation import _review_due
+    from app.services.request_allocation_rules import AllocationRules
+
+    rules = AllocationRules()  # przegląd o 08:30
+
+    def at(hour: int, minute: int) -> datetime:
+        # 02.10.2026: Warszawa = UTC+2.
+        return datetime(2026, 10, 2, hour - 2, minute, tzinfo=timezone.utc)
+
+    assert _review_due({}, rules, at(8, 0)) is False
+    assert _review_due({}, rules, at(8, 30)) is True
+    # Pętla stała rano (deploy) — nadrabia w ciągu dnia pracy.
+    assert _review_due({}, rules, at(16, 59)) is True
+    assert _review_due({}, rules, at(17, 0)) is False
+    assert _review_due({}, rules, at(20, 54)) is False
+    assert _review_due({"last_review_date": "2026-10-02"}, rules, at(10, 0)) is False
+    # Wczorajszy przegląd nie liczy się za dzisiejszy.
+    assert _review_due({"last_review_date": "2026-10-01"}, rules, at(10, 0)) is True
+
+
+@pytest.mark.unit
+def test_review_time_set_after_working_hours_still_fires() -> None:
+    """Godzinę przeglądu ustawia admin — późna pora nie może wyłączyć skrótu."""
+    from app.services.request_allocation import _review_due
+    from app.services.request_allocation_rules import AllocationRules
+
+    rules = AllocationRules(review_time="18:00")
+    assert (
+        _review_due({}, rules, datetime(2026, 10, 2, 15, 59, tzinfo=timezone.utc))
+        is False
+    )
+    assert (
+        _review_due({}, rules, datetime(2026, 10, 2, 16, 30, tzinfo=timezone.utc))
+        is True
+    )

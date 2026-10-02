@@ -54,21 +54,6 @@ vi.mock("@/components/Toast", () => ({
 }));
 
 vi.mock("@/lib/celebrate", () => ({ celebrate: vi.fn() }));
-// „Do przejrzenia": propozycje liczy własny hak (`useJobProposals`) — tu
-// podstawiamy ich liczbę, żeby sprawdzić nagłówek kolumny.
-const reviewTotal = { value: 0 };
-vi.mock("@/components/v2/jobs/BoardReviewSection", async () => {
-  const { useEffect } = await import("react");
-  return {
-    BoardReviewSection: ({ onTotalChange }: { onTotalChange?: (n: number | null) => void }) => {
-      useEffect(() => {
-        onTotalChange?.(reviewTotal.value);
-      }, [onTotalChange]);
-      return <div data-testid="board-review" />;
-    },
-  };
-});
-
 // Okno QC CV (F2) ma własne zapytania — tu sprawdzamy tylko, KTÓRY etap
 // otwiera i dokąd prowadzi jego „Przesuń dalej”.
 const qcResultCandidate = { id: 0 };
@@ -1098,7 +1083,6 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     expect(container.querySelectorAll("[data-colid]")).toHaveLength(12);
     expect(container.querySelector('[data-colid="def:201"]')).toBeTruthy();
     expect(container.querySelector('[data-colid="def:202"]')).toBeTruthy();
-    expect(screen.getByText("4 w procesie")).toBeTruthy();
 
     await userEvent.click(picker);
     expect(await screen.findAllByRole("option")).toHaveLength(12);
@@ -1222,15 +1206,13 @@ describe("KanbanBoardV2 — karty poza szablonem", () => {
     expect(screen.getByText("Zofia Sierota0")).toBeTruthy();
   });
 
-  it("nie zmienia układu desktopowego ani licznika „W procesie”", async () => {
+  it("nie zmienia układu desktopowego", async () => {
     renderWithBucket();
 
     const board = await screen.findByTestId("pipeline-board");
     // 15 kolumn szablonu + kubełek — próg NIE może przeskoczyć na "scroll",
     // inaczej 1 009 rekrutacji dostałoby inny layout w nagrodę za bugfix.
     expect(board).toHaveAttribute("data-desktop-layout", "full-pipeline");
-    // Kubełek nie dolicza się do sumy pipeline'u (to nie jest etap procesu).
-    expect(screen.getByText("4 w procesie")).toBeTruthy();
   });
 
   it("nie oferuje kubełka jako celu przeniesienia zbiorczego", async () => {
@@ -1358,18 +1340,41 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     useUiStore.setState({ hideEmptyKanbanColumns: false } as never);
   });
 
-  it("filtry stoją w jednym pasku nad tablicą — bez lewej kolumny etapów", async () => {
+  it("nad tablicą nie ma paska filtrów ani liczników (02.10.2026)", async () => {
     renderBoard(defaultB2BColumns());
     await screen.findByTestId("pipeline-board");
 
-    const bar = screen.getByRole("toolbar", { name: "Filtry tablicy" });
-    expect(within(bar).getByRole("button", { name: /^Mój ruch/ })).toBeTruthy();
-    expect(within(bar).getByRole("textbox", { name: "Filtruj po nazwisku" })).toBeTruthy();
-    // Lista etapów z dawnej kolumny zniknęła — fokus kolumny daje nawigator.
-    expect(screen.queryByRole("list", { name: "Grupy etapów pipeline" })).toBeNull();
+    expect(screen.queryByRole("toolbar", { name: "Filtry tablicy" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Mój ruch/ })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Filtruj po nazwisku" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Filtry/ })).toBeNull();
+    expect(screen.queryByText(/w procesie/)).toBeNull();
+    expect(screen.queryByText(/utknęło > 7 d/)).toBeNull();
+    expect(screen.queryByTestId("board-closed-bar")).toBeNull();
+    // Żadna karta nie jest przygaszona — filtrów nie ma.
+    expect(document.querySelector("[data-kanban-card].opacity-40")).toBeNull();
   });
 
-  it("„Mój ruch” liczy tylko karty, na których plakietka mówi „Twój ruch” (nie cudze i nie DL)", async () => {
+  it("strona wkłada nad kolumny własny pasek i dostaje od tablicy przełącznik widoku", async () => {
+    const renderAbove = vi.fn((controls: React.ReactNode) => (
+      <div data-testid="above-board">{controls}</div>
+    ));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2 columns={defaultB2BColumns()} jobId={10} renderAbove={renderAbove} />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+    const board = await screen.findByTestId("pipeline-board");
+    const above = screen.getByTestId("above-board");
+    // Pasek stoi PRZED tablicą w dokumencie.
+    expect(above.compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(renderAbove).toHaveBeenCalled();
+  });
+
+  it("plakietka „Twój ruch” stoi tylko na kartach, na których ruch ma patrzący (nie cudze i nie DL)", async () => {
     useAuthStore.setState({ user: { id: 5, role: "recruiter", roles: ["recruiter"] } } as never);
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
     // Nowi: jedna karta wolna („Twój ruch”), druga wzięta na 12 h przez Annę.
@@ -1395,7 +1400,10 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     await screen.findByTestId("pipeline-board");
     // Wolna karta w Nowi + Screening (bez rekrutera = „Twój ruch”) + własna
     // w „Zweryfikowanym”. Poza: karta wzięta przez Annę, cudza, QC oddane DL.
-    expect(screen.getByRole("button", { name: /^Mój ruch/ })).toHaveTextContent("Mój ruch · 3");
+    const mine = screen
+      .getAllByTestId("card-next-who")
+      .filter((el) => el.textContent?.includes("Twój ruch"));
+    expect(mine).toHaveLength(3);
   });
 
   it("nawigator doku idzie w kolejności widocznej Tablicy (kolumny od lewej, karty od góry)", async () => {
@@ -1427,18 +1435,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(within(dock).getAllByText(/Duplikat Importu/).length).toBeGreaterThan(0);
   });
 
-  it("„Mój ruch” i nazwisko przełączają się w pasku (aria-pressed)", async () => {
-    renderBoard(defaultB2BColumns());
-    await screen.findByTestId("pipeline-board");
-    const myMove = screen.getByRole("button", { name: /^Mój ruch/ });
-    expect(myMove).toHaveAttribute("aria-pressed", "false");
-    await userEvent.click(myMove);
-    expect(myMove).toHaveAttribute("aria-pressed", "true");
-    await userEvent.type(screen.getByRole("textbox", { name: "Filtruj po nazwisku" }), "zzz");
-    expect(screen.getByRole("textbox", { name: "Filtruj po nazwisku" })).toHaveValue("zzz");
-  });
-
-  it("Tablica: 8 kolumn z numerem kroku, „QC CV” gospodarzem etapu DZ, zamknięci na pasku", async () => {
+  it("Tablica: 8 kolumn z numerem kroku, „QC CV” gospodarzem etapu DZ, zamknięci w wąskiej kolumnie obok", async () => {
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
     // Osoba na etapie „Przepuszczony przez DZ" (index 3) — gospodarz kolumny „QC CV".
     columns[3] = {
@@ -1450,6 +1447,8 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     await screen.findByTestId("pipeline-board");
 
     const headers = Array.from(container.querySelectorAll("[data-colid] h3")).map((h) => h.textContent);
+    // „Nowi” to zwykła kolumna — bez bloku propozycji i bez „Dodaj kandydatów”.
+    expect(screen.queryByTestId("board-review")).toBeNull();
     expect(headers).toEqual([
       "Nowi",
       "Screening",
@@ -1471,18 +1470,31 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(within(qcCol).getByTestId("card-qc-chip")).toHaveTextContent("QC nie sprawdzone");
     // Niesprawdzone QC: ruch ma rekruter („Sprawdź QC CV”), nie DL.
     expect(within(qcCol).getByTestId("card-next-who")).toHaveTextContent("Twój ruch");
-    // Odrzuceni i wycofani nie zajmują kolumn — chipy w pasku filtrów (jedna
-    // linia z wyszukiwarką i SLA), każdy jest celem upuszczenia.
-    const bar = screen.getByTestId("board-closed-bar");
-    expect(screen.getByRole("toolbar", { name: "Filtry tablicy" })).toContainElement(bar);
-    expect(bar).toHaveTextContent("Zamknięci:");
-    expect(bar).toHaveTextContent("przez nas 1");
-    expect(bar).toHaveTextContent("przez DL 0");
-    expect(bar).toHaveTextContent("przez klienta 0");
-    expect(bar).toHaveTextContent("zrezygnował 0");
+    // Odrzuceni i wycofani nie zajmują pełnych kolumn — stoją w wąskiej kolumnie
+    // „Zamknięci” obok tablicy, a każda strefa jest celem upuszczenia.
+    const closed = screen.getByRole("region", { name: "Zamknięci" });
+    expect(closed).toHaveAttribute("data-testid", "board-closed-column");
+    expect(screen.getByTestId("pipeline-board")).not.toContainElement(closed);
+    expect(closed).toHaveTextContent("przez nas1");
+    expect(closed).toHaveTextContent("przez DL0");
+    expect(closed).toHaveTextContent("przez klienta0");
+    expect(closed).toHaveTextContent("zrezygnował0");
+    expect(closed.querySelectorAll("[data-rfd-droppable-id]")).toHaveLength(4);
     expect(container.querySelector('[data-colid="def:313"]')).toBeNull();
-    await userEvent.click(within(bar).getByRole("button", { name: /Odrzucony przez nas/ }));
+    await userEvent.click(within(closed).getByRole("button", { name: /Odrzucony przez nas/ }));
     expect(container.querySelector('[data-colid="def:313"]')).toBeTruthy();
+    // Rozwinięte kolumny zamkniętych da się zwinąć z tego samego miejsca.
+    await userEvent.click(within(closed).getByRole("button", { name: "Zwiń zamkniętych" }));
+    expect(container.querySelector('[data-colid="def:313"]')).toBeNull();
+  });
+
+  it("tablica bez zamkniętych etapów w szablonie nie ma kolumny „Zamknięci”", async () => {
+    const open = (defaultB2BColumns() as unknown as Array<Record<string, unknown>>).filter(
+      (col) => col.terminal_type !== "rejected" && col.terminal_type !== "withdrawn",
+    );
+    renderBoard(open as never);
+    await screen.findByTestId("pipeline-board");
+    expect(screen.queryByTestId("board-closed-column")).toBeNull();
   });
 
   it("chip QC mówi wynik ostatniej kontroli i otwiera okno QC CV tej karty", async () => {
@@ -1603,59 +1615,30 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(within(dock).queryByRole("button", { name: /Cpro/ })).toBeNull();
   });
 
-  it("licznik „Nowi” liczy propozycje z bazy razem z kartami — bez panelu dodawania", async () => {
-    reviewTotal.value = 14;
-    try {
-      // „Default B2B": 2 karty w „Nowi / Analiza CV" + 14 propozycji
-      // (Screening to od v5 osobna kolumna).
-      const { container: base } = renderBoard(defaultB2BColumns());
-      await waitFor(() =>
-        expect(
-          base.querySelector('[aria-label="Nowi, liczba kandydatów: 16"]'),
-        ).toBeTruthy(),
-      );
+  it("nagłówek „Nowi” liczy tylko karty — propozycje stoją na kaflach nad tablicą", async () => {
+    // „Default B2B": 2 karty w „Nowi / Analiza CV" (Screening to osobna kolumna).
+    const { container: base } = renderBoard(defaultB2BColumns());
+    await waitFor(() =>
+      expect(base.querySelector('[aria-label="Nowi, liczba kandydatów: 2"]')).toBeTruthy(),
+    );
 
-      // Z etapem „Ogłoszenia" (1 karta) nagłówek liczy 1 + 2 + 14.
-      rtlCleanup();
-      const withPosting = [
-        {
-          stage: "posting",
-          name: "Ogłoszenia",
-          category: "internal",
-          stage_def_id: 299,
-          count: 1,
-          items: [{ id: 7001, candidate_id: 8001, stage: "posting", name: "Ada", lastname: "Z Ogłoszenia", days_in_stage: 0 }],
-        },
-        ...(defaultB2BColumns() as unknown as Array<Record<string, unknown>>),
-      ];
-      const { container } = renderBoard(withPosting as never);
-      await waitFor(() =>
-        expect(
-          container.querySelector('[aria-label="Nowi, liczba kandydatów: 17"]'),
-        ).toBeTruthy(),
-      );
-    } finally {
-      reviewTotal.value = 0;
-    }
-  });
-
-  it("z panelem „Dodaj kandydatów” nagłówek „Nowi” liczy tylko karty", async () => {
-    reviewTotal.value = 14;
-    try {
-      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-      const { container } = render(
-        <QueryClientProvider client={qc}>
-          <TooltipProvider>
-            <KanbanBoardV2 columns={defaultB2BColumns()} jobId={10} onOpenAddCandidates={vi.fn()} />
-          </TooltipProvider>
-        </QueryClientProvider>,
-      );
-      await waitFor(() =>
-        expect(container.querySelector('[aria-label="Nowi, liczba kandydatów: 2"]')).toBeTruthy(),
-      );
-    } finally {
-      reviewTotal.value = 0;
-    }
+    // Z etapem „Ogłoszenia" (1 karta) nagłówek liczy 1 + 2.
+    rtlCleanup();
+    const withPosting = [
+      {
+        stage: "posting",
+        name: "Ogłoszenia",
+        category: "internal",
+        stage_def_id: 299,
+        count: 1,
+        items: [{ id: 7001, candidate_id: 8001, stage: "posting", name: "Ada", lastname: "Z Ogłoszenia", days_in_stage: 0 }],
+      },
+      ...(defaultB2BColumns() as unknown as Array<Record<string, unknown>>),
+    ];
+    const { container } = renderBoard(withPosting as never);
+    await waitFor(() =>
+      expect(container.querySelector('[aria-label="Nowi, liczba kandydatów: 3"]')).toBeTruthy(),
+    );
   });
 
   it("u Nordei kolumna to „Wysłane do Cpro”, a karta w kolejce Cpro ma znacznik", async () => {
@@ -1762,27 +1745,6 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(within(verified).queryByTestId("column-drop-hint")).toBeNull();
   });
 
-  it("skok ze „Ścieżki rekrutacji” podświetla kolumnę Tablicy", async () => {
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const tree = (seq: number) => (
-      <QueryClientProvider client={qc}>
-        <TooltipProvider>
-          <KanbanBoardV2
-            columns={defaultB2BColumns()}
-            jobId={10}
-            focusColumnRequest={{ column: "cv_qc", seq }}
-          />
-        </TooltipProvider>
-      </QueryClientProvider>
-    );
-    const { container } = render(tree(1));
-    await screen.findByTestId("pipeline-board");
-    await waitFor(() =>
-      expect(container.querySelector('[data-colid="def:303"]')).toHaveClass("ring-2", "ring-primary"),
-    );
-    expect(container.querySelector('[data-colid="def:302"]')).not.toHaveClass("ring-2");
-  });
-
   it("nagłówek kolumny niesie drugą linię o SLA i najstarszej karcie", async () => {
     const { container } = renderBoard(defaultB2BColumns());
     await screen.findByTestId("pipeline-board");
@@ -1803,68 +1765,24 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(container.querySelector('[data-column-sla="def:311"]')).toHaveTextContent("Obsada 0 / —");
   });
 
-  it("karta mówi, co dalej, a filtr „Bez następnej akcji” liczy zaległe", async () => {
+  it("karta mówi, co dalej — także gdy następnej akcji brak", async () => {
     renderBoard(defaultB2BColumns());
     await screen.findByTestId("pipeline-board");
 
     // Dwa dni na etapie wejściowym → screening; dziewięć → brak akcji.
     expect(screen.getAllByText("Umów screening").length).toBeGreaterThan(0);
     expect(screen.getByText("Brak następnej akcji")).toBeTruthy();
-    // Licznik w rail'u liczy TĄ SAMĄ funkcją co karta: jedna zaległa karta
-    // wejściowa. Karta ze screeningu (2 dni) ma akcję, terminalna nie liczy się.
-    await userEvent.click(screen.getByRole("button", { name: /^Filtry/ }));
-    expect(
-      await screen.findByRole("button", { name: "Bez następnej akcji · 1" }),
-    ).toBeTruthy();
   });
 
-  it("przełącznik „Ukryj puste kolumny” zostawia tylko kolumny z kartami", async () => {
+  it("„Ukryj puste kolumny” (ustawienie z menu „⋯”) zostawia tylko kolumny z kartami", async () => {
+    useUiStore.setState({ hideEmptyKanbanColumns: true } as never);
     const { container } = renderBoard(defaultB2BColumns());
     await screen.findByTestId("pipeline-board");
 
-    await userEvent.click(screen.getByRole("button", { name: /^Filtry/ }));
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Ukryj puste kolumny" }),
-    );
-
-    // Zostają „Nowi” (zawsze) i „Screening” (1 karta); odrzuceni są na
-    // pasku nad tablicą, nie w kolumnie.
+    // Zostają „Nowi” (zawsze) i „Screening” (1 karta); odrzuceni stoją
+    // w kolumnie „Zamknięci” obok tablicy.
     expect(container.querySelectorAll("[data-colid]")).toHaveLength(2);
-  });
-});
-
-// B-B05: filtr „Utknęli > 7 d" liczył także karty terminalne (odrzuceni stoją
-// na swoim etapie bezterminowo) i pokazywał 80 obok KPI jobbara „26".
-describe("KanbanBoardV2 — „Utknęli > 7 d” bez kolumn terminalnych", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    kanban.mockResolvedValue({ data: { columns: [] } });
-    post.mockResolvedValue({ data: {} });
-  });
-
-  it("liczy wyłącznie karty nieterminalne — tak jak KPI jobbara", async () => {
-    const columns = overflowColumns() as unknown as Array<Record<string, unknown>>;
-    const stuck = (id: number, days: number) => ({
-      id,
-      candidate_id: id,
-      name: "Test",
-      lastname: `Osoba${id}`,
-      stage: "new",
-      days_in_stage: days,
-      verification_status: null,
-    });
-    columns[0] = { ...columns[0], count: 1, items: [stuck(951, 9)] };
-    const last = columns.length - 1;
-    columns[last] = {
-      ...columns[last],
-      count: 2,
-      items: [stuck(952, 90), stuck(953, 40)],
-    };
-    renderBoard(columns as never);
-    // Podsumowanie po prawej liczy to samo, co filtr w „Filtry ▾".
-    expect(await screen.findByText(/utknęło > 7 d/)).toHaveTextContent("1 utknęło > 7 d");
-    await userEvent.click(screen.getByRole("button", { name: /^Filtry/ }));
-    expect(await screen.findByText("Utknęli > 7 d · 1")).toBeInTheDocument();
+    expect(screen.getByTestId("board-closed-column")).toBeTruthy();
   });
 });
 

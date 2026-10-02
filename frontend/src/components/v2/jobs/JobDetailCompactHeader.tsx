@@ -5,34 +5,31 @@ import {
   ArrowLeft,
   BookOpen,
   Building2,
-  ChevronDown,
-  ChevronUp,
   ClipboardList,
+  Columns3,
   Copy,
   Ellipsis,
   FileText,
+  FileUp,
+  House,
   Link2,
   MessageCircle,
   PencilLine,
+  ScanSearch,
   Sparkles,
-  Target,
   Trophy,
-  UserCheck,
   UserPlus,
+  Users,
+  Wallet,
   Wand2,
   XCircle,
+  type LucideIcon,
 } from "lucide-react";
 
-import { EntityHeader } from "@/components/ds/EntityHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { JobHeaderKpi, JobHeaderKpiTone } from "@/lib/job-header-kpis";
 import type { JobDetailView } from "@/lib/job-detail-routing";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import type { JobHeaderFact, JobHeaderFactKey } from "@/lib/job-header-facts";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -68,43 +65,24 @@ export type JobDetailTab =
   | "contract";
 
 interface JobDetailCompactHeaderProps {
-  title: ReactNode;
-  /**
-   * Klient dopisany do tytułu (makieta: „Programista Python (ZOB-2947) ·
-   * PKO Bank Polski"). Do 09.2026 nagłówka rekrutacji nie było w nim W OGÓLE,
-   * więc na każdej zakładce poza listą trzeba było pamiętać, czyja to
-   * rekrutacja — a to pierwsza rzecz, którą sprawdza się przed rozmową.
-   */
-  clientName?: string | null;
-  referenceNumber?: string | null;
+  /** Tytuł stanowiska (tytuł dla rekrutera, a bez niego nazwa od klienta). */
+  title: string;
   /**
    * 0380: nazwa od klienta (gdy tytuł w nagłówku to tytuł dla rekrutera)
    * i numer u klienta — to, co idzie do klienta w CV i do Cpro.
    */
   clientTitle?: string | null;
   clientReference?: string | null;
+  /** Nasz numer rekrutacji. */
+  referenceNumber?: string | null;
+  /** Status requestu („Szukamy”), „Tylko odczyt”, plakietki Traffita. */
   badges?: ReactNode;
-  /** Jedna linia faktów pod tytułem (patrz `lib/job-header-subtitle.ts`). */
-  subtitle?: ReactNode;
-  metadata?: ReactNode;
-  /**
-   * „Ścieżka rekrutacji" (5 kroków) + „Najbliższy krok" — pod metadanymi,
-   * nad rzędem przycisków. Gdy jest, krok 1 „Zlecenie" otwiera okno zlecenia,
-   * więc osobny przycisk „Zlecenie" znika z rzędu (bez dublowania).
-   */
-  path?: ReactNode;
-  /** Trzy liczby właściwe dla aktywnego kroku (`lib/job-header-kpis.ts`). */
-  kpis?: JobHeaderKpi[];
+  /** Klient · Budżet · Tryb pracy (`lib/job-header-facts.ts`). */
+  facts: readonly JobHeaderFact[];
   presence?: ReactNode;
-  /** Aktywny widok: „Tabela" (`people`), „Tablica" (`board`) albo pełne „Zlecenie i Champion". */
+  /** Aktywny widok: „Tablica" albo pełne „Zlecenie i Champion" (`people` = lista „Do przejrzenia"). */
   activeView: JobDetailView;
   onViewChange: (view: JobDetailView) => void;
-  /**
-   * Okno „Zlecenie" (fakty, zespół, priorytet, portale, zamknięcie) — tak samo
-   * na każdym widoku, także na „Zlecenie i Champion": portale, zespół
-   * i „Zamknij rekrutację" mieszkają wyłącznie w tym oknie.
-   */
-  onOpenOrder: () => void;
   /**
    * Ile rzeczy brakuje w zleceniu wg bramki gotowości. `undefined`/`null` =
    * nie wiadomo (rola spoza bramki, zapytanie w toku) — odznaki nie ma;
@@ -112,135 +90,102 @@ interface JobDetailCompactHeaderProps {
    */
   orderMissingCount?: number | null;
   onOpenHistoryChat: () => void;
+  chatUnreadCount?: number;
+
+  // ── Menu „⋯" — wszystko, co zeszło z widoku, żyje tutaj ─────────────────
   onOpenQuestions: () => void;
-  /** Okno „Podobne rekrutacje" (0341) — przepięcia osób wysłanych do klienta. */
-  onOpenSimilar?: () => void;
-  /** Połączone rekrutacje; `null`/`undefined` = nie wiadomo (bez odznaki). */
-  similarLinkedCount?: number | null;
-  /** Sugerowane podobne (niepołączone) — odznaka „≈ N". */
-  similarSuggestedCount?: number | null;
+  /** Okno „Zlecenie” — skrót: braki, fakty, wymagania. */
+  onOpenOrder: () => void;
   /**
-   * Ile osób z podpowiadanych (niepołączonych) podobnych rekrutacji da się
-   * przepiąć — odznaka „N do przepięcia” (panel przepięć, 25.09.2026).
+   * „Zespół” — kto pracuje nad rekrutacją („Rekruter: Marta N. +1” albo
+   * „Bez rekrutera”); klik otwiera panel „Zespół” obok Profilu Championa.
+   * Do 02.10.2026 ta informacja stała w podtytule nagłówka.
    */
-  similarPeopleCount?: number | null;
+  teamSummary?: string | null;
+  onOpenTeam?: () => void;
   /**
    * „Mamy championa" (0341) — przełącznik Delivery Leada. `undefined` = rola
-   * bez prawa (brak przycisku); status widać wtedy w odznace statusu.
+   * bez prawa (brak pozycji); status widać wtedy w odznace statusu.
    */
   championFound?: boolean;
   onToggleChampion?: () => void;
   championPending?: boolean;
-  onAddCandidate?: () => void;
+  /** „Dodaj po nazwisku” / „Dodaj z pliku CV” — brak = rola bez prawa dodawania. */
+  onAddByName?: () => void;
+  onAddFromCv?: () => void;
+  /** Ręczny przegląd całej bazy przez AI (ok. 3 minut) — wyniki w „Propozycjach z bazy”. */
+  onStartFullReview?: () => void;
+  /**
+   * „Moi ludzie do tej rekrutacji” — otwiera panel „Moi ludzie” (na stronie
+   * rekrutacji startuje na zakładce tej rekrutacji). Do 02.10.2026 zakładka
+   * okna „Dodaj kandydatów”.
+   */
+  onOpenMyPeople?: () => void;
+  /** „Ukryj / pokaż puste kolumny” Tablicy; `undefined` poza Tablicą. */
+  emptyColumnsHidden?: boolean;
+  onToggleEmptyColumns?: () => void;
   onEdit?: () => void;
   onWriteAnnouncement?: () => void;
   onGenerateInviteLink?: () => void;
   /**
    * Narzędzia AI administratora (kryteria, scoring, embedding). Strona podaje
-   * je WYŁĄCZNIE adminowi — do 09.2026 były dostępne tylko przy zaznaczonej
-   * propozycji, więc rekrutacja bez propozycji nie miała do nich wejścia.
+   * je WYŁĄCZNIE adminowi.
    */
   onOpenAiTools?: () => void;
-  /** „Karta klienta” w menu „⋯” (link do Pomocy). Brak = rekrutacja bez klienta. */
+  /** „Karta klienta” (link do Pomocy). Brak = rekrutacja bez klienta. */
   clientCardHref?: string;
-  /** „Kopiuj link do rekrutacji” w menu „⋯”. */
   onCopyLink?: () => void;
-  /** „Zamknij rekrutację…” w menu „⋯” — pełna edycja i rekrutacja nie zamknięta. */
+  /** „Zamknij rekrutację…” — pełna edycja i rekrutacja nie zamknięta. */
   onCloseJob?: () => void;
-  chatUnreadCount?: number;
-  /**
-   * Panel „Zespół i priorytet". W widokach „Tabela"/„Tablica" żyje w oknie
-   * „Zlecenie", więc strona go tu nie podaje — wtedy nie ma ani przycisku,
-   * ani panelu. Zostaje na pełnym widoku „Zlecenie i Champion".
-   */
-  contextOpen?: boolean;
-  onContextOpenChange?: (open: boolean) => void;
-  contextContent?: ReactNode;
 }
 
 function deferMenuAction(action: () => void) {
   window.setTimeout(action, 0);
 }
 
-const KPI_TONE_CLASS: Record<JobHeaderKpiTone, string> = {
-  neutral: "text-foreground",
-  ok: "text-success",
-  warn: "text-warning",
-  bad: "text-destructive",
+const FACT_ICON: Record<JobHeaderFactKey, LucideIcon> = {
+  client: Building2,
+  budget: Wallet,
+  work_mode: House,
 };
 
 /**
- * Klaster trzech liczb po prawej stronie jobbara.
+ * Nagłówek rekrutacji (02.10.2026, makieta B:
+ * https://claude.ai/artifact/ASHNaTXA9omvTH393cQjCv).
  *
- * `value === null` renderuje „—", nigdy zera: kanban i ranking ładują się
- * osobno, a zero jest zdaniem o rekrutacji, którego w tym momencie nikt
- * jeszcze nie sprawdził.
- */
-function JobHeaderKpiCluster({ kpis }: { kpis: JobHeaderKpi[] }) {
-  return (
-    <div
-      // Dopiero od 1536 px: te same liczby stoją w ścieżce rekrutacji pod
-      // tytułem („9 w procesie”, „0 wysłanych”), a na węższym oknie (laptop
-      // z Windows, skalowanie 150%) klaster ucinał tytuł i łamał nagłówek.
-      className="hidden items-center gap-4 pr-1 2xl:flex"
-      data-testid="job-header-kpis"
-      aria-label="Wskaźniki tego kroku"
-    >
-      {kpis.map((kpi) => (
-        <div key={kpi.key} className="text-right leading-tight">
-          <div
-            className={cn(
-              "text-sm font-bold tabular-nums",
-              KPI_TONE_CLASS[kpi.tone],
-            )}
-          >
-            {kpi.value ?? "—"}
-          </div>
-          <div className="text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-            {kpi.label}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/**
- * Nagłówek rekrutacji (wersja 3: „rekrutacja = jedna tabela").
- *
- * Pierwszy wiersz bez zmian: tożsamość, odznaki, obecni, „Dodaj kandydata"
- * i menu „…". Drugi wiersz zastąpił dwunastopozycyjną listwę kroków:
- * przełącznik widoku „Tabela | Tablica" oraz trzy przyciski otwierające okna
- * OBOK tabeli — „Zlecenie" (z odznaką „brakuje N"), „Historia i czat"
- * (z licznikiem nieprzeczytanych) i „Baza pytań". Kroki procesu są teraz
- * paskiem etapów nad tabelą, a nie nawigacją strony.
+ * Decyzja Artura: na górze tylko tytuł stanowiska, pod nim tytuł od klienta
+ * i trzy wyróżnione fakty — klient, budżet, tryb pracy. Zniknęły liczniki
+ * („W procesie”, „Utknęli”, „U klienta”), ścieżka „Zlecenie → … → Umowa”
+ * z „Najbliższym krokiem” i przyciski „Dodaj kandydatów”, „Podobne
+ * rekrutacje”, „Oznacz: mamy championa”. Żadna funkcja nie znika: to, co
+ * zeszło z widoku, jest w menu „⋯” (albo na kaflach „Kandydaci do dodania”).
  */
 export function JobDetailCompactHeader({
   title,
-  clientName,
-  referenceNumber,
   clientTitle,
   clientReference,
+  referenceNumber,
   badges,
-  subtitle,
-  metadata,
-  path,
-  kpis,
+  facts,
   presence,
   activeView,
   onViewChange,
-  onOpenOrder,
   orderMissingCount,
   onOpenHistoryChat,
+  chatUnreadCount = 0,
   onOpenQuestions,
-  onOpenSimilar,
-  similarLinkedCount,
-  similarSuggestedCount,
-  similarPeopleCount,
+  onOpenOrder,
+  teamSummary,
+  onOpenTeam,
   championFound,
   onToggleChampion,
   championPending,
-  onAddCandidate,
+  onAddByName,
+  onAddFromCv,
+  onStartFullReview,
+  onOpenMyPeople,
+  emptyColumnsHidden,
+  onToggleEmptyColumns,
   onEdit,
   onWriteAnnouncement,
   onGenerateInviteLink,
@@ -248,12 +193,7 @@ export function JobDetailCompactHeader({
   clientCardHref,
   onCopyLink,
   onCloseJob,
-  chatUnreadCount = 0,
-  contextOpen = false,
-  onContextOpenChange,
-  contextContent,
 }: JobDetailCompactHeaderProps) {
-  const hasContext = contextContent != null;
   const unreadLabel =
     chatUnreadCount > 0
       ? `Historia i czat, ${chatUnreadCount > 99 ? "ponad 99" : chatUnreadCount} nieprzeczytane`
@@ -262,224 +202,58 @@ export function JobDetailCompactHeader({
     typeof orderMissingCount === "number" && orderMissingCount > 0
       ? orderMissingCount
       : null;
+  const clientLine = [
+    clientTitle ? `U klienta: „${clientTitle}”` : null,
+    clientReference ? `nr u klienta ${clientReference}` : null,
+    referenceNumber ? `nasz nr ${referenceNumber}` : null,
+  ].filter(Boolean);
+  const hasAdding = Boolean(onAddByName || onAddFromCv || onStartFullReview || onOpenMyPeople);
 
   return (
-    <Collapsible open={hasContext && contextOpen} onOpenChange={onContextOpenChange}>
-      <div className="overflow-hidden rounded-lg border border-border bg-card">
-        <div className="px-4 py-2.5">
-          <EntityHeader
-            density="compact"
-            avatar={
-              <span
-                aria-hidden="true"
-                className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary"
-              >
-                <Target className="h-4 w-4" />
-              </span>
-            }
-            title={
-              clientName ? (
-                // Tytuł i klient w JEDNEJ linii: pełna nazwa prawna klienta
-                // („Powszechna Kasa Oszczędności Bank Polski S.A") łamała
-                // nagłówek na dwa wiersze. Tytuł zostaje w całości, klient się
-                // ucina (pełna nazwa w `title`).
-                <span className="flex min-w-0 items-baseline gap-x-2">
-                  {/* Tytuł też się ucina (pełny w `title`): bardzo długa nazwa
-                      rekrutacji Nordei wjeżdżała pod liczniki i „Dodaj
-                      kandydata". Klient kurczy się pierwszy (`shrink-[4]`). */}
-                  {/* Telefon: tytuł w dwóch liniach zamiast ucinania (pełnej
-                      nazwy z `title` nie da się podejrzeć palcem), klient
-                      ukryty — na 343 px zostawiał tytułowi kilka znaków. */}
-                  <span
-                    className="min-w-0 max-sm:line-clamp-2 sm:truncate"
-                    title={typeof title === "string" ? title : undefined}
-                  >
-                    {title}
-                  </span>
-                  {/* Separator i nazwa klienta w JEDNYM węźle tekstowym —
-                      `{" · "}{clientName}` rozpadało się na trzy węzły, przez
-                      co spacja przy kropce ginęła przy pierwszej zmianie
-                      formatowania. */}
-                  <span
-                    className="min-w-0 shrink-[4] truncate text-lg font-normal text-muted-foreground max-sm:hidden"
-                    title={clientName}
-                  >
-                    {` · ${clientName}`}
-                  </span>
+    <header className="space-y-2 rounded-lg border border-border bg-card px-4 py-3">
+      {/* `flex-wrap`: na laptopie 1280 px zakładki i przyciski schodzą pod
+          tytuł, zamiast go ucinać. */}
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+        <div className="min-w-0 flex-[1_1_22rem]">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <h1
+              className="min-w-0 text-xl font-semibold leading-tight text-foreground line-clamp-2"
+              title={title}
+            >
+              {title}
+            </h1>
+            {badges}
+          </div>
+          {clientLine.length > 0 ? (
+            <p
+              className="mt-1 line-clamp-2 text-[13px] text-muted-foreground"
+              data-testid="header-client-line"
+              title={clientLine.join(" · ")}
+            >
+              {clientTitle ? (
+                <span data-testid="header-client-title">U klienta: „{clientTitle}”</span>
+              ) : null}
+              {clientReference ? (
+                <span data-testid="header-client-reference">
+                  {clientTitle ? " · " : ""}nr u klienta {clientReference}
                 </span>
-              ) : (
-                title
-              )
-            }
-            badges={
-              referenceNumber || clientTitle || clientReference || badges ? (
-                <>
-                  {clientTitle ? (
-                    <Badge
-                      variant="outline"
-                      className="max-w-[320px] truncate font-normal"
-                      title={`Nazwa od klienta: ${clientTitle}`}
-                      data-testid="header-client-title"
-                    >
-                      „{clientTitle}”
-                    </Badge>
-                  ) : null}
-                  {clientReference ? (
-                    <Badge
-                      variant="info"
-                      className="font-mono"
-                      title="Numer u klienta"
-                      data-testid="header-client-reference"
-                    >
-                      {clientReference}
-                    </Badge>
-                  ) : null}
-                  {referenceNumber ? (
-                    <Badge
-                      variant="outline"
-                      className="font-mono"
-                      title="Nasz numer rekrutacji"
-                    >
-                      {referenceNumber}
-                    </Badge>
-                  ) : null}
-                  {badges}
-                </>
-              ) : undefined
-            }
-            subtitle={subtitle}
-            metadata={metadata}
-            actions={
-              <>
-                {kpis && kpis.length > 0 ? (
-                  <JobHeaderKpiCluster kpis={kpis} />
-                ) : null}
-                {presence}
-                {onAddCandidate ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={onAddCandidate}
-                    data-testid="open-add-candidates"
-                    title="Przegląd bazy (AI), propozycje, Twoi ludzie albo po nazwisku"
-                  >
-                    <UserPlus className="h-4 w-4" />
-                    Dodaj kandydatów
-                  </Button>
-                ) : null}
-
-                {/* Menu „⋯" jest zawsze — niesie też „Bazę pytań" (makieta:
-                    rzadziej używana, więc zeszła z paska nagłówka). */}
-                <DropdownMenu modal={false}>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        size="icon-sm"
-                        variant="outline"
-                        aria-label="Więcej akcji rekrutacji"
-                        title="Więcej akcji"
-                      >
-                        <Ellipsis className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                      <DropdownMenuLabel>Rekrutacja</DropdownMenuLabel>
-                      <DropdownMenuItem
-                        onSelect={() => deferMenuAction(onOpenQuestions)}
-                        data-testid="open-questions"
-                      >
-                        <BookOpen className="h-4 w-4" />
-                        Baza pytań
-                      </DropdownMenuItem>
-                      {onEdit ? (
-                        <DropdownMenuItem
-                          onSelect={() => deferMenuAction(onEdit)}
-                        >
-                          <PencilLine className="h-4 w-4" />
-                          Edytuj
-                        </DropdownMenuItem>
-                      ) : null}
-                      {onWriteAnnouncement ? (
-                        <DropdownMenuItem
-                          onSelect={() => deferMenuAction(onWriteAnnouncement)}
-                        >
-                          <Wand2 className="h-4 w-4" />
-                          Szkic ogłoszenia
-                        </DropdownMenuItem>
-                      ) : null}
-                      {onGenerateInviteLink ? (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onSelect={() =>
-                              deferMenuAction(onGenerateInviteLink)
-                            }
-                          >
-                            <Link2 className="h-4 w-4" />
-                            Wygeneruj link
-                          </DropdownMenuItem>
-                        </>
-                      ) : null}
-                      {clientCardHref ? (
-                        <DropdownMenuItem asChild>
-                          <a href={clientCardHref} data-testid="open-client-card">
-                            <Building2 className="h-4 w-4" />
-                            Karta klienta
-                          </a>
-                        </DropdownMenuItem>
-                      ) : null}
-                      {onCopyLink ? (
-                        <DropdownMenuItem
-                          onSelect={() => deferMenuAction(onCopyLink)}
-                          data-testid="copy-job-link"
-                        >
-                          <Copy className="h-4 w-4" />
-                          Kopiuj link do rekrutacji
-                        </DropdownMenuItem>
-                      ) : null}
-                      {onOpenAiTools ? (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onSelect={() => deferMenuAction(onOpenAiTools)}
-                            data-testid="open-ai-tools"
-                          >
-                            <Sparkles className="h-4 w-4" />
-                            Narzędzia AI (administrator)
-                          </DropdownMenuItem>
-                        </>
-                      ) : null}
-                      {onCloseJob ? (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onSelect={() => deferMenuAction(onCloseJob)}
-                            className="text-destructive focus:text-destructive"
-                            data-testid="close-job"
-                          >
-                            <XCircle className="h-4 w-4" />
-                            Zamknij rekrutację…
-                          </DropdownMenuItem>
-                        </>
-                      ) : null}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-              </>
-            }
-          />
+              ) : null}
+              {referenceNumber ? (
+                <span>
+                  {clientTitle || clientReference ? " · " : ""}nasz nr {referenceNumber}
+                </span>
+              ) : null}
+            </p>
+          ) : null}
         </div>
 
-        {path}
-
-        {/* `flex-wrap` zamiast `overflow-x-auto`: przy ciasnym oknie pasek ma
-            się ZŁAMAĆ, a nie schować końcówkę za niewidoczny pasek przewijania.
-            Przycisk, którego nie widać, nie istnieje dla użytkownika. */}
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border px-3 py-1.5">
-          {/* Dwa widoki rekrutacji jako zakładki (makieta 29.09.2026): Tablica
-              i „Zlecenie i Champion”. Do 28.09 do profilu Championa prowadził
-              wyłącznie przycisk w oknie „Zlecenie”. Pełna lista „Do przejrzenia”
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Dwa widoki rekrutacji jako zakładki. Pełna lista „Do przejrzenia”
               (`tab=people`) nie jest zakładką — z niej wraca „Tablica”. */}
-          <nav className="flex shrink-0 items-center gap-0.5" aria-label="Widok rekrutacji">
+          <nav
+            className="flex shrink-0 items-center gap-0.5 rounded-lg bg-muted p-0.5"
+            aria-label="Widok rekrutacji"
+          >
             <button
               type="button"
               onClick={() => onViewChange("board")}
@@ -488,8 +262,8 @@ export function JobDetailCompactHeader({
               className={cn(
                 "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors",
                 activeView === "board"
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  ? "bg-card text-primary shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               {activeView !== "board" && activeView !== "champion" ? (
@@ -505,8 +279,8 @@ export function JobDetailCompactHeader({
               className={cn(
                 "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors",
                 activeView === "champion"
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  ? "bg-card text-primary shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               <FileText className="h-3.5 w-3.5" aria-hidden="true" />
@@ -519,128 +293,242 @@ export function JobDetailCompactHeader({
             </button>
           </nav>
 
-          <div aria-hidden="true" className="hidden h-5 w-px bg-border sm:block" />
+          {presence}
 
-          <nav
-            className="flex min-w-0 flex-wrap items-center gap-1.5"
-            aria-label="Sekcje rekrutacji"
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onOpenHistoryChat}
+            aria-label={unreadLabel}
+            data-testid="open-history-chat"
           >
-            {/* Skrót zlecenia: na Tablicy otwiera go krok „Zlecenie” ścieżki,
-                na widoku Championa braki są w panelu obok — tam go nie ma. */}
-            {path == null && activeView !== "champion" ? (
+            <MessageCircle className="h-4 w-4" aria-hidden="true" />
+            Historia i czat
+            {chatUnreadCount > 0 ? (
+              <Badge variant="danger" size="sm" className="tabular-nums" aria-hidden="true">
+                {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
+              </Badge>
+            ) : null}
+          </Button>
+
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
               <Button
                 type="button"
-                size="sm"
+                size="icon-sm"
                 variant="outline"
-                onClick={onOpenOrder}
+                aria-label="Więcej akcji rekrutacji"
+                title="Więcej akcji"
+                data-help="job.champion.found"
+              >
+                <Ellipsis className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              {onToggleChampion ? (
+                <>
+                  <DropdownMenuItem
+                    onSelect={() => deferMenuAction(onToggleChampion)}
+                    disabled={championPending}
+                    data-testid="toggle-champion"
+                    title={
+                      championFound
+                        ? "Cofnij „Mamy championa” — rekrutacja wraca do „Szukamy”"
+                        : "Mamy championa — dalej nie szukamy"
+                    }
+                  >
+                    <Trophy className="h-4 w-4" />
+                    {championFound ? "Cofnij „Mamy championa”" : "Oznacz: mamy championa"}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
+
+              {hasAdding ? (
+                <>
+                  <DropdownMenuLabel>Kandydaci</DropdownMenuLabel>
+                  {onAddByName ? (
+                    <DropdownMenuItem
+                      onSelect={() => deferMenuAction(onAddByName)}
+                      data-testid="menu-add-by-name"
+                    >
+                      <UserPlus className="h-4 w-4" />
+                      Dodaj po nazwisku
+                    </DropdownMenuItem>
+                  ) : null}
+                  {onAddFromCv ? (
+                    <DropdownMenuItem
+                      onSelect={() => deferMenuAction(onAddFromCv)}
+                      data-testid="menu-add-from-cv"
+                    >
+                      <FileUp className="h-4 w-4" />
+                      Dodaj z pliku CV
+                    </DropdownMenuItem>
+                  ) : null}
+                  {onStartFullReview ? (
+                    <DropdownMenuItem
+                      onSelect={() => deferMenuAction(onStartFullReview)}
+                      data-testid="menu-full-review"
+                      title="AI przegląda całą bazę pod tę rekrutację — ok. 3 minut. Wyniki trafią do „Propozycji z bazy”."
+                    >
+                      <ScanSearch className="h-4 w-4" />
+                      Przeszukaj całą bazę (AI)
+                    </DropdownMenuItem>
+                  ) : null}
+                  {onOpenMyPeople ? (
+                    <DropdownMenuItem
+                      onSelect={() => deferMenuAction(onOpenMyPeople)}
+                      data-testid="menu-my-people"
+                    >
+                      <Users className="h-4 w-4" />
+                      Moi ludzie do tej rekrutacji
+                    </DropdownMenuItem>
+                  ) : null}
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
+
+              <DropdownMenuLabel>Rekrutacja</DropdownMenuLabel>
+              <DropdownMenuItem
+                onSelect={() => deferMenuAction(onOpenOrder)}
                 data-testid="open-order"
               >
-                <ClipboardList className="h-4 w-4" aria-hidden="true" />
-                Zlecenie
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={onOpenHistoryChat}
-              aria-label={unreadLabel}
-              data-testid="open-history-chat"
-            >
-              <MessageCircle className="h-4 w-4" aria-hidden="true" />
-              Historia i czat
-              {chatUnreadCount > 0 ? (
-                <Badge
-                  variant="danger"
-                  size="sm"
-                  className="tabular-nums"
-                  aria-hidden="true"
+                <ClipboardList className="h-4 w-4" />
+                Zlecenie — skrót
+              </DropdownMenuItem>
+              {onOpenTeam ? (
+                <DropdownMenuItem
+                  onSelect={() => deferMenuAction(onOpenTeam)}
+                  data-testid="menu-team"
                 >
-                  {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
-                </Badge>
+                  <Users className="h-4 w-4" />
+                  <span className="min-w-0">
+                    Zespół
+                    {teamSummary ? (
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {teamSummary}
+                      </span>
+                    ) : null}
+                  </span>
+                </DropdownMenuItem>
               ) : null}
-            </Button>
-
-            {onOpenSimilar ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={onOpenSimilar}
-                data-testid="open-similar"
-                title="Podobne rekrutacje — przepnij do „Nowych” osoby wysłane tam do klienta"
+              <DropdownMenuItem
+                onSelect={() => deferMenuAction(onOpenQuestions)}
+                data-testid="open-questions"
               >
-                <Link2 className="h-4 w-4" aria-hidden="true" />
-                Podobne rekrutacje
-                {similarPeopleCount ? (
-                  <Badge size="sm" variant="info" className="tabular-nums">
-                    {similarPeopleCount} do przepięcia
-                  </Badge>
-                ) : similarLinkedCount ? (
-                  <Badge size="sm" variant="info" className="tabular-nums">
-                    ↻ {similarLinkedCount}
-                  </Badge>
-                ) : similarSuggestedCount ? (
-                  <Badge size="sm" variant="outline" className="tabular-nums">
-                    ≈ {similarSuggestedCount}
-                  </Badge>
-                ) : null}
-              </Button>
-            ) : null}
-            {onToggleChampion ? (
-              <Button
-                type="button"
-                size="sm"
-                variant={championFound ? "primary" : "outline"}
-                onClick={onToggleChampion}
-                disabled={championPending}
-                aria-pressed={Boolean(championFound)}
-                data-testid="toggle-champion"
-                data-help="job.champion.found"
-                title={
-                  championFound
-                    ? "Cofnij „Mamy championa” — rekrutacja wraca do „Szukamy”"
-                    : "Mamy championa — dalej nie szukamy"
-                }
-              >
-                <Trophy className="h-4 w-4" aria-hidden="true" />
-                {championFound ? "Mamy championa" : "Oznacz: mamy championa"}
-              </Button>
-            ) : null}
-          </nav>
-
-          {hasContext ? (
-            <CollapsibleTrigger asChild>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="ml-auto shrink-0 text-muted-foreground"
-                aria-expanded={contextOpen}
-                aria-controls="job-operational-context"
-                data-testid="toggle-job-header"
-                title={contextOpen ? "Ukryj zespół i priorytet" : "Pokaż zespół i priorytet"}
-              >
-                <UserCheck className="h-4 w-4" />
-                <span className="hidden xl:inline">Zespół i priorytet</span>
-                {contextOpen ? (
-                  <ChevronUp className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-              </Button>
-            </CollapsibleTrigger>
-          ) : null}
+                <BookOpen className="h-4 w-4" />
+                Baza pytań
+              </DropdownMenuItem>
+              {onEdit ? (
+                <DropdownMenuItem onSelect={() => deferMenuAction(onEdit)}>
+                  <PencilLine className="h-4 w-4" />
+                  Edytuj
+                </DropdownMenuItem>
+              ) : null}
+              {onWriteAnnouncement ? (
+                <DropdownMenuItem onSelect={() => deferMenuAction(onWriteAnnouncement)}>
+                  <Wand2 className="h-4 w-4" />
+                  Szkic ogłoszenia
+                </DropdownMenuItem>
+              ) : null}
+              {onGenerateInviteLink ? (
+                <DropdownMenuItem onSelect={() => deferMenuAction(onGenerateInviteLink)}>
+                  <Link2 className="h-4 w-4" />
+                  Wygeneruj link
+                </DropdownMenuItem>
+              ) : null}
+              {clientCardHref ? (
+                <DropdownMenuItem asChild>
+                  <a href={clientCardHref} data-testid="open-client-card">
+                    <Building2 className="h-4 w-4" />
+                    Karta klienta
+                  </a>
+                </DropdownMenuItem>
+              ) : null}
+              {onCopyLink ? (
+                <DropdownMenuItem
+                  onSelect={() => deferMenuAction(onCopyLink)}
+                  data-testid="copy-job-link"
+                >
+                  <Copy className="h-4 w-4" />
+                  Kopiuj link do rekrutacji
+                </DropdownMenuItem>
+              ) : null}
+              {onToggleEmptyColumns ? (
+                <DropdownMenuItem
+                  onSelect={() => deferMenuAction(onToggleEmptyColumns)}
+                  data-testid="toggle-empty-columns"
+                >
+                  <Columns3 className="h-4 w-4" />
+                  {emptyColumnsHidden ? "Pokaż puste kolumny" : "Ukryj puste kolumny"}
+                </DropdownMenuItem>
+              ) : null}
+              {onOpenAiTools ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => deferMenuAction(onOpenAiTools)}
+                    data-testid="open-ai-tools"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    Narzędzia AI (administrator)
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+              {onCloseJob ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => deferMenuAction(onCloseJob)}
+                    className="text-destructive focus:text-destructive"
+                    data-testid="close-job"
+                  >
+                    <XCircle className="h-4 w-4" />
+                    Zamknij rekrutację…
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-
-        {hasContext ? (
-          <CollapsibleContent id="job-operational-context">
-            <div className="space-y-3 border-t border-border bg-muted/30 p-4">
-              {contextContent}
-            </div>
-          </CollapsibleContent>
-        ) : null}
       </div>
-    </Collapsible>
+
+      {/* Klient · Budżet · Tryb pracy — trzy rzeczy, które rekruter sprawdza
+          przed każdym telefonem. Brak wartości to „nie podano”, nie pustka. */}
+      <dl className="flex flex-wrap gap-2" data-testid="job-header-facts">
+        {facts.map((fact) => {
+          const Icon = FACT_ICON[fact.key];
+          return (
+            <div
+              key={fact.key}
+              className="flex min-w-0 items-center gap-2.5 rounded-lg border border-primary/20 bg-primary/5 py-1.5 pl-2 pr-3.5"
+              data-testid={`job-header-fact-${fact.key}`}
+            >
+              <span
+                aria-hidden="true"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-card text-primary"
+              >
+                <Icon className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <dt className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted-foreground">
+                  {fact.label}
+                </dt>
+                <dd
+                  className={cn(
+                    "truncate text-[15px] font-semibold leading-tight",
+                    fact.value ? "text-foreground" : "font-normal text-muted-foreground",
+                  )}
+                  title={fact.value ?? undefined}
+                >
+                  {fact.value ?? "nie podano"}
+                </dd>
+              </div>
+            </div>
+          );
+        })}
+      </dl>
+    </header>
   );
 }

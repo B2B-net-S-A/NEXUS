@@ -86,12 +86,12 @@ export function ContractsBulkActionsBarV2({
 
  return (
  <>
- <div className="fixed inset-x-3 bottom-[calc(1.25rem+env(safe-area-inset-bottom))] mx-auto w-fit z-40 bg-card text-foreground rounded-xl shadow-md border border-white/10 px-4 py-2.5 flex items-center gap-3 flex-wrap animate-slide-in-bottom max-w-[min(96vw,900px)]">
+ <div className="fixed inset-x-3 bottom-[calc(1.25rem+env(safe-area-inset-bottom))] mx-auto w-fit z-40 bg-card text-foreground rounded-xl shadow-md border border-border px-4 py-2.5 flex items-center gap-3 flex-wrap animate-slide-in-bottom max-w-[min(96vw,900px)]">
  <span className="text-xs inline-flex items-center gap-1.5">
  <CheckSquare className="h-3.5 w-3.5" />
  Wybrano: <span className="font-bold">{selectedIds.size}</span>
  </span>
- <div className="h-4 w-px bg-card/15" />
+ <div className="h-4 w-px bg-border" aria-hidden="true" />
  {canExtend && (
  <>
  <Button
@@ -123,7 +123,7 @@ export function ContractsBulkActionsBarV2({
  {canEnd && (
  <Button
  size="sm"
- variant="destructive"
+ variant="quiet"
  onClick={() => setConfirmEnd(true)}
  disabled={busy}
  >

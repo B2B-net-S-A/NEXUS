@@ -38,6 +38,7 @@ import { AppModal } from "@/components/ds/AppModal";
 import { InactiveClientsCleanupDialog } from "@/components/clients/InactiveClientsCleanupDialog";
 import { isClientPickerQueryKey } from "@/lib/client-selection";
 import { cn } from "@/lib/utils";
+import { CALM_EMPTY, CALM_HEAD, CALM_SUBLINE } from "@/lib/calm-table";
 import {
   WIDE_HIDDEN,
   WIDE_ONLY_CELL,
@@ -59,6 +60,7 @@ import {
 } from "@/lib/clients-workspace";
 import { AddClientModal } from "@/components/AppShell";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -132,12 +134,15 @@ const CATEGORY_META: Record<
 
 const STATUS_META: Record<
   ClientDirectoryItem["client_status"],
-  { label: string; variant: "success" | "neutral" | "soft" }
+  { label: string; tone: StatusDotTone }
 > = {
-  active: { label: "Aktywny", variant: "success" },
-  inactive: { label: "Nieaktywny", variant: "neutral" },
-  prospect: { label: "Prospekt", variant: "soft" },
+  active: { label: "Aktywny", tone: "success" },
+  inactive: { label: "Nieaktywny", tone: "neutral" },
+  prospect: { label: "Prospekt", tone: "neutral" },
 };
+
+/** Brak wartości w komórce — przygaszony, żeby nie udawał danej. */
+const EMPTY_CELL = <span className={CALM_EMPTY}>—</span>;
 
 function parseCategory(value: string | null): ClientDirectoryCategory {
   return CATEGORY_ORDER.includes(value as ClientDirectoryCategory)
@@ -705,18 +710,20 @@ export function ClientsListV2({
               <TableRow>
                 {/* Pierwsza kolumna przyklejona: tabela ma 900 px, na telefonie
                     po przewinięciu w bok wiadomo, czyj to wiersz. */}
-                <TableHead className="sticky left-0 z-10 bg-background">Firma</TableHead>
-                <TableHead className={WIDE_ONLY_CELL}>Nazwa prawna</TableHead>
-                <TableHead className={WIDE_ONLY_CELL}>Zakres</TableHead>
-                <TableHead>Branża</TableHead>
-                <TableHead>
+                <TableHead className={cn(CALM_HEAD, "sticky left-0 z-10 bg-background")}>Firma</TableHead>
+                <TableHead className={cn(CALM_HEAD, WIDE_ONLY_CELL)}>Nazwa prawna</TableHead>
+                <TableHead className={cn(CALM_HEAD, WIDE_ONLY_CELL)}>Zakres</TableHead>
+                {/* W układzie zwartym branża stoi drobnym drukiem pod nazwą
+                    firmy — własną kolumnę ma dopiero szeroka tabela. */}
+                <TableHead className={cn(CALM_HEAD, WIDE_ONLY_CELL)}>Branża</TableHead>
+                <TableHead className={CALM_HEAD}>
                   Aktywni konsultanci
                   <span className={WIDE_HIDDEN}> / kontrakty</span>
                 </TableHead>
-                <TableHead className={WIDE_ONLY_CELL}>Aktywne kontrakty</TableHead>
-                <TableHead>Start umowy</TableHead>
-                <TableHead>Koniec umowy</TableHead>
-                <TableHead>
+                <TableHead className={cn(CALM_HEAD, WIDE_ONLY_CELL)}>Aktywne kontrakty</TableHead>
+                <TableHead className={CALM_HEAD}>Start umowy</TableHead>
+                <TableHead className={CALM_HEAD}>Koniec umowy</TableHead>
+                <TableHead className={CALM_HEAD}>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span
@@ -737,14 +744,14 @@ export function ClientsListV2({
                   </Tooltip>
                 </TableHead>
                 {canManagePortfolio ? (
-                  <TableHead className="text-right">Akcje</TableHead>
+                  <TableHead className={cn(CALM_HEAD, "text-right")}>Akcje</TableHead>
                 ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
               {viewState === "loading" ? (
                 Array.from({ length: 5 }, (_, index) => (
-                  <TableRow key={`client-skeleton-${index}`}>
+                  <TableRow key={`client-skeleton-${index}`} className="h-[46px]">
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Skeleton className="h-8 w-8 rounded-full" />
@@ -754,7 +761,7 @@ export function ClientsListV2({
                         </div>
                       </div>
                     </TableCell>
-                    {Array.from({ length: columnCount - 4 }, (_, cellIndex) => (
+                    {Array.from({ length: columnCount - 5 }, (_, cellIndex) => (
                       <TableCell key={cellIndex}>
                         <Skeleton className="h-4 w-24" />
                       </TableCell>
@@ -875,8 +882,17 @@ export function ClientsListV2({
                     item.category !== item.category_base ||
                     item.contract_start_override !== null ||
                     item.contract_end_override !== null;
+                  const legalName =
+                    item.legal_name && item.legal_name !== item.display_name
+                      ? item.legal_name
+                      : null;
+                  // Drobny druk pod nazwą (układ zwarty): nazwa prawna, branża
+                  // i zakres. W szerokiej tabeli każde ma własną kolumnę.
+                  const subline = [legalName, item.industry, item.scope_label].filter(
+                    (part): part is string => Boolean(part),
+                  );
                   return (
-                    <TableRow key={item.scope_id} interactive>
+                    <TableRow key={item.scope_id} interactive className="h-[46px]">
                       {/* Nieprzezroczyste tło przyklejonej komórki zasłaniałoby
                           podświetlenie wiersza (`hover:bg-primary/10`) — ten sam
                           odcień nakładamy gradientem na `bg-card`. */}
@@ -895,9 +911,23 @@ export function ClientsListV2({
                               <span className="block font-medium text-foreground">
                                 {item.display_name}
                               </span>
-                              {item.scope_label ? (
-                                <span className={cn("mt-0.5 block text-xs text-muted-foreground", WIDE_HIDDEN)}>
-                                  {item.scope_label}
+                              {subline.length > 0 ? (
+                                <span
+                                  className={cn(
+                                    CALM_SUBLINE,
+                                    "max-w-[420px] truncate",
+                                    WIDE_HIDDEN,
+                                  )}
+                                  title={subline.join(" · ")}
+                                >
+                                  {subline.map((part, index) => (
+                                    <span key={`${index}-${part}`}>
+                                      {index > 0 ? (
+                                        <span aria-hidden="true"> · </span>
+                                      ) : null}
+                                      <span>{part}</span>
+                                    </span>
+                                  ))}
                                 </span>
                               ) : null}
                             </span>
@@ -920,14 +950,14 @@ export function ClientsListV2({
                         </div>
                       </TableCell>
                       <TableCell className={WIDE_ONLY_CELL} data-testid="client-legal-name-cell">
-                        {item.legal_name && item.legal_name !== item.display_name
-                          ? item.legal_name
-                          : "—"}
+                        {legalName ?? EMPTY_CELL}
                       </TableCell>
                       <TableCell className={WIDE_ONLY_CELL} data-testid="client-scope-cell">
-                        {item.scope_label || "—"}
+                        {item.scope_label || EMPTY_CELL}
                       </TableCell>
-                      <TableCell>{item.industry || "—"}</TableCell>
+                      <TableCell className={WIDE_ONLY_CELL} data-testid="client-industry-cell">
+                        {item.industry || EMPTY_CELL}
+                      </TableCell>
                       <TableCell>
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -966,20 +996,24 @@ export function ClientsListV2({
                       >
                         {item.active_contracts_count}
                       </TableCell>
-                      <TableCell>
-                        {formatDirectoryDate(item.effective_date)}
+                      <TableCell className="whitespace-nowrap tabular-nums">
+                        {item.effective_date
+                          ? formatDirectoryDate(item.effective_date)
+                          : EMPTY_CELL}
                       </TableCell>
-                      <TableCell>{contractEndLabel(item)}</TableCell>
+                      <TableCell className="whitespace-nowrap tabular-nums">
+                        {hasContractPeriod(item)
+                          ? contractEndLabel(item)
+                          : EMPTY_CELL}
+                      </TableCell>
                       <TableCell>
-                        <Badge size="sm" variant={status.variant}>
-                          {status.label}
-                        </Badge>
+                        <StatusDot tone={status.tone}>{status.label}</StatusDot>
                       </TableCell>
                       {canManagePortfolio ? (
                         <TableCell className="text-right">
                           <Button
                             size="sm"
-                            variant="outline"
+                            variant="ghost"
                             onClick={() => setPlacementTarget(item)}
                           >
                             <PenLine className="h-4 w-4" aria-hidden="true" />

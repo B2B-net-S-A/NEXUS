@@ -9,6 +9,7 @@ import {
   countBySource,
   filterProposals,
   mergeProposals,
+  splitByPostings,
   normalizeFitScore,
   traineeHandoverReason,
   WORK_TIME_FIT_WARNING_PL,
@@ -321,5 +322,29 @@ describe("filterProposals / countBySource", () => {
 
   it("liczy osoby per źródło", () => {
     expect(countBySource(entries)).toMatchObject({ all: 3, new_cv: 2, marketplace: 1, full_base: 0 });
+  });
+});
+
+describe("splitByPostings — zakładki okna „Kandydaci do dodania”", () => {
+  it("osoby z ogłoszeń z ostatnich 7 dni idą osobno, reszta do „Propozycji z bazy” — nikt nie wypada", () => {
+    const entries = mergeProposals({
+      inbox: [
+        inboxItem(1, { sources: ["job_board"], posting_recent: true, posting_seen_at: "2026-10-01T06:00:00Z" }),
+        // Zgłoszenie starsze niż okno — serwer mówi `posting_recent: false`.
+        inboxItem(2, { sources: ["new_cv"], posting_recent: false, posting_seen_at: "2026-09-01T06:00:00Z" }),
+        inboxItem(3, { sources: ["full_base"] }),
+      ],
+      similar: [similar(4)],
+    });
+    const { postings, base } = splitByPostings(entries);
+    expect(postings.map((e) => e.row.candidateId)).toEqual([1]);
+    expect(base.map((e) => e.row.candidateId).sort()).toEqual([2, 3, 4]);
+    expect(postings.length + base.length).toBe(entries.length);
+    expect(postings[0].detail.postingSeenAt).toBe("2026-10-01T06:00:00Z");
+  });
+
+  it("starszy serwer bez pola: wszyscy zostają w „Propozycjach z bazy”", () => {
+    const entries = mergeProposals({ inbox: [inboxItem(1, { sources: ["job_board"] })] });
+    expect(splitByPostings(entries)).toEqual({ postings: [], base: entries });
   });
 });

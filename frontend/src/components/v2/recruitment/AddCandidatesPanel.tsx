@@ -1,55 +1,52 @@
 "use client";
 
 /**
- * Panel „Dodaj kandydatów" (Rekrutacja v5, makiety
- * https://claude.ai/artifact/CG4mBk9xcHZAn3y9jcmMeW, zakładka 3).
+ * Okno „Kandydaci do dodania” (02.10.2026, makieta
+ * https://claude.ai/artifact/ASHNaTXA9omvTH393cQjCv) — JEDNO okno dla
+ * wszystkich źródeł kandydatów, z tym samym podglądem osoby w każdej zakładce:
  *
- * JEDNO wejście do dodawania ludzi do rekrutacji — z nagłówka („＋ Dodaj
- * kandydatów") i z kolumny „Nowi" („Znajdź w bazie (AI)", „Przejrzyj").
- * Zbiera istniejące źródła, niczego nie liczy od nowa:
- *  - „Szukaj w bazie (AI)" — pełny przegląd bazy tej rekrutacji
- *    (`useJobProposals` → `useFullCandidateSearch`, kryteria z wymagań
- *    Championa/requestu, start WYŁĄCZNIE kliknięciem),
- *  - „Propozycje" — skrzynka, podobne projekty, rekomendacje (ta sama scalona
- *    lista co ekran „Do przejrzenia"),
- *  - „Moi ludzie" — `GET /api/my-people/for-job/{id}`,
- *  - „Po nazwisku / z pliku CV" — dotychczasowe okna.
+ *  - „Podobne rekrutacje” — osoby wysłane do klienta w podobnych rekrutacjach
+ *    (przepięcie) i pozostali z tych rekrutacji (`useSimilarJobsTab`),
+ *  - „Nowi z ogłoszeń” — propozycje z ogłoszeń z ostatnich 7 dni
+ *    (źródła `new_cv`, `job_board`; podział liczy serwer) i zgłoszenia
+ *    odłożone przez przegląd AI,
+ *  - „Propozycje z bazy” — reszta scalonej listy (`useJobProposals`: nocny
+ *    przegląd bazy, rekomendacje, przepięcia z połączonych rekrutacji,
+ *    przekazania od praktykantów),
+ *  - „Szukaj w bazie” — wyszukiwanie po słowach z Championa
+ *    (`useSearchBaseTab`); zastąpiło „Znajdź w bazie (AI)”.
+ *
+ * Do 02.10.2026 okno nazywało się „Dodaj kandydatów” i miało zakładki
+ * „Szukaj w bazie (AI)”, „Propozycje”, „Moi ludzie”, „Po nazwisku”. „Moi
+ * ludzie” mają własny panel w pasku górnym, dodanie po nazwisku i z pliku CV
+ * jest pod kaflami i w menu „⋯”, a ręczny start przeglądu bazy — w menu „⋯”.
  *
  * Dodanie idzie przez `proposals/bulk` jak dotąd (źródło z pochodzenia
- * wiersza: `full_search`, `proposal_inbox`, `historical`, `recommendation`,
- * `my_people`). Serwer zakłada blokadę 12 h dla dodającego. Ostrzeżenia
- * (NDA, konkurent, ponad budżet) zostają widoczne; weto hiring managera
- * blokuje zaznaczenie — jak w szybkim dodawaniu.
+ * wiersza). Serwer zakłada blokadę 12 h dla dodającego. Ostrzeżenia (NDA,
+ * konkurent, ponad budżet) zostają widoczne; weto hiring managera blokuje
+ * zaznaczenie.
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileUp, Search, Sparkles, UserPlus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Sparkles, UserPlus } from "lucide-react";
 
-import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { FullCandidateSearchStatus } from "@/components/talent-radar/FullCandidateSearchStatus";
+import { ScreenedOutSection } from "@/components/v2/jobs/ScreenedOutSection";
+import { SIMILAR_TAB_DESCRIPTION, useSimilarJobsTab } from "@/components/v2/jobs/SimilarJobsPanel";
+import { useCapability } from "@/hooks/useCapability";
 import { apiErrorMessage } from "@/lib/api-error";
-import {
-  MY_PEOPLE_QUERY_PREFIX,
-  useMyPeopleForJob,
-  type ForJobRow,
-} from "@/lib/api/myPeople";
 import type { MatchEligibility } from "@/lib/api";
-import { assignErrorMessage } from "@/lib/assign-error";
-import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
-import { proposalsBulkApi } from "@/lib/candidate-search-api";
-import { eligibilityBadgeClass } from "@/lib/conflicts";
 import { OFFICE_DAYS_WARNING, overBudgetLabel } from "@/lib/fit-badges";
 import { searchIsRunning } from "@/lib/full-candidate-search-api";
-import { matchingRequirementsApi, requirementLabels } from "@/lib/matching-requirements";
+import type { ManualSearchJob } from "@/lib/job-search-filters";
 import {
   CITY_MISMATCH_WARNING_PL,
   DEFAULT_PROPOSAL_FILTERS,
   EMPLOYMENT_ONLY_WARNING_PL,
   WORK_TIME_FIT_WARNING_PL,
-  formatHourlyRate,
+  splitByPostings,
   type ProposalEntry,
 } from "@/lib/proposals-merge";
 import {
@@ -63,52 +60,57 @@ import {
   clientHistoryLine,
   proposalFactsLine,
   cvYearBadge,
-  type CvYearBadge,
   sortByClientHistory,
   type ProposalSortMode,
 } from "@/lib/proposal-facts";
-import { cn } from "@/lib/utils";
+import { useSimilarJobs } from "@/lib/similar-jobs-api";
+import { similarPeopleTotal } from "@/lib/similar-reassign";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import { useVisibleMatchScores } from "@/hooks/useVisibleMatchScores";
 
+import { useDismissReasonPrompt } from "./DismissReasonDialog";
+import { PersonPreview } from "./PersonPreview";
+import { PickList, ScoreBadge, type PickRow } from "./pick-list";
 import { RecruitmentSheet } from "./slideovers/RecruitmentSheet";
-import { PROPOSAL_SOURCE_LABEL } from "./types";
+import { CANDIDATE_SOURCE_TABS, PROPOSAL_SOURCE_LABEL, type CandidateSourceTab } from "./types";
 import { useJobProposals } from "./useJobProposals";
+import { useJobSearchSeed } from "./useJobSearchSeed";
+import { useSearchBaseTab } from "./useSearchBaseTab";
 
-export type AddCandidatesTab = "search" | "proposals" | "my_people" | "by_name";
+export { CvBadge } from "./pick-list";
+
+export type AddCandidatesTab = CandidateSourceTab;
 
 export interface AddCandidatesPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   jobId: number;
-  initialTab?: AddCandidatesTab;
+  /** Rekrutacja — filtry startowe „Szukaj w bazie”. */
+  job: ManualSearchJob;
+  tab: CandidateSourceTab;
+  onTabChange: (tab: CandidateSourceTab) => void;
   budgetHourly: number | null;
-  /** Lokalizacja rekrutacji — chip kryteriów. */
-  location?: string | null;
   /** Osoby już w rekrutacji (z tablicy) — nie pojawiają się w wynikach. */
   pipelineCandidateIds?: readonly number[];
   readOnly?: boolean;
-  /** „Zmień kryteria" — dotychczasowe ręczne wyszukiwanie. */
+  /** „Zmień słowa i filtry” — pełne ręczne wyszukiwanie. */
   onOpenManualSearch: () => void;
-  /** „Po nazwisku" — dotychczasowe szybkie dodawanie. */
-  onOpenQuickAdd: () => void;
-  /** „Z pliku CV" — okno dodania z CV (gdy strona je ma). */
-  onOpenFromCv?: () => void;
-}
-
-/** Wiersz listy do zaznaczenia — wspólny dla trzech źródeł. */
-interface PickRow {
-  candidateId: number;
-  fullName: string;
-  fitScore: number | null;
-  rateLabel: string | null;
-  availabilityLabel: string | null;
-  note: string | null;
-  /** Linia faktów (stanowisko, staż, miasto, tryb, dostępność, stawka). */
-  facts?: string | null;
-  /** „CV z 2023” — tylko przy znanej dacie wgrania głównego CV. */
-  cvBadge?: CvYearBadge | null;
-  sourceLabel: string | null;
-  warnings: Array<{ key: string; label: string; blocking: boolean }>;
+  /** Sekcja 2 Championa (słowa do wyszukiwania wpisuje Delivery Lead). */
+  onOpenChampionSearch?: () => void;
+  /** Pełna lista „Do przejrzenia” z filtrami i shortlistą. */
+  onOpenFullList?: () => void;
+  /**
+   * „Przeszukaj całą bazę (AI)” z menu „⋯”: każda nowa wartość startuje
+   * przegląd (raz). Start idzie stanem strony, nigdy adresem — odświeżenie
+   * karty nie może uruchomić trzyminutowego skanu.
+   */
+  fullReviewRequest?: number | null;
+  /**
+   * Okno obsłużyło żądanie (wystartowało przegląd albo uznało, że trwa) —
+   * strona je zeruje. Bez tego ponowne otwarcie okna startowałoby kolejny
+   * trzyminutowy skan: treść okna montuje się od nowa przy każdym otwarciu.
+   */
+  onFullReviewHandled?: () => void;
 }
 
 const WARNING_LABEL: Record<string, string> = {
@@ -180,157 +182,35 @@ function proposalRow(
   };
 }
 
-function myPeopleRow(row: ForJobRow, budgetHourly: number | null): PickRow {
-  const warnings: PickRow["warnings"] = [];
-  const elig = eligibilityWarning(row.eligibility);
-  if (elig) warnings.push(elig);
-  if (budgetHourly != null && row.expected_rate_hourly != null && row.expected_rate_hourly > budgetHourly) {
-    warnings.push(overBudgetWarning(row.expected_rate_hourly, budgetHourly));
-  }
-  const sent = row.last_sent_client_name
-    ? `Wysłany do: ${row.last_sent_client_name}${row.days_since_last_send != null ? ` · ${row.days_since_last_send} dni temu` : ""}`
-    : null;
-  return {
-    candidateId: row.candidate_id,
-    fullName: row.full_name,
-    fitScore: row.score,
-    rateLabel: formatHourlyRate(row.expected_rate_hourly),
-    availabilityLabel: row.active_processes > 0 ? `W procesach: ${row.active_processes}` : null,
-    note: sent,
-    sourceLabel: null,
-    warnings,
-  };
-}
+const TAB_LABEL: Record<CandidateSourceTab, string> = {
+  similar: "Podobne rekrutacje",
+  postings: "Nowi z ogłoszeń",
+  base: "Propozycje z bazy",
+  search: "Szukaj w bazie",
+};
 
-/** „CV z RRRR” — neutralnie; starsze niż 2 lata w tonie ostrzeżenia. */
-export function CvBadge({ badge }: { badge: CvYearBadge }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex rounded px-1.5 text-[10.5px] font-semibold",
-        badge.stale
-          ? "bg-warning-muted text-warning-muted-foreground"
-          : "bg-muted text-muted-foreground",
-      )}
-      title={badge.stale ? "CV może być nieaktualne" : undefined}
-      data-testid="cv-year-badge"
-      data-stale={badge.stale || undefined}
-    >
-      {badge.label}
-      {badge.stale ? <span className="sr-only"> — CV może być nieaktualne</span> : null}
-    </span>
-  );
-}
+const TAB_DESCRIPTION: Record<CandidateSourceTab, string> = {
+  similar: SIMILAR_TAB_DESCRIPTION,
+  postings:
+    "Osoby z ogłoszeń z ostatnich 7 dni, które pasują do tej rekrutacji. Kliknij osobę, żeby ją podejrzeć.",
+  base: "Osoby wybrane przez nocny przegląd bazy i pozostałe propozycje. Kliknij osobę, żeby ją podejrzeć.",
+  search: "Wyniki wyszukiwania po słowach, które Delivery Lead wpisał w Championie.",
+};
 
-function PickList({
-  rows,
-  selected,
-  onToggle,
-  readOnly,
-  emptyText,
-  label,
-  renderScore,
-}: {
-  rows: PickRow[];
-  selected: ReadonlySet<number>;
-  onToggle: (row: PickRow) => void;
-  readOnly: boolean;
-  emptyText: string;
-  label: string;
-  /** Własna komórka wyniku (Propozycje: dopasowanie liczone na żądanie). */
-  renderScore?: (row: PickRow) => ReactNode;
-}) {
-  if (rows.length === 0) {
-    return <p className="py-4 text-sm text-muted-foreground">{emptyText}</p>;
-  }
-  return (
-    <ul aria-label={label} className="divide-y divide-border rounded-md border border-border">
-      {rows.map((row) => {
-        const blocked = row.warnings.some((w) => w.blocking);
-        const checked = selected.has(row.candidateId);
-        const inputId = `add-candidate-${row.candidateId}`;
-        return (
-          <li
-            key={row.candidateId}
-            data-candidate-id={row.candidateId}
-            className={cn("flex items-start gap-3 px-3 py-2", checked && "bg-primary/5")}
-          >
-            <Checkbox
-              id={inputId}
-              checked={checked}
-              disabled={readOnly || blocked}
-              onCheckedChange={() => onToggle(row)}
-              aria-label={`Zaznacz ${row.fullName}`}
-              className="mt-0.5"
-            />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-start justify-between gap-2">
-                <label htmlFor={inputId} className="min-w-0 truncate text-sm font-medium text-foreground">
-                  {row.fullName}
-                </label>
-                {renderScore ? (
-                  renderScore(row)
-                ) : (
-                  <ScoreBadge score={row.fitScore} />
-                )}
-              </div>
-              {/* Fakty zamiast pustych pól — nieznane po prostu nie wchodzą. */}
-              {row.facts ? (
-                <p className="text-xs text-muted-foreground">{row.facts}</p>
-              ) : row.rateLabel || row.availabilityLabel ? (
-                <p className="text-xs text-muted-foreground">
-                  {[row.rateLabel, row.availabilityLabel].filter(Boolean).join(" · ")}
-                </p>
-              ) : null}
-              {row.note && <p className="line-clamp-2 text-xs text-muted-foreground">{row.note}</p>}
-              {(row.sourceLabel || row.cvBadge || row.warnings.length > 0) && (
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {row.cvBadge ? <CvBadge badge={row.cvBadge} /> : null}
-                  {row.sourceLabel && (
-                    <span className="rounded bg-muted px-1.5 text-[10.5px] font-semibold text-muted-foreground">
-                      {row.sourceLabel}
-                    </span>
-                  )}
-                  {row.warnings.map((w) => (
-                    <span
-                      key={w.key}
-                      className={cn(
-                        "rounded px-1.5 text-[10.5px] font-semibold",
-                        eligibilityBadgeClass({ assignment_allowed: !w.blocking }),
-                      )}
-                    >
-                      {w.label}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
+/** „Z portalu (JJIT/RocketJobs) · 2 dni temu”. */
+function sourceLine(entry: ProposalEntry): string {
+  const labels = entry.row.sources.map((s) => PROPOSAL_SOURCE_LABEL[s]).filter(Boolean);
+  const seen = entry.detail.postingRecent
+    ? (entry.detail.postingSeenAt ?? entry.detail.firstSeenAt)
+    : entry.detail.firstSeenAt;
+  return [labels.join(", ") || "Propozycja", seen ? formatRelativeTime(seen) : null]
+    .filter(Boolean)
+    .join(" · ");
 }
-
-function ScoreBadge({ score }: { score: number | null }) {
-  return (
-    <span
-      className={cn(
-        "shrink-0 text-xs font-bold tabular-nums",
-        score != null ? "text-primary" : "font-normal text-muted-foreground",
-      )}
-      title={score != null ? "Dopasowanie do rekrutacji" : "Dopasowania nie policzono"}
-    >
-      {score != null ? `${Math.round(score)}%` : "nie policzono"}
-    </span>
-  );
-}
-
-const TAB_ORDER: AddCandidatesTab[] = ["search", "proposals", "my_people", "by_name"];
 
 export function AddCandidatesPanel(props: AddCandidatesPanelProps) {
-  // Treść (i jej zapytania) żyje wyłącznie przy otwartym panelu — wejście na
-  // stronę rekrutacji nie może odpalać przeglądu bazy ani „Moich ludzi".
+  // Treść (i jej zapytania) żyje wyłącznie przy otwartym oknie — wejście na
+  // stronę rekrutacji nie może odpalać skrzynki propozycji ani wyszukiwania.
   if (!props.open) return null;
   return <AddCandidatesPanelOpen {...props} />;
 }
@@ -338,21 +218,29 @@ export function AddCandidatesPanel(props: AddCandidatesPanelProps) {
 function AddCandidatesPanelOpen({
   onOpenChange,
   jobId,
-  initialTab = "search",
+  job,
+  tab,
+  onTabChange,
   budgetHourly,
-  location = null,
   pipelineCandidateIds,
   readOnly = false,
   onOpenManualSearch,
-  onOpenQuickAdd,
-  onOpenFromCv,
+  onOpenChampionSearch,
+  onOpenFullList,
+  fullReviewRequest = null,
+  onFullReviewHandled,
 }: AddCandidatesPanelProps) {
-  const queryClient = useQueryClient();
-  const { showToast, showError } = useToast();
-  const [tab, setTab] = useState<AddCandidatesTab>(initialTab);
-  // Zaznaczenie ze wszystkich zakładek naraz — każda osoba pamięta, skąd ją
-  // wzięto (źródło w `proposals/bulk`).
-  const [selected, setSelected] = useState<Map<number, "proposal" | "my_people">>(() => new Map());
+  const canOpenProfile = useCapability("nav.candidates");
+  // Zakładka pyta o swoje dane dopiero po pierwszym wejściu; stan (zaznaczenia,
+  // wybrane rekrutacje) przeżywa przełączanie, bo hooki zostają zamontowane.
+  const [visited, setVisited] = useState<ReadonlySet<CandidateSourceTab>>(() => new Set([tab]));
+  useEffect(() => {
+    setVisited((prev) => (prev.has(tab) ? prev : new Set([...prev, tab])));
+  }, [tab]);
+
+  const [selected, setSelected] = useState<ReadonlySet<number>>(() => new Set());
+  const [previewId, setPreviewId] = useState<number | null>(null);
+  const previewTrigger = useRef<HTMLElement | null>(null);
 
   const proposals = useJobProposals(jobId, {
     filters: DEFAULT_PROPOSAL_FILTERS,
@@ -360,39 +248,73 @@ function AddCandidatesPanelOpen({
     pipelineCandidateIds,
     readOnly,
   });
-  const requirements = useQuery({
-    queryKey: ["matching-requirements", jobId],
-    queryFn: () => matchingRequirementsApi.get(jobId),
-    staleTime: 60_000,
+  const dismissPrompt = useDismissReasonPrompt(proposals.dismiss);
+  const counts = useQuery({
+    queryKey: jobProposalsKeys.counts(jobId),
+    queryFn: ({ signal }) => jobProposalsApi.counts(jobId, signal),
+    staleTime: 30_000,
+    retry: false,
   });
-  const myPeople = useMyPeopleForJob(jobId, tab === "my_people");
+  const similarJobs = useSimilarJobs(jobId, !readOnly);
+  const similarTab = useSimilarJobsTab(jobId, {
+    enabled: visited.has("similar"),
+    readOnly,
+  });
+  const searchSeed = useJobSearchSeed(jobId, job, visited.has("search"));
+  const searchTab = useSearchBaseTab(jobId, {
+    enabled: visited.has("search"),
+    seed: searchSeed,
+    notSearchable: counts.data?.not_searchable_must ?? [],
+    readOnly,
+    canOpenProfile,
+    onOpenManualSearch: () => {
+      onOpenChange(false);
+      onOpenManualSearch();
+    },
+    onOpenChampionSearch: onOpenChampionSearch
+      ? () => {
+          onOpenChange(false);
+          onOpenChampionSearch();
+        }
+      : undefined,
+  });
 
-  const searchRows = useMemo(
-    () => proposals.entries.filter((e) => e.detail.origins.includes("run")).map((e) => proposalRow(e, null, budgetHourly)),
-    [proposals.entries, budgetHourly],
-  );
-  const proposalEntries = useMemo(
-    () => proposals.entries.filter((e) => e.detail.origins.some((o) => o !== "run")),
-    [proposals.entries],
-  );
+  const split = useMemo(() => splitByPostings(proposals.entries), [proposals.entries]);
+  // Kafle nad Tablicą mają mówić to samo, co zakładki: lista łączy skrzynkę
+  // z żywym przeglądem i podobnymi projektami, więc bywa dłuższa niż licznik
+  // samej skrzynki. Publikujemy dopiero, gdy każde źródło się rozstrzygnęło.
+  const queryClient = useQueryClient();
+  const postingsCount = split.postings.length;
+  const baseCount = split.base.length;
+  const sourcesSettled = proposals.status.settled;
+  useEffect(() => {
+    if (!sourcesSettled) return;
+    queryClient.setQueryData(jobProposalsKeys.visibleSplit(jobId), {
+      postings: postingsCount,
+      base: baseCount,
+    });
+  }, [queryClient, jobId, sourcesSettled, postingsCount, baseCount]);
+  const listTab: "postings" | "base" | null = tab === "postings" || tab === "base" ? tab : null;
+  const listEntries = listTab === "postings" ? split.postings : split.base;
+
   // Klucz ze zbioru id — odświeżenie listy z tymi samymi osobami nie gubi
   // faktów ani policzonych dopasowań.
-  const proposalIdsKey = proposalEntries.map((e) => e.row.candidateId).join(",");
-  const proposalIds = useMemo(
-    () => (proposalIdsKey ? proposalIdsKey.split(",").map(Number) : []),
-    [proposalIdsKey],
+  const listIdsKey = listEntries.map((e) => e.row.candidateId).join(",");
+  const listIds = useMemo(
+    () => (listIdsKey ? listIdsKey.split(",").map(Number) : []),
+    [listIdsKey],
   );
   const factsQuery = useQuery({
-    queryKey: jobProposalsKeys.facts(jobId, proposalIds),
+    queryKey: jobProposalsKeys.facts(jobId, listIds),
     queryFn: async ({ signal }) => {
       const chunks: number[][] = [];
-      for (let i = 0; i < proposalIds.length; i += PROPOSAL_FACTS_MAX_IDS) {
-        chunks.push(proposalIds.slice(i, i + PROPOSAL_FACTS_MAX_IDS));
+      for (let i = 0; i < listIds.length; i += PROPOSAL_FACTS_MAX_IDS) {
+        chunks.push(listIds.slice(i, i + PROPOSAL_FACTS_MAX_IDS));
       }
       const pages = await Promise.all(chunks.map((ids) => jobProposalsApi.facts(jobId, ids, signal)));
       return pages.flatMap((page) => page.items);
     },
-    enabled: tab === "proposals" && proposalIds.length > 0,
+    enabled: listTab !== null && listIds.length > 0,
     staleTime: 60_000,
   });
   const factsById = useMemo(
@@ -404,17 +326,17 @@ function AddCandidatesPanelOpen({
     () => (factsQuery.data ?? []).some((f) => f.client_history != null),
     [factsQuery.data],
   );
-  const proposalRows = useMemo(() => {
-    const rows = proposalEntries.map((e) =>
+  const listRows = useMemo(() => {
+    const rows = listEntries.map((e) =>
       proposalRow(e, factsById.get(e.row.candidateId) ?? null, budgetHourly),
     );
     return sortMode === "client_first" ? sortByClientHistory(rows, factsById) : rows;
-  }, [proposalEntries, factsById, sortMode, budgetHourly]);
+  }, [listEntries, factsById, sortMode, budgetHourly]);
 
   // Dopasowanie na żądanie — ta sama ścieżka co kolumna wyszukiwarki
   // (`/api/search/candidates/scores`, paczki po 20, limit i ponowienia 429
   // w `useVisibleMatchScores`). Liczymy tylko osoby bez wyniku.
-  const unscoredKey = proposalEntries
+  const unscoredKey = proposals.entries
     .filter((e) => e.row.fitScore == null)
     .map((e) => e.row.candidateId)
     .join(",");
@@ -442,10 +364,12 @@ function AddCandidatesPanelOpen({
   useEffect(() => {
     setScoreRequested(new Set());
   }, [scoreItems]);
-  // Do policzenia: osoby wciąż na liście, o które jeszcze nie pytaliśmy.
+  // Do policzenia: osoby z TEJ zakładki, o które jeszcze nie pytaliśmy.
   // Odpowiedź „ocena niepełna” i błąd mają własne stany wiersza (błąd — „ponów”).
+  const onThisTab = useMemo(() => new Set(listIds), [listIds]);
   const scoreCandidates = scoreItems.filter(
     ({ id }) =>
+      onThisTab.has(id) &&
       unscoredNow.has(id) &&
       !scoreRequested.has(id) &&
       matchScores.scores[String(id)] == null &&
@@ -494,81 +418,91 @@ function AddCandidatesPanelOpen({
     }
     return <ScoreBadge score={null} />;
   };
-  const inJob = useMemo(() => new Set(pipelineCandidateIds ?? []), [pipelineCandidateIds]);
-  const myPeopleRows = useMemo(
-    () =>
-      (myPeople.data?.rows ?? [])
-        .filter((r) => !inJob.has(r.candidate_id))
-        .map((r) => myPeopleRow(r, budgetHourly)),
-    [myPeople.data, inJob, budgetHourly],
-  );
 
-  const toggle = useCallback((row: PickRow, origin: "proposal" | "my_people") => {
+  const toggle = useCallback((candidateId: number) => {
     setSelected((prev) => {
-      const next = new Map(prev);
-      if (next.has(row.candidateId)) next.delete(row.candidateId);
-      else next.set(row.candidateId, origin);
+      const next = new Set(prev);
+      if (next.has(candidateId)) next.delete(candidateId);
+      else next.add(candidateId);
       return next;
     });
   }, []);
-  const selectedIds = useMemo(() => new Set(selected.keys()), [selected]);
-
-  const addMyPeople = useMutation({
-    mutationFn: (ids: number[]) =>
-      proposalsBulkApi.add(jobId, { candidate_ids: ids, source: "my_people" }),
-  });
-  const [adding, setAdding] = useState(false);
-  const count = selected.size;
-
-  const addSelected = async () => {
+  // Zaznaczenie obejmuje obie zakładki propozycji; liczymy tylko osoby, które
+  // nadal są na liście (dodane i pominięte z niej znikają).
+  const entryIds = useMemo(
+    () => new Set(proposals.entries.map((e) => e.row.candidateId)),
+    [proposals.entries],
+  );
+  const selectedIds = useMemo(
+    () => new Set([...selected].filter((id) => entryIds.has(id))),
+    [selected, entryIds],
+  );
+  const count = selectedIds.size;
+  const addSelected = () => {
     if (readOnly || count === 0) return;
-    const proposalIds: number[] = [];
-    const peopleIds: number[] = [];
-    selected.forEach((origin, id) => (origin === "my_people" ? peopleIds : proposalIds).push(id));
-    setAdding(true);
-    try {
-      // Propozycje: wspólna ścieżka z ekranem „Do przejrzenia" (źródło
-      // i przegląd z pochodzenia wiersza, własny komunikat wyniku).
-      if (proposalIds.length > 0) proposals.addToJob(proposalIds);
-      if (peopleIds.length > 0) {
-        const result = await addMyPeople.mutateAsync(peopleIds);
-        const summary = summarizeBulkResult(result);
-        const tail = [
-          summary.skipped.length ? `pominięto: ${formatReasonCounts(summary.skipped)}` : "",
-          summary.warnings.length ? `uwaga: ${formatReasonCounts(summary.warnings)}` : "",
-        ]
-          .filter(Boolean)
-          .join("; ");
-        const head = summary.added > 0 ? `Dodano z Moich ludzi: ${summary.added}` : "Nikogo z Moich ludzi nie dodano";
-        showToast(tail ? `${head} — ${tail}` : head, summary.added > 0 ? "success" : "error");
-        void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-        void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
-        void queryClient.invalidateQueries({ queryKey: MY_PEOPLE_QUERY_PREFIX });
-      }
-      setSelected(new Map());
-    } catch (error) {
-      showError(assignErrorMessage(error));
-    } finally {
-      setAdding(false);
-    }
+    // Wspólna ścieżka z ekranem „Do przejrzenia” (źródło i przegląd
+    // z pochodzenia wiersza, własny komunikat wyniku).
+    proposals.addToJob([...selectedIds]);
+    setSelected(new Set());
   };
 
-  const must = requirementLabels(requirements.data, "must");
-  const nice = requirementLabels(requirements.data, "nice");
+  // „Przeszukaj całą bazę (AI)” z menu „⋯” — jedno żądanie = jeden start.
   const run = proposals.status.run;
   const runData = run.data;
   // Przegląd w toku: drugi start dublowałby trzyminutowy skan.
   const scanning = runData != null && searchIsRunning(runData.state);
-  const tabLabel: Record<AddCandidatesTab, string> = {
-    search: "Szukaj w bazie (AI)",
-    proposals: `Propozycje · ${proposalRows.length}`,
-    my_people: myPeople.data ? `Moi ludzie · ${myPeopleRows.length}` : "Moi ludzie",
-    by_name: "Po nazwisku / z pliku CV",
+  const handledReview = useRef<number | null>(null);
+  const { startRun } = proposals.status;
+  // Stan przeglądu znamy dopiero po pierwszym renderze: zapamiętany przegląd
+  // wraca z pamięci przeglądarki w efekcie, a jego dane dochodzą zapytaniem.
+  // Start przed tym dublowałby skan, który już trwa.
+  const [armed, setArmed] = useState(false);
+  useEffect(() => setArmed(true), []);
+  const reviewStateKnown =
+    armed &&
+    proposals.status.settled &&
+    (run.runId == null || runData != null || run.error != null);
+  useEffect(() => {
+    if (fullReviewRequest == null || handledReview.current === fullReviewRequest) return;
+    if (!reviewStateKnown) return;
+    handledReview.current = fullReviewRequest;
+    if (!readOnly && !scanning && !run.running && !run.starting) startRun();
+    onFullReviewHandled?.();
+    // Stan przeglądu czytamy z chwili, w której stał się znany — późniejsza
+    // zmiana stanu nie startuje przeglądu ponownie.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullReviewRequest, reviewStateKnown]);
+
+  // ── Podgląd osoby (zakładki propozycji) ─────────────────────────────────
+  const entryById = useMemo(
+    () => new Map(listEntries.map((e) => [e.row.candidateId, e] as const)),
+    [listEntries],
+  );
+  const previewIndex = previewId == null ? -1 : listRows.findIndex((r) => r.candidateId === previewId);
+  const previewRow = previewIndex >= 0 ? listRows[previewIndex] : null;
+  const previewEntry = previewRow ? (entryById.get(previewRow.candidateId) ?? null) : null;
+  const closePreview = () => {
+    setPreviewId(null);
+    const trigger = previewTrigger.current;
+    if (trigger?.isConnected) trigger.focus();
+  };
+  // Zmiana zakładki zamyka kartę osoby z poprzedniej listy.
+  useEffect(() => {
+    setPreviewId(null);
+  }, [tab]);
+
+  const similarTotal = similarPeopleTotal(similarJobs.data);
+  const more = proposals.status.inbox.hasMore ? "+" : "";
+  const tabCount: Record<CandidateSourceTab, string | null> = {
+    similar: similarTotal ? String(similarTotal.total) : null,
+    postings: proposals.status.settled ? `${split.postings.length}${more}` : null,
+    base: proposals.status.settled ? `${split.base.length}${more}` : null,
+    search: searchTab.total != null ? String(searchTab.total) : null,
   };
 
-  const toolbar = (
-    <div role="tablist" aria-label="Skąd dodać" className="flex flex-wrap gap-1 pb-2">
-      {TAB_ORDER.map((key) => (
+  const tablist = (
+    <div role="tablist" aria-label="Źródło kandydatów" className="flex flex-wrap gap-1 pb-2">
+      {CANDIDATE_SOURCE_TABS.map((key) => (
         <button
           key={key}
           type="button"
@@ -576,45 +510,246 @@ function AddCandidatesPanelOpen({
           id={`add-candidates-tab-${key}`}
           aria-selected={tab === key}
           aria-controls={`add-candidates-panel-${key}`}
-          onClick={() => setTab(key)}
+          onClick={() => onTabChange(key)}
           className={cn(
-            "inline-flex h-8 items-center rounded-md px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             tab === key ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground",
           )}
         >
-          {tabLabel[key]}
+          {TAB_LABEL[key]}
+          {tabCount[key] != null ? <span className="tabular-nums">· {tabCount[key]}</span> : null}
         </button>
       ))}
     </div>
   );
 
-  const footer = (
+  const proposalsFooter = (
     <div className="flex flex-wrap items-center justify-between gap-2">
       <p className="text-xs text-muted-foreground" aria-live="polite" data-testid="add-candidates-summary">
-        {count > 0
-          ? `${count} zaznaczonych trafi do »Nowych«, zarezerwowanych dla Ciebie na 12 h.`
-          : "Zaznacz osoby — trafią do »Nowych«, zarezerwowane dla Ciebie na 12 h."}
+        {readOnly
+          ? "Masz tu tylko podgląd — dodawać może zespół rekrutacji."
+          : count > 0
+            ? `${count} zaznaczonych trafi do »Nowych«, zarezerwowanych dla Ciebie na 12 h.`
+            : "Zaznacz osoby — trafią do »Nowych«, zarezerwowane dla Ciebie na 12 h."}
       </p>
-      <Button
-        onClick={addSelected}
-        disabled={readOnly || count === 0 || adding || proposals.adding}
-        loading={adding || proposals.adding}
-        data-testid="add-candidates-submit"
-      >
-        <UserPlus className="h-4 w-4" aria-hidden="true" />
-        Dodaj {count} do Nowych
-      </Button>
+      {readOnly ? null : (
+        <Button
+          onClick={addSelected}
+          disabled={count === 0 || proposals.adding}
+          loading={proposals.adding}
+          data-testid="add-candidates-submit"
+        >
+          <UserPlus className="h-4 w-4" aria-hidden="true" />
+          Dodaj {count} do Nowych
+        </Button>
+      )}
     </div>
   );
+
+  const proposalsList = (label: string, emptyText: string) =>
+    proposals.status.inbox.isError ? (
+      <p role="alert" className="text-sm text-destructive">
+        {apiErrorMessage(proposals.status.inbox.error, "Nie wczytano propozycji.")}{" "}
+        <button type="button" className="underline" onClick={proposals.status.retryEngine}>
+          Ponów
+        </button>
+      </p>
+    ) : !proposals.status.settled ? (
+      <p role="status" className="text-sm text-muted-foreground">
+        Wczytuję propozycje…
+      </p>
+    ) : (
+      <>
+        {listRows.length > 0 && (scoreCandidates.length > 0 || anyClientHistory) ? (
+          <div className="flex flex-wrap items-center gap-2" data-testid="proposals-toolbar">
+            {scoreCandidates.length > 0 && (
+              <Button size="sm" variant="outline" onClick={requestScores}>
+                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                Policz dopasowanie dla {scoreCandidates.length}
+              </Button>
+            )}
+            {anyClientHistory && (
+              <div role="group" aria-label="Kolejność propozycji" className="ml-auto flex gap-1">
+                {(
+                  [
+                    ["client_first", "Najpierw byli u tego klienta"],
+                    ["proposals", "Kolejność propozycji"],
+                  ] as const
+                ).map(([mode, text]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={sortMode === mode}
+                    onClick={() => setSortMode(mode)}
+                    className={cn(
+                      "inline-flex h-7 items-center rounded-full border px-2.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      sortMode === mode
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-card text-foreground hover:bg-muted",
+                    )}
+                  >
+                    {text}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
+        {factsQuery.isError && (
+          <p role="alert" className="text-xs text-muted-foreground">
+            {apiErrorMessage(factsQuery.error, "Nie wczytano szczegółów osób.")}{" "}
+            <button type="button" className="font-medium text-primary underline" onClick={() => void factsQuery.refetch()}>
+              Ponów
+            </button>
+          </p>
+        )}
+        <PickList
+          label={label}
+          rows={listRows}
+          selected={selectedIds}
+          onToggle={(row) => toggle(row.candidateId)}
+          readOnly={readOnly}
+          emptyText={emptyText}
+          renderScore={renderProposalScore}
+          activeId={previewRow?.candidateId ?? null}
+          onPreview={(row, trigger) => {
+            previewTrigger.current = trigger;
+            setPreviewId(row.candidateId);
+          }}
+          onClosePreview={closePreview}
+          onDismiss={(row) => dismissPrompt.ask([row.candidateId])}
+        />
+        {proposals.status.inbox.hasMore ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={proposals.status.inbox.loadMore}
+            loading={proposals.status.inbox.loadingMore}
+          >
+            Pokaż więcej
+          </Button>
+        ) : null}
+      </>
+    );
+
+  const baseBody = (
+    <>
+      {proposals.status.engineDegraded && (
+        <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+          Silnik dopasowań AI jest chwilowo niedostępny — brak liczby znaczy „nie policzono”, nie „nie pasuje”.
+        </p>
+      )}
+      {run.error != null && (
+        <p role="alert" className="text-xs text-destructive">
+          {apiErrorMessage(run.error, "Nie udało się odczytać przeglądu bazy.")}{" "}
+          <button type="button" className="underline" onClick={proposals.status.retryRun}>
+            Ponów
+          </button>
+        </p>
+      )}
+      {/* Stan przeglądu bazy uruchomionego ręcznie z menu „⋯” — wyniki lądują na tej liście. */}
+      {runData && (run.error == null || scanning) && (scanning || run.runId) ? (
+        <section aria-label="Przegląd bazy" className="space-y-1">
+          {scanning ? (
+            <p className="text-xs text-muted-foreground">Przeglądamy całą bazę — potrwa ok. 3 minut.</p>
+          ) : null}
+          <FullCandidateSearchStatus
+            data={runData}
+            offset={run.offset}
+            onPage={run.setOffset}
+            fetching={run.fetching}
+            onRestart={readOnly ? undefined : proposals.status.startRun}
+            restarting={run.running}
+            compact
+          />
+        </section>
+      ) : null}
+      {proposalsList("Propozycje z bazy", "Nikt nie czeka w propozycjach z bazy.")}
+      {onOpenFullList ? (
+        <button
+          type="button"
+          onClick={() => {
+            onOpenChange(false);
+            onOpenFullList();
+          }}
+          className="text-xs font-semibold text-primary hover:underline"
+        >
+          Pełna lista z filtrami i shortlista
+        </button>
+      ) : null}
+    </>
+  );
+
+  const postingsBody = (
+    <>
+      {proposalsList(
+        "Nowi z ogłoszeń",
+        "Nikt nowy z ogłoszeń z ostatnich 7 dni nie pasuje do tej rekrutacji.",
+      )}
+      <ScreenedOutSection jobId={jobId} readOnly={readOnly} />
+    </>
+  );
+
+  const listSidePane =
+    previewRow && previewEntry ? (
+      <PersonPreview
+        key={previewRow.candidateId}
+        jobId={jobId}
+        candidateId={previewRow.candidateId}
+        name={previewRow.fullName}
+        source={{
+          title: "Skąd ta osoba",
+          line: sourceLine(previewEntry),
+          // Historię u klienta karta pokazuje w „Profilu” — tu sam powód propozycji.
+          subline: previewEntry.row.reason,
+        }}
+        position={{ index: previewIndex, total: listRows.length }}
+        onPrev={() => setPreviewId(listRows[previewIndex - 1]?.candidateId ?? previewRow.candidateId)}
+        onNext={() => setPreviewId(listRows[previewIndex + 1]?.candidateId ?? previewRow.candidateId)}
+        onClose={closePreview}
+        canOpenProfile={canOpenProfile}
+        selection={{
+          checked: selectedIds.has(previewRow.candidateId),
+          disabled: readOnly || previewRow.warnings.some((w) => w.blocking),
+          onToggle: () => toggle(previewRow.candidateId),
+          label:
+            previewRow.warnings.find((w) => w.blocking)?.label ?? "Dodaj tę osobę do „Nowych”",
+        }}
+      />
+    ) : undefined;
+
+  const slots =
+    tab === "similar"
+      ? similarTab
+      : tab === "search"
+        ? searchTab
+        : {
+            toolbar: null,
+            body: tab === "postings" ? postingsBody : baseBody,
+            footer: proposalsFooter,
+            sidePane: listSidePane,
+            onEscapeKeyDown: (event: KeyboardEvent) => {
+              if (!previewRow) return;
+              event.preventDefault();
+              closePreview();
+            },
+          };
 
   return (
     <RecruitmentSheet
       open
       onOpenChange={onOpenChange}
-      title="Dodaj kandydatów"
-      description="Z przeglądu bazy, propozycji, Twoich ludzi albo po nazwisku."
-      toolbar={toolbar}
-      footer={footer}
+      title="Kandydaci do dodania"
+      description={TAB_DESCRIPTION[tab]}
+      toolbar={
+        <>
+          {tablist}
+          {slots.toolbar}
+        </>
+      }
+      footer={slots.footer}
+      sidePane={slots.sidePane}
+      onEscapeKeyDown={slots.onEscapeKeyDown}
       data-testid="add-candidates-panel"
     >
       <div
@@ -623,249 +758,8 @@ function AddCandidatesPanelOpen({
         aria-labelledby={`add-candidates-tab-${tab}`}
         className="space-y-3"
       >
-        {tab === "search" && (
-          <>
-            <section aria-label="Kryteria" className="space-y-2 rounded-md border border-border p-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Kryteria z Championa
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onOpenChange(false);
-                    onOpenManualSearch();
-                  }}
-                  className="text-xs font-semibold text-primary hover:underline"
-                >
-                  Zmień kryteria
-                </button>
-              </div>
-              {requirements.isError ? (
-                <p className="text-xs text-destructive">
-                  {apiErrorMessage(requirements.error, "Nie wczytano wymagań rekrutacji.")}
-                </p>
-              ) : (
-                <ul className="flex flex-wrap gap-1" aria-label="Kryteria wyszukiwania">
-                  {must.map((m) => (
-                    <li key={`m-${m}`} className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                      {m}
-                    </li>
-                  ))}
-                  {nice.map((m) => (
-                    <li
-                      key={`n-${m}`}
-                      className="rounded-full border border-dashed border-border px-2 py-0.5 text-[11px] text-muted-foreground"
-                    >
-                      {m}
-                    </li>
-                  ))}
-                  {location && (
-                    <li className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground">📍 {location}</li>
-                  )}
-                  {budgetHourly != null && (
-                    <li className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground">
-                      do {budgetHourly} zł/h
-                    </li>
-                  )}
-                  {requirements.isSuccess && must.length + nice.length === 0 && !location && budgetHourly == null && (
-                    <li className="text-xs text-muted-foreground">Rekrutacja nie ma jeszcze wymagań — uzupełnij Championa.</li>
-                  )}
-                </ul>
-              )}
-            </section>
-
-            <section aria-label="Przegląd bazy" className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="mr-auto text-xs text-muted-foreground">
-                  {scanning
-                    ? "Przeglądamy całą bazę — potrwa ok. 3 minut."
-                    : proposals.status.latestRun || runData
-                      ? "Wyniki ostatniego przeglądu całej bazy."
-                      : "Całej bazy jeszcze nie przeszukano."}
-                </p>
-                {!readOnly && (
-                  <Button
-                    size="sm"
-                    variant={runData ? "outline" : "primary"}
-                    loading={run.starting}
-                    disabled={run.running || scanning}
-                    onClick={proposals.status.startRun}
-                  >
-                    <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-                    {run.runId || proposals.status.latestRun ? "Przeszukaj ponownie" : "Przeszukaj całą bazę"}
-                  </Button>
-                )}
-              </div>
-              {proposals.status.engineDegraded && (
-                <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
-                  Silnik dopasowań AI jest chwilowo niedostępny — brak liczby znaczy „nie policzono”, nie „nie pasuje”.
-                </p>
-              )}
-              {run.error != null && (
-                <p role="alert" className="text-xs text-destructive">
-                  {apiErrorMessage(run.error, "Nie udało się odczytać przeglądu bazy.")}{" "}
-                  <button type="button" className="underline" onClick={proposals.status.retryRun}>
-                    Ponów
-                  </button>
-                </p>
-              )}
-              {runData && (run.error == null || searchIsRunning(runData.state)) && (
-                <FullCandidateSearchStatus
-                  data={runData}
-                  offset={run.offset}
-                  onPage={run.setOffset}
-                  fetching={run.fetching}
-                  onRestart={readOnly ? undefined : proposals.status.startRun}
-                  restarting={run.running}
-                  compact
-                />
-              )}
-            </section>
-            {runData && !searchIsRunning(runData.state) ? (
-              <PickList
-                label="Wyniki przeglądu bazy"
-                rows={searchRows}
-                selected={selectedIds}
-                onToggle={(row) => toggle(row, "proposal")}
-                readOnly={readOnly}
-                emptyText="Przegląd nie znalazł osób spoza rekrutacji, które pasują."
-              />
-            ) : null}
-          </>
-        )}
-
-        {tab === "proposals" &&
-          (proposals.status.inbox.isError ? (
-            <p role="alert" className="text-sm text-destructive">
-              {apiErrorMessage(proposals.status.inbox.error, "Nie wczytano propozycji.")}{" "}
-              <button type="button" className="underline" onClick={proposals.status.retryEngine}>
-                Ponów
-              </button>
-            </p>
-          ) : !proposals.status.settled ? (
-            <p role="status" className="text-sm text-muted-foreground">
-              Wczytuję propozycje…
-            </p>
-          ) : (
-            <>
-              {proposalRows.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2" data-testid="proposals-toolbar">
-                  {scoreCandidates.length > 0 && (
-                    <Button size="sm" variant="outline" onClick={requestScores}>
-                      <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-                      Policz dopasowanie dla {scoreCandidates.length}
-                    </Button>
-                  )}
-                  {anyClientHistory && (
-                    <div role="group" aria-label="Kolejność propozycji" className="ml-auto flex gap-1">
-                      {(
-                        [
-                          ["client_first", "Najpierw byli u tego klienta"],
-                          ["proposals", "Kolejność propozycji"],
-                        ] as const
-                      ).map(([mode, label]) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          aria-pressed={sortMode === mode}
-                          onClick={() => setSortMode(mode)}
-                          className={cn(
-                            "inline-flex h-7 items-center rounded-full border px-2.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            sortMode === mode
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : "border-border bg-card text-foreground hover:bg-muted",
-                          )}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              {factsQuery.isError && (
-                <p role="alert" className="text-xs text-muted-foreground">
-                  {apiErrorMessage(factsQuery.error, "Nie wczytano szczegółów osób.")}{" "}
-                  <button type="button" className="font-medium text-primary underline" onClick={() => void factsQuery.refetch()}>
-                    Ponów
-                  </button>
-                </p>
-              )}
-              <PickList
-                label="Propozycje"
-                rows={proposalRows}
-                selected={selectedIds}
-                onToggle={(row) => toggle(row, "proposal")}
-                readOnly={readOnly}
-                emptyText="Nikt nie czeka w propozycjach."
-                renderScore={renderProposalScore}
-              />
-            </>
-          ))}
-
-        {tab === "my_people" &&
-          (myPeople.isError ? (
-            <p role="alert" className="text-sm text-destructive">
-              {apiErrorMessage(myPeople.error, "Nie wczytano Twoich ludzi.")}{" "}
-              <button type="button" className="underline" onClick={() => void myPeople.refetch()}>
-                Ponów
-              </button>
-            </p>
-          ) : !myPeople.isSuccess ? (
-            <p role="status" className="text-sm text-muted-foreground">
-              Wczytuję Twoich ludzi…
-            </p>
-          ) : (
-            <>
-              {myPeople.data.degraded && (
-                <p role="alert" className="text-xs text-warning">
-                  Dopasowania chwilowo niepoliczone — to nie znaczy, że nikt nie pasuje.
-                </p>
-              )}
-              <PickList
-                label="Moi ludzie"
-                rows={myPeopleRows}
-                selected={selectedIds}
-                onToggle={(row) => toggle(row, "my_people")}
-                readOnly={readOnly}
-                emptyText="Nikt z Twoich ludzi nie pasuje do tej rekrutacji."
-              />
-            </>
-          ))}
-
-        {tab === "by_name" && (
-          <div className="grid gap-2 sm:grid-cols-2">
-            <button
-              type="button"
-              disabled={readOnly}
-              onClick={() => {
-                onOpenChange(false);
-                onOpenQuickAdd();
-              }}
-              className="flex flex-col items-start gap-1 rounded-md border border-border p-3 text-left hover:border-primary/40 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <Search className="h-4 w-4 text-primary" aria-hidden="true" />
-              <span className="text-sm font-medium text-foreground">Po nazwisku</span>
-              <span className="text-xs text-muted-foreground">Nazwisko, e-mail albo telefon z bazy.</span>
-            </button>
-            {onOpenFromCv && (
-              <button
-                type="button"
-                disabled={readOnly}
-                onClick={() => {
-                  onOpenChange(false);
-                  onOpenFromCv();
-                }}
-                className="flex flex-col items-start gap-1 rounded-md border border-border p-3 text-left hover:border-primary/40 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <FileUp className="h-4 w-4 text-primary" aria-hidden="true" />
-                <span className="text-sm font-medium text-foreground">Z pliku CV</span>
-                <span className="text-xs text-muted-foreground">Nowy kandydat z CV.</span>
-              </button>
-            )}
-          </div>
-        )}
+        {slots.body}
+        {dismissPrompt.dialog}
       </div>
     </RecruitmentSheet>
   );

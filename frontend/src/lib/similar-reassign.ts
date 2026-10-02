@@ -11,6 +11,10 @@
  *
  * Osoba wysłana w dwóch wybranych rekrutacjach liczy się raz — przy pierwszej
  * klikniętej.
+ *
+ * „Pozostali” (02.10.2026): osoby z tej samej rekrutacji, których klient nie
+ * widział (`sent: false`). Nie zaznaczają się same — wybiera je człowiek —
+ * i nie idą przez przepięcie, tylko przez zwykłe dodanie do „Nowych”.
  */
 
 import type { SentOutcome, SentPerson, SimilarJobsPayload } from "@/lib/similar-jobs-api";
@@ -30,29 +34,52 @@ export interface ReassignPlan {
   rows: Record<number, PlannedPerson[]>;
   /** Kto zostanie przepięty, bez powtórzeń. */
   candidateIds: number[];
+  /** Zaznaczeni „pozostali” — dodawani zwykłą drogą, nie przepięciem. */
+  restIds: number[];
 }
+
+const EMPTY_IDS: ReadonlySet<number> = new Set();
 
 export function planReassign(
   jobOrder: readonly number[],
   peopleByJob: Readonly<Record<number, readonly SentPerson[] | undefined>>,
   excluded: ReadonlySet<number>,
+  /** „Pozostali” wybrani ręcznie (domyślnie nikt). */
+  included: ReadonlySet<number> = EMPTY_IDS,
 ): ReassignPlan {
+  // Osoba wysłana do klienta w KTÓREJKOLWIEK wybranej rekrutacji jest
+  // przepięciem — także wtedy, gdy wcześniej stoi na liście „pozostałych”.
+  const sentSomewhere = new Set<number>();
+  for (const jobId of jobOrder) {
+    for (const person of peopleByJob[jobId] ?? []) {
+      if (person.selectable && person.sent !== false) sentSomewhere.add(person.candidate_id);
+    }
+  }
   const seen = new Set<number>();
   const candidateIds: number[] = [];
+  const restIds: number[] = [];
   const rows: Record<number, PlannedPerson[]> = {};
   for (const jobId of jobOrder) {
     const people = peopleByJob[jobId];
     if (!people) continue;
     rows[jobId] = people.map((person) => {
       if (!person.selectable) return { person, state: "locked" };
-      if (seen.has(person.candidate_id)) return { person, state: "duplicate" };
+      const rest = person.sent === false;
+      if (seen.has(person.candidate_id) || (rest && sentSomewhere.has(person.candidate_id))) {
+        return { person, state: "duplicate" };
+      }
       seen.add(person.candidate_id);
+      if (rest) {
+        if (!included.has(person.candidate_id)) return { person, state: "unselected" };
+        restIds.push(person.candidate_id);
+        return { person, state: "selected" };
+      }
       if (excluded.has(person.candidate_id)) return { person, state: "unselected" };
       candidateIds.push(person.candidate_id);
       return { person, state: "selected" };
     });
   }
-  return { rows, candidateIds };
+  return { rows, candidateIds, restIds };
 }
 
 export interface PreviewEntry {
@@ -94,9 +121,23 @@ export function similarPeopleWaiting(
   return typeof n === "number" && n >= 0 ? n : null;
 }
 
+/**
+ * Liczba na kaflu „Podobne rekrutacje”: wysłani do klienta + pozostali
+ * (od Screeningu wzwyż). `null` = nie wiadomo — kafel wtedy milczy.
+ */
+export function similarPeopleTotal(
+  payload: Pick<SimilarJobsPayload, "reassignable_people" | "other_people"> | null | undefined,
+): { sent: number; other: number; total: number } | null {
+  const sent = similarPeopleWaiting(payload);
+  if (sent === null) return null;
+  const rawOther = payload?.other_people;
+  const other = typeof rawOther === "number" && rawOther >= 0 ? rawOther : 0;
+  return { sent, other, total: sent + other };
+}
+
 /** Ile osób z tej rekrutacji da się przepiąć (nagłówek grupy). */
 export function selectableCount(people: readonly SentPerson[] | undefined): number {
-  return (people ?? []).filter((p) => p.selectable).length;
+  return (people ?? []).filter((p) => p.selectable && p.sent !== false).length;
 }
 
 export const OUTCOME_LABEL: Record<SentOutcome, string> = {
@@ -114,11 +155,21 @@ const STAGE_LABEL: Record<string, string> = {
   negotiation: "negocjacje",
   onboarding: "onboarding",
   hired: "zatrudniony",
+  // „Pozostali” — najdalszy etap przed wysłaniem do klienta.
+  prep_call: "screening",
+  screening: "screening",
+  verified: "zweryfikowany",
+  interview: "QC CV",
 };
 
-/** „CV wysłane 12.09.2026 · klient odrzucił”. */
+/** „CV wysłane 12.09.2026 · klient odrzucił”; pozostali: „najdalej: screening · proces trwa”. */
 export function personStatusLine(person: SentPerson): string {
   const stage = STAGE_LABEL[person.furthest_stage] ?? person.furthest_stage;
+  if (person.sent === false) {
+    const rest = [`najdalej: ${stage}`, OUTCOME_LABEL[person.outcome]];
+    if (person.already_in_job) rest.push("już w tej rekrutacji");
+    return rest.join(" · ");
+  }
   const when = person.sent_at ? ` ${formatDate(person.sent_at)}` : "";
   const parts = [`${stage}${person.furthest_stage === "cv_sent" ? when : ""}`];
   if (person.outcome !== "hired" || person.furthest_stage !== "hired") {

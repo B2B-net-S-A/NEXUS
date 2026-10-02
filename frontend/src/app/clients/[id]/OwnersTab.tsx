@@ -8,6 +8,18 @@ import { apiErrorMessage } from "@/lib/api-error";
 import type { ClientTeamResponse, ClientTeamTacAssignment } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { CALM_EMPTY, CALM_HEAD, CALM_SUBLINE } from "@/lib/calm-table";
+import { formatIsoDatePl } from "@/lib/date-pl";
 import { TAC_UI_ENABLED } from "@/lib/tac-ui";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -23,6 +35,16 @@ interface AppUser {
 
 const TAC_ROLES = ["delivery_lead", "admin", "head_of_recruitment"];
 const DL_ROLES = ["delivery_lead", "admin", "head_of_recruitment"];
+
+function initialsOf(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
+}
 
 export function OwnersTab({ clientId }: { clientId: number }) {
   const qc = useQueryClient();
@@ -191,9 +213,9 @@ export function OwnersTab({ clientId }: { clientId: number }) {
     u.name || u.full_name || u.email;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {!canEdit && (
-        <div className="text-xs text-muted-foreground bg-muted dark:bg-card/40 rounded-lg px-3 py-2">
+        <div className="text-xs text-muted-foreground bg-muted rounded-lg px-3 py-2">
           Widok tylko do odczytu. Edycja opiekunów klienta wymaga roli
           <strong> admin</strong> lub <strong>head_of_recruitment</strong>.
         </div>
@@ -203,13 +225,13 @@ export function OwnersTab({ clientId }: { clientId: number }) {
       {showTac ? (
         <section>
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
+            <h3 className="text-sm font-semibold text-foreground">
               TAC (Talent Acquisition Consultants)
             </h3>
             {canEdit && !addingTac && (
               <button
                 onClick={() => setAddingTac(true)}
-                className="inline-flex items-center gap-1 text-xs px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                className="inline-flex items-center gap-1 text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
               >
                 <Plus className="w-3.5 h-3.5" /> Dodaj TAC
               </button>
@@ -217,10 +239,10 @@ export function OwnersTab({ clientId }: { clientId: number }) {
           </div>
 
           {addingTac && canEdit && (
-            <div className="bg-muted dark:bg-card/40 rounded-lg p-4 mb-3 space-y-3">
+            <div className="bg-muted rounded-lg p-4 mb-3 space-y-3">
               <label className="block text-xs text-muted-foreground">Użytkownik</label>
               <select
-                className="w-full border border-border dark:border-border rounded-lg px-3 py-2 text-sm bg-card dark:bg-muted"
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-card dark:bg-muted"
                 value={tacUserId}
                 onChange={(e) => setTacUserId(e.target.value)}
               >
@@ -252,7 +274,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                         : { user_id: Number(tacUserId) },
                     )
                   }
-                  className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                  className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50"
                 >
                   Dodaj
                 </button>
@@ -279,15 +301,15 @@ export function OwnersTab({ clientId }: { clientId: number }) {
               {tacs.map((t) => (
                 <li
                   key={t.id}
-                  className="flex flex-wrap items-center justify-between gap-2 bg-card dark:bg-muted border border-border dark:border-border rounded-lg px-3 py-2"
+                  className="flex flex-wrap items-center justify-between gap-2 bg-card dark:bg-muted border border-border rounded-lg px-3 py-2"
                 >
                   <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <UserCircle2 className="w-6 h-6 shrink-0 text-purple-500" />
+                    <UserCircle2 className="w-6 h-6 shrink-0 text-muted-foreground" />
                     <div className="min-w-0">
                       <div className="text-sm font-medium flex flex-wrap items-center gap-2">
                         {t.name}
                         {t.is_first_priority_for_tac && (
-                          <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/30 dark:text-purple-300">
+                          <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary">
                             <Target className="w-3 h-3" /> 1. priorytet tego TAC-a
                           </span>
                         )}
@@ -310,7 +332,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                         <button
                           onClick={() => setFirstPriorityTac.mutate(t)}
                           disabled={setFirstPriorityTac.isPending}
-                          className="text-xs px-2 py-1 rounded border border-border dark:border-border hover:bg-muted dark:hover:bg-muted pointer-coarse:min-h-10"
+                          className="text-xs px-2 py-1 rounded border border-border hover:bg-muted pointer-coarse:min-h-10"
                           title="Ustaw klienta jako pierwszy priorytet tego TAC-a"
                         >
                           Ustaw 1. priorytet
@@ -335,25 +357,33 @@ export function OwnersTab({ clientId }: { clientId: number }) {
 
       {/* ── Delivery Leads ───────────────────────────────────────────── */}
       <section>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
+        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h3 className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
             Delivery Leads
+            <span className="rounded-full bg-muted px-1.5 text-[11px] font-semibold leading-[18px] text-muted-foreground tabular-nums">
+              {dls.length}
+            </span>
           </h3>
+          <span className="text-xs text-muted-foreground">
+            Główny DL (head) jest wpisywany do nowych projektów klienta.
+          </span>
           {canEdit && !addingDl && (
-            <button
+            <Button
+              size="sm"
+              variant="primary"
+              className="ml-auto"
               onClick={() => setAddingDl(true)}
-              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 bg-primary text-white rounded-lg hover:bg-primary/90"
             >
-              <Plus className="w-3.5 h-3.5" /> Dodaj DL
-            </button>
+              <Plus className="w-3.5 h-3.5" aria-hidden="true" /> Dodaj DL
+            </Button>
           )}
         </div>
 
         {addingDl && canEdit && (
-          <div className="bg-muted dark:bg-card/40 rounded-lg p-4 mb-3 space-y-3">
+          <div className="bg-muted rounded-lg p-4 mb-3 space-y-3">
             <label className="block text-xs text-muted-foreground">Użytkownik</label>
             <select
-              className="w-full border border-border dark:border-border rounded-lg px-3 py-2 text-sm bg-card dark:bg-muted"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-card"
               value={dlUserId}
               onChange={(e) => setDlUserId(e.target.value)}
             >
@@ -373,7 +403,9 @@ export function OwnersTab({ clientId }: { clientId: number }) {
               Ustaw jako head (główny DL klienta — auto-assign do nowych projektów)
             </label>
             <div className="flex gap-2">
-              <button
+              <Button
+                size="sm"
+                variant="primary"
                 disabled={!dlUserId || addDl.isPending}
                 onClick={() =>
                   addDl.mutate({
@@ -382,20 +414,20 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                     is_head: dlIsHead,
                   })
                 }
-                className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
               >
                 Dodaj
-              </button>
-              <button
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
                 onClick={() => {
                   setAddingDl(false);
                   setDlUserId("");
                   setDlIsHead(false);
                 }}
-                className="text-xs px-3 py-1.5 text-muted-foreground hover:text-foreground"
               >
                 Anuluj
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -405,55 +437,84 @@ export function OwnersTab({ clientId }: { clientId: number }) {
             Brak przypisanych Delivery Leadów.
           </p>
         ) : (
-          <ul className="space-y-2">
-            {dls.map((d) => (
-              <li
-                key={d.id}
-                className="flex flex-wrap items-center justify-between gap-2 bg-card dark:bg-muted border border-border dark:border-border rounded-lg px-3 py-2"
-              >
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <UserCircle2 className="w-6 h-6 shrink-0 text-primary" />
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium flex flex-wrap items-center gap-2">
-                      {d.name}
-                      {d.is_head && (
-                        <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                          <Crown className="w-3 h-3" /> Head
+          <Table density="compact" className="min-w-[560px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead className={CALM_HEAD}>Osoba</TableHead>
+                <TableHead className={CALM_HEAD}>Rola u klienta</TableHead>
+                <TableHead className={CALM_HEAD}>Przypisano</TableHead>
+                {canEdit ? (
+                  <TableHead className={`${CALM_HEAD} text-right`}>Akcje</TableHead>
+                ) : null}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {dls.map((d) => (
+                <TableRow key={d.id} className="h-[54px]">
+                  <TableCell>
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground">
+                          {initialsOf(d.name)}
                         </span>
-                      )}
+                      </div>
+                      <div className="min-w-0">
+                        <span className="font-semibold text-foreground">{d.name}</span>
+                        <span className={`${CALM_SUBLINE} break-all`}>
+                          {d.email} · {d.role}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground break-all">
-                      {d.email} · {d.role}
-                    </div>
-                  </div>
-                </div>
-                {canEdit && (
-                  <div className="ml-auto flex items-center gap-2 pointer-coarse:gap-4">
-                    <button
-                      onClick={() => toggleHeadDl.mutate(d.id)}
-                      className="text-xs px-2 py-1 rounded border border-border dark:border-border hover:bg-muted dark:hover:bg-muted pointer-coarse:min-h-10"
-                      title={d.is_head ? "Odznacz head" : "Ustaw jako head"}
-                    >
-                      {d.is_head ? "Usuń head" : "Ustaw head"}
-                    </button>
-                    <button
-                      onClick={() => removeDl.mutate(d.id)}
-                      className="hit-area text-muted-foreground hover:text-destructive"
-                      title="Usuń przypisanie"
-                      aria-label="Usuń przypisanie"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
+                  </TableCell>
+                  <TableCell>
+                    {d.is_head ? (
+                      <Badge size="sm" variant="success" title="Główny Delivery Lead klienta">
+                        <Crown className="h-2.5 w-2.5" aria-hidden="true" /> Head
+                      </Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Delivery Lead</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap tabular-nums">
+                    {d.created_at ? (
+                      formatIsoDatePl(d.created_at)
+                    ) : (
+                      <span className={CALM_EMPTY}>—</span>
+                    )}
+                  </TableCell>
+                  {canEdit ? (
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => toggleHeadDl.mutate(d.id)}
+                          title={d.is_head ? "Odznacz head" : "Ustaw jako head"}
+                        >
+                          {d.is_head ? "Usuń head" : "Ustaw head"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="quiet"
+                          onClick={() => removeDl.mutate(d.id)}
+                          title="Usuń przypisanie"
+                          aria-label="Usuń przypisanie"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          Usuń
+                        </Button>
+                      </div>
+                    </TableCell>
+                  ) : null}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </section>
 
       {showTac ? (
-        <div className="text-xs text-muted-foreground bg-muted dark:bg-card/40 rounded-lg px-3 py-2">
+        <div className="text-xs text-muted-foreground bg-muted rounded-lg px-3 py-2">
           <strong>Jak to działa:</strong> wszyscy przypisani TAC-owie są
           równorzędni. „1. priorytet” opisuje osobistą kolejność pracy konkretnego
           TAC-a — nie robi z niego głównego opiekuna klienta. Przy jednym TAC-u

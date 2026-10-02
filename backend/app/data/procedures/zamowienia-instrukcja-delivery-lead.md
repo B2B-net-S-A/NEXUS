@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 02.10.2026
+> **Zgodność z systemem sprawdzona:** 03.10.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -26,14 +26,14 @@ zamówienia, w stałej kolejności od góry: **MD**, **Kosztowe**, **Okresowe**
 pokazuje**, więc u większości klientów zobaczysz tylko jedną albo dwie.
 
 Sekcja **Okresowe** to jedna **tabela**: jeden wiersz to jedna osoba
-(numer zamówienia, okres, stawki i stan). W sekcjach **MD** i **Kosztowe**
-**każde zamówienie to osobny kafelek**. Na górze kafelka stoi szary nagłówek
-**zamówienia** (numer, typ, okres, liczba osób i uwagi — zużycie MD widać
-w wierszach osób, a budżet całego zamówienia w panelu po kliknięciu nagłówka), pod nim
-nagłówki kolumn (Koszt, Przychód, Zostało MD albo Budżet, Zużycie, Uwagi —
-w każdym kafelku w tym samym miejscu), wiersze jego **konsultantów**, zwijany
-wiersz **„Zakończone (N)"** i wiersze **przyszłych zamówień**. Osoba, której
-pojedyncze zamówienie ma taki typ, ma własny kafelek.
+(numer zamówienia, okres, stawki i stan). Sekcje **MD** i **Kosztowe** też są
+jedną tabelą: **nagłówki kolumn** (Koszt, Przychód, Zostało MD albo Budżet,
+Zużycie, Uwagi) stoją **raz, na górze sekcji**, a każde zamówienie zaczyna się
+szarym **pasem zamówienia** (numer, typ, okres, liczba osób i uwagi — zużycie
+MD widać w wierszach osób, a budżet całego zamówienia w panelu po kliknięciu
+pasa). Pod pasem są wiersze jego **konsultantów**, zwijany wiersz
+**„Zakończone (N)"** i wiersze **przyszłych zamówień**. Osoba, której
+pojedyncze zamówienie ma taki typ, ma własny pas.
 
 **Kliknij wiersz, a po prawej otworzy się panel** ze wszystkimi szczegółami
 i akcjami tego wiersza — zamówienia, osoby na zamówieniu albo osoby
@@ -944,6 +944,11 @@ Kolejka dokumentów z maila jest w **Kontrakty → „Skrzynka zamówień"**. Li
 przy „Kontraktach" w menu to dokumenty czekające na sprawdzenie. Do 22.09.2026
 kolejka miała w menu własną pozycję „Zamówienia z maila", a stare linki
 z powiadomień nadal do niej prowadzą.
+
+Po kliknięciu dokumentu w kolejce jego **PDF otwiera się obok planu** — nie
+trzeba przełączać kart, żeby porównać plan z dokumentem. „Ukryj podgląd" go
+chowa, link „PDF" otwiera plik w nowej karcie. Na węższym ekranie podgląd stoi
+pod planem, za przyciskiem „Pokaż podgląd".
 
 Automatyczny odczyt załączników ze skrzynki **zamowienia@b2bnetwork.pl**
 przygotowuje plan dla osób rozpoznanych w dokumencie (czytane są także PDF-y

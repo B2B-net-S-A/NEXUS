@@ -13,6 +13,7 @@ import {
   cancelRefusalMessage,
 } from "@/components/client-profile/orders/CancelOrderGroupDialog";
 import { ListDetailLayout } from "@/components/ds/ListDetailLayout";
+import { Button } from "@/components/ui/button";
 import { useRowNavigation } from "@/hooks/useRowNavigation";
 import { writeUrlParams } from "@/lib/url-selection";
 import { useToast } from "@/components/Toast";
@@ -103,7 +104,7 @@ import {
   type CarriedOrderFields,
   type PeriodicOrderDraft,
 } from "@/lib/order-type-switch";
-import { OrderListControls } from "./OrderListControls";
+import { OrderExportButton, OrderListControls } from "./OrderListControls";
 import { ReplaceWithTakeoverModal } from "./ReplaceWithTakeoverModal";
 import { SwapConsultantModal } from "./SwapConsultantModal";
 
@@ -1385,30 +1386,75 @@ export function MultiConsultantOrdersTab({
 
   return (
     <div className="flex flex-col gap-3">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-baseline gap-x-2">
-          <h2 className="text-sm font-semibold text-foreground">Zamówienia klienta</h2>
-          <p className="text-xs text-muted-foreground">
-            Kliknij wiersz, żeby zobaczyć szczegóły i akcje.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {/* `isSuccess`, nie `!isLoading && !isError` — w przerwie między
-              ponowieniami dane są puste, a licznik pokazywałby „0 zamówienia",
-              czyli tę samą nieprawdę co pusty stan pod spodem. */}
-          {query.isSuccess && contractorQuery.isSuccess ? (
-            <p className="text-xs text-muted-foreground">
-              {countPl(
-                groups.length + contractors.length,
-                "pozycja na liście",
-                "pozycje na liście",
-                "pozycji na liście",
-              )}
-            </p>
+      {/* Nagłówek to dwa rzędy (restyle 02.10.2026): pigułki z akcjami oraz
+          wyszukiwarka z filtrami. Tytuł i podpowiedź zostają dla czytników
+          ekranu — zakładka nazywa się „Zamówienia”, a wiersz sam mówi, że
+          jest klikalny. */}
+      <h2 className="sr-only">Zamówienia klienta</h2>
+      <p className="sr-only">Kliknij wiersz, żeby zobaczyć szczegóły i akcje.</p>
+
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+        {/* Liczniki liczone z POBRANEJ listy, nie z osobnego zapytania — kafel
+            będący sumą innych liczb niż widoczne pod nim jest niemożliwy do
+            zweryfikowania wzrokiem. Renderujemy je dopiero przy `isSuccess`,
+            żeby „(0)" nie udawało wyniku, zanim cokolwiek wiadomo. */}
+        {query.isSuccess && contractorQuery.isSuccess ? (
+          <div
+            className="flex min-w-0 flex-[1_1_28rem] flex-wrap items-center gap-1.5"
+            data-help="client.orders.pills"
+          >
+            {PILLS.filter((entry) => entry.key !== "decision" || counts.decision > 0 || pill === "decision").map((entry) => {
+              const count = counts[entry.key];
+              const selected = pill === entry.key;
+              return (
+                <button
+                  key={entry.key}
+                  type="button"
+                  onClick={() => setPill(entry.key)}
+                  aria-pressed={selected}
+                  title={entry.title}
+                  className={cn(
+                    "inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 text-xs font-medium transition-colors pointer-coarse:min-h-10",
+                    selected
+                      ? "border-foreground bg-foreground text-background"
+                      : entry.key === "decision"
+                        ? "border-transparent bg-destructive-muted text-destructive-muted-foreground hover:bg-destructive-muted/80"
+                        : count === 0
+                          ? // Pusta pigułka zostaje klikalna, ale nie konkuruje z resztą.
+                            "border-border/60 bg-transparent text-muted-foreground/70 hover:text-foreground"
+                          : "border-border bg-card text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {/* Nazwa dostępna przycisku to nadal „Aktywne (1)” — nawiasy
+                      są w tekście, tylko niewidoczne (liczba stoi pogrubiona). */}
+                  {entry.label}{" "}
+                  <span className="sr-only">(</span>
+                  <span
+                    className={cn(
+                      "tabular-nums",
+                      selected || entry.key === "decision"
+                        ? "font-semibold"
+                        : count === 0
+                          ? "font-normal"
+                          : "font-semibold text-foreground",
+                    )}
+                  >
+                    {count}
+                  </span>
+                  <span className="sr-only">)</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+        <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
+          {query.isSuccess && contractorQuery.isSuccess && canExport ? (
+            <OrderExportButton exporting={exporting} disabled={resultCount === 0} onExport={exportVisible} />
           ) : null}
           {canManage ? (
-            <button
+            <Button
               type="button"
+              size="sm"
               disabled={!query.isSuccess || !contractorQuery.isSuccess}
               onClick={() => {
                 // Świeże „Nowe zamówienie" — bez roboczego stanu porzuconego okna.
@@ -1417,44 +1463,12 @@ export function MultiConsultantOrdersTab({
                 openNewOrderForm(suggestedOrderType);
               }}
               data-help="client.orders.new"
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:min-h-10"
             >
               <Plus className="h-4 w-4" aria-hidden="true" /> Nowe zamówienie
-            </button>
+            </Button>
           ) : null}
         </div>
-      </header>
-
-      {/* Liczniki liczone z POBRANEJ listy, nie z osobnego zapytania — kafel
-          będący sumą innych liczb niż widoczne pod nim jest niemożliwy do
-          zweryfikowania wzrokiem. Renderujemy je dopiero przy `isSuccess`,
-          żeby „(0)" nie udawało wyniku, zanim cokolwiek wiadomo. */}
-      {query.isSuccess && contractorQuery.isSuccess ? (
-        <div className="flex flex-wrap items-center gap-1.5" data-help="client.orders.pills">
-          {PILLS.filter((entry) => entry.key !== "decision" || counts.decision > 0 || pill === "decision").map((entry) => (
-            <button
-              key={entry.key}
-              type="button"
-              onClick={() => setPill(entry.key)}
-              aria-pressed={pill === entry.key}
-              title={entry.title}
-              className={cn(
-                "inline-flex h-8 items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition-colors pointer-coarse:min-h-10",
-                pill === entry.key
-                  ? "border-foreground bg-foreground text-background"
-                  : entry.key === "decision"
-                    ? "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15"
-                    : "border-border bg-card text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {/* Spacja przed licznikiem: nazwa dostępna przycisku to
-                  „Aktywne (1)", nie sklejone „Aktywne(1)" (flex ją ignoruje). */}
-              {entry.label}{" "}
-              <span className="font-mono text-[11px] tabular-nums opacity-80">({counts[entry.key]})</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
+      </div>
 
       {query.isSuccess && contractorQuery.isSuccess ? (
         <OrderListControls
@@ -1463,14 +1477,12 @@ export function MultiConsultantOrdersTab({
           filters={filters}
           onFiltersChange={setFilters}
           resultCount={resultCount}
-          exporting={exporting}
-          onExport={exportVisible}
           extraControls={
             <select
               value={typeFilter}
               onChange={(event) => setTypeFilter(event.target.value as OrderType | "all")}
               aria-label="Typ zamówienia"
-              className="h-8 shrink-0 rounded-md border border-border bg-background px-2 text-xs text-foreground pointer-coarse:h-10"
+              className="h-8 shrink-0 rounded-md border border-border bg-card px-2 text-xs text-foreground pointer-coarse:h-10"
             >
               {TYPE_FILTERS.map((entry) => (
                 <option key={entry.key} value={entry.key}>
@@ -1479,7 +1491,15 @@ export function MultiConsultantOrdersTab({
               ))}
             </select>
           }
-          showExport={canExport}
+          // `isSuccess`, nie `!isLoading && !isError` — w przerwie między
+          // ponowieniami dane są puste, a licznik pokazywałby „0 pozycji”,
+          // czyli tę samą nieprawdę co pusty stan pod spodem.
+          trailing={countPl(
+            groups.length + contractors.length,
+            "pozycja na liście",
+            "pozycje na liście",
+            "pozycji na liście",
+          )}
         />
       ) : null}
 

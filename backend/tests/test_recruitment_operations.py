@@ -80,8 +80,13 @@ def test_mine_only_keeps_org_readers_on_explicit_assignment_scope() -> None:
     assert "jobs.recruiter_id = 73" in sql
     assert "jobs.delivery_lead_id = 73" in sql
     assert "jobs.tac_id = 73" in sql
-    assert "job_collaborators.user_id = 73" in sql
+    assert "job_collaborators.user_id IN (73)" in sql or (
+        "job_collaborators.user_id = 73" in sql
+    )
     assert "job_collaborators.removed_from_auto_cc IS false" in sql
+    # Wiersz `auto_cc` (cała kategoria dopisana automatycznie) to nie „moje
+    # przypisane” — ta sama reguła co zakres „Moje” na liście rekrutacji.
+    assert "job_collaborators.source = 'manual'" in sql
 
 
 @pytest_asyncio.fixture

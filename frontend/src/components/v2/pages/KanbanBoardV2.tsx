@@ -71,7 +71,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from"@/components/ui/tooltip"
 import { ScorecardV2 } from"@/components/v2/modals/ScorecardV2";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
-import { BoardReviewSection, type SimilarReassignHint } from "@/components/v2/jobs/BoardReviewSection";
 import { SlotRequestDialog } from "@/components/calendar/cycle/SlotDialogs";
 import { InterviewCycleProgress } from "@/components/calendar/cycle/InterviewCycleProgress";
 import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
@@ -126,7 +125,6 @@ import {
  usePipelineMove,
  type PipelineMoveConfirmedPatch,
 } from "@/hooks/usePipelineMove";
-import { PipelineFilterBar } from "@/components/v2/jobs/PipelineFiltersRail";
 import {
  PipelineCandidateDock,
  type PipelineMoveTarget,
@@ -151,7 +149,6 @@ import {
 } from "@/lib/pipeline-flow";
 import {
  columnSlaHint,
- hasNoNextAction,
  nextActionFor,
  oldestDaysInColumn,
  type NextAction,
@@ -225,15 +222,11 @@ interface KanbanBoardV2Props {
  /** Nordea (`job.cpro_enabled`): „CV wysłane" = „Wysłane do Cpro", znacznik
   *  „W kolejce Cpro" w kolumnie „QC CV". */
  cproEnabled?: boolean;
- /** Panel „Dodaj kandydatów" (Rekrutacja v5) — otwiera go strona; bez tej
-  *  funkcji kolumna „Nowi" pokazuje dawne karty propozycji. */
- onOpenAddCandidates?: (tab: "search" | "proposals") => void;
- /** Pasek „↻ N osób wysłanych do klienta w podobnych rekrutacjach" w „Nowych"
-  *  (25.09.2026). Tylko otwiera panel przepięć — sam niczego nie przepina. */
- similarReassign?: SimilarReassignHint | null;
- /** „Ścieżka rekrutacji" w nagłówku: przewiń do kolumny Tablicy i podświetl
-  *  ją na chwilę. `seq` rozróżnia kolejne kliknięcia tej samej kolumny. */
- focusColumnRequest?: { column: BoardColumnKey; seq: number } | null;
+ /**
+  * Pasek nad tablicą (02.10.2026: kafle „Kandydaci do dodania”). Dostaje
+  * przełącznik widoku tablicy — widoczny tylko przy bardzo szerokim szablonie.
+  */
+ renderAbove?: (viewControls: React.ReactNode) => React.ReactNode;
 }
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -602,11 +595,6 @@ interface CardProps {
  /** Krok 04 Pipeline (flow C2, PR 3/7): klik na kartę otwiera dok „Karta w
   *  procesie" obok tablicy — wszędzie poza checkboxem i linkiem do profilu. */
  onOpenDock: (item: KanbanItem) => void;
- /** Karta nie pasuje aktywnym filtrom lewej kolumny — przyciemniona, ale
-  *  NADAL w DOM-ie i przeciągalna: usunięcie jej z listy zepsułoby indeksy
-  *  `@hello-pangea/dnd`, na których stoi `onDragEnd`. Ukrywanie liczników w
-  *  rail'u (nie tutaj) jest tym, co czyni przyciemnienie „nie cichym". */
- dimmed?: boolean;
  /** Wiersz „co dalej" — liczony z etapu i wieku karty, patrz
   *  `lib/pipeline-next-action.ts`. Przekazywany gotowy (a nie liczony tutaj),
   *  bo tylko kolumna zna grupę etapu policzoną nad CAŁĄ tablicą. */
@@ -755,7 +743,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  desktopOverview,
  readOnly,
  onOpenDock,
- dimmed,
  nextAction,
  stageBadge = null,
 }: CardProps) {
@@ -863,10 +850,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  desktopOverview &&"xl:pointer-fine:min-h-[68px] xl:pointer-fine:rounded-md xl:pointer-fine:p-1 xl:pointer-fine:pb-6 xl:pointer-fine:pt-6",
  // Świadomie bez grayscale/opacity — czytałoby się jako „nieaktywny". Ten
  // kandydat jest aktywny; weto to ostrzeżenie (17.09.2026), nie blokada.
- item.hm_veto &&"border-destructive/50",
- // Filtr lewej kolumny nie pasuje — przyciemnij, ale zostaw w DOM-ie
- // (patrz komentarz `dimmed` w `CardProps`).
- dimmed &&"opacity-35"
+ item.hm_veto &&"border-destructive/50"
  )}
  title={
  [
@@ -1265,8 +1249,6 @@ interface ColProps {
   *  na przypadkowy etap). */
  dropDisabled?: boolean;
  onOpenDock: (item: KanbanItem) => void;
- /** `true` = karta nie pasuje aktywnym filtrom lewej kolumny (przyciemnij). */
- isDimmed: (item: KanbanItem) => boolean;
  /** Grupa etapu policzona nad CAŁĄ tablicą — bez niej własny etap wewnętrzny
   *  po screeningu byłby nie do odróżnienia od etapu wejściowego. */
  group?: PipelineGroupKey;
@@ -1274,19 +1256,13 @@ interface ColProps {
  slaDays: number | null;
  /** Nagłówek kolumny zamiast nazwy etapu (kolumna „Do przejrzenia"). */
  titleOverride?: string;
- /** Treść nad kartami etapu — propozycje i przepięcia w „Do przejrzenia". */
- prepend?: React.ReactNode;
  /** Odznaki kart z etapów złożonych w tę kolumnę (klucz: id karty). */
  badgeByItemId?: ReadonlyMap<number, StageBadgeKey>;
- /** Dolicz do licznika w nagłówku (propozycje w „Do przejrzenia"). */
- extraCount?: number;
  /** Numer kroku procesu (1–8) w nagłówku kolumny Tablicy; `null` = bez numeru. */
  step?: number | null;
  /** „Co tu robisz" pod nazwą kolumny (`lib/board-column-purpose.ts`);
   *  `null` = własny etap szablonu — zostaje dawna linia SLA. */
  purpose?: string | null;
- /** Krótkie podświetlenie po skoku ze „Ścieżki rekrutacji". */
- highlighted?: boolean;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -1307,23 +1283,19 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  readOnly,
  dropDisabled,
  onOpenDock,
- isDimmed,
  group,
  slaDays,
  titleOverride,
- prepend,
  badgeByItemId,
- extraCount = 0,
  step = null,
  purpose = null,
- highlighted = false,
 }: ColProps) {
- const headerCount = col.count + extraCount;
+ const headerCount = col.count;
  // Pusta kolumna jest WĄSKA (24.09.2026): przy 1440 px osiem kolumn mieści się
  // bez przewijania, gdy połowa jest pusta. Tylko na desktopie z myszą i poza
  // trybem kafelków (tam kolumny i tak dzielą szerokość); `droppableId`
  // i indeksy kart się nie zmieniają, więc upuszczanie działa jak dotąd.
- const narrow = headerCount === 0 && prepend == null;
+ const narrow = headerCount === 0;
  const dropId = colId(col);
  // `Boolean(...)` obowiązkowo — @hello-pangea/dnd ma twardy invariant
  // („isDropDisabled must be a boolean"), a `undefined` wywala całą tablicę.
@@ -1348,7 +1320,6 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  aria-label={`${titleOverride ?? columnLabel(col)}, liczba kandydatów: ${headerCount}`}
  className={cn(
  "flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 snap-start flex-col rounded-lg border border-border bg-background/60 sm:min-w-[19rem]",
- prepend != null && "border-dashed border-primary/40",
  // NIE ściskamy kolumn do zera. Podłoga 12,5 rem (200 px) mieści pełną
  // kartę (nazwisko do dwóch linii, właściciel, wiek, następna akcja)
  // niezależnie od liczby kolumn. Board ma `overflow-auto`, więc nadmiar
@@ -1360,8 +1331,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  // Podłoga 11,5 rem (184 px) — przy 12,5 rem cztery kolumny z kartami
  // i cztery wąskie puste nie mieściły się w 1440 px z przypiętym paskiem.
  fullPipelineDesktop && !desktopOverview && !narrow &&"xl:pointer-fine:w-auto xl:pointer-fine:min-w-[11.5rem] xl:pointer-fine:basis-[11.5rem] xl:pointer-fine:grow",
- !desktopOverview && narrow &&"xl:pointer-fine:w-24 xl:pointer-fine:min-w-24 xl:pointer-fine:basis-24 xl:pointer-fine:grow-0",
- highlighted &&"ring-2 ring-primary"
+ !desktopOverview && narrow &&"xl:pointer-fine:w-24 xl:pointer-fine:min-w-24 xl:pointer-fine:basis-24 xl:pointer-fine:grow-0"
  )}
  data-narrow={narrow && !desktopOverview ? "true" : undefined}
  >
@@ -1444,7 +1414,6 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  )}
  </div>
 
- {prepend}
  <Droppable droppableId={dropId} isDropDisabled={noDrop}>
  {(provided, snapshot) => (
  <div
@@ -1503,7 +1472,6 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  desktopOverview={desktopOverview}
  readOnly={readOnly}
  onOpenDock={onOpenDock}
- dimmed={isDimmed(item)}
  nextAction={nextActions[index]}
  stageBadge={badgeByItemId?.get(item.id) ?? null}
  />
@@ -1542,7 +1510,7 @@ const MIN_COLUMN_HEIGHT = 280;
 // `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
 const MOBILE_MAIN_PADDING_Y = 32;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, onOpenAddCandidates, similarReassign = null, focusColumnRequest = null }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, renderAbove }: KanbanBoardV2Props) {
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik —
  // świadomie nie per-job.
  const hideEmptyColumns = useUiStore((s) => s.hideEmptyKanbanColumns);
@@ -1599,10 +1567,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  );
  // Odrzuceni / wycofani / rezerwa — pasek pod tablicą, rozwijany na kolumny.
  const [showClosed, setShowClosed] = useState(false);
- // Propozycje z bazy i przepięcia w „Do przejrzenia" — licznik kolumny liczy
- // je razem z kartami etapu „Ogłoszenia" (do 23.09 nagłówek mówił „0" nad
- // czternastoma propozycjami).
- const [reviewTotal, setReviewTotal] = useState<number | null>(null);
  const authUser = useAuthStore((st) => st.user);
  const isDlOrHor =
  hasRole(authUser, "admin") ||
@@ -1728,11 +1692,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }),
  [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onAdvance, onOpenQc]
  );
- // Osoby już na tablicy — „Do przejrzenia" nie proponuje ich drugi raz.
- const boardCandidateIds = useMemo(
- () => cols.flatMap((c) => c.items.map((i) => i.candidate_id)),
- [cols]
- );
  const [focusedColId, setFocusedColId] = useState<string | null>(() =>
  defaultFocusColumnId(columns)
  );
@@ -1775,19 +1734,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  useEffect(() => {
  onDockCandidateChange?.(dockCandidateId);
  }, [dockCandidateId, onDockCandidateChange]);
-
- // Lewa kolumna: filtry NIE usuwają kart z `cols` (zepsułoby to indeksy
- // `@hello-pangea/dnd`, na których stoi `onDragEnd` — patrz `PipelineFiltersRail`).
- // Przyciemniają niepasujące karty; `isDimmed` musi mieć stabilną referencję
- // (memo na `KanbanColumnV2`/`CandidateKanbanCard` — patrz komentarz niżej przy
- // `toggleSelect`), stąd `useCallback` z zależnościami tylko od samych filtrów.
- const [stuckFilter, setStuckFilter] = useState(false);
- const [blockedFilter, setBlockedFilter] = useState(false);
- const [noActionFilter, setNoActionFilter] = useState(false);
- const [recruiterFilter, setRecruiterFilter] = useState<string | null>(null);
- // Pasek filtrów (22.09.2026): „Mój ruch" i szukanie po nazwisku.
- const [myMoveFilter, setMyMoveFilter] = useState(false);
- const [nameQuery, setNameQuery] = useState("");
 
  // Grupy etapów — jedno źródło dla lewej kolumny, zwijania pustych grup na
  // tablicy i „następnej akcji" na karcie (bez grupy własny etap wewnętrzny po
@@ -1918,24 +1864,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  [scrollToColumn]
  );
-
- // Skok ze „Ścieżki rekrutacji" (nagłówek strony): przewiń i podświetl.
- const [highlightColId, setHighlightColId] = useState<string | null>(null);
- const handledFocusSeq = useRef<number | null>(null);
- useEffect(() => {
- if (!focusColumnRequest || handledFocusSeq.current === focusColumnRequest.seq) return;
- const fold = boardFold.columns.find((f) => f.key === focusColumnRequest.column);
- if (!fold) return;
- handledFocusSeq.current = focusColumnRequest.seq;
- const id = colId(fold.host);
- focusColumn(id);
- setHighlightColId(id);
- }, [focusColumnRequest, boardFold, focusColumn]);
- useEffect(() => {
- if (!highlightColId) return;
- const timer = window.setTimeout(() => setHighlightColId(null), 1600);
- return () => window.clearTimeout(timer);
- }, [highlightColId]);
 
  const initialFocusApplied = useRef(false);
  useEffect(() => {
@@ -2592,103 +2520,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  [moveNext, stageCols, requestMove, showError]
  );
 
- // Filtry lewej kolumny — liczone raz nad WSZYSTKIMI kartami (łącznie z
- // kubełkiem „Poza szablonem": to nadal realni kandydaci w procesie).
- const allItems = useMemo(() => cols.flatMap((c) => c.items), [cols]);
- // „Utknęli > 7 d" BEZ kolumn terminalnych (B-B05): odrzucony czy zatrudniony
- // „stoi" na swoim etapie bezterminowo i nie jest sprawą do załatwienia.
- // Ta sama reguła co `countStalled` w KPI jobbara tuż nad tablicą — do
- // 09.2026 filtr liczył wszystkie karty i pokazywał 80 obok KPI „26" pod
- // tą samą etykietą.
- const stuckIds = useMemo(() => {
- const ids = new Set<number>();
- for (const col of cols) {
- if (col.category === "terminal") continue;
- for (const item of col.items) {
- if ((item.days_in_stage ?? 0) > 7) ids.add(item.id);
- }
- }
- return ids;
- }, [cols]);
- const stuckCount = stuckIds.size;
- // Karty bez podpowiedzi „co dalej" — liczone tą samą funkcją, którą karta
- // renderuje, więc licznik w rail'u nie może rozjechać się z tablicą.
- const noActionIds = useMemo(() => {
- const ids = new Set<number>();
- for (const col of cols) {
- const group = groupByColId.get(colId(col));
- for (const item of col.items) {
- if (hasNoNextAction(nextActionFor(item, col, { slaDays, group }))) {
- ids.add(item.id);
- }
- }
- }
- return ids;
- }, [cols, groupByColId, slaDays]);
- // „Mój ruch" — karty, na których plakietka mówi „Twój ruch" (`cardNextStep`
- // — ta sama funkcja i te same kolumny Tablicy co karta). Do 24.09.2026 filtr
- // liczył każdą kartę z ruchem po stronie rekrutera, także tę z imieniem innego
- // rekrutera albo z „DL" w QC CV. Karty w „Nowi" też się liczą — ich
- // plakietka mówi „Twój ruch" (albo imię osoby, która wzięła je na 12 h).
- const myMoveIds = useMemo(() => {
- const ids = new Set<number>();
- for (const col of [...displayCols, ...cols.filter((c) => isOffTemplate(c))]) {
- if (col.category === "terminal") continue;
- const group = groupByColId.get(colId(col));
- const column = boardKeyByColId.get(colId(col)) ?? null;
- for (const item of col.items) {
- const action = nextActionFor(item, col, { slaDays, group });
- const step = cardNextStep(action, item, {
- column,
- cproEnabled,
- stageBadge: boardFold.badgeByItemId.get(item.id) ?? null,
- viewerId: authUser?.id ?? null,
- });
- if (step?.mine) ids.add(item.id);
- }
- }
- return ids;
- }, [displayCols, cols, groupByColId, boardKeyByColId, boardFold, slaDays, cproEnabled, authUser?.id]);
- // „Ostrzeżenia" = weto hiring managera. Od 17.09.2026 nic nie BLOKUJE ruchu
- // (karta „Oczekuje" nie powstaje), więc filtr pokazuje karty z ostrzeżeniem.
- const blockedCount = useMemo(
- () => allItems.filter((i) => Boolean(i.hm_veto)).length,
- [allItems]
- );
- const recruiterNames = useMemo(() => {
- const names = new Set<string>();
- for (const i of allItems) {
- const n = i.added_to_job_by_name?.trim();
- if (n) names.add(n);
- }
- return Array.from(names).sort((a, b) => a.localeCompare(b, "pl"));
- }, [allItems]);
-
- // Stabilna referencja — patrz komentarz nad `toggleSelect` (memo na
- // kolumnach/kartach). Zmienia tożsamość WYŁĄCZNIE gdy zmieni się któryś
- // z trzech filtrów, nigdy przy niepowiązanym re-renderze (np. checkbox).
- const isDimmed = useCallback(
- (item: KanbanItem) => {
- if (stuckFilter && !stuckIds.has(item.id)) return true;
- if (blockedFilter && !item.hm_veto) return true;
- if (noActionFilter && !noActionIds.has(item.id)) return true;
- if (recruiterFilter && item.added_to_job_by_name !== recruiterFilter) {
- return true;
- }
- if (myMoveFilter && !myMoveIds.has(item.id)) return true;
- const q = nameQuery.trim().toLocaleLowerCase("pl");
- if (q && !`${item.name ?? ""} ${item.lastname ?? ""}`.toLocaleLowerCase("pl").includes(q)) {
- return true;
- }
- return false;
- },
- [stuckFilter, stuckIds, blockedFilter, noActionFilter, noActionIds, recruiterFilter, myMoveFilter, myMoveIds, nameQuery]
- );
-
  // Kolumny do renderu: 8 kolumn Tablicy (+ rozwinięci zamknięci + kubełek
  // „Poza szablonem"). „Ukryj puste kolumny" usuwa CAŁE kolumny bez kart —
  // bezpieczne dla `@hello-pangea/dnd` (pusta kolumna nie ma indeksów).
- // „Do przejrzenia" nie znika nigdy: niesie propozycje spoza kanbana.
+ // „Nowi" nie znikają nigdy: tam trafiają osoby dodane z kafli nad tablicą.
  const offTemplateCols = useMemo(() => cols.filter((c) => isOffTemplate(c)), [cols]);
  const visibleCols = useMemo(() => {
  const base = [
@@ -2702,13 +2537,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }, [displayCols, boardFold, showClosed, offTemplateCols, hideEmptyColumns, boardKeyByColId]);
 
  // Nawigator doku „‹ N z M ›" — kolejność WIDOCZNEJ Tablicy: kolumny od
- // lewej (także rozwinięci zamknięci i „Poza szablonem"), karty od góry,
- // bez kart przygaszonych filtrem (`dockNavigationOrder`). Klucz to
- // `candidate_id` (stabilny przez ruchy), dokładnie jak `dockCandidateId`.
- const dockOrder = useMemo(
- () => dockNavigationOrder(visibleCols, isDimmed, dockCandidateId),
- [visibleCols, isDimmed, dockCandidateId]
- );
+ // lewej (także rozwinięci zamknięci i „Poza szablonem"), karty od góry
+ // (`dockNavigationOrder`). Klucz to `candidate_id` (stabilny przez ruchy),
+ // dokładnie jak `dockCandidateId`.
+ const dockOrder = useMemo(() => dockNavigationOrder(visibleCols), [visibleCols]);
  const dockIndex = dockItem ? dockOrder.indexOf(dockItem.candidate_id) : -1;
  const selectAdjacentDockCard = useCallback(
  (delta: -1 | 1) => {
@@ -2790,22 +2622,25 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  });
  const desktopOverview = viewMode === "tiles";
 
- // Zamknięci w JEDNEJ linii z filtrami (24.09.2026): „Zamknięci:" + chipy.
- // Każdy chip jest celem upuszczenia (odrzucenie z powodem jak dotąd), klik
- // rozwija ich pełne kolumny na końcu tablicy.
- const closedBar =
+ // Zamknięci jako wąska kolumna obok tablicy (02.10.2026; do tego dnia chipy
+ // w pasku filtrów). Każda strefa jest celem upuszczenia — odrzucenie z powodem
+ // jak dotąd — a klik rozwija pełne kolumny zamkniętych na końcu tablicy.
+ // Stoi POZA przewijaną tablicą: przy ośmiu kolumnach byłaby poza ekranem.
+ const closedColumn =
  boardFold.closed.length > 0 ? (
- <span
- data-testid="board-closed-bar"
+ <section
+ aria-label="Zamknięci"
+ data-testid="board-closed-column"
  data-help="jobs.board.closed"
- className="inline-flex flex-wrap items-center gap-1 text-[11px]"
+ className="flex shrink-0 flex-row flex-wrap items-center gap-1.5 rounded-lg border border-border bg-muted/40 p-2 text-[11px] max-lg:order-first lg:w-32 lg:flex-col lg:flex-nowrap lg:items-stretch"
  >
- <span className="text-muted-foreground">Zamknięci:</span>
+ <h3 className="text-sm font-medium text-foreground">Zamknięci</h3>
+ <p className="text-muted-foreground max-lg:hidden">Odrzuceni i rezygnacje</p>
  {showClosed ? (
  <button
  type="button"
  onClick={() => setShowClosed(false)}
- className="rounded-full border border-border px-2 py-0.5 text-muted-foreground hover:bg-accent pointer-coarse:min-h-9"
+ className="rounded-md border border-border px-2 py-1 text-muted-foreground hover:bg-accent pointer-coarse:min-h-9"
  >
  Zwiń zamkniętych
  </button>
@@ -2817,7 +2652,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  ref={provided.innerRef}
  {...provided.droppableProps}
  className={cn(
- "inline-flex rounded-full border border-dashed border-border transition-colors",
+ "flex rounded-md border border-dashed border-border transition-colors",
  snapshot.isDraggingOver && "border-destructive bg-destructive/10"
  )}
  >
@@ -2826,9 +2661,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onClick={() => setShowClosed(true)}
  aria-label={`${label}: ${count} — pokaż kolumny zamkniętych`}
  title={`${label} — upuść tu kartę albo kliknij, żeby zobaczyć osoby`}
- className="px-2 py-0.5 text-muted-foreground hover:text-foreground pointer-coarse:min-h-9"
+ className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-muted-foreground hover:text-foreground pointer-coarse:min-h-9"
  >
- {short}{" "}
+ {short}
  <span className="font-semibold tabular-nums text-foreground">{count}</span>
  </button>
  <span className="hidden">{provided.placeholder}</span>
@@ -2837,57 +2672,28 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  </Droppable>
  ))
  )}
- </span>
+ </section>
+ ) : null;
+
+ const viewControls = viewToggleVisible ? (
+ <BoardViewControls viewMode={viewMode} onSetViewMode={setViewPreference} />
  ) : null;
 
  return (
  <BoardV4Context.Provider value={boardV4}>
  <div className="relative space-y-3">
- {/* DragDropContext obejmuje też pasek filtrów: chipy zamkniętych stoją
- w nim (jedna linia, 24.09.2026) i są celami upuszczenia. */}
+ {/* DragDropContext obejmuje też kolumnę „Zamknięci" obok tablicy — jej
+ strefy są celami upuszczenia. */}
  <DragDropContext onDragEnd={onDragEnd}>
- {/* Krok 04 Pipeline: lewa kolumna filtrów i tablica. Dok „Karta
- kandydata" NIE zajmuje kolumny siatki — wysuwa się z prawej dopiero po
- kliknięciu karty (przegląd UX 17.09.2026: stała trzecia kolumna zjadała
- tablicy 360 px nawet wtedy, gdy nic nie było wybrane). */}
+ {/* Dok „Karta kandydata" NIE zajmuje kolumny siatki — wysuwa się z prawej
+ dopiero po kliknięciu karty (przegląd UX 17.09.2026: stała trzecia kolumna
+ zjadała tablicy 360 px nawet wtedy, gdy nic nie było wybrane). */}
  <div className="space-y-3">
- <PipelineFilterBar
- nameQuery={nameQuery}
- onNameQueryChange={setNameQuery}
- myMoveFilter={myMoveFilter}
- onToggleMyMoveFilter={() => setMyMoveFilter((v) => !v)}
- myMoveCount={myMoveIds.size}
- offTemplateCount={offTemplate?.count ?? 0}
- onFocusOffTemplate={() => focusColumn(`stage:${OFF_TEMPLATE_STAGE}`)}
- stuckFilter={stuckFilter}
- onToggleStuckFilter={() => setStuckFilter((v) => !v)}
- stuckCount={stuckCount}
- noActionFilter={noActionFilter}
- onToggleNoActionFilter={() => setNoActionFilter((v) => !v)}
- noActionCount={noActionIds.size}
- blockedFilter={blockedFilter}
- onToggleBlockedFilter={() => setBlockedFilter((v) => !v)}
- blockedCount={blockedCount}
- recruiters={recruiterNames}
- recruiterFilter={recruiterFilter}
- onSetRecruiterFilter={setRecruiterFilter}
- hideEmptyColumns={hideEmptyColumns}
- onToggleHideEmptyColumns={() => setHideEmptyColumns(!hideEmptyColumns)}
- slaDays={slaDays}
- slaClientName={playbookQuery.data?.client_name ?? null}
- slaLoading={playbookQuery.isLoading}
- trailing={
- <BoardViewControls
- viewMode={viewToggleVisible ? viewMode : null}
- onSetViewMode={setViewPreference}
- />
- }
- inProcessCount={stageCols.reduce(
- (sum, c) => sum + (c.category === "terminal" ? 0 : c.count),
- 0
- )}
- closed={closedBar}
- />
+ {renderAbove ? (
+ renderAbove(viewControls)
+ ) : viewControls ? (
+ <div className="flex justify-end">{viewControls}</div>
+ ) : null}
 
  <div className={cn("min-w-0 space-y-3", dockItem && dockItemColLabel !== null &&"lg:pr-[380px]")}>
  {offTemplate && offTemplate.count > 0 && (
@@ -3017,7 +2823,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  </div>
  )}
 
- {/* Board */}
+ {/* Board + „Zamknięci" obok */}
+ <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
  <div
  ref={boardRef}
  data-testid="pipeline-board"
@@ -3029,7 +2836,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // śledzi jego scroll i auto-scrolluje go natywnie (drop trafia pod kursor,
  // skrajne kolumny osiągalne — bez ręcznego rAF). Definite height wypełnia
  // viewport; calc fallback działa do pierwszego pomiaru (SSR/pierwszy render).
- "flex gap-3 overflow-auto pb-4 min-h-[280px]",
+ // `lg:flex-1`, nie `flex-1`: poniżej `lg` opakowanie jest kolumną bez
+ // określonej wysokości — tam `flex: 1 1 0%` zastąpiłoby wysokość z `style`
+ // i tablica urosłaby do najdłuższej kolumny (bez własnego przewijania).
+ "flex min-w-0 gap-3 overflow-auto pb-4 min-h-[280px] lg:flex-1",
  // Na dotyku kolumna dociąga do krawędzi (17 rem przy 343 px ekranu =
  // jedna kolumna + skrawek). `proximity`, nie `mandatory`: mandatory
  // walczy z auto-scrollem @hello-pangea/dnd przy przeciąganiu karty.
@@ -3039,31 +2849,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  )}
  style={columnHeight != null ? { height: columnHeight } : undefined}
  >
- {/* „Nowi" (z propozycjami na górze) zawsze stoi pierwsza — także gdy
- szablon nie ma etapu „Nowi" albo jego pusta kolumna jest ukryta. */}
- {!boardEntries.some((e) => boardKeyByColId.get(e.key) === "new") && (
- <div className="flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 snap-start flex-col rounded-lg border border-dashed border-primary/40 bg-background/60 sm:min-w-[19rem] xl:pointer-fine:min-w-[12.5rem]">
- <div className="flex items-center gap-2 border-b border-border px-3 py-2">
- <h3 className="flex-1 truncate text-sm font-medium text-foreground">Nowi</h3>
- {reviewTotal != null && (
- <Badge size="sm" variant={reviewTotal > 0 ? "soft" : "outline"}>
- {reviewTotal}
- </Badge>
- )}
- </div>
- <BoardReviewSection
- jobId={jobId}
- readOnly={readOnly}
- showPostingHeading={false}
- onTotalChange={setReviewTotal}
- pipelineCandidateIds={boardCandidateIds}
- budgetHourly={jobBudgetHourlyValue ?? null}
- compact={Boolean(onOpenAddCandidates)}
- onOpenPanel={onOpenAddCandidates}
- similarReassign={similarReassign}
- />
- </div>
- )}
  {boardEntries.length === 0 ? (
  <div className="flex-1 py-12 text-center text-sm text-muted-foreground">
  <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-40" />
@@ -3104,7 +2889,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  readOnly={readOnly}
  dropDisabled={isOffTemplate(entry.col)}
  onOpenDock={openDock}
- isDimmed={isDimmed}
  group={groupByColId.get(entry.key)}
  slaDays={slaDays}
  badgeByItemId={boardFold.badgeByItemId}
@@ -3114,33 +2898,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  hired: entry.col.count,
  headcount: workbenchContext?.headcount ?? null,
  })}
- highlighted={highlightColId === entry.key}
  {...(boardLabelByColId.has(entry.key)
  ? { titleOverride: boardLabelByColId.get(entry.key) }
- : {})}
- {...(boardKeyByColId.get(entry.key) === "new"
- ? {
- // v5: propozycje mają własne pole nad kartami — nagłówek liczy ludzi w kolumnie.
- extraCount: onOpenAddCandidates ? 0 : (reviewTotal ?? 0),
- prepend: (
- <BoardReviewSection
- jobId={jobId}
- readOnly={readOnly}
- showPostingHeading={false}
- onTotalChange={setReviewTotal}
- pipelineCandidateIds={boardCandidateIds}
- budgetHourly={jobBudgetHourlyValue ?? null}
- compact={Boolean(onOpenAddCandidates)}
- onOpenPanel={onOpenAddCandidates}
- similarReassign={similarReassign}
- />
- ),
- }
  : {})}
  />
  ))}
  </>
  )}
+ </div>
+ {closedColumn}
  </div>
  </div>
 

@@ -13,6 +13,13 @@ Reguła ma lustro w ``frontend/src/lib/job-names.ts`` (podgląd na żywo na
 ``/jobs/new``) i wspólny plik przypadków
 ``frontend/src/lib/__fixtures__/job-working-title-cases.json``.
 
+Do tytułu trafiają wyłącznie must-have będące NAZWĄ („Java”, „CI/CD”,
+„React (Hooks)”). Pozycja wpisana zdaniem — więcej niż trzy słowa, ponad 40
+znaków albo z przecinkiem, średnikiem, dwukropkiem czy pauzą — jest pomijana
+(:func:`_is_prose`), i to ZANIM wybierzemy dwie pierwsze: zdanie na początku
+listy nie zabiera miejsca technologii. Produkcja 02.10.2026: „Analityk
+Biznesowo-Systemowy KYC/AML · Minimum 5 lat doświadczenia w an…”.
+
 Dopóki ``working_title_auto`` jest ``True``, tytuł przelicza się przy zapisie
 Championa i przy zmianie tytułu albo must-have rekrutacji. Ręczny zapis
 wyłącza automat; pusty zapis go przywraca.
@@ -34,7 +41,15 @@ SEPARATOR = " · "
 MAX_LEN = 255
 CLIENT_REFERENCE_MAX = 120
 MUST_IN_TITLE = 2
+# Must-have dłuższe niż tyle słów albo znaków to zdanie, nie nazwa.
+MUST_MAX_WORDS = 3
+MUST_MAX_CHARS = 40
+# Znaki zdania. „/”, „&”, nawiasy, „+”, „#” i „.” świadomie poza listą:
+# „CI/CD”, „PL/SQL”, „C++”, „.NET”, „React (Hooks)” to nazwy.
+PROSE_MARKS = (",", ";", ":", "–", "—")
 BACKFILL_MARKER = "job_names_backfill_0380"
+PROSE_FIX_MARKER = "job_working_title_prose_fix_2026_10"
+_RECOMPUTE_CHUNK = 500
 
 _WHITESPACE = re.compile(r"\s+")
 _ZOB = re.compile(r"\bZOB[\s_-]*(\d+)\b", re.IGNORECASE)
@@ -43,6 +58,15 @@ _EMPTY_BRACKETS = re.compile(r"[\(\[]\s*[\)\]]")
 
 def _clean(value: Any) -> str:
     return _WHITESPACE.sub(" ", value).strip() if isinstance(value, str) else ""
+
+
+def _is_prose(name: str) -> bool:
+    """Czy pozycja must-have jest zdaniem (``name`` po :func:`_clean`)."""
+    return (
+        len(name.split(" ")) > MUST_MAX_WORDS
+        or len(name) > MUST_MAX_CHARS
+        or any(mark in name for mark in PROSE_MARKS)
+    )
 
 
 def _years_label(years: int) -> str:
@@ -63,13 +87,14 @@ def compose_working_title(
 
     Bez roli i bez must-have zwraca ``None`` — ekran pokaże wtedy nazwę od
     klienta. Za długi wynik traci człony od końca, a sama rola jest przycinana.
+    Must-have wpisane zdaniem (:func:`_is_prose`) nie wchodzi do tytułu.
     """
     role_text = _clean(role)
     names: list[str] = []
     seen: set[str] = set()
     for item in must or ():
         name = _clean(item.get("name") if isinstance(item, dict) else item)
-        if name and name.casefold() not in seen:
+        if name and not _is_prose(name) and name.casefold() not in seen:
             seen.add(name.casefold())
             names.append(name)
         if len(names) == MUST_IN_TITLE:
@@ -279,3 +304,37 @@ async def refresh_working_titles_for_ids(db: AsyncSession, job_ids: list[int]) -
             updates,
         )
     return len(updates)
+
+
+async def recompute_auto_working_titles(
+    db: AsyncSession, *, only_job_ids: Optional[set[int]] = None
+) -> Optional[dict[str, int]]:
+    """Jednorazowo: przelicz ISTNIEJĄCE automatyczne tytuły dla rekrutera.
+
+    Po zmianie reguły (02.10.2026 — zdanie w must-have nie wchodzi do tytułu)
+    stare tytuły zostałyby w bazie do najbliższego zapisu Championa. Idzie
+    przez :func:`refresh_working_titles_for_ids`, więc ręcznych tytułów nie
+    rusza i NIE podbija ``updated_at``. Marker w ``app_settings`` + advisory
+    lock → drugi start kończy się od razu (``None``). Wołający commituje.
+    Paragon: same liczby — bez tytułów i nazw (drukuje go publiczny workflow).
+    ``only_job_ids`` zawęża przebieg — wyłącznie dla testów na wspólnej bazie
+    (bez markera).
+    """
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": PROSE_FIX_MARKER}
+    )
+    if only_job_ids is None and await db.get(AppSetting, PROSE_FIX_MARKER):
+        return None
+    query = select(Job.id).where(Job.working_title_auto.is_(True)).order_by(Job.id)
+    if only_job_ids is not None:
+        query = query.where(Job.id.in_(only_job_ids))
+    ids = list((await db.execute(query)).scalars())
+    changed = 0
+    for start in range(0, len(ids), _RECOMPUTE_CHUNK):
+        changed += await refresh_working_titles_for_ids(
+            db, ids[start : start + _RECOMPUTE_CHUNK]
+        )
+    receipt = {"jobs_seen": len(ids), "titles_changed": changed}
+    if only_job_ids is None:
+        db.add(AppSetting(key=PROSE_FIX_MARKER, value=receipt))
+    return receipt

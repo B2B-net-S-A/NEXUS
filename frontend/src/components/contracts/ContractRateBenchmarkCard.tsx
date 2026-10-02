@@ -21,7 +21,7 @@ export function ContractRateBenchmarkCard({ contractId, currency }: Props) {
 
   if (isLoading) {
     return (
-      <div className="rounded-lg border border-border dark:border-border p-4 text-sm text-muted-foreground">
+      <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
         Ładowanie benchmarku…
       </div>
     );
@@ -62,7 +62,7 @@ export function ContractRateBenchmarkCard({ contractId, currency }: Props) {
       : null;
 
   return (
-    <div className="rounded-lg border border-border dark:border-border p-4 bg-linear-to-br from-blue-50/50 to-transparent dark:from-blue-950/20">
+    <div className="rounded-lg border border-border bg-card p-4">
       <div className="flex items-center gap-2 mb-3">
         <TrendingUp className="w-4 h-4 text-primary" />
         <h3 className="text-sm font-semibold">Benchmark stawki</h3>
@@ -120,12 +120,12 @@ function MetricBlock({ label, value, currency, diffPct, extra }: MetricBlockProp
   return (
     <div>
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-base font-semibold">
+      <div className="text-base font-semibold tabular-nums">
         {value != null ? formatCurrency(value, currency) : "—"}
       </div>
       {diffPct != null && value != null && (
         <div
-          className={`text-xs mt-0.5 ${diffPct >= 0 ? "text-green-600" : "text-amber-600"}`}
+          className={`text-xs mt-0.5 ${diffPct >= 0 ? "text-success-muted-foreground" : "text-warning-muted-foreground"}`}
         >
           {diffPct >= 0 ? "+" : ""}
           {diffPct}%

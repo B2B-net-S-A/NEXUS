@@ -14,17 +14,8 @@ import { countPl } from "@/lib/plural-pl";
 import { RequireSectionAccess } from "@/components/RequireSectionAccess";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { resolveViewState, type ViewState } from "@/lib/view-state";
-import {
-  TrendingUp,
-  Users,
-  Building2,
-  LineChart,
-  ArrowLeft,
-  Loader2,
-  MapPin,
-  AlertTriangle,
-  Target,
-} from "lucide-react";
+import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_UNIT } from "@/lib/calm-table";
+import { ArrowLeft, Loader2, AlertTriangle } from "lucide-react";
 
 interface MarginRow {
   candidate_id?: number;
@@ -141,32 +132,31 @@ function isFailedState(
   return state === "forbidden" || state === "not_found" || state === "error";
 }
 
+/** Zwarta liczba: etykieta, wartość, jedno zdanie. */
 function MetricCard({
-  icon: Icon,
   label,
   value,
   sub,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
   sub?: string;
 }) {
   return (
-    <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-5">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground dark:text-muted-foreground">
-        <Icon className="w-4 h-4" />
-        {label}
+    <div className="rounded-lg border border-border bg-card px-3.5 py-2.5">
+      <div className="text-[11.5px] leading-4 text-muted-foreground">{label}</div>
+      <div className="font-display text-lg font-semibold leading-7 tabular-nums text-foreground">
+        {value}
       </div>
-      <div className="mt-2 text-2xl font-bold">{value}</div>
       {sub && (
-        <div className="mt-1 text-xs text-muted-foreground dark:text-muted-foreground">
-          {sub}
-        </div>
+        <div className="text-[11.5px] leading-4 text-muted-foreground">{sub}</div>
       )}
     </div>
   );
 }
+
+/** Nagłówek sekcji na karcie. */
+const SECTION_TITLE = "text-[13px] font-semibold text-foreground";
 
 function MarginLeaderboard({
   title,
@@ -186,8 +176,8 @@ function MarginLeaderboard({
   linkPrefix: string;
 }) {
   return (
-    <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-hidden">
-      <h2 className="px-4 py-3 text-sm font-semibold border-b border-border dark:border-border">
+    <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
+      <h2 className={`px-3.5 py-2.5 border-b border-border ${SECTION_TITLE}`}>
         {title}
       </h2>
       {isLoading ? (
@@ -207,15 +197,19 @@ function MarginLeaderboard({
       ) : (
         <div className="overflow-x-auto">
         <table className="w-full min-w-[34rem] text-sm">
-          <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
-            <tr>
+          <thead className={CALM_HEAD}>
+            <tr className="border-b border-border">
               <th className="text-left px-3 py-2">#</th>
               <th className="text-left px-3 py-2">
                 {nameKey === "candidate_name" ? "Kontraktor" : "Klient"}
               </th>
               <th className="text-right px-3 py-2">Aktywne</th>
-              <th className="text-right px-3 py-2">Przychód / mies.</th>
-              <th className="text-right px-3 py-2">Marża / mies.</th>
+              <th className="text-right px-3 py-2">
+                Przychód <span className={CALM_UNIT}>/ mies.</span>
+              </th>
+              <th className="text-right px-3 py-2">
+                Marża <span className={CALM_UNIT}>/ mies.</span>
+              </th>
               <th className="text-right px-3 py-2">Marża %</th>
             </tr>
           </thead>
@@ -225,23 +219,20 @@ function MarginLeaderboard({
               const name = (r[nameKey] ?? "—") as string;
               const fxMissing = r.fx_missing === true;
               return (
-                <tr
-                  key={linkId}
-                  className="border-t border-border dark:border-border"
-                >
-                  <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
+                <tr key={linkId} className={`${CALM_ROW} last:border-b-0`}>
+                  <td className="px-3 py-2 text-muted-foreground tabular-nums">{i + 1}</td>
                   <td className="px-3 py-2">
                     <Link
                       href={`${linkPrefix}${linkId}`}
                       title={name}
-                      className="inline-block max-w-[12rem] truncate align-bottom text-primary hover:underline dark:text-primary"
+                      className="inline-block max-w-[12rem] truncate align-bottom font-medium text-primary hover:underline"
                     >
                       {name}
                     </Link>
                     {fxMissing && (
                       <span
                         role="alert"
-                        className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                        className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-warning-muted-foreground"
                         title="Kwoty pomijają pozycje bez dostępnego kursu FX"
                       >
                         <AlertTriangle
@@ -253,7 +244,7 @@ function MarginLeaderboard({
                     )}
                     {(r.contracts_without_revenue_leg ?? 0) > 0 && (
                       <span
-                        className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                        className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-warning-muted-foreground"
                         title={withoutRevenueNote(r.contracts_without_revenue_leg)}
                       >
                         <AlertTriangle
@@ -264,21 +255,27 @@ function MarginLeaderboard({
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right">{r.active_contracts}</td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap">
-                    {fxMissing
-                      ? "—"
-                      : formatCurrency(r.total_monthly_revenue, "PLN")}
+                  <td className={`px-3 py-2 ${CALM_AMOUNT}`}>{r.active_contracts}</td>
+                  <td className={`px-3 py-2 ${CALM_AMOUNT}`}>
+                    {fxMissing ? (
+                      <span className={CALM_EMPTY}>—</span>
+                    ) : (
+                      formatCurrency(r.total_monthly_revenue, "PLN")
+                    )}
                   </td>
-                  <td className="px-3 py-2 text-right font-semibold text-emerald-600 whitespace-nowrap">
-                    {fxMissing
-                      ? "—"
-                      : formatCurrency(r.total_monthly_margin, "PLN")}
+                  <td className={`px-3 py-2 font-semibold text-success-muted-foreground ${CALM_AMOUNT}`}>
+                    {fxMissing ? (
+                      <span className={CALM_EMPTY}>—</span>
+                    ) : (
+                      formatCurrency(r.total_monthly_margin, "PLN")
+                    )}
                   </td>
-                  <td className="px-3 py-2 text-right text-muted-foreground dark:text-muted-foreground">
-                    {!fxMissing && r.margin_pct !== null
-                      ? `${r.margin_pct}%`
-                      : "—"}
+                  <td className={`px-3 py-2 text-muted-foreground ${CALM_AMOUNT}`}>
+                    {!fxMissing && r.margin_pct !== null ? (
+                      `${r.margin_pct}%`
+                    ) : (
+                      <span className={CALM_EMPTY}>—</span>
+                    )}
                   </td>
                 </tr>
               );
@@ -325,14 +322,24 @@ function ForecastChart({
   const maxRev = Math.max(...forecast.months.map((m) => m.revenue), 1);
   const fxWarnings = forecast.fx_warnings ?? [];
   return (
-    <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 overflow-x-auto">
-      <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
-        <LineChart className="w-4 h-4" /> Prognoza przychodu i marży (12 mies.)
-      </h2>
+    <div className="relative overflow-x-auto rounded-lg border border-border bg-card p-4">
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+        <h2 className={SECTION_TITLE}>Prognoza przychodu i marży (12 mies.)</h2>
+        <div className="ml-auto flex gap-4 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-primary/20" />
+            Przychód
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-success" />
+            Marża
+          </span>
+        </div>
+      </div>
       {(forecast.fx_missing || fxWarnings.length > 0) && (
         <div
           role="alert"
-          className="mb-4 flex items-start gap-2 rounded-lg border border-amber-400/50 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+          className="mb-4 flex items-start gap-2 rounded-lg border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
         >
           <AlertTriangle
             className="w-4 h-4 shrink-0 mt-0.5"
@@ -350,26 +357,26 @@ function ForecastChart({
           </div>
         </div>
       )}
-      <div className="flex items-end gap-2 h-60 min-w-fit">
+      <div className="flex items-end gap-2 h-52 min-w-fit">
         {forecast.months.map((m) => {
           const revHeight = (m.revenue / maxRev) * 100;
           const marHeight = m.revenue ? (m.margin / maxRev) * 100 : 0;
           return (
             <div
               key={m.month}
-              className="flex flex-col items-center gap-1 min-w-16"
+              className="flex flex-1 flex-col items-center gap-1 min-w-16"
             >
               <div className="text-[10px] text-muted-foreground mb-1 whitespace-nowrap">
                 {countPl(m.active_count, "kontrakt", "kontrakty", "kontraktów")}
               </div>
-              <div className="relative w-full h-48 bg-muted dark:bg-card/30 rounded-t">
+              <div className="relative w-full h-40 bg-muted/50 rounded-t">
                 <div
-                  className="absolute bottom-0 left-0 right-0 bg-primary/20 dark:bg-primary/40 rounded-t"
+                  className="absolute bottom-0 left-0 right-0 bg-primary/20 rounded-t"
                   style={{ height: `${revHeight}%` }}
                   title={`Przychód: ${formatCurrency(m.revenue, "PLN")}`}
                 />
                 <div
-                  className="absolute bottom-0 left-0 right-0 bg-emerald-500 rounded-t"
+                  className="absolute bottom-0 left-0 right-0 bg-success rounded-t"
                   style={{ height: `${marHeight}%` }}
                   title={`Marża: ${formatCurrency(m.margin, "PLN")}`}
                 />
@@ -380,16 +387,6 @@ function ForecastChart({
             </div>
           );
         })}
-      </div>
-      <div className="mt-3 flex gap-4 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-3 h-3 bg-primary/20 dark:bg-primary/40 rounded" />
-          Przychód
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-3 h-3 bg-emerald-500 rounded" />
-          Marża
-        </span>
       </div>
     </div>
   );
@@ -478,25 +475,27 @@ export default function ContractAnalyticsPage() {
         />
       }
     >
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div>
           <Link
             href="/contracts"
-            className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground dark:text-muted-foreground"
+            className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Kontrakty
           </Link>
-          <h1 className="text-2xl font-bold mt-1">Analityka kontraktów</h1>
-          <p className="text-sm text-muted-foreground dark:text-muted-foreground">
-            Marża, utylizacja i prognoza dla aktywnych i kończących się
-            kontraktów.
-          </p>
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+            <h1 className="text-lg font-semibold text-foreground">Analityka kontraktów</h1>
+            <p className="text-xs text-muted-foreground">
+              Marża, utylizacja i prognoza dla aktywnych i kończących się
+              kontraktów.
+            </p>
+          </div>
         </div>
 
         {anyLeaderboardFxMissing && (
           <div
             role="alert"
-            className="flex items-start gap-2 rounded-lg border border-amber-400/50 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+            className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
           >
             <AlertTriangle
               className="mt-0.5 h-4 w-4 shrink-0"
@@ -510,9 +509,8 @@ export default function ContractAnalyticsPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
           <MetricCard
-            icon={TrendingUp}
             label="Miesięczna marża"
             value={
               marginTotalsKnown
@@ -530,7 +528,6 @@ export default function ContractAnalyticsPage() {
             }
           />
           <MetricCard
-            icon={LineChart}
             label="Miesięczny przychód"
             value={
               marginTotalsKnown
@@ -548,7 +545,6 @@ export default function ContractAnalyticsPage() {
             }
           />
           <MetricCard
-            icon={Users}
             label="Utylizacja"
             value={
               util && util.utilization_pct !== null
@@ -566,7 +562,6 @@ export default function ContractAnalyticsPage() {
             }
           />
           <MetricCard
-            icon={Building2}
             label="Śr. dni na bench"
             value={
               util?.avg_bench_days !== null &&
@@ -613,8 +608,10 @@ export default function ContractAnalyticsPage() {
         </div>
 
         <RoleClientMixCard />
-        <LocationDistributionCard />
-        <TerminationAnalysisCard />
+        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+          <LocationDistributionCard />
+          <TerminationAnalysisCard />
+        </div>
       </div>
     </RequireSectionAccess>
   );
@@ -632,7 +629,7 @@ function RoleClientMixCard() {
 
   if (isLoading) {
     return (
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-sm text-muted-foreground">
+      <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie rola ×
         klient…
       </div>
@@ -644,18 +641,15 @@ function RoleClientMixCard() {
     return (
       <QueryStateNotice
         state={viewState}
-        className="bg-card dark:bg-muted rounded-2xl border-solid"
+        className="bg-card rounded-lg border-solid"
         onRetry={() => void refetch()}
       />
     );
   }
   if (!data || data.rows.length === 0) {
     return (
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-sm text-muted-foreground">
-        <div className="flex items-center gap-2 mb-2">
-          <Target className="w-4 h-4" />
-          <h3 className="font-semibold">Rola × Klient</h3>
-        </div>
+      <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
+        <h3 className={`mb-2 ${SECTION_TITLE}`}>Rola × Klient</h3>
         Brak aktywnych kontraktów do analizy.
       </div>
     );
@@ -669,21 +663,18 @@ function RoleClientMixCard() {
   }
 
   return (
-    <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
-      <div className="flex items-center gap-2 mb-3">
-        <Target className="w-4 h-4" />
-        <h3 className="font-semibold">
-          Rola × Klient ({data.total_active}{" "}
-          {data.total_active === 1 ? "kontraktor" : "kontraktorów"} /{" "}
-          {data.total_active_contracts}{" "}
-          {data.total_active_contracts === 1 ? "kontrakt" : "kontraktów"})
-        </h3>
-      </div>
+    <div className="rounded-lg border border-border bg-card p-4">
+      <h3 className={`mb-3 ${SECTION_TITLE}`}>
+        Rola × Klient ({data.total_active}{" "}
+        {data.total_active === 1 ? "kontraktor" : "kontraktorów"} /{" "}
+        {data.total_active_contracts}{" "}
+        {data.total_active_contracts === 1 ? "kontrakt" : "kontraktów"})
+      </h3>
       <div className="overflow-x-auto">
-        <table className="min-w-full text-xs">
+        <table className="min-w-full text-xs tabular-nums">
           <thead className="text-left text-muted-foreground">
             <tr>
-              <th className="px-2 py-1 sticky left-0 bg-card dark:bg-muted">
+              <th className="px-2 py-1 sticky left-0 bg-card">
                 Rola
               </th>
               {data.clients.map((c) => (
@@ -700,11 +691,8 @@ function RoleClientMixCard() {
               // distinct person total for the role, not the sum of engagements.
               const rowSum = data.role_totals[role] ?? 0;
               return (
-                <tr
-                  key={role}
-                  className="border-t border-border dark:border-border"
-                >
-                  <td className="px-2 py-1 font-medium sticky left-0 bg-card dark:bg-muted">
+                <tr key={role} className="border-t border-border/60">
+                  <td className="px-2 py-1 font-medium sticky left-0 bg-card">
                     {role === UNKNOWN_ROLE ? "Brak roli" : role}
                   </td>
                   {data.clients.map((c) => {
@@ -717,7 +705,7 @@ function RoleClientMixCard() {
                         style={{
                           backgroundColor:
                             cnt > 0
-                              ? `rgba(37, 99, 235, ${0.1 + intensity * 0.4})`
+                              ? `hsl(var(--primary) / ${0.1 + intensity * 0.4})`
                               : undefined,
                         }}
                       >
@@ -751,7 +739,7 @@ function LocationDistributionCard() {
 
   if (isLoading) {
     return (
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-sm text-muted-foreground">
+      <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie
         lokalizacji…
       </div>
@@ -763,7 +751,7 @@ function LocationDistributionCard() {
     return (
       <QueryStateNotice
         state={viewState}
-        className="bg-card dark:bg-muted rounded-2xl border-solid"
+        className="bg-card rounded-lg border-solid"
         onRetry={() => void refetch()}
       />
     );
@@ -771,13 +759,10 @@ function LocationDistributionCard() {
   if (!data) return null;
 
   return (
-    <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
-      <div className="flex items-center gap-2 mb-3">
-        <MapPin className="w-4 h-4 text-primary" />
-        <h3 className="font-semibold">
-          Lokalizacja konsultantów ({data.total_with_hub}/{data.total} z hubem)
-        </h3>
-      </div>
+    <div className="rounded-lg border border-border bg-card p-4">
+      <h3 className={`mb-3 ${SECTION_TITLE}`}>
+        Lokalizacja konsultantów ({data.total_with_hub}/{data.total} z hubem)
+      </h3>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground mb-2">
@@ -789,12 +774,12 @@ function LocationDistributionCard() {
                 key={h.hub_city ?? "unknown"}
                 className="flex items-center justify-between"
               >
-                <span className="text-foreground dark:text-muted-foreground">
+                <span className="text-foreground">
                   {h.hub_city ?? (
                     <em className="text-muted-foreground">Brak hubu</em>
                   )}
                 </span>
-                <span className="font-medium">{h.count}</span>
+                <span className="font-medium tabular-nums">{h.count}</span>
               </li>
             ))}
           </ul>
@@ -809,12 +794,12 @@ function LocationDistributionCard() {
                 key={r.region ?? "unknown"}
                 className="flex items-center justify-between"
               >
-                <span className="text-foreground dark:text-muted-foreground">
+                <span className="text-foreground">
                   {r.region ?? (
                     <em className="text-muted-foreground">Brak regionu</em>
                   )}
                 </span>
-                <span className="font-medium">{r.count}</span>
+                <span className="font-medium tabular-nums">{r.count}</span>
               </li>
             ))}
           </ul>
@@ -837,7 +822,7 @@ function TerminationAnalysisCard() {
 
   if (isLoading) {
     return (
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-sm text-muted-foreground">
+      <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie analizy
         zakończeń…
       </div>
@@ -847,7 +832,7 @@ function TerminationAnalysisCard() {
     return (
       <QueryStateNotice
         state={viewState}
-        className="bg-card dark:bg-muted rounded-2xl border-solid"
+        className="bg-card rounded-lg border-solid"
         onRetry={() => void refetch()}
       />
     );
@@ -859,14 +844,11 @@ function TerminationAnalysisCard() {
   const maxCount = Math.max(1, ...data.by_reason.map((r) => r.count));
 
   return (
-    <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
-      <div className="flex items-center gap-2 mb-3">
-        <AlertTriangle className="w-4 h-4 text-amber-500" />
-        <h3 className="font-semibold">
-          Analiza zakończeń ({data.total_terminated} w ostatnich{" "}
-          {data.window_months} mies.)
-        </h3>
-      </div>
+    <div className="rounded-lg border border-border bg-card p-4">
+      <h3 className={`mb-3 ${SECTION_TITLE}`}>
+        Analiza zakończeń ({data.total_terminated} w ostatnich{" "}
+        {data.window_months} mies.)
+      </h3>
 
       {data.by_reason.length === 0 ? (
         <p className="text-sm text-muted-foreground">Brak zakończeń w oknie.</p>
@@ -887,9 +869,9 @@ function TerminationAnalysisCard() {
                     )}
                   </span>
                 </div>
-                <div className="h-2 bg-muted dark:bg-muted rounded-full overflow-hidden">
+                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-amber-500"
+                    className="h-full rounded-full bg-warning"
                     style={{ width: `${(r.count / maxCount) * 100}%` }}
                   />
                 </div>
@@ -901,7 +883,7 @@ function TerminationAnalysisCard() {
             Retencja per klient
           </h4>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full text-xs tabular-nums">
               <thead className="text-left text-muted-foreground">
                 <tr>
                   <th className="px-2 py-1">Klient</th>
@@ -913,13 +895,10 @@ function TerminationAnalysisCard() {
               </thead>
               <tbody>
                 {data.client_retention.map((c) => (
-                  <tr
-                    key={c.client_id}
-                    className="border-t border-border dark:border-border"
-                  >
+                  <tr key={c.client_id} className="border-t border-border/60">
                     <td className="px-2 py-1">{c.client_name}</td>
                     <td className="px-2 py-1 text-right">{c.total_ended}</td>
-                    <td className="px-2 py-1 text-right text-green-600">
+                    <td className="px-2 py-1 text-right text-success-muted-foreground">
                       {c.kept_to_end}
                     </td>
                     <td className="px-2 py-1 text-right text-destructive">

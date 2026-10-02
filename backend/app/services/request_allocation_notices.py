@@ -65,6 +65,7 @@ async def _assignment_notices(db: AsyncSession, *, now: datetime) -> int:
         await db.execute(
             select(
                 JobWorkAssignment.user_id,
+                JobWorkAssignment.job_id,
                 JobWorkAssignment.state,
                 JobWorkAssignment.assigned_at,
                 JobWorkAssignment.released_at,
@@ -87,11 +88,31 @@ async def _assignment_notices(db: AsyncSession, *, now: datetime) -> int:
             )
         )
     ).all()
+    # Zaakceptowana propozycja i osoba wybrana przez człowieka dostają dzwonek
+    # od razu („Nowy request do pracy”) — rano nie wspominamy o tym samym
+    # requeście drugi raz.
+    announced: set[tuple[int, int]] = set()
+    if any(state == "active" for _u, _j, state, *_rest in rows):
+        announced = {
+            (user_id, job_id)
+            for user_id, job_id in (
+                await db.execute(
+                    select(Notification.user_id, Notification.related_entity_id).where(
+                        Notification.notification_type
+                        == NotificationType.request_assignment_changed,
+                        Notification.related_entity_type == "job",
+                        Notification.created_at >= since,
+                    )
+                )
+            ).all()
+        }
     per_user: dict[int, dict[str, list[str]]] = {}
-    for user_id, state, _assigned, _released, reason, title in rows:
+    for user_id, job_id, state, _assigned, _released, reason, title in rows:
         if state != "active" and is_silent_release(reason):
             # Wycofana propozycja albo zdjęcie, po którym przypisano tę osobę
             # ponownie — patrz `is_silent_release`.
+            continue
+        if state == "active" and (user_id, job_id) in announced:
             continue
         bucket = per_user.setdefault(user_id, {"new": [], "gone": []})
         if state == "active":

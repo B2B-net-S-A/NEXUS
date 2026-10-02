@@ -1249,10 +1249,10 @@ Sekcja „Konsultanci" (`app/clients/[id]/ProfileTab.tsx`) renderuje **tabelę**
   komórka zostawiłaby roli bez `VIEW_FINANCE` trzy puste kolumny bez wyjaśnienia.
 - Podzakładki na `ds/TabbedNav` (`role="tab"`/`aria-selected`, liczniki), jak
   w sąsiednim `ProjectsTab`. `ConsultantRow.tsx` i `PlacementRow.tsx` usunięte.
-- **Kafle KPI:** `components/StatsCard.tsx` ma układ jednoliniowy (~44 px zamiast
-  ~88), `subtitle` przeszedł do tooltipa. Ten komponent ma DOKŁADNIE JEDNEGO
-  konsumenta (`client-profile/SummaryBar`) — nie mylić z `components/ds/StatCard`,
-  który ma sześć miejsc użycia i którego zmiana dotyka dwóch dashboardów i Cortexu.
+- **Liczby klienta stoją w nagłówku profilu** (02.10.2026): `ClientHeaderStats`
+  w `client-profile/SummaryBar.tsx` na `ds/InlineStats`, dane z tego samego
+  zapytania co tabela (`useClientProfile`). `components/StatsCard.tsx` usunięty;
+  `components/ds/StatCard` to inny komponent (pulpity) i zostaje.
 
 ## Podgląd CV: pdf.js + lupa „Szukaj w CV” (09.2026)
 
@@ -3909,7 +3909,8 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   wysłaną do klienta (savepoint, nigdy nie rzuca). Zamknięta rekrutacja nie
   przyjmuje przepięć, ale jest źródłem.
 - **Panel „Podobne rekrutacje” na stronie rekrutacji = przepięcie jednym
-  kliknięciem** (`SimilarJobsPanel`, `?win=similar`, 25.09.2026; okno
+  kliknięciem** (`SimilarJobsPanel`, `?win=similar`, 25.09.2026; od 02.10.2026
+  zakładka okna „Kandydaci do dodania”, `?win=add&wintab=similar`; okno
   `SimilarJobsDialog` zostało wyłącznie na liście rekrutacji). Rekrutacja
   NIGDY nie jest zaznaczona sama (incydent 23.09: zapis szkicu przepiął 41
   osób); kliknięcie rekrutacji (podpowiedź albo `GET …/similar/search`, także
@@ -3979,7 +3980,9 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   a `?candidate=&panel=` otwiera od razu warsztat osoby. Warsztaty z dawnej
   Tabeli (CV do klienta ze stawką/linkiem, rozmowy i werdykt HM, umowa) żyją
   w `BoardWorkbenchDrawer` = `PersonPanel` w szerokim widoku, otwierany
-  z doku; zbiorcza wysyłka CV — pasek zaznaczenia Tablicy. Pierwsza kolumna
+  z doku; zbiorcza wysyłka CV — pasek zaznaczenia Tablicy. *(Blok „Do
+  przejrzenia” w kolumnie „Nowi” usunięty 02.10.2026 — kafle nad Tablicą.)*
+  Pierwsza kolumna
   „Do przejrzenia" = `BoardReviewSection` na TEJ SAMEJ scalonej liście co
   ekran propozycji (`useJobProposals`), wpięta w kolumnę etapu „Ogłoszenia"
   i nigdy nie chowana przez „Ukryj puste kolumny"; ✓ dodaje
@@ -4061,6 +4064,7 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   przeglądarki jako bloki tekstu z flagą pogrubienia, nigdy HTML. Trasy
   `GET …/dz/{stage_id}/review` i `POST …/dz/{stage_id}/hints` tylko dla ról DZ
   z dostępem do rekrutacji. Harness `/preview/dz-review`.
+- *(Pasek filtrów usunięty 02.10.2026 — sekcja „Prostszy ekran rekrutacji”.)*
 - **Filtry Tablicy = jeden pasek nad tablicą** (`PipelineFilterBar`) zamiast
   lewej kolumny: na wierzchu nazwisko i „Mój ruch" (owner następnego kroku =
   rekruter, ta sama `nextActionFor` co karta), reszta w „Filtry ▾" z licznikiem
@@ -4073,6 +4077,7 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
 Makiety: https://claude.ai/artifact/1gapo2YTWp7oYbZp9pBdBo (decyzje Artura
 24.09: bez kolumny „Co dalej” — lista pokazuje termin; reszta przyjęta).
 
+- *(Od 02.10.2026 ścieżki, „Najbliższego kroku” i paska filtrów nie ma — sekcja „Prostszy ekran rekrutacji”.)*
 - **Ścieżka rekrutacji w nagłówku** (`JobRecruitmentPath`,
   `lib/job-recruitment-path.ts`): Zlecenie → Kandydaci → CV do klienta →
   Rozmowy → Umowa + pole „Najbliższy krok” (pierwsza pasująca reguła:
@@ -4122,6 +4127,75 @@ Makiety: https://claude.ai/artifact/1gapo2YTWp7oYbZp9pBdBo (decyzje Artura
   `to_review`.
 - **Nową stronę dopisz do `SEGMENT_LABELS` w `BreadcrumbV2.tsx`** — test czyta
   katalog `app/` i odrzuca segment bez polskiej nazwy.
+
+## Prostszy ekran rekrutacji — fakty, kafle „Kandydaci do dodania”, kolumna „Zamknięci” (02.10.2026)
+
+Decyzje Artura 02.10.2026 („znowu za dużo się dzieje”), makieta wariant B:
+https://claude.ai/artifact/ASHNaTXA9omvTH393cQjCv. Zastępuje ścieżkę
+rekrutacji i pasek filtrów z 24.09 oraz blok propozycji w „Nowych” z 22.09.
+
+- **Nagłówek = tytuł + status, linia z nazwą i numerem od klienta, trzy fakty:
+  Klient · Budżet · Tryb pracy** (`lib/job-header-facts.ts`, brak wartości =
+  „nie podano”). Po prawej tylko „Tablica | Zlecenie i Champion”, „Historia
+  i czat” i „⋯”. Nie ma liczników, ścieżki „Zlecenie → … → Umowa”,
+  „Najbliższego kroku” ani podtytułu.
+- **Nic nie znika — schodzi do menu „⋯”** (`JobDetailCompactHeader`): „Oznacz:
+  mamy championa”, „Dodaj po nazwisku”, „Dodaj z pliku CV”, „Przeszukaj całą
+  bazę (AI)”, „Moi ludzie do tej rekrutacji” (otwiera panel „Moi ludzie”),
+  „Zlecenie — skrót”, „Zespół” (z „Rekruter: X +N”), „Baza pytań”, „Ukryj /
+  Pokaż puste kolumny” + dotychczasowe pozycje. Nowa akcja zdjęta z widoku =
+  pozycja w tym menu i wpis w `recruitment-feature-inventory.json`. Kotwica
+  pomocy `job.champion.found` stoi na przycisku menu (pozycji zamkniętego menu
+  nie ma w DOM).
+- **Pasek „Kandydaci do dodania” nad Tablicą = cztery kafle**
+  (`CandidateSourcesStrip`, wstawiany przez `KanbanBoardV2.renderAbove`):
+  Podobne rekrutacje · Nowi z ogłoszeń (7 dni) · Propozycje z bazy · Szukaj
+  w bazie. „Nowi” to zwykła kolumna — liczy tylko karty. Liczby: `GET
+  /api/jobs/{id}/proposal-counts` (`postings_recent` + `base` = `total`
+  skrzynki, `screened_out`, `not_searchable_must`), `GET …/similar`
+  (`reassignable_people` + `other_people`), licznik wyszukiwania (`page_size=1`).
+  Po otwarciu okna kafle czytają `jobProposalsKeys.visibleSplit` — te same
+  liczby co zakładki (lista łączy skrzynkę z żywym przeglądem). Brak liczby to
+  „—”, nigdy zero. Poniżej 1024 px szerokości PASKA kafel jest jedną linią
+  (`@container`), żeby Tablica na laptopie zaczynała się wysoko.
+- **Jedno okno dla wszystkich źródeł** (`AddCandidatesPanel`, `?win=add&wintab=
+  similar|postings|base|search`; stary `?win=similar` działa): w każdej
+  zakładce lista + podgląd osoby OBOK (`PersonPreview`, ten sam co w podobnych
+  rekrutacjach), zaznaczenie i „Dodaj N do Nowych”. Zakładki to haki zwracające
+  sloty (`SourceTabSlots`: toolbar, body, footer, sidePane) — zostają
+  zamontowane, więc zaznaczenia przeżywają przełączanie; zapytania startują po
+  pierwszym wejściu (`visited`).
+  - „Podobne rekrutacje” (`useSimilarJobsTab`): w rekrutacji najpierw wysłani
+    do klienta, pod nimi „Pozostali z tej rekrutacji” (`GET …/similar/people?
+    include_rest=true`: doszli co najmniej do Screeningu, klient ich nie
+    widział; ≤ 50 + `rest_total`). Pozostali nie są zaznaczani sami i idą przez
+    `proposals/bulk` (`historical`) — `/similar/reassign` przyjmuje wyłącznie
+    wysłanych (422).
+  - „Nowi z ogłoszeń” / „Propozycje z bazy”: jedna scalona lista
+    `useJobProposals` dzielona przez `splitByPostings` (`posting_recent` liczy
+    serwer: źródła `new_cv`/`job_board`, `first_seen_at` z 7 dni) — nikt nie
+    wypada i nikt się nie dubluje. „Pomiń” z powodem jak na ekranie propozycji.
+  - „Szukaj w bazie” (`useSearchBaseTab` + `useJobSearchSeed`): lista na tym
+    samym API i tych samych filtrach co „Szukaj ręcznie” (wiersze `search.
+    requirements` Championa, `sort=match`), uruchamiana od razu; blok „Po tym
+    nie szukamy” pokazuje must-have wpisane zdaniem. Bez wierszy w Championie
+    zakładka NIE pokazuje całej bazy — odsyła do Championa i „Szukaj ręcznie”.
+    Zastąpiła „Znajdź w bazie (AI)”; ręczny pełny przegląd AI startuje z menu
+    „⋯” (`fullReviewRequest` — raz na kliknięcie, nigdy przy otwarciu okna).
+- **Tablica bez paska filtrów** (nazwisko, „Mój ruch”, „Filtry”, „N w procesie”,
+  SLA w pasku — usunięte bez zamiennika; plakietki „Twój ruch” i SLA kolumn
+  zostają). **„Zamknięci” to wąska kolumna obok Tablicy** (`board-closed-column`,
+  poza przewijanym obszarem): cztery strefy upuszczenia z tymi samymi
+  `droppableId` co dawne chipy (`closedChips`), klik rozwija kolumny zamkniętych.
+- **Tytuł roboczy nie bierze zdań z must-have** (`job_working_title._is_prose`
+  ↔ `lib/job-names.ts`, wspólny fixture): pozycja > 3 słów, > 40 znaków albo
+  z `, ; : – —` jest pomijana PRZED wyborem dwóch pierwszych. Istniejące tytuły
+  automatyczne przelicza jednorazowo faza `working-title-prose-fix`
+  w `entrypoint.sh` (marker `job_working_title_prose_fix_2026_10`; ręczne
+  tytuły i `updated_at` nietknięte).
+- **Laptop 1280 × 720:** kolumna „Nowi” zaczyna się na ~56% wysokości okna
+  (`/preview/job-detail?empty=1`). Harness ma zasiane wszystkie cztery źródła:
+  `?sources=similar|postings|base|search` otwiera okno od razu.
 
 ## Rekrutacja v5 — 8 kolumn, strzałka „Przesuń dalej”, QC CV, firmowa kolejka Cpro (0361, 24.09.2026)
 
@@ -4216,6 +4290,8 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   głównego DL-a. Skutek: alerty DL-owe tych rekrutacji idą do DL-a, nie do HoR.
 - **„Dodaj kandydatów”** (`AddCandidatesPanel`): jedno wejście z nagłówka i z kolumny
   Nowi, zakładki wyszukiwanie AI z Championa · propozycje · Moi ludzie · ręcznie.
+  *(Od 02.10.2026 okno „Kandydaci do dodania” z czterema źródłami, otwierane
+  z kafli nad Tablicą — sekcja „Prostszy ekran rekrutacji”.)*
 
 ## Follow-up z kandydatem, gdy klient milczy (0372, 24.09.2026)
 
@@ -4750,6 +4826,12 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
   razu po akceptacji propozycji) i `request_review_needed` do DL (nowe do
   przejrzenia, „Klient milczy” co 14 dni, w poniedziałek „Szukamy” bez pracy
   od 30 dni).
+  Przegląd wychodzi tylko między `review_time` a 17:00 czasu firmy
+  (`_review_due`, `REVIEW_LATEST`) — pierwszy przebieg po wieczornym deployu
+  wysłał „poranny” skrót o 20:54; godzina ustawiona przez admina na 17:00
+  albo później obowiązuje bez okna. Poranny skrót pomija request, o którym
+  osoba dostała już dzwonek przy akceptacji (para osoba × rekrutacja
+  z ostatniej doby).
 
 ## Role przy rekrutacji: Delivery Lead · Rekruter · Kategoria; propozycje automatu akceptuje Head of Recruitment (0409, 02.10.2026)
 
@@ -4785,13 +4867,23 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   są w zakresie **„Moja kategoria”** (`my_category`, URL `mycat=1`: GŁÓWNA
   kategoria rekrutacji ∈ kategorie osoby, tylko niezamknięte; osoba bez
   kategorii nie widzi zakresu — `quick-counts.my_category = null`). Wiersze
-  `auto_cc` zostają w bazie i jako odbiorcy powiadomień rekrutacji.
+  `auto_cc` zostają w bazie i jako odbiorcy powiadomień rekrutacji. „Moje
+  przypisane” w operacjach rekrutacji też liczy tylko ręcznych
+  współpracowników (`manual_collaborator_job_ids`).
 - **Zdjęcie osoby = `job_team.remove_recruiter`** — ze wszystkich trzech miejsc
   naraz (prowadzący przez `release_operator`, aktywne przypisanie z powodem
   `manual`, wiersz ręcznego współpracownika). Wołają je `DELETE /api/jobs/{id}/owner`
   i `DELETE /api/request-board/jobs/{id}/people/{user_id}` (każda niezamknięta
   rekrutacja). Prowadzący jest zdejmowany PRZED przypisaniem: `manual_remove`
   czyści `recruiter_id` UPDATE-em, który sesja odbija na obiekcie `job`.
+  Prowadzący bez wiersza przypisania (rekrutacja prowadzona przed włączeniem
+  automatu) zostawia przy zdjęciu ślad `remember_manual_release`: wiersz
+  `source='owner'`, `released`, powód `manual` — tylko gdy request jest w puli,
+  a osoba ma rolę roboczą. Czyta go `_blocked`, więc automat nie zaproponuje
+  jej ponownie w tym stanie requestu; „Zmiany od wczoraj” i poranny skrót go
+  nie widzą (pomijają `source='owner'`). `POST /owner` na zamkniętej
+  rekrutacji = 409 (jak `/claim`), zdjęcie osoby zostaje dozwolone; panel
+  „Zespół” chowa wtedy „Przypisz…” i „Zmień”.
 - **Zmiana rekrutera** (`POST /owner`, `/claim`, PATCH `recruiter_id` z okna
   edycji) przechodzi przez `_sync_work_assignments_with_owner` (`api/jobs.py`):
   poprzednia osoba traci aktywne przypisanie (`owner_changed`), a nowa w puli
@@ -4805,8 +4897,9 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   `proposal:excluded`), razem z prowadzeniem rekrutacji i współpracą.
 - **Ponowne przypisanie przez człowieka znosi wcześniejsze ręczne zdjęcie**
   (`request_allocation.void_manual_release`: powód `manual` → `reassigned`).
-  Woła je `manual_add` (pulpit, „Zmień” przy propozycji, nowy rekruter w puli)
-  i zmiana rekrutera poza pulą. Bez tego osoba zdjęta i dodana ponownie w tym
+  Woła je `manual_add` (pulpit, „Zmień” przy propozycji, nowy rekruter w puli),
+  zmiana rekrutera poza pulą i `assign_operator`, gdy wpisuje prowadzącego
+  (także z planu priorytetów). Bez tego osoba zdjęta i dodana ponownie w tym
   samym stanie requestu była prowadzącą, której reguła zespołu nie liczyła —
   kolejna dodana osoba wchodziła na jej miejsce. Nowa ścieżka, którą człowiek
   przypisuje osobę do requestu, idzie przez `manual_add` albo woła ten helper.
@@ -5333,6 +5426,42 @@ się nie zmieniły** — panel otwiera TE SAME okna co dawne karty.
   Przeniesienie funkcji = zmiana `file`; usunięcie wpisu tylko z `removed_reason`.
 - Harness `/preview/client-orders` (`?group=501`, `?order=5015`, `?contract=813`),
   `/preview/contracts-consolidation`.
+
+## Klienci, Kontrakty, Finanse — spokojne tabele (02.10.2026)
+
+Odświeżenie wyglądu trzech modułów bez zmiany funkcji, API i reguł (makiety:
+https://claude.ai/artifact/C5VtWkkeGkgA5TsTZmv9EC). Decyzje Artura 02.10.2026:
+rzadkie i niebezpieczne akcje zostają na wierzchu, ale ciche; podgląd PDF stoi
+obok planu w skrzynce zamówień; sekcje spod „rozwiń” są rozwiniętymi kartami;
+wiersz tabeli ma 46–50 px i najwyżej dwie linie w komórce.
+
+- **Wspólne klocki:** `Button variant="quiet"` (szary, czerwony dopiero po
+  najechaniu albo fokusie — „Usuń”, „Zakończ współpracę…”, „Przenieś”),
+  `ds/StatusDot` (kropka + etykieta zamiast plakietki statusu w wierszu),
+  `ds/InlineStats` (liczby w nagłówku zamiast rzędu kafli), stałe
+  `lib/calm-table.ts`, `client-profile/orders/RateTrio` (koszt · przychód ·
+  marża w panelach). `components/ui/table.tsx` bez zmian — wygląd idzie przez
+  `className`.
+- **Tabela:** jedna cienka linia między wierszami, bez zebry i pionowych kresek,
+  kwoty `tabular-nums` bez czcionki maszynowej, jednostka raz w nagłówku kolumny
+  (w komórce tylko, gdy wiersz ma inną niż kolumna). Kolory statusów i marży
+  wyłącznie z tokenów `success/warning/info/destructive`.
+- **Zamówienia klienta:** nagłówek kolumn raz na sekcję (MD / Kosztowe /
+  Okresowe), zamówienie to pas z numerem, pod nim osoby; nagłówek w każdym
+  zamówieniu zostaje jako `sr-only` (czytniki ekranu, wspólny `colgroup`).
+- **Motyw „Wyraźny” nie ramkuje komórek:** reguła `[data-soft] .bg-card`
+  w `globals.css` pomija `td`/`th`. Przyklejona pierwsza kolumna ma `bg-card`
+  tylko po to, żeby zakryć kolumny pod sobą — z ramką karty wyglądała jak
+  pudełko w wierszu.
+- **Finanse → Wyniki:** kolejność kolumn ma jedno źródło (`COLUMNS`
+  w `FinanceResultsTable.tsx`) dla nagłówka i wiersza — Klient stoi zaraz po
+  Kandydacie; pilnuje `FinanceResultsTable.test.tsx`.
+- **Nic nie zniknęło:** inwentarz `lib/orders-contracts-feature-inventory.json`
+  i kotwice `data-help` bez zmian. Harnessy nowych widoków:
+  `/preview/clients-list`, `/preview/client-profile-tabs`,
+  `/preview/finance-results`.
+- Poza zakresem (osobne tematy): jeden formater kwot i jeden słownik statusów
+  dla trzech modułów, kolumna „Delivery Lead” na liście klientów (wymaga API).
 
 ## Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP) + import zużycia MD
 

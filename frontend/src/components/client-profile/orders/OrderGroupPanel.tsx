@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { DetailFacts, DetailPanel, DetailSection } from "@/components/ds/DetailPanel";
+import { StatusDot } from "@/components/ds/StatusDot";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -35,12 +36,13 @@ import { formatDate } from "@/types/client-profile";
 
 import { OrderHistoryPanel } from "./OrderHistoryPanel";
 import { OrderTypeBadge } from "./OrderTypeBadge";
+import { RateText } from "./RateTrio";
 import {
   BudgetBar,
   FutureOrders,
+  GROUP_STATUS_TONE,
   PositionsMdBar,
   SharedMdBudgetBar,
-  STATUS_BADGE,
   executiveContractLabel,
   periodLabel,
 } from "./order-group-parts";
@@ -190,14 +192,7 @@ export function OrderGroupPanel({
         <>
           <OrderTypeBadge type={effectiveGroupOrderType(group)} />
           {group.status !== "active" ? (
-            <span
-              className={cn(
-                "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                STATUS_BADGE[group.status] ?? "bg-muted text-muted-foreground",
-              )}
-            >
-              {group.status_label}
-            </span>
+            <StatusDot tone={GROUP_STATUS_TONE[group.status] ?? "neutral"}>{group.status_label}</StatusDot>
           ) : null}
         </>
       }
@@ -228,14 +223,14 @@ export function OrderGroupPanel({
       ) : (
         <>
           {group.status === "exhausted" && group.is_cost_based ? (
-            <p role="status" className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+            <p role="status" className="flex items-start gap-2 rounded-md bg-destructive-muted p-2 text-xs text-destructive-muted-foreground">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
               Budżet wyczerpany — zamówienie nie przyjmuje nowych konsultantów. Zorganizuj nowe zamówienie albo skoryguj kwotę.
             </p>
           ) : null}
           {sharedMd &&
           (group.status === "exhausted" || (group.md_budget_total != null && (group.md_budget_remaining ?? 0) <= 0)) ? (
-            <p role="status" className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+            <p role="status" className="flex items-start gap-2 rounded-md bg-destructive-muted p-2 text-xs text-destructive-muted-foreground">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
               Budżet MD wyczerpany — pozostało 0 MD i zamówienie nie przyjmuje nowych konsultantów. Zorganizuj nowe zamówienie albo skoryguj pulę.
             </p>
@@ -315,18 +310,20 @@ export function OrderGroupPanel({
             {group.lines.length === 0 ? (
               <p className="text-xs text-muted-foreground">To zamówienie nie ma jeszcze konsultantów.</p>
             ) : (
-              <ul className="divide-y divide-border rounded-md border border-border text-xs">
+              <ul className="divide-y divide-border/60 rounded-md border border-border text-xs">
                 {[...roster.current, ...roster.ended].map((line) => (
                   <li key={line.id}>
                     <button
                       type="button"
                       onClick={() => onSelectLine(group.id, line.id)}
-                      className="flex w-full items-center gap-2 px-2 py-1.5 text-left hover:bg-accent"
+                      className="flex w-full items-center gap-2 px-2.5 py-2 text-left hover:bg-accent pointer-coarse:py-2.5"
                     >
                       <span className={cn("min-w-0 flex-1 truncate font-medium", !line.is_active && "text-muted-foreground")}>
                         {line.consultant_name}
                       </span>
-                      <span className="whitespace-nowrap tabular-nums text-muted-foreground">{displayLineRate(line, "revenue")}</span>
+                      <span className="whitespace-nowrap tabular-nums text-foreground">
+                        <RateText label={displayLineRate(line, "revenue")} />
+                      </span>
                     </button>
                   </li>
                 ))}

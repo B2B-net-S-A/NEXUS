@@ -6,11 +6,20 @@ import { Download, Loader2, RotateCcw } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { StatusDot } from "@/components/ds/StatusDot";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
 import { financeApi, type FinanceImportRun } from "@/lib/api/finance";
 import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
-import { formatDate } from "@/lib/utils";
+import {
+  CALM_AMOUNT,
+  CALM_EMPTY,
+  CALM_HEAD,
+  CALM_ROW,
+  CALM_SUBLINE,
+} from "@/lib/calm-table";
+import { cn, formatDate } from "@/lib/utils";
 
 function formatBytes(n: number | null): string {
   if (!n) return "—";
@@ -102,75 +111,91 @@ export function FinanceArchiveTab({ canWrite = true }: { canWrite?: boolean }) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full text-sm">
-        <thead className="bg-muted text-xs uppercase text-muted-foreground">
-          <tr>
-            <th className="px-3 py-2 text-left">Okres</th>
-            <th className="px-3 py-2 text-left">Data importu</th>
-            <th className="px-3 py-2 text-left">Plik</th>
-            <th className="px-3 py-2 text-left">Osoba</th>
-            <th className="px-3 py-2 text-right">Wiersze</th>
-            <th className="px-3 py-2 text-left">Status</th>
-            <th className="px-3 py-2 text-right">Akcje</th>
+    <div className="relative overflow-x-auto rounded-[10px] border border-border bg-card">
+      <table className="w-full min-w-[56rem] text-[13px]">
+        <thead className={cn("bg-background", CALM_HEAD)}>
+          <tr className="border-b border-border">
+            <th className="px-3 py-2 text-left font-semibold">Okres</th>
+            <th className="px-3 py-2 text-left font-semibold">Data importu</th>
+            <th className="px-3 py-2 text-left font-semibold">Plik</th>
+            <th className="px-3 py-2 text-left font-semibold">Osoba</th>
+            <th className="px-3 py-2 text-right font-semibold">Wiersze</th>
+            <th className="px-3 py-2 text-left font-semibold">Status</th>
+            <th className="px-3 py-2 text-right font-semibold">Akcje</th>
           </tr>
         </thead>
         <tbody>
           {runs.map((run) => (
-            <tr key={run.id} className="border-t border-border">
-              <td className="whitespace-nowrap px-3 py-2 font-medium">{run.label}</td>
-              <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">
+            <tr key={run.id} className={cn(CALM_ROW, "h-[50px] last:border-b-0")}>
+              <td className="whitespace-nowrap px-3 py-1.5 font-semibold">{run.label}</td>
+              <td className="whitespace-nowrap px-3 py-1.5 tabular-nums">
                 {formatDateTime(run.created_at)}
               </td>
-              <td className="px-3 py-2">
-                <span className="block max-w-[18rem] truncate">
+              <td className="px-3 py-1.5">
+                <span
+                  className="block max-w-[14rem] truncate font-semibold"
+                  title={run.source_filename}
+                >
                   {run.source_filename}
                 </span>
-                <span className="text-xs text-muted-foreground">
-                  {formatBytes(run.size_bytes)}
-                </span>
+                <span className={CALM_SUBLINE}>{formatBytes(run.size_bytes)}</span>
               </td>
-              <td className="px-3 py-2 text-muted-foreground">
-                {run.created_by_email ?? "—"}
+              <td className="px-3 py-1.5">
+                {run.created_by_email ? (
+                  <span className="block max-w-[12rem] truncate" title={run.created_by_email}>
+                    {run.created_by_email}
+                  </span>
+                ) : (
+                  <span className={CALM_EMPTY}>—</span>
+                )}
               </td>
-              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+              <td className={cn("px-3 py-1.5", CALM_AMOUNT)}>
                 {run.row_count}
                 {run.rejected_count > 0 && (
-                  <span className="ml-1 text-xs text-destructive">
-                    (pominięto {run.rejected_count})
+                  <span className="mt-0.5 block">
+                    <Badge variant="warning" size="sm">
+                      pominięto {run.rejected_count}
+                    </Badge>
                   </span>
                 )}
               </td>
-              <td className="px-3 py-2">
-                <Badge variant={run.status === "current" ? "success" : "neutral"} size="sm">
+              <td className="px-3 py-1.5">
+                <StatusDot tone={run.status === "current" ? "success" : "neutral"}>
                   {run.status === "current" ? "Aktualny" : "Zastąpiony"}
-                </Badge>
+                </StatusDot>
               </td>
-              <td className="px-3 py-2 text-right">
-                <div className="inline-flex gap-1">
-                  <button
+              <td className="px-3 py-1.5 text-right">
+                <div className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="sm"
                     title="Pobierz oryginalny plik"
+                    aria-label="Pobierz oryginał"
                     disabled={busyId === run.id}
                     onClick={() => handleDownload(run)}
-                    className="rounded p-1.5 text-muted-foreground hover:bg-muted disabled:opacity-50"
                   >
                     {busyId === run.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                     ) : (
-                      <Download className="h-4 w-4" />
+                      <Download className="h-3.5 w-3.5" aria-hidden />
                     )}
-                  </button>
+                    Pobierz
+                  </Button>
                   {canWrite && run.status === "superseded" && (
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="sm"
                       title="Przywróć jako aktualny"
+                      aria-label="Przywróć jako aktualny"
                       disabled={restore.isPending}
                       onClick={() => setPendingRestore(run)}
-                      className="rounded p-1.5 text-muted-foreground hover:bg-muted disabled:opacity-50"
+                      className="text-muted-foreground hover:text-foreground"
                     >
-                      <RotateCcw className="h-4 w-4" />
-                    </button>
+                      <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                      Przywróć
+                    </Button>
                   )}
                 </div>
               </td>

@@ -8,16 +8,38 @@
  *
  * `composeWorkingTitle` jest lustrem `backend/app/services/job_working_title.py`
  * — oba czytają `__fixtures__/job-working-title-cases.json`.
+ *
+ * Do tytułu trafiają wyłącznie must-have będące NAZWĄ („Java”, „CI/CD”,
+ * „React (Hooks)”). Pozycja wpisana zdaniem — więcej niż trzy słowa, ponad 40
+ * znaków albo z przecinkiem, średnikiem, dwukropkiem czy pauzą — jest pomijana
+ * (`isProse`), i to ZANIM wybierzemy dwie pierwsze: zdanie na początku listy
+ * nie zabiera miejsca technologii.
  */
 
 const SEPARATOR = " · ";
 const MAX_LEN = 255;
 const MUST_IN_TITLE = 2;
+// Must-have dłuższe niż tyle słów albo znaków to zdanie, nie nazwa.
+const MUST_MAX_WORDS = 3;
+const MUST_MAX_CHARS = 40;
+// Znaki zdania. „/”, „&”, nawiasy, „+”, „#” i „.” świadomie poza listą:
+// „CI/CD”, „PL/SQL”, „C++”, „.NET”, „React (Hooks)” to nazwy.
+const PROSE_MARKS = [",", ";", ":", "–", "—"];
 
 type MustItem = string | { name?: string | null } | null | undefined;
 
 function clean(value: unknown): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+}
+
+/** Czy pozycja must-have jest zdaniem (`name` po `clean`). */
+function isProse(name: string): boolean {
+  return (
+    name.split(" ").length > MUST_MAX_WORDS ||
+    // Punkty kodowe, nie jednostki UTF-16 — jak `len()` w Pythonie.
+    [...name].length > MUST_MAX_CHARS ||
+    PROSE_MARKS.some((mark) => name.includes(mark))
+  );
 }
 
 function yearsLabel(years: number): string {
@@ -39,7 +61,7 @@ export function composeWorkingTitle(
   for (const item of must ?? []) {
     const name = clean(typeof item === "object" && item !== null ? item.name : item);
     const key = name.toLocaleLowerCase("pl");
-    if (name && !seen.has(key)) {
+    if (name && !isProse(name) && !seen.has(key)) {
       seen.add(key);
       names.push(name);
     }

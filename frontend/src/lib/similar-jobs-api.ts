@@ -35,6 +35,8 @@ export interface SimilarJobItem {
   sent_count: number;
   /** Ilu z nich da się przepiąć tutaj (bez zatrudnionych i obecnych). */
   reassignable_count?: number;
+  /** Pozostali z tej rekrutacji (od Screeningu wzwyż, niewysłani do klienta). */
+  other_count?: number;
   linked: boolean;
 }
 
@@ -45,6 +47,8 @@ export interface SimilarJobsPayload {
   reassigned_count: number;
   /** Różne osoby do przepięcia z niepołączonych podpowiedzi (serwer). */
   reassignable_people?: number;
+  /** Różne osoby z podpowiedzi, które doszły tam co najmniej do Screeningu, a klient ich nie widział. */
+  other_people?: number;
   linked: SimilarJobItem[];
   suggestions: SimilarJobItem[];
 }
@@ -73,11 +77,16 @@ export interface SentPerson {
   already_in_job: boolean;
   /** Serwer: nie zatrudniony w źródle i jeszcze nie w tej rekrutacji. */
   selectable: boolean;
+  /**
+   * `false` = osoba z tej rekrutacji, której klient nie widział (doszła
+   * najdalej do Screeningu / weryfikacji). Brak pola = wysłana (starszy serwer).
+   */
+  sent?: boolean;
 }
 
 export interface SimilarPeoplePayload {
   job_id: number;
-  jobs: Array<{ job_id: number; people: SentPerson[] }>;
+  jobs: Array<{ job_id: number; people: SentPerson[]; rest_total?: number }>;
 }
 
 export interface ReassignResponse extends BulkProposalsResponse {
@@ -103,6 +112,9 @@ export interface ChampionFoundResponse {
 export const similarJobsKey = (jobId: number) => ["similar-jobs", jobId] as const;
 export const similarPeopleKey = (jobId: number, otherId: number) =>
   ["similar-people", jobId, otherId] as const;
+/** Ci sami ludzie + „pozostali” z rekrutacji (inny kształt, więc osobny klucz). */
+export const similarPeopleWithRestKey = (jobId: number, otherId: number) =>
+  ["similar-people", jobId, otherId, "rest"] as const;
 export const similarSearchKey = (jobId: number, q: string) =>
   ["similar-jobs-search", jobId, q] as const;
 /** Dopasowanie jednej osoby do rekrutacji docelowej — karta podglądu osoby. */
@@ -120,10 +132,10 @@ export const similarJobsApi = {
     api
       .delete<SimilarJobsPayload>(`/api/jobs/${jobId}/similar/${otherId}`)
       .then((r) => r.data),
-  people: (jobId: number, otherIds: number[]) =>
+  people: (jobId: number, otherIds: number[], opts: { includeRest?: boolean } = {}) =>
     api
       .get<SimilarPeoplePayload>(`/api/jobs/${jobId}/similar/people`, {
-        params: { job_ids: otherIds },
+        params: { job_ids: otherIds, ...(opts.includeRest ? { include_rest: true } : {}) },
         paramsSerializer: { indexes: null },
       })
       .then((r) => r.data),

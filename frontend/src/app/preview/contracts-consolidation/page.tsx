@@ -320,6 +320,9 @@ function seededClient(): QueryClient {
     for (const m of item.group_members as ListMember[]) {
       qc.setQueryData(["contract", m.id], contractDetail(item, m));
       qc.setQueryData(["contract-documents", m.id], PANEL_DOCUMENTS);
+      // Dokumenty zamówień panel czyta osobnym zapytaniem — bez zasiewu szło
+      // żądanie i panel pokazywał „Nie udało się pobrać dokumentów zamówień”.
+      qc.setQueryData(["order-documents", m.id, null], []);
       qc.setQueryData(["contract-activities", m.id], PANEL_ACTIVITIES);
     }
   }

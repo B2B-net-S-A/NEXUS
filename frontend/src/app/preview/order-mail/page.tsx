@@ -174,6 +174,14 @@ const RECHECK_RUNS: OrderMailRecheckRun[] = [
 
 const RECHECK_WINDOW: OrderMailRecheckWindow = { start_hour: 8, end_hour: 18, enabled: true };
 
+// Podgląd w harnessie czyta fikcyjny plik statyczny (ten sam co harness
+// Finansów) — to nie jest wywołanie API.
+async function loadStaticPdf(): Promise<Blob> {
+  const response = await fetch("/preview/cv-search/cv-tekst.pdf");
+  if (!response.ok) throw new Error("brak pliku");
+  return response.blob();
+}
+
 export default function OrderMailPreviewPage() {
   const [outcome, setOutcome] = useState<OrderMailOutcome>("needs_review");
   const [selectedId, setSelectedId] = useState<number | null>(1);
@@ -187,7 +195,10 @@ export default function OrderMailPreviewPage() {
   }, []);
   const items = outcome === "needs_review" ? ITEMS : [];
   return (
+    // Ekran produkcyjny dostaje margines od powłoki; harness jej nie ma.
+    <div className="p-4 sm:p-6">
     <OrderMailQueueView
+      loadPdf={loadStaticPdf}
       mailbox={{
         status: SYNC_STATUS,
         statusError: false,
@@ -220,5 +231,6 @@ export default function OrderMailPreviewPage() {
         onRetry: () => undefined,
       }}
     />
+    </div>
   );
 }

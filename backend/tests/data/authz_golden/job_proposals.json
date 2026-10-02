@@ -22,6 +22,7 @@
  ],
  "routes": {
   "GET /api/jobs/{job_id}/background-events": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/jobs/{job_id}/proposal-counts": "PPPPPPPDPPPPPPPPPPP",
   "GET /api/jobs/{job_id}/proposal-facts": "PPPPPPPDPPPPPPPPPPP",
   "GET /api/jobs/{job_id}/proposal-inbox": "PPPPPPPDPPPPPPPPPPP",
   "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/dismiss": "PPPPPPDDPPPPPPPPPPP",
