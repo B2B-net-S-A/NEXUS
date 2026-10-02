@@ -382,8 +382,8 @@ def _user(can_rates: bool):
         id=None,
         email="x@example.com",
         name="x",
-        role=UserRole.admin if can_rates else UserRole.sourcer,
-        roles=["admin"] if can_rates else ["sourcer"],
+        role=UserRole.admin if can_rates else UserRole.user,
+        roles=["admin"] if can_rates else ["user"],
         is_active=True,
     )
 

@@ -138,17 +138,10 @@ RECRUITMENT_TERMINAL_ROLES: tuple[UserRole, ...] = (
 )
 
 # Candidate expected-rate edits (PATCH + rate-bearing `verified` move).
-# talent_community_manager od 2026-10-02: zatrudnia i odrzuca, a na
-# „Zweryfikowany" dostawał 403. Poza listą zostaje tylko sourcer (M4-SEC-02).
-RECRUITMENT_RATE_EDIT_ROLES: tuple[UserRole, ...] = (
-    UserRole.admin,
-    UserRole.head_of_recruitment,
-    UserRole.delivery_lead,
-    UserRole.talent_community_manager,
-    UserRole.tac,
-    UserRole.recruiter,
-    UserRole.finance,
-)
+# Od 2026-10-02 każda rola wewnętrzna (decyzja Artura): Talent Community
+# Manager i sourcer dostawali 403 na „Zweryfikowany", choć weryfikują ludzi.
+# Poza listą zostaje wyłącznie rola podglądu `user`.
+RECRUITMENT_RATE_EDIT_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 
 # Scorecards, screening notes, interview feedback.
 RECRUITMENT_ASSESSMENT_WRITE_ROLES: tuple[UserRole, ...] = (

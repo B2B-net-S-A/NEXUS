@@ -1373,7 +1373,7 @@ export function CandidateProfileFactsBar({
   // czyli KAŻDA rola operacyjna, w tym HoR i sourcer (polityka faktów
   // globalnych) oraz `finance` (tier recruitera od 19.08), którego ręczna
   // lista tu gubiła. To NIE jest RECRUITMENT_RATE_EDIT_ROLES: tamten zbiór
-  // (bez HoR i sourcera) bramkuje stawkę w pipelinie, nie fakt globalny.
+  // bramkuje stawkę w pipelinie, nie fakt globalny.
   //
   // Ta sama capability bramkuje KAŻDĄ edycję w pasku: PUT języków i PATCH
   // lokalizacji stoją na tym samym CandidateProfileFactsWriteAccess. Ołówek
