@@ -175,6 +175,57 @@ async def test_handoff_binds_recruiter_and_creates_snapshot(
         assert snap.source == "handoff"
 
 
+async def test_second_handoff_replaces_the_recruiter(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Ponowne przekazanie innej osobie ZASTĘPUJE rekrutera, nie dokłada drugiego.
+
+    Poprzednia osoba ma aktywne przypisanie do requestu. Bez zwolnienia go przy
+    drugim przekazaniu obie osoby byłyby „Rekruterem” (lista, pulpit,
+    obłożenie), choć Delivery Lead wskazał jedną.
+    """
+    from app.services import embedding_service, canonical_fit
+    from app.services.job_team import recruiters_for_jobs
+
+    async def _empty(*_a, **_k):
+        return []
+
+    async def _noop(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(embedding_service, "search_candidates_semantic", _empty)
+    monkeypatch.setattr(embedding_service, "embed_job", _noop)
+    monkeypatch.setattr(canonical_fit, "score_candidates", _empty)
+
+    job_id = await _seed_job(champion=_READY_CHAMPION)
+    first_id = await _seed_recruiter()
+    second_id = await _seed_recruiter()
+
+    async def handoff(recruiter_id: int) -> None:
+        resp = await app_client.post(
+            f"/api/jobs/{job_id}/handoff",
+            headers=app_auth_headers,
+            json={"recruiter_id": recruiter_id},
+        )
+        assert resp.status_code == 202, resp.text
+
+    await handoff(first_id)
+    # Aktywne przypisanie pierwszej osoby (tak samo zostawia je `/owner`
+    # i akceptacja propozycji automatu).
+    added = await app_client.post(
+        f"/api/request-board/jobs/{job_id}/people",
+        headers=app_auth_headers,
+        json={"user_id": first_id, "role": "recruiter"},
+    )
+    assert added.status_code == 200, added.text
+    await handoff(second_id)
+
+    async with AsyncSessionLocal() as db:
+        team = await recruiters_for_jobs(db, [job_id])
+    working = [person.user_id for person in team[job_id] if not person.proposed]
+    assert working == [second_id]
+
+
 async def test_handoff_rejects_non_operational_recruiter(
     app_client: AsyncClient, app_auth_headers: dict
 ):

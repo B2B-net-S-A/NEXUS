@@ -4078,6 +4078,7 @@ async def handoff_job_to_search(
             detail="Wybrany użytkownik nie może prowadzić rekrutacji.",
         )
 
+    previous_owner_id = job.recruiter_id
     await assign_operator(
         db,
         job=job,
@@ -4092,6 +4093,16 @@ async def handoff_job_to_search(
     job.favorite_sourcing_paused = False
     await set_work_state(
         db, job, "searching", actor_id=current_user.id, reason="handoff"
+    )
+    # Ponowne przekazanie innej osobie zastępuje rekrutera jak `/owner`:
+    # bez tego poprzednia osoba z aktywnym przypisaniem zostawałaby
+    # „Rekruterem” obok nowej. Po `set_work_state` — request jest już w puli.
+    await _sync_work_assignments_with_owner(
+        db,
+        job=job,
+        previous_owner_id=previous_owner_id,
+        owner=recruiter,
+        actor_id=current_user.id,
     )
     db.add(
         Activity(

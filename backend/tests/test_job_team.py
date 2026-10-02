@@ -650,3 +650,46 @@ async def test_active_assignment_makes_a_job_member_and_a_proposal_does_not() ->
             assert world["recruiter_id"] in members
     finally:
         await _cleanup([job_id])
+
+
+@pytest.mark.asyncio
+async def test_losing_recruitment_access_takes_the_person_off_the_team() -> None:
+    """Zmiana roli na Finanse zdejmuje osobę także z przypisań do requestów.
+
+    Sprzątanie po zmianie roli czyściło prowadzącego i współpracownika, ale
+    aktywne przypisanie zostawało — a od 02.10.2026 ono też daje rolę
+    „Rekruter”, więc osoba bez dostępu do rekrutacji stała dalej na liście
+    i liczyła się w obłożeniu.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.job_work_assignment import JobWorkAssignment
+    from app.services.finance_role_cleanup import clear_recruitment_access_for_finance
+    from app.services.job_team import recruiters_for_jobs
+
+    world = await _seed_removal_job(owner_row_source="manual")
+    job_id = world["job_id"]
+    try:
+        async with AsyncSessionLocal() as db:
+            for user_id in (world["recruiter_id"], world["bystander_id"]):
+                await clear_recruitment_access_for_finance(db, user_id=user_id)
+            await db.commit()
+
+        async with AsyncSessionLocal() as db:
+            team = await recruiters_for_jobs(db, [job_id])
+            assert team.get(job_id, []) == []
+            rows = (
+                await db.execute(
+                    select(
+                        JobWorkAssignment.user_id,
+                        JobWorkAssignment.state,
+                        JobWorkAssignment.release_reason,
+                    ).where(JobWorkAssignment.job_id == job_id)
+                )
+            ).all()
+        assert {tuple(row) for row in rows} == {
+            (world["recruiter_id"], "released", "excluded"),
+            # Zwolniona propozycja niesie przedrostek — nie jest zmianą obsady.
+            (world["bystander_id"], "released", "proposal:excluded"),
+        }
+    finally:
+        await _cleanup([job_id])
