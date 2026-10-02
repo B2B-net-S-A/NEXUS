@@ -154,6 +154,7 @@ from app.services.job_priority import (
     priority_rank_expr,
 )
 from app.services.job_team import (
+    WORK_ROLES,
     TeamPerson,
     jobs_nobody_working_clause,
     jobs_worked_by_clause,
@@ -164,7 +165,11 @@ from app.services.job_team import (
     work_role_of,
     working_assignment_job_ids,
 )
-from app.services.request_allocation import manual_add, void_manual_release
+from app.services.request_allocation import (
+    job_in_pool,
+    manual_add,
+    void_manual_release,
+)
 from app.services.workforce_availability import (
     operational_owner_clause,
     operational_job_owner_clause,
@@ -5380,7 +5385,7 @@ async def list_champion_suggestions(
 
 # Role, którym przypisanie do requestu zakłada wiersz pracy — lustro pulpitu
 # „Requesty i obłożenie” (`request_board.add_person`).
-_WORK_ASSIGNMENT_ROLES = (UserRole.recruiter, UserRole.sourcer, UserRole.tac)
+_WORK_ASSIGNMENT_ROLES = WORK_ROLES
 
 
 def _in_allocation_pool(job: Job) -> bool:
@@ -5389,11 +5394,7 @@ def _in_allocation_pool(job: Job) -> bool:
     Lustro ``request_allocation._pool_clause``. Tylko tu wiersz przypisania ma
     sens — poza pulą automat zwalnia go przy najbliższym przebiegu.
     """
-    return (
-        job.status == JobStatus.published
-        and job.work_state == "searching"
-        and job.champion_found_at is None
-    )
+    return job_in_pool(job)
 
 
 async def _sync_work_assignments_with_owner(
@@ -5469,6 +5470,14 @@ async def assign_owner(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
+    # Lustro `/claim` (R8-X2-3): zamkniętej rekrutacji nikt nie dostaje do
+    # prowadzenia — „prowadzący” widzi stawki umów B2B wydanych w tej
+    # rekrutacji. Zdjęcie (DELETE) zostaje dozwolone, bo to sprzątanie.
+    if job.status == JobStatus.closed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Zamkniętej rekrutacji nie można przypisać rekrutera.",
+        )
 
     target = await db.scalar(select(User).where(User.id == payload.user_id))
     if not target or not target.is_active:

@@ -866,6 +866,42 @@ async def test_claim_closed_job_returns_409(ownership_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_assign_owner_on_closed_job_returns_409(ownership_client: AsyncClient):
+    """Lustro `/claim` (R8-X2-3): zamkniętej rekrutacji nikt nie dostaje do
+    prowadzenia — także z ręki Head of Recruitment albo Delivery Leada."""
+    _, hor_email, hor_pass = await _seed_user(UserRole.head_of_recruitment)
+    rec_id, _, _ = await _seed_user(UserRole.recruiter)
+    job_id = await _seed_job(status=JobStatus.closed)
+
+    headers = await _login(ownership_client, hor_email, hor_pass)
+    resp = await ownership_client.post(
+        f"/api/jobs/{job_id}/owner", headers=headers, json={"user_id": rec_id}
+    )
+    assert resp.status_code == 409, resp.text
+    assert "amkniętej" in resp.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        assert job is not None and job.recruiter_id is None
+
+
+@pytest.mark.asyncio
+async def test_release_owner_still_works_on_a_closed_job(
+    ownership_client: AsyncClient,
+):
+    """Zdjęcie to sprzątanie — zamknięta rekrutacja nie może go blokować."""
+    _, hor_email, hor_pass = await _seed_user(UserRole.head_of_recruitment)
+    rec_id, _, _ = await _seed_user(UserRole.recruiter)
+    job_id = await _seed_job(recruiter_id=rec_id, status=JobStatus.closed)
+
+    headers = await _login(ownership_client, hor_email, hor_pass)
+    resp = await ownership_client.delete(f"/api/jobs/{job_id}/owner", headers=headers)
+    assert resp.status_code == 200, resp.text
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        assert job is not None and job.recruiter_id is None
+
+
+@pytest.mark.asyncio
 async def test_claim_as_read_only_user_forbidden(ownership_client: AsyncClient):
     _, viewer_email, viewer_pass = await _seed_user(UserRole.user)
     job_id = await _seed_job()

@@ -40,7 +40,7 @@ from app.models.activity import Activity
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.job_work_assignment import JobWorkAssignment
-from app.models.user import User
+from app.models.user import User, UserRole
 
 
 @dataclass(frozen=True)
@@ -51,6 +51,10 @@ class TeamPerson:
     via: str  # owner | assignment | collaborator
     proposed: bool = False
     assigned_by_name: Optional[str] = None
+
+
+# Role, które pracują nad requestem (pulpit „Requesty i obłożenie”, planer).
+WORK_ROLES = (UserRole.recruiter, UserRole.sourcer, UserRole.tac)
 
 
 def work_role_of(user: User) -> str:
@@ -344,9 +348,14 @@ async def remove_recruiter(
     cokolwiek zdjęto.
     """
     from app.services.recruitment_allocation import release_operator  # noqa: PLC0415
-    from app.services.request_allocation import manual_remove  # noqa: PLC0415
+    from app.services.request_allocation import (  # noqa: PLC0415
+        job_in_pool,
+        manual_remove,
+        remember_manual_release,
+    )
 
     removed = False
+    was_owner = job.recruiter_id == user_id
     # Prowadzący PRZED przypisaniem: ``manual_remove`` zdejmuje prowadzącego
     # wpisanego przez automat UPDATE-em, który sesja od razu odbija na obiekcie
     # ``job`` (``recruiter_id`` puste) — po nim ten warunek byłby fałszywy,
@@ -377,6 +386,16 @@ async def remove_recruiter(
         # Powód ``manual``: osoba nie wraca z automatu ani jako prowadzący,
         # dopóki request nie zmieni stanu.
         removed = await manual_remove(db, job_id=job.id, user_id=user_id) or removed
+    elif was_owner and job_in_pool(job):
+        # Prowadzący bez wiersza przypisania (sprzed włączenia automatu albo
+        # sprzed jego najbliższego przebiegu): bez śladu planer zaproponowałby
+        # tę samą osobę do tego samego requestu zaraz po zdjęciu. Poza pulą
+        # i dla ról, których planer nie proponuje, nie ma czego pamiętać.
+        person = await db.get(User, user_id)
+        if person is not None and person.has_any_role(*WORK_ROLES):
+            await remember_manual_release(
+                db, job_id=job.id, user_id=user_id, role=work_role_of(person)
+            )
 
     link = await db.scalar(
         select(JobCollaborator).where(

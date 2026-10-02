@@ -612,6 +612,113 @@ async def test_remove_recruiter_takes_the_person_out_of_all_three_places(
         await _cleanup([job_id])
 
 
+async def _seed_owner_only_job(*, role: UserRole, in_pool: bool) -> dict:
+    """Rekrutacja z samym prowadzącym — bez wiersza przypisania (stan sprzed
+    włączenia automatu albo przed jego najbliższym przebiegiem)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.job import Job, JobStatus
+    from app.models.user import User
+
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"JobTeamOwnerOnly-{tag}")
+        owner = User(
+            email=f"job-team-owner-only-{tag}@example.com",
+            name=f"JobTeam owner only {tag}",
+            role=role,
+            roles=[role.value],
+            is_active=True,
+            profile_completed=True,
+        )
+        actor = User(
+            email=f"job-team-owner-only-actor-{tag}@example.com",
+            name=f"JobTeam owner only actor {tag}",
+            role=UserRole.head_of_recruitment,
+            roles=["head_of_recruitment"],
+            is_active=True,
+            profile_completed=True,
+        )
+        db.add_all([client, owner, actor])
+        await db.flush()
+        job = Job(
+            title=f"JobTeamOwnerOnly-{tag}",
+            status=JobStatus.published,
+            client_id=client.id,
+            recruiter_id=owner.id,
+            **({"work_state": "searching"} if in_pool else {}),
+        )
+        db.add(job)
+        await db.commit()
+        return {"job_id": job.id, "owner_id": owner.id, "actor_id": actor.id}
+
+
+@pytest.mark.asyncio
+async def test_removing_an_owner_without_an_assignment_row_is_remembered() -> None:
+    """Zdjęty prowadzący nie wraca jako propozycja automatu.
+
+    Do tej poprawki ślad „zdjęty ręcznie” powstawał tylko, gdy osoba miała
+    aktywny wiersz przypisania. Prowadzący sprzed włączenia automatu (albo
+    wpisany między przebiegami) go nie miał, więc planer mógł zaproponować tę
+    samą osobę do tego samego requestu zaraz po zdjęciu.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.job_work_assignment import JobWorkAssignment
+    from app.services.request_allocation import _blocked
+
+    world = await _seed_owner_only_job(role=UserRole.recruiter, in_pool=True)
+    job_id, owner_id = world["job_id"], world["owner_id"]
+    try:
+        assert await _remove(job_id, owner_id, world["actor_id"]) is True
+        async with AsyncSessionLocal() as db:
+            rows = (
+                await db.scalars(
+                    select(JobWorkAssignment).where(JobWorkAssignment.job_id == job_id)
+                )
+            ).all()
+            assert [(r.user_id, r.role, r.state, r.release_reason) for r in rows] == [
+                (owner_id, "recruiter", "released", "manual")
+            ]
+            assert rows[0].released_at is not None
+            assert (job_id, owner_id) in await _blocked(db)
+    finally:
+        await _cleanup([job_id])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("role", "in_pool"),
+    [
+        # Poza pulą automat nikogo nie dobiera — nie ma czego pamiętać.
+        (UserRole.recruiter, False),
+        # Delivery Lead jako prowadzący nie jest osobą, którą planer proponuje.
+        (UserRole.delivery_lead, True),
+    ],
+)
+async def test_owner_removal_leaves_no_row_where_the_planner_never_looks(
+    role: UserRole, in_pool: bool
+) -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.job_work_assignment import JobWorkAssignment
+
+    world = await _seed_owner_only_job(role=role, in_pool=in_pool)
+    job_id = world["job_id"]
+    try:
+        assert await _remove(job_id, world["owner_id"], world["actor_id"]) is True
+        async with AsyncSessionLocal() as db:
+            assert (await db.get(Job, job_id)).recruiter_id is None
+            assert (
+                await db.scalars(
+                    select(JobWorkAssignment.id).where(
+                        JobWorkAssignment.job_id == job_id
+                    )
+                )
+            ).all() == []
+    finally:
+        await _cleanup([job_id])
+
+
 # ── Członkostwo rekrutacji zna aktywne przypisanie (baza) ────────────────────
 
 
