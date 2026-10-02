@@ -100,11 +100,14 @@ def _declared_permissions(request: Request) -> list[tuple[ProductAction, ...]]:
         if dependant is None or id(dependant) in seen:
             return
         seen.add(id(dependant))
-        declared = getattr(
-            getattr(dependant, "call", None), "required_permissions", None
-        )
+        call = getattr(dependant, "call", None)
+        declared = getattr(call, "required_permissions", None)
         if declared:
             groups.append(tuple(declared))
+        # Bramka, która wymaga KILKU uprawnień naraz, deklaruje je jako
+        # osobne grupy (``required_permission_groups``).
+        for group in getattr(call, "required_permission_groups", None) or ():
+            groups.append(tuple(group))
         for child in getattr(dependant, "dependencies", None) or ():
             _walk(child)
 

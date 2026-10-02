@@ -124,6 +124,15 @@ async def require_contract_legal_read_access(
     return current_user
 
 
+# Bramka sekcji biegnie przed tymi zależnościami; po tych atrybutach nazywa
+# w odmowie uprawnienie, którego konto nie ma (``section_access._named_denial``).
+require_contract_legal_access.required_permission_groups = (
+    (ProductAction.contracts_orders_edit,),
+    (ProductAction.amounts_view,),
+)
+require_contract_legal_read_access.required_permissions = (ProductAction.amounts_view,)
+
+
 async def assert_contract_legal_client_access(
     db: AsyncSession,
     user: User,

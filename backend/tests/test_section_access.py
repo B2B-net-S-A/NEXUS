@@ -892,3 +892,37 @@ async def test_named_denial_reaches_the_client_through_real_routing() -> None:
         ),
     }
     assert allowed.status_code == 200, allowed.text
+
+
+@pytest.mark.asyncio
+async def test_gate_that_needs_two_permissions_names_the_one_that_is_missing() -> None:
+    """Narzędzia prawne wymagają edycji kontraktów ORAZ podglądu kwot."""
+
+    from typing import Annotated
+
+    from fastapi import Depends
+
+    from app.api.contract_access import (
+        require_contract_legal_access,
+        require_contract_legal_read_access,
+    )
+    from app.models.user import User
+
+    writer = Annotated[User, Depends(require_contract_legal_access)]
+    reader = Annotated[User, Depends(require_contract_legal_read_access)]
+    dependency = require_section_access(ProductSection.delivery)
+
+    editor = _snapshot_user(
+        delivery="read", permissions=("delivery_view", "contracts_orders_edit")
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await dependency(_request("POST", route=_route_requiring(writer)), editor)
+    assert exc_info.value.detail["permissions"] == ["amounts_view"]
+
+    outsider = _snapshot_user(delivery="none")
+    with pytest.raises(HTTPException) as exc_info:
+        await dependency(_request("POST", route=_route_requiring(writer)), outsider)
+    assert exc_info.value.detail["permissions"] == ["contracts_orders_edit"]
+    with pytest.raises(HTTPException) as exc_info:
+        await dependency(_request("GET", route=_route_requiring(reader)), outsider)
+    assert exc_info.value.detail["permissions"] == ["amounts_view"]
