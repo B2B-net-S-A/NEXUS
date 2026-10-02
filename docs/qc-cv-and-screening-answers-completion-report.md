@@ -143,6 +143,23 @@ z surowego ciała żądania poza tą funkcją i poza blokiem `try`. Formularz
 „Generuj draft” pokazuje teraz zdanie odmowy z serwera zamiast ogólnego
 „Nie udało się wygenerować draftu”.
 
+### Uzupełnienie po wdrożeniu (PR #1989, 02.10.2026)
+
+Dwie rzeczy zapisane po pierwszym PR jako otwarte:
+
+- **Liczba większa niż kolumna bazy.** Identyfikator spoza zakresu int4
+  w ciele żądania, w adresie albo w parametrze (np. `99999999999`) kończył się
+  odpowiedzią 500 — odtworzone w CI na czterech żądaniach do dwóch tras.
+  Wcześniej poprawiano to osobno w każdej trasie (cztery miejsca, dwa kolejne
+  otwarte PR-y bota). Teraz rozpoznaje to jedno miejsce w siatce błędów
+  aplikacji i odpowiada 422 ze zdaniem po polsku; dotyczy każdej trasy.
+  Zapytanie w takim przypadku nie dochodzi do bazy, więc niczego nie zmienia,
+  a następne żądanie działa normalnie (osobny test).
+- **Strażnik tras z ręczną walidacją** widzi teraz także model budowany przez
+  `Model(**ciało)`, ciało opisane jako `Annotated[dict, …]`, ciało czytane
+  przez `request.json()` i ciało przepisane do zmiennej lokalnej. Na dzisiejszym
+  kodzie nie znalazł żadnej dodatkowej trasy.
+
 ## Weryfikacja
 
 - Backend: `ruff check app/`, `ruff format --check app/`, stemple przewodników
