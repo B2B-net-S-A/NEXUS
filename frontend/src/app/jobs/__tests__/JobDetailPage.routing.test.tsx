@@ -84,7 +84,10 @@ vi.mock("@/hooks/useJobPipelineTemplate", () => ({
     canWriteClientRate: false,
   }),
 }));
-vi.mock("@/store/auth", () => ({
+// Pomocniki ról (`getUserRoles` i reszta) zostają prawdziwe — czyta je reguła
+// pełnej edycji (`hasFullJobEditFallback`); podmieniamy tylko stan i `hasRole`.
+vi.mock("@/store/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/store/auth")>()),
   useAuthStore: (sel: (s: unknown) => unknown) =>
     sel({ user: auth.user, realUser: auth.realUser }),
   hasRole: () => true,

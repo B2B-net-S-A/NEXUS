@@ -139,7 +139,29 @@ szablony pipeline'u · kolejka przeglądu DL · pełna edycja rekrutacji przez T
 
 Wszystko inne ma zostać identyczne. Pilnuje tego macierz bramek
 (`backend/tests/test_authz_guard_matrix.py`, wzorzec w
-`backend/tests/data/authz_golden/`): 1223 trasy × 18 person.
+`backend/tests/data/authz_golden/`): 1227 tras × 21 person (18 pierwszych to
+persony sprzed przepięcia; trzy ostatnie — rekruter z nadanym
+`recruitment_manage`, `finance_module` i samym `amounts_edit` — odróżniają
+bramkę uprawnienia od bramki roli).
+
+### Skutki w treści handlerów (macierz ich nie widzi)
+
+Wynikają z punktów wyżej albo z tego, że bramka pyta o uprawnienie:
+
+- **Finanse** edytują w `PATCH /api/contracts/{id}` także pola niebędące
+  kwotami (pkt 1); status i dane zakończenia współpracy zostają przy pozycji 4.
+- **TCM** potwierdza podpis dokumentów pochodnych z rodziny zakończenia
+  (rozwiązanie, wypowiedzenie) — to pozycja 4, którą ma.
+- **Druk szkicu kontraktu** bez zapisanego szkicu: osoba z pozycją 3 dostaje
+  404 zamiast pustego dokumentu.
+- **Stawka do klienta w rekrutacji:** widzi ją także każdy, kto ją zapisuje
+  (pozycja 6) — dla ról domyślnych bez zmiany.
+- **Zamówienia z maila** („Zastosuj”, „Odrzuć”, „Przelicz plan”) wymagają
+  pozycji 3 ORAZ prawa do kwot zamówień klienta; sama pozycja 8 nie wystarcza.
+- **Budżet linii zamówienia wpisany kwotą** (tryb „kwota”) zmienia konto
+  z prawem do kwot zamówień klienta; budżet w MD — każdy prowadzący zamówienia.
+- **Mail zarządu** idzie do posiadaczy pozycji 9 z dostępem do Insights
+  (domyślnie ci sami odbiorcy: admin i Finanse).
 
 ## 7. API panelu
 
