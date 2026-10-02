@@ -8,6 +8,7 @@ reguły, a „CV wysłane” powiadamiało wyłącznie osobę z `jobs.recruiter_
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -20,7 +21,7 @@ from app.models.job import Job
 from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.team_structure import DeliveryLeadClientAssignment
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.services import cpro_sender
 from app.services import stage_handoff_recipients as handoff
 from app.services import stage_notification_emitter as emitter
@@ -71,6 +72,54 @@ def test_handoff_kind(monkeypatch, stage, nordea, expected) -> None:
     assert handoff.handoff_kind(stage, client_id=7) == expected
 
 
+def test_return_from_the_cpro_queue_is_a_handoff_only_at_nordea(monkeypatch) -> None:
+    qc, cpro = _def("QC CV", "interview"), _def("Wysłać do Cpro", None)
+    verified = _def("Zweryfikowany", "verified")
+    monkeypatch.setattr(handoff, "cpro_enabled_for_client", lambda _cid: True)
+    assert (
+        handoff.handoff_kind(qc, client_id=7, previous_def=cpro)
+        == handoff.REASON_CPRO_RETURNED
+    )
+    # Zwykłe wejście do „QC CV” u Nordei to praca rekrutera, nie przekazanie.
+    assert handoff.handoff_kind(qc, client_id=7, previous_def=verified) is None
+    monkeypatch.setattr(handoff, "cpro_enabled_for_client", lambda _cid: False)
+    assert (
+        handoff.handoff_kind(qc, client_id=7, previous_def=cpro)
+        == handoff.REASON_DL_REVIEW
+    )
+
+
+def test_waiting_tasks_cannot_be_muted_and_cv_sent_stays_a_stage_move() -> None:
+    """Zadanie czekające na odbiorcę idzie typem z kategorii „Wzmianki”."""
+    from app.services.notification_categories import (
+        CATEGORY_BY_TYPE,
+        CATEGORY_INFO,
+        NotificationCategory,
+    )
+
+    assert handoff.TASK_REASONS == {
+        handoff.REASON_DL_REVIEW,
+        handoff.REASON_CPRO_QUEUE,
+        handoff.REASON_CPRO_RETURNED,
+    }
+    category = CATEGORY_BY_TYPE[NotificationType.board_task_waiting]
+    assert category == NotificationCategory.mentions
+    assert CATEGORY_INFO[category].mandatory
+    assert not CATEGORY_INFO[CATEGORY_BY_TYPE[NotificationType.stage_rule]].mandatory
+
+
+def test_migration_and_entrypoint_add_the_notification_type() -> None:
+    backend = Path(__file__).resolve().parents[1]
+    statement = (
+        "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_task_waiting'"
+    )
+    migration = (
+        backend / "alembic" / "versions" / "0408_board_task_waiting_notif.py"
+    ).read_text(encoding="utf-8")
+    assert statement in " ".join(migration.split())
+    assert statement in (backend / "entrypoint.sh").read_text(encoding="utf-8")
+
+
 def _content(reason, *, mover=SimpleNamespace(name="Sandra S.")):
     return emitter._inapp_content(
         reason=reason,
@@ -96,6 +145,11 @@ def test_handoff_bell_says_what_to_do_and_opens_the_person_on_the_board() -> Non
 
     title, _message, link = _content(handoff.REASON_CPRO_QUEUE)
     assert title == "Do wrzucenia do Cpro: Jan Testowy"
+    assert link == "/jobs/3?candidate=9"
+
+    title, message, link = _content(handoff.REASON_CPRO_RETURNED)
+    assert title == "Wrócił z kolejki Cpro: Jan Testowy"
+    assert "Sandra S. zwrócił(a) kandydata Jan Testowy z kolejki Cpro" in message
     assert link == "/jobs/3?candidate=9"
 
 
@@ -131,7 +185,9 @@ async def _stage_bells(user_id: int, candidate_id: int) -> list[Notification]:
             select(Notification)
             .where(
                 Notification.user_id == user_id,
-                Notification.notification_type == NotificationType.stage_rule,
+                Notification.notification_type.in_(
+                    (NotificationType.stage_rule, NotificationType.board_task_waiting)
+                ),
                 Notification.related_entity_type == "candidate_stage",
                 Notification.related_entity_id.in_(stage_ids),
             )
@@ -191,6 +247,7 @@ async def test_qc_rings_the_delivery_lead_and_cv_sent_rings_the_recruiter(
         await _move(api_client, rec, world, "qc")
         dl_bells = await _stage_bells(dl_id, cid)
         assert [b.title.split(":")[0] for b in dl_bells] == ["CV do przeglądu"]
+        assert dl_bells[0].notification_type == NotificationType.board_task_waiting
         assert dl_bells[0].link == f"/jobs/{jid}?candidate={cid}"
         # Rekruter sam przesunął kartę — o własnym ruchu dzwonka nie dostaje.
         assert await _stage_bells(rec_id, cid) == []
@@ -206,6 +263,7 @@ async def test_qc_rings_the_delivery_lead_and_cv_sent_rings_the_recruiter(
         )
         rec_bells = await _stage_bells(rec_id, cid)
         assert [b.title.split(":")[0] for b in rec_bells] == ["CV wysłane"]
+        assert rec_bells[0].notification_type == NotificationType.stage_rule
         assert rec_bells[0].link == f"/jobs/{jid}?candidate={cid}"
         # DL nie dostaje dzwonka o własnej wysyłce; nadal ma jeden, z QC.
         assert len(await _stage_bells(dl_id, cid)) == 1
@@ -278,7 +336,145 @@ async def test_nordea_cpro_queue_rings_the_cpro_sender_not_the_delivery_lead(
             await _move(api_client, rec, world, "cpro")
             bells = await _stage_bells(sender_id, cid)
             assert [b.title.split(":")[0] for b in bells] == ["Do wrzucenia do Cpro"]
+            assert bells[0].notification_type == NotificationType.board_task_waiting
             assert bells[0].link == f"/jobs/{jid}?candidate={cid}"
             assert await _stage_bells(dl_id, cid) == []
     finally:
         await _cleanup(world, [admin_id, rec_id, sender_id, dl_id])
+
+
+# ── Uzupełnienie 02.10.2026: zwrot z Cpro, osoba przekazująca, wyciszenia ────
+
+
+@pytest.mark.asyncio
+async def test_cv_sent_also_rings_the_person_who_handed_the_card_over(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Kartę do DL przekazuje nieraz ktoś inny niż pierwszy weryfikator —
+    obie osoby mają wiedzieć, że CV poszło do klienta."""
+
+    world = await _seed_world()
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    verifier_id, verifier_creds = await _seed_user(UserRole.recruiter)
+    hander_id, hander_creds = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    verifier = await _login(api_client, verifier_creds)
+    hander = await _login(api_client, hander_creds)
+    dl = await _login(api_client, dl_creds)
+    cid, jid = world["candidate_id"], world["job_id"]
+    async with AsyncSessionLocal() as db:
+        (await db.get(Job, jid)).delivery_lead_id = dl_id
+        await db.commit()
+    try:
+        await _seed_screening(world, verifier_id)
+        await _move(api_client, verifier, world, "verified")
+        await _move(api_client, hander, world, "qc")
+        await _move(
+            api_client,
+            dl,
+            world,
+            "cv_sent",
+            client_rate_value="170",
+            client_rate_unit="hourly",
+            client_rate_currency="PLN",
+        )
+        for user_id in (verifier_id, hander_id):
+            sent = [
+                b
+                for b in await _stage_bells(user_id, cid)
+                if b.title.startswith("CV wysłane")
+            ]
+            assert len(sent) == 1, user_id
+            assert sent[0].notification_type == NotificationType.stage_rule
+    finally:
+        await _cleanup(world, [verifier_id, hander_id, dl_id])
+
+
+@pytest.mark.asyncio
+async def test_muted_pipeline_category_does_not_hide_the_review_request(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Wyciszone „Ruchy w rekrutacjach” gaszą informację o ruchu, ale nie
+    zadanie: Delivery Lead nadal widzi, że ktoś czeka na przegląd."""
+
+    world = await _seed_world()
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    rec = await _login(api_client, rec_creds)
+    dl = await _login(api_client, dl_creds)
+    cid, jid = world["candidate_id"], world["job_id"]
+    muted = {"pipeline": datetime.now(timezone.utc).isoformat()}
+    async with AsyncSessionLocal() as db:
+        (await db.get(Job, jid)).delivery_lead_id = dl_id
+        (await db.get(User, dl_id)).muted_notification_categories = muted
+        (await db.get(User, rec_id)).muted_notification_categories = muted
+        await db.commit()
+    try:
+        await _seed_screening(world, rec_id)
+        await _move(api_client, rec, world, "verified")
+        await _move(api_client, rec, world, "qc")
+        dl_bells = await _stage_bells(dl_id, cid)
+        assert [b.notification_type for b in dl_bells] == [
+            NotificationType.board_task_waiting
+        ]
+
+        await _move(
+            api_client,
+            dl,
+            world,
+            "cv_sent",
+            client_rate_value="170",
+            client_rate_unit="hourly",
+            client_rate_currency="PLN",
+        )
+        # „CV wysłane” to informacja o ruchu — wyciszenie rekrutera ją gasi.
+        assert await _stage_bells(rec_id, cid) == []
+    finally:
+        await _cleanup(world, [rec_id, dl_id])
+
+
+@pytest.mark.asyncio
+async def test_return_from_the_cpro_queue_rings_the_person_who_queued_the_card(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = await _seed_world()
+    await seed_entry_row(world["candidate_id"], world["job_id"])
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
+    admin_id, admin_creds = await _seed_user(UserRole.admin)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    sender_id, sender_creds = await _seed_user(UserRole.recruiter)
+    admin = await _login(api_client, admin_creds)
+    rec = await _login(api_client, rec_creds)
+    sender = await _login(api_client, sender_creds)
+    cid, jid = world["candidate_id"], world["job_id"]
+    try:
+        async with restore_cpro_sender():
+            await clear_cpro_sender()
+            put = await api_client.put(
+                "/api/board-tasks/cpro/sender",
+                headers=admin,
+                json={"user_id": sender_id, "until": None},
+            )
+            assert put.status_code == 200, put.text
+
+            await _move(api_client, rec, world, "verified")
+            await _move(api_client, rec, world, "qc")
+            await _move(api_client, rec, world, "cpro")
+            assert await _stage_bells(rec_id, cid) == []
+
+            # „Zwróć do rekrutera”: ruch wstecz, a mimo to dzwonek.
+            await _move(api_client, sender, world, "qc")
+            bells = await _stage_bells(rec_id, cid)
+            assert [b.title.split(":")[0] for b in bells] == ["Wrócił z kolejki Cpro"]
+            assert bells[0].notification_type == NotificationType.board_task_waiting
+            assert bells[0].link == f"/jobs/{jid}?candidate={cid}"
+            # Osoba od Cpro nie dostaje dzwonka o własnym zwrocie.
+            assert len(await _stage_bells(sender_id, cid)) == 1
+
+            # Zwykłe cofnięcie karty nadal nikogo nie powiadamia.
+            await _move(api_client, rec, world, "verified")
+            assert len(await _stage_bells(rec_id, cid)) == 1
+            assert len(await _stage_bells(sender_id, cid)) == 1
+    finally:
+        await _cleanup(world, [admin_id, rec_id, sender_id])
