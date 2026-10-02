@@ -94,6 +94,55 @@ describe("OrdersTable — kafelki zamówień MD i kosztowych (ticket 11)", () =>
     expect(tiles[1]).toContainElement(rowOf(5));
   });
 
+  it("nagłówek kafla nie powtarza zużycia — pasek i „X / Y MD” są tylko w wierszach osób", () => {
+    renderTable([
+      group({
+        lines: [
+          line({ id: 1, md_total: 85, md_remaining: 76 }),
+          line({ id: 2, consultant_name: "Robert Drugi", md_total: 60, md_remaining: 20 }),
+        ],
+      }),
+    ]);
+    const header = document.getElementById("order-group-anchor-15")!;
+    expect(header).toHaveTextContent("Zamówienie nr");
+    expect(header).toHaveTextContent("2 os.");
+    expect(within(header).queryByRole("progressbar")).toBeNull();
+    expect(header).not.toHaveTextContent(/\d\s*\/\s*\d+\s*MD/);
+    // Wiersze osób bez zmian.
+    expect(within(rowOf(1)!).getByRole("progressbar", { name: "Pozostałe MD" })).toBeInTheDocument();
+    expect(rowOf(1)).toHaveTextContent(/76\s*\/\s*85\s*MD/);
+    expect(rowOf(2)).toHaveTextContent(/20\s*\/\s*60\s*MD/);
+  });
+
+  it("nagłówek kosztowego i wspólnej puli MD też nie pokazuje budżetu — jest w panelu", () => {
+    const { unmount } = renderTable([
+      group({
+        is_cost_based: true,
+        budget_amount: 1000,
+        budget_used: 400,
+        budget_remaining: 600,
+        lines: [line({ md_total: null, md_remaining: null })],
+      }),
+    ]);
+    expect(document.getElementById("order-group-anchor-15")).not.toHaveTextContent(/pozostało/);
+    unmount();
+
+    renderTable([
+      group({
+        is_md_budget_based: true,
+        md_budget_mode: "shared",
+        md_budget_total: 100,
+        md_budget_used: 100,
+        md_budget_remaining: 0,
+        lines: [line({ md_total: null, md_remaining: null })],
+      }),
+    ]);
+    const header = document.getElementById("order-group-anchor-15")!;
+    expect(within(header).queryByRole("progressbar")).toBeNull();
+    // Wyczerpanie nadal sygnalizuje plakietka w „Uwagach”.
+    expect(within(header).getByText("Budżet wyczerpany")).toBeInTheDocument();
+  });
+
   it("osoba dodana do zamówienia nie ma tagu „Dodany ręcznie”", () => {
     renderTable([
       group({
@@ -524,15 +573,15 @@ describe("OrdersTable — budżet i zużycie w wierszach", () => {
       ],
     });
 
-  it("linia z zakresami dostaje paski podstawy i opcji, zamówienie — MD pozycji bez kwot", () => {
+  it("linia z zakresami dostaje paski podstawy i opcji, zamówienie — sama umowa wykonawcza", () => {
     renderTable([scoped()]);
     const row = rowOf(2)!;
     expect(row.querySelector('[aria-label="Podstawa — wykorzystano MD"]')).not.toBeNull();
     expect(row.querySelector('[aria-label="Opcja — wykorzystano MD"]')).not.toBeNull();
     const groupRow = document.getElementById("order-group-anchor-15")!;
     expect(groupRow).toHaveTextContent("Umowa wykonawcza UW/242/2031 · Cz. II");
-    expect(groupRow).toHaveTextContent(/wykorzystano 154 \/ 360 MD/);
-    // Kwoty umowy są w panelu, nie w wierszu tabeli.
+    // Łączne MD i kwoty umowy są w panelu, nie w nagłówku kafla.
+    expect(groupRow).not.toHaveTextContent(/wykorzystano/);
     expect(groupRow).not.toHaveTextContent(/2\s295\s200/);
   });
 

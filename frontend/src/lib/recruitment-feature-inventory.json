@@ -879,6 +879,14 @@
    "v3_home": "Pulpit → „Czeka na Ciebie”"
   },
   {
+   "id": "board.cv-in-transit",
+   "area": "pipeline",
+   "opis": "Lista „Twoje CV w drodze” na pulpicie dla rekrutera kandydata: co wróciło (odrzucenie przez DL, cofnięcie z QC, zwrot z kolejki Cpro), co czeka w przeglądzie i co poszło do klienta; każdy ma ją domyślnie, „Usuń z pulpitu” zapisuje się na koncie, przywraca „Dodaj kafelek”",
+   "file": "components/v2/dashboard/CvInTransitSection.tsx",
+   "marker": "CvInTransitSection",
+   "v3_home": "Pulpit → „Czeka na Ciebie” / pasek „Twoje CV w drodze”"
+  },
+  {
    "id": "board.dz-review",
    "area": "pipeline",
    "opis": "Przegląd przed DZ: CV dla klienta obok oryginalnego CV i zapytania klienta, sprawdzenie must-have (w CV, pogrubione, w każdej roli z oryginału), podpowiedzi GPT-6 Luny, „Zatwierdź DZ” z okna",
@@ -899,7 +907,7 @@
   {
    "id": "board.cv-qc",
    "area": "pipeline",
-   "opis": "QC CV przed „CV wysłane”/Cpro: CV firmowe z zaznaczonymi brakami (niepogrubione must-have, stanowiska bez opisu technologii), sprawdzenia blokujące i uwagi, naprawy (pogrub wszystkie, pisownia, usuń termin, pytanie do kandydata, generator CV), propozycje poprawek AI ze źródłem (zastosuj/edytuj/odrzuć), „Przepuść mimo QC” z powodem dla DL i admina",
+   "opis": "QC CV przed „CV wysłane”/Cpro: pasek „Co sprawdza QC” z umiejętnościami krytycznymi i ich źródłem, „Do poprawy przed wysłaniem” (karta na wymaganie: brak CV firmowego, umiejętności krytyczne, treść spoza oryginału, reguły klienta) z przyciskiem naprawy, „Warto poprawić — nie blokuje”, „W porządku”, CV firmowe z zaznaczonymi brakami, naprawy (pogrub wszystkie, pisownia, usuń termin, pytanie do kandydata, generator CV), propozycje poprawek AI ze źródłem (zastosuj/edytuj/odrzuć), „Przepuść mimo QC…” z gotowym powodem dla DL i admina, „Przesuń dalej” ze stopki",
    "file": "components/v2/recruitment/CvQcDialog.tsx",
    "marker": "CvQcDialog",
    "v3_home": "Tablica → kolumna „QC CV” / Pulpit → przegląd DL → Otwórz QC"
@@ -1023,6 +1031,30 @@
    "file": "components/v2/jobs/PipelineCandidateDock.tsx",
    "marker": "<DockCallCheatsheet jobId",
    "v3_home": "Tablica → dok osoby → Screening"
+  },
+  {
+   "id": "board.cv-qc-override-reasons",
+   "area": "pipeline",
+   "opis": "„Przepuść mimo QC”: cztery gotowe powody, opis wymagany tylko przy „Inny powód”, lista rzeczy, które zostają niepoprawione; powód trafia do historii kandydata",
+   "file": "components/v2/recruitment/QcOverrideDialog.tsx",
+   "marker": "QcOverrideDialog",
+   "v3_home": "Okno QC CV → stopka → „Przepuść mimo QC…”"
+  },
+  {
+   "id": "dock.screening-answers",
+   "area": "panel",
+   "opis": "Pytania i odpowiedzi z zapisanego screeningu pod wynikiem w doku osoby (z pominiętymi, „sprawdzone w rozmowie” i notatkami) — ten sam widok co w profilu kandydata i w panelu osoby",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "<ScreeningAnswersList",
+   "v3_home": "Tablica → dok osoby → Screening"
+  },
+  {
+   "id": "screening.earlier-answers",
+   "area": "screening",
+   "opis": "Wcześniejsze odpowiedzi kandydata pod pytaniami arkusza: Luna raz przy otwarciu, dosłowna odpowiedź z rekrutacją, klientem i datą, „Użyj tej odpowiedzi” / „Pomiń”, dopisek „dopytaj” po 30 dniach; przy przepięciu także „Pomiń brakujące — przepięcie”",
+   "file": "components/v2/jobs/ScreeningReassignSuggestions.tsx",
+   "marker": "Użyj tej odpowiedzi",
+   "v3_home": "Arkusz screeningu (okno z Tablicy i warsztat w panelu osoby)"
   }
  ]
 }

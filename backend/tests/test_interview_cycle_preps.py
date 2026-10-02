@@ -182,3 +182,65 @@ def test_repeated_prep_wins_over_the_unrecorded_one() -> None:
     pair = _pair(iv_in=timedelta(days=3), preps=[silent, retry])
     assert pair.prep_slot(1).id == 3
     assert _steps(pair)["prep"]["state"] == "scheduled"
+
+
+# ── Prep zaplanowany PO rozmowie u klienta (zgłoszenie 02.10.2026) ───────────
+#
+# Rekruter zaplanował Prep 1, zanim DL potwierdził termin rozmowy — na dzień
+# o dwa dni późniejszy niż rozmowa. Prep nie należał do żadnej rundy, więc
+# ekran pokazał „Prep 1 bez terminu”, serwer założył drugi i kandydat dostał
+# dwa zaproszenia na to samo.
+
+
+def _late_pair(*, iv_in: timedelta, preps: list[EventRef], late: list[EventRef]):
+    numbered = assign_prep_ordinals([*preps, *late])
+    late_ids = {p.id for p in late}
+    return PairSnapshot(
+        1,
+        2,
+        interview=_ev(9, NOW + iv_in),
+        preps=[p for p in numbered if p.id not in late_ids],
+        late_preps=[p for p in numbered if p.id in late_ids],
+    )
+
+
+def test_prep_after_the_interview_is_overdue_not_missing() -> None:
+    late = _ev(5, NOW + timedelta(days=5), prep_no=1)
+    pair = _late_pair(iv_in=timedelta(days=3), preps=[], late=[late])
+    step = _steps(pair)["prep"]
+    assert step["state"] == "overdue"
+    assert step["event_id"] == 5
+    assert "po rozmowie u klienta" in step["meta"]
+    todos = _todos(pair)
+    assert [(t["kind"], t["event_id"]) for t in todos] == [("prep_late", 5)]
+
+
+def test_late_prep1_does_not_ask_for_a_second_prep1_nor_hide_prep2() -> None:
+    late1 = _ev(5, NOW + timedelta(days=5), prep_no=1)
+    planned2 = _ev(6, NOW + timedelta(days=1), prep_no=2)
+    pair = _late_pair(iv_in=timedelta(days=3), preps=[planned2], late=[late1])
+    kinds = [t["kind"] for t in _todos(pair)]
+    assert kinds == ["prep_late"]
+    steps = _steps(pair)
+    assert steps["prep"]["state"] == "overdue"
+    assert steps["prep2"]["state"] == "scheduled"
+
+
+def test_late_duplicate_next_to_an_on_time_prep_is_still_flagged() -> None:
+    """Drugi Prep 1 założony już po fakcie: krok pokazuje ten na czas, a ten
+    po rozmowie zostaje zadaniem — nadal wisi w kalendarzu kandydata."""
+    on_time = _ev(4, NOW + timedelta(days=1), prep_no=1)
+    late = _ev(5, NOW + timedelta(days=5), prep_no=1)
+    pair = _late_pair(iv_in=timedelta(days=3), preps=[on_time], late=[late])
+    assert _steps(pair)["prep"]["event_id"] == 4
+    assert ("prep_late", 5) in [(t["kind"], t["event_id"]) for t in _todos(pair)]
+
+
+def test_late_prep_within_a_day_of_the_interview_is_urgent() -> None:
+    late = _ev(5, NOW + timedelta(days=2), prep_no=1)
+    pair = _late_pair(iv_in=timedelta(hours=20), preps=[], late=[late])
+    todo = _todos(pair)[0]
+    assert (todo["kind"], todo["urgent"], todo["priority"]) == ("prep_late", True, 1)
+    # Na karcie Tablicy to nadal „Brak prepu”: przed rozmową prepu nie będzie.
+    badge = compute_badge(pair, NOW, call_window_minutes=30)
+    assert badge is not None and badge["kind"] == "prep_missing"

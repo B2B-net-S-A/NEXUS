@@ -39,7 +39,6 @@ import { SuggestedPoolsWidget } from "@/components/candidates/SuggestedPoolsWidg
 import { RateHistoryWidget } from "@/components/RateHistoryWidget";
 import { ConflictsWidget } from "@/components/ConflictsWidget";
 import { HiringManagerVetoesWidget } from "@/components/HiringManagerVetoesWidget";
-import { ScreeningSummaryCard } from "@/components/v2/candidate-profile/ScreeningSummaryCard";
 import { candidatePipelinesQueryKey } from "@/components/CandidatePipelinesWidget";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
@@ -282,7 +281,6 @@ export function RecruitmentsTab({
       </div>
 
       <aside className="space-y-4 @4xl:sticky @4xl:top-4" aria-label="Sugestie i dane handlowe">
-        <ScreeningSummaryCard candidateId={candidateId} />
         <SuggestedJobsWidget
           candidateId={candidateId}
           canAssign={!readOnly}

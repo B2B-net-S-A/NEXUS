@@ -25,10 +25,14 @@
  *  - „Follow-up z kandydatami" (0372) — klient milczy 14 dni, telefon do
  *    kandydata; jeden na OSOBĘ, także gdy jest w kilku procesach
  *    (`FollowupSection`).
+ *  - „Twoje CV w drodze" (02.10.2026) — dla rekrutera kandydata: co wróciło
+ *    (odrzucenie przez DL, cofnięcie z QC, zwrot z kolejki Cpro), co czeka
+ *    w przeglądzie i co poszło do klienta (`CvInTransitSection`). Każdy ma ją
+ *    domyślnie i może usunąć z pulpitu; bez innych list jest wąskim paskiem.
  *
  * Kolejka „Czeka na DZ" i przegląd DZ (0353) zniknęły — zastąpiło je QC CV.
- * Panel nie renderuje się, gdy nic nie czeka — pusta ramka uczyłaby go
- * ignorować. Kotwica `#czeka-na-ciebie` = link z porannego dzwonka.
+ * Panel „Czeka na Ciebie" nie renderuje się, gdy nic nie czeka — pusta ramka
+ * uczyłaby go ignorować (zostaje wtedy najwyżej pasek „Twoje CV w drodze"). Kotwica `#czeka-na-ciebie` = link z porannego dzwonka.
  */
 
 import Link from "next/link";
@@ -55,6 +59,7 @@ import { formatDayLabel, formatTime } from "@/lib/interview-cycle";
 import { countPl } from "@/lib/plural-pl";
 
 import { CproQueueDialog, CproSenderControl } from "./CproQueueDialog";
+import { CvInTransitSection } from "./CvInTransitSection";
 
 export const BOARD_TASKS_ANCHOR = "czeka-na-ciebie";
 
@@ -184,12 +189,22 @@ export function BoardTasksPanel() {
     data.cpro_sent.length +
     preps.length +
     followups.length;
-  if (total === 0) {
-    return canSetSender ? (
-      <div role="region" aria-label="Osoba od Cpro" className="rounded-xl border border-border bg-card px-4 py-2">
-        <CproSenderControl sender={sender.data} loading={sender.isLoading} compact />
+  // „Twoje CV w drodze”: gdy coś wróciło albo panel i tak stoi — kolumna
+  // w panelu; gdy nie — sam wąski pasek nad pulpitem (także z pustym stanem,
+  // bo każdy ma tę listę domyślnie i może ją usunąć z pulpitu).
+  const transit = data.cv_in_transit ?? null;
+  if (total === 0 && (transit?.returned_total ?? 0) === 0) {
+    if (!canSetSender && !transit) return null;
+    return (
+      <div className="flex flex-col gap-3">
+        {canSetSender ? (
+          <div role="region" aria-label="Osoba od Cpro" className="rounded-xl border border-border bg-card px-4 py-2">
+            <CproSenderControl sender={sender.data} loading={sender.isLoading} compact />
+          </div>
+        ) : null}
+        {transit ? <CvInTransitSection transit={transit} standalone /> : null}
       </div>
-    ) : null;
+    );
   }
 
   const cproGroups = groupCproByJob(data.cpro_to_send);
@@ -222,6 +237,7 @@ export function BoardTasksPanel() {
           leaveKnown={data.allocation_leave_known !== false}
         />
         <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
+        {transit ? <CvInTransitSection transit={transit} /> : null}
         {dlReview.length > 0 && (
           <Section
             title="Czeka na Twój przegląd (DL)"
@@ -299,7 +315,7 @@ export function BoardTasksPanel() {
         {preps.length > 0 && (
           <Section
             title="Prepy przed rozmową u klienta"
-            hint="Brak prepu, prep słaby albo bez nagrania — nic nie blokuje, ale warto to nadrobić przed rozmową."
+            hint="Brak prepu, prep po rozmowie, słaby albo bez nagrania — nic nie blokuje, ale warto to nadrobić przed rozmową."
             count={preps.length}
             expanded={expanded["prep_attention"] === true}
             onToggle={() => toggle("prep_attention")}

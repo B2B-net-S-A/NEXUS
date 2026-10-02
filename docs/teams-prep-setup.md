@@ -136,7 +136,7 @@ kandydata w czasie rozmowy. Przed zmianą polityki globalnej sprawdź dostęp
 konkretnych aplikacji i zakres ich uprawnień w Entra.
 
 Uzgodnij informację i zgodę uczestników przed automatycznym nagrywaniem.
-Obecny akapit w zaproszeniu (`PREP_NOTICE_TEXT`) jest roboczy i wymaga
+Obecna adnotacja w zaproszeniu (`prep_invitation.NOTICE_TEXT`) jest robocza i wymaga
 akceptacji prawnej; samo zaproszenie nie zastępuje polityki zgody w Teams.
 
 ## 5. Zmienne w Coolify (workflow „Coolify set env”)

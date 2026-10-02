@@ -10,14 +10,14 @@ const showSuccess = vi.fn();
 const showError = vi.fn();
 const showInfo = vi.fn();
 
-vi.mock("@/lib/api", () => ({
-  __esModule: true,
-  default: {
+vi.mock("@/lib/api", () => {
+  const client = {
     get: (...a: unknown[]) => get(...a),
     post: (...a: unknown[]) => post(...a),
     put: (...a: unknown[]) => put(...a),
-  },
-}));
+  };
+  return { __esModule: true, default: client, api: client };
+});
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showSuccess, showError, showInfo }),
 }));
@@ -495,6 +495,132 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
         callback_on: null,
         processes: { 32: "withdrawing" },
       }),
+    );
+  });
+});
+
+function transitRow(kind: string, over: Record<string, unknown> = {}) {
+  return {
+    kind,
+    stage_id: 41,
+    candidate_id: 51,
+    candidate_name: "Adam Wrona",
+    job_id: 61,
+    job_title: "Java Developer",
+    job_working_title: "Java · Spring",
+    client_name: "Bank Kappa",
+    since,
+    actor_name: null,
+    holder_name: null,
+    reason: null,
+    ...over,
+  };
+}
+
+function transit(over: Record<string, unknown[]> = {}) {
+  const lists = { returned: [], in_review: [], sent: [], ...over };
+  return {
+    ...lists,
+    returned_total: lists.returned.length,
+    in_review_total: lists.in_review.length,
+    sent_total: lists.sent.length,
+    returned_window_days: 14,
+    sent_window_days: 7,
+  };
+}
+
+describe("BoardTasksPanel — „Twoje CV w drodze”", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.setState({ user: { id: 1, role: "recruiter" } } as never);
+  });
+
+  it("nic nie wróciło i panel jest pusty → wąski pasek z liczbami, „Pokaż” rozwija listę", async () => {
+    mockQueue({
+      cv_in_transit: transit({
+        in_review: [transitRow("in_review", { holder_name: "Marta Kowalczyk" })],
+        sent: [
+          transitRow("sent", {
+            stage_id: 42,
+            candidate_id: 52,
+            candidate_name: "Anna Sroka",
+            actor_name: "Jan Dąb",
+          }),
+        ],
+      }),
+    });
+    renderPanel();
+    const bar = await screen.findByRole("region", { name: "Twoje CV w drodze" });
+    expect(within(bar).getByText(/W przeglądzie: 1 · Wysłane do klienta: 1 · nic nie wróciło/)).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Czeka na Ciebie" })).toBeNull();
+    expect(within(bar).queryByText("Adam Wrona")).toBeNull();
+
+    await userEvent.click(within(bar).getByRole("button", { name: "Pokaż" }));
+    const list = await screen.findByRole("region", { name: "Twoje CV w drodze" });
+    expect(within(list).getByText("W przeglądzie · 1")).toBeTruthy();
+    expect(within(list).getByText("Przegląda: Marta Kowalczyk")).toBeTruthy();
+    expect(within(list).getByText("Wysłane przez: Jan Dąb")).toBeTruthy();
+    const link = within(list).getByRole("link", { name: "Adam Wrona" });
+    expect(link.getAttribute("href")).toBe("/jobs/61?candidate=51");
+  });
+
+  it("nikt nie ma CV w drodze → pasek mówi, co tu będzie (każdy ma listę domyślnie)", async () => {
+    mockQueue({ cv_in_transit: transit() });
+    renderPanel();
+    const bar = await screen.findByRole("region", { name: "Twoje CV w drodze" });
+    expect(within(bar).getByText(/Nie masz teraz CV w drodze/)).toBeTruthy();
+    expect(within(bar).queryByRole("button", { name: "Pokaż" })).toBeNull();
+  });
+
+  it("coś wróciło → panel „Czeka na Ciebie” z plakietką, powodem i licznikiem zwrotów", async () => {
+    mockQueue({
+      cv_in_transit: transit({
+        returned: [
+          transitRow("rejected_by_dl", { reason: "stawka ponad budżet", actor_name: "Marta Kowalczyk" }),
+          transitRow("sent_back", {
+            stage_id: 43,
+            candidate_id: 53,
+            candidate_name: "Julia Bąk",
+            actor_name: "Jan Dąb",
+          }),
+        ],
+        in_review: [transitRow("in_review", { stage_id: 44, candidate_id: 54, candidate_name: "Tomasz Żak" })],
+      }),
+    });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    const section = within(panel).getByRole("region", { name: "Twoje CV w drodze" });
+    expect(within(section).getByText("Odrzucone przez DL")).toBeTruthy();
+    expect(within(section).getByText("stawka ponad budżet")).toBeTruthy();
+    expect(within(section).getByText("Cofnięte do poprawy")).toBeTruthy();
+    expect(within(section).getByText("Jan Dąb")).toBeTruthy();
+    // Licznik przy nagłówku = tyle wróciło; reszta jest informacją pod „Pokaż”.
+    expect(within(section).getByText("2")).toBeTruthy();
+    expect(within(section).queryByText("Tomasz Żak")).toBeNull();
+    expect(within(section).getByText(/W przeglądzie: 1 · Wysłane do klienta: 0/)).toBeTruthy();
+  });
+
+  it("lista usunięta z pulpitu (`null`) → nic się nie renderuje, jak przed zmianą", async () => {
+    mockQueue({ cv_in_transit: null });
+    const { container } = renderPanel();
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("„Usuń z pulpitu” zapisuje wybór na koncie i mówi, jak listę przywrócić", async () => {
+    mockQueue({ cv_in_transit: transit() });
+    put.mockResolvedValue({
+      data: { tiles: [], version: 0, dropped_tiles: [], hidden_panels: ["cv_in_transit"] },
+    });
+    renderPanel();
+    const bar = await screen.findByRole("region", { name: "Twoje CV w drodze" });
+    await userEvent.click(within(bar).getByRole("button", { name: "Menu listy Twoje CV w drodze" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Usuń z pulpitu" }));
+    await waitFor(() =>
+      expect(put).toHaveBeenCalledWith("/api/users/me/dashboard/panels/cv_in_transit", { hidden: true }),
+    );
+    await waitFor(() =>
+      expect(showSuccess).toHaveBeenCalledWith("Usunięto z pulpitu. Przywrócisz w „Dodaj kafelek”."),
     );
   });
 });

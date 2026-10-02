@@ -18,7 +18,7 @@
  * /api/pipeline/stages/{id}/screening`.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "@/lib/zod";
@@ -45,6 +45,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { FormField, TextareaField } from "@/components/v2/forms";
+import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { cn } from "@/lib/utils";
 
 export const FIT_OPTIONS = [
@@ -70,7 +71,10 @@ export type ScreeningAnswerOrigin = "manual" | "reassign_suggested";
 export interface ScreeningFormAnswer {
   response: string;
   deal_breaker_hit: boolean;
-  /** `reassign_suggested` = odpowiedź przyjęta z podpowiedzi Luny (przepięcie). */
+  /**
+   * `reassign_suggested` = odpowiedź przyjęta z podpowiedzi (wcześniejsza
+   * rozmowa) bez zmian. Poprawiona ręcznie wraca do `manual`.
+   */
   origin?: ScreeningAnswerOrigin;
 }
 
@@ -309,6 +313,22 @@ export function useScreeningForm({
     });
   }, [data, existing, questions.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Odpowiedź przyjęta z podpowiedzi i potem poprawiona ręcznie jest już
+  // odpowiedzią z TEJ rozmowy — znacznik „z podpowiedzi” zostaje tylko przy
+  // kopii bez zmian (serwer nie podpowiada z kopii w kolejnych arkuszach).
+  // `type === "change"` to wpis człowieka; `setValue` z podpowiedzi go nie budzi.
+  useEffect(() => {
+    const subscription = methods.watch((_values, { name, type }) => {
+      const match = type === "change" && name ? /^answers\.(.+)\.response$/.exec(name) : null;
+      if (!match) return;
+      const origin = `answers.${match[1]}.origin` as const;
+      if (methods.getValues(origin) === "reassign_suggested") {
+        methods.setValue(origin, "manual", { shouldDirty: true });
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [methods]);
+
   // Jedyną ścieżką wyjścia tej mutacji był `onSuccess`, więc odrzucony zapis
   // (403 — bramka POST-a jest węższa niż bramka GET-a, albo 422 z walidacji)
   // wyglądał identycznie jak kliknięcie, które nie zadziałało. Screening
@@ -324,6 +344,13 @@ export function useScreeningForm({
         queryKey: ["pipeline-stage-screening", stageId],
       });
       queryClient.invalidateQueries({ queryKey: ["candidate"] });
+      // Karta „Odpowiedzi z rozmów screeningowych” w profilu ma własny klucz —
+      // prefiks `["candidate"]` jej nie obejmuje.
+      if (data?.candidate_id != null) {
+        queryClient.invalidateQueries({
+          queryKey: candidateQueryKeys.screeningAnswersRoot(data.candidate_id),
+        });
+      }
       onSubmitted?.(r.data.match_percent);
       onAfterSubmit?.();
     },
@@ -357,9 +384,15 @@ export function useScreeningForm({
 export function ScreeningFormFields({
   questions,
   methods,
+  renderQuestionExtra,
 }: {
   questions: ScreeningQuestion[];
   methods: UseFormReturn<ScreeningFormValues>;
+  /**
+   * Treść pod pytaniem, nad polem odpowiedzi — wcześniejsza odpowiedź
+   * kandydata z innej rozmowy (`ScreeningReassignSuggestions`).
+   */
+  renderQuestionExtra?: (question: ScreeningQuestion, index: number) => ReactNode;
 }) {
   return (
     <div className="space-y-5">
@@ -436,6 +469,7 @@ export function ScreeningFormFields({
                 )}
               </dl>
             )}
+            {renderQuestionExtra?.(q, i)}
             <FormField name={`answers.${q.id}.response`} label="Odpowiedź">
               <TextareaField
                 name={`answers.${q.id}.response`}

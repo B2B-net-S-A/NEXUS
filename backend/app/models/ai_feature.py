@@ -172,7 +172,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.experience_dates_on_demand: "Daty zatrudnienia z CV (kartoteka firmy w ATLAS-ie)",
     AIFeatureKey.jarvis: "Jarvis — asystent i wykonawca zadań w aplikacji",
     AIFeatureKey.job_public_description: "Opis rekrutacji na stronę kariery",
-    AIFeatureKey.screening_reassign_suggest: "Przepięcie — podpowiedzi odpowiedzi na pytania screeningu",
+    AIFeatureKey.screening_reassign_suggest: "Arkusz screeningu — podpowiedzi z wcześniejszych rozmów kandydata",
     AIFeatureKey.dz_review: "Przegląd DZ — podpowiedzi do CV dla klienta",
     AIFeatureKey.academy_screening: "Akademia — sortowanie zgłoszeń z ogłoszeń",
     AIFeatureKey.prep_review: "Ocena prepu z transkryptu Teams",
@@ -278,8 +278,9 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     ],
     AIFeatureKey.screening_reassign_suggest: [
         "Pytania screeningowe nowej rekrutacji (Profil Championa)",
-        "Odpowiedzi kandydata ze screeningu w poprzedniej rekrutacji",
-        "Ostatnie notatki rekruterów o kandydacie",
+        "Odpowiedzi kandydata z najwyżej trzech wcześniejszych rozmów screeningowych",
+        "Przy przepięciu także notatki rekruterów z dwóch rekrutacji przepięcia",
+        "(kwoty zamaskowane dla ról bez dostępu do stawek)",
     ],
     AIFeatureKey.dz_review: [
         "Tekst CV przygotowanego dla klienta (z zaznaczonymi pogrubieniami)",

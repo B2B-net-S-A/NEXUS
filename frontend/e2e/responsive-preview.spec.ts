@@ -191,7 +191,7 @@ test.describe("okna laptopów z Windows — główna treść w górnej części 
 
 /**
  * Duży monitor (zgłoszenie 02.10.2026): listy kończyły się na 1400 px przy
- * pustych bokach ekranu. Tabela ma wypełniać okno (limit 2400 px), a dane
+ * pustych bokach ekranu. Tabela ma wypełniać okno bez limitu szerokości, a dane
  * spod głównej wartości dostają własne kolumny od 1700 px szerokości tabeli
  * (`lib/wide-table.ts`); na laptopie zostaje układ zwarty.
  */
@@ -202,10 +202,10 @@ const WIDE_TABLES = [
 
 test.describe("duży monitor — tabela listy wypełnia ekran", () => {
   for (const { path, wideHeader, dismissDialog } of WIDE_TABLES) {
-    test(`${path}: szerokie kolumny przy 2560 px, zwarty układ przy 1280 px`, async ({ page }) => {
+    test(`${path}: szerokie kolumny przy 3440 px, zwarty układ przy 1280 px`, async ({ page }) => {
       const header = page.locator("thead th", { hasText: new RegExp(`^${wideHeader}$`, "i") }).first();
       for (const [width, wide] of [
-        [2560, true],
+        [3440, true],
         [1280, false],
       ] as const) {
         await page.setViewportSize({ width, height: 900 });
@@ -216,7 +216,8 @@ test.describe("duży monitor — tabela listy wypełnia ekran", () => {
         await expect(table).toBeVisible();
         const box = await table.boundingBox();
         if (wide) {
-          expect(box?.width ?? 0, "tabela wypełnia duży ekran").toBeGreaterThan(2200);
+          // Bez limitu szerokości: tabela zajmuje okno poza marginesami strony.
+          expect(box?.width ?? 0, "tabela wypełnia duży ekran").toBeGreaterThan(width - 120);
           await expect(header).toBeVisible();
         } else {
           await expect(header).toBeHidden();

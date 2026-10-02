@@ -22,6 +22,7 @@ from typing import Any, Iterable, Optional
 
 from app.models.recruitment_pipeline import PipelineStage
 from app.schemas.pipeline import STAGE_LABELS
+from app.services.location_utils import is_country_only
 
 # Sufit jednego zapytania — tyle osób widać naraz w panelu (strony po 20–100).
 MAX_FACT_CANDIDATES = 100
@@ -155,6 +156,19 @@ def _iso(value: Optional[date]) -> Optional[str]:
     return value.isoformat() if value else None
 
 
+def _display_city(candidate: Any) -> Optional[str]:
+    """Miasto do pokazania: pole miasta, a bez niego lokalizacja. Sam kraj
+    („PL”, „Polska”) to brak miasta — fakt znika, zamiast udawać miasto."""
+    for value in (
+        getattr(candidate, "city", None),
+        getattr(candidate, "location", None),
+    ):
+        text = value.strip() if isinstance(value, str) else ""
+        if text and not is_country_only(text):
+            return text
+    return None
+
+
 def candidate_facts(
     candidate: Any,
     *,
@@ -178,7 +192,7 @@ def candidate_facts(
         "title": title,
         "company": company,
         "years_experience": getattr(candidate, "years_it_experience", None),
-        "city": (candidate.city or candidate.location or None),
+        "city": _display_city(candidate),
         "max_onsite_days_per_week": getattr(
             candidate, "max_onsite_days_per_week", None
         ),

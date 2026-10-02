@@ -28,6 +28,7 @@ import {
 } from "axios";
 
 import api, { type CandidateNotesFacts } from "@/lib/api";
+import type { CandidateScreeningAnswers } from "@/lib/api/screeningAnswers";
 import { ToastProvider } from "@/components/Toast";
 import { CandidateDetailV2 } from "@/components/v2/pages/CandidateDetailV2";
 import {
@@ -307,6 +308,92 @@ const AI_PROFILE = {
   ],
 };
 
+/**
+ * Karta „Odpowiedzi z rozmów screeningowych”: dwie rozmowy — najnowsza
+ * z pominiętą odpowiedzią, pytaniem usuniętym z profilu Championa i pozycjami
+ * „sprawdzone w rozmowie”, starsza zwinięta.
+ */
+const SCREENING_ANSWERS: CandidateScreeningAnswers = {
+  candidate_id: CANDIDATE_ID,
+  conversations: [
+    {
+      stage_id: 7101,
+      job_id: 501,
+      job_title: "Java Developer",
+      client_name: "Bank Przykładowy",
+      answered_at: daysAgo(3),
+      answered_by_name: "Ola Nowak",
+      overall_fit: "fit",
+      match_percent: 80,
+      answers: [
+        {
+          question_id: "q1",
+          question_text: "Czy pracowałaś na mikroserwisach? Na jakiej skali?",
+          response: "Tak, 3 lata: 12 usług w systemie płatności, Kafka i Spring Boot. Sama projektowała dwie z nich.",
+          deal_breaker_hit: false,
+          skipped: false,
+        },
+        {
+          question_id: "q2",
+          question_text: "Od kiedy możesz zacząć?",
+          response: "Miesięczny okres wypowiedzenia, realnie od listopada.",
+          deal_breaker_hit: false,
+          skipped: false,
+        },
+        {
+          question_id: "q3",
+          question_text: "Ile dni w tygodniu możesz być w biurze w Warszawie?",
+          response: "",
+          deal_breaker_hit: false,
+          skipped: true,
+        },
+        {
+          question_id: "q4",
+          question_text: null,
+          response: "Tylko B2B, faktura raz w miesiącu.",
+          deal_breaker_hit: false,
+          skipped: false,
+        },
+      ],
+      experience_checks: [
+        { kind: "domains", name: "Bankowość", status: "confirmed", note: "4 lata w systemach płatności" },
+        { kind: "certifications", name: "AWS Solutions Architect", status: "not_confirmed", note: "" },
+      ],
+      notes: "Konkretna, podaje liczby. Angielski swobodny.",
+      internal_note: null,
+    },
+    {
+      stage_id: 7002,
+      job_id: 502,
+      job_title: "Backend Engineer",
+      client_name: "Ubezpieczenia Demo",
+      answered_at: daysAgo(47),
+      answered_by_name: "Ola Nowak",
+      overall_fit: "uncertain",
+      match_percent: 50,
+      answers: [
+        {
+          question_id: "q1",
+          question_text: "Jakie masz doświadczenie z Kubernetesem?",
+          response: "Wdraża przez gotowe pipeline'y, klastra sama nie stawiała.",
+          deal_breaker_hit: false,
+          skipped: false,
+        },
+        {
+          question_id: "q2",
+          question_text: "Jaka stawka?",
+          response: "170–180 zł/h netto na B2B.",
+          deal_breaker_hit: false,
+          skipped: false,
+        },
+      ],
+      experience_checks: [],
+      notes: "",
+      internal_note: null,
+    },
+  ],
+};
+
 const ACTIVITY_SUMMARY = {
   candidate_id: CANDIDATE_ID,
   summary:
@@ -423,6 +510,7 @@ const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> =
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/risk$`), () => RISK],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/ai-profile$`), () => AI_PROFILE],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/activity-summary$`), () => ACTIVITY_SUMMARY],
+  [new RegExp(`^/api/candidates/${CANDIDATE_ID}/screening-answers$`), () => SCREENING_ANSWERS],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/languages$`), () => LANGUAGES],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/profile-rate$`), () => PROFILE_RATE],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/recent-recruitments$`), () => RECENT_RECRUITMENTS],
@@ -587,6 +675,7 @@ function seededClient(): QueryClient {
   qc.setQueryData(candidateQueryKeys.calls(CANDIDATE_ID), []);
   qc.setQueryData(candidateQueryKeys.contracts(CANDIDATE_ID), CONTRACTS);
   qc.setQueryData(candidateQueryKeys.activitySummary(CANDIDATE_ID, scope), ACTIVITY_SUMMARY);
+  qc.setQueryData(candidateQueryKeys.screeningAnswers(CANDIDATE_ID, scope), SCREENING_ANSWERS);
   qc.setQueryData(candidateQueryKeys.languages(CANDIDATE_ID), {
     data: LANGUAGES,
     etag: '"preview-v1"',

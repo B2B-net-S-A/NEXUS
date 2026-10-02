@@ -85,12 +85,21 @@ describe("profil kandydata — kontrakt zmian UX rekrutera", () => {
     expect(PROFILE_TAB).toContain('title="Podsumowanie"');
     expect(occurrences("<CandidateActivitySummaryCard")).toBe(1);
     expect(ALL).not.toContain("CandidateNotesInsightsCard");
-    // Dawna, przyklejona karta „Podsumowanie screeningów” nie wraca na zakładkę
-    // Profil. Wynik screeningów (dane strukturalne, nie AI) jest jedną
-    // kompaktową kartą na zakładce Rekrutacje — screening dotyczy procesu.
-    expect(PROFILE_TAB).not.toContain("ScreeningSummary");
-    expect(occurrences("<ScreeningSummaryCard")).toBe(1);
-    expect(read(`${PROFILE_DIR}/RecruitmentsTab.tsx`)).toContain("<ScreeningSummaryCard");
+    // Dawna karta „Screeningi” czytała nieużywaną tabelę notatek
+    // screeningowych (ostatni wpis 15.04.2026) — usunięta 02.10.2026.
+    expect(ALL).not.toContain("ScreeningSummary");
+  });
+
+  it("odpowiedzi z rozmów screeningowych są w zakładce Profil, zaraz pod Podsumowaniem", () => {
+    // Zgłoszenie 02.10.2026: po przejściu wszystkich etapów profil nie
+    // pokazywał, co kandydat odpowiedział na pytania screeningowe.
+    expect(occurrences("<CandidateScreeningAnswersCard")).toBe(1);
+    const summary = PROFILE_TAB.indexOf("<CandidateActivitySummaryCard");
+    const answers = PROFILE_TAB.indexOf("<CandidateScreeningAnswersCard");
+    const notesFacts = PROFILE_TAB.indexOf("<CandidateNotesFactsCard");
+    expect(summary).toBeGreaterThan(-1);
+    expect(answers).toBeGreaterThan(summary);
+    expect(notesFacts).toBeGreaterThan(answers);
   });
 
   it("nie montuje martwego ScreeningSheet", () => {

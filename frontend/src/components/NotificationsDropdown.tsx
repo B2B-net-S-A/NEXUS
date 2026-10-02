@@ -459,6 +459,12 @@ const TYPE_CONFIG: Record<
     color: "text-primary",
     bgColor: "bg-primary/15",
   },
+  // 0408: karta trafiła do Twojej kolejki (przegląd DL / Cpro) — od razu.
+  board_task_waiting: {
+    icon: <ListChecks className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
   // 0352: pipeline v4 — przejęta osoba z „Nowych” i zatrudniony bez zamówienia.
   candidate_claim_taken: {
     icon: <ListChecks className="w-3.5 h-3.5" />,

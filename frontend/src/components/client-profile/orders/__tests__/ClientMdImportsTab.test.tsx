@@ -1,16 +1,23 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClientMdImportsTab } from "@/components/client-profile/orders/ClientMdImportsTab";
+import { ToastProvider } from "@/components/Toast";
 import type { ClientMdImportDetail, ClientMdImportSummary } from "@/lib/api/orderGroups";
 
 vi.mock("@/lib/api/orderGroups", () => ({
   orderGroupsApi: { listClientMdImports: vi.fn(), getClientMdImport: vi.fn() },
 }));
 
+vi.mock("@/lib/authenticated-files", () => ({
+  fetchAuthenticatedDownload: vi.fn(),
+  downloadBlob: vi.fn(),
+}));
+
 import { orderGroupsApi } from "@/lib/api/orderGroups";
+import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
 
 const SUMMARY: ClientMdImportSummary = {
   id: 2,
@@ -80,7 +87,9 @@ function renderTab(selected: number | null, onSelect = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <ClientMdImportsTab clientId={18} selectedImportId={selected} onSelectImport={onSelect} />
+      <ToastProvider>
+        <ClientMdImportsTab clientId={18} selectedImportId={selected} onSelectImport={onSelect} />
+      </ToastProvider>
     </QueryClientProvider>,
   );
   return onSelect;
@@ -123,6 +132,34 @@ describe("ClientMdImportsTab — zakładka „Importy MD”", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /Wszystkie importy/ }));
     expect(onSelect).toHaveBeenCalledWith(null);
+  });
+
+  it("otwarty import: „Pobierz do Excela” pobiera plik z nazwą z serwera", async () => {
+    const blob = new Blob(["xlsx"]);
+    vi.mocked(fetchAuthenticatedDownload).mockResolvedValue({
+      blob,
+      filename: "Import_MD_Bank_Testowy_2026-08.xlsx",
+    });
+    renderTab(2);
+    await userEvent.click(await screen.findByRole("button", { name: "Pobierz do Excela" }));
+    expect(fetchAuthenticatedDownload).toHaveBeenCalledWith("/api/clients/18/md-imports/2/export");
+    await waitFor(() =>
+      expect(downloadBlob).toHaveBeenCalledWith(blob, "Import_MD_Bank_Testowy_2026-08.xlsx"),
+    );
+    expect(await screen.findByText("Pobrano import MD do Excela")).toBeInTheDocument();
+  });
+
+  it("nieudany eksport pokazuje powód z serwera i nie pobiera pliku", async () => {
+    vi.mocked(fetchAuthenticatedDownload).mockRejectedValue(
+      Object.assign(new Error("Ten import nie dotyczy zamówień klienta"), {
+        response: { status: 404, data: { detail: "Ten import nie dotyczy zamówień klienta" } },
+      }),
+    );
+    renderTab(2);
+    await userEvent.click(await screen.findByRole("button", { name: "Pobierz do Excela" }));
+    expect(await screen.findByText("Ten import nie dotyczy zamówień klienta")).toBeInTheDocument();
+    expect(downloadBlob).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Pobierz do Excela" })).toBeEnabled();
   });
 
   it("brak importów klienta to komunikat, nie pusta ramka", async () => {

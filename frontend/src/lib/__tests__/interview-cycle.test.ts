@@ -216,6 +216,25 @@ describe("interview-cycle — prepy w Teams (0370)", () => {
     expect(actionForTodo(p2, [])).toEqual(expect.objectContaining({ type: "plan_prep", second: true }));
   });
 
+  it("prep po rozmowie u klienta przekłada istniejące spotkanie, nie planuje drugiego", () => {
+    // 02.10.2026: termin rozmowy potwierdzono wcześniej niż Prep 1, ekran
+    // poprosił o Prep 1 jeszcze raz i kandydat dostał dwa zaproszenia.
+    const todo: TodoEntry = { ...PAIR, kind: "prep_late", priority: 4, due: null, event_id: 88, slot_request_id: null };
+    expect(actionForTodo(todo, [])).toEqual({ type: "open_event", eventId: 88 });
+
+    const late = item({
+      current_step: "prep",
+      steps: steps({ slots: "done", choice: "done", prep: "overdue", interview: "scheduled" }).map((s) =>
+        s.key === "prep" ? { ...s, event_id: 88 } : s,
+      ),
+    });
+    expect(actionForItem(late, { canManageSlots: false })).toEqual({
+      stepKey: "prep",
+      label: "Przełóż",
+      action: { type: "open_event", eventId: 88 },
+    });
+  });
+
   it("jakość prepu ma ton: słaby = danger, bez nagrania = warn, dobry = done", () => {
     expect(prepQualityTone("weak")).toBe("danger");
     expect(prepQualityTone("unrecorded")).toBe("warn");

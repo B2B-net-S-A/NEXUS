@@ -89,6 +89,7 @@ from app.schemas.job import (
     UserBrief,
 )
 from app.schemas.job_team import JobRecruiterOut
+from app.api.body_validation import validated_body
 from app.api.clients_team import TAC_ASSIGNABLE_ROLES
 from app.api.candidate_access import redact_job_for_viewer, resolve_client_rate_write
 from app.api.deps import (
@@ -3579,7 +3580,7 @@ async def apply_champion_import(
     ):
         raise HTTPException(422, "Wymagany jest profil i odcisk aktualnego podglądu.")
     if not isinstance(fields, list) or any(
-        field not in SYNC_FIELDS for field in fields
+        not isinstance(field, str) or field not in SYNC_FIELDS for field in fields
     ):
         raise HTTPException(422, "Nieznane pole uzgodnienia rekrutacji.")
     return await _save_champion_profile(
@@ -4717,6 +4718,7 @@ async def generate_champion_from_jd(
     """
     from app.models.ai_feature import AIFeatureKey
     from app.schemas.champion_suggestion import (
+        RAW_DESCRIPTION_LIMITS,
         ChampionProfileSuggestionOut,
         GenerateFromJdPayload,
         patches_from_payload,
@@ -4729,7 +4731,7 @@ async def generate_champion_from_jd(
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
 
-    body = GenerateFromJdPayload.model_validate(payload or {})
+    body = validated_body(GenerateFromJdPayload, payload or {}, RAW_DESCRIPTION_LIMITS)
     try:
         async with ai_feature(db, AIFeatureKey.champion_draft, user_id=current_user.id):
             await db.commit()
@@ -4786,7 +4788,7 @@ async def generate_champion_from_history(
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
 
-    body = GenerateFromHistoryPayload.model_validate(payload or {})
+    body = validated_body(GenerateFromHistoryPayload, payload or {})
     delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
     _assert_delivery_lead_cross_client_disabled(
         body.cross_client,
@@ -4927,7 +4929,7 @@ async def preview_historical_matches_for_new_role(
         skill_frequency,
     )
 
-    body = HistoricalMatchesPreviewRequest.model_validate(payload or {})
+    body = validated_body(HistoricalMatchesPreviewRequest, payload or {})
     delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
     _assert_delivery_lead_client_visible(body.client_id, delivery_lead_pairs)
     _assert_delivery_lead_cross_client_disabled(
@@ -5153,7 +5155,7 @@ async def preview_request_history(
         find_similar_requests,
     )
 
-    body = RequestHistoryPreviewRequest.model_validate(payload or {})
+    body = validated_body(RequestHistoryPreviewRequest, payload or {})
     delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
     _assert_delivery_lead_client_visible(body.client_id, delivery_lead_pairs)
     _assert_delivery_lead_cross_client_disabled(
@@ -5216,7 +5218,7 @@ async def add_candidate_from_history(
         AddCandidateFromHistoryResponse,
     )
 
-    payload = AddCandidateFromHistoryPayload.model_validate(body or {})
+    payload = validated_body(AddCandidateFromHistoryPayload, body or {})
 
     job = (await db.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
     if job is None:

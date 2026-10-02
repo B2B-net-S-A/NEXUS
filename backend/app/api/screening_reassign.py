@@ -1,13 +1,16 @@
 # UWAGA: bez `from __future__ import annotations` — `@limiter.limit` na
 # module z PEP 563 zamienia `Annotated` guardy w parametry query (slowapi #579).
-"""Przepięcie → podpowiedzi Luny w arkuszu screeningu (Pipeline v4, 23.09.2026).
+"""Podpowiedzi Luny w arkuszu screeningu z wcześniejszych rozmów kandydata.
 
-Dwie trasy obok `…/stages/{id}/screening` z `pipeline.py`:
+Pipeline v4 (23.09.2026) dał je osobom przepiętym; od 02.10.2026 dostaje je
+każda osoba z arkuszem w innej rekrutacji. Nazwy tras zostały („reassign”),
+bo wołają je otwarte karty sprzed wdrożenia. Dwie trasy obok
+`…/stages/{id}/screening` z `pipeline.py`:
 
-* ``GET …/screening/reassign-context`` — skąd osoba przyszła (rekrutacja
-  źródłowa, data, liczba odpowiedzi). Bez modelu, więc UI może pokazać baner
-  bez kosztu. Bramka jak odczyt arkusza (`CandidatePIIAccess` + odczyt
-  rekrutacji).
+* ``GET …/screening/reassign-context`` — czy jest z czego podpowiadać: rodzaj
+  (`reassign` | `history`), rekrutacja źródłowa przepięcia, liczba
+  wcześniejszych rozmów i odpowiedzi. Bez modelu, więc UI pokazuje stan bez
+  kosztu. Bramka jak odczyt arkusza (`CandidatePIIAccess` + odczyt rekrutacji).
 * ``POST …/screening/reassign-suggestions`` — wywołanie modelu. Bramka jak
   zapis arkusza (`RecruiterPlus` + członkostwo w rekrutacji). Niczego nie
   zapisuje; odpowiedź z awarią modelu to 200 z ``available: false``.
@@ -45,10 +48,15 @@ async def get_reassign_context(
 ) -> dict:
     stage = await _stage_or_404(db, stage_id)
     await ensure_job_read_access(db, current_user, stage.job_id)
-    ctx = await screening_reassign.reassign_context(
-        db, candidate_id=stage.candidate_id, job_id=stage.job_id
+    ctx = await screening_reassign.suggestion_context(
+        db, candidate_id=stage.candidate_id, job_id=stage.job_id, user=current_user
     )
-    return {"stage_id": stage.id, **screening_reassign.context_payload(ctx)}
+    return {
+        "stage_id": stage.id,
+        # Link „zobacz w profilu” przy podpowiedziach.
+        "candidate_id": stage.candidate_id,
+        **screening_reassign.context_payload(ctx),
+    }
 
 
 @router.post("/stages/{stage_id}/screening/reassign-suggestions")

@@ -1074,10 +1074,9 @@ async def move_candidate(
             legacy_enum = mapped
 
     # ── M4 PR-01: capability guard na ruchy terminalne i rate-bearing ──────
-    # Terminal (po stage_def LUB legacy enum): sourcer nie zamyka rekrutacji
-    # (audyt P0.3 — RecruiterPlus obejmuje sourcera, a terminal nie miał
-    # osobnego guardu). Ruch na `verified` niesie stawkę kandydata
-    # (expected_rate_*), więc wymaga capability edycji stawek.
+    # Terminal (po stage_def LUB legacy enum) i ruch na `verified` (niesie
+    # stawkę kandydata) mają własne listy ról. Od 02.10.2026 obie obejmują
+    # każdą rolę wewnętrzną, także sourcera (decyzja Artura).
     is_terminal_target = bool(stage_def and stage_def.is_terminal) or legacy_enum in (
         PipelineStage.hired,
         PipelineStage.rejected,
@@ -1088,8 +1087,8 @@ async def move_candidate(
             status_code=403,
             detail=(
                 "Ruch na etap terminalny (hired/rejected/withdrawn) wymaga roli "
-                "admin, delivery_lead, talent_community_manager, tac, recruiter "
-                "lub finance."
+                "admin, head_of_recruitment, delivery_lead, "
+                "talent_community_manager, tac, recruiter, sourcer lub finance."
             ),
         )
     # A concurrent confirm or pipeline move may have completed while this
@@ -1113,7 +1112,8 @@ async def move_candidate(
             status_code=403,
             detail=(
                 "Ruch na etap 'Zweryfikowany' może nieść stawkę kandydata i wymaga "
-                "roli admin, delivery_lead, tac, recruiter lub finance."
+                "roli admin, head_of_recruitment, delivery_lead, "
+                "talent_community_manager, tac, recruiter, sourcer lub finance."
             ),
         )
 
@@ -2855,10 +2855,16 @@ async def get_stage_screening(
     # zakres odczytu co tablica (`/kanban/{job_id}`), nie sama rola.
     await ensure_job_read_access(db, current_user, stage.job_id)
     job = await db.scalar(select(Job).where(Job.id == stage.job_id))
+    from app.services import screening_sheets
     from app.services.screening_suggestions import suggestions_from_notes
 
     candidate = await db.get(Candidate, stage.candidate_id)
     answers, source_stage_id = await _latest_filled_screening(db, stage)
+    # Arkusze sprzed 02.10.2026 nie niosą tekstu pytań — dok i profil czytają
+    # go z odpowiedzi, więc uzupełniamy z bieżącego profilu po identyfikatorze.
+    answers = screening_sheets.with_question_texts(
+        answers, screening_sheets.question_texts(job.champion_profile if job else None)
+    )
     return {
         "stage_id": stage.id,
         "candidate_id": stage.candidate_id,
@@ -2916,6 +2922,8 @@ async def submit_stage_screening(
     Also invalidates the (candidate, *) match score cache so the next
     recommendation read recomputes `champion_fit`.
     """
+    from pydantic import ValidationError
+
     from app.schemas.champion import ScreeningAnswers
     from app.services.match_score_cache import mark_stale_for_candidate
 
@@ -2934,9 +2942,41 @@ async def submit_stage_screening(
         user=current_user,
     )
 
-    answers = ScreeningAnswers.model_validate(payload or {})
-    answers.answered_at = datetime.now(timezone.utc)
-    answers.answered_by = current_user.id
+    from app.services import screening_sheets
+
+    # Ciało przychodzi jako słownik, więc błąd schematu nie jest błędem
+    # żądania FastAPI — bez zamiany na 422 arkusz ponad limit (albo z nieznaną
+    # wartością) kończył się 500 bez komunikatu.
+    try:
+        answers = ScreeningAnswers.model_validate(payload or {})
+    except ValidationError as exc:
+        too_long = any(
+            error.get("type") in ("string_too_long", "too_long")
+            for error in exc.errors()
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Arkusz screeningu jest za długi — skróć odpowiedzi albo notatkę."
+                if too_long
+                else "Arkusz screeningu ma nieprawidłowe dane."
+            ),
+        ) from None
+    previous = stage.screening_answers
+    if answers.answers and not _sheet_filled(previous):
+        # Arkusz należy do pary — wiersz bez własnej kopii porównujemy
+        # z najnowszym wypełnionym arkuszem tej pary.
+        previous, _ = await _latest_filled_screening(db, stage)
+    job = await db.scalar(select(Job).where(Job.id == stage.job_id))
+    screening_sheets.stamp_sheet(
+        answers,
+        questions=screening_sheets.question_texts(
+            getattr(job, "champion_profile", None)
+        ),
+        previous=previous,
+        user_id=current_user.id,
+        now=datetime.now(timezone.utc),
+    )
 
     stage.screening_answers = answers.model_dump(mode="json")
     db.add(

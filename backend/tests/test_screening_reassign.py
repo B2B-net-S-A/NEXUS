@@ -126,7 +126,29 @@ def test_cv_generator_never_sees_skipped_answers() -> None:
 
 # ── walidacja podpowiedzi ────────────────────────────────────────────────────
 
-MATERIAL = "P: Ile lat z Kafką?\nO: Pięć lat z Kafką w bankowości.\n\n[2026-09-01]\nDostępny od października."
+NOTES = "[2026-09-01]\nDostępny od października."
+
+
+def _earlier(answer: str, question: str = "Ile lat z Kafką?", job_id: int = 7):
+    return svc.EarlierAnswer(
+        question=question,
+        answer=answer,
+        job_id=job_id,
+        job_title=f"Java #{job_id}",
+        client_name="Bank Przykładowy",
+        date="2026-08-14",
+    )
+
+
+KAFKA = _earlier("Pięć lat z Kafką w bankowości.")
+
+
+def _validate(parsed, **over):
+    args = dict(
+        question_ids={"k1", "k2"}, answers=[KAFKA], notes=NOTES, include_rates=True
+    )
+    args.update(over)
+    return svc.validate_suggestions(parsed, **args)
 
 
 def test_bad_question_id_and_hallucinated_quote_are_dropped() -> None:
@@ -156,21 +178,93 @@ def test_bad_question_id_and_hallucinated_quote_are_dropped() -> None:
             },
         ]
     }
-    out = svc.validate_suggestions(
-        parsed, question_ids={"k1", "k2"}, material=MATERIAL, include_rates=True
-    )
+    out = _validate(parsed)
     assert [s["question_id"] for s in out] == ["k1"]
     assert out[0]["confidence"] == "high"
     assert out[0]["source_kind"] == "answer"
 
 
-def test_garbage_from_the_model_gives_no_suggestions() -> None:
-    assert (
-        svc.validate_suggestions(
-            "nie JSON", question_ids={"k1"}, material=MATERIAL, include_rates=True
-        )
-        == []
+def test_answer_suggestion_carries_the_literal_answer_and_its_source() -> None:
+    """Podpowiedź z odpowiedzi to ta odpowiedź DOSŁOWNIE (nie parafraza modelu),
+    z rekrutacją, klientem i datą rozmowy."""
+    out = _validate(
+        {
+            "suggestions": [
+                {
+                    "question_id": "k1",
+                    "text": "Kandydat ma duże doświadczenie z Kafką.",
+                    "source_ref": "A1",
+                    "source_quote": "Pięć lat z Kafką",
+                }
+            ]
+        }
     )
+    assert out == [
+        {
+            "question_id": "k1",
+            "text": "Pięć lat z Kafką w bankowości.",
+            "source_kind": "answer",
+            "source_quote": "Pięć lat z Kafką",
+            "confidence": "low",
+            "source": {
+                "job_id": 7,
+                "job_title": "Java #7",
+                "client_name": "Bank Przykładowy",
+                "date": "2026-08-14",
+            },
+            "source_question": "Ile lat z Kafką?",
+        }
+    ]
+
+
+def test_note_suggestion_keeps_the_model_text() -> None:
+    out = _validate(
+        {
+            "suggestions": [
+                {
+                    "question_id": "k2",
+                    "text": "Od października.",
+                    "source_kind": "note",
+                    "source_quote": "Dostępny od października",
+                }
+            ]
+        }
+    )
+    assert out[0]["text"] == "Od października."
+    assert out[0]["source_kind"] == "note" and out[0]["source"] is None
+
+
+def test_quote_taken_from_the_question_is_not_evidence() -> None:
+    """Pytanie zadał rekruter — cytat z jego treści nie dowodzi, co powiedział
+    kandydat."""
+    out = _validate(
+        {
+            "suggestions": [
+                {"question_id": "k1", "text": "x", "source_quote": "Ile lat z Kafką?"}
+            ]
+        }
+    )
+    assert out == []
+
+
+def test_ambiguous_quote_needs_the_answer_number() -> None:
+    answers = [
+        _earlier("Tak, w dwóch projektach.", "Mikroserwisy?", job_id=7),
+        _earlier("Tak.", "Praca zdalna?", job_id=8),
+    ]
+    item = {"question_id": "k1", "text": "Tak", "source_quote": "Tak"}
+    # „Tak” stoi w obu odpowiedziach — bez numeru nie zgadujemy, o którą chodzi.
+    assert _validate({"suggestions": [item]}, answers=answers) == []
+    out = _validate({"suggestions": [{**item, "source_ref": "a2"}]}, answers=answers)
+    assert out[0]["text"] == "Tak." and out[0]["source"]["job_id"] == 8
+    # Numer wskazujący odpowiedź, w której cytatu nie ma, nie wystarcza.
+    wrong = {**item, "source_quote": "dwóch projektach", "source_ref": "A2"}
+    out = _validate({"suggestions": [wrong]}, answers=answers)
+    assert out[0]["source"]["job_id"] == 7
+
+
+def test_garbage_from_the_model_gives_no_suggestions() -> None:
+    assert _validate("nie JSON") == []
 
 
 def test_money_is_masked_without_rate_rights() -> None:
@@ -179,19 +273,81 @@ def test_money_is_masked_without_rate_rights() -> None:
     )
     assert "25k" not in svc.mask_money("chce 25k na rękę")
     assert svc.mask_money("Java 17, 5 lat") == "Java 17, 5 lat"
-    parsed = {
+
+
+def test_money_mask_is_linear_on_long_digit_runs() -> None:
+    """Maskowanie biegnie na pętli zdarzeń — długi ciąg cyfr bez waluty nie
+    może go zatrzymać (wzorzec bez limitu cofał się kwadratowo)."""
+    import time
+
+    hostile = "1 " * 8000 + "x"
+    timings = []
+    for _ in range(3):
+        started = time.perf_counter()
+        assert svc.mask_money(hostile) == hostile
+        timings.append(time.perf_counter() - started)
+    assert min(timings) < 0.2
+    # Zwykłe kwoty maskują się jak dotąd, także z separatorami tysięcy.
+    assert svc.mask_money("stawka 1 200 000,50 zł rocznie") == (
+        f"stawka {svc.MONEY_MASK} rocznie"
+    )
+
+
+def test_earlier_answers_stop_at_the_prompt_budget() -> None:
+    """Trzy rozmowy z długimi arkuszami nie rozdymają promptu."""
+    long_answer = "a" * svc.ANSWER_CHAR_LIMIT
+    conversation = {
+        "job_id": 7,
+        "job_title": "Java Developer",
+        "client_name": "Bank Testowy",
+        "answered_at": datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc),
+        "answers": [
+            {
+                "question_id": f"q{n}",
+                "question_text": f"Pytanie {n}",
+                "response": long_answer,
+            }
+            for n in range(1, 21)
+        ],
+    }
+    picked = svc._earlier_answers([conversation, {**conversation, "job_id": 8}])
+    used = sum(len(a.question) + len(a.answer) for a in picked)
+    assert 0 < len(picked) < 40
+    assert used <= svc.EARLIER_ANSWERS_CHAR_LIMIT
+    # Kolejność rozmów zostaje: budżet zjada pierwsza (najważniejsza) rozmowa.
+    assert {a.job_id for a in picked} == {7}
+    assert picked[0].date == "2026-09-01"
+    # Krótkie arkusze mieszczą się w całości.
+    short = {**conversation, "answers": conversation["answers"][:2]}
+    assert len(svc._earlier_answers([short, {**short, "job_id": 8}])) == 4
+
+
+def test_suggestion_with_a_masked_amount_is_dropped() -> None:
+    """„[kwota ukryta]” nie jest odpowiedzią — rola bez prawa do stawek nie
+    dostaje takiej podpowiedzi wcale."""
+    from_note = {
         "suggestions": [
             {
                 "question_id": "k1",
                 "text": "Oczekuje 150 zł/h",
-                "source_quote": "Pięć lat",
+                "source_quote": "Dostępny od października",
             }
         ]
     }
-    out = svc.validate_suggestions(
-        parsed, question_ids={"k1"}, material=MATERIAL, include_rates=False
-    )
-    assert "150" not in out[0]["text"]
+    assert _validate(from_note, include_rates=False) == []
+    assert _validate(from_note)[0]["text"] == "Oczekuje 150 zł/h"
+    masked = _earlier(svc.mask_money("Oczekuje 150 zł/h, pięć lat z Kafką."))
+    from_answer = {
+        "suggestions": [
+            {
+                "question_id": "k1",
+                "text": "x",
+                "source_ref": "A1",
+                "source_quote": "pięć lat z Kafką",
+            }
+        ]
+    }
+    assert _validate(from_answer, answers=[masked], include_rates=False) == []
 
 
 # ── seed (baza) ──────────────────────────────────────────────────────────────
@@ -382,8 +538,8 @@ def _user(can_rates: bool):
         id=None,
         email="x@example.com",
         name="x",
-        role=UserRole.admin if can_rates else UserRole.sourcer,
-        roles=["admin"] if can_rates else ["sourcer"],
+        role=UserRole.admin if can_rates else UserRole.user,
+        roles=["admin"] if can_rates else ["user"],
         is_active=True,
     )
 
@@ -419,8 +575,17 @@ async def test_suggest_success_keeps_only_grounded_suggestions(monkeypatch) -> N
     async with AsyncSessionLocal() as db:
         out = await svc.suggest_answers(db, stage=stage, user=_user(can_rates=False))
     assert out["available"] is True
+    assert out["kind"] == "reassign"
     assert out["source"]["job_id"] == seed["source_id"]
     assert [s["question_id"] for s in out["suggestions"]] == ["t1", "t2"]
+    # Podpowiedź z odpowiedzi: dosłowna odpowiedź, pytanie i rozmowa źródłowa.
+    first = out["suggestions"][0]
+    assert first["text"] == "Pięć lat z Kafką w banku."
+    assert first["source_question"] == "Ile lat z Kafką?"
+    assert first["source"]["job_id"] == seed["source_id"]
+    assert first["source"]["date"] == "2026-09-01"
+    assert out["suggestions"][1]["source"] is None
+    assert "[A1] Rekrutacja: Java Source" in captured["prompt"]
     # Bez prawa do stawek model nie dostaje kwoty; pominięta odpowiedź nie idzie.
     assert "160" not in captured["prompt"]
     assert "tajne" not in captured["prompt"]
@@ -443,6 +608,7 @@ async def test_model_error_is_graceful(monkeypatch) -> None:
     assert out == {
         "available": False,
         "message": svc.MSG_MODEL_FAILED,
+        "kind": "reassign",
         "source": {
             "job_id": seed["source_id"],
             "job_title": out["source"]["job_title"],
@@ -459,6 +625,176 @@ async def test_invalid_json_is_graceful(monkeypatch) -> None:
     async with AsyncSessionLocal() as db:
         out = await svc.suggest_answers(db, stage=stage, user=_user(can_rates=True))
     assert out["available"] is False and out["message"] == svc.MSG_MODEL_FAILED
+
+
+# ── wcześniejsze rozmowy bez przepięcia (02.10.2026) ─────────────────────────
+
+
+async def _seed_history(others: int = 1) -> dict:
+    """Kandydat z arkuszem w ``others`` innych rekrutacjach — bez przepięcia."""
+    from app.models.candidate import Candidate, CandidateStatus
+    from app.models.client import Client
+    from app.models.job import Job, JobStatus
+    from app.models.note import Note
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    tag = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"HistoryClient-{tag}")
+        cand = Candidate(
+            name="Hist",
+            lastname=f"Ory-{tag}",
+            email=f"history-cand-{tag}@example.com",
+            status=CandidateStatus("active"),
+        )
+        db.add_all([cli, cand])
+        await db.flush()
+        target = Job(
+            title=f"Target {tag}",
+            status=JobStatus.published,
+            client_id=cli.id,
+            champion_profile={
+                "screening_questions": [
+                    {"id": "q1", "question": "Czy pracowałeś na mikroserwisach?"},
+                    {"id": "q2", "question": "Od kiedy dostępny?"},
+                ]
+            },
+        )
+        db.add(target)
+        await db.flush()
+        other_ids: list[int] = []
+        for n in range(others):
+            job = Job(
+                title=f"Other {n} {tag}",
+                status=JobStatus.published,
+                client_id=cli.id,
+                # Pytanie zmieniło się po rozmowie — odpowiedź niesie własny tekst.
+                champion_profile={
+                    "screening_questions": [{"id": "q1", "question": "Nowe pytanie"}]
+                },
+            )
+            db.add(job)
+            await db.flush()
+            other_ids.append(job.id)
+            db.add(
+                CandidateStage(
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                    stage=PipelineStage.screening,
+                    moved_at=datetime(2026, 8, 1 + n, tzinfo=timezone.utc),
+                    screening_answers={
+                        "answers": [
+                            {
+                                "question_id": "q1",
+                                "question_text": "Mikroserwisy?",
+                                "response": f"Tak, mikroserwisy w projekcie {n}.",
+                            },
+                            {
+                                "question_id": "q2",
+                                "response": f"Skopiowane {n}",
+                                "origin": "reassign_suggested",
+                            },
+                        ],
+                        "overall_fit": "fit",
+                        "answered_at": f"2026-08-{10 + n:02d}T10:00:00+00:00",
+                    },
+                )
+            )
+            db.add(
+                Note(
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                    content=f"NOTATKA-Z-INNEJ-REKRUTACJI {n}",
+                )
+            )
+        stage = CandidateStage(
+            candidate_id=cand.id,
+            job_id=target.id,
+            stage=PipelineStage.new,
+            moved_at=datetime.now(timezone.utc),
+        )
+        db.add(stage)
+        await db.commit()
+        return {
+            "stage_id": stage.id,
+            "target_id": target.id,
+            "candidate_id": cand.id,
+            "other_ids": other_ids,
+        }
+
+
+async def test_person_without_earlier_conversations_has_nothing_to_suggest(
+    monkeypatch,
+) -> None:
+    seed = await _seed_history(others=0)
+    monkeypatch.setattr(
+        svc, "_call_model", lambda s, p: pytest.fail("model nie powinien być wołany")
+    )
+    stage = await _stage(seed["stage_id"])
+    async with AsyncSessionLocal() as db:
+        ctx = await svc.suggestion_context(
+            db,
+            candidate_id=seed["candidate_id"],
+            job_id=seed["target_id"],
+            user=_user(can_rates=True),
+        )
+        out = await svc.suggest_answers(db, stage=stage, user=_user(can_rates=True))
+    assert ctx is None
+    assert svc.context_payload(ctx) == {
+        "available": False,
+        "kind": None,
+        "source": None,
+        "previous_answers_count": 0,
+        "earlier_conversations": 0,
+    }
+    assert out["available"] is False and out["message"] == svc.MSG_NO_EARLIER
+
+
+async def test_earlier_conversations_feed_suggestions_without_reassign(
+    monkeypatch,
+) -> None:
+    """Zgłoszenie 02.10.2026: kandydat odpowiedział już „czy pracowałeś na
+    mikroserwisach” w innej rekrutacji — nie pytamy trzeci raz."""
+    seed = await _seed_history(others=4)
+    captured: dict = {}
+
+    def fake(system: str, prompt: str) -> str:
+        captured["prompt"] = prompt
+        return (
+            '{"suggestions": [{"question_id": "q1", "text": "parafraza", '
+            '"source_kind": "answer", "source_ref": "A1", '
+            '"source_quote": "mikroserwisy w projekcie 3", "confidence": "high"}]}'
+        )
+
+    monkeypatch.setattr(svc, "_call_model", fake)
+    stage = await _stage(seed["stage_id"])
+    async with AsyncSessionLocal() as db:
+        ctx = await svc.suggestion_context(
+            db,
+            candidate_id=seed["candidate_id"],
+            job_id=seed["target_id"],
+            user=_user(can_rates=True),
+        )
+        out = await svc.suggest_answers(db, stage=stage, user=_user(can_rates=True))
+    assert ctx is not None and ctx.kind == "history" and ctx.reassign is None
+    # Najwyżej trzy rozmowy, najnowsze pierwsze; skopiowane odpowiedzi odpadają.
+    assert ctx.conversations == 3
+    assert [a.answer for a in ctx.answers] == [
+        f"Tak, mikroserwisy w projekcie {n}." for n in (3, 2, 1)
+    ]
+    assert out["available"] is True and out["kind"] == "history"
+    assert out["source"] is None
+    suggestion = out["suggestions"][0]
+    assert suggestion["text"] == "Tak, mikroserwisy w projekcie 3."
+    # Pytanie z chwili odpowiedzi, nie dzisiejsze z profilu tamtej rekrutacji.
+    assert suggestion["source_question"] == "Mikroserwisy?"
+    assert suggestion["source"]["job_id"] == seed["other_ids"][3]
+    assert suggestion["source"]["date"] == "2026-08-13"
+    prompt = captured["prompt"]
+    assert "projekcie 0" not in prompt
+    assert "Skopiowane" not in prompt
+    # Bez przepięcia notatki nie idą do modelu wcale.
+    assert "NOTATKA-Z-INNEJ-REKRUTACJI" not in prompt
 
 
 # ── trasy ────────────────────────────────────────────────────────────────────
@@ -534,6 +870,22 @@ async def test_routes_for_a_member(app_client: AsyncClient, monkeypatch):
     assert r.status_code == 200, r.text
     assert r.json()["available"] is False
     assert r.json()["message"] == svc.MSG_MODEL_FAILED
+
+
+async def test_context_route_reports_earlier_conversations(app_client: AsyncClient):
+    seed = await _seed_history(others=2)
+    headers, _uid = await _seed_recruiter(app_client)
+    r = await app_client.get(CONTEXT.format(stage_id=seed["stage_id"]), headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json() == {
+        "stage_id": seed["stage_id"],
+        "candidate_id": seed["candidate_id"],
+        "available": True,
+        "kind": "history",
+        "source": None,
+        "previous_answers_count": 2,
+        "earlier_conversations": 2,
+    }
 
 
 async def test_unknown_stage_is_404(app_client: AsyncClient, app_auth_headers):

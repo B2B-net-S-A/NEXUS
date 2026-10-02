@@ -139,7 +139,7 @@ describe("NotificationsTab", () => {
     expect(
       within(cvSent).getByText("Override aktywny (2) — baseline pominięty"),
     ).toBeInTheDocument();
-    expect(within(cvSent).getByText("Rekruter projektu")).toBeInTheDocument();
+    expect(within(cvSent).getByText("Rekruter projektu i kandydata")).toBeInTheDocument();
     expect(within(cvSent).getByText(/Rola \(wszyscy aktywni\) · tac/)).toBeInTheDocument();
     expect(within(cvSent).getByText("(wyłączony)")).toBeInTheDocument();
   });

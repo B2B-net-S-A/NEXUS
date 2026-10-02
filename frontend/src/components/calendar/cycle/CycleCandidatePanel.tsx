@@ -283,6 +283,11 @@ function PairEventRow({
               {PREP_QUALITY_LABELS[entry.prep_quality]}
             </span>
           ) : null}
+          {entry.late ? (
+            <span className="rounded-md bg-destructive/10 px-2 py-0.5 text-xs font-semibold text-destructive">
+              po rozmowie u klienta
+            </span>
+          ) : null}
         </div>
         <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">
           {formatDayLabel(entry.start, now)} · {range}

@@ -116,7 +116,6 @@ import { jobDisplayTitle } from "@/lib/job-names";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 import { stageSummaryOf } from "@/lib/job-pipeline-funnel";
 import {
-  LIST_PAGE_MAX_WIDTH,
   WIDE_HIDDEN,
   WIDE_ONLY_CELL,
   WIDE_TABLE_CONTAINER,
@@ -362,7 +361,7 @@ function JobCategoryCell({ categoryId }: { categoryId?: number | null }) {
       size="sm"
       variant={competenceTone(category.slug)}
       title={category.name_pl}
-      className="max-w-[140px]"
+      className="max-w-[140px] @min-[2400px]:max-w-[280px]"
     >
       <span className="truncate">{category.name_pl}</span>
     </Badge>
@@ -392,7 +391,8 @@ function JobsTable({
   return (
     // Kolumny „Klient”, „Kategoria”, „Otwarta” i nazwiska Rekruterów pojawiają
     // się, gdy tabela ma ≥ 1700 px (duży monitor) — poniżej zostają drobnym
-    // drukiem pod tytułem, jak dotąd.
+    // drukiem pod tytułem, jak dotąd. Od 2400 px te kolumny są szersze
+    // (pełna nazwa kategorii, więcej nazwisk), żeby tytuł nie brał całej reszty.
     <div className={WIDE_TABLE_CONTAINER}>
     <Table>
       <TableHeader>
@@ -405,8 +405,8 @@ function JobsTable({
               kolumna „Rekrutacja" stoi przyklejona — bez niej po przewinięciu
               nie wiadomo, czyj to status i termin. */}
           <TableHead className="max-md:sticky max-md:left-0 max-md:z-20 max-md:bg-background">Rekrutacja</TableHead>
-          <TableHead className={cn(WIDE_ONLY_CELL, "w-[180px]")}>Klient</TableHead>
-          <TableHead className={cn(WIDE_ONLY_CELL, "w-[160px]")}>Kategoria</TableHead>
+          <TableHead className={cn(WIDE_ONLY_CELL, "w-[180px] @min-[2400px]:w-[280px]")}>Klient</TableHead>
+          <TableHead className={cn(WIDE_ONLY_CELL, "w-[160px] @min-[2400px]:w-[300px]")}>Kategoria</TableHead>
           <TableHead className="w-[150px]">Status</TableHead>
           <TableHead className="w-[244px] px-2 py-1.5" title={STAGE_COUNTS_LEGEND}>
             <span className="sr-only">Etapy</span>
@@ -417,7 +417,7 @@ function JobsTable({
           {/* „Rekruter” w obu układach (02.10.2026; dawniej „Prowadzi” /
               „Zespół”). Delivery Lead stoi drobnym drukiem pod osobami —
               bez własnej kolumny. */}
-          <TableHead className="w-[120px] @min-[1700px]:w-[220px]">Rekruter</TableHead>
+          <TableHead className="w-[120px] @min-[1700px]:w-[220px] @min-[2400px]:w-[360px]">Rekruter</TableHead>
           <TableHead className="w-[64px]" />
         </TableRow>
       </TableHeader>
@@ -1014,7 +1014,7 @@ export function JobsListV2() {
   return (
     // `pb-24`: maskotka Jarvisa w prawym dolnym rogu zasłaniała ikony akcji
     // ostatnich wierszy — lista musi dać się przewinąć nad nią (audyt 24.09.2026).
-    <div className={cn(LIST_PAGE_MAX_WIDTH, "mx-auto space-y-3 pb-24")} data-testid="jobs-list-page">
+    <div className="space-y-3 pb-24" data-testid="jobs-list-page">
       {/* Nagłówek kompaktowy (makieta „01 Lista", `.lhead`): jedna linia
           zamiast eyebrow + H1 + podpis w trzech wierszach. Lista rekrutacji
           jest ekranem SKANOWANYM — trzy wiersze tytułu zabierały pionową

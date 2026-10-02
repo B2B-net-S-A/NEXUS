@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 01.10.2026
+> **Zgodność z systemem sprawdzona:** 02.10.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -28,7 +28,8 @@ pokazuje**, więc u większości klientów zobaczysz tylko jedną albo dwie.
 Sekcja **Okresowe** to jedna **tabela**: jeden wiersz to jedna osoba
 (numer zamówienia, okres, stawki i stan). W sekcjach **MD** i **Kosztowe**
 **każde zamówienie to osobny kafelek**. Na górze kafelka stoi szary nagłówek
-**zamówienia** (numer, typ, okres, liczba osób, łączne zużycie i uwagi), pod nim
+**zamówienia** (numer, typ, okres, liczba osób i uwagi — zużycie MD widać
+w wierszach osób, a budżet całego zamówienia w panelu po kliknięciu nagłówka), pod nim
 nagłówki kolumn (Koszt, Przychód, Zostało MD albo Budżet, Zużycie, Uwagi —
 w każdym kafelku w tym samym miejscu), wiersze jego **konsultantów**, zwijany
 wiersz **„Zakończone (N)"** i wiersze **przyszłych zamówień**. Osoba, której
@@ -145,7 +146,7 @@ Polsatu pozostają wspólne; nowych zamówień tych klientów dotyczy ten sam wy
 co u pozostałych klientów.
 
 Przy wspólnej puli import z Finansów wymaga numeru zamówienia w kolumnie
-„Uwagi” i sumuje zużycie wszystkich konsultantów. Karta oraz Excel pokazują
+„Uwagi” i sumuje zużycie wszystkich konsultantów. Panel zamówienia oraz Excel pokazują
 budżet, łączne zużycie i pozostałość raz na całe zamówienie. Przy budżecie
 per osoba liczby i ostrzeżenia dotyczą poszczególnych konsultantów.
 
@@ -587,6 +588,12 @@ się od zamówienia docelowego, jest wyróżniony („inny numer") — tylko gdy
 w „Uwagach” jest numerem zamówienia tego klienta (tą samą regułą co import;
 „delegacja 445” czy rok nie są numerem). Rozstrzyganie
 wierszy robi dalej Finanse w **Finanse → Import zużycia MD**.
+
+Otwarty import pobierzesz przyciskiem **Pobierz do Excela** (np. jako
+miesięczne zestawienie dla klienta). Plik zawiera dokładnie te wiersze, które
+widzisz na ekranie: wiersz, osobę, numer z importu, zamówienie docelowe, MD,
+kwotę, status i uwagi. Kwota jest w pliku tylko wtedy, gdy widzisz ją na
+ekranie.
 
 ### Kto stoi w „Aktywnej obsadzie", a kto w „Zakończonych"
 

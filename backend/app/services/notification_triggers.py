@@ -639,7 +639,7 @@ async def _already_notified(
 
 
 async def check_prep_attention(db: AsyncSession, now: datetime) -> int:
-    """Prep słaby / bez nagrania od razu, brak prepu na dobę przed rozmową.
+    """Prep słaby / bez nagrania / po rozmowie od razu, brak prepu na dobę przed.
 
     Do organizatora prepu i każdego Head of Recruitment (decyzja 23.09.2026).
     """
@@ -668,6 +668,9 @@ async def check_prep_attention(db: AsyncSession, now: datetime) -> int:
         if item.reason == "missing":
             title = f"Brak Prepu {item.prep_no} przed rozmową u klienta"
             message = f"{who} — {what}: rozmowa u klienta w ciągu doby, a Prepu {item.prep_no} nie ma w kalendarzu."
+        elif item.reason == "late":
+            title = f"Prep {item.prep_no} wypada po rozmowie u klienta"
+            message = f"{who} — {what}: Prep {item.prep_no} jest zaplanowany po rozmowie u klienta. Przełóż go przed rozmowę."
         elif item.reason == "weak":
             title = f"Prep {item.prep_no} słaby"
             message = f"{who} — {what}: ocena prepu jest słaba. Sprawdź, co zostało do przygotowania przed rozmową u klienta."
@@ -677,11 +680,12 @@ async def check_prep_attention(db: AsyncSession, now: datetime) -> int:
         recipients = {*hor, *([item.owner_id] if item.owner_id else [])}
         # Brak Prepu 1 i brak Prepu 2 wiszą na tej samej rozmowie — osobny typ
         # encji, żeby jeden dzwonek nie zjadał drugiego.
-        entity_type = (
-            f"interview_prep{item.prep_no}"
-            if item.reason == "missing"
-            else "calendar_event"
-        )
+        # Spóźniony prep też dostaje własny typ: ten sam prep, przełożony
+        # i odbyty, może potem wypaść słabo — to osobny dzwonek.
+        entity_type = {
+            "missing": f"interview_prep{item.prep_no}",
+            "late": f"interview_prep{item.prep_no}_late",
+        }.get(item.reason, "calendar_event")
         for uid in sorted(recipients):
             if await _already_notified(
                 db, user_id=uid, entity_type=entity_type, entity_id=item.entity_event_id

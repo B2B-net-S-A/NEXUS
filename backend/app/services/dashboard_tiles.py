@@ -65,6 +65,22 @@ TileType = Literal[
 # Jedna lista: Literal waliduje zapis, krotka służy testowi lustra frontu.
 TILE_TYPES: tuple[str, ...] = get_args(TileType)
 
+# Listy stojące NAD kafelkami, które każdy ma domyślnie i może usunąć
+# z pulpitu (02.10.2026). To nie kafelki siatki: usunięcie zapisuje się
+# w `layout["hidden_panels"]`, obok `tiles`.
+PanelKey = Literal["cv_in_transit"]
+PANEL_KEYS: tuple[str, ...] = get_args(PanelKey)
+PANEL_CV_IN_TRANSIT = "cv_in_transit"
+
+
+def hidden_panels(raw: Any) -> list[str]:
+    """Listy usunięte z pulpitu przez osobę; nieznane klucze odpadają."""
+
+    stored = raw.get("hidden_panels") if isinstance(raw, dict) else None
+    if not isinstance(stored, list):
+        return []
+    return [key for key in PANEL_KEYS if key in stored]
+
 
 # Backslash, białe i sterujące znaki — przeglądarka normalizuje `/\evil.com`
 # do `//evil.com`, czyli adresu obcej domeny (runda 8, R8-N10-5). Lustro

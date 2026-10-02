@@ -9,7 +9,6 @@ import {
   findGroup,
   findLine,
   groupRoster,
-  perPersonMdTotals,
   selectableKeys,
   selectionFromKey,
   selectionKey,
@@ -130,18 +129,6 @@ describe("groupRoster", () => {
     expect(roster.current.map((l) => l.id).sort()).toEqual([1, 7, 8]);
     expect(roster.ended.map((l) => l.id)).toEqual([3, 4]);
     expect(roster.pendingDecisions).toBe(1);
-  });
-});
-
-describe("perPersonMdTotals", () => {
-  it("sumuje budżet MD bieżącej obsady", () => {
-    expect(perPersonMdTotals([line({ md_total: 60, md_remaining: 20 }), line({ id: 2, md_total: 40, md_remaining: 5 })])).toEqual({
-      remaining: 25,
-      total: 100,
-    });
-  });
-  it("zwraca null, gdy nikt nie ma budżetu MD (kosztowe, wspólna pula)", () => {
-    expect(perPersonMdTotals([line({ md_total: null, md_remaining: null })])).toBeNull();
   });
 });
 

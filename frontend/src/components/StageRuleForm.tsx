@@ -7,7 +7,7 @@ import { api, type RecipientType, type StageNotificationRuleInput } from "@/lib/
 
 const RECIPIENT_LABELS: Record<RecipientType, string> = {
   job_delivery_lead: "Delivery Lead projektu",
-  job_recruiter: "Rekruter projektu",
+  job_recruiter: "Rekruter projektu i kandydata",
   client_head_dl: "Head DL klienta",
   client_primary_tac: "Primary TAC klienta",
   specific_user: "Konkretny użytkownik",

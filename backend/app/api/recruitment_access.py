@@ -124,28 +124,16 @@ RECRUITMENT_TRANSITION_ROLES: tuple[UserRole, ...] = (
     UserRole.sourcer,
 )
 
-# Terminal lifecycle decisions (hired / rejected / withdrawn) — no sourcer.
-# head_of_recruitment od 2026-09-17 (parytet z rekruterem; /move jest już
-# RecruiterPlus z HoR).
-RECRUITMENT_TERMINAL_ROLES: tuple[UserRole, ...] = (
-    UserRole.admin,
-    UserRole.head_of_recruitment,
-    UserRole.delivery_lead,
-    UserRole.talent_community_manager,
-    UserRole.tac,
-    UserRole.recruiter,
-    UserRole.finance,
-)
+# Terminal lifecycle decisions (hired / rejected / withdrawn). Od 2026-10-02
+# każda rola wewnętrzna, także sourcer (decyzja Artura) — do tego dnia sourcer
+# dostawał 403 (M4-SEC-02).
+RECRUITMENT_TERMINAL_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 
 # Candidate expected-rate edits (PATCH + rate-bearing `verified` move).
-RECRUITMENT_RATE_EDIT_ROLES: tuple[UserRole, ...] = (
-    UserRole.admin,
-    UserRole.head_of_recruitment,
-    UserRole.delivery_lead,
-    UserRole.tac,
-    UserRole.recruiter,
-    UserRole.finance,
-)
+# Od 2026-10-02 każda rola wewnętrzna (decyzja Artura): Talent Community
+# Manager i sourcer dostawali 403 na „Zweryfikowany", choć weryfikują ludzi.
+# Poza listą zostaje wyłącznie rola podglądu `user`.
+RECRUITMENT_RATE_EDIT_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 
 # Scorecards, screening notes, interview feedback.
 RECRUITMENT_ASSESSMENT_WRITE_ROLES: tuple[UserRole, ...] = (

@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_access import user_has_candidate_read
 from app.api.recruitment_access import (
     CalendarWriteAccess,
     RecruitmentReadAccess,
@@ -36,10 +37,11 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.calendar_event import CalendarEvent
 from app.models.candidate import Candidate
+from app.models.client import Client
 from app.models.job import Job
 from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
 from app.models.user import User
-from app.services import interview_slots, prep_meetings
+from app.services import interview_slots, prep_invitation, prep_meetings
 from app.services.job_membership import list_job_member_ids
 
 logger = logging.getLogger(__name__)
@@ -52,12 +54,34 @@ class PersonOut(BaseModel):
     name: str
 
 
+class InvitationPreviewOut(BaseModel):
+    """Zaproszenie, które dostanie kandydat — podgląd w oknie „Zaplanuj prep”.
+
+    ``body`` niesie pola ``{note}`` (wiadomość z formularza) i ``{organizer}``
+    (podpis); podstawia je przeglądarka, a serwer przy zapisie składa treść
+    tą samą funkcją (``prep_invitation.text``). ``interview_line`` to akapit
+    o terminie rozmowy — serwer pomija go, gdy prep nie jest przed rozmową,
+    więc podgląd też musi umieć go zdjąć.
+    """
+
+    title: str
+    body: str
+    interview_line: Optional[str] = None
+
+
 class PrepOptionsOut(BaseModel):
     enabled: bool
     auto_transcribe: bool
     suggested: dict[int, Optional[PersonOut]]
     team: list[PersonOut]
     notice: str
+    invitation: dict[int, InvitationPreviewOut] = {}
+
+
+async def _client_name(db: AsyncSession, job: Job) -> Optional[str]:
+    if job.client_id is None:
+        return None
+    return await db.scalar(select(Client.name).where(Client.id == job.client_id))
 
 
 class PrepCreate(BaseModel):
@@ -137,6 +161,18 @@ async def prep_options(
     people = await _people(
         db, sorted({*member_ids, *[i for i in suggested_ids.values() if i]})
     )
+    # Nazwisko w podglądzie tytułu tylko dla ról czytających kandydatów —
+    # jak na ekranie „Rozmowy u klienta” (``load_overview``).
+    candidate = (
+        await db.get(Candidate, candidate_id)
+        if user_has_candidate_read(current_user)
+        else None
+    )
+    client_name = await _client_name(db, job)
+    interview_start = await prep_meetings.upcoming_interview_start(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    who = prep_meetings.candidate_name(candidate) if candidate else "Kandydat"
     return PrepOptionsOut(
         enabled=prep_meetings.app_only_ready(),
         auto_transcribe=bool(settings.TEAMS_PREP_AUTO_TRANSCRIBE),
@@ -144,7 +180,26 @@ async def prep_options(
             n: people.get(uid) if uid else None for n, uid in suggested_ids.items()
         },
         team=sorted(people.values(), key=lambda p: p.name.lower()),
-        notice=prep_meetings.PREP_NOTICE_TEXT,
+        notice=prep_invitation.NOTICE_TEXT,
+        invitation={
+            n: InvitationPreviewOut(
+                title=prep_invitation.title(n, who, client_name),
+                body=prep_invitation.text(
+                    prep_no=n,
+                    client_name=client_name,
+                    job_title=job.title,
+                    interview_start=interview_start,
+                    note=prep_invitation.NOTE_FIELD,
+                    organizer_name=prep_invitation.ORGANIZER_FIELD,
+                ),
+                interview_line=(
+                    prep_invitation.interview_line(interview_start)
+                    if interview_start is not None
+                    else None
+                ),
+            )
+            for n in (1, 2)
+        },
     )
 
 
@@ -185,8 +240,7 @@ async def create_prep(
             detail={
                 "code": "PREP_ALREADY_SCHEDULED",
                 "event_id": existing.calendar_event_id,
-                "message": f"Prep {body.prep_no} jest już zaplanowany — "
-                "zmień jego termin albo go odwołaj.",
+                "message": await prep_meetings.already_scheduled_message(db, existing),
             },
         )
 
@@ -226,6 +280,7 @@ async def create_prep(
         extra_attendees=[users[i] for i in body.attendee_user_ids if i in users],
         note=body.note,
         client_request_id=body.client_request_id,
+        client_name=await _client_name(db, job),
     )
     await db.commit()
     return await _prep_out(db, created.prep, created.event)
