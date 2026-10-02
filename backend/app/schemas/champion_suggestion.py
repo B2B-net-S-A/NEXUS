@@ -25,6 +25,10 @@ VALID_SECTIONS: tuple[str, ...] = (
 
 # ── Input payloads ──────────────────────────────────────────────────────────
 
+# Shown to the user when the pasted description is outside the limits of
+# `GenerateFromJdPayload` below — keep the numbers in step with the field.
+RAW_DESCRIPTION_LIMITS = "Opis stanowiska musi mieć od 50 do 50 000 znaków."
+
 
 class GenerateFromJdPayload(BaseModel):
     """Request body for POST /jobs/{id}/champion-profile/generate-from-jd."""

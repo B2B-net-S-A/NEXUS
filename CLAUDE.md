@@ -7546,6 +7546,17 @@ a testy na PostgreSQL — że `location`, `q_all`, `q_any`, `q_none` miały ten 
   Pilnuje `test_nul_guard_sits_inside_cors_and_outside_the_unhandled_error_net`.
   Nie dokładaj `pattern=` NUL do kolejnych parametrów; ten przy `q` zostaje, bo
   opisuje kontrakt w OpenAPI, z którego generator Schemathesis bierze wartości.
+- **Ciało żądania sprawdzane ręcznie w handlerze idzie przez `validated_body`**
+  (`app/api/body_validation.py`, 02.10.2026). FastAPI zamienia na 422 tylko
+  błędy modeli z sygnatury trasy; model budowany w ciele handlera (ciało
+  przyjęte jako `dict`, ponowna walidacja po PATCH-u) rzucał
+  `pydantic.ValidationError` → 500, a wyjątek z wartościami z żądania szedł do
+  logu i Sentry (12 tras, m.in. opis stanowiska ponad 50 000 znaków w „Generuj
+  draft”). Odmowa to zdanie po polsku z nazwami pól albo własne zdanie
+  wołającego. **Globalnego handlera na `ValidationError` nie dokładaj** — ten
+  sam wyjątek rzucają modele budowane z danych wewnętrznych (odpowiedzi, JSON
+  z bazy, odczyt AI) i tam ma zostać błędem serwera widocznym w Sentry. Pilnuje
+  strażnik AST w `tests/test_body_validation.py`.
 - **Publiczny formularz aplikacyjny stawia odmowę PRZY POLU** (18.09.2026):
   `lib/apply-form-errors.ts` mapuje `loc: ["body", <pole>]` na komunikat obok
   inputa, a `status` wraca do `idle` — kandydat poprawia i wysyła ponownie

@@ -90,6 +90,42 @@ zabezpieczenia:
   kwadratowo na długim ciągu cyfr),
 - identyfikator kandydata w nowej trasie spoza zakresu kolumny daje 422.
 
+### Błędne ciało żądania: 422 zamiast 500
+
+Przy arkuszu screeningu wyszło, że ten sam błąd jest w innych trasach: handler
+przyjmuje ciało jako słownik (albo sprawdza model ponownie po PATCH-u), a błąd
+schematu kończy się odpowiedzią 500. Wyjątek z wartościami z żądania szedł
+przy tym do logu i Sentry. Dotyczyło 12 tras:
+
+- powiązanie notatki z rekrutacją,
+- szkic Championa z opisu klienta i z historii, dwa podglądy historii
+  zapytań, dodanie kandydata z historii,
+- zakończenie onboardingu (także puste albo ucięte ciało),
+- zmiana reguły powiadomień etapu i jej wyjątku dla klienta (np. wyłączenie
+  jedynego kanału),
+- reakcje w czacie rekrutacji i kandydata (emoji, które nie jest tekstem),
+- import profilu Championa (pole uzgodnienia, które nie jest nazwą).
+
+Najbliżej użytkownika były dwa przypadki: opis stanowiska dłuższy niż 50 000
+znaków w „Generuj draft” i reguła powiadomienia bez żadnego kanału.
+
+Zamianę robi jedna funkcja (`validated_body` w `app/api/body_validation.py`),
+wołana tam, gdzie handler sprawdza dane z żądania. Odpowiedź to zdanie po
+polsku z nazwami pól albo własne zdanie trasy. Rozważone i odrzucone:
+
+- **globalny handler na `pydantic.ValidationError`** — ten sam wyjątek rzuca
+  około 90 walidacji danych wewnętrznych (odpowiedzi, JSON z bazy, odczyt
+  modelu AI); ich awarie wychodziłyby jako „422 — złe żądanie” i znikały
+  z Sentry;
+- **model w sygnaturze trasy** — zmienia kolejność odmów (422 przed 404
+  i 403 z ciała handlera) i zachowanie pustego ciała, a w onboardingu kształt
+  ciała zależy od roli.
+
+Strażnik w `tests/test_body_validation.py` odrzuca handler, który buduje model
+z surowego ciała żądania poza tą funkcją i poza blokiem `try`. Formularz
+„Generuj draft” pokazuje teraz zdanie odmowy z serwera zamiast ogólnego
+„Nie udało się wygenerować draftu”.
+
 ## Weryfikacja
 
 - Backend: `ruff check app/`, `ruff format --check app/`, stemple przewodników
@@ -103,6 +139,10 @@ zabezpieczenia:
   z walidacją), `/preview/candidate-profile` (karta, szukanie),
   `/preview/pipeline-v4` (podpowiedzi z wcześniejszych rozmów, przepięcie,
   odpowiedzi w doku).
+- Błędne ciało żądania: sonda lokalna na prawdziwym stosie aplikacji
+  (podstawione logowanie i baza) — 15 błędnych żądań przed zmianą dawało 500,
+  po zmianie 422 albo 400 i żadnego zapisu; te same trasy z bazą sprawdza CI
+  (`tests/test_body_validation.py`).
 
 ## Poza zakresem i znane ograniczenia
 

@@ -27,6 +27,7 @@ const BASICS_LABEL = CHAMPION_SECTIONS.find((s) => s.id === "basics")!.label;
 const getMock = vi.fn();
 const putMock = vi.fn();
 const listMock = vi.fn();
+const generateFromJdMock = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -36,6 +37,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
       ...actual.championApi,
       get: (...args: unknown[]) => getMock(...args),
       put: (...args: unknown[]) => putMock(...args),
+    },
+    championSuggestionsApi: {
+      ...actual.championSuggestionsApi,
+      generateFromJd: (...args: unknown[]) => generateFromJdMock(...args),
     },
   };
 });
@@ -84,6 +89,7 @@ function renderEditor(jobId: number, canEdit = false) {
 beforeEach(() => {
   getMock.mockReset();
   putMock.mockReset();
+  generateFromJdMock.mockReset();
   useAuthStore.setState({
     user: recruiter,
     realUser: null,
@@ -576,6 +582,44 @@ describe("ChampionProfileEditor — intake seedowany z `CreateJobModal` (?intake
       "false",
     );
     expect(screen.queryByTestId("jd-intake-textarea")).not.toBeInTheDocument();
+  });
+
+  // Serwer odrzuca opis spoza limitu zdaniem, które mówi, co poprawić (422) —
+  // do 02.10.2026 każda porażka kończyła się tym samym ogólnym komunikatem.
+  it("odmowę serwera pokazuje jej zdaniem, a awarię bez odpowiedzi — ogólnym", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 44, champion_profile: {} } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor
+          jobId={44}
+          canEdit
+          clientId={null}
+          intakeDefaultOpen
+          intakeSeedText={"Opis stanowiska od klienta. ".repeat(3)}
+        />
+      </QueryClientProvider>,
+    );
+    const generate = await screen.findByTestId("generate-champion-from-jd");
+
+    generateFromJdMock.mockRejectedValueOnce({
+      response: {
+        status: 422,
+        data: { detail: "Opis stanowiska musi mieć od 50 do 50 000 znaków." },
+      },
+    });
+    await userEvent.click(generate);
+    expect(
+      await screen.findByText("Opis stanowiska musi mieć od 50 do 50 000 znaków."),
+    ).toBeInTheDocument();
+
+    generateFromJdMock.mockRejectedValueOnce(new Error("Network Error"));
+    await userEvent.click(generate);
+    expect(
+      await screen.findByText("Nie udało się wygenerować draftu."),
+    ).toBeInTheDocument();
   });
 });
 

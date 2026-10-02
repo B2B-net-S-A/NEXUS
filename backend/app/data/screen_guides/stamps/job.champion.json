@@ -2,7 +2,7 @@
   "entry": "56b584c25edc60a86e8d1485b46f27acf249acb06bd634ec7cf06822c9242a87",
   "guide": "job.champion",
   "sources": {
-    "frontend/src/components/ChampionProfileEditor.tsx": "3914bc8852a7652e29da8a582ac09b2b88dce7eb4f922eeabdf56844bbf684fd",
+    "frontend/src/components/ChampionProfileEditor.tsx": "8a447a812b579799fa4dae12cc5f204e823c707c9b133b93c3b7194a34435b56",
     "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx": "37ac8a1ab7cb037d6e085528c07997ec7d447a18d7ff7d30c3665eb86e92477c"
   }
 }
