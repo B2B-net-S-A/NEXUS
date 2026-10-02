@@ -484,7 +484,26 @@ async def candidate_match_scores(
         scores=scores,
         breakdowns=breakdowns,
         profile_key=_profile_key(context.weights),
+        non_technology_must=_non_technology_must(breakdowns),
     )
+
+
+def _non_technology_must(breakdowns: dict[str, Any]) -> list[str]:
+    """Pozycje must z odpowiedzi, które nie są technologią (zdanie, branża,
+    język, rola) — ta sama reguła co bramka must (``must_gate_terms``).
+
+    Ekran pokazujący „jest / nie znaleziono” pomija je: zdania nie da się
+    znaleźć w CV, więc plakietka „nie znaleziono” przy nim nic nie mówi.
+    """
+    from app.services.must_gate_terms import gate_requirement  # noqa: PLC0415
+
+    labels: dict[str, None] = {}
+    for detail in breakdowns.values():
+        for key in ("matching_must", "gap_must"):
+            for label in detail.get(key) or []:
+                if isinstance(label, str):
+                    labels.setdefault(label)
+    return [label for label in labels if gate_requirement(label) is None]
 
 
 def _profile_key(weights: dict) -> str:

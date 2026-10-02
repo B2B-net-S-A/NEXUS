@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 01.10.2026
+> **Zgodność z systemem sprawdzona:** 02.10.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -587,6 +587,12 @@ się od zamówienia docelowego, jest wyróżniony („inny numer") — tylko gdy
 w „Uwagach” jest numerem zamówienia tego klienta (tą samą regułą co import;
 „delegacja 445” czy rok nie są numerem). Rozstrzyganie
 wierszy robi dalej Finanse w **Finanse → Import zużycia MD**.
+
+Otwarty import pobierzesz przyciskiem **Pobierz do Excela** (np. jako
+miesięczne zestawienie dla klienta). Plik zawiera dokładnie te wiersze, które
+widzisz na ekranie: wiersz, osobę, numer z importu, zamówienie docelowe, MD,
+kwotę, status i uwagi. Kwota jest w pliku tylko wtedy, gdy widzisz ją na
+ekranie.
 
 ### Kto stoi w „Aktywnej obsadzie", a kto w „Zakończonych"
 

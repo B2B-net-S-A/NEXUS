@@ -279,6 +279,11 @@ export interface MatchScoresResponse {
    * keyed by it. `null`/absent when nothing was scored.
    */
   profile_key?: string | null;
+  /**
+   * Pozycje must z `breakdowns`, które nie są technologią (zdanie, branża,
+   * język, rola). Brak pola (starszy serwer) = nic nie wiadomo.
+   */
+  non_technology_must?: string[];
 }
 
 export type BulkSkipReason =

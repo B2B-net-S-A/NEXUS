@@ -432,6 +432,47 @@ async def test_full_slot_flow_creates_client_interview_for_recruiter(
     assert any(i["candidate_id"] == cand_id for i in dl_view.json()["items"])
 
 
+async def test_jobs_scope_includes_the_callers_own_pairs_from_other_jobs(
+    app_client: AsyncClient,
+):
+    """Zgłoszenie 02.10.2026: DL wpisał terminy od klienta, dzwonek dostała
+    rekruterka kandydata, która NIE jest w zespole tej rekrutacji. Jej ekran
+    startuje w „Moje rekrutacje” (ma też rolę TAC), a ten zakres pary nie
+    zawierał — tablica była pusta, a link z dzwonka mówił „nie ma w Twoim
+    zakresie”. „Moje rekrutacje” zawierają też własne pary."""
+    job_rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    outsider_id, outsider_h = await _user(UserRole.recruiter)
+    _, stranger_h = await _user(UserRole.recruiter)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=job_rec_id, dl_id=dl_id)
+
+    created = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(4)}, {"start": _future(3)}],
+            "recruiter_id": outsider_id,
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["recruiter_id"] == outsider_id
+
+    jobs = await app_client.get("/api/interview-cycle?scope=jobs", headers=outsider_h)
+    assert jobs.status_code == 200, jobs.text
+    item = next((i for i in jobs.json()["items"] if i["candidate_id"] == cand_id), None)
+    assert item is not None, "własny wniosek o terminy zniknął z „Moich rekrutacji”"
+    kinds = [t["kind"] for t in jobs.json()["todos"] if t["candidate_id"] == cand_id]
+    assert "slots_pick" in kinds
+    # Okno prepu zna najwcześniejszy termin, który jeszcze czeka na wybór.
+    assert item["tentative_interview_at"].startswith(_future(3)[:13])
+
+    # Osoba bez żadnego związku z parą nadal jej w swoim zakresie nie ma.
+    other = await app_client.get("/api/interview-cycle?scope=jobs", headers=stranger_h)
+    assert all(i["candidate_id"] != cand_id for i in other.json()["items"])
+
+
 async def test_slots_require_dl_role_and_pipeline_pair(app_client: AsyncClient):
     rec_id, rec_h = await _user(UserRole.recruiter)
     dl_id, dl_h = await _user(UserRole.delivery_lead)

@@ -8,7 +8,8 @@ Wyjście: lista ``ResolvedRecipient(user_id, notify_inapp, notify_email)``.
 Logika:
 1. **Forward-only** — jeśli previous_stage.stage_def.order >= new_stage.stage_def.order,
    zwróć [] (cofnięcie kandydata nie wysyła notyfikacji). Pierwszy ruch
-   (previous_stage is None) traktujemy jako forward.
+   (previous_stage is None) traktujemy jako forward. Jedyny wyjątek: zwrot
+   karty z kolejki Cpro do „QC CV” (przekazanie z przepływu, punkt 8).
 2. **Override priority** — jeśli istnieje ≥1 aktywny override dla pary
    (job.client_id, stage_def_id), użyj ich; inaczej baseline rules.
 3. **Recipient resolution** — wg ``RecipientType``.
@@ -17,8 +18,10 @@ Logika:
 6. **Merge** — ten sam user w kilku regułach: OR(in-app), OR(email).
 7. **None drop** — reguła bez user_id (np. ``client_head_dl`` bez head'a) →
    warning log + skip (bezpieczniej niż spam wszystkich DL).
-8. **Przekazania z przepływu** — „QC CV”, kolejka Cpro i „CV wysłane” mają
-   odbiorców niezależnie od reguł (`stage_handoff_recipients`).
+8. **Przekazania z przepływu** — „QC CV”, kolejka Cpro, „CV wysłane” oraz
+   etapy-odznaki bez reguły („Preparation Meeting”, „Umowa wysłana”, „Umowa
+   podpisana”) mają odbiorców niezależnie od reguł
+   (`stage_handoff_recipients`).
 """
 
 from __future__ import annotations
@@ -47,6 +50,8 @@ from app.models.user import User, UserRole
 from app.models.notification import NotificationType
 from app.services.notification_access import filter_notification_recipients
 from app.services.stage_handoff_recipients import (
+    REASON_CPRO_RETURNED,
+    TASK_REASONS,
     handoff_recipients,
     pair_recruiter_id,
 )
@@ -294,29 +299,23 @@ async def resolve_recipients(
         )
         return []
 
-    if (
-        previous_stage is not None
-        and previous_stage.stage_def_id is not None
-        and previous_stage.stage_def_id in stage_defs_by_id
-    ):
-        prev_def = stage_defs_by_id[previous_stage.stage_def_id]
-        if prev_def.order >= new_stage_def.order:
-            logger.debug(
-                "stage_notif: backward move (prev order=%s, new order=%s) — no notify",
-                prev_def.order,
-                new_stage_def.order,
-            )
-            return []
+    prev_def: Optional[PipelineStageDef] = None
+    if previous_stage is not None and previous_stage.stage_def_id is not None:
+        prev_def = stage_defs_by_id.get(previous_stage.stage_def_id)
+    # Ruch wstecz nie uruchamia reguł etapów; z przekazań zostaje tylko zwrot
+    # z kolejki Cpro (rozstrzygany niżej).
+    backward = prev_def is not None and prev_def.order >= new_stage_def.order
 
     # Override priority — jeśli klient ma override dla tego stage'a, baseline
     # zostaje pominięty.
     rules: list[_RuleSnapshot] = []
-    if job.client_id:
-        rules = await _client_overrides(
-            db, client_id=job.client_id, stage_def_id=new_stage.stage_def_id
-        )
-    if not rules:
-        rules = await _baseline_rules(db, new_stage.stage_def_id)
+    if not backward:
+        if job.client_id:
+            rules = await _client_overrides(
+                db, client_id=job.client_id, stage_def_id=new_stage.stage_def_id
+            )
+        if not rules:
+            rules = await _baseline_rules(db, new_stage.stage_def_id)
 
     # Resolwer: per-user merge channels.
     inapp_by_user: dict[int, bool] = {}
@@ -335,8 +334,9 @@ async def resolve_recipients(
             email_by_user[uid] = email_by_user.get(uid, False) or rule.notify_email
 
     # Przekazania z przepływu (QC → Delivery Lead, kolejka Cpro → osoba od
-    # Cpro, „CV wysłane” → rekruter kandydata) działają także bez reguł —
-    # etap „QC CV” nie ma żadnej. Zawsze dzwonek, nigdy mail.
+    # Cpro, zwrot z Cpro → kto przekazał, „CV wysłane” → rekruter kandydata
+    # i osoba przekazująca) działają także bez reguł — etap „QC CV” nie ma
+    # żadnej. Zawsze dzwonek, nigdy mail.
     stage_code = getattr(new_stage.stage, "value", new_stage.stage)
     reason, handoff_ids = await handoff_recipients(
         db,
@@ -344,7 +344,16 @@ async def resolve_recipients(
         job=job,
         candidate_id=candidate.id,
         stage_code=str(stage_code) if stage_code else None,
+        previous_stage=previous_stage,
+        previous_def=prev_def,
     )
+    if backward and reason != REASON_CPRO_RETURNED:
+        logger.debug(
+            "stage_notif: backward move (prev order=%s, new order=%s) — no notify",
+            prev_def.order,
+            new_stage_def.order,
+        )
+        return []
     reason_by_user: dict[int, str] = {}
     for uid in handoff_ids:
         if mover_user_id is not None and uid == mover_user_id:
@@ -360,14 +369,24 @@ async def resolve_recipients(
     # Filtruj nieaktywnych userów (np. urlopowy admin może być w role-based regule).
     candidate_ids = set(inapp_by_user.keys()) | set(email_by_user.keys())
     active_ids = await _filter_active_users(db, candidate_ids)
-    allowed_users = await filter_notification_recipients(
-        db,
-        active_ids,
-        NotificationType.stage_rule,
-        related_entity_type="candidate_stage",
-        link=f"/candidates/{candidate.id}",
-    )
-    active_ids = {user.id for user in allowed_users}
+    # Imienne zadanie (przegląd DL, kolejka Cpro, zwrot) ma własny typ
+    # w kategorii, której nie da się wyciszyć — sprawdzamy dostęp tym typem,
+    # inaczej wyciszone „Ruchy w rekrutacjach” odsiałyby odbiorcę już tutaj.
+    task_ids = {uid for uid, why in reason_by_user.items() if why in TASK_REASONS}
+    allowed_ids: set[int] = set()
+    for ntype, ids in (
+        (NotificationType.board_task_waiting, active_ids & task_ids),
+        (NotificationType.stage_rule, active_ids - task_ids),
+    ):
+        allowed_users = await filter_notification_recipients(
+            db,
+            ids,
+            ntype,
+            related_entity_type="candidate_stage",
+            link=f"/candidates/{candidate.id}",
+        )
+        allowed_ids |= {user.id for user in allowed_users}
+    active_ids = allowed_ids
 
     return [
         ResolvedRecipient(

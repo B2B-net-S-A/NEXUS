@@ -168,6 +168,13 @@ async def test_prep1_is_created_in_the_dl_calendar_with_teams_and_notice(
     assert body["enabled"] is True
     assert body["suggested"]["1"]["id"] == dl_id
     assert body["suggested"]["2"]["id"] == rec_id
+    # Okno pokazuje dokładnie to zaproszenie, które serwer wyśle kandydatowi.
+    preview = body["invitation"]["1"]
+    assert preview["title"].startswith(
+        "Przygotowanie do spotkania z Klientem PrepClient-"
+    )
+    assert "{note}" in preview["body"] and preview["body"].endswith("{organizer}")
+    assert body["invitation"]["2"]["title"].endswith("(spotkanie 2)")
 
     resp = await _create(
         app_client,
@@ -179,6 +186,7 @@ async def test_prep1_is_created_in_the_dl_calendar_with_teams_and_notice(
         start=_at(24),
         end=_at(24.75),
         attendee_user_ids=[rec_id],
+        note="Proszę o włączoną kamerę.",
         client_request_id="req-1",
     )
     assert resp.status_code == 201, resp.text
@@ -195,14 +203,31 @@ async def test_prep1_is_created_in_the_dl_calendar_with_teams_and_notice(
     addresses = [a["emailAddress"]["address"] for a in payload["attendees"]]
     assert any(a.startswith("prep-cand-") for a in addresses)
     assert any(a.startswith("prep-recruiter-") for a in addresses)
-    assert "nagrywana i transkrybowana" in payload["body"]["content"]
-    # Klient nie trafia do tytułu, który widzi kandydat.
-    assert "PrepClient" not in payload["subject"]
+    # Tytuł jak w dotychczasowych zaproszeniach zespołu (zgłoszenie DL
+    # 02.10.2026): klient i kandydat, bez „Prep” i bez półpauz.
+    subject = payload["subject"]
+    assert subject.startswith("Przygotowanie do spotkania z Klientem PrepClient-")
+    assert " - Jan Prepowy" in subject
+    assert "Prep 1" not in subject and "—" not in subject
+    # Treść w akapitach; informacja o nagrywaniu i administratorze danych
+    # niżej, pod kreską — do 02.10.2026 sklejała się z dopiskiem w jeden akapit.
+    content = payload["body"]["content"]
+    main, _, annotation = content.partition("<hr>")
+    assert "<p>Dzień dobry,</p>" in main
+    assert "<p>Proszę o włączoną kamerę.</p>" in main
+    assert "<p>Pozdrawiam<br>Kasia Lead</p>" in main
+    assert "Administratorem danych" not in main
+    assert "nagrywana i transkrybowana" in annotation
+    assert "—" not in content
 
     async with AsyncSessionLocal() as db:
         ev = await db.get(CalendarEvent, out["event_id"])
         assert ev.event_type == EventType.prep_call
         assert ev.operational_owner_id == dl_id
+        assert ev.title == subject
+        # W NEXUSIE ta sama treść jako zwykły tekst, bez znaczników.
+        assert ev.description.startswith("Dzień dobry,\n\nZapraszam")
+        assert "<p>" not in ev.description
         prep = await db.scalar(
             select(PrepMeeting).where(PrepMeeting.calendar_event_id == ev.id)
         )
@@ -607,6 +632,87 @@ async def test_a_new_interview_round_allows_new_preps(
         end=_at(25),
     )
     assert again.status_code == 201, again.text
+
+
+async def test_prep_planned_before_the_interview_was_confirmed_is_not_asked_for_twice(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Zgłoszenie 02.10.2026: rekruter zaplanował Prep 1, zanim DL potwierdził
+    termin rozmowy — na dzień PO niej. Prep nie należał do żadnej rundy: ekran
+    pokazał „Prep 1 bez terminu”, serwer założył drugi i kandydat dostał dwa
+    zaproszenia. Prep po ostatniej zaplanowanej rozmowie należy do jej rundy:
+    do przełożenia, nie do zaplanowania od nowa."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, dl_h = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+
+    first = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=_at(120),
+        end=_at(120.5),
+    )
+    assert first.status_code == 201, first.text
+    late_event_id = first.json()["event_id"]
+    # DL potwierdza rozmowę u klienta na dwa dni PRZED tym prepem.
+    await _interview(cand_id, job_id, rec_id, hours=72)
+
+    overview = await app_client.get("/api/interview-cycle?scope=jobs", headers=dl_h)
+    assert overview.status_code == 200, overview.text
+    data = overview.json()
+    item = next(i for i in data["items"] if i["candidate_id"] == cand_id)
+    prep_step = next(s for s in item["steps"] if s["key"] == "prep")
+    assert (prep_step["state"], prep_step["event_id"]) == ("overdue", late_event_id)
+    todos = [
+        (t["kind"], t["event_id"])
+        for t in data["todos"]
+        if t["candidate_id"] == cand_id
+    ]
+    assert ("prep_late", late_event_id) in todos
+    assert "prep_missing" not in [kind for kind, _ in todos]
+    late_rows = [
+        a
+        for a in data["agenda"]
+        if a["candidate_id"] == cand_id and a["event_id"] == late_event_id
+    ]
+    assert [a["late"] for a in late_rows] == [True]
+
+    again = await _create(
+        app_client,
+        dl_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=_at(48),
+        end=_at(48.75),
+    )
+    assert again.status_code == 409, again.text
+    detail = again.json()["detail"]
+    assert detail["code"] == "PREP_ALREADY_SCHEDULED"
+    assert detail["event_id"] == late_event_id
+    assert "po rozmowie u klienta" in detail["message"]
+    assert len(graph.created) == 1  # drugie zaproszenie nie wyszło
+
+    # Prep 2 przed rozmową planuje się normalnie i zapowiada jej termin.
+    second = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=2,
+        organizer_user_id=rec_id,
+        start=_at(60),
+        end=_at(60.5),
+    )
+    assert second.status_code == 201, second.text
+    assert "Termin rozmowy z Klientem:" in graph.created[-1][1]["body"]["content"]
+    # Pierwszy prep powstał, gdy rozmowy jeszcze nie było — nie zapowiadał jej.
+    assert "Termin rozmowy" not in graph.created[0][1]["body"]["content"]
 
 
 async def test_unrecorded_prep_does_not_block_planning_it_again(

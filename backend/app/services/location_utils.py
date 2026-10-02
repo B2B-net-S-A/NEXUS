@@ -135,6 +135,12 @@ def _is_city_token(token: str) -> bool:
     return t not in _REGION_TOKENS and t not in _COUNTRY_TOKENS and t not in _NOT_A_CITY
 
 
+def is_country_only(raw: object) -> bool:
+    """Czy wartość to sam kraj („PL”, „Polska”) — w polu miasta to brak miasta."""
+    tokens = location_tokens(raw)
+    return bool(tokens) and all(t in _COUNTRY_TOKENS for t in tokens)
+
+
 def city_tokens(raw: object) -> set[str]:
     """Tokeny miasta z lokalizacji (blob albo tekst) — bez kraju i regionu.
 

@@ -6,6 +6,8 @@ i stepper mówią to samo:
 
 * ``missing`` — brak Prepu 1 albo Prepu 2 przed rozmową w ciągu
   ``WINDOW_DAYS`` (dzwonek dopiero na dobę przed — ``urgent``),
+* ``late`` — prep zaplanowany PO rozmowie, do której miał przygotować
+  (termin rozmowy potwierdzono albo przełożono na wcześniej); dzwonek od razu,
 * ``weak`` — odbyty prep z oceną „słaby”,
 * ``unrecorded`` — odbyty prep bez transkryptu.
 
@@ -34,13 +36,15 @@ from app.services.interview_cycle import (
     prep_quality,
 )
 
-Reason = Literal["missing", "weak", "unrecorded"]
+Reason = Literal["missing", "late", "weak", "unrecorded"]
 WINDOW_DAYS = 7
+LATE_PREP_LOOKAHEAD_DAYS = 30
 MAX_INTERVIEWS = 300
 _OVERSIGHT = (UserRole.admin, UserRole.head_of_recruitment)
 
 REASON_LABELS = {
     "missing": "brak prepu",
+    "late": "prep po rozmowie",
     "weak": "prep słaby",
     "unrecorded": "prep bez nagrania",
 }
@@ -88,7 +92,9 @@ async def load_prep_attention(
         db,
         [(c, j) for c, j in pairs],
         window_start=now - timedelta(days=14),
-        window_end=now + timedelta(days=days_ahead),
+        # Okno prepów sięga dalej niż okno rozmów: prep zaplanowany PO rozmowie
+        # trzeba zobaczyć, żeby nie zgłosić go jako „brak prepu”.
+        window_end=now + timedelta(days=days_ahead + LATE_PREP_LOOKAHEAD_DAYS),
         now=now,
     )
     from app.services.interview_slots import eligible_slot_recruiters  # noqa: PLC0415
@@ -118,7 +124,7 @@ async def load_prep_attention(
         (workforce.performer(ev.owner_id), jid)
         for (_cid, jid), snap in snaps.items()
         for n in (1, 2)
-        if (ev := snap.prep_slot(n)) is not None and ev.owner_id
+        if (ev := snap.prep_slot(n) or snap.late_prep(n)) is not None and ev.owner_id
     }
     active_owners = await eligible_slot_recruiters(db, held_owners)
     out: list[PrepAttention] = []
@@ -130,8 +136,15 @@ async def load_prep_attention(
         for n in (1, 2):
             fallback = suggested.get((cid, jid), (None, None))[n - 1]
             ev = snap.prep_slot(n)
-            if ev is None:
-                reason: Optional[Reason] = "missing"
+            if ev is None and (late := snap.late_prep(n)) is not None:
+                # Prep jest w kalendarzu, ale po rozmowie — sprawa organizatora
+                # (przełożyć), nie „brak prepu” (zaplanować drugi).
+                ev = late
+                reason: Optional[Reason] = "late"
+                performer = workforce.performer(ev.owner_id)
+                owner = performer if (performer, jid) in active_owners else fallback
+            elif ev is None:
+                reason = "missing"
                 # Ta sama podpowiedź co w oknie „Zaplanuj prep” — tylko osoby
                 # aktywne z dostępem do rekrutacji (runda 6 audytu).
                 owner = fallback

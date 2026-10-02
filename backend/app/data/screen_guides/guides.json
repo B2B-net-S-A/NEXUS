@@ -411,19 +411,20 @@
       },
       {
         "q": "Jak zaplanować prep i zobaczyć jego ocenę?",
-        "a": "Przed rozmową u klienta są dwa prepy: Prep 1 prowadzi Delivery Lead, Prep 2 rekruter. Kliknij nazwisko na karcie — otworzy się panel kandydata z krokami. Przy kroku Prep kliknij „Zaplanuj”, wybierz prowadzącego i termin. Po spotkaniu w panelu pojawi się „Ocena prepu” z oceną i transkryptem.",
+        "a": "Przed rozmową u klienta są dwa prepy: Prep 1 prowadzi Delivery Lead, Prep 2 rekruter. Kliknij nazwisko na karcie, a przy kroku Prep „Zaplanuj”: wybierz prowadzącego i termin. Okno pokazuje zaproszenie, które dostanie kandydat; spotkanie powstaje w kalendarzu prowadzącego. Po spotkaniu w panelu pojawi się „Ocena prepu” z oceną i transkryptem.",
         "anchor": "calendar.board"
       },
       {
         "q": "Jak zobaczyć cały zespół albo zwykły kalendarz?",
-        "a": "Nad Tablicą jest przełącznik „Tydzień / Tablica” i lista „Pokaż” (Moi kandydaci, Moje rekrutacje, Cały zespół). W Tygodniu zwykłe spotkania z Outlooka są schowane — włącza je pole „Pozostałe spotkania z Outlooka”.",
+        "a": "Nad Tablicą jest przełącznik „Tydzień / Tablica” i lista „Pokaż” (Moi kandydaci, Moje rekrutacje, Cały zespół). „Moje rekrutacje” pokazują też Twoich kandydatów z cudzych rekrutacji. W Tygodniu zwykłe spotkania z Outlooka są schowane — włącza je pole „Pozostałe spotkania z Outlooka”.",
         "anchor": "calendar.views"
       }
     ],
     "pitfalls": [
       "Bez debriefu kandydat nie wyjdzie z kolumny „Rozmowa u klienta” na tablicy rekrutacji.",
       "Zmiana terminu wydarzenia z Outlooka idzie najpierw do Outlooka — bez połączonej skrzynki zapis zostanie odrzucony.",
-    "Terminy od klienta przesuwają kandydata na „Rozmowę u klienta” tylko wtedy, gdy jego CV zostało już wysłane do klienta. Inaczej karta zostaje na swoim etapie — przesuń ją na tablicy rekrutacji."
+    "Terminy od klienta przesuwają kandydata na „Rozmowę u klienta” tylko wtedy, gdy jego CV zostało już wysłane do klienta. Inaczej karta zostaje na swoim etapie — przesuń ją na tablicy rekrutacji.",
+      "Prep zaplanowany po rozmowie u klienta świeci na czerwono z przyciskiem „Przełóż”. Przełóż go przed rozmowę albo odwołaj — drugiego prepu o tym numerze nie da się założyć."
     ],
     "anchors": [
       {"id": "calendar.board", "label": "Tablica kroków", "describe": "Siedem kroków cyklu, kandydaci w kolumnach, zadania na kartach."},

@@ -35,8 +35,11 @@ from app.services.notification_delivery import guarded_send, load_policy
 from app.services.notification_triggers import emit
 from app.services.stage_handoff_recipients import (
     REASON_CPRO_QUEUE,
+    REASON_CPRO_RETURNED,
     REASON_CV_SENT,
     REASON_DL_REVIEW,
+    REASON_STAGE_REACHED,
+    TASK_REASONS,
 )
 from app.services.stage_notification_email_template import render_stage_email
 from app.services.stage_notification_resolver import (
@@ -99,11 +102,26 @@ def _inapp_content(
             f"Cpro w rekrutacji „{job_title}”.",
             board_link,
         )
+    if reason == REASON_CPRO_RETURNED:
+        return (
+            f"Wrócił z kolejki Cpro: {candidate_full_name}",
+            f"{who} zwrócił(a) kandydata {candidate_full_name} z kolejki Cpro "
+            f"w rekrutacji „{job_title}”. Popraw CV i przekaż ponownie.",
+            board_link,
+        )
     if reason == REASON_CV_SENT:
         return (
             f"CV wysłane: {candidate_full_name}",
             f"{who} wysłał(a) CV kandydata {candidate_full_name} w rekrutacji "
             f"„{job_title}” (etap „{stage_display_name}”).",
+            board_link,
+        )
+    if reason == REASON_STAGE_REACHED:
+        return (
+            f"{stage_display_name}: {candidate_full_name}",
+            f"Kandydat {candidate_full_name} jest na etapie "
+            f"„{stage_display_name}” w rekrutacji „{job_title}” — kartę "
+            f"przesunął(-ęła) {who}.",
             board_link,
         )
     mover_part = f" przez {mover.name}" if mover else ""
@@ -140,7 +158,13 @@ async def _send_inapp(
         user_id=user_id,
         title=title,
         message=message,
-        ntype=NotificationType.stage_rule,
+        # Zadanie czekające na odbiorcę ma typ, którego nie da się wyciszyć;
+        # informacja o ruchu zostaje przy `stage_rule`.
+        ntype=(
+            NotificationType.board_task_waiting
+            if reason in TASK_REASONS
+            else NotificationType.stage_rule
+        ),
         related_entity_type="candidate_stage",
         related_entity_id=new_stage.id,
         link=link,

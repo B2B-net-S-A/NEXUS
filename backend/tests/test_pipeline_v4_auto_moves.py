@@ -626,6 +626,16 @@ async def test_interview_badges_for_job_only_for_pairs_in_cycle():
     assert badges[event_id]["steps"][0]["state"] == "done"
     assert isinstance(badges[event_id]["interview_event_id"], int)
     assert badges[with_slots]["interview_event_id"] is None
+    # Okno „Zaplanuj prep” w doku liczy termin prepu względem rozmowy:
+    # potwierdzonej (krok „interview”) albo dopiero proponowanej przez klienta.
+    interview_step = badges[event_id]["steps"][4]
+    assert interview_step["state"] == "scheduled"
+    assert datetime.fromisoformat(interview_step["at"]) == now + timedelta(days=5)
+    assert badges[event_id]["tentative_interview_at"] is None
+    assert datetime.fromisoformat(
+        badges[with_slots]["tentative_interview_at"]
+    ) == now + timedelta(days=3)
+    assert badges[event_id]["late_prep_event_id"] is None
     assert badges[with_slots]["steps"][1]["state"] in {
         "current",
         "todo",
