@@ -429,7 +429,7 @@ function OrderCard({
           ) : null}
         </div>
 
-        <ul className="contents" onClick={stop}>
+        <ul role="list" className="contents" onClick={stop}>
           {card.visible.map((entry) => (
             <ChangeRow
               key={entry.item.key}

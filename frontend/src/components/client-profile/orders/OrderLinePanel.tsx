@@ -36,7 +36,7 @@ import { MdScopeBars, MdScopePanels, MdScopeTotalBar } from "./MdScopeBars";
 import { OrderHistoryPanel } from "./OrderHistoryPanel";
 import type { LinePanelTab } from "./OrdersTable";
 import { RateText, RateTrio } from "./RateTrio";
-import { displayLineRate, lineMargin } from "./order-line-display";
+import { displayLineRate } from "./order-line-display";
 import { isCurrentLine } from "./orders-table-model";
 
 const SETTLED_LINE_DELETE_HINT =
@@ -123,9 +123,6 @@ export function OrderLinePanel({
     <StatusDot tone="info">Zaplanowane zastępstwo od {formatDate(line.start_date)}</StatusDot>
   ) : null;
 
-  // Marża = przychód − koszt z tych samych liczb, które stoją obok; bez
-  // którejkolwiek stawki (także: rola bez kwot) zostaje „—”.
-  const margin = lineMargin(line);
   const endedFacts: Array<[string, ReactNode] | null> = ended
     ? [
         ["Okres", endedPeriod(line)],
@@ -286,11 +283,6 @@ export function OrderLinePanel({
               items={[
                 { label: "Koszt", value: <RateText label={displayLineRate(line, "cost")} /> },
                 { label: "Przychód", value: <RateText label={displayLineRate(line, "revenue")} /> },
-                {
-                  label: "Marża",
-                  value: <RateText label={margin?.label} />,
-                  note: margin?.percent != null ? `${margin.percent}% przychodu` : undefined,
-                },
               ]}
             />
           </DetailSection>

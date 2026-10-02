@@ -98,7 +98,7 @@ export function ChangeRow({
   const grid = layout === "grid";
 
   return (
-    <li className={grid ? "contents" : "flex items-start gap-2.5"}>
+    <li role="listitem" className={grid ? "contents" : "flex items-start gap-2.5"}>
       <span className={cn("flex pt-0.5", grid && "md:col-start-1")}>
         <Checkbox
           id={checkboxId}

@@ -437,8 +437,9 @@ describe("MultiConsultantOrdersTab", () => {
     // Regresja układu: etykieta stała NAD wartością (dwa osobne `<p>`), więc
     // każda stawka zajmowała dwie linijki. W tabeli (wersja B) etykietą jest
     // nagłówek kolumny, a komórka trzyma kwotę w jednej linii; w panelu
-    // trzy stawki (Koszt / Przychód / Marża) stoją OBOK siebie, każda jako
-    // etykieta z kwotą tuż pod nią (restyle 02.10.2026).
+    // stawki (Koszt / Przychód) stoją OBOK siebie, każda jako etykieta z kwotą
+    // tuż pod nią (02.10.2026). Marży panel osoby nie liczy — jak panel
+    // zamówienia okresowego (ticket 09.2026).
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {
         groups: [group({ lines: [line()], active_consultants: 1 })],
@@ -468,9 +469,9 @@ describe("MultiConsultantOrdersTab", () => {
     expect(linePanel().getByText("Przychód").nextElementSibling).toHaveTextContent(
       /^1\D?200,00 zł\/MD$/,
     );
-    expect(linePanel().getByText("Marża").nextElementSibling).toHaveTextContent(/^200,00 zł\/MD$/);
-    // Jedna linia siatki: trzy stawki są dziećmi tego samego <dl>.
-    expect(label.closest("dl")).toBe(linePanel().getByText("Marża").closest("dl"));
+    expect(linePanel().queryByText("Marża")).not.toBeInTheDocument();
+    // Jedna linia siatki: obie stawki są dziećmi tego samego <dl>.
+    expect(label.closest("dl")).toBe(linePanel().getByText("Przychód").closest("dl"));
   });
 
   it("wyszukuje na żywo po nazwisku w dowolnej kolejności i podświetla osobę", async () => {
