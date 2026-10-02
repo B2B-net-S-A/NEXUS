@@ -38,9 +38,6 @@ vi.mock("@/components/candidates/SuggestedPoolsWidget", () => ({ SuggestedPoolsW
 vi.mock("@/components/RateHistoryWidget", () => ({ RateHistoryWidget: () => null }));
 vi.mock("@/components/ConflictsWidget", () => ({ ConflictsWidget: () => null }));
 vi.mock("@/components/HiringManagerVetoesWidget", () => ({ HiringManagerVetoesWidget: () => null }));
-vi.mock("@/components/v2/candidate-profile/ScreeningSummaryCard", () => ({
-  ScreeningSummaryCard: () => null,
-}));
 vi.mock("@/components/v2/pages/DopasowanieTab", () => ({ DopasowanieTab: () => null }));
 vi.mock("@/components/v2/cv-generator/CvGeneratorDialog", () => ({ CvGeneratorDialog: () => null }));
 vi.mock("@/components/v2/modals/CVOriginalPreviewModal", () => ({ CVOriginalPreviewModal: () => null }));

@@ -87,6 +87,7 @@ import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialo
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import { DockNextStage } from "@/components/v2/jobs/DockNextStage";
+import { ScreeningAnswersList } from "@/components/v2/screening/ScreeningAnswersList";
 import {
   MOVE_REQUIREMENTS_PREFIX,
   useMoveRequirements,
@@ -351,6 +352,11 @@ export interface PipelineCandidateDockProps {
    * Wynik `primaryForwardMove` z `lib/pipeline-flow.ts`.
    */
   primaryBlocked?: { col: KanbanColumn; reason: string } | null;
+  /**
+   * Otwiera „Przesuń dalej” Tablicy dla tej osoby — przycisk w stopce okna
+   * QC CV. Bez niego okno QC nie ma przycisku ruchu.
+   */
+  onAdvance?: () => void;
   onClose: () => void;
   onMoveTo: (col: KanbanColumn) => void;
   /**
@@ -458,6 +464,7 @@ export function PipelineCandidateDock({
   nextAction,
   primaryTarget,
   primaryBlocked = null,
+  onAdvance,
   onClose,
   onMoveTo,
   onMoveToStageDef,
@@ -1288,6 +1295,15 @@ export function PipelineCandidateDock({
                     Wypełniono {formatDate(screeningAnswers.answered_at)}
                   </div>
                 )}
+                {/* Co kandydat odpowiedział — do 02.10.2026 dok mówił tylko,
+                    na ile pytań (tekst pytań stempluje serwer). */}
+                <ScreeningAnswersList
+                  className="border-t border-border pt-2 text-xs"
+                  answers={screeningAnswers.answers}
+                  experienceChecks={screeningAnswers.experience_checks}
+                  notes={screeningAnswers.notes}
+                  internalNote={screeningAnswers.internal_note}
+                />
               </div>
             ) : screeningQuery.isSuccess ? (
               <p className="text-xs text-muted-foreground">
@@ -1528,6 +1544,15 @@ export function PipelineCandidateDock({
             void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
             refreshMoveRequirements();
           }}
+          onMoveNext={
+            onAdvance
+              ? () => {
+                  setQcStageId(null);
+                  refreshMoveRequirements();
+                  onAdvance();
+                }
+              : undefined
+          }
         />
       )}
       {debriefEventId != null && (

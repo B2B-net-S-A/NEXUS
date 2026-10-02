@@ -757,7 +757,8 @@ async def add_reaction(
     if msg.is_deleted:
         raise HTTPException(status_code=400, detail="Nie można reagować na usuniętą.")
 
-    emoji = (payload or {}).get("emoji", "").strip()
+    emoji = (payload or {}).get("emoji")
+    emoji = emoji.strip() if isinstance(emoji, str) else ""
     if not emoji or len(emoji) > 16:
         raise HTTPException(
             status_code=400, detail="Emoji jest wymagane (max 16 znaków)."

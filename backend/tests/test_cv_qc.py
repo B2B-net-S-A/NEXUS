@@ -38,6 +38,7 @@ from tests.test_board_tasks import (
     restore_cpro_sender,
     seed_entry_row,
 )
+from tests.taxonomy_fixture import hydrated_taxonomy
 from tests.test_dz_review import (
     BRANDED_HTML,
     EXPERIENCE,
@@ -162,9 +163,18 @@ def test_technology_list_alone_does_not_satisfy_a_role() -> None:
 def test_checks_follow_the_contract_order_and_severity() -> None:
     checks = qc.compute_checks(_qc_input(BRANDED_HTML))
     assert [c["key"] for c in checks] == [*qc.BLOCKING_KEYS, *qc.WARNING_KEYS]
-    assert {c["severity"] for c in checks[:7]} == {"blocking"}
-    assert {c["severity"] for c in checks[7:]} == {"warning"}
+    assert qc.BLOCKING_KEYS == (
+        "cv_present",
+        "critical_skills",
+        "no_unsupported",
+        "client_rules",
+    )
+    assert {c["severity"] for c in checks[:4]} == {"blocking"}
+    assert {c["severity"] for c in checks[4:]} == {"warning"}
     by = _by_key(checks)
+    assert by["cv_present"]["status"] == "pass"
+    # Bez umiejętności krytycznych braki w must-have są uwagami, nie blokadą.
+    assert by["critical_skills"]["status"] == "skip"
     assert by["must_in_cv"]["status"] == "fail"
     assert by["must_in_cv"]["summary"] == "1/2"
     # Kubernetes jest w oryginale — poprawka AI, nie pytanie do kandydata.
@@ -173,15 +183,284 @@ def test_checks_follow_the_contract_order_and_severity() -> None:
     assert by["dates"]["status"] == "pass"
     assert by["no_unsupported"]["status"] == "pass"
     passed, blocking, warnings = qc.summarize(checks)
-    assert not passed and blocking == 2
+    assert passed and blocking == 0 and warnings >= 2
 
 
 def test_without_company_cv_only_generate_cv_is_asked_for() -> None:
-    checks = qc.compute_checks(_qc_input("", blocks=[], has_cv=False))
+    """Brak CV firmowego blokuje zawsze — także przy rekrutacji bez must-have
+    i bez umiejętności krytycznych (do 02.10.2026 porażkę niosło `must_in_cv`,
+    które przestało blokować)."""
+    for extra in ({}, {"must": []}, {"critical": _reqs("Java")}):
+        checks = qc.compute_checks(_qc_input("", blocks=[], has_cv=False, **extra))
+        by = _by_key(checks)
+        assert by["cv_present"]["status"] == "fail"
+        assert by["cv_present"]["severity"] == "blocking"
+        assert by["cv_present"]["items"][0]["fix"] == "generate_cv"
+        assert all(c["status"] == "skip" for c in checks[1:])
+        assert qc.summarize(checks) == (False, 1, 0)
+
+
+def test_rodo_clause_is_not_part_of_the_last_role() -> None:
+    """Klauzula zgody stoi tuż po ostatnim stanowisku. Generator pisze ją jako
+    `<p class="rodo">` bez znacznika sekcji, więc do 02.10.2026 wchodziła do
+    tekstu ostatniej roli (QC zaznaczało ją czerwono, a AI dostawała ją jako
+    punkt stanowiska)."""
+    for clause in (
+        '<p class="rodo">Wyrażam zgodę na przetwarzanie moich danych osobowych '
+        "zawartych w przekazanych przeze mnie dokumentach przez B2B.net S.A.</p>",
+        # Starsze zatwierdzone CV zgubiło klasę — zostają pierwsze słowa klauzuli.
+        "<p>I hereby consent to the processing of my personal data contained "
+        "in the documents submitted by me.</p>",
+        '<p data-cv-section="rodo">Wyrażam zgodę na przetwarzanie…</p>',
+    ):
+        blocks = _blocks(BRANDED_HTML + clause)
+        assert blocks[-1].section == "rodo"
+        rodo_index = len(blocks) - 1
+        roles = qc.cv_roles(blocks, dz.original_roles(EXPERIENCE, ORIGINAL))
+        assert rodo_index not in roles[-1].blocks
+        assert "zgod" not in roles[-1].role.text.casefold()
+        assert "consent" not in roles[-1].role.text.casefold()
+        assert "consent" not in dz.generated_roles(blocks)[-1].text.casefold()
+        assert "zgod" not in dz.generated_roles(blocks)[-1].text.casefold()
+        # Edytor widzi te same bloki — poprawka AI trafia przed klauzulę.
+        assert [
+            b.section for b in qc.EditableCv.parse(BRANDED_HTML + clause).blocks
+        ] == [b.section for b in blocks]
+
+
+def test_ai_fix_for_the_last_role_lands_before_the_rodo_clause() -> None:
+    html = (
+        '<h2 data-cv-section="experience">Doświadczenie</h2>'
+        '<p data-cv-section="role"><b>Developer</b> 2018–2021</p>'
+        '<p data-cv-section="employer">Globex</p>'
+        '<p class="rodo">Wyrażam zgodę na przetwarzanie moich danych osobowych.</p>'
+    )
+    out = qc.apply_ai_fix(
+        html,
+        {"role_index": 0, "cv_role_label": "Developer 2018–2021 · Globex"},
+        "Aplikacje webowe w **Java** dla klientów sklepu.",
+        original_text=ORIGINAL,
+        experience=EXPERIENCE,
+    )
+    texts = [b.text for b in _blocks(out)]
+    assert texts.index("Aplikacje webowe w Java dla klientów sklepu.") < texts.index(
+        "Wyrażam zgodę na przetwarzanie moich danych osobowych."
+    )
+
+
+# ── Co blokuje: umiejętności krytyczne, zgodność z oryginałem, reguły klienta ─
+
+
+def test_only_warnings_never_block() -> None:
+    """Każda uwaga naraz (braki must, pogrubienia, lata, daty, tytuł) — QC
+    przechodzi, bo nie ma umiejętności krytycznych ani twierdzeń spoza oryginału."""
+    html = (
+        "<ul><li>15 lat doświadczenia w bankowości.</li></ul>"
+        '<h2 data-cv-section="experience">Doświadczenie</h2>'
+        '<p data-cv-section="role"><b>Senior Developer</b></p>'
+        '<p data-cv-section="employer">Acme Bank</p>'
+        "<ul><li>Rozwój usług w Java i Spring, Javascript.</li></ul>"
+    )
+    history = [{"company": "Acme Bank", "start": "2020-01", "end": "2025-12"}]
+    checks = qc.compute_checks(_qc_input(html, experience=history))
     by = _by_key(checks)
-    assert by["must_in_cv"]["status"] == "fail"
-    assert by["must_in_cv"]["items"][0]["fix"] == "generate_cv"
-    assert all(c["status"] == "skip" for c in checks[1:])
+    for key in ("must_in_cv", "must_bolded", "years_header", "dates", "spelling"):
+        assert by[key]["status"] == "fail", key
+        assert by[key]["severity"] == "warning", key
+    assert qc.summarize(checks)[:2] == (True, 0)
+
+
+def test_critical_skill_gaps_block_and_count_per_skill() -> None:
+    checks = qc.compute_checks(
+        _qc_input(BRANDED_HTML, critical=_reqs("Java", "Kubernetes"))
+    )
+    by = _by_key(checks)
+    critical = by["critical_skills"]
+    assert critical["status"] == "fail" and critical["severity"] == "blocking"
+    assert {(i["requirement"], i["role"]) for i in critical["items"]} == {
+        ("Java", "Developer · Globex"),
+        ("Kubernetes", "Senior Developer · Acme Bank"),
+    }
+    assert all(i["fix"] == "ai" for i in critical["items"])
+    # Krytyczne nie dublują się w uwagach o pozostałych wymaganiach.
+    assert by["must_in_cv"]["status"] == "skip"
+    assert by["must_in_roles"]["status"] == "skip"
+    # Jedno wymaganie = jedna rzecz do poprawy, niezależnie od liczby ról.
+    assert qc.summarize(checks)[:2] == (False, 2)
+
+
+def test_critical_skill_in_several_roles_is_one_task() -> None:
+    html = BRANDED_HTML.replace(
+        "<li>Rozwój usług w <b>Java</b> i Spring.</li>", "<li>Utrzymanie usług.</li>"
+    )
+    checks = qc.compute_checks(_qc_input(html, critical=_reqs("Java")))
+    critical = _by_key(checks)["critical_skills"]
+    assert len(critical["items"]) == 2
+    assert qc.summarize(checks)[:2] == (False, 1)
+
+
+def test_critical_skill_absent_everywhere_asks_the_candidate() -> None:
+    checks = qc.compute_checks(_qc_input(BRANDED_HTML, critical=_reqs("Scala")))
+    item = _by_key(checks)["critical_skills"]["items"][0]
+    assert item["requirement"] == "Scala" and item["role"] is None
+    assert item["fix"] == "ask_candidate"
+    assert qc.summarize(checks)[:2] == (False, 1)
+
+
+def test_critical_skill_described_in_its_roles_passes() -> None:
+    checks = qc.compute_checks(
+        _qc_input(
+            BRANDED_HTML.replace(
+                "<li>Aplikacje webowe, <b>React</b>.</li>",
+                "<li>Aplikacje webowe w <b>Java</b> i React dla sklepu.</li>",
+            ),
+            critical=_reqs("Java"),
+            must=_reqs("Java"),
+        )
+    )
+    by = _by_key(checks)
+    assert by["critical_skills"]["status"] == "pass"
+    assert by["critical_skills"]["summary"] == "1/1"
+    assert qc.summarize(checks)[:2] == (True, 0)
+
+
+def test_critical_requirements_follow_the_search_gate() -> None:
+    """Krytyczne = wybór DL, a bez niego podpowiedź z historii — ta sama
+    reguła co bramka wyszukiwania; etykiety w pisowni wymagań QC."""
+    from app.services import critical_skills
+    from tests.taxonomy_fixture import hydrated_taxonomy
+
+    def job(critical="absent"):
+        stack: dict = {"must": [{"name": m} for m in ("Java 17", "Kubernetes")]}
+        if critical != "absent":
+            stack["critical"] = critical
+        return SimpleNamespace(
+            id=1,
+            title="Java Developer",
+            working_title=None,
+            must_skills=["Java 17", "Kubernetes"],
+            nice_skills=[],
+            requirements_reviewed=True,
+            matching_requirements=None,
+            champion_profile={"stack": stack},
+        )
+
+    must = [
+        dz.Requirement(label=n, alternatives=(n,), terms=dz.requirement_terms((n,)))
+        for n in ("Java 17", "Kubernetes", "Umiejętność pracy w zespole")
+    ]
+    with hydrated_taxonomy():
+        critical_skills.set_payload(
+            {"version": 1, "labels": {"java": {"rate": 0.95, "jobs": 100}}}
+        )
+        try:
+            chosen, source = qc.critical_requirements(job(["Kubernetes"]), must)
+            assert [r.label for r in chosen] == ["Kubernetes"] and source == "dl"
+            suggested, source = qc.critical_requirements(job(), must)
+            assert [r.label for r in suggested] == ["Java 17"]
+            assert source == "suggested"
+            # Wersja z etykiety nie musi stać w CV.
+            assert suggested[0].terms == ("Java",)
+            none, source = qc.critical_requirements(job([]), must)
+            assert none == [] and source == "none"
+        finally:
+            critical_skills.set_payload(None)
+    # Bez wczytanego słownika nic nie jest technologią — brak krytycznych.
+    assert qc.critical_requirements(job(["Kubernetes"]), must) == ([], "none")
+
+
+def test_critical_requirement_is_read_like_the_search_gate() -> None:
+    """„Bazy danych (Oracle, PostgreSQL)” wybrane jako krytyczne: bramka
+    wyszukiwania przyjmuje którąkolwiek z nazw, więc QC też. Do 02.10.2026 QC
+    szukało dosłownie „Bazy danych” i CV z opisanym Oracle dostawało blokadę
+    „Brak w CV i w oryginale”."""
+    label = "Bazy danych (Oracle, PostgreSQL)"
+    must = [
+        dz.Requirement(label=n, alternatives=(n,), terms=dz.requirement_terms((n,)))
+        for n in (label, "Kubernetes")
+    ]
+    job = SimpleNamespace(
+        id=1,
+        title="Administrator baz danych",
+        working_title=None,
+        must_skills=[label, "Kubernetes"],
+        nice_skills=[],
+        requirements_reviewed=True,
+        matching_requirements=None,
+        champion_profile={
+            "stack": {
+                "must": [{"name": label}, {"name": "Kubernetes"}],
+                "critical": [label],
+            }
+        },
+    )
+    html = (
+        "<p>Administrowałem bazą <b>Oracle</b> 19c w banku: strojenie zapytań "
+        "i kopie zapasowe.</p>"
+    )
+    with hydrated_taxonomy():
+        critical, source = qc.critical_requirements(job, must)
+        assert source == "dl"
+        assert [(r.label, r.terms) for r in critical] == [
+            (label, ("Oracle", "PostgreSQL"))
+        ]
+        # Te same nazwy czytają pozostałe sprawdzenia i poprawki (pogrubienia,
+        # zgodność z oryginałem, materiał dla AI).
+        assert [r.terms for r in qc.with_critical_terms(must, critical)] == [
+            ("Oracle", "PostgreSQL"),
+            ("Kubernetes",),
+        ]
+        by = _by_key(
+            qc.compute_checks(
+                _qc_input(
+                    html,
+                    must=qc.with_critical_terms(must, critical),
+                    critical=critical,
+                    original_text="Oracle 19c, strojenie zapytań.",
+                    experience=[],
+                )
+            )
+        )
+    assert by["critical_skills"]["status"] == "pass", by["critical_skills"]
+    bolded = {i["requirement"] for i in by["must_bolded"]["items"]}
+    assert label not in bolded
+
+
+def test_rodo_clause_is_not_cv_content_for_requirements() -> None:
+    """Klauzula zgody to szablon, nie treść CV. Do 02.10.2026 wymaganie „.NET 8”
+    trafiało w „B2B.net S.A.” z klauzuli: QC blokowało pozycją „net — jest w CV,
+    a nie ma tego w oryginale” (której nie dało się poprawić), a krytyczne
+    „.NET” przechodziło, choć treść CV go nie opisuje."""
+    from app.services.cv_generator_b2b.docx_renderer import TRANSLATIONS
+
+    def checks(**extra) -> dict[str, dict]:
+        html = (
+            "<p>Angular developer w zespole płatności.</p>"
+            f'<p class="rodo">{TRANSLATIONS["pl"]["rodo"]}</p>'
+        )
+        base = dict(must=_reqs("Angular"), experience=[])
+        base.update(extra)
+        return _by_key(qc.compute_checks(_qc_input(html, **base)))
+
+    def reqs(*names: str) -> list[dz.Requirement]:
+        return [
+            dz.Requirement(label=n, alternatives=(n,), terms=dz.requirement_terms((n,)))
+            for n in names
+        ]
+
+    # Mile widziane „.NET 8”, którego nie ma ani w treści CV, ani w oryginale.
+    by = checks(nice=reqs(".NET 8"), original_text="Angular developer")
+    assert by["no_unsupported"]["status"] == "pass", by["no_unsupported"]
+    # Słowo, które stoi wyłącznie w klauzuli, nie jest twierdzeniem o kandydacie.
+    by = checks(nice=_reqs("B2B.net"), original_text="Angular developer")
+    assert by["no_unsupported"]["status"] == "pass", by["no_unsupported"]
+    # Krytyczne „.NET” jest w oryginale, ale nie w treści CV — klauzula go nie udaje.
+    net = reqs(".NET")
+    by = checks(must=net, critical=net, original_text="Angular i .NET w banku")
+    assert by["critical_skills"]["status"] == "fail", by["critical_skills"]
+    assert by["critical_skills"]["items"][0]["detail"].startswith(
+        "Brak w CV — jest w oryginale"
+    )
 
 
 def test_pdf_cv_cannot_prove_bolding_so_it_is_manual_not_a_block() -> None:
@@ -208,6 +487,35 @@ def test_claim_missing_from_original_and_notes_is_unsupported() -> None:
                 nice=_reqs("Terraform"),
                 notes_text="Kandydat: Terraform w prywatnych projektach.",
             )
+        )
+    )
+    assert by["no_unsupported"]["status"] == "pass"
+
+
+def test_version_written_in_the_cv_needs_cover_in_the_sources() -> None:
+    """Technologii szukamy bez wersji („Java 17” z wymagań znajduje „Java”),
+    ale wersja wpisana w CV jest twierdzeniem o kandydacie."""
+    must = [
+        dz.Requirement(
+            label="Java 17",
+            alternatives=("Java 17",),
+            terms=dz.requirement_terms(("Java 17",)),
+        )
+    ]
+    plain = "<p>Programista <b>Java</b>.</p>"
+    versioned = "<p>Programista <b>Java 17</b>.</p>"
+    by = _by_key(qc.compute_checks(_qc_input(plain, must=must)))
+    assert by["must_in_cv"]["status"] == "pass"
+    assert by["no_unsupported"]["status"] == "pass"
+
+    by = _by_key(qc.compute_checks(_qc_input(versioned, must=must)))
+    assert by["must_in_cv"]["status"] == "pass"
+    item = by["no_unsupported"]["items"][0]
+    assert item["term"] == "Java 17" and item["fix"] == "ask_candidate"
+
+    by = _by_key(
+        qc.compute_checks(
+            _qc_input(versioned, must=must, notes_text="Pracuje na Java 17 od roku.")
         )
     )
     assert by["no_unsupported"]["status"] == "pass"
@@ -256,11 +564,12 @@ def test_years_header_tolerates_one_year() -> None:
     assert qc.header_years(_blocks("<ul><li>5 lat w Java i Spring.</li></ul>")) is None
 
 
-def test_years_header_mismatch_blocks() -> None:
+def test_years_header_mismatch_is_reported_as_a_warning() -> None:
     html = "<ul><li>15 lat doświadczenia w bankowości.</li></ul>" + BRANDED_HTML
     history = [{"company": "A", "start": "2020-01", "end": "2025-12"}]
     by = _by_key(qc.compute_checks(_qc_input(html, experience=history)))
     assert by["years_header"]["status"] == "fail"
+    assert by["years_header"]["severity"] == "warning"
 
 
 def test_role_without_dates_is_reported() -> None:
@@ -428,6 +737,40 @@ def _material() -> dict:
         "notes": "Kandydat wdrażał Helm na Kubernetes w Acme.",
         "cv": "",
     }
+
+
+def test_fixes_material_puts_critical_gaps_first_and_keeps_their_check() -> None:
+    """Przy limicie propozycji pierwszeństwo mają umiejętności krytyczne,
+    a propozycja pamięta, którego sprawdzenia dotyczy."""
+    must = _reqs("Java", "Kubernetes")
+    checks = qc.compute_checks(_qc_input(BRANDED_HTML, must=must, critical=must[1:]))
+    src = SimpleNamespace(
+        original={"text": ORIGINAL},
+        blocks=_blocks(BRANDED_HTML),
+        candidate=SimpleNamespace(experience=EXPERIENCE),
+        must=must,
+    )
+    material = qc.fixes_material(src, checks, "")
+    assert [(i["requirement"], i["check_key"]) for i in material["items"]] == [
+        ("Kubernetes", "critical_skills"),
+        ("Java", "must_in_roles"),
+    ]
+    raw = json.dumps(
+        {
+            "fixes": [
+                {
+                    "requirement": "Kubernetes",
+                    "role": "Senior Developer · Acme Bank",
+                    "current_text": None,
+                    "proposed_text": "Wdrażanie usług na **Kubernetes** w zespole.",
+                    "source": "original",
+                    "source_quote": "Senior Developer Java Kubernetes Kafka",
+                }
+            ]
+        }
+    )
+    fixes = qc.parse_fixes(raw, material, "a" * 64)
+    assert [f["check_key"] for f in fixes] == ["critical_skills"]
 
 
 def test_parse_fixes_drops_quotes_outside_sources() -> None:
@@ -647,9 +990,62 @@ def test_remove_term_takes_it_off_technology_lists_only() -> None:
     assert "Wdrożył Docker w zespole platformy." in texts
 
 
+def test_remove_term_takes_the_version_with_it() -> None:
+    html = (
+        '<p data-cv-section="technologies">Technologie '
+        '<span class="tech">Java, Angular 15, Kafka</span></p>'
+    )
+    out, count = qc.remove_term(html, "Angular")
+    assert count == 1
+    assert [b.text for b in _blocks(out)] == ["Technologie Java, Kafka"]
+
+
 def test_spelling_fix_in_html() -> None:
     out, count = qc.fix_spelling_html("<p>Javascript &amp; Postgres</p>")
     assert count == 2 and out == "<p>JavaScript &amp; PostgreSQL</p>"
+
+
+# ── Obejście QC ─────────────────────────────────────────────────────────────
+
+
+def test_override_reason_is_a_ready_label_or_a_free_description() -> None:
+    from pydantic import ValidationError
+
+    from app.api.cv_qc import QcOverrideRequest
+
+    assert qc.override_reason_text("client_short_cv", "") == (
+        "Klient prosił o krótsze CV"
+    )
+    assert qc.override_reason_text("confirmed_in_call", "  rozmowa   1.10 ") == (
+        "Kandydat potwierdził to w rozmowie, w CV tego nie ma — rozmowa 1.10"
+    )
+    assert qc.override_reason_text("other", "Pilna prośba klienta") == (
+        "Pilna prośba klienta"
+    )
+    assert qc.override_reason_text(None, "bo tak") == "bo tak"
+
+    # Gotowy powód nie wymaga opisu; bez minimum znaków.
+    assert QcOverrideRequest(reason_code="client_short_cv").reason == ""
+    assert QcOverrideRequest(reason="  bo   tak ").reason == "bo tak"
+    for body in (
+        {},
+        {"reason_code": "other"},
+        {"reason_code": "other", "reason": "   "},
+        {"reason_code": "nieznany", "reason": "Klient prosił."},
+    ):
+        with pytest.raises(ValidationError):
+            QcOverrideRequest(**body)
+
+
+def test_qc_override_reasons_mirror() -> None:
+    """Powody obejścia: backend zapisuje etykietę, front ją pokazuje — jedna
+    lista w dwóch miejscach."""
+    source = (
+        Path(__file__).resolve().parents[2] / "frontend/src/lib/cv-qc.ts"
+    ).read_text()
+    block = source.split("export const QC_OVERRIDE_REASONS", 1)[1].split("];", 1)[0]
+    mirrored = re.findall(r'code:\s*"([a-z_]+)",\s*label:\s*"([^"]+)"', block)
+    assert mirrored == list(qc.OVERRIDE_REASONS.items())
 
 
 def test_migration_is_mirrored_in_entrypoint() -> None:
@@ -682,6 +1078,21 @@ async def _cleanup_qc(world: dict, stage_id: int) -> None:
     await _cleanup_review(world, stage_id)
 
 
+async def _mark_critical(world: dict, *names: str) -> None:
+    """Wybór Delivery Leada: umiejętności krytyczne w profilu Championa."""
+    from app.models.job import Job
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.champion_profile = {
+            "stack": {
+                "must": [{"name": n} for n in ("Java", "Kubernetes")],
+                "critical": list(names),
+            }
+        }
+        await db.commit()
+
+
 async def _runs(world: dict) -> int:
     async with AsyncSessionLocal() as db:
         return await db.scalar(
@@ -700,24 +1111,32 @@ async def test_qc_is_computed_persisted_once_and_readable_by_team(
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
     hor = await _login(api_client, hor_creds)
     stage_id = await _seed_review(world, hor, api_client)
+    await _mark_critical(world, "Java", "Kubernetes")
     try:
-        resp = await api_client.get(f"/api/pipeline/stages/{stage_id}/qc", headers=hor)
+        with hydrated_taxonomy():
+            resp = await api_client.get(
+                f"/api/pipeline/stages/{stage_id}/qc", headers=hor
+            )
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert [c["key"] for c in body["checks"]] == [
             *qc.BLOCKING_KEYS,
             *qc.WARNING_KEYS,
         ]
+        # Dwie umiejętności krytyczne do poprawy: Java w Globex, Kubernetes w Acme.
         assert body["passed"] is False and body["blocking_failed"] == 2
         assert body["cv"]["source"] == "branded_draft" and body["cv"]["editable"]
         assert body["client_request"]["must"] == ["Java", "Kubernetes"]
+        assert body["client_request"]["critical"] == ["Java", "Kubernetes"]
+        assert body["client_request"]["critical_source"] == "dl"
         assert body["override"] is None and body["run_id"]
         # Treść CV idzie jako bloki tekstu — skrypt z edytora odpada.
         assert "alert" not in json.dumps(body["cv"]["blocks"])
 
-        again = (
-            await api_client.get(f"/api/pipeline/stages/{stage_id}/qc", headers=hor)
-        ).json()
+        with hydrated_taxonomy():
+            again = (
+                await api_client.get(f"/api/pipeline/stages/{stage_id}/qc", headers=hor)
+            ).json()
         assert again["run_id"] == body["run_id"]
         assert await _runs(world) == 1
 
@@ -742,6 +1161,7 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
     dl = await _login(api_client, dl_creds)
     rec = await _login(api_client, rec_creds)
     stage_id = await _seed_review(world, hor, api_client)
+    await _mark_critical(world, "Java", "Kubernetes")
     send = {
         "candidate_id": world["candidate_id"],
         "job_id": world["job_id"],
@@ -750,14 +1170,16 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
         "client_rate_unit": "hourly",
         "client_rate_currency": "PLN",
     }
+    override_url = f"/api/pipeline/stages/{stage_id}/qc/override"
     try:
-        refused = await api_client.post("/api/pipeline/move", headers=dl, json=send)
+        with hydrated_taxonomy():
+            refused = await api_client.post("/api/pipeline/move", headers=dl, json=send)
         assert refused.status_code == 409, refused.text
         detail = refused.json()["detail"]
         assert detail["code"] == "CV_QC_FAILED"
         assert detail["blocking_failed"] == 2
         assert detail["stage_id"] == stage_id
-        assert detail["message"] == "CV nie przeszło QC: 2 sprawdzenia do poprawy."
+        assert detail["message"] == "CV nie przeszło QC — do poprawy: 2."
         # Przebieg odmowy zostaje — tablica pokazuje ten sam stan.
         assert await _runs(world) == 1
         board = (
@@ -772,27 +1194,29 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
         assert cards and cards[0]["qc"] == {"status": "failed", "blocking_failed": 2}
 
         denied = await api_client.post(
-            f"/api/pipeline/stages/{stage_id}/qc/override",
-            headers=rec,
-            json={"reason": "Klient zna kandydata z poprzedniego projektu."},
+            override_url, headers=rec, json={"reason_code": "client_short_cv"}
         )
         assert denied.status_code == 403
-        short = await api_client.post(
-            f"/api/pipeline/stages/{stage_id}/qc/override",
-            headers=dl,
-            json={"reason": "bo tak"},
-        )
-        assert short.status_code == 422
-        ok = await api_client.post(
-            f"/api/pipeline/stages/{stage_id}/qc/override",
-            headers=dl,
-            json={"reason": "Klient zna kandydata z poprzedniego projektu."},
-        )
+        # Bez powodu, „Inny powód” bez opisu i nieznany kod — odmowa.
+        for body in (
+            {},
+            {"reason_code": "other", "reason": "   "},
+            {"reason_code": "bo_tak", "reason": "Klient prosił."},
+        ):
+            refused_override = await api_client.post(
+                override_url, headers=dl, json=body
+            )
+            assert refused_override.status_code == 422, body
+        with hydrated_taxonomy():
+            ok = await api_client.post(
+                override_url, headers=dl, json={"reason_code": "client_short_cv"}
+            )
         assert ok.status_code == 200, ok.text
-        assert ok.json()["override"]["reason"].startswith("Klient zna")
+        # Gotowy powód nie wymaga opisu — w historii zostaje jego etykieta.
+        assert ok.json()["override"]["reason"] == "Klient prosił o krótsze CV"
         async with AsyncSessionLocal() as db:
-            assert await db.scalar(
-                select(Activity.id).where(
+            details = await db.scalar(
+                select(Activity.details).where(
                     Activity.action == "cv_qc_override",
                     Activity.entity_id == stage_id,
                 )
@@ -800,11 +1224,22 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
             status = await qc.pair_statuses(
                 db, [(world["candidate_id"], world["job_id"])]
             )
+        assert details["reason_code"] == "client_short_cv"
+        assert details["reason"] == "Klient prosił o krótsze CV"
         assert (
             status[(world["candidate_id"], world["job_id"])]["status"] == "overridden"
         )
+        # Front sprzed zmiany wysyła sam opis — działa jak „Inny powód”,
+        # bez minimum znaków.
+        with hydrated_taxonomy():
+            legacy = await api_client.post(
+                override_url, headers=dl, json={"reason": "bo tak"}
+            )
+        assert legacy.status_code == 200, legacy.text
+        assert legacy.json()["override"]["reason"] == "bo tak"
 
-        moved = await api_client.post("/api/pipeline/move", headers=dl, json=send)
+        with hydrated_taxonomy():
+            moved = await api_client.post("/api/pipeline/move", headers=dl, json=send)
         assert moved.status_code == 200, moved.text
     finally:
         async with AsyncSessionLocal() as db:

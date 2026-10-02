@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OperationalUser, RecruiterPlus
@@ -78,6 +78,11 @@ class QcOriginal(BaseModel):
 class QcClientRequest(BaseModel):
     must: list[str]
     nice: list[str]
+    # Umiejętności krytyczne (podzbiór `must`) i skąd pochodzą: wybór Delivery
+    # Leada, podpowiedź z historii albo brak (wtedy QC nie blokuje na
+    # umiejętnościach).
+    critical: list[str] = []
+    critical_source: Literal["dl", "suggested", "none"] = "none"
 
 
 class QcOverride(BaseModel):
@@ -133,15 +138,27 @@ class QcApplyRequest(BaseModel):
 
 
 class QcOverrideRequest(BaseModel):
-    reason: str = Field(max_length=1000)
+    """Powód obejścia: gotowy (`reason_code`) z opcjonalnym opisem albo własny.
 
-    @field_validator("reason")
-    @classmethod
-    def _reason_long_enough(cls, value: str) -> str:
-        value = " ".join(value.split())
-        if len(value) < 10:
-            raise ValueError("Podaj powód obejścia QC (co najmniej 10 znaków).")
-        return value
+    Bez minimum znaków (02.10.2026) — wymuszone 10 znaków dawało wpisy
+    w rodzaju „keksekqekndxjndxkqw”. Samo `reason` (front sprzed zmiany)
+    działa jak „Inny powód”.
+    """
+
+    reason_code: Optional[str] = Field(default=None, max_length=40)
+    reason: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def _reason_given(self) -> "QcOverrideRequest":
+        self.reason = " ".join(self.reason.split())
+        if (
+            self.reason_code is not None
+            and self.reason_code not in cv_qc.OVERRIDE_REASONS
+        ):
+            raise ValueError("Nieznany powód obejścia QC.")
+        if self.reason_code in (None, "other") and not self.reason:
+            raise ValueError("Opisz powód obejścia QC.")
+        return self
 
 
 async def _stage(db: AsyncSession, stage_id: int) -> CandidateStage:
@@ -247,7 +264,11 @@ async def override_stage_qc(
     stage = await _stage(db, stage_id)
     await ensure_job_read_access(db, current_user, stage.job_id)
     result = await cv_qc.record_override(
-        db, stage, user_id=current_user.id, reason=payload.reason
+        db,
+        stage,
+        user_id=current_user.id,
+        reason=cv_qc.override_reason_text(payload.reason_code, payload.reason),
+        reason_code=payload.reason_code,
     )
     await db.commit()
     return _response(result)

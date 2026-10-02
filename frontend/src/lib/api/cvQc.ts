@@ -69,6 +69,17 @@ export interface QcOverride {
   at: string | null;
 }
 
+/** Skąd są umiejętności krytyczne: wybór Delivery Leada, podpowiedź z historii albo brak. */
+export type QcCriticalSource = "dl" | "suggested" | "none";
+
+export interface QcClientRequest {
+  must: string[];
+  nice: string[];
+  /** Podzbiór `must` — tylko braki tych umiejętności zatrzymują wysyłkę. */
+  critical?: string[];
+  critical_source?: QcCriticalSource;
+}
+
 export interface QcResult {
   stage_id: number;
   candidate_id: number;
@@ -84,7 +95,7 @@ export interface QcResult {
   computed_at: string | null;
   cv: QcCv | null;
   original_cv: { source: "snapshot" | "profile_text" | null; filename: string | null; text: string | null };
-  client_request: { must: string[]; nice: string[] };
+  client_request: QcClientRequest;
   checks: QcCheck[];
 }
 
@@ -170,10 +181,13 @@ export function useQcApply(stageId: number | null, onChanged?: () => void) {
   return useQcWrite<QcApplyBody>(stageId, "apply", onChanged);
 }
 
-/** „Przepuść mimo QC" — tylko admin i Delivery Lead (serwer odmawia reszcie). */
-export function useQcOverride(stageId: number | null, onChanged?: () => void) {
-  return useQcWrite<{ reason: string }>(stageId, "override", onChanged);
+/** Gotowy powód (`reason_code`) z opcjonalnym opisem; opis wymagany przy „Inny powód". */
+export interface QcOverrideBody {
+  reason_code: string;
+  reason?: string;
 }
 
-/** Minimalna długość powodu obejścia — lustro walidacji serwera. */
-export const QC_OVERRIDE_MIN_REASON = 10;
+/** „Przepuść mimo QC" — tylko admin i Delivery Lead (serwer odmawia reszcie). */
+export function useQcOverride(stageId: number | null, onChanged?: () => void) {
+  return useQcWrite<QcOverrideBody>(stageId, "override", onChanged);
+}

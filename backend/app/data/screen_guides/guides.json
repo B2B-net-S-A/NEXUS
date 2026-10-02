@@ -88,7 +88,7 @@
     "pitfalls": [
       "Wysłanie na „CV wysłane” poza Nordeą robi tylko Delivery Lead albo admin, podając w tym samym kroku stawkę do klienta. Cofnięcie karty z „Rozmowy u klienta” tego nie wymaga.",
       "Wyjście z „Rozmowy u klienta” wymaga debriefu: pytań klienta albo potwierdzenia, że ich nie było.",
-      "Bez zielonego QC CV kandydat nie przejdzie na „CV wysłane” ani do kolejki Cpro (u Nordei wrzuca osoba od Cpro wyznaczona dla firmy, a gdy jej nie ma — osoba wskazana w rekrutacji). Przepuścić mimo QC może Delivery Lead albo admin, podając powód. Powrót z „Zamkniętych” tego nie omija.",
+      "Bez zielonego QC CV kandydat nie przejdzie na „CV wysłane” ani do kolejki Cpro (u Nordei wrzuca osoba od Cpro wyznaczona dla firmy, a gdy jej nie ma — osoba wskazana w rekrutacji). QC zatrzymuje tylko cztery rzeczy: brak CV firmowego, umiejętności krytyczne nieopisane w rolach, treść spoza oryginalnego CV i reguły klienta — reszta to uwagi. Przepuścić mimo QC może Delivery Lead albo admin, wybierając powód. Powrót z „Zamkniętych” tego nie omija.",
       "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin."
     ],
     "anchors": [
@@ -154,7 +154,7 @@
     "title": "Karta kandydata w rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "sourcer", "delivery_lead"],
-    "what": "Tu prowadzisz jedną osobę w tej rekrutacji: sekcja „Teraz” pokazuje, co jest do zrobienia na jej etapie, a główna akcja przesuwa ją dalej.",
+    "what": "Tu prowadzisz jedną osobę w tej rekrutacji: sekcja „Teraz” pokazuje, co jest do zrobienia na jej etapie, a główna akcja przesuwa ją dalej. W sekcji „Screening” widzisz pytania z odpowiedziami kandydata.",
     "tasks": [
       {
         "q": "Jak przesunąć osobę na kolejny etap?",
@@ -340,7 +340,7 @@
     "title": "Profil kandydata",
     "section": "sourcing",
     "roles": ["recruiter", "sourcer", "delivery_lead"],
-    "what": "Tu masz wszystko o jednej osobie: fakty (dostępność, stawka, lokalizacja), rekrutacje, historię kontaktów oraz pliki i umowy.",
+    "what": "Tu masz wszystko o jednej osobie: fakty (dostępność, stawka, lokalizacja), odpowiedzi z rozmów screeningowych, rekrutacje, historię kontaktów oraz pliki i umowy.",
     "tasks": [
       {
         "q": "Jak dodać kandydata do rekrutacji?",
@@ -369,6 +369,7 @@
     ],
     "pitfalls": [
       "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem.",
+      "Co kandydat odpowiedział na pytania screeningowe, widać w zakładce „Profil”, w karcie „Odpowiedzi z rozmów screeningowych” (jedna rozmowa na rekrutację, z wyszukiwarką). Sprawdź ją, zanim zapytasz o to samo w kolejnej rekrutacji — w nowym arkuszu wcześniejsze odpowiedzi pojawią się też pod pytaniami.",
       "„Historia” otwiera się na „Notatkach”. Wpisy automatów (np. „Auto-match 67/100”) są schowane za „Pokaż systemowe” — wynik dopasowania widać jako plakietkę przy rekrutacji. Ważną notatkę przypnij pinezką: zobaczy ją cały zespół, także w karcie kandydata w rekrutacji."
     ],
     "anchors": [
@@ -376,6 +377,7 @@
       {"id": "candidate.profile.note", "label": "Dodaj notatkę", "describe": "Nowa notatka o kandydacie."},
       {"id": "candidate.profile.facts", "label": "Najważniejsze fakty", "describe": "Pasek faktów: dostępność, stawka, lokalizacja, tryb pracy."},
       {"id": "candidate.profile.notes_facts", "label": "Z notatek rekruterów", "describe": "Fakty wyciągnięte z notatek do zatwierdzenia."},
+      {"id": "candidate.profile.screening_answers", "label": "Odpowiedzi z rozmów screeningowych", "describe": "Pytania i odpowiedzi kandydata z każdej rekrutacji — karta jest widoczna, gdy osoba ma zapisany screening."},
       {"id": "candidate.profile.tabs", "label": "Zakładki profilu", "describe": "Profil, Rekrutacje, Historia, Pliki i umowy."}
     ],
     "help_slug": null,

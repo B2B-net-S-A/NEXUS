@@ -792,10 +792,17 @@ class ChampionProfile(BaseModel):
 
 # ── Screening answers (CandidateStage.screening_answers) ────────────────────
 
+# Sufity rozmiaru arkusza (02.10.2026). Odpowiedzi pokazuje profil kandydata
+# i czyta je Luna przy kolejnych rozmowach, więc arkusz bez limitu obciążałby
+# każdego, kto otworzy profil. Największy arkusz na produkcji w dniu zmiany:
+# 6 odpowiedzi, 260 znaków — limity są daleko ponad realnym użyciem.
+SCREENING_ANSWERS_MAX = 100
+SCREENING_TEXT_MAX_CHARS = 10_000
+
 
 class ScreeningAnswerItem(BaseModel):
-    question_id: str
-    response: str = ""
+    question_id: str = Field(max_length=100)
+    response: str = Field(default="", max_length=SCREENING_TEXT_MAX_CHARS)
     deal_breaker_hit: bool = False
     # Skąd odpowiedź (Pipeline v4, 23.09.2026): `reassign_suggested` = rekruter
     # przyjął podpowiedź Luny z poprzedniej rekrutacji (przepięcie).
@@ -804,6 +811,11 @@ class ScreeningAnswerItem(BaseModel):
     # Pominięte odpowiedzi nie liczą się do dopasowania i NIGDY nie wychodzą
     # do klienta (`client_safe_screening`).
     skipped: bool = False
+    # Treść pytania z chwili odpowiedzi (02.10.2026). Identyfikatory pytań są
+    # pozycyjne (`q1…qN`), więc po edycji profilu Championa samo `question_id`
+    # wskazuje inne pytanie. Stempluje serwer (`screening_sheets.stamp_sheet`);
+    # wartość z żądania jest nadpisywana. Poza białą listą dla klienta.
+    question_text: Optional[str] = Field(default=None, max_length=2000)
 
 
 class ExperienceCheck(BaseModel):
@@ -822,12 +834,14 @@ class ExperienceCheck(BaseModel):
 class ScreeningAnswers(BaseModel):
     """Full payload a recruiter submits when moving a candidate past screening."""
 
-    answers: List[ScreeningAnswerItem] = Field(default_factory=list)
+    answers: List[ScreeningAnswerItem] = Field(
+        default_factory=list, max_length=SCREENING_ANSWERS_MAX
+    )
     experience_checks: List[ExperienceCheck] = Field(
         default_factory=list, max_length=EXPERIENCE_ITEMS_MAX * 3
     )
     overall_fit: Literal["fit", "uncertain", "miss"] = "uncertain"
-    notes: str = ""
+    notes: str = Field(default="", max_length=SCREENING_TEXT_MAX_CHARS)
     # Notatka WEWNĘTRZNA „pominięte — przepięcie": dlaczego część pytań nie ma
     # odpowiedzi. W odróżnieniu od `notes` (widoczne w share portalu) nie
     # trafia do klienta ani do generatora CV.

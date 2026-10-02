@@ -241,9 +241,7 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
         if f.qc_status == "overridden":
             qc_detail: Optional[str] = "przepuszczone mimo QC (z powodem)"
         elif f.qc_status == "failed":
-            from app.services.cv_qc import _checks_word
-
-            qc_detail = f"{_checks_word(f.qc_blocking_failed)} do poprawy"
+            qc_detail = f"do poprawy: {max(1, f.qc_blocking_failed)}"
         elif f.qc_status == "unchecked":
             qc_detail = "QC jeszcze nie policzone"
         else:
