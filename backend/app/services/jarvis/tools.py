@@ -440,6 +440,7 @@ _CYCLE_TODO_LABELS = {
     "prep_missing": "brak przygotowania (prep) przed rozmową",
     "slots_missing": "brak terminów od klienta",
     "prep2_missing": "brak drugiego przygotowania",
+    "prep_late": "prep zaplanowany po rozmowie u klienta — trzeba go przełożyć",
 }
 
 

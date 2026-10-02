@@ -6,6 +6,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import type { PrepInvitation } from "@/lib/prep-invitation";
 
 export interface PrepPerson {
   id: number;
@@ -19,8 +20,10 @@ export interface PrepOptions {
   /** Podpowiedź organizatora dla Prepu 1 i 2 (klucze "1" i "2"). */
   suggested: Record<string, PrepPerson | null>;
   team: PrepPerson[];
-  /** Akapit o nagrywaniu dopisywany do zaproszenia. */
+  /** Adnotacja o nagrywaniu pod treścią zaproszenia. */
   notice: string;
+  /** Zaproszenie dla kandydata (klucze "1" i "2"); starszy serwer = brak. */
+  invitation?: Record<string, PrepInvitation>;
 }
 
 export type PrepItemStatus = "covered" | "partial" | "missing" | "covered_in_prep1";

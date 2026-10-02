@@ -60,7 +60,7 @@ export interface BoardTaskRow {
 
 /** 0370: prep przed rozmową u klienta, który wymaga uwagi. Widzi go
  *  organizator prepu, admin i Head of Recruitment. */
-export type PrepAttentionReason = "missing" | "weak" | "unrecorded";
+export type PrepAttentionReason = "missing" | "late" | "weak" | "unrecorded";
 
 export interface PrepAttentionRow {
   reason: PrepAttentionReason;
@@ -81,6 +81,7 @@ export interface PrepAttentionRow {
 
 export const PREP_ATTENTION_REASON_LABEL: Record<PrepAttentionReason, string> = {
   missing: "brak prepu",
+  late: "prep po rozmowie",
   weak: "prep słaby",
   unrecorded: "prep bez nagrania",
 };

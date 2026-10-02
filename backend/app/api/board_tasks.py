@@ -84,7 +84,7 @@ class BoardTaskRow(BaseModel):
 class PrepAttentionRow(BaseModel):
     """Prep przed rozmową u klienta wymagający uwagi (0370)."""
 
-    reason: Literal["missing", "weak", "unrecorded"]
+    reason: Literal["missing", "late", "weak", "unrecorded"]
     prep_no: int
     candidate_id: int
     candidate_name: str
