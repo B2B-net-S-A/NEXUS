@@ -49,11 +49,7 @@ export function MdBudgetBar({ remaining, total, className }: Props) {
         <div
           className={cn(
             "h-full rounded-full transition-all",
-            depleted
-              ? "bg-destructive"
-              : low
-                ? "bg-amber-500"
-                : "bg-primary",
+            depleted ? "bg-destructive" : low ? "bg-warning" : "bg-primary",
           )}
           style={{ width: `${pct}%` }}
         />

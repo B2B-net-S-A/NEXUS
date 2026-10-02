@@ -9,6 +9,7 @@
  * `canTerminateContractor`, sufiksy stawek) — plik usunięty razem z kafelkami.
  */
 
+import type { StatusDotTone } from "@/components/ds/StatusDot";
 import type { ClientOrderRead, ContractWithOrdersRead } from "@/lib/api/dlPortal";
 import {
   contractClosed,
@@ -276,6 +277,18 @@ export type ContractorRowStateKind =
   | "paused"
   | "closed_order"
   | "active";
+
+/** Stan pokazywany kropką z etykietą (`StatusDot`). Stany spoza mapy —
+ *  brak zamówienia i zamówienie kończące się bez kontynuacji — wymagają ruchu,
+ *  więc zostają plakietką. */
+export const CONTRACTOR_STATE_DOT: Partial<Record<ContractorRowStateKind, StatusDotTone>> = {
+  active: "success",
+  not_started: "info",
+  paused: "warning",
+  draft_order: "neutral",
+  closed_order: "neutral",
+  ended: "neutral",
+};
 
 export interface ContractorRowSummary {
   key: string;
