@@ -20,7 +20,7 @@ const ALL_ROLES: UserRole[] = [
 
 // Reguły zapasowe — gdy odpowiedź serwera nie niesie flag stawki do klienta.
 describe("stawka do klienta — reguły zapasowe", () => {
-  it("odczyt zostaje przy roli (lustro CLIENT_RATE_VIEW_ROLES)", () => {
+  it("odczyt: role z CLIENT_RATE_VIEW_ROLES albo każdy, kto stawkę zapisuje", () => {
     expect(ALL_ROLES.filter((role) => canViewClientRate({ role })).sort()).toEqual(
       [
         "admin",
@@ -30,10 +30,14 @@ describe("stawka do klienta — reguły zapasowe", () => {
         "talent_community_manager",
       ].sort(),
     );
-    // Uprawnienie do rekrutacji nie otwiera odczytu — ten jest listą ról.
+    // Kto wpisuje stawkę, ten ją widzi — także rekruter z nadanym uprawnieniem.
     expect(
       canViewClientRate(accessSnapshot("recruiter", { grant: ["recruitment_manage"] })),
-    ).toBe(false);
+    ).toBe(true);
+    // Delivery Lead bez uprawnienia widzi nadal, z tytułu roli.
+    expect(
+      canViewClientRate(accessSnapshot("delivery_lead", { revoke: ["recruitment_manage"] })),
+    ).toBe(true);
     expect(canViewClientRate(null)).toBe(false);
   });
 

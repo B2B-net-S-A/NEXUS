@@ -119,8 +119,16 @@ CLIENT_RATE_VIEW_ROLES: tuple[UserRole, ...] = (
 
 
 def user_can_view_client_rate(user: Optional[User]) -> bool:
-    """Czy `user` widzi stawkę do klienta (karty tablicy, historia rekrutacji)."""
-    return user is not None and user.has_any_role(*CLIENT_RATE_VIEW_ROLES)
+    """Czy `user` widzi stawkę do klienta (karty tablicy, historia rekrutacji).
+
+    Role z listy albo każdy, kto tę stawkę zapisuje — osoba z nadanym
+    uprawnieniem do wysyłki CV musi widzieć kwotę, którą sama wpisała.
+    """
+    if user is None:
+        return False
+    return user.has_any_role(*CLIENT_RATE_VIEW_ROLES) or has_permission(
+        user, ProductAction.recruitment_manage
+    )
 
 
 def user_can_write_client_rate(user: User, job=None) -> bool:

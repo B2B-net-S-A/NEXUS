@@ -196,6 +196,21 @@ def test_client_rate_write_follows_the_permission_and_section_write() -> None:
     _assert_names_the_permission(denied.detail)
 
 
+def test_whoever_writes_the_client_rate_also_sees_it() -> None:
+    """Odczyt zostaje przy rolach, ale osoba z nadanym uprawnieniem do wysyłki
+    CV widzi kwotę, którą sama wpisuje (inaczej pole po zapisie byłoby puste)."""
+    from app.api.candidate_access import user_can_view_client_rate
+
+    assert user_can_view_client_rate(_account(UserRole.recruiter)) is False
+    assert (
+        user_can_view_client_rate(_account(UserRole.recruiter, permissions=(RM,)))
+        is True
+    )
+    # Delivery Lead bez uprawnienia nadal widzi — z tytułu roli.
+    assert user_can_view_client_rate(_account(UserRole.delivery_lead)) is True
+    assert user_can_view_client_rate(None) is False
+
+
 async def test_return_to_traffit_is_refused_before_anything_is_written() -> None:
     job = Job(
         id=7,

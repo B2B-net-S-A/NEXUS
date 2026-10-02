@@ -83,7 +83,7 @@ CATALOG = (
         label="Miesięczne podsumowanie Rady",
         module="Statystyki",
         trigger="1. dzień roboczy miesiąca od 8:00 — kokpit Rady i porównanie rok do roku za zamknięty miesiąc.",
-        recipient_rule="Aktywni administratorzy i Finanse z dostępem do sekcji Insights (mail niesie przychód i marżę).",
+        recipient_rule="Aktywne konta z uprawnieniem „Moduł Finanse” i dostępem do sekcji Insights (mail niesie przychód i marżę).",
     ),
 )
 # Raporty nie mają odpowiednika w dzwonku — wychodzą wyłącznie mailem.

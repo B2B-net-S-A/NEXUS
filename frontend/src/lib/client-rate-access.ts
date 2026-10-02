@@ -7,10 +7,9 @@
  * widzą tylko oczekiwania kandydata i budżet z profilu Championa.
  *
  * To reguły ZAPASOWE — gdy odpowiedź serwera nie niesie `can_view_client_rate`
- * / `can_write_client_rate`. Odczyt zostaje przy roli (lustro
- * `CLIENT_RATE_VIEW_ROLES` w `backend/app/api/candidate_access.py`), zapis
- * idzie za uprawnieniem (`user_can_write_client_rate`). Serwer i tak redaguje
- * kwotę.
+ * / `can_write_client_rate`. Odczyt: role z `CLIENT_RATE_VIEW_ROLES`
+ * (`backend/app/api/candidate_access.py`) albo zapis; zapis idzie za
+ * uprawnieniem (`user_can_write_client_rate`). Serwer i tak redaguje kwotę.
  */
 import { hasPermission, type PermissionUser } from "@/lib/permissions";
 import { getUserRoles } from "@/store/auth";
@@ -23,10 +22,14 @@ const VIEW_ROLES = new Set([
   "finance",
 ]);
 
-type UserLike = Parameters<typeof getUserRoles>[0];
+type UserLike = Parameters<typeof getUserRoles>[0] & (PermissionUser | null | undefined);
 
+/** Role z listy albo każdy, kto stawkę zapisuje (widzi to, co sam wpisał). */
 export function canViewClientRate(user: UserLike): boolean {
-  return getUserRoles(user).some((role) => VIEW_ROLES.has(role));
+  return (
+    getUserRoles(user).some((role) => VIEW_ROLES.has(role)) ||
+    hasPermission(user, "recruitment_manage")
+  );
 }
 
 export function canWriteClientRate(
