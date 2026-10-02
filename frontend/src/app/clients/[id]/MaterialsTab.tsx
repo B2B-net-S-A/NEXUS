@@ -142,10 +142,14 @@ export function MaterialsTab({
   clientId,
   readOnly = false,
   showContractTerms = true,
+  contractTermsReadOnly = readOnly,
 }: {
   clientId: number;
   readOnly?: boolean;
   showContractTerms?: boolean;
+  /** Warunki kontraktowe mają własną bramkę zapisu (dokumenty prawne klienta:
+   *  „Kontrakty i zamówienia” + podgląd kwot), niezależną od edycji klientów. */
+  contractTermsReadOnly?: boolean;
 }) {
   const [active, setActive] = useState<SubTab>("one_pagers");
 
@@ -178,7 +182,10 @@ export function MaterialsTab({
         <RequiredDocumentsSection clientId={clientId} readOnly={readOnly} />
       )}
       {showContractTerms && active === "contract_terms" && (
-        <ContractTermsSection clientId={clientId} readOnly={readOnly} />
+        <ContractTermsSection
+          clientId={clientId}
+          readOnly={contractTermsReadOnly}
+        />
       )}
     </div>
   );

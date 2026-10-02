@@ -297,10 +297,11 @@ async def test_tcm_gets_safe_order_mail_read_and_hor_is_section_denied(
     assert apply_response.status_code == 403
     # TCM ma zapis w sekcji Delivery (z „Zakończenie współpracy”), więc odmawia
     # bramka uprawnienia trasy: zapis zamówienia z maila to prowadzenie
-    # zamówień albo zmiana kwot.
+    # zamówień. Sama „zmiana kwot” nie wystarcza — to zakładanie zamówienia,
+    # nie edycja kwot.
     denial = apply_response.json()["detail"]
     assert denial["code"] == "permission_denied"
-    assert denial["permissions"] == ["contracts_orders_edit", "amounts_edit"]
+    assert denial["permissions"] == ["contracts_orders_edit"]
 
     hor_headers = await _headers_for_role(app_client, UserRole.head_of_recruitment)
     denied = await app_client.get(

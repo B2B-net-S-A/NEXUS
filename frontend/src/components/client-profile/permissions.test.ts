@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { canExtendContract } from "@/components/client-profile/actions/ExtendContractMenu";
 import {
   canCloseJobAsLost,
+  canEditClientLegalDocuments,
   canManageAssignedClient,
   canManageClientContracts,
   canManageClientDelivery,
@@ -163,6 +164,52 @@ describe("canManageClientDelivery — „Klienci: dodawanie i edycja”", () => 
     expect(
       canManageClientDelivery(
         accessSnapshot("delivery_lead", { sectionCaps: { delivery: "read" } }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("canEditClientLegalDocuments — warunki kontraktowe klienta", () => {
+  it("wymaga „Kontraktów i zamówień” ORAZ podglądu kwot — sama edycja klientów nie wystarcza", () => {
+    expect(canEditClientLegalDocuments(user("admin"), 5)).toBe(true);
+    // Finanse prowadzą kontrakty i widzą kwoty, choć klientów nie edytują.
+    expect(canEditClientLegalDocuments(user("finance"), 5)).toBe(true);
+    expect(
+      canEditClientLegalDocuments(
+        accessSnapshot("recruiter", { grant: ["clients_edit"] }),
+        5,
+      ),
+    ).toBe(false);
+    // „Kontrakty i zamówienia” bez podglądu kwot: dokument może nieść stawki.
+    expect(
+      canEditClientLegalDocuments(
+        accessSnapshot("talent_community_manager", {
+          grant: ["contracts_orders_edit"],
+        }),
+        5,
+      ),
+    ).toBe(false);
+    expect(
+      canEditClientLegalDocuments(
+        accessSnapshot("talent_community_manager", {
+          grant: ["contracts_orders_edit", "amounts_view"],
+        }),
+        5,
+      ),
+    ).toBe(true);
+    expect(canEditClientLegalDocuments(null, 5)).toBe(false);
+  });
+
+  it("Delivery Lead tylko u klienta z przypisania", () => {
+    expect(canEditClientLegalDocuments(user("delivery_lead", [5]), 5)).toBe(true);
+    expect(canEditClientLegalDocuments(user("delivery_lead", [6]), 5)).toBe(false);
+    expect(
+      canEditClientLegalDocuments(
+        accessSnapshot("delivery_lead", {
+          revoke: ["amounts_view"],
+          assignedClientIds: [5],
+        }),
+        5,
       ),
     ).toBe(false);
   });

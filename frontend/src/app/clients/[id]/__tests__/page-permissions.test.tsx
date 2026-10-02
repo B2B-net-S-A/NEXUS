@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   canViewClientFinance: vi.fn(),
   canManageClientDelivery: vi.fn(),
+  canEditClientLegalDocuments: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -69,6 +70,8 @@ vi.mock("@/store/auth", async () => {
 vi.mock("@/components/client-profile/permissions", () => ({
   canManageClientDelivery: (...args: unknown[]) =>
     mocks.canManageClientDelivery(...args),
+  canEditClientLegalDocuments: (...args: unknown[]) =>
+    mocks.canEditClientLegalDocuments(...args),
 }));
 
 // Treść zakładek nie jest przedmiotem tego testu — liczy się, co strona im
@@ -79,11 +82,16 @@ vi.mock("@/components/RateCardsTab", () => ({
   RateCardsTab: () => <p>cennik klienta</p>,
 }));
 vi.mock("../MaterialsTab", () => ({
-  MaterialsTab: (props: { readOnly?: boolean; showContractTerms?: boolean }) => (
+  MaterialsTab: (props: {
+    readOnly?: boolean;
+    showContractTerms?: boolean;
+    contractTermsReadOnly?: boolean;
+  }) => (
     <p
       data-testid="materials"
       data-read-only={String(props.readOnly)}
       data-contract-terms={String(props.showContractTerms)}
+      data-contract-terms-read-only={String(props.contractTermsReadOnly)}
     >
       materiały
     </p>
@@ -150,6 +158,7 @@ beforeEach(() => {
   mocks.apiGet.mockResolvedValue({ data: CLIENT });
   mocks.canViewClientFinance.mockReturnValue(true);
   mocks.canManageClientDelivery.mockReturnValue(true);
+  mocks.canEditClientLegalDocuments.mockReturnValue(true);
   useAuthStore.setState({
     // Rola spoza dawnej listy admin/Delivery Lead/Finanse — o widoczności
     // decyduje odpowiedź helpera, nie rola.
@@ -229,6 +238,32 @@ describe("profil klienta — materiały za edycją klientów", () => {
 
       expect(materials).toHaveAttribute("data-read-only", readOnly);
       expect(materials).toHaveAttribute("data-contract-terms", contractTerms);
+    },
+  );
+
+  // Warunki kontraktowe zapisuje `PUT …/contract-terms` = „Kontrakty
+  // i zamówienia” + podgląd kwot u tego klienta, a nie edycja klientów:
+  // Finanse je edytują, osoba z samą edycją klientów — nie.
+  it.each([
+    [false, true, "true", "false"],
+    [true, false, "false", "true"],
+  ])(
+    "edycja klientów: %s, dokumenty prawne: %s → materiały readOnly=%s, warunki readOnly=%s",
+    async (canEdit, canEditLegal, readOnly, termsReadOnly) => {
+      mocks.canManageClientDelivery.mockReturnValue(canEdit);
+      mocks.canEditClientLegalDocuments.mockReturnValue(canEditLegal);
+
+      const materials = await openMaterials();
+
+      expect(materials).toHaveAttribute("data-read-only", readOnly);
+      expect(materials).toHaveAttribute(
+        "data-contract-terms-read-only",
+        termsReadOnly,
+      );
+      expect(mocks.canEditClientLegalDocuments).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 3 }),
+        7,
+      );
     },
   );
 });

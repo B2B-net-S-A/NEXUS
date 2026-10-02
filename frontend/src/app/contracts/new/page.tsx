@@ -90,7 +90,6 @@ function NewContractForm() {
   const router = useRouter();
   const { showSuccess, showError } = useToast();
   const user = useAuthStore((state) => state.user);
-  const canManageFinance = canManageCandidateFinance(user);
 
   // ── Strony umowy ──────────────────────────────────────────────────────────
   const [candidate, setCandidate] = useState<CandidateOption | null>(null);
@@ -98,6 +97,12 @@ function NewContractForm() {
   const [candidateQuery, setCandidateQuery] = useState("");
 
   const [clientId, setClientId] = useState("");
+  // Kwoty zmienia „Stawki i kwoty: zmiana”; konto z rolą Delivery Leada —
+  // u klientów z przypisania, więc po wyborze klienta pytamy o niego.
+  const canManageFinance = canManageCandidateFinance(
+    user,
+    clientId ? Number(clientId) : null,
+  );
   const [clientOpen, setClientOpen] = useState(false);
   const [clientQuery, setClientQuery] = useState("");
 

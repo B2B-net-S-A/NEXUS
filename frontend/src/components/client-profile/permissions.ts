@@ -53,6 +53,25 @@ export function canManageClientContracts(user: PermissionUser): boolean {
 }
 
 /**
+ * Warunki kontraktowe klienta — lustro `ClientAccess.can_edit_legal_documents`
+ * (`PUT /api/clients/{id}/contract-terms`): „Kontrakty i zamówienia: tworzenie
+ * i edycja” ORAZ „Stawki i kwoty: podgląd” (dokument może nieść stawki),
+ * u klienta z przypisania, gdy konto ma rolę Delivery Leada. Osobne od
+ * `canManageClientDelivery`: Finanse zapisują warunki, a klientów nie edytują;
+ * osoba z samą edycją klientów — odwrotnie.
+ */
+export function canEditClientLegalDocuments(
+  user: PermissionUser,
+  clientId: number,
+): boolean {
+  return (
+    canManageClientContracts(user) &&
+    hasPermission(user, "amounts_view") &&
+    isClientInAssignedScope(user, clientId)
+  );
+}
+
+/**
  * „Przegrana” w Projektach — `POST /api/jobs/{id}/close` wymaga uprawnienia
  * „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” pod bramką
  * sekcji Pipeline (zapis).

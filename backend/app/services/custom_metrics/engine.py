@@ -44,16 +44,19 @@ from app.models.client_order_group import ClientOrderGroup
 from app.models.competence_category import CompetenceCategory
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job
-from app.models.user import User, UserRole
+from app.models.user import User
+from app.services import permission_catalog
 from app.services.access_scope import (
     DashboardScope,
     ScopeKind,
     delivery_lead_scope_is_assigned,
     delivery_lead_sees_whole_delivery,
+    is_delivery_lead_governed,
     resolve_dashboard_scope,
     resolve_delivery_lead_assigned_client_ids,
     resolve_delivery_lead_finance_client_ids,
 )
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, REVENUE_BEARING_STATUSES
 from app.services.custom_metrics.definition import (
     MILESTONE_STAGES,
@@ -311,26 +314,39 @@ def source_denial(user: User, source: str) -> Optional[str]:
         return None
     if user_has_capability(user, AnalyticsCapability.VIEW_FINANCE):
         return None
-    if user.has_role(UserRole.delivery_lead):
-        # Runda 8 (R8-N10-2): kwoty portfela DL wszędzie indziej (profil
-        # klienta, Analityka, „Moi klienci") stoją za sekcją Delivery — DL
-        # z odebraną sekcją nie liczy ich też w kreatorze.
-        if section_access_for_user(user, ProductSection.delivery) < SectionAccess.read:
-            return (
-                f"Brak dostępu do sekcji {_SECTION_LABELS_PL[ProductSection.delivery]}"
-                " — poproś administratora o zmianę uprawnień."
-            )
-        return None
-    return "Kwoty widzą Finanse, administrator i Delivery Lead dla swoich klientów."
+    # Kwoty poza modułem Finanse daje uprawnienie „Stawki i kwoty: podgląd”
+    # (o to samo pyta katalog kafelków), nie rola Delivery Leada.
+    if not has_permission(user, ProductAction.amounts_view):
+        return (
+            "Brakuje Ci uprawnienia "
+            f"„{permission_catalog.label(ProductAction.amounts_view.value)}”. "
+            "Poproś administratora o dostęp."
+        )
+    # Runda 8 (R8-N10-2): kwoty klientów wszędzie indziej (profil klienta,
+    # Analityka, „Moi klienci") stoją za sekcją Delivery — konto z odebraną
+    # sekcją nie liczy ich też w kreatorze.
+    if section_access_for_user(user, ProductSection.delivery) < SectionAccess.read:
+        return (
+            f"Brak dostępu do sekcji {_SECTION_LABELS_PL[ProductSection.delivery]}"
+            " — poproś administratora o zmianę uprawnień."
+        )
+    return None
 
 
 async def _finance_client_boundary(
     user: User, db: AsyncSession
 ) -> Optional[frozenset[int]]:
-    """``None`` = wszyscy klienci; zbiór = portfel Delivery Leada."""
+    """``None`` = wszyscy klienci; zbiór = portfel Delivery Leada.
+
+    Zakres jak w ``financial_access.can_read_client_finance``: konto z rolą
+    Delivery Leada liczy kwoty wyłącznie swoich klientów, każdy inny posiadacz
+    podglądu kwot — wszystkich.
+    """
     if user_has_capability(user, AnalyticsCapability.VIEW_FINANCE):
         return None
     portfolio = await resolve_delivery_lead_finance_client_ids(user, db)
+    if portfolio is None and not is_delivery_lead_governed(user):
+        return None
     if not portfolio:
         raise MetricAccessDenied(
             "Nie masz przypisanych klientów, dla których widzisz kwoty."

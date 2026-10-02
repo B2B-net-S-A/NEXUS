@@ -73,7 +73,10 @@ import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import { ClientPlaybookTab } from "@/components/client-playbook/ClientPlaybookTab";
 import { DeleteClientDialog } from "@/components/client-profile/DeleteClientDialog";
 import { ClientConflictsSection } from "@/components/client-profile/ClientConflictsSection";
-import { canManageClientDelivery } from "@/components/client-profile/permissions";
+import {
+  canEditClientLegalDocuments,
+  canManageClientDelivery,
+} from "@/components/client-profile/permissions";
 import { TAC_UI_ENABLED } from "@/lib/tac-ui";
 import {
   RELATIONSHIP_STRENGTH_COLORS,
@@ -865,6 +868,9 @@ export default function ClientDetailPage() {
   // widzi kwoty TEGO klienta („Stawki i kwoty: podgląd”; Delivery Lead —
   // u klientów z przypisania). Serwer odmawia tak samo.
   const canViewDeliveryLegal = canViewClientFinance(user, Number(id));
+  // Zapis warunków kontraktowych to dokumenty prawne klienta, nie edycja
+  // klienta: „Kontrakty i zamówienia” + podgląd kwot (lustro backendu).
+  const canEditDeliveryLegal = canEditClientLegalDocuments(user, Number(id));
   // `?tab=` NIE jest ozdobnikiem — trzy źródła powiadomień linkują wprost do
   // zakładki, w której jest sprawa do załatwienia: skaner alertów Delivery
   // Leada (`dl_alerts_scanner.py`), skaner wygasania zamówień
@@ -1228,6 +1234,7 @@ export default function ClientDetailPage() {
                   clientId={Number(id)}
                   readOnly={!canEditDelivery}
                   showContractTerms={canViewDeliveryLegal}
+                  contractTermsReadOnly={!canEditDeliveryLegal}
                 />
               </LazyDetails>
 
