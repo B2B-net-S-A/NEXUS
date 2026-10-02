@@ -71,6 +71,7 @@ RATE_EDIT_ROLES = {
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
@@ -323,6 +324,37 @@ async def test_sourcer_cannot_verified_move_nor_rate(
         headers=sourcer_headers,
     )
     assert r.status_code == 403, r.text
+
+
+@pytest.mark.parametrize("role", sorted(RATE_EDIT_ROLES, key=lambda r: r.value))
+async def test_rate_edit_roles_can_verified_move_and_rate(
+    m4_client: AsyncClient, role_accounts, role
+):
+    """Zgłoszenie 02.10.2026: Talent Community Manager dostawał 403 na
+    „Zweryfikowany", choć może zatrudnić i odrzucić. Z ról operacyjnych poza
+    bramką stawki zostaje wyłącznie sourcer (M4-SEC-02)."""
+    headers, uid = role_accounts[role]
+    cand, job = await _seed_candidate(), await _seed_job(owner_id=uid)
+    await _seed_stage(cand, job, "screening")
+    r = await m4_client.post(
+        "/api/pipeline/move",
+        json={
+            "candidate_id": cand,
+            "job_id": job,
+            "stage": "verified",
+            "expected_rate_value": 100,
+            "expected_rate_unit": "hourly",
+        },
+        headers=headers,
+    )
+    assert r.status_code != 403, f"{role.value}: {r.text}"
+
+    r = await m4_client.patch(
+        f"/api/candidates/{cand}/recruitments/{job}/expected-rate",
+        json={"rate_value": 120, "rate_unit": "hourly"},
+        headers=headers,
+    )
+    assert r.status_code != 403, f"{role.value}: {r.text}"
 
 
 async def test_sourcer_can_still_do_nonterminal_move(
