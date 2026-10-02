@@ -100,11 +100,15 @@ describe("api — kontrakt requestu wychodzącego", () => {
     expect(api.defaults.baseURL).toBeTruthy();
   });
 
-  it("wysyła wersję polityki i zbiorczą zmianę uprawnień roli", async () => {
-    await adminApi.updateRoleSectionPermissions(7, [
-      { role: "recruiter", section: "delivery", access: "read" },
-      { role: "recruiter", section: "finance", access: "none" },
-    ]);
+  it("wysyła wersję polityki i przełączone uprawnienia roli", async () => {
+    await adminApi.updateRoleSectionPermissions(
+      7,
+      [],
+      [
+        { role: "finance", action: "clients_edit", access: "manage" },
+        { role: "finance", action: "amounts_edit", access: "none" },
+      ],
+    );
 
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({
@@ -113,17 +117,24 @@ describe("api — kontrakt requestu wychodzącego", () => {
     });
     expect(JSON.parse(String(captured[0].data))).toEqual({
       revision: 7,
-      changes: [
-        { role: "recruiter", section: "delivery", access: "read" },
-        { role: "recruiter", section: "finance", access: "none" },
+      changes: [],
+      action_changes: [
+        { role: "finance", action: "clients_edit", access: "manage" },
+        { role: "finance", action: "amounts_edit", access: "none" },
       ],
     });
   });
 
-  it("wysyła inherit jako usunięcie wyjątku użytkownika", async () => {
-    await adminApi.updateUserSectionPermissions(42, 8, [
-      { section: "delivery", access: "inherit" },
-    ]);
+  it("nadaje osobie uprawnienie przez manage, a zdejmuje przez inherit", async () => {
+    await adminApi.updateUserSectionPermissions(
+      42,
+      8,
+      [{ section: "delivery", access: "inherit" }],
+      [
+        { action: "contracts_orders_edit", access: "manage" },
+        { action: "clients_edit", access: "inherit" },
+      ],
+    );
 
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({
@@ -133,6 +144,31 @@ describe("api — kontrakt requestu wychodzącego", () => {
     expect(JSON.parse(String(captured[0].data))).toEqual({
       revision: 8,
       changes: [{ section: "delivery", access: "inherit" }],
+      action_changes: [
+        { action: "contracts_orders_edit", access: "manage" },
+        { action: "clients_edit", access: "inherit" },
+      ],
+    });
+  });
+
+  it("bez zmian akcji nie wysyła pustego action_changes", async () => {
+    await adminApi.updateUserSectionPermissions(42, 8, [
+      { section: "finance", access: "inherit" },
+    ]);
+
+    expect(JSON.parse(String(captured[0].data))).toEqual({
+      revision: 8,
+      changes: [{ section: "finance", access: "inherit" }],
+    });
+  });
+
+  it("czyta dodatkowe uprawnienia jednej osoby", async () => {
+    await adminApi.getUserPermissions(42);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({
+      method: "get",
+      url: "/api/admin/section-permissions/users/42",
     });
   });
 });
