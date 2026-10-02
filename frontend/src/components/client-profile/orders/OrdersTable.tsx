@@ -30,7 +30,6 @@ import { displayLineRate, orderLineAnchorId } from "./order-line-display";
 import { executiveContractLabel, orderGroupAnchorId, periodLabel, STATUS_BADGE } from "./order-group-parts";
 import {
   buildSectionTiles,
-  perPersonMdTotals,
   type OrdersTableRow,
   type OrdersTableSection,
 } from "./orders-table-model";
@@ -76,36 +75,6 @@ function rowClass(selected: boolean, extra?: string) {
 
 const CELL = "px-2 py-1.5 align-middle";
 const FIRST_CELL = cn(CELL, "sticky left-0 z-[1] bg-card");
-
-function GroupBudgetCell({ group, current }: { group: OrderGroupRead; current: readonly OrderLineRead[] }) {
-  if (group.is_cost_based) {
-    if (group.budget_amount == null) return <span className="text-xs text-muted-foreground">kwota —</span>;
-    return (
-      <span className="text-xs text-muted-foreground">
-        pozostało{" "}
-        <span className={cn("font-semibold tabular-nums", (group.budget_remaining ?? 0) <= 0 ? "text-destructive" : "text-foreground")}>
-          {formatPLN(group.budget_remaining)}
-        </span>{" "}
-        z {formatPLN(group.budget_amount)}
-      </span>
-    );
-  }
-  if (usesSharedMdPool(group)) {
-    // Wspólna pula nie schodzi pod zero (jak `SharedMdBudgetBar` w panelu):
-    // przekroczenie mówi status „Wyczerpane", nie ujemna liczba.
-    const remaining = group.md_budget_remaining == null ? null : Math.max(0, group.md_budget_remaining);
-    return <MdBudgetBar remaining={remaining} total={group.md_budget_total} />;
-  }
-  if (group.executive_contract && group.md_positions_total != null) {
-    return (
-      <span className="text-xs text-muted-foreground tabular-nums">
-        wykorzystano {formatMd(Math.max(0, group.md_used_total ?? 0))} / {formatMd(group.md_positions_total)} MD
-      </span>
-    );
-  }
-  const totals = perPersonMdTotals(current);
-  return totals ? <MdBudgetBar remaining={totals.remaining} total={totals.total} /> : null;
-}
 
 function LineBudgetCell({ group, line, ended }: { group: OrderGroupRead; line: OrderLineRead; ended: boolean }) {
   if (group.is_cost_based) {
@@ -439,17 +408,9 @@ function OrdersTableRowView({
             </>
           )}
         </td>
-        {isFuture ? null : (
-          <>
-            <td className={CELL} />
-            <td className={CELL} />
-          </>
-        )}
-        {/* Łączne zużycie zamówienia zajmuje „Zostało MD” i „Zużycie” — w kafelku
-            ma miejsce na kwotę kosztowego („pozostało … z …”) w jednej linii. */}
-        <td colSpan={2} className={CELL}>
-          {isFuture ? null : <GroupBudgetCell group={group} current={current} />}
-        </td>
+        {/* Nagłówek nie powtarza zużycia: pasek i „X / Y MD” stoją w wierszach
+            osób, a pula całego zamówienia w panelu po kliknięciu nagłówka. */}
+        <td colSpan={isFuture ? 2 : 4} className={CELL} />
         <td className={cn(CELL, "space-x-1 [&>span]:whitespace-normal")}>
           {missing > 0 ? <Chip tone="warn">{missing} bez zejścia</Chip> : null}
           {pending > 0 ? <Chip tone="bad">{pending === 1 ? "1 decyzja" : `${pending} decyzje`}</Chip> : null}

@@ -28,7 +28,8 @@ pokazuje**, więc u większości klientów zobaczysz tylko jedną albo dwie.
 Sekcja **Okresowe** to jedna **tabela**: jeden wiersz to jedna osoba
 (numer zamówienia, okres, stawki i stan). W sekcjach **MD** i **Kosztowe**
 **każde zamówienie to osobny kafelek**. Na górze kafelka stoi szary nagłówek
-**zamówienia** (numer, typ, okres, liczba osób, łączne zużycie i uwagi), pod nim
+**zamówienia** (numer, typ, okres, liczba osób i uwagi — zużycie MD widać
+w wierszach osób, a budżet całego zamówienia w panelu po kliknięciu nagłówka), pod nim
 nagłówki kolumn (Koszt, Przychód, Zostało MD albo Budżet, Zużycie, Uwagi —
 w każdym kafelku w tym samym miejscu), wiersze jego **konsultantów**, zwijany
 wiersz **„Zakończone (N)"** i wiersze **przyszłych zamówień**. Osoba, której
@@ -145,7 +146,7 @@ Polsatu pozostają wspólne; nowych zamówień tych klientów dotyczy ten sam wy
 co u pozostałych klientów.
 
 Przy wspólnej puli import z Finansów wymaga numeru zamówienia w kolumnie
-„Uwagi” i sumuje zużycie wszystkich konsultantów. Karta oraz Excel pokazują
+„Uwagi” i sumuje zużycie wszystkich konsultantów. Panel zamówienia oraz Excel pokazują
 budżet, łączne zużycie i pozostałość raz na całe zamówienie. Przy budżecie
 per osoba liczby i ostrzeżenia dotyczą poszczególnych konsultantów.
 
