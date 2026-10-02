@@ -9,7 +9,8 @@ Templates (admin only):
   PATCH  /required-document-templates/{id}
   DELETE /required-document-templates/{id}
 
-Per-klient instancje (jawny scope klienta/Joba do view, Admin/DL do edycji):
+Per-klient instancje (jawny scope klienta/Joba do view; edycja = uprawnienie
+„Klienci: dodawanie i edycja” u klienta z zakresu, odmowa je nazywa):
   GET    /clients/{client_id}/required-documents
   POST   /clients/{client_id}/required-documents              (ad-hoc, bez pliku)
   POST   /clients/{client_id}/required-documents/apply-templates  (bulk z szablonów)
@@ -83,8 +84,11 @@ async def _require_required_docs_access(
     access = await resolve_client_access(db, current_user, client_id)
     allowed = access.can_edit_materials if write else access.can_view_materials
     if not allowed:
-        operation = "edycja" if write else "odczyt"
-        raise deny(f"{operation} wymaganych dokumentów wymaga jawnego zakresu klienta")
+        if write:
+            raise access.edit_denial(
+                "edycja wymaganych dokumentów wymaga jawnego zakresu klienta"
+            )
+        raise deny("odczyt wymaganych dokumentów wymaga jawnego zakresu klienta")
 
 
 async def require_required_docs_read_access(

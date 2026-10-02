@@ -20,8 +20,9 @@ Model dostępu (decyzja 03.09.2026, świadome odstępstwo od reguł CV):
   zalogowany; rekruter czyta ją PRZED przypisaniem do rekrutacji — po to jest.
   Treść to procedura, nie kwoty.
 * ZAPIS i historia idą jak reguły CV po #1351: sekcja Delivery
-  (``DeliverySectionUser``) plus graf klienta (``resolve_client_access``):
-  admin i Delivery Lead org-wide.
+  (``DeliverySectionUser``) plus graf klienta (``resolve_client_access``).
+  Zapis wymaga uprawnienia „Klienci: dodawanie i edycja” — domyślnie admin
+  i Delivery Lead, obaj org-wide (``purpose="org"``).
 * Off-limits (``client_contract_terms.off_limits_*``) NIE jedzie w karcie —
   funkcja usunięta 27.09.2026 decyzją Artura (runda 9, R9-N4-8); kolumny
   w bazie zostają.
@@ -206,15 +207,18 @@ async def _require_client_playbook_access(
 ) -> None:
     """Graf klienta pod sufitem sekcji — lustro `_require_client_rule_access`.
 
-    `can_edit_knowledge` = zapis w sekcji Delivery AND (admin-like OR zespół
-    klienta); `can_view_knowledge` = admin-like OR czytelnik organizacyjny OR
-    zespół klienta OR przypisanie do rekrutacji u tego klienta.
+    `can_edit_knowledge` = uprawnienie „Klienci: dodawanie i edycja” u klienta
+    z zakresu (`purpose="org"`: Delivery Lead prowadzi kartę KAŻDEGO klienta);
+    `can_view_knowledge` = admin-like OR czytelnik organizacyjny OR zespół
+    klienta OR przypisanie do rekrutacji u tego klienta. Odmowa zapisu nazywa
+    brakujące uprawnienie.
     """
     access = await resolve_client_access(db, user, client_id, purpose="org")
     allowed = access.can_edit_knowledge if write else access.can_view_knowledge
     if not allowed:
-        action = "edycja" if write else "odczyt historii"
-        raise deny(f"{action} karty klienta jest niedozwolony")
+        if write:
+            raise access.edit_denial("edycja karty klienta jest niedozwolona")
+        raise deny("odczyt historii karty klienta jest niedozwolony")
 
 
 def _state(row: Optional[ClientPlaybook]) -> dict[str, Any]:

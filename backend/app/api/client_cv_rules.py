@@ -12,8 +12,9 @@ czyta wyłącznie reguły zatwierdzone (``resolve_client_rule``), więc zasiane
 dopasowanie po nazwie klienta nie może wejść w życie bez decyzji człowieka.
 Własną regułę autor zatwierdza tym samym zapisem (``confirm=true``).
 
-Bramka zarządzania to centralne uprawnienie sekcji Delivery oraz resolver
-dostępu do konkretnego klienta. Admin i Delivery Lead mają zasięg globalny.
+Bramka zarządzania to sekcja Delivery oraz resolver dostępu do konkretnego
+klienta: zapis wymaga uprawnienia „Klienci: dodawanie i edycja” (domyślnie
+admin i Delivery Lead, obaj z zasięgiem globalnym — ``purpose="org"``).
 Pojedynczy odczyt
 reguły pozostaje dostępny z Pipeline dla rekrutera pracującego przy Jobie tego
 klienta — nadal przez ten sam resolver, nigdy organizacyjnie.
@@ -625,8 +626,10 @@ async def _require_client_rule_access(
     access = await resolve_client_access(db, user, client_id, purpose="org")
     allowed = access.can_edit_knowledge if write else access.can_view_knowledge
     if not allowed:
-        action = "edycja" if write else "odczyt"
-        raise deny(f"{action} reguł CV klienta jest niedozwolony")
+        if write:
+            # Brak „Klienci: dodawanie i edycja” — odmowa nazywa uprawnienie.
+            raise access.edit_denial("edycja reguł CV klienta jest niedozwolona")
+        raise deny("odczyt reguł CV klienta jest niedozwolony")
 
 
 def _client_label(client: Client) -> str:

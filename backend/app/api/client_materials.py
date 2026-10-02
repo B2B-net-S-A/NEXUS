@@ -13,8 +13,12 @@ Contract terms (singleton per client, upsert)
   GET    /clients/{client_id}/contract-terms       (can_view_legal_documents)
   PUT    /clients/{client_id}/contract-terms       (can_edit_legal_documents)
 
-Aktualnie całość podlega bramce Delivery. TCM może czytać one-pagery, ale nie
-warunki prawne; Admin i przypisany DL mogą zapisywać, a Finance ma odczyt.
+Całość podlega bramce Delivery. Materiały (one-pagery) czyta każdy z podglądem
+Delivery, zapisuje „Klienci: dodawanie i edycja”. Warunki umów to dokumenty
+prawne: odczyt wymaga „Stawki i kwoty: podgląd” (dlatego Talent Community
+Manager ich domyślnie nie widzi), zapis — dodatkowo „Kontrakty i zamówienia:
+tworzenie i edycja”; konto z rolą Delivery Leada działa u klientów
+z przypisania. Odmowa nazywa brakujące uprawnienie.
 """
 
 from typing import Annotated, List, Optional
@@ -81,10 +85,11 @@ async def _require_material_write(
     allowed = access.can_edit_legal_documents if legal else access.can_edit_materials
     if not allowed:
         if legal:
-            raise deny(
-                "zapis dokumentów prawnych wymaga roli admin lub przypisanego DL"
+            raise access.legal_denial(
+                "zapis dokumentów prawnych wymaga roli admin lub przypisanego DL",
+                write=True,
             )
-        raise deny("zapis materiałów wymaga roli admin lub Delivery Lead")
+        raise access.edit_denial("zapis materiałów wymaga roli admin lub Delivery Lead")
 
 
 async def require_client_material_read_access(
@@ -118,7 +123,7 @@ async def require_client_legal_read_access(
     await _assert_client(db, client_id)
     access = await resolve_client_access(db, current_user, client_id)
     if not access.can_view_legal_documents:
-        raise deny("warunki umów wymagają jawnego przypisania klienta")
+        raise access.legal_denial("warunki umów wymagają jawnego przypisania klienta")
     return current_user
 
 

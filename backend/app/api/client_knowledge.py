@@ -4,9 +4,12 @@ Wpisy konsumują m.in. ai_writer, prep_kit i question_suggestions — zapis
 kontroluje więc kontekst podawany AI. Wcześniej create/delete działały na
 samym ``CurrentUser``; teraz:
 
-- odczyt: admin/Finance/TCM oraz Delivery Lead globalnie;
-- create/delete: admin lub Delivery Lead globalnie;
-- HoR/TAC/recruiter/sourcer są odcięci przez bramkę sekcji Delivery;
+- odczyt: podgląd Delivery (domyślnie admin/Finance/TCM u wszystkich
+  klientów, Delivery Lead u klientów z portfela);
+- create/delete: uprawnienie „Klienci: dodawanie i edycja” (domyślnie admin
+  i Delivery Lead u klientów z portfela); odmowa nazywa brakujące uprawnienie;
+- konta bez podglądu Delivery (domyślnie HoR/TAC/recruiter/sourcer) są
+  odcięte przez bramkę sekcji Delivery;
 - każda mutacja zostawia audit event (kategoria, id — bez treści wpisu).
 """
 
@@ -94,7 +97,9 @@ async def create_client_knowledge(
     await assert_client_writable(db, client_id)
     access = await resolve_client_access(db, current_user, client_id)
     if not access.can_edit_knowledge:
-        raise deny("dodawanie wiedzy klienta wymaga roli admin lub Delivery Lead")
+        raise access.edit_denial(
+            "dodawanie wiedzy klienta wymaga roli admin lub Delivery Lead"
+        )
 
     entry = ClientKnowledge(
         client_id=client_id,
@@ -135,7 +140,9 @@ async def delete_client_knowledge(
 
     access = await resolve_client_access(db, current_user, entry.client_id)
     if not access.can_edit_knowledge:
-        raise deny("usuwanie wiedzy klienta wymaga roli admin lub Delivery Lead")
+        raise access.edit_denial(
+            "usuwanie wiedzy klienta wymaga roli admin lub Delivery Lead"
+        )
 
     record_client_audit(
         db,
