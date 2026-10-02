@@ -48,6 +48,7 @@ from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
 from app.services.cv_enrichment import company_norm
+from app.services.cv_rodo_clause import is_rodo_text
 from app.services.keyword_terms import parse_keyword, py_regex
 
 logger = logging.getLogger(__name__)
@@ -97,11 +98,16 @@ class _BlockParser(HTMLParser):
     def _open(self, tag: str, attrs: dict) -> None:
         self._flush()
         kind = "h" if tag in _HEADINGS else "li" if tag == "li" else "p"
-        self._current = Block(kind=kind, section=attrs.get("data-cv-section"))
+        section = attrs.get("data-cv-section")
+        # Generator pisze klauzulę zgody jako `<p class="rodo">` bez znacznika
+        # sekcji; znacznik dokłada dopiero zapis w edytorze.
+        if not section and "rodo" in (attrs.get("class") or "").split():
+            section = RODO_SECTION
+        self._current = Block(kind=kind, section=section)
 
     def _flush(self) -> None:
         if self._current is not None and self._current.text:
-            self.blocks.append(self._current)
+            self.blocks.append(_mark_rodo(self._current))
         self._current = None
 
     def handle_starttag(self, tag, attrs):  # noqa: D401
@@ -149,6 +155,17 @@ class _BlockParser(HTMLParser):
     def close(self) -> None:
         super().close()
         self._flush()
+
+
+# Klauzula zgody RODO stoi tuż po ostatnim stanowisku. Bez własnej sekcji
+# wchodziła do tekstu ostatniej roli (QC, poprawki AI, podgląd w oknie QC).
+RODO_SECTION = "rodo"
+
+
+def _mark_rodo(block: Block) -> Block:
+    if not block.section and block.kind != "h" and is_rodo_text(block.text):
+        block.section = RODO_SECTION
+    return block
 
 
 def html_blocks(html: Optional[str]) -> list[Block]:
@@ -215,7 +232,23 @@ def _term(text: str) -> str:
     head = _DESCRIPTION_SPLIT.split(text, maxsplit=1)[0]
     head = _PARENTHETICAL.sub(" ", head)
     head = head.replace("(", " ").replace(")", " ")
-    return " ".join(head.split()).strip(" ,;.")
+    return _without_version(" ".join(head.split()).strip(" ,;."))
+
+
+def _without_version(term: str) -> str:
+    """„Spring Boot 3.4+” → „Spring Boot”.
+
+    Klient podaje wersję minimalną, a CV rzadko ją powtarza — dosłowne
+    szukanie dawało „brak w CV” przy technologii, która w CV jest. Nazwa ze
+    słownika umiejętności zostaje cała („Dynamics 365”), tak jak w bramce
+    wyszukiwania (`must_gate_terms._normalize_option`).
+    """
+    from app.services.scoring_service import ALIAS_MAP
+    from app.services.skill_normalize import strip_version
+
+    if term.lower() in ALIAS_MAP:
+        return term
+    return strip_version(term)[0]
 
 
 def requirement_terms(alternatives: tuple[str, ...]) -> tuple[str, ...]:
@@ -323,8 +356,8 @@ def generated_roles(blocks: list[Block]) -> list[Role]:
     current: Optional[dict] = None
     in_experience = False
     for block in blocks:
-        if block.kind == "h":
-            in_experience = block.section == "experience"
+        if block.kind == "h" or block.section == RODO_SECTION:
+            in_experience = block.kind == "h" and block.section == "experience"
             if current is not None:
                 roles.append(_close(current))
                 current = None
@@ -718,6 +751,8 @@ def docx_blocks(data: bytes) -> list[Block]:
         is_list = numbered or "list" in style_name.casefold()
         fully_bold = all(r["b"] for r in runs if r["t"].strip())
         section = "role" if in_experience and fully_bold and not is_list else None
+        if is_rodo_text(text):
+            section = RODO_SECTION
         blocks.append(Block(kind="li" if is_list else "p", section=section, runs=runs))
 
     for child in doc.element.body.iterchildren():
@@ -739,7 +774,9 @@ def docx_blocks(data: bytes) -> list[Block]:
 
 def text_blocks(text: str) -> list[Block]:
     return [
-        Block(kind="p", section=None, runs=[{"t": line.strip(), "b": False}])
+        _mark_rodo(
+            Block(kind="p", section=None, runs=[{"t": line.strip(), "b": False}])
+        )
         for line in text.splitlines()
         if line.strip()
     ]

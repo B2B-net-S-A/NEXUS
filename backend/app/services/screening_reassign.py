@@ -1,22 +1,33 @@
-"""Przepięcie: podpowiedzi odpowiedzi screeningu z poprzedniej rekrutacji.
+"""Podpowiedzi w arkuszu screeningu z wcześniejszych rozmów kandydata.
 
-Pipeline v4 (decyzja Artura 23.09.2026). Osoba przepięta z podobnej rekrutacji
-(`RecruitmentProcess.reassign_from_job_id`, a dla procesów sprzed 0352 —
-propozycja `source='reassign'`) odpowiadała już na pytania screeningowe
-tamtej rekrutacji. Luna (`AIFeatureKey.screening_reassign_suggest`, F21)
-dopasowuje te odpowiedzi i notatki rekruterów do pytań NOWEJ rekrutacji.
+Pipeline v4 (decyzja Artura 23.09.2026) dał je osobom przepiętym z podobnej
+rekrutacji (`RecruitmentProcess.reassign_from_job_id`, a dla procesów sprzed
+0352 — propozycja `source='reassign'`). Od 02.10.2026 dostaje je KAŻDA osoba,
+która odpowiadała już na pytania screeningowe w innej rekrutacji: rekruter
+nie pyta trzeci raz o to samo. Luna (`AIFeatureKey.screening_reassign_suggest`,
+F21) dopasowuje wcześniejsze odpowiedzi do pytań NOWEJ rekrutacji.
+
+Materiał:
+
+* odpowiedzi z najwyżej ``MAX_EARLIER_CONVERSATIONS`` innych rozmów tej osoby
+  (przy przepięciu rekrutacja źródłowa jest pierwsza); odpowiedzi pominięte
+  i przeniesione wcześniej z podpowiedzi nie są materiałem,
+* notatki rekruterów — WYŁĄCZNIE przy przepięciu i tylko z dwóch rekrutacji
+  przepięcia. Osoba bez przepięcia dostaje same odpowiedzi.
 
 Zasady:
 
 * AI to podpowiedź, nigdy bramka — każda awaria modelu, kwoty albo parsowania
   daje ``available: false`` z komunikatem, nigdy 5xx. Rekruter wypełnia
   arkusz ręcznie jak dotąd.
-* Model nie może wymyślić faktu: podpowiedź bez cytatu obecnego DOSŁOWNIE
-  w materiałach (po normalizacji białych znaków i wielkości liter) odpada,
-  tak samo jak podpowiedź do pytania spoza listy tej rekrutacji.
-* Kwoty: rola bez prawa do stawek (`user_can_edit_rates`) nie dostaje kwot ani
-  w materiałach wysłanych do modelu, ani w podpowiedziach — maskujemy je
-  PRZED wysłaniem, więc cytat z kwotą nie ma skąd się wziąć.
+* Model tylko WSKAZUJE, która wcześniejsza odpowiedź pasuje do pytania.
+  Podpowiedź z odpowiedzi niesie tę odpowiedź DOSŁOWNIE, z rekrutacją,
+  klientem i datą rozmowy. Cytat nieobecny w odpowiedziach ani w notatkach
+  (także cytat z treści pytania) odpada, tak samo jak podpowiedź do pytania
+  spoza listy tej rekrutacji.
+* Kwoty: rola bez prawa do stawek (`user_can_edit_rates`) nie dostaje kwot
+  w materiałach wysłanych do modelu, a podpowiedź, w której została
+  zamaskowana kwota, odpada — „[kwota ukryta]” nie jest odpowiedzią.
 * Nic tu nie zapisuje się w bazie poza telemetrią AI (`ai_feature`).
 """
 
@@ -26,22 +37,20 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import select
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sqlalchemy import text
-
-from app.api.recruitment_access import user_can_edit_rates
+from app.api.recruitment_access import job_read_scope_clause, user_can_edit_rates
 from app.models.ai_feature import AIFeatureKey
 from app.models.job import Job
 from app.models.job_proposal import JobProposal
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User
-from app.services import champion_view
+from app.services import screening_sheets
 from app.services.ai_models import fallbacks_for, model_for
 from app.services.ai_quota import ai_feature
 from app.services.llm_prompts import SCREENING_REASSIGN_SUGGEST
@@ -54,13 +63,16 @@ FEATURE = AIFeatureKey.screening_reassign_suggest
 # Najwyżej tyle notatek (z dwóch rekrutacji przepięcia) idzie do modelu.
 NOTES_ROW_LIMIT = 20
 
-MSG_NOT_REASSIGNED = (
-    "Ta osoba nie przyszła z przepięcia — nie ma poprzedniej rekrutacji, "
-    "z której Luna mogłaby podpowiedzieć odpowiedzi."
+# Najwyżej tyle innych rozmów tej osoby idzie do modelu (najnowsze pierwsze).
+MAX_EARLIER_CONVERSATIONS = 3
+
+MSG_NO_EARLIER = (
+    "Ta osoba nie ma wcześniejszych rozmów screeningowych — nie ma z czego "
+    "podpowiedzieć odpowiedzi."
 )
 MSG_NO_QUESTIONS = "Ta rekrutacja nie ma pytań screeningowych w profilu Championa."
 MSG_NO_MATERIAL = (
-    "Z poprzedniej rekrutacji nie ma ani odpowiedzi ze screeningu, ani notatek "
+    "Z wcześniejszych rozmów nie ma ani odpowiedzi ze screeningu, ani notatek "
     "— uzupełnij odpowiedzi ręcznie."
 )
 MSG_MODEL_FAILED = "Luna nie odpowiedziała — uzupełnij odpowiedzi ręcznie."
@@ -108,6 +120,38 @@ class ReassignContext:
         }
 
 
+@dataclass(frozen=True)
+class EarlierAnswer:
+    """Odpowiedź z wcześniejszej rozmowy — materiał i źródło podpowiedzi."""
+
+    question: str
+    answer: str
+    job_id: int
+    job_title: str
+    client_name: Optional[str]
+    date: Optional[str]
+
+    def source_dict(self) -> dict[str, Any]:
+        return {
+            "job_id": self.job_id,
+            "job_title": self.job_title,
+            "client_name": self.client_name,
+            "date": self.date,
+        }
+
+
+@dataclass(frozen=True)
+class SuggestionContext:
+    """Z czego Luna może podpowiadać w arkuszu pary (kandydat, rekrutacja)."""
+
+    # „reassign” — osoba przepięta (dochodzą notatki dwóch rekrutacji);
+    # „history” — wcześniejsze rozmowy w innych rekrutacjach.
+    kind: str
+    answers: list[EarlierAnswer]
+    conversations: int
+    reassign: Optional[ReassignContext] = None
+
+
 def mask_money(text: str) -> str:
     """Zamaskuj kwoty w tekście (rola bez prawa do stawek)."""
     return _MONEY_RE.sub(MONEY_MASK, text or "")
@@ -117,11 +161,13 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "")).strip().casefold()
 
 
-def _unavailable(message: str, ctx: Optional[ReassignContext] = None) -> dict:
+def _unavailable(message: str, ctx: Optional[SuggestionContext] = None) -> dict:
+    reassign = ctx.reassign if ctx else None
     return {
         "available": False,
         "message": message,
-        "source": ctx.source_dict() if ctx else None,
+        "kind": ctx.kind if ctx else None,
+        "source": reassign.source_dict() if reassign else None,
         "suggestions": [],
     }
 
@@ -158,22 +204,28 @@ async def _source_job_id(
     return source, date
 
 
-def _answer_pairs(screening_answers: Any, questions: list) -> list[dict[str, str]]:
+def _answer_pairs(
+    screening_answers: Any, *, include_suggested: bool = True
+) -> list[dict[str, str]]:
+    """Pary pytanie–odpowiedź z arkusza (z uzupełnionym ``question_text``).
+
+    Bez pustych i pominiętych. ``include_suggested=False`` zdejmuje też
+    odpowiedzi przeniesione z podpowiedzi — to kopie, a ich źródłem jest
+    rozmowa, w której kandydat naprawdę odpowiedział.
+    """
+
     if not isinstance(screening_answers, dict):
         return []
-    q_by_id = {
-        str(q.get("id") or "").strip(): str(q.get("question") or "").strip()
-        for q in questions
-        if isinstance(q, dict)
-    }
     pairs: list[dict[str, str]] = []
     for item in screening_answers.get("answers") or []:
         if not isinstance(item, dict) or item.get("skipped"):
             continue
+        if not include_suggested and item.get("origin") == "reassign_suggested":
+            continue
         answer = str(item.get("response") or "").strip()
         if not answer:
             continue
-        question = q_by_id.get(str(item.get("question_id") or "").strip(), "")
+        question = str(item.get("question_text") or "").strip()
         pairs.append({"question": question, "answer": answer[:ANSWER_CHAR_LIMIT]})
     return pairs
 
@@ -207,7 +259,9 @@ async def reassign_context(
     ).first()
     raw_answers = stage_row[0] if stage_row else None
     answers = _answer_pairs(
-        raw_answers, champion_view.screening_questions(source_job.champion_profile)
+        screening_sheets.with_question_texts(
+            raw_answers, screening_sheets.question_texts(source_job.champion_profile)
+        )
     )
     if date is None and isinstance(raw_answers, dict):
         answered_at = raw_answers.get("answered_at")
@@ -248,20 +302,27 @@ def validate_suggestions(
     parsed: Any,
     *,
     question_ids: set[str],
-    material: str,
+    answers: Sequence[EarlierAnswer],
+    notes: str,
     include_rates: bool,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Odsiej podpowiedzi, którym nie da się ufać.
 
-    Odpada: pytanie spoza tej rekrutacji, pusta odpowiedź, cytat krótszy niż
-    3 znaki albo nieobecny w materiałach (halucynacja). Najwyżej jedna
-    podpowiedź na pytanie — wygrywa pierwsza.
+    Odpada: pytanie spoza tej rekrutacji, cytat krótszy niż 3 znaki albo
+    nieobecny w odpowiedziach ani w notatkach (halucynacja, także cytat
+    z treści pytania) i podpowiedź, w której została zamaskowana kwota.
+    Najwyżej jedna podpowiedź na pytanie — wygrywa pierwsza.
+
+    Podpowiedź z wcześniejszej odpowiedzi niesie tę odpowiedź dosłownie
+    i jej źródło; model wskazuje ją numerem (``source_ref``: „A1”), a bez
+    numeru liczy się tylko cytat pasujący do DOKŁADNIE jednej odpowiedzi.
     """
     items = parsed.get("suggestions") if isinstance(parsed, dict) else None
     if not isinstance(items, list):
         return []
-    haystack = _normalize(material)
-    out: list[dict[str, str]] = []
+    by_ref = {f"A{n}": answer for n, answer in enumerate(answers, 1)}
+    notes_haystack = _normalize(notes)
+    out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in items:
         if not isinstance(item, dict):
@@ -269,23 +330,36 @@ def validate_suggestions(
         qid = str(item.get("question_id") or "").strip()
         if qid not in question_ids or qid in seen:
             continue
-        text = str(item.get("text") or "").strip()
         quote = str(item.get("source_quote") or "").strip()
-        if not text or len(quote) < QUOTE_MIN_CHARS:
+        if len(quote) < QUOTE_MIN_CHARS:
             continue
-        if _normalize(quote) not in haystack:
+        needle = _normalize(quote)
+        earlier = by_ref.get(str(item.get("source_ref") or "").strip().upper())
+        if earlier is not None and needle not in _normalize(earlier.answer):
+            earlier = None
+        if earlier is None:
+            matches = [a for a in answers if needle in _normalize(a.answer)]
+            earlier = matches[0] if len(matches) == 1 else None
+        if earlier is not None:
+            text, kind = earlier.answer, "answer"
+        elif needle in notes_haystack:
+            text, kind = str(item.get("text") or "").strip(), "note"
+            if not include_rates:
+                text = mask_money(text)
+        else:
             continue
-        if not include_rates:
-            text = mask_money(text)
-        kind = item.get("source_kind")
+        if not text or MONEY_MASK in text:
+            continue
         confidence = item.get("confidence")
         out.append(
             {
                 "question_id": qid,
                 "text": text[:SUGGESTION_TEXT_LIMIT],
-                "source_kind": kind if kind in _SOURCE_KINDS else "note",
+                "source_kind": kind,
                 "source_quote": quote,
                 "confidence": confidence if confidence in _CONFIDENCES else "low",
+                "source": earlier.source_dict() if earlier else None,
+                "source_question": (earlier.question or None) if earlier else None,
             }
         )
         seen.add(qid)
@@ -315,61 +389,126 @@ async def _job_scoped_notes(
     return build_notes_blob(list(rows))
 
 
+async def suggestion_context(
+    db: AsyncSession, *, candidate_id: int, job_id: int, user: User
+) -> Optional[SuggestionContext]:
+    """Wcześniejsze rozmowy tej osoby, z których Luna może podpowiadać.
+
+    ``None`` = osoba nie przyszła z przepięcia i nie ma arkusza w żadnej innej
+    rekrutacji. Rozmowy z innych rekrutacji są zawężone zakresem odczytu
+    wołającego (jak karta w profilu); rekrutację źródłową przepięcia widzi
+    każdy, kto pracuje nad docelową (decyzja Artura 23.09.2026).
+    """
+    reassign = await reassign_context(db, candidate_id=candidate_id, job_id=job_id)
+    scope = job_read_scope_clause(user, CandidateStage.job_id)
+    if reassign is not None:
+        scope = or_(CandidateStage.job_id == reassign.source_job_id, scope)
+    conversations = await screening_sheets.candidate_conversations(
+        db, candidate_id=candidate_id, job_scope=scope, exclude_job_id=job_id
+    )
+    if reassign is not None:
+        # Rekrutacja źródłowa pierwsza — stamtąd osoba przyszła.
+        conversations.sort(key=lambda c: c["job_id"] != reassign.source_job_id)
+    conversations = conversations[:MAX_EARLIER_CONVERSATIONS]
+    if reassign is None and not conversations:
+        return None
+    answers: list[EarlierAnswer] = []
+    for conversation in conversations:
+        answered_at = conversation["answered_at"]
+        for pair in _answer_pairs(conversation, include_suggested=False):
+            answers.append(
+                EarlierAnswer(
+                    question=pair["question"],
+                    answer=pair["answer"],
+                    job_id=conversation["job_id"],
+                    job_title=conversation["job_title"]
+                    or f"Rekrutacja #{conversation['job_id']}",
+                    client_name=conversation["client_name"],
+                    date=answered_at.date().isoformat() if answered_at else None,
+                )
+            )
+    return SuggestionContext(
+        kind="reassign" if reassign is not None else "history",
+        answers=answers,
+        conversations=len(conversations),
+        reassign=reassign,
+    )
+
+
+def _answers_block(answers: Sequence[EarlierAnswer]) -> str:
+    """Odpowiedzi ponumerowane „[A1]…” — model wskazuje źródło numerem."""
+    blocks = []
+    for n, answer in enumerate(answers, 1):
+        head = f"[A{n}] Rekrutacja: {answer.job_title}"
+        if answer.date:
+            head += f" · rozmowa {answer.date}"
+        question = f"P: {answer.question}\n" if answer.question else ""
+        blocks.append(f"{head}\n{question}O: {answer.answer}")
+    return "\n\n".join(blocks)
+
+
 async def suggest_answers(
     db: AsyncSession, *, stage: CandidateStage, user: User
 ) -> dict:
     """Podpowiedzi Luny dla arkusza screeningu karty ``stage``.
 
-    Zwraca ``{"available", "message", "source", "suggestions"}``; nigdy nie
-    rzuca z powodu modelu — awaria to ``available: false`` z komunikatem.
+    Zwraca ``{"available", "message", "kind", "source", "suggestions"}``; nigdy
+    nie rzuca z powodu modelu — awaria to ``available: false`` z komunikatem.
     """
     candidate_id = stage.candidate_id
     job_id = stage.job_id
     user_id = user.id
     include_rates = user_can_edit_rates(user)
 
-    # Podpowiedź widzi każdy, kto pracuje nad rekrutacją DOCELOWĄ — także bez
-    # dostępu do źródłowej (decyzja Artura 23.09.2026). Notatki i tak idą
-    # wyłącznie z tych dwóch rekrutacji, a kwoty są maskowane rolom bez stawek.
-    ctx = await reassign_context(db, candidate_id=candidate_id, job_id=job_id)
+    ctx = await suggestion_context(
+        db, candidate_id=candidate_id, job_id=job_id, user=user
+    )
     if ctx is None:
-        return _unavailable(MSG_NOT_REASSIGNED)
+        return _unavailable(MSG_NO_EARLIER)
 
     target_job = await db.get(Job, job_id)
     questions = [
-        {
-            "id": str(q.get("id")).strip(),
-            "question": str(q.get("question") or "").strip(),
-        }
-        for q in champion_view.screening_questions(
+        {"id": question_id, "question": question}
+        for question_id, question in screening_sheets.question_texts(
             target_job.champion_profile if target_job else None
-        )
-        if isinstance(q, dict) and str(q.get("id") or "").strip() and q.get("question")
+        ).items()
     ]
     if not questions:
         return _unavailable(MSG_NO_QUESTIONS, ctx)
 
-    notes = (
-        await _job_scoped_notes(
-            db, candidate_id=candidate_id, job_ids=(ctx.source_job_id, job_id)
-        )
-    )[:NOTES_CHAR_LIMIT]
-    previous = "\n\n".join(
-        f"P: {a['question']}\nO: {a['answer']}"
-        if a["question"]
-        else f"O: {a['answer']}"
-        for a in ctx.answers
-    )
+    notes = ""
+    if ctx.reassign is not None:
+        # Notatki idą wyłącznie przy przepięciu i tylko z dwóch rekrutacji
+        # przepięcia; sama historia rozmów ich nie wciąga.
+        notes = (
+            await _job_scoped_notes(
+                db,
+                candidate_id=candidate_id,
+                job_ids=(ctx.reassign.source_job_id, job_id),
+            )
+        )[:NOTES_CHAR_LIMIT]
+    answers = ctx.answers
     if not include_rates:
         notes = mask_money(notes)
-        previous = mask_money(previous)
-    if not previous.strip() and not notes.strip():
+        answers = [
+            EarlierAnswer(
+                question=mask_money(a.question),
+                answer=mask_money(a.answer),
+                job_id=a.job_id,
+                job_title=a.job_title,
+                client_name=a.client_name,
+                date=a.date,
+            )
+            for a in answers
+        ]
+    if not answers and not notes.strip():
         return _unavailable(MSG_NO_MATERIAL, ctx)
 
     target_title = (target_job.title if target_job else None) or f"Rekrutacja #{job_id}"
     prompt = SCREENING_REASSIGN_SUGGEST.render(
-        source_job_title=neutralize_tags(ctx.source_job_title),
-        previous_screening=fence("previous_screening", previous or "(brak odpowiedzi)"),
+        previous_screening=fence(
+            "previous_screening", _answers_block(answers) or "(brak odpowiedzi)"
+        ),
         candidate_notes=fence("candidate_notes", notes or "(brak notatek)"),
         target_job_title=neutralize_tags(target_title),
         new_questions=fence("new_questions", json_for_prompt(questions)),
@@ -399,23 +538,33 @@ async def suggest_answers(
     suggestions = validate_suggestions(
         parsed,
         question_ids={q["id"] for q in questions},
-        material=f"{previous}\n\n{notes}",
+        answers=answers,
+        notes=notes,
         include_rates=include_rates,
     )
     return {
         "available": True,
         "message": None if suggestions else MSG_NOTHING_MATCHED,
-        "source": ctx.source_dict(),
+        "kind": ctx.kind,
+        "source": ctx.reassign.source_dict() if ctx.reassign else None,
         "suggestions": suggestions,
     }
 
 
-def context_payload(ctx: Optional[ReassignContext]) -> dict:
+def context_payload(ctx: Optional[SuggestionContext]) -> dict:
     """Odpowiedź `GET …/reassign-context` — bez wywołania modelu."""
     if ctx is None:
-        return {"available": False, "source": None, "previous_answers_count": 0}
+        return {
+            "available": False,
+            "kind": None,
+            "source": None,
+            "previous_answers_count": 0,
+            "earlier_conversations": 0,
+        }
     return {
         "available": True,
-        "source": ctx.source_dict(),
+        "kind": ctx.kind,
+        "source": ctx.reassign.source_dict() if ctx.reassign else None,
         "previous_answers_count": len(ctx.answers),
+        "earlier_conversations": ctx.conversations,
     }

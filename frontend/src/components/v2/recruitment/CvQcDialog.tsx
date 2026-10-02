@@ -1,19 +1,21 @@
 "use client";
 
 /**
- * QC CV (Rekrutacja v5, decyzje Artura 23.09.2026) — kontrola CV firmowego
- * przed „CV wysłane” / Cpro. Zastępuje przegląd DZ (0353).
+ * QC CV (Rekrutacja v5, decyzje Artura 23.09.2026 i 02.10.2026) — kontrola CV
+ * firmowego przed „CV wysłane” / Cpro.
  *
  * Po lewej CV z bloków tekstu (pogrubienia jak w dokumencie; żółte = termin,
- * który powinien być pogrubiony, czerwona krawędź = stanowisko z brakiem
- * must-have). Po prawej sprawdzenia z serwera w dwóch grupach: blokujące
- * i uwagi. Każde sprawdzenie ma naprawę wg `fix`; poprawki AI (GPT-6 Luna)
- * pokazują źródło — rekruter je akceptuje, edytuje albo odrzuca. Każda zmiana
- * zwraca świeży wynik QC, który zastępuje cache.
+ * który powinien być pogrubiony; czerwona krawędź = stanowisko bez opisu
+ * umiejętności krytycznej, bursztynowa = brak, który nie blokuje). Po prawej
+ * trzy grupy: „Do poprawy przed wysłaniem” (jedna karta na rzecz, z przyciskiem
+ * naprawy), „Warto poprawić — nie blokuje” i zwinięte „W porządku”. Blokują
+ * tylko: brak CV, umiejętności krytyczne, treści spoza oryginału i reguły
+ * klienta. Poprawki AI (GPT-6 Luna) pokazują źródło — rekruter je akceptuje,
+ * edytuje albo odrzuca. Każda zmiana zwraca świeży wynik QC.
  *
  * Treść CV i propozycji to TEKST — nic nie trafia na stronę jako HTML.
- * QC jest twardą bramką; „Przepuść mimo QC” widzą tylko admin i Delivery Lead
- * (serwer i tak odmawia reszcie).
+ * „Przepuść mimo QC” widzą tylko admin i Delivery Lead (serwer i tak odmawia
+ * reszcie).
  */
 
 import dynamic from "next/dynamic";
@@ -22,6 +24,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
   AlertTriangle,
+  ArrowRight,
   CheckCircle2,
   ChevronDown,
   Copy,
@@ -38,13 +41,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/components/Toast";
+import { QcOverrideDialog } from "@/components/v2/recruitment/QcOverrideDialog";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
-  QC_OVERRIDE_MIN_REASON,
+  invalidateAfterQcChange,
   useCvQc,
   useCvQcFixes,
   useQcApply,
-  useQcOverride,
   cvQcFixesQueryKey,
   type QcApplyBody,
   type QcCheck,
@@ -59,14 +62,22 @@ import {
   CV_NOT_EDITABLE_CODE,
   CV_NOT_EDITABLE_MESSAGE,
   QC_CV_SOURCE_LABEL,
+  QC_TASK_TAG,
+  RODO_SECTION,
   apiErrorCode,
   candidateQuestion,
   checkLevelFixes,
   highlightTerms,
+  notePreview,
   parseBoldMarkup,
   roleGaps,
   segmentCv,
+  splitChecks,
+  taskTitle,
+  thingsLabel,
   unboldedTerms,
+  type QcTask,
+  type RoleGap,
 } from "@/lib/cv-qc";
 import { resolveViewState } from "@/lib/view-state";
 import { cn, formatDate } from "@/lib/utils";
@@ -105,6 +116,11 @@ export interface CvQcDialogProps {
   open: boolean;
   onClose: () => void;
   onChanged?: () => void;
+  /**
+   * „Przesuń dalej →” w stopce: wołający zamyka okno i otwiera swoje
+   * „Przesuń dalej” (ruch etapu ma jedną drogę). Bez niego przycisku nie ma.
+   */
+  onMoveNext?: (result: QcResult) => void;
 }
 
 // ── CV po lewej ──────────────────────────────────────────────────────────────
@@ -145,6 +161,24 @@ function Runs({ runs, terms }: { runs: QcCvRun[]; terms: string[] }) {
   );
 }
 
+function GapNote({ gap }: { gap: RoleGap }) {
+  const rest = gap.requirements.filter((r) => !gap.blocking.includes(r));
+  return (
+    <>
+      {gap.blocking.length > 0 ? (
+        <p className="mt-0.5 text-[11px] font-semibold text-destructive">
+          {gap.blocking.join(", ")} — w oryginale jest w tej roli, tu brakuje opisu
+        </p>
+      ) : null}
+      {rest.length > 0 ? (
+        <p className="mt-0.5 text-[11px] font-medium text-warning-muted-foreground">
+          {rest.join(", ")} — w oryginale jest w tej roli, tu brakuje opisu (nie blokuje)
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 function CvPaper({ data }: { data: QcResult }) {
   const cv = data.cv;
   const terms = useMemo(() => unboldedTerms(data.checks), [data.checks]);
@@ -171,50 +205,58 @@ function CvPaper({ data }: { data: QcResult }) {
       aria-label="CV firmowe"
       className="mx-auto max-w-[560px] space-y-1.5 rounded-md border border-border bg-card px-6 py-5 text-sm leading-relaxed shadow-xs"
     >
-      {segments.map((segment, s) => (
-        <div
-          key={s}
-          data-qc-gap={segment.gap ? "true" : undefined}
-          className={cn(segment.gap && "-ml-3 border-l-[3px] border-destructive pl-2.5")}
-        >
-          {segment.blocks.map((block, i) => {
-            if (block.kind === "h") {
-              return (
-                <h4
-                  key={i}
-                  className="pt-3 text-xs font-semibold uppercase tracking-wider text-primary first:pt-0"
-                >
-                  <Runs runs={block.runs} terms={terms} />
-                </h4>
-              );
-            }
-            if (block.kind === "li") {
-              return (
-                <p key={i} className="flex gap-2 pl-1">
-                  <span aria-hidden className="text-muted-foreground">
-                    •
-                  </span>
-                  <span className="min-w-0">
+      {segments.map((segment, s) => {
+        const blocking = (segment.gap?.blocking.length ?? 0) > 0;
+        return (
+          <div
+            key={s}
+            data-qc-gap={segment.gap ? (blocking ? "blocking" : "note") : undefined}
+            className={cn(
+              segment.gap && "-ml-3 border-l-[3px] pl-2.5",
+              segment.gap && (blocking ? "border-destructive" : "border-warning"),
+            )}
+          >
+            {segment.blocks.map((block, i) => {
+              if (block.section === RODO_SECTION) {
+                // Klauzula zgody stoi pod ostatnią rolą, ale nie jest jej treścią.
+                return (
+                  <p key={i} data-qc-rodo="true" className="pt-3 text-xs leading-snug text-muted-foreground">
+                    {block.runs.map((run) => run.t).join("")}
+                  </p>
+                );
+              }
+              if (block.kind === "h") {
+                return (
+                  <h4
+                    key={i}
+                    className="pt-3 text-xs font-semibold uppercase tracking-wider text-primary first:pt-0"
+                  >
                     <Runs runs={block.runs} terms={terms} />
-                  </span>
+                  </h4>
+                );
+              }
+              if (block.kind === "li") {
+                return (
+                  <p key={i} className="flex gap-2 pl-1">
+                    <span aria-hidden className="text-muted-foreground">
+                      •
+                    </span>
+                    <span className="min-w-0">
+                      <Runs runs={block.runs} terms={terms} />
+                    </span>
+                  </p>
+                );
+              }
+              return (
+                <p key={i} className={cn(block.section === "role" && "pt-2 font-medium")}>
+                  <Runs runs={block.runs} terms={terms} />
                 </p>
               );
-            }
-            return (
-              <p key={i} className={cn(block.section === "role" && "pt-2 font-medium")}>
-                <Runs runs={block.runs} terms={terms} />
-              </p>
-            );
-          })}
-          {segment.gap ? (
-            <p className="mt-0.5 text-[11px] font-semibold text-destructive">
-              {segment.gap.requirements.length > 0
-                ? `${segment.gap.requirements.join(", ")} — używane tu wg oryginału, brak w opisie`
-                : "Brak must-have w opisie tego stanowiska"}
-            </p>
-          ) : null}
-        </div>
-      ))}
+            })}
+            {segment.gap ? <GapNote gap={segment.gap} /> : null}
+          </div>
+        );
+      })}
     </article>
   );
 }
@@ -223,7 +265,7 @@ function CvPaper({ data }: { data: QcResult }) {
 
 function StatusIcon({ status }: { status: QcCheck["status"] }) {
   if (status === "pass") return <CheckCircle2 className="size-4 text-success" aria-label="Przechodzi" />;
-  if (status === "fail") return <XCircle className="size-4 text-destructive" aria-label="Nie przechodzi" />;
+  if (status === "fail") return <AlertTriangle className="size-4 text-warning" aria-label="Warto poprawić" />;
   if (status === "manual")
     return <HelpCircle className="size-4 text-info" aria-label="Do sprawdzenia ręcznie" />;
   return <MinusCircle className="size-4 text-muted-foreground" aria-label="Nie dotyczy" />;
@@ -235,7 +277,7 @@ function statusBadge(check: QcCheck) {
   if (check.status === "skip") return <Badge variant="outline" size="sm">nie dotyczy</Badge>;
   const n = check.items.length;
   return (
-    <Badge variant={check.severity === "blocking" ? "danger" : "warning"} size="sm">
+    <Badge variant="warning" size="sm">
       {check.summary || (n === 1 ? "1 pozycja" : `${n} pozycje`)}
     </Badge>
   );
@@ -248,10 +290,14 @@ interface ActionContext {
   apply: (body: QcApplyBody, success: string, onApplied?: () => void) => void;
   requestAiFixes: () => void;
   copyQuestion: (item: QcItem) => void;
+  /** Edytor sprawdzanego CV — `null`, gdy tego CV nie da się edytować w NEXUSIE. */
+  openEditor: (() => void) | null;
 }
 
 const generatorHref = (data: QcResult) =>
   `/cv-generator?candidate_id=${data.candidate_id}&job_id=${data.job_id}`;
+
+const championHref = (data: QcResult) => `/jobs/${data.job_id}?tab=champion`;
 
 function CheckActions({ check, ctx }: { check: QcCheck; ctx: ActionContext }) {
   const kinds = checkLevelFixes(check);
@@ -296,30 +342,42 @@ function CheckActions({ check, ctx }: { check: QcCheck; ctx: ActionContext }) {
   );
 }
 
+function RemoveTermButton({ term, ctx }: { term: string; ctx: ActionContext }) {
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={!ctx.editable || ctx.busy}
+      onClick={() => ctx.apply({ action: "remove_term", term }, `Usunięto „${term}” z CV.`)}
+    >
+      Usuń „{term}” z CV
+    </Button>
+  );
+}
+
+function AskCandidateButtons({ item, ctx }: { item: QcItem; ctx: ActionContext }) {
+  return (
+    <>
+      <Button size="sm" variant="outline" onClick={() => ctx.copyQuestion(item)}>
+        <Copy className="size-3.5" aria-hidden />
+        Skopiuj pytanie do kandydata
+      </Button>
+      <Button asChild size="sm" variant="ghost">
+        <Link href={`/candidates/${ctx.data.candidate_id}`}>Profil kandydata</Link>
+      </Button>
+    </>
+  );
+}
+
 function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) {
   const term = (item.term ?? item.requirement ?? "").trim();
   switch (item.fix) {
     case "remove_term":
-      return term ? (
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!ctx.editable || ctx.busy}
-          onClick={() => ctx.apply({ action: "remove_term", term }, `Usunięto „${term}” z CV.`)}
-        >
-          Usuń „{term}” z CV
-        </Button>
-      ) : null;
+      return term ? <RemoveTermButton term={term} ctx={ctx} /> : null;
     case "ask_candidate":
       return (
         <span className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => ctx.copyQuestion(item)}>
-            <Copy className="size-3.5" aria-hidden />
-            Skopiuj pytanie do kandydata
-          </Button>
-          <Button asChild size="sm" variant="ghost">
-            <Link href={`/candidates/${ctx.data.candidate_id}`}>Profil kandydata</Link>
-          </Button>
+          <AskCandidateButtons item={item} ctx={ctx} />
         </span>
       );
     case "upload_consent":
@@ -343,10 +401,89 @@ function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) {
   }
 }
 
-function CheckRow({ check, ctx, defaultOpen }: { check: QcCheck; ctx: ActionContext; defaultOpen: boolean }) {
-  const [open, setOpen] = useState(defaultOpen);
+/** Jedna rzecz do poprawy przed wysłaniem: co jest nie tak, gdzie i przycisk naprawy. */
+function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
+  const { check, name, items } = task;
+  const title = taskTitle(task);
+  const roleItems = items.filter((i) => i.role);
+  const first = items[0];
+  const editorButton = ctx.openEditor ? (
+    <Button size="sm" variant="outline" onClick={ctx.openEditor}>
+      Poprawię w edytorze
+    </Button>
+  ) : null;
+
+  let body: React.ReactNode = null;
+  let actions: React.ReactNode = null;
+  if (check.key === "critical_skills" && roleItems.length > 0) {
+    body = (
+      <>
+        <p className="text-xs text-muted-foreground">
+          W oryginalnym CV kandydat ma tę umiejętność w {roleItems.length === 1 ? "tej roli" : "tych rolach"}. W CV
+          firmowym brakuje tam zdania o tym, co z nią robił — wystarczy jedno w każdej roli.
+        </p>
+        <ul className="flex flex-wrap gap-1.5" aria-label={`Role bez opisu: ${name}`}>
+          {roleItems.map((item, i) => (
+            <li key={i}>
+              <Badge variant="outline" size="sm" title={item.detail ? item.detail : undefined}>
+                {item.role}
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      </>
+    );
+    actions = (
+      <>
+        <Button size="sm" disabled={!ctx.editable} onClick={ctx.requestAiFixes}>
+          <Sparkles className="size-3.5" aria-hidden />
+          Dopisz zdania z oryginału (AI)
+        </Button>
+        {editorButton}
+      </>
+    );
+  } else if (check.key === "no_unsupported" && first) {
+    const term = (first.term ?? name ?? "").trim();
+    // Tytuł mówi już, co jest nie tak — niżej tylko, co z tym zrobić.
+    body = (
+      <p className="text-xs text-muted-foreground">
+        Oryginalne CV i notatki z rozmów o tym nie wspominają. Usuń to z CV albo potwierdź u kandydata.
+      </p>
+    );
+    actions = (
+      <>
+        {term ? <RemoveTermButton term={term} ctx={ctx} /> : null}
+        <AskCandidateButtons item={first} ctx={ctx} />
+      </>
+    );
+  } else if (first) {
+    // Bez nazwy tytułem jest samo zdanie pozycji — nie powtarzamy go niżej.
+    body = name && first.detail ? <p className="text-xs text-muted-foreground">{first.detail}</p> : null;
+    actions = first.fix ? <ItemAction item={first} ctx={ctx} /> : editorButton;
+  }
+
+  return (
+    <li className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5">
+      <p className="flex flex-wrap items-center gap-1.5">
+        <XCircle className="size-4 shrink-0 text-destructive" aria-hidden />
+        <span className="min-w-0 text-sm font-semibold">{title}</span>
+        {QC_TASK_TAG[check.key] ? (
+          <Badge variant="danger" size="sm">
+            {QC_TASK_TAG[check.key]}
+          </Badge>
+        ) : null}
+      </p>
+      {body}
+      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+    </li>
+  );
+}
+
+function CheckRow({ check, ctx }: { check: QcCheck; ctx: ActionContext }) {
+  const [open, setOpen] = useState(false);
   const hasBody = check.items.length > 0 || checkLevelFixes(check).length > 0;
   const bodyId = `qc-check-${check.key}`;
+  const preview = check.status === "fail" || check.status === "manual" ? notePreview(check) ?? check.summary : null;
   return (
     <li className="overflow-hidden rounded-lg border border-border">
       <button
@@ -363,6 +500,9 @@ function CheckRow({ check, ctx, defaultOpen }: { check: QcCheck; ctx: ActionCont
         <StatusIcon status={check.status} />
         <span className="min-w-0">
           <span className="block text-sm font-medium">{check.label}</span>
+          {preview && !open ? (
+            <span className="block truncate text-xs text-muted-foreground">{preview}</span>
+          ) : null}
         </span>
         <span className="flex items-center gap-1.5">
           {statusBadge(check)}
@@ -396,6 +536,84 @@ function CheckRow({ check, ctx, defaultOpen }: { check: QcCheck; ctx: ActionCont
   );
 }
 
+/** Zaliczone i niedotyczące — jedna linia, szczegóły po rozwinięciu. */
+function PassedChecks({ passed, skipped, ctx }: { passed: QcCheck[]; skipped: QcCheck[]; ctx: ActionContext }) {
+  const [open, setOpen] = useState(false);
+  if (passed.length + skipped.length === 0) return null;
+  const listId = "qc-passed-checks";
+  // Bez CV nic nie jest „w porządku” — reszty po prostu nie sprawdzono.
+  const title = passed.length > 0 ? "W porządku" : "Nie sprawdzono";
+  return (
+    <section aria-label={title} className="space-y-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls={listId}
+        className="flex w-full items-start gap-2 rounded-lg border border-border px-3 py-2 text-left text-xs text-muted-foreground"
+      >
+        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" aria-hidden />
+        <span className="min-w-0 flex-1">
+          <span className="font-semibold text-foreground">
+            {title} ({passed.length > 0 ? passed.length : skipped.length})
+          </span>
+          {passed.length > 0 ? <span>: {passed.map((c) => c.label).join(" · ")}</span> : null}
+        </span>
+        <ChevronDown className={cn("mt-0.5 size-4 shrink-0 transition-transform", open && "rotate-180")} aria-hidden />
+      </button>
+      {open ? (
+        <ul id={listId} className="space-y-2">
+          {[...passed, ...skipped].map((check) => (
+            <CheckRow key={check.key} check={check} ctx={ctx} />
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+/** Co QC sprawdza i które umiejętności są krytyczne w tej rekrutacji. */
+function Explainer({ data }: { data: QcResult }) {
+  const critical = data.client_request.critical ?? [];
+  const source = data.client_request.critical_source ?? "none";
+  const champion = (
+    <Link
+      href={championHref(data)}
+      target="_blank"
+      rel="noreferrer"
+      className="font-medium underline underline-offset-2"
+    >
+      profilu Championa
+    </Link>
+  );
+  return (
+    <section
+      aria-label="Co sprawdza QC"
+      className="space-y-1 rounded-lg border border-info/30 bg-info-muted px-3 py-2 text-xs leading-relaxed text-info-muted-foreground"
+    >
+      <p>
+        <strong className="font-semibold">Co sprawdza QC:</strong> czy CV firmowe opisuje umiejętności krytyczne tej
+        rekrutacji i czy nie mówi nic ponad oryginalne CV kandydata. Reszta to podpowiedzi — nie zatrzymują wysyłki.
+      </p>
+      {critical.length > 0 ? (
+        <p>
+          Umiejętności krytyczne: <strong className="font-semibold">{critical.join(", ")}</strong>
+          {source === "dl" ? (
+            " — wybór Delivery Leada."
+          ) : (
+            <> — podpowiedź z historii rekrutacji. Delivery Lead może je zmienić w {champion}.</>
+          )}
+        </p>
+      ) : (
+        <p>
+          Ta rekrutacja nie ma umiejętności krytycznych — zatrzymują tylko treści spoza oryginału i reguły klienta.
+          Delivery Lead wybiera je w {champion}.
+        </p>
+      )}
+    </section>
+  );
+}
+
 // ── Propozycje AI ────────────────────────────────────────────────────────────
 
 function Proposal({
@@ -420,6 +638,11 @@ function Proposal({
           </Badge>
         ) : null}
         {fix.requirement ? <span>{fix.requirement}</span> : null}
+        {fix.check_key === "critical_skills" ? (
+          <Badge variant="danger" size="sm">
+            {QC_TASK_TAG.critical_skills}
+          </Badge>
+        ) : null}
       </p>
       {fix.current_text ? (
         <p className="text-xs text-muted-foreground">
@@ -590,52 +813,6 @@ function AiFixes({
   );
 }
 
-// ── Obejście ─────────────────────────────────────────────────────────────────
-
-function OverrideForm({ stageId, onChanged }: { stageId: number; onChanged?: () => void }) {
-  const [reason, setReason] = useState("");
-  const { showSuccess, showError } = useToast();
-  const override = useQcOverride(stageId, onChanged);
-  const ready = reason.trim().length >= QC_OVERRIDE_MIN_REASON;
-  return (
-    <section aria-label="Przepuść mimo QC" className="space-y-2 rounded-lg border border-dashed border-border p-3 text-sm">
-      <h3 className="font-semibold">Przepuść mimo QC</h3>
-      <p className="text-xs text-muted-foreground">
-        Tylko Delivery Lead i admin. Powód zostaje w historii kandydata i w raporcie QC.
-      </p>
-      <label className="block text-xs font-medium">
-        Powód (min. {QC_OVERRIDE_MIN_REASON} znaków)
-        <textarea
-          className="mt-1 min-h-14 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-          value={reason}
-          placeholder="Np. klient sam prosił o skrócone CV bez opisów stanowisk"
-          onChange={(e) => setReason(e.target.value)}
-        />
-      </label>
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={!ready || override.isPending}
-        onClick={() =>
-          override.mutate(
-            { reason: reason.trim() },
-            {
-              onSuccess: () => {
-                showSuccess("Przepuszczono mimo QC — powód zapisany w historii.");
-                setReason("");
-              },
-              onError: (error) => showError(apiErrorMessage(error, "Nie udało się przepuścić. Spróbuj ponownie.")),
-            },
-          )
-        }
-      >
-        {override.isPending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
-        Przepuść z powodem
-      </Button>
-    </section>
-  );
-}
-
 // ── Okno ─────────────────────────────────────────────────────────────────────
 
 const LOAD_ERROR: Record<string, string> = {
@@ -644,14 +821,8 @@ const LOAD_ERROR: Record<string, string> = {
   error: "Nie udało się policzyć QC. Spróbuj ponownie.",
 };
 
+/** Kolejność jak na Tablicy (`pair_statuses`): zaliczone wygrywa z dawnym obejściem. */
 function Verdict({ data }: { data: QcResult }) {
-  if (data.override) {
-    return (
-      <Badge variant="warning" size="lg">
-        Przepuszczone mimo QC
-      </Badge>
-    );
-  }
   if (data.passed) {
     return (
       <Badge variant="success" size="lg">
@@ -659,23 +830,33 @@ function Verdict({ data }: { data: QcResult }) {
       </Badge>
     );
   }
+  if (data.override) {
+    return (
+      <Badge variant="warning" size="lg">
+        Przepuszczone mimo QC
+      </Badge>
+    );
+  }
   return (
     <Badge variant="danger" size="lg">
-      Nie przechodzi · {data.blocking_failed} blokujące
+      Do poprawy: {thingsLabel(data.blocking_failed)}
     </Badge>
   );
 }
+
+const SECTION_TITLE = "text-xs font-semibold uppercase tracking-wider text-muted-foreground";
 
 export function CvQcBody({
   data,
   stageId,
   onChanged,
-  canOverride,
+  onOpenEditor,
 }: {
   data: QcResult;
   stageId: number;
   onChanged?: () => void;
-  canOverride: boolean;
+  /** Otwiera edytor sprawdzanego CV — brak, gdy CV nie da się edytować w NEXUSIE. */
+  onOpenEditor?: () => void;
 }) {
   const { showSuccess, showError } = useToast();
   const apply = useQcApply(stageId, onChanged);
@@ -716,15 +897,20 @@ export function CvQcBody({
           : showError(`Przeglądarka nie pozwoliła skopiować. Pytanie: ${question}`),
       );
     },
+    openEditor: editable && onOpenEditor ? onOpenEditor : null,
   };
 
-  const blocking = data.checks.filter((c) => c.severity === "blocking");
-  const warnings = data.checks.filter((c) => c.severity !== "blocking");
-  const failingBlocking = blocking.filter((c) => c.status === "fail").length;
+  const { tasks, notes, passed, skipped } = useMemo(() => splitChecks(data.checks), [data.checks]);
+  // Zdania AI dopisuje do ról — także wtedy, gdy QC już przechodzi, a brak
+  // opisu jest tylko uwagą.
+  const hasAiGaps = data.checks.some((c) => c.status === "fail" && c.items.some((i) => i.fix === "ai"));
 
   return (
+    // `min-h-0` tylko od `lg`: w jednej kolumnie (telefon) wiersze siatki
+    // z zerową wysokością minimalną dzieliły okno po połowie i panele
+    // nachodziły na siebie — tam przewija się całe okno.
     <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:overflow-hidden">
-      <div className="min-h-0 border-b border-border bg-muted/30 p-4 lg:overflow-y-auto lg:border-b-0 lg:border-r">
+      <div className="border-b border-border bg-muted/30 p-4 lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r">
         {!editable && data.cv ? (
           <p role="status" className="mb-3 rounded-md border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
             {CV_NOT_EDITABLE_MESSAGE}
@@ -737,42 +923,43 @@ export function CvQcBody({
         ) : null}
         <CvPaper data={data} />
       </div>
-      <div className="min-h-0 space-y-3 p-4 lg:overflow-y-auto">
-        {data.override ? (
+      <div className="space-y-3 p-4 lg:min-h-0 lg:overflow-y-auto">
+        <Explainer data={data} />
+        {data.override && !data.passed ? (
           <p role="status" className="rounded-md border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
             Przepuszczone mimo QC{data.override.by_name ? ` przez ${data.override.by_name}` : ""}
             {data.override.at ? ` (${formatDate(data.override.at)})` : ""}: {data.override.reason}
           </p>
         ) : null}
-        <section aria-label="Blokujące — bez nich CV nie wyjdzie" className="space-y-2">
-          <header className="flex items-baseline justify-between gap-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Blokujące — bez nich CV nie wyjdzie
-            </h3>
-            <span className="text-xs tabular-nums text-muted-foreground">
-              {failingBlocking} z {blocking.length} nie przechodzi
-            </span>
-          </header>
-          <ul className="space-y-2">
-            {blocking.map((check) => (
-              <CheckRow key={check.key} check={check} ctx={ctx} defaultOpen={check.status === "fail"} />
-            ))}
-          </ul>
-        </section>
-        {warnings.length > 0 ? (
-          <section aria-label="Uwagi — nie blokują" className="space-y-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Uwagi — nie blokują</h3>
+        {tasks.length > 0 ? (
+          <section aria-label="Do poprawy przed wysłaniem" className="space-y-2">
+            <h3 className={SECTION_TITLE}>Do poprawy przed wysłaniem ({tasks.length})</h3>
             <ul className="space-y-2">
-              {warnings.map((check) => (
-                <CheckRow key={check.key} check={check} ctx={ctx} defaultOpen={false} />
+              {tasks.map((task) => (
+                <TaskCard key={task.id} task={task} ctx={ctx} />
+              ))}
+            </ul>
+          </section>
+        ) : (
+          <p role="status" className="flex items-center gap-2 rounded-lg border border-success/30 bg-success-muted px-3 py-2 text-sm text-success-muted-foreground">
+            <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+            Nic nie blokuje wysyłki tego CV.
+          </p>
+        )}
+        {data.cv && hasAiGaps ? (
+          <AiFixes stageId={stageId} ctx={ctx} requested={aiRequested} onRequest={() => setAiRequested(true)} />
+        ) : null}
+        {notes.length > 0 ? (
+          <section aria-label="Warto poprawić — nie blokuje" className="space-y-2">
+            <h3 className={SECTION_TITLE}>Warto poprawić — nie blokuje ({notes.length})</h3>
+            <ul className="space-y-2">
+              {notes.map((check) => (
+                <CheckRow key={check.key} check={check} ctx={ctx} />
               ))}
             </ul>
           </section>
         ) : null}
-        {data.cv && !data.passed ? (
-          <AiFixes stageId={stageId} ctx={ctx} requested={aiRequested} onRequest={() => setAiRequested(true)} />
-        ) : null}
-        {canOverride && !data.passed && !data.override ? <OverrideForm stageId={stageId} onChanged={onChanged} /> : null}
+        <PassedChecks passed={passed} skipped={skipped} ctx={ctx} />
       </div>
     </div>
   );
@@ -790,12 +977,15 @@ export interface CvQcDialogViewProps extends CvQcDialogProps {
   onRecheck: () => void;
 }
 
+const MOVE_BLOCKED_HINT = "Najpierw popraw rzeczy z listy „Do poprawy przed wysłaniem”.";
+
 /** Okno bez zapytania o wynik — `CvQcDialog` i harness `/preview/cv-qc`. */
 export function CvQcDialogView({
   stageId,
   open,
   onClose,
   onChanged,
+  onMoveNext,
   data,
   loading,
   fetching,
@@ -806,7 +996,10 @@ export function CvQcDialogView({
   const me = useAuthStore((s) => s.user);
   const canOverride = hasRole(me, "admin", "delivery_lead");
   const [editorOpen, setEditorOpen] = useState(false);
+  const [overrideOpen, setOverrideOpen] = useState(false);
   const editorTarget = qcEditorTarget(data?.cv);
+  const pending = useMemo(() => (data ? splitChecks(data.checks).tasks.map(taskTitle) : []), [data]);
+  const cleared = Boolean(data && (data.passed || data.override));
 
   return (
     <>
@@ -857,7 +1050,13 @@ export function CvQcDialogView({
         ) : null}
 
         {data && stageId != null ? (
-          <CvQcBody key={stageId} data={data} stageId={stageId} onChanged={onChanged} canOverride={canOverride} />
+          <CvQcBody
+            key={stageId}
+            data={data}
+            stageId={stageId}
+            onChanged={onChanged}
+            onOpenEditor={editorTarget ? () => setEditorOpen(true) : undefined}
+          />
         ) : loading ? (
           <p className="flex items-center gap-2 px-5 py-6 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -875,12 +1074,15 @@ export function CvQcDialogView({
         )}
 
         {data ? (
-          <div className="flex flex-wrap items-center gap-3 border-t border-border px-5 py-3">
-            <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-              {data.passed || data.override
-                ? "QC zaliczone — przesuń kartę dalej strzałką „→” na Tablicy."
-                : "Po każdej poprawce QC liczy się od nowa. Dalej przesuwasz kartę strzałką „→” na Tablicy, gdy blokujące będą zielone."}
+          <div className="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3">
+            <p className="min-w-0 flex-1 basis-40 text-xs text-muted-foreground">
+              Po każdej poprawce QC przelicza się samo.
             </p>
+            {canOverride && !cleared && stageId != null ? (
+              <Button size="sm" variant="ghost" onClick={() => setOverrideOpen(true)}>
+                Przepuść mimo QC…
+              </Button>
+            ) : null}
             {editorTarget ? (
               <Button size="sm" variant="outline" onClick={() => setEditorOpen(true)}>
                 Otwórz w edytorze CV
@@ -893,10 +1095,30 @@ export function CvQcDialogView({
                 </Link>
               </Button>
             )}
+            {onMoveNext ? (
+              <Button
+                size="sm"
+                disabled={!cleared}
+                title={cleared ? undefined : MOVE_BLOCKED_HINT}
+                onClick={() => onMoveNext(data)}
+              >
+                Przesuń dalej
+                <ArrowRight className="size-3.5" aria-hidden />
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </DialogContent>
     </Dialog>
+    {overrideOpen && stageId != null ? (
+      <QcOverrideDialog
+        stageId={stageId}
+        open
+        onOpenChange={setOverrideOpen}
+        pending={pending}
+        onChanged={onChanged}
+      />
+    ) : null}
     {editorOpen && editorTarget && data ? (
       <CVBrandedEditModal
         open
@@ -917,14 +1139,31 @@ export function CvQcDialogView({
   );
 }
 
-export function CvQcDialog({ stageId, open, onClose, onChanged }: CvQcDialogProps) {
+export function CvQcDialog({ stageId, open, onClose, onChanged, onMoveNext }: CvQcDialogProps) {
   const query = useCvQc(stageId, open);
+  const queryClient = useQueryClient();
+  // Otwarcie okna przelicza i zapisuje QC (CV mogło się zmienić poza oknem) —
+  // przy wyjściu chip na Tablicy i kolejki pulpitu czytają już ten wynik.
+  const refreshBoard = () => {
+    if (query.data) invalidateAfterQcChange(queryClient, query.data.job_id);
+  };
   return (
     <CvQcDialogView
       stageId={stageId}
       open={open}
-      onClose={onClose}
+      onClose={() => {
+        refreshBoard();
+        onClose();
+      }}
       onChanged={onChanged}
+      onMoveNext={
+        onMoveNext
+          ? (result) => {
+              refreshBoard();
+              onMoveNext(result);
+            }
+          : undefined
+      }
       data={query.data}
       loading={query.isLoading}
       fetching={query.isFetching}

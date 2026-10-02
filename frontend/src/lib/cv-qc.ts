@@ -2,7 +2,8 @@
 //
 // Sprawdzenia liczy serwer (`GET /api/pipeline/stages/{id}/qc`); tu wyłącznie
 // czyste funkcje: podświetlenie terminów w tekście CV, podział CV na
-// stanowiska (czerwona krawędź przy roli z brakiem), rozbiór `**pogrubienia**`
+// stanowiska (krawędź przy roli z brakiem), podział sprawdzeń na „do poprawy
+// / warto poprawić / w porządku”, powody obejścia, rozbiór `**pogrubienia**`
 // z propozycji AI i kody błędów. Wszystko zwraca TEKST — nic nie trafia na
 // stronę jako HTML.
 
@@ -117,23 +118,32 @@ export interface RoleGap {
   role: string;
   /** Numer stanowiska w CV (`role_index` z serwera) — pewniejszy niż etykieta. */
   roleIndex: number | null;
+  /** Wszystkie braki w tej roli — krytyczne pierwsze. */
   requirements: string[];
+  /** Umiejętności krytyczne bez opisu w tej roli — te zatrzymują wysyłkę. */
+  blocking: string[];
 }
 
-/** Braki w stanowiskach (`must_in_roles`) pogrupowane po roli. */
+/** Sprawdzenia z brakami w stanowiskach; krytyczne przed pozostałymi must-have. */
+const ROLE_GAP_CHECKS = ["critical_skills", "must_in_roles"];
+
+/** Braki w stanowiskach (krytyczne i pozostałe must-have) pogrupowane po roli. */
 export function roleGaps(checks: QcCheck[]): RoleGap[] {
   const byRole = new Map<string, RoleGap>();
-  for (const check of checks) {
-    if (check.key !== "must_in_roles" || check.status !== "fail") continue;
-    for (const item of check.items) {
-      const role = item.role?.trim();
-      if (!role) continue;
-      const roleIndex = typeof item.role_index === "number" ? item.role_index : null;
-      const key = roleIndex != null ? `#${roleIndex}` : role;
-      const gap = byRole.get(key) ?? { role, roleIndex, requirements: [] };
-      const req = item.requirement?.trim();
-      if (req && !gap.requirements.includes(req)) gap.requirements.push(req);
-      byRole.set(key, gap);
+  for (const key of ROLE_GAP_CHECKS) {
+    for (const check of checks) {
+      if (check.key !== key || check.status !== "fail") continue;
+      for (const item of check.items) {
+        const role = item.role?.trim();
+        if (!role) continue;
+        const roleIndex = typeof item.role_index === "number" ? item.role_index : null;
+        const id = roleIndex != null ? `#${roleIndex}` : role;
+        const gap = byRole.get(id) ?? { role, roleIndex, requirements: [], blocking: [] };
+        const req = item.requirement?.trim();
+        if (req && !gap.requirements.includes(req)) gap.requirements.push(req);
+        if (req && check.severity === "blocking" && !gap.blocking.includes(req)) gap.blocking.push(req);
+        byRole.set(id, gap);
+      }
     }
   }
   return [...byRole.values()];
@@ -157,16 +167,20 @@ function roleParts(role: string): string[] {
     .filter((p) => p.length >= 2 && !/\d{4}/.test(p));
 }
 
+/** Sekcja bloku z klauzulą zgody RODO (lustro `dz_review.RODO_SECTION`). */
+export const RODO_SECTION = "rodo";
+
 export interface CvSegment {
   /** Kolejne bloki CV należące do segmentu. */
   blocks: QcCvBlock[];
-  /** Brak w tym stanowisku (czerwona krawędź) — `null` = segment bez braków. */
+  /** Brak w tym stanowisku (krawędź z boku) — `null` = segment bez braków. */
   gap: RoleGap | null;
 }
 
 /**
  * Dzieli CV na segmenty: stanowisko = blok `section: "role"` + wszystko do
- * następnej roli albo nagłówka. Brak trafia do segmentu po `role_index`
+ * następnej roli, nagłówka albo klauzuli zgody RODO (stoi tuż po ostatnim
+ * stanowisku, ale nie jest jego treścią). Brak trafia do segmentu po `role_index`
  * (n-te stanowisko w sekcji doświadczenia — lustro `cv_qc.cv_roles`), a bez
  * numeru — gdy tekst segmentu zawiera KAŻDĄ część etykiety roli (pracodawca
  * i stanowisko bywają w dwóch blokach). Brak bez dopasowania nie znika —
@@ -183,6 +197,12 @@ export function segmentCv(blocks: QcCvBlock[], gaps: RoleGap[]): CvSegment[] {
     if (block.kind === "h") {
       segments.push({ blocks: [block], gap: null });
       inExperience = block.section === "experience";
+      current = null;
+      continue;
+    }
+    if (block.section === RODO_SECTION) {
+      segments.push({ blocks: [block], gap: null });
+      inExperience = false;
       current = null;
       continue;
     }
@@ -215,6 +235,140 @@ export function segmentCv(blocks: QcCvBlock[], gaps: RoleGap[]): CvSegment[] {
     }
   }
   return segments;
+}
+
+// ── Co jest do poprawy, co jest uwagą, co jest w porządku ────────────────────
+
+export interface QcTask {
+  /** Stabilny klucz: sprawdzenie + nazwa. */
+  id: string;
+  check: QcCheck;
+  /** Wymaganie albo termin; `null` = pozycja bez nazwy (np. brak CV, stawka w CV). */
+  name: string | null;
+  items: QcItem[];
+}
+
+/**
+ * Rzeczy do poprawy w jednym niezaliczonym sprawdzeniu: jedno wymaganie (także
+ * w kilku rolach) to jedna rzecz, pozycja bez nazwy liczy się sama. Lustro
+ * `cv_qc._tasks` — suma po blokujących = `blocking_failed` z serwera, więc
+ * okno, chip na Tablicy i komunikat bramki podają tę samą liczbę.
+ */
+export function checkTasks(check: QcCheck): QcTask[] {
+  const groups = new Map<string, QcTask>();
+  check.items.forEach((item, n) => {
+    const name = item.requirement || item.term || null;
+    const key = name ?? `#${n}`;
+    const task = groups.get(key) ?? { id: `${check.key}:${key}`, check, name, items: [] };
+    task.items.push(item);
+    groups.set(key, task);
+  });
+  if (groups.size === 0) return [{ id: `${check.key}:#0`, check, name: null, items: [] }];
+  return [...groups.values()];
+}
+
+export interface QcSplit {
+  /** Zatrzymują wysyłkę — „Do poprawy przed wysłaniem". */
+  tasks: QcTask[];
+  /** Uwagi i sprawdzenia do obejrzenia ręcznie — „Warto poprawić — nie blokuje". */
+  notes: QcCheck[];
+  /** Zaliczone. */
+  passed: QcCheck[];
+  /** Nie dotyczą tego CV albo tej rekrutacji. */
+  skipped: QcCheck[];
+}
+
+export function splitChecks(checks: QcCheck[]): QcSplit {
+  const split: QcSplit = { tasks: [], notes: [], passed: [], skipped: [] };
+  for (const check of checks) {
+    if (check.status === "pass") split.passed.push(check);
+    else if (check.status === "skip") split.skipped.push(check);
+    else if (check.status === "fail" && check.severity === "blocking") split.tasks.push(...checkTasks(check));
+    else split.notes.push(check);
+  }
+  return split;
+}
+
+export function blockingTasks(checks: QcCheck[]): QcTask[] {
+  return splitChecks(checks).tasks;
+}
+
+/** „1 rzecz", „2 rzeczy", „5 rzeczy". */
+export function thingsLabel(count: number): string {
+  return count === 1 ? "1 rzecz" : `${count} rzeczy`;
+}
+
+/** Odmiana po liczbie: `[1, 2–4, 5+]` → „1 inna", „3 inne", „7 innych". */
+export function countForm(count: number, forms: [string, string, string]): string {
+  if (count === 1) return `1 ${forms[0]}`;
+  const few = count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14);
+  return `${count} ${few ? forms[1] : forms[2]}`;
+}
+
+/** Ile nazw pokazuje jedna linia uwagi — reszta jako „i N innych". */
+const NOTE_NAMES_SHOWN = 3;
+
+/** Jedna linia pod uwagą: nazwy pozycji („Kafka, JUnit i 4 inne") albo opis jedynej pozycji. */
+export function notePreview(check: QcCheck): string | null {
+  const names: string[] = [];
+  for (const item of check.items) {
+    const name = (item.requirement || item.term || "").trim();
+    if (name && !names.includes(name)) names.push(name);
+  }
+  if (names.length === 0) return check.items[0]?.detail?.trim() || null;
+  const rest = names.length - NOTE_NAMES_SHOWN;
+  const head = names.slice(0, NOTE_NAMES_SHOWN).join(", ");
+  return rest > 0 ? `${head} i ${countForm(rest, ["inne", "inne", "innych"])}` : head;
+}
+
+/** Krótki tytuł rzeczy do poprawy (karta w oknie QC, lista w oknie obejścia). */
+export function taskTitle(task: QcTask): string {
+  const { check, name, items } = task;
+  if (!name) return items[0]?.detail?.trim() || check.label;
+  if (check.key === "critical_skills") {
+    const roles = items.filter((i) => i.role).length;
+    if (roles === 1) return `${name} — brak opisu w 1 roli`;
+    if (roles > 1) return `${name} — brak opisu w ${roles} rolach`;
+    return items.some((i) => i.fix === "ask_candidate")
+      ? `${name} — brak w CV i w oryginale`
+      : `${name} — brak w CV`;
+  }
+  if (check.key === "no_unsupported") {
+    const term = (items[0]?.term ?? name).trim() || name;
+    return `${term} — jest w CV, a nie ma tego w oryginale`;
+  }
+  return name;
+}
+
+/** Skąd rzecz pochodzi — plakietka na karcie. */
+export const QC_TASK_TAG: Record<string, string> = {
+  cv_present: "CV firmowe",
+  critical_skills: "umiejętność krytyczna",
+  no_unsupported: "zgodność z oryginałem",
+  client_rules: "reguły klienta",
+};
+
+// ── „Przepuść mimo QC" ───────────────────────────────────────────────────────
+
+/** Lustro `cv_qc.OVERRIDE_REASONS` (pilnuje `test_qc_override_reasons_mirror`). */
+export const QC_OVERRIDE_REASONS = [
+  { code: "client_short_cv", label: "Klient prosił o krótsze CV" },
+  { code: "confirmed_in_call", label: "Kandydat potwierdził to w rozmowie, w CV tego nie ma" },
+  { code: "requirement_not_applicable", label: "To wymaganie nie dotyczy tej roli" },
+  { code: "other", label: "Inny powód" },
+];
+
+export type QcOverrideReason = "client_short_cv" | "confirmed_in_call" | "requirement_not_applicable" | "other";
+
+export const QC_OVERRIDE_NOTE_MAX = 900;
+
+/** Zdanie błędu formularza obejścia albo `null`, gdy można wysłać. */
+export function qcOverrideError(reason: QcOverrideReason | null, note: string): string | null {
+  if (!reason) return "Wybierz powód.";
+  const clean = note.trim();
+  if (clean.length > QC_OVERRIDE_NOTE_MAX) return `Opis może mieć najwyżej ${QC_OVERRIDE_NOTE_MAX} znaków.`;
+  if (reason === "other" && !clean) return "Przy „Inny powód” napisz, dlaczego przepuszczasz.";
+  return null;
 }
 
 // ── Akcje naprawy ────────────────────────────────────────────────────────────

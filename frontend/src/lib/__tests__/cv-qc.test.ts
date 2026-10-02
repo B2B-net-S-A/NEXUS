@@ -3,15 +3,24 @@ import { describe, expect, it } from "vitest";
 import { groupCproByJob, type BoardTaskRow } from "@/lib/api/boardTasks";
 import type { QcCheck, QcCvBlock } from "@/lib/api/cvQc";
 import {
+  QC_OVERRIDE_REASONS,
   apiErrorCode,
+  blockingTasks,
   candidateQuestion,
   checkLevelFixes,
+  checkTasks,
+  countForm,
   highlightTerms,
+  notePreview,
   parseBoldMarkup,
   qcFailedStageId,
+  qcOverrideError,
   requirementAlternatives,
   roleGaps,
   segmentCv,
+  splitChecks,
+  taskTitle,
+  thingsLabel,
   unboldedTerms,
 } from "@/lib/cv-qc";
 
@@ -125,9 +134,158 @@ describe("braki z wyniku QC", () => {
     expect(segmentCv(blocks, gaps).map((s) => s.gap?.requirements ?? null)).toEqual([null, null, ["Kafka"]]);
   });
 
+  it("krawędź roli: krytyczne blokują, pozostałe must-have to uwaga", () => {
+    const gaps = roleGaps([
+      check({
+        key: "must_in_roles",
+        severity: "warning",
+        status: "fail",
+        items: [{ requirement: "Kafka", role: "Acme", role_index: 0, fix: "ai" }],
+      }),
+      check({
+        key: "critical_skills",
+        status: "fail",
+        items: [
+          { requirement: "Java", role: "Acme", role_index: 0, fix: "ai" },
+          // Brak w całym CV — pozycja bez roli nie zaznacza żadnego stanowiska.
+          { requirement: "Scala", fix: "ask_candidate" },
+        ],
+      }),
+      check({ key: "critical_skills", status: "pass", items: [{ requirement: "Go", role: "Acme", role_index: 1 }] }),
+    ]);
+    // Krytyczne pierwsze, niezależnie od kolejności sprawdzeń.
+    expect(gaps).toEqual([{ role: "Acme", roleIndex: 0, requirements: ["Java", "Kafka"], blocking: ["Java"] }]);
+  });
+
+  it("klauzula RODO jest własnym segmentem i kończy ostatnie stanowisko", () => {
+    const blocks: QcCvBlock[] = [
+      { kind: "h", section: "experience", runs: [{ t: "Doświadczenie", b: false }] },
+      { kind: "p", section: "role", runs: [{ t: "Programista", b: true }] },
+      { kind: "li", section: null, runs: [{ t: "Moduł przelewów.", b: false }] },
+      { kind: "p", section: "rodo", runs: [{ t: "Wyrażam zgodę na przetwarzanie…", b: false }] },
+      { kind: "p", section: null, runs: [{ t: "Stopka dokumentu", b: false }] },
+    ];
+    const gaps = roleGaps([
+      check({ key: "critical_skills", status: "fail", items: [{ requirement: "Java", role: "Acme", role_index: 0, fix: "ai" }] }),
+    ]);
+    const segments = segmentCv(blocks, gaps);
+    expect(segments.map((s) => [s.blocks.map((b) => b.section), s.gap?.requirements ?? null])).toEqual([
+      [["experience"], null],
+      [["role", null], ["Java"]],
+      [["rodo"], null],
+      [[null], null],
+    ]);
+  });
+
   it("pytanie do kandydata z terminem i rolą", () => {
     expect(candidateQuestion({ term: "Docker", role: "Allegro" })).toBe("Czy używał(a) Docker w Allegro?");
     expect(candidateQuestion({ requirement: "Docker" })).toBe("Czy używał(a) Docker? W którym projekcie?");
+  });
+});
+
+describe("co jest do poprawy, a co jest uwagą", () => {
+  const failing = [
+    check({ key: "cv_present", status: "pass" }),
+    check({
+      key: "critical_skills",
+      status: "fail",
+      items: [
+        { requirement: "Hibernate", role: "Alfa", role_index: 0, fix: "ai" },
+        { requirement: "Hibernate", role: "Beta", role_index: 1, fix: "ai" },
+        { requirement: "Scala", fix: "ask_candidate" },
+      ],
+    }),
+    check({ key: "no_unsupported", status: "fail", items: [{ requirement: "REST API", term: "REST API", fix: "remove_term" }] }),
+    check({
+      key: "client_rules",
+      status: "fail",
+      items: [
+        { detail: "Stawka w CV: „150 zł/h”. Usuń — stawek w CV nie wysyłamy." },
+        { detail: "Klient wymaga zrzutu zgody RODO pod CV — brak zrzutu.", fix: "upload_consent" },
+      ],
+    }),
+    check({ key: "must_in_cv", severity: "warning", status: "fail", items: [{ requirement: "Kafka" }] }),
+    check({ key: "years_header", severity: "warning", status: "manual" }),
+    check({ key: "no_such_blocking", status: "manual" }),
+    check({ key: "dates", severity: "warning", status: "skip" }),
+  ];
+
+  it("jedno wymaganie w kilku rolach to jedna rzecz; pozycje bez nazwy liczą się osobno (lustro `cv_qc._tasks`)", () => {
+    const tasks = blockingTasks(failing);
+    expect(tasks.map((t) => [t.check.key, t.name, t.items.length])).toEqual([
+      ["critical_skills", "Hibernate", 2],
+      ["critical_skills", "Scala", 1],
+      ["no_unsupported", "REST API", 1],
+      ["client_rules", null, 1],
+      ["client_rules", null, 1],
+    ]);
+    // Serwer policzyłby tu `blocking_failed = 5`.
+    expect(tasks).toHaveLength(5);
+    expect(new Set(tasks.map((t) => t.id)).size).toBe(5);
+  });
+
+  it("niezaliczone sprawdzenie bez pozycji to nadal jedna rzecz", () => {
+    expect(checkTasks(check({ key: "client_rules", status: "fail" }))).toHaveLength(1);
+  });
+
+  it("uwagi i sprawdzenia „ręcznie” nie blokują, niezależnie od wagi", () => {
+    const split = splitChecks(failing);
+    expect(split.notes.map((c) => c.key)).toEqual(["must_in_cv", "years_header", "no_such_blocking"]);
+    expect(split.passed.map((c) => c.key)).toEqual(["cv_present"]);
+    expect(split.skipped.map((c) => c.key)).toEqual(["dates"]);
+  });
+
+  it("tytuły kart mówią, co jest nie tak", () => {
+    expect(blockingTasks(failing).map(taskTitle)).toEqual([
+      "Hibernate — brak opisu w 2 rolach",
+      "Scala — brak w CV i w oryginale",
+      "REST API — jest w CV, a nie ma tego w oryginale",
+      "Stawka w CV: „150 zł/h”. Usuń — stawek w CV nie wysyłamy.",
+      "Klient wymaga zrzutu zgody RODO pod CV — brak zrzutu.",
+    ]);
+    const inSources = checkTasks(check({ key: "critical_skills", status: "fail", items: [{ requirement: "Go" }] }));
+    expect(taskTitle(inSources[0])).toBe("Go — brak w CV");
+    expect(taskTitle(checkTasks(check({ key: "cv_present", label: "CV firmowe jest przygotowane", status: "fail" }))[0])).toBe(
+      "CV firmowe jest przygotowane",
+    );
+  });
+
+  it("odmiana liczebników", () => {
+    expect([1, 2, 5].map(thingsLabel)).toEqual(["1 rzecz", "2 rzeczy", "5 rzeczy"]);
+    expect([1, 3, 5, 12, 22].map((n) => countForm(n, ["inna", "inne", "innych"]))).toEqual([
+      "1 inna",
+      "3 inne",
+      "5 innych",
+      "12 innych",
+      "22 inne",
+    ]);
+  });
+
+  it("linia pod uwagą: nazwy pozycji albo opis jedynej", () => {
+    const names = ["Kafka", "JUnit 5", "Liquibase", "Confluence", "Jira"].map((requirement) => ({ requirement }));
+    expect(notePreview(check({ items: names }))).toBe("Kafka, JUnit 5, Liquibase i 2 inne");
+    expect(notePreview(check({ items: names.slice(0, 2) }))).toBe("Kafka, JUnit 5");
+    expect(notePreview(check({ items: [{ detail: "Rola bez dat." }] }))).toBe("Rola bez dat.");
+    expect(notePreview(check({ items: [] }))).toBeNull();
+  });
+});
+
+describe("powody obejścia QC", () => {
+  it("cztery powody, ostatni to „Inny powód”", () => {
+    expect(QC_OVERRIDE_REASONS.map((r) => r.code)).toEqual([
+      "client_short_cv",
+      "confirmed_in_call",
+      "requirement_not_applicable",
+      "other",
+    ]);
+  });
+
+  it("opis wymagany tylko przy „Inny powód”, bez minimum znaków", () => {
+    expect(qcOverrideError(null, "")).toBe("Wybierz powód.");
+    expect(qcOverrideError("client_short_cv", "")).toBeNull();
+    expect(qcOverrideError("other", "  ")).toBe("Przy „Inny powód” napisz, dlaczego przepuszczasz.");
+    expect(qcOverrideError("other", "ok")).toBeNull();
+    expect(qcOverrideError("other", "x".repeat(901))).toMatch(/najwyżej 900 znaków/);
   });
 });
 

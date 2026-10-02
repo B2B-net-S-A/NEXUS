@@ -45,6 +45,7 @@ import {
 } from "@/components/v2/files/FilePreviewModal";
 import { CandidateActivitySummaryCard } from "@/components/v2/pages/CandidateActivitySummaryCard";
 import { CandidateNotesFactsCard } from "@/components/v2/pages/CandidateNotesFactsCard";
+import { CandidateScreeningAnswersCard } from "@/components/v2/candidate-profile/CandidateScreeningAnswersCard";
 import { CandidateRecentRecruitmentsCard } from "@/components/v2/pages/CandidateRecentRecruitmentsCard";
 import {
   formatEducationYears,
@@ -119,6 +120,9 @@ export function ProfileTab({
           cvSummary={candidate.ai_summary ?? null}
           title="Podsumowanie"
         />
+        {/* Co kandydat odpowiedział w rozmowach screeningowych — zaraz pod
+            podsumowaniem, żeby nie pytać o to samo w kolejnej rekrutacji. */}
+        <CandidateScreeningAnswersCard candidateId={candidate.id} />
         <CandidateNotesFactsCard candidateId={candidate.id} readOnly={readOnly} />
         <CvRow
           candidate={candidate}

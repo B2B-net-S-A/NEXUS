@@ -5,12 +5,16 @@ kontrola liczona przez kod. To, co dotąd sprawdzał Dominik, i to, co klient
 odsyłał jako błędy, jest listą sprawdzeń — deterministyczną, więc ten sam CV
 daje ten sam wynik przy każdym otwarciu:
 
-* blokujące: must-have w CV, pogrubione, opisane zdaniem w każdej roli,
-  w której są w oryginale; CV nie twierdzi niczego spoza oryginału i notatek;
-  lata doświadczenia z nagłówka zgodne z historią; każda rola ma daty;
-  reguły klienta (bez stawek i kontaktu kandydata, zrzut zgody RODO),
-* uwagi (nigdy nie blokują): pogrubione nice-to-have, pisownia technologii,
-  tytuł CV zgodny ze stanowiskiem.
+* blokujące (decyzja Artura 02.10.2026): CV firmowe istnieje; umiejętności
+  KRYTYCZNE rekrutacji (0–2, wybór Delivery Leada albo podpowiedź z historii —
+  ta sama reguła co bramka wyszukiwania) są w CV i opisane zdaniem w każdej
+  roli, w której są w oryginale; CV nie twierdzi niczego spoza oryginału
+  i notatek; reguły klienta (bez stawek i kontaktu kandydata, zrzut zgody RODO),
+* uwagi (nigdy nie blokują): pozostałe must-have w CV i w rolach, pogrubienia,
+  lata doświadczenia z nagłówka, daty ról, pisownia technologii, tytuł CV.
+
+Do 02.10.2026 blokowało każde must-have z maila klienta (także zdania, do 25
+pozycji) — QC nie przeszło w 7 z 8 par i wszystko szło obejściem.
 
 QC jest twardą bramką przed „CV wysłane”/Cpro (`assert_qc_passed`); obejście
 zatwierdza Delivery Lead albo admin z powodem (wiersz `cv_qc_runs` z
@@ -65,36 +69,64 @@ HEADER_BLOCKS = 6
 TITLE_BLOCKS = 3
 
 BLOCKING_KEYS = (
+    "cv_present",
+    "critical_skills",
+    "no_unsupported",
+    "client_rules",
+)
+# Uwagi nie zatrzymują wysyłki. `must_in_cv` i `must_in_roles` obejmują must
+# POZA krytycznymi (te ma `critical_skills`). `bold_unsupported` jest uwagą,
+# bo CV po angielsku z polskiego oryginału (i odwrotnie) pogrubia tłumaczenia,
+# których w oryginale nie ma dosłownie — blokada zatrzymywałaby poprawne CV.
+WARNING_KEYS = (
     "must_in_cv",
     "must_bolded",
     "must_in_roles",
-    "no_unsupported",
     "years_header",
     "dates",
-    "client_rules",
+    "nice_bolded",
+    "spelling",
+    "title_matches_role",
+    "bold_unsupported",
 )
-# `bold_unsupported` jest uwagą, nie blokadą: CV po angielsku z polskiego
-# oryginału (i odwrotnie) pogrubia tłumaczenia, których w oryginale nie ma
-# dosłownie — blokada zatrzymywałaby poprawne CV.
-WARNING_KEYS = ("nice_bolded", "spelling", "title_matches_role", "bold_unsupported")
 
 LABELS = {
-    "must_in_cv": "Wszystkie must-have są w CV",
-    "must_bolded": "Must-have są pogrubione",
-    "must_in_roles": "Must-have opisane w każdej roli z oryginału",
+    "cv_present": "CV firmowe jest przygotowane",
+    "critical_skills": "Umiejętności krytyczne są w CV i opisane w rolach",
     "no_unsupported": "CV nie twierdzi niczego spoza oryginału",
+    "client_rules": "Reguły klienta (stawki, kontakt, zgoda RODO)",
+    "must_in_cv": "Pozostałe wymagania klienta są w CV",
+    "must_bolded": "Must-have są pogrubione",
+    "must_in_roles": "Pozostałe wymagania opisane w rolach z oryginału",
     "years_header": "Lata doświadczenia zgodne z historią",
     "dates": "Każda rola ma daty",
-    "client_rules": "Reguły klienta (stawki, kontakt, zgoda RODO)",
     "nice_bolded": "Nice-to-have są pogrubione",
     "spelling": "Pisownia technologii",
     "title_matches_role": "Tytuł CV zgodny ze stanowiskiem",
     "bold_unsupported": "Pogrubienia mają pokrycie w oryginale",
 }
 
+# Powody obejścia QC do wyboru (02.10.2026). Minimum 10 znaków wolnego tekstu
+# dawało w historii wpisy w rodzaju „keksekqekndxjndxkqw”; gotowy powód niesie
+# więcej niż wymuszone zdanie. Lustro: `QC_OVERRIDE_REASONS` w
+# `frontend/src/lib/cv-qc.ts` (pilnuje `test_qc_override_reasons_mirror`).
+OVERRIDE_REASONS: dict[str, str] = {
+    "client_short_cv": "Klient prosił o krótsze CV",
+    "confirmed_in_call": "Kandydat potwierdził to w rozmowie, w CV tego nie ma",
+    "requirement_not_applicable": "To wymaganie nie dotyczy tej roli",
+    "other": "Inny powód",
+}
+
 # Sekcje generatora, które niosą szablon, a nie treść: nagłówek roli
-# (stanowisko + daty), pracodawca, etykiety („Obowiązki”) i „Rozważany na…”.
-_NON_CONTENT_SECTIONS = {"role", "employer", "duties_label", "considered"}
+# (stanowisko + daty), pracodawca, etykiety („Obowiązki”), „Rozważany na…”
+# i klauzula zgody RODO.
+_NON_CONTENT_SECTIONS = {
+    "role",
+    "employer",
+    "duties_label",
+    "considered",
+    dz.RODO_SECTION,
+}
 _TECH_SECTIONS = {"technologies", "skills"}
 
 
@@ -236,8 +268,9 @@ def cv_roles(blocks: list[Block], orig_roles: list[Role]) -> list[CvRole]:
         current = None
 
     for i, block in enumerate(blocks):
-        if block.kind == "h":
-            in_experience = block.section == "experience"
+        # Klauzula zgody stoi tuż po ostatnim stanowisku — kończy rolę i sekcję.
+        if block.kind == "h" or block.section == dz.RODO_SECTION:
+            in_experience = block.kind == "h" and block.section == "experience"
             close()
             continue
         if not in_experience:
@@ -269,9 +302,13 @@ def cv_roles(blocks: list[Block], orig_roles: list[Role]) -> list[CvRole]:
                 hits.append((i, orig))
                 break
     hits.sort(key=lambda h: h[0])
+    stop = next(
+        (i for i, b in enumerate(blocks) if b.section == dz.RODO_SECTION), len(blocks)
+    )
+    hits = [h for h in hits if h[0] < stop]
     out: list[CvRole] = []
     for n, (start, orig) in enumerate(hits):
-        end = hits[n + 1][0] if n + 1 < len(hits) else len(blocks)
+        end = min(hits[n + 1][0] if n + 1 < len(hits) else len(blocks), stop)
         idx = list(range(start, end))
         out.append(
             CvRole(
@@ -591,6 +628,27 @@ class QcInput:
     # None = reguła klienta nie wymaga zgody; "ok" | "missing" | "manual".
     consent: Optional[str] = None
     today: Optional[date] = None
+    # Podzbiór `must`: umiejętności krytyczne rekrutacji (`critical_requirements`).
+    critical: list[Requirement] = field(default_factory=list)
+
+
+def critical_requirements(
+    job: Any, must: list[Requirement]
+) -> tuple[list[Requirement], str]:
+    """Umiejętności krytyczne rekrutacji jako wymagania QC + skąd pochodzą.
+
+    Ta sama reguła co bramka wyszukiwania (`critical_skills.effective_critical`):
+    wybór Delivery Leada, a bez niego podpowiedź z historii. `MUST_GATE_MODE`
+    nie ma tu znaczenia — „każde must blokuje” to dokładnie to, co QC porzuciło
+    02.10.2026. Źródło: ``"dl"`` | ``"suggested"`` | ``"none"``.
+    """
+
+    from app.services.critical_skills import effective_critical, match_must_labels
+
+    resolution = effective_critical(job)
+    labels = set(match_must_labels(resolution.labels, [r.label for r in must]))
+    critical = [r for r in must if r.label in labels]
+    return critical, (resolution.source if critical else "none")
 
 
 def _check(
@@ -631,13 +689,75 @@ def _status(items: list[dict], *, manual: bool = False) -> str:
     return "manual" if manual else "pass"
 
 
+def _role_items(
+    reqs: list[Requirement],
+    blocks: list[Block],
+    orig_roles: list[Role],
+    roles: list[CvRole],
+    pairs: list[Optional[int]],
+) -> tuple[list[dict], int]:
+    """Braki wymagań w rolach CV, w których oryginał je wymienia.
+
+    Zwraca (pozycje, liczba sprawdzonych par wymaganie × rola). Pozycja
+    powstaje także wtedy, gdy wymagania nie ma w całym CV — z niej AI proponuje
+    zdanie do tej roli (`fixes_material`).
+    """
+
+    items: list[dict] = []
+    checked = 0
+    for req in reqs:
+        for orig, idx in zip(orig_roles, pairs):
+            if idx is None or not dz._found(orig.text, req):
+                continue  # rola pominięta w CV albo bez tego wymagania
+            checked += 1
+            role_blocks = [blocks[i] for i in roles[idx].blocks]
+            role_text = "\n".join(b.text for b in role_blocks)
+            if not dz._found(role_text, req):
+                detail = "Brak w tej roli, a w oryginale jest."
+            elif not described_in_blocks(req, role_blocks):
+                detail = (
+                    "Jest tylko na liście technologii — dopisz zdanie, co "
+                    "kandydat w tej roli z tym robił."
+                )
+            else:
+                continue
+            items.append(
+                _item(
+                    requirement=req.label,
+                    role=orig.label,
+                    detail=detail,
+                    fix="ai",
+                    role_index=idx,
+                )
+            )
+    return items, checked
+
+
+def _versioned_claim(text: str, req: Requirement) -> Optional[Requirement]:
+    """Wymaganie z wersją („Java 17”) wpisane w CV dosłownie.
+
+    Technologii szukamy bez wersji, ale wersja zapisana w CV jest twierdzeniem
+    o kandydacie — musi mieć pokrycie w źródłach tak samo jak nazwa.
+    """
+
+    from app.services.skill_normalize import strip_version
+
+    for alternative in req.alternatives:
+        if strip_version(alternative)[1] is None:
+            continue
+        literal = Requirement(label=alternative, alternatives=(alternative,))
+        if dz._found(text, literal):
+            return literal
+    return None
+
+
 def compute_checks(data: QcInput) -> list[dict]:
     """Wszystkie sprawdzenia QC w kolejności kontraktu. Czysta funkcja."""
 
     if not data.has_cv:
         checks = [
             _check(
-                "must_in_cv",
+                "cv_present",
                 "fail",
                 "Brak CV firmowego",
                 [
@@ -658,11 +778,65 @@ def compute_checks(data: QcInput) -> list[dict]:
     bold_joined = "\n".join(bolds)
     original = data.original_text or ""
     sources = original + "\n" + (data.notes_text or "")
-    checks: list[dict] = []
+    checks: list[dict] = [_check("cv_present", "pass", "OK")]
     bold_unsupported: list[dict] = []
+    critical_labels = {req.label for req in data.critical}
+    # Pozostałe must-have: uwagi, nigdy blokada.
+    rest = [req for req in data.must if req.label not in critical_labels]
+    orig_roles, roles, pairs = role_pairs(blocks, original, data.experience)
 
-    # 1. Must-have w CV.
-    in_cv = {req.label: bool(dz._found(gen_text, req)) for req in data.must}
+    # `in_cv` dla WSZYSTKICH must — czyta je też sprawdzenie pogrubień.
+    in_cv = {
+        req.label: bool(dz._found(gen_text, req))
+        for req in (*data.must, *data.critical)
+    }
+
+    # 1. Umiejętności krytyczne: w CV i opisane w rolach z oryginału.
+    if not data.critical:
+        checks.append(
+            _check(
+                "critical_skills",
+                "skip",
+                "Rekrutacja nie ma umiejętności krytycznych",
+            )
+        )
+    else:
+        critical_items, _ = _role_items(data.critical, blocks, orig_roles, roles, pairs)
+        with_role = {item["requirement"] for item in critical_items}
+        for req in data.critical:
+            if in_cv[req.label] or req.label in with_role:
+                continue
+            in_sources = bool(dz._found(sources, req))
+            critical_items.append(
+                _item(
+                    requirement=req.label,
+                    detail=(
+                        "Brak w CV — jest w oryginale albo w notatkach, dopisz "
+                        "w edytorze CV."
+                        if in_sources
+                        else "Brak w CV i w oryginale — zapytaj kandydata."
+                    ),
+                    fix=None if in_sources else "ask_candidate",
+                )
+            )
+        failing = {item["requirement"] for item in critical_items}
+        # Role nierozpoznane (CV wklejone ręcznie, PDF): obecność w CV da się
+        # potwierdzić, opisu w rolach — nie.
+        roles_unknown = bool(orig_roles) and not roles
+        checks.append(
+            _check(
+                "critical_skills",
+                _status(critical_items, manual=roles_unknown),
+                (
+                    "Nie rozpoznano ról w CV — sprawdź ręcznie"
+                    if roles_unknown and not critical_items
+                    else f"{len(data.critical) - len(failing)}/{len(data.critical)}"
+                ),
+                critical_items,
+            )
+        )
+
+    # 2. Pozostałe must-have w CV.
     missing = [
         _item(
             requirement=req.label,
@@ -673,22 +847,32 @@ def compute_checks(data: QcInput) -> list[dict]:
             ),
             fix="ai" if original and dz._found(original, req) else "ask_candidate",
         )
-        for req in data.must
+        for req in rest
         if not in_cv[req.label]
     ]
-    if not data.must:
-        checks.append(_check("must_in_cv", "skip", "Rekrutacja nie ma must-have"))
+    if not rest:
+        checks.append(
+            _check(
+                "must_in_cv",
+                "skip",
+                (
+                    "Brak wymagań poza krytycznymi"
+                    if data.must
+                    else "Rekrutacja nie ma must-have"
+                ),
+            )
+        )
     else:
         checks.append(
             _check(
                 "must_in_cv",
                 _status(missing),
-                f"{len(data.must) - len(missing)}/{len(data.must)}",
+                f"{len(rest) - len(missing)}/{len(rest)}",
                 missing,
             )
         )
 
-    # 2. Must-have pogrubione (tylko te, które w CV są).
+    # 3. Must-have pogrubione (tylko te, które w CV są; razem z krytycznymi).
     present = [req for req in data.must if in_cv[req.label]]
     if not present:
         checks.append(_check("must_bolded", "skip", "Brak must-have w CV"))
@@ -716,9 +900,20 @@ def compute_checks(data: QcInput) -> list[dict]:
             )
         )
 
-    # 3. Must-have opisane w każdej roli, w której są w oryginale.
-    orig_roles, roles, pairs = role_pairs(blocks, original, data.experience)
-    if not data.must or not orig_roles:
+    # 4. Pozostałe must-have opisane w każdej roli, w której są w oryginale.
+    if not rest:
+        checks.append(
+            _check(
+                "must_in_roles",
+                "skip",
+                (
+                    "Brak wymagań poza krytycznymi"
+                    if data.must
+                    else "Rekrutacja nie ma must-have"
+                ),
+            )
+        )
+    elif not orig_roles:
         checks.append(_check("must_in_roles", "skip", "Brak ról w historii kandydata"))
     elif not roles:
         checks.append(
@@ -727,33 +922,7 @@ def compute_checks(data: QcInput) -> list[dict]:
             )
         )
     else:
-        role_items: list[dict] = []
-        checked = 0
-        for req in data.must:
-            for orig, idx in zip(orig_roles, pairs):
-                if idx is None or not dz._found(orig.text, req):
-                    continue  # rola pominięta w CV albo bez tego wymagania
-                checked += 1
-                role_blocks = [blocks[i] for i in roles[idx].blocks]
-                role_text = "\n".join(b.text for b in role_blocks)
-                if not dz._found(role_text, req):
-                    detail = "Brak w tej roli, a w oryginale jest."
-                elif not described_in_blocks(req, role_blocks):
-                    detail = (
-                        "Jest tylko na liście technologii — dopisz zdanie, co "
-                        "kandydat w tej roli z tym robił."
-                    )
-                else:
-                    continue
-                role_items.append(
-                    _item(
-                        requirement=req.label,
-                        role=orig.label,
-                        detail=detail,
-                        fix="ai",
-                        role_index=idx,
-                    )
-                )
+        role_items, checked = _role_items(rest, blocks, orig_roles, roles, pairs)
         checks.append(
             _check(
                 "must_in_roles",
@@ -767,7 +936,7 @@ def compute_checks(data: QcInput) -> list[dict]:
             )
         )
 
-    # 4. Nic spoza oryginału i notatek.
+    # 5. Nic spoza oryginału i notatek.
     if not original.strip():
         checks.append(
             _check(
@@ -781,7 +950,16 @@ def compute_checks(data: QcInput) -> list[dict]:
         must_labels = {r.label for r in data.must}
         for req in [*data.must, *data.nice]:
             term = match_in(gen_text, req)
-            if term is None or dz._found(sources, req):
+            if term is None:
+                continue
+            # Wersja wpisana w CV wprost („Java 17”) musi stać w źródłach
+            # dosłownie; sama nazwa technologii wystarcza bez wersji.
+            versioned = _versioned_claim(gen_text, req)
+            if versioned is not None:
+                if dz._found(sources, versioned):
+                    continue
+                term = match_in(gen_text, versioned) or term
+            elif dz._found(sources, req):
                 continue
             is_must = req.label in must_labels
             unsupported.append(
@@ -829,7 +1007,7 @@ def compute_checks(data: QcInput) -> list[dict]:
             )
         )
 
-    # 5. Lata w nagłówku.
+    # 6. Lata w nagłówku.
     claim = header_years(blocks)
     if claim is None:
         checks.append(_check("years_header", "skip", "Brak lat w nagłówku CV"))
@@ -866,7 +1044,7 @@ def compute_checks(data: QcInput) -> list[dict]:
                 )
             )
 
-    # 6. Daty każdej roli.
+    # 7. Daty każdej roli.
     if not roles:
         checks.append(_check("dates", "skip", "Nie rozpoznano ról w CV"))
     else:
@@ -884,7 +1062,7 @@ def compute_checks(data: QcInput) -> list[dict]:
             )
         )
 
-    # 7. Reguły klienta.
+    # 8. Reguły klienta.
     rule_items: list[dict] = []
     for quote in rate_mentions(blocks):
         rule_items.append(
@@ -992,14 +1170,37 @@ def compute_checks(data: QcInput) -> list[dict]:
                 bold_unsupported,
             )
         )
+    order = {key: n for n, key in enumerate((*BLOCKING_KEYS, *WARNING_KEYS))}
+    checks.sort(key=lambda check: order[check["key"]])
     return checks
 
 
+def _tasks(check: dict) -> int:
+    """Ile rzeczy do poprawy niesie niezaliczone sprawdzenie.
+
+    Jedno wymaganie (także w kilku rolach) to jedna rzecz; pozycja bez
+    wymagania liczy się sama. Lustro: `blockingTasks` w
+    `frontend/src/lib/cv-qc.ts` — okno QC, chip na Tablicy i komunikat bramki
+    podają tę samą liczbę.
+    """
+
+    names = {
+        item.get("requirement") or item.get("term") or f"#{n}"
+        for n, item in enumerate(check["items"])
+    }
+    return max(1, len(names))
+
+
 def summarize(checks: list[dict]) -> tuple[bool, int, int]:
-    """(passed, blocking_failed, warnings_count)."""
+    """(passed, blocking_failed, warnings_count).
+
+    ``blocking_failed`` liczy RZECZY do poprawy (`_tasks`), nie sprawdzenia.
+    """
 
     blocking = sum(
-        1 for c in checks if c["severity"] == "blocking" and c["status"] == "fail"
+        _tasks(c)
+        for c in checks
+        if c["severity"] == "blocking" and c["status"] == "fail"
     )
     warnings = sum(
         1 for c in checks if c["severity"] == "warning" and c["status"] == "fail"
@@ -1087,7 +1288,9 @@ async def _consent_state(db: AsyncSession, src: dz.ReviewSources) -> Optional[st
 
 
 def _qc_input(src: dz.ReviewSources, notes: str, consent: Optional[str]) -> QcInput:
+    critical, _ = critical_requirements(src.job, src.must)
     return QcInput(
+        critical=critical,
         must=src.must,
         nice=src.nice,
         blocks=src.blocks,
@@ -1229,6 +1432,7 @@ async def run_qc(
 
     src, checks, _ = await evaluate(db, stage)
     passed, blocking_failed, warnings_count = summarize(checks)
+    critical, critical_source = critical_requirements(src.job, src.must)
     run_id: Optional[int] = None
     computed_at = datetime.now(timezone.utc)
     if persist:
@@ -1275,13 +1479,33 @@ async def run_qc(
         "client_request": {
             "must": [r.label for r in src.must],
             "nice": [r.label for r in src.nice],
+            "critical": [r.label for r in critical],
+            "critical_source": critical_source,
         },
         "checks": checks,
     }
 
 
+def override_reason_text(code: Optional[str], note: str) -> str:
+    """Powód obejścia do zapisu: etykieta gotowego powodu + opcjonalny opis.
+
+    „Inny powód” i brak kodu (starszy front) = sam opis.
+    """
+
+    note = " ".join((note or "").split())
+    if not code or code == "other" or code not in OVERRIDE_REASONS:
+        return note
+    label = OVERRIDE_REASONS[code]
+    return f"{label} — {note}" if note else label
+
+
 async def record_override(
-    db: AsyncSession, stage: CandidateStage, *, user_id: int, reason: str
+    db: AsyncSession,
+    stage: CandidateStage,
+    *,
+    user_id: int,
+    reason: str,
+    reason_code: Optional[str] = None,
 ) -> dict:
     """Obejście QC przez Delivery Leada/admina — wiersz przebiegu + Activity.
 
@@ -1308,6 +1532,7 @@ async def record_override(
                 "checks": checks,
                 "checks_hash": _checks_hash(checks),
                 "cv_source": (src.generated or {}).get("source"),
+                "override_reason_code": reason_code,
             },
             override_reason=reason,
             override_by_user_id=user_id,
@@ -1325,6 +1550,7 @@ async def record_override(
                 "candidate_id": src.candidate.id,
                 "job_id": src.job.id,
                 "reason": reason,
+                "reason_code": reason_code,
                 "blocking_failed": blocking_failed,
             },
         )
@@ -1406,14 +1632,6 @@ def gate_applies(
     if target_column != "cv_sent" and not target_is_cpro:
         return False
     return current_column in ("new", "screening", "verified", "cv_qc")
-
-
-def _checks_word(n: int) -> str:
-    if n == 1:
-        return "1 sprawdzenie"
-    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
-        return f"{n} sprawdzenia"
-    return f"{n} sprawdzeń"
 
 
 async def run_after_move(stage_id: int, user_id: Optional[int]) -> None:
@@ -1506,7 +1724,7 @@ async def assert_qc_passed(
         status_code=409,
         detail={
             "code": "CV_QC_FAILED",
-            "message": f"CV nie przeszło QC: {_checks_word(count)} do poprawy.",
+            "message": f"CV nie przeszło QC — do poprawy: {count}.",
             "blocking_failed": result["blocking_failed"],
             "stage_id": stage.id,
             "candidate_id": candidate_id,
@@ -1557,7 +1775,13 @@ def fixes_material(src: dz.ReviewSources, checks: list[dict], notes: str) -> dic
     orig_by_label = {r.label: r for r in orig_roles}
     req_by_label = {r.label: r for r in src.must}
     items: list[dict] = []
-    for item in (by_key.get("must_in_roles") or {}).get("items") or []:
+    role_gaps = [
+        (key, item)
+        # Krytyczne pierwsze: przy limicie propozycji mają pierwszeństwo.
+        for key in ("critical_skills", "must_in_roles")
+        for item in (by_key.get(key) or {}).get("items") or []
+    ]
+    for check_key, item in role_gaps:
         idx = item.get("role_index")
         req = req_by_label.get(item.get("requirement") or "")
         if idx is None or req is None or not 0 <= idx < len(roles):
@@ -1579,6 +1803,7 @@ def fixes_material(src: dz.ReviewSources, checks: list[dict], notes: str) -> dic
                 "cv_role_label": cv_role.role.label,
                 "cv_points": points,
                 "original_role": (orig.text if orig else "")[:PROMPT_ROLE_MAX],
+                "check_key": check_key,
             }
         )
     return {
@@ -1669,7 +1894,7 @@ def parse_fixes(raw: str, material: dict, digest: str) -> list[dict]:
         out.append(
             {
                 "id": f"f{len(out) + 1}-{digest[:12]}",
-                "check_key": "must_in_roles",
+                "check_key": item.get("check_key", "must_in_roles"),
                 "requirement": item["requirement"],
                 "role": item["role"],
                 "role_index": item["role_index"],
@@ -1711,7 +1936,8 @@ def _no_fixes(status: str) -> dict:
 async def generate_fixes(
     db: AsyncSession, stage: CandidateStage, *, user_id: int
 ) -> dict:
-    """Propozycje zdań dla braków `must_in_roles`. Nigdy nie rzuca.
+    """Propozycje zdań dla braków w rolach (`critical_skills`, `must_in_roles`).
+    Nigdy nie rzuca.
 
     Pamięć per (wiersz etapu, skrót wejścia) w `dz_review_hints` — ten sam CV
     i te same braki czytają zapamiętany wynik zamiast płacić drugi raz.
@@ -2041,6 +2267,8 @@ def bold_all(html: str, requirements: list[Requirement]) -> tuple[str, int]:
 
 
 _SEP = r"\s*[,;/|·]\s*"
+# Numer wersji tuż za nazwą na liście technologii („15”, „v3.4+”, „8.x”).
+_VERSION_TAIL = r"(?:\s+v?\d[\w.]*\+?)?"
 
 
 def remove_term(html: str, term: str) -> tuple[str, int]:
@@ -2074,7 +2302,9 @@ def remove_term(html: str, term: str) -> tuple[str, int]:
         text = tok["text"]
         changed = 0
         for pattern in patterns:
-            body = pattern.pattern
+            # Wymagania szukamy bez wersji, więc „Angular” z „Angular 15”
+            # schodzi z listy razem z numerem — sama liczba by została.
+            body = pattern.pattern + _VERSION_TAIL
             text, n1 = re.subn(_SEP + f"(?:{body})", "", text, flags=pattern.flags)
             text, n2 = re.subn(f"(?:{body})" + _SEP, "", text, flags=pattern.flags)
             changed += n1 + n2

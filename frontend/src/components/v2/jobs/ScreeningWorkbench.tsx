@@ -787,24 +787,37 @@ export function ScreeningWorkbench({
                 />
               ) : (
                 <Form methods={screening.methods} onSubmit={screening.onSubmit}>
-                  {selected && (
+                  {selected ? (
                     <ScreeningReassignSuggestions
                       key={selected.item.id}
                       stageId={selected.item.id}
                       questions={screening.questions}
                       methods={screening.methods}
+                      saved={screening.existing}
                       readOnly={readOnly}
+                    >
+                      {(renderQuestionExtra) => (
+                        <ScreeningFormFields
+                          questions={screening.questions}
+                          methods={screening.methods}
+                          renderQuestionExtra={renderQuestionExtra}
+                        />
+                      )}
+                    </ScreeningReassignSuggestions>
+                  ) : (
+                    <ScreeningFormFields
+                      questions={screening.questions}
+                      methods={screening.methods}
                     />
                   )}
-                  <ScreeningFormFields
-                    questions={screening.questions}
-                    methods={screening.methods}
-                  />
                   {screening.submitError && (
                     <ScreeningSubmitError message={screening.submitError} />
                   )}
                   {!readOnly && (
-                    <div className="flex justify-end border-t border-border pt-3">
+                    <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border pt-3">
+                      <p className="mr-auto text-xs text-muted-foreground">
+                        Odpowiedzi zobaczysz potem w profilu kandydata.
+                      </p>
                       <Button
                         type="submit"
                         loading={screening.submitMut.isPending}

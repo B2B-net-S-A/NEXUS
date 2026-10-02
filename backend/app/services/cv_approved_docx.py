@@ -39,6 +39,7 @@ from app.services.cv_generator_b2b.docx_renderer import (
     style_education_row,
     TRANSLATIONS,
 )
+from app.services.cv_rodo_clause import is_rodo_text
 
 RENDERER_VERSION = "approved-html-2"
 BLOCKS = {
@@ -105,11 +106,6 @@ def _section_titles() -> dict[str, str]:
 _SECTION_TITLES = _section_titles()
 _DUTIES_LABELS = {_norm_title(t["responsibilities"]) for t in TRANSLATIONS.values()}
 _TECH_LABELS = tuple(t["technologies"] for t in TRANSLATIONS.values())
-# Older approved HTML lost the consent marker in the editor; the clause is
-# still recognisable by its fixed opening words.
-_RODO_OPENINGS = tuple(
-    _norm_title(" ".join(t["rodo"].split()[:5])) for t in TRANSLATIONS.values()
-)
 
 
 class ApprovedDocxError(ValueError):
@@ -514,7 +510,9 @@ def render_approved_docx(
         return (
             node.get("data-cv-section") == "rodo"
             or "rodo" in node.get("class", "").split()
-            or _norm_title("".join(node.itertext())).startswith(_RODO_OPENINGS)
+            # Older approved HTML lost the consent marker in the editor; the
+            # clause is still recognisable by its fixed opening words.
+            or is_rodo_text("".join(node.itertext()))
         )
 
     def ruled():

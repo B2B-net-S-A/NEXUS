@@ -28,7 +28,7 @@ Wspólne przypadki: `frontend/src/lib/__fixtures__/board-stage-cases.json` (już
 {
   "stage_id": 1, "candidate_id": 2, "candidate_name": "Anna Kowalczyk",
   "job_id": 3, "job_title": "Senior Java Developer", "client_name": "PKO BP",
-  "passed": false, "blocking_failed": 3, "warnings_count": 1,
+  "passed": false, "blocking_failed": 2, "warnings_count": 1,
   "override": null,
   "run_id": 10, "computed_at": "2026-09-24T10:00:00Z",
   "cv": {"source": "branded_draft|branded_finalized|generated|document", "editable": true,
@@ -36,24 +36,39 @@ Wspólne przypadki: `frontend/src/lib/__fixtures__/board-stage-cases.json` (już
          "bold_known": true, "updated_at": "…",
          "blocks": [{"kind": "h|p|li", "section": "role|experience|…|null", "runs": [{"t": "tekst", "b": true}]}]},
   "original_cv": {"source": "snapshot|profile_text|null", "filename": "cv.pdf", "text": "…"},
-  "client_request": {"must": ["Java"], "nice": ["Kubernetes"]},
+  "client_request": {"must": ["Java", "Kafka"], "nice": ["Kubernetes"],
+                     "critical": ["Java"], "critical_source": "dl|suggested|none"},
   "checks": [
-    {"key": "must_in_cv", "label": "Wszystkie must-have są w CV", "severity": "blocking",
-     "status": "pass|fail|manual|skip", "summary": "4/4",
+    {"key": "critical_skills", "label": "Umiejętności krytyczne są w CV i opisane w rolach", "severity": "blocking",
+     "status": "pass|fail|manual|skip", "summary": "1/2",
      "items": [{"requirement": "Kafka", "role": "Allegro — Senior Java Dev", "detail": "…", "fix": "bold_all|generate_cv|upload_consent|ask_candidate|remove_term|ai|spelling|null", "term": "Docker"}]}
   ]
 }
 ```
 `override` = `{"reason": "…", "by_name": "Piotr Zając", "at": "…"}` gdy DL/admin przepuścił parę mimo QC.
-Klucze checków (kolejność): blokujące `must_in_cv`, `must_bolded`, `must_in_roles`, `no_unsupported`,
-`years_header`, `dates`, `client_rules`; uwagi `nice_bolded`, `spelling`, `title_matches_role`, `bold_unsupported` (pogrubienia spoza oryginału — uwaga, bo CV EN z oryginału PL pogrubia tłumaczenia).
-`status: "manual"` = nie da się policzyć (np. pogrubienia w PDF) — nie blokuje. Bez CV: `must_in_cv` = fail z `fix: "generate_cv"`, `cv: null`.
-`passed` = brak blokujących `fail`. 404 bez etapu, 403 bez dostępu.
+
+**Od 02.10.2026 blokują cztery sprawdzenia, reszta to uwagi** (decyzja Artura; do tej daty siedem
+blokowało, a `must_in_cv` wymagało każdego must z maila klienta i padało w 7 z 8 par).
+Klucze checków (kolejność): blokujące `cv_present` (CV firmowe istnieje), `critical_skills`
+(umiejętności krytyczne są w CV i opisane w rolach, w których wymienia je oryginał), `no_unsupported`,
+`client_rules`; uwagi `must_in_cv` i `must_in_roles` (must POZA krytycznymi), `must_bolded`,
+`years_header`, `dates`, `nice_bolded`, `spelling`, `title_matches_role`, `bold_unsupported`
+(pogrubienia spoza oryginału — uwaga, bo CV EN z oryginału PL pogrubia tłumaczenia).
+Krytyczne = wybór DL w Championie (`critical_source: "dl"`), a bez niego podpowiedź z historii
+(`"suggested"`) — ta sama reguła co bramka wyszukiwania (`critical_skills.effective_critical`);
+bez krytycznych (`"none"`) sprawdzenie ma `status: "skip"`. QC nie czyta `MUST_GATE_MODE`.
+Wymaganie z wersją („Spring Boot 3.4+”) szuka w CV nazwy bez wersji; wersja wpisana wprost
+w CV, której nie ma w oryginale ani notatkach, nadal pada w `no_unsupported`.
+`status: "manual"` = nie da się policzyć (np. pogrubienia w PDF) — nie blokuje. Bez CV: `cv_present` = fail z `fix: "generate_cv"`, `cv: null`.
+`passed` = brak blokujących `fail`. `blocking_failed` = liczba RZECZY do poprawy (różne wymagania
+w niezaliczonych sprawdzeniach blokujących) — tę samą liczbę pokazują chip na Tablicy, okno QC
+i komunikat 409. 404 bez etapu, 403 bez dostępu.
+Blok CV z klauzulą zgody RODO ma `section: "rodo"` i zamyka ostatnią rolę.
 
 `POST /api/pipeline/stages/{stage_id}/qc/fixes` — propozycje poprawek (GPT-6 Luna, `AIFeatureKey.dz_review`), pamiętane per skrót wejścia. Nigdy 5xx:
 ```json
 {"status": "ok|unavailable|no_cv|not_editable", "cached": false,
- "fixes": [{"id": "f1", "check_key": "must_in_roles", "requirement": "Java", "role": "ING Tech — Java Developer",
+ "fixes": [{"id": "f1", "check_key": "critical_skills|must_in_roles", "requirement": "Java", "role": "ING Tech — Java Developer",
             "current_text": "Rozwijała moduł przelewów SEPA w zespole 8 osób." , "proposed_text": "Rozwijała moduł przelewów SEPA w **Java 11** i **Spring Boot** …",
             "source": "original|notes", "source_quote": "SEPA transfers module (Java 11, Spring Boot)"}]}
 ```
@@ -65,10 +80,10 @@ Poprawka bez cytatu obecnego w oryginale/notatkach jest odrzucana przez serwer.
 → zmienia szkic CV firmowego pary (podpina gotowe CV z generatora jako szkic, gdy trzeba; zatwierdzone CV wraca do szkicu) i zwraca świeży wynik QC (kształt jak GET).
 409 `{"code": "CV_NOT_EDITABLE", "message": "…"}` gdy CV to plik spoza NEXUSA (Word/PDF). 422 dla nieznanej poprawki.
 
-`POST /api/pipeline/stages/{stage_id}/qc/override` body `{"reason": "…"}` (≥ 10 znaków) — tylko admin i Delivery Lead (403 dla reszty). Zapis w historii (`Activity` `cv_qc_override`). Zwraca wynik QC z `override`.
+`POST /api/pipeline/stages/{stage_id}/qc/override` body `{"reason_code": "client_short_cv|confirmed_in_call|requirement_not_applicable|other", "reason": "opcjonalny opis"}` — tylko admin i Delivery Lead (403 dla reszty). Opis jest wymagany wyłącznie przy `other` (i przy żądaniu bez kodu — stary front wysyłający samo `{"reason": "…"}` działa dalej); minimum 10 znaków zniesione 02.10.2026 (powodem bywał ciąg losowych liter). Nieznany kod = 422. `override.reason` to etykieta powodu z opcjonalnym opisem, kod trafia do `Activity.details.reason_code` (`cv_qc_override`). Lista powodów ma lustro `cv_qc.OVERRIDE_REASONS` ↔ `QC_OVERRIDE_REASONS` (`frontend/src/lib/cv-qc.ts`), pilnowane testem. Zwraca wynik QC z `override`.
 
 Bramka: `POST /api/pipeline/move` i `/bulk-move` na etap z kolumny `cv_sent` albo na etap Cpro (znacznik `cpro`), gdy para stoi dziś w kolumnie przed `cv_sent`, liczy QC i odmawia:
-`409 {"detail": {"code": "CV_QC_FAILED", "message": "CV nie przeszło QC: 3 sprawdzenia do poprawy.", "blocking_failed": 3, "stage_id": <etap do otwarcia QC>}}`
+`409 {"detail": {"code": "CV_QC_FAILED", "message": "CV nie przeszło QC — do poprawy: 2.", "blocking_failed": 2, "stage_id": <etap do otwarcia QC>}}`
 chyba że QC przechodzi albo jest `override`. Wyłącznik `CV_QC_GATE_ENABLED` (domyślnie `true`).
 
 Tablica (`GET` kanbana): każda karta dostaje `qc: {"status": "passed|failed|overridden|unchecked", "blocking_failed": 0}` (najnowszy przebieg pary, jedno zapytanie hurtowe).

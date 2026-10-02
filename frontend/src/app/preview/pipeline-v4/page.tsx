@@ -13,16 +13,32 @@
  * lokalnie) — sekcje, które same pobierają dane (propozycje na górze Nowych),
  * pokazują wtedy swój stan błędu, a nie przerzucają na /login.
  * `?as=dl` — patrzy Delivery Lead (widzi „Przejmij” na cudzej blokadzie).
+ *
+ * Screening (02.10.2026): arkusz Zielińskiego ma podpowiedzi z dwóch
+ * wcześniejszych rozmów, Dąbrowskiej — z przepięcia (odpowiedź i notatka),
+ * a dok Lisa pokazuje zapisane pytania z odpowiedziami. Wszystko z zasianego
+ * cache'u (`updatedAt` w przyszłości), bez zapytań.
  */
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { api } from "@/lib/api";
+import {
+  api,
+  type ScreeningAnswers,
+  type ScreeningReassignContext,
+  type ScreeningReassignSuggestion,
+  type ScreeningReassignSuggestionsResponse,
+  type StageScreeningResponse,
+} from "@/lib/api";
 import { ToastProvider } from "@/components/Toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
+import {
+  reassignContextQueryKey,
+  screeningSuggestionsQueryKey,
+} from "@/components/v2/jobs/ScreeningReassignSuggestions";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { screenedOutQueryKey } from "@/lib/api/applicationScreenings";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -100,6 +116,7 @@ function columns(viewerId: number): KanbanColumn[] {
         added_to_job_by_name: "Piotr Szkicowy",
         can_take: true,
         days_in_stage: 2,
+        screening_done: true,
       }),
       card("Ewa", "Dąbrowska", {
         entry_source: "reassign",
@@ -204,6 +221,141 @@ function columns(viewerId: number): KanbanColumn[] {
   ];
 }
 
+const daysAgo = (days: number): string => new Date(Date.now() - days * 24 * HOUR).toISOString();
+
+const SCREENING_QUESTIONS = [
+  {
+    id: "q1",
+    question: "Czy pracowałeś na mikroserwisach? Na jakiej skali?",
+    ideal_answer: "Co najmniej 2 lata, kilka usług na produkcji.",
+    deal_breaker: "Brak doświadczenia produkcyjnego.",
+  },
+  { id: "q2", question: "Od kiedy możesz zacząć?", ideal_answer: "Do 4 tygodni.", deal_breaker: "" },
+  {
+    id: "q3",
+    question: "Ile dni w tygodniu możesz być w biurze w Warszawie?",
+    ideal_answer: "2 dni.",
+    deal_breaker: "Tylko zdalnie.",
+  },
+];
+
+/** Zapisany arkusz (dok Lisa): pytania z odpowiedziami, pominięte, sprawdzone w rozmowie. */
+const SAVED_SHEET: ScreeningAnswers = {
+  answers: [
+    {
+      question_id: "q1",
+      question_text: SCREENING_QUESTIONS[0].question,
+      response: "Tak, 4 lata. 20 usług w systemie rozliczeń, Kafka i Spring Boot.",
+      deal_breaker_hit: false,
+    },
+    {
+      question_id: "q2",
+      question_text: SCREENING_QUESTIONS[1].question,
+      response: "Od 1 listopada.",
+      deal_breaker_hit: false,
+    },
+    {
+      question_id: "q3",
+      question_text: SCREENING_QUESTIONS[2].question,
+      response: "",
+      deal_breaker_hit: false,
+      skipped: true,
+    },
+  ],
+  experience_checks: [{ kind: "domains", name: "Bankowość", status: "confirmed", note: "3 lata" }],
+  overall_fit: "fit",
+  notes: "Konkretny, podaje liczby.",
+  internal_note: null,
+  answered_at: daysAgo(1),
+  answered_by: 7,
+};
+
+const HISTORY_HINTS: ScreeningReassignSuggestion[] = [
+  {
+    question_id: "q1",
+    text: "Tak, 3 lata: 12 usług w systemie płatności, Kafka i Spring Boot.",
+    source_kind: "answer",
+    source_quote: "12 usług w systemie płatności",
+    confidence: "high",
+    source: { job_id: 4100, job_title: "Java Developer", client_name: "Telekom Demo", date: daysAgo(49) },
+    source_question: "Mikroserwisy — ile lat i jaka skala?",
+  },
+  {
+    question_id: "q3",
+    text: "Dwa dni w tygodniu, w Warszawie bez problemu.",
+    source_kind: "answer",
+    source_quote: "Dwa dni w tygodniu",
+    confidence: "high",
+    source: { job_id: 4212, job_title: "Backend Engineer", client_name: "Ubezpieczenia Demo", date: daysAgo(12) },
+    source_question: "Ile dni w biurze?",
+  },
+];
+
+const REASSIGN_SOURCE = { job_id: 4100, job_title: "Java Developer · Bank Kappa", date: daysAgo(12) };
+
+const REASSIGN_HINTS: ScreeningReassignSuggestion[] = [
+  {
+    question_id: "q1",
+    text: "Tak, 5 lat. Ostatnio 30 usług, sama prowadziła migrację z monolitu.",
+    source_kind: "answer",
+    source_quote: "30 usług",
+    confidence: "high",
+    source: { job_id: 4100, job_title: "Java Developer", client_name: "Bank Kappa", date: daysAgo(12) },
+    source_question: SCREENING_QUESTIONS[0].question,
+  },
+  {
+    question_id: "q2",
+    text: "Dostępna od połowy października.",
+    source_kind: "note",
+    source_quote: "kończy projekt 15.10, potem wolna",
+    confidence: "medium",
+    source: null,
+    source_question: null,
+  },
+];
+
+/** Zasiewa arkusz, kontekst wcześniejszych rozmów i podpowiedzi dla każdej karty. */
+function seedScreening(client: QueryClient, cols: KanbanColumn[]) {
+  // Hooki mają własne `staleTime` — bez daty w przyszłości odświeżałyby dane.
+  const fresh = { updatedAt: Date.now() + 365 * 24 * HOUR };
+  for (const column of cols) {
+    for (const item of column.items) {
+      const history = item.lastname === "Zieliński";
+      const reassign = item.lastname === "Dąbrowska";
+      const sheet: StageScreeningResponse = {
+        stage_id: item.id,
+        candidate_id: item.candidate_id,
+        job_id: JOB_ID,
+        champion_profile: { screening_questions: SCREENING_QUESTIONS } as never,
+        screening_answers: item.lastname === "Lis" ? SAVED_SHEET : null,
+      };
+      client.setQueryData(["screening-v2", item.id], sheet, fresh);
+      client.setQueryData(["pipeline-stage-screening", item.id], sheet, fresh);
+      const context: ScreeningReassignContext = {
+        stage_id: item.id,
+        candidate_id: item.candidate_id,
+        available: history || reassign,
+        kind: reassign ? "reassign" : history ? "history" : null,
+        source: reassign ? REASSIGN_SOURCE : null,
+        previous_answers_count: history ? 5 : reassign ? 3 : 0,
+        earlier_conversations: history ? 2 : reassign ? 1 : 0,
+      };
+      client.setQueryData(reassignContextQueryKey(item.id), context, fresh);
+      if (history || reassign) {
+        const hints: ScreeningReassignSuggestionsResponse = {
+          stage_id: item.id,
+          available: true,
+          message: null,
+          kind: context.kind,
+          source: context.source,
+          suggestions: reassign ? REASSIGN_HINTS : HISTORY_HINTS,
+        };
+        client.setQueryData(screeningSuggestionsQueryKey(item.id), hints, fresh);
+      }
+    }
+  }
+}
+
 function useNetworkBlocked() {
   const [interceptorId] = useState(() =>
     api.interceptors.request.use(() =>
@@ -256,6 +408,7 @@ function PipelineV4Harness() {
   useMemo(() => {
     client.setQueryData(screenedOutQueryKey(JOB_ID), { job_id: JOB_ID, total: 0, items: [] });
   }, [client]);
+  useMemo(() => seedScreening(client, cols), [client, cols]);
   // Notatki w doku osoby (sekcja „Notatki”): ta sama lista co w profilu —
   // odpowiedź pod notatką i notatka automatu za „Pokaż systemowe (1)”.
   useMemo(() => {

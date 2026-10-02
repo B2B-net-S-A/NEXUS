@@ -804,6 +804,11 @@ class ScreeningAnswerItem(BaseModel):
     # Pominięte odpowiedzi nie liczą się do dopasowania i NIGDY nie wychodzą
     # do klienta (`client_safe_screening`).
     skipped: bool = False
+    # Treść pytania z chwili odpowiedzi (02.10.2026). Identyfikatory pytań są
+    # pozycyjne (`q1…qN`), więc po edycji profilu Championa samo `question_id`
+    # wskazuje inne pytanie. Stempluje serwer (`screening_sheets.stamp_sheet`);
+    # wartość z żądania jest nadpisywana. Poza białą listą dla klienta.
+    question_text: Optional[str] = Field(default=None, max_length=2000)
 
 
 class ExperienceCheck(BaseModel):

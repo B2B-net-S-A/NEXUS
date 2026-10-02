@@ -177,6 +177,7 @@ READ_ENDPOINTS = [
     ("GET", "/api/candidates/999999/languages", None),
     ("GET", "/api/candidates/999999/profile-rate", None),
     ("GET", "/api/candidates/999999/recent-recruitments?limit=5", None),
+    ("GET", "/api/candidates/999999/screening-answers", None),
     ("GET", "/api/candidates/999999/activity-summary", None),
     ("POST", "/api/candidates/999999/activity-summary/refresh", None),
     (

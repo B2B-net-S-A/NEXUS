@@ -2855,10 +2855,16 @@ async def get_stage_screening(
     # zakres odczytu co tablica (`/kanban/{job_id}`), nie sama rola.
     await ensure_job_read_access(db, current_user, stage.job_id)
     job = await db.scalar(select(Job).where(Job.id == stage.job_id))
+    from app.services import screening_sheets
     from app.services.screening_suggestions import suggestions_from_notes
 
     candidate = await db.get(Candidate, stage.candidate_id)
     answers, source_stage_id = await _latest_filled_screening(db, stage)
+    # Arkusze sprzed 02.10.2026 nie niosą tekstu pytań — dok i profil czytają
+    # go z odpowiedzi, więc uzupełniamy z bieżącego profilu po identyfikatorze.
+    answers = screening_sheets.with_question_texts(
+        answers, screening_sheets.question_texts(job.champion_profile if job else None)
+    )
     return {
         "stage_id": stage.id,
         "candidate_id": stage.candidate_id,
@@ -2934,9 +2940,24 @@ async def submit_stage_screening(
         user=current_user,
     )
 
+    from app.services import screening_sheets
+
     answers = ScreeningAnswers.model_validate(payload or {})
-    answers.answered_at = datetime.now(timezone.utc)
-    answers.answered_by = current_user.id
+    previous = stage.screening_answers
+    if answers.answers and not _sheet_filled(previous):
+        # Arkusz należy do pary — wiersz bez własnej kopii porównujemy
+        # z najnowszym wypełnionym arkuszem tej pary.
+        previous, _ = await _latest_filled_screening(db, stage)
+    job = await db.scalar(select(Job).where(Job.id == stage.job_id))
+    screening_sheets.stamp_sheet(
+        answers,
+        questions=screening_sheets.question_texts(
+            getattr(job, "champion_profile", None)
+        ),
+        previous=previous,
+        user_id=current_user.id,
+        now=datetime.now(timezone.utc),
+    )
 
     stage.screening_answers = answers.model_dump(mode="json")
     db.add(

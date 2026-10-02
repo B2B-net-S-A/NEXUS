@@ -1,0 +1,170 @@
+/**
+ * „Odpowiedzi z rozmów screeningowych” w zakładce Profil (02.10.2026).
+ *
+ * Zgłoszenie: po screeningu w profilu nie było widać, co kandydat odpowiedział,
+ * więc to samo pytanie padało w kolejnej rekrutacji. Karta ma pokazać pytania
+ * i odpowiedzi, dać je przeszukać, a awarii nie pokazywać jako pustki.
+ */
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const apiGet = vi.fn();
+
+vi.mock("@/lib/api", () => ({
+  __esModule: true,
+  default: { get: (...a: unknown[]) => apiGet(...a) },
+}));
+
+import { CandidateScreeningAnswersCard } from "@/components/v2/candidate-profile/CandidateScreeningAnswersCard";
+import type { ScreeningConversation } from "@/lib/api/screeningAnswers";
+import { useAuthStore } from "@/store/auth";
+
+const NEWEST: ScreeningConversation = {
+  stage_id: 501,
+  job_id: 10,
+  job_title: "Senior Java Developer",
+  client_name: "Bank Przykładowy",
+  answered_at: "2026-09-30T10:00:00Z",
+  answered_by_name: "Rekruter Testowy",
+  overall_fit: "fit",
+  match_percent: 80,
+  answers: [
+    {
+      question_id: "q1",
+      question_text: "Czy pracowałeś na mikroserwisach?",
+      response: "Tak, 3 lata. Kafka i Spring Boot.",
+      deal_breaker_hit: false,
+      skipped: false,
+    },
+    { question_id: "q2", question_text: "Od kiedy dostępny?", response: "", deal_breaker_hit: false, skipped: true },
+  ],
+  experience_checks: [],
+  notes: "",
+  internal_note: null,
+};
+
+const OLDER: ScreeningConversation = {
+  stage_id: 400,
+  job_id: 7,
+  job_title: "Java Developer",
+  client_name: "Telekom Przykładowy",
+  answered_at: "2026-08-14T09:00:00Z",
+  answered_by_name: null,
+  overall_fit: "uncertain",
+  match_percent: 50,
+  answers: [
+    { question_id: "q1", question_text: "Jaka forma umowy?", response: "Tylko B2B", deal_breaker_hit: false, skipped: false },
+  ],
+  experience_checks: [],
+  notes: "",
+  internal_note: null,
+};
+
+function renderCard() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <CandidateScreeningAnswersCard candidateId={42} />
+    </QueryClientProvider>,
+  );
+}
+
+const answersOf = (conversations: ScreeningConversation[]) => ({ data: { candidate_id: 42, conversations } });
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  useAuthStore.setState({ user: { id: 7, role: "recruiter" } } as never);
+});
+
+describe("CandidateScreeningAnswersCard", () => {
+  it("pyta o odpowiedzi tego kandydata i pokazuje pytania z odpowiedziami najnowszej rozmowy", async () => {
+    apiGet.mockResolvedValue(answersOf([NEWEST, OLDER]));
+    renderCard();
+
+    const card = await screen.findByRole("region", { name: "Odpowiedzi z rozmów screeningowych" });
+    expect(apiGet).toHaveBeenCalledWith("/api/candidates/42/screening-answers");
+
+    const newest = within(card).getByRole("button", { name: /Senior Java Developer · Bank Przykładowy/ });
+    expect(newest).toHaveAttribute("aria-expanded", "true");
+    expect(newest).toHaveTextContent("rozmowa: 30.09.2026 · Rekruter Testowy · 2 odpowiedzi");
+    expect(newest).toHaveTextContent("Pasuje");
+    expect(within(card).getByText(/Czy pracowałeś na mikroserwisach\?/)).toBeTruthy();
+    expect(within(card).getByText("Tak, 3 lata. Kafka i Spring Boot.")).toBeTruthy();
+    expect(within(card).getByText("— pominięte —")).toBeTruthy();
+    expect(within(card).getByRole("link", { name: "Otwórz rekrutację" })).toHaveAttribute("href", "/jobs/10");
+
+    // Starsza rozmowa jest zwinięta, dopóki ktoś jej nie otworzy.
+    const older = within(card).getByRole("button", { name: /Java Developer · Telekom Przykładowy/ });
+    expect(older).toHaveAttribute("aria-expanded", "false");
+    expect(older).toHaveTextContent("rozmowa: 14.08.2026 · 1 odpowiedź");
+    expect(older).toHaveTextContent("Niepewne");
+    expect(within(card).queryByText("Tylko B2B")).toBeNull();
+  });
+
+  it("starszą rozmowę da się rozwinąć, a najnowszą zwinąć", async () => {
+    const user = userEvent.setup();
+    apiGet.mockResolvedValue(answersOf([NEWEST, OLDER]));
+    renderCard();
+    const card = await screen.findByRole("region", { name: "Odpowiedzi z rozmów screeningowych" });
+
+    await user.click(within(card).getByRole("button", { name: /Java Developer · Telekom Przykładowy/ }));
+    expect(within(card).getByText("Tylko B2B")).toBeTruthy();
+
+    await user.click(within(card).getByRole("button", { name: /Senior Java Developer · Bank Przykładowy/ }));
+    expect(within(card).queryByText("Tak, 3 lata. Kafka i Spring Boot.")).toBeNull();
+    expect(within(card).getByText("Tylko B2B")).toBeTruthy();
+  });
+
+  it("szukanie zostawia pasujące odpowiedzi ze wszystkich rozmów; brak trafień mówi to wprost", async () => {
+    const user = userEvent.setup();
+    apiGet.mockResolvedValue(answersOf([NEWEST, OLDER]));
+    renderCard();
+    const card = await screen.findByRole("region", { name: "Odpowiedzi z rozmów screeningowych" });
+    const search = within(card).getByRole("searchbox", { name: "Szukaj w odpowiedziach" });
+
+    await user.type(search, "b2b");
+    expect(within(card).getByText(/Jaka forma umowy\?/)).toBeTruthy();
+    expect(within(card).queryByText(/Czy pracowałeś na mikroserwisach\?/)).toBeNull();
+    expect(card.querySelector("mark")?.textContent).toBe("B2B");
+
+    await user.clear(search);
+    await user.type(search, "kubernetes");
+    expect(within(card).getByRole("status")).toHaveTextContent("Żadna odpowiedź nie pasuje do „kubernetes”.");
+  });
+
+  it("przy jednej rozmowie nie ma pola szukania", async () => {
+    apiGet.mockResolvedValue(answersOf([NEWEST]));
+    renderCard();
+    const card = await screen.findByRole("region", { name: "Odpowiedzi z rozmów screeningowych" });
+    expect(within(card).queryByRole("searchbox")).toBeNull();
+  });
+
+  it("bez rozmów karty nie ma", async () => {
+    apiGet.mockResolvedValue(answersOf([]));
+    const { container } = renderCard();
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+
+  it("awaria odczytu to komunikat z „Ponów”, nie pustka", async () => {
+    const user = userEvent.setup();
+    apiGet.mockRejectedValueOnce(new Error("500"));
+    renderCard();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Nie udało się wczytać odpowiedzi z rozmów.");
+
+    apiGet.mockResolvedValue(answersOf([NEWEST]));
+    await user.click(within(alert).getByRole("button", { name: "Ponów" }));
+    expect(await screen.findByText("Tak, 3 lata. Kafka i Spring Boot.")).toBeTruthy();
+  });
+
+  it("bez zalogowanej osoby nie pyta serwera", () => {
+    useAuthStore.setState({ user: null } as never);
+    const { container } = renderCard();
+    expect(apiGet).not.toHaveBeenCalled();
+    expect(container).toBeEmptyDOMElement();
+  });
+});

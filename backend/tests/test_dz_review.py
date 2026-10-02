@@ -146,6 +146,58 @@ def test_requirement_terms_read_the_name_not_the_description(
     assert svc.requirement_terms(alternatives) == terms
 
 
+@pytest.mark.parametrize(
+    ("label", "term"),
+    [
+        # Wymagania z maili klientów niosą wersję; CV pisze samą nazwę.
+        ("Spring Boot 3.4+", "Spring Boot"),
+        ("JUnit 5", "JUnit"),
+        ("Java 17", "Java"),
+        ("Java (minimalna 11)", "Java"),
+        # Bez wersji nic się nie zmienia.
+        ("Kubernetes", "Kubernetes"),
+    ],
+)
+def test_requirement_terms_search_without_the_version(label: str, term: str) -> None:
+    """02.10.2026: „Spring Boot 3.4+” dawało „brak w CV”, choć CV mówi
+    „Spring Boot” — wersji z wymagania nie szukamy w tekście."""
+    assert svc.requirement_terms((label,)) == (term,)
+
+
+def test_requirement_terms_keep_a_name_that_is_in_the_dictionary() -> None:
+    """Liczba bywa częścią nazwy — nazwy ze słownika umiejętności nie skracamy."""
+    from tests.taxonomy_fixture import hydrated_taxonomy
+
+    with hydrated_taxonomy({"Dynamics 365": ("tools", ())}):
+        assert svc.requirement_terms(("Dynamics 365",)) == ("Dynamics 365",)
+    assert svc.requirement_terms(("Dynamics 365",)) == ("Dynamics",)
+
+
+def test_rodo_clause_gets_its_own_section_in_every_reader() -> None:
+    """Klauzula zgody nie jest treścią ostatniej roli — w HTML-u, w pliku
+    Word i w zwykłym tekście (PDF)."""
+    import io
+
+    from docx import Document
+
+    clause = (
+        "Wyrażam zgodę na przetwarzanie moich danych osobowych zawartych "
+        "w przekazanych przeze mnie dokumentach."
+    )
+    doc = Document()
+    doc.add_paragraph("Developer | Globex | 2018 – 2021")
+    doc.add_paragraph(clause)
+    buf = io.BytesIO()
+    doc.save(buf)
+    assert svc.docx_blocks(buf.getvalue())[-1].section == svc.RODO_SECTION
+    assert svc.text_blocks("Developer w Globex\n\n" + clause)[-1].section == (
+        svc.RODO_SECTION
+    )
+    # Zdanie o zgodzie w środku opisu roli to nie klauzula.
+    inside = svc.html_blocks("<p>Wdrożył zgody RODO. Wyrażam zgodę na zmiany.</p>")
+    assert inside[-1].section is None
+
+
 def test_prose_must_have_is_found_by_its_name() -> None:
     """Wymaganie opisane zdaniem nie może dawać „brak w CV”, gdy CV nazywa
     tę umiejętność — tak wyglądało 0 z 11 u kandydata na Case Managera."""

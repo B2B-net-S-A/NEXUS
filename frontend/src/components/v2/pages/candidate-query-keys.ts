@@ -77,6 +77,10 @@ export const candidateQueryKeys = {
       candidateId(id),
       { limit, viewerScope },
     ] as const,
+  screeningAnswers: (id: number | string, viewerScope: string) =>
+    ["candidate-screening-answers", candidateId(id), { viewerScope }] as const,
+  screeningAnswersRoot: (id: number | string) =>
+    ["candidate-screening-answers", candidateId(id)] as const,
   documents: (id: number | string) =>
     ["candidate-documents", candidateId(id)] as const,
   cvDocuments: (id: number | string) =>

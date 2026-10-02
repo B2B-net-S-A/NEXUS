@@ -28,7 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
-import { championScreeningQuestions } from "@/components/v2/screening/ScreeningForm";
+import { ScreeningAnswersList } from "@/components/v2/screening/ScreeningAnswersList";
 import { countPl } from "@/lib/plural-pl";
 import { formatDate } from "@/lib/utils";
 
@@ -55,9 +55,6 @@ export function SavedScreeningView({ item, stageLabel }: { item: KanbanItem; sta
     staleTime: 30_000,
   });
   const answers = query.data?.screening_answers ?? null;
-  const questions = championScreeningQuestions(query.data?.champion_profile);
-  const questionText = (id: string): string | null =>
-    questions.find((q) => String(q.id) === id)?.question?.trim() || null;
 
   return (
     <section aria-label="Zapisany screening" className="space-y-3 text-[13px]">
@@ -95,29 +92,12 @@ export function SavedScreeningView({ item, stageLabel }: { item: KanbanItem; sta
               <div className="text-muted-foreground">Wypełniono {formatDate(answers.answered_at)}</div>
             ) : null}
           </div>
-          {answers.answers.length > 0 ? (
-            <ol className="space-y-2.5">
-              {answers.answers.map((answer, index) => (
-                <li key={answer.question_id} className="space-y-0.5">
-                  <p className="font-medium text-foreground">
-                    {index + 1}. {questionText(answer.question_id) ?? `Pytanie ${index + 1}`}
-                    {answer.deal_breaker_hit ? (
-                      <span className="ml-1.5 text-xs font-normal text-destructive">deal-breaker</span>
-                    ) : null}
-                  </p>
-                  <p className="whitespace-pre-line text-muted-foreground">
-                    {answer.response?.trim() || "— bez odpowiedzi —"}
-                  </p>
-                </li>
-              ))}
-            </ol>
-          ) : null}
-          {answers.notes?.trim() ? (
-            <div className="space-y-0.5">
-              <h4 className="text-xs font-semibold text-muted-foreground">Notatka ze screeningu</h4>
-              <p className="whitespace-pre-line text-foreground">{answers.notes}</p>
-            </div>
-          ) : null}
+          <ScreeningAnswersList
+            answers={answers.answers}
+            experienceChecks={answers.experience_checks}
+            notes={answers.notes}
+            internalNote={answers.internal_note}
+          />
         </>
       ) : null}
     </section>
