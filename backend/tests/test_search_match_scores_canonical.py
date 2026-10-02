@@ -135,6 +135,33 @@ async def test_visible_rows_get_the_same_number_as_the_c2_screens(wiring):
     assert [c.id for c in wiring.measure.await_args.args[1]] == [1, 2]
 
 
+@pytest.mark.asyncio
+async def test_must_items_that_are_not_technologies_are_named(wiring):
+    # Produkcja 02.10.2026: must-have wpisane zdaniem dawało w podglądzie osoby
+    # plakietkę „… — nie znaleziono”. Zdania nie da się znaleźć w CV, więc
+    # odpowiedź mówi, których pozycji ekran ma nie pokazywać.
+    prose = "Umiejętność dekompozycji wymagań na zadania"
+    job = make_job(id=7, client_id=8, must_skills=["Python", "Kafka", prose])
+    wiring.access.return_value = job
+    db = _db([make_candidate(id=1, skills=["Python"])])
+
+    response = await candidate_match_scores(
+        None,
+        MatchScoresRequest(job_id=7, candidate_ids=[1]),
+        current_user=SimpleNamespace(id=42),
+        db=db,
+    )
+
+    detail = response.breakdowns["1"]
+    shown = detail["matching_must"] + detail["gap_must"]
+    hidden = response.non_technology_must
+    assert [label.lower() for label in hidden] == [prose.lower()]
+    assert set(hidden) <= set(shown)
+    # Technologie zostają — także ta, której kandydat nie ma.
+    assert len(shown) == 3
+    assert not any("python" in label.lower() for label in hidden)
+
+
 def test_profile_key_moves_with_the_weights_not_only_the_profile_id():
     """An admin editing a profile's weights keeps its id; scores computed
     before the edit must not be served as current."""

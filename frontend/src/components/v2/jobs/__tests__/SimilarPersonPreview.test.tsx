@@ -146,6 +146,46 @@ describe("Karta osoby w „Podobnych rekrutacjach”", () => {
     expect(screen.getByText("2 z 3")).toBeInTheDocument();
   });
 
+  it("w dopasowaniu pokazuje tylko technologie — wymagania opisane zdaniem pomija", async () => {
+    const prose = "umiejętność dekompozycji wymagań na zadania.";
+    matchScores.mockResolvedValue({
+      scores: { "10": 77 },
+      breakdowns: {
+        "10": {
+          total: 77,
+          measurement: "measured",
+          matching_must: ["Java", "język angielski B2"],
+          gap_must: [prose, "Kafka"],
+        },
+      },
+      non_technology_must: [prose, "język angielski B2"],
+    });
+    renderPreview();
+    const must = await screen.findByRole("list", { name: "Wymagania must-have" });
+    expect(within(must).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "Java",
+      "Kafka — nie znaleziono",
+    ]);
+    expect(screen.queryByText(/dekompozycji/)).not.toBeInTheDocument();
+  });
+
+  it("same wymagania opisane zdaniami = zdanie zamiast pustej sekcji", async () => {
+    matchScores.mockResolvedValue({
+      scores: { "10": 61 },
+      breakdowns: {
+        "10": { total: 61, measurement: "measured", matching_must: [], gap_must: ["praca w zespole"] },
+      },
+      non_technology_must: ["praca w zespole"],
+    });
+    renderPreview();
+    expect(
+      await screen.findByText(
+        "Wymagania tej rekrutacji są opisane zdaniami — nie ma technologii do porównania.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Wymagania must-have" })).not.toBeInTheDocument();
+  });
+
   it("para bez pomiaru to „Ocena niepełna” z powodem, nigdy zero", async () => {
     matchScores.mockResolvedValue({
       scores: {},

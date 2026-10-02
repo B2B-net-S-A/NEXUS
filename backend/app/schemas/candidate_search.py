@@ -332,11 +332,15 @@ class MatchScoresResponse(BaseModel):
     ``profile_key`` identifies the weight profile (id + weights) the scores
     were computed under: the same pair scores differently under another
     profile, so a client caching scores keys them by it and never shows two
-    profiles side by side. ``None`` when nothing was scored."""
+    profiles side by side. ``None`` when nothing was scored.
+    ``non_technology_must`` lists the must labels that are not technologies."""
 
     scores: dict[str, int] = Field(default_factory=dict)
     breakdowns: dict[str, Any] = Field(default_factory=dict)
     profile_key: Optional[str] = None
+    # Pozycje must z `breakdowns`, które nie są technologią (zdania, branża,
+    # język, rola — reguła bramki must). Podgląd osoby ich nie pokazuje.
+    non_technology_must: list[str] = Field(default_factory=list)
 
 
 class WaterfallStage(BaseModel):
