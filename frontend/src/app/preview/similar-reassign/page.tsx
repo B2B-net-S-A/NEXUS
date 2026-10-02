@@ -26,7 +26,7 @@ import { jobProposalsKeys, type ProposalFacts } from "@/lib/job-proposals-api";
 import type { MatchBreakdown } from "@/lib/match-breakdown";
 import {
   similarJobsKey,
-  similarPeopleKey,
+  similarPeopleWithRestKey,
   similarPersonScoreKey,
   similarSearchKey,
   type SentPerson,
@@ -62,6 +62,7 @@ function person(candidate_id: number, name: string, overrides: Partial<SentPerso
     outcome: "in_progress",
     already_in_job: false,
     selectable: true,
+    sent: true,
     ...overrides,
   };
 }
@@ -200,6 +201,14 @@ function seedPeople(qc: QueryClient): void {
   }
 }
 
+/** Kształt zakładki „Podobne rekrutacje”: wysłani do klienta + „pozostali”. */
+function seedPeopleOf(qc: QueryClient, otherId: number, people: SentPerson[]): void {
+  seedFresh(qc, similarPeopleWithRestKey(JOB_ID, otherId), {
+    people,
+    restTotal: people.filter((p) => p.sent === false).length,
+  });
+}
+
 function seededClient(): QueryClient {
   const qc = new QueryClient({
     defaultOptions: {
@@ -211,30 +220,32 @@ function seededClient(): QueryClient {
     reassigned_count: 2,
     linked: [job(1500, "Analityk Biznesowy", { linked: true, sent_count: 2, similarity: null })],
     suggestions: [
-      job(1725, "Analityk Systemowy", { similarity: 78, sent_count: 3 }),
+      job(1725, "Analityk Systemowy", { similarity: 78, sent_count: 3, other_count: 1 }),
       job(1794, "Analityk Systemowy x3", { status: "published", similarity: 71, sent_count: 2 }),
       job(2770, "Analityk Biznesowy Senior", { similarity: 58, sent_count: 0 }),
     ],
   });
-  seedFresh(qc, similarPeopleKey(JOB_ID, 1725), [
+  seedPeopleOf(qc, 1725, [
     person(10, "Ewa Przykładowa"),
     person(11, "Tomasz Testowy", { furthest_stage: "client_interview", sent_at: "2026-09-03" }),
     person(12, "Marek Fikcyjny", { outcome: "rejected_by_client", sent_at: "2026-08-20" }),
+    // „Pozostali z tej rekrutacji”: doszła do Screeningu, klient jej nie widział.
+    person(18, "Lena Szkicowa", { furthest_stage: "screening", sent_at: null, sent: false }),
   ]);
-  seedFresh(qc, similarPeopleKey(JOB_ID, 1794), [
+  seedPeopleOf(qc, 1794, [
     person(13, "Agata Demonstracyjna"),
     person(14, "Oskar Wzorcowy", { furthest_stage: "hired", outcome: "hired", selectable: false }),
     person(10, "Ewa Przykładowa"),
   ]);
-  seedFresh(qc, similarPeopleKey(JOB_ID, 2770), []);
-  seedFresh(qc, similarPeopleKey(JOB_ID, 1500), [
+  seedPeopleOf(qc, 2770, []);
+  seedPeopleOf(qc, 1500, [
     person(15, "Kamil Bezdanych", { already_in_job: true, selectable: false }),
   ]);
   seedFresh(qc, similarSearchKey(JOB_ID, "analityk kappa"), [
     job(1837, "Analityk Systemowy", { sent_count: 4, similarity: null }),
     job(2931, "Analityk Biznesowy", { sent_count: 1, similarity: null }),
   ]);
-  seedFresh(qc, similarPeopleKey(JOB_ID, 1837), [
+  seedPeopleOf(qc, 1837, [
     person(16, "Piotr Wzorcowy", { sent_at: "2026-07-11" }),
     person(17, "Kamil Demo", { furthest_stage: "client_interview" }),
   ]);

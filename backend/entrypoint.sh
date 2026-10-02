@@ -9603,6 +9603,33 @@ async def fill():
 asyncio.run(fill())
 PY
 
+# Tytuł dla rekrutera bez zdań (02.10.2026) — jednorazowo: przelicz ISTNIEJĄCE
+# automatyczne tytuły nową regułą (must-have wpisane zdaniem nie wchodzi do
+# tytułu; produkcja miała „… · Minimum 5 lat doświadczenia w an…”). Ręcznych
+# tytułów nie rusza i nie podbija `updated_at`. Reguła jest w Pythonie:
+# `app/services/job_working_title.py`. Marker w `app_settings` + advisory lock
+# → drugi start kończy się od razu. Log i paragon: same liczby.
+startup_phase "working-title-prose-fix"
+echo "Working titles: one-shot recompute of automatic titles..."
+python - <<'PY' || echo "working title prose fix skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.job_working_title import recompute_auto_working_titles
+
+async def recompute():
+    async with AsyncSessionLocal() as db:
+        try:
+            receipt = await recompute_auto_working_titles(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"working title prose fix: {receipt or 'nothing to do'}")
+
+asyncio.run(recompute())
+PY
+
 # Cztery kategorie kompetencji + stany startowe requestów (0371, 24.09.2026).
 # Decyzja Artura: zespół pracuje w czterech grupach z InfraReportera, a
 # „Dane i AI” oraz security należą do grupy Infra. SQL ma jedno źródło:

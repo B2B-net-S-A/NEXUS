@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { summarizeFullSearch } from "@/lib/full-search-summary";
-import { buildJobHeaderKpis } from "@/lib/job-header-kpis";
 import type { CandidateSearchPage } from "@/lib/full-candidate-search-api";
 
 const page: CandidateSearchPage = {
@@ -14,9 +13,6 @@ describe("full-search population summary", () => {
   it("keeps measured population totals while unknown scores hide the strong count", () => {
     const ranking = summarizeFullSearch(page);
     expect(ranking).toEqual({ total: 58485, excluded: 1479, strong: null });
-    const kpis = buildJobHeaderKpis({ tab: "ai-matching", columns: null, ranking });
-    expect(kpis[0].value).toBe(58485);
-    expect(kpis[1].value).toBeNull();
   });
   it("uses full-run counts, independently of page size and view filters", () => {
     expect(summarizeFullSearch({ ...page, state: "complete", ranking_complete: true, total_after_threshold: 25 }))

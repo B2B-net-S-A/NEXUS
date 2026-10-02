@@ -68,6 +68,27 @@ export interface ProposalInboxItem {
   reassign_from?: ProposalReassignFrom | null;
   /** Przekazanie przez praktykanta (0374): kto, kiedy i z jaką notatką. */
   trainee_handover?: ProposalTraineeHandover | null;
+  /**
+   * Kiedy osoba ostatnio przyszła z ogłoszenia (źródła `new_cv` / `job_board`)
+   * i czy mieści się w oknie „Nowi z ogłoszeń” — liczy serwer, swoim zegarem,
+   * żeby kafel i zakładka dzieliły ludzi tak samo. Starszy serwer pól nie zna.
+   */
+  posting_seen_at?: string | null;
+  posting_recent?: boolean;
+}
+
+/** Liczby na kaflach „Kandydaci do dodania” (`GET …/proposal-counts`). */
+export interface ProposalCounts {
+  job_id: number;
+  days: number;
+  /** Otwarte propozycje z ogłoszeń z ostatnich `days` dni. */
+  postings_recent: number;
+  /** Pozostałe otwarte propozycje (nocny przegląd bazy i reszta źródeł). */
+  base: number;
+  /** Zgłoszenia odłożone przez przegląd AI („Odrzuceni przez AI”). */
+  screened_out: number;
+  /** Must-have, po których nie da się szukać (zdania) — do rozmowy. */
+  not_searchable_must: string[];
 }
 
 export interface ProposalTraineeHandover {
@@ -227,6 +248,10 @@ export const jobProposalsApi = {
         signal,
       })
       .then((r) => r.data),
+  counts: (jobId: number, signal?: AbortSignal): Promise<ProposalCounts> =>
+    api
+      .get<ProposalCounts>(`/api/jobs/${jobId}/proposal-counts`, { signal })
+      .then((r) => r.data),
   latestRun: (jobId: number, signal?: AbortSignal): Promise<LatestRunResponse> =>
     api
       .get<LatestRunResponse>(`/api/candidate-search/jobs/${jobId}/latest-run`, {
@@ -244,9 +269,17 @@ export const jobProposalsKeys = {
    * pasek etapów. Sama skrzynka mówiła „0", gdy lista miała 35 osób.
    */
   visibleCount: (jobId: number) => ["job-proposals", jobId, "visible-count"] as const,
+  /**
+   * To samo w podziale na zakładki okna „Kandydaci do dodania” — publikuje je
+   * okno (wszystkie źródła), czytają kafle nad Tablicą. Zanim okno było
+   * otwarte, kafle pokazują samą skrzynkę (`counts`).
+   */
+  visibleSplit: (jobId: number) => ["job-proposals", jobId, "visible-split"] as const,
   inbox: (jobId: number, limit: number) =>
     ["job-proposals", jobId, "inbox", limit] as const,
   latestRun: (jobId: number) => ["job-proposals", jobId, "latest-run"] as const,
+  /** Pod wspólnym prefiksem — dodanie i „Pomiń” odświeżają też kafle. */
+  counts: (jobId: number) => ["job-proposals", jobId, "counts"] as const,
   /** Fakty o osobach — klucz zawiera posortowane id, żeby lista w innej kolejności trafiała w cache. */
   facts: (jobId: number, candidateIds: readonly number[]) =>
     ["job-proposals", jobId, "facts", [...candidateIds].sort((a, b) => a - b).join(",")] as const,

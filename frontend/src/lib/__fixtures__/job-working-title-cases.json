@@ -50,6 +50,41 @@
       "name": "białe znaki zwinięte",
       "input": {"role": "  Senior   Java\nDeveloper ", "must": [" Java "], "min_years": null, "domain": " Płatności "},
       "expected": "Senior Java Developer · Java · Płatności"
+    },
+    {
+      "name": "zdanie w must-have nie wchodzi do tytułu",
+      "input": {"role": "Analityk Biznesowo-Systemowy KYC/AML", "must": ["Minimum 5 lat doświadczenia w analizie biznesowej", "SQL"], "min_years": 5, "domain": null},
+      "expected": "Analityk Biznesowo-Systemowy KYC/AML · SQL · 5+ lat"
+    },
+    {
+      "name": "CI/CD i PL/SQL to nazwy, nie zdania",
+      "input": {"role": "DevOps", "must": ["CI/CD", "PL/SQL", "Docker"], "min_years": null, "domain": null},
+      "expected": "DevOps · CI/CD, PL/SQL"
+    },
+    {
+      "name": "C++, .NET i nawias zostają",
+      "input": {"role": "Programista", "must": [".NET", "React (Hooks)", "C++"], "min_years": null, "domain": null},
+      "expected": "Programista · .NET, React (Hooks)"
+    },
+    {
+      "name": "same zdania w must-have — zostaje rola, lata i dziedzina",
+      "input": {"role": "Analityk", "must": ["Znajomość procesów KYC, AML", "Bardzo dobra komunikacja z biznesem"], "min_years": 5, "domain": "Bankowość"},
+      "expected": "Analityk · 5+ lat · Bankowość"
+    },
+    {
+      "name": "same zdania i brak roli — nic do złożenia",
+      "input": {"role": null, "must": ["Minimum 5 lat doświadczenia w analizie biznesowej"], "min_years": 5, "domain": "Bankowość"},
+      "expected": null
+    },
+    {
+      "name": "zdanie na początku nie zabiera miejsca technologii",
+      "input": {"role": "Java Developer", "must": ["Minimum 5 lat doświadczenia w programowaniu", "Java", "Kafka", "Spring"], "min_years": null, "domain": null},
+      "expected": "Java Developer · Java, Kafka"
+    },
+    {
+      "name": "granice: trzy słowa i 40 znaków zostają, znaki zdania odpadają",
+      "input": {"role": "Inżynier", "must": ["Znajomość języka angielskiego B2", "Java – zaawansowany", "Bazy: Oracle", "Docker; Kubernetes", "Pneumonoultramicroscopicsilicovolcanoconiosis", "Apache Kafka Streams", "Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"], "min_years": null, "domain": null},
+      "expected": "Inżynier · Apache Kafka Streams, Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     }
   ]
 }

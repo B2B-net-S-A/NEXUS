@@ -58,11 +58,11 @@
     "title": "Tablica rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "sourcer", "delivery_lead", "head_of_recruitment", "admin"],
-    "what": "Tu prowadzisz kandydatów tej rekrutacji przez 8 kolumn: Nowi, Screening, Zweryfikowany, QC CV, CV wysłane, Rozmowa u klienta, Umowa i Zatrudniony.",
+    "what": "Tu prowadzisz kandydatów tej rekrutacji przez 8 kolumn: Nowi, Screening, Zweryfikowany, QC CV, CV wysłane, Rozmowa u klienta, Umowa i Zatrudniony. Nad tablicą są kafle „Kandydaci do dodania”.",
     "tasks": [
       {
         "q": "Od czego zacząć w tej rekrutacji?",
-        "a": "Spójrz na „Ścieżkę rekrutacji” w nagłówku: Zlecenie → Kandydaci → CV do klienta → Rozmowy → Umowa, ze stanem każdego kroku, i na „Najbliższy krok” obok. Klik w krok otwiera zlecenie albo panel kandydatów lub przewija do kolumny. Klik w nazwisko na karcie otwiera kartę kandydata z boku (Ctrl/⌘ — pełny profil)."
+        "a": "Na górze jest tytuł stanowiska, pod nim nazwa od klienta i trzy fakty: klient, budżet, tryb pracy. Kafle „Kandydaci do dodania” nad tablicą pokazują, skąd wziąć ludzi i ilu ich czeka. Klik w nazwisko na karcie otwiera kartę kandydata z boku (Ctrl/⌘ — pełny profil)."
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
@@ -70,18 +70,17 @@
         "anchor": "jobs.board.columns"
       },
       {
-        "q": "Jak dodać kandydatów z bazy?",
-        "a": "Kliknij „Dodaj kandydatów” w nagłówku albo „Znajdź w bazie (AI)” w kolumnie Nowi: wyszukiwanie AI, propozycje, Moi ludzie lub dodanie po nazwisku. Osoby, które klient zna z podobnych rekrutacji, przepniesz w „Podobne rekrutacje”: kliknij rekrutację i „Przepnij do Nowych”. Dodani są przez 12 godzin zarezerwowani dla Ciebie.",
-        "anchor": "jobs.board.review"
+        "q": "Jak dodać kandydatów?",
+        "a": "Kliknij kafel nad tablicą: „Podobne rekrutacje”, „Nowi z ogłoszeń” (ostatnie 7 dni), „Propozycje z bazy” albo „Szukaj w bazie” (po słowach z Championa). Otworzy się jedno okno z listą; klik w nazwisko pokazuje podgląd osoby obok. Zaznacz osoby i kliknij „Dodaj do Nowych” — przez 12 godzin są zarezerwowane dla Ciebie.",
+        "anchor": "jobs.board.sources"
       },
       {
-        "q": "Jak szybko znaleźć karty, na które czekam ja?",
-        "a": "Włącz „Mój ruch” na pasku nad tablicą — zostaną wyróżnione karty z plakietką „Twój ruch” (Twoje, bez rekrutera albo wolne w Nowych), a przygaszone karty innych rekruterów, wzięte przez kogoś na 12 h i te, na które czeka Delivery Lead albo osoba od Cpro. Pozostałe filtry (utknęli, rekruter, puste kolumny) są pod „Filtry”.",
-        "anchor": "jobs.board.filters"
+        "q": "Gdzie są rzadsze akcje, np. „Mamy championa” albo dodanie po nazwisku?",
+        "a": "W menu „⋯” w prawym górnym rogu: „Oznacz: mamy championa”, „Dodaj po nazwisku”, „Dodaj z pliku CV”, „Przeszukaj całą bazę (AI)”, „Moi ludzie do tej rekrutacji”, skrót zlecenia, zespół, baza pytań i ukrywanie pustych kolumn."
       },
       {
         "q": "Gdzie są odrzuceni i ci, którzy zrezygnowali?",
-        "a": "Na pasku nad tablicą: „Zrezygnował”, „Odrzucony przez nas”, „Odrzucony przez DL”, „Odrzucony przez klienta”. Kliknij chip, żeby rozwinąć kolumny; kartę możesz też na chip upuścić.",
+        "a": "W wąskiej kolumnie „Zamknięci” po prawej stronie tablicy: przez nas, przez DL, przez klienta, zrezygnował. Kliknij pozycję, żeby rozwinąć kolumny z tymi osobami; kartę możesz też na pozycję upuścić — system zapyta o powód.",
         "anchor": "jobs.board.closed"
       }
     ],
@@ -93,14 +92,13 @@
     ],
     "anchors": [
       {"id": "jobs.board.columns", "label": "Kolumny tablicy", "describe": "Osiem kolumn etapów — strzałka „→” na karcie albo przeciąganie."},
-      {"id": "jobs.board.review", "label": "Propozycje z bazy", "describe": "Propozycje z bazy i „Znajdź w bazie (AI)” na górze kolumny Nowi."},
-      {"id": "jobs.board.filters", "label": "Pasek filtrów tablicy", "describe": "Szukanie po nazwisku, „Mój ruch” i pozostałe filtry."},
-      {"id": "jobs.board.closed", "label": "Zamknięci", "describe": "Chipy: zrezygnowali i odrzuceni — przez nas, przez DL, przez klienta."}
+      {"id": "jobs.board.sources", "label": "Kandydaci do dodania", "describe": "Cztery kafle źródeł nad tablicą: podobne rekrutacje, nowi z ogłoszeń, propozycje z bazy, szukaj w bazie."},
+      {"id": "jobs.board.closed", "label": "Zamknięci", "describe": "Wąska kolumna po prawej: zrezygnowali i odrzuceni — przez nas, przez DL, przez klienta."}
     ],
     "help_slug": null,
     "sources": [
       "frontend/src/components/v2/pages/KanbanBoardV2.tsx",
-      "frontend/src/lib/board-stages.ts",
+      "frontend/src/components/v2/jobs/CandidateSourcesStrip.tsx",
       "backend/app/services/pipeline_move_rules.py"
     ]
   },
@@ -221,7 +219,7 @@
       },
       {
         "q": "Jak oznaczyć, że mamy już championa?",
-        "a": "Delivery Lead klika „Oznacz: mamy championa” w nagłówku rekrutacji. Status zmienia się z „Szukamy” na „Mamy championa”; da się to cofnąć tym samym przyciskiem.",
+        "a": "Delivery Lead otwiera menu „⋯” w nagłówku rekrutacji i klika „Oznacz: mamy championa”. Status zmienia się z „Szukamy” na „Mamy championa”; da się to cofnąć tą samą pozycją menu.",
         "anchor": "job.champion.found"
       },
       {
@@ -242,7 +240,7 @@
       {
         "id": "job.champion.found",
         "label": "Mamy championa",
-        "describe": "Przełącznik statusu requestu w nagłówku rekrutacji.",
+        "describe": "Menu „⋯” w nagłówku rekrutacji — pozycja „Oznacz: mamy championa”.",
         "requires": {"roles": ["admin", "delivery_lead", "head_of_recruitment"]}
       },
       {"id": "job.champion.sections", "label": "Spis sekcji", "describe": "Spis sekcji profilu (widoczny na szerokim ekranie)."}

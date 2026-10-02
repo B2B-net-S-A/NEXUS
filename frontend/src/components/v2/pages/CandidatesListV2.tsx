@@ -119,6 +119,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { AvailabilityStatus, EmploymentInfo } from "@/components/v2/CandidateHighlights";
+import { candidatesListFiltersForQuery } from "@/lib/job-search-filters";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
 import { ActiveFilterChips } from "@/components/v2/filters/ActiveFilterChips";
 import type { StageFilterValue } from "@/components/v2/filters/StageFilterPanel";
@@ -470,14 +471,8 @@ export interface CandidatesListV2Props {
   embed?: CandidatesListEmbed;
 }
 
-/** Filtry zapytania listy; w trybie osadzonym z ukryciem osób z rekrutacji. */
-export function candidatesListFiltersForQuery(
-  filters: CandidateFilters,
-  embed: Pick<CandidatesListEmbed, "jobId"> | null | undefined,
-): CandidateFilters {
-  if (!embed) return filters;
-  return { ...filters, recruitmentIds: [embed.jobId], recruitmentMatch: "not_assigned" };
-}
+// Wspólne z oknem „Kandydaci do dodania” — `lib/job-search-filters.ts`.
+export { candidatesListFiltersForQuery };
 
 export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Props = {}) {
   const router = useRouter();

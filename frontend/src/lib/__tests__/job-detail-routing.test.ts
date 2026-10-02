@@ -70,6 +70,7 @@ describe("readJobDetailUrlState", () => {
       slideOver: null,
       slideOverTab: null,
       orderSection: null,
+      sourceTab: null,
       highlightProposals: false,
     });
   });
@@ -85,10 +86,19 @@ describe("readJobDetailUrlState", () => {
       orderSection: null,
     });
     expect(read("win=order&wintab=team").orderSection).toBe("team");
-    // Panel przepięć (25.09.2026) ma własny adres; `?tab=similar` z powiadomień
-    // o propozycjach AI zostaje przy „Do przejrzenia”.
-    expect(read("win=similar").slideOver).toBe("similar");
+    // Dawny panel przepięć (`?win=similar`) to od 02.10.2026 zakładka okna
+    // „Kandydaci do dodania”; `?tab=similar` z powiadomień o propozycjach AI
+    // zostaje przy „Do przejrzenia”.
+    expect(read("win=similar")).toMatchObject({ slideOver: "add", sourceTab: "similar" });
     expect(read("tab=similar")).toMatchObject({ segment: "proposals", slideOver: null });
+  });
+
+  it("okno „Kandydaci do dodania”: zakładka z `wintab`, bez niej „Propozycje z bazy”", () => {
+    expect(read("win=add&wintab=postings")).toMatchObject({ slideOver: "add", sourceTab: "postings" });
+    expect(read("win=add&wintab=search").sourceTab).toBe("search");
+    expect(read("win=add").sourceTab).toBe("base");
+    expect(read("win=add&wintab=nope").sourceTab).toBe("base");
+    expect(read("win=order&wintab=search").sourceTab).toBeNull();
   });
 
   it("stary adres daje ten sam stan co nowy", () => {

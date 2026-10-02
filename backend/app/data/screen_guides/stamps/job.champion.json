@@ -1,8 +1,8 @@
 {
-  "entry": "99492263745c6691c331ea93a2c6a1a19b57e176a5da323968c6ccb34e7b6106",
+  "entry": "432b9010489262598d07ebe9d0e6fbc4a0f940cfef38f1f1a155c367df6f4dd9",
   "guide": "job.champion",
   "sources": {
     "frontend/src/components/ChampionProfileEditor.tsx": "f62095626a26f1185bcab9b0d8f27f23c865350c4824202692e0b75cec892261",
-    "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx": "37ac8a1ab7cb037d6e085528c07997ec7d447a18d7ff7d30c3665eb86e92477c"
+    "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx": "83b689b2b9f29a414bf7a4eacce772a9c197db08d7771dbda0dcf1beafdf13ec"
   }
 }

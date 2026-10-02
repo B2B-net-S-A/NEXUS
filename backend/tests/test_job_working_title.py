@@ -346,3 +346,134 @@ async def test_backfill_fills_only_empty_names_without_touching_updated_at() -> 
         assert filled.working_title == "Programista Java · Java, Spring"
         assert filled.updated_at == stamps[archive.id]
         assert (kept.client_reference, kept.working_title) == ("SAP 1", "Ręczny")
+
+
+# ── Tytuł bez zdań + jednorazowe przeliczenie (02.10.2026) ──────────────────
+
+
+def test_a_sentence_in_must_never_reaches_the_title() -> None:
+    """Produkcja 02.10.2026: „Analityk Biznesowo-Systemowy KYC/AML · Minimum
+    5 lat doświadczenia w an…” — must-have wpisane zdaniem trafiało do tytułu."""
+    job = SimpleNamespace(
+        title="Analityk Biznesowo-Systemowy KYC/AML",
+        client_reference=None,
+        must_skills=["Minimum 5 lat doświadczenia w analizie biznesowej", "SQL"],
+        champion_profile=None,
+    )
+    assert working_title_for_job(job) == "Analityk Biznesowo-Systemowy KYC/AML · SQL"
+
+
+def test_prose_fix_phase_follows_the_names_backfill_and_never_stops_the_boot() -> None:
+    from app.services.job_working_title import PROSE_FIX_MARKER
+
+    assert PROSE_FIX_MARKER == "job_working_title_prose_fix_2026_10"
+    entrypoint = (BACKEND / "entrypoint.sh").read_text()
+    backfill = entrypoint.index('startup_phase "job-names-backfill"')
+    fix = entrypoint.index('startup_phase "working-title-prose-fix"')
+    assert backfill < fix
+    # Faza stoi zaraz po uzupełnieniu nazw — między nimi nie ma innej.
+    assert entrypoint[backfill:fix].count("startup_phase ") == 1
+    phase = entrypoint[fix : entrypoint.index("\nPY\n", fix)]
+    assert "recompute_auto_working_titles" in phase
+    # Awaria loguje i idzie dalej — nigdy nie zatrzymuje startu.
+    assert "python - <<'PY' || echo" in phase
+    assert "exit" not in phase
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_recompute_fixes_auto_titles_and_leaves_manual_ones() -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.services.job_working_title import recompute_auto_working_titles
+
+    sentence = "Minimum 5 lat doświadczenia w analizie biznesowej"
+    stale = f"Analityk KYC · {sentence[:20]}…"
+    client_id = await _client_id()
+    async with AsyncSessionLocal() as db:
+        auto = Job(
+            title="Analityk KYC",
+            client_id=client_id,
+            must_skills=[sentence, "SQL"],
+            working_title=stale,
+        )
+        current = Job(
+            title="Tester",
+            client_id=client_id,
+            must_skills=["Selenium"],
+            working_title="Tester · Selenium",
+        )
+        manual = Job(
+            title="Analityk AML",
+            client_id=client_id,
+            must_skills=[sentence],
+            working_title=stale,
+            working_title_auto=False,
+        )
+        db.add_all([auto, current, manual])
+        await db.commit()
+        ids = {auto.id, current.id, manual.id}
+        stamps = {job.id: job.updated_at for job in (auto, current, manual)}
+
+    async with AsyncSessionLocal() as db:
+        receipt = await recompute_auto_working_titles(db, only_job_ids=ids)
+        await db.commit()
+    # Paragon to same liczby: dwie rekrutacje z automatem, jedna zmieniona.
+    assert receipt == {"jobs_seen": 2, "titles_changed": 1}
+
+    async with AsyncSessionLocal() as db:
+        fixed = await db.get(Job, auto.id)
+        same = await db.get(Job, current.id)
+        kept = await db.get(Job, manual.id)
+        assert fixed.working_title == "Analityk KYC · SQL"
+        assert fixed.working_title_auto is True
+        assert same.working_title == "Tester · Selenium"
+        assert (kept.working_title, kept.working_title_auto) == (stale, False)
+        for job in (fixed, same, kept):
+            assert job.updated_at == stamps[job.id]
+
+    async with AsyncSessionLocal() as db:
+        again = await recompute_auto_working_titles(db, only_job_ids=ids)
+        await db.commit()
+    assert again == {"jobs_seen": 2, "titles_changed": 0}
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_recompute_is_a_one_shot_behind_its_marker() -> None:
+    """Drugi start nie robi nic. Baza testowa jest wspólna, więc marker
+    zakładamy i cofamy w tej samej transakcji — cudze rekrutacje zostają."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.app_setting import AppSetting
+    from app.models.job import Job
+    from app.services.job_working_title import (
+        PROSE_FIX_MARKER,
+        recompute_auto_working_titles,
+    )
+
+    stale = "Analityk · Minimum 5 lat doświadczenia w an…"
+    async with AsyncSessionLocal() as db:
+        job = Job(
+            title="Analityk",
+            client_id=await _client_id(),
+            must_skills=["Minimum 5 lat doświadczenia w analizie biznesowej"],
+            working_title=stale,
+        )
+        db.add(job)
+        await db.commit()
+        job_id = job.id
+
+    async with AsyncSessionLocal() as db:
+        if await db.get(AppSetting, PROSE_FIX_MARKER) is None:
+            db.add(
+                AppSetting(
+                    key=PROSE_FIX_MARKER, value={"jobs_seen": 0, "titles_changed": 0}
+                )
+            )
+            await db.flush()
+        assert await recompute_auto_working_titles(db) is None
+        untouched = await db.scalar(select(Job.working_title).where(Job.id == job_id))
+        assert untouched == stale
+        await db.rollback()

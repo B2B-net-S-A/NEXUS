@@ -19,22 +19,18 @@ import { PipelineBoardGate } from "@/components/v2/jobs/PipelineBoardGate";
 import { EditJobModal } from "@/components/AppShell";
 import { AIJobWriterModal } from "@/components/v2/jobs/AIJobWriterModal";
 import { RequestStatusBadge } from "@/components/v2/jobs/JobListCells";
-import { SimilarJobsPanel } from "@/components/v2/jobs/SimilarJobsPanel";
 import { CHAMPION_ROLES, requestStatusOf } from "@/lib/request-status";
-import { similarJobsApi, useSimilarJobs } from "@/lib/similar-jobs-api";
-import { similarPeopleWaiting } from "@/lib/similar-reassign";
+import { similarJobsApi } from "@/lib/similar-jobs-api";
 import { toggleChampionFound } from "@/lib/champion-found-toggle";
 import { useToast } from "@/components/Toast";
 import { countHired } from "@/lib/pipeline-flow";
-import { buildJobHeaderKpis } from "@/lib/job-header-kpis";
 import { jobBudgetHourly } from "@/lib/job-budget";
 import { positiveIntParam } from "@/lib/client-tab";
 import { resolveUrlTab } from "@/lib/url-tab";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
-import { buildJobHeaderSubtitle } from "@/lib/job-header-subtitle";
+import { jobHeaderFacts } from "@/lib/job-header-facts";
 import { recruitersOf, recruitersSummary } from "@/lib/job-team";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
-import type { FullSearchSummary } from "@/lib/full-search-summary";
 import {
   JOB_DETAIL_DEFAULT_VIEW,
   readJobDetailUrlState,
@@ -59,21 +55,10 @@ import {
   ManagedInNexusChip,
   ManagedInTraffitNotice,
 } from "@/components/v2/jobs/ManagedInNexusSwitch";
-import { JobRecruitmentPath } from "@/components/v2/jobs/JobRecruitmentPath";
-import {
-  buildRecruitmentPath,
-  nearestStep as computeNearestStep,
-  summarizeBoard,
-  type NearestStep,
-  type PathStepKey,
-} from "@/lib/job-recruitment-path";
-import type { BoardColumnKey } from "@/lib/board-stages";
+import { CandidateSourcesStrip } from "@/components/v2/jobs/CandidateSourcesStrip";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { AddCandidateFromCVModal } from "@/components/v2/modals/AddCandidateFromCVModal";
-import {
-  AddCandidatesPanel,
-  type AddCandidatesTab,
-} from "@/components/v2/recruitment/AddCandidatesPanel";
+import { AddCandidatesPanel } from "@/components/v2/recruitment/AddCandidatesPanel";
 import { assignErrorMessage } from "@/lib/assign-error";
 import {
   JobShortlist,
@@ -82,6 +67,8 @@ import {
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { cn } from "@/lib/utils";
 import { useTabsStore } from "@/store/tabs";
+import { useUiStore } from "@/store/ui";
+import { useMyPeoplePanel } from "@/store/my-people";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { hasPermission } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
@@ -110,6 +97,7 @@ import { QuestionBankSlideOver } from "@/components/v2/recruitment/slideovers/Qu
 import { HistoryChatSlideOver } from "@/components/v2/recruitment/slideovers/HistoryChatSlideOver";
 import { ManualSearchSlideOver } from "@/components/v2/recruitment/slideovers/ManualSearchSlideOver";
 import type {
+  CandidateSourceTab,
   PersonPanelSection,
   RecruitmentSegment,
   RecruitmentSlideOver,
@@ -149,13 +137,6 @@ const JOB_DETAIL_TAB_ALIASES: Readonly<Record<string, JobDetailView>> = {
   notes: "people",
 };
 
-/** KPI nagłówka mówią dawnym słownikiem zakładek. */
-const KPI_TAB_FOR_VIEW: Record<JobDetailView, JobDetailTab> = {
-  people: "pipeline",
-  board: "pipeline",
-  champion: "champion",
-};
-
 const DEFAULT_SEGMENT: RecruitmentSegment = "in-process";
 
 /** Tryb widoku „Zlecenie i Champion”: brief do czytania albo edytor. */
@@ -192,28 +173,25 @@ export default function JobDetailPage() {
   const canMarkChampion =
     canWritePipeline && CHAMPION_ROLES.some((role) => hasRole(authUser, role));
   const [championPending, setChampionPending] = useState(false);
-  const similarJobs = useSimilarJobs(jobId, canWritePipeline);
-  // Ile osób czeka na przepięcie w podpowiadanych (niepołączonych) podobnych
-  // rekrutacjach — nagłówek, pasek w „Nowych” i „Najbliższy krok”.
-  const similarPeopleCount = similarPeopleWaiting(similarJobs.data);
   // POST /api/invite-links → RecruiterPlus. Ta sama capability bramkuje akcję
   // na liście ofert — bez niej read-only `user` widział tu przycisk wiodący
   // prosto w 403 (audyt F-19).
   const canCreateInviteLink = useCapability("invite_link.create");
   const canOpenCandidateProfile = useCapability("nav.candidates");
+  const canOpenMyPeople = useCapability("nav.my_people");
+  const openMyPeople = useMyPeoplePanel((s) => s.openPanel);
   const [showAIWriter, setShowAIWriter] = useState(false);
   const [showEditJob, setShowEditJob] = useState(false);
   const [showInviteLink, setShowInviteLink] = useState(false);
   const [showAddCandidates, setShowAddCandidates] = useState(false);
-  // Rekrutacja v5: panel „Dodaj kandydatów" — jedno wejście z nagłówka
-  // i z kolumny „Nowi" (przegląd bazy AI, propozycje, Moi ludzie, nazwisko/CV).
-  const [addPanelTab, setAddPanelTab] = useState<AddCandidatesTab | null>(null);
+  // „Przeszukaj całą bazę (AI)” z menu „⋯” — licznik żądań; okno źródeł
+  // startuje przegląd raz na każdą nową wartość (nigdy z adresu).
+  const [fullReviewRequest, setFullReviewRequest] = useState<number | null>(null);
+  // „Ukryj puste kolumny” Tablicy — globalne ustawienie użytkownika (menu „⋯”).
+  const hideEmptyColumns = useUiStore((s) => s.hideEmptyKanbanColumns);
+  const setHideEmptyColumns = useUiStore((s) => s.setHideEmptyKanbanColumns);
   const [showAddFromCv, setShowAddFromCv] = useState(false);
   const [emailCandidateId, setEmailCandidateId] = useState<number | null>(null);
-  // „Ścieżka rekrutacji": skok do kolumny Tablicy (przewinięcie + podświetlenie).
-  const [boardFocus, setBoardFocus] = useState<{ column: BoardColumnKey; seq: number } | null>(
-    null,
-  );
   // Narzędzia AI administratora z menu „…" — niezależnie od tego, czy
   // jakakolwiek propozycja jest zaznaczona.
   const [showAiTools, setShowAiTools] = useState(false);
@@ -255,6 +233,11 @@ export default function JobDetailPage() {
   );
   const [orderSection, setOrderSection] = useUrlSyncedState<JobOrderSection>(
     urlState.orderSection,
+    null,
+  );
+  // Okno „Kandydaci do dodania”: `?win=add&wintab=similar|postings|base|search`.
+  const [sourceTab, setSourceTab] = useUrlSyncedState<CandidateSourceTab>(
+    urlState.sourceTab,
     null,
   );
   // „Zlecenie i Champion” (29.09.2026): tryb „Podgląd”/„Edytuj” (`?mode=edit`;
@@ -348,24 +331,39 @@ export default function JobDetailPage() {
   const openSlideOver = useCallback(
     (
       kind: RecruitmentSlideOver,
-      opts: { historyTab?: JobHistoryChatTab; orderSection?: JobOrderSection } = {},
+      opts: {
+        historyTab?: JobHistoryChatTab;
+        orderSection?: JobOrderSection;
+        sourceTab?: CandidateSourceTab;
+      } = {},
     ) => {
-      setSlideOverState(kind);
-      setHistoryTab(kind === "history-chat" ? (opts.historyTab ?? "all") : null);
-      setOrderSection(kind === "order" ? (opts.orderSection ?? null) : null);
+      // Dawne „Podobne rekrutacje” to zakładka okna źródeł.
+      const target: RecruitmentSlideOver = kind === "similar" ? "add" : kind;
+      const source: CandidateSourceTab | null =
+        target === "add" ? (kind === "similar" ? "similar" : (opts.sourceTab ?? "base")) : null;
+      setSlideOverState(target);
+      setHistoryTab(target === "history-chat" ? (opts.historyTab ?? "all") : null);
+      setOrderSection(target === "order" ? (opts.orderSection ?? null) : null);
+      setSourceTab(source);
       writeUrlParams({
-        win: kind,
-        wintab: opts.historyTab ?? opts.orderSection ?? null,
+        win: target,
+        wintab: opts.historyTab ?? opts.orderSection ?? source ?? null,
       });
     },
-    [setSlideOverState, setHistoryTab, setOrderSection],
+    [setSlideOverState, setHistoryTab, setOrderSection, setSourceTab],
   );
   const closeSlideOver = useCallback(() => {
     setSlideOverState(null);
     setHistoryTab(null);
     setOrderSection(null);
+    setSourceTab(null);
     writeUrlParams({ win: null, wintab: null });
-  }, [setSlideOverState, setHistoryTab, setOrderSection]);
+  }, [setSlideOverState, setHistoryTab, setOrderSection, setSourceTab]);
+  /** Kafle nad Tablicą i zakładki okna „Kandydaci do dodania”. */
+  const openSources = useCallback(
+    (tab: CandidateSourceTab) => openSlideOver("add", { sourceTab: tab }),
+    [openSlideOver],
+  );
   const slideOverOpenChange = (kind: RecruitmentSlideOver) => (open: boolean) => {
     if (open) openSlideOver(kind);
     else if (slideOver === kind) closeSlideOver();
@@ -463,33 +461,6 @@ export default function JobDetailPage() {
     queryKey: ["job", id],
     queryFn: () => api.get(`/api/jobs/${id}`).then((r) => r.data),
   });
-
-  // Delivery Lead rekrutacji (M03-B03): `GET /api/jobs/{id}` niesie tylko
-  // `delivery_lead_id`, więc nazwisko bierzemy z katalogu użytkowników —
-  // tego samego, z którego okno edycji wybiera DL. Katalog zwraca wyłącznie
-  // aktywne konta i jest za `OperationalUser`: brak trafienia albo 403
-  // (viewer) po prostu nie dokłada segmentu, zamiast udawać „brak DL".
-  const deliveryLeadId: number | null = job?.delivery_lead_id ?? null;
-  const { data: deliveryLeadDirectory } = useQuery<
-    Array<{ id: number; name?: string | null; email?: string | null }>
-  >({
-    queryKey: ["users-directory", "delivery-lead-roles"],
-    queryFn: () =>
-      api
-        .get("/api/users", {
-          params: { roles: ["delivery_lead", "admin", "head_of_recruitment"] },
-          paramsSerializer: { indexes: null },
-        })
-        .then((r) => r.data),
-    enabled: deliveryLeadId != null,
-    staleTime: 5 * 60_000,
-    retry: false,
-  });
-  const deliveryLeadName: string | null = useMemo(() => {
-    if (deliveryLeadId == null) return null;
-    const match = deliveryLeadDirectory?.find((u) => u.id === deliveryLeadId);
-    return match?.name || match?.email || null;
-  }, [deliveryLeadDirectory, deliveryLeadId]);
 
   const {
     data: kanban,
@@ -595,141 +566,22 @@ export default function JobDetailPage() {
     staleTime: 30_000,
     retry: false,
   });
+  // „Rekruter: X +N” albo „Bez rekrutera” — do 02.10.2026 w podtytule
+  // nagłówka, teraz przy pozycji „Zespół” w menu „⋯”.
+  const teamSummary = useMemo(() => {
+    if (!job) return null;
+    const team = recruitersSummary(recruitersOf(job));
+    const recruiterLead = team.lead;
+    if (!recruiterLead) return "Bez rekrutera";
+    return `Rekruter: ${recruiterLead}${team.more > 0 ? ` +${team.more}` : ""}`;
+  }, [job]);
+
   const orderMissingCount: number | null = useMemo(() => {
     const data = readinessQuery.data;
     if (!readinessQuery.isSuccess || !data) return null;
     if (data.closed || data.ready || data.already_handed_off) return 0;
     return Array.isArray(data.blockers) ? data.blockers.length : null;
   }, [readinessQuery.data, readinessQuery.isSuccess]);
-
-  // ── Jobbar: podtytuł i klaster KPI ───────────────────────────────────────
-  //
-  // Ranking czytany WYŁĄCZNIE z cache'u (`enabled: false`) — publikuje go
-  // segment propozycji, gdy ma żywy przegląd bazy. Brak w cache'u = „—".
-  const { data: ranking = null } = useQuery<FullSearchSummary | null>({
-    queryKey: ["full-search-summary", authUser?.id, Number(id)],
-    queryFn: async () => null,
-    enabled: false,
-  });
-  const headerKpis = useMemo(
-    () =>
-      buildJobHeaderKpis({
-        tab: KPI_TAB_FOR_VIEW[activeView],
-        columns: kanban ? kanbanColumns : null,
-        ranking,
-      }),
-    [activeView, kanban, kanbanColumns, ranking],
-  );
-  const headerSubtitle = useMemo(() => {
-    if (!job) return [];
-    const team = recruitersSummary(recruitersOf(job));
-    return buildJobHeaderSubtitle({
-      location: job.location,
-      remotePolicy: job.remote_policy,
-      rateBudgetHourly: jobBudgetHourly(job),
-      salaryMin: job.salary_min,
-      salaryMax: job.salary_max,
-      deadline: job.deadline,
-      deadlineTime: job.deadline_time,
-      // „Rekruter: X +N” — wszyscy, którzy pracują nad rekrutacją (02.10.2026).
-      recruiterLead: team.lead,
-      recruiterMore: team.more,
-      deliveryLeadName,
-      // Widok „jedna tabela" obejmuje wszystkie kroki naraz, więc decydent
-      // i obsada — dawniej tylko na krokach 07/08 — są w linijce zawsze.
-      hiringManagerName: job.hiring_manager_name,
-      hired: kanban ? countHired(kanbanColumns) : null,
-      headcount: job.headcount,
-    });
-  }, [job, kanban, kanbanColumns, deliveryLeadName]);
-
-  // ── „Ścieżka rekrutacji" + „Najbliższy krok" (24.09.2026) ─────────────
-  // Z danych, które strona już ma: tablica, bramka gotowości zlecenia i liczba
-  // propozycji opublikowana przez kolumnę „Nowi" (`visibleProposalsQuery`).
-  const cproEnabled = job?.cpro_enabled === true;
-  const boardSummary = useMemo(
-    () => (kanban ? summarizeBoard(kanbanColumns, { cproEnabled }) : null),
-    [kanban, kanbanColumns, cproEnabled],
-  );
-  const proposalsCount: number | null =
-    visibleProposalsQuery.data ??
-    (openProposalsQuery.isSuccess ? openProposalsQuery.data.total : null);
-  const pathSteps = useMemo(
-    () =>
-      buildRecruitmentPath({
-        orderMissing: orderMissingCount,
-        board: boardSummary,
-        proposals: proposalsCount,
-        headcount: typeof job?.headcount === "number" ? job.headcount : null,
-      }),
-    [orderMissingCount, boardSummary, proposalsCount, job?.headcount],
-  );
-  const nearest = useMemo(
-    () =>
-      computeNearestStep({
-        orderMissing: orderMissingCount,
-        board: boardSummary,
-        proposals: proposalsCount,
-        canAddCandidates: canWritePipeline,
-        similarPeople: similarPeopleCount,
-      }),
-    [orderMissingCount, boardSummary, proposalsCount, canWritePipeline, similarPeopleCount],
-  );
-  const focusBoardColumn = useCallback(
-    (column: BoardColumnKey) => {
-      if (!showBoard) selectView("board");
-      setBoardFocus((prev) => ({ column, seq: (prev?.seq ?? 0) + 1 }));
-    },
-    [showBoard, selectView],
-  );
-  const openProposals = useCallback(() => {
-    if (canWritePipeline) {
-      setAddPanelTab("proposals");
-      return;
-    }
-    // Bez zapisu panel dodawania się nie otworzy — pełna lista propozycji.
-    selectView("people");
-    selectSegment("proposals");
-  }, [canWritePipeline, selectView, selectSegment]);
-  const handlePathStep = useCallback(
-    (key: PathStepKey) => {
-      switch (key) {
-        case "order":
-          openSlideOver("order");
-          return;
-        case "candidates":
-          openProposals();
-          return;
-        case "cv":
-          focusBoardColumn(
-            (boardSummary?.counts.cv_qc ?? 0) > 0 ||
-              (boardSummary?.cproQueue ?? 0) > 0 ||
-              !(boardSummary?.counts.cv_sent ?? 0)
-              ? "cv_qc"
-              : "cv_sent",
-          );
-          return;
-        case "interviews":
-          focusBoardColumn("client_interview");
-          return;
-        case "contract":
-          focusBoardColumn("contract");
-          return;
-      }
-    },
-    [openSlideOver, openProposals, focusBoardColumn, boardSummary],
-  );
-  const handleNearest = useCallback(
-    (step: NearestStep) => {
-      const action = step.action;
-      if (action.kind === "order") openSlideOver("order");
-      else if (action.kind === "similar") openSlideOver("similar");
-      else if (action.kind === "column") focusBoardColumn(action.column);
-      else if (action.tab === "proposals") openProposals();
-      else if (canWritePipeline) setAddPanelTab("search");
-    },
-    [openSlideOver, focusBoardColumn, openProposals, canWritePipeline],
-  );
 
   // Auto-open tab when job data loads
   useEffect(() => {
@@ -830,7 +682,6 @@ export default function JobDetailPage() {
     <div className="space-y-2">
       <JobDetailCompactHeader
         title={jobDisplayTitle(job)}
-        clientName={job.client_name}
         referenceNumber={job.reference_number}
         clientTitle={jobClientTitle(job)}
         clientReference={job.client_reference}
@@ -869,25 +720,9 @@ export default function JobDetailPage() {
             <ManagedInTraffitNotice job={job} canSwitch={canEditJob} />
           </>
         }
-        // Jedna linia faktów zamiast rzędu odznak z ikonami: lokalizacja, tryb
-        // pracy, budżet, widełki, deadline, właściciel, DL, hiring manager
-        // i obsada.
-        subtitle={
-          headerSubtitle.length > 0 ? (
-            <span className="text-[12px]">{headerSubtitle.join(" · ")}</span>
-          ) : undefined
-        }
-        path={
-          activeView !== "champion" ? (
-            <JobRecruitmentPath
-              steps={pathSteps}
-              nearest={nearest}
-              onStepClick={handlePathStep}
-              onNearestClick={handleNearest}
-            />
-          ) : undefined
-        }
-        kpis={headerKpis}
+        // Klient · Budżet · Tryb pracy — trzy wyróżnione fakty (02.10.2026).
+        // Rekruter, DL, hiring manager, termin i obsada są w „Zlecenie i Champion”.
+        facts={jobHeaderFacts(job)}
         presence={
           <ActiveViewers
             resourceType="job"
@@ -906,17 +741,8 @@ export default function JobDetailPage() {
         orderMissingCount={orderMissingCount}
         onOpenHistoryChat={() => openSlideOver("history-chat")}
         onOpenQuestions={() => openSlideOver("questions")}
-        onOpenSimilar={canWritePipeline ? () => openSlideOver("similar") : undefined}
-        // Odpowiedź spoza kontraktu (brak list) = brak odznaki, nie wywrotka.
-        similarLinkedCount={
-          Array.isArray(similarJobs.data?.linked) ? similarJobs.data.linked.length : null
-        }
-        similarSuggestedCount={
-          Array.isArray(similarJobs.data?.suggestions)
-            ? similarJobs.data.suggestions.filter((s) => s.sent_count > 0).length
-            : null
-        }
-        similarPeopleCount={similarPeopleCount}
+        teamSummary={teamSummary}
+        onOpenTeam={() => openChampion({ panelTab: "team" })}
         championFound={job.champion_found_at != null}
         championPending={championPending}
         onToggleChampion={
@@ -941,14 +767,25 @@ export default function JobDetailPage() {
               }
             : undefined
         }
-        onAddCandidate={canWritePipeline ? () => setAddPanelTab("search") : undefined}
+        onAddByName={canWritePipeline ? () => setShowAddCandidates(true) : undefined}
+        onAddFromCv={canWritePipeline ? () => setShowAddFromCv(true) : undefined}
+        onOpenMyPeople={canOpenMyPeople ? openMyPeople : undefined}
+        onStartFullReview={
+          canWritePipeline
+            ? () => {
+                setFullReviewRequest((prev) => (prev ?? 0) + 1);
+                openSources("base");
+              }
+            : undefined
+        }
+        emptyColumnsHidden={hideEmptyColumns}
+        onToggleEmptyColumns={
+          showBoard ? () => setHideEmptyColumns(!hideEmptyColumns) : undefined
+        }
         onEdit={onEdit}
         onWriteAnnouncement={onWriteAnnouncement}
         onGenerateInviteLink={onGenerateInviteLink}
         chatUnreadCount={chatUnread?.unread_count ?? 0}
-        // 29.09.2026: zespół i priorytet mieszkają w panelu obok Profilu
-        // Championa, oryginalny opis — w „Podglądzie”; pasek „Zespół
-        // i priorytet” w nagłówku zniknął.
         clientCardHref={
           job.client_id != null ? `/help?tab=clients&client=${job.client_id}` : undefined
         }
@@ -971,15 +808,6 @@ export default function JobDetailPage() {
         />
       )}
 
-      {/* Panel przepięć (25.09.2026) — `?win=similar`; SimilarJobsDialog
-          został wyłącznie na liście rekrutacji. */}
-      <SimilarJobsPanel
-        jobId={jobId}
-        open={slideOver === "similar"}
-        onOpenChange={slideOverOpenChange("similar")}
-        readOnly={!canWritePipeline}
-      />
-
       {/* AI Writer Modal */}
       {canEditJobContentFields && showAIWriter && (
         <AIJobWriterModal
@@ -996,20 +824,27 @@ export default function JobDetailPage() {
         defaultJobId={Number(id)}
       />
 
+      {/* Okno „Kandydaci do dodania” (02.10.2026) — `?win=add&wintab=<źródło>`;
+          dawne `?win=similar` otwiera zakładkę „Podobne rekrutacje”. Bez prawa
+          zapisu okno jest do odczytu. */}
       <AddCandidatesPanel
-        open={canWritePipeline && addPanelTab !== null}
-        onOpenChange={(open) => {
-          if (!open) setAddPanelTab(null);
-        }}
+        open={slideOver === "add"}
+        onOpenChange={slideOverOpenChange("add")}
         jobId={jobId}
-        initialTab={addPanelTab ?? "search"}
+        job={job}
+        tab={sourceTab ?? "base"}
+        onTabChange={openSources}
         budgetHourly={jobBudgetHourly(job)}
-        location={job.location ?? null}
         pipelineCandidateIds={pipelineCandidateIds}
         readOnly={!canWritePipeline}
         onOpenManualSearch={() => openSlideOver("manual-search")}
-        onOpenQuickAdd={() => setShowAddCandidates(true)}
-        onOpenFromCv={() => setShowAddFromCv(true)}
+        onOpenChampionSearch={() => openChampion({ edit: canEditChampion })}
+        onOpenFullList={() => {
+          selectView("people");
+          selectSegment("proposals");
+        }}
+        fullReviewRequest={fullReviewRequest}
+        onFullReviewHandled={() => setFullReviewRequest(null)}
       />
       <AddCandidateFromCVModal
         open={canWritePipeline && showAddFromCv}
@@ -1214,7 +1049,7 @@ export default function JobDetailPage() {
         </div>
       )}
 
-      {/* ── Widok „Tablica": kanban bez zmian (przeciąganie, filtry, dok) ── */}
+      {/* ── Widok „Tablica": kafle źródeł, kanban z przeciąganiem, dok osoby ── */}
       {showBoard && (
         <div>
           <PipelineBoardGate
@@ -1258,20 +1093,18 @@ export default function JobDetailPage() {
               kanbanQueryState={kanbanQueryState}
               // „Gotowy do Cpro" — odznaka wyłącznie u Nordei (serwer).
               cproEnabled={job.cpro_enabled === true}
-              // „Ścieżka rekrutacji" / „Najbliższy krok" → skok do kolumny.
-              focusColumnRequest={boardFocus}
-              // Rekrutacja v5: „Przejrzyj" i „Znajdź w bazie (AI)" w kolumnie Nowi.
-              onOpenAddCandidates={canWritePipeline ? (tab) => setAddPanelTab(tab) : undefined}
-              // Panel przepięć (25.09.2026): pasek w „Nowych” tylko go otwiera.
-              similarReassign={
-                canWritePipeline && similarPeopleCount
-                  ? {
-                      count: similarPeopleCount,
-                      clientName: job.client_name ?? null,
-                      onOpen: () => openSlideOver("similar"),
-                    }
-                  : null
-              }
+              // Kafle „Kandydaci do dodania” nad tablicą — cztery źródła, jedno okno.
+              renderAbove={(viewControls) => (
+                <CandidateSourcesStrip
+                  jobId={jobId}
+                  job={job}
+                  canSeeSimilar={canWritePipeline}
+                  onOpen={openSources}
+                  onAddByName={canWritePipeline ? () => setShowAddCandidates(true) : undefined}
+                  onAddFromCv={canWritePipeline ? () => setShowAddFromCv(true) : undefined}
+                  trailing={viewControls}
+                />
+              )}
               // `?candidate=&panel=` (także linki zapisane w powiadomieniach):
               // od razu warsztat tej osoby na właściwej sekcji.
               initialWorkbench={
