@@ -334,7 +334,7 @@ function FactShell({
   muted?: boolean;
 }) {
   return (
-    <div className="min-w-0 rounded-lg border border-border bg-card p-3">
+    <div className="min-w-0 rounded-lg border border-border bg-card p-3 md:max-2xl:p-2">
       <div className="flex min-h-11 items-start gap-2.5">
         <span
           aria-hidden="true"
@@ -1439,7 +1439,7 @@ export function CandidateProfileFactsBar({
         // ekran, a `xl:grid-cols-5` wciskało pięć kafelków w ~900 px. Kafelek
         // ma najmniej 15rem (ikona, etykieta, wartość i przycisk edycji), resztę
         // dzieli po równo; za mało miejsca = kolejny wiersz.
-        className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3"
+        className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3 md:max-2xl:gap-2"
       >
         {languagesQuery.isPending ? (
           <FactLoading label="Języki" />
