@@ -139,6 +139,12 @@ interface JobReadinessDockProps {
    */
   listDetails?: ReactNode;
   /**
+   * Od jakiej szerokości okna dok stoi `sticky` obok treści i przewija się
+   * sam: `"xl"` (domyślnie, strona rekrutacji) albo `"wide"` = 1680 px —
+   * lista rekrutacji, gdzie węziej dok jest arkuszem wysuwanym nad tabelę.
+   */
+  stickyFrom?: "xl" | "wide";
+  /**
    * Zwinięty dok kroku 02 (pasek 44 px z przyciskiem „Rozwiń" + licznikiem
    * `done/total`) — TYLKO `variant="champion"`. Od 29.09.2026 strona
    * rekrutacji panelu nie zwija (stoi obok „Podglądu”, nie obok edytora);
@@ -478,6 +484,7 @@ export function JobReadinessDock({
   variant = "list",
   listNav,
   listDetails,
+  stickyFrom = "xl",
   collapsed = false,
   onCollapsedChange,
   panelTab,
@@ -918,7 +925,12 @@ export function JobReadinessDock({
         wzorzec co `PipelineCandidateDock` i `InterviewDecisionDock`. */}
     <div
       className={cn(
-        "flex flex-col rounded-xl border border-border bg-card xl:max-h-[calc(100dvh-2rem)] xl:overflow-y-auto",
+        "flex flex-col rounded-xl border border-border bg-card",
+        // Własne przewijanie tylko tam, gdzie dok stoi `sticky` obok treści;
+        // w arkuszu wysuwanym nad listę przewija się arkusz, nie karta.
+        stickyFrom === "wide"
+          ? "min-[1680px]:max-h-[calc(100dvh-2rem)] min-[1680px]:overflow-y-auto"
+          : "xl:max-h-[calc(100dvh-2rem)] xl:overflow-y-auto",
         xlCollapsed && "xl:hidden",
       )}
       data-testid="job-readiness-dock-full"

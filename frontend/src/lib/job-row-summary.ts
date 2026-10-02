@@ -12,6 +12,9 @@ import { WORK_MODE_LABELS, type WorkMode } from "@/lib/work-mode";
 /** Ten sam separator, którym `composeWorkingTitle` łączy człony tytułu. */
 const SEPARATOR = " · ";
 const MUST_IN_TITLE = 2;
+/** Lokalizacja, która jest nazwą trybu pracy, a nie miejscem. */
+const WORK_MODE_WORD =
+  /^(praca\s+)?(zdaln|remote|hybryd|hybrid|stacjonarn|on-?site|w biurze)/i;
 
 export interface JobRowSource extends JobNames {
   /** `false` = tytuł roboczy wpisał człowiek; inaczej składa go automat. */
@@ -94,7 +97,10 @@ export function jobWorkModeFull(job: JobRowSource): string | null {
     job.remote_policy === "remote"
       ? null
       : officeDaysLabel(job.onsite_days_per_week, job.onsite_days_per_month);
-  const cities =
-    parseJobLocationCities(job.location).join(", ") || clean(job.location);
-  return [mode, days, cities].filter(Boolean).join(SEPARATOR) || null;
+  const cities = parseJobLocationCities(job.location).join(", ");
+  // Surowe pole lokalizacji bywa samym trybem („Zdalnie”, „Remote”) — obok
+  // nazwy trybu dawało „Zdalnie · Zdalnie”.
+  const raw = clean(job.location);
+  const place = cities || (WORK_MODE_WORD.test(raw) ? "" : raw);
+  return [mode, days, place].filter(Boolean).join(SEPARATOR) || null;
 }
