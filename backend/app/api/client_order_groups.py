@@ -1344,7 +1344,7 @@ async def _group_to_read(
             contract_value_pln = quantize_money(value)
             used_value_pln = quantize_money(used_value)
 
-    return OrderGroupRead(
+    read = OrderGroupRead(
         id=group.id,
         client_id=group.client_id,
         order_number=group.order_number,
@@ -1403,6 +1403,12 @@ async def _group_to_read(
         active_consultants=sum(1 for r in reads if r.is_active),
         event_count=event_count,
     )
+    if not with_finance:
+        # Plik PDF niesie stawki — nazwę pliku i przycisk pobrania dostaje ten,
+        # kto widzi kwoty klienta. Tutaj, a nie w handlerach: lista i odpowiedź
+        # każdego zapisu (zakończenie, przedłużenie) mają mówić to samo.
+        _redact_group_document_metadata(read)
+    return read
 
 
 #: Linia dodana później niż tyle po utworzeniu zamówienia to dopisek człowieka,
@@ -2295,10 +2301,6 @@ async def list_order_groups(
     groups = [
         reads_by_id[group.id] for group in models if group.id not in hidden_future_ids
     ]
-    if not with_finance:
-        # Plik PDF niesie stawki — pobiera go ten, kto widzi kwoty klienta.
-        for group in groups:
-            _redact_group_document_metadata(group)
     draft_orders = await _list_draft_orders(db, client_id, with_finance=with_finance)
     return OrderGroupListResponse(
         groups=groups,
