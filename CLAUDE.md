@@ -4103,6 +4103,33 @@ przez nas / przez DL / przez klienta). Reguły, które łatwo cofnąć:
   (token klienta OAuth, np. scraper pracuj.pl/JJIT) nie zakłada blokady** —
   wejście `auto_match` (`candidate_claim.is_integration_request`).
 
+## Dzwonek przy przekazaniu karty: QC → DL, CV wysłane → rekruter (02.10.2026)
+
+Zgłoszenie z testów: rekruter przesunął kandydata na „QC CV”, Delivery Lead
+wysłał CV do klienta i nikt nie dostał powiadomienia. Reguły etapów
+(`stage_notification_rules`, 0066) są przypięte do wiersza definicji etapu
+i zasiane raz, w kwietniu — „QC CV” (0361) nie ma żadnej, a „CV wysłane”
+znało tylko `jobs.recruiter_id` (osobę z automatu przydziału albo nikogo).
+
+- **Trzy przekazania działają bez reguł** (`services/stage_handoff_recipients.py`,
+  wpięte w `stage_notification_resolver.resolve_recipients`): „QC CV” poza
+  Nordeą → Delivery Lead rekrutacji (lustro `board_tasks._sees_dl_review`:
+  aktywny DL z rekrutacji, bez niego DL-e z portfelem klienta); kolejka Cpro
+  u Nordei → osoba od Cpro (firmowa, bez niej zapasowa rekrutacji); „CV
+  wysłane” → rekruter kandydata (`interview_slots.default_recruiter_id`:
+  właściciel procesu → pierwszy weryfikator → prowadzący rekrutację). Tylko
+  dzwonek, nigdy mail; osoba, która sama przesunęła kartę, nic nie dostaje;
+  ruch wstecz nie powiadamia.
+- **Reguła „Rekruter projektu i kandydata” (`job_recruiter`)** powiadamia
+  prowadzącego rekrutację ORAZ rekrutera kandydata — na każdym etapie
+  z regułą (rozmowa u klienta, akceptacja, odrzucenie…).
+- Typ zostaje `stage_rule`, encja = wiersz etapu, więc reguła i przekazanie
+  dla tej samej osoby dają jeden dzwonek. Treść przekazania mówi, co zrobić,
+  i prowadzi na Tablicę z otwartą osobą (`/jobs/{id}?candidate=`).
+- Nowy etap-przekazanie = gałąź w `handoff_kind` (po KOLUMNIE Tablicy, nie po
+  id definicji), nie nowy wiersz reguły — reguły nie dochodzą do etapów
+  dodanych po zasiewie ani do szablonów z Traffita.
+
 ## Rekrutacje i kandydatów widzą wszyscy; stawki do klienta nie widzi rekruter (23.09.2026)
 
 Decyzje Artura: „notatki i wszystkie elementy w panelu rekrutacji i kandydata
