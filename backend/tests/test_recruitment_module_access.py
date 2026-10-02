@@ -6,12 +6,13 @@ Verifies the P0.3 containment contracts:
   lifecycle surface: scorecard read/submit, screening notes, SLA overview,
   funnel/TTH reports, calendar (list + CRUD), interview feedback,
   rejection-email preview/cancel/timeline, expected-rate PATCH.
-- **M4-SEC-02** — ``sourcer`` cannot execute terminal moves (``hired`` /
-  ``rejected`` / ``withdrawn``, single and bulk); non-terminal moves keep
-  working. Od 02.10.2026 (decyzja Artura) sourcer przenosi na ``verified``
-  i poprawia stawkę kandydata jak każda rola wewnętrzna.
+- **M4-SEC-02** — zniesione 02.10.2026 (decyzja Artura): ``sourcer`` wykonuje
+  ruchy terminalne (``hired`` / ``rejected`` / ``withdrawn``), przenosi na
+  ``verified`` i poprawia stawkę kandydata jak każda rola wewnętrzna. Bez tych
+  ruchów zostaje wyłącznie rola podglądu ``user``.
 - **M4-SEC-03** — capability checks evaluate the UNION of primary and
-  secondary roles (sourcer with secondary recruiter passes terminal guard;
+  secondary roles (sourcer with secondary recruiter passes terminal guard —
+  od 02.10.2026 przechodzi go też sam sourcer;
   TAC with secondary delivery_lead can cancel a foreign rejection email).
 - **M4-P1.16** — deleting a user referenced by a ``specific_user``
   stage-notification rule no longer violates the CHECK constraint (FK is
@@ -66,6 +67,7 @@ TERMINAL_ROLES = {
     UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
+    UserRole.sourcer,
     UserRole.finance,
 }
 RATE_EDIT_ROLES = {
@@ -272,33 +274,48 @@ async def test_operational_roles_not_blocked_on_reads(
         assert r.status_code != 403, f"{url} blocked for {role.value}"
 
 
-# ── M4-SEC-02: sourcer bez ruchów terminalnych ────────────────────────────────
+# ── Ruchy terminalne i „Zweryfikowany": każda rola wewnętrzna ───────────────
 
 
-async def test_sourcer_cannot_terminal_move(m4_client: AsyncClient, role_accounts):
-    sourcer_headers, sourcer_id = role_accounts[UserRole.sourcer]
-    # Sourcer owns the job → membership gate (P1-PIPE-01) passes, so the 403
-    # under test comes from the terminal-move capability guard, not membership.
-    cand, job = await _seed_candidate(), await _seed_job(owner_id=sourcer_id)
+@pytest.mark.parametrize("role", sorted(TERMINAL_ROLES, key=lambda r: r.value))
+@pytest.mark.parametrize("target", ["rejected", "withdrawn"])
+async def test_terminal_roles_not_blocked_on_rejection(
+    m4_client: AsyncClient, role_accounts, role, target
+):
+    """Do 02.10.2026 sourcer dostawał tu 403 (M4-SEC-02). „Zatrudniony"
+    sprawdza `test_terminal_roles_not_blocked_on_hired`."""
+    headers, uid = role_accounts[role]
+    cand, job = await _seed_candidate(), await _seed_job(owner_id=uid)
     await _seed_stage(cand, job, "screening")
-    r = await m4_client.post(
-        "/api/pipeline/move",
-        json={"candidate_id": cand, "job_id": job, "stage": "hired"},
-        headers=sourcer_headers,
-    )
-    assert r.status_code == 403, r.text
-
     r = await m4_client.post(
         "/api/pipeline/move",
         json={
             "candidate_id": cand,
             "job_id": job,
-            "stage": "rejected",
+            "stage": target,
             "rejection_reason": "nope",
         },
-        headers=sourcer_headers,
+        headers=headers,
     )
-    assert r.status_code == 403, r.text
+    assert r.status_code != 403, f"{target} blocked for {role.value}: {r.text}"
+
+
+async def test_viewer_cannot_terminal_move(m4_client: AsyncClient, role_accounts):
+    headers, uid = role_accounts[UserRole.user]
+    cand, job = await _seed_candidate(), await _seed_job(owner_id=uid)
+    await _seed_stage(cand, job, "screening")
+    for target in ("hired", "rejected", "withdrawn"):
+        r = await m4_client.post(
+            "/api/pipeline/move",
+            json={
+                "candidate_id": cand,
+                "job_id": job,
+                "stage": target,
+                "rejection_reason": "nope",
+            },
+            headers=headers,
+        )
+        assert r.status_code == 403, f"{target}: {r.text}"
 
 
 @pytest.mark.parametrize("role", sorted(RATE_EDIT_ROLES, key=lambda r: r.value))

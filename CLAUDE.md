@@ -4117,9 +4117,13 @@ stawki, za jaką osoby są wysyłane do klienta”.
   Finanse — tablica, historia etapów, screening, CV etapu, feedback, werdykt HM,
   shortlista, propozycje, cudze CV z generatora i profil kandydata nie ukrywają
   już niczego przed osobą spoza zespołu. Stara rola podglądu `user` nadal
-  przechodzi wyłącznie przez członkostwo. Zostają bramki RÓL (zatrudnienie bez
-  sourcera, „CV wysłane” poza Nordeą tylko DL/admin, sekcje `allowed_sections`,
-  pola cyklu życia rekrutacji `JOB_MEMBER_LOCKED_FIELDS` tylko DL/admin).
+  przechodzi wyłącznie przez członkostwo. Zostają bramki RÓL („CV wysłane”
+  poza Nordeą tylko DL/admin, sekcje `allowed_sections`, pola cyklu życia
+  rekrutacji `JOB_MEMBER_LOCKED_FIELDS` tylko DL/admin). Ruch na
+  „Zweryfikowany”, korektę stawki kandydata oraz zatrudnienie, odrzucenie
+  i rezygnację wykonuje od 02.10.2026 każda rola wewnętrzna, także Talent
+  Community Manager i sourcer (`RECRUITMENT_RATE_EDIT_ROLES`,
+  `RECRUITMENT_TERMINAL_ROLES`; lustro stawki w `hooks/usePipelineMove.tsx`).
 - **`oversight_bypass=False` = widok OSOBISTY i tak ma zostać** („Moja praca”
   rekrutera w operacjach rekrutacji, zakres „moje” w cyklu rozmów u klienta) —
   liczy przypisanie, nie dostęp. `is_member_of_job` i
