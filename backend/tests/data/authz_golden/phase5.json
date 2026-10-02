@@ -17,16 +17,19 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/rate-history/{rate_id}": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/candidates/{candidate_id}/rate-history": "PPDDDDDDDDDDDDDDDD",
-  "GET /api/clients-lookup": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/embed-diagnostics": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/jobs-lookup": "PPPPPPPPPDPPPPPPPP",
-  "PATCH /api/rate-history/{rate_id}": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/candidates/{candidate_id}/rate-history": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/embed-init": "PDDPDDDDDDPPPDDDDD"
+  "DELETE /api/rate-history/{rate_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/candidates/{candidate_id}/rate-history": "PPDDDDDDDDDDDDDDDDDPD",
+  "GET /api/clients-lookup": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/embed-diagnostics": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/jobs-lookup": "PPPPPPPPPDPPPPPPPPPPP",
+  "PATCH /api/rate-history/{rate_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/candidates/{candidate_id}/rate-history": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/embed-init": "PDDPDDDDDDPPPDDDDDDDD"
  }
 }

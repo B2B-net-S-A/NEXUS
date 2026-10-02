@@ -17,15 +17,18 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/kpis/me/goals": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/kpis/me/panel": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/kpis/me/today": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/kpis/team/panel": "PPPPPDDDDDPPPPPPDD",
-  "GET /api/kpis/users/{user_id}/today": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/kpis/admin/debug-fire-nudge": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/kpis/admin/trigger-sweep": "PDDDDDDDDDDDDDDDDD"
+  "GET /api/kpis/me/goals": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/kpis/me/panel": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/kpis/me/today": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/kpis/team/panel": "PPPPPDDDDDPPPPPPDDDDD",
+  "GET /api/kpis/users/{user_id}/today": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/kpis/admin/debug-fire-nudge": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/kpis/admin/trigger-sweep": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

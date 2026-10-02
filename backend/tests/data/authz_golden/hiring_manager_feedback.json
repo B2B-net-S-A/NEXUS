@@ -17,10 +17,13 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPPPDDPPPPPPPP"
+  "GET /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

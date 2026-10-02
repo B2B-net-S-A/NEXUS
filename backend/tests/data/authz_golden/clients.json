@@ -17,14 +17,17 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/clients": "PPDPPDDDDDPPPDPPPP",
-  "GET /api/clients/{client_id}": "PPDPPDDDDDPPPDPPPP",
-  "GET /api/clients/{client_id}/profile": "PPDPPDDDDDPPPDPPPP",
-  "PATCH /api/clients/{client_id}": "PDDPDDDDDDPPPDDDPD",
-  "POST /api/clients": "PDDPDDDDDDPPPDDDPD",
-  "POST /api/clients/{client_id}/merge-into/{target_id}": "PDDDDDDDDDDDDDDDDD"
+  "GET /api/clients": "PPDPPDDDDDPPPDPPPPDPP",
+  "GET /api/clients/{client_id}": "PPDPPDDDDDPPPDPPPPDPP",
+  "GET /api/clients/{client_id}/profile": "PPDPPDDDDDPPPDPPPPDPP",
+  "PATCH /api/clients/{client_id}": "PDDPDDDDDDPPPDDDPDDDD",
+  "POST /api/clients": "PDDPDDDDDDPPPDDDPDDDD",
+  "POST /api/clients/{client_id}/merge-into/{target_id}": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -17,12 +17,15 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/scoring-weights": "PDDPDDDDDDPPPDDDDD",
-  "PATCH /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/scoring-weights": "PDDDDDDDDDDDDDDDDD"
+  "DELETE /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/scoring-weights": "PDDPDDDDDDPPPDDDDDDDD",
+  "PATCH /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/scoring-weights": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

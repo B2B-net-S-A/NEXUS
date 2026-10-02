@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/shortlist/{entry_id}": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/jobs/{job_id}/shortlist": "PPPPPPPPDDPPPPPPPP",
-  "PATCH /api/shortlist/{entry_id}": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/jobs/{job_id}/shortlist": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/shortlist/{entry_id}/promote": "PPPPPPPPDDPPPPPPPP"
+  "DELETE /api/shortlist/{entry_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/jobs/{job_id}/shortlist": "PPPPPPPPDDPPPPPPPPPPP",
+  "PATCH /api/shortlist/{entry_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/shortlist": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/shortlist/{entry_id}/promote": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

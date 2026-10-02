@@ -17,17 +17,20 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/skills-admin/plain-terms": "PDPDDDDDDDDPDPDDDD",
-  "GET /api/skills-admin/plain-terms/{term_id}/history": "PDPDDDDDDDDPDPDDDD",
-  "GET /api/skills-admin/skills": "PDPDDDDDDDDPDPDDDD",
-  "GET /api/skills-admin/unmatched-terms": "PDPDDDDDDDDPDPDDDD",
-  "POST /api/skills-admin/skills": "PDPDDDDDDDDPDPDDDD",
-  "POST /api/skills-admin/skills/{skill_id}/aliases": "PDPDDDDDDDDPDPDDDD",
-  "POST /api/skills-admin/unmatched-terms/{term_id}/ignore": "PDPDDDDDDDDPDPDDDD",
-  "POST /api/skills-admin/unmatched-terms/{term_id}/map": "PDPDDDDDDDDPDPDDDD",
-  "PUT /api/skills-admin/plain-terms/{term_id}": "PDPDDDDDDDDPDPDDDD"
+  "GET /api/skills-admin/plain-terms": "PDPDDDDDDDDPDPDDDDDDD",
+  "GET /api/skills-admin/plain-terms/{term_id}/history": "PDPDDDDDDDDPDPDDDDDDD",
+  "GET /api/skills-admin/skills": "PDPDDDDDDDDPDPDDDDDDD",
+  "GET /api/skills-admin/unmatched-terms": "PDPDDDDDDDDPDPDDDDDDD",
+  "POST /api/skills-admin/skills": "PDPDDDDDDDDPDPDDDDDDD",
+  "POST /api/skills-admin/skills/{skill_id}/aliases": "PDPDDDDDDDDPDPDDDDDDD",
+  "POST /api/skills-admin/unmatched-terms/{term_id}/ignore": "PDPDDDDDDDDPDPDDDDDDD",
+  "POST /api/skills-admin/unmatched-terms/{term_id}/map": "PDPDDDDDDDDPDPDDDDDDD",
+  "PUT /api/skills-admin/plain-terms/{term_id}": "PDPDDDDDDDDPDPDDDDDDD"
  }
 }

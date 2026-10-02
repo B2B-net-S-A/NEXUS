@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDD",
-  "GET /api/md-consumption/imports/{import_id}": "PPDDDDDDDDDDDDDDDD",
-  "POST /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDD",
-  "POST /api/md-consumption/imports/{import_id}/reprocess-polkomtel": "PPDDDDDDDDDDDDDDDD",
-  "POST /api/md-consumption/imports/{import_id}/rows/{row_id}/assign": "PPDDDDDDDDDDDDDDDD"
+  "GET /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDDDPD",
+  "GET /api/md-consumption/imports/{import_id}": "PPDDDDDDDDDDDDDDDDDPD",
+  "POST /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDDDPD",
+  "POST /api/md-consumption/imports/{import_id}/reprocess-polkomtel": "PPDDDDDDDDDDDDDDDDDPD",
+  "POST /api/md-consumption/imports/{import_id}/rows/{row_id}/assign": "PPDDDDDDDDDDDDDDDDDPD"
  }
 }

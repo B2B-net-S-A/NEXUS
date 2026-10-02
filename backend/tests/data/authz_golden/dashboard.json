@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/dashboard/kpis": "PDPDDDDDDDDPDPDDDD",
-  "GET /api/dashboard/pipeline-funnel": "PDPDDDDDDDDPDPDDDD",
-  "GET /api/dashboard/recent-activity": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/dashboard/recent-hires": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/dashboard/stats": "PDPDDDDDDDDPDPDDDD"
+  "GET /api/dashboard/kpis": "PDPDDDDDDDDPDPDDDDDDD",
+  "GET /api/dashboard/pipeline-funnel": "PDPDDDDDDDDPDPDDDDDDD",
+  "GET /api/dashboard/recent-activity": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/dashboard/recent-hires": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/dashboard/stats": "PDPDDDDDDDDPDPDDDDDDD"
  }
 }

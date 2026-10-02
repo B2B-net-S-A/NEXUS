@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/clients/{client_id}/contract-structure": "PPDBPDDDDDBBBDPPPP",
-  "GET /api/clients/{client_id}/executive-contracts/review": "PPDBPDDDDDBBBDPPPP",
-  "PATCH /api/clients/{client_id}/executive-contracts/{ec_id}": "PPDBDDDDDDBBBDDPDD",
-  "POST /api/clients/{client_id}/executive-contracts": "PPDBDDDDDDBBBDDPDD",
-  "POST /api/clients/{client_id}/executive-contracts/assignments": "PPDBDDDDDDBBBDDPDD"
+  "GET /api/clients/{client_id}/contract-structure": "PPDBPDDDDDBBBDPPPPDPP",
+  "GET /api/clients/{client_id}/executive-contracts/review": "PPDBPDDDDDBBBDPPPPDPP",
+  "PATCH /api/clients/{client_id}/executive-contracts/{ec_id}": "PPDBDDDDDDBBBDDPDDDDD",
+  "POST /api/clients/{client_id}/executive-contracts": "PPDBDDDDDDBBBDDPDDDDD",
+  "POST /api/clients/{client_id}/executive-contracts/assignments": "PPDBDDDDDDBBBDDPDDDDD"
  }
 }

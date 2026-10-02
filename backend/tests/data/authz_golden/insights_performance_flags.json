@@ -17,12 +17,15 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/insights/performance-flags": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/insights/performance-flags/history/{user_id}": "PDDDDDDDDDDDDDDDDD",
-  "PATCH /api/insights/performance-flags/{flag_id}": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/insights/performance-flags": "PDDDDDDDDDDDDDDDDD"
+  "GET /api/insights/performance-flags": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/insights/performance-flags/history/{user_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/insights/performance-flags/{flag_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/insights/performance-flags": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

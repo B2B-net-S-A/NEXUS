@@ -17,15 +17,18 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/competitions/current": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/competitions/history": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/competitions/monthly-races": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/competitions/my-position": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/competitions/ties": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/competitions/freeze": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/competitions/{type}/{period}/resolve-tie": "PDDDDDDDDDDDDDDDDD"
+  "GET /api/competitions/current": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/competitions/history": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/competitions/monthly-races": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/competitions/my-position": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/competitions/ties": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/competitions/freeze": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/competitions/{type}/{period}/resolve-tie": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

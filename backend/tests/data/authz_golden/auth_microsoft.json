@@ -17,11 +17,14 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/auth/microsoft/authorize": "PPPPPPPPPPPPPPPPPP",
-  "GET /api/auth/microsoft/callback": "PPPPPPPPPPPPPPPPPP",
-  "POST /api/auth/microsoft/exchange": "PPPPPPPPPPPPPPPPPP"
+  "GET /api/auth/microsoft/authorize": "PPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/auth/microsoft/callback": "PPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/auth/microsoft/exchange": "PPPPPPPPPPPPPPPPPPPPP"
  }
 }

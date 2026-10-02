@@ -17,19 +17,22 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/interview-cycle": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/interview-cycle/client-questions": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/interview-cycle/client-questions/archive": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/interview-cycle/events/{event_id}": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/interview-cycle/events/{event_id}/debrief": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/interview-cycle/slots/{request_id}/replaceable": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/interview-cycle/slots": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/interview-cycle/slots/{request_id}/cancel": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/interview-cycle/slots/{request_id}/choose": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/interview-cycle/slots/{request_id}/confirm": "PPPPPPPPDDPPPPPPPP",
-  "PUT /api/interview-cycle/events/{event_id}/debrief": "PPPPPPPPDDPPPPPPPP"
+  "GET /api/interview-cycle": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/interview-cycle/client-questions": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/interview-cycle/client-questions/archive": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/interview-cycle/events/{event_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/interview-cycle/events/{event_id}/debrief": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/interview-cycle/slots/{request_id}/replaceable": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/interview-cycle/slots": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/interview-cycle/slots/{request_id}/cancel": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/interview-cycle/slots/{request_id}/choose": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/interview-cycle/slots/{request_id}/confirm": "PPPPPPPPDDPPPPPPPPPPP",
+  "PUT /api/interview-cycle/events/{event_id}/debrief": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

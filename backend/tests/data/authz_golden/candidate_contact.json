@@ -17,14 +17,17 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/candidate-contact/candidates/{candidate_id}": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/candidate-contact/oversight": "PDPDDDDDDDDPDPDDDD",
-  "GET /api/candidate-contact/queue": "PDDDPPPPDDPDPPPPPP",
-  "GET /api/candidate-contact/status": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/candidate-contact/cases/{case_id}/attempts": "PDDDPPPPDDPDPPPPPP",
-  "POST /api/candidate-contact/cases/{case_id}/reassign": "PDPDDDDDDDDPDPDDDD"
+  "GET /api/candidate-contact/candidates/{candidate_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidate-contact/oversight": "PDPDDDDDDDDPDPDDDDDDD",
+  "GET /api/candidate-contact/queue": "PDDDPPPPDDPDPPPPPPPPP",
+  "GET /api/candidate-contact/status": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/candidate-contact/cases/{case_id}/attempts": "PDDDPPPPDDPDPPPPPPPPP",
+  "POST /api/candidate-contact/cases/{case_id}/reassign": "PDPDDDDDDDDPDPDDDDDDD"
  }
 }

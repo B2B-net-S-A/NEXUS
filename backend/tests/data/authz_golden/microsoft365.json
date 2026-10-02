@@ -17,15 +17,18 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/microsoft365/connection": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/microsoft365/authorize": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/microsoft365/callback": "PPPPPPPPPPPPPPPPPP",
-  "GET /api/microsoft365/connection": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/microsoft365/free-busy": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/microsoft365/sync/trigger": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/microsoft365/webhooks": "PPPPPPPPPPPPPPPPPP"
+  "DELETE /api/microsoft365/connection": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/microsoft365/authorize": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/microsoft365/callback": "PPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/microsoft365/connection": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/microsoft365/free-busy": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/microsoft365/sync/trigger": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/microsoft365/webhooks": "PPPPPPPPPPPPPPPPPPPPP"
  }
 }

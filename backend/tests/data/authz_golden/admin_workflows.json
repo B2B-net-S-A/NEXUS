@@ -17,14 +17,17 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/admin/workflows": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/workflows/revisions/{revision_id}": "PDDDDDDDDDDDDDDDDD",
-  "PATCH /api/admin/workflows/stage-revisions/{stage_revision_id}": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/workflows/bootstrap": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/workflows/revisions/{revision_id}/draft": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/workflows/revisions/{revision_id}/publish": "PDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/workflows": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/workflows/revisions/{revision_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/admin/workflows/stage-revisions/{stage_revision_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/workflows/bootstrap": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/workflows/revisions/{revision_id}/draft": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/workflows/revisions/{revision_id}/publish": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

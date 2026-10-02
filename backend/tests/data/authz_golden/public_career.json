@@ -17,11 +17,14 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/public/career/p/{slug}": "PPPPPPPPPPPPPPPPPP",
-  "GET /api/public/career/r/{slug}": "PPPPPPPPPPPPPPPPPP",
-  "POST /api/public/career/apply": "PPPPPPPPPPPPPPPPPP"
+  "GET /api/public/career/p/{slug}": "PPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/career/r/{slug}": "PPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/career/apply": "PPPPPPPPPPPPPPPPPPPPP"
  }
 }

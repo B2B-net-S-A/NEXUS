@@ -17,11 +17,14 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/champion/template": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/champion/preview": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/champion/validate": "PPPPPPPPDDPPPPPPPP"
+  "GET /api/champion/template": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/champion/preview": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/champion/validate": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

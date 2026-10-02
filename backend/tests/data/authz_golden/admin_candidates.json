@@ -17,17 +17,20 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/admin/candidates/backfill-cc/status": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/candidates/backfill-cv-fields/status": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/candidates/backfill-experience-dates/status": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/candidates/backfill-names/status": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/candidates/suspected-name-overwrites": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/candidates/backfill-cc": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/candidates/backfill-cv-fields": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/candidates/backfill-experience-dates": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/candidates/backfill-names": "PDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/candidates/backfill-cc/status": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/candidates/backfill-cv-fields/status": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/candidates/backfill-experience-dates/status": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/candidates/backfill-names/status": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/candidates/suspected-name-overwrites": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/candidates/backfill-cc": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/candidates/backfill-cv-fields": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/candidates/backfill-experience-dates": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/candidates/backfill-names": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

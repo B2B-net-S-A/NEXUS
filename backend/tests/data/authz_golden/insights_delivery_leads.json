@@ -17,12 +17,15 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/insights/delivery-leads": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/insights/delivery-leads/placements-by-client": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/insights/delivery-leads/portfolio": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/insights/delivery-leads/{dl_id}/trend": "PPPPPPPPPDPPPPPPPP"
+  "GET /api/insights/delivery-leads": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/insights/delivery-leads/placements-by-client": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/insights/delivery-leads/portfolio": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/insights/delivery-leads/{dl_id}/trend": "PPPPPPPPPDPPPPPPPPPPP"
  }
 }

@@ -17,14 +17,17 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/user-email-templates/{template_id}": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/user-email-templates": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/user-email-templates/{template_id}": "PPPPPPPPPDPPPPPPPP",
-  "POST /api/user-email-templates": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/user-email-templates/{template_id}/render": "PPPPPPPPDDPPPPPPPP",
-  "PUT /api/user-email-templates/{template_id}": "PPPPPPPPPDPPPPPPPP"
+  "DELETE /api/user-email-templates/{template_id}": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/user-email-templates": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/user-email-templates/{template_id}": "PPPPPPPPPDPPPPPPPPPPP",
+  "POST /api/user-email-templates": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/user-email-templates/{template_id}/render": "PPPPPPPPDDPPPPPPPPPPP",
+  "PUT /api/user-email-templates/{template_id}": "PPPPPPPPPDPPPPPPPPPPP"
  }
 }

@@ -17,11 +17,14 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/activities/feed": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/activities/leaderboard": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/activities/stats": "PPPPPPPPPDPPPPPPPP"
+  "GET /api/activities/feed": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/activities/leaderboard": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/activities/stats": "PPPPPPPPPDPPPPPPPPPPP"
  }
 }

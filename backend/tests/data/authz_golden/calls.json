@@ -17,14 +17,17 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/calls/cloudtalk-status": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/calls/stats": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/candidates/{candidate_id}/calls": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/candidates/{candidate_id}/calls/{call_id}": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/calls": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/calls/webhook": "PPPPPPPPPPPPPPPPPP"
+  "GET /api/calls/cloudtalk-status": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/calls/stats": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/calls": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/calls/{call_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/calls": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/calls/webhook": "PPPPPPPPPPPPPPPPPPPPP"
  }
 }

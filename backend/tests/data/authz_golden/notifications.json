@@ -17,16 +17,19 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/notifications": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/notifications/count": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/notifications/preferences": "PPPPPPPPPDPPPPPPPP",
-  "PATCH /api/notifications/read-all": "PPPPPPPPPDPPPPPPPP",
-  "PATCH /api/notifications/{notification_id}/read": "PPPPPPPPPDPPPPPPPP",
-  "PUT /api/notifications/preferences/{category}": "PPPPPPPPPDPPPPPPPP",
-  "PUT /api/notifications/read-all": "PPPPPPPPPDPPPPPPPP",
-  "PUT /api/notifications/{notification_id}/read": "PPPPPPPPPDPPPPPPPP"
+  "GET /api/notifications": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/notifications/count": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/notifications/preferences": "PPPPPPPPPDPPPPPPPPPPP",
+  "PATCH /api/notifications/read-all": "PPPPPPPPPDPPPPPPPPPPP",
+  "PATCH /api/notifications/{notification_id}/read": "PPPPPPPPPDPPPPPPPPPPP",
+  "PUT /api/notifications/preferences/{category}": "PPPPPPPPPDPPPPPPPPPPP",
+  "PUT /api/notifications/read-all": "PPPPPPPPPDPPPPPPPPPPP",
+  "PUT /api/notifications/{notification_id}/read": "PPPPPPPPPDPPPPPPPPPPP"
  }
 }

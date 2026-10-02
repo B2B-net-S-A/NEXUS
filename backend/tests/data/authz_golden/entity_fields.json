@@ -17,12 +17,15 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/entity-schema/{entity_type}": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/settings/entity-fields/types": "PDDDDDDDDDDDDDDDDD",
-  "PATCH /api/settings/entity-fields/{field_id}": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/settings/entity-fields": "PDDDDDDDDDDDDDDDDD"
+  "GET /api/entity-schema/{entity_type}": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/settings/entity-fields/types": "PDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/settings/entity-fields/{field_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/settings/entity-fields": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

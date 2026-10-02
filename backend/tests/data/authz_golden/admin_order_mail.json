@@ -17,12 +17,15 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/admin/order-mail/cleanup-receipt": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/order-mail/documents": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/order-mail/status": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/order-mail/sync": "PDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/order-mail/cleanup-receipt": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/order-mail/documents": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/order-mail/status": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/order-mail/sync": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

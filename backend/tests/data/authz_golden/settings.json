@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/settings/candidates-columns": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/settings/candidates-columns/all": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDD",
-  "PUT /api/settings/candidates-columns": "PDDDDDDDDDDDDDDDDD",
-  "PUT /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDD"
+  "GET /api/settings/candidates-columns": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/settings/candidates-columns/all": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/settings/candidates-columns": "PDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

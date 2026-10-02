@@ -17,12 +17,15 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/champion-suggestions/{suggestion_id}": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/champion-suggestions/{suggestion_id}/apply": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/champion-suggestions/{suggestion_id}/rate": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/champion-suggestions/{suggestion_id}/reject": "PPPPPPPPDDPPPPPPPP"
+  "GET /api/champion-suggestions/{suggestion_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/champion-suggestions/{suggestion_id}/apply": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/champion-suggestions/{suggestion_id}/rate": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/champion-suggestions/{suggestion_id}/reject": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

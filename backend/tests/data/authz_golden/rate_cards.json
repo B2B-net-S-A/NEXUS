@@ -17,14 +17,17 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDD",
-  "GET /api/rate-cards": "PPDDDDDDDDDDDDDDDD",
-  "GET /api/rate-cards/suggest": "PPDDDDDDDDDDDDDDDD",
-  "GET /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDD",
-  "PATCH /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDD",
-  "POST /api/rate-cards": "PPDDDDDDDDDDDDDDDD"
+  "DELETE /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDDDPD",
+  "GET /api/rate-cards": "PPDDDDDDDDDDDDDDDDDPD",
+  "GET /api/rate-cards/suggest": "PPDDDDDDDDDDDDDDDDDPD",
+  "GET /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDDDPD",
+  "PATCH /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDDDPD",
+  "POST /api/rate-cards": "PPDDDDDDDDDDDDDDDDDPD"
  }
 }

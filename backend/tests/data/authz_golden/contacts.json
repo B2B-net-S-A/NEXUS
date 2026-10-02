@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/contacts/{contact_id}": "PDDPDDDDDDPPPDDDPD",
-  "GET /api/clients/{client_id}/contacts": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/contacts": "PPPBPBBBDDBBBPPPPP",
-  "POST /api/contacts": "PDDPDDDDDDPPPDDDPD",
-  "PUT /api/contacts/{contact_id}": "PPDPPDDDDDPPPDPPPD"
+  "DELETE /api/contacts/{contact_id}": "PDDPDDDDDDPPPDDDPDDDD",
+  "GET /api/clients/{client_id}/contacts": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/contacts": "PPPBPBBBDDBBBPPPPPBPP",
+  "POST /api/contacts": "PDDPDDDDDDPPPDDDPDDDD",
+  "PUT /api/contacts/{contact_id}": "PPDPPDDDDDPPPDPPPDDDP"
  }
 }

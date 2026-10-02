@@ -17,11 +17,14 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/insights/clients/hiring-managers": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/insights/clients/hit-ratio": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/insights/clients/ranking": "PPDDDDDDDDDDDDDDDD"
+  "GET /api/insights/clients/hiring-managers": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/insights/clients/hit-ratio": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/insights/clients/ranking": "PPDDDDDDDDDDDDDDDDDPD"
  }
 }

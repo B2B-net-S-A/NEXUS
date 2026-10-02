@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/candidate-followups/candidates/{candidate_id}": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/candidate-followups/candidates/{candidate_id}/teams-meetings/{meeting_id}/transcript": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/candidate-followups/candidates/{candidate_id}/claim": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/candidate-followups/candidates/{candidate_id}/outcome": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/candidate-followups/candidates/{candidate_id}/teams-meetings": "PPPPPPPPDDPPPPPPPP"
+  "GET /api/candidate-followups/candidates/{candidate_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidate-followups/candidates/{candidate_id}/teams-meetings/{meeting_id}/transcript": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/candidate-followups/candidates/{candidate_id}/claim": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/candidate-followups/candidates/{candidate_id}/outcome": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/candidate-followups/candidates/{candidate_id}/teams-meetings": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

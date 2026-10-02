@@ -17,14 +17,17 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/recruitment-allocation/jobs/{job_id}": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/recruitment-allocation/mine": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/recruitment-allocation/onboarding": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/recruitment-allocation/team": "PDPDDDDDDDDPDPDDDD",
-  "PATCH /api/recruitment-allocation/onboarding/{item_id}": "PPPPPPPPDDPPPPPPPP",
-  "PUT /api/recruitment-allocation/mode": "PDPDDDDDDDDPDPDDDD"
+  "GET /api/recruitment-allocation/jobs/{job_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/recruitment-allocation/mine": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/recruitment-allocation/onboarding": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/recruitment-allocation/team": "PDPDDDDDDDDPDPDDDDDDD",
+  "PATCH /api/recruitment-allocation/onboarding/{item_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "PUT /api/recruitment-allocation/mode": "PDPDDDDDDDDPDPDDDDDDD"
  }
 }

@@ -17,12 +17,15 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/kpi-targets": "PDPDDDDDDDDPDPDDDD",
-  "GET /api/kpi-targets/history": "PDPDDDDDDDDPDPDDDD",
-  "PUT /api/kpi-targets/role-default": "PDPDDDDDDDDPDPDDDD",
-  "PUT /api/kpi-targets/user-target": "PDPDDDDDDDDPDPDDDD"
+  "GET /api/kpi-targets": "PDPDDDDDDDDPDPDDDDDDD",
+  "GET /api/kpi-targets/history": "PDPDDDDDDDDPDPDDDDDDD",
+  "PUT /api/kpi-targets/role-default": "PDPDDDDDDDDPDPDDDDDDD",
+  "PUT /api/kpi-targets/user-target": "PDPDDDDDDDDPDPDDDDDDD"
  }
 }

@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/cloudtalk/agents": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/cloudtalk/initiate-call": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/cloudtalk/sync-agents": "PDDDDDDDDDDDDDDDDD"
+  "DELETE /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/cloudtalk/agents": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/cloudtalk/initiate-call": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/cloudtalk/sync-agents": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

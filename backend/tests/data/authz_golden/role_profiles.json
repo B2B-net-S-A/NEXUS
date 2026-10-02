@@ -17,11 +17,14 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/role-profiles": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/role-profiles/{role_id}": "PPPPPPPPPDPPPPPPPP",
-  "PUT /api/role-profiles/{role_id}": "PDPDDDDDDDDPDPDDDD"
+  "GET /api/role-profiles": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/role-profiles/{role_id}": "PPPPPPPPPDPPPPPPPPPPP",
+  "PUT /api/role-profiles/{role_id}": "PDPDDDDDDDDPDPDDDDDDD"
  }
 }

@@ -17,16 +17,19 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/notes/{note_id}": "PPPPPPPPDDPPPPPPPP",
-  "DELETE /api/notes/{note_id}/pin": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/notes": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/notes/{note_id}": "PPPPPPPPDDPPPPPPPP",
-  "PATCH /api/notes/{note_id}": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/notes": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/notes/{note_id}/link-job": "PDDPDDDDDDPPPDDDDD",
-  "POST /api/notes/{note_id}/pin": "PPPPPPPPDDPPPPPPPP"
+  "DELETE /api/notes/{note_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "DELETE /api/notes/{note_id}/pin": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/notes": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/notes/{note_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "PATCH /api/notes/{note_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/notes": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/notes/{note_id}/link-job": "PDDPDDDDDDPPPDDDDDDDD",
+  "POST /api/notes/{note_id}/pin": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

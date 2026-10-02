@@ -17,19 +17,22 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/dashboard/v2/admin-ops": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/delivery-lead": "PDDPDDDDDDPPPDDDDD",
-  "GET /api/dashboard/v2/finance": "PPDDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/head-of-recruitment": "PDPDPDDDDDPPDPPPDD",
-  "GET /api/dashboard/v2/my-work": "PDDDDPPPDDDDPPPDPP",
-  "GET /api/dashboard/v2/recruitment-activity": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/dashboard/v2/recruitment-activity/details": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/dashboard/v2/recruitment-operations": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/dashboard/v2/recruitment-operations/{job_id}": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/dashboard/v2/recruitment-stats": "PPPPPPPPDDPPPPPPPP",
-  "PUT /api/dashboard/v2/recruitment-operations/{job_id}/favorite": "PPPPPPPPDDPPPPPPPP"
+  "GET /api/dashboard/v2/admin-ops": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/v2/delivery-lead": "PDDPDDDDDDPPPDDDDDDDD",
+  "GET /api/dashboard/v2/finance": "PPDDDDDDDDDDDDDDDDDPD",
+  "GET /api/dashboard/v2/head-of-recruitment": "PDPDPDDDDDPPDPPPDDDDD",
+  "GET /api/dashboard/v2/my-work": "PDDDDPPPDDDDPPPDPPPPP",
+  "GET /api/dashboard/v2/recruitment-activity": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/dashboard/v2/recruitment-activity/details": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/dashboard/v2/recruitment-operations": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/dashboard/v2/recruitment-operations/{job_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/dashboard/v2/recruitment-stats": "PPPPPPPPDDPPPPPPPPPPP",
+  "PUT /api/dashboard/v2/recruitment-operations/{job_id}/favorite": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

@@ -17,17 +17,21 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/languages": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/candidates/{candidate_id}/notes-facts": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/candidates/{candidate_id}/profile-rate": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/candidates/{candidate_id}/recent-recruitments": "PPPPPPPPDDPPPPPPPP",
-  "PATCH /api/candidates/{candidate_id}/call-facts": "PPPPPPPPDDPPPPPPPP",
-  "PATCH /api/candidates/{candidate_id}/profile-rate": "PPPPPPPPDDPPPPPPPP",
-  "PATCH /api/candidates/{candidate_id}/work-mode": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/candidates/{candidate_id}/notes-facts/apply": "PPPPPPPPDDPPPPPPPP",
-  "PUT /api/candidates/{candidate_id}/languages": "PPPPPPPPDDPPPPPPPP"
+  "GET /api/candidates/{candidate_id}/languages": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/notes-facts": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/profile-rate": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/recent-recruitments": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/screening-answers": "PPPPPPPPDDPPPPPPPPPPP",
+  "PATCH /api/candidates/{candidate_id}/call-facts": "PPPPPPPPDDPPPPPPPPPPP",
+  "PATCH /api/candidates/{candidate_id}/profile-rate": "PPPPPPPPDDPPPPPPPPPPP",
+  "PATCH /api/candidates/{candidate_id}/work-mode": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/candidates/{candidate_id}/notes-facts/apply": "PPPPPPPPDDPPPPPPPPPPP",
+  "PUT /api/candidates/{candidate_id}/languages": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

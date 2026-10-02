@@ -17,14 +17,17 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/insights/integrations/runs": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/insights/integrations/summary": "PPPPPPPPPDPPPPPPPP",
-  "PATCH /api/integrations/runs/{run_id}": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/integrations/runs": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/integrations/runs/{run_id}/events": "PPPPPPPPDDPPPPPPPP"
+  "GET /api/insights/integrations/runs": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/insights/integrations/summary": "PPPPPPPPPDPPPPPPPPPPP",
+  "PATCH /api/integrations/runs/{run_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/integrations/runs": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/integrations/runs/{run_id}/events": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

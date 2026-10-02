@@ -17,15 +17,18 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDD",
-  "GET /api/invoices": "PPDDDDDDDDDDDDDDDD",
-  "GET /api/invoices/dso": "PPDDDDDDDDDDDDDDDD",
-  "GET /api/invoices/export.csv": "PPDDDDDDDDDDDDDDDD",
-  "GET /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDD",
-  "PATCH /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDD",
-  "POST /api/invoices": "PPDDDDDDDDDDDDDDDD"
+  "DELETE /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDDDPD",
+  "GET /api/invoices": "PPDDDDDDDDDDDDDDDDDPD",
+  "GET /api/invoices/dso": "PPDDDDDDDDDDDDDDDDDPD",
+  "GET /api/invoices/export.csv": "PPDDDDDDDDDDDDDDDDDPD",
+  "GET /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDDDPD",
+  "PATCH /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDDDPD",
+  "POST /api/invoices": "PPDDDDDDDDDDDDDDDDDPD"
  }
 }

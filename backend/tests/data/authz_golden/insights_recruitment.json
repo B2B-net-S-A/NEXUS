@@ -17,15 +17,18 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/insights/recruitment/available-periods": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/insights/recruitment/competence-matrix": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/insights/recruitment/funnel": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/insights/recruitment/invite-links": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/insights/recruitment/seniority": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/insights/recruitment/team-activity": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/insights/recruitment/time-to-hire": "PPPPPPPPPDPPPPPPPP"
+  "GET /api/insights/recruitment/available-periods": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/insights/recruitment/competence-matrix": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/insights/recruitment/funnel": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/insights/recruitment/invite-links": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/insights/recruitment/seniority": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/insights/recruitment/team-activity": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/insights/recruitment/time-to-hire": "PPPPPPPPPDPPPPPPPPPPP"
  }
 }

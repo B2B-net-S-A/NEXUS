@@ -110,6 +110,17 @@ PERSONAS: tuple[Persona, ...] = (
     ),
     Persona("recruiter+clients_edit", UserRole.recruiter, grants=("clients_edit",)),
     Persona("recruiter+delivery_view", UserRole.recruiter, grants=("delivery_view",)),
+    # Pozycje, których domyślnie nie ma żadna rola poza jedną — bez tych person
+    # wzorzec nie odróżniałby bramki uprawnienia od bramki roli.
+    Persona(
+        "recruiter+recruitment_manage",
+        UserRole.recruiter,
+        grants=("recruitment_manage",),
+    ),
+    Persona(
+        "recruiter+finance_module", UserRole.recruiter, grants=("finance_module",)
+    ),
+    Persona("recruiter+amounts_edit", UserRole.recruiter, grants=("amounts_edit",)),
 )
 
 #: Odstępstwa produkcji od macierzy z kodu (odczyt 02.10.2026): TCM ma

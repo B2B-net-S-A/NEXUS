@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/job-intake/handoff-options": "PDDPDDDDDDPPPDDDDD",
-  "POST /api/job-intake/critical-suggestion": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/job-intake/public-draft": "PDDPDDDDDDPPPDDDDD",
-  "POST /api/job-intake/read": "PDDPDDDDDDPPPDDDDD",
-  "POST /api/job-intake/read-file": "PDDPDDDDDDPPPDDDDD"
+  "GET /api/job-intake/handoff-options": "PDDPDDDDDDPPPDDDDDPDD",
+  "POST /api/job-intake/critical-suggestion": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/job-intake/public-draft": "PDDPDDDDDDPPPDDDDDPDD",
+  "POST /api/job-intake/read": "PDDPDDDDDDPPPDDDDDPDD",
+  "POST /api/job-intake/read-file": "PDDPDDDDDDPPPDDDDDPDD"
  }
 }

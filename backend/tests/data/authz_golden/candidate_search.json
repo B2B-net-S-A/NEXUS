@@ -17,12 +17,15 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/candidate-search/jobs/{job_id}/latest-run": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/candidate-search/jobs/{job_id}/requirements": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/candidate-search/runs/{run_id}": "PPPPPPPPPDPPPPPPPP",
-  "POST /api/candidate-search/runs": "PPPPPPPPPDPPPPPPPP"
+  "GET /api/candidate-search/jobs/{job_id}/latest-run": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/candidate-search/jobs/{job_id}/requirements": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/candidate-search/runs/{run_id}": "PPPPPPPPPDPPPPPPPPPPP",
+  "POST /api/candidate-search/runs": "PPPPPPPPPDPPPPPPPPPPP"
  }
 }

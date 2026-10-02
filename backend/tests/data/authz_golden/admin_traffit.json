@@ -17,15 +17,18 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/admin/traffit/file-dates-repair/status": "UUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/notes-repair/status": "UUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/sync/status": "UUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/file-dates-repair": "UUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/notes-repair": "UUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/notes-repair/recruitments": "UUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/sync": "UUUUUUUUUUUUUUUUUU"
+  "GET /api/admin/traffit/file-dates-repair/status": "UUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/admin/traffit/notes-repair/status": "UUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/admin/traffit/sync/status": "UUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/file-dates-repair": "UUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/notes-repair": "UUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/notes-repair/recruitments": "UUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/sync": "UUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/interview-feedback/{feedback_id}": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/interview-feedback": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/interview-feedback/{feedback_id}": "PPPPPPPPDDPPPPPPPP",
-  "PATCH /api/interview-feedback/{feedback_id}": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/interview-feedback": "PPPPPPPPDDPPPPPPPP"
+  "DELETE /api/interview-feedback/{feedback_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/interview-feedback": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/interview-feedback/{feedback_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "PATCH /api/interview-feedback/{feedback_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/interview-feedback": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

@@ -17,12 +17,15 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/users": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/users/me/preferences": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/users/mentionable": "PPPPPPPPDDPPPPPPPP",
-  "PATCH /api/users/me/preferences": "PPPPPPPPPDPPPPPPPP"
+  "GET /api/users": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/users/me/preferences": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/users/mentionable": "PPPPPPPPDDPPPPPPPPPPP",
+  "PATCH /api/users/me/preferences": "PPPPPPPPPDPPPPPPPPPPP"
  }
 }

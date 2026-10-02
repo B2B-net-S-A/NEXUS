@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/dictionaries/{slug}/items": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/settings/dictionaries": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/dictionaries/{slug}": "PDDDDDDDDDDDDDDDDD",
-  "PATCH /api/settings/dictionaries/{slug}/items/{item_id}": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/settings/dictionaries/{slug}/items": "PDDDDDDDDDDDDDDDDD"
+  "GET /api/dictionaries/{slug}/items": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/settings/dictionaries": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/dictionaries/{slug}": "PDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/settings/dictionaries/{slug}/items/{item_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/settings/dictionaries/{slug}/items": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

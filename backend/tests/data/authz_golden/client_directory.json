@@ -17,14 +17,17 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/clients/directory": "PPDPPDDDDDPPPDPPPP",
-  "GET /api/clients/directory/export": "PPDPPDDDDDPPPDPPPP",
-  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDD",
-  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}/placement": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/portfolio-scopes": "PDDDDDDDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/directory": "PPDPPDDDDDPPPDPPPPDPP",
+  "GET /api/clients/directory/export": "PPDPPDDDDDPPPDPPPPDPP",
+  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}/placement": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/portfolio-scopes": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -17,10 +17,13 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/competence-categories": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/competence-categories/{cc_id}/recruiters": "PPPPPPPPDDPPPPPPPP"
+  "GET /api/competence-categories": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/competence-categories/{cc_id}/recruiters": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

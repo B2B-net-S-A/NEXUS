@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/procedures": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/procedures/{id_or_slug}": "PPPPPPPPPDPPPPPPPP",
-  "POST /api/procedures": "PDDDDDDDDDDDDDDDDD",
-  "PUT /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDD"
+  "DELETE /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/procedures": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/procedures/{id_or_slug}": "PPPPPPPPPDPPPPPPPPPPP",
+  "POST /api/procedures": "PDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

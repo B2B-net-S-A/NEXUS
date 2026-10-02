@@ -17,18 +17,21 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/calendar/events/{event_id}": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/calendar/conflicts": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/calendar/conflicts-summary": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/calendar/events": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/calendar/events/{event_id}": "PPPPPPPPDDPPPPPPPP",
-  "PATCH /api/calendar/events/{event_id}": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/calendar/events": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/calendar/events/m365-invite": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/calendar/events/{event_id}/cancel": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/calendar/import-ical": "PPPPPPPPDDPPPPPPPP"
+  "DELETE /api/calendar/events/{event_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/calendar/conflicts": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/calendar/conflicts-summary": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/calendar/events": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/calendar/events/{event_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "PATCH /api/calendar/events/{event_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/calendar/events": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/calendar/events/m365-invite": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/calendar/events/{event_id}/cancel": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/calendar/import-ical": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

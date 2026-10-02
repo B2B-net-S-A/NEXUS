@@ -17,15 +17,18 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/signing/contracts/{contract_id}/signatures": "PPDPDDDDDDPPPDDDDD",
-  "GET /api/signing/health": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/signing/signatures/{signature_id}": "PPDPDDDDDDPPPDDDDD",
-  "POST /api/signing/contracts/{contract_id}/mark-sent-offline": "PPDPDDDDDDPPPDDPDD",
-  "POST /api/signing/contracts/{contract_id}/send-for-signature": "PPDPDDDDDDPPPDDPDD",
-  "POST /api/signing/signatures/{signature_id}/regenerate-link": "PPDPDDDDDDPPPDDPDD",
-  "POST /api/signing/signatures/{signature_id}/withdraw": "PPDPDDDDDDPPPDDPDD"
+  "GET /api/signing/contracts/{contract_id}/signatures": "PPDPDDDDDDPPPDDDDDDPP",
+  "GET /api/signing/health": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/signing/signatures/{signature_id}": "PPDPDDDDDDPPPDDDDDDPP",
+  "POST /api/signing/contracts/{contract_id}/mark-sent-offline": "PPDPDDDDDDPPPDDPDDDDD",
+  "POST /api/signing/contracts/{contract_id}/send-for-signature": "PPDPDDDDDDPPPDDPDDDDD",
+  "POST /api/signing/signatures/{signature_id}/regenerate-link": "PPDPDDDDDDPPPDDPDDDDD",
+  "POST /api/signing/signatures/{signature_id}/withdraw": "PPDPDDDDDDPPPDDPDDDDD"
  }
 }

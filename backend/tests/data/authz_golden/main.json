@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/health": "PPPPPPPPPPPPPPPPPP",
-  "GET /api/health/alembic": "PPPPPPPPPPPPPPPPPP",
-  "GET /api/health/deep": "PPPPPPPPPPPPPPPPPP",
-  "GET /api/health/live": "PPPPPPPPPPPPPPPPPP",
-  "GET /health": "PPPPPPPPPPPPPPPPPP"
+  "GET /api/health": "PPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/health/alembic": "PPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/health/deep": "PPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/health/live": "PPPPPPPPPPPPPPPPPPPPP",
+  "GET /health": "PPPPPPPPPPPPPPPPPPPPP"
  }
 }

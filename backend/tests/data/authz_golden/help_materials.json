@@ -17,12 +17,15 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/help-materials": "PPPPPPPPPDPPPPPPPP",
-  "POST /api/help-materials": "PDDDDDDDDDDDDDDDDD",
-  "PUT /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDD"
+  "DELETE /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/help-materials": "PPPPPPPPPDPPPPPPPPPPP",
+  "POST /api/help-materials": "PDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

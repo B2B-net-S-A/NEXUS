@@ -17,12 +17,15 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/admin/recruitment-processes/backfill/status": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/recruitment-processes/by-pair/{candidate_id}/{job_id}": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/recruitment-processes/shadow-compare": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/recruitment-processes/backfill": "PDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/recruitment-processes/backfill/status": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/recruitment-processes/by-pair/{candidate_id}/{job_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/recruitment-processes/shadow-compare": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/recruitment-processes/backfill": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

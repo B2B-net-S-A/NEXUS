@@ -17,11 +17,14 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/admin/client-portfolio/import-preview": "PPDDDDDDDDDDDDDDDD",
-  "GET /api/admin/client-portfolio/import-runs": "PPDDDDDDDDDDDDDDDD",
-  "GET /api/admin/client-portfolio/import-runs/{run_id}": "PPDDDDDDDDDDDDDDDD"
+  "GET /api/admin/client-portfolio/import-preview": "PPDDDDDDDDDDDDDDDDDPD",
+  "GET /api/admin/client-portfolio/import-runs": "PPDDDDDDDDDDDDDDDDDPD",
+  "GET /api/admin/client-portfolio/import-runs/{run_id}": "PPDDDDDDDDDDDDDDDDDPD"
  }
 }

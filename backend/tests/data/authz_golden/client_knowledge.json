@@ -17,11 +17,14 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/client-knowledge/{knowledge_id}": "PDDPDDDDDDPPPDDDPD",
-  "GET /api/clients/{client_id}/knowledge": "PPDBPDDDDDBBBDPPPP",
-  "POST /api/clients/{client_id}/knowledge": "PDDBDDDDDDBBBDDDPD"
+  "DELETE /api/client-knowledge/{knowledge_id}": "PDDPDDDDDDPPPDDDPDDDD",
+  "GET /api/clients/{client_id}/knowledge": "PPDBPDDDDDBBBDPPPPDPP",
+  "POST /api/clients/{client_id}/knowledge": "PDDBDDDDDDBBBDDDPDDDD"
  }
 }

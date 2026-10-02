@@ -17,10 +17,13 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/merge-preview": "PDPDDDDDDDDPDPDDDD",
-  "POST /api/candidates/{candidate_id}/merge": "PDPDDDDDDDDPDPDDDD"
+  "GET /api/candidates/{candidate_id}/merge-preview": "PDPDDDDDDDDPDPDDDDDDD",
+  "POST /api/candidates/{candidate_id}/merge": "PDPDDDDDDDDPDPDDDDDDD"
  }
 }

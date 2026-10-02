@@ -17,14 +17,17 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/contract-templates": "PPDBDDDDDDBBBDDDDD",
-  "GET /api/contract-templates/{template_id}": "PPDBDDDDDDBBBDDDDD",
-  "GET /api/contract-templates/{template_id}/render": "PPDBDDDDDDBBBDDDDD",
-  "PATCH /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/contract-templates": "PDDDDDDDDDDDDDDDDD"
+  "DELETE /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/contract-templates": "PPDBDDDDDDBBBDDDDDDPP",
+  "GET /api/contract-templates/{template_id}": "PPDBDDDDDDBBBDDDDDDPP",
+  "GET /api/contract-templates/{template_id}/render": "PPDBDDDDDDBBBDDDDDDPP",
+  "PATCH /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-templates": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -17,11 +17,14 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/rejection-emails/by-candidate/{candidate_id}": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/rejection-emails/{rejection_email_id}": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/rejection-emails/{rejection_email_id}/cancel": "PPPPPPPPDDPPPPPPPP"
+  "GET /api/rejection-emails/by-candidate/{candidate_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/rejection-emails/{rejection_email_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/rejection-emails/{rejection_email_id}/cancel": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

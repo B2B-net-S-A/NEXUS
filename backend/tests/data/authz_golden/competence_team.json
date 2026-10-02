@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/competence-team/assignments/{assignment_id}": "PDPDDDDDDDDPDPDDDD",
-  "GET /api/competence-team": "PDPDDDDDDDDPDPDDDD",
-  "PATCH /api/competence-team/people/{user_id}/allocation": "PDPDDDDDDDDPDPDDDD",
-  "PUT /api/competence-team/assignments": "PDPDDDDDDDDPDPDDDD",
-  "PUT /api/competence-team/rules": "PDPDDDDDDDDPDPDDDD"
+  "DELETE /api/competence-team/assignments/{assignment_id}": "PDPDDDDDDDDPDPDDDDDDD",
+  "GET /api/competence-team": "PDPDDDDDDDDPDPDDDDDDD",
+  "PATCH /api/competence-team/people/{user_id}/allocation": "PDPDDDDDDDDPDPDDDDDDD",
+  "PUT /api/competence-team/assignments": "PDPDDDDDDDDPDPDDDDDDD",
+  "PUT /api/competence-team/rules": "PDPDDDDDDDDPDPDDDDDDD"
  }
 }

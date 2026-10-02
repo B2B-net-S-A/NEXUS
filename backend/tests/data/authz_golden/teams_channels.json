@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/teams-channels": "PDDDDDDDDDDDDDDDDD",
-  "PATCH /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/teams-channels": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/teams-channels/{channel_db_id}/test": "PDDDDDDDDDDDDDDDDD"
+  "DELETE /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/teams-channels": "PDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/teams-channels": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/teams-channels/{channel_db_id}/test": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

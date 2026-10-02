@@ -17,11 +17,14 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/b2b-generator/register-import/runs": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/b2b-generator/register-import": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/b2b-generator/register-import/runs/{run_id}/rollback": "PDDDDDDDDDDDDDDDDD"
+  "GET /api/b2b-generator/register-import/runs": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/b2b-generator/register-import": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/b2b-generator/register-import/runs/{run_id}/rollback": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

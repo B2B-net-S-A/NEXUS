@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/rate-benchmarks": "PPDDDDDDDDDDDDDDDD",
-  "PATCH /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/rate-benchmarks": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/rate-benchmarks/import": "PDDDDDDDDDDDDDDDDD"
+  "DELETE /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/rate-benchmarks": "PPDDDDDDDDDDDDDDDDDPD",
+  "PATCH /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/rate-benchmarks": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/rate-benchmarks/import": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

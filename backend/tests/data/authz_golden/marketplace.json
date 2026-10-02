@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/marketplace/candidates/{candidate_id}": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/marketplace/candidates": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/marketplace/candidates/{candidate_id}/matches": "PPPPPPPPDDPPPPPPPP",
-  "GET /api/marketplace/pool": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/marketplace/candidates/{candidate_id}/add": "PPPPPPPPDDPPPPPPPP"
+  "DELETE /api/marketplace/candidates/{candidate_id}": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/marketplace/candidates": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/marketplace/candidates/{candidate_id}/matches": "PPPPPPPPDDPPPPPPPPPPP",
+  "GET /api/marketplace/pool": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/marketplace/candidates/{candidate_id}/add": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

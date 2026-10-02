@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/insights/campaigns": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/insights/campaigns/active": "PPPPPPPPPDPPPPPPPP",
-  "PATCH /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/insights/campaigns": "PDDDDDDDDDDDDDDDDD"
+  "DELETE /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/insights/campaigns/active": "PPPPPPPPPDPPPPPPPPPPP",
+  "PATCH /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

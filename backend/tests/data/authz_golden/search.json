@@ -17,14 +17,17 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/search/": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/search/global": "PPPPPPPPPDPPPPPPPP",
-  "POST /api/search/candidates": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/search/candidates/diagnostics": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/search/candidates/scores": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/search/semantic": "PPPPPPPPDDPPPPPPPP"
+  "GET /api/search/": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/search/global": "PPPPPPPPPDPPPPPPPPPPP",
+  "POST /api/search/candidates": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/search/candidates/diagnostics": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/search/candidates/scores": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/search/semantic": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

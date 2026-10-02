@@ -17,10 +17,13 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "POST /api/recommendations/prepare-client-proposal": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/recommendations/send-candidate-shortlist-email": "PPPPPPPPDDPPPPPPPP"
+  "POST /api/recommendations/prepare-client-proposal": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/recommendations/send-candidate-shortlist-email": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

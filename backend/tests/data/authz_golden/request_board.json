@@ -17,11 +17,14 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/request-board/jobs/{job_id}/people/{user_id}": "PDPPDDDDDDPPPPDDDD",
-  "GET /api/request-board": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/request-board/jobs/{job_id}/people": "PDPPDDDDDDPPPPDDDD"
+  "DELETE /api/request-board/jobs/{job_id}/people/{user_id}": "PDPPDDDDDDPPPPDDDDDDD",
+  "GET /api/request-board": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/request-board/jobs/{job_id}/people": "PDPPDDDDDDPPPPDDDDDDD"
  }
 }

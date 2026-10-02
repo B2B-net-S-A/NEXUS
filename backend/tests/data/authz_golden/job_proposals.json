@@ -17,13 +17,16 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/background-events": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/jobs/{job_id}/proposal-facts": "PPPPPPPPPDPPPPPPPP",
-  "GET /api/jobs/{job_id}/proposal-inbox": "PPPPPPPPPDPPPPPPPP",
-  "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/dismiss": "PPPPPPPPDDPPPPPPPP",
-  "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/restore": "PPPPPPPPDDPPPPPPPP"
+  "GET /api/jobs/{job_id}/background-events": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/jobs/{job_id}/proposal-facts": "PPPPPPPPPDPPPPPPPPPPP",
+  "GET /api/jobs/{job_id}/proposal-inbox": "PPPPPPPPPDPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/dismiss": "PPPPPPPPDDPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/restore": "PPPPPPPPDDPPPPPPPPPPP"
  }
 }

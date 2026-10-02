@@ -17,11 +17,14 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/clients/directory/inactive-cleanup": "PDDDDDDDDDDDDDDDDD",
-  "GET /api/clients/directory/inactive-cleanup/preview": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/clients/directory/inactive-cleanup/execute": "PDDDDDDDDDDDDDDDDD"
+  "GET /api/clients/directory/inactive-cleanup": "PDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/directory/inactive-cleanup/preview": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/clients/directory/inactive-cleanup/execute": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -17,11 +17,14 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/insights/recruitment/stale-jobs": "PPPPPDDDDDPPPPPPDD",
-  "GET /api/insights/team/attention": "PPPPPDDDDDPPPPPPDD",
-  "GET /api/insights/team/people": "PPPPPDDDDDPPPPPPDD"
+  "GET /api/insights/recruitment/stale-jobs": "PPPPPDDDDDPPPPPPDDDDD",
+  "GET /api/insights/team/attention": "PPPPPDDDDDPPPPPPDDDDD",
+  "GET /api/insights/team/people": "PPPPPDDDDDPPPPPPDDDDD"
  }
 }

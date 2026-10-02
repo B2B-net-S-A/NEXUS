@@ -17,14 +17,17 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/public/apply/{token}": "PPPPPPPPPPPPPPPPPP",
-  "GET /api/public/champion-card/{token}": "PPPPPPPPPPPPPPPPPP",
-  "GET /api/public/cv-i/{token}": "PPPPPPPPPPPPPPPPPP",
-  "GET /api/public/cv/{token}": "PPPPPPPPPPPPPPPPPP",
-  "POST /api/public/apply/{token}": "PPPPPPPPPPPPPPPPPP",
-  "POST /api/public/cv-i/{token}/chat": "PPPPPPPPPPPPPPPPPP"
+  "GET /api/public/apply/{token}": "PPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/champion-card/{token}": "PPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/cv-i/{token}": "PPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/cv/{token}": "PPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/apply/{token}": "PPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/cv-i/{token}/chat": "PPPPPPPPPPPPPPPPPPPPP"
  }
 }

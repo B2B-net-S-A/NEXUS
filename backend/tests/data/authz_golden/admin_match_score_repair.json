@@ -17,10 +17,13 @@
   "talent_community_manager+sourcer",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
-  "recruiter+delivery_view"
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/admin/match-score-repair/preview": "PDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/match-score-repair/repair": "PDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/match-score-repair/preview": "PDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/match-score-repair/repair": "PDDDDDDDDDDDDDDDDDDDD"
  }
 }
