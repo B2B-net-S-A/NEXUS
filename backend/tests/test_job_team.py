@@ -719,6 +719,62 @@ async def test_owner_removal_leaves_no_row_where_the_planner_never_looks(
         await _cleanup([job_id])
 
 
+@pytest.mark.asyncio
+async def test_reassigning_a_removed_owner_makes_them_a_recruiter_again() -> None:
+    """Każda droga, którą człowiek wpisuje prowadzącego, znosi ślad zdjęcia.
+
+    `/owner` i `/claim` robią to przez synchronizację przypisań; przypisanie
+    z planu priorytetów wołało samo `assign_operator` i zostawiało osobę
+    prowadzącą, której reguła zespołu nie liczyła jako Rekrutera.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.recruitment_priority import (
+        PriorityChannel,
+        RecruitmentPriorityAssignment,
+        RecruitmentPriorityDemand,
+    )
+    from app.models.user import User
+    from app.services.job_team import recruiters_for_jobs
+    from app.services.recruitment_allocation import allocation_lock, assign_operator
+
+    world = await _seed_owner_only_job(role=UserRole.recruiter, in_pool=True)
+    job_id, owner_id = world["job_id"], world["owner_id"]
+    try:
+        assert await _remove(job_id, owner_id, world["actor_id"]) is True
+        async with AsyncSessionLocal() as db:
+            await allocation_lock(db)
+            job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
+            await assign_operator(
+                db,
+                job=job,
+                assignee=await db.get(User, owner_id),
+                channel=PriorityChannel.linkedin,
+                actor_user_id=world["actor_id"],
+                source="delivery_lead",
+                as_owner=False,
+            )
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            assert (await db.get(Job, job_id)).recruiter_id == owner_id
+            people = (await recruiters_for_jobs(db, [job_id]))[job_id]
+            assert [p.user_id for p in people if not p.proposed] == [owner_id]
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(RecruitmentPriorityAssignment).where(
+                    RecruitmentPriorityAssignment.job_id == job_id
+                )
+            )
+            await db.execute(
+                delete(RecruitmentPriorityDemand).where(
+                    RecruitmentPriorityDemand.job_id == job_id
+                )
+            )
+            await db.commit()
+        await _cleanup([job_id])
+
+
 # ── Członkostwo rekrutacji zna aktywne przypisanie (baza) ────────────────────
 
 

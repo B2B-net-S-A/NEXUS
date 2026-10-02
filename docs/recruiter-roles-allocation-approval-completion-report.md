@@ -122,5 +122,9 @@ Sześć pozycji z pierwszej wersji tej listy poprawiono osobnym PR-em:
   1280×720: nazwiska miały 90 z 147 px i 61 z 133 px, teraz mieszczą się
   w całości (147/147, 133/133); przy 1920 px wiersz zostaje jednoliniowy.
 
-Sprawdzono: 16 plików testów backendu z bazą (325 zaliczonych), testy frontu
+- **Przegląd kodu** nie znalazł blokerów; domknięta jedna uwaga: prowadzący wpisany
+  ponownie inną drogą niż `/owner` (plan priorytetów) nie był liczony jako
+  Rekruter — `assign_operator` znosi teraz ślad zdjęcia.
+
+Sprawdzono: 19 plików testów backendu z bazą (575 zaliczonych), testy frontu
 pulpitu i panelu „Zespół” (153), `tsc`, `ruff`, stemple przewodników.

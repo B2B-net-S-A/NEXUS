@@ -4766,8 +4766,9 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   `proposal:excluded`), razem z prowadzeniem rekrutacji i współpracą.
 - **Ponowne przypisanie przez człowieka znosi wcześniejsze ręczne zdjęcie**
   (`request_allocation.void_manual_release`: powód `manual` → `reassigned`).
-  Woła je `manual_add` (pulpit, „Zmień” przy propozycji, nowy rekruter w puli)
-  i zmiana rekrutera poza pulą. Bez tego osoba zdjęta i dodana ponownie w tym
+  Woła je `manual_add` (pulpit, „Zmień” przy propozycji, nowy rekruter w puli),
+  zmiana rekrutera poza pulą i `assign_operator`, gdy wpisuje prowadzącego
+  (także z planu priorytetów). Bez tego osoba zdjęta i dodana ponownie w tym
   samym stanie requestu była prowadzącą, której reguła zespołu nie liczyła —
   kolejna dodana osoba wchodziła na jej miejsce. Nowa ścieżka, którą człowiek
   przypisuje osobę do requestu, idzie przez `manual_add` albo woła ten helper.
