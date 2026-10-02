@@ -51,7 +51,7 @@ vi.mock("@/components/v2/recruitment/PanelSavedViews", () => ({
 import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
 import type { BoardTaskRow } from "@/lib/api/boardTasks";
 import { useAuthStore } from "@/store/auth";
-import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 const since = new Date(Date.now() - 2 * 86_400_000).toISOString();
 

@@ -49,7 +49,7 @@ import {
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { Permission } from "@/lib/permissions";
 import { useAuthStore } from "@/store/auth";
-import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 const JOB_ID = 7;
 

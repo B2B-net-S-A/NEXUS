@@ -85,7 +85,7 @@ vi.mock("@/components/v2/recruitment/DlReviewPanel", () => ({
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/store/auth";
-import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 import { useUiStore } from "@/store/ui";
 import { KANBAN_VIEW_MODE_STORAGE_KEY } from "@/lib/kanban-view-preferences";
 

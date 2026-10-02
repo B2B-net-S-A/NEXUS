@@ -64,7 +64,7 @@ vi.mock("@/lib/api/dlPortal", () => ({
 }));
 
 import { FrameworkContractsTab } from "@/components/FrameworkContractsTab";
-import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 const FALSE_CLAIM = /Brak umów ramowych\. Dodaj pierwszą MSA/;
 const NEW_BUTTON = /Nowa umowa/;

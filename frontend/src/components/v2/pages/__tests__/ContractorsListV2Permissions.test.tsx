@@ -50,7 +50,7 @@ import { useAuthStore } from "@/store/auth";
 import {
   permissionSnapshot,
   sectionSnapshot,
-} from "@/test/fixtures/permission-snapshot";
+} from "@/__tests__/fixtures/permission-snapshot";
 import type { Permission } from "@/lib/permissions";
 
 function item(id: number, lastname: string, over: Record<string, unknown>) {

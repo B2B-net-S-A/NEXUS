@@ -26,7 +26,7 @@ vi.mock("@/lib/api", async () => {
 });
 
 import { useAuthStore } from "@/store/auth";
-import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 import { ContractsBulkActionsBarV2 } from "../ContractsBulkActionsBar";
 
 /** Pasek czyta konto z prawdziwego store'u — tak jak na ekranie. */

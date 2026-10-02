@@ -8,7 +8,7 @@ import {
   templateAvailability,
 } from "@/lib/dashboard-tiles/catalog";
 import type { User, UserRole } from "@/store/auth";
-import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 function user(role: UserRole, extra: Partial<User> = {}): User {
   return {

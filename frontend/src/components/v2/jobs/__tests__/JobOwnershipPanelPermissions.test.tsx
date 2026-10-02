@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
 import type { Permission } from "@/lib/permissions";
 import { useAuthStore, type User } from "@/store/auth";
-import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 vi.mock("@/lib/api", () => ({
   default: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },

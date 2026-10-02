@@ -21,7 +21,7 @@ import {
 } from "@/components/insights/InsightsView";
 import { REPORTS, reportById, seesBoardTrend, visibleReports } from "@/lib/insights-reports";
 import type { Permission } from "@/lib/permissions";
-import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 type AuthUser = Parameters<typeof getVisibleInsightTabIds>[0];
 

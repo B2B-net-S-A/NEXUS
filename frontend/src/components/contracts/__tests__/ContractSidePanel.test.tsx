@@ -44,7 +44,7 @@ vi.mock("@/lib/api/dlPortal", async (importOriginal) => ({
 import { ContractSidePanel } from "@/components/contracts/ContractSidePanel";
 import { ContractStatusControl } from "@/components/contracts/ContractStatusControl";
 import { useAuthStore } from "@/store/auth";
-import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 type Role =
   | "admin"

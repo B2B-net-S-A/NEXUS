@@ -47,7 +47,7 @@ import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
 import { ContractOnboardingTab } from "@/components/ContractOnboardingTab";
 import type { Permission } from "@/lib/permissions";
 import { useAuthStore } from "@/store/auth";
-import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 const CLIENT_ID = 7;
 

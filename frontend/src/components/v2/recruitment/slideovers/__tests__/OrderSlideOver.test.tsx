@@ -66,7 +66,7 @@ vi.mock("@/components/v2/jobs/JobCloseWithReasonDialog", () => ({
   }) => (open ? <div data-testid="close-dialog" data-reason={defaultReason} /> : null),
 }));
 
-import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 import { OrderSlideOver, type OrderSlideOverProps } from "../OrderSlideOver";
 import { renderWithQuery } from "./test-utils";

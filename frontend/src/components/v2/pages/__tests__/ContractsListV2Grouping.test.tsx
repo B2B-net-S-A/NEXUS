@@ -7,7 +7,7 @@ import { useAuthStore } from "@/store/auth";
 import {
   permissionSnapshot,
   sectionSnapshot,
-} from "@/test/fixtures/permission-snapshot";
+} from "@/__tests__/fixtures/permission-snapshot";
 
 const getMock = vi.fn();
 vi.mock("@/lib/api", () => ({

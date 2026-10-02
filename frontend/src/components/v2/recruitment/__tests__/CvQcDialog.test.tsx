@@ -35,7 +35,7 @@ import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import type { QcResult } from "@/lib/api/cvQc";
 import type { Permission } from "@/lib/permissions";
 import { useAuthStore } from "@/store/auth";
-import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 /** Konto testowe. Bez `granted` uprawnienia liczą się z domyślnych dla roli;
  *  z `granted` profil niesie pełną migawkę (dokładnie te uprawnienia). */

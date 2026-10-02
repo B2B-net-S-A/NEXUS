@@ -153,7 +153,7 @@ vi.mock("@/components/v2/modals/GenerateInviteLinkV2", () => ({ GenerateInviteLi
 vi.mock("@/components/v2/presence/ActiveViewers", () => ({ ActiveViewers: () => null }));
 
 import JobDetailPage from "@/app/jobs/[id]/page";
-import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 const JOB = {
   id: 42,

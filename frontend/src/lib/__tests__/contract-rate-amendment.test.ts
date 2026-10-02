@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { canAmendContractRates } from "@/lib/contract-rate-amendment";
 import type { User } from "@/store/auth";
-import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 type TestUser = Parameters<typeof canAmendContractRates>[0];
 

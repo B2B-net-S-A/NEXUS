@@ -29,7 +29,7 @@ import {
 } from "@/components/v2/jobs/JobReadinessDock";
 import { ToastProvider } from "@/components/Toast";
 import { useAuthStore, type User } from "@/store/auth";
-import { permissionSnapshot } from "@/test/fixtures/permission-snapshot";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 const getMock = vi.fn();
 const postMock = vi.fn();
