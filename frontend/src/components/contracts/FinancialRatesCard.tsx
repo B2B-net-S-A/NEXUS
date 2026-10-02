@@ -196,8 +196,8 @@ export function FinancialRatesCard({ contract }: { contract: FinancialRatesContr
 
   return (
     <div className="space-y-3">
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-3">
-        <h2 className="text-sm font-semibold text-foreground dark:text-muted-foreground flex items-center gap-2">
+      <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+        <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
           <Banknote className="w-4 h-4" /> Stawki finansowe
         </h2>
         <div className="text-xs text-muted-foreground dark:text-muted-foreground flex items-center justify-between">
@@ -269,7 +269,7 @@ export function FinancialRatesCard({ contract }: { contract: FinancialRatesContr
                 displayedMargin === null
                   ? "text-muted-foreground"
                   : displayedMargin > 0
-                    ? "text-emerald-600"
+                    ? "text-success-muted-foreground"
                     : "text-destructive"
               }`}
             >
@@ -347,7 +347,7 @@ export function FinancialRatesCard({ contract }: { contract: FinancialRatesContr
       {eurPlnRate &&
         (normalizedClientCurrency === "EUR" || normalizedCandidateCurrency === "EUR") && (
         <div
-          className="flex items-start gap-2 rounded-2xl bg-card px-6 py-3 text-[11px] leading-relaxed text-muted-foreground shadow-xs dark:bg-muted"
+          className="flex items-start gap-2 rounded-lg border border-border bg-card px-4 py-3 text-[11px] leading-relaxed text-muted-foreground"
           data-testid="eur-pln-rate-note"
         >
           <RefreshCw className="mt-0.5 size-3 shrink-0" aria-hidden="true" />

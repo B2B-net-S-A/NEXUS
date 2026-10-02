@@ -184,10 +184,3 @@ export function formatDate(iso: string | null | undefined): string {
   // „3.09.2026" obok „2026-09-05" z kart okresowych.
   return formatIsoDatePl(iso);
 }
-
-export function daysToEndBadgeColor(days: number | null): string {
-  if (days == null) return "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300";
-  if (days < 7) return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300";
-  if (days < 30) return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300";
-  return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300";
-}

@@ -4,7 +4,6 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 
-import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds";
 import { RequireSectionAccess } from "@/components/RequireSectionAccess";
 import { FinanceArchiveTab } from "@/components/finance/FinanceArchiveTab";
@@ -26,6 +25,18 @@ import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
 import { parseFinanceView, type FinanceViewMode as ViewMode } from "@/lib/finance-view";
+
+/** Jedno zdanie pod tytułem — mówi, co pokazuje wybrana zakładka. */
+const VIEW_DESCRIPTION: Record<ViewMode, string> = {
+  results: "Miesięczne wyniki finansowe kontraktorów — koszt, przychód i marża",
+  archive:
+    "Archiwum importów wyników — każdy wgrany plik zostaje, poprzednią wersję można przywrócić",
+  md: "Miesięczne raporty zużycia MD zasilające budżety zamówień klientów",
+  "order-changes":
+    "Bieżący, comiesięczny audyt zdarzeń w zamówieniach na potrzeby rozliczeń",
+  "order-pdfs":
+    "PDF-y nowych zamówień, przedłużeń i aneksów według miesiąca rozpoczęcia i klienta",
+};
 
 /**
  * FE-N09 (audyt 22.09 r2): widok idzie za `?view=` także przy MIĘKKIEJ
@@ -152,14 +163,25 @@ export default function FinancePage() {
       <Suspense fallback={null}>
         <FinanceViewSync onView={setView} />
       </Suspense>
-      <div className="space-y-4">
+      <div className="space-y-3.5">
+        {/* Tytuł i opis w jednej linii, zakładki pod spodem (makiety 02.10.2026)
+            — nagłówek z nadtytułem i osobnym opisem spychał tabelę w dół. */}
+        <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h1 className="font-display text-xl font-semibold leading-tight tracking-tight">
+            Finanse
+          </h1>
+          <p className="min-w-0 text-[13px] text-muted-foreground">
+            {VIEW_DESCRIPTION[visibleView]}
+          </p>
+        </header>
+
         <div
           role="tablist"
           aria-label="Tryb modułu Finanse"
           // Pięć długich etykiet (~460 px) — poniżej `sm` przewijanie w poziomie
           // zamiast wypychania strony (audyt 23.09.2026, P1-12).
           data-help="finance.modes"
-          className="flex w-full max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-[hsl(var(--border))] bg-muted/40 p-1 sm:inline-flex sm:w-auto"
+          className="flex max-w-full gap-0.5 overflow-x-auto border-b border-border"
         >
           <ModeButton
             active={visibleView === "results"}
@@ -185,7 +207,7 @@ export default function FinancePage() {
             Zmiany w zamówieniach
             {todoBadge > 0 ? (
               <span
-                className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"
+                className="rounded-full bg-primary px-1.5 text-[11px] font-semibold leading-5 text-primary-foreground tabular-nums"
                 aria-label={`${todoBadge} do zrobienia w bieżącym miesiącu`}
               >
                 {todoBadge}
@@ -199,32 +221,6 @@ export default function FinancePage() {
             Zamówienia PDF
           </ModeButton>
         </div>
-
-        <PageHeader
-          eyebrow={
-            visibleView === "order-changes"
-              ? "Finanse · Zmiany w zamówieniach"
-              : visibleView === "order-pdfs"
-                ? "Finanse · Zamówienia PDF"
-                : "Finanse · Wyniki kontraktorów"
-          }
-          title={
-            visibleView === "order-changes"
-              ? "Zmiany w zamówieniach"
-              : visibleView === "order-pdfs"
-                ? "Zamówienia PDF"
-                : "Finanse"
-          }
-          description={
-            visibleView === "order-pdfs"
-              ? "PDF-y nowych zamówień, przedłużeń i aneksów według miesiąca rozpoczęcia i klienta"
-              : visibleView === "md"
-              ? "Miesięczne raporty zużycia MD zasilające budżety zamówień klientów"
-              : visibleView === "order-changes"
-                ? "Bieżący, comiesięczny audyt zdarzeń w zamówieniach na potrzeby rozliczeń"
-                : "Miesięczne wyniki finansowe kontraktorów — koszt, przychód i marża"
-          }
-        />
 
         {!mounted ? (
           <div className="py-10 text-center text-sm text-muted-foreground">
@@ -261,11 +257,13 @@ function ModeButton({
       role="tab"
       aria-selected={active}
       onClick={onClick}
+      // Podkreślenie jak w `ds/WorkspaceModeTabs` (Klienci, Kontrakty). Zakładki
+      // zostają ręczne, bo licznik „do zrobienia" ma własną nazwę dostępną.
       className={cn(
-        "shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+        "-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-1.5 text-[13px] transition-colors pointer-coarse:min-h-10",
         active
-          ? "bg-background text-foreground shadow-xs"
-          : "text-muted-foreground hover:text-foreground",
+          ? "border-primary font-semibold text-foreground"
+          : "border-transparent font-medium text-muted-foreground hover:text-foreground",
       )}
     >
       {children}

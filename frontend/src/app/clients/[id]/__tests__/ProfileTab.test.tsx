@@ -73,6 +73,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { ProfileTab } from "@/app/clients/[id]/ProfileTab";
+import { ClientHeaderStats } from "@/components/client-profile/SummaryBar";
 import { useAuthStore, type User } from "@/store/auth";
 
 const PROFILE: ClientProfileResponse = {
@@ -251,7 +252,9 @@ describe("ProfileTab — brak rekrutacji w Profilu", () => {
     renderTab();
 
     // Dowód, że profil się wyrenderował.
-    expect(await screen.findByText("Aktywni konsultanci")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("tab", { name: /Obecni konsultanci/ }),
+    ).toBeInTheDocument();
 
     expect(screen.queryByText("Przegrane rekrutacje")).not.toBeInTheDocument();
     // Ani sam nagłówek, ani treść wiersza przegranej.
@@ -265,23 +268,50 @@ describe("ProfileTab — brak rekrutacji w Profilu", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("nie pokazuje licznika „Otwarte rekrutacje” w pasku podsumowania", async () => {
-    renderTab();
+  it("nie pokazuje licznika „Otwarte rekrutacje” w liczbach klienta", async () => {
+    // Liczby klienta (aktywni konsultanci, aktywne MRR) stoją od 02.10.2026
+    // w nagłówku strony (`ClientHeaderStats`), nie w zakładce — czytają to
+    // samo zapytanie profilu co `ProfileTab`.
+    mocks.apiGet.mockResolvedValue({ data: PROFILE });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ClientHeaderStats clientId={42} />
+        <ProfileTab clientId={42} />
+      </QueryClientProvider>,
+    );
 
-    // Pasek podsumowania istnieje i ma pozostałe kafle…
+    // Liczby istnieją i mają wartości z profilu…
     expect(await screen.findByText("Aktywni konsultanci")).toBeInTheDocument();
-    expect(screen.getByText("Aktywne MRR")).toBeInTheDocument();
+    const mrrLabel = screen.getByText("Aktywne MRR");
+    const stats = mrrLabel.closest("dl");
+    expect(stats).not.toBeNull();
+    expect(
+      within(stats as HTMLElement).getByText("Aktywni konsultanci").closest("div"),
+    ).toHaveTextContent("3");
+    expect(mrrLabel.closest("div")?.textContent?.replace(/\s/g, " ")).toContain(
+      "45 000,00 zł",
+    );
+    // …dymek tłumaczy, czym jest liczba…
+    expect(mrrLabel.closest("[title]")).toHaveAttribute("title", "miesięczna marża");
+    // …a zakładka i nagłówek dzielą JEDNO żądanie profilu.
+    expect(
+      mocks.apiGet.mock.calls.filter(
+        ([url]) => url === "/api/clients/42/profile",
+      ),
+    ).toHaveLength(1);
+    // Zakładka nie powtarza tych liczb.
+    expect(screen.getAllByText("Aktywne MRR")).toHaveLength(1);
 
-    // …ale bez duplikatu licznika z zakładki Projekty. `open_jobs: 7`
-    // w fixture jest po to, żeby wyciek tej liczby był widoczny.
+    // Bez duplikatu licznika z zakładki Projekty. `open_jobs: 7` w fixture
+    // jest po to, żeby wyciek tej liczby był widoczny.
     expect(screen.queryByText("Otwarte rekrutacje")).not.toBeInTheDocument();
-    // `open_jobs: 7` nie może wyciec do żadnego kafla. Szukamy w PASKU
-    // PODSUMOWANIA, nie w całym dokumencie: przełącznik zakładek ma własne
-    // liczniki, więc globalne `queryByText("7")` fałszywie czerwieniłoby się
-    // przy trzech konsultantach albo siedmiu wierszach archiwum.
-    const mrrTile = screen.getByText("Aktywne MRR").closest("div");
-    const summaryBar = mrrTile?.parentElement?.parentElement;
-    expect(summaryBar?.textContent).not.toContain("7");
+    // Szukamy w LICZBACH KLIENTA, nie w całym dokumencie: przełącznik zakładek
+    // ma własne liczniki, więc globalne `queryByText("7")` fałszywie
+    // czerwieniłoby się przy siedmiu wierszach archiwum.
+    expect(stats?.textContent).not.toContain("7");
   });
 
   it("zostawia sekcję Konsultantów — to kontrakty, nie rekrutacje", async () => {

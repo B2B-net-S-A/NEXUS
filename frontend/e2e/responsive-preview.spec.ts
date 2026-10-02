@@ -33,6 +33,17 @@ const PAGES = [
   "/preview/client-orders",
   "/preview/client-orders?order=5015",
   "/preview/client-playbook",
+  "/preview/client-profile-tabs",
+  "/preview/client-profile-tabs?tab=zasady",
+  "/preview/client-profile-tabs?tab=projekty",
+  "/preview/client-profile-tabs?tab=importy-md&import=3302",
+  "/preview/client-profile-tabs?tab=zespol",
+  "/preview/client-profile-tabs?tab=kontakty",
+  "/preview/client-profile-tabs?tab=umowy-ramowe&framework=7001",
+  "/preview/client-profile-tabs?tab=analityka",
+  "/preview/clients-list",
+  "/preview/clients-list?category=inactive&page=1",
+  "/preview/clients-list?view=contacts",
   "/preview/contact-queue",
   "/preview/contract-candidate-contact",
   "/preview/contracts-consolidation",
@@ -47,6 +58,9 @@ const PAGES = [
   "/preview/ezdrowie-contract-structure",
   "/preview/finance-order-changes",
   "/preview/finance-order-pdfs",
+  "/preview/finance-results",
+  "/preview/finance-results?view=archive",
+  "/preview/finance-results?view=md",
   "/preview/insights",
   "/preview/insights?as=hor&view=zespol",
   "/preview/insights?as=admin&view=firma",
@@ -162,6 +176,20 @@ const PRIMARY_CONTENT = [
   // nagłówku — to on jest pierwszą treścią listy, a `tbody tr` (pierwsza osoba)
   // leży pod nim.
   { path: "/preview/client-orders", selector: "[data-orders-table] [data-order-tile]", maxTop: 0.6, shell: false },
+  // Odświeżone listy (02.10.2026). Progi zmierzone 03.10.2026 przy 1280 × 720
+  // z ramką + zapas; nagłówek harnessu („Harness — …”) zajmuje ok. 0,1 okna,
+  // którego w aplikacji nie ma.
+  { path: "/preview/contracts-consolidation", selector: "tbody tr", maxTop: 0.55, shell: false },
+  { path: "/preview/order-mail", selector: "[data-testid='order-mail-detail']", maxTop: 0.45, shell: false },
+  { path: "/preview/clients-list", selector: "tbody tr", maxTop: 0.55, shell: false },
+  { path: "/preview/clients-list?view=contacts", selector: "tbody tr", maxTop: 0.5, shell: false },
+  // Profil klienta: pierwszy wiersz tabeli konsultantów (0,61).
+  { path: "/preview/client-profile-tabs", selector: "tbody tr", maxTop: 0.68, shell: false },
+  // Finanse → Wyniki: pierwszy wiersz tabeli pod kaflami i paskiem importu (0,71).
+  { path: "/preview/finance-results", selector: "tbody tr", maxTop: 0.77, shell: false },
+  // Finanse → Import MD: pierwszy wiersz importu pod paskiem wgrywania (0,77).
+  { path: "/preview/finance-results?view=md", selector: "tbody tr", maxTop: 0.83, shell: false },
+  { path: "/preview/finance-order-changes", selector: "[role='button']", maxTop: 0.58, shell: false },
 ] as const;
 
 test.describe("okna laptopów z Windows — główna treść w górnej części ekranu", () => {

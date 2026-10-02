@@ -7,6 +7,7 @@
 import { Clock3, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { ContractPersonLink } from "@/components/contracts/ContractPersonLink";
+import type { StatusDotTone } from "@/components/ds/StatusDot";
 import { cn } from "@/lib/utils";
 import type { OrderGroupRead, OrderLineRead } from "@/lib/api/orderGroups";
 import {
@@ -99,12 +100,13 @@ export function PositionsMdBar({ group }: { group: OrderGroupRead }) {
   );
 }
 
-export const STATUS_BADGE: Record<string, string> = {
-  active: "bg-emerald-100 text-emerald-800",
-  scheduled: "bg-sky-100 text-sky-800",
-  completed: "bg-zinc-200 text-zinc-700",
-  exhausted: "bg-destructive/15 text-destructive",
-  cancelled: "bg-muted text-muted-foreground line-through",
+/** Kolor kropki statusu zamówienia (`StatusDot`); nieznany status = neutralny. */
+export const GROUP_STATUS_TONE: Record<string, StatusDotTone> = {
+  active: "success",
+  scheduled: "info",
+  completed: "neutral",
+  exhausted: "danger",
+  cancelled: "neutral",
 };
 
 /** Kotwica do przewijania. Osobna od `order-group-{id}-content`, bo dostają ją
@@ -153,7 +155,7 @@ export function BudgetBar({ group }: { group: OrderGroupRead }) {
         <div
           className={cn(
             "h-full rounded-full transition-all",
-            depleted ? "bg-destructive" : low ? "bg-amber-500" : "bg-primary",
+            depleted ? "bg-destructive" : low ? "bg-warning" : "bg-primary",
           )}
           style={{ width: `${pct}%` }}
         />
@@ -194,7 +196,7 @@ export function SharedMdBudgetBar({ group }: { group: OrderGroupRead }) {
         <div
           className={cn(
             "h-full rounded-full transition-all",
-            depleted ? "bg-destructive" : low ? "bg-amber-500" : "bg-primary",
+            depleted ? "bg-destructive" : low ? "bg-warning" : "bg-primary",
           )}
           style={{ width: `${pct}%` }}
         />
@@ -311,7 +313,7 @@ export function FutureOrders({
                       onClick={() => onDeleteGroup(future)}
                       aria-label={`Usuń przyszłe zamówienie nr ${future.order_number}`}
                       title="Usuń przyszłe zamówienie"
-                      className="rounded p-1.5 pointer-coarse:p-2.5 text-destructive hover:bg-destructive/10"
+                      className="rounded p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:bg-destructive/10 focus-visible:text-destructive"
                     >
                       <Trash2 className="h-4 w-4" aria-hidden />
                     </button>

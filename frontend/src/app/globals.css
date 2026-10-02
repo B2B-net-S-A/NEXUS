@@ -602,19 +602,22 @@
    [data-soft="true"], inert in the classic flat theme. Inputs/selects/
    textareas are excluded — they already pop as white-on-tinted canvas and
    must keep their own border states (e.g. invalid → border-primary).
+   Table cells are excluded too: a sticky first column carries `bg-card` only
+   to cover the columns scrolling under it, and a card border around a single
+   cell reads as a box inside the row.
    Kept ABOVE the Kids decorative layer so Kids wins when both are on.
    ==================================================================== */
 
 /* Raised section cards: visible hairline border + layered soft shadow.
    :not([data-kids]) makes this layer fully inert under Kids mode (which has
    its own candy borders/shadows), regardless of specificity or order. */
-[data-soft="true"]:not([data-kids="true"]) .bg-card:where(:not(input):not(textarea):not(select)) {
+[data-soft="true"]:not([data-kids="true"]) .bg-card:where(:not(input):not(textarea):not(select):not(td):not(th)) {
   border-width: 1px;
   box-shadow:
     0 1px 2px 0 hsl(222 30% 12% / 0.05),
     0 8px 24px -16px hsl(222 30% 12% / 0.16);
 }
-.dark[data-soft="true"]:not([data-kids="true"]) .bg-card:where(:not(input):not(textarea):not(select)) {
+.dark[data-soft="true"]:not([data-kids="true"]) .bg-card:where(:not(input):not(textarea):not(select):not(td):not(th)) {
   box-shadow:
     0 1px 2px 0 hsl(0 0% 0% / 0.35),
     0 10px 28px -18px hsl(0 0% 0% / 0.6);

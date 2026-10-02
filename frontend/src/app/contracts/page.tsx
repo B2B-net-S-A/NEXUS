@@ -221,9 +221,8 @@ function ContractsWorkspace({
     // tabeli bez osobnego poszerzania ramki.
     <div className="space-y-4">
       {/* Makieta B: tytuł widoku → tryby modułu → pasek filtrów z wyborem
-          klienta. Rejestr i obsługa kontraktorów same rysują tryby pod swoim
-          tytułem; skrzynka zamówień nie ma własnego tytułu, więc tryby stoją
-          nad nią. */}
+          klienta. Każdy widok (rejestr, obsługa kontraktorów, skrzynka
+          zamówień) sam rysuje tryby pod swoim tytułem. */}
       {showOperations ? (
         <Suspense
           fallback={
@@ -235,10 +234,7 @@ function ContractsWorkspace({
           <ContractorsListV2 modeTabs={modeTabs} />
         </Suspense>
       ) : showOrderMail ? (
-        <>
-          {modeTabs}
-          <OrderMailQueue />
-        </>
+        <OrderMailQueue modeTabs={modeTabs} />
       ) : client ? (
         <Suspense
           fallback={

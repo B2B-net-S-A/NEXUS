@@ -1201,10 +1201,10 @@ Sekcja „Konsultanci" (`app/clients/[id]/ProfileTab.tsx`) renderuje **tabelę**
   komórka zostawiłaby roli bez `VIEW_FINANCE` trzy puste kolumny bez wyjaśnienia.
 - Podzakładki na `ds/TabbedNav` (`role="tab"`/`aria-selected`, liczniki), jak
   w sąsiednim `ProjectsTab`. `ConsultantRow.tsx` i `PlacementRow.tsx` usunięte.
-- **Kafle KPI:** `components/StatsCard.tsx` ma układ jednoliniowy (~44 px zamiast
-  ~88), `subtitle` przeszedł do tooltipa. Ten komponent ma DOKŁADNIE JEDNEGO
-  konsumenta (`client-profile/SummaryBar`) — nie mylić z `components/ds/StatCard`,
-  który ma sześć miejsc użycia i którego zmiana dotyka dwóch dashboardów i Cortexu.
+- **Liczby klienta stoją w nagłówku profilu** (02.10.2026): `ClientHeaderStats`
+  w `client-profile/SummaryBar.tsx` na `ds/InlineStats`, dane z tego samego
+  zapytania co tabela (`useClientProfile`). `components/StatsCard.tsx` usunięty;
+  `components/ds/StatCard` to inny komponent (pulpity) i zostaje.
 
 ## Podgląd CV: pdf.js + lupa „Szukaj w CV” (09.2026)
 
@@ -5285,6 +5285,42 @@ się nie zmieniły** — panel otwiera TE SAME okna co dawne karty.
   Przeniesienie funkcji = zmiana `file`; usunięcie wpisu tylko z `removed_reason`.
 - Harness `/preview/client-orders` (`?group=501`, `?order=5015`, `?contract=813`),
   `/preview/contracts-consolidation`.
+
+## Klienci, Kontrakty, Finanse — spokojne tabele (02.10.2026)
+
+Odświeżenie wyglądu trzech modułów bez zmiany funkcji, API i reguł (makiety:
+https://claude.ai/artifact/C5VtWkkeGkgA5TsTZmv9EC). Decyzje Artura 02.10.2026:
+rzadkie i niebezpieczne akcje zostają na wierzchu, ale ciche; podgląd PDF stoi
+obok planu w skrzynce zamówień; sekcje spod „rozwiń” są rozwiniętymi kartami;
+wiersz tabeli ma 46–50 px i najwyżej dwie linie w komórce.
+
+- **Wspólne klocki:** `Button variant="quiet"` (szary, czerwony dopiero po
+  najechaniu albo fokusie — „Usuń”, „Zakończ współpracę…”, „Przenieś”),
+  `ds/StatusDot` (kropka + etykieta zamiast plakietki statusu w wierszu),
+  `ds/InlineStats` (liczby w nagłówku zamiast rzędu kafli), stałe
+  `lib/calm-table.ts`, `client-profile/orders/RateTrio` (koszt · przychód ·
+  marża w panelach). `components/ui/table.tsx` bez zmian — wygląd idzie przez
+  `className`.
+- **Tabela:** jedna cienka linia między wierszami, bez zebry i pionowych kresek,
+  kwoty `tabular-nums` bez czcionki maszynowej, jednostka raz w nagłówku kolumny
+  (w komórce tylko, gdy wiersz ma inną niż kolumna). Kolory statusów i marży
+  wyłącznie z tokenów `success/warning/info/destructive`.
+- **Zamówienia klienta:** nagłówek kolumn raz na sekcję (MD / Kosztowe /
+  Okresowe), zamówienie to pas z numerem, pod nim osoby; nagłówek w każdym
+  zamówieniu zostaje jako `sr-only` (czytniki ekranu, wspólny `colgroup`).
+- **Motyw „Wyraźny” nie ramkuje komórek:** reguła `[data-soft] .bg-card`
+  w `globals.css` pomija `td`/`th`. Przyklejona pierwsza kolumna ma `bg-card`
+  tylko po to, żeby zakryć kolumny pod sobą — z ramką karty wyglądała jak
+  pudełko w wierszu.
+- **Finanse → Wyniki:** kolejność kolumn ma jedno źródło (`COLUMNS`
+  w `FinanceResultsTable.tsx`) dla nagłówka i wiersza — Klient stoi zaraz po
+  Kandydacie; pilnuje `FinanceResultsTable.test.tsx`.
+- **Nic nie zniknęło:** inwentarz `lib/orders-contracts-feature-inventory.json`
+  i kotwice `data-help` bez zmian. Harnessy nowych widoków:
+  `/preview/clients-list`, `/preview/client-profile-tabs`,
+  `/preview/finance-results`.
+- Poza zakresem (osobne tematy): jeden formater kwot i jeden słownik statusów
+  dla trzech modułów, kolumna „Delivery Lead” na liście klientów (wymaga API).
 
 ## Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP) + import zużycia MD
 

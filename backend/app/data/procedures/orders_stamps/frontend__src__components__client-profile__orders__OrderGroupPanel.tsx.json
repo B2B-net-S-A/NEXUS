@@ -1,4 +1,4 @@
 {
-  "sha256": "c4820e2f7ab00d0714fb48a1effa038e57e07cb608e877bbaa7bdbc1577a85eb",
+  "sha256": "5f83a73688abc5620b333b16f03288386466dceb2601b6df932c5117b50fd5cd",
   "source": "frontend/src/components/client-profile/orders/OrderGroupPanel.tsx"
 }

@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DetailFacts, DetailPanel, DetailSection } from "@/components/ds/DetailPanel";
+import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
 import { AppModal } from "@/components/ds/AppModal";
 import { ContractPersonLink } from "@/components/contracts/ContractPersonLink";
 import { ContractTerminationDialog } from "@/components/contracts/ContractTerminationDialog";
@@ -64,7 +65,9 @@ import { HOURS_PER_MONTH } from "@/lib/work-time";
 import { normalizeOrderCurrency } from "@/components/orders/OrderRateUnitToggle";
 import { canManageContractStatus, useAuthStore } from "@/store/auth";
 
+import { RateTrio } from "./RateTrio";
 import {
+  CONTRACTOR_STATE_DOT,
   canTerminateContractor,
   contractorEnding,
   contractorMissingOrder,
@@ -121,10 +124,7 @@ const STATUS_LABELS: Record<ClientOrderStatus, string> = {
   cancelled: "Anulowane",
 };
 
-const STATUS_BADGE: Record<
-  ClientOrderStatus,
-  "warning" | "success" | "neutral" | "danger"
-> = {
+const STATUS_TONE: Record<ClientOrderStatus, StatusDotTone> = {
   draft: "warning",
   active: "success",
   paused: "warning",
@@ -497,11 +497,15 @@ export function ContractorOrderPanel({
           {missing.label}
         </Badge>
       )}
-      {!ending && !missing && summary.state.kind !== "active" && (
-        <Badge variant={TONE_BADGE[summary.state.tone]} size="sm">
-          {summary.state.label}
-        </Badge>
-      )}
+      {!ending && !missing && summary.state.kind !== "active" ? (
+        CONTRACTOR_STATE_DOT[summary.state.kind] ? (
+          <StatusDot tone={CONTRACTOR_STATE_DOT[summary.state.kind]}>{summary.state.label}</StatusDot>
+        ) : (
+          <Badge variant={TONE_BADGE[summary.state.tone]} size="sm">
+            {summary.state.label}
+          </Badge>
+        )
+      ) : null}
     </>
   );
   const subtitle = <span>Kontrakt #{contractor.contract_id}</span>;
@@ -641,7 +645,7 @@ export function ContractorOrderPanel({
       />
       {costFromContract && (
         <span
-          className="ml-1 text-[10px] text-muted-foreground"
+          className="block text-[11px] font-normal leading-4 text-muted-foreground"
           title="Stawka kosztowa pochodzi z kontraktu tej osoby — zmień ją w kontrakcie. Zaplanowane podwyżki wchodzą do zamówienia w swoim dniu."
         >
           (z kontraktu)
@@ -693,16 +697,21 @@ export function ContractorOrderPanel({
 
   const currentSection = (
     <DetailSection title={currentSectionTitle}>
+      {/* Stawki obok siebie. Bez dostępu do kwot zostaje „—" — znikające pola
+          czytały się jak brak danych, a nie jak brak uprawnień (lustro tabeli).
+          Marży bieżącego zamówienia panel świadomie NIE pokazuje (ticket 09.2026). */}
+      <RateTrio
+        items={[
+          { label: "Koszt", value: canViewFinance ? costField : redactedAmount },
+          { label: "Przychód", value: canViewFinance ? revenueField : redactedAmount },
+        ]}
+      />
       <DetailFacts
         compact
         items={[
           ["Numer", numberField],
           ezdrowie && ["Umowa wykonawcza", executiveField],
           ["Okres", periodField],
-          // Bez dostępu do kwot wiersze zostają z „—" — znikające pola czytały
-          // się jak brak danych, a nie jak brak uprawnień (lustro tabeli).
-          ["Koszt", canViewFinance ? costField : redactedAmount],
-          ["Przychód", canViewFinance ? revenueField : redactedAmount],
           contractor.initial_job_title
             ? ["Z rekrutacji", <span key="job">{contractor.initial_job_title}</span>]
             : null,
@@ -865,7 +874,7 @@ export function ContractorOrderPanel({
           key="dismiss"
           type="button"
           size="sm"
-          variant="outline"
+          variant="quiet"
           disabled={dismissDraft.isPending}
           onClick={() => setConfirmingDismiss(true)}
         >
@@ -910,8 +919,7 @@ export function ContractorOrderPanel({
         key="terminate"
         type="button"
         size="sm"
-        variant="outline"
-        className="border-destructive/40 text-destructive hover:bg-destructive/10"
+        variant="quiet"
         onClick={() => setTerminating(true)}
       >
         <UserX className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1293,9 +1301,7 @@ function HistoryOrderRow({
     <div className="flex items-start justify-between gap-3 rounded border border-border bg-background p-2 text-sm">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={STATUS_BADGE[order.status]} size="sm">
-            {STATUS_LABELS[order.status]}
-          </Badge>
+          <StatusDot tone={STATUS_TONE[order.status]}>{STATUS_LABELS[order.status]}</StatusDot>
           <span className="font-medium">{order.title}</span>
           <OrderTypeBadge type={effectiveClientOrderType(order, legacyNullOrderType)} />
         </div>
