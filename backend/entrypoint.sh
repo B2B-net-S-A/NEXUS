@@ -677,6 +677,8 @@ _ENUM_STATEMENTS = [
     # 0348: kolejka „Czeka na Ciebie" — poranny skrót i wytypowanie do Cpro.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_tasks_digest'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cpro_send_assigned'",
+    # 0408: karta trafiła do czyjejś kolejki (przegląd DL / Cpro) — dzwonek od razu.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_task_waiting'",
     # 0352: pipeline v4 — przejęta blokada 12 h i zatrudniony bez zamówienia.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_claim_taken'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hired_order_missing'",

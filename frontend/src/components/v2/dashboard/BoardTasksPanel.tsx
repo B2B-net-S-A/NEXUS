@@ -284,7 +284,7 @@ export function BoardTasksPanel() {
         {preps.length > 0 && (
           <Section
             title="Prepy przed rozmową u klienta"
-            hint="Brak prepu, prep słaby albo bez nagrania — nic nie blokuje, ale warto to nadrobić przed rozmową."
+            hint="Brak prepu, prep po rozmowie, słaby albo bez nagrania — nic nie blokuje, ale warto to nadrobić przed rozmową."
             count={preps.length}
             expanded={expanded["prep_attention"] === true}
             onToggle={() => toggle("prep_attention")}

@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -29,7 +29,7 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.prep_meeting import PrepMeeting
 from app.models.user import User
-from app.services import interview_slots
+from app.services import interview_slots, prep_invitation
 from app.services.m365 import teams_prep_auth, teams_prep_graph
 from app.services.m365.app_graph_client import AppOnlyTokenUnavailable
 from app.services.m365.calendar import (
@@ -41,26 +41,30 @@ from app.services.m365.graph_client import GraphRequestError
 
 logger = logging.getLogger(__name__)
 
-# Treść informacji o nagrywaniu w zaproszeniu. Wersja robocza do akceptacji
-# prawnej — zmiana treści = nowa wersja (jak zgoda na stronie kariery).
-PREP_NOTICE_VERSION = "2026-09-23"
-PREP_NOTICE_TEXT = (
-    "Ta rozmowa jest nagrywana i transkrybowana w Microsoft Teams wyłącznie "
-    "po to, żeby dobrze przygotować Cię do rozmowy z klientem. Administratorem "
-    "danych jest B2B.NET S.A. Transkrypt zostaje wewnątrz B2B.NET i nie trafia "
-    "do klienta. Jeśli nie chcesz nagrania, powiedz o tym na początku rozmowy."
-)
+
+def candidate_name(candidate: Candidate) -> str:
+    return " ".join(p for p in (candidate.name, candidate.lastname) if p) or "Kandydat"
 
 
-def prep_title(prep_no: int, candidate: Candidate, job: Job) -> str:
-    """Tytuł widzi też kandydat — bez nazwy klienta."""
-    who = " ".join(p for p in (candidate.name, candidate.lastname) if p) or "Kandydat"
-    return f"Prep {prep_no}: {who} — {job.title or 'rekrutacja'}"[:255]
+def _utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
-def prep_description(extra: Optional[str]) -> str:
-    parts = [p for p in ((extra or "").strip(), PREP_NOTICE_TEXT) if p]
-    return "\n\n".join(parts)
+async def upcoming_interview_start(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> Optional[datetime]:
+    """Najbliższa zaplanowana rozmowa u klienta pary — runda, do której robi
+    się prepy (ta sama, którą wybiera ``debrief_gate.pick_prep_round``)."""
+    start = await db.scalar(
+        select(func.min(CalendarEvent.start_time)).where(
+            CalendarEvent.candidate_id == candidate_id,
+            CalendarEvent.job_id == job_id,
+            CalendarEvent.event_type == EventType.client_interview,
+            CalendarEvent.status != EventStatus.cancelled,
+            CalendarEvent.start_time > datetime.now(timezone.utc),
+        )
+    )
+    return _utc(start) if start is not None else None
 
 
 async def suggest_organizer_ids(
@@ -131,10 +135,18 @@ async def active_prep(
     poprzedniej rundy — runda 8, CAL2). Dotąd górnej granicy
     nie było: przy dwóch zaplanowanych rundach Prep 1 do rundy A blokował 409
     założenie Prepu 1 do rundy B, choć ekran już go żądał.
+
+    Górna granica obowiązuje tylko wtedy, gdy ZA najbliższą rozmową jest
+    kolejna. Prep po ostatniej zaplanowanej rozmowie nie ma innej rundy, do
+    której mógłby należeć — to spóźniony prep tej samej (zgłoszenie
+    02.10.2026: Prep 1 zaplanowano, zanim DL potwierdził termin rozmowy na
+    dwa dni wcześniej; ekran poprosił o Prep 1 jeszcze raz, serwer go założył
+    i kandydat miał dwa zaproszenia). Lustro ``late_preps`` w
+    ``interview_cycle.load_snapshots``.
     """
     now = datetime.now(timezone.utc)
     starts = [
-        s if s.tzinfo is not None else s.replace(tzinfo=timezone.utc)
+        _utc(s)
         for s in (
             await db.scalars(
                 select(CalendarEvent.start_time).where(
@@ -148,7 +160,8 @@ async def active_prep(
         if s is not None
     ]
     round_start = max((s for s in starts if s <= now), default=None)
-    round_end = min((s for s in starts if s > now), default=None)
+    upcoming = sorted(s for s in starts if s > now)
+    round_end = upcoming[0] if len(upcoming) > 1 else None
     q = (
         select(PrepMeeting)
         .join(CalendarEvent, CalendarEvent.id == PrepMeeting.calendar_event_id)
@@ -165,6 +178,34 @@ async def active_prep(
     if round_end is not None:
         q = q.where(CalendarEvent.start_time <= round_end)
     return await db.scalar(q.order_by(PrepMeeting.id.desc()).limit(1))
+
+
+async def already_scheduled_message(db: AsyncSession, prep: PrepMeeting) -> str:
+    """Zdanie dla 409: kiedy jest istniejący prep i czy wypada po rozmowie."""
+    start = await db.scalar(
+        select(CalendarEvent.start_time).where(
+            CalendarEvent.id == prep.calendar_event_id
+        )
+    )
+    if start is None:
+        return (
+            f"Prep {prep.prep_no} jest już zaplanowany. Zmień jego termin "
+            "albo go odwołaj."
+        )
+    when = prep_invitation.when_label(start)
+    interview = await upcoming_interview_start(
+        db, candidate_id=prep.candidate_id, job_id=prep.job_id
+    )
+    if interview is not None and _utc(start) > interview:
+        return (
+            f"Prep {prep.prep_no} jest już zaplanowany na {when}, czyli po "
+            "rozmowie u klienta. Przełóż go przed rozmowę albo odwołaj, zamiast "
+            "zakładać drugi."
+        )
+    return (
+        f"Prep {prep.prep_no} jest już zaplanowany na {when}. Zmień jego termin "
+        "albo go odwołaj."
+    )
 
 
 async def prep_for_event(db: AsyncSession, event_id: int) -> Optional[PrepMeeting]:
@@ -197,6 +238,7 @@ async def create_prep(
     extra_attendees: list[User],
     note: Optional[str],
     client_request_id: Optional[str],
+    client_name: Optional[str] = None,
 ) -> CreatedPrep:
     """Spotkanie w kalendarzu organizatora + wiersze NEXUSA. Flush, bez commitu."""
     if not organizer.email:
@@ -211,8 +253,23 @@ async def create_prep(
             detail="Kandydat nie ma adresu e-mail — nie da się wysłać zaproszenia.",
         )
 
-    title = prep_title(prep_no, candidate, job)
-    description = prep_description(note)
+    title = prep_invitation.title(prep_no, candidate_name(candidate), client_name)
+    # Termin rozmowy trafia do treści tylko wtedy, gdy prep jest PRZED nią —
+    # zaproszenie na prep po rozmowie nie może jej zapowiadać.
+    interview_start = await upcoming_interview_start(
+        db, candidate_id=candidate.id, job_id=job.id
+    )
+    if interview_start is not None and _utc(start) >= interview_start:
+        interview_start = None
+    invitation = prep_invitation.text(
+        prep_no=prep_no,
+        client_name=client_name,
+        job_title=job.title,
+        interview_start=interview_start,
+        note=note,
+        organizer_name=organizer.name or "",
+    )
+    description = prep_invitation.as_plain(invitation)
     attendees = [candidate.email]
     for user in extra_attendees:
         if user.email and user.email.lower() not in {a.lower() for a in attendees}:
@@ -220,7 +277,7 @@ async def create_prep(
                 attendees.append(user.email)
     payload = _build_event_payload(
         title=title,
-        description=description,
+        description=prep_invitation.as_html(invitation),
         start=start,
         end=end,
         attendee_emails=attendees,

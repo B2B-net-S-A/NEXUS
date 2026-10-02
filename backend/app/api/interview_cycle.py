@@ -145,6 +145,9 @@ class CycleItem(PairInfo):
     current_step: Optional[str] = None
     latest_stage: Optional[str] = None
     slot_request: Optional[SlotRequestOut] = None
+    # Termin rozmowy, który czeka jeszcze na wybór albo potwierdzenie — okno
+    # „Zaplanuj prep” liczy względem niego podpowiedź i ostrzeżenie.
+    tentative_interview_at: Optional[datetime] = None
     interview_event_id: Optional[int] = None
     debrief: Optional[DebriefSummary] = None
 
@@ -161,6 +164,8 @@ class AgendaEntry(PairInfo):
     from_nexus: bool = False
     prep_quality: Optional[str] = None
     prep_meta: Optional[str] = None
+    # Prep zaplanowany po rozmowie u klienta, do której miał przygotować.
+    late: bool = False
 
 
 class TodoEntry(PairInfo):

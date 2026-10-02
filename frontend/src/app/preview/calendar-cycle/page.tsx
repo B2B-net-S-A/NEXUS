@@ -51,6 +51,8 @@ const pairs: Record<string, PairInfo> = {
   michal: { candidate_id: 104, candidate_name: "Michał Lewandowski", candidate_email: "michal@example.com", job_id: 4, job_title: ".NET Developer", client_id: 14, client_name: "Biuro Gamma" },
   ewa: { candidate_id: 105, candidate_name: "Ewa Dąbrowska", candidate_email: "ewa@example.com", job_id: 5, job_title: "Business Analyst", client_id: 11, client_name: "Bank Lambda" },
   oliwia: { candidate_id: 106, candidate_name: "Oliwia Kamińska", candidate_email: "oliwia@example.com", job_id: 6, job_title: "QA Engineer", client_id: 15, client_name: "Bank Iota" },
+  // Prep zaplanowany PO rozmowie u klienta (termin rozmowy potwierdzono wcześniej niż prep).
+  karol: { candidate_id: 107, candidate_name: "Karol Przykładowy", candidate_email: "karol@example.com", job_id: 7, job_title: "Frontend Developer", client_id: 16, client_name: "Bank Omega" },
 };
 
 function st(
@@ -97,6 +99,7 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
       ],
       current_step: "choice", latest_stage: "client_interview",
       slot_request: { id: 71, status: "awaiting_recruiter", slots, chosen_index: null, respond_by: at(now, 60 * 20), recruiter_id: 7, created_by: 8, duration_minutes: 60, note: "Klient prosi o kamerkę", event_id: null },
+      tentative_interview_at: slots[0].start,
       interview_event_id: null, debrief: null,
     },
     {
@@ -115,6 +118,16 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
         st("interview", "done", at(now, -60 * 72)), st("call", "overdue", at(now, -60 * 70)), st("debrief", "overdue"),
       ],
       current_step: "call", latest_stage: "client_interview", slot_request: null, interview_event_id: 505, debrief: null,
+    },
+    {
+      ...pairs.karol,
+      steps: [
+        st("slots", "done"), st("choice", "done", at(now, 60 * 72)),
+        st("prep", "overdue", at(now, 60 * 120), "zaplanowany po rozmowie u klienta — przełóż", { event_id: 604 }),
+        st("prep2", "todo"), st("interview", "scheduled", at(now, 60 * 72), null, { event_id: 506 }),
+        st("call", "todo"), st("debrief", "todo"),
+      ],
+      current_step: "prep", latest_stage: "client_interview", slot_request: null, interview_event_id: 506, debrief: null,
     },
   ];
   if (scope === "jobs") {
@@ -140,6 +153,8 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
       { ...pairs.anna, kind: "interview", start: at(now, 60 * 23), end: at(now, 60 * 24), event_id: 502, slot_request_id: null, online_meeting_url: null, done: false },
       { ...pairs.anna, kind: "call", start: at(now, 60 * 24), end: at(now, 60 * 24 + 30), event_id: 502, slot_request_id: null, online_meeting_url: null, done: false },
       { ...pairs.michal, kind: "interview", start: at(now, 60 * 70), end: at(now, 60 * 71), event_id: 504, slot_request_id: null, online_meeting_url: null, done: false },
+      { ...pairs.karol, kind: "interview", start: at(now, 60 * 72), end: at(now, 60 * 73), event_id: 506, slot_request_id: null, online_meeting_url: null, done: false },
+      { ...pairs.karol, kind: "prep", start: at(now, 60 * 120), end: at(now, 60 * 120 + 45), event_id: 604, slot_request_id: null, online_meeting_url: "https://teams.example.com/prep-late", done: false, from_nexus: true, late: true },
     ],
     todos: [
       { ...pairs.piotr, kind: "call_now", priority: 0, due: at(now, 18), event_id: 501, slot_request_id: null },
@@ -147,6 +162,7 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
       { ...pairs.tomasz, kind: "slots_pick", priority: 2, due: at(now, 60 * 20), event_id: null, slot_request_id: 71 },
       { ...pairs.michal, kind: "prep_weak", priority: 6, due: at(now, 60 * 70), event_id: 601, slot_request_id: null },
       { ...pairs.michal, kind: "prep2_missing", priority: 6, due: at(now, 60 * 70), event_id: 504, slot_request_id: null },
+      { ...pairs.karol, kind: "prep_late", priority: 4, due: at(now, 60 * 72), event_id: 604, slot_request_id: null },
       ...(scope === "jobs"
         ? [{ ...pairs.oliwia, kind: "slots_missing" as const, priority: 5, due: null, event_id: null, slot_request_id: null }]
         : []),
@@ -173,7 +189,7 @@ function Harness() {
       { id: 3, text: "Doświadczenie z Kafką na produkcji", created_at: null },
     ];
     for (const p of Object.values(pairs)) qc.setQueryData(clientQuestionsQueryKey(p.job_id), questions);
-    for (const id of [501, 502, 504, 505]) qc.setQueryData(debriefQueryKey(id), null);
+    for (const id of [501, 502, 504, 505, 506]) qc.setQueryData(debriefQueryKey(id), null);
     // 0370: ocena prepu i transkrypt (okno „Ocena prepu”), podpowiedzi organizatora.
     const weakPrep: Prep = {
       event_id: 601, prep_no: 1, candidate_id: 104, job_id: 4,
@@ -205,7 +221,17 @@ function Harness() {
         enabled: true, auto_transcribe: true,
         suggested: { "1": { id: 8, name: "Kasia DL" }, "2": { id: 7, name: "Ola Rekruter" } },
         team: [{ id: 8, name: "Kasia DL" }, { id: 7, name: "Ola Rekruter" }],
-        notice: "Ta rozmowa jest nagrywana i transkrybowana w Microsoft Teams wyłącznie po to, żeby dobrze przygotować Cię do rozmowy z klientem.",
+        notice: "Ta rozmowa jest nagrywana i transkrybowana w Microsoft Teams wyłącznie po to, żeby dobrze przygotować Cię do rozmowy z klientem. Administratorem danych jest B2B.NET S.A.",
+        invitation: Object.fromEntries(
+          [1, 2].map((n) => [
+            String(n),
+            {
+              title: `Przygotowanie do spotkania z Klientem ${p.client_name} - ${p.candidate_name}${n === 2 ? " (spotkanie 2)" : ""}`,
+              body: `Dzień dobry,\n\nZapraszam na ${n === 2 ? "drugie " : ""}spotkanie przygotowujące do rozmowy z Klientem ${p.client_name} na stanowisko ${p.job_title}.\n\n{note}\n\nW razie pytań pozostaję do dyspozycji.\n\nPozdrawiam\n{organizer}`,
+              interview_line: null,
+            },
+          ]),
+        ),
       });
     }
     // Siatka tygodnia (zakładka „Tydzień”) — te same klucze co WeekCalendar.

@@ -152,10 +152,17 @@ export interface KanbanItem {
   label: string;
   tone: "wait" | "info" | "ok" | "urgent";
   at?: string | null;
-  /** Siedem kroków cyklu (kreski postępu na karcie i w doku); starszy serwer = brak. */
-  steps?: Array<{ key: StepKey; state: StepState }>;
+  /**
+   * Siedem kroków cyklu (kreski postępu na karcie i w doku); starszy serwer = brak.
+   * `at` kroku „interview” to termin rozmowy — liczy względem niego okno prepu w doku.
+   */
+  steps?: Array<{ key: StepKey; state: StepState; at?: string | null }>;
   /** Rozmowa u klienta pary — debrief otwiera się prosto z doku. */
   interview_event_id?: number | null;
+  /** Termin rozmowy czekający jeszcze na wybór albo potwierdzenie (ISO). */
+  tentative_interview_at?: string | null;
+  /** Prep zaplanowany po rozmowie u klienta — do przełożenia, nie do planowania od nowa. */
+  late_prep_event_id?: number | null;
  } | null;
  // „Zatrudniony": czy jest uzupełnione zamówienie.
  order_status?: "complete" | "missing" | null;
