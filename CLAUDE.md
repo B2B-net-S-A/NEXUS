@@ -3978,6 +3978,19 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   głównego DL-a. Skutek: alerty DL-owe tych rekrutacji idą do DL-a, nie do HoR.
 - **„Dodaj kandydatów”** (`AddCandidatesPanel`): jedno wejście z nagłówka i z kolumny
   Nowi, zakładki wyszukiwanie AI z Championa · propozycje · Moi ludzie · ręcznie.
+- **Przekazanie karty dzwoni od razu (0408, 02.10.2026).**
+  `services/pipeline_handoff_notifications.notify_handoff`, wołane z `/move`
+  i `/bulk-move` PRZED regułami etapów (`_notify_stage_change_effect`). Typ
+  `board_task_waiting` (kategoria Wzmianki, nie do wyciszenia): karta weszła do
+  przeglądu DL (poza Nordeą, etap „QC CV” → `board_tasks.dl_reviewer_ids`, ta
+  sama reguła co „Czeka na Ciebie”), do kolejki Cpro (→ `cpro_queue_owner_id`)
+  albo wróciła z kolejki Cpro (→ kto ją tam przekazał). Wynik przeglądu
+  („CV wysłane” z kolumn sprzed wysłania, zamknięcie z „QC CV”) idzie do osoby,
+  która przekazała kartę, i rekrutera kandydata — typem `stage_rule` z tą samą
+  encją co reguły etapów, więc prowadzący rekrutację dostaje jeden wpis, nie
+  dwa. Do 02.10 „Przekaż Delivery Leadowi” nie dawało żadnego dzwonka (etap
+  „QC CV” nie ma reguł, a reguły etapów znają tylko prowadzącego rekrutację).
+  Mover nigdy nie powiadamia siebie; import z Traffita tędy nie idzie.
 
 ## Follow-up z kandydatem, gdy klient milczy (0372, 24.09.2026)
 

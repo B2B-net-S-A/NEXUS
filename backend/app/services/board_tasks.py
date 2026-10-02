@@ -570,6 +570,67 @@ def _sees_dl_review(task: BoardTask, user: User, portfolio: frozenset[int]) -> b
     return task.client_id is not None and task.client_id in portfolio
 
 
+async def dl_reviewer_ids(
+    db: AsyncSession, *, delivery_lead_id: Optional[int], client_id: Optional[int]
+) -> list[int]:
+    """Kto ma przegląd DL rekrutacji — ta sama reguła co `_sees_dl_review`.
+
+    Dla dzwonka wysyłanego w chwili przekazania karty (lista i poranny skrót
+    filtrują gotową migawkę, tu trzeba wskazać osoby wprost). Nieaktywny DL
+    rekrutacji liczy się jak brak DL-a (`_LATEST_SQL`): przegląd idzie do
+    portfela klienta.
+    """
+
+    if delivery_lead_id is not None:
+        lead = await db.scalar(select(User).where(User.id == delivery_lead_id))
+        if lead is not None and lead.is_active:
+            return [lead.id] if lead.has_role(UserRole.delivery_lead) else []
+    if client_id is None:
+        return []
+    return list(
+        (
+            await db.scalars(
+                select(User.id)
+                .join(
+                    DeliveryLeadClientAssignment,
+                    DeliveryLeadClientAssignment.delivery_lead_user_id == User.id,
+                )
+                .where(
+                    DeliveryLeadClientAssignment.client_id == client_id,
+                    User.is_active.is_(True),
+                    or_(
+                        User.role == UserRole.delivery_lead,
+                        User.roles.contains([UserRole.delivery_lead.value]),
+                    ),
+                )
+                .distinct()
+            )
+        ).all()
+    )
+
+
+async def cpro_queue_owner_id(
+    db: AsyncSession,
+    *,
+    job_sender_id: Optional[int],
+    task_assignee_id: Optional[int],
+    now: Optional[datetime] = None,
+) -> Optional[int]:
+    """Czyje jest zadanie „do wrzucenia do Cpro” — jak ``assignee_id`` migawki.
+
+    Osoba od Cpro na firmę wygrywa; bez niej zapas rekrutacji
+    (``jobs.cpro_sender_id``), potem zapas wiersza — tylko aktywne konta.
+    """
+
+    firm = (await cpro_sender.effective_sender(db, now)).user_id
+    if firm is not None:
+        return firm
+    active = await cpro_sender.active_user_ids(db, (job_sender_id, task_assignee_id))
+    return next(
+        (uid for uid in (job_sender_id, task_assignee_id) if uid in active), None
+    )
+
+
 def _sees_cpro(task: BoardTask, user: User, firm_sender_id: Optional[int]) -> bool:
     """Kolejka Cpro jest wyłącznie osoby od Cpro.
 

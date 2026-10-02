@@ -433,15 +433,39 @@ def _notify_stage_change_effect(
     mover: User,
     stage_display_name: str,
 ) -> Callable[[], Awaitable[None]]:
-    """Powiadomienia o przejściu (reguły 0066) — efekt po commicie ruchu."""
+    """Powiadomienia o przejściu — efekt po commicie ruchu.
+
+    Najpierw dzwonek przekazania (0408: przegląd DL, kolejka Cpro, wynik
+    przeglądu), potem reguły etapów (0066). Kolejność ma znaczenie: oba
+    piszą wynik przeglądu tym samym typem i encją, więc osoba objęta jednym
+    i drugim dostaje jeden wpis — ten z przekazania, który mówi, co się stało.
+    """
 
     async def _effect() -> None:
+        from app.services.pipeline_handoff_notifications import notify_handoff
         from app.services.stage_notification_emitter import notify_stage_change
 
         candidate_obj = await db.scalar(
             select(Candidate).where(Candidate.id == stage.candidate_id)
         )
         if candidate_obj is not None:
+            try:
+                async with db.begin_nested():
+                    await notify_handoff(
+                        db,
+                        stage=stage,
+                        previous_stage=previous_stage_row,
+                        job=job,
+                        candidate=candidate_obj,
+                        mover=mover,
+                        stage_display_name=stage_display_name,
+                    )
+            except Exception as exc:  # noqa: BLE001 — nie blokuje reguł etapów
+                logger.warning(
+                    "handoff notification failed stage=%s (%s)",
+                    stage.id,
+                    type(exc).__name__,
+                )
             await notify_stage_change(
                 db,
                 new_stage=stage,
