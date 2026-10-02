@@ -258,7 +258,7 @@ async def ensure_job_membership(
     pair may be opened.
 
     A non-member gets a uniform **403** at every ingress — the same status the
-    sibling resource-scope guard ``require_dl_assigned_or_admin`` returns, so
+    sibling client-scope guard (``delivery_client_scope``) returns, so
     the module speaks one language for "authenticated but out of scope". 403
     (not 404) is chosen for consistency and because job existence is already
     discoverable to any internal role through the jobs list; there is no

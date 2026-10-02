@@ -1418,6 +1418,15 @@ async def register_partner_notice(
         # Wypowiedzenie kończy współpracę w kontrakcie — to samo uprawnienie
         # co okno „Zakończ współpracę”; samo oznaczanie podpisu nie wystarcza.
         ensure_permission(current_user, ProductAction.contract_status)
+        if not effects.can_write_delivery(current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "section_access_denied",
+                    "section": "delivery",
+                    "message": effects.DELIVERY_WRITE_BLOCKER,
+                },
+            )
     refs = refs_for(getattr(parent, "template_version", None))
     if body.termination_date is None and refs is None:
         # Umowa bez znanej wersji wzoru (wiersz z Excela działu) — okresu

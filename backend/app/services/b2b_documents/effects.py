@@ -253,6 +253,29 @@ def contract_effect_blocker(permission: ProductAction) -> str:
     )
 
 
+DELIVERY_WRITE_BLOCKER = (
+    "Skutki tego dokumentu w kontrakcie zatwierdza osoba z prawem zmian "
+    "w klientach, kontraktach i zamówieniach — Twoje konto ma tam tylko podgląd."
+)
+
+
+def can_write_delivery(user: User) -> bool:
+    """Sufit sekcji Delivery dla skutków w kontrakcie.
+
+    Podpis dokumentu woła funkcje domeny wprost, a router Generatora stoi za
+    sekcją Sourcing — bramka zapisu Delivery z tras Kontraktów tu nie działa.
+    Uprawnienie samo daje zapis w Delivery; brakuje go tylko kontu, które
+    administrator ograniczył starym wyjątkiem sekcji.
+    """
+    from app.services.section_permissions import (
+        ProductSection,
+        SectionAccess,
+        section_access_for_user,
+    )
+
+    return section_access_for_user(user, ProductSection.delivery) >= SectionAccess.write
+
+
 RATE_ANNEX_CONFIRMER_BLOCKER = (
     "Aneks zmiany stawki oznacza jako podpisany osoba z uprawnieniem "
     f"„{permission_catalog.label(ProductAction.amounts_edit.value)}” albo — "
@@ -267,7 +290,8 @@ async def can_confirm_rate_annex(
 ) -> bool:
     """Kto potwierdza aneks zmiany stawki (decyzja Artura 27.09.2026).
 
-    Ta sama reguła co kwoty zamówienia (``can_write_order_amounts``):
+    Zapis w sekcji Delivery (``can_write_delivery``) i ta sama reguła co
+    kwoty zamówienia (``can_write_order_amounts``):
     „Stawki i kwoty: zmiana” (domyślnie admin i Finanse) albo prowadzenie
     kontraktów razem z podglądem kwot tego klienta — czyli, jak dotąd,
     Delivery Lead u klienta ze swojego portfela (granica
@@ -280,6 +304,8 @@ async def can_confirm_rate_annex(
     )
     from app.services.access_scope import resolve_delivery_lead_finance_client_ids
 
+    if not can_write_delivery(user):
+        return False
     portfolio = await resolve_delivery_lead_finance_client_ids(user, db)
     if client_id is None:
         return can_manage_finance_amounts(
@@ -312,6 +338,7 @@ async def describe(
         # audytu, DOC-2).
         plan.blockers.append(VOID_CONTRACT_BLOCKER)
     required = contract_effect_permission(doc_type)
+    delivery_write = user is None or can_write_delivery(user)
     if (
         user is not None
         and contract is not None
@@ -319,6 +346,12 @@ async def describe(
         and not has_permission(user, required)
     ):
         plan.blockers.append(contract_effect_blocker(required))
+    elif (
+        not delivery_write
+        and contract is not None
+        and doc_type.key != "preliminary_cez"
+    ):
+        plan.blockers.append(DELIVERY_WRITE_BLOCKER)
     no_contract = (
         "Umowa nie jest powiązana z kontraktem w NEXUSIE — zmieni się tylko "
         "rejestr umów."
@@ -366,8 +399,10 @@ async def describe(
                     "Kontrakt nie jest rozliczany godzinowo — aneks mówi o stawce "
                     "za godzinę. Zmień stawkę w zakładce „Aneksy” kontraktu."
                 )
-            if user is not None and not await can_confirm_rate_annex(
-                db, user, contract.client_id
+            if (
+                user is not None
+                and delivery_write
+                and not await can_confirm_rate_annex(db, user, contract.client_id)
             ):
                 plan.blockers.append(RATE_ANNEX_CONFIRMER_BLOCKER)
     elif key == "annex_start_date":

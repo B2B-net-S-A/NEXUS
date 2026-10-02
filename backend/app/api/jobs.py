@@ -311,19 +311,30 @@ def _history_entry_payload(entry, *, show_fee: bool) -> dict:
     return data
 
 
+def _may_write_salary_range(current_user: User) -> bool:
+    """Widełki wynagrodzenia zostają przy roli: admin albo TAC.
+
+    Do 0410 rekrutację zakładał tylko admin i Delivery Lead, więc wystarczało
+    odmówić DL/TCM. Uprawnienie „Rekrutacje” może dostać każda rola — nadanie
+    nie może dawać więcej niż ma jego domyślny posiadacz (Delivery Lead).
+    """
+
+    if current_user.has_role(UserRole.admin):
+        return True
+    return current_user.has_role(UserRole.tac) and not current_user.has_any_role(
+        UserRole.delivery_lead,
+        UserRole.talent_community_manager,
+    )
+
+
 def _assert_delivery_lead_finance_write(
     fields_set: set[str],
     current_user: User,
 ) -> None:
-    """DL/TCM may never create or mutate recruitment budget fields."""
+    """Only admin or TAC may create or mutate recruitment budget fields."""
 
-    if (
-        current_user.has_any_role(
-            UserRole.delivery_lead,
-            UserRole.talent_community_manager,
-        )
-        and not current_user.has_role(UserRole.admin)
-        and {"salary_min", "salary_max"} & fields_set
+    if {"salary_min", "salary_max"} & fields_set and not _may_write_salary_range(
+        current_user
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -2067,11 +2078,9 @@ async def create_job(
         ):
             payload["champion_profile"] = dict(src_job.champion_profile)
 
-    if current_user.has_role(UserRole.delivery_lead) and not current_user.has_role(
-        UserRole.admin
-    ):
+    if data.from_job_id is not None and not _may_write_salary_range(current_user):
         # A template must not become a side channel for copying recruitment
-        # budget fields into a DL-created role.
+        # budget fields into a role created by someone who may not set them.
         payload["salary_min"] = None
         payload["salary_max"] = None
 

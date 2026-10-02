@@ -36,8 +36,10 @@ from app.models.user import User, UserRole
 from app.services import permission_catalog as catalog
 from app.services.action_permissions import (
     NAMED_PERMISSIONS,
+    UNGRANTABLE_ROLES,
     ActionAccess,
     ProductAction,
+    account_accepts_grants,
     base_action_policy_from_rows,
     close_named_permissions,
     serialize_action_access,
@@ -62,8 +64,7 @@ ActionAccessName = Literal["none", "view", "generate", "manage"]
 ActionOverrideName = Literal["inherit", "none", "view", "generate", "manage"]
 
 _NAMED = frozenset(NAMED_PERMISSIONS)
-#: Role, którym ekran nie nadaje uprawnień: stary podgląd i praktykant.
-_UNGRANTABLE_ROLES = frozenset({UserRole.user, UserRole.trainee})
+_UNGRANTABLE_ROLES = UNGRANTABLE_ROLES
 
 _ROLE_LABELS: dict[UserRole, str] = {
     UserRole.admin: "Administrator",
@@ -163,12 +164,7 @@ def _role_grantable(role: UserRole) -> bool:
     return role is not UserRole.admin and role not in _UNGRANTABLE_ROLES
 
 
-def _account_grantable(user: User) -> bool:
-    """Czy osobie da się coś nadać: nie admin i ma rolę, która przyjmuje nadania."""
-
-    if user.has_role(UserRole.admin):
-        return False
-    return any(role not in _UNGRANTABLE_ROLES for role in user.get_all_roles())
+_account_grantable = account_accepts_grants
 
 
 def _in_catalog_order(keys: Iterable[str]) -> list[str]:

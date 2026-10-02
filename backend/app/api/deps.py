@@ -724,67 +724,6 @@ OperationalUser = Annotated[
 ManagerOrAdmin = DeliveryLeadPlus
 
 
-# ── DL Client Portal guards ──────────────────────────────────────────────────
-
-
-async def require_dl_assigned_or_admin(
-    client_id: int,
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    """Dependency: Admin globally or an explicitly assigned Delivery Lead.
-
-    FastAPI inferruje ``client_id`` z path parametru routera. Inne role
-    (recruiter, sourcer, tac, user) — zawsze 403.
-
-    Ten wąski guard pozostaje dla stawek, plików finansowych i konsekwentnych
-    zapisów prawnych. Zwykły dostęp operacyjny do klienta korzysta z
-    ``require_delivery_lead_or_admin`` albo centralnego ``ClientAccess``.
-    """
-    from sqlalchemy import select
-
-    from app.models.team_structure import DeliveryLeadClientAssignment
-
-    if current_user.has_role(UserRole.admin):
-        return current_user
-    if not current_user.has_role(UserRole.delivery_lead):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only Delivery Leads or admin may access this",
-        )
-    result = await db.execute(
-        select(DeliveryLeadClientAssignment).where(
-            DeliveryLeadClientAssignment.client_id == client_id,
-            DeliveryLeadClientAssignment.delivery_lead_user_id == current_user.id,
-        )
-    )
-    if result.scalar_one_or_none() is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not assigned to this client",
-        )
-    return current_user
-
-
-DlAssignedOrAdmin = Annotated[User, Depends(require_dl_assigned_or_admin)]
-
-
-async def require_delivery_lead_or_admin(
-    current_user: Annotated[User, Depends(get_current_user)],
-) -> User:
-    """Dependency for organization-wide operational Delivery client actions."""
-
-    if current_user.has_any_role(UserRole.admin, UserRole.delivery_lead):
-        return current_user
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Only Delivery Leads or admin may access this",
-    )
-
-
-DeliveryLeadOrAdmin = Annotated[User, Depends(require_delivery_lead_or_admin)]
-
-
 # ── Konta serwisowe / klucze API (nagłówek X-API-Key) ────────────────────────
 #
 # Druga, RÓWNOLEGŁA klasa poświadczeń obok JWT użytkownika. Automatyzacja

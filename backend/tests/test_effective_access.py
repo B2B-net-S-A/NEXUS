@@ -168,21 +168,39 @@ def test_multi_role_account_is_the_union_of_its_roles() -> None:
 
 
 def test_extra_permission_for_one_person_adds_to_the_role() -> None:
-    """Sandra (TCM) dostaje tworzenie kontraktów bez zmiany roli."""
+    """Konto TCM dostaje tworzenie kontraktów bez zmiany roli."""
 
-    sandra = _user(UserRole.talent_community_manager, user_id=90)
+    tcm = _user(UserRole.talent_community_manager, user_id=41)
     grant = [
-        SimpleNamespace(user_id=90, action="contracts_orders_edit", access="manage")
+        SimpleNamespace(user_id=41, action="contracts_orders_edit", access="manage")
     ]
-    access = _resolve(sandra, action_overrides=grant)
+    access = _resolve(tcm, action_overrides=grant)
 
     assert "contracts_orders_edit" in access.permissions
     assert "amounts_view" not in access.permissions
     assert access.sections[ProductSection.delivery] is SectionAccess.write
 
-    # Wiersz innej osoby nie działa na Sandrę.
-    other = [SimpleNamespace(user_id=91, action="clients_edit", access="manage")]
-    assert "clients_edit" not in _resolve(sandra, action_overrides=other).permissions
+    # Wiersz innej osoby nie działa na to konto.
+    other = [SimpleNamespace(user_id=42, action="clients_edit", access="manage")]
+    assert "clients_edit" not in _resolve(tcm, action_overrides=other).permissions
+
+
+def test_a_grant_stops_working_when_the_account_becomes_a_viewer() -> None:
+    """Zmiana roli nie kasuje wierszy nadań — resolver przestaje je liczyć.
+
+    Ekran odmawia nadania Viewerowi i Praktykantowi; konto zdegradowane do
+    takiej roli nie może zachować tego, czego nie dałoby się mu nadać.
+    """
+
+    grant = [SimpleNamespace(user_id=17, action="clients_edit", access="manage")]
+    for role in (UserRole.user, UserRole.trainee):
+        access = _resolve(_user(role), action_overrides=grant)
+        assert access.permissions == frozenset()
+        assert access.sections[ProductSection.delivery] is SectionAccess.none
+
+    # Rola, która przyjmuje nadania, obok roli Viewera — nadanie działa.
+    mixed = _resolve(_user(UserRole.user, UserRole.recruiter), action_overrides=grant)
+    assert "clients_edit" in mixed.permissions
 
 
 def test_granting_an_edit_permission_brings_the_view_with_it() -> None:

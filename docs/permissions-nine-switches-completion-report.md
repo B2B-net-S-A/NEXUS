@@ -52,7 +52,8 @@ ze zgłoszenia też ma tworzyć kontrakty (nadanie jednej osobie).
 ## Co zmieniło się w zachowaniu
 
 Lista zamknięta — kontrakt, §6. W skrócie: Finanse prowadzą kontrakty
-i zamówienia (statusu kontraktu nadal nie zmieniają); TCM ma zbiorcze „Oznacz
+i zamówienia (statusu kontraktu nadal nie zmieniają — także datą końca ani
+przedłużeniem „Zakończonego”); TCM ma zbiorcze „Oznacz
 zakończone”; TAC nie ma już nigdy niedziałającego „oznaczania podpisu”; 403
 nazywa uprawnienie; `/settings/cv-rules` wpuszcza posiadaczy edycji klientów.
 Skutki w treści handlerów (Finanse edytują pola kontraktu poza kwotami, TCM
@@ -79,7 +80,7 @@ zamówień, budżet linii w kwocie jest kwotą) są wypisane w tym samym paragra
 ## Jak to jest sprawdzone
 
 - **Macierz bramek** (`backend/tests/test_authz_guard_matrix.py`): werdykt
-  zależności każdej z 1227 tras dla 21 person, bez bazy; wzorzec w
+  zależności każdej z 1229 tras dla 21 person, bez bazy; wzorzec w
   `backend/tests/data/authz_golden/`. Diff wzorca względem stanu sprzed
   przepięcia to lista zmian dostępu.
 - **Testy zachowania przez HTTP** (baza, CI): `test_named_permissions_http.py`,
@@ -92,19 +93,34 @@ zamówień, budżet linii w kwocie jest kwotą) są wypisane w tym samym paragra
   kontrakt i zamówienie; przełącznik roli kliknięty na ekranie otwiera
   i zamyka trasę; uprawnienie nadane osobie daje kontrakt bez kwot, a ze
   stawką — odmowę z nazwą „Stawki i kwoty: zmiana”.
-- **Przeglądy**: bezpieczeństwo, backend, frontend i przegląd adwersarialny
-  „persona × trasa” na scalonym drzewie. Przegląd pakietu zamówień znalazł
-  dwie luki naprawione przed scaleniem: budżet linii wpisany kwotą pozwalał
-  odczytać stawkę z przeliczonej liczby MD, a sama „zmiana kwot” przechodziła
-  bramkę zapisu kolejki zamówień z maila.
+- **Przeglądy** na scalonym drzewie (commit `fe8ec0ced`): bezpieczeństwo,
+  backend, frontend i przegląd adwersarialny „persona × trasa” (wzorzec
+  bramek sprzed przepięcia porównany trasa po trasie; poza zamierzonymi
+  zmianami żadna persona nie zyskała trasy). Znalezione i naprawione:
+  - budżet linii wpisany kwotą pozwalał odczytać stawkę z przeliczonej
+    liczby MD; sama „zmiana kwot” przechodziła bramkę zapisu kolejki zamówień
+    z maila (przegląd pakietu zamówień);
+  - kreator metryk pulpitu liczył kwoty po roli Delivery Leada, a zapis
+    warunków kontraktowych klienta ekran bramkował edycją klientów (frontend);
+  - skutki podpisanego dokumentu w kontrakcie nie sprawdzały już zapisu
+    w sekcji Delivery (backend);
+  - data końca pozwalała osobie bez „zmiany statusu” zakończyć albo przywrócić
+    współpracę (adwersarialny);
+  - nadana pozycja „Rekrutacje” dawała zapis widełek wynagrodzenia, których
+    Delivery Lead nie ustawia; nadania przeżywały zmianę roli na Viewera
+    (bezpieczeństwo).
+  Dane produkcji sprawdzone odczytem 02.10.2026: wyjątków sekcji i nadań per
+  osoba jest 0, wiersz podpisu TAC nie był zmieniany z panelu — migracja
+  nikomu nie odbiera dostępu i wyłącza podpis TAC.
 
 ## Po wdrożeniu — po stronie administratora
 
 Zaznaczyć kontu ze zgłoszenia „Kontrakty i zamówienia: tworzenie i edycja”
 w oknie „Edytuj użytkownika”. Bez podglądu stawek założy kontrakt bez kwot
-(tak jak dotąd Delivery Lead bez wpisywania stawek), a kwoty wpisują Finanse;
-jeśli ma też wgrywać PDF zamówienia i wpisywać stawki, wystarczy dołożyć
-„Stawki i kwoty: podgląd”. Nadanie robi człowiek, nie migracja — wpis
+(tak jak dotąd Delivery Lead bez wpisywania stawek), a kwoty wpisują Finanse.
+Przycisk „Nowe zamówienie” i formularze zamówień pokazują się dopiero razem
+z „Stawki i kwoty: podgląd” — niosą stawki i PDF zamówienia; jeśli konto ma
+też zakładać zamówienia, wystarczy dołożyć tę drugą pozycję. Nadanie robi człowiek, nie migracja — wpis
 w Historii zdarzeń ma mieć autora, a stałe id w migracji działałoby też na
 bazach testowych.
 
@@ -128,3 +144,8 @@ bazach testowych.
 - Okno relacji kluczowych wysyła puste notatki przy każdym zapisie (ten sam
   wzorzec, który w oknie edycji klienta został naprawiony).
 - W kilku starszych komunikatach frontu zostało „Twoja rola…”.
+- Finanse widzą pole daty końca i „Przedłuż” także na kontrakcie
+  „Zakończonym”; serwer odmawia z nazwą uprawnienia. Ekran mógłby te akcje
+  chować tak jak listę statusu.
+- `require_financial_access` i `require_contract_legal_access` nie mają już
+  użycia w trasach (zostały z własnymi testami).

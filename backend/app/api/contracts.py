@@ -3446,6 +3446,7 @@ async def bulk_extend_contracts(
     contracts = list(result.scalars().all())
     for contract in contracts:
         await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+        _assert_ended_revival_allowed(current_user, contract)
     extended_ids: list[int] = []
     skipped: list[int] = []
     skipped_void: list[int] = []
@@ -3971,7 +3972,27 @@ def _assert_contract_status_change_allowed(
         and getattr(data, field) != getattr(contract, field)
         for field in _CONTRACT_TERMINATION_FIELDS
     )
+    if "end_date" in data.model_fields_set and data.end_date != contract.end_date:
+        # Data końca też zmienia status: nowa data na „Zakończonym” przywraca
+        # współpracę (albo poprawia jej koniec), wyczyszczona na „Kończącym się”
+        # odwołuje zakończenie, a wsteczna na trwającej umowie kończy ją przy
+        # najbliższym biegu nocnym. Termin w przyszłości zostaje zwykłą edycją.
+        live = contract.status in (ContractStatus.active, ContractStatus.ending)
+        changed = changed or (
+            contract.status == ContractStatus.ended
+            or (contract.status == ContractStatus.ending and data.end_date is None)
+            or (live and data.end_date is not None and data.end_date < business_today())
+        )
     if changed:
+        ensure_permission(current_user, ProductAction.contract_status)
+
+
+def _assert_ended_revival_allowed(current_user: User, contract: Contract) -> None:
+    """Przedłużenie „Zakończonego” kontraktu przywraca współpracę — to zmiana
+    statusu, więc wymaga tego samego uprawnienia co ``/status``. Przedłużenie
+    trwającej umowy zostaje edycją kontraktu."""
+
+    if contract.status == ContractStatus.ended:
         ensure_permission(current_user, ProductAction.contract_status)
 
 
@@ -5654,6 +5675,7 @@ async def apply_contract_amendment(
                 status_code=422,
                 detail="new_end_date is required for extension amendment",
             )
+        _assert_ended_revival_allowed(current_user, contract)
         # Aneks przedłużający dawał umowie B2B datę, której nikt nie
         # wypowiedział — dokładnie ten stan, który korekta 09.2026 czyści.
         # Zakończoną ręcznie umowę B2B wolno przedłużyć (przesunięcie końca).

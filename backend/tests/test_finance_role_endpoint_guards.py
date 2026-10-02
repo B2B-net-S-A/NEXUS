@@ -202,34 +202,6 @@ def test_candidate_finance_guard_is_admin_only_to_keep_finance_free_of_pii():
 # i role, więc sprawdzamy tam zachowanie bramki, a nie tożsamość aliasu.
 
 
-def test_finance_manager_on_mixed_routes_touches_only_amounts():
-    from app.api.financial_access import assert_finance_manager_touches_only_amounts
-
-    finance = _user(UserRole.finance)
-    assert_finance_manager_touches_only_amounts(
-        finance,
-        {"rate_client"},
-        contracts._CONTRACT_FINANCE_WRITE_FIELDS,
-        operational_roles=(UserRole.delivery_lead, UserRole.tac),
-    )
-    with pytest.raises(HTTPException) as exc_info:
-        assert_finance_manager_touches_only_amounts(
-            finance,
-            {"rate_client", "status", "end_date"},
-            contracts._CONTRACT_FINANCE_WRITE_FIELDS,
-            operational_roles=(UserRole.delivery_lead, UserRole.tac),
-        )
-    assert exc_info.value.status_code == 403
-    assert exc_info.value.detail["fields"] == ["end_date", "status"]
-    # Rola operacyjna trasy nie jest zawężana do kwot.
-    assert_finance_manager_touches_only_amounts(
-        _user(UserRole.delivery_lead),
-        {"status"},
-        contracts._CONTRACT_FINANCE_WRITE_FIELDS,
-        operational_roles=(UserRole.delivery_lead, UserRole.tac),
-    )
-
-
 @pytest.mark.parametrize(
     "role",
     [

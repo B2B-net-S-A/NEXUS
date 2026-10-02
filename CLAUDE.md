@@ -104,7 +104,7 @@ Reguły, które łatwo cofnąć:
 - **Finanse zmieniają kwoty** kontraktów, zamówień i linii MD przez
   `MANAGE_FINANCE`; osoba wpuszczona WYŁĄCZNIE przez tę capability dostaje 403
   `finance_amounts_only` na każde pole niebędące kwotą
-  (`financial_access.assert_finance_manager_touches_only_amounts`). Front:
+  (`financial_access.assert_amounts_only`). Front:
   „Edytuj stawki" na kontrakcie wysyła tylko pola kwot.
 - **TCM**: Delivery = odczyt, generator B2B = `manage` (0347 dla świeżej bazy).
 - **Cele KPI: jeden katalog** `services/kpi_catalog.py` (stare id panelu „Moje
@@ -170,7 +170,9 @@ mogły założyć kontraktu, a admin nie miał czego przełączyć. Decyzje Artu
   handlera potrzebuje własnego testu.
 - **Uprawnienia osoby tylko dodają** („Edytuj użytkownika” → „Dodatkowe
   uprawnienia”); API odmawia `none` (422 `additive_only`). Role Viewer
-  i Praktykant nie przyjmują uprawnień. Zmiana wylogowuje dotknięte konta
+  i Praktykant nie przyjmują uprawnień — nadanie zapisane wcześniej przestaje
+  działać po zmianie roli (`action_permissions.account_accepts_grants`),
+  wiersz zostaje. Zmiana wylogowuje dotknięte konta
   i zostawia wpis w Historii zdarzeń (`rbac.role_permissions`,
   `rbac.user_permissions`).
 - **Rola bez wierszy zasiewu** jest liczona funkcją zasiewu z jej zapisanych
@@ -186,6 +188,24 @@ mogły założyć kontraktu, a admin nie miał czego przełączyć. Decyzje Artu
   odczytać stawkę) — budżet w MD zostaje operacyjny. Zamówienie z maila
   zapisuje i odrzuca prowadzący zamówienia z prawem do kwot klienta; sama
   „zmiana kwot” nie wystarcza (to zakładanie zamówienia, nie edycja kwot).
+  Kwoty w kreatorze metryk pulpitu (źródło „finance”) liczy „Stawki i kwoty:
+  podgląd” w zakresie konta (`custom_metrics/engine.source_denial`,
+  `_finance_client_boundary`) — nie rola Delivery Leada. Warunki kontraktowe
+  klienta zapisuje „Kontrakty i zamówienia” + podgląd kwot u klienta
+  z przypisania (`can_edit_legal_documents`, front
+  `canEditClientLegalDocuments`), nie edycja klientów.
+- **Status kontraktu to pozycja 4 także bocznymi drogami:** data końca,
+  która kończy albo przywraca współpracę (wsteczna na trwającej umowie,
+  wyczyszczona na „Kończącym się”, każda zmiana na „Zakończonym”), aneks
+  przedłużenia i zbiorcze „Przedłuż” na „Zakończonym” wymagają zmiany statusu
+  (`contracts._assert_contract_status_change_allowed`,
+  `_assert_ended_revival_allowed`). Skutki podpisanego dokumentu z Generatora
+  w kontrakcie wymagają dodatkowo zapisu w sekcji Delivery
+  (`b2b_documents.effects.can_write_delivery`) — router Generatora stoi za
+  Sourcingiem, więc bramka sekcji z tras Kontraktów tam nie działa.
+- **Widełki wynagrodzenia rekrutacji zostają przy roli** (admin albo TAC,
+  `jobs._may_write_salary_range`), także dla osoby z nadaną pozycją
+  „Rekrutacje”.
 - **Stawka do klienta w rekrutacji:** zapisuje ją „Rekrutacje: zakładanie,
   zamykanie, wysyłka CV do klienta”; widzą role z `CLIENT_RATE_VIEW_ROLES`
   oraz każdy, kto ją zapisuje.

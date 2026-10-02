@@ -380,6 +380,7 @@ async def test_granted_amounts_edit_binds_a_delivery_lead_to_the_portfolio(
 def _contract(**overrides):
     values = {
         "status": ContractStatus.active,
+        "end_date": None,
         "termination_reason": None,
         "termination_lessons": None,
         "terminated_at": None,
@@ -454,6 +455,89 @@ def test_changing_termination_data_in_a_patch_needs_the_status_permission(
     contracts._assert_contract_status_change_allowed(
         _user(TCM), _contract(**stored), ContractUpdate(**payload)
     )
+
+
+@pytest.mark.parametrize(
+    ("stored", "payload"),
+    [
+        # Data wsteczna na trwającej umowie kończy ją (nocny cron).
+        ({"status": ContractStatus.active}, {"end_date": "2020-01-31"}),
+        (
+            {"status": ContractStatus.ending, "end_date": date(2999, 1, 31)},
+            {"end_date": "2020-01-31"},
+        ),
+        # Wyczyszczenie daty „Kończącego się” odwołuje zakończenie.
+        (
+            {"status": ContractStatus.ending, "end_date": date(2999, 1, 31)},
+            {"end_date": None},
+        ),
+        # Nowa data na „Zakończonym” przywraca współpracę albo poprawia jej koniec.
+        (
+            {"status": ContractStatus.ended, "end_date": date(2020, 1, 31)},
+            {"end_date": "2999-12-31"},
+        ),
+        (
+            {"status": ContractStatus.ended, "end_date": date(2020, 1, 31)},
+            {"end_date": None},
+        ),
+        (
+            {"status": ContractStatus.ended, "end_date": date(2020, 1, 31)},
+            {"end_date": "2020-02-29"},
+        ),
+    ],
+)
+def test_end_date_that_ends_or_revives_cooperation_needs_the_status_permission(
+    stored, payload
+) -> None:
+    """Data końca nie jest bocznymi drzwiami do zmiany statusu (pozycja 4)."""
+
+    with pytest.raises(HTTPException) as denied:
+        contracts._assert_contract_status_change_allowed(
+            _user(FINANCE), _contract(**stored), ContractUpdate(**payload)
+        )
+    assert denied.value.detail["permission"] == "contract_status"
+
+    contracts._assert_contract_status_change_allowed(
+        _user(LEAD), _contract(**stored), ContractUpdate(**payload)
+    )
+
+
+@pytest.mark.parametrize(
+    ("stored", "payload"),
+    [
+        # Termin umowy zlecenie/o pracę w przyszłości to zwykła edycja.
+        ({"status": ContractStatus.active}, {"end_date": "2999-12-31"}),
+        (
+            {"status": ContractStatus.ending, "end_date": date(2999, 1, 31)},
+            {"end_date": "2999-12-31"},
+        ),
+        # Formularz odsyła niezmienioną datę przy każdym zapisie.
+        (
+            {"status": ContractStatus.ended, "end_date": date(2020, 1, 31)},
+            {"end_date": "2020-01-31", "project_name": "Poprawka nazwy"},
+        ),
+        # Szkic wpisu historycznej umowy — status się nie zmienia.
+        ({"status": ContractStatus.draft}, {"end_date": "2020-01-31"}),
+    ],
+)
+def test_ordinary_end_date_edits_need_no_status_permission(stored, payload) -> None:
+    contracts._assert_contract_status_change_allowed(
+        _user(FINANCE), _contract(**stored), ContractUpdate(**payload)
+    )
+
+
+def test_extending_an_ended_contract_needs_the_status_permission() -> None:
+    """Aneks przedłużenia i zbiorcze „Przedłuż” wskrzeszają „Zakończony”."""
+
+    ended = _contract(status=ContractStatus.ended, end_date=date(2020, 1, 31))
+    with pytest.raises(HTTPException) as denied:
+        contracts._assert_ended_revival_allowed(_user(FINANCE), ended)
+    assert denied.value.detail["permission"] == "contract_status"
+
+    contracts._assert_ended_revival_allowed(_user(LEAD), ended)
+    # Przedłużenie trwającej umowy to edycja kontraktu.
+    for live in (ContractStatus.active, ContractStatus.ending):
+        contracts._assert_ended_revival_allowed(_user(FINANCE), _contract(status=live))
 
 
 def test_unchanged_termination_data_needs_no_status_permission() -> None:
@@ -802,6 +886,59 @@ async def test_annexes_changing_the_contract_need_contract_editing(
     assert await _blockers(doc_key, _user(TCM), **values) == [blocker]
 
 
+def _limited_to_delivery_read(user: User) -> User:
+    """Stary wyjątek sekcji osoby: uprawnienie zostaje, Delivery tylko do odczytu."""
+
+    user.effective_section_access = {
+        **(user.effective_section_access or {}),
+        ProductSection.delivery.value: "read",
+    }
+    return user
+
+
+@pytest.mark.parametrize(
+    ("doc_key", "permission", "values"),
+    [
+        (
+            "termination_agreement",
+            "contract_status",
+            {"termination_date": "2026-12-31"},
+        ),
+        ("notice_withdrawal", "contract_status", {}),
+        ("annex_start_date", "contracts_orders_edit", {"new_start_date": "2026-11-01"}),
+    ],
+)
+async def test_contract_effects_need_delivery_write(
+    doc_key, permission, values
+) -> None:
+    """Uprawnienie nie omija sufitu sekcji: podpis dokumentu woła funkcje
+    domeny wprost, więc bramka zapisu Delivery z tras Kontraktów go nie chroni."""
+
+    holder = _holder("b2b_signature_confirmation", permission, role=TCM)
+    assert await _blockers(doc_key, holder, **values) == []
+
+    limited = _limited_to_delivery_read(
+        _holder("b2b_signature_confirmation", permission, role=TCM)
+    )
+    assert await _blockers(doc_key, limited, **values) == [
+        effects.DELIVERY_WRITE_BLOCKER
+    ]
+
+
+async def test_delivery_read_only_does_not_block_a_document_without_effects() -> None:
+    limited = _limited_to_delivery_read(_holder("b2b_signature_confirmation", role=TAC))
+    assert await _blockers("preliminary_cez", limited) == []
+    assert (
+        await _blockers(
+            "termination_agreement",
+            limited,
+            contract_id=None,
+            termination_date="2026-12-31",
+        )
+        == []
+    )
+
+
 async def test_document_without_a_contract_changes_only_the_register() -> None:
     """Bez kontraktu w NEXUSIE nie ma czego pilnować uprawnieniem kontraktu."""
 
@@ -842,6 +979,18 @@ async def test_rate_annex_is_confirmed_by_whoever_writes_order_amounts(
     editor = _holder("contracts_orders_edit", "amounts_view", role=TCM)
     assert await confirm(None, editor, 6)
     assert not await confirm(None, editor, None)
+
+
+async def test_rate_annex_needs_delivery_write(monkeypatch) -> None:
+    monkeypatch.setattr(
+        access_scope, "resolve_delivery_lead_finance_client_ids", _portfolio(5)
+    )
+    confirm = effects.can_confirm_rate_annex
+
+    for permissions in (("amounts_edit",), ("contracts_orders_edit", "amounts_view")):
+        assert await confirm(None, _holder(*permissions, role=TCM), 6)
+        limited = _limited_to_delivery_read(_holder(*permissions, role=TCM))
+        assert not await confirm(None, limited, 6)
 
 
 def test_rate_annex_blocker_names_the_permissions() -> None:

@@ -44,8 +44,6 @@ _GATE_QUALNAME_MARKERS = (
     "require_roles",
     "require_section_access",
     "require_candidate_roles",
-    "require_dl_assigned_or_admin",
-    "require_delivery_lead_or_admin",
     "require_financial_access",
     "require_capability",
     "_snapshot_auth",

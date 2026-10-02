@@ -11,7 +11,7 @@ from app.analytics.capabilities import (
     require_capability,
     user_has_capability,
 )
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.services import permission_catalog as catalog
 from app.services.access_scope import (
     DL_CLIENT_OUT_OF_SCOPE_DETAIL,
@@ -211,47 +211,6 @@ def assert_amounts_only(
                 "fields": extra,
             },
         )
-
-
-def require_roles_or_finance_manager(*roles: UserRole):
-    """Bramka trasy mieszanej: role operacyjne trasy albo zmiana kwot.
-
-    Sama zmiana kwot daje wyłącznie zapis kwot — handler MUSI wołać
-    ``assert_finance_manager_touches_only_amounts``.
-    """
-
-    from app.api.deps import ROLE_DENIED_DETAIL, require_onboarded_user
-
-    async def _check(current_user: User = Depends(require_onboarded_user)) -> User:
-        if (
-            current_user.has_role(UserRole.admin)
-            or current_user.has_any_role(*roles)
-            or has_permission(current_user, ProductAction.amounts_edit)
-        ):
-            return current_user
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail=ROLE_DENIED_DETAIL
-        )
-
-    return _check
-
-
-def assert_finance_manager_touches_only_amounts(
-    user: User,
-    supplied_fields,
-    amount_fields,
-    *,
-    operational_roles: tuple[UserRole, ...],
-) -> None:
-    """Osoba wpuszczona wyłącznie przez zmianę kwot zmienia tylko kwoty."""
-
-    assert_amounts_only(
-        supplied_fields,
-        amount_fields,
-        can_edit_record=(
-            user.has_role(UserRole.admin) or user.has_any_role(*operational_roles)
-        ),
-    )
 
 
 def _is_financial_key(key: str) -> bool:

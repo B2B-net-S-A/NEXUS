@@ -126,9 +126,11 @@ szablony pipeline'u · kolejka przeglądu DL · pełna edycja rekrutacji przez T
 ## 6. Zmiany zachowania (jedyne zamierzone)
 
 1. **Finanse:** całość pozycji 3 — kontrakt (tworzenie, edycja, aktywacja,
-   unieważnienie, usunięcie, dokumenty, aneksy), zamówienia (tworzenie,
-   przedłużenie, linie MD, zastosowanie zamówienia z maila), umowy ramowe
-   i wykonawcze. Statusu kontraktu nadal nie zmieniają (to 4).
+   unieważnienie, usunięcie, powrót do szkicu, dokumenty, aneksy, wysyłka do
+   podpisu elektronicznego — moduł podpisu jest na produkcji wyłączony),
+   zamówienia (tworzenie, przedłużenie, linie MD, zastosowanie zamówienia
+   z maila), umowy ramowe i wykonawcze. Statusu kontraktu nadal nie zmieniają
+   (to 4) — także datą końca (niżej).
 2. **TCM:** zbiorcze „Oznacz zakończone” i „Zakończ projekt” (to samo
    uprawnienie co pojedyncze zakończenie).
 3. **TAC:** podpis B2B wyłączony (był włączony, ale nigdy nie działał).
@@ -139,7 +141,7 @@ szablony pipeline'u · kolejka przeglądu DL · pełna edycja rekrutacji przez T
 
 Wszystko inne ma zostać identyczne. Pilnuje tego macierz bramek
 (`backend/tests/test_authz_guard_matrix.py`, wzorzec w
-`backend/tests/data/authz_golden/`): 1227 tras × 21 person (18 pierwszych to
+`backend/tests/data/authz_golden/`): 1229 tras × 21 person (18 pierwszych to
 persony sprzed przepięcia; trzy ostatnie — rekruter z nadanym
 `recruitment_manage`, `finance_module` i samym `amounts_edit` — odróżniają
 bramkę uprawnienia od bramki roli).
@@ -150,8 +152,27 @@ Wynikają z punktów wyżej albo z tego, że bramka pyta o uprawnienie:
 
 - **Finanse** edytują w `PATCH /api/contracts/{id}` także pola niebędące
   kwotami (pkt 1); status i dane zakończenia współpracy zostają przy pozycji 4.
+- **Data końca nie omija pozycji 4.** `PATCH /api/contracts/{id}` wymaga
+  zmiany statusu, gdy nowa data kończy albo przywraca współpracę: data
+  wsteczna na trwającej umowie, wyczyszczona data „Kończącego się”, każda
+  zmiana daty „Zakończonego”. To samo przy aneksie przedłużenia i zbiorczym
+  „Przedłuż” na kontrakcie „Zakończonym” (`_assert_ended_revival_allowed`).
+  Termin w przyszłości i przedłużenie trwającej umowy zostają pozycją 3.
 - **TCM** potwierdza podpis dokumentów pochodnych z rodziny zakończenia
-  (rozwiązanie, wypowiedzenie) — to pozycja 4, którą ma.
+  (rozwiązanie, wypowiedzenie, cofnięcie wypowiedzenia) i rejestruje
+  wypowiedzenie złożone przez Partnera — to pozycja 4, którą ma.
+- **Skutki podpisanego dokumentu w kontrakcie** wymagają, jak dotąd, zapisu
+  w sekcji Delivery (`effects.can_write_delivery`): uprawnienie samo go daje,
+  brakuje go tylko kontu ograniczonemu starym wyjątkiem sekcji.
+- **Widełki wynagrodzenia w rekrutacji** zostają przy roli (admin albo TAC,
+  `jobs._may_write_salary_range`) — także dla osoby z nadaną pozycją 6;
+  kopia z szablonu ich takiej osobie nie przenosi.
+- **Nadania osoby przestają działać po zmianie roli na Viewera albo
+  Praktykanta** (`action_permissions.account_accepts_grants`); wiersze zostają
+  i wracają z rolą, która nadania przyjmuje.
+- **Nazwa pliku zamówienia** (`has_file`, nazwa PDF-u) idzie za prawem do
+  dokumentów klienta (pozycje 1 i 7 w zakresie) — konto DL + TCM u klienta
+  spoza przypisania jej nie dostaje (samego pliku nie pobierało i wcześniej).
 - **Druk szkicu kontraktu** bez zapisanego szkicu: osoba z pozycją 3 dostaje
   404 zamiast pustego dokumentu.
 - **Stawka do klienta w rekrutacji:** widzi ją także każdy, kto ją zapisuje
@@ -162,6 +183,26 @@ Wynikają z punktów wyżej albo z tego, że bramka pyta o uprawnienie:
   z prawem do kwot zamówień klienta; budżet w MD — każdy prowadzący zamówienia.
 - **Mail zarządu** idzie do posiadaczy pozycji 9 z dostępem do Insights
   (domyślnie ci sami odbiorcy: admin i Finanse).
+- **Kwoty w kreatorze metryk pulpitu** (źródło „finance”) liczy posiadacz
+  pozycji 7 — konto z rolą Delivery Leada u klientów z przypisania, pozostali
+  u wszystkich (jak `can_read_client_finance`); „Moduł Finanse” jak dotąd
+  u wszystkich. Delivery Lead z wyłączoną pozycją 7 kwot nie liczy.
+- **Warunki kontraktowe klienta** (profil klienta → Materiały) zapisuje, tak
+  jak na serwerze, posiadacz pozycji 3 i 7 u klienta z przypisania — ekran
+  pyta o to samo (`canEditClientLegalDocuments`), nie o edycję klientów.
+- **Przydział ludzi do rekrutacji i priorytet** (role z 02.10.2026, PR #1984):
+  przydziela i zdejmuje rekrutera posiadacz pozycji 6 (konto z rolą Delivery
+  Leada — w swoim zakresie) albo Head of Recruitment; priorytet ustawia ten,
+  kto ma pełną edycję rekrutacji (pozycja 6 albo TAC), albo Head of
+  Recruitment. Propozycje automatu przydziału rozstrzyga rola (admin, HoR).
+
+### Świadomie węższe na ekranie niż na serwerze
+
+- **„Nowe zamówienie” i edycja zamówienia MD/kosztowego** pokazują się
+  posiadaczowi pozycji 3 dopiero razem z podglądem kwot klienta (pozycja 7):
+  formularze niosą stawki i PDF, których serwer bez podglądu kwot nie przyjmie.
+  Sama pozycja 3 zakłada kontrakt bez kwot oraz kończy, przywraca i przedłuża
+  zamówienia.
 
 ## 7. API panelu
 

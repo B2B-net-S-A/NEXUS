@@ -38,10 +38,10 @@ def _user(*roles: UserRole, permissions: tuple[str, ...] = (), user_id: int = 17
 
 async def test_route_gate_names_the_missing_permission() -> None:
     gate = require_permission(ProductAction.contracts_orders_edit)
-    sandra = _user(UserRole.talent_community_manager, permissions=("delivery_view",))
+    tcm = _user(UserRole.talent_community_manager, permissions=("delivery_view",))
 
     with pytest.raises(HTTPException) as denied:
-        await gate(sandra)
+        await gate(tcm)
 
     assert denied.value.status_code == 403
     assert denied.value.detail == {
@@ -58,12 +58,12 @@ async def test_route_gate_names_the_missing_permission() -> None:
 
 async def test_route_gate_lets_the_holder_through_whatever_the_role() -> None:
     gate = require_permission(ProductAction.contracts_orders_edit)
-    sandra = _user(
+    tcm = _user(
         UserRole.talent_community_manager,
         permissions=("delivery_view", "contracts_orders_edit"),
     )
 
-    assert await gate(sandra) is sandra
+    assert await gate(tcm) is tcm
 
 
 async def test_any_permission_gate_lists_both_names() -> None:
@@ -155,14 +155,14 @@ def test_order_amounts_stay_with_the_assigned_delivery_lead() -> None:
     assert out_of_portfolio.detail == "Ten klient jest poza Twoim portfelem."
 
     # Sandra: zakłada zamówienia, ale bez podglądu kwot nie wpisze stawek.
-    sandra = _user(
+    tcm = _user(
         UserRole.talent_community_manager,
         permissions=("delivery_view", "contracts_orders_edit"),
     )
     assert not can_write_order_amounts(
-        sandra, client_id=5, delivery_lead_finance_client_ids=None
+        tcm, client_id=5, delivery_lead_finance_client_ids=None
     )
-    assert order_amounts_denied(sandra).detail["permission"] == "amounts_view"
+    assert order_amounts_denied(tcm).detail["permission"] == "amounts_view"
 
     recruiter = _user(UserRole.recruiter)
     assert order_amounts_denied(recruiter).detail["permission"] == "amounts_edit"

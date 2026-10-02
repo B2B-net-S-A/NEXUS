@@ -81,7 +81,6 @@ _SCOPE_MARKERS = (
     "job_read_scope_clause",
     "_ensure_stage_membership",
     "_load_csv_for_stage",
-    "require_dl_assigned_or_admin",
     "ensure_delivery_lead_job_visible",
     "_load_scoped_suggestion",
 )

@@ -264,12 +264,44 @@ async def test_finance_edits_a_contract_but_cannot_change_its_status(
     )
     _assert_denied(termination_fields, "contract_status")
 
+    # Data wsteczna kończyłaby umowę przy najbliższym biegu nocnym.
+    backdated = await app_client.patch(
+        f"/api/contracts/{contract_id}",
+        headers=finance,
+        json={"end_date": "2020-01-31"},
+    )
+    _assert_denied(backdated, "contract_status")
+
     stored = await _stored(contract_id)
     assert stored.status == ContractStatus.active
     assert stored.project_name == "Projekt po edycji"
     assert stored.termination_reason is None
     assert stored.terminated_at is None
     assert stored.end_date is None
+
+    # „Zakończonego” kontraktu Finanse nie przywracają datą ani przedłużeniem.
+    ended_id, _ = await _contract(status=ContractStatus.ended)
+    for response in (
+        await app_client.patch(
+            f"/api/contracts/{ended_id}",
+            headers=finance,
+            json={"end_date": "2999-12-31"},
+        ),
+        await app_client.post(
+            f"/api/contracts/{ended_id}/amendments",
+            headers=finance,
+            json={
+                "amendment_type": "extension",
+                "effective_date": business_today().isoformat(),
+                "new_end_date": "2999-12-31",
+            },
+        ),
+        await app_client.post(
+            f"/api/contracts/bulk-extend?ids={ended_id}&months=3", headers=finance
+        ),
+    ):
+        _assert_denied(response, "contract_status")
+    assert (await _stored(ended_id)).status == ContractStatus.ended
 
 
 # ── 3. Uprawnienie nadane osobie ponad rolę ──────────────────────────────────

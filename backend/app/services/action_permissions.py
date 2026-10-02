@@ -223,6 +223,18 @@ def base_action_policy_from_rows(
     return policy
 
 
+#: Role, którym ekran nie nadaje uprawnień: stary podgląd i praktykant.
+UNGRANTABLE_ROLES = frozenset({UserRole.user, UserRole.trainee})
+
+
+def account_accepts_grants(user: User) -> bool:
+    """Czy osobie da się coś nadać: nie admin i ma rolę, która przyjmuje nadania."""
+
+    if user.has_role(UserRole.admin):
+        return False
+    return any(role not in UNGRANTABLE_ROLES for role in user.get_all_roles())
+
+
 def effective_action_policy_from_rows(
     user: User,
     role_rows: Iterable[RoleActionPermission],
@@ -235,6 +247,7 @@ def effective_action_policy_from_rows(
         return {action: ActionAccess.manage for action in ProductAction}
 
     policy = base_action_policy_from_rows(user.get_all_roles(), role_rows, section_rows)
+    accepts_grants = account_accepts_grants(user)
     for row in override_rows:
         if row.user_id != user.id:
             continue
@@ -242,7 +255,17 @@ def effective_action_policy_from_rows(
             action = ProductAction(row.action)
         except ValueError:
             continue
-        policy[action] = _coerce_access(row.access)
+        access = _coerce_access(row.access)
+        if (
+            not accepts_grants
+            and action in NAMED_PERMISSIONS
+            and access > policy.get(action, ActionAccess.none)
+        ):
+            # Zmiana roli nie kasuje wierszy nadań: konto zdegradowane do
+            # Viewera albo Praktykanta nie zachowuje tego, czego ekran by mu
+            # nie nadał. Wiersz zostaje — wraca z rolą, która nadania przyjmuje.
+            continue
+        policy[action] = access
     return close_named_permissions(policy)
 
 
