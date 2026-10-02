@@ -8,7 +8,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api, { jobChatApi, matchingApi } from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
-import { canEditJobContent, jobEditScope } from "@/lib/job-edit-access";
+import {
+  canEditJobContent,
+  hasFullJobEditFallback,
+  jobEditScope,
+} from "@/lib/job-edit-access";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { PipelineBoardGate } from "@/components/v2/jobs/PipelineBoardGate";
@@ -780,7 +784,8 @@ export default function JobDetailPage() {
     canWritePipeline,
     // Odpowiedź bez pola `can_edit` (starszy cache): pełną redakcję rekrutacji
     // daje uprawnienie do jej prowadzenia.
-    fallback: canManageRecruitment,
+    // Pełną redakcję bez flagi z serwera ma też TAC (reguła zapasowa backendu).
+    fallback: hasFullJobEditFallback(authUser),
   });
   // Bez prawa edycji zawsze „Podgląd” — nawet ze starym linkiem `?mode=edit`.
   const championMode: ChampionMode =

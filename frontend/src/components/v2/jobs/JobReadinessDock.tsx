@@ -34,7 +34,11 @@ import { cn, formatRelativeTime } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { canMutateSection, hasSectionAccess } from "@/lib/section-access";
-import { canEditJobContent, jobEditScope } from "@/lib/job-edit-access";
+import {
+  canEditJobContent,
+  hasFullJobEditFallback,
+  jobEditScope,
+} from "@/lib/job-edit-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { useToast } from "@/components/Toast";
 import { httpStatusFromError, resolveViewState } from "@/lib/view-state";
@@ -653,7 +657,7 @@ export function JobReadinessDock({
     canWritePipeline,
     // Odpowiedź bez pola `can_edit` (starszy cache): pełną redakcję rekrutacji
     // daje uprawnienie do jej prowadzenia.
-    fallback: hasPermission(authUser, GATE_PERMISSION),
+    fallback: hasFullJobEditFallback(authUser),
   });
   // Na kroku 02 źródłem prawdy o Championie jest `["champion-profile", jobId]`
   // — ten sam klucz, który unieważnia edytor i checklista obok. Czytanie

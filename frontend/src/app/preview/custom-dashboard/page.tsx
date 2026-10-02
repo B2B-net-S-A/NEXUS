@@ -86,7 +86,7 @@ const CATALOG: MetricCatalog = {
     { key: "jobs", label: "Rekrutacje", available: true, reason: null, measures: [{ key: "open_now", label: "Rekrutacje otwarte teraz", snapshot: true }], group_by: ["none", "client", "recruiter", "competence_category"], filters: ["client_ids", "competence_category_ids"], supports_author: true },
     { key: "contracts", label: "Kontrakty", available: true, reason: null, measures: [{ key: "active_now", label: "Aktywne kontrakty teraz", snapshot: true }], group_by: ["none", "client"], filters: ["client_ids"], supports_author: false },
     { key: "orders", label: "Zamówienia", available: true, reason: null, measures: [{ key: "ending_30_days", label: "Kończące się w ciągu 30 dni", snapshot: true }], group_by: ["none", "client"], filters: ["client_ids"], supports_author: false },
-    { key: "finance", label: "Finanse", available: false, reason: "Kwoty widzą Finanse, administrator i Delivery Lead dla swoich klientów.", measures: [{ key: "margin", label: "Marża miesięczna (PLN)", snapshot: false }], group_by: ["none", "month", "client"], filters: ["client_ids"], supports_author: false },
+    { key: "finance", label: "Finanse", available: false, reason: "Kwoty widzą osoby z uprawnieniem „Stawki i kwoty: podgląd” (Delivery Lead: u swoich klientów).", measures: [{ key: "margin", label: "Marża miesięczna (PLN)", snapshot: false }], group_by: ["none", "month", "client"], filters: ["client_ids"], supports_author: false },
   ],
   authors: ["me", "team"],
   stages: [

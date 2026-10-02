@@ -327,7 +327,9 @@ describe("CvHandoffWorkbench", () => {
     await readySendButton();
 
     expect(screen.queryByLabelText("Kwota")).toBeNull();
-    expect(screen.getByText(/Stawkę do klienta ustala Delivery Lead/)).toBeTruthy();
+    expect(
+      screen.getByText(/Stawkę do klienta ustala osoba z uprawnieniem „Rekrutacje: zakładanie/),
+    ).toBeTruthy();
 
     await userEvent.click(await sendButton());
     await waitFor(() => expect(shareCreate).toHaveBeenCalledOnce());
@@ -335,12 +337,16 @@ describe("CvHandoffWorkbench", () => {
     expect(calls).toEqual(["move", "share_link"]);
   });
 
-  it("poza Nordeą rekruter nie wyśle do klienta — wysyła Delivery Lead (Pipeline v4)", async () => {
+  it("bez kolejki Cpro rekruter nie wyśle do klienta — komunikat nazywa uprawnienie (Pipeline v4)", async () => {
     renderWorkbench({ canWriteClientRate: false });
     expect(screen.queryByLabelText("Kwota")).toBeNull();
-    expect(screen.getByText(/Do klienta wysyła Delivery Lead i to on ustala stawkę/)).toBeTruthy();
+    expect(screen.getByText(/Ona też ustala stawkę do klienta/)).toBeTruthy();
     expect(
-      (await screen.findAllByText(/osoba czeka w jego przeglądzie/)).length,
+      (
+        await screen.findAllByText(
+          /Do klienta wysyła osoba z uprawnieniem „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”/,
+        )
+      ).length,
     ).toBeGreaterThan(0);
     expect(move).not.toHaveBeenCalled();
   });
