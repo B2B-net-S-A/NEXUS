@@ -9,7 +9,8 @@ import {
   rolesWithSectionAccess,
   sectionAccessForUser,
 } from "@/lib/section-access";
-import { accessSnapshot } from "@/test/fixtures/access-snapshot";
+
+import { accessSnapshot } from "./fixtures/access-snapshot";
 
 describe("central section access matrix", () => {
   it("has an explicit policy for every role", () => {

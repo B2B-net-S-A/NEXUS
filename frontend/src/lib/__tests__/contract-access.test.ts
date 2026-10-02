@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { contractAccess, type ContractAccess } from "@/lib/contract-access";
 import type { User, UserRole } from "@/store/auth";
+
 import {
   accessSnapshot,
   type AccessSnapshotOptions,
-} from "@/test/fixtures/access-snapshot";
+} from "./fixtures/access-snapshot";
 
 const CLIENT_ID = 17;
 

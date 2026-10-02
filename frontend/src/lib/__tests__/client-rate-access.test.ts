@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { canViewClientRate, canWriteClientRate } from "@/lib/client-rate-access";
 import type { UserRole } from "@/store/auth";
-import { accessSnapshot } from "@/test/fixtures/access-snapshot";
+
+import { accessSnapshot } from "./fixtures/access-snapshot";
 
 const ALL_ROLES: UserRole[] = [
   "admin",

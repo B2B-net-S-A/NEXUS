@@ -8,11 +8,11 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { useAuthStore, type User, type UserRole } from "@/store/auth";
 import {
   accessSnapshot,
   type AccessSnapshotOptions,
-} from "@/test/fixtures/access-snapshot";
+} from "@/lib/__tests__/fixtures/access-snapshot";
+import { useAuthStore, type User, type UserRole } from "@/store/auth";
 
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({

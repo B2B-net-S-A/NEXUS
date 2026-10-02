@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { isNavItemActive, visibleNavSections } from "@/components/v2/shell/SidebarV2";
+import { accessSnapshot } from "@/lib/__tests__/fixtures/access-snapshot";
 import { visibleNavHrefs, visiblePrimaryNav } from "@/lib/nav-registry";
 import type { UserRole } from "@/store/auth";
-import { accessSnapshot } from "@/test/fixtures/access-snapshot";
 
 // Czysta funkcja zamiast renderu — sidebar ciągnie `next/navigation`,
 // react-query, `api` i `useUiStore`, a przedmiotem testu jest wyłącznie zbiór

@@ -23,7 +23,8 @@ import {
   visiblePrimaryNav,
 } from "@/lib/nav-registry";
 import type { UserRole } from "@/store/auth";
-import { accessSnapshot } from "@/test/fixtures/access-snapshot";
+
+import { accessSnapshot } from "./fixtures/access-snapshot";
 
 // Rejestr jest wspólnym źródłem sidebara i palety ⌘K. Ten plik pilnuje trzech
 // rzeczy, które refaktor mógł po cichu zmienić: zgodności z rejestrem

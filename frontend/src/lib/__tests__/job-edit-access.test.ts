@@ -7,7 +7,8 @@ import {
   jobEditScope,
 } from "@/lib/job-edit-access";
 import type { UserRole } from "@/store/auth";
-import { accessSnapshot } from "@/test/fixtures/access-snapshot";
+
+import { accessSnapshot } from "./fixtures/access-snapshot";
 
 const write = { canWritePipeline: true };
 

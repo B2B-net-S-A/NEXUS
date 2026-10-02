@@ -6,12 +6,12 @@ import {
   useCapabilities,
   useCapability,
 } from "@/hooks/useCapability";
-import { CAPABILITY_ROLES } from "@/lib/capabilities";
-import { useAuthStore, type User, type UserRole } from "@/store/auth";
 import {
   accessSnapshot,
   type AccessSnapshotOptions,
-} from "@/test/fixtures/access-snapshot";
+} from "@/lib/__tests__/fixtures/access-snapshot";
+import { CAPABILITY_ROLES } from "@/lib/capabilities";
+import { useAuthStore, type User, type UserRole } from "@/store/auth";
 
 const admin = {
   id: 1,

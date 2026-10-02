@@ -8,8 +8,8 @@ import {
   canManageClientDelivery,
   canMoveInPipeline,
 } from "@/components/client-profile/permissions";
+import { accessSnapshot } from "@/lib/__tests__/fixtures/access-snapshot";
 import type { User, UserRole } from "@/store/auth";
-import { accessSnapshot } from "@/test/fixtures/access-snapshot";
 
 const ALL_ROLES: UserRole[] = [
   "admin",

@@ -132,8 +132,10 @@ describe("wyjaśnienia odmów", () => {
     expect(explainer.text).toContain("Ustawienia → Zespół i dostęp → Osoby i role");
     expect(explainer.text).toContain("administratora");
     // Kod pochodzi z jednego miejsca w backendzie — literał musi tam zostać.
+    // Ścieżka jednym napisem: filtr ścieżek w CI wylicza z takich napisów
+    // pliki backendu, po których zmianie testy frontu biegną już na PR-ze.
     const denial = readFileSync(
-      join(REPO, "backend", "app", "services", "permission_denial.py"),
+      join(REPO, "backend/app/services/permission_denial.py"),
       "utf8",
     );
     expect(denial).toContain('PERMISSION_DENIED_CODE = "permission_denied"');

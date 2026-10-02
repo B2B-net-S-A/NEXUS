@@ -7,7 +7,8 @@ import {
 } from "@/lib/action-access";
 import { hasPermission } from "@/lib/permissions";
 import type { UserRole } from "@/store/auth";
-import { accessSnapshot } from "@/test/fixtures/access-snapshot";
+
+import { accessSnapshot } from "./fixtures/access-snapshot";
 
 const ACTION = "b2b_contract_generator" as const;
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 
 import { hasCapability } from "@/lib/capabilities"
-import { accessSnapshot } from "@/test/fixtures/access-snapshot"
+import { accessSnapshot } from "@/lib/__tests__/fixtures/access-snapshot"
 
 import {
   canEditOrderLineAmounts,

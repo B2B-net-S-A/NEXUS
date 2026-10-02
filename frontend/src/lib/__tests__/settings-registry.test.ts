@@ -10,7 +10,8 @@ import {
   resolveSettingsView,
   searchSettingsItems,
 } from "@/lib/settings-registry";
-import { accessSnapshot } from "@/test/fixtures/access-snapshot";
+
+import { accessSnapshot } from "./fixtures/access-snapshot";
 
 // `user(role, access)` to profil bez kompletu uprawnień z serwera: pozycje
 // z `gate.permission` liczą się wtedy z domyślnych uprawnień ról.

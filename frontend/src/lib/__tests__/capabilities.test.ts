@@ -13,7 +13,8 @@ import {
 } from "@/lib/capabilities";
 import { PERMISSION_KEYS, type Permission } from "@/lib/permissions";
 import type { UserRole } from "@/store/auth";
-import { accessSnapshot } from "@/test/fixtures/access-snapshot";
+
+import { accessSnapshot } from "./fixtures/access-snapshot";
 
 // Wszystkie role z backendu (backend/app/models/user.py). Macierz MUSI być
 // domknięta — `head_of_recruitment` bywał pomijany w listach testowych i to
