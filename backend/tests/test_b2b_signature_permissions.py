@@ -55,8 +55,10 @@ async def test_clientless_tcm_signature_reaches_link_validation(monkeypatch):
     monkeypatch.setattr("app.api.b2b_contract_generator.assert_contract_legal_client_access", legal_scope)
     await _assert_signature_client_access(None, user_with_access(), None)
     legal_scope.assert_not_awaited()
+    # Zakres klienta zostaje wyłącznie przy koncie z rolą Delivery Leada.
     with pytest.raises(HTTPException):
-        await _assert_signature_client_access(None, user_with_access(role=UserRole.tac), None)
+        await _assert_signature_client_access(None, user_with_access(role=UserRole.delivery_lead), None)
+    legal_scope.assert_awaited_once()
 
 
 def user_with_roles(*roles):
@@ -84,5 +86,47 @@ async def test_tcm_with_extra_scoped_role_still_confirms_org_wide(monkeypatch, e
     user = user_with_roles(UserRole.talent_community_manager, extra_role)
     await _assert_signature_client_access(None, user, 11)
     legal_scope.assert_not_awaited()
-    with pytest.raises(HTTPException):
-        await _assert_signature_client_access(None, user_with_roles(extra_role), 11)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("client_id", [11, None])
+async def test_delivery_lead_confirms_only_inside_the_client_scope(monkeypatch, client_id):
+    # Konto z rolą Delivery Leada (także z dodatkową rolą TAC) potwierdza podpis
+    # u klientów z przypisania — zakres liczy `assert_contract_legal_client_access`.
+    legal_scope = AsyncMock(side_effect=HTTPException(status_code=403))
+    monkeypatch.setattr("app.api.b2b_contract_generator.assert_contract_legal_client_access", legal_scope)
+    for user in (
+        user_with_roles(UserRole.delivery_lead),
+        user_with_roles(UserRole.delivery_lead, UserRole.tac),
+    ):
+        with pytest.raises(HTTPException) as exc:
+            await _assert_signature_client_access(None, user, client_id)
+        assert exc.value.status_code == 403
+    assert legal_scope.await_count == 2
+    assert legal_scope.await_args.args[2] == client_id
+    assert legal_scope.await_args.kwargs == {"write": True, "purpose": "org"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "roles",
+    [
+        (UserRole.tac,),
+        (UserRole.recruiter,),
+        (UserRole.head_of_recruitment, UserRole.tac),
+        (UserRole.finance,),
+        (UserRole.admin,),
+        (UserRole.admin, UserRole.delivery_lead),
+    ],
+)
+@pytest.mark.parametrize("client_id", [11, None])
+async def test_holder_outside_the_delivery_lead_portfolio_confirms_org_wide(monkeypatch, roles, client_id):
+    # 02.10.2026: uprawnienie mówi CO, zakres mówi U KOGO. TAC nie ma już podpisu
+    # domyślnie, a do tego dnia jego zakres klienta odmawiał zawsze (TAC nie ma
+    # zapisu w Delivery) — rola, której administrator włączył uprawnienie na
+    # ekranie, nie mogła z niego skorzystać. Konto bez portfela Delivery Leada
+    # (także admin z dodatkową rolą DL) potwierdza u każdego klienta.
+    legal_scope = AsyncMock(side_effect=HTTPException(status_code=403))
+    monkeypatch.setattr("app.api.b2b_contract_generator.assert_contract_legal_client_access", legal_scope)
+    await _assert_signature_client_access(None, user_with_roles(*roles), client_id)
+    legal_scope.assert_not_awaited()
