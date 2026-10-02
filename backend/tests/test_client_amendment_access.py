@@ -113,14 +113,13 @@ async def test_denied_roles_cannot_list_amendments(
     headers = await _headers_for(app_client, role_value)
     r = await app_client.get(_list_url(client_id, fc_id), headers=headers)
     assert r.status_code == 403, f"{role_value} → {r.status_code}: {r.text}"
-    if role_value == "talent_community_manager":
-        # TCM ma podgląd Delivery, ale bez kwot — odmowa nazywa to, czego
-        # brakuje, zamiast mówić o roli.
-        detail = r.json()["detail"]
-        assert detail["code"] == "permission_denied"
-        assert detail["permission"] == "amounts_view"
-    else:
-        assert "section_access_denied" in r.text
+    # Trasa deklaruje „Stawki i kwoty: podgląd”, więc odmowa nazywa to
+    # uprawnienie zamiast mówić o roli albo sekcji: TCM ma podgląd Delivery
+    # bez kwot (odmawia bramka uprawnienia), a role bez Delivery zatrzymuje
+    # bramka sekcji — z tą samą nazwą brakującej pozycji.
+    detail = r.json()["detail"]
+    assert detail["code"] == "permission_denied", r.text
+    assert detail["permission"] == "amounts_view"
 
 
 @pytest.mark.parametrize("role_value", ALLOWED_ROLES)
