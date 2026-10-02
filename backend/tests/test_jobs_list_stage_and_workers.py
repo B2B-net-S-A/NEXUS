@@ -1,13 +1,14 @@
-"""Pasek filtrów listy rekrutacji (25.09.2026): stan requestu i „Kto pracuje”.
+"""Pasek filtrów listy rekrutacji (25.09.2026): stan requestu i „Rekruter”.
 
 Dwie reguły, które łatwo cofnąć:
 
 * ``request_stage`` daje JEDNĄ wartość na rekrutację, więc kilka pigułek
   naraz to LUB. Stare ``request_status`` + ``work_state`` łączyły się przez
   AND i nie dało się nimi zrobić jednego rzędu.
-* „Kto pracuje” czyta przypisania niezwolnione (``state <> 'released'``),
-  jak pulpit „Requesty i obłożenie” — propozycja z trybu cienia się liczy,
-  zwolnione przypisanie nie.
+* „Rekruter” (dawniej „Kto pracuje”) czyta przypisania AKTYWNE
+  (``state = 'active'``). Od 02.10.2026 propozycja automatu (``proposed``)
+  się nie liczy — czeka na akceptację Head of Recruitment, więc nikt jeszcze
+  nie pracuje; zwolnione przypisanie też nie.
 
 Rejestr jest wspólny dla całej bazy testowej, więc zapytania o listę
 zawężamy unikalnym tokenem w tytule (``q=``), a liczniki porównujemy
@@ -160,7 +161,7 @@ async def test_unknown_request_stage_is_rejected(
 
 
 @pytest.mark.asyncio
-async def test_worked_by_counts_live_assignments_only(
+async def test_worked_by_counts_active_assignments_only(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     me = await _me_id(app_client, app_auth_headers)
@@ -173,16 +174,18 @@ async def test_worked_by_counts_live_assignments_only(
     await _assign(proposed, me, "proposed")
     await _assign(released, me, "released")
     try:
+        # Propozycja automatu to jeszcze nie praca (02.10.2026): request
+        # z samą propozycją jest „Bez rekrutera”, tak jak zwolniony.
         assert await _ids(
             app_client, app_auth_headers, f"q={token}&worked_by={me}"
-        ) == {active, proposed}
+        ) == {active}
         assert await _ids(
             app_client, app_auth_headers, f"q={token}&nobody_working=true"
-        ) == {released, nobody}
+        ) == {proposed, released, nobody}
         assert await _ids(
             app_client, app_auth_headers, f"q={token}&nobody_working=false"
-        ) == {active, proposed}
-        # „Kto pracuje: ja, nikt” = LUB, nie pusta część wspólna.
+        ) == {active}
+        # „Rekruter: ja, nikt” = LUB, nie pusta część wspólna.
         assert await _ids(
             app_client,
             app_auth_headers,

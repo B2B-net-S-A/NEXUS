@@ -26,10 +26,10 @@ from app.core.config import settings
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.ai_feature import AIFeatureKey
 from app.models.client import Client
-from app.models.recruitment_allocation import RecruitmentAllocationState
 from app.services import job_request_intake as intake
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.client_access import assert_client_assignable
+from app.services.recruitment_allocation import effective_allocation_mode
 
 logger = logging.getLogger(__name__)
 
@@ -240,8 +240,8 @@ async def handoff_options(
     (`RECRUITMENT_ALLOCATION_ENABLED`) i tryb automatu przydziału (0371):
     `shadow` tylko proponuje osobę, `auto` ją przypisuje.
     """
-    state = await db.get(RecruitmentAllocationState, 1)
     return {
         "automatic_enabled": bool(settings.RECRUITMENT_ALLOCATION_ENABLED),
-        "mode": state.mode if state else "off",
+        # Ta sama reguła co `readiness.allocation_mode` i odmowa 409 w handoffie.
+        "mode": await effective_allocation_mode(db),
     }

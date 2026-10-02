@@ -4,6 +4,11 @@
  * „Czeka na Ciebie" — praca na Tablicach, której nikt nie widzi (0348, v5).
  *
  * Listy z `GET /api/board-tasks`:
+ *  - „Propozycje automatu do akceptacji" (02.10.2026) — automat przydziału
+ *    proponuje osobę do requestu bez rekrutera, a Head of Recruitment albo
+ *    admin ją akceptuje, zmienia albo odrzuca (`AllocationProposalsSection`).
+ *    Pierwsza sekcja panelu; widzi ją wyłącznie osoba, która o propozycjach
+ *    decyduje (`can_decide_proposals`),
  *  - „Czeka na Twój przegląd (DL)" (klienci spoza Nordei) — osoby w kolumnie
  *    „QC CV", które Delivery Lead wysyła do klienta ze stawką albo odrzuca;
  *    wiersz otwiera `DlReviewPanel` (CV, QC, screening, stawka),
@@ -35,6 +40,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Clock, Eye, ListOrdered } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { AllocationProposalsSection } from "@/components/v2/dashboard/AllocationProposalsSection";
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState";
 import { FollowupSection } from "@/components/v2/followups/FollowupSection";
 import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
@@ -172,7 +178,12 @@ export function BoardTasksPanel() {
   const dlReview = data.dl_review ?? [];
   const preps = data.prep_attention ?? [];
   const followups = data.followups ?? [];
+  // Serwer wysyła propozycje tylko osobie decydującej; flaga jest drugim
+  // zamkiem — bez niej sekcji nie ma, nawet gdyby wiersze przyszły.
+  const proposals =
+    data.can_decide_proposals === true ? (data.allocation_proposals ?? []) : [];
   const total =
+    proposals.length +
     dlReview.length +
     data.cpro_to_send.length +
     data.cpro_sent.length +
@@ -221,6 +232,10 @@ export function BoardTasksPanel() {
         </div>
       ) : null}
       <div className="grid gap-4 lg:grid-cols-3">
+        <AllocationProposalsSection
+          rows={proposals}
+          leaveKnown={data.allocation_leave_known !== false}
+        />
         <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
         {transit ? <CvInTransitSection transit={transit} /> : null}
         {dlReview.length > 0 && (

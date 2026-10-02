@@ -46,7 +46,7 @@ export function StaleJobsReport() {
                 Rekrutacja
               </th>
               <th className="px-3 py-2.5 text-left font-semibold">Klient</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Prowadzi</th>
+              <th className="px-3 py-2.5 text-left font-semibold">Rekruter</th>
               <th className="px-3 py-2.5 text-right font-semibold">Dni bez ruchu</th>
               <th className="px-4 py-2.5 text-right font-semibold">Osób w procesie</th>
             </tr>
@@ -65,7 +65,7 @@ export function StaleJobsReport() {
                 <td className="px-3 py-2.5 text-foreground">{job.client_name ?? "—"}</td>
                 <td className="px-3 py-2.5 text-foreground">
                   {job.recruiter_name ?? (
-                    <span className="text-muted-foreground">nieprzypisana</span>
+                    <span className="text-muted-foreground">bez rekrutera</span>
                   )}
                 </td>
                 <td className="px-3 py-2.5 text-right font-semibold tabular-nums">

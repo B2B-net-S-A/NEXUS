@@ -469,9 +469,10 @@ def job_scope_clause(
     scope_clauses = [job_id_col.is_(None), job_id_col.in_(member_jobs)]
     if not oversight_bypass:
         # Runda 10 (R10-V2-3): widok OSOBISTY („my-work”, „moje” w cyklu
-        # rozmów) liczy też żywe przypisanie z przydziału requestów — ta sama
-        # reguła co „Moje” na liście /jobs (R9-N15-2). Bez tego filtr „Moje
+        # rozmów) liczy też AKTYWNE przypisanie z przydziału requestów — ta
+        # sama reguła co „Moje” na liście /jobs (R9-N15-2). Bez tego filtr „Moje
         # przypisane” był AND-owany z zakresem, który przypisań nie zna.
+        # Propozycja automatu (czeka na akceptację) zakresu nie daje.
         from app.api.jobs import _live_work_assignment_job_ids  # noqa: PLC0415
 
         scope_clauses.append(job_id_col.in_(_live_work_assignment_job_ids([user.id])))
@@ -745,6 +746,33 @@ JOB_FULL_EDIT_ROLES: tuple[UserRole, ...] = (
     UserRole.tac,
 )
 
+# Kto przydziela i zdejmuje ludzi w roli „Rekruter” (decyzja Artura
+# 02.10.2026): Head of Recruitment wszędzie tam, gdzie Delivery Lead —
+# ``POST/DELETE /api/jobs/{id}/owner`` i pulpit „Requesty i obłożenie”.
+# Lustro capability `job.recruiter.assign` (`capabilities.test.ts`).
+JOB_STAFFING_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.delivery_lead,
+    UserRole.head_of_recruitment,
+)
+
+# Kto ustawia priorytet rekrutacji (P1 / P2 / „Przyjmujemy kandydatów”):
+# pełni redaktorzy ORAZ Head of Recruitment — to on prowadzi kolejkę pracy
+# zespołu. Lustro capability `job.priority.update`.
+JOB_PRIORITY_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.delivery_lead,
+    UserRole.tac,
+    UserRole.head_of_recruitment,
+)
+
+# Kto akceptuje, zmienia i odrzuca propozycje automatu przydziału.
+# Lustro capability `request.proposal.decide`.
+PROPOSAL_DECISION_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+)
+
 # Pola, których członek zespołu (rekruter prowadzący, współpracownik) nie
 # zmienia: status to cykl życia, klient i osoby prowadzące to decyzja
 # Delivery, a widełki wynagrodzenia ustawia admin albo TAC (CLAUDE.md).
@@ -752,6 +780,8 @@ JOB_FULL_EDIT_ROLES: tuple[UserRole, ...] = (
 # „Potrzebny search”, szablon procesu i kategoria — lustro okna edycji, które
 # członkowi zespołu pokazuje „termin, budżet, zespół zmienia Delivery Lead”.
 # Budżet z Championa (`PUT …/champion-profile`) tej bramki nie przechodzi.
+# `priority` zostaje w zbiorze — wyjątek dla `JOB_PRIORITY_ROLES` (Head of
+# Recruitment) robi `ensure_job_editor`, nie ta lista.
 JOB_MEMBER_LOCKED_FIELDS: frozenset[str] = frozenset(
     {
         "status",
@@ -774,9 +804,9 @@ JOB_MEMBER_LOCKED_FIELDS: frozenset[str] = frozenset(
 
 _JOB_EDIT_DENIED = "Nie masz uprawnień do edycji rekrutacji."
 _JOB_MEMBER_LOCKED_DENIED = (
-    "Status, klienta, osoby prowadzące, termin, budżet, liczbę osób, priorytet, "
+    "Status, klienta, osoby prowadzące, termin, budżet, liczbę osób, "
     "szablon procesu, kategorię i widełki wynagrodzenia zmienia Delivery Lead "
-    "albo admin."
+    "albo admin; priorytet — także Head of Recruitment."
 )
 
 
@@ -822,6 +852,46 @@ async def job_edit_level(
     return None
 
 
+async def _has_job_role(
+    db: AsyncSession, user: User, job: Job, roles: tuple[UserRole, ...]
+) -> bool:
+    """Czy osoba ma którąś z ``roles`` WOBEC tej rekrutacji.
+
+    Sam Delivery Lead liczy się tylko w swoim zakresie — tą samą regułą, którą
+    ``job_edit_level`` rozstrzyga pełną redakcję. Pozostałe role z krotki
+    (admin, Head of Recruitment, TAC) zakresu nie mają.
+    """
+    if user.has_any_role(*(r for r in roles if r is not UserRole.delivery_lead)):
+        return True
+    if UserRole.delivery_lead not in roles or not user.has_role(UserRole.delivery_lead):
+        return False
+    try:
+        assert_delivery_lead_job_visible(job, await delivery_lead_job_pairs(user, db))
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_403_FORBIDDEN:
+            raise
+        return False
+    return True
+
+
+async def user_can_staff_job(db: AsyncSession, user: User, job: Job) -> bool:
+    """Czy osoba przydziela i zdejmuje rekruterów tej rekrutacji.
+
+    Reguła bramki ``POST/DELETE /api/jobs/{id}/owner`` (``JOB_STAFFING_ROLES``
+    + zakres Delivery Leada); ``GET /api/jobs/{id}`` niesie ją jako ``can_staff``.
+    """
+    return await _has_job_role(db, user, job, JOB_STAFFING_ROLES)
+
+
+async def user_can_set_job_priority(db: AsyncSession, user: User, job: Job) -> bool:
+    """Czy osoba ustawia priorytet tej rekrutacji (``JOB_PRIORITY_ROLES``).
+
+    Jedna reguła dla bramki PATCH (``ensure_job_editor``) i flagi
+    ``can_set_priority`` w ``GET /api/jobs/{id}``.
+    """
+    return await _has_job_role(db, user, job, JOB_PRIORITY_ROLES)
+
+
 async def ensure_job_editor(
     db: AsyncSession,
     user: User,
@@ -835,8 +905,14 @@ async def ensure_job_editor(
     level = await job_edit_level(db, user, job, tac_unscoped=tac_unscoped)
     if level is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, _JOB_EDIT_DENIED)
-    if level is JobEditLevel.member and JOB_MEMBER_LOCKED_FIELDS & set(fields):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, _JOB_MEMBER_LOCKED_DENIED)
+    if level is JobEditLevel.member:
+        locked = JOB_MEMBER_LOCKED_FIELDS & set(fields)
+        # Priorytet ustawia też Head of Recruitment (02.10.2026): prowadzi
+        # kolejkę pracy zespołu, a pełnej redakcji rekrutacji nie ma.
+        if "priority" in locked and await user_can_set_job_priority(db, user, job):
+            locked = locked - {"priority"}
+        if locked:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, _JOB_MEMBER_LOCKED_DENIED)
     return level
 
 

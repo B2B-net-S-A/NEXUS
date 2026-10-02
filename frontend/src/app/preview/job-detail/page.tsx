@@ -194,7 +194,7 @@ function JobDetailHarness() {
                         badges={<RequestStatusBadge status="searching" />}
                         subtitle={
                           <span className="text-[12px]">
-                            zdalnie · budżet do 95,00 PLN/h · Marta N. · DL: Marta N. · obsada 0 / 1
+                            zdalnie · budżet do 95,00 PLN/h · Rekruter: Marta N. · DL: Marta N. · obsada 0 / 1
                           </span>
                         }
                         path={

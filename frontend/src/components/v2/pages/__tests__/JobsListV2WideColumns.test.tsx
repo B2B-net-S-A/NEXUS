@@ -1,9 +1,10 @@
 /**
  * Szeroka tabela rekrutacji (zgłoszenie 02.10.2026): na dużym monitorze lista
- * kończyła się na 1400 px. Klient, kategoria, data otwarcia i nazwiska zespołu
- * mają własne kolumny, widoczne od 1700 px szerokości tabeli; poniżej zostają
- * drobnym drukiem pod tytułem. jsdom nie liczy CSS, więc test sprawdza treść
- * komórek i klasy, które je przełączają — widoczność mierzy przeglądarka.
+ * kończyła się na 1400 px. Klient, kategoria, data otwarcia i nazwiska
+ * Rekruterów mają własne kolumny albo pełną postać od 1700 px szerokości
+ * tabeli; poniżej zostają drobnym drukiem pod tytułem. jsdom nie liczy CSS,
+ * więc test sprawdza treść komórek i klasy, które je przełączają — widoczność
+ * mierzy przeglądarka.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -29,6 +30,7 @@ vi.mock("@/lib/api", () => ({
     list: () =>
       Promise.resolve([
         { id: 2, slug: "software_development", name_pl: "Development" },
+        { id: 9, slug: "nowa_kategoria", name_pl: "Kategoria bez skrótu" },
       ]),
   },
 }));
@@ -162,6 +164,21 @@ function renderJobs() {
 
 const WIDE_CELL = "@min-[1700px]:table-cell";
 const WIDE_HIDE = "@min-[1700px]:hidden";
+const WIDE_FLEX = "@min-[1700px]:flex";
+
+const person = (
+  user_id: number,
+  name: string,
+  extra: Record<string, unknown> = {},
+) => ({
+  user_id,
+  name,
+  role: "recruiter",
+  via: "owner",
+  proposed: false,
+  assigned_by_name: null,
+  ...extra,
+});
 
 describe("JobsListV2 — kolumny szerokiej tabeli", () => {
   beforeEach(() => {
@@ -185,23 +202,25 @@ describe("JobsListV2 — kolumny szerokiej tabeli", () => {
         .filter((h) => h.className.includes(WIDE_CELL))
         .map((h) => h.textContent),
     ).toEqual(["Klient", "Kategoria", "Otwarta"]);
-    // „Prowadzi” w wąskiej tabeli, „Zespół” w szerokiej — ten sam nagłówek.
-    const owner = headers.find((h) => h.textContent === "ProwadziZespół");
-    expect(owner).toBeDefined();
-    expect(within(owner as HTMLElement).getByText("Prowadzi")).toHaveClass(WIDE_HIDE);
+    // Kolumna osób nazywa się „Rekruter” w obu układach — bez „Prowadzi”
+    // i „Zespół”, i bez osobnej kolumny Delivery Leada ani priorytetu.
+    expect(headers.map((h) => h.textContent)).toContain("Rekruter");
+    for (const old of ["Prowadzi", "Zespół", "ProwadziZespół", "Delivery Lead", "Priorytet"]) {
+      expect(headers.map((h) => h.textContent)).not.toContain(old);
+    }
   });
 
-  it("klient, kategoria, data otwarcia i nazwiska zespołu mają własne komórki", async () => {
+  it("klient, kategoria, data otwarcia i nazwiska Rekruterów mają własne komórki", async () => {
     mockJobsResponse([
       jobRow({
         client_name: "Bank Przykładowy",
         competence_category_id: 2,
         opened_at: "2026-09-30T08:00:00Z",
         created_at: "2026-05-05T10:00:00Z",
-        primary_owner: { id: 3, name: "Anna Nowak", email: "a@x.pl", role: "recruiter" },
-        collaborators: [
-          { id: 4, name: "Jan Kowalski", source: "manual" },
-          { id: 5, name: "Cała kategoria", source: "auto_cc" },
+        recruiters: [
+          person(3, "Anna Nowak"),
+          person(4, "Jan Kowalski", { via: "collaborator" }),
+          person(6, "Ewa Proponowana", { via: "assignment", proposed: true }),
         ],
       }),
     ]);
@@ -218,8 +237,56 @@ describe("JobsListV2 — kolumny szerokiej tabeli", () => {
     expect(screen.getByTestId("job-category-cell")).toHaveTextContent("Development");
     expect(screen.getByTestId("job-opened-cell")).toHaveTextContent("30.09.2026");
 
-    expect(screen.getByTestId("job-team-names")).toHaveTextContent("Jan K.");
+    // Szeroka tabela: nazwiska wprost, propozycja automatu oznaczona.
+    const names = screen.getByTestId("job-recruiter-names");
+    expect(names).toHaveClass(WIDE_FLEX);
+    expect(names).toHaveTextContent("Anna N., Jan K.");
+    const proposal = names.querySelector('[data-proposed="true"]');
+    expect(proposal).toHaveTextContent("Ewa P.");
+    expect(proposal).toHaveTextContent("propozycja");
+    // Wąska tabela: ta sama komórka ma zwartą postać — pierwsza osoba i „+1”.
+    const compact = within(screen.getByTestId("job-recruiter-cell")).getByText("+1");
+    expect(compact.closest(`[class*="${WIDE_HIDE}"]`)).not.toBeNull();
     expect(screen.getByTitle("Klient").closest("td")).not.toHaveClass(WIDE_CELL);
+  });
+
+  it("„Otwarta” czyta `opened_effective_at` z serwera, a bez niego — dotychczasowe pola", async () => {
+    mockJobsResponse([
+      jobRow({
+        id: 1,
+        title: "Z nowego backendu",
+        opened_effective_at: "2026-10-01T07:00:00Z",
+        opened_at: "2026-09-30T08:00:00Z",
+        created_at: "2026-05-05T10:00:00Z",
+      }),
+      jobRow({ id: 2, title: "Ze starego backendu", opened_at: "2026-09-30T08:00:00Z" }),
+    ]);
+    renderJobs();
+    await screen.findByText("Z nowego backendu");
+    const cells = screen.getAllByTestId("job-opened-cell");
+    expect(cells[0]).toHaveTextContent("1.10.2026");
+    expect(cells[1]).toHaveTextContent("30.09.2026");
+  });
+
+  it("wąska tabela: krótka plakietka kategorii pod tytułem, pełna nazwa w podpowiedzi", async () => {
+    mockJobsResponse([
+      jobRow({ id: 1, title: "Z kategorią", competence_category_id: 2 }),
+      jobRow({ id: 2, title: "Bez skrótu", competence_category_id: 9 }),
+      jobRow({ id: 3, title: "Bez kategorii", competence_category_id: null }),
+    ]);
+    renderJobs();
+    await screen.findByText("Z kategorią");
+
+    const badges = await screen.findAllByTestId("job-category-short");
+    expect(badges).toHaveLength(2);
+    expect(badges[0]).toHaveTextContent("Dev");
+    expect(badges[0]).toHaveAttribute("title", "Kategoria: Development");
+    // Znika, gdy szeroka tabela ma kolumnę „Kategoria”.
+    expect(badges[0]).toHaveClass(WIDE_HIDE);
+    // Stoi w komórce tytułu, nie w osobnej kolumnie.
+    expect(badges[0].closest("td")).toBe(screen.getByText("Z kategorią").closest("td"));
+    // Kategoria spoza czterech znanych: pełna nazwa z katalogu, nigdy surowy klucz.
+    expect(badges[1]).toHaveTextContent("Kategoria bez skrótu");
   });
 
   it("bez kategorii i bez daty otwarcia: kreska i data dodania", async () => {
@@ -232,6 +299,8 @@ describe("JobsListV2 — kolumny szerokiej tabeli", () => {
     expect(screen.getByTestId("job-category-cell")).toHaveTextContent("—");
     expect(screen.getByTestId("job-client-cell")).toHaveTextContent("—");
     expect(screen.getByTestId("job-opened-cell")).toHaveTextContent("5.05.2026");
-    expect(screen.queryByTestId("job-team-names")).not.toBeInTheDocument();
+    // Bez Rekrutera nie ma ani nazwisk, ani zwartej postaci — jest „Bez rekrutera”.
+    expect(screen.queryByTestId("job-recruiter-names")).not.toBeInTheDocument();
+    expect(screen.getByTestId("job-no-recruiter")).toBeInTheDocument();
   });
 });

@@ -5,8 +5,16 @@ zapisu to ``services/request_allocation``. Reguły:
 
 * **Pula:** requesty „Szukamy kandydatów” bez championa. Request, który z niej
   wyszedł (champion, „Klient milczy”, „Zakończony”), zwalnia swoich ludzi.
-* **Kolejność:** najpierw requesty bez nikogo wysłanego do klienta, potem 1–2
-  wysłane, potem 3+; w grupie najbliższy termin (brak terminu na końcu).
+* **Kolejność:** najpierw P1, potem reszta; dalej requesty bez nikogo
+  wysłanego do klienta, potem 1–2 wysłane, potem 3+; w grupie najbliższy
+  termin (brak terminu na końcu).
+* **„Przyjmujemy kandydatów”** (``passive``): request zostaje w puli, jego
+  ludzie zostają, ale automat nikogo nowego nie dobiera ani nie proponuje.
+* **Ktoś już pracuje:** request z osobą, która nad nim pracuje (aktywne
+  przypisanie albo ``staffed`` — osoby bez wiersza, np. ręcznie dopisany
+  współpracownik), jest pokryty, a propozycja przy nim jest zwalniana.
+  Propozycja to nie praca: pokrywa request i liczy się do obłożenia tylko
+  wtedy, gdy nikt przy nim nie pracuje.
 * **Rekruter czy sourcer:** co najmniej ``sourcer_threshold`` pasujących osób
   w bazie → wystarczy sourcer; mniej albo brak przeglądu bazy → rekruter (on
   ma LinkedIna). Gdy żaden sourcer nie jest dostępny — rekruter.
@@ -44,8 +52,15 @@ RELEASE_REASONS = {
     "excluded": "Osoba poza przydziałem",
     "owner_changed": "Zmiana prowadzącego",
     "manual": "Zdjęte ręcznie",
+    # Ręczne zdjęcie, po którym człowiek przypisał tę samą osobę ponownie.
+    "reassigned": "Zdjęte ręcznie, potem przypisane ponownie",
     "inactive": "Konto nieaktywne",
     "mode_off": "Automat wyłączony",
+    # 02.10.2026: propozycje do akceptacji przez Head of Recruitment.
+    "superseded": "Przydzielono kogoś innego",
+    "passive": "Request tylko przyjmuje kandydatów",
+    "rejected": "Propozycja odrzucona",
+    "replaced": "Wybrano inną osobę",
 }
 
 # Runda 9 (R9-V2-1): zwolniona PROPOZYCJA automatu (tryb podglądu) nie jest
@@ -61,6 +76,19 @@ def release_reason_label(reason: Optional[str], default: Optional[str] = None):
     return RELEASE_REASONS.get(reason or "", default)
 
 
+def is_silent_release(reason: Optional[str]) -> bool:
+    """Zwolnienie, które nie jest zmianą obsady.
+
+    Wycofana albo odrzucona PROPOZYCJA: osoba nigdy tego requestu nie dostała,
+    więc „Zwolnione: …” mówiłoby o czymś, co się nie wydarzyło. Tak samo
+    ręczne zdjęcie, po którym człowiek przypisał tę samą osobę ponownie —
+    request ma nadal. Czytają to poranny skrót i „Zmiany od wczoraj” pulpitu.
+    """
+    return bool(reason) and (
+        reason.startswith(PROPOSAL_RELEASE_PREFIX) or reason == "reassigned"
+    )
+
+
 @dataclass(frozen=True)
 class RequestInfo:
     job_id: int
@@ -69,6 +97,10 @@ class RequestInfo:
     sent: int
     deadline: Optional[date]
     base_matches: Optional[int]
+    # 0 = P1, 1 = reszta (``job_priority.priority_rank``).
+    priority_rank: int = 1
+    # „Przyjmujemy kandydatów” — nie szukamy aktywnie, automat nikogo nie dobiera.
+    passive: bool = False
 
 
 @dataclass(frozen=True)
@@ -119,6 +151,12 @@ class PlanInput:
     blocked: frozenset[tuple[int, int]] = frozenset()
     # Konta nieaktywne z żywym przypisaniem — zwalniane zawsze.
     inactive_ids: frozenset[int] = frozenset()
+    # Requesty z puli, nad którymi pracuje ktoś bez aktywnego wiersza
+    # przypisania (np. ręcznie dopisany współpracownik) — pokryte, bez nowej
+    # propozycji.
+    staffed: frozenset[int] = frozenset()
+    # Ile takich requestów ma każda osoba — dolicza się do obłożenia.
+    extra_load: dict[int, int] = field(default_factory=dict)
 
 
 def _bucket(sent: int) -> int:
@@ -127,6 +165,7 @@ def _bucket(sent: int) -> int:
 
 def request_order(request: RequestInfo) -> tuple:
     return (
+        request.priority_rank,
         _bucket(request.sent),
         request.deadline or date.max,
         request.job_id,
@@ -139,18 +178,29 @@ def needed_role(request: RequestInfo, threshold: int) -> str:
     return "recruiter"
 
 
+def category_fit(
+    request_categories: Iterable[int], first: Iterable[int], second: Iterable[int]
+) -> str:
+    """Jak kategorie osoby mają się do requestu: ``first`` (1. priorytet),
+    ``second`` (2. priorytet) albo ``other``. Ta sama reguła dobiera osobę
+    i opisuje propozycję na pulpicie."""
+    wanted = set(request_categories)
+    if wanted & set(first):
+        return "first"
+    if wanted & set(second):
+        return "second"
+    return "other"
+
+
 def _groups(
     request: RequestInfo, people: Iterable[PersonInfo]
 ) -> list[list[PersonInfo]]:
-    first, second, rest = [], [], []
+    groups: dict[str, list[PersonInfo]] = {"first": [], "second": [], "other": []}
     for person in people:
-        if request.categories & person.first:
-            first.append(person)
-        elif request.categories & person.second:
-            second.append(person)
-        else:
-            rest.append(person)
-    return [first, second, rest]
+        groups[category_fit(request.categories, person.first, person.second)].append(
+            person
+        )
+    return [groups["first"], groups["second"], groups["other"]]
 
 
 def choose_person(
@@ -207,6 +257,27 @@ def _off_mode_releases(data: PlanInput) -> list[Change]:
     return changes
 
 
+def _own_release_reason(
+    row: LiveAssignment,
+    data: PlanInput,
+    pool: dict[int, RequestInfo],
+    people: dict[int, PersonInfo],
+) -> Optional[str]:
+    """Powód zwolnienia wiersza, który nie zależy od innych osób przy requeście."""
+    if row.job_id not in pool:
+        return data.out_of_pool.get(row.job_id, "finished")
+    if row.user_id in data.inactive_ids:
+        # Martwe konto nie pracuje — bez względu na źródło przypisania i
+        # kandydatów w toku (tych i tak nikt z tego konta nie poprowadzi).
+        return "inactive"
+    if row.user_id not in people and row.source == "auto" and not row.in_process:
+        if data.eligible_ids is not None and row.user_id not in data.eligible_ids:
+            return "excluded"
+        if data.availability_known:
+            return "unavailable"
+    return None
+
+
 def plan_assignments(data: PlanInput) -> list[Change]:
     """Zmiany do zapisania. Czysta funkcja — kolejność wyniku jest stabilna."""
     if data.mode == "off":
@@ -214,41 +285,38 @@ def plan_assignments(data: PlanInput) -> list[Change]:
     changes: list[Change] = []
     people = {p.user_id: p for p in data.people}
     pool = {r.job_id: r for r in data.requests}
-    load: dict[int, int] = {}
-    covered: set[int] = set()
+    # Osoby bez aktywnego wiersza (np. ręczni współpracownicy) też pracują:
+    # ich requesty są pokryte, a obłożenie dolicza się do liczby z wierszy.
+    load: dict[int, int] = dict(data.extra_load)
+    covered: set[int] = set(data.staffed)
     # Znaczniki czasu jako liczby: świeżo przydzielona osoba dostaje +inf,
     # więc przy remisie następny request idzie do kogoś innego.
     last = {
         p.user_id: p.last_assigned.timestamp() for p in data.people if p.last_assigned
     }
 
-    for row in sorted(data.live, key=lambda r: (r.job_id, r.user_id)):
-        if row.job_id not in pool:
-            reason = data.out_of_pool.get(row.job_id, "finished")
+    rows = [
+        (row, _own_release_reason(row, data, pool, people))
+        for row in sorted(data.live, key=lambda r: (r.job_id, r.user_id))
+    ]
+    # Requesty, nad którymi ktoś pracuje: aktywne przypisanie, które zostaje,
+    # albo osoba bez wiersza. Propozycja się tu nie liczy.
+    worked = set(data.staffed) | {
+        row.job_id for row, reason in rows if reason is None and row.state != "proposed"
+    }
+    for row, reason in rows:
+        if reason is None and row.state == "proposed":
+            # Propozycja to nie praca. Znika, gdy request tylko przyjmuje
+            # kandydatów albo gdy ktoś już przy nim pracuje (Delivery Lead
+            # przypisał rekrutera, rekruter wziął request sam) — inaczej Head
+            # of Recruitment akceptowałby osobę do requestu, który ma obsadę.
+            if pool[row.job_id].passive:
+                reason = "passive"
+            elif row.job_id in worked:
+                reason = "superseded"
+        if reason is not None:
             changes.append(Change("release", row.job_id, row.user_id, row.role, reason))
             continue
-        if row.user_id in data.inactive_ids:
-            # Martwe konto nie pracuje — bez względu na źródło przypisania i
-            # kandydatów w toku (tych i tak nikt z tego konta nie poprowadzi).
-            changes.append(
-                Change("release", row.job_id, row.user_id, row.role, "inactive")
-            )
-            continue
-        person_gone = row.user_id not in people
-        if person_gone and row.source == "auto" and not row.in_process:
-            not_eligible = (
-                data.eligible_ids is not None and row.user_id not in data.eligible_ids
-            )
-            if not_eligible:
-                changes.append(
-                    Change("release", row.job_id, row.user_id, row.role, "excluded")
-                )
-                continue
-            if data.availability_known:
-                changes.append(
-                    Change("release", row.job_id, row.user_id, row.role, "unavailable")
-                )
-                continue
         # Osoby, której nie ma (urlop, „Poza przydziałem”), nie aktywujemy —
         # także gdy zostaje przy requeście, bo ma kandydatów w toku. Aktywacja
         # zrobiłaby z niej prowadzącą rekrutacji.
@@ -256,7 +324,7 @@ def plan_assignments(data: PlanInput) -> list[Change]:
             data.mode == "auto"
             and row.state == "proposed"
             and data.availability_known
-            and not person_gone
+            and row.user_id in people
         ):
             changes.append(Change("activate", row.job_id, row.user_id, row.role, ""))
         covered.add(row.job_id)
@@ -266,7 +334,8 @@ def plan_assignments(data: PlanInput) -> list[Change]:
         return changes
 
     sequence = sorted(
-        (r for r in data.requests if r.job_id not in covered), key=request_order
+        (r for r in data.requests if r.job_id not in covered and not r.passive),
+        key=request_order,
     )
     candidates = list(people.values())
     for request in sequence:

@@ -1,10 +1,23 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useId, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Send, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import { api, jobsApi } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
+import { invalidateJobTeam } from "@/lib/job-team-cache";
+import {
+  AUTOMATIC_DISABLED_TEXT,
+  automaticAssignmentAvailable,
+  automaticHandoffOutcome,
+  automaticTakenText,
+  resolveRecruiterAssignment,
+  type AllocationMode,
+  type RecruiterAssignment,
+} from "@/lib/recruiter-assignment";
+import type { PriorityLevel } from "@/lib/request-priority";
+import { RecruiterAssignmentChoice } from "@/components/v2/jobs/RecruiterAssignmentChoice";
 
 interface RecruiterOption {
   id: number;
@@ -14,6 +27,17 @@ interface RecruiterOption {
 
 interface JobHandoffButtonProps {
   jobId: number;
+  /**
+   * Priorytet rekrutacji. Przy „Przyjmujemy kandydatów” automat nikogo nie
+   * proponuje — pole mówi to zamiast obiecywać propozycję.
+   */
+  priorityLevel?: PriorityLevel;
+  /**
+   * Pierwszy rekruter rekrutacji (`primary_owner`), jeśli już jest — także
+   * z nieaktywnym kontem. Serwer odmawia wtedy przekazania „automatowi” (409),
+   * więc opcja jest nieaktywna, a osoba z listy zaznaczona z góry.
+   */
+  recruiter?: { id: number; name?: string | null } | null;
 }
 
 interface JobReadiness {
@@ -23,6 +47,8 @@ interface JobReadiness {
   closed: boolean;
   already_handed_off: boolean;
   allocation_enabled?: boolean;
+  /** Tryb automatu przydziału; `off` = „Zaproponuje automat” jest niedostępne. */
+  allocation_mode?: AllocationMode;
 }
 
 /**
@@ -30,16 +56,39 @@ interface JobReadiness {
  * ranking. Replaces the create-time auto-ranking (P0-A): the recruiter never
  * lands on a stale pre-Champion snapshot. A 422 lists readiness blockers
  * (Champion required) instead of firing the ranking.
+ *
+ * Rekruter (02.10.2026): „Zaproponuje automat” jest wyborem domyślnym, gdy
+ * automat jest włączony — propozycję zatwierdza Head of Recruitment i do tego
+ * czasu nikt nie jest przypisany. „Wybieram sam” przypisuje osobę od razu.
  */
-export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
+export function JobHandoffButton({
+  jobId,
+  priorityLevel,
+  recruiter = null,
+}: JobHandoffButtonProps) {
+  const queryClient = useQueryClient();
+  const recruiterLabelId = useId();
+  const passive = priorityLevel === "accepting";
   const [open, setOpen] = useState(false);
-  const [recruiterId, setRecruiterId] = useState<number | null>(null);
+  // `undefined` = nikt jeszcze nie dotknął listy — wtedy podpowiadamy obecnego
+  // rekrutera rekrutacji, o ile jest na liście.
+  const [pickedRecruiterId, setPickedRecruiterId] = useState<
+    number | null | undefined
+  >(undefined);
   const [submitting, setSubmitting] = useState(false);
   const [blockers, setBlockers] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [automatic, setAutomatic] = useState(false);
+  // `null` = nikt nie wybrał — wtedy automat, o ile jest dostępny.
+  const [assignmentChoice, setAssignmentChoice] =
+    useState<RecruiterAssignment | null>(null);
   const [channel, setChannel] = useState<"linkedin" | "database" | "mixed">("linkedin");
-  const [done, setDone] = useState(false);
+  // Wynik przekazania — zapamiętany, bo po odświeżeniu gotowości tryb automatu
+  // mógłby się już różnić od tego, z którym poszło żądanie.
+  const [done, setDone] = useState<{
+    automatic: boolean;
+    mode?: AllocationMode;
+    passive: boolean;
+  } | null>(null);
 
   // Braki pokazujemy ZANIM ktoś kliknie. Na próbce 100 rekrutacji z produkcji
   // bramkę przechodzą 23, więc trzy na cztery kliknięcia kończyły się 422
@@ -74,6 +123,24 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
       ? readiness.blockers
       : [];
 
+  const automatOn = automaticAssignmentAvailable(
+    readiness?.allocation_enabled,
+    readiness?.allocation_mode,
+  );
+  // Rekrutacja z pierwszym rekruterem nie dostaje propozycji automatu, a serwer
+  // odmawia przekazania „automatowi” — nie proponujemy wyboru, który skończy
+  // się 409.
+  const automaticAvailable = automatOn && recruiter == null;
+  // Gotowość jest już wczytana (inaczej okno by się nie otworzyło), więc
+  // niedostępny automat ma zawsze znany powód.
+  const unavailableReason = !automatOn
+    ? AUTOMATIC_DISABLED_TEXT
+    : recruiter != null
+      ? automaticTakenText(recruiter.name)
+      : null;
+  const assignment = resolveRecruiterAssignment(assignmentChoice, automaticAvailable);
+  const automatic = assignment === "automatic";
+
   const recruitersQuery = useQuery({
     queryKey: ["handoff-recruiters"],
     enabled: open,
@@ -88,6 +155,15 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
         })
         .then((r) => r.data as RecruiterOption[]),
   });
+  const currentRecruiterListed =
+    recruiter != null &&
+    (recruitersQuery.data ?? []).some((option) => option.id === recruiter.id);
+  const recruiterId =
+    pickedRecruiterId !== undefined
+      ? pickedRecruiterId
+      : currentRecruiterListed
+        ? recruiter.id
+        : null;
 
   const submit = async () => {
     if (!automatic && !recruiterId) return;
@@ -100,7 +176,11 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
       } else if (recruiterId) {
         await jobsApi.handoff(jobId, recruiterId, undefined, channel);
       }
-      setDone(true);
+      setDone({ automatic, mode: readiness?.allocation_mode, passive });
+      // Przekazanie zmienia obsadę (osoba albo propozycja automatu) i stan
+      // bramki — odświeżamy oba, zamiast czekać na ponowne wejście.
+      invalidateJobTeam(queryClient, jobId);
+      void queryClient.invalidateQueries({ queryKey: ["job-readiness", jobId] });
     } catch (e: unknown) {
       const resp = (
         e as { response?: { status?: number; data?: { detail?: unknown } } }
@@ -114,11 +194,11 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
       ) {
         setBlockers((detail as { blockers?: string[] }).blockers ?? []);
       } else {
-        setError(
-          typeof detail === "string"
-            ? detail
-            : "Nie udało się przekazać do searchu.",
-        );
+        setError(apiErrorMessage(e, "Nie udało się przekazać do searchu."));
+        // 409 przy automacie = wyłączono go w międzyczasie; pokaż stan aktualny.
+        if (resp?.status === 409) {
+          void queryClient.invalidateQueries({ queryKey: ["job-readiness", jobId] });
+        }
       }
     } finally {
       setSubmitting(false);
@@ -129,10 +209,18 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
     return (
       <div
         data-testid="handoff-done"
-        className="mt-4 flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground"
+        className="mt-4 flex items-start gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground"
       >
-        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-        {automatic ? "Rekrutacja trafiła do kolejki. W podglądzie system pokaże proponowaną osobę; w trybie automatycznym przydzieli ją po sprawdzeniu dostępności." : "Przekazano do searchu — ranking się generuje. Rekruter dostał dostęp do rekrutacji."}
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+        <span>
+          {done.automatic
+            ? `Przekazano do searchu. ${automaticHandoffOutcome(done.mode, done.passive)}${
+                done.mode === "auto" || done.passive
+                  ? ""
+                  : " Do tego czasu rekrutacja jest bez rekrutera."
+              }`
+            : "Przekazano do searchu — ranking się generuje. Rekruter dostał dostęp do rekrutacji."}
+        </span>
       </div>
     );
   }
@@ -145,8 +233,8 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
             Przekaż do searchu
           </h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Przypisz rekrutera i uruchom dopasowywanie na podstawie Profilu
-            Championa.
+            Wskaż, kto dostanie rekrutację, i uruchom dopasowywanie na podstawie
+            Profilu Championa.
           </p>
         </div>
         {!open && (
@@ -220,10 +308,58 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
 
       {open && (
         <div className="mt-3 space-y-3">
-          {readiness?.allocation_enabled && <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={automatic} onChange={event => setAutomatic(event.target.checked)} />
-            Dobierz osobę automatycznie według obłożenia i dostępności COMPASS
-          </label>}
+          <div className="space-y-1.5">
+            <span
+              id={recruiterLabelId}
+              className="block text-xs font-medium text-foreground"
+            >
+              Rekruter
+            </span>
+            <RecruiterAssignmentChoice
+              size="sm"
+              labelledBy={recruiterLabelId}
+              value={assignment}
+              onChange={setAssignmentChoice}
+              automaticAvailable={automaticAvailable}
+              unavailableReason={unavailableReason}
+              mode={readiness?.allocation_mode}
+              passive={passive}
+              disabled={submitting}
+            />
+            {!automatic && (
+              <select
+                aria-label="Wybierz rekrutera"
+                value={recruiterId ?? ""}
+                onChange={(e) => {
+                  setPickedRecruiterId(e.target.value ? Number(e.target.value) : null);
+                  // Wskazanie osoby to jawny wybór „Wybieram sam”.
+                  setAssignmentChoice("person");
+                }}
+                data-testid="handoff-recruiter-select"
+                className="w-full min-w-0 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+              >
+                <option value="">— wybierz rekrutera —</option>
+                {recruitersQuery.data?.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name?.trim() || r.email || `#${r.id}`}
+                  </option>
+                ))}
+              </select>
+            )}
+            {/* Awaria listy to nie „nie ma kogo wybrać” — osobny komunikat. */}
+            {!automatic && recruitersQuery.isError && !recruitersQuery.data ? (
+              <p role="alert" className="text-xs text-destructive">
+                Nie udało się wczytać listy rekruterów.{" "}
+                <button
+                  type="button"
+                  className="font-medium underline"
+                  onClick={() => void recruitersQuery.refetch()}
+                >
+                  Ponów
+                </button>
+              </p>
+            ) : null}
+          </div>
           <label className="flex items-center gap-2 text-sm">Kanał pracy
             <select aria-label="Kanał pracy" className="rounded border border-border bg-background p-2" value={channel}
               onChange={event => setChannel(event.target.value as typeof channel)}>
@@ -231,22 +367,6 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
             </select>
           </label>
           <div className="flex flex-wrap items-center gap-2">
-            <select
-              disabled={automatic}
-              value={recruiterId ?? ""}
-              onChange={(e) =>
-                setRecruiterId(e.target.value ? Number(e.target.value) : null)
-              }
-              data-testid="handoff-recruiter-select"
-              className="min-w-56 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
-            >
-              <option value="">— wybierz rekrutera —</option>
-              {recruitersQuery.data?.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name?.trim() || r.email || `#${r.id}`}
-                </option>
-              ))}
-            </select>
             <button
               type="button"
               onClick={submit}

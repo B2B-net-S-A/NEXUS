@@ -209,6 +209,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/candidate-merge",
     "/preview/job-portals",
     "/preview/request-allocation",
+    "/preview/job-team-panel",
     "/preview/plain-brief",
     "/preview/job-board-screening",
     "/kariera",

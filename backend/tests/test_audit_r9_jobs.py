@@ -26,15 +26,20 @@ def _sql(clause) -> str:
     )
 
 
-def test_mine_clause_includes_live_work_assignments() -> None:
-    """R9-N15-2: „Moje” widzi request przydzielony w ``job_work_assignments``."""
+def test_mine_clause_includes_active_work_assignments() -> None:
+    """R9-N15-2: „Moje” widzi request przydzielony w ``job_work_assignments``.
+
+    Od 02.10.2026 liczy się przypisanie AKTYWNE (``state = 'active'``) — do
+    tej daty każde niezwolnione, czyli także propozycja automatu, która czeka
+    na akceptację Head of Recruitment i pracą jeszcze nie jest.
+    """
     from app.api.jobs import jobs_mine_clause, jobs_mine_scope_clause
 
     user = SimpleNamespace(id=7, roles=["sourcer"], role="sourcer")
     for clause in (jobs_mine_clause(user), jobs_mine_scope_clause(user)):
         sql = _sql(clause)
-        assert "job_work_assignments" in sql, sql
-        assert "released" in sql, sql
+        assert "job_work_assignments.state = 'active'" in sql, sql
+        assert "released" not in sql, sql
 
 
 @pytest.mark.parametrize(

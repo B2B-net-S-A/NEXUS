@@ -2839,13 +2839,18 @@ miejsce, nie zbiór funkcji.
   otwiera się sam, a wiersz `can_open === false` nie ma ani nawigacji, ani
   podglądu (dok pytałby o detal → 403). Gałąź kafelka z `pointer-events-none`
   + `aria-disabled` czyta test backendu — nie ruszaj jej.
-- **Zakres: „Moje | Otwarte | Wszystkie” (24.09.2026), domyślny zależy od
+- **Zakres: „Moje | Moja kategoria | Otwarte | Wszystkie” (24.09.2026; „Moja
+  kategoria” od 02.10.2026), domyślny zależy od
   ROLI** — `defaultScopeForUser` (`lib/jobs-url-filters.ts`, semantyka
   `hasRole`): recruiter, sourcer, tac, talent_community_manager, delivery_lead
   → „Moje” (także konto wielorolowe z którąkolwiek z nich); admin,
   head_of_recruitment, finance i viewer `user` → „Otwarte” (`open_only`,
   zamknięte tylko w „Wszystkie”; do 24.09 widzieli 4 286 wierszy razem
-  z zamkniętymi). Adres: `mine=1` = Moje, `open=1` = Otwarte, `mine=0` =
+  z zamkniętymi). Adres: `mine=1` = Moje, `mycat=1` = Moja kategoria
+  (niezamknięte rekrutacje z kategorii osoby — do wzięcia, niekoniecznie jej;
+  opcja jest na przełączniku tylko, gdy `quick-counts.my_category` nie jest
+  `null`, a lista wysyła wtedy samo `my_category=true`), `open=1` = Otwarte,
+  `mine=0` =
   Wszystkie (stare linki z pulpitu działają). Do adresu trafia tylko zakres
   INNY niż domyślny roli (czyste `/jobs` znaczy co innego u rekrutera
   i u admina — link „dla kolegi” wysyłaj z jawnym zakresem). Stan to
@@ -2878,37 +2883,52 @@ miejsce, nie zbiór funkcji.
     / `request_stage_mine`. Nie składaj tego z `request_status` + `work_state`
     — te łączą się przez AND.
   - **Pasek** (`components/v2/jobs/JobsFilterBar.tsx`, przycisk z okienkiem
-    `components/v2/filters/FilterBarPill.tsx` wspólny z listą kandydatów):
-    Klient, Delivery Lead (`lead`), **Kto pracuje** (`who` → `worked_by`,
-    „Ja” = własne id, „Nikt” = `nobody=1` → `nobody_working`), Kategoria,
-    Termin (preset + zakres `dl_from`–`dl_to`), „Więcej filtrów” z „Wysłanych
-    do klienta” (`sent` → `min_sent`/`max_sent`, OSOBY z
-    `analytics_first_milestones`). Przełączniki „Po terminie” (= Termin
-    `overdue`), „Nikt nie pracuje”, „Nikogo nie wysłano” (= `sent=none`)
+    `components/v2/filters/FilterBarPill.tsx` wspólny z listą kandydatów),
+    od 02.10.2026 w kolejności jak w Traffit: Delivery Lead (`lead`), Klient,
+    **Rekruter** (`who` → `worked_by`, „Ja” = własne id, „Bez rekrutera” =
+    `nobody=1` → `nobody_working`), Kategoria, **Priorytet** (`prio` →
+    `priority_level`), Termin (preset + zakres `dl_from`–`dl_to`), **Data
+    otwarcia** (`op_from`/`op_to` → `opened_from`/`opened_to`), „Więcej
+    filtrów” z „Wysłanych do klienta” (`sent` → `min_sent`/`max_sent`, OSOBY
+    z `analytics_first_milestones`). Przełączniki „Po terminie” (= Termin
+    `overdue`), „Bez rekrutera”, „Nikogo nie wysłano” (= `sent=none`)
     z liczbami `attention` („Otwarte”) / `attention_mine` („Moje”);
-    „Wszystkie” bez liczb (objęłyby archiwum). Datę „Po terminie” liczy
-    przeglądarka i wysyła jako `overdue_to`.
-  - **„Kto pracuje” = `job_work_assignments.state <> 'released'`** — tak samo
-    jak pulpit „Requesty i obłożenie” i automat przydziału (propozycja z trybu
-    cienia się liczy). `jobs_worked_by_clause` / `jobs_nobody_working_clause`;
-    `worked_by` razem z `nobody_working=true` to LUB („ja albo nikt”).
-    Prowadzący (`jobs.recruiter_id`, aktywne konto, niezdjęty ręcznie
-    w bieżącym stanie requestu) też pracuje — przypisania powstają tylko
-    w puli „Szukamy” przy włączonym przydziale (runda 7 audytu, 26.09.2026).
-    Od 29.09.2026 pracuje też współpracownik dopisany RĘCZNIE
-    (`job_collaborators.source='manual'`, aktywne konto,
-    `_manual_collaborator_job_ids`); `auto_cc` (cała kategoria) się nie liczy.
-    Dopisuje go każdy, kto redaguje rekrutację (`ensure_job_editor` w
-    `POST/DELETE …/collaborators`; zmiana prowadzącego `/owner`, `/claim` bez
-    zmian) — w oknie edycji, na `/jobs/new` i w zakładce „Zespół”; kolumna
-    „Prowadzi” pokazuje „+N” (`lib/job-collaborators.ts`, `collaborators[].source`).
+    „Wszystkie” i „Moja kategoria” bez liczb. Datę „Po terminie” liczy
+    przeglądarka i wysyła jako `overdue_to`. Układ paska zależy od JEGO
+    szerokości, nie okna (`jobsFilterBarLayout`: poniżej 1220 px krótkie
+    etykiety i „Data otwarcia” w „Więcej filtrów”, do 1600 px pełne etykiety)
+    — na laptopie pasek ma zostać jednym rzędem.
+  - **„Rekruter” (do 02.10.2026 „Kto pracuje”) = reguła z `services/job_team.py`**
+    — ta sama co pulpit „Requesty i obłożenie” i panel „Zespół” (sekcja „Role
+    przy rekrutacji…”): prowadzący (`jobs.recruiter_id`, aktywne konto,
+    niezdjęty ręcznie w bieżącym stanie requestu), AKTYWNE przypisanie
+    (`job_work_assignments.state = 'active'`) albo współpracownik dopisany
+    RĘCZNIE (`job_collaborators.source='manual'`). Propozycja automatu
+    i `auto_cc` (cała kategoria) się nie liczą. `jobs_worked_by_clause` /
+    `jobs_nobody_working_clause`; `worked_by` razem z `nobody_working=true` to
+    LUB („ja albo bez rekrutera”). Ręcznego współpracownika dopisuje każdy, kto
+    redaguje rekrutację (`ensure_job_editor` w `POST/DELETE …/collaborators`)
+    — w oknie edycji, na `/jobs/new` i w zakładce „Zespół”; komórka „Rekruter”
+    pokazuje wszystkie osoby (`RecruiterChips`, pole wiersza `recruiters`).
 - **Kolumny:** „Etapy” = te same 8 kolumn co Tablica (Nowi … Zatrudniony),
   rozstrzygane `placeStage` z `lib/board-stages.ts` na `stage_columns` wiersza
   — tą samą regułą co Tablica (QC ma kod `interview`, a mimo to trafia do QC
   CV); skróty raz w nagłówku, w wierszach same liczby. Tytuł w dwóch liniach,
   „Podobne rekrutacje” to plakietka pod tytułem (bez osobnej kolumny).
   „Termin” = data + „za N dni / po terminie N dni” (`lib/job-deadline.ts`).
-  Komórki: `v2/jobs/JobListCells.tsx`.
+  Komórki: `v2/jobs/JobListCells.tsx`. Od 02.10.2026: ostatnia kolumna to
+  „Rekruter” (`JobRecruiterCell`: osoby z `recruiters`, „Bez rekrutera”,
+  propozycja automatu w przerywanej ramce, pod spodem „DL: …”), priorytet to
+  plakietka przy tytule (`RequestPriorityChip`; P2 bez plakietki), a kategoria
+  w układzie zwartym — krótka plakietka pod tytułem (`competenceShortLabel`).
+- **Szyna „Otwarte karty” stoi też na liście `/jobs` i u kandydatów
+  (02.10.2026, `components/v2/shell/OpenTabsRail.tsx`).** Od 1536 px w układzie
+  strony (na listach rozwinięta bez zapisanego wyboru od 1920 px rekrutacje /
+  1600 px kandydaci). Poniżej 1536 px na LISTACH wyzwalaczem jest zakładka
+  w lewym marginesie strony (`narrow="gutter"`, zero szerokości w układzie),
+  a lista kart wysuwa się nad treść: pasek 40 px z odstępem zabierał tabeli
+  56 px, a lista kandydatów przy 1280 px i tak przewija się w poziomie
+  (pomiar 02.10.2026). Strona rekrutacji zostaje przy pasku 40 px.
 - **Słownik tego ekranu:** „Moje rekrutacje", „Brak opiekuna TAC"
   (`tac_id IS NULL`; celowo NIE „Brak właściciela" — kolumna „Właściciel"
   pokazuje `primary_owner`, więc wiersz mówiłby „Marta K." i „brak
@@ -3413,22 +3433,27 @@ template” → `/jobs/new?from=<id>`) prowadzi na stronę.
   `lib/job-request-intake.ts::missingFor` — zmieniając bramkę handoffu,
   zmień obie.
 - **Zapis idzie ZWYKŁYMI trasami** w stałej kolejności: `POST /api/jobs` →
-  `PUT …/champion-profile` → `POST …/handoff` (pole „Prowadzi”: wybrana
-  osoba albo „Przydziel automatycznie” = `assignment_mode: "automatic"`,
-  decyzja 29.09.2026) → `POST …/publish`. Awaria po utworzeniu rekrutacji =
-  toast + przejście do zakładki Championa, nigdy utrata. „Zapisz szkic”
-  kończy po Championie.
-- **„Przydziel automatycznie” czyta `GET /api/job-intake/handoff-options`**
+  `PUT …/champion-profile` → `POST …/handoff` (pole „Rekruter”: „Zaproponuje
+  automat” = `assignment_mode: "automatic"` albo „Wybieram sam” z osobą;
+  decyzje 29.09 i 02.10.2026) → `POST …/publish`. Awaria po utworzeniu
+  rekrutacji = toast + przejście do zakładki Championa, nigdy utrata. „Zapisz
+  szkic” kończy po Championie.
+- **„Zaproponuje automat” czyta `GET /api/job-intake/handoff-options`**
   (`automatic_enabled` = `RECRUITMENT_ALLOCATION_ENABLED`, `mode` z
-  `recruitment_allocation_state`) — rekrutacji jeszcze nie ma, więc
+  `recruitment_allocation.effective_allocation_mode` — przy wyłączonej fladze
+  `off`, inaczej zapisany tryb; ta sama funkcja liczy gotowość rekrutacji
+  i odmowę 409 w handoffie) — rekrutacji jeszcze nie ma, więc
   `…/readiness` odpada. Flaga wyłączona ALBO tryb `off` = opcja widoczna,
   ale nieaktywna ze zdaniem o administratorze (w `off` automat nikogo nie
-  przydzieli). `shadow` tylko proponuje osobę, `auto` ją przypisuje.
+  zaproponuje). `shadow` tylko proponuje osobę (zatwierdza Head of
+  Recruitment), `auto` ją przypisuje. Bez wyboru działa automat, gdy jest
+  dostępny (`lib/recruiter-assignment.ts`).
 - **Pola usunięte z tworzenia I ustawień** (TAC, szablon procesu, kategoria
-  kompetencji, Program/Train, priorytet, typ rekrutacji, widełki PLN/mies.):
-  `JobSettingsPanel` ma dwa pola (Delivery Lead, Deadline), `EditJobModal`
-  ich nie renderuje ani NIE WYSYŁA (PATCH czyta `model_fields_set`, więc dane
-  w bazie zostają). Ustawia je backend. Nie przywracaj bez decyzji.
+  kompetencji, Program/Train, typ rekrutacji, widełki PLN/mies.):
+  `EditJobModal` ich nie renderuje ani NIE WYSYŁA (PATCH czyta
+  `model_fields_set`, więc dane w bazie zostają). Ustawia je backend. Nie
+  przywracaj bez decyzji. **Priorytet wrócił 02.10.2026** w trzech poziomach
+  (panel „Zespół” i `/jobs/new`) — sekcja „Role przy rekrutacji…”.
 - **Wybór klienta w Rekrutacjach i Kontraktach = tylko „Aktywni” i „Relacyjni”**
   (ticket 30.09.2026): `GET /api/clients-lookup?contract_eligible=true`
   (`ClientSinglePicker selectableOnly`, `phase5Api.selectableClientsLookup`).
@@ -4242,7 +4267,8 @@ stawki, za jaką osoby są wysyłane do klienta”.
   już niczego przed osobą spoza zespołu. Stara rola podglądu `user` nadal
   przechodzi wyłącznie przez członkostwo. Zostają bramki RÓL („CV wysłane”
   poza Nordeą tylko DL/admin, sekcje `allowed_sections`, pola cyklu życia
-  rekrutacji `JOB_MEMBER_LOCKED_FIELDS` tylko DL/admin). Ruch na
+  rekrutacji `JOB_MEMBER_LOCKED_FIELDS` tylko DL/admin; od 02.10.2026
+  priorytet ustawia też Head of Recruitment). Ruch na
   „Zweryfikowany”, korektę stawki kandydata oraz zatrudnienie, odrzucenie
   i rezygnację wykonuje od 02.10.2026 każda rola wewnętrzna, także Talent
   Community Manager i sourcer (`RECRUITMENT_RATE_EDIT_ROLES`,
@@ -4527,11 +4553,12 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
   propozycje `full_base`, nie istnienie przeglądu. Ręczne dodanie i zdjęcie
   z pulpitu biorą `allocation_lock` przed blokadą rekrutacji. „Klient milczy”
   przypomina się co 14 dni od ostatniego wysłania (`stats.silent_reminded`).
-- **„Kto pracuje” = `job_work_assignments`** (wiersz nigdy nie jest kasowany,
-  zdjęcie = `released` z powodem — z tego liczą się „Zmiany od wczoraj”).
-  NIE `job_collaborators` (auto_cc = cała kategoria) i NIE plan priorytetów.
-  (Filtr listy `/jobs` „Kto pracuje” od 29.09.2026 liczy dodatkowo ręcznych
-  współpracowników — pulpit i automat przydziału nadal ich nie czytają.)
+- **`job_work_assignments` to pamięć automatu** (wiersz nigdy nie jest
+  kasowany, zdjęcie = `released` z powodem — z tego liczą się „Zmiany od
+  wczoraj”). Kto jest Rekruterem na ekranach (lista, pulpit, panel „Zespół”),
+  liczy od 02.10.2026 `services/job_team.py` — sekcja „Role przy rekrutacji…”
+  niżej; automat widzi osoby pracujące bez aktywnego wiersza przez
+  `_unseen_workers` (`staffed`, `extra_load`).
   Prowadzący rekrutacji (`jobs.recruiter_id` z handoffu, Traffita, ręki) dostaje
   wiersz `source='owner'` przy każdym przebiegu (`_adopt_owners`) — inaczej
   automat dokładałby drugą osobę do requestu, który ktoś już prowadzi; takie
@@ -4544,10 +4571,143 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
   rekrutera/sourcera/TAC/DL/HoR), `GET /api/request-board`; filtry po stronie
   przeglądarki (`lib/request-board.ts`, adres `rb_*`). Bez podpowiedzi systemu
   — Artur ich tu nie chce. Harness `/preview/request-allocation?screen=`.
-- **Powiadomienia** o `review_time`: `request_assignment_changed` (tylko
-  tryb `auto`, jeden wpis na osobę) i `request_review_needed` do DL (nowe do
+- **Powiadomienia** o `review_time`: `request_assignment_changed` (poranny
+  skrót tylko w trybie `auto`, jeden wpis na osobę; od 02.10.2026 także od
+  razu po akceptacji propozycji) i `request_review_needed` do DL (nowe do
   przejrzenia, „Klient milczy” co 14 dni, w poniedziałek „Szukamy” bez pracy
   od 30 dni).
+
+## Role przy rekrutacji: Delivery Lead · Rekruter · Kategoria; propozycje automatu akceptuje Head of Recruitment (0409, 02.10.2026)
+
+Feedback Olafa (Head of Recruitment) i decyzje Artura 02.10.2026, makiety
+https://claude.ai/artifact/Kt5dniKtgBLdryqMfzc122. Do tej daty panel rekrutacji
+mówił „Właściciel projektu” i „Współpracownicy” (w 17 z 18 przypadków cała
+kategoria dopisana automatycznie), pulpit „Requesty i obłożenie” pokazywał
+u każdego 0 (czytał same `job_work_assignments`, a 19 z 20 requestów miało
+tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
+
+- **Trzy role.** Delivery Lead (`jobs.delivery_lead_id`) otwiera request.
+  **Rekruter** = osoby, które pracują nad rekrutacją (jedna albo kilka).
+  **Kategoria** = ludzie z kategorii kompetencji, informacyjnie: widzą request
+  w zakresie „Moja kategoria”, ale nad nim nie pracują, dopóki ktoś ich nie
+  przypisze. Nazw „Właściciel projektu”, „Prowadzi”, „Współpracownicy”,
+  „Kto pracuje”, „Nikt nie pracuje” w UI już nie ma („Rekruter”, „Kolejne
+  osoby”, „Bez rekrutera”).
+- **Kto jest Rekruterem — JEDNA reguła, `services/job_team.py`** (lustro frontu
+  `lib/job-team.ts`): (1) prowadzący `jobs.recruiter_id` — aktywne konto,
+  niezdjęte ręcznie w bieżącym stanie requestu; (2) AKTYWNE przypisanie
+  (`job_work_assignments.state = 'active'`, bez wierszy `source = 'owner'` —
+  to lustro punktu 1); (3) współpracownik dopisany ręcznie
+  (`job_collaborators.source = 'manual'`). **Propozycja automatu
+  (`state = 'proposed'`) nie jest pracą.** Loader `recruiters_for_jobs`
+  i klauzule SQL (`jobs_worked_by_clause`, `jobs_nobody_working_clause`) muszą
+  dawać ten sam zbiór — pilnuje `tests/test_job_team.py`. Czytają ją: lista
+  `/jobs` (pole `recruiters`, filtr „Rekruter”, „Bez rekrutera”, zakres
+  „Moje”), pulpit „Requesty i obłożenie” (ludzie i obłożenie), panel „Zespół”,
+  członkostwo rekrutacji (`job_membership` — odbiorcy powiadomień), kreator
+  metryk i widoki osobiste. Wewnątrz automatu (`request_allocation.py`)
+  i w „Zmianach od wczoraj” zostaje `state <> 'released'`.
+- **„Moje” nie liczy już wierszy `auto_cc`** (cała kategoria) — te rekrutacje
+  są w zakresie **„Moja kategoria”** (`my_category`, URL `mycat=1`: GŁÓWNA
+  kategoria rekrutacji ∈ kategorie osoby, tylko niezamknięte; osoba bez
+  kategorii nie widzi zakresu — `quick-counts.my_category = null`). Wiersze
+  `auto_cc` zostają w bazie i jako odbiorcy powiadomień rekrutacji.
+- **Zdjęcie osoby = `job_team.remove_recruiter`** — ze wszystkich trzech miejsc
+  naraz (prowadzący przez `release_operator`, aktywne przypisanie z powodem
+  `manual`, wiersz ręcznego współpracownika). Wołają je `DELETE /api/jobs/{id}/owner`
+  i `DELETE /api/request-board/jobs/{id}/people/{user_id}` (każda niezamknięta
+  rekrutacja). Prowadzący jest zdejmowany PRZED przypisaniem: `manual_remove`
+  czyści `recruiter_id` UPDATE-em, który sesja odbija na obiekcie `job`.
+- **Zmiana rekrutera** (`POST /owner`, `/claim`, PATCH `recruiter_id` z okna
+  edycji) przechodzi przez `_sync_work_assignments_with_owner` (`api/jobs.py`):
+  poprzednia osoba traci aktywne przypisanie (`owner_changed`), a nowa w puli
+  dostaje ręczne (`manual_add`). PATCH bierze `allocation_lock` PRZED wierszem
+  rekrutacji, gdy żądanie niesie `recruiter_id` — ta sama kolejność blokad co
+  `/owner` i przebieg automatu. Ręczne „Przekaż do searchu” woła tę samą
+  funkcję po `set_work_state` — ponowne przekazanie innej osobie zastępuje
+  rekrutera, a nie dokłada drugiego.
+- **Zmiana roli na Finanse zwalnia przypisania do requestów**
+  (`finance_role_cleanup`: aktywne → `excluded`, propozycja →
+  `proposal:excluded`), razem z prowadzeniem rekrutacji i współpracą.
+- **Ponowne przypisanie przez człowieka znosi wcześniejsze ręczne zdjęcie**
+  (`request_allocation.void_manual_release`: powód `manual` → `reassigned`).
+  Woła je `manual_add` (pulpit, „Zmień” przy propozycji, nowy rekruter w puli)
+  i zmiana rekrutera poza pulą. Bez tego osoba zdjęta i dodana ponownie w tym
+  samym stanie requestu była prowadzącą, której reguła zespołu nie liczyła —
+  kolejna dodana osoba wchodziła na jej miejsce. Nowa ścieżka, którą człowiek
+  przypisuje osobę do requestu, idzie przez `manual_add` albo woła ten helper.
+- **Uprawnienia** (`api/recruitment_access.py`, lustra w `capabilities.test.ts`):
+  `JOB_STAFFING_ROLES` (admin, Delivery Lead, Head of Recruitment) —
+  `/owner` POST/DELETE i edycja pulpitu; `JOB_PRIORITY_ROLES` (+TAC) — priorytet
+  (wyjątek w `ensure_job_editor`: HoR ustawia `priority`, innych pól cyklu życia
+  nie); `PROPOSAL_DECISION_ROLES` (admin, Head of Recruitment) — decyzje
+  o propozycjach. `GET /api/jobs/{id}` niesie `can_staff` i `can_set_priority`
+  (Delivery Lead tylko w swoim zakresie). Head of Recruitment sam nie może być
+  rekruterem (`_OWNERSHIP_ELIGIBLE_ROLES` bez zmian).
+- **Automat PROPONUJE, człowiek akceptuje.** Tryb `shadow`
+  (`recruitment_allocation_state.mode`) zakłada najwyżej jedną propozycję na
+  request bez Rekrutera; do akceptacji nikt nie jest przypisany ani
+  powiadamiany. Decyzje: `POST /api/request-board/jobs/{job_id}/proposals/{user_id}`
+  (`accept` | `reject` | `replace`) i `POST /api/request-board/proposals/accept`
+  (hurtem, wynik per pozycja `accepted|gone`). Akceptacja to
+  `UPDATE … WHERE state = 'proposed'` → `active`, `source = 'manual'`,
+  `assigned_by`, `assigned_at` — **nie `manual_add`** (ten przy nieaktualnej
+  propozycji wstawiłby nowy wiersz po cichu); 0 wierszy = 409. Odrzucenie to
+  powód `proposal:rejected` — **nie `manual_remove`** (zwykłe `manual` na wierszu
+  automatu psuje `_last_assignment_was_auto` i regułę „prowadzący zdjęty
+  ręcznie”); odrzucona para nie wraca w tym stanie requestu (blokada tylko dla
+  planera). Każda decyzja zostawia `Activity allocation_proposal_decided` (same
+  ID) — z tego liczymy trafność automatu przed ewentualnym trybem `auto`.
+  Zaakceptowana albo wybrana osoba dostaje dzwonek `request_assignment_changed`
+  (kategoria obowiązkowa „Wzmianki”).
+- **Planer** (`request_allocation_plan.py`): kolejność = P1, potem kubełek
+  wysłanych, termin; request „Przyjmujemy kandydatów” (`passive`) zostaje
+  w puli, ale nie dostaje propozycji; request z osobą pracującą inną drogą
+  (`staffed`, np. ręczny współpracownik) jest pokryty, a propozycja przy nim
+  jest zwalniana (`superseded`); `extra_load` dolicza takie requesty do
+  obłożenia.
+- **Pulpit Head of Recruitment:** „Czeka na Ciebie” (`GET /api/board-tasks`)
+  niesie `allocation_proposals` (tylko dla decydujących), `can_decide_proposals`,
+  `allocation_leave_known`; źródłem jest `request_allocation_proposals.load_pending`
+  (propozycja żywa, request w puli i bez Rekrutera, konto aktywne) — ten sam
+  zbiór liczy dzwonek `request_allocation_proposals` (jeden wpis na osobę na
+  dzień, podbijany przy zmianie liczby; link `/dashboard#czeka-na-ciebie`).
+  Podbicie wysyła też zdarzenie WS (`queue_ws_notification`) — `emit` robi to
+  tylko przy nowym wpisie, a po odrzuceniu propozycji automat proponuje
+  następną osobę tego samego dnia i otwarty pulpit ma ją pokazać od razu.
+  Awaria ładowania nie kładzie pulpitu (savepoint + pusta lista).
+- **Priorytet wrócił w trzech poziomach** (`services/job_priority.py`, lustro
+  `lib/request-priority.ts`): P1 Pilne (`urgent`, historyczne `high`) · P2
+  Standard (`medium`) · Przyjmujemy kandydatów (`low`). Kolumna zostaje przy
+  czterech wartościach; filtr listy `priority_level` (URL `prio`; klucz
+  `priority` to stary, zdejmowany klucz adresu), sort „Wymaga uwagi” stawia P1
+  na górze, pole „Priorytet” jest w panelu „Zespół” i na `/jobs/new`.
+- **Lista i pulpit mają te same dane i filtry:** Delivery Lead · Klient ·
+  Rekruter · Kategoria · Priorytet · Termin · Data otwarcia
+  (`opened_effective_at` = `COALESCE(opened_at, created_at)`, filtr
+  `opened_from`/`opened_to` w dobie Europe/Warsaw). Obłożenie = liczba
+  requestów, przy których osoba jest Rekruterem; propozycje osobno („2 + 1”).
+  Układ szerokości bez zmian względem #1967 (`lib/wide-table.ts`): Delivery
+  Lead i priorytet nie mają własnych kolumn (priorytet = plakietka przy
+  tytule, Delivery Lead = druga linia komórki „Rekruter”).
+- **Przekazanie do searchu:** domyślnie „Zaproponuje automat” (gdy flaga
+  włączona i tryb ≠ `off`), inaczej „Wybieram sam”
+  (`lib/recruiter-assignment.ts` — jedno pole na `/jobs/new` i w oknie
+  „Przekaż do searchu”). Gałąź `automatic` zakłada migawkę dopasowań
+  i `Activity handed_off_to_search` jak ręczna; przy trybie `off` odmawia 409.
+- **Flaga `RECRUITMENT_ALLOCATION_ENABLED` nie dokłada już bramki ani ciężkich
+  zapytań:** gałąź `sourcing_paused` w `priority_work_policy` stoi pod powrotem
+  `mode off` („Kanban bez bramek”); przebieg bez Compassa pomija
+  `load_workloads`/`allocation_issues` i alert `availability_stale`,
+  z Compassem liczy je najwyżej co 10 min; przetworzone zdarzenia starsze niż
+  doba są kasowane.
+- **Start bez urlopów (decyzja Artura 02.10.2026):** `COMPASS_AVAILABILITY_ENABLED`
+  nie jest ustawione, więc automat może zaproponować osobę na urlopie — panel
+  mówi „Brak danych o urlopach — propozycje ich nie uwzględniają”, a każdą
+  propozycję i tak zatwierdza człowiek. Włączenie urlopów = wspólny sekret
+  w Compassie i NEXUSIE (osobny krok).
+- **Poza zakresem:** podkategorie, tryb `auto` (automat przydziela sam) —
+  osobna decyzja po zmierzeniu trafności propozycji.
 
 ## Konta serwisowe / klucze API (`X-API-Key`)
 

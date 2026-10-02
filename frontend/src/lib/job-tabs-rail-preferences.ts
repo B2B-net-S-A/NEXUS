@@ -1,10 +1,10 @@
 /**
  * Preferencja „zwinięta szyna Otwarte karty" (`JobTabsRail.tsx`, lewy pasek
- * na trasach szczegółów rekrutacji).
+ * na stronach rekrutacji i — od 02.10.2026 — na liście `/jobs`).
  *
- * Wyniesione z ręcznego `useState`/`localStorage` (dawny `COLLAPSE_KEY =
- * "nexus.jobTabsRail.collapsed"` w komponencie) do `useLocalStorageFlag` —
- * ten sam wzorzec co `job-header-preferences.ts`.
+ * Klucz i wartość domyślną strony rekrutacji czyta `useRailCollapsed`
+ * (`components/v2/shell/OpenTabsRail.tsx`); lista ma własny stan domyślny
+ * (rozwinięta od 1920 px okna), a zapisany wybór jest wspólny.
  *
  * Klucz podbity do `.v2`: domyślna wartość zmienia się z „rozwinięta" na
  * „zwinięta" (fala 3 „mniej scrolla, więcej edytora" — szyna 240 px + nav

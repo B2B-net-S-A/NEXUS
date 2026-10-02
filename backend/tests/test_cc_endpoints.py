@@ -104,6 +104,64 @@ async def test_cc_recruiters_returns_empty_or_list(
     assert isinstance(resp.json(), list)
 
 
+async def test_cc_recruiters_lists_active_accounts_only(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """02.10.2026: lista zasila blok „Kategoria” w panelu rekrutacji — pokazuje
+    ludzi, którzy mogą wziąć request. Wyłączone konto z przypisaną kategorią
+    (na produkcji zostały takie duplikaty) do nich nie należy."""
+    from sqlalchemy import delete, update
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.competence_category import UserCompetenceCategory
+    from app.models.user import User, UserRole
+    from tests._jarvis_helpers import make_user
+
+    list_resp = await app_client.get(
+        "/api/competence-categories", headers=app_auth_headers
+    )
+    cc_id = list_resp.json()[0]["id"]
+    active_id, _ = await make_user(UserRole.sourcer)
+    inactive_id, _ = await make_user(UserRole.sourcer)
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                UserCompetenceCategory(
+                    user_id=user_id,
+                    competence_category_id=cc_id,
+                    is_primary=False,
+                    priority=2,
+                )
+                for user_id in (active_id, inactive_id)
+            ]
+        )
+        await db.execute(
+            update(User).where(User.id == inactive_id).values(is_active=False)
+        )
+        await db.commit()
+    try:
+        for query in ({}, {"priority": 2}):
+            resp = await app_client.get(
+                f"/api/competence-categories/{cc_id}/recruiters",
+                params=query,
+                headers=app_auth_headers,
+            )
+            assert resp.status_code == 200, resp.text
+            listed = {row["user_id"] for row in resp.json()}
+            assert active_id in listed, query
+            assert inactive_id not in listed, query
+    finally:
+        # Baza testowa jest wspólna: osoba z kategorią wchodzi do puli automatu
+        # przydziału, który inne pliki uruchamiają na całej bazie.
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(UserCompetenceCategory).where(
+                    UserCompetenceCategory.user_id.in_([active_id, inactive_id])
+                )
+            )
+            await db.commit()
+
+
 async def test_assign_cc_to_missing_candidate_is_404_not_500(
     app_client: AsyncClient, app_auth_headers: dict
 ):

@@ -138,8 +138,15 @@ async def test_board_shows_manual_person_and_champion_is_not_load(
     assert rows[searching]["champion"] is False
     assert rows[champion]["champion"] is True
     assert [p["user_id"] for p in rows[searching]["people"]] == [person]
+    # Pierwszy rekruter dodany z pulpitu zostaje prowadzącym rekrutacji.
+    assert rows[searching]["people"][0]["via"] == "owner"
+    assert rows[searching]["people"][0]["proposed"] is False
+    assert rows[searching]["priority_level"] == "p2"
+    assert rows[searching]["delivery_lead"] is None
+    assert rows[searching]["opened_effective_at"] is not None
     load = {p["user_id"]: p for p in board["load"]}
     assert load[person]["count"] == 1
+    assert load[person]["proposed"] == 0
     assert [r["job_id"] for r in load[person]["requests"]] == [searching]
 
     removed = await app_client.delete(
@@ -147,6 +154,236 @@ async def test_board_shows_manual_person_and_champion_is_not_load(
         headers=app_auth_headers,
     )
     assert removed.json() == {"removed": True}
+    # Zdjęcie z pulpitu zdejmuje osobę ze wszystkich miejsc naraz — także
+    # z roli prowadzącego (do 02.10.2026 zostawała w `jobs.recruiter_id`).
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Job, searching)).recruiter_id is None
+    board = (
+        await app_client.get("/api/request-board", headers=app_auth_headers)
+    ).json()
+    rows = {r["job_id"]: r for r in board["requests"]}
+    assert rows[searching]["people"] == []
+
+
+async def test_board_shows_everyone_who_works_and_counts_proposals_apart(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """Decyzja Artura 02.10.2026: nad requestem pracuje prowadzący, osoba
+    z aktywnym przypisaniem albo ręcznie dopisany współpracownik. Do tej daty
+    pulpit czytał same przypisania — prowadzący bez wiersza był niewidoczny,
+    a propozycja automatu liczyła się jak praca."""
+    from datetime import datetime, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job, JobPriority
+    from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
+    from app.models.job_work_assignment import JobWorkAssignment
+    from app.models.user import User, UserRole
+
+    job_id = await _seed_job(work_state="searching")
+    owner = await _seed_recruiter()
+    collaborator = await _seed_recruiter()
+    proposed = await _seed_recruiter()
+    async with AsyncSessionLocal() as db:
+        marker = uuid.uuid4().hex[:10]
+        lead = User(
+            email=f"rb-dl-{marker}@example.com",
+            name=f"Delivery RB {marker}",
+            role=UserRole.delivery_lead,
+            roles=["delivery_lead"],
+            is_active=True,
+        )
+        db.add(lead)
+        await db.flush()
+        job = await db.get(Job, job_id)
+        job.recruiter_id = owner
+        job.delivery_lead_id = lead.id
+        job.priority = JobPriority.urgent
+        db.add(
+            JobCollaborator(
+                job_id=job_id,
+                user_id=collaborator,
+                source=JobCollaboratorSource.manual,
+            )
+        )
+        db.add(
+            JobWorkAssignment(
+                job_id=job_id,
+                user_id=proposed,
+                role="sourcer",
+                source="auto",
+                state="proposed",
+                assigned_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+        lead_id, lead_name = lead.id, lead.name
+
+    board = (
+        await app_client.get("/api/request-board", headers=app_auth_headers)
+    ).json()
+    row = next(r for r in board["requests"] if r["job_id"] == job_id)
+    assert row["priority_level"] == "p1"
+    assert row["delivery_lead"] == {"id": lead_id, "name": lead_name}
+    assert [
+        (p["user_id"], p["via"], p["proposed"], p["source"], p["role"])
+        for p in row["people"]
+    ] == [
+        (owner, "owner", False, "owner", "recruiter"),
+        (collaborator, "collaborator", False, "manual", "recruiter"),
+        (proposed, "assignment", True, "auto", "sourcer"),
+    ]
+    load = {p["user_id"]: p for p in board["load"]}
+    assert (load[owner]["count"], load[owner]["proposed"]) == (1, 0)
+    assert (load[collaborator]["count"], load[collaborator]["proposed"]) == (1, 0)
+    # Propozycja to jeszcze nie praca: w obłożeniu liczy się osobno.
+    assert (load[proposed]["count"], load[proposed]["proposed"]) == (0, 1)
+    assert [(r["job_id"], r["proposed"]) for r in load[proposed]["requests"]] == [
+        (job_id, True)
+    ]
+
+
+async def test_delete_removes_owner_and_collaborator_and_rejects_a_proposal(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    from datetime import datetime, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job, JobStatus
+    from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
+    from app.models.job_work_assignment import JobWorkAssignment
+
+    job_id = await _seed_job(work_state="searching")
+    owner = await _seed_recruiter()
+    collaborator = await _seed_recruiter()
+    proposed = await _seed_recruiter()
+    stranger = await _seed_recruiter()
+    async with AsyncSessionLocal() as db:
+        (await db.get(Job, job_id)).recruiter_id = owner
+        db.add(
+            JobCollaborator(
+                job_id=job_id,
+                user_id=collaborator,
+                source=JobCollaboratorSource.manual,
+            )
+        )
+        db.add(
+            JobWorkAssignment(
+                job_id=job_id,
+                user_id=proposed,
+                role="recruiter",
+                source="auto",
+                state="proposed",
+                assigned_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+    async def remove(user_id: int):
+        return await app_client.delete(
+            f"/api/request-board/jobs/{job_id}/people/{user_id}",
+            headers=app_auth_headers,
+        )
+
+    # Osoby spoza requestu nie ma czego zdejmować.
+    assert (await remove(stranger)).json() == {"removed": False}
+    assert (await remove(owner)).json() == {"removed": True}
+    assert (await remove(collaborator)).json() == {"removed": True}
+    # Propozycję odrzuca się — osoba nigdy nie pracowała nad requestem.
+    assert (await remove(proposed)).json() == {"removed": True}
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Job, job_id)).recruiter_id is None
+        links = (
+            await db.scalars(
+                select(JobCollaborator).where(JobCollaborator.job_id == job_id)
+            )
+        ).all()
+        assert list(links) == []
+        row = await db.scalar(
+            select(JobWorkAssignment).where(JobWorkAssignment.job_id == job_id)
+        )
+        assert (row.state, row.release_reason) == ("released", "proposal:rejected")
+
+    # Zamknięta rekrutacja jest historią — prowadzący zostaje przy niej.
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.recruiter_id = owner
+        job.status = JobStatus.closed
+        await db.commit()
+    closed = await remove(owner)
+    assert closed.status_code == 409, closed.text
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Job, job_id)).recruiter_id == owner
+
+
+async def test_person_removed_and_added_again_is_the_working_owner_again(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """Ponowne dodanie osoby z pulpitu znosi jej wcześniejsze ręczne zdjęcie.
+
+    Bez tego osoba zdjęta i dodana ponownie w tym samym stanie requestu była
+    prowadzącą, której reguła zespołu nie liczyła jako prowadzącej
+    (``owner_is_working_clause``): panel proponował „Przypisz” zamiast „Dodaj
+    osobę”, a kolejna osoba wchodziła na jej miejsce i zwalniała jej
+    przypisanie."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.job_work_assignment import JobWorkAssignment
+    from app.services.request_allocation import _blocked
+
+    job_id = await _seed_job(work_state="searching")
+    first = await _seed_recruiter()
+    second = await _seed_recruiter()
+
+    async def add(user_id: int):
+        return await app_client.post(
+            f"/api/request-board/jobs/{job_id}/people",
+            json={"user_id": user_id, "role": "recruiter"},
+            headers=app_auth_headers,
+        )
+
+    async def people() -> list[tuple[int, str]]:
+        board = (
+            await app_client.get("/api/request-board", headers=app_auth_headers)
+        ).json()
+        row = next(r for r in board["requests"] if r["job_id"] == job_id)
+        return [(p["user_id"], p["via"]) for p in row["people"]]
+
+    added = await add(first)
+    assert added.status_code == 200, added.text
+    assert await people() == [(first, "owner")]
+
+    removed = await app_client.delete(
+        f"/api/request-board/jobs/{job_id}/people/{first}",
+        headers=app_auth_headers,
+    )
+    assert removed.json() == {"removed": True}
+    assert await people() == []
+    async with AsyncSessionLocal() as db:
+        assert (job_id, first) in await _blocked(db)
+
+    again = await add(first)
+    assert again.status_code == 200, again.text
+    assert await people() == [(first, "owner")]
+    async with AsyncSessionLocal() as db:
+        assert (job_id, first) not in await _blocked(db)
+        reasons = (
+            await db.scalars(
+                select(JobWorkAssignment.release_reason).where(
+                    JobWorkAssignment.job_id == job_id,
+                    JobWorkAssignment.user_id == first,
+                    JobWorkAssignment.state == "released",
+                )
+            )
+        ).all()
+        assert list(reasons) == ["reassigned"]
+
+    # Druga osoba dołącza obok — pierwsza zostaje prowadzącą.
+    joined = await add(second)
+    assert joined.status_code == 200, joined.text
+    assert await people() == [(first, "owner"), (second, "assignment")]
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Job, job_id)).recruiter_id == first
 
 
 async def test_competence_team_assign_and_exclude(

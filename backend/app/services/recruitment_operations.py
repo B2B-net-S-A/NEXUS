@@ -225,9 +225,9 @@ def _job_filters(
                         JobCollaborator.removed_from_auto_cc.is_(False),
                     )
                 ),
-                # Runda 9 (bliźniak R9-N15-2): żywe przypisanie z przydziału
+                # Runda 9 (bliźniak R9-N15-2): AKTYWNE przypisanie z przydziału
                 # requestów to też „moja” rekrutacja — ta sama reguła co „Moje”
-                # na liście /jobs.
+                # na liście /jobs. Propozycja automatu się nie liczy.
                 Job.id.in_(_live_work_assignment_job_ids([user.id])),
             )
         )

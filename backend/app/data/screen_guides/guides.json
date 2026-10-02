@@ -4,16 +4,16 @@
     "title": "Lista rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "sourcer", "delivery_lead", "head_of_recruitment", "admin"],
-    "what": "Tu widzisz wszystkie rekrutacje: swoje albo całej firmy, ze statusem requestu, etapami kandydatów i liczbą nowych propozycji. Pod tytułem stoi klient oraz nazwa i numer od klienta; na dużym monitorze klient ma własną kolumnę.",
+    "what": "Tu widzisz rekrutacje — swoje, z Twojej kategorii albo całej firmy: stan requestu, priorytet (P1 = pilne), etapy kandydatów i Rekrutera, czyli osoby, które nad nią pracują. Pod tytułem stoi klient i numer od klienta.",
     "tasks": [
       {
         "q": "Jak przełączyć między moimi, otwartymi i wszystkimi rekrutacjami?",
-        "a": "Użyj przełącznika „Moje / Otwarte / Wszystkie” nad listą. Rekruter i Delivery Lead domyślnie widzą swoje, admin, Head of Recruitment i Finanse — otwarte. Zamknięte rekrutacje i archiwum są pod „Wszystkie”. Wybór zapisuje się w adresie, więc link wysłany koledze pokaże to samo.",
+        "a": "Użyj przełącznika „Moje / Moja kategoria / Otwarte / Wszystkie” nad listą. „Moje” to rekrutacje, przy których jesteś Rekruterem albo Delivery Leadem. „Moja kategoria” (widzisz ją, gdy masz kategorię kompetencji) — otwarte rekrutacje z Twojej kategorii, także te, nad którymi nie pracujesz. Zamknięte są pod „Wszystkie”.",
         "anchor": "jobs.list.scope"
       },
       {
         "q": "Jak znaleźć konkretną rekrutację albo zawęzić listę?",
-        "a": "Wpisz tytuł, klienta, technologię albo numer u klienta i wybierz stan requestu. Pasek pod nim ma „Klient”, „Delivery Lead” („DL”), „Kto pracuje” (Ty, wybrane osoby albo nikt), „Kategoria”, „Termin” i „Więcej filtrów” („Więcej”), a obok przełączniki „Po terminie”, „Nikt nie pracuje” i „Nikogo nie wysłano”. Krzyżyk przy filtrze go zdejmuje.",
+        "a": "Wpisz tytuł, klienta, technologię albo numer u klienta i wybierz stan requestu. Pasek pod nim ma „Delivery Lead” („DL”), „Klient”, „Rekruter”, „Kategoria”, „Priorytet”, „Termin”, „Data otwarcia” (na laptopie w „Więcej filtrów”) i „Więcej filtrów”, a obok przełączniki „Po terminie”, „Bez rekrutera” i „Nikogo nie wysłano”.",
         "anchor": "jobs.list.search"
       },
       {
@@ -32,16 +32,16 @@
       }
     ],
     "pitfalls": [
-      "Pusta lista w zakresie „Moje” nie znaczy, że rekrutacji nie ma — przełącz na „Otwarte” albo „Wszystkie”.",
-      "Kolumna „Etapy” ma te same 8 kolumn co tablica (skróty w nagłówku, pełna nazwa po najechaniu).",
-      "Sortowanie „Wymaga uwagi” stawia na górze rekrutacje z największą liczbą kandydatów czekających na Twój ruch.",
+      "Pusta lista w zakresie „Moje” nie znaczy, że rekrutacji nie ma — przełącz na „Moja kategoria”, „Otwarte” albo „Wszystkie”.",
+      "Przerywana ramka z dopiskiem „propozycja” w kolumnie „Rekruter” to propozycja automatu. Dopóki Head of Recruitment jej nie zaakceptuje, nikt nie jest przypisany, a rekrutacja liczy się jako „Bez rekrutera”.",
+      "Sortowanie „Wymaga uwagi” stawia na górze rekrutacje P1 (pilne), potem te z największą liczbą kandydatów czekających na Twój ruch.",
       "„Do przejrzenia”, „Szukamy” i „Klient milczy” to stan nadany przez Delivery Leada w „Porządku w requestach” (przycisk nad listą, widzą go DL, Head of Recruitment i admin); ten sam stan stoi w wierszu listy. Rekrutacje obsadzone i zakończone nie mają osobnego stanu nad listą — są pod „Wszystkie”."
     ],
     "anchors": [
-      {"id": "jobs.list.scope", "label": "Moje / Otwarte / Wszystkie", "describe": "Przełącznik zakresu listy rekrutacji z licznikami."},
+      {"id": "jobs.list.scope", "label": "Moje / Moja kategoria / Otwarte / Wszystkie", "describe": "Przełącznik zakresu listy rekrutacji z licznikami."},
       {"id": "jobs.list.search", "label": "Wyszukiwanie", "describe": "Pole wyszukiwania po tytule, kliencie i technologii."},
       {"id": "jobs.list.status", "label": "Stan requestu", "describe": "Jeden rząd stanów: Do uzupełnienia, Do przejrzenia, Szukamy, Mamy championa, Umowa, Klient milczy."},
-      {"id": "jobs.list.filters", "label": "Filtry", "describe": "Pasek filtrów nad listą: klient, Delivery Lead, kto pracuje, kategoria, termin i szybkie przełączniki."},
+      {"id": "jobs.list.filters", "label": "Filtry", "describe": "Pasek filtrów nad listą: Delivery Lead, klient, Rekruter, kategoria, priorytet, termin, data otwarcia i szybkie przełączniki."},
       {"id": "jobs.list.sort", "label": "Sortowanie", "describe": "Kolejność listy, m.in. „Wymaga uwagi”."},
       {
         "id": "jobs.list.new",

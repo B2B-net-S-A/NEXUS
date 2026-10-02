@@ -11,10 +11,13 @@ from tests._jarvis_helpers import make_user
 URL = "/api/job-intake/handoff-options"
 
 
-async def _stored_mode() -> str:
+async def _expected_mode(enabled: bool) -> str:
+    """Lustro `effective_allocation_mode`: flaga, potem zapisany wiersz."""
+    if not enabled:
+        return "off"
     async with AsyncSessionLocal() as db:
         state = await db.get(RecruitmentAllocationState, 1)
-        return state.mode if state else "off"
+        return state.mode if state else "shadow"
 
 
 @pytest.mark.asyncio
@@ -29,8 +32,9 @@ async def test_options_follow_the_allocation_flag(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["automatic_enabled"] is enabled
-    # Tryb czytany z tego samego wiersza co panel automatu przydziału.
-    assert body["mode"] == await _stored_mode()
+    # Ta sama reguła co gotowość rekrutacji i odmowa 409 w handoffie: przy
+    # wyłączonej fladze `off`, inaczej zapisany tryb (bez wiersza — `shadow`).
+    assert body["mode"] == await _expected_mode(enabled)
     assert body["mode"] in {"off", "shadow", "auto"}
 
 

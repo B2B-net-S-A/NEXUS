@@ -8,6 +8,13 @@
  * kompetencji” i „Porządek w requestach”. Widoki są prezentacyjne (propsy),
  * więc harness nie potrzebuje react-query ani logowania. `?screen=board|team|review`
  * pokazuje jeden ekran; bez parametru — wszystkie trzy.
+ *
+ * Pulpit ma trzy role (`?as=hor|dl|recruiter`, domyślnie `hor`): Head of
+ * Recruitment akceptuje i odrzuca propozycje automatu oraz dodaje i zdejmuje
+ * ludzi; Delivery Lead tylko dodaje i zdejmuje; rekruter niczego nie zmienia.
+ * Dane pokazują trzy przypadki naraz: request z propozycją automatu, request
+ * z dwiema pracującymi osobami i request „Bez rekrutera”. Przyciski nic nie
+ * zapisują.
  */
 
 import { useState } from "react";
@@ -36,6 +43,11 @@ const people = {
   ewa: { user_id: 5, name: "Ewa Fikcyjna" },
 };
 
+const leads = {
+  gosia: { id: 61, name: "Gosia Delivery" },
+  henryk: { id: 62, name: "Henryk Pokazowy" },
+};
+
 const BOARD: RequestBoard = {
   mode: "shadow",
   availability_known: false,
@@ -46,29 +58,33 @@ const BOARD: RequestBoard = {
     { category_id: 5, name: "Management & Delivery (PM & BA)", slug: "management_delivery", total: 1, searching: 1, champion: 0 },
   ],
   requests: [
-    { job_id: 11, title: "DevOps Engineer (Azure)", client_name: "Klient Alfa", category_id: 1, deadline: "2026-09-30", sent: 0, champion: false, people: [{ ...people.anna, role: "sourcer", proposed: true, source: "auto" }] },
-    { job_id: 12, title: "Data Engineer", client_name: "Klient Beta", category_id: 1, deadline: "2026-09-23", sent: 0, champion: false, people: [{ ...people.bartek, role: "recruiter", proposed: false, source: "manual" }] },
-    { job_id: 21, title: "Senior Java Developer", client_name: "Klient Gamma", category_id: 2, deadline: "2026-09-26", sent: 0, champion: false, people: [{ ...people.celina, role: "recruiter", proposed: false, source: "auto" }, { ...people.anna, role: "sourcer", proposed: false, source: "manual" }] },
-    { job_id: 22, title: "Kotlin Developer", client_name: "Klient Delta", category_id: 2, deadline: "2026-10-07", sent: 1, champion: false, people: [{ ...people.darek, role: "recruiter", proposed: false, source: "auto" }] },
-    { job_id: 23, title: "React Developer", client_name: "Klient Alfa", category_id: 2, deadline: "2026-09-28", sent: 3, champion: true, people: [{ ...people.darek, role: "recruiter", proposed: false, source: "auto" }] },
-    { job_id: 41, title: "Tester automatyzujący", client_name: "Klient Beta", category_id: 4, deadline: null, sent: 0, champion: false, people: [] },
-    { job_id: 51, title: "Product Owner", client_name: "Klient Gamma", category_id: 5, deadline: "2026-10-09", sent: 2, champion: false, people: [{ ...people.ewa, role: "recruiter", proposed: false, source: "auto" }] },
+    // Propozycja automatu: nikt jeszcze nie pracuje, czeka na akceptację.
+    { job_id: 11, title: "DevOps Engineer (Azure)", client_name: "Klient Alfa", category_id: 1, deadline: "2026-09-30", sent: 0, champion: false, priority_level: "p1", delivery_lead: leads.gosia, opened_effective_at: "2026-09-22T07:30:00Z", people: [{ ...people.anna, role: "sourcer", proposed: true, source: "auto", via: "assignment", assigned_by_name: null }] },
+    { job_id: 12, title: "Data Engineer", client_name: "Klient Beta", category_id: 1, deadline: "2026-09-23", sent: 0, champion: false, priority_level: "p2", delivery_lead: leads.henryk, opened_effective_at: "2026-09-08T09:00:00Z", people: [{ ...people.bartek, role: "recruiter", proposed: false, source: "owner", via: "owner", assigned_by_name: null }] },
+    // Dwie pracujące osoby: zaakceptowana propozycja i ręcznie dopisany sourcer.
+    { job_id: 21, title: "Senior Java Developer", client_name: "Klient Gamma", category_id: 2, deadline: "2026-09-26", sent: 0, champion: false, priority_level: "p1", delivery_lead: leads.gosia, opened_effective_at: "2026-09-15T08:00:00Z", people: [{ ...people.celina, role: "recruiter", proposed: false, source: "manual", via: "assignment", assigned_by_name: "Henryk Pokazowy" }, { ...people.anna, role: "sourcer", proposed: false, source: "manual", via: "collaborator", assigned_by_name: null }] },
+    { job_id: 22, title: "Kotlin Developer", client_name: "Klient Delta", category_id: 2, deadline: "2026-10-07", sent: 1, champion: false, priority_level: "p2", delivery_lead: leads.henryk, opened_effective_at: "2026-09-18T10:00:00Z", people: [{ ...people.darek, role: "recruiter", proposed: false, source: "owner", via: "owner", assigned_by_name: null }] },
+    { job_id: 23, title: "React Developer", client_name: "Klient Alfa", category_id: 2, deadline: "2026-09-28", sent: 3, champion: true, priority_level: "p2", delivery_lead: leads.gosia, opened_effective_at: "2026-08-25T08:00:00Z", people: [{ ...people.darek, role: "recruiter", proposed: false, source: "owner", via: "owner", assigned_by_name: null }] },
+    // „Bez rekrutera”: nikt nie pracuje i automat nikogo nie proponuje.
+    { job_id: 41, title: "Tester automatyzujący", client_name: "Klient Beta", category_id: 4, deadline: null, sent: 0, champion: false, priority_level: "accepting", delivery_lead: null, opened_effective_at: "2026-09-23T12:00:00Z", people: [] },
+    { job_id: 51, title: "Product Owner", client_name: "Klient Gamma", category_id: 5, deadline: "2026-10-09", sent: 2, champion: false, priority_level: "p2", delivery_lead: leads.henryk, opened_effective_at: "2026-09-10T08:00:00Z", people: [{ ...people.ewa, role: "recruiter", proposed: false, source: "manual", via: "assignment", assigned_by_name: "Gosia Delivery" }] },
   ],
+  // `count` = requesty w pracy (bez championa), `proposed` = propozycje do akceptacji.
   load: [
-    { ...people.anna, count: 2, leave_until: null, requests: [
-      { job_id: 11, title: "DevOps Engineer (Azure)", client_name: "Klient Alfa", deadline: "2026-09-30", proposed: true },
+    { ...people.anna, count: 1, proposed: 1, leave_until: null, requests: [
       { job_id: 21, title: "Senior Java Developer", client_name: "Klient Gamma", deadline: "2026-09-26", proposed: false },
+      { job_id: 11, title: "DevOps Engineer (Azure)", client_name: "Klient Alfa", deadline: "2026-09-30", proposed: true },
     ] },
-    { ...people.bartek, count: 1, leave_until: null, requests: [
+    { ...people.bartek, count: 1, proposed: 0, leave_until: null, requests: [
       { job_id: 12, title: "Data Engineer", client_name: "Klient Beta", deadline: "2026-09-23", proposed: false },
     ] },
-    { ...people.celina, count: 1, leave_until: null, requests: [
+    { ...people.celina, count: 1, proposed: 0, leave_until: null, requests: [
       { job_id: 21, title: "Senior Java Developer", client_name: "Klient Gamma", deadline: "2026-09-26", proposed: false },
     ] },
-    { ...people.darek, count: 1, leave_until: null, requests: [
+    { ...people.darek, count: 1, proposed: 0, leave_until: null, requests: [
       { job_id: 22, title: "Kotlin Developer", client_name: "Klient Delta", deadline: "2026-10-07", proposed: false },
     ] },
-    { ...people.ewa, count: 1, leave_until: "2026-09-29", requests: [
+    { ...people.ewa, count: 1, proposed: 0, leave_until: "2026-09-29", requests: [
       { job_id: 51, title: "Product Owner", client_name: "Klient Gamma", deadline: "2026-10-09", proposed: false },
     ] },
   ],
@@ -115,18 +131,49 @@ const REVIEW: ReviewResponse = {
   ],
 };
 
-function BoardScreen() {
+type BoardPersona = "hor" | "dl" | "recruiter";
+
+/** Co wolno roli na pulpicie — lustro capability `job.recruiter.assign` i `request.proposal.decide`. */
+const PERSONAS: Record<BoardPersona, { label: string; canStaff: boolean; canDecide: boolean }> = {
+  hor: { label: "Head of Recruitment", canStaff: true, canDecide: true },
+  dl: { label: "Delivery Lead", canStaff: true, canDecide: false },
+  recruiter: { label: "Rekruter", canStaff: false, canDecide: false },
+};
+
+function personaFrom(value: string | null | undefined): BoardPersona {
+  return value === "dl" || value === "recruiter" ? value : "hor";
+}
+
+function BoardScreen({ persona }: { persona: BoardPersona }) {
   const [filters, setFilters] = useState<BoardFilters>(EMPTY_FILTERS);
+  const access = PERSONAS[persona];
   return (
-    <RequestBoardView
-      board={BOARD}
-      today={TODAY}
-      filters={filters}
-      onFilters={setFilters}
-      canEdit
-      onAddPerson={noop}
-      onRemovePerson={noop}
-    />
+    <div className="flex flex-col gap-3">
+      <nav aria-label="Rola w podglądzie" className="flex flex-wrap items-center gap-3 text-sm">
+        <span className="text-muted-foreground">Podgląd jako:</span>
+        {(Object.keys(PERSONAS) as BoardPersona[]).map((key) => (
+          <a
+            key={key}
+            href={`?screen=board&as=${key}`}
+            aria-current={key === persona ? "page" : undefined}
+            className={key === persona ? "font-semibold text-primary" : "text-foreground hover:underline"}
+          >
+            {PERSONAS[key].label}
+          </a>
+        ))}
+      </nav>
+      <RequestBoardView
+        board={BOARD}
+        today={TODAY}
+        filters={filters}
+        onFilters={setFilters}
+        canStaff={access.canStaff}
+        canDecide={access.canDecide}
+        onAddPerson={noop}
+        onRemovePerson={noop}
+        onAcceptProposal={noop}
+      />
+    </div>
   );
 }
 
@@ -149,13 +196,15 @@ function ReviewScreen() {
 }
 
 export default function RequestAllocationPreview() {
-  const screen = useSearchParams()?.get("screen");
+  const params = useSearchParams();
+  const screen = params?.get("screen");
+  const persona = personaFrom(params?.get("as"));
   const show = (name: string) => !screen || screen === name;
   return (
     <main className="mx-auto flex max-w-[1440px] flex-col gap-10 bg-background p-6">
       {show("board") && (
         <section aria-label="Pulpit">
-          <BoardScreen />
+          <BoardScreen persona={persona} />
         </section>
       )}
       {show("team") && (

@@ -3,15 +3,32 @@
 /**
  * Komórki wiersza listy rekrutacji: zwarte liczby per kolumna Tablicy,
  * termin, status requestu, plakietka podobnych rekrutacji, pigułka „Wymaga
- * ruchu" i link „+N propozycji".
+ * ruchu", link „+N propozycji", kolumna „Rekruter” i krótka plakietka
+ * kategorii.
  *
- * Osobny plik, bo `JobsListV2.tsx` jest już długi, a te trzy elementy mają
+ * Osobny plik, bo `JobsListV2.tsx` jest już długi, a te elementy mają
  * własną logikę tonu i odmiany — testowalną bez montowania całej listy.
  */
 import { countPl } from "@/lib/plural-pl";
 import Link from "next/link";
 import type { MouseEvent } from "react";
 
+import { Badge } from "@/components/ui/badge";
+import {
+  competenceShortLabel,
+  competenceTone,
+  useCompetenceCategories,
+} from "@/components/v2/CompetenceCategoryBadge";
+import { RecruiterChips } from "@/components/v2/jobs/RecruiterChips";
+import { shortenPersonName } from "@/lib/job-header-subtitle";
+import {
+  recruitersOf,
+  recruitersSummary,
+  type JobRecruiter,
+  type JobTeamSource,
+} from "@/lib/job-team";
+import type { PriorityLevel } from "@/lib/request-priority";
+import { WIDE_HIDDEN, WIDE_ONLY_FLEX } from "@/lib/wide-table";
 import {
   REQUEST_STATUS_META,
   requestStatusOf,
@@ -434,5 +451,142 @@ export function SimilarJobsCell({
       </span>
       <span className="shrink-0 font-semibold">Przepnij →</span>
     </button>
+  );
+}
+
+// ── Rekruter, priorytet, data otwarcia (02.10.2026) ──────────────────────────
+
+/**
+ * Pola wiersza `GET /api/jobs`, które czytają kolumna „Rekruter”, plakietka
+ * priorytetu, krótka plakietka kategorii i kolumna „Otwarta”.
+ */
+export interface JobListRowFields extends JobTeamSource {
+  /** Osoby w roli „Rekruter”: pracujący w kolejności z serwera, na końcu propozycje. */
+  recruiters?: JobRecruiter[] | null;
+  /** Poziom priorytetu liczony przez serwer; bez niego `priorityLevelOf` czyta `priority`. */
+  priority_level?: PriorityLevel;
+  priority?: string | null;
+  /** `opened_at`, a bez niej `created_at` — ta sama data, po której filtruje „Data otwarcia”. */
+  opened_effective_at?: string | null;
+  opened_at?: string | null;
+  created_at?: string | null;
+  delivery_lead_user?: { name?: string | null } | null;
+  competence_category_id?: number | null;
+}
+
+/** Data w kolumnie „Otwarta” — pole serwera, a na starszym backendzie dotychczasowa reguła. */
+export function jobOpenedDate(job: JobListRowFields): string | null {
+  return job.opened_effective_at ?? job.opened_at ?? job.created_at ?? null;
+}
+
+/**
+ * „Bez rekrutera” — nikt nie pracuje nad rekrutacją. Tło i tekst z pary
+ * `warning-muted`: sam `text-warning` na białym nie ma kontrastu.
+ */
+export function NoRecruiterPill({ className }: { className?: string }) {
+  return (
+    <span
+      data-testid="job-no-recruiter"
+      title="Rekrutacja nie ma Rekrutera — nikt jeszcze nad nią nie pracuje"
+      className={cn(
+        "inline-flex h-5 w-fit items-center whitespace-nowrap rounded-full bg-warning-muted px-2 text-[11px] font-medium text-warning-muted-foreground",
+        className,
+      )}
+    >
+      Bez rekrutera
+    </span>
+  );
+}
+
+const shortName = (name: string) => shortenPersonName(name) ?? name;
+
+/**
+ * Kolumna „Rekruter”: osoby, które pracują nad rekrutacją, a pod nimi
+ * Delivery Lead drobnym drukiem (bez osobnej kolumny).
+ *
+ * Wąska tabela: pierwsza osoba i „+N”, reszta w podpowiedzi. Szeroka
+ * (≥ 1700 px, kolumna 220 px): nazwiska wprost. Propozycja automatu ma
+ * w obu układach przerywaną ramkę i dopisek „propozycja” — to jeszcze nie
+ * praca, więc sama propozycja nie gasi filtra „Bez rekrutera”.
+ */
+export function JobRecruiterCell({ job }: { job: JobListRowFields }) {
+  const people = recruitersOf(job);
+  const summary = recruitersSummary(people);
+  const dlName = job.delivery_lead_user?.name?.trim() || null;
+  return (
+    <div
+      className="flex min-w-0 max-w-[176px] flex-col gap-0.5 @min-[1700px]:max-w-[220px]"
+      data-testid="job-recruiter-cell"
+    >
+      {people.length === 0 ? (
+        <NoRecruiterPill />
+      ) : (
+        <>
+          <span className={cn("flex min-w-0", WIDE_HIDDEN)}>
+            <RecruiterChips compact size="sm" people={people} />
+          </span>
+          <span
+            className={cn(
+              WIDE_ONLY_FLEX,
+              "min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-foreground",
+            )}
+            title={summary.tooltip}
+            data-testid="job-recruiter-names"
+          >
+            {summary.names.length > 0 && (
+              <span className="min-w-0 truncate">{summary.names.map(shortName).join(", ")}</span>
+            )}
+            {summary.proposedNames.map((name, index) => (
+              <span
+                key={`${name}-${index}`}
+                data-proposed="true"
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-dashed border-primary/60 px-2 py-0.5 text-[11px]"
+              >
+                {shortName(name)}
+                <span className="text-muted-foreground">propozycja</span>
+              </span>
+            ))}
+          </span>
+        </>
+      )}
+      {dlName && (
+        <span
+          className="min-w-0 truncate text-[11px] text-muted-foreground"
+          title={`Delivery Lead: ${dlName}`}
+          data-testid="job-delivery-lead"
+        >
+          DL: {shortName(dlName)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Krótka plakietka kategorii („Dev”, „QA”) w linii pod tytułem — w wąskiej
+ * tabeli, gdzie kolumny „Kategoria” nie ma. Pełna nazwa stoi w podpowiedzi.
+ * Bez kategorii albo zanim katalog się wczyta — nic (nigdy surowy klucz).
+ */
+export function JobCategoryShortBadge({
+  categoryId,
+  className,
+}: {
+  categoryId?: number | null;
+  className?: string;
+}) {
+  const { data } = useCompetenceCategories();
+  const category =
+    categoryId != null ? data?.find((c) => c.id === categoryId) : undefined;
+  if (!category) return null;
+  return (
+    <Badge
+      size="sm"
+      variant={competenceTone(category.slug)}
+      title={`Kategoria: ${category.name_pl}`}
+      data-testid="job-category-short"
+      className={cn("max-w-[140px] shrink-0", WIDE_HIDDEN, className)}
+    >
+      <span className="truncate">{competenceShortLabel(category.slug) ?? category.name_pl}</span>
+    </Badge>
   );
 }

@@ -86,9 +86,6 @@ vi.mock("@/lib/section-access", () => ({ hasSectionAccess: () => true }));
 vi.mock("@/store/tabs", () => ({
   useTabsStore: (sel: (s: unknown) => unknown) => sel({ openTab: vi.fn() }),
 }));
-vi.mock("@/lib/use-local-storage-flag", () => ({
-  useLocalStorageFlag: (_key: string, initial: boolean) => [initial, vi.fn()],
-}));
 
 vi.mock("@/components/v2/pages/KanbanBoardV2", () => ({ KanbanBoardV2: stub("kanban", "kanban") }));
 vi.mock("@/components/v2/recruitment/slideovers/OrderSlideOver", () => ({
