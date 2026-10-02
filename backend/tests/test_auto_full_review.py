@@ -19,7 +19,7 @@ a globalne sondy (`_search_busy`, `_started_since`) są podstawiane.
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
@@ -56,12 +56,18 @@ def _no_nightly_maintenance(monkeypatch):
 
 
 def _at(hour: int) -> datetime:
-    """Chwila o danej godzinie LOKALNEJ (Europe/Warsaw), dziś."""
+    """Chwila o danej godzinie LOKALNEJ (Europe/Warsaw) w dobie, w której
+    zaczęła się bieżąca noc przeglądu.
+
+    Wiersze testów dostają ``created_at`` z prawdziwego zegara. „Dziś o 02:30”
+    między północą a początkiem okna należy już do NASTĘPNEJ nocy, więc datę
+    bierzemy z ``night_start`` prawdziwego „teraz”.
+    """
     from zoneinfo import ZoneInfo
 
-    local = datetime.now(ZoneInfo(settings.BUSINESS_TZ)).replace(
-        hour=hour, minute=30, second=0, microsecond=0
-    )
+    tz = ZoneInfo(settings.BUSINESS_TZ)
+    day = afr.night_start(datetime.now(timezone.utc)).astimezone(tz).date()
+    local = datetime.combine(day, time(hour=hour, minute=30), tzinfo=tz)
     return local.astimezone(timezone.utc)
 
 
@@ -170,6 +176,31 @@ def test_window_is_half_open_in_business_timezone(monkeypatch):
     # Równe godziny = okno zamknięte (wyłącznik bez deployu).
     monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_END_HOUR", 1)
     assert not afr.in_window(_at(1))
+
+
+@pytest.mark.parametrize(
+    "real_clock_utc",
+    [
+        "2026-10-02T22:06:00+00:00",  # 00:06 w Warszawie — przed początkiem okna
+        "2026-10-02T23:10:00+00:00",  # 01:10 — okno trwa
+        "2026-10-03T12:00:00+00:00",  # 14:00 — dzień
+        "2026-10-03T21:59:00+00:00",  # 23:59
+        "2026-01-14T23:30:00+00:00",  # 00:30 zimą (UTC+1)
+    ],
+)
+def test_clock_helper_keeps_the_real_clock_inside_its_night(real_clock_utc):
+    """Wiersze testów dostają czas z prawdziwego zegara, a „ta noc” liczy się
+    od ``_at(2)``. Do 03.10.2026 ``_at`` brało dzisiejszą datę: między północą
+    a początkiem okna przegląd założony przed chwilą był sprzed „tej nocy”
+    i testy z bazą padały (kolejka merge'ów, 02.10.2026 22:06 UTC)."""
+    import time_machine
+
+    with time_machine.travel(real_clock_utc, tick=False):
+        real_now = datetime.now(timezone.utc)
+        tonight = afr.night_start(_at(2))
+        assert tonight <= real_now < tonight + timedelta(hours=24)
+        # Następna noc zaczyna się po prawdziwym „teraz”.
+        assert afr.night_start(_at(2) + timedelta(days=1)) > real_now
 
 
 # ── wybór i start ───────────────────────────────────────────────────────────
