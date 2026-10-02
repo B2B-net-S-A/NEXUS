@@ -253,12 +253,14 @@ export function quoted(label: string): string {
   return `„${label}”`;
 }
 
+/** Nazwy uprawnień w cudzysłowach, po przecinku. */
+export function quotedPermissionLabels(keys: readonly Permission[]): string {
+  return keys.map((key) => quoted(permissionLabel(key))).join(", ");
+}
+
 /** „Wymagane przez: „Stawki i kwoty: zmiana”” — podpis zablokowanego wiersza. */
-export function requiredByCaption(
-  requiredBy: readonly Permission[],
-  labelOf: (key: Permission) => string = permissionLabel,
-): string {
-  return `Wymagane przez: ${requiredBy.map((key) => quoted(labelOf(key))).join(", ")}`;
+export function requiredByCaption(requiredBy: readonly Permission[]): string {
+  return `Wymagane przez: ${quotedPermissionLabels(requiredBy)}`;
 }
 
 export function peopleCountLabel(count: number): string {
