@@ -781,15 +781,13 @@ export default function JobDetailPage() {
   const canEditJob = editScope === "full";
   const canEditJobContentFields = editScope !== "none";
   // Zamknięcie rekrutacji (`POST /api/jobs/{id}/close`) wymaga uprawnienia do
-  // jej prowadzenia — sama pełna redakcja nie wystarcza (TAC redaguje
-  // rekrutację, a zamknięcia serwer mu odmawia). Zapis w rekrutacjach i dostęp
-  // do tej rekrutacji niesie `editScope`.
+  // jej prowadzenia. Zapis w rekrutacjach i dostęp do tej rekrutacji niesie
+  // `editScope`.
   const canCloseJob = canEditJobContentFields && canManageRecruitment;
   const canEditChampion = canEditJobContent(job, {
     canWritePipeline,
     // Odpowiedź bez pola `can_edit` (starszy cache): pełną redakcję rekrutacji
     // daje uprawnienie do jej prowadzenia.
-    // Pełną redakcję bez flagi z serwera ma też TAC (reguła zapasowa backendu).
     fallback: hasFullJobEditFallback(authUser),
   });
   // Bez prawa edycji zawsze „Podgląd” — nawet ze starym linkiem `?mode=edit`.

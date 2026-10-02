@@ -50,7 +50,7 @@ from app.services.access_scope import DL_CLIENT_OUT_OF_SCOPE_DETAIL
 from app.models.competence_category import UserCompetenceCategory
 from app.models.job import Job, JobStatus
 from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
-from app.models.job_work_assignment import JobWorkAssignment
+from app.models.job_work_assignment import WORK_ROLE, JobWorkAssignment
 from app.models.activity import Activity
 from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -106,7 +106,6 @@ from app.services.auto_assign_owners import resolve_default_owners
 from app.services.client_access import assert_client_assignable
 from app.api.notifications import create_notification
 from app.api.recruitment_access import (
-    JOB_FULL_EDIT_LEGACY_ROLES,
     JobEditLevel,
     JobEditUser,
     JobStaffingUser,
@@ -161,7 +160,6 @@ from app.services.job_team import (
     owner_is_working_clause,
     recruiters_for_jobs,
     remove_recruiter,
-    work_role_of,
     working_assignment_job_ids,
 )
 from app.services.request_allocation import manual_add, void_manual_release
@@ -312,33 +310,28 @@ def _history_entry_payload(entry, *, show_fee: bool) -> dict:
 
 
 def _may_write_salary_range(current_user: User) -> bool:
-    """Widełki wynagrodzenia zostają przy roli: admin albo TAC.
+    """Widełki wynagrodzenia zostają przy roli: admin (do 0411 także TAC).
 
     Do 0410 rekrutację zakładał tylko admin i Delivery Lead, więc wystarczało
     odmówić DL/TCM. Uprawnienie „Rekrutacje” może dostać każda rola — nadanie
     nie może dawać więcej niż ma jego domyślny posiadacz (Delivery Lead).
     """
 
-    if current_user.has_role(UserRole.admin):
-        return True
-    return current_user.has_role(UserRole.tac) and not current_user.has_any_role(
-        UserRole.delivery_lead,
-        UserRole.talent_community_manager,
-    )
+    return current_user.has_role(UserRole.admin)
 
 
 def _assert_delivery_lead_finance_write(
     fields_set: set[str],
     current_user: User,
 ) -> None:
-    """Only admin or TAC may create or mutate recruitment budget fields."""
+    """Only admin may create or mutate recruitment budget fields."""
 
     if {"salary_min", "salary_max"} & fields_set and not _may_write_salary_range(
         current_user
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Widełki wynagrodzenia może ustawić tylko admin lub TAC",
+            detail="Widełki wynagrodzenia może ustawić tylko admin",
         )
 
 
@@ -650,9 +643,7 @@ async def _auto_extract_train_name(
 _OWNERSHIP_ELIGIBLE_ROLES = {
     UserRole.admin,
     UserRole.delivery_lead,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
 }
 
 
@@ -2601,12 +2592,10 @@ async def update_job(
     # przydziału — bierzemy ją PRZED wierszem rekrutacji (kolejność z
     # `allocation_lock`, ta sama co `/owner`) i tylko gdy żądanie niesie to pole.
     # Rekrutera zmienia w PATCH wyłącznie osoba z pełną redakcją (uprawnienie
-    # do prowadzenia rekrutacji albo konto TAC — `JOB_MEMBER_LOCKED_FIELDS`);
-    # pozostali dostaną 403 niżej, więc nie zajmują globalnej blokady na czas
-    # odmowy.
-    if "recruiter_id" in data.model_fields_set and (
-        has_permission(current_user, ProductAction.recruitment_manage)
-        or current_user.has_any_role(*JOB_FULL_EDIT_LEGACY_ROLES)
+    # do prowadzenia rekrutacji — `JOB_MEMBER_LOCKED_FIELDS`); pozostali
+    # dostaną 403 niżej, więc nie zajmują globalnej blokady na czas odmowy.
+    if "recruiter_id" in data.model_fields_set and has_permission(
+        current_user, ProductAction.recruitment_manage
     ):
         await allocation_lock(db)
     result = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
@@ -3919,10 +3908,8 @@ _HANDOFF_RECRUITER_ROLES = (
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
-    UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
-    UserRole.sourcer,
 )
 
 
@@ -5380,7 +5367,7 @@ async def list_champion_suggestions(
 
 # Role, którym przypisanie do requestu zakłada wiersz pracy — lustro pulpitu
 # „Requesty i obłożenie” (`request_board.add_person`).
-_WORK_ASSIGNMENT_ROLES = (UserRole.recruiter, UserRole.sourcer, UserRole.tac)
+_WORK_ASSIGNMENT_ROLES = (UserRole.recruiter,)
 
 
 def _in_allocation_pool(job: Job) -> bool:
@@ -5446,7 +5433,7 @@ async def _sync_work_assignments_with_owner(
             db,
             job_id=job.id,
             user_id=owner.id,
-            role=work_role_of(owner),
+            role=WORK_ROLE,
             actor_id=actor_id,
         )
     else:
@@ -5480,15 +5467,8 @@ async def assign_owner(
         )
 
     previous_owner_id = job.recruiter_id
-    if job.is_open and target.has_any_role(
-        UserRole.recruiter, UserRole.sourcer, UserRole.tac
-    ):
-        channel = (
-            PriorityChannel.database
-            if target.has_role(UserRole.sourcer)
-            and not target.has_role(UserRole.recruiter)
-            else PriorityChannel.linkedin
-        )
+    if job.is_open and target.has_role(UserRole.recruiter):
+        channel = PriorityChannel.linkedin
         await assign_operator(
             db,
             job=job,
@@ -5594,15 +5574,8 @@ async def claim_job(
 
     # Poprzedni prowadzący może tu być tylko nieaktywnym kontem (wyżej 409).
     previous_owner_id = job.recruiter_id
-    if job.is_open and current_user.has_any_role(
-        UserRole.recruiter, UserRole.sourcer, UserRole.tac
-    ):
-        channel = (
-            PriorityChannel.database
-            if current_user.has_role(UserRole.sourcer)
-            and not current_user.has_role(UserRole.recruiter)
-            else PriorityChannel.linkedin
-        )
+    if job.is_open and current_user.has_role(UserRole.recruiter):
+        channel = PriorityChannel.linkedin
         await assign_operator(
             db,
             job=job,

@@ -140,8 +140,11 @@ async def _job_actions(job_id: int) -> list[str]:
 
 
 async def _grant_dl_job_scope(delivery_lead_id: int, job_id: int) -> None:
-    """Attach a job to the explicit client–TAC graph visible to one DL."""
-    tac_id, _, _ = await _seed_user(UserRole.tac, prefix="own-scope")
+    """Attach a job to the explicit client–TAC graph visible to one DL.
+
+    Opiekunem (`tac_id`) jest tu rekruter — roli TAC nie ma od 0411.
+    """
+    tac_id, _, _ = await _seed_user(UserRole.recruiter, prefix="own-scope")
     async with AsyncSessionLocal() as db:
         job = await db.get(Job, job_id)
         assert job is not None
@@ -210,12 +213,12 @@ async def test_assign_owner_as_admin_succeeds(ownership_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_assign_owner_as_tac_forbidden(ownership_client: AsyncClient):
-    _, tac_email, tac_pass = await _seed_user(UserRole.tac)
+async def test_assign_owner_as_recruiter_forbidden(ownership_client: AsyncClient):
+    _, actor_email, actor_pass = await _seed_user(UserRole.recruiter)
     rec_id, _, _ = await _seed_user(UserRole.recruiter)
     job_id = await _seed_job()
 
-    headers = await _login(ownership_client, tac_email, tac_pass)
+    headers = await _login(ownership_client, actor_email, actor_pass)
     resp = await ownership_client.post(
         f"/api/jobs/{job_id}/owner",
         headers=headers,
@@ -282,12 +285,12 @@ async def test_head_of_recruitment_assigns_and_releases_the_owner(
 
 
 @pytest.mark.asyncio
-async def test_release_owner_as_tac_forbidden(ownership_client: AsyncClient):
-    _, tac_email, tac_pass = await _seed_user(UserRole.tac)
+async def test_release_owner_as_recruiter_forbidden(ownership_client: AsyncClient):
+    _, actor_email, actor_pass = await _seed_user(UserRole.recruiter)
     rec_id, _, _ = await _seed_user(UserRole.recruiter)
     job_id = await _seed_job(recruiter_id=rec_id)
 
-    headers = await _login(ownership_client, tac_email, tac_pass)
+    headers = await _login(ownership_client, actor_email, actor_pass)
     resp = await ownership_client.delete(f"/api/jobs/{job_id}/owner", headers=headers)
     assert resp.status_code == 403, resp.text
     async with AsyncSessionLocal() as db:
@@ -321,7 +324,7 @@ async def test_release_owner_takes_the_person_out_of_the_recruiter_role(
 
     _, admin_email, admin_pass = await _seed_user(UserRole.admin)
     rec_id, _, _ = await _seed_user(UserRole.recruiter)
-    other_id, _, _ = await _seed_user(UserRole.sourcer)
+    other_id, _, _ = await _seed_user(UserRole.recruiter)
     job_id = await _seed_job(recruiter_id=rec_id)
     async with AsyncSessionLocal() as db:
         db.add_all(
@@ -383,7 +386,7 @@ async def test_owner_change_in_the_pool_moves_the_work_assignment(
 
     admin_id, admin_email, admin_pass = await _seed_user(UserRole.admin)
     old_id, _, _ = await _seed_user(UserRole.recruiter)
-    new_id, _, _ = await _seed_user(UserRole.sourcer)
+    new_id, _, _ = await _seed_user(UserRole.recruiter)
     job_id = await _seed_job(recruiter_id=old_id, in_pool=True)
     async with AsyncSessionLocal() as db:
         db.add(
@@ -404,13 +407,13 @@ async def test_owner_change_in_the_pool_moves_the_work_assignment(
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["recruiter_id"] == new_id
-        # Sourcer bez roli rekrutera pracuje jako sourcer (`work_role_of`).
+        # Rola pracy jest jedna od 0411 (do 0411 sourcer pracował jako sourcer).
         assert [(p["user_id"], p["role"], p["via"]) for p in body["recruiters"]] == [
-            (new_id, "sourcer", "owner")
+            (new_id, "recruiter", "owner")
         ]
         assert await _work_rows(job_id) == [
             (old_id, "released", "auto", "recruiter", "owner_changed"),
-            (new_id, "active", "manual", "sourcer", None),
+            (new_id, "active", "manual", "recruiter", None),
         ]
         async with AsyncSessionLocal() as db:
             assigned_by = await db.scalar(
@@ -652,9 +655,8 @@ def _pool_job(**overrides) -> SimpleNamespace:
     ("job_overrides", "roles", "expected_role"),
     [
         ({}, ["recruiter"], "recruiter"),
-        ({}, ["sourcer"], "sourcer"),
-        # TAC, który bywa sourcerem, pracuje jako rekruter (`work_role_of`).
-        ({}, ["tac", "sourcer"], "recruiter"),
+        # Rekruter jako rola dodatkowa też dostaje wiersz — z jedyną rolą pracy.
+        ({}, ["delivery_lead", "recruiter"], "recruiter"),
         # Poza pulą przydziału wiersz nie powstaje — automat i tak by go zwolnił.
         ({"work_state": "to_review"}, ["recruiter"], None),
         ({"work_state": "client_silent"}, ["recruiter"], None),
@@ -662,7 +664,7 @@ def _pool_job(**overrides) -> SimpleNamespace:
         ({"status": JobStatus.draft}, ["recruiter"], None),
         ({"status": JobStatus.closed}, ["recruiter"], None),
         # Delivery Lead albo admin jako prowadzący nie dostaje wiersza pracy —
-        # lustro pulpitu „Requesty i obłożenie” (rekruter, sourcer, TAC).
+        # lustro pulpitu „Requesty i obłożenie” (tylko rekruter).
         ({}, ["delivery_lead"], None),
         ({}, ["admin"], None),
     ],
@@ -910,7 +912,7 @@ async def test_mine_filter_includes_collaborator_jobs(
     ownership_client: AsyncClient,
 ):
     owner_id, owner_email, owner_pass = await _seed_user(UserRole.recruiter)
-    collab_id, collab_email, collab_pass = await _seed_user(UserRole.sourcer)
+    collab_id, collab_email, collab_pass = await _seed_user(UserRole.recruiter)
     job_id = await _seed_job(recruiter_id=owner_id)
 
     # Owner adds the sourcer as a collaborator (primary owner → allowed)
@@ -936,7 +938,7 @@ async def test_mine_filter_includes_collaborator_jobs(
 @pytest.mark.asyncio
 async def test_collaborator_add_by_primary_succeeds(ownership_client: AsyncClient):
     owner_id, owner_email, owner_pass = await _seed_user(UserRole.recruiter)
-    collab_id, _, _ = await _seed_user(UserRole.sourcer)
+    collab_id, _, _ = await _seed_user(UserRole.recruiter)
     job_id = await _seed_job(recruiter_id=owner_id)
 
     headers = await _login(ownership_client, owner_email, owner_pass)
@@ -959,7 +961,7 @@ async def test_collaborator_add_by_recruiter_outside_the_job_succeeds(
 
     owner_id, _, _ = await _seed_user(UserRole.recruiter)
     _, stranger_email, stranger_pass = await _seed_user(UserRole.recruiter)
-    collab_id, _, _ = await _seed_user(UserRole.sourcer)
+    collab_id, _, _ = await _seed_user(UserRole.recruiter)
     job_id = await _seed_job(recruiter_id=owner_id)
 
     headers = await _login(ownership_client, stranger_email, stranger_pass)
@@ -995,7 +997,7 @@ async def test_collaborator_add_and_remove_by_read_only_viewer_forbidden(
 ):
     owner_id, _, _ = await _seed_user(UserRole.recruiter)
     _, viewer_email, viewer_pass = await _seed_user(UserRole.user)
-    collab_id, _, _ = await _seed_user(UserRole.sourcer)
+    collab_id, _, _ = await _seed_user(UserRole.recruiter)
     job_id = await _seed_job(recruiter_id=owner_id)
     async with AsyncSessionLocal() as db:
         from app.models.job_collaborator import JobCollaborator
@@ -1023,7 +1025,7 @@ async def test_manual_add_promotes_an_auto_cc_collaborator(
     from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 
     owner_id, owner_email, owner_pass = await _seed_user(UserRole.recruiter)
-    collab_id, _, _ = await _seed_user(UserRole.sourcer)
+    collab_id, _, _ = await _seed_user(UserRole.recruiter)
     job_id = await _seed_job(recruiter_id=owner_id)
     async with AsyncSessionLocal() as db:
         db.add(
@@ -1066,7 +1068,7 @@ async def test_collaborator_add_duplicate_is_idempotent(
     ownership_client: AsyncClient,
 ):
     owner_id, owner_email, owner_pass = await _seed_user(UserRole.recruiter)
-    collab_id, _, _ = await _seed_user(UserRole.sourcer)
+    collab_id, _, _ = await _seed_user(UserRole.recruiter)
     job_id = await _seed_job(recruiter_id=owner_id)
     headers = await _login(ownership_client, owner_email, owner_pass)
 
@@ -1105,7 +1107,7 @@ async def test_collaborator_add_duplicate_is_idempotent(
 async def test_collaborator_remove_by_dl_succeeds(ownership_client: AsyncClient):
     dl_id, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
     owner_id, _, _ = await _seed_user(UserRole.recruiter)
-    collab_id, _, _ = await _seed_user(UserRole.sourcer)
+    collab_id, _, _ = await _seed_user(UserRole.recruiter)
     job_id = await _seed_job(recruiter_id=owner_id)
     await _grant_dl_job_scope(dl_id, job_id)
 
@@ -1142,14 +1144,43 @@ async def test_users_directory_excludes_read_only_viewers(
 @pytest.mark.asyncio
 async def test_users_directory_respects_roles_filter(ownership_client: AsyncClient):
     rec_id, rec_email, rec_pass = await _seed_user(UserRole.recruiter)
-    sourcer_id, _, _ = await _seed_user(UserRole.sourcer)
+    lead_id, _, _ = await _seed_user(UserRole.delivery_lead)
 
     headers = await _login(ownership_client, rec_email, rec_pass)
     resp = await ownership_client.get("/api/users?roles=recruiter", headers=headers)
     assert resp.status_code == 200
     ids = [u["id"] for u in resp.json()]
     assert rec_id in ids
-    assert sourcer_id not in ids
+    assert lead_id not in ids
+
+
+@pytest.mark.asyncio
+async def test_users_directory_reads_retired_role_names_as_recruiter(
+    ownership_client: AsyncClient,
+):
+    """Otwarta karta ze starą wersją aplikacji pyta jeszcze o wycofane role
+    (0411) — filtr czyta je jako rekrutera; sama nieznana rola to 422."""
+    from app.services.role_merge import RETIRED_ROLE_VALUES
+
+    rec_id, rec_email, rec_pass = await _seed_user(UserRole.recruiter)
+    lead_id, _, _ = await _seed_user(UserRole.delivery_lead)
+    headers = await _login(ownership_client, rec_email, rec_pass)
+
+    for retired in RETIRED_ROLE_VALUES:
+        resp = await ownership_client.get(
+            f"/api/users?roles={retired}", headers=headers
+        )
+        assert resp.status_code == 200, resp.text
+        ids = [u["id"] for u in resp.json()]
+        assert rec_id in ids, retired
+        assert lead_id not in ids, retired
+        assert {u["role"] for u in resp.json()} <= {"recruiter", "delivery_lead"}
+
+    unknown = await ownership_client.get(
+        "/api/users?roles=nie-ma-takiej-roli", headers=headers
+    )
+    assert unknown.status_code == 422, unknown.text
+    assert unknown.json()["detail"] == "Nieznana rola w filtrze."
 
 
 @pytest.mark.asyncio
@@ -1160,11 +1191,11 @@ async def test_users_directory_and_mentions_include_secondary_roles(
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         hybrid = User(
-            email=f"hybrid-recruiter-tac-{unique}@example.com",
+            email=f"hybrid-lead-recruiter-{unique}@example.com",
             password_hash=hash_password(f"T3st_{unique}!HYBRID"),
-            name=f"Hybrid TAC {unique}",
-            role=UserRole.recruiter,
-            roles=[UserRole.recruiter.value, UserRole.tac.value],
+            name=f"Hybrid Lead {unique}",
+            role=UserRole.delivery_lead,
+            roles=[UserRole.delivery_lead.value, UserRole.recruiter.value],
             is_active=True,
         )
         db.add(hybrid)
@@ -1178,7 +1209,7 @@ async def test_users_directory_and_mentions_include_secondary_roles(
         requester_password,
     )
     directory = await ownership_client.get(
-        "/api/users?roles=tac",
+        "/api/users?roles=recruiter",
         headers=headers,
     )
     mentionable = await ownership_client.get(
@@ -1189,6 +1220,6 @@ async def test_users_directory_and_mentions_include_secondary_roles(
     assert directory.status_code == 200, directory.text
     assert mentionable.status_code == 200, mentionable.text
     directory_row = next(user for user in directory.json() if user["id"] == hybrid_id)
-    assert directory_row["role"] == UserRole.recruiter.value
-    assert UserRole.tac.value in directory_row["roles"]
+    assert directory_row["role"] == UserRole.delivery_lead.value
+    assert UserRole.recruiter.value in directory_row["roles"]
     assert hybrid_id in {user["id"] for user in mentionable.json()}

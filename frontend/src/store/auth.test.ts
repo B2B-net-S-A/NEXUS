@@ -35,9 +35,7 @@ const ALL_ROLES: UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
 ]
@@ -142,8 +140,8 @@ describe("onboarding persona", () => {
   it("czyta pełną unię ról i preferuje Delivery Lead", () => {
     expect(
       onboardingPersona({
-        role: "tac",
-        roles: ["tac", "recruiter"],
+        role: "head_of_recruitment",
+        roles: ["head_of_recruitment", "recruiter"],
       }),
     ).toBe("recruiter")
     expect(
@@ -164,8 +162,8 @@ describe("onboarding persona", () => {
     ).toBe(false)
     expect(
       requiresOnboarding({
-        role: "tac",
-        roles: ["tac", "recruiter"],
+        role: "head_of_recruitment",
+        roles: ["head_of_recruitment", "recruiter"],
         profile_completed: false,
       }),
     ).toBe(true)
@@ -216,8 +214,8 @@ describe("hasRole", () => {
   })
 
   it("matches any role from multi-arg list", () => {
-    const user = mkUser("tac")
-    expect(hasRole(user, "admin", "delivery_lead", "tac")).toBe(true)
+    const user = mkUser("recruiter")
+    expect(hasRole(user, "admin", "delivery_lead", "recruiter")).toBe(true)
     expect(hasRole(user, "admin", "delivery_lead")).toBe(false)
   })
 
@@ -514,15 +512,10 @@ describe("hasMinRole", () => {
     expect(hasMinRole(mkUser("finance"), "user")).toBe(false)
   })
 
-  it("recruiter i sourcer są na tej samej randze", () => {
-    expect(hasMinRole(mkUser("recruiter"), "sourcer")).toBe(true)
-    expect(hasMinRole(mkUser("sourcer"), "recruiter")).toBe(true)
-  })
-
-  it("tac spełnia >= recruiter ale nie >= delivery_lead", () => {
-    const user = mkUser("tac")
+  it("recruiter spełnia >= recruiter ale nie >= delivery_lead", () => {
+    const user = mkUser("recruiter")
     expect(hasMinRole(user, "recruiter")).toBe(true)
-    expect(hasMinRole(user, "tac")).toBe(true)
+    expect(hasMinRole(user, "talent_community_manager")).toBe(false)
     expect(hasMinRole(user, "delivery_lead")).toBe(false)
     expect(hasMinRole(user, "admin")).toBe(false)
   })
@@ -531,31 +524,28 @@ describe("hasMinRole", () => {
     const user = mkUser("delivery_lead")
     expect(hasMinRole(user, "admin")).toBe(false)
     expect(hasMinRole(user, "delivery_lead")).toBe(true)
-    expect(hasMinRole(user, "tac")).toBe(true)
     expect(hasMinRole(user, "recruiter")).toBe(true)
-    expect(hasMinRole(user, "sourcer")).toBe(true)
     expect(hasMinRole(user, "user")).toBe(true)
   })
 })
 
-describe("RBAC gates: head_of_recruitment nie dziedziczy uprawnień DL/TAC", () => {
+describe("RBAC gates: head_of_recruitment nie dziedziczy uprawnień DL", () => {
   const hor = mkUser("head_of_recruitment")
   const dl = mkUser("delivery_lead")
-  const tac = mkUser("tac")
+  const recruiter = mkUser("recruiter")
   const admin = mkUser("admin")
 
-  // Bug u źródła: ROLE_RANK.head_of_recruitment (4.5) > delivery_lead (4) i
-  // > tac (3), więc hasMinRole przepuszczał HoR przez bramki DL/TAC, których
-  // backend mu NIE daje. Dokumentujemy złe zachowanie, żeby regresja była
-  // widoczna, i dlatego bramki UI używają hasRole (exact), nie hasMinRole.
-  it("hasMinRole BŁĘDNIE przepuszczał HoR przez bramki DL/TAC", () => {
+  // Bug u źródła: ROLE_RANK.head_of_recruitment (4.5) > delivery_lead (4),
+  // więc hasMinRole przepuszczał HoR przez bramki DL, których backend mu NIE
+  // daje. Dokumentujemy złe zachowanie, żeby regresja była widoczna, i dlatego
+  // bramki UI używają hasRole (exact), nie hasMinRole.
+  it("hasMinRole BŁĘDNIE przepuszczał HoR przez bramki DL", () => {
     expect(hasMinRole(hor, "delivery_lead")).toBe(true)
-    expect(hasMinRole(hor, "tac")).toBe(true)
   })
 
   // Dlatego bramki akcji NIE liczą rang, tylko czytają rejestr capability
   // (`lib/capabilities.ts`) — pełna macierz w `lib/__tests__/capabilities.test.ts`.
-  it("HoR ma parytet z rekruterem (RecruiterPlus), ale nie bramki TAC/Delivery", () => {
+  it("HoR ma parytet z rekruterem (RecruiterPlus), ale nie bramki Delivery", () => {
     // Decyzja Artura 2026-09-17: HoR przechodzi RecruiterPlus (kandydat,
     // kalendarz, link aplikacyjny) — dalej NIE zakłada rekrutacji ani klientów.
     expect(hasCapability(hor, "candidate.create")).toBe(true)
@@ -573,16 +563,16 @@ describe("RBAC gates: head_of_recruitment nie dziedziczy uprawnień DL/TAC", () 
     expect(hasCapability(dl, "job.create")).toBe(true)
   })
 
-  it("bramka pin/reassign (admin+delivery_lead) wyklucza HoR i TAC", () => {
+  it("bramka pin/reassign (admin+delivery_lead) wyklucza HoR i rekrutera", () => {
     expect(hasRole(hor, "admin", "delivery_lead")).toBe(false)
-    expect(hasRole(tac, "admin", "delivery_lead")).toBe(false)
+    expect(hasRole(recruiter, "admin", "delivery_lead")).toBe(false)
     expect(hasRole(dl, "admin", "delivery_lead")).toBe(true)
     expect(hasRole(admin, "admin", "delivery_lead")).toBe(true)
   })
 
   it("bramka Nowy klient dopuszcza tylko Admina i Delivery Leada", () => {
     expect(hasCapability(hor, "client.create")).toBe(false)
-    expect(hasCapability(tac, "client.create")).toBe(false)
+    expect(hasCapability(recruiter, "client.create")).toBe(false)
     expect(hasCapability(dl, "client.create")).toBe(true)
     expect(hasCapability(admin, "client.create")).toBe(true)
   })
@@ -600,16 +590,14 @@ describe("ROLE_RANK invariants", () => {
     expect(ROLE_RANK.finance).toBeLessThan(ROLE_RANK.user)
   })
 
-  it("hierarchia: admin > delivery_lead > tac > recruiter = sourcer > user", () => {
+  it("hierarchia: admin > delivery_lead > recruiter > user", () => {
     expect(ROLE_RANK.admin).toBeGreaterThan(ROLE_RANK.delivery_lead)
-    expect(ROLE_RANK.delivery_lead).toBeGreaterThan(ROLE_RANK.tac)
-    expect(ROLE_RANK.tac).toBeGreaterThan(ROLE_RANK.recruiter)
-    expect(ROLE_RANK.recruiter).toBe(ROLE_RANK.sourcer)
-    expect(ROLE_RANK.sourcer).toBeGreaterThan(ROLE_RANK.user)
+    expect(ROLE_RANK.delivery_lead).toBeGreaterThan(ROLE_RANK.recruiter)
+    expect(ROLE_RANK.recruiter).toBeGreaterThan(ROLE_RANK.user)
   })
 
-  it("praktykant jest najniżej z ról operacyjnych (poniżej sourcera i viewera)", () => {
-    expect(ROLE_RANK.trainee).toBeLessThan(ROLE_RANK.sourcer)
+  it("praktykant jest najniżej z ról operacyjnych (poniżej rekrutera i viewera)", () => {
+    expect(ROLE_RANK.trainee).toBeLessThan(ROLE_RANK.recruiter)
     expect(ROLE_RANK.trainee).toBeLessThan(ROLE_RANK.user)
     expect(ROLE_RANK.trainee).toBeGreaterThan(ROLE_RANK.finance)
     expect(ROLE_LABELS.trainee).toBe("Praktykant")
@@ -694,9 +682,7 @@ describe("canManageMultiConsultantOrders", () => {
     for (const role of [
       "head_of_recruitment",
       "talent_community_manager",
-      "tac",
       "recruiter",
-      "sourcer",
       "user",
       "trainee",
     ] as UserRole[]) {
@@ -742,7 +728,7 @@ describe("canManageMultiConsultantOrders", () => {
   it("czyta też role dodatkowe, nie tylko primary", () => {
     expect(
       canManageMultiConsultantOrders({
-        role: "tac",
+        role: "recruiter",
         roles: ["delivery_lead"],
         data_scope: {
           kind: "delivery_clients",
@@ -769,9 +755,7 @@ describe("canEditOrderLineAmounts — kwoty linii zamówienia", () => {
     for (const role of [
       "head_of_recruitment",
       "talent_community_manager",
-      "tac",
       "recruiter",
-      "sourcer",
       "user",
       "trainee",
     ] as UserRole[]) {

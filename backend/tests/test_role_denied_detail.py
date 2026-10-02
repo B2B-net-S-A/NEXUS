@@ -16,9 +16,9 @@ async def test_role_gate_denial_is_polish_and_hides_role_names():
         has_role=lambda role: False,
         has_any_role=lambda *roles: False,
     )
-    check = require_roles(UserRole.tac, UserRole.delivery_lead)
+    check = require_roles(UserRole.recruiter, UserRole.delivery_lead)
     with pytest.raises(HTTPException) as exc:
         await check(current_user=user)
     assert exc.value.status_code == 403
     assert exc.value.detail == ROLE_DENIED_DETAIL
-    assert "tac" not in exc.value.detail
+    assert "recruiter" not in exc.value.detail

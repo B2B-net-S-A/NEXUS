@@ -78,9 +78,7 @@ REPLACED_PROPOSAL = f"{PROPOSAL_RELEASE_PREFIX}replaced"
 # Ręczne zdjęcie, po którym człowiek przypisał tę samą osobę ponownie — już
 # nie blokuje (``void_manual_release``).
 REASSIGNED = "reassigned"
-RECRUIT_ROLES = (UserRole.recruiter, UserRole.tac)
-SOURCE_ROLES = (UserRole.sourcer, UserRole.tac)
-OPERATOR_ROLES = (UserRole.recruiter, UserRole.sourcer, UserRole.tac)
+OPERATOR_ROLES = (UserRole.recruiter,)
 
 
 def _pool_clause():
@@ -151,12 +149,6 @@ async def _requests(db: AsyncSession) -> list[RequestInfo]:
     ]
 
 
-def _role_set(user: User) -> set[str]:
-    values = {str(getattr(r, "value", r)) for r in (user.roles or [])}
-    values.add(str(getattr(user.role, "value", user.role)))
-    return values
-
-
 async def _people(
     db: AsyncSession, *, available_ids: Optional[set[int]]
 ) -> tuple[list[PersonInfo], frozenset[int]]:
@@ -223,7 +215,6 @@ async def _people(
     people = []
     eligible: set[int] = set()
     for user in users:
-        roles = _role_set(user)
         # Bez żadnej kategorii osoba nie dostaje requestów — tak zdecydował
         # Artur („osoba bez kategorii nie dostaje requestów automatycznie”).
         if user.id not in first and user.id not in second:
@@ -234,8 +225,6 @@ async def _people(
         people.append(
             PersonInfo(
                 user_id=user.id,
-                can_recruit=bool(roles & {r.value for r in RECRUIT_ROLES}),
-                can_source=bool(roles & {r.value for r in SOURCE_ROLES}),
                 first=frozenset(first.get(user.id, set())),
                 second=frozenset(second.get(user.id, set())),
                 last_assigned=last.get(user.id),
@@ -649,7 +638,6 @@ async def run_request_allocation(
             people=people,
             live=live,
             out_of_pool=out,
-            sourcer_threshold=rules.sourcer_threshold,
             mode=mode,
             availability_known=availability_fresh
             and settings.COMPASS_AVAILABILITY_ENABLED,

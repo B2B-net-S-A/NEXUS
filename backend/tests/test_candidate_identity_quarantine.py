@@ -213,9 +213,7 @@ def _user(role: UserRole, user_id: int = 7) -> User:
 async def test_override_rejects_every_non_admin_non_hor_role() -> None:
     for role in (
         UserRole.delivery_lead,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.user,
     ):
         with pytest.raises(quarantine.IdentityQuarantineForbidden):

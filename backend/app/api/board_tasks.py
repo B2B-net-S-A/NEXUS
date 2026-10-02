@@ -124,7 +124,7 @@ class AllocationProposalRow(BaseModel):
     sent: int
     user_id: int
     user_name: str
-    role: Literal["recruiter", "sourcer"]
+    role: Literal["recruiter"]
     fit: Literal["first", "second", "other"]
     load: int
     leave_until: Optional[date] = None

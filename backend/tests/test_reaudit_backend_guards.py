@@ -68,7 +68,8 @@ async def _headers_for(
                     client_id=assigned_client_id,
                 )
             )
-        elif assigned_client_id is not None and role is UserRole.tac:
+        elif assigned_client_id is not None and role is UserRole.recruiter:
+            # Historyczne przypisanie opiekuna klienta (do 0411 rola TAC).
             db.add(
                 ClientTacAssignment(
                     tac_user_id=user.id,
@@ -111,9 +112,7 @@ _OVERVIEW_ROLES = [
     "delivery_lead",
     "talent_community_manager",
     "finance",
-    "tac",
     "recruiter",
-    "sourcer",
     "user",
 ]
 _OVERVIEW_OPERATIONAL = {
@@ -122,9 +121,7 @@ _OVERVIEW_OPERATIONAL = {
     "delivery_lead",
     "talent_community_manager",
     "finance",
-    "tac",
     "recruiter",
-    "sourcer",
 }
 
 
@@ -466,10 +463,13 @@ async def test_client_order_reads_and_file_require_dl_assignment(
     missing_file = await app_client.get(file_path, headers=assigned)
     assert missing_file.status_code == 404, missing_file.text
 
-    # A legacy TAC-client relationship must not reopen the Delivery section.
-    tac = await _headers_for(app_client, "tac", assigned_client_id=client_id)
+    # A legacy TAC-client relationship (`ClientTacAssignment`, dziś konto
+    # rekrutera) must not reopen the Delivery section.
+    guardian = await _headers_for(
+        app_client, "recruiter", assigned_client_id=client_id
+    )
     for path in (list_path, detail_path, file_path):
-        denied = await app_client.get(path, headers=tac)
+        denied = await app_client.get(path, headers=guardian)
         assert denied.status_code == 403, denied.text
 
 

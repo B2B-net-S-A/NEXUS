@@ -115,8 +115,6 @@ async def test_funnel_is_reachable_for_every_logged_in_role(fx_client: AsyncClie
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
-        UserRole.sourcer,
         UserRole.recruiter,
         UserRole.finance,
         UserRole.user,
@@ -369,9 +367,7 @@ async def test_time_to_hire_is_open_to_every_role(fx_client: AsyncClient):
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.finance,
         UserRole.user,
     ):
@@ -595,8 +591,6 @@ async def test_team_activity_is_open_to_every_logged_in_role(fx_client: AsyncCli
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
-        UserRole.sourcer,
         UserRole.recruiter,
         UserRole.finance,
     ):
@@ -846,8 +840,6 @@ async def test_invite_links_is_open_to_every_logged_in_role(fx_client: AsyncClie
         UserRole.talent_community_manager,
         UserRole.finance,
         UserRole.recruiter,
-        UserRole.sourcer,
-        UserRole.tac,
         UserRole.user,
     ):
         _, email, password = await _seed_user(role, "il-rbac")

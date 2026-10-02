@@ -108,13 +108,7 @@ export function getAvailableDashboardPresets(
     fallback.push("head-of-recruitment")
   }
   if (roles.has("delivery_lead")) fallback.push("delivery-lead")
-  if (
-    roles.has("tac") ||
-    roles.has("recruiter") ||
-    roles.has("sourcer")
-  ) {
-    fallback.push("my-work")
-  }
+  if (roles.has("recruiter")) fallback.push("my-work")
   return fallback
 }
 

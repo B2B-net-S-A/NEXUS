@@ -32,9 +32,7 @@ const ALL_ROLES = [
   "delivery_lead",
   "talent_community_manager",
   "finance",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
 ] as const;
@@ -116,7 +114,7 @@ describe("widoki Insights per rola", () => {
   });
 
   it("Mój miesiąc mają role z własnymi KPI (lustro backendu)", () => {
-    for (const role of ["recruiter", "sourcer", "tac", "delivery_lead"]) {
+    for (const role of ["recruiter", "delivery_lead"]) {
       expect(getVisibleInsightTabIds(user(role))).toContain("moj-miesiac");
     }
     for (const role of ["admin", "finance", "head_of_recruitment", "user"]) {

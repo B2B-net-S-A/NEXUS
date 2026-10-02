@@ -199,7 +199,6 @@ const EXPORT_ROLES: UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "finance",
 ];
 

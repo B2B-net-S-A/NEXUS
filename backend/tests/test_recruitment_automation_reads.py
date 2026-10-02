@@ -122,7 +122,7 @@ async def test_screening_sheet_carries_suggestions_without_saving_anything(
     app_client: AsyncClient,
 ):
     recruiter_id, recruiter = await _user(UserRole.recruiter)
-    sourcer_id, sourcer = await _user(UserRole.sourcer)
+    sourcer_id, sourcer = await _user(UserRole.recruiter)
     # Arkusz czyta zespół rekrutacji — obie osoby są właścicielami swoich.
     world = await _world(people=1, recruiter_id=recruiter_id)
     stage_id = await _stage(world)

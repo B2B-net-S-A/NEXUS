@@ -802,6 +802,16 @@ except Exception as _kc_err:  # noqa: BLE001
     _KEYWORD_CORPUS_DDL = []
     _KEYWORD_CORPUS_INDEXES = []
 
+# Jedna rola „Rekruter” zamiast sourcera, rekrutera i TAC (migracja 0411) —
+# JEDNO źródło SQL z migracją (`app/services/role_merge.py`). Instrukcje są
+# zbieżne (drugi przebieg zmienia 0 wierszy), więc biegną przy każdym starcie:
+# stara rola może wrócić z odtworzonej kopii albo po rollbacku obrazu.
+try:
+    from app.services.role_merge import ROLE_MERGE_STATEMENTS as _ROLE_MERGE_STATEMENTS
+except Exception as _role_merge_err:  # noqa: BLE001
+    print(f"role merge SQL unavailable: {_role_merge_err!r}")
+    _ROLE_MERGE_STATEMENTS = ()
+
 # Dokumenty pochodne umowy B2B (migracja 0362): tabela, typy aneksu i wersja
 # wzoru umowy — JEDNO źródło z migracją (`app/services/b2b_documents/schema_sql.py`).
 try:
@@ -6168,24 +6178,12 @@ _DATA_STATEMENTS = [
            ('talent_community_manager', 'insights', 'read'),
            ('talent_community_manager', 'finance', 'none'),
            ('talent_community_manager', 'system_admin', 'none'),
-           ('tac', 'sourcing', 'write'),
-           ('tac', 'pipeline', 'write'),
-           ('tac', 'delivery', 'none'),
-           ('tac', 'insights', 'read'),
-           ('tac', 'finance', 'none'),
-           ('tac', 'system_admin', 'none'),
            ('recruiter', 'sourcing', 'write'),
            ('recruiter', 'pipeline', 'write'),
            ('recruiter', 'delivery', 'none'),
            ('recruiter', 'insights', 'read'),
            ('recruiter', 'finance', 'none'),
            ('recruiter', 'system_admin', 'none'),
-           ('sourcer', 'sourcing', 'write'),
-           ('sourcer', 'pipeline', 'write'),
-           ('sourcer', 'delivery', 'none'),
-           ('sourcer', 'insights', 'read'),
-           ('sourcer', 'finance', 'none'),
-           ('sourcer', 'system_admin', 'none'),
            ('user', 'sourcing', 'read'),
            ('user', 'pipeline', 'read'),
            ('user', 'delivery', 'none'),
@@ -6251,9 +6249,7 @@ _DATA_STATEMENTS = [
            ('head_of_recruitment', 'b2b_contract_generator', 'manage'),
            ('delivery_lead', 'b2b_contract_generator', 'manage'),
            ('talent_community_manager', 'b2b_contract_generator', 'manage'),
-           ('tac', 'b2b_contract_generator', 'manage'),
            ('recruiter', 'b2b_contract_generator', 'manage'),
-           ('sourcer', 'b2b_contract_generator', 'manage'),
            ('user', 'b2b_contract_generator', 'view'),
            ('trainee', 'b2b_contract_generator', 'none')
        ) AS defaults(role, action, access)
@@ -6768,6 +6764,9 @@ _DATA_STATEMENTS = [
     # Must run after the legacy onboarding preflag above so viewer→Recruiter
     # remains profile_completed=false.  The marker makes it one-shot.
     _ROLE_DASHBOARD_CUTOVER_SQL,
+    # 0411: po preflagu onboardingu i po cutoverze 0210 — konto, które było
+    # sourcerem albo TAC, zostaje rekruterem bez ponownego onboardingu.
+    *_ROLE_MERGE_STATEMENTS,
     # Seed 5 Competence Categories (migration 0033_cc_entities). Idempotent:
     # ON CONFLICT (slug) pomija duplikaty. Nie re-update'uje, bo Head of
     # Recruitment mógł zmodyfikować opis/keywords w UI. Od 0371 (24.09.2026)

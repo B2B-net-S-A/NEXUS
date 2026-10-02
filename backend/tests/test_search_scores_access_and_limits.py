@@ -76,8 +76,6 @@ def no_vectors(monkeypatch):
     [
         # Outside the job team: the same number is on their C2 screens.
         (UserRole.recruiter, None, 200),
-        (UserRole.sourcer, None, 200),
-        (UserRole.tac, None, 200),
         # Still candidate search, but no recruitment (pipeline) section.
         (UserRole.recruiter, "none", 403),
         # The read-only viewer persona never reaches candidate search.

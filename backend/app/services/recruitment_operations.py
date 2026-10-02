@@ -534,7 +534,6 @@ def _can_edit_favorite(user: User, job: Job | _JobRecord) -> bool:
     )
     if is_owner and user.has_any_role(
         UserRole.recruiter,
-        UserRole.tac,
         UserRole.delivery_lead,
     ):
         return True
@@ -550,7 +549,7 @@ def _ensure_favorite_write_access(user: User, job: Job | _JobRecord) -> None:
         status_code=status.HTTP_403_FORBIDDEN,
         detail=(
             "Faworyta może zmienić administrator, Head of Recruitment albo "
-            "właściciel procesu (rekruter / TAC / Delivery Lead)."
+            "właściciel procesu (rekruter / Delivery Lead)."
         ),
     )
 

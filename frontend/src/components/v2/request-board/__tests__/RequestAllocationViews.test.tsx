@@ -30,13 +30,13 @@ const board: RequestBoard = {
   ],
   requests: [
     // Sama propozycja automatu — to jeszcze nie praca.
-    { job_id: 1, title: "Senior Java Developer", client_name: "Klient Gamma", category_id: 2, deadline: "2026-09-23", sent: 0, champion: false, priority_level: "p1", delivery_lead: { id: 31, name: "Gosia Delivery" }, opened_effective_at: "2026-09-20T08:00:00Z", people: [{ ...anna, role: "recruiter", proposed: true, source: "auto", via: "assignment", assigned_by_name: null }] },
+    { job_id: 1, title: "Senior Java Developer", client_name: "Klient Gamma", category_id: 2, deadline: "2026-09-23", sent: 0, champion: false, priority_level: "p1", delivery_lead: { id: 31, name: "Gosia Delivery" }, opened_effective_at: "2026-09-20T08:00:00Z", people: [{ ...anna, proposed: true, source: "auto", via: "assignment", assigned_by_name: null }] },
     { job_id: 2, title: "React Developer", client_name: "Klient Alfa", category_id: 2, deadline: "2026-09-28", sent: 3, champion: true, priority_level: "p2", delivery_lead: null, opened_effective_at: null, people: [] },
     { job_id: 3, title: "Tester automatyzujący", client_name: "Klient Beta", category_id: 4, deadline: null, sent: 0, champion: false, priority_level: "accepting", delivery_lead: { id: 32, name: "Henryk Kierujący" }, opened_effective_at: "2026-09-01T08:00:00Z", people: [] },
-    // Dwie pracujące osoby: prowadzący i sourcer z przypisania.
+    // Dwie pracujące osoby: prowadzący i osoba z przypisania.
     { job_id: 4, title: "Kotlin Developer", client_name: "Klient Delta", category_id: 2, deadline: "2026-10-07", sent: 1, champion: false, priority_level: "p2", delivery_lead: { id: 31, name: "Gosia Delivery" }, opened_effective_at: "2026-09-12T08:00:00Z", people: [
-      { ...bartek, role: "recruiter", proposed: false, source: "owner", via: "owner", assigned_by_name: null },
-      { ...celina, role: "sourcer", proposed: false, source: "manual", via: "assignment", assigned_by_name: "Henryk Kierujący" },
+      { ...bartek, proposed: false, source: "owner", via: "owner", assigned_by_name: null },
+      { ...celina, proposed: false, source: "manual", via: "assignment", assigned_by_name: "Henryk Kierujący" },
     ] },
   ],
   load: [
@@ -164,7 +164,8 @@ describe("RequestBoardView", () => {
     const kotlin = within(screen.getByRole("list", { name: "Rekruter: Kotlin Developer" }))
     expect(kotlin.getAllByRole("listitem")).toHaveLength(2)
     expect(kotlin.getByText("Bartek Testowy")).toBeInTheDocument()
-    expect(kotlin.getByText("sourcer")).toBeInTheDocument()
+    // Bez dopisku roli przy osobie (podział rekruter / sourcer zniknął).
+    expect(kotlin.queryByText(/sourcer|rekruter/)).not.toBeInTheDocument()
 
     const java = within(rowOf("Senior Java Developer"))
     expect(java.getByText("Anna Przykładowa").parentElement).toHaveAttribute("data-proposed", "true")
@@ -231,7 +232,7 @@ describe("RequestBoardView", () => {
       ...board,
       requests: board.requests.map((r) =>
         r.job_id === 4
-          ? { ...r, people: [...r.people, { ...anna, role: "recruiter", proposed: true, source: "auto" }] }
+          ? { ...r, people: [...r.people, { ...anna, proposed: true, source: "auto" }] }
           : r,
       ),
     }
@@ -339,9 +340,11 @@ describe("RequestBoardView", () => {
       "Anna Przykładowa (2 + 1)",
       "Celina Wzorcowa (1)",
     ])
+    // Dodanie nie pyta o rolę — każda dodana osoba to rekruter.
+    expect(java.queryByLabelText("Rola")).not.toBeInTheDocument()
     await user.selectOptions(java.getByLabelText("Osoba"), "7")
     await user.click(java.getByRole("button", { name: "Dodaj" }))
-    expect(onAddPerson).toHaveBeenCalledWith(1, 7, "recruiter")
+    expect(onAddPerson).toHaveBeenCalledWith(1, 7)
   })
 })
 
@@ -352,7 +355,7 @@ const team: CompetenceTeam = {
   unassigned: [{ user_id: 5, name: "Ewa Fikcyjna", roles: ["recruiter"], allocation_excluded: false, assignment_id: null }],
   excluded: [],
   people: [{ user_id: 5, name: "Ewa Fikcyjna", roles: ["recruiter"], allocation_excluded: false, assignment_id: null }],
-  rules: { sourcer_threshold: 15, review_time: "08:30" },
+  rules: { review_time: "08:30" },
 }
 
 describe("CompetenceTeamView", () => {
@@ -368,15 +371,14 @@ describe("CompetenceTeamView", () => {
     expect(actions.exclude).toHaveBeenCalledWith(5, true)
   })
 
-  it("saves rules as numbers", async () => {
+  it("zasady: sama godzina przeglądu — bez progu „sourcer wystarczy”", async () => {
     const user = userEvent.setup()
     const actions = { assign: vi.fn(), remove: vi.fn(), exclude: vi.fn(), saveRules: vi.fn() }
     render(<CompetenceTeamView team={team} actions={actions} />)
-    const threshold = screen.getByRole("spinbutton")
-    await user.clear(threshold)
-    await user.type(threshold, "20")
+    expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument()
+    expect(screen.queryByText(/Sourcer wystarczy/)).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Zapisz zasady" }))
-    expect(actions.saveRules).toHaveBeenCalledWith({ sourcer_threshold: 20, review_time: "08:30" })
+    expect(actions.saveRules).toHaveBeenCalledWith({ review_time: "08:30" })
   })
 })
 

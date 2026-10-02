@@ -35,16 +35,17 @@ FINANCE_MODULE = "finance_module"
 GENERATOR = "b2b_contract_generator"
 
 ADMIN = "admin"
-#: Role w kolejności ekranu. Lustro CHECK-a ``ck_rbac_role_*_permissions_role``.
+#: Role w kolejności ekranu. CHECK ``ck_rbac_role_*_permissions_role`` jest
+#: szerszy: zna też wycofane w 0411 ``tac`` i ``sourcer`` (rollback obrazu).
+#: Zasiew przy starcie dopełnia wiersze TYLKO dla ról z tej listy — wycofana
+#: rola tutaj oznaczałaby odtwarzanie skasowanych wierszy przy każdym starcie.
 ROLES: tuple[str, ...] = (
     "admin",
     "finance",
     "head_of_recruitment",
     "delivery_lead",
     "talent_community_manager",
-    "tac",
     "recruiter",
-    "sourcer",
     "user",
     "trainee",
 )

@@ -222,7 +222,7 @@ async def test_hall_of_fame_excludes_admin_accounts_but_keeps_delivery() -> None
     """
     assert "admin" not in competitions.HALL_OF_FAME_ROLES
     assert "finance" not in competitions.HALL_OF_FAME_ROLES
-    for role in ("sourcer", "tac", "recruiter", "delivery_lead", "head_of_recruitment"):
+    for role in ("recruiter", "delivery_lead", "head_of_recruitment"):
         assert role in competitions.HALL_OF_FAME_ROLES
 
     # Wyścigi zostają przy SWOIM, węższym zakresie — mają własną atrybucję
@@ -328,7 +328,9 @@ async def test_monthly_recommendation_qualification_is_four_per_day_and_75_perce
     assert "c.stage = 'cv_sent'" in sql
     assert "c.stage = 'verified'" in sql
     assert "c.stage = 'interview'" not in sql
-    assert "u.roles ?| array['sourcer', 'tac', 'recruiter']" in sql
+    assert "u.role::text = 'recruiter'" in sql
+    assert "u.roles ? 'recruiter'" in sql
+    assert "sourcer" not in sql and "'tac'" not in sql
     assert ":required_verifications" in sql
     assert ":min_precision_pct" in sql
     assert params["required_verifications"] == 40
@@ -848,7 +850,7 @@ async def test_autofreeze_failure_in_one_type_does_not_starve_the_rest(
 def test_kpi_defaults_preserve_four_per_day_and_75_percent() -> None:
     verifications = get_kpi("daily_first_verifications")
     precision = get_kpi("monthly_precision")
-    for role in (UserRole.sourcer, UserRole.tac, UserRole.recruiter):
+    for role in (UserRole.recruiter,):
         assert verifications.default_targets[role] == 4
         assert precision.default_targets[role] == 75
 

@@ -44,9 +44,7 @@ ROLES = [
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.finance,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
     UserRole.user,
 ]
 
@@ -58,9 +56,7 @@ OPERATIONAL_ROLES = {
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.finance,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
 }
 # Od 2026-09-17 head_of_recruitment ma parytet z rekruterem (CANDIDATE_WRITE_ROLES).
 WRITE_ROLES = {
@@ -69,16 +65,13 @@ WRITE_ROLES = {
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.finance,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
 }
 EXPORT_ROLES = {
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.finance,
 }
 FINANCE_ROLES = {UserRole.admin}
@@ -438,9 +431,7 @@ RATE_EDIT_ROLES = {
     UserRole.delivery_lead,
     UserRole.finance,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
 }
 
 
@@ -516,7 +507,7 @@ def test_client_rate_rule_roles_ignore_ownership():
         assert user_can_write_client_rate(mk(role), job) is expected, role
         assert user_can_write_client_rate(mk(role)) is expected, role
     # Właściciel (recruiter_id) i twórca (created_by) nie zyskują zapisu.
-    for role in (UserRole.recruiter, UserRole.sourcer, UserRole.tac, UserRole.user):
+    for role in (UserRole.recruiter, UserRole.user):
         assert user_can_write_client_rate(mk(role, uid=7), job) is False
         assert user_can_write_client_rate(mk(role, uid=8), job) is False
 
@@ -560,10 +551,8 @@ async def test_client_rate_write_is_admin_and_dl_only_even_for_the_owner(
     for role in (
         UserRole.head_of_recruitment,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.finance,
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.user,
     ):
         resp = await m2_client.patch(path, headers=headers_by_role[role], json=body)
@@ -683,7 +672,7 @@ async def test_export_role_matrix(
             )
 
     # POST variant: viewer + recruiter denied regardless of body shape.
-    for role in (UserRole.user, UserRole.recruiter, UserRole.sourcer):
+    for role in (UserRole.user, UserRole.recruiter):
         resp = await m2_client.post(
             "/api/candidates/export",
             headers=headers_by_role[role],
@@ -879,14 +868,14 @@ async def test_seeking_contractors_rejects_viewer(
 
 
 async def test_secondary_role_grants_candidate_access(m2_client: AsyncClient):
-    """A valid Recruiter+TAC hybrid gets export through its secondary TAC role.
+    """A Recruiter+Delivery Lead hybrid gets export through its secondary role.
 
     Recruiter alone cannot export candidates, so the successful response pins
     union semantics without constructing the forbidden legacy-viewer hybrid.
     """
     email, password = await _seed_user(
         UserRole.recruiter,
-        secondary=[UserRole.recruiter.value, UserRole.tac.value],
+        secondary=[UserRole.recruiter.value, UserRole.delivery_lead.value],
     )
     headers = await _login(m2_client, email, password)
 

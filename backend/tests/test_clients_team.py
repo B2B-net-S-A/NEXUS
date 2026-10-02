@@ -1,4 +1,8 @@
-"""Integration tests for /api/clients/{id}/team + /tacs CRUD endpoints."""
+"""Integration tests for /api/clients/{id}/team + /tacs CRUD endpoints.
+
+Roli TAC nie ma od 0411 (02.10.2026): opiekunem relacji z klientem bywa
+Delivery Lead, admin albo Head of Recruitment — tu Head of Recruitment.
+"""
 
 from __future__ import annotations
 
@@ -103,7 +107,7 @@ async def _cleanup(client_id: int, user_ids: list[int]) -> None:
 async def test_get_client_team_returns_tacs_and_dls(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    tac_id, _, _ = await _new_user(UserRole.tac)
+    tac_id, _, _ = await _new_user(UserRole.head_of_recruitment)
     dl_id, _, _ = await _new_user(UserRole.delivery_lead)
     client_id = await _new_client()
 
@@ -145,7 +149,7 @@ async def test_post_tac_requires_head_of_recruitment_plus(
 ):
     """Recruiter (poniżej HeadOfRecruitmentPlus) dostaje 403."""
     recruiter_id, email, password = await _new_user(UserRole.recruiter)
-    tac_id, _, _ = await _new_user(UserRole.tac)
+    tac_id, _, _ = await _new_user(UserRole.head_of_recruitment)
     client_id = await _new_client()
 
     try:
@@ -165,8 +169,8 @@ async def test_post_primary_tac_unsets_previous_primary(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """Drugi POST z is_primary=True dla tego samego klienta zdejmuje poprzedniego primary."""
-    tac_a, _, _ = await _new_user(UserRole.tac)
-    tac_b, _, _ = await _new_user(UserRole.tac)
+    tac_a, _, _ = await _new_user(UserRole.head_of_recruitment)
+    tac_b, _, _ = await _new_user(UserRole.head_of_recruitment)
     client_id = await _new_client()
 
     try:
@@ -205,7 +209,7 @@ async def test_post_primary_tac_unsets_previous_primary(
 
 @pytest.mark.integration
 async def test_delete_tac_assignment(app_client: AsyncClient, app_auth_headers: dict):
-    tac_id, _, _ = await _new_user(UserRole.tac)
+    tac_id, _, _ = await _new_user(UserRole.head_of_recruitment)
     client_id = await _new_client()
 
     try:
@@ -239,8 +243,8 @@ async def test_delete_tac_assignment(app_client: AsyncClient, app_auth_headers: 
 
 @pytest.mark.integration
 async def test_toggle_primary_flips(app_client: AsyncClient, app_auth_headers: dict):
-    tac_a, _, _ = await _new_user(UserRole.tac)
-    tac_b, _, _ = await _new_user(UserRole.tac)
+    tac_a, _, _ = await _new_user(UserRole.head_of_recruitment)
+    tac_b, _, _ = await _new_user(UserRole.head_of_recruitment)
     client_id = await _new_client()
 
     try:
@@ -281,15 +285,15 @@ async def test_toggle_primary_flips(app_client: AsyncClient, app_auth_headers: d
 async def test_post_invalid_role_returns_400(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """user_id usera z rolą sourcer → 400."""
-    sourcer_id, _, _ = await _new_user(UserRole.sourcer)
+    """user_id rekrutera (poza rolami opiekuna klienta od 0411) → 400."""
+    recruiter_id, _, _ = await _new_user(UserRole.recruiter)
     client_id = await _new_client()
     try:
         resp = await app_client.post(
             f"/api/clients/{client_id}/tacs",
             headers=app_auth_headers,
-            json={"user_id": sourcer_id, "is_primary": False},
+            json={"user_id": recruiter_id, "is_primary": False},
         )
         assert resp.status_code == 400, resp.text
     finally:
-        await _cleanup(client_id, [sourcer_id])
+        await _cleanup(client_id, [recruiter_id])

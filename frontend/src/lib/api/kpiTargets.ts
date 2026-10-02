@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
-export type KpiTargetRole = "recruiter" | "sourcer" | "tac";
+export type KpiTargetRole = "recruiter";
 
 export interface KpiTargetKpi {
   kpi_id: string;

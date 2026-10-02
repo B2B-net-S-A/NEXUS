@@ -64,8 +64,6 @@ ContactCaller = Annotated[
     Depends(
         require_roles(
             UserRole.recruiter,
-            UserRole.sourcer,
-            UserRole.tac,
             UserRole.talent_community_manager,
         )
     ),
@@ -874,16 +872,13 @@ async def reassign_contact_owner(
             or not target.is_active
             or not target.has_any_role(
                 UserRole.recruiter,
-                UserRole.sourcer,
-                UserRole.tac,
                 UserRole.talent_community_manager,
             )
         ):
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "Target must be an active recruiter, sourcer, TAC or "
-                    "Talent Community Manager"
+                    "Target must be an active recruiter or Talent Community Manager"
                 ),
             )
         target_has_scope = await db.scalar(

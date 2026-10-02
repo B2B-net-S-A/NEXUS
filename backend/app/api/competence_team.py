@@ -36,7 +36,7 @@ router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 # Kto może dostać request: role operacyjne, także jako druga rola Delivery
 # Leada (decyzja Artura 24.09.2026).
-OPERATOR_ROLES = (UserRole.recruiter, UserRole.sourcer, UserRole.tac)
+OPERATOR_ROLES = (UserRole.recruiter,)
 
 
 def operator_clause():
@@ -64,7 +64,6 @@ class TeamCategory(BaseModel):
 
 
 class TeamRules(BaseModel):
-    sourcer_threshold: int
     review_time: str
 
 
@@ -203,9 +202,7 @@ async def put_assignment(
     if user is None or not user.is_active:
         raise HTTPException(404, "Nie ma takiej aktywnej osoby.")
     if not user.has_any_role(*OPERATOR_ROLES):
-        raise HTTPException(
-            422, "Kategorię można nadać tylko rekruterowi, sourcerowi albo TAC."
-        )
+        raise HTTPException(422, "Kategorię można nadać tylko rekruterowi.")
     category = await db.get(CompetenceCategory, payload.competence_category_id)
     if category is None or not category.is_active:
         raise HTTPException(404, "Nie ma takiej aktywnej kategorii.")

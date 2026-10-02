@@ -548,7 +548,7 @@ export function JobContractTab({
                 </Button>
               ) : (
                 <p className="col-span-2 text-[11px] text-muted-foreground">
-                  Zamknięcie rekrutacji wymaga roli TAC, Delivery Leada albo
+                  Zamknięcie rekrutacji wymaga roli Delivery Leada albo
                   administratora.
                 </p>
               )}

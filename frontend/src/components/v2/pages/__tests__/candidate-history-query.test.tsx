@@ -124,8 +124,8 @@ describe("useCandidateHistoryQuery", () => {
 
     auth.user = {
       id: 202,
-      role: "sourcer",
-      roles: ["sourcer"],
+      role: "delivery_lead",
+      roles: ["delivery_lead"],
     };
     view.rerender(historyUi(queryClient, "viewer-2"));
 
@@ -200,7 +200,7 @@ describe("useCandidateHistoryQuery", () => {
     const view = render(ui);
     expect(await screen.findByText("Tylko rekruter")).toBeInTheDocument();
 
-    auth.user = { id: 303, role: "sourcer", roles: ["sourcer"] };
+    auth.user = { id: 303, role: "delivery_lead", roles: ["delivery_lead"] };
     view.rerender(
       <QueryClientProvider client={queryClient}>
         <RefreshProbe />
@@ -209,7 +209,7 @@ describe("useCandidateHistoryQuery", () => {
     expect(screen.queryByText("Tylko rekruter")).not.toBeInTheDocument();
     expect(screen.getByText("Ładowanie historii…")).toBeInTheDocument();
 
-    resolveSecond?.({ data: { jobs: [{ job_title: "Zakres sourcera" }] } });
-    expect(await screen.findByText("Zakres sourcera")).toBeInTheDocument();
+    resolveSecond?.({ data: { jobs: [{ job_title: "Zakres drugiej osoby" }] } });
+    expect(await screen.findByText("Zakres drugiej osoby")).toBeInTheDocument();
   });
 });

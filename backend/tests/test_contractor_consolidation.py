@@ -156,9 +156,9 @@ async def _role_headers(
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-async def _tac_headers(app_client: AsyncClient) -> dict[str, str]:
-    """Zaloguj świeżego TAC-a (rola bez VIEW_FINANCE) — do testu redakcji."""
-    return await _role_headers(app_client, "tac")
+async def _recruiter_headers(app_client: AsyncClient) -> dict[str, str]:
+    """Zaloguj świeżego rekrutera (rola bez VIEW_FINANCE) — do testu redakcji."""
+    return await _role_headers(app_client, "recruiter")
 
 
 # ── 1. Zgrupowana lista ──────────────────────────────────────────────────────
@@ -1440,11 +1440,11 @@ async def test_force_delete_signed_requires_admin_and_exact_confirmation(
         marker, cid, cand, signature_status="signed_both", client_id=cli
     )
 
-    tac_headers = await _tac_headers(app_client)
+    recruiter_headers = await _recruiter_headers(app_client)
     denied = await app_client.post(
         f"/api/contracts/{cid}/force-delete-signed",
         json={"confirmation": f"Multi {marker}"},
-        headers=tac_headers,
+        headers=recruiter_headers,
     )
     assert denied.status_code == 403, denied.text
 

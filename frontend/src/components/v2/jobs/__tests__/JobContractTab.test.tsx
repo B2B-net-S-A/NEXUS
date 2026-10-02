@@ -231,7 +231,7 @@ describe("JobContractTab", () => {
   it("rola bez `job.update` nie dostaje przycisku, tylko powód", async () => {
     renderTab({ canCloseJob: false });
     expect(
-      await screen.findByText(/wymaga roli TAC, Delivery Leada albo/i),
+      await screen.findByText(/wymaga roli Delivery Leada albo/i),
     ).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: /Zamknij rekrutację z powodem/ }),

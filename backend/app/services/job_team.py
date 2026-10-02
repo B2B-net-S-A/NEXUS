@@ -39,7 +39,7 @@ from sqlalchemy.orm import aliased, load_only
 from app.models.activity import Activity
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
-from app.models.job_work_assignment import JobWorkAssignment
+from app.models.job_work_assignment import WORK_ROLE, JobWorkAssignment
 from app.models.user import User
 
 
@@ -47,20 +47,10 @@ from app.models.user import User
 class TeamPerson:
     user_id: int
     name: str
-    role: str  # recruiter | sourcer
+    role: str  # zawsze WORK_ROLE
     via: str  # owner | assignment | collaborator
     proposed: bool = False
     assigned_by_name: Optional[str] = None
-
-
-def work_role_of(user: User) -> str:
-    """Rola przy requeście dla osoby bez wiersza przypisania (prowadzący,
-    współpracownik): sourcer tylko wtedy, gdy nie jest też rekruterem ani TAC."""
-    roles = {str(getattr(r, "value", r)) for r in (user.roles or [])}
-    roles.add(str(getattr(user.role, "value", user.role)))
-    if "sourcer" in roles and not roles & {"recruiter", "tac"}:
-        return "sourcer"
-    return "recruiter"
 
 
 # ── Klauzule SQL (filtry listy, zakres „Moje”, liczniki) ────────────────────
@@ -271,7 +261,7 @@ async def recruiters_for_jobs(
                 TeamPerson(
                     user_id=owner.id,
                     name=owner.name,
-                    role=own_row.role if own_row else work_role_of(owner),
+                    role=own_row.role if own_row else WORK_ROLE,
                     via="owner",
                     assigned_by_name=own_row.assigner_name if own_row else None,
                 )
@@ -298,7 +288,7 @@ async def recruiters_for_jobs(
                 TeamPerson(
                     user_id=user_id,
                     name=user.name,
-                    role=work_role_of(user),
+                    role=WORK_ROLE,
                     via="collaborator",
                 )
             )

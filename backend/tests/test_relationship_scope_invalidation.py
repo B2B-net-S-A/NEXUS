@@ -264,7 +264,7 @@ async def test_tac_client_upsert_revokes_client_dls_only_on_change(
     monkeypatch,
 ) -> None:
     ensure_client = AsyncMock(return_value=Client(id=44, name="Client"))
-    load_tac = AsyncMock(return_value=_user(22, UserRole.tac))
+    load_tac = AsyncMock(return_value=_user(22, UserRole.head_of_recruitment))
     invalidator = AsyncMock()
     monkeypatch.setattr("app.api.clients_team._ensure_client_exists", ensure_client)
     monkeypatch.setattr("app.api.clients_team._load_user_for_tac", load_tac)
@@ -333,7 +333,7 @@ async def test_explicit_post_priority_closes_reconciliation(monkeypatch) -> None
     )
     monkeypatch.setattr(
         "app.api.clients_team._load_user_for_tac",
-        AsyncMock(return_value=_user(22, UserRole.tac)),
+        AsyncMock(return_value=_user(22, UserRole.head_of_recruitment)),
     )
     monkeypatch.setattr(
         "app.api.clients_team.upsert_client_tac_assignment",

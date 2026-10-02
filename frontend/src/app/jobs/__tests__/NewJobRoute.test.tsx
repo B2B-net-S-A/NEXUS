@@ -101,13 +101,6 @@ describe("/jobs/new — okno przed hydracją", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  it("TAC ma pełną edycję rekrutacji, ale nowej nie zakłada", () => {
-    useAuthStore.setState({ user: account("tac"), hydrated: true });
-    const { container } = render(<NewJobRoute />);
-    expect(container).toBeEmptyDOMElement();
-    expect(replace).toHaveBeenCalledWith("/jobs");
-  });
-
   it("loading.tsx (miękka nawigacja) renderuje ten sam szkielet", () => {
     render(<NewJobLoading />);
     expect(screen.getByTestId("new-job-skeleton")).toBeInTheDocument();

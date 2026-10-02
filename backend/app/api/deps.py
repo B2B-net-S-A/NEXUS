@@ -687,10 +687,8 @@ RecruiterPlus = Annotated[
             UserRole.head_of_recruitment,
             UserRole.delivery_lead,
             UserRole.talent_community_manager,
-            UserRole.tac,
             UserRole.recruiter,
             UserRole.finance,
-            UserRole.sourcer,
         )
     ),
 ]
@@ -709,10 +707,8 @@ OperationalUser = Annotated[
             UserRole.head_of_recruitment,
             UserRole.delivery_lead,
             UserRole.talent_community_manager,
-            UserRole.tac,
             UserRole.recruiter,
             UserRole.finance,
-            UserRole.sourcer,
         )
     ),
 ]

@@ -4,10 +4,10 @@
  *
  * Dwa poziomy:
  *  • `full`    — posiadacz uprawnienia „Rekrutacje: zakładanie, zamykanie,
- *                wysyłka CV do klienta” (domyślnie Delivery Lead i admin) albo
- *                rola TAC: wszystko, łącznie z klientem, budżetem,
- *                właścicielami, terminem i cyklem życia (publikacja,
- *                zamknięcie, „prowadzona w NEXUSIE"). Capability `job.update`.
+ *                wysyłka CV do klienta” (domyślnie Delivery Lead i admin):
+ *                wszystko, łącznie z klientem, budżetem, właścicielami,
+ *                terminem i cyklem życia (publikacja, zamknięcie, „prowadzona
+ *                w NEXUSIE"). Capability `job.update`.
  *  • `content` — rekruter prowadzący i współpracownicy: TREŚĆ rekrutacji
  *                (opis, ogłoszenia, Profil Championa, podpowiedzi Championa).
  *                Budżet, właściciele, klient i cykl życia zostają zamknięte.
@@ -34,7 +34,7 @@ export function jobEditScope(
   }: {
     /** Zapis w sekcji Pipeline (sufit) i brak trybu „podgląd jako". */
     canWritePipeline: boolean;
-    /** Capability `job.update` — pełna edycja (uprawnienie albo TAC). */
+    /** Capability `job.update` — pełna edycja (uprawnienie). */
     canManageJob: boolean;
   },
 ): JobEditScope {
@@ -48,8 +48,8 @@ export function jobEditScope(
 /**
  * Reguła zapasowa pełnej edycji, gdy serwer nie przysłał `can_edit` (starszy
  * backend, harness): tytuł do capability `job.update` — uprawnienie
- * „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” albo rola TAC
- * (lustro poziomu `full` z `job_edit_level`). Jedna kopia reguły: rejestr
+ * „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” (lustro poziomu
+ * `full` z `job_edit_level`). Jedna kopia reguły: rejestr
  * capability. Bez sufitu sekcji — ten dokłada wołający (`canWritePipeline`).
  */
 export function hasFullJobEditFallback(

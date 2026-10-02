@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,11 +21,11 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDDDPD",
-  "GET /api/rate-cards": "PPDDDDDDDDDDDDDDDDDPD",
-  "GET /api/rate-cards/suggest": "PPDDDDDDDDDDDDDDDDDPD",
-  "GET /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDDDPD",
-  "PATCH /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDDDPD",
-  "POST /api/rate-cards": "PPDDDDDDDDDDDDDDDDDPD"
+  "DELETE /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPD",
+  "GET /api/rate-cards": "PPDDDDDDDDDDDDDDDPD",
+  "GET /api/rate-cards/suggest": "PPDDDDDDDDDDDDDDDPD",
+  "GET /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPD",
+  "PATCH /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPD",
+  "POST /api/rate-cards": "PPDDDDDDDDDDDDDDDPD"
  }
 }

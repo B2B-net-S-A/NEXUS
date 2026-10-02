@@ -482,7 +482,6 @@ async def _seed_inbox(world: dict) -> None:
     "role,pipeline,expected",
     [
         (UserRole.recruiter, None, 200),
-        (UserRole.sourcer, None, 200),
         # Odebrana sekcja rekrutacji = brak skrzynki, niezależnie od roli.
         (UserRole.recruiter, "none", 403),
         # Finanse: organizacyjny odczyt rekrutacji (bez prawa zapisu).

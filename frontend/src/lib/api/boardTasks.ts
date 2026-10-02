@@ -12,7 +12,6 @@ import { useQuery } from "@tanstack/react-query";
 
 import api from "@/lib/api";
 import type { FollowupRow } from "@/lib/api/candidateFollowups";
-import type { RecruiterRole } from "@/lib/job-team";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import type { PriorityLevel } from "@/lib/request-priority";
 import { warsawToday } from "@/lib/warsaw-date";
@@ -118,7 +117,6 @@ export interface AllocationProposalRow {
   /** Proponowana osoba. */
   user_id: number;
   user_name: string;
-  role: RecruiterRole;
   fit: AllocationFit;
   /** Ile requestów „Szukamy” bez championa ta osoba ma teraz w pracy. */
   load: number;
@@ -330,8 +328,6 @@ export interface AssigneeOption {
 // wybiera się zespół rekrutacji (+ Head of Recruitment).
 const ASSIGNEE_ROLES = [
   "recruiter",
-  "sourcer",
-  "tac",
   "delivery_lead",
   "talent_community_manager",
   "head_of_recruitment",

@@ -61,9 +61,7 @@ describe("PermissionsTab — jedna rola, dziewięć przełączników", () => {
       "Head of Recruitment",
       "Delivery Lead",
       "Talent Community Manager",
-      "TAC",
       "Rekruter",
-      "Sourcer",
     ]);
     expect(screen.getByRole("button", { name: "Finanse" })).toHaveAttribute(
       "aria-pressed",
@@ -294,7 +292,7 @@ describe("PermissionsTab — jedna rola, dziewięć przełączników", () => {
     );
     expect(screen.getByText("Brak niezapisanych zmian")).toBeInTheDocument();
     // Bez zmian przełączenie roli nie pyta o nic.
-    await user.click(screen.getByRole("button", { name: "Sourcer" }));
+    await user.click(screen.getByRole("button", { name: "Delivery Lead" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(nativeConfirm).not.toHaveBeenCalled();
     nativeConfirm.mockRestore();
@@ -530,7 +528,7 @@ describe("PermissionsTab — jedna rola, dziewięć przełączników", () => {
     for (const control of screen.getAllByRole("switch", { hidden: true })) {
       expect(control).toBeDisabled();
     }
-    for (const name of ["Finanse", "Rekruter", "Sourcer"]) {
+    for (const name of ["Finanse", "Rekruter", "Delivery Lead"]) {
       expect(screen.getByRole("button", { name, hidden: true })).toBeDisabled();
     }
 

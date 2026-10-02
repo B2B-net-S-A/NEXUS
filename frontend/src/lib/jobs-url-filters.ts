@@ -24,8 +24,6 @@ import type { RequestStage } from "@/lib/request-stage";
  */
 export const RECRUITMENT_RUNNING_ROLES: readonly UserRole[] = [
   "recruiter",
-  "sourcer",
-  "tac",
   "talent_community_manager",
   "delivery_lead",
 ];

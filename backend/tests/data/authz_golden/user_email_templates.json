@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,11 +21,11 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/user-email-templates/{template_id}": "PPPPPPPPPDPPPPPPPPPPP",
-  "GET /api/user-email-templates": "PPPPPPPPPDPPPPPPPPPPP",
-  "GET /api/user-email-templates/{template_id}": "PPPPPPPPPDPPPPPPPPPPP",
-  "POST /api/user-email-templates": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/user-email-templates/{template_id}/render": "PPPPPPPPDDPPPPPPPPPPP",
-  "PUT /api/user-email-templates/{template_id}": "PPPPPPPPPDPPPPPPPPPPP"
+  "DELETE /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/user-email-templates": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPP",
+  "POST /api/user-email-templates": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/user-email-templates/{template_id}/render": "PPPPPPDDPPPPPPPPPPP",
+  "PUT /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPP"
  }
 }

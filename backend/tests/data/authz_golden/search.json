@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,11 +21,11 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/search/": "PPPPPPPPPDPPPPPPPPPPP",
-  "GET /api/search/global": "PPPPPPPPPDPPPPPPPPPPP",
-  "POST /api/search/candidates": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/search/candidates/diagnostics": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/search/candidates/scores": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/search/semantic": "PPPPPPPPDDPPPPPPPPPPP"
+  "GET /api/search/": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/search/global": "PPPPPPPDPPPPPPPPPPP",
+  "POST /api/search/candidates": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/search/candidates/diagnostics": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/search/candidates/scores": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/search/semantic": "PPPPPPDDPPPPPPPPPPP"
  }
 }

@@ -268,7 +268,7 @@ async def test_rerender_cannot_switch_candidate(app_client, app_auth_headers):
 async def test_rerender_is_for_the_author_only(app_client, app_auth_headers):
     number = await _render_docx(app_client, app_auth_headers)
     item = await _item_by_number(app_client, app_auth_headers, number)
-    other_h, _ = await _seed_user(app_client, "tac")
+    other_h, _ = await _seed_user(app_client, "recruiter")
     resp = await app_client.post(
         f"{PATH}/{item['id']}/rerender",
         headers=other_h,
@@ -346,7 +346,7 @@ async def test_generate_cannot_overwrite_rate_of_someone_elses_draft(app_client)
     from app.models.b2b_contract_role import B2BContractRole
     from app.models.contract import Contract
 
-    author_h, author_id = await _seed_user(app_client, "sourcer")
+    author_h, author_id = await _seed_user(app_client, "recruiter")
     _runner_h, runner_id = await _seed_user(app_client, "recruiter")
     outsider_h, _ = await _seed_user(app_client, "recruiter")
     docs = await _seed_documents(author_id=author_id, job_recruiter_id=runner_id)
@@ -464,7 +464,7 @@ async def test_saved_form_can_be_reopened_for_correction(app_client, app_auth_he
     assert body["form"]["project_city"] == "Płock"
     assert "_clause_override" not in body["form"]
 
-    other_h, _ = await _seed_user(app_client, "tac")
+    other_h, _ = await _seed_user(app_client, "recruiter")
     foreign = await app_client.get(f"{PATH}/{item['id']}/form", headers=other_h)
     assert foreign.status_code == 403, foreign.text
 

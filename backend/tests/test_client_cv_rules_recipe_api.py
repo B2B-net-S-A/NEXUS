@@ -239,17 +239,19 @@ async def test_save_bumps_version_only_on_content_change_and_records_diff(
         assert r.status_code == 200, r.text
         assert r.json()["version"] == 3
 
-        # TAC bez dostępu Delivery nie może ani zapisać, ani czytać historii.
-        tac = await _headers_for(app_client, "tac")
+        # Rekruter bez dostępu Delivery nie może ani zapisać, ani czytać historii.
+        recruiter = await _headers_for(app_client, "recruiter")
         r = await rule_request(
             app_client,
             "PUT",
             RULE_URL.format(cid=cid),
             json=_full_payload(),
-            headers=tac,
+            headers=recruiter,
         )
         assert r.status_code == 403
-        r = await app_client.get(RULE_URL.format(cid=cid) + "/history", headers=tac)
+        r = await app_client.get(
+            RULE_URL.format(cid=cid) + "/history", headers=recruiter
+        )
         assert r.status_code == 403
     finally:
         await _cleanup([cid])

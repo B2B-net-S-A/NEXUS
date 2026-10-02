@@ -117,9 +117,7 @@ async def _authorized(*_args: Any, **_kwargs: Any) -> None:
         (UserRole.talent_community_manager, "head-of-recruitment"),
         (UserRole.delivery_lead, "delivery-lead"),
         (UserRole.finance, "finance"),
-        (UserRole.tac, "my-work"),
         (UserRole.recruiter, "my-work"),
-        (UserRole.sourcer, "my-work"),
     ],
 )
 @pytest.mark.asyncio
@@ -166,9 +164,7 @@ async def test_operations_guard_excludes_viewer(
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.finance,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
     ],
 )
 @pytest.mark.asyncio
@@ -261,7 +257,7 @@ async def test_activity_scope_rejects_person_and_team_combination() -> None:
 @pytest.mark.asyncio
 async def test_recruiter_cannot_request_named_team_drilldown() -> None:
     current = _user(UserRole.recruiter, user_id=11)
-    other = _user(UserRole.tac, user_id=12)
+    other = _user(UserRole.recruiter, user_id=12)
     result = MagicMock()
     result.scalars.return_value.all.return_value = [current, other]
     db = AsyncMock()
@@ -285,7 +281,7 @@ async def test_activity_summary_uses_one_snapshot_for_counts_and_comparisons() -
 
     cache_module._cache.clear()
     current = _user(UserRole.recruiter, user_id=11)
-    other = _user(UserRole.tac, user_id=12)
+    other = _user(UserRole.recruiter, user_id=12)
     users_result = MagicMock()
     users_result.scalars.return_value.all.return_value = [current, other]
     overview_result = MagicMock()
@@ -1112,20 +1108,27 @@ def test_explicit_process_owner_can_write_favorite() -> None:
     service._ensure_favorite_write_access(owner, job)
 
 
-def test_plain_sourcer_cannot_write_favorite_even_when_stored_as_owner() -> None:
-    sourcer = _user(UserRole.sourcer, user_id=55)
+def test_owner_outside_recruiter_and_dl_roles_cannot_write_favorite() -> None:
+    """Zapis w polu właściciela nie wystarcza — liczy się też rola.
+
+    Do 0411 pilnował tego przypadek sourcera; dziś sourcer jest rekruterem
+    (i jako właściciel zapisuje), więc granicę trzyma konto TCM.
+    """
+
+    stored_owner = _user(UserRole.talent_community_manager, user_id=55)
     job = Job(
         id=7,
         title="Backend",
         client_id=4,
-        recruiter_id=sourcer.id,
+        recruiter_id=stored_owner.id,
         status=JobStatus.published,
     )
 
-    assert service._can_edit_favorite(sourcer, job) is False
+    assert service._can_edit_favorite(stored_owner, job) is False
     with pytest.raises(HTTPException) as exc:
-        service._ensure_favorite_write_access(sourcer, job)
+        service._ensure_favorite_write_access(stored_owner, job)
     assert exc.value.status_code == 403
+    assert "właściciel procesu (rekruter / Delivery Lead)" in exc.value.detail
 
 
 def test_finance_org_wide_read_does_not_grant_favorite_write() -> None:

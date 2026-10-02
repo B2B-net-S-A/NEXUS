@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,10 +21,10 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/rate-benchmarks": "PPDDDDDDDDDDDDDDDDDPD",
-  "PATCH /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/rate-benchmarks": "PDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/rate-benchmarks/import": "PDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDDD",
+  "GET /api/rate-benchmarks": "PPDDDDDDDDDDDDDDDPD",
+  "PATCH /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDDD",
+  "POST /api/rate-benchmarks": "PDDDDDDDDDDDDDDDDDD",
+  "POST /api/rate-benchmarks/import": "PDDDDDDDDDDDDDDDDDD"
  }
 }

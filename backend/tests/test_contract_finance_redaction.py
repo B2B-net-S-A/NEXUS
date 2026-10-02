@@ -408,10 +408,12 @@ async def test_delivery_lead_opaque_contract_documents_stay_assignment_bound(
 
 
 async def test_export_requires_finance(app_client: AsyncClient, app_auth_headers: dict):
-    tac = await _headers_for(app_client, "tac")
+    recruiter = await _headers_for(app_client, "recruiter")
     tcm = await _headers_for(app_client, "talent_community_manager")
-    r_tac = await app_client.get("/api/contracts/export?format=csv", headers=tac)
-    assert r_tac.status_code == 403, r_tac.text
+    r_rec = await app_client.get(
+        "/api/contracts/export?format=csv", headers=recruiter
+    )
+    assert r_rec.status_code == 403, r_rec.text
     r_tcm = await app_client.get("/api/contracts/export?format=csv", headers=tcm)
     assert r_tcm.status_code == 403, r_tcm.text
     r_admin = await app_client.get(
@@ -485,12 +487,12 @@ async def test_delivery_lead_sees_rates_in_assigned_contractor_row(
     assert row["currency"] == "PLN"
 
 
-async def test_tac_cannot_enter_delivery_to_create_contract(
+async def test_recruiter_cannot_enter_delivery_to_create_contract(
     app_client: AsyncClient,
 ):
     """Redaction is not authorization: hidden rates must never be persisted."""
     cand_id, client_id = await _seed_candidate_client()
-    tac = await _headers_for(app_client, "tac")
+    recruiter = await _headers_for(app_client, "recruiter")
     body = {
         "candidate_id": cand_id,
         "client_id": client_id,
@@ -500,9 +502,9 @@ async def test_tac_cannot_enter_delivery_to_create_contract(
         "rate_client": 222.0,
         "status": "active",
     }
-    r = await app_client.post("/api/contracts", json=body, headers=tac)
+    r = await app_client.post("/api/contracts", json=body, headers=recruiter)
     assert r.status_code == 403, r.text
-    # Odmowa nazywa uprawnienie, którego trasa wymaga, a którego TAC nie ma.
+    # Odmowa nazywa uprawnienie, którego trasa wymaga, a którego rekruter nie ma.
     detail = r.json()["detail"]
     assert detail["code"] == "permission_denied"
     assert detail["permission"] == "contracts_orders_edit"
@@ -533,17 +535,17 @@ async def test_admin_expiring_list_shows_rates(
     assert row["rate_client"] is not None
 
 
-async def test_tac_cannot_enter_delivery_to_patch_finance_fields(
+async def test_recruiter_cannot_enter_delivery_to_patch_finance_fields(
     app_client: AsyncClient,
     app_auth_headers: dict,
 ):
     cid = await _seed_contract()
-    tac = await _headers_for(app_client, "tac")
+    recruiter = await _headers_for(app_client, "recruiter")
     r = await app_client.patch(
-        f"/api/contracts/{cid}", json={"rate_client": 321.0}, headers=tac
+        f"/api/contracts/{cid}", json={"rate_client": 321.0}, headers=recruiter
     )
     assert r.status_code == 403, r.text
-    # Trasa mieszana: wystarczy edycja kontraktów ALBO zmiana kwot — TAC nie
+    # Trasa mieszana: wystarczy edycja kontraktów ALBO zmiana kwot — rekruter nie
     # ma żadnego z nich, więc odmowa wymienia oba.
     detail = r.json()["detail"]
     assert detail["code"] == "permission_denied"
@@ -552,7 +554,7 @@ async def test_tac_cannot_enter_delivery_to_patch_finance_fields(
     currency_write = await app_client.patch(
         f"/api/contracts/{cid}",
         json={"rate_candidate_currency": "EUR"},
-        headers=tac,
+        headers=recruiter,
     )
     assert currency_write.status_code == 403, currency_write.text
     assert currency_write.json()["detail"]["code"] == "permission_denied"

@@ -620,9 +620,7 @@ async def get_team_priority_work(
         .all()
     )
     operational_users = [
-        user
-        for user in active_users
-        if user.has_any_role(UserRole.sourcer, UserRole.recruiter, UserRole.tac)
+        user for user in active_users if user.has_role(UserRole.recruiter)
     ]
     plan_members = {member.user_id: member for member in (plan.members if plan else [])}
     all_assignments = await _assignment_payloads(db, plan.members) if plan else []
@@ -888,7 +886,7 @@ async def create_priority_assignment(
     if assignee is None or not assignee.is_active:
         raise HTTPException(404, "Nieaktywny lub brakujący użytkownik")
     if not (role_values(assignee) & {role.value for role in OPERATIONAL_ROLES}):
-        raise HTTPException(422, "Przypisać można tylko rekruterowi / sourcerowi / TAC")
+        raise HTTPException(422, "Przypisać można tylko rekruterowi")
     if payload.channel not in allowed_channels(assignee):
         raise HTTPException(
             422,
@@ -1357,9 +1355,7 @@ async def handoff_priority_process(
         )
     )
     if new_owner is None or not new_owner.has_any_role(
-        UserRole.sourcer,
         UserRole.recruiter,
-        UserRole.tac,
     ):
         raise HTTPException(422, "Nowy owner nie jest aktywnym rekruterem")
     previous_owner = process.owner_user_id
@@ -1560,13 +1556,11 @@ async def update_priority_user_mode(
     if target is None or not target.is_active:
         raise HTTPException(404, "User nie istnieje lub jest nieaktywny")
     if not target.has_any_role(
-        UserRole.sourcer,
         UserRole.recruiter,
-        UserRole.tac,
     ):
         raise HTTPException(
             422,
-            "Tryb Priority Work dotyczy wyłącznie rekrutera, sourcera lub TAC.",
+            "Tryb Priority Work dotyczy wyłącznie rekrutera.",
         )
     if payload.mode == PriorityMode.enforce:
         plan = await current_plan(db)

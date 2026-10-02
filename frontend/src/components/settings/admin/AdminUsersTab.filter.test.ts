@@ -27,7 +27,7 @@ describe("filterAdminUsers", () => {
       name: "Anna Test",
       email: "anna@example.com",
       role: "delivery_lead",
-      roles: ["delivery_lead", "tac"],
+      roles: ["delivery_lead", "head_of_recruitment"],
     }),
     user({ id: 3, name: "Beata Nieaktywna", email: "b@example.com", is_active: false }),
   ];
@@ -40,7 +40,7 @@ describe("filterAdminUsers", () => {
 
   it("filtr roli uwzględnia role dodatkowe i łączy się ze statusem", () => {
     expect(
-      filterAdminUsers(users, { status: "all", role: "tac", search: "" }).map((u) => u.id),
+      filterAdminUsers(users, { status: "all", role: "head_of_recruitment", search: "" }).map((u) => u.id),
     ).toEqual([2]);
     expect(
       filterAdminUsers(users, { status: "active", role: "recruiter", search: "" }).map(

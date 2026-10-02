@@ -78,7 +78,6 @@ CONTRACT_LEGAL_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
-    UserRole.tac,
 )
 
 CONTRACT_LEGAL_READ_ROLES: tuple[UserRole, ...] = (
@@ -249,10 +248,8 @@ B2B_GENERATOR_UNCONDITIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.finance,
     UserRole.recruiter,
-    UserRole.sourcer,
 )
 
 B2B_GENERATOR_ACTION = ProductAction.b2b_contract_generator

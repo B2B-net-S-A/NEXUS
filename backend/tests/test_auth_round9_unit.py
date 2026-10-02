@@ -148,7 +148,7 @@ async def test_oauth_client_acting_as_admin_is_refused():
         url=SimpleNamespace(path="/api/candidates"),
         state=SimpleNamespace(),
     )
-    db = _FakeDb(client, _acting_user(["sourcer", "admin"]))
+    db = _FakeDb(client, _acting_user(["recruiter", "admin"]))
     with pytest.raises(HTTPException) as exc:
         await _resolve_client_principal(
             request, {"sub": "cli-1", "scope": "candidate:write"}, db
@@ -191,10 +191,10 @@ async def test_jjit_mint_refuses_admin_acting_user(monkeypatch):
     with pytest.raises(nexus_client.NexusClientError, match="admina"):
         await nexus_client.mint_client_token()
 
-    user.roles = ["sourcer"]
+    user.roles = ["recruiter"]
     from app.models.user import UserRole
 
-    user.role = UserRole.sourcer
+    user.role = UserRole.recruiter
     assert await nexus_client.mint_client_token()
 
 

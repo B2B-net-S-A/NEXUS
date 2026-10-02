@@ -156,7 +156,6 @@ describe("OrderSlideOver", () => {
     const person = (user_id: number, name: string, extra: Record<string, unknown> = {}) => ({
       user_id,
       name,
-      role: "recruiter",
       via: "owner",
       proposed: false,
       assigned_by_name: null,
@@ -183,7 +182,7 @@ describe("OrderSlideOver", () => {
             recruiters: [
               person(5, "Anna Nowicka"),
               person(6, "Bartek Testowy", { via: "collaborator" }),
-              person(8, "Celina Wzorcowa", { via: "assignment", role: "sourcer" }),
+              person(8, "Celina Wzorcowa", { via: "assignment" }),
             ],
           },
         },

@@ -88,12 +88,11 @@ async def test_delivery_lead_uses_assignments_in_delivery_and_all_clients_for_or
     """Od 25.09.2026 DL w modułach Delivery widzi tylko przypisanych klientów.
 
     ``purpose="org"`` (rekrutacje, generator B2B, zespół klienta) zostaje przy
-    wszystkich klientach, a TAC — przy swoich jawnych przypisaniach.
+    wszystkich klientach.
     """
 
     dl_db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10, 20])))
     org_db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10, 20, 30])))
-    tac_db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([30, 40])))
 
     assert await resolve_client_team_client_ids(
         dl_db,
@@ -113,90 +112,95 @@ async def test_delivery_lead_uses_assignments_in_delivery_and_all_clients_for_or
     assert "delivery_lead_client_assignments" not in org_sql
     assert "client_tac_assignments" not in org_sql
 
-    assert await resolve_client_team_client_ids(
-        tac_db,
-        _user(UserRole.tac),
-    ) == frozenset({30, 40})
-    tac_sql = str(tac_db.scalars.await_args.args[0])
-    assert "client_tac_assignments" in tac_sql
-    assert "delivery_lead_client_assignments" not in tac_sql
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("purpose", ["delivery", "org"])
+async def test_recruiter_is_in_no_client_team_whatever_the_legacy_assignments(
+    purpose: str,
+) -> None:
+    """Do 0411 rola TAC dostawała tu klientów z ``ClientTacAssignment``.
+
+    Roli nie ma, a rekruter nie należy do zespołu klienta: resolver nie pyta
+    bazy wcale, więc wiersze przypisań nie mogą już dać dostępu.
+    """
+
+    db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([30, 40])))
+
+    assert (
+        await resolve_client_team_client_ids(
+            db,
+            _user(UserRole.recruiter),
+            purpose=purpose,  # type: ignore[arg-type]
+        )
+        == frozenset()
+    )
+    db.scalars.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_valid_dl_tac_hybrid_uses_only_dl_assignments() -> None:
+async def test_dl_recruiter_hybrid_uses_only_dl_assignments() -> None:
     db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10, 20])))
     hybrid = _user(
         UserRole.delivery_lead,
-        roles=[UserRole.delivery_lead.value, UserRole.tac.value],
+        roles=[UserRole.delivery_lead.value, UserRole.recruiter.value],
     )
 
     assert await resolve_client_team_client_ids(db, hybrid) == frozenset({10, 20})
     assert db.scalars.await_count == 1
     rendered = str(db.scalars.await_args.args[0])
     # Od 25.09.2026 zakres Delivery DL-a = jego przypisania (nie cała baza);
-    # przypisania TAC nadal nie są dokładane.
+    # historyczne przypisania opiekuna (TAC) nie są dokładane.
     assert "delivery_lead_client_assignments" in rendered
     assert "client_tac_assignments" not in rendered
 
 
 @pytest.mark.asyncio
-async def test_unassigned_tac_client_team_role_is_deny_all() -> None:
-    db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([])))
+async def test_assigned_delivery_lead_can_read_client_surfaces() -> None:
+    db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([77])))
 
-    access = await resolve_client_access(db, _user(UserRole.tac), client_id=77)
+    access = await resolve_client_access(
+        db, _user(UserRole.delivery_lead), client_id=77
+    )
+
+    assert access.is_client_team
+    assert access.can_view_contacts
+    assert access.can_view_knowledge
+    assert access.can_view_materials
+    assert access.can_view_legal_documents
+    assert access.generator_can_view_legal
+    assert access.can_edit_materials
+    assert access.can_edit_legal_documents
+    assert access.generator_can_edit_legal
+
+
+@pytest.mark.asyncio
+async def test_unassigned_recruiter_cannot_read_any_client_surface() -> None:
+    db = SimpleNamespace(
+        scalars=AsyncMock(return_value=_Rows([77])),
+        execute=AsyncMock(return_value=_Scalar(False)),
+    )
+
+    access = await resolve_client_access(db, _user(UserRole.recruiter), client_id=77)
 
     assert not access.is_client_team
+    assert not access.is_job_assigned
     assert not access.can_view_contacts
     assert not access.can_view_knowledge
     assert not access.can_view_materials
     assert not access.can_edit_materials
     assert not access.can_view_legal_documents
     assert not access.can_edit_legal_documents
+    assert not access.generator_can_view_legal
     assert not access.can_view_financials
+    # Zespół klienta nie jest czytany z bazy — zostaje samo pytanie o rekrutację.
+    db.scalars.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role", [UserRole.delivery_lead, UserRole.tac])
-async def test_assigned_client_team_role_can_read_client_surfaces(
-    role: UserRole,
-) -> None:
-    db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([77])))
-
-    access = await resolve_client_access(db, _user(role), client_id=77)
-
-    assert access.is_client_team
-    assert access.can_view_contacts
-    assert access.can_view_knowledge
-    assert access.can_view_materials
-    # TAC nie ma uprawnień Delivery; dokumenty widzi wyłącznie w generatorze B2B.
-    assert access.can_view_legal_documents is (role is UserRole.delivery_lead)
-    assert access.generator_can_view_legal
-    assert access.can_edit_materials is (role is UserRole.delivery_lead)
-    assert access.can_edit_legal_documents is (role is UserRole.delivery_lead)
-    assert access.generator_can_edit_legal is (role is UserRole.delivery_lead)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", [UserRole.recruiter, UserRole.sourcer])
-async def test_unassigned_recruitment_operator_cannot_read_client_materials(
-    role: UserRole,
-) -> None:
-    db = SimpleNamespace(execute=AsyncMock(return_value=_Scalar(False)))
-
-    access = await resolve_client_access(db, _user(role), client_id=77)
-
-    assert not access.is_job_assigned
-    assert not access.can_view_materials
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", [UserRole.recruiter, UserRole.sourcer])
-async def test_job_assigned_recruitment_operator_can_read_client_materials(
-    role: UserRole,
-) -> None:
+async def test_job_assigned_recruiter_can_read_client_materials() -> None:
     db = SimpleNamespace(execute=AsyncMock(return_value=_Scalar(True)))
 
-    access = await resolve_client_access(db, _user(role), client_id=77)
+    access = await resolve_client_access(db, _user(UserRole.recruiter), client_id=77)
 
     assert access.is_job_assigned
     assert access.can_view_materials
@@ -370,7 +374,7 @@ async def test_client_order_read_helper_uses_central_fail_closed_decision(
     with pytest.raises(HTTPException) as exc:
         await client_orders._require_client_order_read(
             db=object(),  # type: ignore[arg-type]
-            user=_user(UserRole.tac),
+            user=_user(UserRole.recruiter),
             client_id=77,
         )
     assert exc.value.status_code == 403
@@ -382,7 +386,7 @@ async def test_client_order_read_helper_uses_central_fail_closed_decision(
     with pytest.raises(HTTPException) as exc:
         await client_orders._require_client_order_read(
             db=object(),  # type: ignore[arg-type]
-            user=_user(UserRole.tac),
+            user=_user(UserRole.recruiter),
             client_id=77,
         )
     assert exc.value.status_code == 403
@@ -392,7 +396,7 @@ async def test_client_order_read_helper_uses_central_fail_closed_decision(
     resolve_access.return_value = decision(True)
     await client_orders._require_client_order_read(
         db=object(),  # type: ignore[arg-type]
-        user=_user(UserRole.tac),
+        user=_user(UserRole.recruiter),
         client_id=77,
     )
 
@@ -526,8 +530,8 @@ async def test_material_and_required_document_writes_use_central_edit_decision(
     # Decyzje z prawdziwego resolvera (moduły wołają też jego nazwaną odmowę):
     # konto bez uprawnień, konto z uprawnieniami poza portfelem i admin.
     denied = await resolve_client_access(
-        SimpleNamespace(scalars=AsyncMock(return_value=_Rows([]))),
-        _user(UserRole.tac),
+        SimpleNamespace(execute=AsyncMock(return_value=_Scalar(False))),
+        _user(UserRole.recruiter),
         client_id=77,
     )
     out_of_portfolio = await resolve_client_access(
@@ -572,7 +576,7 @@ async def test_material_and_required_document_writes_use_central_edit_decision(
     with pytest.raises(HTTPException) as legal_exc:
         await client_materials._require_material_write(
             object(),  # type: ignore[arg-type]
-            _user(UserRole.tac),
+            _user(UserRole.recruiter),
             77,
             legal=True,
         )
@@ -582,7 +586,7 @@ async def test_material_and_required_document_writes_use_central_edit_decision(
     with pytest.raises(HTTPException) as docs_exc:
         await required_documents._require_required_docs_access(
             object(),  # type: ignore[arg-type]
-            _user(UserRole.tac),
+            _user(UserRole.recruiter),
             77,
             write=True,
         )
@@ -629,13 +633,13 @@ async def test_material_and_required_document_writes_use_central_edit_decision(
     )
     await client_materials._require_material_write(
         object(),  # type: ignore[arg-type]
-        _user(UserRole.tac),
+        _user(UserRole.recruiter),
         77,
         legal=True,
     )
     await required_documents._require_required_docs_access(
         object(),  # type: ignore[arg-type]
-        _user(UserRole.tac),
+        _user(UserRole.recruiter),
         77,
         write=True,
     )

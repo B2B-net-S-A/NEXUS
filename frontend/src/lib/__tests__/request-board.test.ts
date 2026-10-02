@@ -46,10 +46,10 @@ const board: RequestBoard = {
   ],
   requests: [
     req({ job_id: 1, category_id: 1, title: "DevOps Engineer", client_name: "Polkomtel", deadline: "2026-09-30", priority_level: "p1", delivery_lead: { id: 31, name: "Gosia Delivery" } }),
-    req({ job_id: 2, title: "Senior Java Developer", deadline: "2026-09-26", delivery_lead: { id: 32, name: "Adam Lider" }, people: [{ user_id: 7, name: "Anna Przykładowa", role: "recruiter", proposed: false, source: "auto" }] }),
+    req({ job_id: 2, title: "Senior Java Developer", deadline: "2026-09-26", delivery_lead: { id: 32, name: "Adam Lider" }, people: [{ user_id: 7, name: "Anna Przykładowa", proposed: false, source: "auto" }] }),
     req({ job_id: 3, title: "React Developer", sent: 3, champion: true, deadline: "2026-09-28", priority_level: "accepting" }),
     // Sama propozycja automatu — nikt jeszcze nie pracuje.
-    req({ job_id: 4, title: "Kotlin Developer", sent: 1, deadline: "2026-09-20", delivery_lead: { id: 31, name: "Gosia Delivery" }, people: [{ user_id: 8, name: "Bartek Testowy", role: "sourcer", proposed: true, source: "auto" }] }),
+    req({ job_id: 4, title: "Kotlin Developer", sent: 1, deadline: "2026-09-20", delivery_lead: { id: 31, name: "Gosia Delivery" }, people: [{ user_id: 8, name: "Bartek Testowy", proposed: true, source: "auto" }] }),
   ],
   load: [],
   changes: [],
@@ -158,8 +158,8 @@ describe("filters", () => {
 })
 
 describe("kto jest przy requeście", () => {
-  const working = { user_id: 7, name: "Anna Przykładowa", role: "recruiter" as const, proposed: false, source: "manual" as const }
-  const proposal = { user_id: 8, name: "Bartek Testowy", role: "sourcer" as const, proposed: true, source: "auto" as const }
+  const working = { user_id: 7, name: "Anna Przykładowa", proposed: false, source: "manual" as const }
+  const proposal = { user_id: 8, name: "Bartek Testowy", proposed: true, source: "auto" as const }
 
   it("propozycję pokazujemy tylko wtedy, gdy nikt nie pracuje", () => {
     expect(boardPeople({ people: [proposal] })).toEqual([proposal])

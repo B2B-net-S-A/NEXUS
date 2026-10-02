@@ -276,9 +276,7 @@ def test_contractor_access_allows_operational_roles():
 def test_contractor_access_denies_roles_outside_delivery():
     for role in (
         UserRole.head_of_recruitment,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
     ):
         with pytest.raises(HTTPException) as exc:
             _require_contractor_access(_FakeUser(role))

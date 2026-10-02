@@ -30,7 +30,6 @@ FINANCE = UserRole.finance
 HOR = UserRole.head_of_recruitment
 LEAD = UserRole.delivery_lead
 TCM = UserRole.talent_community_manager
-TAC = UserRole.tac
 RECRUITER = UserRole.recruiter
 
 COE = ProductAction.contracts_orders_edit
@@ -309,7 +308,7 @@ AMOUNT_FIELDS = {
 }
 
 
-@pytest.mark.parametrize("role", [LEAD, HOR, TCM, TAC, RECRUITER, UserRole.sourcer])
+@pytest.mark.parametrize("role", [LEAD, HOR, TCM, RECRUITER])
 async def test_contract_amounts_are_refused_without_the_amounts_edit(role) -> None:
     with pytest.raises(HTTPException) as denied:
         await contracts._assert_contract_finance_write_allowed(
@@ -859,10 +858,10 @@ async def test_documents_ending_cooperation_need_the_status_permission(doc_key) 
     assert await _blockers(doc_key, _user(TCM), **values) == []
     assert await _blockers(doc_key, _user(LEAD), **values) == []
     # Samo oznaczanie podpisu (rola z włączonym przełącznikiem) nie wystarcza…
-    signer = _holder("b2b_signature_confirmation", role=TAC)
+    signer = _holder("b2b_signature_confirmation")
     assert await _blockers(doc_key, signer, **values) == [blocker]
     # …ani edycja kontraktów bez zmiany statusu.
-    editor = _holder("b2b_signature_confirmation", "contracts_orders_edit", role=TAC)
+    editor = _holder("b2b_signature_confirmation", "contracts_orders_edit")
     assert await _blockers(doc_key, editor, **values) == [blocker]
 
 
@@ -926,7 +925,7 @@ async def test_contract_effects_need_delivery_write(
 
 
 async def test_delivery_read_only_does_not_block_a_document_without_effects() -> None:
-    limited = _limited_to_delivery_read(_holder("b2b_signature_confirmation", role=TAC))
+    limited = _limited_to_delivery_read(_holder("b2b_signature_confirmation"))
     assert await _blockers("preliminary_cez", limited) == []
     assert (
         await _blockers(
@@ -942,7 +941,7 @@ async def test_delivery_read_only_does_not_block_a_document_without_effects() ->
 async def test_document_without_a_contract_changes_only_the_register() -> None:
     """Bez kontraktu w NEXUSIE nie ma czego pilnować uprawnieniem kontraktu."""
 
-    signer = _holder("b2b_signature_confirmation", role=TAC)
+    signer = _holder("b2b_signature_confirmation")
     blockers = await _blockers(
         "termination_agreement",
         signer,
@@ -1019,12 +1018,12 @@ async def test_signature_scope_binds_only_the_delivery_lead_portfolio(
     scope = b2b_contract_generator._assert_signature_client_access
 
     # W całej organizacji: TCM (także z rolą DL), admin i każda rola, której
-    # administrator włączył uprawnienie — TAC, rekruter, Finanse.
+    # administrator włączył uprawnienie — rekruter, Finanse.
     for account in (
         _user(TCM),
         _user(LEAD, TCM),
         _user(ADMIN, LEAD),
-        _user(TAC),
+        _user(RECRUITER),
         _user(FINANCE),
         _holder("b2b_signature_confirmation"),
     ):
@@ -1032,6 +1031,6 @@ async def test_signature_scope_binds_only_the_delivery_lead_portfolio(
     assert checked == []
 
     # Konto rządzone portfelem Delivery Leada: klient z przypisania.
-    for account in (_user(LEAD), _user(HOR, LEAD), _user(LEAD, TAC)):
+    for account in (_user(LEAD), _user(HOR, LEAD), _user(LEAD, RECRUITER)):
         await scope(None, account, 5)
     assert checked == [(5, True, "org")] * 3

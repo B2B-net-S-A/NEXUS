@@ -35,25 +35,11 @@ def _sql(clause) -> str:
     )
 
 
-def test_work_role_is_sourcer_only_without_recruiter_or_tac() -> None:
-    from app.services.job_team import work_role_of
-
-    def person(role, roles=None):
-        return SimpleNamespace(role=role, roles=roles)
-
-    assert work_role_of(person(UserRole.sourcer, ["sourcer"])) == "sourcer"
-    assert work_role_of(person(UserRole.sourcer, ["sourcer", "recruiter"])) == (
-        "recruiter"
-    )
-    assert work_role_of(person(UserRole.tac, ["tac", "sourcer"])) == "recruiter"
-    assert work_role_of(person(UserRole.delivery_lead)) == "recruiter"
-
-
 def test_working_leaves_out_proposals() -> None:
     from app.services.job_team import TeamPerson, working
 
     owner = TeamPerson(1, "Anna", "recruiter", "owner")
-    proposal = TeamPerson(2, "Jan", "sourcer", "assignment", proposed=True)
+    proposal = TeamPerson(2, "Jan", "recruiter", "assignment", proposed=True)
 
     assert working([owner, proposal]) == [owner]
 
@@ -90,7 +76,7 @@ def test_mine_clause_counts_manual_collaborators_only() -> None:
     """„Moje” bez wierszy ``auto_cc`` — cała kategoria to nie „moje”."""
     from app.api.jobs import jobs_mine_clause, jobs_my_category_clause
 
-    user = SimpleNamespace(id=7, roles=["sourcer"], role="sourcer")
+    user = SimpleNamespace(id=7, roles=["recruiter"], role="recruiter")
     mine = _sql(jobs_mine_clause(user))
     assert "job_collaborators.source = 'manual'" in mine, mine
     assert "job_collaborators.removed_from_auto_cc IS false" in mine, mine
@@ -185,12 +171,12 @@ async def _seed_world() -> dict:
             "gone": person("gone", UserRole.recruiter, active=False),
             "released": person("released", UserRole.recruiter),
             "manual": person("manual", UserRole.recruiter),
-            "auto": person("auto", UserRole.sourcer),
+            "auto": person("auto", UserRole.recruiter),
             "previous": person("previous", UserRole.recruiter),
             "proposed": person("proposed", UserRole.recruiter),
-            "collab": person("collab", UserRole.sourcer),
+            "collab": person("collab", UserRole.recruiter),
             "category": person("category", UserRole.recruiter),
-            "dead_collab": person("dead-collab", UserRole.sourcer, active=False),
+            "dead_collab": person("dead-collab", UserRole.recruiter, active=False),
             "assigner": person("assigner", UserRole.head_of_recruitment),
         }
         await db.flush()
@@ -284,7 +270,7 @@ async def _seed_world() -> dict:
             state="active",
             assigned_by=u["assigner"],
         )
-        assignment("auto_row", "auto", source="auto", state="active", role="sourcer")
+        assignment("auto_row", "auto", source="auto", state="active")
         # Lustro prowadzącego po zmianie prowadzącego — żyje do przebiegu automatu.
         assignment("stale_owner_row", "previous", source="owner", state="active")
         assignment("proposed_only", "proposed", source="auto", state="proposed")
@@ -323,7 +309,6 @@ async def _seed_world() -> dict:
             "auto",
             source="auto",
             state="active",
-            role="sourcer",
             assigned_at=now - timedelta(hours=1),
         )
         assignment(
@@ -425,13 +410,9 @@ async def test_sql_filters_and_loader_agree_on_every_branch() -> None:
             (u["collab"], "collaborator", False),
             (u["proposed"], "assignment", True),
         ]
-        assert [p.role for p in team] == [
-            "recruiter",
-            "recruiter",
-            "sourcer",
-            "sourcer",
-            "recruiter",
-        ]
+        # Rola pracy jest jedna (0411): także współpracownik bez wiersza
+        # przypisania i prowadzący bez własnego wiersza są „rekruterem”.
+        assert [p.role for p in team] == ["recruiter"] * 5
         assert team[0].name == names["owner"]
         # Prowadzący z własnym wierszem przypisania niesie, kto go przydzielił.
         assert team[0].assigned_by_name == names["assigner"]
@@ -468,8 +449,8 @@ async def _seed_removal_job(*, owner_row_source: str) -> dict:
         bystander = User(
             email=f"job-team-bystander-{tag}@example.com",
             name=f"JobTeam bystander {tag}",
-            role=UserRole.sourcer,
-            roles=["sourcer"],
+            role=UserRole.recruiter,
+            roles=["recruiter"],
             is_active=True,
             profile_completed=True,
         )
@@ -505,7 +486,7 @@ async def _seed_removal_job(*, owner_row_source: str) -> dict:
                 JobWorkAssignment(
                     job_id=job.id,
                     user_id=bystander.id,
-                    role="sourcer",
+                    role="recruiter",
                     source="auto",
                     state="proposed",
                 ),

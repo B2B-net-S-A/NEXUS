@@ -302,9 +302,11 @@ def test_static_fallback_agrees_with_the_default_matrix() -> None:
         SectionAccess.write
     )
 
-    tac = _user(UserRole.tac)
-    assert named_permissions_of(tac) == frozenset()
-    assert section_access_for_user(tac, ProductSection.delivery) is SectionAccess.none
+    plain = _user(UserRole.recruiter)
+    assert named_permissions_of(plain) == frozenset()
+    assert section_access_for_user(plain, ProductSection.delivery) is (
+        SectionAccess.none
+    )
 
 
 def test_request_snapshot_wins_over_the_static_matrix() -> None:

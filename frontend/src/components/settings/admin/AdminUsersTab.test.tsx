@@ -65,7 +65,7 @@ const USERS: AdminUser[] = [
   account({
     id: 92,
     name: "Daria Testowa",
-    role: "sourcer",
+    role: "recruiter",
     extra_permissions: [
       "delivery_view",
       "clients_edit",

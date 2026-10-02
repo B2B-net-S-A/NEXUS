@@ -21,7 +21,7 @@ describe("extractErrorMsg — bramka ról (403)", () => {
   it("nie pokazuje użytkownikowi surowej listy ról z require_roles", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const raw =
-      "Requires one of roles: ['admin', 'head_of_recruitment', 'delivery_lead', 'tac']";
+      "Requires one of roles: ['admin', 'head_of_recruitment', 'delivery_lead']";
 
     const msg = extractErrorMsg(axiosErrorWith(403, { detail: raw }));
 

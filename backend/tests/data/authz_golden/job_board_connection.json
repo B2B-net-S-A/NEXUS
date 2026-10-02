@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,9 +21,9 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/job-boards/jjit/authorize": "PDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/job-boards/jjit/callback": "PPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDD",
+  "GET /api/job-boards/jjit/authorize": "PDDDDDDDDDDDDDDDDDD",
+  "GET /api/job-boards/jjit/callback": "PPPPPPPPPPPPPPPPPPP",
+  "GET /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDD"
  }
 }

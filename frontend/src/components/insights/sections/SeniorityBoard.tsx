@@ -119,7 +119,7 @@ export function SeniorityBoard() {
         />
       ) : viewState === "empty" ? (
         <p className="text-sm text-muted-foreground py-4 text-center">
-          Brak osób w rolach sourcer / TAC / rekruter.
+          Brak osób w roli rekrutera.
         </p>
       ) : data ? (
         <div className="grid gap-4 md:grid-cols-3">

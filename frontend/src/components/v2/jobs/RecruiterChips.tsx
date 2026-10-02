@@ -28,11 +28,6 @@ export interface RecruiterChipsProps<T extends RecruiterLike = RecruiterLike> {
   className?: string;
 }
 
-const ROLE_LABEL: Record<string, string> = {
-  recruiter: "rekruter",
-  sourcer: "sourcer",
-};
-
 const SIZES = {
   sm: {
     chip: "gap-1.5 py-0.5 pl-0.5 pr-1.5 text-xs",
@@ -73,8 +68,8 @@ function Avatar({ name, className }: { name: string; className: string }) {
 }
 
 /**
- * Osoby w roli „Rekruter”: awatar z inicjałami, imię i nazwisko, rola
- * (rekruter / sourcer). Propozycja automatu ma przerywaną ramkę i dopisek
+ * Osoby w roli „Rekruter”: awatar z inicjałami, imię i nazwisko.
+ * Propozycja automatu ma przerywaną ramkę i dopisek
  * „propozycja” — to jeszcze nie praca. W wariancie `compact` (komórka tabeli)
  * zostaje samo nazwisko pierwszej osoby i „+N”.
  *
@@ -174,13 +169,7 @@ export function RecruiterChips<T extends RecruiterLike = RecruiterLike>({
           onRemove != null && (canRemove ? canRemove(person) : true);
         const note = caption?.(person);
         const actions = person.proposed ? proposalActions?.(person) : null;
-        // „propozycja” stoi pierwsza: gdy brakuje miejsca, obcina się rola.
-        const tags = [
-          person.proposed ? "propozycja" : null,
-          ROLE_LABEL[person.role],
-        ]
-          .filter(Boolean)
-          .join(" · ");
+        const tags = person.proposed ? "propozycja" : null;
         return (
           <li
             key={`${person.user_id}-${person.proposed ? "proposed" : "working"}`}

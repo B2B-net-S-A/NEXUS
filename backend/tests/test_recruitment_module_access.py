@@ -43,9 +43,7 @@ ROLES = [
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
     UserRole.finance,
     UserRole.user,
 ]
@@ -55,9 +53,7 @@ OPERATIONAL_ROLES = {
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
     UserRole.finance,
 }
 TERMINAL_ROLES = {
@@ -65,9 +61,7 @@ TERMINAL_ROLES = {
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
     UserRole.finance,
 }
 RATE_EDIT_ROLES = {
@@ -75,9 +69,7 @@ RATE_EDIT_ROLES = {
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
     UserRole.finance,
 }
 
@@ -360,16 +352,16 @@ async def test_viewer_cannot_verified_move(m4_client: AsyncClient, role_accounts
     assert r.status_code == 403, r.text
 
 
-async def test_sourcer_can_still_do_nonterminal_move(
+async def test_recruiter_can_do_nonterminal_move(
     m4_client: AsyncClient, role_accounts
 ):
-    sourcer_headers, sourcer_id = role_accounts[UserRole.sourcer]
-    cand, job = await _seed_candidate(), await _seed_job(owner_id=sourcer_id)
+    recruiter_headers, recruiter_id = role_accounts[UserRole.recruiter]
+    cand, job = await _seed_candidate(), await _seed_job(owner_id=recruiter_id)
     await _seed_stage(cand, job, "new")
     r = await m4_client.post(
         "/api/pipeline/move",
         json={"candidate_id": cand, "job_id": job, "stage": "screening"},
-        headers=sourcer_headers,
+        headers=recruiter_headers,
     )
     assert r.status_code == 200, r.text
 
@@ -381,7 +373,7 @@ async def test_bulk_hired_verified_blocked_for_everyone(
     hired omijał hook kontraktu, verified omijał gate stawki."""
     cand, job = await _seed_candidate(), await _seed_job()
     await _seed_stage(cand, job, "screening")
-    for role in (UserRole.sourcer, UserRole.admin):
+    for role in (UserRole.recruiter, UserRole.admin):
         for target in ("hired", "verified"):
             r = await m4_client.post(
                 "/api/pipeline/bulk-move",
@@ -411,7 +403,7 @@ async def test_terminal_roles_not_blocked_on_hired(
 
 async def test_secondary_role_grants_terminal(m4_client: AsyncClient):
     email, password, uid = await _seed_user(
-        UserRole.sourcer, secondary=["sourcer", "recruiter"]
+        UserRole.delivery_lead, secondary=["delivery_lead", "recruiter"]
     )
     headers = await _login(m4_client, email, password)
     cand, job = await _seed_candidate(), await _seed_job(owner_id=uid)
@@ -427,9 +419,9 @@ async def test_secondary_role_grants_terminal(m4_client: AsyncClient):
 async def test_secondary_dl_can_cancel_foreign_rejection_email(
     m4_client: AsyncClient, headers_by_role
 ):
-    """TAC z dodatkową rolą delivery_lead czyta cudzy zaplanowany mail —
+    """Rekruter z dodatkową rolą delivery_lead czyta cudzy zaplanowany mail —
     primary-role-only porównanie (stary kod) dawało tu 403. Anulować może
-    od rundy 9 każdy z prawem ruchu w rekrutacji (także zwykły TAC)."""
+    od rundy 9 każdy z prawem ruchu w rekrutacji (także zwykły rekruter)."""
     from app.models.rejection_email import (
         RejectionEmailStatus,
         ScheduledRejectionEmail,
@@ -458,25 +450,25 @@ async def test_secondary_dl_can_cancel_foreign_rejection_email(
         await db.refresh(row)
         row_id = row.id
 
-    # Runda 9 (R9-N11-1): zwykły TAC nie jest ownerem ani oversightem, ale
+    # Runda 9 (R9-N11-1): zwykły rekruter nie jest ownerem ani oversightem, ale
     # ma prawo ruchu w tej rekrutacji — może zatrzymać pomyłkę. Podgląd
     # treści maila (GET) zostaje dla ownera i oversightu.
     r = await m4_client.get(
         f"/api/rejection-emails/{row_id}",
-        headers=headers_by_role[UserRole.tac],
+        headers=headers_by_role[UserRole.recruiter],
     )
     assert r.status_code == 403, r.text
 
-    # TAC + secondary delivery_lead → 200.
+    # Rekruter + secondary delivery_lead → 200.
     email, password, _uid = await _seed_user(
-        UserRole.tac, secondary=["tac", "delivery_lead"]
+        UserRole.recruiter, secondary=["recruiter", "delivery_lead"]
     )
     headers = await _login(m4_client, email, password)
     r = await m4_client.get(f"/api/rejection-emails/{row_id}", headers=headers)
     assert r.status_code == 200, r.text
     r = await m4_client.post(
         f"/api/rejection-emails/{row_id}/cancel",
-        headers=headers_by_role[UserRole.tac],
+        headers=headers_by_role[UserRole.recruiter],
     )
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "cancelled"
@@ -545,7 +537,7 @@ async def test_role_rule_resolver_includes_secondary_roles():
     from app.models.stage_notification import RecipientType
 
     email, _password, _uid = await _seed_user(
-        UserRole.tac, secondary=["tac", "delivery_lead"]
+        UserRole.recruiter, secondary=["recruiter", "delivery_lead"]
     )
     async with AsyncSessionLocal() as db:
         hybrid = await db.scalar(select(User).where(User.email == email))
@@ -558,5 +550,5 @@ async def test_role_rule_resolver_includes_secondary_roles():
         )
         ids = await _resolve_user_ids_for_rule(db, rule=rule, job=None, candidate=None)
         assert hybrid.id in ids, (
-            "hybrydowy TAC+DL powinien być odbiorcą reguły delivery_lead"
+            "hybrydowy rekruter+DL powinien być odbiorcą reguły delivery_lead"
         )

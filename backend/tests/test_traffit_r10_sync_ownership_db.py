@@ -289,7 +289,7 @@ async def test_user_upsert_leaves_a_real_account_alone(db) -> None:
                     password_hash, profile_completed, created_at, updated_at
                 ) VALUES (
                     :ext, 'traffit', :email, 'Konto NEXUS',
-                    CAST('sourcer' AS userrole), true, :pwd, true, NOW(), NOW()
+                    CAST('delivery_lead' AS userrole), true, :pwd, true, NOW(), NOW()
                 ) RETURNING id
                 """
             ),
@@ -320,7 +320,7 @@ async def test_user_upsert_leaves_a_real_account_alone(db) -> None:
     ).fetchone()
     await db.execute(text("DELETE FROM users WHERE id = :i"), {"i": uid})
     await db.commit()
-    assert (role, active) == ("sourcer", True)
+    assert (role, active) == ("delivery_lead", True)
 
 
 class _Content503Traffit:

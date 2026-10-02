@@ -216,7 +216,6 @@ async def test_both_charts_are_reachable_for_every_logged_in_role(
     """
     for role in (
         UserRole.admin,
-        UserRole.sourcer,
         UserRole.finance,
         UserRole.recruiter,
         UserRole.user,

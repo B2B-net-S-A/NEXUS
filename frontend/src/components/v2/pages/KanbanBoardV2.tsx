@@ -1614,10 +1614,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // przegląd przed wysyłką zamiast okna „Przesuń dalej”.
  const canReviewAsDl = hasPermission(authUser, "recruitment_manage");
  // Terminy od klienta dodaje DL (lustro bramki `interview_slots`: admin, HoR,
- // DL, TAC z członkostwem — serwer i tak sprawdza członkostwo).
- const canAddClientSlots =
- !readOnly &&
- (isDlOrHor || hasRole(authUser, "tac"));
+ // DL z członkostwem — serwer i tak sprawdza członkostwo).
+ const canAddClientSlots = !readOnly && isDlOrHor;
  const [slotPair, setSlotPair] = useState<PairInfo | null>(null);
  // Pipeline v4: kolumna Tablicy każdej karty (odznaki) i „Biorę/Przejmij".
  const columnByItemId = useMemo(() => {

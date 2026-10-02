@@ -453,7 +453,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
               })}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Osobom z kilkoma rolami (np. DL+TAC) zaznacz obie. Rola podstawowa
+              Osobom z kilkoma rolami (np. DL + Rekruter) zaznacz obie. Rola podstawowa
               jest zawsze wybrana. Finanse, Praktykant i Viewer (legacy) są rolami
               wyłącznymi i nie mogą być łączone z innymi; Viewer nie jest
               dostępny jako rola dodatkowa.

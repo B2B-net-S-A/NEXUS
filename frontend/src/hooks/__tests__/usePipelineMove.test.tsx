@@ -310,7 +310,7 @@ describe("usePipelineMove — ruch pojedynczy", () => {
     expect(screen.queryByRole("button", { name: "Pomiń stawkę" })).toBeNull();
   });
 
-  it.each(["talent_community_manager", "sourcer"])(
+  it.each(["talent_community_manager", "recruiter"])(
     "%s dostaje okno stawki, nie odmowę (02.10.2026)",
     async (role) => {
       useAuthStore.setState({

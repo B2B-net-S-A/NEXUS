@@ -72,9 +72,7 @@ _ROLE_LABELS: dict[UserRole, str] = {
     UserRole.head_of_recruitment: "Head of Recruitment",
     UserRole.delivery_lead: "Delivery Lead",
     UserRole.talent_community_manager: "Talent Community Manager",
-    UserRole.tac: "TAC",
     UserRole.recruiter: "Rekruter",
-    UserRole.sourcer: "Sourcer",
     UserRole.user: "Viewer (legacy)",
     UserRole.trainee: "Praktykant",
 }

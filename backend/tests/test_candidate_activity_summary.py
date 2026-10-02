@@ -201,7 +201,7 @@ def test_visibility_scope_hash_is_per_user_role_and_job_set():
     assert base == cas._visibility_scope_hash(make_user(7), [10, 30])
     assert base != cas._visibility_scope_hash(make_user(8), [10, 30])
     assert base != cas._visibility_scope_hash(
-        make_user(7, ("recruiter", "tac")), [10, 30]
+        make_user(7, ("recruiter", "delivery_lead")), [10, 30]
     )
     assert base != cas._visibility_scope_hash(make_user(7), [10])
 

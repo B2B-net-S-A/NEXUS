@@ -586,7 +586,7 @@ async def test_roles_without_a_reason_to_be_here_are_rejected(app_client: AsyncC
     nieegzekwowany dla następnego handlera dopisanego do tego routera —
     dokładnie to wychwycił `test_route_authz_contract`.
     """
-    for role in ("recruiter", "sourcer", "tac"):
+    for role in ("recruiter",):
         _, email, password = await _seed_user(role)
         headers = await _headers_for(app_client, email, password)
         resp = await app_client.get("/api/dl-alerts", headers=headers)

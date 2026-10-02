@@ -6,6 +6,7 @@ import {
   isDeliveryLeadGoverned,
   type Permission,
 } from "@/lib/permissions"
+import { normalizeRole, normalizeRoles } from "@/lib/role-normalize"
 import { hasSectionAccess } from "@/lib/section-access"
 
 // ── Role model ──────────────────────────────────────────────────────────────
@@ -19,9 +20,7 @@ export type UserRole =
   | "head_of_recruitment"
   | "delivery_lead"
   | "talent_community_manager"
-  | "tac"
   | "recruiter"
-  | "sourcer"
   | "user"
   // Praktykant (0374) — rola WYŁĄCZNA: widzi tylko „Telefony na dziś”
   // (`/trainee`). Nie łączy się z innymi rolami (lustro finance).
@@ -29,7 +28,7 @@ export type UserRole =
 
 // Ranga — liczbowa reprezentacja pozwala na porównanie "min rola".
 // Legacy rank helper only. Section/action access is defined by explicit
-// matrices; TCM intentionally sits between Delivery Lead and TAC here.
+// matrices; TCM intentionally sits between Delivery Lead and Recruiter here.
 // head_of_recruitment = manager zespołu rekrutacji (wyżej niż DL, ale niżej od
 // admina — wg backend/app/models/user.py).
 export const ROLE_RANK: Record<UserRole, number> = {
@@ -41,9 +40,7 @@ export const ROLE_RANK: Record<UserRole, number> = {
   head_of_recruitment: 4.5,
   delivery_lead: 4,
   talent_community_manager: 3.5,
-  tac: 3,
   recruiter: 2,
-  sourcer: 2,
   user: 1,
   // Najniżej z ról operacyjnych — praktykant nie przechodzi żadnej bramki
   // rangowej. Finance zostaje minimum (rola rozłączna, fail-closed).
@@ -56,9 +53,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   head_of_recruitment: "Head of Recruitment",
   delivery_lead: "Delivery Lead",
   talent_community_manager: "Talent Community Manager",
-  tac: "TAC",
   recruiter: "Rekruter",
-  sourcer: "Sourcer",
   user: "User",
   trainee: "Praktykant",
 }
@@ -115,7 +110,7 @@ export interface User {
   role: UserRole
   /** Multi-role (migracja 0110). Lista wszystkich ról jakie user posiada.
    *  ``role`` to primary (legacy single-role kod); ``roles`` to authoritative
-   *  source dla permission checks. Hybrid users (np. DL+TAC) mają tu obie
+   *  source dla permission checks. Hybrid users (np. DL+rekruter) mają tu obie
    *  wartości. Optional przy hydration ze starego localStorage cache —
    *  helper hasRole() fallbackuje wtedy na ``[role]``. */
   roles?: UserRole[]
@@ -276,9 +271,9 @@ export function getUserRoles(
   user: RoleBearingUser | null | undefined
 ): UserRole[] {
   if (!user) return []
-  const set = new Set<UserRole>([user.role])
-  for (const r of user.roles ?? []) set.add(r)
-  return Array.from(set)
+  // Profil zapisany przed połączeniem ról (02.10.2026) może nieść `tac` albo
+  // `sourcer` — liczą się jak `recruiter`.
+  return normalizeRoles([user.role, ...(user.roles ?? [])])
 }
 
 /**
@@ -666,12 +661,21 @@ function readInitialUser(): User | null {
       if (!Array.isArray(user.allowed_sections)) {
         user.allowed_sections = []
       }
-      return user as unknown as User
+      return withStoredRoles(user as unknown as User)
     }
   } catch {
     /* corrupt value */
   }
   return null
+}
+
+/** Profil w kształcie, w jakim trafia do store'u: `roles` zawsze wypełnione
+ *  (odpowiedź sprzed migracji 0110 ich nie miała), a role sprzed połączenia
+ *  z 02.10.2026 (`tac`, `sourcer`) zamienione na `recruiter`. */
+function withStoredRoles(user: User): User {
+  const roles =
+    Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : [user.role]
+  return { ...user, role: normalizeRole(user.role), roles: normalizeRoles(roles) }
 }
 
 function persistUser(user: User | null): void {
@@ -709,7 +713,7 @@ function readRealUser(): User | null {
       typeof parsed.id === "number" &&
       typeof parsed.role === "string"
     ) {
-      return parsed as User
+      return withStoredRoles(parsed as User)
     }
   } catch {
     /* corrupt value */
@@ -767,12 +771,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     clearImpersonation()
     // Backfill roles for fresh logins where the API response predates
     // migration 0110 (cached at the edge or old build still up).
-    const safe: User = {
-      ...user,
-      roles: Array.isArray(user.roles) && user.roles.length > 0
-        ? user.roles
-        : [user.role],
-    }
+    const safe = withStoredRoles(user)
     persistUser(safe)
     writeAuthCookie(token)
     set({ user: safe, token, realUser: null, hydrated: true })
@@ -786,13 +785,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Inna tożsamość niż zapamiętana = coś jest nie tak z sesją. Cicha
     // podmiana konta jest gorsza niż nieodświeżony profil.
     if (!current || current.id !== user.id) return
-    const safe: User = {
-      ...user,
-      roles:
-        Array.isArray(user.roles) && user.roles.length > 0
-          ? user.roles
-          : [user.role],
-    }
+    const safe = withStoredRoles(user)
     // Bez zmian = bez zapisu. Nowa referencja `user` przerenderowałaby
     // cały shell przy każdym załadowaniu aplikacji.
     if (JSON.stringify(safe) === JSON.stringify(current)) return
@@ -803,13 +796,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Admin = obecny efektywny user (nie jesteśmy jeszcze w trybie podglądu).
     const admin = get().realUser ?? get().user
     if (!admin) return
-    const safeTarget: User = {
-      ...target,
-      roles:
-        Array.isArray(target.roles) && target.roles.length > 0
-          ? target.roles
-          : [target.role],
-    }
+    const safeTarget = withStoredRoles(target)
     writeImpersonation(admin, safeTarget.id)
     persistUser(safeTarget)
     set({ user: safeTarget, realUser: admin })

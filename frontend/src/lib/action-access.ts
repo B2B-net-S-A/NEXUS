@@ -51,17 +51,7 @@ export const ROLE_ACTION_ACCESS: Record<
     b2b_contract_generator: "manage",
     b2b_signature_confirmation: "manage",
   },
-  // 0410: podpis B2B u TAC był włączony, ale nigdy nie działał (zakres
-  // klienta zawsze odmawiał) — domyślna macierz mówi teraz prawdę.
-  tac: {
-    b2b_contract_generator: "manage",
-    b2b_signature_confirmation: "none",
-  },
   recruiter: {
-    b2b_contract_generator: "manage",
-    b2b_signature_confirmation: "none",
-  },
-  sourcer: {
     b2b_contract_generator: "manage",
     b2b_signature_confirmation: "none",
   },

@@ -28,9 +28,7 @@ from app.core.security import hash_password
 from app.models.user import User, UserRole
 
 _READ_ONLY_ROLES = [
-    UserRole.sourcer,
     UserRole.recruiter,
-    UserRole.tac,
     UserRole.talent_community_manager,
     UserRole.finance,
     UserRole.delivery_lead,
@@ -160,7 +158,7 @@ async def test_every_role_reads_the_quarterly_league(
     assert resp.status_code == 200, f"{role.value}: {resp.text}"
 
 
-@pytest.mark.parametrize("role", [UserRole.sourcer, UserRole.finance])
+@pytest.mark.parametrize("role", [UserRole.recruiter, UserRole.finance])
 @pytest.mark.asyncio
 async def test_every_role_reads_races_and_history(
     comp_client: AsyncClient, role: UserRole
@@ -470,7 +468,7 @@ async def test_reads_still_require_a_session(comp_client: AsyncClient):
 @pytest.mark.asyncio
 async def test_freeze_stays_admin_only(comp_client: AsyncClient):
     """Zamrożenie podium jest nieodwracalne — D7 go NIE otwiera."""
-    email, password = await _seed_user(UserRole.sourcer)
+    email, password = await _seed_user(UserRole.recruiter)
     headers = await _login(comp_client, email, password)
     resp = await comp_client.post(
         "/api/competitions/freeze",

@@ -103,17 +103,7 @@ DEFAULT_ROLE_SECTION_ACCESS: dict[UserRole, dict[ProductSection, SectionAccess]]
         delivery=SectionAccess.read,
         insights=SectionAccess.read,
     ),
-    UserRole.tac: _policy(
-        sourcing=SectionAccess.write,
-        pipeline=SectionAccess.write,
-        insights=SectionAccess.read,
-    ),
     UserRole.recruiter: _policy(
-        sourcing=SectionAccess.write,
-        pipeline=SectionAccess.write,
-        insights=SectionAccess.read,
-    ),
-    UserRole.sourcer: _policy(
         sourcing=SectionAccess.write,
         pipeline=SectionAccess.write,
         insights=SectionAccess.read,

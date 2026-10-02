@@ -1755,10 +1755,8 @@ async def test_confirm_rbac_allows_admin_and_fails_closed_without_client_scope(
 
     for role in (
         UserRole.delivery_lead,
-        UserRole.tac,
         UserRole.head_of_recruitment,
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.user,
     ):
         headers = await _headers_for_role(app_client, role)
@@ -1824,20 +1822,19 @@ async def test_delivery_lead_scope_allows_confirmation_only_at_an_assigned_clien
 
 
 @pytest.mark.asyncio
-async def test_tac_confirms_only_with_the_signature_permission(
+async def test_recruiter_confirms_only_with_the_signature_permission(
     app_client: AsyncClient,
 ):
-    """TAC nie ma już oznaczania podpisu domyślnie (0410), a przypisania
-    z rekrutacji i klienta go nie zastępują. Rola, której administrator
-    włączył uprawnienie, potwierdza podpis — u każdego klienta, bo zakres
-    klienta dotyczy wyłącznie konta z rolą Delivery Leada. Do 02.10.2026 TAC
-    miał uprawnienie włączone, ale zakres klienta odmawiał mu zawsze."""
+    """Rekruter nie ma oznaczania podpisu domyślnie, a przypisania z rekrutacji
+    i klienta (dawna rola TAC, wycofana w 0411) go nie zastępują. Osoba, której
+    administrator włączył uprawnienie, potwierdza podpis — u każdego klienta,
+    bo zakres klienta dotyczy wyłącznie konta z rolą Delivery Leada."""
     from tests._permission_grants import grant_permissions, role_permission
 
     admin_id = await _current_admin_id(app_client)
     assigned = await _seed_bound_scenario(created_by=admin_id)
     unassigned = await _seed_bound_scenario(created_by=admin_id)
-    headers = await _headers_for_role(app_client, UserRole.tac)
+    headers = await _headers_for_role(app_client, UserRole.recruiter)
     user_id = int(headers["X-Test-User-Id"])
 
     async with AsyncSessionLocal() as db:
@@ -1850,10 +1847,13 @@ async def test_tac_confirms_only_with_the_signature_permission(
         await db.commit()
 
     # Baza testowa jest wspólna — wartość roli przypinamy na czas odmowy.
-    async with role_permission("tac", "b2b_signature_confirmation", granted=False):
+    async with role_permission(
+        "recruiter", "b2b_signature_confirmation", granted=False
+    ):
         denied = await _confirm(app_client, headers, assigned["generated_id"])
     assert denied.status_code == 403, (
-        f"TAC without the signature permission confirmed a legal status: {denied.text}"
+        "Recruiter without the signature permission confirmed a legal status: "
+        f"{denied.text}"
     )
     detail = denied.json()["detail"]
     assert detail["code"] == "action_access_denied"
@@ -1873,7 +1873,7 @@ async def test_tac_confirms_only_with_the_signature_permission(
     for scenario in (unassigned, assigned):
         allowed = await _confirm(app_client, headers, scenario["generated_id"])
         assert allowed.status_code == 200, (
-            "TAC with the signature permission got "
+            "Recruiter with the signature permission got "
             f"{allowed.status_code}: {allowed.text}"
         )
         assert allowed.json()["outcome"] == "created"

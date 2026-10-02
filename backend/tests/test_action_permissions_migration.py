@@ -11,7 +11,7 @@ from app.services.action_permissions import (
     DEFAULT_ROLE_ACTION_ACCESS,
     ProductAction,
 )
-
+from app.services.role_merge import MERGED_ROLE_VALUE, RETIRED_ROLE_VALUES
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_PATH = BACKEND_ROOT / "alembic/versions/0273_action_permissions.py"
@@ -33,6 +33,10 @@ SEED_DIVERGENCE_AFTER_0273: dict[str, tuple[str, str]] = {
 ROLES_ADDED_AFTER_0273: dict[str, str] = {
     UserRole.trainee.value: "0374_trainee_call_lists.py",
 }
+
+# Role wycofane w 0411 (sourcer, TAC → rekruter). Zamrożona migracja 0273 nadal
+# je zasiewa — z tym samym poziomem generatora B2B co rekruter.
+ROLES_RETIRED_AFTER_0273: tuple[str, ...] = RETIRED_ROLE_VALUES
 
 
 def _seeded_generator_access(role: UserRole) -> str:
@@ -64,6 +68,8 @@ def test_migration_seed_exactly_matches_bootstrap_matrix() -> None:
         for role in UserRole
         if role.value not in ROLES_ADDED_AFTER_0273
     }
+    for retired in ROLES_RETIRED_AFTER_0273:
+        expected[retired] = expected[MERGED_ROLE_VALUE]
     assert migration.ACTION == action.value
     assert migration.ROLE_DEFAULTS == expected
     upgrade_source = inspect.getsource(migration.upgrade)

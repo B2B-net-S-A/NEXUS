@@ -118,9 +118,7 @@ describe("visibleNavSections", () => {
   });
 
   it.each([
-    "sourcer",
     "recruiter",
-    "tac",
     "head_of_recruitment",
   ] as UserRole[])("%s nie widzi sekcji Delivery ani Finansów", (role) => {
     const visible = hrefs(role);
@@ -176,7 +174,7 @@ describe("visibleNavSections", () => {
     expect(hrefs("trainee")).toEqual([]);
     expect(hrefs("head_of_recruitment")).toContain("/trainees");
     expect(hrefs("admin")).toContain("/trainees");
-    for (const role of ["recruiter", "sourcer", "delivery_lead", "finance", "user"] as UserRole[]) {
+    for (const role of ["recruiter", "delivery_lead", "finance", "user"] as UserRole[]) {
       expect(hrefs(role)).not.toContain("/trainees");
     }
   });
@@ -257,7 +255,7 @@ describe("SIDEBAR_VERTICAL_LAYOUT (UAT B57)", () => {
 
 describe("Wyszukiwarka i Talent Radar = tryby ekranu „Kandydaci” (21.09.2026)", () => {
   it("nie stoją w menu żadnej roli", () => {
-    const roles: UserRole[] = ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "tac", "recruiter", "finance", "sourcer", "user", "trainee"];
+    const roles: UserRole[] = ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "recruiter", "finance", "user", "trainee"];
     for (const role of roles) {
       const items = hrefs(role);
       expect(items).not.toContain("/candidates/search");

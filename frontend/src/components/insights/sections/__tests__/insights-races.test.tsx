@@ -79,7 +79,7 @@ function recEntry(over: Partial<MonthlyRaceEntry> = {}): MonthlyRaceEntry {
     metric_value: 42,
     rank: 1,
     excluded: false,
-    role: "sourcer",
+    role: "recruiter",
     verifications: 63,
     recommendations: 42,
     precision_pct: 66.7,
@@ -102,7 +102,7 @@ function placEntry(over: Partial<MonthlyRaceEntry> = {}): MonthlyRaceEntry {
     metric_value: 4,
     rank: 1,
     excluded: false,
-    role: "tac",
+    role: "recruiter",
     ...over,
   };
 }
@@ -463,8 +463,6 @@ describe("InsightsHallOfFame", () => {
       unattributed_placements: 0,
       ranked_people: 12,
       roles: [
-        "sourcer",
-        "tac",
         "recruiter",
         "delivery_lead",
         "head_of_recruitment",

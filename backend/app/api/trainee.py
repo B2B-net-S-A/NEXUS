@@ -97,7 +97,7 @@ class ProgramIn(BaseModel):
 
 class DecisionIn(BaseModel):
     action: Literal["promote", "extend", "end"]
-    role: Optional[Literal["sourcer", "recruiter"]] = None
+    role: Optional[str] = None
     add_to_my_people: bool = True
     extend_days: int = Field(default=20, ge=1, le=120)
 

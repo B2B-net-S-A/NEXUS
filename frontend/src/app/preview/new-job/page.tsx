@@ -279,7 +279,7 @@ function Harness() {
     qc.setQueryData(["users-directory"], [
       { id: 31, name: "[Rekruterka A]", role: "recruiter", roles: [] },
       { id: 32, name: "[Rekruter B]", role: "recruiter", roles: [] },
-      { id: 33, name: "[Sourcerka C]", role: "sourcer", roles: [] },
+      { id: 33, name: "[Rekruterka C]", role: "recruiter", roles: [] },
     ]);
     qc.setQueryData(
       ["handoff-recruiters"],

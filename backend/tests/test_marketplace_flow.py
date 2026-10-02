@@ -111,7 +111,7 @@ async def fresh_db():
         await _cleanup_marketplace_data(db)
 
 
-async def _seed_user(db, *, name: str, role: UserRole = UserRole.tac) -> User:
+async def _seed_user(db, *, name: str, role: UserRole = UserRole.recruiter) -> User:
     suffix = uuid.uuid4().hex[:8]
     u = User(
         email=f"marketplace_{name}_{suffix}@example.com",

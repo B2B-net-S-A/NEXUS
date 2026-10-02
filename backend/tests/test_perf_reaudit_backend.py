@@ -65,7 +65,7 @@ async def test_team_kpis_keeps_roster_people_whose_primary_role_is_not_operation
         person_id = person.id
     try:
         # Tak widzi tę osobę roster HoR (`has_any_role`).
-        assert person.has_any_role(UserRole.sourcer, UserRole.recruiter, UserRole.tac)
+        assert person.has_role(UserRole.recruiter)
         period = resolve_period("month")
         async with AsyncSessionLocal() as db:
             default = await metrics.team_kpis(

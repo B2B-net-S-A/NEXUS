@@ -97,10 +97,8 @@ export function canMoveInPipeline(user: PermissionUser): boolean {
       "head_of_recruitment",
       "delivery_lead",
       "talent_community_manager",
-      "tac",
       "recruiter",
       "finance",
-      "sourcer",
     ) && hasSectionAccess(user, "pipeline", "write")
   );
 }

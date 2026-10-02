@@ -71,12 +71,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
-# Terminy od klienta wpisuje osoba prowadząca klienta: DL, TAC albo nadzór.
+# Terminy od klienta wpisuje osoba prowadząca klienta: DL albo nadzór.
 _SLOT_OWNER_ROLES = (
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
-    UserRole.tac,
 )
 _OVERSIGHT_ROLES = (UserRole.admin, UserRole.head_of_recruitment)
 
@@ -383,13 +382,13 @@ async def _can_see_interview(
 async def _ensure_slot_owner(
     db: AsyncSession, user: User, req: ClientInterviewSlotRequest
 ) -> None:
-    """Potwierdzić termin u klienta może autor wniosku albo DL/TAC rekrutacji."""
+    """Potwierdzić termin u klienta może autor wniosku albo DL rekrutacji."""
     if _is_owner(user, req.created_by):
         return
     if not user.has_any_role(*_SLOT_OWNER_ROLES):
         raise HTTPException(
             status_code=403,
-            detail="Termin u klienta potwierdza Delivery Lead albo TAC rekrutacji.",
+            detail="Termin u klienta potwierdza Delivery Lead rekrutacji.",
         )
     await ensure_job_membership(db, user, req.job_id)
 
@@ -557,7 +556,7 @@ async def create_slot_request(
     if not current_user.has_any_role(*_SLOT_OWNER_ROLES):
         raise HTTPException(
             status_code=403,
-            detail="Terminy od klienta dodaje Delivery Lead albo TAC rekrutacji.",
+            detail="Terminy od klienta dodaje Delivery Lead rekrutacji.",
         )
     await ensure_job_membership(db, current_user, body.job_id)
     job = await db.get(Job, body.job_id)

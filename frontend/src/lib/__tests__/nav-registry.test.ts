@@ -42,9 +42,7 @@ const ALL_ROLES: UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
 ];
@@ -446,7 +444,7 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     const withQueue = (role: UserRole) =>
       sidebarHrefs(role, true).includes("/candidates/contact-queue");
     expect(ALL_ROLES.filter(withQueue).sort()).toEqual(
-      sorted(["talent_community_manager", "tac", "recruiter", "sourcer"]),
+      sorted(["talent_community_manager", "recruiter"]),
     );
     // Pozycja stoi tuż za „Kandydaci” (Wyszukiwarka zeszła z menu).
     const recruiter = sidebarHrefs("recruiter", true);

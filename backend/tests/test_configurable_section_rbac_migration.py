@@ -7,11 +7,11 @@ import inspect
 from pathlib import Path
 
 from app.models.user import UserRole
+from app.services.role_merge import MERGED_ROLE_VALUE, RETIRED_ROLE_VALUES
 from app.services.section_permissions import (
     DEFAULT_ROLE_SECTION_ACCESS,
     ProductSection,
 )
-
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_PATH = BACKEND_ROOT / "alembic/versions/0269_configurable_section_rbac.py"
@@ -20,6 +20,11 @@ MIGRATION_PATH = BACKEND_ROOT / "alembic/versions/0269_configurable_section_rbac
 ROLES_ADDED_AFTER_0269: dict[str, str] = {
     UserRole.trainee.value: "0374_trainee_call_lists.py",
 }
+
+# Role wycofane w 0411 (sourcer, TAC → rekruter). Zamrożona migracja 0269 nadal
+# je zasiewa — z tymi samymi sekcjami co rekruter, więc połączenie ról nie
+# zmieniło nikomu dostępu do sekcji.
+ROLES_RETIRED_AFTER_0269: tuple[str, ...] = RETIRED_ROLE_VALUES
 
 
 def _migration_module():
@@ -40,6 +45,8 @@ def test_migration_seed_exactly_matches_bootstrap_matrix() -> None:
         for role in UserRole
         if role.value not in ROLES_ADDED_AFTER_0269
     }
+    for retired in ROLES_RETIRED_AFTER_0269:
+        expected[retired] = expected[MERGED_ROLE_VALUE]
     assert migration.ROLE_DEFAULTS == expected
     assert tuple(migration.SECTIONS) == tuple(
         section.value for section in ProductSection

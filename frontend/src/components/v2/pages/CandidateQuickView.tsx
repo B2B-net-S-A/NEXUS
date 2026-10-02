@@ -309,13 +309,7 @@ export function CandidateQuickView({
     contactFeature.enabled &&
     Boolean(candidate?.phone) &&
     Boolean(candidate?.contact_case) &&
-    hasRole(
-      currentUser,
-      "talent_community_manager",
-      "tac",
-      "recruiter",
-      "sourcer",
-    ) &&
+    hasRole(currentUser, "talent_community_manager", "recruiter") &&
     candidate?.contact_case?.owner?.id === currentUser?.id &&
     ["queued", "callback_due"].includes(
       candidate?.contact_case?.status ?? "",

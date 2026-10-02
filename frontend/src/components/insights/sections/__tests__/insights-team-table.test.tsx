@@ -71,8 +71,8 @@ function row(
 ): TeamTableRow {
   return {
     name: `Osoba ${overrides.user_id}`,
-    role: "sourcer",
-    role_label: "Sourcer",
+    role: "recruiter",
+    role_label: "Rekruter",
     is_active: true,
     verifications: 0,
     recommendations: 0,
@@ -122,8 +122,8 @@ const BODY: TeamTableResponse = {
     row({
       user_id: 3,
       name: "Katarzyna Orlińska",
-      role: "tac",
-      role_label: "TAC",
+      role: "recruiter",
+      role_label: "Rekruter",
       verifications: 19,
       recommendations: 4,
       interviews: 1,
@@ -145,8 +145,8 @@ const BODY: TeamTableResponse = {
     row({
       user_id: 5,
       name: "Marlena Rosół",
-      role: "tac",
-      role_label: "TAC",
+      role: "recruiter",
+      role_label: "Rekruter",
       verifications: 0,
       recommendations: 0,
       interviews: 0,

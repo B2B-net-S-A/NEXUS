@@ -228,7 +228,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     queryFn: () =>
       api
         .get("/api/users", {
-          params: { roles: ["recruiter", "tac", "sourcer"] },
+          params: { roles: ["recruiter"] },
           paramsSerializer: { indexes: null },
         })
         .then((r) => r.data as RecruiterOption[]),

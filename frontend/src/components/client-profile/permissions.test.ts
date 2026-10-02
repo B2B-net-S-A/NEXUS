@@ -18,9 +18,7 @@ const ALL_ROLES: UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
 ];
@@ -227,8 +225,7 @@ describe("canCloseJobAsLost — „Rekrutacje: zakładanie, zamykanie, wysyłka 
     expect(
       canCloseJobAsLost(accessSnapshot("delivery_lead", { revoke: ["recruitment_manage"] })),
     ).toBe(false);
-    // Rola TAC daje pełną edycję rekrutacji, ale nie jej zamknięcie.
-    expect(canCloseJobAsLost(accessSnapshot("tac"))).toBe(false);
+    expect(canCloseJobAsLost(accessSnapshot("recruiter"))).toBe(false);
   });
 
   it("wymaga zapisu w sekcji Pipeline", () => {
@@ -249,8 +246,6 @@ describe("canMoveInPipeline — zostaje przy roli (RecruiterPlus)", () => {
         "finance",
         "head_of_recruitment",
         "recruiter",
-        "sourcer",
-        "tac",
         "talent_community_manager",
       ].sort(),
     );

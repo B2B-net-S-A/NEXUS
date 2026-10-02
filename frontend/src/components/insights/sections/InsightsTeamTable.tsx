@@ -58,8 +58,6 @@ const METRIC_LABEL: Record<TeamTableMetricKey, string> = {
  */
 const ROLE_CHIP: Record<string, string> = {
   recruiter: "bg-info-muted text-info-muted-foreground",
-  tac: "bg-success-muted text-success-muted-foreground",
-  sourcer: "bg-secondary text-secondary-foreground",
 };
 const ROLE_CHIP_FALLBACK = "bg-muted text-muted-foreground";
 

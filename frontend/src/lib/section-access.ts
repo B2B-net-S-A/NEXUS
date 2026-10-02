@@ -69,9 +69,7 @@ export const ALL_USER_ROLES: readonly UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
 ];
@@ -130,23 +128,7 @@ export const ROLE_SECTION_ACCESS: Record<
     finance: "none",
     system_admin: "none",
   },
-  tac: {
-    sourcing: "write",
-    pipeline: "write",
-    delivery: "none",
-    insights: "read",
-    finance: "none",
-    system_admin: "none",
-  },
   recruiter: {
-    sourcing: "write",
-    pipeline: "write",
-    delivery: "none",
-    insights: "read",
-    finance: "none",
-    system_admin: "none",
-  },
-  sourcer: {
     sourcing: "write",
     pipeline: "write",
     delivery: "none",

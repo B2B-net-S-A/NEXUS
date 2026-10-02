@@ -338,7 +338,7 @@ async def test_who_sees_line_rates(monkeypatch):
     assert not await client_order_groups._can_see_finance(
         db, _StubUser(UserRole.delivery_lead), 202
     )
-    for role in (UserRole.tac, UserRole.recruiter, UserRole.sourcer):
+    for role in (UserRole.recruiter,):
         assert not await client_order_groups._can_see_finance(
             db, _StubUser(role), 101
         ), role
@@ -370,7 +370,11 @@ async def test_legacy_order_finance_guard_is_untouched(
         def get_all_roles(self):
             return [self._role]
 
-    for role in (UserRole.delivery_lead, UserRole.tac, UserRole.head_of_recruitment):
+    for role in (
+        UserRole.delivery_lead,
+        UserRole.recruiter,
+        UserRole.head_of_recruitment,
+    ):
         with pytest.raises(HTTPException) as exc:
             _assert_order_finance_write_allowed(_StubUser(role), {"rate_client"})
         assert exc.value.status_code == 403, role

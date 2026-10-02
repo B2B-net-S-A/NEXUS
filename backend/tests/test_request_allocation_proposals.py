@@ -222,24 +222,6 @@ async def test_accept_turns_the_proposal_into_a_human_assignment(
     assert notice.message.startswith("Java Spring · prop-client-")
 
 
-async def test_accepted_sourcer_does_not_become_the_lead_recruiter(
-    app_client: AsyncClient, app_auth_headers: dict
-) -> None:
-    sourcer, _ = await _user(UserRole.sourcer)
-    job_id = await _job()
-    await _propose(job_id, sourcer, role="sourcer")
-
-    resp = await app_client.post(
-        _decide_url(job_id, sourcer),
-        json={"decision": "accept"},
-        headers=app_auth_headers,
-    )
-    assert resp.status_code == 200, resp.text
-    (row,) = await _rows(job_id)
-    assert (row.state, row.source, row.role) == ("active", "manual", "sourcer")
-    assert await _owner(job_id) is None
-
-
 async def test_accept_on_a_vanished_proposal_is_409_and_assigns_nobody(
     app_client: AsyncClient, app_auth_headers: dict
 ) -> None:

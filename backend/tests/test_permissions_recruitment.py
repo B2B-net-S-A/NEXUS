@@ -38,7 +38,6 @@ from app.api.candidate_access import (
     user_can_write_client_rate,
 )
 from app.api.recruitment_access import (
-    JOB_FULL_EDIT_LEGACY_ROLES,
     JobEditLevel,
     ensure_job_editor,
     job_edit_level,
@@ -122,18 +121,36 @@ async def test_full_edit_follows_the_permission_not_the_role() -> None:
     assert await job_edit_level(None, _account(UserRole.user), job) is None
 
 
-async def test_tac_keeps_full_edit_through_the_legacy_branch() -> None:
+async def test_no_role_gets_full_edit_without_the_permission() -> None:
+    """Do 0411 konto TAC było pełnym redaktorem bez uprawnienia (wyjątek
+    historyczny). Roli nie ma: pełną redakcję daje wyłącznie uprawnienie albo
+    rola admina, a rekruter redaguje treść."""
+
     job = _job()
-    for role in JOB_FULL_EDIT_LEGACY_ROLES:
-        legacy = _account(role)
-        assert await job_edit_level(None, legacy, job) is JobEditLevel.full
-        # Powierzchnia Championa: TAC przechodzi tylko jak członek zespołu.
-        assert await job_edit_level(None, legacy, job, tac_unscoped=False) is (
+    for role in (
+        UserRole.recruiter,
+        UserRole.head_of_recruitment,
+        UserRole.talent_community_manager,
+        UserRole.finance,
+    ):
+        assert await job_edit_level(None, _account(role), job) is (
             JobEditLevel.member
+        ), role
+    assert await job_edit_level(None, _account(UserRole.admin), job) is (
+        JobEditLevel.full
+    )
+
+    # Pole cyklu życia: rekruter dostaje odmowę z nazwą uprawnienia…
+    with pytest.raises(HTTPException) as denied:
+        await ensure_job_editor(
+            None, _account(UserRole.recruiter), job, fields={"headcount"}
         )
-    # Uprawnienie nie zależy od tego wyjątku.
-    holder = _account(UserRole.tac, permissions=(RM,))
-    assert await job_edit_level(None, holder, job, tac_unscoped=False) is (
+    assert denied.value.status_code == 403
+    assert denied.value.detail["code"] == "permission_denied"
+    assert denied.value.detail["permission"] == RM
+    # …a z uprawnieniem zapisuje je jak każdy posiadacz.
+    holder = _account(UserRole.recruiter, permissions=(RM,))
+    assert await ensure_job_editor(None, holder, job, fields={"headcount"}) is (
         JobEditLevel.full
     )
 
@@ -324,7 +341,6 @@ async def test_lifecycle_routes_ask_for_the_permission(endpoint) -> None:
 
     for outsider in (
         _account(UserRole.delivery_lead),
-        _account(UserRole.tac),
         _account(UserRole.head_of_recruitment),
         _account(UserRole.recruiter),
     ):
@@ -351,7 +367,6 @@ async def test_staffing_routes_ask_for_the_permission_or_head_of_recruitment(
 
     for outsider in (
         _account(UserRole.delivery_lead),
-        _account(UserRole.tac),
         _account(UserRole.recruiter),
     ):
         with pytest.raises(HTTPException) as denied:
@@ -744,27 +759,6 @@ async def test_client_rate_write_and_its_flag_follow_the_permission(
         assert history.json()["can_write_client_rate"] is True
     finally:
         await _cleanup(candidate_id, job_id)
-
-
-async def test_tac_keeps_full_edit_but_not_the_lifecycle_routes(
-    app_client: AsyncClient,
-) -> None:
-    headers, _ = await _seed_user(app_client, "tac")
-    job_id = await _seed_job()
-
-    patched = await app_client.patch(
-        f"/api/jobs/{job_id}", headers=headers, json={"headcount": 2}
-    )
-    assert patched.status_code == 200, patched.text
-    assert patched.json()["headcount"] == 2
-    detail = await app_client.get(f"/api/jobs/{job_id}", headers=headers)
-    assert detail.json()["can_manage"] is True
-
-    _assert_named_denial(
-        await app_client.post(
-            f"/api/jobs/{job_id}/close", headers=headers, json={"reason": "budget"}
-        )
-    )
 
 
 async def test_return_to_traffit_and_qc_override_follow_the_permission(

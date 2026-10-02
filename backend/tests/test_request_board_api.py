@@ -210,7 +210,7 @@ async def test_board_shows_everyone_who_works_and_counts_proposals_apart(
             JobWorkAssignment(
                 job_id=job_id,
                 user_id=proposed,
-                role="sourcer",
+                role="recruiter",
                 source="auto",
                 state="proposed",
                 assigned_at=datetime.now(timezone.utc),
@@ -231,7 +231,7 @@ async def test_board_shows_everyone_who_works_and_counts_proposals_apart(
     ] == [
         (owner, "owner", False, "owner", "recruiter"),
         (collaborator, "collaborator", False, "manual", "recruiter"),
-        (proposed, "assignment", True, "auto", "sourcer"),
+        (proposed, "assignment", True, "auto", "recruiter"),
     ]
     load = {p["user_id"]: p for p in board["load"]}
     assert (load[owner]["count"], load[owner]["proposed"]) == (1, 0)
@@ -425,16 +425,22 @@ async def test_rules_validation_is_polish_and_strict(
 ) -> None:
     bad = await app_client.put(
         "/api/competence-team/rules",
-        json={"sourcer_threshold": 0, "review_time": "8:30"},
+        json={"review_time": "8:30"},
         headers=app_auth_headers,
     )
     assert bad.status_code == 422
+    assert bad.json()["detail"] == (
+        "Godzina przeglądu musi mieć postać GG:MM, np. 08:30."
+    )
+    # Otwarta karta ze starą wersją aplikacji odsyła jeszcze próg sourcera
+    # (wycofany w 0411) — klucz jest ignorowany i nie wraca w odpowiedzi.
     good = await app_client.put(
         "/api/competence-team/rules",
         json={"sourcer_threshold": 15, "review_time": "08:30"},
         headers=app_auth_headers,
     )
-    assert good.json() == {"sourcer_threshold": 15, "review_time": "08:30"}
+    assert good.status_code == 200, good.text
+    assert good.json() == {"review_time": "08:30"}
 
 
 async def test_manual_add_needs_a_request_in_work(

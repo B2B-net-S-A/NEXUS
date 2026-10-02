@@ -87,7 +87,7 @@ def _params(day: date) -> dict[str, str]:
 
 
 async def _seed_user(
-    role: UserRole = UserRole.sourcer,
+    role: UserRole = UserRole.recruiter,
     *,
     name: str | None = None,
     is_active: bool = True,
@@ -217,10 +217,8 @@ async def test_table_is_reachable_for_every_logged_in_role(
     """Decyzja D7: /insights widzi KAŻDA zalogowana rola, także `sourcer`."""
     for role in (
         UserRole.admin,
-        UserRole.sourcer,
         UserRole.recruiter,
         UserRole.finance,
-        UserRole.tac,
     ):
         _, email, password = await _seed_user(role)
         headers = await _headers(fx_login, email, password)
@@ -240,8 +238,8 @@ async def test_four_columns_are_attributed_to_the_person_who_moved_the_stage(
     fx_app: AsyncClient, fx_login: AsyncClient
 ):
     day = _next_window()
-    owner_id, email, password = await _seed_user(UserRole.tac, name="Zenon Atrybut")
-    other_id, _, _ = await _seed_user(UserRole.sourcer, name="Alicja Druga")
+    owner_id, email, password = await _seed_user(UserRole.recruiter, name="Zenon Atrybut")
+    other_id, _, _ = await _seed_user(UserRole.recruiter, name="Alicja Druga")
     cand, job = await _seed_pair()
     cand2, job2 = await _seed_pair()
 
@@ -285,8 +283,8 @@ async def test_four_columns_are_attributed_to_the_person_who_moved_the_stage(
     assert rows[owner_id]["recommendations"] == 1
     assert rows[owner_id]["interviews"] == 1
     assert rows[owner_id]["placements"] == 1
-    assert rows[owner_id]["role"] == "tac"
-    assert rows[owner_id]["role_label"] == "TAC"
+    assert rows[owner_id]["role"] == "recruiter"
+    assert rows[owner_id]["role_label"] == "Rekruter"
     # Kolumny sąsiada zostają zerami — atrybucja nie rozlewa się po zespole.
     assert rows[other_id]["verifications"] == 1
     assert rows[other_id]["placements"] == 0
@@ -300,7 +298,7 @@ async def test_unattributed_milestones_are_reported_per_stage_never_dropped(
 ):
     """Kamień bez autora nie ma wiersza, ale MUSI wejść w sumę kolumny."""
     day = _next_window()
-    owner_id, email, password = await _seed_user(UserRole.sourcer)
+    owner_id, email, password = await _seed_user(UserRole.recruiter)
     cand, job = await _seed_pair()
     ghost_c, ghost_j = await _seed_pair()
 
@@ -350,7 +348,7 @@ async def test_former_employee_with_results_stays_in_the_table(
     """Odejście z firmy nie kasuje wstecz wyników osiągniętych w oknie."""
     day = _next_window()
     gone_id, _, _ = await _seed_user(
-        UserRole.sourcer, name="Odeszla Osoba", is_active=False
+        UserRole.recruiter, name="Odeszla Osoba", is_active=False
     )
     _, email, password = await _seed_user(UserRole.admin)
     cand, job = await _seed_pair()
@@ -379,7 +377,7 @@ async def test_second_hired_for_the_same_pair_does_not_count_twice(
 ):
     """Placement = D2: PIERWSZE `hired` dla pary (kandydat, oferta)."""
     day = _next_window()
-    owner_id, email, password = await _seed_user(UserRole.tac)
+    owner_id, email, password = await _seed_user(UserRole.recruiter)
     cand, job = await _seed_pair()
     await _seed_stage(
         candidate_id=cand,
@@ -415,7 +413,7 @@ async def test_pending_verification_is_not_counted(
     na tym samym widoku.
     """
     day = _next_window()
-    owner_id, email, password = await _seed_user(UserRole.sourcer)
+    owner_id, email, password = await _seed_user(UserRole.recruiter)
     cand, job = await _seed_pair()
     await _seed_stage(
         candidate_id=cand,
@@ -444,7 +442,7 @@ async def test_window_is_half_open_and_lives_in_the_cache_key(
     """
     day = _next_window()
     next_day = _next_window()
-    owner_id, email, password = await _seed_user(UserRole.sourcer)
+    owner_id, email, password = await _seed_user(UserRole.recruiter)
     cand, job = await _seed_pair()
     await _seed_stage(
         candidate_id=cand,
@@ -558,7 +556,7 @@ async def test_anchored_average_uses_the_same_attribution_as_my_month(
     2), atrybucja weryfikatora A = 1, B = 1 (średnia 1)."""
     day = _next_window()
     a_id, email, password = await _seed_user(UserRole.recruiter)
-    b_id, _, _ = await _seed_user(UserRole.sourcer)
+    b_id, _, _ = await _seed_user(UserRole.recruiter)
     for verifier in (a_id, b_id):
         cand, job = await _seed_pair()
         await _seed_stage(

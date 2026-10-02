@@ -331,15 +331,15 @@ describe("candidate query keys", () => {
     const viewerScope = candidateViewerScopeKey({
       id: 17,
       role: "recruiter",
-      roles: ["sourcer", "recruiter"],
+      roles: ["recruiter", "delivery_lead"],
     });
 
-    expect(viewerScope).toBe("viewer:17:roles:recruiter,sourcer");
+    expect(viewerScope).toBe("viewer:17:roles:delivery_lead,recruiter");
     expect(
       candidateViewerScopeKey({
         id: 17,
         role: "recruiter",
-        roles: ["recruiter", "sourcer"],
+        roles: ["delivery_lead", "recruiter"],
       }),
     ).toBe(viewerScope);
     expect(candidateViewerScopeKey(null)).toBeNull();

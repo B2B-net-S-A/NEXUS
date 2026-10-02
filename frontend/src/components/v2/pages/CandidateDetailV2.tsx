@@ -360,9 +360,7 @@ export function CandidateDetailV2({
       "head_of_recruitment",
       "delivery_lead",
       "talent_community_manager",
-      "tac",
       "recruiter",
-      "sourcer",
     ),
   });
   const { viewers: presenceViewers, setEditing: setPresenceEditing } = usePresence(
@@ -528,7 +526,7 @@ export function CandidateDetailV2({
     Boolean(candidate.phone) &&
     canWriteSourcing &&
     contactCase != null &&
-    hasRole(currentUser, "talent_community_manager", "tac", "recruiter", "sourcer") &&
+    hasRole(currentUser, "talent_community_manager", "recruiter") &&
     contactCase.owner?.id === currentUser?.id &&
     ["queued", "callback_due"].includes(contactCase.status);
 

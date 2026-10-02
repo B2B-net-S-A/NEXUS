@@ -343,9 +343,7 @@ async def team_kpis(
                     "admin",
                     "head_of_recruitment",
                     "delivery_lead",
-                    "tac",
                     "recruiter",
-                    "sourcer",
                 ]
             )
         )

@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,10 +21,10 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/request-board/jobs/{job_id}/people/{user_id}": "PDPPDDDDDDPPPPDDDDPDD",
-  "GET /api/request-board": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/request-board/jobs/{job_id}/people": "PDPPDDDDDDPPPPDDDDPDD",
-  "POST /api/request-board/jobs/{job_id}/proposals/{user_id}": "PDPDDDDDDDDPDPDDDDDDD",
-  "POST /api/request-board/proposals/accept": "PDPDDDDDDDDPDPDDDDDDD"
+  "DELETE /api/request-board/jobs/{job_id}/people/{user_id}": "PDPPDDDDPPPPDDDDPDD",
+  "GET /api/request-board": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/request-board/jobs/{job_id}/people": "PDPPDDDDPPPPDDDDPDD",
+  "POST /api/request-board/jobs/{job_id}/proposals/{user_id}": "PDPDDDDDDPDPDDDDDDD",
+  "POST /api/request-board/proposals/accept": "PDPDDDDDDPDPDDDDDDD"
  }
 }

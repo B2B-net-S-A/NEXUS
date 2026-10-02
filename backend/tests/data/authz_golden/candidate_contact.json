@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,11 +21,11 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/candidate-contact/candidates/{candidate_id}": "PPPPPPPPDDPPPPPPPPPPP",
-  "GET /api/candidate-contact/oversight": "PDPDDDDDDDDPDPDDDDDDD",
-  "GET /api/candidate-contact/queue": "PDDDPPPPDDPDPPPPPPPPP",
-  "GET /api/candidate-contact/status": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/candidate-contact/cases/{case_id}/attempts": "PDDDPPPPDDPDPPPPPPPPP",
-  "POST /api/candidate-contact/cases/{case_id}/reassign": "PDPDDDDDDDDPDPDDDDDDD"
+  "GET /api/candidate-contact/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidate-contact/oversight": "PDPDDDDDDPDPDDDDDDD",
+  "GET /api/candidate-contact/queue": "PDDDPPDDPDPPPPPPPPP",
+  "GET /api/candidate-contact/status": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/candidate-contact/cases/{case_id}/attempts": "PDDDPPDDPDPPPPPPPPP",
+  "POST /api/candidate-contact/cases/{case_id}/reassign": "PDPDDDDDDPDPDDDDDDD"
  }
 }

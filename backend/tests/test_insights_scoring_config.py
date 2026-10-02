@@ -155,7 +155,7 @@ async def scfg_client() -> AsyncClient:
 
 
 @pytest.mark.parametrize(
-    "role", [UserRole.sourcer, UserRole.recruiter, UserRole.finance, UserRole.admin]
+    "role", [UserRole.recruiter, UserRole.finance, UserRole.admin]
 )
 @pytest.mark.asyncio
 async def test_every_role_can_read_the_rules(scfg_client: AsyncClient, role: UserRole):

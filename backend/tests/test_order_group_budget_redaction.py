@@ -103,10 +103,11 @@ async def _headers_for_role(
         db.add(user)
         await db.commit()
         await db.refresh(user)
-        # TAC dochodzi do zamówień wyłącznie przez jawne przypisanie do
-        # klienta; Head of Recruitment przechodzi guard globalnie i przypisania
-        # nie potrzebuje — to właśnie czyni go przypadkiem najostrzejszym.
-        if role_value == "tac":
+        # Rekruter dostaje historyczne przypisanie opiekuna klienta (do 0411
+        # rola TAC dochodziła nim do zespołu klienta); Head of Recruitment
+        # przechodzi guard globalnie i przypisania nie potrzebuje — to właśnie
+        # czyni go przypadkiem najostrzejszym.
+        if role_value == "recruiter":
             db.add(ClientTacAssignment(client_id=client_id, tac_user_id=user.id))
             await db.commit()
     resp = await app_client.post(
@@ -248,7 +249,7 @@ async def test_tcm_gets_no_budget_amounts(
     assert body["active_consultants"] == 1
 
 
-@pytest.mark.parametrize("role_value", ["head_of_recruitment", "tac"])
+@pytest.mark.parametrize("role_value", ["head_of_recruitment", "recruiter"])
 async def test_recruitment_roles_cannot_enter_delivery_order_groups(
     app_client: AsyncClient,
     app_auth_headers: dict,

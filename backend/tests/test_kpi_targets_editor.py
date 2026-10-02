@@ -92,7 +92,7 @@ async def test_recruiter_gets_403_and_hor_can_edit(app_client: AsyncClient) -> N
     resp = await app_client.get(URL, headers=hor)
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert {r["role"] for r in body["roles"]} == {"recruiter", "sourcer", "tac"}
+    assert {r["role"] for r in body["roles"]} == {"recruiter"}
     assert {k["kpi_id"] for k in body["kpis"]} >= {"daily_first_verifications"}
 
 
@@ -143,22 +143,22 @@ async def test_alias_rows_are_rewritten_to_the_canonical_id(
     app_client: AsyncClient, app_auth_headers: dict
 ) -> None:
     ids = ("daily_first_verifications", "verifications_daily")
-    await _reset_role(UserRole.sourcer, ids)
+    await _reset_role(UserRole.recruiter, ids)
     async with AsyncSessionLocal() as db:
         db.add(
             KpiRoleDefault(
-                role=UserRole.sourcer, kpi_id="verifications_daily", target_value=7
+                role=UserRole.recruiter, kpi_id="verifications_daily", target_value=7
             )
         )
         await db.commit()
     try:
         before = (await app_client.get(URL, headers=app_auth_headers)).json()
-        assert _cell(before, "sourcer", "daily_first_verifications")["override"] == 7
+        assert _cell(before, "recruiter", "daily_first_verifications")["override"] == 7
 
         resp = await app_client.put(
             f"{URL}/role-default",
             json={
-                "role": "sourcer",
+                "role": "recruiter",
                 # stary id z panelu „Moje KPI" — zapis idzie pod kanonicznym
                 "kpi_id": "verifications_daily",
                 "target_value": 6,
@@ -166,11 +166,11 @@ async def test_alias_rows_are_rewritten_to_the_canonical_id(
             headers=app_auth_headers,
         )
         assert resp.status_code == 200, resp.text
-        assert await _role_rows(UserRole.sourcer, ids) == [
+        assert await _role_rows(UserRole.recruiter, ids) == [
             ("daily_first_verifications", 6)
         ]
     finally:
-        await _reset_role(UserRole.sourcer, ids)
+        await _reset_role(UserRole.recruiter, ids)
 
 
 async def test_personal_target_precedence_and_reset(
@@ -260,6 +260,7 @@ async def test_invalid_payloads_are_refused_in_polish(
         headers=app_auth_headers,
     )
     assert resp.status_code == 422
+    assert resp.json()["detail"] == "Cele KPI ma wyłącznie rola rekrutera."
     resp = await app_client.put(
         f"{URL}/user-target",
         json={"user_id": 2_000_000_000, "kpi_id": "weekly_cvs_sent", "target_value": 1},

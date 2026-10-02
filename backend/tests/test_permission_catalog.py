@@ -46,9 +46,7 @@ EXPECTED_DEFAULTS: dict[str, set[str]] = {
         "contract_status",
         "b2b_signature_confirmation",
     },
-    "tac": set(),
     "recruiter": set(),
-    "sourcer": set(),
     "user": set(),
     "trainee": set(),
 }

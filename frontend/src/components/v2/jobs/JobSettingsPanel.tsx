@@ -49,7 +49,7 @@ export interface JobSettingsPanelProps {
   priorityLevel: PriorityLevel;
   /**
    * Czy bieżąca osoba ustawia priorytet: `can_set_priority` z serwera (admin,
-   * Delivery Lead w swoim zakresie, TAC, Head of Recruitment) i zapis w sekcji.
+   * Delivery Lead w swoim zakresie, Head of Recruitment) i zapis w sekcji.
    */
   canSetPriority: boolean;
 }

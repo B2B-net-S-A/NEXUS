@@ -216,7 +216,7 @@ export interface TraineeProgramUpdate {
 }
 
 export type TraineeDecisionBody =
-  | { action: "promote"; role: "sourcer" | "recruiter"; add_to_my_people: boolean }
+  | { action: "promote"; role: "recruiter"; add_to_my_people: boolean }
   | { action: "extend"; extend_days: number }
   | { action: "end" };
 

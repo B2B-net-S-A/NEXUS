@@ -39,18 +39,6 @@ def req(
 def recruiter(user_id, first=DEV, second=()) -> PersonInfo:
     return PersonInfo(
         user_id=user_id,
-        can_recruit=True,
-        can_source=False,
-        first=frozenset({first}),
-        second=frozenset(second),
-    )
-
-
-def sourcer(user_id, first=DEV, second=()) -> PersonInfo:
-    return PersonInfo(
-        user_id=user_id,
-        can_recruit=False,
-        can_source=True,
         first=frozenset({first}),
         second=frozenset(second),
     )
@@ -137,27 +125,32 @@ def test_second_priority_before_other_categories() -> None:
 
 
 @pytest.mark.unit
-def test_many_matches_in_base_go_to_a_sourcer_few_to_a_recruiter() -> None:
+def test_base_matches_do_not_change_the_work_role() -> None:
+    """Do 0411 request z wieloma pasującymi w bazie (próg 15) szedł do sourcera.
+
+    Rola pracy jest jedna: liczba pasujących nie wybiera już ani roli, ani
+    osoby — request z 30 pasującymi dostaje rekrutera jak każdy inny.
+    """
     changes = plan_assignments(
         PlanInput(
-            requests=[req(40, base=22), req(41, base=3), req(42, base=None)],
-            people=[recruiter(1), sourcer(2)],
+            requests=[req(40, base=30), req(41, base=3), req(42, base=None)],
+            people=[recruiter(1), recruiter(2)],
             live=[],
-            sourcer_threshold=15,
         )
     )
-    roles = {c.job_id: (c.user_id, c.role) for c in changes if c.kind == "assign"}
-    assert roles[40] == (2, "sourcer")
-    assert roles[41] == (1, "recruiter")
-    assert roles[42] == (1, "recruiter")
+    assigns = [c for c in changes if c.kind == "assign"]
+    assert sorted(c.job_id for c in assigns) == [40, 41, 42]
+    assert {c.role for c in assigns} == {"recruiter"}
+    # Rozkład po obłożeniu, nie po liczbie pasujących w bazie.
+    counts: dict[int, int] = {}
+    for change in assigns:
+        counts[change.user_id] = counts.get(change.user_id, 0) + 1
+    assert sorted(counts.values()) == [1, 2]
 
-
-@pytest.mark.unit
-def test_no_sourcer_available_falls_back_to_a_recruiter() -> None:
-    changes = plan_assignments(
-        PlanInput(requests=[req(40, base=50)], people=[recruiter(1)], live=[])
+    alone = plan_assignments(
+        PlanInput(requests=[req(40, base=30)], people=[recruiter(1)], live=[])
     )
-    assert [(c.user_id, c.role) for c in changes] == [(1, "recruiter")]
+    assert [(c.user_id, c.role) for c in alone] == [(1, "recruiter")]
 
 
 @pytest.mark.unit
@@ -184,13 +177,13 @@ def test_request_leaving_the_pool_releases_its_people() -> None:
             job_id=60, user_id=1, role="recruiter", source="auto", state="active"
         ),
         LiveAssignment(
-            job_id=60, user_id=2, role="sourcer", source="manual", state="active"
+            job_id=60, user_id=2, role="recruiter", source="manual", state="active"
         ),
     ]
     changes = plan_assignments(
         PlanInput(
             requests=[],
-            people=[recruiter(1), sourcer(2)],
+            people=[recruiter(1), recruiter(2)],
             live=live,
             out_of_pool={60: "champion"},
         )
@@ -657,3 +650,21 @@ def test_withdrawn_proposals_and_reassignments_are_not_staffing_changes() -> Non
         None,
     ):
         assert is_silent_release(reason) is False, reason
+
+
+@pytest.mark.unit
+def test_saved_rules_ignore_the_retired_sourcer_threshold() -> None:
+    """Do 0411 zasady miały próg „od ilu pasujących w bazie wystarczy sourcer”.
+
+    Stary klucz w zapisanej wartości (albo w żądaniu ze starej karty) jest
+    ignorowany i nie wraca w wyniku — zostaje sama godzina przeglądu.
+    """
+    from app.services.request_allocation_rules import parse_rules, validate_rules
+
+    stored = {"sourcer_threshold": 40, "review_time": "07:45"}
+    assert parse_rules(stored).as_dict() == {"review_time": "07:45"}
+    assert validate_rules(stored).as_dict() == {"review_time": "07:45"}
+    # Sam stary klucz = wartości domyślne przy odczycie, błąd przy zapisie.
+    assert parse_rules({"sourcer_threshold": 40}).as_dict() == {"review_time": "08:30"}
+    with pytest.raises(ValueError, match="Godzina przeglądu"):
+        validate_rules({"sourcer_threshold": 15, "review_time": "8:30"})

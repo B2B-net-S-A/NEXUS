@@ -1,5 +1,10 @@
 # Dziewięć uprawnień — kontrakt wdrożenia
 
+> **Uwaga (0411, 02.10.2026):** role `tac` i `sourcer` zostały połączone z rolą
+> `recruiter`. Zapisy niżej o TAC (pełna edycja rekrutacji, widełki, priorytet,
+> podpis B2B) opisują stan z dnia kontraktu — dziś tych wyjątków nie ma.
+> Zobacz `docs/merge-recruiter-roles-completion-report.md`.
+
 Ekran **Ustawienia → Zespół i dostęp → Osoby i role** ustawia dziewięć uprawnień
 tak/nie. To, co admin zaznaczy, decyduje na trasie; odmowa nazywa brakującą
 pozycję. Dokument opisuje reguły wspólne dla backendu i frontu oraz kontrakt API

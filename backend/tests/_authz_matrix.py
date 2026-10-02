@@ -79,12 +79,11 @@ PERSONAS: tuple[Persona, ...] = (
     Persona("head_of_recruitment", UserRole.head_of_recruitment),
     Persona("delivery_lead", UserRole.delivery_lead),
     Persona("talent_community_manager", UserRole.talent_community_manager),
-    Persona("tac", UserRole.tac),
     Persona("recruiter", UserRole.recruiter),
-    Persona("sourcer", UserRole.sourcer),
     Persona("user", UserRole.user),
     Persona("trainee", UserRole.trainee),
-    # Konta wielorolowe, które istnieją na produkcji (02.10.2026).
+    # Konta wielorolowe, które istnieją na produkcji (02.10.2026). Trzy ostatnie
+    # miały do 0411 dodatkową rolę TAC albo sourcera — dziś to rekruter.
     Persona(
         "delivery_lead+talent_community_manager",
         UserRole.delivery_lead,
@@ -95,12 +94,16 @@ PERSONAS: tuple[Persona, ...] = (
         UserRole.head_of_recruitment,
         (UserRole.delivery_lead,),
     ),
-    Persona("delivery_lead+tac", UserRole.delivery_lead, (UserRole.tac,)),
-    Persona("head_of_recruitment+tac", UserRole.head_of_recruitment, (UserRole.tac,)),
+    Persona("delivery_lead+recruiter", UserRole.delivery_lead, (UserRole.recruiter,)),
     Persona(
-        "talent_community_manager+sourcer",
+        "head_of_recruitment+recruiter",
+        UserRole.head_of_recruitment,
+        (UserRole.recruiter,),
+    ),
+    Persona(
+        "talent_community_manager+recruiter",
         UserRole.talent_community_manager,
-        (UserRole.sourcer,),
+        (UserRole.recruiter,),
     ),
     # Uprawnienie nadane jednej osobie ponad rolę (okno „Edytuj użytkownika”).
     Persona(

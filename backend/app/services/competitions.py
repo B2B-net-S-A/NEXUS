@@ -488,8 +488,8 @@ async def _rank_recruiters_by_stage(
                   AND c.reached_at >= :start
                   AND c.reached_at < :end
                   AND (
-                      u.role::text IN ('sourcer', 'tac', 'recruiter')
-                      OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
+                      u.role::text = 'recruiter'
+                      OR u.roles ? 'recruiter'
                   )
                   AND u.is_active IS TRUE
                 GROUP BY u.id, u.name, u.role
@@ -563,8 +563,8 @@ async def _rank_recruiters_by_points(
                 WHERE c.reached_at >= :start
                   AND c.reached_at < :end
               AND (
-                  u.role::text IN ('sourcer', 'tac', 'recruiter')
-                  OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
+                  u.role::text = 'recruiter'
+                  OR u.roles ? 'recruiter'
               )
                   AND u.is_active IS TRUE
                 GROUP BY u.id, u.name, u.role, c.stage
@@ -910,8 +910,8 @@ async def monthly_most_recommendations(
                       AND c.reached_at < :end
                       AND c.stage IN ('verified', 'cv_sent')
                       AND (
-                          u.role::text IN ('sourcer', 'tac', 'recruiter')
-                          OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
+                          u.role::text = 'recruiter'
+                          OR u.roles ? 'recruiter'
                       )
                       AND u.is_active IS TRUE
                     GROUP BY u.id, u.name, u.role
@@ -1060,8 +1060,6 @@ HALL_OF_FAME_ATTRIBUTION = FIRST_HIRED_PER_CANDIDATE_JOB
 
 
 HALL_OF_FAME_ROLES = [
-    "sourcer",
-    "tac",
     "recruiter",
     "delivery_lead",
     "head_of_recruitment",

@@ -45,7 +45,6 @@ function proposal(over: Partial<AllocationProposalRow> = {}): AllocationProposal
     sent: 0,
     user_id: 7,
     user_name: "Marek Dąb",
-    role: "recruiter",
     fit: "first",
     load: 2,
     leave_until: null,
@@ -69,7 +68,6 @@ const ROWS: AllocationProposalRow[] = [
     sent: 1,
     user_id: 8,
     user_name: "Ewa Kalina",
-    role: "sourcer",
     fit: "second",
     load: 0,
     base_matches: 22,
@@ -85,7 +83,7 @@ const ROWS: AllocationProposalRow[] = [
     fit: "other",
     load: 5,
     leave_until: "2026-10-09",
-    // Liczba pasujących tłumaczy wybór sourcera — przy rekruterze jej nie pokazujemy.
+    // Liczby pasujących w bazie nie pokazujemy — próg „sourcer” zniknął (02.10.2026).
     base_matches: 40,
   }),
 ];
@@ -150,17 +148,16 @@ describe("proposalReasons — dlaczego automat proponuje tę osobę", () => {
     expect(texts({ load: 22 })[1]).toBe("ma 22 requesty");
   });
 
-  it("urlop i liczba pasujących w bazie (tylko przy sourcerze)", () => {
+  it("urlop jest powodem; liczba pasujących w bazie już nie (02.10.2026)", () => {
     expect(texts({ leave_until: "2026-10-09" })).toEqual([
       "1. priorytet w kategorii",
       "ma 2 requesty",
       "urlop do 09.10",
     ]);
-    expect(texts({ role: "sourcer", base_matches: 22 })).toContain("22 pasujących w bazie");
-    expect(texts({ role: "sourcer", base_matches: 1 })).toContain("1 pasujący w bazie");
-    // `null` = nocnego przeglądu nie było — nie piszemy „0 pasujących”.
-    expect(texts({ role: "sourcer", base_matches: null }).join(" ")).not.toMatch(/w bazie/);
-    expect(texts({ role: "recruiter", base_matches: 40 }).join(" ")).not.toMatch(/w bazie/);
+    // Próg „od N pasujących w bazie → sourcer” zniknął razem z podziałem ról,
+    // więc liczba niczego już nie tłumaczy.
+    expect(texts({ base_matches: 22 }).join(" ")).not.toMatch(/w bazie/);
+    expect(texts({ base_matches: null }).join(" ")).not.toMatch(/w bazie/);
   });
 });
 
@@ -214,7 +211,8 @@ describe("AllocationProposalsSection — propozycje automatu do akceptacji", () 
     // Krótka nazwa kategorii, pełna w podpowiedzi.
     expect(java.getByText("Dev")).toHaveAttribute("title", "Development");
     expect(java.getByText("Marek Dąb")).toBeInTheDocument();
-    expect(java.getByText("rekruter")).toBeInTheDocument();
+    // Bez dopisku roli przy osobie — każda proponowana osoba to rekruter.
+    expect(java.queryByText("rekruter")).not.toBeInTheDocument();
     expect(java.getByTestId("proposal-reasons")).toHaveTextContent("1. priorytet w kategorii · ma 2 requesty");
 
     const cloud = within(rowOf("Administrator chmury"));
@@ -223,10 +221,10 @@ describe("AllocationProposalsSection — propozycje automatu do akceptacji", () 
       "Fundusz Publiczny · Infra · bez terminu · wysłani 1",
     );
     expect(cloud.queryByTitle(/P2/)).not.toBeInTheDocument();
-    expect(cloud.getByText("sourcer")).toBeInTheDocument();
     expect(cloud.getByTestId("proposal-reasons")).toHaveTextContent(
-      "2. priorytet w kategorii · bez requestów · 22 pasujących w bazie",
+      "2. priorytet w kategorii · bez requestów",
     );
+    expect(cloud.getByTestId("proposal-reasons")).not.toHaveTextContent("w bazie");
 
     const tester = within(rowOf("Tester automatyzujący"));
     expect(tester.getByTestId("proposal-reasons")).toHaveTextContent(

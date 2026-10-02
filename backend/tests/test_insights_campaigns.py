@@ -548,7 +548,7 @@ async def test_window_is_half_open_on_both_sources(camp_client: AsyncClient):
 
 @pytest.mark.parametrize(
     "role",
-    [UserRole.sourcer, UserRole.recruiter, UserRole.finance, UserRole.admin],
+    [UserRole.recruiter, UserRole.finance, UserRole.admin],
 )
 @pytest.mark.asyncio
 async def test_every_role_can_read_the_banner(camp_client: AsyncClient, role: UserRole):
@@ -586,7 +586,7 @@ async def test_read_requires_login(camp_client: AsyncClient):
 
 
 @pytest.mark.parametrize(
-    "role", [UserRole.sourcer, UserRole.recruiter, UserRole.finance]
+    "role", [UserRole.recruiter, UserRole.finance]
 )
 @pytest.mark.asyncio
 async def test_crud_is_admin_only(camp_client: AsyncClient, role: UserRole):

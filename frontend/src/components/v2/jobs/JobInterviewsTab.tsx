@@ -1159,7 +1159,7 @@ function InterviewCard({
               </p>
             ) : canRecord === false && !canRecordVerdict ? (
               <p className="text-[11px] text-muted-foreground">
-                Werdykt zapisuje zespół rekrutacji (rekruter, TAC, Delivery Lead,
+                Werdykt zapisuje zespół rekrutacji (rekruter, Delivery Lead,
                 admin) — Twoja rola ma tu podgląd.
               </p>
             ) : canRecord === false ? (

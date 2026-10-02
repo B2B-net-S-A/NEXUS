@@ -23,7 +23,7 @@ pytestmark = pytest.mark.asyncio
 
 @pytest_asyncio.fixture
 async def seeded_cc_and_users():
-    """Seed 1 CC + 3 users (2 priority=1 sourcers + 1 priority=2 backup)."""
+    """Seed 1 CC + 3 users (2 priority=1 recruiters + 1 priority=2 backup)."""
     import uuid
 
     suffix = uuid.uuid4().hex[:8]
@@ -41,7 +41,7 @@ async def seeded_cc_and_users():
                 email=f"auto-cc-test-{suffix}-{i}@example.com",
                 password_hash=hash_password(f"P@ssw0rd-{i}"),
                 name=f"AutoCC Test {i}",
-                role=UserRole.sourcer,
+                role=UserRole.recruiter,
                 is_active=True,
             )
             db.add(u)

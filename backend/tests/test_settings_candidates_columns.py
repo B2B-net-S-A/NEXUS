@@ -215,17 +215,19 @@ async def test_put_role_specific_is_scoped_separately_from_global(
     await app_client.put(
         "/api/settings/candidates-columns",
         headers=app_auth_headers,
-        json={"columns": ["candidate"], "role": "sourcer"},
+        json={"columns": ["candidate"], "role": "delivery_lead"},
     )
 
     async with AsyncSessionLocal() as db:
         global_row = await db.scalar(
             select(AppSetting).where(AppSetting.key == "candidates_columns")
         )
-        sourcer_row = await db.scalar(
-            select(AppSetting).where(AppSetting.key == "candidates_columns:sourcer")
+        role_row = await db.scalar(
+            select(AppSetting).where(
+                AppSetting.key == "candidates_columns:delivery_lead"
+            )
         )
         assert global_row is not None
         assert global_row.value == {"columns": ["candidate", "position"]}
-        assert sourcer_row is not None
-        assert sourcer_row.value == {"columns": ["candidate"]}
+        assert role_row is not None
+        assert role_row.value == {"columns": ["candidate"]}

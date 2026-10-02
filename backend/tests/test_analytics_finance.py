@@ -219,11 +219,11 @@ async def test_adjustments_rbac_and_immutability(fin_client: AsyncClient):
     email_admin, pass_admin = await _seed_user(UserRole.admin)
     email_finance, pass_finance = await _seed_user(UserRole.finance)
     email_dl, pass_dl = await _seed_user(UserRole.delivery_lead)
-    email_tac, pass_tac = await _seed_user(UserRole.tac)
+    email_rec, pass_rec = await _seed_user(UserRole.recruiter)
     h_admin = await _login(fin_client, email_admin, pass_admin)
     h_finance = await _login(fin_client, email_finance, pass_finance)
     h_dl = await _login(fin_client, email_dl, pass_dl)
-    h_tac = await _login(fin_client, email_tac, pass_tac)
+    h_rec = await _login(fin_client, email_rec, pass_rec)
 
     payload = {
         "effective_month": "2026-07-01",
@@ -248,7 +248,7 @@ async def test_adjustments_rbac_and_immutability(fin_client: AsyncClient):
     assert body["currency"] == "PLN"
     adj_id = body["id"]
 
-    # read: Finance/Admin tak, DL i TAC nie
+    # read: Finance/Admin tak, DL i rekruter nie
     assert (
         await fin_client.get("/api/financial-adjustments", headers=h_finance)
     ).status_code == 200
@@ -259,7 +259,7 @@ async def test_adjustments_rbac_and_immutability(fin_client: AsyncClient):
         await fin_client.get("/api/financial-adjustments", headers=h_dl)
     ).status_code == 403
     assert (
-        await fin_client.get("/api/financial-adjustments", headers=h_tac)
+        await fin_client.get("/api/financial-adjustments", headers=h_rec)
     ).status_code == 403
 
     # Finance przygotowuje korektę, ale zatwierdza ją wyłącznie Admin.

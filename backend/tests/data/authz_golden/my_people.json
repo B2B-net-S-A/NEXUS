@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,13 +21,13 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/my-people/{candidate_id}/pin": "PPPPPPPPDDPPPPPPPPPPP",
-  "DELETE /api/my-people/{candidate_id}/snooze": "PPPPPPPPDDPPPPPPPPPPP",
-  "GET /api/my-people": "PPPPPPPPDDPPPPPPPPPPP",
-  "GET /api/my-people/for-job/{job_id}": "PPPPPPPPDDPPPPPPPPPPP",
-  "GET /api/my-people/summary": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/my-people/matches/seen": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/my-people/{candidate_id}/pin": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/my-people/{candidate_id}/snooze": "PPPPPPPPDDPPPPPPPPPPP"
+  "DELETE /api/my-people/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPP",
+  "DELETE /api/my-people/{candidate_id}/snooze": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/my-people": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/my-people/for-job/{job_id}": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/my-people/summary": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/my-people/matches/seen": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/my-people/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/my-people/{candidate_id}/snooze": "PPPPPPDDPPPPPPPPPPP"
  }
 }

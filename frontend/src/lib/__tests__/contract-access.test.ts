@@ -116,7 +116,7 @@ describe("contractAccess — domyślne uprawnienia ról", () => {
     });
   });
 
-  it.each(["head_of_recruitment", "tac", "recruiter", "sourcer", "user"] as UserRole[])(
+  it.each(["head_of_recruitment", "recruiter", "user"] as UserRole[])(
     "%s: żadnej akcji na kontrakcie",
     (role) => {
       const result = access(role);

@@ -61,7 +61,6 @@ def _user(*roles: UserRole) -> SimpleNamespace:
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
         UserRole.recruiter,
-        UserRole.sourcer,
     ],
 )
 @pytest.mark.parametrize("stage_name", ["QC CV", "Przepuszczony przez DZ"])

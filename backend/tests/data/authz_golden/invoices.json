@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,12 +21,12 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDDDPD",
-  "GET /api/invoices": "PPDDDDDDDDDDDDDDDDDPD",
-  "GET /api/invoices/dso": "PPDDDDDDDDDDDDDDDDDPD",
-  "GET /api/invoices/export.csv": "PPDDDDDDDDDDDDDDDDDPD",
-  "GET /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDDDPD",
-  "PATCH /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDDDPD",
-  "POST /api/invoices": "PPDDDDDDDDDDDDDDDDDPD"
+  "DELETE /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPD",
+  "GET /api/invoices": "PPDDDDDDDDDDDDDDDPD",
+  "GET /api/invoices/dso": "PPDDDDDDDDDDDDDDDPD",
+  "GET /api/invoices/export.csv": "PPDDDDDDDDDDDDDDDPD",
+  "GET /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPD",
+  "PATCH /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPD",
+  "POST /api/invoices": "PPDDDDDDDDDDDDDDDPD"
  }
 }

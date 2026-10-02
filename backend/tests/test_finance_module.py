@@ -229,7 +229,7 @@ async def _headers_for(app_client: AsyncClient, role_value: str) -> dict[str, st
 
 
 @pytest.mark.parametrize(
-    "role", ["recruiter", "sourcer", "tac", "delivery_lead", "head_of_recruitment"]
+    "role", ["recruiter", "delivery_lead", "head_of_recruitment"]
 )
 async def test_finance_endpoints_forbidden_for_other_roles(
     app_client: AsyncClient, role: str

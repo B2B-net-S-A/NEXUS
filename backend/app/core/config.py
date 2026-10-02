@@ -2034,12 +2034,15 @@ class Settings(BaseSettings):
         # docstring). Misspelled roles in env would otherwise silently no-op
         # at login → user blocked with confusing 403.
         from app.models.user import UserRole
+        from app.services.role_merge import normalize_role_value
 
         # ``user`` is retained in the Python/PG enum only for rolling-deploy
         # compatibility.  It is no longer a provisionable persona.
         valid_roles = {r.value for r in UserRole if r is not UserRole.user}
         out: dict[str, str] = {}
         for group_id, role in parsed.items():
+            # Mapa zapisana przed 0411 może wskazywać `tac` albo `sourcer`.
+            role = normalize_role_value(role) if isinstance(role, str) else role
             if role not in valid_roles:
                 raise ValueError(
                     f"AAD_GROUP_ROLE_MAP_JSON contains unknown role {role!r} "

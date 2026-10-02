@@ -749,9 +749,7 @@ async def test_extend_inherits_settlement_type(
     [
         "head_of_recruitment",
         "talent_community_manager",
-        "tac",
         "recruiter",
-        "sourcer",
     ],
 )
 async def test_lifecycle_actions_forbidden_for_excluded_roles(

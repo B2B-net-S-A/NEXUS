@@ -82,14 +82,12 @@ const admin = account(1, "Adam Admin", "admin");
 const deliveryLead = account(7, "Gosia Delivery", "delivery_lead");
 const headOfRecruitment = account(8, "Henryk Pokazowy", "head_of_recruitment");
 const recruiter = account(9, "Ewa Fikcyjna", "recruiter");
-const sourcer = account(10, "Filip Próbny", "sourcer");
 const communityManager = account(12, "Hanna Wzorcowa", "talent_community_manager");
 const viewer = account(13, "Igor Podglądowy", "user", "read");
 
 const proposal: JobRecruiter = {
   user_id: 31,
   name: "Anna Przykładowa",
-  role: "recruiter",
   via: "assignment",
   proposed: true,
   assigned_by_name: null,
@@ -97,7 +95,6 @@ const proposal: JobRecruiter = {
 const first: JobRecruiter = {
   user_id: 32,
   name: "Bartek Testowy",
-  role: "recruiter",
   via: "owner",
   proposed: false,
   assigned_by_name: "Gosia Delivery",
@@ -105,7 +102,6 @@ const first: JobRecruiter = {
 const second: JobRecruiter = {
   user_id: 33,
   name: "Celina Wzorcowa",
-  role: "sourcer",
   via: "collaborator",
   proposed: false,
   assigned_by_name: null,
@@ -132,9 +128,9 @@ const JOBS = {
 const DIRECTORY = [
   { id: 31, name: "Anna Przykładowa", role: "recruiter", roles: ["recruiter"] },
   { id: 32, name: "Bartek Testowy", role: "recruiter", roles: ["recruiter"] },
-  { id: 33, name: "Celina Wzorcowa", role: "sourcer", roles: ["sourcer"] },
+  { id: 33, name: "Celina Wzorcowa", role: "recruiter", roles: ["recruiter"] },
   { id: 34, name: "Darek Makietowy", role: "recruiter", roles: ["recruiter"] },
-  { id: 35, name: "Tola Tacowa", role: "tac", roles: ["tac"] },
+  { id: 35, name: "Tola Tacowa", role: "recruiter", roles: ["recruiter"] },
   { id: 7, name: "Gosia Delivery", role: "delivery_lead", roles: ["delivery_lead"] },
   { id: 8, name: "Henryk Pokazowy", role: "head_of_recruitment", roles: ["head_of_recruitment"] },
   { id: 40, name: "Franek Finansowy", role: "finance", roles: ["finance"] },
@@ -246,15 +242,6 @@ describe("JobOwnershipPanel — kto widzi który przycisk", () => {
     [
       "rekruter bierze wolną rekrutację albo dołącza do zajętej; kolejną osobę dopisuje jak każdy redagujący",
       recruiter,
-      {
-        proposalOnly: ["Biorę", "+ Dodaj osobę"],
-        staffed: ["Zdejmij Celina Wzorcowa", "Dołącz", "+ Dodaj osobę"],
-        empty: ["Biorę", "+ Dodaj osobę"],
-      },
-    ],
-    [
-      "sourcer — tak samo jak rekruter",
-      sourcer,
       {
         proposalOnly: ["Biorę", "+ Dodaj osobę"],
         staffed: ["Zdejmij Celina Wzorcowa", "Dołącz", "+ Dodaj osobę"],
@@ -429,7 +416,7 @@ describe("JobOwnershipPanel — co widać w wierszu", () => {
         status: "published",
         primary_owner: firstAsOwner,
         collaborators: [
-          { id: 33, name: "Celina Wzorcowa", role: "sourcer", source: "manual" },
+          { id: 33, name: "Celina Wzorcowa", role: "recruiter", source: "manual" },
           { id: 50, name: "Cała Kategoria", role: "recruiter", source: "auto_cc" },
         ],
       },

@@ -137,7 +137,7 @@ async def test_edit_with_unchanged_inactive_delivery_lead_saves(
     client: AsyncClient,
 ) -> None:
     dl_id, _, _ = await _user(UserRole.delivery_lead, active=False)
-    tac_id, _, _ = await _user(UserRole.tac)  # bez przypisania do klienta
+    tac_id, _, _ = await _user(UserRole.head_of_recruitment)  # opiekun bez przypisania
     job = await _job(delivery_lead_id=dl_id, tac_id=tac_id)
     headers = await _admin_headers(client)
 

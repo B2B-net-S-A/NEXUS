@@ -183,7 +183,7 @@ beforeEach(() => {
         url === "/api/users"
           ? [
               { id: 31, name: "Rekruterka Ola", role: "recruiter", roles: [] },
-              { id: 32, name: "Sourcerka Iza", role: "sourcer", roles: [] },
+              { id: 32, name: "Sourcerka Iza", role: "recruiter", roles: [] },
             ]
           : {},
     }),
@@ -249,7 +249,7 @@ describe("NewJobPage", () => {
           return Promise.resolve({
             data: [
               { id: 31, name: "Rekruterka Ola", role: "recruiter", roles: [] },
-              { id: 32, name: "Sourcerka Iza", role: "sourcer", roles: [] },
+              { id: 32, name: "Sourcerka Iza", role: "recruiter", roles: [] },
             ],
           });
         }

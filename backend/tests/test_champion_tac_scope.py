@@ -1,10 +1,13 @@
-"""TAC widzi Championa SWOICH ofert — i tylko swoich.
+"""Opiekun rekrutacji (`jobs.tac_id`) widzi Championa SWOICH ofert — i tylko swoich.
 
 Etap 4.4. Rozszerzenie dostępu, którego nie dało się zrobić samą podmianą
 guarda: `delivery_lead_job_pairs` zwraca `None` — czyli „bez ograniczeń" — dla
-każdego, kto nie jest Delivery Leadem. Zamiana `DeliveryLeadPlus` na `TacPlus`
-bez własnego zawężenia dałaby TAC-owi wgląd w Championa KAŻDEJ oferty, czyli
-odtworzyłaby wyciek zamknięty w #1069 inną drogą.
+każdego, kto nie jest Delivery Leadem. Bez własnego zawężenia każda rola spoza
+Delivery dostałaby wgląd w Championa KAŻDEJ oferty, czyli odtworzyłaby wyciek
+zamknięty w #1069 inną drogą.
+
+Roli TAC nie ma od 0411 (02.10.2026): zostało samo przypisanie `jobs.tac_id`,
+bez wymogu roli — tu sprawdzamy je na koncie rekrutera.
 """
 
 from types import SimpleNamespace
@@ -36,28 +39,31 @@ def _job(job_id: int = 1, client_id: int = 10, tac_id: int | None = None):
 
 
 @pytest.mark.asyncio
-async def test_tac_reaches_a_job_assigned_to_them():
-    await ensure_champion_job_visible(_job(tac_id=7), _user(7, UserRole.tac), db=None)
+async def test_assigned_guardian_reaches_their_job_without_any_special_role():
+    await ensure_champion_job_visible(
+        _job(tac_id=7), _user(7, UserRole.recruiter), db=None
+    )
 
 
 @pytest.mark.asyncio
-async def test_tac_is_refused_someone_elses_job():
-    """Sedno etapu — bez tego rozszerzenie roli byłoby wyciekiem."""
+async def test_recruiter_is_refused_someone_elses_job():
+    """Sedno etapu — bez tego rozszerzenie zakresu byłoby wyciekiem."""
 
     with pytest.raises(HTTPException) as exc:
         await ensure_champion_job_visible(
-            _job(tac_id=999), _user(7, UserRole.tac), db=None
+            _job(tac_id=999), _user(7, UserRole.recruiter), db=None
         )
     assert exc.value.status_code == 403
+    assert exc.value.detail == "Job is outside the caller's Champion scope"
 
 
 @pytest.mark.asyncio
-async def test_unassigned_job_is_outside_every_tac_scope():
+async def test_unassigned_job_is_outside_every_guardian_scope():
     """`tac_id IS NULL` nie może przechodzić przez porównanie dwóch pustych pól."""
 
     with pytest.raises(HTTPException) as exc:
         await ensure_champion_job_visible(
-            _job(tac_id=None), _user(7, UserRole.tac), db=None
+            _job(tac_id=None), _user(7, UserRole.recruiter), db=None
         )
     assert exc.value.status_code == 403
 
@@ -75,26 +81,11 @@ async def test_admin_and_head_of_recruitment_stay_unrestricted():
 
 
 @pytest.mark.asyncio
-async def test_unknown_persona_is_denied_not_waved_through():
-    """Różnica wobec `delivery_lead_job_pairs`, która na to samo mówi `None`.
-
-    Rekruter przechodzi przez `TacPlus`? Nie — ale gdyby kiedyś ktoś poszerzył
-    guard, zakres MUSI odmówić z własnej woli, zamiast milcząco przepuścić.
-    """
-
-    with pytest.raises(HTTPException) as exc:
-        await ensure_champion_job_visible(
-            _job(tac_id=7), _user(7, UserRole.recruiter), db=None
-        )
-    assert exc.value.status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_delivery_lead_who_is_also_the_tac_passes_on_the_second_path():
-    """Role są alternatywą, nie łańcuchem — użytkownik może trzymać obie.
+async def test_delivery_lead_who_is_also_the_guardian_passes_on_the_second_path():
+    """Ścieżki są alternatywą, nie łańcuchem.
 
     Odmowa po stronie delivery nie kończy sprawy, jeśli ten sam człowiek jest
-    TAC-iem tej oferty.
+    opiekunem (`tac_id`) tej oferty.
     """
 
     import app.api.recruitment_access as ra
@@ -106,7 +97,12 @@ async def test_delivery_lead_who_is_also_the_tac_passes_on_the_second_path():
     ra.delivery_lead_job_pairs = _deny_everything
     try:
         await ensure_champion_job_visible(
-            _job(tac_id=7), _user(7, UserRole.delivery_lead, UserRole.tac), db=None
+            _job(tac_id=7), _user(7, UserRole.delivery_lead), db=None
         )
+        with pytest.raises(HTTPException) as exc:
+            await ensure_champion_job_visible(
+                _job(tac_id=999), _user(7, UserRole.delivery_lead), db=None
+            )
+        assert exc.value.status_code == 403
     finally:
         ra.delivery_lead_job_pairs = original

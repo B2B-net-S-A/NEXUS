@@ -29,7 +29,7 @@ from app.services.priority_work_service import (
 )
 
 logger = logging.getLogger(__name__)
-OPERATIONAL_ROLES = (UserRole.sourcer, UserRole.recruiter, UserRole.tac)
+OPERATIONAL_ROLES = (UserRole.recruiter,)
 
 
 def _worker_interval_seconds() -> int:

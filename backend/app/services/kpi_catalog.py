@@ -92,7 +92,7 @@ class KpiDef:
     requires_cloudtalk: bool = False
 
 
-_OPERATORS = (UserRole.recruiter, UserRole.sourcer, UserRole.tac)
+_OPERATORS = (UserRole.recruiter,)
 
 
 def _same_for_operators(value: int) -> dict[UserRole, int]:
@@ -133,11 +133,7 @@ KPI_CATALOG: tuple[KpiDef, ...] = (
         title_pl="Rekomendacje w tygodniu",
         description_pl="Pierwsze wysyłki CV do klienta (cv_sent)",
         metric=KpiMetric.first_recommendations,
-        # Sourcer bez celu — świadomie, decyzja nie zapadła (audyt T6).
-        default_targets={
-            UserRole.recruiter: 15,
-            UserRole.tac: 12,
-        },
+        default_targets=_same_for_operators(15),
     ),
     KpiDef(
         kpi_id="monthly_placements",

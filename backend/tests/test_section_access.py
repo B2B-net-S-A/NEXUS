@@ -133,9 +133,7 @@ def test_mixed_required_documents_router_nests_the_delivery_guard() -> None:
 
 def test_requested_delivery_and_finance_matrix() -> None:
     for role in (
-        UserRole.sourcer,
         UserRole.recruiter,
-        UserRole.tac,
         UserRole.head_of_recruitment,
     ):
         assert (
@@ -260,9 +258,7 @@ async def test_exact_read_only_post_uses_read_level_without_opening_sibling_muta
 async def test_delivery_dependency_rejects_recruitment_roles_before_handler() -> None:
     dependency = require_section_access(ProductSection.delivery)
     for role in (
-        UserRole.sourcer,
         UserRole.recruiter,
-        UserRole.tac,
         UserRole.head_of_recruitment,
     ):
         with pytest.raises(HTTPException) as exc_info:

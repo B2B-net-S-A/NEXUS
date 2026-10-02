@@ -496,7 +496,10 @@ async def test_promotion_changes_role_and_ends_program(app_client) -> None:
         json={"action": "promote", "role": "admin"},
     )
     assert resp.status_code == 422
+    assert resp.json()["detail"] == "Awans tylko na rekrutera."
 
+    # Otwarta karta ze starą wersją aplikacji wysyła jeszcze „sourcer” — od
+    # 0411 to rekruter (stara wartość celowo: zgodność wejścia).
     resp = await app_client.post(
         f"/api/trainee/programs/{trainee_id}/decision",
         headers=hor_headers,
@@ -505,8 +508,8 @@ async def test_promotion_changes_role_and_ends_program(app_client) -> None:
     assert resp.status_code == 200, resp.text
     async with AsyncSessionLocal() as db:
         user = await db.get(User, trainee_id)
-        assert user.role == UserRole.sourcer
-        assert user.roles == ["sourcer"]
+        assert user.role == UserRole.recruiter
+        assert user.roles == ["recruiter"]
         program = await db.scalar(
             select(TraineeProgram).where(TraineeProgram.user_id == trainee_id)
         )

@@ -494,7 +494,7 @@ async def test_signed_document_is_frozen_and_foreign_edit_is_403(
         rid,
         new_start_date="2026-11-01",
     )
-    other_h, _ = await _seed_user(app_client, "tac")
+    other_h, _ = await _seed_user(app_client, "recruiter")
     foreign = await app_client.delete(f"{BASE}/documents/{doc_id}", headers=other_h)
     assert foreign.status_code in (403, 404), foreign.text
 

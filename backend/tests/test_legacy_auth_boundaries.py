@@ -101,8 +101,8 @@ def test_incomplete_primary_onboarding_personas_are_blocked(role: UserRole) -> N
 
 def test_secondary_role_onboarding_prefers_dl_and_admin_is_exempt() -> None:
     secondary_dl = _user(
-        UserRole.tac,
-        roles=[UserRole.tac.value, UserRole.delivery_lead.value],
+        UserRole.recruiter,
+        roles=[UserRole.recruiter.value, UserRole.delivery_lead.value],
         completed=False,
     )
     with pytest.raises(HTTPException) as exc:

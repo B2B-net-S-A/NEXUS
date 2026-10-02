@@ -93,10 +93,8 @@ async def test_every_operational_role_can_read_finance_and_viewer_cannot(
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.recruiter,
         UserRole.finance,
-        UserRole.sourcer,
     ):
         headers = await _headers(rs_client, role)
         resp = await rs_client.get(PATH, headers=headers)
