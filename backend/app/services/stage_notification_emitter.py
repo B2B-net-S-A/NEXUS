@@ -33,6 +33,11 @@ from app.services.email import send_email
 from app.services.notification_access import notification_recipient_has_access
 from app.services.notification_delivery import guarded_send, load_policy
 from app.services.notification_triggers import emit
+from app.services.stage_handoff_recipients import (
+    REASON_CPRO_QUEUE,
+    REASON_CV_SENT,
+    REASON_DL_REVIEW,
+)
 from app.services.stage_notification_email_template import render_stage_email
 from app.services.stage_notification_resolver import (
     ResolvedRecipient,
@@ -61,6 +66,55 @@ async def _user_by_id(db: AsyncSession, user_id: int) -> Optional[User]:
     return await db.scalar(select(User).where(User.id == user_id))
 
 
+def _inapp_content(
+    *,
+    reason: Optional[str],
+    candidate: Candidate,
+    candidate_full_name: str,
+    stage_display_name: str,
+    job: Job,
+    mover: Optional[User],
+) -> tuple[str, str, str]:
+    """``(tytuł, treść, link)`` dzwonka.
+
+    Przekazanie z przepływu mówi odbiorcy, co ma zrobić, i prowadzi na
+    Tablicę rekrutacji z otwartą osobą; zwykła reguła etapu zostaje przy
+    ogólnym zdaniu i profilu kandydata.
+    """
+
+    job_title = getattr(job, "working_title", None) or job.title
+    who = mover.name if mover and mover.name else "Ktoś z zespołu"
+    board_link = f"/jobs/{job.id}?candidate={candidate.id}"
+    if reason == REASON_DL_REVIEW:
+        return (
+            f"CV do przeglądu: {candidate_full_name}",
+            f"{who} przekazał(a) CV kandydata {candidate_full_name} do QC "
+            f"w rekrutacji „{job_title}”. Sprawdź CV i wyślij je do klienta.",
+            board_link,
+        )
+    if reason == REASON_CPRO_QUEUE:
+        return (
+            f"Do wrzucenia do Cpro: {candidate_full_name}",
+            f"{who} przekazał(a) kandydata {candidate_full_name} do kolejki "
+            f"Cpro w rekrutacji „{job_title}”.",
+            board_link,
+        )
+    if reason == REASON_CV_SENT:
+        return (
+            f"CV wysłane: {candidate_full_name}",
+            f"{who} wysłał(a) CV kandydata {candidate_full_name} w rekrutacji "
+            f"„{job_title}” (etap „{stage_display_name}”).",
+            board_link,
+        )
+    mover_part = f" przez {mover.name}" if mover else ""
+    return (
+        f"Kandydat {candidate_full_name} → {stage_display_name}",
+        f"Kandydat {candidate_full_name} przeszedł na etap "
+        f"„{stage_display_name}” w ofercie '{job.title}' (#{job.id}){mover_part}.",
+        f"/candidates/{candidate.id}",
+    )
+
+
 async def _send_inapp(
     db: AsyncSession,
     *,
@@ -71,14 +125,17 @@ async def _send_inapp(
     job: Job,
     new_stage: CandidateStage,
     mover: Optional[User],
-) -> None:
-    mover_part = f" przez {mover.name}" if mover else ""
-    title = f"Kandydat {candidate_full_name} → {stage_display_name}"
-    message = (
-        f"Kandydat {candidate_full_name} przeszedł na etap "
-        f"„{stage_display_name}” w ofercie '{job.title}' (#{job.id}){mover_part}."
+    reason: Optional[str] = None,
+) -> bool:
+    title, message, link = _inapp_content(
+        reason=reason,
+        candidate=candidate,
+        candidate_full_name=candidate_full_name,
+        stage_display_name=stage_display_name,
+        job=job,
+        mover=mover,
     )
-    await emit(
+    notif = await emit(
         db,
         user_id=user_id,
         title=title,
@@ -86,8 +143,9 @@ async def _send_inapp(
         ntype=NotificationType.stage_rule,
         related_entity_type="candidate_stage",
         related_entity_id=new_stage.id,
-        link=f"/candidates/{candidate.id}",
+        link=link,
     )
+    return notif is not None
 
 
 def _send_email_for_recipient(
@@ -184,7 +242,7 @@ async def notify_stage_change(
     for rec in recipients:
         if rec.notify_inapp:
             try:
-                await _send_inapp(
+                if await _send_inapp(
                     db,
                     user_id=rec.user_id,
                     candidate=candidate,
@@ -193,8 +251,9 @@ async def notify_stage_change(
                     job=job,
                     new_stage=new_stage,
                     mover=mover,
-                )
-                emitted_inapp += 1
+                    reason=getattr(rec, "reason", None),
+                ):
+                    emitted_inapp += 1
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "stage_notif: in-app emit failed user=%s stage=%s: %s",
