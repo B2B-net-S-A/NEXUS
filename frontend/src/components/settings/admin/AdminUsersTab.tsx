@@ -60,22 +60,23 @@ interface AdminUsersTabProps {
 const EMBEDDED_SUBTABS: readonly SubTab[] = ["users", "permissions"];
 
 /**
- * Dane konta zapisały się pierwszym żądaniem, a dodatkowe uprawnienia drugim
- * już nie. Osobny typ błędu, bo okno ma wtedy zostać otwarte i powiedzieć,
- * która połowa zapisu przeszła.
+ * Błędy drugiego żądania zapisu: dane konta już się zapisały, dodatkowe
+ * uprawnienia nie. Okno ma wtedy zostać otwarte i powiedzieć, która połowa
+ * przeszła. Błąd zostaje oryginalnym błędem axios (telemetria odróżnia po nim
+ * odmowę 4xx od awarii) — ten zbiór pamięta tylko, z którego żądania pochodzi.
  */
-class PermissionsNotSavedError extends Error {
-  constructor(readonly reason: unknown) {
-    super("user permissions were not saved");
-  }
+const permissionStageFailures = new WeakSet<object>();
+
+function failedOnPermissions(error: unknown): boolean {
+  return typeof error === "object" && error !== null && permissionStageFailures.has(error);
 }
 
 function updateErrorMessage(error: unknown): string {
-  if (!(error instanceof PermissionsNotSavedError)) return extractErrorMsg(error);
-  if (isStalePolicyError(error.reason)) {
+  if (!failedOnPermissions(error)) return extractErrorMsg(error);
+  if (isStalePolicyError(error)) {
     return "Dane konta zostały zapisane, ale uprawnienia nie: ktoś zmienił zasady w międzyczasie. Wczytaliśmy aktualną wersję — zaznacz uprawnienia jeszcze raz i zapisz.";
   }
-  return `Dane konta zostały zapisane, ale uprawnień nie udało się zapisać. ${apiErrorMessage(error.reason, "Spróbuj ponownie za chwilę.")}`;
+  return `Dane konta zostały zapisane, ale uprawnień nie udało się zapisać. ${apiErrorMessage(error, "Spróbuj ponownie za chwilę.")}`;
 }
 
 /**
@@ -169,7 +170,10 @@ export function AdminUsersTab({
           permissions.actionChanges,
         );
       } catch (reason) {
-        throw new PermissionsNotSavedError(reason);
+        if (typeof reason === "object" && reason !== null) {
+          permissionStageFailures.add(reason);
+        }
+        throw reason;
       }
     },
     onSuccess: () => {
@@ -179,7 +183,7 @@ export function AdminUsersTab({
     onError: (error) => {
       // Okno zostaje otwarte. Lista pod nim ma już nowe dane konta, a po 409
       // okno dostaje świeże zasady i świeże nadania tej osoby.
-      if (error instanceof PermissionsNotSavedError) void invalidateAccounts();
+      if (failedOnPermissions(error)) void invalidateAccounts();
     },
   });
 
