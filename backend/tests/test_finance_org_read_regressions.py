@@ -147,9 +147,7 @@ async def test_finance_branded_cv_lazy_preview_does_not_persist(monkeypatch):
 
     db = RecordingDb()
     monkeypatch.setattr(candidate_stage_cv, "_load_csv_for_stage", load_csv)
-    monkeypatch.setattr(
-        candidate_stage_cv, "_branded_cv_summary_for_pair", no_pair_cv
-    )
+    monkeypatch.setattr(candidate_stage_cv, "_branded_cv_summary_for_pair", no_pair_cv)
 
     response = await candidate_stage_cv.get_branded_cv(
         stage_id=17,
@@ -230,68 +228,42 @@ async def test_finance_can_export_requested_standalone_order_ids(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_consultant_options_allow_every_dl_and_add_finance():
-    # Bramka ROLI trasy: każdy DL przechodzi. Zakres klienta (od 25.09.2026
-    # tylko przypisani klienci DL) sprawdza handler przez `_require_group_read`.
-    class AssignedResult:
-        def scalar_one_or_none(self):
-            return object()
+async def test_consultant_options_require_the_order_editing_permission():
+    """Lista osób do obsady to formularz „dodaj konsultanta”.
 
-    class AssignedDb:
-        async def execute(self, statement):
-            return AssignedResult()
+    Trasa pyta o „Kontrakty i zamówienia: tworzenie i edycja”: domyślnie admin,
+    Delivery Lead i Finanse. Zakres klienta (tylko klienci z portfela konta
+    z rolą DL) sprawdza handler przez ``_require_group_read``.
+    """
+    from typing import get_args, get_type_hints
 
-    finance = _user(UserRole.finance)
-    assert (
-        await client_order_groups.require_consultant_options_reader(
-            client_id=5, current_user=finance, db=SimpleNamespace()
-        )
-        is finance
-    )
+    annotation = get_type_hints(
+        client_order_groups.list_consultant_options_for_client, include_extras=True
+    )["user"]
+    gate = get_args(annotation)[1].dependency
 
-    admin = _user(UserRole.admin)
-    assert (
-        await client_order_groups.require_consultant_options_reader(
-            client_id=5, current_user=admin, db=SimpleNamespace()
-        )
-        is admin
-    )
-
-    delivery_lead = _user(UserRole.delivery_lead)
-    assert (
-        await client_order_groups.require_consultant_options_reader(
-            client_id=5, current_user=delivery_lead, db=AssignedDb()
-        )
-        is delivery_lead
-    )
-
-    class UnassignedResult:
-        def scalar_one_or_none(self):
-            return None
-
-    class UnassignedDb:
-        async def execute(self, statement):
-            return UnassignedResult()
-
-    assert (
-        await client_order_groups.require_consultant_options_reader(
-            client_id=5,
-            current_user=delivery_lead,
-            db=UnassignedDb(),
-        )
-        is delivery_lead
-    )
+    for role in (UserRole.finance, UserRole.admin, UserRole.delivery_lead):
+        user = _user(role)
+        assert await gate(current_user=user) is user
 
     for role in (
+        UserRole.talent_community_manager,
         UserRole.head_of_recruitment,
         UserRole.tac,
         UserRole.recruiter,
         UserRole.sourcer,
     ):
         with pytest.raises(HTTPException) as exc_info:
-            await client_order_groups.require_consultant_options_reader(
-                client_id=5,
-                current_user=_user(role),
-                db=SimpleNamespace(),
-            )
+            await gate(current_user=_user(role))
         assert exc_info.value.status_code == 403
+        assert exc_info.value.detail["code"] == "permission_denied"
+        assert exc_info.value.detail["permission"] == "contracts_orders_edit"
+
+    # Uprawnienie nadane osobie spoza domyślnych ról otwiera listę.
+    granted = _user(UserRole.talent_community_manager)
+    granted.effective_section_access = {"delivery": "write"}
+    granted.effective_action_access = {
+        "delivery_view": "manage",
+        "contracts_orders_edit": "manage",
+    }
+    assert await gate(current_user=granted) is granted

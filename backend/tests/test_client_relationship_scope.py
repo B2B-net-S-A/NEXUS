@@ -349,10 +349,21 @@ async def test_viewer_cannot_open_mixed_client_surface() -> None:
 async def test_client_order_read_helper_uses_central_fail_closed_decision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from app.services.client_access import deny
+    from app.services.permission_denial import permission_denied
+
+    def decision(allowed: bool, *, missing: str | None = None) -> SimpleNamespace:
+        # Lustro ``ClientAccess.legal_denial``: brak uprawnienia → nazwana
+        # odmowa, uprawnienie poza zakresem klienta → dotychczasowy komunikat.
+        return SimpleNamespace(
+            can_view_legal_documents=allowed,
+            legal_denial=lambda detail, write=False: (
+                permission_denied(missing) if missing else deny(detail)
+            ),
+        )
+
     assert_client = AsyncMock()
-    resolve_access = AsyncMock(
-        return_value=SimpleNamespace(can_view_legal_documents=False)
-    )
+    resolve_access = AsyncMock(return_value=decision(False))
     monkeypatch.setattr(client_orders, "_assert_client", assert_client)
     monkeypatch.setattr(client_orders, "resolve_client_access", resolve_access)
 
@@ -365,15 +376,28 @@ async def test_client_order_read_helper_uses_central_fail_closed_decision(
     assert exc.value.status_code == 403
     assert str(exc.value.detail).startswith("client_access_denied")
 
-    resolve_access.return_value = SimpleNamespace(can_view_legal_documents=True)
+    # Dokument zamówienia niesie stawki: brak „Stawki i kwoty: podgląd”
+    # kończy się odmową, która nazywa to uprawnienie.
+    resolve_access.return_value = decision(False, missing="amounts_view")
+    with pytest.raises(HTTPException) as exc:
+        await client_orders._require_client_order_read(
+            db=object(),  # type: ignore[arg-type]
+            user=_user(UserRole.tac),
+            client_id=77,
+        )
+    assert exc.value.status_code == 403
+    assert exc.value.detail["code"] == "permission_denied"
+    assert exc.value.detail["permission"] == "amounts_view"
+
+    resolve_access.return_value = decision(True)
     await client_orders._require_client_order_read(
         db=object(),  # type: ignore[arg-type]
         user=_user(UserRole.tac),
         client_id=77,
     )
 
-    assert assert_client.await_count == 2
-    assert resolve_access.await_count == 2
+    assert assert_client.await_count == 3
+    assert resolve_access.await_count == 3
 
 
 @pytest.mark.asyncio

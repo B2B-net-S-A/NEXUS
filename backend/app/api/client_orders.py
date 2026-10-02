@@ -2346,10 +2346,12 @@ async def extract_order_pdf(
     ``uncertain=True`` → front pokazuje baner „Sprawdź dane!". Kwoty zredagowane
     dla kont, które nie widzą kwot tego klienta.
 
-    Bramkowane: „Kontrakty i zamówienia: tworzenie i edycja”, plus quota AI
+    Bramkowane: „Kontrakty i zamówienia: tworzenie i edycja” oraz — bo
+    dokument niesie stawki — „Stawki i kwoty: podgląd” w zakresie klienta
+    (ta sama bramka co ``/order-groups/extract``), plus quota AI
     ``AIFeatureKey.order_parser`` (master → feature → miesięczny limit).
     """
-    await _assert_client(db, client_id)
+    await _require_client_order_read(db, user, client_id)
 
     target_consultant: Optional[str] = None
     target_given_names: Optional[str] = None

@@ -2690,8 +2690,9 @@ async def extract_order_group_pdf(
     kosztową z tego kontraktu. Nie tworzy zamówienia ani nie zapisuje pliku —
     zapis to osobne ``POST /order-groups`` z liniami, po weryfikacji DL.
 
-    Bramkowane jak ``/orders/extract``: Delivery Lead lub Admin + kwota AI
-    ``order_parser``. Kwoty redagowane dla ról bez odczytu finansów klienta.
+    Bramkowane jak ``/orders/extract``: prowadzenie zamówień i podgląd kwot
+    w zakresie klienta (dokument niesie stawki) + kwota AI ``order_parser``.
+    Kwoty redagowane dla kont bez kwot TEGO klienta.
     """
     # Ta sama bramka odczytu co lista kandydatów na linię (`consultant-options`):
     # odpowiedź niesie nazwiska kontraktorów i identyfikatory kontraktów klienta.
@@ -7003,7 +7004,7 @@ async def upsert_line_consumption(
     Ten sam klucz idempotencji co import (``UNIQUE (order_id, period_month)``):
     powtórny PUT NADPISUJE miesiąc i przelicza pozostałość od zera, nigdy nie
     dokłada. Uprawnienia jak przy cyklu życia zamówienia (``close``):
-    admin, przypisany Delivery Lead, Finanse z ``MANAGE_FINANCE``.
+    „Kontrakty i zamówienia: tworzenie i edycja” u klienta z zakresu konta.
     """
     await _require_order_lifecycle(db, user, client_id)
     _assert_multi_client(client_id)

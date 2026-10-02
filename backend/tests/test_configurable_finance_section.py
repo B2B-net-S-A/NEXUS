@@ -126,55 +126,111 @@ async def test_contract_template_legal_read_needs_the_amounts_view_permission(
 
 
 @pytest.mark.asyncio
-async def test_order_pdf_guard_does_not_use_finance_role_as_a_shortcut(
+async def test_order_pdf_guard_asks_for_amounts_view_not_for_the_finance_role(
     monkeypatch,
 ) -> None:
+    """Dokument zamówienia niesie stawki: decyduje „Stawki i kwoty: podgląd”."""
+
     async def client_exists(*_args, **_kwargs):
         return SimpleNamespace(id=7)
 
-    async def no_legal_access(*_args, **_kwargs):
-        return SimpleNamespace(can_view_legal_documents=False)
-
     monkeypatch.setattr(client_order_groups, "_assert_client", client_exists)
-    monkeypatch.setattr(
-        client_order_groups,
-        "resolve_client_access",
-        no_legal_access,
-    )
 
-    with pytest.raises(HTTPException):
+    # Sama rola Finanse nie jest skrótem — odmowa nazywa brakujące uprawnienie.
+    with pytest.raises(HTTPException) as exc:
         await client_order_groups._require_group_read(
             SimpleNamespace(),
             _user(UserRole.finance, "none"),
             7,
         )
+    assert exc.value.status_code == 403
+    assert exc.value.detail["permission"] == "amounts_view"
 
-    finance_reader = _user(UserRole.finance, "read")
+    finance_reader = _user(
+        UserRole.finance, "none", permissions=("delivery_view", "amounts_view")
+    )
     await client_order_groups._require_group_read(
         SimpleNamespace(),
         finance_reader,
         7,
     )
 
-    # An individual grant still cannot bypass the client/legal record guard.
-    with pytest.raises(HTTPException):
+    # Stary wyjątek osoby na sekcję Finanse nie zastępuje podglądu kwot.
+    with pytest.raises(HTTPException) as exc:
         await client_order_groups._require_group_read(
             SimpleNamespace(),
-            _user(UserRole.recruiter, "read"),
+            _user(UserRole.talent_community_manager, "read"),
             7,
         )
+    assert exc.value.detail["permission"] == "amounts_view"
+
+    # Podgląd kwot nadany osobie spoza domyślnych ról działa u każdego klienta.
+    granted = _user(
+        UserRole.talent_community_manager,
+        "none",
+        permissions=("delivery_view", "amounts_view"),
+    )
+    await client_order_groups._require_group_read(SimpleNamespace(), granted, 7)
 
 
-def test_finance_order_lifecycle_requires_write_access() -> None:
-    assert not client_order_groups._has_order_lifecycle_role(
-        _user(UserRole.finance, "none")
+@pytest.mark.asyncio
+async def test_order_lifecycle_requires_the_order_editing_permission(
+    monkeypatch,
+) -> None:
+    """Cykl życia zamówienia: uprawnienie na trasie, w handlerze sam zakres."""
+
+    from typing import get_args, get_type_hints
+
+    annotation = get_type_hints(
+        client_order_groups.close_order_group, include_extras=True
+    )["user"]
+    gate = get_args(annotation)[1].dependency
+
+    # Rola Finanse — także z zapisem w sekcji Finanse — nie wystarcza.
+    for finance_level in ("none", "read", "write"):
+        with pytest.raises(HTTPException) as exc:
+            await gate(current_user=_user(UserRole.finance, finance_level))
+        assert exc.value.status_code == 403
+        assert exc.value.detail["permission"] == "contracts_orders_edit"
+
+    editor = _user(
+        UserRole.finance,
+        "none",
+        permissions=("delivery_view", "contracts_orders_edit"),
     )
-    assert not client_order_groups._has_order_lifecycle_role(
-        _user(UserRole.finance, "read")
+    assert await gate(current_user=editor) is editor
+
+    async def client_exists(*_args, **_kwargs):
+        return SimpleNamespace(id=7)
+
+    async def not_needed(*_args, **_kwargs):
+        raise AssertionError("zakres klienta dotyczy tylko konta z rolą DL")
+
+    monkeypatch.setattr(client_order_groups, "_assert_client", client_exists)
+    monkeypatch.setattr(client_order_groups, "resolve_client_access", not_needed)
+    # Konto bez roli Delivery Leada działa u każdego klienta.
+    await client_order_groups._require_order_lifecycle(SimpleNamespace(), editor, 7)
+
+    # Konto z rolą Delivery Leada — wyłącznie u klienta ze swojego zakresu,
+    # niezależnie od podglądu kwot (cykl życia nie dotyka stawek).
+    lead = _user(
+        UserRole.delivery_lead,
+        "none",
+        permissions=("delivery_view", "contracts_orders_edit"),
     )
-    assert client_order_groups._has_order_lifecycle_role(
-        _user(UserRole.finance, "write")
-    )
+
+    async def outside(*_args, **_kwargs):
+        return SimpleNamespace(is_client_team=False)
+
+    async def inside(*_args, **_kwargs):
+        return SimpleNamespace(is_client_team=True)
+
+    monkeypatch.setattr(client_order_groups, "resolve_client_access", outside)
+    with pytest.raises(HTTPException) as exc:
+        await client_order_groups._require_order_lifecycle(SimpleNamespace(), lead, 7)
+    assert exc.value.status_code == 403
+    monkeypatch.setattr(client_order_groups, "resolve_client_access", inside)
+    await client_order_groups._require_order_lifecycle(SimpleNamespace(), lead, 7)
 
 
 @pytest.mark.asyncio
