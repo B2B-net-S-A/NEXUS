@@ -9,7 +9,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Calendar, Clock, Download, FileText, Pencil, Plus } from "lucide-react";
+import { Clock, Download, FileText, Pencil, Plus } from "lucide-react";
 import api, { contractsApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 // Daty ISO bez przesunięcia strefy (audyt 24.09, N8).
@@ -18,7 +18,8 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { hasPermission } from "@/lib/permissions";
 import { useAuthStore } from "@/store/auth";
-import { Badge } from "@/components/ui/badge";
+import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import { CALM_EMPTY, CALM_SUBLINE } from "@/lib/calm-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FilterBar } from "@/components/ds/FilterBar";
@@ -66,20 +67,29 @@ import {
   takeContractsListScroll,
 } from "@/lib/contracts-list-navigation";
 
+// Kolory z tokenów (do 02.10.2026 surowe hexy, nieczytelne w ciemnym motywie).
 const PROLONGATION_TEXT_CLASS: Record<string, string> = {
   soft: "text-muted-foreground",
-  success: "text-[#1d5e31]",
-  warning: "text-amber-700",
-  danger: "text-[#6b1120]",
+  success: "text-success-muted-foreground",
+  warning: "text-warning-muted-foreground",
+  danger: "text-destructive",
   neutral: "text-foreground",
 };
 
 const PROLONGATION_DOT_CLASS: Record<string, string> = {
-  soft: "bg-muted-foreground/50",
-  success: "bg-[#1d5e31]",
-  warning: "bg-amber-600",
-  danger: "bg-[#6b1120]",
+  soft: "bg-muted-foreground/40",
+  success: "bg-success",
+  warning: "bg-warning",
+  danger: "bg-destructive",
   neutral: "bg-foreground",
+};
+
+/** Ton kropki statusu z wariantu plakietki (jedno źródło mapy statusów). */
+const DOT_TONE: Record<string, StatusDotTone> = {
+  success: "success",
+  warning: "warning",
+  danger: "danger",
+  info: "info",
 };
 
 // Boczny panel kontraktu (wersja B) — ładowany dopiero po kliknięciu wiersza.
@@ -117,7 +127,7 @@ type RegisterQueryKey = readonly [
   string, // subcategoryFilter (JSON)
 ];
 
-/** Inline-editowalny status przedłużenia (Select) lub read-only Badge. */
+/** Inline-editowalny status przedłużenia (Select) albo, bez prawa edycji, kropka z etykietą. */
 function ProlongationCell({
   row,
   queryKey,
@@ -159,9 +169,9 @@ function ProlongationCell({
 
   if (!canEdit) {
     return (
-      <Badge size="sm" variant={variant}>
+      <StatusDot tone={DOT_TONE[variant] ?? "neutral"}>
         {PROLONGATION_LABEL[row.prolongation_status] ?? row.prolongation_status}
-      </Badge>
+      </StatusDot>
     );
   }
 
@@ -207,8 +217,8 @@ function PeriodCell({ row }: { row: RegisterContractRow }) {
     const over = pct > 100;
     return (
       <div className="min-w-[160px]">
-        <div className="flex items-center gap-1 text-xs text-foreground">
-          <Clock className="h-3 w-3 shrink-0" />
+        <div className="flex items-center gap-1 text-xs tabular-nums text-foreground">
+          <Clock className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
           <span className="font-medium">{consumed}</span>
           <span className="text-muted-foreground">/ {total} h</span>
           <span
@@ -239,12 +249,11 @@ function PeriodCell({ row }: { row: RegisterContractRow }) {
   }
   // time_based
   return (
-    <div className="min-w-[120px]">
-      <div className="flex items-center gap-1 text-xs text-foreground">
-        <Calendar className="h-3 w-3 shrink-0" />
-        {row.start_date ? formatDate(row.start_date) : "—"}
+    <div className="min-w-[120px] tabular-nums">
+      <div className="whitespace-nowrap text-xs text-foreground">
+        {row.start_date ? formatDate(row.start_date) : <span className={CALM_EMPTY}>—</span>}
       </div>
-      <div className="text-xs text-muted-foreground">
+      <div className={cn(CALM_SUBLINE, "mt-0 whitespace-nowrap")}>
         {row.end_date ? `→ ${formatDate(row.end_date)}` : "bezterminowo"}
       </div>
     </div>
@@ -753,12 +762,12 @@ export function ClientContractRegister({
                 aria-selected={openContractId === row.id}
                 data-selected={openContractId === row.id || undefined}
                 className={cn(
-                  "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                  "h-[50px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
                   openContractId === row.id &&
                     "bg-primary/5 shadow-[inset_3px_0_0_0_hsl(var(--primary))]",
                 )}
               >
-                <TableCell className="font-mono text-xs max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-card">
+                <TableCell className="text-xs tabular-nums max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-card">
                   {row.project_code ? (
                     <span className="text-foreground">{row.project_code}</span>
                   ) : (
@@ -766,9 +775,13 @@ export function ClientContractRegister({
                   )}
                 </TableCell>
                 <TableCell className="max-w-[220px]">
-                  <span className="text-sm text-foreground truncate block">
-                    {row.project_name ?? "—"}
-                  </span>
+                  {row.project_name ? (
+                    <span className="text-sm text-foreground truncate block">
+                      {row.project_name}
+                    </span>
+                  ) : (
+                    <span className={CALM_EMPTY}>—</span>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Link
@@ -783,16 +796,9 @@ export function ClientContractRegister({
                     {row.candidate_name ?? `#${row.candidate_id}`}
                   </Link>
                 </TableCell>
-                <TableCell>
-                  <Badge
-                    size="sm"
-                    variant={
-                      row.engagement_model === "hours_pool" ? "warning" : "soft"
-                    }
-                  >
-                    {ENGAGEMENT_MODEL_LABEL[row.engagement_model] ??
-                      row.engagement_model}
-                  </Badge>
+                <TableCell className="text-xs text-muted-foreground">
+                  {ENGAGEMENT_MODEL_LABEL[row.engagement_model] ??
+                    row.engagement_model}
                 </TableCell>
                 <TableCell>
                   <PeriodCell row={row} />
@@ -806,14 +812,13 @@ export function ClientContractRegister({
                 </TableCell>
                 <TableCell>
                   {row.status ? (
-                    <Badge
-                      size="sm"
-                      variant={CONTRACT_STATUS_VARIANT[row.status] ?? "neutral"}
+                    <StatusDot
+                      tone={DOT_TONE[CONTRACT_STATUS_VARIANT[row.status] ?? "neutral"] ?? "neutral"}
                     >
                       {CONTRACT_STATUS_LABEL[row.status] ?? row.status}
-                    </Badge>
+                    </StatusDot>
                   ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
+                    <span className={cn("text-xs", CALM_EMPTY)}>—</span>
                   )}
                 </TableCell>
                 {canEdit && (

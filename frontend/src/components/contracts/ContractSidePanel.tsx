@@ -20,6 +20,7 @@ import {
   type ContractorListItem,
 } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
+import { CALM_EMPTY } from "@/lib/calm-table";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { warsawToday } from "@/lib/warsaw-date";
 import { contractRateUnitSuffix } from "@/lib/rate-unit";
@@ -199,6 +200,34 @@ function Alert({ tone, children }: { tone: "warning" | "danger" | "info"; childr
   );
 }
 
+/** Jedna z trzech liczb sekcji „Stawki i marża”. Brak kwoty = przygaszona kreska. */
+function RateTile({
+  label,
+  value,
+  note,
+  valueClassName,
+}: {
+  label: string;
+  value: string | null;
+  note?: string | null;
+  valueClassName?: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-md bg-muted/50 px-2.5 py-2">
+      <dt className="text-[11px] leading-4 text-muted-foreground">{label}</dt>
+      <dd
+        className={cn(
+          "font-display text-sm font-semibold leading-5 tabular-nums wrap-break-word",
+          value == null ? CALM_EMPTY : (valueClassName ?? "text-foreground"),
+        )}
+      >
+        {value ?? "—"}
+      </dd>
+      {note ? <dd className="text-[11px] leading-4 text-muted-foreground">{note}</dd> : null}
+    </div>
+  );
+}
+
 /** Pozycja menu wykonana po zamknięciu menu — okno otwarte w trakcie zamykania menu gubiło fokus. */
 function deferMenuAction(action: () => void) {
   window.setTimeout(action, 0);
@@ -371,6 +400,30 @@ export function ContractSidePanel({
   const costCurrency = contract.rate_candidate_currency ?? contract.currency ?? "PLN";
   const comparableCurrencies = revenueCurrency.toUpperCase() === costCurrency.toUpperCase();
   const unitSuffix = contractRateUnitSuffix(contract.rate_unit);
+  // Udział marży w stawce przychodowej — tylko gdy obie stawki są w jednej
+  // walucie (inaczej różnica nie jest kwotą, którą da się porównać).
+  const marginShare =
+    contract.margin != null &&
+    comparableCurrencies &&
+    contract.rate_client != null &&
+    contract.rate_client !== 0
+      ? (contract.margin / contract.rate_client) * 100
+      : null;
+  const marginPct =
+    marginShare != null
+      ? `${new Intl.NumberFormat("pl-PL", {
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 1,
+        }).format(marginShare)}%`
+      : null;
+  const marginTone =
+    marginShare == null
+      ? undefined
+      : marginShare < 15
+        ? "text-destructive"
+        : marginShare < 25
+          ? "text-warning-muted-foreground"
+          : "text-success-muted-foreground";
   const live = contract.status === "active" || contract.status === "ending";
   const addOrderHref = `/clients/${contract.client_id}?tab=zamowienia`;
   const showAmendments = access.canEditContract && contract.status !== "void";
@@ -550,12 +603,7 @@ export function ContractSidePanel({
         </DropdownMenuContent>
       </DropdownMenu>
       {access.canEditContractStatus && live && (
-        <Button
-          size="sm"
-          variant="ghost"
-          className="text-destructive hover:bg-destructive/10"
-          onClick={() => setDialog("terminate")}
-        >
+        <Button size="sm" variant="quiet" onClick={() => setDialog("terminate")}>
           Zakończ współpracę…
         </Button>
       )}
@@ -624,6 +672,53 @@ export function ContractSidePanel({
             ×
           </button>
         </div>
+      )}
+
+      {/* Stawki i marża jako pierwsza sekcja: to po nie najczęściej otwiera
+          się panel. Trzy liczby obok siebie, a pod nimi marża w miesiącu. */}
+      {access.canViewFinance ? (
+        <DetailSection title="Stawki i marża">
+          <dl className="grid grid-cols-3 gap-2" data-testid="contract-panel-rates">
+            <RateTile
+              label="Koszt"
+              value={
+                contract.rate_candidate != null
+                  ? `${formatCurrency(contract.rate_candidate, costCurrency)}${unitSuffix}`
+                  : null
+              }
+            />
+            <RateTile
+              label="Przychód"
+              value={
+                contract.rate_client != null
+                  ? `${formatCurrency(contract.rate_client, revenueCurrency)}${unitSuffix}`
+                  : null
+              }
+            />
+            <RateTile
+              label="Marża"
+              value={
+                contract.margin != null && comparableCurrencies
+                  ? `${formatCurrency(contract.margin, revenueCurrency)}${unitSuffix}`
+                  : null
+              }
+              note={marginPct}
+              valueClassName={marginTone}
+            />
+          </dl>
+          {contract.monthly_margin != null && comparableCurrencies && (
+            <p className="text-xs text-muted-foreground" data-testid="contract-panel-monthly-margin">
+              ≈ {formatCurrency(contract.monthly_margin, revenueCurrency)} marży miesięcznie
+            </p>
+          )}
+        </DetailSection>
+      ) : (
+        <DetailSection title="Stawki i marża">
+          <p className="text-xs text-muted-foreground" data-testid="contract-panel-finance-redacted">
+            Stawki widzą osoby z uprawnieniem „{permissionLabel("amounts_view")}”
+            (Delivery Lead — u swoich klientów).
+          </p>
+        </DetailSection>
       )}
 
       <DetailSection title="Umowa">
@@ -695,45 +790,6 @@ export function ContractSidePanel({
           Zamówienia u klienta →
         </Link>
       </DetailSection>
-
-      {access.canViewFinance ? (
-        <DetailSection title="Stawki i marża">
-          <DetailFacts
-            items={[
-              [
-                "Kosztowa",
-                contract.rate_candidate != null
-                  ? `${formatCurrency(contract.rate_candidate, costCurrency)}${unitSuffix}`
-                  : "—",
-              ],
-              [
-                "Przychodowa",
-                contract.rate_client != null
-                  ? `${formatCurrency(contract.rate_client, revenueCurrency)}${unitSuffix}`
-                  : "—",
-              ],
-              [
-                "Marża",
-                contract.margin != null && comparableCurrencies
-                  ? `${formatCurrency(contract.margin, revenueCurrency)}${unitSuffix}`
-                  : "—",
-              ],
-              contract.monthly_margin != null &&
-                comparableCurrencies && [
-                  "Marża / mc",
-                  formatCurrency(contract.monthly_margin, revenueCurrency),
-                ],
-            ]}
-          />
-        </DetailSection>
-      ) : (
-        <DetailSection title="Stawki i marża">
-          <p className="text-xs text-muted-foreground" data-testid="contract-panel-finance-redacted">
-            Stawki widzą osoby z uprawnieniem „{permissionLabel("amounts_view")}”
-            (Delivery Lead — u swoich klientów).
-          </p>
-        </DetailSection>
-      )}
 
       <DetailSection title="Kontakt">
         <div className="[&>div]:grid-cols-1! [&>div]:pl-0!">

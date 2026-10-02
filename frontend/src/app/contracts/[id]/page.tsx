@@ -78,6 +78,9 @@ import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { KeyFacts, type KeyFact } from "@/components/ds/KeyFacts";
+import { Button } from "@/components/ui/button";
+import { CALM_EMPTY, CALM_HEAD } from "@/lib/calm-table";
 import { ContractClientReassignDialog } from "@/components/contracts/ContractClientReassignDialog";
 import {
   ContractStatusControl,
@@ -98,18 +101,9 @@ import {
   Save,
   X,
   Plus,
-  Activity as ActivityIcon,
-  History,
-  FileText,
-  FileEdit,
   AlertCircle,
   Loader2,
-  User,
   Building2,
-  Briefcase,
-  Calendar,
-  Banknote,
-  TrendingUp,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -244,9 +238,9 @@ interface RateHistoryEntry {
 const VARIANT_STYLES: Record<StatusVariant, string> = {
   neutral: "bg-muted text-foreground border border-border dark:bg-muted dark:text-muted-foreground",
   soft: "bg-muted text-foreground border border-border dark:bg-muted dark:text-muted-foreground",
-  success: "bg-emerald-100 text-emerald-700 border border-emerald-200",
-  warning: "bg-orange-100 text-orange-700 border border-orange-200",
-  danger: "bg-destructive/15 text-destructive border border-destructive/20",
+  success: "bg-success-muted text-success-muted-foreground border border-success/20",
+  warning: "bg-warning-muted text-warning-muted-foreground border border-warning/25",
+  danger: "bg-destructive-muted text-destructive-muted-foreground border border-destructive/20",
 };
 
 function statusStyle(status: string): string {
@@ -331,7 +325,7 @@ function GenerateDocumentButton({
           if (id) openRendered(id);
           e.target.value = "";
         }}
-        className="flex items-center gap-2 border border-border dark:border-border text-foreground dark:text-muted-foreground hover:bg-muted dark:hover:bg-muted px-3 py-2 rounded-lg text-sm font-medium"
+        className="h-8 max-w-full rounded-md border border-border bg-transparent px-3 text-xs font-medium text-foreground hover:bg-muted pointer-coarse:min-h-10"
       >
         <option value="">Generuj z szablonu…</option>
         {templates.map((t) => (
@@ -351,19 +345,18 @@ type TabKey = ContractDetailTab;
 interface Tab {
   key: TabKey;
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
 }
 
 const TABS: Tab[] = [
-  { key: "details", label: "Szczegóły", icon: FileEdit },
-  { key: "documents", label: "Dokumenty", icon: FileText },
-  { key: "amendments", label: "Aneksy", icon: FileEdit },
-  { key: "onboarding", label: "Onboarding", icon: FileText },
-  { key: "equipment", label: "Sprzęt", icon: Briefcase },
-  { key: "notes", label: "Notatki / Rozmowy", icon: ActivityIcon },
-  { key: "invoices", label: "Faktury", icon: Banknote },
-  { key: "rateHistory", label: "Historia stawek", icon: History },
-  { key: "timeline", label: "Timeline", icon: ActivityIcon },
+  { key: "details", label: "Szczegóły" },
+  { key: "documents", label: "Dokumenty" },
+  { key: "amendments", label: "Aneksy" },
+  { key: "onboarding", label: "Onboarding" },
+  { key: "equipment", label: "Sprzęt" },
+  { key: "notes", label: "Notatki / Rozmowy" },
+  { key: "invoices", label: "Faktury" },
+  { key: "rateHistory", label: "Historia stawek" },
+  { key: "timeline", label: "Timeline" },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -373,26 +366,6 @@ function StatusBadge({ status }: { status: string }) {
     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusStyle(status)}`}>
       {contractStatusLabel(status)}
     </span>
-  );
-}
-
-function InfoRow({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-start gap-3 py-2">
-      <Icon className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-      <div className="flex-1 min-w-0">
-        <div className="text-xs text-muted-foreground dark:text-muted-foreground">{label}</div>
-        <div className="text-sm text-foreground dark:text-foreground">{children}</div>
-      </div>
-    </div>
   );
 }
 
@@ -913,21 +886,161 @@ export default function ContractDetailPage() {
     ],
   ).size;
 
+  // Fakty o kontrakcie — jedna siatka nad zakładkami (makieta 02.10.2026).
+  // „Osadzenie u klienta” (PM, line manager, projekt, zespół) wchodzi do tej
+  // samej siatki, pola bez wartości z tej grupy nie zajmują miejsca.
+  const rateRangeCurrency =
+    contract.rate_client_currency ?? contract.currency ?? "PLN";
+  const linkClass = "text-primary hover:underline";
+  const indefinite = <span className="italic text-muted-foreground">bezterminowo</span>;
+  const facts: KeyFact[] = [
+    {
+      id: "candidate",
+      label: "Kandydat",
+      // Bez `candidate_id` nie ma do czego linkować — link `/candidates/null`
+      // udawałby istniejącą osobę i prowadził w 404.
+      value:
+        contract.candidate_name && contract.candidate_id != null ? (
+          <Link href={`/candidates/${contract.candidate_id}`} className={linkClass}>
+            {contract.candidate_name}
+          </Link>
+        ) : contract.candidate_id != null ? (
+          `#${contract.candidate_id}`
+        ) : (
+          "kandydat usunięty z systemu"
+        ),
+    },
+    {
+      id: "client",
+      label: "Klient",
+      value: contract.client_name ? (
+        <Link href={`/clients/${contract.client_id}`} className={linkClass}>
+          {contract.client_name}
+        </Link>
+      ) : (
+        `#${contract.client_id}`
+      ),
+    },
+    {
+      id: "type",
+      label: "Typ kontraktu",
+      value: TYPE_LABELS[contract.contract_type] ?? contract.contract_type,
+    },
+    {
+      id: "work-mode",
+      label: "Tryb pracy",
+      value: contract.work_mode ? (
+        <>
+          {WORK_MODE_LABELS[contract.work_mode] ?? contract.work_mode}
+          {contract.office_location && ` · ${contract.office_location}`}
+        </>
+      ) : (
+        contract.office_location || undefined
+      ),
+    },
+    {
+      id: "period",
+      label: "Okres umowy",
+      value: (
+        <>
+          {formatDate(contract.start_date)} →{" "}
+          {contract.end_date ? formatDate(contract.end_date) : indefinite}
+        </>
+      ),
+    },
+    {
+      id: "order-period",
+      // Okres ZAMÓWIENIA — z najnowszego uzupełnionego zamówienia tej osoby
+      // (synchronizacja 09.2026). Osobno od okresu umowy.
+      label: contract.client_order_start_date || !contract.client_order_end_date
+        ? "Okres zamówienia"
+        : "Koniec zamówienia u klienta",
+      value: contract.client_order_start_date ? (
+        <>
+          {formatDate(contract.client_order_start_date)} →{" "}
+          {contract.client_order_end_date
+            ? formatDate(contract.client_order_end_date)
+            : indefinite}
+        </>
+      ) : contract.client_order_end_date ? (
+        formatDate(contract.client_order_end_date)
+      ) : (
+        <span className={CALM_EMPTY}>—</span>
+      ),
+      // Zamówienia tej osoby żyją w zakładce klienta (UAT M08-B04).
+      hint: (
+        <Link href={`/clients/${contract.client_id}?tab=zamowienia`} className={linkClass}>
+          Zamówienia u klienta →
+        </Link>
+      ),
+    },
+    {
+      id: "job",
+      label: "Rekrutacja",
+      value: contract.job_title ? (
+        <Link href={`/jobs/${contract.job_id}`} className={linkClass}>
+          {contract.job_title}
+        </Link>
+      ) : undefined,
+    },
+    ...(canViewFinance && (contract.target_rate_min || contract.target_rate_max)
+      ? [
+          {
+            id: "target-range",
+            label: "Widełki docelowe stawki",
+            value: (
+              <span className="tabular-nums">
+                {contract.target_rate_min != null
+                  ? formatCurrency(contract.target_rate_min, rateRangeCurrency)
+                  : "—"}
+                {" / "}
+                {contract.target_rate_max != null
+                  ? formatCurrency(contract.target_rate_max, rateRangeCurrency)
+                  : "—"}
+              </span>
+            ),
+          },
+        ]
+      : []),
+    ...(contract.client_pm_name
+      ? [
+          {
+            id: "client-pm",
+            label: "PM po stronie klienta",
+            value: contract.client_pm_name,
+            hint: contract.client_pm_email ?? undefined,
+          },
+        ]
+      : []),
+    ...(contract.line_manager
+      ? [{ id: "line-manager", label: "Line Manager", value: contract.line_manager }]
+      : []),
+    ...(contract.project_name
+      ? [{ id: "project", label: "Projekt", value: contract.project_name }]
+      : []),
+    ...(contract.team_name
+      ? [{ id: "team", label: "Zespół", value: contract.team_name }]
+      : []),
+  ];
+
+  const showStatusControl = canEditContractStatus && !editing;
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1">
+    <div className="space-y-4">
+      {/* Nagłówek: osoba jest tytułem, klient i numer kontraktu — podtytułem. */}
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+        <div className="min-w-0 space-y-1">
           <Link
             href={returnContext.returnTarget}
-            className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-muted-foreground"
+            className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Kontrakty
           </Link>
-          <h1 className="text-2xl font-bold flex items-center gap-3 flex-wrap">
-            Kontrakt #{contract.id}
-            <StatusBadge status={contract.status} />
-            {canEditContractStatus && !editing && (
+          <h1 className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xl font-semibold text-foreground">
+            {contract.candidate_name ?? `Kontrakt #${contract.id}`}
+            {/* Lista statusu sama pokazuje bieżący status — plakietka zostaje
+                dla osób, które statusu nie zmieniają, i na czas edycji. */}
+            {showStatusControl ? (
               <ContractStatusControl
                 contractId={contract.id}
                 status={contract.status}
@@ -939,48 +1052,34 @@ export default function ContractDetailPage() {
                 onRecoveryHint={setRecoveryHint}
                 onError={setError}
               />
+            ) : (
+              <StatusBadge status={contract.status} />
             )}
             {complianceRisk.risk === "overdue" && (
-              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-destructive/15 text-destructive border border-destructive/20">
+              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-destructive-muted text-destructive-muted-foreground border border-destructive/20">
                 Compliance: dokument wygasł
               </span>
             )}
             {complianceRisk.risk === "soon" && (
-              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700 border border-orange-200">
+              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-warning-muted text-warning-muted-foreground border border-warning/25">
                 Compliance: {complianceRisk.docType} wygasa {formatDate(complianceRisk.soonestDate)}
               </span>
             )}
           </h1>
-          <p className="text-sm text-muted-foreground dark:text-muted-foreground">
-            {/* Bez `candidate_id` nie ma do czego linkować — link
-                `/candidates/null` udawałby istniejącą osobę i prowadził w 404. */}
-            {contract.candidate_name && contract.candidate_id != null ? (
-              <Link
-                className="text-primary hover:underline dark:text-primary"
-                href={`/candidates/${contract.candidate_id}`}
-              >
-                {contract.candidate_name}
-              </Link>
-            ) : contract.candidate_id != null ? (
-              `#${contract.candidate_id}`
-            ) : (
-              "kandydat usunięty z systemu"
-            )}
-            {" · "}
+          <p className="text-sm text-muted-foreground">
             {contract.client_name ? (
-              <Link
-                className="text-primary hover:underline dark:text-primary"
-                href={`/clients/${contract.client_id}`}
-              >
+              <Link className={linkClass} href={`/clients/${contract.client_id}`}>
                 {contract.client_name}
               </Link>
             ) : (
               `Klient #${contract.client_id}`
             )}
+            {" · "}
+            Kontrakt #{contract.id}
             {contract.job_title ? ` · ${contract.job_title}` : ""}
             {contract.returned_from_contract_id != null && (
               <span className="ml-2 inline-flex items-center gap-1">
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold tracking-wide bg-amber-100 text-amber-800 border border-amber-300">
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold tracking-wide bg-warning-muted text-warning-muted-foreground border border-warning/25">
                   POWRÓT PO PRZERWIE
                 </span>
                 <Link
@@ -1007,52 +1106,43 @@ export default function ContractDetailPage() {
           </p>
         </div>
 
+        {/* Akcje: rzadkie i niebezpieczne (przepięcie, usunięcie) zostają na
+            wierzchu, ale ciche; główna — „Edytuj” — na końcu rzędu. */}
         {financeAmountsOnly && !editing && (
-          <button
-            onClick={handleStartEdit}
-            className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium"
-          >
-            <Pencil className="w-4 h-4" /> Edytuj stawki
-          </button>
+          <Button size="sm" variant="outline" onClick={handleStartEdit}>
+            <Pencil className="w-3.5 h-3.5" /> Edytuj stawki
+          </Button>
         )}
         {canEditContract && (
-          <div className="flex gap-2 flex-wrap">
-            <GenerateDocumentButton contractId={id} contractType={contract.contract_type} />
-            {contract.candidate_id != null && (
-              <button
-                onClick={() => setShowAddProject(true)}
-                className="flex items-center gap-2 border border-primary/40 text-primary hover:bg-primary/10 px-4 py-2 rounded-lg text-sm font-medium"
-              >
-                <Plus className="w-4 h-4" /> Dodaj kolejny projekt
-              </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {isAdmin && !impersonating && (
+              <Button size="sm" variant="quiet" onClick={() => setShowReassign(true)}>
+                <Building2 className="w-3.5 h-3.5" /> Przepnij na innego klienta
+              </Button>
             )}
-            {!editing && (
-              <button
-                onClick={handleStartEdit}
-                className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium"
-              >
-                <Pencil className="w-4 h-4" /> Edytuj
-              </button>
-            )}
-            <button
+            <Button
+              size="sm"
+              variant="quiet"
               onClick={handleDelete}
               disabled={deleteMutation.isPending}
-              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
             >
               {deleteMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-3.5 h-3.5" />
               )}{" "}
               Usuń
-            </button>
-            {isAdmin && !impersonating && (
-              <button
-                onClick={() => setShowReassign(true)}
-                className="flex items-center gap-2 border border-border hover:bg-accent px-4 py-2 rounded-lg text-sm font-medium"
-              >
-                <Building2 className="w-4 h-4" /> Przepnij na innego klienta
-              </button>
+            </Button>
+            <GenerateDocumentButton contractId={id} contractType={contract.contract_type} />
+            {contract.candidate_id != null && (
+              <Button size="sm" variant="outline" onClick={() => setShowAddProject(true)}>
+                <Plus className="w-3.5 h-3.5" /> Dodaj kolejny projekt
+              </Button>
+            )}
+            {!editing && (
+              <Button size="sm" variant="primary" onClick={handleStartEdit}>
+                <Pencil className="w-3.5 h-3.5" /> Edytuj
+              </Button>
             )}
           </div>
         )}
@@ -1063,7 +1153,7 @@ export default function ContractDetailPage() {
           finansowe i benchmark liczą się per kontrakt, więc per klient. */}
       {relatedContracts.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-2 rounded-lg bg-primary text-white px-3 py-1.5 text-sm font-medium">
+          <span className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-3 py-1.5 text-sm font-medium">
             <Building2 className="w-3.5 h-3.5" />
             {contract.client_name ?? `Klient #${contract.client_id}`}
           </span>
@@ -1107,17 +1197,17 @@ export default function ContractDetailPage() {
         description="Operacja jest nieodwracalna. Usunięty zostanie kontrakt WRAZ z jego dokumentami, aneksami, fakturami, zamówieniami i harmonogramami stawek. Zostają: kandydat w module Kandydaci, wygenerowane umowy B2B w „Wygenerowane umowy” oraz notatki i rozmowy (odpięte od kontraktu)."
         footer={
           <div className="flex justify-end gap-2">
-            <button
+            <Button
+              variant="outline"
               onClick={() => setShowDeleteDialog(false)}
               disabled={deleteMutation.isPending}
-              className="px-4 py-2 rounded-lg text-sm font-medium border border-border text-foreground hover:bg-muted"
             >
               Anuluj
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="destructive"
               onClick={() => deleteMutation.mutate()}
               disabled={deleteMutation.isPending}
-              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
             >
               {deleteMutation.isPending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -1125,7 +1215,7 @@ export default function ContractDetailPage() {
                 <Trash2 className="w-4 h-4" />
               )}
               Usuń kontrakt
-            </button>
+            </Button>
           </div>
         }
       >
@@ -1190,23 +1280,51 @@ export default function ContractDetailPage() {
         />
       )}
 
+      {/* Informacje o kontrakcie — siatka faktów nad zakładkami, widoczna na
+          każdej z nich. W trybie edycji ustępuje formularzowi (jak dotąd). */}
+      {!editing && (
+        <section
+          aria-label="Informacje o kontrakcie"
+          className="rounded-lg border border-border bg-card px-4 py-3"
+        >
+          <KeyFacts facts={facts} columns={4} density="compact" />
+          {/* Kontakt do konsultanta — wartość leci z backendu już po fallbacku
+              (umowa → profil kandydata → puste), więc ekran nie powtarza tej
+              reguły. Te same kolumny co siatka faktów wyżej. */}
+          <div className="mt-3 border-t border-border/60 pt-3 [&>div]:gap-x-4! [&>div]:py-0! [&>div]:pl-0! xl:[&>div]:grid-cols-4!">
+            <ContractCandidateContactRow
+              email={contract.candidate_email_effective ?? null}
+              emailSource={contract.candidate_email_source ?? null}
+              phone={contract.candidate_phone_effective ?? null}
+              phoneSource={contract.candidate_phone_source ?? null}
+              editable={canEditContract}
+              onSaveEmail={(raw) =>
+                saveCandidateContact({ candidate_email: raw })
+              }
+              onSavePhone={(raw) =>
+                saveCandidateContact({ candidate_phone: raw })
+              }
+              onError={setError}
+            />
+          </div>
+        </section>
+      )}
+
       {/* Tabs */}
-      <div className="border-b border-border dark:border-border flex gap-1 overflow-x-auto">
+      <div className="border-b border-border flex gap-1 overflow-x-auto">
         {visibleTabs.map((t) => {
           const active = t.key === activeTab;
-          const Icon = t.icon;
           return (
             <button
               key={t.key}
               onClick={() => setActiveTab(t.key)}
               aria-current={active ? "page" : undefined}
-              className={`flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-2.5 text-sm border-b-2 -mb-px transition-colors ${
+              className={`shrink-0 whitespace-nowrap px-3 py-2 text-[13px] border-b-2 -mb-px transition-colors ${
                 active
-                  ? "border-primary text-primary font-medium"
-                  : "border-transparent text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground"
+                  ? "border-primary text-foreground font-semibold"
+                  : "border-transparent font-medium text-muted-foreground hover:text-foreground"
               }`}
             >
-              <Icon className="w-4 h-4" />
               {t.label}
             </button>
           );
@@ -1219,7 +1337,7 @@ export default function ContractDetailPage() {
       {error && !editing && (
         <div
           role="alert"
-          className="text-sm text-destructive bg-destructive/10 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-4 py-2 flex items-center gap-2"
+          className="text-sm text-destructive bg-destructive/10 rounded-lg px-4 py-2 flex items-center gap-2"
         >
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span className="flex-1">{error}</span>
@@ -1236,125 +1354,25 @@ export default function ContractDetailPage() {
 
       {/* Tab: Szczegóły */}
       {activeTab === "details" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-4">
-            {/* View mode */}
-            {!editing && (
-              <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-1">
-                <h2 className="text-sm font-semibold text-foreground dark:text-muted-foreground mb-3">
-                  Informacje o kontrakcie
-                </h2>
-                <InfoRow icon={User} label="Kandydat">
-                  {contract.candidate_name && contract.candidate_id != null ? (
-                    <Link
-                      href={`/candidates/${contract.candidate_id}`}
-                      className="text-primary hover:underline dark:text-primary"
-                    >
-                      {contract.candidate_name}
-                    </Link>
-                  ) : contract.candidate_id != null ? (
-                    `#${contract.candidate_id}`
-                  ) : (
-                    "kandydat usunięty z systemu"
-                  )}
-                </InfoRow>
-                <InfoRow icon={Building2} label="Klient">
-                  {contract.client_name ? (
-                    <Link
-                      href={`/clients/${contract.client_id}`}
-                      className="text-primary hover:underline dark:text-primary"
-                    >
-                      {contract.client_name}
-                    </Link>
-                  ) : (
-                    `#${contract.client_id}`
-                  )}
-                </InfoRow>
-                {/* Zamówienia tej osoby żyją w zakładce klienta (UAT M08-B04). */}
-                <InfoRow icon={FileText} label="Zamówienia">
-                  <Link
-                    href={`/clients/${contract.client_id}?tab=zamowienia`}
-                    className="text-primary hover:underline dark:text-primary"
-                  >
-                    Zamówienia u klienta →
-                  </Link>
-                </InfoRow>
-                <InfoRow icon={Briefcase} label="Rekrutacja">
-                  {contract.job_title ? (
-                    <Link
-                      href={`/jobs/${contract.job_id}`}
-                      className="text-primary hover:underline dark:text-primary"
-                    >
-                      {contract.job_title}
-                    </Link>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </InfoRow>
-                <InfoRow icon={Calendar} label="Okres umowy">
-                  {formatDate(contract.start_date)} –{" "}
-                  {contract.end_date ? formatDate(contract.end_date) : (
-                    <span className="italic text-muted-foreground">bezterminowo</span>
-                  )}
-                </InfoRow>
-                {contract.client_order_start_date ? (
-                  // Okres ZAMÓWIENIA — z najnowszego uzupełnionego zamówienia
-                  // tej osoby (synchronizacja 09.2026). Osobno od okresu umowy.
-                  <InfoRow icon={Calendar} label="Okres zamówienia">
-                    {formatDate(contract.client_order_start_date)} –{" "}
-                    {contract.client_order_end_date ? (
-                      formatDate(contract.client_order_end_date)
-                    ) : (
-                      <span className="italic text-muted-foreground">bezterminowo</span>
-                    )}
-                  </InfoRow>
-                ) : (
-                  contract.client_order_end_date && (
-                    <InfoRow icon={Calendar} label="Koniec zamówienia u klienta">
-                      {formatDate(contract.client_order_end_date)}
-                    </InfoRow>
-                  )
-                )}
-                <InfoRow icon={FileEdit} label="Typ kontraktu">
-                  {TYPE_LABELS[contract.contract_type] ?? contract.contract_type}
-                </InfoRow>
-                {/* Kontakt do konsultanta — jeden wiersz pod „Typ kontraktu".
-                    Wartość leci z backendu już po fallbacku (umowa → profil
-                    kandydata → puste), więc ekran nie powtarza tej reguły. */}
-                <ContractCandidateContactRow
-                  email={contract.candidate_email_effective ?? null}
-                  emailSource={contract.candidate_email_source ?? null}
-                  phone={contract.candidate_phone_effective ?? null}
-                  phoneSource={contract.candidate_phone_source ?? null}
-                  editable={canEditContract}
-                  onSaveEmail={(raw) =>
-                    saveCandidateContact({ candidate_email: raw })
-                  }
-                  onSavePhone={(raw) =>
-                    saveCandidateContact({ candidate_phone: raw })
-                  }
-                  onError={setError}
-                />
-                {canViewFinance &&
-                  (contract.target_rate_min || contract.target_rate_max) && (
-                  <InfoRow icon={TrendingUp} label="Widełki docelowe stawki">
-                    {contract.target_rate_min != null
-                      ? formatCurrency(
-                          contract.target_rate_min,
-                          contract.rate_client_currency ?? contract.currency ?? "PLN",
-                        )
-                      : "—"}
-                    {" / "}
-                    {contract.target_rate_max != null
-                      ? formatCurrency(
-                          contract.target_rate_max,
-                          contract.rate_client_currency ?? contract.currency ?? "PLN",
-                        )
-                      : "—"}
-                  </InfoRow>
-                )}
-              </div>
-            )}
+            {/* Stawki i benchmark — lewa kolumna. W trybie edycji karta stawek
+                zostaje obok formularza (prawa kolumna), jak dotąd. */}
+            {!editing &&
+              (canViewFinance ? (
+                <FinancialRatesCard contract={contract} />
+              ) : (
+                <div
+                  className="rounded-lg border border-border bg-card p-4"
+                  data-testid="contract-finance-redacted"
+                >
+                  <h2 className="text-sm font-semibold text-foreground">Stawki finansowe</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Stawki widzą osoby z uprawnieniem „{permissionLabel("amounts_view")}”
+                    (Delivery Lead — u swoich klientów).
+                  </p>
+                </div>
+              ))}
 
             {/* Rate benchmark card — compare vs internal avg + market */}
             {!editing && canViewBenchmark && (
@@ -1365,7 +1383,7 @@ export default function ContractDetailPage() {
             )}
 
             {!editing && recoveryHint && (
-              <p role="status" className="text-sm text-amber-800 dark:text-amber-200">
+              <p role="status" className="text-sm text-warning-muted-foreground">
                 {recoveryHint}
               </p>
             )}
@@ -1395,8 +1413,8 @@ export default function ContractDetailPage() {
                 // przywróconej: wskrzeszenie zostawia `terminated_at`, ale
                 // czyści datę końca (umowa znów bezterminowa).
                 (contract.terminated_at && contract.end_date)) && (
-              <div className="bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-900 rounded-2xl p-5">
-                <h2 className="text-sm font-semibold text-red-800 dark:text-red-200 mb-2">
+              <div className="rounded-lg border border-destructive/20 bg-destructive-muted p-4">
+                <h2 className="text-sm font-semibold text-destructive-muted-foreground mb-2">
                   {contract.status === "ended"
                     ? "Zakończenie współpracy"
                     : "Zaplanowane zakończenie współpracy"}
@@ -1421,53 +1439,13 @@ export default function ContractDetailPage() {
               </div>
             )}
 
-            {/* Assignment context */}
-            {!editing && (contract.client_pm_name || contract.line_manager || contract.work_mode || contract.project_name || contract.team_name || contract.office_location) && (
-              <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-1">
-                <h2 className="text-sm font-semibold text-foreground dark:text-muted-foreground mb-3">
-                  Osadzenie u klienta
-                </h2>
-                {contract.client_pm_name && (
-                  <InfoRow icon={User} label="PM po stronie klienta">
-                    {contract.client_pm_name}
-                    {contract.client_pm_email && (
-                      <span className="block text-xs text-muted-foreground dark:text-muted-foreground">
-                        {contract.client_pm_email}
-                      </span>
-                    )}
-                  </InfoRow>
-                )}
-                {contract.line_manager && (
-                  <InfoRow icon={User} label="Line Manager">
-                    {contract.line_manager}
-                  </InfoRow>
-                )}
-                {contract.work_mode && (
-                  <InfoRow icon={Building2} label="Tryb pracy">
-                    {WORK_MODE_LABELS[contract.work_mode] ?? contract.work_mode}
-                    {contract.office_location && ` · ${contract.office_location}`}
-                  </InfoRow>
-                )}
-                {contract.project_name && (
-                  <InfoRow icon={Briefcase} label="Projekt">
-                    {contract.project_name}
-                  </InfoRow>
-                )}
-                {contract.team_name && (
-                  <InfoRow icon={Briefcase} label="Zespół">
-                    {contract.team_name}
-                  </InfoRow>
-                )}
-              </div>
-            )}
-
             {/* Handover notes (C6) — wewnętrzne */}
             {!editing && contract.handover_notes && (
-              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900 rounded-2xl p-5">
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200 mb-2">
+              <div className="rounded-lg border border-warning/25 bg-warning-muted p-4">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-warning-muted-foreground mb-2">
                   Notatki wewnętrzne (handover)
                 </h2>
-                <p className="text-sm text-amber-900 dark:text-amber-100 whitespace-pre-line">
+                <p className="text-sm text-warning-muted-foreground whitespace-pre-line">
                   {contract.handover_notes}
                 </p>
               </div>
@@ -2321,11 +2299,11 @@ export default function ContractDetailPage() {
             )}
           </div>
 
-          {/* Right sidebar: rates & margin */}
+          {/* Prawa kolumna: meta; w trybie edycji także karta stawek. */}
           <div className="space-y-4">
-            {canViewFinance && <FinancialRatesCard contract={contract} />}
+            {editing && canViewFinance && <FinancialRatesCard contract={contract} />}
 
-            <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-xs text-muted-foreground dark:text-muted-foreground space-y-1">
+            <div className="rounded-lg border border-border bg-card p-4 text-xs text-muted-foreground space-y-1">
               <div>Utworzono: {formatDate(contract.created_at)}</div>
               <div>Aktualizacja: {formatDate(contract.updated_at)}</div>
             </div>
@@ -2372,7 +2350,7 @@ export default function ContractDetailPage() {
 
       {/* Tab: Sprzęt */}
       {activeTab === "equipment" && (
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
+        <div className="rounded-lg border border-border bg-card p-4">
           <ContractEquipmentTab
             contractId={id}
             readOnly={!canEditContract}
@@ -2382,7 +2360,7 @@ export default function ContractDetailPage() {
 
       {/* Tab: Notatki / rozmowy */}
       {activeTab === "notes" && (
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
+        <div className="rounded-lg border border-border bg-card p-4">
           <ContractNotesTab contractId={id} canAddNote={canEditContract} />
         </div>
       )}
@@ -2394,9 +2372,9 @@ export default function ContractDetailPage() {
 
       {/* Tab: Rate history */}
       {canViewFinance && activeTab === "rateHistory" && (
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-x-auto">
+        <div className="rounded-lg border border-border bg-card overflow-x-auto">
           {!rateHistory || rateHistory.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted-foreground dark:text-muted-foreground">
+            <div className="p-8 text-center text-sm text-muted-foreground">
               Brak historii stawek dla tego kandydata i klienta.
               {/* Ta zakładka czyta historię stawek kandydata z poprzednich
                   zaangażowań (osobna tabela), nie harmonogram tego kontraktu.
@@ -2413,9 +2391,9 @@ export default function ContractDetailPage() {
             </div>
           ) : (
             <table className="w-full min-w-[32rem] text-sm">
-              <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
+              <thead className={CALM_HEAD}>
                 <tr>
-                  <th className="sticky left-0 z-10 bg-muted text-left px-4 py-2">Od</th>
+                  <th className="sticky left-0 z-10 bg-card text-left px-4 py-2">Od</th>
                   <th className="text-left px-4 py-2">Do</th>
                   <th className="text-left px-4 py-2">Typ</th>
                   <th className="text-right px-4 py-2">Stawka</th>
@@ -2426,18 +2404,18 @@ export default function ContractDetailPage() {
                 {rateHistory.map((row) => (
                   <tr
                     key={row.id}
-                    className="border-t border-border dark:border-border"
+                    className="border-t border-border/60"
                   >
-                    <td className="sticky left-0 z-10 bg-card dark:bg-muted px-4 py-2 whitespace-nowrap">{formatDate(row.start_date)}</td>
-                    <td className="px-4 py-2">
-                      {row.end_date ? formatDate(row.end_date) : "—"}
+                    <td className="sticky left-0 z-10 bg-card px-4 py-2 whitespace-nowrap tabular-nums">{formatDate(row.start_date)}</td>
+                    <td className="px-4 py-2 whitespace-nowrap tabular-nums">
+                      {row.end_date ? formatDate(row.end_date) : <span className={CALM_EMPTY}>—</span>}
                     </td>
-                    <td className="px-4 py-2 uppercase">{row.contract_type}</td>
-                    <td className="px-4 py-2 text-right font-medium">
+                    <td className="px-4 py-2 uppercase text-muted-foreground">{row.contract_type}</td>
+                    <td className="px-4 py-2 text-right font-medium tabular-nums whitespace-nowrap">
                       {formatCurrency(row.rate, row.currency)}
                     </td>
-                    <td className="px-4 py-2 text-muted-foreground dark:text-muted-foreground">
-                      {row.notes ?? "—"}
+                    <td className="px-4 py-2 text-muted-foreground">
+                      {row.notes ?? <span className={CALM_EMPTY}>—</span>}
                     </td>
                   </tr>
                 ))}
@@ -2449,7 +2427,7 @@ export default function ContractDetailPage() {
 
       {/* Tab: Timeline (activity log) */}
       {activeTab === "timeline" && (
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
+        <div className="rounded-lg border border-border bg-card p-4">
           {activitiesViewState === "loading" ? (
             <div role="status" className="text-center text-sm text-muted-foreground py-6">
               Wczytuję historię…

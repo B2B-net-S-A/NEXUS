@@ -274,7 +274,7 @@ async function requestDelete() {
   const user = userEvent.setup({ delay: null });
   renderPage();
 
-  await screen.findByRole("heading", { name: /Kontrakt #563/ });
+  await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
   await user.click(screen.getByRole("button", { name: /^Usuń$/ }));
 
   const firstDialog = screen.getByRole("dialog", {
@@ -314,7 +314,7 @@ describe("ContractDetailPage — edycja walut stawek", () => {
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     // Kotwice są tu load-bearing (jak w `/^Usuń$/` niżej): karta kontraktu ma
     // też ołówki edycji w miejscu z etykietami „Edytuj: E-mail" / „Edytuj:
     // Telefon", więc gołe `/Edytuj/` trafia w kilka przycisków i `getByRole`
@@ -360,7 +360,7 @@ describe("ContractDetailPage — sama zmiana kwot edytuje tylko kwoty (audyt 22.
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     // Bez edycji kontraktów nie ma pełnej edycji ani usuwania.
     expect(screen.queryByRole("button", { name: /^Edytuj$/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Usuń$/ })).not.toBeInTheDocument();
@@ -405,7 +405,7 @@ describe("ContractDetailPage — bez edycji kontraktów strona jest do odczytu",
     };
     renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     expect(screen.queryByRole("button", { name: /Edytuj/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Usuń$/ })).not.toBeInTheDocument();
     expect(
@@ -417,7 +417,7 @@ describe("ContractDetailPage — bez edycji kontraktów strona jest do odczytu",
     mocks.impersonating = true;
     renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     expect(mocks.accessCalls.length).toBeGreaterThan(0);
     expect(mocks.accessCalls.every((call) => call.impersonating)).toBe(true);
     // Kwoty i dokumenty liczą się per klient kontraktu, nie globalnie.
@@ -445,7 +445,7 @@ describe("ContractDetailPage — edycja kontraktu nie daje zmiany statusu", () =
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     await user.click(screen.getByRole("button", { name: /^Edytuj$/ }));
 
     const status = screen.getByLabelText("Status");
@@ -466,7 +466,7 @@ describe("ContractDetailPage — edycja kontraktu nie daje zmiany statusu", () =
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     await user.click(screen.getByRole("button", { name: /^Edytuj$/ }));
 
     expect(screen.getByLabelText("Status")).toBeEnabled();
@@ -551,7 +551,7 @@ describe("ContractDetailPage — Timeline (retest UAT B23)", () => {
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     await user.click(screen.getByRole("button", { name: /Timeline/ }));
 
     expect(await screen.findByText("Nie udało się pobrać danych")).toBeInTheDocument();
@@ -563,7 +563,7 @@ describe("ContractDetailPage — Timeline (retest UAT B23)", () => {
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     await user.click(screen.getByRole("button", { name: /Timeline/ }));
 
     expect(await screen.findByText("Brak wpisów w historii.")).toBeInTheDocument();
@@ -584,11 +584,22 @@ describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
     );
   });
 
+  it("tytułem jest osoba, a klient i numer kontraktu stoją w podtytule", async () => {
+    renderPage();
+
+    const heading = await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    expect(heading).not.toHaveTextContent("Kontrakt #563");
+    expect(screen.getByText(/Kontrakt #563/)).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("link", { name: "Nordea" })[0],
+    ).toHaveAttribute("href", "/clients/42");
+  });
+
   it("pokazuje „Anulowany” zamiast surowego `void` (S11)", async () => {
     mocks.getContract.mockResolvedValue({ data: { ...contract, status: "void" } });
     renderPage();
 
-    const heading = await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    const heading = await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     expect(within(heading).getAllByText("Anulowany").length).toBeGreaterThan(0);
     expect(within(heading).queryByText("void")).not.toBeInTheDocument();
   });
@@ -598,7 +609,7 @@ describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Zmień status kontraktu" }),
       "draft",
@@ -616,7 +627,7 @@ describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
   it("konto bez `view_finance` nie dostaje karty kończącej się 403 (S1)", async () => {
     mocks.access = { canViewBenchmark: false };
     renderPage();
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     expect(screen.queryByText("karta benchmarku")).not.toBeInTheDocument();
   });
 });
