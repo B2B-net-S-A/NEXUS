@@ -145,8 +145,18 @@ def test_jd_message_states_the_limits_the_schema_enforces() -> None:
 
 # ── 2. Strażnik: ręczna walidacja surowego ciała ─────────────────────────────
 
-_RAW_BODY = re.compile(r"^(Optional\[)?\s*(dict|Dict|list|List|Any|Mapping)\b")
+_RAW_BODY = re.compile(
+    r"^(Annotated\[)?\s*(Optional\[)?\s*(dict|Dict|list|List|Any|Mapping)\b"
+)
 _CATCHING = {"ValidationError", "PydanticValidationError", "ValueError", "Exception"}
+_VALIDATORS = {
+    "model_validate",
+    "model_validate_json",
+    "validate_python",
+    "validate_json",
+}
+_ROUTE_METHODS = {"get", "post", "put", "patch", "delete"}
+_FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 
 
 def _caught_names(handler: ast.ExceptHandler) -> set[str]:
@@ -161,11 +171,97 @@ def _caught_names(handler: ast.ExceptHandler) -> set[str]:
     return names
 
 
-def _unguarded_manual_validations(root: Path) -> list[str]:
-    """``Model.model_validate(<parametr o surowym typie>)`` poza ``try``.
+def _source_name(node: ast.AST) -> str | None:
+    """Nazwa, z której powstaje wartość: `x`, `x or {}`, `dict(x)`, `{**x}`."""
+    while True:
+        if isinstance(node, ast.BoolOp):
+            node = node.values[0]
+        elif isinstance(node, ast.Await):
+            node = node.value
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"dict", "list"}
+            and len(node.args) == 1
+        ):
+            node = node.args[0]
+        elif (
+            isinstance(node, ast.Dict) and len(node.keys) == 1 and node.keys[0] is None
+        ):
+            node = node.values[0]
+        else:
+            return node.id if isinstance(node, ast.Name) else None
 
-    Surowy typ = ``dict`` / ``list`` / ``Any`` / ``Mapping`` (także z ``None``):
-    tak wygląda ciało żądania, którego FastAPI nie sprawdziło modelem.
+
+def _reads_request_body(node: ast.AST) -> bool:
+    """`request.json()` / `request.body()` — ciało czytane z pominięciem FastAPI."""
+    return any(
+        isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr in {"json", "body"}
+        and isinstance(call.func.value, ast.Name)
+        and call.func.value.id == "request"
+        for call in ast.walk(node)
+    )
+
+
+def _is_route(function: ast.AST) -> bool:
+    return any(
+        isinstance(decorator, ast.Call)
+        and isinstance(decorator.func, ast.Attribute)
+        and decorator.func.attr in _ROUTE_METHODS
+        for decorator in getattr(function, "decorator_list", [])
+    )
+
+
+def _raw_names(function: ast.AST) -> tuple[set[str], set[str]]:
+    """(parametry o surowym typie i ich aliasy, nazwy z `request.json()`).
+
+    Surowy typ = ``dict`` / ``list`` / ``Any`` / ``Mapping`` (także z ``None``
+    i w ``Annotated[...]``): tak wygląda ciało żądania, którego FastAPI nie
+    sprawdziło modelem.
+    """
+    arguments = [
+        *function.args.posonlyargs,
+        *function.args.args,
+        *function.args.kwonlyargs,
+    ]
+    parameters = {
+        a.arg
+        for a in arguments
+        if a.annotation is not None and _RAW_BODY.match(ast.unparse(a.annotation))
+    }
+    from_request: set[str] = set()
+    assignments = [
+        node
+        for node in ast.walk(function)
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None
+    ]
+    changed = True
+    while changed:
+        changed = False
+        for node in assignments:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            names = {t.id for t in targets if isinstance(t, ast.Name)}
+            source = _source_name(node.value)
+            if _reads_request_body(node.value) or source in from_request:
+                group = from_request
+            elif source in parameters:
+                group = parameters
+            else:
+                continue
+            if not names <= group:
+                group |= names
+                changed = True
+    return parameters, from_request
+
+
+def _unguarded_manual_validations(root: Path) -> list[str]:
+    """Model budowany z surowego ciała żądania poza ``try``.
+
+    Dwa zapisy: ``Model.model_validate(<surowe>)`` (także ``TypeAdapter``)
+    w dowolnej funkcji oraz ``Model(**<surowe>)`` — ten drugi tylko dla ciała
+    trasy i ``request.json()``, bo pomocnicy rozpakowują tak dane wewnętrzne.
     """
     hits: list[str] = []
     for path in sorted(root.rglob("*.py")):
@@ -175,18 +271,21 @@ def _unguarded_manual_validations(root: Path) -> list[str]:
             for parent in ast.walk(tree)
             for child in ast.iter_child_nodes(parent)
         }
+        raw_by_function: dict[ast.AST, tuple[set[str], set[str]]] = {}
         for call in ast.walk(tree):
-            if not (
-                isinstance(call, ast.Call)
-                and isinstance(call.func, ast.Attribute)
-                and call.func.attr in {"model_validate", "model_validate_json"}
-                and call.args
-            ):
+            if not isinstance(call, ast.Call):
                 continue
-            subject = call.args[0]
-            while isinstance(subject, ast.BoolOp):  # `payload or {}`
-                subject = subject.values[0]
-            if not isinstance(subject, ast.Name):
+            validated: list[ast.AST] = []
+            unpacked: list[ast.AST] = []
+            if isinstance(call.func, ast.Attribute):
+                callee = call.func.attr
+                if callee in _VALIDATORS and call.args:
+                    validated.append(call.args[0])
+            else:
+                callee = getattr(call.func, "id", "")
+            if callee[:1].isupper():
+                unpacked = [k.value for k in call.keywords if not k.arg]
+            if not validated and not unpacked:
                 continue
             guarded = False
             function = None
@@ -199,24 +298,22 @@ def _unguarded_manual_validations(root: Path) -> list[str]:
                     and any(_caught_names(h) & _CATCHING for h in parent.handlers)
                 ):
                     guarded = True
-                if function is None and isinstance(
-                    parent, (ast.FunctionDef, ast.AsyncFunctionDef)
-                ):
+                if function is None and isinstance(parent, _FUNCTIONS):
                     function = parent
                 node = parent
             if guarded or function is None:
                 continue
-            arguments = [
-                *function.args.posonlyargs,
-                *function.args.args,
-                *function.args.kwonlyargs,
-            ]
-            parameter = next((a for a in arguments if a.arg == subject.id), None)
-            if parameter is None or parameter.annotation is None:
-                continue
-            if not _RAW_BODY.match(ast.unparse(parameter.annotation)):
-                continue
-            hits.append(f"{path.relative_to(root)}:{call.lineno} {function.name}()")
+            if function not in raw_by_function:
+                raw_by_function[function] = _raw_names(function)
+            parameters, from_request = raw_by_function[function]
+            body = parameters | from_request
+            route_body = (parameters if _is_route(function) else set()) | from_request
+            if (
+                any(_reads_request_body(value) for value in (*validated, *unpacked))
+                or {_source_name(value) for value in validated} & body
+                or {_source_name(value) for value in unpacked} & route_body
+            ):
+                hits.append(f"{path.relative_to(root)}:{call.lineno} {function.name}()")
     return hits
 
 
@@ -245,6 +342,53 @@ def test_the_guard_sees_an_unguarded_call(tmp_path: Path) -> None:
     )
     hits = _unguarded_manual_validations(tmp_path)
     assert len(hits) == 1 and hits[0].endswith(":2 handler()")
+
+
+def test_the_guard_sees_the_other_ways_of_building_a_model(tmp_path: Path) -> None:
+    """Zapisy, których strażnik do 02.10.2026 nie widział."""
+    (tmp_path / "bad.py").write_text(
+        "@router.post('/a')\n"
+        "async def unpacked(payload: dict):\n"
+        "    return Model(**payload)\n"
+        "@router.post('/b')\n"
+        "async def annotated(payload: Annotated[dict, Body()]):\n"
+        "    return Model.model_validate(payload)\n"
+        "@router.post('/c')\n"
+        "async def from_request(request: Request):\n"
+        "    raw = await request.json()\n"
+        "    return Model(**raw)\n"
+        "@router.post('/d')\n"
+        "async def aliased(payload: dict | None = None):\n"
+        "    data = payload or {}\n"
+        "    return Model.model_validate(data)\n"
+        "@router.post('/e')\n"
+        "async def adapter(payload: list):\n"
+        "    return TypeAdapter(list[Item]).validate_python(payload)\n"
+        "@router.post('/inline')\n"
+        "async def inline(request: Request):\n"
+        "    return Model(**(await request.json()))\n"
+        "@router.post('/f')\n"
+        "async def fine(request: Request):\n"
+        "    try:\n"
+        "        return Model(**(await request.json()))\n"
+        "    except ValidationError:\n"
+        "        raise\n"
+        "def helper(result: dict):\n"
+        "    return Response(**result)\n"
+        "@router.post('/g')\n"
+        "async def declared(body: Model, db: Any = None):\n"
+        "    return Other(**body.model_dump())\n",
+        encoding="utf-8",
+    )
+    hits = _unguarded_manual_validations(tmp_path)
+    assert [hit.split(" ")[1] for hit in hits] == [
+        "unpacked()",
+        "annotated()",
+        "from_request()",
+        "aliased()",
+        "adapter()",
+        "inline()",
+    ], hits
 
 
 # ── 3. Trasy (baza) ──────────────────────────────────────────────────────────

@@ -19,7 +19,7 @@ a globalne sondy (`_search_busy`, `_started_since`) są podstawiane.
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
@@ -56,21 +56,37 @@ def _no_nightly_maintenance(monkeypatch):
 
 
 def _at(hour: int) -> datetime:
-    """Chwila o danej godzinie LOKALNEJ (Europe/Warsaw) w dniu bieżącej nocy.
+    """Chwila o danej godzinie LOKALNEJ (Europe/Warsaw) w dobie, w której
+    zaczęła się bieżąca noc przeglądu.
 
-    Testy zakładają wiersze prawdziwym zegarem („teraz”), a potem pytają o noc
-    liczoną od `_at(2)`. Między północą a początkiem okna „dzisiejsza” noc
-    zaczyna się dopiero za chwilę, więc wiersz założony teraz do niej nie
-    należy — test padał w każdym biegu CI między 00:00 a 01:00 czasu
-    warszawskiego. Wtedy bieżąca noc to ta, która zaczęła się wczoraj.
+    Wiersze testów dostają ``created_at`` z prawdziwego zegara. „Dziś o 02:30”
+    między północą a początkiem okna należy już do NASTĘPNEJ nocy, więc datę
+    bierzemy z ``night_start`` prawdziwego „teraz”.
     """
     from zoneinfo import ZoneInfo
 
-    real = datetime.now(ZoneInfo(settings.BUSINESS_TZ))
-    local = real.replace(hour=hour, minute=30, second=0, microsecond=0)
-    if real.hour < int(settings.AUTO_FULL_REVIEW_WINDOW_START_HOUR) % 24:
-        local -= timedelta(days=1)
+    tz = ZoneInfo(settings.BUSINESS_TZ)
+    day = afr.night_start(datetime.now(timezone.utc)).astimezone(tz).date()
+    local = datetime.combine(day, time(hour=hour, minute=30), tzinfo=tz)
     return local.astimezone(timezone.utc)
+
+
+def _tonight_at(hour: int) -> datetime:
+    """Godzina LOKALNA w nocy, do której należy „teraz”.
+
+    Przegląd założony w teście dostaje `created_at` z prawdziwego zegara. Między
+    północą a początkiem okna (00:00–01:00) „ta noc” zaczęła się wczoraj, więc
+    `_at(2)` wskazywało noc, która jeszcze się nie zaczęła, i przegląd sprzed
+    chwili nie liczył się jako „tej nocy” (kolejka merge'ów, 03.10.2026 00:07).
+    """
+    from zoneinfo import ZoneInfo
+
+    local = datetime.now(ZoneInfo(settings.BUSINESS_TZ))
+    if local.hour < settings.AUTO_FULL_REVIEW_WINDOW_START_HOUR:
+        local -= timedelta(days=1)
+    return local.replace(hour=hour, minute=30, second=0, microsecond=0).astimezone(
+        timezone.utc
+    )
 
 
 async def _user(role: UserRole = UserRole.recruiter) -> tuple[int, dict[str, str]]:
@@ -180,6 +196,31 @@ def test_window_is_half_open_in_business_timezone(monkeypatch):
     assert not afr.in_window(_at(1))
 
 
+@pytest.mark.parametrize(
+    "real_clock_utc",
+    [
+        "2026-10-02T22:06:00+00:00",  # 00:06 w Warszawie — przed początkiem okna
+        "2026-10-02T23:10:00+00:00",  # 01:10 — okno trwa
+        "2026-10-03T12:00:00+00:00",  # 14:00 — dzień
+        "2026-10-03T21:59:00+00:00",  # 23:59
+        "2026-01-14T23:30:00+00:00",  # 00:30 zimą (UTC+1)
+    ],
+)
+def test_clock_helper_keeps_the_real_clock_inside_its_night(real_clock_utc):
+    """Wiersze testów dostają czas z prawdziwego zegara, a „ta noc” liczy się
+    od ``_at(2)``. Do 03.10.2026 ``_at`` brało dzisiejszą datę: między północą
+    a początkiem okna przegląd założony przed chwilą był sprzed „tej nocy”
+    i testy z bazą padały (kolejka merge'ów, 02.10.2026 22:06 UTC)."""
+    import time_machine
+
+    with time_machine.travel(real_clock_utc, tick=False):
+        real_now = datetime.now(timezone.utc)
+        tonight = afr.night_start(_at(2))
+        assert tonight <= real_now < tonight + timedelta(hours=24)
+        # Następna noc zaczyna się po prawdziwym „teraz”.
+        assert afr.night_start(_at(2) + timedelta(days=1)) > real_now
+
+
 # ── wybór i start ───────────────────────────────────────────────────────────
 
 
@@ -189,7 +230,7 @@ async def test_event_makes_the_job_due_once_per_night():
     quiet = await _job(owner_id=owner_id, event=False)
     try:
         async with AsyncSessionLocal() as db:
-            due = await afr.pending_job_ids(db, now=_at(2), limit=10_000)
+            due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
             assert world["job_id"] in due
             # Od 30.09.2026 co noc WSZYSTKIE rekrutacje w pracy — nowe CV
             # w bazie nie jest zdarzeniem rekrutacji. Zdarzenie idzie pierwsze.
@@ -205,7 +246,7 @@ async def test_event_makes_the_job_due_once_per_night():
         async with AsyncSessionLocal() as db:
             # Druga próba tej samej nocy: rekrutacja nie jest już należna…
             assert world["job_id"] not in await afr.pending_job_ids(
-                db, now=_at(2), limit=10_000
+                db, now=_tonight_at(2), limit=10_000
             )
             # …a ten sam odcisk requestu i tak by ją pominął.
             assert await afr.start_for_job(db, world["job_id"]) == (None, "unchanged")

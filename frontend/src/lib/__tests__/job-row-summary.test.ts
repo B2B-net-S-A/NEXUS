@@ -115,4 +115,16 @@ describe("jobWorkModeFull — pełny zapis w Podglądzie", () => {
     expect(jobWorkModeFull({ location: "Polska" })).toBe("Polska");
     expect(jobWorkModeFull({})).toBeNull();
   });
+
+  it("lokalizacja, która powtarza tryb pracy, nie stoi drugi raz", () => {
+    expect(jobWorkModeFull({ remote_policy: "remote", location: "Zdalnie" })).toBe(
+      "Zdalnie",
+    );
+    expect(jobWorkModeFull({ remote_policy: "remote", location: "Remote (PL)" })).toBe(
+      "Zdalnie",
+    );
+    expect(jobWorkModeFull({ remote_policy: "remote", location: "Polska" })).toBe(
+      "Zdalnie · Polska",
+    );
+  });
 });
