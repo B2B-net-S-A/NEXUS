@@ -275,49 +275,35 @@ export function AdminUsersTab({
     });
   };
 
-  return (
-    <div className="space-y-6">
-      {confirmDialog}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {embedded ? (
-          <div />
-        ) : (
-          <div className="flex items-center gap-3">
-            <Shield className="w-6 h-6 text-primary" />
-            <div>
-              <h2 className="text-xl font-bold">Panel administracyjny</h2>
-              <p className="text-sm text-muted-foreground dark:text-muted-foreground">
-                Zarządzaj użytkownikami, uprawnieniami i systemem
-              </p>
-            </div>
-          </div>
-        )}
-        {subTab === "users" && (
-          <button
-            onClick={() => {
-              setSelectedUser(null);
-              setModal("create");
-            }}
-            className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Dodaj użytkownika
-          </button>
-        )}
-      </div>
+  const addUserButton =
+    subTab === "users" ? (
+      <button
+        onClick={() => {
+          setSelectedUser(null);
+          setModal("create");
+        }}
+        className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+      >
+        <Plus className="w-4 h-4" />
+        Dodaj użytkownika
+      </button>
+    ) : null;
 
-      <div className="overflow-x-auto overscroll-x-contain">
-        <div className="flex w-max min-w-full gap-1 rounded-lg bg-muted p-1">
-          {[
-            { id: "users" as SubTab, label: "Użytkownicy", icon: Users },
-            { id: "permissions" as SubTab, label: "Uprawnienia", icon: ShieldCheck },
-            { id: "system" as SubTab, label: "System", icon: Server },
-            { id: "audit" as SubTab, label: "Log aktywności", icon: Activity },
-            { id: "import" as SubTab, label: "Import CV", icon: Database },
-            { id: "tools" as SubTab, label: "Narzędzia", icon: Wrench },
-          ]
-            .filter(({ id }) => !embedded || EMBEDDED_SUBTABS.includes(id))
-            .map(({ id, label, icon: Icon }) => (
+  const subTabs = (
+    <div className="min-w-0 overflow-x-auto overscroll-x-contain">
+      <div
+        className={`flex w-max gap-1 rounded-lg bg-muted p-1 ${embedded ? "" : "min-w-full"}`}
+      >
+        {[
+          { id: "users" as SubTab, label: "Użytkownicy", icon: Users },
+          { id: "permissions" as SubTab, label: "Uprawnienia", icon: ShieldCheck },
+          { id: "system" as SubTab, label: "System", icon: Server },
+          { id: "audit" as SubTab, label: "Log aktywności", icon: Activity },
+          { id: "import" as SubTab, label: "Import CV", icon: Database },
+          { id: "tools" as SubTab, label: "Narzędzia", icon: Wrench },
+        ]
+          .filter(({ id }) => !embedded || EMBEDDED_SUBTABS.includes(id))
+          .map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => selectSubTab(id)}
@@ -332,8 +318,38 @@ export function AdminUsersTab({
               {label}
             </button>
           ))}
-        </div>
       </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      {confirmDialog}
+      {embedded ? (
+        // W Ustawieniach zakładki i „Dodaj użytkownika” stoją w jednym rzędzie
+        // (makieta 02.10.2026). Osobny, pusty rząd nad zakładkami zabierał
+        // wysokość, której na laptopie 1280 × 720 brakuje przełącznikom.
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {subTabs}
+          {addUserButton}
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Shield className="w-6 h-6 text-primary" />
+              <div>
+                <h2 className="text-xl font-bold">Panel administracyjny</h2>
+                <p className="text-sm text-muted-foreground dark:text-muted-foreground">
+                  Zarządzaj użytkownikami, uprawnieniami i systemem
+                </p>
+              </div>
+            </div>
+            {addUserButton}
+          </div>
+          {subTabs}
+        </>
+      )}
 
       {subTab === "users" && (
         <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-x-auto">

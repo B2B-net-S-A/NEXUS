@@ -266,7 +266,7 @@ export function changedRows(groups: readonly PermissionRowGroup[]): PermissionRo
   return groups.flatMap((group) => group.rows.filter((row) => row.changed));
 }
 
-export function quoted(label: string): string {
+function quoted(label: string): string {
   return `„${label}”`;
 }
 

@@ -130,11 +130,15 @@ function PermissionGroupList({
   role: string;
   onToggle: (key: Permission) => void;
 }) {
+  const id = useId();
   return (
     <div className="min-w-0 pb-2">
       {groups.map((group) => (
-        <section key={group.key} aria-label={group.label}>
-          <h3 className="px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <div key={group.key} role="group" aria-labelledby={`${id}-${group.key}`}>
+          <h3
+            id={`${id}-${group.key}`}
+            className="px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+          >
             {group.label}
           </h3>
           <ul>
@@ -147,7 +151,7 @@ function PermissionGroupList({
               />
             ))}
           </ul>
-        </section>
+        </div>
       ))}
     </div>
   );

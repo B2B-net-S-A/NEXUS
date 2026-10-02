@@ -90,8 +90,17 @@ describe("PermissionsTab — jedna rola, dziewięć przełączników", () => {
     renderTab();
     await screen.findByRole("group", { name: "Rola" });
 
+    for (const [name, switches] of [
+      ["Klienci i kontrakty", 5],
+      ["Rekrutacje", 1],
+      ["Pieniądze", 3],
+    ] as const) {
+      expect(
+        within(screen.getByRole("group", { name })).getAllByRole("switch"),
+      ).toHaveLength(switches);
+    }
     expect(
-      screen.getAllByRole("region").map((group) => group.getAttribute("aria-label")),
+      screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent),
     ).toEqual(["Klienci i kontrakty", "Rekrutacje", "Pieniądze"]);
     expect(screen.getAllByRole("switch")).toHaveLength(9);
     expect(
