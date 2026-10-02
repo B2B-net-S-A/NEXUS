@@ -18,8 +18,10 @@ Logika:
 6. **Merge** — ten sam user w kilku regułach: OR(in-app), OR(email).
 7. **None drop** — reguła bez user_id (np. ``client_head_dl`` bez head'a) →
    warning log + skip (bezpieczniej niż spam wszystkich DL).
-8. **Przekazania z przepływu** — „QC CV”, kolejka Cpro i „CV wysłane” mają
-   odbiorców niezależnie od reguł (`stage_handoff_recipients`).
+8. **Przekazania z przepływu** — „QC CV”, kolejka Cpro, „CV wysłane” oraz
+   etapy-odznaki bez reguły („Preparation Meeting”, „Umowa wysłana”, „Umowa
+   podpisana”) mają odbiorców niezależnie od reguł
+   (`stage_handoff_recipients`).
 """
 
 from __future__ import annotations

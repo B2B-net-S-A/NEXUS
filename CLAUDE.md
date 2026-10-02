@@ -4132,6 +4132,12 @@ znało tylko `jobs.recruiter_id` (osobę z automatu przydziału albo nikogo).
   „CV wysłane” zostaje przy `stage_rule` („Ruchy w rekrutacjach”, do
   wyciszenia). Resolver sprawdza dostęp odbiorcy typem JEGO dzwonka — do 0408
   Delivery Lead z wyciszonymi ruchami nie widział próśb o przegląd.
+- **Etapy-odznaki bez reguły też dzwonią** (`REASON_STAGE_REACHED`):
+  „Preparation Meeting”, „Umowa wysłana” i „Umowa podpisana” (rozpoznawane
+  po nazwie jak na Tablicy — `stage_badge_kind` `prep` / `contract_sent` /
+  `contract_signed`, także odpowiedniki z szablonów Traffita) → prowadzący
+  rekrutację, rekruter kandydata i Delivery Lead rekrutacji. To informacja
+  (`stage_rule`, do wyciszenia), nie zadanie.
 - **Reguła „Rekruter projektu i kandydata” (`job_recruiter`)** powiadamia
   prowadzącego rekrutację ORAZ rekrutera kandydata — na każdym etapie
   z regułą (rozmowa u klienta, akceptacja, odrzucenie…).
