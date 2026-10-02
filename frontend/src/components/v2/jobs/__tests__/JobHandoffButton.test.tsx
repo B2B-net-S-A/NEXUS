@@ -251,18 +251,28 @@ describe("JobHandoffButton — „Rekruter”: automat albo konkretna osoba (02.
     expect(invalidatedKeys()).toContainEqual(["job", "7"]);
   });
 
-  it("w trybie „auto” mówi, że automat przydzieli osobę sam", async () => {
+  it("w trybie „auto” opcja nazywa się „Przydzieli automat” i mówi, że automat przydzieli osobę sam", async () => {
     mockApi(AUTOMAT_AUTO);
     renderButton();
-    await openForm();
+    const group = await openForm();
 
     expect(
-      screen.getByText("Automat przydzieli osobę według kategorii i obłożenia."),
+      within(group)
+        .getAllByRole("radio")
+        .map((radio) => radio.textContent),
+    ).toEqual(["Przydzieli automat", "Wybieram sam"]);
+    expect(option(group, "Przydzieli automat")).toBeChecked();
+    expect(
+      screen.getByText(
+        "Automat przydzieli jedną osobę z kategorii — tę z najmniejszą liczbą requestów. Head rekrutacji zobaczy to na pulpicie i może zmienić.",
+      ),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("handoff-submit"));
 
     const done = await screen.findByTestId("handoff-done");
-    expect(done).toHaveTextContent("Przekazano do searchu. Rekrutera przydzieli automat.");
+    expect(done).toHaveTextContent(
+      "Przekazano do searchu. Rekrutera prowadzącego przydzieli automat — zwykle w ciągu minuty.",
+    );
     expect(done).not.toHaveTextContent("bez rekrutera");
   });
 

@@ -381,9 +381,6 @@ export function ChampionBriefView({
               Brak — bez nich rekrutacja nie przejdzie do searchu.
             </p>
           )}
-          {search?.keywords?.trim() ? (
-            <p className="text-xs text-muted-foreground">Frazy do LinkedIna: {search.keywords}</p>
-          ) : null}
           {search?.target_companies?.trim() ? (
             <p className="text-xs text-muted-foreground">Firmy docelowe: {search.target_companies}</p>
           ) : null}

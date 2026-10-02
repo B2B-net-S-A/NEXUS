@@ -826,7 +826,10 @@ async def ensure_assignee_can_move(
     from sqlalchemy.dialects.postgresql import insert as pg_insert  # noqa: PLC0415
 
     from app.api.recruitment_access import ensure_job_membership  # noqa: PLC0415
-    from app.models.job_collaborator import JobCollaborator  # noqa: PLC0415
+    from app.models.job_collaborator import (  # noqa: PLC0415
+        JobCollaborator,
+        JobCollaboratorSource,
+    )
 
     try:
         await ensure_job_membership(db, assignee, job_id)
@@ -847,7 +850,13 @@ async def ensure_assignee_can_move(
     await db.execute(
         stmt.on_conflict_do_update(
             constraint="uq_job_collaborators_job_user",
-            set_={"removed_from_auto_cc": False, "removed_at": None},
+            # Osoba wskazana imiennie zostaje `manual` — wiersza `auto_cc`
+            # pilnuje synchronizacja z kategorią i mogłaby go zdjąć.
+            set_={
+                "source": JobCollaboratorSource.manual,
+                "removed_from_auto_cc": False,
+                "removed_at": None,
+            },
         )
     )
     return True

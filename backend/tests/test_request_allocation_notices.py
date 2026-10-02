@@ -265,7 +265,7 @@ async def test_withdrawn_proposal_is_not_announced_as_a_taken_away_request(
     """Do akceptacji nikt nie jest przypisany — osoba, której propozycję
     odrzucono, nie może rano przeczytać „Zwolnione: …”."""
     from app.services import notification_triggers
-    from app.services.request_allocation_notices import _assignment_notices
+    from app.services.request_allocation_notices import _release_notices
 
     sent: list[dict] = []
 
@@ -276,13 +276,84 @@ async def test_withdrawn_proposal_is_not_announced_as_a_taken_away_request(
     monkeypatch.setattr(notification_triggers, "emit", emit)
     now = datetime(2026, 10, 2, 7, 0, tzinfo=timezone.utc)
     rows = [
-        # (osoba, stan, przypisano, zwolniono, powód, tytuł)
-        (7, "released", now, now, "proposal:rejected", "Java"),
-        (7, "released", now, now, "proposal:superseded", "Kotlin"),
-        (8, "released", now, now, "champion", "Tester"),
-        (8, "active", now, None, None, "DevOps"),
+        # (osoba, powód zwolnienia, tytuł)
+        (7, "proposal:rejected", "Java"),
+        (7, "proposal:superseded", "Kotlin"),
+        (8, "champion", "Tester"),
     ]
-    count = await _assignment_notices(_FakeDb(rows, active_leads=[], hor=[]), now=now)
+    count = await _release_notices(_FakeDb(rows, active_leads=[], hor=[]), now=now)
     assert count == 1
     assert [call["user_id"] for call in sent] == [8]
-    assert sent[0]["message"] == "Od dziś: DevOps. Zwolnione: Tester (Mamy championa)."
+    # O nowym requeście osoba dowiaduje się od razu („Nowy request do pracy”),
+    # więc rano zostaje samo „Zwolnione”.
+    assert sent[0]["message"] == "Zwolnione: Tester (Mamy championa)."
+
+
+@pytest.mark.asyncio
+async def test_morning_notice_is_not_sent_when_nothing_was_released(
+    monkeypatch,
+) -> None:
+    from app.services import notification_triggers
+    from app.services.request_allocation_notices import _release_notices
+
+    sent: list[dict] = []
+
+    async def emit(db, **kwargs):
+        sent.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(notification_triggers, "emit", emit)
+    now = datetime(2026, 10, 2, 7, 0, tzinfo=timezone.utc)
+    # Zapytanie bierze same zwolnienia; wycofana propozycja nim nie jest.
+    rows = [(7, "proposal:rejected", "Java")]
+    count = await _release_notices(_FakeDb(rows, active_leads=[], hor=[]), now=now)
+    assert count == 0
+    assert sent == []
+
+
+class _Savepoint:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _PairsDb(_FakeDb):
+    def begin_nested(self):
+        return _Savepoint()
+
+
+@pytest.mark.asyncio
+async def test_assigned_pairs_get_one_bell_each_and_a_failed_bell_stops_nothing(
+    monkeypatch,
+) -> None:
+    from app.models.notification import NotificationType
+    from app.services import notification_triggers
+    from app.services.request_allocation_notices import notify_assigned_pairs
+
+    sent: list[dict] = []
+
+    async def emit(db, **kwargs):
+        if kwargs["user_id"] == 7:
+            raise RuntimeError("baza odmówiła")
+        sent.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(notification_triggers, "emit", emit)
+    # (request, tytuł, klient)
+    rows = [(10, "Java Developer", "Bank"), (11, "Tester", None)]
+    db = _PairsDb(rows, active_leads=[], hor=[])
+    # Para powtórzona w przebiegu i request, którego już nie ma, nie dzwonią.
+    await notify_assigned_pairs(db, [(10, 7), (10, 8), (11, 8), (10, 8), (99, 8)])
+    assert [(call["user_id"], call["related_entity_id"]) for call in sent] == [
+        (8, 10),
+        (8, 11),
+    ]
+    assert sent[0]["title"] == "Nowy request do pracy"
+    assert sent[0]["message"] == "Java Developer · Bank"
+    assert sent[1]["message"] == "Tester"
+    for call in sent:
+        assert call["ntype"] is NotificationType.request_assignment_changed
+        assert call["related_entity_type"] == "job"
+        assert call["link"] == f"/jobs/{call['related_entity_id']}"

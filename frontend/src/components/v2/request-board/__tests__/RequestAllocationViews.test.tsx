@@ -113,6 +113,13 @@ describe("RequestBoardView", () => {
     ).toHaveTextContent("Na akceptację czeka 1 propozycja.")
   })
 
+  it("w trybie „auto” mówi, że automat przydziela od razu, a Head of Recruitment może to zmienić", () => {
+    render(<Board data={{ ...board, mode: "auto" }} />)
+    expect(screen.getByText(/Automat przydziela od razu\./)).toHaveTextContent(
+      "Rekruter prowadzący jest przypisany zaraz po przekazaniu do searchu — Head of Recruitment może go zmienić.",
+    )
+  })
+
   it("ma kolumny listy rekrutacji: kategoria, Delivery Lead, data otwarcia, priorytet", () => {
     render(<Board />)
     for (const header of ["Request", "Kategoria", "Delivery Lead", "Otwarta", "Termin", "Wysłani", "Rekruter"]) {

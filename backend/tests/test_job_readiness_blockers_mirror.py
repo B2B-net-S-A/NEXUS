@@ -33,6 +33,7 @@ EXPECTED = {
     "office_city": job_readiness.MSG_OFFICE_CITY,
     "critical": job_readiness.MSG_CRITICAL,
     "search": job_readiness.MSG_SEARCH_REQUIREMENTS,
+    "deal_breaker": job_readiness.MSG_DEAL_BREAKER,
 }
 
 

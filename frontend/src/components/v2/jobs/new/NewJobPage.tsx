@@ -7,9 +7,14 @@
  * dok gotowości. Decyzje Artura: tworzenie przenosimy do NEXUSA, start od
  * maila klienta, AI wypełnia minimum, DL sprawdza i jednym kliknięciem
  * „Utwórz i przekaż do searchu”. Pola spoza minimum (TAC, szablon procesu,
- * kategoria, Program/Train, typ, widełki mies.) nie istnieją ani tu, ani
- * w ustawieniach rekrutacji — ustawia je backend. Priorytet wrócił 02.10.2026
- * w trzech poziomach (sekcja „Rekruter i priorytet”, `NewJobTeamStep`).
+ * Program/Train, typ, widełki mies.) nie istnieją ani tu, ani w ustawieniach
+ * rekrutacji — ustawia je backend.
+ *
+ * Od 02.10.2026 (makiety https://claude.ai/artifact/UPDv1tSQBeo5t9kLW6WJoH):
+ * krok 1 to klient i trzy kafle źródła (`NewJobSourceStep`), krok 2 to sześć
+ * sekcji — wymagania są jedną listą słów kluczowych, pytania mają odpowiedź,
+ * która odpada, a Delivery Lead potwierdza kategorię i wybiera, czy rekrutera
+ * prowadzącego przydzieli automat, czy wskaże go sam (`NewJobTeamStep`).
  *
  * Zapis idzie ZWYKŁYMI trasami (`POST /api/jobs` → `PUT …/champion-profile`
  * → `POST …/handoff` → `POST …/publish`), więc wszystkie bramki uprawnień
@@ -17,7 +22,7 @@
  * gubi pracy: ląduje w zakładce Championa z komunikatem, co zostało do zrobienia.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check } from "lucide-react";
@@ -32,6 +37,7 @@ import { SimilarRequestsBanner } from "@/components/v2/jobs/SimilarRequestsBanne
 import {
   EMPTY_INTAKE_FORM,
   MISSING_LABEL,
+  MISSING_SECTION,
   applyTemplate,
   loadTemplateSource,
   buildChampionPayload,
@@ -40,20 +46,25 @@ import {
   highlightSegments,
   missingFor,
   missingHeadline,
+  mustOf,
+  sectionAnchor,
+  templateLegacyFields,
   type IntakeForm,
   type RequestIntakeResponse,
+  type TemplateRows,
   type TemplateSourceJob,
 } from "@/lib/job-request-intake";
+import type { RowCriticalState } from "@/lib/requirement-rows";
+import { fetchRowsFromLegacy, useRowCriticalInfo } from "@/lib/requirement-rows-api";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
-import { NewJobRequestStep } from "./NewJobRequestStep";
-import { NewJobReviewForm } from "./NewJobReviewForm";
-import { useCriticalSuggestion } from "@/lib/critical-skills-api";
+import { NewJobSourceStep, type NewJobSource } from "./NewJobSourceStep";
+import { NewJobReviewForm, NewJobSectionNav } from "./NewJobReviewForm";
 import { SimilarJobsPicker } from "./SimilarJobsPicker";
 import { ClientAskedBeforeHint } from "./ClientAskedBeforeHint";
 import { plural } from "@/components/v2/jobs/SimilarJobsDialog";
 import { similarJobsApi } from "@/lib/similar-jobs-api";
 import { saveHiringManager } from "@/lib/hiring-manager";
-import { collaboratorChanges, saveCollaboratorChanges } from "@/lib/job-collaborators";
 import {
   automaticAssignmentAvailable,
   automaticHandoffOutcome,
@@ -63,7 +74,11 @@ import {
 } from "@/lib/recruiter-assignment";
 import { rawPriorityForLevel, type PriorityLevel } from "@/lib/request-priority";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
-import { NewJobTeamStep, type RecruiterOption } from "./NewJobTeamStep";
+import {
+  NewJobTeamStep,
+  type CategoryOption,
+  type RecruiterOption,
+} from "./NewJobTeamStep";
 import {
   fetchPortalConfig,
   fetchPublicDraft,
@@ -87,6 +102,28 @@ export type Step = "request" | "review";
 interface HandoffOptions {
   automatic_enabled: boolean;
   mode: AllocationMode;
+}
+
+/** `POST /api/job-intake/category-suggestion`. */
+interface CategorySuggestion {
+  suggested_id: number | null;
+  categories: CategoryOption[];
+}
+
+/**
+ * Stare pola wymagań rekrutacji-szablonu zamienione na wiersze słów
+ * kluczowych. Awaria zamiany nie blokuje szablonu — formularz bierze wtedy
+ * każde must-have jako wiersz z jednym słowem.
+ */
+async function templateRows(src: TemplateSourceJob): Promise<TemplateRows | null> {
+  const legacy = templateLegacyFields(src);
+  if (legacy == null) return null;
+  if (legacy.must.length + legacy.nice.length + legacy.requirements.length === 0) return null;
+  try {
+    return await fetchRowsFromLegacy(legacy);
+  } catch {
+    return null;
+  }
 }
 
 /** Odczyt modelem trwa kilkanaście–kilkadziesiąt sekund (OCR PDF-a dłużej). */
@@ -119,13 +156,18 @@ function readErrorMessage(error: unknown, fallback: string): string {
 export interface NewJobPagePreview {
   step: Step;
   client: ClientRef | null;
+  /** Kafel źródła w kroku 1; brak = „Wklej treść requestu”. */
+  source?: NewJobSource;
   requestText: string;
   form: IntakeForm;
   evidence: string[];
+  /** Kategorie do sekcji 6 (strona pyta o nie serwer). */
+  categories?: CategoryOption[];
+  /** Co serwer wie o wierszach wymagań (strona pyta o to serwer). */
+  criticalInfo?: RowCriticalState;
   recruiterId?: number | null;
-  /** Jawny wybór w polu „Rekruter”; brak = automat, o ile jest dostępny. */
+  /** Jawny wybór w polu „Rekruter prowadzący”; brak = automat, o ile jest dostępny. */
   assignment?: RecruiterAssignment;
-  collaboratorIds?: number[];
   priorityLevel?: PriorityLevel;
   /** Krok „Ogłoszenie na portalach” (widoczny tylko przy gotowym portalu). */
   portalPlan?: NewJobPortalPlan;
@@ -148,6 +190,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const [client, setClient] = useState<ClientRef | null>(
     preview?.client ?? null,
   );
+  const [source, setSource] = useState<NewJobSource>(preview?.source ?? "text");
   const [requestText, setRequestText] = useState(preview?.requestText ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [reading, setReading] = useState(false);
@@ -168,10 +211,6 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     useState<RecruiterAssignment | null>(
       preview?.assignment ?? (preview?.recruiterId != null ? "person" : null),
     );
-  // Kolejne osoby (decyzja 29.09.2026) — dopisywane po utworzeniu rekrutacji.
-  const [collaboratorIds, setCollaboratorIds] = useState<number[]>(
-    preview?.collaboratorIds ?? [],
-  );
   // Nowa rekrutacja zaczyna od P2 („Standard”).
   const [priorityLevel, setPriorityLevel] = useState<PriorityLevel>(
     preview?.priorityLevel ?? "p2",
@@ -200,7 +239,8 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     loadTemplateSource<
       TemplateSourceJob & { client?: { id: number; name: string } | null }
     >(api.get, fromId)
-      .then((data) => {
+      .then(async (data) => ({ data, rows: await templateRows(data) }))
+      .then(({ data, rows }) => {
         if (cancelled) return;
         if (data.client_id != null) {
           setClient({
@@ -208,7 +248,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
             name: data.client?.name ?? "",
           } as ClientRef);
         }
-        setForm(applyTemplate({ ...EMPTY_INTAKE_FORM }, data));
+        setForm(applyTemplate({ ...EMPTY_INTAKE_FORM }, data, rows));
         setRequestText(data.description ?? "");
         setTemplateJobId(fromId);
         setStep("review");
@@ -234,7 +274,46 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         .then((r) => r.data as RecruiterOption[]),
   });
 
-  // Czy da się wybrać „Zaproponuje automat” — ta sama flaga co w handoffie.
+  // Kategoria kompetencji (02.10.2026): system podpowiada ją z nazwy roli,
+  // Delivery Lead potwierdza. Zapytanie idzie po chwili ciszy w polu roli;
+  // opis i wymagania jadą z chwili zapytania (klasyfikator czyta je tylko,
+  // gdy nazwa roli nic nie mówi).
+  const categoryInput = useDebouncedValue(
+    useMemo(
+      () => ({ role: form.title.trim(), clientTitle: form.clientTitle.trim() }),
+      [form.title, form.clientTitle],
+    ),
+    600,
+  );
+  const categoryQuery = useQuery({
+    queryKey: ["job-intake-category-suggestion", categoryInput.role, categoryInput.clientTitle],
+    enabled: step === "review" && !preview,
+    staleTime: 5 * 60_000,
+    retry: false,
+    queryFn: () =>
+      api
+        .post<CategorySuggestion>("/api/job-intake/category-suggestion", {
+          role: categoryInput.role || undefined,
+          client_title: categoryInput.clientTitle || undefined,
+          description: requestText.trim() || undefined,
+          must_skills: mustOf(form),
+        })
+        .then((r) => r.data),
+  });
+  const categories = preview?.categories ?? categoryQuery.data?.categories ?? [];
+  const suggestedCategory = categoryQuery.data?.suggested_id;
+  useEffect(() => {
+    if (suggestedCategory === undefined) return;
+    setForm((f) => {
+      // Potwierdzonej kategorii podpowiedź już nie zmienia.
+      const chosen = f.categoryConfirmed ? f.competenceCategoryId : suggestedCategory;
+      if (f.suggestedCategoryId === suggestedCategory && f.competenceCategoryId === chosen)
+        return f;
+      return { ...f, suggestedCategoryId: suggestedCategory, competenceCategoryId: chosen };
+    });
+  }, [suggestedCategory]);
+
+  // Czy da się wybrać automat — ta sama flaga co w handoffie.
   // Tryb „off” znaczy, że automat nikogo nie zaproponuje, więc też wyłączone.
   const handoffOptionsQuery = useQuery({
     queryKey: ["job-intake-handoff-options"],
@@ -302,15 +381,15 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     }
   };
 
-  // Krytyczne (30.09.2026): podpowiedź i pozycje dopuszczalne dla bieżącej
-  // listy MUST. Harness nie pyta serwera — czyta zasiany cache.
-  const criticalSuggestion = useCriticalSuggestion(form.must, form.title, {
-    enabled: !preview,
+  // Krytyczne (30.09.2026): które wiersze wolno oznaczyć i podpowiedź
+  // z historii — dla bieżącej listy. Harness podaje gotowe dane.
+  const liveCriticalInfo = useRowCriticalInfo(form.rows, form.title, {
+    enabled: !preview && step === "review",
   });
-  const criticalEligible = criticalSuggestion.eligible;
+  const criticalInfo = preview?.criticalInfo ?? liveCriticalInfo;
   const missing = useMemo(
-    () => missingFor(form, { criticalEligible }),
-    [form, criticalEligible],
+    () => missingFor(form, { criticalInfo: criticalInfo.info }),
+    [form, criticalInfo.info],
   );
   const segments = useMemo(
     () => highlightSegments(requestText, evidence),
@@ -363,8 +442,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     }
   };
 
-  const onSkipAi = () => {
-    setForm({ ...EMPTY_INTAKE_FORM });
+  const onManual = () => {
+    // Powrót do kroku 1 i ponowne „Przejdź do formularza” nie kasuje wpisanych pól.
+    if (readByAi) setForm({ ...EMPTY_INTAKE_FORM });
     setEvidence([]);
     setReadByAi(false);
     setStep("review");
@@ -373,7 +453,8 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const applyTemplateFromJob = async (jobId: number) => {
     try {
       const data = await loadTemplateSource(api.get, jobId);
-      setForm((f) => applyTemplate(f, data));
+      const rows = await templateRows(data);
+      setForm((f) => applyTemplate(f, data, rows));
       setTemplateJobId(jobId);
     } catch (e) {
       showError(
@@ -427,20 +508,19 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         );
       }
     }
-    // Kolejne osoby: dodatek jak hiring manager — awaria nie cofa rekrutacji
-    // (da się je dopisać w zakładce „Zespół”). Tylko przy „Wybieram sam”: przy
-    // automacie pole jest ukryte, a request z ręcznie dopisaną osobą ma już
-    // rekrutera, więc automat nikogo by mu nie zaproponował.
-    const collaboratorsFailure = automatic
-      ? null
-      : await saveCollaboratorChanges(
-          jobId,
-          collaboratorChanges([], collaboratorIds, recruiterId),
-        );
-    if (collaboratorsFailure) {
-      showError(
-        `Rekrutacja zapisana, ale ${collaboratorsFailure}. Dopisz je w zakładce „Zespół” rekrutacji.`,
-      );
+    // Delivery Lead wybrał inną kategorię niż podpowiedź — zapis dla reguł
+    // klasyfikacji. Bez `await`: to dziennik, nie warunek utworzenia.
+    if (
+      form.suggestedCategoryId != null &&
+      form.competenceCategoryId != null &&
+      form.suggestedCategoryId !== form.competenceCategoryId
+    ) {
+      void api
+        .post(`/api/jobs/${jobId}/cc-override`, {
+          suggested_cc_id: form.suggestedCategoryId,
+          final_cc_id: form.competenceCategoryId,
+        })
+        .catch(() => undefined);
     }
     const championTab = `/jobs/${jobId}?tab=champion`;
     try {
@@ -489,7 +569,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     }
     try {
       if (automatic) {
-        // Rekrutera zaproponuje automat przydziału (request trafia na „Szukamy”).
+        // Rekrutera prowadzącego przydzieli automat (request trafia na „Szukamy”).
         await api.post(`/api/jobs/${jobId}/handoff`, {
           assignment_mode: "automatic",
           channel: "linkedin",
@@ -560,6 +640,13 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     router.push(`/jobs/${jobId}`);
   };
 
+  // Tożsamość listy must zmienia się tylko z wierszami — podpowiedź podobnych
+  // rekrutacji czeka na ciszę i nie pyta serwera przy każdej edycji pola obok.
+  const similarMust = useMemo(() => mustOf(form), [form.rows]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onSimilarChange = useCallback((ids: number[]) => setSimilarJobIds(ids), []);
+  // Po odczycie przez AI i przy szablonie braki są podświetlane w polach;
+  // przy ręcznym wpisywaniu mówi o nich pasek sekcji i stopka.
+  const highlightMissing = readByAi || templateJobId != null;
   const ready = missing.length === 0;
   const hasRecruiter = automatic || recruiterId != null;
   const canHandoff =
@@ -572,7 +659,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         title="Nowa rekrutacja"
         description={
           step === "request"
-            ? "Wklej maila od klienta. AI wyciągnie z niego to, czego potrzebuje search — Ty tylko sprawdzasz."
+            ? "Wybierz klienta i sposób, w jaki chcesz wypełnić rekrutację."
             : "Sprawdź, co trafiło do pól, i przekaż rekrutację do searchu."
         }
         breadcrumb={[
@@ -583,7 +670,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       />
 
       {step === "request" ? (
-        <NewJobRequestStep
+        <NewJobSourceStep
           client={client}
           onClientChange={(next) => {
             // Hiring manager to osoba z firmy klienta — inny klient, inna osoba.
@@ -592,6 +679,11 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
             }
             setClient(next);
           }}
+          source={source}
+          onSourceChange={(next) => {
+            setSource(next);
+            setReadError(null);
+          }}
           text={requestText}
           onTextChange={setRequestText}
           file={file}
@@ -599,21 +691,23 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
           reading={reading}
           error={readError}
           onRead={onRead}
-          onSkipAi={onSkipAi}
+          onManual={onManual}
         />
       ) : (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        // `minmax(0,1fr)` także w jednej kolumnie: przewijany pasek sekcji
+        // rozpychałby inaczej stronę na telefonie do szerokości swoich pozycji.
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
           <section className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-foreground">
-                Request{client?.name ? ` · ${client.name}` : ""}
+                Request od klienta{client?.name ? ` · ${client.name}` : ""}
               </h2>
               <button
                 type="button"
                 className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
                 onClick={() => setStep("request")}
               >
-                <ArrowLeft className="h-3.5 w-3.5" /> Zmień request
+                <ArrowLeft className="h-3.5 w-3.5" /> Zmień źródło
               </button>
             </div>
             {requestText.trim() ? (
@@ -653,21 +747,58 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
           </section>
 
           <div className="flex flex-col gap-4">
+            <NewJobSectionNav missing={missing} />
             <NewJobReviewForm
               form={form}
               onChange={setForm}
               missing={missing}
-              highlightMissing={readByAi || templateJobId != null}
+              highlightMissing={highlightMissing}
               clientId={client?.id ?? null}
               countEnabled={!preview}
-              criticalSuggestion={criticalSuggestion}
+              criticalInfo={criticalInfo}
+              team={
+                <NewJobTeamStep
+                  categories={categories}
+                  categoriesLoading={!preview && categoryQuery.isPending}
+                  categoriesFailed={!preview && categoryQuery.isError && !categoryQuery.data}
+                  onCategoriesRetry={() => void categoryQuery.refetch()}
+                  categoryId={form.competenceCategoryId}
+                  suggestedCategoryId={form.suggestedCategoryId}
+                  categoryConfirmed={form.categoryConfirmed}
+                  onCategoryChange={(id, confirmed) =>
+                    setForm((f) => ({
+                      ...f,
+                      competenceCategoryId: id,
+                      categoryConfirmed: confirmed,
+                    }))
+                  }
+                  categoryMissing={highlightMissing && missing.includes("category")}
+                  assignment={assignment}
+                  onAssignmentChange={setAssignmentChoice}
+                  automaticAvailable={automaticAvailable}
+                  automaticOff={automaticOffNotice}
+                  mode={allocationMode}
+                  recruiters={recruiters}
+                  recruitersFailed={recruitersQuery.isError && !recruitersQuery.data}
+                  onRecruitersRetry={() => void recruitersQuery.refetch()}
+                  recruiterId={recruiterId}
+                  onRecruiterChange={(id) => {
+                    setRecruiterId(id);
+                    // Wskazanie osoby to jawny wybór „Wskażę sam”.
+                    if (id != null) setAssignmentChoice("person");
+                  }}
+                  priorityLevel={priorityLevel}
+                  onPriorityChange={setPriorityLevel}
+                  disabled={saving != null}
+                />
+              }
             />
             {!preview && (
               <SimilarJobsPicker
                 title={form.title}
-                must={form.must}
+                must={similarMust}
                 clientId={client?.id ?? null}
-                onChange={setSimilarJobIds}
+                onChange={onSimilarChange}
               />
             )}
             {!preview && <ClientAskedBeforeHint clientId={client?.id ?? null} />}
@@ -683,27 +814,6 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                 disabled={saving != null}
               />
             )}
-            <NewJobTeamStep
-              assignment={assignment}
-              onAssignmentChange={setAssignmentChoice}
-              automaticAvailable={automaticAvailable}
-              automaticOff={automaticOffNotice}
-              mode={allocationMode}
-              recruiters={recruiters}
-              recruitersFailed={recruitersQuery.isError && !recruitersQuery.data}
-              onRecruitersRetry={() => void recruitersQuery.refetch()}
-              recruiterId={recruiterId}
-              onRecruiterChange={(id) => {
-                setRecruiterId(id);
-                // Wskazanie osoby to jawny wybór „Wybieram sam”.
-                if (id != null) setAssignmentChoice("person");
-              }}
-              collaboratorIds={collaboratorIds}
-              onCollaboratorsChange={setCollaboratorIds}
-              priorityLevel={priorityLevel}
-              onPriorityChange={setPriorityLevel}
-              disabled={saving != null}
-            />
           </div>
         </div>
       )}
@@ -729,16 +839,26 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                     ? "Gotowa do searchu"
                     : missingHeadline(missing.length)}
                 </span>
-                <span className="truncate text-xs text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {!ready
-                    ? missing.map((code) => MISSING_LABEL[code]).join(" · ")
+                    ? missing.map((code, index) => (
+                        <span key={code}>
+                          {index > 0 ? " · " : null}
+                          <a
+                            href={`#${sectionAnchor(MISSING_SECTION[code])}`}
+                            className="underline-offset-2 hover:text-foreground hover:underline"
+                          >
+                            {MISSING_LABEL[code]}
+                          </a>
+                        </span>
+                      ))
                     : !hasRecruiter
-                      ? "Wybierz rekrutera w sekcji „Rekruter i priorytet” — wtedy przekażesz rekrutację do searchu."
+                      ? "Wybierz rekrutera prowadzącego w sekcji „Kategoria i zespół” — wtedy przekażesz rekrutację do searchu."
                       : portalBlocker
                         ? `Ogłoszenie na portalach: ${portalBlocker}`
                         : automatic
                           ? automaticHandoffOutcome(allocationMode, passive)
-                          : "Szablon procesu i kategoria ustawią się same."}
+                          : "Uczestnikami zostaną wszyscy z potwierdzonej kategorii."}
                 </span>
               </div>
             </div>
@@ -751,7 +871,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                   {saveError}
                 </span>
               )}
-              {/* Rekruter i priorytet mają własną sekcję nad stopką
+              {/* Kategoria, prowadzący i priorytet mają własną sekcję
                   (`NewJobTeamStep`) — tu zostają tylko przyciski, żeby
                   przyklejona stopka nie zabierała laptopowi jednej trzeciej okna. */}
               <Button
@@ -773,8 +893,8 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                     ? "Uzupełnij braki, żeby przekazać do searchu"
                     : !hasRecruiter
                       ? automaticAvailable
-                        ? "Wybierz rekrutera albo zostaw propozycję automatowi"
-                        : "Wybierz rekrutera, żeby przekazać do searchu"
+                        ? "Wybierz rekrutera prowadzącego albo zostaw to automatowi"
+                        : "Wybierz rekrutera prowadzącego, żeby przekazać do searchu"
                       : portalBlocker
                         ? `Ogłoszenie na portalach: ${portalBlocker}`
                         : undefined
@@ -802,7 +922,7 @@ function StepPills({ step }: { step: Step }) {
             : "border border-border bg-card text-muted-foreground",
         )}
       >
-        1 · Request
+        1 · Źródło
       </li>
       <li aria-hidden="true" className="h-px w-6 bg-border" />
       <li

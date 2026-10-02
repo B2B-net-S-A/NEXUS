@@ -199,6 +199,34 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
     expect(lastEmbed().initialFilters.qAny).toEqual([["Python"]]);
   });
 
+  it("rekrutacja prowadzona wierszami: obowiązkowe są tylko wiersze krytyczne", () => {
+    const champion_profile = {
+      stack: {
+        rows: [
+          { words: ["Java"], level: "must" },
+          { words: ["Kafka", "RabbitMQ"], level: "must" },
+          { words: ["płatności", "płatnoś*"], level: "must" },
+        ],
+        critical: ["Kafka lub RabbitMQ"],
+      },
+      search: { requirements: [["Java"], ["Kafka", "RabbitMQ"], ["płatności", "płatnoś*"]] },
+    };
+    // Klasyfikacja „technologia / nie” nie ma tu głosu — decyduje poziom wiersza.
+    const filters = jobListFilters({ ...JOB, champion_profile }, null, [true, true, false]);
+    expect(filters.qAny).toEqual([["Kafka", "RabbitMQ"]]);
+    expect(filters.qPreferred).toEqual([["Java"], ["płatności", "płatnoś*"]]);
+  });
+
+  it("wiersze bez krytycznych nikogo nie wycinają — wszystkie tylko podnoszą", () => {
+    const champion_profile = {
+      stack: { rows: [{ words: ["Java"], level: "must" }], critical: [] },
+      search: { requirements: [["Java"]] },
+    };
+    const filters = jobListFilters({ ...JOB, champion_profile }, null, [true]);
+    expect(filters.qAny).toEqual([]);
+    expect(filters.qPreferred).toEqual([["Java"]]);
+  });
+
   it("rekrutacja zdalna nie zawęża po mieście", () => {
     const filters = jobListFilters({ ...JOB, remote_policy: "remote" }, null);
     expect(filters.location).toBe("");

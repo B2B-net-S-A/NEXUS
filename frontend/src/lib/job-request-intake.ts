@@ -12,8 +12,18 @@
 import type { ChampionExperience, ExperienceItem, ExperienceKind } from "@/lib/api";
 import type { HiringManagerChoice } from "@/lib/hiring-manager";
 import { composeWorkingTitle } from "@/lib/job-names";
-import { cleanRows, sanitizeKeyword } from "@/lib/keyword-requirements";
-import { includesLabel, pruneCritical, type CriticalValue } from "@/lib/critical-skills";
+import { sanitizeKeyword } from "@/lib/keyword-requirements";
+import {
+  criticalDecision,
+  criticalDecisionMissing,
+  mustHeads,
+  niceHeads,
+  rowsFromStored,
+  toStoredRows,
+  type RequirementRowForm,
+  type RowCriticalInfo,
+  type StoredRequirementRow,
+} from "@/lib/requirement-rows";
 import {
   officeDaysFields,
   officeDaysFormValue,
@@ -39,15 +49,12 @@ export const FIELD_BASIS_LABEL: Record<FieldBasis, string> = {
 /** Klucze pól formularza, przy których pokazujemy źródło. */
 export type ProvenanceKey =
   | "role"
-  | "must"
-  | "nice"
+  | "requirements"
   | "rate"
   | "work_mode"
   | "about"
   | "responsibilities"
   | "experience"
-  | "search_keywords"
-  | "search_requirements"
   | "target_companies"
   | "disqualifiers"
   | "selling_points"
@@ -69,12 +76,14 @@ export interface IntakeQuestionForm {
   question: string;
   idealAnswer: string;
   origin: QuestionOrigin;
+  /** Odpowiedź, która dyskwalifikuje kandydata — wymagana przed przekazaniem. */
+  dealBreaker: string;
   /**
-   * Dealbreaker pytania z szablonu (runda 6 audytu). Formularz go nie
-   * pokazuje, ale odsyła bez zmian — `screening_questions` jest podmieniana
-   * w całości, więc pusty napis kasował dealbreaker skopiowany przez POST.
+   * Delivery Lead potwierdził pytanie (02.10.2026). Propozycja AI i pytanie
+   * z szablonu startują niezatwierdzone; każda edycja pola zatwierdza, bo
+   * wpisana treść jest już decyzją człowieka.
    */
-  dealBreaker?: string;
+  approved: boolean;
 }
 
 export interface IntakeForm {
@@ -82,18 +91,26 @@ export interface IntakeForm {
   title: string;
   /** 0380: nazwa stanowiska od klienta — dosłownie z maila; idzie do klienta. */
   clientTitle: string;
-  /** 0380: numer zapytania klienta (ZOB, SAP…) — CV, nazwa pliku, Cpro. */
-  clientReference: string;
+  /**
+   * Numer zapytania klienta z odczytu maila (ZOB, SAP…). Obowiązuje, dopóki
+   * stoi w nazwie od klienta — numer czyta `clientReferenceFor`.
+   */
+  referenceHint: string;
+  /** „To nie ten numer”: wpisany ręcznie (także pusty = bez numeru); `null` = z nazwy. */
+  referenceOverride: string | null;
   /** 0380: tytuł dla rekrutera; dopóki `workingTitleTouched` = false, liczony z pól. */
   workingTitle: string;
   workingTitleTouched: boolean;
-  must: string[];
   /**
-   * Umiejętności krytyczne (30.09.2026, `lib/critical-skills.ts`): `null` =
-   * nie zdecydowano, `[]` = „Brak krytycznych”, inaczej 1–2 pozycje z `must`.
+   * Wymagania jako słowa kluczowe (`lib/requirement-rows.ts`): wiersz =
+   * wymaganie, poziom = krytyczne / musi mieć / mile widziane. Z nich serwer
+   * wyprowadza must-have, krytyczne i wiersze wyszukiwania w bazie.
    */
-  critical: CriticalValue;
-  nice: string[];
+  rows: RequirementRowForm[];
+  /** Świadome „Brak krytycznych” — gdy żaden wiersz nie jest krytyczny. */
+  noCritical: boolean;
+  /** Zdania klienta, które nie są słowami kluczowymi — nie filtrują kandydatów. */
+  descriptive: string[];
   seniorityYears: number | null;
   rateBudget: string;
   rateNote: string | null;
@@ -112,13 +129,6 @@ export interface IntakeForm {
   language: string;
   contractLength: string;
   experience: ChampionExperience;
-  searchKeywords: string;
-  /**
-   * Wymagania do wyszukiwania w bazie (sekcja 2, 25.09.2026): wiersz =
-   * wymaganie, słowa = warianty. „Szukaj ręcznie” startuje od nich,
-   * a „Przekaż do searchu” wymaga co najmniej jednego.
-   */
-  searchRequirements: string[][];
   searchExclude: string[];
   targetCompanies: string;
   disqualifiers: string[];
@@ -126,6 +136,15 @@ export interface IntakeForm {
   askClient: AskClientItem[];
   /** 25.09.2026: kto zamawia po stronie klienta; zapis `PUT …/hiring-manager`. */
   hiringManager: HiringManagerChoice | null;
+  /**
+   * Kategoria kompetencji (02.10.2026): od niej zależy, kto dostanie
+   * rekrutację. `suggestedCategoryId` to podpowiedź systemu z nazwy roli,
+   * `competenceCategoryId` — wybór Delivery Leada, `categoryConfirmed` —
+   * kliknięte „Potwierdzam” (wymagane przed przekazaniem).
+   */
+  competenceCategoryId: number | null;
+  suggestedCategoryId: number | null;
+  categoryConfirmed: boolean;
   provenance: Partial<Record<ProvenanceKey, FieldBasis>>;
 }
 
@@ -161,15 +180,19 @@ export interface RequestIntakeResponse {
   screening_questions: {
     question: string;
     ideal_answer: string;
+    /** Od v10: AI proponuje też odpowiedź dyskwalifikującą. */
+    deal_breaker?: string;
     from_request: boolean;
   }[];
+  // ── od v10 (02.10.2026): wymagania jako słowa kluczowe ──
+  requirements?: StoredRequirementRow[];
+  descriptive_requirements?: string[];
   evidence: string[];
   missing: string[];
   // ── od v2 (starszy backend ich nie niesie) ──
   language?: string | null;
   contract_length?: string | null;
   experience?: Partial<Record<ExperienceKind, IntakeExperienceItem[]>>;
-  search_keywords?: string | null;
   target_companies?: string | null;
   disqualifiers?: string[];
   // ── od v5 (25.09.2026): wymagania do wyszukiwania w bazie ──
@@ -219,12 +242,13 @@ export function joinCities(cities: string[]): string {
 export const EMPTY_INTAKE_FORM: IntakeForm = {
   title: "",
   clientTitle: "",
-  clientReference: "",
+  referenceHint: "",
+  referenceOverride: null,
   workingTitle: "",
   workingTitleTouched: false,
-  must: [],
-  critical: null,
-  nice: [],
+  rows: [],
+  noCritical: false,
+  descriptive: [],
   seniorityYears: null,
   rateBudget: "",
   rateNote: null,
@@ -240,16 +264,41 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   language: "",
   contractLength: "",
   experience: EMPTY_EXPERIENCE_FORM,
-  searchKeywords: "",
-  searchRequirements: [],
   searchExclude: [],
   targetCompanies: "",
   disqualifiers: [],
   sellingPoints: "",
   askClient: [],
   hiringManager: null,
+  competenceCategoryId: null,
+  suggestedCategoryId: null,
+  categoryConfirmed: false,
   provenance: {},
 };
+
+const LEGACY_PROVENANCE: Record<string, ProvenanceKey> = {
+  must: "requirements",
+  nice: "requirements",
+  search_requirements: "requirements",
+};
+
+/**
+ * Wiersze z odczytu: od v10 serwer oddaje je wprost; starszy odczyt (must,
+ * nice, wiersze wyszukiwania) składamy tak samo, jak robi to serwer — wiersze
+ * wyszukiwania zostają, a must i nice dochodzą jako pojedyncze słowa.
+ */
+function rowsFromIntake(intake: RequestIntakeResponse): RequirementRowForm[] {
+  if (Array.isArray(intake.requirements)) return rowsFromStored(intake.requirements);
+  const stored: StoredRequirementRow[] = [
+    ...(intake.search_requirements ?? []).map((words) => ({
+      words,
+      level: "must" as const,
+    })),
+    ...(intake.must ?? []).map((name) => ({ words: [name], level: "must" as const })),
+    ...(intake.nice ?? []).map((name) => ({ words: [name], level: "nice" as const })),
+  ];
+  return rowsFromStored(stored);
+}
 
 let questionSeq = 0;
 export function newQuestionKey(): string {
@@ -298,8 +347,10 @@ export function hiringManagerFromIntake(
 export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
   const provenance: IntakeForm["provenance"] = {};
   for (const [key, basis] of Object.entries(intake.provenance ?? {})) {
-    if (BASES.includes(basis as FieldBasis))
-      provenance[key as ProvenanceKey] = basis as FieldBasis;
+    if (!BASES.includes(basis as FieldBasis)) continue;
+    // Starszy odczyt podawał źródło osobno dla must i wierszy wyszukiwania.
+    const target = LEGACY_PROVENANCE[key] ?? (key as ProvenanceKey);
+    if (!provenance[target]) provenance[target] = basis as FieldBasis;
   }
   return {
     language: intake.language ?? "",
@@ -310,8 +361,6 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
       regulations: experienceItems(intake.experience?.regulations),
       notes: "",
     },
-    searchKeywords: intake.search_keywords ?? "",
-    searchRequirements: cleanRows(intake.search_requirements ?? []),
     searchExclude: [],
     targetCompanies: intake.target_companies ?? "",
     disqualifiers: intake.disqualifiers ?? [],
@@ -321,16 +370,20 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
       text,
     })),
     hiringManager: hiringManagerFromIntake(intake),
+    competenceCategoryId: null,
+    suggestedCategoryId: null,
+    categoryConfirmed: false,
     provenance,
     title: intake.role_name ?? "",
     clientTitle: intake.client_title ?? "",
-    clientReference: intake.client_reference ?? "",
-    workingTitle: intake.working_title_suggestion ?? "",
+    referenceHint: intake.client_reference ?? "",
+    referenceOverride: null,
+    workingTitle: "",
     workingTitleTouched: false,
-    must: intake.must ?? [],
     // Krytyczne wybiera DL — odczyt maila ich nie ustawia (30.09.2026).
-    critical: null,
-    nice: intake.nice ?? [],
+    rows: rowsFromIntake(intake),
+    noCritical: false,
+    descriptive: intake.descriptive_requirements ?? [],
     seniorityYears: intake.seniority_min_years ?? null,
     rateBudget:
       intake.rate_budget_hourly != null
@@ -357,9 +410,38 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
       key: newQuestionKey(),
       question: q.question,
       idealAnswer: q.ideal_answer ?? "",
+      dealBreaker: q.deal_breaker ?? "",
       origin: q.from_request ? "request" : "ai",
+      approved: false,
     })),
   };
+}
+
+/** Must-have formularza — pierwsze słowa wierszy krytycznych i „musi mieć”. */
+export function mustOf(form: IntakeForm): string[] {
+  return mustHeads(form.rows);
+}
+
+export function niceOf(form: IntakeForm): string[] {
+  return niceHeads(form.rows);
+}
+
+const ZOB = /\bZOB[\s_-]*(\d+)\b/gi;
+
+/**
+ * Numer u klienta (02.10.2026 — bez osobnego pola): numer z odczytu maila,
+ * dopóki stoi w nazwie od klienta; inaczej jednoznaczny „ZOB <cyfry>” z nazwy
+ * (lustro `job_working_title.reference_from_title`). „To nie ten numer”
+ * wpisuje go ręcznie — także pusty, gdy numer w nazwie nie jest numerem.
+ */
+export function clientReferenceFor(form: IntakeForm): string {
+  if (form.referenceOverride != null) return form.referenceOverride.trim();
+  const title = form.clientTitle.replace(/\s+/g, " ").toLocaleLowerCase("pl");
+  const hint = form.referenceHint.replace(/\s+/g, " ").trim();
+  if (hint && title.includes(hint.toLocaleLowerCase("pl"))) return hint;
+  const found = new Set<string>();
+  for (const match of form.clientTitle.matchAll(ZOB)) found.add(match[1]);
+  return found.size === 1 ? `ZOB ${[...found][0]}` : "";
 }
 
 /**
@@ -368,7 +450,7 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
  */
 export function suggestedWorkingTitle(form: IntakeForm): string {
   const domain = form.experience.domains.find((d) => d.level !== "nice")?.name ?? null;
-  return composeWorkingTitle(form.title, form.must, form.seniorityYears, domain) ?? "";
+  return composeWorkingTitle(form.title, mustOf(form), form.seniorityYears, domain) ?? "";
 }
 
 /** Tytuł dla rekrutera widoczny w formularzu: ręczny albo podpowiedź. */
@@ -392,21 +474,63 @@ export type MissingCode =
   | "office_city"
   | "context"
   | "questions"
-  | "search"
-  | "critical";
+  | "critical"
+  | "deal_breaker"
+  | "questions_review"
+  | "category";
 
 export const MISSING_LABEL: Record<MissingCode, string> = {
   role: "rola",
-  must: "must-have",
+  must: "wymagania (słowa kluczowe)",
   budget: "budżet PLN/h",
   work_mode: "tryb pracy",
   office_days: "dni w biurze",
   office_city: "miasto biura",
   context: "opis projektu",
-  questions: "drugie pytanie screeningowe",
-  search: "wymagania do wyszukiwania",
-  critical: "umiejętności krytyczne",
+  questions: "drugie pytanie do kandydata",
+  critical: "krytyczne (albo „Brak krytycznych”)",
+  deal_breaker: "odpowiedź, która odpada, przy każdym pytaniu",
+  questions_review: "zatwierdzenie pytań",
+  category: "potwierdzenie kategorii",
 };
+
+/** Sekcja formularza, w której usuwa się dany brak (pasek sekcji, stopka). */
+export type FormSection =
+  | "name"
+  | "requirements"
+  | "terms"
+  | "project"
+  | "questions"
+  | "team";
+
+export const FORM_SECTIONS: { id: FormSection; label: string }[] = [
+  { id: "name", label: "Nazwa" },
+  { id: "requirements", label: "Wymagania" },
+  { id: "terms", label: "Warunki" },
+  { id: "project", label: "O projekcie" },
+  { id: "questions", label: "Pytania" },
+  { id: "team", label: "Kategoria i zespół" },
+];
+
+export const MISSING_SECTION: Record<MissingCode, FormSection> = {
+  role: "name",
+  must: "requirements",
+  critical: "requirements",
+  budget: "terms",
+  work_mode: "terms",
+  office_days: "terms",
+  office_city: "terms",
+  context: "project",
+  questions: "questions",
+  deal_breaker: "questions",
+  questions_review: "questions",
+  category: "team",
+};
+
+/** `id` elementu sekcji — cel linków z paska sekcji i ze stopki. */
+export function sectionAnchor(section: FormSection): string {
+  return `new-job-section-${section}`;
+}
 
 /** Budżet jak w `JobCreate.rate_budget_hourly`: > 0 i ≤ 2000. */
 export function parseBudget(value: string): number | null {
@@ -440,19 +564,64 @@ export function filledQuestions(form: IntakeForm): IntakeQuestionForm[] {
   return form.questions.filter((q) => q.question.trim().length > 0);
 }
 
+/** Puste pytanie dopisane ręcznie — wpisuje je człowiek, więc jest zatwierdzone. */
+export function newManualQuestion(): IntakeQuestionForm {
+  return {
+    key: newQuestionKey(),
+    question: "",
+    idealAnswer: "",
+    dealBreaker: "",
+    origin: "manual",
+    approved: true,
+  };
+}
+
+/** Edycja pytania: zmieniona treść jest decyzją Delivery Leada. */
+export function editQuestion(
+  form: IntakeForm,
+  key: string,
+  patch: Partial<Pick<IntakeQuestionForm, "question" | "idealAnswer" | "dealBreaker">>,
+): IntakeForm {
+  return {
+    ...form,
+    questions: form.questions.map((q) =>
+      q.key === key ? { ...q, ...patch, approved: true } : q,
+    ),
+  };
+}
+
+/** „Zatwierdź” / „Zatwierdź wszystkie” — tylko pytania z odpowiedzią, która odpada. */
+export function approveQuestions(form: IntakeForm, key?: string): IntakeForm {
+  return {
+    ...form,
+    questions: form.questions.map((q) =>
+      (key == null || q.key === key) && q.question.trim() && q.dealBreaker.trim()
+        ? { ...q, approved: true }
+        : q,
+    ),
+  };
+}
+
+/** Pytanie bez zatwierdzenia: propozycja AI albo kopia z szablonu, której nikt nie ruszył. */
+export function unapprovedQuestions(form: IntakeForm): IntakeQuestionForm[] {
+  return filledQuestions(form).filter((q) => !q.approved);
+}
+
 /**
- * Lustro `job_request_intake.missing_fields`. `criticalEligible` = pozycje MUST,
- * które wolno oznaczyć jako krytyczne (odpowiedź `critical-suggestion` dla
- * BIEŻĄCEJ listy); `null`/brak = jeszcze nie wiadomo — wtedy „critical” nie
- * wchodzi (nie zgadujemy, że lista ma technologie).
+ * Lustro `job_request_intake.missing_fields` + trzy potwierdzenia formularza
+ * (pytania, kategoria). `criticalInfo` = co serwer wie o wierszach (odpowiedź
+ * `critical-suggestion` dla BIEŻĄCEJ listy); `null`/brak = jeszcze nie wiadomo
+ * — wtedy „critical” nie wchodzi (nie zgadujemy, że lista ma technologie).
  */
 export function missingFor(
   form: IntakeForm,
-  opts: { criticalEligible?: readonly string[] | null } = {},
+  opts: { criticalInfo?: Record<string, RowCriticalInfo> | null } = {},
 ): MissingCode[] {
   const missing: MissingCode[] = [];
   if (!form.title.trim()) missing.push("role");
-  if (form.must.length === 0) missing.push("must");
+  if (mustOf(form).length === 0) missing.push("must");
+  else if (criticalDecisionMissing(form.rows, form.noCritical, opts.criticalInfo))
+    missing.push("critical");
   if (parseBudget(form.rateBudget) == null) missing.push("budget");
   if (!form.remotePolicy) {
     missing.push("work_mode");
@@ -463,17 +632,24 @@ export function missingFor(
   }
   if (!form.about.trim() && !form.responsibilities.trim())
     missing.push("context");
-  if (filledQuestions(form).length < 2) missing.push("questions");
-  if (cleanRows(form.searchRequirements).length === 0) missing.push("search");
-  const eligible = opts.criticalEligible;
-  if (
-    pruneCritical(form.critical, form.must) === null &&
-    eligible != null &&
-    form.must.some((label) => includesLabel(eligible, label))
-  ) {
-    missing.push("critical");
-  }
+  const questions = filledQuestions(form);
+  if (questions.length < 2) missing.push("questions");
+  if (questions.some((q) => !q.dealBreaker.trim())) missing.push("deal_breaker");
+  else if (questions.some((q) => !q.approved)) missing.push("questions_review");
+  if (form.competenceCategoryId == null || !form.categoryConfirmed)
+    missing.push("category");
   return missing;
+}
+
+/** Braki pogrupowane po sekcjach — pasek sekcji nad formularzem. */
+export function missingBySection(
+  missing: readonly MissingCode[],
+): Record<FormSection, MissingCode[]> {
+  const out = Object.fromEntries(
+    FORM_SECTIONS.map((section) => [section.id, [] as MissingCode[]]),
+  ) as Record<FormSection, MissingCode[]>;
+  for (const code of missing) out[MISSING_SECTION[code]].push(code);
+  return out;
 }
 
 /** „Brakuje 2 rzeczy do searchu” — polska odmiana liczebnika. */
@@ -499,12 +675,18 @@ export function buildJobPayload(
   };
   const description = opts.requestText.trim();
   if (description) payload.description = description;
-  if (form.clientReference.trim()) payload.client_reference = form.clientReference.trim();
+  const reference = clientReferenceFor(form);
+  if (reference) payload.client_reference = reference;
+  if (form.competenceCategoryId != null)
+    payload.competence_category_id = form.competenceCategoryId;
   // Bez ręcznej zmiany serwer składa tytuł sam (i przelicza go po Championie).
   if (form.workingTitleTouched && form.workingTitle.trim())
     payload.working_title = form.workingTitle.trim();
-  if (form.must.length > 0) payload.must_skills = form.must;
-  if (form.nice.length > 0) payload.nice_skills = form.nice;
+  // Pierwsze słowa wierszy; po zapisie profilu serwer podmienia je etykietami.
+  const must = mustOf(form);
+  const nice = niceOf(form);
+  if (must.length > 0) payload.must_skills = must;
+  if (nice.length > 0) payload.nice_skills = nice;
   if (remote !== "remote" && form.city.trim())
     payload.location = form.city.trim();
   const budget = parseBudget(form.rateBudget);
@@ -524,7 +706,7 @@ const CHAMPION_WORK_MODE: Record<RemotePolicyValue, string> = {
 
 /**
  * `PUT /api/jobs/{id}/champion-profile` — cały szkic z propozycji Luny
- * (od 09.2026): podstawy, stack, doświadczenie, frazy do wyszukiwarki,
+ * (od 09.2026): podstawy, wymagania (wiersze słów kluczowych), doświadczenie,
  * projekt, argumenty dla kandydata, pytania i „do dopytania u klienta”.
  * Serwer scala payload na zapisanym profilu (sekcje płytko), więc
  * `client: {selling_points}` nie kasuje reszty sekcji klienta.
@@ -553,17 +735,20 @@ export function buildChampionPayload(
       contract_length: form.contractLength.trim() || null,
     },
     stack: {
-      must: form.must.map((name) => ({ name })),
-      nice: form.nice.map((name) => ({ name })),
+      // Must-have, mile widziane, krytyczne i wiersze wyszukiwania serwer
+      // wyprowadza z wierszy (`champion_requirement_rows.expand_patch`).
+      rows: toStoredRows(form.rows),
       // `null` = nie zdecydowano, `[]` = „Brak krytycznych” — dwie różne decyzje.
-      critical: pruneCritical(form.critical, form.must),
+      critical: criticalDecision(form.rows, form.noCritical),
+      // Zdania klienta nie filtrują kandydatów — czyta je rekruter i generator CV.
+      ...(form.descriptive.length > 0
+        ? { notes: form.descriptive.join("\n") }
+        : {}),
     },
     experience: form.experience,
     search: {
-      keywords: form.searchKeywords.trim(),
       target_companies: form.targetCompanies.trim(),
       disqualifiers: form.disqualifiers,
-      requirements: cleanRows(form.searchRequirements),
       exclude: form.searchExclude.map(sanitizeKeyword).filter(Boolean),
     },
     project: {
@@ -575,7 +760,7 @@ export function buildChampionPayload(
       id: `q${i + 1}`,
       question: q.question.trim(),
       ideal_answer: q.idealAnswer.trim(),
-      deal_breaker: q.dealBreaker ?? "",
+      deal_breaker: q.dealBreaker.trim(),
     })),
     // „Do dopytania u klienta” — notatki sekcji 8, odhaczane w profilu.
     // Wpisy nowe (`new-…`): serwer nada id i autora.
@@ -739,19 +924,80 @@ function championSection(
     : {};
 }
 
+/** Wynik `POST /api/job-intake/requirement-rows` — stare pola jako wiersze. */
+export interface TemplateRows {
+  rows: StoredRequirementRow[];
+  descriptive: string[];
+}
+
+function searchRequirementsOf(profile: unknown): string[][] {
+  const raw = championSection(profile, "search").requirements;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((row) =>
+      Array.isArray(row)
+        ? row.filter((w): w is string => typeof w === "string" && w.trim().length > 0)
+        : [],
+    )
+    .filter((row) => row.length > 0);
+}
+
+/**
+ * Stare pola wymagań szablonu do zamiany na wiersze — `null`, gdy szablon jest
+ * już prowadzony wierszami (wtedy zamiana nie jest potrzebna).
+ */
+export function templateLegacyFields(src: TemplateSourceJob): {
+  must: string[];
+  nice: string[];
+  requirements: string[][];
+  critical: null;
+} | null {
+  const stack = championSection(src.champion_profile, "stack");
+  if (Array.isArray(stack.rows) && stack.rows.length > 0) return null;
+  const must = skillNames(stack.must);
+  const nice = skillNames(stack.nice);
+  return {
+    must: must.length > 0 ? must : skillNames(src.must_skills),
+    nice: nice.length > 0 ? nice : skillNames(src.nice_skills),
+    requirements: searchRequirementsOf(src.champion_profile),
+    // Kopia rekrutacji nie przenosi decyzji o krytycznych (jak na serwerze).
+    critical: null,
+  };
+}
+
 /**
  * Wypełnia WYŁĄCZNIE puste pola formularza danymi rekrutacji-szablonu.
  * Rola zostaje z requestu (nowa rekrutacja nie udaje starej); pytania
- * dochodzą tylko wtedy, gdy formularz ma ich mniej niż dwa.
+ * dochodzą tylko wtedy, gdy formularz ma ich mniej niż dwa. `converted` to
+ * stare pola wymagań szablonu zamienione przez serwer na wiersze; bez niego
+ * (awaria zamiany) każde must-have i mile widziane to wiersz z jednym słowem.
  */
 export function applyTemplate(
   form: IntakeForm,
   src: TemplateSourceJob,
+  converted: TemplateRows | null = null,
 ): IntakeForm {
   const next: IntakeForm = { ...form };
   const project = championSection(src.champion_profile, "project");
-  if (next.must.length === 0) next.must = skillNames(src.must_skills);
-  if (next.nice.length === 0) next.nice = skillNames(src.nice_skills);
+  if (next.rows.length === 0) {
+    const stack = championSection(src.champion_profile, "stack");
+    const legacy = templateLegacyFields(src);
+    const stored: unknown =
+      legacy == null
+        ? stack.rows
+        : converted
+          ? converted.rows
+          : [
+              ...legacy.requirements.map((words) => ({ words, level: "must" })),
+              ...legacy.must.map((name) => ({ words: [name], level: "must" })),
+              ...legacy.nice.map((name) => ({ words: [name], level: "nice" })),
+            ];
+    // Krytyczne wybiera Delivery Lead od nowa — kopia ich nie przenosi.
+    next.rows = rowsFromStored(stored).map((row) =>
+      row.level === "critical" ? { ...row, level: "must" as const } : row,
+    );
+    if (next.descriptive.length === 0 && converted) next.descriptive = converted.descriptive;
+  }
   if (!next.rateBudget && src.rate_budget_hourly != null) {
     next.rateBudget = String(src.rate_budget_hourly);
   }
@@ -773,14 +1019,6 @@ export function applyTemplate(
   const client = championSection(src.champion_profile, "client");
   const basics = championSection(src.champion_profile, "basics");
   const text = (value: unknown) => (typeof value === "string" ? value : "");
-  if (!next.searchKeywords) next.searchKeywords = text(search.keywords);
-  if (cleanRows(next.searchRequirements).length === 0 && Array.isArray(search.requirements)) {
-    next.searchRequirements = cleanRows(
-      search.requirements.map((row) =>
-        Array.isArray(row) ? row.filter((w): w is string => typeof w === "string") : [],
-      ),
-    );
-  }
   if (next.searchExclude.length === 0 && Array.isArray(search.exclude)) {
     next.searchExclude = search.exclude.filter(
       (w): w is string => typeof w === "string" && w.trim().length > 0,
@@ -850,6 +1088,7 @@ export function applyTemplate(
             (item as Record<string, unknown>).deal_breaker ?? "",
           ),
           origin: "template",
+          approved: false,
         });
       }
     }

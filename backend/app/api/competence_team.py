@@ -16,7 +16,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import HeadOfRecruitmentPlus
@@ -25,7 +25,12 @@ from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.competence_category import CompetenceCategory, UserCompetenceCategory
 from app.models.job import Job, JobStatus
-from app.models.user import User, UserRole
+from app.models.user import User
+from app.services.auto_cc_collaborators import (
+    OPERATOR_ROLES,
+    operator_clause,
+    sync_cc_participants,
+)
 from app.services.request_allocation_rules import (
     load_rules,
     save_rules,
@@ -34,16 +39,9 @@ from app.services.request_allocation_rules import (
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
-# Kto może dostać request: role operacyjne, także jako druga rola Delivery
-# Leada (decyzja Artura 24.09.2026).
-OPERATOR_ROLES = (UserRole.recruiter, UserRole.sourcer, UserRole.tac)
-
-
-def operator_clause():
-    return or_(
-        User.role.in_(OPERATOR_ROLES),
-        *(User.roles.contains([role.value]) for role in OPERATOR_ROLES),
-    )
+# ``OPERATOR_ROLES`` i ``operator_clause`` żyją w serwisie uczestników
+# rekrutacji (jedna definicja „osoby kategorii”); ``request_board`` importuje
+# je stąd.
 
 
 class TeamPerson(BaseModel):
@@ -250,6 +248,10 @@ async def put_assignment(
             },
         )
     )
+    # Osoba w kategorii = uczestnik jej otwartych rekrutacji (oba priorytety).
+    await sync_cc_participants(
+        db, category_ids=[row.competence_category_id for row in rows] + [category.id]
+    )
     await db.commit()
     return {"ok": True}
 
@@ -275,7 +277,11 @@ async def delete_assignment(
             },
         )
     )
+    category_id = row.competence_category_id
     await db.delete(row)
+    # Osoba zdjęta z kategorii przestaje być uczestnikiem jej otwartych
+    # rekrutacji (dopisana ręcznie zostaje).
+    await sync_cc_participants(db, category_ids=[category_id])
     await db.commit()
     return {"ok": True}
 

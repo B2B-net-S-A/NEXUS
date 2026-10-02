@@ -47,7 +47,7 @@ interface JobReadiness {
   closed: boolean;
   already_handed_off: boolean;
   allocation_enabled?: boolean;
-  /** Tryb automatu przydziału; `off` = „Zaproponuje automat” jest niedostępne. */
+  /** Tryb automatu przydziału; `off` = opcja automatu jest niedostępna. */
   allocation_mode?: AllocationMode;
 }
 
@@ -57,9 +57,12 @@ interface JobReadiness {
  * lands on a stale pre-Champion snapshot. A 422 lists readiness blockers
  * (Champion required) instead of firing the ranking.
  *
- * Rekruter (02.10.2026): „Zaproponuje automat” jest wyborem domyślnym, gdy
- * automat jest włączony — propozycję zatwierdza Head of Recruitment i do tego
- * czasu nikt nie jest przypisany. „Wybieram sam” przypisuje osobę od razu.
+ * Rekruter (02.10.2026): automat jest wyborem domyślnym, gdy jest włączony.
+ * W trybie „auto” („Przydzieli automat”) rekrutera prowadzącego dostaje
+ * rekrutacja od razu, a Head of Recruitment może go zmienić z pulpitu;
+ * w „shadow” („Zaproponuje automat”) propozycję zatwierdza Head of Recruitment
+ * i do tego czasu nikt nie jest przypisany. „Wybieram sam” przypisuje osobę
+ * od razu.
  */
 export function JobHandoffButton({
   jobId,

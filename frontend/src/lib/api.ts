@@ -4631,6 +4631,17 @@ export interface ChampionStack {
    * zdecydował (działa podpowiedź z historii), `[]` = „Brak krytycznych”.
    */
   critical?: string[] | null;
+  /**
+   * Wiersze wymagań (02.10.2026, `lib/requirement-rows.ts`): gdy są, `must`,
+   * `nice`, `critical` i `search.requirements` są z nich wyprowadzone przez
+   * serwer. Brak klucza / `null` = profil prowadzony starymi polami. `key` to
+   * klucz Reacta w edytorze — serwer go nie zna i nie zapisuje.
+   */
+  rows?: {
+    key?: string;
+    words: string[];
+    level: "critical" | "must" | "nice";
+  }[] | null;
 }
 
 /** Sekcja 4 — doświadczenie poza stackiem (09.2026). */

@@ -11,6 +11,7 @@
     "office_days": "Podaj liczbę dni w biurze w tygodniu (tryb hybrydowy/stacjonarny).",
     "office_city": "Podaj miasto biura w lokalizacji oferty (tryb hybrydowy/stacjonarny).",
     "critical": "Potwierdź umiejętności krytyczne w Profilu Championa (albo wybierz „Brak krytycznych”).",
-    "search": "Dodaj co najmniej jedno wymaganie do wyszukiwania w bazie (sekcja „Co wpisać” w Profilu Championa)."
+    "search": "Dodaj co najmniej jedno wymaganie do wyszukiwania w bazie (sekcja „Co wpisać” w Profilu Championa).",
+    "deal_breaker": "Przy każdym pytaniu screeningowym wpisz odpowiedź, która dyskwalifikuje kandydata (Profil Championa)."
   }
 }

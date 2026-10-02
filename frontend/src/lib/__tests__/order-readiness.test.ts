@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildReadinessChecklist,
   parseBudgetInput,
+  READINESS_ACTION,
   READINESS_CHAMPION_ANCHOR,
   READINESS_MESSAGES,
   readinessKeyFor,
@@ -55,6 +56,28 @@ describe("order-readiness", () => {
     expect(checklist.total).toBe(9);
     expect(buildReadinessChecklist([], "remote").done).not.toContain("critical");
     expect(READINESS_CHAMPION_ANCHOR.critical).toBe("champion-section-stack");
+  });
+
+  it("brak odpowiedzi dyskwalifikującej to wiersz z linkiem do pytań screeningowych", () => {
+    expect(READINESS_MESSAGES.deal_breaker).toBe(
+      "Przy każdym pytaniu screeningowym wpisz odpowiedź, która dyskwalifikuje kandydata (Profil Championa).",
+    );
+    expect(readinessKeyFor(READINESS_MESSAGES.deal_breaker)).toBe("deal_breaker");
+    const checklist = buildReadinessChecklist([READINESS_MESSAGES.deal_breaker], "remote");
+    expect(checklist.missing).toEqual([
+      {
+        key: "deal_breaker",
+        label: "Odpowiedź dyskwalifikująca przy pytaniach",
+        message: READINESS_MESSAGES.deal_breaker,
+      },
+    ]);
+    // Pozycja liczy się tylko wtedy, gdy serwer o nią pyta (pierwsze przekazanie).
+    expect(checklist.total).toBe(9);
+    expect(checklist.doneCount).toBe(8);
+    expect(buildReadinessChecklist([], "remote").done).not.toContain("deal_breaker");
+    // To samo miejsce i to samo działanie co przy braku pytań.
+    expect(READINESS_CHAMPION_ANCHOR.deal_breaker).toBe(READINESS_CHAMPION_ANCHOR.questions);
+    expect(READINESS_ACTION.deal_breaker).toBe(READINESS_ACTION.questions);
   });
 
   it("brak wymagań do wyszukiwania prowadzi do ich karty w Championie", () => {

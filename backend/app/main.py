@@ -713,6 +713,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.academy_intake import academy_intake_loop
     from app.tasks.application_screening import application_screening_loop
     from app.tasks.trainee_call_lists import trainee_call_lists_loop
+    from app.tasks.cc_participants_sync import cc_participants_sync_loop
 
     # audyt 22.09 r2 (DATA-03/04/PROD-10): retencja kolejek i dziennika automatów.
     from app.tasks.queue_retention import queue_retention_loop
@@ -764,6 +765,9 @@ async def lifespan(app: FastAPI):
         # 0404: zgłoszenia z linku rekrutacji — przegląd AI przed „Nowi”.
         "application_screening": asyncio.create_task(application_screening_loop()),
         "trainee_call_lists": asyncio.create_task(trainee_call_lists_loop()),
+        # Uczestnicy rekrutacji = osoby jej kategorii kompetencji; co godzinę
+        # wyrównanie po zmianach ról, kont i importach.
+        "cc_participants_sync": asyncio.create_task(cc_participants_sync_loop()),
         # audyt 22.09 r2 (DATA-03/04/PROD-10): dziennik auto-matcha, kolejki.
         "queue_retention": asyncio.create_task(queue_retention_loop()),
         "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),

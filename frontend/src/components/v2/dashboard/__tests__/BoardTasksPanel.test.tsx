@@ -499,6 +499,128 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
   });
 });
 
+function leadRow(over: Record<string, unknown> = {}) {
+  return {
+    job_id: 51,
+    title: "Analityk biznesowy",
+    client_name: "Bank Kappa",
+    category_id: 5,
+    category_name: "Management & Delivery (PM & BA)",
+    category_slug: "management_delivery",
+    participants: 4,
+    priority_level: "p2",
+    delivery_lead_name: "Anna Lis",
+    handed_off_at: since,
+    lead_user_id: 7,
+    lead_name: "Marek Dąb",
+    lead_role: "recruiter",
+    lead_source: "auto",
+    assigned_by_name: null,
+    proposed: false,
+    pending_reason: null,
+    ...over,
+  };
+}
+
+describe("BoardTasksPanel — „Nowe rekrutacje — kto prowadzi”", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.setState({ user: { id: 1, role: "head_of_recruitment" }, realUser: null } as never);
+    post.mockResolvedValue({ data: {} });
+  });
+
+  it("same rekrutacje z prowadzącymi: lista jest widoczna, ale nic nie „czeka”", async () => {
+    mockQueue({ new_job_leads: [leadRow()] });
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Nowe rekrutacje — kto prowadzi" });
+    expect(within(section).getByRole("link", { name: "Analityk biznesowy" })).toHaveAttribute(
+      "href",
+      "/jobs/51",
+    );
+    expect(within(section).getByTestId("lead-category")).toHaveTextContent("4 uczestnicy");
+    expect(within(section).getByTestId("lead-person")).toHaveTextContent("Marek Dąb");
+    // Lista informacyjna nie robi z pulpitu „Czeka na Ciebie”.
+    expect(screen.queryByRole("region", { name: "Czeka na Ciebie" })).toBeNull();
+    expect(screen.queryByText("Czeka na Ciebie")).toBeNull();
+  });
+
+  it("obok zadań stoi w panelu zaraz po propozycjach automatu i nie zmienia ich liczników", async () => {
+    mockQueue({
+      can_decide_proposals: true,
+      allocation_leave_known: true,
+      allocation_proposals: [proposalRow()],
+      new_job_leads: [leadRow(), leadRow({ job_id: 52, title: "Tester" })],
+      cpro_sent: [row("cpro_sent")],
+    });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    const sections = within(panel)
+      .getAllByRole("region")
+      .map((region) => region.getAttribute("aria-label"));
+    expect(sections).toEqual([
+      "Propozycje automatu do akceptacji",
+      "Nowe rekrutacje — kto prowadzi",
+      "Wysłane do Cpro",
+    ]);
+    const proposals = within(panel).getByRole("region", { name: "Propozycje automatu do akceptacji" });
+    expect(within(proposals).getAllByRole("listitem")).toHaveLength(1);
+    const sent = within(panel).getByRole("region", { name: "Wysłane do Cpro" });
+    expect(within(sent).getByText("1")).toHaveClass("text-primary");
+  });
+
+  it("„Zmień” z pulpitu zapisuje prowadzącego przez /owner", async () => {
+    get.mockImplementation((url: string) => {
+      if (url === "/api/board-tasks")
+        return Promise.resolve({
+          data: { window_days: 14, cpro_to_send: [], cpro_sent: [], new_job_leads: [leadRow()] },
+        });
+      if (url === "/api/request-board")
+        return Promise.resolve({
+          data: {
+            mode: "auto",
+            availability_known: true,
+            groups: [],
+            requests: [],
+            changes: [],
+            load: [
+              { user_id: 7, name: "Marek Dąb", count: 3, proposed: 0, leave_until: null, requests: [] },
+              { user_id: 9, name: "Ewa Kalina", count: 1, proposed: 0, leave_until: null, requests: [] },
+            ],
+          },
+        });
+      return Promise.resolve({ data: [] });
+    });
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Nowe rekrutacje — kto prowadzi" });
+    await userEvent.click(
+      within(section).getByRole("button", { name: "Zmień prowadzącego: Analityk biznesowy" }),
+    );
+    await userEvent.click(await screen.findByRole("option", { name: /Ewa Kalina/ }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith("/api/jobs/51/owner", { user_id: 9 }));
+    await waitFor(() =>
+      expect(showSuccess).toHaveBeenCalledWith("Ewa Kalina prowadzi „Analityk biznesowy”."),
+    );
+  });
+
+  it.each([
+    ["pole nieobecne (starszy serwer)", {}],
+    ["pusta lista (osoba, która nie nadzoruje przydziału)", { new_job_leads: [] }],
+  ])("sekcji nie ma: %s", async (_name, queue) => {
+    useAuthStore.setState({ user: { id: 1, role: "recruiter" }, realUser: null } as never);
+    mockQueue({ ...queue, cpro_sent: [row("cpro_sent")] });
+    renderPanel();
+    await screen.findByRole("region", { name: "Wysłane do Cpro" });
+    expect(screen.queryByRole("region", { name: "Nowe rekrutacje — kto prowadzi" })).toBeNull();
+  });
+
+  it("pusta lista bez innych zadań nie zostawia pustej ramki", async () => {
+    mockQueue({ new_job_leads: [] });
+    const { container } = renderPanel();
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+});
+
 function transitRow(kind: string, over: Record<string, unknown> = {}) {
   return {
     kind,

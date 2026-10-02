@@ -995,3 +995,327 @@ async def test_board_tasks_survive_a_failure_while_loading_proposals(
     assert body["can_decide_proposals"] is True
     # Reszta kolejki liczy się normalnie.
     assert isinstance(body["cpro_to_send"], list)
+
+
+# ── „Kto prowadzi nowe rekrutacje” dla Head of Recruitment ──────────────────
+
+
+async def _seed_job_leads(hor_id: int, dl_id: int) -> dict:
+    """Rekrutacje przekazane do searchu przed chwilą: z prowadzącym automatu,
+    z prowadzącym wskazanym przez człowieka, z samą propozycją i bez nikogo."""
+    from app.models.competence_category import CompetenceCategory
+    from app.models.job import JobPriority
+    from app.models.job_collaborator import JobCollaboratorSource
+    from app.models.job_work_assignment import JobWorkAssignment
+
+    unique = uuid.uuid4().hex[:8]
+    now = datetime.now(timezone.utc)
+    people = {}
+    for key, role in (
+        ("auto", UserRole.recruiter),
+        ("manual", UserRole.sourcer),
+        ("owner", UserRole.recruiter),
+        ("proposed", UserRole.recruiter),
+        ("participant", UserRole.sourcer),
+        ("removed", UserRole.sourcer),
+    ):
+        people[key], _ = await _seed_user(role)
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"BT leads {unique}")
+        category = CompetenceCategory(
+            slug=f"bt-leads-{unique}",
+            name_pl=f"Kategoria {unique}",
+            name_en=f"Category {unique}",
+            description="kategoria testowa listy prowadzących",
+        )
+        db.add_all([cli, category])
+        await db.flush()
+
+        def job(key: str, *, handed_off: timedelta, **fields) -> Job:
+            row = Job(
+                title=f"BT leads {key} {unique}",
+                status=fields.pop("status", JobStatus.published),
+                work_state=fields.pop("work_state", "searching"),
+                work_state_changed_at=now - handed_off,
+                client_id=cli.id,
+                delivery_lead_id=dl_id,
+                **fields,
+            )
+            db.add(row)
+            return row
+
+        fresh = timedelta(seconds=20)
+        jobs = {
+            "auto": job(
+                "auto",
+                handed_off=fresh,
+                recruiter_id=people["auto"],
+                competence_category_id=category.id,
+                working_title=f"BT leads tytuł roboczy {unique}",
+                priority=JobPriority.urgent,
+            ),
+            "manual": job("manual", handed_off=fresh),
+            "owner": job("owner", handed_off=fresh, recruiter_id=people["owner"]),
+            "proposed": job("proposed", handed_off=fresh),
+            "passive": job("passive", handed_off=fresh, priority=JobPriority.low),
+            "fresh_empty": job("fresh-empty", handed_off=fresh),
+            "stale_empty": job("stale-empty", handed_off=timedelta(minutes=5)),
+            # Poza listą: przekazana dawno, nieprzekazana, zamknięta.
+            "old": job("old", handed_off=timedelta(days=8)),
+            "to_review": job("to-review", handed_off=fresh, work_state="to_review"),
+            "closed": job("closed", handed_off=fresh, status=JobStatus.closed),
+        }
+        await db.flush()
+        db.add_all(
+            [
+                JobWorkAssignment(
+                    job_id=jobs["auto"].id,
+                    user_id=people["auto"],
+                    role="recruiter",
+                    source="auto",
+                    state="active",
+                    assigned_at=now,
+                ),
+                JobWorkAssignment(
+                    job_id=jobs["manual"].id,
+                    user_id=people["manual"],
+                    role="sourcer",
+                    source="manual",
+                    state="active",
+                    assigned_at=now,
+                    assigned_by=hor_id,
+                ),
+                JobWorkAssignment(
+                    job_id=jobs["proposed"].id,
+                    user_id=people["proposed"],
+                    role="recruiter",
+                    source="auto",
+                    state="proposed",
+                    assigned_at=now,
+                ),
+                JobCollaborator(
+                    job_id=jobs["auto"].id,
+                    user_id=people["participant"],
+                    source=JobCollaboratorSource.auto_cc,
+                ),
+                JobCollaborator(
+                    job_id=jobs["auto"].id,
+                    user_id=people["auto"],
+                    source=JobCollaboratorSource.auto_cc,
+                ),
+                # Zdjęty z rekrutacji i dopisany ręcznie nie są „z kategorii”.
+                JobCollaborator(
+                    job_id=jobs["auto"].id,
+                    user_id=people["removed"],
+                    source=JobCollaboratorSource.auto_cc,
+                    removed_from_auto_cc=True,
+                ),
+                JobCollaborator(
+                    job_id=jobs["auto"].id,
+                    user_id=people["manual"],
+                    source=JobCollaboratorSource.manual,
+                ),
+            ]
+        )
+        await db.commit()
+        return {
+            "unique": unique,
+            "people": people,
+            "jobs": {key: row.id for key, row in jobs.items()},
+            "client_id": cli.id,
+            "client_name": cli.name,
+            "category_id": category.id,
+            "category_name": category.name_pl,
+            "category_slug": category.slug,
+        }
+
+
+async def _drop_job_leads(seeded: dict) -> None:
+    from app.models.competence_category import CompetenceCategory
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(Job).where(Job.id.in_(seeded["jobs"].values())))
+        await db.execute(delete(Client).where(Client.id == seeded["client_id"]))
+        await db.execute(
+            delete(CompetenceCategory).where(
+                CompetenceCategory.id == seeded["category_id"]
+            )
+        )
+        await db.commit()
+
+
+def _patch_job_leads(monkeypatch, *, mode: str) -> None:
+    """Wspólna baza testowa: lista bez limitu wierszy (cudze świeże rekrutacje
+    nie wypchną naszych) i z trybem automatu ustawionym przez test."""
+    from app.services import new_job_leads, recruitment_allocation
+
+    async def fixed_mode(_db) -> str:
+        return mode
+
+    monkeypatch.setattr(new_job_leads, "MAX_ROWS", 100_000)
+    monkeypatch.setattr(recruitment_allocation, "effective_allocation_mode", fixed_mode)
+
+
+@pytest.mark.asyncio
+async def test_new_job_leads_show_who_leads_fresh_handoffs(
+    api_client: AsyncClient, monkeypatch
+) -> None:
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, _ = await _seed_user(UserRole.delivery_lead)
+    seeded = await _seed_job_leads(hor_id, dl_id)
+    jobs, people = seeded["jobs"], seeded["people"]
+    try:
+        _patch_job_leads(monkeypatch, mode="auto")
+        hor = await _login(api_client, hor_creds)
+        resp = await api_client.get("/api/board-tasks", headers=hor)
+        assert resp.status_code == 200, resp.text
+        listed = resp.json()["new_job_leads"]
+        mine = {row["job_id"]: row for row in listed if row["job_id"] in jobs.values()}
+        # Przekazane dawniej niż 7 dni, nieprzekazane i zamknięte nie wchodzą.
+        assert set(mine) == {
+            jobs[key]
+            for key in (
+                "auto",
+                "manual",
+                "owner",
+                "proposed",
+                "passive",
+                "fresh_empty",
+                "stale_empty",
+            )
+        }
+        # Od najnowszego przekazania.
+        handed_off = [datetime.fromisoformat(row["handed_off_at"]) for row in listed]
+        assert handed_off == sorted(handed_off, reverse=True)
+
+        async with AsyncSessionLocal() as db:
+            names = dict(
+                (
+                    await db.execute(
+                        select(User.id, User.name).where(
+                            User.id.in_([hor_id, dl_id, *people.values()])
+                        )
+                    )
+                ).all()
+            )
+
+        auto = mine[jobs["auto"]]
+        assert auto["title"] == f"BT leads tytuł roboczy {seeded['unique']}"
+        assert auto["client_name"] == seeded["client_name"]
+        assert (
+            auto["category_id"],
+            auto["category_name"],
+            auto["category_slug"],
+        ) == (
+            seeded["category_id"],
+            seeded["category_name"],
+            seeded["category_slug"],
+        )
+        assert auto["participants"] == 2
+        assert auto["priority_level"] == "p1"
+        assert auto["delivery_lead_name"] == names[dl_id]
+        assert auto["handed_off_at"] is not None
+        assert (auto["lead_user_id"], auto["lead_name"], auto["lead_role"]) == (
+            people["auto"],
+            names[people["auto"]],
+            "recruiter",
+        )
+        assert auto["lead_source"] == "auto"
+        assert auto["assigned_by_name"] is None
+        assert auto["proposed"] is False and auto["pending_reason"] is None
+
+        manual = mine[jobs["manual"]]
+        assert manual["title"] == f"BT leads manual {seeded['unique']}"
+        assert (manual["lead_user_id"], manual["lead_role"]) == (
+            people["manual"],
+            "sourcer",
+        )
+        assert manual["lead_source"] == "manual"
+        assert manual["assigned_by_name"] == names[hor_id]
+        assert manual["participants"] == 0 and manual["category_id"] is None
+        assert manual["priority_level"] == "p2"
+
+        # Prowadzący wpisany ręcznie, bez wiersza przypisania.
+        owner = mine[jobs["owner"]]
+        assert (owner["lead_user_id"], owner["lead_source"]) == (
+            people["owner"],
+            "manual",
+        )
+        assert owner["proposed"] is False and owner["pending_reason"] is None
+
+        # Sama propozycja automatu: pola opisują osobę proponowaną.
+        proposed = mine[jobs["proposed"]]
+        assert (proposed["lead_user_id"], proposed["lead_name"]) == (
+            people["proposed"],
+            names[people["proposed"]],
+        )
+        assert proposed["proposed"] is True
+        assert proposed["lead_source"] == "auto"
+        assert proposed["pending_reason"] is None
+
+        # Nikt nie prowadzi — trzy różne powody.
+        passive = mine[jobs["passive"]]
+        assert passive["priority_level"] == "accepting"
+        assert passive["pending_reason"] == "passive"
+        assert mine[jobs["fresh_empty"]]["pending_reason"] == "assigning"
+        assert mine[jobs["stale_empty"]]["pending_reason"] == "none"
+        for key in ("passive", "fresh_empty", "stale_empty"):
+            row = mine[jobs[key]]
+            assert row["lead_user_id"] is None and row["lead_name"] is None
+            assert row["lead_source"] is None and row["proposed"] is False
+
+        # Automat tylko proponuje (albo jest wyłączony): świeżo przekazana
+        # rekrutacja bez nikogo nie jest „w trakcie przydziału”.
+        _patch_job_leads(monkeypatch, mode="shadow")
+        resp = await api_client.get("/api/board-tasks", headers=hor)
+        again = {row["job_id"]: row for row in resp.json()["new_job_leads"]}
+        assert again[jobs["fresh_empty"]]["pending_reason"] == "none"
+    finally:
+        await _drop_job_leads(seeded)
+
+
+@pytest.mark.asyncio
+async def test_new_job_leads_reach_only_admin_and_head_of_recruitment(
+    api_client: AsyncClient, monkeypatch
+) -> None:
+    hor_id, _ = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    _, rec_creds = await _seed_user(UserRole.recruiter)
+    _, admin_creds = await _seed_user(UserRole.admin)
+    seeded = await _seed_job_leads(hor_id, dl_id)
+    try:
+        _patch_job_leads(monkeypatch, mode="shadow")
+        for creds in (dl_creds, rec_creds):
+            headers = await _login(api_client, creds)
+            resp = await api_client.get("/api/board-tasks", headers=headers)
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["new_job_leads"] == []
+
+        admin = await _login(api_client, admin_creds)
+        resp = await api_client.get("/api/board-tasks", headers=admin)
+        assert resp.status_code == 200, resp.text
+        assert seeded["jobs"]["auto"] in {
+            row["job_id"] for row in resp.json()["new_job_leads"]
+        }
+    finally:
+        await _drop_job_leads(seeded)
+
+
+@pytest.mark.asyncio
+async def test_board_tasks_survive_a_failure_while_loading_job_leads(
+    api_client: AsyncClient, monkeypatch
+) -> None:
+    from app.services import new_job_leads
+
+    async def boom(_db, *, now):
+        raise RuntimeError("job leads down")
+
+    monkeypatch.setattr(new_job_leads, "load_new_job_leads", boom)
+    _, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    resp = await api_client.get("/api/board-tasks", headers=hor)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["new_job_leads"] == []
+    # Reszta kolejki liczy się normalnie.
+    assert isinstance(body["cpro_to_send"], list)

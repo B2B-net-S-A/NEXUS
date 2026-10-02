@@ -8,7 +8,7 @@ co reszta przydziałów (``allocation_lock``):
 * po każdej zmianie, która może zmienić przydział (zdarzenia z outboxa
   ``recruitment_allocation_events``: rekrutacja, kategoria osoby, …);
 * raz dziennie o ``review_time`` z Ustawień — wtedy też idzie poranny dzwonek
-  „Od dziś: …” do ludzi i skrót dla Delivery Leadów.
+  „Zwolnione: …” do ludzi i skrót dla Delivery Leadów.
 
 Tryby (``recruitment_allocation_state.mode``): ``off`` — nic; ``shadow`` —
 przypisania jako ``proposed`` (pulpit pokazuje je jako propozycję, nikt nic
@@ -24,9 +24,10 @@ dostaje dzwonka. Kto pracuje nad requestem, mówi jedna reguła
 pracować inną drogą (Delivery Lead przypisał rekrutera, rekruter wziął
 request sam).
 
-Urlopy: ``workforce_context`` z Compassa. Bez świeżych danych tryb ``auto``
-nie przydziela nikomu nowych requestów (mógłby trafić ktoś na urlopie), a
-tryb ``shadow`` proponuje dalej i pulpit mówi, że danych o urlopach brak.
+Urlopy: ``workforce_context`` z Compassa. Gdy urlopy są włączone, a dane
+nieaktualne, tryb ``auto`` nie przydziela nikomu nowych requestów (mógłby
+trafić ktoś na urlopie). Przy wyłączonych urlopach automat przydziela od razu,
+a tryb ``shadow`` proponuje zawsze — pulpit mówi, że danych o urlopach brak.
 
 Prowadzący rekrutacji (``jobs.recruiter_id`` — z handoffu, z Traffita albo
 wpisany ręcznie) jest przy requeście z urzędu: przebieg dopisuje mu wiersz
@@ -509,6 +510,9 @@ async def _apply(
     db: AsyncSession, changes: list[Change], *, mode: str, now: datetime
 ) -> dict[str, int]:
     counts = {"assigned": 0, "released": 0, "activated": 0}
+    # Pary, które w tym przebiegu zaczęły pracować z woli automatu — dostają
+    # dzwonek od razu, nie rano.
+    started: list[tuple[int, int]] = []
     for change in changes:
         live_row = and_(
             JobWorkAssignment.job_id == change.job_id,
@@ -552,6 +556,7 @@ async def _apply(
                 .values(state="active", assigned_at=now)
             )
             counts["activated"] += 1
+            started.append((change.job_id, change.user_id))
             if change.role == "recruiter":
                 await _set_owner_if_empty(db, change.job_id, change.user_id)
         elif change.kind == "assign":
@@ -567,9 +572,21 @@ async def _apply(
                 )
             )
             counts["assigned"] += 1
-            if state == "active" and change.role == "recruiter":
-                await _set_owner_if_empty(db, change.job_id, change.user_id)
+            if state == "active":
+                started.append((change.job_id, change.user_id))
+                if change.role == "recruiter":
+                    await _set_owner_if_empty(db, change.job_id, change.user_id)
     await db.flush()
+    if started:
+        try:
+            from app.services.request_allocation_notices import (  # noqa: PLC0415
+                notify_assigned_pairs,
+            )
+
+            async with db.begin_nested():
+                await notify_assigned_pairs(db, started)
+        except Exception:  # noqa: BLE001 — dzwonek nie może zatrzymać przydziału
+            logger.exception("[request_allocation] assignment notices failed")
     return counts
 
 
@@ -639,6 +656,10 @@ async def run_request_allocation(
     staffed: frozenset[int] = frozenset()
     extra_load: dict[int, int] = {}
     rejected: frozenset[tuple[int, int]] = frozenset()
+    # Urlopy z Compassa włączone, ale nieaktualne: tryb ``auto`` czeka, bo
+    # request mógłby dostać ktoś na urlopie. Przy wyłączonych urlopach nie ma
+    # na co czekać — automat przydziela od razu.
+    leave_blocks_auto = settings.COMPASS_AVAILABILITY_ENABLED and not availability_fresh
     if mode != "off":
         # Tryb ``off`` niczego nie przydziela — nie liczy obsady ani blokad.
         staffed, extra_load = await _unseen_workers(db, requests, live)
@@ -653,6 +674,7 @@ async def run_request_allocation(
             mode=mode,
             availability_known=availability_fresh
             and settings.COMPASS_AVAILABILITY_ENABLED,
+            leave_blocks_auto=leave_blocks_auto,
             eligible_ids=eligible_ids,
             blocked=blocked | rejected,
             inactive_ids=inactive_ids,
@@ -670,6 +692,7 @@ async def run_request_allocation(
             "availability_known": bool(
                 availability_fresh and settings.COMPASS_AVAILABILITY_ENABLED
             ),
+            "leave_blocks_auto": bool(leave_blocks_auto),
             **counts,
             **owner_counts,
         }

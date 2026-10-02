@@ -37,7 +37,10 @@ export function composeWorkingTitle(
   const names: string[] = [];
   const seen = new Set<string>();
   for (const item of must ?? []) {
-    const name = clean(typeof item === "object" && item !== null ? item.name : item);
+    // „Kafka lub RabbitMQ” w tytule to sama „Kafka” (lustro backendu).
+    const name = clean(typeof item === "object" && item !== null ? item.name : item)
+      .split(" lub ")[0]
+      .trim();
     const key = name.toLocaleLowerCase("pl");
     if (name && !seen.has(key)) {
       seen.add(key);

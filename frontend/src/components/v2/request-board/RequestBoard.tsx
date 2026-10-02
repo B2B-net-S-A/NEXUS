@@ -118,9 +118,12 @@ const MODE_COPY: Record<RequestBoardData["mode"], { label: string; hint: string 
     label: "Automat proponuje — akceptuje Head of Recruitment",
     hint: "Do akceptacji nikt nie jest przypisany.",
   },
+  // W trybie „auto” nikt niczego nie zatwierdza: rekruter prowadzący jest
+  // przypisany od razu, a Head of Recruitment zmienia tylko to, z czym się
+  // nie zgadza.
   auto: {
-    label: "Automat włączony",
-    hint: "Automat przydziela ludzi codziennie rano i po każdej zmianie.",
+    label: "Automat przydziela od razu",
+    hint: "Rekruter prowadzący jest przypisany zaraz po przekazaniu do searchu — Head of Recruitment może go zmienić.",
   },
 }
 

@@ -51,6 +51,24 @@ vi.mock("@/components/v2/pages/candidate-list-query", () => ({
   fetchCandidateListPage: (...args: unknown[]) => listMock(...args),
 }));
 
+// Edytor wierszy wymagań pyta serwer o to, które słowa są technologiami,
+// i o liczbę osób — w teście odpowiada atrapa (ma osobne testy).
+const legacyRowsMock = vi.fn();
+vi.mock("@/lib/requirement-rows-api", () => ({
+  useRowCriticalInfo: (rows: { key: string; words: string[]; level: string }[]) => ({
+    info: Object.fromEntries(
+      rows
+        .filter((row) => row.level !== "nice")
+        .map((row) => [row.key, { label: row.words[0], eligible: true, suggested: false }]),
+    ),
+    isLoading: false,
+    isError: false,
+    retry: () => undefined,
+  }),
+  useRowCounts: () => ({ perRow: {}, required: undefined, critical: undefined, failed: false }),
+  fetchRowsFromLegacy: (...args: unknown[]) => legacyRowsMock(...args),
+}));
+
 // Panel źródeł ma WŁASNE zapytania (notatki, oczekujące propozycje) — dla
 // testu zapisu wystarczy, że się nie montuje z siecią.
 vi.mock("@/components/ChampionProfileSourcesPanel", () => ({
@@ -90,6 +108,7 @@ beforeEach(() => {
   getMock.mockReset();
   putMock.mockReset();
   generateFromJdMock.mockReset();
+  legacyRowsMock.mockReset();
   useAuthStore.setState({
     user: recruiter,
     realUser: null,
@@ -215,12 +234,13 @@ describe("ChampionProfileEditor — układ makiety kroku 02", () => {
     expect(proseAt).toBeGreaterThan(stackAt);
   });
 
-  it("gdy 2 · 4 · 5 są PUSTE — skrót z dwoma polami i „Rozwiń pełne sekcje”, kotwice sekcji zostają", async () => {
+  it("gdy 2 · 4 · 5 są PUSTE — skrót z opisem projektu i „Rozwiń pełne sekcje”, kotwice sekcji zostają", async () => {
     getMock.mockResolvedValue({ data: { job_id: 1, champion_profile: {} } });
     const { container } = renderEditor(1);
     await screen.findByText(BASICS_LABEL);
 
-    expect(screen.getByLabelText(/Frazy do LinkedIna/i)).toBeInTheDocument();
+    // „Frazy do LinkedIna” usunięte 02.10.2026 — ani w skrócie, ani w pełnej sekcji.
+    expect(screen.queryByLabelText(/Frazy do LinkedIna/i)).not.toBeInTheDocument();
     // Wymagania do wyszukiwania (sekcja 2, 25.09.2026) — widoczne także w skrócie.
     expect(screen.getByText(/Wymagania do wyszukiwania w bazie/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/O projekcie \(2 zdania\)/i)).toBeInTheDocument();
@@ -320,6 +340,127 @@ describe("ChampionProfileEditor — wymagania do wyszukiwania (sekcja 2)", () =>
       await screen.findByText("Szukamy osób, które mają Java."),
     ).toBeInTheDocument();
     expect(screen.queryByLabelText("Wymaganie 1 — słowo albo wariant")).not.toBeInTheDocument();
+  });
+});
+
+describe("ChampionProfileEditor — wymagania jako wiersze słów kluczowych (02.10.2026)", () => {
+  const ROWS_PROFILE = {
+    stack: {
+      must: [{ name: "Java" }, { name: "Kafka lub RabbitMQ" }],
+      nice: [{ name: "Kubernetes" }],
+      critical: ["Kafka lub RabbitMQ"],
+      notes: "",
+      rows: [
+        { words: ["Java"], level: "must" },
+        { words: ["Kafka", "RabbitMQ"], level: "must" },
+        { words: ["Kubernetes"], level: "nice" },
+      ],
+    },
+    search: { requirements: [["Java"], ["Kafka", "RabbitMQ"]] },
+  };
+
+  function renderAdmin(jobId: number) {
+    useAuthStore.setState({ user: { ...recruiter, role: "admin", roles: ["admin"] } as User });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor jobId={jobId} canEdit clientId={null} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("profil z wierszami: jedna lista zamiast pól must / krytyczne / wyszukiwanie", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 21, champion_profile: ROWS_PROFILE } });
+    renderAdmin(21);
+    expect(await screen.findByTestId("champion-requirement-rows")).toBeInTheDocument();
+    expect(screen.queryByTestId("champion-stack-must")).not.toBeInTheDocument();
+    expect(screen.queryByText("Wymagania do wyszukiwania w bazie")).not.toBeInTheDocument();
+    // Krytyczne z zapisu wracają jako poziom wiersza.
+    expect(
+      screen
+        .getByRole("radiogroup", { name: "Poziom wymagania: Kafka" })
+        .querySelector('[aria-checked="true"]'),
+    ).toHaveTextContent("Krytyczne");
+    expect(screen.queryByTestId("champion-simplify-requirements")).not.toBeInTheDocument();
+  });
+
+  it("zapis wysyła wiersze z poziomami (bez kluczy Reacta), a zmiana poziomu zdejmuje krytyczne", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 22, champion_profile: ROWS_PROFILE } });
+    putMock.mockResolvedValue({ data: { job_id: 22, champion_profile: ROWS_PROFILE } });
+    renderAdmin(22);
+    await screen.findByTestId("champion-requirement-rows");
+    const kafka = screen.getByRole("radiogroup", { name: "Poziom wymagania: Kafka" });
+    await userEvent.click(
+      Array.from(kafka.querySelectorAll("button")).find((b) => b.textContent === "Musi mieć")!,
+    );
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    const payload = putMock.mock.calls[0][1] as {
+      stack: { rows: Record<string, unknown>[]; critical: unknown };
+      search: { requirements: string[][] };
+    };
+    expect(payload.stack.rows).toEqual([
+      { words: ["Java"], level: "must" },
+      { words: ["Kafka", "RabbitMQ"], level: "must" },
+      { words: ["Kubernetes"], level: "nice" },
+    ]);
+    // Nikt nie zaznaczył „Brak krytycznych”, więc decyzji nie ma.
+    expect(payload.stack.critical).toBeNull();
+    expect(payload.search.requirements).toEqual([["Java"], ["Kafka", "RabbitMQ"]]);
+  });
+
+  it("„Uprość do słów kluczowych” zamienia stare pola na wiersze, a zdania klienta idą do niuansów", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 23,
+        champion_profile: {
+          stack: {
+            must: [{ name: "Java 17+" }, { name: "Doświadczenie w dużych projektach bankowych" }],
+            nice: [],
+            notes: "",
+          },
+          search: { requirements: [["bankow*", "banking"]] },
+        },
+      },
+    });
+    legacyRowsMock.mockResolvedValue({
+      rows: [
+        { words: ["bankow*", "banking"], level: "must" },
+        { words: ["Java"], level: "must" },
+      ],
+      descriptive: ["Java 17+", "Doświadczenie w dużych projektach bankowych"],
+      no_critical: false,
+    });
+    putMock.mockResolvedValue({ data: { job_id: 23, champion_profile: {} } });
+    renderAdmin(23);
+    await userEvent.click(await screen.findByTestId("champion-simplify-requirements"));
+    expect(await screen.findByTestId("champion-requirement-rows")).toBeInTheDocument();
+    expect(legacyRowsMock).toHaveBeenCalledWith({
+      must: ["Java 17+", "Doświadczenie w dużych projektach bankowych"],
+      nice: [],
+      requirements: [["bankow*", "banking"]],
+      critical: null,
+    });
+    // Nic nie jest zapisane, dopóki DL nie kliknie „Zapisz”.
+    expect(putMock).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    const payload = putMock.mock.calls[0][1] as {
+      stack: { rows: unknown[]; notes: string };
+    };
+    expect(payload.stack.rows).toEqual([
+      { words: ["bankow*", "banking"], level: "must" },
+      { words: ["Java"], level: "must" },
+    ]);
+    expect(payload.stack.notes).toBe("Java 17+\nDoświadczenie w dużych projektach bankowych");
+  });
+
+  it("bez prawa edycji — lista wymagań z poziomami, bez pól", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 24, champion_profile: ROWS_PROFILE } });
+    renderEditor(24);
+    expect(await screen.findByText("Kafka lub RabbitMQ")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Wymaganie 1 — słowo albo wariant")).not.toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: /Poziom wymagania/ })).not.toBeInTheDocument();
   });
 });
 

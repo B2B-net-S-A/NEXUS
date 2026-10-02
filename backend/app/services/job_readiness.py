@@ -56,6 +56,10 @@ MSG_SEARCH_REQUIREMENTS = (
     "Dodaj co najmniej jedno wymaganie do wyszukiwania w bazie "
     "(sekcja „Co wpisać” w Profilu Championa)."
 )
+MSG_DEAL_BREAKER = (
+    "Przy każdym pytaniu screeningowym wpisz odpowiedź, która dyskwalifikuje "
+    "kandydata (Profil Championa)."
+)
 
 # Kod walidacji Championa → zdanie bramki briefu/rubryki, które opisuje TEN SAM
 # brak. Issue Championa znika z listy handoffu WYŁĄCZNIE wtedy, gdy to zdanie
@@ -190,9 +194,30 @@ def job_search_blockers(job: Job) -> list[str]:
     return [MSG_SEARCH_REQUIREMENTS]
 
 
+def job_question_blockers(job: Job) -> list[str]:
+    """Odpowiedź dyskwalifikująca przy każdym pytaniu (decyzja Artura 02.10.2026).
+
+    Rekruter ma wiedzieć nie tylko, co jest dobrą odpowiedzią, ale i co
+    kandydata skreśla. Tylko przy PIERWSZYM przekazaniu do searchu: rekrutacja
+    już przekazana (`is_open`) nie jest blokowana — 96 z 99 pytań sprzed tej
+    daty nie miało tego pola. Automatyczna alokacja tej bramki nie czyta.
+    """
+    if getattr(job, "is_open", False):
+        return []
+    questions = (job.champion_profile or {}).get("screening_questions")
+    for question in questions if isinstance(questions, list) else []:
+        if not isinstance(question, dict):
+            continue
+        if not str(question.get("question") or "").strip():
+            continue
+        if not str(question.get("deal_breaker") or "").strip():
+            return [MSG_DEAL_BREAKER]
+    return []
+
+
 def job_handoff_blockers(job: Job) -> list[str]:
     """Pełna bramka „Przekaż do searchu": brief + trzy rubryki + wymagania do
-    wyszukiwania, w tej kolejności.
+    wyszukiwania + odpowiedzi dyskwalifikujące, w tej kolejności.
 
     Kolejność jest częścią kontraktu — ``JobHandoffButton`` renderuje listę
     dosłownie, a braki briefu są bardziej podstawowe niż braki rubryk.
@@ -209,6 +234,7 @@ def job_handoff_blockers(job: Job) -> list[str]:
         job_readiness_blockers(job)
         + job_rubric_blockers(job)
         + job_search_blockers(job)
+        + job_question_blockers(job)
     )
     listed = set(gate)
     return gate + [

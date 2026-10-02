@@ -25,8 +25,16 @@ _READY_CHAMPION = {
         "responsibilities": "Rozwój usług backendowych",
     },
     "screening_questions": [
-        {"id": "q1", "question": "Doświadczenie z Pythonem?"},
-        {"id": "q2", "question": "Doświadczenie z Postgres?"},
+        {
+            "id": "q1",
+            "question": "Doświadczenie z Pythonem?",
+            "deal_breaker": "Brak komercyjnego projektu w Pythonie.",
+        },
+        {
+            "id": "q2",
+            "question": "Doświadczenie z Postgres?",
+            "deal_breaker": "Nie pracował z relacyjną bazą.",
+        },
     ],
     # 0278: sekcje rubryk (must-have / budżet / tryb pracy) — obok jawnych
     # kolumn ustawianych w `_seed_job` (na wypadek testów, które PUT-ują ten
