@@ -876,7 +876,7 @@ function Detail({
       {/* Cztery kolumny z kwotami (twarda spacja) — na telefonie przewijane
           w bok zamiast wypychać całą sekcję szczegółów. */}
       <div className="mt-1.5 overflow-x-auto">
-      <table className="w-full min-w-[520px] text-sm">
+      <table className="w-full min-w-[420px] text-sm">
         <thead className={CALM_HEAD}>
           <tr className="border-b border-border text-left">
             <th className="py-1.5 pr-2">Osoba</th>

@@ -195,6 +195,8 @@ export default function OrderMailPreviewPage() {
   }, []);
   const items = outcome === "needs_review" ? ITEMS : [];
   return (
+    // Ekran produkcyjny dostaje margines od powłoki; harness jej nie ma.
+    <div className="p-4 sm:p-6">
     <OrderMailQueueView
       loadPdf={loadStaticPdf}
       mailbox={{
@@ -229,5 +231,6 @@ export default function OrderMailPreviewPage() {
         onRetry: () => undefined,
       }}
     />
+    </div>
   );
 }

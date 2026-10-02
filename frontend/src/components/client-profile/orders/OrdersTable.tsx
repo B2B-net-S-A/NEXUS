@@ -92,7 +92,9 @@ function TileColumns() {
       <col className="w-[26%]" />
       <col className="w-[7rem]" />
       <col className="w-[7rem]" />
-      <col className="w-[11.5rem]" />
+      {/* Pasek (96 px) + „22 / 60 MD” potrzebują 184 px treści — przy 11,5 rem
+          liczba wchodziła pod przycisk „Zużycie”. */}
+      <col className="w-[13rem]" />
       <col className="w-[10.5rem]" />
       <col />
     </colgroup>
