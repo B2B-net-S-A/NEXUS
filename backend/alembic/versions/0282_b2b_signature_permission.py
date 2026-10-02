@@ -3,7 +3,7 @@
 CHECK akcji pochodzi ze wspólnego źródła (``permission_schema``), a nie
 z literału tej rewizji: ``signature_policy_bootstrap`` wykonuje ``upgrade()``
 ponownie przy starcie, gdy polityki brakuje, i literał z dwiema akcjami
-odrzuciłby wtedy wiersze uprawnień dodanych w 0409.
+odrzuciłby wtedy wiersze uprawnień dodanych w 0410.
 """
 
 from alembic import op

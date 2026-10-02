@@ -10,6 +10,7 @@ vi.mock("@/store/auth", () => ({
 import {
   CHAT_REFRESH_COALESCE_MS,
   PIPELINE_CHANGED_DEBOUNCE_MS,
+  jobIdFromLink,
   reconnectDelayMs,
   useNotifications,
 } from "@/hooks/useNotifications";
@@ -253,6 +254,88 @@ describe("useNotifications — pipeline_changed (live kanban)", () => {
       vi.advanceTimersByTime(PIPELINE_CHANGED_DEBOUNCE_MS * 2);
     });
     expect(keys()).toEqual([]);
+  });
+});
+
+describe("useNotifications — przydział requestów (propozycje automatu i akceptacja)", () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function deliver(data: Record<string, unknown>) {
+    const ws = FakeWebSocket.instances[0];
+    act(() => ws.onopen?.());
+    act(() =>
+      ws.onmessage?.({
+        data: JSON.stringify({
+          type: "notification",
+          data: { id: 1, title: "t", message: "m", created_at: "2026-10-02T08:00:00Z", ...data },
+        }),
+      }),
+    );
+  }
+
+  it("nowa propozycja automatu odświeża „Czeka na Ciebie” i pulpit „Requesty i obłożenie”", () => {
+    const { hook, keys } = setup();
+    deliver({ notification_type: "request_allocation_proposals", link: "/dashboard#czeka-na-ciebie" });
+    expect(keys()).toEqual([
+      JSON.stringify(["notifications"]),
+      JSON.stringify(["board-tasks"]),
+      JSON.stringify(["request-board"]),
+    ]);
+    hook.unmount();
+  });
+
+  it("przydzielony request odświeża rekrutację, listę „Moje” z licznikami, pulpit i zadania", () => {
+    const { hook, keys } = setup();
+    deliver({ notification_type: "request_assignment_changed", link: "/jobs/42" });
+    expect(keys()).toEqual([
+      JSON.stringify(["notifications"]),
+      // Rekrutacja żyje pod dwoma kluczami (liczba i napis z adresu).
+      JSON.stringify(["job", 42]),
+      JSON.stringify(["job", "42"]),
+      JSON.stringify(["jobs-v2"]),
+      JSON.stringify(["jobs-quick-counts"]),
+      JSON.stringify(["request-board"]),
+      JSON.stringify(["board-tasks"]),
+    ]);
+    hook.unmount();
+  });
+
+  it("poranny zbiorczy wpis (link na pulpit) odświeża każdą wczytaną rekrutację", () => {
+    const { hook, keys } = setup();
+    deliver({ notification_type: "request_assignment_changed", link: "/dashboard" });
+    expect(keys()).toContain(JSON.stringify(["job"]));
+    expect(keys()).toContain(JSON.stringify(["jobs-v2"]));
+    expect(keys()).toContain(JSON.stringify(["request-board"]));
+    hook.unmount();
+  });
+
+  it("inne powiadomienie odświeża tylko dzwonek", () => {
+    const { hook, keys } = setup();
+    deliver({ notification_type: "stage_changed", link: "/jobs/42" });
+    expect(keys()).toEqual([JSON.stringify(["notifications"])]);
+    hook.unmount();
+  });
+});
+
+describe("jobIdFromLink", () => {
+  it("czyta id rekrutacji tylko z linku do rekrutacji", () => {
+    expect(jobIdFromLink("/jobs/42")).toBe(42);
+    expect(jobIdFromLink("/jobs/42?tab=champion")).toBe(42);
+    expect(jobIdFromLink("/jobs/42/")).toBe(42);
+    expect(jobIdFromLink("/jobs/review-states")).toBeNull();
+    expect(jobIdFromLink("/jobs/0")).toBeNull();
+    expect(jobIdFromLink("/dashboard#czeka-na-ciebie")).toBeNull();
+    expect(jobIdFromLink("/candidates/42")).toBeNull();
+    expect(jobIdFromLink(undefined)).toBeNull();
+    expect(jobIdFromLink(null)).toBeNull();
   });
 });
 

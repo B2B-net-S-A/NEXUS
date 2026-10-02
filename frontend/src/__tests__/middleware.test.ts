@@ -209,6 +209,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/candidate-merge",
     "/preview/job-portals",
     "/preview/request-allocation",
+    "/preview/job-team-panel",
     "/preview/plain-brief",
     "/preview/job-board-screening",
     "/preview/permissions",
@@ -645,7 +646,7 @@ describe("zawężenia ról nadal obowiązują", () => {
     }
   })
 
-  describe("/settings/cv-rules — zapis w Delivery zamiast listy ról (0409)", () => {
+  describe("/settings/cv-rules — zapis w Delivery zamiast listy ról (0410)", () => {
     const withSections = (
       role: string,
       delivery: "none" | "read" | "write",
@@ -666,7 +667,7 @@ describe("zawężenia ról nadal obowiązują", () => {
 
     it("wpuszcza każdego z zapisem Delivery — także rolę spoza admin/DL", () => {
       // Rekruter z nadanym „Klienci: dodawanie i edycja” ma w tokenie Delivery
-      // „write”; do 0409 `enforceRoles` odsyłał go na /403 mimo uprawnienia.
+      // „write”; do 0410 `enforceRoles` odsyłał go na /403 mimo uprawnienia.
       expect(destination("/settings/cv-rules", withSections("recruiter", "write"))).toBe(
         "pass",
       );

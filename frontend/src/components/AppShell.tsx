@@ -1692,9 +1692,11 @@ function JobFormFields({
       <FieldGroup label="Budżet PLN/h dla kandydata (switch „poza budżetem”)">
         <Input type="number" value={form.rate_budget_hourly} onChange={e => onChange("rate_budget_hourly", e.target.value)} placeholder="np. 150 — puste = użyjemy stawki Championa" />
       </FieldGroup>
-      <FieldGroup label="Rekruter prowadzący">
+      {/* 02.10.2026: rola nazywa się „Rekruter” (dawniej „Rekruter prowadzący”
+          i „Współpracownicy”) — zmieniły się tylko etykiety, zapis jest ten sam. */}
+      <FieldGroup label="Rekruter">
         <Select value={form.recruiter_id} onChange={e => onChange("recruiter_id", e.target.value)}>
-          <option value="">— nieprzypisany —</option>
+          <option value="">— bez rekrutera —</option>
           {users.map((u: any) => (
             <option key={u.id} value={u.id}>
               {u.name || u.full_name || u.email}
@@ -1703,9 +1705,9 @@ function JobFormFields({
           ))}
         </Select>
       </FieldGroup>
-      {/* Decyzja 29.09.2026: kilka osób pracuje nad rekrutacją — prowadzący
-          zostaje jeden, reszta to współpracownicy (liczą się w „Kto pracuje”). */}
-      <FieldGroup label="Współpracownicy">
+      {/* Decyzja 29.09.2026: kilka osób pracuje nad rekrutacją — pierwsza
+          siedzi w polu wyżej, kolejne tutaj (liczą się w filtrze „Rekruter”). */}
+      <FieldGroup label="Kolejne osoby">
         <JobCollaboratorsField
           value={collaborators}
           onChange={onCollaboratorsChange}
@@ -1833,7 +1835,7 @@ export function EditJobModal({
   // 0380: numer u klienta i tytuł dla rekrutera — osobny szkic, bo PATCH
   // wysyła je tylko po zmianie (pusty tytuł = powrót do automatu).
   const [names, setNames] = useState<JobNamesDraft>(() => jobNamesDraft(job));
-  // Ręczni współpracownicy (bez `auto_cc`) — zapis osobnymi trasami po PATCH-u.
+  // „Kolejne osoby” dopisane ręcznie (bez `auto_cc`) — zapis osobnymi trasami po PATCH-u.
   const [collaborators, setCollaborators] = useState<number[]>(() =>
     manualCollaboratorIds(job.collaborators),
   );
@@ -1949,7 +1951,7 @@ export function EditJobModal({
         delivery_lead_id: form.delivery_lead_id ? Number(form.delivery_lead_id) : null,
         ...jobNamesPatch(job, names),
       });
-      // Hiring manager i współpracownicy to dwa niezależne zapisy po
+      // Hiring manager i kolejne osoby to dwa niezależne zapisy po
       // rekrutacji — błąd jednego nie może pominąć drugiego.
       const failures: string[] = [];
       if (!sameChoice(hiringManager, jobHiringManager(job))) {
@@ -1987,7 +1989,7 @@ export function EditJobModal({
             <FieldGroup label="Wymagania">
               <Textarea value={form.requirements} onChange={e => onChange("requirements", e.target.value)} rows={4} placeholder="Wymagania techniczne..." />
             </FieldGroup>
-            <FieldGroup label="Współpracownicy">
+            <FieldGroup label="Kolejne osoby">
               <JobCollaboratorsField
                 value={collaborators}
                 onChange={setCollaborators}
@@ -1996,7 +1998,7 @@ export function EditJobModal({
               />
             </FieldGroup>
             <p className="text-xs text-muted-foreground">
-              Klienta, budżet, prowadzącego, termin i status rekrutacji zmienia Delivery Lead.
+              Klienta, budżet, termin i status rekrutacji zmienia Delivery Lead. Rekrutera przydziela Delivery Lead albo Head of Recruitment.
             </p>
           </>
         ) : (

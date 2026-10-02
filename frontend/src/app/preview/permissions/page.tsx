@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Harness ekranu Ustawienia → Zespół i dostęp → „Osoby i role” (0409) —
+ * Harness ekranu Ustawienia → Zespół i dostęp → „Osoby i role” (0410) —
  * prawdziwy `AdminUsersTab` na zasianym cache react-query, ZERO zapytań
  * (strażnik: `harness-seeds.test.ts`); sieć odcina interceptor, zapisy także
  * layout `/preview`.

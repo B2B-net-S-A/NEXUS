@@ -5,7 +5,7 @@ P0.6a containment: ``GET .../amendments`` (list) i ``.../amendments/{id}/file``
 więc read-only viewer (``user``) oraz recruiter/sourcer mogli iterować i pobierać
 dokumenty prawne (aneksy) dowolnego klienta. Po zmianie chroni je scope
 ``resolve_client_access.can_view_legal_documents`` oraz centralna granica
-sekcji Delivery. Od 0409 odczyt wymaga uprawnienia „Stawki i kwoty: podgląd”:
+sekcji Delivery. Od 0410 odczyt wymaga uprawnienia „Stawki i kwoty: podgląd”:
 domyślnie Admin/Finance mają nadzór organizacyjny, a Delivery Lead dostęp
 wyłącznie przez jawną relację z klientem. TCM widzi bezpieczne dane Delivery,
 ale nie surowe dokumenty prawne (nie ma podglądu kwot — odmowa to nazywa);

@@ -5,29 +5,48 @@
 
 import type {
   BoardGroup,
+  BoardPerson,
   BoardRequest,
+  LoadPerson,
   RequestBoard,
 } from "@/lib/api/requestAllocation"
+import { hasRecruiter, proposedRecruiters, workingRecruiters } from "@/lib/job-team"
+import { pluralPl } from "@/lib/plural-pl"
+import {
+  isPriorityLevel,
+  priorityLevelOf,
+  type PriorityLevel,
+} from "@/lib/request-priority"
 
 export type DueFilter = "" | "late" | "week" | "two" | "none"
 export type SentFilter = "" | "0" | "12" | "3" | "champ"
+export type PriorityFilter = "" | PriorityLevel
 
 export interface BoardFilters {
   q: string
   client: string
+  /** Id Delivery Leada albo `none` (request bez Delivery Leada). */
+  lead: string
   due: DueFilter
   sent: SentFilter
+  /** „Rekruter” — id osoby, która PRACUJE nad requestem (propozycja to za mało). */
   who: string
   cat: string
+  prio: PriorityFilter
+  /** „Bez rekrutera”: `1` = tylko requesty, przy których nikt nie pracuje. */
+  nobody: "" | "1"
 }
 
 export const EMPTY_FILTERS: BoardFilters = {
   q: "",
   client: "",
+  lead: "",
   due: "",
   sent: "",
   who: "",
   cat: "",
+  prio: "",
+  nobody: "",
 }
 
 export const DUE_OPTIONS: { value: DueFilter; label: string }[] = [
@@ -50,23 +69,30 @@ export const SENT_OPTIONS: { value: SentFilter; label: string }[] = [
 const URL_KEYS: Record<keyof BoardFilters, string> = {
   q: "rb_q",
   client: "rb_client",
+  lead: "rb_lead",
   due: "rb_due",
   sent: "rb_sent",
   who: "rb_who",
   cat: "rb_cat",
+  prio: "rb_prio",
+  nobody: "rb_nobody",
 }
 
 export function filtersFromParams(params: URLSearchParams): BoardFilters {
   const read = (key: keyof BoardFilters) => params.get(URL_KEYS[key]) ?? ""
   const due = read("due") as DueFilter
   const sent = read("sent") as SentFilter
+  const prio = read("prio")
   return {
     q: read("q"),
     client: read("client"),
+    lead: read("lead"),
     due: DUE_OPTIONS.some((o) => o.value === due) ? due : "",
     sent: SENT_OPTIONS.some((o) => o.value === sent) ? sent : "",
     who: read("who"),
     cat: read("cat"),
+    prio: isPriorityLevel(prio) ? prio : "",
+    nobody: read("nobody") === "1" ? "1" : "",
   }
 }
 
@@ -87,7 +113,8 @@ export function hasActiveFilters(filters: BoardFilters): boolean {
   return Object.values(filters).some(Boolean)
 }
 
-const fold = (text: string) =>
+/** Bez polskich znaków i wielkości liter — tak szuka pole „Stanowisko” i lista osób. */
+export const fold = (text: string) =>
   text
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
@@ -111,6 +138,43 @@ export function deadlineLabel(deadline: string | null, today: string): string {
   return `za ${days} dni`
 }
 
+// ── Kto pracuje nad requestem ───────────────────────────────────────────────
+
+/**
+ * Osoby do pokazania przy requeście: pracujący, a propozycja automatu tylko
+ * wtedy, gdy nie pracuje nikt i request nie ma championa. Propozycja przy
+ * obsadzonym requeście albo przy requeście z championem (ten wypada z puli
+ * automatu) jest już nieaktualna — serwer nie pokazuje jej Head of Recruitment
+ * i odmawia akceptacji (409), a automat wycofa ją przy najbliższym przebiegu.
+ * Chip z „Akceptuj” kończyłby się wtedy samym błędem.
+ */
+export function boardPeople(
+  request: Pick<BoardRequest, "people"> & Partial<Pick<BoardRequest, "champion">>,
+): BoardPerson[] {
+  const working = workingRecruiters(request.people)
+  if (working.length > 0 || request.champion) return working
+  return proposedRecruiters(request.people)
+}
+
+/**
+ * „Bez rekrutera”: szukamy kandydatów, a nikt nad requestem nie pracuje.
+ * Sama propozycja automatu to jeszcze nie przydział. Request z championem
+ * się nie liczy — tam nikt już nie szuka i nikogo nie da się dodać.
+ */
+export function needsRecruiter(
+  request: Pick<BoardRequest, "people" | "champion">,
+): boolean {
+  return !request.champion && !hasRecruiter(request.people)
+}
+
+/** Ile propozycji automatu czeka na decyzję (requesty bez pracującej osoby). */
+export function pendingProposalCount(board: Pick<RequestBoard, "requests">): number {
+  return board.requests.reduce(
+    (sum, request) => sum + boardPeople(request).filter((p) => p.proposed).length,
+    0,
+  )
+}
+
 export function matchesFilters(
   request: BoardRequest,
   filters: BoardFilters,
@@ -122,8 +186,19 @@ export function matchesFilters(
     const cat = filters.cat === "none" ? null : Number(filters.cat)
     if ((request.category_id ?? null) !== cat) return false
   }
-  if (filters.who && !request.people.some((p) => String(p.user_id) === filters.who))
+  if (filters.lead) {
+    const lead = filters.lead === "none" ? null : Number(filters.lead)
+    if ((request.delivery_lead?.id ?? null) !== lead) return false
+  }
+  if (filters.prio && priorityLevelOf(request) !== filters.prio) return false
+  // „Rekruter” znaczy to samo co na liście rekrutacji: osoba pracuje nad
+  // requestem. Propozycja automatu przed akceptacją nikogo nie przypisuje.
+  if (
+    filters.who &&
+    !workingRecruiters(request.people).some((p) => String(p.user_id) === filters.who)
+  )
     return false
+  if (filters.nobody && !needsRecruiter(request)) return false
   const days = daysToDeadline(request.deadline, today)
   if (filters.due === "late" && !(days !== null && days < 0)) return false
   if (filters.due === "week" && !(days !== null && days >= 0 && days <= 7)) return false
@@ -135,6 +210,19 @@ export function matchesFilters(
   if (filters.sent === "3" && !(request.sent >= 3 && !request.champion)) return false
   if (filters.sent === "champ" && !request.champion) return false
   return true
+}
+
+/**
+ * Ile wierszy zostanie po włączeniu „Bez rekrutera” przy POZOSTAŁYCH filtrach
+ * bez zmian — liczba na przełączniku ma się zgadzać z tym, co pokaże tabela.
+ */
+export function unstaffedCount(
+  board: Pick<RequestBoard, "requests">,
+  filters: BoardFilters,
+  today: string,
+): number {
+  const withToggle: BoardFilters = { ...filters, nobody: "1" }
+  return board.requests.filter((r) => matchesFilters(r, withToggle, today)).length
 }
 
 /** W grupie: szukane od najbliższego terminu, champion na dole. */
@@ -187,11 +275,7 @@ export function groupRequests(
 }
 
 export function requestWord(n: number): string {
-  if (n === 1) return "request"
-  const last = n % 10
-  const lastTwo = n % 100
-  if (last >= 2 && last <= 4 && !(lastTwo >= 12 && lastTwo <= 14)) return "requesty"
-  return "requestów"
+  return pluralPl(n, "request", "requesty", "requestów")
 }
 
 export function clientOptions(board: RequestBoard): string[] {
@@ -204,4 +288,53 @@ export function peopleOptions(board: RequestBoard): { id: string; name: string }
   return board.load
     .map((p) => ({ id: String(p.user_id), name: p.name }))
     .sort((a, b) => a.name.localeCompare(b.name, "pl"))
+}
+
+/**
+ * Delivery Leadzi requestów z pulpitu. `hasNone` = jest request bez Delivery
+ * Leada — filtr dostaje wtedy pozycję „Bez Delivery Leada”, inaczej taki
+ * request dałoby się znaleźć tylko przez przewijanie.
+ */
+export function leadOptions(board: Pick<RequestBoard, "requests">): {
+  options: { id: string; name: string }[]
+  hasNone: boolean
+} {
+  const byId = new Map<number, string>()
+  let hasNone = false
+  for (const request of board.requests) {
+    if (request.delivery_lead) byId.set(request.delivery_lead.id, request.delivery_lead.name)
+    else hasNone = true
+  }
+  return {
+    options: [...byId]
+      .map(([id, name]) => ({ id: String(id), name }))
+      .sort((a, b) => a.name.localeCompare(b.name, "pl")),
+    hasNone,
+  }
+}
+
+// ── Obłożenie ───────────────────────────────────────────────────────────────
+
+/** Od najbardziej obłożonej osoby; liczą się requesty w pracy, nie propozycje. */
+export function orderLoad(load: readonly LoadPerson[]): LoadPerson[] {
+  return [...load].sort(
+    (a, b) => b.count - a.count || a.name.localeCompare(b.name, "pl"),
+  )
+}
+
+/**
+ * Liczba przy osobie: „2” albo „2 + 1” (requesty w pracy + propozycje czekające
+ * na akceptację) oraz to samo słowami — dla czytnika ekranu i podpowiedzi.
+ */
+export function loadSummary(person: Pick<LoadPerson, "count" | "proposed">): {
+  label: string
+  spoken: string
+} {
+  const proposed = person.proposed ?? 0
+  const working = `${person.count} ${requestWord(person.count)}`
+  if (proposed <= 0) return { label: String(person.count), spoken: working }
+  return {
+    label: `${person.count} + ${proposed}`,
+    spoken: `${working} · ${proposed} ${pluralPl(proposed, "propozycja", "propozycje", "propozycji")} do akceptacji`,
+  }
 }

@@ -44,7 +44,7 @@ const ALL_ROLES: UserRole[] = [
 
 const mkUser = (role: UserRole) => ({ role })
 
-// Bramki z uprawnień (0409). `mkUser(role)` to profil bez kompletu z serwera —
+// Bramki z uprawnień (0410). `mkUser(role)` to profil bez kompletu z serwera —
 // liczy się z DOMYŚLNYCH uprawnień ról, czyli ze stanu startowego ekranu Osoby
 // i role. `accessSnapshot(...)` to profil po `GET /api/auth/me`: z nadanym
 // (`grant`) albo wyłączonym (`revoke`) uprawnieniem i portfelem Delivery Leada.
@@ -79,7 +79,7 @@ describe("canManageContractStatus — „Zakończenie współpracy, zmiana statu
   })
 
   it("sam odczyt Delivery już nie wystarcza TCM — status jest uprawnieniem z zapisem", () => {
-    // Do 0409 TCM zmieniał status przy odczycie Delivery (wyjątek w bramce
+    // Do 0410 TCM zmieniał status przy odczycie Delivery (wyjątek w bramce
     // sekcji). Teraz trasa wymaga zapisu, który wynika z uprawnienia; stary
     // wyjątek osoby ograniczający sekcję chowa kontrolkę.
     expect(
@@ -296,7 +296,7 @@ describe("canManageCandidateFinance — „Stawki i kwoty: zmiana” (kwoty kont
     ).toBe(false)
   })
 
-  it("brak użytkownika = brak; profil sprzed 0409 liczy się z domyślnych uprawnień roli", () => {
+  it("brak użytkownika = brak; profil sprzed 0410 liczy się z domyślnych uprawnień roli", () => {
     expect(canManageCandidateFinance(null)).toBe(false)
     expect(canManageCandidateFinance(undefined)).toBe(false)
     expect(canManageCandidateFinance({ role: "admin" })).toBe(true)
@@ -424,8 +424,8 @@ describe("canViewCandidateFinance — „Stawki i kwoty: podgląd”", () => {
     expect(canViewClientFinance(accessSnapshot("talent_community_manager"), 17)).toBe(false)
   })
 
-  it("profil Finansów sprzed 0409 (bez capabilities) liczy się z domyślnych uprawnień roli", () => {
-    // Do 0409 taki profil był zamknięty (brak `view_finance`). Teraz podgląd
+  it("profil Finansów sprzed 0410 (bez capabilities) liczy się z domyślnych uprawnień roli", () => {
+    // Do 0410 taki profil był zamknięty (brak `view_finance`). Teraz podgląd
     // kwot jest uprawnieniem, a stary profil czyta domyślne uprawnienia ról
     // do chwili, gdy `AppShellV2` dociągnie świeże `/api/auth/me`.
     expect(canViewCandidateFinance({ role: "finance" })).toBe(true)

@@ -158,7 +158,7 @@ export const ROLE_SECTION_ACCESS: Record<
     finance: "none",
     system_admin: "none",
   },
-  // Od 0409 Delivery i Finanse wynikają z uprawnień (`lib/permissions.ts`):
+  // Od 0410 Delivery i Finanse wynikają z uprawnień (`lib/permissions.ts`):
   // TCM zmienia status kontraktu, więc ma w Delivery zapis.
   talent_community_manager: {
     sourcing: "write",

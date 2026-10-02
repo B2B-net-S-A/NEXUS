@@ -5,11 +5,19 @@
  * rozjechać się z tym, co widać na pasku.
  */
 
-import type {
-  JobDeadlinePreset,
-  JobDeadlineRange,
-  JobSentFilterValue,
+import {
+  openedQueryParams,
+  openedRangeReversed,
+  type JobDeadlinePreset,
+  type JobDeadlineRange,
+  type JobOpenedRange,
+  type JobSentFilterValue,
 } from "@/lib/jobs-url-filters";
+import {
+  PRIORITY_LEVELS,
+  PRIORITY_LEVEL_SHORT_LABEL,
+  type PriorityLevel,
+} from "@/lib/request-priority";
 
 export const DEADLINE_LABEL: Record<JobDeadlinePreset, string> = {
   any: "dowolny",
@@ -65,7 +73,10 @@ export function namesSummary(
   return `${names[0]} i ${names.length - 1} więcej`;
 }
 
-/** „Kto pracuje: …” — zalogowana osoba to „Ja”, request bez osoby to „nikt”. */
+/**
+ * „Rekruter: …” — zalogowana osoba to „ja”, rekrutacja bez Rekrutera to
+ * „bez rekrutera” (02.10.2026; do tej daty „Kto pracuje” i „nikt”).
+ */
 export function whoSummary(
   workedBy: readonly number[],
   nobodyWorking: boolean,
@@ -80,8 +91,35 @@ export function whoSummary(
     if (names == null) return null;
     parts.push(names);
   }
-  if (nobodyWorking) parts.push("nikt");
+  if (nobodyWorking) parts.push("bez rekrutera");
   return parts.length ? parts.join(", ") : null;
+}
+
+/** „Priorytet: P1, Przyjmujemy” — krótkie nazwy w kolejności ekranu. */
+export function prioritySummary(levels: readonly PriorityLevel[]): string | null {
+  const ordered = PRIORITY_LEVELS.filter((level) => levels.includes(level));
+  if (ordered.length === 0) return null;
+  return ordered.map((level) => PRIORITY_LEVEL_SHORT_LABEL[level]).join(", ");
+}
+
+/** Czy w zakresie „Data otwarcia” jest wpisana którakolwiek data. */
+export function openedRangeSet(range: JobOpenedRange): boolean {
+  return Boolean(range.from || range.to);
+}
+
+/**
+ * „Data otwarcia: 01.09–30.09” — z dat, które NAPRAWDĘ idą do serwera.
+ * Odwrócony zakres i niedokończona data nie filtrują, więc przycisk mówi to
+ * wprost („popraw zakres”, „niepełna data”), zamiast udawać ustawiony filtr.
+ */
+export function openedSummary(range: JobOpenedRange): string | null {
+  if (!openedRangeSet(range)) return null;
+  if (openedRangeReversed(range)) return "popraw zakres";
+  const { opened_from: from, opened_to: to } = openedQueryParams(range);
+  if (from && to) return `${shortDate(from)}–${shortDate(to)}`;
+  if (from) return `od ${shortDate(from)}`;
+  if (to) return `do ${shortDate(to)}`;
+  return "niepełna data";
 }
 
 export interface JobsFilterBarState {
@@ -93,6 +131,8 @@ export interface JobsFilterBarState {
   ccIds: readonly number[];
   deadline: JobDeadlinePreset;
   sent: JobSentFilterValue;
+  priorityLevels: readonly PriorityLevel[];
+  openedRange: JobOpenedRange;
 }
 
 /**
@@ -107,6 +147,8 @@ export function jobsActiveFilterCount(state: JobsFilterBarState): number {
     (state.workedBy.length > 0 || state.nobodyWorking ? 1 : 0) +
     (state.ccIds.length > 0 ? 1 : 0) +
     (state.deadline !== "any" ? 1 : 0) +
-    (state.sent !== "any" ? 1 : 0)
+    (state.sent !== "any" ? 1 : 0) +
+    (state.priorityLevels.length > 0 ? 1 : 0) +
+    (openedRangeSet(state.openedRange) ? 1 : 0)
   );
 }

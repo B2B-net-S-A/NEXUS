@@ -263,6 +263,57 @@ async def test_require_existing_is_inert_at_mode_off(monkeypatch) -> None:
     current_assignment.assert_not_awaited()
 
 
+async def test_sourcing_pause_never_blocks_at_mode_off(monkeypatch) -> None:
+    # 02.10.2026: włączenie automatu przydziału (RECRUITMENT_ALLOCATION_ENABLED)
+    # przy wyłączonym Priority Work nie może odrzucać pracy człowieka. Do tej
+    # daty bramka „poszukiwania wstrzymane” stała PRZED `mode_off`, więc
+    # dodanie kandydata do każdej rekrutacji z `needs_sourcing = false`
+    # (czyli nieprzekazanej jeszcze do searchu) kończyłoby się odmową.
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "RECRUITMENT_ALLOCATION_ENABLED", True)
+    monkeypatch.setattr(
+        policy, "effective_priority_mode", AsyncMock(return_value=PriorityMode.off)
+    )
+    db = AsyncMock()
+    db.scalar.return_value = False  # needs_sourcing = false
+
+    decision = await policy.decide_priority_work_access(
+        db,
+        candidate_id=11,
+        job_id=22,
+        actor_user_id=33,
+        continuation_exists=False,
+    )
+
+    assert decision.allowed is True
+    assert decision.reason is policy.PriorityWorkReason.mode_off
+    db.scalar.assert_not_awaited()
+
+
+@pytest.mark.parametrize("mode", [PriorityMode.shadow, PriorityMode.enforce])
+async def test_sourcing_pause_still_blocks_when_priority_work_is_on(
+    monkeypatch, mode: PriorityMode
+) -> None:
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "RECRUITMENT_ALLOCATION_ENABLED", True)
+    monkeypatch.setattr(policy, "effective_priority_mode", AsyncMock(return_value=mode))
+    db = AsyncMock()
+    db.scalar.return_value = False
+
+    decision = await policy.decide_priority_work_access(
+        db,
+        candidate_id=11,
+        job_id=22,
+        actor_user_id=33,
+        continuation_exists=False,
+    )
+
+    assert decision.allowed is False
+    assert decision.reason is policy.PriorityWorkReason.sourcing_paused
+
+
 @pytest.mark.parametrize("mode", [PriorityMode.shadow, PriorityMode.enforce])
 async def test_require_existing_still_blocks_outside_mode_off(
     monkeypatch, mode: PriorityMode

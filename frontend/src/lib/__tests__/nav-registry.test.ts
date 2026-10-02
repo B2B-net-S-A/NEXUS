@@ -338,7 +338,7 @@ describe("menu idzie za uprawnieniem, nie za rolą", () => {
   });
 
   it("stary profil z samą sekcją Delivery (bez uprawnienia) nie pokazuje pozycji", () => {
-    // Wyjątek sekcji sprzed 0409 już niczego nie otwiera — dostęp do Delivery
+    // Wyjątek sekcji sprzed 0410 już niczego nie otwiera — dostęp do Delivery
     // wynika z uprawnień. Bez tego menu prowadziłoby do ekranu z samymi 403.
     const legacy = {
       role: "recruiter" as const,

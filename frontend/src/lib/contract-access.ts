@@ -6,7 +6,7 @@
  * karta chowa (albo odwrotnie), a backend i tak odmówi 403.
  *
  * Backend pozostaje arbitrem — to tylko lustro, które decyduje, czy przycisk
- * w ogóle się renderuje. Od 0409 lustrem są uprawnienia z ekranu Ustawienia →
+ * w ogóle się renderuje. Od 0410 lustrem są uprawnienia z ekranu Ustawienia →
  * Zespół i dostęp → Osoby i role (`lib/permissions.ts`), nie role.
  */
 import { hasPermission } from "@/lib/permissions";

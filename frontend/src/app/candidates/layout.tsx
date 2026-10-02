@@ -2,18 +2,20 @@
 
 import { usePathname } from "next/navigation";
 import { CandidateTabsRail } from "@/components/v2/candidates/CandidateTabsRail";
+import {
+  LIST_RAIL_GAP_CLASS,
+  OPEN_TABS_RAIL_CLASS,
+  OpenTabsRailFrame,
+} from "@/components/v2/shell/OpenTabsRail";
 
 /**
- * Wraps the /candidates section so the recently-viewed-candidates rail can sit
- * to the left of the list and detail pages — the candidate counterpart to the
- * "Rekrutacje" rail in app/jobs/layout.tsx. It replaces the former horizontal
- * open-tabs strip so recently opened candidates live in this rail.
+ * Sekcja `/candidates` z szyną ostatnio otwieranych kandydatów po lewej
+ * stronie listy i profilu — odpowiednik szyny „Rekrutacje” z
+ * `app/jobs/layout.tsx`.
  *
- * Scoped to the list page (/candidates) and detail pages (/candidates/<id>).
- * The special-purpose sub-tools (search, compare, bulk-import) render bare so
- * the rail doesn't crowd their full-width layouts. The rail itself self-hides
- * when no candidate tabs are open and below 2xl (where the list/detail page
- * needs the full width).
+ * Szyna stoi na liście (`/candidates`) i w profilu (`/candidates/<id>`).
+ * Narzędzia pomocnicze (wyszukiwarka, porównanie, import) renderują się bez
+ * niej. Sama znika, gdy nie ma otwartych kart, i poniżej 1024 px.
  */
 export default function CandidatesLayout({
   children,
@@ -27,11 +29,15 @@ export default function CandidatesLayout({
   if (!showRail) return <>{children}</>;
 
   return (
-    <div className="flex items-start gap-4 2xl:gap-6">
-      {/* Szyna od 2xl: na 1024–1535 px (z paskiem bocznym) zabierała liście
-          i profilowi połowę szerokości — ucięte kolumny, ściśnięty profil. */}
-      <CandidateTabsRail className="sticky top-0 hidden max-h-[calc(100dvh-7rem)] self-start 2xl:flex" />
-      <div className="min-w-0 flex-1">{children}</div>
-    </div>
+    // Do 02.10.2026 szyna była dopiero od 1536 px: rozwinięta (240 px) na
+    // 1024–1535 px zabierała liście i profilowi połowę szerokości. Na laptopie
+    // jest teraz zakładką w marginesie strony (zero szerokości w układzie),
+    // a lista kandydatów wysuwa się nad treść.
+    <OpenTabsRailFrame
+      className={LIST_RAIL_GAP_CLASS}
+      rail={<CandidateTabsRail className={OPEN_TABS_RAIL_CLASS} />}
+    >
+      {children}
+    </OpenTabsRailFrame>
   );
 }

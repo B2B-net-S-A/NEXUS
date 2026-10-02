@@ -61,7 +61,7 @@ describe("Przedłuż na profilu klienta (audyt W2)", () => {
   it("domyślnie admin, Delivery Lead i Finanse; tylko kontrakt „Kończący się”", () => {
     expect(canExtendContract(user("admin"), "ending")).toBe(true);
     expect(canExtendContract(user("delivery_lead"), "ending")).toBe(true);
-    // Od 0409 Finanse mają „Kontrakty i zamówienia: tworzenie i edycja”.
+    // Od 0410 Finanse mają „Kontrakty i zamówienia: tworzenie i edycja”.
     expect(canExtendContract(user("finance"), "ending")).toBe(true);
     // TCM zmienia status, ale kontraktów nie przedłuża — przycisku nie ma.
     expect(canExtendContract(user("talent_community_manager"), "ending")).toBe(false);

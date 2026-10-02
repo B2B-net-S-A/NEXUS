@@ -254,7 +254,7 @@ Zmiana uprawnień roli albo osoby nadal unieważnia sesje dotkniętych kont
   ośmiu wierszy (inaczej rola stałaby się „zasiana częściowo”, czyli
   zamknięta), a audyt podaje jako stan „przed” wartość efektywną. Zapis tego,
   co rola już ma z zasiewu, zwraca `changed: false` i nie pisze nic.
-- **Odmowa bazy** (CHECK akcji sprzed migracji 0409) → 409
+- **Odmowa bazy** (CHECK akcji sprzed migracji 0410) → 409
   `{"code": "permission_storage_rejected", "message": …}` zamiast 500.
 - **Historia zdarzeń.** `rbac.role_permissions`: jeden wpis na rolę, obiekt
   „Uprawnienia roli”; `rbac.user_permissions`: obiekt „Uprawnienia

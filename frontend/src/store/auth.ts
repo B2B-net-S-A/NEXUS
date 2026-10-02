@@ -349,7 +349,7 @@ export function hasAnalyticsCapability(
   )
 }
 
-// ── Bramki uprawnień (0409) ─────────────────────────────────────────────────
+// ── Bramki uprawnień (0410) ─────────────────────────────────────────────────
 //
 // Te helpery decydują wyłącznie o tym, co POKAZAĆ; o dostępie decyduje backend.
 // Pytają o jedno z dziewięciu uprawnień z ekranu Ustawienia → Zespół i dostęp
@@ -476,7 +476,7 @@ export function canRecoverContractTermination(
  * własne bramki.
  *
  * Sufit sekcji to dziś zapis dla każdego: osobny wyjątek „TCM zmienia status
- * przy samym odczycie Delivery” zniknął w 0409 — z uprawnienia wynika zapis.
+ * przy samym odczycie Delivery” zniknął w 0410 — z uprawnienia wynika zapis.
  */
 export function canManageContractStatus(
   user: PermissionGateUser | null | undefined

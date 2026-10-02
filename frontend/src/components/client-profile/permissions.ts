@@ -6,7 +6,7 @@
  * w Projektach). Źródłem prawdy zostaje backend — tu tylko nie pokazujemy
  * akcji, której serwer i tak odmówi.
  *
- * Od 0409 backend pyta o uprawnienia z ekranu Ustawienia → Zespół i dostęp →
+ * Od 0410 backend pyta o uprawnienia z ekranu Ustawienia → Zespół i dostęp →
  * Osoby i role, więc te bramki też (`lib/permissions.ts`): przycisk widzi
  * każdy posiadacz uprawnienia, a rola, której je wyłączono — nie.
  */

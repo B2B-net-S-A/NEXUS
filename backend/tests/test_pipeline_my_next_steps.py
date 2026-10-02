@@ -1,9 +1,10 @@
 """``GET /api/pipeline/my-next-steps`` — boards of the caller's open recruitments.
 
 Feeds the dashboard section "Następne kroki w moich rekrutacjach" (17.09.2026).
-Scope is "mine" (owner or collaborator), without closed recruitments, and every
-board passes the same read guard as ``/kanban/{job_id}`` — a collaborator removed
-from the team is still matched by ``jobs_mine_clause`` and must be skipped.
+Scope is "mine" (owner or manually added collaborator), without closed
+recruitments, and every board passes the same read guard as ``/kanban/{job_id}``.
+A collaborator removed from the team must not get the board: since 02.10.2026
+``jobs_mine_clause`` leaves such rows out itself, the read guard stays the rule.
 The board is the SAME view as the kanban endpoint (one extraction, two routes).
 """
 

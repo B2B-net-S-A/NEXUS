@@ -1827,7 +1827,7 @@ async def test_delivery_lead_scope_allows_confirmation_only_at_an_assigned_clien
 async def test_tac_confirms_only_with_the_signature_permission(
     app_client: AsyncClient,
 ):
-    """TAC nie ma już oznaczania podpisu domyślnie (0409), a przypisania
+    """TAC nie ma już oznaczania podpisu domyślnie (0410), a przypisania
     z rekrutacji i klienta go nie zastępują. Rola, której administrator
     włączył uprawnienie, potwierdza podpis — u każdego klienta, bo zakres
     klienta dotyczy wyłącznie konta z rolą Delivery Leada. Do 02.10.2026 TAC

@@ -144,7 +144,7 @@ def _section_rows() -> list[SimpleNamespace]:
 
 
 def _action_rows() -> list[SimpleNamespace]:
-    """Wiersze akcji jak na produkcji po migracji 0409.
+    """Wiersze akcji jak na produkcji po migracji 0410.
 
     Generator i podpis B2B — wartości z kodu; pozostałe uprawnienia — funkcja
     zasiewu policzona z sekcji powyżej (ta sama, którą wykonuje migracja).

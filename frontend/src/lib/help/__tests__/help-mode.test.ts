@@ -146,7 +146,7 @@ describe("wyjaśnienia odmów", () => {
   });
 
   it("wyjaśnienia odmów dostępu nazywają uprawnienia, nie role", () => {
-    // Od 0409 o dostępie decyduje uprawnienie z ekranu; rola ma je tylko
+    // Od 0410 o dostępie decyduje uprawnienie z ekranu; rola ma je tylko
     // domyślnie, więc zdanie „kwoty zmieniają admin i Finanse” bywa nieprawdą.
     const roleNames = /\badmin\b|Delivery Lead|\bTCM\b|\bTAC\b|rekruter/i;
     for (const code of [

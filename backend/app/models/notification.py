@@ -185,6 +185,8 @@ class NotificationType(str, enum.Enum):
     prep_attention = "prep_attention"
     # 0371: automat przydziału requestów — rano JEDEN wpis na osobę („Od dziś:
     # X. Zwolnione: Y (champion)”); related_entity=(user, id), dedup dobowy.
+    # Od 02.10.2026 także od razu po akceptacji propozycji: „Nowy request do
+    # pracy”, related_entity=(job, id).
     request_assignment_changed = "request_assignment_changed"
     # 0371: request do decyzji DL — nowy z Traffita „Do przejrzenia”, „Klient
     # milczy” od 14 dni albo „Szukamy” bez pracy od 30 dni;
@@ -203,6 +205,11 @@ class NotificationType(str, enum.Enum):
     # 0404: rano JEDEN skrót na rekrutację — „N zgłoszeń odrzuconych przez AI”
     # (poprzednie dni). Do prowadzącego rekrutację; related_entity=(job, id).
     application_screening_digest = "application_screening_digest"
+    # 0409: propozycje automatu przydziału czekają na akceptację — JEDEN wpis
+    # dziennie na Head of Recruitment z aktualną liczbą; related_entity=
+    # (user, id). Osoba z propozycji nie dostaje nic, dopóki ktoś jej nie
+    # zaakceptuje (wtedy `request_assignment_changed`).
+    request_allocation_proposals = "request_allocation_proposals"
 
 
 class Notification(Base, TimestampMixin):

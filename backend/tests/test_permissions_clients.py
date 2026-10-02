@@ -1,6 +1,6 @@
-"""Uprawnienia z ekranu Osoby i role na powierzchniach klienta (0409).
+"""Uprawnienia z ekranu Osoby i role na powierzchniach klienta (0410).
 
-Do 0409 o zapisie klienta, kontaktów, umów ramowych i wykonawczych decydowała
+Do 0410 o zapisie klienta, kontaktów, umów ramowych i wykonawczych decydowała
 ROLA (admin / Delivery Lead), a „Moi klienci”, roster kontraktorów i kluczowe
 relacje czytały listy ról. Teraz decyduje uprawnienie nadane roli albo osobie:
 

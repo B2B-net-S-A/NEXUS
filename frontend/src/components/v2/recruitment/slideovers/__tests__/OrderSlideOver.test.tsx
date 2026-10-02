@@ -152,6 +152,72 @@ describe("OrderSlideOver", () => {
     );
   });
 
+  describe("fakt „Rekruter” (02.10.2026 — dawniej „Prowadzi”)", () => {
+    const person = (user_id: number, name: string, extra: Record<string, unknown> = {}) => ({
+      user_id,
+      name,
+      role: "recruiter",
+      via: "owner",
+      proposed: false,
+      assigned_by_name: null,
+      ...extra,
+    });
+    const recruiterFact = async () => {
+      const dialog = await screen.findByRole("dialog", { name: "Zlecenie" });
+      const label = await within(dialog).findByText("Rekruter");
+      return label.nextElementSibling as HTMLElement;
+    };
+
+    it("starszy serwer bez `recruiters`: pierwszy rekruter z `primary_owner`", async () => {
+      setup();
+      expect(await recruiterFact()).toHaveTextContent("Anna Nowicka");
+      expect(screen.queryByText("Prowadzi")).not.toBeInTheDocument();
+    });
+
+    it("kilka pracujących osób: pierwsza i „+N”, wszystkie nazwiska w podpowiedzi", async () => {
+      setup(
+        {},
+        {
+          job: {
+            ...JOB,
+            recruiters: [
+              person(5, "Anna Nowicka"),
+              person(6, "Bartek Testowy", { via: "collaborator" }),
+              person(8, "Celina Wzorcowa", { via: "assignment", role: "sourcer" }),
+            ],
+          },
+        },
+      );
+      const fact = await recruiterFact();
+      expect(fact).toHaveTextContent("Anna Nowicka +2");
+      expect(fact).toHaveAttribute(
+        "title",
+        "Rekruterzy: Anna Nowicka, Bartek Testowy, Celina Wzorcowa",
+      );
+    });
+
+    it("sama propozycja automatu to jeszcze nie rekruter — „Bez rekrutera”", async () => {
+      setup(
+        {},
+        {
+          job: {
+            ...JOB,
+            primary_owner: null,
+            recruiters: [person(9, "Darek Makietowy", { via: "assignment", proposed: true })],
+          },
+        },
+      );
+      const fact = await recruiterFact();
+      expect(fact).toHaveTextContent("Bez rekrutera");
+      expect(fact).toHaveAttribute("title", "Propozycja automatu: Darek Makietowy");
+    });
+
+    it("nikt nie pracuje: „Bez rekrutera”", async () => {
+      setup({}, { job: { ...JOB, primary_owner: null, recruiters: [] } });
+      expect(await recruiterFact()).toHaveTextContent("Bez rekrutera");
+    });
+  });
+
   // Bramka gotowości (`GET …/readiness`) idzie za uprawnieniem „Rekrutacje:
   // zakładanie, zamykanie, wysyłka CV do klienta”, nie za rolą.
   it("konto bez uprawnienia nie wysyła zapytania o gotowość i nie widzi bloku braków", async () => {

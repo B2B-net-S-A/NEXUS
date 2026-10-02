@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import api from "@/lib/api";
 import {
+  COLLABORATOR_ROLES,
   collaboratorChanges,
-  collaboratorsSummary,
+  hasCollaboratorChanges,
   manualCollaboratorIds,
+  manualCollaborators,
   saveCollaboratorChanges,
 } from "@/lib/job-collaborators";
 
@@ -28,7 +30,24 @@ describe("job-collaborators", () => {
     expect(manualCollaboratorIds(null)).toEqual([]);
   });
 
-  it("różnica dopisuje nowych, zdejmuje usuniętych i pomija prowadzącego", () => {
+  it("cała kategoria (`auto_cc`) to nie osoby przy rekrutacji — zostają wyłącznie dopisani ręcznie", () => {
+    expect(manualCollaborators(collaborators).map((c) => c.name)).toEqual([
+      "Anna Ręczna",
+      "Stary Wpis",
+    ]);
+  });
+
+  it("role, które serwer przyjmuje jako osobę przy rekrutacji — bez Head of Recruitment i Finansów", () => {
+    expect([...COLLABORATOR_ROLES]).toEqual([
+      "admin",
+      "delivery_lead",
+      "tac",
+      "recruiter",
+      "sourcer",
+    ]);
+  });
+
+  it("różnica dopisuje nowych, zdejmuje usuniętych i pomija pierwszego rekrutera", () => {
     expect(collaboratorChanges([1, 3], [3, 4, 9], 9)).toEqual({
       add: [4],
       remove: [1],
@@ -36,22 +55,10 @@ describe("job-collaborators", () => {
     expect(collaboratorChanges([1], [1])).toEqual({ add: [], remove: [] });
   });
 
-  it("„+N” i podpowiedź liczą tylko ręcznych", () => {
-    expect(collaboratorsSummary(collaborators)).toEqual({
-      count: 2,
-      names: ["Anna Ręczna", "Stary Wpis"],
-      tooltip: "Współpracownicy: Anna Ręczna, Stary Wpis",
-    });
-    expect(collaboratorsSummary([])).toEqual({ count: 0, names: [], tooltip: "" });
-  });
-
-  it("„+N” pomija nieaktywne konta (ta sama reguła co „Kto pracuje”)", () => {
-    expect(
-      collaboratorsSummary([
-        { id: 1, name: "Aktywna", source: "manual", is_active: true },
-        { id: 2, name: "Była Pracownica", source: "manual", is_active: false },
-      ]),
-    ).toEqual({ count: 1, names: ["Aktywna"], tooltip: "Współpracownicy: Aktywna" });
+  it("`hasCollaboratorChanges` — czy jest co zapisywać", () => {
+    expect(hasCollaboratorChanges({ add: [], remove: [] })).toBe(false);
+    expect(hasCollaboratorChanges({ add: [4], remove: [] })).toBe(true);
+    expect(hasCollaboratorChanges({ add: [], remove: [1] })).toBe(true);
   });
 
   it("zapis woła trasy i zgłasza częściową awarię po polsku", async () => {
@@ -67,7 +74,19 @@ describe("job-collaborators", () => {
     expect(api.post).toHaveBeenCalledWith("/api/jobs/5/collaborators", { user_id: 4 });
     expect(api.delete).toHaveBeenCalledWith("/api/jobs/5/collaborators/1");
     expect(failure).toBe(
-      "zapisano 2 z 3 zmian współpracowników (Nie masz uprawnień do edycji rekrutacji.)",
+      "zapisano 2 z 3 zmian na liście kolejnych osób (Nie masz uprawnień do edycji rekrutacji.)",
+    );
+  });
+
+  it("gdy nie zapisała się żadna zmiana, mówi „nie zapisano kolejnych osób”", async () => {
+    vi.mocked(api.post).mockRejectedValue({
+      response: { status: 403, data: { detail: "Nie masz uprawnień do edycji rekrutacji." } },
+    } as never);
+
+    const failure = await saveCollaboratorChanges(5, { add: [4], remove: [] });
+
+    expect(failure).toBe(
+      "nie zapisano kolejnych osób (Nie masz uprawnień do edycji rekrutacji.)",
     );
   });
 

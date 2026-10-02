@@ -51,7 +51,7 @@ export const ROLE_ACTION_ACCESS: Record<
     b2b_contract_generator: "manage",
     b2b_signature_confirmation: "manage",
   },
-  // 0409: podpis B2B u TAC był włączony, ale nigdy nie działał (zakres
+  // 0410: podpis B2B u TAC był włączony, ale nigdy nie działał (zakres
   // klienta zawsze odmawiał) — domyślna macierz mówi teraz prawdę.
   tac: {
     b2b_contract_generator: "manage",
@@ -97,7 +97,7 @@ export function actionAccessForUser(
   if (!user) return "none";
   // Podpis B2B jest jednym z dziewięciu uprawnień z ekranu Osoby i role
   // (tak/nie), a te mają JEDNO źródło: `lib/permissions.ts`. Dwie kopie
-  // rozjeżdżały się na profilu sprzed 0409 — stary komplet niósł TAC-owi
+  // rozjeżdżały się na profilu sprzed 0410 — stary komplet niósł TAC-owi
   // „manage”, którego katalog już nie daje.
   if (isPermission(action)) {
     return hasPermission(user, action) ? "manage" : "none";

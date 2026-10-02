@@ -28,6 +28,7 @@ import { formatBudgetHourly, jobBudgetHourly } from "@/lib/job-budget";
 import { extractSkills } from "@/lib/job-skills";
 import { countPl } from "@/lib/plural-pl";
 import { formatJobDeadline } from "@/lib/job-deadline";
+import { recruitersOf, recruitersSummary } from "@/lib/job-team";
 import { hasPermission } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
@@ -51,8 +52,8 @@ export interface OrderSlideOverProps {
   /** `canWritePipeline && job.update` — edycja pól, HM, ustawień, zamknięcie. */
   canEdit: boolean;
   /**
-   * Edycja TREŚCI (opis, ogłoszenia) — `can_edit` z serwera: także rekruter
-   * prowadzący i współpracownicy (22.09.2026). Brak = `canEdit`.
+   * Edycja TREŚCI (opis, ogłoszenia) — `can_edit` z serwera: także osoby
+   * w roli „Rekruter” (22.09.2026). Brak = `canEdit`.
    */
   canEditContent?: boolean;
   /**
@@ -89,11 +90,22 @@ const GATE_PERMISSION = "recruitment_manage" as const;
 
 
 
-function Fact({ label, value }: { label: string; value: string }) {
+function Fact({
+  label,
+  value,
+  title,
+}: {
+  label: string;
+  value: string;
+  /** Podpowiedź z pełną treścią, gdy `value` jest skrótem (np. „+2”). */
+  title?: string;
+}) {
   return (
     <div className="min-w-0">
       <dt className="text-xs font-semibold text-muted-foreground">{label}</dt>
-      <dd className="text-[13px] text-foreground">{value}</dd>
+      <dd className="text-[13px] text-foreground" title={title}>
+        {value}
+      </dd>
     </div>
   );
 }
@@ -163,6 +175,7 @@ function OrderBody({
         : "nie ustawiono";
   const projectAbout = (champion?.project?.about ?? "").trim();
   const questionCount = champion?.screening_questions?.length ?? 0;
+  const team = recruitersSummary(recruitersOf(job));
 
   // Modale strony (`EditJobModal`) żyją POZA tym oknem. Otwarty Radix Dialog
   // wyłącza `pointer-events` reszcie dokumentu i więzi fokus, więc modal
@@ -217,7 +230,17 @@ function OrderBody({
             label="Numer u klienta"
             value={job.client_reference?.trim() || "nie podano"}
           />
-          <Fact label="Prowadzi" value={job.primary_owner?.name ?? "nieprzypisany"} />
+          {/* 02.10.2026: „Rekruter” to wszyscy, którzy pracują nad rekrutacją
+              (pierwsza osoba i „+N”); propozycja automatu to jeszcze nie praca. */}
+          <Fact
+            label="Rekruter"
+            value={
+              team.names.length > 0
+                ? `${team.names[0]}${team.more > 0 ? ` +${team.more}` : ""}`
+                : "Bez rekrutera"
+            }
+            title={team.tooltip || undefined}
+          />
           <Fact
             label="Hiring manager"
             value={job.hiring_manager_name?.trim() || "nie przypisano"}

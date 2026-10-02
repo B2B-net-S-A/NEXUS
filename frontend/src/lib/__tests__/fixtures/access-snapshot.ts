@@ -40,7 +40,7 @@ const RANK: Record<SectionAccess, number> = { none: 0, read: 1, write: 2 };
 const lower = (a: SectionAccess, b: SectionAccess) => (RANK[a] <= RANK[b] ? a : b);
 
 /**
- * Komplet dostępu konta w kształcie `GET /api/auth/me` po 0409: dziewięć
+ * Komplet dostępu konta w kształcie `GET /api/auth/me` po 0410: dziewięć
  * uprawnień (z zależnościami), wynikające z nich sekcje Delivery i Finanse,
  * capability finansowe i — dla konta z rolą Delivery Leada — portfel.
  *

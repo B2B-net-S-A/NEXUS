@@ -85,7 +85,7 @@ export function RecruiterPickerField({
  </SelectTrigger>
  <SelectContent>
  {allowEmpty ? (
- <SelectItem value="__none__">— nieprzypisany —</SelectItem>
+ <SelectItem value="__none__">— bez rekrutera —</SelectItem>
  ) : null}
  {(data ?? []).map((u) => (
  <SelectItem key={u.id} value={String(u.id)}>

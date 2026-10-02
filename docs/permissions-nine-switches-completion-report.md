@@ -1,7 +1,7 @@
 # Dziewięć uprawnień zamiast macierzy sekcji — raport
 
 PR: [B2B-net-S-A/NEXUS#1976](https://github.com/B2B-net-S-A/NEXUS/pull/1976) ·
-migracja `0409_named_permissions` · kontrakt:
+migracja `0410_named_permissions` · kontrakt:
 `docs/permissions-nine-switches-contract.md` · makieta:
 https://claude.ai/artifact/EfjFN2sFCY8tDq6r3XksPt
 
@@ -68,7 +68,7 @@ zamówień, budżet linii w kwocie jest kwotą) są wypisane w tym samym paragra
   `rbac_user_action_overrides`), wartości `none|manage`. Bez nowych tabel.
 - Bramki: aliasy z `backend/app/api/permission_access.py` jako zależności tras;
   kwoty — `financial_access.py`; zakres — `access_scope.py` (bez zmian reguł).
-- Zasiew: `permission_schema.py` (jedno źródło dla migracji 0409, 0282
+- Zasiew: `permission_schema.py` (jedno źródło dla migracji 0410, 0282
   i `entrypoint.sh`), siatka przy starcie `named_permissions_bootstrap.py`.
   Rola bez wierszy zasiewu jest liczona funkcją zasiewu z jej zapisanych
   sekcji, więc start bez migracji nie zamyka Delivery.

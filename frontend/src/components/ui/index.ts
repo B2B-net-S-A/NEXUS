@@ -14,6 +14,7 @@ export * from "./dropdown-menu";
 export * from "./select";
 export * from "./checkbox";
 export * from "./radio-group";
+export * from "./segmented-radio";
 export * from "./switch";
 export * from "./form-field";
 export * from "./card";

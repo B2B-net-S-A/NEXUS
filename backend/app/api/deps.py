@@ -542,6 +542,29 @@ def require_any_permission(*permissions: ProductAction):
     return _check
 
 
+def require_permission_or_roles(permission: ProductAction, *roles: UserRole):
+    """Zależność trasy: uprawnienie z ekranu ALBO jedna z ``roles``.
+
+    Dla czynności, którą decyzja produktowa daje też roli spoza ekranu
+    uprawnień (np. Head of Recruitment przydziela rekruterów bez prowadzenia
+    rekrutacji). Odmowa nazywa uprawnienie — to jedyna droga, którą
+    administrator może komuś tę czynność nadać.
+    """
+
+    if not roles:
+        raise ValueError("At least one role is required")
+
+    async def _check(
+        current_user: User = Depends(require_onboarded_user),
+    ) -> User:
+        if current_user.has_any_role(*roles):
+            return current_user
+        ensure_permission(current_user, permission)
+        return current_user
+
+    return _check
+
+
 # ── Named guards (hierarchiczne "role X or higher") ──────────────────────────
 #
 # Hierarchia:

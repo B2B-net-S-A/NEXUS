@@ -22,14 +22,14 @@ delivery ``recruiter``/``sourcer`` personas — do things they must not:
 **Fix:** legal surfaces use the same authoritative decision as
 ``client_access.can_view_legal_documents``.
 
-Od migracji 0409 są tu dwie ścieżki:
+Od migracji 0410 są tu dwie ścieżki:
 
 * **Delivery** (umowy ramowe, aneksy, szablony umów, podpisy kontraktów):
   dokumenty mogą nieść stawki, więc odczyt wymaga uprawnienia „Stawki i kwoty:
   podgląd”, a zapis dodatkowo „Kontrakty i zamówienia: tworzenie i edycja”.
   Konto z rolą Delivery Leada działa u klientów z przypisania, pozostali
   posiadacze — u wszystkich.
-* **Generator umów B2B** (``purpose="org"``): graf organizacyjny sprzed 0409
+* **Generator umów B2B** (``purpose="org"``): graf organizacyjny sprzed 0410
   (``ClientAccess.generator_can_*``) — Admin/Head of Recruitment i Finanse
   czytają całą organizację, Delivery Lead każdego klienta, a konsekwentne
   zapisy wymagają u niego jawnego przypisania; TAC zostaje przy swoim grafie.

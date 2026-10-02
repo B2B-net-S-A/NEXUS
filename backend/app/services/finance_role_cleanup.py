@@ -14,13 +14,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from sqlalchemy import delete, or_, select, text, update
+from sqlalchemy import case, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.competence_category import UserCompetenceCategory
 from app.models.contact import Contact
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator
+from app.models.job_work_assignment import JobWorkAssignment
 from app.models.notification import Notification, NotificationType
 from app.models.saved_search import SavedSearch
 from app.models.team_structure import (
@@ -32,6 +33,7 @@ from app.models.team_structure import (
 from app.services.authorization_invalidation import (
     invalidate_delivery_lead_scope_for_client,
 )
+from app.services.request_allocation_plan import PROPOSAL_RELEASE_PREFIX
 
 
 _FINANCE_SAFE_NOTIFICATION_TYPES = (
@@ -144,6 +146,29 @@ async def clear_recruitment_access_for_finance(
         counts[name] = _rowcount(await db.execute(statement))
 
     update_specs: Iterable[tuple[str, object]] = (
+        (
+            # Rola „Rekruter” liczy też aktywne przypisania do requestów
+            # (`services/job_team.py`) — bez zwolnienia osoba po zmianie roli
+            # zostawałaby rekruterem na liście i pulpicie. Wiersz zostaje jako
+            # historia („Zmiany od wczoraj”), propozycja z przedrostkiem.
+            "job_work_assignments_released",
+            update(JobWorkAssignment)
+            .where(
+                JobWorkAssignment.user_id == user_id,
+                JobWorkAssignment.state != "released",
+            )
+            .values(
+                release_reason=case(
+                    (
+                        JobWorkAssignment.state == "proposed",
+                        f"{PROPOSAL_RELEASE_PREFIX}excluded",
+                    ),
+                    else_="excluded",
+                ),
+                state="released",
+                released_at=func.now(),
+            ),
+        ),
         (
             "jobs_recruiter_owner",
             update(Job).where(Job.recruiter_id == user_id).values(recruiter_id=None),

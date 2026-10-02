@@ -59,6 +59,10 @@ export type Capability =
   | "calendar_event.create"
   | "invite_link.create"
   | "hm_feedback.record"
+  // ── Obsada i priorytet rekrutacji (02.10.2026) ─────────────────────────────
+  | "job.recruiter.assign"
+  | "job.priority.update"
+  | "request.proposal.decide"
   // ── Teczka kandydata i fakty profilowe ─────────────────────────────────────
   | "candidate.document.manage"
   | "candidate.profile_fact.manage"
@@ -124,6 +128,31 @@ const JOB_FULL_EDIT_LEGACY_ROLES: readonly UserRole[] = ["tac"];
 const BY_PERMISSION_ONLY: readonly UserRole[] = [];
 
 /**
+ * Kto przydziela i zdejmuje ludzi w roli „Rekruter”: uprawnienie „Rekrutacje:
+ * zakładanie, zamykanie, wysyłka CV do klienta”, a obok niego — z tytułu ROLI —
+ * Head of Recruitment (decyzja Artura 02.10.2026). Lustro
+ * `JOB_STAFFING_EXTRA_ROLES` (backend/app/api/recruitment_access.py).
+ */
+const JOB_STAFFING_EXTRA_ROLES: readonly UserRole[] = ["head_of_recruitment"];
+
+/**
+ * Kto ustawia priorytet rekrutacji (P1 / P2 / „Przyjmujemy kandydatów”): pełni
+ * redaktorzy (to samo uprawnienie albo konto TAC) oraz Head of Recruitment —
+ * lustro `JOB_PRIORITY_EXTRA_ROLES`.
+ */
+const JOB_PRIORITY_EXTRA_ROLES: readonly UserRole[] = [
+  ...JOB_FULL_EDIT_LEGACY_ROLES,
+  "head_of_recruitment",
+];
+
+/**
+ * Kto akceptuje, zmienia i odrzuca propozycje automatu przydziału — lustro
+ * `PROPOSAL_DECISION_ROLES`. Delivery Lead przydziela ludzi sam, ale propozycji
+ * automatu nie rozstrzyga.
+ */
+const PROPOSAL_DECIDERS: readonly UserRole[] = ["admin", "head_of_recruitment"];
+
+/**
  * KAŻDA zalogowana rola — dla powierzchni otwartych z decyzji produktowej
  * (Talent Radar, 19.08). Jawna lista zamiast pomijania bramki, żeby dodanie
  * nowej roli do systemu wymagało świadomej decyzji także tutaj.
@@ -142,7 +171,7 @@ const ALL_ROLES: readonly UserRole[] = [
 
 /**
  * Role, które mają capability Z TYTUŁU ROLI — lustra strażników rolowych
- * backendu. Od 0409 capability, o której rozstrzyga uprawnienie z ekranu
+ * backendu. Od 0410 capability, o której rozstrzyga uprawnienie z ekranu
  * Osoby i role, ma tu PUSTĄ listę: jej posiadaczy wyznacza
  * `CAPABILITY_PERMISSIONS` (administrator przełącza je per rola i per osoba,
  * więc lista ról przestała być prawdą). Nie kopiuj takiej listy jako danych.
@@ -161,6 +190,22 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // → uprawnienie `recruitment_manage` ALBO rola TAC (gałąź legacy
   // `job_edit_level`: funkcji TAC nie używamy, ale konta zostają).
   "job.update": JOB_FULL_EDIT_LEGACY_ROLES,
+  // POST/DELETE /api/jobs/{id}/owner oraz dodanie i zdjęcie osoby na pulpicie
+  // „Requesty i obłożenie” (/api/request-board/jobs/{id}/people) →
+  // `require_job_staffing`: uprawnienie `recruitment_manage` ALBO rola Head of
+  // Recruitment. Per rekrutacja rozstrzyga `can_staff` z `GET /api/jobs/{id}`;
+  // ta capability to bramka dla list i pulpitu. Współpracownika dopisuje
+  // i zdejmuje nadal każdy, kto redaguje rekrutację (`can_edit`) — to osobna,
+  // szersza bramka.
+  "job.recruiter.assign": JOB_STAFFING_EXTRA_ROLES,
+  // PATCH /api/jobs/{id} {priority} → `user_can_set_job_priority` (szerzej niż
+  // `job.update`: Head of Recruitment prowadzi kolejkę pracy zespołu).
+  // Per rekrutacja: `can_set_priority` z `GET /api/jobs/{id}`.
+  "job.priority.update": JOB_PRIORITY_EXTRA_ROLES,
+  // POST /api/request-board/jobs/{id}/proposals/{userId} i
+  // POST /api/request-board/proposals/accept → PROPOSAL_DECISION_ROLES
+  // (zostaje przy roli — nie ma jej na ekranie uprawnień).
+  "request.proposal.decide": PROPOSAL_DECIDERS,
   // → uprawnienie `clients_edit`.
   "client.create": BY_PERMISSION_ONLY,
   "client.update": BY_PERMISSION_ONLY,
@@ -256,6 +301,10 @@ export const CAPABILITY_PERMISSIONS: Partial<Record<Capability, Permission>> = {
   // pole `can_edit` z `GET /api/jobs/{id}` (`lib/job-edit-access.ts`), nie ta
   // capability. HoR nadal poza: inline-edycja pól oferty dostałaby 403.
   "job.update": "recruitment_manage",
+  // Przydział rekrutera i priorytet: to samo uprawnienie; role, które mają je
+  // z decyzji produktowej (HoR, TAC), stoją w `CAPABILITY_ROLES`.
+  "job.recruiter.assign": "recruitment_manage",
+  "job.priority.update": "recruitment_manage",
   // POST /api/clients, PATCH /api/clients/{id} → ClientsEditUser. Bez tej
   // bramki osoba bez uprawnienia widziała „Edytuj", wypełniała formularz
   // i dostawała 403 na zapisie — czytało się jak „zapis nie działa".
@@ -268,7 +317,7 @@ export const CAPABILITY_PERMISSIONS: Partial<Record<Capability, Permission>> = {
   "cv_rule.manage": "clients_edit",
   "client_playbook.manage": "clients_edit",
   "contact.create": "clients_edit",
-  // POST /api/contracts → ContractsOrdersEditUser. Od 0409 także Finanse
+  // POST /api/contracts → ContractsOrdersEditUser. Od 0410 także Finanse
   // (decyzja Artura 02.10.2026).
   "contract.create": "contracts_orders_edit",
   // Nawigacja Delivery: sekcja Delivery wynika z uprawnień, a jej odczyt to
@@ -304,6 +353,9 @@ const CAPABILITY_SECTION_REQUIREMENTS: Partial<
   "candidate.write": { section: "sourcing", required: "write" },
   "job.create": { section: "pipeline", required: "write" },
   "job.update": { section: "pipeline", required: "write" },
+  "job.recruiter.assign": { section: "pipeline", required: "write" },
+  "job.priority.update": { section: "pipeline", required: "write" },
+  "request.proposal.decide": { section: "pipeline", required: "write" },
   "client.create": { section: "delivery", required: "write" },
   "client.update": { section: "delivery", required: "write" },
   "cv_rule.manage": { section: "delivery", required: "write" },
@@ -337,6 +389,9 @@ export const MUTATING_CAPABILITIES: ReadonlySet<Capability> = new Set([
   "candidate.write",
   "job.create",
   "job.update",
+  "job.recruiter.assign",
+  "job.priority.update",
+  "request.proposal.decide",
   "client.create",
   "client.update",
   "cv_rule.manage",

@@ -61,7 +61,10 @@ import {
   ChampionVerificationChecklist,
   championVerificationDone,
 } from "@/components/ChampionVerificationChecklist";
-import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
+import {
+  JobOwnershipPanel,
+  type JobOwnershipJob,
+} from "@/components/v2/jobs/JobOwnershipPanel";
 import { JobSettingsPanel } from "@/components/v2/jobs/JobSettingsPanel";
 import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
 import { JobPriorityContext } from "@/components/v2/priority-work";
@@ -73,8 +76,20 @@ import {
   ReadinessRow,
   type ReadinessRowState,
 } from "@/components/v2/jobs/ReadinessRow";
-import { jobClientLine, jobDisplayTitle } from "@/lib/job-names";
-import { hasActiveOwner } from "@/components/v2/jobs/ownership-types";
+import { jobClientLine, jobDisplayTitle, type JobNames } from "@/lib/job-names";
+import {
+  CLAIM_ELIGIBLE_ROLES,
+  hasActiveOwner,
+} from "@/components/v2/jobs/ownership-types";
+import {
+  claimJob,
+  hasRecruiter,
+  proposedRecruiters,
+  recruitersOf,
+  workingRecruiters,
+} from "@/lib/job-team";
+import { invalidateJobTeam } from "@/lib/job-team-cache";
+import { priorityLevelOf, type PrioritySource } from "@/lib/request-priority";
 
 export type JobReadinessDockVariant = "list" | "champion";
 
@@ -156,7 +171,7 @@ const LIST_DOCK_TABS: { value: DockTab; label: string }[] = [
 ];
 
 // Etykieta „Zespół” zamiast „Zespół i priorytet” świadomie: dok ma 360 px.
-// Znaczenie zostaje jasne z kontekstu (właściciel + HM + Priority Work).
+// Znaczenie zostaje jasne z kontekstu (trzy role, termin, priorytet, HM).
 // Zakładka „Wyszukiwania (AI)” usunięta 25.09.2026 — rekomendowane
 // wyszukiwania zastąpiły wymagania do wyszukiwania w sekcji 2 Championa.
 // 29.09.2026: „Historia” (wcześniejsze zapytania klienta) przeszła do trybu
@@ -168,19 +183,6 @@ const CHAMPION_DOCK_TABS: { value: DockTab; label: string }[] = [
   { value: "team", label: "Zespół" },
   { value: "announce", label: "Ogłoszenie" },
 ];
-
-// Lustro `_OWNERSHIP_ELIGIBLE_ROLES` w `backend/app/api/jobs.py`:
-// `POST /jobs/{id}/claim` odrzuca 403 („Rola tylko do odczytu nie może przejąć rekrutacji")
-// każdą inną rolę — także te z zapisem w sekcji pipeline (finance,
-// head_of_recruitment, talent_community_manager). Przycisk bez tego lustra
-// = gwarantowany 403 po kliknięciu.
-const CLAIM_ELIGIBLE_ROLES = [
-  "admin",
-  "delivery_lead",
-  "tac",
-  "recruiter",
-  "sourcer",
-] as const;
 
 // `GET /jobs/{id}/readiness` wymaga uprawnienia „Rekrutacje: zakładanie,
 // zamykanie, wysyłka CV do klienta” (`RecruitmentManageUser`). Bez niego
@@ -578,15 +580,15 @@ export function JobReadinessDock({
     ) : null;
 
   const claimMutation = useMutation({
-    mutationFn: () => api.post(`/api/jobs/${jobId}/claim`),
+    mutationFn: () => claimJob(jobId as number),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });
-      queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
-      toast.showSuccess("Przejęto rekrutację.");
+      toast.showSuccess("Od teraz pracujesz nad tą rekrutacją.");
     },
     onError: (err: unknown) => {
-      toast.showError(apiErrorMessage(err, "Nie udało się przejąć projektu."));
+      toast.showError(apiErrorMessage(err, "Nie udało się wziąć rekrutacji."));
     },
+    // Także po odmowie: 409 znaczy, że ktoś wziął rekrutację wcześniej.
+    onSettled: () => invalidateJobTeam(queryClient, jobId),
   });
 
   if (jobId == null) {
@@ -646,8 +648,8 @@ export function JobReadinessDock({
 
   const job = jobQuery.data;
   // Dwa poziomy edycji (22.09.2026, `lib/job-edit-access.ts`): pełna
-  // (`job.update`) i treść (`can_edit` z serwera — rekruter prowadzący
-  // i współpracownicy: opis, ogłoszenia, Champion).
+  // (`job.update`) i treść (`can_edit` z serwera — rekruter i kolejne
+  // osoby: opis, ogłoszenia, Champion).
   const editScope = jobEditScope(job, {
     canWritePipeline,
     canManageJob: canUpdateJob,
@@ -700,17 +702,27 @@ export function JobReadinessDock({
     canWritePipeline &&
     claimEligible &&
     !hasActiveOwner(job.primary_owner) &&
+    // Zamkniętej rekrutacji nikt już nie bierze (serwer odpowiada 409).
+    job.status !== "closed" &&
     !claimMutation.isSuccess;
 
+  // Rola „Rekruter” (02.10.2026): osoby, które nad rekrutacją PRACUJĄ. Sama
+  // propozycja automatu to jeszcze nie praca — warunek zostaje niespełniony.
+  const recruiters = recruitersOf(job);
+  const workingNames = workingRecruiters(recruiters).map((person) => person.name);
+  const proposedNames = proposedRecruiters(recruiters).map((person) => person.name);
   const ownerItem: ReadinessItem = {
     key: "owner",
-    done: hasActiveOwner(job.primary_owner),
-    title: "Właściciel projektu",
-    description: job.primary_owner
-      ? hasActiveOwner(job.primary_owner)
-        ? job.primary_owner.name
-        : `${job.primary_owner.name} — konto nieaktywne, przejmij rekrutację.`
-      : "Nieprzypisany — nikt nie dostanie alertów deadline'u.",
+    done: hasRecruiter(recruiters),
+    title: "Rekruter",
+    description:
+      workingNames.length > 0
+        ? workingNames.join(", ")
+        : proposedNames.length > 0
+          ? `Bez rekrutera — propozycja automatu (${proposedNames.join(", ")}) czeka na akceptację Head of Recruitment.`
+          : job.primary_owner && !hasActiveOwner(job.primary_owner)
+            ? `Bez rekrutera — ${job.primary_owner.name} ma nieaktywne konto.`
+            : "Bez rekrutera — nikt jeszcze nie pracuje nad tą rekrutacją.",
     action: canClaim ? (
       <Button
         type="button"
@@ -719,7 +731,7 @@ export function JobReadinessDock({
         loading={claimMutation.isPending}
         onClick={() => claimMutation.mutate()}
       >
-        Przejmij
+        Biorę
       </Button>
     ) : undefined,
   };
@@ -892,40 +904,6 @@ export function JobReadinessDock({
       .catch(() => toast.showError("Nie udało się skopiować linku."));
   };
 
-  const teamTab = (
-    <div className="space-y-4">
-      <JobOwnershipPanel
-        jobId={jobId}
-        jobTitle={job.title}
-        primaryOwner={job.primary_owner ?? null}
-        collaborators={job.collaborators ?? []}
-        // Współpracowników dopisuje każdy, kto redaguje rekrutację (29.09.2026).
-        canEdit={editScope !== "none"}
-      />
-      <JobSettingsPanel
-        jobId={jobId}
-        clientId={job.client_id ?? null}
-        deliveryLeadId={job.delivery_lead_id ?? null}
-        deadline={job.deadline ?? null}
-        deadlineTime={job.deadline_time ?? null}
-        canEdit={canManageJob}
-      />
-      <HiringManagerPicker
-        jobId={jobId}
-        clientId={job.client_id ?? null}
-        value={job.hiring_manager_contact_id ?? null}
-        valueName={job.hiring_manager_name ?? null}
-        // HM ustawia każdy, kto redaguje rekrutację (decyzja 25.09.2026) —
-        // lustro `ensure_job_editor` w `PUT …/hiring-manager`.
-        canEdit={editScope !== "none"}
-        onSaved={() =>
-          queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] })
-        }
-      />
-      <JobPriorityContext jobId={jobId} />
-    </div>
-  );
-
   return (
     <>
     {collapsedStrip}
@@ -1071,7 +1049,7 @@ export function JobReadinessDock({
                   {doneCount}
                 </span>
                 {/* „Kompletność", NIE „gotowość do searchu": ta checklista liczy
-                    właściciela, Championa, budżet, skille i HM — zbiór ROZŁĄCZNY
+                    rekrutera, Championa, budżet, skille i HM — zbiór ROZŁĄCZNY
                     z oficjalną bramką „Przekaż do searchu” (`job_readiness.py`:
                     tytuł, klient, kontekst projektu, ≥2 pytania screeningowe).
                     Werdykt bramki jest niżej, w `ReadinessGateBlock`; dwie liczby
@@ -1140,10 +1118,14 @@ export function JobReadinessDock({
                   `GET /readiness` i `POST /handoff` wymagają uprawnienia do
                   prowadzenia rekrutacji, więc bramka gotowości i zapis Pipeline.
                   NIE `canEditChampion`: `can_edit` z serwera ma też rekruter
-                  prowadzący, a dla niego oba endpointy to 403 (28.09.2026). */}
+                  rekrutacji, a dla niego oba endpointy to 403 (28.09.2026). */}
               {variant === "champion" && canSeeGate && canWritePipeline && (
                 <div className="col-span-2">
-                  <JobHandoffButton jobId={jobId} />
+                  <JobHandoffButton
+                    jobId={jobId}
+                    priorityLevel={priorityLevelOf(job)}
+                    recruiter={job.primary_owner ?? null}
+                  />
                 </div>
               )}
               {/* Goły <a> ze stylami `buttonVariants`, nie `<Button asChild>` —
@@ -1203,7 +1185,7 @@ export function JobReadinessDock({
           <PipelineTab jobId={jobId} stageBreakdown={stageBreakdown} />
         )}
 
-        {dockTab === "team" && teamTab}
+        {dockTab === "team" && <JobTeamTab jobId={jobId} job={job} />}
 
         {dockTab === "announce" && (
           <div className="space-y-4" data-testid="dock-announce-tab">
@@ -1284,13 +1266,98 @@ export function JobReadinessDock({
           scope={canManageJob ? "full" : "content"}
           onClose={() => setShowEdit(false)}
           onSuccess={() => {
-            queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });
-            queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
+            // Okno zmienia też rekrutera i kolejne osoby — odświeżamy obsadę
+            // wszędzie, gdzie ją widać (rekrutacja, lista, liczniki, pulpit).
+            invalidateJobTeam(queryClient, jobId);
             setShowEdit(false);
           }}
         />
       )}
     </div>
     </>
+  );
+}
+
+/** Pola rekrutacji (`GET /api/jobs/{id}`), które czyta zakładka „Zespół”. */
+export interface JobTeamTabJob extends JobOwnershipJob, PrioritySource, JobNames {
+  client_id?: number | null;
+  delivery_lead_id?: number | null;
+  deadline?: string | null;
+  deadline_time?: string | null;
+  competence_category_id?: number | null;
+  hiring_manager_contact_id?: number | null;
+  hiring_manager_name?: string | null;
+  can_edit?: boolean | null;
+  /** Czy bieżąca osoba ustawia priorytet TEJ rekrutacji; brak = capability. */
+  can_set_priority?: boolean | null;
+}
+
+/**
+ * Zakładka „Zespół” panelu zlecenia: karta z trzema rolami (Delivery Lead,
+ * Rekruter, Kategoria), terminem i priorytetem, pod nią hiring manager klienta
+ * i kontekst Priority Work. Osobny komponent, żeby harness
+ * `/preview/job-team-panel` renderował DOKŁADNIE tę treść, którą pokazuje dok.
+ */
+export function JobTeamTab({
+  jobId,
+  job,
+}: {
+  jobId: number;
+  job: JobTeamTabJob;
+}) {
+  const queryClient = useQueryClient();
+  const authUser = useAuthStore((s) => s.user);
+  const impersonating = useAuthStore((s) => s.realUser !== null);
+  const canWritePipeline = canMutateSection(authUser, "pipeline", impersonating);
+  const canUpdateJob = useCapability("job.update");
+  const priorityCapability = useCapability("job.priority.update");
+  // Ta sama reguła co w doku: pełna edycja (`job.update`) albo treść (`can_edit`).
+  const editScope = jobEditScope(job, {
+    canWritePipeline,
+    canManageJob: canUpdateJob,
+  });
+  // `can_set_priority` z serwera zna zakres Delivery Leada; capability to rola.
+  const canSetPriority =
+    canWritePipeline &&
+    (typeof job.can_set_priority === "boolean"
+      ? job.can_set_priority
+      : priorityCapability);
+
+  return (
+    <div className="space-y-4">
+      <JobSettingsPanel
+        jobId={jobId}
+        clientId={job.client_id ?? null}
+        deliveryLeadId={job.delivery_lead_id ?? null}
+        deadline={job.deadline ?? null}
+        deadlineTime={job.deadline_time ?? null}
+        canEdit={editScope === "full"}
+        categoryId={job.competence_category_id ?? null}
+        priorityLevel={priorityLevelOf(job)}
+        canSetPriority={canSetPriority}
+        recruiters={
+          <JobOwnershipPanel
+            jobId={jobId}
+            jobTitle={jobDisplayTitle(job)}
+            job={job}
+            // Kolejne osoby dopisuje każdy, kto redaguje rekrutację (29.09.2026).
+            canEdit={editScope !== "none"}
+          />
+        }
+      />
+      <HiringManagerPicker
+        jobId={jobId}
+        clientId={job.client_id ?? null}
+        value={job.hiring_manager_contact_id ?? null}
+        valueName={job.hiring_manager_name ?? null}
+        // HM ustawia każdy, kto redaguje rekrutację (decyzja 25.09.2026) —
+        // lustro `ensure_job_editor` w `PUT …/hiring-manager`.
+        canEdit={editScope !== "none"}
+        onSaved={() =>
+          queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] })
+        }
+      />
+      <JobPriorityContext jobId={jobId} />
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 """Schemat i zasiew dziewięciu uprawnień — jedno źródło SQL.
 
-Czytają je: migracja ``0409_named_permissions``, migracja ``0282`` (żeby jej
+Czytają je: migracja ``0410_named_permissions``, migracja ``0282`` (żeby jej
 ponowne uruchomienie przy starcie nigdy nie zwęziło CHECK-a), literały
 ``CREATE TABLE`` w ``entrypoint.sh`` (przez test lustra) i siatka przy starcie
 (``named_permissions_bootstrap``). Wszystko powstaje z ``permission_catalog``.

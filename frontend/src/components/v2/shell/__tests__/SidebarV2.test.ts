@@ -47,7 +47,7 @@ describe("visibleNavSections", () => {
   });
 
   it("respektuje indywidualne nadanie uprawnienia i odebranie sekcji z backendu", () => {
-    // Od 0409 Finanse i Delivery wynikają z uprawnień z ekranu Osoby i role:
+    // Od 0410 Finanse i Delivery wynikają z uprawnień z ekranu Osoby i role:
     // wejście „Finanse” daje nadany „Moduł Finanse”, nie sam wyjątek sekcji.
     const recruiterWithFinance = visibleNavSections(
       accessSnapshot("recruiter", { grant: ["finance_module"] }),

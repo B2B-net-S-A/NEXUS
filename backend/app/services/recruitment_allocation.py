@@ -128,6 +128,22 @@ async def allocation_lock(db: AsyncSession) -> None:
     )
 
 
+async def effective_allocation_mode(db: AsyncSession) -> str:
+    """Tryb automatu przydziału: zapisany, a przy wyłączonej fladze ``off``.
+
+    Bez wiersza stanu obowiązuje ``shadow`` — taki tryb zakłada pierwszy
+    przebieg pętli (domyślna wartość kolumny), tak samo liczy pulpit
+    „Requesty i obłożenie”. Jedna reguła dla ``/jobs/new``
+    (``handoff-options``), gotowości rekrutacji i odmowy 409 w handoffie:
+    dwie kopie rozjechały się na przypadku „flaga włączona, wiersza jeszcze
+    nie ma” (formularz mówił „automat niedostępny”, okno przekazania — że jest).
+    """
+    if not settings.RECRUITMENT_ALLOCATION_ENABLED:
+        return "off"
+    state = await db.get(RecruitmentAllocationState, 1)
+    return state.mode if state is not None else "shadow"
+
+
 async def enqueue_allocation(db, *, job, actor_user_id, channel):
     request = await db.scalar(
         select(RecruitmentAllocationRequest)

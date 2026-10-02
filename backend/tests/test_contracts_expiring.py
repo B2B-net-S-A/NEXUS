@@ -211,7 +211,7 @@ def test_ending_soon_window_span():
 # The roster carries candidate PII + rates/margins. A read-only viewer
 # (UserRole.user) must be refused at the API — the unified /contracts workspace
 # hides the operations mode on the FE, but that is UX, not the security boundary.
-# Od 0409 wejście daje uprawnienie „Klienci, kontrakty i zamówienia: podgląd”
+# Od 0410 wejście daje uprawnienie „Klienci, kontrakty i zamówienia: podgląd”
 # z ekranu Osoby i role (nie lista ról), a zakres klientów — portfel DL.
 # Locks _require_contractor_access so a future refactor can't quietly re-open it.
 

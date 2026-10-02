@@ -209,7 +209,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   // Reguły CV edytuje posiadacz uprawnienia „Klienci: dodawanie i edycja”
-  // (0409). Token niesie sekcje (`sa`), nie uprawnienia, więc tutaj wymagamy
+  // (0410). Token niesie sekcje (`sa`), nie uprawnienia, więc tutaj wymagamy
   // zapisu w Delivery i nie zawężamy do ról: edycję bramkuje sama strona
   // i backend, a osoba z zapisem Delivery bez tego uprawnienia widzi reguły
   // tylko do odczytu. `roles` to fallback dla tokenów bez `sa`.
@@ -373,6 +373,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/cpro-queue`, `/preview/candidate-followup`,
 //   `/preview/kpi-targets`, `/preview/plain-brief`, `/preview/permissions`,
 //   `/preview/b2b-documents`, `/preview/b2b-generator`, `/preview/similar-reassign`,
+//   `/preview/job-team-panel`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
@@ -447,7 +448,7 @@ const PUBLIC_PATHS = [
   "/preview/cpro-queue",
   "/preview/candidate-followup",
   "/preview/kpi-targets",
-  // Ustawienia → „Osoby i role” (0409): dziewięć przełączników, okno osoby.
+  // Ustawienia → „Osoby i role” (0410): dziewięć przełączników, okno osoby.
   "/preview/permissions",
   "/preview/b2b-documents",
   "/preview/b2b-generator",
@@ -458,6 +459,8 @@ const PUBLIC_PATHS = [
   "/preview/job-portals",
   "/preview/academy",
   "/preview/request-allocation",
+  // Panel „Zespół” rekrutacji: Delivery Lead · Rekruter · Kategoria (02.10.2026).
+  "/preview/job-team-panel",
   "/preview/plain-brief",
   // 0404: „Odrzuceni przez AI” i plakietki przeglądu zgłoszeń.
   "/preview/job-board-screening",

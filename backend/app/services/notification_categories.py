@@ -115,6 +115,9 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.candidate_claim_taken: _C.mentions,
     # Odpowiedź na Twoją notatkę — imienne, jak wzmianka (0399).
     _T.note_reply: _C.mentions,
+    # Ktoś przydzielił Ci request (akceptacja propozycji automatu, poranne
+    # „Od dziś: …”) — imienne zadanie, więc nie da się go wyciszyć.
+    _T.request_assignment_changed: _C.mentions,
     # Czat
     _T.job_chat_message: _C.chat,
     # Ruchy w rekrutacjach
@@ -131,8 +134,9 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.suggest_next_step: _C.reminders,
     _T.recruitment_allocation_alert: _C.reminders,
     _T.board_tasks_digest: _C.reminders,
-    _T.request_assignment_changed: _C.reminders,
     _T.request_review_needed: _C.reminders,
+    # 0409: propozycje automatu przydziału czekają na akceptację.
+    _T.request_allocation_proposals: _C.reminders,
     # Terminy rekrutacji
     _T.job_deadline_7d: _C.deadlines,
     _T.job_deadline_3d: _C.deadlines,

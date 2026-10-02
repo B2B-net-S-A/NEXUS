@@ -19,7 +19,7 @@ export interface ErrorExplainer {
 
 /**
  * Gdzie administrator przełącza uprawnienia. Wyjaśnienia odmów nazywają
- * UPRAWNIENIE (z katalogu, tą samą nazwą co ekran), nie rolę: od 0409 to ono
+ * UPRAWNIENIE (z katalogu, tą samą nazwą co ekran), nie rolę: od 0410 to ono
  * decyduje na trasie, a role mają je tylko domyślnie.
  */
 const PERMISSIONS_SCREEN = "Ustawienia → Zespół i dostęp → Osoby i role";

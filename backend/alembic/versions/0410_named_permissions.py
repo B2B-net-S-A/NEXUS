@@ -1,7 +1,7 @@
 """Dziewięć uprawnień z ekranu Ustawienia → Osoby i role (02.10.2026).
 
-Revision ID: 0409_named_permissions
-Revises: 0408_board_task_waiting_notif
+Revision ID: 0410_named_permissions
+Revises: 0409_request_allocation_proposals
 
 Ekran ustawiał sześć sekcji, a o operacjach decydowały bramki ról w kodzie —
 administrator nie miał jak nadać np. Finansom tworzenia kontraktu. Od tej
@@ -18,8 +18,8 @@ from alembic import op
 from app.services import permission_catalog as catalog
 from app.services import permission_schema as schema
 
-revision = "0409_named_permissions"
-down_revision = "0408_board_task_waiting_notif"
+revision = "0410_named_permissions"
+down_revision = "0409_request_allocation_proposals"
 branch_labels = None
 depends_on = None
 

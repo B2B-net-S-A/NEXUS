@@ -87,7 +87,7 @@ describe("podpis B2B: action-access zgadza się z lib/permissions", () => {
     );
   });
 
-  it("profil sprzed 0409 z „manage” u TAC-a nie daje podpisu w żadnym z modułów", () => {
+  it("profil sprzed 0410 z „manage” u TAC-a nie daje podpisu w żadnym z modułów", () => {
     // Stary komplet niósł TAC-owi podpis, którego zakres klienta i tak nigdy
     // nie przepuszczał. Bez klucza `delivery_view` profil jest nieaktualny,
     // więc liczą się domyślne uprawnienia roli.

@@ -226,7 +226,7 @@ def test_named_permission_is_yes_or_no() -> None:
 
 
 def test_role_without_seeded_rows_is_resolved_by_the_seed_rule() -> None:
-    """Start bez migracji 0409 nie odbiera nikomu Delivery."""
+    """Start bez migracji 0410 nie odbiera nikomu Delivery."""
 
     unseeded = _action_rows(seeded=False)
     for role in (

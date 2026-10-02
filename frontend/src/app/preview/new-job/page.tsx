@@ -3,13 +3,15 @@
 /**
  * Harness `/preview/new-job` — strona „Nowa rekrutacja” na danych fikcyjnych.
  *
- * `?state=request|review|gaps|portals|automatic`. Zero zapytań: klucze klientów,
- * rekruterów, konfiguracji portali i słownika RocketJobs są zasiane w cache
- * (patrz `app/preview/__tests__`), a baner podobnych rekrutacji nie renderuje
- * się w trybie podglądu. `portals` = krok „Ogłoszenie na portalach” z gotowym
- * szkicem (na produkcji portale są dziś wyłączone flagami). `automatic` =
- * „Prowadzi: Przydziel automatycznie” przy włączonym automacie (tryb „shadow”);
- * pozostałe stany pokazują automat wyłączony, jak dziś na produkcji.
+ * `?state=request|review|gaps|portals|automatic|passive`. Zero zapytań: klucze
+ * klientów, rekruterów, konfiguracji portali i słownika RocketJobs są zasiane
+ * w cache (patrz `app/preview/__tests__`), a baner podobnych rekrutacji nie
+ * renderuje się w trybie podglądu. `portals` = krok „Ogłoszenie na portalach”
+ * z gotowym szkicem (na produkcji portale są dziś wyłączone flagami).
+ * `automatic` = sekcja „Rekruter i priorytet” przy włączonym automacie (tryb
+ * „shadow”) i bez żadnego wyboru — domyślnie „Zaproponuje automat”; `passive` =
+ * to samo przy priorytecie „Przyjmujemy kandydatów” (automat wtedy nikogo nie
+ * proponuje). Pozostałe stany pokazują automat wyłączony, jak dziś na produkcji.
  */
 
 import { criticalSuggestionKey } from "@/lib/critical-skills-api";
@@ -238,11 +240,19 @@ STATES.portals = {
   ],
 };
 
+// Bez `assignment`: Delivery Lead niczego nie zaznaczył, więc działa automat.
 STATES.automatic = {
   ...STATES.review,
   recruiterId: null,
-  assignment: "automatic",
 };
+
+STATES.passive = {
+  ...STATES.automatic,
+  priorityLevel: "accepting",
+};
+
+/** Stany, w których automat przydziału jest włączony (tryb „shadow”). */
+const AUTOMATIC_STATES = new Set(["automatic", "passive"]);
 
 function Harness() {
   const params = useSearchParams();
@@ -265,7 +275,7 @@ function Harness() {
         PostgreSQL: { rate: 0.38, jobs: 41 },
       },
     });
-    // Pole „Współpracownicy” (`JobCollaboratorsField`) — katalog osób.
+    // Pole „Kolejne osoby” (`JobCollaboratorsField`) — katalog osób.
     qc.setQueryData(["users-directory"], [
       { id: 31, name: "[Rekruterka A]", role: "recruiter", roles: [] },
       { id: 32, name: "[Rekruter B]", role: "recruiter", roles: [] },
@@ -283,10 +293,10 @@ function Harness() {
       stateKey === "portals" ? PORTALS_ON : PORTALS_OFF,
     );
     qc.setQueryData(jobPortalKeys.dictionaries("rocketjobs"), DICTIONARY);
-    // Pole „Prowadzi”: czy automat przydziału (0371) da się wybrać.
+    // Pole „Rekruter”: czy automat przydziału (0371) da się wybrać.
     qc.setQueryData(
       ["job-intake-handoff-options"],
-      stateKey === "automatic"
+      AUTOMATIC_STATES.has(stateKey)
         ? { automatic_enabled: true, mode: "shadow" }
         : { automatic_enabled: false, mode: "off" },
     );

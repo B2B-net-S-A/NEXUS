@@ -6,6 +6,9 @@ Członkowie projektu = osoby które mogą widzieć Job Chat danego projektu:
     - job.delivery_lead_id (DL projektu)
     - job.tac_id (TAC projektu)
     - aktywni job_collaborators (removed_from_auto_cc=False)
+    - osoby z AKTYWNYM przypisaniem do requestu (job_work_assignments) —
+      zaakceptowany sourcer albo drugi rekruter pracuje nad rekrutacją, więc
+      dostaje jej powiadomienia (02.10.2026); propozycja automatu się nie liczy
 
 Klient i kandydat NIE są członkami — Job Chat jest wewnętrzny.
 """
@@ -18,8 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.candidate_access import user_can_access_candidate_domain
 from app.models.job import Job, JobStatus
 from app.models.job_collaborator import JobCollaborator
+from app.models.job_work_assignment import JobWorkAssignment
 from app.models.user import User, UserRole
 from app.core.config import settings
+from app.services.job_team import working_assignment_job_ids
 from app.services.workforce_availability import (
     workforce_context,
     effective_owner_ids,
@@ -126,7 +131,17 @@ async def is_member_of_job(
         .where(JobCollaborator.removed_from_auto_cc.is_(False))
         .limit(1)
     )
-    return (await db.execute(q)).scalar_one_or_none() is not None
+    if (await db.execute(q)).scalar_one_or_none() is not None:
+        return True
+
+    # Aktywne przypisanie do requestu — ta sama reguła co rola „Rekruter”
+    # (`job_team`): propozycja automatu i lustro prowadzącego się nie liczą.
+    assigned = await db.scalar(
+        working_assignment_job_ids([user.id])
+        .where(JobWorkAssignment.job_id == job_id)
+        .limit(1)
+    )
+    return assigned is not None
 
 
 async def list_job_member_ids(db: AsyncSession, job_id: int) -> list[int]:
@@ -151,6 +166,15 @@ async def list_job_member_ids(db: AsyncSession, job_id: int) -> list[int]:
     )
     for (uid,) in rows.all():
         member_ids.add(uid)
+
+    # Osoby z aktywnym przypisaniem do requestu (zaakceptowany sourcer, drugi
+    # rekruter) — bez nich powiadomienia rekrutacji szły tylko do prowadzącego.
+    assigned = await db.scalars(
+        working_assignment_job_ids()
+        .where(JobWorkAssignment.job_id == job_id)
+        .with_only_columns(JobWorkAssignment.user_id)
+    )
+    member_ids.update(assigned.all())
 
     if settings.RECRUITMENT_ALLOCATION_ENABLED:
         members = await db.scalars(

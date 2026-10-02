@@ -27,5 +27,8 @@ export const WIDE_ONLY_COL = "hidden @min-[1700px]:table-column";
 /** Element w linii widoczny dopiero w szerokiej tabeli. */
 export const WIDE_ONLY_INLINE = "hidden @min-[1700px]:inline";
 
+/** Rząd (`flex`) widoczny dopiero w szerokiej tabeli. */
+export const WIDE_ONLY_FLEX = "hidden @min-[1700px]:flex";
+
 /** Drobny druk, który w szerokiej tabeli ma własną kolumnę. */
 export const WIDE_HIDDEN = "@min-[1700px]:hidden";

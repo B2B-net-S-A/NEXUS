@@ -13,7 +13,7 @@ the join and exposes it as a dedicated listing so backoffice can:
   contract terminated for 31.12 sat in „Aktywni” while its badge said
   „Kończący się”)
 
-Access (od 0409 uprawnienia z ekranu Osoby i role, nie role):
+Access (od 0410 uprawnienia z ekranu Osoby i role, nie role):
 - wejście: „Klienci, kontrakty i zamówienia: podgląd” (domyślnie admin,
   Finanse, Delivery Lead, Talent Community Manager); pozostali → 403
 - zakres: konto z rolą Delivery Leada widzi klientów z portfela (25.09.2026),

@@ -79,7 +79,7 @@ describe("contractAccess — domyślne uprawnienia ról", () => {
     expect(outside.canEditContractDocuments).toBe(false);
   });
 
-  it("Finanse od 0409: pełna edycja kontraktu i kwot, bez zmiany statusu", () => {
+  it("Finanse od 0410: pełna edycja kontraktu i kwot, bez zmiany statusu", () => {
     expect(access("finance")).toEqual({
       isAdmin: false,
       canManageFinance: true,

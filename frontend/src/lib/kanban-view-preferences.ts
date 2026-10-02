@@ -7,15 +7,15 @@
  * w teście sprawdza własną kopię i przestaje chronić w dniu, w którym oryginał
  * się zmieni.
  *
- * ## Dlaczego preferencja jest TRÓJSTANOWA, a nie `useLocalStorageFlag`
+ * ## Dlaczego preferencja jest TRÓJSTANOWA, a nie zwykły boolean
  *
  * Reszta przełączników UI (`zwinięty nagłówek", „zwinięta szyna") to boolean
  * z ustaloną wartością domyślną. Tutaj wartością domyślną jest WYNIK REGUŁY
  * („szeroki szablon otwiera się kafelkowo"), a nie stała — a to daje dwa
  * problemy, których boolean nie umie wyrazić:
  *
- * 1. `useLocalStorageFlag` zapisuje `"1"`/`"0"`, więc „użytkownik nigdy nie
- *    wybrał" jest nie do odróżnienia od „użytkownik wybrał kolumny". Szablon,
+ * 1. Boolean zapisany jako `"1"`/`"0"` nie odróżnia „użytkownik nigdy nie
+ *    wybrał" od „użytkownik wybrał kolumny". Szablon,
  *    który urośnie ponad próg, MUSI otworzyć się kafelkowo komuś, kto nigdy nie
  *    tknął przełącznika — i jednocześnie NIE MOŻE nadpisać wyboru komuś, kto
  *    jawnie wybrał kolumny. To są dwa różne stany.
@@ -25,7 +25,7 @@
  *    po cichu zostałby przy pierwszej obliczonej wartości.
  *
  * Stąd `"auto" | "tiles" | "columns"`. Dyscyplina zapisu jest ta sama co
- * w `useLocalStorageFlag`: odczyt w `useEffect` (nie w inicjalizatorze — SSR
+ * przy innych preferencjach UI: odczyt w `useEffect` (nie w inicjalizatorze — SSR
  * nie ma `localStorage`, więc pierwszy render klienta rozjechałby się z HTML-em
  * z serwera), zapis w setterze (efekt na `[value]` odpaliłby się też przy
  * montażu i nadpisał zapamiętaną preferencję), wszystko w `try/catch`

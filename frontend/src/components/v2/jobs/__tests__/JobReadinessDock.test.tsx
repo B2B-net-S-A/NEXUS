@@ -9,14 +9,19 @@
  * klienta”, więc dla większości kont KOŃCZY SIĘ 403 i to NIE jest błąd do
  * ukrycia).
  *
- * `variant="champion"` (krok 02) dokłada zakładkę „Zespół i priorytet”
+ * `variant="champion"` (krok 02) dokłada zakładkę „Zespół”
  * (zakładka „Wyszukiwania (AI)” usunięta 25.09.2026) — dzieci doku
- * (`ChampionVerificationChecklist`, `JobOwnershipPanel`, `HiringManagerPicker`,
- * `JobPriorityContext`, `JobHandoffButton`) są tu ZAMOCKOWANE: ten plik testuje
- * WIRING doku (który wariant/zakładka renderuje co i z jakimi propsami), nie
- * powtarza ich własnych testów/logiki.
+ * (`ChampionVerificationChecklist`, `JobSettingsPanel`, `JobOwnershipPanel`,
+ * `HiringManagerPicker`, `JobPriorityContext`, `JobHandoffButton`) są tu
+ * ZAMOCKOWANE: ten plik testuje WIRING doku (który wariant/zakładka renderuje
+ * co i z jakimi propsami), nie powtarza ich własnych testów/logiki.
+ *
+ * Od 02.10.2026 rola przy rekrutacji nazywa się „Rekruter” (dawniej
+ * „Właściciel projektu”): warunek gotowości spełnia osoba, która nad
+ * rekrutacją PRACUJE — sama propozycja automatu to za mało.
  */
 
+import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -93,16 +98,36 @@ vi.mock("@/components/RequestHistorySection", () => ({
   ),
 }));
 vi.mock("@/components/v2/jobs/JobOwnershipPanel", () => ({
-  JobOwnershipPanel: (props: { primaryOwner: { name: string } | null }) => (
+  JobOwnershipPanel: (props: {
+    job: { primary_owner?: { name: string } | null };
+    canEdit: boolean;
+  }) => (
     <div
       data-testid="mock-ownership-panel"
-      data-owner={props.primaryOwner?.name ?? ""}
+      data-owner={props.job.primary_owner?.name ?? ""}
+      data-can-edit={String(props.canEdit)}
     />
   ),
 }));
+// Karta zespołu dostaje wiersz „Rekruter” jako treść (`recruiters`) — mock ją
+// renderuje, żeby było widać, że panel obsady siedzi W karcie.
 vi.mock("@/components/v2/jobs/JobSettingsPanel", () => ({
-  JobSettingsPanel: (props: { canEdit: boolean }) => (
-    <div data-testid="mock-settings-panel" data-can-edit={String(props.canEdit)} />
+  JobSettingsPanel: (props: {
+    canEdit: boolean;
+    canSetPriority: boolean;
+    priorityLevel: string;
+    categoryId: number | null;
+    recruiters?: ReactNode;
+  }) => (
+    <div
+      data-testid="mock-settings-panel"
+      data-can-edit={String(props.canEdit)}
+      data-can-set-priority={String(props.canSetPriority)}
+      data-priority-level={props.priorityLevel}
+      data-category-id={String(props.categoryId)}
+    >
+      {props.recruiters}
+    </div>
   ),
 }));
 vi.mock("@/components/jobs/HiringManagerPicker", () => ({
@@ -114,7 +139,12 @@ vi.mock("@/components/v2/priority-work", () => ({
   JobPriorityContext: () => <div data-testid="mock-priority-context" />,
 }));
 vi.mock("@/components/v2/jobs/JobHandoffButton", () => ({
-  JobHandoffButton: () => <div data-testid="mock-handoff-button" />,
+  JobHandoffButton: (props: { priorityLevel?: string }) => (
+    <div
+      data-testid="mock-handoff-button"
+      data-priority-level={props.priorityLevel ?? ""}
+    />
+  ),
 }));
 
 const recruiterWrite = {
@@ -298,9 +328,9 @@ describe("JobReadinessDock — 403", () => {
         "Twoja rola nie ma dostępu do tej rekrutacji — poproś o dodanie Cię do jej zespołu.",
       ),
     ).toBeInTheDocument();
-    // Bramka Championa/właściciela NIE renderuje się na błędzie — nie ma
-    // z czego jej zbudować, a pokazanie pustej checklisty udawałoby dane.
-    expect(screen.queryByText("Właściciel projektu")).not.toBeInTheDocument();
+    // Checklista (Champion, rekruter) NIE renderuje się na błędzie — nie ma
+    // z czego jej zbudować, a pokazanie pustej udawałoby dane.
+    expect(screen.queryByText("Rekruter")).not.toBeInTheDocument();
   });
 });
 
@@ -330,8 +360,9 @@ describe("JobReadinessDock — dane", () => {
     // 5/5 — wszystkie pozycje checklisty spełnione w fixture.
     expect(screen.getByText("5")).toBeInTheDocument();
 
-    expect(screen.getByText("Właściciel projektu")).toBeInTheDocument();
+    expect(screen.getByText("Rekruter")).toBeInTheDocument();
     expect(screen.getByText("Marta Kowalska")).toBeInTheDocument();
+    expect(screen.queryByText("Właściciel projektu")).not.toBeInTheDocument();
 
     expect(screen.getByText("Profil Championa")).toBeInTheDocument();
     expect(
@@ -447,7 +478,8 @@ describe("JobReadinessDock — dane", () => {
     ).toBeInTheDocument();
   });
 
-  it("brak ownera pokazuje przycisk Claim, który woła POST /api/jobs/{id}/claim", async () => {
+  it("bez rekrutera pokazuje „Biorę”, które woła POST /api/jobs/{id}/claim i odświeża rekrutację", async () => {
+    const user = userEvent.setup();
     postMock.mockResolvedValue({ data: {} });
     mockGetByUrl({
       job: () => Promise.resolve({ data: { ...jobFixture, primary_owner: null } }),
@@ -456,19 +488,49 @@ describe("JobReadinessDock — dane", () => {
 
     expect(
       await screen.findByText(
-        "Nieprzypisany — nikt nie dostanie alertów deadline'u.",
+        "Bez rekrutera — nikt jeszcze nie pracuje nad tą rekrutacją.",
       ),
     ).toBeInTheDocument();
-    const claimButton = screen.getByRole("button", { name: "Przejmij" });
+    // Warunek „Rekruter” niespełniony: 4 z 5.
+    expect(screen.getByText("4")).toBeInTheDocument();
+    const jobReads = () =>
+      getMock.mock.calls.filter(([url]) => url === "/api/jobs/501").length;
+    const readsBefore = jobReads();
 
-    claimButton.click();
+    await user.click(screen.getByRole("button", { name: "Biorę" }));
 
     await waitFor(() =>
       expect(postMock).toHaveBeenCalledWith("/api/jobs/501/claim"),
     );
+    // Odpowiedź zapisu nie niesie obsady — dok czyta rekrutację od nowa.
+    await waitFor(() => expect(jobReads()).toBeGreaterThan(readsBefore));
+    expect(
+      await screen.findByText("Od teraz pracujesz nad tą rekrutacją."),
+    ).toBeInTheDocument();
   });
 
-  it("nieaktywny prowadzący: opis mówi o nieaktywnym koncie i jest „Przejmij” (R9-V2-2)", async () => {
+  it("odmowa przy „Biorę” (ktoś był szybszy) pokazuje zdanie serwera i też odświeża rekrutację", async () => {
+    const user = userEvent.setup();
+    const refused: any = new Error("conflict");
+    refused.response = { status: 409, data: { detail: "Ta rekrutacja ma już rekrutera" } };
+    postMock.mockRejectedValue(refused);
+    mockGetByUrl({
+      job: () => Promise.resolve({ data: { ...jobFixture, primary_owner: null } }),
+    });
+    renderDock(501);
+    await screen.findByText("Bez rekrutera — nikt jeszcze nie pracuje nad tą rekrutacją.");
+    const jobReads = () =>
+      getMock.mock.calls.filter(([url]) => url === "/api/jobs/501").length;
+    const readsBefore = jobReads();
+
+    await user.click(screen.getByRole("button", { name: "Biorę" }));
+
+    expect(await screen.findByText("Ta rekrutacja ma już rekrutera")).toBeInTheDocument();
+    await waitFor(() => expect(jobReads()).toBeGreaterThan(readsBefore));
+  });
+
+  it("pierwszy rekruter z nieaktywnym kontem: opis mówi o koncie i jest „Biorę” (R9-V2-2)", async () => {
+    const user = userEvent.setup();
     postMock.mockResolvedValue({ data: {} });
     mockGetByUrl({
       job: () =>
@@ -482,15 +544,80 @@ describe("JobReadinessDock — dane", () => {
     renderDock(501);
 
     expect(
-      await screen.findByText(/konto nieaktywne, przejmij rekrutację/),
+      await screen.findByText("Bez rekrutera — Marta Kowalska ma nieaktywne konto."),
     ).toBeInTheDocument();
-    screen.getByRole("button", { name: "Przejmij" }).click();
+    await user.click(screen.getByRole("button", { name: "Biorę" }));
     await waitFor(() =>
       expect(postMock).toHaveBeenCalledWith("/api/jobs/501/claim"),
     );
   });
 
-  it("head_of_recruitment ma zapis w pipeline, ale NIE dostaje przycisku Claim (backend: 403 „Rola tylko do odczytu nie może przejąć rekrutacji”)", async () => {
+  it("sama propozycja automatu to jeszcze nie rekruter — warunek zostaje niespełniony", async () => {
+    mockGetByUrl({
+      job: () =>
+        Promise.resolve({
+          data: {
+            ...jobFixture,
+            primary_owner: null,
+            recruiters: [
+              {
+                user_id: 31,
+                name: "Anna Przykładowa",
+                role: "recruiter",
+                via: "assignment",
+                proposed: true,
+                assigned_by_name: null,
+              },
+            ],
+          },
+        }),
+    });
+    renderDock(501);
+
+    expect(
+      await screen.findByText(
+        "Bez rekrutera — propozycja automatu (Anna Przykładowa) czeka na akceptację Head of Recruitment.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument();
+  });
+
+  it("lista `recruiters` z serwera wygrywa: wszystkie pracujące osoby, bez propozycji", async () => {
+    mockGetByUrl({
+      job: () =>
+        Promise.resolve({
+          data: {
+            ...jobFixture,
+            recruiters: [
+              { user_id: 7, name: "Marta Kowalska", role: "recruiter", via: "owner", proposed: false, assigned_by_name: null },
+              { user_id: 33, name: "Celina Wzorcowa", role: "sourcer", via: "collaborator", proposed: false, assigned_by_name: null },
+              { user_id: 31, name: "Anna Przykładowa", role: "recruiter", via: "assignment", proposed: true, assigned_by_name: null },
+            ],
+          },
+        }),
+    });
+    renderDock(501);
+
+    expect(
+      await screen.findByText("Marta Kowalska, Celina Wzorcowa"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("5")).toBeInTheDocument();
+  });
+
+  it("zamkniętej rekrutacji nikt już nie bierze", async () => {
+    mockGetByUrl({
+      job: () =>
+        Promise.resolve({
+          data: { ...jobFixture, primary_owner: null, status: "closed" },
+        }),
+    });
+    renderDock(501);
+
+    await screen.findByText("Bez rekrutera — nikt jeszcze nie pracuje nad tą rekrutacją.");
+    expect(screen.queryByRole("button", { name: "Biorę" })).not.toBeInTheDocument();
+  });
+
+  it("head_of_recruitment ma zapis w pipeline, ale NIE dostaje „Biorę” — przydziela innych, sam rekruterem nie zostaje", async () => {
     useAuthStore.setState({ user: headOfRecruitmentWrite });
     mockGetByUrl({
       job: () => Promise.resolve({ data: { ...jobFixture, primary_owner: null } }),
@@ -499,10 +626,10 @@ describe("JobReadinessDock — dane", () => {
 
     expect(
       await screen.findByText(
-        "Nieprzypisany — nikt nie dostanie alertów deadline'u.",
+        "Bez rekrutera — nikt jeszcze nie pracuje nad tą rekrutacją.",
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Przejmij" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Biorę" })).not.toBeInTheDocument();
     // Inne mutacje sekcji pipeline (dodaj kandydata, edycja) zostają.
     expect(screen.getByRole("button", { name: "Dodaj kandydata" })).toBeInTheDocument();
   });
@@ -516,8 +643,8 @@ describe("JobReadinessDock — readOnly (RBAC)", () => {
     });
     renderDock(501);
 
-    await screen.findByText("Właściciel projektu");
-    expect(screen.queryByRole("button", { name: "Przejmij" })).not.toBeInTheDocument();
+    await screen.findByText("Rekruter");
+    expect(screen.queryByRole("button", { name: "Biorę" })).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Dodaj kandydata" }),
     ).not.toBeInTheDocument();
@@ -768,7 +895,7 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
       "aria-selected",
       "true",
     );
-    expect(screen.getByText("Właściciel projektu")).toBeInTheDocument();
+    expect(screen.getByText("Rekruter")).toBeInTheDocument();
     const checklist = await screen.findByTestId("mock-verification-checklist");
     expect(checklist).toHaveAttribute("data-can-edit", "true");
     // Weryfikacja jest teraz WIERSZAMI tej samej listy, nie osobnym blokiem.
@@ -866,7 +993,9 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
       "true",
     );
     expect(screen.getByTestId("mock-priority-context")).toBeInTheDocument();
-    expect(screen.queryByText("Właściciel projektu")).not.toBeInTheDocument();
+    // Checklista gotowości (z wierszem „Rekruter”) znika razem z zakładką.
+    expect(screen.queryByText("Budżet kandydacki")).not.toBeInTheDocument();
+    expect(screen.queryByText("Rekruter")).not.toBeInTheDocument();
   });
 
   it("krok 02 nie ma już rekomendowanych wyszukiwań (AI) — ani zakładki, ani podglądu", async () => {
@@ -1016,7 +1145,7 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
     );
   });
 
-  it("zakładka „Zespół” montuje JobSettingsPanel między właścicielem a hiring managerem, z `canEdit` DL-a", async () => {
+  it("zakładka „Zespół”: wiersz „Rekruter” siedzi W karcie zespołu, nad hiring managerem, z `canEdit` DL-a", async () => {
     useAuthStore.setState({ user: deliveryLead });
     const user = userEvent.setup();
     renderDock(501, undefined, true, "champion");
@@ -1024,9 +1153,95 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
 
     await user.click(screen.getByRole("tab", { name: "Zespół" }));
 
+    const card = await screen.findByTestId("mock-settings-panel");
+    expect(card).toHaveAttribute("data-can-edit", "true");
+    expect(within(card).getByTestId("mock-ownership-panel")).toBeInTheDocument();
+    expect(
+      card.compareDocumentPosition(screen.getByTestId("mock-hm-picker")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("karta zespołu dostaje kategorię i priorytet rekrutacji; okno przekazania — ten sam priorytet", async () => {
+    useAuthStore.setState({ user: deliveryLead });
+    mockGetByUrl({
+      job: () =>
+        Promise.resolve({
+          data: { ...jobFixture, competence_category_id: 2, priority_level: "accepting" },
+        }),
+    });
+    const user = userEvent.setup();
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText(CHAMPION_DOCK_LABEL);
+    expect(await screen.findByTestId("mock-handoff-button")).toHaveAttribute(
+      "data-priority-level",
+      "accepting",
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Zespół" }));
+
+    const card = await screen.findByTestId("mock-settings-panel");
+    expect(card).toHaveAttribute("data-category-id", "2");
+    expect(card).toHaveAttribute("data-priority-level", "accepting");
+  });
+
+  it.each([
+    ["Delivery Lead (rola)", deliveryLead, {}, "true"],
+    ["Head of Recruitment (rola)", headOfRecruitmentWrite, {}, "true"],
+    ["rekruter", recruiterWrite, {}, "false"],
+    ["Delivery Lead spoza zakresu (`can_set_priority: false` z serwera)", deliveryLead, { can_set_priority: false }, "false"],
+    ["rekruter, któremu serwer pozwala (`can_set_priority: true`)", recruiterWrite, { can_set_priority: true }, "true"],
+  ] as const)("priorytet ustawia: %s → %s", async (_name, as, flags, expected) => {
+    useAuthStore.setState({ user: as });
+    mockGetByUrl({
+      job: () => Promise.resolve({ data: { ...jobFixture, ...flags } }),
+    });
+    const user = userEvent.setup();
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText(CHAMPION_DOCK_LABEL);
+
+    await user.click(screen.getByRole("tab", { name: "Zespół" }));
+
     expect(await screen.findByTestId("mock-settings-panel")).toHaveAttribute(
+      "data-can-set-priority",
+      expected,
+    );
+  });
+
+  it("Head of Recruitment: priorytet tak, Delivery Lead i termin nie (to pełna edycja), kolejne osoby — jak każdy redagujący", async () => {
+    useAuthStore.setState({ user: headOfRecruitmentWrite });
+    mockGetByUrl({
+      job: () => Promise.resolve({ data: { ...jobFixture, can_edit: true } }),
+    });
+    const user = userEvent.setup();
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText(CHAMPION_DOCK_LABEL);
+
+    await user.click(screen.getByRole("tab", { name: "Zespół" }));
+
+    const card = await screen.findByTestId("mock-settings-panel");
+    expect(card).toHaveAttribute("data-can-edit", "false");
+    expect(card).toHaveAttribute("data-can-set-priority", "true");
+    expect(screen.getByTestId("mock-ownership-panel")).toHaveAttribute(
       "data-can-edit",
       "true",
+    );
+  });
+
+  it("sesja bez zapisu w sekcji nie ustawia priorytetu, nawet gdy serwer mówi `can_set_priority: true`", async () => {
+    useAuthStore.setState({ user: { ...deliveryLead, effective_section_access: { pipeline: "read" } } });
+    mockGetByUrl({
+      job: () => Promise.resolve({ data: { ...jobFixture, can_set_priority: true } }),
+    });
+    const user = userEvent.setup();
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText(CHAMPION_DOCK_LABEL);
+
+    await user.click(screen.getByRole("tab", { name: "Zespół" }));
+
+    expect(await screen.findByTestId("mock-settings-panel")).toHaveAttribute(
+      "data-can-set-priority",
+      "false",
     );
   });
 });

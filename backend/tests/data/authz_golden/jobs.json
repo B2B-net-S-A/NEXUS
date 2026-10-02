@@ -26,7 +26,7 @@
   "DELETE /api/jobs/{job_id}": "PDDPDDDDDDPPPDDDDDPDD",
   "DELETE /api/jobs/{job_id}/champion-profile/briefing": "PDDPDDDDDDPPPDDDDDDDD",
   "DELETE /api/jobs/{job_id}/collaborators/{user_id}": "PPPPPPPPDDPPPPPPPPPPP",
-  "DELETE /api/jobs/{job_id}/owner": "PDDPDDDDDDPPPDDDDDPDD",
+  "DELETE /api/jobs/{job_id}/owner": "PDPPDDDDDDPPPPDDDDPDD",
   "GET /api/jobs": "PPPPPPPPPDPPPPPPPPPPP",
   "GET /api/jobs/hiring-manager-options": "PPPPPPPPDDPPPPPPPPPPP",
   "GET /api/jobs/quick-counts": "PPPPPPPPPDPPPPPPPPPPP",
@@ -58,7 +58,7 @@
   "POST /api/jobs/{job_id}/collaborators": "PPPPPPPPDDPPPPPPPPPPP",
   "POST /api/jobs/{job_id}/handoff": "PDDPDDDDDDPPPDDDDDPDD",
   "POST /api/jobs/{job_id}/manage-in-nexus": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/owner": "PDDPDDDDDDPPPDDDDDPDD",
+  "POST /api/jobs/{job_id}/owner": "PDPPDDDDDDPPPPDDDDPDD",
   "POST /api/jobs/{job_id}/publish": "PDDPDDDDDDPPPDDDDDPDD",
   "PUT /api/jobs/{job_id}/champion-profile": "PPPPPPPPDDPPPPPPPPPPP",
   "PUT /api/jobs/{job_id}/hiring-manager": "PPPPPPPPDDPPPPPPPPPPP"

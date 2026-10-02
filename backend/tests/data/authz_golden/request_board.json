@@ -23,8 +23,10 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/request-board/jobs/{job_id}/people/{user_id}": "PDPPDDDDDDPPPPDDDDDDD",
+  "DELETE /api/request-board/jobs/{job_id}/people/{user_id}": "PDPPDDDDDDPPPPDDDDPDD",
   "GET /api/request-board": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/request-board/jobs/{job_id}/people": "PDPPDDDDDDPPPPDDDDDDD"
+  "POST /api/request-board/jobs/{job_id}/people": "PDPPDDDDDDPPPPDDDDPDD",
+  "POST /api/request-board/jobs/{job_id}/proposals/{user_id}": "PDPDDDDDDDDPDPDDDDDDD",
+  "POST /api/request-board/proposals/accept": "PDPDDDDDDDDPDPDDDDDDD"
  }
 }

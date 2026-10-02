@@ -41,8 +41,8 @@ beforeEach(() => {
   vi.mocked(api.patch).mockResolvedValue({ data: {} } as never);
   vi.mocked(api.get).mockResolvedValue({
     data: [
-      { id: 11, name: "Prowadząca Rekruterka", role: "recruiter", roles: [] },
-      { id: 21, name: "Anna Współpracowniczka", role: "sourcer", roles: [] },
+      { id: 11, name: "Pierwsza Rekruterka", role: "recruiter", roles: [] },
+      { id: 21, name: "Anna Kolejna", role: "sourcer", roles: [] },
       { id: 22, name: "Bartek Drugi", role: "recruiter", roles: [] },
     ],
   } as never);
@@ -81,11 +81,15 @@ describe("EditJobModal — edycja treści przez rekrutera (22.09.2026)", () => {
     expect(screen.getByDisplayValue("Stary opis")).toBeInTheDocument();
     expect(screen.queryByText("Klient")).not.toBeInTheDocument();
     expect(screen.queryByText(/Budżet PLN\/h/)).not.toBeInTheDocument();
-    expect(screen.queryByText("Rekruter prowadzący")).not.toBeInTheDocument();
+    // Pierwszego rekrutera zmienia Delivery Lead albo Head of Recruitment.
+    expect(screen.queryByText("Rekruter")).not.toBeInTheDocument();
     expect(screen.queryByText("Delivery Lead")).not.toBeInTheDocument();
     expect(screen.getByText(/zmienia Delivery Lead/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Rekrutera przydziela Delivery Lead albo Head of Recruitment/),
+    ).toBeInTheDocument();
     // Lista klientów nie jest potrzebna; katalog osób tylko dla pola
-    // „Współpracownicy” (decyzja 29.09.2026 — dopisuje każdy, kto redaguje).
+    // „Kolejne osoby” (decyzja 29.09.2026 — dopisuje każdy, kto redaguje).
     expect(phase5Api.clientsLookup).not.toHaveBeenCalled();
     for (const [url] of vi.mocked(api.get).mock.calls) {
       expect(url).toBe("/api/users");
@@ -106,23 +110,25 @@ describe("EditJobModal — edycja treści przez rekrutera (22.09.2026)", () => {
     });
   });
 
-  it("pole „Współpracownicy” pokazuje wyłącznie ręcznych, bez prowadzącego", async () => {
+  it("pole „Kolejne osoby” pokazuje wyłącznie dopisanych ręcznie, bez pierwszego rekrutera i bez całej kategorii", async () => {
     renderModal("content");
-    const chips = await screen.findByRole("list", { name: "Wybrani współpracownicy" });
+    expect(screen.getByText("Kolejne osoby")).toBeInTheDocument();
+    expect(screen.queryByText("Współpracownicy")).not.toBeInTheDocument();
+    const chips = await screen.findByRole("list", { name: "Wybrane kolejne osoby" });
     expect(chips).toHaveTextContent("Bartek Drugi");
     expect(chips).not.toHaveTextContent("Cała Kategoria");
   });
 
-  it("zapis dopisuje i zdejmuje współpracowników po PATCH-u", async () => {
+  it("zapis dopisuje i zdejmuje kolejne osoby po PATCH-u", async () => {
     const user = userEvent.setup();
     renderModal("content");
     await user.click(
-      await screen.findByRole("button", { name: "Usuń Bartek Drugi ze współpracowników" }),
+      await screen.findByRole("button", { name: "Zdejmij Bartek Drugi" }),
     );
-    await user.click(screen.getByRole("button", { name: /^Współpracownicy:/ }));
-    await user.click(await screen.findByRole("option", { name: /Anna Współpracowniczka/ }));
-    // Prowadzącej nie da się wybrać — serwer odpowiedziałby 409.
-    expect(screen.queryByRole("option", { name: /Prowadząca Rekruterka/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /^Kolejne osoby:/ }));
+    await user.click(await screen.findByRole("option", { name: /Anna Kolejna/ }));
+    // Pierwszej rekruterki nie da się wybrać — serwer odpowiedziałby 409.
+    expect(screen.queryByRole("option", { name: /Pierwsza Rekruterka/ })).toBeNull();
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
     await waitFor(() => expect(api.delete).toHaveBeenCalledTimes(1));
@@ -130,7 +136,7 @@ describe("EditJobModal — edycja treści przez rekrutera (22.09.2026)", () => {
     expect(api.delete).toHaveBeenCalledWith("/api/jobs/7/collaborators/22");
   });
 
-  it("awaria zapisu współpracowników zostawia okno z komunikatem", async () => {
+  it("awaria zapisu kolejnych osób zostawia okno z komunikatem", async () => {
     vi.mocked(api.post).mockRejectedValue({
       response: { status: 403, data: { detail: "Nie masz uprawnień do edycji rekrutacji." } },
     } as never);
@@ -142,15 +148,19 @@ describe("EditJobModal — edycja treści przez rekrutera (22.09.2026)", () => {
         <EditJobModal job={job} onClose={() => {}} onSuccess={onSuccess} scope="content" />
       </QueryClientProvider>,
     );
-    await user.click(await screen.findByRole("button", { name: /^Współpracownicy:/ }));
-    await user.click(await screen.findByRole("option", { name: /Anna Współpracowniczka/ }));
+    await user.click(await screen.findByRole("button", { name: /^Kolejne osoby:/ }));
+    await user.click(await screen.findByRole("option", { name: /Anna Kolejna/ }));
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
-    expect(await screen.findByText(/Rekrutacja zapisana, ale/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "Rekrutacja zapisana, ale nie zapisano kolejnych osób (Nie masz uprawnień do edycji rekrutacji.).",
+      ),
+    ).toBeInTheDocument();
     expect(onSuccess).not.toHaveBeenCalled();
   });
 
-  it("błąd zapisu hiring managera nie pomija zapisu współpracowników", async () => {
+  it("błąd zapisu hiring managera nie pomija zapisu kolejnych osób", async () => {
     hmMocks.forceFailure = true;
     vi.mocked(phase5Api.clientsLookup).mockResolvedValue({ data: [] } as never);
     const onSuccess = vi.fn();
@@ -162,7 +172,7 @@ describe("EditJobModal — edycja treści przez rekrutera (22.09.2026)", () => {
       </QueryClientProvider>,
     );
     await user.click(
-      await screen.findByRole("button", { name: "Usuń Bartek Drugi ze współpracowników" }),
+      await screen.findByRole("button", { name: "Zdejmij Bartek Drugi" }),
     );
     await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
     await waitFor(() =>
@@ -178,5 +188,28 @@ describe("EditJobModal — edycja treści przez rekrutera (22.09.2026)", () => {
     renderModal();
     expect(screen.getByText("Klient")).toBeInTheDocument();
     expect(screen.getByText(/Budżet PLN\/h/)).toBeInTheDocument();
+  });
+
+  it("pełny formularz mówi „Rekruter” i „Kolejne osoby” — bez dawnych nazw (02.10.2026)", () => {
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({ data: [] } as never);
+    vi.mocked(api.get).mockResolvedValue({ data: [] } as never);
+    renderModal();
+    expect(screen.getByText("Rekruter")).toBeInTheDocument();
+    expect(screen.getByText("Kolejne osoby")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "— bez rekrutera —" })).toBeInTheDocument();
+    for (const gone of ["Rekruter prowadzący", "Współpracownicy", "— nieprzypisany —"]) {
+      expect(screen.queryByText(gone)).not.toBeInTheDocument();
+    }
+  });
+
+  it("zmiana etykiet nie zmieniła zapisu: pełny formularz dalej wysyła `recruiter_id`", async () => {
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({ data: [] } as never);
+    const user = userEvent.setup();
+    renderModal();
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    const [url, body] = vi.mocked(api.patch).mock.calls[0];
+    expect(url).toBe("/api/jobs/7");
+    expect(body).toMatchObject({ recruiter_id: 11, delivery_lead_id: 12 });
   });
 });

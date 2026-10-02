@@ -187,7 +187,7 @@ BY_KEY: dict[str, Permission] = {
     permission.key: permission for permission in PERMISSIONS
 }
 KEYS: tuple[str, ...] = tuple(BY_KEY)
-#: Klucze, których wiersze zakłada migracja 0409 (wszystko poza podpisem B2B).
+#: Klucze, których wiersze zakłada migracja 0410 (wszystko poza podpisem B2B).
 SEEDED_KEYS: tuple[str, ...] = tuple(
     permission.key for permission in PERMISSIONS if permission.seeded
 )

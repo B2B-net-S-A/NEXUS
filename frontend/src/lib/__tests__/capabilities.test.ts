@@ -100,7 +100,42 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // POST /api/clients → uprawnienie `clients_edit` (domyślnie DL)
+  // POST/DELETE /api/jobs/{id}/owner + pulpit „Requesty i obłożenie” →
+  // uprawnienie `recruitment_manage` (domyślnie DL) albo rola Head of
+  // Recruitment (decyzja 02.10.2026: HoR tam, gdzie Delivery Lead).
+  // TAC celowo na false — redaguje rekrutację, ale ludzi nie przydziela.
+  "job.recruiter.assign": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: true,
+    tac: false,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
+  // PATCH /api/jobs/{id} {priority} → pełni redaktorzy (`job.update`:
+  // uprawnienie `recruitment_manage` albo TAC) ORAZ Head of Recruitment.
+  "job.priority.update": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: true,
+    tac: true,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
+  // Propozycje automatu przydziału → PROPOSAL_DECISION_ROLES. Delivery Lead
+  // celowo na false: przydziela ludzi sam, ale propozycji nie rozstrzyga.
+  "request.proposal.decide": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: false,
+    tac: false,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
+ // POST /api/clients → uprawnienie `clients_edit` (domyślnie DL)
   "client.create": {
     admin: true,
     head_of_recruitment: false,
@@ -375,7 +410,7 @@ function traineeExpected(capability: Capability): boolean {
  * lista — dzięki temu nowa capability przyznana recruiterowi automatycznie obejmuje finance, a
  * odstępstwo od reguły wymaga świadomej zmiany tej funkcji.
  *
- * Od 0409 (decyzja Artura 02.10.2026) Finanse mają domyślnie „Kontrakty
+ * Od 0410 (decyzja Artura 02.10.2026) Finanse mają domyślnie „Kontrakty
  * i zamówienia: tworzenie i edycja”, więc także `contract.create`.
  */
 function financeExpected(capability: Capability): boolean {
@@ -456,14 +491,28 @@ describe("rejestr capability — kompletność", () => {
         CAPABILITY_PERMISSIONS[capability] !== undefined &&
         CAPABILITY_ROLES[capability].length > 0,
     );
-    expect(both).toEqual(["job.update"]);
+    // Trzy wyjątki: pełna edycja rekrutacji (TAC), przydział ludzi i priorytet
+    // (Head of Recruitment — decyzja 02.10.2026, obok uprawnienia z ekranu).
+    expect(both).toEqual([
+      "job.update",
+      "job.recruiter.assign",
+      "job.priority.update",
+    ]);
     expect(CAPABILITY_ROLES["job.update"]).toEqual(["tac"]);
+    expect(CAPABILITY_ROLES["job.recruiter.assign"]).toEqual([
+      "head_of_recruitment",
+    ]);
+    expect(sortRoles(CAPABILITY_ROLES["job.priority.update"])).toEqual(
+      sortRoles(["tac", "head_of_recruitment"]),
+    );
   });
 
   it("mapa capability → uprawnienie jest tą z planu (02.10.2026)", () => {
     expect(CAPABILITY_PERMISSIONS).toEqual({
       "job.create": "recruitment_manage",
       "job.update": "recruitment_manage",
+      "job.recruiter.assign": "recruitment_manage",
+      "job.priority.update": "recruitment_manage",
       "client.create": "clients_edit",
       "client.update": "clients_edit",
       "cv_rule.manage": "clients_edit",
@@ -618,7 +667,7 @@ describe("hasCapability — przypadki brzegowe", () => {
   });
 
   it("sama sekcja nie daje akcji — decyduje uprawnienie", () => {
-    // Profil sprzed 0409 z wyjątkiem sekcji Delivery: uprawnień rekruter
+    // Profil sprzed 0410 z wyjątkiem sekcji Delivery: uprawnień rekruter
     // domyślnie nie ma, więc zapis sekcji niczego mu nie otwiera.
     const recruiterWithDeliveryWrite = {
       role: "recruiter" as UserRole,
@@ -798,6 +847,66 @@ describe("regresja C6: teczka plików \u2260 fakty profilowe (granica po sourcer
   });
 });
 
+describe("trzy role rekrutacji i priorytet (decyzja 02.10.2026)", () => {
+  const STAFFING: Capability[] = [
+    "job.recruiter.assign",
+    "job.priority.update",
+    "request.proposal.decide",
+  ];
+
+  it("Head of Recruitment przydziela, ustawia priorytet i rozstrzyga propozycje — bez pełnej edycji rekrutacji", () => {
+    for (const capability of STAFFING) {
+      expect(hasCapability(mkUser("head_of_recruitment"), capability)).toBe(true);
+    }
+    // `job.update` daje uprawnienie „Rekrutacje” (admin, Delivery Lead) albo
+    // rola TAC — Head of Recruitment go nie ma.
+    expect(hasCapability(mkUser("head_of_recruitment"), "job.update")).toBe(false);
+    expect(CAPABILITY_PERMISSIONS["job.update"]).toBe("recruitment_manage");
+    expect(CAPABILITY_ROLES["job.update"]).toEqual(["tac"]);
+    expect(hasCapability(mkUser("admin"), "job.update")).toBe(true);
+    expect(hasCapability(mkUser("delivery_lead"), "job.update")).toBe(true);
+    expect(hasCapability(mkUser("tac"), "job.update")).toBe(true);
+  });
+
+  it("Delivery Lead przydziela ludzi, ale propozycji automatu nie rozstrzyga", () => {
+    expect(hasCapability(mkUser("delivery_lead"), "job.recruiter.assign")).toBe(true);
+    expect(hasCapability(mkUser("delivery_lead"), "job.priority.update")).toBe(true);
+    expect(hasCapability(mkUser("delivery_lead"), "request.proposal.decide")).toBe(false);
+  });
+
+  it("TAC ustawia priorytet, ale nie przydziela ludzi", () => {
+    expect(hasCapability(mkUser("tac"), "job.priority.update")).toBe(true);
+    expect(hasCapability(mkUser("tac"), "job.recruiter.assign")).toBe(false);
+    expect(hasCapability(mkUser("tac"), "request.proposal.decide")).toBe(false);
+  });
+
+  it("rekruter i sourcer nie mają żadnej z trzech", () => {
+    for (const role of ["recruiter", "sourcer"] as UserRole[]) {
+      for (const capability of STAFFING) {
+        expect(hasCapability(mkUser(role), capability)).toBe(false);
+      }
+    }
+  });
+
+  it("bez zapisu w sekcji Pipeline żadna z trzech nie przechodzi", () => {
+    const pipelineReadOnly = {
+      role: "head_of_recruitment" as UserRole,
+      roles: ["head_of_recruitment"] as UserRole[],
+      effective_section_access: {
+        sourcing: "write" as const,
+        pipeline: "read" as const,
+        delivery: "none" as const,
+        insights: "write" as const,
+        finance: "none" as const,
+        system_admin: "none" as const,
+      },
+    };
+    for (const capability of STAFFING) {
+      expect(hasCapability(pipelineReadOnly, capability)).toBe(false);
+    }
+  });
+});
+
 describe("hasAnyCapability", () => {
   it("zwraca true gdy choć jedna capability przechodzi", () => {
     expect(
@@ -894,7 +1003,7 @@ describe("regresja F-19: żadna akcja tworzenia nie omija rejestru", () => {
   });
 
   it("kontrakt i firma to dwa uprawnienia, a rekrutacja — trzecie", () => {
-    // Do 0409 obie akcje dzieliły jedną listę ról. Teraz różni je domyślny
+    // Do 0410 obie akcje dzieliły jedną listę ról. Teraz różni je domyślny
     // posiadacz: Finanse zakładają kontrakty, klientów nie.
     const differing = ALL_ROLES.filter(
       (role) =>
@@ -928,7 +1037,7 @@ describe("regresja F-19: żadna akcja tworzenia nie omija rejestru", () => {
 // być niewidoczny: poszerzenie strażnika w Pythonie bez ruszenia rejestru (albo
 // odwrotnie) robi czerwono w CI, w zdaniu wskazującym capability i plik.
 //
-// Od 0409 część bramek to UPRAWNIENIA z ekranu Osoby i role, nie listy ról.
+// Od 0410 część bramek to UPRAWNIENIA z ekranu Osoby i role, nie listy ról.
 // Dla nich lustrem nie jest zbiór ról (administrator go przełącza), tylko para:
 // capability wymaga uprawnienia P, a wskazana trasa backendu pyta o to samo P.
 //
@@ -1144,7 +1253,7 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   // PATCH /api/candidates/{id}, POST /api/notes, assign-to-job (CandidateWriteAccess).
   "candidate.write": { guards: [["candidateAccess", "CandidateWriteAccess"]] },
   // Najwęższe ogniwo tworzenia: `/jobs/new` woła `POST /api/job-intake/read`
-  // i handoff — obie trasy za `RecruitmentManageUser`.
+ // i handoff — obie trasy za `RecruitmentManageUser`.
   "job.create": {
     permission: "recruitment_manage",
     evidence: [
@@ -1158,6 +1267,35 @@ const CAPABILITY_BACKEND_MIRROR: Record<
     permission: "recruitment_manage",
     evidence: [{ source: ["recruitmentAccess", /\brecruitment_manage\b/] }],
     legacyGuards: [["recruitmentAccess", "JOB_FULL_EDIT_LEGACY_ROLES"]],
+  },
+  // `require_job_staffing`: to samo uprawnienie albo — z tytułu roli — HoR.
+  "job.recruiter.assign": {
+    permission: "recruitment_manage",
+    evidence: [
+      {
+        source: [
+          "recruitmentAccess",
+          /require_job_staffing = require_permission_or_roles\(\s*ProductAction\.recruitment_manage,\s*\*JOB_STAFFING_EXTRA_ROLES\s*\)/,
+        ],
+      },
+    ],
+    legacyGuards: [["recruitmentAccess", "JOB_STAFFING_EXTRA_ROLES"]],
+  },
+  // `user_can_set_job_priority`: pełni redaktorzy (uprawnienie albo TAC) i HoR.
+  "job.priority.update": {
+    permission: "recruitment_manage",
+    evidence: [
+      {
+        source: [
+          "recruitmentAccess",
+          /async def _manages_job[\s\S]*?ProductAction\.recruitment_manage/,
+        ],
+      },
+    ],
+    legacyGuards: [["recruitmentAccess", "JOB_PRIORITY_EXTRA_ROLES"]],
+  },
+  "request.proposal.decide": {
+    guards: [["recruitmentAccess", "PROPOSAL_DECISION_ROLES"]],
   },
   "client.create": {
     permission: "clients_edit",

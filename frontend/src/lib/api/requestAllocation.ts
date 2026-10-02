@@ -5,18 +5,28 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 
 import api from "@/lib/api"
+import type { RecruiterRole, RecruiterVia } from "@/lib/job-team"
 import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
+import type { PriorityLevel } from "@/lib/request-priority"
 import type { VisibleState, WorkState } from "@/lib/request-work-state"
 
 // ── Pulpit „Requesty i obłożenie" ───────────────────────────────────────────
+//
+// Pola dopisane 02.10.2026 (trzy role rekrutacji, propozycje automatu do
+// akceptacji) są w typach opcjonalne: starszy backend ich nie oddaje, a ekran
+// ma wtedy pokazać mniej, nie paść.
 
 export interface BoardPerson {
   user_id: number
   name: string
-  role: "recruiter" | "sourcer"
-  /** Propozycja automatu w trybie podglądu — nikogo nie zobowiązuje. */
+  role: RecruiterRole
+  /** Propozycja automatu — czeka na akceptację, nikogo nie zobowiązuje. */
   proposed: boolean
   source: "auto" | "manual" | "owner"
+  /** Skąd osoba jest przy rekrutacji (prowadzący, przypisanie, współpracownik). */
+  via?: RecruiterVia
+  /** Kto przypisał; `null` = nie wiadomo. */
+  assigned_by_name?: string | null
 }
 
 export interface BoardRequest {
@@ -28,6 +38,10 @@ export interface BoardRequest {
   sent: number
   champion: boolean
   people: BoardPerson[]
+  delivery_lead?: { id: number; name: string } | null
+  priority_level?: PriorityLevel
+  /** Data otwarcia requestu (ISO): `opened_at`, a bez niej data dodania. */
+  opened_effective_at?: string | null
 }
 
 export interface BoardGroup {
@@ -50,7 +64,10 @@ export interface LoadRequest {
 export interface LoadPerson {
   user_id: number
   name: string
+  /** Requesty, nad którymi osoba pracuje — bez propozycji. */
   count: number
+  /** Propozycje automatu czekające na akceptację. */
+  proposed?: number
   leave_until: string | null
   requests: LoadRequest[]
 }
@@ -76,10 +93,11 @@ export interface RequestBoard {
 
 export const REQUEST_BOARD_QUERY_KEY = ["request-board"] as const
 
-export function useRequestBoard() {
+export function useRequestBoard(options: { enabled?: boolean } = {}) {
   return useQuery<RequestBoard>({
     queryKey: REQUEST_BOARD_QUERY_KEY,
     queryFn: async () => (await api.get<RequestBoard>("/api/request-board")).data,
+    enabled: options.enabled ?? true,
     refetchInterval: DASHBOARD_SECTION_POLL_MS,
     staleTime: 30_000,
   })
@@ -88,13 +106,108 @@ export function useRequestBoard() {
 export async function addBoardPerson(
   jobId: number,
   userId: number,
-  role: "recruiter" | "sourcer",
+  role: RecruiterRole,
 ): Promise<void> {
   await api.post(`/api/request-board/jobs/${jobId}/people`, { user_id: userId, role })
 }
 
+/**
+ * Zdejmuje osobę z roli „Rekruter” — ze wszystkich miejsc naraz (prowadzący,
+ * przypisanie, współpracownik). Przy samej propozycji automatu oznacza
+ * „odrzuć” i wymaga osoby, która rozstrzyga propozycje.
+ */
 export async function removeBoardPerson(jobId: number, userId: number): Promise<void> {
   await api.delete(`/api/request-board/jobs/${jobId}/people/${userId}`)
+}
+
+// ── Propozycje automatu: akceptacja, zmiana, odrzucenie ─────────────────────
+// Decyduje admin albo Head of Recruitment (capability `request.proposal.decide`).
+
+export type ProposalDecision = "accept" | "reject" | "replace"
+
+export type ProposalDecisionBody =
+  | { decision: "accept" | "reject" }
+  | {
+      decision: "replace"
+      /** Kto ma pracować zamiast proponowanej osoby. */
+      replacement_user_id: number
+      /** Brak = rola wynika z ról konta tej osoby. */
+      replacement_role?: RecruiterRole
+    }
+
+export interface ProposalDecisionResult {
+  decision: ProposalDecision
+  /** Kto po decyzji pracuje nad requestem; `null` przy odrzuceniu. */
+  assigned_user_id: number | null
+}
+
+/** 409 = propozycja jest już nieaktualna (serwer mówi to po polsku w `detail`). */
+export async function decideProposal(
+  jobId: number,
+  userId: number,
+  body: ProposalDecisionBody,
+): Promise<ProposalDecisionResult> {
+  return (
+    await api.post<ProposalDecisionResult>(
+      `/api/request-board/jobs/${jobId}/proposals/${userId}`,
+      body,
+    )
+  ).data
+}
+
+export interface ProposalRef {
+  job_id: number
+  user_id: number
+}
+
+export interface ProposalAcceptResult extends ProposalRef {
+  /** `gone` = propozycja przestała być aktualna; pozostałych to nie zatrzymuje. */
+  status: "accepted" | "gone"
+}
+
+/** „Zaakceptuj wszystkie” — jedno żądanie, najwyżej 100 propozycji. */
+export async function acceptProposals(
+  items: readonly ProposalRef[],
+): Promise<ProposalAcceptResult[]> {
+  if (items.length === 0) return []
+  const { data } = await api.post<{ results?: ProposalAcceptResult[] }>(
+    "/api/request-board/proposals/accept",
+    { items: items.map(({ job_id, user_id }) => ({ job_id, user_id })) },
+  )
+  return data.results ?? []
+}
+
+// ── Kategoria rekrutacji: kto w niej pracuje (informacyjnie) ────────────────
+
+export interface CategoryRecruiter {
+  user_id: number
+  name: string
+  email: string
+  role: string | null
+  is_primary: boolean
+  /** 1 = pierwszy priorytet osoby, 2 = drugi. */
+  priority: 1 | 2 | null
+}
+
+export const categoryRecruitersQueryKey = (categoryId: number) =>
+  ["competence-category-recruiters", categoryId] as const
+
+/** Aktywne osoby z kategorii kompetencji (`GET /api/competence-categories/{id}/recruiters`). */
+export function useCategoryRecruiters(
+  categoryId: number | null | undefined,
+  options: { enabled?: boolean } = {},
+) {
+  return useQuery<CategoryRecruiter[]>({
+    queryKey: categoryRecruitersQueryKey(categoryId ?? 0),
+    queryFn: async () =>
+      (
+        await api.get<CategoryRecruiter[]>(
+          `/api/competence-categories/${categoryId}/recruiters`,
+        )
+      ).data,
+    enabled: (options.enabled ?? true) && categoryId != null,
+    staleTime: 5 * 60_000,
+  })
 }
 
 // ── „Porządek w requestach" ─────────────────────────────────────────────────

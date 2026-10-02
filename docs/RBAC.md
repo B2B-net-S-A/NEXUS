@@ -2,7 +2,7 @@
 
 ## Stan aktualny — dziewięć uprawnień (2026-10-02)
 
-Od migracji 0409 administrator ustawia na ekranie **Ustawienia → Zespół
+Od migracji 0410 administrator ustawia na ekranie **Ustawienia → Zespół
 i dostęp → „Osoby i role”** dziewięć uprawnień tak/nie na rolę, a pojedynczej
 osobie może dodać uprawnienie ponad jej rolę („Edytuj użytkownika” →
 „Dodatkowe uprawnienia”). To, co zaznaczone, decyduje na trasie; odmowa nazywa

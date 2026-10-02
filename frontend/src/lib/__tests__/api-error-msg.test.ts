@@ -58,7 +58,7 @@ describe("extractErrorMsg — bramka ról (403)", () => {
 });
 
 /**
- * Od 0409 trasy pytają o uprawnienia z ekranu Osoby i role, a odmowa nazywa
+ * Od 0410 trasy pytają o uprawnienia z ekranu Osoby i role, a odmowa nazywa
  * brakujące. Starsze bramki (sekcja, poziom akcji) odpowiadają samym kodem —
  * bez tłumaczenia użytkownik widział „Request failed with status code 403”.
  */

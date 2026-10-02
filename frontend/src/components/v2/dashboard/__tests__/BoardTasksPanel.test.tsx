@@ -8,6 +8,7 @@ const post = vi.fn();
 const put = vi.fn();
 const showSuccess = vi.fn();
 const showError = vi.fn();
+const showInfo = vi.fn();
 
 vi.mock("@/lib/api", () => {
   const client = {
@@ -18,7 +19,7 @@ vi.mock("@/lib/api", () => {
   return { __esModule: true, default: client, api: client };
 });
 vi.mock("@/components/Toast", () => ({
-  useToast: () => ({ showSuccess, showError }),
+  useToast: () => ({ showSuccess, showError, showInfo }),
 }));
 vi.mock("@/components/v2/recruitment/DlReviewPanel", () => ({
   DlReviewPanel: ({
@@ -110,6 +111,30 @@ function followupRow(over: Record<string, unknown> = {}) {
     last_contact_kind: "note",
     no_answer_count: 0,
     pending: null,
+    ...over,
+  };
+}
+
+function proposalRow(over: Record<string, unknown> = {}) {
+  return {
+    job_id: 41,
+    title: "Full Stack Java Developer",
+    client_name: "Bank Północny",
+    category_id: 2,
+    category_name: "Development",
+    category_slug: "software_development",
+    delivery_lead_name: "Anna Lis",
+    priority_level: "p1",
+    deadline: null,
+    sent: 0,
+    user_id: 7,
+    user_name: "Marek Dąb",
+    role: "recruiter",
+    fit: "first",
+    load: 2,
+    leave_until: null,
+    base_matches: null,
+    proposed_at: since,
     ...over,
   };
 }
@@ -340,6 +365,112 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
       }),
     );
     expect(showSuccess).toHaveBeenCalledWith("Zapisano. Następny follow-up: 08.10.");
+  });
+
+  it("propozycje automatu: same wystarczą, żeby panel był widoczny, i stoją pierwsze", async () => {
+    mockQueue({
+      can_decide_proposals: true,
+      allocation_leave_known: false,
+      allocation_proposals: [
+        proposalRow(),
+        proposalRow({ job_id: 42, title: "Tester", user_id: 8, user_name: "Ewa Kalina", role: "sourcer" }),
+      ],
+    });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    // Kotwica z dzwonka „Propozycje przydziału do akceptacji”.
+    expect(panel).toHaveAttribute("id", "czeka-na-ciebie");
+    const section = within(panel).getByRole("region", { name: "Propozycje automatu do akceptacji" });
+    expect(within(section).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(section).getByRole("link", { name: "Full Stack Java Developer" })).toHaveAttribute(
+      "href",
+      "/jobs/41",
+    );
+    expect(within(section).getByRole("note")).toHaveTextContent(
+      "Brak danych o urlopach — propozycje ich nie uwzględniają.",
+    );
+    // Na całą szerokość panelu, jak follow-upy.
+    expect(section).toHaveClass("lg:col-span-3");
+  });
+
+  it("propozycje stoją przed pozostałymi listami, a baneru o urlopach nie ma, gdy dane są świeże", async () => {
+    mockQueue({
+      can_decide_proposals: true,
+      allocation_leave_known: true,
+      allocation_proposals: [proposalRow()],
+      followups: [followupRow()],
+      cpro_sent: [row("cpro_sent")],
+    });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    const sections = within(panel)
+      .getAllByRole("region")
+      .map((region) => region.getAttribute("aria-label"));
+    expect(sections).toEqual([
+      "Propozycje automatu do akceptacji",
+      "Follow-up z kandydatami",
+      "Wysłane do Cpro",
+    ]);
+    expect(within(panel).queryByRole("note")).toBeNull();
+  });
+
+  it("osoba, która nie decyduje o propozycjach, sekcji nie widzi — nawet gdyby wiersze przyszły", async () => {
+    mockQueue({
+      can_decide_proposals: false,
+      allocation_proposals: [proposalRow()],
+      cpro_sent: [row("cpro_sent")],
+    });
+    renderPanel();
+    await screen.findByRole("region", { name: "Wysłane do Cpro" });
+    expect(screen.queryByRole("region", { name: "Propozycje automatu do akceptacji" })).toBeNull();
+  });
+
+  it("same propozycje bez prawa decyzji nie tworzą pustego panelu", async () => {
+    mockQueue({ can_decide_proposals: false, allocation_proposals: [proposalRow()] });
+    const { container } = renderPanel();
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+
+  it("akceptacja z panelu: zapis, komunikat i wiersz znika bez czekania na odświeżenie", async () => {
+    let accepted = false;
+    get.mockImplementation((url: string) => {
+      if (url === "/api/board-tasks")
+        return Promise.resolve({
+          data: {
+            window_days: 14,
+            cpro_to_send: [],
+            cpro_sent: [],
+            can_decide_proposals: true,
+            allocation_leave_known: true,
+            allocation_proposals: accepted
+              ? [proposalRow({ job_id: 42, title: "Tester", user_id: 8, user_name: "Ewa Kalina" })]
+              : [
+                  proposalRow(),
+                  proposalRow({ job_id: 42, title: "Tester", user_id: 8, user_name: "Ewa Kalina" }),
+                ],
+          },
+        });
+      return Promise.resolve({ data: [] });
+    });
+    post.mockImplementation(() => {
+      accepted = true;
+      return Promise.resolve({ data: { decision: "accept", assigned_user_id: 7 } });
+    });
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Propozycje automatu do akceptacji" });
+    await userEvent.click(
+      within(section).getByRole("button", { name: "Akceptuj: Marek Dąb — Full Stack Java Developer" }),
+    );
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/request-board/jobs/41/proposals/7", { decision: "accept" }),
+    );
+    await waitFor(() =>
+      expect(showSuccess).toHaveBeenCalledWith("Marek Dąb pracuje nad „Full Stack Java Developer”."),
+    );
+    await waitFor(() => expect(within(section).getAllByRole("listitem")).toHaveLength(1));
+    expect(within(section).queryByRole("link", { name: "Full Stack Java Developer" })).toBeNull();
+    expect(within(section).getByRole("link", { name: "Tester" })).toBeTruthy();
   });
 
   it("„coś się zmieniło” wymaga opisu i wysyła decyzję per proces", async () => {

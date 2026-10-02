@@ -129,7 +129,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
   },
   {
     id: "competence-team", area: "team", title: "Kategorie kompetencji",
-    description: "Kto pracuje w której kategorii (1. i 2. priorytet) i zasady przydziału requestów.",
+    description: "Kto należy do której kategorii (1. i 2. priorytet) i zasady przydziału requestów.",
     keywords: "kategorie kompetencji przydzial requesty obłożenie oblozenie priorytet poza przydzialem sourcer rekruter",
     route: "/settings/competence-team",
     gate: { roles: ["admin", "head_of_recruitment"] },

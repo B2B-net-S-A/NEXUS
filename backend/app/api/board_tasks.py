@@ -10,6 +10,11 @@ Samo wrzucenie do Cpro i zwrot do rekrutera to zwykły ruch w pipeline
 (`POST /api/pipeline/move`) — ta trasa nie ma własnej ścieżki zapisu etapu,
 żeby reguły ruchu (wersja procesu, ostrzeżenia dopuszczalności, QC CV)
 obowiązywały bez kopii.
+
+Od 02.10.2026 lista niesie też propozycje automatu przydziału do akceptacji
+(`services/request_allocation_proposals.py`) — wyłącznie dla admina i Head of
+Recruitment. Decyzje zapisuje `/api/request-board` (akceptacja, zamiana,
+odrzucenie).
 """
 
 from dataclasses import asdict
@@ -24,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_followups import FollowupRow, serialize_rows
 from app.api.deps import OperationalUser
+from app.api.recruitment_access import PROPOSAL_DECISION_ROLES
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
@@ -38,6 +44,7 @@ from app.services import (
     cv_in_transit,
     move_requirements,
     prep_attention,
+    request_allocation_proposals,
 )
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -99,6 +106,32 @@ class PrepAttentionRow(BaseModel):
     urgent: bool = False
 
 
+class AllocationProposalRow(BaseModel):
+    """Propozycja automatu przydziału czekająca na decyzję (02.10.2026).
+
+    Kształt = ``request_allocation_proposals.PendingProposal``.
+    """
+
+    job_id: int
+    title: str
+    client_name: Optional[str] = None
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+    category_slug: Optional[str] = None
+    delivery_lead_name: Optional[str] = None
+    priority_level: Literal["p1", "p2", "accepting"]
+    deadline: Optional[date] = None
+    sent: int
+    user_id: int
+    user_name: str
+    role: Literal["recruiter", "sourcer"]
+    fit: Literal["first", "second", "other"]
+    load: int
+    leave_until: Optional[date] = None
+    base_matches: Optional[int] = None
+    proposed_at: datetime
+
+
 class CvTransitRow(BaseModel):
     """Wiersz listy „Twoje CV w drodze” (`services/cv_in_transit.py`)."""
 
@@ -156,6 +189,13 @@ class BoardTasksResponse(BaseModel):
     # Czy ta osoba może ustawić osobę od Cpro (admin albo DL Nordei) — front
     # pokazuje przełącznik także wtedy, gdy nie widzi żadnego zadania Cpro.
     can_set_cpro_sender: bool = False
+    # 02.10.2026: propozycje automatu przydziału do akceptacji. Wiersze dostaje
+    # wyłącznie osoba, która o nich decyduje (admin, Head of Recruitment).
+    allocation_proposals: list[AllocationProposalRow] = []
+    can_decide_proposals: bool = False
+    # Czy urlopy z Compassa są włączone i świeże. Bez tego puste „na urlopie
+    # do” znaczy „nie wiadomo”, a nie „osoba dziś pracuje”.
+    allocation_leave_known: bool = False
     # „Twoje CV w drodze” — druga strona przekazań, dla rekrutera kandydata.
     # `None` = osoba usunęła listę z pulpitu albo liczenie się nie powiodło.
     cv_in_transit: Optional[CvInTransitBlock] = None
@@ -246,6 +286,12 @@ async def list_board_tasks(
         candidate_followups.others_for_user(all_followups, current_user),
         today=today,
     )
+    can_decide_proposals = current_user.has_any_role(*PROPOSAL_DECISION_ROLES)
+    proposals, leave_known = (
+        await request_allocation_proposals.load_panel_safely(db)
+        if can_decide_proposals
+        else ([], False)
+    )
     transit = await cv_in_transit.load_safely(
         db, current_user, portfolio=portfolio, now=now
     )
@@ -280,6 +326,9 @@ async def list_board_tasks(
             current_user, ProductAction.recruitment_manage
         ),
         can_set_cpro_sender=await cpro_sender.can_set_sender(db, current_user),
+        allocation_proposals=[AllocationProposalRow(**asdict(p)) for p in proposals],
+        can_decide_proposals=can_decide_proposals,
+        allocation_leave_known=leave_known,
         cv_in_transit=_transit_block(transit),
         prep_attention=[
             PrepAttentionRow(

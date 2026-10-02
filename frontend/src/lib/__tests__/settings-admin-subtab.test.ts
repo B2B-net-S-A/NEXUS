@@ -25,7 +25,7 @@ describe("useAdminSubTab", () => {
   });
 
   it("adres zakładki, której już nie ma, wraca do Użytkowników zamiast wywracać ekran", () => {
-    // „Wyjątki użytkowników” zniknęły z ekranu (0409) — uprawnienia osoby
+    // „Wyjątki użytkowników” zniknęły z ekranu (0410) — uprawnienia osoby
     // ustawia się w oknie „Edytuj użytkownika”. Zakładka nigdy nie miała
     // własnego `?sub=`, ale stary link albo literówka nie mogą dać pustki.
     for (const stale of ["user-overrides", "exceptions", "wyjatki"]) {

@@ -1,6 +1,6 @@
 /**
  * Dziewięć uprawnień z ekranu Ustawienia → Zespół i dostęp → „Osoby i role”
- * (migracja 0409, kontrakt: docs/permissions-nine-switches-contract.md).
+ * (migracja 0410, kontrakt: docs/permissions-nine-switches-contract.md).
  *
  * `@stack`. Trzy rzeczy, które da się sprawdzić tylko na żywym stosie:
  * to, co administrator przełącza NA EKRANIE, decyduje w API; odmowa nazywa

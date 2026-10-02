@@ -185,7 +185,7 @@ def base_action_policy_from_rows(
     """Compute a fail-closed multi-role union from persisted rows.
 
     Rola, która nie ma ŻADNEGO wiersza zasiewanych uprawnień (baza sprzed
-    migracji 0409, a siatka przy starcie przegrała zamek), jest liczona
+    migracji 0410, a siatka przy starcie przegrała zamek), jest liczona
     funkcją zasiewu z jej zapisanych sekcji (``section_rows``) — inaczej taki
     start odebrałby wszystkim Delivery. Rola zasiana częściowo zostaje przy
     tym, co zapisane: brakujący wiersz to „nie”.

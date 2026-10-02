@@ -5,7 +5,7 @@ unit tests. Runtime requests resolve role rows and per-user overrides from
 Postgres on every authentication, so an admin change works across all API pods
 without a process-local cache.
 
-Od migracji 0409 sekcje **Delivery i Finanse nie są ustawiane ręcznie**:
+Od migracji 0410 sekcje **Delivery i Finanse nie są ustawiane ręcznie**:
 wynikają z dziewięciu uprawnień z ekranu (``permission_catalog.derive_sections``).
 Zapisane wiersze tych dwóch sekcji zostają w bazie (powrót do poprzedniej
 wersji, progi zasiewu), ale resolver ich nie czyta. Sourcing, Pipeline,

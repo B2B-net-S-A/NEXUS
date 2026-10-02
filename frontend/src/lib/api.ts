@@ -1564,12 +1564,19 @@ export interface JobQuickCounts {
   request_stage?: Partial<Record<RequestStage, number>>;
   request_stage_mine?: Partial<Record<RequestStage, number>>;
   /**
-   * Przełączniki „Po terminie” / „Nikt nie pracuje” / „Nikogo nie wysłano”:
+   * Przełączniki „Po terminie” / „Bez rekrutera” / „Nikogo nie wysłano”:
    * `attention` w zakresie „Otwarte”, `attention_mine` w „Moje”. Zakres
    * „Wszystkie” nie ma liczb (objąłby archiwum).
    */
   attention?: JobAttentionCounts;
   attention_mine?: JobAttentionCounts;
+  /**
+   * Zakres „Moja kategoria” (02.10.2026): niezamknięte rekrutacje, których
+   * główna kategoria kompetencji jest jedną z kategorii zalogowanej osoby —
+   * ten sam predykat co filtr `my_category=true`. `null` = osoba nie ma
+   * kategorii; brak pola = starszy backend (bez liczby).
+   */
+  my_category?: number | null;
 }
 
 export interface JobAttentionCounts {

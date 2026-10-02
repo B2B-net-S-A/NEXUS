@@ -6,7 +6,7 @@ zalogowany użytkownik — także rola ``user``/viewer). Ten moduł jest jedynym
 źródłem decyzji "kto może co" per klient; routery mają pytać ``ClientAccess``
 zamiast utrzymywać lokalne warunki.
 
-Od migracji 0409 decyzję składają dwie rzeczy:
+Od migracji 0410 decyzję składają dwie rzeczy:
 
 **1. Uprawnienia z ekranu** (``permission_catalog``) mówią, CO konto może:
 
@@ -43,7 +43,7 @@ Reguły, które zostają przy ROLI, bo dotyczą danych prywatnych, nie pracy:
   edycji może "zaklaimować" pustego ownera na siebie (None → self).
 
 Generator umów B2B (``purpose="org"``) czyta własne pola
-``generator_can_*`` liczone formułą sprzed 0409 — jego dostęp się nie zmienił.
+``generator_can_*`` liczone formułą sprzed 0410 — jego dostęp się nie zmienił.
 """
 
 from __future__ import annotations
@@ -129,7 +129,7 @@ class ClientAccess:
     private_contact_notes_allowed: bool
     # Finanse czytają prywatne notatki relacyjne w całej organizacji (rola).
     reads_private_notes_org_wide: bool = False
-    # Generator umów B2B (``purpose="org"``): formuła sprzed 0409, niezależna
+    # Generator umów B2B (``purpose="org"``): formuła sprzed 0410, niezależna
     # od uprawnień Delivery — patrz ``contract_access``.
     generator_can_view_legal: bool = False
     generator_can_edit_legal: bool = False
@@ -368,7 +368,7 @@ class _UserClientFacts:
     can_edit_clients: bool
     can_view_amounts: bool
     can_edit_contracts: bool
-    # Generator umów B2B — formuła sprzed 0409.
+    # Generator umów B2B — formuła sprzed 0410.
     legacy_is_finance_reader: bool
     legacy_has_delivery_write: bool
 

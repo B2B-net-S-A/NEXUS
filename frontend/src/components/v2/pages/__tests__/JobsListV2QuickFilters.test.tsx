@@ -4,6 +4,9 @@
  * serwera (`request_stage`, `worked_by`, `nobody_working`, …), a liczby
  * przychodzą z `GET /api/jobs/quick-counts`. `JobReadinessDock` jest
  * zamockowany — ma własny plik testów.
+ *
+ * Zakres „Moja kategoria”, priorytet, data otwarcia i kolumna „Rekruter”
+ * (02.10.2026) mają osobny plik: `JobsListV2Recruiters.test.tsx`.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -250,6 +253,8 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
     expect(latestParams()).toMatchObject({ request_stage: ["champion"] });
     expect(latestParams().status).toBeUndefined();
+    // `priority` to dawny filtr Priority Work — nie priorytet rekrutacji (`prio`).
+    expect(latestParams().priority_level).toBeUndefined();
     await waitFor(() => {
       const params = new URLSearchParams(window.location.search);
       expect(params.getAll("stage")).toEqual(["champion"]);
@@ -307,12 +312,15 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
     await waitFor(() => expect(latestParams().deadline_to).toBeUndefined());
   });
 
-  it("„Nikt nie pracuje” wysyła nobody_working, „Nikogo nie wysłano” — max_sent=0", async () => {
+  it("„Bez rekrutera” wysyła nobody_working, „Nikogo nie wysłano” — max_sent=0", async () => {
     const user = userEvent.setup();
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    // Stare nazwy zniknęły z paska (02.10.2026).
+    expect(screen.queryByRole("button", { name: /Nikt nie pracuje/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Kto pracuje/ })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Nikt nie pracuje/ }));
+    await user.click(screen.getByRole("button", { name: /Bez rekrutera/ }));
     await waitFor(() => expect(latestParams()).toMatchObject({ nobody_working: true }));
     await user.click(screen.getByRole("button", { name: /Nikogo nie wysłano/ }));
     await waitFor(() => expect(latestParams()).toMatchObject({ nobody_working: true, max_sent: 0 }));
@@ -330,18 +338,34 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
     window.history.replaceState(null, "", "/jobs");
   });
 
-  it("„Kto pracuje” → „Ja” wysyła worked_by z id zalogowanej osoby", async () => {
+  it("„Rekruter” → „Ja” wysyła worked_by z id zalogowanej osoby", async () => {
     const user = userEvent.setup();
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
 
-    await user.click(screen.getByRole("button", { name: /Kto pracuje/ }));
+    await user.click(screen.getByRole("button", { name: /^Rekruter/ }));
     await user.click(await screen.findByRole("checkbox", { name: "Ja" }));
     await waitFor(() => expect(latestParams()).toMatchObject({ worked_by: [7] }));
-    expect(screen.getByRole("button", { name: /Kto pracuje: ja/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Rekruter: ja/ })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Wyczyść: Kto pracuje" }));
+    await user.click(screen.getByRole("button", { name: "Wyczyść: Rekruter" }));
     await waitFor(() => expect(latestParams().worked_by).toBeUndefined());
+  });
+
+  it("„Rekruter” → „Bez rekrutera” w okienku to ten sam filtr co przełącznik", async () => {
+    const user = userEvent.setup();
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+
+    await user.click(screen.getByRole("button", { name: /^Rekruter/ }));
+    await user.click(await screen.findByRole("checkbox", { name: "Bez rekrutera" }));
+    await waitFor(() => expect(latestParams()).toMatchObject({ nobody_working: true }));
+    expect(screen.getByRole("button", { name: /^Rekruter: bez rekrutera/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Bez rekrutera/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    window.history.replaceState(null, "", "/jobs");
   });
 });
 
@@ -366,7 +390,7 @@ describe("JobsListV2 — liczniki przełączników „wymaga uwagi”", () => {
     await waitFor(() =>
       expect(within(screen.getByRole("button", { name: /Po terminie/ })).getByText("4")).toBeInTheDocument(),
     );
-    expect(within(screen.getByRole("button", { name: /Nikt nie pracuje/ })).getByText("7")).toBeInTheDocument();
+    expect(within(screen.getByRole("button", { name: /Bez rekrutera/ })).getByText("7")).toBeInTheDocument();
 
     await user.click(scope.getByRole("button", { name: /Wszystkie/ }));
     await waitFor(() =>
@@ -387,7 +411,7 @@ describe("JobsListV2 — liczniki przełączników „wymaga uwagi”", () => {
     quickCountsMock.mockRejectedValue(new Error("boom"));
     renderJobs();
 
-    const toggle = await screen.findByRole("button", { name: /Nikt nie pracuje/ });
+    const toggle = await screen.findByRole("button", { name: /Bez rekrutera/ });
     expect(within(toggle).queryByText("0")).not.toBeInTheDocument();
     expect(toggle).toBeEnabled();
   });
@@ -699,7 +723,7 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
     const user = userEvent.setup();
     renderJobs();
     expect(
-      await screen.findByText(/Nie prowadzisz teraz żadnej rekrutacji/),
+      await screen.findByText(/Nie masz teraz żadnej otwartej rekrutacji/),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Pokaż wszystkie" }));
     await waitFor(() => expect(latestParams().mine).toBeUndefined());

@@ -1,313 +1,526 @@
 "use client";
 
-import * as React from"react";
+import { useState, type ReactElement, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useState } from"react";
-import { useMutation, useQuery, useQueryClient } from"@tanstack/react-query";
-import { Plus, UserCog, UserPlus, X } from"lucide-react";
-import api from"@/lib/api";
-import { Button } from"@/components/ui/button";
-import {
- Popover,
- PopoverContent,
- PopoverTrigger,
-} from"@/components/ui/popover";
-import {
- Select,
- SelectContent,
- SelectItem,
- SelectTrigger,
- SelectValue,
-} from"@/components/ui/select";
-import { useAuthStore, ROLE_LABELS, hasRole } from"@/store/auth";
-import { hasPermission } from "@/lib/permissions";
-import { hasSectionAccess } from "@/lib/section-access";
-import { OwnerBadge } from"./OwnerBadge";
-import { ReassignOwnerV2 } from"@/components/v2/modals/ReassignOwnerV2";
-import { hasActiveOwner, type UserBrief } from"./ownership-types";
+import { decideProposal } from "@/lib/api/requestAllocation";
 import { COLLABORATOR_ROLES } from "@/lib/job-collaborators";
+import {
+  addRecruiter,
+  assignedByCaption,
+  canRemoveRecruiter,
+  claimJob,
+  hasWorkingOwner,
+  joinJob,
+  recruitersOf,
+  removeRecruiter,
+  workingRecruiters,
+  type JobRecruiter,
+  type JobTeamSource,
+  type RecruiterAccess,
+} from "@/lib/job-team";
+import { invalidateJobTeam } from "@/lib/job-team-cache";
+import { priorityLevelOf, type PrioritySource } from "@/lib/request-priority";
+import { hasSectionAccess } from "@/lib/section-access";
+import { hasRole, ROLE_LABELS, useAuthStore, type UserRole } from "@/store/auth";
+import { useCapability } from "@/hooks/useCapability";
+import { useToast } from "@/components/Toast";
+import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { ReassignOwnerV2 } from "@/components/v2/modals/ReassignOwnerV2";
+import { RecruiterChips } from "./RecruiterChips";
+import {
+  CLAIM_ELIGIBLE_ROLES,
+  hasActiveOwner,
+  type UserBrief,
+} from "./ownership-types";
+
+/** Pola rekrutacji (`GET /api/jobs/{id}`), z których panel czyta obsadę. */
+export interface JobOwnershipJob extends JobTeamSource, PrioritySource {
+  primary_owner?: UserBrief | null;
+  /**
+   * Czy bieżąca osoba przydziela i zdejmuje rekruterów TEJ rekrutacji (rola
+   * + zakres Delivery Leada). Brak pola = starszy serwer, wtedy capability.
+   */
+  can_staff?: boolean | null;
+  status?: string | null;
+}
 
 interface JobOwnershipPanelProps {
- jobId: number;
- jobTitle: string;
- primaryOwner: UserBrief | null;
- collaborators: UserBrief[];
- /**
- * Czy bieżąca osoba redaguje rekrutację (`can_edit` z `GET /api/jobs/{id}`
- * albo pełna edycja). Współpracowników dopisuje i zdejmuje każdy, kto
- * redaguje (decyzja 29.09.2026, lustro `ensure_job_editor`). Brak propa =
- * osoba, która może zmienić prowadzącego (uprawnienie „Rekrutacje:
- * zakładanie, zamykanie, wysyłka CV do klienta”), albo sam prowadzący.
- */
- canEdit?: boolean;
+  jobId: number;
+  jobTitle: string;
+  job: JobOwnershipJob;
+  /**
+   * Czy bieżąca osoba redaguje rekrutację (`can_edit` z `GET /api/jobs/{id}`).
+   * Kolejne osoby dopisuje i zdejmuje każdy, kto redaguje (decyzja 29.09.2026,
+   * lustro `ensure_job_editor`).
+   */
+  canEdit: boolean;
 }
 
 /**
- * Header panel for /jobs/[id] showing the primary owner + collaborators, with
- * inline Claim / Reassign / Add-collaborator actions gated by the current
- * user's role. Backend remains authoritative on all guards — UI only hides
- * disallowed actions.
+ * Kogo można wskazać zamiast propozycji automatu — lustro `_assignable_person`
+ * w `backend/app/api/request_board.py` (inna rola = 422).
+ */
+const PROPOSAL_REPLACEMENT_ROLES = ["recruiter", "sourcer", "tac"] as const;
+
+const LINK_BUTTON_CLASS =
+  "hit-area inline-flex items-center gap-0.5 text-[11px] font-medium text-primary hover:underline disabled:pointer-events-none disabled:opacity-50";
+
+const NO_RECRUITER_LABEL = (
+  <span className="inline-flex h-6 items-center rounded-full bg-warning-muted px-2.5 text-xs font-medium text-warning-muted-foreground">
+    Bez rekrutera
+  </span>
+);
+
+/**
+ * Wiersz „Rekruter” panelu zespołu (decyzja Artura 02.10.2026).
+ *
+ * Rekruterem jest osoba, która nad rekrutacją PRACUJE: przydzielona przez
+ * Delivery Leada albo Head of Recruitment, taka, która wzięła ją sama, albo
+ * zaakceptowana propozycja automatu. Propozycja (przerywana ramka) to jeszcze
+ * nie praca — do decyzji Head of Recruitment nikt nie jest przypisany.
+ *
+ * Komponent tylko chowa akcje, do których osoba nie ma prawa; ostatecznie
+ * rozstrzyga serwer. Po KAŻDYM zapisie odświeża obsadę wszędzie, gdzie ją
+ * widać (`invalidateJobTeam`).
  */
 export function JobOwnershipPanel({
- jobId,
- jobTitle,
- primaryOwner,
- collaborators,
- canEdit,
+  jobId,
+  jobTitle,
+  job,
+  canEdit,
 }: JobOwnershipPanelProps) {
- const queryClient = useQueryClient();
- const currentUser = useAuthStore((s) => s.user);
- const impersonating = useAuthStore((s) => s.realUser !== null);
- const [reassignOpen, setReassignOpen] = useState(false);
- const [addOpen, setAddOpen] = useState(false);
- const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const { askConfirm, confirmDialog } = useConfirmV2();
+  const currentUser = useAuthStore((s) => s.user);
+  const impersonating = useAuthStore((s) => s.realUser !== null);
+  const staffCapability = useCapability("job.recruiter.assign");
+  const canDecide = useCapability("request.proposal.decide");
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
 
- // Zmiana prowadzącego (`POST/DELETE /api/jobs/{id}/owner`) idzie za
- // uprawnieniem „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”,
- // nie za rolą ani rangą: Head of Recruitment ma wyższą rangę niż Delivery
- // Lead, a tego uprawnienia domyślnie nie ma.
- const canWritePipeline =
- !impersonating && hasSectionAccess(currentUser, "pipeline", "write");
- const canReassign =
- canWritePipeline && hasPermission(currentUser, "recruitment_manage");
- const canClaim =
- canWritePipeline &&
- !hasActiveOwner(primaryOwner) &&
- !!currentUser &&
- !hasRole(currentUser, "user");
- const isPrimary = !!currentUser && primaryOwner?.id === currentUser.id;
- const canManageCollaborators =
- canWritePipeline && (canEdit ?? (canReassign || isPrimary));
+  const canWritePipeline =
+    !impersonating && hasSectionAccess(currentUser, "pipeline", "write");
+  // `can_staff` z serwera zna zakres Delivery Leada; capability to tylko rola.
+  const canStaff =
+    canWritePipeline &&
+    (typeof job.can_staff === "boolean" ? job.can_staff : staffCapability);
+  const access: RecruiterAccess = {
+    canStaff,
+    canDecide,
+    canEdit: canWritePipeline && canEdit,
+  };
 
- const invalidate = () => {
- queryClient.invalidateQueries({ queryKey: ["job", jobId] });
- queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });
- queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
- queryClient.invalidateQueries({ queryKey: ["dashboard","my-jobs"] });
- // Krok 02 „Zespół i priorytet" (`JobReadinessDock` z `variant="champion"`)
- // renderuje TEN panel wewnątrz doku, który czyta właściciela/współpracowników
- // z WŁASNEGO zapytania (`job-readiness-dock`, osobny klucz od `job`) — bez
- // tego Claim/Reassign/Dodaj współpracownika zostawiałby dok nieaktualny do
- // czasu ręcznego odświeżenia strony.
- queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });
- };
+  const people = recruitersOf(job);
+  const working = workingRecruiters(people);
+  const ownerWorking = hasWorkingOwner(people);
+  const meId = currentUser?.id ?? null;
+  const onList = meId != null && working.some((p) => p.user_id === meId);
+  // Head of Recruitment przydziela innych, ale sam rekruterem nie zostaje.
+  const eligible = hasRole(currentUser, ...CLAIM_ELIGIBLE_ROLES);
+  const ownerSeatTaken = hasActiveOwner(job.primary_owner);
+  // „Biorę” przy wolnej rekrutacji; zamkniętej nikt już nie bierze (serwer: 409).
+  const canClaim =
+    canWritePipeline && eligible && !ownerSeatTaken && job.status !== "closed";
+  // „Dołącz” przy zajętej — dopisuje zalogowaną osobę jako kolejną.
+  const canJoin =
+    access.canEdit &&
+    eligible &&
+    meId != null &&
+    !onList &&
+    !canClaim &&
+    (working.length > 0 || ownerSeatTaken);
+  // Rola przydzielająca bez pracującego pierwszego rekrutera ma „Przypisz…”;
+  // „+ Dodaj osobę” zrobiłoby wtedy to samo (`addRecruiter` ustawia pierwszego).
+  const canAdd = canStaff ? ownerWorking : access.canEdit;
 
- const claimMutation = useMutation({
- mutationFn: () => api.post(`/api/jobs/${jobId}/claim`),
- onSuccess: () => {
- setError(null);
- invalidate();
- },
- onError: (err: unknown) => setError(extractDetail(err) ??"Nie udało się przejąć projektu."),
- });
+  /**
+   * Każdy zapis kończy się odświeżeniem obsady — także nieudany: 409 znaczy,
+   * że ktoś zmienił ją w międzyczasie i ekran pokazuje nieaktualny stan.
+   */
+  const run = async (
+    key: string,
+    action: () => Promise<unknown>,
+    messages: { done: string; failed: string },
+  ) => {
+    if (pending != null) return;
+    setPending(key);
+    try {
+      await action();
+      toast.showSuccess(messages.done);
+    } catch (err) {
+      toast.showError(apiErrorMessage(err, messages.failed));
+    } finally {
+      invalidateJobTeam(queryClient, jobId);
+      setPending(null);
+    }
+  };
 
- const removeCollaboratorMutation = useMutation({
- mutationFn: (userId: number) =>
- api.delete(`/api/jobs/${jobId}/collaborators/${userId}`),
- onSuccess: invalidate,
- });
+  const remove = async (person: JobRecruiter) => {
+    if (pending != null) return;
+    const self = person.user_id === meId;
+    const confirmed = await askConfirm({
+      title: self
+        ? "Zdjąć siebie z tej rekrutacji?"
+        : `Zdjąć ${person.name} z tej rekrutacji?`,
+      description: self
+        ? "Przestaniesz być rekruterem tej rekrutacji."
+        : `${person.name} przestanie być rekruterem tej rekrutacji.`,
+      confirmLabel: "Zdejmij",
+    });
+    if (!confirmed) return;
+    await run(
+      `remove:${person.user_id}`,
+      () => removeRecruiter(jobId, person, { canStaff }),
+      {
+        done: self
+          ? "Nie jesteś już rekruterem tej rekrutacji."
+          : `${person.name}: zdjęto z rekrutacji.`,
+        failed: "Nie udało się zdjąć osoby z rekrutacji.",
+      },
+    );
+  };
 
- const { data: directory } = useQuery<UserBrief[]>({
- queryKey: ["users","directory","ownership"],
- queryFn: () => api.get("/api/users").then((r) => r.data as UserBrief[]),
- staleTime: 5 * 60 * 1000,
- enabled: canManageCollaborators,
- });
+  const decide = (
+    person: JobRecruiter,
+    decision: "accept" | "reject",
+  ) =>
+    run(
+      `${decision}:${person.user_id}`,
+      () => decideProposal(jobId, person.user_id, { decision }),
+      decision === "accept"
+        ? {
+            done: `${person.name} pracuje nad tą rekrutacją.`,
+            failed: "Nie udało się zaakceptować propozycji.",
+          }
+        : {
+            done: "Propozycja automatu odrzucona.",
+            failed: "Nie udało się odrzucić propozycji.",
+          },
+    );
 
- return (
- <div className="flex flex-wrap items-center gap-x-8 gap-y-1.5">
- <div className="min-w-0 flex items-center gap-2 flex-wrap">
- <span className="text-xs uppercase tracking-wider text-muted-foreground">
- Właściciel projektu:
- </span>
- <OwnerBadge user={primaryOwner} size="md" showRole />
- {canReassign ? (
- <Button
- type="button"
- variant="ghost"
- size="sm"
- onClick={() => setReassignOpen(true)}
- >
- <UserCog className="h-3.5 w-3.5" /> Zmień
- </Button>
- ) : null}
- {canClaim ? (
- <Button
- type="button"
- variant="primary"
- size="sm"
- onClick={() => claimMutation.mutate()}
- loading={claimMutation.isPending}
- >
- <UserPlus className="h-3.5 w-3.5" /> Przejmij rekrutację
- </Button>
- ) : null}
- </div>
+  const workingIds = working.map((p) => p.user_id);
 
- <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
- <span className="text-xs uppercase tracking-wider text-muted-foreground">
- Współpracownicy ({collaborators.length}):
- </span>
- {collaborators.length === 0 ? (
- <span className="text-xs text-muted-foreground">Brak.</span>
- ) : (
- collaborators.map((c) => (
- <span
- key={c.id}
- className="inline-flex items-center gap-1 pl-1 pr-2 h-6 rounded-full bg-card border border-border text-[11px]"
- title={`${c.name} · ${ROLE_LABELS[c.role]}${
- c.source === "auto_cc" ? " · z kategorii kompetencji" : ""
- }`}
- >
- <OwnerBadge user={c} size="sm" />
- {canManageCollaborators ? (
- <button
- type="button"
- aria-label={`Usuń ${c.name} ze współpracowników`}
- className="text-muted-foreground hover:text-primary"
- onClick={() => removeCollaboratorMutation.mutate(c.id)}
- >
- <X className="h-3 w-3" />
- </button>
- ) : null}
- </span>
- ))
- )}
- {canManageCollaborators ? (
- <Popover open={addOpen} onOpenChange={setAddOpen}>
- <PopoverTrigger asChild>
- <Button type="button" variant="ghost" size="sm">
- <Plus className="h-3.5 w-3.5" /> Dodaj
- </Button>
- </PopoverTrigger>
- <PopoverContent className="w-72 p-3">
- <AddCollaboratorInner
- jobId={jobId}
- existingIds={
- new Set([
- ...collaborators.map((c) => c.id),
- primaryOwner?.id ?? -1,
- ])
- }
- directory={directory ?? []}
- onDone={() => {
- setAddOpen(false);
- invalidate();
- }}
- />
- </PopoverContent>
- </Popover>
- ) : null}
- </div>
+  const proposalActions = canDecide
+    ? (person: JobRecruiter) => (
+        <>
+          <Button
+            type="button"
+            size="sm"
+            variant="primary"
+            loading={pending === `accept:${person.user_id}`}
+            disabled={pending != null}
+            onClick={() => void decide(person, "accept")}
+          >
+            Akceptuj
+          </Button>
+          <PersonPicker
+            heading="Kto zamiast propozycji automatu"
+            roles={PROPOSAL_REPLACEMENT_ROLES}
+            excludeIds={[person.user_id, ...workingIds]}
+            emptyLabel="Nie ma innej osoby do wskazania."
+            onPick={(user) =>
+              void run(
+                `replace:${person.user_id}`,
+                () =>
+                  decideProposal(jobId, person.user_id, {
+                    decision: "replace",
+                    replacement_user_id: user.id,
+                  }),
+                {
+                  done: `${user.name} pracuje nad tą rekrutacją zamiast propozycji automatu.`,
+                  failed: "Nie udało się zmienić propozycji.",
+                },
+              )
+            }
+            trigger={
+              <button
+                type="button"
+                className={LINK_BUTTON_CLASS}
+                disabled={pending != null}
+                aria-label={`Zmień propozycję: ${person.name}`}
+              >
+                Zmień
+              </button>
+            }
+          />
+          <button
+            type="button"
+            className={LINK_BUTTON_CLASS}
+            disabled={pending != null}
+            onClick={() => void decide(person, "reject")}
+          >
+            Odrzuć
+          </button>
+        </>
+      )
+    : undefined;
 
- {error ? (
- <div className="w-full text-xs text-primary">{error}</div>
- ) : null}
+  const caption = (person: JobRecruiter): ReactNode =>
+    person.proposed ? (
+      <span className="font-medium text-warning-muted-foreground">
+        Czeka na akceptację Head of Recruitment
+      </span>
+    ) : (
+      assignedByCaption(person)
+    );
 
- <ReassignOwnerV2
- open={reassignOpen}
- onOpenChange={setReassignOpen}
- jobId={jobId}
- jobTitle={jobTitle}
- currentOwner={primaryOwner}
- onAssigned={() => invalidate()}
- />
- </div>
- );
+  // „Co dalej” tylko wtedy, gdy nie ma nikogo — także propozycji (ta mówi sama
+  // za siebie: czeka na akceptację).
+  const inactiveOwnerNote =
+    job.primary_owner && !ownerSeatTaken
+      ? `${job.primary_owner.name} ma nieaktywne konto. `
+      : "";
+  // „Przyjmujemy kandydatów” = nie szukamy aktywnie; automat takim requestom
+  // nikogo nie proponuje, więc nie obiecujemy propozycji.
+  const passive = priorityLevelOf(job) === "accepting";
+  const nextStep =
+    people.length > 0
+      ? null
+      : `${inactiveOwnerNote}${
+          canStaff
+            ? passive
+              ? "Przypisz osobę — przy priorytecie „Przyjmujemy kandydatów” automat nikogo nie proponuje."
+              : "Przypisz osobę albo poczekaj na propozycję automatu (jeśli jest włączony)."
+            : canClaim
+              ? "Możesz wziąć tę rekrutację — kliknij „Biorę”."
+              : "Rekrutera przydziela Delivery Lead albo Head of Recruitment."
+        }`;
+
+  const hasActions = canStaff || canAdd || canClaim || canJoin;
+
+  return (
+    <div className="min-w-0 space-y-1.5" data-testid="job-recruiters">
+      <RecruiterChips
+        people={people}
+        size="md"
+        label="Rekruter"
+        caption={caption}
+        onRemove={(person) => void remove(person)}
+        // Propozycję odrzuca „Odrzuć” obok „Akceptuj” — bez drugiego krzyżyka.
+        canRemove={(person) =>
+          !person.proposed && canRemoveRecruiter(person, access)
+        }
+        proposalActions={proposalActions}
+        emptyLabel={NO_RECRUITER_LABEL}
+      />
+      {nextStep ? (
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          {nextStep}
+        </p>
+      ) : null}
+      {hasActions ? (
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+          {canStaff && !ownerWorking ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={pending != null}
+              onClick={() => setReassignOpen(true)}
+            >
+              Przypisz…
+            </Button>
+          ) : null}
+          {canClaim ? (
+            <Button
+              type="button"
+              size="sm"
+              variant={canStaff ? "outline" : "primary"}
+              loading={pending === "claim"}
+              disabled={pending != null}
+              onClick={() =>
+                void run("claim", () => claimJob(jobId), {
+                  done: "Od teraz pracujesz nad tą rekrutacją.",
+                  failed: "Nie udało się wziąć rekrutacji.",
+                })
+              }
+            >
+              Biorę
+            </Button>
+          ) : null}
+          {canJoin && meId != null ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              loading={pending === "join"}
+              disabled={pending != null}
+              onClick={() =>
+                void run("join", () => joinJob(jobId, meId), {
+                  done: "Dołączono do rekrutacji.",
+                  failed: "Nie udało się dołączyć do rekrutacji.",
+                })
+              }
+            >
+              Dołącz
+            </Button>
+          ) : null}
+          {canStaff && ownerWorking ? (
+            <button
+              type="button"
+              className={LINK_BUTTON_CLASS}
+              disabled={pending != null}
+              aria-label="Zmień rekrutera"
+              onClick={() => setReassignOpen(true)}
+            >
+              Zmień
+            </button>
+          ) : null}
+          {canAdd ? (
+            <PersonPicker
+              heading="Kolejna osoba przy rekrutacji"
+              roles={COLLABORATOR_ROLES}
+              excludeIds={workingIds}
+              emptyLabel="Wszyscy już pracują nad tą rekrutacją."
+              onPick={(user) =>
+                void run(
+                  "add",
+                  () =>
+                    addRecruiter(jobId, user.id, {
+                      hasWorkingOwner: ownerWorking,
+                      canStaff,
+                    }),
+                  {
+                    done: `${user.name}: dodano do rekrutacji.`,
+                    failed: "Nie udało się dodać osoby do rekrutacji.",
+                  },
+                )
+              }
+              trigger={
+                <button
+                  type="button"
+                  className={LINK_BUTTON_CLASS}
+                  disabled={pending != null}
+                >
+                  + Dodaj osobę
+                </button>
+              }
+            />
+          ) : null}
+        </div>
+      ) : null}
+
+      {canStaff ? (
+        <ReassignOwnerV2
+          open={reassignOpen}
+          onOpenChange={setReassignOpen}
+          jobId={jobId}
+          jobTitle={jobTitle}
+          currentOwner={ownerWorking ? (job.primary_owner ?? null) : null}
+        />
+      ) : null}
+      {confirmDialog}
+    </div>
+  );
 }
 
-interface AddCollaboratorInnerProps {
- jobId: number;
- existingIds: Set<number>;
- directory: UserBrief[];
- onDone: () => void;
+interface DirectoryUser {
+  id: number;
+  name: string;
+  role?: string | null;
+  roles?: string[] | null;
 }
 
-function AddCollaboratorInner({
- jobId,
- existingIds,
- directory,
- onDone,
-}: AddCollaboratorInnerProps) {
- const [selected, setSelected] = useState<number | null>(null);
- const [error, setError] = useState<string | null>(null);
-
- const addMutation = useMutation({
- mutationFn: (userId: number) =>
- api.post(`/api/jobs/${jobId}/collaborators`, { user_id: userId }),
- onSuccess: () => {
- setError(null);
- onDone();
- },
- onError: (err: unknown) =>
- setError(extractDetail(err) ??"Nie udało się dodać współpracownika."),
- });
-
- // Serwer przyjmuje tylko role z `_OWNERSHIP_ELIGIBLE_ROLES` (reszta = 409).
- const options = directory.filter(
- (u) =>
- !existingIds.has(u.id) &&
- COLLABORATOR_ROLES.some(
- (role) => u.role === role || (u.roles ?? []).includes(role),
- ),
- );
-
- return (
- <div className="space-y-2">
- <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
- Dodaj współpracownika
- </div>
- <Select
- value={selected != null ? String(selected) : ""}
- onValueChange={(v) => setSelected(v ? Number(v) : null)}
- >
- <SelectTrigger>
- <SelectValue placeholder="Wybierz osobę…" />
- </SelectTrigger>
- <SelectContent>
- {options.length === 0 ? (
- <SelectItem value="__none__" disabled>
- Wszyscy już dodani
- </SelectItem>
- ) : (
- options.map((u) => (
- <SelectItem key={u.id} value={String(u.id)}>
- {u.name}
- <span className="ml-2 text-xs text-muted-foreground">
- {ROLE_LABELS[u.role]}
- </span>
- </SelectItem>
- ))
- )}
- </SelectContent>
- </Select>
- {error ? (
- <div className="text-xs text-primary">{error}</div>
- ) : null}
- <div className="flex justify-end gap-2 pt-1">
- <Button
- type="button"
- variant="ghost"
- size="sm"
- onClick={onDone}
- >
- Anuluj
- </Button>
- <Button
- type="button"
- variant="primary"
- size="sm"
- disabled={selected == null}
- loading={addMutation.isPending}
- onClick={() => selected != null && addMutation.mutate(selected)}
- >
- Dodaj
- </Button>
- </div>
- </div>
- );
+function roleLabelOf(user: DirectoryUser): string | null {
+  if (!user.role) return null;
+  return ROLE_LABELS[user.role as UserRole] ?? user.role;
 }
 
-function extractDetail(err: unknown): string | null {
- return apiErrorMessage(err, "") || null;
+/**
+ * Lista osób do wskazania jednym kliknięciem. Ten sam katalog i klucz co
+ * `UserMultiSelect` (`["users-directory"]`) — bez drugiego zapytania; wczytuje
+ * się dopiero po otwarciu.
+ */
+function PersonPicker({
+  trigger,
+  heading,
+  roles,
+  excludeIds,
+  emptyLabel,
+  onPick,
+}: {
+  trigger: ReactElement;
+  heading: string;
+  /** Tylko osoby z którąkolwiek z tych ról (rola główna albo dodatkowa). */
+  roles: readonly string[];
+  excludeIds: readonly number[];
+  emptyLabel: string;
+  onPick: (user: DirectoryUser) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const { data, isPending, isError, isSuccess, refetch } = useQuery<
+    DirectoryUser[]
+  >({
+    queryKey: ["users-directory"],
+    queryFn: () => api.get("/api/users").then((r) => r.data),
+    staleTime: 60_000,
+    enabled: open,
+  });
+  const users = (data ?? []).filter(
+    (user) =>
+      !excludeIds.includes(user.id) &&
+      roles.some(
+        (role) => user.role === role || (user.roles ?? []).includes(role),
+      ),
+  );
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent align="start" className="w-72 p-0">
+        <Command>
+          <CommandInput placeholder="Szukaj osoby…" aria-label={heading} />
+          <CommandList>
+            <PickerQueryState
+              isPending={isPending}
+              isError={isError}
+              onRetry={() => void refetch()}
+              loadingLabel="Ładowanie listy osób…"
+              errorLabel="Nie udało się pobrać listy osób."
+            />
+            {isSuccess && <CommandEmpty>{emptyLabel}</CommandEmpty>}
+            <CommandGroup>
+              {users.map((user) => (
+                <CommandItem
+                  key={user.id}
+                  // Id w wartości: dwie osoby o tym samym nazwisku to dwie pozycje.
+                  value={`${user.name} ${user.id}`}
+                  onSelect={() => {
+                    setOpen(false);
+                    onPick(user);
+                  }}
+                >
+                  <span className="min-w-0 flex-1 truncate">{user.name}</span>
+                  {roleLabelOf(user) ? (
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                      {roleLabelOf(user)}
+                    </span>
+                  ) : null}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
