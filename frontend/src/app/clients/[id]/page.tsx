@@ -804,7 +804,10 @@ function ContactsTab({ clientId }: { clientId: number }) {
                       {contact.email ? (
                         <a
                           href={`mailto:${contact.email}`}
-                          className="break-all font-medium text-primary hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center"
+                          title={contact.email}
+                          // Jedna linia z wielokropkiem — łamany w pół słowa adres
+                          // („…exampl / e”) trudniej przeczytać niż przycięty.
+                          className="block max-w-[19rem] truncate font-medium text-primary hover:underline pointer-coarse:flex pointer-coarse:min-h-10 pointer-coarse:items-center"
                         >
                           {contact.email}
                         </a>
