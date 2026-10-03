@@ -346,7 +346,7 @@
       },
       {
         "q": "Jak poprawić stawkę albo dostępność?",
-        "a": "Kliknij fakt na pasku pod nagłówkiem (dostępność, stawka, lokalizacja, tryb pracy) i zapisz. Każdy fakt jest pokazany tylko w tym jednym miejscu. Tagi dodajesz przyciskiem „+ Tag” w nagłówku, usuwasz krzyżykiem.",
+        "a": "Kliknij fakt na pasku pod nagłówkiem (dostępność, stawka, lokalizacja, tryb pracy) i zapisz. Pod wartością widać, co i kiedy ustalono w rozmowie (z karty rekomendacji). Tagi dodajesz przyciskiem „+ Tag” w nagłówku, usuwasz krzyżykiem.",
         "anchor": "candidate.profile.facts"
       },
       {
@@ -366,13 +366,13 @@
     ],
     "pitfalls": [
       "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem.",
-      "Co kandydat odpowiedział na pytania screeningowe, widać w zakładce „Profil”, w karcie „Odpowiedzi z rozmów screeningowych” (jedna rozmowa na rekrutację, z wyszukiwarką). Sprawdź ją, zanim zapytasz o to samo w kolejnej rekrutacji — w nowym arkuszu wcześniejsze odpowiedzi pojawią się też pod pytaniami.",
-      "„Historia” otwiera się na „Notatkach”. Wpisy automatów (np. „Auto-match 67/100”) są schowane za „Pokaż systemowe” — wynik dopasowania widać jako plakietkę przy rekrutacji. Ważną notatkę przypnij pinezką: zobaczy ją cały zespół, także w karcie kandydata w rekrutacji."
+      "Co kandydat odpowiedział na pytania screeningowe, widać w zakładce „Profil”, w karcie „Odpowiedzi z rozmów screeningowych” (jedna rozmowa na rekrutację, z wyszukiwarką; pod arkuszami są odpowiedzi z kart rekomendacji wpisanych w notatkach). Sprawdź ją, zanim zapytasz o to samo w kolejnej rekrutacji.",
+      "„Historia” otwiera się na „Rozmowach”. Pozostałe wpisy mają własne zakładki: „Próby kontaktu” („Nie odebrał” zapiszesz jednym przyciskiem), „Delivery Lead”, „Maile” i „Automat” (np. „Auto-match 67/100”). Ważną notatkę przypnij pinezką: zobaczy ją cały zespół, także w karcie kandydata w rekrutacji."
     ],
     "anchors": [
       {"id": "candidate.profile.assign", "label": "Przypisz do rekrutacji", "describe": "Dodanie kandydata do rekrutacji."},
       {"id": "candidate.profile.note", "label": "Dodaj notatkę", "describe": "Nowa notatka o kandydacie."},
-      {"id": "candidate.profile.facts", "label": "Najważniejsze fakty", "describe": "Pasek faktów: dostępność, stawka, lokalizacja, tryb pracy."},
+      {"id": "candidate.profile.facts", "label": "Najważniejsze fakty", "describe": "Pasek faktów: dostępność, stawka, lokalizacja, tryb pracy — z datą ostatniego ustalenia w rozmowie."},
       {"id": "candidate.profile.notes_facts", "label": "Z notatek rekruterów", "describe": "Fakty wyciągnięte z notatek do zatwierdzenia."},
       {"id": "candidate.profile.screening_answers", "label": "Odpowiedzi z rozmów screeningowych", "describe": "Pytania i odpowiedzi kandydata z każdej rekrutacji — karta jest widoczna, gdy osoba ma zapisany screening."},
       {"id": "candidate.profile.tabs", "label": "Zakładki profilu", "describe": "Profil, Rekrutacje, Historia, Pliki i umowy."}

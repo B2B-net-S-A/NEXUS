@@ -6,7 +6,7 @@ import re
 import unicodedata
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from pydantic import (
     BaseModel,
@@ -245,6 +245,63 @@ class ScreeningConversation(BaseModel):
 class CandidateScreeningAnswersResponse(BaseModel):
     candidate_id: int
     conversations: list[ScreeningConversation]
+
+
+# ── Karty rekomendacji w profilu kandydata (03.10.2026) ────────────────────
+
+
+class CardFact(BaseModel):
+    """Najświeższe ustalenie z kart rekomendacji osoby — z datą i źródłem."""
+
+    key: str
+    label: str
+    raw: str
+    # Liczba (stawka PLN/h) albo kod (np. „no”) — gdy dało się odczytać.
+    value: Optional[Any] = None
+    level: Optional[str] = None
+    at: Optional[datetime] = None
+    source: Literal["note", "manual"]
+    author_name: Optional[str] = None
+    job_id: Optional[int] = None
+    job_title: Optional[str] = None
+
+
+class CardNoteAnswer(BaseModel):
+    number: int
+    question: str = ""
+    answer: str
+
+
+class CardConversation(BaseModel):
+    """Odpowiedzi na pytania zapisane w notatce-karcie jednej rekrutacji."""
+
+    job_id: int
+    job_title: Optional[str] = None
+    client_name: Optional[str] = None
+    answered_at: Optional[datetime] = None
+    author_name: Optional[str] = None
+    note_id: Optional[int] = None
+    from_traffit: bool = False
+    question_count: int = 0
+    answers: list[CardNoteAnswer]
+
+
+class CardNoteLink(BaseModel):
+    """Co z jednej notatki trafiło do karty rekomendacji."""
+
+    note_id: int
+    job_id: int
+    job_title: Optional[str] = None
+    fields: list[str]
+    field_labels: list[str]
+    answers: int = 0
+
+
+class CandidateCardOverviewResponse(BaseModel):
+    candidate_id: int
+    facts: list[CardFact]
+    conversations: list[CardConversation]
+    note_links: list[CardNoteLink]
 
 
 # ── Fakty z notatek rekruterów (22.09.2026) ────────────────────────────────

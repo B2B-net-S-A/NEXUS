@@ -25,6 +25,7 @@
   "GET /api/candidates/{candidate_id}/notes-facts": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/candidates/{candidate_id}/recent-recruitments": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/recommendation-cards": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/candidates/{candidate_id}/screening-answers": "PPPPPPDDPPPPPPPPPPP",
   "PATCH /api/candidates/{candidate_id}/call-facts": "PPPPPPDDPPPPPPPPPPP",
   "PATCH /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPP",

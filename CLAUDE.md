@@ -2507,6 +2507,30 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   uwagi ani dzwonka nie trafia nigdy. Kolejka przeglądu niesie stan karty
   (`card_status`, `card_missing`; `summaries_for_pairs`). Harness
   `/preview/dl-review` (`?as=recruiter`).
+- **Profil kandydata (03.10.2026):** Historia ma zakładkę na każdy rodzaj
+  notatki — „Rozmowy · Próby kontaktu · Delivery Lead · Maile · Automat”
+  (nic nie znika), dalej „Wszystko”, „Telefony” (rejestr połączeń, dawniej
+  „Rozmowy”) i „Czat zespołu”. Grupę notatki i liczniki nadaje serwer
+  (`note_kinds.group_of`, `NOTE_GROUPS`; `GET /api/notes` → `group` i
+  `group_counts` dla całego zakresu, niezależnie od `limit`); front tylko
+  mapuje grupę na widok (`lib/candidate-note-groups.ts`, klucze adresu
+  `activity=notes|contact|delivery|emails|automat` — `notes` zostaje, niosą go
+  powiadomienia). „Maile” = skrzynka M365 i maile zapisane w notatkach.
+  Zakładki nie mają `title` (w Chrome przejmował nazwę dostępną). „Nie
+  odebrał” to `POST /api/notes` z `kind: "contact_attempt"` — jedyny rodzaj,
+  który przyjmuje żądanie (`CLIENT_SETTABLE_KINDS`; odpowiedź w wątku
+  i integracja go nie przyjmują); typ ogólny, więc follow-up nie liczy go
+  jako kontaktu. `GET /api/candidates/{id}/recommendation-cards`
+  (`recommendation_cards.candidate_overview`, bramka jak
+  `…/screening-answers`) daje profilowi: najświeższe ustalenie pola z kart
+  (`latest_facts`: stawka, dostępność, tryb pracy, angielski, narodowość —
+  z datą, źródłem i rekrutacją), odpowiedzi z notatek dla rekrutacji bez
+  arkusza (sekcja „Z kart rekomendacji w notatkach” w karcie odpowiedzi)
+  i to, co z której notatki trafiło do karty (link „Karta rekomendacji z tej
+  rozmowy”). Pasek faktów pokazuje WARTOŚĆ Z PROFILU (po niej filtruje
+  lista), a pod nią linię z rozmowy (`lib/candidate-card-facts.ts`): ta sama
+  stawka = samo „rozmowa DD.MM.RRRR”, inna = data i wartość z rozmowy.
+  Karta nadal nie pisze do profilu.
 - **API `GET/PUT /api/recommendation-cards?candidate_id&job_id`:** sekcja
   Pipeline, odczyt jak rekrutacja, zapis jak notatka kandydata + blokada 12 h.
   `PUT` przyjmuje tekst pola (`null` zdejmuje pole ręczne) i normalizuje go tą

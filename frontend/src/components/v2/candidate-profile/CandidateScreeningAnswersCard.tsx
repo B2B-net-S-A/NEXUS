@@ -12,6 +12,11 @@
  *
  * Zastępuje dawną kartę „Screeningi”, która czytała nieużywaną tabelę notatek
  * screeningowych (ostatni wpis z 15.04.2026).
+ *
+ * 03.10.2026: pod arkuszami stoją odpowiedzi zapisane w notatkach-kartach
+ * rekomendacji (także wpisanych w Traffit) — dla rekrutacji bez arkusza.
+ * Arkusz wypełniono w historii kilkadziesiąt razy, a kart z odpowiedziami
+ * jest kilka tysięcy; bez nich karta była prawie zawsze pusta.
  */
 
 import Link from "next/link";
@@ -23,7 +28,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { candidateViewerScopeKey } from "@/components/v2/pages/candidate-query-keys";
 import { ScreeningAnswersList } from "@/components/v2/screening/ScreeningAnswersList";
+import {
+  useCandidateCardOverview,
+  type CandidateCardConversation,
+} from "@/lib/api/candidateCards";
 import { useCandidateScreeningAnswers } from "@/lib/api/screeningAnswers";
+import { cardConversationMeta, conversationsWithoutSheet } from "@/lib/candidate-card-facts";
 import { countPl } from "@/lib/plural-pl";
 import {
   SCREENING_FIT_LABEL,
@@ -99,16 +109,106 @@ function Conversation({
   );
 }
 
+const fold = (value: string): string => value.toLocaleLowerCase("pl");
+
+/** Odpowiedzi z notatki-karty jednej rekrutacji; domyślnie zwinięte. */
+function NoteConversation({
+  conversation,
+  open,
+  onToggle,
+}: {
+  conversation: CandidateCardConversation;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const bodyId = `card-conversation-${conversation.job_id}`;
+  const job = conversation.job_title?.trim() || `Rekrutacja #${conversation.job_id}`;
+  const client = conversation.client_name?.trim();
+  return (
+    <li className="overflow-hidden rounded-lg border border-border">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={bodyId}
+        className={cn(
+          "flex w-full items-start gap-3 px-3 py-2.5 text-left",
+          open && "border-b border-border bg-muted/40",
+        )}
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium text-foreground [overflow-wrap:anywhere]">
+            {client ? `${job} · ${client}` : job}
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            {cardConversationMeta(conversation)}
+          </span>
+        </span>
+        <ChevronDown
+          className={cn("mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+          aria-hidden
+        />
+      </button>
+      {open ? (
+        <div id={bodyId} className="space-y-3 px-3 py-3">
+          <ol className="space-y-2">
+            {conversation.answers.map((item) => (
+              <li key={item.number} className="text-sm">
+                <p className="font-medium text-foreground">
+                  {item.number}. {item.question || "pytanie bez treści w notatce"}
+                </p>
+                <p className="mt-0.5 whitespace-pre-line text-foreground [overflow-wrap:anywhere]">
+                  {item.answer}
+                </p>
+              </li>
+            ))}
+          </ol>
+          <Link
+            href={`/jobs/${conversation.job_id}`}
+            className="inline-block text-xs font-medium text-primary hover:underline"
+          >
+            Otwórz rekrutację
+          </Link>
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
 export function CandidateScreeningAnswersCard({ candidateId }: { candidateId: number }) {
   const viewerScope = candidateViewerScopeKey(useAuthStore((state) => state.user));
   const query = useCandidateScreeningAnswers(candidateId, viewerScope);
   const [phrase, setPhrase] = useState("");
   // Rozmowy rozwinięte/zwinięte ręcznie; bez wpisu rozwinięta jest najnowsza.
   const [toggled, setToggled] = useState<Record<number, boolean>>({});
+  const [noteToggled, setNoteToggled] = useState<Record<number, boolean>>({});
+  // Karty to dodatek: ich awaria nie zasłania arkuszy (i odwrotnie — bez
+  // arkuszy karta nadal pokazuje odpowiedzi z notatek).
+  const cards = useCandidateCardOverview(candidateId, viewerScope);
 
   const conversations = useMemo(() => query.data?.conversations ?? [], [query.data]);
   const visible = useMemo(() => filterConversations(conversations, phrase), [conversations, phrase]);
   const searching = phrase.trim().length > 0;
+  const noteConversations = useMemo(
+    () =>
+      conversationsWithoutSheet(
+        cards.data?.conversations,
+        new Set(conversations.map((conversation) => conversation.job_id)),
+      ),
+    [cards.data, conversations],
+  );
+  const visibleNotes = useMemo(() => {
+    const needle = fold(phrase.trim());
+    if (!needle) return noteConversations;
+    return noteConversations
+      .map((conversation) => ({
+        ...conversation,
+        answers: conversation.answers.filter(
+          (item) => fold(item.question).includes(needle) || fold(item.answer).includes(needle),
+        ),
+      }))
+      .filter((conversation) => conversation.answers.length > 0);
+  }, [noteConversations, phrase]);
 
   if (query.isError) {
     return (
@@ -135,9 +235,13 @@ export function CandidateScreeningAnswersCard({ candidateId }: { candidateId: nu
     );
   }
   // Brak rozmów = brak karty (pusta ramka nic by nie mówiła).
-  if (!query.isSuccess || conversations.length === 0) return null;
+  if (!query.isSuccess || conversations.length + noteConversations.length === 0) return null;
 
-  const newestStageId = conversations[0].stage_id;
+  const newestStageId = conversations[0]?.stage_id;
+  // Bez arkuszy rozwinięta jest najnowsza rozmowa z notatki.
+  const newestNoteJobId = conversations.length === 0 ? noteConversations[0]?.job_id : undefined;
+  const isNoteOpen = (conversation: CandidateCardConversation) =>
+    noteToggled[conversation.job_id] ?? (searching || conversation.job_id === newestNoteJobId);
   const isOpen = (conversation: FilteredConversation) =>
     toggled[conversation.stage_id] ?? (searching || conversation.stage_id === newestStageId);
 
@@ -157,7 +261,7 @@ export function CandidateScreeningAnswersCard({ candidateId }: { candidateId: nu
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
-        {conversations.length >= 2 ? (
+        {conversations.length + noteConversations.length >= 2 ? (
           <div className="relative">
             <Search
               aria-hidden
@@ -173,11 +277,11 @@ export function CandidateScreeningAnswersCard({ candidateId }: { candidateId: nu
             />
           </div>
         ) : null}
-        {visible.length === 0 ? (
+        {visible.length + visibleNotes.length === 0 ? (
           <p role="status" className="text-sm text-muted-foreground">
             Żadna odpowiedź nie pasuje do „{phrase.trim()}”.
           </p>
-        ) : (
+        ) : visible.length === 0 ? null : (
           <ul className="space-y-2">
             {visible.map((conversation) => (
               <Conversation
@@ -192,6 +296,28 @@ export function CandidateScreeningAnswersCard({ candidateId }: { candidateId: nu
             ))}
           </ul>
         )}
+        {visibleNotes.length > 0 ? (
+          <section aria-labelledby="candidate-card-answers-title" className="space-y-2">
+            <h3 id="candidate-card-answers-title" className="text-xs font-semibold text-muted-foreground">
+              Z kart rekomendacji w notatkach
+            </h3>
+            <ul className="space-y-2">
+              {visibleNotes.map((conversation) => (
+                <NoteConversation
+                  key={conversation.job_id}
+                  conversation={conversation}
+                  open={isNoteOpen(conversation)}
+                  onToggle={() =>
+                    setNoteToggled((prev) => ({
+                      ...prev,
+                      [conversation.job_id]: !isNoteOpen(conversation),
+                    }))
+                  }
+                />
+              ))}
+            </ul>
+          </section>
+        ) : null}
       </CardContent>
     </Card>
   );

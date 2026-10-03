@@ -28,6 +28,10 @@ export function useNoteActions(candidateId: number, readOnly: boolean) {
     queryClient.invalidateQueries({
       queryKey: candidateQueryKeys.notes(candidateId),
     });
+    // Notatka-karta zmienia kartę rekomendacji, a z nią ustalenia w profilu.
+    queryClient.invalidateQueries({
+      queryKey: candidateQueryKeys.cardOverviewRoot(candidateId),
+    });
   };
 
   // PATCH re-parsuje @wzmianki.

@@ -17,14 +17,22 @@ export const PROFILE_SECTIONS = [
 
 /**
  * Filtry zakładki „Historia”. `timeline` = „Wszystko”. Domyślny od
- * 29.09.2026 to `notes` („Notatki”) — `?tab=activity` bez filtra otwiera
- * notatki, a stare wejścia na oś czasu (`?tab=timeline`, `?tab=podglad`,
- * `activity=timeline`) nadal ją otwierają.
+ * 29.09.2026 to `notes` — `?tab=activity` bez filtra otwiera notatki, a stare
+ * wejścia na oś czasu (`?tab=timeline`, `?tab=podglad`, `activity=timeline`)
+ * nadal ją otwierają.
+ *
+ * Od 03.10.2026 notatki mają zakładkę na każdy rodzaj (nic nie znika):
+ * `notes` = „Rozmowy”, `contact` = „Próby kontaktu”, `delivery` = „Delivery
+ * Lead”, `emails` = „Maile” (skrzynka M365 i maile zapisane w notatkach),
+ * `automat` = „Automat”. Klucz `notes` zostaje — niosą go linki z powiadomień.
  */
 export const ACTIVITY_VIEWS = [
   "timeline",
   "notes",
+  "contact",
+  "delivery",
   "emails",
+  "automat",
   "calls",
   "chat",
 ] as const;

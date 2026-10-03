@@ -10,7 +10,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  ClipboardList,
   PencilLine,
+  PhoneMissed,
   Pin,
   PinOff,
   Plus,
@@ -23,6 +25,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { ConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import type { CandidateCardNoteLink } from "@/lib/api/candidateCards";
+import { noteLinkSummary } from "@/lib/candidate-card-facts";
 import { detectNotePersonMismatch } from "@/lib/note-person-mismatch";
 import { useMentionableUsers, type MentionScope } from "@/hooks/useMentionableUsers";
 import { buildUsersByEmail, renderWithMentions } from "@/lib/renderMentions";
@@ -51,6 +55,12 @@ export interface NoteComposerProps {
   setNoteText: (v: string) => void;
   onAdd: (jobId?: number | null) => void;
   saving: boolean;
+  /**
+   * „Nie odebrał” — jednym kliknięciem zapisuje próbę kontaktu (osobna
+   * zakładka Historii; nie liczy się jako rozmowa). Brak = bez przycisku.
+   */
+  onNoAnswer?: (jobId?: number | null) => void;
+  noAnswerSaving?: boolean;
   viewers?: PresenceViewer[];
   currentUserId?: number;
   setEditing?: (field: string, active: boolean) => void;
@@ -87,6 +97,8 @@ export function NoteComposer({
   setNoteText,
   onAdd,
   saving,
+  onNoAnswer,
+  noAnswerSaving = false,
   viewers = [],
   currentUserId,
   setEditing,
@@ -203,12 +215,25 @@ export function NoteComposer({
             </select>
           </div>
         ) : null}
+        {onNoAnswer ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onNoAnswer(selectedJobId)}
+            loading={noAnswerSaving}
+            disabled={saving}
+            title="Zapisuje próbę kontaktu jednym kliknięciem — trafia do zakładki „Próby kontaktu”"
+          >
+            <PhoneMissed className="h-3.5 w-3.5" />
+            Nie odebrał
+          </Button>
+        ) : null}
         <Button
           size="sm"
           variant="primary"
           onClick={() => onAdd(selectedJobId)}
           loading={saving}
-          disabled={!noteText.trim()}
+          disabled={!noteText.trim() || noAnswerSaving}
         >
           <Plus className="h-3.5 w-3.5" />
           Dodaj notatkę
@@ -238,6 +263,9 @@ export function NotesList({
   now,
   emptyText = "Brak notatek.",
   hideRecruitment = false,
+  includeSystem = false,
+  cardLinks,
+  onOpenCard,
 }: {
   notes: any[];
   recruitments?: any[];
@@ -257,6 +285,11 @@ export function NotesList({
   emptyText?: string;
   /** Lista jednej rekrutacji (dok osoby): bez filtra i plakietki rekrutacji. */
   hideRecruitment?: boolean;
+  /** Zakładka „Automat”: wpisy systemowe widoczne od razu, bez przełącznika. */
+  includeSystem?: boolean;
+  /** Co z której notatki trafiło do karty rekomendacji (profil kandydata). */
+  cardLinks?: ReadonlyMap<number, CandidateCardNoteLink>;
+  onOpenCard?: (link: CandidateCardNoteLink) => void;
 }) {
   const notes = useMemo(
     () =>
@@ -267,7 +300,8 @@ export function NotesList({
   );
   const { jobTitleById } = useRecruitmentOptions(recruitments);
 
-  const [showSystem, setShowSystem] = useState(false);
+  const [systemToggled, setShowSystem] = useState(false);
+  const showSystem = includeSystem || systemToggled;
   const [recruitmentFilter, setRecruitmentFilter] =
     useState<NoteRecruitmentFilter>("all");
   const systemCount = systemNoteCount(notes);
@@ -430,6 +464,27 @@ export function NotesList({
     );
   };
 
+  const renderCardLink = (n: any) => {
+    const link = cardLinks?.get(Number(n.id));
+    if (!link) return null;
+    const summary = noteLinkSummary(link);
+    return (
+      <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+        <ClipboardList className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        {summary ? <span>{summary}.</span> : null}
+        {onOpenCard ? (
+          <button
+            type="button"
+            onClick={() => onOpenCard(link)}
+            className="font-medium text-primary hover:underline"
+          >
+            Karta rekomendacji z tej rozmowy
+          </button>
+        ) : null}
+      </p>
+    );
+  };
+
   const iconButton =
     "inline-flex items-center justify-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground hit-area";
 
@@ -548,7 +603,7 @@ export function NotesList({
               </select>
             </label>
           ) : null}
-          {systemCount > 0 ? (
+          {systemCount > 0 && !includeSystem ? (
             <label className="ml-auto inline-flex cursor-pointer items-center gap-1.5 text-muted-foreground">
               <input
                 type="checkbox"
@@ -601,6 +656,7 @@ export function NotesList({
                 {!isEditing ? renderActions(n, { isReply: false }) : null}
               </div>
               {isEditing ? renderEditor(n) : renderBody(n)}
+              {!isEditing ? renderCardLink(n) : null}
 
               {replies.length > 0 || replyTo === n.id ? (
                 <div className="mt-2 space-y-1.5 border-l-2 border-border pl-3">

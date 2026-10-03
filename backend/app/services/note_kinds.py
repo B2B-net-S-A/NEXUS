@@ -105,6 +105,45 @@ AI_PRIORITY_KINDS: tuple[str, ...] = (CARD, SCREENING_FACTS)
 # stawkę (decyzja 23.09.2026: rekruter jej nie widzi).
 CLIENT_RATE_KINDS: frozenset[str] = frozenset({DL_RATE})
 
+# Grupy notatek w Historii profilu kandydata (decyzja 03.10.2026: nic nie
+# znika — każdy rodzaj ma swoją zakładkę). Kolejność = kolejność zakładek.
+GROUP_TALKS = "talks"
+GROUP_CONTACT = "contact"
+GROUP_DELIVERY = "delivery"
+GROUP_EMAIL = "email"
+GROUP_AUTOMAT = "automat"
+NOTE_GROUPS: tuple[str, ...] = (
+    GROUP_TALKS,
+    GROUP_CONTACT,
+    GROUP_DELIVERY,
+    GROUP_EMAIL,
+    GROUP_AUTOMAT,
+)
+_GROUP_BY_KIND: dict[str, str] = {
+    CONTACT_ATTEMPT: GROUP_CONTACT,
+    SCHEDULING: GROUP_CONTACT,
+    DL_RATE: GROUP_DELIVERY,
+    DL_REVIEW: GROUP_DELIVERY,
+    EMAIL: GROUP_EMAIL,
+    AUTOMATCH: GROUP_AUTOMAT,
+    APPLICATION_FORM: GROUP_AUTOMAT,
+}
+# Rodzaj, który osoba może podać wprost przy tworzeniu notatki („Nie odebrał”
+# jednym kliknięciem). Pozostałe nadaje reguła albo serwer.
+CLIENT_SETTABLE_KINDS: frozenset[str] = frozenset({CONTACT_ATTEMPT})
+
+
+def group_of(kind: Optional[str], external_source: Optional[str] = None) -> str:
+    """Zakładka Historii, do której trafia notatka.
+
+    Wpis automatu rozpoznaje samo pochodzenie (jak w filtrze dla AI); notatka
+    bez rodzaju albo o rodzaju spoza mapy jest rozmową — nic nie wypada.
+    """
+    if external_source == SYSTEM_SOURCE:
+        return GROUP_AUTOMAT
+    return _GROUP_BY_KIND.get(kind or "", GROUP_TALKS)
+
+
 CLIENT_RATE_SNIPPET = "Wpis o stawce do klienta."
 CLIENT_RATE_PLACEHOLDER = (
     "Notatka Delivery Leada o stawce do klienta — niewidoczna dla Twojej roli."

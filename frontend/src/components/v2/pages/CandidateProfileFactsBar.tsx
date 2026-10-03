@@ -4,6 +4,7 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Briefcase,
+  Globe2,
   CalendarClock,
   Check,
   ChevronsUpDown,
@@ -90,7 +91,18 @@ import {
 } from "@/lib/candidate-languages";
 import { formatCandidateLocation } from "./candidate-list-helpers";
 import { invalidateCandidateMutation } from "./candidate-cache";
-import { candidateQueryKeys } from "./candidate-query-keys";
+import { candidateQueryKeys, candidateViewerScopeKey } from "./candidate-query-keys";
+import {
+  useCandidateCardOverview,
+  type CandidateCardFact,
+} from "@/lib/api/candidateCards";
+import {
+  cardFactLine,
+  cardFactOrigin,
+  cardFactTitle,
+  cardFactsByKey,
+} from "@/lib/candidate-card-facts";
+import { useAuthStore } from "@/store/auth";
 
 const CEFR_LEVELS: CandidateLanguageCefrLevel[] = [
   "A1",
@@ -320,18 +332,33 @@ function languageLabel(language: CandidateLanguagesResponse["languages"][number]
   return `${language.language_name} · poziom nieznany`;
 }
 
+/**
+ * Linia pod wartością z profilu: co i kiedy ustalono w rozmowie (karta
+ * rekomendacji). Wartość z profilu zostaje główną — po niej filtruje lista.
+ */
+function cardOrigin(
+  fact: CandidateCardFact | undefined,
+  profileAmount?: number | null,
+): { text: string; title: string } | undefined {
+  const text = cardFactLine(fact, profileAmount);
+  return fact && text ? { text, title: cardFactTitle(fact) } : undefined;
+}
+
 function FactShell({
   icon,
   label,
   children,
   action,
   muted,
+  origin,
 }: {
   icon: React.ReactNode;
   label: string;
   children: React.ReactNode;
   action?: React.ReactNode;
   muted?: boolean;
+  /** Źródło i data ustalenia z rozmowy (karta rekomendacji). */
+  origin?: { text: string; title: string };
 }) {
   return (
     <div className="min-w-0 rounded-lg border border-border bg-card p-3 md:max-2xl:p-2">
@@ -355,6 +382,15 @@ function FactShell({
           >
             {children}
           </div>
+          {origin ? (
+            <p
+              className="mt-0.5 break-words text-[11px] leading-4 text-muted-foreground"
+              title={origin.title}
+              data-fact-origin
+            >
+              {origin.text}
+            </p>
+          ) : null}
         </div>
         {action}
       </div>
@@ -1426,6 +1462,13 @@ export function CandidateProfileFactsBar({
   const rateLabel = rateFactLabel(candidate, rateQuery.data?.data.updated_at);
   const verifiedLabel = callFactsVerifiedLabel(candidate);
   const callFacts = callFactItems(candidate);
+  // Ustalenia z kart rekomendacji — dodatek: brak dostępu albo awaria odczytu
+  // zostawia pasek bez linii źródła.
+  const viewerScope = candidateViewerScopeKey(useAuthStore((state) => state.user));
+  const cardOverview = useCandidateCardOverview(candidate.id, viewerScope);
+  const cardFacts = cardFactsByKey(cardOverview.data?.facts);
+  const profileRate =
+    rateQuery.data?.data.amount != null ? Number(rateQuery.data.data.amount) : null;
   const languagesForbidden = requestStatus(languagesQuery.error) === 403;
   const rateForbidden = requestStatus(rateQuery.error) === 403;
 
@@ -1478,6 +1521,7 @@ export function CandidateProfileFactsBar({
             icon={<Languages className="size-4" />}
             label="Języki"
             muted={languageSummary.length === 0}
+            origin={cardOrigin(cardFacts.english)}
             action={
               canEditFacts ? (
                 <EditFactButton
@@ -1531,6 +1575,7 @@ export function CandidateProfileFactsBar({
           icon={<CalendarClock className="size-4" />}
           label="Dostępność"
           muted={!candidate.availability_status}
+          origin={cardOrigin(cardFacts.availability)}
         >
           {availabilityValue(candidate)}
         </FactShell>
@@ -1539,6 +1584,7 @@ export function CandidateProfileFactsBar({
           icon={<Briefcase className="size-4" />}
           label="Tryb pracy"
           muted={!workModeLabel}
+          origin={cardOrigin(cardFacts.work_mode)}
           action={
             canEditFacts ? (
               <EditFactButton
@@ -1579,6 +1625,7 @@ export function CandidateProfileFactsBar({
               icon={<WalletCards className="size-4" />}
               label={rateLabel}
               muted={rateQuery.data.data.amount == null}
+              origin={cardOrigin(cardFacts.rate, profileRate)}
               action={
                 <EditFactButton
                   label="Edytuj globalną stawkę B2B"
@@ -1589,6 +1636,18 @@ export function CandidateProfileFactsBar({
               {formatRate(rateQuery.data.data.amount)}
             </FactShell>
           ) : null
+        ) : null}
+        {cardFacts.nationality ? (
+          <FactShell
+            icon={<Globe2 className="size-4" />}
+            label="Narodowość"
+            origin={{
+              text: cardFactOrigin(cardFacts.nationality),
+              title: cardFactTitle(cardFacts.nationality),
+            }}
+          >
+            {cardFacts.nationality.raw}
+          </FactShell>
         ) : null}
         <FollowupFact candidateId={candidate.id} />
       </section>

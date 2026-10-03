@@ -81,6 +81,10 @@ export const candidateQueryKeys = {
     ["candidate-screening-answers", candidateId(id), { viewerScope }] as const,
   screeningAnswersRoot: (id: number | string) =>
     ["candidate-screening-answers", candidateId(id)] as const,
+  cardOverview: (id: number | string, viewerScope: string) =>
+    ["candidate-card-overview", candidateId(id), { viewerScope }] as const,
+  cardOverviewRoot: (id: number | string) =>
+    ["candidate-card-overview", candidateId(id)] as const,
   documents: (id: number | string) =>
     ["candidate-documents", candidateId(id)] as const,
   cvDocuments: (id: number | string) =>

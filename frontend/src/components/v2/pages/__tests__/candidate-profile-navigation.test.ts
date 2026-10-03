@@ -90,6 +90,10 @@ describe("candidate profile navigation", () => {
       ["tab=activity&activity=timeline", { section: "activity", activity: "timeline" }],
       ["tab=activity&activity=calls", { section: "activity", activity: "calls" }],
       ["tab=activity&activity=chat", { section: "activity", activity: "chat" }],
+      // 03.10.2026: zakładki notatek po rodzaju.
+      ["tab=activity&activity=contact", { section: "activity", activity: "contact" }],
+      ["tab=activity&activity=delivery", { section: "activity", activity: "delivery" }],
+      ["tab=activity&activity=automat", { section: "activity", activity: "automat" }],
       ["tab=documents&documents=files", { section: "documents", documents: "files" }],
       ["tab=documents&documents=contracts", { section: "documents", documents: "contracts" }],
       ["tab=umowa", { section: "documents", documents: "contracts" }],

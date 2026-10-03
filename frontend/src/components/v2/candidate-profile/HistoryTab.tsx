@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * Zakładka „Historia”: jeden kompozytor notatki u góry i filtry
- * „Notatki · Wszystko · Maile · Rozmowy · Czat zespołu” (od 29.09.2026
- * domyślnie „Notatki” — oś czasu mieszała notatki ludzi z ruchami etapów
- * i wpisami automatów). Każdy filtr to
- * dotychczasowy komponent (oś czasu, lista notatek, czytnik maili M365,
- * rozmowy CloudTalk, czat zespołu) — zmieniło się tylko miejsce.
+ * Zakładka „Historia”: jeden kompozytor notatki u góry i filtry. Od
+ * 03.10.2026 notatki mają zakładkę na każdy rodzaj — „Rozmowy · Próby
+ * kontaktu · Delivery Lead · Maile · Automat” — z licznikami z serwera
+ * (decyzja: nic nie znika, szum ma własne miejsce). Dalej „Wszystko” (oś
+ * czasu), „Telefony” (rejestr połączeń) i „Czat zespołu”. Domyślnie
+ * „Rozmowy” (klucz `notes`).
  *
  * Czytnik maili (`EmailThreadList`) MUSI mieć tu wejście — raz już osierociał
  * (PR #539), a synchronizacja M365 zapisuje treści maili pod RODO.
@@ -14,7 +14,7 @@
 
 import * as React from "react";
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Download, FileText, Loader2 } from "lucide-react";
 
 import api, { callsApi, extractErrorMsg, type Call } from "@/lib/api";
@@ -29,8 +29,26 @@ import {
   downloadDocumentBlob,
   type CandidateDocument,
 } from "@/components/v2/files/FilePreviewModal";
-import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
-import { humanNoteCount } from "@/lib/candidate-notes-view";
+import {
+  candidateQueryKeys,
+  candidateViewerScopeKey,
+} from "@/components/v2/pages/candidate-query-keys";
+import { RecommendationCardDialog } from "@/components/v2/screening/RecommendationCardDialog";
+import {
+  useCandidateCardOverview,
+  type CandidateCardNoteLink,
+} from "@/lib/api/candidateCards";
+import { noteLinksById } from "@/lib/candidate-card-facts";
+import {
+  NOTE_GROUP_BY_VIEW,
+  NOTE_GROUP_EMPTY_TEXT,
+  VIEW_BY_NOTE_GROUP,
+  noteGroup,
+  noteGroupCounts,
+  notesOfGroup,
+} from "@/lib/candidate-note-groups";
+import { threadContainsNote } from "@/lib/candidate-notes-view";
+import { useAuthStore } from "@/store/auth";
 import type { CandidateActivityView } from "@/components/v2/pages/candidate-profile-navigation";
 import type { PresenceViewer } from "@/hooks/usePresence";
 import { cn } from "@/lib/utils";
@@ -42,17 +60,23 @@ import { useNoteActions } from "./useNoteActions";
 /* eslint-disable @typescript-eslint/no-explicit-any -- oś czasu i notatki są luźno typowane */
 
 export const ACTIVITY_FILTER_LABELS: Record<CandidateActivityView, string> = {
-  timeline: "Wszystko",
-  notes: "Notatki",
+  notes: "Rozmowy",
+  contact: "Próby kontaktu",
+  delivery: "Delivery Lead",
   emails: "Maile",
-  calls: "Rozmowy",
+  automat: "Automat",
+  timeline: "Wszystko",
+  calls: "Telefony",
   chat: "Czat zespołu",
 };
 
 const FILTER_ORDER: CandidateActivityView[] = [
   "notes",
-  "timeline",
+  "contact",
+  "delivery",
   "emails",
+  "automat",
+  "timeline",
   "calls",
   "chat",
 ];
@@ -104,9 +128,12 @@ export function HistoryTab({
   composeRequest,
   onComposeHandled,
 }: HistoryTabProps) {
-  const { showError } = useToast();
+  const { showError, showInfo } = useToast();
+  const queryClient = useQueryClient();
   const [noteText, setNoteText] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
+  const [noAnswerSaving, setNoAnswerSaving] = useState(false);
+  const [openCard, setOpenCard] = useState<CandidateCardNoteLink | null>(null);
   // „Pokaż CV obok” — domyślnie po wejściu z rekrutacji (widok z Traffita),
   // ale tylko od `lg`: węższy ekran stawia CV NAD historią, więc historia
   // byłaby dopiero pod całym podglądem CV.
@@ -120,7 +147,7 @@ export function HistoryTab({
   // Notatki — dedykowane, NIEUCINANE źródło. Oś czasu miesza notatki
   // z etapami i ucina do limitu, więc starsze notatki znikały z filtra.
   // Ten sam klucz co licznik zakładki „Historia” w profilu (jedno pobranie).
-  const notesQuery = useQuery<{ items?: any[] }>({
+  const notesQuery = useQuery<{ items?: any[]; group_counts?: Record<string, number> }>({
     queryKey: candidateQueryKeys.notes(candidateId),
     queryFn: ({ signal }) =>
       api
@@ -136,6 +163,30 @@ export function HistoryTab({
         timestamp: n.created_at,
       })),
     [notesQuery.data],
+  );
+
+  const groupCounts = useMemo(
+    () => noteGroupCounts(notesQuery.data?.group_counts, noteItems),
+    [notesQuery.data, noteItems],
+  );
+  const activeGroup = NOTE_GROUP_BY_VIEW[activityView];
+  // Link z powiadomienia (`?note=<id>`) prowadzi do zakładki „Rozmowy”; gdy
+  // notatka leży w innej zakładce (np. próba kontaktu), dokładamy jej wątek.
+  const groupNotes = useMemo(() => {
+    if (!activeGroup) return [];
+    const inGroup = notesOfGroup(noteItems, activeGroup);
+    if (focusedNoteId == null) return inGroup;
+    const focused = noteItems.find((n: any) => threadContainsNote(n, focusedNoteId));
+    return focused && noteGroup(focused) !== activeGroup ? [focused, ...inGroup] : inGroup;
+  }, [activeGroup, noteItems, focusedNoteId]);
+
+  // Co z której notatki trafiło do karty rekomendacji (dodatek — awaria albo
+  // brak sekcji nie zmienia listy notatek).
+  const viewerScope = candidateViewerScopeKey(useAuthStore((state) => state.user));
+  const cardOverview = useCandidateCardOverview(candidateId, viewerScope);
+  const cardLinks = useMemo(
+    () => noteLinksById(cardOverview.data?.note_links),
+    [cardOverview.data],
   );
 
   const callsQuery = useQuery<Call[]>({
@@ -174,12 +225,61 @@ export function HistoryTab({
     }
   };
 
+  // „Nie odebrał” jednym kliknięciem: notatka-próba kontaktu (rodzaj podany
+  // wprost, typ ogólny — follow-up nie liczy jej jako rozmowy z kandydatem).
+  // Tekst wpisany w polu notatki zostaje nietknięty.
+  const handleNoAnswer = async (jobId?: number | null) => {
+    if (readOnly || noAnswerSaving) return;
+    setNoAnswerSaving(true);
+    try {
+      await api.post("/api/notes", {
+        candidate_id: candidateId,
+        content: "Nie odebrał.",
+        note_type: "general",
+        kind: "contact_attempt",
+        ...(jobId ? { job_id: jobId } : {}),
+      });
+      invalidateNotes();
+      showInfo("Zapisano próbę kontaktu.");
+    } catch (e) {
+      showError(extractErrorMsg(e) || "Nie udało się zapisać próby kontaktu");
+    } finally {
+      setNoAnswerSaving(false);
+    }
+  };
+
+  const noteCount = (group: keyof typeof VIEW_BY_NOTE_GROUP) =>
+    notesQuery.isSuccess ? groupCounts[group] : undefined;
   const counts: Partial<Record<CandidateActivityView, number>> = {
     timeline: timeline.isPending ? undefined : timeline.items.length,
-    // Notatki ludzi — bez odpowiedzi i bez wpisów automatów (0399).
-    notes: notesQuery.isSuccess ? humanNoteCount(noteItems) : undefined,
+    // Liczniki notatek liczy serwer dla całej historii (bez odpowiedzi).
+    notes: noteCount("talks"),
+    contact: noteCount("contact"),
+    delivery: noteCount("delivery"),
+    // Sama skrzynka M365 nie ma licznika — liczba dotyczy maili w notatkach.
+    emails: noteCount("email") || undefined,
+    automat: noteCount("automat"),
     calls: callsQuery.isSuccess ? (callsQuery.data ?? []).length : undefined,
   };
+
+  const notesList = (emptyText: string) => (
+    <NotesList
+      notes={groupNotes}
+      recruitments={recruitments}
+      onEdit={handleEditNote}
+      onDelete={handleDeleteNote}
+      onPin={handlePinNote}
+      onReply={handleReplyNote}
+      currentUserId={currentUserId}
+      canModerate={canModerate}
+      readOnly={readOnly}
+      focusedNoteId={focusedNoteId}
+      emptyText={emptyText}
+      includeSystem={activeGroup === "automat"}
+      cardLinks={cardLinks}
+      onOpenCard={setOpenCard}
+    />
+  );
 
   return (
     <div className="space-y-4">
@@ -191,6 +291,8 @@ export function HistoryTab({
           setNoteText={setNoteText}
           onAdd={handleAddNote}
           saving={noteSaving}
+          onNoAnswer={handleNoAnswer}
+          noAnswerSaving={noAnswerSaving}
           viewers={viewers}
           currentUserId={currentUserId}
           setEditing={setPresenceEditing}
@@ -226,9 +328,11 @@ export function HistoryTab({
                 )}
               >
                 {ACTIVITY_FILTER_LABELS[value]}
+                {/* Spacja dla czytników ekranu: „Rozmowy · 4”, nie „Rozmowy· 4”. */}
+                {typeof count === "number" ? " " : null}
                 {typeof count === "number" ? (
                   <span className="tabular-nums text-muted-foreground">
-                    {count}
+                    · {count}
                   </span>
                 ) : null}
               </button>
@@ -269,7 +373,7 @@ export function HistoryTab({
         )
       ) : null}
 
-      {activityView === "notes" ? (
+      {activeGroup && activityView !== "emails" ? (
         notesQuery.isPending ? (
           <SectionLoading label="Ładowanie notatek…" />
         ) : notesQuery.error ? (
@@ -278,37 +382,45 @@ export function HistoryTab({
             onRetry={() => notesQuery.refetch()}
           />
         ) : (
-          <NotesList
-            notes={noteItems}
-            recruitments={recruitments}
-            onEdit={handleEditNote}
-            onDelete={handleDeleteNote}
-            onPin={handlePinNote}
-            onReply={handleReplyNote}
-            currentUserId={currentUserId}
-            canModerate={canModerate}
-            readOnly={readOnly}
-            focusedNoteId={focusedNoteId}
-          />
+          notesList(NOTE_GROUP_EMPTY_TEXT[activeGroup])
         )
       ) : null}
 
       {activityView === "emails" ? (
-        <EmailThreadList
-          candidateId={candidateId}
-          candidateName={`${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim()}
-          candidateEmail={candidate.email ?? null}
-        />
+        <div className="space-y-4">
+          <EmailThreadList
+            candidateId={candidateId}
+            candidateName={`${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim()}
+            candidateEmail={candidate.email ?? null}
+          />
+          {/* Maile zapisane jako notatki (import z Traffita) — obok skrzynki M365. */}
+          {notesQuery.error ? (
+            <SectionError
+              title="Nie udało się pobrać maili zapisanych w notatkach"
+              onRetry={() => notesQuery.refetch()}
+            />
+          ) : groupNotes.length > 0 ? (
+            <section aria-labelledby="history-email-notes-title" className="space-y-2">
+              <h3
+                id="history-email-notes-title"
+                className="text-xs font-semibold text-foreground"
+              >
+                Maile zapisane w notatkach
+              </h3>
+              {notesList(NOTE_GROUP_EMPTY_TEXT.email)}
+            </section>
+          ) : null}
+        </div>
       ) : null}
 
       {activityView === "calls" ? (
         callsQuery.error ? (
           <SectionError
-            title="Nie udało się pobrać rozmów"
+            title="Nie udało się pobrać połączeń"
             onRetry={() => callsQuery.refetch()}
           />
         ) : callsQuery.isPending ? (
-          <SectionLoading label="Ładowanie rozmów…" />
+          <SectionLoading label="Ładowanie połączeń…" />
         ) : (
           <CallsTimeline calls={callsQuery.data ?? []} />
         )
@@ -316,6 +428,23 @@ export function HistoryTab({
 
       {activityView === "chat" ? (
         <CandidateChatTab candidateId={candidateId} readOnly={readOnly} />
+      ) : null}
+
+      {openCard ? (
+        <RecommendationCardDialog
+          open
+          onOpenChange={(open) => {
+            if (open) return;
+            setOpenCard(null);
+            void queryClient.invalidateQueries({
+              queryKey: candidateQueryKeys.cardOverviewRoot(candidateId),
+            });
+          }}
+          candidateId={candidateId}
+          jobId={openCard.job_id}
+          candidateName={`${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim()}
+          readOnly={readOnly}
+        />
       ) : null}
     </div>
   );

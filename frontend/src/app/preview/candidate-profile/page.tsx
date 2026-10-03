@@ -28,6 +28,7 @@ import {
 } from "axios";
 
 import api, { type CandidateNotesFacts } from "@/lib/api";
+import type { CandidateCardOverview } from "@/lib/api/candidateCards";
 import type { CandidateScreeningAnswers } from "@/lib/api/screeningAnswers";
 import { ToastProvider } from "@/components/Toast";
 import { CandidateDetailV2 } from "@/components/v2/pages/CandidateDetailV2";
@@ -249,6 +250,55 @@ const NOTES = {
       job_title: "Backend Engineer",
       external_source: "system",
       is_system: true,
+      group: "automat",
+      replies: [],
+    },
+    // 03.10.2026: każdy rodzaj wpisu ma swoją zakładkę Historii.
+    {
+      id: 76,
+      created_at: daysAgo(8),
+      author_id: 1,
+      author_name: "Ola Nowak",
+      content: "Nie odebrał.",
+      kind: "contact_attempt",
+      group: "contact",
+      job_id: null,
+      replies: [],
+    },
+    {
+      id: 77,
+      created_at: daysAgo(9),
+      author_id: 1,
+      author_name: "Ola Nowak",
+      content: "nie odbiera, poszedł mail",
+      kind: "contact_attempt",
+      group: "contact",
+      job_id: null,
+      replies: [],
+    },
+    {
+      id: 78,
+      created_at: daysAgo(4),
+      author_id: 3,
+      author_name: "Piotr Zieliński",
+      content: "Dopisz do CV projekt płatności z 2024 r. i wróć do mnie.",
+      kind: "dl_review",
+      group: "delivery",
+      job_id: 501,
+      job_title: "Java Developer",
+      replies: [],
+    },
+    {
+      id: 79,
+      created_at: daysAgo(4),
+      author_id: 3,
+      author_name: "Piotr Zieliński",
+      content: "Notatka Delivery Leada o stawce do klienta — niewidoczna dla Twojej roli.",
+      content_hidden: true,
+      kind: "dl_rate",
+      group: "delivery",
+      job_id: 501,
+      job_title: "Java Developer",
       replies: [],
     },
     {
@@ -266,7 +316,9 @@ const NOTES = {
       replies: [],
     },
   ],
-  total: 5,
+  total: 9,
+  // Liczniki zakładek liczy serwer dla całej historii.
+  group_counts: { talks: 4, contact: 2, delivery: 2, email: 0, automat: 1 },
 };
 
 const DOCUMENTS = [
@@ -498,6 +550,88 @@ const RECOMMENDATIONS = {
 
 const CONTRACTS = { items: [] };
 
+// Karty rekomendacji osoby: ustalenia z datą i źródłem, odpowiedzi z notatki
+// (rekrutacja bez arkusza screeningu) i co z której notatki trafiło do karty.
+const CARD_OVERVIEW: CandidateCardOverview = {
+  candidate_id: CANDIDATE_ID,
+  facts: [
+    {
+      key: "rate",
+      label: "Stawka",
+      raw: "160–170 zł/h netto",
+      value: null,
+      level: null,
+      at: daysAgo(20),
+      source: "note",
+      author_name: "Kamil Wiśniewski",
+      job_id: 502,
+      job_title: "Backend Engineer",
+    },
+    {
+      key: "availability",
+      label: "Dostępność",
+      raw: "1 miesiąc wypowiedzenia",
+      value: null,
+      level: null,
+      at: daysAgo(20),
+      source: "note",
+      author_name: "Kamil Wiśniewski",
+      job_id: 502,
+      job_title: "Backend Engineer",
+    },
+    {
+      key: "work_mode",
+      label: "Tryb pracy",
+      raw: "hybrydowo, do 2 dni w biurze w Warszawie",
+      value: null,
+      level: null,
+      at: daysAgo(20),
+      source: "note",
+      author_name: "Kamil Wiśniewski",
+      job_id: 502,
+      job_title: "Backend Engineer",
+    },
+    {
+      key: "nationality",
+      label: "Narodowość",
+      raw: "polska",
+      value: null,
+      level: null,
+      at: daysAgo(5),
+      source: "manual",
+      author_name: "Ola Nowak",
+      job_id: 501,
+      job_title: "Java Developer",
+    },
+  ],
+  conversations: [
+    {
+      job_id: 503,
+      job_title: "Senior Java Developer",
+      client_name: "Telekom Demo",
+      answered_at: daysAgo(110),
+      author_name: null,
+      note_id: 74,
+      from_traffit: true,
+      question_count: 3,
+      answers: [
+        { number: 1, question: "Opisz ostatni projekt.", answer: "System bilingowy, Java 11 i Oracle." },
+        { number: 2, question: "", answer: "Mikroserwisy od 2022 r., Kafka do zdarzeń." },
+      ],
+    },
+  ],
+  note_links: [
+    {
+      note_id: 72,
+      job_id: 502,
+      job_title: "Backend Engineer",
+      fields: ["rate", "availability", "work_mode"],
+      field_labels: ["Stawka", "Dostępność", "Tryb pracy"],
+      answers: 0,
+    },
+  ],
+};
+
 /** Odpowiedzi lokalnego adaptera: [wzorzec ścieżki, dane]. */
 const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> = [
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}$`), () => CANDIDATE],
@@ -522,6 +656,7 @@ const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> =
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/calls$`), () => []],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/pin$`), () => ({ pinned: false })],
   [/order-documents/, () => ({ documents: [] })],
+  [new RegExp(`^/api/candidates/${CANDIDATE_ID}/recommendation-cards$`), () => CARD_OVERVIEW],
   [/^\/api\/notes/, () => NOTES],
   [/^\/api\/contracts$/, () => CONTRACTS],
   [/^\/api\/presence\//, () => ({ viewers: [] })],
@@ -676,6 +811,7 @@ function seededClient(): QueryClient {
   qc.setQueryData(candidateQueryKeys.contracts(CANDIDATE_ID), CONTRACTS);
   qc.setQueryData(candidateQueryKeys.activitySummary(CANDIDATE_ID, scope), ACTIVITY_SUMMARY);
   qc.setQueryData(candidateQueryKeys.screeningAnswers(CANDIDATE_ID, scope), SCREENING_ANSWERS);
+  qc.setQueryData(candidateQueryKeys.cardOverview(CANDIDATE_ID, scope), CARD_OVERVIEW);
   qc.setQueryData(candidateQueryKeys.languages(CANDIDATE_ID), {
     data: LANGUAGES,
     etag: '"preview-v1"',

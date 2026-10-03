@@ -44,6 +44,12 @@ vi.mock("@/lib/api/candidateFollowups", () => ({
   useCandidateFollowup: () => ({ data: undefined }),
 }));
 
+// Ustalenia z kart rekomendacji (03.10.2026) — domyślnie brak kart.
+const cardOverview = vi.hoisted(() => ({ data: undefined as unknown }));
+vi.mock("@/lib/api/candidateCards", () => ({
+  useCandidateCardOverview: () => ({ data: cardOverview.data }),
+}));
+
 vi.mock("@/lib/api", () => ({
   candidateFactsApi: {
     getLanguages: vi.fn(),
@@ -125,7 +131,51 @@ describe("CandidateProfileFactsBar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     auth.role = "recruiter";
+    cardOverview.data = undefined;
     prepareApi();
+  });
+
+  it("pod wartością z profilu pokazuje, co i kiedy ustalono w rozmowie, oraz narodowość z karty", async () => {
+    const fact = (key: string, label: string, raw: string, extra: object = {}) => ({
+      key,
+      label,
+      raw,
+      value: null,
+      level: null,
+      at: "2026-09-28T09:00:00+00:00",
+      source: "note",
+      author_name: "Marta Testowa",
+      job_id: 10,
+      job_title: "Senior Java Developer",
+      ...extra,
+    });
+    cardOverview.data = {
+      candidate_id: 7,
+      conversations: [],
+      note_links: [],
+      facts: [
+        // Profil ma 160 zł/h, w rozmowie padło 135 — linia mówi o różnicy.
+        fact("rate", "Stawka", "135 zł/h", { value: 135 }),
+        fact("availability", "Dostępność", "1 miesiąc"),
+        fact("nationality", "Narodowość", "polska", { source: "manual" }),
+      ],
+    };
+    renderBar();
+
+    expect(await screen.findByText("160 PLN netto/h")).toBeInTheDocument();
+    expect(screen.getByText("rozmowa 28.09.2026: 135 zł/h")).toBeInTheDocument();
+    expect(screen.getByText("rozmowa 28.09.2026: 1 miesiąc")).toBeInTheDocument();
+    expect(screen.getByText("Narodowość")).toBeInTheDocument();
+    expect(screen.getByText("polska")).toBeInTheDocument();
+    expect(screen.getByText("wpisane na karcie 28.09.2026")).toBeInTheDocument();
+  });
+
+  it("bez kart rekomendacji pasek nie ma linii źródła ani narodowości", async () => {
+    renderBar();
+
+    await screen.findByText("Angielski · C1");
+    expect(document.querySelector("[data-fact-origin]")).toBeNull();
+    expect(screen.queryByText("Narodowość")).toBeNull();
   });
 
   it("shows typed facts and fixed B2B PLN net/hour semantics", async () => {

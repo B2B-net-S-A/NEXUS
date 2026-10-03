@@ -66,6 +66,8 @@ def test_only_listed_modules_read_recommendation_cards():
     allowed = {
         "app/api/recommendation_cards.py",
         "app/api/notes.py",
+        # Profil kandydata: ustalenia i odpowiedzi z kart (czysty odczyt dla ludzi).
+        "app/api/candidate_profile_facts.py",
         # Tablica i „Przesuń dalej” czytają tylko stan karty (ile pól brakuje).
         "app/api/pipeline.py",
         "app/main.py",
@@ -595,3 +597,98 @@ async def test_board_card_carries_the_card_state_and_contact_attempts(
         "answers": 1,
     }
     assert cards_on_board[0]["contact_attempts"] == 1
+
+
+@pytest.mark.asyncio
+async def test_profile_overview_shows_facts_answers_and_what_each_note_gave(
+    app_client: AsyncClient,
+):
+    candidate_id, job_id = await _seed_pair()
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.champion_profile = {
+            "screening_questions": [
+                {"id": "q1", "question": "Doświadczenie z Javą 17+?"},
+                {"id": "q2", "question": "Chmura w projektach komercyjnych?"},
+            ]
+        }
+        await db.commit()
+    note_id = await _add_note(candidate_id, job_id)
+    await _drain()
+    user_id, email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(app_client, email, password)
+    saved = await app_client.put(
+        "/api/recommendation-cards",
+        headers=headers,
+        json={
+            "candidate_id": candidate_id,
+            "job_id": job_id,
+            "fields": {"english": "C1"},
+        },
+    )
+    assert saved.status_code == 200, saved.text
+
+    resp = await app_client.get(
+        f"/api/candidates/{candidate_id}/recommendation-cards", headers=headers
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    facts = {fact["key"]: fact for fact in body["facts"]}
+    assert set(facts) == {"rate", "availability", "work_mode", "nationality", "english"}
+    assert facts["rate"]["value"] == 135.0 and facts["rate"]["source"] == "note"
+    assert facts["rate"]["label"] == "Stawka" and facts["rate"]["job_id"] == job_id
+    assert facts["rate"]["at"]
+    assert facts["english"]["source"] == "manual"
+    assert facts["english"]["author_name"].startswith("Card recruiter")
+    assert facts["nationality"]["raw"] == "polska"
+
+    assert len(body["conversations"]) == 1
+    conversation = body["conversations"][0]
+    assert conversation["job_id"] == job_id and conversation["note_id"] == note_id
+    assert conversation["from_traffit"] is False
+    assert conversation["question_count"] == 2
+    assert conversation["answers"] == [
+        {
+            "number": 1,
+            "question": "Opisz doświadczenie z Javą.",
+            "answer": "Java 21 w banku.",
+        }
+    ]
+
+    assert len(body["note_links"]) == 1
+    link = body["note_links"][0]
+    assert link["note_id"] == note_id and link["job_id"] == job_id
+    assert {"Stawka", "Dostępność", "Narodowość"} <= set(link["field_labels"])
+    assert link["answers"] == 1
+
+
+@pytest.mark.asyncio
+async def test_profile_overview_is_empty_without_cards_and_closed_to_the_viewer_role(
+    app_client: AsyncClient,
+):
+    candidate_id, _ = await _seed_pair()
+    _, email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(app_client, email, password)
+
+    resp = await app_client.get(
+        f"/api/candidates/{candidate_id}/recommendation-cards", headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {
+        "candidate_id": candidate_id,
+        "facts": [],
+        "conversations": [],
+        "note_links": [],
+    }
+    missing = await app_client.get(
+        "/api/candidates/2000000000/recommendation-cards", headers=headers
+    )
+    assert missing.status_code == 404
+
+    _, v_email, v_password = await _seed_user(UserRole.user)
+    viewer = await _login(app_client, v_email, v_password)
+    refused = await app_client.get(
+        f"/api/candidates/{candidate_id}/recommendation-cards", headers=viewer
+    )
+    assert refused.status_code == 403
