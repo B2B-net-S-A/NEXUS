@@ -21,6 +21,23 @@ describe("kolumny tabeli kandydatów", () => {
     ]);
   });
 
+  it("szeroki ekran pokazuje domyślnie także „Ostatnią rozmowę”; laptop i „Szukaj ręcznie” — nie", () => {
+    const wide = visibleCandidateColumns(null, { wide: true }).map((c) => c.id);
+    expect(wide).toContain("last_contact");
+    // Laptop: domyślna tabela mieści się na styk, kolumna zostaje do włączenia.
+    expect(ids(null)).not.toContain("last_contact");
+    expect(
+      visibleCandidateColumns(null, { forJob: true, wide: true }).map((c) => c.id),
+    ).not.toContain("last_contact");
+    // Zapisany wybór osoby wygrywa z domyślnym układem szerokiego ekranu.
+    expect(
+      visibleCandidateColumns(["last_contact"], { wide: true }).map((c) => c.id),
+    ).not.toContain("last_contact");
+    // Przełączenie innej kolumny na szerokim ekranie nie chowa „Ostatniej rozmowy”.
+    const afterToggle = toggleCandidateColumn(null, "email", { wide: true });
+    expect(afterToggle).not.toContain("last_contact");
+  });
+
   it("kolumn wymaganych nie da się ukryć, nieznane id są ignorowane", () => {
     expect(ids(["candidate", "assign", "nieznana"])).toContain("candidate");
     expect(ids(["candidate", "assign"])).toContain("assign");

@@ -370,3 +370,136 @@ async def test_changed_after_sees_a_new_note(app_client, app_auth_headers):
         await db.commit()
     body = await _list(app_client, app_auth_headers, changed_after=mark.isoformat())
     assert _keys(body) == {"nowhere"}
+
+
+# ── Ostatnia rozmowa i „prawdziwy kontakt” (03.10.2026) ─────────────────────
+
+
+async def _seed_talks() -> tuple[str, dict[str, int]]:
+    """Trzy osoby: po rozmowie, tylko z „nie odbiera”, tylko z wpisem automatu."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate, CandidateStatus
+    from app.models.note import SYSTEM_NOTE_SOURCE, Note
+    from app.models.user import User, UserRole
+
+    nonce = f"Rozmowy{uuid.uuid4().hex[:10]}"
+    async with AsyncSessionLocal() as db:
+        author = User(
+            email=f"talks-{uuid.uuid4().hex[:8]}@example.com",
+            name="Ola Rozmowna",
+            role=UserRole.recruiter,
+            roles=[UserRole.recruiter.value],
+            is_active=True,
+        )
+        people = {
+            key: Candidate(
+                name=key.capitalize(),
+                lastname=f"Rozmowny{key}",
+                email=f"{key}-{uuid.uuid4().hex[:10]}@example.com",
+                status=CandidateStatus.active,
+                linkedin_current_company=nonce,
+            )
+            for key in ("talked", "silent", "automat")
+        }
+        db.add_all([author, *people.values()])
+        await db.flush()
+        db.add_all(
+            [
+                Note(
+                    candidate_id=people["talked"].id,
+                    author_id=author.id,
+                    content="Szuka projektu z Javą 21, nie chce samego utrzymania.",
+                ),
+                Note(candidate_id=people["talked"].id, content="nie odbiera"),
+                Note(candidate_id=people["silent"].id, content="nie odbiera"),
+                Note(
+                    candidate_id=people["automat"].id,
+                    content="Auto-match 71/100",
+                    external_source=SYSTEM_NOTE_SOURCE,
+                ),
+            ]
+        )
+        await db.commit()
+        return nonce, {key: row.id for key, row in people.items()}
+
+
+async def _talk_list(client, headers, nonce: str, **params: Any) -> dict[int, dict]:
+    resp = await client.get(
+        "/api/candidates",
+        params={"q": nonce, "text_mode": "literal", "page_size": 100, **params},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    return {item["id"]: item for item in resp.json()["items"]}
+
+
+@pytest.mark.asyncio
+async def test_last_talk_column_ignores_contact_attempts_and_automat(
+    app_client, app_auth_headers
+):
+    nonce, ids = await _seed_talks()
+
+    rows = await _talk_list(
+        app_client, app_auth_headers, nonce, include_last_talk="true"
+    )
+
+    talked = rows[ids["talked"]]
+    assert talked["last_talk_at"]
+    assert talked["last_talk_by"] == "Ola Rozmowna"
+    assert talked["last_talk_preview"].startswith("Szuka projektu z Javą 21")
+    assert talked["contact_attempts"] == 1
+    # „Nie odbiera” i wpis automatu nie są rozmową.
+    for key, attempts in (("silent", 1), ("automat", 0)):
+        row = rows[ids[key]]
+        assert row["last_talk_at"] is None and row["last_talk_by"] is None
+        assert row["contact_attempts"] == attempts
+
+    # Bez flagi pola zostają puste (lista ich nie liczy).
+    plain = await _talk_list(app_client, app_auth_headers, nonce)
+    assert plain[ids["talked"]]["last_talk_at"] is None
+    assert plain[ids["talked"]]["contact_attempts"] is None
+
+
+@pytest.mark.asyncio
+async def test_contact_filter_v2_counts_only_real_contact_and_v1_is_unchanged(
+    app_client, app_auth_headers
+):
+    nonce, ids = await _seed_talks()
+
+    yes_v2 = await _talk_list(
+        app_client, app_auth_headers, nonce, contacted="yes", semantics_version=2
+    )
+    no_v2 = await _talk_list(
+        app_client, app_auth_headers, nonce, contacted="no", semantics_version=2
+    )
+    assert set(yes_v2) == {ids["talked"]}
+    assert set(no_v2) == {ids["silent"], ids["automat"]}
+
+    # v1 — na niej stoją alerty zapisanych wyszukiwań — liczy każdą notatkę.
+    yes_v1 = await _talk_list(app_client, app_auth_headers, nonce, contacted="yes")
+    assert set(yes_v1) == set(ids.values())
+
+
+@pytest.mark.asyncio
+async def test_quick_view_shows_the_last_talk_not_the_contact_attempt(
+    app_client, app_auth_headers
+):
+    _, ids = await _seed_talks()
+
+    talked = (
+        await app_client.get(
+            f"/api/candidates/{ids['talked']}/quick-view", headers=app_auth_headers
+        )
+    ).json()
+    assert [note["content"][:14] for note in talked["recent_notes"]] == [
+        "Szuka projektu"
+    ]
+    assert talked["contact_attempts"] == 1
+
+    silent = (
+        await app_client.get(
+            f"/api/candidates/{ids['silent']}/quick-view", headers=app_auth_headers
+        )
+    ).json()
+    assert silent["recent_notes"] == []
+    assert silent["contact_attempts"] == 1

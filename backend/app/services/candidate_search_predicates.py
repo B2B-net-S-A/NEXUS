@@ -1806,6 +1806,7 @@ def contact_clause(
     date_from: Optional[Any],
     date_to: Optional[Any],
     by_user_ids: Optional[Sequence[int]],
+    real_contact_only: bool = False,
 ) -> Optional[ColumnElement]:
     """„Kontaktowaliśmy się” (``mode='yes'``) albo „nie kontaktowaliśmy się”
     (``'no'``) w okresie ``[date_from, date_to]`` (daty włącznie, w strefie
@@ -1816,11 +1817,17 @@ def contact_clause(
     (``TraffitImporter.promote_notes``), więc osobna gałąź aktywności byłaby
     duplikatem — i kosztowała 3 s na skanie indeksu aktywności (zmierzone
     22.09.2026). ``NOT EXISTS`` na źródło, nie ``NOT IN`` na sumie zbiorów.
+
+    ``real_contact_only`` (nowa semantyka, 03.10.2026): „nie odbiera”, wpis
+    automatu, uwaga Delivery Leada i sama wzmianka nie są kontaktem
+    (``note_kinds.real_contact_clause``). v1 — na niej stoją alerty zapisanych
+    wyszukiwań — liczy każdą notatkę jak dotąd.
     """
     if mode not in ("yes", "no"):
         return None
     from app.models.call import Call
     from app.models.note import Note
+    from app.services import note_kinds
 
     start, end = business_date_range(date_from, date_to)
     users = list(dict.fromkeys(by_user_ids or []))
@@ -1839,7 +1846,9 @@ def contact_clause(
     note_exists = (
         select(Note.id)
         .where(
-            Note.candidate_id == Candidate.id, *window(Note.created_at, Note.author_id)
+            Note.candidate_id == Candidate.id,
+            *window(Note.created_at, Note.author_id),
+            *([note_kinds.real_contact_clause()] if real_contact_only else []),
         )
         .correlate(Candidate)
         .exists()

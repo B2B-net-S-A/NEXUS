@@ -528,6 +528,41 @@ describe("CandidatesListV2", () => {
       });
     });
 
+    it("kolumna „Ostatnia rozmowa”: data i autor rozmowy, a bez niej liczba prób kontaktu", async () => {
+      const { useUiStore } = await import("@/store/ui");
+      // Zapisany wybór osoby: wszystkie dodatkowe kolumny schowane poza rozmową.
+      useUiStore
+        .getState()
+        .setColumnPreference("candidates-table-v2", ["email", "location", "experience", "added"]);
+      listItems = [
+        {
+          id: 1,
+          name: "Marta",
+          lastname: "Kowalczyk",
+          last_talk_at: "2026-09-30T10:00:00Z",
+          last_talk_by: "Ola Testowa",
+          last_talk_preview: "Szuka projektu z Javą 21.",
+          contact_attempts: 2,
+        },
+        { id: 2, name: "Tomasz", lastname: "Nowicki", last_talk_at: null, contact_attempts: 3 },
+      ];
+      listTotal = 2;
+      try {
+        renderList();
+        const talked = await screen.findByTestId("candidate-row-1");
+        expect(within(talked).getByText("30.09.2026")).toBeTruthy();
+        expect(within(talked).getByText("Ola Testowa")).toBeTruthy();
+        expect(within(talked).getByTitle("Szuka projektu z Javą 21.")).toBeTruthy();
+        const silent = screen.getByTestId("candidate-row-2");
+        expect(within(silent).getByText("bez rozmowy")).toBeTruthy();
+        expect(within(silent).getByText("3 próby kontaktu")).toBeTruthy();
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ include_last_talk: true });
+      } finally {
+        useUiStore.getState().clearColumnPreference("candidates-table-v2");
+      }
+    });
+
     it("wybrane kolumny z preferencji osoby", async () => {
       const { useUiStore } = await import("@/store/ui");
       useUiStore.getState().setColumnPreference("candidates-table-v2", ["phone", "cv"]);
@@ -545,7 +580,7 @@ describe("CandidatesListV2", () => {
           "Dostępność",
           "Staż",
           "W procesie",
-          "Ostatni kontakt",
+          "Ostatnia rozmowa",
           "Dodano",
           "Przypisz",
         ]);

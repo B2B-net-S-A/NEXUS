@@ -31,6 +31,12 @@ export interface CandidateColumn {
   /** Ukryta, dopóki ktoś jej nie włączy. */
   hiddenByDefault?: boolean;
   /**
+   * Na szerokim ekranie widoczna od razu mimo `hiddenByDefault`. Na laptopie
+   * (1280 px z przypiętym menu) tabela domyślna mieści się na styk — dodatkowa
+   * kolumna wypychałaby „Przypisz” poza ekran.
+   */
+  wideDefault?: boolean;
+  /**
    * Tylko w „Szukaj ręcznie” z rekrutacji (lista w trybie osadzonym) —
    * dopasowanie liczy się względem TEJ rekrutacji, na liście nie ma do czego.
    */
@@ -52,7 +58,9 @@ export const CANDIDATE_COLUMNS: readonly CandidateColumn[] = [
   { id: "availability", label: "Dostępność", width: "minmax(88px, 0.8fr)", minWidth: 88 },
   { id: "experience", label: "Staż", width: "minmax(64px, 0.5fr)", minWidth: 64, hiddenByDefault: true },
   { id: "process", label: "W procesie", width: "minmax(112px, 1fr)", minWidth: 112 },
-  { id: "last_contact", label: "Ostatni kontakt", width: "minmax(96px, 0.7fr)", minWidth: 96, hiddenByDefault: true },
+  // „Ostatnia rozmowa” (03.10.2026): data i autor najnowszej notatki z rozmowy,
+  // a bez niej liczba prób kontaktu. Id zostaje — niosą je zapisane wybory kolumn.
+  { id: "last_contact", label: "Ostatnia rozmowa", width: "minmax(118px, 0.9fr)", minWidth: 118, hiddenByDefault: true, wideDefault: true },
   { id: "added", label: "Dodano", width: "minmax(88px, 0.6fr)", minWidth: 88, hiddenByDefault: true },
   { id: "cv", label: "CV", width: "minmax(52px, 0.4fr)", minWidth: 52 },
   { id: "fit", label: "Dop.", width: "72px", minWidth: 72, jobOnly: true },
@@ -78,13 +86,29 @@ export const DEFAULT_HIDDEN_JOB_COLUMNS: readonly CandidateColumnId[] = [
   "phone",
 ];
 
-function defaultHidden(options: { forJob?: boolean }): readonly string[] {
-  return options.forJob ? DEFAULT_HIDDEN_JOB_COLUMNS : DEFAULT_HIDDEN_COLUMNS;
+/** Od tej szerokości okna lista pokazuje domyślnie także kolumny `wideDefault`. */
+export const CANDIDATE_WIDE_DEFAULT_QUERY = "(min-width: 1536px)";
+
+const WIDE_DEFAULT = new Set<string>(
+  CANDIDATE_COLUMNS.filter((c) => c.wideDefault).map((c) => c.id),
+);
+
+export interface CandidateColumnOptions {
+  forJob?: boolean;
+  /** Szeroki ekran (`CANDIDATE_WIDE_DEFAULT_QUERY`) — tylko lista, nie „Szukaj ręcznie”. */
+  wide?: boolean;
+}
+
+function defaultHidden(options: CandidateColumnOptions): readonly string[] {
+  if (options.forJob) return DEFAULT_HIDDEN_JOB_COLUMNS;
+  return options.wide
+    ? DEFAULT_HIDDEN_COLUMNS.filter((id) => !WIDE_DEFAULT.has(id))
+    : DEFAULT_HIDDEN_COLUMNS;
 }
 
 export function visibleCandidateColumns(
   hidden: readonly string[] | null | undefined,
-  options: { forJob?: boolean } = {},
+  options: CandidateColumnOptions = {},
 ): CandidateColumn[] {
   const hide = new Set((hidden ?? defaultHidden(options)).filter((id) => KNOWN.has(id)));
   return selectableCandidateColumns(options).filter((c) => c.required || !hide.has(c.id));
@@ -101,7 +125,7 @@ export function selectableCandidateColumns(
 export function toggleCandidateColumn(
   hidden: readonly string[] | null | undefined,
   id: CandidateColumnId,
-  options: { forJob?: boolean } = {},
+  options: CandidateColumnOptions = {},
 ): string[] {
   const current = new Set(hidden ?? defaultHidden(options));
   if (current.has(id)) current.delete(id);

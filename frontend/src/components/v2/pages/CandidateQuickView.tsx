@@ -59,6 +59,7 @@ import {
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { useCloudTalkEnabled } from "@/hooks/useCloudTalkEnabled";
 import { canMutateSection } from "@/lib/section-access";
+import { contactAttemptsLabel } from "@/lib/recommendation-card";
 import { rateCellText } from "@/components/v2/candidates/candidate-row-format";
 
 type QuickViewDestination =
@@ -117,6 +118,8 @@ interface CandidateQuickViewData {
     /** 0399: przypięta (wspólnie dla zespołu) — serwer stawia ją pierwszą. */
     pinned?: boolean;
   }>;
+  /** Ile razy zapisano „nie odebrał” (03.10.2026). */
+  contact_attempts?: number;
   cv_highlights?: {
     years_experience?: number | null;
   } | null;
@@ -423,7 +426,7 @@ export function CandidateQuickView({
     >
       <SheetTitle className="sr-only">{fullName}</SheetTitle>
       <SheetDescription className="sr-only">
-        Szybki podgląd: dostępność, stawka, kontakt, procesy i ostatnia notatka.
+        Szybki podgląd: dostępność, stawka, kontakt, procesy i ostatnia rozmowa.
       </SheetDescription>
 
       <header className="sticky top-0 z-20 border-b border-border bg-card/95 px-3 py-2 backdrop-blur-sm sm:px-5">
@@ -671,7 +674,7 @@ export function CandidateQuickView({
 
             <section aria-labelledby="quick-note-heading" className="space-y-2">
               <h3 id="quick-note-heading" className="text-sm font-semibold text-foreground">
-                {pinnedNotes.length > 0 ? "Notatki" : "Ostatnia notatka"}
+                {pinnedNotes.length > 0 ? "Notatki" : "Ostatnia rozmowa"}
               </h3>
               {pinnedNotes.map((note) => (
                 <figure
@@ -706,7 +709,13 @@ export function CandidateQuickView({
                   </div>
                 </figure>
               ) : pinnedNotes.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Brak notatek.</p>
+                <p className="text-sm text-muted-foreground">Bez rozmowy.</p>
+              ) : null}
+              {(quickView?.contact_attempts ?? 0) > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {contactAttemptsLabel(quickView?.contact_attempts ?? 0)} („nie odebrał”) — w
+                  profilu w zakładce „Próby kontaktu”.
+                </p>
               ) : null}
             </section>
 

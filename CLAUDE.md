@@ -2531,6 +2531,22 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   lista), a pod nią linię z rozmowy (`lib/candidate-card-facts.ts`): ta sama
   stawka = samo „rozmowa DD.MM.RRRR”, inna = data i wartość z rozmowy.
   Karta nadal nie pisze do profilu.
+- **Lista kandydatów i podgląd (03.10.2026):** kolumna `last_contact` nazywa
+  się „Ostatnia rozmowa” — data i autor najnowszej notatki z zakładki
+  „Rozmowy” (`note_kinds.talks_clause`), a bez niej „bez rozmowy” i liczba
+  prób kontaktu (`GET /api/candidates?include_last_talk=true` → `last_talk_at`,
+  `last_talk_by`, `last_talk_preview`, `contact_attempts`; dwa zapytania na
+  stronę, lista wysyła flagę zawsze). Domyślnie widoczna tylko od 1536 px
+  szerokości okna (`wideDefault`, `CANDIDATE_WIDE_DEFAULT_QUERY`): przy
+  1280 px z przypiętym menu domyślna tabela mieści się na styk, więc na
+  laptopie kolumnę włącza się w „Kolumny”. Szybki podgląd pokazuje ostatnią
+  ROZMOWĘ (przypięta notatka zostaje bez względu na rodzaj) i liczbę prób
+  kontaktu. Filtr „Kontakt z kandydatem” w nowej semantyce liczy tylko
+  prawdziwy kontakt (`real_contact_clause`: bez „nie odbiera”, automatu, uwag
+  DL i samych wzmianek; mail i ustalony termin się liczą) — v1 dla alertów
+  zapisanych wyszukiwań bez zmian. `include_last_talk` jest parametrem
+  technicznym w czterech lustrach (`saved_search_alerts.py`,
+  `saved_search_payload.py`, `saved-search-unified.ts`, `url-filters.ts`).
 - **API `GET/PUT /api/recommendation-cards?candidate_id&job_id`:** sekcja
   Pipeline, odczyt jak rekrutacja, zapis jak notatka kandydata + blokada 12 h.
   `PUT` przyjmuje tekst pola (`null` zdejmuje pole ręczne) i normalizuje go tą

@@ -98,6 +98,11 @@ SEARCH_EXCLUDED_KINDS: frozenset[str] = frozenset(
     {AUTOMATCH, APPLICATION_FORM, DL_RATE}
 )
 
+# Tych notatek filtr „Kontakt z kandydatem” nie liczy jako kontaktu.
+CONTACT_EXCLUDED_KINDS: frozenset[str] = frozenset(
+    {AUTOMATCH, APPLICATION_FORM, CONTACT_ATTEMPT, DL_RATE, DL_REVIEW, MENTION}
+)
+
 # Notatki, które nocny odczyt faktów bierze w pierwszej kolejności.
 AI_PRIORITY_KINDS: tuple[str, ...] = (CARD, SCREENING_FACTS)
 
@@ -382,6 +387,25 @@ def searchable_clause():
 def not_automat_clause():
     """Zapytania ORM po ``Note``: bez wpisów automatów (podgląd, „ostatnia notatka”)."""
     return _orm_filter(AUTOMAT_KINDS)
+
+
+def talks_clause():
+    """Zapytania ORM po ``Note``: notatki z zakładki „Rozmowy” (``GROUP_TALKS``).
+
+    „Ostatnia rozmowa” na liście kandydatów i w szybkim podglądzie — bez prób
+    kontaktu, wpisów Delivery Leada, maili i automatu.
+    """
+    return _orm_filter(frozenset(_GROUP_BY_KIND))
+
+
+def real_contact_clause():
+    """Zapytania ORM po ``Note``: notatka, która znaczy „rozmawialiśmy”.
+
+    Filtr „Kontakt z kandydatem” (nowa semantyka): próba kontaktu, wpis
+    automatu, uwaga Delivery Leada i sama wzmianka nie są kontaktem. Mail
+    i ustalenie terminu są.
+    """
+    return _orm_filter(CONTACT_EXCLUDED_KINDS)
 
 
 def hides_client_rate(kind: Optional[str]) -> bool:
