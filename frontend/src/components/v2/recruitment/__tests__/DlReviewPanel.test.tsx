@@ -84,6 +84,25 @@ function task(over: Partial<BoardTaskRow> = {}): BoardTaskRow {
   };
 }
 
+const CARD = {
+  candidate_id: 21,
+  job_id: 31,
+  exists: true,
+  fields: {
+    rate: { raw: "140 zł/h B2B", source: "note", note_id: 3, at: since },
+    availability: { raw: "od zaraz", source: "manual", by_name: "Marta Rekruterka", at: since },
+  },
+  previous: {},
+  suggestions: {},
+  questions: [
+    { number: 1, question: "Doświadczenie z Kafką?", answer: "3 lata, produkcyjnie", source: "note" },
+  ],
+  completeness: { status: "partial", filled: 2, total: 10, missing: ["work_mode"] },
+  labels: {},
+  editable_fields: ["rate", "availability"],
+  legacy_text: "",
+};
+
 function mockApi({
   cvs = [{ id: 77, status: "ready", filename: "cv.docx", origin: "auto", needs_review: true }],
 }: { cvs?: Array<Record<string, unknown>> } = {}) {
@@ -98,6 +117,7 @@ function mockApi({
       });
     }
     if (url === "/api/cv-generator/generated") return Promise.resolve({ data: cvs });
+    if (url === "/api/recommendation-cards") return Promise.resolve({ data: CARD });
     if (url === "/api/cv-generator/generated/77/docx") return Promise.resolve({ data: new Blob(["docx"]) });
     return Promise.reject(new Error(`unexpected ${url}`));
   });
@@ -133,6 +153,11 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     expect(await screen.findByText("Otwarty na oferty · wypowiedzenie 1 mies.")).toBeTruthy();
     expect(screen.getByText("Kraków")).toBeTruthy();
     expect(screen.getByTestId("saved-screening")).toHaveTextContent("arkusz z wiersza 9");
+    // Karta rekomendacji z odpowiedziami na pytania Championa — także z notatki.
+    const cardSection = screen.getByRole("region", { name: "Karta rekomendacji" });
+    expect(await within(cardSection).findByText("140 zł/h B2B")).toBeTruthy();
+    expect(within(cardSection).getByText("3 lata, produkcyjnie")).toBeTruthy();
+    expect(within(cardSection).getByText("odpowiedź z notatki")).toBeTruthy();
     await waitFor(() => expect(renderDocxSafely).toHaveBeenCalledTimes(1));
     expect(get).toHaveBeenCalledWith("/api/cv-generator/generated", {
       params: { candidate_id: 21, job_id: 31, limit: 10 },
@@ -175,7 +200,7 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     expect(within(select).queryByRole("option", { name: "Kandydat zrezygnował" })).toBeNull();
     expect(confirm).toBeDisabled();
     await userEvent.selectOptions(select, "5");
-    await userEvent.type(within(group).getByRole("textbox"), "Za drogo dla klienta");
+    await userEvent.type(screen.getByLabelText(/Uwagi dla rekrutera/), "Za drogo dla klienta");
     await userEvent.click(confirm);
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith("/api/pipeline/move", {
@@ -186,10 +211,54 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
         ended_by: "delivery_lead",
         rejection_reason_id: 5,
         rejection_reason: undefined,
-        notes: "Za drogo dla klienta",
+        recruiter_remark: "Za drogo dla klienta",
       }),
     );
     expect(showSuccess).toHaveBeenCalledWith("Anna Nowak — odrzucony przez DL.");
+  });
+
+  it("„Wróć do poprawy” wymaga uwagi i cofa kartę na „Zweryfikowany” bez stawki", async () => {
+    mockApi();
+    renderPanel(task({ return_stage_def_id: 302 }));
+    const back = screen.getByRole("button", { name: /Wróć do poprawy/ });
+    expect(back).toBeDisabled();
+    await userEvent.type(screen.getByLabelText(/Uwagi dla rekrutera/), "  Dopisz Spring Boot  ");
+    expect(back).toBeEnabled();
+    await userEvent.click(back);
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/pipeline/move", {
+        candidate_id: 21,
+        job_id: 31,
+        expected_state_version: 4,
+        stage_def_id: 302,
+        recruiter_remark: "Dopisz Spring Boot",
+      }),
+    );
+    expect(showSuccess).toHaveBeenCalledWith("Anna Nowak — wraca do rekrutera do poprawy.");
+  });
+
+  it("bez etapu powrotu w wierszu nie ma „Wróć do poprawy”", async () => {
+    mockApi();
+    renderPanel();
+    expect(screen.queryByRole("button", { name: /Wróć do poprawy/ })).toBeNull();
+  });
+
+  it("uwaga dla rekrutera jedzie także z wysyłką — obok stawki, nie w niej", async () => {
+    mockApi();
+    renderPanel();
+    await userEvent.type(screen.getByLabelText("Stawka do klienta"), "175");
+    await userEvent.type(screen.getByLabelText(/Uwagi dla rekrutera/), "Klient odpowie do piątku");
+    await userEvent.click(screen.getByRole("button", { name: /Wyślij do klienta/ }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/pipeline/move",
+        expect.objectContaining({
+          stage_def_id: 305,
+          client_rate_value: 175,
+          recruiter_remark: "Klient odpowie do piątku",
+        }),
+      ),
+    );
   });
 
   it("konflikt wersji → komunikat i zamknięcie, bez ponowienia", async () => {

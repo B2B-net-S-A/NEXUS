@@ -57,6 +57,12 @@ export interface BoardTaskRow {
   qc_blocking_failed?: number | null;
   /** Przegląd DL: etap z CV firmowym pary (po QC) — z niego podgląd i DOCX. */
   cv_stage_id?: number | null;
+  /** Etap powrotu do poprawy: przegląd DL — „Zweryfikowany” („Wróć do
+   *  poprawy”), kolejka Cpro — „QC CV”. */
+  return_stage_def_id?: number | null;
+  /** Przegląd DL: stan karty rekomendacji; `null` = para nie ma karty. */
+  card_status?: "complete" | "partial" | "empty" | null;
+  card_missing?: number | null;
 }
 
 /** 0370: prep przed rozmową u klienta, który wymaga uwagi. Widzi go
@@ -193,6 +199,8 @@ export interface CvTransitRow {
   /** U kogo karta czeka (w przeglądzie). */
   holder_name?: string | null;
   reason?: string | null;
+  /** Uwaga dla rekrutera zostawiona przy decyzji (początek; całość w notatkach). */
+  remark?: string | null;
 }
 
 export interface CvInTransit {

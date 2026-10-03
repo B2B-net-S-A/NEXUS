@@ -50,7 +50,7 @@ from app.models.user import User, UserRole
 from app.models.notification import NotificationType
 from app.services.notification_access import filter_notification_recipients
 from app.services.stage_handoff_recipients import (
-    REASON_CPRO_RETURNED,
+    BACKWARD_REASONS,
     TASK_REASONS,
     handoff_recipients,
     pair_recruiter_id,
@@ -302,8 +302,8 @@ async def resolve_recipients(
     prev_def: Optional[PipelineStageDef] = None
     if previous_stage is not None and previous_stage.stage_def_id is not None:
         prev_def = stage_defs_by_id.get(previous_stage.stage_def_id)
-    # Ruch wstecz nie uruchamia reguł etapów; z przekazań zostaje tylko zwrot
-    # z kolejki Cpro (rozstrzygany niżej).
+    # Ruch wstecz nie uruchamia reguł etapów; z przekazań zostają tylko zwroty
+    # do poprawy — z kolejki Cpro i z „QC CV” (rozstrzygane niżej).
     backward = prev_def is not None and prev_def.order >= new_stage_def.order
 
     # Override priority — jeśli klient ma override dla tego stage'a, baseline
@@ -347,7 +347,7 @@ async def resolve_recipients(
         previous_stage=previous_stage,
         previous_def=prev_def,
     )
-    if backward and reason != REASON_CPRO_RETURNED:
+    if backward and reason not in BACKWARD_REASONS:
         logger.debug(
             "stage_notif: backward move (prev order=%s, new order=%s) — no notify",
             prev_def.order,

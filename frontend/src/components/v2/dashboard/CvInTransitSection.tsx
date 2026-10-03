@@ -33,6 +33,7 @@ import {
   transitAgo,
   transitIsEmpty,
   transitJobLabel,
+  transitRemark,
   transitReturnedDetail,
   transitRowWho,
   transitSummary,
@@ -82,6 +83,7 @@ function RemoveMenu() {
 
 function ReturnedRow({ row }: { row: CvTransitRow }) {
   const detail = transitReturnedDetail(row);
+  const remark = transitRemark(row);
   const rejected = row.kind === "rejected_by_dl";
   return (
     <li className="flex flex-col gap-1 px-3 py-2">
@@ -102,12 +104,14 @@ function ReturnedRow({ row }: { row: CvTransitRow }) {
         </span>
         {detail ? <span className="min-w-0 break-words text-xs">{detail}</span> : null}
       </div>
+      {remark ? <p className="break-words text-xs">{remark}</p> : null}
     </li>
   );
 }
 
 function InfoRow({ row }: { row: CvTransitRow }) {
   const who = transitRowWho(row);
+  const remark = transitRemark(row);
   return (
     <li className="flex flex-col gap-1 px-3 py-2">
       <div className="flex items-baseline gap-2">
@@ -120,6 +124,7 @@ function InfoRow({ row }: { row: CvTransitRow }) {
       </div>
       <p className="truncate text-xs text-muted-foreground">{transitJobLabel(row)}</p>
       {who ? <p className="truncate text-xs">{who}</p> : null}
+      {remark ? <p className="break-words text-xs">{remark}</p> : null}
     </li>
   );
 }

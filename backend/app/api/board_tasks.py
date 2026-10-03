@@ -77,11 +77,15 @@ class BoardTaskRow(BaseModel):
     screening_stage_id: Optional[int] = None
     job_sender_id: Optional[int] = None
     job_sender_name: Optional[str] = None
-    # Kolejka Cpro: etap QC CV szablonu — cel „Zwróć do rekrutera".
+    # Etap powrotu do poprawy: kolejka Cpro — „QC CV” („Zwróć do rekrutera"),
+    # przegląd DL — „Zweryfikowany” („Wróć do poprawy”).
     return_stage_def_id: Optional[int] = None
     # Przegląd DL i kolejka Cpro: wynik QC CV pary.
     qc_status: Optional[Literal["passed", "failed", "overridden", "unchecked"]] = None
     qc_blocking_failed: int = 0
+    # Przegląd DL: stan karty rekomendacji; ``None`` = para nie ma karty.
+    card_status: Optional[Literal["complete", "partial", "empty"]] = None
+    card_missing: int = 0
     # 0380: ``job_title`` = nazwa od klienta; tytuł dla rekrutera i numer u
     # klienta osobno (Cpro dostaje nazwę i numer klienta).
     job_working_title: Optional[str] = None
@@ -187,6 +191,8 @@ class CvTransitRow(BaseModel):
     actor_name: Optional[str] = None
     holder_name: Optional[str] = None
     reason: Optional[str] = None
+    # Uwaga dla rekrutera zostawiona przy decyzji (początek; całość w notatce).
+    remark: Optional[str] = None
 
 
 class CvInTransitBlock(BaseModel):

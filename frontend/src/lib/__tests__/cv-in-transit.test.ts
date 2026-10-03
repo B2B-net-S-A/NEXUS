@@ -5,6 +5,7 @@ import {
   transitAgo,
   transitIsEmpty,
   transitJobLabel,
+  transitRemark,
   transitReturnedDetail,
   transitRowWho,
   transitSummary,
@@ -72,6 +73,14 @@ describe("cv-in-transit — teksty listy „Twoje CV w drodze”", () => {
     );
     expect(transitReturnedDetail(row({ kind: "sent_back", reason: " ", actor_name: "Jan Dąb" }))).toBe("Jan Dąb");
     expect(transitReturnedDetail(row({ kind: "sent_back" }))).toBeNull();
+  });
+
+  it("uwaga dla rekrutera to osobna linia; pusta nie daje nic", () => {
+    expect(transitRemark(row({ kind: "sent_back", remark: " Dopisz Spring Boot " }))).toBe(
+      "Uwaga: Dopisz Spring Boot",
+    );
+    expect(transitRemark(row({ kind: "sent", remark: "  " }))).toBeNull();
+    expect(transitRemark(row({ kind: "sent" }))).toBeNull();
   });
 
   it("„kiedy” liczy dni kalendarzowe w Warszawie", () => {

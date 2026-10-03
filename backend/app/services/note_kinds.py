@@ -25,6 +25,11 @@ from typing import Optional
 
 SYSTEM_SOURCE = "system"
 PREP_SOURCE = "teams_prep"
+# Uwaga dla rekrutera zapisana przy ruchu karty (`services/stage_remarks.py`).
+# Pochodzenie, a nie treść, rozstrzyga rodzaj: uwaga z kwotą („kandydat chce
+# 150, wróć z 140”) inaczej stałaby się wpisem o stawce do klienta i byłaby
+# zakryta adresatowi — także po edycji.
+REMARK_SOURCE = "stage_remark"
 
 AUTOMATCH = "automatch"
 APPLICATION_FORM = "application_form"
@@ -217,6 +222,8 @@ def classify(
     external_source: Optional[str] = None,
 ) -> str:
     """Rodzaj notatki z jej treści, typu i pochodzenia."""
+    if external_source == REMARK_SOURCE:
+        return DL_REVIEW
     text = plain_text(content)
     length = len(text)
     head = text[:_SCAN_CHARS]

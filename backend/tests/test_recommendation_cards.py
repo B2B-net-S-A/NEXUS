@@ -78,6 +78,8 @@ def test_only_listed_modules_read_recommendation_cards():
         "app/services/recommendation_cards.py",
         "app/tasks/recommendation_card_import.py",
         "app/services/move_requirements.py",
+        # Kolejka przeglądu DL czyta tylko stan karty (ile pól brakuje).
+        "app/services/board_tasks.py",
     }
     pattern = re.compile(
         r"^\s*(?:from|import)\s.*\brecommendation_card(?:s|_rules|_import)?\b"

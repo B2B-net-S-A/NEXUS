@@ -43,7 +43,7 @@ from app.services.board_stage_badges import (
     is_entry_column,
     stage_badge_kind,
 )
-from app.services import champion_view
+from app.services import champion_view, stage_remarks
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
@@ -1407,6 +1407,9 @@ async def move_candidate(
             },
         )
     await create_original_cv_snapshot(db, stage)
+    stage_remarks.record(
+        db, stage=stage, author_id=current_user.id, text=data.recruiter_remark
+    )
     if cpro_assignee is not None:
         stage.task_assignee_id = cpro_assignee.id
         job.cpro_sender_id = cpro_assignee.id

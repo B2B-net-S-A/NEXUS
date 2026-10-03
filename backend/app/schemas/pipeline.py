@@ -27,6 +27,10 @@ class StageMove(BaseModel):
     stage: Optional[PipelineStage] = None
     stage_def_id: Optional[int] = None
     notes: Optional[str] = None
+    # Uwaga dla rekrutera przy decyzji (wysyłka, „Wróć do poprawy”,
+    # odrzucenie) — zapisywana jako notatka pary (`services/stage_remarks.py`).
+    # Stawka do klienta ma własne pola niżej i tu nie trafia.
+    recruiter_remark: Optional[str] = Field(None, max_length=2000)
     rating: Optional[int] = Field(None, ge=1, le=5)
     rejection_reason_id: Optional[int] = None
     rejection_reason: Optional[str] = None  # legacy free-text — kept for BC
