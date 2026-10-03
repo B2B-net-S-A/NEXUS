@@ -256,8 +256,8 @@ export function HistoryTab({
     notes: noteCount("talks"),
     contact: noteCount("contact"),
     delivery: noteCount("delivery"),
-    // Sama skrzynka M365 nie ma licznika — liczba dotyczy maili w notatkach.
-    emails: noteCount("email") || undefined,
+    // „Maile” bez licznika: zakładka łączy skrzynkę M365 z mailami zapisanymi
+    // w notatkach, a liczba samych notatek czytałaby się jak liczba maili.
     automat: noteCount("automat"),
     calls: callsQuery.isSuccess ? (callsQuery.data ?? []).length : undefined,
   };
@@ -405,7 +405,7 @@ export function HistoryTab({
                 id="history-email-notes-title"
                 className="text-xs font-semibold text-foreground"
               >
-                Maile zapisane w notatkach
+                Maile zapisane w notatkach · {groupCounts.email}
               </h3>
               {notesList(NOTE_GROUP_EMPTY_TEXT.email)}
             </section>

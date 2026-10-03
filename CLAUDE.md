@@ -2518,7 +2518,7 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   powiadomienia). „Maile” = skrzynka M365 i maile zapisane w notatkach.
   Zakładki nie mają `title` (w Chrome przejmował nazwę dostępną). „Nie
   odebrał” to `POST /api/notes` z `kind: "contact_attempt"` — jedyny rodzaj,
-  który przyjmuje żądanie (`CLIENT_SETTABLE_KINDS`; odpowiedź w wątku
+  który przyjmuje żądanie (`NoteCreate.kind`; odpowiedź w wątku
   i integracja go nie przyjmują); typ ogólny, więc follow-up nie liczy go
   jako kontaktu. `GET /api/candidates/{id}/recommendation-cards`
   (`recommendation_cards.candidate_overview`, bramka jak

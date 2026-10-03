@@ -109,7 +109,11 @@ function respond(groupCounts: Record<string, number>) {
   );
 }
 
-function Harness({ initial = "notes" as CandidateActivityView, readOnly = false }) {
+function Harness({
+  initial = "notes" as CandidateActivityView,
+  readOnly = false,
+  focusedNoteId = null as number | null,
+}) {
   const [view, setView] = useState<CandidateActivityView>(initial);
   return (
     <HistoryTab
@@ -125,7 +129,7 @@ function Harness({ initial = "notes" as CandidateActivityView, readOnly = false 
       currentUserId={5}
       viewers={[]}
       setPresenceEditing={vi.fn()}
-      focusedNoteId={null}
+      focusedNoteId={focusedNoteId}
       composeRequest={0}
       onComposeHandled={vi.fn()}
     />
@@ -160,7 +164,8 @@ describe("Historia — zakładki notatek po rodzaju", () => {
     );
     expect(within(tabs).getByRole("tab", { name: "Próby kontaktu · 3" })).toBeTruthy();
     expect(within(tabs).getByRole("tab", { name: "Delivery Lead · 1" })).toBeTruthy();
-    expect(within(tabs).getByRole("tab", { name: "Maile · 1" })).toBeTruthy();
+    // „Maile” łączą skrzynkę M365 z notatkami — bez liczby samych notatek.
+    expect(within(tabs).getByRole("tab", { name: "Maile" })).toBeTruthy();
     expect(within(tabs).getByRole("tab", { name: "Automat · 9" })).toBeTruthy();
     // Rejestr połączeń nie nazywa się już „Rozmowy”.
     expect(within(tabs).getByRole("tab", { name: /^Telefony/ })).toBeTruthy();
@@ -190,9 +195,9 @@ describe("Historia — zakładki notatek po rodzaju", () => {
     expect(screen.queryByLabelText(/Pokaż systemowe/)).toBeNull();
 
     // Maile: skrzynka M365 i maile zapisane w notatkach razem.
-    await user.click(within(tabs).getByRole("tab", { name: "Maile · 1" }));
+    await user.click(within(tabs).getByRole("tab", { name: "Maile" }));
     expect(screen.getByText("skrzynka M365")).toBeTruthy();
-    expect(screen.getByText("Maile zapisane w notatkach")).toBeTruthy();
+    expect(screen.getByText("Maile zapisane w notatkach · 1")).toBeTruthy();
     expect(screen.getByText(/Temat: CV/)).toBeTruthy();
   });
 
@@ -227,6 +232,32 @@ describe("Historia — zakładki notatek po rodzaju", () => {
     expect(screen.getByRole("dialog", { name: "Karta rekomendacji" })).toHaveTextContent(
       "karta rekrutacji 10",
     );
+  });
+
+  it("link z powiadomienia pokazuje notatkę także wtedy, gdy leży w innej zakładce", async () => {
+    // `?activity=notes&note=3` — notatka 3 to próba kontaktu, a otwarte są „Rozmowy”.
+    renderTab({ focusedNoteId: 3 });
+    await screen.findByRole("tab", { name: "Rozmowy · 40" });
+
+    expect(screen.getByText("nie odbiera")).toBeTruthy();
+    expect(screen.getByText("Szuka projektu z Javą 21.")).toBeTruthy();
+  });
+
+  it("awaria odczytu kart nie zasłania notatek — znika tylko link do karty", async () => {
+    apiGet.mockImplementation((url: string) =>
+      url.includes("/recommendation-cards")
+        ? Promise.reject(Object.assign(new Error("403"), { response: { status: 403 } }))
+        : Promise.resolve({ data: { items: NOTES, total: NOTES.length } }),
+    );
+    renderTab();
+
+    expect(await screen.findByText("Stawka 135 zł/h, dostępność 1 miesiąc.")).toBeTruthy();
+    await waitFor(() =>
+      expect(apiGet).toHaveBeenCalledWith("/api/candidates/42/recommendation-cards"),
+    );
+    expect(screen.queryByRole("button", { name: "Karta rekomendacji z tej rozmowy" })).toBeNull();
+    // Odpowiedź bez `group_counts` (starszy serwer): liczniki z pobranej listy.
+    expect(screen.getByRole("tab", { name: "Rozmowy · 2" })).toBeTruthy();
   });
 
   it("podgląd tylko do odczytu nie ma kompozytora ani „Nie odebrał”", async () => {

@@ -128,9 +128,6 @@ _GROUP_BY_KIND: dict[str, str] = {
     AUTOMATCH: GROUP_AUTOMAT,
     APPLICATION_FORM: GROUP_AUTOMAT,
 }
-# Rodzaj, który osoba może podać wprost przy tworzeniu notatki („Nie odebrał”
-# jednym kliknięciem). Pozostałe nadaje reguła albo serwer.
-CLIENT_SETTABLE_KINDS: frozenset[str] = frozenset({CONTACT_ATTEMPT})
 
 
 def group_of(kind: Optional[str], external_source: Optional[str] = None) -> str:

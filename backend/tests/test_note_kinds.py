@@ -262,7 +262,6 @@ def test_unclassified_note_is_a_talk_and_system_source_is_automat():
         note_kinds.group_of(note_kinds.HUMAN, SYSTEM_NOTE_SOURCE)
         == note_kinds.GROUP_AUTOMAT
     )
-    assert note_kinds.CLIENT_SETTABLE_KINDS == {note_kinds.CONTACT_ATTEMPT}
 
 
 def test_client_rate_note_is_hidden_from_recruiter_but_not_from_its_author():
