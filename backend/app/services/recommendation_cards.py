@@ -45,6 +45,7 @@ from app.services.recommendation_card_rules import (  # noqa: F401 — jedno wej
     legacy_text,
     manual_value,
     max_length,
+    merge_questions,
     project_notes,
     split_fields,
 )
@@ -55,6 +56,59 @@ def attempt_started(process: object) -> Optional[datetime]:
     if process is None or (getattr(process, "attempt_no", None) or 1) <= 1:
         return None
     return getattr(process, "opened_at", None) or getattr(process, "created_at", None)
+
+
+def card_summary(
+    fields_notes: Mapping[str, object],
+    fields_manual: Mapping[str, object],
+    note_answers: object,
+    *,
+    started: Optional[datetime] = None,
+) -> dict[str, object]:
+    """Stan karty dla plakietek i wymagań ruchu — bez treści pól."""
+    current, _ = split_fields(fields_notes, fields_manual, attempt_started=started)
+    state = completeness(current)
+    answers = current_answers(note_answers, attempt_started=started)
+    return {
+        "status": state["status"],
+        "missing": state["missing"],
+        "missing_labels": [LABELS[key] for key in state["missing"]],
+        "answers": len(answers["items"]) if answers else 0,
+    }
+
+
+async def summaries_for_job(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    started_by_candidate: Mapping[int, Optional[datetime]],
+) -> dict[int, dict[str, object]]:
+    """Stan kart osób z jednej rekrutacji — jedno zapytanie na tablicę.
+
+    Osoba bez wiersza karty nie ma wpisu (ekran mówi wtedy „bez karty”).
+    """
+    if not started_by_candidate:
+        return {}
+    rows = await db.execute(
+        select(
+            RecommendationCard.candidate_id,
+            RecommendationCard.fields_notes,
+            RecommendationCard.fields_manual,
+            RecommendationCard.note_answers,
+        ).where(
+            RecommendationCard.job_id == job_id,
+            RecommendationCard.candidate_id.in_(sorted(started_by_candidate)),
+        )
+    )
+    return {
+        candidate_id: card_summary(
+            notes or {},
+            manual or {},
+            answers,
+            started=started_by_candidate.get(candidate_id),
+        )
+        for candidate_id, notes, manual, answers in rows.all()
+    }
 
 
 async def load_notes(

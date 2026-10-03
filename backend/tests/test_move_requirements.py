@@ -41,7 +41,12 @@ def test_verified_needs_the_sheet_and_the_rate_but_not_availability() -> None:
         PairFacts(from_column="screening", stage_id=5, screening_stage_id=4),
         "verified",
     )
-    assert _keys(result) == ["screening_sheet", "candidate_rate", "availability"]
+    assert _keys(result) == [
+        "screening_sheet",
+        "candidate_rate",
+        "availability",
+        "recommendation_card",
+    ]
     sheet = _item(result, "screening_sheet")
     assert sheet["status"] == "missing" and sheet["blocking"] is True
     assert sheet["action"] == {
@@ -61,6 +66,7 @@ def test_skipped_columns_add_up() -> None:
         "screening_sheet",
         "candidate_rate",
         "availability",
+        "recommendation_card",
         "company_cv",
     ]
     assert {item["column"] for item in result["items"]} == {"verified", "cv_qc"}
@@ -357,3 +363,47 @@ async def test_move_requirements_route(monkeypatch: pytest.MonkeyPatch) -> None:
             assert "client_rate" not in {i["key"] for i in nordea["items"]}
         finally:
             await _cleanup(world, [hor_id, rec_id, dl_id])
+
+
+def test_recommendation_card_gaps_are_listed_but_never_block() -> None:
+    """0413: braki karty to podpowiedź — Delivery Lead zobaczy je przed wysłaniem."""
+    ready = replace(VERIFIED_READY, from_column="screening")
+    empty = _item(build_requirements(ready, "verified"), "recommendation_card")
+    assert empty["status"] == "missing" and empty["blocking"] is False
+    assert empty["detail"] == "karta jest jeszcze pusta"
+    assert empty["action"] == {
+        "kind": "open_card",
+        "label": "Uzupełnij kartę",
+        "stage_id": 11,
+    }
+    assert build_requirements(ready, "verified")["primary"]["kind"] == "move"
+
+    partial = _item(
+        build_requirements(
+            replace(ready, card_exists=True, card_missing=("Angielski", "Motywacja")),
+            "verified",
+        ),
+        "recommendation_card",
+    )
+    assert partial["status"] == "missing"
+    assert partial["detail"] == "brakuje: Angielski, Motywacja"
+
+    complete = _item(
+        build_requirements(replace(ready, card_exists=True), "verified"),
+        "recommendation_card",
+    )
+    assert complete["status"] == "ok" and complete["action"] is None
+
+
+def test_answers_written_in_the_note_count_as_the_screening_sheet() -> None:
+    facts = PairFacts(
+        from_column="screening",
+        stage_id=5,
+        candidate_rate=True,
+        card_exists=True,
+        card_answers=True,
+    )
+    sheet = _item(build_requirements(facts, "verified"), "screening_sheet")
+    assert sheet["status"] == "ok"
+    assert sheet["detail"] == "odpowiedzi są w notatce rekrutera"
+    assert sheet["action"] is None
