@@ -46,6 +46,8 @@ from app.services.prompt_fencing import fence, json_for_prompt
 from app.services import object_storage
 from app.services import champion_view
 from app.services import note_kinds
+from app.services import recommendation_cards
+from app.services.recommendation_card_parser import CV_HIDDEN_FIELDS, redact_card_text
 from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
     PROMPT_VERSION,
@@ -2269,8 +2271,33 @@ async def collect_screening_notes_text(
     )
     notes = (await db.scalars(notes_q)).all()
     for note in notes:
-        if note.content and note.content.strip():
-            screening_parts.append(f"[Notatka kandydata]\n{note.content.strip()}")
+        # 0413: karta rekomendacji w notatce niesie ustalenia handlowe
+        # (stawka, red flags, motywacja) i narodowość — to nie jest treść CV.
+        body = redact_card_text(note.content, CV_HIDDEN_FIELDS).strip()
+        if body:
+            screening_parts.append(f"[Notatka kandydata]\n{body}")
+
+    # „Dlaczego ten kandydat” wpisane na karcie w NEXUSIE (pole z notatki jest
+    # już w treści notatki wyżej).
+    card = await recommendation_cards.load_card(
+        db, candidate_id=candidate_id, job_id=job.id
+    )
+    manual = (card.fields_manual or {}).get("recommendation") if card else None
+    recommendation = redact_card_text(
+        str((manual or {}).get("raw") or ""), CV_HIDDEN_FIELDS
+    ).strip()
+    if recommendation:
+        # Wpis sprzed bieżącej próby procesu jest tylko podpowiedzią na karcie
+        # — do CV nie idzie, dopóki rekruter go nie potwierdzi.
+        from app.services import candidate_claim
+
+        process = await candidate_claim.load_process(
+            db, candidate_id=candidate_id, job_id=job.id
+        )
+        if recommendation_cards.is_current(
+            manual, recommendation_cards.attempt_started(process)
+        ):
+            screening_parts.append(f"[Rekomendacja rekrutera]\n{recommendation}")
 
     first_moved = await db.scalar(
         select(func.min(CandidateStage.moved_at)).where(
@@ -2350,11 +2377,10 @@ async def collect_candidate_notes_text(db: AsyncSession, *, candidate_id: int) -
             .limit(20)
         )
     ).all()
-    return "\n\n".join(
-        f"[Notatka kandydata]\n{note.content.strip()}"
-        for note in notes
-        if note.content and note.content.strip()
+    bodies = (
+        redact_card_text(note.content, CV_HIDDEN_FIELDS).strip() for note in notes
     )
+    return "\n\n".join(f"[Notatka kandydata]\n{body}" for body in bodies if body)
 
 
 async def screening_notes_char_count(

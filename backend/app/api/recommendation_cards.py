@@ -26,7 +26,6 @@ from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.recommendation_card import RecommendationCard
-from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User
 from app.services import candidate_claim
 from app.services import recommendation_cards as cards
@@ -89,13 +88,6 @@ async def _pair(
     return candidate, job
 
 
-def _attempt_started(process: Optional[RecruitmentProcess]) -> Optional[datetime]:
-    """Początek bieżącej próby — tylko gdy osoba wróciła do rekrutacji."""
-    if process is None or (process.attempt_no or 1) <= 1:
-        return None
-    return process.opened_at or process.created_at
-
-
 async def _nationality_suggestion(
     db: AsyncSession, candidate: Candidate, job_id: int
 ) -> Optional[str]:
@@ -147,7 +139,7 @@ async def _response(
     process = await candidate_claim.load_process(
         db, candidate_id=candidate.id, job_id=job.id
     )
-    attempt_started = _attempt_started(process)
+    attempt_started = cards.attempt_started(process)
     current, previous = cards.split_fields(
         card.fields_notes if card else {},
         card.fields_manual if card else {},
@@ -217,7 +209,7 @@ async def update_recommendation_card(
         job_id=data.job_id,
         changes=data.fields,
         user_id=user.id,
-        attempt_started=_attempt_started(process),
+        attempt_started=cards.attempt_started(process),
     )
     if changed:
         # Same nazwy pól — treść karty (narodowość, red flags) nie trafia

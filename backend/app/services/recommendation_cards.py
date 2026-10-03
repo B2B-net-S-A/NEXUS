@@ -50,6 +50,13 @@ from app.services.recommendation_card_rules import (  # noqa: F401 — jedno wej
 )
 
 
+def attempt_started(process: object) -> Optional[datetime]:
+    """Początek bieżącej próby procesu — tylko gdy osoba wróciła do rekrutacji."""
+    if process is None or (getattr(process, "attempt_no", None) or 1) <= 1:
+        return None
+    return getattr(process, "opened_at", None) or getattr(process, "created_at", None)
+
+
 async def load_notes(
     db: AsyncSession, *, candidate_id: int, job_id: int
 ) -> list[NoteInput]:

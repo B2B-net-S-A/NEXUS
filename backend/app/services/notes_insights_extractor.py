@@ -38,6 +38,7 @@ from app.models.candidate import AvailabilityStatus, Candidate
 from app.services.cv_enrichment import normalize_llm_skills
 from app.models.ai_feature import AIFeatureKey
 from app.services import note_kinds
+from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.services.ai_models import fallbacks_for, model_for
 
 logger = logging.getLogger(__name__)
@@ -179,7 +180,12 @@ def notes_fingerprint(rows: Sequence[tuple]) -> str:
 
 
 def build_notes_blob(rows: Sequence[tuple]) -> str:
-    blob = "\n\n".join(f"[{r[2]}]\n{r[3][:NOTE_CHAR_LIMIT]}" for r in rows if r[3])
+    # 0413: narodowość z karty rekomendacji nie trafia do żadnego modelu.
+    blob = "\n\n".join(
+        f"[{r[2]}]\n{redact_card_text(r[3], AI_HIDDEN_FIELDS)[:NOTE_CHAR_LIMIT]}"
+        for r in rows
+        if r[3]
+    )
     return blob[:BLOB_CHAR_LIMIT]
 
 

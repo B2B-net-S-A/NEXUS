@@ -70,6 +70,8 @@ def test_only_listed_modules_read_recommendation_cards():
         "app/models/__init__.py",
         "app/models/recommendation_card.py",
         "app/services/candidate_merge.py",
+        # Generator CV czyta z karty WYŁĄCZNIE pole „dlaczego ten kandydat”.
+        "app/services/cv_generator_b2b/standalone_service.py",
         "app/services/recommendation_card_import.py",
         "app/services/recommendation_cards.py",
         "app/tasks/recommendation_card_import.py",

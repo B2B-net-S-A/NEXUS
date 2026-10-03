@@ -42,6 +42,7 @@ from app.models.interview_feedback import InterviewFeedback
 from app.models.job import Job
 from app.models.note import Note
 from app.services import note_kinds
+from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.screening_note import ScreeningNote
 from app.models.user import User
@@ -840,7 +841,12 @@ async def _notes_section(
     stats = _RedactionStats()
     lines: list[str] = []
     for note in rows:
-        safe = _sanitize_untrusted(note.content, limit=_MAX_NOTE_CHARS, stats=stats)
+        safe = _sanitize_untrusted(
+            # 0413: narodowość z karty rekomendacji nie trafia do modelu.
+            redact_card_text(note.content, AI_HIDDEN_FIELDS),
+            limit=_MAX_NOTE_CHARS,
+            stats=stats,
+        )
         if safe:
             lines.append(
                 f"- [{_fmt_date(note.source_created_at or note.created_at)}] {safe}"
