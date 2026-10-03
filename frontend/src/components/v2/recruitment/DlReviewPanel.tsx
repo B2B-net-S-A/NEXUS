@@ -686,25 +686,7 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
             </div>
           ) : null}
 
-          {canSend || canReject ? (
-            <label className="block text-xs font-medium">
-              Uwagi dla rekrutera
-              <textarea
-                aria-describedby="dl-review-remark-hint"
-                className="mt-1 min-h-14 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm font-normal"
-                rows={2}
-                maxLength={REMARK_MAX}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-              />
-              <span id="dl-review-remark-hint" className="mt-0.5 block font-normal text-muted-foreground">
-                Rekruter dostanie je w powiadomieniu i w notatkach kandydata. Stawkę do klienta
-                wpisz tylko w polu niżej — rekruter jej nie widzi.
-              </span>
-            </label>
-          ) : null}
-
-          <div className="flex flex-wrap items-end gap-3">
+          <div className="grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)]">
             <label className="text-xs font-medium">
               Stawka do klienta *
               <div className="mt-1 flex gap-1">
@@ -731,29 +713,50 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
                 </select>
               </div>
             </label>
-            <div className="ml-auto flex flex-wrap gap-2">
-              {canReturn ? (
-                <Button
-                  variant="outline"
-                  disabled={!returnReady || busy !== null}
-                  title={returnReady ? undefined : "Napisz w uwagach, co rekruter ma poprawić."}
-                  onClick={() => void move("return")}
-                >
-                  {busy === "return" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Undo2 className="size-4" />}
-                  Wróć do poprawy
-                </Button>
-              ) : null}
-              {canReject && !rejecting ? (
-                <Button variant="outline" onClick={() => setRejecting(true)} disabled={busy !== null}>
-                  <XCircle className="size-4" />
-                  Odrzuć (DL)…
-                </Button>
-              ) : null}
-              <Button disabled={!sendReady || busy !== null} onClick={() => void move("send")}>
-                {busy === "send" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Send className="size-4" />}
-                Wyślij do klienta → CV wysłane
+            {canSend || canReject ? (
+              <label className="block text-xs font-medium">
+                Uwagi dla rekrutera
+                <textarea
+                  aria-describedby="dl-review-remark-hint"
+                  className="mt-1 block min-h-9 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm font-normal"
+                  rows={2}
+                  maxLength={REMARK_MAX}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+              </label>
+            ) : null}
+          </div>
+          {canSend || canReject ? (
+            <p id="dl-review-remark-hint" className="text-xs text-muted-foreground">
+              Uwagę rekruter dostanie w powiadomieniu i w notatkach kandydata — przy „Wróć do
+              poprawy” napisz, co poprawić. Stawkę do klienta wpisz tylko w jej polu: rekruter jej
+              nie widzi.
+            </p>
+          ) : null}
+
+          <div className="flex flex-wrap justify-end gap-2">
+            {canReturn ? (
+              <Button
+                variant="outline"
+                disabled={!returnReady || busy !== null}
+                title={returnReady ? undefined : "Napisz w uwagach, co rekruter ma poprawić."}
+                onClick={() => void move("return")}
+              >
+                {busy === "return" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Undo2 className="size-4" />}
+                Wróć do poprawy
               </Button>
-            </div>
+            ) : null}
+            {canReject && !rejecting ? (
+              <Button variant="outline" onClick={() => setRejecting(true)} disabled={busy !== null}>
+                <XCircle className="size-4" />
+                Odrzuć (DL)…
+              </Button>
+            ) : null}
+            <Button disabled={!sendReady || busy !== null} onClick={() => void move("send")}>
+              {busy === "send" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Send className="size-4" />}
+              Wyślij do klienta → CV wysłane
+            </Button>
           </div>
           {!canSend ? (
             <p className="text-xs text-muted-foreground">

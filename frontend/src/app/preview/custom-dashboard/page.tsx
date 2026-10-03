@@ -148,8 +148,8 @@ const BOARD_TASKS: BoardTasksResponse = {
   can_set_cpro_sender: true,
   dl_review_window_days: 30,
   dl_review: [
-    taskRow({ stage_id: 101, candidate_id: 201, candidate_name: "Joanna Wiśniewska", client_name: "Bank Kappa", since: daysAgo(4), qc_status: "passed" }),
-    taskRow({ stage_id: 102, candidate_id: 202, candidate_name: "Tomasz Lewandowski", job_title: "Data Engineer", client_name: "Bank Kappa", since: daysAgo(2), qc_status: "failed", qc_blocking_failed: 2 }),
+    taskRow({ stage_id: 101, candidate_id: 201, candidate_name: "Joanna Wiśniewska", client_name: "Bank Kappa", since: daysAgo(4), qc_status: "passed", card_status: "complete", card_missing: 0 }),
+    taskRow({ stage_id: 102, candidate_id: 202, candidate_name: "Tomasz Lewandowski", job_title: "Data Engineer", client_name: "Bank Kappa", since: daysAgo(2), qc_status: "failed", qc_blocking_failed: 2, card_status: "partial", card_missing: 3 }),
     taskRow({ stage_id: 103, candidate_id: 203, candidate_name: "Karolina Dąbrowska", job_title: "Tester Manualny", client_name: "Energetyka Wzorcowa", since: daysAgo(0), qc_status: "overridden" }),
   ],
   cpro_to_send: [
@@ -288,7 +288,7 @@ function transit(returned: CvTransitRow[], info = TRANSIT_INFO): CvInTransit {
 
 const TRANSIT_RETURNED = transit([
   transitRow({ kind: "rejected_by_dl", stage_id: 331, candidate_id: 431, candidate_name: "Adam Wrona", actor_name: "Marta Kowalczyk", reason: "stawka ponad budżet", since: daysAgo(0) }),
-  transitRow({ kind: "sent_back", stage_id: 332, candidate_id: 432, candidate_name: "Julia Bąk", job_working_title: "Tester automatyzujący · Selenium", client_name: "Ubezpieczenia Wzorcowe", actor_name: "Jan Dąb", since: daysAgo(1) }),
+  transitRow({ kind: "sent_back", stage_id: 332, candidate_id: 432, candidate_name: "Julia Bąk", job_working_title: "Tester automatyzujący · Selenium", client_name: "Ubezpieczenia Wzorcowe", actor_name: "Jan Dąb", remark: "Dopisz Selenium Grid do ostatniego projektu i popraw daty w drugiej roli.", since: daysAgo(1) }),
 ]);
 
 const NO_TASKS: BoardTasksResponse = {
