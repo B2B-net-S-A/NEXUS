@@ -226,11 +226,12 @@ def merge_questions(
         for item in sheet_answers
         if isinstance(item, Mapping) and not item.get("skipped")
     }
-    by_number = {
-        int(item.get("number") or index): item
-        for index, item in enumerate(note_items, start=1)
-        if isinstance(item, Mapping)
-    }
+    by_number: dict[int, Mapping[str, Any]] = {}
+    for index, item in enumerate(note_items, start=1):
+        if not isinstance(item, Mapping):
+            continue
+        number = item.get("number")
+        by_number[number if isinstance(number, int) and number > 0 else index] = item
     if not question_texts:
         return [
             {

@@ -68,9 +68,13 @@ export function RecommendationCardView({
   };
   const submit = (key: string) => {
     const value = draft.trim();
-    if (value !== String(card.fields[key]?.raw ?? "").trim() || !card.fields[key]) {
-      onSave({ [key]: value || null });
-    }
+    const current = card.fields[key];
+    // Puste pole zdejmuje tylko wartość wpisaną w NEXUSIE — wartości z notatki
+    // nie da się stąd usunąć (zmienia ją poprawka notatki albo wpisanie innej).
+    const changed = value
+      ? value !== String(current?.raw ?? "").trim() || !current
+      : current?.source === "manual";
+    if (changed) onSave({ [key]: value || null });
     setEditing(null);
   };
 

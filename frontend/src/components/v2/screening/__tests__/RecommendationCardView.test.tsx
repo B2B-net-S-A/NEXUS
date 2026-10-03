@@ -79,6 +79,32 @@ describe("RecommendationCardView", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
+  it("wyczyszczenie pola z notatki niczego nie wysyła", () => {
+    const onSave = vi.fn();
+    render(<RecommendationCardView card={CARD} onSave={onSave} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Zmień: Stawka" }));
+    fireEvent.change(screen.getByLabelText("Stawka"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("wyczyszczenie pola wpisanego ręcznie zdejmuje je", () => {
+    const onSave = vi.fn();
+    const manual: RecommendationCard = {
+      ...CARD,
+      fields: { ...CARD.fields, rate: { raw: "150 zł/h", source: "manual" } },
+    };
+    render(<RecommendationCardView card={manual} onSave={onSave} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Zmień: Stawka" }));
+    fireEvent.change(screen.getByLabelText("Stawka"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    expect(onSave).toHaveBeenCalledWith({ rate: null });
+  });
+
   it("w trybie tylko do odczytu nie ma przycisków edycji", () => {
     render(<RecommendationCardView card={CARD} readOnly onSave={vi.fn()} />);
     expect(screen.queryByRole("button", { name: /Dopisz|Zmień/ })).not.toBeInTheDocument();

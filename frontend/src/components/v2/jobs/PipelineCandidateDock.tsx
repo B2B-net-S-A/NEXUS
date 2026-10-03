@@ -636,6 +636,10 @@ export function PipelineCandidateDock({
       queryClient.invalidateQueries({
         queryKey: recommendationCardQueryKey(item.candidate_id, jobId),
       });
+      // Plakietka karty na tablicy i ramka „Następny etap” czytają ten sam stan.
+      queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+      queryClient.invalidateQueries({ queryKey: MOVE_REQUIREMENTS_PREFIX });
       showSuccess("Notatka dodana.");
     },
     onError: (e) => showError(extractErrorMsg(e) || "Nie udało się dodać notatki"),

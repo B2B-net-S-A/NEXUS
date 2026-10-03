@@ -194,3 +194,12 @@ def test_job_without_champion_questions_shows_the_questions_from_the_note():
         }
     ]
     assert rules.merge_questions({}, [], []) == []
+
+
+def test_note_items_without_a_usable_number_fall_back_to_their_position():
+    note = [
+        {"number": "x", "question": "", "answer": "pierwsza"},
+        {"number": None, "question": "", "answer": "druga"},
+    ]
+    merged = rules.merge_questions({"q1": "A?", "q2": "B?"}, [], note)
+    assert [item["answer"] for item in merged] == ["pierwsza", "druga"]
