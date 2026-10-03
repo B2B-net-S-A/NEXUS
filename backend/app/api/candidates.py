@@ -2633,7 +2633,7 @@ async def list_candidates(
                 Note.candidate_id.in_(candidate_ids),
                 # 0412: wpis automatu ani notatka ze stawką do klienta nie są
                 # „ostatnią notatką” na liście.
-                note_kinds.searchable_clause(),
+                note_kinds.not_automat_clause(),
                 note_rate_visibility_clause(current_user),
             )
             .distinct(Note.candidate_id)
@@ -4288,7 +4288,7 @@ async def get_candidate_quick_view(
                 # 0399: podgląd pokazuje notatki główne — przypięte pierwsze,
                 # bez odpowiedzi i bez wpisów automatów.
                 Note.parent_note_id.is_(None),
-                note_kinds.searchable_clause(),
+                note_kinds.not_automat_clause(),
             )
             .order_by(
                 Note.pinned_at.is_(None),

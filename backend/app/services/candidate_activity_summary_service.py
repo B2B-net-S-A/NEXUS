@@ -59,7 +59,7 @@ MAX_TOKENS = 1200
 # Changing this value invalidates every previously generated row even when the
 # prompt happens to retain the same version.
 CONTENT_POLICY_VERSION = "candidate-summary-no-finance-v3"
-VISIBILITY_SCOPE_VERSION = "candidate-summary-scope-v2"
+VISIBILITY_SCOPE_VERSION = "candidate-summary-scope-v3"
 
 # Input caps so a hyperactive candidate cannot create an unbounded prompt.
 _MAX_NOTES = 30

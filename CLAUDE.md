@@ -2386,19 +2386,32 @@ Leada o stawce do klienta, 13% karty rekomendacji według wzoru rekruterów.
   przepięciu. Poza AI są: `automatch`, `application_form`, `email`, `dl_rate`,
   `dl_review` („dopisz do CV” nie jest dowodem), `contact_attempt`,
   `scheduling`, `mention`. Nowy czytelnik notatek dla modelu = ten filtr.
-- **Wyszukiwanie słów kluczowych (v2) i wycinki pomijają tylko wpisy automatów**
-  (`searchable_clause`: `automatch`, `application_form`). v1 (alerty zapisanych
-  wyszukiwań) bez zmian.
+- **Wyszukiwanie słów kluczowych (v2) i wycinki pomijają wpisy automatów
+  i notatki ze stawką do klienta** (`searchable_clause`: `automatch`,
+  `application_form`, `dl_rate` — inaczej `q=161` w zakresie „notatki”
+  zdradzałoby zakrytą kwotę samym trafieniem). v1 (alerty zapisanych
+  wyszukiwań) bez zmian. Szybki podgląd i „ostatnia notatka” listy pomijają
+  tylko automaty (`not_automat_clause`).
+- **Notatka, która mówi coś o kandydacie, nigdy nie jest szumem**
+  (`_SUBSTANCE_RE`: „zna”, „doświadczenie”, „pracował”, „komercyjnie”):
+  fałszywe wykluczenie kosztuje więcej niż fałszywe włączenie. Przegląd kodu
+  03.10 złapał „Rozmowa: zna Pythona 3.11” jako termin (wersja = godzina)
+  i „mówi poprawnie” jako uwagę do CV. Uwaga DL do CV wymaga wzmianki @osoba,
+  termin — godziny z dwukropkiem, „godz.” albo daty DD.MM.
 - **Nocny odczyt faktów: prompt `v6-note-kinds`** — sam prompt bez zmian,
   zmienił się wsad (filtr, karty rekomendacji i fakty ze screeningu przed
   limitem 20 notatek, jedna notatka najwyżej 4000 znaków). Doganianie przeliczy
   kandydatów po 700 na noc. Kandydat, któremu nie została żadna czytelna
   notatka, traci fakty policzone przez ten odczyt (`_read_by_extractor`).
+  Pomiar 03.10: 3 013 osób, z czego 2 872 miały wyłącznie wpisy scrapera;
+  stawkę w profilu traci 1 osoba (155 zł z „Pokazujemy za 155zł”).
 - **Notatka `dl_rate` jest zakryta dla ról bez wglądu w stawkę do klienta**
   (`candidate_access.note_content_hidden` / `visible_note_content` /
   `note_rate_visibility_clause`; autor zawsze widzi swoją): lista i pojedyncza
   notatka, oś czasu, szybki podgląd, „ostatnia notatka” listy kandydatów,
-  wycinki wyszukiwania. `dl_rate` to tylko krótki wpis (< 200 znaków: „Wyślijmy
+  wycinki wyszukiwania, ostatnia notatka w follow-upie (tam przez filtr AI).
+  Zapisane podsumowania aktywności unieważnia `candidate-summary-scope-v3`.
+  `dl_rate` to tylko krótki wpis (< 200 znaków: „Wyślijmy
   za…”, „150/110”, „@osoba 175”); dłuższa notatka z kwotą w treści zostaje
   zwykłą notatką — świadomie, bo niesie fakty o kandydacie. Nowa trasa oddająca
   treść notatki = `visible_note_content`.

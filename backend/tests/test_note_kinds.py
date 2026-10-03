@@ -147,6 +147,24 @@ def test_client_rate_rule_does_not_swallow_ordinary_notes(content: str):
     assert classify(content, note_type="general") != note_kinds.DL_RATE
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        # Wersja technologii to nie godzina.
+        "Rozmowa: zna Pythona 3.11, FastAPI, Postgres",
+        "Rozmowa o 12.30: zna Java",
+        # „poprawnie” to nie „popraw”.
+        "Zna Pythona, poprawnie pisze testy w pytest.",
+        "Dobry angielski, mówi poprawnie, zna Kafkę",
+        # Rekruter podaje cenę razem z faktami o kandydacie.
+        "Wysłałam CV do klienta za 120 zł/h, kandydat zna Java 17, Spring, AWS",
+        "nie odbiera, ale wiem, że zna Kotlina",
+    ],
+)
+def test_note_about_the_candidate_is_never_treated_as_noise(content: str):
+    assert classify(content, note_type="general") not in note_kinds.AI_EXCLUDED_KINDS
+
+
 def test_contact_attempt_with_a_number_stays_a_note():
     # „nie odbiera, ale stawkę ma 200” niesie fakt — model ma to przeczytać.
     kind = classify("nie odbiera, ale stawkę ma 200 i tak", note_type="general")
@@ -156,6 +174,9 @@ def test_contact_attempt_with_a_number_stays_a_note():
 def test_every_kind_is_declared_and_fits_the_column():
     assert note_kinds.AI_EXCLUDED_KINDS <= set(note_kinds.ALL_KINDS)
     assert note_kinds.SEARCH_EXCLUDED_KINDS <= note_kinds.AI_EXCLUDED_KINDS
+    assert note_kinds.AUTOMAT_KINDS <= note_kinds.SEARCH_EXCLUDED_KINDS
+    # Zakryta kwota nie może wyjść samym trafieniem wyszukiwania.
+    assert note_kinds.CLIENT_RATE_KINDS <= note_kinds.SEARCH_EXCLUDED_KINDS
     assert note_kinds.CLIENT_RATE_KINDS <= note_kinds.AI_EXCLUDED_KINDS
     assert set(note_kinds.AI_PRIORITY_KINDS).isdisjoint(note_kinds.AI_EXCLUDED_KINDS)
     assert all(len(kind) <= 24 for kind in note_kinds.ALL_KINDS)

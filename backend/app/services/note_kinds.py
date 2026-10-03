@@ -76,9 +76,16 @@ AI_EXCLUDED_KINDS: frozenset[str] = frozenset(
     }
 )
 
-# Wyszukiwanie słów kluczowych pomija tylko wpisy automatów: „Oferta: Java
-# Developer” w notatce scrapera znajdowało testera pod hasłem „java”.
-SEARCH_EXCLUDED_KINDS: frozenset[str] = frozenset({AUTOMATCH, APPLICATION_FORM})
+# Wpisy automatów — nie są notatką o kandydacie na żadnym ekranie.
+AUTOMAT_KINDS: frozenset[str] = frozenset({AUTOMATCH, APPLICATION_FORM})
+
+# Wyszukiwanie słów kluczowych pomija wpisy automatów („Oferta: Java
+# Developer” w notatce scrapera znajdowało testera pod hasłem „java”) oraz
+# notatki ze stawką do klienta — inaczej `q=161` w zakresie „notatki”
+# zdradzałoby zakrytą kwotę samym trafieniem.
+SEARCH_EXCLUDED_KINDS: frozenset[str] = frozenset(
+    {AUTOMATCH, APPLICATION_FORM, DL_RATE}
+)
 
 # Notatki, które nocny odczyt faktów bierze w pierwszej kolejności.
 AI_PRIORITY_KINDS: tuple[str, ...] = (CARD, SCREENING_FACTS)
@@ -121,9 +128,21 @@ _QA_RE = re.compile(r"pytanie ?[1-9]|\bp ?[1-9] ?:|odpowied[zź] ?:")
 _CARD_MARK_RE = re.compile(
     r"pytanie ?[1-9]|\bp ?[1-9] ?:|odpowied[zź] ?:|notatka ?:|motywacja ?[:–-]"
 )
+# Notatka, która mówi coś o kandydacie, nie jest szumem: fałszywe wykluczenie
+# (AI i bramka must jej nie zobaczą) kosztuje więcej niż fałszywe włączenie.
+_SUBSTANCE_RE = re.compile(
+    r"\bzna\b|\bznajomo|doświadcz|\bpracowa[lł]|\bpracuje\b|komercyjn"
+)
+# „Wyślijmy / pokazujemy za …” to forma Delivery Leada — zawsze wpis o cenie.
 _DL_RATE_RE = re.compile(
-    r"(?:wy[sś][lł]ijmy|pokazujemy|poka[zż]my|wysyłam|wysłałam|wysłałem"
-    r"|wysłan[yae]|wysłać)[^.\n]{0,40}? za (?:stawkę )?" + _AMOUNT + _NOT_TIME
+    r"(?:wy[sś][lł]ijmy|pokazujemy|poka[zż]my)[^.\n]{0,40}? za (?:stawkę )?"
+    + _AMOUNT
+    + _NOT_TIME
+)
+# „Wysłałam za …” pisze też rekruter, często razem z faktami o kandydacie.
+_SENT_RATE_RE = re.compile(
+    r"(?:wysyłam|wysłałam|wysłałem|wysłan[yae]|wysłać)[^.\n]{0,40}? za "
+    r"(?:stawkę )?" + _AMOUNT + _NOT_TIME
 )
 _DL_PAIR_RE = re.compile(
     rf"^(?:{_MENTION}\s*)*{_AMOUNT}\s*/\s*{_AMOUNT}(?:\s*(?:zł|pln))?\s*"
@@ -138,7 +157,13 @@ _FACT_OTHER_RE = re.compile(
     r"dost[eę]pno|wypowiedzen|asap|od zaraz|lokalizacj|tryb|zdaln|hybryd"
 )
 _DL_PASS_RE = re.compile(r"przepuszczam|mo[zż]na (?:go|ją|ja) wys[lł]a[cć]")
-_DL_FIX_RE = re.compile(r"popraw|\bdone\b|bold|dopisz|zmień proszę|do cv\b")
+# Uwagi Delivery Leada do CV — całe słowa („poprawnie” to nie „popraw”)
+# i tylko we wpisie skierowanym do kogoś (@osoba).
+_DL_FIX_RE = re.compile(
+    r"\bpoprawion\w*|\bpopraw(?:ki|ka|ek)?\b|\bdo poprawy\b|\bpoprawi[lł][ae]m\b"
+    r"|\bdone\b|\bbold\w*|\bdopisz\b|\bzmień proszę|\bdo cv\b"
+)
+_HAS_MENTION_RE = re.compile(_MENTION)
 _CONTACT_RE = re.compile(
     r"^(?:(?:nadal|dalej|wciąż|znowu|ponownie)\s+)?"
     r"(?:nie odbiera|nie odebra|n/o\b|brak kontaktu|poczta\b|nie odpowiada"
@@ -148,9 +173,13 @@ _CONTACT_RE = re.compile(
 )
 _TWO_DIGITS_RE = re.compile(r"\d{2}")
 _SCHEDULE_WORD_RE = re.compile(
-    r"interview|prep|spotkani|rozmow|termin|weryfikacja techniczna|\betap"
+    r"interview|\bprep\w*|\bspotkani|\btermin|weryfikacja techniczna|drugi etap"
+    r"|\brozmowa (?:o |w |dnia )?\d"
 )
-_CLOCK_RE = re.compile(r"\d{1,2}[.:]\d{2}")
+# Godzina z dwukropkiem, „godz.” albo data DD.MM — nie goła „3.11” z wersji.
+_CLOCK_RE = re.compile(
+    r"\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\bgodz|\b(?:[0-2]?\d|3[01])\.(?:0[1-9]|1[0-2])\b"
+)
 _MENTION_ONLY_RE = re.compile(
     rf"^(?:(?:już|ok|okej)\s+)?(?:{_MENTION}\s*)+(?:ok|zrobione)?\.?$"
 )
@@ -202,8 +231,12 @@ def classify(
         return CARD
     # Tylko krótki wpis o cenie. Dłuższa notatka, która przy okazji podaje
     # „wysłana za 85”, niesie też fakty o kandydacie i zostaje zwykłą notatką.
+    substance = bool(_SUBSTANCE_RE.search(head))
     if (
         (length < _DL_RATE_MAX_CHARS and _DL_RATE_RE.search(head))
+        or (
+            length < _DL_RATE_MAX_CHARS and not substance and _SENT_RATE_RE.search(head)
+        )
         or _DL_PAIR_RE.match(head)
         or _DL_BARE_RE.match(head)
     ):
@@ -213,13 +246,23 @@ def classify(
     if _QA_RE.search(head):
         return CARD
     if (_DL_PASS_RE.search(head) and length < 400) or (
-        _DL_FIX_RE.search(head) and length < 300
+        length < 300 and _HAS_MENTION_RE.search(head) and _DL_FIX_RE.search(head)
     ):
         return DL_REVIEW
     # „nie odbiera, ale stawkę ma 200” to już fakt — liczba zostawia notatkę.
-    if length < 80 and _CONTACT_RE.match(head) and not _TWO_DIGITS_RE.search(head):
+    if (
+        length < 80
+        and not substance
+        and _CONTACT_RE.match(head)
+        and not _TWO_DIGITS_RE.search(head)
+    ):
         return CONTACT_ATTEMPT
-    if length < 400 and _SCHEDULE_WORD_RE.search(head) and _CLOCK_RE.search(head):
+    if (
+        length < 400
+        and not substance
+        and _SCHEDULE_WORD_RE.search(head)
+        and _CLOCK_RE.search(head)
+    ):
         return SCHEDULING
     if _MENTION_ONLY_RE.match(head):
         return MENTION
@@ -277,6 +320,11 @@ def ai_readable_clause():
 def searchable_clause():
     """To samo co ``searchable_sql`` dla zapytań ORM po ``Note``."""
     return _orm_filter(SEARCH_EXCLUDED_KINDS)
+
+
+def not_automat_clause():
+    """Zapytania ORM po ``Note``: bez wpisów automatów (podgląd, „ostatnia notatka”)."""
+    return _orm_filter(AUTOMAT_KINDS)
 
 
 def hides_client_rate(kind: Optional[str]) -> bool:
