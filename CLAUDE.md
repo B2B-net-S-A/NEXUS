@@ -2493,6 +2493,20 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   screeningu”. Pytania na karcie: odpowiedź z arkusza wygrywa, bez niej —
   z notatki po numerze pytania (`merge_questions`). Harness
   `/preview/recommendation-card` (`?state=complete|empty|readonly`).
+- **Przegląd Delivery Leada (03.10.2026):** `DlReviewPanel` pokazuje kartę
+  z pytaniami Championa (arkusz screeningu zwinięty pod spodem) i ma trzy
+  decyzje — wysyłka, „Wróć do poprawy” (z powrotem na „Zweryfikowany”,
+  `return_stage_def_id` wiersza kolejki; wymaga uwagi tylko w UI) i odrzucenie.
+  „Uwagi dla rekrutera” jadą z ruchem jako `StageMove.recruiter_remark`
+  i zapisują się jako notatka pary o pochodzeniu `stage_remark`
+  (`services/stage_remarks.py`, jedna na wiersz etapu). Rodzaj `dl_review`
+  wynika z POCHODZENIA, nie z treści (`note_kinds.REMARK_SOURCE`, także po
+  edycji) — uwaga z kwotą nie staje się wpisem o stawce do klienta, a modele
+  jej nie czytają. Uwaga trafia do dzwonka (`_inapp_content(remark=)`) i na
+  listę „Twoje CV w drodze” (`remark`); stawka do klienta ma własne pole i do
+  uwagi ani dzwonka nie trafia nigdy. Kolejka przeglądu niesie stan karty
+  (`card_status`, `card_missing`; `summaries_for_pairs`). Harness
+  `/preview/dl-review` (`?as=recruiter`).
 - **API `GET/PUT /api/recommendation-cards?candidate_id&job_id`:** sekcja
   Pipeline, odczyt jak rekrutacja, zapis jak notatka kandydata + blokada 12 h.
   `PUT` przyjmuje tekst pola (`null` zdejmuje pole ręczne) i normalizuje go tą
@@ -4699,13 +4713,17 @@ znało tylko `jobs.recruiter_id` (osobę z automatu przydziału albo nikogo).
   osoba, która przekazała kartę do wysłania (autor poprzedniego ruchu, gdy
   karta stała w kolumnie sprzed „CV wysłane” — bywa nią ktoś inny niż pierwszy
   weryfikator). Tylko dzwonek, nigdy mail; osoba, która sama przesunęła kartę,
-  nic nie dostaje; ruch wstecz nie powiadamia — z jednym wyjątkiem niżej.
+  nic nie dostaje; ruch wstecz nie powiadamia — z dwoma wyjątkami niżej.
 - **Zwrot z kolejki Cpro do „QC CV” (Nordea) dzwoni do osoby, która kartę
-  tam przekazała** (`REASON_CPRO_RETURNED`) — jedyne przekazanie będące
-  ruchem wstecz; resolver pomija wtedy reguły etapów, a zwykłe cofnięcie karty
-  dalej nikogo nie powiadamia.
-- **Zadanie ≠ informacja o ruchu (0408).** Przegląd DL, kolejka Cpro i zwrot
-  z Cpro (`TASK_REASONS`) idą typem `board_task_waiting` — kategoria
+  tam przekazała** (`REASON_CPRO_RETURNED`); resolver pomija wtedy reguły
+  etapów, a zwykłe cofnięcie karty dalej nikogo nie powiadamia.
+- **Karta cofnięta z „QC CV” do wcześniejszej kolumny poza Nordeą**
+  (`REASON_QC_RETURNED`, 03.10.2026 — „Wróć do poprawy” w przeglądzie DL albo
+  przeciągnięcie) dzwoni do osoby, która przekazała ją do QC, i do rekrutera
+  kandydata: „Wróciło do poprawy”, z uwagą Delivery Leada, gdy ją zostawił.
+  Oba zwroty to `BACKWARD_REASONS` — jedyne przekazania będące ruchem wstecz.
+- **Zadanie ≠ informacja o ruchu (0408).** Przegląd DL, kolejka Cpro i oba
+  zwroty do poprawy (`TASK_REASONS`) idą typem `board_task_waiting` — kategoria
   „Wzmianki”, której nie da się wyciszyć, bo na odbiorcę czeka kandydat.
   „CV wysłane” zostaje przy `stage_rule` („Ruchy w rekrutacjach”, do
   wyciszenia). Resolver sprawdza dostęp odbiorcy typem JEGO dzwonka — do 0408

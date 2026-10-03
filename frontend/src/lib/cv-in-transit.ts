@@ -59,6 +59,12 @@ export function transitReturnedDetail(row: CvTransitRow): string | null {
   return row.actor_name?.trim() || null;
 }
 
+/** Uwaga dla rekrutera zostawiona przy decyzji — osobna linia wiersza. */
+export function transitRemark(row: CvTransitRow): string | null {
+  const remark = row.remark?.trim();
+  return remark ? `Uwaga: ${remark}` : null;
+}
+
 function dayNumber(date: Date): number {
   return Date.parse(`${warsawToday(date)}T00:00:00Z`) / 86_400_000;
 }

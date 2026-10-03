@@ -25,14 +25,15 @@ się od nowa. Rozstrzyga data pola, nie osobny licznik.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Mapping, Optional
+from typing import Iterable, Mapping, Optional
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.note import Note
 from app.models.recommendation_card import RecommendationCard
+from app.models.recruitment_process import RecruitmentProcess
 from app.services.recommendation_card_rules import (  # noqa: F401 — jedno wejście dla wołających
     CARD_KINDS,
     EDITABLE_FIELDS,
@@ -108,6 +109,57 @@ async def summaries_for_job(
             started=started_by_candidate.get(candidate_id),
         )
         for candidate_id, notes, manual, answers in rows.all()
+    }
+
+
+async def summaries_for_pairs(
+    db: AsyncSession, pairs: Iterable[tuple[int, int]]
+) -> dict[tuple[int, int], dict[str, object]]:
+    """Stan kart dla par (kandydat, rekrutacja) z wielu rekrutacji.
+
+    Dwa zapytania niezależnie od liczby par: karty i najnowsza próba procesu
+    (wartości sprzed bieżącej próby nie liczą się do kompletności).
+    """
+    wanted = sorted(set(pairs))
+    if not wanted:
+        return {}
+    pair = tuple_(RecommendationCard.candidate_id, RecommendationCard.job_id)
+    cards = (
+        await db.execute(
+            select(
+                RecommendationCard.candidate_id,
+                RecommendationCard.job_id,
+                RecommendationCard.fields_notes,
+                RecommendationCard.fields_manual,
+                RecommendationCard.note_answers,
+            ).where(pair.in_(wanted))
+        )
+    ).all()
+    if not cards:
+        return {}
+    process_pair = tuple_(RecruitmentProcess.candidate_id, RecruitmentProcess.job_id)
+    processes = await db.execute(
+        select(RecruitmentProcess)
+        .where(process_pair.in_([(c, j) for c, j, *_ in cards]))
+        .order_by(
+            RecruitmentProcess.candidate_id,
+            RecruitmentProcess.job_id,
+            RecruitmentProcess.attempt_no.desc(),
+            RecruitmentProcess.id.desc(),
+        )
+        .distinct(RecruitmentProcess.candidate_id, RecruitmentProcess.job_id)
+    )
+    started = {
+        (p.candidate_id, p.job_id): attempt_started(p) for p in processes.scalars()
+    }
+    return {
+        (candidate_id, job_id): card_summary(
+            notes or {},
+            manual or {},
+            answers,
+            started=started.get((candidate_id, job_id)),
+        )
+        for candidate_id, job_id, notes, manual, answers in cards
     }
 
 

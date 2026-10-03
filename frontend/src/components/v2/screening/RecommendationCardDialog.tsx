@@ -33,7 +33,7 @@ import {
   cardFieldSource,
 } from "@/lib/recommendation-card";
 
-import { RecommendationCardStatus } from "./RecommendationCardView";
+import { RecommendationCardQuestions, RecommendationCardStatus } from "./RecommendationCardView";
 
 function initialDraft(card: RecommendationCard): Record<string, string> {
   return Object.fromEntries(
@@ -83,34 +83,7 @@ export function RecommendationCardForm({
           })}
         </div>
 
-        {card.questions.length ? (
-          <section aria-labelledby="full-card-questions" className="space-y-2">
-            <h3 id="full-card-questions" className="text-xs font-semibold text-foreground">
-              Pytania z Profilu Championa
-            </h3>
-            <ol className="space-y-2">
-              {card.questions.map((item) => (
-                <li key={item.number} className="rounded-md border border-border p-2.5 text-xs">
-                  <p className="font-medium text-foreground">
-                    {item.number}. {item.question || "pytanie bez treści"}
-                  </p>
-                  <p
-                    className={
-                      item.answer
-                        ? "mt-1 whitespace-pre-line text-foreground"
-                        : "mt-1 text-muted-foreground"
-                    }
-                  >
-                    {item.answer || "brak odpowiedzi"}
-                  </p>
-                  {item.source === "note" ? (
-                    <p className="mt-1 text-[11px] text-muted-foreground">odpowiedź z notatki</p>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
-          </section>
-        ) : null}
+        <RecommendationCardQuestions card={card} />
 
         {CARD_FIELD_ORDER.filter((key) => CARD_MULTILINE_FIELDS.has(key)).map((key) => {
           const id = `full-card-${key}`;

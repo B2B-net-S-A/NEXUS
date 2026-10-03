@@ -213,13 +213,24 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
       can_send_to_client: true,
       dl_review_window_days: 30,
       dl_review: [
-        row("dl_review", { candidate_name: "Ola Przegląd", client_name: "PKO BP", qc_status: "failed", qc_blocking_failed: 2 }),
+        row("dl_review", {
+          candidate_name: "Ola Przegląd",
+          client_name: "PKO BP",
+          qc_status: "failed",
+          qc_blocking_failed: 2,
+          card_status: "partial",
+          card_missing: 3,
+        }),
+        row("dl_review", { stage_id: 18, candidate_id: 28, candidate_name: "Bez Karty", card_status: null }),
       ],
     });
     renderPanel();
     const section = await screen.findByRole("region", { name: "Czeka na Twój przegląd (DL)" });
     expect(within(section).getByText("Java Developer · PKO BP")).toBeTruthy();
     expect(within(section).getByText("QC: 2 do poprawy")).toBeTruthy();
+    // Stan karty rekomendacji — ile pól brakuje, zanim DL otworzy przegląd.
+    expect(within(section).getByText("Karta: brakuje 3")).toBeTruthy();
+    expect(within(section).getByText("Bez karty")).toBeTruthy();
     await userEvent.click(within(section).getByRole("button", { name: "Przejrzyj: Ola Przegląd" }));
     expect(screen.getByRole("dialog", { name: "Przegląd DL" })).toHaveTextContent("Ola Przegląd · wysyłka tak");
   });
@@ -704,6 +715,7 @@ describe("BoardTasksPanel — „Twoje CV w drodze”", () => {
             candidate_id: 53,
             candidate_name: "Julia Bąk",
             actor_name: "Jan Dąb",
+            remark: "Dopisz Spring Boot do ostatniego projektu",
           }),
         ],
         in_review: [transitRow("in_review", { stage_id: 44, candidate_id: 54, candidate_name: "Tomasz Żak" })],
@@ -716,6 +728,7 @@ describe("BoardTasksPanel — „Twoje CV w drodze”", () => {
     expect(within(section).getByText("stawka ponad budżet")).toBeTruthy();
     expect(within(section).getByText("Cofnięte do poprawy")).toBeTruthy();
     expect(within(section).getByText("Jan Dąb")).toBeTruthy();
+    expect(within(section).getByText("Uwaga: Dopisz Spring Boot do ostatniego projektu")).toBeTruthy();
     // Licznik przy nagłówku = tyle wróciło; reszta jest informacją pod „Pokaż”.
     expect(within(section).getByText("2")).toBeTruthy();
     expect(within(section).queryByText("Tomasz Żak")).toBeNull();

@@ -28,6 +28,7 @@ roku — kolejka z nimi byłaby listą, której nikt nie przeczyta.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Iterable, Optional
@@ -40,7 +41,7 @@ from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User, UserRole
-from app.services import cpro_sender
+from app.services import cpro_sender, recommendation_cards
 from app.services.board_stage_badges import (
     cpro_enabled_for_client,
     foreign_stage_target,
@@ -51,6 +52,8 @@ from app.services.board_stage_badges import (
 
 if TYPE_CHECKING:
     from app.services.candidate_followups import DigestCounts
+
+logger = logging.getLogger(__name__)
 
 WINDOW_DAYS = 14
 DL_REVIEW_WINDOW_DAYS = 30
@@ -84,6 +87,8 @@ class TemplateStages:
     """Etapy szablonu, między którymi chodzi kolejka."""
 
     verified_ids: frozenset[int]
+    # Etap, na który przegląd DL cofa kartę do poprawy („Zweryfikowany”).
+    verified_id: Optional[int]
     qc_ids: frozenset[int]
     qc_id: Optional[int]
     cpro_ids: frozenset[int]
@@ -126,8 +131,13 @@ class BoardTask:
     # od 24.09.2026 tylko zapas, gdy nikt nie wysyła do Cpro na firmę.
     job_sender_id: Optional[int] = None
     job_sender_name: Optional[str] = None
-    # Etap QC CV szablonu rekrutacji — „Zwróć do rekrutera" z kolejki Cpro.
+    # Etap powrotu do poprawy: z kolejki Cpro — „QC CV”, z przeglądu DL —
+    # „Zweryfikowany”.
     return_stage_def_id: Optional[int] = None
+    # Stan karty rekomendacji pary (przegląd DL): complete|partial|empty;
+    # ``None`` = para nie ma karty.
+    card_status: Optional[str] = None
+    card_missing: int = 0
     # Wynik QC CV pary (`cv_qc.pair_statuses`): passed|failed|overridden|unchecked.
     qc_status: Optional[str] = None
     qc_blocking_failed: int = 0
@@ -166,6 +176,8 @@ class BoardTask:
             "return_stage_def_id": self.return_stage_def_id,
             "qc_status": self.qc_status,
             "qc_blocking_failed": self.qc_blocking_failed,
+            "card_status": self.card_status,
+            "card_missing": self.card_missing,
         }
 
 
@@ -208,6 +220,7 @@ def classify_template(defs: Iterable[PipelineStageDef]) -> TemplateStages:
             cv_sent.append(d.id)
     return TemplateStages(
         verified_ids=frozenset(verified),
+        verified_id=verified[0] if verified else None,
         qc_ids=frozenset(qc),
         qc_id=qc[0] if qc else None,
         cpro_ids=frozenset(cpro),
@@ -381,6 +394,7 @@ async def load_snapshot(
                         kind=KIND_DL_REVIEW,
                         target_stage_def_id=stages.cv_sent_id,
                         rejected_stage_def_id=stages.rejected_id,
+                        return_stage_def_id=stages.verified_id,
                         **base,
                     )
                 )
@@ -410,6 +424,7 @@ async def load_snapshot(
 
     await _attach_dl_review_details(db, catalog, tasks)
     await _attach_qc_statuses(db, tasks)
+    await _attach_card_states(db, tasks)
     await _attach_versions_and_names(db, tasks)
     tasks.sort(key=lambda t: t.since)
     return BoardTaskSnapshot(tasks=tasks, firm_sender_id=firm_sender_id)
@@ -460,6 +475,29 @@ async def _attach_versions_and_names(db: AsyncSession, tasks: list[BoardTask]) -
             t.job_sender_name = names.get(t.job_sender_id)
         if t.verified_by_id is not None:
             t.verified_by_name = names.get(t.verified_by_id)
+
+
+async def _attach_card_states(db: AsyncSession, tasks: list[BoardTask]) -> None:
+    """Stan karty rekomendacji dla przeglądu DL — bez treści pól."""
+
+    review = [t for t in tasks if t.kind == KIND_DL_REVIEW]
+    if not review:
+        return
+    # Karta jest dodatkiem do przeglądu — awaria jej odczytu nie może położyć
+    # całej kolejki „Czeka na Ciebie”. Savepoint, bo sesja żądania jedzie dalej.
+    try:
+        async with db.begin_nested():
+            states = await recommendation_cards.summaries_for_pairs(
+                db, {(t.candidate_id, t.job_id) for t in review}
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("board_tasks: nie udało się odczytać stanu kart rekomendacji")
+        return
+    for t in review:
+        state = states.get((t.candidate_id, t.job_id))
+        if state is not None:
+            t.card_status = str(state["status"])
+            t.card_missing = len(state["missing"])  # type: ignore[arg-type]
 
 
 async def _attach_qc_statuses(db: AsyncSession, tasks: list[BoardTask]) -> None:

@@ -117,6 +117,7 @@ def test_waiting_tasks_cannot_be_muted_and_cv_sent_stays_a_stage_move() -> None:
         handoff.REASON_DL_REVIEW,
         handoff.REASON_CPRO_QUEUE,
         handoff.REASON_CPRO_RETURNED,
+        handoff.REASON_QC_RETURNED,
     }
     category = CATEGORY_BY_TYPE[NotificationType.board_task_waiting]
     assert category == NotificationCategory.mentions

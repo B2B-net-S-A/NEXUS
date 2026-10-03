@@ -77,6 +77,7 @@ const PAGES = [
   "/preview/job-board-screening?state=closed",
   "/preview/recommendation-card",
   "/preview/recommendation-card?state=empty",
+  "/preview/dl-review",
   "/preview/job-team-panel",
   "/preview/job-team-panel?as=hor",
   "/preview/job-team-panel?as=recruiter",

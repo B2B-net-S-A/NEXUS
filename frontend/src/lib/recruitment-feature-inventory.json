@@ -1294,6 +1294,38 @@
    "file": "components/v2/jobs/ScreeningWorkbench.tsx",
    "marker": "RecommendationCardSection",
    "v3_home": "Tablica → warsztat screeningu"
+  },
+  {
+   "id": "dl-review.card",
+   "area": "przegląd DL",
+   "opis": "Karta rekomendacji z odpowiedziami na pytania Championa w przeglądzie Delivery Leada (arkusz screeningu zwinięty pod spodem)",
+   "file": "components/v2/recruitment/DlReviewPanel.tsx",
+   "marker": "RecommendationCardQuestions",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj / Tablica → dok osoby w „QC CV”"
+  },
+  {
+   "id": "dl-review.remark",
+   "area": "przegląd DL",
+   "opis": "„Uwagi dla rekrutera” przy każdej decyzji DL (wysyłka, powrót, odrzucenie): notatka pary, dzwonek i linia na liście „Twoje CV w drodze”",
+   "file": "components/v2/recruitment/DlReviewPanel.tsx",
+   "marker": "recruiter_remark",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj"
+  },
+  {
+   "id": "dl-review.return",
+   "area": "przegląd DL",
+   "opis": "„Wróć do poprawy”: karta wraca z „QC CV” na „Zweryfikowany”, rekruter dostaje dzwonek z uwagą",
+   "file": "components/v2/recruitment/DlReviewPanel.tsx",
+   "marker": "Wróć do poprawy",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj"
+  },
+  {
+   "id": "dl-review.card-state",
+   "area": "pulpit",
+   "opis": "Stan karty rekomendacji („Karta gotowa” / „brakuje N” / „Bez karty”) w wierszu kolejki przeglądu DL",
+   "file": "components/v2/dashboard/BoardTasksPanel.tsx",
+   "marker": "ReviewCardBadge",
+   "v3_home": "Pulpit → Czeka na Ciebie → przegląd DL"
   }
  ]
 }

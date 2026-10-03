@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.pipeline_template import PipelineTemplate
 from app.models.user import User, UserRole
 from app.models.user_dashboard import UserDashboard
-from app.services import cpro_sender
+from app.services import cpro_sender, stage_remarks
 from app.services.board_stage_badges import (
     BOARD_COLUMN_ORDER,
     CV_QC_COLUMN,
@@ -86,6 +86,8 @@ class TransitRow:
     # U kogo karta czeka (w przeglądzie).
     holder_name: Optional[str] = None
     reason: Optional[str] = None
+    # Uwaga dla rekrutera zostawiona przy decyzji (`stage_remarks`).
+    remark: Optional[str] = None
 
 
 @dataclass
@@ -349,6 +351,10 @@ async def load_for_user(
         ).all():
             names[uid] = uname or email
 
+    remarks = await stage_remarks.for_stages(
+        db, [r.id for r, kind in kept if kind not in (KIND_IN_REVIEW, KIND_CPRO_QUEUE)]
+    )
+
     out = CvInTransit()
     for r, kind in kept:
         actor = names.get(r.moved_by) if r.moved_by is not None else None
@@ -376,6 +382,7 @@ async def load_for_user(
             actor_name=actor,
             holder_name=holder,
             reason=reason,
+            remark=stage_remarks.short(remarks.get(r.id)),
         )
         if kind in (KIND_IN_REVIEW, KIND_CPRO_QUEUE):
             out.in_review.append(row)

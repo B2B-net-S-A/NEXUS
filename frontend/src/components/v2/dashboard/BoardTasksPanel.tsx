@@ -45,6 +45,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Clock, Eye, ListOrdered } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AllocationProposalsSection } from "@/components/v2/dashboard/AllocationProposalsSection";
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState";
@@ -63,6 +64,7 @@ import {
 } from "@/lib/api/boardTasks";
 import { formatDayLabel, formatTime } from "@/lib/interview-cycle";
 import { countPl } from "@/lib/plural-pl";
+import { boardCardBadge } from "@/lib/recommendation-card";
 
 import { CproQueueDialog, CproSenderControl } from "./CproQueueDialog";
 import { CvInTransitSection } from "./CvInTransitSection";
@@ -83,6 +85,25 @@ function prepReasonClass(row: PrepAttentionRow): string {
   return row.urgent
     ? "bg-destructive/10 text-destructive"
     : "bg-warning-muted text-warning-muted-foreground";
+}
+
+const CARD_BADGE_VARIANT = { ok: "success", wait: "warning", neutral: "outline" } as const;
+
+/** Stan karty rekomendacji w wierszu przeglądu DL. Pole nieobecne w odpowiedzi
+ *  (starszy serwer) = bez plakietki; `null` = para nie ma karty. */
+function ReviewCardBadge({ row }: { row: BoardTaskRow }) {
+  if (row.card_status === undefined) return null;
+  const badge = boardCardBadge(
+    row.card_status ? { status: row.card_status, missing: row.card_missing ?? 0, answers: 0 } : null,
+    0,
+    "cv_qc",
+  );
+  if (!badge) return null;
+  return (
+    <Badge size="sm" variant={CARD_BADGE_VARIANT[badge.tone]} title={badge.title}>
+      {badge.label}
+    </Badge>
+  );
 }
 
 function RowMeta({ row }: { row: BoardTaskRow }) {
@@ -280,6 +301,7 @@ export function BoardTasksPanel() {
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-2">
                   <QcStatusBadge row={row} />
+                  <ReviewCardBadge row={row} />
                   <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                     {waitingFor(row.since)}
                   </span>

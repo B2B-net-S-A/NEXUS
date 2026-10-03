@@ -2361,6 +2361,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  process_state_version: dockItem.process_state_version ?? 0,
  target_stage_def_id: dst.stage_def_id ?? null,
  rejected_stage_def_id: rejectedTemplateCol?.stage_def_id ?? null,
+ // „Wróć do poprawy": gospodarz kolumny „Zweryfikowany".
+ return_stage_def_id:
+   boardFold.columns.find((f) => f.key === "verified")?.host.stage_def_id ?? null,
  assignee_id: null,
  assignee_name: null,
  verified_at: dockItem.moved_at ?? null,
@@ -2377,7 +2380,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // bramki QC; 409 CV_QC_FAILED otwiera okno QC CV).
  requestMove(dockItem, dockItemColId, dst);
  },
- [dockItem, dockItemColId, requestMove, cproEnabled, canReviewAsDl, dockHostKey, jobId, jobTitle, clientId, rejectedTemplateCol]
+ [dockItem, dockItemColId, requestMove, cproEnabled, canReviewAsDl, dockHostKey, jobId, jobTitle, clientId, rejectedTemplateCol, boardFold]
  );
  // Ramka „Następny etap": przekazanie na etap wskazany przez serwer
  // (`primary.target_stage_def_id` — „QC CV" dla DL, „Wysłać do Cpro").

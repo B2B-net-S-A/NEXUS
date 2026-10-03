@@ -55,15 +55,23 @@ REASON_DL_REVIEW = "dl_review"
 REASON_CPRO_QUEUE = "cpro_queue"
 REASON_CPRO_RETURNED = "cpro_returned"
 REASON_CV_SENT = "cv_sent"
+# Karta cofnięta z „QC CV” do wcześniejszej kolumny (poza Nordeą) — „Wróć do
+# poprawy” w przeglądzie Delivery Leada albo zwykłe przeciągnięcie.
+REASON_QC_RETURNED = "qc_returned"
 REASON_STAGE_REACHED = "stage_reached"
 
 # Karta czeka na odbiorcę — zadanie, nie informacja o ruchu.
-TASK_REASONS = frozenset({REASON_DL_REVIEW, REASON_CPRO_QUEUE, REASON_CPRO_RETURNED})
+TASK_REASONS = frozenset(
+    {REASON_DL_REVIEW, REASON_CPRO_QUEUE, REASON_CPRO_RETURNED, REASON_QC_RETURNED}
+)
+# Przekazania, które SĄ ruchem wstecz — resolver ich nie odsiewa.
+BACKWARD_REASONS = frozenset({REASON_CPRO_RETURNED, REASON_QC_RETURNED})
 
 CV_SENT_COLUMN = "cv_sent"
 # Kolumny, z których ruch na „CV wysłane” jest wysłaniem karty przekazanej
 # przez poprzednią osobę.
 _BEFORE_SEND_COLUMNS = frozenset({"new", "screening", "verified", CV_QC_COLUMN})
+_BEFORE_QC_COLUMNS = _BEFORE_SEND_COLUMNS - {CV_QC_COLUMN}
 # Etapy-odznaki (rozpoznawane po nazwie, jak na Tablicy), które nie dostały
 # reguły przy zasiewie: przygotowanie do rozmowy i dwa kroki umowy.
 _INFO_BADGE_KINDS = frozenset({"prep", "contract_sent", "contract_signed"})
@@ -110,6 +118,13 @@ def handoff_kind(
 
     column = _column(stage_def, stage_code)
     nordea = cpro_enabled_for_client(client_id)
+    if (
+        not nordea
+        and column in _BEFORE_QC_COLUMNS
+        and previous_def is not None
+        and _column(previous_def) == CV_QC_COLUMN
+    ):
+        return REASON_QC_RETURNED
     if column == CV_QC_COLUMN:
         if stage_badge_kind(stage_def.name) == "cpro":
             return REASON_CPRO_QUEUE if nordea else None
@@ -227,6 +242,15 @@ async def handoff_recipients(
     if kind == REASON_CPRO_RETURNED:
         sender = previous_stage.moved_by if previous_stage is not None else None
         return kind, [sender] if sender is not None else []
+    if kind == REASON_QC_RETURNED:
+        # Kto przekazał kartę do QC i rekruter kandydata — to oni poprawiają.
+        recruiter = await pair_recruiter_id(
+            db, candidate_id=candidate_id, job_id=job.id
+        )
+        sender = previous_stage.moved_by if previous_stage is not None else None
+        return kind, [
+            uid for uid in dict.fromkeys((sender, recruiter)) if uid is not None
+        ]
     if kind == REASON_CV_SENT:
         recruiter = await pair_recruiter_id(
             db, candidate_id=candidate_id, job_id=job.id
@@ -247,6 +271,8 @@ __all__ = [
     "REASON_CPRO_RETURNED",
     "REASON_CV_SENT",
     "REASON_DL_REVIEW",
+    "REASON_QC_RETURNED",
+    "BACKWARD_REASONS",
     "REASON_STAGE_REACHED",
     "TASK_REASONS",
     "handoff_kind",

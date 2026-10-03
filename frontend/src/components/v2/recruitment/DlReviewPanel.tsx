@@ -6,13 +6,20 @@
  *
  * U klientów innych niż Nordea osoba w kolumnie „QC CV” czeka, aż DL obejrzy:
  * wynik QC CV (okno `CvQcDialog`), stawkę kandydata, dostępność, CV
- * i odpowiedzi ze screeningu Championa. Dwie decyzje, obie to ZWYKŁY ruch
- * w pipeline (`POST /api/pipeline/move` z wersją procesu):
+ * kartę rekomendacji (z odpowiedziami na pytania Championa) i arkusz
+ * screeningu. Trzy decyzje, każda to ZWYKŁY ruch w pipeline
+ * (`POST /api/pipeline/move` z wersją procesu):
  *  - „Wyślij do klienta” → „CV wysłane” ze stawką do klienta w tym samym
  *    żądaniu (serwer odmawia bez stawki i bez uprawnienia „Rekrutacje:
  *    zakładanie, zamykanie, wysyłka CV do klienta”, a CV, które nie przeszło
  *    QC, odbija 409 `CV_QC_FAILED` — wtedy otwiera się QC),
+ *  - „Wróć do poprawy” → z powrotem na „Zweryfikowany”; rekruter dostaje
+ *    dzwonek i wpis „wróciło” na pulpicie,
  *  - „Odrzuć (DL)” → etap „Odrzucony” z powodem i `ended_by: "delivery_lead"`.
+ *
+ * „Uwagi dla rekrutera” (03.10.2026) jadą z każdą z trzech decyzji jako
+ * `recruiter_remark`: serwer zapisuje je jako notatkę pary i dokleja do
+ * dzwonka. Stawka do klienta ma własne pole — rekruter jej nie widzi.
  *
  * Panel dostaje wiersz kolejki (`BoardTaskRow` z `GET /api/board-tasks`), więc
  * da się go otworzyć także z panelu osoby na Tablicy — wystarczy złożyć wiersz.
@@ -21,7 +28,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Download, Loader2, Send, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, Download, Loader2, Send, ShieldCheck, Undo2, XCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,11 +46,17 @@ import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
 import { SavedScreeningView } from "@/components/v2/recruitment/PanelSavedViews";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
+import { RecommendationCardSection } from "@/components/v2/screening/RecommendationCardSection";
+import {
+  RecommendationCardQuestions,
+  RecommendationCardStatus,
+} from "@/components/v2/screening/RecommendationCardView";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { BOARD_TASKS_QUERY_KEY, waitingFor, type BoardTaskRow } from "@/lib/api/boardTasks";
+import { useRecommendationCard } from "@/lib/api/recommendationCards";
 import { downloadBlob } from "@/lib/authenticated-files";
 import { fetchStageCvFile } from "@/lib/stage-cv-file";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
@@ -362,7 +375,27 @@ export interface DlReviewPanelProps {
   canSendToClient?: boolean;
 }
 
-type PendingAction = "send" | "reject";
+type PendingAction = "send" | "reject" | "return";
+
+const REMARK_MAX = 2000;
+
+const ACTION_TEXT: Record<PendingAction, { done: string; failed: string; anyway: string }> = {
+  send: {
+    done: "CV wysłane do klienta.",
+    failed: "Nie udało się wysłać do klienta. Spróbuj ponownie.",
+    anyway: "Wyślij mimo to",
+  },
+  reject: {
+    done: "odrzucony przez DL.",
+    failed: "Nie udało się odrzucić. Spróbuj ponownie.",
+    anyway: "Odrzuć mimo to",
+  },
+  return: {
+    done: "wraca do rekrutera do poprawy.",
+    failed: "Nie udało się cofnąć do poprawy. Spróbuj ponownie.",
+    anyway: "Cofnij mimo to",
+  },
+};
 
 export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlReviewPanelProps) {
   const queryClient = useQueryClient();
@@ -402,6 +435,7 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
       api.get(`/api/candidates/${candidateId}/quick-view`, { signal }).then((r) => r.data),
     enabled: open && candidateId > 0,
   });
+  const card = useRecommendationCard(candidateId, jobId, open && candidateId > 0);
   const reasons = useQuery({
     queryKey: ["job-rejection-reasons", jobId],
     queryFn: () => loadJobRejectionReasons(jobId),
@@ -427,6 +461,8 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
   const clientRate = parseAmount(rateRaw);
   const location = profile?.city || profile?.location || null;
 
+  const remark = note.trim();
+
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: BOARD_TASKS_QUERY_KEY });
     void queryClient.invalidateQueries({ queryKey: ["kanban", String(task.job_id)] });
@@ -447,6 +483,9 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
         client_rate_unit: rateUnit,
         client_rate_currency: "PLN",
       });
+    } else if (action === "return") {
+      if (task.return_stage_def_id == null) return;
+      Object.assign(payload, { stage_def_id: task.return_stage_def_id });
     } else {
       if (task.rejected_stage_def_id == null) return;
       Object.assign(payload, {
@@ -454,19 +493,15 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
         ended_by: "delivery_lead",
         rejection_reason_id: reasonId ? Number(reasonId) : undefined,
         rejection_reason: !reasonId && freeReason.trim() ? freeReason.trim() : undefined,
-        notes: note.trim() || undefined,
       });
     }
+    if (remark) payload.recruiter_remark = remark;
     if (acknowledge) payload.acknowledge_eligibility = true;
     setBusy(action);
     setWarning(null);
     try {
       await api.post("/api/pipeline/move", payload);
-      showSuccess(
-        action === "send"
-          ? `${task.candidate_name} — CV wysłane do klienta.`
-          : `${task.candidate_name} — odrzucony przez DL.`,
-      );
+      showSuccess(`${task.candidate_name} — ${ACTION_TEXT[action].done}`);
       refresh();
       onOpenChange(false);
     } catch (error) {
@@ -486,14 +521,7 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
         refresh();
         onOpenChange(false);
       } else {
-        showError(
-          apiErrorMessage(
-            error,
-            action === "send"
-              ? "Nie udało się wysłać do klienta. Spróbuj ponownie."
-              : "Nie udało się odrzucić. Spróbuj ponownie.",
-          ),
-        );
+        showError(apiErrorMessage(error, ACTION_TEXT[action].failed));
       }
     } finally {
       setBusy(null);
@@ -504,6 +532,9 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
     task.rejected_stage_def_id != null &&
     (reasonId !== "" || (rejectedReasons.length === 0 && freeReason.trim() !== ""));
   const sendReady = canSend && clientRate != null && task.target_stage_def_id != null;
+  // Cofnięcie bez słowa wyjaśnienia nie mówi rekruterowi, co poprawić.
+  const canReturn = (canSend || canReject) && task.return_stage_def_id != null;
+  const returnReady = canReturn && remark !== "";
   // Wiersz sztuczny „kandydata na etapie” dla widoku screeningu: czyta tylko
   // `id` (wiersz etapu z zapisanym arkuszem).
   const screeningItem = { id: task.screening_stage_id ?? task.stage_id } as KanbanItem;
@@ -559,10 +590,27 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
 
           <CvPreview candidateId={task.candidate_id} jobId={task.job_id} cvStageId={task.cv_stage_id} />
 
-          <section aria-label="Odpowiedzi ze screeningu" className="space-y-2">
-            <h3 className="text-sm font-semibold">Screening Championa</h3>
-            <SavedScreeningView item={screeningItem} stageLabel="Zweryfikowany" />
+          <section aria-label="Karta rekomendacji" className="space-y-3">
+            <header className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold">Karta rekomendacji</h3>
+              {card.data ? <RecommendationCardStatus card={card.data} /> : null}
+            </header>
+            <RecommendationCardSection
+              candidateId={task.candidate_id}
+              jobId={task.job_id}
+              candidateName={task.candidate_name}
+            />
+            {card.data ? <RecommendationCardQuestions card={card.data} /> : null}
           </section>
+
+          <details className="group rounded-lg border border-border">
+            <summary className="cursor-pointer px-3 py-2 text-sm font-semibold">
+              Arkusz screeningu Championa
+            </summary>
+            <div className="border-t border-border p-3">
+              <SavedScreeningView item={screeningItem} stageLabel="QC CV" />
+            </div>
+          </details>
         </SheetBody>
 
         {/* Stopka niesie ostrzeżenie, formularz odrzucenia i stawkę — na
@@ -573,7 +621,7 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
               <AlertTriangle className="size-4 shrink-0 text-warning" aria-hidden />
               <span className="min-w-0 flex-1">{warning.reason}</span>
               <Button size="sm" variant="outline" onClick={() => void move(warning.action, true)} disabled={busy !== null}>
-                {warning.action === "send" ? "Wyślij mimo to" : "Odrzuć mimo to"}
+                {ACTION_TEXT[warning.action].anyway}
               </Button>
             </div>
           ) : null}
@@ -621,14 +669,6 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
                   />
                 </label>
               )}
-              <label className="block text-xs font-medium">
-                Notatka (opcjonalnie)
-                <textarea
-                  className="mt-1 min-h-16 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                />
-              </label>
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="ghost" onClick={() => setRejecting(false)} disabled={busy !== null}>
                   Anuluj
@@ -646,7 +686,7 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
             </div>
           ) : null}
 
-          <div className="flex flex-wrap items-end gap-3">
+          <div className="grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)]">
             <label className="text-xs font-medium">
               Stawka do klienta *
               <div className="mt-1 flex gap-1">
@@ -673,18 +713,51 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
                 </select>
               </div>
             </label>
-            <div className="ml-auto flex flex-wrap gap-2">
-              {canReject && !rejecting ? (
-                <Button variant="outline" onClick={() => setRejecting(true)} disabled={busy !== null}>
-                  <XCircle className="size-4" />
-                  Odrzuć (DL)…
-                </Button>
-              ) : null}
-              <Button disabled={!sendReady || busy !== null} onClick={() => void move("send")}>
-                {busy === "send" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Send className="size-4" />}
-                Wyślij do klienta → CV wysłane
+            {canSend || canReject ? (
+              <label className="block text-xs font-medium">
+                Uwagi dla rekrutera
+                <textarea
+                  aria-describedby="dl-review-remark-hint"
+                  className="mt-1 block min-h-9 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm font-normal"
+                  rows={2}
+                  maxLength={REMARK_MAX}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+              </label>
+            ) : null}
+          </div>
+          {canSend || canReject ? (
+            <p id="dl-review-remark-hint" className="text-xs text-muted-foreground">
+              Uwagę rekruter dostanie w powiadomieniu i w notatkach kandydata — przy „Wróć do
+              poprawy” napisz, co poprawić. Stawkę do klienta wpisz tylko w jej polu: rekruter jej
+              nie widzi.
+            </p>
+          ) : null}
+
+          <div className="flex flex-wrap justify-end gap-2">
+            {canReturn ? (
+              <Button
+                variant="outline"
+                disabled={!returnReady || busy !== null}
+                title={returnReady ? undefined : "Napisz w uwagach, co rekruter ma poprawić."}
+                aria-describedby={returnReady ? undefined : "dl-review-remark-hint"}
+                onClick={() => void move("return")}
+              >
+                {busy === "return" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Undo2 className="size-4" />}
+                Wróć do poprawy
               </Button>
-            </div>
+            ) : null}
+            {canReject && !rejecting ? (
+              <Button variant="outline" onClick={() => setRejecting(true)} disabled={busy !== null}>
+                <XCircle className="size-4" />
+                Odrzuć (DL)…
+              </Button>
+            ) : null}
+            <Button disabled={!sendReady || busy !== null} onClick={() => void move("send")}>
+              {busy === "send" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Send className="size-4" />}
+              Wyślij do klienta → CV wysłane
+            </Button>
           </div>
           {!canSend ? (
             <p className="text-xs text-muted-foreground">

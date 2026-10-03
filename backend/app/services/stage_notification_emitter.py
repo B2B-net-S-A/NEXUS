@@ -33,11 +33,13 @@ from app.services.email import send_email
 from app.services.notification_access import notification_recipient_has_access
 from app.services.notification_delivery import guarded_send, load_policy
 from app.services.notification_triggers import emit
+from app.services import stage_remarks
 from app.services.stage_handoff_recipients import (
     REASON_CPRO_QUEUE,
     REASON_CPRO_RETURNED,
     REASON_CV_SENT,
     REASON_DL_REVIEW,
+    REASON_QC_RETURNED,
     REASON_STAGE_REACHED,
     TASK_REASONS,
 )
@@ -77,14 +79,38 @@ def _inapp_content(
     stage_display_name: str,
     job: Job,
     mover: Optional[User],
+    remark: Optional[str] = None,
 ) -> tuple[str, str, str]:
     """``(tytuł, treść, link)`` dzwonka.
 
     Przekazanie z przepływu mówi odbiorcy, co ma zrobić, i prowadzi na
     Tablicę rekrutacji z otwartą osobą; zwykła reguła etapu zostaje przy
-    ogólnym zdaniu i profilu kandydata.
+    ogólnym zdaniu i profilu kandydata. ``remark`` to uwaga dla rekrutera
+    zostawiona przy ruchu (`stage_remarks`) — stawki do klienta dzwonek nie
+    niesie nigdy.
     """
 
+    title, message, link = _inapp_base(
+        reason=reason,
+        candidate=candidate,
+        candidate_full_name=candidate_full_name,
+        stage_display_name=stage_display_name,
+        job=job,
+        mover=mover,
+    )
+    note = stage_remarks.short(remark)
+    return title, f"{message} Uwaga: „{note}”" if note else message, link
+
+
+def _inapp_base(
+    *,
+    reason: Optional[str],
+    candidate: Candidate,
+    candidate_full_name: str,
+    stage_display_name: str,
+    job: Job,
+    mover: Optional[User],
+) -> tuple[str, str, str]:
     job_title = getattr(job, "working_title", None) or job.title
     who = mover.name if mover and mover.name else "Ktoś z zespołu"
     board_link = f"/jobs/{job.id}?candidate={candidate.id}"
@@ -107,6 +133,13 @@ def _inapp_content(
             f"Wrócił z kolejki Cpro: {candidate_full_name}",
             f"{who} zwrócił(a) kandydata {candidate_full_name} z kolejki Cpro "
             f"w rekrutacji „{job_title}”. Popraw CV i przekaż ponownie.",
+            board_link,
+        )
+    if reason == REASON_QC_RETURNED:
+        return (
+            f"Wróciło do poprawy: {candidate_full_name}",
+            f"{who} cofnął(-ęła) CV kandydata {candidate_full_name} z QC "
+            f"w rekrutacji „{job_title}”. Popraw i przekaż ponownie.",
             board_link,
         )
     if reason == REASON_CV_SENT:
@@ -144,6 +177,7 @@ async def _send_inapp(
     new_stage: CandidateStage,
     mover: Optional[User],
     reason: Optional[str] = None,
+    remark: Optional[str] = None,
 ) -> bool:
     title, message, link = _inapp_content(
         reason=reason,
@@ -152,6 +186,7 @@ async def _send_inapp(
         stage_display_name=stage_display_name,
         job=job,
         mover=mover,
+        remark=remark,
     )
     notif = await emit(
         db,
@@ -262,6 +297,12 @@ async def notify_stage_change(
         logger.warning("stage_notif: client name lookup failed: %s", exc)
         client_name = None
 
+    try:
+        remark = await stage_remarks.for_stage(db, new_stage.id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("stage_notif: remark lookup failed: %s", type(exc).__name__)
+        remark = None
+
     emitted_inapp = 0
     for rec in recipients:
         if rec.notify_inapp:
@@ -276,6 +317,7 @@ async def notify_stage_change(
                     new_stage=new_stage,
                     mover=mover,
                     reason=getattr(rec, "reason", None),
+                    remark=remark,
                 ):
                     emitted_inapp += 1
             except Exception as exc:  # noqa: BLE001
