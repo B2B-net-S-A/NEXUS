@@ -617,7 +617,7 @@ export function actionForTodo(todo: TodoEntry, items: CycleItem[]): CycleAction 
 
 /**
  * Akcja kroku bieżącego pary (przycisk w stepperze i na karcie tablicy).
- * `canManageSlots` = rola DL/TAC/nadzór — tylko ona dodaje i potwierdza terminy.
+ * `canManageSlots` = rola DL/nadzór — tylko ona dodaje i potwierdza terminy.
  */
 export function actionForItem(
   item: CycleItem,

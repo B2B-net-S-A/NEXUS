@@ -73,7 +73,7 @@ describe("UserModal — exclusive personas", () => {
 
   it("clears operational roles when Finance becomes primary", () => {
     const { onSave } = renderModal({
-      initial: { role: "delivery_lead", roles: ["delivery_lead", "tac"] },
+      initial: { role: "delivery_lead", roles: ["delivery_lead", "recruiter"] },
     });
 
     fireEvent.change(screen.getAllByRole("combobox")[0], {
@@ -81,7 +81,7 @@ describe("UserModal — exclusive personas", () => {
     });
 
     expect(screen.getByRole("checkbox", { name: /Finanse/ })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "TAC" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Rekruter" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
     expect(onSave).toHaveBeenCalledWith(
@@ -94,7 +94,7 @@ describe("UserModal — exclusive personas", () => {
 
   it("Praktykant (0374) jest rolą wyłączną — czyści pozostałe role", () => {
     const { onSave } = renderModal({
-      initial: { role: "recruiter", roles: ["recruiter", "tac"] },
+      initial: { role: "recruiter", roles: ["recruiter", "delivery_lead"] },
     });
 
     fireEvent.change(screen.getAllByRole("combobox")[0], {
@@ -102,7 +102,7 @@ describe("UserModal — exclusive personas", () => {
     });
 
     expect(screen.getByRole("checkbox", { name: /Praktykant/ })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "TAC" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Delivery Lead" })).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "Rekruter" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
@@ -112,7 +112,7 @@ describe("UserModal — exclusive personas", () => {
   });
 
   it("praktykanta nie da się dołożyć jako roli dodatkowej", () => {
-    renderModal({ initial: { role: "sourcer", roles: ["sourcer"] } });
+    renderModal({ initial: { role: "recruiter", roles: ["recruiter"] } });
     expect(screen.getByRole("checkbox", { name: "Praktykant" })).toBeDisabled();
   });
 

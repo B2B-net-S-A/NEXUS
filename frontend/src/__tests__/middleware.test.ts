@@ -39,12 +39,14 @@ const validRecruiter = makeToken({
   roles: ["recruiter"],
   exp: now() + HOUR,
 })
-const validSourcer = makeToken({
+// Tokeny wydane PRZED połączeniem ról (02.10.2026): backend nie wydaje już
+// `sourcer` ani `tac`, ale stare cookie może je nieść do ponownego logowania.
+const legacySourcer = makeToken({
   role: "sourcer",
   roles: ["sourcer"],
   exp: now() + HOUR,
 })
-const validTac = makeToken({ role: "tac", roles: ["tac"], exp: now() + HOUR })
+const legacyTac = makeToken({ role: "tac", roles: ["tac"], exp: now() + HOUR })
 const validDeliveryLead = makeToken({
   role: "delivery_lead",
   roles: ["delivery_lead"],
@@ -453,9 +455,7 @@ describe("zawężenia ról nadal obowiązują", () => {
   })
 
   it.each([
-    ["sourcer", validSourcer],
     ["recruiter", validRecruiter],
-    ["tac", validTac],
     ["head_of_recruitment", validHeadOfRecruitment],
   ])("%s ma Sourcing, Pipeline i Insights, ale nie Delivery ani Finanse", (_role, token) => {
     for (const route of [
@@ -544,8 +544,6 @@ describe("zawężenia ról nadal obowiązują", () => {
   it("Generator B2B pozostaje w Sourcing mimo prefiksu /contracts", () => {
     for (const token of [
       validRecruiter,
-      validSourcer,
-      validTac,
       validHeadOfRecruitment,
       validTalentCommunityManager,
       validViewer,
@@ -567,7 +565,6 @@ describe("zawężenia ról nadal obowiązują", () => {
     expect(destination("/applications", validHeadOfRecruitment)).toBe("pass")
     expect(destination("/applications", validViewer)).toBe("/403")
     expect(destination("/applications", validRecruiter)).toBe("pass")
-    expect(destination("/applications", validTac)).toBe("pass")
     expect(destination("/applications", validAdmin)).toBe("pass")
     // Hybryda HoR + rekruter rozpatruje zgłoszenia jako rekruter.
     expect(destination("/applications", validHybridHeadOfRecruitment)).toBe("pass")
@@ -629,9 +626,7 @@ describe("zawężenia ról nadal obowiązują", () => {
         validHeadOfRecruitment,
         validDeliveryLead,
         validTalentCommunityManager,
-        validTac,
         validRecruiter,
-        validSourcer,
         validFinance,
         validViewer,
       ]) {
@@ -675,7 +670,7 @@ describe("zawężenia ról nadal obowiązują", () => {
         "pass",
       );
       expect(
-        destination("/settings/cv-rules?client=7&tab=playbook", withSections("tac", "write")),
+        destination("/settings/cv-rules?client=7&tab=playbook", withSections("recruiter", "write")),
       ).toBe("pass");
       expect(
         destination("/settings/cv-rules", withSections("delivery_lead", "write")),
@@ -706,8 +701,6 @@ describe("zawężenia ról nadal obowiązują", () => {
       }
       for (const token of [
         validRecruiter,
-        validSourcer,
-        validTac,
         validHeadOfRecruitment,
         validViewer,
       ]) {
@@ -726,6 +719,37 @@ describe("zawężenia ról nadal obowiązują", () => {
     expect(destination("/settings/team-structure", validRecruiter)).toBe(
       "/403",
     )
+  })
+})
+
+describe("token sprzed połączenia ról (02.10.2026) — `tac` i `sourcer` liczą się jak `recruiter`", () => {
+  it.each([
+    ["tac", legacyTac],
+    ["sourcer", legacySourcer],
+  ])("stary token %s wchodzi tam, gdzie rekruter — bez /403", (_role, token) => {
+    // Trasa z listą ról (bez sekcji w tokenie decyduje wyłącznie lista).
+    expect(destination("/candidates/contact-queue", token)).toBe("pass")
+    // Trasy sekcji Sourcing i Pipeline.
+    for (const route of ["/candidates", "/jobs", "/calendar", "/applications"]) {
+      expect(destination(route, token), route).toBe("pass")
+    }
+  })
+
+  it("stary token nie dostaje więcej niż rekruter", () => {
+    for (const token of [legacyTac, legacySourcer]) {
+      expect(destination("/clients", token)).toBe("/403")
+      expect(destination("/finance", token)).toBe("/403")
+      expect(destination("/settings/cv-rules", token)).toBe("/403")
+    }
+  })
+
+  it("rola dodatkowa `tac` w claimie `roles` też jest zamieniana", () => {
+    const hybrid = makeToken({
+      role: "user",
+      roles: ["user", "tac"],
+      exp: now() + HOUR,
+    })
+    expect(destination("/candidates/contact-queue", hybrid)).toBe("pass")
   })
 })
 
@@ -758,7 +782,7 @@ describe("praktykant (0374) — jeden ekran", () => {
   })
 
   it("panel i reguły są zamknięte dla pozostałych ról", () => {
-    for (const token of [validRecruiter, validSourcer, validDeliveryLead, validFinance, validViewer]) {
+    for (const token of [validRecruiter, validDeliveryLead, validFinance, validViewer]) {
       expect(destination("/trainees", token)).toBe("/403")
       expect(destination("/settings/trainee-rules", token)).toBe("/403")
     }

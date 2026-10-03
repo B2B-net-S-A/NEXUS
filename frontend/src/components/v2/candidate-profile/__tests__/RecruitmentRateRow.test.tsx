@@ -44,10 +44,10 @@ function renderAs(roles: string[], clientRateAccess?: ClientRateAccess) {
 
 afterEach(() => useAuthStore.setState({ user: null, hydrated: true }));
 
-// Decyzja 23.09.2026: rekruter, sourcer i TAC nie widzą stawki do klienta,
+// Decyzja 23.09.2026: rekruter nie widzi stawki do klienta,
 // HoR, TCM i Finanse widzą, zapisuje wyłącznie DL albo admin.
 describe("RecruitmentRateRow — stawka do klienta wg roli", () => {
-  it.each(["recruiter", "sourcer", "tac"])(
+  it.each(["recruiter"])(
     "%s widzi tylko stawkę kandydata, bez marży",
     (role) => {
       renderAs([role]);

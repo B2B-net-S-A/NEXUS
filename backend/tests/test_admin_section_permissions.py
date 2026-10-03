@@ -206,9 +206,11 @@ async def test_role_snapshot_carries_the_catalogue_and_derived_sections(
     # Sekcje Delivery i Finanse są wyliczone z uprawnień, nie przepisane z wierszy.
     assert finance["permissions"]["delivery"] == "write"
     assert finance["permissions"]["finance"] == "write"
-    tac = roles["tac"]
-    assert tac["named"]["b2b_signature_confirmation"]["granted"] is False
-    assert tac["permissions"]["delivery"] == "none"
+    # Wycofane w 0411 role nie mają wiersza na ekranie uprawnień.
+    assert not {"tac", "sourcer"} & set(roles)
+    recruiter = roles["recruiter"]
+    assert recruiter["named"]["b2b_signature_confirmation"]["granted"] is False
+    assert recruiter["permissions"]["delivery"] == "none"
 
     async with AsyncSessionLocal() as db:
         expected = await db.scalar(

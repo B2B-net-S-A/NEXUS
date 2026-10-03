@@ -26,7 +26,7 @@ from app.models.section_permission import (
     RoleSectionPermission,
     UserActionOverride,
 )
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, known_roles
 from app.models.user_activity import UserActivity
 from app.api.deps import AdminUser, ensure_exclusive_role_configuration
 from app.api.notifications import create_notification
@@ -209,7 +209,7 @@ async def list_users(
             email=u.email,
             name=u.name,
             role=u.role,
-            roles=[UserRole(r) for r in (u.roles or []) if r in UserRole.__members__],
+            roles=known_roles(u.roles),
             is_active=u.is_active,
             can_delete_clients=bool(u.can_delete_clients),
             extra_permissions=list(

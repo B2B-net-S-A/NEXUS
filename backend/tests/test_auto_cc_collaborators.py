@@ -64,7 +64,7 @@ class _World:
         category_id: int | None,
         *,
         priority: int = 1,
-        role: UserRole = UserRole.sourcer,
+        role: UserRole = UserRole.recruiter,
         roles: list[str] | None = None,
         active: bool = True,
     ) -> int:

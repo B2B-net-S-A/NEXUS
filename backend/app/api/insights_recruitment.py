@@ -918,7 +918,7 @@ async def insights_seniority(
             "outside_pool_placements": computed.outside_pool_placements,
             "note": (
                 "Poziom liczymy wyłącznie z placementów przypisanych do "
-                "aktywnych kont w rolach sourcer / TAC / rekruter. Placementy "
+                "aktywnych kont w roli rekrutera. Placementy "
                 "bez przypisanego operatora oraz przypisane do kont spoza tej "
                 "puli (w tym kont założonych przez import Traffita dla "
                 "operatorów bez odpowiednika w NEXUSIE) są liczone osobno."

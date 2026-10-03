@@ -78,11 +78,10 @@ async def _seed_job(*, recruiter_id: int | None, collaborator_id: int | None) ->
 @pytest.fixture
 async def world(app_client: AsyncClient):
     owner_h, owner_id = await _seed_user(app_client, "recruiter")
-    collab_h, collab_id = await _seed_user(app_client, "sourcer")
+    collab_h, collab_id = await _seed_user(app_client, "recruiter")
     outsider_h, _ = await _seed_user(app_client, "recruiter")
     hor_h, _ = await _seed_user(app_client, "head_of_recruitment")
     dl_h, _ = await _seed_user(app_client, "delivery_lead")
-    tac_h, _ = await _seed_user(app_client, "tac")
     viewer_h, _ = await _seed_user(app_client, "user")
     job_id = await _seed_job(recruiter_id=owner_id, collaborator_id=collab_id)
     return {
@@ -92,7 +91,6 @@ async def world(app_client: AsyncClient):
         "outsider": outsider_h,
         "hor": hor_h,
         "dl": dl_h,
-        "tac": tac_h,
         "viewer": viewer_h,
     }
 
@@ -236,8 +234,9 @@ async def test_job_detail_reports_can_staff_and_can_set_priority(app_client, wor
     """`can_staff` = bramka `/owner`, `can_set_priority` = wyjątek w PATCH.
 
     Head of Recruitment ma oba bez pełnej redakcji (`can_manage` zostaje
-    fałszem), a TAC — pełny redaktor — ustawia priorytet, ale ludzi nie
-    przydziela. Podgląd (`user`) nie ma zapisu sekcji, więc nie ma żadnego.
+    fałszem). Rekruter nie ma żadnego — do 0411 priorytet ustawiała jeszcze
+    rola TAC, wycofana razem ze swoimi dodatkami. Podgląd (`user`) nie ma
+    zapisu sekcji, więc też nie ma żadnego.
     """
     expected = {
         "owner": (False, False),
@@ -245,7 +244,6 @@ async def test_job_detail_reports_can_staff_and_can_set_priority(app_client, wor
         "outsider": (False, False),
         "hor": (True, True),
         "dl": (True, True),
-        "tac": (False, True),
         "viewer": (False, False),
     }
     for who, (can_staff, can_set_priority) in expected.items():
@@ -312,10 +310,9 @@ def _job():
         (("head_of_recruitment",), True, True),
         # Rola dodatkowa liczy się jak główna.
         (("recruiter", "head_of_recruitment"), True, True),
-        # TAC jest pełnym redaktorem (priorytet), ale ludzi nie przydziela.
-        (("tac",), False, True),
+        # Rekruter nie przydziela ludzi i nie ustawia priorytetu (do 0411
+        # priorytet ustawiała rola TAC — dodatek zniknął razem z rolą).
         (("recruiter",), False, False),
-        (("sourcer",), False, False),
         (("talent_community_manager",), False, False),
         (("finance",), False, False),
         (("user",), False, False),
@@ -347,10 +344,10 @@ async def test_staffing_and_priority_rights_per_role(
         (("head_of_recruitment",), {"status"}, False),
         (("recruiter", "head_of_recruitment"), {"priority"}, True),
         (("recruiter",), {"priority"}, False),
-        (("sourcer",), {"priority"}, False),
+        # Do 0411 rola TAC była pełnym redaktorem; rekruter nim nie jest.
+        (("recruiter",), {"priority", "deadline"}, False),
         (("recruiter",), {"description"}, True),
         # Pełni redaktorzy bez zmian.
-        (("tac",), {"priority", "deadline"}, True),
         (("delivery_lead",), {"priority", "status"}, True),
         (("admin",), {"status"}, True),
     ],

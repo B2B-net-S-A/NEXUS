@@ -60,8 +60,8 @@ brakującą pozycję. Pełny opis: `docs/permissions-nine-switches-contract.md`.
 Trasy tylko dla administratora · „Cofnij zakończenie” i „Powrót po przerwie”
 (admin, Finanse, TCM) · skrzynka alertów Delivery Leada · struktura zespołu
 i przypisania DL↔klient · Champion (weryfikacja, briefing, generowanie) ·
-przypinanie w czacie · szablony pipeline'u · kolejka przeglądu DL · pełna
-edycja rekrutacji przez TAC · tabela rok do roku dla Head of Recruitment bez
+przypinanie w czacie · szablony pipeline'u · kolejka przeglądu DL ·
+tabela rok do roku dla Head of Recruitment bez
 kwot · podgląd stawki do klienta w rekrutacji · stawki w Generatorze B2B ·
 imienne „Może usuwać klientów”.
 
@@ -74,9 +74,7 @@ imienne „Może usuwać klientów”.
 | Head of Recruitment | RW | RW | RW | — |
 | Delivery Lead | RW | RW | R | — |
 | Talent Community Manager | RW | RW | R | — |
-| TAC | RW | RW | R | — |
 | Rekruter | RW | RW | R | — |
-| Sourcer | RW | RW | R | — |
 | Viewer `user` (legacy) | R | R | R | — |
 | Praktykant | — | — | — | — |
 
@@ -120,14 +118,12 @@ Jedna hierarchia, sześć wartości. Każdy user ma dokładnie jedną rolę
 |---|:---:|---|---|
 | `admin` | 5 | Właściciel, CTO | Zarządzanie userami, systemem, wszystkie dane |
 | `delivery_lead` | 4 | DL procesu | Rate cards, konflikty, pipeline templates, pełne raporty, zespół |
-| `tac` | 3 | Talent Acquisition Consultant | CRUD ofert/kontraktów, reject/offer, prep kit, pełne raporty |
-| `recruiter` | 2 | Rekruter (100% LinkedIn) | Dodawanie kandydatów, ruchy w pipeline, własne raporty |
-| `sourcer` | 2 | Sourcer (100% ATS/ogłoszenia) | Dodawanie kandydatów z bazy, ruchy w pipeline, własne raporty |
+| `recruiter` | 2 | Rekruter | Dodawanie kandydatów, ruchy w pipeline, własne raporty |
 | `user` | 1 | QC, klient, viewer | Read-only across UI |
 
-`recruiter` i `sourcer` są na tej samej randze — różnią się **kompetencją**
-(LinkedIn vs ATS), nie poziomem uprawnień. System premiowy B2B.net rozróżnia
-ich per-kandydat w systemie aktywności (kto dodał, kto przesunął).
+Od 0411 (02.10.2026) jest jedna rola rekrutacyjna: dawne `sourcer`, `recruiter`
+i `tac` to `recruiter`. Wzmianki o `tac`/`sourcer` niżej w tym pliku opisują
+stan historyczny.
 
 ---
 

@@ -42,7 +42,7 @@ async def test_delivery_lead_team_comes_from_its_recruitments() -> None:
     async with AsyncSessionLocal() as db:
         dl = _user(UserRole.delivery_lead)
         owner = _user(UserRole.recruiter)
-        collaborator = _user(UserRole.sourcer)
+        collaborator = _user(UserRole.recruiter)
         client_owner = _user(UserRole.recruiter)
         closed_owner = _user(UserRole.recruiter)
         inactive = _user(UserRole.recruiter, active=False)

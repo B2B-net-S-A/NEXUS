@@ -124,7 +124,7 @@ describe("NotificationsTab", () => {
   it("renderuje procesy, etapy i aktywne override'y", async () => {
     mockLoad([
       override(),
-      override({ id: 501, recipient_type: "role", role: "tac", notify_email: false, is_active: false }),
+      override({ id: 501, recipient_type: "role", role: "recruiter", notify_email: false, is_active: false }),
     ]);
 
     render(<NotificationsTab clientId={CLIENT_ID} />);
@@ -140,7 +140,7 @@ describe("NotificationsTab", () => {
       within(cvSent).getByText("Override aktywny (2) — baseline pominięty"),
     ).toBeInTheDocument();
     expect(within(cvSent).getByText("Rekruter projektu i kandydata")).toBeInTheDocument();
-    expect(within(cvSent).getByText(/Rola \(wszyscy aktywni\) · tac/)).toBeInTheDocument();
+    expect(within(cvSent).getByText(/Rola \(wszyscy aktywni\) · recruiter/)).toBeInTheDocument();
     expect(within(cvSent).getByText("(wyłączony)")).toBeInTheDocument();
   });
 

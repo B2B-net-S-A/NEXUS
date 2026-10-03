@@ -94,8 +94,6 @@ async def _authorized_builder(*_args: Any, **_kwargs: Any) -> None:
             UserRole.talent_community_manager,
             "build_head_of_recruitment_dashboard",
         ),
-        ("/my-work", UserRole.sourcer, "build_my_work_dashboard"),
-        ("/my-work", UserRole.tac, "build_my_work_dashboard"),
         ("/my-work", UserRole.recruiter, "build_my_work_dashboard"),
         ("/finance", UserRole.finance, "build_finance_dashboard"),
         (
@@ -344,7 +342,7 @@ def test_multi_role_operator_can_narrow_oversight_scope_to_my_work(
     primary_role: UserRole,
 ) -> None:
     operator = _user(primary_role, user_id=44)
-    operator.roles = [primary_role.value, UserRole.tac.value]
+    operator.roles = [primary_role.value, UserRole.recruiter.value]
     oversight_scope = ResolvedDashboardScope(
         raw=object(),
         payload=DashboardScopePayload(

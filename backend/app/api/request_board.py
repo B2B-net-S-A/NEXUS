@@ -36,7 +36,7 @@ from app.models.activity import Activity
 from app.models.client import Client
 from app.models.competence_category import CompetenceCategory, UserCompetenceCategory
 from app.models.job import Job, JobStatus
-from app.models.job_work_assignment import JobWorkAssignment
+from app.models.job_work_assignment import WORK_ROLE, JobWorkAssignment
 from app.models.recruitment_allocation import RecruitmentAllocationState
 from app.models.user import User, UserRole
 from app.schemas.job_team import JobRecruiterOut
@@ -46,7 +46,6 @@ from app.services.job_team import (
     TeamPerson,
     recruiters_for_jobs,
     remove_recruiter,
-    work_role_of,
     working,
 )
 from app.services.job_working_title import display_title, job_display_title_expr
@@ -160,14 +159,16 @@ DbIdPath = Annotated[int, Path(ge=1, le=_PG_INT4_MAX)]
 
 class PersonPayload(BaseModel):
     user_id: DbId
-    role: Literal["recruiter", "sourcer"]
+    # Do 0411 wybór rekruter/sourcer. Pole zostaje dla otwartych kart ze starą
+    # wersją aplikacji i jest ignorowane — rola pracy jest jedna.
+    role: Optional[str] = None
 
 
 class ProposalDecision(BaseModel):
     decision: Literal["accept", "reject", "replace"]
     # Tylko przy ``replace``: kto ma pracować zamiast proponowanej osoby.
     replacement_user_id: Optional[DbId] = None
-    replacement_role: Optional[Literal["recruiter", "sourcer"]] = None
+    replacement_role: Optional[str] = None  # ignorowane od 0411, jak wyżej
 
 
 class ProposalRef(BaseModel):
@@ -508,10 +509,8 @@ async def _assignable_person(db: AsyncSession, user_id: int) -> User:
     person = await db.get(User, user_id)
     if person is None or not person.is_active:
         raise HTTPException(404, "Nie ma takiej aktywnej osoby.")
-    if not person.has_any_role(UserRole.recruiter, UserRole.sourcer, UserRole.tac):
-        raise HTTPException(
-            422, "Do requestu można dodać rekrutera, sourcera albo TAC."
-        )
+    if not person.has_role(UserRole.recruiter):
+        raise HTTPException(422, "Do requestu można dodać tylko rekrutera.")
     return person
 
 
@@ -581,7 +580,7 @@ async def add_person(
         db,
         job_id=job_id,
         user_id=person.id,
-        role=payload.role,
+        role=WORK_ROLE,
         actor_id=current_user.id,
     )
     await db.commit()
@@ -685,7 +684,7 @@ async def decide_proposal(
             job_id=job_id,
             user_id=user_id,
             replacement_id=replacement.id,
-            role=payload.replacement_role or work_role_of(replacement),
+            role=WORK_ROLE,
             actor_id=current_user.id,
         )
         assigned_user_id = replacement.id

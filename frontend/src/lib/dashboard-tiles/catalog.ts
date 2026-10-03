@@ -100,8 +100,6 @@ const DL_ALERTS_ROLES: UserRole[] = ["admin", "delivery_lead", "finance"];
 const CONTACT_CALLER_ROLES: UserRole[] = [
   "talent_community_manager",
   "recruiter",
-  "sourcer",
-  "tac",
 ];
 
 export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
@@ -135,7 +133,7 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     ownChrome: true,
     availability: needsRole(
       CONTACT_CALLER_ROLES,
-      "Dla rekruterów, sourcerów, TAC i TCM",
+      "Dla rekruterów i TCM",
     ),
   },
   my_priority_queue: {
@@ -146,10 +144,7 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     defaultSize: { w: 6, h: 4 },
     minSize: { w: 4, h: 3 },
     ownChrome: true,
-    availability: needsRole(
-      ["recruiter", "sourcer", "tac"],
-      "Dla rekruterów, sourcerów i TAC",
-    ),
+    availability: needsRole(["recruiter"], "Dla rekruterów"),
   },
   my_people: {
     type: "my_people",
@@ -536,8 +531,6 @@ export const TILE_TEMPLATES: TileTemplate[] = [
 
 const RECOMMENDED_BY_ROLE: Partial<Record<UserRole, string[]>> = {
   recruiter: ["request_board", "cv_sent_week", "my_recruitments", "my_next_steps", "calendar_today"],
-  sourcer: ["request_board", "cv_sent_week", "my_recruitments", "my_next_steps", "calendar_today"],
-  tac: ["request_board", "cv_sent_week", "my_recruitments", "my_next_steps", "calendar_today"],
   talent_community_manager: [
     "recruitment_activity",
     "funnel",
@@ -576,9 +569,7 @@ const ROLE_PRIORITY: UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
 ];
 
 export const ROLE_LABELS_PL: Partial<Record<UserRole, string>> = {
@@ -587,9 +578,7 @@ export const ROLE_LABELS_PL: Partial<Record<UserRole, string>> = {
   head_of_recruitment: "Head of Recruitment",
   delivery_lead: "Delivery Lead",
   talent_community_manager: "Talent Community Manager",
-  tac: "TAC",
   recruiter: "Rekruter",
-  sourcer: "Sourcer",
 };
 
 export function templateAvailability(

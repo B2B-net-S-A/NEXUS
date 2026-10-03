@@ -105,9 +105,7 @@ async def test_frozen_legacy_dashboards_are_admin_or_hor_only() -> None:
     for role in (
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.finance,
         UserRole.user,
     ):
@@ -139,7 +137,7 @@ async def test_team_kpi_panel_route_requires_team_capability() -> None:
         user = _user(role)
         assert await guard(current_user=user) is user
 
-    for role in (UserRole.tac, UserRole.recruiter, UserRole.sourcer, UserRole.user):
+    for role in (UserRole.recruiter, UserRole.user):
         with pytest.raises(HTTPException) as exc:
             await guard(current_user=_user(role))
         assert exc.value.status_code == 403
@@ -168,10 +166,8 @@ async def test_recruitment_overview_dashboard_accepts_admin_hor_and_tcm() -> Non
 
     for role in (
         UserRole.delivery_lead,
-        UserRole.tac,
         UserRole.recruiter,
         UserRole.finance,
-        UserRole.sourcer,
         UserRole.user,
     ):
         with pytest.raises(HTTPException) as exc:
@@ -186,10 +182,8 @@ async def test_legacy_recruitment_report_follows_ranking_capability() -> None:
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,  # 22.09.2026 (audyt U9)
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.recruiter,
         UserRole.finance,
-        UserRole.sourcer,
     ):
         user = _user(role)
         assert await _recruitment_ranking_guard(current_user=user) is user
@@ -201,7 +195,7 @@ async def test_legacy_recruitment_report_follows_ranking_capability() -> None:
 
     hybrid = _user(
         UserRole.delivery_lead,
-        roles=[UserRole.delivery_lead.value, UserRole.tac.value],
+        roles=[UserRole.delivery_lead.value, UserRole.recruiter.value],
     )
     assert await _recruitment_ranking_guard(current_user=hybrid) is hybrid
 
@@ -237,8 +231,12 @@ def test_finance_role_cannot_be_combined() -> None:
 
 def test_runtime_viewer_promotion_requires_role_specific_onboarding() -> None:
     assert _acquires_onboarding_role(["user"], ["recruiter"])
-    assert _acquires_onboarding_role(["tac"], ["tac", "delivery_lead"])
-    assert not _acquires_onboarding_role(["recruiter"], ["recruiter", "tac"])
+    assert _acquires_onboarding_role(
+        ["head_of_recruitment"], ["head_of_recruitment", "delivery_lead"]
+    )
+    assert not _acquires_onboarding_role(
+        ["recruiter"], ["recruiter", "head_of_recruitment"]
+    )
     assert not _acquires_onboarding_role(["finance"], ["finance"])
     assert onboarding_persona_changed(
         ["recruiter"],
@@ -251,7 +249,10 @@ def test_runtime_viewer_promotion_requires_role_specific_onboarding() -> None:
 
 
 def test_onboarding_persona_uses_role_union_with_dl_precedence() -> None:
-    assert onboarding_persona_for_roles(["tac", "recruiter"]) is UserRole.recruiter
+    assert (
+        onboarding_persona_for_roles(["head_of_recruitment", "recruiter"])
+        is UserRole.recruiter
+    )
     assert (
         onboarding_persona_for_roles(["recruiter", "delivery_lead"])
         is UserRole.delivery_lead
@@ -269,7 +270,7 @@ def test_dashboard_presets_follow_personas_and_multi_role_union() -> None:
     ]
     hybrid = _user(
         UserRole.delivery_lead,
-        roles=[UserRole.delivery_lead.value, UserRole.tac.value],
+        roles=[UserRole.delivery_lead.value, UserRole.recruiter.value],
     )
     assert _dashboard_presets_for(hybrid) == ["delivery-lead", "my-work"]
     assert _dashboard_presets_for(_user(UserRole.admin)) == [
@@ -378,22 +379,21 @@ def test_scoped_job_operations_use_exact_delivery_scope_and_hide_budget() -> Non
         _user(UserRole.admin, roles=["admin", "delivery_lead"]),
     )
     # Od 0410 rekrutację zakłada każdy posiadacz uprawnienia „Rekrutacje” —
-    # widełki zostają przy roli: admin albo TAC, jak mówi komunikat.
+    # widełki zostają przy roli admina, jak mówi komunikat (do 0411 także TAC).
     for role in (
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.head_of_recruitment,
         UserRole.finance,
     ):
         with pytest.raises(HTTPException) as exc:
             _assert_delivery_lead_finance_write({"salary_min"}, _user(role))
         assert exc.value.status_code == 403
+        assert exc.value.detail == "Widełki wynagrodzenia może ustawić tylko admin"
         _assert_delivery_lead_finance_write({"title", "deadline"}, _user(role))
-    _assert_delivery_lead_finance_write({"salary_min"}, _user(UserRole.tac))
     with pytest.raises(HTTPException):
         _assert_delivery_lead_finance_write(
             {"salary_max"},
-            _user(UserRole.tac, roles=["tac", "delivery_lead"]),
+            _user(UserRole.recruiter, roles=["recruiter", "delivery_lead"]),
         )
 
 

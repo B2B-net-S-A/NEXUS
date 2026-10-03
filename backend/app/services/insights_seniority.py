@@ -69,7 +69,7 @@ logger = logging.getLogger(__name__)
 # role osoby"). Do tej daty liczyła się tylko rola główna, więc Delivery Lead
 # z rolą TAC dostawał cel KPI i miejsce w wyścigu, ale nie miał ścieżki
 # rozwoju — trzy powierzchnie mówiły co innego o tej samej osobie (audyt T3).
-SENIORITY_PATH_ROLES: tuple[str, ...] = ("sourcer", "tac", "recruiter")
+SENIORITY_PATH_ROLES: tuple[str, ...] = ("recruiter",)
 
 LEVEL_JUNIOR = "junior"
 LEVEL_SENIOR = "senior"

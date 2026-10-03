@@ -43,7 +43,7 @@ describe("useMentionableUsers", () => {
     mocks.get.mockResolvedValue({
       data: [
         { id: 1, name: "Anna Nowak", email: "anna@example.com", role: "recruiter" },
-        { id: 2, name: null, email: "bez.imienia@example.com", role: "tac" },
+        { id: 2, name: null, email: "bez.imienia@example.com", role: "delivery_lead" },
       ],
     });
     const { wrapper } = setup();
@@ -53,7 +53,7 @@ describe("useMentionableUsers", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual([
       { id: 1, name: "Anna Nowak", email: "anna@example.com", role: "recruiter" },
-      { id: 2, name: "bez.imienia@example.com", email: "bez.imienia@example.com", role: "tac" },
+      { id: 2, name: "bez.imienia@example.com", email: "bez.imienia@example.com", role: "delivery_lead" },
     ]);
   });
 

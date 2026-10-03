@@ -267,9 +267,7 @@ NON_BOARD_ROLES = (
     # Head of Recruitment nie widzi pieniędzy (decyzja Artura 24.09.2026).
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
     UserRole.user,
 )
 
@@ -764,8 +762,6 @@ async def test_hiring_managers_is_open_to_every_logged_in_role(
     """
     for role in (
         UserRole.recruiter,
-        UserRole.sourcer,
-        UserRole.tac,
         UserRole.delivery_lead,
         UserRole.user,
         UserRole.admin,
@@ -814,7 +810,7 @@ async def test_hiring_managers_window_filters_jobs_by_creation_date(
         job_created_at=datetime(year, 5, 2, tzinfo=timezone.utc)
     )
 
-    _, email, password = await _seed_user(UserRole.sourcer, "hm-window")
+    _, email, password = await _seed_user(UserRole.recruiter, "hm-window")
     headers = await _login(fx_client, email, password)
     body = (
         await fx_client.get(
@@ -863,7 +859,7 @@ async def test_hiring_managers_window_uses_opening_date_not_import_date(
         job_created_at=datetime(year, 5, 6, tzinfo=timezone.utc),
         job_opened_at=datetime(year, 2, 12, tzinfo=timezone.utc),
     )
-    _, email, password = await _seed_user(UserRole.sourcer, "hm-opened")
+    _, email, password = await _seed_user(UserRole.recruiter, "hm-opened")
     headers = await _login(fx_client, email, password)
 
     async def _ids(date_from: str, date_to: str) -> set[int]:

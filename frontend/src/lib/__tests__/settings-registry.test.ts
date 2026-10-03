@@ -174,7 +174,7 @@ describe("settings-registry — lista telefonów praktykantów (0374)", () => {
   it("widzą ją admin i Head of Recruitment, nikt inny", () => {
     expect(can(user("admin", {}), "trainee-rules")).toBe(true);
     expect(can(user("head_of_recruitment", {}), "trainee-rules")).toBe(true);
-    for (const role of ["delivery_lead", "recruiter", "sourcer", "finance", "trainee"]) {
+    for (const role of ["delivery_lead", "recruiter", "finance", "trainee"]) {
       expect(can(user(role, {}), "trainee-rules")).toBe(false);
     }
   });

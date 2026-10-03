@@ -67,9 +67,7 @@ const ROLE_HEADCOUNT: Partial<Record<UserRole, number>> = {
   head_of_recruitment: 2,
   delivery_lead: 7,
   talent_community_manager: 6,
-  tac: 2,
   recruiter: 8,
-  sourcer: 3,
 };
 
 const ALL_ROLES: UserRole[] = [
@@ -78,9 +76,7 @@ const ALL_ROLES: UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
 ];

@@ -86,9 +86,7 @@ ROLE_LABELS: dict[str, str] = {
     "delivery_lead": "Delivery Lead",
     "talent_community_manager": "Talent Community Manager",
     "finance": "Finanse",
-    "tac": "TAC",
     "recruiter": "Rekruter",
-    "sourcer": "Sourcer",
     "user": "Viewer",
 }
 

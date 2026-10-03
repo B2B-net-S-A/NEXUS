@@ -124,7 +124,7 @@ const CASES: {
       deadline_time: null,
       priority_level: "p1",
       recruiters: [
-        { ...anna, role: "recruiter", via: "assignment", proposed: true, assigned_by_name: null },
+        { ...anna, via: "assignment", proposed: true, assigned_by_name: null },
       ],
     },
   },
@@ -147,8 +147,8 @@ const CASES: {
         is_active: true,
       },
       recruiters: [
-        { ...bartek, role: "recruiter", via: "owner", proposed: false, assigned_by_name: DELIVERY_LEAD.name },
-        { ...celina, role: "sourcer", via: "collaborator", proposed: false, assigned_by_name: null },
+        { ...bartek, via: "owner", proposed: false, assigned_by_name: DELIVERY_LEAD.name },
+        { ...celina, via: "collaborator", proposed: false, assigned_by_name: null },
       ],
     },
   },
@@ -171,7 +171,7 @@ const CASES: {
 const DIRECTORY = [
   { id: anna.user_id, name: anna.name, email: "anna@example.com", role: "recruiter", roles: ["recruiter"] },
   { id: bartek.user_id, name: bartek.name, email: "bartek@example.com", role: "recruiter", roles: ["recruiter"] },
-  { id: celina.user_id, name: celina.name, email: "celina@example.com", role: "sourcer", roles: ["sourcer"] },
+  { id: celina.user_id, name: celina.name, email: "celina@example.com", role: "recruiter", roles: ["recruiter"] },
   { id: darek.user_id, name: darek.name, email: "darek@example.com", role: "recruiter", roles: ["recruiter"] },
   { id: 35, name: "Ewa Fikcyjna", email: "ewa@example.com", role: "recruiter", roles: ["recruiter"] },
   { id: DELIVERY_LEAD.id, name: DELIVERY_LEAD.name, email: "gosia@example.com", role: "delivery_lead", roles: ["delivery_lead"] },
@@ -181,7 +181,7 @@ const DIRECTORY = [
 const CATEGORY_PEOPLE: CategoryRecruiter[] = [
   { user_id: anna.user_id, name: anna.name, email: "anna@example.com", role: "recruiter", is_primary: true, priority: 1 },
   { user_id: bartek.user_id, name: bartek.name, email: "bartek@example.com", role: "recruiter", is_primary: true, priority: 1 },
-  { user_id: celina.user_id, name: celina.name, email: "celina@example.com", role: "sourcer", is_primary: false, priority: 2 },
+  { user_id: celina.user_id, name: celina.name, email: "celina@example.com", role: "recruiter", is_primary: false, priority: 2 },
   { user_id: darek.user_id, name: darek.name, email: "darek@example.com", role: "recruiter", is_primary: false, priority: 2 },
 ];
 
@@ -236,7 +236,7 @@ function seededClient(): QueryClient {
   qc.setQueryData(categoryRecruitersQueryKey(CATEGORY_ID), CATEGORY_PEOPLE, SEED_FRESH);
   // Okno „Przypisz rekrutera” / „Zmień rekrutera” (`RecruiterPickerField`).
   qc.setQueryData(
-    ["users", "directory", "admin,delivery_lead,tac,recruiter,sourcer"],
+    ["users", "directory", "admin,delivery_lead,recruiter"],
     DIRECTORY.filter((user) => user.role !== "head_of_recruitment"),
     SEED_FRESH,
   );

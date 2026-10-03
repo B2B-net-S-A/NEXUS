@@ -65,21 +65,19 @@ describe("hasFullJobEditFallback — reguła zapasowa pełnej edycji", () => {
     "head_of_recruitment",
     "delivery_lead",
     "talent_community_manager",
-    "tac",
     "recruiter",
-    "sourcer",
     "user",
     "trainee",
   ];
 
-  it("domyślnie admin i Delivery Lead (uprawnienie) oraz TAC (rola)", () => {
+  it("domyślnie admin i Delivery Lead (uprawnienie) — żadna rola z samego tytułu", () => {
     expect(ALL_ROLES.filter((role) => hasFullJobEditFallback({ role })).sort()).toEqual(
-      ["admin", "delivery_lead", "tac"].sort(),
+      ["admin", "delivery_lead"].sort(),
     );
     expect(hasFullJobEditFallback(null)).toBe(false);
   });
 
-  it("idzie za uprawnieniem do rekrutacji, a TAC zostaje z tytułu roli", () => {
+  it("idzie za uprawnieniem do rekrutacji; rekruter bez uprawnienia jej nie ma", () => {
     expect(
       hasFullJobEditFallback(accessSnapshot("recruiter", { grant: ["recruitment_manage"] })),
     ).toBe(true);
@@ -88,7 +86,8 @@ describe("hasFullJobEditFallback — reguła zapasowa pełnej edycji", () => {
         accessSnapshot("delivery_lead", { revoke: ["recruitment_manage"] }),
       ),
     ).toBe(false);
-    expect(hasFullJobEditFallback(accessSnapshot("tac"))).toBe(true);
+    // Pełna redakcja z tytułu roli TAC zniknęła 02.10.2026 razem z rolą.
+    expect(hasFullJobEditFallback(accessSnapshot("recruiter"))).toBe(false);
   });
 
   it("to tytuł do `job.update` bez sufitu sekcji — sufit dokłada wołający", () => {

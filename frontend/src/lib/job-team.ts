@@ -18,15 +18,12 @@ import api from "@/lib/api";
 import { manualCollaborators } from "@/lib/job-collaborators";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 
-export type RecruiterRole = "recruiter" | "sourcer";
-
 /** Skąd osoba jest przy rekrutacji. */
 export type RecruiterVia = "owner" | "assignment" | "collaborator";
 
 export interface JobRecruiter {
   user_id: number;
   name: string;
-  role: RecruiterRole;
   via: RecruiterVia;
   /** Propozycja automatu czekająca na decyzję — to jeszcze nie praca. */
   proposed: boolean;
@@ -69,15 +66,6 @@ export interface JobTeamSource {
   collaborators?: readonly LegacyTeamUser[] | null;
 }
 
-/** Lustro `work_role_of`: sourcer tylko wtedy, gdy nie jest też rekruterem ani TAC. */
-function workRoleOf(user: LegacyTeamUser): RecruiterRole {
-  const roles = new Set<string>(user.roles ?? []);
-  if (user.role) roles.add(user.role);
-  return roles.has("sourcer") && !roles.has("recruiter") && !roles.has("tac")
-    ? "sourcer"
-    : "recruiter";
-}
-
 function legacyRecruiters(job: JobTeamSource): JobRecruiter[] {
   const people: JobRecruiter[] = [];
   const seen = new Set<number>();
@@ -88,7 +76,6 @@ function legacyRecruiters(job: JobTeamSource): JobRecruiter[] {
     people.push({
       user_id: user.id,
       name: user.name?.trim() || `#${user.id}`,
-      role: workRoleOf(user),
       via,
       proposed: false,
       assigned_by_name: null,

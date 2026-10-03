@@ -209,8 +209,8 @@ async def test_person_without_any_placement_is_junior_and_still_listed():
 @pytest.mark.asyncio
 async def test_promotion_happens_exactly_at_threshold_not_one_early():
     """Próg-1 to nadal junior; próg to senior. Błąd o jeden w obie strony."""
-    below_id = await _seed_user(UserRole.sourcer, "below")
-    at_id = await _seed_user(UserRole.tac, "at")
+    below_id = await _seed_user(UserRole.recruiter, "below")
+    at_id = await _seed_user(UserRole.recruiter, "at")
 
     # Oba komplety w JEDNYM oknie 6 miesięcy (lipiec–grudzień).
     await _seed_placements(below_id, [7, 8])  # 2 z wymaganych 3
@@ -267,7 +267,7 @@ async def test_inactive_accounts_are_excluded_and_counted_separately():
 
 @pytest.mark.asyncio
 async def test_roles_outside_the_path_are_not_listed():
-    """Pula to sourcer / TAC / rekruter — `delivery_lead` prowadzi co innego."""
+    """Pula to rola rekrutera — `delivery_lead` prowadzi co innego."""
     dl_id = await _seed_user(UserRole.delivery_lead, "dl")
     await _seed_placements(dl_id, [7, 8, 9])
 
@@ -573,9 +573,7 @@ async def test_seniority_endpoint_is_reachable_for_every_logged_in_role(
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.finance,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
     ):
         headers = await _login_headers(fx_client, role)
         resp = await fx_client.get(

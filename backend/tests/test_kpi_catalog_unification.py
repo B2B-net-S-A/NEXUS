@@ -37,9 +37,10 @@ from app.services.kpi_engine import evaluate_user_kpis
 from app.services.kpi_goals import compute_my_goals
 from app.services.kpi_targets import resolve_kpi_target, resolve_org_target
 from app.services.metric_definitions import DL_HIT_RATIO_TARGET_PCT
+from app.services.role_merge import RETIRED_ROLE_VALUES
 
 WARSAW = ZoneInfo("Europe/Warsaw")
-_OPERATORS = (UserRole.recruiter, UserRole.sourcer, UserRole.tac)
+_OPERATORS = (UserRole.recruiter,)
 
 
 # ── Decyzje Artura 22.09.2026 — liczby przypięte ────────────────────────────
@@ -56,7 +57,8 @@ def test_decided_targets_are_pinned():
         assert targets("daily_new_candidates")[role] == 5
         assert targets("daily_first_verifications")[role] == 4
         assert targets("monthly_precision")[role] == 75
-    assert targets("weekly_cvs_sent") == {UserRole.recruiter: 15, UserRole.tac: 12}
+    # Od 0411 jedna rola: rekruter 15 (do 0411 rekruter 15 / TAC 12 / sourcer brak).
+    assert targets("weekly_cvs_sent") == {UserRole.recruiter: 15}
 
 
 def test_panel_ids_are_aliases_of_catalog_ids():
@@ -68,7 +70,11 @@ def test_panel_ids_are_aliases_of_catalog_ids():
 
 
 def test_normalization_constants_mirror_the_catalog():
-    """Moduł SQL nie importuje kodu aplikacji — kopie stałych muszą się zgadzać."""
+    """Moduł SQL nie importuje kodu aplikacji — kopie stałych muszą się zgadzać.
+
+    Stałe 0346 są zamrożone razem z migracją i znają role wycofane w 0411
+    (sourcer, TAC) — z katalogiem porównujemy tylko wiersze ról, które istnieją.
+    """
     assert dict(norm.KPI_ID_RENAMES) == KPI_ID_ALIASES
     assert tuple(norm.RETIRED_KPI_IDS) == tuple(RETIRED_KPI_IDS)
     from_catalog = {
@@ -76,7 +82,14 @@ def test_normalization_constants_mirror_the_catalog():
         for kpi in KPI_CATALOG
         for role, value in kpi.default_targets.items()
     }
-    assert set(norm.CATALOG_DEFAULT_ROWS) == from_catalog
+    frozen_for_live_roles = {
+        row for row in norm.CATALOG_DEFAULT_ROWS if row[1] not in RETIRED_ROLE_VALUES
+    }
+    assert frozen_for_live_roles == from_catalog
+    # Zamrożony SQL nadal zna wycofane role — nie wolno go „posprzątać”.
+    assert {row[1] for row in norm.CATALOG_DEFAULT_ROWS} > {
+        role.value for kpi in KPI_CATALOG for role in kpi.default_targets
+    }
 
 
 def test_single_dl_hit_ratio_constant():
@@ -140,14 +153,14 @@ async def test_normalization_sql_renames_retires_and_drops_seed_copies():
         rows = [
             # martwe id z 0034
             (UserRole.recruiter, "daily_activity_count", 10),
-            (UserRole.tac, "weekly_screenings", 7),
+            (UserRole.recruiter, "weekly_screenings", 7),
             # seed 0034 pod kanonicznym id + seed 0124 pod starym id
             (UserRole.recruiter, "monthly_placements", 2),
             (UserRole.recruiter, "placements_monthly", 1),
             (UserRole.recruiter, "daily_new_candidates", 3),
             (UserRole.recruiter, "cv_added_daily", 5),
             # świadome odstępstwo — ZOSTAJE
-            (UserRole.tac, "verifications_daily", 6),
+            (UserRole.recruiter, "verifications_daily", 6),
         ]
         for role, kpi_id, value in rows:
             db.add(KpiRoleDefault(role=role, kpi_id=kpi_id, target_value=value))
@@ -184,7 +197,7 @@ async def test_normalization_sql_renames_retires_and_drops_seed_copies():
         await db.rollback()
 
     # Tylko świadome odstępstwo przeżywa — pod kanonicznym id.
-    assert left == {(UserRole.tac, "daily_first_verifications"): 6}
+    assert left == {(UserRole.recruiter, "daily_first_verifications"): 6}
     # Osobisty cel przepisany, nie skasowany (równy domyślnemu czy nie).
     assert [(r.kpi_id, r.target_value) for r in personal] == [("monthly_placements", 4)]
     assert marker == 1
@@ -194,16 +207,17 @@ async def test_normalization_sql_renames_retires_and_drops_seed_copies():
 
 
 @pytest.mark.asyncio
-async def test_hybrid_delivery_lead_with_tac_role_gets_tac_targets():
-    """Produkcja: DL 90/91/101 z rolą TAC dostawali cel 0 i pusty widget."""
+async def test_hybrid_delivery_lead_with_recruiter_role_gets_recruiter_targets():
+    """Produkcja: DL 90/91/101 z dodatkową rolą operacyjną (do 0411 TAC, dziś
+    rekruter) dostawali cel 0 i pusty widget."""
     uid = await _seed_user(
         UserRole.delivery_lead,
-        roles=[UserRole.delivery_lead, UserRole.tac],
-        label="dltac",
+        roles=[UserRole.delivery_lead, UserRole.recruiter],
+        label="dlrec",
     )
     async with AsyncSessionLocal() as db:
         user = await db.get(User, uid)
-        assert await resolve_kpi_target(db, user=user, kpi_id="weekly_cvs_sent") == 12
+        assert await resolve_kpi_target(db, user=user, kpi_id="weekly_cvs_sent") == 15
         assert (
             await resolve_kpi_target(db, user=user, kpi_id="daily_new_candidates") == 5
         )
@@ -216,13 +230,12 @@ async def test_hybrid_delivery_lead_with_tac_role_gets_tac_targets():
 
 
 @pytest.mark.asyncio
-async def test_max_across_roles_and_personal_override_wins():
-    uid = await _seed_user(
-        UserRole.tac, roles=[UserRole.tac, UserRole.recruiter], label="max"
-    )
+async def test_personal_override_wins_over_the_role_target():
+    uid = await _seed_user(UserRole.recruiter, label="max")
     async with AsyncSessionLocal() as db:
         user = await db.get(User, uid)
-        # TAC 12, rekruter 15 → maksimum.
+        # Cel roli z katalogu (od 0411 cele ma tylko rekruter, więc „maksimum
+        # z ról” nie ma już czego porównywać).
         assert await resolve_kpi_target(db, user=user, kpi_id="weekly_cvs_sent") == 15
         db.add(UserKpiTarget(user_id=uid, kpi_id="weekly_cvs_sent", target_value=3))
         await db.flush()
@@ -447,7 +460,7 @@ async def test_seniority_pool_includes_secondary_path_role():
 
     uid = await _seed_user(
         UserRole.delivery_lead,
-        roles=[UserRole.delivery_lead, UserRole.tac],
+        roles=[UserRole.delivery_lead, UserRole.recruiter],
         label="snr",
     )
     async with AsyncSessionLocal() as db:
@@ -467,4 +480,4 @@ async def test_seniority_pool_includes_secondary_path_role():
         )
     row = next((r for r in result.rows if r.user_id == uid), None)
     assert row is not None
-    assert row.role == "tac"
+    assert row.role == "recruiter"

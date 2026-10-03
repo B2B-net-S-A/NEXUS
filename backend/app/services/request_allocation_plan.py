@@ -15,9 +15,6 @@ zapisu to ``services/request_allocation``. Reguły:
   współpracownik), jest pokryty, a propozycja przy nim jest zwalniana.
   Propozycja to nie praca: pokrywa request i liczy się do obłożenia tylko
   wtedy, gdy nikt przy nim nie pracuje.
-* **Rekruter czy sourcer:** co najmniej ``sourcer_threshold`` pasujących osób
-  w bazie → wystarczy sourcer; mniej albo brak przeglądu bazy → rekruter (on
-  ma LinkedIna). Gdy żaden sourcer nie jest dostępny — rekruter.
 * **Kto:** 1. priorytet kategorii requestu → 2. priorytet → pozostali.
   W grupie najmniej requestów, potem ten, kto najdawniej coś dostał. Do
   następnej grupy przechodzimy, gdy grupa jest pusta albo jej najmniej
@@ -108,8 +105,6 @@ class RequestInfo:
 @dataclass(frozen=True)
 class PersonInfo:
     user_id: int
-    can_recruit: bool
-    can_source: bool
     first: frozenset[int]
     second: frozenset[int]
     last_assigned: Optional[datetime] = None
@@ -140,7 +135,6 @@ class PlanInput:
     people: list[PersonInfo]
     live: list[LiveAssignment]
     out_of_pool: dict[int, str] = field(default_factory=dict)
-    sourcer_threshold: int = 15
     mode: str = "shadow"
     # False = brak świeżych danych o urlopach: osoby spoza listy dostępnych
     # nie zwalniamy z powodem „na urlopie”, bo tego nie wiemy.
@@ -178,10 +172,9 @@ def request_order(request: RequestInfo) -> tuple:
     )
 
 
-def needed_role(request: RequestInfo, threshold: int) -> str:
-    if request.base_matches is not None and request.base_matches >= threshold:
-        return "sourcer"
-    return "recruiter"
+# Rola pracy nowego przypisania. Do 0411 automat wybierał między rekruterem
+# a sourcerem (próg pasujących w bazie); od połączenia ról jest jedna.
+WORK_ROLE = "recruiter"
 
 
 def category_fit(
@@ -211,14 +204,11 @@ def _groups(
 
 def choose_person(
     request: RequestInfo,
-    role: str,
     people: list[PersonInfo],
     load: dict[int, int],
     last: dict[int, float],
 ) -> Optional[PersonInfo]:
-    capable = [
-        p for p in people if (p.can_source if role == "sourcer" else p.can_recruit)
-    ]
+    capable = people
     if not capable:
         return None
     team_min = min(load.get(p.user_id, 0) for p in capable)
@@ -345,17 +335,13 @@ def plan_assignments(data: PlanInput) -> list[Change]:
     )
     candidates = list(people.values())
     for request in sequence:
-        role = needed_role(request, data.sourcer_threshold)
         allowed = [
             p for p in candidates if (request.job_id, p.user_id) not in data.blocked
         ]
-        person = choose_person(request, role, allowed, load, last)
-        if person is None and role == "sourcer":
-            role = "recruiter"
-            person = choose_person(request, role, allowed, load, last)
+        person = choose_person(request, allowed, load, last)
         if person is None:
             continue
-        changes.append(Change("assign", request.job_id, person.user_id, role, ""))
+        changes.append(Change("assign", request.job_id, person.user_id, WORK_ROLE, ""))
         load[person.user_id] = load.get(person.user_id, 0) + 1
         last[person.user_id] = float("inf")
     return changes

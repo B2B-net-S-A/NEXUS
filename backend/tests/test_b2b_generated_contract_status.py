@@ -378,23 +378,23 @@ async def test_signed_contract_can_still_be_closed(app_client, app_auth_headers)
 
 
 async def _other_legal_user_headers(app_client) -> tuple[int, dict[str, str]]:
-    """Załóż innego użytkownika z dostępem do generatora (TAC) i zaloguj go.
+    """Załóż innego użytkownika z dostępem do generatora (rekruter) i zaloguj go.
 
-    TAC mieści się w `ContractLegalAccess`, więc przechodzi bramkę routera —
+    Rekruter przechodzi bramkę generatora (jest otwarty dla każdej roli) —
     dzięki temu test sprawdza REGUŁĘ WŁASNOŚCI, a nie samą bramkę roli."""
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
     from app.models.user import User, UserRole
 
     unique = uuid.uuid4().hex[:8]
-    email = f"pytest-tac-{unique}@example.com"
+    email = f"pytest-recruiter-{unique}@example.com"
     password = f"T3st_{unique}!PassX"
     async with AsyncSessionLocal() as db:
         user = User(
             email=email,
             password_hash=hash_password(password),
-            name="Pytest TAC",
-            role=UserRole.tac,
+            name="Pytest Recruiter",
+            role=UserRole.recruiter,
             is_active=True,
         )
         db.add(user)

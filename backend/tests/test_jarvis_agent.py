@@ -425,8 +425,8 @@ async def test_candidate_hard_delete_erases_linked_conversations(
 async def test_conversation_list_and_delete_are_owner_scoped(app_client, monkeypatch):
     model = ScriptedModel([fake_message(text_block("Cześć!"))])
     enable_jarvis(monkeypatch, model)
-    _, owner = await make_user(UserRole.sourcer)
-    _, stranger = await make_user(UserRole.sourcer)
+    _, owner = await make_user(UserRole.recruiter)
+    _, stranger = await make_user(UserRole.recruiter)
     events = parse_sse((await _chat(app_client, owner, "Cześć Jarvis")).text)
     conversation_id = events[0]["conversation_id"]
 

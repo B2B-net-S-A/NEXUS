@@ -59,9 +59,7 @@ RANK_ORDER = {
     PriorityRank.E: 5,
 }
 OPERATIONAL_ROLES = {
-    UserRole.sourcer,
     UserRole.recruiter,
-    UserRole.tac,
 }
 _DEMAND_STATUS_TRANSITIONS_DL = {
     PriorityDemandStatus.open: {
@@ -427,19 +425,15 @@ def role_values(user: User) -> set[str]:
 
 
 def allowed_channels(user: User) -> set[PriorityChannel]:
-    roles = role_values(user)
-    if UserRole.tac.value in roles:
+    # Od 0411 jest jedna rola „Rekruter” (dawniej sourcer = baza, rekruter =
+    # LinkedIn, TAC = wszystko) — rekruter pracuje każdym kanałem.
+    if UserRole.recruiter.value in role_values(user):
         return {
             PriorityChannel.database,
             PriorityChannel.linkedin,
             PriorityChannel.mixed,
         }
-    allowed: set[PriorityChannel] = set()
-    if UserRole.sourcer.value in roles:
-        allowed.add(PriorityChannel.database)
-    if UserRole.recruiter.value in roles:
-        allowed.add(PriorityChannel.linkedin)
-    return allowed
+    return set()
 
 
 async def _validate_member_inputs(
@@ -477,7 +471,7 @@ async def _validate_member_inputs(
         if not (role_values(user) & {role.value for role in OPERATIONAL_ROLES}):
             raise HTTPException(
                 422,
-                f"User #{member.user_id} nie ma roli recruiter/sourcer/TAC",
+                f"User #{member.user_id} nie ma roli recruiter",
             )
 
         if member.status == PriorityMemberStatus.paused:

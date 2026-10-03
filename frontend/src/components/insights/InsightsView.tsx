@@ -59,8 +59,6 @@ export const FIRMA_PERMISSION: Permission = "finance_module";
  */
 export const PERSONAL_ROLES: UserRole[] = [
   "recruiter",
-  "sourcer",
-  "tac",
   "delivery_lead",
 ];
 

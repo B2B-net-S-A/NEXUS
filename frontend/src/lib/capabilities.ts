@@ -31,7 +31,7 @@ import {
  *    i role (`CAPABILITY_PERMISSIONS`) albo strażnika rolowego
  *    (`CAPABILITY_ROLES`),
  *  • hierarchia rang (`hasMinRole`) NIE jest tu używana — `head_of_recruitment`
- *    ma rangę wyższą od DL/TAC, a mimo to nie ma części ich uprawnień,
+ *    ma rangę wyższą od DL, a mimo to nie ma części jego uprawnień,
  *  • macierz jest domknięta na WSZYSTKIE role (`user`, `head_of_recruitment`
  *    włącznie) — test `capabilities.test.ts` to pilnuje.
  */
@@ -94,10 +94,8 @@ const OPERATIONAL: readonly UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
   "finance",
-  "sourcer",
 ];
 
 /** Odpowiednik backendowego `RecruiterPlus`. Od 2026-09-17 Z
@@ -108,18 +106,9 @@ const RECRUITER_PLUS: readonly UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
   "finance",
-  "sourcer",
 ];
-
-/**
- * Pełną redakcję rekrutacji daje uprawnienie „Rekrutacje: zakładanie,
- * zamykanie, wysyłka CV do klienta”, a obok niego — z tytułu ROLI — TAC:
- * lustro `JOB_FULL_EDIT_LEGACY_ROLES` (backend/app/api/recruitment_access.py).
- */
-const JOB_FULL_EDIT_LEGACY_ROLES: readonly UserRole[] = ["tac"];
 
 /**
  * O capability rozstrzyga uprawnienie z ekranu (`CAPABILITY_PERMISSIONS`),
@@ -137,13 +126,10 @@ const JOB_STAFFING_EXTRA_ROLES: readonly UserRole[] = ["head_of_recruitment"];
 
 /**
  * Kto ustawia priorytet rekrutacji (P1 / P2 / „Przyjmujemy kandydatów”): pełni
- * redaktorzy (to samo uprawnienie albo konto TAC) oraz Head of Recruitment —
- * lustro `JOB_PRIORITY_EXTRA_ROLES`.
+ * redaktorzy (to samo uprawnienie) oraz Head of Recruitment — lustro
+ * `JOB_PRIORITY_EXTRA_ROLES`.
  */
-const JOB_PRIORITY_EXTRA_ROLES: readonly UserRole[] = [
-  ...JOB_FULL_EDIT_LEGACY_ROLES,
-  "head_of_recruitment",
-];
+const JOB_PRIORITY_EXTRA_ROLES: readonly UserRole[] = ["head_of_recruitment"];
 
 /**
  * Kto akceptuje, zmienia i odrzuca propozycje automatu przydziału — lustro
@@ -163,9 +149,7 @@ const ALL_ROLES: readonly UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
 ];
 
@@ -187,9 +171,9 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "candidate.write": RECRUITER_PLUS,
   // → uprawnienie `recruitment_manage` (`CAPABILITY_PERMISSIONS`).
   "job.create": BY_PERMISSION_ONLY,
-  // → uprawnienie `recruitment_manage` ALBO rola TAC (gałąź legacy
-  // `job_edit_level`: funkcji TAC nie używamy, ale konta zostają).
-  "job.update": JOB_FULL_EDIT_LEGACY_ROLES,
+  // → uprawnienie `recruitment_manage`. Rola TAC, która miała pełną redakcję
+  // z tytułu roli, została 02.10.2026 połączona z rekruterem — bez tego dodatku.
+  "job.update": BY_PERMISSION_ONLY,
   // POST/DELETE /api/jobs/{id}/owner oraz dodanie i zdjęcie osoby na pulpicie
   // „Requesty i obłożenie” (/api/request-board/jobs/{id}/people) →
   // `require_job_staffing`: uprawnienie `recruitment_manage` ALBO rola Head of
@@ -234,7 +218,7 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // (candidate_access.py); OBA = _INTERNAL_OPERATIONAL_ROLES, stąd jeden wpis
   // na odczyt i zapis. To NIE jest CANDIDATE_WRITE_ROLES ani
   // RECRUITMENT_RATE_EDIT_ROLES (bramka stawki w pipelinie) — polityka
-  // produktowa faktów globalnych jawnie dopuszcza tu HoR i sourcera.
+  // produktowa faktów globalnych jawnie dopuszcza tu HoR.
   // Gdy backend rozdzieli odczyt od zapisu — rozdziel też ten wpis.
   "candidate.profile_fact.manage": OPERATIONAL,
   "candidate.requirement.verify": RECRUITER_PLUS,
@@ -301,8 +285,8 @@ export const CAPABILITY_PERMISSIONS: Partial<Record<Capability, Permission>> = {
   // pole `can_edit` z `GET /api/jobs/{id}` (`lib/job-edit-access.ts`), nie ta
   // capability. HoR nadal poza: inline-edycja pól oferty dostałaby 403.
   "job.update": "recruitment_manage",
-  // Przydział rekrutera i priorytet: to samo uprawnienie; role, które mają je
-  // z decyzji produktowej (HoR, TAC), stoją w `CAPABILITY_ROLES`.
+  // Przydział rekrutera i priorytet: to samo uprawnienie; rola, która ma je
+  // z decyzji produktowej (HoR), stoi w `CAPABILITY_ROLES`.
   "job.recruiter.assign": "recruitment_manage",
   "job.priority.update": "recruitment_manage",
   // POST /api/clients, PATCH /api/clients/{id} → ClientsEditUser. Bez tej

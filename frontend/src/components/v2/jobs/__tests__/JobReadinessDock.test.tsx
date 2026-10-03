@@ -589,9 +589,9 @@ describe("JobReadinessDock — dane", () => {
           data: {
             ...jobFixture,
             recruiters: [
-              { user_id: 7, name: "Marta Kowalska", role: "recruiter", via: "owner", proposed: false, assigned_by_name: null },
-              { user_id: 33, name: "Celina Wzorcowa", role: "sourcer", via: "collaborator", proposed: false, assigned_by_name: null },
-              { user_id: 31, name: "Anna Przykładowa", role: "recruiter", via: "assignment", proposed: true, assigned_by_name: null },
+              { user_id: 7, name: "Marta Kowalska", via: "owner", proposed: false, assigned_by_name: null },
+              { user_id: 33, name: "Celina Wzorcowa", via: "collaborator", proposed: false, assigned_by_name: null },
+              { user_id: 31, name: "Anna Przykładowa", via: "assignment", proposed: true, assigned_by_name: null },
             ],
           },
         }),

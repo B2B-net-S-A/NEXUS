@@ -7,6 +7,7 @@ import {
   resolveCareerRoute,
 } from "@/lib/career/host";
 import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
+import { normalizeRoles } from "@/lib/role-normalize";
 import {
   rolesWithSectionAccess,
   type ProductSection,
@@ -47,9 +48,7 @@ const NON_FINANCE_ROLES: UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
 ];
 
@@ -281,7 +280,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // Zmieniając tę listę ról, przemieć też tamten `href`.
   {
     prefix: "/candidates/contact-queue",
-    roles: ["talent_community_manager", "tac", "recruiter", "sourcer"],
+    roles: ["talent_community_manager", "recruiter"],
   },
   // Moduł kandydatów (audyt M2 PR1): rola `user` = read-only viewer/klient
   // NIE ma dostępu do bazy kandydatów, talentów ani targu — backend zwraca
@@ -618,10 +617,11 @@ export function middleware(request: NextRequest) {
   // secondary z claim `roles`) — spójnie z Sidebar/RequireRole, które używają
   // roles[]. Fallback na sam `role` dla starych tokenów (sprzed deploya) bez
   // claim `roles`, żeby nie wyrzucać zalogowanych na /403 w okresie przejściowym.
-  const userRoles = new Set<string>([
-    payload.role as string,
-    ...(payload.roles ?? []),
-  ]);
+  // Token sprzed połączenia ról (02.10.2026) może nieść `tac`/`sourcer` —
+  // liczą się jak `recruiter`, inaczej stare cookie dawałoby /403.
+  const userRoles = new Set<string>(
+    normalizeRoles([payload.role as string, ...(payload.roles ?? [])]),
+  );
 
   // Praktykant (rola wyłączna) widzi WYŁĄCZNIE „Telefony na dziś”. Bramka
   // stoi przed regułami tras: `/jobs` ma go zaprowadzić na jego listę, a nie

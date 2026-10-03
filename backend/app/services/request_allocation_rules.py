@@ -1,14 +1,15 @@
 """Zasady automatu przydziału requestów — edytowane w Ustawieniach.
 
-Dwie liczby, które Artur chce zmieniać bez deployu:
+Jedno ustawienie, które Artur chce zmieniać bez deployu:
 
-* ``sourcer_threshold`` — od ilu pasujących osób w bazie wystarczy sam
-  sourcer (poniżej idzie rekruter, bo będzie szukał na LinkedInie);
 * ``review_time`` — o której (czas warszawski) automat robi codzienny pełny
   przegląd przydziałów, przed daily.
 
 Trzymane w ``app_settings['request_allocation_rules']``. Brak wiersza =
-wartości domyślne, więc świeża baza działa bez konfiguracji.
+wartości domyślne, więc świeża baza działa bez konfiguracji. Do 0411 był tu
+też próg ``sourcer_threshold`` („od ilu pasujących w bazie wystarczy sourcer”)
+— zniknął razem z rolą sourcera; stary klucz w zapisanej wartości jest
+ignorowany.
 """
 
 from __future__ import annotations
@@ -29,7 +30,6 @@ _TIME = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
 @dataclass(frozen=True)
 class AllocationRules:
-    sourcer_threshold: int = 15
     review_time: str = "08:30"
 
     @property
@@ -45,14 +45,8 @@ def parse_rules(value: Optional[dict[str, Any]]) -> AllocationRules:
     """Odczyt łagodny — zepsuta wartość w bazie daje domyślną, nie 500."""
     defaults = AllocationRules()
     value = value or {}
-    threshold = value.get("sourcer_threshold")
     review = value.get("review_time")
     return AllocationRules(
-        sourcer_threshold=(
-            threshold
-            if isinstance(threshold, int) and 1 <= threshold <= 500
-            else defaults.sourcer_threshold
-        ),
         review_time=(
             review
             if isinstance(review, str) and _TIME.match(review)
@@ -63,17 +57,10 @@ def parse_rules(value: Optional[dict[str, Any]]) -> AllocationRules:
 
 def validate_rules(value: dict[str, Any]) -> AllocationRules:
     """Zapis ścisły — błąd po polsku zamiast cichej wartości domyślnej."""
-    threshold = value.get("sourcer_threshold")
     review = value.get("review_time")
-    if (
-        isinstance(threshold, bool)
-        or not isinstance(threshold, int)
-        or not 1 <= threshold <= 500
-    ):
-        raise ValueError("Próg bazy musi być liczbą od 1 do 500.")
     if not isinstance(review, str) or not _TIME.match(review):
         raise ValueError("Godzina przeglądu musi mieć postać GG:MM, np. 08:30.")
-    return AllocationRules(sourcer_threshold=threshold, review_time=review)
+    return AllocationRules(review_time=review)
 
 
 async def load_rules(db: AsyncSession) -> AllocationRules:

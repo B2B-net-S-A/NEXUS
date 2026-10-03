@@ -208,9 +208,7 @@ def test_candidate_finance_guard_is_admin_only_to_keep_finance_free_of_pii():
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
     ],
 )
 def test_order_amount_write_guard_rejects_non_finance_roles(role):
@@ -702,7 +700,6 @@ async def test_order_writes_require_the_order_editing_permission(endpoint):
     for role in (
         UserRole.talent_community_manager,
         UserRole.head_of_recruitment,
-        UserRole.tac,
         UserRole.recruiter,
     ):
         refusal = await _order_gate_refusal(endpoint, _user(role))

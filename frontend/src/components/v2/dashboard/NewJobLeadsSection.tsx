@@ -66,7 +66,6 @@ export const NEW_JOB_LEADS_ROWS = 6;
 
 const ROLE_LABEL: Record<string, string> = {
   recruiter: "rekruter",
-  sourcer: "sourcer",
 };
 
 /** „1 uczestnik”, „3 uczestnicy”, „12 uczestników”. */

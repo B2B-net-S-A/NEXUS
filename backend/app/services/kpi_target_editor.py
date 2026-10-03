@@ -45,8 +45,6 @@ from app.services.kpi_targets import (
 
 ROLE_LABELS_PL: dict[UserRole, str] = {
     UserRole.recruiter: "Rekruter",
-    UserRole.sourcer: "Sourcer",
-    UserRole.tac: "TAC",
 }
 PERIOD_LABELS_PL = {"day": "dziennie", "week": "tygodniowo", "month": "miesięcznie"}
 # Cele, które są progami Wyścigu Rekomendacji (1 500 zł) — `resolve_org_target`
@@ -78,9 +76,7 @@ def _role(value: str) -> UserRole:
     except ValueError as exc:
         raise KpiTargetEditError(f"Nieznana rola: {value}") from exc
     if role not in KPI_BEARING_ROLES:
-        raise KpiTargetEditError(
-            "Cele KPI mają wyłącznie role rekrutacyjne: rekruter, sourcer, TAC."
-        )
+        raise KpiTargetEditError("Cele KPI ma wyłącznie rola rekrutera.")
     return role
 
 

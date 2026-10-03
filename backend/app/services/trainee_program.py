@@ -34,6 +34,7 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.models.trainee import TraineeCallItem, TraineeCallList, TraineeProgram
 from app.models.user import User, UserRole
 from app.services import trainee_call_list as lists
+from app.services.role_merge import normalize_role_value
 from app.services import trainee_rules as rules_mod
 
 logger = logging.getLogger(__name__)
@@ -1305,7 +1306,7 @@ async def _pin_people(db: AsyncSession, trainee_id: int) -> int:
     return len(free)
 
 
-PROMOTE_ROLES = (UserRole.sourcer, UserRole.recruiter)
+PROMOTE_ROLE = UserRole.recruiter
 
 
 async def decide(
@@ -1346,18 +1347,13 @@ async def decide(
         program.decided_at = now
         program.decided_by_user_id = actor.id
     elif action == "promote":
-        try:
-            new_role = UserRole(role or "")
-        except ValueError as exc:
+        # ``role`` zostaje w wejściu dla starych klientów; puste = rekruter.
+        if normalize_role_value(role or PROMOTE_ROLE.value) != PROMOTE_ROLE.value:
             raise _http(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "Awans tylko na sourcera albo rekrutera.",
-            ) from exc
-        if new_role not in PROMOTE_ROLES:
-            raise _http(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "Awans tylko na sourcera albo rekrutera.",
+                "Awans tylko na rekrutera.",
             )
+        new_role = PROMOTE_ROLE
         if {r.value for r in target.get_all_roles()} != {UserRole.trainee.value}:
             raise _http(status.HTTP_409_CONFLICT, "Ta osoba nie jest już praktykantem.")
         original = target.role

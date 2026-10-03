@@ -11,9 +11,7 @@ const ALL_ROLES: UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
 ];
@@ -55,7 +53,6 @@ describe("stawka do klienta — reguły zapasowe", () => {
     expect(
       canWriteClientRate(accessSnapshot("delivery_lead", { revoke: ["recruitment_manage"] })),
     ).toBe(false);
-    // TAC ma pełną edycję rekrutacji z tytułu roli, ale stawki do klienta nie wpisuje.
-    expect(canWriteClientRate(accessSnapshot("tac"))).toBe(false);
+    expect(canWriteClientRate(accessSnapshot("recruiter"))).toBe(false);
   });
 });

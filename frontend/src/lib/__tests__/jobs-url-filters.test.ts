@@ -62,8 +62,6 @@ describe("domyślny zakres zależy od ROLI (lista v5: Moje | Otwarte | Wszystkie
   it("role prowadzące rekrutacje startują w „Moich”", () => {
     for (const role of [
       "recruiter",
-      "sourcer",
-      "tac",
       "talent_community_manager",
       "delivery_lead",
     ]) {
@@ -189,7 +187,7 @@ describe("zakres „Moja kategoria” (02.10.2026)", () => {
   });
 
   it("role nadal startują w „Moich” albo „Otwartych” — nigdy w „Mojej kategorii”", () => {
-    for (const role of ["recruiter", "sourcer", "delivery_lead", "admin", "head_of_recruitment"]) {
+    for (const role of ["recruiter", "delivery_lead", "admin", "head_of_recruitment"]) {
       expect(defaultScopeForUser(userOf(role)), role).not.toBe("category");
     }
     expect(defaultSortForScope("category")).toBe("newest");

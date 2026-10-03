@@ -1032,8 +1032,10 @@ class TestNormalizeTraffitRole:
             ("Administratorzy", "admin"),
             ("Manager", "delivery_lead"),
             ("Lead Delivery", "delivery_lead"),
-            ("Sourcerzy", "sourcer"),
-            ("TAC", "tac"),
+            # Od 0411 grupy sourcerów i TAC to rekruterzy.
+            ("Sourcerzy", "recruiter"),
+            ("Sourcing", "recruiter"),
+            ("TAC", "recruiter"),
             (None, "recruiter"),
             ("", "recruiter"),
             ("Nieznana grupa XYZ", "recruiter"),  # default fallback

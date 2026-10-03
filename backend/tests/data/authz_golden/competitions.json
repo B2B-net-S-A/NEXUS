@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,12 +21,12 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/competitions/current": "PPPPPPPPPDPPPPPPPPPPP",
-  "GET /api/competitions/history": "PPPPPPPPPDPPPPPPPPPPP",
-  "GET /api/competitions/monthly-races": "PPPPPPPPPDPPPPPPPPPPP",
-  "GET /api/competitions/my-position": "PPPPPPPPPDPPPPPPPPPPP",
-  "GET /api/competitions/ties": "PDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/competitions/freeze": "PDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/competitions/{type}/{period}/resolve-tie": "PDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/competitions/current": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/competitions/history": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/competitions/monthly-races": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/competitions/my-position": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/competitions/ties": "PDDDDDDDDDDDDDDDDDD",
+  "POST /api/competitions/freeze": "PDDDDDDDDDDDDDDDDDD",
+  "POST /api/competitions/{type}/{period}/resolve-tie": "PDDDDDDDDDDDDDDDDDD"
  }
 }

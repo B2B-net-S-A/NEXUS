@@ -118,7 +118,7 @@ describe("FrameworkContractsTab", () => {
   });
 
   it("rola bez prawa zapisu widzi listę, ale nie dostaje zachęty do dodania MSA", async () => {
-    authState.user = { role: "tac" };
+    authState.user = { role: "recruiter" };
     mocks.list.mockResolvedValue({ data: { items: [] } });
 
     renderTab();

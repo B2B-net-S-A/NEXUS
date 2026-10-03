@@ -76,9 +76,7 @@ _GENERATOR_DEFAULTS: dict[UserRole, ActionAccess] = {
     UserRole.head_of_recruitment: ActionAccess.manage,
     UserRole.delivery_lead: ActionAccess.manage,
     UserRole.talent_community_manager: ActionAccess.manage,
-    UserRole.tac: ActionAccess.manage,
     UserRole.recruiter: ActionAccess.manage,
-    UserRole.sourcer: ActionAccess.manage,
     UserRole.user: ActionAccess.view,
     UserRole.trainee: ActionAccess.none,
 }

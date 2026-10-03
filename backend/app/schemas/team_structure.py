@@ -142,5 +142,5 @@ class TeamStructureSummary(BaseModel):
     dl_clients: list[DlClientsRow]
     totals: dict = Field(
         default_factory=dict,
-        description="Liczby: sourcers, tacs, recruiters, delivery_leads, clients",
+        description="Liczby: recruiters, delivery_leads, clients",
     )

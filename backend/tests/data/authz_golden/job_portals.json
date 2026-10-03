@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,12 +21,12 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/job-boards/{board}/dictionaries": "PPPPPPPPDDPPPPPPPPPPP",
-  "GET /api/job-portals/config": "PPPPPPPPDDPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/portal-listing-defaults": "PPPPPPPPDDPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/portals": "PPPPPPPPDDPPPPPPPPPPP",
-  "PATCH /api/jobs/{job_id}/portals/{portal}/options": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/portals/{portal}/publish": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/portals/{portal}/unpublish": "PPPPPPPPDDPPPPPPPPPPP"
+  "GET /api/job-boards/{board}/dictionaries": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/job-portals/config": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/jobs/{job_id}/portal-listing-defaults": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/jobs/{job_id}/portals": "PPPPPPDDPPPPPPPPPPP",
+  "PATCH /api/jobs/{job_id}/portals/{portal}/options": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/portals/{portal}/publish": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/portals/{portal}/unpublish": "PPPPPPDDPPPPPPPPPPP"
  }
 }

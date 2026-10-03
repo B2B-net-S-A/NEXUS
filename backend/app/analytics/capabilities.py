@@ -75,22 +75,6 @@ ROLE_CAPABILITIES: dict[UserRole, frozenset[AnalyticsCapability]] = {
             AnalyticsCapability.VIEW_RECRUITMENT_RANKING,
         }
     ),
-    UserRole.sourcer: frozenset(
-        {
-            AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
-            AnalyticsCapability.VIEW_OWN_RECRUITMENT_KPI,
-            AnalyticsCapability.VIEW_RECRUITMENT_RANKING,
-        }
-    ),
-    UserRole.tac: frozenset(
-        {
-            AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
-            AnalyticsCapability.VIEW_OWN_RECRUITMENT_KPI,
-            AnalyticsCapability.VIEW_RECRUITMENT_RANKING,
-            AnalyticsCapability.VIEW_CLIENT_OPERATIONS,
-            AnalyticsCapability.VIEW_TENDERS_OPERATIONAL,
-        }
-    ),
     # 22.09.2026: DL dostaje imienny ranking rekruterów — jest w Hall of Fame
     # i w Lidze, a raport rekrutacji zwracał mu 403 (audyt U9).
     # `VIEW_OWN_DELIVERY_KPI` ma od tej daty pokrycie: cele portfela

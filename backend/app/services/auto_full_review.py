@@ -210,9 +210,8 @@ async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> lis
             or_(Job.recruiter_id.is_not(None), Job.tac_id.is_not(None)),
             ~ran_tonight,
         )
-        # Zdarzenie od ostatniego przeglądu pierwsze, potem „Szukamy kandydatów”
-        # (od liczby pasujących zależy, czy automat przydziału da rekrutera,
-        # czy wystarczy sourcer), potem najdawniej przeglądane.
+        # Zdarzenie od ostatniego przeglądu pierwsze, potem „Szukamy kandydatów”,
+        # potem najdawniej przeglądane.
         .order_by(
             case(
                 (

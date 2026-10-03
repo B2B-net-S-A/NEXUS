@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime
-from typing import Optional
+from typing import Iterable, Optional
 
 from sqlalchemy import (
     BigInteger,
@@ -16,6 +16,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+from app.services.role_merge import normalize_role_value
 
 
 class UserRole(str, enum.Enum):
@@ -29,9 +30,8 @@ class UserRole(str, enum.Enum):
     - talent_community_manager — zarządza Talent Community; globalny odczyt
                                  delivery bez finansów i bez mutacji delivery
     - finance             — operacje finansowe i widok executive
-    - tac                 — Talent Acquisition Consultant (hybryda ATS + LinkedIn)
-    - recruiter           — 100% LinkedIn, dodaje kandydatów
-    - sourcer             — 100% ATS + ogłoszenia
+    - recruiter           — rekruter; od 0411 (02.10.2026) jedna rola zamiast
+                            trzech: sourcer, rekruter i TAC
     - user                — deprecated legacy viewer; no new provisioning
     - trainee             — praktykant (0374): przez program wdrożenia widzi
                             wyłącznie „Telefony na dziś”; rola wyłączna
@@ -45,11 +45,53 @@ class UserRole(str, enum.Enum):
     delivery_lead = "delivery_lead"
     talent_community_manager = "talent_community_manager"
     finance = "finance"
-    tac = "tac"
     recruiter = "recruiter"
-    sourcer = "sourcer"
     user = "user"
     trainee = "trainee"
+
+    # Wycofane role (0411) — ALIASY rekrutera, nie osobne role. Etykiety
+    # `sourcer` i `tac` zostają w typie `userrole` w Postgresie, więc wiersz
+    # ze starą wartością (odtworzona kopia, stary obraz po rollbacku) musi się
+    # dać odczytać: bez aliasu `LookupError` wywracałby każde zapytanie
+    # ładujące to konto, także listy u innych osób. Muszą stać PO `recruiter`
+    # (pierwsza nazwa jest kanoniczna i to ją SQLAlchemy zapisuje). W kodzie
+    # ich nie używamy — pilnuje `tests/test_retired_roles_guard.py`.
+    sourcer = "recruiter"
+    tac = "recruiter"
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        # Pydantic buduje listę `enum` z `__members__`, więc aliasy dawałyby
+        # w OpenAPI trzy razy „recruiter”.
+        schema = handler(core_schema)
+        resolved = handler.resolve_ref_schema(schema)
+        if "enum" in resolved:
+            resolved["enum"] = list(dict.fromkeys(resolved["enum"]))
+        return schema
+
+
+def known_roles(values: Optional[Iterable[object]]) -> list[UserRole]:
+    """Role z listy napisów (JSONB ``roles``, wejście API), w podanej kolejności.
+
+    Wycofane ``sourcer``/``tac`` liczą się jako rekruter, nieznane napisy są
+    pomijane, duplikaty zwijane — stary wiersz nie może wywrócić odczytu.
+    """
+
+    out: list[UserRole] = []
+    for value in values or ():
+        try:
+            role = UserRole(normalize_role_value(str(getattr(value, "value", value))))
+        except ValueError:
+            continue
+        if role not in out:
+            out.append(role)
+    return out
+
+
+def user_role_column_type() -> Enum:
+    """Typ kolumny z rolą; ``omit_aliases=False`` czyta wycofane etykiety."""
+
+    return Enum(UserRole, name="userrole", omit_aliases=False)
 
 
 class User(Base, TimestampMixin):
@@ -87,7 +129,7 @@ class User(Base, TimestampMixin):
     password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole, name="userrole"),
+        user_role_column_type(),
         default=UserRole.recruiter,
         nullable=False,
     )
@@ -282,22 +324,21 @@ class User(Base, TimestampMixin):
         are silently dropped so a stale row never raises ``ValueError`` deep
         in a permission check.
         """
-        out: set[UserRole] = set()
+        out: set[UserRole] = set(known_roles(self.roles))
         if self.role is not None:
             out.add(self.role)
-        for r in self.roles or []:
-            try:
-                out.add(UserRole(r))
-            except ValueError:
-                continue
         return out
 
     def has_role(self, role: UserRole | str) -> bool:
         """True if user holds ``role`` (primary or secondary)."""
-        target = role.value if isinstance(role, UserRole) else str(role)
+        target = normalize_role_value(
+            role.value if isinstance(role, UserRole) else str(role)
+        )
         if self.role is not None and self.role.value == target:
             return True
-        return target in (self.roles or [])
+        # Stara etykieta w liście (`tac`, `sourcer`) liczy się jak rekruter —
+        # tak samo jak w `get_all_roles`.
+        return any(normalize_role_value(str(v)) == target for v in self.roles or [])
 
     def has_any_role(self, *roles: UserRole) -> bool:
         """True if user holds at least one of the given roles."""

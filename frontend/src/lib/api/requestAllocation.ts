@@ -5,7 +5,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 
 import api from "@/lib/api"
-import type { RecruiterRole, RecruiterVia } from "@/lib/job-team"
+import type { RecruiterVia } from "@/lib/job-team"
 import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
 import type { PriorityLevel } from "@/lib/request-priority"
 import type { VisibleState, WorkState } from "@/lib/request-work-state"
@@ -19,7 +19,6 @@ import type { VisibleState, WorkState } from "@/lib/request-work-state"
 export interface BoardPerson {
   user_id: number
   name: string
-  role: RecruiterRole
   /** Propozycja automatu — czeka na akceptację, nikogo nie zobowiązuje. */
   proposed: boolean
   source: "auto" | "manual" | "owner"
@@ -103,12 +102,8 @@ export function useRequestBoard(options: { enabled?: boolean } = {}) {
   })
 }
 
-export async function addBoardPerson(
-  jobId: number,
-  userId: number,
-  role: RecruiterRole,
-): Promise<void> {
-  await api.post(`/api/request-board/jobs/${jobId}/people`, { user_id: userId, role })
+export async function addBoardPerson(jobId: number, userId: number): Promise<void> {
+  await api.post(`/api/request-board/jobs/${jobId}/people`, { user_id: userId })
 }
 
 /**
@@ -131,8 +126,6 @@ export type ProposalDecisionBody =
       decision: "replace"
       /** Kto ma pracować zamiast proponowanej osoby. */
       replacement_user_id: number
-      /** Brak = rola wynika z ról konta tej osoby. */
-      replacement_role?: RecruiterRole
     }
 
 export interface ProposalDecisionResult {
@@ -299,7 +292,6 @@ export interface TeamCategory {
 }
 
 export interface TeamRules {
-  sourcer_threshold: number
   review_time: string
 }
 

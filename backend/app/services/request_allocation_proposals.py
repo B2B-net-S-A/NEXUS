@@ -35,7 +35,7 @@ from app.core.scheduling import business_today
 from app.models.client import Client
 from app.models.competence_category import CompetenceCategory, UserCompetenceCategory
 from app.models.job import Job
-from app.models.job_work_assignment import JobWorkAssignment
+from app.models.job_work_assignment import WORK_ROLE, JobWorkAssignment
 from app.models.user import User
 from app.services.job_priority import level_of
 from app.services.job_team import recruiters_for_jobs, working
@@ -187,7 +187,7 @@ async def load_pending(db: AsyncSession) -> list[PendingProposal]:
             sent=requests[row.job_id].sent,
             user_id=row.user_id,
             user_name=row.user_name,
-            role=row.role,
+            role=WORK_ROLE,
             fit=category_fit(
                 requests[row.job_id].categories,
                 first.get(row.user_id, ()),

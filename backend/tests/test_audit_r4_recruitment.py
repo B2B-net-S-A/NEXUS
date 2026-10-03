@@ -55,7 +55,6 @@ async def test_admin_can_set_the_cpro_sender_without_a_portfolio() -> None:
     "roles",
     [
         (UserRole.recruiter,),
-        (UserRole.sourcer,),
         (UserRole.head_of_recruitment,),
         (UserRole.talent_community_manager,),
     ],
@@ -209,8 +208,6 @@ def _request(job_id: int = 10) -> RequestInfo:
 def _recruiter(user_id: int) -> PersonInfo:
     return PersonInfo(
         user_id=user_id,
-        can_recruit=True,
-        can_source=False,
         first=frozenset({2}),
         second=frozenset(),
     )
@@ -296,7 +293,6 @@ class _Rows:
     [
         (SimpleNamespace(source="auto", role="recruiter", state="active"), True),
         (SimpleNamespace(source="auto", role="recruiter", state="proposed"), False),
-        (SimpleNamespace(source="auto", role="sourcer", state="active"), False),
         (SimpleNamespace(source="manual", role="recruiter", state="active"), False),
         (SimpleNamespace(source="owner", role="recruiter", state="active"), False),
     ],

@@ -13,15 +13,13 @@ import {
 const owner: JobRecruiter = {
   user_id: 1,
   name: "Marta Kowalska",
-  role: "recruiter",
   via: "owner",
   proposed: false,
   assigned_by_name: null,
 };
-const sourcer: JobRecruiter = {
+const assigned: JobRecruiter = {
   user_id: 2,
   name: "Jan Nowak",
-  role: "sourcer",
   via: "assignment",
   proposed: false,
   assigned_by_name: "Anna Lis",
@@ -29,7 +27,6 @@ const sourcer: JobRecruiter = {
 const collaborator: JobRecruiter = {
   user_id: 3,
   name: "Ewa Zielińska",
-  role: "recruiter",
   via: "collaborator",
   proposed: false,
   assigned_by_name: null,
@@ -37,7 +34,6 @@ const collaborator: JobRecruiter = {
 const proposal: JobRecruiter = {
   user_id: 4,
   name: "Piotr Wiśniewski",
-  role: "recruiter",
   via: "assignment",
   proposed: true,
   assigned_by_name: null,
@@ -50,21 +46,22 @@ function chipOf(name: string): HTMLElement {
 }
 
 describe("RecruiterChips — pełna lista", () => {
-  it("pokazuje inicjały, imię i nazwisko oraz rolę każdej osoby", () => {
-    render(<RecruiterChips people={[owner, sourcer]} label="Rekruterzy" />);
+  it("pokazuje inicjały oraz imię i nazwisko każdej osoby — bez dopisku roli", () => {
+    render(<RecruiterChips people={[owner, assigned]} label="Rekruterzy" />);
 
     const list = screen.getByRole("list", { name: "Rekruterzy" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(2);
     expect(within(chipOf("Marta Kowalska")).getByText("MK")).toHaveAttribute("aria-hidden", "true");
-    expect(within(chipOf("Marta Kowalska")).getByText("rekruter")).toBeInTheDocument();
-    expect(within(chipOf("Jan Nowak")).getByText("sourcer")).toBeInTheDocument();
+    // Podział rekruter / sourcer zniknął (02.10.2026) — chip nie niesie roli.
+    expect(within(chipOf("Marta Kowalska")).queryByText("rekruter")).not.toBeInTheDocument();
+    expect(within(chipOf("Jan Nowak")).queryByText(/sourcer|rekruter/)).not.toBeInTheDocument();
   });
 
   it("propozycja automatu ma przerywaną ramkę w kolorze akcentu i dopisek „propozycja”", () => {
     render(<RecruiterChips people={[owner, proposal]} />);
 
     const proposed = within(chipOf("Piotr Wiśniewski"));
-    expect(proposed.getByText("propozycja · rekruter")).toBeInTheDocument();
+    expect(proposed.getByText("propozycja")).toBeInTheDocument();
     const frame = screen.getByText("Piotr Wiśniewski").parentElement as HTMLElement;
     expect(frame).toHaveAttribute("data-proposed", "true");
     expect(frame.className).toContain("border-dashed");
@@ -79,8 +76,7 @@ describe("RecruiterChips — pełna lista", () => {
   it("w wąskim miejscu najpierw kurczy się etykieta, nazwisko na końcu", () => {
     render(<RecruiterChips people={[proposal]} />);
 
-    // „propozycja” stoi przed rolą — przy obcięciu znika rola, nie stan osoby.
-    const tags = screen.getByText("propozycja · rekruter");
+    const tags = screen.getByText("propozycja");
     expect(tags.className).toContain("shrink-[1000000]");
     expect(tags.className).toContain("truncate");
     const name = screen.getByText("Piotr Wiśniewski");
@@ -90,7 +86,7 @@ describe("RecruiterChips — pełna lista", () => {
   });
 
   it("podpis pod osobą pochodzi od wołającego — np. kto przydzielił", () => {
-    render(<RecruiterChips people={[owner, sourcer]} caption={assignedByCaption} />);
+    render(<RecruiterChips people={[owner, assigned]} caption={assignedByCaption} />);
 
     expect(within(chipOf("Jan Nowak")).getByText("przydzielił(a) Anna L.")).toBeInTheDocument();
     // Nie wiadomo, kto przydzielił — bez pustej linii.
@@ -98,18 +94,18 @@ describe("RecruiterChips — pełna lista", () => {
   });
 
   it("bez `onRemove` nie ma przycisków zdejmowania", () => {
-    render(<RecruiterChips people={[owner, sourcer]} />);
+    render(<RecruiterChips people={[owner, assigned]} />);
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("„Zdejmij” woła `onRemove` z tą osobą", () => {
     const onRemove = vi.fn();
-    render(<RecruiterChips people={[owner, sourcer]} onRemove={onRemove} />);
+    render(<RecruiterChips people={[owner, assigned]} onRemove={onRemove} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Zdejmij Jan Nowak" }));
 
     expect(onRemove).toHaveBeenCalledTimes(1);
-    expect(onRemove).toHaveBeenCalledWith(sourcer);
+    expect(onRemove).toHaveBeenCalledWith(assigned);
   });
 
   it("`canRemove` zawęża, przy kim przycisk się pojawia", () => {
@@ -160,12 +156,12 @@ describe("RecruiterChips — pełna lista", () => {
 
   it("przyjmuje osoby z pulpitu, które nie niosą jeszcze `via`", () => {
     const board = [
-      { user_id: 7, name: "Anna Przykładowa", role: "sourcer" as const, proposed: true, source: "auto" as const },
+      { user_id: 7, name: "Anna Przykładowa", proposed: true, source: "auto" as const },
     ];
     const onRemove = vi.fn();
     render(<RecruiterChips people={board} onRemove={onRemove} />);
 
-    expect(screen.getByText("propozycja · sourcer")).toBeInTheDocument();
+    expect(screen.getByText("propozycja")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Zdejmij Anna Przykładowa" }));
     expect(onRemove).toHaveBeenCalledWith(board[0]);
   });
@@ -173,7 +169,7 @@ describe("RecruiterChips — pełna lista", () => {
 
 describe("RecruiterChips — compact (komórka tabeli)", () => {
   it("pierwsza osoba skrócona, reszta jako „+N”, wszyscy w podpowiedzi", () => {
-    render(<RecruiterChips people={[owner, sourcer, collaborator, proposal]} compact />);
+    render(<RecruiterChips people={[owner, assigned, collaborator, proposal]} compact />);
 
     const tooltip =
       "Rekruterzy: Marta Kowalska, Jan Nowak, Ewa Zielińska · Propozycja automatu: Piotr Wiśniewski";

@@ -44,8 +44,6 @@ WARSAW = ZoneInfo("Europe/Warsaw")
 QUEUE_LIMIT = 20
 OPERATIONAL_ROLES = (
     UserRole.recruiter,
-    UserRole.sourcer,
-    UserRole.tac,
     UserRole.talent_community_manager,
 )
 _PRIORITY_WEIGHT = {

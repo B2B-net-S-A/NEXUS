@@ -121,8 +121,8 @@ async def test_cc_recruiters_lists_active_accounts_only(
         "/api/competence-categories", headers=app_auth_headers
     )
     cc_id = list_resp.json()[0]["id"]
-    active_id, _ = await make_user(UserRole.sourcer)
-    inactive_id, _ = await make_user(UserRole.sourcer)
+    active_id, _ = await make_user(UserRole.recruiter)
+    inactive_id, _ = await make_user(UserRole.recruiter)
     async with AsyncSessionLocal() as db:
         db.add_all(
             [

@@ -24,9 +24,7 @@ ALLOWED_ROLES = ["admin", "delivery_lead", "finance"]
 DENIED_ROLES = [
     "head_of_recruitment",
     "talent_community_manager",
-    "tac",
     "recruiter",
-    "sourcer",
     "user",
 ]
 
@@ -39,10 +37,7 @@ async def _headers_for(
 ) -> dict[str, str]:
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
-    from app.models.team_structure import (
-        ClientTacAssignment,
-        DeliveryLeadClientAssignment,
-    )
+    from app.models.team_structure import DeliveryLeadClientAssignment
     from app.models.user import User, UserRole
 
     email = f"amd-{role_value}-{uuid.uuid4().hex[:8]}@example.com"
@@ -62,15 +57,6 @@ async def _headers_for(
                 DeliveryLeadClientAssignment(
                     delivery_lead_user_id=user.id,
                     client_id=client_id,
-                )
-            )
-        if client_id is not None and role_value == UserRole.tac.value:
-            db.add(
-                ClientTacAssignment(
-                    tac_user_id=user.id,
-                    client_id=client_id,
-                    is_primary=False,
-                    is_first_priority_for_tac=True,
                 )
             )
         await db.commit()

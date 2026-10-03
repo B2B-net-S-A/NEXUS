@@ -567,8 +567,7 @@ describe("strona rekrutacji — prowadzenie rekrutacji za uprawnieniem", () => {
   });
 
   it.each([
-    // TAC ma pełną redakcję rekrutacji, ale zamknięcia serwer mu odmawia.
-    ["TAC z pełną redakcją, bez uprawnienia", { id: 12, role: "tac", roles: ["tac"] }],
+    ["rekruter bez uprawnienia", { id: 12, role: "recruiter", roles: ["recruiter"] }],
     [
       "Delivery Lead z wyłączonym uprawnieniem",
       {

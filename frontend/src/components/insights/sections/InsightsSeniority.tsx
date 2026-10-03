@@ -32,8 +32,6 @@ const LEVEL_CLASS: Record<SeniorityLevel, string> = {
 };
 
 const ROLE_LABEL: Record<string, string> = {
-  sourcer: "Sourcer",
-  tac: "TAC",
   recruiter: "Rekruter",
 };
 
@@ -391,7 +389,7 @@ export function InsightsSeniority() {
         />
       ) : viewState === "empty" ? (
         <p className="text-sm text-muted-foreground py-4 text-center">
-          Brak osób w rolach sourcer / TAC / rekruter.
+          Brak osób w roli rekrutera.
         </p>
       ) : data ? (
         <SeniorityTable data={data} />

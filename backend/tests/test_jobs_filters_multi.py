@@ -399,7 +399,7 @@ async def test_jobs_responsible_id_matches_recruiter_and_tac_only(
     role only — a delivery-lead-only assignment does NOT count as responsible."""
     u_rec = await _seed_user()
     u_dl = await _seed_user(role="delivery_lead")
-    u_tac = await _seed_user(role="tac")
+    u_tac = await _seed_user(role="head_of_recruitment")
     j_rec = await _seed_job(recruiter_id=u_rec)
     j_dl = await _seed_job(delivery_lead_id=u_dl)
     j_tac = await _seed_job(tac_id=u_tac)

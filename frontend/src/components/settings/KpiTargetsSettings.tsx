@@ -12,6 +12,7 @@ import {
   useSaveRoleDefault,
   useSaveUserTarget,
   type KpiTargetKpi,
+  type KpiTargetRole,
   type KpiTargetsMatrix,
 } from "@/lib/api/kpiTargets";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -217,7 +218,7 @@ export function KpiUserTable({
                   className="px-3 py-4 text-center text-muted-foreground"
                 >
                   {data.users.length === 0
-                    ? "Nikt nie ma dziś roli rekrutera, sourcera ani TAC."
+                    ? "Nikt nie ma dziś roli rekrutera."
                     : "Żadna osoba nie pasuje do wyszukiwania."}
                 </td>
               </tr>
@@ -226,9 +227,6 @@ export function KpiUserTable({
               <tr key={user.user_id} className="border-t border-border align-top">
                 <td className="px-3 py-2">
                   <div className="font-medium text-foreground">{user.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {user.roles.join(", ")}
-                  </div>
                 </td>
                 {data.kpis.map((kpi) => {
                   const cell = user.targets[kpi.kpi_id];
@@ -330,8 +328,7 @@ export function KpiTargetsSettings() {
         <div>
           <h2 className="text-base font-semibold text-foreground">Cele ról</h2>
           <p className="text-sm text-muted-foreground">
-            Puste pole = wartość z katalogu. Osoba z kilkoma rolami dostaje
-            najwyższy cel ze swoich ról.
+            Puste pole = wartość z katalogu.
           </p>
         </div>
         <KpiRoleTable
@@ -339,7 +336,7 @@ export function KpiTargetsSettings() {
           busy={busy}
           onSave={async (role, kpiId, value) => {
             await saveRole.mutateAsync({
-              role: role as "recruiter" | "sourcer" | "tac",
+              role: role as KpiTargetRole,
               kpi_id: kpiId,
               target_value: value,
             });

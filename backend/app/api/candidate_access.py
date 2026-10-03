@@ -63,10 +63,8 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
-    UserRole.sourcer,
 )
 
 CANDIDATE_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
@@ -80,10 +78,8 @@ CANDIDATE_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
-    UserRole.sourcer,
 )
 
 CANDIDATE_EXPORT_ROLES: tuple[UserRole, ...] = (
@@ -91,7 +87,6 @@ CANDIDATE_EXPORT_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.finance,
 )
 

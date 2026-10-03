@@ -178,7 +178,7 @@ async def test_unconfirmed_proposal_content_is_not_exposed(
 ) -> None:
     cid = await _make_client_with_rule(confirmed=False)
     try:
-        headers = await _headers_for(app_client, "sourcer")
+        headers = await _headers_for(app_client, "recruiter")
         response = await app_client.get(URL.format(cid=cid), headers=headers)
         assert response.status_code == 200, response.text
         body = response.json()

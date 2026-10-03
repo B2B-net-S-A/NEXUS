@@ -112,11 +112,7 @@ async def resolve_dashboard_scope(
         )
         and not delivery_lead_persona
     ):
-        recruitment_roles = (
-            UserRole.tac,
-            UserRole.sourcer,
-            UserRole.recruiter,
-        )
+        recruitment_roles = (UserRole.recruiter,)
         operator_ids = frozenset(
             (
                 await db.scalars(

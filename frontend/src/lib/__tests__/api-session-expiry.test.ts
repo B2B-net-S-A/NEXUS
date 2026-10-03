@@ -90,7 +90,7 @@ describe("api — martwa sesja vs brak uprawnień", () => {
   it("403 z listą ról NIE wylogowuje — to brak uprawnień, nie martwa sesja", async () => {
     seedSession();
 
-    await respondWith(403, { detail: "Requires one of roles: ['admin', 'tac']" });
+    await respondWith(403, { detail: "Requires one of roles: ['admin', 'delivery_lead']" });
 
     // Regresja tutaj jest hurtowa: cztery równoległe 403 z jednej zakładki
     // wyrzucałyby użytkownika z aplikacji w trakcie normalnej pracy.

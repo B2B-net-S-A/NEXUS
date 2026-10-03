@@ -75,25 +75,24 @@ def test_map_groups_to_role_mapping_order_priority():
 
 
 def test_map_groups_to_roles_returns_all_matches_in_mapping_order():
-    """Hybrid DL+TAC user gets both roles, ordered by mapping insertion."""
+    """Hybrid DL+recruiter user gets both roles, ordered by mapping insertion."""
     mapping = {
         "g-admin": "admin",
         "g-dl": "delivery_lead",
-        "g-tac": "tac",
         "g-rec": "recruiter",
     }
-    # User in DL + TAC groups → both roles, DL first (precedes TAC in mapping).
-    assert map_groups_to_roles(["g-tac", "g-dl"], mapping) == [
+    # User in DL + recruiter groups → both roles, DL first (precedes it in mapping).
+    assert map_groups_to_roles(["g-rec", "g-dl"], mapping) == [
         "delivery_lead",
-        "tac",
+        "recruiter",
     ]
     # Reverse mapping order swaps the primary.
     mapping_rev = {
-        "g-tac": "tac",
+        "g-rec": "recruiter",
         "g-dl": "delivery_lead",
     }
-    assert map_groups_to_roles(["g-tac", "g-dl"], mapping_rev) == [
-        "tac",
+    assert map_groups_to_roles(["g-rec", "g-dl"], mapping_rev) == [
+        "recruiter",
         "delivery_lead",
     ]
 
@@ -112,8 +111,8 @@ def test_map_groups_to_roles_dedupes_duplicate_role_values():
 
 def test_map_groups_to_role_matches_map_groups_to_roles_first_element():
     """``map_groups_to_role`` (legacy) returns the same as ``roles[0]``."""
-    mapping = {"g-admin": "admin", "g-tac": "tac"}
-    groups = ["g-tac", "g-admin"]
+    mapping = {"g-admin": "admin", "g-rec": "recruiter"}
+    groups = ["g-rec", "g-admin"]
     roles = map_groups_to_roles(groups, mapping)
     single = map_groups_to_role(groups, mapping)
     assert roles[0] == single

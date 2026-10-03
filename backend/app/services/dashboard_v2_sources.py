@@ -135,9 +135,7 @@ def narrow_to_self(
     if scope.payload.kind == "self" and scope.payload.user_id == user.id:
         return scope
     if user.has_role(UserRole.admin) or user.has_any_role(
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
     ):
         return ResolvedDashboardScope(
             raw=None,

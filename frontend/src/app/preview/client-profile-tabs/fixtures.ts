@@ -551,11 +551,11 @@ const CV_RULE: ClientCvRule = makeCvRule({
 // ── Projekty ────────────────────────────────────────────────────────────────
 
 function recruiter(user_id: number, name: string, overrides: Partial<JobRecruiter> = {}): JobRecruiter {
-  return { user_id, name, role: "recruiter", via: "owner", proposed: false, assigned_by_name: null, ...overrides };
+  return { user_id, name, via: "owner", proposed: false, assigned_by_name: null, ...overrides };
 }
 
 const URSZULA = recruiter(21, "Urszula Rekrutująca");
-const WIKTOR = recruiter(22, "Wiktor Sourcingowy", { role: "sourcer", via: "assignment", assigned_by_name: "Róża Nadzorująca" });
+const WIKTOR = recruiter(22, "Wiktor Wspierający", { via: "assignment", assigned_by_name: "Róża Nadzorująca" });
 const ZOFIA = recruiter(23, "Zofia Wspomagająca", { via: "collaborator" });
 
 const ACTIVE_JOBS = [

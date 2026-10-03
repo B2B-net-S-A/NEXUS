@@ -39,7 +39,7 @@ from sqlalchemy.orm import aliased, load_only
 from app.models.activity import Activity
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
-from app.models.job_work_assignment import JobWorkAssignment
+from app.models.job_work_assignment import WORK_ROLE, JobWorkAssignment
 from app.models.user import User, UserRole
 
 
@@ -47,7 +47,7 @@ from app.models.user import User, UserRole
 class TeamPerson:
     user_id: int
     name: str
-    role: str  # recruiter | sourcer
+    role: str  # zawsze WORK_ROLE
     via: str  # owner | assignment | collaborator
     proposed: bool = False
     assigned_by_name: Optional[str] = None
@@ -57,17 +57,8 @@ class TeamPerson:
 
 
 # Role, które pracują nad requestem (pulpit „Requesty i obłożenie”, planer).
-WORK_ROLES = (UserRole.recruiter, UserRole.sourcer, UserRole.tac)
-
-
-def work_role_of(user: User) -> str:
-    """Rola przy requeście dla osoby bez wiersza przypisania (prowadzący,
-    współpracownik): sourcer tylko wtedy, gdy nie jest też rekruterem ani TAC."""
-    roles = {str(getattr(r, "value", r)) for r in (user.roles or [])}
-    roles.add(str(getattr(user.role, "value", user.role)))
-    if "sourcer" in roles and not roles & {"recruiter", "tac"}:
-        return "sourcer"
-    return "recruiter"
+# Od 0411 jedna rola — rekruter.
+WORK_ROLES = (UserRole.recruiter,)
 
 
 # ── Klauzule SQL (filtry listy, zakres „Moje”, liczniki) ────────────────────
@@ -278,7 +269,7 @@ async def recruiters_for_jobs(
                 TeamPerson(
                     user_id=owner.id,
                     name=owner.name,
-                    role=own_row.role if own_row else work_role_of(owner),
+                    role=WORK_ROLE,
                     via="owner",
                     assigned_by_name=own_row.assigner_name if own_row else None,
                     assignment_source=own_row.source if own_row else None,
@@ -292,7 +283,7 @@ async def recruiters_for_jobs(
                 TeamPerson(
                     user_id=row.user_id,
                     name=row.user_name,
-                    role=row.role,
+                    role=WORK_ROLE,
                     via="assignment",
                     assigned_by_name=row.assigner_name,
                     assignment_source=row.source,
@@ -307,7 +298,7 @@ async def recruiters_for_jobs(
                 TeamPerson(
                     user_id=user_id,
                     name=user.name,
-                    role=work_role_of(user),
+                    role=WORK_ROLE,
                     via="collaborator",
                 )
             )
@@ -319,7 +310,7 @@ async def recruiters_for_jobs(
                 TeamPerson(
                     user_id=row.user_id,
                     name=row.user_name,
-                    role=row.role,
+                    role=WORK_ROLE,
                     via="assignment",
                     proposed=True,
                     assignment_source=row.source,
@@ -400,7 +391,7 @@ async def remove_recruiter(
         person = await db.get(User, user_id)
         if person is not None and person.has_any_role(*WORK_ROLES):
             await remember_manual_release(
-                db, job_id=job.id, user_id=user_id, role=work_role_of(person)
+                db, job_id=job.id, user_id=user_id, role=WORK_ROLE
             )
 
     link = await db.scalar(

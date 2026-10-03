@@ -59,7 +59,7 @@ const PEOPLE: PreviewPerson[] = [
   { id: 2, name: "Emil Fikcyjny", roles: ["finance"] },
   { id: 3, name: "Hanna Makietowa", roles: ["head_of_recruitment"] },
   { id: 4, name: "Igor Próbny", roles: ["delivery_lead"] },
-  { id: 5, name: "Lena Szablonowa", roles: ["delivery_lead", "tac"] },
+  { id: 5, name: "Lena Szablonowa", roles: ["delivery_lead", "recruiter"] },
   {
     id: 6,
     name: "Celina Wzorcowa",
@@ -79,8 +79,8 @@ const PEOPLE: PreviewPerson[] = [
     roles: ["recruiter"],
     grants: ["delivery_view", "amounts_view"],
   },
-  { id: 9, name: "Daria Testowa", roles: ["sourcer"] },
-  { id: 10, name: "Nela Atrapowa", roles: ["tac"], active: false },
+  { id: 9, name: "Daria Testowa", roles: ["recruiter"] },
+  { id: 10, name: "Nela Atrapowa", roles: ["recruiter"], active: false },
   { id: 11, name: "Tymon Zmyślony", roles: ["trainee"] },
 ];
 
@@ -92,9 +92,7 @@ const ALL_ROLES: UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
 ];

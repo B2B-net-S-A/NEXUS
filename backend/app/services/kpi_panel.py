@@ -42,8 +42,6 @@ _PRECISION_WINDOW_DAYS = 30
 
 # Role operacyjne — panel pokazuje się zawsze (reszta tylko gdy ma aktywność).
 _OPERATIONAL_ROLES = {
-    UserRole.sourcer,
-    UserRole.tac,
     UserRole.recruiter,
     UserRole.delivery_lead,
 }

@@ -28,9 +28,7 @@ ROLES = [
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
     UserRole.finance,
     UserRole.user,
 ]
@@ -206,9 +204,7 @@ ROLE_SETS = {
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.finance,
     },
     # R0: operacyjni = wszyscy poza read-only viewerem `user` (z HoR).
@@ -217,9 +213,7 @@ ROLE_SETS = {
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.finance,
     },
     # R0: VIEW_TEAM_KPI — cudze KPI.
@@ -239,9 +233,7 @@ ROLE_SETS = {
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.finance,
     },
     "delivery_read": {
@@ -778,7 +770,6 @@ async def test_me_returns_analytics_capabilities(
     if role is UserRole.admin:
         assert "view_finance" in caps and "admin_analytics" in caps
     if role in {
-        UserRole.tac,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,

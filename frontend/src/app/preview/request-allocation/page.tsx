@@ -59,15 +59,15 @@ const BOARD: RequestBoard = {
   ],
   requests: [
     // Propozycja automatu: nikt jeszcze nie pracuje, czeka na akceptację.
-    { job_id: 11, title: "DevOps Engineer (Azure)", client_name: "Klient Alfa", category_id: 1, deadline: "2026-09-30", sent: 0, champion: false, priority_level: "p1", delivery_lead: leads.gosia, opened_effective_at: "2026-09-22T07:30:00Z", people: [{ ...people.anna, role: "sourcer", proposed: true, source: "auto", via: "assignment", assigned_by_name: null }] },
-    { job_id: 12, title: "Data Engineer", client_name: "Klient Beta", category_id: 1, deadline: "2026-09-23", sent: 0, champion: false, priority_level: "p2", delivery_lead: leads.henryk, opened_effective_at: "2026-09-08T09:00:00Z", people: [{ ...people.bartek, role: "recruiter", proposed: false, source: "owner", via: "owner", assigned_by_name: null }] },
-    // Dwie pracujące osoby: zaakceptowana propozycja i ręcznie dopisany sourcer.
-    { job_id: 21, title: "Senior Java Developer", client_name: "Klient Gamma", category_id: 2, deadline: "2026-09-26", sent: 0, champion: false, priority_level: "p1", delivery_lead: leads.gosia, opened_effective_at: "2026-09-15T08:00:00Z", people: [{ ...people.celina, role: "recruiter", proposed: false, source: "manual", via: "assignment", assigned_by_name: "Henryk Pokazowy" }, { ...people.anna, role: "sourcer", proposed: false, source: "manual", via: "collaborator", assigned_by_name: null }] },
-    { job_id: 22, title: "Kotlin Developer", client_name: "Klient Delta", category_id: 2, deadline: "2026-10-07", sent: 1, champion: false, priority_level: "p2", delivery_lead: leads.henryk, opened_effective_at: "2026-09-18T10:00:00Z", people: [{ ...people.darek, role: "recruiter", proposed: false, source: "owner", via: "owner", assigned_by_name: null }] },
-    { job_id: 23, title: "React Developer", client_name: "Klient Alfa", category_id: 2, deadline: "2026-09-28", sent: 3, champion: true, priority_level: "p2", delivery_lead: leads.gosia, opened_effective_at: "2026-08-25T08:00:00Z", people: [{ ...people.darek, role: "recruiter", proposed: false, source: "owner", via: "owner", assigned_by_name: null }] },
+    { job_id: 11, title: "DevOps Engineer (Azure)", client_name: "Klient Alfa", category_id: 1, deadline: "2026-09-30", sent: 0, champion: false, priority_level: "p1", delivery_lead: leads.gosia, opened_effective_at: "2026-09-22T07:30:00Z", people: [{ ...people.anna, proposed: true, source: "auto", via: "assignment", assigned_by_name: null }] },
+    { job_id: 12, title: "Data Engineer", client_name: "Klient Beta", category_id: 1, deadline: "2026-09-23", sent: 0, champion: false, priority_level: "p2", delivery_lead: leads.henryk, opened_effective_at: "2026-09-08T09:00:00Z", people: [{ ...people.bartek, proposed: false, source: "owner", via: "owner", assigned_by_name: null }] },
+    // Dwie pracujące osoby: zaakceptowana propozycja i ręcznie dopisana osoba.
+    { job_id: 21, title: "Senior Java Developer", client_name: "Klient Gamma", category_id: 2, deadline: "2026-09-26", sent: 0, champion: false, priority_level: "p1", delivery_lead: leads.gosia, opened_effective_at: "2026-09-15T08:00:00Z", people: [{ ...people.celina, proposed: false, source: "manual", via: "assignment", assigned_by_name: "Henryk Pokazowy" }, { ...people.anna, proposed: false, source: "manual", via: "collaborator", assigned_by_name: null }] },
+    { job_id: 22, title: "Kotlin Developer", client_name: "Klient Delta", category_id: 2, deadline: "2026-10-07", sent: 1, champion: false, priority_level: "p2", delivery_lead: leads.henryk, opened_effective_at: "2026-09-18T10:00:00Z", people: [{ ...people.darek, proposed: false, source: "owner", via: "owner", assigned_by_name: null }] },
+    { job_id: 23, title: "React Developer", client_name: "Klient Alfa", category_id: 2, deadline: "2026-09-28", sent: 3, champion: true, priority_level: "p2", delivery_lead: leads.gosia, opened_effective_at: "2026-08-25T08:00:00Z", people: [{ ...people.darek, proposed: false, source: "owner", via: "owner", assigned_by_name: null }] },
     // „Bez rekrutera”: nikt nie pracuje i automat nikogo nie proponuje.
     { job_id: 41, title: "Tester automatyzujący", client_name: "Klient Beta", category_id: 4, deadline: null, sent: 0, champion: false, priority_level: "accepting", delivery_lead: null, opened_effective_at: "2026-09-23T12:00:00Z", people: [] },
-    { job_id: 51, title: "Product Owner", client_name: "Klient Gamma", category_id: 5, deadline: "2026-10-09", sent: 2, champion: false, priority_level: "p2", delivery_lead: leads.henryk, opened_effective_at: "2026-09-10T08:00:00Z", people: [{ ...people.ewa, role: "recruiter", proposed: false, source: "manual", via: "assignment", assigned_by_name: "Gosia Delivery" }] },
+    { job_id: 51, title: "Product Owner", client_name: "Klient Gamma", category_id: 5, deadline: "2026-10-09", sent: 2, champion: false, priority_level: "p2", delivery_lead: leads.henryk, opened_effective_at: "2026-09-10T08:00:00Z", people: [{ ...people.ewa, proposed: false, source: "manual", via: "assignment", assigned_by_name: "Gosia Delivery" }] },
   ],
   // `count` = requesty w pracy (bez championa), `proposed` = propozycje do akceptacji.
   load: [
@@ -104,7 +104,7 @@ const person = (p: { user_id: number; name: string }, roles: string[], assignmen
 
 const TEAM: CompetenceTeam = {
   categories: [
-    { id: 1, slug: "infrastructure_operations", name: "Infra & Operations & Security / Data & AI", requests_searching: 2, first: [person(people.anna, ["sourcer"], 101)], second: [person(people.ewa, ["recruiter"], 102)] },
+    { id: 1, slug: "infrastructure_operations", name: "Infra & Operations & Security / Data & AI", requests_searching: 2, first: [person(people.anna, ["recruiter"], 101)], second: [person(people.ewa, ["recruiter"], 102)] },
     { id: 2, slug: "software_development", name: "Development", requests_searching: 2, first: [person(people.celina, ["recruiter"], 103), person(people.darek, ["recruiter"], 104)], second: [] },
     { id: 4, slug: "security_quality", name: "QA", requests_searching: 1, first: [], second: [person(people.celina, ["recruiter"], 105)] },
     { id: 5, slug: "management_delivery", name: "Management & Delivery (PM & BA)", requests_searching: 1, first: [person(people.ewa, ["recruiter"], 106)], second: [] },
@@ -112,13 +112,13 @@ const TEAM: CompetenceTeam = {
   unassigned: [person(people.bartek, ["recruiter", "delivery_lead"], null)],
   excluded: [person({ user_id: 9, name: "Filip Nieaktywny" }, ["recruiter"], null, true)],
   people: [
-    person(people.anna, ["sourcer"], null),
+    person(people.anna, ["recruiter"], null),
     person(people.bartek, ["recruiter", "delivery_lead"], null),
     person(people.celina, ["recruiter"], null),
     person(people.darek, ["recruiter"], null),
     person(people.ewa, ["recruiter"], null),
   ],
-  rules: { sourcer_threshold: 15, review_time: "08:30" },
+  rules: { review_time: "08:30" },
 };
 
 const REVIEW: ReviewResponse = {

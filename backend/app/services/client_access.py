@@ -69,7 +69,6 @@ from app.models.client import Client
 from app.models.contact import Contact
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator
-from app.models.team_structure import ClientTacAssignment
 from app.models.user import User, UserRole
 from app.services.client_identity import client_display_name
 from app.services.access_scope import (
@@ -90,9 +89,9 @@ ClientScopePurpose = Literal["delivery", "org"]
 # Pipeline. Prawa Delivery wynikają dodatkowo z centralnej bramki sekcji.
 ADMIN_LIKE_ROLES = (UserRole.admin, UserRole.head_of_recruitment)
 # Historyczny graf zespołu klienta; zapis Delivery ma osobny section ceiling.
-CLIENT_TEAM_ROLES = (UserRole.delivery_lead, UserRole.tac)
+CLIENT_TEAM_ROLES = (UserRole.delivery_lead,)
 # Role operacyjne delivery — odczyt w kontekście przypisanego stanowiska.
-DELIVERY_ROLES = (UserRole.recruiter, UserRole.sourcer)
+DELIVERY_ROLES = (UserRole.recruiter,)
 # Prywatne notatki relacyjne (dane osobiste kontaktu) czyta organizacyjnie
 # wyłącznie persona Finanse. To reguła o danych, nie o pracy — zostaje przy
 # roli i NIE wynika z uprawnienia „podgląd” (które może dostać każdy).
@@ -301,16 +300,9 @@ async def resolve_client_team_client_ids(
             return frozenset(assigned or ())
         client_ids.update((await db.scalars(select(Client.id))).all())
         return frozenset(int(client_id) for client_id in client_ids)
-    if user.has_role(UserRole.tac):
-        client_ids.update(
-            (
-                await db.scalars(
-                    select(ClientTacAssignment.client_id).where(
-                        ClientTacAssignment.tac_user_id == user.id
-                    )
-                )
-            ).all()
-        )
+    # Do 0411 konto z rolą TAC dostawało tu klientów ze swoich przypisań
+    # (`ClientTacAssignment`). Roli nie ma, a rekruter nie należy do zespołu
+    # klienta — przypisania zostają w bazie bez wpływu na dostęp.
     return frozenset(int(client_id) for client_id in client_ids)
 
 

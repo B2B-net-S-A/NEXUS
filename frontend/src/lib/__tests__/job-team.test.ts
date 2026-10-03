@@ -34,7 +34,6 @@ beforeEach(() => {
 function person(partial: Partial<JobRecruiter> & { user_id: number }): JobRecruiter {
   return {
     name: `Osoba ${partial.user_id}`,
-    role: "recruiter",
     via: "assignment",
     proposed: false,
     assigned_by_name: null,
@@ -46,7 +45,6 @@ const owner = person({ user_id: 1, name: "Marta Kowalska", via: "owner" });
 const assigned = person({
   user_id: 2,
   name: "Jan Nowak",
-  role: "sourcer",
   assigned_by_name: "Anna Lis",
 });
 const collaborator = person({ user_id: 3, name: "Ewa Zielińska", via: "collaborator" });
@@ -72,15 +70,15 @@ describe("recruitersOf", () => {
     const job = {
       primary_owner: { id: 1, name: "Marta Kowalska", role: "recruiter" },
       collaborators: [
-        { id: 2, name: "Jan Nowak", role: "sourcer", source: "manual" },
+        { id: 2, name: "Jan Nowak", role: "recruiter", source: "manual" },
         { id: 5, name: "Cała Kategoria", role: "recruiter", source: "auto_cc" },
         { id: 3, name: "  ", role: "delivery_lead" },
       ],
     };
     expect(recruitersOf(job)).toEqual([
-      { user_id: 1, name: "Marta Kowalska", role: "recruiter", via: "owner", proposed: false, assigned_by_name: null },
-      { user_id: 2, name: "Jan Nowak", role: "sourcer", via: "collaborator", proposed: false, assigned_by_name: null },
-      { user_id: 3, name: "#3", role: "recruiter", via: "collaborator", proposed: false, assigned_by_name: null },
+      { user_id: 1, name: "Marta Kowalska", via: "owner", proposed: false, assigned_by_name: null },
+      { user_id: 2, name: "Jan Nowak", via: "collaborator", proposed: false, assigned_by_name: null },
+      { user_id: 3, name: "#3", via: "collaborator", proposed: false, assigned_by_name: null },
     ]);
   });
 
@@ -101,13 +99,11 @@ describe("recruitersOf", () => {
     expect(recruitersOf(doubled).map((p) => [p.user_id, p.via])).toEqual([[1, "owner"]]);
   });
 
-  it("w zapasie sourcer jest sourcerem tylko bez roli rekrutera i TAC", () => {
-    const roleOf = (role: string, roles?: string[]) =>
-      recruitersOf({ primary_owner: { id: 1, name: "X", role, roles } })[0].role;
-    expect(roleOf("sourcer")).toBe("sourcer");
-    expect(roleOf("sourcer", ["sourcer", "recruiter"])).toBe("recruiter");
-    expect(roleOf("tac", ["sourcer"])).toBe("recruiter");
-    expect(roleOf("delivery_lead")).toBe("recruiter");
+  it("w zapasie osoba nie niesie roli pracy — podział rekruter / sourcer zniknął (02.10.2026)", () => {
+    const [person] = recruitersOf({
+      primary_owner: { id: 1, name: "X", role: "delivery_lead", roles: ["delivery_lead"] },
+    });
+    expect(person).not.toHaveProperty("role");
   });
 
   it("brak rekrutacji albo brak danych daje pustą listę", () => {
@@ -140,8 +136,8 @@ describe("pracujący i propozycje", () => {
 
   it("przyjmuje osoby z pulpitu bez `via` i zachowuje ich typ", () => {
     const board = [
-      { user_id: 7, name: "Anna Przykładowa", role: "recruiter" as const, proposed: true, source: "auto" as const },
-      { user_id: 8, name: "Bartek Testowy", role: "sourcer" as const, proposed: false, source: "manual" as const },
+      { user_id: 7, name: "Anna Przykładowa", proposed: true, source: "auto" as const },
+      { user_id: 8, name: "Bartek Testowy", proposed: false, source: "manual" as const },
     ];
     expect(workingRecruiters(board).map((p) => p.source)).toEqual(["manual"]);
     expect(proposedRecruiters(board).map((p) => p.source)).toEqual(["auto"]);
@@ -200,7 +196,7 @@ describe("assignedByCaption", () => {
 
   it("nie wiadomo kto — bez podpisu", () => {
     expect(assignedByCaption(owner)).toBeNull();
-    const fromBoard: RecruiterLike = { user_id: 7, name: "Anna", role: "recruiter", proposed: false };
+    const fromBoard: RecruiterLike = { user_id: 7, name: "Anna", proposed: false };
     expect(assignedByCaption(fromBoard)).toBeNull();
   });
 });
@@ -228,7 +224,7 @@ describe("canRemoveRecruiter", () => {
   });
 
   it("osoba z pulpitu bez `via` — tylko role przydzielające", () => {
-    const fromBoard: RecruiterLike = { user_id: 7, name: "Anna", role: "recruiter", proposed: false };
+    const fromBoard: RecruiterLike = { user_id: 7, name: "Anna", proposed: false };
     expect(canRemoveRecruiter(fromBoard, { ...nobody, canEdit: true })).toBe(false);
     expect(canRemoveRecruiter(fromBoard, { ...nobody, canStaff: true })).toBe(true);
   });

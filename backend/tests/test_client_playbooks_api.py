@@ -313,7 +313,7 @@ async def test_write_needs_delivery_section_write_read_is_operational(
     """Zapis = sekcja Delivery (write); odczyt karty i przeglądu = każda rola operacyjna."""
     cid = await _make_client(_unique("Playbook roles"))
     try:
-        for role in ("tac", "recruiter", "head_of_recruitment"):
+        for role in ("recruiter", "head_of_recruitment"):
             headers = await _headers_for(app_client, role)
             r = await app_client.put(
                 URL.format(cid=cid), json=_full_payload(), headers=headers
@@ -326,11 +326,10 @@ async def test_write_needs_delivery_section_write_read_is_operational(
         )
         assert r.status_code == 200, r.text
 
-        tac = await _headers_for(app_client, "tac")
-        h = await app_client.get(URL.format(cid=cid) + "/history", headers=tac)
+        recruiter = await _headers_for(app_client, "recruiter")
+        h = await app_client.get(URL.format(cid=cid) + "/history", headers=recruiter)
         assert h.status_code == 403, h.text
 
-        recruiter = await _headers_for(app_client, "recruiter")
         g = await app_client.get(URL.format(cid=cid), headers=recruiter)
         assert g.status_code == 200, g.text
         assert g.json()["exists"] is True
@@ -554,7 +553,7 @@ async def test_seed_backfill_needs_delivery_write_same_as_put(app_client: AsyncC
     cid = await _make_client(_unique("Playbook seed authz"))
     admin_cid = await _make_client(_unique("Playbook seed admin authz"))
     try:
-        for role in ("tac", "recruiter", "head_of_recruitment"):
+        for role in ("recruiter", "head_of_recruitment"):
             headers = await _headers_for(app_client, role)
             r = await app_client.post(
                 SEED_URL.format(cid=cid), json={"seed_key": SEED_KEY}, headers=headers

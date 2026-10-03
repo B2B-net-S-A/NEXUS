@@ -249,9 +249,7 @@ async def test_consultant_options_require_the_order_editing_permission():
     for role in (
         UserRole.talent_community_manager,
         UserRole.head_of_recruitment,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
     ):
         with pytest.raises(HTTPException) as exc_info:
             await gate(current_user=_user(role))

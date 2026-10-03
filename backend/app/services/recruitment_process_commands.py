@@ -1107,13 +1107,11 @@ async def handoff_process(
         )
     )
     if new_owner is None or not new_owner.has_any_role(
-        UserRole.sourcer,
         UserRole.recruiter,
-        UserRole.tac,
     ):
         raise HTTPException(
             status_code=422,
-            detail="Nowy właściciel nie jest aktywnym rekruterem, sourcerem ani TAC.",
+            detail="Nowy właściciel nie jest aktywnym rekruterem.",
         )
     process = await _latest_process(db, candidate_id=candidate_id, job_id=job_id)
     if process is None or process.status != ProcessStatus.open:

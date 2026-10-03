@@ -1,9 +1,9 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from app.models.user import UserRole
+from app.models.user import UserRole, known_roles
 
 
 class UserCreate(BaseModel):
@@ -68,6 +68,13 @@ class UserResponse(BaseModel):
     # set — including any secondary roles granted via AAD RBAC or admin —
     # lives here. Frontend should prefer ``roles`` for permission checks.
     roles: list[UserRole] = []
+
+    @field_validator("roles", mode="before")
+    @classmethod
+    def _known_roles_only(cls, value: object) -> object:
+        # Wiersz ze starą rolą (`tac`, `sourcer`) nie może dać 500 na /auth/me.
+        return known_roles(value) if isinstance(value, (list, tuple)) else value
+
     is_active: bool
     # Email-verification gate (migracja 0139). True dla wszystkich kont poza
     # świeżo self-zarejestrowanymi, które nie kliknęły jeszcze linku.

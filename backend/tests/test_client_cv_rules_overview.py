@@ -351,11 +351,9 @@ async def test_recruiter_reads_single_rule_only_through_assigned_job(
 @pytest.mark.parametrize(
     "role_value, overview_status",
     [
-        ("tac", 403),
         ("head_of_recruitment", 403),
         ("finance", 200),
         ("recruiter", 403),
-        ("sourcer", 403),
         ("talent_community_manager", 200),
     ],
 )

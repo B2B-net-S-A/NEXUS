@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,13 +21,13 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/notification-overrides/{override_id}": "PDDPDDDDDDPPPDDDPDDDD",
-  "DELETE /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDDDPPPDDDDDDDD",
-  "GET /api/clients/{client_id}/notification-overrides": "PPDPPDDDDDPPPDPPPPDPP",
-  "GET /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PPPPPPPPPDPPPPPPPPPPP",
-  "PATCH /api/clients/{client_id}/notification-overrides/{override_id}": "PDDPDDDDDDPPPDDDPDDDD",
-  "PATCH /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDDDPPPDDDDDDDD",
-  "POST /api/clients/{client_id}/notification-overrides": "PDDPDDDDDDPPPDDDPDDDD",
-  "POST /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PDDPDDDDDDPPPDDDDDDDD"
+  "DELETE /api/clients/{client_id}/notification-overrides/{override_id}": "PDDPDDDDPPPDDDPDDDD",
+  "DELETE /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDPPPDDDDDDDD",
+  "GET /api/clients/{client_id}/notification-overrides": "PPDPPDDDPPPDPPPPDPP",
+  "GET /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PPPPPPPDPPPPPPPPPPP",
+  "PATCH /api/clients/{client_id}/notification-overrides/{override_id}": "PDDPDDDDPPPDDDPDDDD",
+  "PATCH /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDPPPDDDDDDDD",
+  "POST /api/clients/{client_id}/notification-overrides": "PDDPDDDDPPPDDDPDDDD",
+  "POST /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PDDPDDDDPPPDDDDDDDD"
  }
 }

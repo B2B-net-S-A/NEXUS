@@ -33,7 +33,7 @@ interface AppUser {
   is_active?: boolean;
 }
 
-const TAC_ROLES = ["tac", "delivery_lead", "admin", "head_of_recruitment"];
+const TAC_ROLES = ["delivery_lead", "admin", "head_of_recruitment"];
 const DL_ROLES = ["delivery_lead", "admin", "head_of_recruitment"];
 
 function initialsOf(name: string): string {

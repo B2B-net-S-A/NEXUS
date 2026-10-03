@@ -70,12 +70,10 @@ interface CompetenceSelection {
   secondaryIds: number[]
 }
 
-const OPERATOR_ROLES = ["sourcer", "tac", "recruiter"]
+const OPERATOR_ROLES = ["recruiter"]
 const DIRECTORY_ROLES = [...OPERATOR_ROLES, "delivery_lead"]
 
 const ROLE_LABELS: Record<string, string> = {
-  sourcer: "Sourcer",
-  tac: "TAC",
   recruiter: "Rekruter",
 }
 
@@ -297,15 +295,15 @@ function OperatorCompetencesSection({
       <CardHeader>
         <CardTitle>1. Kompetencje zespołu rekrutacji</CardTitle>
         <CardDescription>
-          Każdy aktywny Sourcer, TAC i Rekruter ma dokładnie jedną kompetencję
-          główną oraz dowolną liczbę różnych kompetencji dodatkowych. Cały wybór
-          jednej osoby zapisujemy w jednej operacji.
+          Każdy aktywny Rekruter ma dokładnie jedną kompetencję główną oraz
+          dowolną liczbę różnych kompetencji dodatkowych. Cały wybór jednej
+          osoby zapisujemy w jednej operacji.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {operators.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-            Brak aktywnych Sourcerów, TAC-ów i Rekruterów.
+            Brak aktywnych Rekruterów.
           </p>
         ) : (
           operators.map((operator) => {
@@ -350,14 +348,13 @@ function DeliveryLeadReportingInfo() {
               <p className="text-muted-foreground">
                 System łączy przypisania klient ↔ Delivery Lead z przypisaniami
                 klient ↔ TAC. TAC-ów przypisujesz na karcie klienta, a Delivery
-                Leadów w sekcji poniżej. Sourcerzy, TAC-y i Rekruterzy raportują
-                organizacyjnie do Head of Recruitment.
+                Leadów w sekcji poniżej. Rekruterzy raportują organizacyjnie do
+                Head of Recruitment.
               </p>
             ) : (
               <p className="text-muted-foreground">
                 Delivery Leadów przypisujesz do klientów w sekcji poniżej.
-                Sourcerzy i rekruterzy raportują organizacyjnie do Head of
-                Recruitment.
+                Rekruterzy raportują organizacyjnie do Head of Recruitment.
               </p>
             )}
           </div>

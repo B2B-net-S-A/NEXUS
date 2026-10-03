@@ -8,7 +8,7 @@ from pydantic import BaseModel
 class JobRecruiterOut(BaseModel):
     user_id: int
     name: str
-    role: Literal["recruiter", "sourcer"]
+    role: Literal["recruiter"]  # jedna rola pracy od 0411
     # Skąd osoba jest przy rekrutacji: prowadzący (``jobs.recruiter_id``),
     # przypisanie z pulpitu/automatu albo ręcznie dopisany współpracownik.
     via: Literal["owner", "assignment", "collaborator"]

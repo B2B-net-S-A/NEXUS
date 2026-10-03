@@ -6,8 +6,8 @@
 // Zapis układu w podglądzie kończy się komunikatem o błędzie — to zamierzone.
 //
 // Domyślnie pulpit Head of Recruitment: „Czeka na Ciebie” zaczyna się od
-// propozycji automatu przydziału (trzy przypadki: rekruter z 1. priorytetem,
-// sourcer z liczbą pasujących w bazie, osoba na urlopie) z banerem o braku
+// propozycji automatu przydziału (trzy przypadki: osoba z 1. priorytetem,
+// osoba bez requestów, osoba na urlopie) z banerem o braku
 // danych o urlopach; „Zmień” otwiera listę osób z zasianego obłożenia.
 // Pod propozycjami „Nowe rekrutacje — kto prowadzi”: prowadzący z automatu,
 // wskazany ręcznie, propozycja czekająca na akceptację, automat w trakcie
@@ -176,7 +176,6 @@ const proposal = (over: Partial<AllocationProposalRow>): AllocationProposalRow =
   sent: 0,
   user_id: 1,
   user_name: "Osoba",
-  role: "recruiter",
   fit: "first",
   load: 0,
   leave_until: null,
@@ -185,9 +184,9 @@ const proposal = (over: Partial<AllocationProposalRow>): AllocationProposalRow =
   ...over,
 });
 const ALLOCATION_PROPOSALS: AllocationProposalRow[] = [
-  proposal({ job_id: 301, title: "Full Stack Java Developer · Spring Boot", priority_level: "p1", deadline: "2026-10-10", user_id: 41, user_name: "Marek Wzorcowy", role: "recruiter", fit: "first", load: 2, proposed_at: daysAgo(1) }),
-  proposal({ job_id: 302, title: "Administrator chmury · Azure, Terraform", client_name: "Fundusz Przykładowy", category_id: 1, category_name: "Infra & Operations & Security / Data & AI", category_slug: "infrastructure_operations", delivery_lead_name: "Piotr Zieliński", user_id: 42, user_name: "Ewa Fikcyjna", role: "sourcer", fit: "first", load: 0, base_matches: 22 }),
-  proposal({ job_id: 303, title: "Tester automatyzujący · Python, Robot Framework", category_id: 4, category_name: "QA", category_slug: "security_quality", sent: 1, user_id: 43, user_name: "Tomasz Makietowy", role: "recruiter", fit: "other", load: 4, leave_until: "2026-10-09" }),
+  proposal({ job_id: 301, title: "Full Stack Java Developer · Spring Boot", priority_level: "p1", deadline: "2026-10-10", user_id: 41, user_name: "Marek Wzorcowy", fit: "first", load: 2, proposed_at: daysAgo(1) }),
+  proposal({ job_id: 302, title: "Administrator chmury · Azure, Terraform", client_name: "Fundusz Przykładowy", category_id: 1, category_name: "Infra & Operations & Security / Data & AI", category_slug: "infrastructure_operations", delivery_lead_name: "Piotr Zieliński", user_id: 42, user_name: "Ewa Fikcyjna", fit: "first", load: 0, base_matches: 22 }),
+  proposal({ job_id: 303, title: "Tester automatyzujący · Python, Robot Framework", category_id: 4, category_name: "QA", category_slug: "security_quality", sent: 1, user_id: 43, user_name: "Tomasz Makietowy", fit: "other", load: 4, leave_until: "2026-10-09" }),
 ];
 
 // „Nowe rekrutacje — kto prowadzi” (dane fikcyjne): po jednym wierszu na każdy
@@ -214,7 +213,7 @@ const jobLead = (over: Partial<NewJobLeadRow>): NewJobLeadRow => ({
 });
 const NEW_JOB_LEADS: NewJobLeadRow[] = [
   jobLead({ job_id: 311, title: "Backend Developer · Kotlin, Spring", priority_level: "p1", lead_user_id: 45, lead_name: "Julia Testowa", lead_role: "recruiter", lead_source: "auto" }),
-  jobLead({ job_id: 312, title: "Inżynier danych · Spark, Airflow", client_name: "Fundusz Przykładowy", category_id: 1, category_name: "Infra & Operations & Security / Data & AI", category_slug: "infrastructure_operations", participants: 4, delivery_lead_name: "Piotr Zieliński", lead_user_id: 44, lead_name: "Kinga Przykładowa", lead_role: "sourcer", lead_source: "manual", assigned_by_name: "Piotr Zieliński", handed_off_at: daysAgo(1) }),
+  jobLead({ job_id: 312, title: "Inżynier danych · Spark, Airflow", client_name: "Fundusz Przykładowy", category_id: 1, category_name: "Infra & Operations & Security / Data & AI", category_slug: "infrastructure_operations", participants: 4, delivery_lead_name: "Piotr Zieliński", lead_user_id: 44, lead_name: "Kinga Przykładowa", lead_role: "recruiter", lead_source: "manual", assigned_by_name: "Piotr Zieliński", handed_off_at: daysAgo(1) }),
   jobLead({ job_id: 301, title: "Full Stack Java Developer · Spring Boot", priority_level: "p1", lead_user_id: 41, lead_name: "Marek Wzorcowy", lead_role: "recruiter", lead_source: "auto", proposed: true, handed_off_at: daysAgo(1) }),
   jobLead({ job_id: 313, title: "Analityk biznesowy · bankowość", client_name: "Bank Kappa", category_id: 5, category_name: "Management & Delivery (PM & BA)", category_slug: "management_delivery", participants: 3, pending_reason: "assigning" }),
   jobLead({ job_id: 314, title: "Tester manualny · aplikacje mobilne", client_name: "Ubezpieczenia Wzorcowe", category_id: 4, category_name: "QA", category_slug: "security_quality", participants: 1, priority_level: "accepting", pending_reason: "passive", handed_off_at: daysAgo(2) }),

@@ -657,7 +657,7 @@ async def test_yoy_is_reachable_only_for_admin_finance_and_hor(
     } & set(body["component_series"])
     assert body["money_redacted"] is True
 
-    for role in (UserRole.sourcer, UserRole.tac, UserRole.recruiter):
+    for role in (UserRole.recruiter,):
         email, password = await _seed_user(role)
         headers = await _login(yoy_client, email, password)
         resp = await yoy_client.get(YOY_URL, headers=headers, params=params)

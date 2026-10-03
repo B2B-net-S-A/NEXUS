@@ -107,10 +107,8 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
-    UserRole.sourcer,
 )
 
 RECRUITMENT_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
@@ -122,10 +120,8 @@ RECRUITMENT_TRANSITION_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
-    UserRole.sourcer,
 )
 
 # Terminal lifecycle decisions (hired / rejected / withdrawn). Od 2026-10-02
@@ -145,10 +141,8 @@ RECRUITMENT_ASSESSMENT_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
-    UserRole.sourcer,
 )
 
 CALENDAR_WRITE_ROLES: tuple[UserRole, ...] = (
@@ -156,10 +150,8 @@ CALENDAR_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
-    UserRole.sourcer,
 )
 
 REJECTION_EMAIL_OVERSIGHT_ROLES: tuple[UserRole, ...] = (
@@ -691,10 +683,12 @@ async def ensure_champion_job_visible(
             # Odmowa po stronie delivery nie kończy sprawy — ten sam człowiek
             # może być TAC-iem tej oferty. Sprawdzamy drugą ścieżkę niżej.
 
-    # `job.tac_id` bywa NULL (oferta bez przypisanego TAC-a), a `current_user.id`
-    # nigdy — więc nieprzypisana oferta wypada z zakresu, zamiast wpadać w niego
-    # przez porównanie dwóch pustych wartości.
-    if current_user.has_role(UserRole.tac) and job.tac_id == current_user.id:
+    # `job.tac_id` bywa NULL (oferta bez przypisanego opiekuna), a
+    # `current_user.id` nigdy — więc nieprzypisana oferta wypada z zakresu,
+    # zamiast wpadać w niego przez porównanie dwóch pustych wartości. Roli TAC
+    # nie ma od 0411 — jej konta są rekruterami, więc warunek roli zostaje:
+    # sam wpis w `tac_id` nie poszerza zakresu Delivery Leada.
+    if current_user.has_role(UserRole.recruiter) and job.tac_id == current_user.id:
         return
 
     raise HTTPException(
@@ -736,19 +730,15 @@ async def ensure_delivery_lead_job_visible(
 # roli. Do 22.09 wszystkie te trasy stały za `TacPlus` (usunięty 23.09), a funkcji TAC nie
 # używamy, więc rekruter prowadzący rekrutację nie mógł poprawić jej opisu.
 #
-# Konta TAC zostają bez zmian (decyzja 22.09): TAC redaguje jak dotąd każdą
-# rekrutację, ale kod nie WYMAGA już TAC do niczego, co robi rekruter.
+# Roli TAC nie ma od 0411 (02.10.2026) — jej konta są rekruterami i redagują
+# treść jak każdy rekruter.
 
 JOB_EDIT_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 
 # PEŁNĄ redakcję (`JobEditLevel.full` w `job_edit_level` niżej) daje
 # uprawnienie `recruitment_manage` — konto z rolą Delivery Leada dodatkowo
-# tylko w swoim zakresie. Poza uprawnieniem zostaje jedna rola historyczna:
-# konta TAC zachowują pełną redakcję (decyzja 22.09), choć żadna trasa nie
-# WYMAGA już roli TAC (`TacPlus` usunięty 23.09.2026). Lustro capability
-# `job.update` w `frontend/src/lib/capabilities.ts` — pilnuje go
-# `capabilities.test.ts`.
-JOB_FULL_EDIT_LEGACY_ROLES: tuple[UserRole, ...] = (UserRole.tac,)
+# tylko w swoim zakresie. Lustro capability `job.update`
+# w `frontend/src/lib/capabilities.ts` — pilnuje go `capabilities.test.ts`.
 
 # Kto przydziela i zdejmuje ludzi w roli „Rekruter”: posiadacz uprawnienia
 # `recruitment_manage` (konto z rolą Delivery Leada — w swoim zakresie) ORAZ,
@@ -759,13 +749,10 @@ JOB_FULL_EDIT_LEGACY_ROLES: tuple[UserRole, ...] = (UserRole.tac,)
 JOB_STAFFING_EXTRA_ROLES: tuple[UserRole, ...] = (UserRole.head_of_recruitment,)
 
 # Kto ustawia priorytet rekrutacji (P1 / P2 / „Przyjmujemy kandydatów”):
-# pełni redaktorzy (uprawnienie `recruitment_manage` albo konto TAC) ORAZ Head
+# pełni redaktorzy (uprawnienie `recruitment_manage`) ORAZ Head
 # of Recruitment — to on prowadzi kolejkę pracy zespołu. Lustro capability
 # `job.priority.update`.
-JOB_PRIORITY_EXTRA_ROLES: tuple[UserRole, ...] = (
-    UserRole.tac,
-    UserRole.head_of_recruitment,
-)
+JOB_PRIORITY_EXTRA_ROLES: tuple[UserRole, ...] = (UserRole.head_of_recruitment,)
 
 # Kto akceptuje, zmienia i odrzuca propozycje automatu przydziału.
 # Lustro capability `request.proposal.decide`.
@@ -777,7 +764,7 @@ PROPOSAL_DECISION_ROLES: tuple[UserRole, ...] = (
 # Pola, których członek zespołu (rekruter prowadzący, współpracownik) nie
 # zmienia bez uprawnienia `recruitment_manage`: status to cykl życia, klient
 # i osoby prowadzące to decyzja Delivery, a widełki wynagrodzenia ustawia
-# admin albo TAC (CLAUDE.md).
+# admin (CLAUDE.md).
 # Runda 9 (R9-N15-6): termin, budżet (kolumna), liczba osób, priorytet,
 # „Potrzebny search”, szablon procesu i kategoria — lustro okna edycji, które
 # członkowi zespołu pokazuje „termin, budżet, zespół zmienia Delivery Lead”.
@@ -839,15 +826,8 @@ async def job_edit_level(
     db: AsyncSession,
     user: User,
     job: Job,
-    *,
-    tac_unscoped: bool = True,
 ) -> JobEditLevel | None:
-    """Jeden rozstrzygacz „czy ta osoba redaguje tę rekrutację".
-
-    ``tac_unscoped=False`` dla powierzchni Championa: tam TAC od #1069 widzi
-    wyłącznie oferty, których jest TAC-iem (``ensure_champion_job_visible``),
-    więc przechodzi tylko ścieżką członkostwa — tak jak rekruter.
-    """
+    """Jeden rozstrzygacz „czy ta osoba redaguje tę rekrutację"."""
 
     if user.has_role(UserRole.admin):
         return JobEditLevel.full
@@ -863,8 +843,6 @@ async def job_edit_level(
         except HTTPException as exc:
             if exc.status_code != status.HTTP_403_FORBIDDEN:
                 raise
-    if tac_unscoped and user.has_any_role(*JOB_FULL_EDIT_LEGACY_ROLES):
-        return JobEditLevel.full
     # Od 23.09.2026 treść rekrutacji redaguje każda rola wewnętrzna, bez
     # przypisania do zespołu (patrz ``_JOB_MEMBERSHIP_BYPASS_ROLES``). Pola
     # cyklu życia (``JOB_MEMBER_LOCKED_FIELDS``) zmienia posiadacz uprawnienia
@@ -923,11 +901,10 @@ async def ensure_job_editor(
     job: Job,
     *,
     fields: Iterable[str] = (),
-    tac_unscoped: bool = True,
 ) -> JobEditLevel:
     """403, gdy osoba nie redaguje rekrutacji albo zmienia pola spoza zakresu."""
 
-    level = await job_edit_level(db, user, job, tac_unscoped=tac_unscoped)
+    level = await job_edit_level(db, user, job)
     if level is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, _JOB_EDIT_DENIED)
     if level is JobEditLevel.member:
@@ -944,9 +921,9 @@ async def ensure_job_editor(
 async def ensure_champion_job_editor(
     job: Job, current_user: User, db: AsyncSession
 ) -> None:
-    """Zapis Championa: pełna redakcja jak dotąd plus zespół rekrutacji (TAC też)."""
+    """Zapis Championa: pełna redakcja jak dotąd plus zespół rekrutacji."""
 
-    await ensure_job_editor(db, current_user, job, tac_unscoped=False)
+    await ensure_job_editor(db, current_user, job)
 
 
 async def ensure_champion_job_reader(

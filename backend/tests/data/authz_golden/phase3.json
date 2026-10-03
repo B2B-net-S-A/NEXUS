@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,13 +21,13 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/pipelines": "PPPPPPPPDDPPPPPPPPPPP",
-  "GET /api/pipeline-stages/{stage_def_id}/scorecard": "PPPPPPPPDDPPPPPPPPPPP",
-  "GET /api/pipeline/overview-sla": "PPPPPPPPDDPPPPPPPPPPP",
-  "GET /api/reports/funnel": "PPPPPPPPDDPPPPPPPPPPP",
-  "GET /api/reports/time-to-hire": "PPPPPPPPDDPPPPPPPPPPP",
-  "PATCH /api/pipeline/{candidate_stage_id}/scorecard": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/jobs/embed-all": "PDDPDDDDDDPPPDDDDDDDD",
-  "PUT /api/pipeline-stages/{stage_def_id}/scorecard": "PDDPDDDDDDPPPDDDDDDDD"
+  "GET /api/candidates/{candidate_id}/pipelines": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/pipeline-stages/{stage_def_id}/scorecard": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/pipeline/overview-sla": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/reports/funnel": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/reports/time-to-hire": "PPPPPPDDPPPPPPPPPPP",
+  "PATCH /api/pipeline/{candidate_stage_id}/scorecard": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/jobs/embed-all": "PDDPDDDDPPPDDDDDDDD",
+  "PUT /api/pipeline-stages/{stage_def_id}/scorecard": "PDDPDDDDPPPDDDDDDDD"
  }
 }

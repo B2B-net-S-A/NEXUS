@@ -38,11 +38,7 @@ from app.models.user import User, UserRole
 from app.services.kpi_catalog import KPI_ID_ALIASES, canonical_kpi_id, get_kpi
 
 # Role z osobistymi celami rekrutacyjnymi (i pula celu organizacyjnego).
-KPI_BEARING_ROLES: tuple[UserRole, ...] = (
-    UserRole.recruiter,
-    UserRole.sourcer,
-    UserRole.tac,
-)
+KPI_BEARING_ROLES: tuple[UserRole, ...] = (UserRole.recruiter,)
 
 
 def _ids_for(kpi_id: str) -> tuple[str, ...]:

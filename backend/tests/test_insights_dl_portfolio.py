@@ -292,7 +292,7 @@ async def test_hit_ratio_drop_alert_and_previous_window(
     fx_client: AsyncClient, seeded: dict
 ):
     await _flush_cache()
-    _, email, password = await _seed_user(UserRole.sourcer, "alert")
+    _, email, password = await _seed_user(UserRole.recruiter, "alert")
     headers = await _login(fx_client, email, password)
     body = await _get(fx_client, PORTFOLIO_URL, headers)
 

@@ -1090,7 +1090,7 @@ async def move_candidate(
             detail=(
                 "Ruch na etap terminalny (hired/rejected/withdrawn) wymaga roli "
                 "admin, head_of_recruitment, delivery_lead, "
-                "talent_community_manager, tac, recruiter, sourcer lub finance."
+                "talent_community_manager, recruiter lub finance."
             ),
         )
     # A concurrent confirm or pipeline move may have completed while this
@@ -1115,7 +1115,7 @@ async def move_candidate(
             detail=(
                 "Ruch na etap 'Zweryfikowany' może nieść stawkę kandydata i wymaga "
                 "roli admin, head_of_recruitment, delivery_lead, "
-                "talent_community_manager, tac, recruiter, sourcer lub finance."
+                "talent_community_manager, recruiter lub finance."
             ),
         )
 

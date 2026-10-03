@@ -42,7 +42,7 @@ const summary = {
   subject: { id: 7, name: "Renata Rekruter", role: "recruiter" },
   selectable_people: [
     { id: 7, name: "Renata Rekruter", role: "recruiter" },
-    { id: 8, name: "Tomasz TAC", role: "tac" },
+    { id: 8, name: "Tomasz TAC", role: "recruiter" },
   ],
   metrics: [
     { metric: "verification" as const, day: 3, month: 41 },

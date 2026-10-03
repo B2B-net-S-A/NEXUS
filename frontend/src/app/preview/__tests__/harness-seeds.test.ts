@@ -248,9 +248,9 @@ describe("/preview/custom-dashboard zasiewa każdy stały klucz", () => {
     );
     expect(harness).toContain("allocation_proposals: ALLOCATION_PROPOSALS");
     expect(harness).toMatch(/setQueryData<RequestBoard>\(REQUEST_BOARD_QUERY_KEY, REQUEST_BOARD, \{ updatedAt:/);
-    // Trzy przypadki z opisu: rekruter z 1. priorytetem, sourcer z liczbą
-    // pasujących w bazie i osoba na urlopie — plus baner o braku urlopów.
-    expect(harness).toContain('role: "sourcer", fit: "first", load: 0, base_matches: 22');
+    // Trzy przypadki z opisu: osoba z 1. priorytetem, osoba bez requestów
+    // i osoba na urlopie — plus baner o braku urlopów.
+    expect(harness).toContain('fit: "first", load: 0, base_matches: 22');
     expect(harness).toContain('leave_until: "2026-10-09"');
     expect(harness).toContain("allocation_leave_known: false");
   });

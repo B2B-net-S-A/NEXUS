@@ -28,7 +28,7 @@ interface RecruiterPickerFieldProps {
  allowEmpty?: boolean;
 }
 
-const DEFAULT_ROLES: UserRole[] = ["admin","delivery_lead","tac","recruiter","sourcer",
+const DEFAULT_ROLES: UserRole[] = ["admin","delivery_lead","recruiter",
 ];
 
 /**

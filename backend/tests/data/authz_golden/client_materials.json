@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,11 +21,11 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/one-pagers/{one_pager_id}": "BDDBDDDDDDBBBDDDBDDDD",
-  "GET /api/clients/{client_id}/contract-terms": "BBDBDDDDDDBBBDDDDDDBB",
-  "GET /api/clients/{client_id}/one-pagers": "BBDBBDDDDDBBBDBBBBDBB",
-  "GET /api/clients/{client_id}/one-pagers/{one_pager_id}/download": "BBDBBDDDDDBBBDBBBBDBB",
-  "POST /api/clients/{client_id}/one-pagers": "BDDBDDDDDDBBBDDDBDDDD",
-  "PUT /api/clients/{client_id}/contract-terms": "BBDBDDDDDDBBBDDDDDDDD"
+  "DELETE /api/clients/{client_id}/one-pagers/{one_pager_id}": "BDDBDDDDBBBDDDBDDDD",
+  "GET /api/clients/{client_id}/contract-terms": "BBDBDDDDBBBDDDDDDBB",
+  "GET /api/clients/{client_id}/one-pagers": "BBDBBDDDBBBDBBBBDBB",
+  "GET /api/clients/{client_id}/one-pagers/{one_pager_id}/download": "BBDBBDDDBBBDBBBBDBB",
+  "POST /api/clients/{client_id}/one-pagers": "BDDBDDDDBBBDDDBDDDD",
+  "PUT /api/clients/{client_id}/contract-terms": "BBDBDDDDBBBDDDDDDDD"
  }
 }

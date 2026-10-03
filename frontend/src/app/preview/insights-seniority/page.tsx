@@ -89,7 +89,7 @@ const BASE: SeniorityResponse = {
     {
       user_id: 3,
       name: "Igor Próbny",
-      role: "sourcer",
+      role: "recruiter",
       level: "junior",
       total_placements: 3,
       first_placement_month: "2026-05",
@@ -107,7 +107,7 @@ const BASE: SeniorityResponse = {
     outside_pool_placements: 417,
     note:
       "Poziom liczymy wyłącznie z placementów przypisanych do aktywnych kont " +
-      "w rolach sourcer / TAC / rekruter.",
+      "w roli rekrutera.",
   },
   regressions: [],
   journal: { last_observed_at: "2026-08-31T02:00:00+00:00", observations: 25 },

@@ -126,15 +126,16 @@ async def _assign_client(
                     client_id=client_id,
                 )
             )
-        elif role is UserRole.tac:
-            db.add(
-                ClientTacAssignment(
-                    tac_user_id=user_id,
-                    client_id=client_id,
-                )
-            )
         else:
             raise AssertionError(f"Unsupported client assignment role: {role}")
+        await db.commit()
+
+
+async def _assign_legacy_guardian(user_id: int, client_id: int) -> None:
+    """Wiersz `ClientTacAssignment` — do 0411 dawał roli TAC zespół klienta."""
+
+    async with AsyncSessionLocal() as db:
+        db.add(ClientTacAssignment(tac_user_id=user_id, client_id=client_id))
         await db.commit()
 
 
@@ -163,11 +164,13 @@ async def cam_client() -> AsyncClient:
 #
 # Profile:
 #   admin / hor          — role administracyjne (pełny dostęp)
-#   dl / tac             — role zespołu klienta z jawnym przypisaniem
+#   dl                   — rola zespołu klienta z jawnym przypisaniem
 #   tcm                  — globalny, bezpieczny odczyt Delivery
 #   recruiter_assigned   — recruiter z Jobem u tego klienta (odczyt operacyjny)
 #   recruiter            — recruiter bez przypisania
-#   sourcer              — sourcer bez przypisania
+#   recruiter_guardian   — recruiter z historycznym wierszem `ClientTacAssignment`
+#                          (do 0411 rola TAC dostawała z niego kontakty klienta;
+#                          roli nie ma, przypisanie nie daje dostępu)
 #   viewer               — rola `user` (QC / klient) — brak dostępu
 #   multi_dl             — primary recruiter + delivery_lead w `roles`
 #                          (M1-RBAC-02: liczy się unia ról)
@@ -211,18 +214,6 @@ MATRIX: dict[str, dict[str, bool]] = {
         framework_read=True,
         legal_fields=True,
         financials=True,
-    ),
-    "tac": dict(
-        client_read=False,
-        contacts_read=True,
-        contact_write=False,
-        knowledge_read=False,
-        knowledge_write=False,
-        materials_read=False,
-        terms_read=False,
-        framework_read=False,
-        legal_fields=False,
-        financials=False,
     ),
     "tcm": dict(
         client_read=True,
@@ -272,7 +263,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         legal_fields=False,
         financials=False,
     ),
-    "sourcer": dict(
+    "recruiter_guardian": dict(
         client_read=False,
         contacts_read=False,
         contact_write=False,
@@ -316,10 +307,9 @@ _PROFILE_ROLE: dict[str, tuple[UserRole, list[str] | None]] = {
     "dl": (UserRole.delivery_lead, None),
     "tcm": (UserRole.talent_community_manager, None),
     "finance": (UserRole.finance, None),
-    "tac": (UserRole.tac, None),
     "recruiter_assigned": (UserRole.recruiter, None),
     "recruiter": (UserRole.recruiter, None),
-    "sourcer": (UserRole.sourcer, None),
+    "recruiter_guardian": (UserRole.recruiter, None),
     "viewer": (UserRole.user, None),
     "multi_dl": (UserRole.recruiter, ["recruiter", "delivery_lead"]),
 }
@@ -334,8 +324,8 @@ async def _profile_headers(
         await _seed_job(client_id, user_id)
     elif profile in {"dl", "multi_dl"}:
         await _assign_client(user_id, client_id, UserRole.delivery_lead)
-    elif profile == "tac":
-        await _assign_client(user_id, client_id, UserRole.tac)
+    elif profile == "recruiter_guardian":
+        await _assign_legacy_guardian(user_id, client_id)
     return await _login(cam_client, email, password)
 
 
@@ -419,9 +409,9 @@ async def test_access_matrix(cam_client: AsyncClient, profile: str) -> None:
     # własnego portfela — „Obecni konsultanci" to jego obsada, a stawka
     # kosztowa/przychodowa i marża to kolumny tej tabeli.
     #
-    # `hor` i `tac` ZOSTAJĄ na False i to nie jest przeoczenie: HoR przechodzi
+    # `hor` ZOSTAJE na False i to nie jest przeoczenie: HoR przechodzi
     # przez guardy klienta globalnie, bez przypisania (repo trzyma go poza
-    # finansami), a TAC widzi konsultantów, ale obsady nie prowadzi.
+    # finansami).
     resp = await cam_client.get(f"/api/clients/{client_id}/profile", headers=headers)
     if not expected["client_read"]:
         assert resp.status_code == 403
@@ -495,12 +485,12 @@ async def test_private_relationship_notes_projection(cam_client: AsyncClient) ->
     assert resp.status_code == 200
     assert resp.json()[0].get("relationship_notes") == "Sekret: urodziny 1 maja"
 
-    # Inny TAC — pole nie występuje w ogóle
-    tac_id, tac_email, tac_pass = await _seed_user(UserRole.tac)
-    await _assign_client(tac_id, client_id, UserRole.tac)
-    tac_headers = await _login(cam_client, tac_email, tac_pass)
+    # Rekruter z rekrutacją u klienta czyta kontakty — pole nie występuje w ogóle
+    rec_id, rec_email, rec_pass = await _seed_user(UserRole.recruiter)
+    await _seed_job(client_id, rec_id)
+    rec_headers = await _login(cam_client, rec_email, rec_pass)
     resp = await cam_client.get(
-        f"/api/clients/{client_id}/contacts", headers=tac_headers
+        f"/api/clients/{client_id}/contacts", headers=rec_headers
     )
     assert resp.status_code == 200
     body = resp.json()[0]
@@ -651,9 +641,10 @@ async def test_contact_delete_matrix(cam_client: AsyncClient) -> None:
     resp = await cam_client.delete(f"/api/contacts/{contact_id}", headers=r_headers)
     assert resp.status_code == 403
 
-    # TAC nie ma już sekcji Delivery — 403 nawet przy przypisaniu klienta.
-    tac_id, t_email, t_pass = await _seed_user(UserRole.tac)
-    await _assign_client(tac_id, client_id, UserRole.tac)
+    # Rekruter z historycznym przypisaniem opiekuna klienta (do 0411 rola
+    # TAC) nie ma sekcji Delivery — 403 mimo wiersza przypisania.
+    tac_id, t_email, t_pass = await _seed_user(UserRole.recruiter)
+    await _assign_legacy_guardian(tac_id, client_id)
     t_headers = await _login(cam_client, t_email, t_pass)
     resp = await cam_client.delete(f"/api/contacts/{contact_id}", headers=t_headers)
     assert resp.status_code == 403

@@ -230,7 +230,7 @@ def _jobs_sql(author: str, measure: str = "open_now"):
         {"source": "jobs", "measure": measure, "filters": {"author": author}}
     )
     ids = {"me": frozenset({7}), "team": frozenset({7, 9}), "all": None}[author]
-    user = SimpleNamespace(id=7, role="sourcer", roles=["sourcer"])
+    user = SimpleNamespace(id=7, role="recruiter", roles=["recruiter"])
     base, conds, _cols, _ts = _jobs_query(
         definition, resolve_window("last_30_days", TODAY), ids, user
     )
@@ -376,7 +376,7 @@ async def test_sourcer_counts_a_job_where_they_are_a_collaborator(app_client):
     from app.models.job import Job, JobStatus
     from app.models.job_collaborator import JobCollaborator
 
-    headers, uid = await _login("sourcer")
+    headers, uid = await _login("recruiter")
     marker = uuid.uuid4().hex[:10]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"metric-r10-{marker}")

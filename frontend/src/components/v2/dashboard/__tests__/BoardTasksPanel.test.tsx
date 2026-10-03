@@ -373,7 +373,7 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
       allocation_leave_known: false,
       allocation_proposals: [
         proposalRow(),
-        proposalRow({ job_id: 42, title: "Tester", user_id: 8, user_name: "Ewa Kalina", role: "sourcer" }),
+        proposalRow({ job_id: 42, title: "Tester", user_id: 8, user_name: "Ewa Kalina" }),
       ],
     });
     renderPanel();

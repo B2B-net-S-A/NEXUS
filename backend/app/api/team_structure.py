@@ -80,8 +80,6 @@ _MY_TEAM_SECTION = [
 ]
 
 _COMPETENCE_OPERATOR_ROLES = {
-    UserRole.sourcer,
-    UserRole.tac,
     UserRole.recruiter,
 }
 
@@ -188,7 +186,7 @@ async def assign_sourcer_to_category(
     if not user.is_active or not user.has_any_role(*_COMPETENCE_OPERATOR_ROLES):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "User must be an active Sourcer, TAC or Recruiter",
+            "User must be an active Recruiter",
         )
     cat = (
         await db.execute(
@@ -297,7 +295,7 @@ async def replace_operator_competences(
     if not user.is_active or not user.has_any_role(*_COMPETENCE_OPERATOR_ROLES):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "User must be an active Sourcer, TAC or Recruiter",
+            "User must be an active Recruiter",
         )
 
     requested_ids = [primary_id, *secondary_ids]
@@ -516,8 +514,11 @@ async def assign_tac_to_dl(
     tac = (
         await db.execute(select(User).where(User.id == payload.tac_user_id))
     ).scalar_one_or_none()
-    if tac is None or not tac.has_role(UserRole.tac):
-        raise HTTPException(400, "tac_user_id must reference a user with role=tac")
+    # Roli TAC nie ma od 0411 — w tej (nieużywanej) macierzy stoi rekruter.
+    if tac is None or not tac.has_role(UserRole.recruiter):
+        raise HTTPException(
+            400, "tac_user_id must reference a user with role=recruiter"
+        )
     dl = (
         await db.execute(select(User).where(User.id == payload.delivery_lead_user_id))
     ).scalar_one_or_none()
@@ -898,8 +899,6 @@ async def team_structure_summary(
         return (await db.execute(q)).scalar() or 0
 
     totals = {
-        "sourcers": await _count(UserRole.sourcer),
-        "tacs": await _count(UserRole.tac),
         "recruiters": await _count(UserRole.recruiter),
         "delivery_leads": await _count(UserRole.delivery_lead),
         "head_of_recruitment": await _count(UserRole.head_of_recruitment),

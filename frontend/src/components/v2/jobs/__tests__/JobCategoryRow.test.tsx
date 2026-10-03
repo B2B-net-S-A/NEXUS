@@ -52,7 +52,7 @@ const CATEGORIES = [
 ];
 
 const PEOPLE = [
-  { user_id: 33, name: "Celina Wzorcowa", email: "c@example.com", role: "sourcer", is_primary: false, priority: 2 },
+  { user_id: 33, name: "Celina Wzorcowa", email: "c@example.com", role: "recruiter", is_primary: false, priority: 2 },
   { user_id: 34, name: "Darek Makietowy", email: "d@example.com", role: "recruiter", is_primary: false, priority: null },
   { user_id: 32, name: "Bartek Testowy", email: "b@example.com", role: "recruiter", is_primary: true, priority: 1 },
   { user_id: 31, name: "Anna Przykładowa", email: "a@example.com", role: "recruiter", is_primary: true, priority: 1 },

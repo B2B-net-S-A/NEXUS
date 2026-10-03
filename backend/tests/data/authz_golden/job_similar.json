@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,13 +21,13 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/jobs/{job_id}/similar/{other_id}": "PPPPPPPPDDPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/similar": "PPPPPPPPDDPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/similar/people": "PPPPPPPPDDPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/similar/search": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/job-similarity/preview": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/champion-found": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/similar": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/similar/reassign": "PPPPPPPPDDPPPPPPPPPPP"
+  "DELETE /api/jobs/{job_id}/similar/{other_id}": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/jobs/{job_id}/similar": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/jobs/{job_id}/similar/people": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/jobs/{job_id}/similar/search": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/job-similarity/preview": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/champion-found": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/similar": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/similar/reassign": "PPPPPPDDPPPPPPPPPPP"
  }
 }

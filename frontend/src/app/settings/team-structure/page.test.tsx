@@ -89,7 +89,7 @@ interface TestUser {
 }
 
 const baseUsers: TestUser[] = [
-  { id: 10, name: "Anna TAC", email: "anna@example.com", role: "tac" },
+  { id: 10, name: "Anna TAC", email: "anna@example.com", role: "recruiter" },
   {
     id: 20,
     name: "Bartek Rekruter",
@@ -270,7 +270,7 @@ describe("AdminTeamStructurePage — kompetencje i raportowanie", () => {
         name: "Daria Hybrid",
         email: "daria@example.com",
         role: "delivery_lead",
-        roles: ["delivery_lead", "tac"],
+        roles: ["delivery_lead", "recruiter"],
       },
     ]
 
@@ -281,12 +281,12 @@ describe("AdminTeamStructurePage — kompetencje i raportowanie", () => {
         name: "Główna kompetencja — Daria Hybrid",
       }),
     ).toBeInTheDocument()
-    expect(screen.getAllByText("TAC")).toHaveLength(2)
+    expect(screen.getAllByText("Rekruter")).toHaveLength(3)
     expect(
       screen.getByRole("option", { name: "Daria Hybrid" }),
     ).toBeInTheDocument()
     expect(mocks.get).toHaveBeenCalledWith(
-      "/api/users?roles=sourcer&roles=tac&roles=recruiter&roles=delivery_lead",
+      "/api/users?roles=recruiter&roles=delivery_lead",
     )
   })
 })

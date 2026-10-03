@@ -653,7 +653,7 @@ describe("MultiConsultantOrdersTab", () => {
   });
 
   it("rola bez uprawnień do obsady nie widzi przycisków zapisu ani stawek", async () => {
-    authState.role = "tac";
+    authState.role = "recruiter";
     authState.capabilities = [];
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {
@@ -1840,7 +1840,7 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
   });
 
   it("rola bez uprawnień do cyklu życia nie widzi akcji usuwania", async () => {
-    authState.role = "tac";
+    authState.role = "recruiter";
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: { groups: [group()], total_groups: 1, total_consultants: 1 },
     } as never);

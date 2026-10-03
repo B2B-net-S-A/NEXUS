@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,12 +21,12 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/kpis/me/goals": "PPPPPPPPPDPPPPPPPPPPP",
-  "GET /api/kpis/me/panel": "PPPPPPPPPDPPPPPPPPPPP",
-  "GET /api/kpis/me/today": "PPPPPPPPPDPPPPPPPPPPP",
-  "GET /api/kpis/team/panel": "PPPPPDDDDDPPPPPPDDDDD",
-  "GET /api/kpis/users/{user_id}/today": "PPPPPPPPDDPPPPPPPPPPP",
-  "POST /api/kpis/admin/debug-fire-nudge": "PDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/kpis/admin/trigger-sweep": "PDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/kpis/me/goals": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/kpis/me/panel": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/kpis/me/today": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/kpis/team/panel": "PPPPPDDDPPPPPPDDDDD",
+  "GET /api/kpis/users/{user_id}/today": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/kpis/admin/debug-fire-nudge": "PDDDDDDDDDDDDDDDDDD",
+  "POST /api/kpis/admin/trigger-sweep": "PDDDDDDDDDDDDDDDDDD"
  }
 }

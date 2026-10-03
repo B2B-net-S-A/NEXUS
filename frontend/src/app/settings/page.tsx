@@ -218,7 +218,7 @@ const ADVANCED_LINKS: Array<{
   {
     href: "/settings/team-structure",
     title: "Kompetencje i odpowiedzialności",
-    description: "Kompetencje Sourcerów, TAC-ów i Rekruterów oraz przypisania Delivery Leadów do klientów.",
+    description: "Kompetencje Rekruterów oraz przypisania Delivery Leadów do klientów.",
     icon: <Network className="w-5 h-5" />,
     roles: ["admin", "head_of_recruitment", "finance"],
   },

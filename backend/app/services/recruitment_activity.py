@@ -35,7 +35,7 @@ from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 from app.services.kpi_targets import resolve_kpi_target
 
 
-_KPI_ROLES = frozenset({UserRole.sourcer, UserRole.tac, UserRole.recruiter})
+_KPI_ROLES = frozenset({UserRole.recruiter})
 _TEAM_DETAIL_ROLES = frozenset(
     {
         UserRole.admin,

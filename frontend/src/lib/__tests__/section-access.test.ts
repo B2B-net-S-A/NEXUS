@@ -19,7 +19,7 @@ describe("central section access matrix", () => {
     );
   });
 
-  it.each(["sourcer", "recruiter", "tac", "head_of_recruitment"] as const)(
+  it.each(["recruiter", "head_of_recruitment"] as const)(
     "%s has no Delivery or Finance section",
     (role) => {
       expect(sectionAccessForUser({ role }, "delivery")).toBe("none");

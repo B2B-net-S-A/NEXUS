@@ -42,7 +42,7 @@ beforeEach(() => {
   vi.mocked(api.get).mockResolvedValue({
     data: [
       { id: 11, name: "Pierwsza Rekruterka", role: "recruiter", roles: [] },
-      { id: 21, name: "Anna Kolejna", role: "sourcer", roles: [] },
+      { id: 21, name: "Anna Kolejna", role: "recruiter", roles: [] },
       { id: 22, name: "Bartek Drugi", role: "recruiter", roles: [] },
     ],
   } as never);

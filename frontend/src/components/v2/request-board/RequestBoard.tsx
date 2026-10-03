@@ -142,11 +142,10 @@ function AddPerson({
 }: {
   board: RequestBoardData
   request: BoardRequest
-  onAdd: (userId: number, role: "recruiter" | "sourcer") => void
+  onAdd: (userId: number) => void
 }) {
   const [open, setOpen] = useState(false)
   const [userId, setUserId] = useState("")
-  const [role, setRole] = useState<"recruiter" | "sourcer">("recruiter")
   // Osobę z samą propozycją automatu da się dodać ręcznie — Delivery Lead nie
   // musi czekać na akceptację; odpadają tylko ci, którzy już pracują.
   const taken = new Set(workingRecruiters(request.people).map((p) => p.user_id))
@@ -178,20 +177,11 @@ function AddPerson({
           </option>
         ))}
       </select>
-      <select
-        aria-label="Rola"
-        className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-        value={role}
-        onChange={(e) => setRole(e.target.value as "recruiter" | "sourcer")}
-      >
-        <option value="recruiter">rekruter</option>
-        <option value="sourcer">sourcer</option>
-      </select>
       <Button
         size="sm"
         disabled={!userId}
         onClick={() => {
-          onAdd(Number(userId), role)
+          onAdd(Number(userId))
           setOpen(false)
           setUserId("")
         }}
@@ -214,7 +204,7 @@ export interface RequestBoardViewProps {
   canStaff: boolean
   /** Akceptuje i odrzuca propozycje automatu — capability `request.proposal.decide`. */
   canDecide: boolean
-  onAddPerson: (jobId: number, userId: number, role: "recruiter" | "sourcer") => void
+  onAddPerson: (jobId: number, userId: number) => void
   /** „×” przy osobie: zdjęcie pracującej osoby albo odrzucenie propozycji. */
   onRemovePerson: (request: BoardRequest, person: BoardPerson) => void
   onAcceptProposal: (request: BoardRequest, person: BoardPerson) => void
@@ -397,7 +387,7 @@ function RequestRow({
           <AddPerson
             board={board}
             request={request}
-            onAdd={(userId, role) => onAddPerson(request.job_id, userId, role)}
+            onAdd={(userId) => onAddPerson(request.job_id, userId)}
           />
         )}
       </div>
@@ -616,11 +606,11 @@ export function RequestBoard() {
         canStaff={canStaff}
         canDecide={canDecide}
         busyKeys={busyKeys}
-        onAddPerson={async (jobId, userId, role) => {
+        onAddPerson={async (jobId, userId) => {
           const added = await run(
             jobId,
             userId,
-            () => addBoardPerson(jobId, userId, role),
+            () => addBoardPerson(jobId, userId),
             "Nie udało się dodać osoby.",
           )
           if (added) showSuccess("Osoba dodana do requestu.")

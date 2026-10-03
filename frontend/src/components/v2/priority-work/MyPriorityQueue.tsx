@@ -324,7 +324,7 @@ function CarryOverCard({ item }: { item: PriorityCarryOver }) {
 export function MyPriorityQueue() {
   const user = useAuthStore((state) => state.user)
   const hydrated = useAuthStore((state) => state.hydrated)
-  const isOperational = hasRole(user, "recruiter", "sourcer", "tac")
+  const isOperational = hasRole(user, "recruiter")
 
   const query = useQuery({
     queryKey: priorityWorkQueryKeys.mine(),

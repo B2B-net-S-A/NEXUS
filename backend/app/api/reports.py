@@ -1107,7 +1107,6 @@ _ClientsReportViewer = Annotated[
         require_roles(
             UserRole.admin,
             UserRole.delivery_lead,
-            UserRole.tac,
             UserRole.head_of_recruitment,
             UserRole.talent_community_manager,
             UserRole.finance,

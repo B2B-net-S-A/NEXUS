@@ -35,7 +35,7 @@ def test_mine_clause_includes_active_work_assignments() -> None:
     """
     from app.api.jobs import jobs_mine_clause, jobs_mine_scope_clause
 
-    user = SimpleNamespace(id=7, roles=["sourcer"], role="sourcer")
+    user = SimpleNamespace(id=7, roles=["recruiter"], role="recruiter")
     for clause in (jobs_mine_clause(user), jobs_mine_scope_clause(user)):
         sql = _sql(clause)
         assert "job_work_assignments.state = 'active'" in sql, sql
@@ -106,7 +106,7 @@ async def _assign(job_id: int, user_id: int, state: str) -> None:
             JobWorkAssignment(
                 job_id=job_id,
                 user_id=user_id,
-                role="sourcer",
+                role="recruiter",
                 source="manual",
                 state=state,
                 released_at=datetime.now(timezone.utc) if state == "released" else None,

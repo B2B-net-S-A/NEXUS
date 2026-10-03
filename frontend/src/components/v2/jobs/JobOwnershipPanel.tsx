@@ -78,7 +78,7 @@ interface JobOwnershipPanelProps {
  * Kogo można wskazać zamiast propozycji automatu — lustro `_assignable_person`
  * w `backend/app/api/request_board.py` (inna rola = 422).
  */
-const PROPOSAL_REPLACEMENT_ROLES = ["recruiter", "sourcer", "tac"] as const;
+const PROPOSAL_REPLACEMENT_ROLES = ["recruiter"] as const;
 
 const LINK_BUTTON_CLASS =
   "hit-area inline-flex items-center gap-0.5 text-[11px] font-medium text-primary hover:underline disabled:pointer-events-none disabled:opacity-50";

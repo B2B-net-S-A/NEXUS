@@ -66,7 +66,7 @@ const BUDGET_HOURLY = 190;
 
 const FIRST = ["Anna", "Marek", "Ewa", "Paweł", "Katarzyna", "Tomasz", "Ola", "Jan", "Magda", "Piotr", "Zofia", "Adam"];
 const LAST = ["Nowak", "Zieliński", "Pawlak", "Król", "Wójcik", "Lis", "Kot", "Mazur", "Dąbrowska", "Kaczmarek", "Szymański", "Wrona"];
-const RECRUITERS = ["Marta Rekruter", "Igor Sourcer", "Beata TAC"];
+const RECRUITERS = ["Marta Rekruter", "Igor Przykładowy", "Beata Wzorcowa"];
 
 /** Deterministyczny „los" — harness ma wyglądać tak samo przy każdym wejściu. */
 function pick(seed: number, mod: number): number {

@@ -76,7 +76,7 @@ describe("katalog kafelków", () => {
       },
     );
 
-    it.each(["head_of_recruitment", "talent_community_manager", "tac", "sourcer"] as UserRole[])(
+    it.each(["head_of_recruitment", "talent_community_manager", "recruiter"] as UserRole[])(
       "%s bez uprawnienia nie dodaje kafelków kwot",
       (role) => {
         expect(available(user(role))).toEqual([false, false]);
@@ -160,7 +160,7 @@ describe("polecane na pusty pulpit", () => {
   });
 
   it("polecenia nigdy nie zawierają kafelka niedostępnego dla konta", () => {
-    for (const role of ["admin", "finance", "head_of_recruitment", "delivery_lead", "tac", "user"] as UserRole[]) {
+    for (const role of ["admin", "finance", "head_of_recruitment", "delivery_lead", "recruiter", "user"] as UserRole[]) {
       const u = user(role);
       for (const t of recommendedTemplates(u).templates) {
         expect(templateAvailability(t, u).ok).toBe(true);

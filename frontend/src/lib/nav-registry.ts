@@ -249,7 +249,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Do przedzwonienia",
     icon: PhoneCall,
     section: "sourcing",
-    roles: ["talent_community_manager", "tac", "recruiter", "sourcer"],
+    roles: ["talent_community_manager", "recruiter"],
     featureFlag: "contactQueue",
     placement: "more",
     moreGroup: "daily",

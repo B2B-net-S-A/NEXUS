@@ -42,9 +42,7 @@ class _FakeWS:
         UserRole.admin,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
     ],
 )
 def test_operational_roles_may_subscribe(role: UserRole):
@@ -64,8 +62,8 @@ def test_valid_operational_secondary_role_grants_subscribe():
         id=3,
         name="Hybrid",
         email="h@example.com",
-        role=UserRole.sourcer,
-        roles=[UserRole.sourcer.value, UserRole.recruiter.value],
+        role=UserRole.delivery_lead,
+        roles=[UserRole.delivery_lead.value, UserRole.recruiter.value],
     )
     assert presence_subscribe_allowed(user) is True
 

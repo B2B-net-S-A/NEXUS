@@ -41,9 +41,7 @@ describe("job-collaborators", () => {
     expect([...COLLABORATOR_ROLES]).toEqual([
       "admin",
       "delivery_lead",
-      "tac",
       "recruiter",
-      "sourcer",
     ]);
   });
 

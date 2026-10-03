@@ -22,8 +22,6 @@ const KPIS: KpiTargetsMatrix["kpis"] = [
 
 const CATALOG: Record<string, Record<string, number>> = {
   recruiter: { daily_first_verifications: 4, daily_new_candidates: 5, weekly_cvs_sent: 15, monthly_placements: 1, monthly_precision: 75 },
-  sourcer: { daily_first_verifications: 4, daily_new_candidates: 5, weekly_cvs_sent: 0, monthly_placements: 1, monthly_precision: 75 },
-  tac: { daily_first_verifications: 4, daily_new_candidates: 5, weekly_cvs_sent: 12, monthly_placements: 1, monthly_precision: 75 },
 };
 
 function roleCells(role: string, overrides: Record<string, number> = {}) {
@@ -52,13 +50,11 @@ const MATRIX: KpiTargetsMatrix = {
   kpis: KPIS,
   roles: [
     { role: "recruiter", label: "Rekruter", targets: roleCells("recruiter", { weekly_cvs_sent: 18 }) },
-    { role: "sourcer", label: "Sourcer", targets: roleCells("sourcer") },
-    { role: "tac", label: "TAC", targets: roleCells("tac") },
   ],
   users: [
     { user_id: 1, name: "Anna Kowalska", roles: ["recruiter"], targets: userCells({ ...CATALOG.recruiter, weekly_cvs_sent: 18 }, { monthly_placements: 2 }) },
-    { user_id: 2, name: "Piotr Nowak", roles: ["sourcer"], targets: userCells(CATALOG.sourcer) },
-    { user_id: 3, name: "Ewa Wiśniewska", roles: ["recruiter", "tac"], targets: userCells({ ...CATALOG.recruiter, weekly_cvs_sent: 18 }) },
+    { user_id: 2, name: "Piotr Nowak", roles: ["recruiter"], targets: userCells({ ...CATALOG.recruiter, weekly_cvs_sent: 18 }) },
+    { user_id: 3, name: "Ewa Wiśniewska", roles: ["recruiter"], targets: userCells({ ...CATALOG.recruiter, weekly_cvs_sent: 18 }) },
   ],
 };
 

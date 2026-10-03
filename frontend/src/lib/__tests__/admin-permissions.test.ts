@@ -49,9 +49,7 @@ describe("role do nadania", () => {
       "head_of_recruitment",
       "delivery_lead",
       "talent_community_manager",
-      "tac",
       "recruiter",
-      "sourcer",
     ]);
   });
 
@@ -120,12 +118,12 @@ describe("przełączniki roli", () => {
   });
 
   it("wyłączenie nadanego uprawnienia wysyła „none” i gasi to, co z niego wynikało", () => {
-    const role = roleEntry("tac", ["clients_edit"]);
+    const role = roleEntry("recruiter", ["clients_edit"]);
     const local: AdminPermissionsSnapshot = { ...snapshot, roles: [role] };
     const draft = togglePermission(grantedPermissions(role), "clients_edit");
 
     expect(rolePermissionChanges(role, draft)).toEqual([
-      { role: "tac", action: "clients_edit", access: "none" },
+      { role: "recruiter", action: "clients_edit", access: "none" },
     ]);
     expect(
       changedRows(rolePermissionGroups(local, role, draft)).map((row) => [
@@ -219,14 +217,14 @@ describe("zdania ekranu", () => {
     expect(logoutSentence(1, "Finanse")).toBe(
       "Po zapisaniu 1 osoba z rolą Finanse zostanie wylogowana i zaloguje się ponownie.",
     );
-    expect(logoutSentence(3, "Sourcer")).toBe(
-      "Po zapisaniu 3 osoby z rolą Sourcer zostaną wylogowane i zalogują się ponownie.",
+    expect(logoutSentence(3, "Rekruter")).toBe(
+      "Po zapisaniu 3 osoby z rolą Rekruter zostaną wylogowane i zalogują się ponownie.",
     );
     expect(logoutSentence(7, "Delivery Lead")).toBe(
       "Po zapisaniu 7 osób z rolą Delivery Lead zostanie wylogowanych i zaloguje się ponownie.",
     );
-    expect(logoutSentence(0, "TAC")).toBe(
-      "Nikt nie ma dziś roli TAC, więc nikt nie zostanie wylogowany.",
+    expect(logoutSentence(0, "Praktykant")).toBe(
+      "Nikt nie ma dziś roli Praktykant, więc nikt nie zostanie wylogowany.",
     );
   });
 
@@ -246,7 +244,7 @@ describe("dodatkowe uprawnienia osoby", () => {
 
   it("nadanie przyjmują tylko konta, których każda rola jest do nadania", () => {
     expect(rolesAcceptGrants(snapshot, tcm)).toBe(true);
-    expect(rolesAcceptGrants(snapshot, ["delivery_lead", "tac"])).toBe(true);
+    expect(rolesAcceptGrants(snapshot, ["delivery_lead", "recruiter"])).toBe(true);
     expect(rolesAcceptGrants(snapshot, ["admin"])).toBe(false);
     expect(rolesAcceptGrants(snapshot, ["admin", "recruiter"])).toBe(false);
     expect(rolesAcceptGrants(snapshot, ["user"])).toBe(false);
@@ -260,7 +258,7 @@ describe("dodatkowe uprawnienia osoby", () => {
       "contract_status",
       "delivery_view",
     ]);
-    expect(permissionsOfRoles(snapshot, ["tac", "finance"]).has("finance_module")).toBe(true);
+    expect(permissionsOfRoles(snapshot, ["recruiter", "finance"]).has("finance_module")).toBe(true);
     expect(permissionsOfRoles(snapshot, ["recruiter"]).size).toBe(0);
   });
 

@@ -55,8 +55,6 @@ import { SectionError } from "./_shared";
  */
 
 const ROLE_LABEL: Record<string, string> = {
-  sourcer: "Sourcer",
-  tac: "TAC",
   recruiter: "Rekruter",
   delivery_lead: "Delivery Lead",
   head_of_recruitment: "Head of Recruitment",

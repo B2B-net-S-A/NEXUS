@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,14 +21,14 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/reports/clients": "PPPPPPDDDDPPPPPPDDDDD",
-  "GET /api/reports/clients/at-risk": "PPPPPPDDDDPPPPPPDDDDD",
-  "GET /api/reports/clients/{client_id}/trend": "PPPPPPDDDDPPPPPPDDDDD",
-  "GET /api/reports/delivery-leads": "PPPDPDDDDDPPDPPPDDDDD",
-  "GET /api/reports/delivery-leads/{dl_id}/trend": "PPPDPDDDDDPPDPPPDDDDD",
-  "GET /api/reports/invite-links": "PPPPPDDDDDPPPPPPDDDDD",
-  "GET /api/reports/my-delivery-lead": "PPPPPPPPPDPPPPPPPPPPP",
-  "GET /api/reports/recruitment": "PPPPPPPPDDPPPPPPPPPPP",
-  "GET /api/reports/sales": "PPDDDDDDDDDDDDDDDDDPD"
+  "GET /api/reports/clients": "PPPPPDDDPPPPPPDDDDD",
+  "GET /api/reports/clients/at-risk": "PPPPPDDDPPPPPPDDDDD",
+  "GET /api/reports/clients/{client_id}/trend": "PPPPPDDDPPPPPPDDDDD",
+  "GET /api/reports/delivery-leads": "PPPDPDDDPPDPPPDDDDD",
+  "GET /api/reports/delivery-leads/{dl_id}/trend": "PPPDPDDDPPDPPPDDDDD",
+  "GET /api/reports/invite-links": "PPPPPDDDPPPPPPDDDDD",
+  "GET /api/reports/my-delivery-lead": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/reports/recruitment": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/reports/sales": "PPDDDDDDDDDDDDDDDPD"
  }
 }

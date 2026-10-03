@@ -576,9 +576,7 @@ async def test_every_logged_in_role_reaches_all_three_endpoints(
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.finance,
     ):
         _, email, password = await _seed_user(role, "rbac")

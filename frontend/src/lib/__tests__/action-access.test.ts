@@ -64,9 +64,7 @@ describe("podpis B2B: action-access zgadza się z lib/permissions", () => {
     "head_of_recruitment",
     "delivery_lead",
     "talent_community_manager",
-    "tac",
     "recruiter",
-    "sourcer",
     "user",
     "trainee",
   ];
@@ -78,7 +76,7 @@ describe("podpis B2B: action-access zgadza się z lib/permissions", () => {
     return held;
   };
 
-  it("domyślnie: admin, Delivery Lead i TCM — TAC już nie", () => {
+  it("domyślnie: admin, Delivery Lead i TCM", () => {
     expect(ROLES.filter((role) => agree({ role })).sort()).toEqual(
       ["admin", "delivery_lead", "talent_community_manager"].sort(),
     );
@@ -87,13 +85,14 @@ describe("podpis B2B: action-access zgadza się z lib/permissions", () => {
     );
   });
 
-  it("profil sprzed 0410 z „manage” u TAC-a nie daje podpisu w żadnym z modułów", () => {
+  it("profil sprzed 0410 z „manage” u rekrutera (dawnego TAC-a) nie daje podpisu w żadnym z modułów", () => {
     // Stary komplet niósł TAC-owi podpis, którego zakres klienta i tak nigdy
-    // nie przepuszczał. Bez klucza `delivery_view` profil jest nieaktualny,
-    // więc liczą się domyślne uprawnienia roli.
+    // nie przepuszczał; rola TAC jest dziś rekruterem (02.10.2026). Bez klucza
+    // `delivery_view` profil jest nieaktualny, więc liczą się domyślne
+    // uprawnienia roli.
     const staleTac = {
-      role: "tac" as const,
-      roles: ["tac" as const],
+      role: "recruiter" as const,
+      roles: ["recruiter" as const],
       effective_action_access: {
         b2b_contract_generator: "manage" as const,
         b2b_signature_confirmation: "manage" as const,

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from sqlalchemy import (
     CheckConstraint,
-    Enum,
     ForeignKey,
     Integer,
     String,
@@ -25,7 +24,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
-from app.models.user import UserRole
+from app.models.user import UserRole, user_role_column_type
 
 
 class KpiRoleDefault(Base, TimestampMixin):
@@ -38,9 +37,7 @@ class KpiRoleDefault(Base, TimestampMixin):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole, name="userrole"), nullable=False
-    )
+    role: Mapped[UserRole] = mapped_column(user_role_column_type(), nullable=False)
     kpi_id: Mapped[str] = mapped_column(String(64), nullable=False)
     target_value: Mapped[int] = mapped_column(Integer, nullable=False)
 

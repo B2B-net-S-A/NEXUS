@@ -77,11 +77,11 @@ export function CalendarCycleScreen({
   // Lustro `_SLOT_OWNER_ROLES` (interview_cycle.py) + sufit sekcji Pipeline
   // (router stoi za PIPELINE_SECTION_DEPENDENCIES; zapis terminów, U8).
   const canManageSlots =
-    hasRole(user, "admin", "head_of_recruitment", "delivery_lead", "tac") &&
+    hasRole(user, "admin", "head_of_recruitment", "delivery_lead") &&
     hasSectionAccess(user, "pipeline", "write");
   const isOversight = hasRole(user, "admin", "head_of_recruitment");
   // Delivery patrzy domyślnie na swoje rekrutacje, rekruter na swoich kandydatów.
-  const defaultScope: CycleScope = hasRole(user, "delivery_lead", "tac") ? "jobs" : "mine";
+  const defaultScope: CycleScope = hasRole(user, "delivery_lead") ? "jobs" : "mine";
 
   const view = parseView(params.get("view"), params.get("event") != null);
   const scope = parseScope(params.get("scope"), defaultScope);

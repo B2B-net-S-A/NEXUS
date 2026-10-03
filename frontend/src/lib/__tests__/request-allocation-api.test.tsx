@@ -56,13 +56,11 @@ describe("decyzja o propozycji automatu", () => {
     await decideProposal(12, 7, {
       decision: "replace",
       replacement_user_id: 9,
-      replacement_role: "sourcer",
     });
 
     expect(apiPost).toHaveBeenCalledWith("/api/request-board/jobs/12/proposals/7", {
       decision: "replace",
       replacement_user_id: 9,
-      replacement_role: "sourcer",
     });
   });
 

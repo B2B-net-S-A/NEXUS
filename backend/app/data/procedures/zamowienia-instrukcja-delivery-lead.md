@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 02.10.2026
+> **Zgodność z systemem sprawdzona:** 03.10.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -1588,7 +1588,7 @@ nie widzi kwot, marż, przychodów, plików źródłowych PO ani eksportów mog�
 zawierać stawki; w zamówieniach niczego nie zmienia. Zmiana statusu umowy to
 osobne uprawnienie („Zakończenie współpracy, zmiana statusu kontraktu").
 
-**Head of Recruitment, TAC, Rekruter i Sourcer nie mają domyślnie żadnego z tych
+**Head of Recruitment i Rekruter nie mają domyślnie żadnego z tych
 uprawnień**, więc nie widzą zamówień ani tych akcji — dopóki administrator
 któregoś im nie nada.
 

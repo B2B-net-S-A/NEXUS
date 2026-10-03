@@ -89,8 +89,6 @@ MyWorkUser = Annotated[
     User,
     Depends(
         require_roles(
-            UserRole.sourcer,
-            UserRole.tac,
             UserRole.recruiter,
         )
     ),
@@ -117,10 +115,8 @@ RecruitmentOperationsUser = Annotated[
             UserRole.head_of_recruitment,
             UserRole.delivery_lead,
             UserRole.talent_community_manager,
-            UserRole.tac,
             UserRole.recruiter,
             UserRole.finance,
-            UserRole.sourcer,
         )
     ),
 ]
@@ -135,7 +131,7 @@ _RECRUITMENT_OPERATIONS_PRESET_ROLES: dict[
         UserRole.head_of_recruitment,
         UserRole.talent_community_manager,
     ),
-    "my-work": (UserRole.recruiter, UserRole.tac, UserRole.sourcer),
+    "my-work": (UserRole.recruiter,),
 }
 
 

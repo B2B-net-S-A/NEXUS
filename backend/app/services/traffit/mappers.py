@@ -1183,10 +1183,12 @@ _TRAFFIT_GROUP_TO_ROLE: dict[str, str] = {
     "lead": "delivery_lead",
     "kierownicy": "delivery_lead",
     "delivery": "delivery_lead",
-    "sourcer": "sourcer",
-    "sourcerzy": "sourcer",
-    "sourcing": "sourcer",
-    "tac": "tac",
+    # Od 0411 jedna rola: grupy sourcerów i TAC to rekruterzy. Importer pisze
+    # rolę surowym SQL-em co noc, więc stara wartość wracałaby do bazy.
+    "sourcer": "recruiter",
+    "sourcerzy": "recruiter",
+    "sourcing": "recruiter",
+    "tac": "recruiter",
 }
 
 

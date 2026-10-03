@@ -67,11 +67,6 @@ import { cn } from "@/lib/utils";
 /** Tyle propozycji przyjmuje jedno żądanie (`MAX_BULK_ACCEPT` w `request_board.py`). */
 export const MAX_BULK_ACCEPT = 100;
 
-const ROLE_LABEL: Record<AllocationProposalRow["role"], string> = {
-  recruiter: "rekruter",
-  sourcer: "sourcer",
-};
-
 const FIT_REASON: Record<AllocationFit, string> = {
   first: "1. priorytet w kategorii",
   second: "2. priorytet w kategorii",
@@ -97,14 +92,6 @@ export function proposalReasons(row: AllocationProposalRow): ProposalReason[] {
     reasons.push({
       text: `urlop do ${formatDeadlineShort(row.leave_until) ?? row.leave_until}`,
       notable: true,
-    });
-  }
-  // Liczba pasujących w bazie tłumaczy wybór SOURCERA (dużo osób w bazie =
-  // wystarczy przeszukać bazę); przy rekruterze nic nie wyjaśnia.
-  if (row.role === "sourcer" && row.base_matches != null) {
-    reasons.push({
-      text: `${row.base_matches} ${pluralPl(row.base_matches, "pasujący", "pasujących", "pasujących")} w bazie`,
-      notable: false,
     });
   }
   return reasons;
@@ -454,10 +441,7 @@ export function AllocationProposalsSection({ rows, leaveKnown }: AllocationPropo
               </div>
               <div className="min-w-0">
                 <p className="truncate text-sm">
-                  <span className="font-medium">{row.user_name}</span>{" "}
-                  <span className="text-xs text-muted-foreground">
-                    {ROLE_LABEL[row.role] ?? row.role}
-                  </span>
+                  <span className="font-medium">{row.user_name}</span>
                 </p>
                 <p className="text-xs text-muted-foreground" data-testid="proposal-reasons">
                   {reasons.map((reason, index) => (

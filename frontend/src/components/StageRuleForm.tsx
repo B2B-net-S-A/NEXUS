@@ -30,9 +30,7 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "head_of_recruitment", label: "Head of Recruitment" },
   { value: "delivery_lead", label: "Delivery Lead" },
   { value: "talent_community_manager", label: "Talent Community Manager" },
-  { value: "tac", label: "TAC" },
   { value: "recruiter", label: "Rekruter" },
-  { value: "sourcer", label: "Sourcer" },
 ];
 
 interface UserOption {

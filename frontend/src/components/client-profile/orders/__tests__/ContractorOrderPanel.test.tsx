@@ -543,7 +543,7 @@ describe("ContractorOrderPanel card", () => {
     expect(await screen.findByRole("button", { name: "Uzupełnij zamówienie 3320" })).toBeInTheDocument();
   });
 
-  it.each(["tac", "delivery_lead"])(
+  it.each(["recruiter", "delivery_lead"])(
     "hides candidate finance rows when the server says %s cannot manage them",
     async (role) => {
       // Bramka jest teraz SERWEROWA (`can_manage_finance` w odpowiedzi), bo
@@ -609,8 +609,8 @@ describe("ContractorOrderPanel card", () => {
     expect(screen.queryByTitle("Usuń zamówienie")).not.toBeInTheDocument();
   });
 
-  it("TAC widzi dane, ale żadnej mutacji zamówienia ani „Zakończ współpracę”", async () => {
-    authState.role = "tac";
+  it("rekruter widzi dane, ale żadnej mutacji zamówienia ani „Zakończ współpracę”", async () => {
+    authState.role = "recruiter";
     authState.capabilities = [];
     vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
       data: {
@@ -2024,7 +2024,7 @@ describe("ContractorOrderPanel — karta szkicu", () => {
 
 describe("ContractorOrderPanel — redakcja kwot i zamykanie", () => {
   it("rola bez kwot widzi „—” w wierszach Koszt i Przychód", async () => {
-    authState.role = "tac";
+    authState.role = "recruiter";
     authState.capabilities = [];
     vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
       data: {

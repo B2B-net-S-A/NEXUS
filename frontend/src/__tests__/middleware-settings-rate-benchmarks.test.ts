@@ -63,7 +63,7 @@ describe("middleware — /settings/rate-benchmarks", () => {
   })
 
   it("odbija pozostałe role operacyjne", () => {
-    for (const role of ["recruiter", "tac", "head_of_recruitment"]) {
+    for (const role of ["recruiter", "head_of_recruitment"]) {
       expect(destination("/settings/rate-benchmarks", token(role)), role).toBe(
         "/403",
       )

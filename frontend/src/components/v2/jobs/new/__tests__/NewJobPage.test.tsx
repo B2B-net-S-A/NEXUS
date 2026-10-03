@@ -137,7 +137,7 @@ const CATEGORIES = [
 
 const RECRUITERS = [
   { id: 31, name: "Rekruterka Ola", role: "recruiter", roles: [] },
-  { id: 32, name: "Sourcerka Iza", role: "sourcer", roles: [] },
+  { id: 32, name: "Rekruterka Iza", role: "recruiter", roles: [] },
 ];
 
 interface ServerSetup {

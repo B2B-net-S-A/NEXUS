@@ -873,10 +873,10 @@ async def test_concurrent_fallback_selection_observes_latest_load(
     contact_db: ContactDb,
 ) -> None:
     first_fallback = await contact_db.add_user(
-        UserRole.sourcer, label="balanced-fallback-a"
+        UserRole.recruiter, label="balanced-fallback-a"
     )
     second_fallback = await contact_db.add_user(
-        UserRole.tac, label="balanced-fallback-b"
+        UserRole.recruiter, label="balanced-fallback-b"
     )
     job = await contact_db.add_job(
         label="balanced-fallback",
@@ -1327,7 +1327,7 @@ async def test_two_no_answers_start_cooldown_then_choose_different_owner(
     contact_db: ContactDb,
 ) -> None:
     first_owner = await contact_db.add_user(UserRole.recruiter, label="no-answer-a")
-    fallback_owner = await contact_db.add_user(UserRole.tac, label="no-answer-b")
+    fallback_owner = await contact_db.add_user(UserRole.recruiter, label="no-answer-b")
     candidate = await contact_db.add_candidate(label="no-answer")
     job = await contact_db.add_job(
         label="no-answer",
@@ -1561,7 +1561,7 @@ async def test_callback_manual_reassign_preserves_state_and_due(
     contact_db: ContactDb,
 ) -> None:
     first_owner = await contact_db.add_user(UserRole.recruiter, label="callback-a")
-    target_owner = await contact_db.add_user(UserRole.tac, label="callback-b")
+    target_owner = await contact_db.add_user(UserRole.recruiter, label="callback-b")
     candidate = await contact_db.add_candidate(label="callback-preserve")
     job = await contact_db.add_job(
         label="callback-preserve",
@@ -1627,7 +1627,7 @@ async def test_manual_relationship_owner_transfer_ignores_slot_capacity(
     first_owner = await contact_db.add_user(
         UserRole.recruiter, label=f"{state}-transfer-a"
     )
-    full_target = await contact_db.add_user(UserRole.tac, label=f"{state}-transfer-b")
+    full_target = await contact_db.add_user(UserRole.recruiter, label=f"{state}-transfer-b")
     job = await contact_db.add_job(
         label=f"{state}-transfer",
         recruiter=first_owner,
@@ -1770,7 +1770,7 @@ async def test_worker_reassigns_inactive_owner_before_friday_due(
     contact_db: ContactDb,
 ) -> None:
     first_owner = await contact_db.add_user(UserRole.recruiter, label="inactive-a")
-    fallback_owner = await contact_db.add_user(UserRole.tac, label="inactive-b")
+    fallback_owner = await contact_db.add_user(UserRole.recruiter, label="inactive-b")
     candidate = await contact_db.add_candidate(label="inactive-friday")
     job = await contact_db.add_job(
         label="inactive-friday",
@@ -1807,7 +1807,7 @@ async def test_worker_blocks_cleared_phone_before_due_without_reassignment(
     contact_db: ContactDb,
 ) -> None:
     owner = await contact_db.add_user(UserRole.recruiter, label="phone-cleared")
-    fallback = await contact_db.add_user(UserRole.tac, label="phone-cleared-fallback")
+    fallback = await contact_db.add_user(UserRole.recruiter, label="phone-cleared-fallback")
     candidate = await contact_db.add_candidate(label="phone-cleared")
     job = await contact_db.add_job(
         label="phone-cleared",
@@ -1843,7 +1843,7 @@ async def test_wrong_number_restore_retains_fallback_owner(
     contact_db: ContactDb,
 ) -> None:
     primary = await contact_db.add_user(UserRole.recruiter, label="wrong-primary")
-    fallback = await contact_db.add_user(UserRole.tac, label="wrong-fallback")
+    fallback = await contact_db.add_user(UserRole.recruiter, label="wrong-fallback")
     candidate = await contact_db.add_candidate(label="wrong-retain")
     job = await contact_db.add_job(
         label="wrong-retain",
@@ -1958,7 +1958,7 @@ async def test_ownerless_handoff_rotation_does_not_spam_or_starve_due_work(
     contact_db: ContactDb,
 ) -> None:
     owner = await contact_db.add_user(UserRole.recruiter, label="fair-due-a")
-    fallback = await contact_db.add_user(UserRole.tac, label="fair-due-b")
+    fallback = await contact_db.add_user(UserRole.recruiter, label="fair-due-b")
     handoff_cases: list[CandidateContactCase] = []
     old_retry_at = datetime(2000, 1, 1, tzinfo=timezone.utc)
     for index in range(3):
@@ -2619,7 +2619,7 @@ async def test_full_sticky_handoff_owner_waits_without_fallback_reassignment(
     contact_db: ContactDb,
 ) -> None:
     owner = await contact_db.add_user(UserRole.recruiter, label="sticky-full-owner")
-    fallback = await contact_db.add_user(UserRole.tac, label="sticky-full-fallback")
+    fallback = await contact_db.add_user(UserRole.recruiter, label="sticky-full-fallback")
     candidate = await contact_db.add_candidate(label="sticky-full")
     first_job = await contact_db.add_job(
         label="sticky-full-a",
@@ -2980,7 +2980,7 @@ async def test_restart_catches_friday_eod_once_on_monday_morning(
     contact_db: ContactDb,
 ) -> None:
     first_owner = await contact_db.add_user(UserRole.recruiter, label="eod-a")
-    fallback_owner = await contact_db.add_user(UserRole.tac, label="eod-b")
+    fallback_owner = await contact_db.add_user(UserRole.recruiter, label="eod-b")
     candidate = await contact_db.add_candidate(label="eod")
     job = await contact_db.add_job(
         label="eod",
@@ -3143,7 +3143,7 @@ async def test_eod_turnover_falls_back_to_owner_when_only_peer_is_full(
     """
 
     owner = await contact_db.add_user(UserRole.recruiter, label="cap-eod-owner")
-    full_peer = await contact_db.add_user(UserRole.tac, label="cap-eod-peer")
+    full_peer = await contact_db.add_user(UserRole.recruiter, label="cap-eod-peer")
     job = await contact_db.add_job(
         label="cap-eod",
         recruiter=owner,
@@ -3207,7 +3207,7 @@ async def test_skip_locked_worker_processes_other_due_case(
     contact_db: ContactDb,
 ) -> None:
     first_owner = await contact_db.add_user(UserRole.recruiter, label="skip-a")
-    fallback_owner = await contact_db.add_user(UserRole.tac, label="skip-b")
+    fallback_owner = await contact_db.add_user(UserRole.recruiter, label="skip-b")
     job = await contact_db.add_job(
         label="skip-locked",
         recruiter=first_owner,

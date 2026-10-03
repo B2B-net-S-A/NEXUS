@@ -194,14 +194,22 @@ async def test_rerunning_the_signature_migration_keeps_the_wide_check(engine) ->
 
 
 async def test_tac_signature_goes_off_only_when_nobody_set_it(engine) -> None:
+    """Zamrożony krok 0410 — celowo na starej wartości roli.
+
+    Rola TAC jest wycofana (0411) i po migracji nie ma swoich wierszy RBAC,
+    więc test zakłada wiersz sam (CHECK roli zostaje szeroki) — tak wygląda
+    baza po rollbacku obrazu, dla której ten krok nadal musi działać.
+    """
+
     async with engine.connect() as connection:
         transaction = await connection.begin()
         try:
             await connection.execute(
                 text(
-                    "UPDATE rbac_role_action_permissions "
-                    "SET access = 'manage', updated_by = NULL "
-                    "WHERE role = 'tac' AND action = 'b2b_signature_confirmation'"
+                    "INSERT INTO rbac_role_action_permissions (role, action, access) "
+                    "VALUES ('tac', 'b2b_signature_confirmation', 'manage') "
+                    "ON CONFLICT (role, action) "
+                    "DO UPDATE SET access = 'manage', updated_by = NULL"
                 )
             )
             await connection.execute(text(schema.TAC_SIGNATURE_SQL))

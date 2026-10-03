@@ -373,7 +373,7 @@ async def test_rows_and_detail_carry_the_recruiter_role(
     from app.models.job_work_assignment import JobWorkAssignment
 
     owner_id, _ = await make_user(UserRole.recruiter)
-    sourcer_id, _ = await make_user(UserRole.sourcer)
+    sourcer_id, _ = await make_user(UserRole.recruiter)
     proposed_id, _ = await make_user(UserRole.recruiter)
     category_id, _ = await make_user(UserRole.recruiter)
     token = f"Team{uuid.uuid4().hex[:8]}"
@@ -398,7 +398,7 @@ async def test_rows_and_detail_carry_the_recruiter_role(
                 JobWorkAssignment(
                     job_id=proposal_only,
                     user_id=proposed_id,
-                    role="sourcer",
+                    role="recruiter",
                     source="auto",
                     state="proposed",
                 ),
@@ -412,7 +412,7 @@ async def test_rows_and_detail_carry_the_recruiter_role(
             (r["user_id"], r["role"], r["via"], r["proposed"]) for r in recruiters
         ] == [
             (owner_id, "recruiter", "owner", False),
-            (sourcer_id, "sourcer", "collaborator", False),
+            (sourcer_id, "recruiter", "collaborator", False),
             # Propozycja automatu jest widoczna, ale to jeszcze nie praca.
             (proposed_id, "recruiter", "assignment", True),
         ]
@@ -427,7 +427,7 @@ async def test_rows_and_detail_carry_the_recruiter_role(
         assert [
             (r["user_id"], r["role"], r["proposed"])
             for r in rows[proposal_only]["recruiters"]
-        ] == [(proposed_id, "sourcer", True)]
+        ] == [(proposed_id, "recruiter", True)]
 
         detail = await app_client.get(f"/api/jobs/{staffed}", headers=app_auth_headers)
         assert detail.status_code == 200, detail.text

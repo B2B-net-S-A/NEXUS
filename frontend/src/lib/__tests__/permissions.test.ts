@@ -45,9 +45,7 @@ const EXPECTED_DEFAULTS: Record<UserRole, Permission[]> = {
     "contract_status",
     "b2b_signature_confirmation",
   ],
-  tac: [],
   recruiter: [],
-  sourcer: [],
   user: [],
   trainee: [],
 };

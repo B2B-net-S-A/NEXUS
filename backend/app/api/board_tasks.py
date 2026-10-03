@@ -126,7 +126,7 @@ class AllocationProposalRow(BaseModel):
     sent: int
     user_id: int
     user_name: str
-    role: Literal["recruiter", "sourcer"]
+    role: Literal["recruiter"]
     fit: Literal["first", "second", "other"]
     load: int
     leave_until: Optional[date] = None
@@ -153,7 +153,7 @@ class NewJobLeadRow(BaseModel):
     handed_off_at: datetime
     lead_user_id: Optional[int] = None
     lead_name: Optional[str] = None
-    lead_role: Optional[Literal["recruiter", "sourcer"]] = None
+    lead_role: Optional[Literal["recruiter"]] = None
     # Kto wskazał prowadzącego: automat przydziału albo człowiek.
     lead_source: Optional[Literal["auto", "manual"]] = None
     assigned_by_name: Optional[str] = None

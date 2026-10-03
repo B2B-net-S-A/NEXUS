@@ -108,11 +108,15 @@ async def _seed_client() -> int:
 
 
 async def _seed_delivery_scope() -> tuple[str, str, int, int, int, int]:
-    """Create assigned and unassigned-to-DL clients with their TACs."""
+    """Create assigned and unassigned-to-DL clients with their TACs.
+
+    Roli TAC nie ma od 0411 — opiekunem z ``ClientTacAssignment`` jest tu
+    rekruter; zakres Delivery Leada czyta samo przypisanie, nie rolę.
+    """
 
     dl_email, dl_password = await _seed_user(UserRole.delivery_lead)
-    tac_email, _ = await _seed_user(UserRole.tac)
-    other_email, _ = await _seed_user(UserRole.tac)
+    tac_email, _ = await _seed_user(UserRole.recruiter)
+    other_email, _ = await _seed_user(UserRole.recruiter)
     async with AsyncSessionLocal() as db:
         dl = await db.scalar(select(User).where(User.email == dl_email))
         tac = await db.scalar(select(User).where(User.email == tac_email))
@@ -422,15 +426,7 @@ async def test_delivery_lead_scope_resolver_preserves_pairs_and_denies_arbitrary
 async def test_tenders_values_only_with_finance(
     v1_client: AsyncClient, analytics_shadow
 ):
-    """TAC i DL widzą przetargi bez kwot; tylko Admin może dostać wartości."""
-    headers_tac = await _headers(v1_client, UserRole.tac)
-    tac_resp = await v1_client.get(
-        "/api/analytics/v1/commercial/tenders", headers=headers_tac
-    )
-    assert tac_resp.status_code == 200, tac_resp.text
-    for outcome in tac_resp.json()["data"]["outcomes"]:
-        assert "salary_max_sum" not in outcome, "TAC nie może dostać kwot przetargów"
-
+    """DL widzi przetargi bez kwot; tylko Admin może dostać wartości."""
     headers_dl = await _headers(v1_client, UserRole.delivery_lead)
     dl_resp = await v1_client.get(
         "/api/analytics/v1/commercial/tenders", headers=headers_dl

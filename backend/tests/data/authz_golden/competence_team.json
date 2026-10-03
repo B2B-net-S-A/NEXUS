@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,10 +21,10 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "DELETE /api/competence-team/assignments/{assignment_id}": "PDPDDDDDDDDPDPDDDDDDD",
-  "GET /api/competence-team": "PDPDDDDDDDDPDPDDDDDDD",
-  "PATCH /api/competence-team/people/{user_id}/allocation": "PDPDDDDDDDDPDPDDDDDDD",
-  "PUT /api/competence-team/assignments": "PDPDDDDDDDDPDPDDDDDDD",
-  "PUT /api/competence-team/rules": "PDPDDDDDDDDPDPDDDDDDD"
+  "DELETE /api/competence-team/assignments/{assignment_id}": "PDPDDDDDDPDPDDDDDDD",
+  "GET /api/competence-team": "PDPDDDDDDPDPDDDDDDD",
+  "PATCH /api/competence-team/people/{user_id}/allocation": "PDPDDDDDDPDPDDDDDDD",
+  "PUT /api/competence-team/assignments": "PDPDDDDDDPDPDDDDDDD",
+  "PUT /api/competence-team/rules": "PDPDDDDDDPDPDDDDDDD"
  }
 }

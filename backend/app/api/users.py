@@ -14,7 +14,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, known_roles
 from app.api.deps import OperationalUser, CurrentUser
 from app.schemas.job import UserBrief
 from app.services.jarvis.prefs import (
@@ -86,9 +86,7 @@ _DEFAULT_ROLES = [
     UserRole.admin,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
 ]
 
 
@@ -96,18 +94,22 @@ _DEFAULT_ROLES = [
 async def list_users(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
-    roles: Optional[List[UserRole]] = Query(
+    roles: Optional[List[str]] = Query(
         None,
         description=(
             "Filter by role. Repeat the param for multiple values "
-            "(e.g. `?roles=recruiter&roles=tac`). Defaults to ownership-"
-            "eligible roles (excludes read-only viewers)."
+            "(e.g. `?roles=recruiter&roles=delivery_lead`). Defaults to "
+            "ownership-eligible roles (excludes read-only viewers)."
         ),
     ),
     q: Optional[str] = Query(None, description="Case-insensitive match on name/email."),
 ):
     """Directory listing for owner/collaborator pickers."""
-    target_roles = roles if roles else _DEFAULT_ROLES
+    # Napisy, nie enum: otwarta karta ze starą wersją aplikacji pyta jeszcze
+    # o `tac` i `sourcer` (od 0411 to rekruter) — nie może dostać 422.
+    target_roles = known_roles(roles) if roles else _DEFAULT_ROLES
+    if not target_roles:
+        raise HTTPException(status_code=422, detail="Nieznana rola w filtrze.")
     effective_role_filter = or_(
         User.role.in_(target_roles),
         *(User.roles.contains([role.value]) for role in target_roles),

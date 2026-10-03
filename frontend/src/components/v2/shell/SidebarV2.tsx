@@ -84,13 +84,7 @@ export function SidebarV2({
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
   const canUseContactQueue =
     hasSectionAccess(user, "sourcing") &&
-    hasRole(
-      user,
-      "talent_community_manager",
-      "tac",
-      "recruiter",
-      "sourcer",
-    );
+    hasRole(user, "talent_community_manager", "recruiter");
   const contactFeature = useCandidateContactFeature({
     queryEnabled: canUseContactQueue,
   });

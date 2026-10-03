@@ -14,10 +14,12 @@ from app.services.aad_role_policy import (
 
 
 def test_validate_aad_roles_deduplicates_and_preserves_precedence() -> None:
-    values, roles = validate_aad_mapped_roles(["delivery_lead", "tac", "delivery_lead"])
+    values, roles = validate_aad_mapped_roles(
+        ["delivery_lead", "recruiter", "delivery_lead"]
+    )
 
-    assert values == ["delivery_lead", "tac"]
-    assert roles == [UserRole.delivery_lead, UserRole.tac]
+    assert values == ["delivery_lead", "recruiter"]
+    assert roles == [UserRole.delivery_lead, UserRole.recruiter]
 
 
 def test_validate_aad_roles_accepts_talent_community_manager() -> None:

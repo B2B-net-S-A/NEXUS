@@ -51,7 +51,7 @@ describe("useOnboardingGuard", () => {
   it.each([
     ["ukończony profil", user({ profile_completed: true })],
     ["admin", user({ role: "admin", roles: ["admin", "recruiter"] })],
-    ["rola bez onboardingu", user({ role: "sourcer", roles: ["sourcer"] })],
+    ["rola bez onboardingu", user({ role: "talent_community_manager", roles: ["talent_community_manager"] })],
     ["wymuszona zmiana hasła", user({ force_password_change: true })],
     ["brak użytkownika", null],
   ])("nie przekierowuje: %s", (_label, u) => {

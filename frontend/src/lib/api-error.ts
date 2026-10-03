@@ -100,7 +100,7 @@ export function messageFromApiResponse(
   if (!data || typeof data !== "object") return undefined;
   const { detail, message } = data as { detail?: unknown; message?: unknown };
   // `require_roles` (backend/app/api/deps.py) zwraca detail w formie
-  // "Requires one of roles: ['admin', 'tac', ...]" — to nazwy ról z modelu
+  // "Requires one of roles: ['admin', 'delivery_lead', ...]" — to nazwy ról z modelu
   // danych, nie komunikat dla użytkownika. Wyciekał wprost do toasta
   // (zgłoszenie generatora umów: użytkownik zobaczył surową listę ról).
   // Tłumimy jak surowe `loc` niżej: raw do konsoli, człowiekowi zdanie.

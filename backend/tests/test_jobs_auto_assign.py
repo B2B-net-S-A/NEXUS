@@ -1,5 +1,8 @@
 """Integration tests for auto-assign TAC + Delivery Lead in POST /jobs.
 
+Roli TAC nie ma od 0411 (02.10.2026): opiekunem rekrutacji (`tac_id`) bywa
+Delivery Lead, admin albo Head of Recruitment — tu Head of Recruitment.
+
 Uses the in-process `app_client` fixture (no running server required).
 Each test seeds its own client + assignments to stay isolated from prod
 data.
@@ -158,7 +161,7 @@ async def test_create_job_auto_assigns_from_client(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """Klient z jednym aktywnym TAC + head DL → POST /jobs auto-fill obu."""
-    tac_id = await _new_user(UserRole.tac)
+    tac_id = await _new_user(UserRole.head_of_recruitment)
     dl_id = await _new_user(UserRole.delivery_lead)
     client_id = await _new_client()
     await _assign_tac(client_id, tac_id, is_primary=True)
@@ -197,8 +200,8 @@ async def test_create_job_explicit_override_wins(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """Jawny, przypisany tac_id wygrywa nad inferencją właściciela."""
-    primary_tac = await _new_user(UserRole.tac)
-    other_tac = await _new_user(UserRole.tac)
+    primary_tac = await _new_user(UserRole.head_of_recruitment)
+    other_tac = await _new_user(UserRole.head_of_recruitment)
     client_id = await _new_client()
     await _assign_tac(client_id, primary_tac, is_primary=True)
     await _assign_tac(client_id, other_tac)
@@ -267,8 +270,8 @@ async def test_create_job_with_multiple_tacs_requires_explicit_owner(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """Wielu równych TAC-ów nie może wybrać właściciela przez kolejność."""
-    tac_a = await _new_user(UserRole.tac)
-    tac_b = await _new_user(UserRole.tac)
+    tac_a = await _new_user(UserRole.head_of_recruitment)
+    tac_b = await _new_user(UserRole.head_of_recruitment)
     client_id = await _new_client()
     await _assign_tac(client_id, tac_a, is_primary=True)
     await _assign_tac(client_id, tac_b)
@@ -293,7 +296,7 @@ async def test_create_job_with_multiple_tacs_requires_explicit_owner(
 async def test_create_job_rejects_tac_not_assigned_to_client(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    tac_id = await _new_user(UserRole.tac)
+    tac_id = await _new_user(UserRole.head_of_recruitment)
     client_id = await _new_client()
     try:
         resp = await app_client.post(
@@ -316,8 +319,8 @@ async def test_create_job_rejects_tac_not_assigned_to_client(
 async def test_create_job_invalid_tac_role_returns_400(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """tac_id wskazujący na sourcera (poza dopuszczalnymi rolami) → 400."""
-    sourcer_id = await _new_user(UserRole.sourcer)
+    """tac_id wskazujący na rekrutera (poza dopuszczalnymi rolami) → 400."""
+    recruiter_id = await _new_user(UserRole.recruiter)
     client_id = await _new_client()
     try:
         resp = await app_client.post(
@@ -326,14 +329,14 @@ async def test_create_job_invalid_tac_role_returns_400(
             json={
                 "title": "Invalid role",
                 "client_id": client_id,
-                "tac_id": sourcer_id,
+                "tac_id": recruiter_id,
                 "auto_suggest_cc": False,
             },
         )
         assert resp.status_code == 400, resp.text
         assert "TAC" in resp.text
     finally:
-        await _cleanup(client_id, [sourcer_id])
+        await _cleanup(client_id, [recruiter_id])
 
 
 @pytest.mark.integration
@@ -341,8 +344,8 @@ async def test_patch_job_updates_tac_id(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """PATCH /jobs/{id} z `tac_id` przepisuje pole."""
-    tac_id = await _new_user(UserRole.tac)
-    other_tac = await _new_user(UserRole.tac)
+    tac_id = await _new_user(UserRole.head_of_recruitment)
+    other_tac = await _new_user(UserRole.head_of_recruitment)
     client_id = await _new_client()
     await _assign_tac(client_id, tac_id, is_primary=True)
     await _assign_tac(client_id, other_tac)
@@ -525,8 +528,7 @@ async def test_create_job_by_delivery_lead_rejects_salary_in_polish(
         )
         assert resp.status_code == 403, resp.text
         assert (
-            resp.json()["detail"]
-            == "Widełki wynagrodzenia może ustawić tylko admin lub TAC"
+            resp.json()["detail"] == "Widełki wynagrodzenia może ustawić tylko admin"
         )
     finally:
         await _cleanup(client_id, [dl_id])

@@ -36,7 +36,7 @@ def _dashboard_presets_for(user: User) -> list[DashboardPreset]:
         presets.append("head-of-recruitment")
     if UserRole.delivery_lead in roles:
         presets.append("delivery-lead")
-    if roles.intersection({UserRole.sourcer, UserRole.tac, UserRole.recruiter}):
+    if UserRole.recruiter in roles:
         presets.append("my-work")
     return presets
 

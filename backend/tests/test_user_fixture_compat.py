@@ -36,7 +36,7 @@ def test_explicit_onboarding_and_role_states_are_never_overwritten() -> None:
         "hybrid",
         UserRole.delivery_lead,
         profile_completed=False,
-        roles=[UserRole.delivery_lead.value, UserRole.tac.value],
+        roles=[UserRole.delivery_lead.value, UserRole.recruiter.value],
     )
     malformed_viewer_hybrid = _user(
         "malformed-viewer-hybrid",
@@ -50,7 +50,7 @@ def test_explicit_onboarding_and_role_states_are_never_overwritten() -> None:
     assert incomplete.profile_completed is False
     assert incomplete.roles == []
     assert hybrid.profile_completed is False
-    assert hybrid.roles == [UserRole.delivery_lead.value, UserRole.tac.value]
+    assert hybrid.roles == [UserRole.delivery_lead.value, UserRole.recruiter.value]
     assert malformed_viewer_hybrid.profile_completed is False
     assert malformed_viewer_hybrid.roles == [
         UserRole.user.value,

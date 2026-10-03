@@ -248,10 +248,8 @@ async def test_board_is_reachable_only_for_admin_and_finance(
 
     for role in (
         UserRole.head_of_recruitment,
-        UserRole.sourcer,
         UserRole.recruiter,
         UserRole.delivery_lead,
-        UserRole.tac,
         UserRole.user,
     ):
         _, email, password = await _seed_user(role, "rbac-denied")

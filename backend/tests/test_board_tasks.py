@@ -1013,11 +1013,11 @@ async def _seed_job_leads(hor_id: int, dl_id: int) -> dict:
     people = {}
     for key, role in (
         ("auto", UserRole.recruiter),
-        ("manual", UserRole.sourcer),
+        ("manual", UserRole.recruiter),
         ("owner", UserRole.recruiter),
         ("proposed", UserRole.recruiter),
-        ("participant", UserRole.sourcer),
-        ("removed", UserRole.sourcer),
+        ("participant", UserRole.recruiter),
+        ("removed", UserRole.recruiter),
     ):
         people[key], _ = await _seed_user(role)
     async with AsyncSessionLocal() as db:
@@ -1079,7 +1079,7 @@ async def _seed_job_leads(hor_id: int, dl_id: int) -> dict:
                 JobWorkAssignment(
                     job_id=jobs["manual"].id,
                     user_id=people["manual"],
-                    role="sourcer",
+                    role="recruiter",
                     source="manual",
                     state="active",
                     assigned_at=now,
@@ -1228,7 +1228,7 @@ async def test_new_job_leads_show_who_leads_fresh_handoffs(
         assert manual["title"] == f"BT leads manual {seeded['unique']}"
         assert (manual["lead_user_id"], manual["lead_role"]) == (
             people["manual"],
-            "sourcer",
+            "recruiter",
         )
         assert manual["lead_source"] == "manual"
         assert manual["assigned_by_name"] == names[hor_id]

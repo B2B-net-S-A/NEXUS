@@ -37,7 +37,7 @@ def test_personal_scope_clause_counts_live_work_assignments() -> None:
 # ── R10-V2-2: „Moje następne kroki” — przypisania nie zjadają LIMIT ──────────
 
 
-async def _seed_user(role: UserRole = UserRole.sourcer) -> tuple[dict, int]:
+async def _seed_user(role: UserRole = UserRole.recruiter) -> tuple[dict, int]:
     from app.core.database import AsyncSessionLocal
     from app.core.security import create_access_token, hash_password
 
@@ -95,7 +95,7 @@ async def _seed_next_steps_world(me: int, other: int, *, via: str) -> tuple[set,
                 JobWorkAssignment(
                     job_id=job.id,
                     user_id=me,
-                    role="sourcer",
+                    role="recruiter",
                     source="manual",
                     state="active",
                 )
@@ -114,7 +114,7 @@ async def _seed_next_steps_world(me: int, other: int, *, via: str) -> tuple[set,
 async def test_my_next_steps_accepts_work_assignments(
     app_client: AsyncClient,
 ) -> None:
-    headers, me = await _seed_user(UserRole.sourcer)
+    headers, me = await _seed_user(UserRole.recruiter)
     _, other = await _seed_user(UserRole.recruiter)
     near, own = await _seed_next_steps_world(me, other, via="assignment")
 

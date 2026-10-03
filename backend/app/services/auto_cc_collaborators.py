@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 
 # Kto może dostać request: role operacyjne, także jako druga rola Delivery
 # Leada (decyzja Artura 24.09.2026).
-OPERATOR_ROLES = (UserRole.recruiter, UserRole.sourcer, UserRole.tac)
+# Od 0411 jedna rola — rekruter.
+OPERATOR_ROLES = (UserRole.recruiter,)
 
 # Lustro ``request_work_state.WORK_STATE_FINISHED`` (import stamtąd ciągnie
 # pół warstwy rekrutacji do modułu, który czyta trasy ustawień).

@@ -36,9 +36,7 @@ def test_generator_defaults_give_every_operator_full_generator() -> None:
         UserRole.finance,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
         # Decyzja Artura 22.09.2026: TCM ma pełny generator B2B.
         UserRole.talent_community_manager,
     ):

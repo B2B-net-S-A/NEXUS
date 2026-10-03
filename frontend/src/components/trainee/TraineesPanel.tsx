@@ -155,7 +155,7 @@ function ProgramEditDialog({
 }
 
 type PendingDecision =
-  | { kind: "promote"; row: TraineeOverviewRow; role: "sourcer" | "recruiter" }
+  | { kind: "promote"; row: TraineeOverviewRow }
   | { kind: "end"; row: TraineeOverviewRow };
 
 function DecisionDialog({
@@ -177,11 +177,10 @@ function DecisionDialog({
   if (!pending) {
     return null;
   }
-  const roleLabel = pending.kind === "promote" && pending.role === "recruiter" ? "rekrutera" : "sourcera";
   const submit = () => {
     const body: TraineeDecisionBody =
       pending.kind === "promote"
-        ? { action: "promote", role: pending.role, add_to_my_people: addToMyPeople }
+        ? { action: "promote", role: "recruiter", add_to_my_people: addToMyPeople }
         : { action: "end" };
     decision.mutate(
       { userId: pending.row.user_id, body },
@@ -189,7 +188,7 @@ function DecisionDialog({
         onSuccess: () =>
           onDone(
             pending.kind === "promote"
-              ? `${pending.row.name} ma od teraz rolę ${roleLabel}. Nowy widok zobaczy po odświeżeniu aplikacji.`
+              ? `${pending.row.name} ma od teraz rolę rekrutera. Nowy widok zobaczy po odświeżeniu aplikacji.`
               : `Program ${pending.row.name} zakończony. Lista telefonów znika od jutra.`,
           ),
         onError: (err) => setError(apiErrorMessage(err, "Nie udało się zapisać decyzji.")),
@@ -204,7 +203,7 @@ function DecisionDialog({
       }}
       title={
         pending.kind === "promote"
-          ? `Zmienić rolę ${pending.row.name} na ${roleLabel}?`
+          ? `Zmienić rolę ${pending.row.name} na rekrutera?`
           : `Zakończyć program ${pending.row.name}?`
       }
       size="md"
@@ -219,7 +218,7 @@ function DecisionDialog({
             loading={decision.isPending}
             disabled={decision.isPending}
           >
-            {pending.kind === "promote" ? `Zmień rolę na ${roleLabel}` : "Zakończ program"}
+            {pending.kind === "promote" ? "Zmień rolę na rekrutera" : "Zakończ program"}
           </Button>
         </>
       }
@@ -276,7 +275,7 @@ function DecisionBanner({
   extending,
 }: {
   row: TraineeOverviewRow;
-  onPromote: (role: "sourcer" | "recruiter") => void;
+  onPromote: () => void;
   onExtend: () => void;
   onEnd: () => void;
   extending: boolean;
@@ -294,10 +293,7 @@ function DecisionBanner({
         <p className="text-xs text-muted-foreground">{decisionSummary(row)}</p>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button size="lg" className="min-h-11" onClick={() => onPromote("sourcer")}>
-          Zmień rolę na sourcera
-        </Button>
-        <Button size="lg" variant="outline" className="min-h-11" onClick={() => onPromote("recruiter")}>
+        <Button size="lg" className="min-h-11" onClick={onPromote}>
           Zmień rolę na rekrutera
         </Button>
         <Button
@@ -500,7 +496,7 @@ export function TraineesPanel() {
           key={row.user_id}
           row={row}
           extending={extend.isPending && extend.variables?.userId === row.user_id}
-          onPromote={(role) => setPending({ kind: "promote", row, role })}
+          onPromote={() => setPending({ kind: "promote", row })}
           onEnd={() => setPending({ kind: "end", row })}
           onExtend={() => {
             setExtendError(null);

@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,7 +21,7 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDD"
  }
 }

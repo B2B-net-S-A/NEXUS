@@ -17,9 +17,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 export const COLLABORATOR_ROLES = [
   "admin",
   "delivery_lead",
-  "tac",
   "recruiter",
-  "sourcer",
 ] as const;
 
 export interface JobCollaboratorEntry {

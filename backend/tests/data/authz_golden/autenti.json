@@ -5,16 +5,14 @@
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
   "delivery_lead+talent_community_manager",
   "head_of_recruitment+delivery_lead",
-  "delivery_lead+tac",
-  "head_of_recruitment+tac",
-  "talent_community_manager+sourcer",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
   "talent_community_manager+contracts_orders_edit",
   "recruiter+clients_edit",
   "recruiter+delivery_view",
@@ -23,12 +21,12 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "GET /api/autenti/contracts/{contract_id}/signatures": "PPDPDDDDDDPPPDDDDDDPP",
-  "GET /api/autenti/health": "PPPPPPPPPDPPPPPPPPPPP",
-  "GET /api/autenti/signatures/{signature_id}": "PPDPDDDDDDPPPDDDDDDPP",
-  "POST /api/autenti/contracts/{contract_id}/send": "PPDPDDDDDDPPPDDPDDDDD",
-  "POST /api/autenti/signatures/{signature_id}/remind": "PPDPDDDDDDPPPDDPDDDDD",
-  "POST /api/autenti/signatures/{signature_id}/withdraw": "PPDPDDDDDDPPPDDPDDDDD",
-  "POST /api/autenti/webhook": "PPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/autenti/contracts/{contract_id}/signatures": "PPDPDDDDPPPDDDDDDPP",
+  "GET /api/autenti/health": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/autenti/signatures/{signature_id}": "PPDPDDDDPPPDDDDDDPP",
+  "POST /api/autenti/contracts/{contract_id}/send": "PPDPDDDDPPPDDPDDDDD",
+  "POST /api/autenti/signatures/{signature_id}/remind": "PPDPDDDDPPPDDPDDDDD",
+  "POST /api/autenti/signatures/{signature_id}/withdraw": "PPDPDDDDPPPDDPDDDDD",
+  "POST /api/autenti/webhook": "PPPPPPPPPPPPPPPPPPP"
  }
 }

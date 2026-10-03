@@ -32,8 +32,6 @@ STALE_SECONDS = 300
 OPERATIONAL_COVER_ROLES = frozenset(
     {
         "recruiter",
-        "sourcer",
-        "tac",
         "delivery_lead",
         "talent_community_manager",
         "finance",
@@ -149,9 +147,7 @@ def compatible_substitute(owner: User, substitute: User) -> bool:
     if "admin" in target_roles:
         return True
     capability_groups = {
-        "recruiter": {"recruiter", "tac"},
-        "sourcer": {"sourcer", "recruiter", "tac"},
-        "tac": {"tac"},
+        "recruiter": {"recruiter"},
         "delivery_lead": {"delivery_lead"},
         "talent_community_manager": {"talent_community_manager"},
         "finance": {"finance"},

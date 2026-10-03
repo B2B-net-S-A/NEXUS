@@ -35,8 +35,6 @@ import { resolveViewState } from "@/lib/view-state"
 
 const ROLE_LABEL: Record<string, string> = {
   recruiter: "rekruter",
-  sourcer: "sourcer",
-  tac: "TAC",
   delivery_lead: "DL",
 }
 
@@ -173,27 +171,12 @@ function RulesForm({
   rules: TeamRules
   onSave: (rules: TeamRules) => void
 }) {
-  const [threshold, setThreshold] = useState(String(rules.sourcer_threshold))
   const [time, setTime] = useState(rules.review_time)
   return (
     <section
       aria-label="Zasady przydziału"
-      className="grid gap-4 rounded-lg border border-border bg-card p-4 md:grid-cols-[repeat(3,minmax(0,1fr))_auto] md:items-end"
+      className="grid gap-4 rounded-lg border border-border bg-card p-4 md:grid-cols-[repeat(2,minmax(0,1fr))_auto] md:items-end"
     >
-      <label className="flex flex-col gap-1 text-sm text-muted-foreground">
-        Sourcer wystarczy, gdy w bazie jest co najmniej
-        <span className="flex items-center gap-2 text-foreground">
-          <input
-            type="number"
-            min={1}
-            max={500}
-            className="h-10 w-24 rounded-md border border-input bg-background px-2"
-            value={threshold}
-            onChange={(e) => setThreshold(e.target.value)}
-          />
-          pasujących osób
-        </span>
-      </label>
       <label className="flex flex-col gap-1 text-sm text-muted-foreground">
         Codzienny przegląd przydziałów o
         <input
@@ -206,11 +189,7 @@ function RulesForm({
       <p className="text-sm text-muted-foreground">
         Urlopy biorę z Compassa. Osoba bez kategorii nie dostaje requestów automatycznie.
       </p>
-      <Button
-        onClick={() =>
-          onSave({ sourcer_threshold: Number(threshold), review_time: time })
-        }
-      >
+      <Button onClick={() => onSave({ review_time: time })}>
         Zapisz zasady
       </Button>
     </section>
@@ -324,7 +303,7 @@ export function CompetenceTeamView({
           </section>
         </aside>
       </div>
-      <RulesForm key={`${team.rules.sourcer_threshold}-${team.rules.review_time}`} rules={team.rules} onSave={actions.saveRules} />
+      <RulesForm key={team.rules.review_time} rules={team.rules} onSave={actions.saveRules} />
     </div>
   )
 }

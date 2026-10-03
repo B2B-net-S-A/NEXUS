@@ -110,8 +110,6 @@ const DEFAULT_VERIFICATION_TARGETS: Record<number, number[]> = {
 
 const ROLE_LABELS: Record<string, string> = {
   recruiter: "Rekruter",
-  sourcer: "Sourcer",
-  tac: "TAC",
 }
 
 const CHANNEL_OPTIONS: Record<
@@ -127,12 +125,10 @@ function inferredAllowedChannels(
   role: string,
   roles: string[] = [],
 ): PriorityChannel[] {
-  const roleValues = new Set([role, ...roles])
-  if (roleValues.has("tac")) return ["database", "linkedin", "mixed"]
-  const channels: PriorityChannel[] = []
-  if (roleValues.has("sourcer")) channels.push("database")
-  if (roleValues.has("recruiter")) channels.push("linkedin")
-  return channels
+  // Każdy rekruter ma wszystkie trzy kanały (decyzja 02.10.2026).
+  return new Set([role, ...roles]).has("recruiter")
+    ? ["database", "linkedin", "mixed"]
+    : []
 }
 
 function channelForMember(

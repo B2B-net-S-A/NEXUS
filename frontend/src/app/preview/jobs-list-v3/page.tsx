@@ -95,7 +95,6 @@ const recruiter = (
 ): JobRecruiter => ({
   user_id,
   name,
-  role: "recruiter",
   via: "owner",
   proposed: false,
   assigned_by_name: null,
@@ -207,7 +206,7 @@ const MINE = [
     tac_id: 3,
     // Sama propozycja automatu — to jeszcze nie praca („Bez rekrutera” w filtrze).
     recruiters: [
-      recruiter(72, "Piotr Sourcer", { role: "sourcer", via: "assignment", proposed: true }),
+      recruiter(72, "Piotr Przykładowy", { via: "assignment", proposed: true }),
     ],
     delivery_lead_user: { id: 9, name: "Ewa Przykładowa" },
     priority: "medium",
