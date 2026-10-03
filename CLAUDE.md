@@ -2418,8 +2418,9 @@ Leada o stawce do klienta, 13% karty rekomendacji według wzoru rekruterów.
   za…”, „150/110”, „@osoba 175”); dłuższa notatka z kwotą w treści zostaje
   zwykłą notatką — świadomie, bo niesie fakty o kandydacie. Wyjątek: forma
   Delivery Leada z listą rekrutacji („Pokazujemy za 178 zł na: …”) jest
-  `dl_rate` do 400 znaków, o ile nie mówi nic o kandydacie — test na
-  produkcji 03.10.2026 znalazł 143 takie wpisy odkryte dla rekrutera
+  `dl_rate` do 400 znaków, o ile nie mówi nic o kandydacie (także
+  o dostępności, trybie pracy, lokalizacji — `_FACT_OTHER_RE`) — test na
+  produkcji 03.10.2026 znalazł 142 takie wpisy odkryte dla rekrutera
   (jednorazowe przeliczenie: `note_kind_backfill.reclassify_dl_rate_lists`,
   paragon `note_kind_dl_rate_lists_2026_10`). Nowa trasa oddająca
   treść notatki = `visible_note_content`.

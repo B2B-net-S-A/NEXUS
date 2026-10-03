@@ -172,6 +172,7 @@ def test_jarvis_card_tool_never_passes_the_nationality_to_the_model():
     assert "Narodowość" not in str(shaped)
     assert shaped["fields"] == {"Stawka": "135 zł/h"}
     assert shaped["missing"] == ["Angielski"]
+    assert shaped["questions"][0]["answer"] == "Java 21."
 
 
 def test_jarvis_names_the_recruiter_note_like_the_screen():
@@ -192,4 +193,3 @@ def test_jarvis_names_the_recruiter_note_like_the_screen():
     card["completeness"]["missing"] = ["recommendation"]
     shaped = by_name["get_recommendation_card"].shape(card, {})
     assert shaped["missing"] == ["Dlaczego ten kandydat"]
-    assert shaped["questions"][0]["answer"] == "Java 21."

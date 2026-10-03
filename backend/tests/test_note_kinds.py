@@ -169,6 +169,16 @@ def test_only_real_mail_threads_are_email():
         "wypowiedzenia może skrócić z miesiąca do dwóch tygodni, mieszka w Gdyni.",
         # Lista rekrutacji z opisem kandydata niesie fakty — nie jest samą ceną.
         _DL_RATE_LIST_WITH_FACTS,
+        # Cena obok ustaleń z rozmowy (dostępność, tryb pracy) — notatka niesie
+        # fakty, których rekruter i modele nie mogą stracić.
+        "Wyślijmy za 160 zł/h. Kandydat dostępny od zaraz, wypowiedzenie 1 miesiąc, "
+        "hybryda 2 dni w Warszawie, mieszka w Gdyni, chce 150 netto, rozmowa była "
+        "dobra, jest zainteresowany projektem bankowym i chce zmienić branżę, bo "
+        "obecna firma nie daje rozwoju.",
+        "Rozmowa OK, jest zainteresowany projektem w bankowości, zdalnie, dostępny "
+        "od 1.11, okres wypowiedzenia 2 tygodnie, stawka 150 zł/h. Pokażmy za 170 zł "
+        "na: Senior Java Developer (40001), Java Developer (40002), Backend "
+        "Engineer (40003) oraz Tech Lead (40004).",
         # Bardzo długi wpis zostaje zwykłą notatką, nawet bez słowa o kandydacie.
         _DL_RATE_LIST + " " + "Kolejna rekrutacja w tym samym programie (40004) " * 4,
     ],

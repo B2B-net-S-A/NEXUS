@@ -156,8 +156,8 @@ CLIENT_RATE_PLACEHOLDER = (
 _SCAN_CHARS = 6000
 _DL_RATE_MAX_CHARS = 200
 # „Pokazujemy za 178 zł na: <lista rekrutacji>” bywa dłuższe przez same tytuły
-# rekrutacji. Pomiar 03.10.2026: 139 takich wpisów (200–400 znaków, bez słowa
-# o kandydacie) było zwykłą notatką, więc rekruter widział w nich cenę.
+# rekrutacji. Pomiar 03.10.2026: 142 takie wpisy (200–400 znaków, bez słowa
+# o kandydacie) nie były `dl_rate`, więc rekruter widział w nich cenę.
 _DL_RATE_LIST_MAX_CHARS = 400
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -292,13 +292,15 @@ def classify(
     # Tylko krótki wpis o cenie. Dłuższa notatka, która przy okazji podaje
     # „wysłana za 85”, niesie też fakty o kandydacie i zostaje zwykłą notatką.
     # Forma Delivery Leada z listą rekrutacji ma wyższy limit, ale tylko gdy
-    # nie mówi nic o kandydacie.
+    # nie mówi nic o kandydacie — także o dostępności, trybie pracy czy
+    # lokalizacji (rekruter pisze „pokażmy za 170” w środku notatki z rozmowy).
     substance = bool(_SUBSTANCE_RE.search(head))
     if (
         (length < _DL_RATE_MAX_CHARS and _DL_RATE_RE.search(head))
         or (
             length < _DL_RATE_LIST_MAX_CHARS
             and not substance
+            and not _FACT_OTHER_RE.search(head)
             and _DL_RATE_RE.search(head)
         )
         or (

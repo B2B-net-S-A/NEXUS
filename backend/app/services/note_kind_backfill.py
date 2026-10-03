@@ -73,7 +73,7 @@ async def classify_pending(db: AsyncSession, *, limit: int = DEFAULT_BATCH) -> i
 #
 # Reguła `dl_rate` kończyła się na 200 znakach, a „Pokazujemy za 178 zł na:
 # <lista rekrutacji>” bywa dłuższe przez same tytuły. Pomiar na produkcji:
-# 143 takie wpisy miały inny rodzaj, więc rekruter widział w nich stawkę do
+# 142 takie wpisy miały inny rodzaj, więc rekruter widział w nich stawkę do
 # klienta, a modele czytały je jak zwykłą notatkę. Reguła ma teraz wyższy
 # limit dla tej formy; ten krok przelicza wiersze zapisane starą regułą.
 
