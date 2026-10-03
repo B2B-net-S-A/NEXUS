@@ -5485,6 +5485,10 @@ END $$""",
     "CREATE INDEX IF NOT EXISTS ix_notes_parent_note_id ON notes (parent_note_id)",
     "CREATE INDEX IF NOT EXISTS ix_notes_candidate_pinned ON notes (candidate_id, pinned_at) WHERE pinned_at IS NOT NULL",
     "ALTER TABLE recruitment_processes ADD COLUMN IF NOT EXISTS entry_meta JSONB NULL",
+    # 0412: rodzaj notatki (reguła w `app/services/note_kinds.py`). Lustro 1:1
+    # z `app/services/note_kind_schema.py` (pilnuje test_note_kinds).
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS kind VARCHAR(24) NULL",
+    "CREATE INDEX IF NOT EXISTS ix_notes_kind_pending ON notes (id) WHERE kind IS NULL",
     # 0352: debrief z jawnym „klient nie zadawał pytań” (bramka przed „Umową”).
     "ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS "
     "no_client_questions BOOLEAN NOT NULL DEFAULT false",
@@ -6098,6 +6102,10 @@ END $$
 
 _DATA_STATEMENTS = [
     *_B2B_DOCUMENTS_BACKFILL,
+    # 0412: „Reply” z Traffita to odpowiedź na notatkę, nie mail — jednorazowa
+    # zmiana typu (znacznik w app_settings), bez ruszania `updated_at`.
+    # Lustro `note_kind_schema.REPLY_RETYPE`.
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM app_settings WHERE key = '0412_traffit_reply_notes_retyped') THEN UPDATE notes n SET note_type = 'general' FROM activities a WHERE a.external_source = 'traffit' AND a.action = 'traffit:Reply' AND n.source_ref = 'traffit:activity:' || a.external_id AND n.note_type = 'email'; INSERT INTO app_settings (key, value) VALUES ('0412_traffit_reply_notes_retyped', jsonb_build_object('completed_at', clock_timestamp())) ON CONFLICT (key) DO NOTHING; END IF; END $$",
     # 0399: stare notatki auto-matcha (z CV i ze scrapera JJIT) oznaczone jako
     # systemowe — lista chowa je domyślnie, nic nie jest kasowane. Jednorazowo
     # (znacznik w app_settings). Lustro `note_threads_schema.SYSTEM_NOTES_BACKFILL`.

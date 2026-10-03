@@ -41,6 +41,10 @@ class NoteResponse(BaseModel):
     updated_at: datetime
     parent_note_id: Optional[int] = None
     pinned_at: Optional[datetime] = None
+    # 0412: rodzaj notatki (`services/note_kinds.py`); `content_hidden` = rola
+    # nie widzi treści (stawka do klienta) i `content` niesie zdanie zastępcze.
+    kind: Optional[str] = None
+    content_hidden: bool = False
 
     model_config = {"from_attributes": True}
 

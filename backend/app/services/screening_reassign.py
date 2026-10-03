@@ -50,7 +50,7 @@ from app.models.job_proposal import JobProposal
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User
-from app.services import screening_sheets
+from app.services import note_kinds, screening_sheets
 from app.services.ai_models import fallbacks_for, model_for
 from app.services.ai_quota import ai_feature
 from app.services.llm_prompts import SCREENING_REASSIGN_SUGGEST
@@ -393,6 +393,7 @@ async def _job_scoped_notes(
                 "(created_at AT TIME ZONE 'Europe/Warsaw')::date AS d, "
                 "content FROM notes "
                 "WHERE candidate_id = :c AND job_id = ANY(:jobs) "
+                f"AND {note_kinds.ai_readable_sql()} "
                 "ORDER BY created_at DESC LIMIT :lim"
             ),
             {"c": candidate_id, "jobs": list(job_ids), "lim": NOTES_ROW_LIMIT},

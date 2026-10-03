@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, Iterable, Literal, Optional, Sequence
 
 from app.core.config import settings
+from app.services import note_kinds
 
 logger = logging.getLogger(__name__)
 
@@ -402,7 +403,8 @@ async def compute_stats(db) -> dict:
                 text(
                     "SELECT candidate_id, created_at, content FROM notes "
                     "WHERE candidate_id = ANY(:ids) AND source_deleted_at IS NULL "
-                    "AND note_type::text = ANY(:types)"
+                    "AND note_type::text = ANY(:types) "
+                    f"AND {note_kinds.ai_readable_sql()}"
                 ),
                 {"ids": need, "types": list(EVIDENCE_NOTE_TYPES)},
             )

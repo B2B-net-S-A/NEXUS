@@ -36,7 +36,7 @@ from app.models.notification import NotificationType
 from app.models.user import User
 from app.models.user_activity import UserActionType, UserActivity
 from app.services import candidate_followups as svc
-from app.services import followup_meetings
+from app.services import followup_meetings, note_kinds
 from app.services.notification_triggers import emit
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -192,7 +192,13 @@ async def serialize_rows(
                     Note.author_id,
                     Note.created_at,
                 )
-                .where(Note.candidate_id.in_(cand_ids), Note.job_id.in_(job_ids))
+                .where(
+                    Note.candidate_id.in_(cand_ids),
+                    Note.job_id.in_(job_ids),
+                    # 0412: bez wpisów automatu, „nie odbiera” i stawki do
+                    # klienta — ten fragment czyta każda rola.
+                    note_kinds.ai_readable_clause(),
+                )
                 .distinct(Note.candidate_id, Note.job_id)
                 .order_by(
                     Note.candidate_id,

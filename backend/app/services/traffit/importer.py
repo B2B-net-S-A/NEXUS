@@ -1501,7 +1501,8 @@ SELECT
     ),
     CASE
         WHEN a.action = 'traffit:Email' THEN 'email'::notetype
-        WHEN a.action = 'traffit:Reply' THEN 'email'::notetype
+        -- „Reply” to odpowiedź na notatkę (rozmowa zespołu), nie mail (0412):
+        -- jako mail liczyła się w follow-upie za kontakt z kandydatem.
         WHEN a.action = 'traffit:Rozmowa telefoniczna' THEN 'call'::notetype
         WHEN a.action = 'traffit:Spotkanie' THEN 'meeting'::notetype
         WHEN a.details ->> 'traffit_type_value' ILIKE '%interview%'
@@ -1787,6 +1788,12 @@ class TraffitImporter:
         new_ids = [int(r[0]) for r in result.fetchall()]
         if new_ids and mention_labels:
             await rewrite_note_mentions(self.db, new_ids, mention_labels)
+        if new_ids:
+            # 0412: ta promocja to surowy SQL, więc rodzaju nie nada nasłuch
+            # modelu — a bez niego AI czytałoby np. „Wyślijmy za 161 zł/h”.
+            from app.services.note_kind_backfill import classify_notes
+
+            await classify_notes(self.db, new_ids)
         await self.db.commit()
         return len(new_ids)
 

@@ -88,6 +88,7 @@ from sqlalchemy.sql import ColumnElement
 
 from app.models.candidate import Candidate
 from app.models.note import Note
+from app.services import note_kinds
 from app.services import keyword_corpus
 from app.services.keyword_terms import (
     KeywordTerm,
@@ -495,11 +496,15 @@ def _folded_whole_word_match(
     match = _KEYWORD_FOLD_FTS.op("@@")(query)
     if keyword_corpus.notes_folded_search_enabled():
         notes_branch = select(Note.candidate_id).where(
-            Note.candidate_id.is_not(None), _NOTE_FOLD_FTS.op("@@")(query)
+            Note.candidate_id.is_not(None),
+            _NOTE_FOLD_FTS.op("@@")(query),
+            note_kinds.searchable_clause(),
         )
     else:
         notes_branch = select(Note.candidate_id).where(
-            Note.candidate_id.is_not(None), Note.content.op("~*")(pattern)
+            Note.candidate_id.is_not(None),
+            Note.content.op("~*")(pattern),
+            note_kinds.searchable_clause(),
         )
     if scope == "notes":
         return Candidate.id.in_(notes_branch)
@@ -574,9 +579,12 @@ def _whole_word_match(term: KeywordTerm, scope: str = "all") -> ColumnElement:
         if variants is not None:
             query = query.op("||")(literal_column(f"'{_quote_sql(variants)}'::tsquery"))
         fts = _corpus_fts(query)
+    # 0412: bez wpisów automatów — „Oferta: Java Developer” w notatce scrapera
+    # znajdowało pod hasłem „java” osobę, która Javy nie zna.
     notes_branch = select(Note.candidate_id).where(
         Note.candidate_id.is_not(None),
         Note.content.op("~*")(pattern),
+        note_kinds.searchable_clause(),
     )
     if scope == "notes":
         return Candidate.id.in_(notes_branch)

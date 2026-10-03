@@ -316,6 +316,9 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                 if len(blob) < MIN_BLOB_CHARS:
                     # Runda 10 (R10-N6-2): usunięto notatkę, a reszta nie niesie
                     # treści — `stamp_no_content` zachowałby fakty z usuniętej.
+                    # 0412 (decyzja Artura 03.10.2026: nic nie znika): fakty
+                    # kandydata, któremu po odfiltrowaniu szumu nie została
+                    # żadna czytelna notatka, ZOSTAJĄ — stempel ich nie rusza.
                     if isinstance(prior, dict) and prior.get(NOTES_CHANGED_AT_KEY):
                         await _clear_facts(db, cand)
                     # Stempel bez AI — inaczej klasa "no_content" wraca do

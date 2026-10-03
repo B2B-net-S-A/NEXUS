@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,10 +30,15 @@ from app.services.note_mention_render import (
     render_traffit_mentions,
 )
 from app.api.body_validation import validated_body
-from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
+from app.api.candidate_access import (
+    CandidatePIIAccess,
+    CandidateWriteAccess,
+    note_content_hidden,
+)
 from app.api.deps import DeliveryLeadPlus
 from app.api.recruitment_access import ensure_delivery_lead_job_visible
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
+from app.services import candidate_claim, note_kinds
 from app.services.ai_quota import AIQuotaExceeded
 from app.services.mention_dispatch import (
     build_note_context_label,
@@ -72,17 +77,47 @@ def _can_modify_note(user: User, note: Note) -> bool:
     return note.author_id == user.id or user.has_any_role(UserRole.admin)
 
 
+def _mention_snippet(note: Note) -> str:
+    """Fragment notatki do dzwonka o wzmiance — bez stawki do klienta.
+
+    „Wyślijmy za 161 zł/h @osoba” trafiało w całości do powiadomienia osoby
+    oznaczonej, także rekrutera, który tej stawki nie widzi.
+    """
+    kind = note_kinds.classify(
+        note.content,
+        note_type=getattr(note.note_type, "value", note.note_type),
+        external_source=note.external_source,
+    )
+    if note_kinds.hides_client_rate(kind):
+        return note_kinds.CLIENT_RATE_SNIPPET
+    return trim_snippet(note.content or "")
+
+
+def _plain(note: Note, viewer: User) -> NoteResponse:
+    """Odpowiedź bez pól listy — z zakrytą treścią, gdy rola jej nie widzi."""
+    response = NoteResponse.model_validate(note)
+    if note_content_hidden(viewer, kind=note.kind, author_id=note.author_id):
+        response.content = note_kinds.CLIENT_RATE_PLACEHOLDER
+        response.content_hidden = True
+    return response
+
+
 def _enriched(
     note: Note,
     *,
+    viewer: User,
     author_name: Optional[str],
     job_title: Optional[str],
     pinned_by_name: Optional[str],
     mention_label_map: dict,
 ) -> EnrichedNoteResponse:
+    hidden = note_content_hidden(viewer, kind=note.kind, author_id=note.author_id)
+    content = note_kinds.CLIENT_RATE_PLACEHOLDER if hidden else note.content
     return EnrichedNoteResponse(
         id=note.id,
-        content=note.content,
+        content=content,
+        kind=note.kind,
+        content_hidden=hidden,
         note_type=note.note_type,
         candidate_id=note.candidate_id,
         job_id=note.job_id,
@@ -93,7 +128,7 @@ def _enriched(
         pinned_at=note.pinned_at,
         author_name=author_name,
         author_email=None,  # P0.6 — do not leak author email to note readers
-        content_rendered=render_traffit_mentions(note.content, mention_label_map),
+        content_rendered=render_traffit_mentions(content, mention_label_map),
         job_title=job_title,
         external_source=note.external_source,
         is_system=note.external_source == SYSTEM_NOTE_SOURCE,
@@ -199,6 +234,7 @@ async def list_notes(
         replies_by_parent.setdefault(note.parent_note_id, []).append(
             _enriched(
                 note,
+                viewer=current_user,
                 author_name=author_name,
                 job_title=job_title,
                 pinned_by_name=pinned_by_name,
@@ -209,6 +245,7 @@ async def list_notes(
     for note, author_name, job_title, pinned_by_name in rows:
         item = _enriched(
             note,
+            viewer=current_user,
             author_name=author_name,
             job_title=job_title,
             pinned_by_name=pinned_by_name,
@@ -223,6 +260,7 @@ async def list_notes(
 async def create_note(
     data: NoteCreate,
     current_user: CandidateWriteAccess,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     # Runda 10 (R10-N6-8): nieistniejący kandydat albo rekrutacja kończyły się
@@ -257,6 +295,11 @@ async def create_note(
         values["candidate_id"] = parent.candidate_id
         values["job_id"] = parent.job_id
         values["contract_id"] = None
+    if candidate_claim.is_integration_request(request):
+        # 0412: notatka zapisana tokenem integracji (scraper ogłoszeń) jest
+        # wpisem automatu — do 03.10.2026 scraper dopisywał ~250 takich
+        # dziennie jako zwykłe notatki.
+        values["external_source"] = SYSTEM_NOTE_SOURCE
     note = Note(**values, author_id=current_user.id)
     db.add(note)
     await db.flush()  # need note.id
@@ -268,7 +311,7 @@ async def create_note(
         db.add(NoteMention(note_id=note.id, user_id=uid))
 
     # Enqueue Notifications (in-transaction). Side-effects (email/WS) po commit.
-    snippet = trim_snippet(note.content or "")
+    snippet = _mention_snippet(note)
     deep_link = build_note_deep_link(note)
     context_label = await build_note_context_label(db, note)
     notification_title = (
@@ -383,7 +426,7 @@ async def _set_pinned(
             detail="Odpowiedzi nie da się przypiąć — przypnij notatkę główną.",
         )
     if (note.pinned_at is not None) == pinned:
-        return NoteResponse.model_validate(note)
+        return _plain(note, current_user)
     note.pinned_at = datetime.now(timezone.utc) if pinned else None
     note.pinned_by = current_user.id if pinned else None
     db.add(
@@ -397,7 +440,7 @@ async def _set_pinned(
     )
     await db.commit()
     await db.refresh(note)
-    return NoteResponse.model_validate(note)
+    return _plain(note, current_user)
 
 
 @router.post("/{note_id}/pin", response_model=NoteResponse)
@@ -434,7 +477,7 @@ async def get_note(
     note = result.scalar_one_or_none()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
-    return note
+    return _plain(note, current_user)
 
 
 @router.patch("/{note_id}", response_model=NoteResponse)
@@ -480,7 +523,7 @@ async def update_note(
         db.add(NoteMention(note_id=note.id, user_id=uid))
 
     pairs: list = []
-    snippet = trim_snippet(note.content or "")
+    snippet = _mention_snippet(note)
     deep_link = build_note_deep_link(note)
     context_label = await build_note_context_label(db, note)
     notification_title = (

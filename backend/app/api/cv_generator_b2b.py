@@ -4063,6 +4063,7 @@ async def get_cv_package(
     note_id: Optional[int] = Query(None, ge=1),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.services import note_kinds
     from app.services.cv_packages import assess
     from app.models.note import Note
 
@@ -4077,6 +4078,9 @@ async def get_cv_package(
                     Note.candidate_id == row.candidate_id,
                     Note.job_id == row.job_id,
                     Note.source_deleted_at.is_(None),
+                    # 0412: do pakietu wybiera się notatkę z rozmowy, nie wpis
+                    # automatu ani stawkę do klienta od Delivery Leada.
+                    note_kinds.ai_readable_clause(),
                 )
                 .order_by(Note.updated_at.desc())
                 .limit(100)

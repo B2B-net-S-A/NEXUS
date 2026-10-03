@@ -2285,7 +2285,7 @@ faktów (`PATCH /api/candidates/{id}/work-mode`). Jedna reguła:
 - **Doganianie starszej wersji promptu:** po kandydatach ze zmienionymi
   notatkami bieg dobiera najwyżej `NOTES_INSIGHTS_SYNC_UPGRADE_LIMIT` (700)
   kandydatów z `_extractor` innym niż bieżąca wersja (bez wierszy
-  `_no_content`). ~16 tys. wierszy ≈ 3 tygodnie, ~0,004 USD/kandydata.
+  `_no_content`). ~16 tys. wierszy ≈ 3 tygodnie; na GPT-6 Luna ~0,0005 USD/kandydata (pomiar 03.10.2026; 0,004 USD to stawka sprzed 25.09).
   Zmiana promptu = bump `PROMPT_VERSION`, a doganianie ruszy samo.
 
 ## Notatki: przypięcie, odpowiedzi, automaty bez notatek (0399, 29.09.2026)
@@ -2361,6 +2361,73 @@ Decyzje Artura 29.09.2026 — historia kandydata ma być tym, co napisali ludzie
   Licznik zakładki = notatki ludzi. Oś czasu nie pokazuje `traffit:Email`,
   `traffit:Reply`, `traffit:Rozmowa telefoniczna`, `traffit:Spotkanie` —
   promocja robi z nich notatki. Reguły listy: `lib/candidate-notes-view.ts`.
+
+## Rodzaj notatki — co czyta AI, wyszukiwanie i rekruter (0412, 03.10.2026)
+
+Pomiar 03.10.2026 (75 231 notatek, produkcja): 16% to wpisy automatu
+auto-match, 5% wątki mailowe z Traffita, 7% „nie odbiera”, 8% wpisy Delivery
+Leada o stawce do klienta, 13% karty rekomendacji według wzoru rekruterów.
+Żaden czytelnik nie odróżniał wpisu automatu od notatki z rozmowy:
+„Must-have trafione: python” liczyło się w bramce must jako dowód, a
+„Wyślijmy za 161 zł/h” trafiało do odczytu faktów. Decyzje Artura 03.10.2026
+(makiety: https://claude.ai/artifact/HTWhqfgGh4dr6C7u8Gmwyv).
+
+- **`notes.kind` nadaje JEDNA reguła `services/note_kinds.py`** (czysta, bez
+  bazy; pierwsza pasująca reguła wygrywa, kolejność jest znacząca): przy
+  zapisie przez ORM nasłuch w `models/note.py`, dla surowego SQL
+  (`promote_notes` importu Traffita) `note_kind_backfill.classify_notes`, dla
+  wierszy sprzed 0412 pętla startowa `note_kind_backfill`. `UPDATE` rodzaju
+  NIE rusza `updated_at` — stoi na nim odcisk nocnego odczytu faktów.
+  `kind IS NULL` czyta się jak zwykłą notatkę (poza `external_source='system'`).
+- **Notatki dla AI czyta się WYŁĄCZNIE przez `note_kinds.ai_readable_sql()` /
+  `ai_readable_clause()`**: nocny odczyt faktów, bramka must i statystyki
+  krytycznych (`must_text_evidence`, `critical_skills`), QC CV i generator CV
+  (`_not_followup_note`), podsumowanie aktywności, podpowiedzi screeningu przy
+  przepięciu. Poza AI są: `automatch`, `application_form`, `email`, `dl_rate`,
+  `dl_review` („dopisz do CV” nie jest dowodem), `contact_attempt`,
+  `scheduling`, `mention`. Nowy czytelnik notatek dla modelu = ten filtr.
+- **Wyszukiwanie słów kluczowych (v2) i wycinki pomijają wpisy automatów
+  i notatki ze stawką do klienta** (`searchable_clause`: `automatch`,
+  `application_form`, `dl_rate` — inaczej `q=161` w zakresie „notatki”
+  zdradzałoby zakrytą kwotę samym trafieniem). v1 (alerty zapisanych
+  wyszukiwań) bez zmian. Szybki podgląd i „ostatnia notatka” listy pomijają
+  tylko automaty (`not_automat_clause`).
+- **Notatka, która mówi coś o kandydacie, nigdy nie jest szumem**
+  (`_SUBSTANCE_RE`: „zna”, „doświadczenie”, „pracował”, „komercyjnie”):
+  fałszywe wykluczenie kosztuje więcej niż fałszywe włączenie. Przegląd kodu
+  03.10 złapał „Rozmowa: zna Pythona 3.11” jako termin (wersja = godzina)
+  i „mówi poprawnie” jako uwagę do CV. Uwaga DL do CV wymaga wzmianki @osoba,
+  termin — godziny z dwukropkiem, „godz.” albo daty DD.MM.
+- **Nocny odczyt faktów: prompt `v6-note-kinds`** — sam prompt bez zmian,
+  zmienił się wsad (filtr, karty rekomendacji i fakty ze screeningu przed
+  limitem 20 notatek, jedna notatka najwyżej 4000 znaków). Doganianie przeliczy
+  kandydatów po 700 na noc (zmierzone 03.10.2026: 0,00048 USD za odczyt na
+  GPT-6 Luna, czyli ok. 9 USD za całą bazę). **Nic nie znika (decyzja Artura
+  03.10.2026):** kandydat, któremu po odfiltrowaniu nie została żadna czytelna
+  notatka, ZACHOWUJE fakty policzone wcześniej (3 013 osób, 2 872 miały
+  wyłącznie wpisy scrapera); odczyt faktów nadal czyta odpowiedzi z formularza
+  aplikacji (`facts_readable_sql` — oczekiwania i staż podał sam kandydat),
+  a notatek automatów nie kasujemy — są pod filtrem.
+- **Notatka `dl_rate` jest zakryta dla ról bez wglądu w stawkę do klienta**
+  (`candidate_access.note_content_hidden` / `visible_note_content` /
+  `note_rate_visibility_clause`; autor zawsze widzi swoją): lista i pojedyncza
+  notatka, oś czasu, szybki podgląd, „ostatnia notatka” listy kandydatów,
+  wycinki wyszukiwania, ostatnia notatka w follow-upie (tam przez filtr AI).
+  Zapisane podsumowania aktywności unieważnia `candidate-summary-scope-v3`.
+  `dl_rate` to tylko krótki wpis (< 200 znaków: „Wyślijmy
+  za…”, „150/110”, „@osoba 175”); dłuższa notatka z kwotą w treści zostaje
+  zwykłą notatką — świadomie, bo niesie fakty o kandydacie. Nowa trasa oddająca
+  treść notatki = `visible_note_content`.
+- **„Reply” z Traffita to odpowiedź na notatkę, nie mail** (3 955 wierszy):
+  import nadaje jej typ `general`, istniejące zmienia jednorazowo
+  `note_kind_schema.REPLY_RETYPE`. Jako mail liczyły się w follow-upie za
+  kontakt z kandydatem.
+- **Notatka zapisana tokenem integracji jest systemowa** (`POST /api/notes`,
+  `proposals/bulk` bez blokady): scraper ogłoszeń dopisywał ~250 dziennie jako
+  zwykłe notatki.
+- Reguła była sprawdzana na całej produkcji (4 s na 75 tys. notatek, tylko
+  odczyt). Zmieniasz regex — sprawdź rozkład jeszcze raz i dopisz przypadek do
+  `tests/test_note_kinds.py` (same fikcyjne treści).
 
 ## Podsumowanie aktywności kandydata (AI)
 
