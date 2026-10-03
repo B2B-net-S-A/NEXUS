@@ -103,6 +103,9 @@ class Note(Base, TimestampMixin):
     # Traffita) `note_kind_backfill.classify_pending`. NULL = jeszcze
     # nieuzupełniony; czytelnicy traktują go jak zwykłą notatkę.
     kind: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    # 0413: odcisk, z którym notatka została przeliczona na kartę rekomendacji
+    # (`services/recommendation_card_import.py`). Pisany wyłącznie surowym SQL-em.
+    card_parsed_hash: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
 
     # Relationships
     candidate = relationship("Candidate", back_populates="notes")
@@ -158,6 +161,11 @@ def _note_type_value(note: Note) -> Optional[str]:
 
 @event.listens_for(Note, "before_insert")
 def _set_note_kind_on_insert(_mapper, _connection, target: Note) -> None:
+    # 0413: rodzaj podany wprost przy tworzeniu („Nie odebrał”, uwaga
+    # Delivery Leada) zostaje — reguła treści zrobiłaby z uwagi z kwotą wpis
+    # o stawce do klienta i zakryła ją adresatowi.
+    if target.kind is not None:
+        return
     target.kind = note_kinds.classify(
         target.content,
         note_type=_note_type_value(target),
@@ -167,6 +175,11 @@ def _set_note_kind_on_insert(_mapper, _connection, target: Note) -> None:
 
 @event.listens_for(Note, "before_update")
 def _set_note_kind_on_update(_mapper, _connection, target: Note) -> None:
+    # Edycja treści zawsze liczy rodzaj od nowa. Wyjątek „rodzaj podany
+    # wprost zostaje” obowiązuje tylko przy tworzeniu: bez osobnego znacznika
+    # nie da się odróżnić rodzaju jawnego od takiego, który rozjechał się
+    # z regułą (treść przepisana surowym SQL-em), a pomyłka w tę stronę
+    # odsłoniłaby rekruterowi notatkę o stawce do klienta.
     attrs = inspect(target).attrs
     if not any(
         getattr(attrs, name).history.has_changes()

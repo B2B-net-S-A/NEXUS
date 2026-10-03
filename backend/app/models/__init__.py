@@ -780,3 +780,6 @@ from app.models.job_work_assignment import JobWorkAssignment  # noqa: F401
 
 # 0404: ocena zgłoszeń z linku rekrutacji przez AI przed wejściem do „Nowi”.
 from app.models.application_screening import ApplicationScreening  # noqa: F401
+
+# 0413: karta rekomendacji pary (kandydat, rekrutacja).
+from app.models.recommendation_card import RecommendationCard  # noqa: F401

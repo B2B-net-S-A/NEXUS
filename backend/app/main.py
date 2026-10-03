@@ -186,6 +186,7 @@ from app.api import hiring_manager_feedback as hiring_manager_feedback_api
 from app.api import proposals_bulk as proposals_bulk_api
 from app.api import job_proposals as job_proposals_api
 from app.api import application_screenings as application_screenings_api
+from app.api import recommendation_cards as recommendation_cards_api
 from app.api import job_similar as job_similar_api
 from app.api import plain_brief as plain_brief_api
 from app.api import plain_brief_refresh as plain_brief_refresh_api
@@ -684,6 +685,9 @@ async def lifespan(app: FastAPI):
     from app.tasks.saved_search_alerts import saved_search_alerts_loop
     from app.tasks.keyword_corpus_backfill import keyword_corpus_backfill_loop
     from app.tasks.note_kind_backfill import note_kind_backfill_loop
+    from app.tasks.recommendation_card_import import (
+        recommendation_card_import_loop,
+    )
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
     from app.tasks.signing_sweeper import signing_sweeper_loop
@@ -812,6 +816,10 @@ async def lifespan(app: FastAPI):
         # sama, gdy nie zostaje nic do policzenia.
         "keyword_corpus_backfill": asyncio.create_task(keyword_corpus_backfill_loop()),
         "note_kind_backfill": asyncio.create_task(note_kind_backfill_loop()),
+        # 0413: karty rekomendacji z notatek; wyłączona flagą kończy się od razu.
+        "recommendation_card_import": asyncio.create_task(
+            recommendation_card_import_loop()
+        ),
         "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
         "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
         "signing_sweeper": asyncio.create_task(signing_sweeper_loop()),
@@ -1620,6 +1628,9 @@ app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
 app.include_router(job_proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(application_screenings_api.router, prefix="/api", tags=["proposals"])
+app.include_router(
+    recommendation_cards_api.router, prefix="/api", tags=["recommendation-cards"]
+)
 app.include_router(job_similar_api.router, prefix="/api", tags=["similar-jobs"])
 app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(plain_brief_refresh_api.router, prefix="/api", tags=["plain-brief"])
@@ -2853,6 +2864,7 @@ async def api_health_deep_check():
     from app.models.contract_document import ContractDocument
     from app.models.cv_qc_run import CvQcRun
     from app.models.application_screening import ApplicationScreening
+    from app.models.recommendation_card import RecommendationCard
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -3081,6 +3093,9 @@ async def api_health_deep_check():
         # 0404: każde zgłoszenie z linku rekrutacji zapisuje ocenę AI — brak
         # tabeli = 500 przy każdym zgłoszeniu ze strony kariery.
         ("application_screenings", ApplicationScreening),
+        # 0413: karta rekomendacji — odcisk `notes.card_parsed_hash` obejmuje
+        # sonda `notes`, a tabelę kart czyta dok osoby i „Przesuń dalej”.
+        ("recommendation_cards", RecommendationCard),
     ]
 
     checks: dict[str, str] = {}

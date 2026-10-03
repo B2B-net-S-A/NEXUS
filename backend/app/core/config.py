@@ -590,6 +590,12 @@ class Settings(BaseSettings):
     # workflow „Coolify set env”.
     APPLICATION_SCREENING_ENABLED: bool = False
 
+    # Karta rekomendacji (0413): składanie karty z notatek rekrutera (pętla
+    # `recommendation_card_import` i przeliczenie przy zapisie notatki).
+    # Wyłączona = karty z notatek nie powstają; API karty i pola wpisane
+    # ręcznie działają bez niej. Włączenie przez workflow „Coolify set env”.
+    RECOMMENDATION_CARD_IMPORT_ENABLED: bool = False
+
     # Akademia (0369): pętla naboru z ogłoszeń i sortowania Luną co 10 min.
     # Bez programów nic nie robi; wyłączenie nie blokuje przycisku na ekranie.
     ACADEMY_INTAKE_ENABLED: bool = True

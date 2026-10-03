@@ -38,7 +38,8 @@ from app.api.candidate_access import (
 from app.api.deps import DeliveryLeadPlus
 from app.api.recruitment_access import ensure_delivery_lead_job_visible
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
-from app.services import candidate_claim, note_kinds
+from app.services import candidate_claim, note_kinds, recommendation_card_import
+from app.services.recommendation_cards import CARD_KINDS
 from app.services.ai_quota import AIQuotaExceeded
 from app.services.mention_dispatch import (
     build_note_context_label,
@@ -385,6 +386,13 @@ async def create_note(
         )
     )
 
+    # 0413: notatka-karta zapisana w NEXUSIE wypełnia kartę rekomendacji od
+    # razu (import w tle łapie resztę). Nigdy nie cofa notatki.
+    if note.kind in CARD_KINDS and note.parent_note_id is None:
+        await recommendation_card_import.refresh_candidate_safely(
+            db, candidate_id=note.candidate_id, job_id=note.job_id
+        )
+
     # Explicit commit — Notification rows muszą być trwałe ZANIM odpalimy email/WS.
     await db.commit()
 
@@ -544,6 +552,13 @@ async def update_note(
             related_entity_id=note.id,
         )
 
+    # 0413: zmiana treści przelicza karty rekomendacji kandydata (notatka
+    # mogła przestać być kartą albo zmienić wartości pól).
+    await db.flush()
+    await recommendation_card_import.refresh_candidate_safely(
+        db, candidate_id=note.candidate_id, job_id=note.job_id
+    )
+
     await db.commit()
 
     if pairs:
@@ -587,6 +602,10 @@ async def delete_note(
     await db.flush()
     if candidate_id is not None:
         await _forget_note_facts(db, candidate_id, actor_id=current_user.id)
+        # 0413: pola karty rekomendacji z usuniętej notatki znikają razem z nią.
+        await recommendation_card_import.refresh_candidate_safely(
+            db, candidate_id=candidate_id
+        )
 
 
 _TRAFFIT_NOTE_ACTIONS = (

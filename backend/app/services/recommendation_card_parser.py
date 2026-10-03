@@ -673,6 +673,12 @@ _NORMALIZERS = {
 }
 
 
+def normalize_field(key: str, raw: str) -> dict[str, Any]:
+    """Pole karty z samego tekstu wartości — ta sama reguła co odczyt notatki."""
+    normalize = _NORMALIZERS.get(key)
+    return normalize(raw) if normalize else {"raw": raw}
+
+
 _Label = tuple[int, int, str, Optional[int]]
 
 
