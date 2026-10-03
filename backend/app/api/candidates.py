@@ -468,6 +468,40 @@ _SNIPPET_NOTES_PER_CANDIDATE = 20
 _RATE_UNIT_SHORT = {"hourly": "/h", "daily": "/d", "monthly": "/mc"}
 
 
+async def _contact_attempt_counts(
+    db: AsyncSession, candidate_ids: list[int]
+) -> dict[int, int]:
+    """Próby kontaktu bez rozmowy: notatki „nie odebrał” i nieodebrane telefony.
+
+    Lista praktykanta i koordynacja kontaktu zapisują „nie odbiera” jako
+    połączenie (``calls``), nie notatkę — liczymy oba źródła. Dwa zapytania
+    po ``candidate_id`` strony.
+    """
+    counts: dict[int, int] = {}
+    if not candidate_ids:
+        return counts
+    from app.models.call import Call, CallStatus
+
+    for stmt in (
+        select(Note.candidate_id, func.count())
+        .where(
+            Note.candidate_id.in_(candidate_ids),
+            Note.parent_note_id.is_(None),
+            Note.kind == note_kinds.CONTACT_ATTEMPT,
+        )
+        .group_by(Note.candidate_id),
+        select(Call.candidate_id, func.count())
+        .where(
+            Call.candidate_id.in_(candidate_ids),
+            or_(Call.status == CallStatus.missed, Call.contact_outcome == "no_answer"),
+        )
+        .group_by(Call.candidate_id),
+    ):
+        for candidate_id, count in (await db.execute(stmt)).all():
+            counts[candidate_id] = counts.get(candidate_id, 0) + count
+    return counts
+
+
 def _format_note_preview(raw: str, max_chars: int = _NOTE_PREVIEW_MAX_CHARS) -> str:
     """Flatten a note to clean plain text + truncate. Notatki w NEXUS są
     zapisywane przez Tiptap editor — czasem jako HTML (legacy z Word/Outlook
@@ -1125,6 +1159,7 @@ async def _build_candidate_filtered_query(
         date_from=f.contacted_from,
         date_to=f.contacted_to,
         by_user_ids=f.contacted_by,
+        real_contact_only=sem.unified,
     )
     if contact is not None:
         query = query.where(contact)
@@ -1972,6 +2007,15 @@ async def list_candidates(
             "ON-style queries per page; no N+1."
         ),
     ),
+    include_last_talk: bool = Query(
+        False,
+        description=(
+            "When true, each candidate gets `last_talk_at`, `last_talk_by`, "
+            "`last_talk_preview` (newest note from the „Rozmowy” tab) and "
+            "`contact_attempts` (number of „nie odebrał” notes). Two queries "
+            "per page; no N+1."
+        ),
+    ),
     match_threshold: float = Query(
         _MATCH_STATS_DEFAULT_THRESHOLD,
         ge=0.0,
@@ -2618,6 +2662,39 @@ async def list_candidates(
                 )
             )
 
+    # „Ostatnia rozmowa” (03.10.2026): najnowsza notatka z zakładki „Rozmowy”
+    # z datą i autorem oraz liczba prób kontaktu. Dwa zapytania na stronę.
+    last_talk_by_candidate: dict[int, tuple[datetime, Optional[str], str]] = {}
+    contact_attempts_by_candidate: dict[int, int] = {}
+    if include_last_talk and items:
+        page_ids = [c.id for c in items]
+        last_talk_stmt = (
+            select(
+                Note.candidate_id,
+                Note.created_at,
+                User.name.label("author_name"),
+                Note.content,
+            )
+            .outerjoin(User, User.id == Note.author_id)
+            .where(
+                Note.candidate_id.in_(page_ids),
+                Note.parent_note_id.is_(None),
+                Note.source_deleted_at.is_(None),
+                note_kinds.talks_clause(),
+            )
+            .distinct(Note.candidate_id)
+            .order_by(Note.candidate_id, Note.created_at.desc(), Note.id.desc())
+        )
+        for cand_id, created_at, author_name, content in (
+            await db.execute(last_talk_stmt)
+        ).all():
+            last_talk_by_candidate[cand_id] = (
+                created_at,
+                author_name,
+                _format_note_preview(content or ""),
+            )
+        contact_attempts_by_candidate = await _contact_attempt_counts(db, page_ids)
+
     # Last-activity aggregation (Phase „Search inline visibility"). 3 DISTINCT ON
     # queries po jednym SQL per page: najnowsza notatka, najnowszy rejection,
     # najnowsza pozaiownnio-zerowana stawka z pipeline'u. Brak N+1.
@@ -2840,6 +2917,16 @@ async def list_candidates(
                     "active_recruitments": active_recruitments_by_candidate.get(
                         cand.id, []
                     )
+                }
+            )
+        if include_last_talk:
+            talk = last_talk_by_candidate.get(cand.id)
+            payload = payload.model_copy(
+                update={
+                    "last_talk_at": talk[0] if talk else None,
+                    "last_talk_by": talk[1] if talk else None,
+                    "last_talk_preview": talk[2] if talk else None,
+                    "contact_attempts": contact_attempts_by_candidate.get(cand.id, 0),
                 }
             )
         if include_last_activity:
@@ -4289,6 +4376,10 @@ async def get_candidate_quick_view(
                 # bez odpowiedzi i bez wpisów automatów.
                 Note.parent_note_id.is_(None),
                 note_kinds.not_automat_clause(),
+                # 03.10.2026: „ostatnia notatka” to ostatnia ROZMOWA — próba
+                # kontaktu, wpis Delivery Leada i mail nie zasłaniają jej.
+                # Przypięta notatka zostaje bez względu na rodzaj.
+                or_(Note.pinned_at.is_not(None), note_kinds.talks_clause()),
             )
             .order_by(
                 Note.pinned_at.is_(None),
@@ -4314,6 +4405,10 @@ async def get_candidate_quick_view(
         )
         for note, author_name in note_rows
     ]
+
+    contact_attempts = (await _contact_attempt_counts(db, [candidate_id])).get(
+        candidate_id, 0
+    )
 
     quick_view_contact_case = (
         await load_contact_case_summaries(db, [candidate_id])
@@ -4351,6 +4446,7 @@ async def get_candidate_quick_view(
         source=CandidateQuickViewSource(**resolve_source(candidate)),
         current_recruitments=current_recruitments,
         recent_notes=recent_notes,
+        contact_attempts=contact_attempts,
         cv_highlights=CandidateCvHighlights(**resolve_cv_highlights(candidate)),
         capabilities=CandidateQuickViewCapabilities(
             can_assign=current_user.has_any_role(*CANDIDATE_WRITE_ROLES),

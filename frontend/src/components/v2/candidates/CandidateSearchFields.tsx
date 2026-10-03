@@ -402,6 +402,9 @@ export function ContactFields({ filters, onPatch }: { filters: CandidateFilters;
           );
         })}
       </div>
+      <p className="text-[11px] leading-4 text-muted-foreground">
+        Liczą się rozmowy, maile i ustalone terminy — „nie odebrał” i wpisy automatu nie.
+      </p>
       {filters.contacted && (
         <>
           <div className="flex items-center gap-1.5">

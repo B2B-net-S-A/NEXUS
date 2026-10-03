@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type UIEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -43,6 +43,7 @@ import {
 } from "@/lib/candidate-export";
 import { filtersFromCandidateSavedSearch } from "@/lib/candidate-saved-search";
 import { cn } from "@/lib/utils";
+import { lastTalkCell } from "@/lib/candidate-last-talk";
 import { AddCandidateModal } from "@/components/AppShell";
 import { ImportCandidatesV2 } from "@/components/v2/modals/ImportCandidatesV2";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
@@ -87,6 +88,7 @@ import {
   candidateGridLayout,
   selectableCandidateColumns,
   toggleCandidateColumn,
+  CANDIDATE_WIDE_DEFAULT_QUERY,
   visibleCandidateColumns,
 } from "@/lib/candidate-table-columns";
 import { useVisibleMatchScores } from "@/hooks/useVisibleMatchScores";
@@ -274,6 +276,11 @@ interface Candidate {
   linkedin_current_company?: string | null;
   linkedin_current_title?: string | null;
   last_contacted_at?: string | null;
+  /** „Ostatnia rozmowa” — tylko przy `include_last_talk` (lista je wysyła). */
+  last_talk_at?: string | null;
+  last_talk_by?: string | null;
+  last_talk_preview?: string | null;
+  contact_attempts?: number | null;
   years_it_experience?: number | null;
   /** Nazwa pliku głównego CV — kolumna „CV” (podgląd po kliknięciu). */
   cv_filename?: string | null;
@@ -335,6 +342,8 @@ export function candidatesListApiParams(
     include_match_stats: includeMatchStats || undefined,
     include_active_recruitments: includeActiveRecruitments,
     include_last_activity: includeLastActivity || undefined,
+    // Kolumna „Ostatnia rozmowa”: dwa lekkie zapytania na stronę.
+    include_last_talk: true,
   });
 }
 
@@ -356,6 +365,47 @@ function formatShortDate(value: string | null | undefined): string | null {
     month: "2-digit",
     year: "numeric",
   });
+}
+
+/**
+ * „Ostatnia rozmowa”: data i autor najnowszej notatki z rozmowy; bez rozmowy —
+ * „bez rozmowy” i liczba prób kontaktu. Dymek pokazuje początek notatki.
+ */
+function CandidateLastTalkCell({
+  candidate,
+}: {
+  candidate: Pick<
+    Candidate,
+    "last_talk_at" | "last_talk_by" | "last_talk_preview" | "contact_attempts"
+  >;
+}) {
+  const talk = lastTalkCell(candidate);
+  return (
+    <div className="min-w-0 text-sm" title={talk.title ?? undefined}>
+      <div className={cn("truncate", talk.muted ? "text-muted-foreground" : "text-foreground")}>
+        {talk.primary}
+      </div>
+      {talk.secondary ? (
+        <div className="truncate text-xs text-muted-foreground">{talk.secondary}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function subscribeWideViewport(onChange: () => void): () => void {
+  const query = window.matchMedia?.(CANDIDATE_WIDE_DEFAULT_QUERY);
+  if (!query) return () => undefined;
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+/** Czy okno jest na tyle szerokie, żeby domyślnie pokazać dodatkową kolumnę. */
+function useWideViewport(): boolean {
+  return useSyncExternalStore(
+    subscribeWideViewport,
+    () => window.matchMedia?.(CANDIDATE_WIDE_DEFAULT_QUERY)?.matches === true,
+    () => false,
+  );
 }
 
 /** Wyszarzone „brak" — brak danych nie może wyglądać jak wartość. */
@@ -524,9 +574,12 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
   );
   const setColumnPreference = useUiStore((s) => s.setColumnPreference);
   const clearColumnPreference = useUiStore((s) => s.clearColumnPreference);
+  // Szeroki ekran pokazuje domyślnie także „Ostatnią rozmowę”; na laptopie
+  // domyślna tabela mieści się na styk, więc kolumnę włącza się w „Kolumny”.
+  const wide = useWideViewport();
   const visibleColumns = useMemo(
-    () => visibleCandidateColumns(hiddenColumns, { forJob }),
-    [hiddenColumns, forJob],
+    () => visibleCandidateColumns(hiddenColumns, { forJob, wide }),
+    [hiddenColumns, forJob, wide],
   );
   const gridLayout = useMemo(() => candidateGridLayout(visibleColumns), [visibleColumns]);
   const parentRef = useRef<HTMLDivElement>(null);
@@ -2142,7 +2195,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                       onCheckedChange={() =>
                         setColumnPreference(
                           columnPrefsKey,
-                          toggleCandidateColumn(hiddenColumns, col.id, { forJob }),
+                          toggleCandidateColumn(hiddenColumns, col.id, { forJob, wide }),
                         )
                       }
                     >
@@ -2501,9 +2554,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                   );
                                 case "last_contact":
                                   return (
-<div className="min-w-0 truncate text-sm text-foreground">
-                            {formatShortDate(candidate.last_contacted_at) ?? <Missing />}
-                          </div>
+<CandidateLastTalkCell candidate={candidate} />
                                   );
                                 case "added":
                                   return (

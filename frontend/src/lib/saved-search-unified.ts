@@ -101,6 +101,7 @@ const LIST_DROPPED = new Set([
   "include_match_stats",
   "include_active_recruitments",
   "include_last_activity",
+  "include_last_talk",
   "match_threshold",
   "profile_id",
   "semantics_version",

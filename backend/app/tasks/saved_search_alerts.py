@@ -65,6 +65,7 @@ _DROPPED_PARAMS = {
     "include_match_stats",
     "include_active_recruitments",
     "include_last_activity",
+    "include_last_talk",
     "match_threshold",
     "profile_id",
 }

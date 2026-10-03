@@ -862,6 +862,7 @@ export function filtersToApiCriteria(
     "include_match_stats",
     "include_active_recruitments",
     "include_last_activity",
+    "include_last_talk",
     "match_threshold",
   ]);
   return Object.fromEntries(

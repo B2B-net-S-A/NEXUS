@@ -704,6 +704,12 @@ class CandidateResponse(BaseModel):
     last_note_preview: Optional[str] = None
     last_rejection_reason: Optional[str] = None
     last_rate: Optional[str] = None
+    # „Ostatnia rozmowa” (03.10.2026) — tylko przy `include_last_talk=true`:
+    # najnowsza notatka z zakładki „Rozmowy” i liczba prób kontaktu.
+    last_talk_at: Optional[datetime] = None
+    last_talk_by: Optional[str] = None
+    last_talk_preview: Optional[str] = None
+    contact_attempts: Optional[int] = None
     # Populated only by GET /candidates/{id} — latest invite-link apply event
     # resolved to label + recruiter name (+ previous owner if transferred).
     invite_source: Optional[InviteSourceBrief] = None
@@ -812,6 +818,8 @@ class CandidateQuickViewResponse(BaseModel):
         default_factory=list
     )
     recent_notes: list[CandidateQuickViewNote] = Field(default_factory=list)
+    # Ile razy zapisano „nie odebrał” — podgląd mówi to obok ostatniej rozmowy.
+    contact_attempts: int = 0
     cv_highlights: CandidateCvHighlights
     capabilities: CandidateQuickViewCapabilities
 
