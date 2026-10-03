@@ -151,3 +151,55 @@ def test_every_editable_field_has_a_label_and_a_limit():
         assert rules.LABELS[key]
         assert rules.max_length(key) in (rules.LINE_MAX, rules.TEXT_MAX)
     assert set(rules.REQUIRED_FIELDS) <= set(rules.EDITABLE_FIELDS)
+
+
+def test_questions_take_the_sheet_answer_then_the_note_answer():
+    questions = {"q1": "Java 17+ i Spring Boot?", "q2": "Kolejki?", "q3": "Chmura?"}
+    sheet = [
+        {"question_id": "q1", "response": "Java 21, Spring Boot 3."},
+        {"question_id": "q2", "response": "pominięte", "skipped": True},
+    ]
+    note = [
+        {"number": 1, "question": "", "answer": "z notatki 1"},
+        {"number": 2, "question": "", "answer": "Kafka do zdarzeń."},
+    ]
+
+    merged = rules.merge_questions(questions, sheet, note)
+
+    assert merged == [
+        {
+            "number": 1,
+            "question": "Java 17+ i Spring Boot?",
+            "answer": "Java 21, Spring Boot 3.",
+            "source": "sheet",
+        },
+        {
+            "number": 2,
+            "question": "Kolejki?",
+            "answer": "Kafka do zdarzeń.",
+            "source": "note",
+        },
+        {"number": 3, "question": "Chmura?", "answer": "", "source": None},
+    ]
+
+
+def test_job_without_champion_questions_shows_the_questions_from_the_note():
+    note = [{"number": 1, "question": "Opisz projekt.", "answer": "Bank, 3 lata."}]
+    assert rules.merge_questions({}, [], note) == [
+        {
+            "number": 1,
+            "question": "Opisz projekt.",
+            "answer": "Bank, 3 lata.",
+            "source": "note",
+        }
+    ]
+    assert rules.merge_questions({}, [], []) == []
+
+
+def test_note_items_without_a_usable_number_fall_back_to_their_position():
+    note = [
+        {"number": "x", "question": "", "answer": "pierwsza"},
+        {"number": None, "question": "", "answer": "druga"},
+    ]
+    merged = rules.merge_questions({"q1": "A?", "q2": "B?"}, [], note)
+    assert [item["answer"] for item in merged] == ["pierwsza", "druga"]

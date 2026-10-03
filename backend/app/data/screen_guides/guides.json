@@ -152,7 +152,7 @@
     "title": "Karta kandydata w rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead"],
-    "what": "Tu prowadzisz jedną osobę w tej rekrutacji: sekcja „Teraz” pokazuje, co jest do zrobienia na jej etapie, a główna akcja przesuwa ją dalej. W sekcji „Screening” widzisz pytania z odpowiedziami kandydata.",
+    "what": "Tu prowadzisz jedną osobę w tej rekrutacji: sekcja „Teraz” pokazuje, co jest do zrobienia na jej etapie, a główna akcja przesuwa ją dalej. „Screening” ma pytania z odpowiedziami, „Karta rekomendacji” — ustalenia z rozmowy.",
     "tasks": [
       {
         "q": "Jak przesunąć osobę na kolejny etap?",

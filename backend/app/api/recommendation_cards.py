@@ -26,8 +26,9 @@ from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.recommendation_card import RecommendationCard
+from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
-from app.services import candidate_claim
+from app.services import candidate_claim, screening_sheets
 from app.services import recommendation_cards as cards
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -48,6 +49,9 @@ class CardResponse(BaseModel):
     previous: dict[str, dict[str, Any]]
     suggestions: dict[str, str]
     note_answers: Optional[dict[str, Any]] = None
+    # Pytania z Profilu Championa z odpowiedzią: z arkusza screeningu, a gdy
+    # go nie ma — z notatki (tylko do odczytu).
+    questions: list[dict[str, Any]]
     completeness: CardCompleteness
     labels: dict[str, str]
     editable_fields: list[str]
@@ -149,6 +153,14 @@ async def _response(
     answers = cards.current_answers(
         card.note_answers if card else None, attempt_started=attempt_started
     )
+    conversations = await screening_sheets.candidate_conversations(
+        db, candidate_id=candidate.id, job_scope=CandidateStage.job_id == job.id
+    )
+    questions = cards.merge_questions(
+        screening_sheets.question_texts(job.champion_profile),
+        conversations[0]["answers"] if conversations else [],
+        answers["items"] if answers else [],
+    )
     suggestions: dict[str, str] = {}
     if "nationality" not in current:
         nationality = await _nationality_suggestion(db, candidate, job.id)
@@ -165,12 +177,13 @@ async def _response(
         previous=previous,
         suggestions=suggestions,
         note_answers=answers,
+        questions=questions,
         completeness=CardCompleteness(**cards.completeness(current)),
         labels=cards.LABELS,
         editable_fields=list(cards.EDITABLE_FIELDS),
         legacy_text=cards.legacy_text(
             current,
-            answers["items"] if answers else [],
+            questions,
             candidate_name=name,
             project=(job.client_reference or job.title or "").strip(),
         ),

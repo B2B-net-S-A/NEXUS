@@ -88,6 +88,11 @@ class PairFacts:
     screening_stage_id: Optional[int] = None
     candidate_rate: bool = False
     availability_known: bool = False
+    # 0413: karta rekomendacji — nazwy brakujących pól i czy notatka niesie
+    # odpowiedzi na pytania (wtedy arkusz screeningu nie jest brakiem).
+    card_missing: tuple[str, ...] = ()
+    card_exists: bool = False
+    card_answers: bool = False
     company_cv: bool = False
     qc_status: str = "unchecked"
     qc_blocking_failed: int = 0
@@ -179,11 +184,17 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
                 column,
                 "screening_sheet",
                 "Arkusz screeningu",
-                OK if f.screening_done else MISSING,
+                OK if f.screening_done or f.card_answers else MISSING,
                 True,
-                None if f.screening_done else "odpowiedzi jeszcze nie zapisane",
+                (
+                    None
+                    if f.screening_done
+                    else "odpowiedzi są w notatce rekrutera"
+                    if f.card_answers
+                    else "odpowiedzi jeszcze nie zapisane"
+                ),
                 None
-                if f.screening_done
+                if f.screening_done or f.card_answers
                 else _action(
                     "open_screening", "Otwórz screening", f.screening_stage_id or sid
                 ),
@@ -206,6 +217,25 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
                 OK if f.availability_known else MISSING,
                 False,
                 None if f.availability_known else "nie wiemy, od kiedy może zacząć",
+            ),
+            # Braki karty nie blokują ruchu — Delivery Lead zobaczy je przed
+            # wysłaniem CV.
+            _Item(
+                column,
+                "recommendation_card",
+                "Karta rekomendacji",
+                OK if f.card_exists and not f.card_missing else MISSING,
+                False,
+                (
+                    "brakuje: " + ", ".join(f.card_missing)
+                    if f.card_missing
+                    else None
+                    if f.card_exists
+                    else "karta jest jeszcze pusta"
+                ),
+                None
+                if f.card_exists and not f.card_missing
+                else _action("open_card", "Uzupełnij kartę", sid),
             ),
         ]
     if column == "cv_qc":
@@ -789,6 +819,25 @@ async def load_pair_facts(
         )
     )
 
+    # 0413: karta rekomendacji pary — braki są podpowiedzią, nie bramką.
+    from app.services import recommendation_cards
+
+    card_row = await recommendation_cards.load_card(
+        db, candidate_id=candidate.id, job_id=job.id
+    )
+    card = None
+    if card_row is not None:
+        card = recommendation_cards.card_summary(
+            card_row.fields_notes or {},
+            card_row.fields_manual or {},
+            card_row.note_answers,
+            started=recommendation_cards.attempt_started(
+                await candidate_claim.load_process(
+                    db, candidate_id=candidate.id, job_id=job.id
+                )
+            ),
+        )
+
     return PairFacts(
         from_column=from_column,
         stage_id=latest.id if latest is not None else None,
@@ -800,6 +849,9 @@ async def load_pair_facts(
         ),
         candidate_rate=candidate_rate,
         availability_known=candidate.availability_date is not None,
+        card_missing=tuple(card["missing_labels"]) if card else (),
+        card_exists=card is not None and card["status"] != "empty",
+        card_answers=bool(card and card["answers"]),
         company_cv=cv is not None,
         qc_status=qc.get("status") or "unchecked",
         qc_blocking_failed=int(qc.get("blocking_failed") or 0),

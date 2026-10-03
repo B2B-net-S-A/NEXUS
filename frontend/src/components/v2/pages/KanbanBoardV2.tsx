@@ -82,6 +82,7 @@ import {
  MOVE_REQUIREMENTS_PREFIX,
  type MoveRequirementAction,
 } from "@/lib/api/moveRequirements";
+import { RecommendationCardDialog } from "@/components/v2/screening/RecommendationCardDialog";
 import type { BoardTaskRow } from "@/lib/api/boardTasks";
 import type { PairInfo } from "@/lib/interview-cycle";
 import {
@@ -1624,6 +1625,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const [moveNextOpen, setMoveNextOpen] = useState(false);
  const moveNextSuspended = useRef(false);
  const [qcStageId, setQcStageId] = useState<number | null>(null);
+ const [cardFor, setCardFor] = useState<{ candidateId: number; name: string } | null>(null);
  const [debriefFor, setDebriefFor] = useState<{ eventId: number; name: string } | null>(null);
  const openMoveNext = useCallback(
  (item: KanbanItem, srcColId: string, target: KanbanColumn) => {
@@ -2445,6 +2447,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  suspendMoveNext();
  setQcStageId(stageId);
  return;
+ case "open_card":
+ // 0413: braki karty rekomendacji — cała karta w oknie.
+ suspendMoveNext();
+ setCardFor({ candidateId: item.candidate_id, name });
+ return;
  case "set_candidate_rate": {
  // Stawkę kandydata zapisuje ruch na „Zweryfikowany" (okno stawki
  // `usePipelineMove`) — osoba stoi dalej przed tą kolumną.
@@ -3023,6 +3030,21 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onHandToCpro={handleHandToCpro}
  onAction={handleMoveNextAction}
  />
+ {cardFor ? (
+ <RecommendationCardDialog
+ open
+ onOpenChange={(next) => {
+ if (!next) {
+ setCardFor(null);
+ resumeMoveNext();
+ }
+ }}
+ candidateId={cardFor.candidateId}
+ jobId={jobId}
+ candidateName={cardFor.name}
+ readOnly={readOnly}
+ />
+ ) : null}
  <CvQcDialog
  stageId={qcStageId}
  open={qcStageId !== null}

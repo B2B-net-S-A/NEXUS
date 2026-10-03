@@ -24,7 +24,9 @@ export type MoveRequirementActionKind =
   | "open_qc"
   | "set_client_rate"
   | "open_debrief"
-  | "request_slots";
+  | "request_slots"
+  // 0413: braki karty rekomendacji — otwiera całą kartę.
+  | "open_card";
 
 export interface MoveRequirementAction {
   kind: MoveRequirementActionKind | null;

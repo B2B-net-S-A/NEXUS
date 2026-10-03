@@ -2353,6 +2353,37 @@ async def build_kanban_view(
     from app.services.cv_qc import pair_statuses
 
     qc_by_pair = await pair_statuses(db, [(cid, job_id) for cid in candidate_ids])
+    # 0413: stan karty rekomendacji każdej osoby („Karta gotowa” / „brakuje N”)
+    # i liczba prób kontaktu — po jednym zapytaniu na tablicę.
+    from sqlalchemy import func, or_
+
+    from app.models.note import Note as _Note
+    from app.services import note_kinds, recommendation_cards
+
+    card_by_candidate = await recommendation_cards.summaries_for_job(
+        db,
+        job_id=job_id,
+        started_by_candidate={
+            cid: recommendation_cards.attempt_started(v4_processes.get(cid))
+            for cid in candidate_ids
+        },
+    )
+    contact_attempts: dict[int, int] = {}
+    if candidate_ids:
+        contact_attempts = {
+            cid: int(total)
+            for cid, total in (
+                await db.execute(
+                    select(_Note.candidate_id, func.count(_Note.id))
+                    .where(
+                        _Note.candidate_id.in_(sorted(candidate_ids)),
+                        _Note.kind == note_kinds.CONTACT_ATTEMPT,
+                        or_(_Note.job_id == job_id, _Note.job_id.is_(None)),
+                    )
+                    .group_by(_Note.candidate_id)
+                )
+            ).all()
+        }
     # 0372: follow-up z kandydatem, gdy klient milczy — liczony dla OSOBY (ze
     # wszystkimi jej procesami), na karcie tylko przy procesie, który czeka.
     from app.services import candidate_followups
@@ -2421,6 +2452,17 @@ async def build_kanban_view(
         payload["process_state_version"] = process_versions.get(e.candidate_id, 0)
         payload["auto_cv_ready"] = e.id in auto_cv_stage_ids
         payload["qc"] = qc_by_pair.get((e.candidate_id, job_id))
+        card = card_by_candidate.get(e.candidate_id)
+        payload["card"] = (
+            {
+                "status": card["status"],
+                "missing": len(card["missing"]),
+                "answers": card["answers"],
+            }
+            if card is not None
+            else None
+        )
+        payload["contact_attempts"] = contact_attempts.get(e.candidate_id, 0)
         # Rekruter karty: właściciel procesu (Priority Work), a gdy proces go
         # nie ma — osoba, która dodała kandydata do rekrutacji.
         process_owner = process_cards.get(e.candidate_id, (0, None))[1]

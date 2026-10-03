@@ -207,3 +207,53 @@ def current_answers(
         "note_id": note_answers.get("note_id"),
         "at": note_answers.get("at"),
     }
+
+
+def merge_questions(
+    question_texts: Mapping[str, str],
+    sheet_answers: Sequence[Mapping[str, Any]],
+    note_items: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Pytania z Profilu Championa z odpowiedzią kandydata.
+
+    Odpowiedź z arkusza screeningu wygrywa (to ona liczy się w dopasowaniu
+    i wychodzi do klienta); gdy arkusza nie ma — odpowiedź z notatki, po
+    numerze pytania. Rekrutacja bez pytań w profilu pokazuje pytania zapisane
+    w notatce.
+    """
+    by_question = {
+        str(item.get("question_id") or "").strip(): item
+        for item in sheet_answers
+        if isinstance(item, Mapping) and not item.get("skipped")
+    }
+    by_number: dict[int, Mapping[str, Any]] = {}
+    for index, item in enumerate(note_items, start=1):
+        if not isinstance(item, Mapping):
+            continue
+        number = item.get("number")
+        by_number[number if isinstance(number, int) and number > 0 else index] = item
+    if not question_texts:
+        return [
+            {
+                "number": number,
+                "question": str(item.get("question") or "").strip(),
+                "answer": str(item.get("answer") or "").strip(),
+                "source": "note" if str(item.get("answer") or "").strip() else None,
+            }
+            for number, item in sorted(by_number.items())
+        ]
+    merged: list[dict[str, Any]] = []
+    for number, (question_id, text) in enumerate(question_texts.items(), start=1):
+        from_sheet = str(
+            (by_question.get(question_id) or {}).get("response") or ""
+        ).strip()
+        from_note = str((by_number.get(number) or {}).get("answer") or "").strip()
+        merged.append(
+            {
+                "number": number,
+                "question": text,
+                "answer": from_sheet or from_note,
+                "source": "sheet" if from_sheet else "note" if from_note else None,
+            }
+        )
+    return merged

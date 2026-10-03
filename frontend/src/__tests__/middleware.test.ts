@@ -217,6 +217,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/job-team-panel",
     "/preview/plain-brief",
     "/preview/job-board-screening",
+    "/preview/recommendation-card",
     "/preview/permissions",
     "/kariera",
     "/kariera/r/senior-java-developer-7kq2",

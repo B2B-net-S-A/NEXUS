@@ -175,6 +175,10 @@ export interface KanbanItem {
   status: "passed" | "failed" | "overridden" | "unchecked";
   blocking_failed: number;
  } | null;
+ // Karta rekomendacji (0413): stan karty pary i liczba notatek „nie odebrał”.
+ // `card: null` = pary nie ma jeszcze w kartach.
+ card?: { status: "complete" | "partial" | "empty"; missing: number; answers: number } | null;
+ contact_attempts?: number;
 }
 
 /** Rodzaje odznaki terminarza — lustro `compute_badge`

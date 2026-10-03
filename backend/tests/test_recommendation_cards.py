@@ -66,6 +66,8 @@ def test_only_listed_modules_read_recommendation_cards():
     allowed = {
         "app/api/recommendation_cards.py",
         "app/api/notes.py",
+        # Tablica i „Przesuń dalej” czytają tylko stan karty (ile pól brakuje).
+        "app/api/pipeline.py",
         "app/main.py",
         "app/models/__init__.py",
         "app/models/recommendation_card.py",
@@ -75,6 +77,7 @@ def test_only_listed_modules_read_recommendation_cards():
         "app/services/recommendation_card_import.py",
         "app/services/recommendation_cards.py",
         "app/tasks/recommendation_card_import.py",
+        "app/services/move_requirements.py",
     }
     pattern = re.compile(
         r"^\s*(?:from|import)\s.*\brecommendation_card(?:s|_rules|_import)?\b"
@@ -512,3 +515,81 @@ async def test_one_failing_candidate_does_not_block_the_import(
             select(Note.card_parsed_hash).where(Note.id == broken_note)
         )
     assert stamped
+
+
+@pytest.mark.asyncio
+async def test_api_card_lists_champion_questions_with_the_note_answer(
+    app_client: AsyncClient,
+):
+    candidate_id, job_id = await _seed_pair()
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.champion_profile = {
+            "screening_questions": [
+                {"id": "q1", "question": "Doświadczenie z Javą 17+?"},
+                {"id": "q2", "question": "Chmura w projektach komercyjnych?"},
+            ]
+        }
+        await db.commit()
+    await _add_note(candidate_id, job_id)
+    await _drain()
+    _, email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(app_client, email, password)
+
+    body = (
+        await app_client.get(
+            "/api/recommendation-cards",
+            params={"candidate_id": candidate_id, "job_id": job_id},
+            headers=headers,
+        )
+    ).json()
+
+    assert body["questions"] == [
+        {
+            "number": 1,
+            "question": "Doświadczenie z Javą 17+?",
+            "answer": "Java 21 w banku.",
+            "source": "note",
+        },
+        {
+            "number": 2,
+            "question": "Chmura w projektach komercyjnych?",
+            "answer": "",
+            "source": None,
+        },
+    ]
+    assert "P1: Doświadczenie z Javą 17+?" in body["legacy_text"]
+
+
+@pytest.mark.asyncio
+async def test_board_card_carries_the_card_state_and_contact_attempts(
+    app_client: AsyncClient,
+):
+    candidate_id, job_id = await _seed_pair()
+    _, email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(app_client, email, password)
+    added = await app_client.post(
+        "/api/pipeline/move",
+        headers=headers,
+        json={"candidate_id": candidate_id, "job_id": job_id, "stage": "new"},
+    )
+    assert added.status_code == 200, added.text
+    await _add_note(candidate_id, job_id)
+    await _add_note(candidate_id, job_id, content="nie odbiera")
+    await _drain()
+
+    board = await app_client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+    assert board.status_code == 200, board.text
+    cards_on_board = [
+        entry
+        for column in board.json()["columns"]
+        for entry in column["items"]
+        if entry["candidate_id"] == candidate_id
+    ]
+    assert len(cards_on_board) == 1
+    assert cards_on_board[0]["card"] == {
+        "status": "partial",
+        "missing": 5,
+        "answers": 1,
+    }
+    assert cards_on_board[0]["contact_attempts"] == 1

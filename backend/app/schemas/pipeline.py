@@ -168,6 +168,12 @@ class CandidateStageResponse(BaseModel):
     # unchecked", "blocking_failed": int}` — najnowszy przebieg pary.
     # Wypełnia tylko tablica.
     qc: Optional[dict] = None
+    # Karta rekomendacji (0413): `{"status": "complete|partial|empty",
+    # "missing": int, "answers": int}` albo `None`, gdy pary nie ma jeszcze
+    # w `recommendation_cards`. Wypełnia tylko tablica.
+    card: Optional[dict] = None
+    # Notatki „nie odebrał” tej osoby (w tej rekrutacji i bez rekrutacji).
+    contact_attempts: int = 0
     # Stawka z PROFILU kandydata (`Candidate.expected_rate_hourly`, PLN/h) —
     # podpowiedź w oknie „Zweryfikowany". Wypełnia tylko tablica.
     candidate_expected_rate_hourly: Optional[Decimal] = None

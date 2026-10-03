@@ -75,6 +75,8 @@ const PAGES = [
   "/preview/jobs-list-v3",
   "/preview/job-board-screening",
   "/preview/job-board-screening?state=closed",
+  "/preview/recommendation-card",
+  "/preview/recommendation-card?state=empty",
   "/preview/job-team-panel",
   "/preview/job-team-panel?as=hor",
   "/preview/job-team-panel?as=recruiter",
