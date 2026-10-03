@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, undefer
 
@@ -45,6 +45,7 @@ from app.models.screening_note import ScreeningNote
 from app.services.prompt_fencing import fence, json_for_prompt
 from app.services import object_storage
 from app.services import champion_view
+from app.services import note_kinds
 from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
     PROMPT_VERSION,
@@ -2318,8 +2319,15 @@ def _not_followup_note():
     Runda 7 (R7-X4-5): taka notatka ma ``job_id=NULL``, a treść wymienia
     klientów i rekrutacje WSZYSTKICH czekających procesów — do CV pod innego
     klienta trafiały nazwy i statusy cudzych procesów.
+
+    0412: także bez rodzajów, których AI nie czyta (wpis automatu, mail,
+    „dopisz do CV” od Delivery Leada, stawka do klienta) — instrukcja „dodaj
+    Robot Framework do CV” nie jest dowodem, że kandydat go zna.
     """
-    return or_(Note.source_ref.is_(None), ~Note.source_ref.like("followup:%"))
+    return and_(
+        or_(Note.source_ref.is_(None), ~Note.source_ref.like("followup:%")),
+        note_kinds.ai_readable_clause(),
+    )
 
 
 async def collect_candidate_notes_text(db: AsyncSession, *, candidate_id: int) -> str:

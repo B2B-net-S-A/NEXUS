@@ -15,6 +15,9 @@ w których któreś ze słów w ogóle występuje.
 
 Maile (``NoteType.email``) NIE są dowodem: maile z Traffita niosą treść
 ogłoszenia wysłanego kandydatowi, więc „Java” w mailu nie mówi nic o nim.
+Z tego samego powodu dowodem nie są rodzaje z ``note_kinds.AI_EXCLUDED_KINDS``
+(0412): wpis automatu „Must-have trafione: python” i tytuł ogłoszenia
+w notatce scrapera liczyły się jako dowód, że kandydat zna technologię.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Iterable, Optional, Sequence
 
+from app.services import note_kinds
 from app.services.keyword_terms import parse_keyword, py_regex
 from app.services.must_gate_terms import GateRequirement, gate_requirement
 
@@ -279,7 +283,7 @@ async def _load_notes(db, ids: list[int], pattern: Optional[str]):
         text(
             "SELECT DISTINCT candidate_id FROM notes "
             "WHERE candidate_id = ANY(:ids) AND source_deleted_at IS NULL "
-            "AND note_type::text = ANY(:types)"
+            f"AND note_type::text = ANY(:types) AND {note_kinds.ai_readable_sql()}"
         ),
         {"ids": ids, "types": list(EVIDENCE_NOTE_TYPES)},
     )
@@ -289,7 +293,8 @@ async def _load_notes(db, ids: list[int], pattern: Optional[str]):
             text(
                 "SELECT candidate_id, content FROM notes "
                 "WHERE candidate_id = ANY(:ids) AND source_deleted_at IS NULL "
-                "AND note_type::text = ANY(:types) AND content ~* :pattern"
+                "AND note_type::text = ANY(:types) AND content ~* :pattern "
+                f"AND {note_kinds.ai_readable_sql()}"
             ),
             {
                 "ids": sorted(has_notes),

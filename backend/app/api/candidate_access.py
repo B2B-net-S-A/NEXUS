@@ -126,6 +126,53 @@ def user_can_view_client_rate(user: Optional[User]) -> bool:
     )
 
 
+def note_content_hidden(
+    user: Optional[User], *, kind: Optional[str], author_id: Optional[int]
+) -> bool:
+    """Czy treść notatki jest dla `user` zakryta (0412).
+
+    Krótki wpis Delivery Leada „Wyślijmy za 161 zł/h” niesie stawkę do
+    klienta, a notatki czyta każdy — bez tego decyzja z 23.09.2026 (rekruter
+    tej stawki nie widzi) nie działała. Autor zawsze widzi własną notatkę.
+    """
+    from app.services import note_kinds
+
+    if not note_kinds.hides_client_rate(kind):
+        return False
+    if user is not None and author_id is not None and author_id == user.id:
+        return False
+    return not user_can_view_client_rate(user)
+
+
+def visible_note_content(user: Optional[User], note) -> str:
+    """Treść notatki albo zdanie zastępcze, gdy rola jej nie widzi."""
+    from app.services import note_kinds
+
+    if note_content_hidden(user, kind=note.kind, author_id=note.author_id):
+        return note_kinds.CLIENT_RATE_PLACEHOLDER
+    return note.content
+
+
+def note_rate_visibility_clause(user: Optional[User]):
+    """Warunek zapytania po ``Note``: bez notatek, których treść jest zakryta.
+
+    Dla wycinków wyszukiwania — tam zdanie zastępcze nie ma sensu, notatka
+    po prostu nie jest źródłem wycinka.
+    """
+    from sqlalchemy import or_, true
+
+    from app.models.note import Note
+    from app.services import note_kinds
+
+    if user_can_view_client_rate(user):
+        return true()
+    hidden = sorted(note_kinds.CLIENT_RATE_KINDS)
+    visible = or_(Note.kind.is_(None), Note.kind.notin_(hidden))
+    if user is None:
+        return visible
+    return or_(visible, Note.author_id == user.id)
+
+
 def user_can_write_client_rate(user: User, job=None) -> bool:
     """Czy `user` może ustawić stawkę do klienta.
 

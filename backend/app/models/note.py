@@ -2,11 +2,23 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import (
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    event,
+    inspect,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+from app.services import note_kinds
 
 
 # 0399: wpisy zapisane przez automaty (auto-match z CV i ze scrapera JJIT)
@@ -86,6 +98,11 @@ class Note(Base, TimestampMixin):
     parent_note_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("notes.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    # 0412: rodzaj notatki (`services/note_kinds.py`) — nadaje go nasłuch
+    # niżej przy zapisie przez ORM, a wierszom z surowego SQL (import
+    # Traffita) `note_kind_backfill.classify_pending`. NULL = jeszcze
+    # nieuzupełniony; czytelnicy traktują go jak zwykłą notatkę.
+    kind: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
 
     # Relationships
     candidate = relationship("Candidate", back_populates="notes")
@@ -132,3 +149,32 @@ class Note(Base, TimestampMixin):
         return (
             f"<Note id={self.id} type={self.note_type} candidate={self.candidate_id}>"
         )
+
+
+def _note_type_value(note: Note) -> Optional[str]:
+    value = note.note_type
+    return value.value if isinstance(value, NoteType) else value
+
+
+@event.listens_for(Note, "before_insert")
+def _set_note_kind_on_insert(_mapper, _connection, target: Note) -> None:
+    target.kind = note_kinds.classify(
+        target.content,
+        note_type=_note_type_value(target),
+        external_source=target.external_source,
+    )
+
+
+@event.listens_for(Note, "before_update")
+def _set_note_kind_on_update(_mapper, _connection, target: Note) -> None:
+    attrs = inspect(target).attrs
+    if not any(
+        getattr(attrs, name).history.has_changes()
+        for name in ("content", "note_type", "external_source")
+    ):
+        return
+    target.kind = note_kinds.classify(
+        target.content,
+        note_type=_note_type_value(target),
+        external_source=target.external_source,
+    )

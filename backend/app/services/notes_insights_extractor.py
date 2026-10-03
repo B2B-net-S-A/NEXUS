@@ -37,6 +37,7 @@ from app.core.terminal_failure import terminal_operation
 from app.models.candidate import AvailabilityStatus, Candidate
 from app.services.cv_enrichment import normalize_llm_skills
 from app.models.ai_feature import AIFeatureKey
+from app.services import note_kinds
 from app.services.ai_models import fallbacks_for, model_for
 
 logger = logging.getLogger(__name__)
@@ -46,10 +47,18 @@ logger = logging.getLogger(__name__)
 # pętla do nich dojdzie, w ramach budżetu per bieg). Bump NIE przelicza
 # korpusu wstecz — `_select_stale_candidates` wybiera po dacie notatki vs
 # stemplu ekstrakcji, fingerprint tu tylko pomija duplikaty w pętli.
-PROMPT_VERSION = "v5-work-modes"
+# v6 (03.10.2026): prompt bez zmian, zmienia się WSAD — model nie dostaje już
+# wpisów automatu, maili, „nie odbiera”, terminów ani wpisów Delivery Leada
+# o stawce do klienta (`note_kinds.AI_EXCLUDED_KINDS`), a karty rekomendacji
+# idą pierwsze. Nowa wersja = doganianie przeliczy fakty policzone ze starego
+# wsadu („Wyślijmy za 161 zł/h” bywało czytane jako stawka kandydata).
+PROMPT_VERSION = "v6-note-kinds"
 EXTRACTION_MODEL = model_for(AIFeatureKey.notes_extraction)
 NOTES_LIMIT = 20
 BLOB_CHAR_LIMIT = 12000
+# Jedna długa notatka nie może zjeść całego wsadu (pomiar 03.10.2026: u 858
+# kandydatów wsad był ucięty, u 359 przez jeden wątek mailowy).
+NOTE_CHAR_LIMIT = 4000
 MIN_BLOB_CHARS = 60
 
 # Unia schematów v1 (stawka/dostępność/preferencje/języki/veta) i v2
@@ -132,12 +141,20 @@ async def load_note_rows(db: AsyncSession, candidate_id: int) -> list[tuple]:
     notatka z 00:30 dostawała w prompcie datę poprzedniego dnia, a model liczył
     od niej dostępność („od przyszłego miesiąca”).
     """
+    # Wybór: tylko notatki, które wolno czytać modelowi; karty rekomendacji
+    # i fakty ze screeningu mają pierwszeństwo przed limitem (u 373 kandydatów
+    # karta wypadała poza 20 najnowszych). Wynik nadal od najnowszej.
+    priority = ", ".join(f"'{kind}'" for kind in note_kinds.AI_PRIORITY_KINDS)
     result = await db.execute(
         text(
             "SELECT id, updated_at, "
-            "(created_at AT TIME ZONE 'Europe/Warsaw')::date AS d, "
-            "content FROM notes "
-            "WHERE candidate_id = :c ORDER BY created_at DESC LIMIT :lim"
+            "(created_at AT TIME ZONE 'Europe/Warsaw')::date AS d, content "
+            "FROM ("
+            "SELECT id, updated_at, created_at, content FROM notes "
+            f"WHERE candidate_id = :c AND {note_kinds.ai_readable_sql()} "
+            f"ORDER BY (kind IN ({priority})) DESC NULLS LAST, "
+            "created_at DESC LIMIT :lim"
+            ") picked ORDER BY created_at DESC"
         ),
         {"c": candidate_id, "lim": NOTES_LIMIT},
     )
@@ -162,7 +179,7 @@ def notes_fingerprint(rows: Sequence[tuple]) -> str:
 
 
 def build_notes_blob(rows: Sequence[tuple]) -> str:
-    blob = "\n\n".join(f"[{r[2]}]\n{r[3]}" for r in rows if r[3])
+    blob = "\n\n".join(f"[{r[2]}]\n{r[3][:NOTE_CHAR_LIMIT]}" for r in rows if r[3])
     return blob[:BLOB_CHAR_LIMIT]
 
 

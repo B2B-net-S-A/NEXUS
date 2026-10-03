@@ -41,6 +41,7 @@ from app.models.contract import Contract
 from app.models.interview_feedback import InterviewFeedback
 from app.models.job import Job
 from app.models.note import Note
+from app.services import note_kinds
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.screening_note import ScreeningNote
 from app.models.user import User
@@ -823,6 +824,9 @@ async def _notes_section(
                         source_id_column=Note.id,
                         source_kind="note",
                     ),
+                    # 0412: bez wpisów automatu, maili, „nie odbiera”
+                    # i stawki do klienta — podsumowanie czyta każda rola.
+                    note_kinds.ai_readable_clause(),
                 )
                 .order_by(Note.created_at.desc())
                 .limit(_MAX_NOTES + 1)

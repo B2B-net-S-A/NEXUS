@@ -68,6 +68,7 @@ from app.models.activity import Activity
 from app.models.invite_link import CandidateInviteLink
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import SYSTEM_NOTE_SOURCE, Note
+from app.services import note_kinds
 from app.models.notification import Notification, NotificationType
 from app.models.pipeline_template import PipelineStageDef, RejectionReason
 from app.models.recruitment_process import RecruitmentProcess
@@ -169,7 +170,10 @@ from app.api.candidate_access import (
     client_rate_write_allowed,
     client_rate_write_denied,
     resolve_client_rate_write,
+    note_content_hidden,
+    note_rate_visibility_clause,
     user_can_view_client_rate,
+    visible_note_content,
 )
 from app.api.financial_access import (
     has_financial_access,
@@ -2625,7 +2629,13 @@ async def list_candidates(
 
         last_note_stmt = (
             select(Note.candidate_id, Note.content)
-            .where(Note.candidate_id.in_(candidate_ids))
+            .where(
+                Note.candidate_id.in_(candidate_ids),
+                # 0412: wpis automatu ani notatka ze stawką do klienta nie są
+                # „ostatnią notatką” na liście.
+                note_kinds.searchable_clause(),
+                note_rate_visibility_clause(current_user),
+            )
             .distinct(Note.candidate_id)
             .order_by(
                 Note.candidate_id,
@@ -2727,7 +2737,11 @@ async def list_candidates(
         from app.services.advanced_candidate_search import note_snippet_match
         from app.services.keyword_corpus import NOTE_CAP
 
-        note_conditions = [Note.candidate_id.in_([c.id for c in items])]
+        note_conditions = [
+            Note.candidate_id.in_([c.id for c in items]),
+            note_kinds.searchable_clause(),
+            note_rate_visibility_clause(current_user),
+        ]
         if list_semantics.unified and keyword_terms_for_snippets:
             note_match = note_snippet_match(keyword_terms_for_snippets)
             if note_match is not None:
@@ -4274,10 +4288,7 @@ async def get_candidate_quick_view(
                 # 0399: podgląd pokazuje notatki główne — przypięte pierwsze,
                 # bez odpowiedzi i bez wpisów automatów.
                 Note.parent_note_id.is_(None),
-                or_(
-                    Note.external_source.is_(None),
-                    Note.external_source != SYSTEM_NOTE_SOURCE,
-                ),
+                note_kinds.searchable_clause(),
             )
             .order_by(
                 Note.pinned_at.is_(None),
@@ -4294,7 +4305,9 @@ async def get_candidate_quick_view(
     recent_notes = [
         CandidateQuickViewNote(
             id=note.id,
-            content=format_quick_view_note_content(note.content, mention_labels),
+            content=format_quick_view_note_content(
+                visible_note_content(current_user, note), mention_labels
+            ),
             created_at=note.created_at,
             author_name=author_name,
             pinned=note.pinned_at is not None,
@@ -4445,9 +4458,9 @@ async def get_candidate_timeline(
                 "timestamp": (
                     reply.created_at.isoformat() if reply.created_at else None
                 ),
-                "content": reply.content,
+                "content": visible_note_content(current_user, reply),
                 "content_rendered": render_traffit_mentions(
-                    reply.content, mention_label_map
+                    visible_note_content(current_user, reply), mention_label_map
                 ),
                 "author_id": reply.author_id,
                 "author_name": reply_author,
@@ -4460,9 +4473,13 @@ async def get_candidate_timeline(
                 "id": note.id,
                 "timestamp": note.created_at.isoformat() if note.created_at else None,
                 "note_type": note.note_type.value if note.note_type else None,
-                "content": note.content,
+                "content": visible_note_content(current_user, note),
                 "content_rendered": render_traffit_mentions(
-                    note.content, mention_label_map
+                    visible_note_content(current_user, note), mention_label_map
+                ),
+                "kind": note.kind,
+                "content_hidden": note_content_hidden(
+                    current_user, kind=note.kind, author_id=note.author_id
                 ),
                 "author_id": note.author_id,
                 "author_name": author_name,

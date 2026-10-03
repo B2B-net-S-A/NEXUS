@@ -2362,6 +2362,57 @@ Decyzje Artura 29.09.2026 — historia kandydata ma być tym, co napisali ludzie
   `traffit:Reply`, `traffit:Rozmowa telefoniczna`, `traffit:Spotkanie` —
   promocja robi z nich notatki. Reguły listy: `lib/candidate-notes-view.ts`.
 
+## Rodzaj notatki — co czyta AI, wyszukiwanie i rekruter (0412, 03.10.2026)
+
+Pomiar 03.10.2026 (75 231 notatek, produkcja): 16% to wpisy automatu
+auto-match, 5% wątki mailowe z Traffita, 7% „nie odbiera”, 8% wpisy Delivery
+Leada o stawce do klienta, 13% karty rekomendacji według wzoru rekruterów.
+Żaden czytelnik nie odróżniał wpisu automatu od notatki z rozmowy:
+„Must-have trafione: python” liczyło się w bramce must jako dowód, a
+„Wyślijmy za 161 zł/h” trafiało do odczytu faktów. Decyzje Artura 03.10.2026
+(makiety: https://claude.ai/artifact/HTWhqfgGh4dr6C7u8Gmwyv).
+
+- **`notes.kind` nadaje JEDNA reguła `services/note_kinds.py`** (czysta, bez
+  bazy; pierwsza pasująca reguła wygrywa, kolejność jest znacząca): przy
+  zapisie przez ORM nasłuch w `models/note.py`, dla surowego SQL
+  (`promote_notes` importu Traffita) `note_kind_backfill.classify_notes`, dla
+  wierszy sprzed 0412 pętla startowa `note_kind_backfill`. `UPDATE` rodzaju
+  NIE rusza `updated_at` — stoi na nim odcisk nocnego odczytu faktów.
+  `kind IS NULL` czyta się jak zwykłą notatkę (poza `external_source='system'`).
+- **Notatki dla AI czyta się WYŁĄCZNIE przez `note_kinds.ai_readable_sql()` /
+  `ai_readable_clause()`**: nocny odczyt faktów, bramka must i statystyki
+  krytycznych (`must_text_evidence`, `critical_skills`), QC CV i generator CV
+  (`_not_followup_note`), podsumowanie aktywności, podpowiedzi screeningu przy
+  przepięciu. Poza AI są: `automatch`, `application_form`, `email`, `dl_rate`,
+  `dl_review` („dopisz do CV” nie jest dowodem), `contact_attempt`,
+  `scheduling`, `mention`. Nowy czytelnik notatek dla modelu = ten filtr.
+- **Wyszukiwanie słów kluczowych (v2) i wycinki pomijają tylko wpisy automatów**
+  (`searchable_clause`: `automatch`, `application_form`). v1 (alerty zapisanych
+  wyszukiwań) bez zmian.
+- **Nocny odczyt faktów: prompt `v6-note-kinds`** — sam prompt bez zmian,
+  zmienił się wsad (filtr, karty rekomendacji i fakty ze screeningu przed
+  limitem 20 notatek, jedna notatka najwyżej 4000 znaków). Doganianie przeliczy
+  kandydatów po 700 na noc. Kandydat, któremu nie została żadna czytelna
+  notatka, traci fakty policzone przez ten odczyt (`_read_by_extractor`).
+- **Notatka `dl_rate` jest zakryta dla ról bez wglądu w stawkę do klienta**
+  (`candidate_access.note_content_hidden` / `visible_note_content` /
+  `note_rate_visibility_clause`; autor zawsze widzi swoją): lista i pojedyncza
+  notatka, oś czasu, szybki podgląd, „ostatnia notatka” listy kandydatów,
+  wycinki wyszukiwania. `dl_rate` to tylko krótki wpis (< 200 znaków: „Wyślijmy
+  za…”, „150/110”, „@osoba 175”); dłuższa notatka z kwotą w treści zostaje
+  zwykłą notatką — świadomie, bo niesie fakty o kandydacie. Nowa trasa oddająca
+  treść notatki = `visible_note_content`.
+- **„Reply” z Traffita to odpowiedź na notatkę, nie mail** (3 955 wierszy):
+  import nadaje jej typ `general`, istniejące zmienia jednorazowo
+  `note_kind_schema.REPLY_RETYPE`. Jako mail liczyły się w follow-upie za
+  kontakt z kandydatem.
+- **Notatka zapisana tokenem integracji jest systemowa** (`POST /api/notes`,
+  `proposals/bulk` bez blokady): scraper ogłoszeń dopisywał ~250 dziennie jako
+  zwykłe notatki.
+- Reguła była sprawdzana na całej produkcji (4 s na 75 tys. notatek, tylko
+  odczyt). Zmieniasz regex — sprawdź rozkład jeszcze raz i dopisz przypadek do
+  `tests/test_note_kinds.py` (same fikcyjne treści).
+
 ## Podsumowanie aktywności kandydata (AI)
 
 Karta „Podsumowanie aktywności" w szynie „Podsumowanie AI" profilu kandydata

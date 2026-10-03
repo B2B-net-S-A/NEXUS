@@ -33,7 +33,7 @@ from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.job_proposal import JobProposal
-from app.models.note import Note, NoteType
+from app.models.note import SYSTEM_NOTE_SOURCE, Note, NoteType
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import (
     CandidateStage,
@@ -634,6 +634,9 @@ async def add_candidates_to_job(
                         candidate_id=candidate_id,
                         job_id=job.id,
                         author_id=actor_user_id,
+                        # 0412: wpis integracji (scraper) jest systemowy —
+                        # lista go chowa, AI i wyszukiwanie go nie czytają.
+                        external_source=None if claim else SYSTEM_NOTE_SOURCE,
                     )
                 )
 
