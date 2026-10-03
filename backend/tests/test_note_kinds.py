@@ -116,6 +116,14 @@ def test_system_source_and_prep_summary_win_over_content():
         classify("Podsumowanie prepu", external_source=note_kinds.PREP_SOURCE)
         == note_kinds.PREP_SUMMARY
     )
+    # Formularz zapisany przez scraper (systemowy) zostaje formularzem.
+    assert (
+        classify(
+            "📋 Odpowiedzi z formularza aplikacji — Pracuj.pl, 25.09.2026",
+            external_source=SYSTEM_NOTE_SOURCE,
+        )
+        == note_kinds.APPLICATION_FORM
+    )
 
 
 def test_only_real_mail_threads_are_email():
@@ -192,6 +200,17 @@ def test_sql_filters_keep_unclassified_rows_and_drop_automat():
     assert "'automatch'" in search and "'application_form'" in search
     # Wyszukiwanie nie chowa maili ani wpisów Delivery Leada.
     assert "'email'" not in search and "'dl_review'" not in search
+
+
+def test_facts_reader_keeps_application_form_answers():
+    # Oczekiwania i staż z formularza podał sam kandydat — odczyt faktów je czyta,
+    # bramka must nie (formularz niesie tytuł ogłoszenia, nie umiejętności).
+    assert note_kinds.APPLICATION_FORM not in note_kinds.FACTS_EXCLUDED_KINDS
+    assert note_kinds.APPLICATION_FORM in note_kinds.AI_EXCLUDED_KINDS
+    assert note_kinds.AUTOMATCH in note_kinds.FACTS_EXCLUDED_KINDS
+    sql = note_kinds.facts_readable_sql()
+    assert "kind = 'application_form'" in sql
+    assert "'application_form'" not in sql.split(" OR ", 1)[1]
 
 
 def test_model_listener_sets_the_kind_before_insert():

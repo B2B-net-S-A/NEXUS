@@ -76,6 +76,12 @@ AI_EXCLUDED_KINDS: frozenset[str] = frozenset(
     }
 )
 
+# Nocny odczyt faktów czyta dodatkowo odpowiedzi z formularza aplikacji:
+# oczekiwania, termin startu i staż podał sam kandydat (decyzja 03.10.2026:
+# nic nie znika). Dowodem na technologię formularz nie jest — niesie tytuł
+# ogłoszenia, nie umiejętności.
+FACTS_EXCLUDED_KINDS: frozenset[str] = AI_EXCLUDED_KINDS - {APPLICATION_FORM}
+
 # Wpisy automatów — nie są notatką o kandydacie na żadnym ekranie.
 AUTOMAT_KINDS: frozenset[str] = frozenset({AUTOMATCH, APPLICATION_FORM})
 
@@ -215,10 +221,12 @@ def classify(
     length = len(text)
     head = text[:_SCAN_CHARS]
 
-    if external_source == SYSTEM_SOURCE or _AUTOMATCH_RE.search(head):
-        return AUTOMATCH
+    # Formularz przed pochodzeniem: notatka scrapera jest systemowa, a mimo
+    # to niesie odpowiedzi kandydata, które czyta odczyt faktów.
     if _FORM_MARK in head:
         return APPLICATION_FORM
+    if external_source == SYSTEM_SOURCE or _AUTOMATCH_RE.search(head):
+        return AUTOMATCH
     if external_source == PREP_SOURCE:
         return PREP_SUMMARY
     if note_type == "email" and (length > 1500 or _MAILISH_RE.search(head)):
@@ -294,6 +302,12 @@ def ai_readable_sql(alias: str = "") -> str:
     wpisem automatu, który rozpoznaje samo pochodzenie.
     """
     return _sql_filter(alias, AI_EXCLUDED_KINDS)
+
+
+def facts_readable_sql(alias: str = "") -> str:
+    """Warunek SQL dla nocnego odczytu faktów (``FACTS_EXCLUDED_KINDS``)."""
+    col = f"{alias}." if alias else ""
+    return f"({col}kind = '{APPLICATION_FORM}' OR {_sql_filter(alias, FACTS_EXCLUDED_KINDS)})"
 
 
 def searchable_sql(alias: str = "") -> str:

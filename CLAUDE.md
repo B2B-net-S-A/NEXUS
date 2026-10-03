@@ -2285,7 +2285,7 @@ faktów (`PATCH /api/candidates/{id}/work-mode`). Jedna reguła:
 - **Doganianie starszej wersji promptu:** po kandydatach ze zmienionymi
   notatkami bieg dobiera najwyżej `NOTES_INSIGHTS_SYNC_UPGRADE_LIMIT` (700)
   kandydatów z `_extractor` innym niż bieżąca wersja (bez wierszy
-  `_no_content`). ~16 tys. wierszy ≈ 3 tygodnie, ~0,004 USD/kandydata.
+  `_no_content`). ~16 tys. wierszy ≈ 3 tygodnie; na GPT-6 Luna ~0,0005 USD/kandydata (pomiar 03.10.2026; 0,004 USD to stawka sprzed 25.09).
   Zmiana promptu = bump `PROMPT_VERSION`, a doganianie ruszy samo.
 
 ## Notatki: przypięcie, odpowiedzi, automaty bez notatek (0399, 29.09.2026)
@@ -2401,10 +2401,13 @@ Leada o stawce do klienta, 13% karty rekomendacji według wzoru rekruterów.
 - **Nocny odczyt faktów: prompt `v6-note-kinds`** — sam prompt bez zmian,
   zmienił się wsad (filtr, karty rekomendacji i fakty ze screeningu przed
   limitem 20 notatek, jedna notatka najwyżej 4000 znaków). Doganianie przeliczy
-  kandydatów po 700 na noc. Kandydat, któremu nie została żadna czytelna
-  notatka, traci fakty policzone przez ten odczyt (`_read_by_extractor`).
-  Pomiar 03.10: 3 013 osób, z czego 2 872 miały wyłącznie wpisy scrapera;
-  stawkę w profilu traci 1 osoba (155 zł z „Pokazujemy za 155zł”).
+  kandydatów po 700 na noc (zmierzone 03.10.2026: 0,00048 USD za odczyt na
+  GPT-6 Luna, czyli ok. 9 USD za całą bazę). **Nic nie znika (decyzja Artura
+  03.10.2026):** kandydat, któremu po odfiltrowaniu nie została żadna czytelna
+  notatka, ZACHOWUJE fakty policzone wcześniej (3 013 osób, 2 872 miały
+  wyłącznie wpisy scrapera); odczyt faktów nadal czyta odpowiedzi z formularza
+  aplikacji (`facts_readable_sql` — oczekiwania i staż podał sam kandydat),
+  a notatek automatów nie kasujemy — są pod filtrem.
 - **Notatka `dl_rate` jest zakryta dla ról bez wglądu w stawkę do klienta**
   (`candidate_access.note_content_hidden` / `visible_note_content` /
   `note_rate_visibility_clause`; autor zawsze widzi swoją): lista i pojedyncza

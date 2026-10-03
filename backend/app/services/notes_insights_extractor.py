@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 # stemplu ekstrakcji, fingerprint tu tylko pomija duplikaty w pętli.
 # v6 (03.10.2026): prompt bez zmian, zmienia się WSAD — model nie dostaje już
 # wpisów automatu, maili, „nie odbiera”, terminów ani wpisów Delivery Leada
-# o stawce do klienta (`note_kinds.AI_EXCLUDED_KINDS`), a karty rekomendacji
+# o stawce do klienta (`note_kinds.FACTS_EXCLUDED_KINDS`), a karty rekomendacji
 # idą pierwsze. Nowa wersja = doganianie przeliczy fakty policzone ze starego
 # wsadu („Wyślijmy za 161 zł/h” bywało czytane jako stawka kandydata).
 PROMPT_VERSION = "v6-note-kinds"
@@ -151,7 +151,7 @@ async def load_note_rows(db: AsyncSession, candidate_id: int) -> list[tuple]:
             "(created_at AT TIME ZONE 'Europe/Warsaw')::date AS d, content "
             "FROM ("
             "SELECT id, updated_at, created_at, content FROM notes "
-            f"WHERE candidate_id = :c AND {note_kinds.ai_readable_sql()} "
+            f"WHERE candidate_id = :c AND {note_kinds.facts_readable_sql()} "
             f"ORDER BY (kind IN ({priority})) DESC NULLS LAST, "
             "created_at DESC LIMIT :lim"
             ") picked ORDER BY created_at DESC"

@@ -231,13 +231,6 @@ async def _select_outdated_candidates(limit: int, exclude: set[int]) -> list[int
     return out[:limit]
 
 
-def _read_by_extractor(prior: dict) -> bool:
-    """Czy fakty pochodzą z odczytu notatek przez model (nie z importu)."""
-    return str(prior.get("_extractor") or "").startswith(
-        "notes_insights:"
-    ) and not prior.get("_no_content")
-
-
 async def _clear_facts(db, cand: Candidate) -> None:
     """Wyczyść fakty z notatek (i stawkę wpisaną przez notatki) z audytem."""
     from app.services.match_score_cache import mark_stale_for_candidate
@@ -323,11 +316,10 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                 if len(blob) < MIN_BLOB_CHARS:
                     # Runda 10 (R10-N6-2): usunięto notatkę, a reszta nie niesie
                     # treści — `stamp_no_content` zachowałby fakty z usuniętej.
-                    # 0412: to samo, gdy fakty policzył ten odczyt z notatek,
-                    # których model już nie dostaje (wpis automatu, mail).
-                    if isinstance(prior, dict) and (
-                        prior.get(NOTES_CHANGED_AT_KEY) or _read_by_extractor(prior)
-                    ):
+                    # 0412 (decyzja Artura 03.10.2026: nic nie znika): fakty
+                    # kandydata, któremu po odfiltrowaniu szumu nie została
+                    # żadna czytelna notatka, ZOSTAJĄ — stempel ich nie rusza.
+                    if isinstance(prior, dict) and prior.get(NOTES_CHANGED_AT_KEY):
                         await _clear_facts(db, cand)
                     # Stempel bez AI — inaczej klasa "no_content" wraca do
                     # selekcji każdego dnia i zjada cały budżet biegu
