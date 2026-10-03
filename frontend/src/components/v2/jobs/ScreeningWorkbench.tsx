@@ -128,6 +128,7 @@ import {
   type DockTabItem,
 } from "@/components/v2/jobs/workbench-chrome";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
+import { RecommendationCardSection } from "@/components/v2/screening/RecommendationCardSection";
 import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
 import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
 
@@ -156,7 +157,7 @@ export interface ScreeningWorkbenchProps extends WorkbenchPanelProps {
   clientName?: string | null;
 }
 
-type DockTab = "decision" | "notes";
+type DockTab = "decision" | "card" | "notes";
 
 function daysLabel(n: number): string {
   return `${n} ${Math.abs(n) === 1 ? "dzień" : "dni"}`;
@@ -533,6 +534,8 @@ export function ScreeningWorkbench({
   const selectedName = selected ? itemFullName(selected.item) : null;
   const dockTabs: DockTabItem[] = [
     { value: "decision", label: "Stawka i decyzja" },
+    // 0413: karta rekomendacji pary — pola z notatki i wpisane ręcznie.
+    { value: "card", label: "Karta" },
     { value: "notes", label: "Notatki" },
   ];
   const slaMeta =
@@ -601,6 +604,13 @@ export function ScreeningWorkbench({
               Wybierz kandydata z kolejki, żeby wpisać stawkę i zamknąć
               weryfikację.
             </p>
+          ) : dockTab === "card" ? (
+            <RecommendationCardSection
+              candidateId={selected.item.candidate_id}
+              jobId={jobId}
+              candidateName={selectedName ?? "Kandydat"}
+              readOnly={readOnly}
+            />
           ) : dockTab === "notes" ? (
             <DockNotesPanel
               candidateId={selected.item.candidate_id}

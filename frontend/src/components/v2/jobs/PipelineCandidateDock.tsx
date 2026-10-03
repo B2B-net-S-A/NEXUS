@@ -93,6 +93,8 @@ import {
   useMoveRequirements,
   type MoveRequirementAction,
 } from "@/lib/api/moveRequirements";
+import { recommendationCardQueryKey } from "@/lib/api/recommendationCards";
+import { RecommendationCardSection } from "@/components/v2/screening/RecommendationCardSection";
 import {
   companyCvSentence,
   dockOriginalCv,
@@ -138,7 +140,7 @@ export interface PipelineMoveTarget {
   blockedReason: string | null;
 }
 
-type DockTab = "process" | "screening" | "cv" | "match" | "notes";
+type DockTab = "process" | "screening" | "card" | "cv" | "match" | "notes";
 
 /**
  * Panel osoby (makieta 22.09.2026): zamiast pięciu zakładek — sekcje zwijane
@@ -148,6 +150,7 @@ type DockTab = "process" | "screening" | "cv" | "match" | "notes";
 const DOCK_SECTION_LABEL: Record<DockTab, string> = {
   process: "W procesie",
   screening: "Screening",
+  card: "Karta rekomendacji",
   cv: "CV",
   match: "Dopasowanie",
   notes: "Notatki",
@@ -497,6 +500,8 @@ export function PipelineCandidateDock({
   const [noteText, setNoteText] = useState("");
   // Okna akcji z ramki „Następny etap” (te same, które otwiera „Przesuń dalej”).
   const [qcStageId, setQcStageId] = useState<number | null>(null);
+  // 0413: okno całej karty rekomendacji (także z akcji „Uzupełnij kartę”).
+  const [cardOpen, setCardOpen] = useState(false);
   const [debriefEventId, setDebriefEventId] = useState<number | null>(null);
   const [profileCvPreviewId, setProfileCvPreviewId] = useState<number | null>(null);
 
@@ -627,6 +632,10 @@ export function PipelineCandidateDock({
       queryClient.invalidateQueries({
         queryKey: candidateQueryKeys.timelineRoot(item.candidate_id),
       });
+      // 0413: notatka-karta wypełnia kartę rekomendacji od razu.
+      queryClient.invalidateQueries({
+        queryKey: recommendationCardQueryKey(item.candidate_id, jobId),
+      });
       showSuccess("Notatka dodana.");
     },
     onError: (e) => showError(extractErrorMsg(e) || "Nie udało się dodać notatki"),
@@ -716,6 +725,7 @@ export function PipelineCandidateDock({
       case "open_screening":
       case "open_qc":
       case "generate_cv":
+      case "open_card":
         return true;
       case "set_candidate_rate":
         return verifiedTarget != null;
@@ -754,6 +764,10 @@ export function PipelineCandidateDock({
         return;
       case "request_slots":
         onAddClientSlots?.();
+        return;
+      case "open_card":
+        setOpenSections((prev) => new Set(prev).add("card"));
+        setCardOpen(true);
         return;
       default:
         return;
@@ -1311,6 +1325,32 @@ export function PipelineCandidateDock({
               </p>
             ) : null}
           </div>
+        </DockSection>
+
+        <DockSection
+          id="card"
+          label={DOCK_SECTION_LABEL.card}
+          summary={
+            item.card
+              ? item.card.status === "complete"
+                ? "Karta gotowa"
+                : item.card.status === "partial"
+                  ? `brakuje ${item.card.missing}`
+                  : "pusta"
+              : "Stawka, dostępność, tryb pracy…"
+          }
+          isNow={false}
+          open={isOpen("card")}
+          onToggle={() => toggleSection("card")}
+        >
+          <RecommendationCardSection
+            candidateId={item.candidate_id}
+            jobId={jobId}
+            candidateName={fullName}
+            readOnly={readOnly}
+            fullOpen={cardOpen}
+            onFullOpenChange={setCardOpen}
+          />
         </DockSection>
 
         <DockSection

@@ -2480,6 +2480,19 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   kompletność liczy się od nowa. Rozstrzyga data pola — osobnego licznika nie ma.
 - **Kompletność liczy JEDNA funkcja** (`recommendation_card_rules.completeness`,
   10 pól wzoru działu); front ma ją tylko pokazywać.
+- **Ekrany rekrutacji (03.10.2026):** karta tablicy niesie `card`
+  (`status`, `missing`, `answers`; `null` = pary nie ma w kartach)
+  i `contact_attempts` — po jednym zapytaniu na tablicę; plakietkę liczy
+  `lib/recommendation-card.ts::boardCardBadge` (tylko Screening,
+  Zweryfikowany, QC CV). Dok osoby ma sekcję „Karta rekomendacji”
+  (`RecommendationCardSection`: „Dopisz” w miejscu, „Otwórz całą kartę”
+  z pytaniami Championa i tekstem w starym formacie do skopiowania),
+  warsztat screeningu — zakładkę „Karta”. W „Przesuń dalej” na
+  „Zweryfikowany” pozycja `recommendation_card` nigdy nie blokuje (akcja
+  `open_card`), a odpowiedzi zapisane w notatce spełniają pozycję „Arkusz
+  screeningu”. Pytania na karcie: odpowiedź z arkusza wygrywa, bez niej —
+  z notatki po numerze pytania (`merge_questions`). Harness
+  `/preview/recommendation-card` (`?state=complete|empty|readonly`).
 - **API `GET/PUT /api/recommendation-cards?candidate_id&job_id`:** sekcja
   Pipeline, odczyt jak rekrutacja, zapis jak notatka kandydata + blokada 12 h.
   `PUT` przyjmuje tekst pola (`null` zdejmuje pole ręczne) i normalizuje go tą

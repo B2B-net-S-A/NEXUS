@@ -1254,6 +1254,46 @@
    "marker": "champion-search-keywords",
    "v3_home": "Zlecenie i Champion → Edytuj",
    "removed_reason": "Decyzja Artura 02.10.2026: pole do usunięcia — słowa kluczowe wymagań są jedną listą, po której szuka się w bazie. Zapisane frazy zostają w profilu (dane), nie są już pokazywane ani zmieniane."
+  },
+  {
+   "id": "card.board-badge",
+   "area": "tablica",
+   "opis": "Plakietka stanu karty rekomendacji na karcie tablicy („Karta gotowa” / „brakuje N” / próby kontaktu)",
+   "file": "lib/board-card-badges.ts",
+   "marker": "recommendation_card",
+   "v3_home": "Tablica"
+  },
+  {
+   "id": "card.dock-section",
+   "area": "panel osoby",
+   "opis": "Sekcja „Karta rekomendacji” w doku osoby: pola z notatki, „Dopisz” w miejscu",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "RecommendationCardSection",
+   "v3_home": "Tablica → dok osoby"
+  },
+  {
+   "id": "card.full-dialog",
+   "area": "panel osoby",
+   "opis": "Cała karta rekomendacji: pola, pytania Championa, podgląd w starym formacie z „Kopiuj”",
+   "file": "components/v2/screening/RecommendationCardDialog.tsx",
+   "marker": "W starym formacie",
+   "v3_home": "Tablica → dok osoby → Otwórz całą kartę"
+  },
+  {
+   "id": "card.move-next",
+   "area": "tablica",
+   "opis": "Braki karty rekomendacji w oknie „Przesuń dalej” (nie blokują) z przyciskiem „Uzupełnij kartę”",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "open_card",
+   "v3_home": "Tablica → Przesuń dalej"
+  },
+  {
+   "id": "card.workbench-tab",
+   "area": "warsztat",
+   "opis": "Zakładka „Karta” w warsztacie screeningu (karta rekomendacji obok stawki i notatek)",
+   "file": "components/v2/jobs/ScreeningWorkbench.tsx",
+   "marker": "RecommendationCardSection",
+   "v3_home": "Tablica → warsztat screeningu"
   }
  ]
 }

@@ -10,6 +10,7 @@
  * żadnych reguł, które serwer musiałby powtórzyć.
  */
 
+import { boardCardBadge } from "@/lib/recommendation-card";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { BoardColumnKey, StageBadgeKey } from "@/lib/board-stages";
 import { cardBadgeLabel } from "@/lib/candidate-followup";
@@ -254,6 +255,11 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
       tone: "wait",
       title: "Delivery Lead przegląda CV i wpisuje stawkę do klienta przed wysłaniem.",
     });
+  }
+  // 0413: stan karty rekomendacji — braki są informacją, nic nie blokują.
+  const cardBadge = boardCardBadge(item.card, item.contact_attempts ?? 0, column);
+  if (cardBadge && item.card !== undefined) {
+    out.push({ key: "recommendation_card", ...cardBadge });
   }
   const rate = formatClientRate(item);
   if (
