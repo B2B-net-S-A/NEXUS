@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.activity import Activity
 from app.models.ai_feature import AIFeatureKey
 from app.services.ai_quota import ai_feature
+from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.models.champion_suggestion import (
     ChampionProfileSuggestion,
     SuggestionSource,
@@ -602,8 +603,10 @@ async def enrich_from_meeting(
 
         # Long transcripts (>MAX_TRANSCRIPT_CHARS) go through map-reduce so we
         # don't silently lose context past the cutoff.
+        # 0413: notatka podpięta ręcznie bywa kartą rekomendacji — narodowość
+        # z niej nie trafia do modelu.
         transcript_text = await _summarize_transcript_for_champion(
-            meeting_transcript or ""
+            redact_card_text(meeting_transcript, AI_HIDDEN_FIELDS)
         )
         return await _generate_enrichment_suggestion(
             db,

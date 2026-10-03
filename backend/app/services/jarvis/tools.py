@@ -33,6 +33,7 @@ from zoneinfo import ZoneInfo
 
 from app.core.scheduling import DEFAULT_TZ
 from app.data.screen_guides import SCREEN_KEYS
+from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.services.section_permissions import ProductSection
 
 Tier = Literal["read", "write", "link"]
@@ -132,6 +133,22 @@ def pick_list(keys: tuple[str, ...], *, items_key: str = "items"):
 
 def as_is(data: Any, _args: dict[str, Any]) -> Any:
     return trim(data)
+
+
+def _without_nationality(value: Any) -> Any:
+    """Teksty z notatek kandydata bez narodowości — ta nie trafia do modelu."""
+    if isinstance(value, str):
+        return redact_card_text(value, AI_HIDDEN_FIELDS) if len(value) > 8 else value
+    if isinstance(value, list):
+        return [_without_nationality(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _without_nationality(item) for key, item in value.items()}
+    return value
+
+
+def _shape_candidate_text(data: Any, _args: dict[str, Any]) -> Any:
+    """Profil i oś czasu kandydata niosą treść notatek (także kart rekomendacji)."""
+    return trim(_without_nationality(data))
 
 
 def render_result(value: Any) -> str:
@@ -627,7 +644,7 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         section=ProductSection.sourcing,
         entity_type="candidate",
         build=lambda a: _get(f"/api/candidates/{_int(a, 'candidate_id')}/quick-view"),
-        shape=as_is,
+        shape=_shape_candidate_text,
     ),
     JarvisTool(
         name="get_candidate_timeline",
@@ -643,7 +660,7 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
             f"/api/candidates/{_int(a, 'candidate_id')}/timeline",
             {"limit": _limit(a, default=15)},
         ),
-        shape=as_is,
+        shape=_shape_candidate_text,
     ),
     JarvisTool(
         name="get_candidate_activity_summary",

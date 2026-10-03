@@ -2283,9 +2283,21 @@ async def collect_screening_notes_text(
         db, candidate_id=candidate_id, job_id=job.id
     )
     manual = (card.fields_manual or {}).get("recommendation") if card else None
-    recommendation = str((manual or {}).get("raw") or "").strip()
+    recommendation = redact_card_text(
+        str((manual or {}).get("raw") or ""), CV_HIDDEN_FIELDS
+    ).strip()
     if recommendation:
-        screening_parts.append(f"[Rekomendacja rekrutera]\n{recommendation}")
+        # Wpis sprzed bieżącej próby procesu jest tylko podpowiedzią na karcie
+        # — do CV nie idzie, dopóki rekruter go nie potwierdzi.
+        from app.services import candidate_claim
+
+        process = await candidate_claim.load_process(
+            db, candidate_id=candidate_id, job_id=job.id
+        )
+        if recommendation_cards.is_current(
+            manual, recommendation_cards.attempt_started(process)
+        ):
+            screening_parts.append(f"[Rekomendacja rekrutera]\n{recommendation}")
 
     first_moved = await db.scalar(
         select(func.min(CandidateStage.moved_at)).where(

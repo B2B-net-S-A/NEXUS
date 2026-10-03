@@ -23,9 +23,11 @@ _CARD = (
 )
 
 
-def _db(notes: list, card=None) -> AsyncMock:
+def _db(notes: list, card=None, process=None) -> AsyncMock:
     db = AsyncMock()
-    db.scalar.side_effect = [card, None]
+    # Kolejność odczytów: karta, proces (tylko gdy karta ma rekomendację),
+    # pierwszy ruch pary.
+    db.scalar.side_effect = [card, process, None] if card else [card, None]
     rows = [[], notes, []]
     db.scalars.side_effect = [SimpleNamespace(all=lambda row=row: row) for row in rows]
     return db
@@ -81,7 +83,50 @@ def test_every_model_reader_of_notes_redacts_the_card():
         "app/services/notes_insights_extractor.py",
         "app/services/candidate_activity_summary_service.py",
         "app/services/cv_qc.py",
+        "app/services/champion_draft_service.py",
+        "app/services/jarvis/tools.py",
     )
     for path in readers:
         source = (_BACKEND / path).read_text(encoding="utf-8")
         assert "redact_card_text(" in source, path
+
+
+@pytest.mark.asyncio
+async def test_recommendation_from_an_earlier_attempt_does_not_reach_the_cv():
+    from datetime import datetime, timezone
+
+    card = SimpleNamespace(
+        fields_manual={
+            "recommendation": {
+                "raw": "mocny kandydat z poprzedniego podejścia",
+                "at": "2026-08-01T10:00:00+00:00",
+            }
+        }
+    )
+    process = SimpleNamespace(
+        attempt_no=2,
+        opened_at=datetime(2026, 10, 1, tzinfo=timezone.utc),
+        created_at=datetime(2026, 10, 1, tzinfo=timezone.utc),
+    )
+    text = await svc.collect_screening_notes_text(
+        _db([], card=card, process=process),
+        candidate_id=1,
+        stage=SimpleNamespace(screening_answers={}, notes=None),
+        job=SimpleNamespace(id=2, champion_profile={}),
+    )
+
+    assert text == ""
+
+
+def test_jarvis_candidate_tools_do_not_carry_the_nationality():
+    from app.services.jarvis import tools
+
+    shaped = tools._shape_candidate_text(
+        {"items": [{"type": "note", "content": _CARD, "id": 7}], "total": 1}, {}
+    )
+
+    assert "polska" not in str(shaped)
+    assert "Stawka: 135 zł/h" in str(shaped)
+    by_name = {tool.name: tool for tool in tools.ALL_TOOLS}
+    for name in ("get_candidate", "get_candidate_timeline"):
+        assert by_name[name].shape is tools._shape_candidate_text
