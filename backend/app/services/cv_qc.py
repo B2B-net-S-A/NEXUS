@@ -49,6 +49,7 @@ from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_qc_run import CvQcRun
 from app.models.recruitment_pipeline import CandidateStage
 from app.services import dz_review as dz
+from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.services.dz_review import Block, Requirement, Role
 from app.core.scheduling import business_today
 
@@ -1267,7 +1268,10 @@ async def _notes_text(db: AsyncSession, candidate_id: int) -> str:
             .limit(NOTES_MAX_ROWS)
         )
     ).scalars()
-    text = "\n".join(dz._strip_html(c) for c in rows if c)
+    # 0413: narodowość z karty rekomendacji nie trafia do podpowiedzi modelu.
+    text = "\n".join(
+        dz._strip_html(redact_card_text(c, AI_HIDDEN_FIELDS)) for c in rows if c
+    )
     return text[:NOTES_TEXT_MAX]
 
 

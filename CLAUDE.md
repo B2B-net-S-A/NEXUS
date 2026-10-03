@@ -2486,6 +2486,17 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   samą regułą co notatkę. Wpis w dzienniku niesie nazwy pól, nigdy wartości.
 - **Scalanie kandydatów** ma własną regułę (`merge_manual_fields`): pola
   ręczne obu kart się łączą, zamiast „nowszy wiersz wygrywa”.
+- **Modele czytają notatkę-kartę bez pól, które nie są dla nich**
+  (`recommendation_card_parser.redact_card_text`): narodowości nie dostaje
+  żaden model (nocny odczyt faktów, podsumowanie aktywności, podpowiedzi
+  przepięcia i QC CV), a generator CV dodatkowo nie dostaje stawki, red flags
+  ani motywacji — to ustalenia handlowe, nie treść CV. „Dlaczego ten
+  kandydat” wpisane na karcie w NEXUSIE dochodzi jako blok
+  „[Rekomendacja rekrutera]”. Cięcie jest ostrożne: jeden wiersz wartości
+  (albo lista punktów pod pustą etykietą), bo cięcie „do następnej etykiety”
+  zabierało na produkcji wiersze „Mocne technologie – …” spod „Motywacja –”.
+  Nowy czytelnik notatek dla modelu = `redact_card_text` (pilnuje
+  `test_recommendation_card_ai_privacy.py`).
 - **Rodzaj notatki da się podać wprost przy TWORZENIU** (nasłuch w
   `models/note.py` klasyfikuje nową notatkę tylko, gdy `kind` jest pusty) —
   potrzebne dla „Nie odebrał” i uwag Delivery Leada. Edycja treści zawsze

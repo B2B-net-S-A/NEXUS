@@ -11,6 +11,8 @@ import time
 import pytest
 
 from app.services.recommendation_card_parser import (
+    AI_HIDDEN_FIELDS,
+    CV_HIDDEN_FIELDS,
     parse_availability,
     parse_card,
     parse_english,
@@ -18,6 +20,7 @@ from app.services.recommendation_card_parser import (
     parse_red_flags,
     parse_work_mode,
     parse_worked_at_client,
+    redact_card_text,
     to_text,
 )
 
@@ -664,3 +667,112 @@ def test_hostile_text_is_parsed_quickly(text):
     parse_card(text)
 
     assert time.perf_counter() - started < 1.0
+
+
+# ── wejście dla modeli: karta bez pól, których model nie czyta ───────────────
+
+
+_CARD_FOR_AI = (
+    "<p>Imię i nazwisko: Tomasz Wzorcowy</p><p>Stawka: 135 zł/h</p>"
+    "<p>Dostępność: 1 miesiąc</p><p>Narodowość: polska</p>"
+    "<p>Angielski: C1</p><p>Red flags: długo bez projektu</p>"
+    "<p>Notatka: mocny w Springu</p><p>Motywacja: szuka większego projektu</p>"
+    "<p>Projekty: bank, telekom</p>"
+)
+
+
+def test_no_model_reads_the_nationality_line():
+    text = redact_card_text(_CARD_FOR_AI, AI_HIDDEN_FIELDS)
+
+    assert "Narodowość" not in text and "polska" not in text
+    assert "Stawka: 135 zł/h" in text
+    assert "Angielski: C1" in text
+    assert "Red flags: długo bez projektu" in text
+
+
+def test_cv_generator_does_not_read_rate_flags_or_motivation():
+    text = redact_card_text(_CARD_FOR_AI, CV_HIDDEN_FIELDS)
+
+    for hidden in ("135", "Stawka", "polska", "długo bez projektu", "większego"):
+        assert hidden not in text
+    assert "Dostępność: 1 miesiąc" in text
+    assert "Notatka: mocny w Springu" in text
+    # Wiersz z własną etykietą po motywacji to już inne pole — zostaje.
+    assert "Projekty: bank, telekom" in text
+
+
+def test_note_without_hidden_fields_is_returned_unchanged():
+    note = "<p>dzwoniłem, zna Javę 21 i Kafkę</p>"
+    assert redact_card_text(note, CV_HIDDEN_FIELDS) == note
+    assert redact_card_text(None, CV_HIDDEN_FIELDS) == ""
+
+
+def test_free_text_after_a_single_line_field_survives():
+    text = redact_card_text(
+        "Stawka: 150\nPracował 5 lat w Javie, ostatnio Spring Boot 3.\nZna Kafkę.",
+        CV_HIDDEN_FIELDS,
+    )
+    assert text == "Pracował 5 lat w Javie, ostatnio Spring Boot 3.\nZna Kafkę."
+
+
+def test_value_written_under_the_label_is_cut_too():
+    text = redact_card_text(
+        "Dostępność: ASAP\nNarodowość:\nukraińska\nAngielski: B2", AI_HIDDEN_FIELDS
+    )
+    assert text == "Dostępność: ASAP\nAngielski: B2"
+
+
+def test_every_repeated_hidden_label_is_cut():
+    text = redact_card_text(
+        "Stawka: 150\nDostępność: ASAP\nStawka: 160 po negocjacji", CV_HIDDEN_FIELDS
+    )
+    assert text == "Dostępność: ASAP"
+
+
+def test_redaction_is_linear_on_hostile_text():
+    hostile = "Stawka: 1\n" + "Narodowość: x\n" * 1500 + "a" * 3000
+    started = time.perf_counter()
+    redact_card_text(hostile, CV_HIDDEN_FIELDS)
+    assert time.perf_counter() - started < 1.0
+
+
+def test_motivation_does_not_swallow_the_following_dash_labelled_lines():
+    note = (
+        "Motywacja – projekt jest mało rozwojowy\n"
+        "Mocne technologie – Python, PySpark, Databricks\n"
+        "Tryb pracy – zdalnie\n"
+        "Finanse – 130 PLN do negocjacji"
+    )
+    assert redact_card_text(note, CV_HIDDEN_FIELDS) == (
+        "Mocne technologie – Python, PySpark, Databricks\nTryb pracy – zdalnie"
+    )
+    assert parse_card(note).fields["motivation"]["raw"] == "projekt jest mało rozwojowy"
+
+
+def test_hidden_field_in_a_bullet_list_takes_only_its_own_bullet():
+    note = (
+        "- data scientist i automation\n"
+        "- motywacja: ciekawość, nowe technologie\n"
+        "- pracuje aktualnie na B2B\n"
+        "- zna Pythona i SQL"
+    )
+    assert redact_card_text(note, CV_HIDDEN_FIELDS) == (
+        "- data scientist i automation\n- pracuje aktualnie na B2B\n- zna Pythona i SQL"
+    )
+
+
+def test_red_flags_listed_as_bullets_under_the_label_are_cut():
+    note = (
+        "Dostępność: ASAP\nRed flags:\n- długo bez projektu\n- częste zmiany pracy\n"
+        "Notatka: mocny w Springu"
+    )
+    assert redact_card_text(note, CV_HIDDEN_FIELDS) == (
+        "Dostępność: ASAP\nNotatka: mocny w Springu"
+    )
+
+
+def test_only_the_value_line_is_cut_so_facts_below_survive():
+    note = "Motywacja: szuka zmiany\nZna Javę 21 i Kafkę, 5 lat w bankowości."
+    assert redact_card_text(note, CV_HIDDEN_FIELDS) == (
+        "Zna Javę 21 i Kafkę, 5 lat w bankowości."
+    )

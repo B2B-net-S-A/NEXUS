@@ -364,6 +364,8 @@ _PLACEHOLDER_PREFIX_RE = re.compile(r"^\[[^\]]{0,300}\]\s*:?\s*(?=\S)")
 _KEEPS_BRACKETS = frozenset({"name", "project", "cv_filename", "client_manager"})
 _LABELLED_LINE_RE = re.compile(r"^[^:\n]{2,70}:(?:\s|$)")
 _SHORT_LABEL_RE = re.compile(r"^[^:\n.,;]{2,45}:(?:\s|$)")
+# „Mocne technologie – SQL, Python” — etykieta oddzielona półpauzą.
+_DASH_LABEL_RE = re.compile(r"^[A-ZĄĆĘŁŃÓŚŹŻ][^:\n.,;–—]{1,34}\s[–—]\s")
 
 
 @dataclass(frozen=True)
@@ -824,6 +826,72 @@ def _split_question(segment: str) -> tuple[str, str]:
     return first, ""
 
 
+# Pola karty, których nie czyta żaden model (narodowość) i których nie czyta
+# generator CV (stawka, red flags, motywacja — to ustalenia handlowe, nie
+# treść CV dla klienta).
+AI_HIDDEN_FIELDS: frozenset[str] = frozenset({"nationality"})
+CV_HIDDEN_FIELDS: frozenset[str] = frozenset(
+    {"nationality", "rate", "red_flags", "motivation"}
+)
+
+
+_BULLET_START_RE = re.compile(r"^[^\S\n]*[·•*▪◦–-]")
+
+
+def _hidden_span(text: str, end: int, stop: int, *, single_line: bool) -> int:
+    """Koniec wartości ukrywanego pola (pozycja w ``text``).
+
+    Tniemy ostrożnie — lepiej zostawić modelowi dalszy ciąg motywacji niż
+    zabrać mu fakty o kandydacie (pomiar 03.10.2026: cięcie „do następnej
+    etykiety” zabierało wiersze „Mocne technologie – …” pod „Motywacja –”).
+    Wartość to jeden wiersz: reszta wiersza etykiety albo pierwszy niepusty
+    wiersz pod nią. Wyjątek: lista punktów pod pustą etykietą („Red flags:”
+    i punkty) znika w całości.
+    """
+    position = end
+    seen_value = False
+    bullets = False
+    for index, line in enumerate(text[end:stop].split("\n")):
+        if seen_value and not (bullets and _BULLET_START_RE.match(line)):
+            return position
+        if not seen_value and line.strip():
+            seen_value = True
+            bullets = (
+                not single_line and index > 0 and bool(_BULLET_START_RE.match(line))
+            )
+        position += len(line) + 1
+    return stop
+
+
+def redact_card_text(content: Optional[str], hidden: frozenset[str]) -> str:
+    """Treść notatki bez wskazanych pól karty — wejście dla modelu.
+
+    Notatka bez żadnego z tych pól wraca bez zmian (co do znaku). Z notatki
+    z takim polem zostaje zwykły tekst z wyciętą etykietą i jej wartością;
+    reszta notatki, także wiersze bez etykiet, zostaje.
+    """
+    if not content:
+        return ""
+    text = to_text(content)
+    labels = _labels(text)
+    if not any(key in hidden for _, _, key, _ in labels):
+        return content
+    kept: list[str] = []
+    cursor = 0
+    for index, (start, end, key, _) in enumerate(labels):
+        if key not in hidden or start < cursor:
+            continue
+        stop = labels[index + 1][0] if index + 1 < len(labels) else len(text)
+        # Punkt listy przed etykietą („- motywacja: …”) znika razem z nią.
+        line_start = text.rfind("\n", 0, start) + 1
+        if not text[line_start:start].strip(" \t·•*▪◦–-"):
+            start = max(line_start, cursor)
+        kept.append(text[cursor:start])
+        cursor = _hidden_span(text, end, stop, single_line=key in _SINGLE_LINE)
+    kept.append(text[cursor:])
+    return re.sub(r"\n{3,}", "\n\n", "".join(kept)).strip()
+
+
 def parse_card(content: Optional[str]) -> ParsedCard:
     """Odczytuje pola karty rekomendacji z treści notatki."""
     text = to_text(content)
@@ -878,7 +946,7 @@ def parse_card(content: Optional[str]) -> ParsedCard:
                 # „Motywacja: …” / „Projekty: …” — kolejny wiersz z własną
                 # etykietą to już inne pole, nie dalszy ciąg motywacji.
                 for position, line in enumerate(lines[1:], start=1):
-                    if _SHORT_LABEL_RE.match(line):
+                    if _SHORT_LABEL_RE.match(line) or _DASH_LABEL_RE.match(line):
                         lines = lines[:position]
                         break
             raw = "\n".join(lines)[:_TEXT_VALUE_MAX]
