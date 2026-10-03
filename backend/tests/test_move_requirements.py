@@ -395,6 +395,36 @@ def test_recommendation_card_gaps_are_listed_but_never_block() -> None:
     assert complete["status"] == "ok" and complete["action"] is None
 
 
+def test_card_facts_are_not_reported_as_unknown() -> None:
+    """Test na produkcji 03.10.2026: karta miała stawkę i dostępność, a okno
+    „Przesuń dalej” mówiło „brak stawki” i „nie wiemy, od kiedy może zacząć”."""
+    facts = PairFacts(
+        from_column="screening",
+        stage_id=5,
+        screening_done=True,
+        card_exists=True,
+        card_availability=True,
+        card_rate_hourly=130.0,
+    )
+    result = build_requirements(facts, "verified")
+
+    availability = _item(result, "availability")
+    assert availability["status"] == "ok"
+    assert availability["detail"] == "jest na karcie rekomendacji"
+
+    # Stawka z karty nie zastępuje stawki etapu — okno stawki ją podpowiada.
+    rate = _item(result, "candidate_rate")
+    assert rate["status"] == "missing"
+    assert rate["detail"] == "na karcie: 130 zł/h — potwierdź w oknie stawki"
+    assert rate["action"]["kind"] == "set_candidate_rate"
+
+    without_card = build_requirements(replace(facts, card_rate_hourly=None), "verified")
+    assert (
+        _item(without_card, "candidate_rate")["detail"]
+        == "brak stawki w profilu i w procesie"
+    )
+
+
 def test_answers_written_in_the_note_count_as_the_screening_sheet() -> None:
     facts = PairFacts(
         from_column="screening",

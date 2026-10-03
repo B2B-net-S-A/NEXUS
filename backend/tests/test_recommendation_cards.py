@@ -57,6 +57,34 @@ def test_card_disappears_with_the_candidate_and_the_job():
     assert "REFERENCES jobs(id) ON DELETE CASCADE" in ddl
 
 
+def test_card_summary_carries_what_the_move_dialog_needs():
+    at = "2026-10-03T10:00:00+00:00"
+    summary = cards.card_summary(
+        {
+            "rate": {
+                "raw": "130 zł/h netto B2B",
+                "value": 130.0,
+                "currency": "PLN",
+                "period": "h",
+                "at": at,
+            },
+            "availability": {"raw": "2 tygodnie", "at": at},
+        },
+        {},
+        None,
+    )
+    assert summary["rate_hourly"] == 130.0
+    assert summary["availability"] is True
+    # Lista braków nazywa pole tak jak ekran, nie jak wzór działu („Notatka”).
+    assert "Dlaczego ten kandydat" in summary["missing_labels"]
+    assert "Notatka" not in summary["missing_labels"]
+
+    # Kwota miesięczna zostaje tekstem — okno stawki jej nie podpowiada.
+    monthly = cards.card_summary({"rate": {"raw": "14 000 zł", "at": at}}, {}, None)
+    assert monthly["rate_hourly"] is None
+    assert monthly["availability"] is False
+
+
 def test_only_listed_modules_read_recommendation_cards():
     """Narodowość z karty nie może trafić do promptów ani dopasowania.
 
@@ -595,6 +623,8 @@ async def test_board_card_carries_the_card_state_and_contact_attempts(
         "status": "partial",
         "missing": 5,
         "answers": 1,
+        # Stawka z karty — podpowiedź w oknie stawki przy „Zweryfikowany”.
+        "rate_hourly": 135.0,
     }
     assert cards_on_board[0]["contact_attempts"] == 1
 

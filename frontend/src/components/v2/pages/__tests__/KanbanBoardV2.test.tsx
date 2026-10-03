@@ -1562,6 +1562,23 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(post.mock.calls.filter((c) => c[0] === "/api/pipeline/move")).toHaveLength(0);
   });
 
+  // Test na produkcji 03.10.2026: strzałka na karcie otwierała samo okno stawki
+  // do klienta — bez karty rekomendacji, uwag i „Wróć do poprawy”.
+  it("strzałka z „QC CV” do klienta otwiera ten sam przegląd co dok", async () => {
+    useAuthStore.setState({ user: { id: 7, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    moveRequirements([]);
+    renderBoard(qcColumns({ status: "passed", blocking_failed: 0 }) as never);
+    await screen.findByTestId("pipeline-board");
+    const card = document.querySelector('[data-candidate-id="8302"]') as HTMLElement;
+    await userEvent.click(within(card).getByRole("button", { name: /Przesuń Kuba Braki na następny etap/ }));
+    const dialog = await screen.findByTestId("move-next-dialog");
+    await userEvent.click(await within(dialog).findByRole("button", { name: /Przesuń na „CV wysłane”/ }));
+
+    expect(await screen.findByTestId("dl-review-panel")).toHaveAttribute("data-stage-id", "7302");
+    await waitFor(() => expect(screen.queryByTestId("move-next-dialog")).toBeNull());
+    expect(post.mock.calls.filter((c) => c[0] === "/api/pipeline/move")).toHaveLength(0);
+  });
+
   it("QC otwarte z listy braków wraca po „Przesuń dalej” do tego samego okna ruchu", async () => {
     qcResultCandidate.id = 8302;
     moveRequirements([

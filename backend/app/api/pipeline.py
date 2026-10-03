@@ -2461,6 +2461,7 @@ async def build_kanban_view(
                 "status": card["status"],
                 "missing": len(card["missing"]),
                 "answers": card["answers"],
+                "rate_hourly": card["rate_hourly"],
             }
             if card is not None
             else None

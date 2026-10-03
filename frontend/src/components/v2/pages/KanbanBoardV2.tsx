@@ -2338,27 +2338,32 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // do klienta dostaje ten sam pełny przegląd co na pulpicie (stawka kandydata,
  // CV, screening, stawka do klienta — bez marży), a nie samo okno stawki.
  const [dlReviewTask, setDlReviewTask] = useState<BoardTaskRow | null>(null);
- const handleDockMove = useCallback(
- (dst: KanbanColumn) => {
- if (!dockItem || !dockItemColId) return;
+ // Jedna droga dla doku, strzałki na karcie i przeciągnięcia: wysyłka z „QC
+ // CV" przez osobę z prawem wysyłki otwiera przegląd (karta, uwagi dla
+ // rekrutera, „Wróć do poprawy"). Test na produkcji 03.10.2026: strzałka
+ // otwierała samo okno stawki i omijała przegląd.
+ const openDlReviewIfSending = useCallback(
+ (item: KanbanItem, dst: KanbanColumn): boolean => {
  if (
- dst.stage === "cv_sent" &&
- !cproEnabled &&
- canReviewAsDl &&
- dockHostKey === "cv_qc" &&
- dockItem.qc?.status !== "failed"
+ dst.stage !== "cv_sent" ||
+ cproEnabled ||
+ !canReviewAsDl ||
+ columnByItemId.get(item.id) !== "cv_qc" ||
+ item.qc?.status === "failed"
  ) {
+ return false;
+ }
  setDlReviewTask({
  kind: "dl_review",
- stage_id: dockItem.id,
- candidate_id: dockItem.candidate_id,
- candidate_name: itemFullName(dockItem),
+ stage_id: item.id,
+ candidate_id: item.candidate_id,
+ candidate_name: itemFullName(item),
  job_id: jobId,
  job_title: jobTitle ?? "",
  client_id: clientId ?? null,
  client_name: null,
- since: dockItem.moved_at ?? new Date().toISOString(),
- process_state_version: dockItem.process_state_version ?? 0,
+ since: item.moved_at ?? new Date().toISOString(),
+ process_state_version: item.process_state_version ?? 0,
  target_stage_def_id: dst.stage_def_id ?? null,
  rejected_stage_def_id: rejectedTemplateCol?.stage_def_id ?? null,
  // „Wróć do poprawy": gospodarz kolumny „Zweryfikowany".
@@ -2366,21 +2371,27 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
    boardFold.columns.find((f) => f.key === "verified")?.host.stage_def_id ?? null,
  assignee_id: null,
  assignee_name: null,
- verified_at: dockItem.moved_at ?? null,
+ verified_at: item.moved_at ?? null,
  expected_rate_value:
- dockItem.expected_rate_value != null ? Number(dockItem.expected_rate_value) : null,
- expected_rate_unit: dockItem.expected_rate_unit ?? null,
- expected_rate_currency: dockItem.expected_rate_currency ?? null,
+ item.expected_rate_value != null ? Number(item.expected_rate_value) : null,
+ expected_rate_unit: item.expected_rate_unit ?? null,
+ expected_rate_currency: item.expected_rate_currency ?? null,
  // Serwer czyta arkusz pary (także z „Nowych"), gdy etap nie ma własnego.
- screening_stage_id: dockItem.id,
+ screening_stage_id: item.id,
  });
- return;
- }
+ return true;
+ },
+ [cproEnabled, canReviewAsDl, columnByItemId, jobId, jobTitle, clientId, rejectedTemplateCol, boardFold]
+ );
+ const handleDockMove = useCallback(
+ (dst: KanbanColumn) => {
+ if (!dockItem || !dockItemColId) return;
+ if (openDlReviewIfSending(dockItem, dst)) return;
  // Wybór etapu z doku jest jawny — ruch od razu (serwer i tak pilnuje
  // bramki QC; 409 CV_QC_FAILED otwiera okno QC CV).
  requestMove(dockItem, dockItemColId, dst);
  },
- [dockItem, dockItemColId, requestMove, cproEnabled, canReviewAsDl, dockHostKey, jobId, jobTitle, clientId, rejectedTemplateCol, boardFold]
+ [dockItem, dockItemColId, requestMove, openDlReviewIfSending]
  );
  // Ramka „Następny etap": przekazanie na etap wskazany przez serwer
  // (`primary.target_stage_def_id` — „QC CV" dla DL, „Wysłać do Cpro").
@@ -2466,6 +2477,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }
  case "generate_cv":
  case "set_client_rate":
+ if (action.kind === "set_client_rate") {
+ // Stawkę do klienta wpisuje się w przeglądzie — razem z kartą
+ // i uwagami dla rekrutera.
+ const sent = boardFold.columns.find((f) => f.key === "cv_sent")?.host;
+ if (sent && openDlReviewIfSending(item, sent)) {
+ setMoveNextOpen(false);
+ return;
+ }
+ }
  if (workbenchContext) {
  suspendMoveNext();
  setWorkbench({ candidateId: item.candidate_id, section: "cv" });
@@ -2508,14 +2528,18 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return;
  }
  },
- [suspendMoveNext, boardFold, cols, requestMove, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots]
+ [suspendMoveNext, boardFold, cols, requestMove, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots, openDlReviewIfSending]
  );
  const handleMoveNextMove = useCallback(
  (target: KanbanColumn) => {
  if (!moveNext) return;
+ if (openDlReviewIfSending(moveNext.item, target)) {
+ setMoveNextOpen(false);
+ return;
+ }
  requestMove(moveNext.item, moveNext.srcColId, target);
  },
- [moveNext, requestMove]
+ [moveNext, requestMove, openDlReviewIfSending]
  );
  const handleHandToCpro = useCallback(
  (stageDefId: number) => {

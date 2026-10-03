@@ -267,6 +267,35 @@ describe("usePipelineMove — ruch pojedynczy", () => {
     );
   });
 
+  it("okno stawki podpowiada stawkę z karty rekomendacji, gdy profil jej nie ma", async () => {
+    const item = card({
+      id: 12,
+      candidate_id: 102,
+      process_state_version: 1,
+      card: { status: "partial", missing: 3, answers: 0, rate_hourly: 130 },
+    });
+    const b = board({ fresh: [item] });
+    mount(b.all, { apply: vi.fn(), confirm: vi.fn() });
+
+    React.act(() => controls.requestMove(item, b.fresh, b.verified));
+    expect(await screen.findByLabelText("Kwota")).toHaveValue(130);
+  });
+
+  it("stawka z profilu wygrywa z kartą w oknie stawki", async () => {
+    const item = card({
+      id: 13,
+      candidate_id: 103,
+      process_state_version: 1,
+      candidate_expected_rate_hourly: 120,
+      card: { status: "partial", missing: 3, answers: 0, rate_hourly: 130 },
+    });
+    const b = board({ fresh: [item] });
+    mount(b.all, { apply: vi.fn(), confirm: vi.fn() });
+
+    React.act(() => controls.requestMove(item, b.fresh, b.verified));
+    expect(await screen.findByLabelText("Kwota")).toHaveValue(120);
+  });
+
   it("„Zweryfikowany”: podwójny klik w trakcie wysyłki to jeden ruch (R10-N15-7)", async () => {
     const item = card({ id: 11, candidate_id: 101, process_state_version: 2 });
     const b = board({ fresh: [item] });

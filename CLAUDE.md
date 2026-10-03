@@ -2499,6 +2499,13 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   screeningu”. Pytania na karcie: odpowiedź z arkusza wygrywa, bez niej —
   z notatki po numerze pytania (`merge_questions`). Harness
   `/preview/recommendation-card` (`?state=complete|empty|readonly`).
+  Test na produkcji 03.10.2026 dołożył trzy rzeczy: „Przesuń dalej” nie zgłasza
+  jako braku tego, co stoi na karcie (dostępność = pozycja zaliczona „jest na
+  karcie rekomendacji”; stawka kandydata zostaje do potwierdzenia, ale okno
+  stawki podpowiada ją z karty — `card.rate_hourly` na karcie tablicy, tylko
+  PLN/h odczytane bez zgadywania; profil wygrywa), a listy braków i komunikaty
+  nazywają pole „Dlaczego ten kandydat” (`DISPLAY_LABELS`; `LABELS` z „Notatka”
+  zostaje dla tekstu w starym formacie).
 - **Przegląd Delivery Leada (03.10.2026):** `DlReviewPanel` pokazuje kartę
   z pytaniami Championa (arkusz screeningu zwinięty pod spodem) i ma trzy
   decyzje — wysyłka, „Wróć do poprawy” (z powrotem na „Zweryfikowany”,
@@ -2512,7 +2519,12 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   listę „Twoje CV w drodze” (`remark`); stawka do klienta ma własne pole i do
   uwagi ani dzwonka nie trafia nigdy. Kolejka przeglądu niesie stan karty
   (`card_status`, `card_missing`; `summaries_for_pairs`). Harness
-  `/preview/dl-review` (`?as=recruiter`).
+  `/preview/dl-review` (`?as=recruiter`). Na Tablicy przegląd otwiera JEDNA
+  funkcja (`openDlReviewIfSending` w `KanbanBoardV2`) dla doku, strzałki na
+  karcie, przeciągnięcia i akcji „Wpisz stawkę do klienta” — do 03.10.2026
+  strzałka otwierała samo okno stawki i omijała kartę, uwagi i „Wróć do
+  poprawy”. Kafel „Dostępność” w przeglądzie bierze wartość z karty, gdy
+  profil jej nie zna.
 - **Profil kandydata (03.10.2026):** Historia ma zakładkę na każdy rodzaj
   notatki — „Rozmowy · Próby kontaktu · Delivery Lead · Maile · Automat”
   (nic nie znika), dalej „Wszystko”, „Telefony” (rejestr połączeń, dawniej

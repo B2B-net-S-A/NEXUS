@@ -105,14 +105,15 @@ const CARD = {
 
 function mockApi({
   cvs = [{ id: 77, status: "ready", filename: "cv.docx", origin: "auto", needs_review: true }],
-}: { cvs?: Array<Record<string, unknown>> } = {}) {
+  availability = { status: "open_to_offers", available_from: null, notice_period: 1, notice_period_unit: "months" },
+}: { cvs?: Array<Record<string, unknown>>; availability?: Record<string, unknown> | null } = {}) {
   get.mockImplementation((url: string) => {
     if (url === "/api/candidates/21/quick-view") {
       return Promise.resolve({
         data: {
           candidate: { city: "Kraków", expected_rate_hourly: null },
           current_position: { title: "Senior Java Developer" },
-          availability: { status: "open_to_offers", available_from: null, notice_period: 1, notice_period_unit: "months" },
+          availability,
         },
       });
     }
@@ -163,6 +164,16 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
       params: { candidate_id: 21, job_id: 31, limit: 10 },
     });
     expect(screen.getByText("Do przeglądu")).toBeTruthy();
+  });
+
+  // Test na produkcji 03.10.2026: karta niżej mówiła „2 tygodnie”, a kafel
+  // „Dostępność” nad nią „—”, bo czytał wyłącznie profil.
+  it("dostępność bierze z karty rekomendacji, gdy profil jej nie zna", async () => {
+    mockApi({ availability: null });
+    renderPanel();
+    const hint = await screen.findByText("z karty");
+    expect(hint.parentElement).toHaveTextContent("Dostępność");
+    expect(hint.parentElement).toHaveTextContent("od zaraz");
   });
 
   it("„Wyślij do klienta” wymaga stawki i wysyła ruch na „CV wysłane” ze stawką i wersją", async () => {

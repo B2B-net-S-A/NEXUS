@@ -74,7 +74,7 @@ class CardUpdate(BaseModel):
                 raise ValueError(f"Nieznane pole karty: {key}")
             if raw is not None and len(raw) > cards.max_length(key):
                 raise ValueError(
-                    f"Pole „{cards.LABELS[key]}” może mieć najwyżej "
+                    f"Pole „{cards.DISPLAY_LABELS[key]}” może mieć najwyżej "
                     f"{cards.max_length(key)} znaków."
                 )
         return value
