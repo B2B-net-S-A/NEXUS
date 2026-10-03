@@ -5489,6 +5489,13 @@ END $$""",
     # z `app/services/note_kind_schema.py` (pilnuje test_note_kinds).
     "ALTER TABLE notes ADD COLUMN IF NOT EXISTS kind VARCHAR(24) NULL",
     "CREATE INDEX IF NOT EXISTS ix_notes_kind_pending ON notes (id) WHERE kind IS NULL",
+    # 0413: karta rekomendacji pary (kandydat, rekrutacja) i odcisk notatki.
+    # Lustro 1:1 z `app/services/recommendation_card_schema.py` (pilnuje
+    # test_recommendation_cards).
+    "CREATE TABLE IF NOT EXISTS recommendation_cards (id SERIAL PRIMARY KEY, candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, fields_notes JSONB NOT NULL DEFAULT '{}'::jsonb, fields_manual JSONB NOT NULL DEFAULT '{}'::jsonb, note_answers JSONB NOT NULL DEFAULT '{}'::jsonb, updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT uq_recommendation_cards_pair UNIQUE (candidate_id, job_id))",
+    "CREATE INDEX IF NOT EXISTS ix_recommendation_cards_job ON recommendation_cards (job_id)",
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS card_parsed_hash VARCHAR(32) NULL",
+    "CREATE INDEX IF NOT EXISTS ix_notes_card_kinds ON notes (id) WHERE kind IN ('card', 'screening_facts')",
     # 0352: debrief z jawnym „klient nie zadawał pytań” (bramka przed „Umową”).
     "ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS "
     "no_client_questions BOOLEAN NOT NULL DEFAULT false",

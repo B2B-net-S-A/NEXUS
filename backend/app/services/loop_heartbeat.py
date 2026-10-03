@@ -59,6 +59,7 @@ EXEMPT: dict[str, str] = {
     "saved_search_alerts": "alerty zapisanych wyszukiwań; nie ścieżka krytyczna",
     "keyword_corpus_backfill": "jednorazowe uzupełnienie korpusu; do końca zapytania używają starych kolumn",
     "note_kind_backfill": "jednorazowe uzupełnienie rodzaju notatek; do końca wiersz bez rodzaju czyta się jak zwykłą notatkę",
+    "recommendation_card_import": "karty rekomendacji z notatek; opóźnienie nieszkodliwe, notatka z NEXUSA przelicza kartę w żądaniu",
     "chat_email_fallback": "fallback mailowy czatu; nie ścieżka krytyczna",
     "signature_reconciler": "uzgadnianie podpisów; sweeper podpisów jest objęty",
     "dl_portal_expiry": "dzienny skaner; zastępowany przez objęte dl_alerts",

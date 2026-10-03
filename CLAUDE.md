@@ -2429,6 +2429,70 @@ Leada o stawce do klienta, 13% karty rekomendacji według wzoru rekruterów.
   odczyt). Zmieniasz regex — sprawdź rozkład jeszcze raz i dopisz przypadek do
   `tests/test_note_kinds.py` (same fikcyjne treści).
 
+## Karta rekomendacji z notatek (0413, 03.10.2026)
+
+Rekruterzy piszą „kartę rekomendacji” jako wolny tekst w notatce (pomiar
+03.10.2026: 10 115 notatek rodzaju `card`, ok. 640 miesięcznie, głównie
+w Traffit). Od 0413 karta jest danymi: jedna na parę (kandydat, rekrutacja).
+Plan całości (kierunek B, makiety https://claude.ai/artifact/HTWhqfgGh4dr6C7u8Gmwyv):
+decyzje Artura 03.10.2026 — nic nie znika, porządki w tle, wymagania tylko
+miękkie. Ekrany dochodzą w kolejnych etapach.
+
+- **Karta = projekcja notatek + pola wpisane ręcznie** (`recommendation_cards`,
+  reguły bez bazy w `services/recommendation_card_rules.py`, zapis w
+  `recommendation_cards.py`). `fields_notes` przelicza się OD ZERA z notatek
+  pary rodzaju `card` i `screening_facts` (nowsza notatka wygrywa pole po
+  polu, każde pole pamięta notatkę i datę); `fields_manual` zawsze wygrywa
+  i import go nie dotyka; `note_answers` to pytania i odpowiedzi z notatki.
+- **Parser jest czystą regułą, bez AI** (`recommendation_card_parser.py`):
+  wartość surowa zostaje zawsze, znormalizowana tylko, gdy da się ją odczytać
+  bez zgadywania (kwota miesięczna, dzienna i w innej walucie zostają
+  tekstem). E-mail, telefon i LinkedIn są wycinane z każdej wartości.
+  Zmieniasz regułę — porównaj starą i nową wersję na produkcji (tylko
+  odczyt): dwie poprawki z przeglądu kodu pogorszyły odczyt prawdziwych kart,
+  zanim zostały zawężone. Zmiana znaczenia = podbij `PARSER_VERSION`
+  (wchodzi do odcisku, więc karty przeliczą się same).
+- **Odpowiedzi z notatek NIE trafiają do arkusza screeningu** — arkusz
+  zmienia punktację, wymagania ruchu i wychodzi do klienta. Karta tylko je
+  pokazuje.
+- **Import karty nie pisze do profilu kandydata.** Fakty profilu (stawka,
+  dostępność, tryb pracy) dalej wypełnia nocny odczyt notatek i „Zapisz
+  w profilu”.
+- **Narodowość żyje wyłącznie na karcie** (podpowiedź z poprzedniej karty
+  osoby albo `traffit_nationality`). Nie jest wejściem żadnego modelu ani
+  dopasowania: `test_recommendation_cards.py` trzyma listę modułów, które
+  wolno importować kartę — nowy czytelnik to świadomy wpis.
+- **Wybór notatek do przeliczenia jest stanem, nie hakiem:**
+  `notes.card_parsed_hash` = odcisk treści, rekrutacji, nagrobka i wersji
+  parsera, liczony w SQL-u. Pętla `recommendation_card_import` bierze notatki
+  z innym odciskiem (`job_id` dopisany surowym SQL-em po imporcie Traffita
+  łapie się sam), przy każdej przelicza WSZYSTKIE karty kandydata (notatka
+  mogła zmienić rekrutację albo rodzaj), a raz na godzinę `repair_orphans`
+  czyści karty po notatkach skasowanych surowym SQL-em. Stempel nie rusza
+  `notes.updated_at`. Zapis, edycja i usunięcie notatki w NEXUSIE przeliczają
+  kartę od razu, w savepoincie (nigdy nie cofają notatki).
+- **Flaga `RECOMMENDATION_CARD_IMPORT_ENABLED` (domyślnie OFF)** wyłącza
+  pętlę i przeliczanie przy zapisie notatki; API i pola ręczne działają bez
+  niej. Włączenie przez „Coolify set env”, pierwsze uruchomienie przelicza
+  ok. 16 tys. notatek w tle.
+- **Ponowne dodanie osoby do rekrutacji:** wartości z datą sprzed początku
+  bieżącej próby procesu (`attempt_no > 1`) są podpowiedzią (`previous`),
+  kompletność liczy się od nowa. Rozstrzyga data pola — osobnego licznika nie ma.
+- **Kompletność liczy JEDNA funkcja** (`recommendation_card_rules.completeness`,
+  10 pól wzoru działu); front ma ją tylko pokazywać.
+- **API `GET/PUT /api/recommendation-cards?candidate_id&job_id`:** sekcja
+  Pipeline, odczyt jak rekrutacja, zapis jak notatka kandydata + blokada 12 h.
+  `PUT` przyjmuje tekst pola (`null` zdejmuje pole ręczne) i normalizuje go tą
+  samą regułą co notatkę. Wpis w dzienniku niesie nazwy pól, nigdy wartości.
+- **Scalanie kandydatów** ma własną regułę (`merge_manual_fields`): pola
+  ręczne obu kart się łączą, zamiast „nowszy wiersz wygrywa”.
+- **Rodzaj notatki da się podać wprost przy TWORZENIU** (nasłuch w
+  `models/note.py` klasyfikuje nową notatkę tylko, gdy `kind` jest pusty) —
+  potrzebne dla „Nie odebrał” i uwag Delivery Leada. Edycja treści zawsze
+  liczy rodzaj od nowa: bez osobnego znacznika nie da się odróżnić rodzaju
+  jawnego od rozjechanego z regułą, a pomyłka odsłoniłaby rekruterowi notatkę
+  o stawce do klienta.
+
 ## Podsumowanie aktywności kandydata (AI)
 
 Karta „Podsumowanie aktywności" w szynie „Podsumowanie AI" profilu kandydata

@@ -1261,6 +1261,14 @@ async def execute_merge(
 
     search_erasure = await candidate_search_store.erase_candidate(db, duplicate_id)
 
+    from app.services import recommendation_card_import, recommendation_cards
+
+    # 0413: karta rekomendacji ma własną regułę — pola wpisane ręcznie z obu
+    # kart się łączą, zamiast „nowsza karta wygrywa”.
+    await recommendation_cards.merge_manual_fields(
+        db, survivor_id=survivor_id, duplicate_id=duplicate_id
+    )
+
     indexes = await unique_indexes(db)
     moved: dict[str, dict[str, int]] = {}
     for ref in await _usable_references(db):
@@ -1269,6 +1277,7 @@ async def execute_merge(
         )
         if stats["moved"] or stats["replaced"]:
             moved[f"{ref.table}.{ref.column}"] = stats
+    await recommendation_card_import.after_candidate_merge(db, survivor_id=survivor_id)
     polymorphic = await _move_polymorphic(
         db, survivor_id=survivor_id, duplicate_id=duplicate_id
     )
