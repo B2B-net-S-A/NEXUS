@@ -177,7 +177,13 @@ export interface KanbanItem {
  } | null;
  // Karta rekomendacji (0413): stan karty pary i liczba notatek „nie odebrał”.
  // `card: null` = pary nie ma jeszcze w kartach.
- card?: { status: "complete" | "partial" | "empty"; missing: number; answers: number } | null;
+ card?: {
+   status: "complete" | "partial" | "empty";
+   missing: number;
+   answers: number;
+   /** Stawka kandydata z karty (PLN/h) — podpowiedź w oknie stawki. */
+   rate_hourly?: number | null;
+ } | null;
  contact_attempts?: number;
 }
 

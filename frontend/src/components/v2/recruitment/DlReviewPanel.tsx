@@ -460,6 +460,10 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
   // stawkę do klienta.
   const clientRate = parseAmount(rateRaw);
   const location = profile?.city || profile?.location || null;
+  // Dostępność z profilu, a gdy profil jej nie zna — z karty rekomendacji
+  // (ta sama wartość stoi niżej na karcie; „—” obok niej wyglądało na brak).
+  const profileAvailability = availabilityText(quickView.data?.availability);
+  const cardAvailability = card.data?.fields.availability?.raw?.trim() || null;
 
   const remark = note.trim();
 
@@ -575,7 +579,11 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
               value={snapshotRate ?? profileRate}
               hint={snapshotRate ? "przy weryfikacji" : profileRate ? "z profilu" : undefined}
             />
-            <Fact label="Dostępność" value={availabilityText(quickView.data?.availability)} />
+            <Fact
+              label="Dostępność"
+              value={profileAvailability ?? cardAvailability}
+              hint={!profileAvailability && cardAvailability ? "z karty" : undefined}
+            />
             <Fact label="Lokalizacja" value={location} />
             <Fact label="Stanowisko" value={quickView.data?.current_position?.title ?? null} />
           </dl>

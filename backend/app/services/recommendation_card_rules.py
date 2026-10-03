@@ -55,6 +55,10 @@ LABELS: dict[str, str] = {
     "motivation": "Motywacja",
     "client_manager": "Manager u Klienta",
 }
+# Na ekranie „Notatka” ze wzoru działu nazywa się tak, jak rozumie ją
+# rekruter. `LABELS` zostaje dla tekstu w starym formacie (do skopiowania);
+# listy braków, podpowiedzi i komunikaty biorą nazwy stąd.
+DISPLAY_LABELS: dict[str, str] = {**LABELS, "recommendation": "Dlaczego ten kandydat"}
 
 
 @dataclass(frozen=True)

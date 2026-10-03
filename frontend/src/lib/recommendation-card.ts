@@ -122,6 +122,7 @@ export interface BoardCardState {
   status: "complete" | "partial" | "empty";
   missing: number;
   answers: number;
+  rate_hourly?: number | null;
 }
 
 export interface BoardCardBadge {

@@ -1156,7 +1156,13 @@ export function usePipelineMove({
               : "")
           }
           jobBudgetHourly={job.budgetHourly}
-          initialRateHourly={verifiedRatePrompt.item.candidate_expected_rate_hourly ?? null}
+          // Stawka z profilu, a gdy jej nie ma — z karty rekomendacji pary
+          // (rekruter wpisał ją w notatce i nie powinien wpisywać drugi raz).
+          initialRateHourly={
+            verifiedRatePrompt.item.candidate_expected_rate_hourly ??
+            verifiedRatePrompt.item.card?.rate_hourly ??
+            null
+          }
           onConfirm={(payload) => void submitVerifiedMove(payload)}
           onSkip={() => void submitVerifiedMove(null)}
           submitting={verifiedSubmitting}

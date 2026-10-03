@@ -40,6 +40,7 @@ from app.models.user import User
 from app.services.client_identity import client_display_name_expression
 from app.services.recommendation_card_rules import (  # noqa: F401 — jedno wejście dla wołających
     CARD_KINDS,
+    DISPLAY_LABELS,
     EDITABLE_FIELDS,
     LABELS,
     REQUIRED_FIELDS,
@@ -73,16 +74,38 @@ def card_summary(
     *,
     started: Optional[datetime] = None,
 ) -> dict[str, object]:
-    """Stan karty dla plakietek i wymagań ruchu — bez treści pól."""
+    """Stan karty dla plakietek i wymagań ruchu.
+
+    Z treści pól przechodzą tylko dwie rzeczy, których potrzebuje „Przesuń
+    dalej”: stawka kandydata w PLN/h (podpowiedź w oknie stawki — widzi ją
+    każda rola) i to, czy karta zna dostępność.
+    """
     current, _ = split_fields(fields_notes, fields_manual, attempt_started=started)
     state = completeness(current)
     answers = current_answers(note_answers, attempt_started=started)
     return {
         "status": state["status"],
         "missing": state["missing"],
-        "missing_labels": [LABELS[key] for key in state["missing"]],
+        "missing_labels": [DISPLAY_LABELS[key] for key in state["missing"]],
         "answers": len(answers["items"]) if answers else 0,
+        "rate_hourly": _hourly_rate(current.get("rate")),
+        "availability": "availability" in current,
     }
+
+
+def _hourly_rate(field: object) -> Optional[float]:
+    """Stawka z karty jako PLN/h — tylko gdy parser odczytał ją bez zgadywania."""
+    if not isinstance(field, Mapping):
+        return None
+    value = field.get("value")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if field.get("currency") != "PLN" or field.get("period") != "h":
+        return None
+    # Widełki („130–150 zł/h”) to nie jedna stawka — nie podpowiadamy dolnej.
+    if field.get("value_max") is not None:
+        return None
+    return float(value)
 
 
 async def summaries_for_job(
@@ -424,7 +447,7 @@ async def candidate_overview(
     fact_rows = [
         {
             "key": key,
-            "label": LABELS[key],
+            "label": DISPLAY_LABELS[key],
             "raw": str(value.get("raw") or "").strip(),
             "value": value.get("value"),
             "level": value.get("level"),
@@ -475,7 +498,7 @@ async def candidate_overview(
             {
                 **link,
                 "job_title": _job_title(link["job_id"]),
-                "field_labels": [LABELS[key] for key in link["fields"]],
+                "field_labels": [DISPLAY_LABELS[key] for key in link["fields"]],
             }
             for link in links.values()
         ],

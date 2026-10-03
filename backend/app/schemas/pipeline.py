@@ -173,8 +173,10 @@ class CandidateStageResponse(BaseModel):
     # Wypełnia tylko tablica.
     qc: Optional[dict] = None
     # Karta rekomendacji (0413): `{"status": "complete|partial|empty",
-    # "missing": int, "answers": int}` albo `None`, gdy pary nie ma jeszcze
-    # w `recommendation_cards`. Wypełnia tylko tablica.
+    # "missing": int, "answers": int, "rate_hourly": float | None}` albo `None`,
+    # gdy pary nie ma jeszcze w `recommendation_cards`. `rate_hourly` to stawka
+    # kandydata z karty (PLN/h) — podpowiedź w oknie stawki przy ruchu na
+    # „Zweryfikowany”. Wypełnia tylko tablica.
     card: Optional[dict] = None
     # Notatki „nie odebrał” tej osoby (w tej rekrutacji i bez rekrutacji).
     contact_attempts: int = 0

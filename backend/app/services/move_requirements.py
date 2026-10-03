@@ -93,6 +93,10 @@ class PairFacts:
     card_missing: tuple[str, ...] = ()
     card_exists: bool = False
     card_answers: bool = False
+    # Karta zna dostępność albo stawkę kandydata (PLN/h) — „Przesuń dalej”
+    # nie może wtedy mówić, że tego nie wiemy.
+    card_availability: bool = False
+    card_rate_hourly: Optional[float] = None
     company_cv: bool = False
     qc_status: str = "unchecked"
     qc_blocking_failed: int = 0
@@ -176,6 +180,13 @@ def _items_for_cpro_upload(column: str, f: PairFacts) -> list[_Item]:
     ]
 
 
+def _missing_rate_detail(f: PairFacts) -> str:
+    """Stawka z karty nie zastępuje stawki etapu — okno stawki ją podpowie."""
+    if f.card_rate_hourly is None:
+        return "brak stawki w profilu i w procesie"
+    return f"na karcie: {f.card_rate_hourly:g} zł/h — potwierdź w oknie stawki"
+
+
 def _items_for(column: str, f: PairFacts) -> list[_Item]:
     sid = f.stage_id
     if column == "verified":
@@ -205,7 +216,7 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
                 "Stawka kandydata",
                 OK if f.candidate_rate else MISSING,
                 True,
-                None if f.candidate_rate else "brak stawki w profilu i w procesie",
+                None if f.candidate_rate else _missing_rate_detail(f),
                 None
                 if f.candidate_rate
                 else _action("set_candidate_rate", "Wpisz stawkę", sid),
@@ -214,9 +225,13 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
                 column,
                 "availability",
                 "Dostępność",
-                OK if f.availability_known else MISSING,
+                OK if f.availability_known or f.card_availability else MISSING,
                 False,
-                None if f.availability_known else "nie wiemy, od kiedy może zacząć",
+                None
+                if f.availability_known
+                else "jest na karcie rekomendacji"
+                if f.card_availability
+                else "nie wiemy, od kiedy może zacząć",
             ),
             # Braki karty nie blokują ruchu — Delivery Lead zobaczy je przed
             # wysłaniem CV.
@@ -852,6 +867,8 @@ async def load_pair_facts(
         card_missing=tuple(card["missing_labels"]) if card else (),
         card_exists=card is not None and card["status"] != "empty",
         card_answers=bool(card and card["answers"]),
+        card_availability=bool(card and card["availability"]),
+        card_rate_hourly=card["rate_hourly"] if card else None,
         company_cv=cv is not None,
         qc_status=qc.get("status") or "unchecked",
         qc_blocking_failed=int(qc.get("blocking_failed") or 0),
