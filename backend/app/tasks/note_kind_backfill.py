@@ -13,7 +13,11 @@ import asyncio
 import logging
 
 from app.core.database import AsyncSessionLocal
-from app.services.note_kind_backfill import DEFAULT_BATCH, classify_pending
+from app.services.note_kind_backfill import (
+    DEFAULT_BATCH,
+    classify_pending,
+    reclassify_dl_rate_lists,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +26,24 @@ _PAUSE_SECONDS = 0.5
 _RETRY_SECONDS = 60
 
 
+async def _reclassify_once() -> None:
+    """Jednorazowe przeliczenie po zmianie reguły; błąd nie zatrzymuje pętli
+    (znacznik nie powstaje, więc następny start spróbuje ponownie)."""
+    try:
+        async with AsyncSessionLocal() as db:
+            changed = await reclassify_dl_rate_lists(db)
+            await db.commit()
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — pętla tła nie może paść
+        logger.warning("note kind reclassify: failed (%s)", type(exc).__name__)
+        return
+    if changed:
+        logger.info("note kind reclassify: %d notes are now dl_rate", changed)
+
+
 async def note_kind_backfill_loop() -> None:
+    await _reclassify_once()
     total = 0
     while True:
         try:

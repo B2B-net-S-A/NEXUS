@@ -34,6 +34,23 @@ _CARD = (
 )
 
 
+# Delivery Lead wymienia rekrutacje po cenie — wpis ma ponad 200 znaków przez
+# same tytuły, a o kandydacie nie mówi nic.
+_DL_RATE_LIST = (
+    "Pokazujemy za 178zł na: Senior Backend Developer do zespołu płatności "
+    "(40001) Programista Java w projekcie rozliczeń międzybankowych (40002) "
+    "Ekspert integracji systemów kartowych w nowym programie (40003) "
+    "@Anna Przykładowa @Jan Testowy"
+)
+# Ta sama forma, ale z opisem kandydata — zostaje czytelna dla modeli.
+_DL_RATE_LIST_WITH_FACTS = (
+    "Pokazujemy za 178zł na: Senior Backend Developer do zespołu płatności "
+    "(40001) Programista Java w projekcie rozliczeń międzybankowych (40002). "
+    "Kandydat pracował pięć lat w bankowości, zna Kafkę i Spring Boot, "
+    "komercyjnie prowadził migrację do chmury."
+)
+
+
 # ── bez bazy ─────────────────────────────────────────────────────────────────
 
 
@@ -64,6 +81,7 @@ _CARD = (
             "Pokazujemy za 178zł na: Senior Java Developer (42146) @Jan Testowy",
             note_kinds.DL_RATE,
         ),
+        (_DL_RATE_LIST, note_kinds.DL_RATE),
         ("150/110", note_kinds.DL_RATE),
         ("110/70 @Anna Przykładowa", note_kinds.DL_RATE),
         ("@Anna Przykładowa 175", note_kinds.DL_RATE),
@@ -149,6 +167,20 @@ def test_only_real_mail_threads_are_email():
         "Wysłana za 85 zł/h. Chce iść w kierunku automatyzacji testów, ma za sobą "
         "trzy lata w projekcie bankowym, zna Selenium i Playwright, okres "
         "wypowiedzenia może skrócić z miesiąca do dwóch tygodni, mieszka w Gdyni.",
+        # Lista rekrutacji z opisem kandydata niesie fakty — nie jest samą ceną.
+        _DL_RATE_LIST_WITH_FACTS,
+        # Cena obok ustaleń z rozmowy (dostępność, tryb pracy) — notatka niesie
+        # fakty, których rekruter i modele nie mogą stracić.
+        "Wyślijmy za 160 zł/h. Kandydat dostępny od zaraz, wypowiedzenie 1 miesiąc, "
+        "hybryda 2 dni w Warszawie, mieszka w Gdyni, chce 150 netto, rozmowa była "
+        "dobra, jest zainteresowany projektem bankowym i chce zmienić branżę, bo "
+        "obecna firma nie daje rozwoju.",
+        "Rozmowa OK, jest zainteresowany projektem w bankowości, zdalnie, dostępny "
+        "od 1.11, okres wypowiedzenia 2 tygodnie, stawka 150 zł/h. Pokażmy za 170 zł "
+        "na: Senior Java Developer (40001), Java Developer (40002), Backend "
+        "Engineer (40003) oraz Tech Lead (40004).",
+        # Bardzo długi wpis zostaje zwykłą notatką, nawet bez słowa o kandydacie.
+        _DL_RATE_LIST + " " + "Kolejna rekrutacja w tym samym programie (40004) " * 4,
     ],
 )
 def test_client_rate_rule_does_not_swallow_ordinary_notes(content: str):
@@ -386,6 +418,75 @@ async def test_backfill_classifies_raw_sql_rows_without_touching_updated_at():
         ).one()
     assert row.kind == note_kinds.CONTACT_ATTEMPT
     assert row.updated_at == before
+
+
+def test_dl_rate_list_examples_sit_between_the_two_limits():
+    # Przykłady mają sprawdzać nowy limit, a nie stary: ponad 200, poniżej 400.
+    for content in (_DL_RATE_LIST, _DL_RATE_LIST_WITH_FACTS):
+        assert 200 < len(note_kinds.plain_text(content)) < 400
+
+
+@pytest.mark.asyncio
+async def test_reclassify_moves_long_price_notes_to_dl_rate_once():
+    from app.services.note_kind_backfill import (
+        DL_RATE_LISTS_MARKER,
+        reclassify_dl_rate_lists,
+    )
+
+    cand_id = await _seed_candidate()
+    insert = text(
+        "INSERT INTO notes (candidate_id, content, note_type, kind, created_at, "
+        "updated_at) VALUES (:c, :content, 'general', :kind, "
+        "now() - interval '3 days', now() - interval '3 days') RETURNING id"
+    )
+    async with AsyncSessionLocal() as db:
+        # Baza testowa jest wspólna — znacznik mógł zostać po innym biegu.
+        await db.execute(
+            text("DELETE FROM app_settings WHERE key = :key"),
+            {"key": DL_RATE_LISTS_MARKER},
+        )
+        price_id = (
+            await db.execute(
+                insert, {"c": cand_id, "content": _DL_RATE_LIST, "kind": "human"}
+            )
+        ).scalar_one()
+        facts_id = (
+            await db.execute(
+                insert,
+                {"c": cand_id, "content": _DL_RATE_LIST_WITH_FACTS, "kind": "human"},
+            )
+        ).scalar_one()
+        await db.commit()
+        before = await db.scalar(select(Note.updated_at).where(Note.id == price_id))
+
+        changed = await reclassify_dl_rate_lists(db)
+        await db.commit()
+        assert changed is not None and changed >= 1
+
+        rows = {
+            row.id: row
+            for row in (
+                await db.execute(
+                    select(Note.id, Note.kind, Note.updated_at).where(
+                        Note.id.in_([price_id, facts_id])
+                    )
+                )
+            ).all()
+        }
+        receipt = await db.scalar(
+            text("SELECT value FROM app_settings WHERE key = :key"),
+            {"key": DL_RATE_LISTS_MARKER},
+        )
+        # Drugi przebieg nic nie robi — znacznik już jest.
+        assert await reclassify_dl_rate_lists(db) is None
+
+    assert rows[price_id].kind == note_kinds.DL_RATE
+    assert rows[price_id].updated_at == before
+    assert rows[facts_id].kind == "human"
+    # Paragon wystarcza do odwrócenia i nie niesie treści notatek.
+    assert price_id in receipt["previous_kind"]["human"]
+    assert facts_id not in receipt["previous_kind"]["human"]
+    assert "178" not in str(receipt)
 
 
 @pytest.mark.asyncio
