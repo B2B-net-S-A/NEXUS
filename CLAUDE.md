@@ -2558,16 +2558,21 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   `services/client_rate_notes.py`, `POST /api/admin/notes-insights/client-rates`
   (admin). Przenosi do `candidate_stages.client_rate_*` wyłącznie wpis
   JEDNOZNACZNY: notatka `dl_rate` z rekrutacją, jedna kwota po czasowniku
-  wysyłki („Wyślijmy za 161 zł/h”), 40–400 PLN/h; para kwot, sama liczba przy
-  wzmiance, inna waluta lub jednostka zostają w notatce. Tylko para bez stawki
-  na żadnym wierszu etapu, kwota trafia na pierwszy wiersz od „CV wysłane”;
-  dwie różne kwoty w notatkach pary = pominięcie. `dry_run=true` (domyślnie)
-  nic nie zapisuje; zapis wymaga `expected=` równego liczbie z próby (409 przy
-  rozjeździe). Notatek nie zmienia. Paragon `client_rate_notes_backfill_2026_10`
-  (liczby i id wierszy), kwoty pod `repair_details_…`. Pomiar 03.10.2026: 5 994
-  wpisy `dl_rate`, 1 410 jednoznacznych, ok. 1 400 par do uzupełnienia —
-  wszystkie w archiwum z Traffita; przed zapisem stawkę do klienta miało 17
-  wierszy etapów.
+  wysyłki („Wyślijmy za 161 zł/h”), 40–400 PLN/h. Po kwocie może stać tylko
+  „zł / h / netto / + VAT” i koniec zdania (biała lista — „160 GBP”,
+  „160 zł/mc”, „150%”, „161,555” nie przechodzą); przeczenie, warunek, pytanie
+  i „albo” odrzucają wpis. Para z drugim wpisem o cenie, którego nie da się
+  odczytać („160/130”), albo z dwiema różnymi kwotami odpada w całości. Tylko
+  para bez stawki na żadnym wierszu etapu; kwota trafia na pierwszy wiersz od
+  „CV wysłane”. `dry_run=true` (domyślnie) nic nie zapisuje; zapis wymaga
+  `expected=` równego liczbie z próby (409 przy rozjeździe i przy pustym
+  planie), idzie pod blokadą doradczą i DOPISUJE paragon
+  (`client_rate_notes_backfill_2026_10`: liczby i id) oraz szczegóły
+  (`repair_details_…`: wiersz, notatka, kwota — jedyna droga odwrócenia).
+  Notatek nie zmienia. Pomiar 03.10.2026 (tylko odczyt): 4 676 wpisów
+  z rekrutacją, 1 378 par do uzupełnienia, wszystkie w zamkniętych
+  rekrutacjach z archiwum; przed zapisem stawkę do klienta miało 17 wierszy.
+  Zmieniasz regułę — przelicz plan na produkcji w transakcji tylko do odczytu.
 - **Jarvis czyta kartę narzędziem `get_recommendation_card`** — kształt
   wyniku (`_shape_recommendation_card`) nie przepuszcza narodowości,
   podpowiedzi ani `legacy_text` (pilnuje `test_recommendation_card_ai_privacy.py`).

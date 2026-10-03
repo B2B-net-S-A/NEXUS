@@ -11,10 +11,11 @@ i niczego nie nadpisuje:
   przy wzmiance, inna waluta albo stawka dzienna/miesięczna zostają w notatce;
 * tylko para (kandydat, rekrutacja), która nie ma stawki do klienta na żadnym
   wierszu etapu; kwota trafia na pierwszy wiersz „CV wysłane” albo późniejszy;
-* para z dwiema różnymi kwotami w notatkach jest pomijana — nie zgadujemy.
+* para z dwiema różnymi kwotami albo z dodatkowym wpisem o cenie, którego nie
+  da się odczytać, jest pomijana — nie zgadujemy.
 
-Plan liczy ta sama funkcja dla próby i zapisu; zapis dotyka wyłącznie wierszy,
-które w chwili UPDATE nadal mają puste pole.
+Plan liczy ta sama funkcja dla próby i zapisu; zapis dotyka wyłącznie par,
+które w chwili UPDATE nadal nie mają stawki na żadnym wierszu etapu.
 """
 
 from __future__ import annotations
@@ -53,23 +54,38 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 _MENTION_RE = re.compile(r"@[^\s@]+ [^\s@]+|\$\$user_\d+\$\$")
 _AMOUNT_RE = re.compile(r"(?<![\d.,/])\d{2,3}(?:[.,]\d{1,2})?(?![\d/])")
+# Po kwocie może stać WYŁĄCZNIE to, co znaczy „złotych za godzinę”: nic,
+# „zł/PLN”, „/h”, „netto”, „+ VAT” — a potem koniec zdania. Biała lista zamiast
+# listy zakazów: „160 GBP”, „160 zł/mc”, „150%”, „150 tys.” i „161,555” nie
+# przechodzą, bo nie pasują do wzoru, a nie dlatego, że ktoś je przewidział.
 _SEND_RE = re.compile(
     r"(?:wy[sś]l\w*|wysy[lł]a\w*|wys[lł]an\w*)\s+(?:go |j[aą] |cv )?(?:za|po)\s+"
-    r"(\d{2,3})(?:[.,](\d{1,2}))?(?![\d/])"
+    r"(\d{2,3})(?:[.,](\d{1,2}))?(?![.,]?\d)"
+    r"(?:\s*(?:zł|zl|pln))?(?:\s*/\s*(?:h|godz\w*))?(?:\s*netto)?(?:\s*\+\s*vat)?"
+    r"(?=\s*(?:[.,;!)]|$))"
 )
-_OTHER_UNIT_RE = re.compile(r"eur|usd|€|\$|\bmd\b|dzie[nń]|dniówk|mies|brutto")
+# Przeczenie, warunek albo pytanie: „nie wysyłamy za 160”, „jeśli klient się
+# zgodzi…”, „wyślijmy za 160?” — to nie jest zapisana cena.
+_DOUBT_RE = re.compile(
+    r"\b(?:nie|bez|ani|czy|chyba|mo[zż]e|gdyby|albo|lub)\b|je[sś]li|je[zż]eli|\?"
+)
+
+
+def _plain(content: Optional[str]) -> str:
+    plain = _WS_RE.sub(" ", html.unescape(_TAG_RE.sub(" ", content or ""))).lower()
+    return _MENTION_RE.sub(" ", plain).strip()
 
 
 def extract_client_rate(content: Optional[str]) -> Optional[Decimal]:
     """Stawka do klienta w PLN/h z wpisu Delivery Leada albo ``None``.
 
-    Zwraca kwotę tylko wtedy, gdy notatka niesie dokładnie jedną liczbę i stoi
-    ona po czasowniku wysyłki. Każda wątpliwość = ``None`` (wpis zostaje
-    w notatce i nic się z nim nie dzieje).
+    Zwraca kwotę tylko wtedy, gdy notatka niesie dokładnie jedną liczbę, stoi
+    ona po czasowniku wysyłki, po niej jest najwyżej „zł / h / netto / + VAT”
+    i koniec zdania, a w treści nie ma przeczenia, warunku ani pytania. Każda
+    wątpliwość = ``None`` (wpis zostaje w notatce i nic się z nim nie dzieje).
     """
-    plain = _WS_RE.sub(" ", html.unescape(_TAG_RE.sub(" ", content or ""))).lower()
-    plain = _MENTION_RE.sub(" ", plain)
-    if _OTHER_UNIT_RE.search(plain):
+    plain = _plain(content)
+    if _DOUBT_RE.search(plain):
         return None
     match = _SEND_RE.search(plain)
     if match is None or len(_AMOUNT_RE.findall(plain)) != 1:
@@ -116,21 +132,28 @@ async def build_plan(db: AsyncSession) -> tuple[list[PlannedRate], dict[str, int
     """(wiersze do uzupełnienia, liczniki). Czysty odczyt."""
     counts: Counter[str] = Counter()
     by_pair: dict[tuple[int, int], list[tuple[int, Decimal]]] = {}
+    unclear_pairs: set[tuple[int, int]] = set()
     for row in (await db.execute(_NOTES_SQL)).all():
         counts["notes_with_job"] += 1
+        pair = (row.candidate_id, row.job_id)
         value = extract_client_rate(row.content)
         if value is None:
             counts["notes_not_unambiguous"] += 1
+            unclear_pairs.add(pair)
             continue
-        by_pair.setdefault((row.candidate_id, row.job_id), []).append((row.id, value))
+        by_pair.setdefault(pair, []).append((row.id, value))
     counts["pairs_with_rate_note"] = len(by_pair)
 
     candidates: dict[tuple[int, int], tuple[int, Decimal]] = {}
     for pair, found in by_pair.items():
-        if len({value for _, value in found}) > 1:
+        # Drugi wpis o cenie, którego nie da się odczytać („160/130”, sama
+        # liczba przy wzmiance), mógł ją zmienić — nie zgadujemy, który ważny.
+        if pair in unclear_pairs:
+            counts["pairs_with_unclear_note"] += 1
+        elif len({value for _, value in found}) > 1:
             counts["pairs_with_different_amounts"] += 1
-            continue
-        candidates[pair] = found[-1]
+        else:
+            candidates[pair] = found[-1]
     if not candidates:
         return [], dict(counts)
 
@@ -173,16 +196,24 @@ async def build_plan(db: AsyncSession) -> tuple[list[PlannedRate], dict[str, int
 
 _APPLY_SQL = text(
     """
-    UPDATE candidate_stages
+    UPDATE candidate_stages AS target
        SET client_rate_value = :value,
            client_rate_unit = 'hourly',
            client_rate_currency = 'PLN'
-     WHERE id = :stage_id
-       AND client_rate_value IS NULL
+     WHERE target.id = :stage_id
+       AND NOT EXISTS (
+               SELECT 1
+                 FROM candidate_stages AS other
+                WHERE other.candidate_id = target.candidate_id
+                  AND other.job_id = target.job_id
+                  AND other.client_rate_value IS NOT NULL
+           )
     """
 )
 
-_RECEIPT_SQL = text(
+_LOCK_SQL = text("SELECT pg_advisory_xact_lock(hashtext(:key))")
+_READ_SQL = text("SELECT value FROM app_settings WHERE key = :key")
+_WRITE_SQL = text(
     """
     INSERT INTO app_settings (key, value, updated_at)
     VALUES (:key, CAST(:value AS jsonb), now())
@@ -191,10 +222,27 @@ _RECEIPT_SQL = text(
 )
 
 
+async def lock_for_apply(db: AsyncSession) -> None:
+    """Jeden zapis naraz — plan liczymy dopiero pod tą blokadą."""
+    await db.execute(_LOCK_SQL, {"key": RECEIPT_KEY})
+
+
+async def _stored(db: AsyncSession, key: str) -> dict[str, Any]:
+    value = await db.scalar(_READ_SQL, {"key": key})
+    if isinstance(value, str):
+        value = json.loads(value)
+    return value if isinstance(value, dict) else {}
+
+
 async def apply_plan(
     db: AsyncSession, plan: list[PlannedRate], counts: dict[str, int], *, user_id: int
 ) -> dict[str, Any]:
-    """Zapisuje plan; wiersz, który w międzyczasie dostał stawkę, zostaje."""
+    """Zapisuje plan; para, która w międzyczasie dostała stawkę, zostaje.
+
+    Paragon i szczegóły są DOPISYWANE do poprzednich przebiegów: lista
+    ``rows`` (wiersz etapu, notatka, kwota) to jedyna droga odwrócenia zapisu,
+    więc kolejny przebieg nie może jej zastąpić.
+    """
     filled: list[PlannedRate] = []
     for item in plan:
         result = await db.execute(
@@ -202,24 +250,29 @@ async def apply_plan(
         )
         if result.rowcount:
             filled.append(item)
-    now = datetime.now(timezone.utc).isoformat()
-    receipt = {
-        "applied_at": now,
+    run = {
+        "applied_at": datetime.now(timezone.utc).isoformat(),
         "applied_by": user_id,
         "counts": {**counts, "filled": len(filled)},
         "stage_ids": [item.stage_id for item in filled],
     }
-    details = {
-        "applied_at": now,
-        "rows": [
+    if not filled:
+        return run
+    receipt = await _stored(db, RECEIPT_KEY)
+    details = await _stored(db, DETAILS_KEY)
+    receipt["runs"] = [*receipt.get("runs", []), run]
+    details["rows"] = [
+        *details.get("rows", []),
+        *(
             {
                 "stage_id": item.stage_id,
                 "note_id": item.note_id,
                 "value": str(item.value),
+                "applied_at": run["applied_at"],
             }
             for item in filled
-        ],
-    }
-    await db.execute(_RECEIPT_SQL, {"key": RECEIPT_KEY, "value": json.dumps(receipt)})
-    await db.execute(_RECEIPT_SQL, {"key": DETAILS_KEY, "value": json.dumps(details)})
-    return receipt
+        ),
+    ]
+    await db.execute(_WRITE_SQL, {"key": RECEIPT_KEY, "value": json.dumps(receipt)})
+    await db.execute(_WRITE_SQL, {"key": DETAILS_KEY, "value": json.dumps(details)})
+    return run

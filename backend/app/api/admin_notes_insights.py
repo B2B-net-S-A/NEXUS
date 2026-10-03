@@ -99,6 +99,9 @@ async def backfill_client_rates_from_notes(
     z próby — gdy dane zmieniły się od próby, odpowiedź to 409 i nic się nie
     zapisuje. ``request`` — wymóg slowapi.
     """
+    if not dry_run:
+        # Jeden zapis naraz; plan liczymy już pod blokadą.
+        await client_rate_notes.lock_for_apply(db)
     plan, counts = await client_rate_notes.build_plan(db)
     if dry_run:
         return {
@@ -115,6 +118,11 @@ async def backfill_client_rates_from_notes(
                 for item in plan[:20]
             ],
         }
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Nie ma czego uzupełnić — wszystkie jednoznaczne wpisy są już w polach.",
+        )
     if expected is None or expected != len(plan):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
