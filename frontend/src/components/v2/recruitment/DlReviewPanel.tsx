@@ -741,6 +741,7 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
                 variant="outline"
                 disabled={!returnReady || busy !== null}
                 title={returnReady ? undefined : "Napisz w uwagach, co rekruter ma poprawić."}
+                aria-describedby={returnReady ? undefined : "dl-review-remark-hint"}
                 onClick={() => void move("return")}
               >
                 {busy === "return" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Undo2 className="size-4" />}

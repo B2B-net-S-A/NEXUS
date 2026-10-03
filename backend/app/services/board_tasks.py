@@ -28,6 +28,7 @@ roku — kolejka z nimi byłaby listą, której nikt nie przeczyta.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Iterable, Optional
@@ -51,6 +52,8 @@ from app.services.board_stage_badges import (
 
 if TYPE_CHECKING:
     from app.services.candidate_followups import DigestCounts
+
+logger = logging.getLogger(__name__)
 
 WINDOW_DAYS = 14
 DL_REVIEW_WINDOW_DAYS = 30
@@ -480,9 +483,16 @@ async def _attach_card_states(db: AsyncSession, tasks: list[BoardTask]) -> None:
     review = [t for t in tasks if t.kind == KIND_DL_REVIEW]
     if not review:
         return
-    states = await recommendation_cards.summaries_for_pairs(
-        db, {(t.candidate_id, t.job_id) for t in review}
-    )
+    # Karta jest dodatkiem do przeglądu — awaria jej odczytu nie może położyć
+    # całej kolejki „Czeka na Ciebie”. Savepoint, bo sesja żądania jedzie dalej.
+    try:
+        async with db.begin_nested():
+            states = await recommendation_cards.summaries_for_pairs(
+                db, {(t.candidate_id, t.job_id) for t in review}
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("board_tasks: nie udało się odczytać stanu kart rekomendacji")
+        return
     for t in review:
         state = states.get((t.candidate_id, t.job_id))
         if state is not None:
