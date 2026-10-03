@@ -2569,7 +2569,11 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   planie), idzie pod blokadą doradczą i DOPISUJE paragon
   (`client_rate_notes_backfill_2026_10`: liczby i id) oraz szczegóły
   (`repair_details_…`: wiersz, notatka, kwota — jedyna droga odwrócenia).
-  Notatek nie zmienia. Pomiar 03.10.2026 (tylko odczyt): 4 676 wpisów
+  Notatek nie zmienia. Sam zapis pola robi
+  `recruitment_process_commands.fill_missing_client_rate` — strażnik
+  `test_priority_work_writer_architecture.py` nie dopuszcza surowego
+  `UPDATE` etapów poza adapterem Traffita (pierwsza wersja wypadła przez to
+  z kolejki). Pomiar 03.10.2026 (tylko odczyt): 4 676 wpisów
   z rekrutacją, 1 378 par do uzupełnienia, wszystkie w zamkniętych
   rekrutacjach z archiwum; przed zapisem stawkę do klienta miało 17 wierszy.
   Zmieniasz regułę — przelicz plan na produkcji w transakcji tylko do odczytu.

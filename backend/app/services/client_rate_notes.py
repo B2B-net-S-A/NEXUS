@@ -14,8 +14,9 @@ i niczego nie nadpisuje:
 * para z dwiema różnymi kwotami albo z dodatkowym wpisem o cenie, którego nie
   da się odczytać, jest pomijana — nie zgadujemy.
 
-Plan liczy ta sama funkcja dla próby i zapisu; zapis dotyka wyłącznie par,
-które w chwili UPDATE nadal nie mają stawki na żadnym wierszu etapu.
+Plan liczy ta sama funkcja dla próby i zapisu. Sam zapis idzie przez wspólną
+warstwę zapisu etapów (``recruitment_process_commands``) i dotyka wyłącznie
+par, które pod blokadą nadal nie mają stawki na żadnym wierszu etapu.
 """
 
 from __future__ import annotations
@@ -194,23 +195,6 @@ async def build_plan(db: AsyncSession) -> tuple[list[PlannedRate], dict[str, int
     return plan, dict(counts)
 
 
-_APPLY_SQL = text(
-    """
-    UPDATE candidate_stages AS target
-       SET client_rate_value = :value,
-           client_rate_unit = 'hourly',
-           client_rate_currency = 'PLN'
-     WHERE target.id = :stage_id
-       AND NOT EXISTS (
-               SELECT 1
-                 FROM candidate_stages AS other
-                WHERE other.candidate_id = target.candidate_id
-                  AND other.job_id = target.job_id
-                  AND other.client_rate_value IS NOT NULL
-           )
-    """
-)
-
 _LOCK_SQL = text("SELECT pg_advisory_xact_lock(hashtext(:key))")
 _READ_SQL = text("SELECT value FROM app_settings WHERE key = :key")
 _WRITE_SQL = text(
@@ -243,12 +227,19 @@ async def apply_plan(
     ``rows`` (wiersz etapu, notatka, kwota) to jedyna droga odwrócenia zapisu,
     więc kolejny przebieg nie może jej zastąpić.
     """
+    # Import w funkcji: reguła odczytu kwoty ma zostać lekkim modułem, a pola
+    # etapu wolno zmieniać tylko przez wspólną warstwę zapisu.
+    from app.services import recruitment_process_commands
+
     filled: list[PlannedRate] = []
     for item in plan:
-        result = await db.execute(
-            _APPLY_SQL, {"value": item.value, "stage_id": item.stage_id}
-        )
-        if result.rowcount:
+        if await recruitment_process_commands.fill_missing_client_rate(
+            db,
+            stage_id=item.stage_id,
+            rate_value=item.value,
+            rate_unit="hourly",
+            rate_currency="PLN",
+        ):
             filled.append(item)
     run = {
         "applied_at": datetime.now(timezone.utc).isoformat(),
