@@ -203,3 +203,132 @@ def test_note_items_without_a_usable_number_fall_back_to_their_position():
     ]
     merged = rules.merge_questions({"q1": "A?", "q2": "B?"}, [], note)
     assert [item["answer"] for item in merged] == ["pierwsza", "druga"]
+
+
+# ── karty jednej osoby w profilu kandydata ───────────────────────────────────
+
+
+def _field(raw: str, at: str, **extra):
+    return {"raw": raw, "at": at, **extra}
+
+
+def test_latest_facts_take_the_newest_value_across_all_cards_of_the_person():
+    cards = [
+        {
+            "job_id": 1,
+            "fields_notes": {
+                "rate": _field(
+                    "120 zł/h", "2026-02-03T10:00:00+00:00", value=120.0, note_id=7
+                ),
+                "nationality": _field("polska", "2026-02-03T10:00:00+00:00", note_id=7),
+            },
+            "fields_manual": {},
+        },
+        {
+            "job_id": 2,
+            "fields_notes": {
+                "rate": _field(
+                    "135 zł/h", "2026-09-28T09:00:00+00:00", value=135.0, note_id=9
+                ),
+                # Pole spoza ustaleń profilu nie wchodzi do paska faktów.
+                "red_flags": _field("brak", "2026-09-28T09:00:00+00:00", note_id=9),
+            },
+            "fields_manual": {
+                "english": _field("C1", "2026-09-29T08:00:00+00:00", level="C1", by=5),
+            },
+        },
+    ]
+
+    facts = rules.latest_facts(cards)
+
+    assert set(facts) == {"rate", "nationality", "english"}
+    assert facts["rate"]["value"] == 135.0
+    assert facts["rate"]["job_id"] == 2 and facts["rate"]["source"] == "note"
+    assert facts["nationality"]["job_id"] == 1
+    assert facts["english"]["source"] == "manual" and facts["english"]["by"] == 5
+
+
+def test_latest_facts_prefer_the_manual_value_on_the_same_moment_and_skip_blanks():
+    at = "2026-09-28T09:00:00+00:00"
+    cards = [
+        {
+            "job_id": 1,
+            "fields_notes": {
+                "rate": _field("130 zł/h", at),
+                "availability": _field("  ", at),
+            },
+            "fields_manual": {"rate": _field("135 zł/h", at, by=5)},
+        },
+        # Wartość bez daty przegrywa z każdą datowaną.
+        {
+            "job_id": 2,
+            "fields_notes": {"rate": {"raw": "999 zł/h"}},
+            "fields_manual": None,
+        },
+    ]
+
+    facts = rules.latest_facts(cards)
+
+    assert facts == {
+        "rate": {"raw": "135 zł/h", "at": at, "by": 5, "source": "manual", "job_id": 1}
+    }
+
+
+def test_note_answer_rows_keep_only_answered_and_borrow_the_champion_question():
+    answers = {
+        "items": [
+            {"number": 1, "question": "", "answer": "Java 21 w banku."},
+            {"number": 2, "question": "Kolejki?", "answer": "Kafka."},
+            {"number": 3, "question": "Chmura?", "answer": "  "},
+            {"number": "x", "question": "", "answer": "bez numeru"},
+        ]
+    }
+    champion = {"q1": "Doświadczenie z Javą 17+?", "q2": "Komunikacja usług?"}
+
+    assert rules.note_answer_rows(champion, answers) == [
+        {
+            "number": 1,
+            "question": "Doświadczenie z Javą 17+?",
+            "answer": "Java 21 w banku.",
+        },
+        # Pytanie zapisane w notatce wygrywa z Profilem Championa.
+        {"number": 2, "question": "Kolejki?", "answer": "Kafka."},
+        # Pozycja bez numeru liczy się po kolejności; pytania nr 4 w profilu nie ma.
+        {"number": 4, "question": "", "answer": "bez numeru"},
+    ]
+    assert rules.note_answer_rows(champion, None) == []
+
+
+def test_note_contributions_say_what_each_note_gave_to_the_card():
+    at = "2026-09-28T09:00:00+00:00"
+    cards = [
+        {
+            "job_id": 2,
+            "fields_notes": {
+                "rate": _field("135 zł/h", at, note_id=9),
+                "availability": _field("1 miesiąc", at, note_id=9),
+                "nationality": _field("polska", at, note_id=4),
+            },
+            "fields_manual": {"english": _field("C1", at, by=5)},
+            "note_answers": {
+                "items": [
+                    {"number": 1, "answer": "Java 21."},
+                    {"number": 2, "answer": ""},
+                ],
+                "note_id": 9,
+                "at": at,
+            },
+        }
+    ]
+
+    links = rules.note_contributions(cards)
+
+    assert links == {
+        9: {
+            "note_id": 9,
+            "job_id": 2,
+            "fields": ["rate", "availability"],
+            "answers": 1,
+        },
+        4: {"note_id": 4, "job_id": 2, "fields": ["nationality"], "answers": 0},
+    }

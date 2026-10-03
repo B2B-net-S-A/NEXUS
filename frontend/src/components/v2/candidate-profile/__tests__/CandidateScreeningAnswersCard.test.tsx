@@ -74,6 +74,32 @@ function renderCard() {
 
 const answersOf = (conversations: ScreeningConversation[]) => ({ data: { candidate_id: 42, conversations } });
 
+const CARD_CONVERSATION = {
+  job_id: 21,
+  job_title: "Java Developer",
+  client_name: "Bank Pocztowy Testowy",
+  answered_at: "2025-02-03T10:00:00Z",
+  author_name: null,
+  note_id: 900,
+  from_traffit: true,
+  question_count: 3,
+  answers: [
+    { number: 1, question: "Doświadczenie z Javą 17+?", answer: "Java 17 od dwóch lat." },
+    { number: 2, question: "", answer: "Kafka w projekcie płatności." },
+  ],
+};
+
+/** Arkusze i karty przychodzą z dwóch tras — odpowiadamy po adresie. */
+function respond(conversations: ScreeningConversation[], cardConversations: unknown[] = []) {
+  apiGet.mockImplementation((url: string) =>
+    Promise.resolve(
+      url.endsWith("/recommendation-cards")
+        ? { data: { candidate_id: 42, facts: [], note_links: [], conversations: cardConversations } }
+        : answersOf(conversations),
+    ),
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   useAuthStore.setState({ user: { id: 7, role: "recruiter" } } as never);
@@ -166,5 +192,47 @@ describe("CandidateScreeningAnswersCard", () => {
     const { container } = renderCard();
     expect(apiGet).not.toHaveBeenCalled();
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("pod arkuszami pokazuje odpowiedzi z kart rekomendacji w notatkach — zwinięte, z podpisem źródła", async () => {
+    const user = userEvent.setup();
+    respond([NEWEST], [CARD_CONVERSATION]);
+    renderCard();
+    const card = await screen.findByRole("region", { name: "Odpowiedzi z rozmów screeningowych" });
+
+    const fromNote = await within(card).findByRole("button", {
+      name: /Java Developer · Bank Pocztowy Testowy/,
+    });
+    expect(within(card).getByText("Z kart rekomendacji w notatkach")).toBeTruthy();
+    expect(fromNote).toHaveAttribute("aria-expanded", "false");
+    expect(fromNote).toHaveTextContent("03.02.2025 · 2 z 3 pytań · z karty wpisanej w Traffit");
+
+    await user.click(fromNote);
+    expect(within(card).getByText("1. Doświadczenie z Javą 17+?")).toBeTruthy();
+    expect(within(card).getByText("Java 17 od dwóch lat.")).toBeTruthy();
+    expect(within(card).getByText("2. pytanie bez treści w notatce")).toBeTruthy();
+  });
+
+  it("rekrutacja z arkuszem nie dubluje się odpowiedziami z notatki", async () => {
+    respond([NEWEST], [{ ...CARD_CONVERSATION, job_id: NEWEST.job_id }]);
+    renderCard();
+    const card = await screen.findByRole("region", { name: "Odpowiedzi z rozmów screeningowych" });
+
+    await waitFor(() => expect(apiGet).toHaveBeenCalledWith("/api/candidates/42/recommendation-cards"));
+    expect(within(card).queryByText("Z kart rekomendacji w notatkach")).toBeNull();
+  });
+
+  it("bez arkuszy karta żyje z samych notatek: najnowsza rozmowa rozwinięta, szukanie działa", async () => {
+    const user = userEvent.setup();
+    respond([], [CARD_CONVERSATION, { ...CARD_CONVERSATION, job_id: 22, job_title: "Tester", from_traffit: false }]);
+    renderCard();
+    const card = await screen.findByRole("region", { name: "Odpowiedzi z rozmów screeningowych" });
+
+    expect(
+      within(card).getByRole("button", { name: /Java Developer · Bank Pocztowy Testowy/ }),
+    ).toHaveAttribute("aria-expanded", "true");
+    await user.type(within(card).getByRole("searchbox", { name: "Szukaj w odpowiedziach" }), "płatności");
+    expect(within(card).getAllByText("Kafka w projekcie płatności.").length).toBe(2);
+    expect(within(card).queryByText("Java 17 od dwóch lat.")).toBeNull();
   });
 });

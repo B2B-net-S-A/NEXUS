@@ -239,6 +239,31 @@ def _user(role: UserRole, user_id: int) -> User:
     )
 
 
+def test_every_kind_lands_in_exactly_one_history_tab():
+    groups = {kind: note_kinds.group_of(kind) for kind in note_kinds.ALL_KINDS}
+    assert set(groups.values()) == set(note_kinds.NOTE_GROUPS)
+    assert groups[note_kinds.CONTACT_ATTEMPT] == note_kinds.GROUP_CONTACT
+    assert groups[note_kinds.SCHEDULING] == note_kinds.GROUP_CONTACT
+    assert groups[note_kinds.DL_RATE] == note_kinds.GROUP_DELIVERY
+    assert groups[note_kinds.DL_REVIEW] == note_kinds.GROUP_DELIVERY
+    assert groups[note_kinds.EMAIL] == note_kinds.GROUP_EMAIL
+    assert groups[note_kinds.AUTOMATCH] == note_kinds.GROUP_AUTOMAT
+    assert groups[note_kinds.APPLICATION_FORM] == note_kinds.GROUP_AUTOMAT
+    # Karta, fakty ze screeningu i zwykła notatka to rozmowy.
+    for kind in (note_kinds.CARD, note_kinds.SCREENING_FACTS, note_kinds.HUMAN):
+        assert groups[kind] == note_kinds.GROUP_TALKS
+
+
+def test_unclassified_note_is_a_talk_and_system_source_is_automat():
+    # Nic nie wypada: wiersz bez rodzaju albo z nieznanym rodzajem to rozmowa.
+    assert note_kinds.group_of(None) == note_kinds.GROUP_TALKS
+    assert note_kinds.group_of("rodzaj-z-przyszlosci") == note_kinds.GROUP_TALKS
+    assert (
+        note_kinds.group_of(note_kinds.HUMAN, SYSTEM_NOTE_SOURCE)
+        == note_kinds.GROUP_AUTOMAT
+    )
+
+
 def test_client_rate_note_is_hidden_from_recruiter_but_not_from_its_author():
     recruiter = _user(UserRole.recruiter, 1)
     lead = _user(UserRole.delivery_lead, 2)
@@ -422,3 +447,104 @@ async def test_insights_reader_takes_the_card_first_and_skips_noise():
     assert _CARD in contents
     assert "nie odbiera" not in contents
     assert "Wyślijmy za 161 zł/h" not in contents
+
+
+@pytest.mark.asyncio
+async def test_list_carries_the_history_tab_of_each_note_and_counts_per_tab(
+    app_client: AsyncClient,
+):
+    cand_id = await _seed_candidate()
+    _, email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(app_client, email, password)
+    for content in (
+        "Szuka projektu z Javą 21, nie chce samego utrzymania.",
+        "nie odbiera",
+        "Stawka 135 zł/h, dostępność 1 miesiąc, tryb pracy hybrydowo.",
+    ):
+        created = await app_client.post(
+            "/api/notes",
+            headers=headers,
+            json={"content": content, "candidate_id": cand_id},
+        )
+        assert created.status_code == 201, created.text
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Note(
+                content="Auto-match 71/100",
+                note_type=NoteType.general,
+                candidate_id=cand_id,
+                external_source=SYSTEM_NOTE_SOURCE,
+            )
+        )
+        await db.commit()
+
+    # `limit` nie zmienia liczników — liczy je baza dla całego zakresu.
+    listed = await app_client.get(
+        "/api/notes", params={"candidate_id": cand_id, "limit": 1}, headers=headers
+    )
+
+    assert listed.status_code == 200, listed.text
+    body = listed.json()
+    assert len(body["items"]) == 1
+    assert body["group_counts"] == {
+        "talks": 2,
+        "contact": 1,
+        "delivery": 0,
+        "email": 0,
+        "automat": 1,
+    }
+    full = await app_client.get(
+        "/api/notes", params={"candidate_id": cand_id}, headers=headers
+    )
+    assert sorted(item["group"] for item in full.json()["items"]) == [
+        "automat",
+        "contact",
+        "talks",
+        "talks",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_no_answer_click_saves_a_contact_attempt_and_other_kinds_are_refused(
+    app_client: AsyncClient,
+):
+    cand_id = await _seed_candidate()
+    _, email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(app_client, email, password)
+
+    # Treść, której reguła nie uznałaby za próbę kontaktu — rodzaj podany wprost.
+    created = await app_client.post(
+        "/api/notes",
+        headers=headers,
+        json={
+            "content": "Telefon o 14:10, bez skutku.",
+            "candidate_id": cand_id,
+            "kind": "contact_attempt",
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["kind"] == note_kinds.CONTACT_ATTEMPT
+    assert created.json()["note_type"] == NoteType.general.value
+
+    # Rodzaju zakrywającego treść (stawka do klienta) ani uwagi DL nie da się
+    # nadać z przeglądarki.
+    for kind in ("dl_rate", "dl_review", "automatch"):
+        refused = await app_client.post(
+            "/api/notes",
+            headers=headers,
+            json={"content": "Notatka", "candidate_id": cand_id, "kind": kind},
+        )
+        assert refused.status_code == 422, kind
+
+    # Odpowiedź w wątku nie przyjmuje rodzaju z żądania.
+    reply = await app_client.post(
+        "/api/notes",
+        headers=headers,
+        json={
+            "content": "Dopisek do rozmowy, kandydat zna Javę.",
+            "parent_note_id": created.json()["id"],
+            "kind": "contact_attempt",
+        },
+    )
+    assert reply.status_code == 201, reply.text
+    assert reply.json()["kind"] != note_kinds.CONTACT_ATTEMPT

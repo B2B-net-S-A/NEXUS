@@ -27,8 +27,10 @@ from app.api.recruitment_access import job_read_scope_clause
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.recruitment_pipeline import CandidateStage
+from app.models.recommendation_card import RecommendationCard
 from app.schemas.candidate_profile_facts import (
     CandidateCallFactsResponse,
+    CandidateCardOverviewResponse,
     CandidateCallFactsUpdate,
     CandidateNotesFactApply,
     CandidateNotesFactsResponse,
@@ -43,6 +45,7 @@ from app.schemas.candidate_profile_facts import (
 )
 from app.services import candidate_audit
 from app.services import candidate_profile_facts as facts
+from app.services import recommendation_cards
 from app.services import screening_sheets
 from app.services.candidate_notes_facts import (
     NotesFactUnavailable,
@@ -355,6 +358,37 @@ async def get_candidate_screening_answers(
     return CandidateScreeningAnswersResponse(
         candidate_id=candidate_id, conversations=conversations
     )
+
+
+# ── Karty rekomendacji w profilu (03.10.2026) ──────────────────────────────
+
+
+@router.get(
+    "/{candidate_id}/recommendation-cards",
+    response_model=CandidateCardOverviewResponse,
+)
+async def get_candidate_recommendation_cards(
+    current_user: CandidatePIIAccess,
+    candidate_id: int = Path(ge=1, le=2_147_483_647),
+    db: AsyncSession = Depends(get_db),
+) -> CandidateCardOverviewResponse:
+    """Co karty rekomendacji mówią o kandydacie — ustalenia i odpowiedzi z notatek.
+
+    Profil pokazuje obok faktów najświeższe ustalenie z rozmowy (z datą
+    i źródłem), odpowiedzi na pytania wpisane w notatce oraz to, co z której
+    notatki trafiło do karty. Czysty odczyt; zakres rekrutacji jak w
+    ``…/screening-answers``. Stawka na karcie to oczekiwania kandydata.
+    """
+
+    exists = await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))
+    if exists is None:
+        raise _not_found()
+    overview = await recommendation_cards.candidate_overview(
+        db,
+        candidate_id=candidate_id,
+        job_scope=job_read_scope_clause(current_user, RecommendationCard.job_id),
+    )
+    return CandidateCardOverviewResponse(candidate_id=candidate_id, **overview)
 
 
 # ── Fakty z notatek rekruterów + tryb pracy (22.09.2026) ───────────────────

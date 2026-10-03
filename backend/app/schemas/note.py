@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -14,6 +14,9 @@ class NoteCreate(BaseModel):
     # 0399: odpowiedź na notatkę. Kandydata i rekrutację bierze serwer
     # z notatki głównej — wartości z żądania są wtedy ignorowane.
     parent_note_id: Optional[int] = Field(default=None, ge=1)
+    # Rodzaj podany wprost — wyłącznie próba kontaktu („Nie odebrał” jednym
+    # kliknięciem w profilu). Pozostałe rodzaje nadaje reguła na serwerze.
+    kind: Optional[Literal["contact_attempt"]] = None
 
 
 class NoteUpdate(BaseModel):
@@ -71,6 +74,8 @@ class EnrichedNoteResponse(NoteResponse):
     # `is_system` = wpis automatu, domyślnie schowany za „Pokaż systemowe”.
     external_source: Optional[str] = None
     is_system: bool = False
+    # Zakładka Historii profilu (``note_kinds.NOTE_GROUPS``).
+    group: str = "talks"
     pinned_by_name: Optional[str] = None
     # Odpowiedzi (jeden poziom, od najstarszej). Lista notatek NIE liczy ich
     # jako osobnych notatek; odpowiedź zawsze ma tu pustą listę.
@@ -81,6 +86,9 @@ class EnrichedNoteList(BaseModel):
     items: list[EnrichedNoteResponse]
     # Liczba notatek głównych (bez odpowiedzi).
     total: int
+    # Ile notatek głównych w każdej zakładce Historii — liczone w bazie dla
+    # całego zakresu zapytania, niezależnie od ``limit``.
+    group_counts: dict[str, int] = Field(default_factory=dict)
 
 
 EnrichedNoteResponse.model_rebuild()

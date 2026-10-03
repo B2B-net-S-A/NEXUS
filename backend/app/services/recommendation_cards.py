@@ -25,15 +25,19 @@ się od nowa. Rozstrzyga data pola, nie osobny licznik.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Iterable, Mapping, Optional
+from typing import Any, Iterable, Mapping, Optional
 
-from sqlalchemy import func, select, text, tuple_
+from sqlalchemy import ColumnElement, func, select, text, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.client import Client
+from app.models.job import Job
 from app.models.note import Note
 from app.models.recommendation_card import RecommendationCard
 from app.models.recruitment_process import RecruitmentProcess
+from app.models.user import User
+from app.services.client_identity import client_display_name_expression
 from app.services.recommendation_card_rules import (  # noqa: F401 — jedno wejście dla wołających
     CARD_KINDS,
     EDITABLE_FIELDS,
@@ -43,10 +47,13 @@ from app.services.recommendation_card_rules import (  # noqa: F401 — jedno wej
     completeness,
     current_answers,
     is_current,
+    latest_facts,
     legacy_text,
     manual_value,
     max_length,
     merge_questions,
+    note_answer_rows,
+    note_contributions,
     project_notes,
     split_fields,
 )
@@ -316,3 +323,160 @@ async def save_manual(
         card.updated_by = user_id
         await db.flush()
     return card, changed
+
+
+# ── Karty jednej osoby w profilu kandydata (etap 6, 03.10.2026) ────────────
+
+TRAFFIT_SOURCE = "traffit"
+
+
+async def candidate_overview(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_scope: Optional[ColumnElement[bool]] = None,
+) -> dict[str, Any]:
+    """Co karty rekomendacji mówią o osobie — do profilu kandydata.
+
+    * ``facts`` — najświeższe ustalenie każdego pola (stawka, dostępność,
+      tryb pracy, angielski, narodowość) z datą, źródłem i rekrutacją;
+    * ``conversations`` — odpowiedzi na pytania zapisane w notatkach, po
+      jednej pozycji na rekrutację, najnowsze pierwsze;
+    * ``note_links`` — co z której notatki trafiło do karty.
+
+    Czysty odczyt, stała liczba zapytań (karty, rekrutacje, notatki-źródła,
+    autorzy). ``job_scope`` to zakres odczytu rekrutacji wołającego.
+    """
+    # Import leniwy: arkusz screeningu importuje wymagania ruchu, a te — ten moduł.
+    from app.services import screening_sheets
+
+    query = select(
+        RecommendationCard.job_id,
+        RecommendationCard.fields_notes,
+        RecommendationCard.fields_manual,
+        RecommendationCard.note_answers,
+    ).where(RecommendationCard.candidate_id == candidate_id)
+    if job_scope is not None:
+        query = query.where(job_scope)
+    cards = [
+        {
+            "job_id": row.job_id,
+            "fields_notes": row.fields_notes or {},
+            "fields_manual": row.fields_manual or {},
+            "note_answers": row.note_answers,
+        }
+        for row in (await db.execute(query)).all()
+    ]
+    if not cards:
+        return {"facts": [], "conversations": [], "note_links": []}
+
+    jobs = {
+        row.id: row
+        for row in (
+            await db.execute(
+                select(
+                    Job.id,
+                    Job.title,
+                    Job.champion_profile,
+                    client_display_name_expression().label("client_name"),
+                )
+                .outerjoin(Client, Client.id == Job.client_id)
+                .where(Job.id.in_(sorted({card["job_id"] for card in cards})))
+            )
+        ).all()
+    }
+    facts = latest_facts(cards)
+    links = note_contributions(cards)
+    notes = {}
+    if links:
+        notes = {
+            row.id: row
+            for row in (
+                await db.execute(
+                    select(Note.id, Note.author_id, Note.external_source).where(
+                        Note.id.in_(sorted(links))
+                    )
+                )
+            ).all()
+        }
+    author_ids = {row.author_id for row in notes.values() if row.author_id} | {
+        value["by"] for value in facts.values() if isinstance(value.get("by"), int)
+    }
+    authors: dict[int, str] = {}
+    if author_ids:
+        authors = {
+            row.id: row.name
+            for row in (
+                await db.execute(
+                    select(User.id, User.name).where(User.id.in_(sorted(author_ids)))
+                )
+            ).all()
+        }
+
+    def _note_author(note_id: Any) -> Optional[str]:
+        note = notes.get(note_id) if isinstance(note_id, int) else None
+        return authors.get(note.author_id) if note and note.author_id else None
+
+    def _job_title(job_id: Any) -> Optional[str]:
+        job = jobs.get(job_id)
+        return job.title if job else None
+
+    fact_rows = [
+        {
+            "key": key,
+            "label": LABELS[key],
+            "raw": str(value.get("raw") or "").strip(),
+            "value": value.get("value"),
+            "level": value.get("level"),
+            "at": value.get("at"),
+            "source": value["source"],
+            "author_name": (
+                authors.get(value["by"])
+                if isinstance(value.get("by"), int)
+                else _note_author(value.get("note_id"))
+            ),
+            "job_id": value.get("job_id"),
+            "job_title": _job_title(value.get("job_id")),
+        }
+        for key, value in facts.items()
+    ]
+
+    conversations = []
+    for card in cards:
+        job = jobs.get(card["job_id"])
+        answers = card["note_answers"]
+        texts = screening_sheets.question_texts(job.champion_profile if job else None)
+        rows = note_answer_rows(texts, answers)
+        if not rows:
+            continue
+        note_id = answers.get("note_id")
+        note = notes.get(note_id) if isinstance(note_id, int) else None
+        conversations.append(
+            {
+                "job_id": card["job_id"],
+                "job_title": job.title if job else None,
+                "client_name": job.client_name if job else None,
+                "answered_at": answers.get("at"),
+                "author_name": _note_author(note_id),
+                "note_id": note_id if isinstance(note_id, int) else None,
+                "from_traffit": bool(note and note.external_source == TRAFFIT_SOURCE),
+                "question_count": max(len(texts), len(rows)),
+                "answers": rows,
+            }
+        )
+    conversations.sort(
+        key=lambda item: (item["answered_at"] or "", item["job_id"]), reverse=True
+    )
+
+    return {
+        "facts": fact_rows,
+        "conversations": conversations,
+        "note_links": [
+            {
+                **link,
+                "job_title": _job_title(link["job_id"]),
+                "field_labels": [LABELS[key] for key in link["fields"]],
+            }
+            for link in links.values()
+        ],
+    }

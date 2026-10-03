@@ -165,6 +165,34 @@ describe("NotesList (0399)", () => {
     expect(screen.getByText("Potwierdzone.")).toBeTruthy();
   });
 
+  it("zakładka „Automat” pokazuje wpisy systemowe od razu, bez przełącznika", () => {
+    renderList({ notes: [baseNotes[2]], includeSystem: true });
+    expect(screen.getByText(/Auto-match 70\/100/)).toBeTruthy();
+    expect(screen.queryByLabelText(/Pokaż systemowe/)).toBeNull();
+  });
+
+  it("mówi, co z notatki trafiło do karty rekomendacji, i otwiera tę kartę", () => {
+    const link = {
+      note_id: 2,
+      job_id: 10,
+      job_title: "Java Dev",
+      fields: ["rate", "availability"],
+      field_labels: ["Stawka", "Dostępność"],
+      answers: 2,
+    };
+    const onOpenCard = vi.fn();
+    renderList({ cardLinks: new Map([[2, link]]), onOpenCard });
+
+    expect(
+      screen.getByText("Do karty trafiło: stawka, dostępność i 2 odpowiedzi."),
+    ).toBeTruthy();
+    const buttons = screen.getAllByRole("button", { name: "Karta rekomendacji z tej rozmowy" });
+    // Tylko notatka, która zasiliła kartę, ma link.
+    expect(buttons).toHaveLength(1);
+    fireEvent.click(buttons[0]);
+    expect(onOpenCard).toHaveBeenCalledWith(link);
+  });
+
   it("read-only viewer sees no pin, reply or edit buttons", () => {
     renderList({ readOnly: true });
     expect(screen.queryByRole("button", { name: /Przypnij|Odepnij/ })).toBeNull();

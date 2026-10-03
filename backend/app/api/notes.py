@@ -133,6 +133,7 @@ def _enriched(
         job_title=job_title,
         external_source=note.external_source,
         is_system=note.external_source == SYSTEM_NOTE_SOURCE,
+        group=note_kinds.group_of(note.kind, note.external_source),
         pinned_by_name=pinned_by_name,
     )
 
@@ -191,29 +192,45 @@ async def list_notes(
             detail="Wymagany filtr: candidate_id, job_id albo note_type",
         )
 
-    query = _enriched_select().where(Note.parent_note_id.is_(None))
+    filters = [Note.parent_note_id.is_(None)]
     if candidate_id is not None:
-        query = query.where(Note.candidate_id == candidate_id)
+        filters.append(Note.candidate_id == candidate_id)
     if job_id is not None:
-        query = query.where(Note.job_id == job_id)
+        filters.append(Note.job_id == job_id)
     if note_type is not None:
-        query = query.where(Note.note_type == note_type)
+        filters.append(Note.note_type == note_type)
     if pinned_only:
-        query = query.where(Note.pinned_at.is_not(None))
+        filters.append(Note.pinned_at.is_not(None))
     if unattached:
         # Panel „Meetingi bez powiązania” w Źródłach AI Championa: wyłącznie
         # notatki bez rekrutacji I bez kandydata (spotkania z klientem/DL
         # z Fireflies). Bez tego filtra lista niosła notatki spotkań
         # kandydatów innych klientów (import Traffita, surowy HTML) z przyciskiem
         # „Powiąż + AI” na cudzej rekrutacji — UAT M03-B13 / M04-B04.
-        query = query.where(Note.job_id.is_(None), Note.candidate_id.is_(None))
-    query = query.order_by(
-        Note.pinned_at.is_(None),
-        Note.pinned_at.desc(),
-        Note.created_at.desc(),
-        Note.id.desc(),
-    ).limit(limit)
+        filters.extend([Note.job_id.is_(None), Note.candidate_id.is_(None)])
+    query = (
+        _enriched_select()
+        .where(*filters)
+        .order_by(
+            Note.pinned_at.is_(None),
+            Note.pinned_at.desc(),
+            Note.created_at.desc(),
+            Note.id.desc(),
+        )
+        .limit(limit)
+    )
     rows = (await db.execute(query)).all()
+
+    # Liczniki zakładek Historii: cały zakres zapytania, nie tylko `limit`.
+    group_counts = {group: 0 for group in note_kinds.NOTE_GROUPS}
+    for kind, source, count in (
+        await db.execute(
+            select(Note.kind, Note.external_source, func.count())
+            .where(*filters)
+            .group_by(Note.kind, Note.external_source)
+        )
+    ).all():
+        group_counts[note_kinds.group_of(kind, source)] += count
 
     reply_rows: list = []
     parent_ids = [note.id for note, *_ in rows]
@@ -254,7 +271,7 @@ async def list_notes(
         )
         item.replies = replies_by_parent.get(note.id, [])
         items.append(item)
-    return EnrichedNoteList(items=items, total=len(items))
+    return EnrichedNoteList(items=items, total=len(items), group_counts=group_counts)
 
 
 @router.post("", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
@@ -296,11 +313,14 @@ async def create_note(
         values["candidate_id"] = parent.candidate_id
         values["job_id"] = parent.job_id
         values["contract_id"] = None
+        # Odpowiedź nie ma własnego rodzaju podanego wprost.
+        values["kind"] = None
     if candidate_claim.is_integration_request(request):
         # 0412: notatka zapisana tokenem integracji (scraper ogłoszeń) jest
         # wpisem automatu — do 03.10.2026 scraper dopisywał ~250 takich
         # dziennie jako zwykłe notatki.
         values["external_source"] = SYSTEM_NOTE_SOURCE
+        values["kind"] = None
     note = Note(**values, author_id=current_user.id)
     db.add(note)
     await db.flush()  # need note.id
