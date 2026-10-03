@@ -179,6 +179,9 @@ def _shape_recommendation_card(data: Any) -> Any:
     if not isinstance(data, dict):
         return data
     labels = data.get("labels") if isinstance(data.get("labels"), dict) else {}
+    # Na ekranie „Notatka” ze wzoru działu nazywa się „Dlaczego ten kandydat”
+    # — Jarvis ma mówić tak samo jak karta, którą widzi rekruter.
+    labels = {**labels, "recommendation": "Dlaczego ten kandydat"}
 
     def _visible(fields: Any) -> dict[str, Any]:
         if not isinstance(fields, dict):
