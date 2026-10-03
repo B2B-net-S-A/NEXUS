@@ -102,6 +102,9 @@ def _hourly_rate(field: object) -> Optional[float]:
         return None
     if field.get("currency") != "PLN" or field.get("period") != "h":
         return None
+    # Widełki („130–150 zł/h”) to nie jedna stawka — nie podpowiadamy dolnej.
+    if field.get("value_max") is not None:
+        return None
     return float(value)
 
 

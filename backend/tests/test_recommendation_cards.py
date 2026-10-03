@@ -79,6 +79,23 @@ def test_card_summary_carries_what_the_move_dialog_needs():
     assert "Dlaczego ten kandydat" in summary["missing_labels"]
     assert "Notatka" not in summary["missing_labels"]
 
+    # Widełki to nie jedna stawka — okno stawki nie podpowiada dolnej granicy.
+    ranged = cards.card_summary(
+        {
+            "rate": {
+                "raw": "130–150 zł/h",
+                "value": 130.0,
+                "value_max": 150.0,
+                "currency": "PLN",
+                "period": "h",
+                "at": at,
+            }
+        },
+        {},
+        None,
+    )
+    assert ranged["rate_hourly"] is None
+
     # Kwota miesięczna zostaje tekstem — okno stawki jej nie podpowiada.
     monthly = cards.card_summary({"rate": {"raw": "14 000 zł", "at": at}}, {}, None)
     assert monthly["rate_hourly"] is None

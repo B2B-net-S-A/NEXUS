@@ -1992,6 +1992,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // o jedną kolumnę, przy znanym braku albo na „CV wysłane" (bramka QC,
  // wysyłka przez DL / kolejka Cpro) — najpierw okno „Przesuń dalej".
  // Ruchy wstecz i na etapy-znaczniki w tej samej kolumnie idą od razu.
+ // Przegląd przed wysłaniem do klienta (`openDlReviewIfSending`) powstaje
+ // niżej — potrzebuje kolumn zamkniętych; przeciągnięcie woła go przez ref.
+ const openDlReviewRef = useRef<(item: KanbanItem, dst: KanbanColumn) => boolean>(() => false);
  const routeMove = useCallback(
  (item: KanbanItem, srcColId: string, dst: KanbanColumn) => {
  const fromIndex = foldIndexByColId.get(srcColId);
@@ -2000,6 +2003,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  requestMove(item, srcColId, dst);
  return;
  }
+ if (openDlReviewRef.current(item, dst)) return;
  const fromKey = boardFold.columns[fromIndex]?.key ?? null;
  const toKey = boardFold.columns[toIndex]?.key ?? null;
  const stageBadge = boardFold.badgeByItemId.get(item.id) ?? null;
@@ -2383,6 +2387,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  [cproEnabled, canReviewAsDl, columnByItemId, jobId, jobTitle, clientId, rejectedTemplateCol, boardFold]
  );
+ useEffect(() => {
+ openDlReviewRef.current = openDlReviewIfSending;
+ }, [openDlReviewIfSending]);
  const handleDockMove = useCallback(
  (dst: KanbanColumn) => {
  if (!dockItem || !dockItemColId) return;
@@ -2533,13 +2540,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const handleMoveNextMove = useCallback(
  (target: KanbanColumn) => {
  if (!moveNext) return;
- if (openDlReviewIfSending(moveNext.item, target)) {
+ // Okno pamięta kartę z chwili otwarcia; QC mogło się w międzyczasie
+ // zaliczyć (poprawka albo „Przepuść mimo QC” z listy braków).
+ const item =
+ cols.flatMap((c) => c.items).find((i) => i.id === moveNext.item.id) ?? moveNext.item;
+ if (openDlReviewIfSending(item, target)) {
  setMoveNextOpen(false);
  return;
  }
  requestMove(moveNext.item, moveNext.srcColId, target);
  },
- [moveNext, requestMove, openDlReviewIfSending]
+ [moveNext, cols, requestMove, openDlReviewIfSending]
  );
  const handleHandToCpro = useCallback(
  (stageDefId: number) => {
