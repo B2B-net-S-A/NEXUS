@@ -93,6 +93,18 @@ const WIDE_DEFAULT = new Set<string>(
   CANDIDATE_COLUMNS.filter((c) => c.wideDefault).map((c) => c.id),
 );
 
+/**
+ * Kolumna `wideDefault` w zapisanej liście ukrytych ma trzy stany:
+ * - samo id na liście = brak decyzji osoby. Lista ukrytych powstaje
+ *   z domyślnych przy pierwszym przełączeniu DOWOLNEJ kolumny, więc id trafia
+ *   na nią samo — kolumna idzie wtedy za szerokością okna (inaczej wybór
+ *   zapisany na dużym monitorze przyklejałby ją do laptopa);
+ * - id + znacznik `:hidden` = osoba ją wyłączyła — ukryta na każdym ekranie;
+ * - brak id = osoba ją włączyła — widoczna na każdym ekranie (tak też czyta
+ *   się wybór zapisany przed tą zmianą).
+ */
+const hiddenMark = (id: string) => `${id}:hidden`;
+
 export interface CandidateColumnOptions {
   forJob?: boolean;
   /** Szeroki ekran (`CANDIDATE_WIDE_DEFAULT_QUERY`) — tylko lista, nie „Szukaj ręcznie”. */
@@ -100,18 +112,29 @@ export interface CandidateColumnOptions {
 }
 
 function defaultHidden(options: CandidateColumnOptions): readonly string[] {
-  if (options.forJob) return DEFAULT_HIDDEN_JOB_COLUMNS;
-  return options.wide
-    ? DEFAULT_HIDDEN_COLUMNS.filter((id) => !WIDE_DEFAULT.has(id))
-    : DEFAULT_HIDDEN_COLUMNS;
+  return options.forJob ? DEFAULT_HIDDEN_JOB_COLUMNS : DEFAULT_HIDDEN_COLUMNS;
+}
+
+function wideDefaultVisible(
+  id: string,
+  saved: ReadonlySet<string>,
+  options: CandidateColumnOptions,
+): boolean {
+  if (saved.has(hiddenMark(id))) return false;
+  if (!saved.has(id)) return true;
+  return Boolean(options.wide) && !options.forJob;
 }
 
 export function visibleCandidateColumns(
   hidden: readonly string[] | null | undefined,
   options: CandidateColumnOptions = {},
 ): CandidateColumn[] {
-  const hide = new Set((hidden ?? defaultHidden(options)).filter((id) => KNOWN.has(id)));
-  return selectableCandidateColumns(options).filter((c) => c.required || !hide.has(c.id));
+  const saved = new Set(hidden ?? defaultHidden(options));
+  return selectableCandidateColumns(options).filter((c) => {
+    if (c.required) return true;
+    if (WIDE_DEFAULT.has(c.id)) return wideDefaultVisible(c.id, saved, options);
+    return !saved.has(c.id);
+  });
 }
 
 /** Kolumny dostępne w danym widoku (lista vs „Szukaj ręcznie” z rekrutacji). */
@@ -128,9 +151,20 @@ export function toggleCandidateColumn(
   options: CandidateColumnOptions = {},
 ): string[] {
   const current = new Set(hidden ?? defaultHidden(options));
-  if (current.has(id)) current.delete(id);
+  if (WIDE_DEFAULT.has(id)) {
+    if (wideDefaultVisible(id, current, options)) {
+      current.add(id);
+      current.add(hiddenMark(id));
+    } else {
+      current.delete(id);
+      current.delete(hiddenMark(id));
+    }
+  } else if (current.has(id)) current.delete(id);
   else current.add(id);
-  return CANDIDATE_COLUMNS.filter((c) => current.has(c.id) && !c.required).map((c) => c.id);
+  return [
+    ...CANDIDATE_COLUMNS.filter((c) => current.has(c.id) && !c.required).map((c) => c.id),
+    ...[...WIDE_DEFAULT].map(hiddenMark).filter((mark) => current.has(mark)),
+  ];
 }
 
 /** Odstęp między kolumnami siatki wiersza (`gap-3`). */

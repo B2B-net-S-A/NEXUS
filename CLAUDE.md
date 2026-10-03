@@ -2539,7 +2539,11 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   stronę, lista wysyła flagę zawsze). Domyślnie widoczna tylko od 1536 px
   szerokości okna (`wideDefault`, `CANDIDATE_WIDE_DEFAULT_QUERY`): przy
   1280 px z przypiętym menu domyślna tabela mieści się na styk, więc na
-  laptopie kolumnę włącza się w „Kolumny”. Szybki podgląd pokazuje ostatnią
+  laptopie kolumnę włącza się w „Kolumny”. Zapisany wybór kolumn nie może
+  zależeć od szerokości okna, w którym go zapisano: samo id `last_contact` na
+  liście ukrytych = brak decyzji (kolumna idzie za oknem), id + znacznik
+  `last_contact:hidden` = wyłączona wszędzie, brak id = włączona wszędzie
+  (`candidate-table-columns.ts`). Szybki podgląd pokazuje ostatnią
   ROZMOWĘ (przypięta notatka zostaje bez względu na rodzaj) i liczbę prób
   kontaktu. Filtr „Kontakt z kandydatem” w nowej semantyce liczy tylko
   prawdziwy kontakt (`real_contact_clause`: bez „nie odbiera”, automatu, uwag
