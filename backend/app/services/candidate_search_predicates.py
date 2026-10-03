@@ -1800,6 +1800,10 @@ def business_date_range(
     return start, end
 
 
+# Wyniki połączenia, które nie są rozmową z kandydatem.
+_NO_CONTACT_OUTCOMES = ("no_answer", "wrong_number")
+
+
 def contact_clause(
     *,
     mode: Optional[str],
@@ -1820,12 +1824,14 @@ def contact_clause(
 
     ``real_contact_only`` (nowa semantyka, 03.10.2026): „nie odbiera”, wpis
     automatu, uwaga Delivery Leada i sama wzmianka nie są kontaktem
-    (``note_kinds.real_contact_clause``). v1 — na niej stoją alerty zapisanych
+    (``note_kinds.real_contact_clause``), a połączenie liczy się tylko
+    odebrane (status „completed”, wynik inny niż „nie odebrał” i „zły
+    numer”). v1 — na niej stoją alerty zapisanych
     wyszukiwań — liczy każdą notatkę jak dotąd.
     """
     if mode not in ("yes", "no"):
         return None
-    from app.models.call import Call
+    from app.models.call import Call, CallStatus
     from app.models.note import Note
     from app.services import note_kinds
 
@@ -1853,9 +1859,26 @@ def contact_clause(
         .correlate(Candidate)
         .exists()
     )
+    # Połączenie nieodebrane, nieudane albo samo rozpoczęcie to też „nie
+    # odebrał” — tak zapisują je koordynacja kontaktu i lista praktykanta.
+    answered = (
+        [
+            Call.status == CallStatus.completed,
+            or_(
+                Call.contact_outcome.is_(None),
+                Call.contact_outcome.notin_(_NO_CONTACT_OUTCOMES),
+            ),
+        ]
+        if real_contact_only
+        else []
+    )
     call_exists = (
         select(Call.id)
-        .where(Call.candidate_id == Candidate.id, *window(call_at, Call.user_id))
+        .where(
+            Call.candidate_id == Candidate.id,
+            *window(call_at, Call.user_id),
+            *answered,
+        )
         .correlate(Candidate)
         .exists()
     )

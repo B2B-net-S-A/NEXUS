@@ -468,6 +468,40 @@ _SNIPPET_NOTES_PER_CANDIDATE = 20
 _RATE_UNIT_SHORT = {"hourly": "/h", "daily": "/d", "monthly": "/mc"}
 
 
+async def _contact_attempt_counts(
+    db: AsyncSession, candidate_ids: list[int]
+) -> dict[int, int]:
+    """Próby kontaktu bez rozmowy: notatki „nie odebrał” i nieodebrane telefony.
+
+    Lista praktykanta i koordynacja kontaktu zapisują „nie odbiera” jako
+    połączenie (``calls``), nie notatkę — liczymy oba źródła. Dwa zapytania
+    po ``candidate_id`` strony.
+    """
+    counts: dict[int, int] = {}
+    if not candidate_ids:
+        return counts
+    from app.models.call import Call, CallStatus
+
+    for stmt in (
+        select(Note.candidate_id, func.count())
+        .where(
+            Note.candidate_id.in_(candidate_ids),
+            Note.parent_note_id.is_(None),
+            Note.kind == note_kinds.CONTACT_ATTEMPT,
+        )
+        .group_by(Note.candidate_id),
+        select(Call.candidate_id, func.count())
+        .where(
+            Call.candidate_id.in_(candidate_ids),
+            or_(Call.status == CallStatus.missed, Call.contact_outcome == "no_answer"),
+        )
+        .group_by(Call.candidate_id),
+    ):
+        for candidate_id, count in (await db.execute(stmt)).all():
+            counts[candidate_id] = counts.get(candidate_id, 0) + count
+    return counts
+
+
 def _format_note_preview(raw: str, max_chars: int = _NOTE_PREVIEW_MAX_CHARS) -> str:
     """Flatten a note to clean plain text + truncate. Notatki w NEXUS są
     zapisywane przez Tiptap editor — czasem jako HTML (legacy z Word/Outlook
@@ -2659,18 +2693,7 @@ async def list_candidates(
                 author_name,
                 _format_note_preview(content or ""),
             )
-        for cand_id, count in (
-            await db.execute(
-                select(Note.candidate_id, func.count())
-                .where(
-                    Note.candidate_id.in_(page_ids),
-                    Note.parent_note_id.is_(None),
-                    Note.kind == note_kinds.CONTACT_ATTEMPT,
-                )
-                .group_by(Note.candidate_id)
-            )
-        ).all():
-            contact_attempts_by_candidate[cand_id] = count
+        contact_attempts_by_candidate = await _contact_attempt_counts(db, page_ids)
 
     # Last-activity aggregation (Phase „Search inline visibility"). 3 DISTINCT ON
     # queries po jednym SQL per page: najnowsza notatka, najnowszy rejection,
@@ -4383,14 +4406,8 @@ async def get_candidate_quick_view(
         for note, author_name in note_rows
     ]
 
-    contact_attempts = await db.scalar(
-        select(func.count())
-        .select_from(Note)
-        .where(
-            Note.candidate_id == candidate_id,
-            Note.parent_note_id.is_(None),
-            Note.kind == note_kinds.CONTACT_ATTEMPT,
-        )
+    contact_attempts = (await _contact_attempt_counts(db, [candidate_id])).get(
+        candidate_id, 0
     )
 
     quick_view_contact_case = (
@@ -4429,7 +4446,7 @@ async def get_candidate_quick_view(
         source=CandidateQuickViewSource(**resolve_source(candidate)),
         current_recruitments=current_recruitments,
         recent_notes=recent_notes,
-        contact_attempts=int(contact_attempts or 0),
+        contact_attempts=contact_attempts,
         cv_highlights=CandidateCvHighlights(**resolve_cv_highlights(candidate)),
         capabilities=CandidateQuickViewCapabilities(
             can_assign=current_user.has_any_role(*CANDIDATE_WRITE_ROLES),

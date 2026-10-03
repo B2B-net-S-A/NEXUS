@@ -376,8 +376,10 @@ async def test_changed_after_sees_a_new_note(app_client, app_auth_headers):
 
 
 async def _seed_talks() -> tuple[str, dict[str, int]]:
-    """Trzy osoby: po rozmowie, tylko z „nie odbiera”, tylko z wpisem automatu."""
+    """Cztery osoby: po rozmowie, tylko z „nie odbiera”, tylko z wpisem automatu
+    i tylko z nieodebranym telefonem (tak „nie odbiera” zapisuje praktykant)."""
     from app.core.database import AsyncSessionLocal
+    from app.models.call import Call, CallStatus
     from app.models.candidate import Candidate, CandidateStatus
     from app.models.note import SYSTEM_NOTE_SOURCE, Note
     from app.models.user import User, UserRole
@@ -399,7 +401,7 @@ async def _seed_talks() -> tuple[str, dict[str, int]]:
                 status=CandidateStatus.active,
                 linkedin_current_company=nonce,
             )
-            for key in ("talked", "silent", "automat")
+            for key in ("talked", "silent", "automat", "missed")
         }
         db.add_all([author, *people.values()])
         await db.flush()
@@ -416,6 +418,12 @@ async def _seed_talks() -> tuple[str, dict[str, int]]:
                     candidate_id=people["automat"].id,
                     content="Auto-match 71/100",
                     external_source=SYSTEM_NOTE_SOURCE,
+                ),
+                Call(
+                    candidate_id=people["missed"].id,
+                    user_id=author.id,
+                    status=CallStatus.missed,
+                    contact_outcome="no_answer",
                 ),
             ]
         )
@@ -449,7 +457,7 @@ async def test_last_talk_column_ignores_contact_attempts_and_automat(
     assert talked["last_talk_preview"].startswith("Szuka projektu z Javą 21")
     assert talked["contact_attempts"] == 1
     # „Nie odbiera” i wpis automatu nie są rozmową.
-    for key, attempts in (("silent", 1), ("automat", 0)):
+    for key, attempts in (("silent", 1), ("automat", 0), ("missed", 1)):
         row = rows[ids[key]]
         assert row["last_talk_at"] is None and row["last_talk_by"] is None
         assert row["contact_attempts"] == attempts
@@ -473,7 +481,9 @@ async def test_contact_filter_v2_counts_only_real_contact_and_v1_is_unchanged(
         app_client, app_auth_headers, nonce, contacted="no", semantics_version=2
     )
     assert set(yes_v2) == {ids["talked"]}
-    assert set(no_v2) == {ids["silent"], ids["automat"]}
+    # Nieodebrany telefon (tak zapisuje „nie odbiera” praktykant) też nie jest
+    # kontaktem.
+    assert set(no_v2) == {ids["silent"], ids["automat"], ids["missed"]}
 
     # v1 — na niej stoją alerty zapisanych wyszukiwań — liczy każdą notatkę.
     yes_v1 = await _talk_list(app_client, app_auth_headers, nonce, contacted="yes")

@@ -2547,7 +2547,10 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   ROZMOWĘ (przypięta notatka zostaje bez względu na rodzaj) i liczbę prób
   kontaktu. Filtr „Kontakt z kandydatem” w nowej semantyce liczy tylko
   prawdziwy kontakt (`real_contact_clause`: bez „nie odbiera”, automatu, uwag
-  DL i samych wzmianek; mail i ustalony termin się liczą) — v1 dla alertów
+  DL i samych wzmianek; mail i ustalony termin się liczą; telefon tylko
+  odebrany — lista praktykanta i koordynacja kontaktu zapisują „nie odbiera”
+  jako wiersz `calls`, dlatego `contact_attempts` liczy notatki-próby ORAZ
+  nieodebrane telefony, `_contact_attempt_counts`) — v1 dla alertów
   zapisanych wyszukiwań bez zmian. `include_last_talk` jest parametrem
   technicznym w czterech lustrach (`saved_search_alerts.py`,
   `saved_search_payload.py`, `saved-search-unified.ts`, `url-filters.ts`).
