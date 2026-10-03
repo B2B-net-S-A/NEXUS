@@ -2554,6 +2554,23 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   zapisanych wyszukiwań bez zmian. `include_last_talk` jest parametrem
   technicznym w czterech lustrach (`saved_search_alerts.py`,
   `saved_search_payload.py`, `saved-search-unified.ts`, `url-filters.ts`).
+- **Stawka do klienta z wpisów Delivery Leada (03.10.2026):**
+  `services/client_rate_notes.py`, `POST /api/admin/notes-insights/client-rates`
+  (admin). Przenosi do `candidate_stages.client_rate_*` wyłącznie wpis
+  JEDNOZNACZNY: notatka `dl_rate` z rekrutacją, jedna kwota po czasowniku
+  wysyłki („Wyślijmy za 161 zł/h”), 40–400 PLN/h; para kwot, sama liczba przy
+  wzmiance, inna waluta lub jednostka zostają w notatce. Tylko para bez stawki
+  na żadnym wierszu etapu, kwota trafia na pierwszy wiersz od „CV wysłane”;
+  dwie różne kwoty w notatkach pary = pominięcie. `dry_run=true` (domyślnie)
+  nic nie zapisuje; zapis wymaga `expected=` równego liczbie z próby (409 przy
+  rozjeździe). Notatek nie zmienia. Paragon `client_rate_notes_backfill_2026_10`
+  (liczby i id wierszy), kwoty pod `repair_details_…`. Pomiar 03.10.2026: 5 994
+  wpisy `dl_rate`, 1 410 jednoznacznych, ok. 1 400 par do uzupełnienia —
+  wszystkie w archiwum z Traffita; przed zapisem stawkę do klienta miało 17
+  wierszy etapów.
+- **Jarvis czyta kartę narzędziem `get_recommendation_card`** — kształt
+  wyniku (`_shape_recommendation_card`) nie przepuszcza narodowości,
+  podpowiedzi ani `legacy_text` (pilnuje `test_recommendation_card_ai_privacy.py`).
 - **API `GET/PUT /api/recommendation-cards?candidate_id&job_id`:** sekcja
   Pipeline, odczyt jak rekrutacja, zapis jak notatka kandydata + blokada 12 h.
   `PUT` przyjmuje tekst pola (`null` zdejmuje pole ręczne) i normalizuje go tą

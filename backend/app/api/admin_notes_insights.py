@@ -4,6 +4,11 @@
   postęp w ``GET /api/admin/traffit/sync/status`` — wiersz ``notes_insights``
   w ``traffit_sync_state``, ten endpoint czyta wszystkie fazy).
 
+- ``POST /api/admin/notes-insights/client-rates?dry_run=true`` — wpisy Delivery
+  Leada o stawce do klienta („Wyślijmy za 161 zł/h”) → pole stawki etapu.
+  Próba oddaje liczby i nic nie zapisuje; ``dry_run=false`` wymaga podania
+  liczby wierszy z próby (``expected=``). Reguły: ``services/client_rate_notes.py``.
+
 RBAC: admin JWT. Świadomie bez scope'u konta serwisowego na start — pętla
 dzienna obsługuje rutynę sama, trigger jest do aktywacji i nadganiania
 zaległości (operator odpala kilka razy, każdy bieg zjada kolejny budżet).
@@ -12,14 +17,17 @@ zaległości (operator odpala kilka razy, każdy bieg zjada kolejny budżet).
 # UWAGA: bez `from __future__ import annotations` — PEP 563 + slowapi #579
 # zamienia Annotated guardy w wymagane parametry QUERY (trap z CLAUDE.md).
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
 from app.core.config import settings
+from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.core.tasks import spawn
+from app.services import client_rate_notes
 from app.tasks.notes_insights_sync import run_and_persist, sync_is_running
 
 router = APIRouter()
@@ -73,3 +81,48 @@ async def trigger_notes_insights_sync(
         "batch_limit": settings.NOTES_INSIGHTS_SYNC_BATCH_LIMIT,
         "status_surface": "/api/admin/traffit/sync/status (phase=notes_insights)",
     }
+
+
+@router.post("/client-rates")
+@limiter.limit("10/minute")
+async def backfill_client_rates_from_notes(
+    request: Request,
+    admin: AdminUser,
+    dry_run: bool = Query(True),
+    expected: Optional[int] = Query(None, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Stawka do klienta z jednoznacznych wpisów Delivery Leada w notatkach.
+
+    Uzupełnia wyłącznie puste pola (para bez stawki na żadnym wierszu etapu);
+    notatek nie zmienia. Zapis wymaga ``expected`` równego liczbie wierszy
+    z próby — gdy dane zmieniły się od próby, odpowiedź to 409 i nic się nie
+    zapisuje. ``request`` — wymóg slowapi.
+    """
+    plan, counts = await client_rate_notes.build_plan(db)
+    if dry_run:
+        return {
+            "dry_run": True,
+            "counts": counts,
+            # Same ID i kwota — bez nazwisk; trasa jest tylko dla admina.
+            "sample": [
+                {
+                    "stage_id": item.stage_id,
+                    "job_id": item.job_id,
+                    "note_id": item.note_id,
+                    "value": str(item.value),
+                }
+                for item in plan[:20]
+            ],
+        }
+    if expected is None or expected != len(plan):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Liczba wierszy do uzupełnienia różni się od próby "
+                f"(teraz {len(plan)}). Uruchom próbę (dry_run=true) jeszcze raz "
+                "i podaj jej wynik w parametrze expected."
+            ),
+        )
+    receipt = await client_rate_notes.apply_plan(db, plan, counts, user_id=admin.id)
+    return {"dry_run": False, "counts": receipt["counts"]}

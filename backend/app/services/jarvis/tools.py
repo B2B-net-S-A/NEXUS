@@ -169,6 +169,49 @@ def _limit(args: dict[str, Any], key: str = "limit", default: int = 10) -> int:
         return default
 
 
+def _shape_recommendation_card(data: Any) -> Any:
+    """Karta rekomendacji dla modelu — bez narodowości i bez tekstu do kopiowania.
+
+    Narodowość żyje wyłącznie na karcie i nie trafia do żadnego modelu
+    (``AI_HIDDEN_FIELDS``); ``legacy_text`` i podpowiedzi niosą ją także, więc
+    nie przechodzą wcale.
+    """
+    if not isinstance(data, dict):
+        return data
+    labels = data.get("labels") if isinstance(data.get("labels"), dict) else {}
+
+    def _visible(fields: Any) -> dict[str, Any]:
+        if not isinstance(fields, dict):
+            return {}
+        return {
+            str(labels.get(key) or key): str((value or {}).get("raw") or "")
+            for key, value in fields.items()
+            if key not in AI_HIDDEN_FIELDS and isinstance(value, dict)
+        }
+
+    completeness = (
+        data.get("completeness") if isinstance(data.get("completeness"), dict) else {}
+    )
+    return trim(
+        {
+            "exists": data.get("exists"),
+            "status": completeness.get("status"),
+            "missing": [
+                str(labels.get(key) or key)
+                for key in completeness.get("missing") or []
+                if key not in AI_HIDDEN_FIELDS
+            ],
+            "fields": _visible(data.get("fields")),
+            "previous_attempt": _visible(data.get("previous")),
+            "questions": [
+                pick(item, ("number", "question", "answer", "source"))
+                for item in data.get("questions") or []
+            ],
+            "updated_at": data.get("updated_at"),
+        }
+    )
+
+
 def _int(args: dict[str, Any], key: str) -> int:
     value = args.get(key)
     if isinstance(value, bool) or value is None:
@@ -1346,6 +1389,30 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
             {"job_id": _int(a, "job_id"), "limit": _limit(a)},
         ),
         shape=pick_list(("text", "created_at")),
+    ),
+    JarvisTool(
+        name="get_recommendation_card",
+        label="Czytam kartę rekomendacji",
+        description=(
+            "Karta rekomendacji kandydata w rekrutacji: stawka, dostępność, tryb "
+            "pracy, lokalizacja, angielski, praca u klienta, red flags, motywacja, "
+            "notatka rekrutera, odpowiedzi na pytania z Profilu Championa oraz czego "
+            "na karcie brakuje. Użyj, gdy pytanie dotyczy tego, co ustalono "
+            "z kandydatem w tej rekrutacji albo czy karta jest gotowa do wysyłki."
+        ),
+        input_schema=_schema(
+            {"candidate_id": INT, "job_id": INT}, ("candidate_id", "job_id")
+        ),
+        tier="read",
+        method="GET",
+        path="/api/recommendation-cards",
+        section=ProductSection.pipeline,
+        entity_type="candidate",
+        build=lambda a: _get(
+            "/api/recommendation-cards",
+            {"candidate_id": _int(a, "candidate_id"), "job_id": _int(a, "job_id")},
+        ),
+        shape=lambda data, _a: _shape_recommendation_card(data),
     ),
     JarvisTool(
         name="get_debrief",
