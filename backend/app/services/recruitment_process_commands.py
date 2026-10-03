@@ -330,6 +330,48 @@ async def update_latest_client_rate(
     return stage, previous
 
 
+async def fill_missing_client_rate(
+    db: AsyncSession,
+    *,
+    stage_id: int,
+    rate_value: Any,
+    rate_unit: str,
+    rate_currency: str,
+) -> bool:
+    """Wpisz stawkę do klienta na wskazany wiersz etapu, gdy para jej nie ma.
+
+    Uzupełnienie z archiwum (wpisy Delivery Leada z notatek): niczego nie
+    nadpisuje. Para (kandydat, rekrutacja), która ma stawkę na którymkolwiek
+    wierszu etapu, zostaje bez zmian i funkcja zwraca ``False``.
+    """
+
+    target = await db.get(CandidateStage, stage_id)
+    if target is None:
+        return False
+    rows = (
+        await db.scalars(
+            select(CandidateStage)
+            .where(
+                CandidateStage.candidate_id == target.candidate_id,
+                CandidateStage.job_id == target.job_id,
+            )
+            .order_by(CandidateStage.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    if any(row.client_rate_value is not None for row in rows):
+        return False
+    stage = next((row for row in rows if row.id == stage_id), None)
+    if stage is None:
+        return False
+    stage.client_rate_value = rate_value
+    stage.client_rate_unit = rate_unit
+    stage.client_rate_currency = rate_currency
+    await db.flush()
+    return True
+
+
 async def update_latest_expected_rate(
     db: AsyncSession,
     *,

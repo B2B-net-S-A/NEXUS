@@ -21,6 +21,7 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
+  "POST /api/admin/notes-insights/client-rates": "PDDDDDDDDDDDDDDDDDD",
   "POST /api/admin/notes-insights/sync": "PDDDDDDDDDDDDDDDDDD"
  }
 }

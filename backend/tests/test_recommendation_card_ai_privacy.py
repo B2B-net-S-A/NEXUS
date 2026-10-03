@@ -130,3 +130,46 @@ def test_jarvis_candidate_tools_do_not_carry_the_nationality():
     by_name = {tool.name: tool for tool in tools.ALL_TOOLS}
     for name in ("get_candidate", "get_candidate_timeline"):
         assert by_name[name].shape is tools._shape_candidate_text
+
+
+def test_jarvis_card_tool_never_passes_the_nationality_to_the_model():
+    from app.services.jarvis import tools
+
+    card = {
+        "exists": True,
+        "labels": {
+            "rate": "Stawka",
+            "nationality": "Narodowość",
+            "english": "Angielski",
+        },
+        "fields": {
+            "rate": {"raw": "135 zł/h", "value": 135.0, "source": "note"},
+            "nationality": {"raw": "polska", "source": "note"},
+        },
+        "previous": {"nationality": {"raw": "polska", "source": "note"}},
+        "suggestions": {"nationality": "polska"},
+        "questions": [
+            {
+                "number": 1,
+                "question": "Java 17+?",
+                "answer": "Java 21.",
+                "source": "note",
+            }
+        ],
+        "completeness": {
+            "status": "partial",
+            "filled": 2,
+            "total": 10,
+            "missing": ["english", "nationality"],
+        },
+        "legacy_text": "Stawka: 135 zł/h\nNarodowość: polska",
+    }
+
+    by_name = {tool.name: tool for tool in tools.ALL_TOOLS}
+    shaped = by_name["get_recommendation_card"].shape(card, {})
+
+    assert "polska" not in str(shaped)
+    assert "Narodowość" not in str(shaped)
+    assert shaped["fields"] == {"Stawka": "135 zł/h"}
+    assert shaped["missing"] == ["Angielski"]
+    assert shaped["questions"][0]["answer"] == "Java 21."
