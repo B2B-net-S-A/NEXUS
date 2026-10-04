@@ -9,14 +9,24 @@
  * albo w rejestrze Generatora. Podpis nadal potwierdza się w rejestrze
  * („Oznacz jako podpisaną” zakłada kontrakt i zamówienie) — panel prowadzi
  * tam z wyszukaną umową, nie powiela okna potwierdzenia.
+ *
+ * 04.10.2026 (rekruter generuje umowę w rekrutacji): „Wygeneruj umowę”
+ * rozwija panel na zakładce „Umowa” z formularzem Generatora, a podpis
+ * potwierdza się tu — oknem z rejestru („Podpis B2B”) albo prośbą do
+ * Delivery Leada (`AgreementSignatureAction`). Sekcja stoi w każdej kolumnie,
+ * w której para ma umowę, nie tylko na „Umowie” i „Zatrudnionym”.
  */
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Circle, Loader2 } from "lucide-react";
+import { CheckCircle2, Circle, FileSignature, Loader2 } from "lucide-react";
 
+import { AgreementSignatureAction } from "@/components/v2/b2b-generator/AgreementSignatureAction";
+import { Button } from "@/components/ui/button";
 import { b2bGeneratorApi, type B2BGeneratedContractRow } from "@/lib/api";
+import { daysSince, type CardAgreement } from "@/lib/b2b-agreement";
 import { generatorPrefillHref, registerSearchHref } from "@/lib/b2b-generator-register";
+import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 
 /** Kody etapów kolumn „Umowa” i „Zatrudniony” (lustro `board-stages`). */
@@ -67,6 +77,8 @@ export function DockContractSteps({
   clientId,
   orderStatus,
   readOnly,
+  agreement = null,
+  onGenerate,
 }: {
   candidateId: number;
   jobId: number;
@@ -74,6 +86,10 @@ export function DockContractSteps({
   /** `order_status` karty „Zatrudniony” (`null` = przed zatrudnieniem). */
   orderStatus: "complete" | "missing" | null | undefined;
   readOnly: boolean;
+  /** Umowa pary z karty Tablicy (`item.agreement`) — data prośby o podpis. */
+  agreement?: CardAgreement | null;
+  /** Rozwija panel na zakładce „Umowa” z formularzem Generatora. */
+  onGenerate?: () => void;
 }) {
   // Ten sam klucz co warsztat „Umowa” (`JobContractTab`) — jedno zapytanie.
   const contracts = useQuery<B2BGeneratedContractRow[]>({
@@ -93,9 +109,25 @@ export function DockContractSteps({
   const signed = row?.signature_status === "signed_both";
   const linkClass = "text-xs font-medium text-primary hover:underline";
 
+  const waitingDays = row && !signed ? daysSince(row.created_at, new Date()) : null;
+
   return (
-    <div className="space-y-2 rounded-lg border border-border p-3 text-xs" data-testid="dock-contract-steps">
-      <div className="text-sm font-semibold text-foreground">Umowa</div>
+    <div
+      className="space-y-2 rounded-lg border border-border p-3 text-xs"
+      data-testid="dock-contract-steps"
+      data-help="jobs.person.agreement"
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-sm font-semibold text-foreground">Umowa</span>
+        {row ? (
+          <Link
+            href={registerSearchHref(row.contract_number, row.contract_status)}
+            className="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+          >
+            W rejestrze ↗
+          </Link>
+        ) : null}
+      </div>
       {contracts.isError ? (
         <p role="alert" className="text-destructive">
           Nie udało się sprawdzić umowy.{" "}
@@ -111,9 +143,16 @@ export function DockContractSteps({
             detail={row ? `Nr ${row.contract_number}` : null}
             action={
               !loading && !row && !readOnly ? (
-                <Link href={generatorPrefillHref(candidateId, jobId)} className={linkClass}>
-                  Otwórz Generator umów
-                </Link>
+                onGenerate ? (
+                  <Button size="sm" variant="outline" onClick={onGenerate}>
+                    <FileSignature className="h-3.5 w-3.5" aria-hidden />
+                    Wygeneruj umowę
+                  </Button>
+                ) : (
+                  <Link href={generatorPrefillHref(candidateId, jobId)} className={linkClass}>
+                    Otwórz Generator umów
+                  </Link>
+                )
               ) : null
             }
           />
@@ -121,18 +160,20 @@ export function DockContractSteps({
             state={loading ? "loading" : signed ? "done" : "todo"}
             title="Podpisana obustronnie"
             detail={
-              row && !signed
-                ? "„Oznacz jako podpisaną” w rejestrze zakłada kontrakt i zamówienie i przesuwa na „Zatrudniony”."
+              row && !signed && row.contract_status === "in_progress"
+                ? `Czeka na podpis${
+                    waitingDays ? ` od ${countPl(waitingDays, "dnia", "dni", "dni")}` : ""
+                  }. Potwierdzenie zakłada kontrakt i zamówienie i przesuwa na „Zatrudniony”.`
                 : null
             }
             action={
-              row && !signed && row.contract_status === "in_progress" && !readOnly ? (
-                <Link
-                  href={registerSearchHref(row.contract_number, row.contract_status)}
-                  className={linkClass}
-                >
-                  Oznacz jako podpisaną w rejestrze
-                </Link>
+              row && !signed ? (
+                <AgreementSignatureAction
+                  row={row}
+                  jobId={jobId}
+                  requestedAt={agreement?.signature_requested_at ?? null}
+                  readOnly={readOnly}
+                />
               ) : null
             }
           />

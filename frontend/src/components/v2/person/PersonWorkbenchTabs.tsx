@@ -17,6 +17,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { TabbedNav } from "@/components/ds";
+import { AgreementPanelTab } from "@/components/v2/b2b-generator/AgreementPanelTab";
 import { JobContractTab } from "@/components/v2/jobs/JobContractTab";
 import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
 import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
@@ -362,6 +363,14 @@ export function PersonWorkbenchTabs({
               enabled={ctx.canCloseJob && !readOnly && ctx.jobClosed !== true}
               onRequestCloseJob={ctx.onRequestCloseJob}
             />
+            {/* 04.10.2026: rekruter generuje umowę tu — ten sam formularz
+                i ten sam wiersz rejestru co w Generatorze. */}
+            <AgreementPanelTab
+              candidateId={candidateId}
+              jobId={jobId}
+              readOnly={readOnly}
+              agreement={row.item.agreement ?? null}
+            />
             <JobContractTab
               layout="panel"
               focusCandidateId={candidateId}
@@ -378,6 +387,7 @@ export function PersonWorkbenchTabs({
               // „Zamknij rekrutację" mieszka w oknie „Zlecenie" — panel JEDNEJ
               // osoby nie jest miejscem na akcję dotyczącą całej rekrutacji.
               hideCloseJob
+              agreementInPanel
             />
           </>
         );
