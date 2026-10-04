@@ -560,12 +560,12 @@
     "tasks": [
       {
         "q": "Jak wygenerować umowę?",
-        "a": "W „Generatorze” wybierz „Umowa JDG” albo „Umowa spółka”, wypełnij dane i warunki, sprawdź „Podgląd” i kliknij „Pobierz DOCX”. Dla spółki siedziba, sąd i kapitał przyjdą z KRS, osobę reprezentującą wpisz ręcznie. Przed pobraniem generator sprawdza firmę w CEIDG/KRS — ostrzeżenia nie blokują umowy.",
+        "a": "W „Generatorze” wybierz „Umowa JDG” albo „Umowa spółka”, kandydata i rekrutację (stawka i data startu podpowiedzą się z rekrutacji), sprawdź „Podgląd” i kliknij „Pobierz DOCX”. Dla spółki siedziba, sąd i kapitał przyjdą z KRS, osobę reprezentującą wpisz ręcznie. Przed pobraniem generator sprawdza firmę w CEIDG/KRS — ostrzeżenia nie blokują umowy.",
         "anchor": "contracts.b2b_generator.docx"
       },
       {
         "q": "Umowa jest podpisana — co dalej?",
-        "a": "W „Umowy bieżące” kliknij „Oznacz jako podpisaną”. Dopiero wtedy powstaje kontrakt i szkic zamówienia, a kandydat przechodzi na „Zatrudniony”.",
+        "a": "W „Umowy bieżące” kliknij „Oznacz jako podpisaną” — bez uprawnienia „Podpis B2B” poproś Delivery Leada. Dopiero wtedy powstaje kontrakt i szkic zamówienia, a kandydat przechodzi na „Zatrudniony”. Link w kolumnie rekrutacji otwiera panel osoby.",
         "anchor": "contracts.b2b_generator.tabs"
       },
       {
