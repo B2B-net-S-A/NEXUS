@@ -91,3 +91,31 @@ async def test_draft_led_by_me_is_in_mine_and_carries_delivery_lead(
         assert after["mine"] == before["mine"] + 1
     finally:
         await _cleanup([draft, closed])
+
+
+@pytest.mark.asyncio
+async def test_job_detail_carries_delivery_lead(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Brief Profilu Championa czyta DL z ``GET /api/jobs/{id}`` (04.10.2026).
+
+    Do tej daty pole wypełniała tylko lista, więc Brief pisał „Delivery Lead:
+    nie przypisano” przy DL widocznym w zakładce „Zespół i ogłoszenie”.
+    """
+    from app.models.job import JobStatus
+
+    me = await _me_id(app_client, app_auth_headers)
+    token = f"DetailDL{uuid.uuid4().hex[:8]}"
+    led = await _seed_job(token, status=JobStatus.draft, delivery_lead_id=me)
+    unled = await _seed_job(token, status=JobStatus.draft)
+    try:
+        response = await app_client.get(f"/api/jobs/{led}", headers=app_auth_headers)
+        assert response.status_code == 200, response.text
+        assert response.json()["delivery_lead_user"]["id"] == me
+        assert response.json()["delivery_lead_user"]["name"]
+
+        response = await app_client.get(f"/api/jobs/{unled}", headers=app_auth_headers)
+        assert response.status_code == 200, response.text
+        assert response.json()["delivery_lead_user"] is None
+    finally:
+        await _cleanup([led, unled])
