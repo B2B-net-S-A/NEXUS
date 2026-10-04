@@ -2556,12 +2556,21 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  workbench && dockItem && workbench.candidateId === dockItem.candidate_id ? workbench : null;
  const workbenchOpen = activeWorkbench?.open === true;
  const dockRow = usePersonRow(stageCols, dockItem?.candidate_id ?? null, jobBudgetHourlyValue ?? null);
- // „Zwiń” / Esc / klik w tło: narzędzia zostają zamontowane, a okno
- // „Przesuń dalej”, z którego je otwarto, wraca.
+ // „Zwiń” / Esc / klik w tło: narzędzia zostają zamontowane.
  const collapseWorkbench = useCallback(() => {
  setWorkbench((w) => (w ? { ...w, open: false } : w));
- resumeMoveNext();
- }, [resumeMoveNext]);
+ }, []);
+ // Okno „Przesuń dalej”, z którego rozwinięto panel (akcja „Wygeneruj CV”,
+ // rozmowy), wraca przy KAŻDYM wyjściu z szerokiego panelu: „Zwiń”, Esc,
+ // zamknięcie karty, inna osoba, a po przeglądzie DL — po jego zamknięciu.
+ // Dawny warsztat w oknie miał jedno wyjście; panel ma kilka (przegląd kodu
+ // 04.10.2026). `resumeMoveNext` bez zawieszenia tylko odświeża wymagania.
+ const wideBefore = useRef(false);
+ const panelWide = workbenchOpen || reviewOpen;
+ useEffect(() => {
+ if (wideBefore.current && !panelWide) resumeMoveNext();
+ wideBefore.current = panelWide;
+ }, [panelWide, resumeMoveNext]);
  const toggleWorkbench = useCallback(() => {
  if (!dockItem) return;
  if (workbenchOpen) {

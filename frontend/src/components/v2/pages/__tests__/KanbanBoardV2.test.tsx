@@ -2279,13 +2279,14 @@ describe("KanbanBoardV2 — „Rozwiń”: pełne narzędzia w tym samym panelu 
 
   function renderWithWorkbench(
     initialWorkbench: { candidateId: number; section: "cv" | "interviews" } | null = null,
+    columns: unknown = pendingColumns(),
   ) {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     return render(
       <QueryClientProvider client={qc}>
         <TooltipProvider>
           <KanbanBoardV2
-            columns={pendingColumns()}
+            columns={columns as never}
             jobId={10}
             workbenchContext={ctx}
             kanbanQueryState={query}
@@ -2327,6 +2328,58 @@ describe("KanbanBoardV2 — „Rozwiń”: pełne narzędzia w tym samym panelu 
     const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
     await waitFor(() => expect(panel).toHaveAttribute("data-wide"));
     expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-section", "interviews");
+  });
+
+  it.each([
+    ["krzyżyk doku", (panel: HTMLElement) => userEvent.click(within(panel).getByRole("button", { name: "Zamknij dok" }))],
+    ["„Zwiń”", (panel: HTMLElement) => userEvent.click(within(panel).getByRole("button", { name: "Zwiń" }))],
+  ])("okno „Przesuń dalej”, z którego rozwinięto panel, wraca po wyjściu: %s", async (_label, leave) => {
+    get.mockImplementation((url: string) =>
+      url === "/api/pipeline/move-requirements"
+        ? Promise.resolve({
+            data: {
+              from_column: "verified",
+              to_column: "cv_qc",
+              skipped_columns: [],
+              items: [
+                {
+                  key: "company_cv",
+                  label: "CV firmowe",
+                  status: "missing",
+                  blocking: true,
+                  action: { kind: "generate_cv", label: "Wygeneruj CV" },
+                },
+              ],
+              primary: { kind: "move", label: "Przesuń dalej" },
+              owner_note: null,
+            },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    renderWithWorkbench(null, [
+      {
+        stage: "verified",
+        name: "Zweryfikowany",
+        category: "internal",
+        stage_def_id: 13,
+        count: 1,
+        items: [{ id: 777, candidate_id: 5, name: "Anna", lastname: "Kowalska", stage: "verified", days_in_stage: 1 }],
+      },
+      { stage: "interview", name: "QC CV", category: "internal", stage_def_id: 14, count: 0, items: [] },
+    ]);
+    const card = (await screen.findByRole("link", { name: "Anna Kowalska" })).closest(
+      "[data-kanban-card]",
+    ) as HTMLElement;
+    await userEvent.click(within(card).getByRole("button", { name: /Przesuń Anna Kowalska na następny etap/ }));
+    const dialog = await screen.findByTestId("move-next-dialog");
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Wygeneruj CV" }));
+    await waitFor(() => expect(screen.queryByTestId("move-next-dialog")).toBeNull());
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    await waitFor(() => expect(panel).toHaveAttribute("data-wide"));
+    expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-section", "cv");
+
+    await leave(panel);
+    expect(await screen.findByTestId("move-next-dialog")).toBeTruthy();
   });
 
   it("bez kontekstu warsztatów (harness) panel nie ma „Rozwiń”", async () => {
