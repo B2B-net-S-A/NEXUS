@@ -11,6 +11,12 @@ zakładany przy podpisie ma start z umowy i PUSTĄ stawkę klienta — bez warun
 na stawkę zaślepka udawałaby gotowe zamówienie. Osoba obsadzona na żywej
 linii zamówienia MD/kosztowego (``order_group_id``) ma zamówienie niezależnie
 od stawek na linii — tę obsadę prowadzi Delivery w zamówieniu grupowym.
+
+Jedna sprawa (decyzja Artura 04.10.2026, D3): po zatrudnieniu — z podpisu
+w Generatorze ALBO ręcznym ruchem na „Zatrudniony” — Finanse dostają dzwonek,
+a Delivery Lead kartę „uzupełnij zamówienie”. Oba sygnały zamykają się razem
+(`resolve_hired_order_cases_safely`), gdy zamówienie pary jest uzupełnione —
+w chwili zapisu zamówienia, nie dopiero przy dobowym skanerze.
 """
 
 from __future__ import annotations
@@ -20,14 +26,14 @@ import logging
 from datetime import date
 from typing import Literal, Optional, Sequence
 
-from sqlalchemy import and_, or_, select, tuple_
+from sqlalchemy import and_, or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
-from app.models.notification import NotificationType
+from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
@@ -181,5 +187,76 @@ async def notify_finance_hired_without_order(
     except Exception:  # noqa: BLE001 — powiadomienie nie może wywrócić podpisu
         logger.exception(
             "hired_order_missing notification failed for contract %s", contract_id
+        )
+        return 0
+
+
+async def resolve_hired_order_cases_safely(
+    db: AsyncSession, *, contract_ids: Sequence[int]
+) -> int:
+    """Zamknij sprawę „uzupełnij zamówienie” kontraktów, których para ma już
+    uzupełnione zamówienie: dzwonki Finansów oznacza jako przeczytane, karty
+    Delivery Leada (szkice zamówień tego kontraktu) zamyka jako rozwiązane.
+
+    Wołane z ``commit_order_write`` (każdy zapis zamówienia) i z dobowego
+    skanera. Savepoint i fail-soft: zapis zamówienia jest ważniejszy niż
+    sprzątanie powiadomień. Zwraca liczbę zamkniętych spraw (kontraktów).
+    """
+    from app.models.dl_alert import ALERT_NEW_CONTRACTOR_DRAFT  # noqa: PLC0415
+    from app.services.dl_alerts import resolve_entity_alerts  # noqa: PLC0415
+
+    ids = sorted({int(cid) for cid in contract_ids})
+    if not ids:
+        return 0
+    try:
+        async with db.begin_nested():
+            pairs = {
+                row.id: (row.candidate_id, row.job_id)
+                for row in (
+                    await db.execute(
+                        select(
+                            Contract.id, Contract.candidate_id, Contract.job_id
+                        ).where(
+                            Contract.id.in_(ids),
+                            Contract.candidate_id.is_not(None),
+                            Contract.job_id.is_not(None),
+                        )
+                    )
+                ).all()
+            }
+            status = await order_status_for_pairs(db, list(pairs.values()))
+            done = [
+                cid for cid, pair in pairs.items() if status.get(pair) == "complete"
+            ]
+            if not done:
+                return 0
+            await db.execute(
+                update(Notification)
+                .where(
+                    Notification.notification_type
+                    == NotificationType.hired_order_missing,
+                    Notification.related_entity_type == "contract",
+                    Notification.related_entity_id.in_(done),
+                    Notification.is_read.is_(False),
+                )
+                .values(is_read=True)
+            )
+            order_ids = (
+                await db.scalars(
+                    select(ClientOrder.id).where(ClientOrder.contract_id.in_(done))
+                )
+            ).all()
+            for order_id in order_ids:
+                await resolve_entity_alerts(
+                    db,
+                    alert_type=ALERT_NEW_CONTRACTOR_DRAFT,
+                    entity_key=f"order:{order_id}",
+                )
+            return len(done)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 — zapis zamówienia nie może przez to paść
+        logger.exception(
+            "[hired_order_case] zamknięcie sprawy nie wyszło contracts=%s", ids
         )
         return 0

@@ -52,7 +52,10 @@ from app.services.candidate_contact_hooks import (
     maybe_close_contact_opportunity,
     maybe_ensure_contact_opportunity,
 )
-from app.services.b2b_contract_automation import ensure_b2b_employment_draft
+from app.services.b2b_contract_automation import (
+    ORDER_SKIPPED_OPEN_GROUP_LINE,
+    ensure_b2b_employment_draft,
+)
 from app.models.job import Job, JobStatus
 from app.models.pipeline_template import (
     PipelineStageDef,
@@ -1563,7 +1566,15 @@ async def move_candidate(
                     },
                 )
             )
-            for uid in delivery_recipients.for_client(job.client_id):
+            # D3 (04.10.2026): nowy szkic zamówienia ma kartę DL „uzupełnij
+            # zamówienie” (`_notify_new_contractor_draft`) — dzwonek dublowałby
+            # tę samą sprawę. Zostaje tylko dla samego szkicu kontraktu.
+            bell_recipients = (
+                []
+                if employment.created_order
+                else delivery_recipients.for_client(job.client_id)
+            )
+            for uid in bell_recipients:
                 db.add(
                     Notification(
                         user_id=uid,
@@ -1582,6 +1593,27 @@ async def move_candidate(
                         related_entity_id=employment.contract.id,
                     )
                 )
+
+        if (
+            employment is not None
+            and employment.contract is not None
+            and employment.order_skipped_reason != ORDER_SKIPPED_OPEN_GROUP_LINE
+        ):
+            # D3 (04.10.2026): ręczne zatrudnienie otwiera tę samą sprawę co
+            # podpis w Generatorze — Finanse dostają dzwonek (o ile para nie
+            # ma jeszcze uzupełnionego zamówienia). Fail-soft, savepoint.
+            from app.services.hired_order_status import (  # noqa: PLC0415
+                notify_finance_hired_without_order,
+            )
+
+            await notify_finance_hired_without_order(
+                db,
+                contract_id=employment.contract.id,
+                candidate_id=data.candidate_id,
+                job_id=job.id,
+                client_id=job.client_id,
+                start_date=employment.contract.start_date,
+            )
 
         if draft_skip_reason is not None:
             from app.services.notification_triggers import emit

@@ -2365,6 +2365,37 @@ async def test_confirm_notifies_finance_about_contractor_without_order(
 
 
 @pytest.mark.asyncio
+async def test_completed_order_closes_the_case_for_finance_at_once(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """D3 (04.10.2026): jedna sprawa po zatrudnieniu. Uzupełnienie zamówienia
+    (start + stawka przychodowa) zamyka dzwonek Finansów w chwili zapisu
+    zamówienia — nie czeka na dobowy skaner."""
+    finance_id = await _finance_user_id()
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+    assert response.status_code == 200, response.text
+    body = response.json()
+    contract_id = body["contract_id"]
+    order_id = body["order_id"]
+    assert order_id is not None
+    notices = await _hired_order_notices(finance_id, contract_id)
+    assert [n.is_read for n in notices] == [False]
+
+    patched = await app_client.patch(
+        f"/api/clients/{scenario['client_id']}/orders/{order_id}",
+        headers=app_auth_headers,
+        json={"start_date": "2026-08-01", "rate_client": "180"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert [n.is_read for n in await _hired_order_notices(finance_id, contract_id)] == [
+        True
+    ]
+
+
+@pytest.mark.asyncio
 async def test_confirm_on_group_line_does_not_notify_finance(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):

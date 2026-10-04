@@ -680,10 +680,11 @@ async def _ensure_open_order(
             },
         )
     )
-    if from_signed_confirmation:
-        await _notify_new_contractor_draft(
-            db, order=order, candidate_name=candidate_name, job_title=job.title
-        )
+    # D3 (04.10.2026): karta „uzupełnij zamówienie” po KAŻDYM zatrudnieniu —
+    # z podpisu w Generatorze i z ręcznego ruchu na „Zatrudniony”.
+    await _notify_new_contractor_draft(
+        db, order=order, candidate_name=candidate_name, job_title=job.title
+    )
     return order, True, None
 
 
