@@ -4494,10 +4494,11 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   „Do przejrzenia") wraca „← Tablica". `tab=people` żyje WYŁĄCZNIE dla ekranu
   „Do przejrzenia" (`seg=proposals|shortlist`: pełne propozycje z bazy
   i shortlista — makieta 4); każdy inny dawny adres Tabeli otwiera Tablicę,
-  a `?candidate=&panel=` otwiera od razu warsztat osoby. Warsztaty z dawnej
-  Tabeli (CV do klienta ze stawką/linkiem, rozmowy i werdykt HM, umowa) żyją
-  w `BoardWorkbenchDrawer` = `PersonPanel` w szerokim widoku, otwierany
-  z doku; zbiorcza wysyłka CV — pasek zaznaczenia Tablicy. *(Blok „Do
+  a `?candidate=&panel=` otwiera panel osoby od razu rozwinięty na zakładce.
+  Warsztaty z dawnej Tabeli (CV do klienta ze stawką/linkiem, rozmowy
+  i werdykt HM, umowa) żyją w rozwiniętym panelu osoby („Rozwiń”,
+  `person/PersonWorkbenchTabs`, od 04.10.2026); zbiorcza wysyłka CV — pasek
+  zaznaczenia Tablicy. *(Blok „Do
   przejrzenia” w kolumnie „Nowi” usunięty 02.10.2026 — kafle nad Tablicą.)*
   Pierwsza kolumna
   „Do przejrzenia" = `BoardReviewSection` na TEJ SAMEJ scalonej liście co
@@ -4737,11 +4738,23 @@ decyzje Artura D1–D4 z 04.10.2026). Raport: `docs/candidate-funnel-completion-
   każda droga zatrudnienia, zamyka `commit_order_write`
   (`hired_order_status.resolve_hired_order_cases_safely`) dopiero, gdy
   zamówienie nie ma braków, także numeru.
-- **Panel osoby (dok) jest jeden naraz:** przegląd DL i szeroki warsztat go
-  UKRYWAJĄ (`hidden` + `inert`), nie odmontowują — niewysłana notatka
-  i powrót fokusu muszą przeżyć. Fakty o osobie (stawka, „stawka od”,
-  dostępność, tryb, stawka do klienta gdy serwer ją przysyła) stoją raz,
-  pod nazwiskiem (`data-testid="dock-facts"`).
+- **Jeden panel osoby (#2017–PR 3/3, decyzja Artura „Sekcje + Rozwiń”):**
+  na Tablicy jest JEDNO `aside` „Panel osoby” (`person/PersonPanelShell`),
+  380 px dla doku, 760 px w trybie szerokim. Tryby szerokie: „Rozwiń”
+  (pełne narzędzia osoby, `person/PersonWorkbenchTabs` — zakładki CV,
+  Screening, Rozmowy, Umowa, Dopasowanie, Notatki i historia pod głową doku)
+  i przegląd DL (`DlReviewBody layout="panel"`). Osobnego okna warsztatu
+  (`BoardWorkbenchDrawer`/`PersonPanel`) już nie ma; na pulpicie przegląd DL
+  zostaje oknem (`DlReviewPanel`). Sekcje doku, zakładki i dok pod przeglądem
+  są UKRYTE, nie odmontowane (`hidden` + `inert`) — niewysłana notatka i powrót
+  fokusu muszą przeżyć. Esc / klik w tło zamykają najwyższą warstwę: przegląd,
+  rozwinięcie, kartę. Okno „Przesuń dalej”, z którego rozwinięto panel, wraca
+  przy każdym wyjściu z trybu szerokiego. Zakładka z własnym ruchem (screening
+  w „Nowych”, CV na „Zweryfikowanym”) chowa ramkę „Następny etap”. Fakty o
+  osobie liczy `lib/person-facts.ts` i pokazuje `person/PersonFacts` — ten sam
+  wygląd w doku i w przeglądzie DL; notatki pary: `useJobNotes`/`JobNotesBlock`
+  (`jobs/workbench-chrome.tsx`). Nie dokładaj czwartej kopii faktów, notatek
+  ani drugiego panelu osoby obok.
 - **Rozmowa u klienta i umowa są w panelu osoby:** odznaka rozmowy niesie
   `slot_request` i `preps` (`interview_badges_for_job`), panel wybiera
   i potwierdza termin oraz otwiera ocenę prepu; na „Umowie”/„Zatrudnionym”

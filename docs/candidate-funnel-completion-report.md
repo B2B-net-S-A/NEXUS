@@ -31,13 +31,16 @@ DL i Finansów, D4 ślad poprawek DL w karcie rekomendacji.
 | #2014 | Jedna droga ruchu dla ekranów spoza Tablicy (`usePipelineMoveCore`); karta „kto ma ruch · krok · dni” z ikonami; QC CV w doku na „Zweryfikowanym” |
 | #2015 | Jeden panel osoby naraz (ukryty, nie odmontowany); fakty pod nazwiskiem; „Biorę” i „Nie odebrał” w panelu |
 | PR 6 | Wybór i potwierdzenie terminu od klienta oraz ocena prepu w panelu; krok „Umowa” (umowa, podpis, zamówienie); Tablica bez kalendarza w nowej karcie; pulpit „Twój ruch / U innych” |
+| #2017 | Jeden panel osoby 1/3: wspólne fakty (`PersonFacts`), podgląd CV (`StageCvPreview`), lista notatek (`useJobNotes`) dla doku, warsztatu i przeglądu DL |
+| #2018 | Jeden panel osoby 2/3: przegląd DL jako szeroki tryb panelu osoby na Tablicy (`PersonPanelShell`, `DlReviewBody`) |
+| PR 3/3 | Jeden panel osoby 3/3: „Rozwiń” pokazuje pełne narzędzia w tym samym panelu (`PersonWorkbenchTabs`); usunięte osobne okno warsztatu |
 
 ## Świadomie węższy zakres niż w planie
 
-- **Jeden nowy komponent panelu** zamiast doku, warsztatu i przeglądu DL
-  (~3,6 tys. linii) — nie zrobiony. PR 5 i 6 rozwiązują problemy z analizy
-  (nakładanie, fakty w kilku miejscach, rozmowa i umowa poza panelem) na
-  istniejących komponentach.
+- **Jeden panel osoby** — zrobiony w trzech krokach (#2017, #2018, PR 3/3)
+  według decyzji „Sekcje + Rozwiń”: wąski panel zostaje z sekcjami, szeroki
+  pokazuje zakładki narzędzi i przegląd DL. Plik doku (`PipelineCandidateDock`)
+  nie został przemianowany — zmiana nazwy nie daje nic poza ryzykiem.
 - **„Oznacz jako podpisaną” w panelu** — panel prowadzi do rejestru
   z wyszukaną umową; okno potwierdzenia (z obsługą różnic warunków) zostaje
   w Generatorze, bo przeniesienie wciąga do Tablicy moduł 6 tys. linii.
