@@ -137,7 +137,16 @@ function columns(viewerId: number): KanbanColumn[] {
       }),
       card("Michał", "Wójcik", { days_in_stage: 0, auto_cv_ready: true }),
     ]),
-    col("interview", "Przepuszczony przez DZ", "internal", 14, []),
+    // Jeden panel osoby (04.10.2026): DL wysyłający tę osobę do klienta
+    // dostaje przegląd w panelu osoby (`?as=dl`).
+    col("interview", "Przepuszczony przez DZ", "internal", 14, [
+      card("Iga", "Testowa", {
+        days_in_stage: 1,
+        expected_rate_value: 140,
+        expected_rate_unit: "hourly",
+        qc: { status: "passed", blocking_failed: 0 },
+      }),
+    ]),
     col("new", "Wysłać do Cpro", "internal", 15, []),
     col("cv_sent", "CV Wysłane", "internal", 16, [
       card("Łukasz", "Kamiński", {

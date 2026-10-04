@@ -98,32 +98,33 @@ vi.mock("@hello-pangea/dnd", async (importOriginal) => {
 });
 
 // Przegląd przed wysłaniem do klienta ma własne testy (`DlReviewPanel.test`) —
-// tu liczy się, KOMU tablica go otwiera i dla którego wiersza etapu.
+// tu liczy się, KOMU tablica go otwiera, dla którego wiersza etapu i że
+// otwiera się W panelu osoby (jeden panel osoby, 04.10.2026).
 vi.mock("@/components/v2/recruitment/DlReviewPanel", () => ({
-  DlReviewPanel: ({
+  DlReviewBody: ({
     task,
-    open,
     canSendToClient,
-    onOpenChange,
+    onClose,
+    layout,
   }: {
-    task: { stage_id: number; verified_by_name?: string | null; cv_stage_id?: number | null } | null;
-    open: boolean;
+    task: { stage_id: number; verified_by_name?: string | null; cv_stage_id?: number | null };
     canSendToClient?: boolean;
-    onOpenChange?: (open: boolean) => void;
-  }) =>
-    open ? (
-      <div
-        data-testid="dl-review-panel"
-        data-stage-id={String(task?.stage_id)}
-        data-verified-by={task?.verified_by_name ?? ""}
-        data-cv-stage-id={String(task?.cv_stage_id ?? "")}
-        data-can-send={String(canSendToClient)}
-      >
-        <button type="button" onClick={() => onOpenChange?.(false)}>
-          zamknij przegląd
-        </button>
-      </div>
-    ) : null,
+    onClose: () => void;
+    layout: string;
+  }) => (
+    <div
+      data-testid="dl-review-panel"
+      data-layout={layout}
+      data-stage-id={String(task.stage_id)}
+      data-verified-by={task.verified_by_name ?? ""}
+      data-cv-stage-id={String(task.cv_stage_id ?? "")}
+      data-can-send={String(canSendToClient)}
+    >
+      <button type="button" onClick={onClose}>
+        zamknij przegląd
+      </button>
+    </div>
+  ),
 }));
 
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
@@ -877,15 +878,36 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(moveCalls()).toHaveLength(0);
   });
 
-  // PR 5 (04.10.2026): jeden panel osoby naraz — przegląd zastępuje dok,
-  // a po zamknięciu wraca dok tej samej osoby.
-  it("przegląd DL zastępuje panel osoby, a po zamknięciu panel wraca", async () => {
+  // Jeden panel osoby (04.10.2026): przegląd otwiera się W panelu osoby jako
+  // szeroki tryb, dok jest pod nim ukryty, a po zamknięciu wraca.
+  it("przegląd DL otwiera się w panelu osoby (szeroko), dok wraca po zamknięciu", async () => {
+    useAuthStore.setState({ user: { id: 7, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    await sendFromQcDock();
+    const review = await screen.findByTestId("dl-review-panel");
+    const panel = screen.getByRole("complementary", { name: "Panel osoby" });
+    expect(panel).toContainElement(review);
+    expect(review).toHaveAttribute("data-layout", "panel");
+    expect(panel).toHaveAttribute("data-wide");
+    expect(screen.getByTestId("person-panel-dock")).not.toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "zamknij przegląd" }));
+    await waitFor(() => expect(screen.queryByTestId("dl-review-panel")).toBeNull());
+    expect(screen.getByTestId("person-panel-dock")).toBeVisible();
+    expect(screen.getByRole("complementary", { name: "Panel osoby" })).not.toHaveAttribute("data-wide");
+    // Pozycja menu, która otworzyła przegląd, już nie istnieje — fokus wraca do panelu.
+    await waitFor(() => expect(screen.getByTestId("person-panel-dock")).toHaveFocus());
+  });
+
+  it("Escape zamyka najpierw przegląd, a dopiero potem dok", async () => {
     useAuthStore.setState({ user: { id: 7, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
     await sendFromQcDock();
     await screen.findByTestId("dl-review-panel");
-    expect(screen.queryByRole("complementary", { name: "Panel osoby" })).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "zamknij przegląd" }));
-    expect(await screen.findByRole("complementary", { name: "Panel osoby" })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("dl-review-panel")).toBeNull());
+    expect(screen.getByTestId("person-panel-dock")).toBeVisible();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByRole("complementary", { name: "Panel osoby" })).toBeNull(),
+    );
   });
 
   it("niewysłana notatka w panelu przeżywa przegląd DL (panel ukryty, nie odmontowany)", async () => {

@@ -26,9 +26,9 @@
  */
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { forwardRef, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Loader2, Send, ShieldCheck, Undo2, XCircle } from "lucide-react";
+import { AlertTriangle, Loader2, Send, ShieldCheck, Undo2, X, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -61,7 +61,7 @@ import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { loadJobRejectionReasons } from "@/lib/rejection-reasons";
 import { dealBreakerWarning } from "@/lib/recommendation-card";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { getUserRoles, useAuthStore } from "@/store/auth";
 import { hourlyText, rateFromText } from "@/lib/candidate-rate";
 import {
@@ -142,10 +142,57 @@ const ACTION_TEXT: Record<PendingAction, { done: string; failed: string; anyway:
   },
 };
 
+/**
+ * Okno przeglądu — pulpit „Czeka na Ciebie” i harness. Na Tablicy przegląd
+ * otwiera się w panelu osoby (`DlReviewBody layout="panel"`), nie w oknie.
+ */
 export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlReviewPanelProps) {
+  return (
+    <Sheet open={open && task !== null} onOpenChange={onOpenChange}>
+      <SheetContent side="right" size="xl" className="flex flex-col gap-0 p-0">
+        {task ? (
+          <DlReviewBody
+            task={task}
+            canSendToClient={canSendToClient}
+            onClose={() => onOpenChange(false)}
+            layout="sheet"
+          />
+        ) : null}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+export const DlReviewSheet = DlReviewPanel;
+
+export interface DlReviewBodyProps {
+  task: BoardTaskRow;
+  canSendToClient?: boolean;
+  onClose: () => void;
+  /** `sheet` — w oknie (pulpit); `panel` — w panelu osoby na Tablicy. */
+  layout: "sheet" | "panel";
+}
+
+/** Tytuł przeglądu w panelu osoby — dostaje fokus przy otwarciu. */
+const PanelTitle = forwardRef<HTMLHeadingElement, { children: ReactNode }>(function PanelTitle(
+  { children },
+  ref,
+) {
+  return (
+    <h2 ref={ref} tabIndex={-1} className="text-lg font-bold tracking-heading text-foreground focus:outline-none">
+      {children}
+    </h2>
+  );
+});
+
+export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlReviewBodyProps) {
   const queryClient = useQueryClient();
-  // Panel montuje się także bez wiersza (zamknięty) — hook stoi przed powrotem.
-  const moveCore = usePipelineMoveCore({ jobId: task?.job_id ?? 0 });
+  const moveCore = usePipelineMoveCore({ jobId: task.job_id });
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    // W panelu osoby nie ma pułapki fokusu okna — fokus idzie na tytuł.
+    if (layout === "panel") titleRef.current?.focus();
+  }, [layout, task.stage_id]);
   const { showSuccess, showError } = useToast();
   const me = useAuthStore((s) => s.user);
   const roles = getUserRoles(me as never);
@@ -162,7 +209,7 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
   const [warning, setWarning] = useState<{ action: PendingAction; reason: string } | null>(null);
   const [qcStageId, setQcStageId] = useState<number | null>(null);
 
-  const stageId = task?.stage_id;
+  const stageId = task.stage_id;
   useEffect(() => {
     setQcStageId(null);
     setRateRaw("");
@@ -174,21 +221,21 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
     setWarning(null);
   }, [stageId]);
 
-  const candidateId = task?.candidate_id ?? 0;
-  const jobId = task?.job_id ?? 0;
+  const candidateId = task.candidate_id;
+  const jobId = task.job_id;
   const quickView = useQuery<QuickViewSubset>({
     queryKey: candidateQueryKeys.quickView(candidateId),
     queryFn: ({ signal }) =>
       api.get(`/api/candidates/${candidateId}/quick-view`, { signal }).then((r) => r.data),
-    enabled: open && candidateId > 0,
+    enabled: candidateId > 0,
   });
-  const card = useRecommendationCard(candidateId, jobId, open && candidateId > 0);
+  const card = useRecommendationCard(candidateId, jobId, candidateId > 0);
   // „Odpada, gdy…” naruszone — liczone z karty, którą panel i tak czyta.
   const dealBreaker = card.data ? dealBreakerWarning(card.data) : null;
   const reasons = useQuery({
     queryKey: ["job-rejection-reasons", jobId],
     queryFn: () => loadJobRejectionReasons(jobId),
-    enabled: open && rejecting && jobId > 0,
+    enabled: rejecting && jobId > 0,
     staleTime: 5 * 60_000,
   });
   const rejectedReasons = useMemo(
@@ -196,7 +243,6 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
     [reasons.data],
   );
 
-  if (!task) return null;
 
   // „W tej rekrutacji” (0414): stawka z wiersza weryfikacji, a bez niej —
   // z karty rekomendacji tej pary. Obok „Stawka od” (najniższa z 18 miesięcy),
@@ -284,7 +330,7 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
       if (outcome.ok) {
         showSuccess(`${task.candidate_name} — ${ACTION_TEXT[action].done}`);
         refresh();
-        onOpenChange(false);
+        onClose();
         return;
       }
       const { refusal } = outcome;
@@ -298,7 +344,7 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
         showError(refusal.message);
         invalidateAfterPipelineVersionConflict(queryClient, task.job_id, task.candidate_id);
         refresh();
-        onOpenChange(false);
+        onClose();
       } else {
         showError(refusal.message);
       }
@@ -321,14 +367,40 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
   const screeningItem = { id: task.screening_stage_id ?? task.stage_id } as KanbanItem;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" size="xl" className="flex flex-col gap-0 p-0">
+    <div
+      className={cn("flex min-h-0 flex-col", layout === "panel" ? "relative h-full" : "flex-1")}
+      data-testid={layout === "panel" ? "dl-review-in-panel" : undefined}
+    >
         <SheetHeader className="pr-12">
-          <SheetTitle>{task.candidate_name}</SheetTitle>
-          <SheetDescription>
-            {task.job_title}
-            {task.client_name ? ` · ${task.client_name}` : ""}
-          </SheetDescription>
+          {layout === "sheet" ? (
+            <SheetTitle>{task.candidate_name}</SheetTitle>
+          ) : (
+            <>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">
+                Przegląd przed wysłaniem do klienta
+              </p>
+              <PanelTitle ref={titleRef}>{task.candidate_name}</PanelTitle>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Zamknij przegląd"
+                className="absolute right-4 top-4 rounded-md p-1 text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+            </>
+          )}
+          {layout === "sheet" ? (
+            <SheetDescription>
+              {task.job_title}
+              {task.client_name ? ` · ${task.client_name}` : ""}
+            </SheetDescription>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {task.job_title}
+              {task.client_name ? ` · ${task.client_name}` : ""}
+            </p>
+          )}
           <p className="text-xs text-muted-foreground">
             {task.verified_by_name ? `Zweryfikował(a) ${task.verified_by_name}` : "Zweryfikowany"}
             {task.verified_at ? ` · ${formatDate(task.verified_at)}` : ""} · czeka {waitingFor(task.since)}
@@ -581,7 +653,6 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
           onClose={() => setQcStageId(null)}
           onChanged={refresh}
         />
-      </SheetContent>
-    </Sheet>
+    </div>
   );
 }
