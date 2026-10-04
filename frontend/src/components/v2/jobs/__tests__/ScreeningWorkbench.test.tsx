@@ -286,7 +286,7 @@ describe("ScreeningWorkbench", () => {
       within(dialog).getByText("Kandydat jest na czarnej liście klienta."),
     ).toBeTruthy();
     expect(move).toHaveBeenCalledOnce();
-    expect(move.mock.calls[0][0]).toMatchObject({ acknowledge_eligibility: undefined });
+    expect(move.mock.calls[0][0].acknowledge_eligibility).toBeUndefined();
     expect(showError).not.toHaveBeenCalled();
 
     await userEvent.click(

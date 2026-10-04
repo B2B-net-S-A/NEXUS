@@ -10,6 +10,7 @@ import {
   knownForwardGap,
   qcChip,
   type CardBadgeContext,
+  compactCardBadge,
 } from "@/lib/board-card-badges";
 
 const NOW = new Date("2026-09-23T10:00:00Z");
@@ -285,5 +286,30 @@ describe("odznaka follow-upu (0372) — klient milczy, kto dzwoni do kandydata",
         (b) => b.key === "followup",
       ),
     ).toBe(false);
+  });
+});
+
+describe("compactCardBadge — ikony zamiast napisów (PR 4, 04.10.2026)", () => {
+  it("źródło to sama ikona, pełna treść w podpowiedzi", () => {
+    expect(
+      compactCardBadge({ key: "source", label: "Dodał(a): Anna", tone: "neutral", title: "Do rekrutacji dodał(a): Anna Nowak" }),
+    ).toEqual({ short: null, full: "Dodał(a): Anna — Do rekrutacji dodał(a): Anna Nowak" });
+  });
+
+  it("moja blokada pokazuje godziny, cudza — imię i godziny, wolna — samą ikonę", () => {
+    expect(compactCardBadge({ key: "claim", label: "Twój · 11 h", tone: "own" })?.short).toBe("11 h");
+    expect(compactCardBadge({ key: "claim", label: "Anna · 3 h", tone: "lock" })?.short).toBe("Anna · 3 h");
+    expect(compactCardBadge({ key: "claim", label: "Wolny", tone: "free" })?.short).toBeNull();
+  });
+
+  it("karta rekomendacji: liczba braków albo ✓; próby kontaktu zostają napisem", () => {
+    expect(compactCardBadge({ key: "recommendation_card", label: "Karta: brakuje 3", tone: "wait" })?.short).toBe("−3");
+    expect(compactCardBadge({ key: "recommendation_card", label: "Karta gotowa", tone: "ok" })?.short).toBe("✓");
+    expect(compactCardBadge({ key: "recommendation_card", label: "Bez karty", tone: "neutral" })?.short).toBeNull();
+    expect(compactCardBadge({ key: "recommendation_card", label: "2 próby kontaktu", tone: "neutral" })).toBeNull();
+  });
+
+  it("pozostałe plakietki (np. QC, przegląd DL) zostają pełnym napisem", () => {
+    expect(compactCardBadge({ key: "dl_review", label: "Czeka na DL · 2 dni", tone: "wait" })).toBeNull();
   });
 });

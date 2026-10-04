@@ -1,4 +1,5 @@
 import { forgetCvGenerationRequest } from "./cv-generation-request";
+import type { PipelineMovePayload, PipelineMoveResult } from "@/lib/pipeline-move-core";
 import { reviewBeforeFinalize, type CvReviewState } from "./cv-approval-request";
 import axios, { AxiosError } from "axios";
 import { messageFromApiResponse } from "./api-error";
@@ -2762,28 +2763,9 @@ export const pipelineApi = {
       params: jobId !== undefined ? { job_id: jobId } : undefined,
     }),
   kanban: (jobId: number) => api.get(`/api/pipeline/kanban/${jobId}`),
-  move: (data: {
-    candidate_id: number;
-    job_id: number;
-    stage?: string;
-    stage_def_id?: number;
-    notes?: string;
-    rating?: number;
-    rejection_reason_id?: number;
-    expected_rate_value?: number | string;
-    expected_rate_unit?: RateUnit;
-    expected_rate_currency?: string;
-    /** „To jego nowe minimum” (0414) — stawka trafia do profilu jako minimum. */
-    expected_rate_is_minimum?: boolean;
-    /** F05: wersja procesu z karty; rozjazd = 409 PIPELINE_VERSION_CONFLICT. */
-    expected_state_version?: number;
-    /** 17.09.2026: powtórka ruchu po 409 ELIGIBILITY_WARNING („Przenieś mimo to"). */
-    acknowledge_eligibility?: boolean;
-    /** Pipeline v4: stawka do klienta w tym samym żądaniu co „CV wysłane". */
-    client_rate_value?: number;
-    client_rate_unit?: RateUnit;
-    client_rate_currency?: string;
-  }) => api.post("/api/pipeline/move", data),
+  /** Jedyny klient ruchu karty — kształt żądania: `lib/pipeline-move-core.ts`. */
+  move: (data: PipelineMovePayload) =>
+    api.post<PipelineMoveResult>("/api/pipeline/move", data),
 };
 
 // ── Recommendations (Phase 2) ────────────────────────────────────────────────

@@ -171,7 +171,7 @@
       },
       {
         "q": "Jak przygotować CV do klienta?",
-        "a": "Sekcja „CV” mówi osobno o CV firmowym (brak, szkic, zatwierdzone — z datą) i o oryginale. „Generuj CV” otwiera generator, a gdy CV już jest — „Edytuj CV”, także gdy leży na wcześniejszym etapie („nie podpięte do bieżącego etapu”). U klienta wymagającego zgody RODO (PKO BP) pobranie czeka na zrzut maila ze zgodą."
+        "a": "Sekcja „CV” mówi o CV firmowym (brak, szkic, zatwierdzone) i o oryginale. „Generuj CV” otwiera generator, a gdy CV już jest — „Edytuj CV”, także z wcześniejszego etapu. Na „Zweryfikowanym” widać wynik QC CV: „Otwórz QC” pokazuje, co poprawić przed przekazaniem. U PKO BP pobranie czeka na zrzut zgody RODO."
       },
       {
         "q": "Co to są odznaki etapu (np. Prep, Umowa podpisana)?",

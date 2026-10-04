@@ -17,6 +17,9 @@ vi.mock("@/lib/api", () => ({
     get: (...a: unknown[]) => get(...a),
     post: (...a: unknown[]) => post(...a),
   },
+  pipelineApi: {
+    move: (data: unknown) => post("/api/pipeline/move", data),
+  },
 }));
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showSuccess, showError }),

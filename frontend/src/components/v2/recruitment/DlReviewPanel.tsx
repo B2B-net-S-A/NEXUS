@@ -61,16 +61,9 @@ import { downloadBlob } from "@/lib/authenticated-files";
 import { fetchStageCvFile } from "@/lib/stage-cv-file";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
 import { renderDocxSafely } from "@/lib/docx-preview-safe";
-import { qcFailedStageId } from "@/lib/cv-qc";
-import {
-  eligibilityWarningReason,
-  isEligibilityWarning,
-} from "@/lib/pipeline-eligibility-warning";
-import {
-  PIPELINE_VERSION_CONFLICT_MESSAGE,
-  invalidateAfterPipelineVersionConflict,
-  isPipelineVersionConflict,
-} from "@/lib/pipeline-version-conflict";
+import { invalidateAfterPipelineVersionConflict } from "@/lib/pipeline-version-conflict";
+import type { PipelineMovePayload } from "@/lib/pipeline-move-core";
+import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { loadJobRejectionReasons } from "@/lib/rejection-reasons";
 import { dealBreakerWarning } from "@/lib/recommendation-card";
@@ -405,6 +398,8 @@ const ACTION_TEXT: Record<PendingAction, { done: string; failed: string; anyway:
 
 export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlReviewPanelProps) {
   const queryClient = useQueryClient();
+  // Panel montuje się także bez wiersza (zamknięty) — hook stoi przed powrotem.
+  const moveCore = usePipelineMoveCore({ jobId: task?.job_id ?? 0 });
   const { showSuccess, showError } = useToast();
   const me = useAuthStore((s) => s.user);
   const roles = getUserRoles(me as never);
@@ -493,7 +488,7 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
   };
 
   const move = async (action: PendingAction, acknowledge = false) => {
-    const payload: Record<string, unknown> = {
+    const payload: PipelineMovePayload = {
       candidate_id: task.candidate_id,
       job_id: task.job_id,
       expected_state_version: task.process_state_version,
@@ -523,29 +518,36 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
     setBusy(action);
     setWarning(null);
     try {
-      await api.post("/api/pipeline/move", payload);
-      showSuccess(`${task.candidate_name} — ${ACTION_TEXT[action].done}`);
-      refresh();
-      onOpenChange(false);
-    } catch (error) {
-      const qcStage = qcFailedStageId(error);
-      if (qcStage !== undefined) {
+      // Ten sam klient i to samo rozpoznanie odmowy co Tablica; ostrzeżenie
+      // zostaje w linii panelu („Wyślij mimo to”), dlatego tryb cichy.
+      const outcome = await moveCore.send(payload, {
+        candidateName: task.candidate_name,
+        silent: true,
+        fallbackMessage: ACTION_TEXT[action].failed,
+      });
+      if (outcome.ok) {
+        showSuccess(`${task.candidate_name} — ${ACTION_TEXT[action].done}`);
+        refresh();
+        onOpenChange(false);
+        return;
+      }
+      const { refusal } = outcome;
+      if (refusal.kind === "cv_qc_failed") {
         // CV nie przeszło QC — pokaż, co poprawić, zamiast samego komunikatu.
-        showError(apiErrorMessage(error, "CV nie przeszło QC — popraw je przed wysłaniem."));
-        setQcStageId(qcStage ?? task.stage_id);
-      } else if (isEligibilityWarning(error)) {
-        setWarning({
-          action,
-          reason: eligibilityWarningReason(error) ?? "Serwer ostrzega przed tym ruchem.",
-        });
-      } else if (isPipelineVersionConflict(error)) {
-        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
+        showError(refusal.message);
+        setQcStageId(refusal.failure.stageId ?? task.stage_id);
+      } else if (refusal.kind === "eligibility") {
+        setWarning({ action, reason: refusal.message });
+      } else if (refusal.kind === "version_conflict") {
+        showError(refusal.message);
         invalidateAfterPipelineVersionConflict(queryClient, task.job_id, task.candidate_id);
         refresh();
         onOpenChange(false);
       } else {
-        showError(apiErrorMessage(error, ACTION_TEXT[action].failed));
+        showError(refusal.message);
       }
+    } catch (error) {
+      showError(apiErrorMessage(error, ACTION_TEXT[action].failed));
     } finally {
       setBusy(null);
     }

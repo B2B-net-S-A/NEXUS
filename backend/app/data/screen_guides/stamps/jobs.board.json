@@ -4,6 +4,6 @@
   "sources": {
     "backend/app/services/pipeline_move_rules.py": "24c3824d60644b0c5ea88bd109108fcb2440cbc4742f6f13ad54cc3e4d5a96ff",
     "frontend/src/components/v2/jobs/CandidateSourcesStrip.tsx": "797e75c11701e9606e6692058cdfede5739dd9b6ab1962e2e283f01a94db0d7d",
-    "frontend/src/components/v2/pages/KanbanBoardV2.tsx": "0b31e689582ccf5db3a39b082ee06f18cf770ca8d2ed6091c8f61264aad4450a"
+    "frontend/src/components/v2/pages/KanbanBoardV2.tsx": "f866e0c41f08602fe624f69f39381baa3db9745cde76f87f529d53139384521f"
   }
 }

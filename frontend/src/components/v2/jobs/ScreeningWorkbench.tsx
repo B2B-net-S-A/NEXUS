@@ -38,11 +38,10 @@ import {
   UserX,
 } from "lucide-react";
 
-import api, {
+import {
   candidatesApi,
   extractErrorMsg,
   interviewQuestionsApi,
-  pipelineApi,
   screeningApi,
   type RateUnit,
 } from "@/lib/api";
@@ -64,6 +63,7 @@ import { VerifiedRateFields } from "@/components/v2/screening/VerifiedRateFields
 import { ScreeningSuggestionChips } from "@/components/v2/screening/ScreeningSuggestionChips";
 import { ScreeningReassignSuggestions } from "@/components/v2/jobs/ScreeningReassignSuggestions";
 import { useCapability } from "@/hooks/useCapability";
+import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { apiErrorMessage } from "@/lib/api-error";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
@@ -73,24 +73,7 @@ import {
 } from "@/components/v2/modals/RejectionV2";
 import { evaluateRateGate } from "@/lib/verified-rate-gate";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
-import {
-  eligibilityWarningReason,
-  isEligibilityWarning,
-} from "@/lib/pipeline-eligibility-warning";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  PIPELINE_VERSION_CONFLICT_MESSAGE,
-  expectedStateVersionOf,
-  invalidateAfterPipelineVersionConflict,
-  isPipelineVersionConflict,
-} from "@/lib/pipeline-version-conflict";
+import { expectedStateVersionOf } from "@/lib/pipeline-version-conflict";
 import { useClientPlaybook } from "@/lib/client-playbooks";
 import {
   loadJobRejectionReasons,
@@ -182,7 +165,7 @@ export function ScreeningWorkbench({
   panelFallback,
 }: ScreeningWorkbenchProps) {
   const isPanel = layout === "panel";
-  const { showSuccess, showError, showActionToast } = useToast();
+  const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
   const queue = useMemo(() => selectScreeningQueue(columns), [columns]);
   // Dwie informacje w miejscu dawnej kolejki „czeka na akceptację" (bramka
@@ -209,7 +192,6 @@ export function ScreeningWorkbench({
   const [rejectOpen, setRejectOpen] = useState(false);
   // 409 ELIGIBILITY_WARNING (17.09.2026) — powód z serwera; „Przenieś mimo to"
   // powtarza ruch z `acknowledge_eligibility`.
-  const [eligibilityReason, setEligibilityReason] = useState<string | null>(null);
   // Pierwsze wejście (i zniknięcie wybranej karty po ruchu) wybiera pierwszą
   // pozycję kolejki. Bez tego stanowisko startuje puste, mimo że ktoś czeka.
   // Wybierać można ze WSZYSTKICH list (kolejka screeningu, „ponad budżet",
@@ -322,31 +304,38 @@ export function ScreeningWorkbench({
   });
 
   // ── Ruch na „Zweryfikowany" — TEN SAM endpoint co drag&drop ─────────────
+  const moveCore = usePipelineMoveCore({ jobId });
   const moveMut = useMutation({
-    mutationFn: async (acknowledgeEligibility: boolean = false) => {
+    mutationFn: async () => {
       if (!selected || !verifiedCol) throw new Error("Brak etapu docelowego.");
-      const res = await pipelineApi.move({
-        candidate_id: selected.item.candidate_id,
-        job_id: jobId,
-        stage: VERIFIED_STAGE,
-        stage_def_id: verifiedCol.stage_def_id ?? undefined,
-        // Stawka opcjonalna od 17.09.2026 — wysyłamy tylko wpisaną.
-        ...(gate.isValid
-          ? {
-              expected_rate_value: gate.numericRate,
-              expected_rate_unit: unit,
-              expected_rate_currency: "PLN",
-            }
-          : {}),
-        expected_state_version: expectedStateVersionOf(selected.item),
-        acknowledge_eligibility: acknowledgeEligibility ? true : undefined,
-      });
-      const moved = res.data as { id?: number };
-      // Ruch tworzy NOWY `CandidateStage`, a `transition_process` nie kopiuje
-      // `screening_answers` — arkusz zapisany na etapie „Screening" zostałby na
-      // historycznym rekordzie, a portal klienta i generator CV czytają etap
-      // NAJNOWSZY. Przepisujemy zapisane odpowiedzi na nowy etap (tablica
-      // unika tego, otwierając arkusz dopiero PO ruchu).
+      const outcome = await moveCore.send(
+        {
+          candidate_id: selected.item.candidate_id,
+          job_id: jobId,
+          stage: VERIFIED_STAGE,
+          stage_def_id: verifiedCol.stage_def_id ?? undefined,
+          // D1 (04.10.2026): serwer wymaga stawki, gdy nie ma jej profil ani
+          // wcześniejszy etap pary — wysyłamy wpisaną.
+          ...(gate.isValid
+            ? {
+                expected_rate_value: gate.numericRate,
+                expected_rate_unit: unit,
+                expected_rate_currency: "PLN",
+              }
+            : {}),
+          expected_state_version: expectedStateVersionOf(selected.item),
+        },
+        { candidateName: itemFullName(selected.item) },
+      );
+      if (!outcome.ok) {
+        // Odmowę (komunikat, okno, odświeżenie) obsłużył już rdzeń ruchu.
+        if (outcome.refusal.kind === "version_conflict") onMoved();
+        return null;
+      }
+      const moved = outcome.data;
+      // Ruch tworzy NOWY `CandidateStage`. Serwer przenosi arkusz pary, ale
+      // przepisujemy też odpowiedzi zapisane tutaj — portal klienta i
+      // generator CV czytają etap najnowszy.
       let screeningCopyFailed = false;
       if (screeningSaved && moved.id != null && moved.id !== selected.item.id) {
         try {
@@ -364,6 +353,7 @@ export function ScreeningWorkbench({
       };
     },
     onSuccess: (data) => {
+      if (!data) return;
       if (data.screeningCopyFailed) {
         showError(
           "Przeniesiono na „Zweryfikowany”, ale nie udało się przepisać arkusza screeningu na nowy etap — otwórz arkusz z tablicy Pipeline i zapisz go ponownie.",
@@ -377,24 +367,7 @@ export function ScreeningWorkbench({
       }
       onMoved();
     },
-    onError: (e, acknowledged) => {
-      if (!acknowledged && isEligibilityWarning(e)) {
-        setEligibilityReason(
-          eligibilityWarningReason(e) ?? "Serwer ostrzega przed tym ruchem.",
-        );
-        return;
-      }
-      if (isPipelineVersionConflict(e)) {
-        // F05: bez ponowienia — kolejka pokaże etap zapisany przez kolegę.
-        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
-        invalidateAfterPipelineVersionConflict(
-          queryClient,
-          jobId,
-          selected?.item.candidate_id,
-        );
-        onMoved();
-        return;
-      }
+    onError: (e) => {
       showError(extractErrorMsg(e) || "Nie udało się przenieść kandydata.");
     },
   });
@@ -413,64 +386,45 @@ export function ScreeningWorkbench({
       freeReason?: string;
     }) => {
       if (!selected || !rejectedCol) throw new Error("Brak etapu docelowego.");
-      return api.post("/api/pipeline/move", {
-        candidate_id: selected.item.candidate_id,
-        job_id: jobId,
-        stage: rejectedCol.stage,
-        stage_def_id: rejectedCol.stage_def_id ?? undefined,
-        rejection_reason_id: vars.reasonId || undefined,
-        rejection_reason: vars.freeReason || undefined,
-        notes: vars.notes,
-        send_rejection_email: vars.sendRejectionEmail ?? undefined,
-        candidate_offer_response: vars.offerResponse ?? undefined,
-        expected_state_version: expectedStateVersionOf(selected.item),
-      });
+      return moveCore.send(
+        {
+          candidate_id: selected.item.candidate_id,
+          job_id: jobId,
+          stage: rejectedCol.stage,
+          stage_def_id: rejectedCol.stage_def_id ?? undefined,
+          rejection_reason_id: vars.reasonId || undefined,
+          rejection_reason: vars.freeReason || undefined,
+          notes: vars.notes,
+          send_rejection_email: vars.sendRejectionEmail ?? undefined,
+          candidate_offer_response: vars.offerResponse ?? undefined,
+          expected_state_version: expectedStateVersionOf(selected.item),
+        },
+        {
+          candidateName: itemFullName(selected.item),
+          fallbackMessage: "Nie udało się zapisać decyzji.",
+        },
+      );
     },
-    onSuccess: (res) => {
-      setRejectOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
-      showSuccess("Zapisano decyzję.");
-      // 0045_rejection_emails — ta sama afordancja co na tablicy: backend
-      // zaplanował mail odrzucenia za 15 min, rekruter ma 10 s na „Cofnij".
-      const scheduledId = (
-        res as { data?: { scheduled_rejection_email_id?: number | null } } | null
-      )?.data?.scheduled_rejection_email_id;
-      if (scheduledId && showActionToast) {
-        showActionToast("Email odrzucenia zostanie wysłany za 15 minut.", {
-          actionLabel: "Cofnij wysyłkę",
-          onAction: async () => {
-            try {
-              await api.post(`/api/rejection-emails/${scheduledId}/cancel`);
-              showSuccess("Anulowano wysyłkę emaila.");
-            } catch {
-              showError("Nie udało się anulować wysyłki.");
-            }
-          },
-          durationMs: 10_000,
-        });
+    onSuccess: (outcome) => {
+      if (!outcome.ok) {
+        if (outcome.refusal.kind === "version_conflict") {
+          setRejectOpen(false);
+          onMoved();
+        }
+        return;
       }
+      setRejectOpen(false);
+      showSuccess("Zapisano decyzję.");
       onMoved();
     },
     onError: (e) => {
-      if (isPipelineVersionConflict(e)) {
-        setRejectOpen(false);
-        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
-        invalidateAfterPipelineVersionConflict(
-          queryClient,
-          jobId,
-          selected?.item.candidate_id,
-        );
-        onMoved();
-        return;
-      }
       showError(extractErrorMsg(e) || "Nie udało się zapisać decyzji.");
     },
   });
 
-  // Bramka ruchu — od 17.09.2026 tylko brak prawa zapisu, brak kolumny
-  // i niezapisany arkusz. Stawka jest opcjonalna, a ostrzeżenia serwera
-  // (czarna lista / NDA / konkurent) pytają „Przenieś mimo to".
+  // Bramka ruchu — brak prawa zapisu, brak kolumny i niezapisany arkusz.
+  // Brak stawki i arkusza sprawdza serwer (D1, 04.10.2026), a ostrzeżenia
+  // serwera (czarna lista / NDA / konkurent) pytają „Przenieś mimo to".
   const moveBlocked = selected
     ? (moveBlockedReason({
         item: selected.item,
@@ -651,8 +605,9 @@ export function ScreeningWorkbench({
                   profileHref={`/candidates/${selected.item.candidate_id}`}
                 />
                 <p className="text-[10.5px] text-muted-foreground">
-                  Stawka jest opcjonalna. Powyżej budżetu → ostrzeżenie tutaj
-                  i odznaka „ponad budżet” na karcie; ruch nie jest blokowany.
+                  Stawka jest wymagana, gdy profil kandydata jej nie ma.
+                  Powyżej budżetu → ostrzeżenie tutaj i odznaka „ponad budżet”
+                  na karcie; ruch nie jest blokowany.
                   Przeliczenie: dzień ÷ 8, miesiąc ÷ 168.
                 </p>
               </DockSection>
@@ -727,7 +682,7 @@ export function ScreeningWorkbench({
                     disabled={Boolean(moveBlocked) || moveMut.isPending}
                     loading={moveMut.isPending}
                     title={moveBlocked ?? undefined}
-                    onClick={() => moveMut.mutate(false)}
+                    onClick={() => moveMut.mutate()}
                   >
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     Zweryfikowany — zapisz stawkę i przenieś
@@ -864,34 +819,7 @@ export function ScreeningWorkbench({
         />
       )}
 
-      {eligibilityReason && (
-        <Dialog
-          open
-          onOpenChange={(open) => {
-            if (!open) setEligibilityReason(null);
-          }}
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Ostrzeżenie przed przeniesieniem</DialogTitle>
-              <DialogDescription>{eligibilityReason}</DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setEligibilityReason(null)}>
-                Anuluj
-              </Button>
-              <Button
-                onClick={() => {
-                  setEligibilityReason(null);
-                  moveMut.mutate(true);
-                }}
-              >
-                Przenieś mimo to
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
+      {moveCore.dialogs}
 
       {selected && rejectedCol && rejectOpen && (
         <RejectionV2

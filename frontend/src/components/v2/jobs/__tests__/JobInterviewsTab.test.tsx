@@ -30,6 +30,9 @@ vi.mock("@/lib/api", () => ({
     post: (...a: unknown[]) => apiPost(...a),
   },
   extractErrorMsg: (e: unknown) => (e instanceof Error ? e.message : "Błąd"),
+  pipelineApi: {
+    move: (data: unknown) => apiPost("/api/pipeline/move", data),
+  },
   hiringManagerFeedbackApi: {
     list: (...a: unknown[]) => listFeedback(...a),
     record: (...a: unknown[]) => recordFeedback(...a),

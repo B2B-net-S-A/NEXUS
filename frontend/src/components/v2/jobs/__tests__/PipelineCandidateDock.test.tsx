@@ -999,6 +999,38 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     expect(await screen.findByText("CV firmowe: zatwierdzone 2.09.2026")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Pokaż CV oryginalne/ })).toBeInTheDocument();
   });
+
+  // PR 4 (04.10.2026): QC CV widać już na „Zweryfikowanym” — rekruter poprawia
+  // CV, zanim przekaże kartę do „QC CV”.
+  it("Zweryfikowany z CV firmowym: dok pokazuje wynik QC i otwiera okno QC", async () => {
+    routeApiGet({});
+    const fallback = apiGet.getMockImplementation()!;
+    apiGet.mockImplementation((url: string) =>
+      url === "/api/pipeline/stages/501/qc"
+        ? Promise.resolve({ data: { passed: false, blocking_failed: 2, override: null, checks: [] } })
+        : fallback(url),
+    );
+    brandedGet.mockResolvedValue({
+      data: { status: "finalized", from_generator: true, finalized_at: "2026-09-02T08:00:00Z" },
+    });
+    const onOpenQc = vi.fn();
+    const user = userEvent.setup();
+    // Na „Zweryfikowanym” sekcja CV jest „Teraz” — otwarta od startu.
+    renderDock({ item: baseItem({ stage: "verified" }), onOpenQc });
+    expect(
+      await screen.findByText("QC CV: 2 rzeczy do poprawy przed wysłaniem"),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Otwórz QC" }));
+    expect(onOpenQc).toHaveBeenCalledTimes(1);
+  });
+
+  it("bez CV firmowego dok nie liczy QC", async () => {
+    routeApiGet({});
+    renderDock({ item: baseItem({ stage: "verified" }), onOpenQc: vi.fn() });
+    await screen.findByText("CV firmowe: brak");
+    expect(screen.queryByTestId("dock-early-qc")).toBeNull();
+    expect(apiGet).not.toHaveBeenCalledWith("/api/pipeline/stages/501/qc");
+  });
 });
 
 // Runda 10 (R10-N15-3): awaria odczytu w doku to komunikat z „Ponów”, nie

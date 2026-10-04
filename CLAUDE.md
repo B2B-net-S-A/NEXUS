@@ -9777,8 +9777,9 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
   może chować zadania przypisanego osobie imiennie; nie zawężaj `jobs` z powrotem.
 - **Odznaka rozmowy na Tablicy rekrutacji stoi w KAŻDEJ kolumnie** i niesie
   `steps` (7 kresek) + `interview_event_id` (`interview_badges_for_job`) —
-  osoba przesunięta dalej z zaległym telefonem wyglądała na załatwioną. Dok
-  osoby ma sekcję „Rozmowa u klienta” (`DockInterviewCycle`), a ścieżka
+  osoba przesunięta dalej z zaległym telefonem wyglądała na załatwioną. Karta
+  pokazuje samą plakietkę (od 04.10.2026 bez paska 7 kresek), kroki rysuje dok
+  osoby w sekcji „Rozmowa u klienta” (`DockInterviewCycle`), a ścieżka
   i „Najbliższy krok” liczą `call_due` (`summarizeBoard.callDue`).
 - **Kroki i zadania liczy SERWER** (`services/interview_cycle.py`, czyste
   `compute_steps`/`compute_todos` + hurtowe `load_overview`, stała liczba
