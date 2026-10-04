@@ -228,3 +228,56 @@ describe("RejectionV2 — notatka startowa", () => {
     expect(screen.getByRole("textbox")).toHaveValue("");
   });
 });
+
+describe("RejectionV2 — umowa z Generatora (04.10.2026)", () => {
+  const unsigned = {
+    id: 55,
+    number: "1601/2026",
+    contract_status: "in_progress",
+    signature_status: "unsigned",
+    created_at: "2026-10-01T10:00:00Z",
+    signed_at: null,
+    signature_requested_at: null,
+    contract_id: null,
+  };
+
+  function renderWith(agreement: typeof unsigned | Record<string, unknown>) {
+    const onConfirm = vi.fn();
+    render(
+      <RejectionV2
+        open
+        onOpenChange={() => {}}
+        terminalType="withdrawn"
+        reasons={[{ id: "8", label: "Inna oferta", applies_to: ["withdrawn"] }]}
+        onConfirm={onConfirm}
+        agreement={agreement as never}
+      />,
+    );
+    return onConfirm;
+  }
+
+  it("niepodpisaną umowę domyślnie anulujemy", () => {
+    const onConfirm = renderWith(unsigned);
+    expect(screen.getByRole("checkbox", { name: /Anuluj umowę 1601\/2026/ })).toBeChecked();
+    fireEvent.click(screen.getByText("Inna oferta"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][6]).toBe(55);
+  });
+
+  it("odznaczone — umowa zostaje", () => {
+    const onConfirm = renderWith(unsigned);
+    fireEvent.click(screen.getByRole("checkbox", { name: /Anuluj umowę 1601\/2026/ }));
+    fireEvent.click(screen.getByText("Inna oferta"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][6]).toBeNull();
+  });
+
+  it("podpisana z kontraktem → zdanie i link do zakończenia współpracy, bez checkboxa", () => {
+    renderWith({ ...unsigned, signature_status: "signed_both", contract_status: "active", contract_id: 812 });
+    expect(screen.queryByRole("checkbox", { name: /Anuluj umowę/ })).toBeNull();
+    expect(screen.getByRole("link", { name: "zakończ ją w kontrakcie" }).getAttribute("href")).toBe(
+      "/contracts/812",
+    );
+  });
+});
+

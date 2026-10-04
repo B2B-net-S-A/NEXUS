@@ -14,6 +14,9 @@ const move = vi.fn();
 const showError = vi.fn();
 const showSuccess = vi.fn();
 const showActionToast = vi.fn();
+const generatedList = vi.fn();
+const requestSignature = vi.fn();
+const updateGenerated = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
@@ -23,6 +26,21 @@ vi.mock("@/lib/api", () => ({
   },
   candidatesApi: { setRecruitmentClientRate: vi.fn() },
   pipelineApi: { move: (...a: unknown[]) => move(...a) },
+  b2bGeneratorApi: {
+    generated: (...a: unknown[]) => generatedList(...a),
+    requestSignature: (...a: unknown[]) => requestSignature(...a),
+    updateGenerated: (...a: unknown[]) => updateGenerated(...a),
+  },
+}));
+
+// Okno podpisu żyje w module Generatora i ma własne testy — tu liczy się, że
+// hook je otwiera dla właściwej umowy.
+vi.mock("@/components/v2/pages/B2BContractGeneratorV2", () => ({
+  ConfirmFullySignedDialog: (p: { row: { contract_number: string } }) => (
+    <div role="dialog" aria-label="okno podpisu">
+      Potwierdź podpis umowy {p.row.contract_number}
+    </div>
+  ),
 }));
 
 vi.mock("@/components/Toast", () => ({
@@ -699,6 +717,79 @@ describe("usePipelineMove — ruch zbiorczy", () => {
         expect.objectContaining({ candidate_id: 402, hired_signed_via: "uop" }),
       ),
     );
+  });
+
+  describe("umowa z Generatora „W trakcie” (04.10.2026)", () => {
+    const agreement = {
+      id: 55,
+      number: "1601/2026",
+      contract_status: "in_progress",
+      signature_status: "unsigned",
+      created_at: "2026-10-01T10:00:00Z",
+      signed_at: null,
+      signature_requested_at: null,
+      contract_id: null,
+    };
+
+    function openHire() {
+      const item = card({ id: 43, candidate_id: 403, process_state_version: 1, agreement });
+      const b = board({ fresh: [item] });
+      const hired = column("hired", 8, "Zatrudniony", "terminal", [], "hired");
+      mount([...b.all, hired], { apply: vi.fn(), confirm: vi.fn() });
+      React.act(() => controls.requestMove(item, b.fresh, hired));
+    }
+
+    it("bez uprawnienia „Podpis B2B” wysyła prośbę i nie przesuwa karty", async () => {
+      generatedList.mockResolvedValue([{ id: 55, contract_number: "1601/2026", can_confirm_signed: false }]);
+      requestSignature.mockResolvedValue({ sent: true, requested_at: "x", recipient_names: ["Anna DL"] });
+      openHire();
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /Umowa 1601\/2026 z Generatora jest podpisana/ }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Dalej: potwierdź podpis" }));
+      await waitFor(() => expect(requestSignature).toHaveBeenCalledWith(55));
+      expect(generatedList).toHaveBeenCalledWith(20, { jobId: JOB_ID, candidateId: 403 });
+      expect(post).not.toHaveBeenCalled();
+      expect(showSuccess).toHaveBeenCalledWith(expect.stringContaining("Anna DL"));
+    });
+
+    it("z uprawnieniem otwiera okno podpisu tej umowy, bez ruchu karty", async () => {
+      generatedList.mockResolvedValue([{ id: 55, contract_number: "1601/2026", can_confirm_signed: true }]);
+      openHire();
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /Umowa 1601\/2026 z Generatora jest podpisana/ }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Dalej: potwierdź podpis" }));
+      expect(await screen.findByText("Potwierdź podpis umowy 1601/2026")).toBeInTheDocument();
+      expect(requestSignature).not.toHaveBeenCalled();
+      expect(post).not.toHaveBeenCalled();
+    });
+
+    it("zatrudnienie inną drogą anuluje umowę w rejestrze po udanym ruchu", async () => {
+      post.mockResolvedValue({ data: { id: 901, process_state_version: 2 } });
+      updateGenerated.mockResolvedValue({});
+      openHire();
+      fireEvent.click(await screen.findByRole("radio", { name: "Umowa o pracę" }));
+      expect(screen.getByRole("checkbox", { name: /Anuluj umowę 1601\/2026/ })).toBeChecked();
+      fireEvent.click(screen.getByRole("button", { name: "Potwierdź zatrudnienie" }));
+      await waitFor(() =>
+        expect(updateGenerated).toHaveBeenCalledWith(55, { contract_status: "cancelled" }),
+      );
+      expect(post).toHaveBeenCalledWith(
+        "/api/pipeline/move",
+        expect.objectContaining({ candidate_id: 403, hired_signed_via: "uop" }),
+      );
+    });
+
+    it("odznaczone „Anuluj umowę” zostawia umowę bez zmian", async () => {
+      post.mockResolvedValue({ data: { id: 902, process_state_version: 2 } });
+      openHire();
+      fireEvent.click(await screen.findByRole("radio", { name: "Umowa o pracę" }));
+      fireEvent.click(screen.getByRole("checkbox", { name: /Anuluj umowę 1601\/2026/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Potwierdź zatrudnienie" }));
+      await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+      expect(updateGenerated).not.toHaveBeenCalled();
+    });
   });
 
   it("„Zatrudniony” zbiorczo jest odmawiany bez żadnego ruchu", async () => {

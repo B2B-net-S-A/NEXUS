@@ -16,6 +16,11 @@ import { Button } from"@/components/ui/button";
 import { FormField } from"@/components/ui/form-field";
 import { Textarea } from"@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from"@/components/ui/radio-group";
+import {
+ pendingAgreement,
+ signedAgreementWithContract,
+ type CardAgreement,
+} from "@/lib/b2b-agreement";
 
 interface RejectionReason {
  id: string;
@@ -64,7 +69,9 @@ interface Props {
  // Wolny tekst powodu — przekazywany tylko w trybie fallback (brak
  // zdefiniowanych powodów). Backend przyjmuje go jako `rejection_reason`.
  freeReason?: string,
- endedBy?: EndedBy
+ endedBy?: EndedBy,
+ /** Id niepodpisanej umowy z Generatora do anulowania po ruchu (04.10.2026). */
+ cancelAgreementId?: number | null
  ) => void;
  /** Wstępny wybór „kto kończy" (np. upuszczenie na „Odrzucony przez klienta"). */
  initialEndedBy?: Exclude<EndedBy, "candidate"> | null;
@@ -78,6 +85,10 @@ interface Props {
  /** Notatka wstawiona przy otwarciu (np. „Odpada, gdy…” z wymagań ruchu).
   *  Czytana tylko w chwili otwarcia — nie nadpisuje tego, co ktoś już pisze. */
  initialNotes?: string | null;
+ /** Umowa z Generatora tej pary (tylko przy jednej osobie). Niepodpisaną
+  *  domyślnie anulujemy, przy podpisanej z kontraktem prowadzimy do
+  *  „Zakończ współpracę” (decyzja Artura 04.10.2026). */
+ agreement?: CardAgreement | null;
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -97,6 +108,7 @@ export function RejectionV2({
  canEndAsDeliveryLead = false,
  emailAvailable: emailAvailableProp,
  initialNotes = null,
+ agreement = null,
 }: Props) {
  // Notatkę startową czytamy tylko przy otwarciu (efekt resetu niżej) —
  // zmiana propa przy otwartym oknie nie kasuje tego, co ktoś już wpisał.
@@ -109,6 +121,9 @@ export function RejectionV2({
  initialEndedBy ?? "recruiter"
  );
  const [notes, setNotes] = useState("");
+ const unsignedAgreement = pendingAgreement(agreement);
+ const signedAgreement = signedAgreementWithContract(agreement);
+ const [cancelAgreement, setCancelAgreement] = useState(true);
 
  // Mail odrzucenia dotyczy tylko `rejected` z etapu widocznego dla klienta
  // (wycofanie inicjuje kandydat). Od 17.09.2026 to OPT-IN: checkbox
@@ -141,6 +156,7 @@ export function RejectionV2({
  setOfferResponse("");
  setFreeReason("");
  setEndedBy(initialEndedBy ?? "recruiter");
+ setCancelAgreement(true);
  }
  }, [open, initialEndedBy]);
  const endedByValue: EndedBy = terminalType === "withdrawn" ? "candidate" : endedBy;
@@ -154,10 +170,20 @@ export function RejectionV2({
  const handleConfirm = () => {
  // Zawsze jawny boolean — serwer planuje mail WYŁĄCZNIE przy `true`.
  const emailFlag: boolean = emailAvailable && sendEmail;
+ const cancelAgreementId =
+ unsignedAgreement && cancelAgreement ? unsignedAgreement.id : null;
  const offerResponseValue: CandidateOfferResponse | null =
  offerResponseRequired && offerResponse ? offerResponse : null;
  if (hasReasons) {
- onConfirm(reasonId, notes, emailFlag, offerResponseValue, undefined, endedByValue);
+ onConfirm(
+ reasonId,
+ notes,
+ emailFlag,
+ offerResponseValue,
+ undefined,
+ endedByValue,
+ cancelAgreementId
+ );
  return;
  }
  // Fallback wolnego tekstu — brak zdefiniowanych powodów. Powód trafia do
@@ -168,7 +194,15 @@ export function RejectionV2({
  const combinedNotes = notes.trim()
  ? `${reasonText}\n\n${notes.trim()}`
  : reasonText;
- onConfirm("", combinedNotes, emailFlag, offerResponseValue, reasonText, endedByValue);
+ onConfirm(
+ "",
+ combinedNotes,
+ emailFlag,
+ offerResponseValue,
+ reasonText,
+ endedByValue,
+ cancelAgreementId
+ );
  };
 
  const submitDisabled =
@@ -285,6 +319,42 @@ export function RejectionV2({
  placeholder="Kandydat dostał lepszą ofertę finansową gdzie indziej."
  />
  </FormField>
+
+ {unsignedAgreement && (
+ <label
+ data-testid="rejection-cancel-agreement"
+ className="flex items-start gap-2 rounded-md p-1.5 text-sm cursor-pointer hover:bg-primary/10"
+ >
+ <input
+ type="checkbox"
+ className="mt-0.5 h-4 w-4 rounded border-[hsl(var(--border))] text-primary focus:ring-primary"
+ checked={cancelAgreement}
+ onChange={(e) => setCancelAgreement(e.target.checked)}
+ />
+ <span>
+ Anuluj umowę {unsignedAgreement.number} w rejestrze (nie doszła do skutku).
+ Numer zostaje zużyty.
+ </span>
+ </label>
+ )}
+ {signedAgreement && (
+ <div
+ data-testid="rejection-signed-agreement"
+ className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm"
+ >
+ Umowa {signedAgreement.number} jest podpisana i kontrakt trwa. Zamknięcie
+ karty nie kończy współpracy —{" "}
+ <a
+ className="font-medium text-primary underline-offset-2 hover:underline"
+ href={`/contracts/${signedAgreement.contract_id}`}
+ target="_blank"
+ rel="noreferrer"
+ >
+ zakończ ją w kontrakcie
+ </a>
+ . Bez tego sprawa trafi do Delivery Leada na pulpit.
+ </div>
+ )}
 
  {emailAvailable && (
  <FormField label="Powiadomienie e-mail do kandydata">

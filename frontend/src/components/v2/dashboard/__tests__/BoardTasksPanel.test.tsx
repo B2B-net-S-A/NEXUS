@@ -9,6 +9,8 @@ const put = vi.fn();
 const showSuccess = vi.fn();
 const showError = vi.fn();
 const showInfo = vi.fn();
+const generatedList = vi.fn();
+const updateGenerated = vi.fn();
 
 vi.mock("@/lib/api", () => {
   const client = {
@@ -16,8 +18,23 @@ vi.mock("@/lib/api", () => {
     post: (...a: unknown[]) => post(...a),
     put: (...a: unknown[]) => put(...a),
   };
-  return { __esModule: true, default: client, api: client };
+  return {
+    __esModule: true,
+    default: client,
+    api: client,
+    b2bGeneratorApi: {
+      generated: (...a: unknown[]) => generatedList(...a),
+      updateGenerated: (...a: unknown[]) => updateGenerated(...a),
+    },
+  };
 });
+vi.mock("@/components/v2/pages/B2BContractGeneratorV2", () => ({
+  ConfirmFullySignedDialog: (p: { row: { contract_number: string } }) => (
+    <div role="dialog" aria-label="Okno podpisu">
+      Podpis umowy {p.row.contract_number}
+    </div>
+  ),
+}));
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showSuccess, showError, showInfo }),
 }));
@@ -149,6 +166,23 @@ function mockQueue(queue: Record<string, unknown>) {
       return Promise.resolve({ data: { user_id: 5, user_name: "Kinga Sordyl", until: null } });
     return Promise.resolve({ data: [] });
   });
+}
+
+function agreementRow(over: Record<string, unknown> = {}) {
+  return {
+    generated_id: 55,
+    contract_number: "1601/2026",
+    reason: "requested",
+    candidate_id: 21,
+    candidate_name: "Ewa Zielińska",
+    job_id: 31,
+    job_title: "Java Developer",
+    client_name: "Bank Północny",
+    since,
+    requested_by_name: "Marek Dąb",
+    contract_id: null,
+    ...over,
+  };
 }
 
 function renderPanel() {
@@ -928,5 +962,78 @@ describe("BoardTasksPanel — „Rekrutacje do dokończenia albo zamknięcia”"
     const { container } = renderPanel();
     await waitFor(() => expect(get).toHaveBeenCalled());
     await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+});
+
+describe("BoardTasksPanel — „Umowy” (04.10.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.setState({ user: { id: 1, role: "delivery_lead" } } as never);
+  });
+
+  it("prośba o podpis → „Potwierdź podpis” otwiera okno tej umowy", async () => {
+    mockQueue({ agreements: { to_confirm: [agreementRow()], to_close: [], waiting_on_others: [] } });
+    generatedList.mockResolvedValue([{ id: 55, contract_number: "1601/2026", can_confirm_signed: true }]);
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Umowy do potwierdzenia" });
+    expect(within(section).getByText(/prosi Marek Dąb/)).toBeTruthy();
+    await userEvent.click(within(section).getByRole("button", { name: "Potwierdź podpis: Ewa Zielińska" }));
+    expect(generatedList).toHaveBeenCalledWith(20, { jobId: 31, candidateId: 21 });
+    expect(await screen.findByText("Podpis umowy 1601/2026")).toBeTruthy();
+  });
+
+  it("bez prawa do podpisu nie otwiera okna, tylko mówi dlaczego", async () => {
+    mockQueue({ agreements: { to_confirm: [agreementRow()], to_close: [], waiting_on_others: [] } });
+    generatedList.mockResolvedValue([
+      { id: 55, contract_number: "1601/2026", can_confirm_signed: false, blocked_reason: "Brak uprawnienia." },
+    ]);
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Umowy do potwierdzenia" });
+    await userEvent.click(within(section).getByRole("button", { name: "Potwierdź podpis: Ewa Zielińska" }));
+    await waitFor(() => expect(showError).toHaveBeenCalledWith("Brak uprawnienia."));
+    expect(screen.queryByText("Podpis umowy 1601/2026")).toBeNull();
+  });
+
+  it("zamknięty proces przy umowie „W trakcie” → „Anuluj umowę” po potwierdzeniu w oknie", async () => {
+    mockQueue({
+      agreements: {
+        to_confirm: [],
+        to_close: [agreementRow({ reason: "closed_unsigned", requested_by_name: null })],
+        waiting_on_others: [],
+      },
+    });
+    updateGenerated.mockResolvedValue({});
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Umowy do zamknięcia" });
+    await userEvent.click(within(section).getByRole("button", { name: "Anuluj umowę: Ewa Zielińska" }));
+    // Najpierw okno potwierdzenia, nic jeszcze nie poszło.
+    expect(updateGenerated).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog", { name: "Anulować umowę 1601/2026?" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Anuluj umowę" }));
+    await waitFor(() =>
+      expect(updateGenerated).toHaveBeenCalledWith(55, { contract_status: "cancelled" }),
+    );
+  });
+
+  it("podpisana umowa z trwającym kontraktem → link „Zakończ współpracę” do kontraktu", async () => {
+    mockQueue({
+      agreements: {
+        to_confirm: [],
+        to_close: [agreementRow({ reason: "closed_signed_active", contract_id: 812 })],
+        waiting_on_others: [],
+      },
+    });
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Umowy do zamknięcia" });
+    expect(
+      within(section).getByRole("link", { name: "Zakończ współpracę: Ewa Zielińska" }).getAttribute("href"),
+    ).toBe("/contracts/812");
+  });
+
+  it("same Twoje prośby → panel stoi z grupą „U innych”", async () => {
+    mockQueue({ agreements: { to_confirm: [], to_close: [], waiting_on_others: [agreementRow()] } });
+    renderPanel();
+    const others = await screen.findByRole("group", { name: "U innych" });
+    expect(within(others).getByRole("region", { name: "Prośby o podpis umowy" })).toBeTruthy();
   });
 });
