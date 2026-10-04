@@ -36,11 +36,11 @@ import { formatDate } from "@/lib/utils";
 export const MANAGED_IN_NEXUS_LABELS = {
   notice: "Archiwum z Traffita — nowe rekrutacje zakładaj w NEXUSIE",
   noticeHint:
-    "Rekrutacje z Traffita są w NEXUSIE zamknięte (od 25.09.2026): zostają źródłem podobnych rekrutacji, przepięć i profilu Championa, a nocny import dopisuje ich historię. Żeby prowadzić tę rekrutację tutaj, przełącz ją do NEXUSA i otwórz ponownie.",
+    "Rekrutacje z Traffita są w NEXUSIE zamknięte (od 25.09.2026): zostają źródłem podobnych rekrutacji, przepięć i profilu Championa, a nocny import dopisuje ich historię. Żeby prowadzić tę rekrutację tutaj, przełącz ją do NEXUSA i otwórz ponownie (menu „⋯” → „Otwórz ponownie”).",
   switchButton: "Przełącz do NEXUSA",
   enableTitle: "Przełączyć rekrutację do NEXUSA?",
   enableDescription:
-    "Od tej chwili etapy tej rekrutacji zmieniasz tylko w NEXUSIE; import z Traffita ich nie ruszy ani jej nie zamknie. Tytuł, status i data zamknięcia przestaną być pobierane z Traffita. Rekrutacja jest zamknięta — po przełączeniu otwórz ją ponownie w edycji rekrutacji (status).",
+    "Od tej chwili etapy tej rekrutacji zmieniasz tylko w NEXUSIE; import z Traffita ich nie ruszy ani jej nie zamknie. Tytuł, status i data zamknięcia przestaną być pobierane z Traffita. Rekrutacja jest zamknięta — po przełączeniu otwórz ją ponownie: menu „⋯” → „Otwórz ponownie”.",
   enableConfirm: "Przełącz do NEXUSA",
   cancel: "Anuluj",
   chip: (since: string) => `Prowadzona w NEXUSIE od ${since}`,

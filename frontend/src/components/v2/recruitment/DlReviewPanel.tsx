@@ -66,6 +66,7 @@ import type { PipelineMovePayload } from "@/lib/pipeline-move-core";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { loadJobRejectionReasons } from "@/lib/rejection-reasons";
+import { dealBreakerWarning } from "@/lib/recommendation-card";
 import { formatDate } from "@/lib/utils";
 import { getUserRoles, useAuthStore } from "@/store/auth";
 import { hourlyText, rateFromText } from "@/lib/candidate-rate";
@@ -436,6 +437,8 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
     enabled: open && candidateId > 0,
   });
   const card = useRecommendationCard(candidateId, jobId, open && candidateId > 0);
+  // „Odpada, gdy…” naruszone — liczone z karty, którą panel i tak czyta.
+  const dealBreaker = card.data ? dealBreakerWarning(card.data) : null;
   const reasons = useQuery({
     queryKey: ["job-rejection-reasons", jobId],
     queryFn: () => loadJobRejectionReasons(jobId),
@@ -637,7 +640,7 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
               jobId={task.job_id}
               candidateName={task.candidate_name}
             />
-            {card.data ? <RecommendationCardQuestions card={card.data} /> : null}
+            {card.data ? <RecommendationCardQuestions card={card.data} editable /> : null}
           </section>
 
           <details className="group rounded-lg border border-border">
@@ -653,6 +656,18 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
         {/* Stopka niesie ostrzeżenie, formularz odrzucenia i stawkę — na
             telefonie w poziomie wychodziła poza ekran razem z „Wyślij". */}
         <SheetFooter className="block max-h-[50dvh] space-y-3 overflow-y-auto sm:block">
+          {dealBreaker ? (
+            <p
+              role="note"
+              data-testid="dl-review-deal-breaker"
+              className="flex items-start gap-2 rounded-lg bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+            >
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span className="min-w-0 flex-1">
+                {dealBreaker} Wysyłka nie jest zablokowana — rozważ odrzucenie.
+              </span>
+            </p>
+          ) : null}
           {warning ? (
             <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
               <AlertTriangle className="size-4 shrink-0 text-warning" aria-hidden />

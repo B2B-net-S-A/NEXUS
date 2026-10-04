@@ -181,3 +181,50 @@ describe("RejectionV2 — powody po polsku (test na produkcji 23.09.2026)", () =
     expect(rejectionReasonLabel({ name: "counter_offer", label: "  " })).toBe("counter_offer");
   });
 });
+
+describe("RejectionV2 — notatka startowa", () => {
+  function renderWithNotes(initialNotes: string | null, open = true) {
+    const onConfirm = vi.fn();
+    const view = render(
+      <RejectionV2
+        open={open}
+        onOpenChange={() => {}}
+        terminalType="rejected"
+        reasons={reasons}
+        onConfirm={onConfirm}
+        initialNotes={initialNotes}
+      />,
+    );
+    return { onConfirm, ...view };
+  }
+
+  it("wstawia notatkę przy otwarciu i wysyła ją z odrzuceniem", () => {
+    const { onConfirm } = renderWithNotes("Odpada, gdy: brak Javy");
+    const notes = screen.getByRole("textbox");
+    expect(notes).toHaveValue("Odpada, gdy: brak Javy");
+
+    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][1]).toBe("Odpada, gdy: brak Javy");
+  });
+
+  it("zmiana propa przy otwartym oknie nie nadpisuje tego, co ktoś wpisał", () => {
+    const onConfirm = vi.fn();
+    const props = {
+      open: true,
+      onOpenChange: () => {},
+      terminalType: "rejected" as const,
+      reasons,
+      onConfirm,
+    };
+    const { rerender } = render(<RejectionV2 {...props} initialNotes="Pierwsza" />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Moja notatka" } });
+    rerender(<RejectionV2 {...props} initialNotes="Druga" />);
+    expect(screen.getByRole("textbox")).toHaveValue("Moja notatka");
+  });
+
+  it("bez notatki startowej pole jest puste", () => {
+    renderWithNotes(null);
+    expect(screen.getByRole("textbox")).toHaveValue("");
+  });
+});

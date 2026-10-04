@@ -1143,6 +1143,7 @@ export function JobReadinessDock({
                     jobId={jobId}
                     priorityLevel={priorityLevelOf(job)}
                     recruiter={job.primary_owner ?? null}
+                    jobStatus={job.status ?? null}
                   />
                 </div>
               )}
@@ -1305,6 +1306,10 @@ export interface JobTeamTabJob extends JobOwnershipJob, PrioritySource, JobNames
   competence_category_id?: number | null;
   hiring_manager_contact_id?: number | null;
   hiring_manager_name?: string | null;
+  /** 04.10.2026: „Klient nie podał” — decyzja zamiast pustego pola. */
+  hiring_manager_not_provided?: boolean | null;
+  deadline_not_provided?: boolean | null;
+  headcount?: number | null;
   can_edit?: boolean | null;
   /** Czy bieżąca osoba ustawia priorytet TEJ rekrutacji; brak = capability. */
   can_set_priority?: boolean | null;
@@ -1349,6 +1354,8 @@ export function JobTeamTab({
         deliveryLeadId={job.delivery_lead_id ?? null}
         deadline={job.deadline ?? null}
         deadlineTime={job.deadline_time ?? null}
+        deadlineNotProvided={job.deadline_not_provided === true}
+        headcount={job.headcount ?? null}
         canEdit={editScope === "full"}
         categoryId={job.competence_category_id ?? null}
         priorityLevel={priorityLevelOf(job)}
@@ -1368,6 +1375,7 @@ export function JobTeamTab({
         clientId={job.client_id ?? null}
         value={job.hiring_manager_contact_id ?? null}
         valueName={job.hiring_manager_name ?? null}
+        notProvided={job.hiring_manager_not_provided === true}
         // HM ustawia każdy, kto redaguje rekrutację (decyzja 25.09.2026) —
         // lustro `ensure_job_editor` w `PUT …/hiring-manager`.
         canEdit={editScope !== "none"}

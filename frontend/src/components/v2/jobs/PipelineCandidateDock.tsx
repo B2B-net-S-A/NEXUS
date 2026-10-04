@@ -373,7 +373,9 @@ export interface PipelineCandidateDockProps {
    */
   onMoveToStageDef?: (stageDefId: number) => void;
   onOpenScreening: (stageId: number, name: string) => void;
-  onReject: () => void;
+  /** „Odrzuć z powodem". `notes` — notatka startowa okna (np. naruszone
+   *  „Odpada, gdy…" z ramki „Następny etap"). */
+  onReject: (options?: { notes?: string | null }) => void;
   /** Pipeline v4: „Zrezygnował" — rezygnacja kandydata z powodem. */
   onWithdraw?: () => void;
   /** Pipeline v4: DL wpisuje terminy od klienta prosto z osoby w „CV wysłane"
@@ -777,6 +779,8 @@ export function PipelineCandidateDock({
         return action.event_id != null || Boolean(onOpenWorkbench);
       case "request_slots":
         return Boolean(onAddClientSlots);
+      case "reject":
+        return canReject && !rejectBlockedReason;
       default:
         return false;
     }
@@ -810,6 +814,9 @@ export function PipelineCandidateDock({
       case "open_card":
         setOpenSections((prev) => new Set(prev).add("card"));
         setCardOpen(true);
+        return;
+      case "reject":
+        onReject({ notes: action.note ?? null });
         return;
       default:
         return;
@@ -1151,7 +1158,7 @@ export function PipelineCandidateDock({
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={onReject}
+                  onClick={() => onReject()}
                   disabled={Boolean(rejectBlockedReason)}
                   title={rejectBlockedReason ?? undefined}
                   className="text-destructive hover:bg-destructive/10 hover:text-destructive"

@@ -230,10 +230,12 @@ async def test_hiring_manager_of_a_vetoing_job_changes_only_by_admin_or_hor(
         )
     assert world["candidate_id"] in vetoes
 
+    # Rekrutacja w pracy (04.10.2026): samo wyczyszczenie byłoby nowym brakiem
+    # bramki przekazania — admin zdejmuje HM decyzją „Klient nie podał”.
     by_admin = await app_client.put(
         f"/api/jobs/{source}/hiring-manager",
         headers=app_auth_headers,
-        json={"clear": True},
+        json={"not_provided": True},
     )
     assert by_admin.status_code == 200, by_admin.text
 

@@ -30,6 +30,13 @@ export interface RecommendationCardQuestion {
   answer: string;
   /** `sheet` = arkusz screeningu, `note` = notatka, `null` = brak odpowiedzi. */
   source: "sheet" | "note" | null;
+  /** Identyfikator pytania Championa (arkusz screeningu) — klucz zapisu
+   *  trafienia „Odpada, gdy…”. Brak przy pytaniach tylko z notatki. */
+  question_id?: string | number | null;
+  /** „Odpada, gdy…” z Profilu Championa — treść odpowiedzi, która wyklucza. */
+  deal_breaker?: string | null;
+  /** Rekruter oznaczył, że odpowiedź narusza „Odpada, gdy…”. */
+  deal_breaker_hit?: boolean;
 }
 
 export interface RecommendationCardCompleteness {
@@ -74,7 +81,35 @@ export const recommendationCardsApi = {
         fields,
       })
     ).data,
+  /** Trafienie „Odpada, gdy…” jednego pytania — zwraca całą kartę. */
+  setDealBreakerHit: async (
+    candidateId: number,
+    jobId: number,
+    questionId: string | number,
+    hit: boolean,
+  ) =>
+    (
+      await api.post<RecommendationCard>("/api/recommendation-cards/deal-breaker", {
+        candidate_id: candidateId,
+        job_id: jobId,
+        question_id: questionId,
+        hit,
+      })
+    ).data,
 };
+
+/** Po zapisie karty: plakietka na tablicy i lista „Przesuń dalej” czytają ten sam stan. */
+function refreshCardDependents(
+  queryClient: ReturnType<typeof useQueryClient>,
+  candidateId: number,
+  jobId: number,
+  card: RecommendationCard,
+) {
+  queryClient.setQueryData(recommendationCardQueryKey(candidateId, jobId), card);
+  void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+  void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+  void queryClient.invalidateQueries({ queryKey: MOVE_REQUIREMENTS_PREFIX });
+}
 
 export function useRecommendationCard(candidateId: number, jobId: number, enabled = true) {
   return useQuery({
@@ -90,12 +125,17 @@ export function useSaveRecommendationCard(candidateId: number, jobId: number) {
   return useMutation({
     mutationFn: (fields: Record<string, string | null>) =>
       recommendationCardsApi.save(candidateId, jobId, fields),
-    onSuccess: (card) => {
-      queryClient.setQueryData(recommendationCardQueryKey(candidateId, jobId), card);
-      // Plakietka karty na tablicy i lista „Przesuń dalej” czytają ten sam stan.
-      void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-      void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
-      void queryClient.invalidateQueries({ queryKey: MOVE_REQUIREMENTS_PREFIX });
-    },
+    onSuccess: (card) => refreshCardDependents(queryClient, candidateId, jobId, card),
+  });
+}
+
+/** Zaznaczenie „Odpowiedź narusza deal-breaker” przy pytaniu karty. Ostrzeżenie
+ *  w „Przesuń dalej” liczy serwer z tego samego zapisu. */
+export function useSetDealBreakerHit(candidateId: number, jobId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ questionId, hit }: { questionId: string | number; hit: boolean }) =>
+      recommendationCardsApi.setDealBreakerHit(candidateId, jobId, questionId, hit),
+    onSuccess: (card) => refreshCardDependents(queryClient, candidateId, jobId, card),
   });
 }

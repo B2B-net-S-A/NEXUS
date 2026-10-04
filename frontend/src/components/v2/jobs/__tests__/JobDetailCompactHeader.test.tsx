@@ -262,4 +262,27 @@ describe("JobDetailCompactHeader", () => {
     await userEvent.click(board);
     expect(onViewChange).toHaveBeenCalledWith("board");
   });
+  it("menu „⋯”: „Otwórz ponownie…” dla zamkniętej, „Dokończ i opublikuj…” dla szkicu (04.10.2026)", async () => {
+    const onReopenJob = vi.fn();
+    const closed = renderHeader({ onReopenJob });
+    const menu = await openMenu();
+    expect(within(menu).getByTestId("reopen-job")).toHaveTextContent("Otwórz ponownie…");
+    expect(within(menu).queryByTestId("finish-job")).toBeNull();
+    await userEvent.click(within(menu).getByTestId("reopen-job"));
+    await waitFor(() => expect(onReopenJob).toHaveBeenCalled());
+    closed.unmount();
+
+    const onFinishJob = vi.fn();
+    const draft = renderHeader({ onFinishJob });
+    const draftMenu = await openMenu();
+    expect(within(draftMenu).queryByTestId("reopen-job")).toBeNull();
+    await userEvent.click(within(draftMenu).getByTestId("finish-job"));
+    await waitFor(() => expect(onFinishJob).toHaveBeenCalled());
+    draft.unmount();
+
+    renderHeader();
+    const bare = await openMenu();
+    expect(within(bare).queryByTestId("reopen-job")).toBeNull();
+    expect(within(bare).queryByTestId("finish-job")).toBeNull();
+  });
 });

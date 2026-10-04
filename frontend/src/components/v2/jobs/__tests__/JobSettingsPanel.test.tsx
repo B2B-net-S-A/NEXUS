@@ -126,19 +126,20 @@ beforeEach(() => {
 });
 
 describe("JobSettingsPanel — karta zespołu", () => {
-  it("ma pięć wierszy w kolejności: Delivery Lead, Rekruter, Kategoria, Termin, Priorytet", async () => {
-    renderPanel({ recruiters: <span>osoby przy rekrutacji</span> });
+  it("ma sześć wierszy w kolejności: Delivery Lead, Rekruter, Kategoria, Termin, Liczba osób, Priorytet", async () => {
+    renderPanel({ recruiters: <span>osoby przy rekrutacji</span>, headcount: 2 });
 
     const card = screen.getByRole("region", { name: "Zespół, termin i priorytet" });
     expect(await within(card).findByText("nie przypisano")).toBeInTheDocument();
     const labels = within(card)
-      .getAllByText(/^(Delivery Lead|Rekruter|Kategoria|Termin|Priorytet)$/)
+      .getAllByText(/^(Delivery Lead|Rekruter|Kategoria|Termin|Liczba osób|Priorytet)$/)
       .map((node) => node.textContent);
     expect(labels).toEqual([
       "Delivery Lead",
       "Rekruter",
       "Kategoria",
       "Termin",
+      "Liczba osób",
       "Priorytet",
     ]);
     expect(within(card).getByText("osoby przy rekrutacji")).toBeInTheDocument();
@@ -225,7 +226,7 @@ describe("JobSettingsPanel — Delivery Lead", () => {
 });
 
 describe("JobSettingsPanel — Termin", () => {
-  it("zapis samej daty wysyła PATCH {deadline, deadline_time: null}", async () => {
+  it("zapis samej daty wysyła PATCH {deadline, deadline_time: null, deadline_not_provided: false}", async () => {
     const user = userEvent.setup();
     renderPanel();
 
@@ -239,6 +240,7 @@ describe("JobSettingsPanel — Termin", () => {
       expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", {
         deadline: "2026-12-01",
         deadline_time: null,
+        deadline_not_provided: false,
       }),
     );
   });
@@ -256,6 +258,7 @@ describe("JobSettingsPanel — Termin", () => {
       expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", {
         deadline: "2026-10-01",
         deadline_time: "12:00",
+        deadline_not_provided: false,
       }),
     );
 
@@ -269,6 +272,93 @@ describe("JobSettingsPanel — Termin", () => {
 
     await user.click(screen.getByRole("button", { name: "Zmień: Termin" }));
     expect(await screen.findByLabelText("Godzina terminu")).toBeDisabled();
+  });
+});
+
+describe("JobSettingsPanel — termin „Klient nie podał” (04.10.2026)", () => {
+  it("zaznaczenie wyłącza datę i zapisuje {deadline_not_provided: true, deadline: null}", async () => {
+    const user = userEvent.setup();
+    renderPanel({ deadline: "2026-12-01" });
+
+    await user.click(screen.getByRole("button", { name: "Zmień: Termin" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Klient nie podał" }));
+    expect(screen.getByLabelText("Termin")).toBeDisabled();
+    await user.click(screen.getByText("Zapisz"));
+
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", {
+        deadline: null,
+        deadline_time: null,
+        deadline_not_provided: true,
+      }),
+    );
+  });
+
+  it("bez daty, z decyzją „Klient nie podał”, widok mówi to wprost", () => {
+    renderPanel({ deadlineNotProvided: true });
+    expect(screen.getByText("Klient nie podał")).toBeInTheDocument();
+  });
+
+  it("decyzję czyta też z rekrutacji w cache'u, gdy dok jej nie podaje", () => {
+    const { client } = renderPanel();
+    client.setQueryData(["job", "501"], { deadline_not_provided: true, headcount: 3 });
+    return waitFor(() => {
+      expect(screen.getByText("Klient nie podał")).toBeInTheDocument();
+      expect(screen.getByText("3")).toBeInTheDocument();
+    });
+  });
+
+  it("odmowa `handoff_regression` stoi przy polu razem z brakami", async () => {
+    patchMock.mockRejectedValueOnce({
+      response: {
+        status: 422,
+        data: {
+          detail: {
+            code: "handoff_regression",
+            message: "Rekrutacja w pracy straciłaby termin.",
+            blockers: [{ code: "deadline", message: "Podaj termin albo zaznacz „Klient nie podał”." }],
+          },
+        },
+      },
+    });
+    const user = userEvent.setup();
+    renderPanel({ deadline: "2026-12-01" });
+
+    await user.click(screen.getByRole("button", { name: "Zmień: Termin" }));
+    await user.clear(await screen.findByLabelText("Termin"));
+    await user.click(screen.getByText("Zapisz"));
+
+    expect(
+      await screen.findByText(
+        "Rekrutacja w pracy straciłaby termin. Podaj termin albo zaznacz „Klient nie podał”.",
+      ),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("JobSettingsPanel — Liczba osób (04.10.2026)", () => {
+  it("zapisuje PATCH {headcount} i odrzuca zero", async () => {
+    const user = userEvent.setup();
+    renderPanel({ headcount: 1 });
+
+    await user.click(screen.getByRole("button", { name: "Zmień: Liczba osób" }));
+    const input = await screen.findByLabelText("Liczba osób");
+    await user.clear(input);
+    await user.type(input, "0");
+    expect(screen.getByText("Podaj liczbę od 1 w górę.")).toBeInTheDocument();
+    expect(screen.getByText("Zapisz")).toBeDisabled();
+
+    await user.clear(input);
+    await user.type(input, "3");
+    await user.click(screen.getByText("Zapisz"));
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", { headcount: 3 }),
+    );
+  });
+
+  it("pokazuje „Zatrudnieni: X z N”, gdy wołający zna liczbę zatrudnionych", () => {
+    renderPanel({ headcount: 3, hiredCount: 1 });
+    expect(screen.getByText("Zatrudnieni: 1 z 3")).toBeInTheDocument();
   });
 });
 

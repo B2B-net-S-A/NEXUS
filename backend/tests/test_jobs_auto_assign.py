@@ -23,6 +23,7 @@ from app.models.team_structure import (
     DeliveryLeadClientAssignment,
 )
 from app.models.user import User, UserRole
+from tests._job_factory import complete_job_payload, purge_job
 
 
 pytestmark = pytest.mark.asyncio
@@ -171,11 +172,10 @@ async def test_create_job_auto_assigns_from_client(
         resp = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
-            json={
-                "title": "Auto-assign smoke",
-                "client_id": client_id,
-                "auto_suggest_cc": False,
-            },
+            json=await complete_job_payload(
+                client_id,
+                title="Auto-assign smoke",
+            ),
         )
         assert resp.status_code == 201, resp.text
         body = resp.json()
@@ -184,13 +184,7 @@ async def test_create_job_auto_assigns_from_client(
         assert body["client_id"] == client_id
 
         # Cleanup the job we just created
-        async with AsyncSessionLocal() as db:
-            from app.models.job import Job
-
-            job = await db.get(Job, body["id"])
-            if job is not None:
-                await db.delete(job)
-                await db.commit()
+        await purge_job(body["id"])
     finally:
         await _cleanup(client_id, [tac_id, dl_id])
 
@@ -210,25 +204,18 @@ async def test_create_job_explicit_override_wins(
         resp = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
-            json={
-                "title": "Override smoke",
-                "client_id": client_id,
-                "tac_id": other_tac,
-                "auto_suggest_cc": False,
-            },
+            json=await complete_job_payload(
+                client_id,
+                title="Override smoke",
+                tac_id=other_tac,
+            ),
         )
         assert resp.status_code == 201, resp.text
         body = resp.json()
         assert body["tac_id"] == other_tac
         assert body["tac_id"] != primary_tac
 
-        async with AsyncSessionLocal() as db:
-            from app.models.job import Job
-
-            job = await db.get(Job, body["id"])
-            if job is not None:
-                await db.delete(job)
-                await db.commit()
+        await purge_job(body["id"])
     finally:
         await _cleanup(client_id, [primary_tac, other_tac])
 
@@ -243,24 +230,17 @@ async def test_create_job_no_client_team_leaves_null(
         resp = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
-            json={
-                "title": "No team fallback",
-                "client_id": client_id,
-                "auto_suggest_cc": False,
-            },
+            json=await complete_job_payload(
+                client_id,
+                title="No team fallback",
+            ),
         )
         assert resp.status_code == 201, resp.text
         body = resp.json()
         assert body["tac_id"] is None
         assert body["delivery_lead_id"] is None
 
-        async with AsyncSessionLocal() as db:
-            from app.models.job import Job
-
-            job = await db.get(Job, body["id"])
-            if job is not None:
-                await db.delete(job)
-                await db.commit()
+        await purge_job(body["id"])
     finally:
         await _cleanup(client_id, [])
 
@@ -280,11 +260,10 @@ async def test_create_job_with_multiple_tacs_requires_explicit_owner(
         resp = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
-            json={
-                "title": "Multiple TACs require choice",
-                "client_id": client_id,
-                "auto_suggest_cc": False,
-            },
+            json=await complete_job_payload(
+                client_id,
+                title="Multiple TACs require choice",
+            ),
         )
         assert resp.status_code == 422, resp.text
         assert resp.json()["detail"]["code"] == "TAC_OWNER_REQUIRED"
@@ -302,12 +281,11 @@ async def test_create_job_rejects_tac_not_assigned_to_client(
         resp = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
-            json={
-                "title": "Invalid client TAC pair",
-                "client_id": client_id,
-                "tac_id": tac_id,
-                "auto_suggest_cc": False,
-            },
+            json=await complete_job_payload(
+                client_id,
+                title="Invalid client TAC pair",
+                tac_id=tac_id,
+            ),
         )
         assert resp.status_code == 400, resp.text
         assert "nie jest przypisana do wybranego klienta" in resp.text
@@ -326,12 +304,11 @@ async def test_create_job_invalid_tac_role_returns_400(
         resp = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
-            json={
-                "title": "Invalid role",
-                "client_id": client_id,
-                "tac_id": recruiter_id,
-                "auto_suggest_cc": False,
-            },
+            json=await complete_job_payload(
+                client_id,
+                title="Invalid role",
+                tac_id=recruiter_id,
+            ),
         )
         assert resp.status_code == 400, resp.text
         assert "TAC" in resp.text
@@ -355,12 +332,11 @@ async def test_patch_job_updates_tac_id(
         create = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
-            json={
-                "title": "Patch target",
-                "client_id": client_id,
-                "tac_id": tac_id,
-                "auto_suggest_cc": False,
-            },
+            json=await complete_job_payload(
+                client_id,
+                title="Patch target",
+                tac_id=tac_id,
+            ),
         )
         assert create.status_code == 201, create.text
         job_id = create.json()["id"]
@@ -380,13 +356,7 @@ async def test_patch_job_updates_tac_id(
         assert get.json()["tac_id"] == other_tac
 
         # Cleanup job
-        async with AsyncSessionLocal() as db:
-            from app.models.job import Job
-
-            job = await db.get(Job, job_id)
-            if job is not None:
-                await db.delete(job)
-                await db.commit()
+        await purge_job(job_id)
     finally:
         await _cleanup(client_id, [tac_id, other_tac])
 
@@ -410,24 +380,19 @@ async def test_create_job_by_delivery_lead_defaults_delivery_lead_to_creator(
         resp = await app_client.post(
             "/api/jobs",
             headers=dl_headers,
-            json={
-                "title": "DL creator default smoke",
-                "client_id": client_id,
-                "auto_suggest_cc": False,
-            },
+            json=await complete_job_payload(
+                client_id,
+                title="DL creator default smoke",
+            ),
         )
         assert resp.status_code == 201, resp.text
         body = resp.json()
         assert body["delivery_lead_id"] == dl_id
-        assert body["recruiter_id"] is None
+        # Prowadzi rekruter z przekazania do searchu, nie DL-twórca.
+        assert body["recruiter_id"] is not None
+        assert body["recruiter_id"] != dl_id
 
-        async with AsyncSessionLocal() as db:
-            from app.models.job import Job
-
-            job = await db.get(Job, body["id"])
-            if job is not None:
-                await db.delete(job)
-                await db.commit()
+        await purge_job(body["id"])
     finally:
         await _cleanup(client_id, [dl_id])
 
@@ -445,24 +410,17 @@ async def test_create_job_by_delivery_lead_head_dl_wins(app_client: AsyncClient)
         resp = await app_client.post(
             "/api/jobs",
             headers=creator_headers,
-            json={
-                "title": "Head DL wins smoke",
-                "client_id": client_id,
-                "auto_suggest_cc": False,
-            },
+            json=await complete_job_payload(
+                client_id,
+                title="Head DL wins smoke",
+            ),
         )
         assert resp.status_code == 201, resp.text
         body = resp.json()
         assert body["delivery_lead_id"] == head_dl_id
         assert body["delivery_lead_id"] != creator_id
 
-        async with AsyncSessionLocal() as db:
-            from app.models.job import Job
-
-            job = await db.get(Job, body["id"])
-            if job is not None:
-                await db.delete(job)
-                await db.commit()
+        await purge_job(body["id"])
     finally:
         await _cleanup(client_id, [head_dl_id, creator_id])
 
@@ -483,24 +441,17 @@ async def test_create_job_by_delivery_lead_explicit_override_wins(
         resp = await app_client.post(
             "/api/jobs",
             headers=creator_headers,
-            json={
-                "title": "Explicit DL override smoke",
-                "client_id": client_id,
-                "delivery_lead_id": explicit_dl_id,
-                "auto_suggest_cc": False,
-            },
+            json=await complete_job_payload(
+                client_id,
+                title="Explicit DL override smoke",
+                delivery_lead_id=explicit_dl_id,
+            ),
         )
         assert resp.status_code == 201, resp.text
         body = resp.json()
         assert body["delivery_lead_id"] == explicit_dl_id
 
-        async with AsyncSessionLocal() as db:
-            from app.models.job import Job
-
-            job = await db.get(Job, body["id"])
-            if job is not None:
-                await db.delete(job)
-                await db.commit()
+        await purge_job(body["id"])
     finally:
         await _cleanup(client_id, [head_dl_id, explicit_dl_id, creator_id])
 
@@ -518,13 +469,12 @@ async def test_create_job_by_delivery_lead_rejects_salary_in_polish(
         resp = await app_client.post(
             "/api/jobs",
             headers=dl_headers,
-            json={
-                "title": "Salary smoke",
-                "client_id": client_id,
-                "salary_min": 8000,
-                "salary_max": 12000,
-                "auto_suggest_cc": False,
-            },
+            json=await complete_job_payload(
+                client_id,
+                title="Salary smoke",
+                salary_min=8000,
+                salary_max=12000,
+            ),
         )
         assert resp.status_code == 403, resp.text
         assert (

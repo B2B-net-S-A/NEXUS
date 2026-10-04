@@ -1597,6 +1597,27 @@ export interface JobManagedInNexus {
   managed_in_nexus_by?: number | null;
 }
 
+/** Kanał pracy przy przekazaniu do searchu (lustro `JobHandoffButton`). */
+export type JobHandoffChannel = "linkedin" | "database" | "mixed";
+
+/**
+ * Ciało `POST /api/jobs/{id}/publish`: automat (`assignment_mode`) albo osoba
+ * (`recruiter_id`), kanał i — przy ponownym otwarciu — powód.
+ */
+export type JobPublishPayload = (
+  | { assignment_mode: "automatic"; recruiter_id?: never }
+  | { recruiter_id: number; assignment_mode?: never }
+) & {
+  channel: JobHandoffChannel;
+  reason?: string | null;
+};
+
+/** Pozycja braku z `GET /api/jobs/{id}/readiness` (`blocker_items`). */
+export interface JobReadinessBlockerItem {
+  code: string;
+  message: string;
+}
+
 export const jobsApi = {
   list: (params?: Record<string, unknown>) => api.get("/api/jobs", { params }),
   /**
@@ -1636,6 +1657,14 @@ export const jobsApi = {
       reason,
       notes: notes?.trim() || null,
     }),
+  /**
+   * „Otwórz ponownie” zamkniętą rekrutację albo „Dokończ i opublikuj” stary
+   * szkic / rekrutację opublikowaną bez przekazania (04.10.2026). Przechodzi
+   * bramkę przekazania: 422 `{code: "job_not_ready", message, blockers:
+   * [{code, message}]}` — patrz `lib/job-gate-errors.ts`.
+   */
+  publish: (id: number, payload: JobPublishPayload) =>
+    api.post(`/api/jobs/${id}/publish`, payload),
   /** 0325: osobna trasa (nie PATCH) — własny wpis audytowy; `enabled=false` tylko admin/DL (403). */
   setManagedInNexus: (id: number, enabled: boolean) =>
     api.post<JobManagedInNexus>(`/api/jobs/${id}/manage-in-nexus`, { enabled }),

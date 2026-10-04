@@ -263,6 +263,55 @@ def merge_questions(
     return merged
 
 
+def attach_deal_breakers(
+    merged: Sequence[Mapping[str, Any]],
+    champion_questions: Sequence[Any],
+    sheet_answers: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Pytania karty z warunkiem „Odpada, gdy…” i trafieniem z arkusza (04.10.2026).
+
+    ``merged`` to wynik ``merge_questions``; numer pytania = pozycja pytania
+    z treścią i identyfikatorem w Profilu Championa (ta sama kolejność co
+    ``screening_sheets.question_texts``). Do każdego pytania dochodzą:
+    ``question_id`` (identyfikator z profilu — nim zapisuje się trafienie),
+    ``deal_breaker`` (tekst albo ``None``) i ``deal_breaker_hit`` (z arkusza
+    screeningu pary). Pytania z samej notatki (bez profilu) mają
+    ``question_id = None`` — trafienia nie da się do nich przypiąć.
+    """
+    meta: list[tuple[str, Optional[str]]] = []
+    for question in champion_questions:
+        if not isinstance(question, Mapping):
+            continue
+        question_id = str(question.get("id") or "").strip()
+        text = str(question.get("question") or "").strip()
+        if not question_id or not text:
+            continue
+        condition = str(question.get("deal_breaker") or "").strip()
+        meta.append((question_id, condition or None))
+    hits = {
+        str(item.get("question_id") or "").strip()
+        for item in sheet_answers
+        if isinstance(item, Mapping) and item.get("deal_breaker_hit") is True
+    }
+    out: list[dict[str, Any]] = []
+    for item in merged:
+        number = item.get("number")
+        question_id, condition = (
+            meta[number - 1]
+            if meta and isinstance(number, int) and 0 < number <= len(meta)
+            else (None, None)
+        )
+        out.append(
+            {
+                **item,
+                "question_id": question_id,
+                "deal_breaker": condition,
+                "deal_breaker_hit": bool(question_id and question_id in hits),
+            }
+        )
+    return out
+
+
 # ── Karty jednej osoby w profilu kandydata (etap 6, 03.10.2026) ────────────
 
 # Ustalenia pokazywane w pasku faktów profilu obok wartości z profilu.

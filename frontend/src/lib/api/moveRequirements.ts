@@ -26,7 +26,9 @@ export type MoveRequirementActionKind =
   | "open_debrief"
   | "request_slots"
   // 0413: braki karty rekomendacji — otwiera całą kartę.
-  | "open_card";
+  | "open_card"
+  // Odpowiedź narusza „Odpada, gdy…” z Championa — okno odrzucenia z notatką.
+  | "reject";
 
 export interface MoveRequirementAction {
   kind: MoveRequirementActionKind | null;
@@ -35,6 +37,8 @@ export interface MoveRequirementAction {
   stage_id?: number | null;
   /** Rozmowa u klienta, pod którą zapisuje się debrief (gdy serwer ją zna). */
   event_id?: number | null;
+  /** `reject`: notatka wpisana do okna odrzucenia (które pytanie, co padło). */
+  note?: string | null;
 }
 
 export interface MoveRequirementItem {
@@ -135,6 +139,14 @@ export interface RequirementsSummary {
   enforced: MoveRequirementItem[];
   /** Braki, które są tylko przypomnieniem. */
   reminders: MoveRequirementItem[];
+}
+
+/**
+ * Odpowiedź z rozmowy narusza „Odpada, gdy…” Championa (pozycja
+ * `deal_breaker`). Nie blokuje ruchu — to ostrzeżenie z gotowym odrzuceniem.
+ */
+export function isDealBreakerWarning(item: MoveRequirementItem): boolean {
+  return item.status === "missing" && !item.blocking && item.action?.kind === "reject";
 }
 
 /** Licznik „brakuje X z Y” i podział braków na bramki serwera i przypomnienia. */

@@ -120,6 +120,10 @@ class PairFacts:
     # Runda 9 (R9-V2-6): wyłącznik `CV_QC_GATE_ENABLED` — przy wyłączonym QC
     # serwer nie odmawia wysyłki bez QC ani CV firmowego, więc okno też nie.
     qc_gate_enabled: bool = True
+    # 04.10.2026: odpowiedzi z arkusza screeningu oznaczone jako trafienie
+    # deal-breakera — `{number, question, response, deal_breaker}`. Ruch za
+    # „Screening” dostaje ostrzeżenie (nie blokadę) i akcję „Odrzuć z powodem”.
+    deal_breaker_hits: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass
@@ -152,6 +156,92 @@ class _Item:
 
 def _action(kind: str, label: str, stage_id: Optional[int]) -> dict[str, Any]:
     return {"kind": kind, "label": label, "stage_id": stage_id}
+
+
+_DEAL_BREAKER_SNIPPET = 200
+
+
+def _snippet(value: Any) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= _DEAL_BREAKER_SNIPPET:
+        return text
+    return text[: _DEAL_BREAKER_SNIPPET - 1].rstrip() + "…"
+
+
+def deal_breaker_hits(sheet: Any, champion_profile: Any) -> tuple[dict[str, Any], ...]:
+    """Odpowiedzi arkusza z ``deal_breaker_hit`` — z treścią pytania i warunku.
+
+    Pytanie bierzemy z odpowiedzi (``question_text`` stemplowany przy zapisie),
+    a dla arkuszy sprzed 02.10.2026 z profilu Championa po identyfikatorze.
+    „Odpada, gdy…” zawsze z bieżącego profilu. Numer = pozycja pytania
+    w profilu (jak w arkuszu), a bez niej — pozycja odpowiedzi.
+    """
+
+    from app.services import champion_view  # noqa: PLC0415
+
+    if not isinstance(sheet, dict):
+        return ()
+    answers = sheet.get("answers")
+    if not isinstance(answers, list):
+        return ()
+    questions: dict[str, tuple[int, dict[str, Any]]] = {}
+    for position, question in enumerate(
+        champion_view.screening_questions(champion_profile), start=1
+    ):
+        if isinstance(question, dict) and str(question.get("id") or "").strip():
+            questions[str(question["id"]).strip()] = (position, question)
+    hits: list[dict[str, Any]] = []
+    for position, answer in enumerate(answers, start=1):
+        if not isinstance(answer, dict) or answer.get("deal_breaker_hit") is not True:
+            continue
+        question_id = str(answer.get("question_id") or "").strip()
+        number, question = questions.get(question_id, (position, {}))
+        hits.append(
+            {
+                "number": number,
+                "question_id": question_id or None,
+                "question": _snippet(
+                    answer.get("question_text") or question.get("question")
+                ),
+                "response": _snippet(answer.get("response")),
+                "deal_breaker": _snippet(question.get("deal_breaker")) or None,
+            }
+        )
+    return tuple(hits)
+
+
+def deal_breaker_text(hits: Iterable[dict[str, Any]]) -> str:
+    """„Pytanie N: „…” — odpowiedź: „…”. Odpada, gdy: „…”.” — po jednej linii."""
+
+    lines: list[str] = []
+    for hit in hits:
+        question = hit.get("question") or "pytanie bez treści"
+        response = hit.get("response")
+        answer = f"„{response}”" if response else "brak zapisanej odpowiedzi"
+        line = f"Pytanie {hit.get('number')}: „{question}” — odpowiedź: {answer}."
+        if hit.get("deal_breaker"):
+            line += f" Odpada, gdy: „{hit['deal_breaker']}”."
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _deal_breaker_item(column: str, f: PairFacts) -> Optional[_Item]:
+    if not f.deal_breaker_hits:
+        return None
+    text = deal_breaker_text(f.deal_breaker_hits)
+    return _Item(
+        column,
+        "deal_breaker",
+        "Odpowiedź narusza deal-breaker",
+        MISSING,
+        False,
+        text,
+        {
+            **_action("reject", "Odrzuć z powodem", f.stage_id),
+            # Treść do wpisania w notatkę okna odrzucenia.
+            "note": text,
+        },
+    )
 
 
 def _index(column: Optional[str]) -> int:
@@ -418,6 +508,13 @@ def build_requirements(facts: PairFacts, to_column: str) -> dict[str, Any]:
     path = list(BOARD_COLUMN_ORDER[start + 1 : stop + 1])
     result["skipped_columns"] = path[:-1]
     items = [item for column in path for item in _items_for(column, facts)]
+    # Ruch za „Screening” z odpowiedzią, która narusza „Odpada, gdy…”:
+    # ostrzeżenie (nie bramka) z akcją odrzucenia — 04.10.2026. Na prodzie
+    # 2 z 3 takich osób wysłano do klienta, bo nic o tym nie mówiło.
+    if _index(to_column) >= _index("verified"):
+        warning = _deal_breaker_item(to_column, facts)
+        if warning is not None:
+            items.append(warning)
     result["items"] = [item.as_dict() for item in items]
 
     primary: dict[str, Any] = {"kind": "move", "label": f"Przesuń na „{to_label}”"}
@@ -889,6 +986,11 @@ async def load_pair_facts(
         client_decision=client_decision,
         signed=signed,
         qc_gate_enabled=settings.CV_QC_GATE_ENABLED,
+        deal_breaker_hits=(
+            deal_breaker_hits(screening_row.screening_answers, job.champion_profile)
+            if screening_row is not None
+            else ()
+        ),
     )
 
 
@@ -898,6 +1000,8 @@ __all__ = [
     "build_requirements",
     "column_label",
     "company_cv_refs",
+    "deal_breaker_hits",
+    "deal_breaker_text",
     "load_pair_facts",
     "qc_statuses",
     "sheet_filled",

@@ -103,7 +103,8 @@ export const JOB_STATUS_OPTIONS: ReadonlyArray<
   MultiSelectFilterOption<JobStatusValue>
 > = [
   { value: "published", label: "Opublikowane" },
-  { value: "draft", label: "Draft" },
+  // „Draft” zdjęty 04.10.2026: rekrutacja nie bywa już szkicem (stare szkice
+  // zamykają się same po 7 dniach). Typ zostaje — stare adresy z `draft`.
   { value: "closed", label: "Zamknięte" },
 ];
 

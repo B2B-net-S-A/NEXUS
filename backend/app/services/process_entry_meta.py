@@ -65,9 +65,15 @@ def application_screening_entry_meta(
     must_found: int,
     must_total: int,
     overridden: bool = False,
+    deal_breaker: Optional[str] = None,
 ) -> dict:
-    """Kształt ``entry_meta`` dla wejścia po przeglądzie zgłoszenia."""
-    return {
+    """Kształt ``entry_meta`` dla wejścia po przeglądzie zgłoszenia.
+
+    ``deal_breaker`` (04.10.2026) = treść warunku „Odpada, gdy…”, który według
+    AI może łamać CV (z cytatem obecnym w CV). Tylko plakietka „AI: możliwy
+    deal-breaker — sprawdź” — werdykt (`decide`) się od tego nie zmienia.
+    """
+    meta = {
         "kind": APPLICATION_SCREENING_KIND,
         "verdict": verdict if verdict in _SCREENING_VERDICTS else "unclear",
         "assessed": bool(assessed),
@@ -75,6 +81,10 @@ def application_screening_entry_meta(
         "must_total": int(must_total),
         "overridden": bool(overridden),
     }
+    if deal_breaker:
+        meta["deal_breaker_hit"] = True
+        meta["deal_breaker"] = str(deal_breaker)[:300]
+    return meta
 
 
 def application_screening_badge(meta: Any) -> Optional[dict]:
@@ -92,4 +102,12 @@ def application_screening_badge(meta: Any) -> Optional[dict]:
         "must_found": must_found if isinstance(must_found, int) else None,
         "must_total": must_total if isinstance(must_total, int) else None,
         "overridden": bool(meta.get("overridden")),
+        # 04.10.2026: „AI: możliwy deal-breaker — sprawdź”.
+        "deal_breaker_hit": meta.get("deal_breaker_hit") is True,
+        "deal_breaker": (
+            meta["deal_breaker"]
+            if meta.get("deal_breaker_hit") is True
+            and isinstance(meta.get("deal_breaker"), str)
+            else None
+        ),
     }

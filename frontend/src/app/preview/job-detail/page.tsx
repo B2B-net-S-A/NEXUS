@@ -17,7 +17,10 @@
  * `?empty=1` — puste kolumny widoczne (ustawienie z menu „⋯”),
  * `?rail=1` — menu zwinięte do szyny 60 px także od 1280 px,
  * `?sources=similar|postings|base|search` — okno „Kandydaci do dodania”
- * otwarte od razu na tej zakładce.
+ * otwarte od razu na tej zakładce,
+ * `?closed=1` — rekrutacja zamknięta („Otwórz ponownie…” w menu „⋯”),
+ * `?reopen=1` — zamknięta z otwartym oknem „Otwórz ponownie” i fikcyjnymi
+ * brakami (04.10.2026).
  */
 
 import { Suspense, useEffect, useState } from "react";
@@ -35,6 +38,8 @@ import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { AddCandidatesPanel } from "@/components/v2/recruitment/AddCandidatesPanel";
+import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
+import { Badge } from "@/components/ui/badge";
 import { CANDIDATE_SOURCE_TABS, type CandidateSourceTab } from "@/components/v2/recruitment/types";
 import { searchBaseKey } from "@/components/v2/recruitment/useSearchBaseTab";
 import { screenedOutQueryKey } from "@/lib/api/applicationScreenings";
@@ -512,8 +517,31 @@ function seededClient(): QueryClient {
   });
 
   for (const seed of [...POSTINGS, ...BASE, ...SEARCH, ...SIMILAR_PEOPLE]) seedPerson(qc, seed);
+
+  // „Otwórz ponownie” (`?closed=1`, `?reopen=1`): braki bramki, lista
+  // rekruterów i rekrutacja w cache'u — te same klucze co `JobReopenDialog`.
+  seedFresh(qc, ["job", String(JOB_ID)], { ...JOB, status: "closed", primary_owner: null });
+  seedFresh(qc, ["job-readiness", JOB_ID], {
+    job_id: JOB_ID,
+    ready: false,
+    closed: true,
+    already_handed_off: false,
+    allocation_enabled: true,
+    allocation_mode: "shadow",
+    blockers: REOPEN_BLOCKERS.map((b) => b.message),
+    blocker_items: REOPEN_BLOCKERS,
+  });
+  seedFresh(qc, ["handoff-recruiters"], [
+    { id: 7, name: "Marta Nowak", email: "marta@example.com" },
+    { id: 8, name: "Piotr Zieliński", email: "piotr@example.com" },
+  ]);
   return qc;
 }
+
+const REOPEN_BLOCKERS = [
+  { code: "hiring_manager", message: "Wskaż hiring managera albo zaznacz „Klient nie podał”." },
+  { code: "deadline", message: "Podaj termin albo zaznacz „Klient nie podał”." },
+];
 
 const noop = () => undefined;
 
@@ -522,6 +550,9 @@ function JobDetailHarness() {
   const showEmpty = params.get("empty") === "1";
   const railOnly = params.get("rail") === "1";
   const initialSources = params.get("sources");
+  const reopenOnStart = params.get("reopen") === "1";
+  const closed = reopenOnStart || params.get("closed") === "1";
+  const [reopenOpen, setReopenOpen] = useState(reopenOnStart);
   const [client] = useState(seededClient);
   const [sourceTab, setSourceTab] = useState<CandidateSourceTab | null>(
     CANDIDATE_SOURCE_TABS.includes(initialSources as CandidateSourceTab)
@@ -585,7 +616,13 @@ function JobDetailHarness() {
                         clientTitle={JOB.title}
                         clientReference={JOB.client_reference}
                         referenceNumber="REF-4344"
-                        badges={<RequestStatusBadge status="searching" />}
+                        badges={
+                          closed ? (
+                            <Badge variant="danger">Zamknięta</Badge>
+                          ) : (
+                            <RequestStatusBadge status="searching" />
+                          )
+                        }
                         facts={jobHeaderFacts(JOB)}
                         presence={
                           <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
@@ -610,7 +647,19 @@ function JobDetailHarness() {
                           useUiStore.setState({ hideEmptyKanbanColumns: !hideEmptyColumns })
                         }
                         onCopyLink={noop}
+                        onCloseJob={closed ? undefined : noop}
+                        onReopenJob={closed ? () => setReopenOpen(true) : undefined}
                       />
+                      {closed ? (
+                        <JobReopenDialog
+                          jobId={JOB_ID}
+                          open={reopenOpen}
+                          onOpenChange={setReopenOpen}
+                          mode="reopen"
+                          recruiter={null}
+                          onOpenChampion={noop}
+                        />
+                      ) : null}
                       <KanbanBoardV2
                         columns={columns()}
                         jobId={JOB_ID}

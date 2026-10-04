@@ -89,6 +89,21 @@ export function answeredQuestions(card: Pick<RecommendationCard, "questions">): 
   return `${answered} z ${total} odpowiedzi`;
 }
 
+/** Pytania, przy których rekruter zaznaczył, że odpowiedź narusza „Odpada, gdy…”. */
+export function dealBreakerHits(card: Pick<RecommendationCard, "questions">) {
+  return card.questions.filter((q) => q.deal_breaker_hit === true);
+}
+
+/** Zdanie ostrzeżenia o naruszonym „Odpada, gdy…” (`null` = brak trafień). */
+export function dealBreakerWarning(card: Pick<RecommendationCard, "questions">): string | null {
+  const hits = dealBreakerHits(card);
+  if (!hits.length) return null;
+  const numbers = hits.map((q) => q.number).join(", ");
+  return hits.length === 1
+    ? `Odpowiedź na pytanie ${numbers} narusza „Odpada, gdy…”.`
+    : `Odpowiedzi na pytania ${numbers} naruszają „Odpada, gdy…”.`;
+}
+
 /** Pola, które zmieniły się w formularzu względem karty (`null` = wyczyszczone). */
 export function cardChanges(
   card: Pick<RecommendationCard, "fields" | "editable_fields">,

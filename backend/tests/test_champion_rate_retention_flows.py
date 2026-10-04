@@ -33,6 +33,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.models.client import Client
 from app.models.job import Job, JobStatus
+from tests._job_factory import complete_job_payload
 
 RATE = "basics.rate_value"
 FIXTURES = Path(__file__).parent / "fixtures" / "champion"
@@ -375,13 +376,31 @@ async def test_template_copy_copies_the_budget_as_stored(
     source_id = await _seed_job(flat_profile(text))
     source = await _job(source_id)
 
+    # Rekrutacja bez szkiców (04.10.2026): kopia powstaje od razu przekazana
+    # do searchu, więc żądanie domyka bramkę (zdalnie, wiersz wymagań,
+    # odpowiedzi dyskwalifikujące) — ale stawki nie wysyła: budżet ma przyjść
+    # z kopii profilu źródłowego.
+    questions = [
+        {**question, "deal_breaker": f"Odpada: {question['question']}"}
+        for question in flat_profile(text)["screening_questions"]
+    ]
     response = await app_client.post(
         "/api/jobs",
-        json={
-            "title": "Synthetic Java role (kopia)",
-            "client_id": source.client_id,
-            "from_job_id": source_id,
-        },
+        json=await complete_job_payload(
+            source.client_id,
+            title="Synthetic Java role (kopia)",
+            from_job_id=source_id,
+            rate_budget_hourly=None,
+            champion_profile={
+                "basics": {"work_mode": "zdalnie"},
+                "stack": {
+                    "rows": [{"words": ["Java"], "level": "must"}],
+                    "critical": [],
+                },
+                "search": {"requirements": [["Java"]]},
+                "screening_questions": questions,
+            },
+        ),
         headers=app_auth_headers,
     )
     assert response.status_code == 201, response.text

@@ -150,6 +150,8 @@ def test_badge_reads_only_known_fields():
         "must_found": 2,
         "must_total": 3,
         "overridden": False,
+        "deal_breaker_hit": False,
+        "deal_breaker": None,
     }
 
 

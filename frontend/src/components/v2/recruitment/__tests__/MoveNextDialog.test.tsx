@@ -210,4 +210,40 @@ describe("MoveNextDialog", () => {
     await userEvent.click(within(alert).getByRole("button", { name: "Przesuń mimo to" }));
     await waitFor(() => expect(props.onMove).toHaveBeenCalledWith(target));
   });
+  it("naruszone „Odpada, gdy…”: ostrzeżenie, „Odrzuć z powodem” z notatką i „Przesuń mimo to”", async () => {
+    respond({
+      from_column: "screening",
+      to_column: "verified",
+      items: [
+        {
+          key: "deal_breaker",
+          label: "Odpowiedź narusza „Odpada, gdy…”",
+          detail: "Pytanie 2: brak doświadczenia w chmurze",
+          status: "missing",
+          blocking: false,
+          action: {
+            kind: "reject",
+            label: "Odrzuć z powodem",
+            stage_id: 11,
+            note: "Odpada, gdy: brak chmury",
+          },
+        },
+      ],
+    });
+    const props = renderDialog();
+    const row = (await screen.findByText("Odpowiedź narusza „Odpada, gdy…”")).closest("li");
+    expect(row).toHaveAttribute("data-tone", "warning");
+    const primary = screen.getByTestId("move-next-primary");
+    expect(primary).toHaveTextContent("Przesuń mimo to");
+    expect(primary).toBeEnabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Odrzuć z powodem" }));
+    expect(props.onAction).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "reject", note: "Odpada, gdy: brak chmury" }),
+      item,
+    );
+
+    await userEvent.click(primary);
+    expect(props.onMove).toHaveBeenCalledWith(target);
+  });
 });

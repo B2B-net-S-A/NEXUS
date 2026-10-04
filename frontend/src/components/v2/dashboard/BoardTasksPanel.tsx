@@ -30,6 +30,11 @@
  *  - „Follow-up z kandydatami" (0372) — klient milczy 14 dni, telefon do
  *    kandydata; jeden na OSOBĘ, także gdy jest w kilku procesach
  *    (`FollowupSection`).
+ *  - „Rekrutacje do dokończenia albo zamknięcia" — stare szkice (zamykają się
+ *    same po terminie) i rekrutacje opublikowane bez przekazania do searchu,
+ *    z „Dokończ / Uzupełnij / Zamknij" i Twoimi niedokończonymi formularzami
+ *    nowej rekrutacji (`PendingJobsSection`). Jak lista prowadzących — nie
+ *    liczy się do tego, czy coś „czeka".
  *  - „Twoje CV w drodze" (02.10.2026) — dla rekrutera kandydata: co wróciło
  *    (odrzucenie przez DL, cofnięcie z QC, zwrot z kolejki Cpro), co czeka
  *    w przeglądzie i co poszło do klienta (`CvInTransitSection`). Każdy ma ją
@@ -38,7 +43,8 @@
  * Kolejka „Czeka na DZ" i przegląd DZ (0353) zniknęły — zastąpiło je QC CV.
  * Panel „Czeka na Ciebie" nie renderuje się, gdy nic nie czeka — pusta ramka
  * uczyłaby go ignorować (zostają wtedy najwyżej listy informacyjne: „Nowe
- * rekrutacje — kto prowadzi" i pasek „Twoje CV w drodze"). Kotwica `#czeka-na-ciebie` = link z porannego dzwonka.
+ * rekrutacje — kto prowadzi", „Rekrutacje do dokończenia albo zamknięcia" i pasek
+ * „Twoje CV w drodze"). Kotwica `#czeka-na-ciebie` = link z porannego dzwonka.
  */
 
 import Link from "next/link";
@@ -69,6 +75,7 @@ import { boardCardBadge } from "@/lib/recommendation-card";
 import { CproQueueDialog, CproSenderControl } from "./CproQueueDialog";
 import { CvInTransitSection } from "./CvInTransitSection";
 import { NewJobLeadsSection } from "./NewJobLeadsSection";
+import { PendingJobsSection, hasPendingJobsContent } from "./PendingJobsSection";
 
 export const BOARD_TASKS_ANCHOR = "czeka-na-ciebie";
 
@@ -225,8 +232,12 @@ export function BoardTasksPanel() {
   // i admina (serwer nie wysyła jej nikomu innemu): do `total` się nie liczy,
   // a gdy nic nie czeka — stoi sama, we własnej ramce.
   const leads = data.new_job_leads ?? [];
+  // „Rekrutacje do dokończenia albo zamknięcia” (Rekrutacja bez szkiców) —
+  // zaległość, nie zadanie z Tablicy: do `total` się nie liczy, jak lista
+  // prowadzących. Starszy serwer pól nie oddaje (`undefined`/`null`).
+  const hasPendingJobs = hasPendingJobsContent(data.pending_jobs, data.unfinished_forms);
   if (total === 0 && (transit?.returned_total ?? 0) === 0) {
-    if (!canSetSender && !transit && leads.length === 0) return null;
+    if (!canSetSender && !transit && leads.length === 0 && !hasPendingJobs) return null;
     return (
       <div className="flex flex-col gap-3">
         {canSetSender ? (
@@ -235,6 +246,7 @@ export function BoardTasksPanel() {
           </div>
         ) : null}
         <NewJobLeadsSection rows={leads} standalone />
+        <PendingJobsSection pending={data.pending_jobs} forms={data.unfinished_forms} standalone />
         {transit ? <CvInTransitSection transit={transit} standalone /> : null}
       </div>
     );
@@ -270,6 +282,7 @@ export function BoardTasksPanel() {
           leaveKnown={data.allocation_leave_known !== false}
         />
         <NewJobLeadsSection rows={leads} />
+        <PendingJobsSection pending={data.pending_jobs} forms={data.unfinished_forms} />
         <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
         {transit ? <CvInTransitSection transit={transit} /> : null}
         {dlReview.length > 0 && (

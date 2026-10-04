@@ -13,6 +13,7 @@ import { Check, ChevronDown, ChevronRight, Plus, Trash2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
 import { OfficeDaysField } from "@/components/jobs/OfficeDaysField";
 import { Textarea } from "@/components/ui/textarea";
@@ -61,6 +62,9 @@ const ORIGIN_LABEL: Record<QuestionOrigin, string> = {
   template: "z podobnej rekrutacji",
   manual: "dopisane",
 };
+
+export const BUDGET_HELP_TEXT =
+  "Rekruter widzi go przy kandydatach jako plakietkę „ponad budżet”. Nikogo nie ukrywa.";
 
 export const DEAL_BREAKER_REQUIRED_TEXT =
   "Wpisz odpowiedź, która dyskwalifikuje kandydata — bez niej rekrutacja nie trafi do searchu.";
@@ -476,6 +480,10 @@ export function NewJobReviewForm({
   const ids = {
     hiringManager: useId(),
     title: useId(),
+    deadline: useId(),
+    deadlineTime: useId(),
+    deadlineNotProvided: useId(),
+    headcount: useId(),
     clientTitle: useId(),
     rate: useId(),
     days: useId(),
@@ -502,7 +510,12 @@ export function NewJobReviewForm({
 
   return (
     <div className="flex flex-col gap-4">
-      <SectionCard section="name" number={1} title="Nazwa" warn={isMissing("role")}>
+      <SectionCard
+        section="name"
+        number={1}
+        title="Nazwa"
+        warn={isMissing("role") || isMissing("hiring_manager")}
+      >
         <div className="flex flex-col gap-2">
           <FieldLabel
             htmlFor={ids.clientTitle}
@@ -536,16 +549,48 @@ export function NewJobReviewForm({
           </div>
           {/* 25.09.2026: kto zamawia po stronie klienta — z listy kontaktów
               albo wpisany; nowa osoba trafi do kontaktów klienta przy zapisie. */}
-          <div className="flex flex-col gap-2">
-            <FieldLabel id={ids.hiringManager} basis={basis("hiring_manager")}>
+          <div className="flex flex-col gap-2" data-testid="new-job-hiring-manager">
+            <FieldLabel
+              id={ids.hiringManager}
+              basis={basis("hiring_manager")}
+              missing={isMissing("hiring_manager")}
+            >
               Hiring manager
             </FieldLabel>
-            <HiringManagerCombobox
-              clientId={clientId}
-              value={form.hiringManager}
-              onChange={(value) => set("hiringManager", value, "hiring_manager")}
-              labelledBy={ids.hiringManager}
-            />
+            <div
+              className={cn(
+                "rounded-lg",
+                isMissing("hiring_manager") && MISSING_RING,
+              )}
+            >
+              <HiringManagerCombobox
+                clientId={clientId}
+                value={form.hiringManager}
+                onChange={(value) =>
+                  onChange((f) =>
+                    markEdited(
+                      {
+                        ...f,
+                        hiringManager: value,
+                        // Wybrana osoba zdejmuje „Klient nie podał”.
+                        hiringManagerNotProvided: value ? false : f.hiringManagerNotProvided,
+                      },
+                      "hiring_manager",
+                    ),
+                  )
+                }
+                labelledBy={ids.hiringManager}
+                notProvided={form.hiringManagerNotProvided}
+                onNotProvidedChange={(notProvided) =>
+                  onChange((f) => ({
+                    ...f,
+                    hiringManagerNotProvided: notProvided,
+                    hiringManager: notProvided ? null : f.hiringManager,
+                  }))
+                }
+              />
+            </div>
+            <MissingNote show={isMissing("hiring_manager")} />
           </div>
         </div>
 
@@ -657,7 +702,9 @@ export function NewJobReviewForm({
           isMissing("budget") ||
           isMissing("work_mode") ||
           isMissing("office_days") ||
-          isMissing("office_city")
+          isMissing("office_city") ||
+          isMissing("deadline") ||
+          isMissing("headcount")
         }
       >
         <div className="grid gap-4 md:grid-flow-row-dense md:grid-cols-2 lg:grid-cols-4">
@@ -677,6 +724,7 @@ export function NewJobReviewForm({
             {form.rateNote && (
               <span className="text-xs text-muted-foreground">{form.rateNote}</span>
             )}
+            <span className="text-xs text-muted-foreground">{BUDGET_HELP_TEXT}</span>
           </div>
           <div className="flex flex-col gap-2 md:col-span-2">
             <FieldLabel missing={isMissing("work_mode")}>Tryb pracy</FieldLabel>
@@ -738,6 +786,93 @@ export function NewJobReviewForm({
               inputClassName={cn(officeNeeded && isMissing("office_days") && MISSING_RING)}
             />
             <MissingNote show={officeNeeded && isMissing("office_days")} />
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <div className="flex flex-col gap-2" data-testid="new-job-deadline">
+            <FieldLabel
+              htmlFor={ids.deadline}
+              missing={isMissing("deadline")}
+              basis={basis("deadline")}
+            >
+              Termin
+            </FieldLabel>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                id={ids.deadline}
+                type="date"
+                value={form.deadline}
+                disabled={form.deadlineNotProvided}
+                onChange={(e) =>
+                  onChange((f) =>
+                    markEdited(
+                      {
+                        ...f,
+                        deadline: e.target.value,
+                        deadlineTime: e.target.value ? f.deadlineTime : "",
+                        deadlineNotProvided: e.target.value ? false : f.deadlineNotProvided,
+                      },
+                      "deadline",
+                    ),
+                  )
+                }
+                className={cn("w-0 min-w-[10rem] flex-1", isMissing("deadline") && MISSING_RING)}
+              />
+              <Input
+                id={ids.deadlineTime}
+                type="time"
+                aria-label="Godzina terminu (opcjonalnie)"
+                value={form.deadlineTime}
+                disabled={form.deadlineNotProvided || !form.deadline}
+                onChange={(e) =>
+                  onChange((f) => markEdited({ ...f, deadlineTime: e.target.value }, "deadline"))
+                }
+                className="w-32"
+              />
+            </div>
+            <label
+              htmlFor={ids.deadlineNotProvided}
+              className="inline-flex cursor-pointer items-center gap-2 text-sm text-foreground"
+            >
+              <Checkbox
+                id={ids.deadlineNotProvided}
+                checked={form.deadlineNotProvided}
+                onCheckedChange={(checked) =>
+                  onChange((f) => ({
+                    ...f,
+                    deadlineNotProvided: checked === true,
+                    deadline: checked === true ? "" : f.deadline,
+                    deadlineTime: checked === true ? "" : f.deadlineTime,
+                  }))
+                }
+              />
+              Klient nie podał
+            </label>
+            <MissingNote show={isMissing("deadline")} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <FieldLabel
+              htmlFor={ids.headcount}
+              missing={isMissing("headcount")}
+              basis={basis("headcount")}
+            >
+              Liczba osób
+            </FieldLabel>
+            <Input
+              id={ids.headcount}
+              type="number"
+              inputMode="numeric"
+              onWheel={blurNumberInputOnWheel}
+              min={1}
+              max={99}
+              value={form.headcount}
+              onChange={(e) =>
+                onChange((f) => markEdited({ ...f, headcount: e.target.value }, "headcount"))
+              }
+              className={cn(isMissing("headcount") && MISSING_RING)}
+            />
+            <MissingNote show={isMissing("headcount")} />
           </div>
         </div>
 

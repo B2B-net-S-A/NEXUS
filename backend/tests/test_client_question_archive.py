@@ -39,6 +39,7 @@ from app.models.interview_question import (
 from app.models.job import Job, JobStatus
 from app.models.user import User, UserRole
 from app.services import scoring_service
+from tests._job_factory import complete_job_payload
 
 JAVA_Q = "Jak działa garbage collector w Javie?"
 ORACLE_Q = "Jak stroisz wolne zapytania w Oracle?"
@@ -349,12 +350,12 @@ async def test_template_copy_skips_archive_pins(
 
     resp = await app_client.post(
         "/api/jobs",
-        json={
-            "title": f"Kopia {tag}",
-            "client_id": client_id,
-            "from_job_id": src_id,
-            "copy_questions": True,
-        },
+        json=await complete_job_payload(
+            client_id,
+            title=f"Kopia {tag}",
+            from_job_id=src_id,
+            copy_questions=True,
+        ),
         headers=app_auth_headers,
     )
     assert resp.status_code == 201, resp.text
