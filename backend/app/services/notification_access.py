@@ -115,6 +115,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.board_task_waiting: ProductSection.pipeline,
     # 0417: link prowadzi do panelu osoby na Tablicy rekrutacji.
     NotificationType.b2b_signature_requested: ProductSection.pipeline,
+    NotificationType.candidate_rate_change: ProductSection.pipeline,
+    NotificationType.candidate_rate_change_task: ProductSection.pipeline,
     NotificationType.request_assignment_changed: ProductSection.pipeline,
     NotificationType.request_review_needed: ProductSection.pipeline,
     NotificationType.request_allocation_proposals: ProductSection.pipeline,

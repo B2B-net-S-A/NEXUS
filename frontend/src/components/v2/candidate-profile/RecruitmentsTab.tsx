@@ -34,6 +34,7 @@ import { ConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { CVShareLinkModal } from "@/components/v2/modals/CVShareLinkModal";
 import { CandidateInterviewFeedbackPanel } from "@/components/feedback/CandidateInterviewFeedbackPanel";
+import { RateChangeLatest } from "@/components/v2/rate-change/RateChangeLatest";
 import { SuggestedJobsWidget } from "@/components/SuggestedJobsWidget";
 import { SuggestedPoolsWidget } from "@/components/candidates/SuggestedPoolsWidget";
 import { RateHistorySummary } from "@/components/v2/candidate-profile/RateHistoryDialog";
@@ -504,6 +505,7 @@ export function RecruitmentRateRow({
           />
         ) : null}
       </div>
+      <RateChangeLatest candidateId={candidateId} jobId={jobId} />
       {margin != null ? (
         <div className="mt-2 text-xs text-muted-foreground">
           Marża:{" "}

@@ -162,6 +162,25 @@ function columns(): KanbanColumn[] {
     // `agreement`) i osoba na „Umowie” bez umowy — panel „Umowa”.
     col("client_interview", "Rozmowa z klientem", 26, [
       card("Karol", "Wzorcowy", { claim_until: null, agreement: PREVIEW_AGREEMENT } as never),
+      // 0418: kandydat po rozmowie u klienta chce wyższej stawki.
+      card("Bartek", "Testowy", {
+        claim_until: null,
+        expected_rate_value: 125,
+        expected_rate_unit: "hourly",
+        expected_rate_currency: "PLN",
+        rate_change: {
+          id: 3,
+          status: "requested",
+          requires_decision: true,
+          previous_hourly: 110,
+          requested_hourly: 125,
+          requested_label: "125 zł/h",
+          agreed_hourly: null,
+          negotiator_name: null,
+          negotiation_due: null,
+          created_at: null,
+        },
+      } as never),
     ]),
     col("negotiation", "Umowa", 27, [card("Iza", "Umowna", { claim_until: null } as never)]),
     col("hired", "Zatrudniony", 28, []),

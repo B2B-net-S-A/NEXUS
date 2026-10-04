@@ -50,6 +50,13 @@ CATALOG = (
         recipient_rule="Odbiorcy reguły etapu: rekruter, DL, TAC, wskazana osoba, rola lub twórca kandydata. Nadal obowiązują szczegółowe reguły etapów.",
     ),
     dict(
+        id="rate_change",
+        label="Wzrost stawki kandydata po wysłaniu CV",
+        module="Rekrutacje",
+        trigger="Kandydat, którego CV jest już u klienta, chce wyższej stawki (zapis w debriefie, panelu osoby albo profilu).",
+        recipient_rule="Delivery Lead rekrutacji (bez niego: Delivery Leadzi z portfela klienta), aktywny i z dostępem do sekcji Pipeline.",
+    ),
+    dict(
         id="job_deadline",
         label="Terminy rekrutacji",
         module="Rekrutacje",
@@ -172,6 +179,7 @@ def notification_kind(notification_type: Any) -> str | None:
         "job_chat_mention": "chat_unread",
         "note_mention": "mentions",
         "stage_rule": "pipeline_stage",
+        "candidate_rate_change_task": "rate_change",
         "job_deadline_7d": "job_deadline",
         "job_deadline_3d": "job_deadline",
         "job_deadline_1d": "job_deadline",

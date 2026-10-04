@@ -280,6 +280,10 @@ class CandidateStageResponse(BaseModel):
     # 0372: follow-up z kandydatem, gdy klient milczy — kto dzwoni i kiedy:
     # {caller_id, caller_name, due_on, state, overdue_days, process_count}.
     followup: Optional[dict] = None
+    # 0418: otwarta sprawa zmiany stawki kandydata (zgłoszona / w negocjacji /
+    # ustalona): {id, status, requires_decision, previous_hourly,
+    # requested_hourly, requested_label, agreed_hourly, negotiator_name, ...}.
+    rate_change: Optional[dict] = None
     # „Zatrudniony": czy jest uzupełnione zamówienie (complete|missing).
     order_status: Optional[str] = None
     # 04.10.2026: umowa B2B z Generatora tej pary (rejestr jest źródłem):

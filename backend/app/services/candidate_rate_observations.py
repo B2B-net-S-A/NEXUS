@@ -9,7 +9,11 @@ Czyta (hurtowo, bez zawężania widoczności — to wejście liczenia „Stawki 
   ``profile:{activity_id}`` — z oznaczeniem jawnego minimum;
 * bieżącą stawkę profilu, gdy dziennik jej nie zna (stare wpisy, formularz
   kariery, scalanie), klucz ``profile-current``;
-* stawki ze zgłoszeń osób już w bazie, klucz ``apply:{submission_id}``.
+* stawki ze zgłoszeń osób już w bazie, klucz ``apply:{submission_id}``;
+* zmiany stawki w procesie (0418): zgłoszona ``rchange:{id}:req`` i ustalona
+  po negocjacji ``rchange:{id}:agreed``. Wiersz etapu, który zmiana
+  nadpisała, nie dubluje jej w historii, a stawka sprzed pierwszej zmiany
+  zostaje jako ``rchange:{id}:prev`` (inaczej znikałaby z „Stawki od”).
 
 Stawki z umów (co płaciliśmy) są tylko do wyświetlenia — czyta je
 ``candidate_rate_overview``, nie ta funkcja.
@@ -200,6 +204,15 @@ _CURRENT_SQL = text(
     "profile_rate_updated_at, created_at FROM candidates WHERE id = ANY(:ids)"
 )
 
+_RATE_CHANGES_SQL = text(
+    "SELECT id, candidate_id, job_id, stage_id, requested_amount, requested_unit, "
+    "requested_currency, agreed_amount, agreed_unit, agreed_currency, "
+    "previous_amount, previous_unit, previous_currency, reason, note, "
+    "created_at, created_by, outcome_at, outcome_by "
+    "FROM candidate_rate_changes WHERE candidate_id = ANY(:ids) "
+    "ORDER BY candidate_id, job_id, created_at, id"
+)
+
 _SUBMISSIONS_SQL = text(
     "SELECT id, matched_candidate_id AS candidate_id, job_id, created_at, "
     "raw_payload->>'expected_rate_hourly' AS rate "
@@ -246,6 +259,10 @@ async def collect(
                 not_comparable=amount is None,
             )
         )
+
+    _add_rate_change_observations(
+        out, [dict(r) for r in (await db.execute(_RATE_CHANGES_SQL, params)).mappings()]
+    )
 
     known_profile_amounts: dict[int, set[Decimal]] = defaultdict(set)
     profile_rows = [
@@ -296,3 +313,120 @@ async def collect(
             )
         )
     return out
+
+
+def _raw(amount: Any, unit: Optional[str], currency: Optional[str]) -> Optional[str]:
+    value = _decimal(amount)
+    if value is None:
+        return None
+    label = {"hourly": "h", "daily": "dzień", "monthly": "mies."}.get(unit or "", "?")
+    return f"{value.normalize():f} {currency or 'PLN'}/{label}"
+
+
+def _add_rate_change_observations(
+    out: dict[int, list[RateObservation]], rows: list[dict[str, Any]]
+) -> None:
+    """Zgłoszone i ustalone stawki ze spraw zmiany stawki (0418).
+
+    ``rows`` posortowane po (kandydat, rekrutacja, czas). Zmiana poprawiona
+    jako „pomyłka przy wpisie” następną zmianą nie jest obserwacją — to była
+    literówka, nie słowa kandydata.
+    """
+
+    by_pair: dict[tuple[int, int], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        if row["candidate_id"] in out:
+            by_pair[(row["candidate_id"], row["job_id"])].append(row)
+    for (candidate_id, job_id), changes in by_pair.items():
+        observations = out[candidate_id]
+        stage_obs = {
+            o.key: o for o in observations if o.source == "stage" and o.job_id == job_id
+        }
+        latest = changes[-1]
+        latest_amount = latest["agreed_amount"] or latest["requested_amount"]
+        latest_unit = latest["agreed_unit"] or latest["requested_unit"]
+        latest_currency = latest["agreed_currency"] or latest["requested_currency"]
+        overwritten = stage_obs.get(f"stage:{latest['stage_id']}")
+        if overwritten is not None and overwritten.amount_hourly == hourly_from_unit(
+            latest_amount, latest_unit, latest_currency
+        ):
+            # Wiersz etapu niesie dziś kwotę ze sprawy — w historii stoi jako
+            # zgłoszona/ustalona, nie drugi raz jako „etap”.
+            observations.remove(overwritten)
+            first = changes[0]
+            remaining = {
+                o.amount_hourly
+                for o in observations
+                if o.source == "stage" and o.job_id == job_id
+            }
+            prev_hourly = hourly_from_unit(
+                first["previous_amount"],
+                first["previous_unit"],
+                first["previous_currency"],
+            )
+            if first["previous_amount"] is not None and prev_hourly not in remaining:
+                observations.append(
+                    RateObservation(
+                        key=f"rchange:{first['id']}:prev",
+                        candidate_id=candidate_id,
+                        amount_hourly=prev_hourly,
+                        raw=_raw(
+                            first["previous_amount"],
+                            first["previous_unit"],
+                            first["previous_currency"],
+                        ),
+                        at=overwritten.at,
+                        source="stage",
+                        job_id=job_id,
+                        author_id=overwritten.author_id,
+                        not_comparable=prev_hourly is None,
+                    )
+                )
+        for index, row in enumerate(changes):
+            following = changes[index + 1] if index + 1 < len(changes) else None
+            if following is not None and following["reason"] == "typo":
+                continue
+            requested = hourly_from_unit(
+                row["requested_amount"],
+                row["requested_unit"],
+                row["requested_currency"],
+            )
+            observations.append(
+                RateObservation(
+                    key=f"rchange:{row['id']}:req",
+                    candidate_id=candidate_id,
+                    amount_hourly=requested,
+                    raw=_raw(
+                        row["requested_amount"],
+                        row["requested_unit"],
+                        row["requested_currency"],
+                    ),
+                    at=row["created_at"],
+                    source="rate_requested",
+                    job_id=job_id,
+                    author_id=row["created_by"],
+                    not_comparable=requested is None,
+                )
+            )
+            if row["agreed_amount"] is not None:
+                agreed = hourly_from_unit(
+                    row["agreed_amount"], row["agreed_unit"], row["agreed_currency"]
+                )
+                if agreed != requested:
+                    observations.append(
+                        RateObservation(
+                            key=f"rchange:{row['id']}:agreed",
+                            candidate_id=candidate_id,
+                            amount_hourly=agreed,
+                            raw=_raw(
+                                row["agreed_amount"],
+                                row["agreed_unit"],
+                                row["agreed_currency"],
+                            ),
+                            at=row["outcome_at"] or row["created_at"],
+                            source="rate_agreed",
+                            job_id=job_id,
+                            author_id=row["outcome_by"],
+                            not_comparable=agreed is None,
+                        )
+                    )

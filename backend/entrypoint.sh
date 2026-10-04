@@ -699,6 +699,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'request_allocation_proposals'",
     # 0417: rekruter prosi o potwierdzenie podpisu umowy B2B (do DL / TCM).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'b2b_signature_requested'",
+    # 0418: zmiana stawki kandydata w procesie — informacja i zadanie dla DL.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_rate_change'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_rate_change_task'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -862,6 +865,18 @@ except Exception as _rate_from_err:  # noqa: BLE001
     _RATE_FROM_DDL = []
     _RATE_FROM_BACKFILL = []
 
+# Zmiana stawki kandydata w trakcie procesu (migracja 0418): tabela spraw
+# i wyzwalacz kolejki „Stawki od” — JEDNO źródło z migracją
+# (`app/services/candidate_rate_change_schema.py`). Wartości enuma niżej
+# literalnie, w `_ENUM_STATEMENTS`.
+try:
+    from app.services import candidate_rate_change_schema as _rate_change
+
+    _RATE_CHANGE_DDL = list(_rate_change.TABLE_DDL) + list(_rate_change.TRIGGER_DDL)
+except Exception as _rate_change_err:  # noqa: BLE001
+    print(f"candidate rate change DDL unavailable: {_rate_change_err!r}")
+    _RATE_CHANGE_DDL = []
+
 # Ocena zgłoszeń z linku rekrutacji przez AI (migracja 0404) — JEDNO źródło
 # z migracją (`app/services/application_screening_schema.py`).
 try:
@@ -902,6 +917,7 @@ _COLUMN_STATEMENTS = [
     *_PLAIN_KNOWLEDGE_DDL,
     *_APPLICATION_SCREENING_DDL,
     *_RATE_FROM_DDL,
+    *_RATE_CHANGE_DDL,
     *_B2B_DOCUMENTS_DDL,
     *_B2B_REGISTER_DDL,
     *_CONTRACT_DOCS_SP_DDL,
