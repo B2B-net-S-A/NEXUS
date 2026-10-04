@@ -104,10 +104,12 @@ vi.mock("@/components/v2/recruitment/DlReviewPanel", () => ({
     task,
     open,
     canSendToClient,
+    onOpenChange,
   }: {
     task: { stage_id: number; verified_by_name?: string | null; cv_stage_id?: number | null } | null;
     open: boolean;
     canSendToClient?: boolean;
+    onOpenChange?: (open: boolean) => void;
   }) =>
     open ? (
       <div
@@ -116,7 +118,11 @@ vi.mock("@/components/v2/recruitment/DlReviewPanel", () => ({
         data-verified-by={task?.verified_by_name ?? ""}
         data-cv-stage-id={String(task?.cv_stage_id ?? "")}
         data-can-send={String(canSendToClient)}
-      />
+      >
+        <button type="button" onClick={() => onOpenChange?.(false)}>
+          zamknij przegląd
+        </button>
+      </div>
     ) : null,
 }));
 
@@ -538,7 +544,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
       return el as HTMLElement;
     });
     fireEvent.click(card);
-    return screen.findByRole("complementary", { name: "Karta kandydata" });
+    return screen.findByRole("complementary", { name: "Panel osoby" });
   }
 
   async function openDockStageMenu() {
@@ -845,7 +851,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     renderBoard(qcPassedColumns());
     const link = await screen.findByRole("link", { name: "Iga Mazur" });
     fireEvent.click(link.closest("[data-kanban-card]") as HTMLElement);
-    await screen.findByRole("complementary", { name: "Karta kandydata" });
+    await screen.findByRole("complementary", { name: "Panel osoby" });
     await userEvent.click(screen.getByRole("button", { name: "Inny etap…" }));
     const menu = await screen.findByRole("menu");
     await userEvent.click(within(menu).getByRole("menuitem", { name: "CV wysłane" }));
@@ -869,6 +875,34 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(await screen.findByTestId("dl-review-panel")).toHaveAttribute("data-stage-id", "7301");
     expect(toastError).not.toHaveBeenCalled();
     expect(moveCalls()).toHaveLength(0);
+  });
+
+  // PR 5 (04.10.2026): jeden panel osoby naraz — przegląd zastępuje dok,
+  // a po zamknięciu wraca dok tej samej osoby.
+  it("przegląd DL zastępuje panel osoby, a po zamknięciu panel wraca", async () => {
+    useAuthStore.setState({ user: { id: 7, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    await sendFromQcDock();
+    await screen.findByTestId("dl-review-panel");
+    expect(screen.queryByRole("complementary", { name: "Panel osoby" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "zamknij przegląd" }));
+    expect(await screen.findByRole("complementary", { name: "Panel osoby" })).toBeInTheDocument();
+  });
+
+  it("niewysłana notatka w panelu przeżywa przegląd DL (panel ukryty, nie odmontowany)", async () => {
+    useAuthStore.setState({ user: { id: 7, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    renderBoard(qcPassedColumns());
+    const link = await screen.findByRole("link", { name: "Iga Mazur" });
+    fireEvent.click(link.closest("[data-kanban-card]") as HTMLElement);
+    const dock = await screen.findByRole("complementary", { name: "Panel osoby" });
+    const note = within(dock).getByPlaceholderText(/Dodaj notatkę/);
+    await userEvent.type(note, "Zadzwonić po 15");
+    await userEvent.click(within(dock).getByRole("button", { name: "Inny etap…" }));
+    const menu = await screen.findByRole("menu");
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "CV wysłane" }));
+    await screen.findByTestId("dl-review-panel");
+    await userEvent.click(screen.getByRole("button", { name: "zamknij przegląd" }));
+    const back = await screen.findByRole("complementary", { name: "Panel osoby" });
+    expect(within(back).getByPlaceholderText(/Dodaj notatkę/)).toHaveValue("Zadzwonić po 15");
   });
 
   it("przegląd z Tablicy dostaje wiersz z serwera (CV po QC, kto zweryfikował)", async () => {
@@ -924,7 +958,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     useAuthStore.setState({ user: { id: 9, role: "recruiter", roles: ["recruiter"] } } as never);
     const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
     renderReviewLink(8301);
-    await screen.findByRole("complementary", { name: "Karta kandydata" });
+    await screen.findByRole("complementary", { name: "Panel osoby" });
     await waitFor(() =>
       expect(toastInfo).toHaveBeenCalledWith(
         "Ta osoba nie czeka teraz na przegląd przed wysłaniem do klienta.",
@@ -1523,7 +1557,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     await screen.findByTestId("pipeline-board");
     const cards = Array.from(document.querySelectorAll("[data-kanban-card]")) as HTMLElement[];
     fireEvent.click(cards[0]);
-    const dock = await screen.findByRole("complementary", { name: "Karta kandydata" });
+    const dock = await screen.findByRole("complementary", { name: "Panel osoby" });
     // Nowi (2 + duplikat) + Screening (1); odrzucony (pasek zamkniętych) poza nawigatorem.
     expect(within(dock).getByText("1 z 4")).toBeInTheDocument();
     expect(within(dock).getByRole("button", { name: "Poprzednia karta" })).toBeDisabled();
@@ -1752,7 +1786,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     renderBoard(columns as never, undefined, false, true);
     await screen.findByText("Olek Nowy");
     fireEvent.click(document.querySelector('[data-candidate-id="8201"]') as HTMLElement);
-    const dock = await screen.findByRole("complementary", { name: "Karta kandydata" });
+    const dock = await screen.findByRole("complementary", { name: "Panel osoby" });
     expect(within(dock).queryByRole("group", { name: "Odznaki etapu" })).toBeNull();
     expect(within(dock).queryByRole("button", { name: /DZ/ })).toBeNull();
     expect(within(dock).queryByRole("button", { name: /Cpro/ })).toBeNull();
@@ -1948,7 +1982,7 @@ describe("KanbanBoardV2 — wysuwany dok i deep link ?candidate=", () => {
     renderBoard(dockColumns());
     await screen.findByTestId("pipeline-board");
     expect(
-      screen.queryByRole("complementary", { name: "Karta kandydata" }),
+      screen.queryByRole("complementary", { name: "Panel osoby" }),
     ).toBeNull();
     expect(screen.queryByText(/Kliknij kartę na tablicy/)).toBeNull();
   });
@@ -1958,13 +1992,13 @@ describe("KanbanBoardV2 — wysuwany dok i deep link ?candidate=", () => {
     const link = await screen.findByRole("link", { name: "Aleksandra Nowakowska" });
     fireEvent.click(link.closest("[data-kanban-card]") as HTMLElement);
     expect(
-      await screen.findByRole("complementary", { name: "Karta kandydata" }),
+      await screen.findByRole("complementary", { name: "Panel osoby" }),
     ).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() =>
       expect(
-        screen.queryByRole("complementary", { name: "Karta kandydata" }),
+        screen.queryByRole("complementary", { name: "Panel osoby" }),
       ).toBeNull(),
     );
   });
@@ -1979,14 +2013,14 @@ describe("KanbanBoardV2 — wysuwany dok i deep link ?candidate=", () => {
     const ctrl = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true });
     link.dispatchEvent(ctrl);
     expect(ctrl.defaultPrevented).toBe(false);
-    expect(screen.queryByRole("complementary", { name: "Karta kandydata" })).toBeNull();
+    expect(screen.queryByRole("complementary", { name: "Panel osoby" })).toBeNull();
 
     // Zwykły klik: bez nawigacji (preventDefault), otwiera dok osoby.
     const plain = new MouseEvent("click", { bubbles: true, cancelable: true });
     link.dispatchEvent(plain);
     expect(plain.defaultPrevented).toBe(true);
     expect(
-      await screen.findByRole("complementary", { name: "Karta kandydata" }),
+      await screen.findByRole("complementary", { name: "Panel osoby" }),
     ).toBeInTheDocument();
   });
 
@@ -1994,7 +2028,7 @@ describe("KanbanBoardV2 — wysuwany dok i deep link ?candidate=", () => {
     renderBoard(dockColumns());
     const link = await screen.findByRole("link", { name: "Aleksandra Nowakowska" });
     fireEvent.click(link.closest("[data-kanban-card]") as HTMLElement);
-    await screen.findByRole("complementary", { name: "Karta kandydata" });
+    await screen.findByRole("complementary", { name: "Panel osoby" });
 
     const dialog = document.createElement("div");
     dialog.setAttribute("role", "dialog");
@@ -2002,7 +2036,7 @@ describe("KanbanBoardV2 — wysuwany dok i deep link ?candidate=", () => {
     try {
       fireEvent.keyDown(window, { key: "Escape" });
       expect(
-        screen.getByRole("complementary", { name: "Karta kandydata" }),
+        screen.getByRole("complementary", { name: "Panel osoby" }),
       ).toBeInTheDocument();
     } finally {
       dialog.remove();
@@ -2028,7 +2062,7 @@ describe("KanbanBoardV2 — wysuwany dok i deep link ?candidate=", () => {
       </QueryClientProvider>,
     );
 
-    const dock = await screen.findByRole("complementary", { name: "Karta kandydata" });
+    const dock = await screen.findByRole("complementary", { name: "Panel osoby" });
     expect(within(dock).getByText("Aleksandra Nowakowska")).toBeInTheDocument();
     expect(onHandled).toHaveBeenCalledTimes(1);
     expect(scrollIntoView).toHaveBeenCalled();
@@ -2053,7 +2087,7 @@ describe("KanbanBoardV2 — wysuwany dok i deep link ?candidate=", () => {
         </TooltipProvider>
       </QueryClientProvider>,
     );
-    await screen.findByRole("complementary", { name: "Karta kandydata" });
+    await screen.findByRole("complementary", { name: "Panel osoby" });
     expect(onDockCandidateChange).toHaveBeenNthCalledWith(1, null);
     expect(onDockCandidateChange).toHaveBeenLastCalledWith(90);
     fireEvent.keyDown(window, { key: "Escape" });
@@ -2080,7 +2114,7 @@ describe("KanbanBoardV2 — wysuwany dok i deep link ?candidate=", () => {
     await screen.findByTestId("pipeline-board");
     await waitFor(() => expect(onHandled).toHaveBeenCalledTimes(1));
     expect(
-      screen.queryByRole("complementary", { name: "Karta kandydata" }),
+      screen.queryByRole("complementary", { name: "Panel osoby" }),
     ).toBeNull();
   });
 });

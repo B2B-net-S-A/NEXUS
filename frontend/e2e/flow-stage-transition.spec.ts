@@ -130,7 +130,7 @@ test.describe("Pipeline rekrutacji @stack", () => {
 
     // `?candidate=` otwiera dok tej osoby na Tablicy (jak link z powiadomienia).
     await page.goto(`/jobs/${job.id}?candidate=${candidate.id}`);
-    const panel = page.getByRole("complementary", { name: "Karta kandydata" });
+    const panel = page.getByRole("complementary", { name: "Panel osoby" });
     await expect(panel.getByText(fullName)).toBeVisible();
 
     // Ten sam `usePipelineMove` co przeciąganie — ruch na „Screening" nie otwiera okna.

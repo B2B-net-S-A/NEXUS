@@ -2384,6 +2384,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // do klienta dostaje ten sam pełny przegląd co na pulpicie (stawka kandydata,
  // CV, screening, stawka do klienta — bez marży), a nie samo okno stawki.
  const [dlReviewTask, setDlReviewTask] = useState<BoardTaskRow | null>(null);
+ // PR 5 (04.10.2026): jeden panel osoby naraz. Przegląd DL i szeroki
+ // warsztat ZASTĘPUJĄ dok zamiast nakładać się na niego; po ich zamknięciu
+ // wraca dok tej samej osoby (stan `dockItem` zostaje).
+ const personPanelCovered = dlReviewTask !== null || workbench !== null;
  // Prawo wysyłki z wiersza serwera; do jego przyjścia — ta sama reguła
  // w przeglądarce (`recruitment_manage`).
  const [dlReviewCanSend, setDlReviewCanSend] = useState<boolean | undefined>(undefined);
@@ -3056,7 +3060,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  </div>
  </DragDropContext>
 
- {dockItem && dockItemColLabel !== null && (
+ {dockItem && dockItemColLabel !== null && !personPanelCovered && (
  // Tablet (768–1023): dok nakrywa prawe kolumny planszy, a plansza nie ma
  // rezerwy miejsca (ta jest od `lg`), więc dok jest nakładką z tłem —
  // klik w tło zamyka kartę. Na telefonie dok ma pełną szerokość.
@@ -3069,9 +3073,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  />
  )}
  {dockItem && dockItemColLabel !== null && (
+ // Przykryty przeglądem DL albo warsztatem panel jest UKRYTY, nie
+ // odmontowany: niewysłana notatka, otwarte sekcje i miejsce powrotu
+ // fokusu muszą przeżyć (przegląd PR 5, 04.10.2026).
  <aside
- aria-label="Karta kandydata"
+ aria-label="Panel osoby"
  data-help="jobs.person.dock"
+ hidden={personPanelCovered}
+ inert={personPanelCovered || undefined}
  className="fixed right-0 top-12 bottom-0 z-30 flex w-full max-w-[380px] flex-col border-l border-border bg-background shadow-xl"
  style={chromeTop != null ? { top: chromeTop } : undefined}
  >
@@ -3080,6 +3089,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  item={dockItem}
  jobId={jobId}
  onOpenQc={() => setQcStageId(dockItem.id)}
+ onTake={readOnly ? undefined : () => void takeCandidate(dockItem)}
  currentStageLabel={dockItemColLabel}
  jobTitle={jobTitle}
  matchScore={scoreMap?.get(dockItem.candidate_id)}
