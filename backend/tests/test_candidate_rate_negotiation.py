@@ -73,7 +73,7 @@ async def test_recruiter_cannot_order_negotiation_hor_can(app_client: AsyncClien
     assert ok.status_code == 200, ok.text
     assert ok.json()["status"] == "negotiating"
     notes = await _notes(p["change_id"])
-    assert notes[p["dl_id"]].type == NotificationType.candidate_rate_change_task
+    assert notes[p["dl_id"]].notification_type == NotificationType.candidate_rate_change_task
 
 
 async def test_negotiated_lower_rate_lands_on_stage_and_waits_for_dl(
