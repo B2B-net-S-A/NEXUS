@@ -187,6 +187,7 @@ from app.api.recruitment_access import (
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.services import candidate_audit
 from app.services.candidate_audit import candidate_subject_reference
+from app.services.candidate_rate_from import rate_summary
 from app.services.candidate_monthly_rate_retirement import (
     RETIRED_MONTHLY_FILTER_KEYS,
     reject_retired_candidate_rate,
@@ -3222,6 +3223,8 @@ _EXPORT_COLUMNS = [
     "status",
     "source",
     "expected_rate_hourly_pln_net_b2b",
+    # „Stawka od” (0414) — najniższa stawka z 18 miesięcy, po niej filtruje lista.
+    "rate_from_hourly_pln",
     "availability_date",
     "champion",
     "created_at",
@@ -3249,6 +3252,7 @@ def _row_for_export(c: Candidate) -> list:
         c.expected_rate_hourly,
         c.expected_rate_currency,
     )
+    rate_from = rate_summary(c)["rate_from_hourly"]
     # Imię, nazwisko i lokalizacja przychodzą też z publicznego formularza
     # strony kariery — tekst nie może zostać formułą w Excelu (safe_row).
     return safe_row(
@@ -3266,6 +3270,7 @@ def _row_for_export(c: Candidate) -> list:
             c.status.value if c.status else "",
             c.source or "",
             profile_rate if profile_rate is not None else "",
+            rate_from if rate_from is not None else "",
             c.availability_date.isoformat() if c.availability_date else "",
             "true" if c.champion else "false",
             c.created_at.isoformat() if c.created_at else "",
@@ -4433,6 +4438,7 @@ async def get_candidate_quick_view(
             contact_case=quick_view_contact_case,
             expected_rate_hourly=candidate.expected_rate_hourly,
             expected_rate_currency=candidate.expected_rate_currency,
+            **rate_summary(candidate),
         ),
         current_position=CandidateQuickViewPosition(
             **resolve_current_position(candidate)
@@ -5081,6 +5087,9 @@ async def set_recruitment_expected_rate(
             else None
         ),
     )
+    from app.services.candidate_rate_from import recompute_safely
+
+    await recompute_safely(db, [candidate_id])
     await db.commit()
     await db.refresh(latest)
 

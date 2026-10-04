@@ -49,7 +49,11 @@ describe("candidate mutation cache invalidation", () => {
       42,
       "rate",
     );
-    expect(invalidateQueries).toHaveBeenCalledTimes(5);
+    // 0414: „rate” odświeża też stawkę profilu, historię stawek i karty.
+    expect(invalidateQueries).toHaveBeenCalledTimes(8);
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["candidate-rate-overview", 42],
+    });
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["suggested-jobs", 42],
     });

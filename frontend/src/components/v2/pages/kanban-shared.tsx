@@ -79,6 +79,9 @@ export interface KanbanItem {
  auto_cv_ready?: boolean;
  // Stawka z profilu kandydata (PLN/h) — podpowiedź w oknie „Zweryfikowany".
  candidate_expected_rate_hourly?: string | number | null;
+ // „Stawka od” (0414): najniższa stawka z 18 miesięcy — podpowiedź, gdy karta
+ // tej rekrutacji nie ma stawki.
+ candidate_rate_from_hourly?: string | number | null;
  // Widok „rekrutacja = jedna tabela" (wersja 3, 09.2026). Wszystkie pola są
  // opcjonalne: starsza odpowiedź ich nie niesie, a tabela ma wtedy powiedzieć
  // „—", nie zgadywać.

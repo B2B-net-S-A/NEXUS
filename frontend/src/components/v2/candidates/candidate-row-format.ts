@@ -7,6 +7,11 @@
  */
 
 import { formatRelativeTime } from "@/lib/utils";
+import {
+  rateFromText,
+  rateSecondLine,
+  type RateFromFields,
+} from "@/lib/candidate-rate";
 
 export interface CandidateRowRecruitment {
   job_id: number;
@@ -139,22 +144,46 @@ export function lastContactText(lastContactedAt: string | null | undefined): str
 }
 
 /**
- * Stawka B2B z profilu („160 zł/h") — ta sama, po której filtruje lista.
- * Waluta inna niż PLN zostaje podana wprost.
+ * Stawka B2B, po której filtruje lista. Od 0414 to „Stawka od” — najniższa
+ * stawka z 18 miesięcy („od 80 zł/h”); odpowiedź bez tego pola (starszy
+ * serwer, test) pokazuje stawkę profilu jak dotąd. Waluta inna niż PLN
+ * zostaje podana wprost.
  */
-export function rateCellText(candidate: {
-  expected_rate_hourly?: number | string | null;
-  expected_rate_currency?: string | null;
-}): string | null {
+export function rateCellText(
+  candidate: {
+    expected_rate_hourly?: number | string | null;
+    expected_rate_currency?: string | null;
+  } & RateFromFields,
+): string | null {
+  const profileCurrency = (candidate.expected_rate_currency || "PLN").trim().toUpperCase();
+  if (candidate.rate_from_hourly !== undefined) {
+    const fromText = rateFromText(candidate);
+    // Stawka w obcej walucie nie wchodzi do „Stawki od” — pokazujemy ją wprost.
+    if (fromText || profileCurrency === "PLN") return fromText;
+  }
   const raw = candidate.expected_rate_hourly;
   const amount = typeof raw === "string" ? Number(raw) : raw;
   if (amount == null || !Number.isFinite(amount) || amount <= 0) return null;
-  const currency = (candidate.expected_rate_currency || "PLN").trim().toUpperCase();
   const value = amount.toLocaleString("pl-PL", { maximumFractionDigits: 2 });
-  return currency === "PLN" ? `${value} zł/h` : `${value} ${currency}/h`;
+  return profileCurrency === "PLN"
+    ? `${value} zł/h`
+    : `${value} ${profileCurrency}/h`;
 }
 
 /** „1 kandydat", „248 kandydatów" — liczba z formą rzeczownika. */
 export function candidatesCountLabel(n: number): string {
   return `${n.toLocaleString("pl-PL")} ${n === 1 ? "kandydat" : "kandydatów"}`;
 }
+
+/**
+ * Druga linia kolumny „Stawka” — kolumna jest wąska, więc samo „ostatnio
+ * 140 zł/h”; pełny opis (data, liczba stawek) idzie w dymek (`title`).
+ */
+export function rateCellSecondLine(
+  candidate: RateFromFields,
+): { text: string; title: string } | null {
+  const full = rateSecondLine(candidate);
+  if (!full) return null;
+  return { text: full.split(" (")[0].split(" · ")[0], title: full };
+}
+

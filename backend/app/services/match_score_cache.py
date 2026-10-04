@@ -437,6 +437,20 @@ async def mark_stale_for_candidate(db: AsyncSession, candidate_id: int) -> int:
     return res.rowcount or 0
 
 
+async def mark_stale_for_candidates(db: AsyncSession, candidate_ids: list[int]) -> int:
+    """Hurtowa wersja :func:`mark_stale_for_candidate` (przeliczenie „Stawki od”)."""
+    ids = sorted({int(cid) for cid in candidate_ids})
+    if not ids:
+        return 0
+    res = await db.execute(
+        update(CandidateJobMatchScore)
+        .where(CandidateJobMatchScore.candidate_id.in_(ids))
+        .values(stale=True, invalidated_at=func.now())
+    )
+    await _touch_invalidation_ledger(db, "candidate", ids)
+    return res.rowcount or 0
+
+
 async def mark_stale_for_job(db: AsyncSession, job_id: int) -> int:
     """Mark all (*, job) cached rows stale. Returns row count affected.
 

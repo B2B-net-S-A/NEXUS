@@ -86,7 +86,7 @@
     ],
     "pitfalls": [
       "Wysłanie na „CV wysłane” poza Nordeą robi tylko osoba z uprawnieniem do wysyłki CV do klienta (domyślnie Delivery Lead i admin), podając w tym samym kroku stawkę do klienta. Cofnięcie karty z „Rozmowy u klienta” tego nie wymaga. Gdy Delivery Lead cofnie kartę z „QC CV” do poprawy, rekruter dostaje powiadomienie z jego uwagą — uwaga jest też w notatkach kandydata.",
-      "Wyjście z „Rozmowy u klienta” wymaga debriefu: pytań klienta albo potwierdzenia, że ich nie było.",
+      "Wejście na „Zweryfikowany” wymaga arkusza screeningu i stawki kandydata, wyjście z „Rozmowy u klienta” — debriefu (pytań klienta albo potwierdzenia, że ich nie było), a ręczny ruch na „Zatrudniony” — informacji, jak podpisano umowę.",
       "Bez zielonego QC CV kandydat nie przejdzie na „CV wysłane” ani do kolejki Cpro (u Nordei wrzuca osoba od Cpro wyznaczona dla firmy, a gdy jej nie ma — osoba wskazana w rekrutacji). QC zatrzymuje tylko cztery rzeczy: brak CV firmowego, umiejętności krytyczne nieopisane w rolach, treść spoza oryginalnego CV i reguły klienta — reszta to uwagi. Przepuścić mimo QC może osoba z uprawnieniem do wysyłki CV do klienta, wybierając powód. Powrót z „Zamkniętych” tego nie omija.",
       "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin."
     ],
@@ -288,7 +288,7 @@
       }
     ],
     "pitfalls": [
-      "Osoby bez stawki, lokalizacji albo stażu zostają na liście przy aktywnym filtrze i są oznaczone — możesz je ukryć w „Więcej filtrów”.",
+      "Filtr stawki porównuje „Stawkę od” — najniższą stawkę z ostatnich 18 miesięcy. Osoby bez stawki, lokalizacji albo stażu zostają na liście i są oznaczone — ukryjesz je w „Więcej filtrów”.",
       "Filtr „Kontakt z kandydatem” liczy rozmowy, maile i ustalone terminy — „nie odebrał” i wpisy automatu kontaktem nie są. Kolumna „Ostatnia rozmowa” (na laptopie włączysz ją w „Kolumny”) pokazuje datę i autora ostatniej rozmowy albo liczbę prób kontaktu. Historia kontaktów z Traffita ma datę importu (maj 2026), więc wcześniejszy okres nic nie znajdzie.",
       "Z wymaganiami lista układa osoby od najlepiej dopasowanych („Dopasowanie do wymagań”; „Najnowsi” wybierzesz w sortowaniu). Same nazwy technologii wpisane w górne pole stają się wymaganiami — „Szukaj … po znaczeniu” to cofa. Imię albo nazwisko w górnym polu pokazuje tylko osoby, które dokładnie tak się nazywają (bez polskich znaków też zadziała; „Nowak” nie pokaże „Nowakowskiego”). Podobne nazwiska pojawiają się tylko, gdy nikogo takiego nie ma — lista to mówi.",
       "Chipy „Mile widziane” (miasto, kategoria, wiersz słów) tylko podnoszą pasujące osoby wyżej, nikogo nie ukrywają; „Wymagaj” zamienia chip w filtr. Tak „Szukaj ręcznie” w rekrutacji ustawia jej miasto, kategorię i wiersze, które nie są technologiami."

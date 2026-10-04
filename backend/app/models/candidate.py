@@ -152,6 +152,38 @@ class Candidate(Base, TimestampMixin):
     # exposes the immutable literal PLN; persistence must not invent a fact for
     # an otherwise empty profile.
     expected_rate_currency: Mapped[Optional[str]] = mapped_column(String(3))
+    # „Stawka od” (0414): najniższa stawka PLN/h z ostatnich 18 miesięcy, liczona
+    # z kart rekomendacji, etapów, zmian profilu i zgłoszeń
+    # (`services/candidate_rate_from.py`). Pisze ją WYŁĄCZNIE przeliczenie
+    # surowym SQL-em (bez `updated_at`). Czytaj przez `effective_rate*`,
+    # nigdy wprost — przed pierwszym przeliczeniem obowiązuje stawka profilu.
+    rate_from_hourly: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    rate_from_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    rate_from_source: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    # FK (SET NULL) istnieje w bazie; w ORM bez ForeignKey, żeby nie tworzyć
+    # drugiej ścieżki złączenia candidates↔jobs dla istniejących relacji.
+    rate_from_job_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rate_from_stale: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    rate_from_computed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Ostatnio podana porównywalna stawka i liczba stawek w historii — druga
+    # linia „ostatnio 140 · 7 rozmów” na liście bez liczenia historii per wiersz.
+    rate_latest_hourly: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    rate_latest_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    rate_observation_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     # Collection-level optimistic-concurrency tokens for typed profile facts.
     # They are incremented while the candidate row is locked by the canonical
     # profile-facts service.

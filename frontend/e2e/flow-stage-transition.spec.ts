@@ -10,6 +10,7 @@ import { test, expect, expectStatus, jsonOf } from "./helpers/api";
 import { createCandidate, createClient, createJob } from "./helpers/entities";
 
 interface StageResponse {
+  id: number;
   candidate_id: number;
   stage: string;
   process_state_version: number;
@@ -226,12 +227,23 @@ test.describe("Pipeline rekrutacji @stack", () => {
     const candidate = await createCandidate(admin.api);
     // Runda 9 (R9-N11-4): osoba spoza rekrutacji wchodzi wyłącznie do „Nowych”
     // albo „Screeningu” — najpierw wejście, potem ruch na „Zweryfikowany”.
-    await jsonOf<StageResponse>(
+    const entry = await jsonOf<StageResponse>(
       await admin.api.post("/api/pipeline/move", {
         data: { candidate_id: candidate.id, job_id: job.id, stage: "new" },
       }),
       200,
       "wejście do Nowych"
+    );
+    // D1 (04.10.2026): „Zweryfikowany” wymaga arkusza screeningu i stawki.
+    await expectStatus(
+      await admin.api.post(`/api/pipeline/stages/${entry.id}/screening`, {
+        data: {
+          answers: [{ question_id: "q1", response: "Trzy lata komercyjnie" }],
+          overall_fit: "fit",
+        },
+      }),
+      200,
+      "arkusz screeningu przed „Zweryfikowany”"
     );
 
     const verified = await jsonOf<StageResponse & {

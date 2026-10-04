@@ -120,6 +120,10 @@ from app.services.recruitment_process_commands import (
 from app.services.delivery_alert_recipients import load_delivery_alert_recipient_scope
 from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.core.scheduling import business_today
+from app.services.candidate_rate_from import (
+    effective_currency_sql,
+    effective_rate_sql,
+)
 
 # Terminal wynikający wprost z legacy enuma — używane w gałęzi bez szablonu
 # pipeline'u, żeby `KanbanColumn.terminal_type` był wypełniany tak samo jak
@@ -525,6 +529,45 @@ def _sheet_filled(payload: object) -> bool:
     if isinstance(answers, (list, dict)):
         return len(answers) > 0
     return any(value not in (None, "", [], {}) for value in payload.values())
+
+
+async def _record_rate_from_move(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    value: Decimal,
+    unit: Optional[str],
+    currency: Optional[str],
+    is_minimum: bool,
+    actor_id: int,
+) -> None:
+    """Stawka z okna „Zweryfikowany” w „Stawce od” (0414).
+
+    Zaznaczone „To jego nowe minimum” zapisuje ją też w profilu jako jawne
+    minimum (audyt ``rate_meaning: minimum``). Potem przeliczenie — nigdy nie
+    cofa samego ruchu (``recompute_safely``).
+    """
+    from app.services.candidate_profile_rate import write_profile_rate
+    from app.services.candidate_rate_from import recompute_safely
+    from app.services.candidate_rate_observations import hourly_from_unit
+
+    if is_minimum:
+        hourly = hourly_from_unit(value, unit, currency)
+        candidate = await db.scalar(
+            select(Candidate).where(Candidate.id == candidate_id).with_for_update()
+        )
+        if hourly is not None and candidate is not None:
+            details = write_profile_rate(candidate, hourly, source="stage_minimum")
+            details["rate_meaning"] = "minimum"
+            candidate_audit.record_candidate_audit(
+                db,
+                action=candidate_audit.PROFILE_RATE_CHANGED,
+                user_id=actor_id,
+                entity_id=candidate_id,
+                details=details,
+            )
+            await db.flush()
+    await recompute_safely(db, [candidate_id])
 
 
 def _stage_response(
@@ -1122,6 +1165,11 @@ async def move_candidate(
             ),
         )
 
+    # D2 (04.10.2026): ręczny ruch na „Zatrudniony” mówi, jak podpisano umowę.
+    pipeline_move_rules.assert_hired_signed_via(
+        legacy_enum, data.hired_signed_via, data.hired_signed_note
+    )
+
     # Pipeline v4 (23.09.2026): wejście do „Umowy"/„Zatrudnionego" wymaga
     # debriefu po rozmowie u klienta (pytania klienta albo „klient nie zadawał
     # pytań") — pytania zasilają prep i profil Championa.
@@ -1142,6 +1190,17 @@ async def move_candidate(
         candidate_id=data.candidate_id,
         job_id=data.job_id,
         target_column=target_column,
+    )
+    # D1 (04.10.2026): „Zweryfikowany” z Nowych/Screeningu wymaga arkusza
+    # screeningu i stawki kandydata — ta sama reguła co okno „Przesuń dalej”.
+    await pipeline_move_rules.assert_verified_requirements(
+        db,
+        candidate_id=data.candidate_id,
+        job=job,
+        user=current_user,
+        target_column=target_column,
+        pending_rate=data.expected_rate_value is not None
+        and data.expected_rate_value > 0,
     )
 
     # Pipeline v4 (23.09.2026): „CV wysłane" poza Nordeą wysyła Delivery Lead
@@ -1410,6 +1469,16 @@ async def move_candidate(
             },
         )
     await create_original_cv_snapshot(db, stage)
+    if expected_rate_value is not None:
+        await _record_rate_from_move(
+            db,
+            candidate_id=data.candidate_id,
+            value=Decimal(expected_rate_value),
+            unit=expected_rate_unit.value if expected_rate_unit else None,
+            currency=expected_rate_currency,
+            is_minimum=data.expected_rate_is_minimum,
+            actor_id=current_user.id,
+        )
     stage_remarks.record(
         db, stage=stage, author_id=current_user.id, text=data.recruiter_remark
     )
@@ -1442,6 +1511,10 @@ async def move_candidate(
 
     # Activity log + UserActivity (ranking) — wspólne z `/bulk-move`.
     activity_extra: dict = {}
+    if legacy_enum == PipelineStage.hired and data.hired_signed_via is not None:
+        activity_extra["hired_signed_via"] = data.hired_signed_via
+        if data.hired_signed_note:
+            activity_extra["hired_signed_note"] = data.hired_signed_note.strip()
     if legacy_enum == PipelineStage.verified and budget_max_snapshot is not None:
         # M4 PR-02: audyt decyzji gate'u — z jakiej normalizacji wynikła.
         activity_extra["rate_gate"] = {
@@ -2244,6 +2317,7 @@ async def build_kanban_view(
     name_by_id: dict[int, tuple[Optional[str], Optional[str]]] = {}
     # Stawka z profilu (PLN/h) — podpowiedź w oknie „Zweryfikowany" (17.09.2026).
     profile_rate_by_id: dict[int, Optional[Decimal]] = {}
+    rate_from_by_id: dict[int, Optional[Decimal]] = {}
     # Dostępność z profilu (tabela rekrutacji „wersja 3") i lekkie wiersze dla
     # polityki dopuszczalności — TO SAMO zapytanie, bez ładowania całej encji.
     availability_by_id: dict[int, tuple[Optional[str], Optional[date]]] = {}
@@ -2255,6 +2329,8 @@ async def build_kanban_view(
                 Candidate.name,
                 Candidate.lastname,
                 Candidate.expected_rate_hourly,
+                effective_rate_sql(Candidate),
+                effective_currency_sql(Candidate),
                 Candidate.availability_status,
                 Candidate.availability_date,
                 Candidate.status,
@@ -2266,6 +2342,8 @@ async def build_kanban_view(
             cname,
             clastname,
             rate_hourly,
+            rate_from,
+            rate_from_currency,
             availability_status,
             availability_date,
             candidate_status,
@@ -2273,6 +2351,12 @@ async def build_kanban_view(
         ) in rows.all():
             name_by_id[cid] = (cname, clastname)
             profile_rate_by_id[cid] = rate_hourly
+            # „Stawka od” (0414) — porównywalna tylko w PLN.
+            rate_from_by_id[cid] = (
+                rate_from
+                if str(rate_from_currency or "PLN").strip().upper() in {"", "PLN"}
+                else None
+            )
             availability_by_id[cid] = (
                 availability_status.value if availability_status else None,
                 availability_date,
@@ -2467,6 +2551,7 @@ async def build_kanban_view(
             candidate_expected_rate_hourly=profile_rate_by_id.get(e.candidate_id),
         )
         payload["screening_done"] = e.candidate_id in screened_pairs
+        payload["candidate_rate_from_hourly"] = rate_from_by_id.get(e.candidate_id)
         if e.expected_rate_value is None:
             rate_row = carried_expected_rate.get(e.candidate_id)
             if rate_row is not None:

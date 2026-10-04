@@ -37,6 +37,7 @@ import {
   candidateViewerScopeKey,
 } from "@/components/v2/pages/candidate-query-keys";
 import { useAuthStore } from "@/store/auth";
+import type { RateOverview } from "@/lib/api/candidateRates";
 
 const CANDIDATE_ID = 9001;
 const BASE_PATH = "/preview/candidate-profile";
@@ -61,6 +62,13 @@ const daysAgo = (days: number) => {
 
 const CANDIDATE = {
   id: CANDIDATE_ID,
+  // „Stawka od” (0414): najniższa z 18 miesięcy, ostatnio podana wyżej.
+  rate_from_hourly: "120.00",
+  rate_from_at: daysAgo(400),
+  rate_from_stale: false,
+  rate_latest_hourly: "160.00",
+  rate_latest_at: daysAgo(20),
+  rate_observation_count: 4,
   name: "Marta",
   lastname: "Kowalczyk",
   email: "marta.kowalczyk@example.com",
@@ -488,6 +496,59 @@ const LANGUAGES = {
   ],
 };
 
+// Historia stawek (0414) — fikcyjne rekrutacje i klienci.
+const RATE_OVERVIEW: RateOverview = {
+  candidate_id: CANDIDATE_ID,
+  enabled: true,
+  window_start: daysAgo(548).slice(0, 10),
+  rate_from: {
+    amount: "120.00",
+    at: daysAgo(400),
+    source: "card",
+    stale: false,
+    key: "card:3",
+    job_id: 202,
+    job_title: "Tester manualny",
+    client_name: "Bank Przykładowy",
+  },
+  latest_amount: "160.00",
+  latest_at: daysAgo(20),
+  count: 4,
+  observations: [
+    {
+      key: "profile:11", amount_hourly: "160.00", raw: null, at: daysAgo(20),
+      source: "profile_manual", job_id: null, job_title: null, client_name: null,
+      author_name: "Anna Rekruterka", explicit_minimum: false, reason: "counts",
+      excluded_by_name: null,
+    },
+    {
+      key: "card:5", amount_hourly: "160.00", raw: "160 zł/h netto", at: daysAgo(60),
+      source: "card", job_id: 201, job_title: "Senior QA Engineer",
+      client_name: "Ubezpieczenia Testowe", author_name: "Anna Rekruterka",
+      explicit_minimum: false, reason: "counts", excluded_by_name: null,
+    },
+    {
+      key: "card:3", amount_hourly: "120.00", raw: "120 zł/h", at: daysAgo(400),
+      source: "card", job_id: 202, job_title: "Tester manualny",
+      client_name: "Bank Przykładowy", author_name: "Paweł Rekruter",
+      explicit_minimum: false, reason: "minimum", excluded_by_name: null,
+    },
+    {
+      key: "stage:9", amount_hourly: "95.00", raw: "95 PLN/h", at: daysAgo(900),
+      source: "stage", job_id: 203, job_title: "Junior QA", client_name: "Bank Przykładowy",
+      author_name: null, explicit_minimum: false, reason: "outside_window",
+      excluded_by_name: null,
+    },
+  ],
+  paid: [
+    {
+      kind: "contract", client_name: "Bank Przykładowy",
+      start_date: daysAgo(800).slice(0, 10), end_date: daysAgo(450).slice(0, 10),
+      amount_hourly: "110.00", redacted: false,
+    },
+  ],
+};
+
 const PROFILE_RATE = {
   candidate_id: CANDIDATE_ID,
   amount: "160.00",
@@ -650,7 +711,7 @@ const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> =
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/recent-recruitments$`), () => RECENT_RECRUITMENTS],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/recommendations$`), () => RECOMMENDATIONS],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/suggested-pools$`), () => []],
-  [new RegExp(`^/api/candidates/${CANDIDATE_ID}/rate-history$`), () => []],
+  [new RegExp(`^/api/candidates/${CANDIDATE_ID}/rate-overview$`), () => RATE_OVERVIEW],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/conflicts$`), () => []],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/hiring-manager-vetoes$`), () => []],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/calls$`), () => []],
@@ -817,6 +878,7 @@ function seededClient(): QueryClient {
     etag: '"preview-v1"',
   });
   qc.setQueryData(candidateQueryKeys.notesFacts(CANDIDATE_ID), NOTES_FACTS);
+  qc.setQueryData(candidateQueryKeys.rateOverview(CANDIDATE_ID), RATE_OVERVIEW);
   qc.setQueryData(candidateQueryKeys.profileRate(CANDIDATE_ID), {
     data: PROFILE_RATE,
     etag: '"preview-v1"',

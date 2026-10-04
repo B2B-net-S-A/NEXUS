@@ -158,6 +158,15 @@ def render_result(value: Any) -> str:
     return text
 
 
+# D2 (04.10.2026): etykiety „jak podpisano umowę” na karcie akcji.
+_HIRED_SIGNED_VIA_LABELS = {
+    "b2b_offline": "B2B poza Generatorem",
+    "uop": "umowa o pracę",
+    "zlecenie": "umowa zlecenie",
+    "other": "inna",
+}
+
+
 def _clean(params: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in params.items() if v not in (None, "", [])}
 
@@ -272,6 +281,9 @@ _CANDIDATE_ROW = (
     "location_city",
     "skills",
     "expected_rate_hourly",
+    # „Stawka od” (0414): najniższa z 18 miesięcy — ją czytają filtry i AI.
+    "rate_from_hourly",
+    "rate_from_stale",
     "experience_years",
     "active_recruitments",
     "last_activity_at",
@@ -1947,6 +1959,18 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
                 },
                 "expected_state_version": INT,
                 "notes": {**STR, "maxLength": 1000},
+                # D2 (04.10.2026): ręczny ruch na „Zatrudniony” mówi, jak
+                # podpisano umowę spoza Generatora B2B.
+                "hired_signed_via": {
+                    "type": "string",
+                    "enum": ["b2b_offline", "uop", "zlecenie", "other"],
+                    "description": (
+                        "Tylko przy etapie „Zatrudniony”: jak podpisano umowę "
+                        "(umowa B2B poza Generatorem, umowa o pracę, zlecenie, "
+                        "inna). Umowę B2B z Generatora potwierdza się tam."
+                    ),
+                },
+                "hired_signed_note": {**STR, "maxLength": 500},
             },
             ("candidate_id", "job_id", "stage_def_id", "stage_name"),
         ),
@@ -1973,6 +1997,8 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
                     "expected_state_version": a.get("expected_state_version"),
                     "acknowledge_eligibility": bool(a.get("acknowledge_eligibility"))
                     or None,
+                    "hired_signed_via": a.get("hired_signed_via"),
+                    "hired_signed_note": a.get("hired_signed_note"),
                 }
             ),
         ),
@@ -1983,8 +2009,20 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
             f"Przesunę {_who(a)} w {_who(a, 'job_id', 'Rekrutacja')} na etap "
             f"**{a.get('stage_name')}**"
             + (" — mimo ostrzeżenia" if a.get("acknowledge_eligibility") else "")
+            + (
+                f" — umowa: {_HIRED_SIGNED_VIA_LABELS.get(a.get('hired_signed_via'), a.get('hired_signed_via'))}"
+                if a.get("hired_signed_via")
+                else ""
+            )
         ),
-        detail=lambda a: _labelled("Notatka przy przesunięciu", a.get("notes")) or "",
+        detail=lambda a: "\n".join(
+            part
+            for part in (
+                _labelled("Notatka przy przesunięciu", a.get("notes")),
+                _labelled("Jak podpisano umowę", a.get("hired_signed_note")),
+            )
+            if part
+        ),
     ),
     JarvisTool(
         name="add_candidates_to_job",

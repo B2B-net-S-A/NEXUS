@@ -1371,18 +1371,26 @@ def hourly_rate_clause(
     """
     if rate_min is None and rate_max is None:
         return None
+    # „Stawka od” (0414): najniższa stawka z 18 miesięcy, a przed
+    # przeliczeniem kandydata — stawka profilu (jedno źródło w `candidate_rate_from`).
+    from app.services.candidate_rate_from import (
+        effective_currency_sql,
+        effective_rate_sql,
+    )
+
+    rate = effective_rate_sql(Candidate)
     bounds: list[ColumnElement] = []
     if rate_min is not None:
-        bounds.append(Candidate.expected_rate_hourly >= rate_min)
+        bounds.append(rate >= rate_min)
     if rate_max is not None:
-        bounds.append(Candidate.expected_rate_hourly <= rate_max)
+        bounds.append(rate <= rate_max)
     comparable = canonical_profile_rate_currency_clause(
-        Candidate.expected_rate_currency
+        effective_currency_sql(Candidate)
     )
     known_and_matching = comparable & and_(*bounds)
     if sem.rate_unknown == "exclude":
         return known_and_matching
-    return Candidate.expected_rate_hourly.is_(None) | ~comparable | known_and_matching
+    return rate.is_(None) | ~comparable | known_and_matching
 
 
 def _experience_interval() -> tuple[ColumnElement, ColumnElement]:
@@ -1628,14 +1636,19 @@ def unknown_count_rank(
             )
         )
     if rate_active:
+        from app.services.candidate_rate_from import (
+            effective_currency_sql,
+            effective_rate_sql,
+        )
+
         currency = func.upper(
-            func.trim(func.coalesce(Candidate.expected_rate_currency, ""))
+            func.trim(func.coalesce(effective_currency_sql(Candidate), ""))
         )
         parts.append(
             case(
                 (
                     or_(
-                        Candidate.expected_rate_hourly.is_(None),
+                        effective_rate_sql(Candidate).is_(None),
                         currency.not_in(["", "PLN"]),
                     ),
                     1,
@@ -1680,13 +1693,12 @@ def unknown_fields_for(
         )
         if bucket not in _TRAFFIT_EXPERIENCE_BUCKETS:
             out.append("experience")
-    if rate_active and (
-        getattr(candidate, "expected_rate_hourly", None) is None
-        or not is_canonical_profile_rate_currency(
-            getattr(candidate, "expected_rate_currency", None)
-        )
-    ):
-        out.append("rate")
+    if rate_active:
+        from app.services.candidate_rate_from import effective_rate
+
+        amount, currency = effective_rate(candidate)
+        if amount is None or not is_canonical_profile_rate_currency(currency):
+            out.append("rate")
     return out
 
 

@@ -75,6 +75,7 @@ import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { loadJobRejectionReasons } from "@/lib/rejection-reasons";
 import { formatDate } from "@/lib/utils";
 import { getUserRoles, useAuthStore } from "@/store/auth";
+import { hourlyText, rateFromText } from "@/lib/candidate-rate";
 
 export type ClientRateUnit = "hourly" | "daily" | "monthly";
 
@@ -122,6 +123,10 @@ interface QuickViewSubset {
     location?: string | null;
     expected_rate_hourly?: number | string | null;
     expected_rate_currency?: string | null;
+    // „Stawka od” (0414): najniższa stawka z 18 miesięcy.
+    rate_from_hourly?: number | string | null;
+    rate_from_stale?: boolean | null;
+    rate_from_at?: string | null;
   };
   current_position?: { title: string | null } | null;
   availability?: {
@@ -449,13 +454,24 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
 
   if (!task) return null;
 
-  // Stawka z wiersza weryfikacji; bez niej — stawka z profilu (PLN/h).
+  // „W tej rekrutacji” (0414): stawka z wiersza weryfikacji, a bez niej —
+  // z karty rekomendacji tej pary. Obok „Stawka od” (najniższa z 18 miesięcy),
+  // żeby DL widział, ile jest miejsca na negocjacje.
   const profile = quickView.data?.candidate;
   const snapshotRate = rateText(task.expected_rate_value, task.expected_rate_unit, task.expected_rate_currency);
-  const profileRate =
-    profile?.expected_rate_hourly != null
-      ? rateText(profile.expected_rate_hourly, "hourly", profile.expected_rate_currency)
+  const cardRateValue = card.data?.fields.rate?.value;
+  const cardRate =
+    card.data?.fields.rate?.period === "h" && cardRateValue != null
+      ? hourlyText(cardRateValue)
       : null;
+  const thisJobRate = snapshotRate ?? cardRate;
+  const rateFrom = profile
+    ? profile.rate_from_hourly !== undefined
+      ? rateFromText(profile)
+      : profile.expected_rate_hourly != null
+        ? rateText(profile.expected_rate_hourly, "hourly", profile.expected_rate_currency)
+        : null
+    : null;
   // Bez marży (decyzja 23.09.2026): DL widzi stawkę kandydata i sam wpisuje
   // stawkę do klienta.
   const clientRate = parseAmount(rateRaw);
@@ -573,11 +589,22 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
         </SheetHeader>
 
         <SheetBody className="space-y-5">
-          <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             <Fact
-              label="Stawka kandydata"
-              value={snapshotRate ?? profileRate}
-              hint={snapshotRate ? "przy weryfikacji" : profileRate ? "z profilu" : undefined}
+              label="W tej rekrutacji"
+              value={thisJobRate}
+              hint={
+                snapshotRate
+                  ? "przy weryfikacji"
+                  : cardRate
+                    ? "z karty"
+                    : "nie pytano o tę rolę"
+              }
+            />
+            <Fact
+              label="Stawka od"
+              value={rateFrom}
+              hint={rateFrom ? "najniższa z 18 mies." : undefined}
             />
             <Fact
               label="Dostępność"

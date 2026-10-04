@@ -65,6 +65,9 @@ export const candidateQueryKeys = {
     ["candidate-languages", candidateId(id)] as const,
   profileRate: (id: number | string) =>
     ["candidate-profile-rate", candidateId(id)] as const,
+  // „Stawka od” i historia stawek (0414).
+  rateOverview: (id: number | string) =>
+    ["candidate-rate-overview", candidateId(id)] as const,
   notesFacts: (id: number | string) =>
     ["candidate-notes-facts", candidateId(id)] as const,
   recentRecruitments: (

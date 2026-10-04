@@ -180,7 +180,11 @@ def candidate_facts(
     Stawka DO KLIENTA tu nie występuje."""
     title, company = current_title(candidate)
     availability = getattr(candidate, "availability_status", None)
-    rate = getattr(candidate, "expected_rate_hourly", None)
+    # „Stawka od” (0414) — ta sama liczba, z którą porównuje plakietka budżetu.
+    from app.services.candidate_rate_from import rate_summary
+
+    summary = rate_summary(candidate)
+    rate = summary["rate_from_hourly"]
     preferences = getattr(candidate, "preferences", None)
     remote_modes = (
         [m for m in preferences.get("remote_modes") or [] if isinstance(m, str)]
@@ -202,8 +206,16 @@ def candidate_facts(
         "expected_rate_hourly": (
             float(rate) if isinstance(rate, (int, float, Decimal)) else None
         ),
-        "expected_rate_currency": getattr(candidate, "expected_rate_currency", None),
+        "expected_rate_currency": "PLN" if rate is not None else None,
         "expected_rate_redacted": False,
+        "rate_from_at": _iso(summary["rate_from_at"]),
+        "rate_from_stale": summary["rate_from_stale"],
+        "rate_latest_hourly": (
+            float(summary["rate_latest_hourly"])
+            if summary["rate_latest_hourly"] is not None
+            else None
+        ),
+        "rate_this_job_hourly": None,
         "client_history": history,
     }
 

@@ -37,6 +37,7 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.models.candidate import Candidate
 from app.services import job_proposals as proposals
 from app.services.job_proposal_feedback_schema import DISMISS_NOTE_MAX
+from app.services.candidate_rate_from import rate_summary
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +172,8 @@ async def _job(db, user, job_id: int):
 def _candidate_brief(candidate: Candidate) -> dict:
     """Tożsamość węższa niż profil — jak wiersz pełnego przeglądu (bez kontaktu)."""
     availability = candidate.availability_status
-    rate = candidate.expected_rate_hourly
+    # „Stawka od” (0414) — ta sama liczba, z którą porównuje plakietka budżetu.
+    rate = rate_summary(candidate)["rate_from_hourly"]
     return {
         "id": candidate.id,
         "name": candidate.name,
@@ -399,12 +401,18 @@ async def job_proposal_facts(
         )
     by_id = {c.id: c for c in candidates}
     cv_dates = await proposal_facts.main_cv_uploaded_on(db, ids)
+    from app.services.candidate_rate_from import this_job_rates  # noqa: PLC0415
+
+    this_job = await this_job_rates(db, job_id, list(by_id))
     return {
         "job_id": job_id,
         "items": [
             {
                 **proposal_facts.candidate_facts(by_id[cid], history=history.get(cid)),
                 "cv_uploaded_on": cv_dates.get(cid),
+                "rate_this_job_hourly": (
+                    float(this_job[cid]["amount"]) if cid in this_job else None
+                ),
             }
             for cid in ids
             if cid in by_id
