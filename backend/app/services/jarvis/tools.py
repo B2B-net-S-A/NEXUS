@@ -158,6 +158,15 @@ def render_result(value: Any) -> str:
     return text
 
 
+# D2 (04.10.2026): etykiety „jak podpisano umowę” na karcie akcji.
+_HIRED_SIGNED_VIA_LABELS = {
+    "b2b_offline": "B2B poza Generatorem",
+    "uop": "umowa o pracę",
+    "zlecenie": "umowa zlecenie",
+    "other": "inna",
+}
+
+
 def _clean(params: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in params.items() if v not in (None, "", [])}
 
@@ -1997,8 +2006,20 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
             f"Przesunę {_who(a)} w {_who(a, 'job_id', 'Rekrutacja')} na etap "
             f"**{a.get('stage_name')}**"
             + (" — mimo ostrzeżenia" if a.get("acknowledge_eligibility") else "")
+            + (
+                f" — umowa: {_HIRED_SIGNED_VIA_LABELS.get(a.get('hired_signed_via'), a.get('hired_signed_via'))}"
+                if a.get("hired_signed_via")
+                else ""
+            )
         ),
-        detail=lambda a: _labelled("Notatka przy przesunięciu", a.get("notes")) or "",
+        detail=lambda a: "\n".join(
+            part
+            for part in (
+                _labelled("Notatka przy przesunięciu", a.get("notes")),
+                _labelled("Jak podpisano umowę", a.get("hired_signed_note")),
+            )
+            if part
+        ),
     ),
     JarvisTool(
         name="add_candidates_to_job",

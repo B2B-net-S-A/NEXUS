@@ -236,10 +236,12 @@ async def test_manual_hire_without_signed_via_is_refused(
         resp = await _post_move(api_client, rec, world, stage="hired")
         assert resp.status_code == 422, resp.text
         assert resp.json()["detail"]["code"] == "HIRED_SIGNED_VIA_REQUIRED"
-        # Z powodem ruch idzie dalej — tu zatrzymuje go już debrief, nie powód.
-        with_reason = await _post_move(
-            api_client, rec, world, stage="hired", hired_signed_via="uop"
+        # „Inna umowa” bez opisu też zostaje zatrzymana. (Ruchu z pełnym
+        # powodem tu nie robimy — założyłby kontrakt i zamówienie.)
+        other = await _post_move(
+            api_client, rec, world, stage="hired", hired_signed_via="other"
         )
-        assert with_reason.status_code != 422, with_reason.text
+        assert other.status_code == 422, other.text
+        assert "opisz" in other.json()["detail"]["message"]
     finally:
         await _cleanup(world, [rec_id])
