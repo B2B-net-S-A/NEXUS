@@ -700,7 +700,7 @@
    "id": "contract.headcount-filled-hint",
    "area": "umowa",
    "opis": "Podpowiedź „Obsada kompletna — zamknij rekrutację” po zatrudnieniu kompletu; otwiera „Zlecenie” na zamknięciu z powodem „Obsadzone przez nas”",
-   "file": "components/v2/recruitment/PersonPanel.tsx",
+   "file": "components/v2/person/PersonWorkbenchTabs.tsx",
    "marker": "Obsada kompletna — zamknij rekrutację",
    "v3_home": "panel → Umowa"
   },
@@ -869,10 +869,10 @@
   {
    "id": "board.workbench",
    "area": "pipeline",
-   "opis": "Warsztaty osoby z dawnej Tabeli (CV do klienta, rozmowy i werdykt, umowa) otwierane z doku Tablicy w szerokim panelu",
-   "file": "components/v2/recruitment/BoardWorkbenchDrawer.tsx",
-   "marker": "PersonPanel",
-   "v3_home": "Tablica → panel osoby → warsztat"
+   "opis": "Pełne narzędzia osoby z dawnej Tabeli (CV do klienta, rozmowy i werdykt, umowa) w rozwiniętym panelu osoby („Rozwiń”, 760 px) — ta sama głowa co dok",
+   "file": "components/v2/person/PersonWorkbenchTabs.tsx",
+   "marker": "Narzędzia osoby",
+   "v3_home": "Tablica → panel osoby → Rozwiń"
   },
   {
    "id": "board.stage-badges",

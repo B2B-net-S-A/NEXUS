@@ -170,9 +170,12 @@ it("„CV do klienta” nie wciąga generatora CV do chunku /jobs/[id]", () => {
       ),
     );
   }
-  // …i panel osoby bierze warsztaty z TEJ granicy.
-  const panel = fs.readFileSync(path.join(recruitmentDir, "PersonPanel.tsx"), "utf8");
-  expect(staticSpecifiers(panel)).toContain("./panel-workbenches");
+  // …i rozwinięty panel osoby bierze warsztaty z TEJ granicy.
+  const panel = fs.readFileSync(
+    path.join(SRC, "components/v2/person/PersonWorkbenchTabs.tsx"),
+    "utf8",
+  );
+  expect(staticSpecifiers(panel)).toContain("@/components/v2/recruitment/panel-workbenches");
 
   // Od generatora CV v3 warsztat NIE osadza generatora: karta „CV do klienta”
   // otwiera go w oknie, a okno ładuje formularz dopiero przy otwarciu.

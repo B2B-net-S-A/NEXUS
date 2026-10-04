@@ -118,7 +118,7 @@ describe("/preview/recruitment-v3 zasiewa każdy stały klucz i nie ma sieci", (
   // plus `JobShortlist` — segment shortlisty produkcyjnie renderuje właśnie jego.
   const components = [
     "components/v2/recruitment/PeopleTable.tsx",
-    "components/v2/recruitment/PersonPanel.tsx",
+    "components/v2/person/PersonWorkbenchTabs.tsx",
     "components/v2/recruitment/CvToClientCard.tsx",
     "components/v2/recruitment/ProposalsSegment.tsx",
     "components/v2/recruitment/ProposalPanel.tsx",

@@ -127,6 +127,20 @@ vi.mock("@/components/v2/recruitment/DlReviewPanel", () => ({
   ),
 }));
 
+// Pełne narzędzia osoby mają własne testy (`PersonWorkbenchTabs.test`) — tu
+// liczy się, że „Rozwiń” pokazuje je w TYM SAMYM panelu, na właściwej zakładce.
+vi.mock("@/components/v2/person/PersonWorkbenchTabs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/v2/person/PersonWorkbenchTabs")>();
+  return {
+    ...actual,
+    PersonWorkbenchTabs: ({ section, row }: { section: string; row: { candidateId: number } }) => (
+      <div data-testid="person-workbench-stub" data-section={section} data-candidate={row.candidateId}>
+        <input aria-label="pole warsztatu" defaultValue="" />
+      </div>
+    ),
+  };
+});
+
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/store/auth";
@@ -2250,5 +2264,129 @@ describe("KanbanBoardV2 — przełącznik widoku tablicy", () => {
     // kolumnowy. Preferencja zostaje zapisana i wróci na szerokim szablonie.
     expect(toggle()).toBeNull();
     expect(window.localStorage.getItem(KANBAN_VIEW_MODE_STORAGE_KEY)).toBe("tiles");
+  });
+});
+
+describe("KanbanBoardV2 — „Rozwiń”: pełne narzędzia w tym samym panelu (04.10.2026)", () => {
+  const ctx = { clientId: 3, clientName: "Bank Alfa", onMoved: vi.fn(), canCloseJob: false };
+  const query = { isLoading: false, isError: false, error: null, isSuccess: true, refetch: vi.fn() };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [] } });
+    post.mockResolvedValue({ data: {} });
+  });
+
+  function renderWithWorkbench(
+    initialWorkbench: { candidateId: number; section: "cv" | "interviews" } | null = null,
+    columns: unknown = pendingColumns(),
+  ) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2
+            columns={columns as never}
+            jobId={10}
+            workbenchContext={ctx}
+            kanbanQueryState={query}
+            initialWorkbench={initialWorkbench}
+            onInitialWorkbenchHandled={vi.fn()}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  it("„Rozwiń” poszerza panel, pokazuje narzędzia zamiast sekcji; Esc zwija bez utraty tekstu", async () => {
+    renderWithWorkbench();
+    const link = await screen.findByRole("link", { name: "Anna Kowalska" });
+    fireEvent.click(link.closest("[data-kanban-card]") as HTMLElement);
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    const note = within(panel).getByPlaceholderText(/Dodaj notatkę/);
+    await userEvent.type(note, "Oddzwonić");
+
+    await userEvent.click(within(panel).getByRole("button", { name: "Rozwiń" }));
+    expect(panel).toHaveAttribute("data-wide");
+    const tools = screen.getByTestId("person-workbench-stub");
+    // „Zweryfikowany” otwiera zakładkę CV.
+    expect(tools).toHaveAttribute("data-section", "cv");
+    expect(screen.getByTestId("dock-sections")).not.toBeVisible();
+    await userEvent.type(screen.getByLabelText("pole warsztatu"), "215 zł/h");
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(panel).not.toHaveAttribute("data-wide"));
+    expect(screen.getByTestId("dock-sections")).toBeVisible();
+    expect(within(panel).getByPlaceholderText(/Dodaj notatkę/)).toHaveValue("Oddzwonić");
+
+    await userEvent.click(within(panel).getByRole("button", { name: "Rozwiń" }));
+    expect(screen.getByLabelText("pole warsztatu")).toHaveValue("215 zł/h");
+  });
+
+  it("stary link `?candidate=&panel=` otwiera panel od razu rozwinięty na zakładce", async () => {
+    renderWithWorkbench({ candidateId: 5, section: "interviews" });
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    await waitFor(() => expect(panel).toHaveAttribute("data-wide"));
+    expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-section", "interviews");
+  });
+
+  it.each([
+    ["krzyżyk doku", (panel: HTMLElement) => userEvent.click(within(panel).getByRole("button", { name: "Zamknij dok" }))],
+    ["„Zwiń”", (panel: HTMLElement) => userEvent.click(within(panel).getByRole("button", { name: "Zwiń" }))],
+  ])("okno „Przesuń dalej”, z którego rozwinięto panel, wraca po wyjściu: %s", async (_label, leave) => {
+    get.mockImplementation((url: string) =>
+      url === "/api/pipeline/move-requirements"
+        ? Promise.resolve({
+            data: {
+              from_column: "verified",
+              to_column: "cv_qc",
+              skipped_columns: [],
+              items: [
+                {
+                  key: "company_cv",
+                  label: "CV firmowe",
+                  status: "missing",
+                  blocking: true,
+                  action: { kind: "generate_cv", label: "Wygeneruj CV" },
+                },
+              ],
+              primary: { kind: "move", label: "Przesuń dalej" },
+              owner_note: null,
+            },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    renderWithWorkbench(null, [
+      {
+        stage: "verified",
+        name: "Zweryfikowany",
+        category: "internal",
+        stage_def_id: 13,
+        count: 1,
+        items: [{ id: 777, candidate_id: 5, name: "Anna", lastname: "Kowalska", stage: "verified", days_in_stage: 1 }],
+      },
+      { stage: "interview", name: "QC CV", category: "internal", stage_def_id: 14, count: 0, items: [] },
+    ]);
+    const card = (await screen.findByRole("link", { name: "Anna Kowalska" })).closest(
+      "[data-kanban-card]",
+    ) as HTMLElement;
+    await userEvent.click(within(card).getByRole("button", { name: /Przesuń Anna Kowalska na następny etap/ }));
+    const dialog = await screen.findByTestId("move-next-dialog");
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Wygeneruj CV" }));
+    await waitFor(() => expect(screen.queryByTestId("move-next-dialog")).toBeNull());
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    await waitFor(() => expect(panel).toHaveAttribute("data-wide"));
+    expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-section", "cv");
+
+    await leave(panel);
+    expect(await screen.findByTestId("move-next-dialog")).toBeTruthy();
+  });
+
+  it("bez kontekstu warsztatów (harness) panel nie ma „Rozwiń”", async () => {
+    renderBoard();
+    const link = await screen.findByRole("link", { name: "Anna Kowalska" });
+    fireEvent.click(link.closest("[data-kanban-card]") as HTMLElement);
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    expect(within(panel).queryByRole("button", { name: "Rozwiń" })).toBeNull();
   });
 });
