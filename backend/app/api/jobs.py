@@ -2124,12 +2124,20 @@ async def get_job(
     user_ids: set[int] = {uid for uid, _source in collab_entries}
     if job.recruiter_id is not None:
         user_ids.add(job.recruiter_id)
+    if job.delivery_lead_id is not None:
+        user_ids.add(job.delivery_lead_id)
     user_brief_map = await _hydrate_owner_map(db, user_ids)
 
     payload = JobResponse.model_validate(job).model_dump()
     payload["primary_owner"] = (
         user_brief_map[job.recruiter_id].model_dump()
         if job.recruiter_id in user_brief_map
+        else None
+    )
+    # Brief Profilu Championa pokazuje DL („Kto prowadzi”) z tej odpowiedzi.
+    payload["delivery_lead_user"] = (
+        user_brief_map[job.delivery_lead_id].model_dump()
+        if job.delivery_lead_id in user_brief_map
         else None
     )
     payload["collaborators"] = _collaborator_payload(collab_entries, user_brief_map)
