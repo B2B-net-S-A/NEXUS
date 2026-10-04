@@ -635,4 +635,55 @@ describe("DebriefDialog — stawka kandydata (0418)", () => {
     const body = mocks.put.mock.calls[0][1] as Record<string, unknown>;
     expect(body.rate_change).toEqual({ amount: "125", unit: "hourly", negotiable: "maybe", note: null });
   });
+  it("ponowny zapis debriefu bez ruszania stawki jej nie wysyła (późniejsza korekta zostaje)", async () => {
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/interview-cycle/events/45") {
+        return Promise.resolve({
+          data: { id: 45, candidate_id: 11, job_id: 22, start: iso(-60), end: null, started: true },
+        });
+      }
+      if (url === "/api/rate-changes") return Promise.resolve({ data: null });
+      if (url.endsWith("/debrief")) {
+        return Promise.resolve({
+          data: {
+            id: 7,
+            calendar_event_id: 45,
+            candidate_id: 11,
+            job_id: 22,
+            outcome: "good",
+            candidate_comment: null,
+            questions: ["Jak wdrażał CI?"],
+            offer_acceptance: "likely",
+            acceptance_condition: null,
+            no_client_questions: false,
+            current_rate_label: "120 zł/h",
+            rate_change: {
+              id: 3,
+              status: "superseded",
+              previous: "110 zł/h",
+              requested: "125 zł/h",
+              requested_amount: "125",
+              negotiable: "maybe",
+              note: null,
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    mocks.put.mockResolvedValue({
+      data: { id: 7, calendar_event_id: 45, candidate_id: 11, job_id: 22, outcome: "good", candidate_comment: null, questions: ["Jak wdrażał CI?"], offer_acceptance: "likely", acceptance_condition: null, no_client_questions: false, questions_saved: 0 },
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(
+      <QueryClientProvider client={client}>
+        <DebriefDialog open onOpenChange={() => {}} eventId={45} title="Debrief" />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByLabelText("Pytanie 1")).toHaveValue("Jak wdrażał CI?"));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz debrief" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalled());
+    const body = mocks.put.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.rate_change).toBeNull();
+  });
 });

@@ -127,6 +127,16 @@ export function DebriefDialog({
   const [rateAmount, setRateAmount] = useState("");
   const [rateNegotiable, setRateNegotiable] = useState<RateNegotiable | null>(null);
   const [rateNote, setRateNote] = useState("");
+  // Stawka jedzie do serwera tylko po zmianie w TYM otwarciu okna. Zapisana
+  // wcześniej zmiana wczytuje się do pól, a ponowny zapis debriefu (np. nowe
+  // pytanie) nie może cofnąć późniejszej korekty stawki ani powiadomić znowu.
+  const [rateTouched, setRateTouched] = useState(false);
+  const touchRate =
+    <T,>(set: (v: T) => void) =>
+    (v: T) => {
+      setRateTouched(true);
+      set(v);
+    };
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [questionsNote, setQuestionsNote] = useState<string | null>(null);
@@ -183,6 +193,7 @@ export function DebriefDialog({
     setRateAmount(d?.rate_change?.requested_amount ?? "");
     setRateNegotiable(d?.rate_change?.negotiable ?? null);
     setRateNote(d?.rate_change?.note ?? "");
+    setRateTouched(false);
   }, [open, eventId, existing.isPending, existing.isSuccess, existing.data]);
 
   const typedQuestions = questions.map((q) => q.trim()).filter(Boolean);
@@ -198,7 +209,8 @@ export function DebriefDialog({
         acceptance_condition: condition.trim() || null,
         notify_dl: notifyDl,
         no_client_questions: noQuestions,
-        rate_change: rateChanged
+        rate_change:
+          rateChanged && rateTouched
           ? {
               amount: rateAmount.replace(",", "."),
               unit: "hourly",
@@ -240,7 +252,7 @@ export function DebriefDialog({
       setError(DEBRIEF_QUESTIONS_REQUIRED);
       return;
     }
-    if (rateChanged && toHourly(rateAmount, "hourly") == null) {
+    if (rateChanged && rateTouched && toHourly(rateAmount, "hourly") == null) {
       setError("Wpisz nową stawkę kandydata albo zaznacz „Bez zmian”.");
       return;
     }
@@ -542,13 +554,13 @@ export function DebriefDialog({
             }
             savedChange={existing.data?.rate_change ?? null}
             changed={rateChanged}
-            onChanged={setRateChanged}
+            onChanged={touchRate(setRateChanged)}
             amount={rateAmount}
-            onAmount={setRateAmount}
+            onAmount={touchRate(setRateAmount)}
             negotiable={rateNegotiable}
-            onNegotiable={setRateNegotiable}
+            onNegotiable={touchRate(setRateNegotiable)}
             note={rateNote}
-            onNote={setRateNote}
+            onNote={touchRate(setRateNote)}
             notice={
               rateView.data
                 ? notifyLine(rateView.data, {

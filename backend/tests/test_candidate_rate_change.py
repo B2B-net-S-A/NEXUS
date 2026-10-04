@@ -216,7 +216,8 @@ async def test_second_rise_supersedes_the_open_case(app_client: AsyncClient):
     first = await app_client.post(URL, headers=p["rec_h"], json=_body(p, "125"))
     second = await app_client.post(URL, headers=p["rec_h"], json=_body(p, "135"))
     assert first.status_code == 200 and second.status_code == 200, second.text
-    assert second.json()["change"]["previous"]["label"] == "125 zł/h"
+    # Sprawa czeka na decyzję DL — „było” to stawka, z którą CV poszło do klienta.
+    assert second.json()["change"]["previous"]["label"] == "110 zł/h"
 
     view = await app_client.get(
         URL,
@@ -228,6 +229,48 @@ async def test_second_rise_supersedes_the_open_case(app_client: AsyncClient):
     assert [c["status"] for c in data["changes"]] == ["requested", "superseded"]
     assert data["current"]["label"] == "135 zł/h"
     assert data["cv_at_client"] is True and data["notifies"] is True
+
+
+async def test_correction_after_a_rise_keeps_the_dl_decision(app_client: AsyncClient):
+    """Przegląd #2028: korekta 180 → 170 (także „pomyłka przy wpisie”) przy CV
+    wysłanym za 110 nadal czeka na decyzję DL — zadanie nie znika po cichu."""
+
+    p = await _pair(PipelineStage.cv_sent)
+    first = await app_client.post(URL, headers=p["rec_h"], json=_body(p, "180"))
+    fix = await app_client.post(
+        URL, headers=p["rec_h"], json=_body(p, "170", reason="typo")
+    )
+    assert first.status_code == 200 and fix.status_code == 200, fix.text
+    change = fix.json()["change"]
+    assert change["status"] == "requested"
+    assert change["requires_decision"] is True
+    assert change["previous"]["label"] == "110 zł/h"
+
+    # Zejście do stawki klienta lub niżej zamyka potrzebę decyzji.
+    drop = await app_client.post(URL, headers=p["rec_h"], json=_body(p, "105"))
+    assert drop.json()["change"]["status"] == "noted"
+
+
+async def test_typo_correction_does_not_return_as_rate_from(app_client: AsyncClient):
+    """Przegląd #2028: literówka 15 zł/h poprawiona na 150 nie zostaje
+    obserwacją — najniższa byłaby „Stawką od” kandydata."""
+
+    p = await _pair(PipelineStage.verified, rate=Decimal("15"))
+    res = await app_client.post(
+        URL, headers=p["rec_h"], json=_body(p, "150", reason="typo")
+    )
+    assert res.status_code == 200, res.text
+    overview = await app_client.get(
+        f"/api/candidates/{p['cand_id']}/rate-overview", headers=p["hor_h"]
+    )
+    assert overview.status_code == 200, overview.text
+    amounts = {
+        Decimal(str(o["amount_hourly"]))
+        for o in overview.json()["observations"]
+        if o["amount_hourly"] is not None
+    }
+    assert Decimal("15") not in amounts
+    assert Decimal("150") in amounts
 
 
 async def test_view_hides_client_rate_from_recruiter(app_client: AsyncClient):
@@ -343,6 +386,34 @@ async def test_debrief_rate_change_creates_case_and_is_returned(
             ).all()
         )
     assert count == 1
+
+    # Przegląd #2028: późniejsza korekta (120) nie wraca do 125 przy kolejnym
+    # zapisie debriefu, a DL nie dostaje drugiego zadania.
+    later = await app_client.post(URL, headers=p["rec_h"], json=_body(p, "120"))
+    assert later.status_code == 200, later.text
+    resave = await app_client.put(
+        url,
+        headers=p["rec_h"],
+        json={
+            "outcome": "good",
+            "offer_acceptance": "likely",
+            "questions": ["Jak wdrażał CI?"],
+            "rate_change": {"amount": "125"},
+        },
+    )
+    assert resave.status_code == 200, resave.text
+    assert resave.json()["current_rate_label"] == "120 zł/h"
+    async with AsyncSessionLocal() as db:
+        count = len(
+            (
+                await db.scalars(
+                    select(CandidateRateChange.id).where(
+                        CandidateRateChange.candidate_id == p["cand_id"]
+                    )
+                )
+            ).all()
+        )
+    assert count == 2
 
 
 def test_migration_and_entrypoint_share_the_schema() -> None:

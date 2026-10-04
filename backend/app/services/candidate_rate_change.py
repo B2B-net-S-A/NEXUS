@@ -272,24 +272,43 @@ async def change_rate(
         and requested_hourly > previous_hourly
     )
     tracked = column in NOTIFY_COLUMNS
-    requires_decision = (
-        tracked and column in DECISION_COLUMNS and went_up and reason != "typo"
+    open_change = (
+        await _open_change(db, candidate_id=candidate_id, job_id=job_id)
+        if tracked
+        else None
     )
-
-    if tracked:
-        open_change = await _open_change(db, candidate_id=candidate_id, job_id=job_id)
-        if open_change is not None:
-            open_change.status = "superseded"
-            await db.flush()
+    # Sprawa czekająca na decyzję DL porównuje się ze stawką, którą widział
+    # klient (``previous`` tej sprawy), nie z kwotą zgłoszoną przed chwilą —
+    # korekta 180 → 170 przy CV wysłanym za 150 nadal czeka na DL.
+    pending = (
+        open_change
+        if open_change is not None and open_change.requires_decision
+        else None
+    )
+    still_above_client_rate = (
+        pending is not None
+        and pending.previous_hourly is not None
+        and requested_hourly is not None
+        and requested_hourly > pending.previous_hourly
+    )
+    requires_decision = (
+        tracked
+        and column in DECISION_COLUMNS
+        and ((went_up and reason != "typo") or still_above_client_rate)
+    )
+    carry = pending if (pending is not None and requires_decision) else None
+    if open_change is not None:
+        open_change.status = "superseded"
+        await db.flush()
 
     change = CandidateRateChange(
         candidate_id=candidate_id,
         job_id=job_id,
         stage_id=stage.id,
-        previous_amount=before["amount"],
-        previous_unit=before["unit"],
-        previous_currency=before["currency"],
-        previous_hourly=previous_hourly,
+        previous_amount=carry.previous_amount if carry else before["amount"],
+        previous_unit=carry.previous_unit if carry else before["unit"],
+        previous_currency=carry.previous_currency if carry else before["currency"],
+        previous_hourly=carry.previous_hourly if carry else previous_hourly,
         requested_amount=amount,
         requested_unit=unit,
         requested_currency=currency,

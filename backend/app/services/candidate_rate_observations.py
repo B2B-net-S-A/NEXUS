@@ -364,7 +364,13 @@ def _add_rate_change_observations(
                 first["previous_unit"],
                 first["previous_currency"],
             )
-            if first["previous_amount"] is not None and prev_hourly not in remaining:
+            # „Pomyłka przy wpisie”: poprzednia kwota była literówką — nie
+            # wraca jako obserwacja (najniższa zostałaby „Stawką od”).
+            if (
+                first["previous_amount"] is not None
+                and first["reason"] != "typo"
+                and prev_hourly not in remaining
+            ):
                 observations.append(
                     RateObservation(
                         key=f"rchange:{first['id']}:prev",
