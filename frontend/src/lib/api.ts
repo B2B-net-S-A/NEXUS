@@ -1901,6 +1901,15 @@ export interface InterviewFeedbackRow {
   decision: string | null;
   client_questions: string | null;
   feedback_summary: string | null;
+  /** Debrief po rozmowie u klienta (strona kandydata) — czy przyjmie ofertę. */
+  offer_acceptance?: "yes" | "likely" | "no" | "unknown" | null;
+  /** Debrief: warunek kandydata (np. wyższa stawka, druga oferta). */
+  acceptance_condition?: string | null;
+  no_client_questions?: boolean;
+  updated_at?: string | null;
+  /** Tylko lista: kto zapisał i kiedy była rozmowa. */
+  author_name?: string | null;
+  calendar_event_start?: string | null;
 }
 
 export const interviewFeedbackApi = {

@@ -404,7 +404,7 @@
       },
       {
         "q": "Jak zapisać debrief po rozmowie?",
-        "a": "Na karcie w kolumnie „Telefon ≤ 30 min” kliknij „Zapisz debrief” — przycisk działa od rozpoczęcia rozmowy. Zapisz, jak poszło, czy kandydat przyjmie ofertę i jakie pytania zadał klient; trafią do przygotowań kolejnych kandydatów.",
+        "a": "Na karcie w kolumnie „Telefon ≤ 30 min” kliknij „Zapisz debrief” (działa od rozpoczęcia rozmowy). Zapisz, jak poszło, czy kandydat przyjmie ofertę i pytania klienta — listę pytań wklejasz naraz. Zapisany debrief otwiera „Zobacz debrief” w panelu kandydata.",
         "anchor": "calendar.board"
       },
       {

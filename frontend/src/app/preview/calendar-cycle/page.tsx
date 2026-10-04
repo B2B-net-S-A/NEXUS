@@ -54,6 +54,27 @@ const pairs: Record<string, PairInfo> = {
   oliwia: { candidate_id: 106, candidate_name: "Oliwia Kamińska", candidate_email: "oliwia@example.com", job_id: 6, job_title: "QA Engineer", client_id: 15, client_name: "Bank Iota" },
   // Prep zaplanowany PO rozmowie u klienta (termin rozmowy potwierdzono wcześniej niż prep).
   karol: { candidate_id: 107, candidate_name: "Karol Przykładowy", candidate_email: "karol@example.com", job_id: 7, job_title: "Frontend Developer", client_id: 16, client_name: "Bank Omega" },
+  // Zapisany debrief z warunkiem kandydata (04.10.2026: „Zobacz debrief”).
+  bartek: { candidate_id: 108, candidate_name: "Bartek Testowy", candidate_email: "bartek@example.com", job_id: 8, job_title: "Senior Java Developer", client_id: 17, client_name: "Bank Sigma" },
+};
+
+const SAVED_DEBRIEF = {
+  id: 9,
+  calendar_event_id: 507,
+  candidate_id: 108,
+  job_id: 8,
+  outcome: "good" as const,
+  candidate_comment: "Projekt mu się podoba, zespół w porządku.",
+  questions: [
+    "Jak sprawdzasz trwałość danych po odświeżeniu?",
+    "Kiedy użyjesz @Transactional na poziomie klasy?",
+    "Jak debugujesz wyciek pamięci w Spring Boot?",
+    "Opisz migrację z Javy 11 na 17 w projekcie.",
+  ],
+  offer_acceptance: "likely" as const,
+  acceptance_condition: "Chce jednak 125 zł/h, ma drugą ofertę do piątku",
+  no_client_questions: false,
+  questions_saved: 0,
 };
 
 function st(
@@ -130,6 +151,19 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
       ],
       current_step: "prep", latest_stage: "client_interview", slot_request: null, interview_event_id: 506, debrief: null,
     },
+    {
+      ...pairs.bartek,
+      steps: [
+        st("slots", "done"), st("choice", "done"), st("prep", "skipped"), st("prep2", "skipped"),
+        st("interview", "done", at(now, -60 * 5)), st("call", "done", at(now, -60 * 4)), st("debrief", "done"),
+      ],
+      current_step: null, latest_stage: "client_interview", slot_request: null, interview_event_id: 507,
+      debrief: {
+        id: 9, overall_impression: 5, outcome: "good", offer_acceptance: "likely",
+        acceptance_condition: SAVED_DEBRIEF.acceptance_condition,
+        candidate_comment: SAVED_DEBRIEF.candidate_comment, questions_count: 4, no_client_questions: false,
+      },
+    },
   ];
   if (scope === "jobs") {
     items.push({
@@ -155,6 +189,8 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
       { ...pairs.anna, kind: "call", start: at(now, 60 * 24), end: at(now, 60 * 24 + 30), event_id: 502, slot_request_id: null, online_meeting_url: null, done: false },
       { ...pairs.michal, kind: "interview", start: at(now, 60 * 70), end: at(now, 60 * 71), event_id: 504, slot_request_id: null, online_meeting_url: null, done: false },
       { ...pairs.karol, kind: "interview", start: at(now, 60 * 72), end: at(now, 60 * 73), event_id: 506, slot_request_id: null, online_meeting_url: null, done: false },
+      { ...pairs.bartek, kind: "interview", start: at(now, -60 * 5), end: at(now, -60 * 4), event_id: 507, slot_request_id: null, online_meeting_url: null, done: true },
+      { ...pairs.bartek, kind: "call", start: at(now, -60 * 4), end: at(now, -60 * 4 + 30), event_id: 507, slot_request_id: null, online_meeting_url: null, done: true },
       { ...pairs.karol, kind: "prep", start: at(now, 60 * 120), end: at(now, 60 * 120 + 45), event_id: 604, slot_request_id: null, online_meeting_url: "https://teams.example.com/prep-late", done: false, from_nexus: true, late: true },
     ],
     todos: [
@@ -191,6 +227,7 @@ function Harness() {
     ];
     for (const p of Object.values(pairs)) qc.setQueryData(clientQuestionsQueryKey(p.job_id), questions);
     for (const id of [501, 502, 504, 505, 506]) qc.setQueryData(debriefQueryKey(id), null);
+    qc.setQueryData(debriefQueryKey(507), SAVED_DEBRIEF);
     // 0370: ocena prepu i transkrypt (okno „Ocena prepu”), podpowiedzi organizatora.
     const weakPrep: Prep = {
       event_id: 601, prep_no: 1, candidate_id: 104, job_id: 4,

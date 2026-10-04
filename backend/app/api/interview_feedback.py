@@ -22,6 +22,7 @@ Reguły:
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -131,9 +132,20 @@ class InterviewFeedbackOut(BaseModel):
     decision: Optional[str]
     client_questions: Optional[str]
     feedback_summary: Optional[str]
+    no_client_questions: bool = False
+    updated_at: Optional[datetime] = None
+    # Tylko lista (``GET /interview-feedback``) doczytuje je złączeniem —
+    # profil kandydata pokazuje, kto i po której rozmowie zapisał debrief.
+    author_name: Optional[str] = None
+    calendar_event_start: Optional[datetime] = None
 
 
-def _to_out(fb: InterviewFeedback) -> InterviewFeedbackOut:
+def _to_out(
+    fb: InterviewFeedback,
+    *,
+    author_name: Optional[str] = None,
+    calendar_event_start: Optional[datetime] = None,
+) -> InterviewFeedbackOut:
     def _enum_value(x):
         return x.value if x is not None else None
 
@@ -157,6 +169,10 @@ def _to_out(fb: InterviewFeedback) -> InterviewFeedbackOut:
         decision=_enum_value(fb.decision),
         client_questions=fb.client_questions,
         feedback_summary=fb.feedback_summary,
+        no_client_questions=bool(fb.no_client_questions),
+        updated_at=fb.updated_at,
+        author_name=author_name,
+        calendar_event_start=calendar_event_start,
     )
 
 
@@ -324,8 +340,13 @@ async def list_feedback(
     # ostatnie 200 feedbacków ze WSZYSTKICH rekrutacji — czyli oceny kandydatów
     # z ofert, do których wołający nie należy. Zawężamy zapytanie zamiast
     # odrzucać request, żeby trasa dalej działała dla swoich rekrutacji.
-    stmt = select(InterviewFeedback).where(
-        job_read_scope_clause(current_user, InterviewFeedback.job_id)
+    stmt = (
+        select(InterviewFeedback, User.name, CalendarEvent.start_time)
+        .outerjoin(User, User.id == InterviewFeedback.author_id)
+        .outerjoin(
+            CalendarEvent, CalendarEvent.id == InterviewFeedback.calendar_event_id
+        )
+        .where(job_read_scope_clause(current_user, InterviewFeedback.job_id))
     )
     if calendar_event_id is not None:
         stmt = stmt.where(InterviewFeedback.calendar_event_id == calendar_event_id)
@@ -334,8 +355,11 @@ async def list_feedback(
     if job_id is not None:
         stmt = stmt.where(InterviewFeedback.job_id == job_id)
     stmt = stmt.order_by(InterviewFeedback.created_at.desc()).limit(200)
-    rows = (await db.execute(stmt)).scalars().all()
-    return [_to_out(r) for r in rows]
+    rows = (await db.execute(stmt)).all()
+    return [
+        _to_out(fb, author_name=author_name, calendar_event_start=start)
+        for fb, author_name, start in rows
+    ]
 
 
 @router.get(

@@ -44,6 +44,15 @@ vi.mock("@/components/calendar/cycle/PrepReviewDialog", () => ({
   },
 }));
 
+const debriefProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
+
+vi.mock("@/components/calendar/cycle/DebriefDialog", () => ({
+  DebriefDialog: (props: Record<string, unknown>) => {
+    debriefProps.current = props;
+    return <div data-testid="debrief-dialog" />;
+  },
+}));
+
 import { DockInterviewCycle } from "@/components/v2/jobs/DockInterviewCycle";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { StepKey, StepState } from "@/lib/interview-cycle";
@@ -211,5 +220,41 @@ describe("DockInterviewCycle", () => {
     expect(screen.queryByRole("button", { name: "Ocena prepu 2" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Ocena prepu 1" }));
     expect(prepReviewProps.current).toEqual(expect.objectContaining({ eventId: 901 }));
+  });
+});
+
+describe("DockInterviewCycle — zapisany debrief (04.10.2026)", () => {
+  it("pokazuje skrót z warunkiem kandydata i otwiera cały debrief", () => {
+    render(
+      <DockInterviewCycle
+        badge={badge({
+          kind: "debrief_done",
+          label: "Debrief ✓",
+          tone: "ok",
+          interview_event_id: 44,
+          steps: steps({ interview: "done", call: "done", debrief: "done" }),
+          debrief: {
+            id: 5,
+            overall_impression: 5,
+            outcome: "good",
+            offer_acceptance: "likely",
+            acceptance_condition: "Chce jednak 125 zł/h",
+            candidate_comment: null,
+            questions_count: 4,
+            no_client_questions: false,
+          },
+        })}
+        pair={PAIR}
+        readOnly={false}
+        onDebrief={() => {}}
+      />,
+    );
+    const summary = screen.getByTestId("dock-debrief-summary");
+    expect(summary).toHaveTextContent("dobrze · raczej przyjmie · 4 pytania klienta");
+    expect(summary).toHaveTextContent("Warunek: Chce jednak 125 zł/h");
+    fireEvent.click(screen.getByRole("button", { name: "Cały debrief" }));
+    expect(screen.getByTestId("debrief-dialog")).toBeInTheDocument();
+    expect(debriefProps.current?.eventId).toBe(44);
+    expect(debriefProps.current?.readOnly).toBe(false);
   });
 });

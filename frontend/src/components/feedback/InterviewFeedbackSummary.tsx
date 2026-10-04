@@ -9,6 +9,7 @@ import {
   type InterviewFeedbackSource,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { OFFER_LABELS, OUTCOME_LABELS, type DebriefOutcome } from "@/lib/interview-cycle";
 import { cn } from "@/lib/utils";
 
 /**
@@ -56,7 +57,94 @@ export interface InterviewFeedbackSummaryProps {
   readOnly?: boolean;
   /** Otwórz formularz feedbacku; bez tej funkcji przyciski się nie renderują. */
   onEdit?: (request: InterviewFeedbackEditRequest) => void;
+  /** Bez kart „Brak zapisanego feedbacku” (profil: debriefy idą osobnymi kartami). */
+  hideEmpty?: boolean;
   className?: string;
+}
+
+/**
+ * Debrief po rozmowie u klienta = wpis strony kandydata z odpowiedzią „czy
+ * przyjmie ofertę” (formularz debriefu jej wymaga; stary formularz jej nie ma).
+ */
+export function isDebriefRow(row: InterviewFeedbackRow): boolean {
+  return row.feedback_source === "candidate_side" && row.offer_acceptance != null;
+}
+
+const IMPRESSION_TO_OUTCOME: Record<number, DebriefOutcome> = { 5: "good", 3: "medium", 1: "bad" };
+
+function formatWhen(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString("pl-PL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Warsaw",
+  });
+}
+
+/**
+ * Cały zapisany debrief na profilu kandydata (04.10.2026). Do tej pory karta
+ * pokazywała go polami starego formularza: bez akceptacji oferty, warunku
+ * i pytań klienta, a komentarz kandydata stał pod nazwą „Wątpliwości”.
+ */
+export function DebriefFeedbackCard({ row }: { row: InterviewFeedbackRow }) {
+  const outcome =
+    row.overall_impression != null ? IMPRESSION_TO_OUTCOME[row.overall_impression] : undefined;
+  const questions = (row.client_questions ?? "")
+    .split("\n")
+    .map((q) => q.trim())
+    .filter(Boolean);
+  const interviewAt = formatWhen(row.calendar_event_start);
+  const savedAt = formatWhen(row.updated_at);
+  const meta = [
+    interviewAt ? `rozmowa ${interviewAt}` : null,
+    row.author_name ? `zapisał(a) ${row.author_name}` : null,
+    savedAt ? savedAt : null,
+  ].filter(Boolean);
+  return (
+    <section
+      className="rounded-lg border border-border bg-card p-3 space-y-2"
+      aria-label="Debrief po rozmowie u klienta"
+      data-testid="debrief-feedback-card"
+    >
+      <header className="space-y-0.5">
+        <h4 className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+          <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
+          Debrief po rozmowie u klienta
+        </h4>
+        {meta.length ? (
+          <p className="text-xs text-muted-foreground tabular-nums">{meta.join(" · ")}</p>
+        ) : null}
+      </header>
+      <div className="space-y-1">
+        <Line label="Jak poszło" value={outcome ? OUTCOME_LABELS[outcome] : null} />
+        <Line
+          label="Czy przyjmie ofertę"
+          value={row.offer_acceptance ? OFFER_LABELS[row.offer_acceptance] : null}
+        />
+        <Line label="Warunek / zastrzeżenie" value={row.acceptance_condition} />
+        <Line label="Komentarz kandydata" value={row.concerns} />
+        {questions.length > 0 ? (
+          <div className="text-xs">
+            <span className="text-muted-foreground">Pytania klienta ({questions.length}):</span>
+            <ol className="mt-0.5 list-decimal space-y-0.5 pl-5 text-foreground">
+              {questions.map((q, i) => (
+                <li key={i} className="break-words">
+                  {q}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : row.no_client_questions ? (
+          <Line label="Pytania klienta" value="klient nie zadawał pytań" />
+        ) : null}
+      </div>
+    </section>
+  );
 }
 
 const INTEREST_LABELS: Record<string, string> = {
@@ -99,6 +187,7 @@ export function InterviewFeedbackSummary({
   rows,
   readOnly = false,
   onEdit,
+  hideEmpty = false,
   className,
 }: InterviewFeedbackSummaryProps) {
   const query = useInterviewFeedbackByCandidate(rows ? null : candidateId);
@@ -121,8 +210,12 @@ export function InterviewFeedbackSummary({
   const latest = latestFeedbackBySource(source, { jobId, calendarEventId });
   const editable = !readOnly && !!onEdit;
 
+  const showCandidate = !hideEmpty || Boolean(latest.candidate_side);
+  const showClient = !hideEmpty || Boolean(latest.client_side);
+
   return (
     <div className={cn("grid gap-3 sm:grid-cols-2", className)} data-testid="interview-feedback-summary">
+      {showCandidate ? (
       <FeedbackCard
         title="Feedback od kandydata"
         row={latest.candidate_side}
@@ -138,6 +231,8 @@ export function InterviewFeedbackSummary({
       >
         {latest.candidate_side ? <CandidateSideBody row={latest.candidate_side} /> : null}
       </FeedbackCard>
+      ) : null}
+      {showClient ? (
       <FeedbackCard
         title="Feedback od klienta"
         row={latest.client_side}
@@ -153,6 +248,7 @@ export function InterviewFeedbackSummary({
       >
         {latest.client_side ? <ClientSideBody row={latest.client_side} /> : null}
       </FeedbackCard>
+      ) : null}
     </div>
   );
 }
@@ -215,6 +311,22 @@ function Line({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 function CandidateSideBody({ row }: { row: InterviewFeedbackRow }) {
+  if (isDebriefRow(row)) {
+    const outcome =
+      row.overall_impression != null ? IMPRESSION_TO_OUTCOME[row.overall_impression] : undefined;
+    return (
+      <div className="space-y-1">
+        <Line label="Jak poszło" value={outcome ? OUTCOME_LABELS[outcome] : null} />
+        <Line
+          label="Czy przyjmie ofertę"
+          value={row.offer_acceptance ? OFFER_LABELS[row.offer_acceptance] : null}
+        />
+        <Line label="Warunek / zastrzeżenie" value={row.acceptance_condition} />
+        <Line label="Komentarz kandydata" value={row.concerns} />
+        <Line label="Pytania klienta" value={row.client_questions} />
+      </div>
+    );
+  }
   return (
     <div className="space-y-1">
       <Line label="Ogólne wrażenie" value={row.overall_impression != null ? `${row.overall_impression}/5` : null} />

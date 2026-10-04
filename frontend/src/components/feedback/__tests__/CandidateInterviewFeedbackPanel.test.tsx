@@ -92,3 +92,49 @@ describe("CandidateInterviewFeedbackPanel", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Brak dostępu");
   });
 });
+
+describe("CandidateInterviewFeedbackPanel — debrief", () => {
+  it("każdy debrief ma własną kartę z warunkiem, ofertą i pytaniami klienta", async () => {
+    mocks.list.mockResolvedValue({
+      data: [
+        row({
+          id: 2,
+          job_id: 9,
+          feedback_source: "candidate_side",
+          overall_impression: 5,
+          offer_acceptance: "likely",
+          acceptance_condition: "Chce jednak 125 zł/h",
+          concerns: "Projekt mu się podoba",
+          client_questions: "Kafka?\nSpring?",
+          decision: null,
+          technical_fit: null,
+          feedback_summary: null,
+          author_name: "Sandra Strzelak",
+          calendar_event_start: "2026-10-04T13:46:00Z",
+        }),
+        row({
+          id: 1,
+          job_id: 9,
+          feedback_source: "candidate_side",
+          overall_impression: 3,
+          offer_acceptance: "yes",
+          acceptance_condition: "Runda 1: bez warunków",
+          decision: null,
+          technical_fit: null,
+          feedback_summary: null,
+        }),
+      ],
+    });
+    wrap(<CandidateInterviewFeedbackPanel candidateId={5} jobTitles={new Map([[9, "Java Dev"]])} />);
+    const cards = await screen.findAllByTestId("debrief-feedback-card");
+    expect(cards).toHaveLength(2);
+    expect(cards[0]).toHaveTextContent("Warunek / zastrzeżenie: Chce jednak 125 zł/h");
+    expect(cards[0]).toHaveTextContent("Czy przyjmie ofertę: Raczej tak");
+    expect(cards[0]).toHaveTextContent("Komentarz kandydata: Projekt mu się podoba");
+    expect(cards[0]).toHaveTextContent("Pytania klienta (2)");
+    expect(cards[0]).toHaveTextContent("zapisał(a) Sandra Strzelak");
+    expect(cards[1]).toHaveTextContent("Runda 1: bez warunków");
+    // Bez pustych kart „Brak zapisanego feedbacku” obok debriefów.
+    expect(screen.queryByText("Brak zapisanego feedbacku.")).not.toBeInTheDocument();
+  });
+});
