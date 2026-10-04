@@ -719,7 +719,9 @@ async def load_pair_facts(
         await candidate_claim.stage_column(db, latest) if latest is not None else None
     )
     screening_row = next((r for r in rows if sheet_filled(r.screening_answers)), None)
-    candidate_rate = candidate.expected_rate_hourly is not None or any(
+    from app.services.candidate_rate_from import effective_rate
+
+    candidate_rate = effective_rate(candidate)[0] is not None or any(
         r.expected_rate_value is not None for r in rows
     )
     client_rate = any(r.client_rate_value is not None for r in rows)

@@ -275,7 +275,13 @@ async def update_candidate_profile_rate(
     amount: Decimal | None,
     expected_version: int,
     actor_id: int,
+    meaning: str = "expectation",
 ) -> Candidate:
+    """Zapis stawki profilu przez człowieka.
+
+    ``meaning="minimum"`` (0414): „to jego minimum” — starsze, niższe stawki
+    przestają się liczyć do „Stawki od” (`candidate_rate_from`).
+    """
     candidate = await get_candidate_profile_rate(
         db,
         candidate_id,
@@ -286,7 +292,12 @@ async def update_candidate_profile_rate(
 
     from app.services.candidate_profile_rate import write_profile_rate
 
-    details = write_profile_rate(candidate, amount, source="manual")
+    is_minimum = meaning == "minimum" and amount is not None
+    details = write_profile_rate(
+        candidate, amount, source="manual_minimum" if is_minimum else "manual"
+    )
+    if is_minimum:
+        details["rate_meaning"] = "minimum"
     extracted = (
         dict(candidate.cv_extracted_data)
         if isinstance(candidate.cv_extracted_data, dict)
@@ -313,6 +324,9 @@ async def update_candidate_profile_rate(
 
     await mark_stale_for_candidate(db, candidate_id)
     await db.flush()
+    from app.services.candidate_rate_from import recompute_safely
+
+    await recompute_safely(db, [candidate_id])
     return candidate
 
 

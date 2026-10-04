@@ -281,19 +281,37 @@ describe("usePipelineMove — ruch pojedynczy", () => {
     expect(await screen.findByLabelText("Kwota")).toHaveValue(130);
   });
 
-  it("stawka z profilu wygrywa z kartą w oknie stawki", async () => {
+  // 0414 (decyzja Artura 04.10.2026): okno pyta o stawkę w TEJ rekrutacji —
+  // karta pary wygrywa, potem „Stawka od”, na końcu profil.
+  it("stawka z karty tej rekrutacji wygrywa z profilem i „Stawką od”", async () => {
     const item = card({
       id: 13,
       candidate_id: 103,
       process_state_version: 1,
       candidate_expected_rate_hourly: 120,
+      candidate_rate_from_hourly: 90,
       card: { status: "partial", missing: 3, answers: 0, rate_hourly: 130 },
     });
     const b = board({ fresh: [item] });
     mount(b.all, { apply: vi.fn(), confirm: vi.fn() });
 
     React.act(() => controls.requestMove(item, b.fresh, b.verified));
-    expect(await screen.findByLabelText("Kwota")).toHaveValue(120);
+    expect(await screen.findByLabelText("Kwota")).toHaveValue(130);
+  });
+
+  it("bez stawki na karcie okno podpowiada „Stawkę od”", async () => {
+    const item = card({
+      id: 14,
+      candidate_id: 104,
+      process_state_version: 1,
+      candidate_expected_rate_hourly: 120,
+      candidate_rate_from_hourly: 90,
+    });
+    const b = board({ fresh: [item] });
+    mount(b.all, { apply: vi.fn(), confirm: vi.fn() });
+
+    React.act(() => controls.requestMove(item, b.fresh, b.verified));
+    expect(await screen.findByLabelText("Kwota")).toHaveValue(90);
   });
 
   it("„Zweryfikowany”: podwójny klik w trakcie wysyłki to jeden ruch (R10-N15-7)", async () => {

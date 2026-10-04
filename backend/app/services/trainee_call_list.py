@@ -32,6 +32,10 @@ from app.models.competence_category import CompetenceCategory
 from app.models.job import JobStatus
 from app.models.trainee import TraineeCallItem, TraineeCallList, TraineeProgram
 from app.services import trainee_rules as rules_mod
+from app.services.candidate_rate_from import (
+    effective_rate_at_raw_sql,
+    effective_rate_raw_sql,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,9 +102,12 @@ async def save_rules(
 def _gap_sql(rules: dict[str, Any]) -> str:
     parts: list[str] = []
     if rules["missing_rate"]:
+        # „Stawka od” (0414): stawka i jej data z jednego źródła.
+        rate = effective_rate_raw_sql("c")
+        rate_at = effective_rate_at_raw_sql("c")
         parts.append(
-            "c.expected_rate_hourly IS NULL OR c.profile_rate_updated_at IS NULL "
-            "OR c.profile_rate_updated_at < now() - make_interval(months => :stale_months)"
+            f"{rate} IS NULL OR {rate_at} IS NULL "
+            f"OR {rate_at} < now() - make_interval(months => :stale_months)"
         )
     if rules["missing_b2b"]:
         parts.append("c.b2b_willingness IS NULL")
@@ -163,8 +170,10 @@ def pool_sql(rules: dict[str, Any], *, only_ids: bool = False) -> str:
     """
     ids_filter = "\n  AND c.id = ANY(:ids)" if only_ids else ""
     return f"""
-SELECT c.id, c.competence_category_id, c.skills, c.expected_rate_hourly,
-       c.profile_rate_updated_at, c.b2b_willingness, c.work_time_preference,
+SELECT c.id, c.competence_category_id, c.skills,
+       {effective_rate_raw_sql("c")} AS expected_rate_hourly,
+       {effective_rate_at_raw_sql("c")} AS profile_rate_updated_at,
+       c.b2b_willingness, c.work_time_preference,
        c.preferences, c.max_onsite_days_per_week, c.accepts_below_min_rate,
        c.accepts_more_office_days, c.availability_status, c.availability_date
 FROM candidates c

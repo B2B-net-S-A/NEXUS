@@ -571,6 +571,8 @@ export type CycleAction =
   | { type: "plan_prep"; pair: PairInfo; second: boolean }
   | { type: "prep_review"; pair: PairInfo; eventId: number }
   | { type: "add_slots"; pair: PairInfo | null }
+  /** Prep zaplanowany po rozmowie u klienta: nowy termin TEGO spotkania. */
+  | { type: "reschedule_prep"; pair: PairInfo; eventId: number; prepNo: 1 | 2 }
   | { type: "open_event"; eventId: number };
 
 function pairOf(p: PairInfo): PairInfo {
@@ -601,10 +603,19 @@ export function actionForTodo(todo: TodoEntry, items: CycleItem[]): CycleAction 
       return { type: "plan_prep", pair, second: false };
     case "prep2_missing":
       return { type: "plan_prep", pair, second: true };
-    case "prep_late":
+    case "prep_late": {
       // Prep już jest w kalendarzu organizatora i kandydata — przekładamy go,
-      // nie zakładamy drugiego.
-      return todo.event_id != null ? { type: "open_event", eventId: todo.event_id } : null;
+      // nie zakładamy drugiego. Do 04.10.2026 przycisk prowadził na widok
+      // Tydzień, a klik w siatkę otwierał tam „Nowe wydarzenie”.
+      if (todo.event_id == null) return null;
+      const step = item?.steps.find((s) => s.event_id === todo.event_id);
+      return {
+        type: "reschedule_prep",
+        pair,
+        eventId: todo.event_id,
+        prepNo: step?.key === "prep2" ? 2 : 1,
+      };
+    }
     case "prep_weak":
     case "prep_unrecorded":
       return todo.event_id != null ? { type: "prep_review", pair, eventId: todo.event_id } : null;
@@ -649,7 +660,12 @@ export function actionForItem(
         return {
           stepKey: current.key,
           label: "Przełóż",
-          action: { type: "open_event", eventId: current.event_id },
+          action: {
+            type: "reschedule_prep",
+            pair,
+            eventId: current.event_id,
+            prepNo: current.key === "prep2" ? 2 : 1,
+          },
         };
       }
       return {

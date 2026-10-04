@@ -146,8 +146,14 @@ def missing_codes(row: Any, rules: Mapping[str, Any], *, now: datetime) -> list[
     """
     out: list[str] = []
     if rules.get("missing_rate", True):
-        rate = getattr(row, "expected_rate_hourly", None)
-        updated = getattr(row, "profile_rate_updated_at", None)
+        # „Stawka od” (0414); wiersz puli niesie ją już pod tymi nazwami.
+        from app.services.candidate_rate_from import (
+            effective_rate,
+            effective_rate_at,
+        )
+
+        rate, _currency = effective_rate(row)
+        updated = effective_rate_at(row)
         if rate is None:
             out.append("rate_missing")
         elif updated is None or updated < _months_ago(

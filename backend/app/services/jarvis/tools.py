@@ -272,6 +272,9 @@ _CANDIDATE_ROW = (
     "location_city",
     "skills",
     "expected_rate_hourly",
+    # „Stawka od” (0414): najniższa z 18 miesięcy — ją czytają filtry i AI.
+    "rate_from_hourly",
+    "rate_from_stale",
     "experience_years",
     "active_recruitments",
     "last_activity_at",

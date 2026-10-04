@@ -254,7 +254,12 @@ export function ProposalPanel({
             <dd className={rateFit === "over" ? "font-medium text-warning-muted-foreground" : "text-foreground"}>
               {detail.rateRedacted && detail.rateHourly == null
                 ? "Stawka ukryta (brak dostępu do finansów)"
-                : `${formatHourlyRate(detail.rateHourly) ?? "brak stawki"}${
+                : `${
+                    // „Stawka od” (0414): najniższa stawka z 18 miesięcy.
+                    detail.rateHourly != null
+                      ? `od ${formatHourlyRate(detail.rateHourly)}`
+                      : "brak stawki"
+                  }${
                     budgetHourly != null ? ` / budżet ${formatBudgetHourly(budgetHourly)} PLN/h` : " / budżet nieokreślony"
                   }${
                     detail.rateFit === "below_min_consented"

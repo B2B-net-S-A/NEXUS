@@ -237,5 +237,10 @@ async def update_recommendation_card(
             )
         )
         await db.flush()
+        if "rate" in changed:
+            # „Stawka od” (0414) — od razu, nie czekając na pętlę kolejki.
+            from app.services.candidate_rate_from import recompute_safely
+
+            await recompute_safely(db, [data.candidate_id])
         await db.refresh(card)
     return await _response(db, candidate, job, card)

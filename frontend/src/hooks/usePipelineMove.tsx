@@ -195,7 +195,13 @@ interface SendMoveOptions {
   onRejectionEmailStatus?: (status: string | null) => void;
 }
 
-type RatePayload = { rate: number; unit: RateUnit; currency: string };
+type RatePayload = {
+  rate: number;
+  unit: RateUnit;
+  currency: string;
+  /** „To jego nowe minimum” (0414). */
+  isMinimum?: boolean;
+};
 
 /** 409 `DEBRIEF_REQUIRED` (Pipeline v4) → id rozmowy u klienta albo `null`. */
 function debriefRequiredEventId(error: unknown): number | null {
@@ -700,6 +706,7 @@ export function usePipelineMove({
                 expected_rate_value: payload.rate,
                 expected_rate_unit: payload.unit,
                 expected_rate_currency: payload.currency,
+                ...(payload.isMinimum ? { expected_rate_is_minimum: true } : {}),
               }
             : {}),
           // F05: tylko ruch pojedynczy — kolejka zbiorcza bez sprawdzenia.
@@ -1156,13 +1163,15 @@ export function usePipelineMove({
               : "")
           }
           jobBudgetHourly={job.budgetHourly}
-          // Stawka z profilu, a gdy jej nie ma — z karty rekomendacji pary
-          // (rekruter wpisał ją w notatce i nie powinien wpisywać drugi raz).
+          // Stawka z karty TEJ rekrutacji (rekruter wpisał ją w notatce i nie
+          // powinien wpisywać drugi raz), potem „Stawka od” (0414), potem profil.
           initialRateHourly={
-            verifiedRatePrompt.item.candidate_expected_rate_hourly ??
             verifiedRatePrompt.item.card?.rate_hourly ??
+            verifiedRatePrompt.item.candidate_rate_from_hourly ??
+            verifiedRatePrompt.item.candidate_expected_rate_hourly ??
             null
           }
+          rateFromHourly={verifiedRatePrompt.item.candidate_rate_from_hourly ?? null}
           onConfirm={(payload) => void submitVerifiedMove(payload)}
           onSkip={() => void submitVerifiedMove(null)}
           submitting={verifiedSubmitting}

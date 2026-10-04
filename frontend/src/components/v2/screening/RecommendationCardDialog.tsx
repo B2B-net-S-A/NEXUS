@@ -167,7 +167,12 @@ export function RecommendationCardDialog({
   const submit = () => {
     if (!dirty || save.isPending) return;
     save.mutate(changes, {
-      onSuccess: () => showSuccess("Karta zapisana."),
+      // Okno znika po zapisie: sam komunikat w rogu ekranu bywał przeoczony
+      // i nie było wiadomo, czy karta się zapisała (zgłoszenie 04.10.2026).
+      onSuccess: () => {
+        showSuccess("Karta rekomendacji zapisana.");
+        onOpenChange(false);
+      },
       onError: (err) => showError(apiErrorMessage(err, "Nie udało się zapisać karty. Spróbuj ponownie.")),
     });
   };

@@ -17,6 +17,15 @@ vi.mock("@/components/calendar/cycle/PlanPrepDialog", () => ({
   },
 }));
 
+const rescheduleProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
+
+vi.mock("@/components/calendar/cycle/ReschedulePrepDialog", () => ({
+  ReschedulePrepDialog: (props: Record<string, unknown>) => {
+    rescheduleProps.current = props;
+    return <div data-testid="reschedule-prep-dialog" />;
+  },
+}));
+
 import { DockInterviewCycle } from "@/components/v2/jobs/DockInterviewCycle";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { StepKey, StepState } from "@/lib/interview-cycle";
@@ -59,8 +68,13 @@ describe("DockInterviewCycle", () => {
         onDebrief={() => {}}
       />,
     );
-    const link = screen.getByRole("link", { name: /Przełóż prep/ });
-    expect(link).toHaveAttribute("href", "/calendar?view=week&event=604");
+    // Przełożenie TEGO spotkania na miejscu, nie przejście do kalendarza.
+    expect(screen.queryByRole("link", { name: /Przełóż prep/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Przełóż prep/ }));
+    expect(screen.getByTestId("reschedule-prep-dialog")).toBeInTheDocument();
+    expect(rescheduleProps.current).toEqual(
+      expect.objectContaining({ eventId: 604, prepNo: 1, pair: PAIR }),
+    );
     // Prep 1 już istnieje (po rozmowie) — do zaplanowania zostaje tylko Prep 2.
     expect(screen.queryByRole("button", { name: "Zaplanuj Prep 1" })).toBeNull();
     expect(screen.getByRole("button", { name: "Zaplanuj Prep 2" })).toBeInTheDocument();

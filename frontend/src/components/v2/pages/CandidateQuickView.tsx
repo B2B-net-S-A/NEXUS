@@ -86,6 +86,13 @@ interface QuickViewCandidate {
   contact_case?: CandidateContactSummary | null;
   expected_rate_hourly?: number | string | null;
   expected_rate_currency?: string | null;
+  // „Stawka od” (0414): najniższa stawka z 18 miesięcy.
+  rate_from_hourly?: number | string | null;
+  rate_from_at?: string | null;
+  rate_from_stale?: boolean | null;
+  rate_latest_hourly?: number | string | null;
+  rate_latest_at?: string | null;
+  rate_observation_count?: number | null;
 }
 
 interface CandidateQuickViewData {
