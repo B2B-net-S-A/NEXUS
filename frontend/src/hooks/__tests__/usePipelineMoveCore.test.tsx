@@ -166,6 +166,17 @@ describe("usePipelineMoveCore", () => {
     expect(screen.queryByRole("button", { name: "Przenieś mimo to" })).toBeNull();
   });
 
+  it("nieudane ponowienie po „Przenieś mimo to” kończy obietnicę błędem (nie wisi)", async () => {
+    const timeout = new Error("timeout of 60000ms exceeded");
+    move
+      .mockRejectedValueOnce(refusal(409, { code: "ELIGIBILITY_WARNING", reason: "NDA" }))
+      .mockRejectedValueOnce(timeout);
+    const { send } = setup();
+    const pending = send(PAYLOAD, { rethrowOther: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Przenieś mimo to" }));
+    await expect(pending).rejects.toBe(timeout);
+  });
+
   it("`rethrowOther` oddaje nieznany błąd wołającemu (np. limit czasu)", async () => {
     const timeout = new Error("timeout of 60000ms exceeded");
     move.mockRejectedValueOnce(timeout);

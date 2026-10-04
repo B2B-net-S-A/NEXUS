@@ -100,12 +100,18 @@ export function usePipelineMoveCore({ jobId }: { jobId: number }): PipelineMoveC
         if (handlers.silent) return { ok: false, refusal };
 
         if (refusal.kind === "eligibility" && !payload.acknowledge_eligibility) {
-          return new Promise<MoveSendOutcome>((resolve) => {
+          return new Promise<MoveSendOutcome>((resolve, reject) => {
             interceptEligibility(
               error,
               () => {
-                void sendRef.current?.({ ...payload, acknowledge_eligibility: true }, handlers)
-                  .then(resolve);
+                // Ponowienie z `rethrowOther` może rzucić (limit czasu, 5xx) —
+                // obietnica musi się wtedy zakończyć błędem, nie wisieć.
+                const retry = sendRef.current?.(
+                  { ...payload, acknowledge_eligibility: true },
+                  handlers,
+                );
+                if (retry) retry.then(resolve, reject);
+                else resolve({ ok: false, refusal });
               },
               () => {
                 syncBoard();
