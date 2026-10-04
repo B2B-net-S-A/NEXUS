@@ -142,6 +142,11 @@ class DebriefRef:
     acceptance_condition: Optional[str]
     candidate_questions: Optional[str]
     client_questions: Optional[str]
+    # Komentarz kandydata (``concerns``) i jawne „klient nie pytał” — podsumowanie
+    # debriefu w doku osoby i w kalendarzu (04.10.2026: zapisany debrief nie
+    # był nigdzie widoczny).
+    concerns: Optional[str] = None
+    no_client_questions: bool = False
 
 
 @dataclass
@@ -836,6 +841,8 @@ async def load_snapshots(
                 acceptance_condition=fb.acceptance_condition,
                 candidate_questions=fb.candidate_questions,
                 client_questions=fb.client_questions,
+                concerns=fb.concerns,
+                no_client_questions=bool(fb.no_client_questions),
             )
 
     # 0370: stan prepów z NEXUSA (numer, transkrypt, ocena) — jedno zapytanie.
@@ -1184,12 +1191,24 @@ def _slot_payload(req: SlotRef) -> dict:
     }
 
 
+_IMPRESSION_TO_OUTCOME = {5: "good", 3: "medium", 1: "bad"}
+
+
 def _debrief_payload(fb: DebriefRef) -> dict:
+    questions = [
+        line.strip()
+        for line in (fb.client_questions or "").splitlines()
+        if line.strip()
+    ]
     return {
         "id": fb.id,
         "overall_impression": fb.overall_impression,
+        "outcome": _IMPRESSION_TO_OUTCOME.get(fb.overall_impression or 0),
         "offer_acceptance": fb.offer_acceptance,
         "acceptance_condition": fb.acceptance_condition,
+        "candidate_comment": fb.concerns,
+        "questions_count": len(questions),
+        "no_client_questions": fb.no_client_questions,
     }
 
 
@@ -1442,5 +1461,11 @@ async def interview_badges_for_job(
                     }
                     for p in snap.preps
                 ]
+                # Podsumowanie zapisanego debriefu w doku osoby (04.10.2026):
+                # po zapisie przycisk „Zapisz debrief” znikał i nic go nie
+                # zastępowało — warunek kandydata był niewidoczny.
+                badge["debrief"] = (
+                    _debrief_payload(snap.debrief) if snap.debrief else None
+                )
                 badges[cid] = badge
     return badges

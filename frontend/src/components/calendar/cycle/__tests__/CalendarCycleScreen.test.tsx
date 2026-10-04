@@ -453,3 +453,133 @@ describe("DebriefDialog (bramka na tablicy)", () => {
     expect(screen.queryByTestId("debrief-not-started")).not.toBeInTheDocument();
   });
 });
+
+describe("Zapisany debrief (04.10.2026)", () => {
+  function savedOverview(): CycleOverview {
+    const base = overview();
+    base.items[0].steps = base.items[0].steps.map((s) =>
+      s.key === "call" || s.key === "debrief" ? { ...s, state: "done" } : s,
+    );
+    base.items[0].current_step = null;
+    base.items[0].debrief = {
+      id: 5,
+      overall_impression: 5,
+      outcome: "good",
+      offer_acceptance: "likely",
+      acceptance_condition: "Chce jednak 125 zł/h",
+      candidate_comment: "Projekt mu się podoba",
+      questions_count: 3,
+      no_client_questions: false,
+    };
+    base.agenda = base.agenda.map((a) => (a.kind === "call" ? { ...a, done: true } : a));
+    base.todos = [];
+    return base;
+  }
+
+  const SAVED = {
+    id: 5,
+    calendar_event_id: 44,
+    candidate_id: 11,
+    job_id: 22,
+    outcome: "good",
+    candidate_comment: "Projekt mu się podoba",
+    questions: ["Kafka", "Spring", "Docker"],
+    offer_acceptance: "likely",
+    acceptance_condition: "Chce jednak 125 zł/h",
+    no_client_questions: false,
+    questions_saved: 0,
+  };
+
+  it("panel kandydata pokazuje skrót z warunkiem i otwiera cały debrief", async () => {
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/interview-cycle") return Promise.resolve({ data: savedOverview() });
+      if (url.endsWith("/debrief")) return Promise.resolve({ data: SAVED });
+      return Promise.resolve({ data: [] });
+    });
+    mocks.search = "cycle=11-22";
+    renderScreen();
+    const panel = await screen.findByTestId("cycle-candidate-card");
+    const summary = within(panel).getByTestId("debrief-summary");
+    expect(summary).toHaveTextContent("dobrze · raczej przyjmie · 3 pytania klienta");
+    expect(summary).toHaveTextContent("Warunek: Chce jednak 125 zł/h");
+    expect(within(panel).queryByText("debrief zapisany")).not.toBeInTheDocument();
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Zobacz debrief" }));
+    const dialog = await screen.findByRole("dialog", { name: "Debrief po rozmowie u klienta" });
+    await waitFor(() =>
+      expect(within(dialog).getByLabelText("Warunek / zastrzeżenie")).toHaveValue("Chce jednak 125 zł/h"),
+    );
+    expect(within(dialog).getByLabelText("Pytanie 3")).toHaveValue("Docker");
+  });
+
+  it("rola bez zapisu widzi debrief tylko do odczytu", async () => {
+    mocks.user = { id: 9, role: "user", roles: ["user"] };
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/interview-cycle") return Promise.resolve({ data: savedOverview() });
+      if (url.endsWith("/debrief")) return Promise.resolve({ data: SAVED });
+      return Promise.resolve({ data: [] });
+    });
+    mocks.search = "cycle=11-22";
+    renderScreen();
+    const panel = await screen.findByTestId("cycle-candidate-card");
+    fireEvent.click(within(panel).getByRole("button", { name: "Zobacz debrief" }));
+    const dialog = await screen.findByRole("dialog", { name: "Debrief po rozmowie u klienta" });
+    await waitFor(() =>
+      expect(within(dialog).getByLabelText("Warunek / zastrzeżenie")).toHaveValue("Chce jednak 125 zł/h"),
+    );
+    expect(within(dialog).getByLabelText("Warunek / zastrzeżenie")).toBeDisabled();
+    expect(within(dialog).queryByRole("button", { name: "Zapisz debrief" })).not.toBeInTheDocument();
+    // Krzyżyk okna i przycisk w stopce.
+    expect(within(dialog).getAllByRole("button", { name: "Zamknij" })).toHaveLength(2);
+    // Puste pole „dopisz pytanie” nie udaje czwartego pytania.
+    expect(within(dialog).queryByLabelText("Pytanie 4")).not.toBeInTheDocument();
+  });
+});
+
+describe("DebriefDialog — lista pytań klienta", () => {
+  function renderDialog() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/interview-cycle/events/44") {
+        return Promise.resolve({
+          data: { id: 44, candidate_id: 11, job_id: 22, start: iso(-60), end: null, started: true },
+        });
+      }
+      if (url.endsWith("/debrief")) return Promise.resolve({ data: null });
+      return Promise.resolve({ data: [] });
+    });
+    return render(
+      <QueryClientProvider client={client}>
+        <DebriefDialog open onOpenChange={() => {}} eventId={44} title="Debrief" />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("wklejona lista trafia jako osobne pytania, bez numerów i powtórzeń", async () => {
+    renderDialog();
+    const first = await screen.findByLabelText("Pytanie 1");
+    await waitFor(() => expect(first).not.toBeDisabled());
+    fireEvent.paste(first, {
+      clipboardData: { getData: () => "1. Kafka?\n2) Spring Boot\n- kafka?\n• Docker" },
+    });
+    expect(screen.getByLabelText("Pytanie 1")).toHaveValue("Kafka?");
+    expect(screen.getByLabelText("Pytanie 2")).toHaveValue("Spring Boot");
+    expect(screen.getByLabelText("Pytanie 3")).toHaveValue("Docker");
+    expect(screen.getByLabelText("Pytanie 4")).toHaveValue("");
+    expect(screen.getByText("3 z 30")).toBeInTheDocument();
+  });
+
+  it("„Wklej listę pytań” dokleja pytania do już wpisanych", async () => {
+    renderDialog();
+    const first = await screen.findByLabelText("Pytanie 1");
+    await waitFor(() => expect(first).not.toBeDisabled());
+    fireEvent.change(first, { target: { value: "Pierwsze" } });
+    fireEvent.click(screen.getByRole("button", { name: "Wklej listę pytań" }));
+    fireEvent.change(screen.getByLabelText(/Każda linia to osobne pytanie/), {
+      target: { value: "Drugie\nTrzecie" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj do listy" }));
+    expect(screen.getByLabelText("Pytanie 2")).toHaveValue("Drugie");
+    expect(screen.getByLabelText("Pytanie 3")).toHaveValue("Trzecie");
+  });
+});

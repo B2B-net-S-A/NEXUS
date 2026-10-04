@@ -21,6 +21,7 @@ import {
   candidateLabel,
   countdownLabel,
   debriefAvailable,
+  debriefSummaryLine,
   debriefAvailableFromLabel,
   formatDayLabel,
   formatSlot,
@@ -34,6 +35,7 @@ import {
   type CycleAction,
   type CycleItem,
   type CycleOverview,
+  type DebriefSummary,
   type TodoEntry,
 } from "@/lib/interview-cycle";
 import { cn } from "@/lib/utils";
@@ -221,6 +223,11 @@ export function CandidateCycleCard({
                 interviewStart={
                   e.kind === "call" && e.event_id != null ? interviewStartFor(data, e.event_id) : undefined
                 }
+                debrief={
+                  e.kind === "call" && e.event_id != null && e.event_id === item.interview_event_id
+                    ? item.debrief
+                    : null
+                }
                 now={now}
                 onAction={onAction}
               />
@@ -252,12 +259,15 @@ export function CandidateCycleCard({
 function PairEventRow({
   entry,
   interviewStart,
+  debrief = null,
   now,
   onAction,
 }: {
   entry: AgendaEntry;
   /** Początek rozmowy, po której jest ten telefon — debrief dopiero od niego. */
   interviewStart?: string;
+  /** Zapisany debrief tej rozmowy — skrót pod wierszem telefonu. */
+  debrief?: DebriefSummary | null;
   now: Date;
   onAction: (a: CycleAction) => void;
 }) {
@@ -267,7 +277,7 @@ function PairEventRow({
       : new Date(entry.end ?? entry.start).getTime() < now.getTime();
   const range = entry.end ? `${formatTime(entry.start)}–${formatTime(entry.end)}` : formatTime(entry.start);
   return (
-    <li className={cn("flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5", past && "opacity-60")}>
+    <li className={cn("flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5", past && !debrief && "opacity-60")}>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className={cn("rounded-md px-2 py-0.5 text-xs font-semibold", CHIP[entry.kind])}>
@@ -292,6 +302,16 @@ function PairEventRow({
         <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">
           {formatDayLabel(entry.start, now)} · {range}
         </div>
+        {debrief ? (
+          <div className="mt-1 text-xs text-foreground" data-testid="debrief-summary">
+            <span className="font-semibold">Debrief:</span> {debriefSummaryLine(debrief)}
+            {debrief.acceptance_condition ? (
+              <span className="block break-words text-muted-foreground">
+                Warunek: {debrief.acceptance_condition}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {entry.online_meeting_url && !past ? (
@@ -330,8 +350,16 @@ function PairEventRow({
             </>
           )
         ) : null}
-        {entry.kind === "call" && entry.done ? (
-          <span className="text-xs text-success-muted-foreground">debrief zapisany</span>
+        {entry.kind === "call" && entry.done && entry.event_id != null ? (
+          // Zapisany debrief da się otworzyć (04.10.2026: był tylko napis,
+          // a warunek kandydata — np. wyższa stawka — nie był nigdzie widoczny).
+          <button
+            type="button"
+            onClick={() => onAction({ type: "debrief", pair: entry, eventId: entry.event_id as number })}
+            className="h-8 rounded-md border border-border px-2.5 text-xs font-semibold hover:bg-muted"
+          >
+            Zobacz debrief
+          </button>
         ) : null}
         {entry.from_nexus && past && entry.event_id != null ? (
           <button

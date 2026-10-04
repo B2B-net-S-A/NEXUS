@@ -156,12 +156,23 @@ export interface CycleItem extends PairInfo {
    */
   tentative_interview_at?: string | null;
   interview_event_id: number | null;
-  debrief: {
-    id: number;
-    overall_impression: number | null;
-    offer_acceptance: OfferAcceptance | null;
-    acceptance_condition: string | null;
-  } | null;
+  debrief: DebriefSummary | null;
+}
+
+/**
+ * Skrót zapisanego debriefu (ekran „Rozmowy u klienta” i odznaka karty na
+ * Tablicy). Do 04.10.2026 zapisany debrief nie był nigdzie widoczny — warunek
+ * kandydata („chce jednak 125 zł/h”) czytał tylko Jarvis.
+ */
+export interface DebriefSummary {
+  id: number;
+  overall_impression: number | null;
+  outcome?: DebriefOutcome | null;
+  offer_acceptance: OfferAcceptance | null;
+  acceptance_condition: string | null;
+  candidate_comment?: string | null;
+  questions_count?: number;
+  no_client_questions?: boolean;
 }
 
 export type AgendaKind = "prep" | "prep2" | "interview" | "call" | "tentative";
@@ -238,6 +249,81 @@ export interface DebriefInput {
   notify_dl: boolean;
   /** Pusta lista pytań wymaga jawnego „klient nie zadawał pytań” (422 bez tego). */
   no_client_questions?: boolean;
+}
+
+// ── Pytania klienta w debriefie ───────────────────────────────────────────────
+
+/** Lustro ``api.interview_cycle.MAX_DEBRIEF_QUESTIONS`` (decyzja 04.10.2026). */
+export const MAX_DEBRIEF_QUESTIONS = 30;
+
+const QUESTION_PREFIX = /^\s*(?:\d+\s*[.)]|[-–—•*·])\s*/;
+
+/**
+ * Wklejona lista pytań → osobne pytania. Rekruterzy wklejają notatki z rozmowy
+ * („1. …”, „- …”, „• …”), a do 04.10.2026 cała lista lądowała w jednym polu.
+ */
+export function splitPastedQuestions(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(QUESTION_PREFIX, "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+/**
+ * Dokleja pytania do listy: pomija powtórzenia (bez wielkości liter i białych
+ * znaków — jak serwer) i przycina do limitu. ``dropped`` = ile nie weszło
+ * z powodu limitu.
+ */
+export function mergeQuestions(
+  current: string[],
+  added: string[],
+  max: number = MAX_DEBRIEF_QUESTIONS,
+): { questions: string[]; dropped: number } {
+  const key = (q: string) => q.replace(/\s+/g, " ").trim().toLowerCase();
+  const seen = new Set<string>();
+  const out: string[] = [];
+  let dropped = 0;
+  for (const raw of [...current, ...added]) {
+    const text = raw.replace(/\s+/g, " ").trim();
+    if (!text || seen.has(key(text))) continue;
+    if (out.length >= max) {
+      dropped += 1;
+      continue;
+    }
+    seen.add(key(text));
+    out.push(text);
+  }
+  return { questions: out, dropped };
+}
+
+/** Jedno zdanie o zapisanym debriefie: „dobrze · raczej przyjmie · 4 pytania klienta”. */
+export function debriefSummaryLine(d: DebriefSummary): string {
+  const parts: string[] = [];
+  if (d.outcome) parts.push(OUTCOME_LABELS[d.outcome].toLowerCase());
+  if (d.offer_acceptance) parts.push(OFFER_SHORT[d.offer_acceptance]);
+  const count = d.questions_count ?? 0;
+  if (count > 0) parts.push(questionsCountLabel(count));
+  else if (d.no_client_questions) parts.push("klient nie zadawał pytań");
+  return parts.join(" · ");
+}
+
+const OFFER_SHORT: Record<OfferAcceptance, string> = {
+  yes: "przyjmie ofertę",
+  likely: "raczej przyjmie",
+  no: "nie przyjmie",
+  unknown: "nie wiadomo, czy przyjmie",
+};
+
+export function questionsCountLabel(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  const word =
+    count === 1
+      ? "pytanie"
+      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+        ? "pytania"
+        : "pytań";
+  return `${count} ${word} klienta`;
 }
 
 // ── Etykiety ──────────────────────────────────────────────────────────────────

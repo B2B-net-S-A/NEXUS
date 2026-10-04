@@ -79,7 +79,11 @@ _SLOT_OWNER_ROLES = (
 )
 _OVERSIGHT_ROLES = (UserRole.admin, UserRole.head_of_recruitment)
 
-MAX_DEBRIEF_QUESTIONS = 20
+# Klient zadaje często kilkanaście pytań (decyzja Artura 04.10.2026: 30).
+# Lustra: ``lib/interview-cycle.ts`` (formularz) i narzędzie Jarvisa
+# ``save_interview_debrief``.
+MAX_DEBRIEF_QUESTIONS = 30
+_DL_NOTICE_CONDITION_CHARS = 200
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
@@ -125,8 +129,12 @@ class SlotRequestOut(BaseModel):
 class DebriefSummary(BaseModel):
     id: int
     overall_impression: Optional[int] = None
+    outcome: Optional[str] = None
     offer_acceptance: Optional[str] = None
     acceptance_condition: Optional[str] = None
+    candidate_comment: Optional[str] = None
+    questions_count: int = 0
+    no_client_questions: bool = False
 
 
 class PairInfo(BaseModel):
@@ -934,13 +942,23 @@ async def save_debrief(
             outcome = {"good": "dobrze", "medium": "średnio", "bad": "źle"}[
                 body.outcome
             ]
+            message = f"Rozmowa poszła {outcome}; kandydat {label} ofertę."
+            condition = fb.acceptance_condition
+            if condition:
+                # Warunek kandydata (stawka, druga oferta) to najważniejsza
+                # informacja dla DL — do 04.10.2026 nie trafiała nigdzie.
+                if len(condition) > _DL_NOTICE_CONDITION_CHARS:
+                    condition = (
+                        condition[: _DL_NOTICE_CONDITION_CHARS - 1].rstrip() + "…"
+                    )
+                message += f" Warunek: {condition}"
             try:
                 async with db.begin_nested():
                     await emit(
                         db,
                         user_id=dl_id,
                         title="Debrief po rozmowie u klienta",
-                        message=f"Rozmowa poszła {outcome}; kandydat {label} ofertę.",
+                        message=message,
                         ntype=NotificationType.interview_debrief_saved,
                         related_entity_type="calendar_event",
                         related_entity_id=event.id,

@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import type { RateUnit } from "@/lib/api";
 import type { FollowupCardBadge } from "@/lib/api/candidateFollowups";
 import type { CandidateContactSummary } from "@/lib/candidate-contact";
-import type { SlotRequest, StepKey, StepState } from "@/lib/interview-cycle";
+import type { DebriefSummary, SlotRequest, StepKey, StepState } from "@/lib/interview-cycle";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -177,6 +177,8 @@ export interface KanbanItem {
    review_status: string | null;
    transcript_status: string | null;
   }>;
+  /** 04.10.2026: skrót zapisanego debriefu (warunek kandydata, pytania klienta). */
+  debrief?: DebriefSummary | null;
  } | null;
  // „Zatrudniony": czy jest uzupełnione zamówienie.
  order_status?: "complete" | "missing" | null;
