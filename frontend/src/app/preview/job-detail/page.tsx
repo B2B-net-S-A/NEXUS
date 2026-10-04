@@ -158,13 +158,28 @@ function columns(): KanbanColumn[] {
     col("verified", "Zweryfikowany", 23, []),
     col("interview", "Przepuszczony przez DZ", 24, []),
     col("cv_sent", "CV Wysłane", 25, []),
-    col("client_interview", "Rozmowa z klientem", 26, []),
-    col("offer_sent", "Umowa", 27, []),
+    // 04.10.2026: umowa wygenerowana po rozmowie u klienta (karta niesie
+    // `agreement`) i osoba na „Umowie” bez umowy — panel „Umowa”.
+    col("client_interview", "Rozmowa z klientem", 26, [
+      card("Karol", "Wzorcowy", { claim_until: null, agreement: PREVIEW_AGREEMENT } as never),
+    ]),
+    col("negotiation", "Umowa", 27, [card("Iza", "Umowna", { claim_until: null } as never)]),
     col("hired", "Zatrudniony", 28, []),
     col("rejected", "Odrzucony", 29, [card("Zofia", "Szkicowa", { claim_until: null } as never)], "terminal", "rejected"),
     col("withdrawn", "Wycofany", 30, [], "terminal", "withdrawn"),
   ];
 }
+
+const PREVIEW_AGREEMENT = {
+  id: 7001,
+  number: "1601/2026",
+  contract_status: "in_progress",
+  signature_status: "unsigned",
+  created_at: new Date(Date.now() - 3 * 24 * HOUR).toISOString(),
+  signed_at: null,
+  signature_requested_at: null,
+  contract_id: null,
+};
 
 /** Dane ze znacznikiem dzień w przód — zapytanie z własnym `staleTime` nie odświeża ich. */
 function seedFresh(qc: QueryClient, key: readonly unknown[], data: unknown): void {
@@ -403,6 +418,24 @@ function seededClient(): QueryClient {
       queries: { staleTime: Infinity, retry: false, refetchOnMount: false, refetchOnWindowFocus: false },
     },
   });
+  // Rejestr umów tej rekrutacji (sekcja „Umowa” panelu osoby).
+  seedFresh(qc, ["b2b-generated", "job", JOB_ID], [
+    {
+      id: PREVIEW_AGREEMENT.id,
+      contract_number: PREVIEW_AGREEMENT.number,
+      candidate_id: 9100 + 6,
+      job_id: JOB_ID,
+      contract_status: "in_progress",
+      signature_status: "unsigned",
+      created_at: PREVIEW_AGREEMENT.created_at,
+      created_by_name: "Marta Nowak",
+      can_confirm_signed: false,
+      can_edit: true,
+      can_download: true,
+      partner_name: "Karol Wzorcowy",
+      client_name: "Bank Przykładowy",
+    },
+  ]);
   // 0404: „Odrzuceni przez AI” — pusta lista.
   seedFresh(qc, screenedOutQueryKey(JOB_ID), { job_id: JOB_ID, total: 0, items: [] });
 
