@@ -41,6 +41,7 @@ import {
   Loader2,
   Mail,
   MoreHorizontal,
+  PhoneOff,
   Send,
   Sparkles,
   UserPlus,
@@ -104,6 +105,7 @@ import {
   type DockProfileCvDoc,
 } from "@/lib/dock-cv-summary";
 import { useCvQc, type QcResult } from "@/lib/api/cvQc";
+import { formatClientRate } from "@/lib/board-card-badges";
 import { countForm } from "@/lib/cv-qc";
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import { DockFollowupBlock } from "@/components/v2/followups/DockFollowupBlock";
@@ -382,6 +384,8 @@ export interface PipelineCandidateDockProps {
    * „Zweryfikowanym”, zanim rekruter przekaże kartę dalej.
    */
   onOpenQc?: () => void;
+  /** PR 5: „Biorę” z panelu — ta sama blokada 12 h co przycisk na karcie. */
+  onTake?: () => void;
   /**
    * Pełny warsztat osoby (dawna „Tabela": CV do klienta ze stawką i linkiem,
    * rozmowy z werdyktem HM, umowa) — szeroki panel nad Tablicą. Brak = bez
@@ -403,6 +407,9 @@ export interface PipelineCandidateDockProps {
 }
 
 type WorkbenchSection = "cv" | "screening" | "interviews" | "contract";
+
+/** Etapy, na których pierwszą pracą jest telefon (kolumny „Nowi” i „Screening”). */
+const ENTRY_STAGES: ReadonlySet<string> = new Set(["posting", "new", "screening", "prep_call"]);
 
 /** Zdanie QC CV w doku na „Zweryfikowanym” (PR 4, 04.10.2026). */
 export function earlyQcSentence(
@@ -500,6 +507,7 @@ export function PipelineCandidateDock({
   onWithdraw,
   onAddClientSlots,
   onOpenQc,
+  onTake,
   onOpenWorkbench,
   badgeToggles = [],
 }: PipelineCandidateDockProps) {
@@ -808,6 +816,30 @@ export function PipelineCandidateDock({
     }
   };
 
+  const clientRateText = formatClientRate(item);
+  // „Nie odebrał” jednym kliknięciem — ta sama notatka-próba co w profilu
+  // (rodzaj `contact_attempt`, typ ogólny; follow-up nie liczy jej jako
+  // rozmowy). Licznik prób na karcie odświeża tablica.
+  const noAnswerMut = useMutation({
+    mutationFn: () =>
+      api.post("/api/notes", {
+        candidate_id: item.candidate_id,
+        content: "Nie odebrał.",
+        note_type: "general",
+        kind: "contact_attempt",
+        job_id: jobId,
+      }),
+    onSuccess: () => {
+      showSuccess("Zapisano próbę kontaktu.");
+      void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+      void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+      void queryClient.invalidateQueries({ queryKey: candidateQueryKeys.notes(item.candidate_id) });
+      void queryClient.invalidateQueries({
+        queryKey: candidateQueryKeys.timelineRoot(item.candidate_id),
+      });
+    },
+    onError: (e) => showError(extractErrorMsg(e) || "Nie udało się zapisać próby kontaktu."),
+  });
   const availabilityLabel = candidate?.availability_date
     ? `od ${formatDate(candidate.availability_date)}`
     : candidate?.notice_period != null
@@ -866,7 +898,7 @@ export function PipelineCandidateDock({
             </>
           ) : (
             <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">
-              Karta w procesie
+              Panel osoby
             </span>
           )}
           <button
@@ -959,11 +991,97 @@ export function PipelineCandidateDock({
           )}
         </div>
 
+        {/* Fakty o osobie RAZ, pod nazwiskiem (PR 5, 04.10.2026) — do tej
+            pory stały zwinięte w „W procesie”. Wyłącznie z danych, które dok
+            już ma (karta kanbanu + profil kandydata). Brak danych to „—”, nie
+            znikający wiersz: pusty rząd czyta się jak „bez zastrzeżeń”. */}
+            <div className="space-y-1 rounded-md border border-border bg-muted/30 px-2.5 py-2" data-testid="dock-facts">
+              <div className="text-xs font-semibold text-foreground">
+                Warunki wobec rekrutacji
+              </div>
+              <div className="grid grid-cols-[108px_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
+                <ConditionRow label="W tej rekrutacji">
+                  {item.expected_rate_value != null ? (
+                    <>
+                      <span
+                        className={cn(
+                          "font-medium tabular-nums",
+                          budgetCheck.verdict === "over"
+                            ? "text-warning"
+                            : budgetCheck.verdict === "within"
+                              ? "text-success"
+                              : "text-foreground"
+                        )}
+                        title={
+                          budgetCheck.monthly != null
+                            ? `≈ ${budgetCheck.monthly.toLocaleString("pl-PL")} PLN/mc (21 dni × 8 h)`
+                            : undefined
+                        }
+                      >
+                        {item.expected_rate_value} {item.expected_rate_currency ?? "PLN"}
+                        {item.expected_rate_unit ? `/${item.expected_rate_unit}` : ""}
+                      </span>
+                      {item.budget_max_at_move != null && (
+                        <span className="ml-1 text-muted-foreground">
+                          {budgetCheck.verdict === "over"
+                            ? "ponad budżet"
+                            : budgetCheck.verdict === "within"
+                              ? `w budżecie do ${item.budget_max_at_move.toLocaleString("pl-PL")} PLN/mc`
+                              : "nie do porównania z budżetem (jednostka lub waluta)"}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">brak stawki</span>
+                  )}
+                </ConditionRow>
+                {/* „Stawka od” (0414): najniższa stawka z 18 miesięcy — obok
+                    stawki z tej rekrutacji, żeby było widać pole negocjacji. */}
+                <ConditionRow label="Stawka od">
+                  {hourlyText(item.candidate_rate_from_hourly) ?? (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </ConditionRow>
+                <ConditionRow label="Dostępność">
+                  {availabilityLabel ?? <span className="text-muted-foreground">—</span>}
+                </ConditionRow>
+                <ConditionRow label="Tryb">
+                  {onsiteLabel ?? <span className="text-muted-foreground">—</span>}
+                </ConditionRow>
+                {/* Stawka do klienta tylko, gdy serwer ją przysłał (rekruter jej
+                    nie dostaje — `can_view_client_rate`). */}
+                {clientRateText ? (
+                  <ConditionRow label="Do klienta">
+                    <span className="font-medium tabular-nums">{clientRateText}</span>
+                  </ConditionRow>
+                ) : null}
+              </div>
+            </div>
+
         {/* Główna akcja zaraz pod nazwiskiem (makieta „Panel osoby"). Ta sama
             ścieżka co drag&drop (`requestMove`) — okna stawki, potwierdzeń
             i powodu odrzucenia działają bez zmian. */}
         {!readOnly && (
           <div className="space-y-1.5" data-help="jobs.person.actions">
+            {/* PR 5 (04.10.2026): w „Nowych” i „Screeningu” pierwsza praca to
+                telefon — „Biorę” i „Nie odebrał” bez wychodzenia z panelu. */}
+            {ENTRY_STAGES.has(item.stage ?? "") && (
+              <div className="flex flex-wrap gap-1.5" data-testid="dock-contact-row">
+                {onTake && item.can_take && item.claim_user_id == null && (
+                  <Button size="sm" variant="outline" onClick={onTake}>
+                    <UserPlus className="h-3.5 w-3.5" /> Biorę — 12 h
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={noAnswerMut.isPending}
+                  onClick={() => noAnswerMut.mutate()}
+                >
+                  <PhoneOff className="h-3.5 w-3.5" /> Nie odebrał
+                </Button>
+              </div>
+            )}
             {primaryTarget ? (
               <DockNextStage
                 candidateId={item.candidate_id}
@@ -1188,69 +1306,6 @@ export function PipelineCandidateDock({
               </div>
             </div>
 
-            {/* Warunki wobec oferty — wyłącznie z danych, które dok już ma
-                (karta kanbanu + profil kandydata). Brak danych to „—", nie
-                znikający wiersz: pusty rząd czyta się jak „bez zastrzeżeń". */}
-            <div className="space-y-1">
-              <div className="text-xs font-semibold text-foreground">
-                Warunki wobec rekrutacji
-              </div>
-              <div className="grid grid-cols-[108px_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
-                <ConditionRow label="W tej rekrutacji">
-                  {item.expected_rate_value != null ? (
-                    <>
-                      <span
-                        className={cn(
-                          "font-medium tabular-nums",
-                          budgetCheck.verdict === "over"
-                            ? "text-warning"
-                            : budgetCheck.verdict === "within"
-                              ? "text-success"
-                              : "text-foreground"
-                        )}
-                        title={
-                          budgetCheck.monthly != null
-                            ? `≈ ${budgetCheck.monthly.toLocaleString("pl-PL")} PLN/mc (21 dni × 8 h)`
-                            : undefined
-                        }
-                      >
-                        {item.expected_rate_value} {item.expected_rate_currency ?? "PLN"}
-                        {item.expected_rate_unit ? `/${item.expected_rate_unit}` : ""}
-                      </span>
-                      {item.budget_max_at_move != null && (
-                        <span className="ml-1 text-muted-foreground">
-                          {budgetCheck.verdict === "over"
-                            ? "ponad budżet"
-                            : budgetCheck.verdict === "within"
-                              ? `w budżecie do ${item.budget_max_at_move.toLocaleString("pl-PL")} PLN/mc`
-                              : "nie do porównania z budżetem (jednostka lub waluta)"}
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">brak stawki</span>
-                  )}
-                </ConditionRow>
-                {/* „Stawka od” (0414): najniższa stawka z 18 miesięcy — obok
-                    stawki z tej rekrutacji, żeby było widać pole negocjacji. */}
-                <ConditionRow label="Stawka od">
-                  {hourlyText(item.candidate_rate_from_hourly) ?? (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </ConditionRow>
-                <ConditionRow label="Dostępność">
-                  {availabilityLabel ?? <span className="text-muted-foreground">—</span>}
-                </ConditionRow>
-                <ConditionRow label="Tryb">
-                  {onsiteLabel ?? <span className="text-muted-foreground">—</span>}
-                </ConditionRow>
-                <ConditionRow label="Pokrycie must">
-                  <span className="text-muted-foreground">
-                    — <span className="text-[10px]">(zakładka „Dopasowanie”)</span>
-                  </span>
-                </ConditionRow>
-              </div>
-            </div>
             {onOpenWorkbench ? (
               <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border pt-2">
                 <WorkbenchLink onClick={() => onOpenWorkbench("interviews")}>

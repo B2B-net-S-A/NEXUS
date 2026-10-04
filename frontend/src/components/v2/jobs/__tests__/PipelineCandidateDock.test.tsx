@@ -451,7 +451,7 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
   it("bez podanej pozycji nie zgaduje nawigatora „N z M”", () => {
     renderDock();
     expect(screen.queryByRole("button", { name: "Następna karta" })).toBeNull();
-    expect(screen.getByText("Karta w procesie")).toBeTruthy();
+    expect(screen.getByText("Panel osoby")).toBeTruthy();
   });
 
   it("nawigator pokazuje pozycję w kolejności tablicy i woła sąsiadów", async () => {
@@ -538,8 +538,50 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
 
     expect(await screen.findByText("Dostępność")).toBeTruthy();
     expect(screen.getByText("Tryb")).toBeTruthy();
-    expect(screen.getByText("Pokrycie must")).toBeTruthy();
     expect(screen.getByText("brak stawki")).toBeTruthy();
+  });
+
+  // PR 5 (04.10.2026): fakty o osobie stoją raz, pod nazwiskiem — także gdy
+  // sekcja „W procesie” jest zwinięta.
+  it("fakty o osobie są w nagłówku panelu, nie w zwiniętej sekcji", async () => {
+    renderDock({ item: baseItem({ stage: "new", expected_rate_value: 140, expected_rate_unit: "hourly" }) });
+    const facts = await screen.findByTestId("dock-facts");
+    expect(within(facts).getByText("Dostępność")).toBeTruthy();
+    expect(within(facts).getByText(/140/)).toBeTruthy();
+  });
+
+  it("w „Nowych” panel daje „Biorę” i „Nie odebrał” (notatka-próba kontaktu)", async () => {
+    apiPost.mockResolvedValue({ data: {} });
+    const onTake = vi.fn();
+    const user = userEvent.setup();
+    renderDock({
+      item: baseItem({ stage: "new", can_take: true, claim_user_id: null }),
+      onTake,
+    });
+    const row = await screen.findByTestId("dock-contact-row");
+    await user.click(within(row).getByRole("button", { name: /Biorę/ }));
+    expect(onTake).toHaveBeenCalledTimes(1);
+    await user.click(within(row).getByRole("button", { name: "Nie odebrał" }));
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith(
+        "/api/notes",
+        expect.objectContaining({ kind: "contact_attempt", job_id: 10, candidate_id: 42 }),
+      ),
+    );
+  });
+
+  it("po „Screeningu” panel nie pokazuje wiersza telefonu", async () => {
+    renderDock({ item: baseItem({ stage: "cv_sent" }) });
+    await screen.findByTestId("dock-facts");
+    expect(screen.queryByTestId("dock-contact-row")).toBeNull();
+  });
+
+  it("stawka do klienta pojawia się tylko, gdy serwer ją przysłał", async () => {
+    renderDock({
+      item: baseItem({ client_rate_value: "180", client_rate_unit: "hourly", client_rate_currency: "PLN" }),
+    });
+    const facts = await screen.findByTestId("dock-facts");
+    expect(within(facts).getByText("Do klienta")).toBeTruthy();
   });
 
   it("stawka ponad budżet jest nazwana wprost", async () => {

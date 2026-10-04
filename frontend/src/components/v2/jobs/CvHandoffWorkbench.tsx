@@ -667,7 +667,7 @@ export function CvHandoffWorkbench({
             ) : CV_CLIENT_LINKS_UI_ENABLED ? (
               <>
                 <Link2 className="h-3 w-3 shrink-0" />
-                Zarządzanie linkami zostaje też w doku „Karta w procesie” na
+                Zarządzanie linkami zostaje też w panelu osoby na
                 tablicy i na profilu kandydata.
               </>
             ) : null;
