@@ -76,7 +76,8 @@ import { ScorecardV2 } from"@/components/v2/modals/ScorecardV2";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
 import { SlotRequestDialog } from "@/components/calendar/cycle/SlotDialogs";
-import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
+import { DlReviewBody } from "@/components/v2/recruitment/DlReviewPanel";
+import { PersonPanelShell } from "@/components/v2/person/PersonPanelShell";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { MoveNextDialog } from "@/components/v2/recruitment/MoveNextDialog";
 import { dockNavigationOrder } from "@/lib/board-dock-order";
@@ -2200,18 +2201,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return { dockItem: null, dockItemColId: null, dockItemColLabel: null };
  }, [cols, dockCandidateId, hostByColId, boardLabelByColId]);
 
- // Dok jest nakładką z prawej — Escape go zamyka, chyba że otwarty jest
- // dialog (modal powodu odrzucenia, stawki itp.): wtedy Escape należy do niego.
- useEffect(() => {
- if (!dockItem) return;
- const onKey = (e: KeyboardEvent) => {
- if (e.key !== "Escape" || e.defaultPrevented) return;
- if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
- closeDock();
- };
- window.addEventListener("keydown", onKey);
- return () => window.removeEventListener("keydown", onKey);
- }, [dockItem, closeDock]);
 
  // Deep link `?candidate=&panel=` (dawne linki do sekcji panelu „Tabeli" —
  // m.in. zapisane w powiadomieniach): otwiera warsztat osoby, gdy jest na
@@ -2390,10 +2379,43 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // do klienta dostaje ten sam pełny przegląd co na pulpicie (stawka kandydata,
  // CV, screening, stawka do klienta — bez marży), a nie samo okno stawki.
  const [dlReviewTask, setDlReviewTask] = useState<BoardTaskRow | null>(null);
- // PR 5 (04.10.2026): jeden panel osoby naraz. Przegląd DL i szeroki
- // warsztat ZASTĘPUJĄ dok zamiast nakładać się na niego; po ich zamknięciu
- // wraca dok tej samej osoby (stan `dockItem` zostaje).
- const personPanelCovered = dlReviewTask !== null || workbench !== null;
+ // Jeden panel osoby (04.10.2026): przegląd DL otwiera się W panelu osoby
+ // jako szeroki tryb; dok tej samej (albo innej) osoby zostaje pod nim
+ // zamontowany i ukryty, a po zamknięciu przeglądu wraca z niewysłaną
+ // notatką. Szeroki warsztat (osobne okno) dalej przykrywa cały panel.
+ const reviewOpen = dlReviewTask !== null;
+ const panelHidden = workbench !== null && !reviewOpen;
+ // Przegląd nie jest oknem z pułapką fokusu — po zamknięciu fokus wraca
+ // tam, skąd przegląd otwarto (karta, menu doku, okno „Przesuń dalej”).
+ const reviewReturnFocusRef = useRef<HTMLElement | null>(null);
+ const closeDlReview = useCallback(() => {
+ setDlReviewTask(null);
+ const back = reviewReturnFocusRef.current;
+ reviewReturnFocusRef.current = null;
+ window.setTimeout(() => {
+ // Element, który otworzył przegląd (pozycja menu, okno „Przesuń dalej”),
+ // bywa już odmontowany — wtedy fokus idzie do panelu osoby.
+ const target =
+ back && back.isConnected
+ ? back
+ : document.querySelector<HTMLElement>('[data-testid="person-panel-dock"]');
+ target?.focus();
+ }, 0);
+ }, []);
+ // Panel osoby jest nakładką z prawej — Escape zamyka jego najwyższą warstwę
+ // (przegląd DL, potem dok), chyba że otwarty jest dialog (modal powodu
+ // odrzucenia, stawki itp.): wtedy Escape należy do niego.
+ useEffect(() => {
+ if (!dockItem && !dlReviewTask) return;
+ const onKey = (e: KeyboardEvent) => {
+ if (e.key !== "Escape" || e.defaultPrevented) return;
+ if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
+ if (dlReviewTask) closeDlReview();
+ else closeDock();
+ };
+ window.addEventListener("keydown", onKey);
+ return () => window.removeEventListener("keydown", onKey);
+ }, [dockItem, dlReviewTask, closeDlReview, closeDock]);
  // Prawo wysyłki z wiersza serwera; do jego przyjścia — ta sama reguła
  // w przeglądarce (`recruitment_manage`).
  const [dlReviewCanSend, setDlReviewCanSend] = useState<boolean | undefined>(undefined);
@@ -2412,6 +2434,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  ) {
  return false;
  }
+ if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+ reviewReturnFocusRef.current = document.activeElement;
+ }
+ // Warsztat w osobnym oknie zasłoniłby przegląd w panelu — zamykamy go.
+ setWorkbench(null);
  setDlReviewTask({
  kind: "dl_review",
  stage_id: item.id,
@@ -3068,29 +3095,23 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  </div>
  </DragDropContext>
 
- {dockItem && dockItemColLabel !== null && !personPanelCovered && (
- // Tablet (768–1023): dok nakrywa prawe kolumny planszy, a plansza nie ma
- // rezerwy miejsca (ta jest od `lg`), więc dok jest nakładką z tłem —
- // klik w tło zamyka kartę. Na telefonie dok ma pełną szerokość.
- <div
- aria-hidden="true"
- data-testid="pipeline-dock-backdrop"
- className="fixed inset-x-0 bottom-0 top-12 z-20 hidden bg-card/50 backdrop-blur-[2px] md:block lg:hidden"
- style={chromeTop != null ? { top: chromeTop } : undefined}
- onClick={closeDock}
- />
- )}
+ {((dockItem && dockItemColLabel !== null) || dlReviewTask) && (
+ <PersonPanelShell
+ wide={reviewOpen}
+ hidden={panelHidden}
+ chromeTop={chromeTop}
+ // Tablet: klik w tło zamyka kartę; przy przeglądzie — sam przegląd.
+ onBackdropClick={reviewOpen ? closeDlReview : closeDock}
+ >
  {dockItem && dockItemColLabel !== null && (
- // Przykryty przeglądem DL albo warsztatem panel jest UKRYTY, nie
- // odmontowany: niewysłana notatka, otwarte sekcje i miejsce powrotu
- // fokusu muszą przeżyć (przegląd PR 5, 04.10.2026).
- <aside
- aria-label="Panel osoby"
- data-help="jobs.person.dock"
- hidden={personPanelCovered}
- inert={personPanelCovered || undefined}
- className="fixed right-0 top-12 bottom-0 z-30 flex w-full max-w-[380px] flex-col border-l border-border bg-background shadow-xl"
- style={chromeTop != null ? { top: chromeTop } : undefined}
+ // Pod przeglądem dok jest UKRYTY, nie odmontowany: niewysłana
+ // notatka, otwarte sekcje i miejsce powrotu fokusu muszą przeżyć.
+ <div
+ className="flex min-h-0 flex-1 flex-col focus:outline-none"
+ data-testid="person-panel-dock"
+ tabIndex={-1}
+ hidden={reviewOpen}
+ inert={reviewOpen || undefined}
  >
  <PipelineCandidateDock
  key={dockItem.candidate_id}
@@ -3146,17 +3167,19 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  : undefined
  }
  />
- </aside>
+ </div>
+ )}
+ {dlReviewTask ? (
+ <DlReviewBody
+ task={dlReviewTask}
+ canSendToClient={dlReviewCanSend}
+ onClose={closeDlReview}
+ layout="panel"
+ />
+ ) : null}
+ </PersonPanelShell>
  )}
 
- <DlReviewPanel
- task={dlReviewTask}
- open={dlReviewTask !== null}
- canSendToClient={dlReviewCanSend}
- onOpenChange={(open) => {
- if (!open) setDlReviewTask(null);
- }}
- />
  <SlotRequestDialog
  open={slotPair !== null}
  pair={slotPair}
