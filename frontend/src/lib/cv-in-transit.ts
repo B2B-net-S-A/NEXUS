@@ -65,6 +65,16 @@ export function transitRemark(row: CvTransitRow): string | null {
   return remark ? `Uwaga: ${remark}` : null;
 }
 
+/** D4 (04.10.2026): „Piotr Z. poprawił w karcie: Motywacja, Stawka”. */
+export function transitCardEdit(row: CvTransitRow): string | null {
+  const who = row.card_edited_by?.trim();
+  if (!who) return null;
+  const fields = (row.card_edited_fields ?? []).filter((f) => f.trim());
+  return fields.length > 0
+    ? `${who} poprawił(a) w karcie: ${fields.join(", ")}`
+    : `${who} poprawił(a) kartę rekomendacji`;
+}
+
 function dayNumber(date: Date): number {
   return Date.parse(`${warsawToday(date)}T00:00:00Z`) / 86_400_000;
 }

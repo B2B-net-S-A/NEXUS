@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 03.10.2026
+> **Zgodność z systemem sprawdzona:** 04.10.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -176,6 +176,12 @@ zastąpić prawdziwym numerem z dokumentu klienta. Szkic znajdziesz pod filtrem
 
 Kliknij wiersz tej osoby, w panelu wybierz **Uzupełnij zamówienie** i wypełnij
 dane z dokumentu od klienta.
+
+Po każdym zatrudnieniu — z podpisu umowy i z ręcznego przestawienia na
+„zatrudniony" — dostajesz w panelu **„Moi klienci"** kartę „Nowy kontraktor —
+uzupełnij zamówienie", a dział Finansów powiadomienie o tym samym. To jedna
+sprawa: gdy zapiszesz zamówienie z datą rozpoczęcia i stawką przychodową,
+karta i powiadomienie Finansów znikają od razu.
 
 **2. Osoba jest na liście, ale chcesz poprawić jedno pole.** Kliknij jej
 wiersz. W panelu, w sekcji bieżącego zamówienia, numer zamówienia, obie stawki

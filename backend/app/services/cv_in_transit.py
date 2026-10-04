@@ -88,6 +88,10 @@ class TransitRow:
     reason: Optional[str] = None
     # Uwaga dla rekrutera zostawiona przy decyzji (`stage_remarks`).
     remark: Optional[str] = None
+    # D4 (04.10.2026): kto inny niż oglądający poprawił kartę rekomendacji
+    # od przekazania (zwykle Delivery Lead w przeglądzie) i które pola.
+    card_edited_by: Optional[str] = None
+    card_edited_fields: tuple[str, ...] = ()
 
 
 @dataclass
@@ -120,7 +124,7 @@ _SQL = text(
     SELECT l.id, l.candidate_id, l.job_id, l.stage, l.stage_def_id, l.moved_at,
            l.moved_by, l.ended_by, l.notes,
            p.stage AS prev_stage, p.stage_def_id AS prev_stage_def_id,
-           p.moved_by AS prev_moved_by,
+           p.moved_by AS prev_moved_by, p.moved_at AS prev_moved_at,
            COALESCE(j.pipeline_template_id, :default_template_id) AS template_id,
            j.title, j.working_title, j.client_id,
            CASE WHEN dl.is_active THEN j.delivery_lead_id END AS delivery_lead_id,
@@ -136,7 +140,7 @@ _SQL = text(
       LEFT JOIN users js ON js.id = j.cpro_sender_id
       LEFT JOIN rejection_reasons rr ON rr.id = l.rejection_reason_id
       LEFT JOIN LATERAL (
-            SELECT p.stage, p.stage_def_id, p.moved_by
+            SELECT p.stage, p.stage_def_id, p.moved_by, p.moved_at
               FROM candidate_stages p
              WHERE p.candidate_id = l.candidate_id
                AND p.job_id = l.job_id
@@ -354,6 +358,7 @@ async def load_for_user(
     remarks = await stage_remarks.for_stages(
         db, [r.id for r, kind in kept if kind not in (KIND_IN_REVIEW, KIND_CPRO_QUEUE)]
     )
+    card_edits = await _card_edits_by_others(db, kept, viewer_id=user.id)
 
     out = CvInTransit()
     for r, kind in kept:
@@ -383,6 +388,8 @@ async def load_for_user(
             holder_name=holder,
             reason=reason,
             remark=stage_remarks.short(remarks.get(r.id)),
+            card_edited_by=card_edits.get(r.id, (None, ()))[0],
+            card_edited_fields=card_edits.get(r.id, (None, ()))[1],
         )
         if kind in (KIND_IN_REVIEW, KIND_CPRO_QUEUE):
             out.in_review.append(row)
@@ -401,6 +408,86 @@ async def load_for_user(
     out.returned = out.returned[:MAX_ROWS]
     out.in_review = out.in_review[:MAX_ROWS]
     out.sent = out.sent[:MAX_ROWS]
+    return out
+
+
+async def _card_edits_by_others(
+    db: AsyncSession, kept: list[tuple[Any, str]], *, viewer_id: int
+) -> dict[int, tuple[Optional[str], tuple[str, ...]]]:
+    """``{stage_id: (kto, pola)}`` — zapisy karty rekomendacji pary przez
+    INNĄ osobę niż oglądający od chwili przekazania (D4, 04.10.2026).
+
+    „Przekazanie” = wejście na „QC CV” (w przeglądzie: bieżący wiersz;
+    wróciło i wysłane: wiersz poprzedni). Jedno zapytanie o dziennik
+    ``recommendation_card_updated``; nazwy pól jak na ekranie karty.
+    """
+    from app.models.activity import Activity  # noqa: PLC0415
+    from app.services.recommendation_card_rules import (  # noqa: PLC0415
+        DISPLAY_LABELS,
+    )
+
+    if not kept:
+        return {}
+    since_by_stage: dict[int, datetime] = {}
+    for r, kind in kept:
+        since = (
+            r.moved_at
+            if kind in (KIND_IN_REVIEW, KIND_CPRO_QUEUE)
+            else (r.prev_moved_at or r.moved_at)
+        )
+        since_by_stage[r.id] = since
+    earliest = min(since_by_stage.values())
+    rows = (
+        await db.execute(
+            select(
+                Activity.entity_id,
+                Activity.user_id,
+                Activity.details,
+                Activity.created_at,
+            )
+            .where(
+                Activity.entity_type == "candidate",
+                Activity.action == "recommendation_card_updated",
+                Activity.entity_id.in_({r.candidate_id for r, _ in kept}),
+                Activity.created_at >= earliest,
+                Activity.user_id.is_not(None),
+                Activity.user_id != viewer_id,
+            )
+            .order_by(Activity.created_at)
+        )
+    ).all()
+    if not rows:
+        return {}
+    by_pair: dict[tuple[int, int], list[Any]] = {}
+    for row in rows:
+        job_id = (row.details or {}).get("job_id")
+        if isinstance(job_id, int):
+            by_pair.setdefault((row.entity_id, job_id), []).append(row)
+    editor_ids = {row.user_id for row in rows}
+    names = {
+        uid: (uname or email)
+        for uid, uname, email in (
+            await db.execute(
+                select(User.id, User.name, User.email).where(User.id.in_(editor_ids))
+            )
+        ).all()
+    }
+    out: dict[int, tuple[Optional[str], tuple[str, ...]]] = {}
+    for r, _kind in kept:
+        edits = [
+            row
+            for row in by_pair.get((r.candidate_id, r.job_id), [])
+            if row.created_at >= since_by_stage[r.id]
+        ]
+        if not edits:
+            continue
+        fields: list[str] = []
+        for row in edits:
+            for key in (row.details or {}).get("fields") or []:
+                label = DISPLAY_LABELS.get(key, key)
+                if label not in fields:
+                    fields.append(label)
+        out[r.id] = (names.get(edits[-1].user_id), tuple(fields))
     return out
 
 

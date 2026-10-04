@@ -33,6 +33,7 @@ import {
   transitAgo,
   transitIsEmpty,
   transitJobLabel,
+  transitCardEdit,
   transitRemark,
   transitReturnedDetail,
   transitRowWho,
@@ -84,6 +85,7 @@ function RemoveMenu() {
 function ReturnedRow({ row }: { row: CvTransitRow }) {
   const detail = transitReturnedDetail(row);
   const remark = transitRemark(row);
+  const cardEdit = transitCardEdit(row);
   const rejected = row.kind === "rejected_by_dl";
   return (
     <li className="flex flex-col gap-1 px-3 py-2">
@@ -105,6 +107,7 @@ function ReturnedRow({ row }: { row: CvTransitRow }) {
         {detail ? <span className="min-w-0 break-words text-xs">{detail}</span> : null}
       </div>
       {remark ? <p className="break-words text-xs">{remark}</p> : null}
+      {cardEdit ? <p className="break-words text-xs text-muted-foreground">{cardEdit}</p> : null}
     </li>
   );
 }
@@ -112,6 +115,7 @@ function ReturnedRow({ row }: { row: CvTransitRow }) {
 function InfoRow({ row }: { row: CvTransitRow }) {
   const who = transitRowWho(row);
   const remark = transitRemark(row);
+  const cardEdit = transitCardEdit(row);
   return (
     <li className="flex flex-col gap-1 px-3 py-2">
       <div className="flex items-baseline gap-2">
@@ -125,6 +129,7 @@ function InfoRow({ row }: { row: CvTransitRow }) {
       <p className="truncate text-xs text-muted-foreground">{transitJobLabel(row)}</p>
       {who ? <p className="truncate text-xs">{who}</p> : null}
       {remark ? <p className="break-words text-xs">{remark}</p> : null}
+      {cardEdit ? <p className="break-words text-xs text-muted-foreground">{cardEdit}</p> : null}
     </li>
   );
 }
