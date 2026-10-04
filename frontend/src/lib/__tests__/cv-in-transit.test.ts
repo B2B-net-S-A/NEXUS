@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { CvInTransit, CvTransitRow } from "@/lib/api/boardTasks";
 import {
   transitAgo,
+  transitCardEdit,
   transitIsEmpty,
   transitJobLabel,
   transitRemark,
@@ -92,5 +93,21 @@ describe("cv-in-transit — teksty listy „Twoje CV w drodze”", () => {
     expect(transitAgo("2026-10-01T22:30:00Z", now)).toBe("dziś");
     expect(transitAgo("2026-09-28T10:00:00Z", now)).toBe("4 dni temu");
     expect(transitAgo("nie-data", now)).toBe("dziś");
+  });
+});
+
+
+describe("transitCardEdit — ślad poprawek karty (D4, 04.10.2026)", () => {
+  it("mówi, kto i które pola poprawił", () => {
+    expect(
+      transitCardEdit(row({ card_edited_by: "Piotr Zieliński", card_edited_fields: ["Motywacja", "Stawka"] })),
+    ).toBe("Piotr Zieliński poprawił(a) w karcie: Motywacja, Stawka");
+  });
+
+  it("bez nazw pól mówi ogólnie, bez poprawek — nic", () => {
+    expect(transitCardEdit(row({ card_edited_by: "Piotr Zieliński", card_edited_fields: [] }))).toBe(
+      "Piotr Zieliński poprawił(a) kartę rekomendacji",
+    );
+    expect(transitCardEdit(row())).toBeNull();
   });
 });

@@ -135,6 +135,9 @@ from app.services import loop_heartbeat
 #: Activity szkicu zamówienia założonego po obustronnym podpisie umowy
 #: w Generatorze B2B (``b2b_contract_automation._ensure_open_order``).
 SIGNED_CONTRACT_DRAFT_ACTION = "auto_drafted_from_signed_contract"
+# D3 (04.10.2026): szkic zamówienia z ręcznego ruchu na „Zatrudniony” też
+# niesie sprawę „uzupełnij zamówienie”.
+HIRED_DRAFT_ACTIONS = (SIGNED_CONTRACT_DRAFT_ACTION, "auto_drafted_from_pipeline")
 
 logger = logging.getLogger(__name__)
 
@@ -1147,7 +1150,8 @@ async def rule_new_contractor_draft(
     db: AsyncSession,
     recipient_scope: DeliveryAlertRecipientScope | None = None,
 ) -> int:
-    """Szkic zamówienia z obustronnie podpisanej umowy, któremu czegoś brakuje.
+    """Szkic zamówienia po zatrudnieniu (podpis albo ręczny ruch), któremu
+    czegoś brakuje.
 
     Pierwszą kartę wystawia ścieżka podpisu w chwili zapisu; skaner powtarza
     ją co 7 dni i zamyka, gdy szkic przestał być szkicem albo braki zniknęły.
@@ -1166,14 +1170,30 @@ async def rule_new_contractor_draft(
             .where(
                 Activity.entity_type == "client_order",
                 Activity.entity_id == ClientOrder.id,
-                Activity.action == SIGNED_CONTRACT_DRAFT_ACTION,
+                Activity.action.in_(HIRED_DRAFT_ACTIONS),
             )
             .exists(),
         )
     )
+    orders = list(result.scalars())
+    signed_ids = (
+        set(
+            (
+                await db.scalars(
+                    select(Activity.entity_id).where(
+                        Activity.entity_type == "client_order",
+                        Activity.entity_id.in_([o.id for o in orders]),
+                        Activity.action == SIGNED_CONTRACT_DRAFT_ACTION,
+                    )
+                )
+            ).all()
+        )
+        if orders
+        else set()
+    )
     live: set[str] = set()
     created = 0
-    for order in result.scalars():
+    for order in orders:
         user_ids = await dl_user_ids_for_client(
             db, order.client_id, scope=recipient_scope
         )
@@ -1194,6 +1214,7 @@ async def rule_new_contractor_draft(
                 candidate_name=name,
                 job_title=job_title,
                 user_ids=user_ids,
+                source=("b2b_generator" if order.id in signed_ids else "pipeline_hire"),
             )
         )
     await resolve_stale(db, alert_type=ALERT_NEW_CONTRACTOR_DRAFT, live_event_keys=live)

@@ -201,6 +201,10 @@ export interface CvTransitRow {
   reason?: string | null;
   /** Uwaga dla rekrutera zostawiona przy decyzji (początek; całość w notatkach). */
   remark?: string | null;
+  /** D4 (04.10.2026): kto inny poprawił kartę rekomendacji od przekazania. */
+  card_edited_by?: string | null;
+  /** Nazwy poprawionych pól karty (jak na ekranie karty). */
+  card_edited_fields?: string[];
 }
 
 export interface CvInTransit {
