@@ -30,7 +30,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, tuple_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_followups import FollowupRow, serialize_rows
@@ -41,8 +41,9 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
-from app.models.recruitment_pipeline import CandidateStage
+from app.services import agreement_tasks
 from app.services import board_tasks as svc
+from app.services.stage_client_rate import latest_client_rates
 from app.services.action_permissions import ProductAction, has_permission
 from app.services import (
     candidate_followups,
@@ -245,6 +246,32 @@ class CvInTransitBlock(BaseModel):
     sent_window_days: int
 
 
+class AgreementTaskRow(BaseModel):
+    """Sprawa z grupy „Umowy” (`services/agreement_tasks.py`)."""
+
+    generated_id: int
+    contract_number: str
+    # requested | hired_unsigned | closed_unsigned | closed_signed_active
+    reason: str
+    candidate_id: int
+    candidate_name: str
+    job_id: int
+    job_title: str
+    client_name: Optional[str] = None
+    since: Optional[datetime] = None
+    requested_by_name: Optional[str] = None
+    contract_id: Optional[int] = None
+
+
+class AgreementTasksBlock(BaseModel):
+    # Do potwierdzenia podpisu (prośby i „Zatrudniony” bez podpisu) i do
+    # zamknięcia (karta zamknięta przy żywej umowie) — osoby z „Podpis B2B”.
+    to_confirm: list[AgreementTaskRow] = []
+    to_close: list[AgreementTaskRow] = []
+    # Prośby tej osoby, na które czeka („U innych”).
+    waiting_on_others: list[AgreementTaskRow] = []
+
+
 class BoardTasksResponse(BaseModel):
     cpro_to_send: list[BoardTaskRow]
     cpro_sent: list[BoardTaskRow]
@@ -283,6 +310,9 @@ class BoardTasksResponse(BaseModel):
     # (tylko DL, HoR i admin) albo nie ma żadnej.
     pending_jobs: Optional[PendingJobsBlock] = None
     unfinished_forms: list[UnfinishedFormRow] = []
+    # 04.10.2026: umowy z Generatora — prośby o podpis i rozjazdy z Tablicą.
+    # `None` = liczenie się nie powiodło.
+    agreements: Optional[AgreementTasksBlock] = None
 
 
 class CproSenderRead(BaseModel):
@@ -383,6 +413,9 @@ async def list_board_tasks(
         db, current_user, portfolio=portfolio, now=now
     )
     pending = await pending_job_completion.load_pending_jobs_safely(db, current_user)
+    agreements = await agreement_tasks.load_safely(
+        db, current_user, portfolio=portfolio
+    )
     unfinished = await pending_job_completion.load_unfinished_forms_safely(
         db, current_user, now=now
     )
@@ -431,6 +464,19 @@ async def list_board_tasks(
             else None
         ),
         unfinished_forms=[UnfinishedFormRow(**asdict(f)) for f in unfinished],
+        agreements=(
+            AgreementTasksBlock(
+                to_confirm=[
+                    AgreementTaskRow(**asdict(t)) for t in agreements.to_confirm
+                ],
+                to_close=[AgreementTaskRow(**asdict(t)) for t in agreements.to_close],
+                waiting_on_others=[
+                    AgreementTaskRow(**asdict(t)) for t in agreements.waiting_on_others
+                ],
+            )
+            if agreements is not None
+            else None
+        ),
         prep_attention=[
             PrepAttentionRow(
                 reason=a.reason,
@@ -607,7 +653,7 @@ async def get_cpro_queue(
     snapshot = await svc.load_snapshot(db, now=now)
     to_send = [t for t in snapshot.tasks if t.kind == svc.KIND_CPRO_TO_SEND]
     pairs = [(t.candidate_id, t.job_id) for t in to_send]
-    rates = await _latest_client_rates(db, pairs)
+    rates = await latest_client_rates(db, pairs)
     cvs = await move_requirements.company_cv_refs(db, pairs)
     availability = await _availability(db, {t.candidate_id for t in to_send})
 
@@ -676,35 +722,6 @@ async def get_cpro_queue(
         jobs=sorted(jobs.values(), key=lambda g: g.oldest_since),
         sent_today=sent_today,
     )
-
-
-async def _latest_client_rates(
-    db: AsyncSession, pairs: list[tuple[int, int]]
-) -> dict[tuple[int, int], tuple[float, Optional[str], Optional[str]]]:
-    """Najnowsza stawka do klienta pary — ta, za którą osobę wysyłamy."""
-
-    if not pairs:
-        return {}
-    rows = await db.execute(
-        select(
-            CandidateStage.candidate_id,
-            CandidateStage.job_id,
-            CandidateStage.client_rate_value,
-            CandidateStage.client_rate_unit,
-            CandidateStage.client_rate_currency,
-        )
-        .where(
-            tuple_(CandidateStage.candidate_id, CandidateStage.job_id).in_(
-                sorted(set(pairs))
-            ),
-            CandidateStage.client_rate_value.is_not(None),
-        )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-    )
-    out: dict[tuple[int, int], tuple[float, Optional[str], Optional[str]]] = {}
-    for cand, job, value, unit, currency in rows.all():
-        out.setdefault((cand, job), (float(value), unit, currency))
-    return out
 
 
 async def _availability(db: AsyncSession, candidate_ids: set[int]) -> dict[int, date]:

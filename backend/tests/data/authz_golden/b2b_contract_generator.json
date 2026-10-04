@@ -33,6 +33,7 @@
   "GET /api/b2b-generator/generated/{generated_id}/form": "PPPBPPDDPPPPPPPPPPP",
   "GET /api/b2b-generator/generated/{generated_id}/status-history": "PPPBPPDDPPPPPPPPPPP",
   "GET /api/b2b-generator/next-number": "PPPBPPDDPPPPPPPPPPP",
+  "GET /api/b2b-generator/prefill": "PPPBPPDDPPPPPPPPPPP",
   "GET /api/b2b-generator/roles": "PPPBPPDDPPPPPPPPPPP",
   "GET /api/b2b-generator/roles/{role_id}": "PPPBPPDDPPPPPPPPPPP",
   "PATCH /api/b2b-generator/generated/{generated_id}": "PPPBPPDDPPPPPPPPPPP",
@@ -42,6 +43,7 @@
   "POST /api/b2b-generator/generated/{generated_id}/confirm-fully-signed": "PPPBPPDDPPPPPPPPPPP",
   "POST /api/b2b-generator/generated/{generated_id}/link-contract": "PPPBPPDDPPPPPPPPPPP",
   "POST /api/b2b-generator/generated/{generated_id}/rerender": "PPPBPPDDPPPPPPPPPPP",
+  "POST /api/b2b-generator/generated/{generated_id}/signature-request": "PPPBPPDDPPPPPPPPPPP",
   "POST /api/b2b-generator/render": "PPPBPPDDPPPPPPPPPPP",
   "POST /api/b2b-generator/roles": "PDDDDDDDDDDDDDDDDDD"
  }

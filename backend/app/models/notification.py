@@ -173,6 +173,9 @@ class NotificationType(str, enum.Enum):
     # (`stage_handoff_recipients.TASK_REASONS`). Imienne zadanie, więc osobny
     # typ poza wyciszalnym `stage_rule`; related_entity=(candidate_stage, id).
     board_task_waiting = "board_task_waiting"
+    # 0417: rekruter prosi o potwierdzenie podpisu umowy B2B z Generatora —
+    # do DL-a rekrutacji (albo portfela / TCM); related_entity=(b2b_generated_contract, id).
+    b2b_signature_requested = "b2b_signature_requested"
     # 0352: ktoś przejął Twoją osobę w „Nowych" (przed upływem 12 h tylko
     # DL/HoR/admin) — related_entity=(recruitment_process, id).
     candidate_claim_taken = "candidate_claim_taken"

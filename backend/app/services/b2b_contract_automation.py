@@ -904,6 +904,7 @@ async def ensure_b2b_employment_draft(
     validate_terms: bool = True,
     reject_signed_generated_link: bool = False,
     keep_existing_terms: bool = False,
+    contract_type: ContractType = ContractType.b2b,
 ) -> B2BEmploymentDraftResult:
     """Lock the candidate, then reuse/create exactly one compatible B2B draft.
 
@@ -999,7 +1000,9 @@ async def ensure_b2b_employment_draft(
             candidate_id=candidate.id,
             client_id=job.client_id,
             job_id=job.id,
-            contract_type=ContractType.b2b,
+            # Ręczne „Zatrudniony” mówi, jak podpisano umowę (D2): umowa
+            # o pracę i zlecenie dostają kontrakt swojego typu, nie B2B.
+            contract_type=contract_type,
             status=ContractStatus.draft,
             start_date=_payload_value(payload, "start_date") or default_start_date,
             rate_candidate=_payload_value(payload, "rate_candidate"),

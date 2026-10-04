@@ -282,6 +282,10 @@ class CandidateStageResponse(BaseModel):
     followup: Optional[dict] = None
     # „Zatrudniony": czy jest uzupełnione zamówienie (complete|missing).
     order_status: Optional[str] = None
+    # 04.10.2026: umowa B2B z Generatora tej pary (rejestr jest źródłem):
+    # {id, number, contract_status, signature_status, created_at, signed_at,
+    # signature_requested_at, contract_id}; brak = para bez umowy.
+    agreement: Optional[dict] = None
 
     model_config = {"from_attributes": True}
 

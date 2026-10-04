@@ -383,6 +383,39 @@ class B2BNextNumberResponse(BaseModel):
     seq: int
 
 
+class B2BPrefillRate(BaseModel):
+    value: float
+    # card | this_job | rate_from
+    source: str
+    at: Optional[str] = None
+
+
+class B2BPrefillClientRate(BaseModel):
+    value: float
+    unit: Optional[str] = None
+    currency: Optional[str] = None
+
+
+class B2BPrefillExisting(BaseModel):
+    id: int
+    contract_number: str
+    contract_status: str
+    signature_status: str
+
+
+class B2BAgreementPrefillResponse(BaseModel):
+    """Podpowiedzi formularza umowy z rekrutacji (panel osoby i Generator)."""
+
+    candidate_id: int
+    job_id: int
+    rate: Optional[B2BPrefillRate] = None
+    start_date: Optional[date] = None
+    availability_text: Optional[str] = None
+    client_rate: Optional[B2BPrefillClientRate] = None
+    client_rate_redacted: bool = False
+    existing: Optional[B2BPrefillExisting] = None
+
+
 class B2BCompanyRepresentative(BaseModel):
     name: Optional[str] = None
     function: Optional[str] = None
@@ -495,9 +528,15 @@ class B2BGeneratedContractItem(BaseModel):
     created_at: Optional[str] = None
     # Imię i nazwisko osoby, która wygenerowała umowę (z users.name).
     created_by_name: Optional[str] = None
+    # Rola główna autora (filtr „Wygenerowane przez rekruterów”, 04.10.2026).
+    created_by_role: Optional[str] = None
+    # Kolumna Tablicy pary w tej rekrutacji (`board_column_for`); None = brak
+    # pary albo procesu.
+    pair_column: Optional[str] = None
     # Czy bieżący użytkownik może usunąć ten wpis (autor wpisu lub admin).
     can_delete: bool = False
-    # Czy bieżący użytkownik może edytować ten wpis (autor wpisu lub admin).
+    # Czy bieżący użytkownik może poprawić ten wpis pod tym samym numerem:
+    # autor, rekruterzy i DL rekrutacji, TCM, admin — przy widocznych stawkach.
     can_edit: bool = False
     # Czy umowę da się pobrać ponownie (jest zapisany payload do re-renderu).
     can_download: bool = False
@@ -715,6 +754,15 @@ class B2BLinkContractResponse(BaseModel):
     item: B2BGeneratedContractItem
     document_attached: bool
     document_note: Optional[str] = None
+
+
+class B2BSignatureRequestResponse(BaseModel):
+    """Prośba o potwierdzenie podpisu (rekruter → DL / TCM)."""
+
+    # False = prośba sprzed mniej niż doby; dzwonek nie poszedł drugi raz.
+    sent: bool
+    requested_at: Optional[str] = None
+    recipient_names: list[str] = Field(default_factory=list)
 
 
 class B2BConfirmFullySignedRequest(BaseModel):
