@@ -48,6 +48,10 @@ export function JarvisMascot({
           ? "relative"
           : "fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] right-[calc(1rem+env(safe-area-inset-right))] z-30 sm:bottom-5 sm:right-5"
       }`}
+      // Róg z ikoną chowa się, gdy na Tablicy otwarty jest panel osoby
+      // (reguła w `globals.css`) — siedział na sekcjach i przycisku wysyłki
+      // notatki (04.10.2026). ⌘J dalej otwiera asystenta.
+      data-jarvis-mascot={inline ? undefined : ""}
     >
       {bubble && !open && (
         <div className="pointer-events-auto mb-8 flex max-w-[min(240px,calc(100vw-6rem))] items-start gap-1 rounded-2xl border border-primary/30 bg-card px-3 py-2 text-sm text-foreground shadow-lg">

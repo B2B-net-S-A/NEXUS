@@ -1945,10 +1945,25 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(heading.className).toMatch(/xl:pointer-fine:hyphens-auto/);
     expect(heading.className).toMatch(/xl:pointer-fine:\[overflow-wrap:anywhere\]/);
     expect(heading.className).toMatch(/xl:pointer-fine:line-clamp-3/);
-    // Pełna kolumna też nie ucina długiego słowa (196 px przy 1440 px).
+    // Kolumna z kartami: jedna linia tym samym rozmiarem (04.10.2026 — przy
+    // 1280 px duża nazwa łamała się na „Zweryfi-kowany”), pełna nazwa w `title`.
     const full = container.querySelector('[data-colid="def:300"] h3') as HTMLElement;
-    expect(full.className).toMatch(/(^| )hyphens-auto( |$)/);
-    expect(full.className).toMatch(/\[overflow-wrap:break-word\]/);
+    expect(full.className).toMatch(/(^| )truncate( |$)/);
+    expect(full.className).toMatch(/text-\[13px\]/);
+    expect(full.className).not.toMatch(/(^| )text-base( |$)/);
+    expect(full).toHaveAttribute("title");
+  });
+
+  it("ramka „upuść tutaj” w pustej kolumnie jest widoczna tylko w trakcie przeciągania", async () => {
+    const { container } = renderBoard(defaultB2BColumns());
+    await screen.findByTestId("pipeline-board");
+    const hint = within(container.querySelector('[data-colid="def:302"]') as HTMLElement).getByTestId(
+      "column-drop-hint",
+    );
+    // W spoczynku ukryta; pokazuje ją znacznik `data-dragging` na korzeniu tablicy.
+    expect(hint.className).toMatch(/(^| )hidden( |$)/);
+    expect(hint.className).toMatch(/group-data-\[dragging=true\]\/board:block/);
+    expect(hint.closest(".group\\/board")).not.toBeNull();
   });
 
   it("tylko do odczytu: pusta kolumna nie zaprasza do upuszczania", async () => {

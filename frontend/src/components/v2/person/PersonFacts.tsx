@@ -19,17 +19,46 @@ export interface PersonFactRow {
   value: ReactNode | null;
   /** Skąd wartość (np. „z karty”) — mały tekst pod nią. */
   hint?: string | null;
+  /** W układzie `pairs` wiersz zajmuje całą szerokość (długa wartość). */
+  wide?: boolean;
 }
 
 export function PersonFacts({
   rows,
   testId,
   title = "Warunki wobec rekrutacji",
+  pairs = false,
 }: {
   rows: ReadonlyArray<PersonFactRow>;
   testId?: string;
   title?: string;
+  /**
+   * Krótkie fakty po dwa w wierszu (panel osoby 380 px, 04.10.2026) — przy
+   * laptopie 1280×720 cztery wiersze zabierały miejsce sekcjom pod spodem.
+   * Wiersz `wide` zostaje na całą szerokość.
+   */
+  pairs?: boolean;
 }) {
+  if (pairs) {
+    return (
+      <div className="space-y-1 rounded-md border border-border bg-muted/30 px-2.5 py-2" data-testid={testId}>
+        <div className="text-xs font-semibold text-foreground">{title}</div>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs" data-layout="pairs">
+          {rows.map((row) => (
+            <div key={row.label} className={cn("min-w-0", row.wide && "col-span-2")}>
+              <span className="mr-1.5 text-muted-foreground">{row.label}</span>
+              <span className="text-foreground">
+                {row.value ?? <span className="text-muted-foreground">—</span>}
+              </span>
+              {row.hint ? (
+                <span className="block text-[11px] text-muted-foreground">{row.hint}</span>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="space-y-1 rounded-md border border-border bg-muted/30 px-2.5 py-2" data-testid={testId}>
       <div className="text-xs font-semibold text-foreground">{title}</div>
