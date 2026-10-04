@@ -974,9 +974,11 @@ export function PipelineCandidateDock({
             znikający wiersz: pusty rząd czyta się jak „bez zastrzeżeń”. */}
         <PersonFacts
           testId="dock-facts"
+          pairs
           rows={[
             {
               label: "W tej rekrutacji",
+              wide: true,
               value: (
                 <RateWithBudget
                   value={item.expected_rate_value}

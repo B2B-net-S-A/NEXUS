@@ -36,6 +36,9 @@ from app.data.screen_guides import SCREEN_KEYS
 from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.services.section_permissions import ProductSection
 
+# Lustro ``api.interview_cycle.MAX_DEBRIEF_QUESTIONS`` (pilnuje test).
+DEBRIEF_MAX_QUESTIONS = 30
+
 Tier = Literal["read", "write", "link"]
 
 # Wynik narzędzia podawany modelowi nie przekracza tylu znaków — dłuższy jest
@@ -2287,7 +2290,7 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
                 "questions": {
                     "type": "array",
                     "items": {**STR, "maxLength": 500},
-                    "maxItems": 20,
+                    "maxItems": DEBRIEF_MAX_QUESTIONS,
                 },
                 "acceptance_condition": {**STR, "maxLength": 2000},
                 "no_client_questions": BOOL,
@@ -2312,7 +2315,7 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
                         str(q)[:500]
                         for q in (a.get("questions") or [])
                         if str(q).strip()
-                    ][:20],
+                    ][:DEBRIEF_MAX_QUESTIONS],
                     "acceptance_condition": a.get("acceptance_condition"),
                     "no_client_questions": bool(a.get("no_client_questions")) or None,
                 }

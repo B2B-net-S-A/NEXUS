@@ -52,6 +52,7 @@ export function PersonPanelShell({
       <aside
         aria-label="Panel osoby"
         data-help="jobs.person.dock"
+        data-person-panel=""
         data-wide={wide ? "" : undefined}
         hidden={hidden}
         inert={hidden || undefined}

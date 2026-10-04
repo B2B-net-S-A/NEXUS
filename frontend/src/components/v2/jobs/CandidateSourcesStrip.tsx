@@ -100,8 +100,10 @@ export function CandidateSourcesStripView({
         </div>
       </div>
       {/* Układ po szerokości PASKA, nie okna: menu, szyna kart i dok zabierają
-          miejsce. Na laptopie (pasek < 1024 px) kafel to jedna linia — opis
-          jest w podpowiedzi — żeby Tablica zaczynała się wysoko. */}
+          miejsce. Na laptopie (pasek < 1024 px) kafel to jedna linia: nazwa
+          i liczba, bez ikony i słowa „Pokaż” (cały kafel jest przyciskiem,
+          opis w podpowiedzi) — przy 1280×720 nazwa łamała się na trzy wiersze
+          (04.10.2026). */}
       <div className="grid grid-cols-1 gap-2 @lg:grid-cols-2 @3xl:grid-cols-4">
         {tiles.map((tile) => {
           const meta = TILE_META[tile.tab];
@@ -114,18 +116,18 @@ export function CandidateSourcesStripView({
               data-testid={`source-tile-${tile.tab}`}
               title={tile.description}
               className={cn(
-                "grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-2.5 rounded-lg border border-primary/25 bg-card px-3 py-2 text-left transition-colors @5xl:min-h-[68px] @5xl:items-start",
+                "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2.5 rounded-lg border border-primary/25 bg-card px-3 py-1.5 text-left transition-colors @5xl:min-h-[68px] @5xl:grid-cols-[2rem_minmax(0,1fr)_auto] @5xl:items-start @5xl:py-2",
                 "hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               )}
             >
               <span
                 aria-hidden="true"
-                className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary"
+                className="hidden h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary @5xl:flex"
               >
                 <Icon className="h-4 w-4" />
               </span>
               <span className="min-w-0">
-                <span className="block text-[13px] font-semibold leading-tight text-foreground">
+                <span className="block truncate text-[13px] font-semibold leading-tight text-foreground @5xl:whitespace-normal">
                   {meta.title}
                 </span>
                 <span className="mt-0.5 line-clamp-2 hidden text-xs leading-snug text-muted-foreground @5xl:block">
@@ -149,7 +151,7 @@ export function CandidateSourcesStripView({
                     tile.count
                   )}
                 </span>
-                <span className="block text-xs font-semibold text-primary">{meta.action}</span>
+                <span className="hidden text-xs font-semibold text-primary @5xl:block">{meta.action}</span>
               </span>
             </button>
           );

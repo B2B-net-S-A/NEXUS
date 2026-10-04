@@ -3,7 +3,9 @@
 import { MessageSquare } from "lucide-react";
 
 import {
+  DebriefFeedbackCard,
   InterviewFeedbackSummary,
+  isDebriefRow,
   useInterviewFeedbackByCandidate,
 } from "@/components/feedback/InterviewFeedbackSummary";
 import type { InterviewFeedbackRow } from "@/lib/api";
@@ -71,13 +73,21 @@ export function CandidateInterviewFeedbackPanel({
                 ? "Rozmowa bez przypisanej rekrutacji"
                 : jobTitles.get(group.jobId) ?? `Rekrutacja #${group.jobId}`}
             </p>
-            <InterviewFeedbackSummary
-              candidateId={candidateId}
-              jobId={group.jobId}
-              rows={group.rows}
-              readOnly
-              className="sm:grid-cols-1"
-            />
+            {/* Każdy debrief osobno (04.10.2026): kolejna runda nie może
+                przykryć warunku kandydata z poprzedniej. */}
+            {group.rows.filter(isDebriefRow).map((row) => (
+              <DebriefFeedbackCard key={row.id} row={row} />
+            ))}
+            {group.rows.some((row) => !isDebriefRow(row)) ? (
+              <InterviewFeedbackSummary
+                candidateId={candidateId}
+                jobId={group.jobId}
+                rows={group.rows.filter((row) => !isDebriefRow(row))}
+                readOnly
+                hideEmpty
+                className="sm:grid-cols-1"
+              />
+            ) : null}
           </div>
         ))
       )}

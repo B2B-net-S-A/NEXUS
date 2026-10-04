@@ -462,8 +462,37 @@ const ROLE_WHO: Record<string, string> = {
 };
 
 function firstNameOrNull(full: string | null | undefined): string | null {
-  const name = full?.trim();
-  return name ? name.split(/\s+/)[0] : null;
+  return cardShortName(full);
+}
+
+/**
+ * Krótka nazwa osoby na karcie: pierwsze słowo, bez dwukropka na końcu.
+ * Konta integracji nazywają się „Integracje: JJIT” — karta pokazywała
+ * „Integracje:” w dwóch wierszach (04.10.2026).
+ */
+export function cardShortName(full: string | null | undefined): string | null {
+  const first = full?.trim().split(/\s+/)[0]?.replace(/:+$/, "");
+  return first ? first : null;
+}
+
+/**
+ * Krótsze nazwy kroków na KARCIE Tablicy (04.10.2026): kolumna ma ok. 160 px
+ * na tekst, a „Przygotuj CV do QC” obok „Twój ruch”, dni i strzałki łamało
+ * się na „Przygo / CV d…”. Pełna nazwa zostaje w `title` i dla czytnika
+ * ekranu; reguła „kto ma ruch” (`pipeline-next-action.ts` i lustro
+ * w backendzie) się nie zmienia.
+ */
+const SHORT_STEP_LABEL: Record<string, string> = {
+  "Przygotuj CV do QC": "CV do QC",
+  "Umów interview / feedback klienta": "Umów rozmowę",
+  "Przegląd CV i wysłanie do klienta": "Przegląd i wysyłka",
+  "Uzupełnij arkusz screeningu": "Arkusz screeningu",
+  "Zweryfikuj i przenieś dalej": "Zweryfikuj",
+  "Reakcja kandydata na ofertę": "Reakcja na ofertę",
+};
+
+export function shortStepLabel(label: string): string {
+  return SHORT_STEP_LABEL[label] ?? label;
 }
 
 /**

@@ -220,6 +220,13 @@ _STAGE_LABELS = {
     "withdrawn": "Wycofał się",
 }
 
+_OFFER_ACCEPTANCE_LABELS = {
+    "yes": "tak",
+    "likely": "raczej tak",
+    "no": "nie",
+    "unknown": "nie wiadomo",
+}
+
 _DECISION_LABELS = {
     "advance": "dalej w procesie",
     "reject": "odrzucenie",
@@ -755,6 +762,16 @@ async def _feedback_section(
         concerns = _sanitize_untrusted(feedback.concerns, limit=250, stats=stats)
         if concerns:
             lines.append(f"  Obawy: {concerns}")
+        # Debrief po rozmowie u klienta (04.10.2026): akceptacja oferty i warunek
+        # kandydata (np. wyższa stawka) to najważniejsza część tego wpisu.
+        acceptance = _OFFER_ACCEPTANCE_LABELS.get(feedback.offer_acceptance or "")
+        if acceptance:
+            lines.append(f"  Czy przyjmie ofertę: {acceptance}")
+        condition = _sanitize_untrusted(
+            feedback.acceptance_condition, limit=250, stats=stats
+        )
+        if condition:
+            lines.append(f"  Warunek kandydata: {condition}")
     return _source_section(
         "feedback", lines, query_truncated=query_truncated, stats=stats
     )

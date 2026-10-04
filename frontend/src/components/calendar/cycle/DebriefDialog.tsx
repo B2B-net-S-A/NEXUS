@@ -12,8 +12,11 @@ import { interviewCycleApi, useDebrief, useInterviewEvent } from "@/lib/api/inte
 import {
   debriefAvailable,
   debriefAvailableFromLabel,
+  MAX_DEBRIEF_QUESTIONS,
+  mergeQuestions,
   OFFER_LABELS,
   OUTCOME_LABELS,
+  splitPastedQuestions,
   type Debrief,
   type DebriefOutcome,
   type OfferAcceptance,
@@ -62,6 +65,7 @@ export function DebriefDialog({
   onSaved,
   interviewStart,
   now: nowOverride,
+  readOnly = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -76,6 +80,8 @@ export function DebriefDialog({
   interviewStart?: string;
   /** Zegar dla testów i harnessu. */
   now?: Date;
+  /** Podgląd zapisanego debriefu dla roli bez prawa zapisu. */
+  readOnly?: boolean;
 }) {
   const toast = useToast();
   const qc = useQueryClient();
@@ -103,6 +109,33 @@ export function DebriefDialog({
   const [notifyDl, setNotifyDl] = useState(true);
   const [noQuestions, setNoQuestions] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [questionsNote, setQuestionsNote] = useState<string | null>(null);
+  const questionRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [focusQuestion, setFocusQuestion] = useState<number | null>(null);
+  useEffect(() => {
+    if (focusQuestion == null) return;
+    questionRefs.current[focusQuestion]?.focus();
+    setFocusQuestion(null);
+  }, [focusQuestion, questions.length]);
+
+  // Ostatnie pole zawsze puste (dopóki jest miejsce) — pisanie w nim dokłada
+  // kolejne. Lista ma wtedy co najwyżej MAX_DEBRIEF_QUESTIONS wypełnionych.
+  const withTrailing = (list: string[]) =>
+    list.length < MAX_DEBRIEF_QUESTIONS ? [...list, ""] : list;
+
+  const addQuestions = (lines: string[]) => {
+    const filled = questions.map((q) => q.trim()).filter(Boolean);
+    const { questions: merged, dropped } = mergeQuestions(filled, lines);
+    setQuestions(withTrailing(merged));
+    setQuestionsNote(
+      dropped > 0
+        ? `Pominięto ${dropped} — najwyżej ${MAX_DEBRIEF_QUESTIONS} pytań w jednym debriefie.`
+        : null,
+    );
+    return merged.length;
+  };
 
   // Formularz startuje od zapisanego debriefu (poprawka), inaczej pusty —
   // RAZ na otwarcie, dopiero gdy odczyt się rozstrzygnął. Inicjalizacja przy
@@ -125,6 +158,9 @@ export function DebriefDialog({
     setNotifyDl(true);
     setNoQuestions(Boolean(d?.no_client_questions) && !d?.questions?.length);
     setError(null);
+    setBulkOpen(false);
+    setBulkText("");
+    setQuestionsNote(null);
   }, [open, eventId, existing.isPending, existing.isSuccess, existing.data]);
 
   const typedQuestions = questions.map((q) => q.trim()).filter(Boolean);
@@ -145,6 +181,8 @@ export function DebriefDialog({
       qc.invalidateQueries({ queryKey: ["interview-cycle"] });
       qc.invalidateQueries({ queryKey: ["calendar-events"] });
       qc.invalidateQueries({ queryKey: ["interview-feedback"] });
+      // Skrót debriefu stoi na odznace karty (dok osoby na Tablicy).
+      qc.invalidateQueries({ queryKey: ["kanban"] });
       toast.showSuccess(
         res.questions_saved > 0
           ? `Debrief zapisany. Nowe pytania klienta: ${res.questions_saved} — zobaczą je następni kandydaci na prepie.`
@@ -187,6 +225,17 @@ export function DebriefDialog({
       title={title}
       description={description}
       footer={
+        readOnly ? (
+          <div className="flex w-full justify-end">
+            <button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="h-9 rounded-md border border-border px-4 text-sm font-semibold hover:bg-muted"
+            >
+              Zamknij
+            </button>
+          </div>
+        ) : (
         <div className="flex w-full flex-wrap items-center justify-between gap-3">
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -212,9 +261,10 @@ export function DebriefDialog({
             </button>
           </div>
         </div>
+        )
       }
     >
-      {notStarted && start ? (
+      {notStarted && start && !readOnly ? (
         <div
           role="status"
           data-testid="debrief-not-started"
@@ -234,7 +284,14 @@ export function DebriefDialog({
           Nie udało się wczytać zapisanego debriefu — zapis nadpisze go w całości.
         </p>
       ) : null}
-      <fieldset disabled={loading || notStarted} className="space-y-5" aria-busy={loading}>
+      {readOnly && existing.isSuccess && existing.data == null ? (
+        <p className="mb-3 text-sm text-muted-foreground">Debrief tej rozmowy nie został jeszcze zapisany.</p>
+      ) : null}
+      <fieldset
+        disabled={loading || notStarted || readOnly}
+        className="space-y-5"
+        aria-busy={loading}
+      >
         <fieldset>
           <legend className="mb-2 text-sm font-semibold">Jak poszło?</legend>
           <div className="grid grid-cols-3 gap-2">
@@ -276,49 +333,132 @@ export function DebriefDialog({
             Trafiają do karty klienta i tej rekrutacji — następny kandydat zobaczy je w prepie.
           </p>
           <fieldset disabled={noQuestions} className="space-y-2">
-            {questions.map((q, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <input
-                  aria-label={`Pytanie ${i + 1}`}
-                  value={q}
-                  maxLength={500}
-                  placeholder={i === questions.length - 1 ? "Dopisz pytanie klienta…" : undefined}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setQuestions((list) => {
-                      const next = list.map((v, j) => (j === i ? value : v));
-                      // Ostatnie pole zawsze puste — pisanie w nim dokłada nowe.
-                      if (i === list.length - 1 && value.trim() && next.length < 20) next.push("");
-                      return next;
-                    });
-                  }}
-                  className={INPUT}
-                />
-                {q && questions.length > 1 ? (
-                  <button
-                    type="button"
-                    aria-label={`Usuń pytanie ${i + 1}`}
-                    onClick={() =>
-                      setQuestions((list) => {
-                        const next = list.filter((_, j) => j !== i);
-                        return next.length && next[next.length - 1] === "" ? next : [...next, ""];
-                      })
-                    }
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive"
+            <ol className="space-y-2">
+              {(readOnly ? questions.filter((q) => q.trim()) : questions).map((q, i) => (
+                <li key={i} className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="w-6 shrink-0 text-right text-xs tabular-nums text-muted-foreground"
                   >
-                    <X className="h-4 w-4" />
-                  </button>
-                ) : null}
+                    {i + 1}.
+                  </span>
+                  <input
+                    ref={(el) => {
+                      questionRefs.current[i] = el;
+                    }}
+                    aria-label={`Pytanie ${i + 1}`}
+                    value={q}
+                    maxLength={500}
+                    placeholder={
+                      i === questions.length - 1 && !q
+                        ? "Dopisz pytanie klienta… (Enter dodaje kolejne)"
+                        : undefined
+                    }
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setQuestions((list) => {
+                        const next = list.map((v, j) => (j === i ? value : v));
+                        // Ostatnie pole zawsze puste — pisanie w nim dokłada nowe.
+                        if (
+                          i === list.length - 1 &&
+                          value.trim() &&
+                          next.length < MAX_DEBRIEF_QUESTIONS
+                        )
+                          next.push("");
+                        return next;
+                      });
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+                      e.preventDefault();
+                      if (!q.trim()) return;
+                      setFocusQuestion(Math.min(i + 1, questions.length - 1));
+                    }}
+                    onPaste={(e) => {
+                      const text = e.clipboardData.getData("text");
+                      if (!/\r?\n/.test(text.trim())) return;
+                      // Wklejona lista = osobne pytania, nie jedno długie pole.
+                      e.preventDefault();
+                      const count = addQuestions(splitPastedQuestions(text));
+                      setFocusQuestion(Math.min(count, MAX_DEBRIEF_QUESTIONS - 1));
+                    }}
+                    className={INPUT}
+                  />
+                  {q && questions.length > 1 && !readOnly ? (
+                    <button
+                      type="button"
+                      aria-label={`Usuń pytanie ${i + 1}`}
+                      onClick={() =>
+                        setQuestions((list) => {
+                          const next = list.filter((_, j) => j !== i);
+                          return next.length && next[next.length - 1] === "" ? next : [...next, ""];
+                        })
+                      }
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+            {readOnly ? null : (
+              <div className="flex flex-wrap items-center gap-2 pl-8">
+                <button
+                  type="button"
+                  disabled={typedQuestions.length >= MAX_DEBRIEF_QUESTIONS}
+                  onClick={() => setFocusQuestion(questions.length - 1)}
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-semibold hover:bg-muted disabled:opacity-50"
+                >
+                  <Plus className="h-3.5 w-3.5" aria-hidden /> Dodaj pytanie
+                </button>
+                <button
+                  type="button"
+                  aria-expanded={bulkOpen}
+                  onClick={() => setBulkOpen((v) => !v)}
+                  className="h-8 rounded-md border border-border px-2.5 text-xs font-semibold hover:bg-muted"
+                >
+                  Wklej listę pytań
+                </button>
+                <span className="text-xs text-muted-foreground">
+                  {typedQuestions.length} z {MAX_DEBRIEF_QUESTIONS}
+                </span>
               </div>
-            ))}
-            {questions.length >= 20 ? (
-              <p className="text-xs text-muted-foreground">Najwyżej 20 pytań w jednym debriefie.</p>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                <Plus className="h-3 w-3" aria-hidden /> Kolejne pole pojawi się samo
-              </span>
             )}
+            {bulkOpen && !readOnly ? (
+              <div className="space-y-2 pl-8">
+                <label htmlFor="debrief-bulk" className="block text-xs text-muted-foreground">
+                  Każda linia to osobne pytanie. Numery i punktory („1.”, „-”, „•”) zostaną usunięte, a
+                  powtórzenia połączone.
+                </label>
+                <textarea
+                  id="debrief-bulk"
+                  rows={4}
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                  className={cn(INPUT, "resize-y")}
+                />
+                <button
+                  type="button"
+                  disabled={!bulkText.trim()}
+                  onClick={() => {
+                    addQuestions(splitPastedQuestions(bulkText));
+                    setBulkText("");
+                    setBulkOpen(false);
+                  }}
+                  className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  Dodaj do listy
+                </button>
+              </div>
+            ) : null}
+            {questionsNote ? (
+              <p role="status" className="pl-8 text-xs text-warning-muted-foreground">
+                {questionsNote}
+              </p>
+            ) : null}
           </fieldset>
+          {readOnly && typedQuestions.length > 0 ? null : (
           <label className="mt-3 flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -328,6 +468,7 @@ export function DebriefDialog({
             />
             Klient nie zadawał pytań
           </label>
+          )}
         </fieldset>
 
         <fieldset>

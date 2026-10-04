@@ -63,6 +63,27 @@ describe("JobDetailCompactHeader", () => {
     expect(screen.getByTestId("header-client-line")).toHaveTextContent("nasz nr REF-505734");
   });
 
+  it("laptop 1280 px: tytuł i linia klienta w jednej linii, status obok tytułu, pełny tekst w dymku", () => {
+    renderHeader({ clientTitle: "Analityk Biznesowo-Systemowy KYC/AML", clientReference: "CABP/001/2026" });
+    const title = screen.getByTestId("job-header-title");
+    expect(title.className).toMatch(/(^| )truncate( |$)/);
+    expect(title.className).not.toMatch(/line-clamp/);
+    expect(title).toHaveAttribute("title", "Analityk KYC/AML");
+    // Status w tym samym wierszu co tytuł (wspólny rodzic, bez zawijania).
+    expect(title.parentElement).toContainElement(screen.getByText("Szukamy"));
+    expect(title.parentElement?.className).not.toMatch(/flex-wrap/);
+    const line = screen.getByTestId("header-client-line");
+    expect(line.className).toMatch(/(^| )truncate( |$)/);
+    expect(line).toHaveAttribute("title");
+  });
+
+  it("fakty bez ikony: etykieta i wartość w jednej linii", () => {
+    renderHeader();
+    const fact = screen.getByTestId("job-header-fact-client");
+    expect(fact.querySelector("svg")).toBeNull();
+    expect(fact.className).toMatch(/items-baseline/);
+  });
+
   it("bez nazwy od klienta i numerów linii pod tytułem nie ma", () => {
     renderHeader({ referenceNumber: null });
     expect(screen.queryByTestId("header-client-line")).toBeNull();

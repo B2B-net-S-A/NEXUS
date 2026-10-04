@@ -114,6 +114,8 @@ import {
  type CardNextStep,
  type QcChipTone,
  compactCardBadge,
+ cardShortName,
+ shortStepLabel,
 } from "@/lib/board-card-badges";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -523,6 +525,7 @@ function NextActionRow({
  hidden,
  advance,
  days,
+ hideWho = false,
 }: {
  action: NextAction;
  /** „Kto ma ruch" + co zrobić (Rekrutacja v5) — `null` = sama etykieta akcji. */
@@ -532,6 +535,8 @@ function NextActionRow({
  advance?: React.ReactNode;
  /** Dni na etapie — „piłka” mówi, od kiedy leży (PR 4, 04.10.2026). */
  days?: number | null;
+ /** Imię osoby z ruchem stoi już wiersz wyżej (dodał ją ta sama osoba). */
+ hideWho?: boolean;
 }) {
  if (action.kind === "none" && !step && !advance && !(days != null && days >= 1)) return null;
  const daysTone = days == null ? null : days >= 7 ? "danger" : days >= 3 ? "warning" : "neutral";
@@ -546,7 +551,7 @@ function NextActionRow({
  hidden && "xl:pointer-fine:hidden"
  )}
  >
- {step ? (
+ {step && !hideWho ? (
   <span
    data-testid="card-next-who"
    className={cn(
@@ -559,9 +564,9 @@ function NextActionRow({
  ) : label ? (
   <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
  ) : null}
- {/* Dwie linie zamiast ucinania: „Twój ruch" / imię zabiera miejsce,
- a „Przygotuj C…" nie mówi, co zrobić. */}
- <span className="min-w-0 flex-1 line-clamp-2" title={label}>{label}</span>
+ {/* Krótka nazwa kroku (`shortStepLabel`) — pełna w `title`; dwie linie
+ zostają jako zapas dla własnych etapów szablonu. */}
+ <span className="min-w-0 flex-1 line-clamp-2" title={label}>{shortStepLabel(label)}</span>
  {/* „0 d” nic nie mówi — dni od pierwszego pełnego dnia na etapie. */}
  {days != null && days >= 1 && (
   <span
@@ -827,9 +832,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const detailsId = `kanban-candidate-details-${item.id}`;
  const hasAddedByName = Boolean(item.added_to_job_by_name?.trim());
  const addedByDisplayName = item.added_to_job_by_name?.trim() || "brak danych";
- const addedByShortName = item.added_to_job_by_name?.trim()
- ? item.added_to_job_by_name.trim().split(/\s+/)[0]
- : "Brak danych";
+ const addedByShortName = cardShortName(item.added_to_job_by_name) ?? "Brak danych";
  // Awatar WŁAŚCICIELA karty, nie kandydata — makieta kroku 04 pyta „czyja to
  // karta", a nazwisko kandydata i tak stoi wiersz wyżej.
  const ownerInitials = item.added_to_job_by_name?.trim()
@@ -1182,6 +1185,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  step={nextStep}
  days={item.days_in_stage ?? null}
  hidden={desktopOverview}
+ // Ta sama osoba dodała kartę i ma ruch — jej imię stoi wiersz wyżej
+ // (dawniej „Integracje:” dwa razy na jednej karcie, 04.10.2026).
+ hideWho={Boolean(nextStep && !nextStep.mine && hasAddedByName && nextStep.who === addedByShortName)}
  advance={
  nextColumnLabel && v5 ? (
  <button
@@ -1376,7 +1382,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  )}
  data-narrow={narrow && !desktopOverview ? "true" : undefined}
  >
- <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-xs border-b border-border flex items-center gap-2", "px-4 py-3", desktopOverview &&"xl:pointer-fine:min-h-14 xl:pointer-fine:flex-col xl:pointer-fine:items-stretch xl:pointer-fine:gap-1 xl:pointer-fine:px-1 xl:pointer-fine:py-1.5", !desktopOverview && narrow &&"xl:pointer-fine:flex-wrap xl:pointer-fine:gap-1 xl:pointer-fine:px-2")}>
+ <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-xs border-b border-border flex items-center gap-2", "px-3 py-2", desktopOverview &&"xl:pointer-fine:min-h-14 xl:pointer-fine:flex-col xl:pointer-fine:items-stretch xl:pointer-fine:gap-1 xl:pointer-fine:px-1 xl:pointer-fine:py-1.5", !desktopOverview && narrow &&"xl:pointer-fine:flex-wrap xl:pointer-fine:gap-1 xl:pointer-fine:px-2")}>
  {col.category && (
  <Tooltip>
  <TooltipTrigger asChild>
@@ -1403,11 +1409,12 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  {step}
  </span>
  )}
- {/* Nazwa etapu zawija się na spacjach, a słowo dłuższe niż kolumna —
- w środku (dzielenie po polsku, `lang="pl"`). „Zweryfikowany" ucinało się
- do „Zweryfikowan" w wąskiej pustej kolumnie (96 px) i w pełnej przy 1440 px
- (audyt 24.09.2026). Pełna nazwa zostaje w `title`. */}
- <h3 className={cn("text-foreground flex-1 min-w-0 line-clamp-2 leading-tight hyphens-auto [overflow-wrap:break-word]", "text-base font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]", !desktopOverview && narrow &&"xl:pointer-fine:order-last xl:pointer-fine:basis-full xl:pointer-fine:text-xs xl:pointer-fine:font-medium xl:pointer-fine:line-clamp-3 xl:pointer-fine:hyphens-auto xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)} lang="pl">
+ {/* Nazwa etapu: jeden rozmiar i jedna linia w kolumnie z kartami
+ (04.10.2026 — przy 1280 px duża nazwa łamała się na „Zweryfi-kowany”
+ i „CV wysłane”); pełna nazwa w `title`. Wąska pusta kolumna (96 px) dalej
+ zawija nazwę, także w środku słowa (dzielenie po polsku, `lang="pl"`,
+ audyt 24.09.2026). */}
+ <h3 className={cn("text-foreground flex-1 min-w-0 truncate leading-tight", "text-[13px] font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]", !desktopOverview && narrow &&"xl:pointer-fine:order-last xl:pointer-fine:basis-full xl:pointer-fine:whitespace-normal xl:pointer-fine:text-xs xl:pointer-fine:line-clamp-3 xl:pointer-fine:hyphens-auto xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)} lang="pl">
  {titleOverride ?? columnLabel(col)}
  </h3>
  <Badge size="sm" variant={headerCount > 0 ?"soft" :"outline"} className={cn(desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[10px]")}>
@@ -1432,8 +1439,9 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  data-column-purpose={purpose ? "true" : undefined}
  className={cn(
  "min-w-0",
- // Wąska pusta kolumna (96 px) potrzebuje trzech linii na „Prep → rozmowa → telefon”.
- purpose ? cn(narrow ? "line-clamp-3" : "line-clamp-2", "font-medium leading-snug text-foreground/80") : "truncate",
+ // Wąska pusta kolumna (96 px) potrzebuje trzech linii na „Prep → rozmowa → telefon”;
+ // w kolumnie z kartami jedna linia, pełny tekst w `title` (04.10.2026).
+ purpose ? cn(narrow ? "line-clamp-3" : "truncate", "font-medium leading-snug text-foreground/80") : "truncate",
  )}
  title={purpose ?? undefined}
  >
@@ -1520,12 +1528,15 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  )}
  </Draggable>
  ))}
+ {/* Ramka „upuść tutaj” pojawia się dopiero w trakcie przeciągania
+ karty (`data-dragging` na korzeniu tablicy) — w spoczynku pusta
+ kolumna jest po prostu pusta (04.10.2026). */}
  {headerCount === 0 && !snapshot.isDraggingOver && !readOnly && !noDrop && (
  <div
  aria-hidden="true"
  data-testid="column-drop-hint"
  className={cn(
- "rounded-md border border-dashed border-border px-1 py-6 text-center text-[10px] text-muted-foreground",
+ "hidden rounded-md border border-dashed border-border px-1 py-6 text-center text-[10px] text-muted-foreground group-data-[dragging=true]/board:block",
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  >
@@ -2187,6 +2198,21 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setPendingRemoval(item);
  }, []);
 
+ // Przeciąganie karty: znacznik na korzeniu tablicy zamiast stanu Reacta —
+ // pokazuje ramki „upuść tutaj” w pustych kolumnach bez przerenderowania
+ // kolumn w trakcie ruchu (04.10.2026).
+ const boardRootRef = useRef<HTMLDivElement>(null);
+ const handleDragStart = useCallback(() => {
+ boardRootRef.current?.setAttribute("data-dragging", "true");
+ }, []);
+ const handleDragEnd = useCallback(
+ (res: DropResult) => {
+ boardRootRef.current?.removeAttribute("data-dragging");
+ onDragEnd(res);
+ },
+ [onDragEnd]
+ );
+
  // ── Krok 04 Pipeline (flow C2, PR 3/7): dok „Karta w procesie" ─────────
  //
  // `dockItem` szuka po `candidate_id`, nie po `id` (patrz komentarz przy
@@ -2214,6 +2240,22 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }
  return { dockItem: null, dockItemColId: null, dockItemColLabel: null };
  }, [cols, dockCandidateId, hostByColId, boardLabelByColId]);
+
+ // Panel osoby zabiera tablicy 380 px z prawej (`lg:pr-[380px]`) — po jego
+ // otwarciu i przy „‹ ›” w panelu tablica przewija się tak, żeby karta
+ // wybranej osoby została na widoku. Na laptopie 1280 px osoba z „CV
+ // wysłane” chowała się pod własnym panelem (04.10.2026). Tylko przy zmianie
+ // osoby — odświeżenie tablicy nie przewija jej pod rekruterem.
+ const dockOpen = dockItem != null && dockItemColLabel !== null;
+ useEffect(() => {
+ if (!dockOpen || dockCandidateId == null) return;
+ const frame = window.requestAnimationFrame(() => {
+ document
+ .querySelector<HTMLElement>(`[data-candidate-id="${dockCandidateId}"]`)
+ ?.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "smooth" });
+ });
+ return () => window.cancelAnimationFrame(frame);
+ }, [dockCandidateId, dockOpen]);
 
 
  // Deep link `?candidate=&panel=` (dawne linki do sekcji panelu „Tabeli" —
@@ -2898,10 +2940,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  return (
  <BoardV4Context.Provider value={boardV4}>
- <div className="relative space-y-3">
+ <div ref={boardRootRef} className="group/board relative space-y-3">
  {/* DragDropContext obejmuje też kolumnę „Zamknięci" obok tablicy — jej
  strefy są celami upuszczenia. */}
- <DragDropContext onDragEnd={onDragEnd}>
+ <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
  {/* Dok „Karta kandydata" NIE zajmuje kolumny siatki — wysuwa się z prawej
  dopiero po kliknięciu karty (przegląd UX 17.09.2026: stała trzecia kolumna
  zjadała tablicy 360 px nawet wtedy, gdy nic nie było wybrane). */}

@@ -4,13 +4,20 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 
+import { DebriefDialog } from "@/components/calendar/cycle/DebriefDialog";
 import { InterviewCycleProgress } from "@/components/calendar/cycle/InterviewCycleProgress";
 import { PlanPrepDialog } from "@/components/calendar/cycle/PlanPrepDialog";
 import { PrepReviewDialog } from "@/components/calendar/cycle/PrepReviewDialog";
 import { SlotDecisionDialog } from "@/components/calendar/cycle/SlotDialogs";
 import { ReschedulePrepDialog } from "@/components/calendar/cycle/ReschedulePrepDialog";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
-import type { PairInfo, StepState } from "@/lib/interview-cycle";
+import {
+  candidateLabel,
+  debriefSummaryLine,
+  pairContext,
+  type PairInfo,
+  type StepState,
+} from "@/lib/interview-cycle";
 import { scheduledInterviewFromSteps } from "@/lib/prep-timing";
 import { cn } from "@/lib/utils";
 
@@ -50,6 +57,8 @@ export function DockInterviewCycle({
   // osoby — do tej pory wyłącznie w kalendarzu „Rozmowy u klienta”.
   const [slotMode, setSlotMode] = useState<"pick" | "confirm" | null>(null);
   const [reviewPrepId, setReviewPrepId] = useState<number | null>(null);
+  const [viewDebrief, setViewDebrief] = useState(false);
+  const debrief = badge.debrief ?? null;
   const slotRequest = badge.slot_request ?? null;
   const canPickSlot = slotRequest?.status === "awaiting_recruiter";
   // Termin potwierdza osoba z prawem do terminów od klienta (ta sama, która je
@@ -168,6 +177,33 @@ export function DockInterviewCycle({
           ) : null}
         </div>
       ) : null}
+      {debrief && badge.interview_event_id != null ? (
+        // 04.10.2026: po zapisie debriefu dok tracił przycisk i nie pokazywał
+        // niczego — warunek kandydata („chce jednak 125 zł/h”) ginął.
+        <div className="space-y-0.5 rounded-md bg-muted/50 px-2 py-1.5" data-testid="dock-debrief-summary">
+          <div>
+            <span className="font-semibold text-foreground">Debrief:</span>{" "}
+            <span className="text-foreground">{debriefSummaryLine(debrief)}</span>
+          </div>
+          {debrief.acceptance_condition ? (
+            <div className="break-words text-muted-foreground">
+              Warunek: {debrief.acceptance_condition}
+            </div>
+          ) : null}
+          {debrief.candidate_comment ? (
+            <div className="break-words text-muted-foreground">
+              Komentarz kandydata: {debrief.candidate_comment}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setViewDebrief(true)}
+            className="font-medium text-primary hover:underline"
+          >
+            Cały debrief
+          </button>
+        </div>
+      ) : null}
       {reviewedPreps.length > 0 ? (
         <div className="flex flex-wrap gap-x-3 gap-y-1">
           {reviewedPreps.map((p) => (
@@ -197,6 +233,17 @@ export function DockInterviewCycle({
           onOpenChange={(o) => !o && setReviewPrepId(null)}
           eventId={reviewPrepId}
           pair={pair}
+        />
+      ) : null}
+      {viewDebrief && badge.interview_event_id != null ? (
+        <DebriefDialog
+          open
+          onOpenChange={(o) => !o && setViewDebrief(false)}
+          eventId={badge.interview_event_id}
+          title="Debrief po rozmowie u klienta"
+          description={`${candidateLabel(pair)} · ${pairContext(pair)}`}
+          readOnly={readOnly}
+          submitLabel="Zapisz poprawkę"
         />
       ) : null}
       {rescheduling && latePrepId ? (
