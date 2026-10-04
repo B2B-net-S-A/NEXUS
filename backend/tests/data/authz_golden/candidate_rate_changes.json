@@ -22,6 +22,7 @@
  ],
  "routes": {
   "GET /api/rate-changes": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/rate-changes/active-processes": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/rate-changes": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/rate-changes/{change_id}/decision": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/rate-changes/{change_id}/negotiation": "PPPPPPDDPPPPPPPPPPP",

@@ -1165,3 +1165,80 @@ async def send_reminders(db: AsyncSession, now: datetime) -> int:
         return sent
     _REMINDERS_DONE_FOR = today
     return sent
+
+
+# ── Trwające procesy kandydata (D4: zmiana stawki w profilu) ────────────────
+
+
+@dataclass(frozen=True)
+class ActiveProcess:
+    job_id: int
+    job_title: str
+    client_name: Optional[str]
+    board_column: str
+    current_label: Optional[str]
+
+
+async def active_processes(
+    db: AsyncSession, *, candidate_id: int
+) -> list[ActiveProcess]:
+    """Rekrutacje kandydata od „Zweryfikowany” do „Umowy” (opublikowane) —
+    okno stawki w profilu pyta, w których z nich zmienić stawkę (D4)."""
+
+    from app.models.client import Client  # noqa: PLC0415
+    from app.models.job import JobStatus  # noqa: PLC0415
+
+    latest = (
+        select(CandidateStage)
+        .where(CandidateStage.candidate_id == candidate_id)
+        .order_by(CandidateStage.job_id, CandidateStage.id.desc())
+        .distinct(CandidateStage.job_id)
+        .subquery()
+    )
+    rows = (
+        await db.execute(
+            select(CandidateStage, Job, Client.name)
+            .join(latest, latest.c.id == CandidateStage.id)
+            .join(Job, Job.id == CandidateStage.job_id)
+            .outerjoin(Client, Client.id == Job.client_id)
+            .where(Job.status == JobStatus.published)
+            .order_by(CandidateStage.id.desc())
+        )
+    ).all()
+    out: list[ActiveProcess] = []
+    for stage, job, client_name in rows:
+        column = await _stage_column(db, stage)
+        if column not in NOTIFY_COLUMNS:
+            continue
+        rates = await pair_rates(db, candidate_id=candidate_id, job_id=job.id)
+        out.append(
+            ActiveProcess(
+                job_id=job.id,
+                job_title=job.working_title or job.title,
+                client_name=client_name,
+                board_column=column,
+                current_label=format_rate(
+                    rates["amount"], rates["unit"], rates["currency"]
+                )
+                if rates["amount"] is not None
+                else None,
+            )
+        )
+    return out
+
+
+async def pair_column(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> Optional[str]:
+    """Kolumna Tablicy najnowszego wiersza pary (``None`` = pary nie ma)."""
+
+    stage = await db.scalar(
+        select(CandidateStage)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+        )
+        .order_by(CandidateStage.id.desc())
+        .limit(1)
+    )
+    return await _stage_column(db, stage) if stage is not None else None

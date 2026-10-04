@@ -15,6 +15,7 @@ karcie to oczekiwania kandydata, które widzi każda rola wewnętrzna.
 
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -227,6 +228,38 @@ async def get_recommendation_card(
     return await _response(db, candidate, job, card)
 
 
+async def _card_rate_change(db: AsyncSession, *, card, user) -> None:  # noqa: ANN001
+    """Stawka wpisana ręcznie na karcie od „Zweryfikowany” to zmiana stawki
+    w procesie (0418): ślad, dzwonek DL i Head of Recruitment, zadanie DL po
+    wysłaniu CV. Tylko PLN/h odczytane bez zgadywania; import z notatek tu
+    nie przechodzi (to zapis ręczny)."""
+
+    from app.services import candidate_rate_change as rate_change  # noqa: PLC0415
+
+    hourly = cards.card_rate_hourly((card.fields_manual or {}).get("rate"))
+    if hourly is None:
+        return
+    column = await rate_change.pair_column(
+        db, candidate_id=card.candidate_id, job_id=card.job_id
+    )
+    if column not in rate_change.NOTIFY_COLUMNS:
+        return
+    result = await rate_change.change_rate(
+        db,
+        candidate_id=card.candidate_id,
+        job_id=card.job_id,
+        amount=Decimal(str(hourly)),
+        unit="hourly",
+        currency="PLN",
+        source="card",
+        reason="other",
+        actor=user,
+    )
+    if result.emails:
+        await db.commit()
+        await rate_change.send_pending_emails(result.emails)
+
+
 @router.put("/recommendation-cards", response_model=CardResponse)
 async def update_recommendation_card(
     data: CardUpdate,
@@ -261,6 +294,7 @@ async def update_recommendation_card(
         )
         await db.flush()
         if "rate" in changed:
+            await _card_rate_change(db, card=card, user=user)
             # „Stawka od” (0414) — od razu, nie czekając na pętlę kolejki.
             from app.services.candidate_rate_from import recompute_safely
 
