@@ -253,7 +253,10 @@ export function BoardTasksPanel() {
   }
 
   const cproGroups = groupCproByJob(data.cpro_to_send);
-  const othersGroup = Boolean(transit) || data.cpro_sent.length > 0;
+  // „Twoje CV w drodze” z czymś, co wróciło, to Twój ruch (popraw i oddaj);
+  // samo czekanie na przegląd i klienta — „U innych”.
+  const transitIsMine = (transit?.returned_total ?? 0) > 0;
+  const othersGroup = (Boolean(transit) && !transitIsMine) || data.cpro_sent.length > 0;
   const openQueue = (jobId: number | null) => {
     setCproJob(jobId);
     setCproOpen(true);
@@ -292,6 +295,7 @@ export function BoardTasksPanel() {
         <NewJobLeadsSection rows={leads} />
         <PendingJobsSection pending={data.pending_jobs} forms={data.unfinished_forms} />
         <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
+        {transit && transitIsMine ? <CvInTransitSection transit={transit} /> : null}
         {dlReview.length > 0 && (
           <Section
             title="Czeka na Twój przegląd (DL)"
@@ -422,7 +426,7 @@ export function BoardTasksPanel() {
             U innych — czekasz na nich
           </h3>
           <div className="grid gap-4 lg:grid-cols-3">
-            {transit ? <CvInTransitSection transit={transit} /> : null}
+            {transit && !transitIsMine ? <CvInTransitSection transit={transit} /> : null}
             {data.cpro_sent.length > 0 && (
               <Section
                 title="Wysłane do Cpro"
