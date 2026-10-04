@@ -362,7 +362,7 @@ async def test_catalog_off_preserves_real_provider_and_channel_information(
     )
     assert result["backlog"]["scope"] == "chat_unread"
     types = {item["id"]: item for item in result["types"]}
-    assert len(types) == 11
+    assert len(types) == 12
     # Potwierdzenie aplikacji idzie wyłącznie mailem (do kandydata).
     assert types["application_confirmation"]["channels"] == ["email"]
     assert types["kpi_weekly_report"]["channels"] == ["email"]
