@@ -22,7 +22,7 @@ dotyczy.
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -124,6 +124,107 @@ async def gate_stage_row(
         if column != "closed":
             return row, column
     return rows[0], "new"
+
+
+# Kolumny, z których wejście na „Zweryfikowany” jest bramkowane (D1). Zwrot
+# z „QC CV” i dalszych („Wróć do poprawy”) przechodzi bez sprawdzenia.
+VERIFIED_GATE_FROM_COLUMNS = frozenset({"new", "screening"})
+
+VERIFIED_REQUIREMENT_LABELS = {
+    "screening_sheet": "arkusz screeningu",
+    "candidate_rate": "stawka kandydata",
+}
+
+
+async def assert_verified_requirements(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job: Any,
+    user: User,
+    target_column: str,
+    pending_rate: bool,
+) -> None:
+    """409 `VERIFIED_REQUIREMENTS_MISSING` — wejście na „Zweryfikowany” bez
+    arkusza screeningu albo bez stawki kandydata (decyzja Artura 04.10.2026).
+
+    Braki liczy ``move_requirements.load_pair_facts`` — ta sama reguła co
+    okno „Przesuń dalej” i ramka „Następny etap”, więc ekran i serwer nie
+    mogą się rozjechać. Arkusz = zapisany arkusz pary albo odpowiedzi
+    w karcie rekomendacji; stawka = profil, wcześniejszy etap pary albo ta
+    w żądaniu (``pending_rate``). Para w „Zamkniętych” liczy się kolumną
+    sprzed zamknięcia (``gate_stage_row``).
+    """
+    from app.core.config import settings  # noqa: PLC0415
+    from app.models.candidate import Candidate  # noqa: PLC0415
+    from app.services import move_requirements  # noqa: PLC0415
+
+    if not settings.VERIFIED_GATE_ENABLED or target_column != "verified":
+        return
+    _row, column = await gate_stage_row(db, candidate_id=candidate_id, job_id=job.id)
+    if column not in VERIFIED_GATE_FROM_COLUMNS:
+        return
+    candidate = await db.get(Candidate, candidate_id)
+    if candidate is None:
+        return
+    facts = await move_requirements.load_pair_facts(
+        db, candidate=candidate, job=job, user=user
+    )
+    missing: list[str] = []
+    if not (facts.screening_done or facts.card_answers):
+        missing.append("screening_sheet")
+    if not (facts.candidate_rate or pending_rate):
+        missing.append("candidate_rate")
+    if not missing:
+        return
+    labels = [VERIFIED_REQUIREMENT_LABELS[key] for key in missing]
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "VERIFIED_REQUIREMENTS_MISSING",
+            "missing": missing,
+            "screening_stage_id": facts.screening_stage_id,
+            "message": "Przed „Zweryfikowany” uzupełnij: " + ", ".join(labels) + ".",
+        },
+    )
+
+
+HIRED_SIGNED_VIA = ("b2b_offline", "uop", "zlecenie", "other")
+
+
+def assert_hired_signed_via(
+    target: PipelineStage, signed_via: Optional[str], note: Optional[str]
+) -> None:
+    """Ręczny ruch na „Zatrudniony” mówi, jak podpisano umowę (D2, 04.10.2026).
+
+    Umowa B2B z Generatora przesuwa kartę sama („Oznacz jako podpisaną”).
+    Ręcznie zostają umowy spoza Generatora — wtedy człowiek wybiera rodzaj,
+    a „inny” wymaga opisu.
+    """
+    from app.core.config import settings  # noqa: PLC0415
+
+    if target != PipelineStage.hired or not settings.HIRED_SIGNED_VIA_REQUIRED:
+        return
+    if signed_via not in HIRED_SIGNED_VIA:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "HIRED_SIGNED_VIA_REQUIRED",
+                "message": (
+                    "Napisz, jak podpisano umowę. Umowę B2B z Generatora "
+                    "potwierdź przyciskiem „Oznacz jako podpisaną” — karta "
+                    "przejdzie na „Zatrudniony” sama."
+                ),
+            },
+        )
+    if signed_via == "other" and not (note or "").strip():
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "HIRED_SIGNED_VIA_REQUIRED",
+                "message": "Przy „inna umowa” opisz, jak ją podpisano.",
+            },
+        )
 
 
 async def assert_debrief_before_contract(
