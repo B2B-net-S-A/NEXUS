@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   rerenderGenerated: vi.fn(),
   renderHtml: vi.fn(),
   checkUop: vi.fn(),
+  prefill: vi.fn(),
   downloadBlob: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
@@ -79,6 +80,7 @@ vi.mock("@/lib/api", () => ({
     rerenderGenerated: (...a: unknown[]) => mocks.rerenderGenerated(...a),
     renderHtml: (...a: unknown[]) => mocks.renderHtml(...a),
     checkUop: (...a: unknown[]) => mocks.checkUop(...a),
+    prefill: (...a: unknown[]) => mocks.prefill(...a),
   },
   extractErrorMsg: (error: unknown) =>
     error instanceof Error ? error.message : "Błąd",
@@ -200,6 +202,8 @@ beforeEach(() => {
     .mockResolvedValue({ contract_number: "1501/2026", year: 2026, seq: 1501 });
   mocks.clientsLookup.mockResolvedValue([]);
   mocks.generated.mockResolvedValue([]);
+  // Bez podpowiedzi z rekrutacji — przypadki niżej ustawiają je wprost.
+  mocks.prefill.mockRejectedValue(new Error("brak"));
   mocks.companyLookup.mockRejectedValue(new Error("brak"));
   // Rejestr potwierdza firmę bez uwag → „Pobierz DOCX” generuje od razu.
   mocks.companyVerification.mockResolvedValue({
@@ -959,5 +963,50 @@ describe("GeneratorForm — wariant umowy dla spółki (ticket 8)", () => {
     expect((screen.getByLabelText("KRS *") as HTMLInputElement).value).toBe(
       "0000123456",
     );
+  });
+});
+
+describe("GeneratorForm — umowa z rekrutacji (04.10.2026)", () => {
+  it("stawka z karty rekomendacji wypełnia puste pole i mówi skąd jest", async () => {
+    mocks.prefill.mockResolvedValue({
+      candidate_id: 42,
+      job_id: 10,
+      rate: { value: 140, source: "card", at: "2026-10-01T08:00:00Z" },
+      start_date: null,
+      availability_text: "od 1 listopada",
+      client_rate: null,
+      client_rate_redacted: true,
+      existing: null,
+    });
+    renderForm();
+    await waitFor(
+      () =>
+        expect(
+          (screen.getByLabelText("Stawka godz. (netto) *") as HTMLInputElement)
+            .value,
+        ).toBe("140"),
+      { timeout: PREFILL_WAIT },
+    );
+    expect(
+      screen.getByText("Stawka z karty rekomendacji · 01.10.2026"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Dostępność z karty rekomendacji: od 1 listopada"),
+    ).toBeInTheDocument();
+    expect(mocks.prefill).toHaveBeenCalledWith(42, 10);
+  });
+
+  it("w panelu osoby kandydata nie da się zmienić, a zapis woła onSaved", async () => {
+    const user = setupUser();
+    const onSaved = vi.fn();
+    mocks.renderDocx.mockResolvedValue(docxResponse("88"));
+    renderForm({ lockedPair: true, onSaved });
+    await fillForm(user);
+    expect(screen.getByRole("combobox", { name: /Kandydat/ })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+    await waitFor(() =>
+      expect(onSaved).toHaveBeenCalledWith({ id: 88, number: "1500/2026" }),
+    );
+    expect(screen.queryByRole("button", { name: /Nowa umowa/ })).toBeNull();
   });
 });

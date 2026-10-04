@@ -14,6 +14,7 @@
  * cyklu nie ma.
  */
 
+import type { CardAgreement } from "@/lib/b2b-agreement";
 import { memo } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -179,6 +180,8 @@ export interface KanbanItem {
  } | null;
  // „Zatrudniony": czy jest uzupełnione zamówienie.
  order_status?: "complete" | "missing" | null;
+ // 04.10.2026: umowa B2B z Generatora tej pary — stan z rejestru, w każdej kolumnie.
+ agreement?: CardAgreement | null;
  // 0372: follow-up z kandydatem, gdy klient milczy — kto dzwoni i kiedy
  // (liczone dla OSOBY, ze wszystkimi jej procesami).
  followup?: FollowupCardBadge | null;

@@ -3563,6 +3563,8 @@ export const b2bGeneratorApi = {
           ...(params.businessDataAnnexPending
             ? { business_data_annex_pending: true }
             : {}),
+          ...(params.candidateId ? { candidate_id: params.candidateId } : {}),
+          ...(params.author ? { author: params.author } : {}),
         },
         // `repeat`, nie domyślny `brackets`: FastAPI czyta listę wyłącznie jako
         // powtórzony parametr. Axios domyślnie wysłałby `contract_status[]=…`,
@@ -3598,6 +3600,20 @@ export const b2bGeneratorApi = {
       .post<B2BConfirmFullySignedResult>(
         `/api/b2b-generator/generated/${id}/confirm-fully-signed`,
         body,
+      )
+      .then((r) => r.data),
+  /** Podpowiedzi formularza umowy z rekrutacji (panel osoby i Generator). */
+  prefill: (candidateId: number, jobId: number) =>
+    api
+      .get<B2BAgreementPrefill>("/api/b2b-generator/prefill", {
+        params: { candidate_id: candidateId, job_id: jobId },
+      })
+      .then((r) => r.data),
+  /** Rekruter prosi DL-a / TCM o potwierdzenie podpisu (D1, 04.10.2026). */
+  requestSignature: (id: number) =>
+    api
+      .post<B2BSignatureRequestResult>(
+        `/api/b2b-generator/generated/${id}/signature-request`,
       )
       .then((r) => r.data),
   /** Powiąż podpisaną umowę bez kontraktora z istniejącym kontraktem. */
@@ -3701,6 +3717,39 @@ export interface B2BGeneratedListParams {
   source?: B2BRegisterSource;
   /** Kolejka umów czekających na aneks „uzupełnienie danych firmy”. */
   businessDataAnnexPending?: boolean;
+  /** Umowy jednej osoby (panel osoby w rekrutacji). */
+  candidateId?: number;
+  /** `recruiter` — tylko umowy wygenerowane przez rekruterów (04.10.2026). */
+  author?: "recruiter";
+}
+
+/** Podpowiedzi formularza umowy z rekrutacji (`GET /prefill`, 04.10.2026). */
+export interface B2BAgreementPrefill {
+  candidate_id: number;
+  job_id: number;
+  rate: {
+    value: number;
+    /** card — karta rekomendacji; this_job — okno „Zweryfikowany”; rate_from — „Stawka od”. */
+    source: "card" | "this_job" | "rate_from";
+    at: string | null;
+  } | null;
+  start_date: string | null;
+  availability_text: string | null;
+  client_rate: { value: number; unit: string | null; currency: string | null } | null;
+  client_rate_redacted: boolean;
+  existing: {
+    id: number;
+    contract_number: string;
+    contract_status: B2BContractStatus;
+    signature_status: B2BSignatureStatus;
+  } | null;
+}
+
+export interface B2BSignatureRequestResult {
+  /** false = prośba sprzed mniej niż doby, dzwonek nie poszedł drugi raz. */
+  sent: boolean;
+  requested_at: string | null;
+  recipient_names: string[];
 }
 
 /** Wpis dziennika zmian statusu — dialog „Historia statusów". */
@@ -3775,6 +3824,10 @@ export interface B2BGeneratedContractRow {
   signing_date: string | null;
   created_at: string | null;
   created_by_name: string | null;
+  /** Rola główna autora (filtr „Wygenerowane przez rekruterów”). */
+  created_by_role?: string | null;
+  /** Kolumna Tablicy pary w tej rekrutacji (`board_column_for`). */
+  pair_column?: string | null;
   signature_status: B2BSignatureStatus;
   signature_source: B2BSignatureSource | null;
   contract_status: B2BContractStatus;
