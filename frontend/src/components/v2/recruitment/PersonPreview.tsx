@@ -46,6 +46,7 @@ import {
 import { availabilityLabel } from "@/lib/proposals-merge";
 import { similarPersonScoreKey } from "@/lib/similar-jobs-api";
 import { cn, formatRelativeTime } from "@/lib/utils";
+import { hourlyText } from "@/lib/candidate-rate";
 
 export interface PersonPreviewSource {
   /** Nagłówek sekcji, np. „W rekrutacji: Analityk AML” albo „Skąd ta osoba”. */
@@ -420,7 +421,11 @@ function FactsBody({ facts }: { facts: ProposalFacts | null }) {
   const tiles: Array<[string, string | null]> = [
     ["Miasto", facts.city?.trim() || null],
     ["Tryb pracy", workModeLabel(facts)],
-    ["Stawka", factsRateLabel(facts)],
+    ["Stawka od", factsRateLabel(facts)],
+    [
+      "W tej rekrutacji",
+      facts.rate_this_job_hourly != null ? hourlyText(facts.rate_this_job_hourly) : null,
+    ],
     ["Dostępność", availabilityLabel(facts.availability_status, facts.availability_date)],
   ];
   const known = tiles.filter((tile): tile is [string, string] => tile[1] !== null);

@@ -103,6 +103,13 @@ import {
   cardFactsByKey,
 } from "@/lib/candidate-card-facts";
 import { useAuthStore } from "@/store/auth";
+import {
+  rateFromText,
+  rateSecondLine,
+  toAmount,
+  type RateFromFields,
+} from "@/lib/candidate-rate";
+import { RateHistoryDialog } from "@/components/v2/candidate-profile/RateHistoryDialog";
 
 const CEFR_LEVELS: CandidateLanguageCefrLevel[] = [
   "A1",
@@ -246,7 +253,8 @@ interface CandidateProfileFactsBarProps {
     notice_period_unit?: string | null;
     preferences?: unknown;
     max_onsite_days_per_week?: number | null;
-  } & CandidateCallFacts;
+  } & CandidateCallFacts &
+    RateFromFields;
 }
 
 /**
@@ -351,6 +359,7 @@ function FactShell({
   action,
   muted,
   origin,
+  footer,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -359,6 +368,8 @@ function FactShell({
   muted?: boolean;
   /** Źródło i data ustalenia z rozmowy (karta rekomendacji). */
   origin?: { text: string; title: string };
+  /** Akcja pod opisem źródła (np. „Historia stawek”). */
+  footer?: React.ReactNode;
 }) {
   return (
     <div className="min-w-0 rounded-lg border border-border bg-card p-3 md:max-2xl:p-2">
@@ -391,6 +402,7 @@ function FactShell({
               {origin.text}
             </p>
           ) : null}
+          {footer}
         </div>
         {action}
       </div>
@@ -1200,11 +1212,14 @@ function RateEditor({
   onOpenChange,
   candidateId,
   queryData,
+  initialMinimum = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   candidateId: number;
   queryData: RateQueryData;
+  /** Otwarte z „Ustaw minimum ręcznie” w historii stawek. */
+  initialMinimum?: boolean;
 }) {
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useToast();
@@ -1216,28 +1231,39 @@ function RateEditor({
     null,
   );
   const [mutationError, setMutationError] = React.useState<string | null>(null);
+  // „To jego minimum” (0414): starsze niższe stawki przestają się liczyć do
+  // „Stawki od”, którą czytają filtry i AI.
+  const [isMinimum, setIsMinimum] = React.useState(false);
   const wasOpenRef = React.useRef(false);
 
   React.useEffect(() => {
     if (open && !wasOpenRef.current) {
       setAmount(queryData.data.amount ?? "");
+      setIsMinimum(initialMinimum);
       setValidationError(null);
       setConflictMessage(null);
       setMutationError(null);
     }
     wasOpenRef.current = open;
-  }, [open, queryData.data.amount]);
+  }, [open, queryData.data.amount, initialMinimum]);
 
   const mutation = useMutation({
     mutationFn: (nextAmount: string | null) => {
       if (!queryData.etag) {
         throw new Error("Brak wersji danych. Odśwież stawkę i spróbuj ponownie.");
       }
-      return candidateFactsApi.updateProfileRate(
-        candidateId,
-        nextAmount,
-        queryData.etag,
-      );
+      return isMinimum && nextAmount !== null
+        ? candidateFactsApi.updateProfileRate(
+            candidateId,
+            nextAmount,
+            queryData.etag,
+            true,
+          )
+        : candidateFactsApi.updateProfileRate(
+            candidateId,
+            nextAmount,
+            queryData.etag,
+          );
     },
     onSuccess: (result) => {
       setMutationError(null);
@@ -1295,10 +1321,11 @@ function RateEditor({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent aria-describedby="candidate-rate-dialog-description">
         <DialogHeader>
-          <DialogTitle>Globalna stawka kandydata</DialogTitle>
+          <DialogTitle>Stawka podana przez kandydata</DialogTitle>
           <DialogDescription id="candidate-rate-dialog-description">
-            To oczekiwana stawka B2B w PLN netto za godzinę. Nie zmienia stawek
-            przypisanych do konkretnych rekrutacji.
+            Stawka B2B w PLN netto za godzinę. Trafia do historii stawek —
+            filtry i AI porównują budżet z najniższą stawką z ostatnich 18
+            miesięcy („Stawka od”).
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -1327,8 +1354,26 @@ function RateEditor({
             </span>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            Pozostaw puste, aby usunąć globalną stawkę.
+            Pozostaw puste, aby usunąć stawkę z profilu.
           </p>
+          <label
+            htmlFor="candidate-profile-rate-minimum"
+            className="mt-3 flex items-start gap-2 text-sm"
+          >
+            <Checkbox
+              id="candidate-profile-rate-minimum"
+              checked={isMinimum}
+              onCheckedChange={(value) => setIsMinimum(value === true)}
+              className="mt-0.5"
+            />
+            <span>
+              To jego minimum
+              <span className="block text-xs text-muted-foreground">
+                Niższe stawki podane wcześniej przestaną się liczyć do
+                „Stawki od”. Zostaną w historii.
+              </span>
+            </span>
+          </label>
           {validationError ? (
             <p
               id="candidate-profile-rate-error"
@@ -1419,6 +1464,8 @@ export function CandidateProfileFactsBar({
   const [languagesOpen, setLanguagesOpen] = React.useState(false);
   const [locationOpen, setLocationOpen] = React.useState(false);
   const [rateOpen, setRateOpen] = React.useState(false);
+  const [rateHistoryOpen, setRateHistoryOpen] = React.useState(false);
+  const [rateAsMinimum, setRateAsMinimum] = React.useState(false);
   const [workModeOpen, setWorkModeOpen] = React.useState(false);
   const [callFactsOpen, setCallFactsOpen] = React.useState(false);
 
@@ -1426,6 +1473,7 @@ export function CandidateProfileFactsBar({
     setLanguagesOpen(false);
     setLocationOpen(false);
     setRateOpen(false);
+    setRateHistoryOpen(false);
     setWorkModeOpen(false);
     setCallFactsOpen(false);
   }, [candidate.id]);
@@ -1469,6 +1517,19 @@ export function CandidateProfileFactsBar({
   const cardFacts = cardFactsByKey(cardOverview.data?.facts);
   const profileRate =
     rateQuery.data?.data.amount != null ? Number(rateQuery.data.data.amount) : null;
+  // „Stawka od” (0414): najniższa stawka z 18 miesięcy — ją czytają filtry
+  // i AI. Pokazujemy ją, gdy różni się od stawki profilu albo profil jej nie ma
+  // — inaczej kafel mówi to samo dwa razy.
+  const rateFromAmount = toAmount(candidate.rate_from_hourly);
+  const rateFrom =
+    rateFromAmount !== null &&
+    (profileRate === null ||
+      Math.abs(rateFromAmount - profileRate) >= 0.005 ||
+      Boolean(candidate.rate_from_stale) ||
+      (candidate.rate_observation_count ?? 0) > 1)
+      ? (rateFromText(candidate) ?? "").replace(/^od /, "")
+      : null;
+  const rateSecond = rateFrom ? rateSecondLine(candidate) : null;
   const languagesForbidden = requestStatus(languagesQuery.error) === 403;
   const rateForbidden = requestStatus(rateQuery.error) === 403;
 
@@ -1623,17 +1684,38 @@ export function CandidateProfileFactsBar({
           ) : rateQuery.data ? (
             <FactShell
               icon={<WalletCards className="size-4" />}
-              label={rateLabel}
-              muted={rateQuery.data.data.amount == null}
-              origin={cardOrigin(cardFacts.rate, profileRate)}
+              label={rateFrom ? "Stawka od" : rateLabel}
+              muted={rateQuery.data.data.amount == null && !rateFrom}
+              origin={
+                rateFrom
+                  ? rateSecond
+                    ? {
+                        text: rateSecond,
+                        title: "Ostatnio podana stawka i liczba stawek w historii",
+                      }
+                    : undefined
+                  : cardOrigin(cardFacts.rate, profileRate)
+              }
               action={
                 <EditFactButton
                   label="Edytuj globalną stawkę B2B"
                   onClick={() => setRateOpen(true)}
                 />
               }
+              footer={
+                <button
+                  type="button"
+                  className="mt-1 block min-h-6 text-xs font-medium text-primary hover:underline"
+                  onClick={() => setRateHistoryOpen(true)}
+                >
+                  Historia stawek
+                  {candidate.rate_observation_count
+                    ? ` (${candidate.rate_observation_count})`
+                    : ""}
+                </button>
+              }
             >
-              {formatRate(rateQuery.data.data.amount)}
+              {rateFrom ?? formatRate(rateQuery.data.data.amount)}
             </FactShell>
           ) : null
         ) : null}
@@ -1722,9 +1804,30 @@ export function CandidateProfileFactsBar({
       {rateQuery.data ? (
         <RateEditor
           open={rateOpen}
-          onOpenChange={setRateOpen}
+          onOpenChange={(next) => {
+            setRateOpen(next);
+            if (!next) setRateAsMinimum(false);
+          }}
           candidateId={candidate.id}
           queryData={rateQuery.data}
+          initialMinimum={rateAsMinimum}
+        />
+      ) : null}
+      {canViewAndEditRate ? (
+        <RateHistoryDialog
+          open={rateHistoryOpen}
+          onOpenChange={setRateHistoryOpen}
+          candidateId={candidate.id}
+          canEdit={canEditFacts}
+          onSetMinimum={
+            rateQuery.data
+              ? () => {
+                  setRateHistoryOpen(false);
+                  setRateAsMinimum(true);
+                  setRateOpen(true);
+                }
+              : undefined
+          }
         />
       ) : null}
     </>

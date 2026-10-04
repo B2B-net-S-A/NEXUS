@@ -180,6 +180,12 @@ export interface ProposalFacts {
   expected_rate_hourly: number | null;
   expected_rate_currency: string | null;
   expected_rate_redacted: boolean;
+  // „Stawka od” (0414): `expected_rate_hourly` to najniższa stawka z 18
+  // miesięcy; obok stawka podana w TEJ rekrutacji (karta, „Zweryfikowany”).
+  rate_from_at?: string | null;
+  rate_from_stale?: boolean;
+  rate_latest_hourly?: number | null;
+  rate_this_job_hourly?: number | null;
   client_history: ProposalClientHistory | null;
   /**
    * Data wgrania głównego CV (ISO, 30.09.2026). `null`/brak = nie znamy

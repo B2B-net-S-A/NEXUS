@@ -288,7 +288,7 @@
       }
     ],
     "pitfalls": [
-      "Osoby bez stawki, lokalizacji albo stażu zostają na liście przy aktywnym filtrze i są oznaczone — możesz je ukryć w „Więcej filtrów”.",
+      "Filtr stawki porównuje „Stawkę od” — najniższą stawkę z ostatnich 18 miesięcy. Osoby bez stawki, lokalizacji albo stażu zostają na liście i są oznaczone — ukryjesz je w „Więcej filtrów”.",
       "Filtr „Kontakt z kandydatem” liczy rozmowy, maile i ustalone terminy — „nie odebrał” i wpisy automatu kontaktem nie są. Kolumna „Ostatnia rozmowa” (na laptopie włączysz ją w „Kolumny”) pokazuje datę i autora ostatniej rozmowy albo liczbę prób kontaktu. Historia kontaktów z Traffita ma datę importu (maj 2026), więc wcześniejszy okres nic nie znajdzie.",
       "Z wymaganiami lista układa osoby od najlepiej dopasowanych („Dopasowanie do wymagań”; „Najnowsi” wybierzesz w sortowaniu). Same nazwy technologii wpisane w górne pole stają się wymaganiami — „Szukaj … po znaczeniu” to cofa. Imię albo nazwisko w górnym polu pokazuje tylko osoby, które dokładnie tak się nazywają (bez polskich znaków też zadziała; „Nowak” nie pokaże „Nowakowskiego”). Podobne nazwiska pojawiają się tylko, gdy nikogo takiego nie ma — lista to mówi.",
       "Chipy „Mile widziane” (miasto, kategoria, wiersz słów) tylko podnoszą pasujące osoby wyżej, nikogo nie ukrywają; „Wymagaj” zamienia chip w filtr. Tak „Szukaj ręcznie” w rekrutacji ustawia jej miasto, kategorię i wiersze, które nie są technologiami."

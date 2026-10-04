@@ -123,7 +123,13 @@ function seededClient(): QueryClient {
   qc.setQueryData(
     candidateQueryKeys.quickView(CANDIDATE_ID),
     {
-      candidate: { city: "Łódź", expected_rate_hourly: 135, expected_rate_currency: "PLN" },
+      candidate: {
+        city: "Łódź",
+        expected_rate_hourly: 135,
+        expected_rate_currency: "PLN",
+        // „Stawka od” (0414): rok temu zgodził się na 110 na inną rolę.
+        rate_from_hourly: 110,
+      },
       current_position: { title: "Senior Java Developer" },
       availability: {
         status: "open_to_offers",

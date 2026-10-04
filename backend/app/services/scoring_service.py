@@ -283,6 +283,12 @@ def scoring_algorithm_version() -> str:
     payload["location_contract"] = "2026-09-27-place-dictionary"
     payload["alias_mention_contract"] = "2026-09-25-polish-short-aliases"
     payload["skill_text_evidence"] = "2026-09-30-anywhere-tech-denominator"
+    # „Stawka od” (0414): stawka kandydata = najniższa z 18 miesięcy.
+    from app.services.candidate_rate_from import enabled as _rate_from_enabled
+
+    payload["rate_contract"] = (
+        "2026-10-04-rate-from-18m" if _rate_from_enabled() else "profile"
+    )
     from app.services.critical_skills import gate_mode
 
     payload["salary_contract"] = (
@@ -1360,8 +1366,9 @@ def _score_salary(
     salary silently inflated the total by the whole salary budget.
     """
     max_pts = profile.salary
-    cand_rate = getattr(candidate, "expected_rate_hourly", None)
-    cand_currency = getattr(candidate, "expected_rate_currency", None)
+    from app.services.candidate_rate_from import effective_rate
+
+    cand_rate, cand_currency = effective_rate(candidate)
     job_min = job.salary_min
     job_max = job.salary_max
 

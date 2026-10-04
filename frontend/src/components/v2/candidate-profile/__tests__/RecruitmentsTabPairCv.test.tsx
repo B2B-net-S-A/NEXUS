@@ -35,7 +35,9 @@ vi.mock("@/components/feedback/CandidateInterviewFeedbackPanel", () => ({
 }));
 vi.mock("@/components/SuggestedJobsWidget", () => ({ SuggestedJobsWidget: () => null }));
 vi.mock("@/components/candidates/SuggestedPoolsWidget", () => ({ SuggestedPoolsWidget: () => null }));
-vi.mock("@/components/RateHistoryWidget", () => ({ RateHistoryWidget: () => null }));
+vi.mock("@/components/v2/candidate-profile/RateHistoryDialog", () => ({
+  RateHistorySummary: () => null,
+}));
 vi.mock("@/components/ConflictsWidget", () => ({ ConflictsWidget: () => null }));
 vi.mock("@/components/HiringManagerVetoesWidget", () => ({ HiringManagerVetoesWidget: () => null }));
 vi.mock("@/components/v2/pages/DopasowanieTab", () => ({ DopasowanieTab: () => null }));

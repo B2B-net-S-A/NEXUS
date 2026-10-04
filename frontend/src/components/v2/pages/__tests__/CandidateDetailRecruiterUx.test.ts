@@ -160,7 +160,7 @@ describe("profil kandydata — każdy fakt w jednym miejscu", () => {
   it("dane handlowe mają nagłówek tylko przy treści", () => {
     const recruitments = read(`${PROFILE_DIR}/RecruitmentsTab.tsx`);
     expect(recruitments).toContain("has-[[data-commercial-slot]>*]:block");
-    expect(occurrences("<RateHistoryWidget")).toBe(1);
+    expect(occurrences("<RateHistorySummary")).toBe(1);
     expect(recruitments).toMatch(/<SuggestedJobsWidget[\s\S]{0,200}hideWhenEmpty/);
   });
 

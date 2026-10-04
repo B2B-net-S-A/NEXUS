@@ -172,6 +172,9 @@ class CandidateProfileRatePatch(BaseModel):
 
     # Required-but-nullable: only an explicit {"amount": null} clears the fact.
     amount: Optional[ProfileRateAmount]
+    # „To jego minimum” (0414): starsze, niższe stawki przestają się liczyć
+    # do „Stawki od”. Bez pola = zwykła stawka podana przez kandydata.
+    is_minimum: bool = False
 
 
 class CandidateProfileRateResponse(BaseModel):

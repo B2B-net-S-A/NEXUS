@@ -848,6 +848,18 @@ except Exception as _plain_err:  # noqa: BLE001
     print(f"plain knowledge DDL unavailable: {_plain_err!r}")
     _PLAIN_KNOWLEDGE_DDL = []
 
+# „Stawka od” kandydata (migracja 0414): kolumny, decyzje, kolejka i wyzwalacze
+# — JEDNO źródło z migracją (`app/services/candidate_rate_from_schema.py`).
+try:
+    from app.services import candidate_rate_from_schema as _rate_from
+
+    _RATE_FROM_DDL = list(_rate_from.TABLE_DDL) + list(_rate_from.TRIGGER_DDL)
+    _RATE_FROM_BACKFILL = list(_rate_from.BACKFILL_DDL)
+except Exception as _rate_from_err:  # noqa: BLE001
+    print(f"candidate rate-from DDL unavailable: {_rate_from_err!r}")
+    _RATE_FROM_DDL = []
+    _RATE_FROM_BACKFILL = []
+
 # Ocena zgłoszeń z linku rekrutacji przez AI (migracja 0404) — JEDNO źródło
 # z migracją (`app/services/application_screening_schema.py`).
 try:
@@ -887,6 +899,7 @@ _COLUMN_STATEMENTS = [
     *_JOB_PROPOSAL_FEEDBACK_COLUMNS,
     *_PLAIN_KNOWLEDGE_DDL,
     *_APPLICATION_SCREENING_DDL,
+    *_RATE_FROM_DDL,
     *_B2B_DOCUMENTS_DDL,
     *_B2B_REGISTER_DDL,
     *_CONTRACT_DOCS_SP_DDL,
@@ -6109,6 +6122,7 @@ END $$
 
 _DATA_STATEMENTS = [
     *_B2B_DOCUMENTS_BACKFILL,
+    *_RATE_FROM_BACKFILL,
     # 0412: „Reply” z Traffita to odpowiedź na notatkę, nie mail — jednorazowa
     # zmiana typu (znacznik w app_settings), bez ruszania `updated_at`.
     # Lustro `note_kind_schema.REPLY_RETYPE`.

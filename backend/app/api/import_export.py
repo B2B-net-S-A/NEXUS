@@ -378,6 +378,7 @@ _CANDIDATE_EXPORT_HEADER = (
     "status",
     "skills",
     "expected_rate_hourly",
+    "rate_from_hourly",
     "created_at",
     "open_to_side_projects",
     "open_to_sales_support",
@@ -400,6 +401,8 @@ _CANDIDATE_EXPORT_ENTITIES = (
     Candidate.skills,
     Candidate.expected_rate_hourly,
     Candidate.expected_rate_currency,
+    Candidate.rate_from_hourly,
+    Candidate.rate_from_computed_at,
     Candidate.created_at,
     Candidate.open_to_side_projects,
     Candidate.open_to_sales_support,
@@ -430,6 +433,10 @@ def _candidate_export_row(c) -> list:
         c.expected_rate_hourly,
         c.expected_rate_currency,
     )
+    # „Stawka od” (0414) — najniższa stawka z 18 miesięcy.
+    from app.services.candidate_rate_from import rate_summary
+
+    rate_from = rate_summary(c)["rate_from_hourly"]
 
     # Tekst z formularza kariery i importów nie może zostać formułą Excela.
     return safe_row(
@@ -444,6 +451,7 @@ def _candidate_export_row(c) -> list:
             c.status.value if c.status else "",
             skills_str,
             profile_rate if profile_rate is not None else "",
+            rate_from if rate_from is not None else "",
             created,
             "tak" if c.open_to_side_projects else "",
             "tak" if c.open_to_sales_support else "",
