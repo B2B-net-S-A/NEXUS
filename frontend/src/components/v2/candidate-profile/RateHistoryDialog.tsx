@@ -50,7 +50,7 @@ type Tone = "primary" | "warning" | "info";
 
 function toneOf(source: string): Tone {
   if (source.startsWith("profile")) return "warning";
-  if (source === "application") return "info";
+  if (source === "application" || source === "rate_requested") return "info";
   return "primary";
 }
 

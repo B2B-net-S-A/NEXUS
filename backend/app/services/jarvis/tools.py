@@ -2269,7 +2269,9 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
             "kandydat przyjmie ofertę (yes/likely/no/unknown), komentarz, pytania "
             "zadane przez klienta. Pytania trafią do banku pytań tego klienta. "
             "no_client_questions=true TYLKO, gdy użytkownik wprost powie, że klient "
-            "nie zadawał pytań. Nie wymyślaj pytań."
+            "nie zadawał pytań. Nie wymyślaj pytań. new_rate_hourly TYLKO, gdy "
+            "użytkownik poda nową stawkę kandydata (zł/h netto) — zapis powiadomi "
+            "Delivery Leada i Head of Recruitment."
         ),
         input_schema=_schema(
             {
@@ -2294,6 +2296,11 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
                 },
                 "acceptance_condition": {**STR, "maxLength": 2000},
                 "no_client_questions": BOOL,
+                "new_rate_hourly": {"type": "number", "exclusiveMinimum": 0},
+                "rate_negotiable": {
+                    "type": "string",
+                    "enum": ["no", "maybe", "unknown"],
+                },
             },
             ("event_id", "outcome", "offer_acceptance"),
         ),
@@ -2318,6 +2325,15 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
                     ][:DEBRIEF_MAX_QUESTIONS],
                     "acceptance_condition": a.get("acceptance_condition"),
                     "no_client_questions": bool(a.get("no_client_questions")) or None,
+                    "rate_change": (
+                        {
+                            "amount": a["new_rate_hourly"],
+                            "unit": "hourly",
+                            "negotiable": a.get("rate_negotiable"),
+                        }
+                        if a.get("new_rate_hourly")
+                        else None
+                    ),
                 }
             ),
         ),
@@ -2599,6 +2615,11 @@ def _debrief_detail(a: dict[str, Any]) -> str:
         parts.append(f"Komentarz: {a['candidate_comment']}")
     if a.get("acceptance_condition"):
         parts.append(f"Warunek akceptacji: {a['acceptance_condition']}")
+    if a.get("new_rate_hourly"):
+        parts.append(
+            f"Nowa stawka kandydata: {a['new_rate_hourly']} zł/h — powiadomi "
+            "Delivery Leada i Head of Recruitment."
+        )
     questions = [str(q).strip() for q in a.get("questions") or [] if str(q).strip()]
     if questions:
         parts.append(

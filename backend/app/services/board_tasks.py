@@ -575,7 +575,16 @@ async def _attach_dl_review_details(
         history.setdefault((row.candidate_id, row.job_id), []).append(row)
     for t in review:
         stages = catalog.stages.get(t.template_id) if t.template_id else None
+        rate_found = False
         for row in history.get((t.candidate_id, t.job_id), []):
+            # Stawka = NAJNOWSZA niepusta w parze (0418, 04.10.2026). Korekta
+            # stawki zapisuje się na najnowszym wierszu (np. QC CV), więc
+            # wiersz „Zweryfikowany” pokazywał DL-owi stawkę sprzed zmiany.
+            if not rate_found and row.expected_rate_value is not None:
+                rate_found = True
+                t.expected_rate_value = float(row.expected_rate_value)
+                t.expected_rate_unit = row.expected_rate_unit
+                t.expected_rate_currency = row.expected_rate_currency
             if (
                 t.verified_at is None
                 and stages is not None
@@ -585,13 +594,6 @@ async def _attach_dl_review_details(
             ):
                 t.verified_by_id = row.moved_by
                 t.verified_at = row.moved_at
-                t.expected_rate_value = (
-                    float(row.expected_rate_value)
-                    if row.expected_rate_value is not None
-                    else None
-                )
-                t.expected_rate_unit = row.expected_rate_unit
-                t.expected_rate_currency = row.expected_rate_currency
             if t.screening_stage_id is None and row.has_screening:
                 t.screening_stage_id = row.id
             if t.verified_at is not None and t.screening_stage_id is not None:

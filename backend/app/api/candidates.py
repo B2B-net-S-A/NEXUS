@@ -5071,26 +5071,55 @@ async def set_recruitment_expected_rate(
     # w ogóle, membership decyduje o KTÓREJ rekrutacji.
     await ensure_job_membership(db, current_user, job_id)
 
-    latest, _job = await update_latest_expected_rate(
-        db,
-        candidate_id=candidate_id,
-        job_id=job_id,
-        rate_value=payload.rate_value,
-        rate_unit=(
-            (payload.rate_unit or RateUnit.monthly).value
-            if payload.rate_value is not None
-            else None
-        ),
-        rate_currency=(
-            (payload.rate_currency or "PLN")[:3].upper()
-            if payload.rate_value is not None
-            else None
-        ),
-    )
-    from app.services.candidate_rate_from import recompute_safely
+    pending_emails: list = []
+    if payload.rate_value is not None:
+        # 0418: każda zmiana stawki w procesie idzie jedną regułą — ślad,
+        # powiadomienie DL/HoR od „Zweryfikowany”, zadanie DL po wysłaniu CV.
+        from app.services import candidate_rate_change
 
-    await recompute_safely(db, [candidate_id])
+        result = await candidate_rate_change.change_rate(
+            db,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            amount=payload.rate_value,
+            unit=(payload.rate_unit or RateUnit.monthly).value,
+            currency=(payload.rate_currency or "PLN")[:3].upper(),
+            source="recruitments_tab",
+            reason="other",
+            actor=current_user,
+        )
+        pending_emails = result.emails
+        latest = await db.scalar(
+            select(CandidateStage)
+            .where(
+                CandidateStage.candidate_id == candidate_id,
+                CandidateStage.job_id == job_id,
+            )
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+            .limit(1)
+        )
+        if latest is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Ten kandydat nie bierze udziału w tej rekrutacji.",
+            )
+    else:
+        latest, _job = await update_latest_expected_rate(
+            db,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            rate_value=None,
+            rate_unit=None,
+            rate_currency=None,
+        )
+        from app.services.candidate_rate_from import recompute_safely
+
+        await recompute_safely(db, [candidate_id])
     await db.commit()
+    if pending_emails:
+        from app.services.candidate_rate_change import send_pending_emails
+
+        await send_pending_emails(pending_emails)
     await db.refresh(latest)
 
     return {

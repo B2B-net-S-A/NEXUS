@@ -21,6 +21,14 @@ import {
   type DebriefOutcome,
   type OfferAcceptance,
 } from "@/lib/interview-cycle";
+import { blurNumberInputOnWheel } from "@/lib/number-input";
+import {
+  NEGOTIABLE_OPTIONS,
+  notifyLine,
+  toHourly,
+  useRateChanges,
+  type RateNegotiable,
+} from "@/lib/rate-change";
 import { cn } from "@/lib/utils";
 
 const OUTCOMES: DebriefOutcome[] = ["good", "medium", "bad"];
@@ -86,8 +94,14 @@ export function DebriefDialog({
   const toast = useToast();
   const qc = useQueryClient();
   const existing = useDebrief(open ? eventId : null);
-  const eventInfo = useInterviewEvent(
-    open && interviewStart === undefined ? eventId : null,
+  // Wydarzenie zawsze — debrief potrzebuje pary (kandydat, rekrutacja), żeby
+  // pokazać bieżącą stawkę i kto dostanie informację o jej zmianie (0418).
+  const eventInfo = useInterviewEvent(open ? eventId : null);
+  const pairCandidateId = existing.data?.candidate_id ?? eventInfo.data?.candidate_id ?? null;
+  const pairJobId = existing.data?.job_id ?? eventInfo.data?.job_id ?? null;
+  const rateView = useRateChanges(
+    open && !readOnly ? pairCandidateId : null,
+    open && !readOnly ? pairJobId : null,
   );
   const start = interviewStart ?? eventInfo.data?.start ?? null;
   // Okno może stać otwarte do rozpoczęcia rozmowy — przelicz co 30 s.
@@ -109,6 +123,20 @@ export function DebriefDialog({
   const [notifyDl, setNotifyDl] = useState(true);
   const [noQuestions, setNoQuestions] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rateChanged, setRateChanged] = useState(false);
+  const [rateAmount, setRateAmount] = useState("");
+  const [rateNegotiable, setRateNegotiable] = useState<RateNegotiable | null>(null);
+  const [rateNote, setRateNote] = useState("");
+  // Stawka jedzie do serwera tylko po zmianie w TYM otwarciu okna. Zapisana
+  // wcześniej zmiana wczytuje się do pól, a ponowny zapis debriefu (np. nowe
+  // pytanie) nie może cofnąć późniejszej korekty stawki ani powiadomić znowu.
+  const [rateTouched, setRateTouched] = useState(false);
+  const touchRate =
+    <T,>(set: (v: T) => void) =>
+    (v: T) => {
+      setRateTouched(true);
+      set(v);
+    };
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [questionsNote, setQuestionsNote] = useState<string | null>(null);
@@ -161,6 +189,11 @@ export function DebriefDialog({
     setBulkOpen(false);
     setBulkText("");
     setQuestionsNote(null);
+    setRateChanged(Boolean(d?.rate_change));
+    setRateAmount(d?.rate_change?.requested_amount ?? "");
+    setRateNegotiable(d?.rate_change?.negotiable ?? null);
+    setRateNote(d?.rate_change?.note ?? "");
+    setRateTouched(false);
   }, [open, eventId, existing.isPending, existing.isSuccess, existing.data]);
 
   const typedQuestions = questions.map((q) => q.trim()).filter(Boolean);
@@ -176,6 +209,15 @@ export function DebriefDialog({
         acceptance_condition: condition.trim() || null,
         notify_dl: notifyDl,
         no_client_questions: noQuestions,
+        rate_change:
+          rateChanged && rateTouched
+          ? {
+              amount: rateAmount.replace(",", "."),
+              unit: "hourly",
+              negotiable: rateNegotiable,
+              note: rateNote.trim() || null,
+            }
+          : null,
       }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["interview-cycle"] });
@@ -183,6 +225,7 @@ export function DebriefDialog({
       qc.invalidateQueries({ queryKey: ["interview-feedback"] });
       // Skrót debriefu stoi na odznace karty (dok osoby na Tablicy).
       qc.invalidateQueries({ queryKey: ["kanban"] });
+      qc.invalidateQueries({ queryKey: ["rate-changes"] });
       toast.showSuccess(
         res.questions_saved > 0
           ? `Debrief zapisany. Nowe pytania klienta: ${res.questions_saved} — zobaczą je następni kandydaci na prepie.`
@@ -207,6 +250,10 @@ export function DebriefDialog({
     }
     if (!noQuestions && typedQuestions.length === 0) {
       setError(DEBRIEF_QUESTIONS_REQUIRED);
+      return;
+    }
+    if (rateChanged && rateTouched && toHourly(rateAmount, "hourly") == null) {
+      setError("Wpisz nową stawkę kandydata albo zaznacz „Bez zmian”.");
       return;
     }
     mutation.mutate();
@@ -497,15 +544,48 @@ export function DebriefDialog({
               </label>
             ))}
           </div>
+          <DebriefRateSection
+            readOnly={readOnly}
+            currentLabel={
+              existing.data?.rate_change?.previous ??
+              rateView.data?.current?.label ??
+              existing.data?.current_rate_label ??
+              null
+            }
+            savedChange={existing.data?.rate_change ?? null}
+            changed={rateChanged}
+            onChanged={touchRate(setRateChanged)}
+            amount={rateAmount}
+            onAmount={touchRate(setRateAmount)}
+            negotiable={rateNegotiable}
+            onNegotiable={touchRate(setRateNegotiable)}
+            note={rateNote}
+            onNote={touchRate(setRateNote)}
+            notice={
+              rateView.data
+                ? notifyLine(rateView.data, {
+                    rising: (() => {
+                      const next = toHourly(rateAmount, "hourly");
+                      const now =
+                        rateView.data.current?.hourly != null
+                          ? Number(rateView.data.current.hourly)
+                          : null;
+                      return next != null && now != null ? next > now : null;
+                    })(),
+                    reason: "conversation",
+                  })
+                : null
+            }
+          />
           <label htmlFor="debrief-condition" className="mt-3 mb-1 block text-xs font-semibold text-muted-foreground">
-            Warunek / zastrzeżenie
+            {readOnly ? "Warunek / zastrzeżenie" : "Inne warunki"}
           </label>
           <input
             id="debrief-condition"
             maxLength={2000}
             value={condition}
             onChange={(e) => setCondition(e.target.value)}
-            placeholder="np. oczekuje min. 190 zł/h, ma drugą ofertę do piątku"
+            placeholder="np. ma drugą ofertę do piątku, urlop w listopadzie"
             className={INPUT}
           />
         </fieldset>
@@ -517,5 +597,144 @@ export function DebriefDialog({
         ) : null}
       </fieldset>
     </AppModal>
+  );
+}
+
+
+/**
+ * Stawka kandydata po rozmowie (0418). „Zmieniła się” zapisuje nową stawkę
+ * tą samą regułą co panel osoby: ślad w historii stawek, dzwonek DL i Head of
+ * Recruitment, zadanie DL przy wzroście po wysłaniu CV. Do 04.10.2026 stawka
+ * trafiała do wolnego tekstu „Warunek”, którego nikt nie czytał.
+ */
+function DebriefRateSection({
+  readOnly,
+  currentLabel,
+  savedChange,
+  changed,
+  onChanged,
+  amount,
+  onAmount,
+  negotiable,
+  onNegotiable,
+  note,
+  onNote,
+  notice,
+}: {
+  readOnly: boolean;
+  currentLabel: string | null;
+  savedChange: Debrief["rate_change"] | null;
+  changed: boolean;
+  onChanged: (v: boolean) => void;
+  amount: string;
+  onAmount: (v: string) => void;
+  negotiable: RateNegotiable | null;
+  onNegotiable: (v: RateNegotiable | null) => void;
+  note: string;
+  onNote: (v: string) => void;
+  notice: string | null;
+}) {
+  if (readOnly) {
+    if (!savedChange) return null;
+    return (
+      <p className="mt-3 text-sm" data-testid="debrief-rate-readonly">
+        <span className="font-semibold">Stawka kandydata:</span>{" "}
+        {savedChange.previous ? `${savedChange.previous} → ` : ""}
+        {savedChange.requested}
+      </p>
+    );
+  }
+  return (
+    <fieldset
+      className="mt-4 space-y-3 rounded-lg border border-warning/40 bg-warning-muted/40 p-3"
+      data-testid="debrief-rate"
+    >
+      <legend className="px-1 text-sm font-semibold">Stawka kandydata</legend>
+      <div className="flex flex-wrap gap-2">
+        {[
+          { v: false, label: `Bez zmian${currentLabel ? ` (${currentLabel})` : ""}` },
+          { v: true, label: "Zmieniła się" },
+        ].map((o) => (
+          <label
+            key={String(o.v)}
+            className={cn(
+              "cursor-pointer rounded-full border px-3 py-1 text-xs font-medium",
+              changed === o.v ? "border-primary bg-primary/10 text-primary" : "border-border bg-card hover:bg-muted",
+            )}
+          >
+            <input
+              type="radio"
+              name="debrief-rate-changed"
+              className="sr-only"
+              checked={changed === o.v}
+              onChange={() => onChanged(o.v)}
+            />
+            {o.label}
+          </label>
+        ))}
+      </div>
+      {changed ? (
+        <>
+          <div>
+            <label htmlFor="debrief-rate-amount" className="mb-1 block text-xs font-semibold text-muted-foreground">
+              Nowa stawka B2B netto (zł/h)
+            </label>
+            <input
+              id="debrief-rate-amount"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => onAmount(e.target.value)}
+              onWheel={blurNumberInputOnWheel}
+              className={cn(INPUT, "w-32 tabular-nums")}
+            />
+          </div>
+          <fieldset>
+            <legend className="mb-1.5 text-xs font-semibold text-muted-foreground">
+              Czy kandydat zejdzie ze stawki?
+            </legend>
+            <div className="flex flex-wrap gap-2">
+              {NEGOTIABLE_OPTIONS.map((o) => (
+                <label
+                  key={o.value}
+                  className={cn(
+                    "cursor-pointer rounded-full border px-3 py-1 text-xs font-medium",
+                    negotiable === o.value
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-card hover:bg-muted",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="debrief-rate-negotiable"
+                    className="sr-only"
+                    checked={negotiable === o.value}
+                    onChange={() => onNegotiable(o.value)}
+                  />
+                  {o.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <div>
+            <label htmlFor="debrief-rate-note" className="mb-1 block text-xs font-semibold text-muted-foreground">
+              Dlaczego więcej (opcjonalnie)
+            </label>
+            <input
+              id="debrief-rate-note"
+              maxLength={1000}
+              value={note}
+              onChange={(e) => onNote(e.target.value)}
+              placeholder="np. ma drugą ofertę za 120 zł/h, decyzja do piątku"
+              className={INPUT}
+            />
+          </div>
+          {notice ? (
+            <p className="text-xs text-muted-foreground" data-testid="debrief-rate-notice">
+              {notice}
+            </p>
+          ) : null}
+        </>
+      ) : null}
+    </fieldset>
   );
 }

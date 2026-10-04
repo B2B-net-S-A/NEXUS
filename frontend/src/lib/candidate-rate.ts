@@ -127,6 +127,9 @@ const SOURCE_LABEL: Record<string, string> = {
   profile_notes_ai: "Z notatek (AI)",
   profile_notes_removed: "Z notatek (usunięte)",
   profile_candidate_merge: "Scalenie duplikatów",
+  // 0418: zmiana stawki w trakcie procesu.
+  rate_requested: "Zgłoszona zmiana stawki",
+  rate_agreed: "Ustalona po negocjacji",
 };
 
 export function rateSourceLabel(source: string | null | undefined): string {

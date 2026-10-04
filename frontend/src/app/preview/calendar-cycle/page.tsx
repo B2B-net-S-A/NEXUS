@@ -20,7 +20,9 @@ import { ToastProvider } from "@/components/Toast";
 import {
   clientQuestionsQueryKey,
   debriefQueryKey,
+  interviewEventQueryKey,
 } from "@/lib/api/interviewCycle";
+import { rateChangesQueryKey } from "@/lib/rate-change";
 import {
   prepOptionsQueryKey,
   prepQueryKey,
@@ -72,9 +74,16 @@ const SAVED_DEBRIEF = {
     "Opisz migrację z Javy 11 na 17 w projekcie.",
   ],
   offer_acceptance: "likely" as const,
-  acceptance_condition: "Chce jednak 125 zł/h, ma drugą ofertę do piątku",
+  acceptance_condition: "Ma drugą ofertę do piątku",
   no_client_questions: false,
   questions_saved: 0,
+  current_rate_label: "125 zł/h",
+  current_rate_hourly: "125",
+  rate_change: {
+    id: 3, status: "requested", requires_decision: true, previous: "110 zł/h",
+    requested: "125 zł/h", requested_amount: "125", requested_unit: "hourly",
+    negotiable: "maybe" as const, note: "Ma drugą ofertę za 120 zł/h",
+  },
 };
 
 function st(
@@ -228,6 +237,22 @@ function Harness() {
     for (const p of Object.values(pairs)) qc.setQueryData(clientQuestionsQueryKey(p.job_id), questions);
     for (const id of [501, 502, 504, 505, 506]) qc.setQueryData(debriefQueryKey(id), null);
     qc.setQueryData(debriefQueryKey(507), SAVED_DEBRIEF);
+    // Okno debriefu czyta wydarzenie (para kandydat–rekrutacja) i stawkę pary.
+    const eventPairs: Record<number, PairInfo> = {
+      501: pairs.piotr, 502: pairs.anna, 504: pairs.michal, 505: pairs.ewa, 506: pairs.karol, 507: pairs.bartek,
+    };
+    for (const [id, p] of Object.entries(eventPairs)) {
+      qc.setQueryData(interviewEventQueryKey(Number(id)), {
+        id: Number(id), candidate_id: p.candidate_id, job_id: p.job_id,
+        start: at(now, -72), end: at(now, -12), started: true,
+      });
+      qc.setQueryData(rateChangesQueryKey(p.candidate_id, p.job_id), {
+        candidate_id: p.candidate_id, job_id: p.job_id,
+        current: { amount: "110", unit: "hourly", currency: "PLN", hourly: "110", label: "110 zł/h" },
+        board_column: "client_interview", notifies: true, cv_at_client: true,
+        client_rate: null, changes: [],
+      });
+    }
     // 0370: ocena prepu i transkrypt (okno „Ocena prepu”), podpowiedzi organizatora.
     const weakPrep: Prep = {
       event_id: 601, prep_no: 1, candidate_id: 104, job_id: 4,

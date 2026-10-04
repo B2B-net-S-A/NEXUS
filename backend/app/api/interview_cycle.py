@@ -26,6 +26,7 @@ import hashlib
 import logging
 import re
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -240,6 +241,17 @@ OfferAcceptance = Literal["yes", "likely", "no", "unknown"]
 _OUTCOME_TO_IMPRESSION = {"good": 5, "medium": 3, "bad": 1}
 
 
+class DebriefRateChangeIn(BaseModel):
+    """Kandydat po rozmowie podał inną stawkę (0418) — idzie tą samą regułą
+    co każda zmiana stawki w procesie (``services/candidate_rate_change``)."""
+
+    amount: Decimal = Field(gt=0, le=Decimal("1000000"))
+    unit: Literal["hourly", "daily", "monthly"] = "hourly"
+    currency: str = Field("PLN", min_length=3, max_length=3)
+    negotiable: Optional[Literal["no", "maybe", "unknown"]] = None
+    note: Optional[str] = Field(None, max_length=1000)
+
+
 class DebriefIn(BaseModel):
     outcome: DebriefOutcome
     candidate_comment: Optional[str] = Field(None, max_length=4000)
@@ -247,6 +259,8 @@ class DebriefIn(BaseModel):
     offer_acceptance: OfferAcceptance
     acceptance_condition: Optional[str] = Field(None, max_length=2000)
     notify_dl: bool = True
+    # Brak = stawka bez zmian.
+    rate_change: Optional[DebriefRateChangeIn] = None
     # Jawne „klient nie zadawał pytań” — pusta lista bez tej flagi to brak
     # informacji, nie odpowiedź (bramka przed „Umową”, ``services/debrief_gate``).
     no_client_questions: bool = False
@@ -297,6 +311,11 @@ class DebriefOut(BaseModel):
     acceptance_condition: Optional[str] = None
     no_client_questions: bool = False
     questions_saved: int = 0
+    # 0418: bieżąca stawka kandydata w tej rekrutacji („Bez zmian (110 zł/h)”)
+    # i zmiana stawki zapisana tym debriefem.
+    current_rate_label: Optional[str] = None
+    current_rate_hourly: Optional[Decimal] = None
+    rate_change: Optional[dict] = None
 
 
 class InterviewEventOut(BaseModel):
@@ -852,7 +871,93 @@ async def get_debrief(
             InterviewFeedback.feedback_source == FeedbackSource.candidate_side,
         )
     )
-    return _debrief_out(fb) if fb is not None else None
+    if fb is None:
+        return None
+    return await _with_rates(db, _debrief_out(fb), fb_id=fb.id)
+
+
+async def _debrief_rate_already_saved(
+    db: AsyncSession, feedback_id: int, rate: "DebriefRateChangeIn"
+) -> bool:
+    """Ta sama stawka, którą ten debrief już zgłosił — ponowny zapis debriefu
+    (np. dopisane pytanie) nie otwiera drugiej sprawy, nie cofa późniejszej
+    korekty i nie powiadamia DL drugi raz."""
+
+    from app.models.candidate_rate_change import CandidateRateChange
+    from app.services import candidate_rate_change as rate_change
+
+    saved = (
+        await db.execute(
+            select(CandidateRateChange)
+            .where(CandidateRateChange.feedback_id == feedback_id)
+            .order_by(
+                CandidateRateChange.created_at.desc(), CandidateRateChange.id.desc()
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if saved is None:
+        return False
+    return rate_change._same_rate(
+        saved.requested_amount,
+        saved.requested_unit,
+        saved.requested_currency,
+        rate.amount,
+        rate.unit,
+        rate.currency,
+    )
+
+
+async def _with_rates(
+    db: AsyncSession, out: DebriefOut, *, fb_id: Optional[int]
+) -> DebriefOut:
+    """Dokleja bieżącą stawkę pary i zmianę stawki zapisaną debriefem."""
+
+    from app.models.candidate_rate_change import CandidateRateChange
+    from app.services import candidate_rate_change as rate_change
+
+    if out.job_id is None:
+        return out
+    rates = await rate_change.pair_rates(
+        db, candidate_id=out.candidate_id, job_id=out.job_id
+    )
+    if rates["amount"] is not None:
+        out.current_rate_label = rate_change.format_rate(
+            rates["amount"], rates["unit"], rates["currency"]
+        )
+        out.current_rate_hourly = rate_change._hourly(
+            rates["amount"], rates["unit"], rates["currency"]
+        )
+    if fb_id is not None:
+        change = await db.scalar(
+            select(CandidateRateChange)
+            .where(CandidateRateChange.feedback_id == fb_id)
+            .order_by(CandidateRateChange.id.desc())
+            .limit(1)
+        )
+        if change is not None:
+            out.rate_change = {
+                "id": change.id,
+                "status": change.status,
+                "requires_decision": change.requires_decision,
+                "previous": rate_change.format_rate(
+                    change.previous_amount,
+                    change.previous_unit,
+                    change.previous_currency,
+                )
+                if change.previous_amount is not None
+                else None,
+                "requested": rate_change.format_rate(
+                    change.requested_amount,
+                    change.requested_unit,
+                    change.requested_currency,
+                ),
+                "requested_amount": str(change.requested_amount),
+                "requested_unit": change.requested_unit,
+                "negotiable": change.negotiable,
+                "note": change.note,
+            }
+    return out
 
 
 @router.put("/interview-cycle/events/{event_id}/debrief", response_model=DebriefOut)
@@ -926,6 +1031,39 @@ async def save_debrief(
         user_id=current_user.id,
     )
 
+    rate_emails: list = []
+    new_rate_label: Optional[str] = None
+    if (
+        body.rate_change is not None
+        and event.job_id is not None
+        and not await _debrief_rate_already_saved(db, fb.id, body.rate_change)
+    ):
+        # Zmiana stawki z debriefu idzie wspólną regułą: ślad w historii
+        # stawek, dzwonki DL/HoR, zadanie DL po wysłaniu CV (0418).
+        from app.services import candidate_rate_change as rate_change
+
+        rate_result = await rate_change.change_rate(
+            db,
+            candidate_id=event.candidate_id,
+            job_id=event.job_id,
+            amount=body.rate_change.amount,
+            unit=body.rate_change.unit,
+            currency=body.rate_change.currency,
+            source="debrief",
+            reason="conversation",
+            note=body.rate_change.note,
+            negotiable=body.rate_change.negotiable,
+            feedback_id=fb.id,
+            actor=current_user,
+        )
+        rate_emails = rate_result.emails
+        if rate_result.change is not None:
+            new_rate_label = rate_change.format_rate(
+                body.rate_change.amount,
+                body.rate_change.unit,
+                body.rate_change.currency,
+            )
+
     if body.notify_dl and event.job_id is not None:
         dl_id = await db.scalar(
             select(Job.delivery_lead_id).where(Job.id == event.job_id)
@@ -952,6 +1090,8 @@ async def save_debrief(
                         condition[: _DL_NOTICE_CONDITION_CHARS - 1].rstrip() + "…"
                     )
                 message += f" Warunek: {condition}"
+            if new_rate_label:
+                message += f" Nowa stawka kandydata: {new_rate_label}."
             try:
                 async with db.begin_nested():
                     await emit(
@@ -973,8 +1113,12 @@ async def save_debrief(
                     "debrief notification failed for event %s", event.id
                 )
     await db.commit()
+    if rate_emails:
+        from app.services.candidate_rate_change import send_pending_emails
+
+        await send_pending_emails(rate_emails)
     await db.refresh(fb)
-    return _debrief_out(fb, questions_saved=saved)
+    return await _with_rates(db, _debrief_out(fb, questions_saved=saved), fb_id=fb.id)
 
 
 @router.get("/interview-cycle/client-questions", response_model=list[ClientQuestionOut])

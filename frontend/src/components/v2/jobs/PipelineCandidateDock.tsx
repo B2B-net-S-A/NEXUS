@@ -117,6 +117,8 @@ import { PinnedCandidateNotes } from "@/components/v2/recruitment/PinnedCandidat
 import { hourlyText } from "@/lib/candidate-rate";
 import { availabilityText, onsiteText } from "@/lib/person-facts";
 import { PersonFacts, RateWithBudget } from "@/components/v2/person/PersonFacts";
+import { RateChangeDialog } from "@/components/v2/rate-change/RateChangeDialog";
+import { rateChangeStatusLabel } from "@/lib/rate-change";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -531,6 +533,7 @@ export function PipelineCandidateDock({
   // 0413: okno całej karty rekomendacji (także z akcji „Uzupełnij kartę”).
   const [cardOpen, setCardOpen] = useState(false);
   const [debriefEventId, setDebriefEventId] = useState<number | null>(null);
+  const [rateChangeOpen, setRateChangeOpen] = useState(false);
   const [profileCvPreviewId, setProfileCvPreviewId] = useState<number | null>(null);
 
   // Zmiana kandydata (nowy klik na tablicy) — wróć na pierwszą zakładkę i
@@ -980,12 +983,33 @@ export function PipelineCandidateDock({
               label: "W tej rekrutacji",
               wide: true,
               value: (
-                <RateWithBudget
-                  value={item.expected_rate_value}
-                  unit={item.expected_rate_unit}
-                  currency={item.expected_rate_currency}
-                  budgetMonthly={item.budget_max_at_move}
-                />
+                <>
+                  <RateWithBudget
+                    value={item.expected_rate_value}
+                    unit={item.expected_rate_unit}
+                    currency={item.expected_rate_currency}
+                    budgetMonthly={item.budget_max_at_move}
+                  />
+                  {item.rate_change ? (
+                    <span className="ml-1.5 rounded bg-warning/15 px-1.5 py-0.5 text-[11px] font-semibold text-warning">
+                      {rateChangeStatusLabel(item.rate_change.status)}
+                      {item.rate_change.previous_hourly != null
+                        ? ` · było ${hourlyText(item.rate_change.previous_hourly)}`
+                        : ""}
+                    </span>
+                  ) : null}
+                  {!readOnly ? (
+                    // 0418: zmiana stawki w procesie — z powodem, śladem
+                    // i powiadomieniem DL / Head of Recruitment.
+                    <button
+                      type="button"
+                      onClick={() => setRateChangeOpen(true)}
+                      className="ml-1.5 text-xs font-medium text-primary hover:underline"
+                    >
+                      Zmień
+                    </button>
+                  ) : null}
+                </>
               ),
             },
             // „Stawka od” (0414): najniższa stawka z 18 miesięcy — obok stawki
@@ -1676,6 +1700,15 @@ export function PipelineCandidateDock({
           }
         />
       )}
+      {rateChangeOpen ? (
+        <RateChangeDialog
+          open
+          onOpenChange={(o) => !o && setRateChangeOpen(false)}
+          candidateId={item.candidate_id}
+          jobId={jobId}
+          description={`${fullName} · ${jobLabel}`}
+        />
+      ) : null}
       {debriefEventId != null && (
         <DebriefRequiredDialog
           open
