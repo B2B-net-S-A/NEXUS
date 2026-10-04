@@ -629,7 +629,7 @@ export function ChromeTimelineEntry({
 
 // ── Notatki w doku ──────────────────────────────────────────────────────────
 
-interface NoteListItem {
+export interface JobNoteItem {
   id: number;
   content: string;
   content_rendered?: string | null;
@@ -637,7 +637,7 @@ interface NoteListItem {
   created_at: string;
   is_system?: boolean;
   pinned_at?: string | null;
-  replies?: NoteListItem[];
+  replies?: JobNoteItem[];
 }
 
 /**
@@ -672,6 +672,64 @@ export function DockLoadError({ what, onRetry }: { what: string; onRetry: () => 
   );
 }
 
+/**
+ * Notatki osoby w TEJ rekrutacji — jeden klucz zapytania dla doku na Tablicy,
+ * warsztatu osoby i doków kroków (jeden panel osoby, 04.10.2026). Notatka
+ * dodana w jednym miejscu jest od razu widoczna w pozostałych i na profilu.
+ */
+export function jobNotesQueryKey(candidateId: number, jobId: number) {
+  return [...candidateQueryKeys.notes(candidateId), jobId] as const;
+}
+
+export function useJobNotes(candidateId: number, jobId: number, enabled = true) {
+  return useQuery<{ items?: JobNoteItem[] }>({
+    queryKey: jobNotesQueryKey(candidateId, jobId),
+    queryFn: () =>
+      api
+        .get(`/api/notes?candidate_id=${candidateId}&job_id=${jobId}`)
+        .then((r) => r.data),
+    enabled,
+  });
+}
+
+/**
+ * Lista notatek pary z ładowaniem i błędem. Pusty stan tylko po udanym
+ * odczycie — awaria nie może wyglądać jak „brak notatek”.
+ */
+export function JobNotesBlock({
+  candidateId,
+  query,
+  readOnly,
+  emptyText,
+}: {
+  candidateId: number;
+  query: ReturnType<typeof useJobNotes>;
+  readOnly: boolean;
+  emptyText?: string;
+}) {
+  if (query.isLoading) {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
+      </div>
+    );
+  }
+  if (query.isError) {
+    return <DockLoadError what="notatki" onRetry={() => void query.refetch()} />;
+  }
+  if (!query.isSuccess) return null;
+  // Ta sama lista co w „Historii” profilu: odpowiedzi, przypięte pierwsze,
+  // notatki automatów za „Pokaż systemowe (N)”.
+  return (
+    <JobNotesList
+      candidateId={candidateId}
+      notes={query.data?.items ?? []}
+      readOnly={readOnly}
+      emptyText={emptyText}
+    />
+  );
+}
+
 export function DockNotesPanel({
   candidateId,
   jobId,
@@ -687,14 +745,7 @@ export function DockNotesPanel({
   const queryClient = useQueryClient();
   const [noteText, setNoteText] = useState("");
 
-  const notesQuery = useQuery<{ items?: NoteListItem[] }>({
-    queryKey: [...candidateQueryKeys.notes(candidateId), jobId],
-    queryFn: () =>
-      api
-        .get(`/api/notes?candidate_id=${candidateId}&job_id=${jobId}`)
-        .then((r) => r.data),
-    enabled,
-  });
+  const notesQuery = useJobNotes(candidateId, jobId, enabled);
 
   const addNoteMutation = useMutation({
     mutationFn: (content: string) =>
@@ -724,8 +775,6 @@ export function DockNotesPanel({
     if (!content || addNoteMutation.isPending) return;
     addNoteMutation.mutate(content);
   };
-
-  const items = notesQuery.data?.items ?? [];
 
   return (
     <div className="space-y-3">
@@ -757,17 +806,7 @@ export function DockNotesPanel({
           </div>
         </div>
       )}
-      {notesQuery.isLoading ? (
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
-        </div>
-      ) : notesQuery.isError ? (
-        <DockLoadError what="notatki" onRetry={() => void notesQuery.refetch()} />
-      ) : notesQuery.isSuccess ? (
-        // Ta sama lista co w „Historii” profilu: odpowiedzi, przypięte
-        // pierwsze, notatki automatów za „Pokaż systemowe (N)”.
-        <JobNotesList candidateId={candidateId} notes={items} readOnly={readOnly} />
-      ) : null}
+      <JobNotesBlock candidateId={candidateId} query={notesQuery} readOnly={readOnly} />
     </div>
   );
 }

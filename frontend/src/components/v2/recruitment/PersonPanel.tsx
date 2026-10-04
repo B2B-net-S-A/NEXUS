@@ -33,7 +33,7 @@ import {
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Maximize2, Minimize2, Send, X } from "lucide-react";
+import { Maximize2, Minimize2, Send, X } from "lucide-react";
 
 import api, { candidatesApi, extractErrorMsg } from "@/lib/api";
 import { useToast } from "@/components/Toast";
@@ -70,7 +70,7 @@ import { SavedCvView, SavedScreeningView } from "./PanelSavedViews";
 import { defaultPanelSectionFor, isOffTemplateRow } from "./person-rows";
 import type { PersonPanelSection, ProcessPersonRow } from "./types";
 import { PinnedCandidateNotes } from "./PinnedCandidateNotes";
-import { JobNotesList } from "@/components/v2/candidate-profile/JobNotesList";
+import { JobNotesBlock, useJobNotes } from "@/components/v2/jobs/workbench-chrome";
 
 // ── Kontrakt z warsztatami ────────────────────────────────────────────
 
@@ -153,17 +153,6 @@ export interface PersonPanelProps {
 
 // ── Notatki i historia ────────────────────────────────────────────────
 
-interface NoteListItem {
-  id: number;
-  content: string;
-  author_name?: string | null;
-  created_at: string;
-  /** 0399: wpis automatu — schowany za „Pokaż systemowe”. */
-  is_system?: boolean;
-  pinned_at?: string | null;
-  replies?: NoteListItem[];
-}
-
 function daysPhrase(days: number): string {
   if (days <= 0) return "od dziś";
   return `od ${days} ${days === 1 ? "dnia" : "dni"}`;
@@ -197,11 +186,7 @@ function NotesSection({
     if (focusSignal > 0) textareaRef.current?.focus();
   }, [focusSignal]);
 
-  const notesQuery = useQuery<{ items?: NoteListItem[] }>({
-    queryKey: [...candidateQueryKeys.notes(candidateId), jobId],
-    queryFn: () =>
-      api.get(`/api/notes?candidate_id=${candidateId}&job_id=${jobId}`).then((r) => r.data),
-  });
+  const notesQuery = useJobNotes(candidateId, jobId);
 
   const addNote = useMutation({
     mutationFn: (content: string) =>
@@ -270,32 +255,12 @@ function NotesSection({
 
       <section aria-label="Notatki" className="space-y-2">
         <h3 className="text-xs font-semibold text-muted-foreground">Notatki w tej rekrutacji</h3>
-        {notesQuery.isLoading ? (
-          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Loader2 className="size-3 animate-spin" aria-hidden /> Wczytywanie…
-          </p>
-        ) : notesQuery.isError ? (
-          // Awaria NIE może wyglądać jak „brak notatek".
-          <p role="alert" className="text-xs text-destructive-muted-foreground">
-            Nie udało się wczytać notatek.{" "}
-            <button
-              type="button"
-              className="font-medium underline underline-offset-2"
-              onClick={() => void notesQuery.refetch()}
-            >
-              Ponów
-            </button>
-          </p>
-        ) : notesQuery.isSuccess ? (
-          // Ta sama lista co w „Historii” profilu: odpowiedzi pod notatką,
-          // przypięte pierwsze, notatki automatów za „Pokaż systemowe (N)”.
-          <JobNotesList
-            candidateId={candidateId}
-            notes={notesQuery.data?.items ?? []}
-            readOnly={readOnly}
-            emptyText="Brak notatek w tej rekrutacji."
-          />
-        ) : null}
+        <JobNotesBlock
+          candidateId={candidateId}
+          query={notesQuery}
+          readOnly={readOnly}
+          emptyText="Brak notatek w tej rekrutacji."
+        />
       </section>
 
       {/* Oś czasu WYŁĄCZNIE z faktów, które niesie wiersz — zmyślony wpis
