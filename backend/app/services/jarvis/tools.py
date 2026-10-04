@@ -2616,7 +2616,7 @@ SCREENS: dict[str, tuple[str, str]] = {
     # klucz → (szablon ścieżki, etykieta)
     "candidate": ("/candidates/{id}", "Profil kandydata"),
     "job": ("/jobs/{id}", "Rekrutacja"),
-    "job_champion": ("/jobs/{id}?tab=champion", "Zlecenie i Champion"),
+    "job_champion": ("/jobs/{id}?tab=champion", "Profil Championa"),
     "client": ("/clients/{id}", "Profil klienta"),
     "client_orders": ("/clients/{id}?tab=zamowienia", "Zamówienia klienta"),
     "contract": ("/contracts/{id}", "Kontrakt"),

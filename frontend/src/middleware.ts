@@ -373,7 +373,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/cpro-queue`, `/preview/candidate-followup`,
 //   `/preview/kpi-targets`, `/preview/plain-brief`, `/preview/permissions`,
 //   `/preview/b2b-documents`, `/preview/b2b-generator`, `/preview/similar-reassign`,
-//   `/preview/job-team-panel`,
+//   `/preview/job-team-panel`, `/preview/champion-workspace`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
@@ -468,6 +468,8 @@ const PUBLIC_PATHS = [
   "/preview/daily",
   // Panel „Zespół” rekrutacji: Delivery Lead · Rekruter · Kategoria (02.10.2026).
   "/preview/job-team-panel",
+  // Profil Championa w czterech zakładkach (04.10.2026).
+  "/preview/champion-workspace",
   "/preview/plain-brief",
   // 0404: „Odrzuceni przez AI” i plakietki przeglądu zgłoszeń.
   "/preview/job-board-screening",

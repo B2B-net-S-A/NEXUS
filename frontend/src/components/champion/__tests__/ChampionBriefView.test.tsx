@@ -1,6 +1,6 @@
 /**
- * „Zlecenie i Champion” → „Podgląd” (29.09.2026): zlecenie jako brief do
- * czytania. Tylko odczyt — każda zmiana idzie przez „Edytuj” w tej samej sekcji.
+ * „Profil Championa” → „Brief” (04.10.2026): to, co rekruter musi wiedzieć
+ * przed telefonem. Tylko odczyt — „Edytuj” otwiera szufladę bloku.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
@@ -8,6 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChampionBriefView } from "@/components/champion/ChampionBriefView";
+import type { ChampionBlock } from "@/lib/champion-blocks";
 
 const getMock = vi.fn();
 
@@ -31,8 +32,15 @@ vi.mock("@/components/RequestHistorySection", () => ({
   ),
 }));
 vi.mock("@/components/champion/plain/PlainBriefBlock", () => ({
-  PlainBriefBlock: () => <div data-testid="plain-brief-block" />,
+  PlainBriefBlock: ({ parts }: { parts?: string }) => (
+    <div data-testid="plain-brief-block" data-parts={parts ?? "all"} />
+  ),
 }));
+const plainBriefMock = vi.fn();
+vi.mock("@/lib/api/plainKnowledge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api/plainKnowledge")>();
+  return { ...actual, usePlainBrief: () => plainBriefMock() };
+});
 vi.mock("@/components/ChampionClientQuestionsPanel", () => ({
   ChampionClientQuestionsPanel: ({ canEdit }: { canEdit: boolean }) => (
     <div data-testid="client-questions" data-can-edit={String(canEdit)} />
@@ -68,20 +76,33 @@ const PROFILE = {
   insights: [{ id: "n1", topic: "ask_client", text: "Czy start dotyczy 2026?", source: "manual", audience: "team" }],
 };
 
-function renderBrief(onEditSection?: (anchor: string) => void) {
+function renderBrief(onEditBlock?: (block: ChampionBlock) => void) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <ChampionBriefView
         jobId={5}
-        job={{ title: "Starszy Programista Frontend", client_id: 9, client_name: "Klient A", deadline: null, description: "Opis od klienta" }}
-        onEditSection={onEditSection}
+        job={{
+          title: "Starszy Programista Frontend",
+          client_id: 9,
+          client_name: "Klient A",
+          deadline: null,
+          description: "Opis od klienta",
+          hiring_manager_name: "Adam Brzoza",
+          delivery_lead_user: { name: "Ewa Lis" },
+          recruiters: [
+            { user_id: 1, name: "Jan Kowal", via: "owner", proposed: false, assigned_by_name: null },
+          ],
+        }}
+        onEditBlock={onEditBlock}
       />
     </QueryClientProvider>,
   );
 }
 
 beforeEach(() => {
+  plainBriefMock.mockReset();
+  plainBriefMock.mockReturnValue({ data: undefined });
   getMock.mockReset();
   getMock.mockResolvedValue({ data: { job_id: 5, champion_profile: PROFILE } });
 });
@@ -121,23 +142,56 @@ describe("ChampionBriefView", () => {
     expect(screen.queryByText("— krytyczna")).toBeNull();
   });
 
-  it("czyta zlecenie jak brief: fakty, stack, wymagania do wyszukiwania, projekt, klient, do dopytania", async () => {
+  it("czyta zlecenie jak brief: warunki, stack, wymagania, projekt, co powiedzieć, kto prowadzi, do dopytania", async () => {
     renderBrief();
     expect(await screen.findByText("do 95,00 PLN/h")).toBeInTheDocument();
     expect(screen.getByText("zdalnie")).toBeInTheDocument();
     expect(screen.getByText("5+ lat")).toBeInTheDocument();
     expect(screen.getByText("PL (reguła klienta)")).toBeInTheDocument();
-    expect(screen.getByText("Angular", { selector: "li" })).toBeInTheDocument();
+    expect(screen.getByText("Angular", { selector: "li > span" })).toBeInTheDocument();
     expect(screen.getByText("Budowa nowego systemu od podstaw.")).toBeInTheDocument();
     expect(screen.getByText("Budowa systemu od zera")).toBeInTheDocument();
     expect(screen.getByText("Czy start dotyczy 2026?")).toBeInTheDocument();
     expect(screen.getByText("Oryginalny opis od klienta")).toBeInTheDocument();
-    // Pytania klienta z rozmów — tylko do odczytu.
-    expect(screen.getByTestId("client-questions")).toHaveAttribute("data-can-edit", "false");
-    // Link do pełnej karty niesie karta klienta (ClientPlaybookCard) — drugi
-    // w nagłówku sekcji dawał dwa identyczne linki jeden pod drugim.
-    expect(screen.queryByRole("link", { name: /Pełna karta klienta/ })).toBeNull();
-    expect(screen.getByTestId("playbook-card")).toBeInTheDocument();
+    expect(screen.getByText("Wymagania do wyszukiwania w bazie (2)")).toBeInTheDocument();
+    // Kto prowadzi — z rekrutacji, bez osobnego zapytania.
+    const team = screen.getByTestId("brief-team");
+    expect(team).toHaveTextContent("Ewa Lis");
+    expect(team).toHaveTextContent("Jan Kowal");
+    expect(team).toHaveTextContent("Adam Brzoza");
+    // „Jednym zdaniem” — skrót z „Po ludzku”; słowniczek i klient są w innych zakładkach.
+    expect(screen.getByTestId("plain-brief-block")).toHaveAttribute("data-parts", "summary");
+    expect(screen.queryByTestId("client-questions")).toBeNull();
+    expect(screen.queryByTestId("playbook-card")).toBeNull();
+    expect(screen.queryByTestId("request-history")).toBeNull();
+  });
+
+  it("technologia ze słowniczka dostaje dymek „po ludzku”, bez hasła — zwykły chip", async () => {
+    plainBriefMock.mockReturnValue({
+      data: {
+        glossary: [
+          {
+            term_key: "angular",
+            display_name: "Angular",
+            level: "must",
+            level_label: "wymagane",
+            status: "ready",
+            summary: "Narzędzie do budowania ekranów w przeglądarce.",
+            does: null,
+            cv_hints: ["AngularJS"],
+            confused_with: null,
+            in_this_project: null,
+            sources: [],
+            origin: null,
+          },
+        ],
+      },
+    });
+    renderBrief();
+    const chip = await screen.findByRole("button", { name: "Angular" });
+    expect(chip).toHaveAttribute("data-glossary", "angular");
+    expect(screen.queryByRole("button", { name: "TypeScript" })).toBeNull();
+    expect(screen.getByText("TypeScript", { selector: "li > span" })).toBeInTheDocument();
   });
 
   it("pokazuje 3 pytania screeningowe, resztę po „Pokaż kolejne”", async () => {
@@ -147,13 +201,17 @@ describe("ChampionBriefView", () => {
     expect(screen.getByText("Odpada, gdy: brak testów")).toBeInTheDocument();
   });
 
-  it("„Edytuj” przy sekcji prowadzi do tej samej sekcji edytora", async () => {
+  it("„Edytuj” przy bloku otwiera szufladę tego bloku", async () => {
     const onEdit = vi.fn();
     renderBrief(onEdit);
-    await userEvent.click(await screen.findByRole("button", { name: "Edytuj: Pytania screeningowe (4)" }));
-    expect(onEdit).toHaveBeenCalledWith("champion-section-screening");
-    await userEvent.click(screen.getByRole("button", { name: "Edytuj: Co zamówił klient" }));
-    expect(onEdit).toHaveBeenCalledWith("champion-section-basics");
+    await userEvent.click(await screen.findByRole("button", { name: "Edytuj: Pytania na rozmowę (4)" }));
+    expect(onEdit).toHaveBeenCalledWith("screening");
+    await userEvent.click(screen.getByRole("button", { name: "Edytuj: Warunki" }));
+    expect(onEdit).toHaveBeenCalledWith("conditions");
+    await userEvent.click(screen.getByRole("button", { name: "Edytuj: Czego szukamy" }));
+    expect(onEdit).toHaveBeenCalledWith("search");
+    await userEvent.click(screen.getByRole("button", { name: "Edytuj: Do dopytania u klienta" }));
+    expect(onEdit).toHaveBeenCalledWith("insights");
   });
 
   it("bez prawa edycji — brak przycisków „Edytuj”", async () => {
@@ -181,28 +239,8 @@ describe("ChampionBriefView — profil sprzed 09.2026 (pola z rekrutacji, M04-B0
       },
     });
     renderBrief();
-    expect(await screen.findByText("Java", { selector: "li" })).toBeInTheDocument();
+    expect(await screen.findByText("Java", { selector: "li > span" })).toBeInTheDocument();
     expect(screen.getByText("do 120,00 PLN/h")).toBeInTheDocument();
     expect(screen.getByText("zdalnie")).toBeInTheDocument();
-  });
-});
-
-describe("ChampionBriefView — wcześniejsze zapytania klienta", () => {
-  it("są w Podglądzie dla każdej roli (do 29.09 zakładka „Historia” panelu), zapis wg uprawnień", async () => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={client}>
-        <ChampionBriefView
-          jobId={5}
-          job={{ title: "X", client_id: 9 }}
-          requestHistory={{ readOnly: true }}
-        />
-      </QueryClientProvider>,
-    );
-    const history = await screen.findByTestId("request-history");
-    expect(history).toHaveAttribute("data-read-only", "true");
-    // Kolumna briefu jest za wąska na trzy karty w rzędzie — tytuły zapytań
-    // ucinały się do kilku liter (produkcja 29.09).
-    expect(history).toHaveAttribute("data-narrow", "true");
   });
 });

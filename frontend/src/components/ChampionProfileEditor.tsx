@@ -132,16 +132,34 @@ interface ChampionProfileEditorProps {
    *  się automatycznie po zapisaniu nowej rekrutacji. */
   intakeSeedText?: string;
   /**
-   * `workspace` — tryb „Edytuj” widoku „Zlecenie i Champion” (29.09.2026):
+   * `workspace` — pełny formularz Profilu Championa (menu „⋯ → Edytuj cały
+   * Profil Championa”, `?mode=edit`; do 04.10.2026 tryb „Edytuj”):
    * przyklejony pasek (sekcje w kolejności wyświetlania, licznik
    * niezapisanych zmian, „Anuluj”, „Zapisz”), formularz i obok kolumna
    * „Wypełnij szybciej” (AI z opisu, plik Word/PDF, podobne role, szkice AI,
    * rozmowy, wcześniejsze zapytania klienta). `stacked` — dawny jeden słup
-   * (harness `/preview/champion-profile` i testy komponentu).
+   * (harness `/preview/champion-profile` i testy komponentu). `drawer` —
+   * szuflada edycji jednego bloku Briefu (`onlySections`, `renderDrawer`).
    */
-  layout?: "stacked" | "workspace";
+  layout?: "stacked" | "workspace" | "drawer";
   /** Zgłasza, czy są niezapisane zmiany — przełącznik trybu na stronie je pokazuje. */
   onDirtyChange?: (dirty: boolean) => void;
+  /**
+   * Szuflada edycji bloku (04.10.2026): tylko te sekcje, bez grupy „proza”,
+   * paska sekcji i kolumny „Wypełnij szybciej”. Brak = cały formularz.
+   * Zapis zostaje ten sam (cały szkic, serwer scala), a sekcje spoza listy
+   * są nietknięte, więc jadą w PUT dokładnie takie, jakie były.
+   */
+  onlySections?: readonly ChampionSectionId[];
+  /**
+   * Tylko `layout="drawer"`: stopka okna (Anuluj/Zapisz) rysuje się w powłoce
+   * szuflady, nie w treści — edytor oddaje ją tym wywołaniem.
+   */
+  renderDrawer?: (parts: { body: React.ReactNode; footer: React.ReactNode }) => React.ReactNode;
+  /** Po udanym zapisie (szuflada się zamyka). */
+  onSaved?: () => void;
+  /** „Anuluj” w szufladzie — szkic wraca do zapisanego i okno się zamyka. */
+  onCancel?: () => void;
 }
 
 function genId(): string {
@@ -175,7 +193,13 @@ export function ChampionProfileEditor({
   intakeSeedText = "",
   layout = "stacked",
   onDirtyChange,
+  onlySections,
+  renderDrawer,
+  onSaved,
+  onCancel,
 }: ChampionProfileEditorProps) {
+  const drawer = layout === "drawer";
+  const show = (id: ChampionSectionId) => !onlySections || onlySections.includes(id);
   const qc = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: ["champion-profile", jobId],
@@ -327,6 +351,7 @@ export function ChampionProfileEditor({
       setSaveError(null);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 3000);
+      onSaved?.();
     },
     // Do 28.09.2026 stan „error” nie miał żadnego widoku: DL widział zwolniony
     // „Zapisz” i myślał, że zapisał. Zmiany zostają w `draft` — nic nie ginie.
@@ -494,19 +519,19 @@ export function ChampionProfileEditor({
       client: change.client ? { ...d.client, ...change.client } : d.client,
     }));
 
-  if (isLoading)
-    return (
+  if (isLoading || error) {
+    const notice = isLoading ? (
       <div className="flex justify-center py-10">
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
-    );
-
-  if (error)
-    return (
+    ) : (
       <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
         Nie udało się pobrać profilu Championa.
       </div>
     );
+    // Szuflada otwiera się od razu — także z kółkiem i z komunikatem awarii.
+    return drawer && renderDrawer ? <>{renderDrawer({ body: notice, footer: null })}</> : notice;
+  }
 
   const disabled = !canEdit;
   /** Etykiety i kotwice z JEDNEGO źródła — patrz `CHAMPION_SECTIONS`. */
@@ -698,9 +723,182 @@ export function ChampionProfileEditor({
       )}
     </>
   );
+  const searchSection = (
+    <>
+      {/* 2. Co wpisać (search) */}
+      <Section
+        title={meta("search").label}
+        anchor={meta("search").anchor}
+        state={championSectionState("search", draft)}
+        nested={!drawer}
+      >
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Labeled label="Firmy docelowe" field="search.target_companies">
+              <textarea
+                disabled={disabled}
+                value={draft.search.target_companies}
+                onChange={(e) => patchSearch({ target_companies: e.target.value })}
+                rows={3}
+                className={textareaClass}
+              />
+            </Labeled>
+            <Labeled label="Kogo odrzucamy od razu (jeden na linię)" field="search.disqualifiers">
+              <textarea
+                disabled={disabled}
+                value={(draft.search.disqualifiers || []).join("\n")}
+                onChange={(e) =>
+                  patchSearch({ disqualifiers: splitLines(e.target.value) })
+                }
+                placeholder="brak polskiego&#10;bez doświadczenia w bankowości"
+                rows={3}
+                className={textareaClass}
+              />
+            </Labeled>
+          </div>
+          <Labeled label="Uwagi / plan działania" field="search.notes">
+            <textarea
+              disabled={disabled}
+              value={draft.search.notes}
+              onChange={(e) => patchSearch({ notes: e.target.value })}
+              placeholder="np. nie zawężamy do bankowości"
+              rows={2}
+              className={textareaClass}
+            />
+          </Labeled>
+        </div>
+      </Section>
+    </>
+  );
+  const projectSection = (
+    <>
+      {/* 4. O projekcie */}
+      <Section
+        title={meta("project").label}
+        anchor={meta("project").anchor}
+        state={championSectionState("project", draft)}
+        nested={!drawer}
+      >
+        <div className="space-y-3">
+          <Labeled label="Czym jest projekt — maksymalnie 2 zdania" field="project.about">
+            <textarea
+              disabled={disabled}
+              value={draft.project.about}
+              onChange={(e) => patchProject({ about: e.target.value })}
+              placeholder="Cel i charakter projektu. Dwa zdania wystarczą."
+              rows={2}
+              className={textareaClass}
+              data-testid="champion-project-about"
+            />
+          </Labeled>
+          <p className="text-[11px] text-muted-foreground -mt-1">
+            {countPl(countSentences(draft.project.about), "zdanie", "zdania", "zdań")}
+            {countSentences(draft.project.about) > 2 && (
+              <span className="text-amber-600 dark:text-amber-400">
+                {" "}
+                — dłużej niż zakłada szablon, skróć do tego, co naprawdę zmienia
+                decyzję kandydata
+              </span>
+            )}
+          </p>
+          <Labeled label="Obowiązki na stanowisku" field="project.responsibilities">
+            <textarea
+              disabled={disabled}
+              value={draft.project.responsibilities}
+              onChange={(e) => patchProject({ responsibilities: e.target.value })}
+              rows={3}
+              className={textareaClass}
+            />
+          </Labeled>
+        </div>
+      </Section>
+    </>
+  );
+  const screeningSection = (
+    <>
+      {/* 5. Pytania screeningowe */}
+      <Section
+        title={meta("screening_questions").label}
+        anchor={meta("screening_questions").anchor}
+        state={championSectionState("screening_questions", draft)}
+        nested={!drawer}
+        action={
+          canEdit && (
+            <button
+              type="button"
+              onClick={addQuestion}
+              className="text-xs inline-flex items-center gap-1 text-primary hover:text-primary/80"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Dodaj pytanie
+            </button>
+          )
+        }
+      >
+        {draft.screening_questions.length === 0 && (
+          <div className="rounded border border-dashed border-border dark:border-border p-4 text-xs text-muted-foreground text-center">
+            Brak pytań. Dodaj przynajmniej 1 — rekruter będzie musiał odpowiedzieć
+            przed wysłaniem CV.
+          </div>
+        )}
+        <div className="space-y-3">
+          {draft.screening_questions.map((q, i) => (
+            <div
+              key={q.id || i}
+              className="rounded-lg border border-border dark:border-border p-3 space-y-2 bg-muted dark:bg-card/30"
+              data-testid={`screening-q-${i}`}
+            >
+              <div className="flex items-start gap-2">
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-mono mt-1">
+                  Q{i + 1}
+                </span>
+                <textarea
+                  disabled={disabled}
+                  value={q.question}
+                  onChange={(e) => updateQuestion(i, { question: e.target.value })}
+                  placeholder="Pytanie od Delivery Leada…"
+                  rows={2}
+                  className={textareaClass}
+                />
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => removeQuestion(i)}
+                    className="p-1 text-destructive hover:text-destructive mt-1"
+                    aria-label="Usuń pytanie"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <Labeled label="Dobra odpowiedź">
+                <textarea
+                  disabled={disabled}
+                  value={q.ideal_answer}
+                  onChange={(e) => updateQuestion(i, { ideal_answer: e.target.value })}
+                  rows={2}
+                  className={textareaClass}
+                />
+              </Labeled>
+              <Labeled label="Odpada, gdy… (wymagane przed przekazaniem do searchu)">
+                <textarea
+                  disabled={disabled}
+                  value={q.deal_breaker}
+                  onChange={(e) => updateQuestion(i, { deal_breaker: e.target.value })}
+                  rows={2}
+                  className={cn(textareaClass, "border-amber-200 focus:ring-amber-500")}
+                />
+              </Labeled>
+            </div>
+          ))}
+        </div>
+      </Section>
+    </>
+  );
   const formSections = (
     <>
       {/* 1. Podstawowe informacje */}
+      {show("basics") ? (
       <Section
         title={meta("basics").label}
         anchor={meta("basics").anchor}
@@ -861,11 +1059,13 @@ export function ChampionProfileEditor({
           </Labeled>
         </div>
       </Section>
+      ) : null}
 
       {/* 3. Stack technologiczny — ZARAZ po podstawach, przed prozą: to on
           zasila `must_skills`/`nice_skills`, czyli ranking C2, kafelki
           interaktywnego CV i filtry wyszukiwarki. Numer w tytule zostaje
           szablonowy (wzór Word), kolejność jest robocza. */}
+      {show("stack") ? (
       <Section
         title={meta("stack").label}
         anchor={meta("stack").anchor}
@@ -991,10 +1191,12 @@ export function ChampionProfileEditor({
           </>
         )}
       </Section>
+      ) : null}
 
       {/* 4. Doświadczenie poza stackiem — dziedzina, certyfikaty, regulacje.
           Po stacku, bo to też wymagania; w wynikach wyszukiwania dają
           plakietki „ślad w CV”, nie bramkę (decyzja 23.09.2026). */}
+      {show("experience") ? (
       <Section
         title={meta("experience").label}
         anchor={meta("experience").anchor}
@@ -1012,13 +1214,14 @@ export function ChampionProfileEditor({
           notesClassName={inputClass}
         />
       </Section>
+      ) : null}
 
       {/* Wymagania do wyszukiwania w bazie (część sekcji 2, 25.09.2026) — od
           nich rekruter zaczyna „Szukaj ręcznie”, a „Przekaż do searchu” wymaga
           co najmniej jednego. OSOBNA karta, poza grupą „proza”: pierwszy
           wiersz przełącza tę grupę ze skrótu na pełne sekcje, a pole w środku
           przełącznika montowało się od nowa i gubiło fokus po pierwszym słowie. */}
-      {requirementRows != null ? null : (
+      {requirementRows != null || !(show("stack") || show("search")) ? null : (
       <Section
         title="Wymagania do wyszukiwania w bazie"
         anchor={SEARCH_REQUIREMENTS_ANCHOR}
@@ -1048,6 +1251,13 @@ export function ChampionProfileEditor({
 
       {/* 2 · 5 · 6 — jeden blok „proza". Trzy osobne karty pustych pól były
           trzema ekranami niczego; chip nagłówka mówi, ilu z nich brakuje. */}
+      {drawer ? (
+        <>
+          {show("search") ? searchSection : null}
+          {show("project") ? projectSection : null}
+          {show("screening_questions") ? screeningSection : null}
+        </>
+      ) : (
       <SectionGroup
         title={CHAMPION_PROSE_SECTION_IDS.map((id) => meta(id).label).join("  ·  ")}
         // Kotwica sekcji 2 siedzi na karcie grupy WYŁĄCZNIE gdy jest zwinięta —
@@ -1099,171 +1309,13 @@ export function ChampionProfileEditor({
 
         {showFullProse ? (
           <>
-      {/* 2. Co wpisać (search) */}
-      <Section
-        title={meta("search").label}
-        anchor={meta("search").anchor}
-        state={championSectionState("search", draft)}
-        nested
-      >
-        <div className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Labeled label="Firmy docelowe" field="search.target_companies">
-              <textarea
-                disabled={disabled}
-                value={draft.search.target_companies}
-                onChange={(e) => patchSearch({ target_companies: e.target.value })}
-                rows={3}
-                className={textareaClass}
-              />
-            </Labeled>
-            <Labeled label="Kogo odrzucamy od razu (jeden na linię)" field="search.disqualifiers">
-              <textarea
-                disabled={disabled}
-                value={(draft.search.disqualifiers || []).join("\n")}
-                onChange={(e) =>
-                  patchSearch({ disqualifiers: splitLines(e.target.value) })
-                }
-                placeholder="brak polskiego&#10;bez doświadczenia w bankowości"
-                rows={3}
-                className={textareaClass}
-              />
-            </Labeled>
-          </div>
-          <Labeled label="Uwagi / plan działania" field="search.notes">
-            <textarea
-              disabled={disabled}
-              value={draft.search.notes}
-              onChange={(e) => patchSearch({ notes: e.target.value })}
-              placeholder="np. nie zawężamy do bankowości"
-              rows={2}
-              className={textareaClass}
-            />
-          </Labeled>
-        </div>
-      </Section>
-
-      {/* 4. O projekcie */}
-      <Section
-        title={meta("project").label}
-        anchor={meta("project").anchor}
-        state={championSectionState("project", draft)}
-        nested
-      >
-        <div className="space-y-3">
-          <Labeled label="Czym jest projekt — maksymalnie 2 zdania" field="project.about">
-            <textarea
-              disabled={disabled}
-              value={draft.project.about}
-              onChange={(e) => patchProject({ about: e.target.value })}
-              placeholder="Cel i charakter projektu. Dwa zdania wystarczą."
-              rows={2}
-              className={textareaClass}
-              data-testid="champion-project-about"
-            />
-          </Labeled>
-          <p className="text-[11px] text-muted-foreground -mt-1">
-            {countPl(countSentences(draft.project.about), "zdanie", "zdania", "zdań")}
-            {countSentences(draft.project.about) > 2 && (
-              <span className="text-amber-600 dark:text-amber-400">
-                {" "}
-                — dłużej niż zakłada szablon, skróć do tego, co naprawdę zmienia
-                decyzję kandydata
-              </span>
-            )}
-          </p>
-          <Labeled label="Obowiązki na stanowisku" field="project.responsibilities">
-            <textarea
-              disabled={disabled}
-              value={draft.project.responsibilities}
-              onChange={(e) => patchProject({ responsibilities: e.target.value })}
-              rows={3}
-              className={textareaClass}
-            />
-          </Labeled>
-        </div>
-      </Section>
-
-      {/* 5. Pytania screeningowe */}
-      <Section
-        title={meta("screening_questions").label}
-        anchor={meta("screening_questions").anchor}
-        state={championSectionState("screening_questions", draft)}
-        nested
-        action={
-          canEdit && (
-            <button
-              type="button"
-              onClick={addQuestion}
-              className="text-xs inline-flex items-center gap-1 text-primary hover:text-primary/80"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Dodaj pytanie
-            </button>
-          )
-        }
-      >
-        {draft.screening_questions.length === 0 && (
-          <div className="rounded border border-dashed border-border dark:border-border p-4 text-xs text-muted-foreground text-center">
-            Brak pytań. Dodaj przynajmniej 1 — rekruter będzie musiał odpowiedzieć
-            przed wysłaniem CV.
-          </div>
-        )}
-        <div className="space-y-3">
-          {draft.screening_questions.map((q, i) => (
-            <div
-              key={q.id || i}
-              className="rounded-lg border border-border dark:border-border p-3 space-y-2 bg-muted dark:bg-card/30"
-              data-testid={`screening-q-${i}`}
-            >
-              <div className="flex items-start gap-2">
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-mono mt-1">
-                  Q{i + 1}
-                </span>
-                <textarea
-                  disabled={disabled}
-                  value={q.question}
-                  onChange={(e) => updateQuestion(i, { question: e.target.value })}
-                  placeholder="Pytanie od Delivery Leada…"
-                  rows={2}
-                  className={textareaClass}
-                />
-                {canEdit && (
-                  <button
-                    type="button"
-                    onClick={() => removeQuestion(i)}
-                    className="p-1 text-destructive hover:text-destructive mt-1"
-                    aria-label="Usuń pytanie"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-              <Labeled label="Dobra odpowiedź">
-                <textarea
-                  disabled={disabled}
-                  value={q.ideal_answer}
-                  onChange={(e) => updateQuestion(i, { ideal_answer: e.target.value })}
-                  rows={2}
-                  className={textareaClass}
-                />
-              </Labeled>
-              <Labeled label="Odpada, gdy… (wymagane przed przekazaniem do searchu)">
-                <textarea
-                  disabled={disabled}
-                  value={q.deal_breaker}
-                  onChange={(e) => updateQuestion(i, { deal_breaker: e.target.value })}
-                  rows={2}
-                  className={cn(textareaClass, "border-amber-200 focus:ring-amber-500")}
-                />
-              </Labeled>
-            </div>
-          ))}
-        </div>
-      </Section>
+      {searchSection}
+      {projectSection}
+      {screeningSection}
           </>
         ) : null}
       </SectionGroup>
+      )}
 
       {/* 7. O kliencie — fakty o kliencie (SLA, limity, off-limit, dokumenty,
           „co powiedzieć kandydatowi", reguły priorytetu) żyją w KARCIE KLIENTA
@@ -1272,6 +1324,7 @@ export function ChampionProfileEditor({
           `client.about/priority_rules/contract_type/offlimit` i `documents`
           zostają w `draft` i jadą w PUT nietknięte (serwer scala płytko) —
           usunięcie kontrolek NIE kasuje zapisanych danych. */}
+      {show("client") ? (
       <Section
         title={meta("client").label}
         anchor={meta("client").anchor}
@@ -1357,9 +1410,11 @@ export function ChampionProfileEditor({
           </div>
         </div>
       </Section>
+      ) : null}
 
       {/* 8. Wiedza z rozmów — smaczki od klienta i od naszego konsultanta
           + podsumowanie historii klienta (AI). */}
+      {show("insights") ? (
       <Section
         title={meta("insights").label}
         anchor={meta("insights").anchor}
@@ -1377,6 +1432,7 @@ export function ChampionProfileEditor({
           }
         />
       </Section>
+      ) : null}
     </>
   );
   const readOnlyNotice = (
@@ -1492,6 +1548,65 @@ export function ChampionProfileEditor({
 
   if (layout === "workspace") {
     return renderWorkspace();
+  }
+
+  if (drawer) {
+    const body = (
+      <div className="space-y-4 [&_[id]]:scroll-mt-4" data-testid="champion-editor-drawer">
+        {formSections}
+        {readOnlyNotice}
+      </div>
+    );
+    const footer = canEdit ? (
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {/* Błąd zapisu stoi przy „Zapisz” — w treści szuflady mógłby być poza widokiem. */}
+        {saveStatus === "error" && saveError ? (
+          <p
+            role="alert"
+            data-testid="champion-profile-save-error"
+            className="w-full text-xs text-destructive-muted-foreground"
+          >
+            <strong>Nie zapisano profilu.</strong> {saveError}
+          </p>
+        ) : null}
+        {dirtySections > 0 ? (
+          <span
+            className="mr-auto text-xs font-medium text-warning-muted-foreground"
+            data-testid="champion-unsaved-count"
+          >
+            ● {countPl(dirtySections, "niezapisana zmiana", "niezapisane zmiany", "niezapisanych zmian")}
+          </span>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(baseline);
+            onCancel?.();
+          }}
+          disabled={mutation.isPending}
+          className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-accent disabled:opacity-50"
+          data-testid="cancel-champion-profile"
+        >
+          Anuluj
+        </button>
+        <button
+          type="button"
+          onClick={() => mutation.mutate(draft)}
+          disabled={mutation.isPending || dirtySections === 0}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white shadow-xs hover:bg-primary/90 disabled:opacity-60"
+          data-testid="save-champion-profile"
+        >
+          <Save className="h-4 w-4" />
+          {mutation.isPending ? "Zapisuję…" : "Zapisz"}
+        </button>
+      </div>
+    ) : null;
+    return renderDrawer ? <>{renderDrawer({ body, footer })}</> : (
+      <div className="space-y-4">
+        {body}
+        {footer}
+      </div>
+    );
   }
 
   return (

@@ -7,9 +7,8 @@
  * `ChampionProfileSourcesPanel` i panel „Wygeneruj z opisu klienta (AI)"
  * (oba `{canEdit && (...)}`, więc się nie montują), dzięki czemu jedyne
  * zapytanie sieciowe to `GET …/champion-profile`. Weryfikacja dwustronna +
- * briefing + rekomendowane wyszukiwania NIE renderują się już tutaj — od
- * tego PR-u mieszkają w `JobReadinessDock` (`variant="champion"`), patrz
- * `JobReadinessDock.test.tsx`.
+ * briefing NIE renderują się tutaj — od 04.10.2026 mieszkają w pasku
+ * „Do dopięcia” nad Briefem (`ChampionTodoStrip.test.tsx`).
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -950,7 +949,7 @@ describe("ChampionProfileEditor — nieudany zapis nie jest cichy", () => {
   });
 });
 
-// Tryb „Edytuj” widoku „Zlecenie i Champion” (29.09.2026).
+// Pełny formularz Profilu Championa (menu „⋯”, `?mode=edit`; do 04.10.2026 tryb „Edytuj”).
 describe("ChampionProfileEditor — układ workspace", () => {
   function renderWorkspace(jobId: number) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -995,5 +994,67 @@ describe("ChampionProfileEditor — układ workspace", () => {
       "Wiedza z rozmów",
     ]);
     expect(screen.getByRole("complementary", { name: "Wypełnij szybciej" })).toBeInTheDocument();
+  });
+});
+
+// Szuflada edycji bloku Briefu „Profilu Championa” (04.10.2026).
+describe("ChampionProfileEditor — szuflada bloku (`onlySections`)", () => {
+  function renderDrawerEditor(
+    jobId: number,
+    onlySections: Parameters<typeof ChampionProfileEditor>[0]["onlySections"],
+    extra: { onSaved?: () => void; onCancel?: () => void } = {},
+  ) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor
+          jobId={jobId}
+          canEdit
+          clientId={null}
+          layout="drawer"
+          onlySections={onlySections}
+          {...extra}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("rysuje tylko sekcje bloku — bez paska sekcji, grupy „proza” i „Wypełnij szybciej”", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 41, champion_profile: {} } });
+    renderDrawerEditor(41, ["screening_questions"]);
+    await screen.findByTestId("champion-editor-drawer");
+    const ids = Array.from(document.querySelectorAll('section[id^="champion-section-"]')).map(
+      (el) => el.id,
+    );
+    expect(ids).toEqual(["champion-section-screening"]);
+    expect(screen.queryByRole("navigation", { name: "Sekcje Profilu Championa" })).toBeNull();
+    expect(screen.queryByRole("complementary", { name: "Wypełnij szybciej" })).toBeNull();
+    expect(screen.queryByTestId("expand-champion-prose")).toBeNull();
+  });
+
+  it("„Zapisz” wysyła profil i woła `onSaved`; bez zmian przycisk jest nieaktywny", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 42, champion_profile: {} } });
+    putMock.mockResolvedValue({ data: { job_id: 42, champion_profile: {} } });
+    const onSaved = vi.fn();
+    renderDrawerEditor(42, ["basics"], { onSaved });
+    await screen.findByTestId("champion-editor-drawer");
+    expect(screen.getByTestId("save-champion-profile")).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText("Nazwa roli"), "QA");
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    expect((putMock.mock.calls[0][1] as { basics: { role_name: string } }).basics.role_name).toBe("QA");
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  });
+
+  it("„Anuluj” cofa szkic i woła `onCancel`", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 43, champion_profile: {} } });
+    const onCancel = vi.fn();
+    renderDrawerEditor(43, ["basics"], { onCancel });
+    await screen.findByTestId("champion-editor-drawer");
+    await userEvent.type(screen.getByLabelText("Nazwa roli"), "QA");
+    await userEvent.click(screen.getByTestId("cancel-champion-profile"));
+    expect(onCancel).toHaveBeenCalled();
+    expect(putMock).not.toHaveBeenCalled();
   });
 });

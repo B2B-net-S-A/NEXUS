@@ -198,24 +198,24 @@
   },
   {
     "key": "job.champion",
-    "title": "Zlecenie i Champion",
+    "title": "Profil Championa",
     "section": "pipeline",
     "roles": ["delivery_lead", "recruiter", "admin"],
-    "what": "Tu czytasz i opisujesz zlecenie: „Podgląd” pokazuje je jak brief, „Edytuj” to formularz Championa w ośmiu sekcjach. Obok panel: Gotowość, Zespół, Ogłoszenie. Wchodzisz tu zakładką „Zlecenie i Champion” w nagłówku rekrutacji.",
+    "what": "Tu czytasz zlecenie w czterech zakładkach: Brief (wszystko przed telefonem), Technologie po ludzku, Klient i historia, Zespół i ogłoszenie. „Edytuj” przy bloku otwiera go z boku; cały formularz jest w menu „⋯”.",
     "tasks": [
       {
         "q": "Jak szybko wypełnić profil z maila klienta?",
-        "a": "Przejdź na „Edytuj” i w kolumnie „Wypełnij szybciej” kliknij „Wygeneruj z opisu klienta”, wklej opis i zatwierdź. AI wypełni sekcje, a Ty poprawisz je ręcznie — profil dostanie znacznik pochodzenia. Obok jest też import pliku Word/PDF.",
+        "a": "Otwórz menu „⋯” w nagłówku i kliknij „Edytuj cały Profil Championa”. W kolumnie „Wypełnij szybciej” kliknij „Wygeneruj z opisu klienta”, wklej opis i zatwierdź. AI wypełni sekcje, a Ty je poprawisz. Obok jest też import pliku Word/PDF.",
         "anchor": "job.champion.intake"
       },
       {
-        "q": "Czego brakuje, żeby przekazać rekrutację do searchu?",
-        "a": "Zobacz zakładkę „Gotowość” z prawej: lista braków, m.in. pytania z odpowiedzią, która odpada, krytyczne, kategoria, hiring manager i termin (albo „Klient nie podał”). Budżet i tryb pracy uzupełnisz na miejscu. Potem „Przekaż i opublikuj”. Zamkniętą rekrutację otwiera „Otwórz ponownie” w menu „⋯” — przez te same braki.",
-        "anchor": "job.champion.readiness"
+        "q": "Co jeszcze trzeba dopiąć w zleceniu?",
+        "a": "Na górze Briefu stoi pasek „Do dopięcia” (widzi go Delivery Lead): braki w zleceniu, rozmowa z klientem i konsultantem, briefing. Kliknięcie braku otwiera właściwy blok do edycji. Gdy wszystko jest dopięte, paska nie ma.",
+        "anchor": "job.champion.todo"
       },
       {
         "q": "Profil i pola rekrutacji się różnią — co zrobić?",
-        "a": "W „Edytuj” (kolumna „Wypełnij szybciej”) kliknij „Uzgodnij profil i pola rekrutacji”. Zobaczysz różnice obok siebie i zdecydujesz, która wartość zostaje. Budżet, tryb pracy, dni w biurze i miasto zmienione w „Edytuj” po „Zapisz” zmieniają też rekrutację.",
+        "a": "W menu „⋯” → „Edytuj cały Profil Championa”, potem w kolumnie „Wypełnij szybciej” kliknij „Uzgodnij profil i pola rekrutacji”. Zobaczysz różnice obok siebie i zdecydujesz, która wartość zostaje.",
         "anchor": "job.champion.reconcile"
       },
       {
@@ -225,18 +225,20 @@
       },
       {
         "q": "Jak wpisać wymagania jako słowa kluczowe?",
-        "a": "W sekcji 3 wymagania to jedna lista: wiersz to wymaganie, słowa w wierszu to warianty, a poziom to „Krytyczne”, „Musi mieć” albo „Mile widziane”. Od nich rekruter zaczyna „Szukaj ręcznie” — wymagane są tam tylko krytyczne. Starszy profil ma osobne pola; „Uprość do słów kluczowych” zamienia je na listę."
+        "a": "W Briefie kliknij „Edytuj” przy „Czego szukamy”. Wiersz to wymaganie, słowa w wierszu to warianty, a poziom to „Krytyczne”, „Musi mieć” albo „Mile widziane”. Od nich rekruter zaczyna „Szukaj w bazie”. Starszy profil zamienisz na listę przyciskiem „Uprość do słów kluczowych”.",
+        "anchor": "job.champion.tabs"
       }
     ],
     "pitfalls": [
-      "Stack MUST z sekcji 3 jest tym, po czym system dopasowuje kandydatów — sama proza w opisie projektu wystarcza gorzej.",
-    "Kandydata z list AI ukrywa tylko brak umiejętności krytycznej (poziom „Krytyczne” wiersza w sekcji 3, w starszym profilu pole „Krytyczne (0–2)”). Pozostałe wymagania dają punkty. Bez decyzji działa podpowiedź z historii; „Brak krytycznych” znaczy, że nikt nie jest ukrywany.",
+      "Wymagania z „Czego szukamy” są tym, po czym system dopasowuje kandydatów — sama proza w opisie projektu wystarcza gorzej.",
+      "Kandydata z list AI ukrywa tylko brak umiejętności krytycznej (gwiazdka w „Czego szukamy”). Pozostałe wymagania dają punkty. Bez decyzji działa podpowiedź z historii; „Brak krytycznych” znaczy, że nikt nie jest ukrywany.",
       "Budżet podany zakresem jest zapisywany jako górna granica stawki godzinowej.",
       "Tytuł w nagłówku to tytuł dla rekrutera: składa się sam z profilu (rola, must-have, lata, dziedzina), dopóki nikt go nie zmieni w „Edytuj rekrutację”. Do klienta idą nazwa i numer od klienta."
     ],
     "anchors": [
       {"id": "job.champion.intake", "label": "Wygeneruj z opisu klienta", "describe": "Wypełnienie profilu z opisu klienta przez AI."},
-      {"id": "job.champion.readiness", "label": "Gotowość rekrutacji", "describe": "Panel zlecenia z brakami i przyciskiem przekazania do searchu."},
+      {"id": "job.champion.todo", "label": "Do dopięcia", "describe": "Pasek nad Briefem: braki w zleceniu, weryfikacja z klientem i konsultantem, briefing."},
+      {"id": "job.champion.tabs", "label": "Zakładki profilu", "describe": "Brief, Technologie po ludzku, Klient i historia, Zespół i ogłoszenie."},
       {"id": "job.champion.reconcile", "label": "Uzgodnij profil i pola", "describe": "Porównanie profilu z polami rekrutacji."},
       {
         "id": "job.champion.found",
@@ -244,12 +246,13 @@
         "describe": "Menu „⋯” w nagłówku rekrutacji — pozycja „Oznacz: mamy championa”.",
         "requires": {"roles": ["admin", "delivery_lead", "head_of_recruitment"]}
       },
-      {"id": "job.champion.sections", "label": "Spis sekcji", "describe": "Spis sekcji profilu (widoczny na szerokim ekranie)."}
+      {"id": "job.champion.sections", "label": "Spis sekcji", "describe": "Spis sekcji w pełnym formularzu (menu „⋯” → „Edytuj cały Profil Championa”)."}
     ],
     "help_slug": null,
     "sources": [
-      "frontend/src/components/ChampionProfileEditor.tsx",
-      "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx"
+      "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx",
+      "frontend/src/components/champion/ChampionWorkspace.tsx",
+      "frontend/src/components/champion/ChampionBriefView.tsx"
     ]
   },
   {

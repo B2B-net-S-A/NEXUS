@@ -239,6 +239,21 @@ export function JobHandoffButton({
     );
   }
 
+  // Rekrutacja już przekazana (`is_open`): ponowne kliknięcie przestawiało
+  // rekrutera i liczyło ranking od nowa, a obok stało „przekazane do searchu”
+  // (04.10.2026). Rekrutera zmienia się w zakładce „Zespół i ogłoszenie”.
+  if (readiness?.already_handed_off) {
+    return (
+      <p
+        data-testid="handoff-already"
+        className="mt-4 flex items-start gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground"
+      >
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+        Przekazana do searchu. Rekrutera zmienisz w zakładce „Zespół i ogłoszenie”.
+      </p>
+    );
+  }
+
   return (
     <div className="mt-4 rounded-lg border border-border bg-card p-4">
       <div className="flex items-start justify-between gap-3">

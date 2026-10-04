@@ -1,44 +1,45 @@
 "use client";
 
 /**
- * „Zlecenie i Champion” → tryb „Podgląd” (makieta 29.09.2026): zlecenie
- * czytane jak brief, nie jak formularz. Do tej pory rekruter dostawał wyłącznie
- * edytor — ten sam formularz co Delivery Lead, z pustymi polami i polami
- * w kolejności 1, 3, 4, 2, 5…
+ * „Profil Championa” → zakładka „Brief” (04.10.2026, makieta
+ * https://claude.ai/artifact/FwQr2uYhWcRfdDeWdbStUc).
+ *
+ * To, co rekruter musi wiedzieć przed telefonem, na jednym ekranie: jednym
+ * zdaniem o co chodzi, czego szukamy, pytania na rozmowę, co powiedzieć
+ * kandydatowi, a w prawej kolumnie warunki, kto prowadzi i co dopytać
+ * u klienta. Do 04.10.2026 była to jedna długa strona „Podgląd” (ok. 5 000 px)
+ * — słowniczek przeszedł do „Technologie po ludzku”, klient i historia do
+ * „Klient i historia”.
  *
  * Tylko odczyt. Profil idzie spod TEGO SAMEGO klucza co edytor
- * (`["champion-profile", jobId]`), więc po zapisie w „Edytuj” oba widoki są
- * spójne. Każda sekcja z przyciskiem „Edytuj” prowadzi do tej samej sekcji
- * w trybie edycji — niczego nie da się tu zmienić po cichu.
+ * (`["champion-profile", jobId]`). „Edytuj” przy bloku otwiera szufladę
+ * z sekcjami tego bloku (`onEditBlock`).
  */
 
 import type { ReactNode } from "react";
 import { PencilLine, Star } from "lucide-react";
 
-import {
-  ChampionInsightsDigest,
-  ExperienceChips,
-  useChampionProfile,
-} from "@/components/champion/ChampionBriefForRecruiters";
+import { ExperienceChips, useChampionProfile } from "@/components/champion/ChampionBriefForRecruiters";
 import { SearchRequirementsEditor } from "@/components/champion/SearchRequirementsEditor";
 import { PlainBriefBlock } from "@/components/champion/plain/PlainBriefBlock";
-import { ChampionClientQuestionsPanel } from "@/components/ChampionClientQuestionsPanel";
-import { RequestHistorySection } from "@/components/RequestHistorySection";
-import { ClientPlaybookCard } from "@/components/client-playbook/ClientPlaybookCard";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import { EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
-import { clientPlaybookEditHref } from "@/lib/client-playbooks";
+import { usePlainBrief, type GlossaryTerm } from "@/lib/api/plainKnowledge";
+import type { ChampionBlock } from "@/lib/champion-blocks";
 import { JOB_WORK_MODE_LABEL, seedChampionFromJob } from "@/lib/champion-job-seed";
-import { formatBudgetHourly } from "@/lib/job-budget";
 import { criticalBriefLine, includesLabel } from "@/lib/critical-skills";
+import { formatBudgetHourly } from "@/lib/job-budget";
 import { formatJobDeadline } from "@/lib/job-deadline";
-import { resolveViewState } from "@/lib/view-state";
+import { recruitersOf, workingRecruiters, type JobTeamSource } from "@/lib/job-team";
 import { officeDaysLabel } from "@/lib/office-days";
+import { buildGlossaryLookup, glossaryKey } from "@/lib/plain-glossary-lookup";
+import { resolveViewState } from "@/lib/view-state";
 
-/** Pola rekrutacji, które Podgląd czyta obok profilu. */
-export interface ChampionBriefJob {
+/** Pola rekrutacji, które Brief czyta obok profilu. */
+export interface ChampionBriefJob extends JobTeamSource {
   title?: string | null;
   client_id?: number | null;
   client_name?: string | null;
@@ -46,21 +47,21 @@ export interface ChampionBriefJob {
   deadline?: string | null;
   deadline_time?: string | null;
   description?: string | null;
+  hiring_manager_name?: string | null;
+  delivery_lead_user?: { name?: string | null } | null;
 }
 
 export interface ChampionBriefViewProps {
   jobId: number;
   job: ChampionBriefJob;
   /** Brak = rola nie edytuje Championa — przycisków „Edytuj” nie ma. */
-  onEditSection?: (anchor: string) => void;
-  /** „Szukaj ręcznie w bazie” — start od wymagań z sekcji 2. */
+  onEditBlock?: (block: ChampionBlock) => void;
+  /** „Szukaj ręcznie w bazie” — start od wymagań do wyszukiwania. */
   onOpenManualSearch?: () => void;
-  /**
-   * Wcześniejsze zapytania tego klienta (Otwórz, Skopiuj jako template).
-   * Do 29.09.2026 zakładka „Historia” panelu — widziała ją każda rola, więc
-   * Podgląd też. `null` = sekcji nie ma (harness, testy).
-   */
-  requestHistory?: { readOnly: boolean } | null;
+  /** „Zmień →” przy „Kto prowadzi” — zakładka „Zespół i ogłoszenie”. */
+  onOpenTeam?: () => void;
+  /** „Więcej o kliencie” — zakładka „Klient i historia”. */
+  onOpenClient?: () => void;
 }
 
 /** Kotwice sekcji edytora (`ChampionProfileEditor`, `id=` na kartach). */
@@ -76,35 +77,30 @@ export const CHAMPION_EDIT_ANCHOR = {
 
 const SCREENING_PREVIEW = 3;
 
-function Section({
+export function BriefSection({
   title,
-  source,
   action,
   onEdit,
   children,
   testId,
+  className,
 }: {
   title: string;
-  source?: string | null;
   action?: ReactNode;
   onEdit?: () => void;
   children: ReactNode;
   testId?: string;
+  className?: string;
 }) {
   return (
     <section
-      className="space-y-3 rounded-xl border border-border bg-card px-5 py-4"
+      className={`space-y-2.5 rounded-xl border border-border bg-card px-4 py-3.5 ${className ?? ""}`}
       data-testid={testId}
       aria-label={title}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-[15px] font-semibold text-foreground">{title}</h2>
+        <h2 className="text-[14px] font-semibold text-foreground">{title}</h2>
         <div className="flex items-center gap-3">
-          {source ? (
-            <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
-              {source}
-            </span>
-          ) : null}
           {action}
           {onEdit ? (
             <button
@@ -126,11 +122,31 @@ function Section({
 
 function Fact({ label, value, muted = false }: { label: string; value: ReactNode; muted?: boolean }) {
   return (
-    <div className="min-w-0">
+    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-2 py-1">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className={muted ? "mt-0.5 text-sm text-muted-foreground" : "mt-0.5 text-sm font-medium text-foreground"}>
+      <dd className={muted ? "text-[13px] text-muted-foreground" : "text-[13px] font-medium text-foreground"}>
         {value}
       </dd>
+    </div>
+  );
+}
+
+export function Eyebrow({ children }: { children: ReactNode }) {
+  return (
+    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      {children}
+    </p>
+  );
+}
+
+/** Dymek ze słowniczka „po ludzku” — tylko hasła z opisem. */
+function GlossaryTip({ term }: { term: GlossaryTerm }) {
+  return (
+    <div className="max-w-[18rem] space-y-1 text-left text-xs leading-snug">
+      <p className="font-semibold">{term.display_name}</p>
+      <p>{term.summary}</p>
+      {term.cv_hints.length > 0 ? <p>W CV szukaj też: {term.cv_hints.join(", ")}</p> : null}
+      {term.confused_with ? <p>Nie myl z: {term.confused_with}</p> : null}
     </div>
   );
 }
@@ -139,41 +155,54 @@ function Chips({
   items,
   tone,
   critical = [],
+  glossary,
 }: {
   items: string[];
   tone: "must" | "nice";
   /** Pozycje, na których działa bramka (gwiazdka „krytyczna”). */
   critical?: readonly string[];
+  glossary: Map<string, GlossaryTerm>;
 }) {
   return (
     <ul className="flex flex-wrap gap-1.5">
       {items.map((name) => {
         const isCritical = includesLabel(critical, name);
-        return (
-          <li
-            key={`${tone}:${name}`}
-            className={
-              tone === "must"
-                ? `inline-flex h-[26px] items-center gap-1 rounded-full bg-primary/10 px-2.5 text-xs font-medium text-primary${isCritical ? " ring-1 ring-primary" : ""}`
-                : "inline-flex h-[26px] items-center rounded-full bg-muted px-2.5 text-xs font-medium text-muted-foreground"
-            }
-            data-critical={isCritical || undefined}
-          >
+        const term = glossary.get(glossaryKey(name));
+        const className =
+          tone === "must"
+            ? `inline-flex h-[26px] items-center gap-1 rounded-full bg-primary/10 px-2.5 text-xs font-medium text-primary${isCritical ? " ring-1 ring-primary" : ""}`
+            : "inline-flex h-[26px] items-center rounded-full bg-muted px-2.5 text-xs font-medium text-muted-foreground";
+        const content = (
+          <>
             {isCritical ? <Star className="h-3 w-3 fill-current" aria-hidden /> : null}
             {name}
             {isCritical ? <span className="sr-only"> — krytyczna</span> : null}
+          </>
+        );
+        return (
+          <li key={`${tone}:${name}`} data-critical={isCritical || undefined} className="flex">
+            {term ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className={`${className} cursor-help decoration-dotted underline-offset-2 hover:underline`}
+                    data-glossary={term.term_key}
+                  >
+                    {content}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <GlossaryTip term={term} />
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <span className={className}>{content}</span>
+            )}
           </li>
         );
       })}
     </ul>
-  );
-}
-
-function Eyebrow({ children }: { children: ReactNode }) {
-  return (
-    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-      {children}
-    </p>
   );
 }
 
@@ -189,13 +218,16 @@ function provenanceLabel(profile: Partial<ChampionProfile>): string | null {
 export function ChampionBriefView({
   jobId,
   job,
-  onEditSection,
+  onEditBlock,
   onOpenManualSearch,
-  requestHistory = null,
+  onOpenTeam,
+  onOpenClient,
 }: ChampionBriefViewProps) {
   const query = useChampionProfile(jobId);
+  const plainQuery = usePlainBrief(jobId);
   const cvRuleQuery = useClientCvRule(job.client_id ?? null);
   const cvLanguage = cvRuleQuery.data?.is_active ? (cvRuleQuery.data.cv_language ?? null) : null;
+  const glossary = buildGlossaryLookup(plainQuery.data?.glossary);
 
   const state = resolveViewState({
     isLoading: query.isLoading,
@@ -217,8 +249,7 @@ export function ChampionBriefView({
 
   // Ten sam profil, na który patrzy edytor: dla profili sprzed 09.2026 stack
   // i podstawy (budżet, tryb pracy) wczytujemy z kolumn rekrutacji
-  // (`seedChampionFromJob`, M04-B02). Surowy `champion_profile` dawał
-  // rekruterowi „brak wymagań” tam, gdzie „Edytuj” pokazywał listę technologii.
+  // (`seedChampionFromJob`, M04-B02).
   const profile: Partial<ChampionProfile> = query.data
     ? seedChampionFromJob(
         {
@@ -239,8 +270,7 @@ export function ChampionBriefView({
   const search = profile.search;
   const requirements = search?.requirements ?? [];
   const source = provenanceLabel(profile);
-  const edit = (anchor: string) => () => onEditSection?.(anchor);
-  const clientId = job.client_id ?? null;
+  const edit = (block: ChampionBlock) => (onEditBlock ? () => onEditBlock(block) : undefined);
   const workMode = basics.work_mode
     ? (JOB_WORK_MODE_LABEL[basics.work_mode] ?? basics.work_mode)
     : null;
@@ -259,228 +289,258 @@ export function ChampionBriefView({
     .split(/\n|;/)
     .map((line) => line.replace(/^[-•*]\s*/, "").trim())
     .filter(Boolean);
+  const experienceCount =
+    (profile.experience?.domains?.length ?? 0) +
+    (profile.experience?.certifications?.length ?? 0) +
+    (profile.experience?.regulations?.length ?? 0);
+  const recruiterNames = workingRecruiters(recruitersOf(job)).map((p) => p.name);
+  const sellingPoints = profile.client?.selling_points?.trim() ?? "";
 
   return (
-    <div className="min-w-0 space-y-3.5" data-testid="champion-brief-view">
-      {/* „Po ludzku” (29.09.2026): wyjaśnienie rekrutacji dla rekrutera bez
-          zaplecza technicznego — przed brief, bo od niego zaczyna się czytanie. */}
-      <PlainBriefBlock jobId={jobId} />
-      <Section
-        title="Co zamówił klient"
-        source={source}
-        onEdit={onEditSection ? edit(CHAMPION_EDIT_ANCHOR.basics) : undefined}
-        testId="brief-order"
+    <TooltipProvider delayDuration={150}>
+      <div
+        className="grid grid-cols-1 gap-3.5 xl:grid-cols-[minmax(0,1fr)_300px]"
+        data-testid="champion-brief-view"
       >
-        <dl className="grid grid-cols-2 gap-x-5 gap-y-3.5 sm:grid-cols-4">
-          <Fact
-            label="Budżet (sufit)"
-            value={basics.rate_value != null ? `do ${formatBudgetHourly(basics.rate_value)} PLN/h` : "nie podano"}
-            muted={basics.rate_value == null}
-          />
-          <Fact
-            label="Tryb i biuro"
-            value={[workMode, office].filter(Boolean).join(" · ") || "nie podano"}
-            muted={!workMode && !office}
-          />
-          <Fact label="Start" value={basics.start_date?.trim() || "nie podano"} muted={!basics.start_date} />
-          <Fact label="Długość" value={basics.contract_length?.trim() || "nie podano"} muted={!basics.contract_length} />
-          <Fact
-            label="Doświadczenie"
-            value={basics.seniority_min_years != null ? `${basics.seniority_min_years}+ lat` : "nie podano"}
-            muted={basics.seniority_min_years == null}
-          />
-          <Fact label="Język pracy" value={basics.language?.trim() || "nie podano"} muted={!basics.language} />
-          <Fact label="Język CV" value={cvLanguage ? `${cvLanguage.toUpperCase()} (reguła klienta)` : "brak reguły klienta"} muted={!cvLanguage} />
-          <Fact
-            label="Termin dla klienta"
-            value={formatJobDeadline(job.deadline, job.deadline_time) ?? "nie ustawiono"}
-            muted={!job.deadline}
-          />
-          <Fact label="Nazwa od klienta" value={job.title?.trim() || "—"} />
-          <Fact label="Numer u klienta" value={job.client_reference?.trim() || "nie podano"} muted={!job.client_reference} />
-          <Fact label="Klient" value={job.client_name?.trim() || "—"} />
-        </dl>
-        {job.description?.trim() ? (
-          <details className="text-sm">
-            <summary className="cursor-pointer text-[13px] text-muted-foreground hover:text-foreground">
-              Oryginalny opis od klienta
-            </summary>
-            <p className="mt-2 whitespace-pre-line text-[13px] leading-relaxed text-foreground">
-              {job.description}
-            </p>
-          </details>
-        ) : null}
-      </Section>
+        <div className="min-w-0 space-y-3.5">
+          {/* „Jednym zdaniem” (dawny blok „Po ludzku”, skrócony): słowniczek
+              jest w „Technologie po ludzku”, opis klienta w „Klient i historia”. */}
+          <PlainBriefBlock jobId={jobId} parts="summary" compact />
 
-      <Section
-        title="Czego szukamy"
-        onEdit={onEditSection ? edit(CHAMPION_EDIT_ANCHOR.stack) : undefined}
-        action={
-          onOpenManualSearch ? (
-            <button
-              type="button"
-              onClick={onOpenManualSearch}
-              className="text-[13px] font-medium text-primary hover:underline"
-            >
-              Szukaj ręcznie w bazie →
-            </button>
-          ) : null
-        }
-        testId="brief-search"
-      >
-        <div className="space-y-1.5">
-          <Eyebrow>Musi mieć</Eyebrow>
-          {must.length > 0 ? (
-            <Chips items={must} tone="must" critical={criticalResolution?.effective ?? []} />
-          ) : (
-            <p className="text-[13px] text-muted-foreground">— brak</p>
-          )}
-          {criticalLine ? (
-            <p
-              className={
-                criticalResolution?.decided
-                  ? "text-[13px] text-muted-foreground"
-                  : "text-[13px] text-warning-muted-foreground"
-              }
-              data-testid="brief-critical"
-            >
-              {criticalLine}
-            </p>
-          ) : null}
-        </div>
-        <div className="space-y-1.5">
-          <Eyebrow>Mile widziane</Eyebrow>
-          {nice.length > 0 ? <Chips items={nice} tone="nice" /> : <p className="text-[13px] text-muted-foreground">— brak</p>}
-        </div>
-        {profile.stack?.notes?.trim() ? (
-          <p className="text-[13px] text-muted-foreground">Niuanse: {profile.stack.notes}</p>
-        ) : null}
-        <div className="space-y-1.5">
-          <Eyebrow>Doświadczenie poza stackiem</Eyebrow>
-          <ExperienceChips experience={profile.experience} />
-          {!profile.experience ||
-          (profile.experience.domains?.length ?? 0) +
-            (profile.experience.certifications?.length ?? 0) +
-            (profile.experience.regulations?.length ?? 0) ===
-            0 ? (
-            <p className="text-[13px] text-muted-foreground">— brak (dziedzina, certyfikaty, regulacje)</p>
-          ) : null}
-        </div>
-        <div className="space-y-1.5 rounded-lg bg-muted/50 px-3.5 py-3">
-          <Eyebrow>Wymagania do wyszukiwania w bazie</Eyebrow>
-          {requirements.length > 0 ? (
-            <SearchRequirementsEditor
-              rows={requirements}
-              exclude={search?.exclude ?? []}
-              onChange={() => undefined}
-              readOnly
-              countEnabled={false}
-            />
-          ) : (
-            <p className="text-[13px] text-muted-foreground">
-              Brak — bez nich rekrutacja nie przejdzie do searchu.
-            </p>
-          )}
-          {search?.target_companies?.trim() ? (
-            <p className="text-xs text-muted-foreground">Firmy docelowe: {search.target_companies}</p>
-          ) : null}
-          {(search?.disqualifiers ?? []).length > 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Kogo odrzucamy: {(search?.disqualifiers ?? []).join(", ")}
-            </p>
-          ) : null}
-        </div>
-      </Section>
+          <BriefSection
+            title="Czego szukamy"
+            onEdit={edit("search")}
+            action={
+              onOpenManualSearch ? (
+                <button
+                  type="button"
+                  onClick={onOpenManualSearch}
+                  className="text-[13px] font-medium text-primary hover:underline"
+                >
+                  Szukaj w bazie →
+                </button>
+              ) : null
+            }
+            testId="brief-search"
+          >
+            <div className="space-y-1.5">
+              <Eyebrow>Musi mieć</Eyebrow>
+              {must.length > 0 ? (
+                <Chips items={must} tone="must" critical={criticalResolution?.effective ?? []} glossary={glossary} />
+              ) : (
+                <p className="text-[13px] text-muted-foreground">— brak</p>
+              )}
+              {criticalLine ? (
+                <p
+                  className={
+                    criticalResolution?.decided
+                      ? "text-[13px] text-muted-foreground"
+                      : "text-[13px] text-warning-muted-foreground"
+                  }
+                  data-testid="brief-critical"
+                >
+                  {criticalLine}
+                </p>
+              ) : null}
+            </div>
+            <div className="space-y-1.5">
+              <Eyebrow>Mile widziane</Eyebrow>
+              {nice.length > 0 ? (
+                <Chips items={nice} tone="nice" glossary={glossary} />
+              ) : (
+                <p className="text-[13px] text-muted-foreground">— brak</p>
+              )}
+            </div>
+            {experienceCount > 0 ? (
+              <div className="space-y-1.5">
+                <Eyebrow>Doświadczenie poza stackiem</Eyebrow>
+                <ExperienceChips experience={profile.experience} />
+              </div>
+            ) : null}
+            {profile.stack?.notes?.trim() ? (
+              <p className="text-[13px] text-muted-foreground">Niuanse: {profile.stack.notes}</p>
+            ) : null}
+            <details className="rounded-lg bg-muted/50 px-3 py-2" data-testid="brief-search-requirements">
+              <summary className="cursor-pointer text-[13px] font-medium text-muted-foreground hover:text-foreground">
+                {requirements.length > 0
+                  ? `Wymagania do wyszukiwania w bazie (${requirements.length})`
+                  : "Wymagania do wyszukiwania w bazie — brak"}
+              </summary>
+              <div className="mt-2 space-y-1.5">
+                {requirements.length > 0 ? (
+                  <SearchRequirementsEditor
+                    rows={requirements}
+                    exclude={search?.exclude ?? []}
+                    onChange={() => undefined}
+                    readOnly
+                    countEnabled={false}
+                  />
+                ) : (
+                  <p className="text-[13px] text-muted-foreground">
+                    Bez nich rekrutacja nie przejdzie do searchu.
+                  </p>
+                )}
+                {search?.target_companies?.trim() ? (
+                  <p className="text-xs text-muted-foreground">Firmy docelowe: {search.target_companies}</p>
+                ) : null}
+                {(search?.disqualifiers ?? []).length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Kogo odrzucamy: {(search?.disqualifiers ?? []).join(", ")}
+                  </p>
+                ) : null}
+              </div>
+            </details>
+          </BriefSection>
 
-      <Section
-        title="O projekcie"
-        onEdit={onEditSection ? edit(CHAMPION_EDIT_ANCHOR.project) : undefined}
-        testId="brief-project"
-      >
-        {projectAbout ? (
-          <p className="text-sm leading-relaxed text-foreground">{projectAbout}</p>
-        ) : (
-          <p className="text-[13px] text-muted-foreground">Delivery Lead nie opisał jeszcze projektu.</p>
-        )}
-        {responsibilities.length > 0 ? (
-          <div className="space-y-1">
-            <Eyebrow>Obowiązki</Eyebrow>
-            <ul className="list-disc space-y-0.5 pl-5 text-sm text-foreground">
-              {responsibilities.map((line, i) => (
-                <li key={`${i}-${line}`}>{line}</li>
-              ))}
-            </ul>
+          <BriefSection
+            title={`Pytania na rozmowę (${questions.length})`}
+            onEdit={edit("screening")}
+            testId="brief-screening"
+          >
+            {questions.length === 0 ? (
+              <p className="text-[13px] text-muted-foreground">Brak pytań screeningowych.</p>
+            ) : (
+              <ScreeningList questions={questions} />
+            )}
+          </BriefSection>
+
+          <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
+            <BriefSection title="Co powiedzieć kandydatowi" onEdit={edit("client")} testId="brief-pitch">
+              <p className={sellingPoints ? "text-sm text-foreground" : "text-[13px] text-muted-foreground"}>
+                {sellingPoints || "— brak"}
+              </p>
+              {onOpenClient ? (
+                <button
+                  type="button"
+                  onClick={onOpenClient}
+                  className="text-[13px] font-medium text-primary hover:underline"
+                >
+                  Więcej o kliencie →
+                </button>
+              ) : null}
+            </BriefSection>
+
+            <BriefSection title="O projekcie" onEdit={edit("project")} testId="brief-project">
+              {projectAbout ? (
+                <p className="line-clamp-3 text-sm leading-relaxed text-foreground">{projectAbout}</p>
+              ) : (
+                <p className="text-[13px] text-muted-foreground">Delivery Lead nie opisał jeszcze projektu.</p>
+              )}
+              {responsibilities.length > 0 ? (
+                <details className="text-sm">
+                  <summary className="cursor-pointer text-[13px] text-muted-foreground hover:text-foreground">
+                    Obowiązki ({responsibilities.length})
+                  </summary>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5 text-foreground">
+                    {responsibilities.map((line, i) => (
+                      <li key={`${i}-${line}`}>{line}</li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+            </BriefSection>
           </div>
-        ) : null}
-      </Section>
-
-      <Section
-        title={`Pytania screeningowe (${questions.length})`}
-        onEdit={onEditSection ? edit(CHAMPION_EDIT_ANCHOR.screening) : undefined}
-        testId="brief-screening"
-      >
-        {questions.length === 0 ? (
-          <p className="text-[13px] text-muted-foreground">Brak pytań screeningowych.</p>
-        ) : (
-          <ScreeningList questions={questions} />
-        )}
-      </Section>
-
-      <Section
-        title="O kliencie"
-        onEdit={onEditSection ? edit(CHAMPION_EDIT_ANCHOR.client) : undefined}
-        testId="brief-client"
-      >
-        <div className="space-y-1">
-          <Eyebrow>Co przekona kandydata</Eyebrow>
-          <p className={profile.client?.selling_points?.trim() ? "text-sm text-foreground" : "text-[13px] text-muted-foreground"}>
-            {profile.client?.selling_points?.trim() || "— brak"}
-          </p>
         </div>
-        {(profile.client?.sectors ?? []).length > 0 ? (
-          <p className="text-[13px] text-muted-foreground">
-            Branże klienta: {(profile.client?.sectors ?? []).join(", ")}
-          </p>
-        ) : null}
-        {clientId != null ? (
-          <ClientPlaybookCard
-            clientId={clientId}
-            variant="compact"
-            editHref={clientPlaybookEditHref(clientId)}
-          />
-        ) : null}
-        <ChampionClientQuestionsPanel
-          jobId={jobId}
-          screeningQuestions={questions.map((q) => q.question)}
-          historicalQuestions={profile.client?.historical_questions ?? ""}
-          canEdit={false}
-          onAddScreening={() => undefined}
-          onAddHistorical={() => undefined}
-        />
-      </Section>
 
-      <Section
-        title="Wiedza z rozmów"
-        onEdit={onEditSection ? edit(CHAMPION_EDIT_ANCHOR.insights) : undefined}
-        testId="brief-insights"
-      >
-        <AskClientList profile={profile} />
-        <ChampionInsightsDigest profile={profile} limit={8} historyLimit={5} />
-      </Section>
+        <aside className="min-w-0 space-y-3.5" aria-label="Warunki i zespół">
+          <BriefSection
+            title="Warunki"
+            onEdit={edit("conditions")}
+            action={
+              source ? (
+                <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                  {source}
+                </span>
+              ) : null
+            }
+            testId="brief-order"
+          >
+            <dl className="divide-y divide-border/60">
+              <Fact
+                label="Budżet (sufit)"
+                value={basics.rate_value != null ? `do ${formatBudgetHourly(basics.rate_value)} PLN/h` : "nie podano"}
+                muted={basics.rate_value == null}
+              />
+              <Fact
+                label="Tryb i biuro"
+                value={[workMode, office].filter(Boolean).join(" · ") || "nie podano"}
+                muted={!workMode && !office}
+              />
+              <Fact label="Start" value={basics.start_date?.trim() || "nie podano"} muted={!basics.start_date} />
+              <Fact label="Długość" value={basics.contract_length?.trim() || "nie podano"} muted={!basics.contract_length} />
+              <Fact
+                label="Doświadczenie"
+                value={basics.seniority_min_years != null ? `${basics.seniority_min_years}+ lat` : "nie podano"}
+                muted={basics.seniority_min_years == null}
+              />
+              <Fact label="Język pracy" value={basics.language?.trim() || "nie podano"} muted={!basics.language} />
+              <Fact
+                label="Język CV"
+                value={cvLanguage ? `${cvLanguage.toUpperCase()} (reguła klienta)` : "brak reguły klienta"}
+                muted={!cvLanguage}
+              />
+              <Fact
+                label="Termin"
+                value={formatJobDeadline(job.deadline, job.deadline_time) ?? "nie ustawiono"}
+                muted={!job.deadline}
+              />
+              <Fact label="Nazwa od klienta" value={job.title?.trim() || "—"} />
+              <Fact
+                label="Numer u klienta"
+                value={job.client_reference?.trim() || "nie podano"}
+                muted={!job.client_reference}
+              />
+            </dl>
+            {job.description?.trim() ? (
+              <details className="text-sm">
+                <summary className="cursor-pointer text-[13px] text-muted-foreground hover:text-foreground">
+                  Oryginalny opis od klienta
+                </summary>
+                <p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-line text-[13px] leading-relaxed text-foreground">
+                  {job.description}
+                </p>
+              </details>
+            ) : null}
+          </BriefSection>
 
-      {requestHistory ? (
-        <Section title="Wcześniejsze zapytania klienta" testId="brief-request-history">
-          <RequestHistorySection
-            jobId={jobId}
-            clientId={job.client_id ?? null}
-            readOnly={requestHistory.readOnly}
-            compact
-            narrow
-            maxItems={5}
-          />
-        </Section>
-      ) : null}
-    </div>
+          <BriefSection
+            title="Kto prowadzi"
+            action={
+              onOpenTeam ? (
+                <button
+                  type="button"
+                  onClick={onOpenTeam}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Zespół →
+                </button>
+              ) : null
+            }
+            testId="brief-team"
+          >
+            <dl className="divide-y divide-border/60">
+              <Fact
+                label="Delivery Lead"
+                value={job.delivery_lead_user?.name?.trim() || "nie przypisano"}
+                muted={!job.delivery_lead_user?.name}
+              />
+              <Fact
+                label="Rekruter"
+                value={recruiterNames.length > 0 ? recruiterNames.join(", ") : "bez rekrutera"}
+                muted={recruiterNames.length === 0}
+              />
+              <Fact
+                label="Hiring manager"
+                value={job.hiring_manager_name?.trim() || "nie przypisano"}
+                muted={!job.hiring_manager_name}
+              />
+            </dl>
+          </BriefSection>
+
+          <AskClientList profile={profile} onEdit={edit("insights")} />
+        </aside>
+      </div>
+    </TooltipProvider>
   );
 }
 
@@ -488,12 +548,12 @@ function ScreeningList({ questions }: { questions: ChampionProfile["screening_qu
   const first = questions.slice(0, SCREENING_PREVIEW);
   const rest = questions.slice(SCREENING_PREVIEW);
   const item = (q: ChampionProfile["screening_questions"][number], index: number) => (
-    <li key={q.id || `${index}-${q.question}`} className="border-t border-border py-2.5 first:border-t-0 first:pt-0">
+    <li key={q.id || `${index}-${q.question}`} className="border-t border-border py-2 first:border-t-0 first:pt-0">
       <p className="text-sm font-medium text-foreground">
         {index + 1}. {q.question}
       </p>
       {q.ideal_answer?.trim() ? (
-        <p className="mt-1 text-[13px] text-muted-foreground">Idealnie: {q.ideal_answer}</p>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">Idealnie: {q.ideal_answer}</p>
       ) : null}
       {q.deal_breaker?.trim() ? (
         <p className="mt-0.5 text-[13px] text-destructive-muted-foreground">Odpada, gdy: {q.deal_breaker}</p>
@@ -515,20 +575,42 @@ function ScreeningList({ questions }: { questions: ChampionProfile["screening_qu
   );
 }
 
-/** „Do dopytania u klienta” (notatki `ask_client`) — lista do odhaczenia w edycji. */
-function AskClientList({ profile }: { profile: Partial<ChampionProfile> }) {
+/** „Do dopytania u klienta” (notatki `ask_client`) — odhacza się w edycji. */
+export function AskClientList({
+  profile,
+  onEdit,
+}: {
+  profile: Partial<ChampionProfile>;
+  onEdit?: () => void;
+}) {
   const items = (profile.insights ?? []).filter((n) => n.topic === "ask_client" && n.text.trim());
   if (items.length === 0) return null;
   return (
-    <div className="rounded-lg border border-warning/40 bg-warning-muted px-3.5 py-3">
-      <p className="text-[13px] font-semibold text-warning-muted-foreground">
-        Do dopytania u klienta · {items.length}
-      </p>
-      <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-[13px] text-foreground">
+    <section
+      className="space-y-1.5 rounded-xl border border-warning/40 bg-warning-muted px-4 py-3"
+      aria-label="Do dopytania u klienta"
+      data-testid="brief-ask-client"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[13px] font-semibold text-warning-muted-foreground">
+          Do dopytania u klienta · {items.length}
+        </p>
+        {onEdit ? (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="text-xs font-medium text-muted-foreground hover:text-primary"
+            aria-label="Edytuj: Do dopytania u klienta"
+          >
+            Edytuj
+          </button>
+        ) : null}
+      </div>
+      <ul className="list-disc space-y-0.5 pl-5 text-[13px] text-foreground">
         {items.map((n) => (
           <li key={n.id}>{n.text}</li>
         ))}
       </ul>
-    </div>
+    </section>
   );
 }

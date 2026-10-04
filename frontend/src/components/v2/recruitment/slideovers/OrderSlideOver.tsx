@@ -33,16 +33,23 @@ import { hasPermission } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
+import { blockForAnchor, type ChampionBlock } from "@/lib/champion-blocks";
+
 import { RecruitmentSheet } from "./RecruitmentSheet";
 
 export type OrderSlideOverSection = "team" | "close" | "portals";
 
-/** Zakładka panelu zlecenia, do której prowadzi skrót. */
-export type OrderPanelTarget = "readiness" | "team" | "announce";
+/**
+ * Zakładka Profilu Championa, do której prowadzi skrót (04.10.2026: „team”
+ * = „Zespół i ogłoszenie”, „announce” = ta sama zakładka z portalami).
+ */
+export type OrderPanelTarget = "brief" | "team" | "announce";
 
 export interface OrderNavigateOptions {
   panelTab?: OrderPanelTarget;
   edit?: boolean;
+  /** Szuflada edycji bloku Briefu (brak w zleceniu wskazuje sekcję). */
+  block?: ChampionBlock;
 }
 
 export interface OrderSlideOverProps {
@@ -57,8 +64,8 @@ export interface OrderSlideOverProps {
    */
   canEditContent?: boolean;
   /**
-   * Przejście do widoku „Zlecenie i Champion”: `panelTab` otwiera zakładkę
-   * panelu obok profilu (Zespół, Ogłoszenie), `edit` — tryb „Edytuj”.
+   * Przejście do „Profilu Championa”: `panelTab` otwiera zakładkę, `block`
+   * szufladę edycji bloku, `edit` — pełny formularz.
    */
   onNavigate: (target: "champion", opts?: OrderNavigateOptions) => void;
   /** Otwarcie innego okna wysuwanego (np. „Baza pytań"). */
@@ -197,6 +204,11 @@ function OrderBody({
         canEditJob={canEdit}
         onGoChampion={(anchor) => {
           closeSheet();
+          const block = blockForAnchor(anchor);
+          if (block) {
+            onNavigate("champion", { block });
+            return;
+          }
           onNavigate("champion", { edit: true });
           if (anchor) scrollToWhenReady(anchor);
         }}
@@ -311,7 +323,7 @@ function OrderBody({
           onClick={leaveFor(() => onNavigate("champion"))}
           aria-label="Profil Championa i pytania na screening — Otwórz pełne"
         >
-          Otwórz Zlecenie i Championa
+          Otwórz Profil Championa
         </Button>
         <Button type="button" variant="outline" size="sm" onClick={goPanel("team")}>
           Zespół i priorytet

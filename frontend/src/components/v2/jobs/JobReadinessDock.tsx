@@ -16,17 +16,13 @@ import {
   ChevronRight,
   Clock,
   Link2,
-  PanelRightClose,
-  PanelRightOpen,
   PencilLine,
   Target,
   UserPlus,
 } from "lucide-react";
 
 import api, {
-  championApi,
   EMPTY_CHAMPION_VERIFICATION,
-  type ChampionBriefing,
   type ChampionVerification,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -35,8 +31,6 @@ import { countPl } from "@/lib/plural-pl";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { canMutateSection, hasSectionAccess } from "@/lib/section-access";
 import {
-  canEditJobContent,
-  hasFullJobEditFallback,
   jobEditScope,
 } from "@/lib/job-edit-access";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -58,20 +52,13 @@ import {
 import { EditJobModal } from "@/components/AppShell";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import {
-  ChampionVerificationChecklist,
-  championVerificationDone,
-} from "@/components/ChampionVerificationChecklist";
-import {
   JobOwnershipPanel,
   type JobOwnershipJob,
 } from "@/components/v2/jobs/JobOwnershipPanel";
 import { JobSettingsPanel } from "@/components/v2/jobs/JobSettingsPanel";
 import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
 import { JobPriorityContext } from "@/components/v2/priority-work";
-import { JobHandoffButton } from "@/components/v2/jobs/JobHandoffButton";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
-import { MissingBlock } from "@/components/v2/recruitment/OrderMissingBlock";
-import { JobPortalsSection } from "@/components/v2/recruitment/JobPortalsSection";
 import {
   ReadinessRow,
   type ReadinessRowState,
@@ -91,7 +78,12 @@ import {
 import { invalidateJobTeam } from "@/lib/job-team-cache";
 import { priorityLevelOf, type PrioritySource } from "@/lib/request-priority";
 
-export type JobReadinessDockVariant = "list" | "champion";
+/**
+ * Do 04.10.2026 był też wariant „champion” (panel obok Profilu Championa).
+ * Jego treść żyje teraz w zakładkach Profilu Championa (`ChampionWorkspace`):
+ * „Do dopięcia” nad Briefem, „Zespół i ogłoszenie”.
+ */
+export type JobReadinessDockVariant = "list";
 
 /**
  * Przewijanie po wierszach BIEŻĄCEJ STRONY listy (makieta: `‹ 1 z 12 ›`).
@@ -120,15 +112,6 @@ interface JobReadinessDockProps {
    * `/jobs` bez kliknięcia. Domyślnie `true`.
    */
   canOpen?: boolean;
-  /**
-   * "champion" (krok 02 „Zlecenie i Champion", program „flow w języku C2"):
-   * weryfikacja dwustronna i briefing wchodzą do JEDNEJ listy gotowości (7
-   * warunków zamiast 5), dochodzi zakładka „Zespół i priorytet”,
-   * a `JobHandoffButton` jest główną akcją. "list"
-   * (krok 01) zostaje przy pięciu warunkach i identyfikacji zlecenia
-   * w nagłówku — tam dok stoi obok listy, więc musi mówić, o której
-   * rekrutacji jest mowa.
-   */
   variant?: JobReadinessDockVariant;
   /** Patrz `JobReadinessDockListNav`. Tylko `variant="list"`. */
   listNav?: JobReadinessDockListNav;
@@ -144,36 +127,9 @@ interface JobReadinessDockProps {
    * lista rekrutacji, gdzie węziej dok jest arkuszem wysuwanym nad tabelę.
    */
   stickyFrom?: "xl" | "wide";
-  /**
-   * Zwinięty dok kroku 02 (pasek 44 px z przyciskiem „Rozwiń" + licznikiem
-   * `done/total`) — TYLKO `variant="champion"`. Od 29.09.2026 strona
-   * rekrutacji panelu nie zwija (stoi obok „Podglądu”, nie obok edytora);
-   * o szerokości kolumny decyduje siatka strony, nie sam dok.
-   * Brak `onCollapsedChange` = dok ignoruje `collapsed` i renderuje się
-   * w pełni (np. na `variant="list"`, gdzie zwijanie nie istnieje).
-   */
-  collapsed?: boolean;
-  onCollapsedChange?: (next: boolean) => void;
-  /**
-   * Zakładka panelu zlecenia sterowana z adresu (`?ptab=`) — linki „Zespół”
-   * i „Ogłoszenie” ze skrótu zlecenia na Tablicy otwierają ją od razu. Tylko
-   * `variant="champion"`; brak = stan lokalny doku.
-   */
-  panelTab?: ChampionPanelTab | null;
-  onPanelTabChange?: (tab: ChampionPanelTab) => void;
-  /** „Uzupełnij w Championie” przy braku — przejście do edycji i sekcji. */
-  onGoChampionSection?: (anchor: string | null) => void;
-  /** Zakładka „Ogłoszenie”: brak = rola nie może pisać ogłoszenia / linku. */
-  onWriteAnnouncement?: () => void;
-  onGenerateInviteLink?: () => void;
-  /** Wejście z `/jobs/new` po nieudanej publikacji — portale od razu rozwinięte. */
-  portalsFocus?: boolean;
 }
 
-/** Zakładki panelu zlecenia obok Profilu Championa (makieta 29.09.2026). */
-export type ChampionPanelTab = "readiness" | "team" | "announce";
-
-type DockTab = "readiness" | "pipeline" | "team" | "history" | "announce";
+type DockTab = "readiness" | "pipeline" | "team" | "history";
 
 const LIST_DOCK_TABS: { value: DockTab; label: string }[] = [
   { value: "readiness", label: "Gotowość" },
@@ -182,19 +138,6 @@ const LIST_DOCK_TABS: { value: DockTab; label: string }[] = [
   { value: "history", label: "Historia" },
 ];
 
-// Etykieta „Zespół” zamiast „Zespół i priorytet” świadomie: dok ma 360 px.
-// Znaczenie zostaje jasne z kontekstu (trzy role, termin, priorytet, HM).
-// Zakładka „Wyszukiwania (AI)” usunięta 25.09.2026 — rekomendowane
-// wyszukiwania zastąpiły wymagania do wyszukiwania w sekcji 2 Championa.
-// 29.09.2026: „Historia” (wcześniejsze zapytania klienta) przeszła do trybu
-// edycji Championa („Wypełnij szybciej”) — myliła się z „Historia i czat”.
-// Dochodzi „Ogłoszenie”: opis z AI, link aplikacyjny i portale, które do tej
-// pory żyły wyłącznie w oknie „Zlecenie”.
-const CHAMPION_DOCK_TABS: { value: DockTab; label: string }[] = [
-  { value: "readiness", label: "Gotowość" },
-  { value: "team", label: "Zespół" },
-  { value: "announce", label: "Ogłoszenie" },
-];
 
 // `GET /jobs/{id}/readiness` wymaga uprawnienia „Rekrutacje: zakładanie,
 // zamykanie, wysyłka CV do klienta” (`RecruitmentManageUser`). Bez niego
@@ -481,18 +424,9 @@ export function JobReadinessDock({
   jobId,
   stageBreakdown,
   canOpen = true,
-  variant = "list",
   listNav,
   listDetails,
   stickyFrom = "xl",
-  collapsed = false,
-  onCollapsedChange,
-  panelTab,
-  onPanelTabChange,
-  onGoChampionSection,
-  onWriteAnnouncement,
-  onGenerateInviteLink,
-  portalsFocus = false,
 }: JobReadinessDockProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -511,22 +445,7 @@ export function JobReadinessDock({
   const canUpdateJob = useCapability("job.update");
   const [showEdit, setShowEdit] = useState(false);
   const [showAddCandidates, setShowAddCandidates] = useState(false);
-  const [localDockTab, setLocalDockTab] = useState<DockTab>(
-    variant === "champion" && panelTab ? panelTab : "readiness",
-  );
-  // Na widoku Championa zakładka idzie z adresu, gdy strona ją podaje —
-  // miękka nawigacja (`?ptab=team` ze skrótu zlecenia) nie odmontowuje doku.
-  const dockTab: DockTab =
-    variant === "champion" && panelTab ? panelTab : localDockTab;
-  const setDockTab = (next: DockTab) => {
-    setLocalDockTab(next);
-    if (
-      variant === "champion" &&
-      (next === "readiness" || next === "team" || next === "announce")
-    ) {
-      onPanelTabChange?.(next);
-    }
-  };
+  const [dockTab, setDockTab] = useState<DockTab>("readiness");
 
   // Klucz `["job", "<id>"]` = DOKŁADNIE ten, pod którym strona rekrutacji
   // trzyma zlecenie (`page.tsx`: `["job", id]`, `id` to string z `useParams`).
@@ -553,45 +472,6 @@ export function JobReadinessDock({
     staleTime: 30_000,
     retry: false,
   });
-
-  // Weryfikacja i briefing żyją pod
-  // `["champion-profile", jobId]` — TEN SAM klucz, którego używa
-  // `ChampionProfileEditor` (współbieżnie zamontowany obok tego doku na
-  // kroku 02), więc React Query dedupe'uje fetch zamiast go podwajać, a
-  // mutacje w checkliście odświeżają OBA miejsca naraz.
-  const championQuery = useQuery({
-    queryKey: ["champion-profile", jobId],
-    queryFn: () => championApi.get(jobId as number).then((r) => r.data),
-    enabled: jobId != null && canOpen && variant === "champion",
-    retry: false,
-  });
-  const championProfile = championQuery.data?.champion_profile as
-    | {
-        verification?: ChampionVerification;
-        briefing?: ChampionBriefing;
-        stack?: { must?: unknown; nice?: unknown };
-      }
-    | undefined;
-  // Awaria `GET …/champion-profile` NIE może renderować się jako fakt
-  // „Niezweryfikowany" / „brak propozycji" — bloki Championa montują się
-  // wyłącznie pod `isSuccess`, a błąd dostaje własną notatkę z „Ponów".
-  const championBlocked =
-    variant === "champion" && !championQuery.isSuccess ? (
-      championQuery.isError ? (
-        <div className="flex items-center justify-between gap-2 rounded-md border border-dashed border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
-          <span>Nie udało się pobrać Profilu Championa.</span>
-          <button
-            type="button"
-            className="shrink-0 font-medium text-primary hover:underline"
-            onClick={() => void championQuery.refetch()}
-          >
-            Ponów
-          </button>
-        </div>
-      ) : (
-        <Skeleton className="h-16 w-full rounded-md" />
-      )
-    ) : null;
 
   const claimMutation = useMutation({
     mutationFn: () => claimJob(jobId as number),
@@ -669,39 +549,10 @@ export function JobReadinessDock({
     canManageJob: canUpdateJob,
   });
   const canManageJob = editScope === "full";
-  const canEditChampion = canEditJobContent(job, {
-    canWritePipeline,
-    // Odpowiedź bez pola `can_edit` (starszy cache): pełną redakcję rekrutacji
-    // daje uprawnienie do jej prowadzenia.
-    fallback: hasFullJobEditFallback(authUser),
-  });
-  // Na kroku 02 źródłem prawdy o Championie jest `["champion-profile", jobId]`
-  // — ten sam klucz, który unieważnia edytor i checklista obok. Czytanie
-  // weryfikacji i stacku z kopii zlecenia dawało dok, który zaprzeczał
-  // edytorowi stojącemu 300 px obok do czasu odświeżenia strony.
-  const championStack = championProfile?.stack as
-    | { must?: unknown; nice?: unknown }
-    | undefined;
-  // Pusty stack (MUST i NICE) na profilu sprzed 09.2026 nie znaczy „brak
-  // wymagań" — parser wpisywał je wprost do kolumn rekrutacji (M04-B02).
-  // Wtedy dok czyta kolumny, tak jak edytor obok (`champion-job-seed.ts`)
-  // i scoring. Do 09.2026 sam OBIEKT stacku (także pusty) wygrywał, więc dok
-  // pisał „Brak — dodaj wymagania" przy ośmiu pozycjach w `must_skills`.
-  const championStackFilled =
-    championStack != null &&
-    (extractSkills(championStack.must).length > 0 ||
-      extractSkills(championStack.nice).length > 0);
-  const readStackFromChampion = variant === "champion" && championStackFilled;
-  const must = extractSkills(
-    readStackFromChampion ? championStack?.must : job.must_skills,
-  );
-  const nice = extractSkills(
-    readStackFromChampion ? championStack?.nice : job.nice_skills,
-  );
+  const must = extractSkills(job.must_skills);
+  const nice = extractSkills(job.nice_skills);
   const verification: ChampionVerification =
-    (variant === "champion"
-      ? championProfile?.verification
-      : (job.champion_profile?.verification as ChampionVerification | undefined)) ??
+    (job.champion_profile?.verification as ChampionVerification | undefined) ??
     EMPTY_CHAMPION_VERIFICATION;
   const clientVerified = verification.client.status === "verified";
   const consultantStatus = verification.consultant.status;
@@ -764,8 +615,7 @@ export function JobReadinessDock({
   const skillsItem: ReadinessItem = {
     key: "skills",
     done: must.length > 0,
-    title:
-      variant === "champion" ? "Stack → must / nice" : "Must / nice zsynchronizowane",
+    title: "Must / nice zsynchronizowane",
     description:
       must.length > 0
         ? `${must.length} must · ${nice.length} nice · zasilają AI Matching i filtry.`
@@ -784,28 +634,12 @@ export function JobReadinessDock({
       : "nie przypisano — weto HM nie zadziała.",
     action:
       job.hiring_manager_name == null ? (
-        variant === "champion" ? (
-          // Picker HM jest zakładką TEGO doku — przełączamy ją, zamiast
-          // linkować na tę samą trasę (miękka nawigacja bez `?tab=` nie
-          // zmienia niczego widocznego).
-          <button
-            type="button"
-            onClick={() => setDockTab("team")}
-            className={rowLinkClass()}
-          >
-            Przypisz
-          </button>
-        ) : (
-          <Link href={`/jobs/${jobId}`} className={rowLinkClass()}>
-            Przypisz
-          </Link>
-        )
+        <Link href={`/jobs/${jobId}`} className={rowLinkClass()}>
+          Przypisz
+        </Link>
       ) : undefined,
   };
 
-  // Na kroku 02 „Profil Championa" NIE jest jednym wierszem: jego treścią są
-  // trzy wiersze weryfikacji i briefingu wyżej, a edytor stoi tuż obok — wiersz
-  // „Otwórz" prowadziłby na ekran, na którym użytkownik już jest.
   const championItem: ReadinessItem = {
     key: "champion",
     done: championVerified,
@@ -828,76 +662,25 @@ export function JobReadinessDock({
     ),
   };
 
-  const items: ReadinessItem[] =
-    variant === "champion"
-      ? [skillsItem, budgetItem, ownerItem, hiringManagerItem]
-      : [ownerItem, championItem, budgetItem, skillsItem, hiringManagerItem];
+  const items: ReadinessItem[] = [
+    ownerItem,
+    championItem,
+    budgetItem,
+    skillsItem,
+    hiringManagerItem,
+  ];
 
-  // Trzy warunki weryfikacji liczy `championVerificationDone` — ta sama funkcja,
-  // z której `ChampionVerificationChecklist` rysuje wiersze. Gdy profil się nie
-  // wczytał, NIE dokładamy ich do mianownika: „2 / 7" sugerowałoby pięć braków
-  // tam, gdzie o trzech po prostu nic nie wiemy.
-  const verificationDone =
-    variant === "champion" && championQuery.isSuccess
-      ? championVerificationDone(
-          championProfile?.verification,
-          championProfile?.briefing,
-        )
-      : null;
-  const verificationTotal = verificationDone ? 3 : 0;
-  const verificationDoneCount = verificationDone
-    ? [verificationDone.client, verificationDone.consultant, verificationDone.briefing].filter(
-        Boolean,
-      ).length
-    : 0;
-
-  const doneCount = items.filter((i) => i.done).length + verificationDoneCount;
-  const totalCount = items.length + verificationTotal;
+  const doneCount = items.filter((i) => i.done).length;
+  const totalCount = items.length;
   const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
-
-  // Zwinięty dok kroku 02 — pasek 44 px zamiast pełnej karty, WYŁĄCZNIE na
-  // `xl`. Na `lg` i węższych dok stoi pod edytorem na pełnej szerokości
-  // (`lg:col-span-2`), więc zwinięcie nie dałoby edytorowi ani piksela, za to
-  // schowałoby bramkę handoffu — tam zawsze renderuje się pełny dok. Oba
-  // warianty są w DOM, a o widoczności decyduje CSS (`hidden xl:flex` /
-  // `xl:hidden`), bo o szerokości kolumny decyduje siatka strony, nie JS.
-  // `doneCount`/`totalCount` są policzone WYŻEJ, z tych samych zapytań co
-  // pełny widok, więc licznik na pasku jest aktualny.
-  const xlCollapsed = variant === "champion" && collapsed && !!onCollapsedChange;
-  const collapsedStrip = xlCollapsed ? (
-    <div
-      className="hidden w-11 flex-col items-center gap-2 rounded-xl border border-border bg-card py-3 xl:flex"
-      data-testid="job-readiness-dock-collapsed"
-    >
-      <button
-        type="button"
-        onClick={() => onCollapsedChange?.(false)}
-        aria-label="Rozwiń dok gotowości"
-        title="Rozwiń dok gotowości"
-        className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        <PanelRightOpen className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <span
-        className={cn(
-          "rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums",
-          doneCount === totalCount
-            ? "bg-success/15 text-success"
-            : "bg-warning/15 text-warning",
-        )}
-      >
-        {doneCount}/{totalCount}
-      </span>
-    </div>
-  ) : null;
 
   // 0380: klient · „nazwa od klienta” · numer u klienta, potem nasz numer.
   const subtitle =
-    variant === "list" && listDetails
+    listDetails
       ? (job.client_name ?? "")
       : [jobClientLine(job), job.reference_number].filter(Boolean).join(" · ");
 
-  const tabs = variant === "champion" ? CHAMPION_DOCK_TABS : LIST_DOCK_TABS;
+  const tabs = LIST_DOCK_TABS;
 
   const copyJobLink = () => {
     const url =
@@ -918,11 +701,9 @@ export function JobReadinessDock({
 
   return (
     <>
-    {collapsedStrip}
-    {/* `xl:max-h` + `overflow-y-auto`: dok jest `sticky` na `xl`, a wariant
-        champion bywa wyższy niż okno — element sticky wyższy od viewportu nigdy
-        nie odsłania swojego dołu (główna akcja byłaby nieosiągalna). Ten sam
-        wzorzec co `PipelineCandidateDock` i `InterviewDecisionDock`. */}
+    {/* `xl:max-h` + `overflow-y-auto`: dok jest `sticky` na `xl`, a bywa
+        wyższy niż okno — element sticky wyższy od viewportu nigdy nie odsłania
+        swojego dołu. Ten sam wzorzec co `PipelineCandidateDock`. */}
     <div
       className={cn(
         "flex flex-col rounded-xl border border-border bg-card",
@@ -931,16 +712,13 @@ export function JobReadinessDock({
         stickyFrom === "wide"
           ? "min-[1680px]:max-h-[calc(100dvh-2rem)] min-[1680px]:overflow-y-auto"
           : "xl:max-h-[calc(100dvh-2rem)] xl:overflow-y-auto",
-        xlCollapsed && "xl:hidden",
       )}
       data-testid="job-readiness-dock-full"
     >
       {/* ── nagłówek doku (makieta: `.dhd`) ───────────────────────────────── */}
       <div className="space-y-2.5 border-b border-border px-4 pb-0 pt-3">
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          {variant === "champion" ? (
-            <span className="min-w-0 truncate">Zlecenie · gotowość do searchu</span>
-          ) : listNav ? (
+          {listNav ? (
             <div className="flex items-center gap-1" data-testid="dock-list-nav">
               <button
                 type="button"
@@ -977,29 +755,11 @@ export function JobReadinessDock({
             >
               <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
-            {/* Tylko krok 02 — na liście dok nie zwija się (kolumna listy nie
-                zyskuje przez to miejsca, bo obok stoi tabela, nie edytor). */}
-            {variant === "champion" && onCollapsedChange ? (
-              <button
-                type="button"
-                onClick={() => onCollapsedChange(true)}
-                aria-label="Zwiń dok gotowości"
-                title="Zwiń dok gotowości"
-                // Zwijanie działa tylko na `xl` (patrz `collapsedStrip`) —
-                // wężej przycisk nie miałby widocznego skutku.
-                className="hidden rounded p-0.5 text-muted-foreground hover:text-foreground xl:inline-flex"
-              >
-                <PanelRightClose className="h-3.5 w-3.5" aria-hidden="true" />
-              </button>
-            ) : null}
           </div>
         </div>
 
-        {/* Identyfikacja zlecenia tylko na liście — na kroku 02 tytuł stoi
-            w nagłówku strony tuż nad dokiem i powtarzanie go zabierałoby
-            miejsce warunkom, po które ten dok istnieje. */}
-        {variant === "list" ? (
-          <div className="flex items-center gap-2.5">
+        {/* Dok stoi obok listy — mówi, o której rekrutacji jest mowa. */}
+        <div className="flex items-center gap-2.5">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
               <Target className="h-4 w-4" aria-hidden="true" />
             </span>
@@ -1018,7 +778,6 @@ export function JobReadinessDock({
               )}
             </div>
           </div>
-        ) : null}
 
         {/* `overflow="scroll"`, nie „wrap": cztery zakładki zawijały się na
             kroku 02 do dwóch wierszy na 1440 px i zjadały wysokość doku.
@@ -1039,24 +798,8 @@ export function JobReadinessDock({
       <div className="flex-1 space-y-3 px-4 py-3">
         {dockTab === "readiness" && (
           <>
-            {variant === "list" ? listDetails : null}
-            {variant === "champion" && canSeeGate ? (
-              <MissingBlock
-                jobId={jobId}
-                job={job}
-                canSeeGate={canSeeGate}
-                canEditChampion={canEditChampion}
-                canEditJob={canManageJob}
-                onGoChampion={(anchor) => onGoChampionSection?.(anchor)}
-                onEditJob={() => setShowEdit(true)}
-              />
-            ) : null}
-            {variant === "champion" ? (
-              <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Dopięcie zlecenia · nie blokuje przekazania
-              </p>
-            ) : null}
-            <div className={cn(variant === "champion" && "hidden")}>
+            {listDetails}
+            <div>
               <div className="flex items-end gap-2">
                 <span
                   className={cn(
@@ -1087,33 +830,11 @@ export function JobReadinessDock({
                   style={{ width: `${pct}%` }}
                 />
               </div>
-              {variant === "champion" ? (
-                <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
-                  Search bez weryfikacji i briefingu to search po requeście
-                  klienta, nie po tym, czego klient naprawdę potrzebuje.
-                </p>
-              ) : null}
             </div>
 
-            {/* Na widoku Championa werdykt bramki stoi wyżej (`MissingBlock`)
-                — drugi blok z tą samą listą braków przeczyłby liczbie nad nim.
-                Rolom spoza bramki zostaje notatka „kto to widzi”. */}
-            {variant === "champion" && canSeeGate ? null : (
-              <ReadinessGateBlock query={readinessQuery} canSeeGate={canSeeGate} />
-            )}
+            <ReadinessGateBlock query={readinessQuery} canSeeGate={canSeeGate} />
 
             <div className="space-y-1.5">
-              {variant === "champion"
-                ? (championBlocked ?? (
-                    <ChampionVerificationChecklist
-                      jobId={jobId}
-                      verification={championProfile?.verification}
-                      briefing={championProfile?.briefing}
-                      canEdit={canEditChampion}
-                      variant="rows"
-                    />
-                  ))
-                : null}
               {items.map((item) => (
                 <ReadinessRow
                   key={item.key}
@@ -1125,33 +846,14 @@ export function JobReadinessDock({
               ))}
             </div>
 
-            {variant === "list" ? (
-              <PipelineSummary jobId={jobId} stageBreakdown={stageBreakdown} />
-            ) : null}
+            <PipelineSummary jobId={jobId} stageBreakdown={stageBreakdown} />
 
 
             <div className="grid grid-cols-2 gap-2 pt-1">
-              {/* Krok 02: handoff jest GŁÓWNĄ akcją tego doku — dopiero po nim
-                  rekruter dostaje dostęp i ranking się generuje. Lustro backendu:
-                  `GET /readiness` i `POST /handoff` wymagają uprawnienia do
-                  prowadzenia rekrutacji, więc bramka gotowości i zapis Pipeline.
-                  NIE `canEditChampion`: `can_edit` z serwera ma też rekruter
-                  rekrutacji, a dla niego oba endpointy to 403 (28.09.2026). */}
-              {variant === "champion" && canSeeGate && canWritePipeline && (
-                <div className="col-span-2">
-                  <JobHandoffButton
-                    jobId={jobId}
-                    priorityLevel={priorityLevelOf(job)}
-                    recruiter={job.primary_owner ?? null}
-                    jobStatus={job.status ?? null}
-                  />
-                </div>
-              )}
               {/* Goły <a> ze stylami `buttonVariants`, nie `<Button asChild>` —
                   `Button` dokłada slot na spinner, więc Radix `Slot` dostałby dwoje
                   dzieci (lustro `PrepInviteActions.tsx`). Nawigacja, nie mutacja —
                   zawsze aktywna, niezależnie od `canWritePipeline`. */}
-              {variant === "list" ? (
               <Link
                 href={`/jobs/${jobId}?tab=people&seg=proposals`}
                 className={cn(
@@ -1161,18 +863,7 @@ export function JobReadinessDock({
               >
                 <Target className="h-3.5 w-3.5" aria-hidden="true" /> Otwórz propozycje z bazy
               </Link>
-              ) : null}
-              {/* Makieta kroku 02 ma tu jeszcze „Wzór Word (SharePoint)"
-                  i „Historia requestu" — pierwszego dok nie zna (link żyje
-                  w `help_materials`, poza danymi tego komponentu), a drugie
-                  jest ZAKŁADKĄ tego samego doku: przycisk obok zakładki o tej
-                  samej nazwie to dwa wejścia do jednego miejsca.
-                  „Dodaj kandydata" i „Edytuj rekrutację" zostają w OBU
-                  wariantach — makieta ich na kroku 02 nie rysuje, ale dziś tam
-                  są i ich zniknięcie byłoby utratą funkcji, nie porządkowaniem. */}
-              {/* Na widoku Championa „Dodaj kandydatów” stoi w nagłówku,
-                  a „Edytuj rekrutację” w menu „⋯” — tu byłyby trzecią kopią. */}
-              {canWritePipeline && variant === "list" && (
+              {canWritePipeline && (
                 <>
                   <Button
                     type="button"
@@ -1206,42 +897,6 @@ export function JobReadinessDock({
 
         {dockTab === "team" && <JobTeamTab jobId={jobId} job={job} />}
 
-        {dockTab === "announce" && (
-          <div className="space-y-4" data-testid="dock-announce-tab">
-            <section className="space-y-2">
-              <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Opis publiczny i link aplikacyjny
-              </h3>
-              {onWriteAnnouncement || onGenerateInviteLink ? (
-                <div className="flex flex-wrap gap-2">
-                  {onWriteAnnouncement ? (
-                    <Button type="button" variant="outline" size="sm" onClick={onWriteAnnouncement}>
-                      Napisz ogłoszenie z AI
-                    </Button>
-                  ) : null}
-                  {onGenerateInviteLink ? (
-                    <Button type="button" variant="outline" size="sm" onClick={onGenerateInviteLink}>
-                      Wygeneruj link aplikacyjny
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null}
-              <p className="text-[11px] leading-snug text-muted-foreground">
-                {onGenerateInviteLink
-                  ? "Kandydat z linku trafia od razu do „Nowych” tej rekrutacji."
-                  : job.status !== "published"
-                    ? "Link aplikacyjny da się wygenerować po opublikowaniu rekrutacji."
-                    : "Ogłoszenie i link przygotowuje osoba z zespołu rekrutacji."}
-              </p>
-            </section>
-            <JobPortalsSection
-              jobId={jobId}
-              readOnly={editScope === "none"}
-              focusOnReady={portalsFocus}
-            />
-          </div>
-        )}
-
         {dockTab === "history" && (
           <RequestHistorySection
             jobId={jobId}
@@ -1254,23 +909,12 @@ export function JobReadinessDock({
       </div>
 
       {/* ── stopka (makieta: `.dfoot`) ────────────────────────────────────── */}
-      {variant === "list" && job.updated_at ? (
+      {job.updated_at ? (
         <div className="mt-auto flex items-center gap-1.5 border-t border-border bg-muted/20 px-4 py-2 text-[11px] text-muted-foreground">
           <Clock className="h-3 w-3 shrink-0" aria-hidden="true" />
           Ostatnia zmiana: {formatRelativeTime(job.updated_at)}
         </div>
       ) : null}
-      {/* Makieta pisze tu „niezweryfikowany od 21 dni" — profil Championa nie
-          niesie daty utworzenia, a `verified_at` istnieje dopiero PO
-          weryfikacji, więc liczby dni nie ma z czego policzyć. Zdanie zostaje
-          bez niej: ostrzeżenie jest prawdziwe, wymyślony licznik nie byłby. */}
-      {variant === "champion" && championQuery.isSuccess && !championVerified ? (
-        <div className="mt-auto border-t border-border bg-warning-muted px-4 py-2 text-[11px] text-warning-muted-foreground">
-          Champion niezweryfikowany — rekruterzy widzą to na profilu kandydata
-          jako ostrzeżenie.
-        </div>
-      ) : null}
-
       {canWritePipeline && showAddCandidates && (
         <AddCandidatesQuickModal
           open={showAddCandidates}

@@ -183,6 +183,87 @@ function RoleChip({ jobId, brief }: { jobId: number; brief: PlainBrief }) {
   );
 }
 
+/**
+ * Która część bloku (04.10.2026, „Profil Championa” w zakładkach):
+ * `summary` — Brief (jedno zdanie, przykład, czym będzie się zajmować),
+ * `knowledge` — zakładka „Technologie po ludzku” (rola, słowniczek, pytania
+ * po ludzku), `client` — opis klienta z internetu w „Klient i historia”,
+ * `all` — dawny jeden blok (harness `/preview/plain-brief`).
+ */
+export type PlainBriefParts = "all" | "summary" | "knowledge" | "client";
+
+function SummaryBody({ brief, compact }: { brief: PlainBrief; compact: boolean }) {
+  const dayToDay = brief.day_to_day.filter((l) => l.trim()).slice(0, 3);
+  return (
+    <div className="space-y-3">
+      {brief.one_liner ? (
+        <div className="space-y-1">
+          <p className="text-[15px] font-medium leading-snug text-foreground" data-testid="plain-one-liner">
+            {brief.one_liner}
+          </p>
+          <ProvenanceMark kind="job" />
+        </div>
+      ) : null}
+      {brief.example || dayToDay.length > 0 ? (
+        <details className="text-[13px]" open={!compact}>
+          <summary className="cursor-pointer text-[13px] font-medium text-muted-foreground hover:text-foreground">
+            Przykład z codzienności i czym będzie się zajmować
+          </summary>
+          <div className="mt-2 grid grid-cols-1 gap-3 @2xl:grid-cols-2">
+            {brief.example ? (
+              <p className="leading-relaxed text-foreground">{brief.example}</p>
+            ) : null}
+            {dayToDay.length > 0 ? (
+              <ol className="list-decimal space-y-1 pl-5 leading-snug text-foreground">
+                {dayToDay.map((line, i) => (
+                  <li key={`${i}-${line}`}>{line}</li>
+                ))}
+              </ol>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+function KnowledgeBody({ brief }: { brief: PlainBrief }) {
+  return (
+    <div className="space-y-4">
+      {brief.glossary.length > 0 ? (
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <PlainEyebrow>Słowniczek</PlainEyebrow>
+            <ProvenanceMark kind="glossary" />
+          </div>
+          <PlainGlossaryTable terms={brief.glossary} />
+        </div>
+      ) : (
+        <p className="text-[13px] text-muted-foreground">
+          Słowniczek jeszcze się nie przygotował — technologie z profilu dostaną opis po odświeżeniu.
+        </p>
+      )}
+      <PlainScreeningCards items={brief.screening_plain} />
+    </div>
+  );
+}
+
+/** Opis klienta z karty klienta albo z internetu — zakładka „Klient i historia”. */
+function ClientBody({ brief }: { brief: PlainBrief }) {
+  const client = brief.client;
+  if (!client?.about?.trim()) {
+    return <p className="text-[13px] text-muted-foreground">Brak opisu klienta.</p>;
+  }
+  return (
+    <div className="space-y-1.5" data-testid="plain-client">
+      {client.origin === "web" ? <WebOriginChip /> : null}
+      <ClientAbout text={client.about} />
+      {client.origin === "web" ? <SourceLinks sources={client.sources} /> : null}
+      <ProvenanceMark kind="client" />
+    </div>
+  );
+}
+
 function BriefBody({ brief }: { brief: PlainBrief }) {
   const client = brief.client;
   const dayToDay = brief.day_to_day.filter((l) => l.trim()).slice(0, 3);
@@ -248,7 +329,23 @@ function BriefBody({ brief }: { brief: PlainBrief }) {
   );
 }
 
-export function PlainBriefBlock({ jobId }: { jobId: number }) {
+const PART_TITLE: Record<PlainBriefParts, string> = {
+  all: "Po ludzku",
+  summary: "Jednym zdaniem",
+  knowledge: "Technologie po ludzku",
+  client: "O kliencie",
+};
+
+export function PlainBriefBlock({
+  jobId,
+  parts = "all",
+  compact = false,
+}: {
+  jobId: number;
+  parts?: PlainBriefParts;
+  /** Brief: przykład i „czym będzie się zajmować” zwinięte pod jednym klikiem. */
+  compact?: boolean;
+}) {
   const query = usePlainBrief(jobId);
   const refresh = useRefreshPlainBrief(jobId);
   useAutoRefreshPlainBrief(jobId, query.data, refresh);
@@ -264,9 +361,14 @@ export function PlainBriefBlock({ jobId }: { jobId: number }) {
 
   const shell = (children: ReactNode) => (
     <section
-      className="@container space-y-4 rounded-xl border border-primary/30 bg-card px-5 py-4"
-      aria-label="Po ludzku"
-      data-testid="champion-plain-brief"
+      className={cn(
+        "@container rounded-xl border bg-card",
+        parts === "all"
+          ? "space-y-4 border-primary/30 px-5 py-4"
+          : "space-y-3 border-border px-4 py-3.5",
+      )}
+      aria-label={PART_TITLE[parts]}
+      data-testid={parts === "all" ? "champion-plain-brief" : `champion-plain-${parts}`}
     >
       {children}
     </section>
@@ -323,13 +425,20 @@ export function PlainBriefBlock({ jobId }: { jobId: number }) {
     <>
       <header className="space-y-1.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[15px] font-semibold text-foreground">Po ludzku</h2>
-          <RoleChip jobId={jobId} brief={brief} />
+          <h2 className="text-[15px] font-semibold text-foreground">{PART_TITLE[parts]}</h2>
+          {parts === "all" || parts === "knowledge" ? (
+            <RoleChip jobId={jobId} brief={brief} />
+          ) : null}
         </div>
-        {brief.role ? <RoleHistoryStrip role={brief.role} /> : null}
+        {brief.role && (parts === "all" || parts === "knowledge") ? (
+          <RoleHistoryStrip role={brief.role} />
+        ) : null}
       </header>
 
-      <ResearchProgress brief={brief} refreshing={refreshing} />
+      {/* Postęp researchu słowniczka należy do „Technologie po ludzku”. */}
+      {parts === "all" || parts === "knowledge" ? (
+        <ResearchProgress brief={brief} refreshing={refreshing} />
+      ) : null}
       {refresh.isError ? (
         <p className="text-xs text-destructive" role="alert">
           {apiErrorMessage(refresh.error, "Nie udało się odświeżyć wyjaśnienia.")}
@@ -342,7 +451,15 @@ export function PlainBriefBlock({ jobId }: { jobId: number }) {
       ) : null}
 
       {hasContent ? (
-        <BriefBody brief={brief} />
+        parts === "summary" ? (
+          <SummaryBody brief={brief} compact={compact} />
+        ) : parts === "knowledge" ? (
+          <KnowledgeBody brief={brief} />
+        ) : parts === "client" ? (
+          <ClientBody brief={brief} />
+        ) : (
+          <BriefBody brief={brief} />
+        )
       ) : refreshing ? (
         <div className="space-y-3" aria-busy="true">
           <Skeleton className="h-6 w-full" />
@@ -358,6 +475,7 @@ export function PlainBriefBlock({ jobId }: { jobId: number }) {
         <p className="text-[13px] text-muted-foreground">Profil nie ma jeszcze treści do wyjaśnienia.</p>
       )}
 
+      {parts === "client" ? null : (
       <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
         <span>
           Pomoc AI, bez zatwierdzania
@@ -366,6 +484,7 @@ export function PlainBriefBlock({ jobId }: { jobId: number }) {
         </span>
         {refreshButton}
       </footer>
+      )}
     </>,
   );
 }

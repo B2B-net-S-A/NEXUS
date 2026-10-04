@@ -293,7 +293,7 @@ export default function PlainBriefPreviewPage() {
           </nav>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
             <section className="min-w-0 space-y-2" aria-label="Podgląd Championa">
-              <p className="text-xs text-muted-foreground">Zlecenie i Champion → Podgląd</p>
+              <p className="text-xs text-muted-foreground">Profil Championa → Brief i Technologie po ludzku</p>
               <PlainBriefBlock jobId={JOB_ID} />
             </section>
             <section className="min-w-0 space-y-2" aria-label="Dok osoby">
