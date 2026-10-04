@@ -115,7 +115,7 @@ describe("JobDetailCompactHeader", () => {
     expect(onViewChange).toHaveBeenCalledWith("champion");
   });
 
-  it("odznaka „brakuje N” przy „Zlecenie i Champion” tylko dla liczby większej od zera", () => {
+  it("odznaka „brakuje N” przy „Profil Championa” tylko dla liczby większej od zera", () => {
     const first = renderHeader({ orderMissingCount: 2 });
     expect(screen.getByTestId("open-champion-profile")).toHaveTextContent("brakuje 2");
     first.unmount();

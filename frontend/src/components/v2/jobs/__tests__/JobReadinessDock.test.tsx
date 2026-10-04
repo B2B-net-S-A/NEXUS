@@ -1,6 +1,5 @@
 /**
- * `JobReadinessDock` (krok 01 „Lista" i krok 02 „Zlecenie i Champion",
- * program „flow w języku C2", PR 4/7 i PR 5/7).
+ * `JobReadinessDock` (krok 01 „Lista", program „flow w języku C2”, PR 4/7).
  *
  * Stany widoku dla `GET /api/jobs/{id}` (odczyt PIERWSZORZĘDNY — widoczny dla
  * każdej roli): pusto (brak zaznaczenia) / 403 / awaria / dane. Osobno:
@@ -9,8 +8,7 @@
  * klienta”, więc dla większości kont KOŃCZY SIĘ 403 i to NIE jest błąd do
  * ukrycia).
  *
- * `variant="champion"` (krok 02) dokłada zakładkę „Zespół”
- * (zakładka „Wyszukiwania (AI)” usunięta 25.09.2026) — dzieci doku
+ * Dzieci doku
  * (`ChampionVerificationChecklist`, `JobSettingsPanel`, `JobOwnershipPanel`,
  * `HiringManagerPicker`, `JobPriorityContext`, `JobHandoffButton`) są tu
  * ZAMOCKOWANE: ten plik testuje WIRING doku (który wariant/zakładka renderuje
@@ -215,7 +213,7 @@ const jobFixture = {
   },
 };
 
-// Reużywana w testach `variant="champion"` — kształt `GET …/champion-profile`
+// Kształt `GET …/champion-profile` (do 04.10.2026 czytał go wariant „champion”)
 // (`ChampionProfileResponse`), osobny od `jobFixture.champion_profile`
 // (kształt `GET /api/jobs/{id}`) bo dok czyta je z DWÓCH różnych zapytań pod
 // tym samym kluczem `["champion-profile", jobId]`.
@@ -264,8 +262,6 @@ function renderDock(
   canOpen?: boolean,
   variant?: JobReadinessDockVariant,
   listNav?: JobReadinessDockListNav,
-  collapsed?: boolean,
-  onCollapsedChange?: (next: boolean) => void,
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -279,17 +275,12 @@ function renderDock(
           canOpen={canOpen}
           variant={variant}
           listNav={listNav}
-          collapsed={collapsed}
-          onCollapsedChange={onCollapsedChange}
         />
       </ToastProvider>
     </QueryClientProvider>,
   );
 }
 
-/** Kotwica „dane doszły" dla wariantu champion — tam nie ma tytułu zlecenia
- *  (nagłówek strony stoi tuż nad dokiem), więc czekamy na etykietę nagłówka. */
-const CHAMPION_DOCK_LABEL = "Zlecenie · gotowość do searchu";
 
 beforeEach(() => {
   getMock.mockReset();
@@ -885,99 +876,16 @@ describe("JobReadinessDock — `listNav` (przewijanie po wierszach strony)", () 
   });
 });
 
-describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
-  it("domyślna zakładka to „Gotowość” — jedna lista: trzy wiersze weryfikacji + cztery warunki zlecenia", async () => {
-    useAuthStore.setState({ user: deliveryLead });
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-
-    expect(screen.getByRole("tab", { name: "Gotowość" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    expect(screen.getByText("Rekruter")).toBeInTheDocument();
-    const checklist = await screen.findByTestId("mock-verification-checklist");
-    expect(checklist).toHaveAttribute("data-can-edit", "true");
-    // Weryfikacja jest teraz WIERSZAMI tej samej listy, nie osobnym blokiem.
-    expect(checklist).toHaveAttribute("data-variant", "rows");
-    // Zakładka „Zespół i priorytet” NIE renderuje się, dopóki nie jest aktywna.
-    expect(screen.queryByTestId("mock-ownership-panel")).not.toBeInTheDocument();
-  });
-
-  it("na kroku 02 nie ma wiersza „Profil Championa” — jego treścią są trzy wiersze weryfikacji", async () => {
-    useAuthStore.setState({ user: deliveryLead });
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    expect(screen.queryByText("Profil Championa")).not.toBeInTheDocument();
-    // Za to jest wiersz o stacku pod nazwą z makiety.
-    expect(screen.getByText("Stack → must / nice")).toBeInTheDocument();
-  });
-
-  it("pusty stack starego profilu nie przykrywa kolumn rekrutacji (M04-B02)", async () => {
-    useAuthStore.setState({ user: deliveryLead });
-    championGetMock.mockResolvedValue({
-      data: {
-        ...championProfileFixture,
-        champion_profile: {
-          ...championProfileFixture.champion_profile,
-          // Kształt z API po migracji leniwej: obiekt stacku JEST, ale pusty.
-          stack: { must: [], nice: [], notes: "" },
-        },
-      },
-    });
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    expect(
-      await screen.findByText("2 must · 1 nice · zasilają AI Matching i filtry."),
-    ).toBeInTheDocument();
-  });
-
-  it("wypełniony stack Championa nadal wygrywa z kolumnami", async () => {
-    useAuthStore.setState({ user: deliveryLead });
-    championGetMock.mockResolvedValue({
-      data: {
-        ...championProfileFixture,
-        champion_profile: {
-          ...championProfileFixture.champion_profile,
-          stack: { must: [{ name: "Go" }], nice: [], notes: "" },
-        },
-      },
-    });
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    expect(
-      await screen.findByText("1 must · 0 nice · zasilają AI Matching i filtry."),
-    ).toBeInTheDocument();
-  });
-
-  it("licznik liczy SIEDEM warunków (4 zlecenia + 3 weryfikacji), gdy profil Championa się wczytał", async () => {
-    useAuthStore.setState({ user: deliveryLead });
-    const { container } = renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    // Fixture: klient + konsultant zweryfikowani, briefing `pending` →
-    // 4 warunki zlecenia + 2 weryfikacji = 6 z 7.
-    await waitFor(() => expect(container.textContent).toContain("/ 7 · kompletność zlecenia"));
-    expect(container.textContent).toContain("(86%)");
-  });
-
-  it("gdy profil Championa się NIE wczytał, mianownik NIE udaje wiedzy o trzech brakujących warunkach", async () => {
-    useAuthStore.setState({ user: deliveryLead });
-    championGetMock.mockRejectedValue(apiError(500));
-    const { container } = renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-
-    await waitFor(() =>
-      expect(container.textContent).toContain("Nie udało się pobrać Profilu Championa."),
-    );
-    // Cztery warunki, o których wiemy — nie siedem z trzema fałszywymi brakami.
-    expect(container.textContent).toContain("/ 4 · kompletność zlecenia");
-  });
-
+// Do 04.10.2026 dok miał też wariant „champion” (panel obok Profilu
+// Championa). Jego zakładka „Zespół” to `JobTeamTab` — ten sam komponent stoi
+// dziś w zakładce „Zespół i ogłoszenie” Profilu Championa i w doku listy.
+// „Do dopięcia” (weryfikacja, braki, przekazanie) testuje `ChampionTodoStrip`.
+describe("JobReadinessDock — zakładka „Zespół” (JobTeamTab)", () => {
   it("zakładka „Zespół” pokazuje JobOwnershipPanel / HiringManagerPicker / JobPriorityContext, chowa checklistę gotowości", async () => {
     useAuthStore.setState({ user: deliveryLead });
     const user = userEvent.setup();
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
+    renderDock(501, undefined, true, "list");
+    await screen.findByText(jobFixture.title);
 
     // Radix `Tabs.Trigger` aktywuje się na pełnej sekwencji zdarzeń
     // wskaźnika — goły `.click()` (sam event `click`) nie przełącza stanu;
@@ -993,143 +901,14 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
       "true",
     );
     expect(screen.getByTestId("mock-priority-context")).toBeInTheDocument();
-    // Checklista gotowości (z wierszem „Rekruter”) znika razem z zakładką.
+    // Checklista gotowości znika razem z zakładką.
     expect(screen.queryByText("Budżet kandydacki")).not.toBeInTheDocument();
-    expect(screen.queryByText("Rekruter")).not.toBeInTheDocument();
-  });
-
-  it("krok 02 nie ma już rekomendowanych wyszukiwań (AI) — ani zakładki, ani podglądu", async () => {
-    useAuthStore.setState({ user: deliveryLead });
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    expect(screen.queryByRole("tab", { name: "Wyszukiwania" })).not.toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Zespół" })).toBeInTheDocument();
-  });
-
-  it("JobHandoffButton (główna akcja) widoczny dla Delivery Lead", async () => {
-    useAuthStore.setState({ user: deliveryLead });
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    expect(await screen.findByTestId("mock-handoff-button")).toBeInTheDocument();
-  });
-
-  it("na kroku 02 nie ma „Dodaj kandydata”, „Edytuj rekrutację” ani „Otwórz propozycje” — są w nagłówku i menu „⋯”", async () => {
-    useAuthStore.setState({ user: deliveryLead });
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    expect(screen.queryByRole("button", { name: "Dodaj kandydata" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Edytuj rekrutację" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Otwórz propozycje z bazy/ })).not.toBeInTheDocument();
-  });
-
-  it("panel zlecenia ma zakładki Gotowość, Zespół, Ogłoszenie — „Historia” przeszła do edycji Championa", async () => {
-    useAuthStore.setState({ user: deliveryLead });
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    expect(screen.getByRole("tab", { name: "Ogłoszenie" })).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "Historia" })).not.toBeInTheDocument();
-  });
-
-  it("zakładka „Ogłoszenie” niesie opis z AI, link aplikacyjny i portale", async () => {
-    const user = userEvent.setup();
-    const onWrite = vi.fn();
-    const onLink = vi.fn();
-    useAuthStore.setState({ user: deliveryLead });
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={client}>
-        <ToastProvider>
-          <JobReadinessDock
-            jobId={501}
-            canOpen
-            variant="champion"
-            onWriteAnnouncement={onWrite}
-            onGenerateInviteLink={onLink}
-          />
-        </ToastProvider>
-      </QueryClientProvider>,
-    );
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    await user.click(screen.getByRole("tab", { name: "Ogłoszenie" }));
-    await user.click(await screen.findByRole("button", { name: "Napisz ogłoszenie z AI" }));
-    expect(onWrite).toHaveBeenCalledOnce();
-    await user.click(screen.getByRole("button", { name: "Wygeneruj link aplikacyjny" }));
-    expect(onLink).toHaveBeenCalledOnce();
-  });
-
-  it("zakładkę panelu da się otworzyć z adresu (`panelTab`) — skrót zlecenia prowadzi wprost do „Zespołu”", async () => {
-    useAuthStore.setState({ user: deliveryLead });
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={client}>
-        <ToastProvider>
-          <JobReadinessDock jobId={501} canOpen variant="champion" panelTab="team" />
-        </ToastProvider>
-      </QueryClientProvider>,
-    );
-    expect(await screen.findByTestId("mock-priority-context")).toBeInTheDocument();
-  });
-
-  it("JobHandoffButton NIE renderuje się dla recruitera bez uprawnienia do prowadzenia rekrutacji", async () => {
-    // Domyślny user w beforeEach to `recruiterWrite`.
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    expect(screen.queryByTestId("mock-handoff-button")).not.toBeInTheDocument();
-    // Checklista Championa też jest tylko do odczytu dla recruitera.
-    const checklist = await screen.findByTestId("mock-verification-checklist");
-    expect(checklist).toHaveAttribute("data-can-edit", "false");
-  });
-
-  it("recruiter z nadanym uprawnieniem do prowadzenia rekrutacji dostaje „Przekaż do searchu”", async () => {
-    useAuthStore.setState({
-      user: {
-        ...recruiterWrite,
-        effective_action_access: permissionSnapshot("recruitment_manage"),
-      },
-    });
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    expect(await screen.findByTestId("mock-handoff-button")).toBeInTheDocument();
-  });
-
-  it("Delivery Lead z wyłączonym uprawnieniem nie dostaje „Przekaż do searchu” mimo roli", async () => {
-    useAuthStore.setState({
-      user: {
-        ...deliveryLead,
-        effective_action_access: permissionSnapshot("delivery_view", "clients_edit"),
-      },
-    });
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    expect(screen.queryByTestId("mock-handoff-button")).not.toBeInTheDocument();
-  });
-
-  it("w podglądzie jako inny użytkownik nie ma „Przekaż do searchu”", async () => {
-    useAuthStore.setState({ user: deliveryLead, realUser: recruiterWrite });
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    expect(screen.queryByTestId("mock-handoff-button")).not.toBeInTheDocument();
-  });
-
-  it("recruiter z prawem edycji treści (`can_edit`) też NIE dostaje „Przekaż do searchu” — to osobne uprawnienie", async () => {
-    // Do 28.09.2026 przycisk wisiał na `canEditChampion`, a `can_edit` z
-    // serwera dostaje też rekruter prowadzący: widział aktywny przycisk,
-    // /readiness odpowiadało mu 403, a klik kończył się drugim 403.
-    mockGetByUrl({
-      job: () => Promise.resolve({ data: { ...jobFixture, can_edit: true } }),
-    });
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    const checklist = await screen.findByTestId("mock-verification-checklist");
-    // Edycja Championa zostaje — odbieramy wyłącznie przekazanie do searchu.
-    expect(checklist).toHaveAttribute("data-can-edit", "true");
-    expect(screen.queryByTestId("mock-handoff-button")).not.toBeInTheDocument();
   });
 
   it("recruiter widzi zakładkę „Zespół”, ale HiringManagerPicker jest read-only (`job.update` = TacPlus)", async () => {
     const user = userEvent.setup();
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
+    renderDock(501, undefined, true, "list");
+    await screen.findByText(jobFixture.title);
 
     await user.click(screen.getByRole("tab", { name: "Zespół" }));
 
@@ -1148,8 +927,8 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
   it("zakładka „Zespół”: wiersz „Rekruter” siedzi W karcie zespołu, nad hiring managerem, z `canEdit` DL-a", async () => {
     useAuthStore.setState({ user: deliveryLead });
     const user = userEvent.setup();
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
+    renderDock(501, undefined, true, "list");
+    await screen.findByText(jobFixture.title);
 
     await user.click(screen.getByRole("tab", { name: "Zespół" }));
 
@@ -1162,7 +941,7 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
     ).toBeTruthy();
   });
 
-  it("karta zespołu dostaje kategorię i priorytet rekrutacji; okno przekazania — ten sam priorytet", async () => {
+  it("karta zespołu dostaje kategorię i priorytet rekrutacji", async () => {
     useAuthStore.setState({ user: deliveryLead });
     mockGetByUrl({
       job: () =>
@@ -1171,12 +950,8 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
         }),
     });
     const user = userEvent.setup();
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    expect(await screen.findByTestId("mock-handoff-button")).toHaveAttribute(
-      "data-priority-level",
-      "accepting",
-    );
+    renderDock(501, undefined, true, "list");
+    await screen.findByText(jobFixture.title);
 
     await user.click(screen.getByRole("tab", { name: "Zespół" }));
 
@@ -1197,8 +972,8 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
       job: () => Promise.resolve({ data: { ...jobFixture, ...flags } }),
     });
     const user = userEvent.setup();
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
+    renderDock(501, undefined, true, "list");
+    await screen.findByText(jobFixture.title);
 
     await user.click(screen.getByRole("tab", { name: "Zespół" }));
 
@@ -1214,8 +989,8 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
       job: () => Promise.resolve({ data: { ...jobFixture, can_edit: true } }),
     });
     const user = userEvent.setup();
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
+    renderDock(501, undefined, true, "list");
+    await screen.findByText(jobFixture.title);
 
     await user.click(screen.getByRole("tab", { name: "Zespół" }));
 
@@ -1234,8 +1009,8 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
       job: () => Promise.resolve({ data: { ...jobFixture, can_set_priority: true } }),
     });
     const user = userEvent.setup();
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
+    renderDock(501, undefined, true, "list");
+    await screen.findByText(jobFixture.title);
 
     await user.click(screen.getByRole("tab", { name: "Zespół" }));
 
@@ -1243,84 +1018,6 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
       "data-can-set-priority",
       "false",
     );
-  });
-});
-
-describe("JobReadinessDock — zwijanie doku (krok 02)", () => {
-  it('bez `onCollapsedChange` renderuje się w pełni niezależnie od `collapsed` (np. `variant="list"`)', async () => {
-    renderDock(501, undefined, true, "list", undefined, true, undefined);
-    expect(await screen.findByText(jobFixture.title)).toBeInTheDocument();
-    expect(
-      screen.queryByTestId("job-readiness-dock-collapsed"),
-    ).not.toBeInTheDocument();
-    expect(screen.getByTestId("job-readiness-dock-full")).not.toHaveClass(
-      "xl:hidden",
-    );
-  });
-
-  it('`collapsed=true` na `variant="champion"` renderuje pasek 44 px z przyciskiem „Rozwiń" i licznikiem done/total', async () => {
-    const onCollapsedChange = vi.fn();
-    renderDock(501, undefined, true, "champion", undefined, true, onCollapsedChange);
-
-    const strip = await screen.findByTestId("job-readiness-dock-collapsed");
-    expect(
-      within(strip).getByRole("button", { name: "Rozwiń dok gotowości" }),
-    ).toBeInTheDocument();
-    // 4 wiersze doku (must/nice, budżet, właściciel, HM) + 3 warunki
-    // weryfikacji Championa (klient/konsultant zweryfikowani, briefing
-    // „pending") = 6 z 7 — liczone z TYCH SAMYCH zapytań, które karmią pełny
-    // widok (patrz komentarz przy `JobReadinessDockProps.collapsed`).
-    expect(within(strip).getByText("6/7")).toBeInTheDocument();
-    // Pasek widać WYŁĄCZNIE na `xl`; wężej zostaje pełny dok (jsdom nie liczy
-    // media queries, więc kontrakt pilnujemy na klasach).
-    expect(strip).toHaveClass("hidden", "xl:flex");
-    expect(screen.getByTestId("job-readiness-dock-full")).toHaveClass("xl:hidden");
-  });
-
-  it('kliknięcie „Rozwiń dok gotowości" woła `onCollapsedChange(false)`', async () => {
-    const user = userEvent.setup();
-    const onCollapsedChange = vi.fn();
-    renderDock(501, undefined, true, "champion", undefined, true, onCollapsedChange);
-
-    await user.click(
-      await screen.findByRole("button", { name: "Rozwiń dok gotowości" }),
-    );
-    expect(onCollapsedChange).toHaveBeenCalledWith(false);
-  });
-
-  it('rozwinięty dok (krok 02) pokazuje „Zwiń dok gotowości" obok kopiowania linku TYLKO z `onCollapsedChange`', async () => {
-    renderDock(501, undefined, true, "champion");
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-    expect(
-      screen.queryByRole("button", { name: "Zwiń dok gotowości" }),
-    ).not.toBeInTheDocument();
-
-    const onCollapsedChange = vi.fn();
-    renderDock(501, undefined, true, "champion", undefined, false, onCollapsedChange);
-    expect(
-      await screen.findByRole("button", { name: "Zwiń dok gotowości" }),
-    ).toBeInTheDocument();
-  });
-
-  it('kliknięcie „Zwiń dok gotowości" woła `onCollapsedChange(true)`', async () => {
-    const user = userEvent.setup();
-    const onCollapsedChange = vi.fn();
-    renderDock(501, undefined, true, "champion", undefined, false, onCollapsedChange);
-    await screen.findByText(CHAMPION_DOCK_LABEL);
-
-    await user.click(
-      await screen.findByRole("button", { name: "Zwiń dok gotowości" }),
-    );
-    expect(onCollapsedChange).toHaveBeenCalledWith(true);
-  });
-
-  it('„Zwiń dok gotowości" NIE renderuje się na `variant="list"` (kolumna listy nie zwija się)', async () => {
-    const onCollapsedChange = vi.fn();
-    renderDock(501, undefined, true, "list", undefined, false, onCollapsedChange);
-    expect(await screen.findByText(jobFixture.title)).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Zwiń dok gotowości" }),
-    ).not.toBeInTheDocument();
   });
 });
 

@@ -458,3 +458,17 @@ describe("JobHandoffButton — stary szkic (04.10.2026)", () => {
     expect(screen.getByTestId("handoff-open")).toHaveTextContent("Przekaż do searchu");
   });
 });
+
+describe("JobHandoffButton — rekrutacja już przekazana (04.10.2026)", () => {
+  it("nie pokazuje przycisku przekazania, tylko zdanie, że rekrutacja jest przekazana", async () => {
+    // Panel „Gotowość” pokazywał „Zlecenie przekazane do searchu” i obok
+    // aktywne „Przekaż do searchu” — ponowne kliknięcie przestawiało rekrutera.
+    mockApi({ already_handed_off: true });
+    renderButton();
+
+    expect(await screen.findByTestId("handoff-already")).toHaveTextContent(
+      "Przekazana do searchu",
+    );
+    expect(screen.queryByTestId("handoff-open")).not.toBeInTheDocument();
+  });
+});

@@ -388,11 +388,11 @@ describe("OrderSlideOver — braki z działaniem", () => {
     );
   });
 
-  it("kontekst projektu prowadzi do Profilu Championa (i zamyka okno)", async () => {
+  it("kontekst projektu otwiera szufladę bloku „O projekcie” w Profilu Championa (i zamyka okno)", async () => {
     const handlers = setup({}, { job: OPEN_JOB, readiness: { ready: false, blockers: [MSG.context] } });
     fireEvent.click(await screen.findByRole("button", { name: /Uzupełnij w Championie/ }));
     expect(handlers.onOpenChange).toHaveBeenCalledWith(false);
-    expect(handlers.onNavigate).toHaveBeenCalledWith("champion", { edit: true });
+    expect(handlers.onNavigate).toHaveBeenCalledWith("champion", { block: "project" });
   });
 
   it("bez prawa edycji treści budżet i tryb są tylko linkiem do Championa", async () => {

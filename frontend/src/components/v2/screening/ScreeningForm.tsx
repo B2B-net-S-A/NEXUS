@@ -667,7 +667,7 @@ export function ScreeningNoQuestions({
           onClick={onOpenChampion}
           className="mt-2 text-xs font-medium text-primary hover:underline"
         >
-          Otwórz Zlecenie i Champion (sekcja 5 — pytania screeningowe)
+          Otwórz Profil Championa (pytania na rozmowę)
         </button>
       )}
     </div>

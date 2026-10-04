@@ -82,7 +82,7 @@ interface JobDetailCompactHeaderProps {
   /** Klient · Budżet · Tryb pracy (`lib/job-header-facts.ts`). */
   facts: readonly JobHeaderFact[];
   presence?: ReactNode;
-  /** Aktywny widok: „Tablica" albo pełne „Zlecenie i Champion" (`people` = lista „Do przejrzenia"). */
+  /** Aktywny widok: „Tablica" albo „Profil Championa" (`people` = lista „Do przejrzenia"). */
   activeView: JobDetailView;
   onViewChange: (view: JobDetailView) => void;
   /**
@@ -100,11 +100,18 @@ interface JobDetailCompactHeaderProps {
   onOpenOrder: () => void;
   /**
    * „Zespół” — kto pracuje nad rekrutacją („Rekruter: Marta N. +1” albo
-   * „Bez rekrutera”); klik otwiera panel „Zespół” obok Profilu Championa.
+   * „Bez rekrutera”); klik otwiera zakładkę „Zespół i ogłoszenie” Profilu
+   * Championa.
    * Do 02.10.2026 ta informacja stała w podtytule nagłówka.
    */
   teamSummary?: string | null;
   onOpenTeam?: () => void;
+  /**
+   * „Edytuj cały Profil Championa” (04.10.2026): pełny formularz z „Wypełnij
+   * szybciej”. Na co dzień edycja idzie blokami z Briefu. `undefined` = rola
+   * bez edycji Championa (brak pozycji).
+   */
+  onEditFullChampion?: () => void;
   /**
    * „Mamy championa" (0341) — przełącznik Delivery Leada. `undefined` = rola
    * bez prawa (brak pozycji); status widać wtedy w odznace statusu.
@@ -187,6 +194,7 @@ export function JobDetailCompactHeader({
   onOpenOrder,
   teamSummary,
   onOpenTeam,
+  onEditFullChampion,
   championFound,
   onToggleChampion,
   championPending,
@@ -296,7 +304,7 @@ export function JobDetailCompactHeader({
               )}
             >
               <FileText className="h-3.5 w-3.5" aria-hidden="true" />
-              Zlecenie i Champion
+              Profil Championa
               {missing != null ? (
                 <Badge variant="warning" size="sm" className="tabular-nums">
                   brakuje {missing}
@@ -433,6 +441,15 @@ export function JobDetailCompactHeader({
                 <ClipboardList className="h-4 w-4" />
                 Zlecenie — skrót
               </DropdownMenuItem>
+              {onEditFullChampion ? (
+                <DropdownMenuItem
+                  onSelect={() => deferMenuAction(onEditFullChampion)}
+                  data-testid="menu-edit-full-champion"
+                >
+                  <PencilLine className="h-4 w-4" />
+                  Edytuj cały Profil Championa
+                </DropdownMenuItem>
+              ) : null}
               {onOpenTeam ? (
                 <DropdownMenuItem
                   onSelect={() => deferMenuAction(onOpenTeam)}

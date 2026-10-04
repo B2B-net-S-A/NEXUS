@@ -123,7 +123,7 @@
    "opis": "Szkic ogłoszenia (AI)",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "AIJobWriterModal",
-   "v3_home": "menu … / Zlecenie i Champion → panel → Ogłoszenie"
+   "v3_home": "menu … / Profil Championa → Zespół i ogłoszenie"
   },
   {
    "id": "header.chat-unread",
@@ -147,7 +147,7 @@
    "opis": "Hiring manager klienta",
    "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "HiringManagerPicker",
-   "v3_home": "Zlecenie i Champion → panel → Zespół"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie"
   },
   {
    "id": "header.invite-link",
@@ -155,7 +155,7 @@
    "opis": "Wygeneruj link aplikacyjny",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "GenerateInviteLinkV2",
-   "v3_home": "menu … / Zlecenie i Champion → panel → Ogłoszenie"
+   "v3_home": "menu … / Profil Championa → Zespół i ogłoszenie"
   },
   {
    "id": "header.managed",
@@ -171,7 +171,7 @@
    "opis": "Wiersz „Rekruter” karty zespołu (02.10.2026, dawniej „Właściciel projektu” i „Współpracownicy”): osoby, które pracują nad rekrutacją, z podpisem, kto je przydzielił",
    "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "JobOwnershipPanel",
-   "v3_home": "Zlecenie i Champion → panel → Zespół"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie"
   },
   {
    "id": "team.claim-join",
@@ -179,7 +179,7 @@
    "opis": "„Biorę” przy wolnej rekrutacji (dawne „Przejmij rekrutację”) i „Dołącz” przy zajętej — rekruter, sourcer, TAC, Delivery Lead, admin",
    "file": "components/v2/jobs/JobOwnershipPanel.tsx",
    "marker": "joinJob",
-   "v3_home": "Zlecenie i Champion → panel → Zespół → Rekruter"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Rekruter"
   },
   {
    "id": "team.assign-recruiter",
@@ -187,7 +187,7 @@
    "opis": "„Przypisz…” / „Zmień” — okno przypisania pierwszego rekrutera (admin, Delivery Lead, Head of Recruitment)",
    "file": "components/v2/jobs/JobOwnershipPanel.tsx",
    "marker": "ReassignOwnerV2",
-   "v3_home": "Zlecenie i Champion → panel → Zespół → Rekruter"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Rekruter"
   },
   {
    "id": "team.add-remove-person",
@@ -195,7 +195,7 @@
    "opis": "„+ Dodaj osobę” (kolejna osoba przy rekrutacji) i zdjęcie osoby „×” z potwierdzeniem",
    "file": "components/v2/jobs/JobOwnershipPanel.tsx",
    "marker": "removeRecruiter",
-   "v3_home": "Zlecenie i Champion → panel → Zespół → Rekruter"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Rekruter"
   },
   {
    "id": "team.proposal-decision",
@@ -203,7 +203,7 @@
    "opis": "Propozycja automatu przy rekrutacji: „Akceptuj” · „Zmień” · „Odrzuć” (admin, Head of Recruitment); do decyzji nikt nie jest przypisany",
    "file": "components/v2/jobs/JobOwnershipPanel.tsx",
    "marker": "decideProposal",
-   "v3_home": "Zlecenie i Champion → panel → Zespół → Rekruter"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Rekruter"
   },
   {
    "id": "team.category",
@@ -211,7 +211,7 @@
    "opis": "Wiersz „Kategoria”: plakietka kategorii, zwijana lista uczestników (osoby z kategorii: widzą rekrutację w „Moja kategoria” i dostają jej powiadomienia) i „Zmień” dla osoby z pełną edycją rekrutacji",
    "file": "components/v2/jobs/JobSettingsPanel.tsx",
    "marker": "JobCategoryRow",
-   "v3_home": "Zlecenie i Champion → panel → Zespół → Kategoria"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Kategoria"
   },
   {
    "id": "team.priority",
@@ -219,7 +219,7 @@
    "opis": "Priorytet w trzech poziomach (P1 Pilne / P2 Standard / Przyjmujemy kandydatów), zapis kliknięciem — admin, Delivery Lead, TAC, Head of Recruitment",
    "file": "components/v2/jobs/JobSettingsPanel.tsx",
    "marker": "PriorityRow",
-   "v3_home": "Zlecenie i Champion → panel → Zespół → Priorytet"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Priorytet"
   },
   {
    "id": "header.recruiter-subtitle",
@@ -235,7 +235,7 @@
    "opis": "Kontekst Priority Work",
    "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "JobPriorityContext",
-   "v3_home": "Zlecenie i Champion → panel → Zespół"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie"
   },
   {
    "id": "header.tabs-rail",
@@ -516,15 +516,15 @@
    "opis": "Edytor profilu Championa",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "ChampionProfileEditor",
-   "v3_home": "strona Champion (bez zmian)"
+   "v3_home": "Profil Championa → menu ⋯ → Edytuj cały Profil Championa; blok — „Edytuj” w Briefie (szuflada)"
   },
   {
    "id": "champ.handoff",
    "area": "zlecenie",
    "opis": "Przekaż do searchu",
-   "file": "components/v2/jobs/JobReadinessDock.tsx",
+   "file": "components/champion/ChampionTodoStrip.tsx",
    "marker": "JobHandoffButton",
-   "v3_home": "strona Champion"
+   "v3_home": "Profil Championa → Brief → Do dopięcia (tylko rekrutacja nieprzekazana)"
   },
   {
    "id": "champ.handoff-assignment",
@@ -532,7 +532,7 @@
    "opis": "Pole „Rekruter” przy przekazaniu: automat („Przydzieli automat” w trybie auto, „Zaproponuje automat” w trybie propozycji) albo „Wybieram sam”",
    "file": "components/v2/jobs/JobHandoffButton.tsx",
    "marker": "RecruiterAssignmentChoice",
-   "v3_home": "Zlecenie i Champion → panel → Gotowość → Przekaż do searchu"
+   "v3_home": "Profil Championa → Brief → Do dopięcia → Przekaż do searchu"
   },
   {
    "id": "champ.intake",
@@ -540,15 +540,15 @@
    "opis": "Import Championa z dokumentu",
    "file": "components/ChampionProfileEditor.tsx",
    "marker": "ChampionIntake",
-   "v3_home": "strona Champion"
+   "v3_home": "Profil Championa → menu ⋯ → Edytuj cały Profil Championa → Wypełnij szybciej"
   },
   {
    "id": "champ.readiness",
    "area": "zlecenie",
    "opis": "Lista gotowości",
-   "file": "components/v2/jobs/JobReadinessDock.tsx",
+   "file": "components/champion/ChampionTodoStrip.tsx",
    "marker": "readiness",
-   "v3_home": "okno Zlecenie + strona Champion"
+   "v3_home": "okno Zlecenie + Profil Championa → Brief → Do dopięcia"
   },
   {
    "id": "champ.rec-searches",
@@ -565,7 +565,7 @@
    "opis": "Karta zespołu: Delivery Lead → Rekruter → Kategoria → Termin → Priorytet (kolejność z 02.10.2026; TAC, szablon i Program/Train usunięte 22.09.2026 decyzją Artura — ustawia je backend)",
    "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "JobSettingsPanel",
-   "v3_home": "Zlecenie i Champion → panel → Zespół"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie"
   },
   {
    "id": "panel.saved-screening",
@@ -613,7 +613,7 @@
    "opis": "Link do karty klienta (Pomoc → Klienci)",
    "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
    "marker": "/help?tab=clients",
-   "v3_home": "skrót zlecenia (okno) / Podgląd → O kliencie / menu …"
+   "v3_home": "skrót zlecenia (okno) / Profil Championa → Klient i historia / menu …"
   },
   {
    "id": "header.view-switch",
@@ -1009,25 +1009,25 @@
    "id": "order.portals",
    "area": "zlecenie",
    "opis": "Portale ogłoszeniowe (RocketJobs, JustJoin.IT)",
-   "file": "components/v2/jobs/JobReadinessDock.tsx",
+   "file": "components/v2/jobs/JobAnnouncementSection.tsx",
    "marker": "JobPortalsSection",
-   "v3_home": "Zlecenie i Champion → panel → Ogłoszenie"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie"
   },
   {
    "id": "champion.brief",
    "area": "zlecenie",
-   "opis": "Podgląd zlecenia jak brief (co zamówił klient, czego szukamy, projekt, pytania, klient, wiedza z rozmów)",
+   "opis": "Brief zlecenia: jednym zdaniem, czego szukamy, pytania na rozmowę, co powiedzieć kandydatowi, projekt, warunki, kto prowadzi, do dopytania",
    "file": "components/champion/ChampionBriefView.tsx",
    "marker": "champion-brief-view",
-   "v3_home": "Zlecenie i Champion → Podgląd"
+   "v3_home": "Profil Championa → Brief"
   },
   {
    "id": "champion.request-history",
    "area": "zlecenie",
    "opis": "Wcześniejsze zapytania klienta (Otwórz, Skopiuj jako template, Dodaj championa)",
-   "file": "components/champion/ChampionBriefView.tsx",
+   "file": "components/champion/ChampionClientTab.tsx",
    "marker": "RequestHistorySection",
-   "v3_home": "Zlecenie i Champion → Podgląd (każda rola) i Edytuj → Wypełnij szybciej"
+   "v3_home": "Profil Championa → Klient i historia (każda rola) i pełny formularz → Wypełnij szybciej"
   },
   {
    "id": "champion.plain-brief",
@@ -1035,7 +1035,7 @@
    "opis": "„Po ludzku”: jedno zdanie o rekrutacji, przykład z codzienności, o kliencie, czym będzie się zajmować, słowniczek technologii i pytania screeningowe przetłumaczone na zwykły język (pomoc AI, odświeżana sama)",
    "file": "components/champion/ChampionBriefView.tsx",
    "marker": "<PlainBriefBlock jobId",
-   "v3_home": "Zlecenie i Champion → Podgląd (na górze)"
+   "v3_home": "Profil Championa → Brief (Jednym zdaniem), Technologie po ludzku, Klient i historia"
   },
   {
    "id": "dock.call-cheatsheet",
@@ -1260,7 +1260,7 @@
    "opis": "Wymagania w Profilu Championa jako lista słów kluczowych (profil prowadzony wierszami) i „Uprość do słów kluczowych” dla profilu na starych polach",
    "file": "components/ChampionProfileEditor.tsx",
    "marker": "simplifyToRows",
-   "v3_home": "Zlecenie i Champion → Edytuj → 3 · Stack technologiczny"
+   "v3_home": "Profil Championa → Brief → „Edytuj” przy „Czego szukamy” (szuflada)"
   },
   {
    "id": "team.category-change",
@@ -1268,7 +1268,7 @@
    "opis": "„Zmień” kategorię rekrutacji — uczestnicy idą za kategorią",
    "file": "components/v2/jobs/JobCategoryRow.tsx",
    "marker": "CategoryChange",
-   "v3_home": "Zlecenie i Champion → panel → Zespół → Kategoria"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Kategoria"
   },
   {
    "id": "dashboard.new-job-leads",
@@ -1391,6 +1391,54 @@
    "file": "components/v2/b2b-generator/AgreementSignatureAction.tsx",
    "marker": "Poproś o potwierdzenie podpisu",
    "v3_home": "panel → sekcja Umowa"
+  },
+  {
+   "id": "champion.tabs",
+   "area": "zlecenie",
+   "opis": "Profil Championa w czterech zakładkach: Brief, Technologie po ludzku, Klient i historia, Zespół i ogłoszenie (?ptab=)",
+   "file": "components/champion/ChampionWorkspace.tsx",
+   "marker": "CHAMPION_TABS",
+   "v3_home": "Profil Championa"
+  },
+  {
+   "id": "champion.edit-drawer",
+   "area": "zlecenie",
+   "opis": "Edycja jednego bloku Briefu w szufladzie z prawej (tylko sekcje tego bloku, pytanie przy zamknięciu bez zapisu)",
+   "file": "components/champion/ChampionEditDrawer.tsx",
+   "marker": "onlySections",
+   "v3_home": "Profil Championa → Brief / Klient i historia → „Edytuj” przy bloku"
+  },
+  {
+   "id": "champion.glossary-tooltip",
+   "area": "zlecenie",
+   "opis": "Dymek ze słowniczka „po ludzku” na chipie technologii w „Czego szukamy”",
+   "file": "components/champion/ChampionBriefView.tsx",
+   "marker": "GlossaryTip",
+   "v3_home": "Profil Championa → Brief → Czego szukamy"
+  },
+  {
+   "id": "champion.edit-full",
+   "area": "zlecenie",
+   "opis": "Pełny formularz Profilu Championa z „Wypełnij szybciej” (?mode=edit, powrót „Wróć do Profilu Championa”)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "Edytuj cały Profil Championa",
+   "v3_home": "menu ⋯ w nagłówku rekrutacji"
+  },
+  {
+   "id": "champion.todo-strip",
+   "area": "zlecenie",
+   "opis": "Pasek „Do dopięcia”: braki w zleceniu, weryfikacja z klientem i konsultantem, briefing — tylko gdy jest co dopiąć",
+   "file": "components/champion/ChampionTodoStrip.tsx",
+   "marker": "ChampionVerificationChecklist",
+   "v3_home": "Profil Championa → Brief (na górze)"
+  },
+  {
+   "id": "champion.client-tab",
+   "area": "zlecenie",
+   "opis": "Klient i historia: opis klienta, karta klienta i branże, pytania klienta z rozmów, wiedza z rozmów, wcześniejsze zapytania",
+   "file": "components/champion/ChampionClientTab.tsx",
+   "marker": "ChampionClientQuestionsPanel",
+   "v3_home": "Profil Championa → Klient i historia"
   }
  ]
 }

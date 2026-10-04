@@ -3929,43 +3929,55 @@ innego niż serwer albo nadpisywał cudzą pracę.
   `EditJobModal`/`JobFormFields` ZOSTAJĄ w `AppShell.tsx` jako pełna edycja
   (testy źródłowe czytają tam literały `FieldGroup`). TAC, DL, szablon,
   kategoria, Program/Train, priorytet i deadline edytuje `JobSettingsPanel`
-  w zakładce „Zespół” panelu zlecenia. Układ „Zlecenie i Champion” od
-  29.09.2026 — sekcja „„Zlecenie i Champion” — Podgląd, Edytuj i panel
-  zlecenia”; szyna „Otwarte karty” domyślnie zwinięta
+  w zakładce „Zespół i ogłoszenie” Profilu Championa. Układ od
+  04.10.2026 — sekcja „„Profil Championa” w czterech zakładkach”; szyna „Otwarte karty” domyślnie zwinięta
   (`nexus.jobTabsRail.collapsed.v2`). Sekcja 1 Championa startuje
   z pól rekrutacji per pole (`lib/champion-job-seed.ts`), nietknięte klucze nie
   jadą w PUT; okno „Uzgodnij profil i pola rekrutacji” dostaje widoczny `draft`
   (pusty stack + „Uzgodnij też pole” czyściłby `must_skills`).
 
-## „Zlecenie i Champion” — Podgląd, Edytuj i panel zlecenia (29.09.2026)
+## „Profil Championa” w czterech zakładkach (04.10.2026)
 
-Makiety: https://claude.ai/artifact/HPqxFakL75CNUTa5eCH8tX. Te same rzeczy żyły
-w trzech miejscach (okno „Zlecenie”, widok Championa, dok gotowości — Priority
-Work 4×, zespół 3×, braki 5×), a do profilu wchodziło się tylko z okna.
+Decyzje Artura 04.10.2026 (makiety https://claude.ai/artifact/FwQr2uYhWcRfdDeWdbStUc).
+Do tej daty widok „Zlecenie i Champion” był jedną stroną: „Podgląd” ok. 5 000 px
+(sam blok „Po ludzku” 2 170 px), „Edytuj” 51 pól naraz, obok panel „Gotowość”,
+który pokazywał „przekazane do searchu” i jednocześnie aktywne „Przekaż do searchu”.
 
-- **Nagłówek ma zakładki „Tablica” | „Zlecenie i Champion”** (odznaka „brakuje N”
-  przy drugiej). „Karta klienta”, „Kopiuj link do rekrutacji” i „Zamknij
-  rekrutację…” są w menu „⋯” (dialog zamknięcia renderuje strona).
-- **Widok ma dwa tryby** (`?mode=edit`, stare `?intake=1` = edycja): „Podgląd”
-  (`components/champion/ChampionBriefView.tsx`, tylko odczyt, „Edytuj” przy
-  sekcji prowadzi do jej kotwicy) i „Edytuj” (`ChampionProfileEditor
-  layout="workspace"`: przyklejony pasek sekcji w kolejności wyświetlania,
-  licznik niezapisanych zmian, „Anuluj”, „Zapisz”, kolumna „Wypełnij
-  szybciej” z AI, plikiem, uzgodnieniem, wcześniejszymi zapytaniami klienta
-  i źródłami). Układ `stacked` zostaje dla `/preview/champion-profile` i testów.
-  Rola bez edycji Championa widzi zawsze „Podgląd”.
-- **Panel zlecenia = `JobReadinessDock variant="champion"`** z zakładkami
-  Gotowość · Zespół · Ogłoszenie (`?ptab=team|announce`). Gotowość zaczyna
-  się od `MissingBlock` (`components/v2/recruitment/OrderMissingBlock.tsx` —
-  ten sam blok co w oknie: werdykt bramki, budżet i tryb pracy na miejscu),
-  siedmiopunktowa lista idzie niżej jako „nie blokuje”. „Historia” (zapytania
-  klienta) przeszła do „Wypełnij szybciej”; „Dodaj kandydata”, „Edytuj
-  rekrutację” i „Otwórz propozycje” są tylko w wariancie listy.
-- **Okno „Zlecenie” to skrót** (krok „Zlecenie” na Tablicy): braki, fakty,
-  wymagania, projekt; „Zespół i priorytet” / „Ogłoszenie i portale” prowadzą
-  do panelu. Stare `?win=order&wintab=team|portals|close` strona przepisuje na
-  panel (portale rozwinięte) albo na dialog zamknięcia.
-- Nowa funkcja tego ekranu = wpis w `lib/recruitment-feature-inventory.json`.
+- **Nagłówek: „Tablica” | „Profil Championa”** (`tab=champion` bez zmian,
+  odznaka „brakuje N” zostaje). „Karta klienta”, „Kopiuj link do rekrutacji”,
+  „Zamknij rekrutację…” i **„Edytuj cały Profil Championa”** są w menu „⋯”.
+- **Cztery zakładki** (`components/champion/ChampionWorkspace.tsx`, `?ptab=`,
+  stare `readiness` → Brief, `announce` → Zespół z rozwiniętymi portalami —
+  `lib/champion-blocks.ts`):
+  - **Brief** (`ChampionBriefView`) — to, co rekruter musi wiedzieć przed
+    telefonem: „Jednym zdaniem” (`PlainBriefBlock parts="summary"`), czego
+    szukamy (dymek słowniczka na chipie, `lib/plain-glossary-lookup.ts`),
+    pytania na rozmowę, co powiedzieć kandydatowi, o projekcie; z prawej
+    warunki, kto prowadzi, do dopytania u klienta. Nad nim pasek
+    **„Do dopięcia”** (`ChampionTodoStrip`): braki bramki, przekazanie (tylko
+    rekrutacja NIEprzekazana) i weryfikacja z klientem, konsultantem, briefing —
+    tylko z uprawnieniem do prowadzenia rekrutacji i tylko gdy jest co dopiąć.
+  - **Technologie po ludzku** (`PlainBriefBlock parts="knowledge"`) —
+    słowniczek, rola z biblioteki, pytania po ludzku.
+  - **Klient i historia** (`ChampionClientTab`) — opis klienta, karta klienta,
+    pytania klienta z rozmów, wiedza z rozmów, wcześniejsze zapytania.
+  - **Zespół i ogłoszenie** — `JobTeamTab` i `JobAnnouncementSection`.
+- **Edycja blokami:** „Edytuj” przy bloku otwiera szufladę
+  (`ChampionEditDrawer` → `ChampionProfileEditor layout="drawer"
+  onlySections=…`, mapa bloków w `CHAMPION_BLOCKS`). Zapis to ten sam
+  `PUT …/champion-profile` z całym szkicem (serwer scala). Brak z bramki
+  wskazujący sekcję otwiera jej blok (`blockForAnchor`), także z okna
+  „Zlecenie”; brak bez bloku — pełny formularz.
+- **Pełny formularz** (`?mode=edit`, stare `?intake=1`) = `layout="workspace"`
+  z „Wypełnij szybciej”, przycisk „← Wróć do Profilu Championa”. Edytor zostaje
+  zamontowany po wyjściu — niezapisany szkic przeżywa, a zakładki pokazują
+  „Masz niezapisane zmiany w pełnym formularzu”.
+- **Panelu bocznego nie ma** — `JobReadinessDock` ma już tylko wariant listy
+  (eksport `JobTeamTab` zostaje). `JobHandoffButton` przy `already_handed_off`
+  pokazuje „Przekazana do searchu” zamiast przycisku.
+- Harness `/preview/champion-workspace` (`?ptab=`, `?drawer=search`,
+  `?as=recruiter`). Nowa funkcja tego ekranu = wpis w
+  `lib/recruitment-feature-inventory.json`.
 
 ## Nowa rekrutacja = strona `/jobs/new` z requestu klienta (22.09.2026)
 
@@ -4690,7 +4702,7 @@ rekrutacji i pasek filtrów z 24.09 oraz blok propozycji w „Nowych” z 22.09.
 
 - **Nagłówek = tytuł + status, linia z nazwą i numerem od klienta, trzy fakty:
   Klient · Budżet · Tryb pracy** (`lib/job-header-facts.ts`, brak wartości =
-  „nie podano”). Po prawej tylko „Tablica | Zlecenie i Champion”, „Historia
+  „nie podano”). Po prawej tylko „Tablica | Profil Championa”, „Historia
   i czat” i „⋯”. Nie ma liczników, ścieżki „Zlecenie → … → Umowa”,
   „Najbliższego kroku” ani podtytułu.
 - **Nic nie znika — schodzi do menu „⋯”** (`JobDetailCompactHeader`): „Oznacz:

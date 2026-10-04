@@ -333,7 +333,7 @@ function Harness() {
                   <h2 className="text-sm font-semibold">{heading}</h2>
                   <p className="text-xs text-muted-foreground">{note}</p>
                 </div>
-                {/* Ramka jak dok na widoku „Zlecenie i Champion”: kolumna 360 px, treść `px-4 py-3`. */}
+                {/* Ramka jak dok listy rekrutacji: kolumna 360 px, treść `px-4 py-3` (ta sama treść stoi w zakładce „Zespół i ogłoszenie” Profilu Championa). */}
                 <div className="w-full max-w-[360px] rounded-xl border border-border bg-card">
                   <div className="truncate border-b border-border px-4 py-2 text-[11px] text-muted-foreground">
                     {job.title} · zakładka „Zespół”
