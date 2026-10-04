@@ -72,3 +72,25 @@ describe("PersonFacts", () => {
     expect(screen.getByText("brak stawki")).toBeTruthy();
   });
 });
+
+describe("PersonFacts — układ po dwa (panel 380 px, 04.10.2026)", () => {
+  it("krótkie fakty po dwa w wierszu, długi na całą szerokość, brak = „—”", () => {
+    render(
+      <PersonFacts
+        testId="facts"
+        pairs
+        rows={[
+          { label: "W tej rekrutacji", value: "150 zł/h w budżecie", wide: true },
+          { label: "Stawka od", value: "140 zł/h" },
+          { label: "Dostępność", value: null },
+          { label: "Tryb", value: "hybryda" },
+        ]}
+      />,
+    );
+    const grid = screen.getByTestId("facts").querySelector('[data-layout="pairs"]') as HTMLElement;
+    expect(grid.className).toMatch(/grid-cols-2/);
+    expect(screen.getByText("W tej rekrutacji").parentElement?.className).toMatch(/col-span-2/);
+    expect(screen.getByText("Stawka od").parentElement?.className).not.toMatch(/col-span-2/);
+    expect(screen.getByText("Dostępność").parentElement).toHaveTextContent("—");
+  });
+});

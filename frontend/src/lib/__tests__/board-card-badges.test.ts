@@ -11,6 +11,8 @@ import {
   qcChip,
   type CardBadgeContext,
   compactCardBadge,
+  cardShortName,
+  shortStepLabel,
 } from "@/lib/board-card-badges";
 
 const NOW = new Date("2026-09-23T10:00:00Z");
@@ -311,5 +313,20 @@ describe("compactCardBadge — ikony zamiast napisów (PR 4, 04.10.2026)", () =>
 
   it("pozostałe plakietki (np. QC, przegląd DL) zostają pełnym napisem", () => {
     expect(compactCardBadge({ key: "dl_review", label: "Czeka na DL · 2 dni", tone: "wait" })).toBeNull();
+  });
+});
+
+describe("karta na laptopie (04.10.2026)", () => {
+  it("krótka nazwa osoby bez dwukropka konta integracji", () => {
+    expect(cardShortName("Integracje: JJIT")).toBe("Integracje");
+    expect(cardShortName("  Marta Nowak ")).toBe("Marta");
+    expect(cardShortName("")).toBeNull();
+    expect(cardShortName(null)).toBeNull();
+  });
+
+  it("skraca długie nazwy kroków, reszta bez zmian", () => {
+    expect(shortStepLabel("Przygotuj CV do QC")).toBe("CV do QC");
+    expect(shortStepLabel("Umów interview / feedback klienta")).toBe("Umów rozmowę");
+    expect(shortStepLabel("Feedback klienta")).toBe("Feedback klienta");
   });
 });

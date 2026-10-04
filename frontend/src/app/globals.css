@@ -877,3 +877,10 @@
   opacity: 0.15;
   border-radius: 0.75rem;
 }
+
+/* Ikona Jarvisa w rogu chowa się, gdy na Tablicy otwarty jest panel osoby:
+   siedziała na jego sekcjach i przycisku wysyłki notatki (04.10.2026).
+   Asystent dalej otwiera się skrótem ⌘J i z palety ⌘K. */
+body:has(aside[data-person-panel]:not([hidden])) [data-jarvis-mascot] {
+  display: none;
+}

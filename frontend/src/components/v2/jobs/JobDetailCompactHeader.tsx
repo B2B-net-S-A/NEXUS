@@ -11,7 +11,6 @@ import {
   Ellipsis,
   FileText,
   FileUp,
-  House,
   Link2,
   MessageCircle,
   PencilLine,
@@ -22,16 +21,14 @@ import {
   Trophy,
   UserPlus,
   Users,
-  Wallet,
   Wand2,
   XCircle,
-  type LucideIcon,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { JobDetailView } from "@/lib/job-detail-routing";
-import type { JobHeaderFact, JobHeaderFactKey } from "@/lib/job-header-facts";
+import type { JobHeaderFact } from "@/lib/job-header-facts";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -153,12 +150,6 @@ function deferMenuAction(action: () => void) {
   window.setTimeout(action, 0);
 }
 
-const FACT_ICON: Record<JobHeaderFactKey, LucideIcon> = {
-  client: Building2,
-  budget: Wallet,
-  work_mode: House,
-};
-
 /**
  * Nagłówek rekrutacji (02.10.2026, makieta B:
  * https://claude.ai/artifact/ASHNaTXA9omvTH393cQjCv).
@@ -227,18 +218,24 @@ export function JobDetailCompactHeader({
           tytuł, zamiast go ucinać. */}
       <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
         <div className="min-w-0 flex-[1_1_22rem]">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          {/* Tytuł w jednej linii, status obok (04.10.2026 — lekkie uproszczenie
+              na laptopie 1280×720): pełny tytuł w dymku. Odznaki mogą się
+              zawinąć w swoim pudełku, tytuł ma nie mniej niż 6rem. */}
+          <div className="flex min-w-0 items-center gap-2">
             <h1
-              className="min-w-0 text-xl font-semibold leading-tight text-foreground line-clamp-2"
+              className="min-w-[6rem] flex-[0_1_auto] truncate text-xl font-semibold leading-tight text-foreground"
               title={title}
+              data-testid="job-header-title"
             >
               {title}
             </h1>
-            {badges}
+            {badges ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">{badges}</div>
+            ) : null}
           </div>
           {clientLine.length > 0 ? (
             <p
-              className="mt-1 line-clamp-2 text-[13px] text-muted-foreground"
+              className="mt-1 truncate text-[13px] text-muted-foreground"
               data-testid="header-client-line"
               title={clientLine.join(" · ")}
             >
@@ -534,33 +531,26 @@ export function JobDetailCompactHeader({
           przed każdym telefonem. Brak wartości to „nie podano”, nie pustka. */}
       <dl className="flex flex-wrap gap-2" data-testid="job-header-facts">
         {facts.map((fact) => {
-          const Icon = FACT_ICON[fact.key];
+          // Etykieta i wartość w jednej linii, bez kwadratowej ikony —
+          // te same trzy pola, niższe o ok. 16 px (04.10.2026).
           return (
             <div
               key={fact.key}
-              className="flex min-w-0 items-center gap-2.5 rounded-lg border border-primary/20 bg-primary/5 py-1.5 pl-2 pr-3.5"
+              className="flex min-w-0 items-baseline gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1"
               data-testid={`job-header-fact-${fact.key}`}
             >
-              <span
-                aria-hidden="true"
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-card text-primary"
+              <dt className="shrink-0 text-[11px] font-semibold uppercase tracking-eyebrow text-muted-foreground">
+                {fact.label}
+              </dt>
+              <dd
+                className={cn(
+                  "min-w-0 truncate text-sm font-semibold leading-tight",
+                  fact.value ? "text-foreground" : "font-normal text-muted-foreground",
+                )}
+                title={fact.value ?? undefined}
               >
-                <Icon className="h-4 w-4" />
-              </span>
-              <div className="min-w-0">
-                <dt className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted-foreground">
-                  {fact.label}
-                </dt>
-                <dd
-                  className={cn(
-                    "truncate text-[15px] font-semibold leading-tight",
-                    fact.value ? "text-foreground" : "font-normal text-muted-foreground",
-                  )}
-                  title={fact.value ?? undefined}
-                >
-                  {fact.value ?? "nie podano"}
-                </dd>
-              </div>
+                {fact.value ?? "nie podano"}
+              </dd>
             </div>
           );
         })}
