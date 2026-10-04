@@ -636,6 +636,14 @@ async def test_interview_badges_for_job_only_for_pairs_in_cycle():
         badges[with_slots]["tentative_interview_at"]
     ) == now + timedelta(days=3)
     assert badges[event_id]["late_prep_event_id"] is None
+    # PR 6 (04.10.2026): panel osoby wybiera termin bez kalendarza — odznaka
+    # niesie otwarty wniosek o terminy i prepy pary.
+    request = badges[with_slots]["slot_request"]
+    assert request["status"] == "awaiting_recruiter"
+    assert len(request["slots"]) == 2
+    assert isinstance(request["id"], int)
+    assert badges[event_id]["slot_request"] is None
+    assert badges[event_id]["preps"] == []
     assert badges[with_slots]["steps"][1]["state"] in {
         "current",
         "todo",

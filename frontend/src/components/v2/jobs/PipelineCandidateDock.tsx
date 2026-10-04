@@ -106,6 +106,7 @@ import {
 } from "@/lib/dock-cv-summary";
 import { useCvQc, type QcResult } from "@/lib/api/cvQc";
 import { formatClientRate } from "@/lib/board-card-badges";
+import { CONTRACT_PANEL_STAGES, DockContractSteps } from "@/components/v2/jobs/DockContractSteps";
 import { countForm } from "@/lib/cv-qc";
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import { DockFollowupBlock } from "@/components/v2/followups/DockFollowupBlock";
@@ -388,6 +389,8 @@ export interface PipelineCandidateDockProps {
   onOpenQc?: () => void;
   /** PR 5: „Biorę” z panelu — ta sama blokada 12 h co przycisk na karcie. */
   onTake?: () => void;
+  /** PR 6: klient rekrutacji — link do jego zamówień w kroku „Umowa”. */
+  clientId?: number | null;
   /**
    * Pełny warsztat osoby (dawna „Tabela": CV do klienta ze stawką i linkiem,
    * rozmowy z werdyktem HM, umowa) — szeroki panel nad Tablicą. Brak = bez
@@ -510,6 +513,7 @@ export function PipelineCandidateDock({
   onAddClientSlots,
   onOpenQc,
   onTake,
+  clientId = null,
   onOpenWorkbench,
   badgeToggles = [],
 }: PipelineCandidateDockProps) {
@@ -1254,12 +1258,21 @@ export function PipelineCandidateDock({
                   candidate_email: candidate?.email ?? null,
                   job_id: jobId,
                   job_title: jobTitle ?? null,
-                  client_id: null,
+                  client_id: clientId,
                   client_name: null,
                 }}
                 readOnly={readOnly}
                 onDebrief={setDebriefEventId}
                 onAddClientSlots={onAddClientSlots}
+              />
+            )}
+            {CONTRACT_PANEL_STAGES.has(item.stage ?? "") && (
+              <DockContractSteps
+                candidateId={item.candidate_id}
+                jobId={jobId}
+                clientId={clientId}
+                orderStatus={item.order_status ?? null}
+                readOnly={readOnly}
               />
             )}
             <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3 text-xs">

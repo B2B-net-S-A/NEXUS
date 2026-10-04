@@ -3098,6 +3098,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  jobId={jobId}
  onOpenQc={() => setQcStageId(dockItem.id)}
  onTake={readOnly ? undefined : () => void takeCandidate(dockItem)}
+ clientId={clientId ?? null}
  currentStageLabel={dockItemColLabel}
  jobTitle={jobTitle}
  matchScore={scoreMap?.get(dockItem.candidate_id)}
