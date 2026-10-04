@@ -66,7 +66,7 @@ def _job(**kw) -> SimpleNamespace:
         remote_policy="remote",
         onsite_days_per_week=None,
         location=None,
-        # 0414: decyzje bramki przekazania (rekrutacja bez szkiców).
+        # 0415: decyzje bramki przekazania (rekrutacja bez szkiców).
         hiring_manager_contact_id=None,
         hiring_manager_not_provided=True,
         deadline=None,

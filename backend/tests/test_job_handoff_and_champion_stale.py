@@ -78,7 +78,7 @@ async def _seed_job(*, champion: dict | None = None, status=None) -> int:
             remote_policy=RemotePolicy.remote,
             rate_budget_hourly=150,
             must_skills=[{"name": "Python"}],
-            # 0414: decyzje bramki przekazania (rekrutacja bez szkiców).
+            # 0415: decyzje bramki przekazania (rekrutacja bez szkiców).
             competence_category_id=await competence_category_id(),
             hiring_manager_not_provided=True,
             deadline_not_provided=True,

@@ -172,7 +172,7 @@ def assert_no_new_handoff_blockers(before: Optional[set[str]], job: Job) -> None
 
 
 def clear_decision_flags(job: Job) -> None:
-    """Zapisana wartość zdejmuje „Klient nie podał” (0414)."""
+    """Zapisana wartość zdejmuje „Klient nie podał” (0415)."""
     if job.hiring_manager_contact_id is not None:
         job.hiring_manager_not_provided = False
     if job.deadline is not None:

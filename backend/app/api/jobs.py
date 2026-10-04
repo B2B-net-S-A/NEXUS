@@ -2484,7 +2484,7 @@ async def update_job(
             )
             if hm_client_id != job.client_id:
                 job.hiring_manager_contact_id = None
-                # 0414: HM zdjęty przez zmianę klienta to skutek tej zmiany,
+                # 0415: HM zdjęty przez zmianę klienta to skutek tej zmiany,
                 # nie nowy brak wprowadzony przez osobę — okno edycji wskazuje
                 # nowego HM osobnym zapisem PO zmianie klienta (kontakt musi
                 # należeć już do nowego klienta). Bez tego każda zmiana klienta
@@ -2602,7 +2602,7 @@ async def update_job(
             )
 
     changed = {f for f, old in _scoring_before.items() if getattr(job, f) != old}
-    # 0414: zapisana wartość zdejmuje „Klient nie podał” — PO zdjęciu HM przy
+    # 0415: zapisana wartość zdejmuje „Klient nie podał” — PO zdjęciu HM przy
     # zmianie klienta, żeby jawne „Klient nie podał” w tym samym zapisie zostało.
     job_lifecycle.clear_decision_flags(job)
     job_lifecycle.assert_no_new_handoff_blockers(regression_baseline, job)
@@ -3016,7 +3016,7 @@ async def set_job_hiring_manager(
     db: AsyncSession = Depends(get_db),
 ):
     """Hiring manager rekrutacji: kontakt z listy, nowa osoba, „Klient nie
-    podał” (0414) albo brak (25.09.2026).
+    podał” (0415) albo brak (25.09.2026).
 
     Nową osobę zakłada serwis jako kontakt KLIENTA tej rekrutacji — po
     dopasowaniu do istniejących kontaktów, żeby weto HM nie rozbiło się na

@@ -177,6 +177,8 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
               questions: [
                 {
                   ...CARD.questions[0],
+                  // Trafienie żyje w arkuszu screeningu — odpowiedź też z arkusza.
+                  source: "sheet",
                   question_id: "q1",
                   deal_breaker: "mniej niż rok z Kafką",
                   deal_breaker_hit: true,

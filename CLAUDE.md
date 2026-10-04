@@ -4103,7 +4103,7 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
 - Harness `/preview/new-job?state=request|noclient|manual|review|gaps|shadow|passive|off`;
   profil z wierszami: przypadek 4 w `/preview/champion-profile`.
 
-## Rekrutacja bez szkiców (0414–0415, 04.10.2026)
+## Rekrutacja bez szkiców (0415–0416, 04.10.2026)
 
 Pomiar 04.10.2026 (40 rekrutacji z NEXUSA od 25.09): 14 szkiców nikt nie
 przekazał, 5 opublikowano bez przekazania (zmiana statusu w oknie edycji
@@ -4149,7 +4149,7 @@ udostępniania dla klienta nie robimy. Raport: `docs/job-no-drafts-completion-re
   jest nowym brakiem (nowego HM wskazuje się osobnym zapisem po zmianie —
   kontakt musi należeć już do nowego klienta). Zapisy systemowe
   Championa (import dokumentu, weryfikacja, briefing) są świadomie poza ochroną.
-- **Niedokończony formularz to NIE rekrutacja:** `job_intake_forms` (0415,
+- **Niedokończony formularz to NIE rekrutacja:** `job_intake_forms` (0416,
   `services/job_intake_forms.py`, trasy `/api/job-intake/forms`) na koncie
   autora — tylko autor czyta i zmienia, limit 20 (409 `forms_limit`), 30 dni
   retencji w `queue_retention`, kasowany w transakcji tworzenia

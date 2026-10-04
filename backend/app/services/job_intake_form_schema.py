@@ -1,6 +1,6 @@
-"""Niedokończone formularze „Nowa rekrutacja” — SQL migracji 0415 i lustra w ``entrypoint.sh``.
+"""Niedokończone formularze „Nowa rekrutacja” — SQL migracji 0416 i lustra w ``entrypoint.sh``.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0415_job_intake_forms.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0416_job_intake_forms.py``
 i ``entrypoint.sh`` (alembic na prodzie bywa osierocony); test
 ``test_job_intake_forms.py`` sprawdza, że każda stoi w entrypoincie dosłownie.
 

@@ -6,7 +6,7 @@ rekrutacji z NEXUSA od 25.09) mają tydzień na dokończenie („Dokończ
 i opublikuj” na pulpicie), potem zamykają się same:
 
 - start okna = ``app_settings['legacy_draft_autoclose:deployed_at']``
-  (zakłada go ``entrypoint.sh`` i migracja 0414 przy pierwszym starcie),
+  (zakłada go ``entrypoint.sh`` i migracja 0415 przy pierwszym starcie),
 - zamknięcie tą samą drogą co ręczne (``job_lifecycle.close_job_core``):
   ``close_reason=other`` z notatką, bez autora, bez nowej wartości enuma,
 - **nic nie jest kasowane** — zamkniętą rekrutację da się otworzyć ponownie

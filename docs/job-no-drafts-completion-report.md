@@ -36,8 +36,8 @@ Decyzje Artura z 04.10.2026:
 
 **Nowe wymagania przekazania**
 - Każde z nich ma opcję „Klient nie podał”:
-  - hiring manager (`jobs.hiring_manager_not_provided`, migracja 0414),
-  - termin (`jobs.deadline_not_provided`, migracja 0414).
+  - hiring manager (`jobs.hiring_manager_not_provided`, migracja 0415),
+  - termin (`jobs.deadline_not_provided`, migracja 0415).
 - Do tego kategoria kompetencji i liczba osób.
 - Bramka briefu automatu przydziału się nie zmieniła.
 
@@ -50,7 +50,7 @@ Decyzje Artura z 04.10.2026:
 - Kod braku odsłonięty przez uzupełnienie innego pola nie liczy się jako nowy (`_REVEALED_BY`).
 
 **Niedokończone formularze**
-- Zapisują się na koncie autora: tabela `job_intake_forms`, migracja 0415, trasy `/api/job-intake/forms`.
+- Zapisują się na koncie autora: tabela `job_intake_forms`, migracja 0416, trasy `/api/job-intake/forms`.
 - `/jobs/new` zapisuje formularz sam, a w kroku 1 pokazuje listę formularzy do wznowienia.
 
 **Stare szkice**
@@ -68,7 +68,7 @@ Decyzje Artura z 04.10.2026:
 ## Weryfikacja
 
 **Backend**
-- Testy na lokalnym Postgresie 16 (proces z pakietu `pgserver`, bez Dockera), po `alembic upgrade heads` przez 0413 → 0414 → 0415:
+- Testy na lokalnym Postgresie 16 (proces z pakietu `pgserver`, bez Dockera), po `alembic upgrade heads` przez 0414 → 0415 → 0416:
   - `test_job_no_drafts.py`: 34/34,
   - przepięte pliki testów: zielone,
   - szeroki zestaw (~290 plików): 4166 zielonych. 5 czerwonych to dane pozostawione przez wcześniejsze przebiegi; na świeżej bazie przechodzą.

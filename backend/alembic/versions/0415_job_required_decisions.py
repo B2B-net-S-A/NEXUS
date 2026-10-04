@@ -1,7 +1,7 @@
 """Rekrutacja bez szkiców: „Klient nie podał” przy hiring managerze i terminie.
 
-Revision ID: 0414_job_required_decisions
-Revises: 0413_recommendation_cards
+Revision ID: 0415_job_required_decisions
+Revises: 0414_candidate_rate_from
 
 Decyzja Artura 04.10.2026: rekrutacja nigdy nie jest szkicem — utworzenie,
 przekazanie do searchu i publikacja to jedno żądanie. Termin i hiring manager
@@ -17,8 +17,8 @@ w ``entrypoint.sh``.
 
 from alembic import op
 
-revision = "0414_job_required_decisions"
-down_revision = "0413_recommendation_cards"
+revision = "0415_job_required_decisions"
+down_revision = "0414_candidate_rate_from"
 branch_labels = None
 depends_on = None
 

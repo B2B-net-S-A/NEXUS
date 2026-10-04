@@ -5509,7 +5509,7 @@ END $$""",
     "CREATE INDEX IF NOT EXISTS ix_recommendation_cards_job ON recommendation_cards (job_id)",
     "ALTER TABLE notes ADD COLUMN IF NOT EXISTS card_parsed_hash VARCHAR(32) NULL",
     "CREATE INDEX IF NOT EXISTS ix_notes_card_kinds ON notes (id) WHERE kind IN ('card', 'screening_facts')",
-    # 0415: niedokończone formularze „Nowa rekrutacja” na koncie autora.
+    # 0416: niedokończone formularze „Nowa rekrutacja” na koncie autora.
     # Lustro 1:1 z `app/services/job_intake_form_schema.py` (pilnuje
     # test_job_intake_forms).
     "CREATE TABLE IF NOT EXISTS job_intake_forms (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, client_id INTEGER NULL REFERENCES clients(id) ON DELETE SET NULL, label VARCHAR(255) NOT NULL DEFAULT '', source VARCHAR(20) NOT NULL DEFAULT 'manual', request_text TEXT NULL, form JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())",
@@ -5844,7 +5844,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS delivery_lead_auto_filled BOOLEAN NOT NULL DEFAULT false",
     # 0406: godzina terminu rekrutacji (czas Europe/Warsaw).
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS deadline_time TIME NULL",
-    # 0414: rekrutacja bez szkiców — „Klient nie podał” przy HM i terminie.
+    # 0415: rekrutacja bez szkiców — „Klient nie podał” przy HM i terminie.
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hiring_manager_not_provided BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS deadline_not_provided BOOLEAN NOT NULL DEFAULT false",
 ]
@@ -6129,7 +6129,7 @@ END $$
 
 
 _DATA_STATEMENTS = [
-    # 0414: start okna zamykania starych szkiców (7 dni od wdrożenia —
+    # 0415: start okna zamykania starych szkiców (7 dni od wdrożenia —
     # `services/legacy_draft_autoclose.py`). Pierwszy start zapisuje datę,
     # kolejne jej nie ruszają.
     "INSERT INTO app_settings (key, value) "

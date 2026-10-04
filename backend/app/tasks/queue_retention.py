@@ -17,7 +17,7 @@ Trzy tabele rosły bez końca:
   on mówi reconcilerowi dryfu, co naprawdę jest w indeksie. Skasowanie go
   zamieniłoby encję w „nieznaną” i wyłączyło wykrywanie dryfu.
 
-Od 04.10.2026 (0415) ta sama pętla kasuje niedokończone formularze
+Od 04.10.2026 (0416) ta sama pętla kasuje niedokończone formularze
 „Nowa rekrutacja” (``job_intake_forms``) bez zmian przez
 ``job_intake_forms.RETENTION_DAYS`` (30) dni — formularz niesie treść maila
 klienta, więc nie leży bez końca.

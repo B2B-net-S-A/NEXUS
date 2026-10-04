@@ -50,7 +50,7 @@ class JobCreate(BaseModel):
     deadline: Optional[date] = None
     # 0406: godzina terminu (Europe/Warsaw); bez daty zapis ją czyści.
     deadline_time: Optional[time] = None
-    # 0414: „Klient nie podał terminu” — wymagana decyzja, gdy brak daty.
+    # 0415: „Klient nie podał terminu” — wymagana decyzja, gdy brak daty.
     deadline_not_provided: bool = False
     # client_id: required od migracji 0120 (2026-05-27). NOT NULL na DB.
     # Tworzenie joba bez klienta zwraca 422 — orphan recordy nigdy nie wpadną
@@ -162,7 +162,7 @@ class JobUpdate(BaseModel):
     deadline: Optional[date] = None
     # 0406: godzina terminu (Europe/Warsaw); bez daty zapis ją czyści.
     deadline_time: Optional[time] = None
-    # 0414: „Klient nie podał” — zapis daty / kontaktu i tak zeruje flagę.
+    # 0415: „Klient nie podał” — zapis daty / kontaktu i tak zeruje flagę.
     deadline_not_provided: Optional[bool] = None
     hiring_manager_not_provided: Optional[bool] = None
     client_id: Optional[int] = None
@@ -499,7 +499,7 @@ class HiringManagerNewPerson(BaseModel):
 class JobHiringManagerRequest(BaseModel):
     """Body `PUT /api/jobs/{id}/hiring-manager` — dokładnie jedno z czterech.
 
-    ``not_provided`` (0414) = „Klient nie podał” — wymagana decyzja bramki
+    ``not_provided`` (0415) = „Klient nie podał” — wymagana decyzja bramki
     przekazania, gdy hiring managera nie ma.
     """
 

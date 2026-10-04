@@ -1,4 +1,4 @@
-"""Niedokończone formularze „Nowa rekrutacja” na koncie autora (0415).
+"""Niedokończone formularze „Nowa rekrutacja” na koncie autora (0416).
 
 Rekrutacja nie bywa już szkicem (decyzja Artura 04.10.2026): utworzenie =
 przekazanie do searchu = publikacja. To, czego Delivery Lead nie skończył,

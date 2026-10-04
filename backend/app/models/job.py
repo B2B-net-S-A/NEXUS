@@ -191,7 +191,7 @@ class Job(Base, TimestampMixin):
     # termin z godziną. Osobna kolumna, bo alerty, filtry i sortowanie liczą
     # po samej dacie; bez daty godzina nie ma sensu (czyści ją zapis).
     deadline_time: Mapped[Optional[time]] = mapped_column(Time)
-    # 0414 (rekrutacja bez szkiców, 04.10.2026): termin i hiring manager to
+    # 0415 (rekrutacja bez szkiców, 04.10.2026): termin i hiring manager to
     # WYMAGANA decyzja — wartość albo jawne „Klient nie podał”. Flaga zeruje
     # się przy każdym zapisie wartości (`deadline`, `hiring_manager_contact_id`).
     deadline_not_provided: Mapped[bool] = mapped_column(

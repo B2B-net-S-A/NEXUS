@@ -1,4 +1,4 @@
-"""0415: niedokończone formularze „Nowa rekrutacja” na koncie autora.
+"""0416: niedokończone formularze „Nowa rekrutacja” na koncie autora.
 
 Testy z bazą (CI) + kontrakty bez bazy (lustro DDL, limity).
 """
@@ -34,10 +34,10 @@ def test_entrypoint_mirrors_the_migration_sql():
 
 def test_migration_reads_the_single_source():
     migration = (
-        _BACKEND / "alembic" / "versions" / "0415_job_intake_forms.py"
+        _BACKEND / "alembic" / "versions" / "0416_job_intake_forms.py"
     ).read_text(encoding="utf-8")
     assert "job_intake_form_schema" in migration
-    assert 'down_revision = "0414_job_required_decisions"' in migration
+    assert 'down_revision = "0415_job_required_decisions"' in migration
 
 
 def test_form_size_counts_utf8_bytes():

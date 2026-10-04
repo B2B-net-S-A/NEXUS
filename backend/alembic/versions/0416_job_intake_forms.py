@@ -1,7 +1,7 @@
 """Niedokończone formularze „Nowa rekrutacja” na koncie autora.
 
-Revision ID: 0415_job_intake_forms
-Revises: 0414_job_required_decisions
+Revision ID: 0416_job_intake_forms
+Revises: 0415_job_required_decisions
 
 Od 04.10.2026 rekrutacja nigdy nie jest szkicem (utworzenie = przekazanie =
 publikacja). Formularz, którego Delivery Lead nie skończył, zapisuje się na
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services import job_intake_form_schema as schema
 
-revision = "0415_job_intake_forms"
-down_revision = "0414_job_required_decisions"
+revision = "0416_job_intake_forms"
+down_revision = "0415_job_required_decisions"
 branch_labels = None
 depends_on = None
 

@@ -784,5 +784,5 @@ from app.models.application_screening import ApplicationScreening  # noqa: F401
 # 0413: karta rekomendacji pary (kandydat, rekrutacja).
 from app.models.recommendation_card import RecommendationCard  # noqa: F401
 
-# 0415: niedokończone formularze „Nowa rekrutacja” na koncie autora.
+# 0416: niedokończone formularze „Nowa rekrutacja” na koncie autora.
 from app.models.job_intake_form import JobIntakeForm  # noqa: F401

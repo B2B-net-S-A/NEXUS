@@ -84,7 +84,7 @@ async def test_patch_job_with_deadline_persists(
         )
         assert patch.status_code == 200, patch.text
         assert patch.json()["deadline"] == "2023-04-12"
-        # 0414: zapisana data zdejmuje „Klient nie podał terminu”.
+        # 0415: zapisana data zdejmuje „Klient nie podał terminu”.
         assert patch.json()["deadline_not_provided"] is False
 
         get = await app_client.get(f"/api/jobs/{job_id}", headers=app_auth_headers)

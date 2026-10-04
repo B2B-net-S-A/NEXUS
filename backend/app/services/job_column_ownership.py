@@ -129,7 +129,7 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "working_title_auto",
         "favorite_candidate_id",
         "hiring_manager_contact_id",
-        # 0414: „Klient nie podał” przy hiring managerze i terminie — decyzja
+        # 0415: „Klient nie podał” przy hiring managerze i terminie — decyzja
         # w NEXUSIE; Traffit nie zna żadnej z nich.
         "hiring_manager_not_provided",
         "deadline_not_provided",
