@@ -54,6 +54,7 @@ const PAGES = [
   "/preview/cv-qc",
   "/preview/custom-dashboard",
   "/preview/cv-search",
+  "/preview/daily",
   "/preview/dl-alerts",
   "/preview/ezdrowie-contract-structure",
   "/preview/finance-order-changes",

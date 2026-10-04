@@ -5,7 +5,13 @@ import { useMemo, useState } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 
 import type { BoardChange, LoadPerson } from "@/lib/api/requestAllocation"
-import { deadlineLabel, loadSummary, orderLoad } from "@/lib/request-board"
+import {
+  changesSinceLabel,
+  deadlineLabel,
+  loadSummary,
+  orderLoad,
+} from "@/lib/request-board"
+import { cn } from "@/lib/utils"
 
 function formatDate(iso: string | null): string {
   if (!iso) return "brak terminu"
@@ -167,17 +173,46 @@ const CHANGE_VERB: Record<BoardChange["kind"], string> = {
   champion: "",
 }
 
-export function ChangesPanel({ changes }: { changes: BoardChange[] }) {
+/**
+ * „Zmiany od wczoraj”. `since` = początek okna z backendu (ta sama godzina
+ * poprzedniego dnia roboczego) — w poniedziałek okno obejmuje weekend, więc
+ * podpis mówi to wprost. `wide` = pełna szerokość na daily: zmiany w dwóch
+ * kolumnach, gdy pulpit ma miejsce.
+ */
+export function ChangesPanel({
+  changes,
+  since,
+  wide = false,
+}: {
+  changes: BoardChange[]
+  since?: string | null
+  wide?: boolean
+}) {
+  const sinceLabel = changesSinceLabel(since)
   return (
     <section
       className="rounded-lg border border-border bg-card p-4"
       aria-label="Zmiany od wczoraj"
     >
-      <h3 className="mb-2 text-sm font-semibold text-foreground">Zmiany od wczoraj</h3>
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3">
+        <h3 className="text-sm font-semibold text-foreground">Zmiany od wczoraj</h3>
+        {sinceLabel && (
+          <span className="text-xs text-muted-foreground" data-testid="changes-since">
+            {sinceLabel}
+          </span>
+        )}
+      </div>
       {changes.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Bez zmian w ciągu ostatniej doby.</p>
+        <p className="text-sm text-muted-foreground">
+          {sinceLabel ? `Bez zmian ${sinceLabel}.` : "Bez zmian w ciągu ostatniej doby."}
+        </p>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul
+          className={cn(
+            "flex flex-col gap-2",
+            wide && "@min-[900px]/rboard:grid @min-[900px]/rboard:grid-cols-2 @min-[900px]/rboard:gap-x-6",
+          )}
+        >
           {changes.map((c, i) => (
             <li
               key={`${c.kind}-${c.job_id}-${c.user_name ?? ""}-${i}`}

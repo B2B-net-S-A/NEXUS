@@ -84,15 +84,21 @@ function formatEventTime(event: CalendarEventResponse): string {
   }).format(new Date(event.start_time))
 }
 
+const NOTIFICATION_PAGE = 20
+const NOTIFICATION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
 function TaskColumn({
   title,
   icon: Icon,
   count,
+  countLabel,
   children,
 }: {
   title: string
   icon: typeof Bell
   count: number
+  /** Gdy liczba jest dolną granicą („20+”). */
+  countLabel?: string
   children: React.ReactNode
 }) {
   return (
@@ -103,7 +109,7 @@ function TaskColumn({
           {title}
         </h3>
         <Badge variant="soft" size="sm">
-          {count}
+          {countLabel ?? count}
         </Badge>
       </div>
       <div className="mt-3">{children}</div>
@@ -278,12 +284,12 @@ export function MyTasksDashboard({
     // Bez własnego `refetchInterval`: to siatka pod WebSocketem, nie źródło
     // świeżości (polityka w `lib/polling.ts`).
     queryKey: recruitmentNotificationsOnly
-      ? ["notifications", scopeCacheKey, 20, "recruitment-only"]
-      : ["notifications", scopeCacheKey, 20],
+      ? ["notifications", scopeCacheKey, NOTIFICATION_PAGE, "recruitment-only"]
+      : ["notifications", scopeCacheKey, NOTIFICATION_PAGE],
     queryFn: () =>
       (recruitmentNotificationsOnly
-        ? notificationsApi.listRecruitment(20)
-        : notificationsApi.list(20)
+        ? notificationsApi.listRecruitment(NOTIFICATION_PAGE)
+        : notificationsApi.list(NOTIFICATION_PAGE)
       ).then((response) => response.data),
     staleTime: 15_000,
   })
@@ -291,10 +297,20 @@ export function MyTasksDashboard({
     calendarQuery.data?.filter((event) => event.event_type === "deadline") ?? []
   const meetings =
     calendarQuery.data?.filter((event) => event.event_type !== "deadline") ?? []
+  // Tylko powiadomienia z ostatnich 7 dni (04.10.2026): licznik całej historii
+  // (mediana 319 u rekrutera, 13 339 u Head of Recruitment) nic nie mówił,
+  // a nowe powiadomienie ginęło w tle. Starsze zostają w dzwonku.
+  const recentSince = Date.now() - NOTIFICATION_WINDOW_MS
   const notifications =
-    notificationsQuery.data?.items.filter((notification) => !notification.is_read) ??
-    []
-  const unread = notificationsQuery.data?.unread_count ?? 0
+    notificationsQuery.data?.items.filter(
+      (notification) =>
+        !notification.is_read &&
+        notification.created_at !== null &&
+        Date.parse(notification.created_at) >= recentSince,
+    ) ?? []
+  const unread = notifications.length
+  const unreadLabel =
+    unread >= NOTIFICATION_PAGE ? `${NOTIFICATION_PAGE}+` : String(unread)
   const total = deadlines.length + meetings.length + unread
   const loading = calendarQuery.isLoading || notificationsQuery.isLoading
 
@@ -376,7 +392,7 @@ export function MyTasksDashboard({
                       <EventList events={meetings} empty="Brak spotkań na dziś" />
                     )}
                   </TaskColumn>
-                  <TaskColumn title="Powiadomienia" icon={Bell} count={unread}>
+                  <TaskColumn title="Powiadomienia z 7 dni" icon={Bell} count={unread} countLabel={unreadLabel}>
                     {notificationsQuery.isError ? (
                       <p className="py-5 text-center text-xs text-destructive">
                         Nie udało się pobrać powiadomień.

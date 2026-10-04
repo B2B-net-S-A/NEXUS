@@ -293,7 +293,26 @@ async def test_team_routes_answer_for_head_of_recruitment_and_refuse_recruiter(
     attention = await app_client.get("/api/insights/team/attention", headers=hor)
     assert attention.status_code == 200, attention.text
     kinds = {item["kind"] for item in attention.json()["items"]}
-    assert kinds <= {"stale_jobs", "low_precision", "weak_preps"}
+    assert kinds <= {
+        "stale_jobs",
+        "low_precision",
+        "weak_preps",
+        # 04.10.2026: „Gdzie stoi” na pulpicie Heada i admina.
+        "no_one_sent",
+        "overdue",
+        "stale_postings",
+    }
+    for item in attention.json()["items"]:
+        # Każdy sygnał prowadzi gdzieś: raport Insights albo lista rekrutacji.
+        assert (
+            item.get("report")
+            or item.get("href")
+            or item["kind"]
+            in {
+                "low_precision",
+                "stale_postings",
+            }
+        )
 
     stale = await app_client.get("/api/insights/recruitment/stale-jobs", headers=hor)
     assert stale.status_code == 200, stale.text

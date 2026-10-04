@@ -242,3 +242,50 @@ describe("grouping", () => {
     expect(deadlineLabel(null, TODAY)).toBe("brak terminu")
   })
 })
+
+describe("zakres kafelka i daily", () => {
+  it("scopeFilters: kategoria widza, DL-em widz, „wszystkie” bez filtra", async () => {
+    const { scopeFilters } = await import("@/lib/request-board")
+    const viewer = { user_id: 31, primary_category_id: 2 }
+    expect(scopeFilters("my_category", viewer)).toEqual({ cat: "2" })
+    expect(scopeFilters("my_lead", viewer)).toEqual({ lead: "31" })
+    expect(scopeFilters("all", viewer)).toEqual({})
+    // Bez kategorii albo bez danych o widzu — wszystkie requesty, nie pusta tabela.
+    expect(scopeFilters("my_category", { user_id: 31, primary_category_id: null })).toEqual({})
+    expect(scopeFilters("my_lead", null)).toEqual({})
+    expect(scopeFilters("my_category", undefined)).toEqual({})
+    // Wartości w formacie filtrów: zakres „Moja kategoria” wybiera grupę Development.
+    const scoped = { ...EMPTY_FILTERS, ...scopeFilters("my_category", viewer) }
+    expect(board.requests.filter((r) => matchesFilters(r, scoped, TODAY)).map((r) => r.job_id)).toEqual([2, 3, 4])
+    const lead = { ...EMPTY_FILTERS, ...scopeFilters("my_lead", viewer) }
+    expect(board.requests.filter((r) => matchesFilters(r, lead, TODAY)).map((r) => r.job_id)).toEqual([1, 4])
+  })
+
+  it("hasUrlFilters: tylko niepuste `rb_*`", async () => {
+    const { hasUrlFilters } = await import("@/lib/request-board")
+    expect(hasUrlFilters(new URLSearchParams("tab=x"))).toBe(false)
+    expect(hasUrlFilters(new URLSearchParams("rb_cat="))).toBe(false)
+    expect(hasUrlFilters(new URLSearchParams("rb_cat=4"))).toBe(true)
+    expect(hasUrlFilters(new URLSearchParams("rb_nobody=1"))).toBe(true)
+  })
+
+  it("nextCategory: po kolei grupy, z ostatniej na „Wszystkie”", async () => {
+    const { nextCategory } = await import("@/lib/request-board")
+    const groups = [{ category_id: 1 }, { category_id: 2 }, { category_id: null }]
+    expect(nextCategory(groups, "")).toBe("1")
+    expect(nextCategory(groups, "1")).toBe("2")
+    expect(nextCategory(groups, "2")).toBe("none")
+    expect(nextCategory(groups, "none")).toBe("")
+    expect(nextCategory(groups, "99")).toBe("1")
+    expect(nextCategory([], "")).toBe("")
+  })
+
+  it("changesSinceLabel: dzień tygodnia w dopełniaczu i godzina w czasie firmy", async () => {
+    const { changesSinceLabel } = await import("@/lib/request-board")
+    expect(changesSinceLabel("2026-10-02T07:30:00Z")).toBe("od piątku 9:30")
+    // Zimą Warszawa to UTC+1.
+    expect(changesSinceLabel("2026-12-01T13:05:00Z")).toBe("od wtorku 14:05")
+    expect(changesSinceLabel(null)).toBeNull()
+    expect(changesSinceLabel("nie-data")).toBeNull()
+  })
+})

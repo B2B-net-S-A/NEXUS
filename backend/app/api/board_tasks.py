@@ -41,11 +41,13 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
+from app.models.user import User, UserRole
 from app.services import agreement_tasks
 from app.services import board_tasks as svc
 from app.services.stage_client_rate import latest_client_rates
 from app.services.action_permissions import ProductAction, has_permission
 from app.services import (
+    board_flow,
     candidate_followups,
     cpro_sender,
     cv_in_transit,
@@ -272,6 +274,61 @@ class AgreementTasksBlock(BaseModel):
     waiting_on_others: list[AgreementTaskRow] = []
 
 
+class FlowPostingRow(BaseModel):
+    job_id: int
+    job_title: str
+    job_working_title: Optional[str] = None
+    client_name: Optional[str] = None
+    count: int
+    oldest_at: datetime
+
+
+class FlowPairRow(BaseModel):
+    candidate_id: int
+    candidate_name: str
+    job_id: int
+    job_title: str
+    job_working_title: Optional[str] = None
+    client_name: Optional[str] = None
+    since: datetime
+    claimed_until: Optional[datetime] = None
+    # Screening: czego brakuje do „Zweryfikowany” (`sheet`, `rate`).
+    missing: list[Literal["sheet", "rate"]] = []
+    # Zweryfikowany: stan QC CV (`passed`, `failed`, `overridden`, `unchecked`).
+    qc_status: Optional[str] = None
+
+
+class FlowContractRow(BaseModel):
+    id: int
+    contract_number: str
+    partner_name: Optional[str] = None
+    client_name: Optional[str] = None
+    created_at: datetime
+
+
+class FlowBlockOut(BaseModel):
+    """„Twój ruch” od Ogłoszeń do umowy (`services/board_flow.py`)."""
+
+    applies: bool
+    postings: list[FlowPostingRow]
+    postings_total: int
+    claimed: list[FlowPairRow]
+    screening: list[FlowPairRow]
+    verified: list[FlowPairRow]
+    waiting_client: list[FlowPairRow]
+    waiting_client_days: int
+    unsigned_contracts: list[FlowContractRow]
+    order_mail_review: int
+
+
+class FinanceBlockOut(BaseModel):
+    gaps_open: int
+    pdfs_new: int
+    order_mail_failed: int
+    hired_without_order: list[FlowPairRow]
+    hired_without_order_total: int
+
+
 class BoardTasksResponse(BaseModel):
     cpro_to_send: list[BoardTaskRow]
     cpro_sent: list[BoardTaskRow]
@@ -313,6 +370,11 @@ class BoardTasksResponse(BaseModel):
     # 04.10.2026: umowy z Generatora — prośby o podpis i rozjazdy z Tablicą.
     # `None` = liczenie się nie powiodło.
     agreements: Optional[AgreementTasksBlock] = None
+    # 04.10.2026: cały przepływ (Ogłoszenia, Nowi z blokadą, Screening,
+    # Zweryfikowany, sprawy DL). `None` = rola bez tych sekcji.
+    flow: Optional[FlowBlockOut] = None
+    # 04.10.2026: praca Finansów (braki, PDF-y, zatrudnieni bez zamówienia).
+    finance: Optional[FinanceBlockOut] = None
 
 
 class CproSenderRead(BaseModel):
@@ -409,9 +471,16 @@ async def list_board_tasks(
     job_leads = (
         await new_job_leads.load_safely(db, now=now) if can_decide_proposals else []
     )
-    transit = await cv_in_transit.load_safely(
-        db, current_user, portfolio=portfolio, now=now
+    # Finanse nie przekazują CV — lista „Twoje CV w drodze” ich nie dotyczy.
+    transit = (
+        None
+        if _finance_only(current_user)
+        else await cv_in_transit.load_safely(
+            db, current_user, portfolio=portfolio, now=now
+        )
     )
+    flow = await board_flow.load_flow(db, current_user, now=now)
+    finance = await board_flow.load_finance(db, current_user, now=now)
     pending = await pending_job_completion.load_pending_jobs_safely(db, current_user)
     agreements = await agreement_tasks.load_safely(
         db, current_user, portfolio=portfolio
@@ -477,6 +546,8 @@ async def list_board_tasks(
             if agreements is not None
             else None
         ),
+        flow=_flow_block(flow, skip_contract_ids=_agreement_ids(agreements)),
+        finance=_finance_block(finance),
         prep_attention=[
             PrepAttentionRow(
                 reason=a.reason,
@@ -493,6 +564,63 @@ async def list_board_tasks(
             )
             for a in preps
         ],
+    )
+
+
+def _finance_only(user: User) -> bool:
+    return user.get_all_roles() == {UserRole.finance}
+
+
+def _pair(row: board_flow.PairRow) -> FlowPairRow:
+    data = asdict(row)
+    data["missing"] = list(row.missing)
+    return FlowPairRow(**data)
+
+
+def _agreement_ids(agreements) -> frozenset[int]:
+    """Umowy, które grupa „Umowy” już pokazuje — przepływ ich nie dubluje."""
+    if agreements is None:
+        return frozenset()
+    rows = (*agreements.to_confirm, *agreements.to_close, *agreements.waiting_on_others)
+    return frozenset(t.generated_id for t in rows)
+
+
+def _flow_block(
+    flow: Optional[board_flow.FlowBlock],
+    *,
+    skip_contract_ids: frozenset[int] = frozenset(),
+) -> Optional[FlowBlockOut]:
+    if flow is None:
+        return None
+    return FlowBlockOut(
+        applies=flow.applies,
+        postings=[FlowPostingRow(**asdict(r)) for r in flow.postings],
+        postings_total=flow.postings_total,
+        claimed=[_pair(r) for r in flow.claimed],
+        screening=[_pair(r) for r in flow.screening],
+        verified=[_pair(r) for r in flow.verified],
+        waiting_client=[_pair(r) for r in flow.waiting_client],
+        waiting_client_days=board_flow.WAITING_CLIENT_DAYS,
+        unsigned_contracts=[
+            FlowContractRow(**asdict(r))
+            for r in flow.unsigned_contracts
+            if r.id not in skip_contract_ids
+        ],
+        order_mail_review=flow.order_mail_review,
+    )
+
+
+def _finance_block(
+    finance: Optional[board_flow.FinanceBlock],
+) -> Optional[FinanceBlockOut]:
+    if finance is None:
+        return None
+    return FinanceBlockOut(
+        gaps_open=finance.gaps_open,
+        pdfs_new=finance.pdfs_new,
+        order_mail_failed=finance.order_mail_failed,
+        hired_without_order=[_pair(r) for r in finance.hired_without_order],
+        hired_without_order_total=finance.hired_without_order_total,
     )
 
 

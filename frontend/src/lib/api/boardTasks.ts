@@ -292,6 +292,64 @@ export const AGREEMENT_TASK_REASON_LABEL: Record<AgreementTaskReason, string> = 
   closed_signed_active: "Proces zamknięty, kontrakt trwa",
 };
 
+/** „Twój ruch” — Ogłoszenia jednej rekrutacji (`services/board_flow.py`). */
+export interface FlowPostingRow {
+  job_id: number;
+  job_title: string;
+  job_working_title?: string | null;
+  client_name?: string | null;
+  count: number;
+  /** Najstarsze zgłoszenie w Ogłoszeniach (ISO). */
+  oldest_at: string;
+}
+
+export type FlowMissing = "sheet" | "rate";
+
+/** Jedna osoba w jednej rekrutacji (Nowi z blokadą, Screening, Zweryfikowany, DL). */
+export interface FlowPairRow {
+  candidate_id: number;
+  candidate_name: string;
+  job_id: number;
+  job_title: string;
+  job_working_title?: string | null;
+  client_name?: string | null;
+  since: string;
+  claimed_until?: string | null;
+  missing?: FlowMissing[];
+  qc_status?: string | null;
+}
+
+export interface FlowContractRow {
+  id: number;
+  contract_number: string;
+  partner_name?: string | null;
+  client_name?: string | null;
+  created_at: string;
+}
+
+export interface FlowBlock {
+  /** Rola ma sekcje przepływu (rekruter, TCM, DL) — panel mówi wtedy wprost,
+   *  że nic nie czeka, zamiast znikać. */
+  applies: boolean;
+  postings: FlowPostingRow[];
+  postings_total: number;
+  claimed: FlowPairRow[];
+  screening: FlowPairRow[];
+  verified: FlowPairRow[];
+  waiting_client: FlowPairRow[];
+  waiting_client_days: number;
+  unsigned_contracts: FlowContractRow[];
+  order_mail_review: number;
+}
+
+export interface FinanceBlock {
+  gaps_open: number;
+  pdfs_new: number;
+  order_mail_failed: number;
+  hired_without_order: FlowPairRow[];
+  hired_without_order_total: number;
+}
+
 export interface BoardTasksResponse {
   cpro_to_send: BoardTaskRow[];
   cpro_sent: BoardTaskRow[];
@@ -335,6 +393,10 @@ export interface BoardTasksResponse {
   /** Umowy z Generatora do potwierdzenia albo zamknięcia (04.10.2026).
    *  `null`/brak = serwer jej nie policzył albo starszy backend. */
   agreements?: AgreementTasks | null;
+  /** 04.10.2026: cały przepływ (Ogłoszenia → umowa). `null` = rola bez sekcji. */
+  flow?: FlowBlock | null;
+  /** 04.10.2026: praca Finansów. `null` = konto bez roli Finanse. */
+  finance?: FinanceBlock | null;
 }
 
 export const BOARD_TASKS_QUERY_KEY = ["board-tasks"] as const;

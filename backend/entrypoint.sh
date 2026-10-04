@@ -9595,6 +9595,32 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Powiadomienia (04.10.2026) — jednorazowo: nieprzeczytane wpisy „etap stoi
+# 6 h”, „etap stoi 7 dni”, „coach KPI” i PowerCalling starsze niż 14 dni
+# oznaczone jako przeczytane (decyzja Artura; nic nie jest kasowane). Logika
+# w `app/services/notification_backlog_repair.py`; marker w `app_settings`
+# + advisory lock. Log: same liczby.
+startup_phase "repair-notification-backlog"
+echo "Notifications: one-shot mark-as-read of stale backlog..."
+python - <<'PY' || echo "notification backlog repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.notification_backlog_repair import run_notification_backlog_repair
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_notification_backlog_repair(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"notification backlog repair: {summary or 'already done'}")
+
+asyncio.run(repair())
+PY
+
 # Weryfikacje „Pending" (17.09.2026) — jednorazowo: bramka akceptacji stawki
 # ponad budżet została USUNIĘTA, więc karty zapisane wcześniej jako `pending`
 # zostają zaliczone tak, jak zrobiłaby to ręczna akceptacja (status `active`

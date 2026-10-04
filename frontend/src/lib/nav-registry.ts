@@ -386,6 +386,20 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     inSidebar: false,
   },
   {
+    // Daily (04.10.2026): pulpit „Requesty i obłożenie” na całą stronę —
+    // „Zmiany od wczoraj” na górze i kategorie po kolei. Ta sama bramka co
+    // „Rekrutacje” (sekcja Pipeline); w menu nie stoi, wejście jest z kafelka.
+    id: "jobs-daily",
+    href: "/jobs/daily",
+    label: "Na daily",
+    icon: Briefcase,
+    section: "pipeline",
+    placement: "primary",
+    paletteKeywords: ["daily", "requesty", "obłożenie"],
+    inPalette: true,
+    inSidebar: false,
+  },
+  {
     id: "calendar",
     href: "/calendar",
     label: "Kalendarz",

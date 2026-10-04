@@ -292,8 +292,85 @@ async def stale_jobs(
     return out
 
 
+# Pulpit Heada i admina — „Gdzie stoi” (04.10.2026). Progi zgodne z makietą:
+# rekrutacja bez nikogo u klienta po 14 dniach, zgłoszenia w Ogłoszeniach
+# czekające ponad 3 dni.
+NO_ONE_SENT_DAYS = 14
+STALE_POSTING_DAYS = 3
+
+_FLOW_SIGNALS_SQL = text(
+    """
+    WITH work AS (
+        SELECT j.id, j.deadline, COALESCE(j.opened_at, j.created_at) AS opened
+          FROM jobs j
+         WHERE j.status = 'published'
+           AND j.work_state = ANY(CAST(:work_states AS text[]))
+    ),
+    sent AS (
+        SELECT DISTINCT cs.job_id
+          FROM candidate_stages cs
+         WHERE cs.job_id IN (SELECT id FROM work)
+           AND CAST(cs.stage AS text) = ANY(CAST(:client_stages AS text[]))
+    ),
+    latest AS (
+        SELECT DISTINCT ON (cs.candidate_id, cs.job_id)
+               cs.job_id, CAST(cs.stage AS text) AS stage, cs.moved_at
+          FROM candidate_stages cs
+         WHERE cs.job_id IN (SELECT id FROM work)
+         ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
+    )
+    SELECT
+      (SELECT count(*) FROM work w
+        WHERE w.opened < :sent_cutoff
+          AND NOT EXISTS (SELECT 1 FROM sent s WHERE s.job_id = w.id)
+      ) AS no_one_sent,
+      (SELECT count(*) FROM work w WHERE w.deadline < :today) AS overdue,
+      (SELECT count(*) FROM latest l
+        WHERE l.stage = 'posting' AND l.moved_at < :posting_cutoff
+      ) AS stale_postings,
+      (SELECT count(DISTINCT l.job_id) FROM latest l
+        WHERE l.stage = 'posting' AND l.moved_at < :posting_cutoff
+      ) AS stale_postings_jobs
+    """
+)
+
+
+async def flow_signals(
+    db: AsyncSession, *, now: datetime, today: date
+) -> dict[str, int]:
+    """Liczby „Gdzie stoi” dla rekrutacji w pracy (``IN_WORK_STATES``).
+
+    Jedno zapytanie: rekrutacje bez nikogo u klienta, po terminie klienta
+    i zgłoszenia z ogłoszeń, które nikt nie przejrzał od kilku dni.
+    """
+    from app.services.job_similarity import CLIENT_STAGES  # noqa: PLC0415
+    from app.services.request_work_state import IN_WORK_STATES  # noqa: PLC0415
+
+    row = (
+        await db.execute(
+            _FLOW_SIGNALS_SQL,
+            {
+                "work_states": list(IN_WORK_STATES),
+                "client_stages": [getattr(s, "value", s) for s in CLIENT_STAGES],
+                "sent_cutoff": now - timedelta(days=NO_ONE_SENT_DAYS),
+                "posting_cutoff": now - timedelta(days=STALE_POSTING_DAYS),
+                "today": today,
+            },
+        )
+    ).one()
+    return {
+        "no_one_sent": int(row.no_one_sent or 0),
+        "overdue": int(row.overdue or 0),
+        "stale_postings": int(row.stale_postings or 0),
+        "stale_postings_jobs": int(row.stale_postings_jobs or 0),
+    }
+
+
 __all__ = [
     "LOW_PRECISION_PCT",
+    "NO_ONE_SENT_DAYS",
+    "STALE_POSTING_DAYS",
+    "flow_signals",
     "current_team_panel",
     "QUIET_WORK_STATES",
     "STALE_JOB_DAYS",

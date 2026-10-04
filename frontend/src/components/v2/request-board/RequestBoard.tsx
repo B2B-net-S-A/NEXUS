@@ -17,6 +17,11 @@
  * Filtry liczy przeglądarka (`lib/request-board.ts`), stan w adresie — link
  * wysłany na daily otwiera ten sam widok. Bez podpowiedzi systemu: Artur
  * wprost ich nie chce na tym ekranie.
+ *
+ * Dwa warianty tego samego widoku: kafelek pulpitu (`tile`, z zakresem
+ * startowym z konfiguracji kafelka) i strona `/jobs/daily` (`daily`) — na niej
+ * „Zmiany od wczoraj” stoją na górze, a kategorie są przyciskami, po których
+ * Head of Recruitment przechodzi „Następna kategoria →”.
  */
 
 import Link from "next/link"
@@ -47,19 +52,26 @@ import {
   type BoardRequest,
   type RequestBoard as RequestBoardData,
 } from "@/lib/api/requestAllocation"
+import type { RequestBoardScope } from "@/lib/api/userDashboard"
 import { formatIsoDatePl } from "@/lib/date-pl"
 import { formatDeadlineShort, shortenPersonName } from "@/lib/job-header-subtitle"
 import { canRemoveRecruiter, removeRecruiter, workingRecruiters } from "@/lib/job-team"
 import { invalidateJobTeam } from "@/lib/job-team-cache"
 import { pluralPl } from "@/lib/plural-pl"
 import {
+  EMPTY_FILTERS,
+  SCOPE_LABEL,
   boardPeople,
   filtersFromParams,
   filtersToParams,
+  groupCatValue,
   groupRequests,
+  hasUrlFilters,
   loadSummary,
+  nextCategory,
   pendingProposalCount,
   requestWord,
+  scopeFilters,
   unstaffedCount,
   type BoardFilters,
   type ShownGroup,
@@ -210,6 +222,65 @@ export interface RequestBoardViewProps {
   onAcceptProposal: (request: BoardRequest, person: BoardPerson) => void
   /** Pary request–osoba (`boardPersonKey`), których zapis właśnie trwa. */
   busyKeys?: ReadonlySet<string>
+  /** `tile` = kafelek pulpitu, `daily` = strona `/jobs/daily`. */
+  variant?: RequestBoardVariant
+  /** „Filtr: Twoja kategoria” — działa filtr zakresu kafelka (tylko `tile`). */
+  scopeLabel?: string | null
+  /** „Pokaż wszystkie” — zdejmuje filtr zakresu. */
+  onClearScope?: () => void
+}
+
+export type RequestBoardVariant = "tile" | "daily"
+
+const SEGMENT_BASE =
+  "inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-ring"
+const SEGMENT_ON = "border-primary bg-primary text-primary-foreground"
+const SEGMENT_OFF = "border-input bg-background text-foreground hover:bg-accent"
+
+/**
+ * Daily: kategorie jako przyciski (filtr `cat`) i „Następna kategoria →” —
+ * Head of Recruitment przechodzi z zespołem kategoria po kategorii.
+ */
+function CategorySegments({
+  board,
+  filters,
+  onFilters,
+}: Pick<RequestBoardViewProps, "board" | "filters" | "onFilters">) {
+  const segments = [
+    { value: "", label: "Wszystkie", count: board.requests.length },
+    ...board.groups.map((g) => ({ value: groupCatValue(g), label: g.name, count: g.total })),
+  ]
+  return (
+    <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Kategorie">
+      {segments.map((segment) => {
+        const active = filters.cat === segment.value
+        return (
+          <button
+            key={segment.value || "all"}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onFilters({ ...filters, cat: segment.value })}
+            className={cn(SEGMENT_BASE, active ? SEGMENT_ON : SEGMENT_OFF)}
+          >
+            {segment.label}
+            <span className="font-mono tabular-nums">· {segment.count}</span>
+          </button>
+        )
+      })}
+      {board.groups.length > 0 && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="ml-auto"
+          onClick={() =>
+            onFilters({ ...filters, cat: nextCategory(board.groups, filters.cat) })
+          }
+        >
+          Następna kategoria →
+        </Button>
+      )}
+    </div>
+  )
 }
 
 interface RowProps
@@ -406,7 +477,11 @@ export function RequestBoardView({
   onRemovePerson,
   onAcceptProposal,
   busyKeys,
+  variant = "tile",
+  scopeLabel = null,
+  onClearScope,
 }: RequestBoardViewProps) {
+  const daily = variant === "daily"
   const { groups, shown, total } = useMemo(
     () => groupRequests(board, filters, today),
     [board, filters, today],
@@ -426,7 +501,10 @@ export function RequestBoardView({
     <div className="@container/rboard flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-foreground">Requesty i obłożenie</h2>
+          {/* Na daily tytuł niesie nagłówek strony. */}
+          {!daily && (
+            <h2 className="text-lg font-semibold text-foreground">Requesty i obłożenie</h2>
+          )}
           <p className="text-sm text-muted-foreground">
             {mode.label}. {mode.hint}
             {pendingSentence(pendingProposalCount(board))}
@@ -434,25 +512,56 @@ export function RequestBoardView({
               ? " Brak świeżych danych o urlopach z Compassa — urlopy nie są uwzględnione."
               : ""}
           </p>
+          {!daily && scopeLabel && (
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>{scopeLabel}</span>
+              {onClearScope && (
+                <button
+                  type="button"
+                  onClick={onClearScope}
+                  className="font-medium text-primary hover:underline"
+                >
+                  Pokaż wszystkie
+                </button>
+              )}
+            </p>
+          )}
         </div>
-        <Link
-          href="/jobs/review-states"
-          className="text-sm font-medium text-primary hover:underline"
-        >
-          Porządek w requestach
-        </Link>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {!daily && (
+            <Link
+              href="/jobs/daily"
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              Na daily
+            </Link>
+          )}
+          <Link
+            href="/jobs/review-states"
+            className="text-sm font-medium text-primary hover:underline"
+          >
+            Porządek w requestach
+          </Link>
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {board.groups.map((g) => (
-          <Badge key={g.category_id ?? "none"} variant={competenceTone(g.slug)} size="md">
-            {g.name} · {g.total}
-          </Badge>
-        ))}
-        <span className="text-sm text-muted-foreground">
-          Razem {board.requests.length} {requestWord(board.requests.length)}
-        </span>
-      </div>
+      {daily ? (
+        <>
+          <ChangesPanel changes={board.changes} since={board.changes_since} wide />
+          <CategorySegments board={board} filters={filters} onFilters={onFilters} />
+        </>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          {board.groups.map((g) => (
+            <Badge key={g.category_id ?? "none"} variant={competenceTone(g.slug)} size="md">
+              {g.name} · {g.total}
+            </Badge>
+          ))}
+          <span className="text-sm text-muted-foreground">
+            Razem {board.requests.length} {requestWord(board.requests.length)}
+          </span>
+        </div>
+      )}
 
       <div className="flex flex-col gap-4 @min-[1040px]/rboard:flex-row @min-[1040px]/rboard:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
@@ -517,17 +626,37 @@ export function RequestBoardView({
             </div>
           </div>
         </div>
-        <aside className="grid w-full gap-4 @min-[640px]/rboard:grid-cols-2 @min-[1040px]/rboard:w-[300px] @min-[1040px]/rboard:shrink-0 @min-[1040px]/rboard:grid-cols-1">
+        {/* Na daily „Zmiany od wczoraj” stoją na górze — z boku tylko obłożenie. */}
+        <aside
+          className={cn(
+            "grid w-full gap-4 @min-[1040px]/rboard:w-[300px] @min-[1040px]/rboard:shrink-0 @min-[1040px]/rboard:grid-cols-1",
+            !daily && "@min-[640px]/rboard:grid-cols-2",
+          )}
+        >
           <LoadPanel load={board.load} today={today} />
-          <ChangesPanel changes={board.changes} />
+          {!daily && <ChangesPanel changes={board.changes} since={board.changes_since} />}
         </aside>
       </div>
     </div>
   )
 }
 
-/** Kafel pulpitu — dane, adres i akcje; wygląd w `RequestBoardView`. */
-export function RequestBoard() {
+/**
+ * Kafel pulpitu i strona daily — dane, adres i akcje; wygląd w `RequestBoardView`.
+ *
+ * Filtry: adres wygrywa, gdy niesie którykolwiek `rb_*` (link z daily otwiera
+ * ten sam widok). Bez nich kafelek startuje od swojego zakresu (`scope`) —
+ * ale nie wpisuje go do adresu samym wyświetleniem: zakres trafia do adresu
+ * dopiero razem z pierwszą zmianą filtra przez człowieka. „Pokaż wszystkie”
+ * i „Wyczyść filtry” zdejmują zakres do końca wizyty.
+ */
+export function RequestBoard({
+  scope = "all",
+  variant = "tile",
+}: {
+  scope?: RequestBoardScope
+  variant?: RequestBoardVariant
+} = {}) {
   const query = useRequestBoard()
   const router = useRouter()
   const pathname = usePathname()
@@ -538,12 +667,17 @@ export function RequestBoard() {
   const canStaff = useCapability("job.recruiter.assign")
   const canDecide = useCapability("request.proposal.decide")
   const [busyKeys, setBusyKeys] = useState<ReadonlySet<string>>(() => new Set())
-  const filters = useMemo(
-    () => filtersFromParams(new URLSearchParams(params?.toString() ?? "")),
+  // Człowiek zmienił filtry (albo zdjął zakres) — od tej chwili decyduje adres.
+  const [scopeDismissed, setScopeDismissed] = useState(false)
+  const urlParams = useMemo(
+    () => new URLSearchParams(params?.toString() ?? ""),
     [params],
   )
+  const urlFilters = useMemo(() => filtersFromParams(urlParams), [urlParams])
+  const urlHasFilters = useMemo(() => hasUrlFilters(urlParams), [urlParams])
 
   const setFilters = (next: BoardFilters) => {
+    setScopeDismissed(true)
     const search = filtersToParams(next, new URLSearchParams(params?.toString() ?? ""))
     const qs = search.toString()
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
@@ -596,10 +730,21 @@ export function RequestBoard() {
     return <QueryStateNotice state={state} onRetry={() => query.refetch()} />
   }
   const board = query.data as RequestBoardData
+  const scoped = scopeFilters(scope, board.viewer)
+  const scopeActive =
+    !urlHasFilters && !scopeDismissed && Object.keys(scoped).length > 0
+  const filters: BoardFilters = urlHasFilters
+    ? urlFilters
+    : scopeActive
+      ? { ...EMPTY_FILTERS, ...scoped }
+      : EMPTY_FILTERS
   return (
     <>
       <RequestBoardView
         board={board}
+        variant={variant}
+        scopeLabel={scopeActive && scope !== "all" ? SCOPE_LABEL[scope] : null}
+        onClearScope={() => setScopeDismissed(true)}
         today={warsawToday()}
         filters={filters}
         onFilters={setFilters}

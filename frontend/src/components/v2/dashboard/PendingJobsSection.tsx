@@ -115,6 +115,9 @@ export interface PendingJobsSectionProps {
   forms: UnfinishedJobForm[] | null | undefined;
   /** Panel „Czeka na Ciebie” nie ma nic do zrobienia — sekcja stoi sama. */
   standalone?: boolean;
+  /** Admin i Head of Recruitment: jedna linia z „Rozwiń” (04.10.2026) —
+   *  zaległość nie może spychać pracy na dziś pod zakładkę ekranu. */
+  collapsed?: boolean;
 }
 
 /** Czy sekcja ma co pokazać — panel decyduje po tym, czy w ogóle się renderuje. */
@@ -125,11 +128,41 @@ export function hasPendingJobsContent(
   return (pending?.items.length ?? 0) > 0 || (forms?.length ?? 0) > 0;
 }
 
-export function PendingJobsSection({ pending, forms, standalone = false }: PendingJobsSectionProps) {
+export function PendingJobsSection({
+  pending,
+  forms,
+  standalone = false,
+  collapsed = false,
+}: PendingJobsSectionProps) {
   const [expanded, setExpanded] = useState(false);
+  const [opened, setOpened] = useState(false);
   const rows = pending?.items ?? [];
   const unfinished = forms ?? [];
   if (rows.length === 0 && unfinished.length === 0) return null;
+
+  if (collapsed && !opened && rows.length > 0) {
+    return (
+      <section
+        aria-label={PENDING_JOBS_TITLE}
+        className={cn("min-w-0", !standalone && "lg:col-span-3")}
+        data-testid="pending-jobs-collapsed"
+      >
+        <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
+          <span className="font-semibold">
+            {PENDING_JOBS_TITLE} <span className="tabular-nums">({rows.length})</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setOpened(true)}
+            aria-expanded={false}
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            Rozwiń
+          </button>
+        </p>
+      </section>
+    );
+  }
 
   const autocloseOn = pending?.autoclose_on ?? null;
   const autocloseDay = autocloseOn ? shortDay(autocloseOn) : null;

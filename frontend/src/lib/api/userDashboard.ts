@@ -29,6 +29,10 @@ export const TILE_TYPES = [
   "my_clients_alerts",
   "dl_alerts",
   "calendar_today",
+  "today_cycle",
+  "team_signals",
+  "system_status",
+  "my_week",
   "metric_number",
   "metric_chart",
   "metric_funnel",
@@ -96,7 +100,12 @@ export interface TileConfig {
   text?: string | null;
   links?: NoteLink[];
   link_to?: string | null;
+  /** „Requesty i obłożenie”: filtr startowy, gdy adres nie niesie własnego. */
+  board_scope?: RequestBoardScope | null;
 }
+
+/** Zakres startowy kafelka „Requesty i obłożenie” — lustro `TileConfig.board_scope`. */
+export type RequestBoardScope = "all" | "my_category" | "my_lead";
 
 export interface DashboardTile {
   id: string;
@@ -114,6 +123,8 @@ export interface UserDashboardResponse {
   dropped_tiles: { id: string | null; type: string | null }[];
   /** Listy nad kafelkami usunięte z pulpitu („Usuń z pulpitu”). */
   hidden_panels?: DashboardPanelKey[];
+  /** Brak zapisanych kafelków i brak świadomie pustego układu = układ roli. */
+  uses_role_layout?: boolean;
 }
 
 /** Listy stojące nad kafelkami: każdy ma je domyślnie i może usunąć.

@@ -133,6 +133,9 @@ def test_only_listed_modules_read_recommendation_cards():
         # Podpowiedzi formularza umowy B2B: tylko stawka (PLN/h) i tekst
         # dostępności z karty tej rekrutacji (04.10.2026).
         "app/services/b2b_agreement_prefill.py",
+        # „Czeka na Ciebie” (przepływ): tylko czy para ma odpowiedzi na karcie,
+        # nie treść karty.
+        "app/services/board_flow.py",
     }
     pattern = re.compile(
         r"^\s*(?:from|import)\s.*\brecommendation_card(?:s|_rules|_import)?\b"

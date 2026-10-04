@@ -10,6 +10,7 @@ import type {
   LoadPerson,
   RequestBoard,
 } from "@/lib/api/requestAllocation"
+import type { RequestBoardScope } from "@/lib/api/userDashboard"
 import { hasRecruiter, proposedRecruiters, workingRecruiters } from "@/lib/job-team"
 import { pluralPl } from "@/lib/plural-pl"
 import {
@@ -111,6 +112,92 @@ export function filtersToParams(
 
 export function hasActiveFilters(filters: BoardFilters): boolean {
   return Object.values(filters).some(Boolean)
+}
+
+/** Czy adres niesie własne filtry pulpitu — wtedy wygrywają z zakresem kafelka. */
+export function hasUrlFilters(params: URLSearchParams): boolean {
+  return Object.values(URL_KEYS).some((key) => Boolean(params.get(key)))
+}
+
+type BoardViewer = RequestBoard["viewer"]
+
+/**
+ * Filtry startowe kafelka z jego zakresu: „Moja kategoria” = główna kategoria
+ * osoby, która patrzy; „Moje jako Delivery Lead” = requesty, w których ona jest
+ * DL-em. Bez danych o widzu (starszy backend) albo bez kategorii — nic, czyli
+ * wszystkie requesty: lepiej pokazać za dużo niż pustą tabelę.
+ */
+export function scopeFilters(
+  scope: RequestBoardScope | null | undefined,
+  viewer: BoardViewer,
+): Partial<BoardFilters> {
+  if (!viewer) return {}
+  if (scope === "my_category") {
+    return viewer.primary_category_id == null
+      ? {}
+      : { cat: String(viewer.primary_category_id) }
+  }
+  if (scope === "my_lead") return { lead: String(viewer.user_id) }
+  return {}
+}
+
+/** Linia pod nagłówkiem kafelka, gdy działa filtr zakresu. */
+export const SCOPE_LABEL: Record<Exclude<RequestBoardScope, "all">, string> = {
+  my_category: "Filtr: Twoja kategoria",
+  my_lead: "Filtr: requesty, w których jesteś Delivery Leadem",
+}
+
+/** Wartość filtra `cat` dla grupy pulpitu (`none` = bez kategorii). */
+export function groupCatValue(group: Pick<BoardGroup, "category_id">): string {
+  return group.category_id === null ? "none" : String(group.category_id)
+}
+
+/**
+ * „Następna kategoria →” na daily: po kolei grupy pulpitu, z ostatniej
+ * z powrotem na „Wszystkie” (`""`). Nieznana wartość = pierwsza grupa.
+ */
+export function nextCategory(
+  groups: readonly Pick<BoardGroup, "category_id">[],
+  current: string,
+): string {
+  if (groups.length === 0) return ""
+  const values = groups.map(groupCatValue)
+  if (!current) return values[0]
+  const index = values.indexOf(current)
+  if (index < 0) return values[0]
+  return index === values.length - 1 ? "" : values[index + 1]
+}
+
+const WEEKDAY_GENITIVE: Record<string, string> = {
+  Mon: "poniedziałku",
+  Tue: "wtorku",
+  Wed: "środy",
+  Thu: "czwartku",
+  Fri: "piątku",
+  Sat: "soboty",
+  Sun: "niedzieli",
+}
+
+/**
+ * Początek okna „Zmiany od wczoraj” słowami, w czasie firmy (Europe/Warsaw):
+ * `od piątku 9:30`. `null` = backend nie podał okna.
+ */
+export function changesSinceLabel(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return null
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Warsaw",
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date)
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? ""
+  const day = WEEKDAY_GENITIVE[get("weekday")]
+  if (!day) return null
+  return `od ${day} ${Number(get("hour"))}:${get("minute")}`
 }
 
 /** Bez polskich znaków i wielkości liter — tak szuka pole „Stanowisko” i lista osób. */

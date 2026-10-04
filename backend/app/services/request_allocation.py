@@ -47,6 +47,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.scheduling import is_business_day
 from app.models.cc_feedback import JobSecondaryCc
 from app.models.competence_category import UserCompetenceCategory
 from app.models.job import Job, JobStatus
@@ -1046,5 +1047,15 @@ async def restore_after_champion_removed(
 
 
 def changed_since(now: datetime) -> datetime:
-    """Początek okna „Zmiany od wczoraj” — 24 h wstecz."""
-    return now - timedelta(hours=24)
+    """Początek okna „Zmiany od wczoraj” — ta sama godzina poprzedniego dnia roboczego.
+
+    Daily jest w dni robocze: w poniedziałek okno sięga piątku, a po święcie —
+    ostatniego dnia pracy przed nim (do 04.10.2026 stałe 24 h gubiły zmiany
+    z piątku). Sufit 7 dni chroni przed długą przerwą świąteczną.
+    """
+    previous = now - timedelta(days=1)
+    for _ in range(6):
+        if is_business_day(previous):
+            break
+        previous -= timedelta(days=1)
+    return previous
