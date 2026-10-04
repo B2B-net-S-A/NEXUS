@@ -51,7 +51,7 @@ const UNIT_LABELS: Record<RateUnit, string> = {
 
 /**
  * Pyta o „Stawkę do klienta" (sell rate) przy ruchu kandydata na etap
- * „CV Wysłane". Bliźniaczy do {@link VerifiedRateModal} (stawka kandydata przy
+ * „CV wysłane". Bliźniaczy do {@link VerifiedRateModal} (stawka kandydata przy
  * „Zweryfikowany"), ale bez bramki budżetowej — to cena dla klienta, nie
  * oczekiwania kandydata. Domyślna jednostka `monthly` (spójna z budżetem
  * oferty i endpointem `/client-rate`).
@@ -97,7 +97,7 @@ export function ClientRateModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Przesuń na „CV Wysłane"</DialogTitle>
+          <DialogTitle>Przesuń na „CV wysłane"</DialogTitle>
           <DialogDescription>
             Podaj stawkę do klienta dla kandydata{" "}
             <span className="font-semibold">{candidateName}</span> — cena, za jaką

@@ -196,7 +196,7 @@ describe("selectVerifiedQueue", () => {
 });
 
 describe("countAtClient", () => {
-  it("liczy „CV Wysłane” i etapy zewnętrzne, pomija terminalne", () => {
+  it("liczy „CV wysłane” i etapy zewnętrzne, pomija terminalne", () => {
     expect(countAtClient(board)).toBe(2);
   });
 });
@@ -401,7 +401,7 @@ describe("primaryForwardMove", () => {
     };
   }
 
-  it("karta z wetem przed „CV Wysłane” dostaje „CV Wysłane” — weto jest ostrzeżeniem", () => {
+  it("karta z wetem przed „CV wysłane” dostaje „CV wysłane” — weto jest ostrzeżeniem", () => {
     const { columns, currentColId, item: card } = at("Wysłać do Cpro", {
       hm_veto: veto,
     });
@@ -415,7 +415,7 @@ describe("primaryForwardMove", () => {
     expect(move.blocked).toBeNull();
   });
 
-  it("karta bez weta idzie na następny etap — w tym „CV Wysłane”", () => {
+  it("karta bez weta idzie na następny etap — w tym „CV wysłane”", () => {
     const { columns, currentColId, item: card } = at("Wysłać do Cpro");
     const move = primaryForwardMove({
       item: card,
@@ -677,7 +677,7 @@ describe("formatExpectedRate", () => {
 });
 
 describe("groupKanbanColumns — własny etap między etapami klienta (follow-up fali 3)", () => {
-  it("„Preparation Meeting” oznaczony jako wewnętrzny, ale stojący za „CV Wysłane”, trafia do „U klienta”", () => {
+  it("„Preparation Meeting” oznaczony jako wewnętrzny, ale stojący za „CV wysłane”, trafia do „U klienta”", () => {
     // Na prodzie ten etap szablonu „Default B2B" nie ma legacy enuma i jest
     // oznaczony jako wewnętrzny — po pozycji jest spotkaniem u klienta.
     const columns = defaultB2B().map((c) =>

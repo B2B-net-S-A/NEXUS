@@ -705,7 +705,7 @@ describe("usePipelineMove — ruch zbiorczy", () => {
 // „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” — domyślnie
 // Delivery Lead i administrator, ale rozstrzyga uprawnienie, nie rola.
 describe("usePipelineMove — wysyłka CV do klienta za uprawnieniem", () => {
-  const RATE_DIALOG = "Przesuń na „CV Wysłane\"";
+  const RATE_DIALOG = "Przesuń na „CV wysłane\"";
 
   function signIn(role: string, granted?: Permission[], realUser: unknown = null) {
     useAuthStore.setState({
@@ -782,7 +782,7 @@ describe("usePipelineMove — wysyłka CV do klienta za uprawnieniem", () => {
     expect(post).not.toHaveBeenCalled();
   });
 
-  it("ruch zbiorczy na „CV Wysłane” bez uprawnienia nie wysyła nikogo", async () => {
+  it("ruch zbiorczy na „CV wysłane” bez uprawnienia nie wysyła nikogo", async () => {
     signIn("recruiter");
     const items = [1, 2].map((n) => card({ id: 60 + n, candidate_id: 600 + n }));
     const b = sendBoard(items);

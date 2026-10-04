@@ -22,6 +22,7 @@ const get = vi.fn();
 const move = vi.fn();
 const toastError = vi.fn();
 const toastSuccess = vi.fn();
+const toastInfo = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
@@ -50,6 +51,7 @@ vi.mock("@/components/Toast", () => ({
     showActionToast: vi.fn(),
     showSuccess: toastSuccess,
     showError: toastError,
+    showInfo: toastInfo,
   }),
 }));
 
@@ -98,8 +100,24 @@ vi.mock("@hello-pangea/dnd", async (importOriginal) => {
 // Przegląd przed wysłaniem do klienta ma własne testy (`DlReviewPanel.test`) —
 // tu liczy się, KOMU tablica go otwiera i dla którego wiersza etapu.
 vi.mock("@/components/v2/recruitment/DlReviewPanel", () => ({
-  DlReviewPanel: ({ task, open }: { task: { stage_id: number } | null; open: boolean }) =>
-    open ? <div data-testid="dl-review-panel" data-stage-id={String(task?.stage_id)} /> : null,
+  DlReviewPanel: ({
+    task,
+    open,
+    canSendToClient,
+  }: {
+    task: { stage_id: number; verified_by_name?: string | null; cv_stage_id?: number | null } | null;
+    open: boolean;
+    canSendToClient?: boolean;
+  }) =>
+    open ? (
+      <div
+        data-testid="dl-review-panel"
+        data-stage-id={String(task?.stage_id)}
+        data-verified-by={task?.verified_by_name ?? ""}
+        data-cv-stage-id={String(task?.cv_stage_id ?? "")}
+        data-can-send={String(canSendToClient)}
+      />
+    ) : null,
 }));
 
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
@@ -559,7 +577,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     };
   }
 
-  it("weto HM NIE wyszarza w doku „CV Wysłane” ani żadnego innego etapu", async () => {
+  it("weto HM NIE wyszarza w doku „CV wysłane” ani żadnego innego etapu", async () => {
     renderBoard(gateColumns(VETO));
     const menu = await openDockStageMenu();
 
@@ -573,7 +591,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(screen.getByRole("button", { name: /Odrzuć z powodem/ })).not.toBeDisabled();
   });
 
-  /** Fragment „Default B2B": po „Wysłać do Cpro" stoją „CV Wysłane",
+  /** Fragment „Default B2B": po „Wysłać do Cpro" stoją „CV wysłane",
    *  „Preparation Meeting" i „Interview Klient". */
   function vetoRouteColumns(extra: Record<string, unknown>) {
     return [
@@ -623,7 +641,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     ).toBeNull();
   });
 
-  it("karta bez weta dostaje zwykłą akcję naprzód na „CV Wysłane”", async () => {
+  it("karta bez weta dostaje zwykłą akcję naprzód na „CV wysłane”", async () => {
     renderBoard(vetoRouteColumns({}));
     await openDock();
 
@@ -722,7 +740,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(moveCalls()).toHaveLength(0);
   });
 
-  it("„CV Wysłane” poza Nordeą: DL musi wpisać stawkę — bez „Przesuń bez stawki”", async () => {
+  it("„CV wysłane” poza Nordeą: DL musi wpisać stawkę — bez „Przesuń bez stawki”", async () => {
     get.mockImplementation(() =>
       Promise.resolve({
         data: {
@@ -742,7 +760,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(moveCalls()).toHaveLength(0);
   });
 
-  it("„CV Wysłane” bez kolejki Cpro: rekruter bez uprawnienia dostaje komunikat z jego nazwą", async () => {
+  it("„CV wysłane” bez kolejki Cpro: rekruter bez uprawnienia dostaje komunikat z jego nazwą", async () => {
     useAuthStore.setState({ user: { id: 5, role: "recruiter", roles: ["recruiter"] } } as never);
     renderBoard(gateColumns({}));
     const menu = await openDockStageMenu();
@@ -760,7 +778,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(moveCalls()).toHaveLength(0);
   });
 
-  it("„CV Wysłane” bez kolejki Cpro: rekruter z nadanym uprawnieniem wpisuje stawkę jak Delivery Lead", async () => {
+  it("„CV wysłane” bez kolejki Cpro: rekruter z nadanym uprawnieniem wpisuje stawkę jak Delivery Lead", async () => {
     useAuthStore.setState({
       user: {
         id: 5,
@@ -779,7 +797,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(moveCalls()).toHaveLength(0);
   });
 
-  it("„CV Wysłane” bez kolejki Cpro: Delivery Lead z wyłączonym uprawnieniem nie wysyła mimo roli", async () => {
+  it("„CV wysłane” bez kolejki Cpro: Delivery Lead z wyłączonym uprawnieniem nie wysyła mimo roli", async () => {
     useAuthStore.setState({
       user: {
         id: 6,
@@ -853,6 +871,69 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(moveCalls()).toHaveLength(0);
   });
 
+  it("przegląd z Tablicy dostaje wiersz z serwera (CV po QC, kto zweryfikował)", async () => {
+    useAuthStore.setState({ user: { id: 7, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    get.mockImplementation((url: string) =>
+      url === "/api/board-tasks/dl-review-row"
+        ? Promise.resolve({
+            data: {
+              row: { stage_id: 7301, candidate_id: 8301, verified_by_name: "Marta Testowa", cv_stage_id: 7299 },
+              can_send_to_client: true,
+            },
+          })
+        : Promise.resolve({ data: { effective_budget_hourly: null, pipeline_template_id: null } }),
+    );
+    await sendFromQcDock();
+
+    const panel = await screen.findByTestId("dl-review-panel");
+    await waitFor(() => expect(panel).toHaveAttribute("data-verified-by", "Marta Testowa"));
+    expect(panel).toHaveAttribute("data-cv-stage-id", "7299");
+    expect(panel).toHaveAttribute("data-can-send", "true");
+    expect(get).toHaveBeenCalledWith("/api/board-tasks/dl-review-row", {
+      params: { candidate_id: 8301, job_id: 10 },
+    });
+  });
+
+  function renderReviewLink(candidateId: number) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2
+            columns={qcPassedColumns()}
+            jobId={10}
+            initialDockCandidateId={candidateId}
+            initialDockOpensReview
+            onInitialDockHandled={vi.fn()}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  it("link z dzwonka „CV do przeglądu” (`review=1`) otwiera przegląd DL", async () => {
+    useAuthStore.setState({ user: { id: 7, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderReviewLink(8301);
+    expect(await screen.findByTestId("dl-review-panel")).toHaveAttribute("data-stage-id", "7301");
+    expect(toastInfo).not.toHaveBeenCalled();
+    scrollIntoView.mockRestore();
+  });
+
+  it("`review=1` bez prawa wysyłki zostawia sam panel osoby i mówi dlaczego", async () => {
+    useAuthStore.setState({ user: { id: 9, role: "recruiter", roles: ["recruiter"] } } as never);
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    renderReviewLink(8301);
+    await screen.findByRole("complementary", { name: "Karta kandydata" });
+    await waitFor(() =>
+      expect(toastInfo).toHaveBeenCalledWith(
+        "Ta osoba nie czeka teraz na przegląd przed wysłaniem do klienta.",
+      ),
+    );
+    expect(screen.queryByTestId("dl-review-panel")).toBeNull();
+    scrollIntoView.mockRestore();
+  });
+
   it.each([
     ["rekruter bez uprawnienia", { id: 9, role: "recruiter", roles: ["recruiter"] }],
     [
@@ -877,7 +958,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(moveCalls()).toHaveLength(0);
   });
 
-  it("„CV Wysłane” u Nordei bez prawa zapisu stawki przenosi kartę bez pytania o stawkę", async () => {
+  it("„CV wysłane” u Nordei bez prawa zapisu stawki przenosi kartę bez pytania o stawkę", async () => {
     get.mockImplementation(() =>
       Promise.resolve({
         data: {
@@ -901,7 +982,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(screen.queryByText(/stawk[aęi] do klienta/i)).toBeNull();
   });
 
-  it("„CV Wysłane” z prawem zapisu stawki do klienta najpierw pyta o stawkę", async () => {
+  it("„CV wysłane” z prawem zapisu stawki do klienta najpierw pyta o stawkę", async () => {
     get.mockImplementation(() =>
       Promise.resolve({
         data: {
@@ -1596,7 +1677,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(post.mock.calls.filter((c) => c[0] === "/api/pipeline/move")).toHaveLength(0);
   });
 
-  // `defaultB2BColumns`: „CV Wysłane” to szósta kolumna szablonu (300 + 5).
+  // `defaultB2BColumns`: „CV wysłane” to szósta kolumna szablonu (300 + 5).
   const SENT_COLUMN_ID = "def:305";
 
   it("przeciągnięcie z „QC CV” na „CV wysłane” też otwiera przegląd", async () => {

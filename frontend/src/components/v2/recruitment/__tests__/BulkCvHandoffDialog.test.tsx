@@ -106,7 +106,7 @@ describe("BulkCvHandoffDialog", () => {
     );
     // Ponowienie tylko tam, gdzie ruch się udał, a link nie.
     expect(screen.getAllByRole("button", { name: "Utwórz link ponownie" })).toHaveLength(1);
-    expect(screen.getByText(/Przeniesiono na „CV Wysłane”: 3 z 5/)).toBeInTheDocument();
+    expect(screen.getByText(/Przeniesiono na „CV wysłane”: 3 z 5/)).toBeInTheDocument();
   });
 
   it("„Kopiuj wszystkie”: linie „Imię Nazwisko — link”, toast sukcesu TYLKO po udanym zapisie", async () => {

@@ -427,6 +427,8 @@ export default function JobDetailPage() {
   // `?candidate=<id>` (powiadomienia, wzmianka w notatce, „Wróć do rekrutacji")
   // — otwórz tę osobę: panel w „Tabeli", dok na „Tablicy".
   const linkedCandidateId = positiveIntParam(searchParams?.get("candidate") ?? null);
+  // `&review=1` (dzwonek „CV do przeglądu”): poza dokiem otwiera przegląd DL.
+  const linkedReview = searchParams?.get("review") === "1";
 
 
   // Parametr jest jednorazowy: po otwarciu osoby znika z adresu, żeby
@@ -436,6 +438,7 @@ export default function JobDetailPage() {
     const next = new URLSearchParams(searchParams?.toString() ?? "");
     if (!next.has("candidate")) return;
     next.delete("candidate");
+    next.delete("review");
     const query = next.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }, [pathname, router, searchParams]);
@@ -1077,6 +1080,7 @@ export default function JobDetailPage() {
                 kanbanIsFetching || panelSection ? null : linkedCandidateId
               }
               onInitialDockHandled={clearCandidateParam}
+              initialDockOpensReview={linkedReview}
               // Warsztaty osoby (dawny panel „Tabeli") otwierane z doku.
               workbenchContext={{
                 clientId: job.client_id ?? null,

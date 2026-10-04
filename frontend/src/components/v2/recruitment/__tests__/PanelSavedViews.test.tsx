@@ -55,7 +55,7 @@ beforeEach(() => {
   mocks.originalGet.mockResolvedValue({ data: { has_snapshot: true } });
 });
 
-describe("SavedCvView — linki dla klienta po „CV Wysłane”", () => {
+describe("SavedCvView — linki dla klienta po „CV wysłane”", () => {
   it("pyta o linki CAŁEJ pary (kandydat, rekrutacja), nie bieżącego etapu, i pokazuje etap linku", async () => {
     mocks.listForRecruitment.mockResolvedValue({
       data: {
@@ -98,7 +98,7 @@ describe("SavedCvView — linki dla klienta po „CV Wysłane”", () => {
 });
 
 describe("SavedCvView — odznaka „CV firmowe” czyta PARĘ, nie bieżący etap", () => {
-  it("po „CV Wysłane” pokazuje gotowe CV z etapu, na którym leży", async () => {
+  it("po „CV wysłane” pokazuje gotowe CV z etapu, na którym leży", async () => {
     mocks.listForRecruitment.mockResolvedValue({
       data: {
         items: [],

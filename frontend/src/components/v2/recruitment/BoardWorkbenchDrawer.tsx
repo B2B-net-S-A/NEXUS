@@ -11,15 +11,16 @@
  * przepisywane: ten komponent składa wiersz osoby z kolumn tablicy
  * i otwiera `PersonPanel` od razu w szerokim widoku. Zamknięcie („Zwiń",
  * Esc) zamyka warsztat i wraca do Tablicy.
+ *
+ * Ruch karty przychodzi z Tablicy (`move`) — ta sama instancja
+ * `usePipelineMove` co przeciągnięcie, strzałka i dok. Do 04.10.2026 warsztat
+ * miał własną kopię: ruch z niego nie otwierał przeglądu DL ani okna QC CV.
  */
 
 import { useMemo } from "react";
 
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
-import {
-  usePipelineMove,
-  type PipelineRejectionReasonOption,
-} from "@/hooks/usePipelineMove";
+import type { PipelineMoveControls } from "@/hooks/usePipelineMove";
 
 import { PersonPanel, type KanbanQueryState, type WorkbenchContext } from "./PersonPanel";
 import { buildProcessRows, type OffTemplateBucket } from "./person-rows";
@@ -42,7 +43,8 @@ export interface BoardWorkbenchDrawerProps {
   readOnly: boolean;
   canWriteClientRate: boolean;
   budgetHourly: number | null;
-  rejectionReasons: PipelineRejectionReasonOption[];
+  /** Ruch z Tablicy — okna ruchu renderuje Tablica, nie warsztat. */
+  move: PipelineMoveControls;
   workbenchContext: BoardWorkbenchContext;
   kanbanQueryState: KanbanQueryState;
   /** Nordea: „CV wysłane" = „Wysłane do Cpro", bez przeglądu DL (Pipeline v4). */
@@ -63,7 +65,7 @@ export function BoardWorkbenchDrawer({
   readOnly,
   canWriteClientRate,
   budgetHourly,
-  rejectionReasons,
+  move,
   workbenchContext,
   kanbanQueryState,
   cproEnabled = false,
@@ -79,15 +81,6 @@ export function BoardWorkbenchDrawer({
     [columns, budgetHourly, offTemplate, candidateId],
   );
 
-  const move = usePipelineMove({
-    jobId,
-    job: { budgetHourly, rejectionReasons },
-    columns,
-    readOnly,
-    canWriteClientRate,
-    cproEnabled,
-  });
-
   const context: WorkbenchContext = {
     ...workbenchContext,
     jobTitle: jobTitle ?? undefined,
@@ -96,30 +89,25 @@ export function BoardWorkbenchDrawer({
     kanbanQueryState,
   };
 
-  return (
-    <>
-      {row ? (
-        <PersonPanel
-          row={row}
-          jobId={jobId}
-          columns={columns}
-          move={move}
-          readOnly={readOnly}
-          canWriteClientRate={canWriteClientRate}
-          workbenchContext={context}
-          section={section}
-          onSectionChange={onSectionChange}
-          wide
-          onWideChange={(wide) => {
-            if (!wide) onClose();
-          }}
-          onClose={onClose}
-          // Wąska kolumna panelu nie ma tu miejsca — cała treść żyje
-          // w nakładce szerokiego widoku (portal Radix).
-          className="hidden"
-        />
-      ) : null}
-      {move.dialogs}
-    </>
-  );
+  return row ? (
+    <PersonPanel
+      row={row}
+      jobId={jobId}
+      columns={columns}
+      move={move}
+      readOnly={readOnly}
+      canWriteClientRate={canWriteClientRate}
+      workbenchContext={context}
+      section={section}
+      onSectionChange={onSectionChange}
+      wide
+      onWideChange={(wide) => {
+        if (!wide) onClose();
+      }}
+      onClose={onClose}
+      // Wąska kolumna panelu nie ma tu miejsca — cała treść żyje
+      // w nakładce szerokiego widoku (portal Radix).
+      className="hidden"
+    />
+  ) : null;
 }

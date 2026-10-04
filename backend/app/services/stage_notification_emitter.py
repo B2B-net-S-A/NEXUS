@@ -119,7 +119,9 @@ def _inapp_base(
             f"CV do przeglądu: {candidate_full_name}",
             f"{who} przekazał(a) CV kandydata {candidate_full_name} do QC "
             f"w rekrutacji „{job_title}”. Sprawdź CV i wyślij je do klienta.",
-            board_link,
+            # Prosto do przeglądu (stawka do klienta, trzy decyzje), nie do
+            # samego panelu osoby — 04.10.2026.
+            f"{board_link}&review=1",
         )
     if reason == REASON_CPRO_QUEUE:
         return (

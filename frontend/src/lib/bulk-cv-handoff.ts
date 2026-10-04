@@ -10,14 +10,14 @@
  * Reguły, które łatwo cofnąć „przy okazji":
  * - Osoba BEZ sfinalizowanego CV firmowego DOMYŚLNIE nie jest ruszana. Akcja
  *   zbiorcza istnieje po to, żeby powstały linki; ruch bez linku zostawiłby
- *   kandydata na „CV Wysłane", a CV firmowe na etapie, do którego nic już nie
+ *   kandydata na „CV wysłane", a CV firmowe na etapie, do którego nic już nie
  *   prowadzi. Przeniesienie takiej osoby BEZ linku jest jawną decyzją
  *   (`moveWithoutBrandedCv`) — lustro pojedynczego przepływu, w którym brak
- *   sfinalizowanego CV daje „Oznacz „CV Wysłane" bez tworzenia linku"
+ *   sfinalizowanego CV daje „Oznacz „CV wysłane" bez tworzenia linku"
  *   (`shareLink: null`). Gdy statusu CV nie dało się SPRAWDZIĆ, osoba zostaje
  *   pominięta zawsze: nie wiemy, czy link by powstał.
  * - Ruch z nieznanym wynikiem (brak odpowiedzi, 5xx) NIGDY nie jest ponawiany:
- *   mógł się zapisać, a drugie podejście dopisałoby drugi etap „CV Wysłane".
+ *   mógł się zapisać, a drugie podejście dopisałoby drugi etap „CV wysłane".
  * - Ostrzeżenie dopuszczalności pyta człowieka RAZ na osobę; „tak" powtarza
  *   ten sam ruch z potwierdzeniem dokładnie jeden raz.
  * - Pętla jest sekwencyjna: okno ostrzeżenia dotyczy jednej osoby naraz,
@@ -57,12 +57,12 @@ export interface BulkCvHandoffDeps<P extends BulkCvHandoffPerson = BulkCvHandoff
   ) => Promise<CvHandoffResult>;
   /**
    * „Przenieś bez linku": osoby bez sfinalizowanego CV firmowego też idą na
-   * „CV Wysłane", bez tworzenia linku. Domyślnie `false` (pominięcie).
+   * „CV wysłane", bez tworzenia linku. Domyślnie `false` (pominięcie).
    */
   moveWithoutBrandedCv?: boolean;
   /**
    * Linki dla klienta wyłączone w UI (`CV_CLIENT_LINKS_UI_ENABLED=false`,
-   * 21.09.2026): akcja tylko oznacza „CV Wysłane" i zapisuje stawkę. Statusu
+   * 21.09.2026): akcja tylko oznacza „CV wysłane" i zapisuje stawkę. Statusu
    * CV firmowego nie sprawdzamy — nie ma linku, który by od niego zależał.
    */
   linksDisabled?: boolean;
@@ -120,7 +120,7 @@ export type BulkCvHandoffOutcomeKind = BulkCvHandoffOutcome["kind"];
 export const BULK_CV_NO_BRANDED_REASON = "brak CV firmowego";
 export const BULK_CV_MOVED_WITHOUT_LINK_REASON =
   "brak sfinalizowanego CV firmowego — przeniesiono bez linku";
-export const BULK_CV_LINKS_DISABLED_REASON = "oznaczono „CV Wysłane”";
+export const BULK_CV_LINKS_DISABLED_REASON = "oznaczono „CV wysłane”";
 export const BULK_CV_CANCELLED_REASON = "anulowano po ostrzeżeniu";
 export const BULK_CV_MOVE_UNKNOWN_REASON =
   "Nie wiadomo, czy ruch się zapisał — odśwież kartę kandydata, zanim spróbujesz ponownie";

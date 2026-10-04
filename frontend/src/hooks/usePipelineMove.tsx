@@ -16,7 +16,7 @@
  *   wersję wysyła wyłącznie ruch pojedynczy z karty, która niesie liczbę;
  * - mail odrzucenia jest opt-in, a zaplanowany mail ma toast „Cofnij wysyłkę";
  * - „Zatrudniony" wymaga potwierdzenia; „Zweryfikowany" pyta o stawkę
- *   (podpowiedź z profilu, „Pomiń stawkę"); „CV Wysłane" pyta o stawkę do
+ *   (podpowiedź z profilu, „Pomiń stawkę"); „CV wysłane" pyta o stawkę do
  *   klienta tylko przy `canWriteClientRate`;
  * - ruch zbiorczy = pętla pojedynczych ruchów i kolejki okien, nigdy `/bulk-move`.
  */
@@ -351,7 +351,7 @@ export function usePipelineMove({
   const [verifiedBulkTotal, setVerifiedBulkTotal] = useState(0);
   const [verifiedSubmitting, setVerifiedSubmitting] = useState(false);
   const verifiedSubmittingRef = useRef(false);
-  // „CV Wysłane" → zapytaj o stawkę do klienta (sell rate). Analogiczne do
+  // „CV wysłane" → zapytaj o stawkę do klienta (sell rate). Analogiczne do
   // verified, ale stawka jest opcjonalna i zapisywana osobnym PATCH-em po ruchu
   // (kolumny client_rate_* na najnowszym CandidateStage). Bulk = kolejka modali.
   const [clientRatePrompt, setClientRatePrompt] = useState<{
@@ -647,7 +647,7 @@ export function usePipelineMove({
         return;
       }
 
-      // „CV Wysłane" bez kolejki Cpro (Pipeline v4): wysyła osoba z uprawnieniem
+      // „CV wysłane" bez kolejki Cpro (Pipeline v4): wysyła osoba z uprawnieniem
       // do prowadzenia rekrutacji, stawka wymagana.
       if (dialog === "client_rate" && !cproEnabled) {
         if (!canSendToClient) {
@@ -660,7 +660,7 @@ export function usePipelineMove({
         return;
       }
 
-      // „CV Wysłane" — zapytaj o stawkę do klienta przed ruchem (rekruter może
+      // „CV wysłane" — zapytaj o stawkę do klienta przed ruchem (rekruter może
       // pominąć lub anulować w modalu, dlatego NIE applyOptimistic tutaj).
       if (dialog === "client_rate" && canWriteClientRate) {
         setClientRateQueue([]);
@@ -820,7 +820,7 @@ export function usePipelineMove({
   const submitVerifiedMoveRef = useRef<typeof submitVerifiedMove | null>(null);
   submitVerifiedMoveRef.current = submitVerifiedMove;
 
-  // Submit z modala „CV Wysłane — stawka do klienta". `payload === null` =
+  // Submit z modala „CV wysłane — stawka do klienta". `payload === null` =
   // rekruter pominął stawkę (ruch i tak następuje). Najpierw ruch (tworzy
   // nowy CandidateStage), potem PATCH stawki na ten najnowszy etap. Obsługuje
   // też kolejkę bulk (jeden modal na kandydata).
@@ -832,7 +832,7 @@ export function usePipelineMove({
 
       applyOptimistic(item, srcColId, destCol);
       // Zapytanie strony odświeżamy PO zapisie stawki — inaczej kolejki kroków
-      // dostałyby „CV Wysłane" bez stawki, którą zaraz zapiszemy.
+      // dostałyby „CV wysłane" bez stawki, którą zaraz zapiszemy.
       let failureReason: string | null = null;
       // Pipeline v4: stawka jedzie w tym samym żądaniu co ruch — serwer
       // odmawia ruchu bez niej (poza Nordeą), więc nie ma już stanu
@@ -847,14 +847,14 @@ export function usePipelineMove({
         },
       });
       if (ok && payload && !isBulk) {
-        showSuccess("Przeniesiono na „CV Wysłane” ze stawką do klienta.");
+        showSuccess("Przeniesiono na „CV wysłane” ze stawką do klienta.");
       } else if (!ok && isBulk) {
         // `sendMove` w trybie zbiorczym jest cichy — bez tego toastu karta
         // wracała na miejsce bez słowa wyjaśnienia.
         const failedName =
           `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat";
         showError(
-          `${failedName}: nie udało się przenieść na „CV Wysłane”` +
+          `${failedName}: nie udało się przenieść na „CV wysłane”` +
             (failureReason ? ` — ${failureReason}.` : "."),
         );
         await refreshAfterMove();
@@ -944,7 +944,7 @@ export function usePipelineMove({
         return;
       }
 
-      // „CV Wysłane" — stawka do klienta per kandydat → kolejka modali.
+      // „CV wysłane" — stawka do klienta per kandydat → kolejka modali.
       // Bez kolejki Cpro (Pipeline v4) tylko z uprawnieniem do prowadzenia
       // rekrutacji i bez pomijania stawki.
       if (dst.stage === "cv_sent" && !cproEnabled && !canSendToClient) {
@@ -1223,7 +1223,7 @@ export function usePipelineMove({
         />
       )}
 
-      {/* „CV Wysłane" — rekruter podaje stawkę do klienta (lub pomija) */}
+      {/* „CV wysłane" — rekruter podaje stawkę do klienta (lub pomija) */}
       {clientRatePrompt && (
         <ClientRateModal
           key={clientRatePrompt.item.id}

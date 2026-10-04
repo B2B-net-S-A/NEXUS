@@ -4161,6 +4161,30 @@ async def handoff_job_to_search(
             user_id=current_user.id,
         )
     )
+    # Osoba wskazana ręcznie dowiaduje się od razu (04.10.2026) — do tej pory
+    # dzwonek wychodził tylko przy przydziale przez automat i akceptacji
+    # propozycji, a rekruter wskazany w „Przekaż do searchu” nie wiedział,
+    # że dostał rekrutację. Bez dzwonka dla siebie i przy ponowieniu
+    # przekazania tej samej osobie.
+    if recruiter.id not in (current_user.id, previous_owner_id):
+        from app.models.client import Client  # noqa: PLC0415
+        from app.services.job_working_title import display_title  # noqa: PLC0415
+        from app.services.request_allocation_notices import (  # noqa: PLC0415
+            notify_assigned,
+        )
+
+        client_name = (
+            await db.scalar(select(Client.name).where(Client.id == job.client_id))
+            if job.client_id is not None
+            else None
+        )
+        await notify_assigned(
+            db,
+            job_id=job.id,
+            title=display_title(job),
+            client_name=client_name,
+            user_id=recruiter.id,
+        )
     await db.commit()
 
     snapshot_id = await _queue_handoff_ranking(

@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
@@ -761,6 +761,92 @@ async def test_dl_review_lists_people_in_the_qc_column_not_in_verified(
         assert dl_out_id not in counts
     finally:
         await _cleanup(world, [hor_id, rec_id, dl_in_id, dl_out_id])
+
+
+@pytest.mark.asyncio
+async def test_dl_review_row_for_one_pair_matches_the_dashboard_row(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Przegląd otwierany z Tablicy i z dzwonka bierze wiersz z serwera.
+
+    Do 04.10.2026 Tablica składała wiersz w przeglądarce — bez etapu CV po
+    QC, osoby weryfikującej i stanu karty. `/dl-review-row` to ta sama
+    reguła co lista na pulpicie, bez okna czasu (karta w „QC CV” dłużej niż
+    okno pulpitu też się otwiera). Rekruter dostaje 403, osoba poza „QC CV” 404.
+    """
+
+    world = await _seed_world()
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    rec = await _login(api_client, rec_creds)
+    dl = await _login(api_client, dl_creds)
+    cid, jid, defs = world["candidate_id"], world["job_id"], world["defs"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, jid)
+        job.delivery_lead_id = dl_id
+        await db.commit()
+    url = f"/api/board-tasks/dl-review-row?candidate_id={cid}&job_id={jid}"
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                CandidateStage(
+                    candidate_id=cid,
+                    job_id=jid,
+                    stage="screening",
+                    stage_def_id=defs["screening"],
+                    moved_by=rec_id,
+                    screening_answers={"answers": [], "overall_fit": "fit"},
+                    moved_at=datetime.now(timezone.utc) - timedelta(hours=2),
+                )
+            )
+            await db.commit()
+        await _move(
+            api_client,
+            rec,
+            world,
+            "verified",
+            expected_rate_value="140",
+            expected_rate_unit="hourly",
+            expected_rate_currency="PLN",
+        )
+        not_yet = await api_client.get(url, headers=dl)
+        assert not_yet.status_code == 404, not_yet.text
+
+        await _move(api_client, rec, world, "qc")
+        denied = await api_client.get(url, headers=rec)
+        assert denied.status_code == 403, denied.text
+
+        got = await api_client.get(url, headers=dl)
+        assert got.status_code == 200, got.text
+        body = got.json()
+        assert body["can_send_to_client"] is True
+        row = body["row"]
+        dashboard = _rows(
+            (await api_client.get("/api/board-tasks", headers=dl)).json(),
+            "dl_review",
+            cid,
+        )
+        assert dashboard == [row]
+        assert row["verified_by_id"] == rec_id
+        assert row["screening_stage_id"] is not None
+
+        # Karta stoi w „QC CV” dłużej niż okno pulpitu — przegląd i tak się otwiera.
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(CandidateStage)
+                .where(CandidateStage.candidate_id == cid)
+                .values(
+                    moved_at=datetime.now(timezone.utc)
+                    - timedelta(days=svc.DL_REVIEW_WINDOW_DAYS + 10)
+                )
+            )
+            await db.commit()
+        old = await api_client.get(url, headers=dl)
+        assert old.status_code == 200, old.text
+        assert old.json()["row"]["stage_id"] == row["stage_id"]
+    finally:
+        await _cleanup(world, [rec_id, dl_id])
 
 
 @pytest.mark.asyncio
