@@ -144,6 +144,7 @@ def _profile_observation(row: Mapping[str, Any]) -> Optional[RateObservation]:
 #: Poprawka tej samej osoby w tym czasie zastępuje poprzedni wpis profilu —
 #: literówka „15” poprawiona na „150” nie zostaje „Stawką od” na 18 miesięcy.
 QUICK_CORRECTION = timedelta(minutes=10)
+# dzień UTC celowo: wartość zastępcza do sortowania wpisów bez daty, nie data kalendarzowa
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
