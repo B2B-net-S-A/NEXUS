@@ -23,7 +23,7 @@ import {
   ChampionInsightsDigest,
   ExperienceChips,
 } from "@/components/champion/ChampionBriefForRecruiters";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -70,7 +70,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn, formatDate } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
-import { normalizeRateToMonthly } from "@/lib/verified-rate-gate";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
@@ -111,10 +110,11 @@ import { countForm } from "@/lib/cv-qc";
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import { DockFollowupBlock } from "@/components/v2/followups/DockFollowupBlock";
 import { DockInterviewCycle } from "@/components/v2/jobs/DockInterviewCycle";
-import { DockLoadError } from "@/components/v2/jobs/workbench-chrome";
+import { DockLoadError, JobNotesBlock, useJobNotes } from "@/components/v2/jobs/workbench-chrome";
 import { PinnedCandidateNotes } from "@/components/v2/recruitment/PinnedCandidateNotes";
-import { JobNotesList } from "@/components/v2/candidate-profile/JobNotesList";
 import { hourlyText } from "@/lib/candidate-rate";
+import { availabilityText, onsiteText } from "@/lib/person-facts";
+import { PersonFacts, RateWithBudget } from "@/components/v2/person/PersonFacts";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -232,18 +232,6 @@ function DockSection({
   );
 }
 
-interface NoteListItem {
-  id: number;
-  content: string;
-  content_rendered?: string | null;
-  author_name?: string | null;
-  created_at: string;
-  /** 0399: wpis automatu — schowany za „Pokaż systemowe”, nie w liczniku. */
-  is_system?: boolean;
-  pinned_at?: string | null;
-  replies?: NoteListItem[];
-}
-
 /** Wycinek `CandidateResponse`, którego dok naprawdę używa. `candidatesApi.get`
  *  nie jest typowane, więc typujemy tu wprost — zamiast `any`. */
 interface CandidateDetail {
@@ -269,12 +257,6 @@ const CANDIDATE_STATUS_LABEL: Record<string, string> = {
   inactive: "Nieaktywny",
   blacklisted: "Czarna lista",
   archived: "Zarchiwizowany",
-};
-
-const NOTICE_UNIT_LABEL: Record<string, string> = {
-  days: "dni",
-  weeks: "tyg.",
-  months: "mies.",
 };
 
 function daysLabel(n: number): string {
@@ -308,16 +290,6 @@ function TimelineEntry({
         {who && <span className="block text-muted-foreground">{who}</span>}
       </span>
     </li>
-  );
-}
-
-/** Wiersz „Warunki wobec oferty" — brak danych mówi „—", nie znika. */
-function ConditionRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <>
-      <span className="text-muted-foreground">{label}</span>
-      <span className="min-w-0 text-foreground">{children}</span>
-    </>
   );
 }
 
@@ -570,34 +542,6 @@ export function PipelineCandidateDock({
       ? Math.max(0, Math.min(100, Math.round(matchScore)))
       : null;
 
-  // `budget_max_at_move` to MIESIĘCZNY budżet w PLN zapisany PRZY RUCHU na
-  // „Zweryfikowany", a stawka kandydata bywa godzinowa albo dzienna. Surowe
-  // porównanie liczb mówiło „w budżecie" przy 150 zł/h wobec 20 000 zł/mc
-  // (150 < 20 000), choć to 25 200 zł/mc. Normalizujemy polityką
-  // `rate_normalization.py` (168h-21d-v1; od 17.09.2026 porównanie jest
-  // wyłącznie informacyjne — bramka zdjęta); nieznana jednostka
-  // albo waluta ≠ PLN to „nie do porównania", nigdy „w budżecie".
-  const budgetCheck = useMemo(() => {
-    const raw = item.expected_rate_value;
-    if (raw == null || raw === "" || item.budget_max_at_move == null) {
-      return { verdict: "none" as const, monthly: null };
-    }
-    const numeric = Number.parseFloat(String(raw).replace(",", "."));
-    const monthly = Number.isFinite(numeric)
-      ? normalizeRateToMonthly(numeric, item.expected_rate_unit, item.expected_rate_currency)
-      : null;
-    if (monthly == null) return { verdict: "incomparable" as const, monthly: null };
-    return {
-      verdict: monthly > item.budget_max_at_move ? ("over" as const) : ("within" as const),
-      monthly,
-    };
-  }, [
-    item.expected_rate_value,
-    item.expected_rate_unit,
-    item.expected_rate_currency,
-    item.budget_max_at_move,
-  ]);
-
   const addedAttribution = item.added_to_job_by_name?.trim()
     ? `Dodano do rekrutacji przez: ${item.added_to_job_by_name.trim()}${
         item.added_to_job_at ? ` · ${formatDate(item.added_to_job_at)}` : ""
@@ -642,18 +586,7 @@ export function PipelineCandidateDock({
   });
 
   // ── Notatki — przypięte do TEJ rekrutacji (candidate_id + job_id) ──────
-  const notesQueryKey = useMemo(
-    () => [...candidateQueryKeys.notes(item.candidate_id), jobId] as const,
-    [item.candidate_id, jobId]
-  );
-  const notesQuery = useQuery<{ items?: NoteListItem[] }>({
-    queryKey: notesQueryKey,
-    queryFn: () =>
-      api
-        .get(`/api/notes?candidate_id=${item.candidate_id}&job_id=${jobId}`)
-        .then((r) => r.data),
-    enabled: isOpen("notes"),
-  });
+  const notesQuery = useJobNotes(item.candidate_id, jobId, isOpen("notes"));
   const dockNotes = (notesQuery.data?.items ?? []).filter((n) => !n.is_system);
   const addNoteMutation = useMutation({
     mutationFn: (content: string) =>
@@ -851,21 +784,18 @@ export function PipelineCandidateDock({
     },
     onError: (e) => showError(extractErrorMsg(e) || "Nie udało się zapisać próby kontaktu."),
   });
-  const availabilityLabel = candidate?.availability_date
-    ? `od ${formatDate(candidate.availability_date)}`
-    : candidate?.notice_period != null
-      ? `wypowiedzenie ${candidate.notice_period} ${
-          NOTICE_UNIT_LABEL[candidate.notice_period_unit ?? "days"] ?? ""
-        }`.trim()
-      : null;
+  const availabilityLabel = availabilityText(
+    candidate
+      ? {
+          date: candidate.availability_date,
+          status: candidate.availability_status,
+          noticePeriod: candidate.notice_period,
+          // Profil bez jednostki okresu wypowiedzenia — dni (jak dotąd w doku).
+          noticeUnit: candidate.notice_period_unit ?? "days",
+        }
+      : null,
+  );
 
-  // 0 dni w biurze = wyłącznie zdalnie (kontrakt kolumny `max_onsite_days_per_week`).
-  const onsiteLabel =
-    candidate?.max_onsite_days_per_week == null
-      ? null
-      : candidate.max_onsite_days_per_week === 0
-        ? "Zdalnie"
-        : `Do ${candidate.max_onsite_days_per_week} dni w biurze`;
   // Modal montuje się dopiero z DANYMI (patrz render niżej) — w oknie między
   // kliknięciem a odpowiedzią pole „Do" byłoby puste. Gdy zapytanie padnie,
   // intencja wysyłki jest zamykana z toastem, a nie wisi na spinnerze.
@@ -1006,68 +936,37 @@ export function PipelineCandidateDock({
             pory stały zwinięte w „W procesie”. Wyłącznie z danych, które dok
             już ma (karta kanbanu + profil kandydata). Brak danych to „—”, nie
             znikający wiersz: pusty rząd czyta się jak „bez zastrzeżeń”. */}
-            <div className="space-y-1 rounded-md border border-border bg-muted/30 px-2.5 py-2" data-testid="dock-facts">
-              <div className="text-xs font-semibold text-foreground">
-                Warunki wobec rekrutacji
-              </div>
-              <div className="grid grid-cols-[108px_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
-                <ConditionRow label="W tej rekrutacji">
-                  {item.expected_rate_value != null ? (
-                    <>
-                      <span
-                        className={cn(
-                          "font-medium tabular-nums",
-                          budgetCheck.verdict === "over"
-                            ? "text-warning"
-                            : budgetCheck.verdict === "within"
-                              ? "text-success"
-                              : "text-foreground"
-                        )}
-                        title={
-                          budgetCheck.monthly != null
-                            ? `≈ ${budgetCheck.monthly.toLocaleString("pl-PL")} PLN/mc (21 dni × 8 h)`
-                            : undefined
-                        }
-                      >
-                        {item.expected_rate_value} {item.expected_rate_currency ?? "PLN"}
-                        {item.expected_rate_unit ? `/${item.expected_rate_unit}` : ""}
-                      </span>
-                      {item.budget_max_at_move != null && (
-                        <span className="ml-1 text-muted-foreground">
-                          {budgetCheck.verdict === "over"
-                            ? "ponad budżet"
-                            : budgetCheck.verdict === "within"
-                              ? `w budżecie do ${item.budget_max_at_move.toLocaleString("pl-PL")} PLN/mc`
-                              : "nie do porównania z budżetem (jednostka lub waluta)"}
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">brak stawki</span>
-                  )}
-                </ConditionRow>
-                {/* „Stawka od” (0414): najniższa stawka z 18 miesięcy — obok
-                    stawki z tej rekrutacji, żeby było widać pole negocjacji. */}
-                <ConditionRow label="Stawka od">
-                  {hourlyText(item.candidate_rate_from_hourly) ?? (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </ConditionRow>
-                <ConditionRow label="Dostępność">
-                  {availabilityLabel ?? <span className="text-muted-foreground">—</span>}
-                </ConditionRow>
-                <ConditionRow label="Tryb">
-                  {onsiteLabel ?? <span className="text-muted-foreground">—</span>}
-                </ConditionRow>
-                {/* Stawka do klienta tylko, gdy serwer ją przysłał (rekruter jej
-                    nie dostaje — `can_view_client_rate`). */}
-                {clientRateText ? (
-                  <ConditionRow label="Do klienta">
-                    <span className="font-medium tabular-nums">{clientRateText}</span>
-                  </ConditionRow>
-                ) : null}
-              </div>
-            </div>
+        <PersonFacts
+          testId="dock-facts"
+          rows={[
+            {
+              label: "W tej rekrutacji",
+              value: (
+                <RateWithBudget
+                  value={item.expected_rate_value}
+                  unit={item.expected_rate_unit}
+                  currency={item.expected_rate_currency}
+                  budgetMonthly={item.budget_max_at_move}
+                />
+              ),
+            },
+            // „Stawka od” (0414): najniższa stawka z 18 miesięcy — obok stawki
+            // z tej rekrutacji, żeby było widać pole negocjacji.
+            { label: "Stawka od", value: hourlyText(item.candidate_rate_from_hourly) },
+            { label: "Dostępność", value: availabilityLabel },
+            { label: "Tryb", value: onsiteText(candidate?.max_onsite_days_per_week) },
+            // Stawka do klienta tylko, gdy serwer ją przysłał (rekruter jej nie
+            // dostaje — `can_view_client_rate`).
+            ...(clientRateText
+              ? [
+                  {
+                    label: "Do klienta",
+                    value: <span className="font-medium tabular-nums">{clientRateText}</span>,
+                  },
+                ]
+              : []),
+          ]}
+        />
 
         {/* Główna akcja zaraz pod nazwiskiem (makieta „Panel osoby"). Ta sama
             ścieżka co drag&drop (`requestMove`) — okna stawki, potwierdzeń
@@ -1652,21 +1551,11 @@ export function PipelineCandidateDock({
           onToggle={() => toggleSection("notes")}
         >
           <div className="space-y-3">
-            {notesQuery.isLoading ? (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
-              </div>
-            ) : notesQuery.isError ? (
-              <DockLoadError what="notatki" onRetry={() => void notesQuery.refetch()} />
-            ) : notesQuery.isSuccess ? (
-              // Ta sama lista co w „Historii” profilu (odpowiedzi, przypięte,
-              // „Pokaż systemowe”).
-              <JobNotesList
-                candidateId={item.candidate_id}
-                notes={notesQuery.data?.items ?? []}
-                readOnly={readOnly}
-              />
-            ) : null}
+            <JobNotesBlock
+              candidateId={item.candidate_id}
+              query={notesQuery}
+              readOnly={readOnly}
+            />
           </div>
         </DockSection>
       </div>

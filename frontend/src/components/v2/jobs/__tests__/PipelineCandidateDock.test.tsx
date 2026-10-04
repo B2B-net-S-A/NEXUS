@@ -550,6 +550,15 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
     expect(within(facts).getByText(/140/)).toBeTruthy();
   });
 
+  it("okres wypowiedzenia bez jednostki liczy się w dniach (jak przed wspólnymi faktami)", async () => {
+    candidatesGet.mockResolvedValue({
+      data: { email: "a@b.pl", notice_period: 30, notice_period_unit: null },
+    });
+    renderDock();
+    const facts = await screen.findByTestId("dock-facts");
+    expect(await within(facts).findByText("wypowiedzenie 30 dni")).toBeTruthy();
+  });
+
   it("w „Nowych” panel daje „Biorę” i „Nie odebrał” (notatka-próba kontaktu)", async () => {
     apiPost.mockResolvedValue({ data: {} });
     const onTake = vi.fn();

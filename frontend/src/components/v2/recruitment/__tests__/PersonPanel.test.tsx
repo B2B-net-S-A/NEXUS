@@ -331,7 +331,8 @@ describe("PersonPanel — wpisany tekst nie ginie", () => {
   it("awaria notatek nie wygląda jak „brak notatek”", async () => {
     mocks.apiGet.mockRejectedValue(new Error("500"));
     renderPanel({ candidateId: 1 });
-    expect(await screen.findByText(/Nie udało się wczytać notatek/)).toBeInTheDocument();
+    // Ten sam komunikat co w doku (wspólna lista notatek, 04.10.2026).
+    expect(await screen.findByText(/Nie udało się wczytać: notatki/)).toBeInTheDocument();
     expect(screen.queryByText("Brak notatek w tej rekrutacji.")).not.toBeInTheDocument();
   });
 });
