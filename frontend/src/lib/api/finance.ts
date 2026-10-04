@@ -287,6 +287,9 @@ export interface OrderSupersededCheck {
   done: OrderItemCheck;
 }
 
+/** Klucz zapytania o badge „do zrobienia" (menu Finansów, pulpit Finansów). */
+export const ORDER_CHANGES_SUMMARY_KEY = ["finance-order-changes-summary"] as const;
+
 export interface OrderChangesSummary {
   period: { year: number; month: number; label: string };
   tabs: Record<OrderChangesTab, { total: number; todo: number }>;

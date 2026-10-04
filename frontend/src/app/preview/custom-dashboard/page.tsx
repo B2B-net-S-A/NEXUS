@@ -17,7 +17,10 @@
 // zamknięcia, rekrutacja bez przekazania, niedokończony formularz) stoi
 // w panelu wariantu „Pulpit z kafelkami”, a w wariancie „CV w drodze: pasek”
 // — sama, we własnej ramce.
-// `?as=recruiter` — ten sam pulpit bez prawa decyzji (obu sekcji nie ma).
+// `?as=recruiter|tcm|dl|dlr|hor|admin|finance` (04.10.2026) — persona roli;
+// domyślny wariant „Układ roli” pokazuje pulpit konta bez zapisanego układu
+// (`uses_role_layout`) i „Czeka na Ciebie” z przepływem rekrutacji (rekruter,
+// TCM, DL) albo pracą Finansów. Propozycje i „kto prowadzi” — Head i admin.
 
 import { useEffect, useState } from "react";
 import { AxiosError } from "axios";
@@ -34,6 +37,24 @@ import {
   type MetricResult,
 } from "@/lib/api/dashboardMetrics";
 import { myPeopleSummaryQueryKey } from "@/lib/api/myPeople";
+import { MY_CLIENTS_CARDS_QUERY_KEY } from "@/components/v2/dashboard/MyClientsAlertsPanel";
+import {
+  MY_RECRUITMENTS_QUERY_KEY,
+  type MyRecruitmentRow,
+} from "@/components/v2/dashboard/custom/MyRecruitmentsTile";
+import { MY_WEEK_QUERY_KEY } from "@/components/v2/dashboard/custom/MyWeekTile";
+import {
+  SYSTEM_STATUS_QUERY_KEY,
+  type HealthResponse,
+} from "@/components/v2/dashboard/custom/SystemStatusTile";
+import {
+  TEAM_SIGNALS_QUERY_KEY,
+  type TeamSignal,
+} from "@/components/v2/dashboard/custom/TeamSignalsTile";
+import { interviewCycleQueryKey } from "@/lib/api/interviewCycle";
+import { ORDER_CHANGES_SUMMARY_KEY } from "@/lib/api/finance";
+import type { MyKpiPanel } from "@/lib/api";
+import type { CycleOverview } from "@/lib/interview-cycle";
 import {
   BOARD_TASKS_QUERY_KEY,
   CPRO_SENDER_QUERY_KEY,
@@ -43,6 +64,8 @@ import {
   type CproSender,
   type CvInTransit,
   type CvTransitRow,
+  type FinanceBlock,
+  type FlowBlock,
   type NewJobLeadRow,
   type PendingJobs,
   type UnfinishedJobForm,
@@ -58,6 +81,8 @@ import {
   type UserDashboardResponse,
 } from "@/lib/api/userDashboard";
 import { TILE_TEMPLATES } from "@/lib/dashboard-tiles/catalog";
+import { candidateContactQueryKeys } from "@/lib/candidate-contact";
+import type { UserRole } from "@/store/auth";
 import { useAuthStore } from "@/store/auth";
 
 const tpl = (key: string) => TILE_TEMPLATES.find((t) => t.key === key)!;
@@ -250,7 +275,160 @@ const REQUEST_BOARD: RequestBoard = {
   changes: [],
 };
 
-type Persona = "hor" | "recruiter";
+type Persona = "hor" | "recruiter" | "tcm" | "dl" | "dlr" | "admin" | "finance";
+
+const PERSONAS: Record<Persona, { label: string; roles: UserRole[] }> = {
+  recruiter: { label: "Rekruter", roles: ["recruiter"] },
+  tcm: { label: "Talent Community Manager", roles: ["talent_community_manager"] },
+  dl: { label: "Delivery Lead", roles: ["delivery_lead"] },
+  dlr: { label: "Delivery Lead + Rekruter", roles: ["delivery_lead", "recruiter"] },
+  hor: { label: "Head of Recruitment", roles: ["head_of_recruitment", "delivery_lead"] },
+  admin: { label: "Administrator", roles: ["admin"] },
+  finance: { label: "Finanse", roles: ["finance"] },
+};
+
+function parsePersona(value: string | null): Persona {
+  return value && value in PERSONAS ? (value as Persona) : "hor";
+}
+
+// „Twój ruch” (04.10.2026) — przepływ rekrutacji i praca Finansów (dane fikcyjne).
+const flowPair = (over: Partial<FlowBlock["claimed"][number]>): FlowBlock["claimed"][number] => ({
+  candidate_id: 1,
+  candidate_name: "Kandydat",
+  job_id: 501,
+  job_title: "Senior Java Developer",
+  job_working_title: null,
+  client_name: "Bank Północny",
+  since: daysAgo(1),
+  claimed_until: null,
+  missing: [],
+  qc_status: null,
+  ...over,
+});
+const FLOW: FlowBlock = {
+  applies: true,
+  postings: [
+    { job_id: 501, job_title: "Senior Java Developer", client_name: "Bank Północny", count: 46, oldest_at: daysAgo(9) },
+    { job_id: 502, job_title: "Tester automatyzujący · Python", client_name: "Bank Kappa", count: 18, oldest_at: daysAgo(4) },
+    { job_id: 503, job_title: "Administrator chmury · Azure", client_name: "Fundusz Przykładowy", count: 7, oldest_at: daysAgo(2) },
+  ],
+  postings_total: 71,
+  claimed: [
+    flowPair({ candidate_id: 601, candidate_name: "Marta Fikcyjna", claimed_until: new Date(Date.now() + 5 * 3_600_000).toISOString() }),
+  ],
+  screening: [
+    flowPair({ candidate_id: 602, candidate_name: "Piotr Wzorcowy", missing: ["sheet", "rate"], since: daysAgo(3) }),
+    flowPair({ candidate_id: 603, candidate_name: "Alicja Makietowa", job_id: 502, job_title: "Tester automatyzujący · Python", client_name: "Bank Kappa", missing: ["rate"] }),
+  ],
+  verified: [flowPair({ candidate_id: 604, candidate_name: "Kamil Przykładowy", since: daysAgo(2) })],
+  waiting_client: [],
+  waiting_client_days: 7,
+  unsigned_contracts: [],
+  order_mail_review: 0,
+};
+const DL_FLOW: FlowBlock = {
+  ...FLOW,
+  waiting_client: [
+    flowPair({ candidate_id: 611, candidate_name: "Ewa Zmyślona", since: daysAgo(11) }),
+    flowPair({ candidate_id: 612, candidate_name: "Jan Fikcyjny", job_id: 503, job_title: "Administrator chmury · Azure", client_name: "Fundusz Przykładowy", since: daysAgo(8) }),
+  ],
+  unsigned_contracts: [
+    { id: 71, contract_number: "1734/2026", partner_name: "Kod i Chmura Jan Fikcyjny", client_name: "Bank Północny", created_at: daysAgo(4) },
+  ],
+  order_mail_review: 2,
+};
+const FINANCE: FinanceBlock = {
+  gaps_open: 3,
+  pdfs_new: 12,
+  order_mail_failed: 1,
+  hired_without_order: [flowPair({ candidate_id: 621, candidate_name: "Robert Makietowy", since: daysAgo(6) })],
+  hired_without_order_total: 1,
+};
+
+const TODAY_ISO = new Date().toISOString().slice(0, 10);
+const cyclePair = (id: number, name: string, client: string) => ({
+  candidate_id: id,
+  candidate_name: name,
+  candidate_email: null,
+  job_id: 501,
+  job_title: "Senior Java Developer",
+  client_id: 11,
+  client_name: client,
+});
+const CYCLE: CycleOverview = {
+  generated_at: new Date().toISOString(),
+  scope: "mine",
+  call_window_minutes: 30,
+  items: [],
+  agenda: [
+    { ...cyclePair(701, "Anna Zielińska", "Bank Północny"), kind: "prep", start: `${TODAY_ISO}T07:30:00Z`, end: `${TODAY_ISO}T08:00:00Z`, event_id: 1, slot_request_id: null, online_meeting_url: null, done: true },
+    { ...cyclePair(701, "Anna Zielińska", "Bank Północny"), kind: "interview", start: `${TODAY_ISO}T10:00:00Z`, end: `${TODAY_ISO}T11:00:00Z`, event_id: 2, slot_request_id: null, online_meeting_url: null, done: false },
+    { ...cyclePair(702, "Tomasz Wzorcowy", "Bank Kappa"), kind: "prep2", start: `${TODAY_ISO}T13:00:00Z`, end: `${TODAY_ISO}T13:30:00Z`, event_id: 3, slot_request_id: null, online_meeting_url: null, done: false },
+  ],
+  todos: [
+    { ...cyclePair(703, "Karolina Fikcyjna", "Bank Kappa"), kind: "debrief_overdue", priority: 1, due: daysAgo(1), event_id: 4, slot_request_id: null },
+  ],
+  truncated: false,
+};
+
+const MY_WEEK: MyKpiPanel = {
+  role: "recruiter",
+  applies: true,
+  weryfikacje: { day: 2, week: 9, month: 31 },
+  rekomendacje: { day: 1, week: 6, month: 19 },
+  interview_month: 5,
+  akceptacje_month: 1,
+  placementy_month: 1,
+  cv_to_base: null,
+  precision: { value_pct: 72, verified: 25, sent: 18, target_pct: 75, window_days: 30 },
+  target_verifications_daily: 4,
+  target_placements_monthly: 1,
+  target_cv_added_daily: null,
+  target_precision_pct: 75,
+};
+
+const TEAM_SIGNALS: { items: TeamSignal[] } = {
+  items: [
+    { kind: "no_one_sent", count: 6, label: "rekrutacji otwartych ponad 14 dni bez wysłanego CV", href: "/jobs?open=1&sent=none" },
+    { kind: "overdue", count: 3, label: "rekrutacje po terminie", href: "/jobs?open=1&deadline=overdue" },
+    { kind: "stale_postings", count: 214, label: "osób czeka w Ogłoszeniach ponad 3 dni" },
+    { kind: "stale_jobs", count: 4, label: "rekrutacje bez ruchu od 14 dni", report: "stale_jobs" },
+  ],
+};
+
+const HEALTH: HealthResponse = {
+  status: "healthy",
+  version: "cb15211a0c",
+  checks: {
+    traffit: "degraded",
+    order_mail: "healthy",
+    background_tasks: "healthy",
+    migrations: "healthy",
+    m365_mail: "unknown",
+    qdrant: "healthy",
+    voyage: "healthy",
+    anthropic: "healthy",
+  },
+};
+
+const recruitmentRow = (over: Partial<MyRecruitmentRow>): MyRecruitmentRow => ({
+  id: 501,
+  title: "Senior Java Developer",
+  client_name: "Bank Północny",
+  deadline: TODAY_ISO,
+  delivery_lead_id: 1,
+  recruiters: [],
+  stage_breakdown: { posting: 46, new: 4, screening: 2, verified: 1, cv_sent: 3, client_interview: 1 },
+  ...over,
+});
+const MY_RECRUITMENTS = {
+  total: 3,
+  items: [
+    recruitmentRow({}),
+    recruitmentRow({ id: 502, title: "Tester automatyzujący · Python", client_name: "Bank Kappa", deadline: null, stage_breakdown: { posting: 18, new: 2, screening: 1 } }),
+    recruitmentRow({ id: 503, title: "Administrator chmury · Azure", client_name: "Fundusz Przykładowy", deadline: "2026-11-15", stage_breakdown: { new: 3, cv_sent: 2 } }),
+  ],
+};
 
 const transitRow = (over: Partial<CvTransitRow>): CvTransitRow => ({
   kind: "in_review",
@@ -336,9 +514,10 @@ const NO_TASKS: BoardTasksResponse = {
   cpro_sent: [],
 };
 
-type Variant = "filled" | "empty" | "bar" | "bar-empty";
+type Variant = "role" | "filled" | "empty" | "bar" | "bar-empty";
 
 const VARIANT_LABEL: Record<Variant, string> = {
+  role: "Układ roli",
   filled: "Pulpit z kafelkami",
   empty: "Pusty pulpit",
   bar: "CV w drodze: pasek",
@@ -349,6 +528,7 @@ function seededClient(
   tiles: DashboardTile[],
   boardTasks: BoardTasksResponse,
   persona: Persona,
+  roleLayout = false,
 ): QueryClient {
   const qc = new QueryClient({
     defaultOptions: {
@@ -357,24 +537,59 @@ function seededClient(
   });
   qc.setQueryData<UserDashboardResponse>(USER_DASHBOARD_QUERY_KEY, {
     tiles,
-    version: 3,
+    version: roleLayout ? 0 : 3,
     dropped_tiles: [],
+    uses_role_layout: roleLayout,
   });
   qc.setQueryData(METRIC_CATALOG_QUERY_KEY, CATALOG);
   // Propozycje i „Nowe rekrutacje — kto prowadzi” dostaje wyłącznie osoba,
   // która o przydziale decyduje — jak z serwera.
+  const decides = persona === "hor" || persona === "admin";
+  const withFlow: BoardTasksResponse = {
+    ...boardTasks,
+    flow:
+      persona === "dl" || persona === "dlr"
+        ? DL_FLOW
+        : persona === "recruiter" || persona === "tcm"
+          ? FLOW
+          : null,
+    finance: persona === "finance" ? FINANCE : null,
+    ...(persona === "finance" ? { cv_in_transit: null, dl_review: [], cpro_to_send: [], cpro_sent: [] } : {}),
+    // Rekrutacje do dokończenia serwer daje tylko DL-owi, Headowi i adminowi.
+    ...(persona === "dl" || persona === "dlr" || decides ? {} : { pending_jobs: null }),
+  };
   qc.setQueryData<BoardTasksResponse>(
     BOARD_TASKS_QUERY_KEY,
-    persona === "hor"
+    decides
       ? {
-          ...boardTasks,
+          ...withFlow,
           can_decide_proposals: true,
           allocation_leave_known: false,
           allocation_proposals: ALLOCATION_PROPOSALS,
           new_job_leads: NEW_JOB_LEADS,
         }
-      : { ...boardTasks, can_decide_proposals: false },
+      : { ...withFlow, can_decide_proposals: false },
   );
+  // Nowe kafelki układu ról (04.10.2026).
+  qc.setQueryData<CycleOverview>(interviewCycleQueryKey("mine"), CYCLE);
+  qc.setQueryData<CycleOverview>(interviewCycleQueryKey("jobs"), { ...CYCLE, scope: "jobs" });
+  qc.setQueryData<MyKpiPanel>(MY_WEEK_QUERY_KEY, MY_WEEK);
+  qc.setQueryData(TEAM_SIGNALS_QUERY_KEY, TEAM_SIGNALS);
+  qc.setQueryData<HealthResponse>(SYSTEM_STATUS_QUERY_KEY, HEALTH);
+  qc.setQueryData(MY_RECRUITMENTS_QUERY_KEY, MY_RECRUITMENTS);
+  qc.setQueryData(MY_CLIENTS_CARDS_QUERY_KEY, { cards: [], total: 0 });
+  qc.setQueryData(ORDER_CHANGES_SUMMARY_KEY, {
+    period: { year: 2026, month: 10, label: "październik 2026" },
+    tabs: {},
+    todo: 7,
+  });
+  // Każdy szablon metryki z katalogu ma wynik — układy ról sięgają po różne.
+  for (const t of TILE_TEMPLATES) {
+    if (!t.config.metric) continue;
+    const key = metricQueryKey(t.config.metric);
+    if (qc.getQueryData(key) !== undefined) continue;
+    qc.setQueryData(key, metricResult({ value: 12, previous_value: 9 }));
+  }
   // „Zmień” czyta obłożenie z pulpitu „Requesty i obłożenie”. Znacznik czasu
   // w przyszłości: dane nigdy nie są „stare”, więc otwarcie listy nie próbuje
   // ich odświeżyć (zero zapytań).
@@ -450,30 +665,42 @@ function seededClient(
   });
   // Stałe klucze pickerów kreatora (`harness-seeds.test.ts`).
   qc.setQueryData(["dashboard-metric-clients"], []);
+  // Kontakt z kandydatem włączony — kafelki TCM i nadzoru kontaktu u Heada.
+  qc.setQueryData(candidateContactQueryKeys.status(), {
+    enabled: true,
+    assignment_enabled: true,
+    traffit_intake_enabled: true,
+  });
+  qc.setQueryData(candidateContactQueryKeys.queue(), {
+    items: [],
+    utilization: { used: 6, capacity: 20 },
+  });
+  qc.setQueryData(candidateContactQueryKeys.oversight(), {
+    counters: { overdue: 2, unassigned: 1, awaiting_capacity: 0, blocked_no_phone: 3 },
+    items: [],
+  });
   qc.setQueryData(["competence-categories-active"], []);
   return qc;
 }
 
 export default function CustomDashboardPreview() {
   const [persona, setPersona] = useState<Persona | null>(null);
-  const [variant, setVariant] = useState<Variant>("filled");
+  const [variant, setVariant] = useState<Variant>("role");
   const [clients, setClients] = useState<Record<Variant, QueryClient> | null>(null);
 
   useEffect(() => {
     const blocker = api.interceptors.request.use((config) =>
       Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config)),
     );
-    const as: Persona =
-      new URLSearchParams(window.location.search).get("as") === "recruiter" ? "recruiter" : "hor";
+    const as = parsePersona(new URLSearchParams(window.location.search).get("as"));
+    const meta = PERSONAS[as];
     useAuthStore.setState({
       user: {
         id: 1,
         email: "preview@example.com",
-        name: as === "hor" ? "Preview Head of Recruitment" : "Preview Rekruter",
-        role: as === "hor" ? "head_of_recruitment" : "recruiter",
-        // Delivery Lead w obu wariantach: kafelki kontraktów i zamówień oraz
-        // lista „Czeka na Twój przegląd (DL)” zostają takie same.
-        roles: as === "hor" ? ["head_of_recruitment", "delivery_lead"] : ["recruiter", "delivery_lead"],
+        name: `Preview ${meta.label}`,
+        role: meta.roles[0],
+        roles: meta.roles,
         profile_completed: true,
         profile_completed_at: null,
         force_password_change: false,
@@ -483,6 +710,7 @@ export default function CustomDashboardPreview() {
       hydrated: true,
     });
     setClients({
+      role: seededClient([], { ...NO_TASKS, cv_in_transit: TRANSIT_RETURNED, pending_jobs: PENDING_JOBS }, as, true),
       filled: seededClient(
         TILES,
         {
@@ -527,14 +755,17 @@ export default function CustomDashboardPreview() {
               {VARIANT_LABEL[v]}
             </button>
           ))}
-          <span className="ml-auto text-muted-foreground">
-            {persona === "hor" ? "Head of Recruitment" : "Rekruter"} ·{" "}
-            <a
-              className="text-primary hover:underline"
-              href={persona === "hor" ? "?as=recruiter" : "?as=hor"}
-            >
-              {persona === "hor" ? "pokaż jako rekruter" : "pokaż jako Head of Recruitment"}
-            </a>
+          <span className="ml-auto flex flex-wrap gap-x-3 text-muted-foreground">
+            {(Object.keys(PERSONAS) as Persona[]).map((p) => (
+              <a
+                key={p}
+                href={`?as=${p}`}
+                aria-current={persona === p ? "page" : undefined}
+                className={persona === p ? "font-semibold text-primary" : "hover:underline"}
+              >
+                {PERSONAS[p].label}
+              </a>
+            ))}
           </span>
         </div>
         {/* Padding powłoki (`<main>` ma `p-4 md:p-6`) — pulpit nie dokłada własnego. */}

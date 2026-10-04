@@ -186,7 +186,7 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     category: "recruitment",
     defaultSize: { w: 6, h: 5 },
     minSize: { w: 4, h: 3 },
-    ownChrome: true,
+    ownChrome: false,
     availability: needsSection("pipeline", "Rekrutacje"),
   },
   recruitment_activity: {
@@ -296,6 +296,77 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     minSize: { w: 3, h: 2 },
     ownChrome: false,
     availability: ANY,
+  },
+  today_cycle: {
+    type: "today_cycle",
+    label: "Dziś",
+    description:
+      "Rozmowy u klienta, prepy i telefon do kandydata po rozmowie — z tego, co jest na dziś do zrobienia.",
+    category: "calendar",
+    defaultSize: { w: 4, h: 5 },
+    minSize: { w: 3, h: 3 },
+    ownChrome: false,
+    // Lustro bramki /calendar (`PIPELINE_OPERATIONAL_ROLES` w middleware)
+    // i `RecruitmentReadAccess` na `GET /api/interview-cycle`.
+    availability: both(
+      needsSection("pipeline", "Rekrutacje"),
+      needsRole(
+        [
+          "admin",
+          "head_of_recruitment",
+          "delivery_lead",
+          "recruiter",
+          "talent_community_manager",
+          "finance",
+        ],
+        "Dla osób pracujących przy rekrutacjach",
+      ),
+    ),
+  },
+  team_signals: {
+    type: "team_signals",
+    label: "Gdzie stoi",
+    description:
+      "Rekrutacje bez ruchu, bez nikogo u klienta, po terminie i nieprzejrzane Ogłoszenia — tylko ponad próg.",
+    category: "team",
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    // Lustro `VIEW_TEAM_KPI` na `GET /api/insights/team/attention`.
+    availability: both(
+      needsSection("insights", "Insights"),
+      needsRole(
+        [
+          "admin",
+          "head_of_recruitment",
+          "delivery_lead",
+          "talent_community_manager",
+          "finance",
+        ],
+        "Dla liderów zespołu",
+      ),
+    ),
+  },
+  system_status: {
+    type: "system_status",
+    label: "Stan systemu",
+    description:
+      "Synchronizacja Traffita, poczta zamówień, automaty, migracje i usługi AI — z publicznej sondy zdrowia.",
+    category: "team",
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    availability: needsRole(["admin"], "Dla administratora"),
+  },
+  my_week: {
+    type: "my_week",
+    label: "Twój tydzień",
+    description: "Weryfikacje, CV do klienta i placementy względem Twoich celów KPI.",
+    category: "my_work",
+    defaultSize: { w: 5, h: 2 },
+    minSize: { w: 4, h: 2 },
+    ownChrome: false,
+    availability: needsSection("insights", "Insights"),
   },
   metric_number: {
     type: "metric_number",
@@ -518,6 +589,98 @@ export const TILE_TEMPLATES: TileTemplate[] = [
     metricSection: "finance",
   },
   {
+    key: "orders_ending_count",
+    type: "metric_number",
+    label: "Zamówienia kończące się w 30 dni",
+    description: "Ile zamówień Twoich klientów kończy się w ciągu 30 dni.",
+    category: "clients",
+    config: {
+      title: "Zamówienia kończące się w 30 dni",
+      link_to: "/clients?mine=1",
+      metric: {
+        source: "orders",
+        measure: "ending_30_days",
+        filters: { author: "all" },
+        group_by: "none",
+        period: "last_30_days",
+      },
+    },
+    metricSection: "delivery",
+  },
+  {
+    key: "margin_number",
+    type: "metric_number",
+    label: "Marża miesięczna (liczba)",
+    description: "Dzisiejsza marża miesięczna z kontraktów (PLN), w Twoim zakresie klientów.",
+    category: "finance",
+    config: {
+      title: "Marża / mc",
+      metric: {
+        source: "finance",
+        measure: "margin",
+        filters: { author: "all" },
+        group_by: "none",
+        period: "this_month",
+      },
+    },
+    metricSection: "finance",
+  },
+  {
+    key: "hired_month_all",
+    type: "metric_number",
+    label: "Zatrudnieni w firmie",
+    description: "Placementy całej firmy w tym miesiącu, z porównaniem do poprzedniego.",
+    category: "recruitment",
+    config: {
+      title: "Placementy w tym miesiącu",
+      metric: {
+        source: "pipeline_moves",
+        measure: "first_reach",
+        stage: "hired",
+        filters: { author: "all" },
+        group_by: "none",
+        period: "this_month",
+        compare_previous: true,
+      },
+    },
+    metricSection: "pipeline",
+  },
+  {
+    key: "team_funnel_week",
+    type: "metric_funnel",
+    label: "Lejek zespołu · tydzień",
+    description: "Ile osób zespół przeprowadził przez każdy etap w ostatnich 7 dniach.",
+    category: "team",
+    config: {
+      title: "Lejek zespołu · 7 dni",
+      metric: {
+        source: "pipeline_moves",
+        measure: "first_reach",
+        stage: null,
+        filters: { author: "team" },
+        group_by: "stage",
+        period: "last_7_days",
+      },
+    },
+    metricSection: "pipeline",
+  },
+  {
+    key: "request_board_my_category",
+    type: "request_board",
+    label: "Requesty i obłożenie · moja kategoria",
+    description: "Ta sama tablica co na daily, z filtrem ustawionym na Twoją kategorię.",
+    category: "team",
+    config: { board_scope: "my_category" },
+  },
+  {
+    key: "request_board_my_lead",
+    type: "request_board",
+    label: "Requesty i obłożenie · moje requesty",
+    description: "Ta sama tablica co na daily, z filtrem „Delivery Lead: ja”.",
+    category: "team",
+    config: { board_scope: "my_lead" },
+  },
+  {
     key: "note",
     type: "note",
     label: "Notatka i linki",
@@ -526,60 +689,6 @@ export const TILE_TEMPLATES: TileTemplate[] = [
     config: { title: "Notatka", text: "" },
   },
 ];
-
-// ── Polecane dla roli (pusty pulpit) ─────────────────────────────────────────
-
-const RECOMMENDED_BY_ROLE: Partial<Record<UserRole, string[]>> = {
-  recruiter: ["request_board", "cv_sent_week", "my_recruitments", "my_next_steps", "calendar_today"],
-  talent_community_manager: [
-    "recruitment_activity",
-    "funnel",
-    "my_contact_queue",
-    "calendar_today",
-  ],
-  head_of_recruitment: [
-    "request_board",
-    "recruitment_activity",
-    "team_workload",
-    "funnel",
-    "contact_oversight",
-  ],
-  delivery_lead: [
-    "request_board",
-    "my_clients_alerts",
-    "orders_ending",
-    "active_contracts",
-    "calendar_today",
-  ],
-  finance: ["margin_monthly", "margin_by_client", "active_contracts", "orders_ending"],
-  admin: [
-    "request_board",
-    "recruitment_competence",
-    "orders_ending",
-    "active_contracts",
-    "margin_monthly",
-  ],
-};
-
-// Kolejność ról: pierwsza pasująca decyduje (konto wielorolowe dostaje
-// podpowiedzi najszerszej persony).
-const ROLE_PRIORITY: UserRole[] = [
-  "admin",
-  "finance",
-  "head_of_recruitment",
-  "delivery_lead",
-  "talent_community_manager",
-  "recruiter",
-];
-
-export const ROLE_LABELS_PL: Partial<Record<UserRole, string>> = {
-  admin: "Administrator",
-  finance: "Finanse",
-  head_of_recruitment: "Head of Recruitment",
-  delivery_lead: "Delivery Lead",
-  talent_community_manager: "Talent Community Manager",
-  recruiter: "Rekruter",
-};
 
 export function templateAvailability(
   template: TileTemplate,
@@ -612,43 +721,6 @@ export function templateAvailability(
         };
   }
   return { ok: true };
-}
-
-export function recommendedTemplates(user: User | null | undefined): {
-  roleLabel: string | null;
-  templates: TileTemplate[];
-} {
-  const roles = getUserRoles(user);
-  const role = ROLE_PRIORITY.find((r) => roles.includes(r)) ?? null;
-  const keys = (role && RECOMMENDED_BY_ROLE[role]) || ["calendar_today", "note"];
-  const templates = keys
-    .map((key) => TILE_TEMPLATES.find((t) => t.key === key))
-    .filter((t): t is TileTemplate => Boolean(t))
-    .filter((t) => templateAvailability(t, user).ok);
-  return { roleLabel: role ? (ROLE_LABELS_PL[role] ?? null) : null, templates };
-}
-
-/**
- * Nowe kafelki, o których mówimy osobom z JUŻ ułożonym pulpitem — polecenia
- * roli widzi tylko pusty pulpit, więc bez tego nowość nie dociera do nikogo
- * (24.09.2026: „Requesty i obłożenie” wdrożone, na 5 pulpitach 0 kafelków).
- */
-export const ANNOUNCED_TILES: TileType[] = ["request_board"];
-
-/** Pierwszy ogłaszany kafelek polecany tej roli, którego nie ma na pulpicie. */
-export function announcedTile(
-  user: User | null | undefined,
-  tiles: Pick<DashboardTile, "type">[],
-  dismissed: ReadonlySet<string>,
-): TileTemplate | null {
-  const recommended = recommendedTemplates(user).templates;
-  for (const type of ANNOUNCED_TILES) {
-    if (dismissed.has(type)) continue;
-    if (tiles.some((t) => t.type === type)) continue;
-    const template = recommended.find((t) => t.type === type);
-    if (template) return template;
-  }
-  return null;
 }
 
 export function tileTitle(tile: Pick<DashboardTile, "type" | "config">): string {

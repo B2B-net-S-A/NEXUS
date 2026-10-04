@@ -141,6 +141,14 @@ class BoardChange(BaseModel):
     reason: Optional[str]
 
 
+class BoardViewer(BaseModel):
+    """Kto ogląda — front ustawia z tego filtr startowy kafelka (moja kategoria,
+    „Delivery Lead: ja”), gdy adres nie niesie własnych filtrów."""
+
+    user_id: int
+    primary_category_id: Optional[int]
+
+
 class BoardResponse(BaseModel):
     mode: str
     availability_known: bool
@@ -148,6 +156,9 @@ class BoardResponse(BaseModel):
     requests: list[BoardRequest]
     load: list[LoadPerson]
     changes: list[BoardChange]
+    viewer: Optional[BoardViewer] = None
+    # Początek okna „Zmiany od wczoraj” (poprzedni dzień roboczy).
+    changes_since: Optional[datetime] = None
 
 
 # Id spoza zakresu kolumny ``integer`` kończyło się błędem bazy (500) zamiast
@@ -214,7 +225,7 @@ def _board_person(person: TeamPerson, row_source: Optional[str]) -> BoardPerson:
 
 @router.get("", response_model=BoardResponse)
 async def get_request_board(
-    _user: OperationalUser, db: AsyncSession = Depends(get_db)
+    user: OperationalUser, db: AsyncSession = Depends(get_db)
 ) -> BoardResponse:
     now = datetime.now(timezone.utc)
     jobs = list(
@@ -479,6 +490,16 @@ async def get_request_board(
         requests=requests,
         load=load,
         changes=changes[:30],
+        viewer=BoardViewer(
+            user_id=user.id,
+            primary_category_id=await db.scalar(
+                select(UserCompetenceCategory.competence_category_id).where(
+                    UserCompetenceCategory.user_id == user.id,
+                    UserCompetenceCategory.priority == 1,
+                )
+            ),
+        ),
+        changes_since=since,
     )
 
 

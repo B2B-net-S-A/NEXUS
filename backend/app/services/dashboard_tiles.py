@@ -55,6 +55,10 @@ TileType = Literal[
     "my_clients_alerts",
     "dl_alerts",
     "calendar_today",
+    "today_cycle",
+    "team_signals",
+    "system_status",
+    "my_week",
     "metric_number",
     "metric_chart",
     "metric_funnel",
@@ -80,6 +84,24 @@ def hidden_panels(raw: Any) -> list[str]:
     if not isinstance(stored, list):
         return []
     return [key for key in PANEL_KEYS if key in stored]
+
+
+# Pulpit bez kafelków pokazuje układ roli (04.10.2026: 29 z 35 kont nigdy nie
+# ułożyło pulpitu). Osoba, która świadomie zapisała pusty układ, dostaje pustą
+# kartę — znacznik obok `tiles`, jak `hidden_panels`.
+ROLE_LAYOUT_OFF_KEY = "role_layout_off"
+
+
+def role_layout_off(raw: Any) -> bool:
+    """Czy osoba zapisała pusty pulpit (zamiast korzystać z układu roli)."""
+
+    return isinstance(raw, dict) and raw.get(ROLE_LAYOUT_OFF_KEY) is True
+
+
+def uses_role_layout(raw: Any, tiles: list[Any]) -> bool:
+    """Pulpit bez zapisanych kafelków i bez świadomie pustego układu."""
+
+    return not tiles and not role_layout_off(raw)
 
 
 # Backslash, białe i sterujące znaki — przeglądarka normalizuje `/\evil.com`
@@ -124,6 +146,9 @@ class TileConfig(BaseModel):
     text: Optional[str] = Field(default=None, max_length=2000)
     links: list[NoteLink] = Field(default_factory=list, max_length=10)
     link_to: Optional[str] = Field(default=None, max_length=300)
+    # „Requesty i obłożenie”: zakres startowy filtrów, gdy adres ich nie niesie
+    # (moja kategoria / „Delivery Lead: ja” / całość). Liczony u oglądającego.
+    board_scope: Optional[Literal["all", "my_category", "my_lead"]] = None
 
     @field_validator("link_to")
     @classmethod
@@ -154,6 +179,10 @@ class DashboardTile(BaseModel):
             raise ValueError("Kafelek metryki wymaga definicji metryki.")
         if self.type not in METRIC_TILE_TYPES and self.config.metric is not None:
             raise ValueError("Tylko kafelek metryki może nieść definicję metryki.")
+        if self.config.board_scope is not None and self.type != "request_board":
+            raise ValueError(
+                "Zakres tablicy dotyczy tylko kafelka „Requesty i obłożenie”."
+            )
         if self.type == "metric_funnel" and self.config.metric is not None:
             m = self.config.metric
             if m.source != "pipeline_moves" or m.group_by != "stage":

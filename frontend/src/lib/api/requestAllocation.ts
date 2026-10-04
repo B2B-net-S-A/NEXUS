@@ -88,6 +88,13 @@ export interface RequestBoard {
   requests: BoardRequest[]
   load: LoadPerson[]
   changes: BoardChange[]
+  /** Kto patrzy — zakres kafelka („Moja kategoria”, „Moje jako DL”) liczy się z tego. */
+  viewer?: { user_id: number; primary_category_id: number | null } | null
+  /**
+   * Początek okna „Zmiany od wczoraj” (ISO): ta sama godzina poprzedniego dnia
+   * roboczego. `null`/brak = starszy backend — okno to ostatnia doba.
+   */
+  changes_since?: string | null
 }
 
 export const REQUEST_BOARD_QUERY_KEY = ["request-board"] as const

@@ -2,7 +2,8 @@
 
 Kontrakty (decyzje Artura 21.09.2026):
 
-- brak zapisu = pusty pulpit (wersja 0), nie błąd;
+- brak zapisu = układ roli (wersja 0, ``uses_role_layout``), nie błąd;
+- zapisany pusty układ = świadomie pusty pulpit (``role_layout_off``);
 - jeden pulpit na osobę, widzi go tylko właściciel (trasa czyta ``current_user``);
 - zapis z nieaktualną wersją = 409 (dwie karty przeglądarki);
 - kafelek poza siatką, zły link albo metryka niepasująca do typu = 422;
@@ -83,6 +84,8 @@ async def test_empty_dashboard_before_first_save(app_client):
         "version": 0,
         "dropped_tiles": [],
         "hidden_panels": [],
+        # 04.10.2026: brak zapisu = front pokazuje układ roli.
+        "uses_role_layout": True,
     }
 
 
@@ -248,6 +251,7 @@ async def test_panel_removed_from_the_dashboard_survives_a_tile_save(app_client)
         "version": 0,
         "dropped_tiles": [],
         "hidden_panels": ["cv_in_transit"],
+        "uses_role_layout": True,
     }
 
     saved = await app_client.put(
@@ -292,3 +296,59 @@ def test_first_save_inserts_the_row_before_locking_it():
     src = inspect.getsource(user_dashboard.save_my_dashboard)
     assert "on_conflict_do_nothing" in src
     assert src.index("on_conflict_do_nothing") < src.index("with_for_update")
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_saving_an_empty_layout_turns_the_role_layout_off(app_client):
+    """Usunięcie ostatniego kafelka to decyzja „chcę pusty pulpit” — bez
+    znacznika przy następnym wejściu wróciłby układ roli (04.10.2026)."""
+    headers, _ = await _login()
+    first = await app_client.put(
+        URL, headers=headers, json={"tiles": [_tile()], "expected_version": 0}
+    )
+    assert first.json()["uses_role_layout"] is False
+    emptied = await app_client.put(
+        URL, headers=headers, json={"tiles": [], "expected_version": 1}
+    )
+    assert emptied.status_code == 200, emptied.text
+    assert emptied.json()["uses_role_layout"] is False
+    assert (await app_client.get(URL, headers=headers)).json()[
+        "uses_role_layout"
+    ] is False
+
+    # Kafelek dodany później zdejmuje znacznik — pusty pulpit znowu znaczy
+    # „pusty z wyboru” dopiero po kolejnym pustym zapisie.
+    again = await app_client.put(
+        URL, headers=headers, json={"tiles": [_tile()], "expected_version": 2}
+    )
+    assert again.json()["uses_role_layout"] is False
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_hiding_a_panel_keeps_the_role_layout(app_client):
+    headers, _ = await _login()
+    resp = await app_client.put(PANEL_URL, headers=headers, json={"hidden": True})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["uses_role_layout"] is True
+    assert (await app_client.get(URL, headers=headers)).json()[
+        "uses_role_layout"
+    ] is True
+
+
+def test_board_scope_is_only_for_the_request_board():
+    from pydantic import ValidationError
+
+    from app.services.dashboard_tiles import DashboardTile
+
+    ok = DashboardTile.model_validate(
+        _tile(type="request_board", w=12, h=8, config={"board_scope": "my_category"})
+    )
+    assert ok.config.board_scope == "my_category"
+    with pytest.raises(ValidationError):
+        DashboardTile.model_validate(_tile(config={"board_scope": "my_lead"}))
+    with pytest.raises(ValidationError):
+        DashboardTile.model_validate(
+            _tile(type="request_board", w=12, h=8, config={"board_scope": "team"})
+        )

@@ -365,6 +365,59 @@ const team: CompetenceTeam = {
   rules: { review_time: "08:30" },
 }
 
+describe("RequestBoardView — wariant daily", () => {
+  function Daily() {
+    const [filters, setFilters] = useState<BoardFilters>(EMPTY_FILTERS)
+    return (
+      <RequestBoardView
+        board={{ ...board, changes_since: "2026-10-02T07:30:00Z" }}
+        variant="daily"
+        today={TODAY}
+        filters={filters}
+        onFilters={setFilters}
+        canStaff={false}
+        canDecide={false}
+        onAddPerson={vi.fn()}
+        onRemovePerson={vi.fn()}
+        onAcceptProposal={vi.fn()}
+      />
+    )
+  }
+
+  it("„Zmiany od wczoraj” na górze z oknem, kategorie jako przyciski, „Następna kategoria” po grupach", async () => {
+    const user = userEvent.setup()
+    render(<Daily />)
+    expect(screen.getAllByRole("region", { name: "Zmiany od wczoraj" })).toHaveLength(1)
+    expect(screen.getByTestId("changes-since")).toHaveTextContent("od piątku 9:30")
+    expect(screen.queryByRole("link", { name: "Na daily" })).not.toBeInTheDocument()
+
+    const segments = screen.getByRole("group", { name: "Kategorie" })
+    const pressed = () =>
+      within(segments)
+        .getAllByRole("button", { pressed: true })
+        .map((b) => b.textContent)
+    expect(pressed()).toEqual(["Wszystkie· 4"])
+
+    const next = screen.getByRole("button", { name: "Następna kategoria →" })
+    await user.click(next)
+    expect(pressed()).toEqual(["Development· 3"])
+    expect(screen.queryByRole("region", { name: "QA" })).not.toBeInTheDocument()
+    await user.click(next)
+    expect(pressed()).toEqual(["QA· 1"])
+    expect(screen.queryByRole("region", { name: "Development" })).not.toBeInTheDocument()
+    await user.click(next)
+    expect(pressed()).toEqual(["Wszystkie· 4"])
+
+    await user.click(within(segments).getByRole("button", { name: /^QA/ }))
+    expect(pressed()).toEqual(["QA· 1"])
+  })
+
+  it("kafelek ma link „Na daily”", () => {
+    render(<Board />)
+    expect(screen.getByRole("link", { name: "Na daily" })).toHaveAttribute("href", "/jobs/daily")
+  })
+})
+
 describe("CompetenceTeamView", () => {
   it("adds a person to 1st priority and excludes from allocation", async () => {
     const user = userEvent.setup()

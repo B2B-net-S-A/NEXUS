@@ -12,10 +12,11 @@
 // Zapis niesie `expected_version`: dwie karty z otwartą edycją nie nadpisują
 // sobie układu po cichu — 409 przeładowuje pulpit i mówi to wprost.
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react"
+import Link from "next/link"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
-import { Check, LayoutGrid, Plus, Undo2 } from "lucide-react"
+import { Check, LayoutGrid, Plus, RotateCcw, Undo2, Users } from "lucide-react"
 
 import { useToast } from "@/components/Toast"
 import { ContactOversightPanel } from "@/components/candidate-contact/ContactOversightPanel"
@@ -36,10 +37,16 @@ import {
 import {
   TILE_DEFINITIONS,
   TILE_TEMPLATES,
-  announcedTile,
-  recommendedTemplates,
   type TileTemplate,
 } from "@/lib/dashboard-tiles/catalog"
+import {
+  CONTACT_TILE_TYPES,
+  announcedTile,
+  recommendedTemplates,
+  roleDefaultTemplates,
+  roleDefaultTiles,
+  roleLayoutLabel,
+} from "@/lib/dashboard-tiles/role-layouts"
 import {
   MAX_TILES,
   appendTemplates,
@@ -47,6 +54,7 @@ import {
   prependTemplate,
   removeTile,
 } from "@/lib/dashboard-tiles/layout"
+import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature"
 import { useAuthStore } from "@/store/auth"
 
 import { DashboardGrid, type DashboardGridMode } from "./DashboardGrid"
@@ -57,6 +65,23 @@ import { TileSettingsDialog } from "./TileSettingsDialog"
 
 const CONTACT_OVERSIGHT_HASH = "#nadzor-kontaktu"
 const ANNOUNCED_DISMISS_KEY = "nexus:dashboardAnnouncedDismissed:v1"
+const ROLE_LAYOUT_ACK_KEY = "nexus:dashboardRoleLayoutAck:v1"
+
+function readFlag(key: string): boolean {
+  try {
+    return window.localStorage.getItem(key) === "1"
+  } catch {
+    return false
+  }
+}
+
+function writeFlag(key: string) {
+  try {
+    window.localStorage.setItem(key, "1")
+  } catch {
+    // Brak pamięci przeglądarki: baner wróci przy następnym wejściu.
+  }
+}
 
 function readDismissed(): Set<string> {
   try {
@@ -145,9 +170,11 @@ export function CustomDashboard() {
   // hydracji (inaczej serwer i klient renderowałyby różny baner).
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set())
   const [dismissedLoaded, setDismissedLoaded] = useState(false)
+  const [roleLayoutAck, setRoleLayoutAck] = useState(true)
   useEffect(() => {
     setDismissed(readDismissed())
     setDismissedLoaded(true)
+    setRoleLayoutAck(readFlag(ROLE_LAYOUT_ACK_KEY))
   }, [])
   // Każde kliknięcie alertu przewija do panelu na nowo.
   const [oversightRequest, setOversightRequest] = useState(0)
@@ -156,7 +183,27 @@ export function CustomDashboard() {
     setOversightRequest((n) => n + 1)
   }, [])
 
-  const saved = query.data?.tiles ?? []
+  // 04.10.2026: konto bez zapisanego układu widzi układ swojej roli (29 z 35
+  // kont miało pusty pulpit). Pierwsza zmiana — usuń, dodaj, „Dostosuj” —
+  // zapisuje ten układ jako własny; od tej chwili serwer zwraca kafelki.
+  // Kafelki kontaktu z kandydatem rysują się tylko przy włączonej funkcji —
+  // bez niej układ roli pomija je, zamiast zostawiać pusty kafelek.
+  const roleHasContactTiles = useMemo(
+    () => roleDefaultTemplates(user).some((t) => CONTACT_TILE_TYPES.has(t.type)),
+    [user],
+  )
+  const contactFeature = useCandidateContactFeature({ queryEnabled: roleHasContactTiles })
+  const roleLayoutOptions = useMemo(
+    () => (contactFeature.enabled ? {} : { skipTypes: CONTACT_TILE_TYPES }),
+    [contactFeature.enabled],
+  )
+  const roleTiles = useMemo(
+    () => roleDefaultTiles(user, roleLayoutOptions),
+    [user, roleLayoutOptions],
+  )
+  const usesRoleLayout =
+    query.data?.uses_role_layout === true && (query.data?.tiles.length ?? 0) === 0
+  const saved = usesRoleLayout ? roleTiles : (query.data?.tiles ?? [])
   const version = query.data?.version ?? 0
   const tiles = editing ? draft : saved
 
@@ -265,6 +312,10 @@ export function CustomDashboard() {
       },
     )
   }
+  const restoreRoleLayout = () => {
+    setHistory((h) => [...h.slice(-UNDO_LIMIT + 1), draft])
+    setDraft(roleDefaultTiles(user, roleLayoutOptions))
+  }
   const undo = () => {
     if (history.length === 0) return
     setDraft(history[history.length - 1])
@@ -326,11 +377,13 @@ export function CustomDashboard() {
     setDialog(null)
   }
 
-  const recommended = recommendedTemplates(user)
+  const recommended = recommendedTemplates(user, roleLayoutOptions)
   const announced =
-    dismissedLoaded && query.isSuccess && saved.length > 0 && !editing
+    dismissedLoaded && query.isSuccess && saved.length > 0 && !editing && !usesRoleLayout
       ? announcedTile(user, saved, dismissed)
       : null
+  const roleLabel = roleLayoutLabel(user)
+  const dailyAvailable = TILE_DEFINITIONS.request_board.availability(user).ok
   const dismissAnnounced = (type: string) => {
     const next = new Set(dismissed)
     next.add(type)
@@ -350,15 +403,25 @@ export function CustomDashboard() {
         description={
           editing
             ? "Edytujesz układ — zmiany widzisz tylko Ty"
-            : "Twój układ — widzisz go tylko Ty"
+            : usesRoleLayout && roleLabel
+              ? `Układ dla roli ${roleLabel}`
+              : "Twój układ — widzisz go tylko Ty"
         }
         actions={
           editing ? null : (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              {dailyAvailable ? (
+                <Button asChild variant="outline">
+                  <Link href="/jobs/daily">
+                    <Users className="h-4 w-4" aria-hidden />
+                    Na daily
+                  </Link>
+                </Button>
+              ) : null}
               {saved.length > 0 && gridMode === "grid" ? (
                 <Button variant="outline" onClick={startEditing}>
                   <LayoutGrid className="h-4 w-4" />
-                  Edytuj układ
+                  Dostosuj pulpit
                 </Button>
               ) : null}
               <Button onClick={() => setCatalogOpen(true)}>
@@ -401,6 +464,17 @@ export function CustomDashboard() {
             <Plus className="h-4 w-4" />
             Dodaj kafelek
           </Button>
+          {roleTiles.length > 0 ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={restoreRoleLayout}
+              className="text-background hover:bg-background/10"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Przywróć układ roli
+            </Button>
+          ) : null}
           <Button
             variant="ghost"
             size="sm"
@@ -412,6 +486,30 @@ export function CustomDashboard() {
           <Button size="sm" onClick={saveEditing} disabled={save.isPending}>
             <Check className="h-4 w-4" />
             Zapisz układ
+          </Button>
+        </div>
+      ) : null}
+
+      {usesRoleLayout && !editing && !roleLayoutAck && roleLabel && query.isSuccess ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm"
+        >
+          <p className="min-w-0 flex-1 text-foreground">
+            To jest pulpit ustawiony dla roli <strong className="font-semibold">{roleLabel}</strong>.{" "}
+            <span className="text-muted-foreground">
+              Możesz go zmienić w „Dostosuj pulpit” — wtedy zapisze się jako Twój.
+            </span>
+          </p>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setRoleLayoutAck(true)
+              writeFlag(ROLE_LAYOUT_ACK_KEY)
+            }}
+          >
+            Rozumiem
           </Button>
         </div>
       ) : null}

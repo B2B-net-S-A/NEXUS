@@ -1037,3 +1037,163 @@ describe("BoardTasksPanel — „Umowy” (04.10.2026)", () => {
     expect(within(others).getByRole("region", { name: "Prośby o podpis umowy" })).toBeTruthy();
   });
 });
+
+function flowPair(over: Record<string, unknown> = {}) {
+  return {
+    candidate_id: 21,
+    candidate_name: "Anna Nowak",
+    job_id: 31,
+    job_title: "Java Developer",
+    job_working_title: null,
+    client_name: "Bank Kappa",
+    since,
+    claimed_until: null,
+    missing: [],
+    qc_status: null,
+    ...over,
+  };
+}
+
+function emptyFlow(over: Record<string, unknown> = {}) {
+  return {
+    applies: true,
+    postings: [],
+    postings_total: 0,
+    claimed: [],
+    screening: [],
+    verified: [],
+    waiting_client: [],
+    waiting_client_days: 7,
+    unsigned_contracts: [],
+    order_mail_review: 0,
+    ...over,
+  };
+}
+
+describe("BoardTasksPanel — przepływ rekrutacji i Finanse (04.10.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.setState({ user: { id: 1, role: "recruiter" }, realUser: null } as never);
+    post.mockResolvedValue({ data: {} });
+  });
+
+  it("rola z przepływem i pusty dzień → jedno zdanie zamiast znikającego panelu", async () => {
+    mockQueue({ flow: emptyFlow() });
+    renderPanel();
+    expect(await screen.findByRole("status")).toHaveTextContent("Nic na Ciebie teraz nie czeka.");
+    expect(screen.queryByRole("region", { name: "Czeka na Ciebie" })).toBeNull();
+  });
+
+  it("Ogłoszenia, screening z brakami i zweryfikowani stoją w „Czeka na Ciebie” z linkami do Tablicy", async () => {
+    mockQueue({
+      flow: emptyFlow({
+        postings: [
+          { job_id: 31, job_title: "Java Developer", client_name: "Bank Kappa", count: 12, oldest_at: since },
+        ],
+        postings_total: 12,
+        screening: [flowPair({ candidate_id: 22, candidate_name: "Jan Lis", missing: ["sheet", "rate"] })],
+        verified: [flowPair({ candidate_id: 23, candidate_name: "Ewa Dąb" })],
+      }),
+    });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    const postings = within(panel).getByRole("region", { name: "Ogłoszenia do przejrzenia" });
+    expect(within(postings).getByText("12")).toHaveClass("text-primary");
+    expect(within(postings).getByRole("link", { name: /Java Developer · 12 osób/ })).toHaveAttribute(
+      "href",
+      "/jobs/31",
+    );
+    const screening = within(panel).getByRole("region", { name: "Screening — brakuje danych" });
+    expect(within(screening).getByRole("link", { name: "Jan Lis" })).toHaveAttribute(
+      "href",
+      "/jobs/31?candidate=22",
+    );
+    expect(within(screening).getByText("arkusz")).toBeTruthy();
+    expect(within(screening).getByText("stawka")).toBeTruthy();
+    expect(
+      within(panel).getByRole("region", { name: "Zweryfikowani — czekają na CV do QC" }),
+    ).toHaveTextContent("Ewa Dąb");
+  });
+
+  it("DL: „Czeka na klienta” jest w „U innych”, umowy do podpisu i zamówienia z maila w „Twój ruch”", async () => {
+    useAuthStore.setState({ user: { id: 1, role: "delivery_lead" }, realUser: null } as never);
+    mockQueue({
+      flow: emptyFlow({
+        waiting_client: [flowPair({ candidate_name: "Piotr Wróbel" })],
+        unsigned_contracts: [
+          { id: 9, contract_number: "1520/2026", partner_name: "Kowalski IT", client_name: "Bank Kappa", created_at: since },
+        ],
+        order_mail_review: 3,
+      }),
+    });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    const others = within(panel).getByRole("group", { name: "U innych" });
+    expect(within(others).getByRole("region", { name: "Czeka na klienta" })).toHaveTextContent(
+      "Piotr Wróbel",
+    );
+    expect(within(panel).getByRole("link", { name: /Umowa 1520\/2026 · Kowalski IT/ })).toHaveAttribute(
+      "href",
+      "/contracts/b2b-generator?q=1520%2F2026",
+    );
+    expect(within(panel).getByRole("link", { name: "3 dokumenty czekają" })).toHaveAttribute(
+      "href",
+      "/contracts?view=order-mail",
+    );
+  });
+
+  it("Finanse: liczby z modułu Finanse i zatrudnieni bez zamówienia", async () => {
+    useAuthStore.setState({ user: { id: 1, role: "finance" }, realUser: null } as never);
+    get.mockImplementation((url: string) => {
+      if (url === "/api/board-tasks")
+        return Promise.resolve({
+          data: {
+            window_days: 14,
+            cpro_to_send: [],
+            cpro_sent: [],
+            cv_in_transit: null,
+            flow: null,
+            finance: {
+              gaps_open: 2,
+              pdfs_new: 5,
+              order_mail_failed: 0,
+              hired_without_order: [flowPair({ candidate_name: "Ola Mak" })],
+              hired_without_order_total: 1,
+            },
+          },
+        });
+      if (url === "/api/finance/order-changes/summary")
+        return Promise.resolve({ data: { period: { year: 2026, month: 10, label: "" }, tabs: {}, todo: 4 } });
+      return Promise.resolve({ data: [] });
+    });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    const finance = within(panel).getByRole("region", { name: "Finanse — do zrobienia" });
+    expect(
+      await within(finance).findByRole("link", { name: "Zmiany w zamówieniach: 4 pozycje do zrobienia" }),
+    ).toHaveAttribute("href", "/finance?view=order-changes");
+    expect(within(finance).getByRole("link", { name: "Braki zamówień: 2" })).toHaveAttribute(
+      "href",
+      "/finance?view=order-changes&sub=gaps",
+    );
+    expect(within(finance).queryByText(/Nieudane maile/)).toBeNull();
+    expect(within(panel).getByRole("region", { name: "Zatrudnieni bez zamówienia" })).toHaveTextContent(
+      "Ola Mak",
+    );
+  });
+
+  it("admin / Head: „Rekrutacje do dokończenia” zwinięte do jednej linii z „Rozwiń”", async () => {
+    useAuthStore.setState({ user: { id: 1, role: "head_of_recruitment" }, realUser: null } as never);
+    mockQueue({
+      can_decide_proposals: true,
+      cpro_sent: [row("cpro_sent")],
+      pending_jobs: { autoclose_on: null, items: [pendingRow()] },
+    });
+    renderPanel();
+    const collapsed = await screen.findByTestId("pending-jobs-collapsed");
+    expect(collapsed).toHaveTextContent("Rekrutacje do dokończenia albo zamknięcia (1)");
+    expect(within(collapsed).queryByRole("listitem")).toBeNull();
+    await userEvent.click(within(collapsed).getByRole("button", { name: "Rozwiń" }));
+    expect(await screen.findByRole("link", { name: "Dokończ: Analityk danych" })).toBeTruthy();
+  });
+});

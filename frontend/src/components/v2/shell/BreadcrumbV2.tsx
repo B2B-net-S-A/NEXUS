@@ -79,6 +79,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   contractors: "Kontraktorzy",
   "kpi-targets": "Cele KPI",
   "review-states": "Porządek w requestach",
+  daily: "Daily",
   seeking: "Dostępni kontraktorzy",
   "seeking-contractors": "Dostępni kontraktorzy",
   trainee: "Telefony na dziś",

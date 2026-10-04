@@ -10,6 +10,7 @@ import {
 } from "@/components/clients/ClientSinglePicker";
 import { useToast } from "@/components/Toast";
 import {
+  ORDER_CHANGES_SUMMARY_KEY,
   financeApi,
   orderChangesExportPath,
   orderPdfFilePath,
@@ -51,10 +52,9 @@ import {
 } from "./OrderChangesPanel";
 import { pdfKey } from "./OrderChangeRow";
 
-/** Klucz zapytania o badge „do zrobienia" przy zakładce w menu Finansów. */
-export const ORDER_CHANGES_SUMMARY_KEY = [
-  "finance-order-changes-summary",
-] as const;
+// Klucz badge'a „do zrobienia" żyje w `lib/api/finance.ts` — czyta go też
+// panel „Czeka na Ciebie” na pulpicie, bez ładowania całej zakładki.
+export { ORDER_CHANGES_SUMMARY_KEY } from "@/lib/api/finance";
 
 /** Klucze filtrów w adresie — lustro listy czyszczonej w `app/finance/page.tsx`. */
 export const ORDER_CHANGES_URL_KEYS = [

@@ -25,9 +25,11 @@ from app.services.dashboard_tiles import (
     MAX_TILES,
     DashboardLayout,
     DashboardTile,
+    ROLE_LAYOUT_OFF_KEY,
     PanelKey,
     hidden_panels,
     load_layout,
+    uses_role_layout,
 )
 
 router = APIRouter()
@@ -39,6 +41,9 @@ class UserDashboardResponse(BaseModel):
     dropped_tiles: list[dict[str, Any]] = Field(default_factory=list)
     # Listy nad kafelkami usunięte z pulpitu („Twoje CV w drodze”).
     hidden_panels: list[str] = Field(default_factory=list)
+    # Brak zapisanych kafelków = front pokazuje układ roli. Fałsz także wtedy,
+    # gdy osoba zapisała pusty pulpit („Usuń” ostatniego kafelka).
+    uses_role_layout: bool = False
 
 
 class PanelVisibilityUpdate(BaseModel):
@@ -64,16 +69,17 @@ class UserDashboardUpdate(BaseModel):
 async def get_my_dashboard(
     current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ) -> UserDashboardResponse:
-    """Układ pulpitu zalogowanej osoby; brak zapisu = pusty pulpit."""
+    """Układ pulpitu zalogowanej osoby; brak zapisu = układ roli."""
     row = await db.get(UserDashboard, current_user.id)
     if row is None:
-        return UserDashboardResponse(tiles=[], version=0)
+        return UserDashboardResponse(tiles=[], version=0, uses_role_layout=True)
     layout, dropped = load_layout(row.layout)
     return UserDashboardResponse(
         tiles=layout.tiles,
         version=row.version,
         dropped_tiles=dropped,
         hidden_panels=hidden_panels(row.layout),
+        uses_role_layout=uses_role_layout(row.layout, layout.tiles),
     )
 
 
@@ -120,11 +126,19 @@ async def save_my_dashboard(
         db.add(row)
     # Zapis kafelków nie rusza list usuniętych z pulpitu — to osobna decyzja.
     hidden = hidden_panels(row.layout)
-    row.layout = {**layout.to_storage(), "hidden_panels": hidden}
+    stored: dict[str, Any] = {**layout.to_storage(), "hidden_panels": hidden}
+    # Pusty zapis to decyzja „chcę pusty pulpit” — bez znacznika wróciłby
+    # układ roli przy następnym wejściu.
+    if not layout.tiles:
+        stored[ROLE_LAYOUT_OFF_KEY] = True
+    row.layout = stored
     row.version = current_version + 1
     await db.commit()
     return UserDashboardResponse(
-        tiles=layout.tiles, version=current_version + 1, hidden_panels=hidden
+        tiles=layout.tiles,
+        version=current_version + 1,
+        hidden_panels=hidden,
+        uses_role_layout=False,
     )
 
 
@@ -165,4 +179,5 @@ async def set_panel_visibility(
         version=version,
         dropped_tiles=dropped,
         hidden_panels=hidden,
+        uses_role_layout=uses_role_layout(stored, layout.tiles),
     )

@@ -26,7 +26,7 @@ import { DRAG_HANDLE_CLASS, TileFrame, type TileActions } from "./TileFrame"
 
 export const MOBILE_BREAKPOINT = 768
 
-/** Tryb siatki liczony z szerokości KONTENERA — jedno źródło prawdy dla „Edytuj układ". */
+/** Tryb siatki liczony z szerokości KONTENERA — jedno źródło prawdy dla „Dostosuj pulpit". */
 export type DashboardGridMode = "grid" | "list"
 
 const FIXED_HEIGHT_ON_MOBILE = new Set(["metric_chart", "metric_funnel"])

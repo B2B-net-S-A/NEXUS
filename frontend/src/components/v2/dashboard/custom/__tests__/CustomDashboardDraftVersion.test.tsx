@@ -41,7 +41,7 @@ vi.mock("@/components/v2/dashboard/custom/TileContent", () => ({
 }))
 
 // jsdom nie ma szerokości — siatka zgłosiłaby tryb listy i schowała
-// „Edytuj układ”. Atrapa zgłasza siatkę i pozwala przesunąć kafelek.
+// „Dostosuj pulpit”. Atrapa zgłasza siatkę i pozwala przesunąć kafelek.
 vi.mock("../DashboardGrid", () => ({
   DashboardGrid: ({
     tiles,
@@ -116,7 +116,7 @@ describe("tryb edycji pulpitu (R10-N1-2)", () => {
       </QueryClientProvider>,
     )
 
-    fireEvent.click(await screen.findByRole("button", { name: /Edytuj układ/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Dostosuj pulpit/ }))
     fireEvent.click(screen.getByRole("button", { name: "przesuń" }))
 
     // Inna karta dodała kafelek (v4); powrót do tej karty pobrał pulpit ponownie.

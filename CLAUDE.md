@@ -4579,6 +4579,17 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   kod, ale nigdy na etap-odznakę DZ/Cpro; obcy etap bez odpowiednika idzie do
   „Poza szablonem”. Wiersz BEZ etapu zostaje przy samym kodzie. Tę samą regułę
   czytają tablica, kolumny listy rekrutacji, „wymaga ruchu” i kolejka.
+- **„Czeka na Ciebie” zna cały przepływ (04.10.2026)** — `services/board_flow.py`,
+  pola `flow` i `finance` w `GET /api/board-tasks` (każda sekcja w savepoincie,
+  ≤ 20 wierszy + suma): rekruter/TCM/DL — Ogłoszenia per rekrutacja, blokady
+  12 h, Screening bez arkusza albo stawki, Zweryfikowani bez QC CV (zakres =
+  rekrutacje, w których osoba jest Rekruterem; TCM + jego kategoria); DL —
+  „Czeka na klienta” (CV wysłane > 7 dni, w „U innych”), umowy B2B
+  niepodpisane > 2 dni, zamówienia z maila do weryfikacji; Finanse (moduł
+  Finanse) — braki, nowe PDF-y, nieudane maile, zatrudnieni bez zamówienia.
+  Rola z przepływem przy pustej kolejce widzi „Nic na Ciebie teraz nie czeka.”
+  zamiast znikającego panelu; Finanse nie dostają „CV w drodze”. Poranny
+  dzwonek bez zmian (Ogłoszeń w nim nie ma). Front: `BoardFlowSections.tsx`.
 - **Kolejka „Czeka na Ciebie” (0348, decyzje Artura 22.09.2026)** —
   `services/board_tasks.py`, `GET /api/board-tasks`, panel `BoardTasksPanel`
   nad układem pulpitu (nie kafelek: ma dotrzeć do osoby, która pulpitu nie
@@ -10451,6 +10462,33 @@ finanse w kreatorze od razu). Raport: `docs/custom-dashboard-completion-report.m
 - **`/dashboard#nadzor-kontaktu`** (link alertów SLA z `dashboard_v2.py`)
   pokazuje panel nadzoru tymczasowo, gdy ktoś nie ma tego kafelka, z „Dodaj na
   stałe”. `?preset=` jest ignorowane; `dashboardHref()` zawsze zwraca `/dashboard`.
+- **Pulpit według ról (04.10.2026, przegląd: https://claude.ai/artifact/3etak5SPHM2ShQCRCj3e8P).**
+  Po dwóch tygodniach 29 z 35 kont miało pusty pulpit, a „Czeka na Ciebie” u
+  rekruterów, TCM i DL pokazywało 0 zadań przy ponad tysiącu osób w Ogłoszeniach.
+  - **Konto bez zapisanego układu widzi układ roli** (`lib/dashboard-tiles/role-layouts.ts`,
+    `ROLE_LAYOUTS`; konto wielorolowe = suma w kolejności admin › finance › HoR ›
+    DL › TCM › rekruter, jedna tablica requestów, Head/admin bez kafelków pracy
+    rekrutera). Serwer mówi to polem `uses_role_layout` (`GET /users/me/dashboard`).
+    Pierwsza zmiana (usuń, dodaj, „Dostosuj pulpit”) zapisuje układ jako własny.
+    Zapis PUSTEJ listy stawia `layout.role_layout_off` — wtedy dopiero pusta
+    karta z poleceniami. Flaga i `hidden_panels` żyją obok kafelków; zapis kafelków
+    nie może ich gubić. „Przywróć układ roli” w trybie edycji.
+  - **„Requesty i obłożenie” ma zakres** (`TileConfig.board_scope`: `all` /
+    `my_category` / `my_lead`, tylko przy `request_board`): filtry startowe
+    z `viewer` odpowiedzi `/api/request-board`, parametry `rb_*` w adresie
+    wygrywają. **„Na daily” = `/jobs/daily`** (ten sam `RequestBoardView`,
+    wariant `daily`: „Zmiany od wczoraj” na górze, kategorie po kolei). Okno
+    zmian liczy się od tej samej godziny poprzedniego DNIA ROBOCZEGO
+    (`request_allocation.changed_since` — w poniedziałek od piątku).
+  - Nowe kafelki: `today_cycle` „Dziś” (cykl rozmów u klienta), `team_signals`
+    „Gdzie stoi” (`/api/insights/team/attention` + `no_one_sent`, `overdue`,
+    `stale_postings`), `system_status` (admin, `/api/health`; `unknown` ≠ OK),
+    `my_week` (`/api/kpis/me/panel`).
+  - **„Moje zadania” liczy tylko powiadomienia z 7 dni**; jednorazowo
+    (`services/notification_backlog_repair.py`, blok `repair-notification-backlog`)
+    nieprzeczytane „etap stoi 6 h / 7 dni”, „coach KPI” i PowerCalling starsze
+    niż 14 dni oznaczono jako przeczytane (decyzja Artura 04.10.2026, nic nie
+    skasowano; paragon `notification_backlog_read_2026_10` = liczby per typ).
 - Harness: `/preview/custom-dashboard` (pusty i pełny pulpit, zero zapytań).
 
 

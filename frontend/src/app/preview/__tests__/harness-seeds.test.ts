@@ -236,6 +236,21 @@ describe("/preview/custom-dashboard zasiewa każdy stały klucz", () => {
     }
   });
 
+  it("zasiewa kafelki układów ról (04.10.2026) ich własnymi stałymi", () => {
+    for (const key of [
+      'interviewCycleQueryKey("mine")',
+      'interviewCycleQueryKey("jobs")',
+      "MY_WEEK_QUERY_KEY",
+      "TEAM_SIGNALS_QUERY_KEY",
+      "SYSTEM_STATUS_QUERY_KEY",
+      "MY_RECRUITMENTS_QUERY_KEY",
+      "MY_CLIENTS_CARDS_QUERY_KEY",
+      "ORDER_CHANGES_SUMMARY_KEY",
+    ]) {
+      expect(harness).toContain(key);
+    }
+  });
+
   it("propozycje automatu: „Zmień” czyta zasiane obłożenie, nie sieć", () => {
     // Sekcja propozycji pyta o pulpit „Requesty i obłożenie” dopiero po
     // otwarciu listy „Zmień” — kluczem ze stałej, którego strażnik literałów

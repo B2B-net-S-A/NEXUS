@@ -78,6 +78,44 @@ beforeEach(() => {
 })
 
 describe("własny pulpit", () => {
+  it("konto bez zapisanego układu widzi układ swojej roli z banerem i „Na daily”", async () => {
+    window.localStorage.clear()
+    getMock.mockResolvedValue({ tiles: [], version: 0, dropped_tiles: [], uses_role_layout: true })
+    renderDashboard()
+
+    expect(await screen.findByText("treść my_recruitments")).toBeInTheDocument()
+    expect(screen.getByText("treść today_cycle")).toBeInTheDocument()
+    expect(screen.queryByText("Twój pulpit jest pusty")).toBeNull()
+    expect(screen.getByRole("status")).toHaveTextContent("To jest pulpit ustawiony dla roli Rekruter.")
+    expect(screen.getByRole("link", { name: "Na daily" })).toHaveAttribute("href", "/jobs/daily")
+    expect(saveMock).not.toHaveBeenCalled()
+  })
+
+  it("pierwsza zmiana układu roli zapisuje go jako własny (bez usuniętego kafelka)", async () => {
+    getMock.mockResolvedValue({ tiles: [], version: 0, dropped_tiles: [], uses_role_layout: true })
+    saveMock.mockImplementation(async (tiles: DashboardTile[]) => ({
+      tiles,
+      version: 1,
+      dropped_tiles: [],
+    }))
+    renderDashboard()
+
+    await screen.findByText("treść my_week")
+    const menu = await screen.findByRole("button", { name: "Menu kafelka Twój tydzień" })
+    fireEvent.pointerDown(menu, { button: 0, ctrlKey: false })
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Usuń z pulpitu" }))
+
+    await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1))
+    const [tiles, version] = saveMock.mock.calls[0]
+    expect(version).toBe(0)
+    expect(tiles.map((t: DashboardTile) => t.type)).toEqual([
+      "my_recruitments",
+      "today_cycle",
+      "request_board",
+      "my_people",
+    ])
+  })
+
   it("pusty pulpit pokazuje polecane dla roli i dodaje wszystkie jednym zapisem", async () => {
     getMock.mockResolvedValue({ tiles: [], version: 0, dropped_tiles: [] })
     saveMock.mockImplementation(async (tiles: DashboardTile[]) => ({
@@ -96,13 +134,20 @@ describe("własny pulpit", () => {
     const [tiles, version] = saveMock.mock.calls[0]
     expect(version).toBe(0)
     expect(tiles.map((t: DashboardTile) => t.type)).toEqual([
-      "request_board",
-      "metric_number",
       "my_recruitments",
-      "my_next_steps",
-      "calendar_today",
+      "today_cycle",
+      "request_board",
+      "my_people",
+      "my_week",
     ])
     expect(await screen.findByText("treść my_recruitments")).toBeInTheDocument()
+  })
+
+  it("zapisany pusty pulpit (rola wyłączona) pokazuje pustą kartę z poleceniami", async () => {
+    getMock.mockResolvedValue({ tiles: [], version: 4, dropped_tiles: [], uses_role_layout: false })
+    renderDashboard()
+    expect(await screen.findByText("Twój pulpit jest pusty")).toBeInTheDocument()
+    expect(screen.queryByText(/To jest pulpit ustawiony dla roli/)).toBeNull()
   })
 
   it("konflikt wersji mówi o innej karcie i wczytuje pulpit ponownie", async () => {

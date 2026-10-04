@@ -80,6 +80,8 @@ import {
   AgreementWaitingSection,
   agreementTasksCount,
 } from "./AgreementTasksSection";
+import { BoardFlowOthers, BoardFlowSections, flowWorkCount, hasFlowOthers } from "./BoardFlowSections";
+import { BOARD_TASKS_ROWS, Section } from "./BoardTasksSection";
 import { CproQueueDialog, CproSenderControl } from "./CproQueueDialog";
 import { CvInTransitSection } from "./CvInTransitSection";
 import { NewJobLeadsSection } from "./NewJobLeadsSection";
@@ -130,48 +132,7 @@ function RowMeta({ row }: { row: BoardTaskRow }) {
   );
 }
 
-/** Tyle wierszy na listę, zanim trzeba kliknąć „Pokaż wszystkie" — na produkcji
- *  „Wysłane do Cpro" liczyło 98 osób, a panel stoi NAD pulpitem. */
-export const BOARD_TASKS_ROWS = 6;
-
-interface SectionProps {
-  title: string;
-  hint: string;
-  count: number;
-  /** Liczba wierszy listy, gdy inna niż `count` (Cpro: wiersz = rekrutacja). */
-  rows?: number;
-  expanded: boolean;
-  onToggle: () => void;
-  /** Dodatek pod nagłówkiem (Cpro: kto wrzuca · Zmień). */
-  aside?: React.ReactNode;
-  children: React.ReactNode;
-}
-
-function Section({ title, hint, count, rows = count, expanded, onToggle, aside, children }: SectionProps) {
-  return (
-    <section aria-label={title} className="min-w-0">
-      <header className="mb-2 flex items-baseline gap-2">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <span className="rounded-full bg-primary/10 px-1.5 text-xs font-semibold tabular-nums text-primary">
-          {count}
-        </span>
-      </header>
-      {aside ? <div className="mb-1">{aside}</div> : null}
-      <p className="mb-2 text-xs text-muted-foreground">{hint}</p>
-      <ul className="divide-y divide-border rounded-lg border border-border">{children}</ul>
-      {rows > BOARD_TASKS_ROWS && (
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={expanded}
-          className="mt-1.5 text-xs font-medium text-primary hover:underline"
-        >
-          {expanded ? "Zwiń" : `Pokaż wszystkie (${rows})`}
-        </button>
-      )}
-    </section>
-  );
-}
+export { BOARD_TASKS_ROWS } from "./BoardTasksSection";
 
 export function BoardTasksPanel() {
   const query = useBoardTasks();
@@ -232,7 +193,8 @@ export function BoardTasksPanel() {
     data.cpro_sent.length +
     preps.length +
     followups.length +
-    agreementTasksCount(data.agreements);
+    agreementTasksCount(data.agreements) +
+    flowWorkCount(data.flow, data.finance);
   // „Twoje CV w drodze”: gdy coś wróciło albo panel i tak stoi — kolumna
   // w panelu; gdy nie — sam wąski pasek nad pulpitem (także z pustym stanem,
   // bo każdy ma tę listę domyślnie i może ją usunąć z pulpitu).
@@ -245,14 +207,33 @@ export function BoardTasksPanel() {
   // zaległość, nie zadanie z Tablicy: do `total` się nie liczy, jak lista
   // prowadzących. Starszy serwer pól nie oddaje (`undefined`/`null`).
   const hasPendingJobs = hasPendingJobsContent(data.pending_jobs, data.unfinished_forms);
+  // Admin i Head of Recruitment widzą listę do dokończenia zwiniętą do jednej
+  // linii, gdy obok są zadania — to zaległość, nie praca na dziś.
+  const collapsePending = data.can_decide_proposals === true;
+  const flowOthers = hasFlowOthers(data.flow);
+  const waitingAgreements = data.agreements?.waiting_on_others ?? [];
   if (
     total === 0 &&
     (transit?.returned_total ?? 0) === 0 &&
-    (data.agreements?.waiting_on_others.length ?? 0) === 0
+    !flowOthers &&
+    waitingAgreements.length === 0
   ) {
-    if (!canSetSender && !transit && leads.length === 0 && !hasPendingJobs) return null;
+    // Rola z sekcjami przepływu (rekruter, TCM, DL) dostaje jedno zdanie
+    // zamiast znikającego panelu — inaczej „nic” i „nie wczytało się” wyglądają
+    // tak samo. Pozostałe role: bez pustej ramki, jak dotąd.
+    const quiet = data.flow?.applies === true;
+    if (!quiet && !canSetSender && !transit && leads.length === 0 && !hasPendingJobs) return null;
     return (
       <div className="flex flex-col gap-3">
+        {quiet ? (
+          <p
+            id={BOARD_TASKS_ANCHOR}
+            role="status"
+            className="scroll-mt-20 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground"
+          >
+            Nic na Ciebie teraz nie czeka.
+          </p>
+        ) : null}
         {canSetSender ? (
           <div role="region" aria-label="Osoba od Cpro" className="rounded-xl border border-border bg-card px-4 py-2">
             <CproSenderControl sender={sender.data} loading={sender.isLoading} compact />
@@ -269,10 +250,10 @@ export function BoardTasksPanel() {
   // „Twoje CV w drodze” z czymś, co wróciło, to Twój ruch (popraw i oddaj);
   // samo czekanie na przegląd i klienta — „U innych”.
   const transitIsMine = (transit?.returned_total ?? 0) > 0;
-  const waitingAgreements = data.agreements?.waiting_on_others ?? [];
   const othersGroup =
     (Boolean(transit) && !transitIsMine) ||
     data.cpro_sent.length > 0 ||
+    flowOthers ||
     waitingAgreements.length > 0;
   const openQueue = (jobId: number | null) => {
     setCproJob(jobId);
@@ -310,7 +291,18 @@ export function BoardTasksPanel() {
           leaveKnown={data.allocation_leave_known !== false}
         />
         <NewJobLeadsSection rows={leads} />
-        <PendingJobsSection pending={data.pending_jobs} forms={data.unfinished_forms} />
+        <PendingJobsSection
+          pending={data.pending_jobs}
+          forms={data.unfinished_forms}
+          collapsed={collapsePending}
+        />
+        <BoardFlowSections
+          flow={data.flow}
+          finance={data.finance}
+          expanded={expanded}
+          onToggle={toggle}
+          shown={shown}
+        />
         <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
         <AgreementTasksSection tasks={data.agreements} />
         {transit && transitIsMine ? <CvInTransitSection transit={transit} /> : null}
@@ -446,6 +438,7 @@ export function BoardTasksPanel() {
           <div className="grid gap-4 lg:grid-cols-3">
             {transit && !transitIsMine ? <CvInTransitSection transit={transit} /> : null}
             <AgreementWaitingSection rows={waitingAgreements} />
+            <BoardFlowOthers flow={data.flow} expanded={expanded} onToggle={toggle} shown={shown} />
             {data.cpro_sent.length > 0 && (
               <Section
                 title="Wysłane do Cpro"

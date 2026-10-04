@@ -464,6 +464,8 @@ const PUBLIC_PATHS = [
   "/preview/job-portals",
   "/preview/academy",
   "/preview/request-allocation",
+  // Strona „Daily — requesty i obłożenie” (`/jobs/daily`), wariant daily pulpitu.
+  "/preview/daily",
   // Panel „Zespół” rekrutacji: Delivery Lead · Rekruter · Kategoria (02.10.2026).
   "/preview/job-team-panel",
   "/preview/plain-brief",

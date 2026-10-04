@@ -4,7 +4,6 @@ import { TILE_TYPES } from "@/lib/api/userDashboard";
 import {
   TILE_DEFINITIONS,
   TILE_TEMPLATES,
-  recommendedTemplates,
   templateAvailability,
 } from "@/lib/dashboard-tiles/catalog";
 import type { User, UserRole } from "@/store/auth";
@@ -137,50 +136,5 @@ describe("katalog kafelków", () => {
     } as Partial<User>);
     const result = templateAvailability(template("my_recruitments"), noPipeline);
     expect(result.ok).toBe(false);
-  });
-});
-
-describe("polecane na pusty pulpit", () => {
-  it("rekruter dostaje pulpit requestów i swoje cztery kafelki", () => {
-    const { roleLabel, templates } = recommendedTemplates(user("recruiter"));
-    expect(roleLabel).toBe("Rekruter");
-    expect(templates.map((t) => t.key)).toEqual([
-      "request_board",
-      "cv_sent_week",
-      "my_recruitments",
-      "my_next_steps",
-      "calendar_today",
-    ]);
-  });
-
-  it("Delivery Lead dostaje sprawy klientów i zamówienia", () => {
-    const keys = recommendedTemplates(user("delivery_lead")).templates.map((t) => t.key);
-    expect(keys).toContain("my_clients_alerts");
-    expect(keys).toContain("orders_ending");
-  });
-
-  it("polecenia nigdy nie zawierają kafelka niedostępnego dla konta", () => {
-    for (const role of ["admin", "finance", "head_of_recruitment", "delivery_lead", "recruiter", "user"] as UserRole[]) {
-      const u = user(role);
-      for (const t of recommendedTemplates(u).templates) {
-        expect(templateAvailability(t, u).ok).toBe(true);
-      }
-    }
-  });
-});
-
-describe("announcedTile", () => {
-  it("ogłasza „Requesty i obłożenie” osobie z ułożonym pulpitem bez tego kafelka", async () => {
-    const { announcedTile } = await import("@/lib/dashboard-tiles/catalog");
-    const admin = user("admin");
-    expect(announcedTile(admin, [{ type: "note" }], new Set())?.type).toBe("request_board");
-    expect(announcedTile(admin, [{ type: "request_board" }], new Set())).toBeNull();
-    expect(announcedTile(admin, [{ type: "note" }], new Set(["request_board"]))).toBeNull();
-  });
-
-  it("nie ogłasza kafelka roli, której nie jest polecany", async () => {
-    const { announcedTile } = await import("@/lib/dashboard-tiles/catalog");
-    const finance = user("finance");
-    expect(announcedTile(finance, [{ type: "note" }], new Set())).toBeNull();
   });
 });
