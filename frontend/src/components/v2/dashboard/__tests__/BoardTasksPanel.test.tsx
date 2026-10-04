@@ -200,6 +200,15 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
     expect(screen.queryByRole("region", { name: "Czeka na Ciebie" })).toBeNull();
   });
 
+  // PR 6 (04.10.2026): to, na co czekasz u innych, stoi osobno od Twojego ruchu.
+  it("„Wysłane do Cpro” stoi w grupie „U innych”, oddzielonej od „Twój ruch”", async () => {
+    mockQueue({ cpro_sent: [row("cpro_sent")] });
+    renderPanel();
+    const others = await screen.findByRole("group", { name: "U innych" });
+    expect(within(others).getByRole("region", { name: "Wysłane do Cpro" })).toBeTruthy();
+    expect(screen.getByText("Twój ruch")).toBeTruthy();
+  });
+
   it("nie ma już kolejki „Czeka na DZ” ani przeglądu DZ", async () => {
     mockQueue({ dz: [row("dz")], cpro_sent: [row("cpro_sent")] });
     renderPanel();

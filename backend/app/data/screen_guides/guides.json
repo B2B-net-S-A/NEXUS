@@ -174,8 +174,8 @@
         "a": "Sekcja „CV” mówi o CV firmowym (brak, szkic, zatwierdzone) i o oryginale. „Generuj CV” otwiera generator, a gdy CV już jest — „Edytuj CV”, także z wcześniejszego etapu. Na „Zweryfikowanym” widać wynik QC CV: „Otwórz QC” pokazuje, co poprawić przed przekazaniem. U PKO BP pobranie czeka na zrzut zgody RODO."
       },
       {
-        "q": "Co to są odznaki etapu (np. Prep, Umowa podpisana)?",
-        "a": "To etapy pomocnicze, które nie mają własnej kolumny — pokazują się na karcie. „Umowa podpisana” włączasz przełącznikiem w karcie. Kontrolę CV robi teraz kolumna „QC CV”.",
+        "q": "Gdzie są rozmowa u klienta i umowa?",
+        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma kroki rozmowy: wybór i potwierdzenie terminu od klienta, prepy z oceną i debrief. Na „Umowie” i „Zatrudnionym” widać, czy umowa jest wygenerowana, podpisana i czy jest zamówienie. „Umowa podpisana” włączasz przełącznikiem w panelu.",
         "anchor": "jobs.person.badges"
       }
     ],
