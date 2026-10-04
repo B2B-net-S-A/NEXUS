@@ -130,6 +130,9 @@ def test_only_listed_modules_read_recommendation_cards():
         # „Twoje CV w drodze”: tylko polskie nazwy pól z dziennika poprawek,
         # nie treść karty.
         "app/services/cv_in_transit.py",
+        # Podpowiedzi formularza umowy B2B: tylko stawka (PLN/h) i tekst
+        # dostępności z karty tej rekrutacji (04.10.2026).
+        "app/services/b2b_agreement_prefill.py",
     }
     pattern = re.compile(
         r"^\s*(?:from|import)\s.*\brecommendation_card(?:s|_rules|_import)?\b"

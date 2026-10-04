@@ -251,6 +251,14 @@ class B2BGeneratedContract(Base, TimestampMixin):
     signed_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # 0417: rekruter bez „Podpis B2B” prosi o potwierdzenie podpisu — kto i
+    # kiedy ostatnio (pulpit DL, karta na Tablicy, przerwa 24 h między prośbami).
+    signature_requested_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    signature_requested_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     # Surowy payload `/render` (B2BRenderRequest jako JSON) — pozwala odtworzyć i
     # pobrać DOCX ponownie z zakładki „Wygenerowane umowy". NULL = wiersz sprzed
     # tej funkcji (re-download niedostępny). JSON+wariant JSONB by działał też na

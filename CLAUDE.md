@@ -1109,6 +1109,42 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
     pełnym. Publiczne API maskuje imiona i nazwiska zarządu — osobę
     reprezentującą wpisuje człowiek (front podpowiada funkcje i biernik,
     `lib/b2b-company-variant.ts`). Harness `/preview/b2b-generator`.
+- **Umowę generuje rekruter z rekrutacji (0417, 04.10.2026, decyzje Artura
+  D1–D5).** Przegląd: https://claude.ai/artifact/YJwAxv4ByNdj19Z1gPmDGj —
+  od 01.08 rekruterzy wygenerowali 0 z 61 umów, choć mieli poziom generowania.
+  - **Poprawia pod tym samym numerem** (`_may_correct_generated`; `/form`,
+    `/rerender`, `client_name` w PATCH, `can_edit` wiersza): autor, zespół
+    z NADANIA (`_jobs_led_by`: prowadzący, TAC, DL, aktywne przypisanie), TCM,
+    admin — zawsze przy widocznych stawkach (TCM bez wglądu w stawki cudzej
+    umowy dostaje 403). Ręczny współpracownik NIE poprawia i nie prosi
+    o podpis — każda rola wewnętrzna może dopisać się sama. Usuwa nadal autor
+    albo admin (`can_delete`).
+  - **Wgląd w stawki rejestru** (`_jobs_run_by`) liczy jak „Rekruter”
+    z `job_team` (z ręcznym współpracownikiem); uczestnik z kategorii
+    (`auto_cc`) nie widzi stawek.
+  - **Podpis potwierdzają nadal admin, DL i TCM** („Podpis B2B”); rekruter
+    prosi: `POST /generated/{id}/signature-request` (kolumny
+    `signature_requested_at/by`, dzwonek `b2b_signature_requested` do DL-a
+    rekrutacji → DL-i portfela → TCM, druga prośba w 24 h bez dzwonka; brak
+    odbiorcy = 409 bez zapisu prośby).
+  - **Podpowiedzi formularza** `GET /prefill?candidate_id&job_id`
+    (`services/b2b_agreement_prefill.py`): stawka z karty rekomendacji → „W tej
+    rekrutacji” → „Stawka od”, data z `availability_date`, stawka do klienta
+    tylko dla `user_can_view_client_rate`, istniejąca umowa pary.
+  - **Stan umowy na karcie Tablicy** (`agreement`, `services/agreement_status.py`)
+    w KAŻDEJ kolumnie; rejestr niesie `created_by_role`, `pair_column`, filtry
+    `candidate_id` i `author=recruiter`.
+  - **Grupa „Umowy” w `GET /api/board-tasks`** (`services/agreement_tasks.py`):
+    `requested`, `hired_unsigned` (karta „Zatrudniony” przy umowie „W trakcie”
+    — D5: sprawa, nie automat), `closed_unsigned`, `closed_signed_active`; tylko
+    dla posiadaczy „Podpis B2B” w ich zakresie; prośby autora w
+    `waiting_on_others`.
+  - **Ręczne „Zatrudniony” z UoP albo zleceniem zakłada kontrakt tego typu**
+    (do 04.10 zawsze B2B). Stawki do klienta z etapu NIE wpisujemy do szkicu
+    zamówienia z podpisu: start + stawka spełnia `complete_order_clause`, więc
+    Finanse nie dostałyby dzwonka „bez zamówienia”, a kontrakt dostałby
+    przychód przed zamówieniem od klienta (przegląd kodu 04.10.2026).
+  - Wygenerowanie umowy NIE przesuwa karty (D4 — bramka debriefu).
 - **Kontener listy:** `max-w-6xl` → `max-w-7xl` (9 kolumn + akcje).
 
 ## Centrum e-Zdrowia: umowy ramowe (części) → umowy wykonawcze + zamówienia MD (09.2026)

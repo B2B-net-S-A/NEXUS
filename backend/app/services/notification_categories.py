@@ -111,6 +111,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # Ktoś przekazał Ci kartę do przeglądu DL albo do kolejki Cpro — imienne
     # zadanie, na które czeka kandydat; nie da się go wyciszyć.
     _T.board_task_waiting: _C.mentions,
+    # Rekruter czeka, aż potwierdzisz podpis jego umowy — imienne zadanie (0417).
+    _T.b2b_signature_requested: _C.mentions,
     # Ktoś przejął Twoją osobę w „Nowych" — imienne, jak wzmianka.
     _T.candidate_claim_taken: _C.mentions,
     # Odpowiedź na Twoją notatkę — imienne, jak wzmianka (0399).

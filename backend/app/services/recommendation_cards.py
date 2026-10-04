@@ -94,6 +94,11 @@ def card_summary(
     }
 
 
+def card_rate_hourly(field: object) -> Optional[float]:
+    """Publiczne wejście do ``_hourly_rate`` (podpowiedzi formularza umowy)."""
+    return _hourly_rate(field)
+
+
 def _hourly_rate(field: object) -> Optional[float]:
     """Stawka z karty jako PLN/h — tylko gdy parser odczytał ją bez zgadywania."""
     if not isinstance(field, Mapping):

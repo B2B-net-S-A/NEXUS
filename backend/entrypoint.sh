@@ -697,6 +697,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'application_screening_digest'",
     # 0409: propozycje automatu przydziału czekają na akceptację (do Head of Recruitment).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'request_allocation_proposals'",
+    # 0417: rekruter prosi o potwierdzenie podpisu umowy B2B (do DL / TCM).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'b2b_signature_requested'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -4771,6 +4773,11 @@ END $$""",
     "CREATE INDEX IF NOT EXISTS ix_b2b_generated_contracts_previous "
     "ON b2b_generated_contracts (previous_generated_contract_id)",
     "ALTER TABLE b2b_generated_contract_status_events ADD COLUMN IF NOT EXISTS details JSONB",
+    # 0417: prośba rekrutera o potwierdzenie podpisu umowy B2B.
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS "
+    "signature_requested_at TIMESTAMPTZ",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS "
+    "signature_requested_by INTEGER REFERENCES users(id) ON DELETE SET NULL",
     # 0366: multiposting — kolumny kolejki publikacji w portalach.
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS last_error TEXT",
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0",

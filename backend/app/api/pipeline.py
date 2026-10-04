@@ -33,7 +33,7 @@ from app.services.process_entry_meta import (
     application_screening_badge,
     auto_match_badge,
 )
-from app.models.contract import RateUnit
+from app.models.contract import ContractType, RateUnit
 from app.services.board_stage_badges import (
     _NAME_ONLY_KINDS as NAME_ONLY_STAGE_KINDS,
     board_column_for,
@@ -514,6 +514,14 @@ def _http_detail_text(detail: object) -> str:
     if isinstance(detail, dict) and isinstance(detail.get("message"), str):
         return detail["message"]
     return str(detail)
+
+
+# Typ kontraktu zakładanego przy ręcznym „Zatrudniony” (D2, 04.10.2026):
+# do tego dnia każdy szkic był B2B, także przy umowie o pracę i zleceniu.
+_HIRED_CONTRACT_TYPE = {
+    "uop": ContractType.uop,
+    "zlecenie": ContractType.uzlecenie,
+}
 
 
 def _sheet_filled(payload: object) -> bool:
@@ -1593,6 +1601,9 @@ async def move_candidate(
                     ensure_hired=True,
                     require_b2b=False,
                     ensure_detail=False,
+                    contract_type=_HIRED_CONTRACT_TYPE.get(
+                        data.hired_signed_via or "", ContractType.b2b
+                    ),
                 )
         except HTTPException as exc:
             # 409/404 serwisu — zatrudnienie zostaje, szkic zakłada Delivery.
@@ -2450,6 +2461,12 @@ async def build_kanban_view(
         if hired_ids
         else {}
     )
+    # 04.10.2026: stan umowy z Generatora na karcie w każdej kolumnie.
+    from app.services.agreement_status import agreement_status_for_pairs
+
+    agreements = await agreement_status_for_pairs(
+        db, job_id=job_id, candidate_ids=candidate_ids
+    )
     # 0348: wytypowani do wysłania do Cpro — ta sama paczka nazwisk.
     owner_ids |= {
         s.task_assignee_id for s in seen.values() if s.task_assignee_id is not None
@@ -2602,6 +2619,7 @@ async def build_kanban_view(
         payload["followup"] = _followup_badge(e.candidate_id)
         if e.stage == PipelineStage.hired:
             payload["order_status"] = order_statuses.get((e.candidate_id, job_id))
+        payload["agreement"] = agreements.get(e.candidate_id)
         v4 = v4_processes.get(e.candidate_id)
         if v4 is not None:
             payload["entry_source"] = v4.entry_source
