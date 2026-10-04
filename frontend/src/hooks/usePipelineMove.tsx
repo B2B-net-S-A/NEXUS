@@ -52,6 +52,14 @@ import {
   type KanbanItem,
 } from "@/components/v2/pages/kanban-shared";
 import { celebrate } from "@/lib/celebrate";
+import { generatorPrefillHref } from "@/lib/b2b-generator-register";
+import {
+  HIRED_SIGNED_VIA_OPTIONS,
+  hiredReasonComplete,
+  verifiedRequirementsOf,
+  type HiredSignedVia,
+  type VerifiedRequirementsMissing,
+} from "@/lib/verified-gate";
 import { terminalOf } from "@/lib/kanban-terminal";
 import { moveDialogFor } from "@/lib/pipeline-move-dialog";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
@@ -153,6 +161,12 @@ export interface UsePipelineMoveOptions {
    * sam komunikat serwera.
    */
   onCvQcFailed?: (failure: CvQcFailure, item: KanbanItem) => void;
+  /**
+   * 409 `VERIFIED_REQUIREMENTS_MISSING` (D1, 04.10.2026): wejście na
+   * „Zweryfikowany” bez arkusza screeningu albo stawki. Wołający otwiera
+   * arkusz (`screeningStageId`); bez tej opcji hook pokazuje komunikat.
+   */
+  onVerifiedRequirementsMissing?: (info: VerifiedRequirementsMissing, item: KanbanItem) => void;
 }
 
 interface MoveEntry {
@@ -190,6 +204,8 @@ interface SendMoveOptions {
   taskAssigneeId?: number;
   // Pipeline v4: stawka do klienta w TYM SAMYM żądaniu co ruch na „CV wysłane".
   clientRate?: RatePayload;
+  // D2 (04.10.2026): jak podpisano umowę przy ręcznym ruchu na „Zatrudniony”.
+  hiredSignedVia?: { via: HiredSignedVia; note: string };
   // Runda 10 (R10-V2-1): ruch zbiorczy zbiera statusy maila odrzucenia
   // i mówi o niezaplanowanych RAZ, po pętli.
   onRejectionEmailStatus?: (status: string | null) => void;
@@ -285,6 +301,7 @@ export function usePipelineMove({
   optimistic,
   cproEnabled = false,
   onCvQcFailed,
+  onVerifiedRequirementsMissing,
 }: UsePipelineMoveOptions): PipelineMoveControls {
   const queryClient = useQueryClient();
   const { showActionToast, showSuccess, showError } = useToast();
@@ -301,6 +318,11 @@ export function usePipelineMove({
   optimisticRef.current = optimistic;
   const onCvQcFailedRef = useRef(onCvQcFailed);
   onCvQcFailedRef.current = onCvQcFailed;
+  const onVerifiedMissingRef = useRef(onVerifiedRequirementsMissing);
+  onVerifiedMissingRef.current = onVerifiedRequirementsMissing;
+  // Okno „Potwierdź zatrudnienie”: jak podpisano umowę (D2).
+  const [hiredVia, setHiredVia] = useState<HiredSignedVia | null>(null);
+  const [hiredNote, setHiredNote] = useState("");
 
   const [bulkBusy, setBulkBusy] = useState(false);
   // M4 PR-03 (audyt P1.6): potwierdzenie przed hired — ruch tworzy draft
@@ -425,6 +447,8 @@ export function usePipelineMove({
           client_rate_value: opts?.clientRate?.rate ?? undefined,
           client_rate_unit: opts?.clientRate?.unit ?? undefined,
           client_rate_currency: opts?.clientRate?.currency ?? undefined,
+          hired_signed_via: opts?.hiredSignedVia?.via ?? undefined,
+          hired_signed_note: opts?.hiredSignedVia?.note.trim() || undefined,
         });
 
         // M4 PR-03 (audyt P1.3): backend tworzy NOWY CandidateStage — karta
@@ -528,6 +552,15 @@ export function usePipelineMove({
               await sendMoveRef.current?.(item, dst, reason, opts);
             },
           });
+          return false;
+        }
+        const verifiedMissing = verifiedRequirementsOf(e);
+        if (!opts?.silent && verifiedMissing) {
+          // D1: karta wraca na miejsce, a wołający otwiera arkusz screeningu
+          // (brak stawki dopisuje okno „Zweryfikowany”).
+          showError(verifiedMissing.message);
+          await refreshAfterMove();
+          onVerifiedMissingRef.current?.(verifiedMissing, item);
           return false;
         }
         const qcFailure = cvQcFailureOf(e);
@@ -755,7 +788,12 @@ export function usePipelineMove({
           });
           return;
         }
-        if (isPipelineVersionConflict(e)) {
+        const verifiedMissing = verifiedRequirementsOf(e);
+        if (verifiedMissing) {
+          showError(verifiedMissing.message);
+          await refreshAfterMove();
+          onVerifiedMissingRef.current?.(verifiedMissing, item);
+        } else if (isPipelineVersionConflict(e)) {
           showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
           invalidateAfterPipelineVersionConflict(queryClient, jobId, item.candidate_id);
           await refreshAfterMove();
@@ -1173,7 +1211,14 @@ export function usePipelineMove({
           }
           rateFromHourly={verifiedRatePrompt.item.candidate_rate_from_hourly ?? null}
           onConfirm={(payload) => void submitVerifiedMove(payload)}
-          onSkip={() => void submitVerifiedMove(null)}
+          // D1 (04.10.2026): stawka jest wymagana. „Pomiń” zostaje tylko,
+          // gdy stawka już jest (profil albo wcześniejszy etap tej pary).
+          onSkip={
+            verifiedRatePrompt.item.candidate_expected_rate_hourly != null ||
+            verifiedRatePrompt.item.expected_rate_value != null
+              ? () => void submitVerifiedMove(null)
+              : undefined
+          }
           submitting={verifiedSubmitting}
         />
       )}
@@ -1206,9 +1251,19 @@ export function usePipelineMove({
         />
       )}
 
-      {/* M4 PR-03 (audyt P1.6): potwierdzenie przed hired — powstają artefakty */}
+      {/* M4 PR-03 (audyt P1.6): potwierdzenie przed hired — powstają artefakty.
+          D2 (04.10.2026): ręczny ruch mówi, jak podpisano umowę. */}
       {hiredConfirm && (
-        <Dialog open onOpenChange={(o) => !o && setHiredConfirm(null)}>
+        <Dialog
+          open
+          onOpenChange={(o) => {
+            if (!o) {
+              setHiredConfirm(null);
+              setHiredVia(null);
+              setHiredNote("");
+            }
+          }}
+        >
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Potwierdź zatrudnienie</DialogTitle>
@@ -1220,16 +1275,67 @@ export function usePipelineMove({
                 a Delivery dostanie powiadomienie z powodem.
               </DialogDescription>
             </DialogHeader>
+            <DialogBody className="space-y-3 text-sm">
+              <p className="rounded-md bg-muted px-3 py-2 text-muted-foreground">
+                Umowa B2B z Generatora? Użyj „Oznacz jako podpisaną” —{" "}
+                <a
+                  className="font-medium text-primary underline-offset-2 hover:underline"
+                  href={generatorPrefillHref(hiredConfirm.item.candidate_id, jobId)}
+                >
+                  otwórz Generator
+                </a>
+                . Karta przejdzie na „Zatrudniony” sama i powstanie zamówienie.
+              </p>
+              <fieldset className="space-y-1.5">
+                <legend className="mb-1 font-medium">Jak podpisano umowę?</legend>
+                {HIRED_SIGNED_VIA_OPTIONS.map((option) => (
+                  <label key={option.value} className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="hired-signed-via"
+                      value={option.value}
+                      checked={hiredVia === option.value}
+                      onChange={() => setHiredVia(option.value)}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </fieldset>
+              <label className="block space-y-1">
+                <span className="font-medium">
+                  Opis{hiredVia === "other" ? " (wymagany)" : " (opcjonalnie)"}
+                </span>
+                <textarea
+                  className="w-full rounded-md border border-input bg-background px-3 py-2"
+                  rows={2}
+                  maxLength={500}
+                  value={hiredNote}
+                  onChange={(e) => setHiredNote(e.target.value)}
+                />
+              </label>
+            </DialogBody>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setHiredConfirm(null)}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setHiredConfirm(null);
+                  setHiredVia(null);
+                  setHiredNote("");
+                }}
+              >
                 Anuluj
               </Button>
               <Button
+                disabled={!hiredReasonComplete(hiredVia, hiredNote)}
                 onClick={() => {
+                  if (hiredVia === null) return;
                   const { item, destCol, srcColId } = hiredConfirm;
+                  const signed = { via: hiredVia, note: hiredNote };
                   setHiredConfirm(null);
+                  setHiredVia(null);
+                  setHiredNote("");
                   applyOptimistic(item, srcColId, destCol);
-                  void sendMove(item, destCol);
+                  void sendMove(item, destCol, undefined, { hiredSignedVia: signed });
                 }}
               >
                 Potwierdź zatrudnienie

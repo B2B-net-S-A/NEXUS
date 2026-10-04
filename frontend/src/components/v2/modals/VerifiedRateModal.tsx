@@ -7,11 +7,12 @@
  * regułę liczy `evaluateRateGate` — ten sam komponent i ta sama funkcja
  * obsługują dok „Weryfikacja" na stanowisku screeningu.
  *
- * Od 17.09.2026 (decyzja właściciela „żadna bramka nie blokuje przepływu"):
- * stawka jest OPCJONALNA („Pomiń stawkę"), okno podpowiada stawkę z profilu
- * kandydata, a „ponad budżet" to ostrzeżenie w oknie i odznaka na karcie —
- * nic nie trafia na „Oczekuje". Budżet jest godzinowy
- * (`effective_budget_hourly`), ten sam co w nagłówku rekrutacji.
+ * Od 04.10.2026 (decyzja Artura D1) stawka kandydata jest wymagana przy
+ * wejściu na „Zweryfikowany” — serwer odmawia 409 bez niej. „Pomiń stawkę”
+ * zostaje tylko, gdy stawka już jest (profil albo wcześniejszy etap pary;
+ * wołający podaje wtedy `onSkip`). Okno podpowiada stawkę z profilu, a
+ * „ponad budżet” to ostrzeżenie w oknie i odznaka na karcie. Budżet jest
+ * godzinowy (`effective_budget_hourly`), ten sam co w nagłówku rekrutacji.
  */
 
 import { useState } from "react";
@@ -47,8 +48,8 @@ interface Props {
     currency: string;
     isMinimum?: boolean;
   }) => void;
-  /** Przesuń bez stawki — stawka jest opcjonalna od 17.09.2026. */
-  onSkip: () => void;
+  /** Przesuń bez nowej stawki — tylko gdy stawka już jest zapisana. */
+  onSkip?: () => void;
   /**
    * Ruch jest w drodze. Runda 10 (R10-N15-7): okno zostaje otwarte do
    * odpowiedzi, więc bez blokady podwójny klik albo Enter wysyłał drugi ruch.
@@ -106,7 +107,8 @@ export function VerifiedRateModal({
           <DialogTitle>Przesuń na „Zweryfikowany”</DialogTitle>
           <DialogDescription>
             Stawka kandydata{" "}
-            <span className="font-semibold">{candidateName}</span> (opcjonalnie).
+            <span className="font-semibold">{candidateName}</span>
+            {onSkip ? " (zapisana — możesz ją zmienić)." : " (wymagana)."}
             {jobBudgetHourly !== null && (
               <>
                 {" "}
@@ -156,9 +158,11 @@ export function VerifiedRateModal({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Anuluj
           </Button>
-          <Button variant="outline" onClick={onSkip} disabled={submitting}>
-            Pomiń stawkę
-          </Button>
+          {onSkip && (
+            <Button variant="outline" onClick={onSkip} disabled={submitting}>
+              Zostaw zapisaną stawkę
+            </Button>
+          )}
           <Button onClick={handleSubmit} disabled={!gate.isValid || submitting} loading={submitting}>
             Przesuń
           </Button>

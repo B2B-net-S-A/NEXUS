@@ -1003,7 +1003,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(moveCalls()).toHaveLength(0);
   });
 
-  it("okno „Zweryfikowany” podpowiada stawkę z profilu, a „Pomiń stawkę” przesuwa bez stawki", async () => {
+  it("okno „Zweryfikowany” podpowiada stawkę z profilu, a „Zostaw zapisaną stawkę” przesuwa bez nowej stawki", async () => {
     renderBoard(gateColumns({ candidate_expected_rate_hourly: "120.00" }));
     const menu = await openDockStageMenu();
     await userEvent.click(within(menu).getByRole("menuitem", { name: "Zweryfikowany" }));
@@ -1012,7 +1012,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(within(dialog).getByLabelText("Kwota")).toHaveValue(120);
     expect(within(dialog).getByRole("button", { name: "Przesuń" })).not.toBeDisabled();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Pomiń stawkę" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zostaw zapisaną stawkę" }));
 
     await waitFor(() => expect(move).toHaveBeenCalledTimes(1));
     const body = move.mock.calls[0][0] as Record<string, unknown>;

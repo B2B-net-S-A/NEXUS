@@ -1987,6 +1987,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  // 409 CV_QC_FAILED (także z przeciągnięcia) → okno QC CV tej pary.
  onCvQcFailed: (failure, item) => setQcStageId(failure.stageId ?? item.id),
+ // D1 (04.10.2026): „Zweryfikowany” bez arkusza → arkusz screeningu tej pary.
+ onVerifiedRequirementsMissing: (info, item) => {
+ if (!info.missing.includes("screening_sheet")) return;
+ setScreeningPrompt({
+ stageId: info.screeningStageId ?? item.id,
+ candidateName: itemFullName(item),
+ });
+ },
  });
  const { requestMove, requestReject } = move;
 

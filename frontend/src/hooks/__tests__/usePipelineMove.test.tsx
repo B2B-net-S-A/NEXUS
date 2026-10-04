@@ -45,6 +45,7 @@ import {
   usePipelineMove,
   type PipelineMoveControls,
   type PipelineMoveOptimisticAdapter,
+  type UsePipelineMoveOptions,
 } from "@/hooks/usePipelineMove";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { Permission } from "@/lib/permissions";
@@ -107,6 +108,7 @@ interface HarnessOptions {
   cproEnabled?: boolean;
   /** Tablica tylko do odczytu, m.in. w podglądzie jako inny użytkownik. */
   readOnly?: boolean;
+  onVerifiedRequirementsMissing?: UsePipelineMoveOptions["onVerifiedRequirementsMissing"];
 }
 
 function Harness({
@@ -126,6 +128,7 @@ function Harness({
     canWriteClientRate: false,
     optimistic,
     cproEnabled: options.cproEnabled,
+    onVerifiedRequirementsMissing: options.onVerifiedRequirementsMissing,
   });
   return <>{controls.dialogs}</>;
 }
@@ -225,7 +228,7 @@ describe("usePipelineMove — ruch pojedynczy", () => {
     });
   });
 
-  it("„Zweryfikowany” otwiera okno stawki, a „Pomiń stawkę” nie wysyła stawki", async () => {
+  it("„Zweryfikowany” przy zapisanej stawce: „Zostaw zapisaną stawkę” nie wysyła stawki", async () => {
     const item = card({
       id: 10,
       candidate_id: 100,
@@ -243,7 +246,7 @@ describe("usePipelineMove — ruch pojedynczy", () => {
     expect(apply).not.toHaveBeenCalled();
     expect(move).not.toHaveBeenCalled();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Pomiń stawkę" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Zostaw zapisaną stawkę" }));
     await waitFor(() => expect(move).toHaveBeenCalledTimes(1));
     const payload = move.mock.calls[0][0];
     expect(payload).toMatchObject({
@@ -263,7 +266,53 @@ describe("usePipelineMove — ruch pojedynczy", () => {
       patch: { id: 502, verification_status: "active", process_state_version: 4 },
     });
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Pomiń stawkę" })).toBeNull()
+      expect(screen.queryByRole("button", { name: "Zostaw zapisaną stawkę" })).toBeNull()
+    );
+  });
+
+  it("bez zapisanej stawki okno jej wymaga — nie ma „Zostaw zapisaną stawkę” (D1)", async () => {
+    const item = card({ id: 14, candidate_id: 104, process_state_version: 1 });
+    const b = board({ fresh: [item] });
+    mount(b.all, { apply: vi.fn(), confirm: vi.fn() });
+
+    React.act(() => controls.requestMove(item, b.fresh, b.verified));
+    expect(await screen.findByText(/\(wymagana\)/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Zostaw zapisaną stawkę" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Przesuń" })).toBeDisabled();
+  });
+
+  it("409 VERIFIED_REQUIREMENTS_MISSING: komunikat serwera i arkusz screeningu u wołającego", async () => {
+    const item = card({
+      id: 15,
+      candidate_id: 105,
+      process_state_version: 1,
+      candidate_expected_rate_hourly: 120,
+    });
+    const b = board({ fresh: [item] });
+    move.mockRejectedValueOnce({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: "VERIFIED_REQUIREMENTS_MISSING",
+            missing: ["screening_sheet"],
+            screening_stage_id: 77,
+            message: "Przed „Zweryfikowany” uzupełnij: arkusz screeningu.",
+          },
+        },
+      },
+    });
+    const onMissing = vi.fn();
+    mount(b.all, { apply: vi.fn(), confirm: vi.fn() }, { onVerifiedRequirementsMissing: onMissing });
+
+    React.act(() => controls.requestMove(item, b.fresh, b.verified));
+    fireEvent.click(await screen.findByRole("button", { name: "Zostaw zapisaną stawkę" }));
+    await waitFor(() =>
+      expect(showError).toHaveBeenCalledWith("Przed „Zweryfikowany” uzupełnij: arkusz screeningu."),
+    );
+    expect(onMissing).toHaveBeenCalledWith(
+      { missing: ["screening_sheet"], screeningStageId: 77, message: expect.any(String) },
+      item,
     );
   });
 
@@ -315,7 +364,12 @@ describe("usePipelineMove — ruch pojedynczy", () => {
   });
 
   it("„Zweryfikowany”: podwójny klik w trakcie wysyłki to jeden ruch (R10-N15-7)", async () => {
-    const item = card({ id: 11, candidate_id: 101, process_state_version: 2 });
+    const item = card({
+      id: 11,
+      candidate_id: 101,
+      process_state_version: 2,
+      candidate_expected_rate_hourly: 110,
+    });
     const b = board({ fresh: [item] });
     let resolveMove: (v: unknown) => void = () => undefined;
     move.mockImplementation(
@@ -332,15 +386,15 @@ describe("usePipelineMove — ruch pojedynczy", () => {
     const submit = screen.getByRole("button", { name: "Przesuń" });
     fireEvent.click(submit);
     fireEvent.click(submit);
-    fireEvent.click(screen.getByRole("button", { name: "Pomiń stawkę" }));
+    fireEvent.click(screen.getByRole("button", { name: "Zostaw zapisaną stawkę" }));
     await waitFor(() => expect(move).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("button", { name: "Pomiń stawkę" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Zostaw zapisaną stawkę" })).toBeDisabled();
 
     await React.act(async () => {
       resolveMove({ data: { id: 503, process_state_version: 3 } });
     });
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Pomiń stawkę" })).toBeNull()
+      expect(screen.queryByRole("button", { name: "Zostaw zapisaną stawkę" })).toBeNull()
     );
     expect(move).toHaveBeenCalledTimes(1);
   });
@@ -354,7 +408,7 @@ describe("usePipelineMove — ruch pojedynczy", () => {
     mount(b.all);
     React.act(() => controls.requestMove(item, b.fresh, b.verified));
     expect(showError).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("button", { name: "Pomiń stawkę" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Przesuń" })).toBeNull();
   });
 
   it.each(["talent_community_manager", "recruiter"])(
@@ -368,7 +422,7 @@ describe("usePipelineMove — ruch pojedynczy", () => {
       mount(b.all);
       React.act(() => controls.requestMove(item, b.fresh, b.verified));
       expect(showError).not.toHaveBeenCalled();
-      expect(await screen.findByRole("button", { name: "Pomiń stawkę" })).toBeTruthy();
+      expect(await screen.findByRole("button", { name: "Przesuń" })).toBeTruthy();
     }
   );
 
@@ -604,6 +658,30 @@ describe("usePipelineMove — ruch zbiorczy", () => {
     );
     // Bez okna „Przenieś mimo to" w ruchu zbiorczym.
     expect(screen.queryByRole("button", { name: "Przenieś mimo to" })).toBeNull();
+  });
+
+  it("„Potwierdź zatrudnienie” wymaga wyboru „jak podpisano” i wysyła go (D2)", async () => {
+    const item = card({ id: 42, candidate_id: 402, process_state_version: 1 });
+    const b = board({ fresh: [item] });
+    const hired = column("hired", 8, "Zatrudniony", "terminal", [], "hired");
+    post.mockResolvedValue({ data: { id: 900, process_state_version: 2 } });
+    mount([...b.all, hired], { apply: vi.fn(), confirm: vi.fn() });
+
+    React.act(() => controls.requestMove(item, b.fresh, hired));
+    const confirmButton = await screen.findByRole("button", { name: "Potwierdź zatrudnienie" });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: "Inna umowa" }));
+    // „Inna umowa” wymaga opisu.
+    expect(confirmButton).toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: "Umowa o pracę" }));
+    expect(confirmButton).toBeEnabled();
+    fireEvent.click(confirmButton);
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/pipeline/move",
+        expect.objectContaining({ candidate_id: 402, hired_signed_via: "uop" }),
+      ),
+    );
   });
 
   it("„Zatrudniony” zbiorczo jest odmawiany bez żadnego ruchu", async () => {
