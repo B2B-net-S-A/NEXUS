@@ -1175,9 +1175,25 @@ async def rule_new_contractor_draft(
             .exists(),
         )
     )
+    orders = list(result.scalars())
+    signed_ids = (
+        set(
+            (
+                await db.scalars(
+                    select(Activity.entity_id).where(
+                        Activity.entity_type == "client_order",
+                        Activity.entity_id.in_([o.id for o in orders]),
+                        Activity.action == SIGNED_CONTRACT_DRAFT_ACTION,
+                    )
+                )
+            ).all()
+        )
+        if orders
+        else set()
+    )
     live: set[str] = set()
     created = 0
-    for order in result.scalars():
+    for order in orders:
         user_ids = await dl_user_ids_for_client(
             db, order.client_id, scope=recipient_scope
         )
@@ -1198,6 +1214,7 @@ async def rule_new_contractor_draft(
                 candidate_name=name,
                 job_title=job_title,
                 user_ids=user_ids,
+                source=("b2b_generator" if order.id in signed_ids else "pipeline_hire"),
             )
         )
     await resolve_stale(db, alert_type=ALERT_NEW_CONTRACTOR_DRAFT, live_event_keys=live)

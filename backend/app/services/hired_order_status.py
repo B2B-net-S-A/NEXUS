@@ -28,6 +28,7 @@ from typing import Literal, Optional, Sequence
 
 from sqlalchemy import and_, or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -203,7 +204,10 @@ async def resolve_hired_order_cases_safely(
     sprzątanie powiadomień. Zwraca liczbę zamkniętych spraw (kontraktów).
     """
     from app.models.dl_alert import ALERT_NEW_CONTRACTOR_DRAFT  # noqa: PLC0415
-    from app.services.dl_alerts import resolve_entity_alerts  # noqa: PLC0415
+    from app.services.dl_alerts import (  # noqa: PLC0415
+        new_contractor_missing_fields,
+        resolve_entity_alerts,
+    )
 
     ids = sorted({int(cid) for cid in contract_ids})
     if not ids:
@@ -241,16 +245,45 @@ async def resolve_hired_order_cases_safely(
                 )
                 .values(is_read=True)
             )
-            order_ids = (
+            # Karta DL ma własną regułę braków (także numer zamówienia) —
+            # zamykamy ją dopiero, gdy ta reguła nic nie widzi. Inaczej karta
+            # znikałaby przy samej stawce i dacie, a skaner otwierałby ją
+            # nazajutrz od nowa.
+            orders = (
                 await db.scalars(
-                    select(ClientOrder.id).where(ClientOrder.contract_id.in_(done))
+                    select(ClientOrder)
+                    .options(
+                        selectinload(ClientOrder.contract).selectinload(
+                            Contract.candidate
+                        ),
+                        selectinload(ClientOrder.job),
+                    )
+                    .where(ClientOrder.contract_id.in_(done))
                 )
             ).all()
-            for order_id in order_ids:
+            for order in orders:
+                candidate = order.contract.candidate if order.contract else None
+                name = (
+                    " ".join(
+                        part
+                        for part in (
+                            getattr(candidate, "name", None),
+                            getattr(candidate, "lastname", None),
+                        )
+                        if part
+                    )
+                    or "Kontraktor"
+                )
+                if new_contractor_missing_fields(
+                    order,
+                    candidate_name=name,
+                    job_title=order.job.title if order.job else None,
+                ):
+                    continue
                 await resolve_entity_alerts(
                     db,
                     alert_type=ALERT_NEW_CONTRACTOR_DRAFT,
-                    entity_key=f"order:{order_id}",
+                    entity_key=f"order:{order.id}",
                 )
             return len(done)
     except asyncio.CancelledError:
