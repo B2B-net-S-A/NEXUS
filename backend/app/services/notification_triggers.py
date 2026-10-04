@@ -1185,7 +1185,14 @@ async def run_all_triggers(db: AsyncSession, now: datetime) -> dict[str, int]:
         ),
         "board_tasks_digest": await check_board_tasks_digest(db, now),
         "prep_attention": await check_prep_attention(db, now),
+        "rate_change_reminders": await _rate_change_reminders(db, now),
     }
+
+
+async def _rate_change_reminders(db: AsyncSession, now: datetime) -> int:
+    from app.services.candidate_rate_change import send_reminders  # noqa: PLC0415
+
+    return await send_reminders(db, now)
 
 
 __all__ = [

@@ -37,6 +37,7 @@ import { RequestStatusBadge } from "@/components/v2/jobs/JobListCells";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import { rateChangesQueryKey } from "@/lib/rate-change";
 import { AddCandidatesPanel } from "@/components/v2/recruitment/AddCandidatesPanel";
 import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
 import { Badge } from "@/components/ui/badge";
@@ -164,6 +165,7 @@ function columns(): KanbanColumn[] {
       card("Karol", "Wzorcowy", { claim_until: null, agreement: PREVIEW_AGREEMENT } as never),
       // 0418: kandydat po rozmowie u klienta chce wyższej stawki.
       card("Bartek", "Testowy", {
+        candidate_id: RATE_CASE_CANDIDATE_ID,
         claim_until: null,
         expected_rate_value: 125,
         expected_rate_unit: "hourly",
@@ -188,6 +190,59 @@ function columns(): KanbanColumn[] {
     col("withdrawn", "Wycofany", 30, [], "terminal", "withdrawn"),
   ];
 }
+
+const RATE_CASE_CANDIDATE_ID = 9300;
+const previewRate = (n: number) => ({
+  amount: String(n),
+  unit: "hourly",
+  currency: "PLN",
+  hourly: String(n),
+  label: `${n} zł/h`,
+});
+const PREVIEW_RATE_CHANGES = {
+  candidate_id: RATE_CASE_CANDIDATE_ID,
+  job_id: JOB_ID,
+  current: previewRate(125),
+  board_column: "client_interview",
+  notifies: true,
+  cv_at_client: true,
+  client_rate: previewRate(150),
+  can_manage: true,
+  can_decide: true,
+  negotiator_options: [
+    { id: 7, name: "Marta Nowak", role_label: "Delivery Lead" },
+    { id: 8, name: "Olaf Przykładowy", role_label: "Head of Recruitment" },
+  ],
+  changes: [
+    {
+      id: 3,
+      status: "requested",
+      requires_decision: true,
+      board_column: "client_interview",
+      previous: previewRate(110),
+      requested: previewRate(125),
+      agreed: null,
+      source: "debrief",
+      source_label: "Debrief po rozmowie",
+      reason: "conversation",
+      reason_label: "Rozmowa z kandydatem",
+      note: "ma drugą ofertę, decyzja do piątku",
+      negotiable: "maybe",
+      created_at: new Date().toISOString(),
+      created_by_name: "Sandra Testowa",
+      negotiator_id: null,
+      negotiator_name: null,
+      negotiation_target_hourly: null,
+      negotiation_due: null,
+      outcome: null,
+      outcome_note: null,
+      decision: null,
+      decided_at: null,
+      decided_by_name: null,
+      can_record_outcome: true,
+    },
+  ],
+};
 
 const PREVIEW_AGREEMENT = {
   id: 7001,
@@ -456,6 +511,8 @@ function seededClient(): QueryClient {
     },
   ]);
   // 0404: „Odrzuceni przez AI” — pusta lista.
+  // 0418: otwarta sprawa zmiany stawki „Bartka” — baner w panelu osoby.
+  seedFresh(qc, rateChangesQueryKey(RATE_CASE_CANDIDATE_ID, JOB_ID), PREVIEW_RATE_CHANGES);
   seedFresh(qc, screenedOutQueryKey(JOB_ID), { job_id: JOB_ID, total: 0, items: [] });
 
   // Skrzynka propozycji: trzy osoby z ogłoszeń (7 dni) + pięć z nocnego przeglądu.

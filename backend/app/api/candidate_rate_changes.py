@@ -5,17 +5,23 @@
   zmian. Stawka do klienta tylko dla ról, które ją widzą.
 * ``POST /api/rate-changes`` — nowa stawka kandydata w tej rekrutacji
   z powodem i notatką; reguła w ``services/candidate_rate_change.py``.
+* ``POST /api/rate-changes/{id}/negotiation`` — DL albo Head of Recruitment
+  zleca rozmowę z kandydatem (kto, cel, termin).
+* ``POST /api/rate-changes/{id}/outcome`` — wynik negocjacji (niższa stawka,
+  kandydat nie ustąpił, rezygnuje).
+* ``POST /api/rate-changes/{id}/decision`` — Delivery Lead (albo admin)
+  decyduje o stawce do klienta: podnosi ją, zostawia albo wycofuje kandydata.
 
 Dostęp: sekcja Pipeline. Odczyt jak rekrutacja, zapis jak korekta stawki
 kandydata (``RecruitmentRateEditAccess`` + członkostwo — każda rola wewnętrzna).
 """
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +37,7 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.candidate_rate_change import CandidateRateChange
 from app.models.contract import RateUnit
+from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
 from app.services import candidate_rate_change as rate_change
@@ -76,6 +83,14 @@ class RateChangeOut(BaseModel):
     decision: Optional[str] = None
     decided_at: Optional[datetime] = None
     decided_by_name: Optional[str] = None
+    # Czy oglądający może zapisać wynik negocjacji tej sprawy.
+    can_record_outcome: bool = False
+
+
+class NegotiatorOption(BaseModel):
+    id: int
+    name: str
+    role_label: str
 
 
 class RateChangesView(BaseModel):
@@ -89,6 +104,11 @@ class RateChangesView(BaseModel):
     cv_at_client: bool
     client_rate: Optional[RateValue] = None
     changes: list[RateChangeOut]
+    # Zlecenie negocjacji: DL rekrutacji, Head of Recruitment, admin.
+    can_manage: bool = False
+    # Decyzja o stawce do klienta: DL rekrutacji albo admin.
+    can_decide: bool = False
+    negotiator_options: list[NegotiatorOption] = []
 
 
 class RateChangeCreate(BaseModel):
@@ -100,6 +120,29 @@ class RateChangeCreate(BaseModel):
     reason: ReasonCode = "conversation"
     note: Optional[str] = Field(None, max_length=1000)
     negotiable: Optional[NegotiableCode] = None
+
+
+class NegotiationStart(BaseModel):
+    negotiator_id: int = Field(gt=0, le=2_147_483_647)
+    target_hourly: Optional[Decimal] = Field(None, gt=0, le=Decimal("100000"))
+    due: Optional[date] = None
+
+
+class OutcomeIn(BaseModel):
+    outcome: Literal["lower", "kept", "withdrew"]
+    agreed_amount: Optional[Decimal] = Field(None, gt=0, le=Decimal("100000"))
+    note: Optional[str] = Field(None, max_length=1000)
+
+
+class ClientRateIn(BaseModel):
+    amount: Decimal = Field(gt=0, le=Decimal("1000000"))
+    unit: RateUnit = RateUnit.hourly
+    currency: str = Field("PLN", min_length=3, max_length=3)
+
+
+class DecisionIn(BaseModel):
+    decision: Literal["raise_client", "keep_client", "withdraw"]
+    client_rate: Optional[ClientRateIn] = None
 
 
 class RateChangeCreated(BaseModel):
@@ -129,8 +172,11 @@ async def _names(db: AsyncSession, ids: set[int]) -> dict[int, str]:
     return {uid: name for uid, name in rows.all()}
 
 
-def _out(c: CandidateRateChange, names: dict[int, str]) -> RateChangeOut:
+def _out(
+    c: CandidateRateChange, names: dict[int, str], *, can_record: bool = False
+) -> RateChangeOut:
     return RateChangeOut(
+        can_record_outcome=can_record and c.status in ("requested", "negotiating"),
         id=c.id,
         status=c.status,
         requires_decision=c.requires_decision,
@@ -159,13 +205,50 @@ def _out(c: CandidateRateChange, names: dict[int, str]) -> RateChangeOut:
 
 
 async def outs_for(
-    db: AsyncSession, changes: list[CandidateRateChange]
+    db: AsyncSession,
+    changes: list[CandidateRateChange],
+    *,
+    viewer: Optional[User] = None,
+    viewer_manages: bool = False,
 ) -> list[RateChangeOut]:
     ids: set[int] = set()
     for c in changes:
         ids.update(x for x in (c.created_by, c.negotiator_id, c.decided_by) if x)
     names = await _names(db, ids)
-    return [_out(c, names) for c in changes]
+    return [
+        _out(
+            c,
+            names,
+            can_record=viewer_manages
+            or (viewer is not None and c.negotiator_id == viewer.id),
+        )
+        for c in changes
+    ]
+
+
+async def _negotiator_options(
+    db: AsyncSession, *, job: Job, candidate_id: int
+) -> list[NegotiatorOption]:
+    from app.services.notification_triggers import _hor_user_ids
+    from app.services.stage_handoff_recipients import pair_recruiter_id
+
+    options: list[tuple[int, str]] = [
+        (uid, "Delivery Lead") for uid in await rate_change.job_delivery_leads(db, job)
+    ]
+    options += [(uid, "Head of Recruitment") for uid in await _hor_user_ids(db)]
+    recruiter = await pair_recruiter_id(db, candidate_id=candidate_id, job_id=job.id)
+    if recruiter is not None:
+        options.append((recruiter, "Rekruter kandydata"))
+    seen: set[int] = set()
+    unique = [
+        (uid, label) for uid, label in options if not (uid in seen or seen.add(uid))
+    ]
+    names = await _names(db, {uid for uid, _ in unique})
+    return [
+        NegotiatorOption(id=uid, name=names[uid], role_label=label)
+        for uid, label in unique
+        if uid in names
+    ]
 
 
 @router.get("/rate-changes", response_model=RateChangesView)
@@ -203,7 +286,17 @@ async def get_rate_changes(
         ).all()
     )
     show_client = user_can_view_client_rate(current_user)
+    job = await db.get(Job, job_id)
+    manages = bool(job) and await rate_change.can_manage(db, current_user, job)
+    decides = bool(job) and await rate_change.can_decide(db, current_user, job)
     return RateChangesView(
+        can_manage=manages,
+        can_decide=decides,
+        negotiator_options=(
+            await _negotiator_options(db, job=job, candidate_id=candidate_id)
+            if manages and job is not None
+            else []
+        ),
         candidate_id=candidate_id,
         job_id=job_id,
         current=_rate(rates["amount"], rates["unit"], rates["currency"]),
@@ -217,7 +310,9 @@ async def get_rate_changes(
             if show_client
             else None
         ),
-        changes=await outs_for(db, changes),
+        changes=await outs_for(
+            db, changes, viewer=current_user, viewer_manages=manages
+        ),
     )
 
 
@@ -248,3 +343,78 @@ async def create_rate_change(
         return RateChangeCreated(unchanged=True)
     await db.refresh(change)
     return RateChangeCreated(unchanged=False, change=(await outs_for(db, [change]))[0])
+
+
+async def _finish(
+    db: AsyncSession, result: rate_change.RateChangeResult, current_user: User
+) -> RateChangeOut:
+    change = result.change
+    await db.commit()
+    await rate_change.send_pending_emails(result.emails)
+    await db.refresh(change)
+    job = await db.get(Job, change.job_id)
+    manages = bool(job) and await rate_change.can_manage(db, current_user, job)
+    return (await outs_for(db, [change], viewer=current_user, viewer_manages=manages))[
+        0
+    ]
+
+
+@router.post("/rate-changes/{change_id}/negotiation", response_model=RateChangeOut)
+async def start_negotiation(
+    body: NegotiationStart,
+    current_user: RecruitmentRateEditAccess,
+    change_id: int = Path(gt=0, le=2_147_483_647),
+    db: AsyncSession = Depends(get_db),
+) -> RateChangeOut:
+    change = await rate_change.lock_change(db, change_id)
+    await ensure_job_read_access(db, current_user, change.job_id)
+    result = await rate_change.start_negotiation(
+        db,
+        change=change,
+        negotiator_id=body.negotiator_id,
+        target_hourly=body.target_hourly,
+        due=body.due,
+        actor=current_user,
+    )
+    return await _finish(db, result, current_user)
+
+
+@router.post("/rate-changes/{change_id}/outcome", response_model=RateChangeOut)
+async def record_outcome(
+    body: OutcomeIn,
+    current_user: RecruitmentRateEditAccess,
+    change_id: int = Path(gt=0, le=2_147_483_647),
+    db: AsyncSession = Depends(get_db),
+) -> RateChangeOut:
+    change = await rate_change.lock_change(db, change_id)
+    await ensure_job_read_access(db, current_user, change.job_id)
+    result = await rate_change.record_outcome(
+        db,
+        change=change,
+        outcome=body.outcome,
+        agreed_amount=body.agreed_amount,
+        note=body.note,
+        actor=current_user,
+    )
+    return await _finish(db, result, current_user)
+
+
+@router.post("/rate-changes/{change_id}/decision", response_model=RateChangeOut)
+async def decide(
+    body: DecisionIn,
+    current_user: RecruitmentRateEditAccess,
+    change_id: int = Path(gt=0, le=2_147_483_647),
+    db: AsyncSession = Depends(get_db),
+) -> RateChangeOut:
+    change = await rate_change.lock_change(db, change_id)
+    await ensure_job_read_access(db, current_user, change.job_id)
+    result = await rate_change.decide(
+        db,
+        change=change,
+        decision=body.decision,
+        client_rate_amount=body.client_rate.amount if body.client_rate else None,
+        client_rate_unit=body.client_rate.unit.value if body.client_rate else None,
+        client_rate_currency=body.client_rate.currency if body.client_rate else None,
+        actor=current_user,
+    )
+    return await _finish(db, result, current_user)

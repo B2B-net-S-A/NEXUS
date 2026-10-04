@@ -42,7 +42,7 @@ from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.user import User, UserRole
-from app.services import agreement_tasks
+from app.services import agreement_tasks, rate_change_tasks
 from app.services import board_tasks as svc
 from app.services.stage_client_rate import latest_client_rates
 from app.services.action_permissions import ProductAction, has_permission
@@ -329,6 +329,27 @@ class FinanceBlockOut(BaseModel):
     hired_without_order_total: int
 
 
+class RateChangeTaskRow(BaseModel):
+    """Sprawa zmiany stawki kandydata (`services/rate_change_tasks.py`)."""
+
+    change_id: int
+    # decide | negotiate | waiting
+    reason: str
+    status: str
+    candidate_id: int
+    candidate_name: str
+    job_id: int
+    job_title: str
+    client_name: Optional[str] = None
+    previous_label: Optional[str] = None
+    requested_label: str
+    agreed_label: Optional[str] = None
+    negotiator_name: Optional[str] = None
+    negotiation_due: Optional[date] = None
+    since: datetime
+    waiting_on: Optional[str] = None
+
+
 class BoardTasksResponse(BaseModel):
     cpro_to_send: list[BoardTaskRow]
     cpro_sent: list[BoardTaskRow]
@@ -375,6 +396,10 @@ class BoardTasksResponse(BaseModel):
     flow: Optional[FlowBlockOut] = None
     # 04.10.2026: praca Finansów (braki, PDF-y, zatrudnieni bez zamówienia).
     finance: Optional[FinanceBlockOut] = None
+    # 0418: zmiany stawki kandydata — decyzja DL i negocjacja („Twój ruch”),
+    # zgłoszenia czekające na innych („U innych”).
+    rate_changes: list[RateChangeTaskRow] = []
+    rate_changes_by_others: list[RateChangeTaskRow] = []
 
 
 class CproSenderRead(BaseModel):
@@ -485,6 +510,7 @@ async def list_board_tasks(
     agreements = await agreement_tasks.load_safely(
         db, current_user, portfolio=portfolio
     )
+    rate_tasks = await rate_change_tasks.load_safely(db, current_user, now=now)
     unfinished = await pending_job_completion.load_unfinished_forms_safely(
         db, current_user, now=now
     )
@@ -533,6 +559,14 @@ async def list_board_tasks(
             else None
         ),
         unfinished_forms=[UnfinishedFormRow(**asdict(f)) for f in unfinished],
+        rate_changes=[
+            RateChangeTaskRow(**asdict(t))
+            for t in (rate_tasks.mine if rate_tasks else [])
+        ],
+        rate_changes_by_others=[
+            RateChangeTaskRow(**asdict(t))
+            for t in (rate_tasks.by_others if rate_tasks else [])
+        ],
         agreements=(
             AgreementTasksBlock(
                 to_confirm=[

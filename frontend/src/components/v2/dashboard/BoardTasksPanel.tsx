@@ -82,6 +82,7 @@ import {
 } from "./AgreementTasksSection";
 import { BoardFlowOthers, BoardFlowSections, flowWorkCount, hasFlowOthers } from "./BoardFlowSections";
 import { BOARD_TASKS_ROWS, Section } from "./BoardTasksSection";
+import { RateChangesSection, RateChangesWaitingSection } from "./RateChangesSection";
 import { CproQueueDialog, CproSenderControl } from "./CproQueueDialog";
 import { CvInTransitSection } from "./CvInTransitSection";
 import { NewJobLeadsSection } from "./NewJobLeadsSection";
@@ -194,7 +195,8 @@ export function BoardTasksPanel() {
     preps.length +
     followups.length +
     agreementTasksCount(data.agreements) +
-    flowWorkCount(data.flow, data.finance);
+    flowWorkCount(data.flow, data.finance) +
+    (data.rate_changes?.length ?? 0);
   // „Twoje CV w drodze”: gdy coś wróciło albo panel i tak stoi — kolumna
   // w panelu; gdy nie — sam wąski pasek nad pulpitem (także z pustym stanem,
   // bo każdy ma tę listę domyślnie i może ją usunąć z pulpitu).
@@ -216,7 +218,8 @@ export function BoardTasksPanel() {
     total === 0 &&
     (transit?.returned_total ?? 0) === 0 &&
     !flowOthers &&
-    waitingAgreements.length === 0
+    waitingAgreements.length === 0 &&
+    (data.rate_changes_by_others?.length ?? 0) === 0
   ) {
     // Rola z sekcjami przepływu (rekruter, TCM, DL) dostaje jedno zdanie
     // zamiast znikającego panelu — inaczej „nic” i „nie wczytało się” wyglądają
@@ -254,7 +257,8 @@ export function BoardTasksPanel() {
     (Boolean(transit) && !transitIsMine) ||
     data.cpro_sent.length > 0 ||
     flowOthers ||
-    waitingAgreements.length > 0;
+    waitingAgreements.length > 0 ||
+    (data.rate_changes_by_others?.length ?? 0) > 0;
   const openQueue = (jobId: number | null) => {
     setCproJob(jobId);
     setCproOpen(true);
@@ -305,6 +309,7 @@ export function BoardTasksPanel() {
         />
         <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
         <AgreementTasksSection tasks={data.agreements} />
+        <RateChangesSection rows={data.rate_changes} />
         {transit && transitIsMine ? <CvInTransitSection transit={transit} /> : null}
         {dlReview.length > 0 && (
           <Section
@@ -439,6 +444,7 @@ export function BoardTasksPanel() {
             {transit && !transitIsMine ? <CvInTransitSection transit={transit} /> : null}
             <AgreementWaitingSection rows={waitingAgreements} />
             <BoardFlowOthers flow={data.flow} expanded={expanded} onToggle={toggle} shown={shown} />
+            <RateChangesWaitingSection rows={data.rate_changes_by_others} />
             {data.cpro_sent.length > 0 && (
               <Section
                 title="Wysłane do Cpro"
