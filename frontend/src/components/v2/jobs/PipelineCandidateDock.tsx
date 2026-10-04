@@ -1205,13 +1205,17 @@ export function PipelineCandidateDock({
                 onAddClientSlots={onAddClientSlots}
               />
             )}
-            {CONTRACT_PANEL_STAGES.has(item.stage ?? "") && (
+            {/* 04.10.2026: sekcja stoi też poza „Umową” i „Zatrudnionym”, gdy para
+                ma już umowę w Generatorze (wygenerowaną po rozmowie u klienta). */}
+            {(CONTRACT_PANEL_STAGES.has(item.stage ?? "") || item.agreement) && (
               <DockContractSteps
                 candidateId={item.candidate_id}
                 jobId={jobId}
                 clientId={clientId}
                 orderStatus={item.order_status ?? null}
                 readOnly={readOnly}
+                agreement={item.agreement ?? null}
+                onGenerate={onOpenWorkbench ? () => onOpenWorkbench("contract") : undefined}
               />
             )}
             <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3 text-xs">

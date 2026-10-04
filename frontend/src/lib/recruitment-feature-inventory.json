@@ -1367,6 +1367,30 @@
    "file": "components/v2/dashboard/BoardTasksPanel.tsx",
    "marker": "ReviewCardBadge",
    "v3_home": "Pulpit → Czeka na Ciebie → przegląd DL"
+  },
+  {
+   "id": "contract.generate-in-panel",
+   "area": "umowa",
+   "opis": "Rekruter generuje umowę B2B w panelu osoby — formularz Generatora z ustaloną parą i podpowiedziami z rekrutacji (04.10.2026)",
+   "file": "components/v2/b2b-generator/AgreementPanelTab.tsx",
+   "marker": "lockedPair",
+   "v3_home": "panel → Umowa → Wygeneruj umowę"
+  },
+  {
+   "id": "contract.correct-in-panel",
+   "area": "umowa",
+   "opis": "„Popraw umowę” pod tym samym numerem z panelu osoby (autor, zespół rekrutacji, TCM, admin)",
+   "file": "components/v2/b2b-generator/AgreementPanelTab.tsx",
+   "marker": "Popraw umowę",
+   "v3_home": "panel → Umowa"
+  },
+  {
+   "id": "contract.signature-request",
+   "area": "umowa",
+   "opis": "Podpis umowy z panelu: okno „Oznacz jako podpisaną” z „Podpis B2B”, bez niego prośba do Delivery Leada",
+   "file": "components/v2/b2b-generator/AgreementSignatureAction.tsx",
+   "marker": "Poproś o potwierdzenie podpisu",
+   "v3_home": "panel → sekcja Umowa"
   }
  ]
 }

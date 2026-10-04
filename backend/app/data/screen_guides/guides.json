@@ -175,7 +175,7 @@
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",
-        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma kroki rozmowy: termin od klienta, prepy z oceną i debrief. Na „Umowie” i „Zatrudnionym” widać umowę, podpis i zamówienie. Pełne narzędzia — stawkę do klienta, werdykt klienta, umowę — otwiera „Rozwiń” u góry panelu; „Zwiń” albo Esc wraca.",
+        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma kroki rozmowy: termin od klienta, prepy z oceną i debrief. Sekcja „Umowa” pokazuje umowę, podpis i zamówienie: „Wygeneruj umowę” rozwija panel z formularzem Generatora, a podpis potwierdzasz tam albo prosisz o to Delivery Leada. „Rozwiń” otwiera pełne narzędzia, „Zwiń” albo Esc wraca.",
         "anchor": "jobs.person.expand"
       }
     ],
@@ -194,7 +194,7 @@
       {"id": "jobs.person.expand", "label": "Rozwiń panel", "describe": "Poszerza panel osoby i pokazuje pełne narzędzia: CV do klienta, screening, rozmowy, umowę, dopasowanie i notatki."}
     ],
     "help_slug": null,
-    "sources": ["frontend/src/components/v2/jobs/PipelineCandidateDock.tsx", "frontend/src/components/v2/followups/DockFollowupBlock.tsx"]
+    "sources": ["frontend/src/components/v2/jobs/PipelineCandidateDock.tsx", "frontend/src/components/v2/followups/DockFollowupBlock.tsx", "frontend/src/components/v2/jobs/DockContractSteps.tsx"]
   },
   {
     "key": "job.champion",
