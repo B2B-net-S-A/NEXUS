@@ -377,7 +377,7 @@ describe("PipelineCandidateDock", () => {
 
     await user.click(screen.getByRole("button", { name: /^Screening/ }));
     await user.click(
-      screen.getByRole("button", { name: /Otwórz Screening Championa/ })
+      screen.getByRole("button", { name: /Otwórz rozmowę z kandydatem/ })
     );
 
     expect(onOpenScreening).toHaveBeenCalledWith(501, "Anna Kowalska");

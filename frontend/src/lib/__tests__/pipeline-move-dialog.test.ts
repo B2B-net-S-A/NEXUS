@@ -2,7 +2,7 @@
  * Które ruchy wymagają dialogu — jedna reguła dla tablicy i dla doku „Decyzja".
  *
  * Cichy tryb awarii, przed którym to broni: dok kroku 07 wysyła
- * `POST /api/pipeline/move` sam. Gdyby nie znał gałęzi „CV Wysłane", ruch
+ * `POST /api/pipeline/move` sam. Gdyby nie znał gałęzi „CV wysłane", ruch
  * PRZESZEDŁBY — tyle że bez zapytania o stawkę do klienta, czyli bez danych,
  * które tamten modal istnieje po to, żeby zebrać. Nic by się nie wywaliło;
  * po prostu stawka byłaby pusta.

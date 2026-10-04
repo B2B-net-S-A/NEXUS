@@ -342,7 +342,7 @@ describe("defaultPanelSectionFor", () => {
     expect(defaultPanelSectionFor("closed")).toBe("notes");
   });
 
-  it("„CV Wysłane” i etap przed rozmową otwierają CV, nie pustą sekcję rozmów", () => {
+  it("„CV wysłane” i etap przed rozmową otwierają CV, nie pustą sekcję rozmów", () => {
     const cvSent = { stage: "cv_sent", category: "internal", name: "CV Wysłane" } as never;
     const interview = { stage: "client_interview", category: "external", name: "Interview Klient" } as never;
     expect(defaultPanelSectionFor("client", cvSent)).toBe("cv");

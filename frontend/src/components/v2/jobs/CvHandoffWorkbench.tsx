@@ -127,8 +127,9 @@ export interface CvHandoffWorkbenchProps extends WorkbenchPanelProps {
   readOnly: boolean;
   /**
    * `JobResponse.can_write_client_rate` — liczone przez serwer tą samą funkcją
-   * co `PATCH …/client-rate` (admin, DL, TAC, TCM, HoR, Finanse albo
-   * właściciel/twórca rekrutacji). Brak pola = pole stawki ukryte.
+   * co `PATCH …/client-rate` (uprawnienie „Rekrutacje: zakładanie, zamykanie,
+   * wysyłka CV do klienta”, `resolve_client_rate_write`). Brak pola = pole
+   * stawki ukryte.
    */
   canWriteClientRate?: boolean;
   /** Nordea (DZ → Cpro) — tam „CV wysłane" wysyła wytypowana osoba bez
@@ -257,7 +258,7 @@ export function CvHandoffWorkbench({
     setDockTab("send");
   }, [activeStageId]);
 
-  // Link, który padł PO udanym ruchu: kandydat stoi już na „CV Wysłane", a CV
+  // Link, który padł PO udanym ruchu: kandydat stoi już na „CV wysłane", a CV
   // brandowane zostało na etapie sprzed ruchu — profil i dok celują w etap
   // najnowszy, więc bez tego przycisku nie byłoby jak utworzyć linku do tego
   // dokumentu. Ponowienie idzie na ZAPAMIĘTANY identyfikator etapu.
@@ -289,7 +290,7 @@ export function CvHandoffWorkbench({
     ? null
     : "Link dla klienta wymaga zatwierdzonego CV do klienta — zapisz je w edytorze albo oznacz etap bez tworzenia linku.";
   // Linki dla klienta wyłączone (CV_CLIENT_LINKS_UI_ENABLED): akcja tylko
-  // przesuwa kandydata na „CV Wysłane" i zapisuje stawkę — bez linku.
+  // przesuwa kandydata na „CV wysłane" i zapisuje stawkę — bez linku.
   const willCreateLink = CV_CLIENT_LINKS_UI_ENABLED && createLink && brandedFinalized;
 
   // Linki tego etapu — lista i odwołanie. Zapytanie startuje dopiero na
@@ -353,7 +354,7 @@ export function CvHandoffWorkbench({
         targetStage: CV_SENT_STAGE,
       }) ??
       (!cvSentCol
-        ? "Szablon tej rekrutacji nie ma kolumny „CV Wysłane”."
+        ? "Szablon tej rekrutacji nie ma kolumny „CV wysłane”."
         : !cproEnabled && !canWriteClientRate
           ? CLIENT_SEND_DENIED_MESSAGE
         : CV_CLIENT_LINKS_UI_ENABLED && brandedQuery.isLoading
@@ -363,7 +364,7 @@ export function CvHandoffWorkbench({
           : null))
     : "Wybierz kandydata z kolejki.";
 
-  // 17.09.2026: weto HM / czarna lista / NDA na „CV Wysłane" to ostrzeżenie
+  // 17.09.2026: weto HM / czarna lista / NDA na „CV wysłane" to ostrzeżenie
   // serwera — okno „Przenieś mimo to" zamiast toastu błędu.
   const eligibilityWarning = useEligibilityWarning();
   const sendMut = useMutation({
@@ -372,7 +373,7 @@ export function CvHandoffWorkbench({
         throw new Error("Brak etapu docelowego.");
       }
       // Etap SPRZED ruchu: na nim leży sfinalizowane CV brandowane, więc link
-      // tworzony po ruchu celuje właśnie tutaj, a nie w świeży „CV Wysłane".
+      // tworzony po ruchu celuje właśnie tutaj, a nie w świeży „CV wysłane".
       // Gdy ten wiersz jest pusty, CV leży na wierszu pary (runda 12).
       const sourceStageId = cvStageId ?? stageId;
       const expiresInDays = shareDays;
@@ -528,7 +529,7 @@ export function CvHandoffWorkbench({
               <div key={index} className="space-y-2 rounded-lg border border-warning/30 bg-warning-muted p-3">
                 <p className="text-sm font-medium">{result.candidateName} · {result.jobTitle}</p>
                 <p className="text-xs text-warning-muted-foreground">
-                  Kandydat jest już na „CV Wysłane”, ale link dla klienta nie powstał. CV brandowane zostało na etapie sprzed ruchu — utwórz link tutaj.
+                  Kandydat jest już na „CV wysłane”, ale link dla klienta nie powstał. CV brandowane zostało na etapie sprzed ruchu — utwórz link tutaj.
                 </p>
                 <Button
                   size="sm"
@@ -948,8 +949,8 @@ export function CvHandoffWorkbench({
                     >
                       <Send className="h-3.5 w-3.5" />
                       {!CV_CLIENT_LINKS_UI_ENABLED
-                        ? "Oznacz „CV Wysłane”"
-                        : willCreateLink ? "Utwórz link i oznacz „CV Wysłane”" : "Oznacz „CV Wysłane” bez tworzenia linku"}
+                        ? "Oznacz „CV wysłane”"
+                        : willCreateLink ? "Utwórz link i oznacz „CV wysłane”" : "Oznacz „CV wysłane” bez tworzenia linku"}
                     </Button>
                     {CV_CLIENT_LINKS_UI_ENABLED && (
                     <>
@@ -1000,7 +1001,7 @@ export function CvHandoffWorkbench({
   return (
     <div className="flex min-w-0 flex-col gap-3">
       {eligibilityWarning.dialog}
-      {/* Link jednorazowy przeżywa ruch: po „CV Wysłane” osoba wypada
+      {/* Link jednorazowy przeżywa ruch: po „CV wysłane” osoba wypada
           z kolejki tego warsztatu, a adres musi zostać na ekranie. */}
       {resultsSection}
       {!selected && panelFallback != null ? (

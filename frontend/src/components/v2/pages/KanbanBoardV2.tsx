@@ -83,7 +83,7 @@ import {
  type MoveRequirementAction,
 } from "@/lib/api/moveRequirements";
 import { RecommendationCardDialog } from "@/components/v2/screening/RecommendationCardDialog";
-import type { BoardTaskRow } from "@/lib/api/boardTasks";
+import { fetchDlReviewRow, type BoardTaskRow } from "@/lib/api/boardTasks";
 import type { PairInfo } from "@/lib/interview-cycle";
 import {
  SETTABLE_BADGES,
@@ -208,6 +208,9 @@ interface KanbanBoardV2Props {
  /** Woła się raz po obsłużeniu `initialDockCandidateId` — niezależnie od tego,
   *  czy karta była na tablicy — żeby strona zdjęła parametr z adresu. */
  onInitialDockHandled?: () => void;
+ /** `?candidate=<id>&review=1` (dzwonek „CV do przeglądu”): poza dokiem
+  *  otwiera też przegląd DL tej osoby, gdy czeka na niego w „QC CV”. */
+ initialDockOpensReview?: boolean;
  /** Kto jest teraz w doku — strona trzyma go w adresie (`?candidate=`). */
  onDockCandidateChange?: (candidateId: number | null) => void;
  /**
@@ -1511,7 +1514,7 @@ const MIN_COLUMN_HEIGHT = 280;
 // `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
 const MOBILE_MAIN_PADDING_Y = 32;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, renderAbove }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, renderAbove }: KanbanBoardV2Props) {
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik —
  // świadomie nie per-job.
  const hideEmptyColumns = useUiStore((s) => s.hideEmptyKanbanColumns);
@@ -1522,7 +1525,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const [viewPreference, setViewPreference] = useKanbanViewPreference();
  const queryClient = useQueryClient();
  const contactFeature = useCandidateContactFeature();
- const { showSuccess, showError } = useToast();
+ const { showSuccess, showError, showInfo } = useToast();
  const [cols, setCols] = useState(() => composeColumns(columns, offTemplate));
  // Kolumny SZABLONU — wszystko, co wybiera cel ruchu albo mierzy pipeline,
  // musi iść po tej liście, nie po `cols` (w `cols` siedzi też kubełek).
@@ -2207,6 +2210,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Ref trzyma obsłużone id, żeby przebudowa `cols` (ruch, odświeżenie) nie
  // otwierała doku ponownie po tym, jak użytkownik go zamknął.
  const handledInitialDockRef = useRef<number | null>(null);
+ // `review=1`: przegląd otwiera osobny efekt niżej — `openDlReviewIfSending`
+ // powstaje później w tym komponencie.
+ const [pendingReviewCandidateId, setPendingReviewCandidateId] = useState<number | null>(null);
  useEffect(() => {
  if (initialDockCandidateId == null) {
  handledInitialDockRef.current = null;
@@ -2223,9 +2229,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  `[data-candidate-id="${initialDockCandidateId}"]`
  );
  card?.scrollIntoView?.({ block: "center", inline: "center" });
+ if (initialDockOpensReview) setPendingReviewCandidateId(initialDockCandidateId);
  }
  onInitialDockHandled?.();
- }, [initialDockCandidateId, cols, onInitialDockHandled]);
+ }, [initialDockCandidateId, initialDockOpensReview, cols, onInitialDockHandled]);
 
  // Kolumna terminala „Odrzucony" tego szablonu — potrzebna zarówno „Odrzuć
  // z powodem" w doku, jak i sprawdzeniu, czy dana karta w ogóle DA się
@@ -2342,6 +2349,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // do klienta dostaje ten sam pełny przegląd co na pulpicie (stawka kandydata,
  // CV, screening, stawka do klienta — bez marży), a nie samo okno stawki.
  const [dlReviewTask, setDlReviewTask] = useState<BoardTaskRow | null>(null);
+ // Prawo wysyłki z wiersza serwera; do jego przyjścia — ta sama reguła
+ // w przeglądarce (`recruitment_manage`).
+ const [dlReviewCanSend, setDlReviewCanSend] = useState<boolean | undefined>(undefined);
  // Jedna droga dla doku, strzałki na karcie i przeciągnięcia: wysyłka z „QC
  // CV" przez osobę z prawem wysyłki otwiera przegląd (karta, uwagi dla
  // rekrutera, „Wróć do poprawy"). Test na produkcji 03.10.2026: strzałka
@@ -2383,6 +2393,19 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Serwer czyta arkusz pary (także z „Nowych"), gdy etap nie ma własnego.
  screening_stage_id: item.id,
  });
+ setDlReviewCanSend(undefined);
+ // Wiersz z serwera (ta sama reguła co pulpit): etap CV po QC, kto
+ // zweryfikował, klient, stan karty. Do jego przyjścia przegląd stoi na
+ // wierszu z tablicy; błąd zostawia ten wiersz (04.10.2026).
+ const candidateId = item.candidate_id;
+ void fetchDlReviewRow(candidateId, jobId)
+ .then((res) => {
+ setDlReviewTask((cur) =>
+ cur && cur.candidate_id === candidateId ? { ...cur, ...res.row } : cur
+ );
+ setDlReviewCanSend(res.can_send_to_client);
+ })
+ .catch(() => undefined);
  return true;
  },
  [cproEnabled, canReviewAsDl, columnByItemId, jobId, jobTitle, clientId, rejectedTemplateCol, boardFold]
@@ -2390,6 +2413,35 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  useEffect(() => {
  openDlReviewRef.current = openDlReviewIfSending;
  }, [openDlReviewIfSending]);
+ // Warsztat szeroki rusza kartą przez TĘ SAMĄ instancję co Tablica; wysyłka
+ // z „QC CV” do klienta otwiera przegląd DL jak z doku i strzałki.
+ const workbenchMove = useMemo(
+ () => ({
+ ...move,
+ requestMove: (
+ item: KanbanItem,
+ from: KanbanColumn | string,
+ to: KanbanColumn,
+ options?: { taskAssigneeId?: number },
+ ) => {
+ if (openDlReviewIfSending(item, to)) return;
+ move.requestMove(item, from, to, options);
+ },
+ }),
+ [move, openDlReviewIfSending],
+ );
+ // `?candidate=&review=1` — dzwonek „CV do przeglądu” prowadzi prosto do
+ // przeglądu, nie do samego doku (04.10.2026).
+ useEffect(() => {
+ if (pendingReviewCandidateId == null) return;
+ setPendingReviewCandidateId(null);
+ const item = cols
+ .flatMap((c) => c.items)
+ .find((i) => i.candidate_id === pendingReviewCandidateId);
+ if (!item || !cvSentColumn || !openDlReviewIfSending(item, cvSentColumn)) {
+ showInfo("Ta osoba nie czeka teraz na przegląd przed wysłaniem do klienta.");
+ }
+ }, [pendingReviewCandidateId, cols, cvSentColumn, openDlReviewIfSending, showInfo]);
  const handleDockMove = useCallback(
  (dst: KanbanColumn) => {
  if (!dockItem || !dockItemColId) return;
@@ -3034,6 +3086,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  <DlReviewPanel
  task={dlReviewTask}
  open={dlReviewTask !== null}
+ canSendToClient={dlReviewCanSend}
  onOpenChange={(open) => {
  if (!open) setDlReviewTask(null);
  }}
@@ -3131,7 +3184,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  readOnly={readOnly}
  canWriteClientRate={canWriteClientRate}
  budgetHourly={jobBudgetHourlyValue ?? null}
- rejectionReasons={rejectionReasons}
+ move={workbenchMove}
  workbenchContext={workbenchContext}
  kanbanQueryState={kanbanQueryState}
  cproEnabled={cproEnabled}

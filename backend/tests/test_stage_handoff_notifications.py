@@ -155,7 +155,8 @@ def test_handoff_bell_says_what_to_do_and_opens_the_person_on_the_board() -> Non
     assert title == "CV do przeglądu: Jan Testowy"
     assert "Sandra S. przekazał(a) CV kandydata Jan Testowy do QC" in message
     assert "„Java · Spring”" in message
-    assert link == "/jobs/3?candidate=9"
+    # Prośba o przegląd otwiera od razu przegląd DL, nie sam panel osoby.
+    assert link == "/jobs/3?candidate=9&review=1"
 
     title, message, link = _content(handoff.REASON_CV_SENT)
     assert title == "CV wysłane: Jan Testowy"
@@ -282,7 +283,7 @@ async def test_qc_rings_the_delivery_lead_and_cv_sent_rings_the_recruiter(
         dl_bells = await _stage_bells(dl_id, cid)
         assert [b.title.split(":")[0] for b in dl_bells] == ["CV do przeglądu"]
         assert dl_bells[0].notification_type == NotificationType.board_task_waiting
-        assert dl_bells[0].link == f"/jobs/{jid}?candidate={cid}"
+        assert dl_bells[0].link == f"/jobs/{jid}?candidate={cid}&review=1"
         # Rekruter sam przesunął kartę — o własnym ruchu dzwonka nie dostaje.
         assert await _stage_bells(rec_id, cid) == []
 

@@ -48,7 +48,7 @@ describe("runCvHandoff", () => {
     const d = deps(order);
     const result = await runCvHandoff(fullPlan, d);
     expect(order).toEqual(["move", "share_link"]);
-    // Pipeline v4: stawka jedzie W RUCHU — serwer odmawia „CV Wysłane" bez niej.
+    // Pipeline v4: stawka jedzie W RUCHU — serwer odmawia „CV wysłane" bez niej.
     expect(d.move).toHaveBeenCalledWith(fullPlan.clientRate);
     expect(result.completed).toEqual(["move", "share_link", "client_rate"]);
     expect(result.failedAfterMove).toEqual([]);
@@ -121,7 +121,7 @@ describe("describeCvHandoffFailure", () => {
       new CvHandoffError("move", [], httpError(409)),
       "weto hiring managera",
     );
-    expect(msg).toContain("przeniesienie na „CV Wysłane”");
+    expect(msg).toContain("przeniesienie na „CV wysłane”");
     expect(msg).toContain("weto hiring managera");
     expect(msg).toContain("Nic nie zostało zmienione");
     expect(msg).toContain("link dla klienta nie powstał");
@@ -129,7 +129,7 @@ describe("describeCvHandoffFailure", () => {
 
   it("bez odpowiedzi serwera (limit czasu) NIE twierdzi, że nic się nie zmieniło", () => {
     // Ruch mógł się zatwierdzić przed zerwaniem połączenia — ponowienie
-    // „bo nic się nie stało" dopisałoby drugi etap „CV Wysłane".
+    // „bo nic się nie stało" dopisałoby drugi etap „CV wysłane".
     const msg = describeCvHandoffFailure(
       new CvHandoffError("move", [], httpError(null, "timeout of 60000ms exceeded")),
       "timeout of 60000ms exceeded",
@@ -137,7 +137,7 @@ describe("describeCvHandoffFailure", () => {
     expect(msg).not.toContain("Nic nie zostało zmienione");
     expect(msg).toContain("Nie wiadomo, czy się udało");
     expect(msg).toContain("Odśwież kartę kandydata");
-    expect(msg).toContain("drugi etap „CV Wysłane”");
+    expect(msg).toContain("drugi etap „CV wysłane”");
     expect(msg).toContain("Link dla klienta nie powstał");
   });
 

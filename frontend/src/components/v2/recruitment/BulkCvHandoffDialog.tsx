@@ -11,7 +11,7 @@
  * - zamknięcie okna z nieskopiowanym linkiem pyta o potwierdzenie W OKNIE
  *   (natywny `window.confirm` zamraża automatyzację przeglądarki);
  * - link, który padł PO udanym ruchu, da się ponowić tylko stąd — okno
- *   pamięta etap sprzed ruchu, a profil i dok celują już w „CV Wysłane".
+ *   pamięta etap sprzed ruchu, a profil i dok celują już w „CV wysłane".
  */
 
 import { useMemo, useState } from "react";
@@ -71,7 +71,7 @@ function failureText(outcome: BulkCvHandoffOutcome): string {
         return `${outcome.reason}.`;
       case "moved_without_link":
       case "moved_no_link":
-        return "Oznaczono „CV Wysłane”.";
+        return "Oznaczono „CV wysłane”.";
       default:
         break;
     }
@@ -86,9 +86,9 @@ function failureText(outcome: BulkCvHandoffOutcome): string {
     case "move_unknown":
       return `${outcome.reason}. Link nie powstał.`;
     case "moved_no_link":
-      return `Przeniesiono na „CV Wysłane”, ale link nie powstał: ${outcome.reason}`;
+      return `Przeniesiono na „CV wysłane”, ale link nie powstał: ${outcome.reason}`;
     case "moved_without_link":
-      return `Przeniesiono na „CV Wysłane” bez linku — ${outcome.reason}. Link utworzysz po sfinalizowaniu CV firmowego.`;
+      return `Przeniesiono na „CV wysłane” bez linku — ${outcome.reason}. Link utworzysz po sfinalizowaniu CV firmowego.`;
     case "linked":
       return "";
   }
@@ -212,7 +212,7 @@ export function BulkCvHandoffDialog({
         <DialogHeader>
           <DialogTitle>Wyślij CV do klienta — wynik</DialogTitle>
           <DialogDescription>
-            Przeniesiono na „CV Wysłane”: {moved} z {outcomes.length}.
+            Przeniesiono na „CV wysłane”: {moved} z {outcomes.length}.
             {CV_CLIENT_LINKS_UI_ENABLED ? ` Linki: ${links.length}.` : ""}
           </DialogDescription>
         </DialogHeader>

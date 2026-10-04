@@ -3,7 +3,7 @@
  * (docs/c2-flow-program.md, PR 6/7).
  *
  * Dziś to trzy osobne kliknięcia w trzech miejscach: stawka do klienta
- * w modalu przy przeciąganiu karty na „CV Wysłane", link dla klienta z modalu
+ * w modalu przy przeciąganiu karty na „CV wysłane", link dla klienta z modalu
  * na profilu, a sam ruch na tablicy. Makieta zszywa je w jedną akcję —
  * i właśnie dlatego kolejność oraz obsługa błędu muszą być regułą, a nie
  * przypadkiem w komponencie.
@@ -20,7 +20,7 @@
  *   etapie „Zweryfikowany". Wołający przekazuje więc identyfikator etapu
  *   złapany PRZED ruchem (serwer nie wymaga, żeby był to etap najnowszy).
  * - Stawka W RUCHU (Pipeline v4, 23.09.2026): poza Nordeą serwer odmawia
- *   ruchu na „CV Wysłane" bez stawki do klienta, więc stawka jedzie w tym
+ *   ruchu na „CV wysłane" bez stawki do klienta, więc stawka jedzie w tym
  *   samym żądaniu (`client_rate_*` w `/pipeline/move`) i ląduje na nowym
  *   wierszu etapu. Do 23.09 zapisywał ją osobny PATCH po ruchu.
  *
@@ -43,7 +43,7 @@ export type CvHandoffStep = "share_link" | "move" | "client_rate";
 
 export const CV_HANDOFF_STEP_LABEL: Record<CvHandoffStep, string> = {
   share_link: "utworzenie linku dla klienta",
-  move: "przeniesienie na „CV Wysłane”",
+  move: "przeniesienie na „CV wysłane”",
   client_rate: "zapis stawki do klienta",
 };
 
@@ -58,7 +58,7 @@ export interface CvHandoffDeps {
   createShareLink: (opts: {
     expiresInDays: number;
   }) => Promise<{ shareUrlSuffix: string | null }>;
-  /** Ruch na „CV Wysłane" — ze stawką do klienta w tym samym żądaniu. */
+  /** Ruch na „CV wysłane" — ze stawką do klienta w tym samym żądaniu. */
   move: (clientRate: CvHandoffPlan["clientRate"]) => Promise<void>;
 }
 
@@ -150,7 +150,7 @@ export function isDefiniteRefusal(reason: unknown): boolean {
  * powstały. O samym ruchu wiemy tyle, ile powiedział serwer: odmowa (4xx)
  * znaczy „nic się nie zmieniło", ale brak odpowiedzi albo 5xx znaczy „nie
  * wiadomo" — ruch mógł się zapisać, a ponowienie dopisałoby drugi etap
- * „CV Wysłane".
+ * „CV wysłane".
  */
 export function describeCvHandoffFailure(
   error: CvHandoffError,
@@ -167,7 +167,7 @@ export function describeCvHandoffFailure(
       "Serwer nie potwierdził zapisu (limit czasu, zerwane połączenie albo błąd " +
       "serwera), więc kandydat mógł już zostać przeniesiony. Odśwież kartę " +
       "kandydata, zanim spróbujesz ponownie — ponowienie mogłoby dodać drugi " +
-      "etap „CV Wysłane”. Link dla klienta nie powstał."
+      "etap „CV wysłane”. Link dla klienta nie powstał."
     );
   }
   const head = `Nie udało się: ${label}${detail ? ` — ${detail}` : "."}`;
@@ -187,7 +187,7 @@ export function describeCvHandoffSuccess(
   result: CvHandoffResult,
   detailOf: (reason: unknown) => string = () => "",
 ): string {
-  const parts = ["Kandydat przeniesiony na „CV Wysłane”."];
+  const parts = ["Kandydat przeniesiony na „CV wysłane”."];
   const rateFailure = result.failedAfterMove.find((f) => f.step === "client_rate");
   if (rateFailure) {
     const detail = detailOf(rateFailure.reason);
@@ -202,7 +202,7 @@ export function describeCvHandoffSuccess(
   const linkFailure = result.failedAfterMove.find((f) => f.step === "share_link");
   if (linkFailure) {
     const detail = detailOf(linkFailure.reason);
-    // Profil i dok celują w NAJNOWSZY etap („CV Wysłane", bez dokumentu), więc
+    // Profil i dok celują w NAJNOWSZY etap („CV wysłane", bez dokumentu), więc
     // ponowienie ma sens tylko z panelu, który pamięta etap sprzed ruchu.
     parts.push(
       `Linku dla klienta NIE udało się utworzyć${detail ? ` (${detail})` : ""} — ponów go przyciskiem „Utwórz link ponownie” w panelu „Utworzone linki do CV”.`,
