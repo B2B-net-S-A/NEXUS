@@ -664,6 +664,22 @@ function JobDetailHarness() {
                         columns={columns()}
                         jobId={JOB_ID}
                         jobTitle={JOB.title}
+                        // Jeden panel osoby (04.10.2026): „Rozwiń” w panelu
+                        // pokazuje pełne narzędzia; sieć jest odcięta, więc
+                        // zakładki pokażą stany ładowania i błędu.
+                        workbenchContext={{
+                          clientId: null,
+                          clientName: null,
+                          onMoved: noop,
+                          canCloseJob: false,
+                        }}
+                        kanbanQueryState={{
+                          isLoading: false,
+                          isError: false,
+                          error: null,
+                          isSuccess: true,
+                          refetch: noop,
+                        }}
                         renderAbove={(viewControls) => (
                           <CandidateSourcesStrip
                             jobId={JOB_ID}
