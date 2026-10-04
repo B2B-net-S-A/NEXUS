@@ -152,6 +152,7 @@ import {
   type GeneratorTab,
 } from "@/lib/b2b-generator-register";
 import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
+import { pairColumnLabel, prefillRateSource } from "@/lib/b2b-agreement";
 
 // Router generatora ma szeroką bramkę Sourcing, ale operacje na dokumentach
 // ze stawką mają osobne, konfigurowalne uprawnienie. Poziom `view` dostaje
@@ -765,7 +766,7 @@ export function B2BContractGeneratorV2() {
 
 // ── Zakładka: wygenerowane umowy (numery) ───────────────────────────────────
 
-function ConfirmFullySignedDialog({
+export function ConfirmFullySignedDialog({
   row,
   open,
   onOpenChange,
@@ -2313,6 +2314,8 @@ export function GeneratedContractsTab({
   const [startFrom, setStartFrom] = useState("");
   const [startTo, setStartTo] = useState("");
   const dateFilterActive = Boolean(startFrom || startTo);
+  // 04.10.2026: umowy generują też rekruterzy — TCM przegląda je osobno.
+  const [onlyRecruiters, setOnlyRecruiters] = useState(false);
   // Debounce, żeby nie strzelać zapytaniem na każdą literę wpisaną w szukajkę.
   const debouncedSearch = useDebouncedValue(search, 300);
   const q = useInfiniteQuery({
@@ -2328,6 +2331,7 @@ export function GeneratedContractsTab({
       statusFilter,
       startFrom,
       startTo,
+      onlyRecruiters,
     ],
     initialPageParam: 0,
     getNextPageParam: (
@@ -2346,6 +2350,7 @@ export function GeneratedContractsTab({
             : [statusFilter],
         startFrom: startFrom || undefined,
         startTo: startTo || undefined,
+        ...(onlyRecruiters ? { author: "recruiter" as const } : {}),
         ...(pageParam ? { offset: pageParam } : {}),
       }),
     staleTime: 10_000,
@@ -2499,6 +2504,14 @@ export function GeneratedContractsTab({
                 </SelectItem>
               </SelectContent>
             </Select>
+            <label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+              <Checkbox
+                checked={onlyRecruiters}
+                onCheckedChange={(v) => setOnlyRecruiters(v === true)}
+                aria-label="Tylko umowy wygenerowane przez rekruterów"
+              />
+              Wygenerowane przez rekruterów
+            </label>
             {dateFilterActive ? (
               <button
                 type="button"
@@ -2842,7 +2855,20 @@ export function GeneratedContractsTab({
                           </span>
                           <span className="text-muted-foreground">
                             {r.created_by_name || "—"}
+                            {r.created_by_role === "recruiter" ? " · rekruter" : ""}
                           </span>
+                          {r.job_id && r.candidate_id ? (
+                            <Link
+                              href={`/jobs/${r.job_id}?candidate=${r.candidate_id}`}
+                              className="text-xs text-primary hover:underline"
+                              title="Otwórz osobę w rekrutacji"
+                            >
+                              {r.job_title ?? `Rekrutacja #${r.job_id}`}
+                              {pairColumnLabel(r.pair_column)
+                                ? ` · ${pairColumnLabel(r.pair_column)}`
+                                : ""}
+                            </Link>
+                          ) : null}
                         </div>
                       </td>
                       <td className="bg-card py-2 pl-2 text-right shadow-[inset_1px_0_0_hsl(var(--border))] md:sticky md:right-0 md:z-10">
@@ -3578,7 +3604,16 @@ export function GeneratorForm({
   editGeneratedId = null,
   onClearPrefill,
   onEditConsumed,
+  lockedPair = false,
+  onSaved,
 }: {
+  /**
+   * Panel osoby w rekrutacji (04.10.2026): kandydat i rekrutacja są ustalone
+   * z panelu — pickerów nie da się zmienić, „Nowa umowa” znika.
+   */
+  lockedPair?: boolean;
+  /** Po zapisie w rejestrze (pobranie albo poprawka) — panel pokazuje stan umowy. */
+  onSaved?: (saved: { id: number; number: string }) => void;
   /** `?candidate=` z adresu — link „Otwórz w Generatorze” z kroku „Umowa”. */
   prefillCandidateId?: number | null;
   /** `?job=` — rekrutacja do wybrania, gdy kandydat w niej jest. */
@@ -3645,6 +3680,10 @@ export function GeneratorForm({
     emptyRateStage(),
   ]);
   const [currency, setCurrency] = useState("PLN");
+  // Podpowiedzi z rekrutacji: dla której pary już zastosowane i czy człowiek
+  // zmienił datę rozpoczęcia (wtedy jej nie nadpisujemy).
+  const prefillAppliedFor = useRef<string | null>(null);
+  const startTouched = useRef(false);
 
   const setRateStage = (index: number, patch: Partial<RateStageForm>) =>
     setRateStages((prev) =>
@@ -4216,6 +4255,38 @@ export function GeneratorForm({
     savedContract.jobId === selectedJobId
       ? savedContract
       : null;
+  // Podpowiedzi z rekrutacji (04.10.2026): te same co w panelu osoby.
+  // Wypełniają WYŁĄCZNIE pola nietknięte; zapisany formularz (poprawka) wygrywa.
+  const prefillQuery = useQuery({
+    queryKey: ["b2b-prefill", candidate?.id ?? null, selectedJobId],
+    queryFn: () => b2bGeneratorApi.prefill(candidate!.id, selectedJobId!),
+    enabled: !!candidate && selectedJobId !== null,
+    staleTime: 60_000,
+    retry: false,
+  });
+  useEffect(() => {
+    const p = prefillQuery.data;
+    if (!p) return;
+    const key = `${p.candidate_id}:${p.job_id}`;
+    if (prefillAppliedFor.current === key) return;
+    prefillAppliedFor.current = key;
+    if (activeSaved || editGeneratedId) return;
+    if (p.rate && rateStages.length === 1 && !rateStages[0]?.rate) {
+      setRateStage(0, { rate: String(p.rate.value) });
+    }
+    if (p.start_date && !startTouched.current && p.start_date >= todayISO()) {
+      setStartDate(p.start_date);
+    }
+    // Tylko na nowe podpowiedzi — reszta to stan chwili wyboru pary.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillQuery.data]);
+  const prefillRateHint =
+    prefillQuery.data?.rate &&
+    rateStages.length === 1 &&
+    rateStages[0]?.rate === String(prefillQuery.data.rate.value)
+      ? prefillRateSource(prefillQuery.data.rate)
+      : null;
+
   const existingContract = existingContractFor(
     jobContractsQuery.data ?? [],
     candidate?.id,
@@ -4412,7 +4483,10 @@ export function GeneratorForm({
           candidateId: candidate?.id ?? null,
           jobId: selectedRecruitment?.job_id ?? null,
         });
+        onSaved?.({ id: result.id, number: result.number });
       }
+      // Karta Tablicy i panel osoby czytają stan umowy z rejestru.
+      queryClient.invalidateQueries({ queryKey: ["kanban"] });
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
       // Podpowiedź „następny wolny numer” w polu numeru; samego numeru nie
       // podmieniamy — formularz nadal opisuje właśnie zapisaną umowę.
@@ -4591,6 +4665,8 @@ export function GeneratorForm({
     descTouched.current = false;
     instrTouched.current = false;
     jobFieldsFromJob.current = false;
+    prefillAppliedFor.current = null;
+    startTouched.current = false;
     setContractNumber("");
     void nextNumberQuery.refetch().then((r) => {
       if (r.data) setContractNumber(r.data.contract_number);
@@ -4699,16 +4775,18 @@ export function GeneratorForm({
               )}
               Popraw i pobierz ponownie
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={docxBusy}
-              onClick={resetForm}
-            >
-              <Plus className="h-4 w-4" />
-              Nowa umowa
-            </Button>
+            {lockedPair ? null : (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={docxBusy}
+                onClick={resetForm}
+              >
+                <Plus className="h-4 w-4" />
+                Nowa umowa
+              </Button>
+            )}
           </div>
         </Alert>
       ) : null}
@@ -4771,6 +4849,7 @@ export function GeneratorForm({
                       id={candidatePickerId}
                       variant="outline"
                       role="combobox"
+                      disabled={lockedPair}
                       aria-expanded={candidateOpen}
                       className="w-full justify-between font-normal"
                     >
@@ -4859,6 +4938,7 @@ export function GeneratorForm({
                 value={stageId}
                 onValueChange={selectStage}
                 disabled={
+                  lockedPair ||
                   !candidate ||
                   !recruitmentsQuery.isSuccess ||
                   recruitmentsQuery.data.length === 0
@@ -5441,9 +5521,17 @@ export function GeneratorForm({
                 id={startDateId}
                 type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                onChange={(e) => {
+                  startTouched.current = true;
+                  setStartDate(e.target.value);
+                }}
               />
             </div>
+            {prefillQuery.data?.availability_text ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Dostępność z karty rekomendacji: {prefillQuery.data.availability_text}
+              </p>
+            ) : null}
           </Field>
           <div className="space-y-3 sm:col-span-2">
             {rateStages.length === 1 ? (
@@ -5455,6 +5543,11 @@ export function GeneratorForm({
                     onChange={(e) => setRateStage(0, { rate: e.target.value })}
                     placeholder="np. 150"
                   />
+                  {prefillRateHint ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Stawka {prefillRateHint}
+                    </p>
+                  ) : null}
                 </Field>
                 <Field label="Waluta" htmlFor={currencyId}>
                   <CurrencySelect
@@ -5572,7 +5665,7 @@ export function GeneratorForm({
             ? "Popraw i pobierz ponownie"
             : `Pobierz DOCX (${language === "pl" ? "PL" : "EN"})`}
         </Button>
-        {activeSaved ? (
+        {activeSaved && !lockedPair ? (
           <Button
             type="button"
             variant="outline"

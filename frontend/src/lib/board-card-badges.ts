@@ -11,6 +11,7 @@
  */
 
 import { boardCardBadge } from "@/lib/recommendation-card";
+import { agreementBadge } from "@/lib/b2b-agreement";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { BoardColumnKey, StageBadgeKey } from "@/lib/board-stages";
 import { cardBadgeLabel } from "@/lib/candidate-followup";
@@ -309,6 +310,17 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
       tone:
         tone === "urgent" ? "urgent" : tone === "ok" ? "ok" : tone === "wait" ? "wait" : "info",
       ...(title ? { title } : {}),
+    });
+  }
+  // 04.10.2026: stan umowy z Generatora w każdej kolumnie — co trzecia umowa
+  // powstaje jeszcze w „Rozmowie u klienta”.
+  const agreement = agreementBadge(item.agreement, ctx.now);
+  if (agreement) {
+    out.push({
+      key: "agreement",
+      label: agreement.label,
+      tone: agreement.tone === "success" ? "ok" : agreement.tone === "warning" ? "wait" : "info",
+      title: agreement.title,
     });
   }
   if (column === "hired" && item.order_status) {
