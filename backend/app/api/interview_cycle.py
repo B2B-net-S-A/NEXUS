@@ -876,6 +876,38 @@ async def get_debrief(
     return await _with_rates(db, _debrief_out(fb), fb_id=fb.id)
 
 
+async def _debrief_rate_already_saved(
+    db: AsyncSession, feedback_id: int, rate: "DebriefRateChangeIn"
+) -> bool:
+    """Ta sama stawka, którą ten debrief już zgłosił — ponowny zapis debriefu
+    (np. dopisane pytanie) nie otwiera drugiej sprawy, nie cofa późniejszej
+    korekty i nie powiadamia DL drugi raz."""
+
+    from app.models.candidate_rate_change import CandidateRateChange
+    from app.services import candidate_rate_change as rate_change
+
+    saved = (
+        await db.execute(
+            select(CandidateRateChange)
+            .where(CandidateRateChange.feedback_id == feedback_id)
+            .order_by(
+                CandidateRateChange.created_at.desc(), CandidateRateChange.id.desc()
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if saved is None:
+        return False
+    return rate_change._same_rate(
+        saved.requested_amount,
+        saved.requested_unit,
+        saved.requested_currency,
+        rate.amount,
+        rate.unit,
+        rate.currency,
+    )
+
+
 async def _with_rates(
     db: AsyncSession, out: DebriefOut, *, fb_id: Optional[int]
 ) -> DebriefOut:
@@ -1001,7 +1033,11 @@ async def save_debrief(
 
     rate_emails: list = []
     new_rate_label: Optional[str] = None
-    if body.rate_change is not None and event.job_id is not None:
+    if (
+        body.rate_change is not None
+        and event.job_id is not None
+        and not await _debrief_rate_already_saved(db, fb.id, body.rate_change)
+    ):
         # Zmiana stawki z debriefu idzie wspólną regułą: ślad w historii
         # stawek, dzwonki DL/HoR, zadanie DL po wysłaniu CV (0418).
         from app.services import candidate_rate_change as rate_change
