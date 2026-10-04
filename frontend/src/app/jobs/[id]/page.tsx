@@ -12,6 +12,7 @@ import {
   canEditJobContent,
   hasFullJobEditFallback,
   jobEditScope,
+  jobPublishAction,
 } from "@/lib/job-edit-access";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
@@ -50,6 +51,7 @@ import {
   type ChampionPanelTab,
 } from "@/components/v2/jobs/JobReadinessDock";
 import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReasonDialog";
+import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
 import { scrollToWhenReady } from "@/components/v2/recruitment/OrderMissingBlock";
 import {
   ManagedInNexusChip,
@@ -269,6 +271,20 @@ export default function JobDetailPage() {
     if (championModeState === "edit") setChampionEditorMounted(true);
   }, [championModeState]);
   const [showCloseJob, setShowCloseJob] = useState(false);
+  // „Otwórz ponownie” / „Dokończ i opublikuj” (04.10.2026): menu „⋯” albo
+  // `?reopen=1` (okno edycji, pulpit „Czeka na Ciebie”). Parametr znika po
+  // zamknięciu okna, żeby odświeżenie go nie otwierało ponownie.
+  const [reopenRequest, setReopenRequest] = useUrlSyncedState<"1">(
+    searchParams?.get("reopen") === "1" ? "1" : null,
+    null,
+  );
+  const changeReopenOpen = useCallback(
+    (next: boolean) => {
+      setReopenRequest(next ? "1" : null);
+      if (!next) writeUrlParams({ reopen: null });
+    },
+    [setReopenRequest],
+  );
 
   // Tryb „Tabela" usunięty (decyzja Artura 22.09.2026): rekrutacja to Tablica.
   // `tab=people` zostaje wyłącznie dla pełnej listy „Do przejrzenia"
@@ -636,6 +652,9 @@ export default function JobDetailPage() {
   // jej prowadzenia. Zapis w rekrutacjach i dostęp do tej rekrutacji niesie
   // `editScope`.
   const canCloseJob = canEditJobContentFields && canManageRecruitment;
+  // Ponowne otwarcie i dokończenie to publikacja z przekazaniem — ta sama
+  // bramka co zamknięcie (`POST /publish` = `POST /handoff` + cykl życia).
+  const publishAction = canCloseJob ? jobPublishAction(job) : null;
   const canEditChampion = canEditJobContent(job, {
     canWritePipeline,
     // Odpowiedź bez pola `can_edit` (starszy cache): pełną redakcję rekrutacji
@@ -789,6 +808,8 @@ export default function JobDetailPage() {
         }
         onCopyLink={copyJobLink}
         onCloseJob={canCloseJob && job.status !== "closed" ? () => setShowCloseJob(true) : undefined}
+        onReopenJob={publishAction === "reopen" ? () => changeReopenOpen(true) : undefined}
+        onFinishJob={publishAction === "finish" ? () => changeReopenOpen(true) : undefined}
       />
 
       {/* Edit Job Modal */}
@@ -797,6 +818,7 @@ export default function JobDetailPage() {
           job={job}
           scope={canEditJob ? "full" : "content"}
           onClose={() => setShowEditJob(false)}
+          onRequestPublish={publishAction ? () => changeReopenOpen(true) : undefined}
           onSuccess={() => {
             // Okno zmienia też rekrutera i kolejne osoby — odświeżamy
             // rekrutację, listę /jobs z licznikami i pulpit obłożenia.
@@ -918,6 +940,16 @@ export default function JobDetailPage() {
           jobTitle={job.title ?? `Rekrutacja #${jobId}`}
           clientId={job.client_id ?? null}
           defaultReason={kanban && countHired(kanbanColumns) > 0 ? "filled_by_us" : "other"}
+        />
+      ) : null}
+      {publishAction ? (
+        <JobReopenDialog
+          jobId={jobId}
+          open={reopenRequest === "1"}
+          onOpenChange={changeReopenOpen}
+          mode={publishAction}
+          recruiter={job.primary_owner ?? null}
+          onOpenChampion={() => openChampion({ edit: canEditChampion })}
         />
       ) : null}
       <QuestionBankSlideOver

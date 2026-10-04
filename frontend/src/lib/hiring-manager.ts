@@ -92,7 +92,16 @@ export function sameChoice(
   return false;
 }
 
-export function hiringManagerRequestBody(choice: HiringManagerChoice | null) {
+/**
+ * Ciało `PUT /api/jobs/{id}/hiring-manager` (i pola `hiring_manager`
+ * w `POST /api/jobs`). `notProvided` = decyzja „Klient nie podał” — wygrywa
+ * z wyborem osoby (pole jest wtedy wyłączone). Bez niej `null` czyści HM.
+ */
+export function hiringManagerRequestBody(
+  choice: HiringManagerChoice | null,
+  notProvided = false,
+): Record<string, unknown> {
+  if (notProvided) return { not_provided: true };
   if (choice === null) return { clear: true };
   if (choice.kind === "contact") return { contact_id: choice.id };
   return {
@@ -104,6 +113,17 @@ export function hiringManagerRequestBody(choice: HiringManagerChoice | null) {
   };
 }
 
-export function saveHiringManager(jobId: number, choice: HiringManagerChoice | null) {
-  return api.put(`/api/jobs/${jobId}/hiring-manager`, hiringManagerRequestBody(choice));
+export function saveHiringManager(
+  jobId: number,
+  choice: HiringManagerChoice | null,
+  notProvided = false,
+) {
+  return api.put(
+    `/api/jobs/${jobId}/hiring-manager`,
+    hiringManagerRequestBody(choice, notProvided),
+  );
 }
+
+/** Pod polem „Klient nie podał” — dlaczego warto jednak go zdobyć. */
+export const HIRING_MANAGER_NOT_PROVIDED_HINT =
+  "Bez hiring managera nie zadziała weto: system nie ostrzeże, gdy wyślemy osobę, którą ten sam HM już odrzucił.";

@@ -554,7 +554,8 @@ BOARD_TASKS_DIGEST_UNTIL_HOUR = 17
 
 
 async def check_board_tasks_digest(db: AsyncSession, now: datetime) -> int:
-    """Rano JEDEN wpis na osobę: przegląd DL, kolejka Cpro i follow-upy z kandydatami."""
+    """Rano JEDEN wpis na osobę: przegląd DL, kolejka Cpro, follow-upy z kandydatami
+    i rekrutacje do dokończenia (04.10.2026)."""
 
     global _BOARD_TASKS_DIGEST_DONE_FOR
     local = now.astimezone(ZoneInfo(settings.BUSINESS_TZ))
@@ -563,7 +564,11 @@ async def check_board_tasks_digest(db: AsyncSession, now: datetime) -> int:
     if _BOARD_TASKS_DIGEST_DONE_FOR == local.date():
         return 0
 
-    from app.services import board_tasks, candidate_followups  # noqa: PLC0415
+    from app.services import (  # noqa: PLC0415
+        board_tasks,
+        candidate_followups,
+        pending_job_completion,
+    )
 
     # Skrót dzieli transakcję z pozostałymi triggerami ticku — jego awaria
     # (savepoint + log) nie może zatrzymać przypomnień o rozmowach i KPI.
@@ -579,6 +584,7 @@ async def check_board_tasks_digest(db: AsyncSession, now: datetime) -> int:
                     today=local.date(),
                     oversight_ids=await candidate_followups.oversight_user_ids(db),
                 ),
+                pending_jobs=await pending_job_completion.digest_counts(db),
             )
     except Exception:  # noqa: BLE001
         logger.exception("board_tasks_digest: nie udało się policzyć kolejki")

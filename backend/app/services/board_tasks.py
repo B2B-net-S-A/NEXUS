@@ -665,10 +665,19 @@ class DigestLine:
     # 0372: follow-upy z kandydatami na dziś (w tym zaległe).
     followups: int = 0
     followups_overdue: int = 0
+    # 04.10.2026: rekrutacje do dokończenia (stare szkice, opublikowane bez
+    # przekazania) — `pending_job_completion.digest_counts`.
+    pending_jobs: int = 0
 
     @property
     def total(self) -> int:
-        return self.cpro_mine + self.cpro_unassigned + self.dl_review + self.followups
+        return (
+            self.cpro_mine
+            + self.cpro_unassigned
+            + self.dl_review
+            + self.followups
+            + self.pending_jobs
+        )
 
 
 async def digest_counts(
@@ -676,6 +685,7 @@ async def digest_counts(
     snapshot: BoardTaskSnapshot,
     *,
     followups: Optional[dict[int, "DigestCounts"]] = None,
+    pending_jobs: Optional[dict[int, int]] = None,
 ) -> dict[int, DigestLine]:
     """Poranny skrót: kto ma co do zrobienia (tylko to, co wymaga ruchu).
 
@@ -685,16 +695,27 @@ async def digest_counts(
     zapasową rekrutacji — lustro `_sees_cpro`). Przegląd DL — ta sama reguła co
     panel (`_sees_dl_review`). Follow-upy (``followups`` — liczby telefonów
     per dzwoniący z ``candidate_followups.digest_counts``) dostaje każda rola,
-    nie tylko DL i HoR.
+    nie tylko DL i HoR. Rekrutacje do dokończenia (``pending_jobs`` — liczby
+    per osoba z ``pending_job_completion.digest_counts``) dochodzą tak samo.
     """
 
     followups = followups or {}
+    pending_jobs = pending_jobs or {}
     if not snapshot.tasks:
-        return {
+        lines = {
             uid: DigestLine(followups=c.due, followups_overdue=c.overdue)
             for uid, c in followups.items()
             if c.due
         }
+        for uid, count in pending_jobs.items():
+            if count:
+                line = lines.get(uid, DigestLine())
+                lines[uid] = DigestLine(
+                    followups=line.followups,
+                    followups_overdue=line.followups_overdue,
+                    pending_jobs=count,
+                )
+        return lines
     users = (
         await db.scalars(
             select(User).where(
@@ -741,6 +762,12 @@ async def digest_counts(
             )
             line["followups"] = c.due
             line["followups_overdue"] = c.overdue
+    for uid, count in pending_jobs.items():
+        if count:
+            line = counts.setdefault(
+                uid, {"cpro_mine": 0, "cpro_unassigned": 0, "dl_review": 0}
+            )
+            line["pending_jobs"] = count
     return {uid: DigestLine(**c) for uid, c in counts.items()}
 
 
@@ -764,6 +791,12 @@ def digest_message(line: DigestLine) -> str:
             f"{_people(line.cpro_unassigned)} w kolejce Cpro — "
             "nikt nie jest ustawiony do wysyłki"
         )
+    if line.pending_jobs:
+        from app.services.pending_job_completion import (  # noqa: PLC0415
+            pending_jobs_phrase,
+        )
+
+        parts.append(pending_jobs_phrase(line.pending_jobs))
     return " · ".join(parts)
 
 

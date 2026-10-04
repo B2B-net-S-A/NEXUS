@@ -18,6 +18,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
+import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
 import {
   filterHiringManagerOptions,
   hiringManagerRequestBody,
@@ -76,6 +77,16 @@ describe("lib/hiring-manager", () => {
     expect(
       hiringManagerRequestBody({ kind: "new", name: " Jan Nowy ", position: "", email: null }),
     ).toEqual({ new_person: { name: "Jan Nowy", position: null, email: null } });
+  });
+
+  it("„Klient nie podał” wygrywa z wyborem osoby (04.10.2026)", () => {
+    expect(hiringManagerRequestBody(null, true)).toEqual({ not_provided: true });
+    expect(hiringManagerRequestBody({ kind: "contact", id: 2, name: "Ewa" }, true)).toEqual({
+      not_provided: true,
+    });
+    expect(hiringManagerRequestBody({ kind: "contact", id: 2, name: "Ewa" }, false)).toEqual({
+      contact_id: 2,
+    });
   });
 });
 
@@ -153,6 +164,112 @@ describe("HiringManagerCombobox", () => {
     });
     expect(
       screen.getByText("Dodaj „Jan Nowy” jako nowego hiring managera"),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("HiringManagerCombobox — „Klient nie podał” (04.10.2026)", () => {
+  function renderWithDecision(notProvided: boolean) {
+    const onChange = vi.fn();
+    const onNotProvidedChange = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <span id="hm-label">Hiring manager</span>
+        <HiringManagerCombobox
+          clientId={7}
+          value={null}
+          onChange={onChange}
+          labelledBy="hm-label"
+          notProvided={notProvided}
+          onNotProvidedChange={onNotProvidedChange}
+        />
+      </QueryClientProvider>,
+    );
+    return { onChange, onNotProvidedChange };
+  }
+
+  it("bez `onNotProvidedChange` pola wyboru nie ma", () => {
+    renderCombobox();
+    expect(screen.queryByRole("checkbox", { name: "Klient nie podał" })).toBeNull();
+  });
+
+  it("zaznaczenie zgłasza decyzję wołającemu", () => {
+    const { onNotProvidedChange } = renderWithDecision(false);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Klient nie podał" }));
+    expect(onNotProvidedChange).toHaveBeenCalledWith(true);
+    expect(screen.queryByText(/nie zadziała weto/)).toBeNull();
+  });
+
+  it("zaznaczone: wybór osoby wyłączony, pod polem zdanie o wecie", () => {
+    renderWithDecision(true);
+    const trigger = screen.getByRole("combobox", { name: "Hiring manager" });
+    expect(trigger).toBeDisabled();
+    expect(trigger).toHaveTextContent("Klient nie podał");
+    expect(screen.getByRole("checkbox", { name: "Klient nie podał" })).toBeChecked();
+    expect(screen.getByText(/Bez hiring managera nie zadziała weto/)).toBeInTheDocument();
+  });
+});
+
+describe("HiringManagerPicker — „Klient nie podał” w doku", () => {
+  function renderPicker(notProvided?: boolean) {
+    const onSaved = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <HiringManagerPicker
+          jobId={55}
+          clientId={7}
+          value={null}
+          canEdit
+          onSaved={onSaved}
+          notProvided={notProvided}
+        />
+      </QueryClientProvider>,
+    );
+    return onSaved;
+  }
+
+  it("pokazuje zapisaną decyzję zamiast „nie przypisano”", () => {
+    renderPicker(true);
+    expect(screen.getByText("Klient nie podał")).toBeInTheDocument();
+    expect(screen.queryByText("nie przypisano")).toBeNull();
+  });
+
+  it("zaznaczenie zapisuje PUT {not_provided: true}", async () => {
+    mocks.put.mockResolvedValue({ data: {} });
+    const onSaved = renderPicker(false);
+    fireEvent.click(screen.getByRole("button", { name: /Przypisz/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Klient nie podał" }));
+    await waitFor(() =>
+      expect(mocks.put).toHaveBeenCalledWith("/api/jobs/55/hiring-manager", {
+        not_provided: true,
+      }),
+    );
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  });
+
+  it("odmowa `handoff_regression` pokazuje zdanie i braki", async () => {
+    mocks.put.mockRejectedValue({
+      response: {
+        status: 422,
+        data: {
+          detail: {
+            code: "handoff_regression",
+            message: "Rekrutacja w pracy straciłaby hiring managera.",
+            blockers: [{ code: "hiring_manager", message: "Wskaż hiring managera." }],
+          },
+        },
+      },
+    });
+    renderPicker(false);
+    fireEvent.click(screen.getByRole("button", { name: /Przypisz/ }));
+    fireEvent.click(screen.getByRole("combobox"));
+    fireEvent.click(await screen.findByText("Ewa Mazur"));
+    expect(
+      await screen.findByText(
+        "Rekrutacja w pracy straciłaby hiring managera. Wskaż hiring managera.",
+      ),
     ).toBeInTheDocument();
   });
 });

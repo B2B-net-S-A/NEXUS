@@ -21,7 +21,7 @@ pytestmark = pytest.mark.asyncio
 async def _create_draft_job(
     app_client: AsyncClient, headers: dict[str, str], title: str
 ) -> int:
-    """Create a draft job directly — returns its id. Requires DeliveryLeadPlus.
+    """Create a job through the API — returns its id. Requires DeliveryLeadPlus.
 
     Seeds a throwaway client first (migration 0120 forces NOT NULL on
     `jobs.client_id`).
@@ -38,12 +38,11 @@ async def _create_draft_job(
         await db.refresh(cli)
         cli_id = cli.id
 
-    payload = {
-        "title": title,
-        "recruitment_type": "body_leasing",
-        "work_mode": "fulltime",
-        "client_id": cli_id,
-    }
+    # Rekrutacja bez szkiców (04.10.2026): API zakłada od razu rekrutację
+    # opublikowaną i przekazaną do searchu — komplet z `_job_factory`.
+    from tests._job_factory import complete_job_payload
+
+    payload = await complete_job_payload(cli_id, title=title, work_mode="fulltime")
     resp = await app_client.post("/api/jobs", json=payload, headers=headers)
     assert resp.status_code in (200, 201), resp.text
     return resp.json()["id"]

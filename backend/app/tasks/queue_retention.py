@@ -17,6 +17,11 @@ Trzy tabele rosły bez końca:
   on mówi reconcilerowi dryfu, co naprawdę jest w indeksie. Skasowanie go
   zamieniłoby encję w „nieznaną” i wyłączyło wykrywanie dryfu.
 
+Od 04.10.2026 (0415) ta sama pętla kasuje niedokończone formularze
+„Nowa rekrutacja” (``job_intake_forms``) bez zmian przez
+``job_intake_forms.RETENTION_DAYS`` (30) dni — formularz niesie treść maila
+klienta, więc nie leży bez końca.
+
 Kasujemy paczkami po ``BATCH_SIZE`` z commitem po każdej, najwyżej
 ``MAX_BATCHES`` paczek na tabelę w jednym cyklu — zaległość po wdrożeniu
 schodzi w kilka cykli zamiast jednej wielominutowej transakcji.
@@ -32,6 +37,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.services import job_intake_forms
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +125,10 @@ async def prune_once(*, now: datetime | None = None) -> dict[str, int]:
         "auto_match_log": await _prune(_PRUNE_AUTO_MATCH_LOG, cutoff=log_cutoff),
         "match_outbox": await _prune(_PRUNE_MATCH_OUTBOX, cutoff=outbox_cutoff),
         "index_outbox": await _prune(_PRUNE_INDEX_OUTBOX, cutoff=outbox_cutoff),
+        "job_intake_forms": await _prune(
+            job_intake_forms.PRUNE_STATEMENT,
+            cutoff=now - timedelta(days=job_intake_forms.RETENTION_DAYS),
+        ),
     }
 
 

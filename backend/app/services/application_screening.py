@@ -76,6 +76,7 @@ JOB_TEXT_LIMIT = 4_000
 REASON_LIMIT = 4
 REASON_TEXT_MAX = 300
 QUOTE_MAX = 300
+DEAL_BREAKER_MAX = 300
 
 # Pętla: wiersz nowego kandydata czeka na odczyt CV (`cv_parsed_at`), najdłużej
 # `WAIT_FOR_CV` — potem rusza z tym, co jest (tekst z formularza).
@@ -126,8 +127,7 @@ def keep_quoted_reasons(
     return kept
 
 
-def parse_model(raw: Optional[str]) -> tuple[Optional[str], list]:
-    """JSON modelu → (werdykt albo ``None``, surowe powody). Rzuca przy braku JSON-a."""
+def _model_json(raw: Optional[str]) -> dict:
     text = (raw or "").strip()
     if text.startswith("```"):
         text = text.strip("`")
@@ -139,10 +139,66 @@ def parse_model(raw: Optional[str]) -> tuple[Optional[str], list]:
     data = json.loads(text[start : end + 1])
     if not isinstance(data, dict):
         raise ValueError("odpowiedź nie jest obiektem")
+    return data
+
+
+def parse_model(raw: Optional[str]) -> tuple[Optional[str], list]:
+    """JSON modelu → (werdykt albo ``None``, surowe powody). Rzuca przy braku JSON-a."""
+    data = _model_json(raw)
     verdict = data.get("verdict")
     verdict = verdict if verdict in VERDICTS else None
     reasons = data.get("reasons")
     return verdict, reasons if isinstance(reasons, list) else []
+
+
+def deal_breaker_conditions(job: Any) -> list[str]:
+    """Warunki „Odpada, gdy…” z pytań screeningowych Championa (bez pustych)."""
+    from app.services import champion_view
+
+    out: list[str] = []
+    for question in champion_view.screening_questions(
+        getattr(job, "champion_profile", None)
+    ):
+        if not isinstance(question, dict):
+            continue
+        condition = " ".join(str(question.get("deal_breaker") or "").split())
+        if condition and condition not in out:
+            out.append(condition[:DEAL_BREAKER_MAX])
+    return out
+
+
+def keep_quoted_deal_breaker(
+    raw: Optional[str],
+    conditions: Sequence[str],
+    haystacks: Iterable[Optional[str]],
+) -> Optional[dict[str, str]]:
+    """Trafienie deal-breakera od modelu — tylko z cytatem z CV i znanym warunkiem.
+
+    Model (prompt v2) może oddać ``deal_breaker: {"condition", "quote"}``.
+    Zostaje WYŁĄCZNIE, gdy ``condition`` jest jednym z warunków rekrutacji,
+    a ``quote`` stoi dosłownie w CV albo profilu. Awaria odczytu = ``None``
+    (to plakietka, nigdy bramka). ``decide`` tego nie czyta.
+    """
+    try:
+        data = _model_json(raw)
+    except (ValueError, json.JSONDecodeError):
+        return None
+    item = data.get("deal_breaker")
+    if not isinstance(item, dict):
+        return None
+    condition = " ".join(str(item.get("condition") or "").split())
+    quote = str(item.get("quote") or "").strip()
+    if not condition or not quote:
+        return None
+    known = {normalize(c): c for c in conditions}
+    matched = known.get(normalize(condition))
+    if matched is None:
+        return None
+    hay = "\n".join(normalize(h) for h in haystacks if h)
+    needle = normalize(quote)
+    if len(needle) < 3 or needle not in hay:
+        return None
+    return {"condition": matched, "quote": quote[:QUOTE_MAX]}
 
 
 def decide(
@@ -188,6 +244,9 @@ class ScreeningResult:
     # Kod powodu braku oceny modelu (``no_cv``, ``model_error:<Klasa>``,
     # ``screening_off``) — nigdy treść odpowiedzi.
     error: Optional[str] = None
+    # 04.10.2026: warunek „Odpada, gdy…”, który według AI łamie CV
+    # (`{"condition", "quote"}`, cytat sprawdzony). Tylko plakietka.
+    deal_breaker: Optional[dict[str, str]] = None
 
     @property
     def model_assessed(self) -> bool:
@@ -217,6 +276,10 @@ def job_prompt_block(job: Any) -> str:
         lines.append("Mile widziane: " + ", ".join(labels["nice"]))
     if about:
         lines.append("O projekcie:\n" + about)
+    conditions = deal_breaker_conditions(job)
+    if conditions:
+        # 04.10.2026: model może wskazać warunek, który CV łamie — z cytatem.
+        lines.append("Odpada, gdy:\n" + "\n".join(f"- {c}" for c in conditions))
     return fence("rekrutacja", "\n".join(lines)[:JOB_TEXT_LIMIT])
 
 
@@ -242,6 +305,7 @@ def entry_meta(result: ScreeningResult, *, overridden: bool = False) -> dict:
         must_found=result.must_found,
         must_total=result.must_total,
         overridden=overridden,
+        deal_breaker=(result.deal_breaker or {}).get("condition"),
     )
 
 
@@ -358,6 +422,9 @@ async def assess(
             error=f"model_error:{name}"[:120],
         )
     kept = keep_quoted_reasons(raw_reasons, (cv_text, profile))
+    deal_breaker = keep_quoted_deal_breaker(
+        raw, deal_breaker_conditions(job), (cv_text, profile)
+    )
     return ScreeningResult(
         verdict=decide(
             model_verdict=model_verdict,
@@ -370,6 +437,7 @@ async def assess(
         reasons=kept,
         model=model_for(FEATURE),
         error=None if model_verdict is not None else "model_no_verdict",
+        deal_breaker=deal_breaker,
     )
 
 

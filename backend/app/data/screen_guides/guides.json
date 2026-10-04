@@ -18,7 +18,7 @@
       },
       {
         "q": "Co pokazuje status requestu?",
-        "a": "Każda rekrutacja ma jeden stan. „Do uzupełnienia” — szkic, jeszcze nie w searchu. „Do przejrzenia” — nikt nie zdecydował, czy nad nią pracujemy. „Szukamy” trwa do „Mamy championa”. „Umowa” — ktoś jest na etapie umowy. „Klient milczy” — klient nie odpowiada. Kilka stanów naraz pokazuje rekrutacje w którymkolwiek z nich.",
+        "a": "Każda rekrutacja ma jeden stan. „Do uzupełnienia” — stary szkic sprzed 04.10.2026; nowych szkiców nie ma. „Do przejrzenia” — nikt nie zdecydował, czy nad nią pracujemy. „Szukamy” trwa do „Mamy championa”. „Umowa” — ktoś jest na etapie umowy. „Klient milczy” — klient nie odpowiada. Kilka stanów naraz pokazuje rekrutacje w którymkolwiek z nich.",
         "anchor": "jobs.list.status"
       },
       {
@@ -27,7 +27,7 @@
       },
       {
         "q": "Jak założyć nową rekrutację?",
-        "a": "Kliknij „Nowa rekrutacja”. Wklej mail albo plik od klienta — system wypełni pola i pokaże braki. Przycisk widzą osoby z uprawnieniem do zakładania rekrutacji (domyślnie admin i Delivery Lead).",
+        "a": "Kliknij „Nowa rekrutacja”, wklej mail albo plik od klienta — system wypełni pola i pokaże braki. Rekrutacja powstaje dopiero kompletna: „Utwórz i opublikuj” od razu przekazuje ją do searchu. Niedokończony formularz czeka na Twoim koncie. Przycisk widzą osoby z uprawnieniem do zakładania rekrutacji (domyślnie admin i Delivery Lead).",
         "anchor": "jobs.list.new"
       }
     ],
@@ -66,7 +66,7 @@
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
-        "a": "Kliknij strzałkę „→” na karcie. Otworzy się okno „Przesuń dalej” z listą tego, czego brakuje do następnego etapu, i przyciskami, które te braki uzupełniają. Możesz też przeciągnąć kartę — na sąsiednią kolumnę bez braków przesunie się od razu.",
+        "a": "Kliknij strzałkę „→” na karcie. Otworzy się okno „Przesuń dalej” z listą tego, czego brakuje do następnego etapu, i przyciskami, które te braki uzupełniają. Możesz też przeciągnąć kartę — na sąsiednią kolumnę bez braków przesunie się od razu. Gdy odpowiedź narusza „Odpada, gdy…”, okno to pokaże i zaproponuje „Odrzuć z powodem”.",
         "anchor": "jobs.board.columns"
       },
       {
@@ -209,7 +209,7 @@
       },
       {
         "q": "Czego brakuje, żeby przekazać rekrutację do searchu?",
-        "a": "Zobacz zakładkę „Gotowość” w panelu z prawej: lista braków (rola, must-have, budżet, tryb pracy, opis projektu, pytania screeningowe z odpowiedzią, która odpada, decyzja o umiejętnościach krytycznych). Budżet i tryb pracy uzupełnisz na miejscu. Gdy nic nie brakuje, osoba z uprawnieniem do rekrutacji używa „Przekaż do searchu”.",
+        "a": "Zobacz zakładkę „Gotowość” z prawej: lista braków, m.in. pytania z odpowiedzią, która odpada, krytyczne, kategoria, hiring manager i termin (albo „Klient nie podał”). Budżet i tryb pracy uzupełnisz na miejscu. Potem „Przekaż i opublikuj”. Zamkniętą rekrutację otwiera „Otwórz ponownie” w menu „⋯” — przez te same braki.",
         "anchor": "job.champion.readiness"
       },
       {

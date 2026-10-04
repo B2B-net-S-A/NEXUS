@@ -6,6 +6,7 @@ import { Loader2, Send, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import { api, jobsApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { useCachedJob } from "@/lib/cached-job";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
 import {
   AUTOMATIC_DISABLED_TEXT,
@@ -38,6 +39,12 @@ interface JobHandoffButtonProps {
    * więc opcja jest nieaktywna, a osoba z listy zaznaczona z góry.
    */
   recruiter?: { id: number; name?: string | null } | null;
+  /**
+   * Status rekrutacji. Stary szkic (`draft`) przekazanie od razu publikuje
+   * (04.10.2026), więc przycisk mówi „Przekaż i opublikuj”. Brak propsa =
+   * status z rekrutacji w cache'u (`["job", id]`).
+   */
+  jobStatus?: string | null;
 }
 
 interface JobReadiness {
@@ -68,8 +75,12 @@ export function JobHandoffButton({
   jobId,
   priorityLevel,
   recruiter = null,
+  jobStatus,
 }: JobHandoffButtonProps) {
   const queryClient = useQueryClient();
+  const cachedJob = useCachedJob<{ status?: string | null }>(jobId);
+  const isDraft = (jobStatus ?? cachedJob?.status) === "draft";
+  const actionLabel = isDraft ? "Przekaż i opublikuj" : "Przekaż do searchu";
   const recruiterLabelId = useId();
   const passive = priorityLevel === "accepting";
   const [open, setOpen] = useState(false);
@@ -233,7 +244,7 @@ export function JobHandoffButton({
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-foreground">
-            Przekaż do searchu
+            {actionLabel}
           </h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Wskaż, kto dostanie rekrutację, i uruchom dopasowywanie na podstawie
@@ -252,7 +263,7 @@ export function JobHandoffButton({
             data-testid="handoff-open"
             className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Przekaż do searchu
+            {actionLabel}
           </button>
         )}
       </div>
@@ -382,7 +393,7 @@ export function JobHandoffButton({
               ) : (
                 <Send className="h-4 w-4" />
               )}
-              Przekaż
+              {isDraft ? "Przekaż i opublikuj" : "Przekaż"}
             </button>
             <button
               type="button"

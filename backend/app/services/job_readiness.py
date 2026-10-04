@@ -60,6 +60,36 @@ MSG_DEAL_BREAKER = (
     "Przy każdym pytaniu screeningowym wpisz odpowiedź, która dyskwalifikuje "
     "kandydata (Profil Championa)."
 )
+# Rekrutacja bez szkiców (04.10.2026): decyzje, których wymaga przekazanie.
+MSG_HIRING_MANAGER = "Wskaż hiring managera albo zaznacz „Klient nie podał”."
+MSG_DEADLINE = "Ustaw termin albo zaznacz „Klient nie podał”."
+MSG_CATEGORY = "Wybierz kategorię kompetencji."
+MSG_HEADCOUNT = "Podaj liczbę osób do zatrudnienia (co najmniej 1)."
+
+# Kod braku → zdanie. Kody są kluczami lustra frontu
+# (`frontend/src/lib/__fixtures__/job-readiness-blockers.json`) — formularz
+# `/jobs/new` mapuje po nich brak na sekcję, a ochrona przed nowym brakiem
+# (`assert_no_new_handoff_blockers`) porównuje KODY, nie zdania: zdania braków
+# Championa niosą wartości, więc porównanie zdań odrzucałoby niewinne edycje.
+BLOCKER_CODES: dict[str, str] = {
+    "title": MSG_TITLE,
+    "client": MSG_CLIENT,
+    "context": MSG_CONTEXT,
+    "questions": MSG_QUESTIONS,
+    "must": MSG_MUST,
+    "budget": MSG_BUDGET,
+    "work_mode": MSG_WORK_MODE,
+    "office_days": MSG_OFFICE_DAYS,
+    "office_city": MSG_OFFICE_CITY,
+    "critical": MSG_CRITICAL,
+    "search": MSG_SEARCH_REQUIREMENTS,
+    "deal_breaker": MSG_DEAL_BREAKER,
+    "hiring_manager": MSG_HIRING_MANAGER,
+    "deadline": MSG_DEADLINE,
+    "category": MSG_CATEGORY,
+    "headcount": MSG_HEADCOUNT,
+}
+_CODE_BY_MESSAGE: dict[str, str] = {msg: code for code, msg in BLOCKER_CODES.items()}
 
 # Kod walidacji Championa → zdanie bramki briefu/rubryki, które opisuje TEN SAM
 # brak. Issue Championa znika z listy handoffu WYŁĄCZNIE wtedy, gdy to zdanie
@@ -194,15 +224,19 @@ def job_search_blockers(job: Job) -> list[str]:
     return [MSG_SEARCH_REQUIREMENTS]
 
 
-def job_question_blockers(job: Job) -> list[str]:
+def job_question_blockers(job: Job, *, include_open: bool = False) -> list[str]:
     """Odpowiedź dyskwalifikująca przy każdym pytaniu (decyzja Artura 02.10.2026).
 
     Rekruter ma wiedzieć nie tylko, co jest dobrą odpowiedzią, ale i co
     kandydata skreśla. Tylko przy PIERWSZYM przekazaniu do searchu: rekrutacja
     już przekazana (`is_open`) nie jest blokowana — 96 z 99 pytań sprzed tej
     daty nie miało tego pola. Automatyczna alokacja tej bramki nie czyta.
+
+    ``include_open=True`` liczy pytania także przy ``is_open`` — ponowne
+    otwarcie rekrutacji i ochrona przed nowym brakiem w trakcie pracy
+    (rekrutacja bez szkiców, 04.10.2026).
     """
-    if getattr(job, "is_open", False):
+    if getattr(job, "is_open", False) and not include_open:
         return []
     questions = (job.champion_profile or {}).get("screening_questions")
     for question in questions if isinstance(questions, list) else []:
@@ -215,9 +249,94 @@ def job_question_blockers(job: Job) -> list[str]:
     return []
 
 
+def job_decision_blockers(job: Job) -> list[str]:
+    """Decyzje wymagane przy przekazaniu (rekrutacja bez szkiców, 04.10.2026).
+
+    Hiring manager i termin: wartość albo jawne „Klient nie podał”. Kategoria
+    kompetencji (uczestnicy rekrutacji i automat przydziału czytają ją
+    wprost) i liczba osób co najmniej 1. Tylko w bramce przekazania — bramka
+    briefu automatu przydziału (`job_readiness_blockers`) jej nie czyta.
+    """
+    blockers: list[str] = []
+    if getattr(job, "hiring_manager_contact_id", None) is None and not getattr(
+        job, "hiring_manager_not_provided", False
+    ):
+        blockers.append(MSG_HIRING_MANAGER)
+    if getattr(job, "deadline", None) is None and not getattr(
+        job, "deadline_not_provided", False
+    ):
+        blockers.append(MSG_DEADLINE)
+    if getattr(job, "competence_category_id", None) is None:
+        blockers.append(MSG_CATEGORY)
+    if (getattr(job, "headcount", None) or 0) < 1:
+        blockers.append(MSG_HEADCOUNT)
+    return blockers
+
+
+def job_handoff_blocker_items(
+    job: Job, *, include_open: bool = False
+) -> list[dict[str, str]]:
+    """Pełna bramka przekazania jako ``[{code, message}]`` — kolejność jak
+    w :func:`job_handoff_blockers`.
+
+    Kody: klucze ``BLOCKER_CODES`` (lustro frontu), a dla braków widocznych
+    wyłącznie w Profilu Championa — ``champion:<kod walidacji>``.
+    ``include_open`` — patrz :func:`job_question_blockers`.
+    """
+    from app.services.champion_intake import validation
+
+    issues = validation(job.champion_profile, job)["issues"]
+    gate = (
+        job_readiness_blockers(job)
+        + job_rubric_blockers(job)
+        + job_search_blockers(job)
+        + job_question_blockers(job, include_open=include_open)
+        + job_decision_blockers(job)
+    )
+    listed = set(gate)
+    items = [
+        {"code": _CODE_BY_MESSAGE[message], "message": message} for message in gate
+    ]
+    items += [
+        {"code": f"champion:{issue['code']}", "message": issue["message"]}
+        for issue in issues
+        if "handoff" in issue["blocked_operations"]
+        and _MIRRORED_VALIDATION_CODES.get(issue["code"]) not in listed
+    ]
+    return items
+
+
+def handoff_blocker_codes(job: Job) -> set[str]:
+    """Kody braków rekrutacji w pracy — wejście ochrony przed nowym brakiem."""
+    return {item["code"] for item in job_handoff_blocker_items(job, include_open=True)}
+
+
+# Brak, który wychodzi dopiero po uzupełnieniu „rodzica” (pytania bez odpowiedzi
+# dyskwalifikującej, tryb pracy bez dni i miasta biura, must-have bez decyzji
+# o krytycznych), nie jest NOWYM brakiem — zapis naprawił rodzica, a nie
+# zepsuł rekrutację. Inaczej stara rekrutacja bez pytań nie dałaby się
+# uzupełniać po kawałku.
+_REVEALED_BY: dict[str, str] = {
+    "deal_breaker": "questions",
+    "office_days": "work_mode",
+    "office_city": "work_mode",
+    "critical": "must",
+}
+
+
+def new_handoff_blockers(before: set[str], job: Job) -> list[dict[str, str]]:
+    """Braki, których nie było przed zapisem (porównanie po KODACH)."""
+    return [
+        item
+        for item in job_handoff_blocker_items(job, include_open=True)
+        if item["code"] not in before and _REVEALED_BY.get(item["code"]) not in before
+    ]
+
+
 def job_handoff_blockers(job: Job) -> list[str]:
     """Pełna bramka „Przekaż do searchu": brief + trzy rubryki + wymagania do
-    wyszukiwania + odpowiedzi dyskwalifikujące, w tej kolejności.
+    wyszukiwania + odpowiedzi dyskwalifikujące + decyzje (hiring manager,
+    termin, kategoria, liczba osób — 04.10.2026), w tej kolejności.
 
     Kolejność jest częścią kontraktu — ``JobHandoffButton`` renderuje listę
     dosłownie, a braki briefu są bardziej podstawowe niż braki rubryk.
@@ -227,19 +346,4 @@ def job_handoff_blockers(job: Job) -> list[str]:
     ...) — ale pomija issue, którego brak (``_MIRRORED_VALIDATION_CODES``)
     lista wyżej JUŻ nazywa swoim zdaniem. Rozjazd bramek zostaje widoczny.
     """
-    from app.services.champion_intake import validation
-
-    issues = validation(job.champion_profile, job)["issues"]
-    gate = (
-        job_readiness_blockers(job)
-        + job_rubric_blockers(job)
-        + job_search_blockers(job)
-        + job_question_blockers(job)
-    )
-    listed = set(gate)
-    return gate + [
-        issue["message"]
-        for issue in issues
-        if "handoff" in issue["blocked_operations"]
-        and _MIRRORED_VALIDATION_CODES.get(issue["code"]) not in listed
-    ]
+    return [item["message"] for item in job_handoff_blocker_items(job)]

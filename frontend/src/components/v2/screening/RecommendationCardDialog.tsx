@@ -83,7 +83,7 @@ export function RecommendationCardForm({
           })}
         </div>
 
-        <RecommendationCardQuestions card={card} />
+        <RecommendationCardQuestions card={card} editable={!readOnly} />
 
         {CARD_FIELD_ORDER.filter((key) => CARD_MULTILINE_FIELDS.has(key)).map((key) => {
           const id = `full-card-${key}`;

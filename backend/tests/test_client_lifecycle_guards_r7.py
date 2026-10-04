@@ -22,6 +22,7 @@ from app.models.client import Client
 from app.models.contract import ContractStatus
 from app.models.job import Job, JobStatus
 from app.services.request_allocation import _pool_clause
+from tests._job_factory import complete_job_payload
 from tests.test_client_deletion import _client, _contract, _user
 
 pytestmark = pytest.mark.asyncio
@@ -181,7 +182,9 @@ async def test_create_job_for_deleted_client_is_422(
 
     resp = await app_client.post(
         "/api/jobs",
-        json={"title": "Programista", "work_mode": "fulltime", "client_id": client_id},
+        json=await complete_job_payload(
+            client_id, title="Programista", work_mode="fulltime"
+        ),
         headers=app_auth_headers,
     )
 
@@ -198,11 +201,9 @@ async def test_create_job_for_merged_client_names_the_canonical_record(
 
     resp = await app_client.post(
         "/api/jobs",
-        json={
-            "title": "Programista",
-            "work_mode": "fulltime",
-            "client_id": duplicate_id,
-        },
+        json=await complete_job_payload(
+            duplicate_id, title="Programista", work_mode="fulltime"
+        ),
         headers=app_auth_headers,
     )
 
@@ -219,7 +220,7 @@ async def test_moving_job_to_deleted_client_is_422(
     deleted_id = await _client("rekrutacja-cel-usuniety")
     create = await app_client.post(
         "/api/jobs",
-        json={"title": "Tester", "work_mode": "fulltime", "client_id": live_id},
+        json=await complete_job_payload(live_id, title="Tester", work_mode="fulltime"),
         headers=app_auth_headers,
     )
     assert create.status_code == 201, create.text

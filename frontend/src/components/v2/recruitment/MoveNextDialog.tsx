@@ -34,6 +34,7 @@ import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shar
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   isBlockingGap,
+  isDealBreakerWarning,
   useMoveRequirements,
   type MoveRequirementAction,
 } from "@/lib/api/moveRequirements";
@@ -179,6 +180,12 @@ export function MoveNextDialog({
     () => (data?.items ?? []).filter((i) => isBlockingGap(i, askedDuringMove)),
     [data, askedDuringMove],
   );
+  // „Odpada, gdy…” naruszone: ruch nadal przechodzi (serwer go nie zatrzymuje),
+  // ale przycisk mówi wprost, że idziemy wbrew odpowiedzi kandydata.
+  const dealBreaker = useMemo(
+    () => (data?.items ?? []).some((i) => i.key === "deal_breaker" && isDealBreakerWarning(i)),
+    [data],
+  );
   const fullName = item ? itemFullName(item) : "";
   const shownTargetLabel =
     targetLabel ?? (targetKey ? boardColumnLabel(targetKey, { cproEnabled }) : null) ?? target?.name ?? "";
@@ -215,7 +222,11 @@ export function MoveNextDialog({
     ? "Tylko odczyt."
     : primary?.kind === "blocked" || (primary?.kind === "move" && gaps.length > 0)
       ? `Najpierw uzupełnij: ${gaps.map((g) => g.label).join(", ") || "braki z listy"}.`
-      : null;
+      : dealBreaker && primary?.kind === "move"
+        ? "Odpowiedź kandydata wyklucza go z tej rekrutacji — możesz go odrzucić albo przesunąć mimo to."
+        : null;
+  const primaryLabel =
+    dealBreaker && primary?.kind === "move" ? "Przesuń mimo to" : (primary?.label ?? "");
 
   return (
     <Dialog open={open && item != null && target != null} onOpenChange={onOpenChange}>
@@ -318,7 +329,7 @@ export function MoveNextDialog({
               disabled={primaryDisabled}
               aria-describedby={primaryHint ? "move-next-primary-hint" : undefined}
             >
-              {primary.label}
+              {primaryLabel}
               {primary.kind !== "hand_to_dl" && <ArrowRight className="h-4 w-4" aria-hidden="true" />}
             </Button>
           )}

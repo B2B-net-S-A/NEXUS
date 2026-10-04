@@ -200,7 +200,7 @@ async def _job(client_id: int, status) -> int:
 async def test_reopening_a_recruitment_of_a_deleted_or_merged_client_is_422(
     app_client: AsyncClient,
 ):
-    """R9-N4-1: PATCH closed→published i POST /publish sprawdzają klienta."""
+    """R9-N4-1: ponowne otwarcie (`POST /publish`) sprawdza klienta."""
     from app.core.database import AsyncSessionLocal
     from app.models.job import Job, JobStatus
 
@@ -209,8 +209,19 @@ async def test_reopening_a_recruitment_of_a_deleted_or_merged_client_is_422(
     job_a = await _job(deleted_id, JobStatus.closed)
     await _mark(deleted_id, deleted_at=datetime.now(timezone.utc))
 
+    # Rekrutacja bez szkiców (04.10.2026): PATCH nie otwiera rekrutacji —
+    # „Otwórz ponownie” idzie przez `/publish` z przekazaniem do searchu.
     resp = await app_client.patch(
         f"/api/jobs/{job_a}", json={"status": "published"}, headers=headers
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "reopen_required"
+
+    from tests._job_factory import new_recruiter
+
+    reopen = {"assignment_mode": "manual", "recruiter_id": await new_recruiter()}
+    resp = await app_client.post(
+        f"/api/jobs/{job_a}/publish", json=reopen, headers=headers
     )
     assert resp.status_code == 422, resp.text
     assert resp.json()["detail"]["code"] == "client_deleted"
@@ -224,6 +235,11 @@ async def test_reopening_a_recruitment_of_a_deleted_or_merged_client_is_422(
         archived_at=datetime.now(timezone.utc),
     )
     resp = await app_client.post(f"/api/jobs/{job_b}/publish", headers=headers)
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["code"] == "handoff_required"
+    resp = await app_client.post(
+        f"/api/jobs/{job_b}/publish", json=reopen, headers=headers
+    )
     assert resp.status_code == 422, resp.text
     assert resp.json()["detail"]["code"] == "client_merged"
 

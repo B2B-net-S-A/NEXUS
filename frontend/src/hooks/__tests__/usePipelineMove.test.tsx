@@ -517,6 +517,23 @@ describe("usePipelineMove — odrzucenie", () => {
   });
 });
 
+describe("usePipelineMove — odrzucenie z notatką startową", () => {
+  it("requestReject z `notes` wypełnia notatkę okna i wysyła ją z ruchem", async () => {
+    const item = card({ id: 21, candidate_id: 210, stage: "client_interview" });
+    const b = board({ client: [item] });
+    post.mockResolvedValue({ data: { id: 601 } });
+    mount(b.all);
+
+    React.act(() => controls.requestReject(item, undefined, { notes: "Odpada, gdy: brak Javy" }));
+    const reason = await screen.findByPlaceholderText(/brak wymaganych kompetencji/);
+    expect(screen.getByPlaceholderText(/lepszą ofertę/)).toHaveValue("Odpada, gdy: brak Javy");
+    fireEvent.change(reason, { target: { value: "Narusza deal-breaker" } });
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1].notes).toContain("Odpada, gdy: brak Javy");
+  });
+});
+
 describe("usePipelineMove — ruch zbiorczy", () => {
   it("pętla pojedynczych ruchów bez wersji; unieważnienie RAZ, po pętli", async () => {
     const items = [1, 2, 3].map((n) =>

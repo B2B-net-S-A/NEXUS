@@ -1214,6 +1214,47 @@
    "v3_home": "nowa rekrutacja → krok 2"
   },
   {
+   "id": "new.save-draft",
+   "area": "zlecenie",
+   "opis": "„Zapisz szkic” na stronie nowej rekrutacji",
+   "file": "components/v2/jobs/new/NewJobPage.tsx",
+   "marker": "Dokończę później",
+   "v3_home": "nowa rekrutacja → stopka",
+   "removed_reason": "Decyzja Artura 04.10.2026: rekrutacja nigdy nie jest szkicem — „Utwórz i opublikuj” tworzy, przekazuje i publikuje jednym żądaniem. Niedokończona praca to formularz na koncie autora („Dokończę później”, autozapis), nie rekrutacja."
+  },
+  {
+   "id": "new.unfinished-forms",
+   "area": "zlecenie",
+   "opis": "Niedokończone formularze nowej rekrutacji na koncie autora: autozapis, „Dokończę później”, lista „Masz N niedokończonych formularzy” z „Dokończ” / „Usuń” w kroku 1",
+   "file": "components/v2/jobs/new/NewJobPage.tsx",
+   "marker": "UnfinishedIntakeForms",
+   "v3_home": "nowa rekrutacja → krok 1"
+  },
+  {
+   "id": "new.decisions",
+   "area": "zlecenie",
+   "opis": "Hiring manager i termin jako wymagana decyzja z „Klient nie podał”; liczba osób",
+   "file": "components/v2/jobs/new/NewJobReviewForm.tsx",
+   "marker": "new-job-deadline",
+   "v3_home": "nowa rekrutacja → 1 · Nazwa, 3 · Warunki"
+  },
+  {
+   "id": "job.reopen",
+   "area": "zlecenie",
+   "opis": "„Otwórz ponownie” zamkniętej rekrutacji i „Dokończ i opublikuj” starego szkicu — okno z brakami, wyborem rekrutera i powodem",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "onReopenJob",
+   "v3_home": "nagłówek rekrutacji → „⋯”"
+  },
+  {
+   "id": "board.pending-jobs",
+   "area": "zlecenie",
+   "opis": "Pulpit: „Rekrutacje do dokończenia albo zamknięcia” (stare szkice z odliczaniem do zamknięcia, opublikowane bez przekazania) i niedokończone formularze",
+   "file": "components/v2/dashboard/BoardTasksPanel.tsx",
+   "marker": "PendingJobsSection",
+   "v3_home": "Pulpit → Czeka na Ciebie"
+  },
+  {
    "id": "champ.requirement-rows",
    "area": "zlecenie",
    "opis": "Wymagania w Profilu Championa jako lista słów kluczowych (profil prowadzony wierszami) i „Uprość do słów kluczowych” dla profilu na starych polach",

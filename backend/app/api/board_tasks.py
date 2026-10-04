@@ -16,6 +16,11 @@ Od 02.10.2026 lista niesie też propozycje automatu przydziału do akceptacji
 Recruitment. Decyzje zapisuje `/api/request-board` (akceptacja, zamiana,
 odrzucenie). Te same osoby dostają listę informacyjną „kto prowadzi nowe
 rekrutacje” (`services/new_job_leads.py`).
+
+Od 04.10.2026 (rekrutacja bez szkiców) dochodzą dwie listy
+z `services/pending_job_completion.py`: rekrutacje do dokończenia (stare
+szkice i opublikowane bez przekazania do searchu) oraz niedokończone
+formularze „Nowa rekrutacja” tej osoby.
 """
 
 from dataclasses import asdict
@@ -45,6 +50,7 @@ from app.services import (
     cv_in_transit,
     move_requirements,
     new_job_leads,
+    pending_job_completion,
     prep_attention,
     request_allocation_proposals,
 )
@@ -169,6 +175,35 @@ class NewJobLeadRow(BaseModel):
     pending_reason: Optional[Literal["assigning", "passive", "none"]] = None
 
 
+class PendingJobRow(BaseModel):
+    """Rekrutacja do dokończenia (`pending_job_completion.PendingJob`)."""
+
+    job_id: int
+    title: str
+    client_name: Optional[str] = None
+    kind: Literal["legacy_draft", "published_not_handed_off"]
+    created_at: datetime
+    delivery_lead_name: Optional[str] = None
+    # Zdania braków — ta sama lista co przycisk „Przekaż do searchu”.
+    missing: list[str] = []
+
+
+class PendingJobsBlock(BaseModel):
+    # Dzień, od którego stare szkice zamykają się same (`None`, gdy na liście
+    # nie ma szkicu albo znacznik wdrożenia jeszcze nie istnieje).
+    autoclose_on: Optional[date] = None
+    items: list[PendingJobRow]
+
+
+class UnfinishedFormRow(BaseModel):
+    """Mój formularz „Nowa rekrutacja” leżący dłużej niż 2 dni."""
+
+    id: int
+    label: str
+    client_name: Optional[str] = None
+    updated_at: datetime
+
+
 class CvTransitRow(BaseModel):
     """Wiersz listy „Twoje CV w drodze” (`services/cv_in_transit.py`)."""
 
@@ -241,6 +276,10 @@ class BoardTasksResponse(BaseModel):
     # „Twoje CV w drodze” — druga strona przekazań, dla rekrutera kandydata.
     # `None` = osoba usunęła listę z pulpitu albo liczenie się nie powiodło.
     cv_in_transit: Optional[CvInTransitBlock] = None
+    # 04.10.2026: rekrutacje do dokończenia. `None` = osoba ich nie widzi
+    # (tylko DL, HoR i admin) albo nie ma żadnej.
+    pending_jobs: Optional[PendingJobsBlock] = None
+    unfinished_forms: list[UnfinishedFormRow] = []
 
 
 class CproSenderRead(BaseModel):
@@ -340,6 +379,10 @@ async def list_board_tasks(
     transit = await cv_in_transit.load_safely(
         db, current_user, portfolio=portfolio, now=now
     )
+    pending = await pending_job_completion.load_pending_jobs_safely(db, current_user)
+    unfinished = await pending_job_completion.load_unfinished_forms_safely(
+        db, current_user, now=now
+    )
     dl_review = mine[svc.KIND_DL_REVIEW]
     dl_cvs = (
         await move_requirements.company_cv_refs(
@@ -376,6 +419,15 @@ async def list_board_tasks(
         allocation_leave_known=leave_known,
         new_job_leads=[NewJobLeadRow(**asdict(lead)) for lead in job_leads],
         cv_in_transit=_transit_block(transit),
+        pending_jobs=(
+            PendingJobsBlock(
+                autoclose_on=pending.autoclose_on,
+                items=[PendingJobRow(**asdict(item)) for item in pending.items],
+            )
+            if pending is not None
+            else None
+        ),
+        unfinished_forms=[UnfinishedFormRow(**asdict(f)) for f in unfinished],
         prep_attention=[
             PrepAttentionRow(
                 reason=a.reason,

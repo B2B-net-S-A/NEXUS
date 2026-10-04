@@ -13,6 +13,8 @@ from typing import Optional
 import pytest
 from httpx import AsyncClient
 
+from tests._job_factory import complete_job_payload, purge_job
+
 from app.services.job_reference import (
     client_initials,
     format_reference,
@@ -79,14 +81,9 @@ def test_parse_seq_ignores_traffit_imported_shape() -> None:
 
 
 async def _cleanup_jobs(job_ids: list[int]) -> None:
-    from app.core.database import AsyncSessionLocal
-    from app.models.job import Job
-    from sqlalchemy import delete
-
-    async with AsyncSessionLocal() as db:
-        for jid in job_ids:
-            await db.execute(delete(Job).where(Job.id == jid))
-        await db.commit()
+    # Przekazanie do searchu zakłada wiersze Priority Work (RESTRICT).
+    for jid in job_ids:
+        await purge_job(jid)
 
 
 async def _seed_client(name: str) -> int:
@@ -132,10 +129,9 @@ async def test_post_job_generates_reference(
         resp = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
-            json={
-                "title": f"Ref test {uuid.uuid4().hex[:6]}",
-                "client_id": cli_id,
-            },
+            json=await complete_job_payload(
+                cli_id, title=f"Ref test {uuid.uuid4().hex[:6]}"
+            ),
         )
         assert resp.status_code in (200, 201), resp.text
         body = resp.json()
@@ -167,18 +163,16 @@ async def test_post_job_sequence_increments_for_same_prefix(
         r1 = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
-            json={
-                "title": f"Seq A {uuid.uuid4().hex[:6]}",
-                "client_id": cli_id,
-            },
+            json=await complete_job_payload(
+                cli_id, title=f"Seq A {uuid.uuid4().hex[:6]}"
+            ),
         )
         r2 = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
-            json={
-                "title": f"Seq B {uuid.uuid4().hex[:6]}",
-                "client_id": cli_id,
-            },
+            json=await complete_job_payload(
+                cli_id, title=f"Seq B {uuid.uuid4().hex[:6]}"
+            ),
         )
         assert r1.status_code in (200, 201), r1.text
         assert r2.status_code in (200, 201), r2.text
@@ -206,11 +200,11 @@ async def test_post_job_respects_caller_supplied_reference(
         resp = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
-            json={
-                "title": f"Explicit ref {uuid.uuid4().hex[:6]}",
-                "reference_number": explicit,
-                "client_id": cli_id,
-            },
+            json=await complete_job_payload(
+                cli_id,
+                title=f"Explicit ref {uuid.uuid4().hex[:6]}",
+                reference_number=explicit,
+            ),
         )
         assert resp.status_code in (200, 201), resp.text
         body = resp.json()

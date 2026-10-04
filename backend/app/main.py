@@ -201,6 +201,7 @@ from app.api import dashboard_metrics as dashboard_metrics_api
 from app.api import settings as app_settings_api
 from app.api import champion_intake as champion_intake_api
 from app.api import job_request_intake as job_request_intake_api
+from app.api import job_intake_forms as job_intake_forms_api
 from app.api import screening_reassign as screening_reassign_api
 from app.api import cv_qc as cv_qc_api
 from app.api import pipeline_requirements as pipeline_requirements_api
@@ -1042,6 +1043,8 @@ app.add_middleware(
 # Register routers
 app.include_router(champion_intake_api.router, prefix="/api", tags=["champion"])
 app.include_router(job_request_intake_api.router, prefix="/api", tags=["jobs"])
+# 0415: niedokończone formularze „Nowa rekrutacja” na koncie autora.
+app.include_router(job_intake_forms_api.router, prefix="/api", tags=["jobs"])
 app.include_router(screening_reassign_api.router, prefix="/api", tags=["pipeline"])
 # Rekrutacja v5: QC CV (bramka przed „CV wysłane”/Cpro, poprawki AI).
 app.include_router(cv_qc_api.router, prefix="/api/pipeline", tags=["pipeline"])

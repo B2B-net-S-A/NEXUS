@@ -599,12 +599,18 @@ async def test_api_card_lists_champion_questions_with_the_note_answer(
             "question": "Doświadczenie z Javą 17+?",
             "answer": "Java 21 w banku.",
             "source": "note",
+            "question_id": "q1",
+            "deal_breaker": None,
+            "deal_breaker_hit": False,
         },
         {
             "number": 2,
             "question": "Chmura w projektach komercyjnych?",
             "answer": "",
             "source": None,
+            "question_id": "q2",
+            "deal_breaker": None,
+            "deal_breaker_hit": False,
         },
     ]
     assert "P1: Doświadczenie z Javą 17+?" in body["legacy_text"]

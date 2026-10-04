@@ -25,6 +25,7 @@ from httpx import AsyncClient
 
 from app.core.database import AsyncSessionLocal, _json_serializer
 from app.models.client import Client
+from tests._job_factory import complete_job_payload, purge_job
 
 
 def test_json_serializer_encodes_date() -> None:
@@ -69,11 +70,9 @@ async def test_patch_job_with_deadline_persists(
         create = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
-            json={
-                "title": "Deadline serialization regression",
-                "client_id": seeded_client_id,
-                "auto_suggest_cc": False,
-            },
+            json=await complete_job_payload(
+                seeded_client_id, title="Deadline serialization regression"
+            ),
         )
         assert create.status_code == 201, create.text
         job_id = create.json()["id"]
@@ -85,18 +84,16 @@ async def test_patch_job_with_deadline_persists(
         )
         assert patch.status_code == 200, patch.text
         assert patch.json()["deadline"] == "2023-04-12"
+        # 0414: zapisana data zdejmuje „Klient nie podał terminu”.
+        assert patch.json()["deadline_not_provided"] is False
 
         get = await app_client.get(f"/api/jobs/{job_id}", headers=app_auth_headers)
         assert get.status_code == 200
         assert get.json()["deadline"] == "2023-04-12"
     finally:
+        if job_id is not None:
+            await purge_job(job_id)
         async with AsyncSessionLocal() as db:
-            from app.models.job import Job
-
-            if job_id is not None:
-                job = await db.get(Job, job_id)
-                if job is not None:
-                    await db.delete(job)
             client = await db.get(Client, seeded_client_id)
             if client is not None:
                 await db.delete(client)

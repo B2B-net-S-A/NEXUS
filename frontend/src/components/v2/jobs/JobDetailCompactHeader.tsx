@@ -15,7 +15,9 @@ import {
   Link2,
   MessageCircle,
   PencilLine,
+  RotateCcw,
   ScanSearch,
+  Send,
   Sparkles,
   Trophy,
   UserPlus,
@@ -137,6 +139,14 @@ interface JobDetailCompactHeaderProps {
   onCopyLink?: () => void;
   /** „Zamknij rekrutację…” — pełna edycja i rekrutacja nie zamknięta. */
   onCloseJob?: () => void;
+  /**
+   * „Otwórz ponownie…” — zamknięta rekrutacja, ta sama bramka co zamknięcie
+   * (04.10.2026). Otwiera `JobReopenDialog`; zmiana statusu w edycji już tego
+   * nie robi.
+   */
+  onReopenJob?: () => void;
+  /** „Dokończ i opublikuj…” — stary szkic albo rekrutacja bez przekazania. */
+  onFinishJob?: () => void;
 }
 
 function deferMenuAction(action: () => void) {
@@ -193,6 +203,8 @@ export function JobDetailCompactHeader({
   clientCardHref,
   onCopyLink,
   onCloseJob,
+  onReopenJob,
+  onFinishJob,
 }: JobDetailCompactHeaderProps) {
   const unreadLabel =
     chatUnreadCount > 0
@@ -326,6 +338,30 @@ export function JobDetailCompactHeader({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64">
+              {onFinishJob || onReopenJob ? (
+                <>
+                  {onFinishJob ? (
+                    <DropdownMenuItem
+                      onSelect={() => deferMenuAction(onFinishJob)}
+                      data-testid="finish-job"
+                    >
+                      <Send className="h-4 w-4" />
+                      Dokończ i opublikuj…
+                    </DropdownMenuItem>
+                  ) : null}
+                  {onReopenJob ? (
+                    <DropdownMenuItem
+                      onSelect={() => deferMenuAction(onReopenJob)}
+                      data-testid="reopen-job"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                      Otwórz ponownie…
+                    </DropdownMenuItem>
+                  ) : null}
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
+
               {onToggleChampion ? (
                 <>
                   <DropdownMenuItem

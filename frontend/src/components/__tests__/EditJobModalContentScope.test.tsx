@@ -213,3 +213,85 @@ describe("EditJobModal — edycja treści przez rekrutera (22.09.2026)", () => {
     expect(body).toMatchObject({ recruiter_id: 11, delivery_lead_id: 12 });
   });
 });
+
+describe("EditJobModal — status bez szkiców (04.10.2026)", () => {
+  function renderWithJob(overrides: Record<string, unknown>, onRequestPublish?: () => void) {
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({ data: [] } as never);
+    const onClose = vi.fn();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <EditJobModal
+          job={{ ...job, ...overrides }}
+          onClose={onClose}
+          onSuccess={() => {}}
+          onRequestPublish={onRequestPublish}
+        />
+      </QueryClientProvider>,
+    );
+    return { onClose };
+  }
+
+  it("rekrutacja w pracy ma tylko „W pracy” i „Zamknięta” — bez szkicu", () => {
+    renderWithJob({});
+    const status = screen.getByLabelText("Status");
+    const options = Array.from(status.querySelectorAll("option")).map((o) => o.textContent);
+    expect(options).toEqual(["W pracy", "Zamknięta"]);
+    expect(screen.queryByRole("option", { name: "Draft" })).toBeNull();
+  });
+
+  it("zapis bez zmiany statusu nie wysyła `status`; zamknięcie wysyła `closed`", async () => {
+    const user = userEvent.setup();
+    renderWithJob({});
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.patch).mock.calls[0][1]).not.toHaveProperty("status");
+
+    vi.mocked(api.patch).mockClear();
+    await user.selectOptions(screen.getByLabelText("Status"), "closed");
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.patch).mock.calls[0][1]).toMatchObject({ status: "closed" });
+  });
+
+  it("zamknięta: status tylko do odczytu i „Otwórz ponownie” zamyka okno i otwiera dialog", async () => {
+    const onRequestPublish = vi.fn();
+    const user = userEvent.setup();
+    const { onClose } = renderWithJob({ status: "closed" }, onRequestPublish);
+    expect(screen.getByTestId("job-status-readonly")).toHaveTextContent("Zamknięta");
+    await user.click(screen.getByRole("button", { name: "Otwórz ponownie" }));
+    expect(onClose).toHaveBeenCalled();
+    expect(onRequestPublish).toHaveBeenCalled();
+  });
+
+  it("stary szkic: „Szkic (do dokończenia)” i link „Dokończ i opublikuj” do `?reopen=1`", () => {
+    renderWithJob({ status: "draft" });
+    expect(screen.getByTestId("job-status-readonly")).toHaveTextContent("Szkic (do dokończenia)");
+    expect(screen.getByRole("link", { name: "Dokończ i opublikuj" })).toHaveAttribute(
+      "href",
+      "/jobs/7?reopen=1",
+    );
+  });
+
+  it("odmowa `handoff_regression` pokazuje zdanie i braki", async () => {
+    vi.mocked(api.patch).mockRejectedValueOnce({
+      response: {
+        status: 422,
+        data: {
+          detail: {
+            code: "handoff_regression",
+            message: "Rekrutacja w pracy straciłaby wymagane pole.",
+            blockers: [{ code: "deadline", message: "Podaj termin." }],
+          },
+        },
+      },
+    });
+    const user = userEvent.setup();
+    renderWithJob({});
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    expect(
+      await screen.findByText("Rekrutacja w pracy straciłaby wymagane pole. Podaj termin."),
+    ).toBeInTheDocument();
+  });
+});
+
