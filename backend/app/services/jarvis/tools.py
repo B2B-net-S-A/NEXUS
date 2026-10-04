@@ -1947,6 +1947,18 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
                 },
                 "expected_state_version": INT,
                 "notes": {**STR, "maxLength": 1000},
+                # D2 (04.10.2026): ręczny ruch na „Zatrudniony” mówi, jak
+                # podpisano umowę spoza Generatora B2B.
+                "hired_signed_via": {
+                    "type": "string",
+                    "enum": ["b2b_offline", "uop", "zlecenie", "other"],
+                    "description": (
+                        "Tylko przy etapie „Zatrudniony”: jak podpisano umowę "
+                        "(umowa B2B poza Generatorem, umowa o pracę, zlecenie, "
+                        "inna). Umowę B2B z Generatora potwierdza się tam."
+                    ),
+                },
+                "hired_signed_note": {**STR, "maxLength": 500},
             },
             ("candidate_id", "job_id", "stage_def_id", "stage_name"),
         ),
@@ -1973,6 +1985,8 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
                     "expected_state_version": a.get("expected_state_version"),
                     "acknowledge_eligibility": bool(a.get("acknowledge_eligibility"))
                     or None,
+                    "hired_signed_via": a.get("hired_signed_via"),
+                    "hired_signed_note": a.get("hired_signed_note"),
                 }
             ),
         ),

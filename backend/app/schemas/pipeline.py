@@ -55,6 +55,14 @@ class StageMove(BaseModel):
     expected_rate_unit: Optional[RateUnit] = None
     expected_rate_currency: Optional[str] = Field(None, max_length=3)
 
+    # ── Ręczny ruch na „Zatrudniony” (D2, 04.10.2026) ─────────────────────
+    # Jak podpisano umowę spoza Generatora B2B; bez pola ruch na `hired`
+    # dostaje 422 `HIRED_SIGNED_VIA_REQUIRED`. „other” wymaga opisu.
+    hired_signed_via: Optional[Literal["b2b_offline", "uop", "zlecenie", "other"]] = (
+        None
+    )
+    hired_signed_note: Optional[str] = Field(None, max_length=500)
+
     # ── Candidate offer response (migracja 0066 — Phase 17) ───────────────
     # Sensowne tylko gdy stage ∈ {acceptance, negotiation, onboarding}.
     # `declined` przed wycofaniem → post_accept dropout (10pt w risk score).

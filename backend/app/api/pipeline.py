@@ -1119,6 +1119,11 @@ async def move_candidate(
             ),
         )
 
+    # D2 (04.10.2026): ręczny ruch na „Zatrudniony” mówi, jak podpisano umowę.
+    pipeline_move_rules.assert_hired_signed_via(
+        legacy_enum, data.hired_signed_via, data.hired_signed_note
+    )
+
     # Pipeline v4 (23.09.2026): wejście do „Umowy"/„Zatrudnionego" wymaga
     # debriefu po rozmowie u klienta (pytania klienta albo „klient nie zadawał
     # pytań") — pytania zasilają prep i profil Championa.
@@ -1139,6 +1144,17 @@ async def move_candidate(
         candidate_id=data.candidate_id,
         job_id=data.job_id,
         target_column=target_column,
+    )
+    # D1 (04.10.2026): „Zweryfikowany” z Nowych/Screeningu wymaga arkusza
+    # screeningu i stawki kandydata — ta sama reguła co okno „Przesuń dalej”.
+    await pipeline_move_rules.assert_verified_requirements(
+        db,
+        candidate_id=data.candidate_id,
+        job=job,
+        user=current_user,
+        target_column=target_column,
+        pending_rate=data.expected_rate_value is not None
+        and data.expected_rate_value > 0,
     )
 
     # Pipeline v4 (23.09.2026): „CV wysłane" poza Nordeą wysyła Delivery Lead
@@ -1439,6 +1455,10 @@ async def move_candidate(
 
     # Activity log + UserActivity (ranking) — wspólne z `/bulk-move`.
     activity_extra: dict = {}
+    if legacy_enum == PipelineStage.hired and data.hired_signed_via is not None:
+        activity_extra["hired_signed_via"] = data.hired_signed_via
+        if data.hired_signed_note:
+            activity_extra["hired_signed_note"] = data.hired_signed_note.strip()
     if legacy_enum == PipelineStage.verified and budget_max_snapshot is not None:
         # M4 PR-02: audyt decyzji gate'u — z jakiej normalizacji wynikła.
         activity_extra["rate_gate"] = {

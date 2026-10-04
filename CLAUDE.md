@@ -3662,6 +3662,18 @@ Traffit) to warunek przenoszenia zespołu z Traffita falami. Nie przywracaj
 wyjście z „Rozmowy u klienta" dalej wymaga debriefu z pytaniami klienta,
 a osoba dodana ręcznie jest 12 h zarezerwowana dla dodającego.
 
+**Wyjątki z 04.10.2026 (decyzje Artura D1, D2):** wejście na „Zweryfikowany”
+z Nowych/Screeningu wymaga arkusza screeningu (albo odpowiedzi w karcie
+rekomendacji) i stawki kandydata — 409 `VERIFIED_REQUIREMENTS_MISSING`
+z `pipeline_move_rules.assert_verified_requirements`, braki liczy TA SAMA
+funkcja co okno „Przesuń dalej” (`move_requirements.load_pair_facts`); zwrot
+DL z „QC CV” do poprawy nie jest bramkowany, „Pomiń stawkę” zostało tylko jako
+„Zostaw zapisaną stawkę”. Ręczny ruch na „Zatrudniony” wymaga
+`hired_signed_via` (umowa B2B poza Generatorem / UoP / zlecenie / inna z opisem,
+422 `HIRED_SIGNED_VIA_REQUIRED`); umowę z Generatora potwierdza „Oznacz jako
+podpisaną”. Wyłączniki `VERIFIED_GATE_ENABLED`, `HIRED_SIGNED_VIA_REQUIRED`;
+w testach wyłączone autouse-fixturą, `test_verified_gate.py` włącza je jawnie.
+
 - **Brak karty „Oczekuje".** Bramka jest USUNIĘTA z kodu (18.09.2026; do tego
   dnia wyłączała ją flaga — nazwa w raportach z 17.09.2026, #1593; stara
   zmienna w Coolify jest nieszkodliwa, `Settings` ignoruje nieznane env).
