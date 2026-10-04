@@ -282,7 +282,7 @@ export function BoardTasksPanel() {
       ) : null}
       {/* PR 6 (04.10.2026): „Twój ruch” i „U innych” — to, co zrobisz sam,
           oddzielone od tego, na co czekasz (przegląd, klient, Cpro). */}
-      {othersGroup ? (
+      {othersGroup && (total > 0 || transitIsMine) ? (
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Twój ruch
         </h3>

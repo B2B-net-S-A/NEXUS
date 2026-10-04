@@ -81,7 +81,14 @@ export function DockContractSteps({
     queryFn: () => b2bGeneratorApi.generated(50, { jobId }),
     staleTime: 60_000,
   });
-  const row = (contracts.data ?? []).find((r) => r.candidate_id === candidateId) ?? null;
+  // Tylko żywa umowa: anulowana, zakończona i „bez projektu” nie liczą się jako
+  // „wygenerowana”, a serwer odmówi im potwierdzenia podpisu (409).
+  const row =
+    (contracts.data ?? []).find(
+      (r) =>
+        r.candidate_id === candidateId &&
+        (r.contract_status === "in_progress" || r.contract_status === "active"),
+    ) ?? null;
   const loading = contracts.isLoading;
   const signed = row?.signature_status === "signed_both";
   const linkClass = "text-xs font-medium text-primary hover:underline";
@@ -119,7 +126,7 @@ export function DockContractSteps({
                 : null
             }
             action={
-              row && !signed && !readOnly ? (
+              row && !signed && row.contract_status === "in_progress" && !readOnly ? (
                 <Link
                   href={registerSearchHref(row.contract_number, row.contract_status)}
                   className={linkClass}

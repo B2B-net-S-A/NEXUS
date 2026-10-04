@@ -202,7 +202,7 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
 
   // PR 6 (04.10.2026): to, na co czekasz u innych, stoi osobno od Twojego ruchu.
   it("„Wysłane do Cpro” stoi w grupie „U innych”, oddzielonej od „Twój ruch”", async () => {
-    mockQueue({ cpro_sent: [row("cpro_sent")] });
+    mockQueue({ cpro_sent: [row("cpro_sent")], cpro_to_send: [row("cpro_to_send")] });
     renderPanel();
     const others = await screen.findByRole("group", { name: "U innych" });
     expect(within(others).getByRole("region", { name: "Wysłane do Cpro" })).toBeTruthy();

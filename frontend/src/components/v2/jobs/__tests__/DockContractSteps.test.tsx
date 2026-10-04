@@ -71,6 +71,13 @@ describe("DockContractSteps", () => {
     expect(screen.queryByRole("link", { name: "Oznacz jako podpisaną w rejestrze" })).toBeNull();
   });
 
+  it("anulowana umowa nie liczy się — panel znów prowadzi do Generatora", async () => {
+    generated.mockResolvedValue([{ ...ROW, contract_status: "cancelled" }]);
+    renderSteps();
+    expect(await screen.findByRole("link", { name: "Otwórz Generator umów" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Oznacz jako podpisaną w rejestrze" })).toBeNull();
+  });
+
   it("tylko do odczytu: stan bez przycisków", async () => {
     generated.mockResolvedValue([]);
     renderSteps({ readOnly: true });
