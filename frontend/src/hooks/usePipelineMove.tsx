@@ -65,6 +65,12 @@ import { moveDialogFor } from "@/lib/pipeline-move-dialog";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { assignErrorMessage } from "@/lib/assign-error";
 import {
+  cvQcFailureOf,
+  debriefRequiredEventId,
+  type CvQcFailure,
+  type PipelineMoveResult,
+} from "@/lib/pipeline-move-core";
+import {
   formatExpectedRate,
   knownClientRate,
   bulkMoveFailureMessage,
@@ -219,15 +225,6 @@ type RatePayload = {
   isMinimum?: boolean;
 };
 
-/** 409 `DEBRIEF_REQUIRED` (Pipeline v4) → id rozmowy u klienta albo `null`. */
-function debriefRequiredEventId(error: unknown): number | null {
-  const response = (error as { response?: { status?: number; data?: { detail?: unknown } } })
-    ?.response;
-  const detail = response?.data?.detail as { code?: unknown; event_id?: unknown } | undefined;
-  if (response?.status !== 409 || !detail || detail.code !== "DEBRIEF_REQUIRED") return null;
-  return typeof detail.event_id === "number" ? detail.event_id : null;
-}
-
 // Pipeline v4 (23.09.2026): poza klientem z kolejką Cpro CV wysyła osoba
 // z uprawnieniem „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” (lustro
 // `pipeline_move_rules.assert_client_send_allowed`) — domyślnie Delivery Lead
@@ -236,30 +233,9 @@ function debriefRequiredEventId(error: unknown): number | null {
 const DL_REJECT_ROLES = new Set(["admin", "delivery_lead", "head_of_recruitment"]);
 export const CLIENT_SEND_DENIED_MESSAGE = `Do klienta wysyła osoba z uprawnieniem „${permissionLabel("recruitment_manage")}” — kandydat czeka w „QC CV” na jej przegląd.`;
 
-/** 409 `CV_QC_FAILED` (Rekrutacja v5): CV nie przeszło kontroli przed wysłaniem. */
-export interface CvQcFailure {
-  /** Wiersz etapu, dla którego trzeba otworzyć okno QC CV. */
-  stageId: number | null;
-  message: string;
-  blockingFailed: number | null;
-}
-
-export function cvQcFailureOf(error: unknown): CvQcFailure | null {
-  const response = (error as { response?: { status?: number; data?: { detail?: unknown } } })
-    ?.response;
-  const detail = response?.data?.detail as
-    | { code?: unknown; stage_id?: unknown; message?: unknown; blocking_failed?: unknown }
-    | undefined;
-  if (response?.status !== 409 || !detail || detail.code !== "CV_QC_FAILED") return null;
-  return {
-    stageId: typeof detail.stage_id === "number" ? detail.stage_id : null,
-    message:
-      typeof detail.message === "string" && detail.message.trim()
-        ? detail.message
-        : "CV nie przeszło QC.",
-    blockingFailed: typeof detail.blocking_failed === "number" ? detail.blocking_failed : null,
-  };
-}
+// Rozpoznanie odmów serwera żyje w `lib/pipeline-move-core.ts` — jedno dla
+// Tablicy i ekranów z własnym ruchem. Eksport zostaje dla dotychczasowych importów.
+export { cvQcFailureOf, type CvQcFailure } from "@/lib/pipeline-move-core";
 
 export interface PipelineMoveControls {
   /** Ta sama decyzja co przeciągnięcie karty na tablicy. */
@@ -423,13 +399,7 @@ export function usePipelineMove({
       opts?: SendMoveOptions
     ): Promise<boolean> => {
       try {
-        const response = await api.post<{
-          id?: number;
-          verification_status?: "active" | "pending" | "rejected";
-          scheduled_rejection_email_id?: number | null;
-          rejection_email_status?: string | null;
-          process_state_version?: number | null;
-        }>("/api/pipeline/move", {
+        const response = await api.post<PipelineMoveResult>("/api/pipeline/move", {
           candidate_id: item.candidate_id,
           job_id: jobId,
           stage: dst.stage,

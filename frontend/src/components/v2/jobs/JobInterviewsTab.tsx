@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 
 import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
-import api, {
+import {
   extractErrorMsg,
   hiringManagerFeedbackApi,
   screeningApi,
@@ -38,12 +38,9 @@ import api, {
   type HiringManagerFeedback,
   type HiringManagerFeedbackList,
 } from "@/lib/api";
-import {
-  PIPELINE_VERSION_CONFLICT_MESSAGE,
-  expectedStateVersionOf,
-  invalidateAfterPipelineVersionConflict,
-  isPipelineVersionConflict,
-} from "@/lib/pipeline-version-conflict";
+import { expectedStateVersionOf } from "@/lib/pipeline-version-conflict";
+import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
+import { itemFullName } from "@/lib/pipeline-flow";
 import { useToast } from "@/components/Toast";
 import { useCapability } from "@/hooks/useCapability";
 import { Badge } from "@/components/ui/badge";
@@ -54,11 +51,7 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import { countPl } from "@/lib/plural-pl";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { terminalOf } from "@/lib/kanban-terminal";
-import {
-  announceRejectionEmail,
-  rejectionEmailAvailableFrom,
-  type RejectionEmailMoveResult,
-} from "@/lib/rejection-email";
+import { rejectionEmailAvailableFrom } from "@/lib/rejection-email";
 import { isInterviewStage } from "@/lib/job-flow-stages";
 import {
   loadJobRejectionReasons,
@@ -91,7 +84,6 @@ import {
   WorkbenchRail,
 } from "@/components/v2/jobs/workbench-chrome";
 import { OneTimeLinkField } from "@/components/v2/jobs/OneTimeLinkField";
-import { useEligibilityWarning } from "@/components/v2/jobs/useEligibilityWarning";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 
 const DECISION_OPTIONS: { value: HiringManagerDecision; label: string }[] = [
@@ -143,8 +135,7 @@ export function JobInterviewsTab({
   focusCandidateId = null,
 }: JobInterviewsTabProps) {
   const isPanel = layout === "panel";
-  const { showSuccess, showError, showActionToast } = useToast();
-  const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
   const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(
     null,
   );
@@ -268,48 +259,29 @@ export function JobInterviewsTab({
   });
   const rejectionReasons = reasonsQuery.data ?? [];
 
-  // ── Ruch bez dialogu — ta sama trasa co drag&drop na tablicy ─────────
-  // 17.09.2026: weto HM / czarna lista / NDA to ostrzeżenie serwera — okno
-  // „Przenieś mimo to" powtarza ruch z `acknowledge_eligibility`.
-  const eligibilityWarning = useEligibilityWarning();
+  // ── Ruch bez dialogu — ta sama droga co drag&drop na tablicy ─────────
+  // Rdzeń ruchu (`usePipelineMoveCore`) obsługuje ostrzeżenie „Przenieś mimo
+  // to”, wymóg debriefu po rozmowie u klienta i konflikt wersji.
+  const moveCore = usePipelineMoveCore({ jobId });
   const moveMutation = useMutation({
-    mutationFn: (vars: {
-      item: KanbanItem;
-      col: KanbanColumn;
-      acknowledgeEligibility?: boolean;
-    }) =>
-      api.post("/api/pipeline/move", {
-        candidate_id: vars.item.candidate_id,
-        job_id: jobId,
-        stage: vars.col.stage,
-        stage_def_id: vars.col.stage_def_id ?? undefined,
-        expected_state_version: expectedStateVersionOf(vars.item),
-        acknowledge_eligibility: vars.acknowledgeEligibility ? true : undefined,
-      }),
-    onSuccess: (_data, vars) => {
-      queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
-      showSuccess(`Przeniesiono na etap „${columnLabel(vars.col)}”.`);
+    mutationFn: (vars: { item: KanbanItem; col: KanbanColumn }) =>
+      moveCore.send(
+        {
+          candidate_id: vars.item.candidate_id,
+          job_id: jobId,
+          stage: vars.col.stage,
+          stage_def_id: vars.col.stage_def_id ?? undefined,
+          expected_state_version: expectedStateVersionOf(vars.item),
+        },
+        {
+          candidateName: itemFullName(vars.item),
+          fallbackMessage: "Nie udało się przenieść",
+        },
+      ),
+    onSuccess: (outcome, vars) => {
+      if (outcome.ok) showSuccess(`Przeniesiono na etap „${columnLabel(vars.col)}”.`);
     },
-    onError: (e, vars) => {
-      if (
-        !vars.acknowledgeEligibility &&
-        eligibilityWarning.intercept(e, () =>
-          moveMutation.mutate({ ...vars, acknowledgeEligibility: true }),
-        )
-      ) {
-        return;
-      }
-      if (isPipelineVersionConflict(e)) {
-        // F05: bez ponowienia — lista pokaże etap zapisany przez kolegę.
-        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
-        invalidateAfterPipelineVersionConflict(
-          queryClient,
-          jobId,
-          vars.item.candidate_id,
-        );
-        return;
-      }
+    onError: (e) => {
       showError(extractErrorMsg(e) || "Nie udało się przenieść");
     },
   });
@@ -324,47 +296,34 @@ export function JobInterviewsTab({
       offerResponse: CandidateOfferResponse | null;
       freeReason?: string;
     }) =>
-      api.post("/api/pipeline/move", {
-        candidate_id: vars.item.candidate_id,
-        job_id: jobId,
-        stage: vars.col.stage,
-        stage_def_id: vars.col.stage_def_id ?? undefined,
-        rejection_reason_id: vars.reasonId || undefined,
-        rejection_reason: vars.freeReason || undefined,
-        notes: vars.notes,
-        send_rejection_email: vars.sendRejectionEmail ?? undefined,
-        candidate_offer_response: vars.offerResponse ?? undefined,
-        expected_state_version: expectedStateVersionOf(vars.item),
-      }),
-    onSuccess: (res, vars) => {
-      queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
-      setPendingTerminal(null);
-      showSuccess("Zapisano decyzję.");
-      // 0045_rejection_emails — ta sama afordancja co na tablicy: backend
-      // zaplanował mail odrzucenia za 15 min, rekruter ma 10 s na „Cofnij".
-      // Runda 10 (R10-V2-1): zaznaczony mail, którego serwer nie zaplanował
-      // (np. brak skrzynki M365), dostaje zdanie z powodem — jak na Tablicy.
-      announceRejectionEmail(
-        (res as { data?: RejectionEmailMoveResult } | undefined)?.data,
+      moveCore.send(
         {
-          requested: vars.sendRejectionEmail,
-          toast: { showActionToast, showSuccess, showError },
-          cancel: (id) => api.post(`/api/rejection-emails/${id}/cancel`),
+          candidate_id: vars.item.candidate_id,
+          job_id: jobId,
+          stage: vars.col.stage,
+          stage_def_id: vars.col.stage_def_id ?? undefined,
+          rejection_reason_id: vars.reasonId || undefined,
+          rejection_reason: vars.freeReason || undefined,
+          notes: vars.notes,
+          send_rejection_email: vars.sendRejectionEmail ?? undefined,
+          candidate_offer_response: vars.offerResponse ?? undefined,
+          expected_state_version: expectedStateVersionOf(vars.item),
         },
-      );
-    },
-    onError: (e, vars) => {
-      if (isPipelineVersionConflict(e)) {
-        setPendingTerminal(null);
-        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
-        invalidateAfterPipelineVersionConflict(
-          queryClient,
-          jobId,
-          vars.item.candidate_id,
-        );
+        {
+          candidateName: itemFullName(vars.item),
+          fallbackMessage: "Nie udało się zapisać",
+        },
+      ),
+    onSuccess: (outcome) => {
+      if (!outcome.ok) {
+        if (outcome.refusal.kind === "version_conflict") setPendingTerminal(null);
         return;
       }
+      setPendingTerminal(null);
+      // Mail odrzucenia („Cofnij wysyłkę”) ogłasza rdzeń ruchu.
+      showSuccess("Zapisano decyzję.");
+    },
+    onError: (e) => {
       showError(extractErrorMsg(e) || "Nie udało się zapisać");
     },
   });
@@ -554,7 +513,7 @@ export function JobInterviewsTab({
     }
     return (
       <div className="flex min-w-0 flex-col gap-3">
-        {eligibilityWarning.dialog}
+        {moveCore.dialogs}
         <div className="flex flex-wrap gap-1.5">
           <Button
             size="sm"
@@ -582,7 +541,7 @@ export function JobInterviewsTab({
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
-      {eligibilityWarning.dialog}
+      {moveCore.dialogs}
       {/* ── Szyna: u klienta, weta i przygotowanie ─────────────────── */}
       <WorkbenchRail
         icon={<Users className="h-4 w-4 text-primary" />}

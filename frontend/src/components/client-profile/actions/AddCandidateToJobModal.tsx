@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search } from "lucide-react";
-import api from "@/lib/api";
+import api, { pipelineApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { assignErrorMessage } from "@/lib/assign-error";
 import { useToast } from "@/components/Toast";
@@ -64,7 +64,7 @@ export function AddCandidateToJobModal({
 
   const mutation = useMutation({
     mutationFn: (candidateId: number) =>
-      api.post(`/api/pipeline/move`, {
+      pipelineApi.move({
         candidate_id: candidateId,
         job_id: jobId,
         stage: "new",

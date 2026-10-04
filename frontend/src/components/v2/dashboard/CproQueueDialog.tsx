@@ -22,7 +22,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/components/Toast";
-import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   BOARD_TASKS_QUERY_KEY,
@@ -43,11 +42,7 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import { fetchStageCvFile } from "@/lib/stage-cv-file";
 import { countPl } from "@/lib/plural-pl";
 import { QC_STATUS_LABEL } from "@/lib/cv-qc";
-import { eligibilityWarningReason, isEligibilityWarning } from "@/lib/pipeline-eligibility-warning";
-import {
-  PIPELINE_VERSION_CONFLICT_MESSAGE,
-  isPipelineVersionConflict,
-} from "@/lib/pipeline-version-conflict";
+import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { resolveViewState } from "@/lib/view-state";
 import { cn, formatDate } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
@@ -311,6 +306,10 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
   const sender = queue.data?.sender ?? senderQuery.data;
   const state = resolveViewState({ isLoading: queue.isLoading, error: queue.error });
 
+  // Ten sam rdzeń ruchu co Tablica: ostrzeżenie „Przenieś mimo to”, QC CV
+  // i konflikt wersji (dotąd ostrzeżenie odsyłało na Tablicę).
+  const moveCore = usePipelineMoveCore({ jobId: job?.job_id ?? 0 });
+
   const markDone = (forJob: number, row: DoneRow) =>
     setDone((prev) => ({ ...prev, [forJob]: [...(prev[forJob] ?? []), row] }));
 
@@ -320,13 +319,23 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
     if (stageDefId == null) return;
     setBusy(item.stage_id);
     try {
-      await api.post("/api/pipeline/move", {
-        candidate_id: item.candidate_id,
-        job_id: job.job_id,
-        stage_def_id: stageDefId,
-        expected_state_version: item.process_state_version,
-        ...(kind === "returned" ? { notes: returnReason.trim() } : {}),
-      });
+      const outcome = await moveCore.send(
+        {
+          candidate_id: item.candidate_id,
+          job_id: job.job_id,
+          stage_def_id: stageDefId,
+          expected_state_version: item.process_state_version ?? undefined,
+          ...(kind === "returned" ? { notes: returnReason.trim() } : {}),
+        },
+        {
+          candidateName: item.candidate_name,
+          fallbackMessage:
+            kind === "sent"
+              ? "Nie udało się przesunąć. Spróbuj ponownie."
+              : "Nie udało się zwrócić. Spróbuj ponownie.",
+        },
+      );
+      if (!outcome.ok) return;
       markDone(job.job_id, { stage_id: item.stage_id, candidate_name: item.candidate_name, outcome: kind });
       showSuccess(
         kind === "sent"
@@ -336,16 +345,6 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
       if (kind === "returned") {
         setReturning(null);
         setReturnReason("");
-      }
-    } catch (error) {
-      if (isEligibilityWarning(error)) {
-        showError(
-          `${eligibilityWarningReason(error) ?? "Serwer ostrzega przed tym ruchem."} Otwórz osobę na Tablicy, żeby zdecydować.`,
-        );
-      } else if (isPipelineVersionConflict(error)) {
-        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
-      } else {
-        showError(apiErrorMessage(error, kind === "sent" ? "Nie udało się przesunąć. Spróbuj ponownie." : "Nie udało się zwrócić. Spróbuj ponownie."));
       }
     } finally {
       setBusy(null);
@@ -637,6 +636,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
             ) : null}
           </div>
         )}
+        {moveCore.dialogs}
       </DialogContent>
     </Dialog>
   );

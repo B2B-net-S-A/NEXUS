@@ -18,7 +18,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -35,7 +35,6 @@ import {
 import {
   candidateStageCvApi,
   extractErrorMsg,
-  pipelineApi,
   screeningApi,
   type CVShareTokenListItem,
   type RateUnit,
@@ -82,12 +81,9 @@ import {
   runCvHandoff,
   type CvHandoffPlan,
 } from "@/lib/cv-handoff";
-import {
-  PIPELINE_VERSION_CONFLICT_MESSAGE,
-  expectedStateVersionOf,
-  invalidateAfterPipelineVersionConflict,
-  isPipelineVersionConflict,
-} from "@/lib/pipeline-version-conflict";
+import { expectedStateVersionOf } from "@/lib/pipeline-version-conflict";
+import { MoveRefusedError } from "@/lib/pipeline-move-core";
+import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { resolveViewState } from "@/lib/view-state";
 import { cn, formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
@@ -102,7 +98,6 @@ import {
   type DockTabItem,
 } from "@/components/v2/jobs/workbench-chrome";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
-import { useEligibilityWarning } from "@/components/v2/jobs/useEligibilityWarning";
 import { TabbedNav } from "@/components/ds";
 import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
 import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
@@ -184,7 +179,6 @@ export function CvHandoffWorkbench({
   panelFallback,
 }: CvHandoffWorkbenchProps) {
   const { showSuccess, showError } = useToast();
-  const queryClient = useQueryClient();
 
   const queue = useMemo(() => selectVerifiedQueue(columns), [columns]);
   const cvSentCol = useMemo(
@@ -364,11 +358,11 @@ export function CvHandoffWorkbench({
           : null))
     : "Wybierz kandydata z kolejki.";
 
-  // 17.09.2026: weto HM / czarna lista / NDA na „CV wysłane" to ostrzeżenie
-  // serwera — okno „Przenieś mimo to" zamiast toastu błędu.
-  const eligibilityWarning = useEligibilityWarning();
+  // Ruch idzie rdzeniem (`usePipelineMoveCore`): ostrzeżenie „Przenieś mimo
+  // to”, bramka QC CV i konflikt wersji mają te same okna co na Tablicy.
+  const moveCore = usePipelineMoveCore({ jobId });
   const sendMut = useMutation({
-    mutationFn: async (acknowledgeEligibility: boolean) => {
+    mutationFn: async () => {
       if (!selected || !cvSentCol || stageId == null) {
         throw new Error("Brak etapu docelowego.");
       }
@@ -411,17 +405,21 @@ export function CvHandoffWorkbench({
           }
         },
         move: async (rate) => {
-          await pipelineApi.move({
-            candidate_id: selected.item.candidate_id,
-            job_id: jobId,
-            stage: CV_SENT_STAGE,
-            stage_def_id: cvSentCol.stage_def_id ?? undefined,
-            expected_state_version: expectedStateVersionOf(selected.item),
-            acknowledge_eligibility: acknowledgeEligibility ? true : undefined,
-            client_rate_value: rate?.value,
-            client_rate_unit: rate?.unit,
-            client_rate_currency: rate?.currency,
-          });
+          const outcome = await moveCore.send(
+            {
+              candidate_id: selected.item.candidate_id,
+              job_id: jobId,
+              stage: CV_SENT_STAGE,
+              stage_def_id: cvSentCol.stage_def_id ?? undefined,
+              expected_state_version: expectedStateVersionOf(selected.item),
+              client_rate_value: rate?.value,
+              client_rate_unit: rate?.unit,
+              client_rate_currency: rate?.currency,
+            },
+            { candidateName: fullName, rethrowOther: true },
+          );
+          // Odmowa przerywa link i stawkę — komunikat dał już rdzeń.
+          if (!outcome.ok) throw new MoveRefusedError(outcome.refusal);
         },
       });
     },
@@ -435,36 +433,20 @@ export function CvHandoffWorkbench({
       else showSuccess(summary);
       onMoved();
     },
-    onError: (e, acknowledged) => {
+    onError: (e) => {
+      // Odmowa serwera przed zapisem ruchu (ostrzeżenie, QC, konflikt wersji):
+      // link i stawka nie powstały, komunikat pokazał już rdzeń ruchu.
       if (
-        !acknowledged &&
         e instanceof CvHandoffError &&
         e.step === "move" &&
-        eligibilityWarning.intercept(e.reason, () => sendMut.mutate(true))
+        e.reason instanceof MoveRefusedError
       ) {
-        // Ruch nie przeszedł (409 przed zapisem) — link i stawka nie powstały.
+        if (e.reason.refusal.kind === "version_conflict") onMoved();
         return;
       }
       // Ruch idzie pierwszy, więc przy tej porażce nie powstał ani link dla
-      // klienta, ani stawka. Sam ruch: odmowa serwera (4xx) = nic się nie
-      // zmieniło; brak odpowiedzi / 5xx = nie wiadomo (ruch mógł się zapisać),
-      // więc komunikat każe odświeżyć kartę przed ponowieniem.
-      if (
-        e instanceof CvHandoffError &&
-        e.step === "move" &&
-        isPipelineVersionConflict(e.reason)
-      ) {
-        // F05: odmowa ruchu (4xx) — link i stawka nie powstały; bez
-        // ponowienia, kolejka pokaże etap zapisany przez kolegę.
-        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
-        invalidateAfterPipelineVersionConflict(
-          queryClient,
-          jobId,
-          selected?.item.candidate_id,
-        );
-        onMoved();
-        return;
-      }
+      // klienta, ani stawka. Brak odpowiedzi / 5xx = nie wiadomo (ruch mógł
+      // się zapisać), więc komunikat każe odświeżyć kartę przed ponowieniem.
       if (e instanceof CvHandoffError) {
         showError(describeCvHandoffFailure(e, extractErrorMsg(e.reason)));
         return;
@@ -945,7 +927,7 @@ export function CvHandoffWorkbench({
                       disabled={Boolean(moveBlocked) || sendMut.isPending}
                       loading={sendMut.isPending}
                       title={moveBlocked ?? undefined}
-                      onClick={() => sendMut.mutate(false)}
+                      onClick={() => sendMut.mutate()}
                     >
                       <Send className="h-3.5 w-3.5" />
                       {!CV_CLIENT_LINKS_UI_ENABLED
@@ -1000,7 +982,7 @@ export function CvHandoffWorkbench({
           );
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      {eligibilityWarning.dialog}
+      {moveCore.dialogs}
       {/* Link jednorazowy przeżywa ruch: po „CV wysłane” osoba wypada
           z kolejki tego warsztatu, a adres musi zostać na ekranie. */}
       {resultsSection}
