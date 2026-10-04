@@ -15,6 +15,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.dialects import postgresql
 
+from tests._job_factory import complete_job_payload
+
 # ── Bez bazy ─────────────────────────────────────────────────────────────────
 
 
@@ -59,7 +61,13 @@ def test_job_schemas_reject_values_longer_than_the_column(field, limit) -> None:
 
     from app.schemas.job import JobCreate, JobUpdate
 
-    base = {"title": "Java Developer", "client_id": 1}
+    base = {
+        "title": "Java Developer",
+        "client_id": 1,
+        "champion_profile": {},
+        "hiring_manager": {"not_provided": True},
+        "handoff": {"recruiter_id": 1},
+    }
     JobCreate(**{**base, field: "x" * limit})
     JobUpdate(**{field: "x" * limit})
     with pytest.raises(ValidationError):
@@ -225,10 +233,11 @@ async def test_create_job_with_missing_template_or_category_is_422(
     ):
         response = await app_client.post(
             "/api/jobs",
-            json={"title": "R9 refs", "client_id": client_id, **extra},
+            json=await complete_job_payload(client_id, title="R9 refs", **extra),
             headers=app_auth_headers,
         )
         assert response.status_code == 422, (extra, response.text)
+        assert "kategori" in response.text.lower() or "szablon" in response.text.lower()
 
 
 @pytest.mark.asyncio
@@ -242,11 +251,9 @@ async def test_taken_reference_number_is_409_on_create_and_update(
     try:
         created = await app_client.post(
             "/api/jobs",
-            json={
-                "title": "R9 ref",
-                "client_id": client_id,
-                "reference_number": reference,
-            },
+            json=await complete_job_payload(
+                client_id, title="R9 ref", reference_number=reference
+            ),
             headers=app_auth_headers,
         )
         assert created.status_code == 409, created.text

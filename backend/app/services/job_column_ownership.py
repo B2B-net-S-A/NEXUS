@@ -129,6 +129,10 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "working_title_auto",
         "favorite_candidate_id",
         "hiring_manager_contact_id",
+        # 0415: „Klient nie podał” przy hiring managerze i terminie — decyzja
+        # w NEXUSIE; Traffit nie zna żadnej z nich.
+        "hiring_manager_not_provided",
+        "deadline_not_provided",
         # 0403: rola z biblioteki ról — dopasowuje NEXUS, Traffit jej nie zna.
         "role_profile_id",
         "role_profile_source",

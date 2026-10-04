@@ -66,6 +66,13 @@ def _job(**kw) -> SimpleNamespace:
         remote_policy="remote",
         onsite_days_per_week=None,
         location=None,
+        # 0415: decyzje bramki przekazania (rekrutacja bez szkiców).
+        hiring_manager_contact_id=None,
+        hiring_manager_not_provided=True,
+        deadline=None,
+        deadline_not_provided=True,
+        competence_category_id=1,
+        headcount=1,
     )
     base.update(kw)
     return SimpleNamespace(**base)

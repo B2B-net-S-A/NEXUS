@@ -9,11 +9,12 @@
  * mają inne okna pod ręką, ale ten sam wiersz.
  */
 
-import { Check, Clock, X } from "lucide-react";
+import { AlertTriangle, Check, Clock, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
   isBlockingGap,
+  isDealBreakerWarning,
   type MoveRequirementAction,
   type MoveRequirementItem,
 } from "@/lib/api/moveRequirements";
@@ -73,22 +74,57 @@ export function MoveRequirementList({
         const blocking = isBlockingGap(req, askedDuringMove);
         const askedLater = isAskedDuringMove(req, askedDuringMove);
         const showAction = action && req.status !== "ok" && !readOnly && !askedLater && canAct(action);
+        // „Odpada, gdy…” nie blokuje ruchu, ale nie jest zwykłym przypomnieniem:
+        // odpowiedź kandydata wyklucza go z tej rekrutacji.
+        const warning = isDealBreakerWarning(req);
         return (
           <li
             key={req.key}
             data-requirement={req.key}
             data-status={req.status}
-            className={cn("flex items-start gap-2", compact ? "px-2.5 py-1.5 text-xs" : "px-3 py-2 text-sm")}
+            data-tone={warning ? "warning" : undefined}
+            className={cn(
+              "flex items-start gap-2",
+              compact ? "px-2.5 py-1.5 text-xs" : "px-3 py-2 text-sm",
+              warning && "bg-warning-muted",
+            )}
           >
-            <RequirementStatusIcon status={req.status} />
+            {warning ? (
+              <AlertTriangle
+                className="h-4 w-4 shrink-0 text-warning-muted-foreground"
+                aria-label="Ostrzeżenie"
+              />
+            ) : (
+              <RequirementStatusIcon status={req.status} />
+            )}
             <div className="min-w-0 flex-1">
-              <p className={cn("font-medium", blocking ? "text-foreground" : "text-foreground/90")}>
+              <p
+                className={cn(
+                  "font-medium",
+                  warning
+                    ? "text-warning-muted-foreground"
+                    : blocking
+                      ? "text-foreground"
+                      : "text-foreground/90",
+                )}
+              >
                 {req.label}
                 {!req.blocking && req.status !== "ok" && (
-                  <span className="ml-1 text-xs font-normal text-muted-foreground">(nie blokuje)</span>
+                  <span
+                    className={cn(
+                      "ml-1 text-xs font-normal",
+                      warning ? "text-warning-muted-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    (nie blokuje)
+                  </span>
                 )}
               </p>
-              {req.detail && <p className="text-xs text-muted-foreground">{req.detail}</p>}
+              {req.detail && (
+                <p className={cn("text-xs", warning ? "text-warning-muted-foreground" : "text-muted-foreground")}>
+                  {req.detail}
+                </p>
+              )}
               {askedLater && (
                 <p className="text-xs text-muted-foreground">Zapytamy o nią przy przesunięciu.</p>
               )}

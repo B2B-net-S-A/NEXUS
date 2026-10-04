@@ -1,12 +1,13 @@
 /**
  * Strona `/jobs/new`: klient i źródło → odczyt AI → przegląd w sześciu
- * sekcjach → „Utwórz i przekaż do searchu”. Zapis idzie ZWYKŁYMI trasami
- * w stałej kolejności (rekrutacja → Champion → handoff → publikacja); awaria
- * po utworzeniu nie gubi pracy.
+ * sekcjach → „Utwórz i opublikuj”. Od 04.10.2026 jedno `POST /api/jobs`
+ * niesie całość (profil, hiring manager, przekazanie, podobne, kategoria);
+ * odmowa serwera to lista braków, a praca w toku żyje na koncie jako formularz.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  cleanup,
   configure,
   fireEvent,
   render,
@@ -26,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
   put: vi.fn(),
+  del: vi.fn(),
   handoff: vi.fn(),
   refreshClientHistory: vi.fn(),
   push: vi.fn(),
@@ -44,6 +46,7 @@ vi.mock("@/lib/api", () => {
     get: (...a: unknown[]) => mocks.get(...a),
     post: (...a: unknown[]) => mocks.post(...a),
     put: (...a: unknown[]) => mocks.put(...a),
+    delete: (...a: unknown[]) => mocks.del(...a),
   };
   return {
     default: client,
@@ -115,6 +118,14 @@ const INTAKE: RequestIntakeResponse = {
   descriptive_requirements: ["Doświadczenie w bankowości"],
   evidence: ["Java 17+"],
   missing: [],
+  // Hiring manager i termin to od 04.10.2026 wymagana decyzja — odczyt ma oba.
+  hiring_manager_name: "Anna Nowak",
+  hiring_manager_contact_id: 501,
+  hiring_manager_contact_name: "Anna Nowak",
+  deadline: "2026-10-20",
+  deadline_time: null,
+  headcount: 2,
+  provenance: { deadline: "request", headcount: "request" },
 };
 
 /** Odczyt starszego serwera: must, nice, wiersze wyszukiwania, pytania bez deal breakera. */
@@ -177,6 +188,8 @@ function serve({
         });
       case "/api/jobs":
         return Promise.resolve({ data: { id: 900 } });
+      case "/api/job-intake/forms":
+        return Promise.resolve({ data: { id: 55, updated_at: "2026-10-04T10:42:00Z" } });
       case "/api/job-similarity/preview":
         return Promise.resolve({ data: { suggestions } });
       case "/api/jobs/900/similar":
@@ -219,7 +232,7 @@ const bodiesOf = (url: string) =>
 const jobPostBody = () => bodiesOf("/api/jobs")[0] as Record<string, unknown> | undefined;
 
 const championBody = () =>
-  mocks.put.mock.calls.find(([url]) => url === "/api/jobs/900/champion-profile")?.[1] as
+  jobPostBody()?.champion_profile as
     | {
         stack: { rows: { words: string[]; level: string }[]; critical: unknown; notes?: string };
         search: Record<string, unknown>;
@@ -227,10 +240,6 @@ const championBody = () =>
         project: Record<string, string>;
       }
     | undefined;
-
-/** Numer kolejny pierwszego wywołania — atrapy mają wspólny licznik. */
-const callOrder = (mock: typeof mocks.post, match: (url: unknown) => boolean) =>
-  mock.mock.invocationCallOrder[mock.mock.calls.findIndex(([url]) => match(url))];
 
 const SIMILAR = [
   {
@@ -287,8 +296,7 @@ async function categorySettled(role: string | null = INTAKE.role_name) {
   await screen.findByRole("radiogroup", { name: "Kategoria kompetencji" });
 }
 
-const handoffButton = () =>
-  screen.getByRole("button", { name: "Utwórz i przekaż do searchu" });
+const handoffButton = () => screen.getByRole("button", { name: "Utwórz i opublikuj" });
 
 async function confirmCategory(name = "Development") {
   fireEvent.click(await screen.findByRole("button", { name: `Potwierdzam: ${name}` }));
@@ -312,9 +320,40 @@ async function handoffTo(target = "/jobs/900") {
   await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(target));
 }
 
-async function saveDraft() {
-  fireEvent.click(screen.getByRole("button", { name: "Zapisz szkic" }));
-  await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900?tab=champion"));
+const footerLink = (name: string) => screen.queryByRole("link", { name });
+
+/**
+ * Utworzenie z domknięciem braków, których dany test nie sprawdza: decyzje
+ * „Klient nie podał”, zatwierdzenie pytań, potwierdzenie kategorii, rekruter.
+ */
+async function createJob() {
+  if (footerLink("hiring manager (albo „Klient nie podał”)")) {
+    fireEvent.click(
+      within(screen.getByTestId("new-job-hiring-manager")).getByRole("checkbox", {
+        name: "Klient nie podał",
+      }),
+    );
+  }
+  if (footerLink("termin (albo „Klient nie podał”)")) {
+    fireEvent.click(
+      within(screen.getByTestId("new-job-deadline")).getByRole("checkbox", {
+        name: "Klient nie podał",
+      }),
+    );
+  }
+  const approve = screen.queryByRole("button", { name: "Zatwierdź wszystkie" });
+  if (approve && !(approve as HTMLButtonElement).disabled) fireEvent.click(approve);
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: /^Potwierdzam:/ }) ??
+        screen.queryByText(/Kategoria potwierdzona/),
+    ).not.toBeNull(),
+  );
+  const confirm = screen.queryByRole("button", { name: /^Potwierdzam:/ });
+  if (confirm) fireEvent.click(confirm);
+  if (screen.queryByLabelText("Wybierz rekrutera prowadzącego")) await pickRecruiter();
+  await waitFor(() => expect(handoffButton()).toBeEnabled());
+  await handoffTo();
 }
 
 function serveGets(extra: (url: string) => unknown = () => undefined) {
@@ -389,7 +428,7 @@ describe("NewJobPage — krok 1: klient i źródło", () => {
     expect(postsTo("/api/job-intake/read")).toHaveLength(0);
     expect(postsTo("/api/job-intake/read-file")).toHaveLength(0);
     // Wszystko poza biurem (tryb nieznany) jest do uzupełnienia.
-    expect(screen.getByText("Brakuje 7 rzeczy do searchu")).toBeInTheDocument();
+    expect(screen.getByText("Brakuje 9 rzeczy do publikacji")).toBeInTheDocument();
   });
 
   it("„Wgraj plik” wysyła plik do odczytu razem z klientem", async () => {
@@ -546,7 +585,7 @@ describe("NewJobPage", () => {
     ]);
   });
 
-  it("przekazanie do searchu wymaga rekrutera, potem zapisuje w stałej kolejności", async () => {
+  it("utworzenie wymaga rekrutera, a potem idzie JEDNYM POST /api/jobs z całością", async () => {
     await readRequest();
     await closeGaps();
     expect(handoffButton()).toBeDisabled();
@@ -565,13 +604,21 @@ describe("NewJobPage", () => {
       competence_category_id: 2,
       must_skills: ["Java", "Spring Boot"],
       nice_skills: ["Kubernetes"],
+      priority: "medium",
+      hiring_manager: { contact_id: 501 },
+      deadline: "2026-10-20",
+      deadline_time: null,
+      deadline_not_provided: false,
+      headcount: 2,
+      handoff: { recruiter_id: 31, channel: "linkedin" },
+      similar_job_ids: [],
+      cc_override: null,
     });
-    expect(mocks.put).toHaveBeenCalledWith(
-      "/api/jobs/900/champion-profile",
-      expect.objectContaining({
-        project: { about: "Migracja płatności.", responsibilities: "" },
-      }),
-    );
+    // Bez statusu: rekrutacja nigdy nie jest szkicem.
+    expect(jobPostBody()).not.toHaveProperty("status");
+    expect(championBody()).toMatchObject({
+      project: { about: "Migracja płatności.", responsibilities: "" },
+    });
     // Wymagania jadą wierszami; starych pól (frazy, wiersze wyszukiwania) nie ma.
     expect(championBody()?.stack).toEqual({
       rows: [
@@ -591,16 +638,17 @@ describe("NewJobPage", () => {
       { id: "q1", question: "Kafka?", ideal_answer: "", deal_breaker: "Nie zna Kafki." },
       { id: "q2", question: "Biuro?", ideal_answer: "", deal_breaker: "Tylko zdalnie." },
     ]);
-    expect(mocks.handoff).toHaveBeenCalledWith(900, 31, undefined, "linkedin");
-    expect(mocks.post).toHaveBeenCalledWith("/api/jobs/900/publish");
-    const steps = [
-      callOrder(mocks.post, (url) => url === "/api/jobs"),
-      callOrder(mocks.put, (url) => url === "/api/jobs/900/champion-profile"),
-      mocks.handoff.mock.invocationCallOrder[0],
-      callOrder(mocks.post, (url) => url === "/api/jobs/900/publish"),
-    ];
-    expect([...steps].sort((a, b) => a - b)).toEqual(steps);
-    expect(mocks.showSuccess).toHaveBeenCalled();
+    // Żadnych osobnych tras po utworzeniu — wszystko w jednej transakcji.
+    expect(postsTo("/api/jobs")).toHaveLength(1);
+    expect(mocks.put).not.toHaveBeenCalled();
+    expect(mocks.handoff).not.toHaveBeenCalled();
+    const urls = mocks.post.mock.calls.map(([url]) => String(url));
+    for (const tail of ["/handoff", "/publish", "/cc-override", "/similar"]) {
+      expect(urls.some((url) => url.startsWith("/api/jobs/900") && url.endsWith(tail))).toBe(
+        false,
+      );
+    }
+    expect(mocks.showSuccess).toHaveBeenCalledWith("Rekrutacja utworzona i opublikowana.");
     // Podsumowanie historii klienta rusza w tle — bez czekania na wynik.
     expect(mocks.refreshClientHistory).toHaveBeenCalledWith(900);
     // Uczestników (cała kategoria) dopisuje serwer — strona nikogo nie zapisuje.
@@ -623,7 +671,7 @@ describe("NewJobPage", () => {
       );
       expect(screen.queryByLabelText("Numer u klienta")).toBeNull();
 
-      await saveDraft();
+      await createJob();
       expect(jobPostBody()).toMatchObject({
         title: "Programista Java (ZOB 48213)",
         client_reference: "ZOB 48213",
@@ -639,7 +687,7 @@ describe("NewJobPage", () => {
       // Puste pole jedzie jako pusty napis: bez pola w żądaniu serwer wziąłby
       // numer z nazwy i „bez numeru” nie dałoby się zapisać.
       fireEvent.change(input, { target: { value: "" } });
-      await saveDraft();
+      await createJob();
       expect(jobPostBody()).toMatchObject({ client_reference: "" });
     });
 
@@ -652,7 +700,7 @@ describe("NewJobPage", () => {
       fireEvent.change(screen.getByLabelText("Numer u klienta"), {
         target: { value: "REQ-9" },
       });
-      await saveDraft();
+      await createJob();
       expect(jobPostBody()).toMatchObject({ client_reference: "REQ-9" });
     });
 
@@ -667,13 +715,13 @@ describe("NewJobPage", () => {
       expect(input).toHaveValue("Senior Java Developer · Java, Spring Boot");
       fireEvent.change(input, { target: { value: "Java do płatności" } });
 
-      await saveDraft();
+      await createJob();
       expect(jobPostBody()).toMatchObject({ working_title: "Java do płatności" });
     });
 
     it("bez ręcznej zmiany tytuł dla zespołu nie jedzie — składa go serwer", async () => {
       await readRequest();
-      await saveDraft();
+      await createJob();
       expect(jobPostBody()).not.toHaveProperty("working_title");
     });
   });
@@ -701,10 +749,10 @@ describe("NewJobPage", () => {
     it("brak decyzji blokuje przekazanie; „Brak krytycznych” jedzie jako pusta lista", async () => {
       await readWithTechnologies();
       expect(handoffButton()).toBeDisabled();
-      expect(screen.getByText("Brakuje 1 rzeczy do searchu")).toBeInTheDocument();
+      expect(screen.getByText("Brakuje 1 rzeczy do publikacji")).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("checkbox", { name: "Brak krytycznych" }));
-      expect(screen.getByText("Gotowa do searchu")).toBeInTheDocument();
+      expect(screen.getByText("Gotowa do publikacji")).toBeInTheDocument();
       await handoffTo();
       expect(championBody()?.stack.critical).toEqual([]);
       expect(championBody()?.stack.rows.map((row) => row.level)).toEqual([
@@ -732,7 +780,7 @@ describe("NewJobPage", () => {
       await waitFor(() =>
         expect(postsTo("/api/job-intake/critical-suggestion")).not.toHaveLength(0),
       );
-      expect(await screen.findByText("Gotowa do searchu")).toBeInTheDocument();
+      expect(await screen.findByText("Gotowa do publikacji")).toBeInTheDocument();
       expect(handoffButton()).toBeEnabled();
     });
   });
@@ -800,7 +848,7 @@ describe("NewJobPage", () => {
         "radio",
         { name },
       );
-    const overrides = () => postsTo("/api/jobs/900/cc-override");
+    const override = () => jobPostBody()?.cc_override;
 
     it("podpowiedź liczy serwer z roli, opisu i wymagań", async () => {
       await readRequest();
@@ -845,10 +893,10 @@ describe("NewJobPage", () => {
       await handoffTo();
       expect(jobPostBody()).toMatchObject({ competence_category_id: 2 });
       // Kategoria zgodna z podpowiedzią — nie ma czego zgłaszać regułom klasyfikacji.
-      expect(overrides()).toHaveLength(0);
+      expect(override()).toBeNull();
     });
 
-    it("inna kategoria niż podpowiedź: wybór ją potwierdza i zgłasza różnicę po utworzeniu", async () => {
+    it("inna kategoria niż podpowiedź: wybór ją potwierdza i zgłasza różnicę w tym samym żądaniu", async () => {
       await readRequest();
       await categorySettled();
       fireEvent.click(screen.getByRole("button", { name: "Zatwierdź wszystkie" }));
@@ -862,9 +910,7 @@ describe("NewJobPage", () => {
 
       await handoffTo();
       expect(jobPostBody()).toMatchObject({ competence_category_id: 4 });
-      expect(overrides()).toEqual([
-        ["/api/jobs/900/cc-override", { suggested_cc_id: 2, final_cc_id: 4 }],
-      ]);
+      expect(override()).toEqual({ suggested_cc_id: 2, suggested_score: null });
     });
 
     it("system bez podpowiedzi: kategorię wybiera Delivery Lead, różnicy nie ma z czym porównać", async () => {
@@ -880,15 +926,19 @@ describe("NewJobPage", () => {
       fireEvent.click(categoryOption(/^Infra/));
       await handoffTo();
       expect(jobPostBody()).toMatchObject({ competence_category_id: 1 });
-      expect(overrides()).toHaveLength(0);
+      expect(override()).toBeNull();
     });
 
-    it("szkic bez potwierdzenia zapisuje podpowiedzianą kategorię", async () => {
+    it("niedokończony formularz pamięta podpowiedzianą kategorię bez potwierdzenia", async () => {
       await readRequest();
       await screen.findByRole("button", { name: "Potwierdzam: Development" });
-      await saveDraft();
-      expect(jobPostBody()).toMatchObject({ competence_category_id: 2 });
-      expect(overrides()).toHaveLength(0);
+      fireEvent.click(screen.getByRole("button", { name: "Dokończę później" }));
+      await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs"));
+      const saved = bodiesOf("/api/job-intake/forms").at(-1) as unknown as {
+        form: { form: { competenceCategoryId: number; categoryConfirmed: boolean } };
+      };
+      expect(saved.form.form).toMatchObject({ competenceCategoryId: 2, categoryConfirmed: false });
+      expect(postsTo("/api/jobs")).toHaveLength(0);
     });
 
     it("awaria listy kategorii → komunikat z „Ponów”", async () => {
@@ -949,7 +999,7 @@ describe("NewJobPage", () => {
       expect(handoffButton()).toBeDisabled();
       expect(handoffButton()).toHaveAttribute(
         "title",
-        "Wybierz rekrutera prowadzącego, żeby przekazać do searchu",
+        "Wybierz rekrutera prowadzącego, żeby opublikować rekrutację",
       );
     });
 
@@ -982,14 +1032,12 @@ describe("NewJobPage", () => {
       expect(handoffButton()).toBeEnabled();
       await handoffTo();
 
-      expect(mocks.post).toHaveBeenCalledWith("/api/jobs/900/handoff", {
-        assignment_mode: "automatic",
-        channel: "linkedin",
+      expect(jobPostBody()).toMatchObject({
+        handoff: { assignment_mode: "automatic", channel: "linkedin" },
       });
       expect(mocks.handoff).not.toHaveBeenCalled();
-      expect(mocks.post).toHaveBeenCalledWith("/api/jobs/900/publish");
       expect(mocks.showSuccess).toHaveBeenCalledWith(
-        "Rekrutacja utworzona i przekazana do searchu. Rekrutera zaproponuje automat, a zatwierdzi Head of Recruitment.",
+        "Rekrutacja utworzona i opublikowana. Rekrutera zaproponuje automat, a zatwierdzi Head of Recruitment.",
       );
     });
 
@@ -1012,7 +1060,7 @@ describe("NewJobPage", () => {
 
       await handoffTo();
       expect(mocks.showSuccess).toHaveBeenCalledWith(
-        "Rekrutacja utworzona i przekazana do searchu. Rekrutera prowadzącego przydzieli automat — zwykle w ciągu minuty.",
+        "Rekrutacja utworzona i opublikowana. Rekrutera prowadzącego przydzieli automat — zwykle w ciągu minuty.",
       );
     });
 
@@ -1038,10 +1086,9 @@ describe("NewJobPage", () => {
       await pickRecruiter();
       await handoffTo();
 
-      expect(mocks.handoff).toHaveBeenCalledWith(900, 31, undefined, "linkedin");
-      expect(
-        mocks.post.mock.calls.some(([url]) => url === "/api/jobs/900/handoff"),
-      ).toBe(false);
+      expect(jobPostBody()).toMatchObject({
+        handoff: { recruiter_id: 31, channel: "linkedin" },
+      });
     });
 
     it("priorytet „Przyjmujemy kandydatów” przy automacie: mówi wprost, że nikt nie zostanie zaproponowany", async () => {
@@ -1067,17 +1114,17 @@ describe("NewJobPage", () => {
       await handoffTo();
       expect(jobPostBody()).toMatchObject({ priority: "low" });
       expect(mocks.showSuccess).toHaveBeenCalledWith(
-        "Rekrutacja utworzona i przekazana do searchu. Rekrutacja zostaje bez rekrutera — przy priorytecie „Przyjmujemy kandydatów” automat nikogo nie proponuje.",
+        "Rekrutacja utworzona i opublikowana. Rekrutacja zostaje bez rekrutera — przy priorytecie „Przyjmujemy kandydatów” automat nikogo nie proponuje.",
       );
     });
 
-    it("odmowa automatycznego handoffu: rekrutacja zostaje, przejście do Championa", async () => {
+    it("odmowa serwera bez listy braków: zdanie przy przycisku, nic nie powstaje", async () => {
       allocationOptions(true, "auto");
       await readRequest();
       await closeGaps();
       const fallback = mocks.post.getMockImplementation()!;
       mocks.post.mockImplementation((url: string, ...rest: unknown[]) =>
-        url === "/api/jobs/900/handoff"
+        url === "/api/jobs"
           ? Promise.reject({
               response: {
                 status: 409,
@@ -1088,11 +1135,14 @@ describe("NewJobPage", () => {
       );
       const group = await recruiterGroup();
       await waitFor(() => expect(automatOption(group, "Przydzieli automat")).toBeChecked());
-      await handoffTo("/jobs/900?tab=champion");
-      expect(mocks.showError).toHaveBeenCalledWith(
-        "Rekrutacja zapisana jako szkic — nie przekazano do searchu: Automat przydziału jest wyłączony — wybierz rekrutera ręcznie.",
-      );
-      expect(mocks.post).not.toHaveBeenCalledWith("/api/jobs/900/publish");
+      fireEvent.click(handoffButton());
+      expect(
+        await screen.findByText(
+          "Automat przydziału jest wyłączony — wybierz rekrutera ręcznie.",
+        ),
+      ).toBeInTheDocument();
+      expect(mocks.push).not.toHaveBeenCalled();
+      expect(mocks.showSuccess).not.toHaveBeenCalled();
     });
   });
 
@@ -1122,12 +1172,12 @@ describe("NewJobPage", () => {
       expect(jobPostBody()).toMatchObject({ priority: "medium" });
     });
 
-    it("P1 idzie jako „urgent” — także przy zapisie szkicu", async () => {
+    it("P1 idzie jako „urgent”", async () => {
       await readRequest();
       fireEvent.click(priorityOption("P1 Pilne"));
       expect(priorityOption("P1 Pilne")).toBeChecked();
 
-      await saveDraft();
+      await createJob();
       expect(jobPostBody()).toMatchObject({ priority: "urgent" });
     });
 
@@ -1172,30 +1222,59 @@ describe("NewJobPage", () => {
     await pickRecruiter();
     await handoffTo();
     expect(mocks.showSuccess).toHaveBeenCalledWith(
-      "Rekrutacja utworzona i przekazana do searchu.",
+      "Rekrutacja utworzona i opublikowana.",
     );
   });
 
-  it("nieudana publikacja — błąd bez toastu sukcesu (REC-04)", async () => {
+  it("422 `job_not_ready`: lista braków w stopce z linkami do sekcji, formularz zostaje zapisany", async () => {
     await readRequest();
     const fallback = mocks.post.getMockImplementation()!;
     mocks.post.mockImplementation((url: string, ...rest: unknown[]) =>
-      url === "/api/jobs/900/publish"
-        ? Promise.reject({ response: { status: 409, data: { detail: "nie" } } })
+      url === "/api/jobs"
+        ? Promise.reject({
+            response: {
+              status: 422,
+              data: {
+                detail: {
+                  code: "job_not_ready",
+                  message: "Rekrutacja nie jest gotowa.",
+                  blockers: [
+                    {
+                      code: "office_city",
+                      message: "Podaj miasto biura w lokalizacji oferty (tryb hybrydowy/stacjonarny).",
+                    },
+                    { code: "champion:rate_unresolved", message: "Stawka w profilu nie jest kwotą." },
+                  ],
+                },
+              },
+            },
+          })
         : fallback(url, ...rest),
     );
     await closeGaps();
     await pickRecruiter();
-    await handoffTo();
-    expect(mocks.showError).toHaveBeenCalledWith(
-      expect.stringContaining("nie opublikowana"),
+    fireEvent.click(handoffButton());
+
+    const alert = await screen.findByTestId("new-job-server-blockers");
+    expect(alert).toHaveTextContent("Rekrutacja nie powstała. Uzupełnij 2 rzeczy:");
+    expect(
+      within(alert).getByRole("link", {
+        name: "Podaj miasto biura w lokalizacji oferty (tryb hybrydowy/stacjonarny).",
+      }),
+    ).toHaveAttribute("href", "#new-job-section-terms");
+    // Kod spoza formularza trafia na listę bez linku.
+    expect(within(alert).queryByRole("link", { name: "Stawka w profilu nie jest kwotą." })).toBeNull();
+    expect(within(alert).getByText("Stawka w profilu nie jest kwotą.")).toBeInTheDocument();
+    // Nic nie powstało — formularz trafia na konto autora.
+    await waitFor(() =>
+      expect(alert).toHaveTextContent("Formularz jest zapisany, nic nie przepadło."),
     );
-    expect(mocks.showSuccess).not.toHaveBeenCalledWith(
-      "Rekrutacja utworzona i przekazana do searchu.",
-    );
+    expect(postsTo("/api/job-intake/forms")).not.toHaveLength(0);
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.showSuccess).not.toHaveBeenCalled();
   });
 
-  it("braki w requeście blokują przekazanie, a szkic da się zapisać", async () => {
+  it("braki w requeście blokują publikację, a formularz da się odłożyć na później", async () => {
     await readRequest({
       ...INTAKE,
       rate_budget_hourly: null,
@@ -1203,11 +1282,11 @@ describe("NewJobPage", () => {
     });
     // Po odczycie: budżet + zatwierdzenie pytań + potwierdzenie kategorii.
     expect(
-      await screen.findByText("Brakuje 3 rzeczy do searchu"),
+      await screen.findByText("Brakuje 3 rzeczy do publikacji"),
     ).toBeInTheDocument();
     await closeGaps();
     await pickRecruiter();
-    expect(screen.getByText("Brakuje 1 rzeczy do searchu")).toBeInTheDocument();
+    expect(screen.getByText("Brakuje 1 rzeczy do publikacji")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "budżet PLN/h" })).toHaveAttribute(
       "href",
       "#new-job-section-terms",
@@ -1215,21 +1294,60 @@ describe("NewJobPage", () => {
     expect(handoffButton()).toBeDisabled();
     expect(handoffButton()).toHaveAttribute(
       "title",
-      "Uzupełnij braki, żeby przekazać do searchu",
+      "Uzupełnij braki, żeby opublikować rekrutację",
     );
+    // „Zapisz szkic” zniknął — rekrutacja nie powstaje niekompletna.
+    expect(screen.queryByRole("button", { name: "Zapisz szkic" })).toBeNull();
 
-    await saveDraft();
-    expect(mocks.handoff).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Dokończę później" }));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs"));
+    const saved = bodiesOf("/api/job-intake/forms").at(-1) as unknown as {
+      label: string;
+      client_id: number;
+      source: string;
+      request_text: string;
+      form: { step: string; missing: string[] };
+    };
+    expect(saved).toMatchObject({
+      label: "Senior Java Developer",
+      client_id: 7,
+      source: "text",
+      request_text: REQUEST,
+    });
+    expect(saved.form).toMatchObject({ step: "review", missing: ["budget"] });
+    expect(postsTo("/api/jobs")).toHaveLength(0);
   });
 
-  it("nieudany zapis Championa nie gubi rekrutacji — prowadzi do jej profilu", async () => {
-    mocks.put.mockRejectedValueOnce({
-      response: { status: 500, data: { detail: "boom" } },
-    });
+  it("formularz zapisuje się sam po chwili ciszy, a stopka mówi kiedy", async () => {
     await readRequest();
-    await saveDraft();
-    expect(mocks.showError).toHaveBeenCalledWith(
-      expect.stringContaining("Rekrutacja zapisana"),
+    await waitFor(() => expect(postsTo("/api/job-intake/forms")).toHaveLength(1));
+    expect(await screen.findByTestId("new-job-autosave")).toHaveTextContent(
+      /^Formularz zapisany \d{2}:\d{2}$/,
+    );
+    // Kolejna zmiana idzie PUT-em na ten sam formularz.
+    fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "Java Developer" } });
+    await waitFor(() =>
+      expect(mocks.put).toHaveBeenCalledWith(
+        "/api/job-intake/forms/55",
+        expect.objectContaining({ label: "Java Developer" }),
+      ),
+    );
+    // Utworzenie podaje id formularza — serwer kasuje go w tej samej transakcji.
+    await createJob();
+    expect(jobPostBody()).toMatchObject({ intake_form_id: 55 });
+  });
+
+  it("zmiana sprzed końca odliczania autozapisu zapisuje się przy wyjściu ze strony", async () => {
+    await readRequest();
+    await waitFor(() => expect(postsTo("/api/job-intake/forms")).toHaveLength(1));
+    fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "Kotlin Developer" } });
+    // Wyjście przed upływem 3 s — bez zapisu przy odmontowaniu zmiana by przepadła.
+    cleanup();
+    await waitFor(() =>
+      expect(mocks.put).toHaveBeenCalledWith(
+        "/api/job-intake/forms/55",
+        expect.objectContaining({ label: "Kotlin Developer" }),
+      ),
     );
   });
 
@@ -1241,10 +1359,9 @@ describe("NewJobPage", () => {
   });
 
   describe("podobne rekrutacje (test na produkcji 23.09.2026)", () => {
-    const similarPosts = () =>
-      mocks.post.mock.calls.filter(([url]) => url === "/api/jobs/900/similar");
+    const similarIds = () => jobPostBody()?.similar_job_ids;
 
-    it("podpowiedzi z osobami u klienta NIE są zaznaczone i szkic ich nie łączy", async () => {
+    it("podpowiedzi z osobami u klienta NIE są zaznaczone i utworzenie ich nie łączy", async () => {
       await readRequest(INTAKE, { suggestions: SIMILAR });
       const first = await screen.findByRole(
         "checkbox",
@@ -1269,8 +1386,8 @@ describe("NewJobPage", () => {
         client_id: 7,
       });
 
-      await saveDraft();
-      expect(similarPosts()).toHaveLength(0);
+      await createJob();
+      expect(similarIds()).toEqual([]);
     });
 
     it("łączy WYŁĄCZNIE rekrutacje zaznaczone ręcznie", async () => {
@@ -1286,10 +1403,8 @@ describe("NewJobPage", () => {
         "Zaznaczone: 1 z 2",
       );
 
-      await saveDraft();
-      expect(similarPosts()).toEqual([
-        ["/api/jobs/900/similar", { job_ids: [4556] }],
-      ]);
+      await createJob();
+      expect(similarIds()).toEqual([4556]);
     });
 
     it("odznaczenie cofa wybór — zapis znowu niczego nie łączy", async () => {
@@ -1302,8 +1417,8 @@ describe("NewJobPage", () => {
       fireEvent.click(first);
       fireEvent.click(first);
       expect(first).toHaveAttribute("aria-checked", "false");
-      await saveDraft();
-      expect(similarPosts()).toHaveLength(0);
+      await createJob();
+      expect(similarIds()).toEqual([]);
     });
   });
 });
@@ -1407,7 +1522,7 @@ describe("NewJobPage — szablon z podobnej rekrutacji (`?from=`)", () => {
     expect(screen.getByText("Zatwierdzone 0 z 2")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "Java Developer" } });
-    await saveDraft();
+    await createJob();
     expect(jobPostBody()).toMatchObject({
       title: "Java Developer",
       client_id: 7,
@@ -1506,7 +1621,7 @@ describe("NewJobPage — ogłoszenie na portalach", () => {
     expect(await screen.findByText("Ogłoszenie na portalach")).toBeInTheDocument();
     // Tylko gotowe portale.
     expect(screen.queryByRole("checkbox", { name: "JustJoin.IT" })).toBeNull();
-    const create = screen.getByRole("button", { name: "Utwórz i przekaż do searchu" });
+    const create = screen.getByRole("button", { name: "Utwórz i opublikuj" });
     expect(create).toBeEnabled();
     fireEvent.click(screen.getByRole("checkbox", { name: "RocketJobs" }));
     expect(create).toBeDisabled();
@@ -1536,12 +1651,12 @@ describe("NewJobPage — ogłoszenie na portalach", () => {
     fireEvent.click(screen.getByRole("button", { name: "Przygotuj ogłoszenie" }));
     fireEvent.change(await screen.findByLabelText("Kategoria"), { target: { value: "java" } });
     fireEvent.change(screen.getByLabelText("Poziom doświadczenia"), { target: { value: "senior" } });
-    fireEvent.click(screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }));
+    fireEvent.click(screen.getByRole("button", { name: "Utwórz i opublikuj" }));
 
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900"));
     const urls = mocks.post.mock.calls.map(([url]) => url);
     const order = [
-      "/api/jobs/900/publish",
+      "/api/jobs",
       "/api/jobs/900/public-profile/approve",
       "/api/invite-links",
       "/api/jobs/900/portals/rocketjobs/publish",
@@ -1570,7 +1685,7 @@ describe("NewJobPage — ogłoszenie na portalach", () => {
     fireEvent.click(screen.getByRole("button", { name: "Przygotuj ogłoszenie" }));
     fireEvent.change(await screen.findByLabelText("Kategoria"), { target: { value: "java" } });
     fireEvent.change(screen.getByLabelText("Poziom doświadczenia"), { target: { value: "senior" } });
-    fireEvent.click(screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }));
+    fireEvent.click(screen.getByRole("button", { name: "Utwórz i opublikuj" }));
 
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900?tab=portals"));
     expect(mocks.showError).toHaveBeenCalledWith(expect.stringContaining("Konto portalu niepołączone."));
@@ -1594,40 +1709,163 @@ describe("NewJobPage — hiring manager z maila", () => {
     await handoffTo();
   }
 
-  it("podpowiada osobę z podpisu i zapisuje ją po utworzeniu, przed Championem", async () => {
+  it("podpowiada osobę z podpisu i wysyła ją razem z rekrutacją", async () => {
     await readRequest(WITH_HM);
     expect(screen.getByRole("combobox", { name: "Hiring manager" })).toHaveTextContent(
       "Anna Nowak",
     );
     await handoff();
-    const putUrls = mocks.put.mock.calls.map(([url]) => url);
-    expect(putUrls.indexOf("/api/jobs/900/hiring-manager")).toBeLessThan(
-      putUrls.indexOf("/api/jobs/900/champion-profile"),
-    );
-    expect(mocks.put).toHaveBeenCalledWith("/api/jobs/900/hiring-manager", {
-      new_person: { name: "Anna Nowak", position: "Kierownik Zespołu", email: null },
+    expect(jobPostBody()).toMatchObject({
+      hiring_manager: {
+        new_person: { name: "Anna Nowak", position: "Kierownik Zespołu", email: null },
+      },
     });
-  });
-
-  it("awaria zapisu hiring managera nie zatrzymuje utworzenia rekrutacji", async () => {
-    mocks.put.mockImplementation((url: string) =>
-      url === "/api/jobs/900/hiring-manager"
-        ? Promise.reject({ response: { status: 422, data: { detail: "zły" } } })
-        : Promise.resolve({ data: {} }),
-    );
-    await readRequest(WITH_HM);
-    await handoff();
-    expect(mocks.showError).toHaveBeenCalledWith(
-      expect.stringContaining("Rekrutacja zapisana, ale hiring manager nie"),
-    );
-    expect(mocks.handoff).toHaveBeenCalled();
-  });
-
-  it("bez hiring managera nie woła trasy", async () => {
-    await readRequest();
-    await handoff();
     expect(
       mocks.put.mock.calls.some(([url]) => url === "/api/jobs/900/hiring-manager"),
     ).toBe(false);
+  });
+
+  it("bez hiring managera trzeba zdecydować: osoba albo „Klient nie podał”", async () => {
+    await readRequest({ ...INTAKE, hiring_manager_name: null, hiring_manager_contact_id: null });
+    expect(
+      screen.getByRole("link", { name: "hiring manager (albo „Klient nie podał”)" }),
+    ).toHaveAttribute("href", "#new-job-section-name");
+    await closeGaps();
+    await pickRecruiter();
+    expect(handoffButton()).toBeDisabled();
+
+    fireEvent.click(
+      within(screen.getByTestId("new-job-hiring-manager")).getByRole("checkbox", {
+        name: "Klient nie podał",
+      }),
+    );
+    await waitFor(() => expect(handoffButton()).toBeEnabled());
+    await handoffTo();
+    expect(jobPostBody()).toMatchObject({ hiring_manager: { not_provided: true } });
+  });
+});
+
+describe("NewJobPage — termin i liczba osób", () => {
+  it("termin i liczba osób z maila mają chip źródła i jadą w POST", async () => {
+    await readRequest({ ...INTAKE, deadline_time: "16:00" });
+    const deadline = screen.getByTestId("new-job-deadline");
+    expect(within(deadline).getByLabelText("Termin")).toHaveValue("2026-10-20");
+    expect(within(deadline).getByLabelText("Godzina terminu (opcjonalnie)")).toHaveValue("16:00");
+    expect(within(deadline).getByText("z maila")).toBeInTheDocument();
+    expect(screen.getByLabelText("Liczba osób")).toHaveValue(2);
+    expect(
+      screen.getByText(
+        "Rekruter widzi go przy kandydatach jako plakietkę „ponad budżet”. Nikogo nie ukrywa.",
+      ),
+    ).toBeInTheDocument();
+    await createJob();
+    expect(jobPostBody()).toMatchObject({
+      deadline: "2026-10-20",
+      deadline_time: "16:00",
+      deadline_not_provided: false,
+      headcount: 2,
+    });
+  });
+
+  it("bez terminu w mailu: „Klient nie podał” zamiast daty", async () => {
+    await readRequest({ ...INTAKE, deadline: null, headcount: null });
+    expect(
+      screen.getByRole("link", { name: "termin (albo „Klient nie podał”)" }),
+    ).toHaveAttribute("href", "#new-job-section-terms");
+    // Liczba osób bez maila zaczyna od 1.
+    expect(screen.getByLabelText("Liczba osób")).toHaveValue(1);
+
+    fireEvent.click(
+      within(screen.getByTestId("new-job-deadline")).getByRole("checkbox", {
+        name: "Klient nie podał",
+      }),
+    );
+    expect(screen.queryByRole("link", { name: "termin (albo „Klient nie podał”)" })).toBeNull();
+    await createJob();
+    expect(jobPostBody()).toMatchObject({
+      deadline: null,
+      deadline_time: null,
+      deadline_not_provided: true,
+      headcount: 1,
+    });
+  });
+
+  it("liczba osób poniżej 1 to brak", async () => {
+    await readRequest();
+    fireEvent.change(screen.getByLabelText("Liczba osób"), { target: { value: "0" } });
+    expect(screen.getByRole("link", { name: "liczba osób" })).toBeInTheDocument();
+  });
+});
+
+describe("NewJobPage — niedokończone formularze", () => {
+  const FORMS = [
+    {
+      id: 91,
+      label: "Programista Java (ZOB 48213)",
+      client_id: 7,
+      client_name: "Alior Bank",
+      source: "text",
+      updated_at: "2026-10-03T14:12:00Z",
+      expires_at: new Date(Date.now() + 5 * 86_400_000).toISOString(),
+      missing_count: 3,
+    },
+  ];
+
+  function withForms(saved: unknown = null) {
+    serveGets((url) => {
+      if (url === "/api/job-intake/forms") return { items: FORMS };
+      if (url === "/api/job-intake/forms/91") return saved;
+      return undefined;
+    });
+  }
+
+  it("krok 1 pokazuje listę z „Dokończ” i „Usuń” (potwierdzenie w wierszu)", async () => {
+    withForms();
+    renderPage();
+    const list = await screen.findByTestId("unfinished-intake-forms");
+    expect(list).toHaveTextContent("Masz 1 niedokończony formularz");
+    expect(list).toHaveTextContent("brakuje 3");
+    expect(list).toHaveTextContent("usunie się sam za 5 dni");
+    fireEvent.click(within(list).getByRole("button", { name: /Usuń formularz/ }));
+    expect(within(list).getByText("Usunąć formularz?")).toBeInTheDocument();
+    fireEvent.click(within(list).getByRole("button", { name: "Anuluj" }));
+    expect(within(list).queryByText("Usunąć formularz?")).toBeNull();
+  });
+
+  it("„Dokończ” wczytuje formularz z konta i otwiera krok 2", async () => {
+    const saved = {
+      id: 91,
+      label: "Programista Java (ZOB 48213)",
+      client_id: 7,
+      client_name: "Alior Bank",
+      source: "text",
+      request_text: REQUEST,
+      updated_at: "2026-10-03T14:12:00Z",
+      form: {
+        version: 1,
+        step: "review",
+        // Zapis sprzed nowych pól: brakujące dostają wartości domyślne.
+        form: { title: "Java Developer", rateBudget: "150", rows: [] },
+        evidence: [],
+        readByAi: true,
+        templateJobId: null,
+        recruiterId: 31,
+        assignment: "person",
+        priorityLevel: "p1",
+        similarJobIds: [],
+        missing: [],
+      },
+    };
+    withForms(saved);
+    renderPage();
+    const list = await screen.findByTestId("unfinished-intake-forms");
+    fireEvent.click(within(list).getByRole("button", { name: "Dokończ" }));
+    expect(await screen.findByLabelText("Rola")).toHaveValue("Java Developer");
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("150");
+    expect(screen.getByLabelText("Liczba osób")).toHaveValue(1);
+    expect(
+      screen.getByRole("heading", { name: "Request od klienta · Alior Bank" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("new-job-autosave")).toHaveTextContent(/^Formularz zapisany/);
   });
 });

@@ -196,14 +196,22 @@ async def test_working_title_follows_edits_until_set_by_hand(
     from app.core.database import AsyncSessionLocal
     from app.models.job import Job
 
+    from tests._job_factory import complete_job_payload, ready_champion
+
+    # Rekrutacja bez szkiców (04.10.2026): Champion przychodzi w tym samym
+    # żądaniu — stack MUST to ta sama Java co kolumna rekrutacji.
+    champion = ready_champion()
+    champion["stack"]["rows"] = [{"words": ["Java"], "level": "must"}]
+    champion["search"] = {"requirements": [["Java"]]}
     created = await app_client.post(
         "/api/jobs",
-        json={
-            "title": "Programista Java (ZOB 48213)",
-            "client_id": await _client_id(),
-            "client_reference": "  ZOB   48213 ",
-            "must_skills": ["Java"],
-        },
+        json=await complete_job_payload(
+            await _client_id(),
+            title="Programista Java (ZOB 48213)",
+            client_reference="  ZOB   48213 ",
+            must_skills=["Java"],
+            champion_profile=champion,
+        ),
         headers=app_auth_headers,
     )
     assert created.status_code in (200, 201), created.text
@@ -265,14 +273,19 @@ async def test_reference_comes_from_the_title_unless_the_form_says_otherwise(
 ) -> None:
     client_id = await _client_id()
 
+    from tests._job_factory import complete_job_payload, new_recruiter
+
+    recruiter_id = await new_recruiter()
+
     async def created_reference(**fields: object) -> object:
         response = await app_client.post(
             "/api/jobs",
-            json={
-                "title": "Programista Java (ZOB 48213)",
-                "client_id": client_id,
+            json=await complete_job_payload(
+                client_id,
+                recruiter_id=recruiter_id,
+                title="Programista Java (ZOB 48213)",
                 **fields,
-            },
+            ),
             headers=app_auth_headers,
         )
         assert response.status_code in (200, 201), response.text
@@ -291,13 +304,13 @@ async def test_list_search_finds_the_client_reference(
     app_client, app_auth_headers
 ) -> None:
     marker = uuid.uuid4().hex[:6].upper()
+    from tests._job_factory import complete_job_payload
+
     created = await app_client.post(
         "/api/jobs",
-        json={
-            "title": "Analityk",
-            "client_id": await _client_id(),
-            "client_reference": f"REQ-{marker}",
-        },
+        json=await complete_job_payload(
+            await _client_id(), title="Analityk", client_reference=f"REQ-{marker}"
+        ),
         headers=app_auth_headers,
     )
     assert created.status_code in (200, 201), created.text

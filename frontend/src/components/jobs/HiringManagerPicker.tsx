@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, UserPlus, X } from "lucide-react";
 
-import { extractErrorMsg } from "@/lib/api";
+import { useCachedJob } from "@/lib/cached-job";
+import { jobGateErrorText } from "@/lib/job-gate-errors";
 import {
   hiringManagerOptionsKey,
   saveHiringManager,
@@ -21,6 +22,11 @@ interface Props {
   /** Ta sama bramka co edycja rekrutacji — reszta widzi tylko nazwisko. */
   canEdit: boolean;
   onSaved: () => void;
+  /**
+   * „Klient nie podał” (`Job.hiring_manager_not_provided`, 04.10.2026).
+   * Brak propsa = wartość z rekrutacji w cache'u (`["job", id]`).
+   */
+  notProvided?: boolean;
 }
 
 /**
@@ -42,26 +48,37 @@ export function HiringManagerPicker({
   valueName,
   canEdit,
   onSaved,
+  notProvided,
 }: Props) {
   const queryClient = useQueryClient();
   const labelId = useId();
+  const cachedJob = useCachedJob<{ hiring_manager_not_provided?: boolean | null }>(jobId);
+  const savedNotProvided =
+    notProvided ?? cachedJob?.hiring_manager_not_provided === true;
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Odznaczenie „Klient nie podał” niczego nie zapisuje — dopiero wybór osoby
+  // (serwer zeruje wtedy flagę). Lokalny stan trzyma odznaczenie do wyboru.
+  const [notProvidedDraft, setNotProvidedDraft] = useState<boolean | null>(null);
+  const shownNotProvided = notProvidedDraft ?? savedNotProvided;
 
-  const save = async (choice: HiringManagerChoice | null) => {
+  const save = async (choice: HiringManagerChoice | null, markNotProvided = false) => {
     setSaving(true);
     setError(null);
     try {
-      await saveHiringManager(jobId, choice);
+      await saveHiringManager(jobId, choice, markNotProvided);
       setEditing(false);
+      setNotProvidedDraft(null);
       if (choice?.kind === "new") {
         void queryClient.invalidateQueries({ queryKey: hiringManagerOptionsKey(clientId) });
         void queryClient.invalidateQueries({ queryKey: ["client-contacts", clientId] });
       }
       onSaved();
     } catch (err) {
-      setError(extractErrorMsg(err));
+      // `handoff_regression`: rekrutacja w pracy nie może stracić HM bez
+      // decyzji „Klient nie podał” — zdanie serwera i braki przy polu.
+      setError(jobGateErrorText(err, "Nie udało się zapisać hiring managera."));
     } finally {
       setSaving(false);
     }
@@ -83,6 +100,8 @@ export function HiringManagerPicker({
           >
             {valueName}
           </Link>
+        ) : savedNotProvided ? (
+          <span className="text-muted-foreground">Klient nie podał</span>
         ) : (
           <span className="text-muted-foreground italic">nie przypisano</span>
         )}
@@ -117,6 +136,11 @@ export function HiringManagerPicker({
             onChange={(choice) => void save(choice)}
             labelledBy={labelId}
             disabled={saving}
+            notProvided={shownNotProvided}
+            onNotProvidedChange={(checked) => {
+              if (checked) void save(null, true);
+              else setNotProvidedDraft(false);
+            }}
           />
         </div>
         {saving ? (
@@ -127,6 +151,7 @@ export function HiringManagerPicker({
             onClick={() => {
               setEditing(false);
               setError(null);
+              setNotProvidedDraft(null);
             }}
             className="text-muted-foreground hover:text-foreground"
             aria-label="Anuluj"

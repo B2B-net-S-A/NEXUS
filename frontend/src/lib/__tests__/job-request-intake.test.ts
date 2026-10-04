@@ -21,6 +21,11 @@ import {
   missingBySection,
   missingFor,
   missingHeadline,
+  buildCreateJobPayload,
+  parseHeadcount,
+  restoreIntakeForm,
+  serverBlockerSection,
+  serverBlockersFromError,
   mustOf,
   newManualQuestion,
   niceOf,
@@ -73,6 +78,13 @@ const INTAKE: RequestIntakeResponse = {
   descriptive_requirements: ["Min. 5 lat doświadczenia komercyjnego"],
   evidence: ["Java 17+"],
   missing: [],
+  // Od 04.10.2026 hiring manager i termin to wymagana decyzja.
+  hiring_manager_name: "Anna Nowak",
+  hiring_manager_contact_id: 501,
+  hiring_manager_contact_name: "Anna Nowak",
+  deadline: "2026-10-20",
+  deadline_time: "16:00",
+  headcount: 2,
 };
 
 /** Odczyt sprzed v10: must, nice i osobne wiersze wyszukiwania, bez deal breakerów. */
@@ -227,13 +239,36 @@ describe("missingFor — lustro bramki „Przekaż do searchu”", () => {
   it("pusty formularz wymienia wszystko poza biurem (tryb nieznany)", () => {
     expect(missingFor(EMPTY_INTAKE_FORM)).toEqual([
       "role",
+      "hiring_manager",
       "must",
       "budget",
       "work_mode",
+      "deadline",
       "context",
       "questions",
       "category",
     ]);
+  });
+
+  it("hiring manager i termin: osoba/data albo „Klient nie podał” — puste to brak", () => {
+    const form = complete();
+    expect(missingFor({ ...form, hiringManager: null })).toEqual(["hiring_manager"]);
+    expect(
+      missingFor({ ...form, hiringManager: null, hiringManagerNotProvided: true }),
+    ).toEqual([]);
+    expect(missingFor({ ...form, deadline: "" })).toEqual(["deadline"]);
+    expect(missingFor({ ...form, deadline: "", deadlineNotProvided: true })).toEqual([]);
+    expect(MISSING_SECTION.hiring_manager).toBe("name");
+    expect(MISSING_SECTION.deadline).toBe("terms");
+  });
+
+  it("liczba osób: całkowita od 1 do 99", () => {
+    const form = complete();
+    expect(missingFor({ ...form, headcount: "0" })).toEqual(["headcount"]);
+    expect(missingFor({ ...form, headcount: "1.5" })).toEqual(["headcount"]);
+    expect(missingFor({ ...form, headcount: "" })).toEqual(["headcount"]);
+    expect(missingFor({ ...form, headcount: "3" })).toEqual([]);
+    expect(parseHeadcount("100")).toBeNull();
   });
 
   it("wymagania: same „mile widziane” i puste wiersze to brak", () => {
@@ -335,8 +370,8 @@ describe("missingFor — lustro bramki „Przekaż do searchu”", () => {
   });
 
   it("nagłówek odmienia liczebnik", () => {
-    expect(missingHeadline(1)).toBe("Brakuje 1 rzeczy do searchu");
-    expect(missingHeadline(3)).toBe("Brakuje 3 rzeczy do searchu");
+    expect(missingHeadline(1)).toBe("Brakuje 1 rzeczy do publikacji");
+    expect(missingHeadline(3)).toBe("Brakuje 3 rzeczy do publikacji");
   });
 });
 
@@ -445,6 +480,10 @@ describe("payloady zapisu", () => {
       nice_skills: ["Kubernetes"],
       location: "Warszawa",
       rate_budget_hourly: 170,
+      deadline: "2026-10-20",
+      deadline_time: "16:00",
+      deadline_not_provided: false,
+      headcount: 2,
     });
     // Pola wycięte z tworzenia nie wracają tylnymi drzwiami.
     for (const gone of [
@@ -1091,5 +1130,107 @@ describe("v7 (27.09.2026): miasta biura i uwagi z odczytu", () => {
     ]);
     expect(joinCities(["Gdańsk", "Gdynia", "gdańsk"])).toBe("Gdańsk, Gdynia");
     expect(splitCities("")).toEqual([]);
+  });
+});
+
+describe("utworzenie jednym żądaniem (04.10.2026)", () => {
+  const opts = {
+    clientId: 7,
+    requestText: "mail",
+    templateJobId: null,
+    priority: "medium",
+    handoff: { recruiter_id: 31, channel: "linkedin" } as const,
+    similarJobIds: [4556],
+    intakeFormId: 12,
+  };
+
+  it("niesie profil, hiring managera, przekazanie, podobne i formularz — bez statusu", () => {
+    const payload = buildCreateJobPayload(complete(), opts);
+    expect(payload).toMatchObject({
+      title: "Senior Java Developer",
+      priority: "medium",
+      hiring_manager: { contact_id: 501 },
+      handoff: { recruiter_id: 31, channel: "linkedin" },
+      similar_job_ids: [4556],
+      cc_override: null,
+      intake_form_id: 12,
+    });
+    expect(payload).not.toHaveProperty("status");
+    expect(payload.champion_profile).toMatchObject({ project: { about: "Migracja płatności." } });
+  });
+
+  it("„Klient nie podał” zamiast osoby i terminu", () => {
+    const payload = buildCreateJobPayload(
+      {
+        ...complete(),
+        hiringManager: null,
+        hiringManagerNotProvided: true,
+        deadline: "",
+        deadlineTime: "",
+        deadlineNotProvided: true,
+      },
+      opts,
+    );
+    expect(payload).toMatchObject({
+      hiring_manager: { not_provided: true },
+      deadline: null,
+      deadline_time: null,
+      deadline_not_provided: true,
+    });
+  });
+
+  it("inna kategoria niż podpowiedź jedzie jako cc_override", () => {
+    const payload = buildCreateJobPayload({ ...complete(), competenceCategoryId: 4 }, opts);
+    expect(payload.cc_override).toEqual({ suggested_cc_id: 2, suggested_score: null });
+  });
+});
+
+describe("braki z serwera (422 `job_not_ready`)", () => {
+  it("czyta kody i zdania; kod formularza prowadzi do sekcji, `champion:` i nieznane nie", () => {
+    const blockers = serverBlockersFromError({
+      response: {
+        status: 422,
+        data: {
+          detail: {
+            code: "job_not_ready",
+            message: "x",
+            blockers: [
+              { code: "budget", message: "Uzupełnij budżet." },
+              { code: "champion:rate", message: "Stawka." },
+              { code: "x", message: "" },
+            ],
+          },
+        },
+      },
+    });
+    expect(blockers).toEqual([
+      { code: "budget", message: "Uzupełnij budżet." },
+      { code: "champion:rate", message: "Stawka." },
+    ]);
+    expect(serverBlockerSection("budget")).toBe("terms");
+    expect(serverBlockerSection("hiring_manager")).toBe("name");
+    expect(serverBlockerSection("search")).toBe("requirements");
+    expect(serverBlockerSection("champion:rate")).toBeNull();
+    expect(serverBlockerSection("client")).toBeNull();
+  });
+
+  it("inny błąd to nie lista braków", () => {
+    expect(serverBlockersFromError({ response: { status: 409, data: { detail: "nie" } } })).toBeNull();
+    expect(serverBlockersFromError(new Error("x"))).toBeNull();
+  });
+});
+
+describe("restoreIntakeForm — formularz z konta", () => {
+  it("zapis sprzed nowych pól dostaje wartości domyślne", () => {
+    const form = restoreIntakeForm({ title: "Java", rows: [] });
+    expect(form.title).toBe("Java");
+    expect(form.headcount).toBe("1");
+    expect(form.deadlineNotProvided).toBe(false);
+    expect(form.experience).toEqual(EMPTY_INTAKE_FORM.experience);
+  });
+
+  it("śmieci zamiast formularza dają pusty formularz", () => {
+    expect(restoreIntakeForm(null)).toEqual(EMPTY_INTAKE_FORM);
+    expect(restoreIntakeForm("x")).toEqual(EMPTY_INTAKE_FORM);
   });
 });

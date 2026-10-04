@@ -1,6 +1,5 @@
 import enum
 import logging
-from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any, Optional
 
@@ -84,6 +83,7 @@ from app.schemas.job import (
     JobHiringManagerRequest,
     JobManageInNexusRequest,
     JobOwnerAssignment,
+    JobPublishRequest,
     JobResponse,
     JobUpdate,
     UserBrief,
@@ -102,9 +102,7 @@ from app.api.deps import (
 from app.api.permission_access import RecruitmentManageUser
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.permission_denial import ensure_permission
-from app.services.auto_assign_owners import resolve_default_owners
 from app.services.client_access import assert_client_assignable
-from app.api.notifications import create_notification
 from app.api.recruitment_access import (
     JobEditLevel,
     JobEditUser,
@@ -128,7 +126,6 @@ from app.services.section_permissions import (
     SectionAccess,
     section_access_for_user,
 )
-from app.api.ws import manager as ws_manager
 from app.core.config import settings
 from app.services.request_work_state import (
     WORK_STATE_FINISHED,
@@ -173,11 +170,9 @@ from app.services.workforce_availability import (
     operational_job_owner_clause,
 )
 from app.services import champion_view
+from app.services import job_lifecycle
 from app.services.job_readiness import job_handoff_blockers as _compute_job_readiness
-from app.services.champion_profile_events import (
-    diff_champion_profile,
-    summarize_sections,
-)
+from app.services.job_readiness import job_handoff_blocker_items
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
 from app.services.candidate_contact_hooks import (
     maybe_close_job_contact_opportunities,
@@ -186,13 +181,7 @@ from app.services.marketplace_service import (
     is_significant_job_update,
     run_marketplace_scan_safe,
 )
-from app.services.similar_job_notify import run_similar_job_notify_safe
 from app.services.recruitment_process_commands import open_process
-from app.tasks.compute_proposals import (
-    compute_proposal_for_job,
-    create_pending_snapshot,
-)
-from app.models.proposal_snapshot import SOURCE_HANDOFF
 
 logger = logging.getLogger(__name__)
 
@@ -2013,413 +2002,46 @@ async def create_job(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    _assert_delivery_lead_finance_write(data.model_fields_set, current_user)
-    # Runda 7 (R7-X5-4): rekrutacja u usuniętego albo scalonego klienta nie
-    # trafiłaby do żadnego rejestru.
-    await assert_client_assignable(db, data.client_id)
-    delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
+    """Utworzenie rekrutacji = przekazanie do searchu = publikacja (04.10.2026).
 
-    # AI CC matching (migracja 0041). If the caller didn't specify a CC and
-    # opted into auto-suggest, we run the classifier *after* the embedding
-    # has been generated (needs job text). For create we must persist first
-    # to get `job.id`; classifier will be called below post-embed.
-    payload = data.model_dump(
-        exclude={"auto_suggest_cc", "secondary_cc_ids", "from_job_id", "copy_questions"}
+    Jedno żądanie, JEDNA transakcja: wiersz rekrutacji, decyzja o hiring
+    managerze, Profil Championa, bramka przekazania, przekazanie (rekruter albo
+    automat), podobne rekrutacje, publikacja. Brak czegokolwiek, czego wymaga
+    bramka „Przekaż do searchu”, = 422 ``job_not_ready`` z listą
+    ``[{code, message}]`` — ``get_db`` cofa wtedy wszystko, więc szkic nie
+    powstaje nigdy. Efekty po commicie (wektor, migawka dopasowań, Targ,
+    powiadomienia) — dopiero po zapisie.
+    """
+    effects = job_lifecycle.PostCommit(background_tasks)
+    # Kolejność blokad jak w `/owner` i automacie przydziału.
+    await allocation_lock(db)
+    job = await job_lifecycle.create_job_core(db, data, current_user, effects)
+    await job_lifecycle.apply_hiring_manager_decision(
+        db, job, data.hiring_manager, current_user
     )
-    secondary_cc_ids = data.secondary_cc_ids or []
-    auto_suggest = data.auto_suggest_cc
-    _normalize_deadline_time(payload, None)
-
-    # "Skopiuj jako template" — dociąg pól z source jobu zanim wstawimy nowy.
-    # Pola, które caller już wpisał w formularzu, mają precedencję (sprawdzamy
-    # `not payload.get(field)` — `None`, pusty string, pusta lista wszystkie
-    # liczą się jako "brak"). `champion_profile` kopiujemy TYLKO gdy nowy
-    # request jest u tego samego klienta — championship to charakterystyka
-    # kandydata u konkretnego klienta.
-    src_job: Optional[Job] = None
-    if data.from_job_id is not None:
-        src_job = (
-            await db.execute(select(Job).where(Job.id == data.from_job_id))
-        ).scalar_one_or_none()
-        if src_job is None:
-            raise HTTPException(
-                status.HTTP_404_NOT_FOUND,
-                detail=f"from_job_id: source job {data.from_job_id} not found",
-            )
-        _assert_delivery_lead_job_visible(src_job, delivery_lead_pairs)
-        copy_fields = (
-            "description",
-            "requirements",
-            "must_skills",
-            "nice_skills",
-            "train_name",
-            "seniority",
-            "subcategory",
-            "industry",
-            "headcount",
-            "work_mode",
-            "remote_policy",
-            "salary_min",
-            "salary_max",
-        )
-        for field in copy_fields:
-            if not payload.get(field):
-                value = getattr(src_job, field, None)
-                if isinstance(value, list):
-                    payload[field] = list(value)
-                elif isinstance(value, dict):
-                    payload[field] = dict(value)
-                else:
-                    payload[field] = value
-        same_client = payload.get("client_id") == src_job.client_id
-        if (
-            same_client
-            and not payload.get("champion_profile")
-            and src_job.champion_profile
-        ):
-            payload["champion_profile"] = dict(src_job.champion_profile)
-
-    if data.from_job_id is not None and not _may_write_salary_range(current_user):
-        # A template must not become a side channel for copying recruitment
-        # budget fields into a role created by someone who may not set them.
-        payload["salary_min"] = None
-        payload["salary_max"] = None
-
-    _normalize_office_days_for_create(payload)
-
-    if payload.get("champion_profile"):
-        # `JobCreate` carries no profile: the only source is the template copy
-        # above. It is copied AS STORED (`copy_profile`) — re-reading it as a
-        # fresh document re-derived the rate from its stored text and gave the
-        # new recruitment no budget when the grammar could not read that text.
-        from app.services.champion_intake import copy_profile
-
-        payload["champion_profile"] = copy_profile(
-            payload["champion_profile"], current_user.id
-        )
-
-    # Validate explicit owner overrides (tac_id / delivery_lead_id) before we
-    # hit `resolve_default_owners`. Override always wins, but only when it
-    # points to a real active user with an allowed role.
-    if data.tac_id is not None:
-        await _validate_owner_override(
-            db,
-            user_id=data.tac_id,
-            allowed_roles=TAC_ASSIGNABLE_ROLES,
-            field="tac_id",
-        )
-        await _validate_tac_client_assignment(
-            db,
-            user_id=data.tac_id,
-            client_id=payload["client_id"],
-        )
-    if data.delivery_lead_id is not None:
-        await _validate_owner_override(
-            db,
-            user_id=data.delivery_lead_id,
-            allowed_roles={
-                UserRole.delivery_lead,
-                UserRole.admin,
-                UserRole.head_of_recruitment,
-            },
-            field="delivery_lead_id",
-        )
-    # Runda 8 (R8-X1-3): prowadzący jak w „Przekaż do searchu” — nieistniejące
-    # id dawało IntegrityError (500 bez CORS), a nieaktywne konto zostawało
-    # „Prowadzi” przy osobie, której nie ma.
-    if data.recruiter_id is not None:
-        await _validate_owner_override(
-            db,
-            user_id=data.recruiter_id,
-            allowed_roles=set(_HANDOFF_RECRUITER_ROLES),
-            field="recruiter_id",
-        )
-
-    # Auto-assign from Client ↔ TAC/DL assignments when the caller left the
-    # field empty. Override semantics: if caller supplied the value, we
-    # never touch it here.
-    if payload.get("tac_id") is None or payload.get("delivery_lead_id") is None:
-        resolved = await resolve_default_owners(db, payload.get("client_id"))
-        if payload.get("tac_id") is None:
-            if resolved.tac_selection_required:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail={
-                        "code": "TAC_OWNER_REQUIRED",
-                        "message": (
-                            "Client has multiple assigned TACs; choose the "
-                            "request owner explicitly"
-                        ),
-                    },
-                )
-            payload["tac_id"] = resolved.tac_id
-        if payload.get("delivery_lead_id") is None:
-            payload["delivery_lead_id"] = resolved.delivery_lead_id
-            # Główny DL klienta wpisany automatycznie — idzie za jego zmianą
-            # (`job_delivery_lead_fill`, 0376).
-            payload["delivery_lead_auto_filled"] = resolved.delivery_lead_id is not None
-
-    # A Delivery Lead creating a recruitment without a resolved client-side
-    # DL (no head DL assigned, or none at all) becomes its DL themselves —
-    # otherwise the recruitment they just made would have no DL and never
-    # show up in their own queue. Precedence: explicit `delivery_lead_id` >
-    # the client's head DL (`resolve_default_owners` above) > the creator.
-    # `recruiter_id` is untouched — this is about ownership, not authorship.
-    if payload.get("delivery_lead_id") is None and current_user.has_role(
-        UserRole.delivery_lead
-    ):
-        payload["delivery_lead_id"] = current_user.id
-
-    if (
-        delivery_lead_pairs is not None
-        and (
-            payload.get("client_id"),
-            payload.get("tac_id"),
-        )
-        not in delivery_lead_pairs
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Job is outside the resolved Delivery Lead scope",
-        )
-
-    # Phase 15 / Phase D: auto-extract train_name if the caller didn't set it.
-    # Best-effort — never blocks save. Regex + per-client dictionary.
-    if not payload.get("train_name"):
-        payload["train_name"] = await _auto_extract_train_name(
-            db=db,
-            title=payload.get("title") or "",
-            description=payload.get("description") or "",
-            client_id=payload.get("client_id"),
-        )
-
-    # 0380: numer u klienta i tytuł dla rekrutera. Jawny tytuł = ręczny
-    # (automat wyłączony); brak = składa go `job_working_title` niżej.
-    from app.services.job_working_title import (
-        normalize_client_reference,
-        reference_from_title,
+    await job_lifecycle.save_champion_core(
+        db, job, data.champion_profile, current_user, effects, notify=False
     )
-
-    # 02.10.2026: numer klienta stoi w nazwie od klienta („… (ZOB 48213)”) —
-    # bez pola w żądaniu bierzemy go z tytułu, żeby CV i Cpro go miały. Pole
-    # wysłane puste to decyzja człowieka („To nie ten numer”): zostaje puste.
-    payload["client_reference"] = normalize_client_reference(
-        payload.get("client_reference")
-    )
-    if "client_reference" not in data.model_fields_set:
-        payload["client_reference"] = reference_from_title(payload.get("title"))
-    manual_working_title = (payload.get("working_title") or "").strip() or None
-    payload["working_title"] = manual_working_title
-    payload["working_title_auto"] = manual_working_title is None
-
-    if payload.get("hiring_manager_contact_id") is not None:
-        from app.services.job_hiring_manager import assert_contact_of_client
-
-        await assert_contact_of_client(
-            db,
-            contact_id=payload["hiring_manager_contact_id"],
-            client_id=payload.get("client_id"),
-        )
-    await _assert_job_references_valid(
-        db,
-        pipeline_template_id=payload.get("pipeline_template_id"),
-        competence_category_id=payload.get("competence_category_id"),
-        secondary_cc_ids=secondary_cc_ids,
-        reference_number=payload.get("reference_number"),
-    )
-
-    job = Job(**payload, created_by=current_user.id)
-
-    # Per-client pipeline template auto-pick (Traffit gap #1). If caller
-    # didn't pin one explicitly, prefer a non-archived template tied to
-    # this job's client; fall back to the global is_default template.
-    # We resolve at flush time so we have the client_id from `payload`.
-    if job.pipeline_template_id is None:
-        from app.models.pipeline_template import PipelineTemplate
-
-        chosen_template_id: Optional[int] = None
-        if job.client_id is not None:
-            chosen_template_id = await db.scalar(
-                select(PipelineTemplate.id)
-                .where(
-                    PipelineTemplate.client_id == job.client_id,
-                    PipelineTemplate.archived.is_(False),
-                )
-                .order_by(
-                    PipelineTemplate.is_default.desc(), PipelineTemplate.id.desc()
-                )
-                .limit(1)
-            )
-        if chosen_template_id is None:
-            chosen_template_id = await db.scalar(
-                select(PipelineTemplate.id)
-                .where(
-                    PipelineTemplate.is_default.is_(True),
-                    PipelineTemplate.archived.is_(False),
-                )
-                .limit(1)
-            )
-        if chosen_template_id is not None:
-            job.pipeline_template_id = chosen_template_id
-
-    db.add(job)
+    job_lifecycle.clear_decision_flags(job)
     await db.flush()
-
-    from app.services.job_working_title import refresh_working_title
-
-    await refresh_working_title(db, job)
-
-    # Auto-generate a human-readable reference number (Traffit parity) when
-    # the caller didn't supply one and it wasn't carried over from a Traffit
-    # import. Done post-flush so we have the persisted client_id; the UNIQUE
-    # constraint on jobs.reference_number backstops concurrent creates.
-    if not job.reference_number:
-        from app.core.scheduling import business_today
-        from app.services.job_reference import generate_job_reference_number
-
-        # Rok numeru = rok kalendarza firmy (Europe/Warsaw). Z UTC rekrutacja
-        # założona 1 stycznia przed 01:00 dostawała numer poprzedniego roku.
-        job.reference_number = await generate_job_reference_number(
-            db,
-            client_id=job.client_id,
-            year=business_today().year,
-        )
-
-    # Persist secondary CC links (manual from caller, if any)
-    if secondary_cc_ids:
-        from app.models.cc_feedback import JobSecondaryCc
-
-        for cc_id in secondary_cc_ids[:2]:  # cap at 2
-            db.add(JobSecondaryCc(job_id=job.id, competence_category_id=cc_id))
-
-    activity_action = "created"
-    activity_details: Optional[dict] = None
-    if src_job is not None:
-        activity_action = "created_from_template"
-        activity_details = {"source_job_id": src_job.id}
-        # Skopiuj pinned interview questions (job_questions) z source jobu —
-        # idempotentne dzięki unique (job_id, question_id) na junction table.
-        # Bez archiwum rozmów (0383): stara rekrutacja ma przypięte dziesiątki
-        # pytań z Excela rekruterów, a przypięte pytanie wchodzi do oceny prepu
-        # — kopia hurtem dałaby każdemu prepowi nowej rekrutacji ocenę „słaby”.
-        # Archiwum dociera do nowej rekrutacji po roli (prep-kit).
-        if data.copy_questions:
-            from app.models.interview_question import (
-                InterviewQuestion,
-                InterviewQuestionSource,
-                JobQuestion,
-            )
-
-            existing_links = (
-                await db.execute(
-                    select(
-                        JobQuestion.question_id,
-                        JobQuestion.is_pinned,
-                        JobQuestion.added_by_source,
-                        JobQuestion.order_index,
-                    )
-                    .join(
-                        InterviewQuestion,
-                        InterviewQuestion.id == JobQuestion.question_id,
-                    )
-                    .where(
-                        JobQuestion.job_id == src_job.id,
-                        InterviewQuestion.source
-                        != InterviewQuestionSource.legacy_import,
-                    )
-                )
-            ).all()
-            for question_id, is_pinned, added_by_source, order_index in existing_links:
-                db.add(
-                    JobQuestion(
-                        job_id=job.id,
-                        question_id=question_id,
-                        is_pinned=is_pinned,
-                        added_by_source=added_by_source,
-                        order_index=order_index,
-                        added_by_user_id=current_user.id,
-                    )
-                )
-
-    db.add(
-        Activity(
-            entity_type="job",
-            entity_id=job.id,
-            action=activity_action,
-            user_id=current_user.id,
-            details=activity_details,
-        )
+    job_lifecycle.ensure_handoff_ready(job)
+    await job_lifecycle.handoff_core(db, job, data.handoff, current_user, effects)
+    await job_lifecycle.link_similar_on_create(
+        db, job, data.similar_job_ids, current_user
     )
+    await job_lifecycle.publish_core(
+        db, job, current_user, effects, sync_status_payload=False
+    )
+    job_lifecycle.record_cc_override(db, job, data.cc_override, current_user)
+    await job_lifecycle.delete_intake_form(db, data.intake_form_id, current_user.id)
     await db.commit()
-    await db.refresh(job)
-
-    # Phase 2: embed the job so reverse matching picks it up.
-    await _maybe_embed_job(job.id, db)
-
-    # AI CC classification + auto-add collaborators (post-embed so classifier
-    # has both keyword + embedding signal). Any failure is non-fatal.
-    try:
-        if job.competence_category_id is None and auto_suggest:
-            # Title-first (deterministic, handles PL/EN role names), hybrid
-            # keyword+embedding classifier as confident-only fallback.
-            from app.services.job_cc import resolve_job_cc_id
-
-            cc_id = await resolve_job_cc_id(job, db)
-            if cc_id is not None:
-                job.competence_category_id = cc_id
-                await db.commit()
-                await db.refresh(job)
-        if job.competence_category_id is not None:
-            from app.services.auto_cc_collaborators import sync_cc_participants
-
-            # Uczestnicy = wszystkie osoby kategorii (1. i 2. priorytet).
-            # Savepoint: błąd synchronizacji nie może zostawić sesji w zerwanej
-            # transakcji przed końcowym odświeżeniem rekrutacji.
-            async with db.begin_nested():
-                await sync_cc_participants(
-                    db, job_ids=[job.id], added_by=current_user.id
-                )
-            await db.commit()
-    except Exception as e:  # pragma: no cover — never block job creation
-        logger.warning("[Job] CC auto-assignment failed for job %s: %s", job.id, e)
-
-    # P0-A: the operational ranking is NO LONGER produced at create time. A
-    # freshly-created job normally has no Champion yet, so a create-time snapshot
-    # was a pre-Champion ranking that then persisted as "the" ranking even after
-    # the Delivery Lead filled the Champion. The ranking is now produced by the
-    # explicit "Przekaż do searchu" handoff (POST /jobs/{id}/handoff), after the
-    # readiness gate (Champion required) passes. The job is still embedded above
-    # (_maybe_embed_job) so reverse matching (candidate → jobs) keeps working,
-    # and the widget falls back to the live recommendation path until the first
-    # handoff snapshot exists.
-
-    # Targ kandydatów (migracja 0052-0054): jeśli enabled, rescan puli marketplace
-    # z tym nowym jobem i wygeneruj notyfikacje ≥ MARKETPLACE_SCORE_THRESHOLD.
-    # Dedup przez uq_marketplace_alert_pair — ten sam job nigdy nie wygeneruje
-    # drugiej notyfikacji dla tej samej pary (candidate_id, job_id).
-    if settings.MARKETPLACE_ENABLED:
-        background_tasks.add_task(run_marketplace_scan_safe, job.id)
-
-    # Auto-match (17.09.2026): opublikowana rekrutacja sama zbiera kandydatów
-    # z CV odczytanym w ostatnich AUTO_MATCH_JOB_LOOKBACK_DAYS dniach.
-    if job.status == JobStatus.published:
-        from app.services.auto_match_outbox import enqueue_job_safe
-
-        background_tasks.add_task(enqueue_job_safe, job.id)
-
-    # Szybkie przepinanie (Faza 1): jeśli nowy request przypomina historyczne
-    # (Tier A) z kandydatami po etapach klienckich — powiadom recruiter/TAC/
-    # twórcę z deep-linkiem do sekcji „Kandydaci z podobnych projektów".
-    # Embedding joba już istnieje (await _maybe_embed_job wyżej).
-    if settings.SIMILAR_JOB_NOTIFY_ENABLED:
-        background_tasks.add_task(run_similar_job_notify_safe, job.id)
-    # Final refresh — upstream sesje (snapshot, auto_cc_collaborators,
-    # classify_job_to_cc) mogly commitnac w miedzyczasie, co expire-uje
-    # nasz `job` obiekt. FastAPI robi response_model walidacje przez
-    # getattr na atrybutach joba — expired atrybut w async sesji rzuca
-    # MissingGreenlet co objawia sie jako ResponseValidationError.
+    await job_lifecycle.run_post_commit(effects)
+    # Efekty (klasyfikator kategorii, wektor) mogą commitować — świeży odczyt
+    # przed walidacją odpowiedzi (wygasły atrybut w async = MissingGreenlet).
     await db.refresh(job)
     response = JobResponse.model_validate(job).model_dump()
+    response = await _populate_hiring_manager_name(db, response, job)
+    response["snapshot_id"] = effects.results.get("snapshot_id")
     return _redact_delivery_lead_job_finance(response, current_user)
 
 
@@ -2629,6 +2251,33 @@ async def update_job(
     await ensure_job_editor(db, current_user, job, fields=data.model_fields_set)
     _assert_delivery_lead_finance_write(data.model_fields_set, current_user)
 
+    # Rekrutacja bez szkiców (04.10.2026): okno edycji nie robi z rekrutacji
+    # szkicu ani jej nie otwiera — otwarcie zamkniętej przechodzi bramkę
+    # przekazania w `POST …/publish` („Otwórz ponownie”). Ten sam status co
+    # obecny (okno odsyła komplet pól) przechodzi bez zmian.
+    if "status" in data.model_fields_set and data.status != job.status:
+        if data.status == JobStatus.draft:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "draft_not_allowed",
+                    "message": "Rekrutacja nie może wrócić do szkicu.",
+                },
+            )
+        if data.status == JobStatus.published:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "reopen_required",
+                    "message": (
+                        "Zamkniętą rekrutację otwórz przyciskiem „Otwórz ponownie”."
+                    ),
+                },
+            )
+    # Ochrona rekrutacji w pracy: zapis odmawia tylko przy NOWYM braku bramki
+    # przekazania (porównanie po kodach, przed i po zapisie).
+    regression_baseline = job_lifecycle.regression_baseline(job)
+
     # Validate explicit owner overrides before applying any mutations.
     # Walidujemy wyłącznie REALNĄ zmianę wartości (runda 6 audytu), bo okno
     # edycji rekrutacji odsyła `client_id` i `delivery_lead_id` przy każdym
@@ -2835,6 +2484,13 @@ async def update_job(
             )
             if hm_client_id != job.client_id:
                 job.hiring_manager_contact_id = None
+                # 0415: HM zdjęty przez zmianę klienta to skutek tej zmiany,
+                # nie nowy brak wprowadzony przez osobę — okno edycji wskazuje
+                # nowego HM osobnym zapisem PO zmianie klienta (kontakt musi
+                # należeć już do nowego klienta). Bez tego każda zmiana klienta
+                # rekrutacji w pracy kończyła się 422 `handoff_regression`.
+                if regression_baseline is not None:
+                    regression_baseline.add("hiring_manager")
     if job.hiring_manager_contact_id != _hiring_manager_before:
         # Runda 10 (R10-V2-5): zmiana klienta zeruje HM — to też zdjęcie weta.
         await _assert_may_change_vetoing_manager(
@@ -2946,6 +2602,10 @@ async def update_job(
             )
 
     changed = {f for f, old in _scoring_before.items() if getattr(job, f) != old}
+    # 0415: zapisana wartość zdejmuje „Klient nie podał” — PO zdjęciu HM przy
+    # zmianie klienta, żeby jawne „Klient nie podał” w tym samym zapisie zostało.
+    job_lifecycle.clear_decision_flags(job)
+    job_lifecycle.assert_no_new_handoff_blockers(regression_baseline, job)
     db.add(
         Activity(
             entity_type="job",
@@ -3220,44 +2880,18 @@ async def close_job(
             },
         )
 
-    job.status = JobStatus.closed
-    job.closed_at = datetime.now(timezone.utc)
-    # Zamknięta rekrutacja nie jest przez nikogo prowadzona — bez tego digest
-    # dopasowań i alerty terminów chodziłyby po niej dalej (0270).
-    job.is_open = False
-    job.close_reason = data.reason
-    job.close_notes = data.notes
-    # 0371: zamknięta w NEXUSIE = „Zakończony” w porządku requestów.
-    await set_work_state(
-        db, job, "finished", actor_id=current_user.id, reason="job_closed"
-    )
-    # 0381: zamknięta rekrutacja zamyka ogłoszenia na portalach.
-    await close_live_postings(db, job_id)
-    await maybe_close_job_contact_opportunities(
+    effects = job_lifecycle.PostCommit()
+    await job_lifecycle.close_job_core(
         db,
-        job_id=job_id,
-        actor_user_id=current_user.id,
-        reason="job_closed",
-        occurred_at=job.closed_at,
-    )
-
-    db.add(
-        Activity(
-            entity_type="job",
-            entity_id=job_id,
-            action="closed",
-            user_id=current_user.id,
-            details={
-                "reason": data.reason.value,
-                "notes": data.notes,
-            },
-        )
+        job,
+        reason=data.reason,
+        notes=data.notes,
+        actor_id=current_user.id,
+        effects=effects,
     )
     await db.commit()
     await db.refresh(job)
-
-    await cache_invalidate("reports:clients")
-    await _sync_job_status_payload(job)
+    await job_lifecycle.run_post_commit(effects)
     payload = JobResponse.model_validate(job).model_dump()
     return _redact_delivery_lead_job_finance(payload, current_user)
 
@@ -3381,7 +3015,8 @@ async def set_job_hiring_manager(
     current_user: JobEditUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Hiring manager rekrutacji: kontakt z listy, nowa osoba albo brak (25.09.2026).
+    """Hiring manager rekrutacji: kontakt z listy, nowa osoba, „Klient nie
+    podał” (0415) albo brak (25.09.2026).
 
     Nową osobę zakłada serwis jako kontakt KLIENTA tej rekrutacji — po
     dopasowaniu do istniejących kontaktów, żeby weto HM nie rozbiło się na
@@ -3389,11 +3024,6 @@ async def set_job_hiring_manager(
     więc rekruter prowadzący i współpracownicy też je ustawiają (decyzja
     Artura), bez uprawnienia do edycji kontaktów klienta.
     """
-    from app.services.job_hiring_manager import (
-        assert_contact_of_client,
-        find_or_create_contact,
-    )
-
     job = (
         await db.execute(select(Job).where(Job.id == job_id).with_for_update())
     ).scalar_one_or_none()
@@ -3403,48 +3033,11 @@ async def set_job_hiring_manager(
     _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
     await ensure_job_editor(db, current_user, job, fields={"hiring_manager_contact_id"})
 
-    previous = job.hiring_manager_contact_id
-    created = False
-    if data.clear:
-        contact_id = None
-    else:
-        if data.contact_id is not None:
-            contact = await assert_contact_of_client(
-                db, contact_id=data.contact_id, client_id=job.client_id
-            )
-        else:
-            person = data.new_person
-            assert person is not None  # walidator schematu: dokładnie jedno
-            resolved = await find_or_create_contact(
-                db,
-                client_id=job.client_id,
-                name=person.name,
-                position=person.position,
-                email=str(person.email) if person.email else None,
-                actor_id=current_user.id,
-                job_id=job.id,
-            )
-            contact, created = resolved.contact, resolved.created
-        contact_id = contact.id
-
-    if contact_id != previous:
-        await _assert_may_change_vetoing_manager(
-            db, current_user, job_id=job.id, previous=previous
-        )
-        job.hiring_manager_contact_id = contact_id
-        db.add(
-            Activity(
-                entity_type="job",
-                entity_id=job_id,
-                action="hiring_manager_changed",
-                user_id=current_user.id,
-                details={
-                    "previous": previous,
-                    "contact_id": contact_id,
-                    "contact_created": created,
-                },
-            )
-        )
+    # Rekrutacja w pracy: wyczyszczenie HM bez „Klient nie podał” byłoby
+    # nowym brakiem bramki przekazania (04.10.2026).
+    regression_baseline = job_lifecycle.regression_baseline(job)
+    await job_lifecycle.apply_hiring_manager_decision(db, job, data, current_user)
+    job_lifecycle.assert_no_new_handoff_blockers(regression_baseline, job)
     # Commit także bez zmiany: zwalnia blokadę FOR UPDATE i zapisuje ewentualne
     # uzupełnienie pustego stanowiska/e-maila kontaktu (fill-only).
     await db.commit()
@@ -3456,46 +3049,54 @@ async def set_job_hiring_manager(
 async def publish_job(
     job_id: int,
     current_user: RecruitmentManageUser,
+    background_tasks: BackgroundTasks,
+    payload: Optional[JobPublishRequest] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Publish job — mark as published and queue portal syndication."""
-    result = await db.execute(select(Job).where(Job.id == job_id))
+    """„Otwórz ponownie” — publikacja przez bramkę przekazania (04.10.2026).
+
+    Rekrutacja nigdy nie jest szkicem: otwarcie zamkniętej, dokończenie starego
+    szkicu albo rekrutacji opublikowanej bez przekazania wymaga przekazania do
+    searchu (ciało jak ``/handoff``) i przechodzi tę samą bramkę braków co
+    zakładanie — z pytaniami liczonymi także przy ``is_open``. Brak = 422
+    ``job_not_ready`` i nic się nie zmienia. Rekrutacja już w pracy
+    (opublikowana i przekazana) = 200 bez zmian.
+    """
+    await allocation_lock(db)
+    result = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
-    status_changes = job.status != JobStatus.published
-    if job.status == JobStatus.closed:
-        # Runda 9 (R9-N4-1): jak PATCH — klient usunięty/scalony = 422.
-        await assert_client_assignable(db, job.client_id)
-        # Lustro ponownego otwarcia w PATCH: bez tego rekrutacja opublikowana
-        # z powrotem zostawała „Zakończona” i poza przydziałem (audyt 24.09.2026).
-        job.closed_at = None
-        _take_over_reopened_traffit_job(db, job, current_user)
-        if job.work_state == WORK_STATE_FINISHED:
-            await set_work_state(
-                db,
-                job,
-                WORK_STATE_REOPENED,
-                actor_id=current_user.id,
-                reason="job_reopened",
-            )
-    job.status = JobStatus.published
-    db.add(
-        Activity(
-            entity_type="job",
-            entity_id=job_id,
-            action="published",
-            user_id=current_user.id,
+    if job.status == JobStatus.published and job.is_open:
+        return {"status": "published", "job_id": job_id, "unchanged": True}
+    if payload is None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "handoff_required",
+                "message": (
+                    "Otwarcie rekrutacji wymaga przekazania do searchu — wybierz "
+                    "rekrutera albo przydział automatyczny."
+                ),
+            },
         )
+    effects = job_lifecycle.PostCommit(background_tasks)
+    await job_lifecycle.publish_core(
+        db, job, current_user, effects, reason=payload.reason
     )
-    from app.services.auto_match_outbox import enqueue_job
-
-    await enqueue_job(db, job_id=job_id, trigger="job_publish")
+    job_lifecycle.ensure_handoff_ready(
+        job, message=job_lifecycle.MSG_NOT_REOPENED, include_open=True
+    )
+    handoff = await job_lifecycle.handoff_core(db, job, payload, current_user, effects)
     await db.commit()
-    if status_changes:
-        await _sync_job_status_payload(job)
-    return {"status": "published", "job_id": job_id}
+    await job_lifecycle.run_post_commit(effects)
+    return {
+        "status": "published",
+        "job_id": job_id,
+        "recruiter_id": handoff.get("recruiter_id"),
+        "snapshot_id": effects.results.get("snapshot_id"),
+    }
 
 
 # ── Champion Profile (Phase 10) ─────────────────────────────────────────────
@@ -3650,300 +3251,39 @@ async def _save_champion_profile(
 ) -> dict:
     """Upsert Champion Profile (Delivery Lead / admin / zespół rekrutacji).
 
-    On a content change, notifies everyone assigned to the job
-    (``recruiter_id`` + ``job_collaborators``) minus the editor. Emits
-    both the standard ``notification`` WS event (for the bell badge) and
-    a dedicated ``champion_profile_changed`` event so any open editor
-    can refetch and show an inline "someone just updated this" banner.
+    Rdzeń zapisu (``job_lifecycle.save_champion_core``) robi wszystko bez
+    commitu; tu blokada wiersza, commit i efekty po commicie (przeliczenie
+    dopasowań, auto-match, WebSocket ``champion_profile_changed``). Rekrutacja
+    w pracy odmawia 422 ``handoff_regression`` przy zapisie, który zostawia
+    nowy brak bramki przekazania.
     """
-    from app.schemas.champion import ChampionProfile
-    from app.services import champion_view
-    from app.services.champion_job_sync import (
-        fill_job_columns_from_champion,
-        overwrite_edited_job_columns,
-    )
-    from app.services.job_matching_refresh import refresh_job_matching
-
     job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    await _ensure_delivery_lead_job_visible(job, current_user, db)
-    # Champion redaguje DL/admin oraz osoba prowadząca rekrutację i jej
-    # współpracownicy (decyzja 22.09.2026); TAC tylko we własnych ofertach.
-    await ensure_champion_job_editor(job, current_user, db)
-
-    from app.services.champion_intake import (
-        fingerprint,
-        response_context,
-        user_edit,
-        sync_selected_rubrics,
-        sync_skill_column,
+    effects = job_lifecycle.PostCommit()
+    await job_lifecycle.save_champion_core(
+        db,
+        job,
+        payload,
+        current_user,
+        effects,
+        imported=imported,
+        expected_fingerprint=expected_fingerprint,
+        sync_fields=sync_fields,
     )
-
-    if expected_fingerprint is not None and fingerprint(job) != expected_fingerprint:
-        logger.info("champion_import_conflict job_id=%s", job.id)
-        raise HTTPException(
-            409,
-            {
-                "message": "Rekrutacja zmieniła się. Sprawdź aktualne różnice.",
-                "champion_profile": _champion_response(job.champion_profile),
-                **response_context(job),
-            },
-        )
-    old_profile = dict(job.champion_profile or {})
-    normalized_old = ChampionProfile.model_validate(old_profile).model_dump(mode="json")
-    # Zły kształt albo typ sekcji w ładunku (np. `"basics": "x"`) = 422 po
-    # polsku, nie 500 z normalizacji (audyt 25.09.2026, r3).
-    from app.api.champion_intake import invalid_champion_profile
-
-    # Wiersze wymagań (02.10.2026): `stack.rows` jest źródłem, a `must`,
-    # `nice`, `critical` i `search.requirements` wyprowadza serwer — dalej
-    # zapis idzie tą samą drogą co zwykła edycja tych pól.
-    from app.services.champion_requirement_rows import expand_patch
-
-    payload = expand_patch(payload)
-    try:
-        new_profile = user_edit(
-            old_profile,
-            payload or {},
-            current_user.id,
-            imported=imported,
-            actor_name=(current_user.name or "").strip() or current_user.email,
-        )
-        profile = ChampionProfile.model_validate(new_profile)
-    except (ValueError, TypeError, AttributeError) as exc:
-        raise invalid_champion_profile(exc) from exc
-    # Explicit reconciliation can change recruitment columns even when the
-    # profile text stays the same; an empty selection performs no writes.
-    sync_selected_rubrics(job, new_profile, sync_fields or [])
-
-    # Sekcja 3 „Stack technologiczny" jest jedynym miejscem w profilu, które ma
-    # odpowiednik w KOLUMNACH oferty. Kolumny wygrywają wszędzie indziej
-    # (scoring, `requirement_map`, filtry wyszukiwarki), a są puste na ~88%
-    # ofert — więc nie zsynchronizowany stack byłby wpisany i niewidoczny dla
-    # wszystkiego, co naprawdę go czyta.
-    stack_must = [{"name": item.name, "level": None} for item in profile.stack.must]
-    stack_nice = [{"name": item.name, "level": None} for item in profile.stack.nice]
-    # Migawka kolumn, które czyta matching — po synchronizacji stacku widać,
-    # czy zapis zmienił coś poza treścią profilu (patrz `requirements_unchanged`).
-    matching_columns_before = deepcopy(
-        (job.must_skills, job.nice_skills, job.matching_requirements)
-    )
-    # Synchronizujemy, gdy edytor PRZYSŁAŁ sekcję `stack` — także wtedy, gdy
-    # przysłał ją pustą. Warunek `if stack_must:` sprawiał, że wyczyszczenie
-    # stacku w edytorze nigdy nie czyściło kolumn: Delivery Lead widział pustą
-    # sekcję, a scoring, filtry i mapa wymagań dalej czytały skasowane
-    # technologie. Payload BEZ sekcji `stack` nadal nie rusza kolumn — to
-    # odróżnia „wyczyściłem" od „nie dotykałem".
-    patch_stack = (payload or {}).get("stack")
-    if isinstance(patch_stack, dict) and patch_stack.get("critical"):
-        # Krytyczne wybiera się z MUST i tylko spośród technologii ze słownika
-        # (30.09.2026) — zły wybór = 422 po polsku, nic się nie zapisuje.
-        from app.services.critical_skills import critical_errors
-        from app.services.scoring_service import job_explicit_must_skills
-
-        must_names = [item.name for item in profile.stack.must] or list(
-            job_explicit_must_skills(job)
-        )
-        errors = critical_errors(profile.stack.critical or [], must_names)
-        if errors:
-            raise HTTPException(422, errors[0][1])
-    if "stack" in (payload or {}):
-        # Sam wybór krytycznych nie zmienia kolumn MUST/NICE rekrutacji.
-        stack_changed = champion_view.without_critical(
-            normalized_old["stack"]
-        ) != champion_view.without_critical(new_profile["stack"])
-        for key, items, column in (
-            ("must", stack_must, "must_skills"),
-            ("nice", stack_nice, "nice_skills"),
-        ):
-            empty_unreviewed = (
-                getattr(job, column) is None and job.matching_requirements is None
-            )
-            if (
-                (not imported and stack_changed)
-                or empty_unreviewed
-                or key in (sync_fields or [])
-            ):
-                sync_skill_column(job, key, items)
-
-    # Sekcja 1 „Podstawowe informacje" ma odpowiednik w KOLUMNACH oferty
-    # (`rate_budget_hourly`, `onsite_days_per_week`, `remote_policy`,
-    # `location` — 0278). Te napędzają dealbreakery i bramkę handoffu, a bez
-    # tej synchronizacji profil był dla nich martwy poza jednym ekranem
-    # (generator uzasadnień dopasowania). FILL_EMPTY: nigdy nie nadpisuje
-    # kolumny, która już ma wartość (ręczną albo z wcześniejszego zapisu
-    # Championa) — patrz docstring `fill_job_columns_from_champion`.
-    # Wyjątek (30.09.2026): pole sekcji 1 ZMIENIONE ręcznie w tym zapisie
-    # nadpisuje kolumnę — inaczej poprawka w edytorze nie docierała do
-    # rekrutacji (`overwrite_edited_job_columns`). Import z pliku zostaje przy
-    # FILL_EMPTY i jawnym „Uzgodnij”.
-    columns_filled = (
-        []
-        if imported
-        else overwrite_edited_job_columns(
-            job, normalized_old.get("basics") or {}, new_profile.get("basics") or {}
-        )
-    )
-    columns_filled += fill_job_columns_from_champion(job, profile.basics.model_dump())
-
-    # Diff na ZNORMALIZOWANYM starym profilu. Porównanie kształtu sprzed
-    # przebudowy z kształtem po niej zgłosiłoby zmianę każdej sekcji przy
-    # pierwszym zapisie każdej z 949 ofert — czyli lawinę powiadomień „Delivery
-    # Lead zmienił profil" o zmianie, której nie było.
-    fields_changed = diff_champion_profile(normalized_old, new_profile)
-    # Normalised on both sides, like the diff above: a stored intake written
-    # before a schema field existed (e.g. `advisory`) must not read as a change
-    # — that would turn every no-op save into a write plus a notification.
-    intake_changed = normalized_old.get("intake") != new_profile.get("intake")
-    # Zapis, który nie zmienia WYMAGAŃ roli — same notatki (sekcja 8), same
-    # wymagania do wyszukiwania w bazie (sekcja 2, czyta je wyłącznie „Szukaj
-    # ręcznie”) albo jedno i drugie — nie przelicza dopasowań i nie budzi
-    # automatów (nocny przegląd, auto-match). Odcisk rankingu, wektor oferty
-    # i kolumny rekrutacji zostają. Porównanie idzie po
-    # `champion_view.requirement_source` z kluczami pomijanymi przez odcisk
-    # rankingu (`RANKING_IGNORED_KEYS` — węższe niż `_NON_REQUIREMENT_KEYS`,
-    # więc np. zmiana `intake` nadal przelicza). Do rundy 3 audytu
-    # (25.09.2026) zwolnienie obejmowało tylko `["search"]`, więc samo
-    # odhaczenie notatki „do dopytania” unieważniało wszystkie wyniki.
-    # Treść profilu i tak się zapisuje, a zespół dostaje powiadomienie.
-    requirements_unchanged = (
-        not imported
-        and bool(fields_changed)
-        and not intake_changed
-        and not columns_filled
-        and not sync_fields
-        and deepcopy((job.must_skills, job.nice_skills, job.matching_requirements))
-        == matching_columns_before
-        and champion_view.requirement_source(
-            normalized_old, ignored=champion_view.RANKING_IGNORED_KEYS
-        )
-        == champion_view.requirement_source(
-            new_profile, ignored=champion_view.RANKING_IGNORED_KEYS
-        )
-    )
-    if not fields_changed and not imported and old_profile and not intake_changed:
-        # Brak zmiany TREŚCI profilu nie znaczy brak zmiany dla silnika
-        # matchingu: `columns_filled`/synchronizacja stacku żyją na `job`,
-        # niezależnie od `champion_profile`. `get_db` commituje sesję na
-        # wyjściu z handlera nawet bez tego jawnego commitu (kolumny by nie
-        # przepadły), ale re-embed + inwalidacja cache'u wyników NIE
-        # odpaliłyby się same — bez tego wypełnienie pustych kolumn nigdy
-        # nie dotarłoby do rankingu recruitera.
-        from app.services.job_working_title import refresh_working_title
-
-        title_changed = await refresh_working_title(db, job)
-        if columns_filled or sync_fields or "stack" in (payload or {}):
-            await db.commit()
-            await refresh_job_matching(job.id, db)
-        elif title_changed:
-            await db.commit()
-        return {
-            "job_id": job.id,
-            "champion_profile": _champion_response(job.champion_profile),
-            **response_context(job),
-        }
-
-    apply_requirement_source_update(job, "champion_profile", new_profile)
-    # 0380: tytuł dla rekrutera idzie za Championem, dopóki nikt go nie zmienił.
-    from app.services.job_working_title import refresh_working_title
-
-    await refresh_working_title(db, job)
-    db.add(
-        Activity(
-            entity_type="job",
-            entity_id=job_id,
-            action="champion_profile_updated",
-            user_id=current_user.id,
-        )
-    )
-
-    editor_name = (current_user.name or "Ktoś").strip() or "Ktoś"
-    sections_pl = summarize_sections(fields_changed)
-    title = "Profil Championa zaktualizowany"
-    message_text = (
-        f"{editor_name} zmienił {sections_pl} dla: {job.title}"
-        if sections_pl
-        else f"{editor_name} zaktualizował profil dla: {job.title}"
-    )
-    # Front zna zakładkę `champion`; `champion-profile` zostaje jako alias
-    # dla powiadomień zapisanych w bazie przed 09.2026.
-    link = f"/jobs/{job.id}?tab=champion"
-    recipients = await _champion_profile_recipients(
-        db, job, exclude_user_id=current_user.id, link=link
-    )
-
-    for recipient_id in recipients:
-        await create_notification(
-            db=db,
-            user_id=recipient_id,
-            title=title,
-            message=message_text,
-            notification_type=NotificationType.champion_profile_updated,
-            link=link,
-            related_entity_type="job",
-            related_entity_id=job.id,
-            dedupe_resurface=True,
-        )
-
     await db.commit()
+    # Odpowiedź (z odciskiem `fingerprint`) ze stanu PO zapisie — ten sam odczyt
+    # da następne żądanie, więc odcisk musi się z nim zgadzać.
     await db.refresh(job)
+    from app.services.champion_intake import response_context
 
-    # P0-A: a Champion edit changes both the embedding (semantic query) and the
-    # top-weighted scoring inputs — re-embed the job and invalidate cached match
-    # scores so the Delivery Lead's work actually reaches the recruiter's ranking
-    # (previously this write bypassed the refresh update_job does).
-    if not requirements_unchanged:
-        await refresh_job_matching(job.id, db)
-
-    # Zmiana Championa to istotna zmiana wymagań: opublikowana rekrutacja wraca
-    # do auto-matchu nowych CV i do nocnego pełnego przeglądu bazy (21.09.2026).
-    # Własna sesja, nigdy nie rzuca.
-    if job.status == JobStatus.published and not requirements_unchanged:
-        from app.services.auto_match_outbox import enqueue_job_safe
-
-        await enqueue_job_safe(job.id)
-
-    now_iso = datetime.now(timezone.utc).isoformat()
-    bell_event = {
-        "type": "notification",
-        "data": {
-            "title": title,
-            "message": message_text,
-            "link": link,
-            "notification_type": NotificationType.champion_profile_updated.value,
-            "related_entity_type": "job",
-            "related_entity_id": job.id,
-            "created_at": now_iso,
-        },
-    }
-    live_event = {
-        "type": "champion_profile_changed",
-        "data": {
-            "job_id": job.id,
-            "updated_by_user_id": current_user.id,
-            "updated_by_name": editor_name,
-            "updated_at": now_iso,
-            "fields_changed": fields_changed,
-        },
-    }
-    for recipient_id in recipients:
-        try:
-            await ws_manager.notify_user(recipient_id, bell_event)
-            await ws_manager.notify_user(recipient_id, live_event)
-        except Exception as e:  # pragma: no cover — WS push must never 500 the write
-            logger.warning(
-                "[Champion Profile] WS notify failed user=%s job=%s: %s",
-                recipient_id,
-                job.id,
-                e,
-            )
-
-    return {
+    response = {
         "job_id": job.id,
         "champion_profile": _champion_response(job.champion_profile),
         **response_context(job),
     }
+    await job_lifecycle.run_post_commit(effects)
+    return response
 
 
 # ── "Przekaż do searchu" — DL handoff that starts matching (P0-A) ────────────
@@ -3980,15 +3320,20 @@ async def get_job_readiness(
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
 
-    blockers = _compute_job_readiness(job)
     # Zamknięta rekrutacja nie jest „niegotowa" — jej się po prostu nie
     # przekazuje. Lustro guardu 409 w samym handoffie; bez tego przycisk
-    # wyglądałby na możliwy do odblokowania uzupełnieniem Championa.
+    # wyglądałby na możliwy do odblokowania uzupełnieniem Championa. Braki
+    # liczymy i dla niej (04.10.2026): okno „Otwórz ponownie” przechodzi tę
+    # samą bramkę z pytaniami liczonymi także przy ``is_open``.
     is_closed = job.status == JobStatus.closed
+    blocker_items = job_handoff_blocker_items(job, include_open=is_closed)
+    blockers = [item["message"] for item in blocker_items]
     return {
         "job_id": job.id,
         "ready": not blockers and not is_closed,
         "blockers": blockers,
+        # Te same braki z kodami (klucze lustra frontu + `champion:<kod>`).
+        "blocker_items": blocker_items,
         "closed": is_closed,
         "already_handed_off": job.is_open,
         "allocation_enabled": settings.RECRUITMENT_ALLOCATION_ENABLED,
@@ -4001,23 +3346,6 @@ async def get_job_readiness(
 
 # Jedna reguła dla gotowości, odmowy 409 i `/jobs/new` (`handoff-options`).
 _allocation_mode = effective_allocation_mode
-
-
-async def _queue_handoff_ranking(
-    job_id: int,
-    *,
-    top_k: int,
-    created_by: int,
-    background_tasks: BackgroundTasks,
-) -> int:
-    """Migawka dopasowań po przekazaniu do searchu — liczona w tle, po commicie."""
-    snapshot_id = await create_pending_snapshot(
-        job_id, top_k=top_k, source=SOURCE_HANDOFF, created_by=created_by
-    )
-    background_tasks.add_task(
-        compute_proposal_for_job, snapshot_id, job_id, top_k=top_k
-    )
-    return snapshot_id
 
 
 @router.post("/{job_id}/handoff", status_code=202)
@@ -4064,142 +3392,15 @@ async def handoff_job_to_search(
             },
         )
 
-    top_k = payload.top_k or settings.MATCH_MAX_RESULTS
-    if payload.assignment_mode == "automatic":
-        if not settings.RECRUITMENT_ALLOCATION_ENABLED:
-            raise HTTPException(409, "Automatyczny przydział nie jest jeszcze włączony")
-        # Tryb `off`: pętla nikogo nie zaproponuje ani nie przydzieli, więc
-        # request stałby w „Szukamy” bez rekrutera i bez sygnału dla kogokolwiek.
-        if await _allocation_mode(db) == "off":
-            raise HTTPException(
-                409,
-                "Automat przydziału jest wyłączony — wybierz rekrutera ręcznie.",
-            )
-        if job.recruiter_id is not None:
-            raise HTTPException(409, "Rekrutacja ma już rekrutera; zmień go ręcznie")
-        job.is_open = True
-        job.needs_sourcing = True
-        job.favorite_sourcing_paused = False
-        # 0371: przydział robi automat na „Szukamy kandydatów” — codzienny
-        # przegląd i przegląd po zdarzeniu (services/request_allocation), bez
-        # jednorazowej kolejki `recruitment_allocation_requests`.
-        await set_work_state(
-            db, job, "searching", actor_id=current_user.id, reason="handoff"
-        )
-        db.add(
-            Activity(
-                entity_type="job",
-                entity_id=job_id,
-                action="handed_off_to_search",
-                user_id=current_user.id,
-                details={"assignment_mode": "automatic"},
-            )
-        )
-        await db.commit()
-        # Ranking jak w gałęzi ręcznej (02.10.2026): do tej pory przekazanie
-        # „automatowi” nie liczyło dopasowań ani nie zostawiało śladu
-        # w historii, więc osoba zaakceptowana później zastawała pustą listę.
-        snapshot_id = await _queue_handoff_ranking(
-            job.id,
-            top_k=top_k,
-            created_by=current_user.id,
-            background_tasks=background_tasks,
-        )
-        return {
-            "status": "queued",
-            "job_id": job.id,
-            "recruiter_id": None,
-            "snapshot_id": snapshot_id,
-            "allocation_request_id": None,
-        }
-    if payload.recruiter_id is None:
-        raise HTTPException(422, "Wybierz rekrutera albo przydział automatyczny")
-
-    recruiter = await db.scalar(select(User).where(User.id == payload.recruiter_id))
-    if recruiter is None or not recruiter.is_active:
-        raise HTTPException(
-            status_code=422,
-            detail="Wybrany rekruter nie istnieje lub jest nieaktywny.",
-        )
-    if not recruiter.has_any_role(*_HANDOFF_RECRUITER_ROLES):
-        raise HTTPException(
-            status_code=422,
-            detail="Wybrany użytkownik nie może prowadzić rekrutacji.",
-        )
-
-    previous_owner_id = job.recruiter_id
-    await assign_operator(
-        db,
-        job=job,
-        assignee=recruiter,
-        channel=PriorityChannel(payload.channel),
-        actor_user_id=current_user.id,
-        source="manual_handoff",
-        as_owner=True,
-    )
-    job.is_open = True
-    job.needs_sourcing = True
-    job.favorite_sourcing_paused = False
-    await set_work_state(
-        db, job, "searching", actor_id=current_user.id, reason="handoff"
-    )
-    # Ponowne przekazanie innej osobie zastępuje rekrutera jak `/owner`:
-    # bez tego poprzednia osoba z aktywnym przypisaniem zostawałaby
-    # „Rekruterem” obok nowej. Po `set_work_state` — request jest już w puli.
-    await _sync_work_assignments_with_owner(
-        db,
-        job=job,
-        previous_owner_id=previous_owner_id,
-        owner=recruiter,
-        actor_id=current_user.id,
-    )
-    db.add(
-        Activity(
-            entity_type="job",
-            entity_id=job_id,
-            action="handed_off_to_search",
-            user_id=current_user.id,
-        )
-    )
-    # Osoba wskazana ręcznie dowiaduje się od razu (04.10.2026) — do tej pory
-    # dzwonek wychodził tylko przy przydziale przez automat i akceptacji
-    # propozycji, a rekruter wskazany w „Przekaż do searchu” nie wiedział,
-    # że dostał rekrutację. Bez dzwonka dla siebie i przy ponowieniu
-    # przekazania tej samej osobie.
-    if recruiter.id not in (current_user.id, previous_owner_id):
-        from app.models.client import Client  # noqa: PLC0415
-        from app.services.job_working_title import display_title  # noqa: PLC0415
-        from app.services.request_allocation_notices import (  # noqa: PLC0415
-            notify_assigned,
-        )
-
-        client_name = (
-            await db.scalar(select(Client.name).where(Client.id == job.client_id))
-            if job.client_id is not None
-            else None
-        )
-        await notify_assigned(
-            db,
-            job_id=job.id,
-            title=display_title(job),
-            client_name=client_name,
-            user_id=recruiter.id,
-        )
+    effects = job_lifecycle.PostCommit(background_tasks)
+    result = await job_lifecycle.handoff_core(db, job, payload, current_user, effects)
+    # Rekrutacja bez szkiców (04.10.2026): stary szkic przekazany do searchu
+    # jest od razu publikowany.
+    if job.status != JobStatus.published:
+        await job_lifecycle.publish_core(db, job, current_user, effects)
     await db.commit()
-
-    snapshot_id = await _queue_handoff_ranking(
-        job.id,
-        top_k=top_k,
-        created_by=current_user.id,
-        background_tasks=background_tasks,
-    )
-
-    return {
-        "status": "handed_off",
-        "job_id": job.id,
-        "recruiter_id": recruiter.id,
-        "snapshot_id": snapshot_id,
-    }
+    await job_lifecycle.run_post_commit(effects)
+    return {**result, "snapshot_id": effects.results.get("snapshot_id")}
 
 
 # ── Champion Profile two-sided verification ─────────────────────────────────

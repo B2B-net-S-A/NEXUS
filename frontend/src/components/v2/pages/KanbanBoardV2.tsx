@@ -2503,10 +2503,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  [dockItem, dockItemColId, stageCols, requestMove, showError]
  );
 
- const handleDockReject = useCallback(() => {
+ const handleDockReject = useCallback(
+ (options?: { notes?: string | null }) => {
  if (!dockItem || !dockItemColId || !rejectedTemplateCol) return;
- requestReject(dockItem, rejectedTemplateCol);
- }, [dockItem, dockItemColId, rejectedTemplateCol, requestReject]);
+ requestReject(dockItem, rejectedTemplateCol, { notes: options?.notes ?? null });
+ },
+ [dockItem, dockItemColId, rejectedTemplateCol, requestReject]
+ );
  const handleDockWithdraw = useCallback(() => {
  if (!dockItem) return;
  move.requestWithdraw(dockItem);
@@ -2559,6 +2562,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // 0413: braki karty rekomendacji — cała karta w oknie.
  suspendMoveNext();
  setCardFor({ candidateId: item.candidate_id, name });
+ return;
+ case "reject":
+ // Odpowiedź narusza „Odpada, gdy…" — okno odrzucenia z notatką od
+ // serwera (które pytanie i co padło). Ruch „Przesuń mimo to" zostaje.
+ moveNextSuspended.current = false;
+ setMoveNextOpen(false);
+ setMoveNext(null);
+ requestReject(item, rejectedTemplateCol, { notes: action.note ?? null });
  return;
  case "set_candidate_rate": {
  // Stawkę kandydata zapisuje ruch na „Zweryfikowany" (okno stawki
@@ -2622,7 +2633,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return;
  }
  },
- [suspendMoveNext, boardFold, cols, requestMove, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots, openDlReviewIfSending]
+ [suspendMoveNext, boardFold, cols, requestMove, requestReject, rejectedTemplateCol, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots, openDlReviewIfSending]
  );
  const handleMoveNextMove = useCallback(
  (target: KanbanColumn) => {

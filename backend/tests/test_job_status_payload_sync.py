@@ -16,6 +16,7 @@ from sqlalchemy import update
 
 from app.core.database import AsyncSessionLocal
 from app.models.client import Client
+from tests._job_factory import complete_job_payload, new_recruiter
 from app.models.job import Job
 
 pytestmark = pytest.mark.asyncio
@@ -29,12 +30,9 @@ async def _job(app_client: AsyncClient, headers: dict, *, embedded: bool) -> int
         client_id = cli.id
     resp = await app_client.post(
         "/api/jobs",
-        json={
-            "title": f"r8-n11-2-{uuid.uuid4().hex[:6]}",
-            "recruitment_type": "body_leasing",
-            "work_mode": "fulltime",
-            "client_id": client_id,
-        },
+        json=await complete_job_payload(
+            client_id, title=f"r8-n11-2-{uuid.uuid4().hex[:6]}", work_mode="fulltime"
+        ),
         headers=headers,
     )
     assert resp.status_code in (200, 201), resp.text
@@ -76,8 +74,12 @@ async def test_close_then_publish_rewrites_the_status_payload(
     assert resp.status_code == 200, resp.text
     assert payload_writes[-1] == {job_id: "closed"}
 
+    # „Otwórz ponownie” (04.10.2026): ponowne otwarcie niesie przekazanie
+    # do searchu i przechodzi bramkę braków.
     resp = await app_client.post(
-        f"/api/jobs/{job_id}/publish", headers=app_auth_headers
+        f"/api/jobs/{job_id}/publish",
+        json={"assignment_mode": "manual", "recruiter_id": await new_recruiter()},
+        headers=app_auth_headers,
     )
     assert resp.status_code == 200, resp.text
     assert payload_writes[-1] == {job_id: "published"}

@@ -208,9 +208,10 @@ async def test_delivery_lead_keeps_full_edit(app_client, world):
     resp = await app_client.patch(
         f"/api/jobs/{world['job_id']}",
         headers=world["dl"],
-        json={"description": "Opis od DL", "status": "draft"},
+        json={"description": "Opis od DL", "status": "closed"},
     )
     assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "closed"
 
 
 @pytest.mark.asyncio

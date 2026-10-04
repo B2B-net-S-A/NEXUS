@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import type { RecommendationCard } from "@/lib/api/recommendationCards";
 
 import { RecommendationCardForm } from "../RecommendationCardDialog";
-import { RecommendationCardView } from "../RecommendationCardView";
+import { RecommendationCardQuestions, RecommendationCardView } from "../RecommendationCardView";
 
 const LABELS = {
   rate: "Stawka",
@@ -130,5 +130,46 @@ describe("RecommendationCardForm", () => {
     expect(screen.getByText(/Imię i nazwisko: Tomasz Wzorcowy/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Kopiuj/ }));
     expect(onCopy).toHaveBeenCalled();
+  });
+});
+
+describe("RecommendationCardQuestions — „Odpada, gdy…”", () => {
+  const withDealBreakers = {
+    ...CARD,
+    questions: [
+      {
+        number: 1,
+        question: "Java 17+?",
+        answer: "Java 21 w banku.",
+        source: "sheet" as const,
+        question_id: "q1",
+        deal_breaker: "nie pracował z Javą 17+",
+        deal_breaker_hit: false,
+      },
+      {
+        number: 2,
+        question: "Biuro 2 dni?",
+        answer: "Tylko zdalnie.",
+        source: "note" as const,
+        question_id: "q2",
+        deal_breaker: "nie przyjedzie do biura",
+        deal_breaker_hit: false,
+      },
+    ],
+  };
+
+  it("pole wyboru stoi tylko przy odpowiedzi z arkusza — notatka nie trafia do arkusza", () => {
+    const onChange = vi.fn();
+    render(
+      <RecommendationCardQuestions
+        card={withDealBreakers}
+        editable
+        onDealBreakerHitChange={onChange}
+      />,
+    );
+
+    expect(screen.getByText("Odpada, gdy: nie pracował z Javą 17+")).toBeInTheDocument();
+    expect(screen.getByText("Odpada, gdy: nie przyjedzie do biura")).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
   });
 });

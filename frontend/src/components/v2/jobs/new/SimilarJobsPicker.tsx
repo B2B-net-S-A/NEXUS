@@ -33,12 +33,15 @@ export function SimilarJobsPicker({
   must,
   clientId = null,
   onChange,
+  initialSelected,
 }: {
   title: string;
   must: string[];
   /** Klient szkicu — ta sama firma jest wyżej w rankingu wektorowym. */
   clientId?: number | null;
   onChange: (jobIds: number[]) => void;
+  /** Zaznaczenie z wznowionego formularza (wybrał je człowiek wcześniej). */
+  initialSelected?: readonly number[];
 }) {
   const input = useDebouncedValue(
     useMemo(
@@ -55,7 +58,7 @@ export function SimilarJobsPicker({
     staleTime: 60_000,
   });
   // Start zawsze pusty — patrz komentarz na górze pliku.
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [selected, setSelected] = useState<Set<number>>(() => new Set(initialSelected ?? []));
   // Stabilna tożsamość — `?? []` tworzyłoby nową tablicę w każdym renderze
   // i efekt `onChange` niżej kręciłby się bez końca.
   const items = useMemo(() => query.data ?? [], [query.data]);

@@ -71,6 +71,7 @@ import {
   type CandidateChoice,
 } from "@/components/calendar/CandidateCombobox";
 import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
+import { jobGateErrorText, jobGateRefusal } from "@/lib/job-gate-errors";
 import { OfficeDaysField } from "@/components/jobs/OfficeDaysField";
 import {
   officeDaysFields,
@@ -1575,6 +1576,59 @@ function jobHiringManager(j: any): HiringManagerChoice | null {
     : null;
 }
 
+/**
+ * Status w oknie edycji (04.10.2026, „Rekrutacja bez szkiców”): rekrutację
+ * w pracy da się tu tylko zamknąć. Zamkniętą otwiera „Otwórz ponownie”,
+ * a stary szkic kończy „Dokończ i opublikuj” — oba przechodzą bramkę
+ * przekazania (`POST /publish`), więc nie są zwykłą zmianą statusu.
+ */
+function JobStatusField({
+  originalStatus,
+  value,
+  onChange,
+  jobId,
+  onRequestPublish,
+}: {
+  originalStatus: string;
+  value: string;
+  onChange: (value: string) => void;
+  jobId: number;
+  onRequestPublish?: () => void;
+}) {
+  if (originalStatus === "published") {
+    return (
+      <FieldGroup label="Status">
+        <Select value={value} onChange={e => onChange(e.target.value)}>
+          <option value="published">W pracy</option>
+          <option value="closed">Zamknięta</option>
+        </Select>
+      </FieldGroup>
+    );
+  }
+  const closed = originalStatus === "closed";
+  const actionLabel = closed ? "Otwórz ponownie" : "Dokończ i opublikuj";
+  const actionClass = "text-xs font-medium text-primary hover:underline";
+  return (
+    <div>
+      <span className="block text-xs font-medium text-muted-foreground mb-1">Status</span>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-h-10">
+        <span className="text-sm text-foreground" data-testid="job-status-readonly">
+          {closed ? "Zamknięta" : "Szkic (do dokończenia)"}
+        </span>
+        {onRequestPublish ? (
+          <button type="button" className={actionClass} onClick={onRequestPublish}>
+            {actionLabel}
+          </button>
+        ) : (
+          <a className={actionClass} href={`/jobs/${jobId}?reopen=1`}>
+            {actionLabel}
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function JobFormFields({
   form,
   onChange,
@@ -1582,9 +1636,14 @@ function JobFormFields({
   users,
   hiringManager,
   onHiringManagerChange,
+  hiringManagerNotProvided,
+  onHiringManagerNotProvidedChange,
   collaborators,
   onCollaboratorsChange,
   knownCollaborators,
+  jobId,
+  originalStatus,
+  onRequestPublish,
 }: {
   form: JobFormData;
   onChange: (k: keyof JobFormData, v: string) => void;
@@ -1592,9 +1651,14 @@ function JobFormFields({
   users: any[];
   hiringManager: HiringManagerChoice | null;
   onHiringManagerChange: (value: HiringManagerChoice | null) => void;
+  hiringManagerNotProvided: boolean;
+  onHiringManagerNotProvidedChange: (value: boolean) => void;
   collaborators: number[];
   onCollaboratorsChange: (ids: number[]) => void;
   knownCollaborators?: ReadonlyArray<{ id: number; name?: string | null }>;
+  jobId: number;
+  originalStatus: string;
+  onRequestPublish?: () => void;
 }) {
   const hiringManagerLabelId = useId();
   // 22.09.2026 (strona `/jobs/new`): TAC, Program/Train, typ rekrutacji,
@@ -1638,13 +1702,13 @@ function JobFormFields({
         </Select>
       </FieldGroup>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <FieldGroup label="Status">
-          <Select value={form.status} onChange={e => onChange("status", e.target.value)}>
-            <option value="draft">Draft</option>
-            <option value="published">Opublikowana</option>
-            <option value="closed">Zamknięta</option>
-          </Select>
-        </FieldGroup>
+        <JobStatusField
+          originalStatus={originalStatus}
+          value={form.status}
+          onChange={v => onChange("status", v)}
+          jobId={jobId}
+          onRequestPublish={onRequestPublish}
+        />
         <FieldGroup label="Deadline">
           <Input type="date" value={form.deadline} onChange={e => onChange("deadline", e.target.value)} />
         </FieldGroup>
@@ -1750,6 +1814,11 @@ function JobFormFields({
           value={hiringManager}
           onChange={onHiringManagerChange}
           labelledBy={hiringManagerLabelId}
+          notProvided={hiringManagerNotProvided}
+          onNotProvidedChange={(checked) => {
+            onHiringManagerNotProvidedChange(checked);
+            if (checked) onHiringManagerChange(null);
+          }}
         />
       </div>
     </>
@@ -1822,15 +1891,25 @@ export function EditJobModal({
   onClose,
   onSuccess,
   scope = "full",
+  onRequestPublish,
 }: {
   job: any;
   onClose: () => void;
   onSuccess: (msg: string) => void;
   scope?: "full" | "content";
+  /**
+   * „Otwórz ponownie” / „Dokończ i opublikuj” przy zamkniętej rekrutacji albo
+   * starym szkicu — strona rekrutacji zamyka okno i otwiera `JobReopenDialog`.
+   * Bez propsa link prowadzi do `/jobs/{id}?reopen=1`.
+   */
+  onRequestPublish?: () => void;
 }) {
   const [form, setForm] = useState<JobFormData>(() => jobToForm(job));
   const [hiringManager, setHiringManager] = useState<HiringManagerChoice | null>(
     () => jobHiringManager(job),
+  );
+  const [hmNotProvided, setHmNotProvided] = useState<boolean>(
+    () => job.hiring_manager_not_provided === true && !jobHiringManager(job),
   );
   // 0380: numer u klienta i tytuł dla rekrutera — osobny szkic, bo PATCH
   // wysyła je tylko po zmianie (pusty tytuł = powrót do automatu).
@@ -1881,6 +1960,7 @@ export function EditJobModal({
         // Hiring manager to osoba z firmy klienta — przy zmianie klienta
         // znika (serwer robi to samo, `update_job`).
         setHiringManager(null);
+        setHmNotProvided(false);
         return {
           ...current,
           client_id: v,
@@ -1925,7 +2005,10 @@ export function EditJobModal({
       await api.patch(`/api/jobs/${job.id}`, {
         title: form.title,
         client_id: form.client_id ? Number(form.client_id) : undefined,
-        status: form.status,
+        // Status jedzie TYLKO przy zamknięciu (04.10.2026): szkic nie istnieje
+        // (422 `draft_not_allowed`), a otwarcie idzie przez „Otwórz ponownie”
+        // (409 `reopen_required`). Pozostałe zapisy nie dotykają statusu.
+        ...(form.status === "closed" && job.status !== "closed" ? { status: "closed" } : {}),
         description: form.description || undefined,
         requirements: form.requirements || undefined,
         location: form.location || undefined,
@@ -1954,11 +2037,13 @@ export function EditJobModal({
       // Hiring manager i kolejne osoby to dwa niezależne zapisy po
       // rekrutacji — błąd jednego nie może pominąć drugiego.
       const failures: string[] = [];
-      if (!sameChoice(hiringManager, jobHiringManager(job))) {
+      const hmNotProvidedChanged =
+        hmNotProvided && !(job.hiring_manager_not_provided === true && !jobHiringManager(job));
+      if (hmNotProvidedChanged || !sameChoice(hiringManager, jobHiringManager(job))) {
         try {
-          await saveHiringManager(job.id, hiringManager);
+          await saveHiringManager(job.id, hiringManager, hmNotProvided);
         } catch (err: any) {
-          failures.push(`hiring manager nie (${formErrorMsg(err, "błąd zapisu")})`);
+          failures.push(`hiring manager nie (${jobGateErrorText(err, "błąd zapisu")})`);
         }
       }
       const collaboratorFailure = await saveCollaborators(
@@ -1972,7 +2057,13 @@ export function EditJobModal({
       onSuccess("Rekrutacja zaktualizowana");
       onClose();
     } catch (err: any) {
-      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
+      // Odmowy bramki (`handoff_regression`, `draft_not_allowed`,
+      // `reopen_required`) niosą braki — pokazujemy je razem ze zdaniem.
+      setError(
+        jobGateRefusal(err)
+          ? jobGateErrorText(err, "Błąd podczas zapisywania")
+          : formErrorMsg(err, "Błąd podczas zapisywania"),
+      );
     } finally { setSaving(false); }
   };
 
@@ -2010,9 +2101,21 @@ export function EditJobModal({
               users={users}
               hiringManager={hiringManager}
               onHiringManagerChange={setHiringManager}
+              hiringManagerNotProvided={hmNotProvided}
+              onHiringManagerNotProvidedChange={setHmNotProvided}
               collaborators={collaborators}
               onCollaboratorsChange={setCollaborators}
               knownCollaborators={job.collaborators}
+              jobId={job.id}
+              originalStatus={job.status ?? "draft"}
+              onRequestPublish={
+                onRequestPublish
+                  ? () => {
+                      onClose();
+                      onRequestPublish();
+                    }
+                  : undefined
+              }
             />
             <JobNamesFields job={job} names={names} onChange={setNames} />
           </>

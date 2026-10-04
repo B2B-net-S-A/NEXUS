@@ -929,7 +929,7 @@ CV_REQUIREMENT_MAP = PromptTemplate(
 
 JOB_REQUEST_INTAKE = PromptTemplate(
     name="job_request_intake",
-    version=10,
+    version=11,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
@@ -944,8 +944,8 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "screeningowe z odpowiedziami, pytania do klienta) możesz przygotować "
         'sam — oznacz basis: "request" (wprost z maila), "client_history" '
         '(z kontekstu klienta) albo "ai" (twoja propozycja). '
-        "(3) Pola quote, evidence, rate_quote, client_title, client_reference "
-        "i hiring_manager_* to DOSŁOWNE fragmenty tekstu "
+        "(3) Pola quote, evidence, rate_quote, client_title, client_reference, "
+        "deadline_quote, headcount_quote i hiring_manager_* to DOSŁOWNE fragmenty tekstu "
         "requestu (kopiuj znak w znak, bez zmian). "
         "(4) Nie wymieniaj żadnych osób z imienia ani nazwiska — z JEDNYM "
         "wyjątkiem: pola hiring_manager_* opisują osobę po stronie klienta, "
@@ -982,6 +982,11 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         '  "onsite_days_per_month": int|null, // dni w biurze w MIESIĄCU, gdy klient liczy na miesiąc ("raz w miesiącu" = 1, "2 dni w miesiącu" = 2); wtedy onsite_days_per_week = null\n'
         '  "office_cities": [str],            // WSZYSTKIE miasta biura, zawsze po polsku, np. ["Gdańsk", "Warszawa"]\n'
         '  "start_date": str|null,            // RRRR-MM-DD, tylko gdy podana konkretna data\n'
+        '  "deadline_quote": str|null,        // DOSŁOWNY fragment z terminem odpowiedzi/przesłania CV, np. "CV prosimy przesłać do 17.10 do godz. 12:00"\n'
+        '  "deadline": str|null,              // sama data DOKŁADNIE tak, jak stoi w deadline_quote, np. "17.10", "17 października", "17.10.2026"; null przy "ASAP", "jak najszybciej"\n'
+        '  "deadline_time": str|null,         // godzina terminu jako "HH:MM", tylko gdy podana w deadline_quote\n'
+        '  "headcount_quote": str|null,       // DOSŁOWNY fragment mówiący, ilu osób klient szuka, np. "szukamy dwóch testerów"\n'
+        '  "headcount": int|null,             // liczba osób z headcount_quote (1–50); null, gdy mail jej nie podaje\n'
         '  "language": str|null,              // język pracy wymagany od kandydata, np. "PL, EN B2"\n'
         '  "contract_length": str|null,       // długość projektu, np. "6 miesięcy z przedłużeniem"\n'
         '  "experience": {{                   // DOŚWIADCZENIE POZA STACKIEM — tylko z maila, z cytatem\n'
@@ -1054,6 +1059,10 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "robił tego w działającym systemie.”, „Stawka powyżej budżetu bez zgody "
         "na rozmowę.”). Oba pola są propozycją dla Delivery Leada — nie zostawiaj "
         "ich pustych.\n\n"
+        "Termin (deadline) to dzień, do którego klient chce dostać kandydatów "
+        "albo CV — NIE start projektu (to start_date). Rok wpisz tylko, gdy stoi "
+        "w mailu. Liczba osób (headcount) tylko wtedy, gdy mail mówi, ilu osób "
+        "klient szuka; jedna osoba bez słowa o liczbie to null.\n\n"
         "Pytania do klienta (ask_client): konkretne, krótkie — o brakujący budżet, "
         "tryb pracy, liczbę etapów rekrutacji, kto decyduje, wielkość zespołu, termin "
         "startu. Pomiń to, co mail już mówi."
@@ -1318,7 +1327,7 @@ ACADEMY_SCREENING = PromptTemplate(
 
 APPLICATION_SCREENING = PromptTemplate(
     name="application_screening",
-    version=1,
+    version=2,
     expected_format="json",
     system_prompt=(
         "Czytasz CV osoby, która sama zgłosiła się na ogłoszenie rekrutacji IT. "
@@ -1336,7 +1345,12 @@ APPLICATION_SCREENING = PromptTemplate(
         "CV pokazuje doświadczenie z zupełnie innej dziedziny albo brak "
         "doświadczenia w tej roli; 'unclear' — w każdym innym przypadku, także "
         "gdy CV jest krótkie albo niejasne. W razie wątpliwości wybierz "
-        "'unclear'. Zdania po polsku. Odpowiadasz wyłącznie JSON-em."
+        "'unclear'. Zdania po polsku. Odpowiadasz wyłącznie JSON-em. "
+        "Gdy rekrutacja ma listę „Odpada, gdy:”, sprawdź, czy CV WPROST łamie "
+        "któryś z tych warunków. Jeśli tak — wpisz w deal_breaker ten warunek "
+        "dokładnie tak, jak stoi na liście, i dosłowny cytat z CV, który to "
+        "pokazuje. Jeśli nie ma takiego cytatu albo CV o tym milczy — null. "
+        "To nie zmienia werdyktu."
     ),
     template=(
         "{job}\n\n{cv}\n\n"
@@ -1345,7 +1359,9 @@ APPLICATION_SCREENING = PromptTemplate(
         '  "verdict": "fits|unclear|not_fit",\n'
         '  "reasons": [\n'
         '    {{"text": "jedno zdanie po polsku", "quote": "dosłowny cytat z CV"}}\n'
-        "  ]\n"
+        "  ],\n"
+        '  "deal_breaker": {{"condition": "warunek z listy Odpada, gdy", '
+        '"quote": "dosłowny cytat z CV"}} | null\n'
         "}}\n\n"
         "Najwyżej 4 powody, najważniejsze pierwsze."
     ),

@@ -503,6 +503,23 @@ def _shape_board_tasks(data: Any, _args: dict[str, Any]) -> Any:
             "count": len(rows),
             "items": [pick(r, _BOARD_TASK_ROW) for r in rows[:10]],
         }
+    # 04.10.2026: rekrutacje do dokończenia i niedokończone formularze —
+    # same liczby i tytuły (pełne braki widać na pulpicie).
+    pending = data.get("pending_jobs")
+    if isinstance(pending, dict):
+        items = [r for r in pending.get("items") or [] if isinstance(r, dict)]
+        out["pending_jobs"] = {
+            "znaczenie": "rekrutacje do dokończenia (stare szkice, bez przekazania)",
+            "count": len(items),
+            "autoclose_on": pending.get("autoclose_on"),
+            "items": [pick(r, ("job_id", "title", "kind")) for r in items[:10]],
+        }
+    forms = [r for r in data.get("unfinished_forms") or [] if isinstance(r, dict)]
+    if forms:
+        out["unfinished_forms"] = {
+            "znaczenie": "Twoje niedokończone formularze „Nowa rekrutacja”",
+            "count": len(forms),
+        }
     return trim(out)
 
 

@@ -408,7 +408,15 @@ async def _dispatch_emails(db: AsyncSession) -> int:
 
 
 async def run_once() -> dict:
-    """Jeden przebieg: creation + email dispatch. Zwraca summary dict."""
+    """Jeden przebieg: creation + email dispatch. Zwraca summary dict.
+
+    Przed alertami: jednorazowe zamknięcie starych szkiców 7 dni po wdrożeniu
+    rekrutacji bez szkiców (`services/legacy_draft_autoclose.py`) — niezależnie
+    od wyłącznika alertów, pod blokadą doradczą, nigdy nie rzuca.
+    """
+    from app.services.legacy_draft_autoclose import run_once_safely
+
+    await run_once_safely()
     if not settings.JOB_DEADLINE_ALERTS_ENABLED:
         return {"enabled": False, "created": 0, "emails_sent": 0}
 

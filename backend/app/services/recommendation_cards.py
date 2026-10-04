@@ -45,6 +45,7 @@ from app.services.recommendation_card_rules import (  # noqa: F401 — jedno wej
     LABELS,
     REQUIRED_FIELDS,
     NoteInput,
+    attach_deal_breakers,
     completeness,
     current_answers,
     is_current,

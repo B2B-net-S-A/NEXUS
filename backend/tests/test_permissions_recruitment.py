@@ -53,6 +53,7 @@ from app.models.user import User, UserRole
 from app.schemas.job import JobManageInNexusRequest
 from app.services import permission_catalog as catalog
 from app.services import pipeline_move_rules as rules
+from tests._job_factory import complete_job_payload
 from tests._permission_grants import grant_permissions, role_permission
 
 RM = "recruitment_manage"
@@ -521,10 +522,11 @@ async def test_granted_recruiter_runs_the_recruitment_lifecycle(
     app_client: AsyncClient,
 ) -> None:
     headers, user_id = await _seed_user(app_client, "recruiter")
-    payload = {
-        "title": f"Perm RM {uuid.uuid4().hex[:6]}",
-        "client_id": await _seed_client(),
-    }
+    # Rekrutacja bez szkiców (04.10.2026): komplet — utworzenie = przekazanie
+    # do searchu = publikacja.
+    payload = await complete_job_payload(
+        await _seed_client(), title=f"Perm RM {uuid.uuid4().hex[:6]}"
+    )
 
     _assert_named_denial(
         await app_client.post("/api/jobs", headers=headers, json=payload)
@@ -541,6 +543,9 @@ async def test_granted_recruiter_runs_the_recruitment_lifecycle(
     assert created.status_code == 201, created.text
     job_id = created.json()["id"]
 
+    assert created.json()["status"] == "published"
+    assert created.json()["is_open"] is True
+    # Rekrutacja w pracy: „Otwórz ponownie” nic nie zmienia.
     published = await app_client.post(f"/api/jobs/{job_id}/publish", headers=headers)
     assert published.status_code == 200, published.text
     assert published.json()["status"] == "published"
@@ -601,10 +606,9 @@ async def test_delivery_lead_without_the_permission_edits_content_only(
     headers, lead_id = await _seed_user(app_client, "delivery_lead")
     job_id = await _seed_job(recruiter_id=lead_id)
     candidate_id = await _seed_candidate()
-    new_job = {
-        "title": f"Perm RM {uuid.uuid4().hex[:6]}",
-        "client_id": await _seed_client(),
-    }
+    new_job = await complete_job_payload(
+        await _seed_client(), title=f"Perm RM {uuid.uuid4().hex[:6]}"
+    )
     send = {
         "candidate_id": candidate_id,
         "job_id": job_id,

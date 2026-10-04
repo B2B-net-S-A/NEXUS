@@ -3953,12 +3953,11 @@ template” → `/jobs/new?from=<id>`) prowadzi na stronę.
   `services/job_request_intake.missing_fields` i
   `lib/job-request-intake.ts::missingFor` — zmieniając bramkę handoffu,
   zmień obie.
-- **Zapis idzie ZWYKŁYMI trasami** w stałej kolejności: `POST /api/jobs` →
-  `PUT …/champion-profile` → `POST …/handoff` (pole „Rekruter”: „Zaproponuje
-  automat” = `assignment_mode: "automatic"` albo „Wybieram sam” z osobą;
-  decyzje 29.09 i 02.10.2026) → `POST …/publish`. Awaria po utworzeniu
-  rekrutacji = toast + przejście do zakładki Championa, nigdy utrata. „Zapisz
-  szkic” kończy po Championie.
+- **Zapis to od 04.10.2026 JEDNO `POST /api/jobs`** (utworzenie + Champion +
+  hiring manager + przekazanie + publikacja w jednej transakcji) — sekcja
+  „Rekrutacja bez szkiców” niżej. Pole „Rekruter”: „Zaproponuje automat” =
+  `assignment_mode: "automatic"` albo „Wybieram sam” z osobą (decyzje 29.09
+  i 02.10.2026).
 - **„Zaproponuje automat” czyta `GET /api/job-intake/handoff-options`**
   (`automatic_enabled` = `RECRUITMENT_ALLOCATION_ENABLED`, `mode` z
   `recruitment_allocation.effective_allocation_mode` — przy wyłączonej fladze
@@ -4103,6 +4102,80 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   podpowiedź dla pustej roli migała i znikała, razem z przyciskiem „Potwierdzam”.
 - Harness `/preview/new-job?state=request|noclient|manual|review|gaps|shadow|passive|off`;
   profil z wierszami: przypadek 4 w `/preview/champion-profile`.
+
+## Rekrutacja bez szkiców (0415–0416, 04.10.2026)
+
+Pomiar 04.10.2026 (40 rekrutacji z NEXUSA od 25.09): 14 szkiców nikt nie
+przekazał, 5 opublikowano bez przekazania (zmiana statusu w oknie edycji
+i `/publish` nie sprawdzały bramki), termin miało 6/40, hiring managera 10/40.
+Decyzje Artura 04.10.2026 (makiety https://claude.ai/artifact/9T6tEhBfsnyE1RsuaAxABy):
+rekrutacja NIGDY nie jest szkicem — system wymusza komplet; linku
+udostępniania dla klienta nie robimy. Raport: `docs/job-no-drafts-completion-report.md`.
+
+- **Rekrutacja ma dwa stany: w pracy (opublikowana i przekazana) albo
+  zamknięta.** `POST /api/jobs` jest jedyną drogą tworzenia i robi w JEDNEJ
+  transakcji: `allocation_lock` → rdzeń tworzenia → decyzja o hiring
+  managerze → Champion → bramka (`job_handoff_blocker_items` +
+  `enforce_operation`) → przekazanie → podobne rekrutacje → publikacja →
+  commit → efekty po commicie. Brak = 422 `{code:"job_not_ready",
+  blockers:[{code,message}]}` i rollback (`get_db`). `JobCreate` nie ma
+  `status`. Rdzenie bez `commit` żyją w `services/job_lifecycle.py`
+  (`create_job_core`, `save_champion_core`, `handoff_core`, `publish_core`,
+  `apply_hiring_manager_decision`, `close_job_core`, `run_post_commit`);
+  stare trasy wołają je i robią commit same. Nie dokładaj `db.commit()` do
+  rdzenia — zepsuje atomowość tworzenia. Efekty z własną sesją (migawka
+  rankingu, outbox, `refresh_job_matching`) idą WYŁĄCZNIE po commicie.
+- **Nowe wymagania bramki** (tylko `job_handoff_blockers`, nie bramka briefu
+  automatu przydziału): hiring manager albo `jobs.hiring_manager_not_provided`,
+  termin albo `jobs.deadline_not_provided` („Klient nie podał” — decyzja, nie
+  zgadywanie), kategoria, liczba osób ≥ 1. Ustawienie kontaktu HM albo daty
+  zeruje flagę. Kody braków: `job_readiness.BLOCKER_CODES` (lustro
+  `lib/__fixtures__/job-readiness-blockers.json`), problemy Championa jako
+  `champion:<kod>`.
+- **`POST /{id}/publish` = „Otwórz ponownie” / „Dokończ i opublikuj”**
+  (zamknięta, stary szkic, opublikowana bez przekazania): ciało z
+  przekazaniem (inaczej 422 `handoff_required`), `allocation_lock` → wiersz
+  `FOR UPDATE` → ta sama bramka → przekazanie. `PATCH` odmawia `status=draft`
+  (`draft_not_allowed`) i publikacji z innego stanu (409 `reopen_required`);
+  ten sam status wysłany ponownie przechodzi (okno edycji odsyła wszystkie
+  pola). Przekazanie starego szkicu go publikuje.
+- **Ochrona w trakcie pracy:** zapis Championa, `PATCH /api/jobs` i
+  `PUT …/hiring-manager` na rekrutacji opublikowanej odmawiają (422
+  `handoff_regression`) tylko przy NOWYM kodzie braku. Porównujemy KODY, nie
+  zdania (zdania Championa niosą wartości). Brak „odsłonięty” przez
+  uzupełnienie rodzica nie jest nowy (`_REVEALED_BY`: pytania → deal-breaker,
+  tryb pracy → dni/miasto, must → krytyczne) — inaczej starej rekrutacji nie
+  dałoby się uzupełniać krok po kroku. HM zdjęty przez zmianę klienta też nie
+  jest nowym brakiem (nowego HM wskazuje się osobnym zapisem po zmianie —
+  kontakt musi należeć już do nowego klienta). Zapisy systemowe
+  Championa (import dokumentu, weryfikacja, briefing) są świadomie poza ochroną.
+- **Niedokończony formularz to NIE rekrutacja:** `job_intake_forms` (0416,
+  `services/job_intake_forms.py`, trasy `/api/job-intake/forms`) na koncie
+  autora — tylko autor czyta i zmienia, limit 20 (409 `forms_limit`), 30 dni
+  retencji w `queue_retention`, kasowany w transakcji tworzenia
+  (`intake_form_id`). `/jobs/new` zapisuje go sam (3 s po zmianie) i wznawia
+  z kroku 1 albo `?form=<id>`.
+- **Stare szkice:** pulpit „Czeka na Ciebie” → `pending_jobs`
+  (`services/pending_job_completion.py`: szkice i opublikowane bez
+  przekazania z brakami; DL swoje, HoR i admin wszystkie) + `unfinished_forms`
+  autora starsze niż 2 dni. Szkice zamykają się same 7 dni po
+  `app_settings['legacy_draft_autoclose:deployed_at']` (`legacy_draft_autoclose.py`,
+  pętla `job_deadline_alerts`, `close_reason=other`, paragon
+  `legacy_draft_autoclose:receipt` z samymi ID) — nic nie jest kasowane.
+- **„Odpada, gdy…” ma skutek:** `move_requirements` dokłada pozycję
+  `deal_breaker` (nie blokuje, akcja `reject` z `note`) przy ruchu od
+  „Zweryfikowany” wzwyż, gdy arkusz pary ma `deal_breaker_hit`; okno „Przesuń
+  dalej” mówi „Przesuń mimo to”. Karta rekomendacji pokazuje warunek i zapisuje
+  trafienie (`POST /api/recommendation-cards/deal-breaker`) — tylko przy
+  pytaniu, które ma odpowiedź w arkuszu (pole wyboru stoi wyłącznie przy
+  `source: "sheet"`); bez arkusza pary 409. Odpowiedzi z notatek nadal NIE
+  trafiają do arkusza (reguła 0413). Przegląd zgłoszeń AI (prompt v2) dostaje warunki
+  i oznacza `entry_meta.deal_breaker_hit` — plakietka, `decide` bez zmian.
+- **Odczyt maila v11:** `deadline`, `deadline_time`, `headcount` tylko
+  z dosłownym cytatem; „ASAP” = puste.
+- Wzmianki w starszych sekcjach o „Zapisz szkic”, kolejności
+  `POST /api/jobs → PUT champion → handoff → publish` albo otwieraniu
+  rekrutacji polem Status opisują stan sprzed 04.10.2026.
 
 ## Umiejętności krytyczne i bramka v9 (0405, 30.09.2026)
 

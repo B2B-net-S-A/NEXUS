@@ -18,6 +18,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.core.database import AsyncSessionLocal
+from tests._job_factory import competence_category_id, complete_job_payload
 
 _READY_CHAMPION = {
     "project_context": {
@@ -39,7 +40,7 @@ _READY_CHAMPION = {
     # 0278: sekcje rubryk (must-have / budżet / tryb pracy) — obok jawnych
     # kolumn ustawianych w `_seed_job` (na wypadek testów, które PUT-ują ten
     # słownik jako nowy profil zamiast polegać na kolumnach z seeda).
-    "stack": {"must": [{"name": "Python"}]},
+    "stack": {"must": [{"name": "Python"}], "critical": []},
     "basics": {"rate_value": 150, "work_mode": "zdalnie"},
     # Wymagania do wyszukiwania w bazie — bramka handoffu od 25.09.2026.
     "search": {"requirements": [["Python"]]},
@@ -77,6 +78,10 @@ async def _seed_job(*, champion: dict | None = None, status=None) -> int:
             remote_policy=RemotePolicy.remote,
             rate_budget_hourly=150,
             must_skills=[{"name": "Python"}],
+            # 0415: decyzje bramki przekazania (rekrutacja bez szkiców).
+            competence_category_id=await competence_category_id(),
+            hiring_manager_not_provided=True,
+            deadline_not_provided=True,
         )
         db.add(job)
         await db.commit()
@@ -552,29 +557,47 @@ async def test_automatic_handoff_queues_the_ranking_and_leaves_history(
         await _take_out_of_the_pool(job_id)
 
 
-# ── create no longer produces a ranking ──────────────────────────────────────
+# ── create = handoff: one handoff ranking, never a pre-Champion one ──────────
 
 
-async def test_create_job_does_not_create_snapshot(
-    app_client: AsyncClient, app_auth_headers: dict
+async def test_create_job_ranks_only_as_the_handoff(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
+    """Od 04.10.2026 utworzenie = przekazanie do searchu: Champion jest w tym
+    samym żądaniu, więc jedyna migawka ma źródło ``handoff``."""
     from sqlalchemy import select
     from app.models.proposal_snapshot import ProposalSnapshot
+    from app.services import canonical_fit, embedding_service
+
+    async def _empty(*_a, **_k):
+        return []
+
+    async def _noop(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(embedding_service, "search_candidates_semantic", _empty)
+    monkeypatch.setattr(embedding_service, "embed_job", _noop)
+    monkeypatch.setattr(canonical_fit, "score_candidates", _empty)
 
     client_id = await _seed_client()
     resp = await app_client.post(
         "/api/jobs",
         headers=app_auth_headers,
-        json={"title": f"NoSnap-{uuid.uuid4().hex[:6]}", "client_id": client_id},
+        json=await complete_job_payload(
+            client_id, title=f"NoSnap-{uuid.uuid4().hex[:6]}"
+        ),
     )
-    assert resp.status_code in (200, 201), resp.text
+    assert resp.status_code == 201, resp.text
     job_id = resp.json()["id"]
 
     async with AsyncSessionLocal() as db:
-        snap = await db.scalar(
-            select(ProposalSnapshot).where(ProposalSnapshot.job_id == job_id)
-        )
-    assert snap is None
+        sources = (
+            await db.scalars(
+                select(ProposalSnapshot.source).where(ProposalSnapshot.job_id == job_id)
+            )
+        ).all()
+    assert list(sources) == ["handoff"]
+    assert resp.json()["snapshot_id"] is not None
 
 
 # ── Champion edit invalidates cached scores ──────────────────────────────────

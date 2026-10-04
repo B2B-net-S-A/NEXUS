@@ -10,7 +10,10 @@
  */
 
 import type { ChampionExperience, ExperienceItem, ExperienceKind } from "@/lib/api";
-import type { HiringManagerChoice } from "@/lib/hiring-manager";
+import {
+  hiringManagerRequestBody,
+  type HiringManagerChoice,
+} from "@/lib/hiring-manager";
 import { composeWorkingTitle } from "@/lib/job-names";
 import { sanitizeKeyword } from "@/lib/keyword-requirements";
 import {
@@ -62,7 +65,9 @@ export type ProvenanceKey =
   | "ask_client"
   | "client_title"
   | "client_reference"
-  | "hiring_manager";
+  | "hiring_manager"
+  | "deadline"
+  | "headcount";
 
 export interface AskClientItem {
   key: string;
@@ -134,8 +139,20 @@ export interface IntakeForm {
   disqualifiers: string[];
   sellingPoints: string;
   askClient: AskClientItem[];
-  /** 25.09.2026: kto zamawia po stronie klienta; zapis `PUT …/hiring-manager`. */
+  /** 25.09.2026: kto zamawia po stronie klienta; idzie w `POST /api/jobs`. */
   hiringManager: HiringManagerChoice | null;
+  /**
+   * 04.10.2026: „Klient nie podał” — świadoma decyzja zamiast pustego pola.
+   * Hiring manager i termin są wymagane przed publikacją albo ta decyzja.
+   */
+  hiringManagerNotProvided: boolean;
+  /** Termin od klienta: `RRRR-MM-DD`, pusty = brak. */
+  deadline: string;
+  /** Godzina terminu `HH:MM` (opcjonalna). */
+  deadlineTime: string;
+  deadlineNotProvided: boolean;
+  /** Liczba osób do zatrudnienia — tekst pola (≥ 1). */
+  headcount: string;
   /**
    * Kategoria kompetencji (02.10.2026): od niej zależy, kto dostanie
    * rekrutację. `suggestedCategoryId` to podpowiedź systemu z nazwy roli,
@@ -212,6 +229,10 @@ export interface RequestIntakeResponse {
   hiring_manager_contact_id?: number | null;
   /** Imię i nazwisko w pisowni kontaktu (gdy dopasowano). */
   hiring_manager_contact_name?: string | null;
+  // ── od v11 (04.10.2026): termin i liczba osób — tylko z cytatem z maila ──
+  deadline?: string | null;
+  deadline_time?: string | null;
+  headcount?: number | null;
 }
 
 export const EMPTY_EXPERIENCE_FORM: ChampionExperience = {
@@ -270,6 +291,11 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   sellingPoints: "",
   askClient: [],
   hiringManager: null,
+  hiringManagerNotProvided: false,
+  deadline: "",
+  deadlineTime: "",
+  deadlineNotProvided: false,
+  headcount: "1",
   competenceCategoryId: null,
   suggestedCategoryId: null,
   categoryConfirmed: false,
@@ -370,6 +396,12 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
       text,
     })),
     hiringManager: hiringManagerFromIntake(intake),
+    hiringManagerNotProvided: false,
+    deadline: intake.deadline ?? "",
+    deadlineTime: intake.deadline ? (intake.deadline_time ?? "") : "",
+    deadlineNotProvided: false,
+    headcount:
+      intake.headcount != null && intake.headcount >= 1 ? String(intake.headcount) : "1",
     competenceCategoryId: null,
     suggestedCategoryId: null,
     categoryConfirmed: false,
@@ -477,7 +509,10 @@ export type MissingCode =
   | "critical"
   | "deal_breaker"
   | "questions_review"
-  | "category";
+  | "category"
+  | "hiring_manager"
+  | "deadline"
+  | "headcount";
 
 export const MISSING_LABEL: Record<MissingCode, string> = {
   role: "rola",
@@ -492,6 +527,9 @@ export const MISSING_LABEL: Record<MissingCode, string> = {
   deal_breaker: "odpowiedź, która odpada, przy każdym pytaniu",
   questions_review: "zatwierdzenie pytań",
   category: "potwierdzenie kategorii",
+  hiring_manager: "hiring manager (albo „Klient nie podał”)",
+  deadline: "termin (albo „Klient nie podał”)",
+  headcount: "liczba osób",
 };
 
 /** Sekcja formularza, w której usuwa się dany brak (pasek sekcji, stopka). */
@@ -525,6 +563,9 @@ export const MISSING_SECTION: Record<MissingCode, FormSection> = {
   deal_breaker: "questions",
   questions_review: "questions",
   category: "team",
+  hiring_manager: "name",
+  deadline: "terms",
+  headcount: "terms",
 };
 
 /** `id` elementu sekcji — cel linków z paska sekcji i ze stopki. */
@@ -538,6 +579,14 @@ export function parseBudget(value: string): number | null {
   if (!normalized) return null;
   const n = Number(normalized);
   return Number.isFinite(n) && n > 0 && n <= 2000 ? n : null;
+}
+
+/** Liczba osób: liczba całkowita 1–99 (lustro `JobCreate.headcount`). */
+export function parseHeadcount(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const n = Number(trimmed);
+  return n >= 1 && n <= 99 ? n : null;
 }
 
 export function parseOnsiteDays(value: string): number | null {
@@ -619,6 +668,8 @@ export function missingFor(
 ): MissingCode[] {
   const missing: MissingCode[] = [];
   if (!form.title.trim()) missing.push("role");
+  if (form.hiringManager == null && !form.hiringManagerNotProvided)
+    missing.push("hiring_manager");
   if (mustOf(form).length === 0) missing.push("must");
   else if (criticalDecisionMissing(form.rows, form.noCritical, opts.criticalInfo))
     missing.push("critical");
@@ -630,6 +681,8 @@ export function missingFor(
       missing.push("office_days");
     if (!form.city.trim()) missing.push("office_city");
   }
+  if (!form.deadline && !form.deadlineNotProvided) missing.push("deadline");
+  if (parseHeadcount(form.headcount) == null) missing.push("headcount");
   if (!form.about.trim() && !form.responsibilities.trim())
     missing.push("context");
   const questions = filledQuestions(form);
@@ -652,10 +705,77 @@ export function missingBySection(
   return out;
 }
 
-/** „Brakuje 2 rzeczy do searchu” — polska odmiana liczebnika. */
+/** „Brakuje 2 rzeczy do publikacji” — dopełniacz, więc „rzeczy” dla każdej liczby. */
 export function missingHeadline(count: number): string {
-  if (count === 1) return "Brakuje 1 rzeczy do searchu";
-  return `Brakuje ${count} rzeczy do searchu`;
+  return `Brakuje ${count} rzeczy do publikacji`;
+}
+
+// ── Braki z serwera (422 `job_not_ready`) ────────────────────────────────────
+
+/** Brak zgłoszony przez serwer: kod (lustro bramki) i zdanie. */
+export interface ServerBlocker {
+  code: string;
+  message: string;
+}
+
+/**
+ * Kod braku serwera → brak formularza (sekcja, do której prowadzi link).
+ * Kody to klucze `__fixtures__/job-readiness-blockers.json` + decyzje
+ * formularza; `champion:<kod>` i nieznane trafiają do listy ogólnej.
+ */
+const SERVER_BLOCKER_CODE: Record<string, MissingCode> = {
+  title: "role",
+  context: "context",
+  questions: "questions",
+  must: "must",
+  search: "must",
+  budget: "budget",
+  work_mode: "work_mode",
+  office_days: "office_days",
+  office_city: "office_city",
+  critical: "critical",
+  deal_breaker: "deal_breaker",
+  hiring_manager: "hiring_manager",
+  deadline: "deadline",
+  category: "category",
+  headcount: "headcount",
+};
+
+/** Sekcja formularza dla kodu braku z serwera; `null` = bez sekcji (lista ogólna). */
+export function serverBlockerSection(code: string): FormSection | null {
+  const missing = SERVER_BLOCKER_CODE[code];
+  return missing ? MISSING_SECTION[missing] : null;
+}
+
+/**
+ * 422 `job_not_ready` z `POST /api/jobs` → lista braków. Inne błędy → `null`
+ * (wołający pokazuje wtedy zdanie z `apiErrorMessage`).
+ */
+export function serverBlockersFromError(error: unknown): ServerBlocker[] | null {
+  const detail = (
+    error as { response?: { status?: number; data?: { detail?: unknown } } } | null
+  )?.response?.data?.detail;
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) return null;
+  const { code, blockers } = detail as { code?: unknown; blockers?: unknown };
+  if (code !== "job_not_ready" || !Array.isArray(blockers)) return null;
+  const out: ServerBlocker[] = [];
+  for (const item of blockers) {
+    if (typeof item === "string") {
+      out.push({ code: "", message: item });
+    } else if (item && typeof item === "object") {
+      const message = (item as { message?: unknown }).message;
+      const itemCode = (item as { code?: unknown }).code;
+      if (typeof message === "string" && message.trim()) {
+        out.push({ code: typeof itemCode === "string" ? itemCode : "", message });
+      }
+    }
+  }
+  return out;
+}
+
+/** „Rekrutacja nie powstała. Uzupełnij 3 rzeczy:” */
+export function serverBlockersHeadline(count: number): string {
+  return `Rekrutacja nie powstała. Uzupełnij ${count} ${count === 1 ? "rzecz" : "rzeczy"}:`;
 }
 
 // ── Payloady zapisu ──────────────────────────────────────────────────────────
@@ -693,6 +813,13 @@ export function buildJobPayload(
     payload.location = form.city.trim();
   const budget = parseBudget(form.rateBudget);
   if (budget != null) payload.rate_budget_hourly = budget;
+  // Termin: data albo świadome „klient nie podał” (04.10.2026).
+  payload.deadline = form.deadlineNotProvided ? null : form.deadline || null;
+  payload.deadline_time =
+    !form.deadlineNotProvided && form.deadline && form.deadlineTime ? form.deadlineTime : null;
+  payload.deadline_not_provided = form.deadlineNotProvided;
+  const headcount = parseHeadcount(form.headcount);
+  if (headcount != null) payload.headcount = headcount;
   if (opts.templateJobId != null) {
     payload.from_job_id = opts.templateJobId;
     payload.copy_questions = true;
@@ -777,6 +904,84 @@ export function buildChampionPayload(
         done: false,
         origin: "ai_intake",
       })),
+  };
+}
+
+/** Przekazanie w `POST /api/jobs`: automat albo wskazana osoba. */
+export type CreateHandoff =
+  | { assignment_mode: "automatic"; channel: "linkedin" }
+  | { recruiter_id: number; channel: "linkedin" };
+
+/** Hiring manager w `POST /api/jobs` — osoba albo „klient nie podał”. */
+export function hiringManagerForCreate(form: IntakeForm): Record<string, unknown> | null {
+  if (form.hiringManagerNotProvided) return { not_provided: true };
+  if (form.hiringManager == null) return null;
+  return hiringManagerRequestBody(form.hiringManager);
+}
+
+/**
+ * Jedno `POST /api/jobs` (04.10.2026): rekrutacja powstaje od razu
+ * przekazana i opublikowana — razem z profilem Championa, hiring managerem,
+ * przekazaniem, podobnymi rekrutacjami i wyborem kategorii. Serwer sprawdza
+ * bramkę w jednej transakcji; brak = 422 i nic nie powstaje.
+ */
+export function buildCreateJobPayload(
+  form: IntakeForm,
+  opts: {
+    clientId: number;
+    requestText: string;
+    templateJobId: number | null;
+    priority: string;
+    handoff: CreateHandoff;
+    similarJobIds: number[];
+    intakeFormId: number | null;
+  },
+): Record<string, unknown> {
+  const categoryChanged =
+    form.suggestedCategoryId != null &&
+    form.competenceCategoryId != null &&
+    form.suggestedCategoryId !== form.competenceCategoryId;
+  return {
+    ...buildJobPayload(form, opts),
+    priority: opts.priority,
+    champion_profile: buildChampionPayload(form),
+    hiring_manager: hiringManagerForCreate(form),
+    handoff: opts.handoff,
+    similar_job_ids: opts.similarJobIds,
+    // Delivery Lead wybrał inną kategorię niż podpowiedź — dziennik dla reguł.
+    cc_override: categoryChanged
+      ? { suggested_cc_id: form.suggestedCategoryId, suggested_score: null }
+      : null,
+    intake_form_id: opts.intakeFormId,
+  };
+}
+
+// ── Niedokończony formularz na koncie autora ─────────────────────────────────
+
+/** Etykieta formularza na liście „niedokończonych”. */
+export function intakeFormLabel(form: IntakeForm): string {
+  return form.clientTitle.trim() || form.title.trim() || "Rekrutacja bez nazwy";
+}
+
+/**
+ * Formularz zapisany przed zmianą kształtu (nowe pola) — brakujące pola
+ * dostają wartości z pustego formularza, więc stary zapis da się dokończyć.
+ */
+export function restoreIntakeForm(saved: unknown): IntakeForm {
+  if (!saved || typeof saved !== "object") return { ...EMPTY_INTAKE_FORM };
+  const raw = saved as Partial<IntakeForm>;
+  return {
+    ...EMPTY_INTAKE_FORM,
+    ...raw,
+    experience: { ...EMPTY_EXPERIENCE_FORM, ...(raw.experience ?? {}) },
+    provenance: raw.provenance ?? {},
+    rows: Array.isArray(raw.rows) ? raw.rows : [],
+    questions: Array.isArray(raw.questions) ? raw.questions : [],
+    askClient: Array.isArray(raw.askClient) ? raw.askClient : [],
+    descriptive: Array.isArray(raw.descriptive) ? raw.descriptive : [],
+    intakeNotes: Array.isArray(raw.intakeNotes) ? raw.intakeNotes : [],
+    disqualifiers: Array.isArray(raw.disqualifiers) ? raw.disqualifiers : [],
+    searchExclude: Array.isArray(raw.searchExclude) ? raw.searchExclude : [],
   };
 }
 
