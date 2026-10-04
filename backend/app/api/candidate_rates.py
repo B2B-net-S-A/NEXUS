@@ -44,7 +44,10 @@ from app.services.job_working_title import job_display_title_expr
 router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 _PAID_STATUSES = (ContractStatus.active, ContractStatus.ending, ContractStatus.ended)
-_KEY_PATTERN = r"^(card|stage|profile|apply):[0-9]+$|^profile-current$"
+_KEY_PATTERN = (
+    r"^(card|stage|profile|apply):[0-9]+$|^profile-current$"
+    r"|^rchange:[0-9]+:(req|agreed|prev)$"
+)
 
 
 class RateObservationOut(BaseModel):

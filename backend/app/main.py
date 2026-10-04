@@ -188,6 +188,7 @@ from app.api import proposals_bulk as proposals_bulk_api
 from app.api import job_proposals as job_proposals_api
 from app.api import application_screenings as application_screenings_api
 from app.api import recommendation_cards as recommendation_cards_api
+from app.api import candidate_rate_changes as candidate_rate_changes_api
 from app.api import job_similar as job_similar_api
 from app.api import plain_brief as plain_brief_api
 from app.api import plain_brief_refresh as plain_brief_refresh_api
@@ -1643,6 +1644,9 @@ app.include_router(application_screenings_api.router, prefix="/api", tags=["prop
 app.include_router(
     recommendation_cards_api.router, prefix="/api", tags=["recommendation-cards"]
 )
+app.include_router(
+    candidate_rate_changes_api.router, prefix="/api", tags=["rate-changes"]
+)
 app.include_router(job_similar_api.router, prefix="/api", tags=["similar-jobs"])
 app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(plain_brief_refresh_api.router, prefix="/api", tags=["plain-brief"])
@@ -2877,6 +2881,7 @@ async def api_health_deep_check():
     from app.models.cv_qc_run import CvQcRun
     from app.models.application_screening import ApplicationScreening
     from app.models.recommendation_card import RecommendationCard
+    from app.models.candidate_rate_change import CandidateRateChange
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -3108,6 +3113,9 @@ async def api_health_deep_check():
         # 0413: karta rekomendacji — odcisk `notes.card_parsed_hash` obejmuje
         # sonda `notes`, a tabelę kart czyta dok osoby i „Przesuń dalej”.
         ("recommendation_cards", RecommendationCard),
+        # 0418: każda zmiana stawki kandydata w procesie (debrief, panel osoby,
+        # profil) zapisuje sprawę — brak tabeli = 500 przy zapisie stawki.
+        ("candidate_rate_changes", CandidateRateChange),
     ]
 
     checks: dict[str, str] = {}

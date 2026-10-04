@@ -113,6 +113,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.board_task_waiting: _C.mentions,
     # Rekruter czeka, aż potwierdzisz podpis jego umowy — imienne zadanie (0417).
     _T.b2b_signature_requested: _C.mentions,
+    # 0418: zadanie DL po wzroście stawki — na DL czeka klient, nie do wyciszenia.
+    _T.candidate_rate_change_task: _C.mentions,
     # Ktoś przejął Twoją osobę w „Nowych" — imienne, jak wzmianka.
     _T.candidate_claim_taken: _C.mentions,
     # Odpowiedź na Twoją notatkę — imienne, jak wzmianka (0399).
@@ -125,6 +127,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # Ruchy w rekrutacjach
     _T.stage_changed: _C.pipeline,
     _T.stage_rule: _C.pipeline,
+    _T.candidate_rate_change: _C.pipeline,
     _T.candidate_added: _C.pipeline,
     _T.champion_profile_updated: _C.pipeline,
     _T.pending_verification: _C.pipeline,

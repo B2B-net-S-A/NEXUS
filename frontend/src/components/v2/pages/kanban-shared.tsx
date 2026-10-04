@@ -22,6 +22,7 @@ import type { RateUnit } from "@/lib/api";
 import type { FollowupCardBadge } from "@/lib/api/candidateFollowups";
 import type { CandidateContactSummary } from "@/lib/candidate-contact";
 import type { DebriefSummary, SlotRequest, StepKey, StepState } from "@/lib/interview-cycle";
+import type { RateChangeBadge } from "@/lib/rate-change";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -187,6 +188,8 @@ export interface KanbanItem {
  // 0372: follow-up z kandydatem, gdy klient milczy — kto dzwoni i kiedy
  // (liczone dla OSOBY, ze wszystkimi jej procesami).
  followup?: FollowupCardBadge | null;
+ // 0418: otwarta sprawa zmiany stawki kandydata (zgłoszona / w negocjacji / ustalona).
+ rate_change?: RateChangeBadge | null;
  // Rekrutacja v5 (0361): najnowszy przebieg QC CV pary. Brak pola = starszy
  // serwer — karta w „QC CV” mówi wtedy „QC nie sprawdzone”, nie „✓”.
  qc?: {

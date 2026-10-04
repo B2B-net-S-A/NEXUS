@@ -238,6 +238,21 @@ export interface Debrief {
   /** Rekruter potwierdził, że klient nie zadawał pytań (bramka przed „Umową”). */
   no_client_questions: boolean;
   questions_saved: number;
+  /** 0418: bieżąca stawka kandydata w tej rekrutacji („Bez zmian (110 zł/h)”). */
+  current_rate_label?: string | null;
+  current_rate_hourly?: string | number | null;
+  /** 0418: zmiana stawki zapisana tym debriefem. */
+  rate_change?: {
+    id: number;
+    status: string;
+    requires_decision: boolean;
+    previous: string | null;
+    requested: string;
+    requested_amount: string;
+    requested_unit: string;
+    negotiable: "no" | "maybe" | "unknown" | null;
+    note: string | null;
+  } | null;
 }
 
 export interface DebriefInput {
@@ -249,6 +264,13 @@ export interface DebriefInput {
   notify_dl: boolean;
   /** Pusta lista pytań wymaga jawnego „klient nie zadawał pytań” (422 bez tego). */
   no_client_questions?: boolean;
+  /** 0418: kandydat podał inną stawkę (brak = bez zmian). */
+  rate_change?: {
+    amount: string;
+    unit?: "hourly" | "daily" | "monthly";
+    negotiable?: "no" | "maybe" | "unknown" | null;
+    note?: string | null;
+  } | null;
 }
 
 // ── Pytania klienta w debriefie ───────────────────────────────────────────────

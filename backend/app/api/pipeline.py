@@ -2496,6 +2496,10 @@ async def build_kanban_view(
     from app.models.note import Note as _Note
     from app.services import note_kinds, recommendation_cards
 
+    from app.services import candidate_rate_change as _rate_change
+
+    # 0418: otwarta sprawa zmiany stawki pary — plakietka na karcie.
+    rate_change_by_candidate = await _rate_change.open_badges_for_job(db, job_id=job_id)
     card_by_candidate = await recommendation_cards.summaries_for_job(
         db,
         job_id=job_id,
@@ -2617,6 +2621,7 @@ async def build_kanban_view(
             payload["task_assignee_name"] = user_name_by_id.get(e.task_assignee_id)
         payload["interview_badge"] = interview_badges.get(e.candidate_id)
         payload["followup"] = _followup_badge(e.candidate_id)
+        payload["rate_change"] = rate_change_by_candidate.get(e.candidate_id)
         if e.stage == PipelineStage.hired:
             payload["order_status"] = order_statuses.get((e.candidate_id, job_id))
         payload["agreement"] = agreements.get(e.candidate_id)

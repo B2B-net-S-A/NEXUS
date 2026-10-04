@@ -507,7 +507,7 @@ describe("Zapisany debrief (04.10.2026)", () => {
     fireEvent.click(within(panel).getByRole("button", { name: "Zobacz debrief" }));
     const dialog = await screen.findByRole("dialog", { name: "Debrief po rozmowie u klienta" });
     await waitFor(() =>
-      expect(within(dialog).getByLabelText("Warunek / zastrzeżenie")).toHaveValue("Chce jednak 125 zł/h"),
+      expect(within(dialog).getByLabelText("Inne warunki")).toHaveValue("Chce jednak 125 zł/h"),
     );
     expect(within(dialog).getByLabelText("Pytanie 3")).toHaveValue("Docker");
   });
@@ -581,5 +581,58 @@ describe("DebriefDialog — lista pytań klienta", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dodaj do listy" }));
     expect(screen.getByLabelText("Pytanie 2")).toHaveValue("Drugie");
     expect(screen.getByLabelText("Pytanie 3")).toHaveValue("Trzecie");
+  });
+});
+
+
+describe("DebriefDialog — stawka kandydata (0418)", () => {
+  it("„Zmieniła się” wysyła nową stawkę razem z debriefem i mówi, kto dostanie informację", async () => {
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/interview-cycle/events/44") {
+        return Promise.resolve({
+          data: { id: 44, candidate_id: 11, job_id: 22, start: iso(-60), end: null, started: true },
+        });
+      }
+      if (url === "/api/rate-changes") {
+        return Promise.resolve({
+          data: {
+            candidate_id: 11,
+            job_id: 22,
+            current: { amount: "110", unit: "hourly", currency: "PLN", hourly: "110", label: "110 zł/h" },
+            board_column: "client_interview",
+            notifies: true,
+            cv_at_client: true,
+            client_rate: null,
+            changes: [],
+          },
+        });
+      }
+      if (url.endsWith("/debrief")) return Promise.resolve({ data: null });
+      return Promise.resolve({ data: [] });
+    });
+    mocks.put.mockResolvedValue({
+      data: { id: 1, calendar_event_id: 44, candidate_id: 11, job_id: 22, outcome: "good", candidate_comment: null, questions: [], offer_acceptance: "likely", acceptance_condition: null, no_client_questions: true, questions_saved: 0 },
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(
+      <QueryClientProvider client={client}>
+        <DebriefDialog open onOpenChange={() => {}} eventId={44} title="Debrief" />
+      </QueryClientProvider>,
+    );
+    const rate = await screen.findByTestId("debrief-rate");
+    expect(await within(rate).findByText("Bez zmian (110 zł/h)")).toBeInTheDocument();
+    fireEvent.click(within(rate).getByLabelText("Zmieniła się"));
+    fireEvent.change(screen.getByLabelText("Nowa stawka B2B netto (zł/h)"), { target: { value: "125" } });
+    fireEvent.click(screen.getByLabelText("Możliwe, warto porozmawiać"));
+    expect(screen.getByTestId("debrief-rate-notice")).toHaveTextContent(
+      "CV jest już u klienta, więc przy wyższej stawce DL dostanie zadanie",
+    );
+    fireEvent.click(screen.getByLabelText("Dobrze"));
+    fireEvent.click(screen.getByLabelText("Raczej tak"));
+    fireEvent.click(screen.getByLabelText("Klient nie zadawał pytań"));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz debrief" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalled());
+    const body = mocks.put.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.rate_change).toEqual({ amount: "125", unit: "hourly", negotiable: "maybe", note: null });
   });
 });

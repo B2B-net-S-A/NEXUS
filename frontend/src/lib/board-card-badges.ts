@@ -16,6 +16,7 @@ import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { BoardColumnKey, StageBadgeKey } from "@/lib/board-stages";
 import { cardBadgeLabel } from "@/lib/candidate-followup";
 import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-view";
+import { rateArrowLine, rateChangeBadgeText } from "@/lib/rate-change";
 
 export type CardBadgeTone =
   | "own"
@@ -271,6 +272,19 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
       column === "hired")
   ) {
     out.push({ key: "client_rate", label: rate, tone: "rate" });
+  }
+  // 0418: kandydat zmienił stawkę w trakcie procesu — plakietka do zamknięcia
+  // sprawy (decyzja DL albo wynik negocjacji), w każdej kolumnie.
+  if (item.rate_change) {
+    const rc = item.rate_change;
+    const arrow = rateArrowLine(rc);
+    out.push({
+      key: "rate_change",
+      label: arrow ? `${arrow} · ${rateChangeBadgeText(rc)}` : rateChangeBadgeText(rc),
+      tone: rc.status === "agreed" ? "ok" : rc.status === "negotiating" ? "info" : "wait",
+      title:
+        "Kandydat zmienił stawkę w trakcie procesu. Szczegóły i historia w panelu osoby.",
+    });
   }
   if (column === "cv_sent" && (item.days_in_stage ?? 0) >= 5) {
     out.push({
