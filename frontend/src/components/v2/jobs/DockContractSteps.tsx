@@ -115,7 +115,6 @@ export function DockContractSteps({
     <div
       className="space-y-2 rounded-lg border border-border p-3 text-xs"
       data-testid="dock-contract-steps"
-      data-help="jobs.person.agreement"
     >
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm font-semibold text-foreground">Umowa</span>

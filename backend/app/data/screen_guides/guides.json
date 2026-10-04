@@ -176,7 +176,7 @@
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",
         "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma kroki rozmowy: termin od klienta, prepy z oceną i debrief. Sekcja „Umowa” pokazuje umowę, podpis i zamówienie: „Wygeneruj umowę” rozwija panel z formularzem Generatora, a podpis potwierdzasz tam albo prosisz o to Delivery Leada. „Rozwiń” otwiera pełne narzędzia, „Zwiń” albo Esc wraca.",
-        "anchor": "jobs.person.agreement"
+        "anchor": "jobs.person.expand"
       }
     ],
     "pitfalls": [
@@ -191,8 +191,7 @@
       {"id": "jobs.person.badges", "label": "Odznaki etapu", "describe": "Etapy pomocnicze, np. Prep, Umowa podpisana."},
       {"id": "jobs.person.note", "label": "Szybka notatka", "describe": "Pole notatki na dole karty."},
       {"id": "jobs.person.followup", "label": "Kontakt z kandydatem", "describe": "Kto dzwoni do kandydata, gdy klient milczy, i kiedy — z przyciskami „Zapisz wynik telefonu” i „Zrobię to ja”."},
-      {"id": "jobs.person.expand", "label": "Rozwiń panel", "describe": "Poszerza panel osoby i pokazuje pełne narzędzia: CV do klienta, screening, rozmowy, umowę, dopasowanie i notatki."},
-      {"id": "jobs.person.agreement", "label": "Umowa", "describe": "Umowa B2B osoby: wygenerowanie, podpis, zamówienie."}
+      {"id": "jobs.person.expand", "label": "Rozwiń panel", "describe": "Poszerza panel osoby i pokazuje pełne narzędzia: CV do klienta, screening, rozmowy, umowę, dopasowanie i notatki."}
     ],
     "help_slug": null,
     "sources": ["frontend/src/components/v2/jobs/PipelineCandidateDock.tsx", "frontend/src/components/v2/followups/DockFollowupBlock.tsx", "frontend/src/components/v2/jobs/DockContractSteps.tsx"]
