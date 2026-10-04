@@ -53,6 +53,14 @@ export interface RateChange {
   decision: string | null;
   decided_at: string | null;
   decided_by_name: string | null;
+  /** Czy oglądający może zapisać wynik negocjacji tej sprawy. */
+  can_record_outcome?: boolean;
+}
+
+export interface NegotiatorOption {
+  id: number;
+  name: string;
+  role_label: string;
 }
 
 export interface RateChangesView {
@@ -64,6 +72,33 @@ export interface RateChangesView {
   cv_at_client: boolean;
   client_rate: RateValue | null;
   changes: RateChange[];
+  /** Zlecenie negocjacji: DL rekrutacji, Head of Recruitment, admin. */
+  can_manage?: boolean;
+  /** Decyzja o stawce do klienta: DL rekrutacji albo admin. */
+  can_decide?: boolean;
+  negotiator_options?: NegotiatorOption[];
+}
+
+export type RateOutcome = "lower" | "kept" | "withdrew";
+export type RateDecision = "raise_client" | "keep_client" | "withdraw";
+
+/** Sprawa w „Czeka na Ciebie” (`rate_changes`, `rate_changes_by_others`). */
+export interface RateChangeTaskRow {
+  change_id: number;
+  reason: "decide" | "negotiate" | "waiting";
+  status: RateChangeStatus;
+  candidate_id: number;
+  candidate_name: string;
+  job_id: number;
+  job_title: string;
+  client_name: string | null;
+  previous_label: string | null;
+  requested_label: string;
+  agreed_label: string | null;
+  negotiator_name: string | null;
+  negotiation_due: string | null;
+  since: string;
+  waiting_on: string | null;
 }
 
 /** Plakietka otwartej sprawy na karcie Tablicy (`rate_change` w kanbanie). */
@@ -105,7 +140,62 @@ export const rateChangesApi = {
     api
       .post<{ unchanged: boolean; change: RateChange | null }>("/api/rate-changes", input)
       .then((r) => r.data),
+  negotiate: (
+    changeId: number,
+    body: { negotiator_id: number; target_hourly?: string | null; due?: string | null },
+  ) => api.post<RateChange>(`/api/rate-changes/${changeId}/negotiation`, body).then((r) => r.data),
+  outcome: (
+    changeId: number,
+    body: { outcome: RateOutcome; agreed_amount?: string | null; note?: string | null },
+  ) => api.post<RateChange>(`/api/rate-changes/${changeId}/outcome`, body).then((r) => r.data),
+  decide: (
+    changeId: number,
+    body: { decision: RateDecision; client_rate?: { amount: string; unit?: string } | null },
+  ) => api.post<RateChange>(`/api/rate-changes/${changeId}/decision`, body).then((r) => r.data),
 };
+
+const OPEN: RateChangeStatus[] = ["requested", "negotiating", "agreed"];
+
+/** Otwarta sprawa pary (najnowsza), `null` gdy nic nie czeka. */
+export function openRateChange(view: RateChangesView | null | undefined): RateChange | null {
+  return view?.changes.find((c) => OPEN.includes(c.status)) ?? null;
+}
+
+/** Jedno zdanie o otwartej sprawie: „Kandydat chce 130 zł/h (było 110 zł/h) · czeka na DL”. */
+export function openCaseLine(change: RateChange): string {
+  const was = change.previous ? ` (było ${change.previous.label})` : "";
+  const parts = [`Kandydat chce ${change.requested.label}${was}`];
+  if (change.status === "negotiating") {
+    const who = change.negotiator_name ? ` — rozmawia ${change.negotiator_name}` : "";
+    const due = change.negotiation_due ? ` do ${dayMonth(change.negotiation_due)}` : "";
+    parts.push(`w negocjacji${who}${due}`);
+  } else if (change.status === "agreed") {
+    parts.push(`ustalona ${change.agreed?.label ?? "?"} · decyzja o stawce do klienta należy do DL`);
+  } else {
+    parts.push(change.requires_decision ? "CV jest u klienta — czeka na decyzję DL" : "zgłoszona");
+  }
+  return parts.join(" · ");
+}
+
+/** Podpowiedź nowej stawki do klienta: obecna + różnica stawki kandydata. */
+export function suggestedClientRate(
+  clientRate: RateValue | null | undefined,
+  change: RateChange,
+): string {
+  const client = clientRate?.hourly != null ? Number(clientRate.hourly) : null;
+  const from = change.previous?.hourly != null ? Number(change.previous.hourly) : null;
+  const to = (change.agreed ?? change.requested).hourly;
+  const toN = to != null ? Number(to) : null;
+  if (client == null || from == null || toN == null) return "";
+  const next = Math.round((client + (toN - from)) * 100) / 100;
+  return next > 0 ? String(next) : "";
+}
+
+export function rateTaskLine(row: RateChangeTaskRow): string {
+  const was = row.previous_label ? `${row.previous_label} → ` : "";
+  const agreed = row.agreed_label ? ` · ustalona ${row.agreed_label}` : "";
+  return `${was}${row.requested_label}${agreed}`;
+}
 
 export function useRateChanges(candidateId: number | null, jobId: number | null) {
   return useQuery({

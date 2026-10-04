@@ -13,6 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
 import type { FollowupRow } from "@/lib/api/candidateFollowups";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
+import type { RateChangeTaskRow } from "@/lib/rate-change";
 import type { PriorityLevel } from "@/lib/request-priority";
 import { warsawToday } from "@/lib/warsaw-date";
 
@@ -397,6 +398,10 @@ export interface BoardTasksResponse {
   flow?: FlowBlock | null;
   /** 04.10.2026: praca Finansów. `null` = konto bez roli Finanse. */
   finance?: FinanceBlock | null;
+  // 0418: zmiany stawki kandydata (decyzja DL, negocjacja) i zgłoszenia,
+  // które czekają na innych.
+  rate_changes?: RateChangeTaskRow[];
+  rate_changes_by_others?: RateChangeTaskRow[];
 }
 
 export const BOARD_TASKS_QUERY_KEY = ["board-tasks"] as const;

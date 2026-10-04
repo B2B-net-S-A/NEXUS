@@ -578,3 +578,590 @@ async def open_badges_for_job(
             "created_at": change.created_at.isoformat() if change.created_at else None,
         }
     return out
+
+
+# ── Negocjacja i decyzja Delivery Leada (PR 3, D3/D6) ─────────────────────────
+
+INTERNAL_ROLES_FOR_NEGOTIATOR = (
+    "admin",
+    "head_of_recruitment",
+    "delivery_lead",
+    "talent_community_manager",
+    "recruiter",
+)
+# Akcje działają wyłącznie na OTWARTEJ sprawie pary. Wpisy „noted” nie są
+# zastępowane, więc para bywa ich pełna — stary wpis nie może nadpisać
+# nowszej stawki ani wejść na unikalny indeks otwartej sprawy.
+NEGOTIABLE_STATUSES = ("requested",)
+OUTCOME_STATUSES = ("requested", "negotiating")
+DECIDABLE_STATUSES = ("requested", "agreed")
+
+
+async def lock_change(db: AsyncSession, change_id: int) -> CandidateRateChange:
+    """Blokuje sprawę w tej samej kolejności co ``change_rate``: kandydat →
+    najnowszy wiersz etapu pary → sprawa. Odwrotna kolejność dawała zakleszczenie
+    z równoległym zapisem stawki (debrief, panel osoby)."""
+
+    from fastapi import HTTPException  # noqa: PLC0415
+
+    from app.services.recruitment_process_commands import (  # noqa: PLC0415
+        _lock_latest_stage,
+    )
+
+    pair = (
+        await db.execute(
+            select(CandidateRateChange.candidate_id, CandidateRateChange.job_id).where(
+                CandidateRateChange.id == change_id
+            )
+        )
+    ).first()
+    if pair is None:
+        raise HTTPException(status_code=404, detail="Nie ma takiej zmiany stawki.")
+    await _lock_latest_stage(db, candidate_id=pair[0], job_id=pair[1])
+    change = await db.scalar(
+        select(CandidateRateChange)
+        .where(CandidateRateChange.id == change_id)
+        .with_for_update()
+    )
+    if change is None:
+        raise HTTPException(status_code=404, detail="Nie ma takiej zmiany stawki.")
+    return change
+
+
+async def change_still_active(db: AsyncSession, change: CandidateRateChange) -> bool:
+    """Sprawa ma sens, dopóki rekrutacja jest otwarta, a kandydat stoi między
+    „Zweryfikowany” a „Umową” — po odrzuceniu, rezygnacji, zatrudnieniu albo
+    zamknięciu rekrutacji nie ma już o czym decydować."""
+
+    from app.models.job import JobStatus  # noqa: PLC0415
+
+    job = await db.get(Job, change.job_id)
+    if job is None or job.status != JobStatus.published:
+        return False
+    stage = await db.scalar(
+        select(CandidateStage)
+        .where(
+            CandidateStage.candidate_id == change.candidate_id,
+            CandidateStage.job_id == change.job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+    return stage is not None and await _stage_column(db, stage) in NOTIFY_COLUMNS
+
+
+async def job_delivery_leads(db: AsyncSession, job: Job) -> list[int]:
+    from app.services.stage_handoff_recipients import (  # noqa: PLC0415
+        _dl_reviewers,
+    )
+
+    return await _dl_reviewers(db, job)
+
+
+async def can_decide(db: AsyncSession, user: User, job: Job) -> bool:
+    """O stawce do klienta decyduje Delivery Lead rekrutacji albo admin (D6)."""
+
+    if user.has_any_role("admin"):
+        return True
+    return user.id in await job_delivery_leads(db, job)
+
+
+async def can_manage(db: AsyncSession, user: User, job: Job) -> bool:
+    """Negocjację zleca DL rekrutacji, Head of Recruitment albo admin (D6)."""
+
+    if user.has_any_role("admin", "head_of_recruitment"):
+        return True
+    return user.id in await job_delivery_leads(db, job)
+
+
+async def can_record_outcome(
+    db: AsyncSession, user: User, change: CandidateRateChange, job: Job
+) -> bool:
+    return change.negotiator_id == user.id or await can_manage(db, user, job)
+
+
+def _forbidden(detail: str):  # noqa: ANN202
+    from fastapi import HTTPException  # noqa: PLC0415
+
+    return HTTPException(status_code=403, detail=detail)
+
+
+def _conflict(detail: str):  # noqa: ANN202
+    from fastapi import HTTPException  # noqa: PLC0415
+
+    return HTTPException(status_code=409, detail=detail)
+
+
+def _invalid(detail: str):  # noqa: ANN202
+    from fastapi import HTTPException  # noqa: PLC0415
+
+    return HTTPException(status_code=422, detail=detail)
+
+
+async def _notify_simple(
+    db: AsyncSession,
+    *,
+    change: CandidateRateChange,
+    user_ids: list[int],
+    actor: User,
+    title: str,
+    message: str,
+    task: bool = False,
+    result: Optional[RateChangeResult] = None,
+) -> None:
+    from app.services.notification_triggers import emit  # noqa: PLC0415
+
+    link = f"/jobs/{change.job_id}?candidate={change.candidate_id}"
+    seen: set[int] = {actor.id}
+    for uid in user_ids:
+        if uid in seen:
+            continue
+        seen.add(uid)
+        try:
+            notif = await emit(
+                db,
+                user_id=uid,
+                title=title,
+                message=message,
+                ntype=(
+                    NotificationType.candidate_rate_change_task
+                    if task
+                    else NotificationType.candidate_rate_change
+                ),
+                related_entity_type="candidate_rate_change",
+                related_entity_id=change.id,
+                link=link,
+            )
+        except Exception:  # noqa: BLE001 — dzwonek nie cofa zapisu
+            logger.exception("rate change notify failed change=%s", change.id)
+            continue
+        if notif is not None and result is not None:
+            result.notified_user_ids.append(uid)
+
+
+async def _pair_label(db: AsyncSession, change: CandidateRateChange) -> str:
+    job = await db.get(Job, change.job_id)
+    candidate = await db.get(Candidate, change.candidate_id)
+    return f"{_candidate_name(candidate)} · {job.title if job else 'rekrutacja'}"
+
+
+async def start_negotiation(
+    db: AsyncSession,
+    *,
+    change: CandidateRateChange,
+    negotiator_id: int,
+    target_hourly: Optional[Decimal],
+    due: Optional[object],
+    actor: User,
+) -> RateChangeResult:
+    job = await db.get(Job, change.job_id)
+    if job is None or not await can_manage(db, actor, job):
+        raise _forbidden(
+            "Negocjację stawki zleca Delivery Lead rekrutacji albo Head of Recruitment."
+        )
+    if change.status not in NEGOTIABLE_STATUSES:
+        raise _conflict("Ta zmiana stawki nie czeka już na negocjację.")
+    negotiator = await db.get(User, negotiator_id)
+    if (
+        negotiator is None
+        or not negotiator.is_active
+        or not negotiator.has_any_role(*INTERNAL_ROLES_FOR_NEGOTIATOR)
+    ):
+        raise _invalid(
+            "Wybierz aktywną osobę z zespołu, która porozmawia z kandydatem."
+        )
+    change.status = "negotiating"
+    change.negotiator_id = negotiator_id
+    change.negotiation_target_hourly = target_hourly
+    change.negotiation_due = due  # type: ignore[assignment]
+    change.updated_at = datetime.now(timezone.utc)
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=change.candidate_id,
+            action="candidate_rate_change_negotiation",
+            user_id=actor.id,
+            details={
+                "change_id": change.id,
+                "job_id": change.job_id,
+                "negotiator_id": negotiator_id,
+            },
+        )
+    )
+    await db.flush()
+    result = RateChangeResult(change=change)
+    label = await _pair_label(db, change)
+    target = f" Cel: do {_short(target_hourly)} zł/h." if target_hourly else ""
+    await _notify_simple(
+        db,
+        change=change,
+        user_ids=[negotiator_id],
+        actor=actor,
+        title="Porozmawiaj z kandydatem o stawce",
+        message=(
+            f"{label}: kandydat chce "
+            f"{format_rate(change.requested_amount, change.requested_unit, change.requested_currency)}."
+            f"{target} Zleca: {actor.name or actor.email}. Po rozmowie zapisz wynik w panelu osoby."
+        ),
+        task=True,
+        result=result,
+    )
+    return result
+
+
+async def record_outcome(
+    db: AsyncSession,
+    *,
+    change: CandidateRateChange,
+    outcome: str,
+    agreed_amount: Optional[Decimal],
+    note: Optional[str],
+    actor: User,
+) -> RateChangeResult:
+    job = await db.get(Job, change.job_id)
+    if job is None or not await can_record_outcome(db, actor, change, job):
+        raise _forbidden(
+            "Wynik negocjacji zapisuje osoba, która rozmawia z kandydatem, "
+            "Delivery Lead albo Head of Recruitment."
+        )
+    if change.status not in OUTCOME_STATUSES:
+        raise _conflict("Ta zmiana stawki ma już zapisany wynik.")
+    now = datetime.now(timezone.utc)
+    change.outcome = outcome
+    change.outcome_note = (note or "").strip() or None
+    change.outcome_by = actor.id
+    change.outcome_at = now
+    change.updated_at = now
+    if outcome == "lower":
+        if agreed_amount is None or agreed_amount <= 0:
+            raise _invalid("Wpisz ustaloną stawkę.")
+        agreed_hourly = _hourly(agreed_amount, "hourly", "PLN")
+        if (
+            change.requested_hourly is not None
+            and agreed_hourly >= change.requested_hourly
+        ):
+            raise _invalid("Ustalona stawka musi być niższa niż zgłoszona.")
+        await update_latest_expected_rate(
+            db,
+            candidate_id=change.candidate_id,
+            job_id=change.job_id,
+            rate_value=agreed_amount,
+            rate_unit="hourly",
+            rate_currency="PLN",
+        )
+        change.agreed_amount = agreed_amount
+        change.agreed_unit = "hourly"
+        change.agreed_currency = "PLN"
+        change.agreed_hourly = agreed_hourly
+    elif outcome == "kept":
+        change.agreed_amount = change.requested_amount
+        change.agreed_unit = change.requested_unit
+        change.agreed_currency = change.requested_currency
+        change.agreed_hourly = change.requested_hourly
+    if outcome == "withdrew":
+        change.status = "closed"
+        change.decision = "withdraw"
+        change.decided_by = actor.id
+        change.decided_at = now
+    elif (
+        change.agreed_hourly is not None
+        and change.previous_hourly is not None
+        and change.agreed_hourly <= change.previous_hourly
+    ):
+        # Kandydat zszedł do stawki sprzed zmiany — stawka do klienta bez
+        # zmian, sprawa zamyka się sama.
+        change.status = "closed"
+        change.decision = "auto"
+        change.decided_at = now
+    elif change.requires_decision:
+        change.status = "agreed"
+    else:
+        change.status = "closed"
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=change.candidate_id,
+            action="candidate_rate_change_agreed",
+            user_id=actor.id,
+            details={
+                "change_id": change.id,
+                "job_id": change.job_id,
+                "outcome": outcome,
+                "agreed": format_rate(
+                    change.agreed_amount, change.agreed_unit, change.agreed_currency
+                )
+                if change.agreed_amount is not None
+                else None,
+            },
+        )
+    )
+    await db.flush()
+    result = RateChangeResult(change=change)
+    label = await _pair_label(db, change)
+    requested = format_rate(
+        change.requested_amount, change.requested_unit, change.requested_currency
+    )
+    if outcome == "withdrew":
+        text = f"{label}: kandydat rezygnuje po rozmowie o stawce ({requested})."
+        title = "Kandydat rezygnuje po rozmowie o stawce"
+    elif outcome == "kept":
+        text = f"{label}: kandydat nie ustąpił — zostaje {requested}."
+        title = "Stawka po negocjacji bez zmian"
+    else:
+        agreed = format_rate(
+            change.agreed_amount, change.agreed_unit, change.agreed_currency
+        )
+        text = f"{label}: zgłoszona {requested} → ustalona {agreed}."
+        title = "Stawka ustalona po negocjacji"
+    if change.outcome_note:
+        text += f" „{change.outcome_note}”"
+    if change.status == "agreed":
+        text += " Decyzja o stawce do klienta należy do Delivery Leada."
+    from app.services.notification_triggers import _hor_user_ids  # noqa: PLC0415
+    from app.services.stage_handoff_recipients import pair_recruiter_id  # noqa: PLC0415
+
+    recipients: list[int] = []
+    if job is not None:
+        recipients.extend(await job_delivery_leads(db, job))
+    recipients.extend(await _hor_user_ids(db))
+    recruiter = await pair_recruiter_id(
+        db, candidate_id=change.candidate_id, job_id=change.job_id
+    )
+    if recruiter is not None:
+        recipients.append(recruiter)
+    if change.created_by is not None:
+        recipients.append(change.created_by)
+    await _notify_simple(
+        db,
+        change=change,
+        user_ids=recipients,
+        actor=actor,
+        title=title,
+        message=text,
+        task=False,
+        result=result,
+    )
+    from app.services.candidate_rate_from import recompute_safely  # noqa: PLC0415
+
+    await recompute_safely(db, [change.candidate_id])
+    return result
+
+
+async def decide(
+    db: AsyncSession,
+    *,
+    change: CandidateRateChange,
+    decision: str,
+    client_rate_amount: Optional[Decimal],
+    client_rate_unit: Optional[str],
+    client_rate_currency: Optional[str],
+    actor: User,
+) -> RateChangeResult:
+    from app.api.candidate_access import (  # noqa: PLC0415
+        client_rate_write_denied,
+        resolve_client_rate_write,
+    )
+    from app.services import candidate_audit  # noqa: PLC0415
+    from app.services.recruitment_process_commands import (  # noqa: PLC0415
+        update_latest_client_rate,
+    )
+
+    job = await db.get(Job, change.job_id)
+    if job is None or not await can_decide(db, actor, job):
+        raise _forbidden("O stawce do klienta decyduje Delivery Lead rekrutacji.")
+    if change.status not in DECIDABLE_STATUSES or not change.requires_decision:
+        raise _conflict("Ta zmiana stawki nie czeka na decyzję.")
+    if decision == "raise_client":
+        if client_rate_amount is None or client_rate_amount <= 0:
+            raise _invalid("Wpisz nową stawkę do klienta.")
+        if not await resolve_client_rate_write(db, actor, job):
+            raise client_rate_write_denied()
+        stage, previous = await update_latest_client_rate(
+            db,
+            candidate_id=change.candidate_id,
+            job_id=change.job_id,
+            rate_value=client_rate_amount,
+            rate_unit=client_rate_unit or "hourly",
+            rate_currency=(client_rate_currency or "PLN")[:3].upper(),
+        )
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.CLIENT_RATE_CHANGED,
+            user_id=actor.id,
+            entity_id=change.candidate_id,
+            details={
+                "job_id": change.job_id,
+                "stage_id": stage.id,
+                "old_client_rate": float(previous[0])
+                if previous[0] is not None
+                else None,
+                "old_client_rate_unit": previous[1],
+                "old_client_rate_currency": previous[2],
+                "new_client_rate": float(client_rate_amount),
+                "new_client_rate_unit": client_rate_unit or "hourly",
+                "new_client_rate_currency": (client_rate_currency or "PLN")[:3].upper(),
+                "rate_change_id": change.id,
+            },
+        )
+    now = datetime.now(timezone.utc)
+    change.status = "closed"
+    change.decision = decision
+    change.decided_by = actor.id
+    change.decided_at = now
+    change.updated_at = now
+    # Stawka do klienta nie trafia do dziennika kandydata (oś czasu jest jawna);
+    # zmiana stawki do klienta ma własny, ukryty wpis `client_rate_changed`.
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=change.candidate_id,
+            action="candidate_rate_change_decided",
+            user_id=actor.id,
+            details={
+                "change_id": change.id,
+                "job_id": change.job_id,
+                "decision": decision,
+            },
+        )
+    )
+    await db.flush()
+    result = RateChangeResult(change=change)
+    label = await _pair_label(db, change)
+    texts = {
+        "raise_client": "DL podnosi stawkę do klienta.",
+        "keep_client": "DL zostawia stawkę do klienta bez zmian.",
+        "withdraw": "DL wycofuje kandydata z procesu.",
+    }
+    from app.services.stage_handoff_recipients import pair_recruiter_id  # noqa: PLC0415
+
+    recipients = []
+    recruiter = await pair_recruiter_id(
+        db, candidate_id=change.candidate_id, job_id=change.job_id
+    )
+    if recruiter is not None:
+        recipients.append(recruiter)
+    if change.created_by is not None:
+        recipients.append(change.created_by)
+    if change.negotiator_id is not None:
+        recipients.append(change.negotiator_id)
+    await _notify_simple(
+        db,
+        change=change,
+        user_ids=recipients,
+        actor=actor,
+        title="Decyzja o zmianie stawki",
+        message=f"{label}: {texts.get(decision, decision)}",
+        result=result,
+    )
+    return result
+
+
+# ── Przypomnienia (raz dziennie, 8–17 czasu firmy) ──────────────────────────
+
+_REMINDERS_DONE_FOR: Optional[object] = None
+REMINDER_FROM_HOUR = 8
+REMINDER_UNTIL_HOUR = 17
+
+
+async def send_reminders(db: AsyncSession, now: datetime) -> int:
+    """DL: decyzja czeka od poprzedniego dnia; negocjator: termin rozmowy
+    minął albo jest dziś. Jeden dzwonek na sprawę dziennie (dedup ``emit``)."""
+
+    from zoneinfo import ZoneInfo  # noqa: PLC0415
+
+    from app.core.scheduling import is_business_day  # noqa: PLC0415
+
+    global _REMINDERS_DONE_FOR
+    local = now.astimezone(ZoneInfo(settings.BUSINESS_TZ))
+    if not (REMINDER_FROM_HOUR <= local.hour < REMINDER_UNTIL_HOUR):
+        return 0
+    if _REMINDERS_DONE_FOR == local.date() or not is_business_day(
+        now, settings.BUSINESS_TZ
+    ):
+        return 0
+    today = local.date()
+    sent = 0
+    try:
+        async with db.begin_nested():
+            changes = (
+                await db.scalars(
+                    select(CandidateRateChange).where(
+                        CandidateRateChange.status.in_(
+                            ("requested", "agreed", "negotiating")
+                        )
+                    )
+                )
+            ).all()
+            for change in changes:
+                job = await db.get(Job, change.job_id)
+                if job is None:
+                    continue
+                if not await change_still_active(db, change):
+                    # Proces się skończył (odrzucenie, rezygnacja, zatrudnienie,
+                    # zamknięta rekrutacja) — sprawa zamyka się sama, bez
+                    # decyzji, i znika z „Czeka na Ciebie”.
+                    change.status = "closed"
+                    change.updated_at = now
+                    await db.flush()
+                    continue
+                label = await _pair_label(db, change)
+                requested = format_rate(
+                    change.requested_amount,
+                    change.requested_unit,
+                    change.requested_currency,
+                )
+                if change.status == "negotiating" and change.negotiator_id:
+                    if change.negotiation_due is None or change.negotiation_due > today:
+                        continue
+                    targets = [change.negotiator_id]
+                    title = "Przypomnienie: rozmowa z kandydatem o stawce"
+                    message = (
+                        f"{label}: kandydat chce {requested}. Termin rozmowy: "
+                        f"{change.negotiation_due:%d.%m}. Zapisz wynik w panelu osoby."
+                    )
+                elif change.requires_decision and change.status in (
+                    "requested",
+                    "agreed",
+                ):
+                    since = (change.updated_at or change.created_at).astimezone(
+                        ZoneInfo(settings.BUSINESS_TZ)
+                    )
+                    if since.date() >= today:
+                        continue
+                    targets = await job_delivery_leads(db, job)
+                    shown = (
+                        format_rate(
+                            change.agreed_amount,
+                            change.agreed_unit,
+                            change.agreed_currency,
+                        )
+                        if change.agreed_amount is not None
+                        else requested
+                    )
+                    title = "Przypomnienie: decyzja o stawce kandydata"
+                    message = (
+                        f"{label}: kandydat chce {shown}, CV jest u klienta. "
+                        "Zdecyduj o stawce do klienta albo zleć negocjację."
+                    )
+                else:
+                    continue
+                from app.services.notification_triggers import emit  # noqa: PLC0415
+
+                for uid in targets:
+                    notif = await emit(
+                        db,
+                        user_id=uid,
+                        title=title,
+                        message=message,
+                        ntype=NotificationType.candidate_rate_change_task,
+                        related_entity_type="candidate_rate_change",
+                        related_entity_id=change.id,
+                        link=f"/jobs/{change.job_id}?candidate={change.candidate_id}",
+                    )
+                    if notif is not None:
+                        sent += 1
+    except Exception:  # noqa: BLE001 — przypomnienia nie zatrzymują ticku
+        logger.exception("rate change reminders failed")
+        return sent
+    _REMINDERS_DONE_FOR = today
+    return sent

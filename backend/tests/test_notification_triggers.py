@@ -79,6 +79,7 @@ async def test_all_triggers_return_zero_when_no_data(empty_db):
         "post_interview_t2h_escalation",
         "board_tasks_digest",
         "prep_attention",
+        "rate_change_reminders",
     }
     assert all(isinstance(v, int) and v >= 0 for v in results.values())
     # Time-gated trigger musi zwrócić 0 o 21:00.

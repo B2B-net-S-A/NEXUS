@@ -117,6 +117,7 @@ import { PinnedCandidateNotes } from "@/components/v2/recruitment/PinnedCandidat
 import { hourlyText } from "@/lib/candidate-rate";
 import { availabilityText, onsiteText } from "@/lib/person-facts";
 import { PersonFacts, RateWithBudget } from "@/components/v2/person/PersonFacts";
+import { RateChangeBanner } from "@/components/v2/rate-change/RateChangeBanner";
 import { RateChangeDialog } from "@/components/v2/rate-change/RateChangeDialog";
 import { rateChangeStatusLabel } from "@/lib/rate-change";
 
@@ -1029,6 +1030,19 @@ export function PipelineCandidateDock({
               : []),
           ]}
         />
+        {item.rate_change && !readOnly ? (
+          // 0418: otwarta sprawa zmiany stawki — negocjacja (DL, HoR),
+          // wynik rozmowy, decyzja DL o stawce do klienta.
+          <RateChangeBanner
+            candidateId={item.candidate_id}
+            jobId={jobId}
+            onWithdraw={
+              canReject && !rejectBlockedReason
+                ? () => onReject({ notes: "Rezygnacja po zmianie stawki kandydata." })
+                : undefined
+            }
+          />
+        ) : null}
 
         {/* Główna akcja zaraz pod nazwiskiem (makieta „Panel osoby"). Ta sama
             ścieżka co drag&drop (`requestMove`) — okna stawki, potwierdzeń

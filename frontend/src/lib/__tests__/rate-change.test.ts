@@ -74,3 +74,49 @@ describe("zmiana stawki — teksty", () => {
     expect(badge?.tone).toBe("wait");
   });
 });
+
+describe("negocjacja i decyzja DL (0418)", () => {
+  const rate = (n: number) => ({ amount: String(n), unit: "hourly", currency: "PLN", hourly: String(n), label: `${n} zł/h` });
+  const base = {
+    id: 1,
+    status: "agreed" as const,
+    requires_decision: true,
+    board_column: "cv_sent",
+    previous: rate(110),
+    requested: rate(130),
+    agreed: rate(120),
+    source: "manual",
+    source_label: "Panel osoby",
+    reason: "conversation" as const,
+    reason_label: "Rozmowa",
+    note: null,
+    negotiable: null,
+    created_at: "2026-10-04T10:00:00Z",
+    created_by_name: null,
+    negotiator_id: null,
+    negotiator_name: null,
+    negotiation_target_hourly: null,
+    negotiation_due: null,
+    outcome: "lower",
+    outcome_note: null,
+    decision: null,
+    decided_at: null,
+    decided_by_name: null,
+  };
+
+  it("podpowiedź stawki do klienta liczy różnicę od stawki ustalonej", async () => {
+    const { suggestedClientRate, openCaseLine } = await import("@/lib/rate-change");
+    expect(suggestedClientRate(rate(150), base)).toBe("160");
+    expect(suggestedClientRate(null, base)).toBe("");
+    expect(openCaseLine(base)).toBe(
+      "Kandydat chce 130 zł/h (było 110 zł/h) · ustalona 120 zł/h · decyzja o stawce do klienta należy do DL",
+    );
+  });
+
+  it("otwarta sprawa to najnowsza w stanie zgłoszona, w negocjacji albo ustalona", async () => {
+    const { openRateChange } = await import("@/lib/rate-change");
+    const closed = { ...base, id: 2, status: "closed" as const };
+    expect(openRateChange({ changes: [closed, base] } as never)?.id).toBe(1);
+    expect(openRateChange({ changes: [closed] } as never)).toBeNull();
+  });
+});
