@@ -790,7 +790,8 @@ export function PipelineCandidateDock({
           date: candidate.availability_date,
           status: candidate.availability_status,
           noticePeriod: candidate.notice_period,
-          noticeUnit: candidate.notice_period_unit,
+          // Profil bez jednostki okresu wypowiedzenia — dni (jak dotąd w doku).
+          noticeUnit: candidate.notice_period_unit ?? "days",
         }
       : null,
   );
