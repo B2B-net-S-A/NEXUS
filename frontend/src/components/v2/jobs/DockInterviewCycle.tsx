@@ -6,6 +6,8 @@ import { ArrowUpRight } from "lucide-react";
 
 import { InterviewCycleProgress } from "@/components/calendar/cycle/InterviewCycleProgress";
 import { PlanPrepDialog } from "@/components/calendar/cycle/PlanPrepDialog";
+import { PrepReviewDialog } from "@/components/calendar/cycle/PrepReviewDialog";
+import { SlotDecisionDialog } from "@/components/calendar/cycle/SlotDialogs";
 import { ReschedulePrepDialog } from "@/components/calendar/cycle/ReschedulePrepDialog";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { PairInfo, StepState } from "@/lib/interview-cycle";
@@ -44,6 +46,17 @@ export function DockInterviewCycle({
   onAddClientSlots?: () => void;
 }) {
   const [prepNo, setPrepNo] = useState<1 | 2 | null>(null);
+  // PR 6 (04.10.2026): wybór i potwierdzenie terminu oraz ocena prepu w panelu
+  // osoby — do tej pory wyłącznie w kalendarzu „Rozmowy u klienta”.
+  const [slotMode, setSlotMode] = useState<"pick" | "confirm" | null>(null);
+  const [reviewPrepId, setReviewPrepId] = useState<number | null>(null);
+  const slotRequest = badge.slot_request ?? null;
+  const canPickSlot = slotRequest?.status === "awaiting_recruiter";
+  // Termin potwierdza osoba z prawem do terminów od klienta (ta sama, która je
+  // dodaje) — przycisk „Terminy od klienta” jest tym samym sygnałem.
+  const canConfirmSlot = slotRequest?.status === "awaiting_dl" && Boolean(onAddClientSlots);
+  // Prep z oceną (także „niedostępna”) — okno mówi, co z niej wynika.
+  const reviewedPreps = (badge.preps ?? []).filter((p) => p.review_status != null);
   const [rescheduling, setRescheduling] = useState(false);
   const steps = badge.steps ?? [];
   const state = (key: string) => steps.find((s) => s.key === key)?.state;
@@ -91,8 +104,32 @@ export function DockInterviewCycle({
       </div>
       <div className={cn("rounded-md px-2 py-1 font-semibold", TONE[badge.tone])}>{badge.label}</div>
       {steps.length ? <InterviewCycleProgress steps={steps} labels /> : null}
-      {!readOnly && (debriefOpen || nextPrep || latePrepId || (slotsOpen && onAddClientSlots)) ? (
+      {!readOnly &&
+      (debriefOpen ||
+        nextPrep ||
+        latePrepId ||
+        canPickSlot ||
+        canConfirmSlot ||
+        (slotsOpen && onAddClientSlots && !slotRequest)) ? (
         <div className="flex flex-wrap gap-2 pt-0.5">
+          {canPickSlot ? (
+            <button
+              type="button"
+              onClick={() => setSlotMode("pick")}
+              className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              Wybierz termin z kandydatem
+            </button>
+          ) : null}
+          {canConfirmSlot ? (
+            <button
+              type="button"
+              onClick={() => setSlotMode("confirm")}
+              className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              Potwierdź termin
+            </button>
+          ) : null}
           {debriefOpen ? (
             <button
               type="button"
@@ -120,7 +157,7 @@ export function DockInterviewCycle({
               Zaplanuj Prep {nextPrep}
             </button>
           ) : null}
-          {slotsOpen && onAddClientSlots ? (
+          {slotsOpen && onAddClientSlots && !slotRequest ? (
             <button
               type="button"
               onClick={onAddClientSlots}
@@ -130,6 +167,37 @@ export function DockInterviewCycle({
             </button>
           ) : null}
         </div>
+      ) : null}
+      {reviewedPreps.length > 0 ? (
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+          {reviewedPreps.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setReviewPrepId(p.id)}
+              className="font-medium text-primary hover:underline"
+            >
+              Ocena prepu{p.prep_no ? ` ${p.prep_no}` : ""}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {slotMode && slotRequest ? (
+        <SlotDecisionDialog
+          open
+          onOpenChange={(o) => !o && setSlotMode(null)}
+          mode={slotMode}
+          pair={pair}
+          request={slotRequest}
+        />
+      ) : null}
+      {reviewPrepId != null ? (
+        <PrepReviewDialog
+          open
+          onOpenChange={(o) => !o && setReviewPrepId(null)}
+          eventId={reviewPrepId}
+          pair={pair}
+        />
       ) : null}
       {rescheduling && latePrepId ? (
         <ReschedulePrepDialog

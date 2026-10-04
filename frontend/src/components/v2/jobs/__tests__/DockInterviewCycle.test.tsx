@@ -26,6 +26,24 @@ vi.mock("@/components/calendar/cycle/ReschedulePrepDialog", () => ({
   },
 }));
 
+const slotProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
+
+vi.mock("@/components/calendar/cycle/SlotDialogs", () => ({
+  SlotDecisionDialog: (props: Record<string, unknown>) => {
+    slotProps.current = props;
+    return <div data-testid="slot-decision-dialog" />;
+  },
+}));
+
+const prepReviewProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
+
+vi.mock("@/components/calendar/cycle/PrepReviewDialog", () => ({
+  PrepReviewDialog: (props: Record<string, unknown>) => {
+    prepReviewProps.current = props;
+    return <div data-testid="prep-review-dialog" />;
+  },
+}));
+
 import { DockInterviewCycle } from "@/components/v2/jobs/DockInterviewCycle";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { StepKey, StepState } from "@/lib/interview-cycle";
@@ -121,5 +139,77 @@ describe("DockInterviewCycle", () => {
       start: "2031-10-05T08:00:00+00:00",
       tentative: true,
     });
+  });
+
+  // PR 6 (04.10.2026): termin od klienta i ocena prepu w panelu osoby.
+  const REQUEST = {
+    id: 77,
+    status: "awaiting_recruiter" as const,
+    slots: [{ start: "2026-10-08T12:00:00Z", end: null }],
+    chosen_index: null,
+    respond_by: null,
+    recruiter_id: 5,
+    created_by: 6,
+    duration_minutes: 60,
+    note: null,
+    event_id: null,
+  };
+
+  it("wniosek czeka na rekrutera: „Wybierz termin z kandydatem” otwiera wybór na miejscu", () => {
+    render(
+      <DockInterviewCycle
+        badge={badge({ steps: steps({ slots: "done", choice: "current" }), slot_request: REQUEST })}
+        pair={PAIR}
+        readOnly={false}
+        onDebrief={() => {}}
+        onAddClientSlots={() => {}}
+      />,
+    );
+    // Wniosek już jest — drugi „Terminy od klienta” byłby duplikatem.
+    expect(screen.queryByRole("button", { name: "Terminy od klienta" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Wybierz termin z kandydatem" }));
+    expect(slotProps.current).toEqual(expect.objectContaining({ mode: "pick", request: REQUEST, pair: PAIR }));
+  });
+
+  it("potwierdzenie terminu widzi tylko osoba z prawem do terminów od klienta", () => {
+    const confirmBadge = badge({
+      steps: steps({ slots: "done", choice: "done" }),
+      slot_request: { ...REQUEST, status: "awaiting_dl", chosen_index: 0 },
+    });
+    const { rerender } = render(
+      <DockInterviewCycle badge={confirmBadge} pair={PAIR} readOnly={false} onDebrief={() => {}} />,
+    );
+    expect(screen.queryByRole("button", { name: "Potwierdź termin" })).toBeNull();
+    rerender(
+      <DockInterviewCycle
+        badge={confirmBadge}
+        pair={PAIR}
+        readOnly={false}
+        onDebrief={() => {}}
+        onAddClientSlots={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź termin" }));
+    expect(slotProps.current).toEqual(expect.objectContaining({ mode: "confirm" }));
+  });
+
+  it("prep z oceną otwiera okno oceny prepu", () => {
+    render(
+      <DockInterviewCycle
+        badge={badge({
+          steps: steps({ slots: "done", choice: "done", prep: "done" }),
+          preps: [
+            { id: 901, prep_no: 1, start: null, review_status: "ok", transcript_status: "ready" },
+            { id: 902, prep_no: 2, start: null, review_status: null, transcript_status: null },
+          ],
+        })}
+        pair={PAIR}
+        readOnly={false}
+        onDebrief={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Ocena prepu 2" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Ocena prepu 1" }));
+    expect(prepReviewProps.current).toEqual(expect.objectContaining({ eventId: 901 }));
   });
 });

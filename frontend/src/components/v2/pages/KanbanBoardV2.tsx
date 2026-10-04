@@ -693,6 +693,12 @@ interface BoardV4Ctx {
 }
 const BoardV4Context = React.createContext<BoardV4Ctx | null>(null);
 
+/** PR 6 (04.10.2026): zamiast nowej karty z kalendarzem — co zrobić w panelu. */
+export const SLOTS_BY_OTHERS_MESSAGE =
+ "Terminy od klienta wpisuje osoba z uprawnieniem do terminów (zwykle Delivery Lead). Gdy je doda, wybierzesz termin z kandydatem w panelu osoby.";
+export const INTERVIEW_WITHOUT_EVENT_MESSAGE =
+ "Rozmowa u klienta nie ma jeszcze terminu w NEXUSIE — dodaj terminy od klienta w panelu osoby, debrief zapiszesz po rozmowie.";
+
 /** Ikony skróconych plakietek karty (`compactCardBadge`). */
 const COMPACT_BADGE_ICON: Record<string, typeof Lock> = {
  source: UserPlus,
@@ -2602,8 +2608,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  } else if (workbenchContext) {
  setWorkbench({ candidateId: item.candidate_id, section: "interviews" });
  } else {
+ // PR 6: bez nowej karty z kalendarzem — rozmowa bez terminu w NEXUSIE
+ // nie ma debriefu do zapisania, termin dodaje się w panelu osoby.
  moveNextSuspended.current = false;
- window.open(`/calendar?cycle=${item.candidate_id}-${jobId}`, "_blank", "noopener");
+ showInfo(INTERVIEW_WITHOUT_EVENT_MESSAGE);
  }
  return;
  case "request_slots":
@@ -2619,14 +2627,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  client_name: null,
  });
  } else {
- window.open(`/calendar?cycle=${item.candidate_id}-${jobId}`, "_blank", "noopener");
+ showInfo(SLOTS_BY_OTHERS_MESSAGE);
  }
  return;
  default:
  return;
  }
  },
- [suspendMoveNext, boardFold, cols, requestMove, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots, openDlReviewIfSending]
+ [suspendMoveNext, boardFold, cols, requestMove, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots, openDlReviewIfSending, showInfo]
  );
  const handleMoveNextMove = useCallback(
  (target: KanbanColumn) => {

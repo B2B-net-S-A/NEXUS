@@ -1423,5 +1423,24 @@ async def interview_badges_for_job(
                 badge["late_prep_event_id"] = (
                     snap.late_preps[0].id if snap.late_preps else None
                 )
+                # PR 6 (04.10.2026): panel osoby wybiera i potwierdza termin od
+                # klienta oraz pokazuje ocenę prepu bez przechodzenia do
+                # kalendarza — potrzebuje otwartego wniosku i prepów pary.
+                badge["slot_request"] = (
+                    _slot_payload(snap.slot_request)
+                    if snap.slot_request is not None
+                    and snap.slot_request.status != SLOT_STATUS_CANCELLED
+                    else None
+                )
+                badge["preps"] = [
+                    {
+                        "id": p.id,
+                        "prep_no": p.prep_no if p.prep_no is not None else p.ordinal,
+                        "start": _iso(p.start),
+                        "review_status": p.review_status,
+                        "transcript_status": p.transcript_status,
+                    }
+                    for p in snap.preps
+                ]
                 badges[cid] = badge
     return badges

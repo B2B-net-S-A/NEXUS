@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 import type { RateUnit } from "@/lib/api";
 import type { FollowupCardBadge } from "@/lib/api/candidateFollowups";
 import type { CandidateContactSummary } from "@/lib/candidate-contact";
-import type { StepKey, StepState } from "@/lib/interview-cycle";
+import type { SlotRequest, StepKey, StepState } from "@/lib/interview-cycle";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -166,6 +166,16 @@ export interface KanbanItem {
   tentative_interview_at?: string | null;
   /** Prep zaplanowany po rozmowie u klienta — do przełożenia, nie do planowania od nowa. */
   late_prep_event_id?: number | null;
+  /** PR 6: otwarty wniosek o terminy od klienta — wybór i potwierdzenie z panelu osoby. */
+  slot_request?: SlotRequest | null;
+  /** PR 6: prepy pary (ocena prepu z panelu osoby). */
+  preps?: Array<{
+   id: number;
+   prep_no: number | null;
+   start: string | null;
+   review_status: string | null;
+   transcript_status: string | null;
+  }>;
  } | null;
  // „Zatrudniony": czy jest uzupełnione zamówienie.
  order_status?: "complete" | "missing" | null;
