@@ -91,3 +91,24 @@ export function pairColumnLabel(key: string | null | undefined): string | null {
   if (!key) return null;
   return (BOARD_COLUMN_LABEL as Record<string, string>)[key as BoardColumnKey] ?? null;
 }
+
+/** Niepodpisana umowa „W trakcie” pary — okna zatrudnienia i rezygnacji pytają o nią. */
+export function pendingAgreement(
+  agreement: CardAgreement | null | undefined,
+): CardAgreement | null {
+  if (!agreement) return null;
+  return agreement.signature_status === "unsigned" &&
+    agreement.contract_status === "in_progress"
+    ? agreement
+    : null;
+}
+
+/** Podpisana umowa z żywym kontraktem — rezygnacja prowadzi do zakończenia współpracy. */
+export function signedAgreementWithContract(
+  agreement: CardAgreement | null | undefined,
+): CardAgreement | null {
+  if (!agreement) return null;
+  return agreement.signature_status === "signed_both" && agreement.contract_id !== null
+    ? agreement
+    : null;
+}

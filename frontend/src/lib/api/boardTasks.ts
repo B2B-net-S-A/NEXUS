@@ -255,6 +255,43 @@ export interface UnfinishedJobForm {
   updated_at: string;
 }
 
+/** Sprawa z grupy „Umowy” — lustro `services/agreement_tasks.py` (04.10.2026). */
+export type AgreementTaskReason =
+  | "requested"
+  | "hired_unsigned"
+  | "closed_unsigned"
+  | "closed_signed_active";
+
+export interface AgreementTaskRow {
+  generated_id: number;
+  contract_number: string;
+  reason: AgreementTaskReason;
+  candidate_id: number;
+  candidate_name: string;
+  job_id: number;
+  job_title: string;
+  client_name: string | null;
+  since: string | null;
+  requested_by_name: string | null;
+  contract_id: number | null;
+}
+
+export interface AgreementTasks {
+  /** Do potwierdzenia podpisu — osoby z uprawnieniem „Podpis B2B”. */
+  to_confirm: AgreementTaskRow[];
+  /** Karta zamknięta przy żywej umowie: anuluj albo zakończ współpracę. */
+  to_close: AgreementTaskRow[];
+  /** Twoje prośby o potwierdzenie podpisu, na które czekasz. */
+  waiting_on_others: AgreementTaskRow[];
+}
+
+export const AGREEMENT_TASK_REASON_LABEL: Record<AgreementTaskReason, string> = {
+  requested: "Prośba o potwierdzenie podpisu",
+  hired_unsigned: "„Zatrudniony”, umowa bez podpisu",
+  closed_unsigned: "Proces zamknięty, umowa „W trakcie”",
+  closed_signed_active: "Proces zamknięty, kontrakt trwa",
+};
+
 export interface BoardTasksResponse {
   cpro_to_send: BoardTaskRow[];
   cpro_sent: BoardTaskRow[];
@@ -295,6 +332,9 @@ export interface BoardTasksResponse {
   pending_jobs?: PendingJobs | null;
   /** Twoje niedokończone formularze nowej rekrutacji. */
   unfinished_forms?: UnfinishedJobForm[] | null;
+  /** Umowy z Generatora do potwierdzenia albo zamknięcia (04.10.2026).
+   *  `null`/brak = serwer jej nie policzył albo starszy backend. */
+  agreements?: AgreementTasks | null;
 }
 
 export const BOARD_TASKS_QUERY_KEY = ["board-tasks"] as const;

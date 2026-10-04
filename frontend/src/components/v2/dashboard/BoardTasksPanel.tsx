@@ -35,6 +35,9 @@
  *    z „Dokończ / Uzupełnij / Zamknij" i Twoimi niedokończonymi formularzami
  *    nowej rekrutacji (`PendingJobsSection`). Jak lista prowadzących — nie
  *    liczy się do tego, czy coś „czeka".
+ *  - „Umowy do potwierdzenia / do zamknięcia” (04.10.2026) — podpis umowy
+ *    z Generatora potwierdza osoba z „Podpis B2B”; rekruter widzi swoje
+ *    prośby w „U innych” (`AgreementTasksSection`).
  *  - „Twoje CV w drodze" (02.10.2026) — dla rekrutera kandydata: co wróciło
  *    (odrzucenie przez DL, cofnięcie z QC, zwrot z kolejki Cpro), co czeka
  *    w przeglądzie i co poszło do klienta (`CvInTransitSection`). Każdy ma ją
@@ -72,6 +75,11 @@ import { formatDayLabel, formatTime } from "@/lib/interview-cycle";
 import { countPl } from "@/lib/plural-pl";
 import { boardCardBadge } from "@/lib/recommendation-card";
 
+import {
+  AgreementTasksSection,
+  AgreementWaitingSection,
+  agreementTasksCount,
+} from "./AgreementTasksSection";
 import { CproQueueDialog, CproSenderControl } from "./CproQueueDialog";
 import { CvInTransitSection } from "./CvInTransitSection";
 import { NewJobLeadsSection } from "./NewJobLeadsSection";
@@ -223,7 +231,8 @@ export function BoardTasksPanel() {
     data.cpro_to_send.length +
     data.cpro_sent.length +
     preps.length +
-    followups.length;
+    followups.length +
+    agreementTasksCount(data.agreements);
   // „Twoje CV w drodze”: gdy coś wróciło albo panel i tak stoi — kolumna
   // w panelu; gdy nie — sam wąski pasek nad pulpitem (także z pustym stanem,
   // bo każdy ma tę listę domyślnie i może ją usunąć z pulpitu).
@@ -236,7 +245,11 @@ export function BoardTasksPanel() {
   // zaległość, nie zadanie z Tablicy: do `total` się nie liczy, jak lista
   // prowadzących. Starszy serwer pól nie oddaje (`undefined`/`null`).
   const hasPendingJobs = hasPendingJobsContent(data.pending_jobs, data.unfinished_forms);
-  if (total === 0 && (transit?.returned_total ?? 0) === 0) {
+  if (
+    total === 0 &&
+    (transit?.returned_total ?? 0) === 0 &&
+    (data.agreements?.waiting_on_others.length ?? 0) === 0
+  ) {
     if (!canSetSender && !transit && leads.length === 0 && !hasPendingJobs) return null;
     return (
       <div className="flex flex-col gap-3">
@@ -256,7 +269,11 @@ export function BoardTasksPanel() {
   // „Twoje CV w drodze” z czymś, co wróciło, to Twój ruch (popraw i oddaj);
   // samo czekanie na przegląd i klienta — „U innych”.
   const transitIsMine = (transit?.returned_total ?? 0) > 0;
-  const othersGroup = (Boolean(transit) && !transitIsMine) || data.cpro_sent.length > 0;
+  const waitingAgreements = data.agreements?.waiting_on_others ?? [];
+  const othersGroup =
+    (Boolean(transit) && !transitIsMine) ||
+    data.cpro_sent.length > 0 ||
+    waitingAgreements.length > 0;
   const openQueue = (jobId: number | null) => {
     setCproJob(jobId);
     setCproOpen(true);
@@ -295,6 +312,7 @@ export function BoardTasksPanel() {
         <NewJobLeadsSection rows={leads} />
         <PendingJobsSection pending={data.pending_jobs} forms={data.unfinished_forms} />
         <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
+        <AgreementTasksSection tasks={data.agreements} />
         {transit && transitIsMine ? <CvInTransitSection transit={transit} /> : null}
         {dlReview.length > 0 && (
           <Section
@@ -427,6 +445,7 @@ export function BoardTasksPanel() {
           </h3>
           <div className="grid gap-4 lg:grid-cols-3">
             {transit && !transitIsMine ? <CvInTransitSection transit={transit} /> : null}
+            <AgreementWaitingSection rows={waitingAgreements} />
             {data.cpro_sent.length > 0 && (
               <Section
                 title="Wysłane do Cpro"

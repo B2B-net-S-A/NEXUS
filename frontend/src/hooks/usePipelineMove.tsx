@@ -24,7 +24,12 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import api, { pipelineApi, type RateUnit } from "@/lib/api";
+import api, {
+  b2bGeneratorApi,
+  pipelineApi,
+  type B2BGeneratedContractRow,
+  type RateUnit,
+} from "@/lib/api";
 import { getUserRoles, useAuthStore } from "@/store/auth";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -53,6 +58,9 @@ import {
 } from "@/components/v2/pages/kanban-shared";
 import { celebrate } from "@/lib/celebrate";
 import { generatorPrefillHref } from "@/lib/b2b-generator-register";
+import { pendingAgreement } from "@/lib/b2b-agreement";
+import { apiErrorMessage } from "@/lib/api-error";
+import dynamic from "next/dynamic";
 import {
   HIRED_SIGNED_VIA_OPTIONS,
   hiredReasonComplete,
@@ -102,6 +110,17 @@ const RATE_EDIT_ROLES = new Set([
   "recruiter",
   "finance",
 ]);
+
+// Okno „Oznacz jako podpisaną” żyje w module Generatora (6 tys. linii) —
+// Tablica ładuje je dopiero, gdy ktoś potwierdza podpis z okna zatrudnienia.
+const ConfirmFullySignedDialog = dynamic(
+  () =>
+    import("@/components/v2/pages/B2BContractGeneratorV2").then(
+      (m) => m.ConfirmFullySignedDialog,
+    ),
+  { ssr: false },
+);
+
 export const RATE_EDIT_DENIED_MESSAGE =
   "Ruch na „Zweryfikowany” może zapisać stawkę kandydata — mogą go wykonać: rekruter, Delivery Lead, Talent Community Manager, Head of Recruitment, Finanse lub administrator.";
 
@@ -300,6 +319,13 @@ export function usePipelineMove({
   // Okno „Potwierdź zatrudnienie”: jak podpisano umowę (D2).
   const [hiredVia, setHiredVia] = useState<HiredSignedVia | null>(null);
   const [hiredNote, setHiredNote] = useState("");
+  // 04.10.2026: para ma umowę „W trakcie” w Generatorze — pierwsza opcja to
+  // potwierdzenie jej podpisu (ta sama automatyka co w rejestrze), a przy
+  // „B2B poza Generatorem” umowa z rejestru zostaje anulowana.
+  const [hiredFromGenerator, setHiredFromGenerator] = useState(false);
+  const [cancelGeneratorAgreement, setCancelGeneratorAgreement] = useState(true);
+  const [hiredBusy, setHiredBusy] = useState(false);
+  const [signRow, setSignRow] = useState<B2BGeneratedContractRow | null>(null);
 
   const [bulkBusy, setBulkBusy] = useState(false);
   // M4 PR-03 (audyt P1.6): potwierdzenie przed hired — ruch tworzy draft
@@ -369,6 +395,80 @@ export function usePipelineMove({
     void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
     void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
   }, [queryClient, jobId]);
+
+  const hiredAgreement = pendingAgreement(hiredConfirm?.item.agreement ?? null);
+
+  const invalidateAgreementViews = useCallback(() => {
+    syncKanbanCache();
+    void queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+    void queryClient.invalidateQueries({ queryKey: ["board-tasks"] });
+  }, [queryClient, syncKanbanCache]);
+
+  const closeHiredConfirm = useCallback(() => {
+    setHiredConfirm(null);
+    setHiredVia(null);
+    setHiredNote("");
+    setHiredFromGenerator(false);
+    setCancelGeneratorAgreement(true);
+  }, []);
+
+  // „Umowa z Generatora jest podpisana”: z uprawnieniem „Podpis B2B” to samo
+  // okno co w rejestrze (ono przesuwa kartę na „Zatrudniony” i zakłada
+  // kontrakt); bez niego prośba do Delivery Leada (D1). Ruch karty nie idzie.
+  const confirmFromGenerator = useCallback(
+    async (agreementId: number) => {
+      if (!hiredConfirm) return;
+      setHiredBusy(true);
+      try {
+        const rows = await b2bGeneratorApi.generated(20, {
+          jobId,
+          candidateId: hiredConfirm.item.candidate_id,
+        });
+        const row = rows.find((r) => r.id === agreementId);
+        if (row?.can_confirm_signed) {
+          closeHiredConfirm();
+          setSignRow(row);
+          return;
+        }
+        const result = await b2bGeneratorApi.requestSignature(agreementId);
+        closeHiredConfirm();
+        invalidateAgreementViews();
+        if (!result.sent) {
+          showSuccess("Prośba o potwierdzenie podpisu była już wysłana w ciągu ostatniej doby.");
+        } else if (result.recipient_names.length > 0) {
+          showSuccess(
+            `Wysłano prośbę o potwierdzenie podpisu: ${result.recipient_names.join(", ")}. Karta przejdzie na „Zatrudniony” po potwierdzeniu.`,
+          );
+        } else {
+          showSuccess("Wysłano prośbę o potwierdzenie podpisu.");
+        }
+      } catch (e) {
+        showError(apiErrorMessage(e, "Nie udało się sprawdzić umowy w Generatorze."));
+      } finally {
+        setHiredBusy(false);
+      }
+    },
+    [hiredConfirm, jobId, closeHiredConfirm, invalidateAgreementViews, showSuccess, showError],
+  );
+
+  // Zatrudnienie inną drogą przy umowie „W trakcie” w rejestrze: umowa nie
+  // doszła do skutku, więc „Anulowana” (numer zostaje zużyty).
+  const cancelAgreement = useCallback(
+    async (agreementId: number) => {
+      try {
+        await b2bGeneratorApi.updateGenerated(agreementId, { contract_status: "cancelled" });
+        invalidateAgreementViews();
+      } catch (e) {
+        showError(
+          apiErrorMessage(
+            e,
+            "Kandydat jest zatrudniony, ale nie udało się anulować umowy w rejestrze — zrób to w Generatorze.",
+          ),
+        );
+      }
+    },
+    [invalidateAgreementViews, showError],
+  );
 
   // M4 PR-03: po błędzie ruchu NIE zostawiamy karty w niepotwierdzonej
   // kolumnie — dociągamy prawdę z serwera (a nie lokalny snapshot, bo 409
@@ -1054,7 +1154,8 @@ export function usePipelineMove({
     sendRejectionEmail: boolean | null | undefined,
     candidateOfferResponse: "pending" | "accepted" | "declined" | null | undefined,
     freeReason?: string,
-    endedBy?: EndedBy
+    endedBy?: EndedBy,
+    cancelAgreementId?: number | null
   ) => {
     if (!pendingRejection) return;
     const { entries, destCol } = pendingRejection;
@@ -1089,6 +1190,9 @@ export function usePipelineMove({
           }
         );
         if (!ok) failed.push({ name: itemFullName(item), reason: failureReason });
+        else if (cancelAgreementId && entries.length === 1) {
+          await cancelAgreement(cancelAgreementId);
+        }
       }
       if (entries.length > 1) {
         const emailSkip = rejectionEmailBulkSkipMessage(emailStatuses);
@@ -1137,6 +1241,11 @@ export function usePipelineMove({
         initialEndedBy={pendingRejection?.endedBy ?? null}
         initialNotes={pendingRejection?.notes ?? null}
         canEndAsDeliveryLead={canEndAsDeliveryLead}
+        agreement={
+          pendingRejection && pendingRejection.entries.length === 1
+            ? pendingRejection.entries[0].item.agreement ?? null
+            : null
+        }
       />
 
       {debriefRequired && (
@@ -1233,9 +1342,7 @@ export function usePipelineMove({
           open
           onOpenChange={(o) => {
             if (!o) {
-              setHiredConfirm(null);
-              setHiredVia(null);
-              setHiredNote("");
+              closeHiredConfirm();
             }
           }}
         >
@@ -1251,31 +1358,70 @@ export function usePipelineMove({
               </DialogDescription>
             </DialogHeader>
             <DialogBody className="space-y-3 text-sm">
-              <p className="rounded-md bg-muted px-3 py-2 text-muted-foreground">
-                Umowa B2B z Generatora? Użyj „Oznacz jako podpisaną” —{" "}
-                <a
-                  className="font-medium text-primary underline-offset-2 hover:underline"
-                  href={generatorPrefillHref(hiredConfirm.item.candidate_id, jobId)}
-                >
-                  otwórz Generator
-                </a>
-                . Karta przejdzie na „Zatrudniony” sama i powstanie zamówienie.
-              </p>
+              {hiredAgreement ? null : (
+                <p className="rounded-md bg-muted px-3 py-2 text-muted-foreground">
+                  Umowa B2B z Generatora? Użyj „Oznacz jako podpisaną” —{" "}
+                  <a
+                    className="font-medium text-primary underline-offset-2 hover:underline"
+                    href={generatorPrefillHref(hiredConfirm.item.candidate_id, jobId)}
+                  >
+                    otwórz Generator
+                  </a>
+                  . Karta przejdzie na „Zatrudniony” sama i powstanie zamówienie.
+                </p>
+              )}
               <fieldset className="space-y-1.5">
                 <legend className="mb-1 font-medium">Jak podpisano umowę?</legend>
+                {hiredAgreement ? (
+                  <label className="flex items-start gap-2 rounded-md border border-primary/40 bg-primary/5 px-2 py-1.5">
+                    <input
+                      type="radio"
+                      name="hired-signed-via"
+                      className="mt-1"
+                      checked={hiredFromGenerator}
+                      onChange={() => {
+                        setHiredFromGenerator(true);
+                        setHiredVia(null);
+                      }}
+                    />
+                    <span>
+                      <span className="font-medium">
+                        Umowa {hiredAgreement.number} z Generatora jest podpisana
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        Potwierdzenie podpisu zakłada kontrakt i zamówienie
+                        i przesuwa kartę na „Zatrudniony”. Bez uprawnienia
+                        „Podpis B2B” wyślemy prośbę do Delivery Leada.
+                      </span>
+                    </span>
+                  </label>
+                ) : null}
                 {HIRED_SIGNED_VIA_OPTIONS.map((option) => (
                   <label key={option.value} className="flex items-center gap-2">
                     <input
                       type="radio"
                       name="hired-signed-via"
                       value={option.value}
-                      checked={hiredVia === option.value}
-                      onChange={() => setHiredVia(option.value)}
+                      checked={!hiredFromGenerator && hiredVia === option.value}
+                      onChange={() => {
+                        setHiredFromGenerator(false);
+                        setHiredVia(option.value);
+                      }}
                     />
                     {option.label}
                   </label>
                 ))}
               </fieldset>
+              {hiredAgreement && !hiredFromGenerator && hiredVia !== null ? (
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={cancelGeneratorAgreement}
+                    onChange={(e) => setCancelGeneratorAgreement(e.target.checked)}
+                  />
+                  Anuluj umowę {hiredAgreement.number} w rejestrze (nie doszła do skutku)
+                </label>
+              ) : null}
               <label className="block space-y-1">
                 <span className="font-medium">
                   Opis{hiredVia === "other" ? " (wymagany)" : " (opcjonalnie)"}
@@ -1293,27 +1439,37 @@ export function usePipelineMove({
               <Button
                 variant="outline"
                 onClick={() => {
-                  setHiredConfirm(null);
-                  setHiredVia(null);
-                  setHiredNote("");
+                  closeHiredConfirm();
                 }}
               >
                 Anuluj
               </Button>
               <Button
-                disabled={!hiredReasonComplete(hiredVia, hiredNote)}
+                disabled={
+                  hiredBusy ||
+                  (!hiredFromGenerator && !hiredReasonComplete(hiredVia, hiredNote))
+                }
                 onClick={() => {
-                  if (hiredVia === null) return;
                   const { item, destCol, srcColId } = hiredConfirm;
+                  const agreement = hiredAgreement;
+                  if (hiredFromGenerator && agreement) {
+                    void confirmFromGenerator(agreement.id);
+                    return;
+                  }
+                  if (hiredVia === null) return;
                   const signed = { via: hiredVia, note: hiredNote };
-                  setHiredConfirm(null);
-                  setHiredVia(null);
-                  setHiredNote("");
+                  const cancelId =
+                    agreement && cancelGeneratorAgreement ? agreement.id : null;
+                  closeHiredConfirm();
                   applyOptimistic(item, srcColId, destCol);
-                  void sendMove(item, destCol, undefined, { hiredSignedVia: signed });
+                  void sendMove(item, destCol, undefined, { hiredSignedVia: signed }).then(
+                    (ok) => {
+                      if (ok && cancelId !== null) void cancelAgreement(cancelId);
+                    },
+                  );
                 }}
               >
-                Potwierdź zatrudnienie
+                {hiredFromGenerator ? "Dalej: potwierdź podpis" : "Potwierdź zatrudnienie"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1349,6 +1505,21 @@ export function usePipelineMove({
             </DialogFooter>
           </DialogContent>
         </Dialog>
+      )}
+
+      {signRow && (
+        <ConfirmFullySignedDialog
+          row={signRow}
+          open={true}
+          onOpenChange={(v: boolean) => {
+            if (!v) setSignRow(null);
+          }}
+          onConfirmed={(result) => {
+            setSignRow(null);
+            invalidateAgreementViews();
+            showSuccess(result.message);
+          }}
+        />
       )}
     </>
   );
