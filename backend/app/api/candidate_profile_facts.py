@@ -282,6 +282,7 @@ async def patch_candidate_profile_rate(
             amount=payload.amount,
             expected_version=expected_version,
             actor_id=current_user.id,
+            meaning="minimum" if payload.is_minimum else "expectation",
         )
     except facts.CandidateNotFoundError:
         raise _not_found() from None
@@ -476,6 +477,10 @@ async def apply_candidate_notes_fact(
     from app.services.match_score_cache import mark_stale_for_candidate
 
     await mark_stale_for_candidate(db, candidate_id)
+    if rate_audit is not None:
+        from app.services.candidate_rate_from import recompute_safely
+
+        await recompute_safely(db, [candidate_id])
     await db.commit()
     return CandidateNotesFactsResponse(**build_notes_facts(candidate))
 

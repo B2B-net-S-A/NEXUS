@@ -559,6 +559,15 @@ class CandidateResponse(BaseModel):
     avatar_url: Optional[str] = None
     expected_rate_hourly: Optional[Decimal] = None
     expected_rate_currency: Optional[str] = None
+    # „Stawka od” (0414): najniższa stawka z 18 miesięcy — tę czytają filtry
+    # i AI. `expected_rate_hourly` to dalej stawka zapisana w profilu.
+    rate_from_hourly: Optional[Decimal] = None
+    rate_from_at: Optional[datetime] = None
+    rate_from_stale: bool = False
+    rate_latest_hourly: Optional[Decimal] = None
+    rate_latest_at: Optional[datetime] = None
+    rate_observation_count: Optional[int] = None
+    rate_from_computed_at: Optional[datetime] = Field(default=None, exclude=True)
     availability_date: Optional[date]
     notice_period: Optional[int] = None
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
@@ -650,6 +659,13 @@ class CandidateResponse(BaseModel):
         else:
             # NULL/blank currency is a documented legacy PLN value.
             self.expected_rate_currency = "PLN"
+        return self
+
+    @model_validator(mode="after")
+    def _rate_from_summary(self) -> "CandidateResponse":
+        from app.services.candidate_rate_from import rate_summary
+
+        self.__dict__.update(rate_summary(self))
         return self
 
     # Phase D4: AI-extracted CV data (companies, career_summary, _source tag,
@@ -807,6 +823,13 @@ class CandidateQuickViewCandidate(BaseModel):
     # stawki w podglądzie był pusty dla osoby spoza bieżącej strony listy.
     expected_rate_hourly: Optional[Decimal] = None
     expected_rate_currency: Optional[str] = None
+    # „Stawka od” (0414) — `candidate_rate_from.rate_summary`.
+    rate_from_hourly: Optional[Decimal] = None
+    rate_from_at: Optional[datetime] = None
+    rate_from_stale: bool = False
+    rate_latest_hourly: Optional[Decimal] = None
+    rate_latest_at: Optional[datetime] = None
+    rate_observation_count: Optional[int] = None
 
 
 class CandidateQuickViewResponse(BaseModel):

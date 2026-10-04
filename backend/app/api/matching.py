@@ -42,6 +42,7 @@ from app.services.location_utils import (
     location_matches as _location_matches,
     location_tokens as _location_tokens,
 )
+from app.services.candidate_rate_from import rate_summary
 from app.services.scoring_service import (
     _extract_skills_from_champion,
     candidate_skill_names,
@@ -219,15 +220,14 @@ def _build_match_info(
             # miasto"). Wszystkie z wczytanego wiersza — zero dodatkowych zapytań.
             # `getattr` z domyślną: realny ORM ma te pola, ale atrapy testowe
             # (SimpleNamespace) nie muszą — brak pola nie może wywalić rankingu.
+            # „Stawka od” (0414) — ta sama liczba, z którą porównuje `rate_fit`.
             "expected_rate_hourly": (
                 float(rate_hourly)
-                if (rate_hourly := getattr(candidate, "expected_rate_hourly", None))
+                if (rate_hourly := rate_summary(candidate)["rate_from_hourly"])
                 is not None
                 else None
             ),
-            "expected_rate_currency": getattr(
-                candidate, "expected_rate_currency", None
-            ),
+            "expected_rate_currency": "PLN" if rate_hourly is not None else None,
             # This dedicated column stores hourly amounts; no unit inference
             # is made from historical free-text or monthly rate fields.
             "expected_rate_unit": "hour" if rate_hourly is not None else None,

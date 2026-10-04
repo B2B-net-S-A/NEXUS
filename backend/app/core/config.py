@@ -596,6 +596,13 @@ class Settings(BaseSettings):
     # ręcznie działają bez niej. Włączenie przez workflow „Coolify set env”.
     RECOMMENDATION_CARD_IMPORT_ENABLED: bool = False
 
+    # „Stawka od” (0414): filtry, AI i plakietki budżetu czytają najniższą
+    # stawkę kandydata z ostatnich 18 miesięcy (karty rekomendacji, etapy,
+    # zmiany profilu, zgłoszenia) zamiast stawki zapisanej ostatnio w profilu.
+    # Wyłączenie = zachowanie sprzed 0414 (czytamy profil) i stop pętli
+    # przeliczeń — bez deployu, przez workflow „Coolify set env”.
+    CANDIDATE_RATE_FROM_ENABLED: bool = True
+
     # Akademia (0369): pętla naboru z ogłoszeń i sortowania Luną co 10 min.
     # Bez programów nic nie robi; wyłączenie nie blokuje przycisku na ekranie.
     ACADEMY_INTAKE_ENABLED: bool = True
