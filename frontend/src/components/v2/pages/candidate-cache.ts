@@ -45,6 +45,9 @@ export function candidateInvalidationKeys(
       return [
         candidateQueryKeys.historyRoot(candidateId),
         candidateQueryKeys.detail(candidateId),
+        candidateQueryKeys.profileRate(candidateId),
+        candidateQueryKeys.rateOverview(candidateId),
+        candidateQueryKeys.cardOverviewRoot(candidateId),
         candidateQueryKeys.recommendationsRoot(candidateId),
         listKey,
         quickViewKey,

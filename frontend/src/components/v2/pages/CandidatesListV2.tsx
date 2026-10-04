@@ -192,6 +192,7 @@ import { RequestSearchDialog } from "@/components/v2/candidates/RequestSearchDia
 import {
   availabilityCellText,
   candidatesCountLabel,
+  rateCellSecondLine,
   rateCellText,
 } from "@/components/v2/candidates/candidate-row-format";
 import type { TalentRadarInitialRequest } from "@/components/talent-radar/TalentRadarWorkspace";
@@ -301,6 +302,13 @@ interface Candidate {
   }> | null;
   expected_rate_hourly?: number | string | null;
   expected_rate_currency?: string | null;
+  // „Stawka od” (0414) — po niej filtruje lista.
+  rate_from_hourly?: number | string | null;
+  rate_from_at?: string | null;
+  rate_from_stale?: boolean | null;
+  rate_latest_hourly?: number | string | null;
+  rate_latest_at?: string | null;
+  rate_observation_count?: number | null;
   contact_case?: CandidateContactSummary | null;
   /** Semantyka v2: filtry przejście wyłącznie przez brak danych. */
   unknown_fields?: string[];
@@ -2330,6 +2338,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                     const location = formatCandidateLocation(candidate.city ?? candidate.location ?? null);
                     const availability = availabilityCellText(candidate);
                     const rate = rateCellText(candidate);
+                    const rateSecond = rateCellSecondLine(candidate);
                     return (
                       <div
                         key={candidate.id}
@@ -2454,8 +2463,19 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                   );
                                 case "rate":
                                   return (
-<div className="min-w-0 truncate text-sm text-foreground" title="Stawka z profilu kandydata">
-                            {rate ?? <Missing />}
+<div
+                            className="min-w-0 text-sm text-foreground"
+                            title="Najniższa stawka podana w ostatnich 18 miesiącach — po niej filtruje lista"
+                          >
+                            <div className="truncate">{rate ?? <Missing />}</div>
+                            {rateSecond ? (
+                              <div
+                                className="truncate text-xs text-muted-foreground"
+                                title={rateSecond.title}
+                              >
+                                {rateSecond.text}
+                              </div>
+                            ) : null}
                           </div>
                                   );
                                 case "availability":

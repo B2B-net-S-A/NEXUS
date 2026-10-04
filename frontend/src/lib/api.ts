@@ -898,10 +898,12 @@ export const candidateFactsApi = {
     candidateId: number,
     amount: string | null,
     etag: string,
+    // „To jego minimum” (0414) — starsze niższe stawki przestają się liczyć.
+    isMinimum = false,
   ) => {
     const response = await api.patch<CandidateProfileRate>(
       `/api/candidates/${candidateId}/profile-rate`,
-      { amount },
+      isMinimum ? { amount, is_minimum: true } : { amount },
       { headers: { "If-Match": etag } },
     );
     return { data: response.data, etag: responseEtag(response.headers) };
@@ -2742,6 +2744,8 @@ export const pipelineApi = {
     expected_rate_value?: number | string;
     expected_rate_unit?: RateUnit;
     expected_rate_currency?: string;
+    /** „To jego nowe minimum” (0414) — stawka trafia do profilu jako minimum. */
+    expected_rate_is_minimum?: boolean;
     /** F05: wersja procesu z karty; rozjazd = 409 PIPELINE_VERSION_CONFLICT. */
     expected_state_version?: number;
     /** 17.09.2026: powtórka ruchu po 409 ELIGIBILITY_WARNING („Przenieś mimo to"). */

@@ -218,17 +218,6 @@ async def _paid_rates(
     return out
 
 
-async def _excluded_by(db: AsyncSession, candidate_id: int) -> dict[str, Optional[int]]:
-    rows = await db.execute(
-        text(
-            "SELECT observation_key, decided_by FROM candidate_rate_decisions "
-            "WHERE candidate_id = :cid AND decision = 'exclude'"
-        ),
-        {"cid": candidate_id},
-    )
-    return {key: by for key, by in rows.all()}
-
-
 @router.get(
     "/{candidate_id}/rate-overview",
     response_model=RateOverviewResponse,
@@ -245,7 +234,8 @@ async def get_rate_overview(
     observations: list[RateObservation] = (await collect(db, [candidate_id]))[
         candidate_id
     ]
-    excluded = await _excluded_by(db, candidate_id)
+    decisions = (await rate_from.load_decisions(db, [candidate_id]))[candidate_id]
+    excluded = rate_from.active_exclusions(observations, decisions)
     result = rate_from.compute(observations, set(excluded), today)
 
     jobs = await _job_labels(
@@ -323,21 +313,34 @@ async def put_rate_decision(
     )
     if candidate is None:
         raise HTTPException(status_code=404, detail="Nie znaleziono kandydata.")
-    known = {o.key for o in (await collect(db, [candidate_id]))[candidate_id]}
-    if key not in known:
+    observation = next(
+        (o for o in (await collect(db, [candidate_id]))[candidate_id] if o.key == key),
+        None,
+    )
+    if observation is None:
         raise HTTPException(
             status_code=404, detail="Tej stawki nie ma już w historii kandydata."
         )
     if payload.decision == "exclude":
+        # Decyzja dotyczy TEJ kwoty z TĄ datą — nowa wartość pod tym samym
+        # kluczem (karta przeliczona z nowej notatki) znowu się liczy.
         await db.execute(
             text(
                 "INSERT INTO candidate_rate_decisions "
-                "(candidate_id, observation_key, decision, decided_by) "
-                "VALUES (:cid, :key, 'exclude', :uid) "
+                "(candidate_id, observation_key, decision, observed_amount, "
+                "observed_at, decided_by) "
+                "VALUES (:cid, :key, 'exclude', :amount, :at, :uid) "
                 "ON CONFLICT (candidate_id, observation_key) DO UPDATE SET "
-                "decision = 'exclude', decided_by = :uid, decided_at = now()"
+                "decision = 'exclude', observed_amount = :amount, observed_at = :at, "
+                "decided_by = :uid, decided_at = now()"
             ),
-            {"cid": candidate_id, "key": key, "uid": current_user.id},
+            {
+                "cid": candidate_id,
+                "key": key,
+                "amount": observation.amount_hourly,
+                "at": observation.at,
+                "uid": current_user.id,
+            },
         )
     else:
         await db.execute(

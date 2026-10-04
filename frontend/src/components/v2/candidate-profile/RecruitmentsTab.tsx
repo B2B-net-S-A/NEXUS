@@ -36,7 +36,7 @@ import { CVShareLinkModal } from "@/components/v2/modals/CVShareLinkModal";
 import { CandidateInterviewFeedbackPanel } from "@/components/feedback/CandidateInterviewFeedbackPanel";
 import { SuggestedJobsWidget } from "@/components/SuggestedJobsWidget";
 import { SuggestedPoolsWidget } from "@/components/candidates/SuggestedPoolsWidget";
-import { RateHistoryWidget } from "@/components/RateHistoryWidget";
+import { RateHistorySummary } from "@/components/v2/candidate-profile/RateHistoryDialog";
 import { ConflictsWidget } from "@/components/ConflictsWidget";
 import { HiringManagerVetoesWidget } from "@/components/HiringManagerVetoesWidget";
 import { candidatePipelinesQueryKey } from "@/components/CandidatePipelinesWidget";
@@ -303,7 +303,7 @@ export function RecruitmentsTab({
             Dane handlowe
           </h2>
           <div data-commercial-slot>
-            <RateHistoryWidget candidateId={candidateId} hideWhenEmpty />
+            <RateHistorySummary candidateId={candidateId} />
           </div>
           <div data-commercial-slot>
             <ConflictsWidget candidateId={candidateId} hideWhenEmpty />

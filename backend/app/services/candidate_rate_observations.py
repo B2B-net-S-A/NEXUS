@@ -20,7 +20,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
@@ -141,6 +141,35 @@ def _profile_observation(row: Mapping[str, Any]) -> Optional[RateObservation]:
     )
 
 
+#: Poprawka tej samej osoby w tym czasie zastępuje poprzedni wpis profilu —
+#: literówka „15” poprawiona na „150” nie zostaje „Stawką od” na 18 miesięcy.
+QUICK_CORRECTION = timedelta(minutes=10)
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def _without_quick_corrections(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Wpisy dziennika profilu bez tych, które ta sama osoba zaraz poprawiła."""
+    ordered = sorted(
+        rows,
+        key=lambda r: (r["candidate_id"], r["created_at"] or _EPOCH, r["id"]),
+    )
+    kept: list[dict[str, Any]] = []
+    for index, row in enumerate(ordered):
+        nxt = ordered[index + 1] if index + 1 < len(ordered) else None
+        if (
+            nxt is not None
+            and nxt["candidate_id"] == row["candidate_id"]
+            and nxt["user_id"] is not None
+            and nxt["user_id"] == row["user_id"]
+            and row["created_at"] is not None
+            and nxt["created_at"] is not None
+            and nxt["created_at"] - row["created_at"] <= QUICK_CORRECTION
+        ):
+            continue
+        kept.append(row)
+    return kept
+
+
 _CARDS_SQL = text(
     "SELECT rc.id, rc.candidate_id, rc.job_id, rc.updated_at, "
     "rc.fields_manual->'rate' AS manual_rate, rc.fields_notes->'rate' AS notes_rate, "
@@ -218,13 +247,20 @@ async def collect(
         )
 
     known_profile_amounts: dict[int, set[Decimal]] = defaultdict(set)
-    for row in (
-        await db.execute(_PROFILE_SQL, {**params, "action": PROFILE_RATE_CHANGED})
-    ).mappings():
+    profile_rows = [
+        dict(row)
+        for row in (
+            await db.execute(_PROFILE_SQL, {**params, "action": PROFILE_RATE_CHANGED})
+        ).mappings()
+    ]
+    for row in _without_quick_corrections(profile_rows):
         obs = _profile_observation(row)
         if obs is not None:
             out[obs.candidate_id].append(obs)
-            known_profile_amounts[obs.candidate_id].add(obs.amount_hourly)
+    for row in profile_rows:
+        amount = _decimal((row["details"] or {}).get("new_amount"))
+        if amount is not None:
+            known_profile_amounts[row["candidate_id"]].add(amount)
 
     for row in (await db.execute(_CURRENT_SQL, params)).mappings():
         amount = _decimal(row["expected_rate_hourly"])

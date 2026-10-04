@@ -221,3 +221,47 @@ def test_schema_marker_and_raw_sql_have_no_bind_colons():
 @pytest.mark.parametrize("today", [date(2026, 1, 31), date(2026, 3, 31)])
 def test_window_start_never_raises(today):
     assert rf.window_start(today) < today
+
+
+def test_exclusion_applies_only_to_the_same_amount_and_date():
+    old = _obs("card:5", 90, _at(2026, 5))
+    decision = rf.RateDecision("card:5", Decimal("90.00"), _at(2026, 5), 7)
+    assert rf.active_exclusions([old], [decision]) == {"card:5": 7}
+    # Ta sama karta po nowej notatce: inna kwota i data — znowu się liczy.
+    new = _obs("card:5", 130, _at(2026, 9))
+    assert rf.active_exclusions([new], [decision]) == {}
+
+
+def test_quick_correction_by_the_same_person_replaces_the_typo():
+    from app.services.candidate_rate_observations import _without_quick_corrections
+
+    base = datetime(2026, 9, 1, 10, tzinfo=timezone.utc)
+    rows = [
+        {"id": 1, "candidate_id": 1, "user_id": 5, "created_at": base, "details": {}},
+        {
+            "id": 2,
+            "candidate_id": 1,
+            "user_id": 5,
+            "created_at": base.replace(minute=3),
+            "details": {},
+        },
+        {
+            "id": 3,
+            "candidate_id": 1,
+            "user_id": 6,
+            "created_at": base.replace(hour=12),
+            "details": {},
+        },
+    ]
+    assert [r["id"] for r in _without_quick_corrections(rows)] == [2, 3]
+
+
+def test_staleness_reads_the_latest_rate_date(monkeypatch):
+    monkeypatch.setattr(rf.settings, "CANDIDATE_RATE_FROM_ENABLED", True)
+    candidate = SimpleNamespace(
+        rate_from_computed_at=_at(2026, 10),
+        rate_from_at=_at(2025, 12),
+        rate_latest_at=_at(2026, 9),
+        profile_rate_updated_at=None,
+    )
+    assert rf.effective_rate_at(candidate) == _at(2026, 9)

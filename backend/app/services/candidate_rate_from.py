@@ -192,9 +192,13 @@ def effective_rate(candidate: Any) -> tuple[Optional[Decimal], Optional[str]]:
 
 
 def effective_rate_at(candidate: Any) -> Optional[datetime]:
-    """Kiedy kandydat podał efektywną stawkę (do „stawka nieaktualna”)."""
+    """Kiedy kandydat OSTATNIO podał stawkę (do „stawka nieaktualna”).
+
+    Data najnowszej stawki, nie najniższej — minimum sprzed 10 miesięcy przy
+    stawce potwierdzonej tydzień temu nie jest „nieaktualną stawką”.
+    """
     if enabled() and getattr(candidate, "rate_from_computed_at", None) is not None:
-        return getattr(candidate, "rate_from_at", None)
+        return getattr(candidate, "rate_latest_at", None)
     return getattr(candidate, "profile_rate_updated_at", None)
 
 
@@ -233,7 +237,7 @@ def effective_rate_at_raw_sql(alias: str = "c") -> str:
         return f"{alias}.profile_rate_updated_at"
     return (
         f"(CASE WHEN {alias}.rate_from_computed_at IS NOT NULL "
-        f"THEN {alias}.rate_from_at ELSE {alias}.profile_rate_updated_at END)"
+        f"THEN {alias}.rate_latest_at ELSE {alias}.profile_rate_updated_at END)"
     )
 
 
@@ -301,22 +305,72 @@ async def this_job_rates(
 # ── Przeliczenie ────────────────────────────────────────────────────────────
 
 
-async def excluded_keys(
+def _same_moment(a: Optional[datetime], b: Optional[datetime]) -> bool:
+    if a is None or b is None:
+        return a is None and b is None
+    if a.tzinfo is None:
+        a = a.replace(tzinfo=timezone.utc)
+    if b.tzinfo is None:
+        b = b.replace(tzinfo=timezone.utc)
+    return abs((a - b).total_seconds()) < 1
+
+
+def _same_amount(a: Optional[Decimal], b: Any) -> bool:
+    if a is None or b is None:
+        return a is None and b is None
+    return Decimal(str(a)).quantize(Decimal("0.01")) == Decimal(str(b)).quantize(
+        Decimal("0.01")
+    )
+
+
+@dataclass(frozen=True)
+class RateDecision:
+    key: str
+    observed_amount: Optional[Decimal]
+    observed_at: Optional[datetime]
+    decided_by: Optional[int]
+
+
+async def load_decisions(
     db: AsyncSession, candidate_ids: Iterable[int]
-) -> dict[int, set[str]]:
+) -> dict[int, list[RateDecision]]:
     ids = sorted({int(c) for c in candidate_ids})
-    out: dict[int, set[str]] = {cid: set() for cid in ids}
+    out: dict[int, list[RateDecision]] = {cid: [] for cid in ids}
     if not ids:
         return out
     rows = await db.execute(
         text(
-            "SELECT candidate_id, observation_key FROM candidate_rate_decisions "
+            "SELECT candidate_id, observation_key, observed_amount, observed_at, "
+            "decided_by FROM candidate_rate_decisions "
             "WHERE candidate_id = ANY(:ids) AND decision = 'exclude'"
         ),
         {"ids": ids},
     )
-    for cid, key in rows.all():
-        out.setdefault(cid, set()).add(key)
+    for cid, key, amount, at, by in rows.all():
+        out.setdefault(cid, []).append(RateDecision(key, amount, at, by))
+    return out
+
+
+def active_exclusions(
+    observations: Iterable[RateObservation], decisions: Iterable[RateDecision]
+) -> dict[str, Optional[int]]:
+    """Klucze wyłączone z minimum → kto wyłączył.
+
+    Decyzja dotyczy KONKRETNEJ stawki (kwota + data), nie klucza: karta
+    przelicza swoje pole przy każdej nowej notatce, a „bieżąca stawka profilu”
+    zmienia się z formularza i scalania — nowa wartość pod tym samym kluczem
+    znowu liczy się do minimum (przegląd kodu 04.10.2026).
+    """
+    by_key = {d.key: d for d in decisions}
+    out: dict[str, Optional[int]] = {}
+    for obs in observations:
+        decision = by_key.get(obs.key)
+        if decision is None:
+            continue
+        if _same_amount(obs.amount_hourly, decision.observed_amount) and _same_moment(
+            obs.at, decision.observed_at
+        ):
+            out[obs.key] = decision.decided_by
     return out
 
 
@@ -332,9 +386,20 @@ _UPDATE_SQL = text(
 
 
 async def recompute(
-    db: AsyncSession, candidate_ids: Iterable[int], *, today: Optional[date] = None
+    db: AsyncSession,
+    candidate_ids: Iterable[int],
+    *,
+    today: Optional[date] = None,
+    skip_locked: bool = False,
 ) -> list[int]:
     """Przelicz „Stawkę od” i zdejmij kandydatów z kolejki. Zwraca zmienionych.
+
+    Kolejność jest ważna (przegląd kodu 04.10.2026, wyścig z równoległym
+    zapisem): najpierw blokada wierszy kandydatów, potem odczyt wpisów kolejki
+    (z datą), dopiero potem obserwacje. Z kolejki znika wyłącznie wpis z datą
+    przeczytaną tutaj — zmiana zapisana w trakcie podbija datę (wyzwalacz)
+    i zostaje do przeliczenia. Pętla (``skip_locked``) pomija kandydatów
+    zablokowanych przez żądanie i nigdy na nic nie czeka — bez zakleszczeń.
 
     Zapis surowym SQL-em — ``updated_at`` zostaje nietknięte (alerty
     zapisanych wyszukiwań czytają tę datę jako „kandydat się zmienił”).
@@ -343,26 +408,37 @@ async def recompute(
     if not ids:
         return []
     today = today or business_today()
+    lock = "FOR NO KEY UPDATE SKIP LOCKED" if skip_locked else "FOR NO KEY UPDATE"
+    locked = (
+        await db.execute(
+            text(
+                "SELECT id, rate_from_hourly, rate_from_computed_at FROM candidates "
+                f"WHERE id = ANY(:ids) ORDER BY id {lock}"
+            ),
+            {"ids": ids},
+        )
+    ).all()
+    before = {row[0]: (row[1], row[2]) for row in locked}
+    ids = sorted(before)
+    if not ids:
+        return []
+    queued = (
+        await db.execute(
+            text(
+                "SELECT candidate_id, queued_at FROM candidate_rate_from_queue "
+                "WHERE candidate_id = ANY(:ids)"
+            ),
+            {"ids": ids},
+        )
+    ).all()
     observations = await collect(db, ids)
-    decisions = await excluded_keys(db, ids)
-    before = {
-        row[0]: (row[1], row[2])
-        for row in (
-            await db.execute(
-                text(
-                    "SELECT id, rate_from_hourly, rate_from_computed_at "
-                    "FROM candidates WHERE id = ANY(:ids)"
-                ),
-                {"ids": ids},
-            )
-        ).all()
-    }
+    decisions = await load_decisions(db, ids)
     changed: list[int] = []
     params = []
     for cid in ids:
-        if cid not in before:
-            continue
-        result = compute(observations.get(cid, []), decisions.get(cid, set()), today)
+        items = observations.get(cid, [])
+        excluded = active_exclusions(items, decisions.get(cid, []))
+        result = compute(items, set(excluded), today)
         params.append(
             {
                 "id": cid,
@@ -381,10 +457,17 @@ async def recompute(
             changed.append(cid)
     if params:
         await db.execute(_UPDATE_SQL, params)
-    await db.execute(
-        text("DELETE FROM candidate_rate_from_queue WHERE candidate_id = ANY(:ids)"),
-        {"ids": ids},
-    )
+    if queued:
+        await db.execute(
+            text(
+                "DELETE FROM candidate_rate_from_queue WHERE candidate_id IN ("
+                "SELECT q.candidate_id FROM candidate_rate_from_queue q "
+                "JOIN unnest(CAST(:qids AS integer[]), CAST(:qts AS timestamptz[])) "
+                "AS c(id, ts) ON q.candidate_id = c.id AND q.queued_at = c.ts "
+                "FOR UPDATE OF q SKIP LOCKED)"
+            ),
+            {"qids": [row[0] for row in queued], "qts": [row[1] for row in queued]},
+        )
     if changed:
         from app.services.match_score_cache import mark_stale_for_candidates
 
@@ -407,17 +490,42 @@ async def recompute_safely(db: AsyncSession, candidate_ids: Iterable[int]) -> No
         logger.warning("rate_from recompute failed (%s)", type(exc).__name__)
 
 
+async def requeue_expiring(db: AsyncSession, *, today: Optional[date] = None) -> int:
+    """Kandydaci, których minimum wypadło z okna 18 miesięcy — do przeliczenia.
+
+    Okno przesuwa się z każdym dniem, a wyzwalacze reagują tylko na zmiany
+    danych. Bez tego stara niska stawka zostawałaby „Stawką od” na zawsze,
+    a historia stawek (liczona na żywo) pokazywałaby co innego niż profil.
+    """
+    start = window_start(today or business_today())
+    result = await db.execute(
+        text(
+            "INSERT INTO candidate_rate_from_queue (candidate_id, queued_at) "
+            "SELECT id, clock_timestamp() FROM candidates "
+            "WHERE rate_from_computed_at IS NOT NULL AND NOT rate_from_stale "
+            "AND rate_from_at < :start "
+            "ON CONFLICT (candidate_id) DO NOTHING"
+        ),
+        {"start": datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)},
+    )
+    return result.rowcount or 0
+
+
 async def process_queue(db: AsyncSession, *, limit: int = 500) -> int:
-    """Jedna paczka kolejki; zwraca liczbę przeliczonych kandydatów."""
+    """Jedna paczka kolejki; zwraca liczbę przeliczonych kandydatów.
+
+    Wpisy czytamy bez blokady — o pominięciu zablokowanych kandydatów
+    decyduje ``recompute(skip_locked=True)``; pominięci zostają w kolejce.
+    """
     rows = await db.execute(
         text(
             "SELECT candidate_id FROM candidate_rate_from_queue "
-            "ORDER BY queued_at, candidate_id LIMIT :limit FOR UPDATE SKIP LOCKED"
+            "ORDER BY queued_at, candidate_id LIMIT :limit"
         ),
         {"limit": limit},
     )
     ids = [row[0] for row in rows.all()]
     if not ids:
         return 0
-    await recompute(db, ids)
+    await recompute(db, ids, skip_locked=True)
     return len(ids)

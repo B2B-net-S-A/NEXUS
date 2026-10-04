@@ -196,3 +196,26 @@ async def test_unknown_observation_key_is_404(
         headers=app_auth_headers,
     )
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_minimum_leaving_the_window_is_requeued_and_recomputed(
+    app_client: AsyncClient,
+):
+    candidate_id, job_id = await _seed("150.00")
+    await _card(candidate_id, job_id, 100.0, days_ago=500)
+    await _drain()
+    assert (await _row(candidate_id)).rate_from_hourly == Decimal("100.00")
+
+    # 60 dni później karta sprzed 560 dni jest już poza oknem 18 miesięcy.
+    later = (datetime.now(timezone.utc) + timedelta(days=60)).date()
+    async with AsyncSessionLocal() as db:
+        await rf.requeue_expiring(db, today=later)
+        await db.commit()
+    assert await _queued(candidate_id)
+    async with AsyncSessionLocal() as db:
+        await rf.recompute(db, [candidate_id], today=later)
+        await db.commit()
+    row = await _row(candidate_id)
+    assert row.rate_from_hourly == Decimal("150.00")
+    assert not await _queued(candidate_id)

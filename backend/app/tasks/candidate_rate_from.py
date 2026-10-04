@@ -14,6 +14,7 @@ import asyncio
 import logging
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.services import candidate_rate_from as rate_from
 from app.services import loop_heartbeat
 
@@ -42,9 +43,22 @@ async def candidate_rate_from_loop() -> None:
     beat = loop_heartbeat.register(
         "candidate_rate_from", max_silence_seconds=_INTERVAL_SECONDS * 20
     )
+    expiry_day = None
     while True:
         beat.tick()
         try:
+            # Raz dziennie okno 18 miesięcy przesuwa się — minimum, które z niego
+            # wypadło, trzeba przeliczyć (wyzwalacze reagują tylko na zmiany).
+            today = business_today()
+            if expiry_day != today:
+                async with AsyncSessionLocal() as db:
+                    requeued = await rate_from.requeue_expiring(db, today=today)
+                    await db.commit()
+                expiry_day = today
+                if requeued:
+                    logger.info(
+                        "candidate rate_from: %d minimums left the window", requeued
+                    )
             processed = await _drain()
             if processed:
                 logger.info("candidate rate_from: %d candidates recomputed", processed)

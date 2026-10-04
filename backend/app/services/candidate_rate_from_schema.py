@@ -33,6 +33,8 @@ TABLE_DDL = (
     "observation_key VARCHAR(80) NOT NULL, "
     "decision VARCHAR(10) NOT NULL CONSTRAINT ck_candidate_rate_decisions_decision "
     "CHECK (decision = 'exclude'), "
+    "observed_amount NUMERIC(10,2) NULL, "
+    "observed_at TIMESTAMPTZ NULL, "
     "decided_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, "
     "decided_at TIMESTAMPTZ NOT NULL DEFAULT now(), "
     "PRIMARY KEY (candidate_id, observation_key))",
@@ -41,14 +43,21 @@ TABLE_DDL = (
     "queued_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     "CREATE INDEX IF NOT EXISTS ix_candidates_rate_from_hourly "
     "ON candidates (rate_from_hourly) WHERE rate_from_computed_at IS NOT NULL",
+    # Codzienne przesunięcie okna: kandydaci, których minimum wypada z 18 mies.
+    "CREATE INDEX IF NOT EXISTS ix_candidates_rate_from_at "
+    "ON candidates (rate_from_at) WHERE rate_from_computed_at IS NOT NULL "
+    "AND NOT rate_from_stale",
 )
 
 TRIGGER_DDL = (
     "CREATE OR REPLACE FUNCTION candidate_rate_from_enqueue(cid integer) RETURNS void "
     "LANGUAGE sql AS $$ "
-    "INSERT INTO candidate_rate_from_queue (candidate_id) "
-    "SELECT cid WHERE cid IS NOT NULL AND EXISTS (SELECT 1 FROM candidates WHERE id = cid) "
-    "ON CONFLICT (candidate_id) DO NOTHING $$",
+    "INSERT INTO candidate_rate_from_queue (candidate_id, queued_at) "
+    "SELECT cid, clock_timestamp() "
+    "WHERE cid IS NOT NULL AND EXISTS (SELECT 1 FROM candidates WHERE id = cid) "
+    # Nowsza data wpisu = przeliczenie w toku nie skasuje tej zmiany
+    # (pętla kasuje wpis tylko z datą, którą sama przeczytała).
+    "ON CONFLICT (candidate_id) DO UPDATE SET queued_at = EXCLUDED.queued_at $$",
     # Karty rekomendacji: każda zmiana pól z notatek albo wpisanych ręcznie.
     "CREATE OR REPLACE FUNCTION trg_rate_from_cards() RETURNS trigger "
     "LANGUAGE plpgsql AS $$ BEGIN "
@@ -96,8 +105,10 @@ TRIGGER_DDL = (
     "CREATE OR REPLACE FUNCTION trg_rate_from_profile_insert() RETURNS trigger "
     "LANGUAGE plpgsql AS $$ BEGIN "
     "IF NEW.expected_rate_hourly IS NOT NULL THEN "
-    "INSERT INTO candidate_rate_from_queue (candidate_id) VALUES (NEW.id) "
-    "ON CONFLICT (candidate_id) DO NOTHING; END IF; RETURN NEW; END $$",
+    "INSERT INTO candidate_rate_from_queue (candidate_id, queued_at) "
+    "VALUES (NEW.id, clock_timestamp()) "
+    "ON CONFLICT (candidate_id) DO UPDATE SET queued_at = EXCLUDED.queued_at; "
+    "END IF; RETURN NEW; END $$",
     "DROP TRIGGER IF EXISTS trg_rate_from_profile_insert ON candidates",
     "CREATE TRIGGER trg_rate_from_profile_insert AFTER INSERT ON candidates "
     "FOR EACH ROW EXECUTE FUNCTION trg_rate_from_profile_insert()",
