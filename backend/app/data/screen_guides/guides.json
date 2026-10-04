@@ -181,8 +181,8 @@
     ],
     "pitfalls": [
       "Osoba zarezerwowana przez kogoś innego (12 h) nie da się przesunąć, dopóki rezerwacja nie wygaśnie albo ktoś uprawniony jej nie przejmie.",
-      "CV dla klienta wymagającego zgody RODO da się wygenerować bez zrzutu, ale nie da się go pobrać ani udostępnić, dopóki zrzut nie zostanie dołączony.",
       "Odznaka „Follow-up: Anna K. · zaległy 2 dni” znaczy, że klient milczy od 14 dni i ta osoba zadzwoni do kandydata — jedna osoba, nawet gdy kandydat jest w kilku procesach. Nie dzwoń drugi raz: zapisz wynik albo kliknij „Zrobię to ja” w bloku „Kontakt z kandydatem”.",
+      "Inną stawkę kandydata zapisz przyciskiem „Zmień” przy „W tej rekrutacji”, nie w notatce. Od „Zweryfikowany” zmiana powiadamia Delivery Leada i Head of Recruitment, a wyższa stawka po wysłaniu CV to zadanie DL.",
       "Przypięte notatki kandydata (pinezka) są na górze karty — z każdej rekrutacji, nie tylko z tej. Pinezka i „Odpowiedz” są też przy notatkach tej rekrutacji; notatki automatów są schowane za „Pokaż systemowe”."
     ],
     "anchors": [
