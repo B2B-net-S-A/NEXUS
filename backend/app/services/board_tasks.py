@@ -364,8 +364,9 @@ async def load_snapshot(
             _LATEST_SQL,
             {
                 "default_template_id": default_template_id,
+                # Jedna para (wiersz przeglądu DL) — bez dolnej granicy czasu.
                 "since": (
-                    datetime(1970, 1, 1, tzinfo=timezone.utc)
+                    datetime.min.replace(tzinfo=timezone.utc)
                     if pair is not None
                     else now - timedelta(days=max(WINDOW_DAYS, DL_REVIEW_WINDOW_DAYS))
                 ),
