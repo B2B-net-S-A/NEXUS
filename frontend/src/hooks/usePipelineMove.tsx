@@ -254,11 +254,12 @@ export interface PipelineMoveControls {
   ) => Promise<void>;
   /** „Odrzuć z powodem" — otwiera `RejectionV2` na kolumnie terminalnej
    *  „Odrzucony" (domyślnie pierwszej takiej w `columns`). `endedBy` wstępnie
-   *  wybiera „kto kończy". */
+   *  wybiera „kto kończy", `notes` wstawia notatkę startową (np. naruszone
+   *  „Odpada, gdy…” z wymagań ruchu). */
   requestReject: (
     items: KanbanItem | KanbanItem[],
     toColumn?: KanbanColumn,
-    options?: { endedBy?: Exclude<EndedBy, "candidate"> }
+    options?: { endedBy?: Exclude<EndedBy, "candidate">; notes?: string | null }
   ) => void;
   /** „Zrezygnował" — `RejectionV2` na kolumnie „Wycofany". */
   requestWithdraw: (items: KanbanItem | KanbanItem[]) => void;
@@ -315,6 +316,8 @@ export function usePipelineMove({
     destCol: KanbanColumn;
     terminalType: "rejected" | "withdrawn";
     endedBy?: Exclude<EndedBy, "candidate"> | null;
+    /** Notatka startowa okna odrzucenia. */
+    notes?: string | null;
   } | null>(null);
   const [verifiedRatePrompt, setVerifiedRatePrompt] = useState<{
     item: KanbanItem;
@@ -1000,7 +1003,7 @@ export function usePipelineMove({
     (
       items: KanbanItem | KanbanItem[],
       toColumn?: KanbanColumn,
-      options?: { endedBy?: Exclude<EndedBy, "candidate"> }
+      options?: { endedBy?: Exclude<EndedBy, "candidate">; notes?: string | null }
     ) => {
       const dst = toColumn ?? columns.find((c) => terminalOf(c) === "rejected");
       if (!dst) return;
@@ -1018,6 +1021,7 @@ export function usePipelineMove({
         destCol: dst,
         terminalType: "rejected",
         endedBy: options?.endedBy ?? null,
+        notes: options?.notes ?? null,
       });
     },
     [columns]
@@ -1131,6 +1135,7 @@ export function usePipelineMove({
         )}
         onConfirm={confirmRejection}
         initialEndedBy={pendingRejection?.endedBy ?? null}
+        initialNotes={pendingRejection?.notes ?? null}
         canEndAsDeliveryLead={canEndAsDeliveryLead}
       />
 

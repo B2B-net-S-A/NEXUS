@@ -169,6 +169,36 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     expect(screen.getByText("Do przeglądu")).toBeTruthy();
   });
 
+  it("naruszone „Odpada, gdy…” z karty: ostrzeżenie w stopce i warunek pod pytaniem", async () => {
+    mockApi();
+    const base = get.getMockImplementation() as (url: string) => Promise<unknown>;
+    get.mockImplementation((url: string) =>
+      url === "/api/recommendation-cards"
+        ? Promise.resolve({
+            data: {
+              ...CARD,
+              questions: [
+                {
+                  ...CARD.questions[0],
+                  // Trafienie żyje w arkuszu screeningu — odpowiedź też z arkusza.
+                  source: "sheet",
+                  question_id: "q1",
+                  deal_breaker: "mniej niż rok z Kafką",
+                  deal_breaker_hit: true,
+                },
+              ],
+            },
+          })
+        : base(url),
+    );
+    renderPanel();
+    expect(await screen.findByTestId("dl-review-deal-breaker")).toHaveTextContent(
+      "Odpowiedź na pytanie 1 narusza „Odpada, gdy…”.",
+    );
+    expect(screen.getByText("Odpada, gdy: mniej niż rok z Kafką")).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: "Odpowiedź narusza deal-breaker" })).toBeChecked();
+  });
+
   // Test na produkcji 03.10.2026: karta niżej mówiła „2 tygodnie”, a kafel
   // „Dostępność” nad nią „—”, bo czytał wyłącznie profil.
   it("dostępność bierze z karty rekomendacji, gdy profil jej nie zna", async () => {

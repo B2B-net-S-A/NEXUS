@@ -13,6 +13,10 @@
 // wskazany ręcznie, propozycja czekająca na akceptację, automat w trakcie
 // przydziału, „Przyjmujemy kandydatów” i rekrutacja bez prowadzącego. W wariantach
 // „CV w drodze” (nic nie czeka) ta lista stoi sama, we własnej ramce.
+// „Rekrutacje do dokończenia albo zamknięcia” (stary szkic z odliczaniem do
+// zamknięcia, rekrutacja bez przekazania, niedokończony formularz) stoi
+// w panelu wariantu „Pulpit z kafelkami”, a w wariancie „CV w drodze: pasek”
+// — sama, we własnej ramce.
 // `?as=recruiter` — ten sam pulpit bez prawa decyzji (obu sekcji nie ma).
 
 import { useEffect, useState } from "react";
@@ -40,6 +44,8 @@ import {
   type CvInTransit,
   type CvTransitRow,
   type NewJobLeadRow,
+  type PendingJobs,
+  type UnfinishedJobForm,
 } from "@/lib/api/boardTasks";
 import {
   REQUEST_BOARD_QUERY_KEY,
@@ -291,6 +297,37 @@ const TRANSIT_RETURNED = transit([
   transitRow({ kind: "sent_back", stage_id: 332, candidate_id: 432, candidate_name: "Julia Bąk", job_working_title: "Tester automatyzujący · Selenium", client_name: "Ubezpieczenia Wzorcowe", actor_name: "Jan Dąb", remark: "Dopisz Selenium Grid do ostatniego projektu i popraw daty w drugiej roli.", since: daysAgo(1) }),
 ]);
 
+// „Rekrutacje do dokończenia albo zamknięcia” (dane fikcyjne): stary szkic,
+// który system zamknie sam, i rekrutacja opublikowana bez przekazania do
+// searchu. Termin zamknięcia za kilka dni od dziś (`RRRR-MM-DD`).
+const dayAhead = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString().slice(0, 10);
+const PENDING_JOBS: PendingJobs = {
+  autoclose_on: dayAhead(5),
+  items: [
+    {
+      job_id: 801,
+      title: "Analityk danych",
+      client_name: "Bank Kappa",
+      kind: "legacy_draft",
+      created_at: daysAgo(12),
+      delivery_lead_name: "Marta Kowalczyk",
+      missing: ["Budżet PLN/h", "Tryb pracy", "Pytania screeningowe", "Wymagania do wyszukiwania w bazie"],
+    },
+    {
+      job_id: 802,
+      title: "Tester automatyzujący",
+      client_name: "Ubezpieczenia Wzorcowe",
+      kind: "published_not_handed_off",
+      created_at: daysAgo(6),
+      delivery_lead_name: "Jan Dąb",
+      missing: ["Opis projektu"],
+    },
+  ],
+};
+const UNFINISHED_FORMS: UnfinishedJobForm[] = [
+  { id: 1, label: "Java Developer", client_name: "Bank Północny", updated_at: daysAgo(3) },
+];
+
 const NO_TASKS: BoardTasksResponse = {
   window_days: 14,
   dl_review_window_days: 30,
@@ -446,9 +483,22 @@ export default function CustomDashboardPreview() {
       hydrated: true,
     });
     setClients({
-      filled: seededClient(TILES, { ...BOARD_TASKS, cv_in_transit: TRANSIT_RETURNED }, as),
+      filled: seededClient(
+        TILES,
+        {
+          ...BOARD_TASKS,
+          cv_in_transit: TRANSIT_RETURNED,
+          pending_jobs: PENDING_JOBS,
+          unfinished_forms: UNFINISHED_FORMS,
+        },
+        as,
+      ),
       empty: seededClient([], { ...BOARD_TASKS, cv_in_transit: TRANSIT_RETURNED }, as),
-      bar: seededClient(TILES, { ...NO_TASKS, cv_in_transit: transit([]) }, as),
+      bar: seededClient(
+        TILES,
+        { ...NO_TASKS, cv_in_transit: transit([]), pending_jobs: PENDING_JOBS, unfinished_forms: UNFINISHED_FORMS },
+        as,
+      ),
       "bar-empty": seededClient(
         TILES,
         { ...NO_TASKS, cv_in_transit: transit([], { in_review: [], sent: [] }) },

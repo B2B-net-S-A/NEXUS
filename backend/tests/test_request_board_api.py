@@ -13,6 +13,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from tests._job_factory import make_job_ready, new_recruiter
+
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="wymaga PostgreSQL"),
@@ -522,7 +524,7 @@ async def test_lead_recruiter_is_adopted_and_manual_removal_sticks() -> None:
 async def test_reopened_job_goes_back_to_review(
     app_client: AsyncClient, app_auth_headers: dict
 ) -> None:
-    """Zamknięcie → „Zakończony”, ponowne otwarcie → „Do przejrzenia”.
+    """Zamknięcie → „Zakończony”, ponowne otwarcie → znowu w pracy.
 
     Audyt 24.09.2026: PATCH ``closed → published`` zostawiał ``finished``,
     więc opublikowana rekrutacja wypadała z puli przydziału, pulpitu
@@ -540,18 +542,30 @@ async def test_reopened_job_goes_back_to_review(
     async with AsyncSessionLocal() as db:
         assert (await db.get(Job, job_id)).work_state == "finished"
 
-    reopened = await app_client.patch(
+    # Rekrutacja bez szkiców (04.10.2026): PATCH nie otwiera rekrutacji —
+    # „Otwórz ponownie” to `/publish` z przekazaniem do searchu.
+    refused = await app_client.patch(
         f"/api/jobs/{job_id}", json={"status": "published"}, headers=app_auth_headers
+    )
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["code"] == "reopen_required"
+
+    await make_job_ready(job_id)
+    reopened = await app_client.post(
+        f"/api/jobs/{job_id}/publish",
+        json={"assignment_mode": "manual", "recruiter_id": await new_recruiter()},
+        headers=app_auth_headers,
     )
     assert reopened.status_code == 200, reopened.text
     async with AsyncSessionLocal() as db:
-        assert (await db.get(Job, job_id)).work_state == "to_review"
+        # Otwarta = przekazana do searchu: z „Zakończonego” prosto do pracy.
+        assert (await db.get(Job, job_id)).work_state == "searching"
 
 
 async def test_republish_of_closed_job_goes_back_to_review(
     app_client: AsyncClient, app_auth_headers: dict
 ) -> None:
-    """``POST /publish`` na zamkniętej rekrutacji też zdejmuje „Zakończony”."""
+    """``POST /publish`` na zamkniętej rekrutacji zdejmuje „Zakończony”."""
     from app.core.database import AsyncSessionLocal
     from app.models.job import Job
 
@@ -561,13 +575,17 @@ async def test_republish_of_closed_job_goes_back_to_review(
     )
     assert closed.status_code == 200, closed.text
 
+    await make_job_ready(job_id)
     published = await app_client.post(
-        f"/api/jobs/{job_id}/publish", headers=app_auth_headers
+        f"/api/jobs/{job_id}/publish",
+        json={"assignment_mode": "manual", "recruiter_id": await new_recruiter()},
+        headers=app_auth_headers,
     )
     assert published.status_code == 200, published.text
     async with AsyncSessionLocal() as db:
         job = await db.get(Job, job_id)
-        assert job.work_state == "to_review"
+        assert job.work_state != "finished"
+        assert job.is_open is True
         assert job.closed_at is None
 
 

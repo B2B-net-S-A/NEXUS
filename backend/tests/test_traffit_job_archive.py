@@ -25,6 +25,7 @@ from app.services.traffit_job_archive import (
     ARCHIVE_TRAFFIT_JOBS_SQL,
     archive_traffit_jobs,
 )
+from tests._job_factory import make_job_ready, new_recruiter
 
 BACKEND = Path(__file__).resolve().parent.parent
 
@@ -149,8 +150,12 @@ async def test_reopening_an_archived_traffit_job_hands_it_to_nexus(
         await db.commit()
     headers = await _admin_headers(app_client)
 
-    resp = await app_client.patch(
-        f"/api/jobs/{job_id}", json={"status": "published"}, headers=headers
+    # „Otwórz ponownie” (04.10.2026): przez bramkę przekazania do searchu.
+    await make_job_ready(job_id)
+    resp = await app_client.post(
+        f"/api/jobs/{job_id}/publish",
+        json={"assignment_mode": "manual", "recruiter_id": await new_recruiter()},
+        headers=headers,
     )
     assert resp.status_code == 200, resp.text
 

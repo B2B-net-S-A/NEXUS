@@ -888,6 +888,23 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(await screen.findByRole("complementary", { name: "Panel osoby" })).toBeInTheDocument();
   });
 
+  it("niewysłana notatka w panelu przeżywa przegląd DL (panel ukryty, nie odmontowany)", async () => {
+    useAuthStore.setState({ user: { id: 7, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    renderBoard(qcPassedColumns());
+    const link = await screen.findByRole("link", { name: "Iga Mazur" });
+    fireEvent.click(link.closest("[data-kanban-card]") as HTMLElement);
+    const dock = await screen.findByRole("complementary", { name: "Panel osoby" });
+    const note = within(dock).getByPlaceholderText(/Dodaj notatkę/);
+    await userEvent.type(note, "Zadzwonić po 15");
+    await userEvent.click(within(dock).getByRole("button", { name: "Inny etap…" }));
+    const menu = await screen.findByRole("menu");
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "CV wysłane" }));
+    await screen.findByTestId("dl-review-panel");
+    await userEvent.click(screen.getByRole("button", { name: "zamknij przegląd" }));
+    const back = await screen.findByRole("complementary", { name: "Panel osoby" });
+    expect(within(back).getByPlaceholderText(/Dodaj notatkę/)).toHaveValue("Zadzwonić po 15");
+  });
+
   it("przegląd z Tablicy dostaje wiersz z serwera (CV po QC, kto zweryfikował)", async () => {
     useAuthStore.setState({ user: { id: 7, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
     get.mockImplementation((url: string) =>

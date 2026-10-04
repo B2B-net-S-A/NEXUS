@@ -3,7 +3,7 @@
 /**
  * Harness `/preview/new-job` — strona „Nowa rekrutacja” na danych fikcyjnych.
  *
- * `?state=request|noclient|manual|review|gaps|portals|shadow|passive|off`.
+ * `?state=request|noclient|resume|manual|review|gaps|servererror|portals|shadow|passive|off`.
  * Zero zapytań: klucze klientów, rekruterów, konfiguracji portali i słownika
  * RocketJobs są zasiane w cache (patrz `app/preview/__tests__`), kategorie
  * i wiedza o wierszach wymagań przychodzą w stanie podglądu, a baner podobnych
@@ -17,7 +17,9 @@
  * w podglądzie włączony w trybie „auto” („Przydzieli automat”); `shadow` =
  * automat tylko proponuje, `passive` = priorytet „Przyjmujemy kandydatów”
  * (automat wtedy nikogo nie przydziela), `off` = automat wyłączony. `gaps`
- * pokazuje też rekrutera wskazanego ręcznie.
+ * pokazuje też rekrutera wskazanego ręcznie. `resume` = krok 1 z listą
+ * niedokończonych formularzy, `servererror` = krok 2 po odmowie serwera
+ * (422 `job_not_ready`) z listą braków w stopce.
  */
 
 import { Suspense, useState } from "react";
@@ -49,6 +51,7 @@ Min. 5 lat doświadczenia komercyjnego.
 
 Praca hybrydowa — 2 dni w tygodniu w biurze w Warszawie.
 Budżet do 170 zł/h netto B2B. Start najlepiej 1 listopada.
+Potrzebujemy 2 osób, kandydatów prosimy do 20 października.
 
 Na rozmowie zapytamy o transakcyjność w systemach rozproszonych.
 
@@ -105,6 +108,8 @@ const FULL_FORM: IntakeForm = {
   city: "Warszawa, Gdańsk",
   intakeNotes: ["„Min. 5 lat” zapisane w polu „Lata doświadczenia”."],
   startDate: "2026-11-01",
+  deadline: "2026-10-20",
+  headcount: "2",
   about:
     "Migracja systemu płatności kartowych z monolitu na mikroserwisy. Projekt na ok. 12 miesięcy z opcją przedłużenia.",
   questions: [
@@ -151,6 +156,8 @@ const FULL_FORM: IntakeForm = {
   },
   provenance: {
     hiring_manager: "request",
+    deadline: "request",
+    headcount: "request",
     role: "request",
     client_title: "request",
     requirements: "request",
@@ -175,6 +182,8 @@ const EVIDENCE = [
   "Warszawie",
   "do 170 zł/h netto",
   "1 listopada",
+  "Potrzebujemy 2 osób",
+  "do 20 października",
   "transakcyjność w systemach rozproszonych",
 ];
 
@@ -227,6 +236,9 @@ const STATES: Record<string, NewJobPagePreview> = {
         i === 1 ? { ...q, dealBreaker: "", approved: false } : q,
       ),
       categoryConfirmed: false,
+      // Klient nie podał hiring managera ani terminu — DL jeszcze nie zdecydował.
+      hiringManager: null,
+      deadline: "",
     },
     evidence: EVIDENCE.filter((e) => e !== "do 170 zł/h netto"),
     categories: CATEGORIES,
@@ -300,6 +312,53 @@ STATES.portals = {
       excerpt: "do 170 zł/h",
     },
   ],
+};
+
+STATES.resume = {
+  ...STATES.request,
+  requestText: "",
+  unfinishedForms: [
+    {
+      id: 91,
+      label: "Programista Java — płatności kartowe (ZOB 48213)",
+      client_id: 1,
+      client_name: "[Klient testowy]",
+      source: "text",
+      updated_at: "2026-10-03T14:12:00Z",
+      expires_at: "2026-11-02T14:12:00Z",
+      missing_count: 3,
+    },
+    {
+      id: 92,
+      label: "Analityk biznesowy",
+      client_id: 1,
+      client_name: "[Klient testowy]",
+      source: "manual",
+      updated_at: "2026-09-12T09:40:00Z",
+      expires_at: "2026-10-12T09:40:00Z",
+      missing_count: 6,
+    },
+  ],
+};
+
+STATES.servererror = {
+  ...STATES.review,
+  autosave: { status: "saved", at: "2026-10-04T10:42:00Z" },
+  serverBlockers: [
+    {
+      code: "office_city",
+      message: "Podaj miasto biura w lokalizacji oferty (tryb hybrydowy/stacjonarny).",
+    },
+    {
+      code: "champion:rate_unresolved",
+      message: "Stawka w profilu nie jest kwotą PLN/h — popraw ją w Profilu Championa.",
+    },
+  ],
+};
+
+STATES.review = {
+  ...STATES.review,
+  autosave: { status: "saved", at: "2026-10-04T10:42:00Z" },
 };
 
 // Bez `assignment`: Delivery Lead niczego nie zaznaczył, więc działa automat.

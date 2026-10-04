@@ -57,7 +57,13 @@ def test_request_body_needs_exactly_one_choice() -> None:
     JobHiringManagerRequest(contact_id=1)
     JobHiringManagerRequest(new_person={"name": "Jan Kowalski", "email": ""})
     JobHiringManagerRequest(clear=True)
-    for body in ({}, {"contact_id": 1, "clear": True}):
+    JobHiringManagerRequest(not_provided=True)
+    for body in (
+        {},
+        {"contact_id": 1, "clear": True},
+        {"contact_id": 1, "not_provided": True},
+        {"clear": True, "not_provided": True},
+    ):
         with pytest.raises(ValidationError):
             JobHiringManagerRequest(**body)
 
@@ -256,9 +262,27 @@ async def test_existing_contact_other_client_and_clear(app_client):
     )
     assert foreign.status_code == 422, foreign.text
 
+    # Rekrutacja w pracy (04.10.2026): samo wyczyszczenie zostawiłoby nowy brak
+    # bramki przekazania — odmowa; „Klient nie podał” jest decyzją.
     cleared = await app_client.put(url, headers=recruiter, json={"clear": True})
-    assert cleared.status_code == 200, cleared.text
-    assert cleared.json()["hiring_manager_contact_id"] is None
+    assert cleared.status_code == 422, cleared.text
+    detail = cleared.json()["detail"]
+    assert detail["code"] == "handoff_regression"
+    assert [b["code"] for b in detail["blockers"]] == ["hiring_manager"]
+
+    not_provided = await app_client.put(
+        url, headers=recruiter, json={"not_provided": True}
+    )
+    assert not_provided.status_code == 200, not_provided.text
+    assert not_provided.json()["hiring_manager_contact_id"] is None
+    assert not_provided.json()["hiring_manager_not_provided"] is True
+
+    # Wybór osoby zdejmuje „Klient nie podał”.
+    again = await app_client.put(
+        url, headers=recruiter, json={"contact_id": world["known_id"]}
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["hiring_manager_not_provided"] is False
 
 
 @pytest.mark.asyncio
@@ -291,15 +315,17 @@ async def test_patch_and_create_reject_a_contact_of_another_client(
     )
     assert patch.status_code == 422, patch.text
 
+    from tests._job_factory import complete_job_payload
+
     create = await app_client.post(
         "/api/jobs",
         headers=app_auth_headers,
-        json={
-            "title": f"HmCreate-{world['tag']}",
-            "description": "Opis",
-            "client_id": world["client_id"],
-            "hiring_manager_contact_id": world["foreign_id"],
-        },
+        json=await complete_job_payload(
+            world["client_id"],
+            title=f"HmCreate-{world['tag']}",
+            description="Opis",
+            hiring_manager={"contact_id": world["foreign_id"]},
+        ),
     )
     assert create.status_code == 422, create.text
 
@@ -316,6 +342,9 @@ async def test_changing_the_client_drops_the_old_hiring_manager(
     )
     assert set_hm.status_code == 200, set_hm.text
 
+    # Przeniesienie do innej firmy zdejmuje HM poprzedniego klienta. To skutek
+    # zmiany klienta, nie nowy brak — okno edycji wskazuje nowego HM osobnym
+    # zapisem po zmianie (kontakt musi należeć już do nowego klienta).
     moved = await app_client.patch(
         f"/api/jobs/{world['job_id']}",
         headers=app_auth_headers,
@@ -323,6 +352,16 @@ async def test_changing_the_client_drops_the_old_hiring_manager(
     )
     assert moved.status_code == 200, moved.text
     assert moved.json()["hiring_manager_contact_id"] is None
+    assert moved.json()["hiring_manager_not_provided"] is False
+
+    # Jawne „Klient nie podał” w tym samym zapisie zostaje zapisane.
+    back = await app_client.patch(
+        f"/api/jobs/{world['job_id']}",
+        headers=app_auth_headers,
+        json={"client_id": world["client_id"], "hiring_manager_not_provided": True},
+    )
+    assert back.status_code == 200, back.text
+    assert back.json()["hiring_manager_not_provided"] is True
 
 
 @pytest.mark.asyncio

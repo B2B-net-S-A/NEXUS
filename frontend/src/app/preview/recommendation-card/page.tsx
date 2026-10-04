@@ -12,6 +12,7 @@ import { useSearchParams } from "next/navigation";
 
 import { RecommendationCardForm } from "@/components/v2/screening/RecommendationCardDialog";
 import {
+  RecommendationCardQuestions,
   RecommendationCardStatus,
   RecommendationCardView,
 } from "@/components/v2/screening/RecommendationCardView";
@@ -39,6 +40,9 @@ const QUESTIONS: RecommendationCard["questions"] = [
     question: "Rozwiązanie rozwijane w Javie 17+ i Spring Boot",
     answer: "Panel administracyjny i integracje systemu kredytowego. Java 21, Spring Boot 3.",
     source: "sheet",
+    question_id: "q1",
+    deal_breaker: "nie pracował komercyjnie z Javą 17 lub nowszą",
+    deal_breaker_hit: false,
   },
   {
     number: 2,
@@ -46,7 +50,15 @@ const QUESTIONS: RecommendationCard["questions"] = [
     answer: "REST między usługami, Kafka do zdarzeń kredytowych.",
     source: "note",
   },
-  { number: 3, question: "Chmura w projektach komercyjnych", answer: "", source: null },
+  {
+    number: 3,
+    question: "Chmura w projektach komercyjnych",
+    answer: "Tylko kursy, bez projektu komercyjnego.",
+    source: "sheet",
+    question_id: "q3",
+    deal_breaker: "brak komercyjnego projektu w chmurze",
+    deal_breaker_hit: true,
+  },
 ];
 
 const LEGACY = [
@@ -65,7 +77,7 @@ const LEGACY = [
   "P2: Komunikacja między usługami — synchroniczna czy przez kolejki",
   "Odpowiedź: REST między usługami, Kafka do zdarzeń kredytowych.",
   "P3: Chmura w projektach komercyjnych",
-  "Odpowiedź:",
+  "Odpowiedź: Tylko kursy, bez projektu komercyjnego.",
   "Red flags:",
   "Notatka: Senior Java developer, dziewięć lat doświadczenia, ostatnie trzy w bankowości.",
   "Motywacja:",
@@ -114,7 +126,7 @@ const EMPTY: RecommendationCard = {
   exists: false,
   fields: {},
   suggestions: { nationality: "polska" },
-  questions: QUESTIONS.map((q) => ({ ...q, answer: "", source: null })),
+  questions: QUESTIONS.map((q) => ({ ...q, answer: "", source: null, deal_breaker_hit: false })),
   completeness: {
     status: "empty",
     filled: 0,
@@ -160,6 +172,15 @@ function Harness() {
       };
     });
 
+  // „Odpowiedź narusza deal-breaker” — w podglądzie zmienia tylko stan strony.
+  const setDealBreakerHit = (questionId: string | number, hit: boolean) =>
+    setCard((prev) => ({
+      ...prev,
+      questions: prev.questions.map((q) =>
+        q.question_id === questionId ? { ...q, deal_breaker_hit: hit } : q,
+      ),
+    }));
+
   return (
     <main className="mx-auto max-w-6xl space-y-8 bg-background p-4 text-foreground md:p-8">
       <header className="space-y-1">
@@ -199,6 +220,19 @@ function Harness() {
         </h2>
         <div className="max-w-[380px] rounded-lg border border-border bg-card p-3">
           <RecommendationCardView card={card} readOnly={readOnly} onSave={save} onOpenFull={() => undefined} />
+        </div>
+      </section>
+
+      <section aria-labelledby="preview-deal-breaker" className="space-y-2">
+        <h2 id="preview-deal-breaker" className="text-sm font-semibold">
+          Pytania z „Odpada, gdy…” (przegląd Delivery Leada)
+        </h2>
+        <div className="max-w-xl rounded-lg border border-border bg-card p-3">
+          <RecommendationCardQuestions
+            card={card}
+            editable={!readOnly}
+            onDealBreakerHitChange={setDealBreakerHit}
+          />
         </div>
       </section>
 

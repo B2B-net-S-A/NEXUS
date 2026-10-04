@@ -40,6 +40,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import asdict, dataclass, field, replace
+from datetime import date as date_type
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -172,6 +173,12 @@ class RequestIntake:
     hiring_manager_contact_name: Optional[str] = None
     # ── od v7 (27.09.2026): uwagi dla DL z normalizacji odczytu ──
     advisories: list[str] = field(default_factory=list)
+    # ── od v11 (04.10.2026): termin i liczba osób — tylko z dosłownym cytatem ──
+    # `deadline` = "RRRR-MM-DD" (rok z kalendarza firmy, gdy mail go nie
+    # podaje), `deadline_time` = "HH:MM", `headcount` = 1–50.
+    deadline: Optional[str] = None
+    deadline_time: Optional[str] = None
+    headcount: Optional[int] = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -235,6 +242,194 @@ def _fold(value: str) -> str:
 
 def _in_text(fragment: str, folded_text: str) -> bool:
     return _fold(fragment) in folded_text
+
+
+# ── v11: termin i liczba osób ───────────────────────────────────────────────
+
+_PL_MONTHS: dict[str, int] = {
+    # dopełniacz („do 17 października”) i mianownik, bez polskich znaków
+    "stycznia": 1,
+    "styczen": 1,
+    "lutego": 2,
+    "luty": 2,
+    "marca": 3,
+    "marzec": 3,
+    "kwietnia": 4,
+    "kwiecien": 4,
+    "maja": 5,
+    "maj": 5,
+    "czerwca": 6,
+    "czerwiec": 6,
+    "lipca": 7,
+    "lipiec": 7,
+    "sierpnia": 8,
+    "sierpien": 8,
+    "wrzesnia": 9,
+    "wrzesien": 9,
+    "pazdziernika": 10,
+    "pazdziernik": 10,
+    "listopada": 11,
+    "listopad": 11,
+    "grudnia": 12,
+    "grudzien": 12,
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
+_ASAP_RE = re.compile(
+    r"\b(?:asap|jak najszybciej|jak najwczesniej|od zaraz|od reki|niezwlocznie|"
+    r"pilne|pilnie|immediately)\b"
+)
+_ISO_DATE_RE = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
+_NUMERIC_DATE_RE = re.compile(
+    r"\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2}|\d{4}))?(?![./-]?\d)"
+)
+_WORD_DATE_RE = re.compile(r"\b(\d{1,2})\s+([a-z]+)(?:\s+(\d{4}))?")
+_TIME_RE = re.compile(
+    r"(?:\b(\d{1,2})[:.](\d{2})\b)|(?:\bgodz(?:ina|iny|\.)?\s*(\d{1,2})(?![:.]\d)\b)"
+)
+_NUMBER_WORDS: dict[str, int] = {}
+for _value, _words in {
+    1: "jeden jedna jednego jedno jednej one",
+    2: "dwa dwie dwoch dwoje dwojke dwojka dwu two",
+    3: "trzy trzech troje trojke trojka three",
+    4: "cztery czterech czworo czworke four",
+    5: "piec pieciu piecioro five",
+    6: "szesc szesciu szescioro six",
+    7: "siedem siedmiu siedmioro seven",
+    8: "osiem osmiu osmioro eight",
+    9: "dziewiec dziewieciu dziewiecioro nine",
+    10: "dziesiec dziesieciu dziesiecioro ten",
+}.items():
+    for _word in _words.split():
+        _NUMBER_WORDS[folded(_word)] = _value
+
+
+def _safe_date(year: int, month: int, day: int) -> Optional[date_type]:
+    try:
+        return date_type(year, month, day)
+    except ValueError:
+        return None
+
+
+def _with_inferred_year(month: int, day: int, today: date_type) -> Optional[date_type]:
+    """Bez roku w mailu: najbliższy taki dzień — w tym roku albo, gdy minął, w następnym."""
+    found = _safe_date(today.year, month, day)
+    if found is not None and found < today:
+        found = _safe_date(today.year + 1, month, day)
+    return found
+
+
+def parse_deadline_date(raw: str, *, today: date_type) -> Optional[str]:
+    """Data terminu z napisu z maila → "RRRR-MM-DD" albo ``None``.
+
+    Rozumie RRRR-MM-DD, DD.MM.RRRR (też ``/`` i ``-``, rok dwucyfrowy), DD.MM
+    i „17 października [2026]”. Bez roku — rok z kalendarza firmy, a data,
+    która w tym roku już minęła, to przyszły rok. „ASAP”, „jak najszybciej”
+    i inne bez daty = ``None`` (to nie termin).
+    """
+    text = folded(raw or "")
+    if not text.strip() or (_ASAP_RE.search(text) and not re.search(r"\d", text)):
+        return None
+    for match in _ISO_DATE_RE.finditer(text):
+        found = _safe_date(*(int(g) for g in match.groups()))
+        if found:
+            return found.isoformat()
+    for match in _WORD_DATE_RE.finditer(text):
+        month = _PL_MONTHS.get(match.group(2))
+        if month is None:
+            continue
+        day = int(match.group(1))
+        found = (
+            _safe_date(int(match.group(3)), month, day)
+            if match.group(3)
+            else _with_inferred_year(month, day, today)
+        )
+        if found:
+            return found.isoformat()
+    for match in _NUMERIC_DATE_RE.finditer(text):
+        day, month = int(match.group(1)), int(match.group(2))
+        if match.group(3):
+            year = int(match.group(3))
+            found = _safe_date(year + 2000 if year < 100 else year, month, day)
+        else:
+            found = _with_inferred_year(month, day, today)
+        if found:
+            return found.isoformat()
+    return None
+
+
+def _times_in(text: str) -> set[str]:
+    out: set[str] = set()
+    for hour, minute, bare_hour in _TIME_RE.findall(folded(text)):
+        h = int(hour or bare_hour)
+        m = int(minute) if minute else 0
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            out.add(f"{h:02d}:{m:02d}")
+    return out
+
+
+def _normalize_time(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"\s*(\d{1,2})(?:[:.](\d{2}))?\s*", value)
+    if not match:
+        return None
+    hour, minute = int(match.group(1)), int(match.group(2) or 0)
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _deadline(
+    data: dict[str, Any], folded_text: str
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """(data, godzina, cytat) terminu — wyłącznie z cytatu obecnego w mailu."""
+    from app.core.scheduling import business_today
+
+    quote = _text(data.get("deadline_quote"), 300)
+    if not quote or not _in_text(quote, folded_text):
+        return None, None, None
+    raw = _text(data.get("deadline"), 80)
+    # Data, którą podał model, musi stać w cytacie — inaczej czytamy sam cytat.
+    source = raw if raw and _in_text(raw, _fold(quote)) else quote
+    parsed = parse_deadline_date(source, today=business_today())
+    if parsed is None:
+        return None, None, None
+    time_value = _normalize_time(data.get("deadline_time"))
+    if time_value is not None and time_value not in _times_in(quote):
+        time_value = None
+    return parsed, time_value, quote
+
+
+def _number_in_quote(number: int, quote: str) -> bool:
+    words = re.findall(r"[a-z0-9]+", folded(quote))
+    return any(
+        (word.isdigit() and int(word) == number) or _NUMBER_WORDS.get(word) == number
+        for word in words
+    )
+
+
+def _headcount(
+    data: dict[str, Any], folded_text: str
+) -> tuple[Optional[int], Optional[str]]:
+    """Liczba osób 1–50 — tylko gdy cytat z maila ją zawiera (cyfrą albo słowem)."""
+    quote = _text(data.get("headcount_quote"), 300)
+    number = _int_in(data.get("headcount"), 1, 50)
+    if number is None or not quote or not _in_text(quote, folded_text):
+        return None, None
+    if not _number_in_quote(number, quote):
+        return None, None
+    return number, quote
 
 
 def _word_in_text(word: str, folded_text: str) -> bool:
@@ -786,7 +981,15 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     hm_email = _text(data.get("hiring_manager_email"), 255) if hm_name else None
     if hm_email and ("@" not in hm_email or not _in_text(hm_email, folded_text)):
         hm_email = None
-    for quote in (client_title, client_reference, hm_name):
+    deadline, deadline_time, deadline_quote = _deadline(data, folded_text)
+    headcount, headcount_quote = _headcount(data, folded_text)
+    for quote in (
+        client_title,
+        client_reference,
+        hm_name,
+        deadline_quote,
+        headcount_quote,
+    ):
         if quote and quote not in evidence:
             evidence.append(quote)
     search = data.get("search") if isinstance(data.get("search"), dict) else {}
@@ -897,6 +1100,8 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         ("client_title", client_title),
         ("client_reference", client_reference),
         ("hiring_manager", hm_name),
+        ("deadline", deadline),
+        ("headcount", headcount),
     ):
         if present:
             provenance[key] = "request"
@@ -965,6 +1170,9 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         hiring_manager_position=hm_position,
         hiring_manager_email=hm_email,
         advisories=advisories,
+        deadline=deadline,
+        deadline_time=deadline_time,
+        headcount=headcount,
     )
 
 

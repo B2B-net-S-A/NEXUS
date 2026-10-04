@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, UserPlus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Command,
   CommandEmpty,
@@ -16,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  HIRING_MANAGER_NOT_PROVIDED_HINT,
   fetchHiringManagerOptions,
   filterHiringManagerOptions,
   hiringManagerOptionsKey,
@@ -32,6 +34,13 @@ interface Props {
   /** `id` etykiety pola — nazwa dostępna comboboxa. */
   labelledBy: string;
   disabled?: boolean;
+  /**
+   * Decyzja „Klient nie podał” (04.10.2026). Pole wyboru renderuje się tylko,
+   * gdy wołający podaje `onNotProvidedChange`; zaznaczenie wyłącza wybór
+   * osoby (wartość czyści wołający przez `onChange(null)`).
+   */
+  notProvided?: boolean;
+  onNotProvidedChange?: (value: boolean) => void;
 }
 
 /**
@@ -50,7 +59,10 @@ export function HiringManagerCombobox({
   onChange,
   labelledBy,
   disabled = false,
+  notProvided = false,
+  onNotProvidedChange,
 }: Props) {
+  const notProvidedId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<{
@@ -93,7 +105,8 @@ export function HiringManagerCombobox({
     });
   };
 
-  return (
+  const pickerDisabled = disabled || noClient || (onNotProvidedChange != null && notProvided);
+  const picker = (
     <Popover open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
       <PopoverTrigger asChild>
         <button
@@ -101,13 +114,15 @@ export function HiringManagerCombobox({
           role="combobox"
           aria-expanded={open}
           aria-labelledby={labelledBy}
-          disabled={disabled || noClient}
+          disabled={pickerDisabled}
           className="w-full flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-sm focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
         >
           <span className={cn("truncate", !value && "text-muted-foreground")}>
             {noClient
               ? "Najpierw wybierz klienta"
-              : value
+              : onNotProvidedChange != null && notProvided
+                ? "Klient nie podał"
+                : value
                 ? value.name
                 : "Wybierz albo wpisz osobę…"}
             {value?.kind === "new" ? (
@@ -238,6 +253,31 @@ export function HiringManagerCombobox({
         )}
       </PopoverContent>
     </Popover>
+  );
+
+  if (!onNotProvidedChange) return picker;
+  return (
+    <div className="flex flex-col gap-1.5">
+      {picker}
+      <label
+        htmlFor={notProvidedId}
+        className="inline-flex cursor-pointer items-center gap-2 text-sm text-foreground"
+      >
+        <Checkbox
+          id={notProvidedId}
+          checked={notProvided}
+          disabled={disabled}
+          onCheckedChange={(checked) => {
+            setOpen(false);
+            onNotProvidedChange(checked === true);
+          }}
+        />
+        Klient nie podał
+      </label>
+      {notProvided ? (
+        <p className="text-xs text-muted-foreground">{HIRING_MANAGER_NOT_PROVIDED_HINT}</p>
+      ) : null}
+    </div>
   );
 }
 

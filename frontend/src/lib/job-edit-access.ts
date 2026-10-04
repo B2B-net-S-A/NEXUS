@@ -70,3 +70,30 @@ export function canEditJobContent(
   if (typeof job?.can_edit === "boolean") return job.can_edit;
   return fallback;
 }
+
+/** Co robi „Otwórz ponownie” / „Dokończ i opublikuj” (04.10.2026). */
+export type JobPublishAction = "reopen" | "finish";
+
+export interface JobPublishStateInput {
+  status?: string | null;
+  is_open?: boolean | null;
+  external_source?: string | null;
+}
+
+/**
+ * Rekrutacja, której brakuje drogi do pracy: zamknięta (`reopen`), stary
+ * szkic albo opublikowana bez przekazania do searchu poza Traffitem
+ * (`finish` — lustro listy `pending_jobs` z `services/pending_job_completion.py`).
+ * `null` — rekrutacja jest w pracy.
+ */
+export function jobPublishAction(
+  job: JobPublishStateInput | null | undefined,
+): JobPublishAction | null {
+  if (!job) return null;
+  if (job.status === "closed") return "reopen";
+  if (job.status === "draft") return "finish";
+  if (job.status === "published" && job.is_open === false && job.external_source !== "traffit") {
+    return "finish";
+  }
+  return null;
+}

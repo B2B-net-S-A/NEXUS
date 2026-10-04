@@ -219,6 +219,42 @@ export interface CvInTransit {
   sent_window_days: number;
 }
 
+/**
+ * Rekrutacja do dokończenia albo zamknięcia (Rekrutacja bez szkiców): stary
+ * szkic (`legacy_draft`, zamyka się sam po terminie `autoclose_on`) albo
+ * rekrutacja opublikowana, której nikt nie przekazał do searchu
+ * (`published_not_handed_off`). DL widzi swoje, Head of Recruitment i admin
+ * — wszystkie.
+ */
+export type PendingJobKind = "legacy_draft" | "published_not_handed_off";
+
+export interface PendingJobRow {
+  job_id: number;
+  title: string;
+  client_name: string | null;
+  kind: PendingJobKind;
+  /** Kiedy rekrutację założono (ISO). */
+  created_at: string;
+  delivery_lead_name: string | null;
+  /** Braki do przekazania do searchu, zdaniami z serwera. */
+  missing: string[];
+}
+
+export interface PendingJobs {
+  /** Dzień (`RRRR-MM-DD`), od którego system zamyka niedokończone szkice;
+   *  `null` = automat nie jest zaplanowany. */
+  autoclose_on: string | null;
+  items: PendingJobRow[];
+}
+
+/** Formularz nowej rekrutacji zapisany na koncie i niewysłany (starszy niż 2 dni). */
+export interface UnfinishedJobForm {
+  id: number | string;
+  label: string;
+  client_name: string | null;
+  updated_at: string;
+}
+
 export interface BoardTasksResponse {
   cpro_to_send: BoardTaskRow[];
   cpro_sent: BoardTaskRow[];
@@ -254,6 +290,11 @@ export interface BoardTasksResponse {
   /** „Twoje CV w drodze” — co dzieje się z CV po przekazaniu karty. `null`
    *  albo brak = osoba usunęła listę z pulpitu (albo serwer jej nie policzył). */
   cv_in_transit?: CvInTransit | null;
+  /** Rekrutacje do dokończenia albo zamknięcia. Starszy backend pola nie
+   *  oddaje; `null` = nic do pokazania. Do „czeka” się nie liczy. */
+  pending_jobs?: PendingJobs | null;
+  /** Twoje niedokończone formularze nowej rekrutacji. */
+  unfinished_forms?: UnfinishedJobForm[] | null;
 }
 
 export const BOARD_TASKS_QUERY_KEY = ["board-tasks"] as const;

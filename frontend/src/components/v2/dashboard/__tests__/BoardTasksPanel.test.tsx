@@ -759,3 +759,148 @@ describe("BoardTasksPanel — „Twoje CV w drodze”", () => {
     );
   });
 });
+
+function pendingRow(over: Record<string, unknown> = {}) {
+  return {
+    job_id: 71,
+    title: "Analityk danych",
+    client_name: "Bank Kappa",
+    kind: "legacy_draft",
+    created_at: new Date(Date.now() - 12 * 86_400_000).toISOString(),
+    delivery_lead_name: "Anna Lis",
+    missing: ["Budżet PLN/h", "Tryb pracy"],
+    ...over,
+  };
+}
+
+describe("BoardTasksPanel — „Rekrutacje do dokończenia albo zamknięcia”", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.setState({ user: { id: 1, role: "delivery_lead" }, realUser: null } as never);
+    post.mockResolvedValue({ data: {} });
+  });
+
+  it("wiersze z tytułem, klientem, stanem, brakami i trzema linkami", async () => {
+    mockQueue({
+      pending_jobs: {
+        autoclose_on: null,
+        items: [
+          pendingRow(),
+          pendingRow({
+            job_id: 72,
+            title: "Tester",
+            client_name: null,
+            kind: "published_not_handed_off",
+            missing: ["a", "b", "c", "d", "e"],
+          }),
+        ],
+      },
+    });
+    renderPanel();
+    const section = await screen.findByRole("region", {
+      name: "Rekrutacje do dokończenia albo zamknięcia",
+    });
+    expect(within(section).getByRole("heading", { level: 3 })).toHaveTextContent(
+      "Rekrutacje do dokończenia albo zamknięcia (2)",
+    );
+    const [draft, published] = within(section).getAllByRole("listitem");
+    expect(draft).toHaveTextContent("Analityk danych · Bank Kappa");
+    expect(within(draft).getByTestId("pending-job-meta")).toHaveTextContent(
+      "Szkic od 12 dni · brakuje: Budżet PLN/h · Tryb pracy · DL: Anna Lis",
+    );
+    expect(within(draft).getByRole("link", { name: "Dokończ: Analityk danych" })).toHaveAttribute(
+      "href",
+      "/jobs/71?reopen=1",
+    );
+    expect(within(draft).getByRole("link", { name: "Uzupełnij: Analityk danych" })).toHaveAttribute(
+      "href",
+      "/jobs/71?tab=champion&mode=edit",
+    );
+    expect(within(draft).getByRole("link", { name: "Zamknij: Analityk danych" })).toHaveAttribute(
+      "href",
+      "/jobs/71?win=order&wintab=close",
+    );
+    expect(within(published).getByTestId("pending-job-meta")).toHaveTextContent(
+      "W pracy bez przekazania · brakuje: a · b · c · i 2 więcej",
+    );
+    // Bez ostrzeżenia, gdy automat zamknięcia nie jest zaplanowany.
+    expect(within(section).queryByTestId("pending-autoclose")).toBeNull();
+    // Zaległość, nie zadanie: nie robi z pulpitu „Czeka na Ciebie”.
+    expect(screen.queryByRole("region", { name: "Czeka na Ciebie" })).toBeNull();
+  });
+
+  it("zaplanowane zamknięcie szkiców: ostrzeżenie z datą DD.MM i odliczanie w wierszu", async () => {
+    mockQueue({
+      pending_jobs: { autoclose_on: "2099-03-07", items: [pendingRow()] },
+    });
+    renderPanel();
+    const section = await screen.findByRole("region", {
+      name: "Rekrutacje do dokończenia albo zamknięcia",
+    });
+    expect(within(section).getByTestId("pending-autoclose")).toHaveTextContent(
+      "Od 07.03 system zamknie szkice, których nikt nie dokończył. Dane zostają, rekrutację da się otworzyć ponownie.",
+    );
+    expect(within(section).getByTestId("pending-job-meta")).toHaveTextContent(/zamknięcie za \d+ dni/);
+  });
+
+  it("obok zadań stoi w panelu i nie zmienia liczników innych list", async () => {
+    mockQueue({
+      cpro_sent: [row("cpro_sent")],
+      pending_jobs: { autoclose_on: null, items: [pendingRow(), pendingRow({ job_id: 73 })] },
+    });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    const sections = within(panel)
+      .getAllByRole("region")
+      .map((region) => region.getAttribute("aria-label"));
+    expect(sections).toEqual(["Rekrutacje do dokończenia albo zamknięcia", "Wysłane do Cpro"]);
+    const sent = within(panel).getByRole("region", { name: "Wysłane do Cpro" });
+    expect(within(sent).getByText("1")).toHaveClass("text-primary");
+  });
+
+  it("niedokończone formularze: jedna linia z linkiem do /jobs/new i nazwami (do trzech)", async () => {
+    mockQueue({
+      pending_jobs: null,
+      unfinished_forms: [
+        { id: 1, label: "Java Developer", client_name: "Bank Kappa", updated_at: since },
+        { id: 2, label: "Tester", client_name: null, updated_at: since },
+      ],
+    });
+    renderPanel();
+    const section = await screen.findByRole("region", {
+      name: "Niedokończone formularze nowej rekrutacji",
+    });
+    const line = within(section).getByTestId("unfinished-forms");
+    expect(within(line).getByRole("link", { name: "Masz 2 niedokończone formularze nowej rekrutacji" })).toHaveAttribute(
+      "href",
+      "/jobs/new",
+    );
+    expect(line).toHaveTextContent("Java Developer · Bank Kappa, Tester");
+  });
+
+  it("więcej niż trzy formularze: sama liczba, bez wyliczania", async () => {
+    mockQueue({
+      unfinished_forms: [1, 2, 3, 4, 5].map((id) => ({
+        id,
+        label: `Formularz ${id}`,
+        client_name: null,
+        updated_at: since,
+      })),
+    });
+    renderPanel();
+    const line = await screen.findByTestId("unfinished-forms");
+    expect(line).toHaveTextContent("Masz 5 niedokończonych formularzy nowej rekrutacji");
+    expect(line).not.toHaveTextContent("Formularz 1");
+  });
+
+  it.each([
+    ["pola nieobecne (starszy serwer)", {}],
+    ["`null` i pusta lista", { pending_jobs: null, unfinished_forms: [] }],
+    ["puste listy", { pending_jobs: { autoclose_on: "2099-03-07", items: [] }, unfinished_forms: null }],
+  ])("bez rekrutacji do dokończenia nic się nie renderuje: %s", async (_name, queue) => {
+    mockQueue(queue);
+    const { container } = renderPanel();
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+});

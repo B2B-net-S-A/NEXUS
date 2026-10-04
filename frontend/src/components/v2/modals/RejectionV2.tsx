@@ -75,6 +75,9 @@ interface Props {
   *  które mówi o kategorii kolumny, a nie o tym, co widział klient
   *  (runda 9, R9-N11-2: „CV wysłane" ma kategorię `internal`). */
  emailAvailable?: boolean;
+ /** Notatka wstawiona przy otwarciu (np. „Odpada, gdy…” z wymagań ruchu).
+  *  Czytana tylko w chwili otwarcia — nie nadpisuje tego, co ktoś już pisze. */
+ initialNotes?: string | null;
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -93,7 +96,14 @@ export function RejectionV2({
  initialEndedBy = null,
  canEndAsDeliveryLead = false,
  emailAvailable: emailAvailableProp,
+ initialNotes = null,
 }: Props) {
+ // Notatkę startową czytamy tylko przy otwarciu (efekt resetu niżej) —
+ // zmiana propa przy otwartym oknie nie kasuje tego, co ktoś już wpisał.
+ const initialNotesRef = React.useRef(initialNotes);
+ useEffect(() => {
+ initialNotesRef.current = initialNotes;
+ }, [initialNotes]);
  const [reasonId, setReasonId] = useState("");
  const [endedBy, setEndedBy] = useState<Exclude<EndedBy, "candidate">>(
  initialEndedBy ?? "recruiter"
@@ -126,7 +136,7 @@ export function RejectionV2({
  useEffect(() => {
  if (open) {
  setReasonId("");
- setNotes("");
+ setNotes(initialNotesRef.current ?? "");
  setSendEmail(false);
  setOfferResponse("");
  setFreeReason("");

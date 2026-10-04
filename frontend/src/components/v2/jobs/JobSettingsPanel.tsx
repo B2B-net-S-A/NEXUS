@@ -6,8 +6,11 @@ import { Loader2, X } from "lucide-react";
 
 import api, { clientTeamApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { useCachedJob } from "@/lib/cached-job";
 import { invalidateChampionDependents } from "@/lib/champion-cache";
 import { formatDeadlineTime, formatJobDeadline } from "@/lib/job-deadline";
+import { jobGateErrorText } from "@/lib/job-gate-errors";
+import { blurNumberInputOnWheel } from "@/lib/number-input";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
 import {
   PRIORITY_LEVEL_LABEL,
@@ -17,6 +20,7 @@ import {
 } from "@/lib/request-priority";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/Toast";
+import { Checkbox } from "@/components/ui/checkbox";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { JobCategoryRow } from "@/components/v2/jobs/JobCategoryRow";
 import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip";
@@ -35,6 +39,15 @@ export interface JobSettingsPanelProps {
   deadline: string | null;
   /** Godzina terminu `HH:MM[:SS]` (`Job.deadline_time`, 0406, czas Europe/Warsaw). */
   deadlineTime?: string | null;
+  /**
+   * „Klient nie podał” terminu (`Job.deadline_not_provided`, 04.10.2026).
+   * Brak propsa = wartość z rekrutacji w cache'u (`["job", id]`).
+   */
+  deadlineNotProvided?: boolean;
+  /** Liczba osób do zatrudnienia (`Job.headcount`). Brak = z cache'u rekrutacji. */
+  headcount?: number | null;
+  /** Ilu już zatrudniono — tylko gdy wołający to wie (inaczej sama liczba osób). */
+  hiredCount?: number | null;
   /** `canWritePipeline && job.update` — lustro `HiringManagerPicker` w tym
    *  samym doku (`JobReadinessDock`, `PATCH /api/jobs/{id}` to `TacPlus`). */
   canEdit: boolean;
@@ -54,7 +67,12 @@ export interface JobSettingsPanelProps {
   canSetPriority: boolean;
 }
 
-type FieldKey = "delivery_lead_id" | "deadline";
+type FieldKey = "delivery_lead_id" | "deadline" | "headcount";
+
+interface CachedJobFields {
+  deadline_not_provided?: boolean | null;
+  headcount?: number | null;
+}
 
 const ROW_LABEL_CLASS =
   "text-[11px] uppercase tracking-wider text-muted-foreground";
@@ -87,6 +105,9 @@ export function JobSettingsPanel({
   deliveryLeadId,
   deadline,
   deadlineTime = null,
+  deadlineNotProvided,
+  headcount,
+  hiredCount = null,
   canEdit,
   recruiters,
   categoryId,
@@ -94,6 +115,12 @@ export function JobSettingsPanel({
   canSetPriority,
 }: JobSettingsPanelProps) {
   const queryClient = useQueryClient();
+  // Pola z 04.10.2026 dok może jeszcze nie podawać — czytamy je z tej samej
+  // kopii rekrutacji, którą trzyma dok (bez własnego zapytania).
+  const cachedJob = useCachedJob<CachedJobFields>(jobId);
+  const notProvided = deadlineNotProvided ?? cachedJob?.deadline_not_provided === true;
+  const peopleCount =
+    headcount !== undefined ? headcount : (cachedJob?.headcount ?? null);
   const [editingField, setEditingField] = useState<FieldKey | null>(null);
   const [savingField, setSavingField] = useState<FieldKey | null>(null);
   const [errorByField, setErrorByField] = useState<Partial<Record<FieldKey, string>>>({});
@@ -120,9 +147,11 @@ export function JobSettingsPanel({
       void queryClient.invalidateQueries({ queryKey: ["dashboard", "my-jobs"] });
       setEditingField(null);
     } catch (err) {
+      // `handoff_regression`: zmiana zdjęłaby wymaganą informację z
+      // rekrutacji w pracy — zdanie serwera i braki stoją przy polu.
       setErrorByField((prev) => ({
         ...prev,
-        [field]: apiErrorMessage(err, "Nie udało się zapisać zmiany."),
+        [field]: jobGateErrorText(err, "Nie udało się zapisać zmiany."),
       }));
     } finally {
       setSavingField(null);
@@ -220,15 +249,54 @@ export function JobSettingsPanel({
         error={errorByField.deadline}
         onEdit={() => startEdit("deadline")}
         onCancel={cancelEdit}
-        value={formatJobDeadline(deadline, deadlineTime) ?? "nie ustawiono"}
+        value={
+          formatJobDeadline(deadline, deadlineTime) ??
+          (notProvided ? "Klient nie podał" : "nie ustawiono")
+        }
         editor={
           <DeadlineEditor
             deadline={deadline}
             deadlineTime={deadlineTime}
+            notProvided={notProvided}
             saving={savingField === "deadline"}
             onSave={(date, time) =>
-              save("deadline", { deadline: date, deadline_time: date ? time : null })
+              save("deadline", {
+                deadline: date,
+                deadline_time: date ? time : null,
+                deadline_not_provided: false,
+              })
             }
+            onSaveNotProvided={() =>
+              save("deadline", {
+                deadline: null,
+                deadline_time: null,
+                deadline_not_provided: true,
+              })
+            }
+          />
+        }
+      />
+
+      <SettingsRow
+        label="Liczba osób"
+        canEdit={canEdit}
+        editing={editingField === "headcount"}
+        saving={savingField === "headcount"}
+        error={errorByField.headcount}
+        onEdit={() => startEdit("headcount")}
+        onCancel={cancelEdit}
+        value={
+          peopleCount == null
+            ? "nie podano"
+            : hiredCount != null
+              ? `Zatrudnieni: ${hiredCount} z ${peopleCount}`
+              : String(peopleCount)
+        }
+        editor={
+          <HeadcountEditor
+            headcount={peopleCount}
+            saving={savingField === "headcount"}
+            onSave={(value) => save("headcount", { headcount: value })}
           />
         }
       />
@@ -338,17 +406,25 @@ function PriorityRow({
 function DeadlineEditor({
   deadline,
   deadlineTime,
+  notProvided,
   saving,
   onSave,
+  onSaveNotProvided,
 }: {
   deadline: string | null;
   deadlineTime: string | null;
+  notProvided: boolean;
   saving: boolean;
   onSave: (date: string | null, time: string | null) => void;
+  /** „Klient nie podał” — decyzja zamiast daty (04.10.2026). */
+  onSaveNotProvided: () => void;
 }) {
+  const notProvidedId = useId();
   const [date, setDate] = useState(deadline ?? "");
   const [time, setTime] = useState(formatDeadlineTime(deadlineTime) ?? "");
-  const submit = () => onSave(date || null, time || null);
+  const [clientDidNotSay, setClientDidNotSay] = useState(notProvided && !deadline);
+  const submit = () =>
+    clientDidNotSay ? onSaveNotProvided() : onSave(date || null, time || null);
   return (
     <form
       className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5"
@@ -361,19 +437,31 @@ function DeadlineEditor({
         autoFocus
         type="date"
         aria-label="Termin"
-        disabled={saving}
-        value={date}
+        disabled={saving || clientDidNotSay}
+        value={clientDidNotSay ? "" : date}
         onChange={(e) => setDate(e.target.value)}
         className={`${CONTROL_CLASS} min-w-[8.5rem]`}
       />
       <input
         type="time"
         aria-label="Godzina terminu"
-        disabled={saving || !date}
-        value={time}
+        disabled={saving || !date || clientDidNotSay}
+        value={clientDidNotSay ? "" : time}
         onChange={(e) => setTime(e.target.value)}
         className="w-[5.5rem] shrink-0 rounded border border-border bg-card px-2 py-1 text-xs dark:bg-muted"
       />
+      <label
+        htmlFor={notProvidedId}
+        className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-foreground"
+      >
+        <Checkbox
+          id={notProvidedId}
+          checked={clientDidNotSay}
+          disabled={saving}
+          onCheckedChange={(checked) => setClientDidNotSay(checked === true)}
+        />
+        Klient nie podał
+      </label>
       <button
         type="submit"
         disabled={saving}
@@ -381,6 +469,55 @@ function DeadlineEditor({
       >
         Zapisz
       </button>
+    </form>
+  );
+}
+
+/** Liczba osób do zatrudnienia — co najmniej 1 (bramka przekazania). */
+function HeadcountEditor({
+  headcount,
+  saving,
+  onSave,
+}: {
+  headcount: number | null;
+  saving: boolean;
+  onSave: (value: number) => void;
+}) {
+  const [text, setText] = useState(headcount != null ? String(headcount) : "1");
+  const parsed = Number(text);
+  const valid = /^\d+$/.test(text.trim()) && parsed >= 1;
+  return (
+    <form
+      className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (valid) onSave(parsed);
+      }}
+    >
+      <input
+        autoFocus
+        type="number"
+        min={1}
+        step={1}
+        inputMode="numeric"
+        aria-label="Liczba osób"
+        aria-invalid={!valid}
+        disabled={saving}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onWheel={blurNumberInputOnWheel}
+        className="w-20 shrink-0 rounded border border-border bg-card px-2 py-1 text-xs dark:bg-muted"
+      />
+      <button
+        type="submit"
+        disabled={saving || !valid}
+        className="shrink-0 text-[11px] font-medium text-primary hover:underline disabled:opacity-50"
+      >
+        Zapisz
+      </button>
+      {!valid ? (
+        <span className="w-full text-[11px] text-destructive">Podaj liczbę od 1 w górę.</span>
+      ) : null}
     </form>
   );
 }

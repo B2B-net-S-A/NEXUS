@@ -430,3 +430,31 @@ describe("JobHandoffButton — „Rekruter”: automat albo konkretna osoba (02.
     }
   });
 });
+
+describe("JobHandoffButton — stary szkic (04.10.2026)", () => {
+  it("przy szkicu mówi „Przekaż i opublikuj”, poza nim „Przekaż do searchu”", async () => {
+    mockApi();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { unmount } = render(
+      <QueryClientProvider client={queryClient}>
+        <JobHandoffButton jobId={7} jobStatus="draft" />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("handoff-open")).toBeEnabled());
+    expect(screen.getByTestId("handoff-open")).toHaveTextContent("Przekaż i opublikuj");
+    fireEvent.click(screen.getByTestId("handoff-open"));
+    expect(await screen.findByTestId("handoff-submit")).toHaveTextContent("Przekaż i opublikuj");
+    unmount();
+
+    // Status z rekrutacji w cache'u, gdy dok go nie podaje.
+    const cached = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    cached.setQueryData(["job", "7"], { status: "published" });
+    render(
+      <QueryClientProvider client={cached}>
+        <JobHandoffButton jobId={7} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("handoff-open")).toBeEnabled());
+    expect(screen.getByTestId("handoff-open")).toHaveTextContent("Przekaż do searchu");
+  });
+});

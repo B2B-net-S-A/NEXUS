@@ -2513,10 +2513,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  [dockItem, dockItemColId, stageCols, requestMove, showError]
  );
 
- const handleDockReject = useCallback(() => {
+ const handleDockReject = useCallback(
+ (options?: { notes?: string | null }) => {
  if (!dockItem || !dockItemColId || !rejectedTemplateCol) return;
- requestReject(dockItem, rejectedTemplateCol);
- }, [dockItem, dockItemColId, rejectedTemplateCol, requestReject]);
+ requestReject(dockItem, rejectedTemplateCol, { notes: options?.notes ?? null });
+ },
+ [dockItem, dockItemColId, rejectedTemplateCol, requestReject]
+ );
  const handleDockWithdraw = useCallback(() => {
  if (!dockItem) return;
  move.requestWithdraw(dockItem);
@@ -2569,6 +2572,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // 0413: braki karty rekomendacji — cała karta w oknie.
  suspendMoveNext();
  setCardFor({ candidateId: item.candidate_id, name });
+ return;
+ case "reject":
+ // Odpowiedź narusza „Odpada, gdy…" — okno odrzucenia z notatką od
+ // serwera (które pytanie i co padło). Ruch „Przesuń mimo to" zostaje.
+ moveNextSuspended.current = false;
+ setMoveNextOpen(false);
+ setMoveNext(null);
+ requestReject(item, rejectedTemplateCol, { notes: action.note ?? null });
  return;
  case "set_candidate_rate": {
  // Stawkę kandydata zapisuje ruch na „Zweryfikowany" (okno stawki
@@ -2634,7 +2645,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return;
  }
  },
- [suspendMoveNext, boardFold, cols, requestMove, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots, openDlReviewIfSending, showInfo]
+ [suspendMoveNext, boardFold, cols, requestMove, requestReject, rejectedTemplateCol, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots, openDlReviewIfSending, showInfo]
  );
  const handleMoveNextMove = useCallback(
  (target: KanbanColumn) => {
@@ -3069,10 +3080,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onClick={closeDock}
  />
  )}
- {dockItem && dockItemColLabel !== null && !personPanelCovered && (
+ {dockItem && dockItemColLabel !== null && (
+ // Przykryty przeglądem DL albo warsztatem panel jest UKRYTY, nie
+ // odmontowany: niewysłana notatka, otwarte sekcje i miejsce powrotu
+ // fokusu muszą przeżyć (przegląd PR 5, 04.10.2026).
  <aside
  aria-label="Panel osoby"
  data-help="jobs.person.dock"
+ hidden={personPanelCovered}
+ inert={personPanelCovered || undefined}
  className="fixed right-0 top-12 bottom-0 z-30 flex w-full max-w-[380px] flex-col border-l border-border bg-background shadow-xl"
  style={chromeTop != null ? { top: chromeTop } : undefined}
  >
