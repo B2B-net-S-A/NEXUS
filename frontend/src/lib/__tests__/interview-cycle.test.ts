@@ -220,7 +220,11 @@ describe("interview-cycle — prepy w Teams (0370)", () => {
     // 02.10.2026: termin rozmowy potwierdzono wcześniej niż Prep 1, ekran
     // poprosił o Prep 1 jeszcze raz i kandydat dostał dwa zaproszenia.
     const todo: TodoEntry = { ...PAIR, kind: "prep_late", priority: 4, due: null, event_id: 88, slot_request_id: null };
-    expect(actionForTodo(todo, [])).toEqual({ type: "open_event", eventId: 88 });
+    // 04.10.2026: „Przełóż” prowadził na Tydzień, gdzie klik w siatkę otwierał
+    // puste „Nowe wydarzenie”. Teraz to okno z nowym terminem TEGO prepu.
+    expect(actionForTodo(todo, [])).toEqual(
+      expect.objectContaining({ type: "reschedule_prep", eventId: 88, prepNo: 1 }),
+    );
 
     const late = item({
       current_step: "prep",
@@ -231,8 +235,19 @@ describe("interview-cycle — prepy w Teams (0370)", () => {
     expect(actionForItem(late, { canManageSlots: false })).toEqual({
       stepKey: "prep",
       label: "Przełóż",
-      action: { type: "open_event", eventId: 88 },
+      action: expect.objectContaining({ type: "reschedule_prep", eventId: 88, prepNo: 1 }),
     });
+
+    const late2 = item({
+      current_step: "prep2",
+      steps: steps({ slots: "done", choice: "done", prep: "done", prep2: "overdue", interview: "scheduled" }).map(
+        (s) => (s.key === "prep2" ? { ...s, event_id: 89 } : s),
+      ),
+    });
+    const todo2: TodoEntry = { ...todo, event_id: 89 };
+    expect(actionForTodo(todo2, [late2])).toEqual(
+      expect.objectContaining({ type: "reschedule_prep", eventId: 89, prepNo: 2 }),
+    );
   });
 
   it("jakość prepu ma ton: słaby = danger, bez nagrania = warn, dobry = done", () => {

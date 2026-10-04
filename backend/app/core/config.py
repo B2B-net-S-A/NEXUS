@@ -558,6 +558,17 @@ class Settings(BaseSettings):
     # ruch bez sprawdzenia (QC dalej liczy się na żądanie i na tablicy).
     CV_QC_GATE_ENABLED: bool = True
 
+    # ── Bramka „Zweryfikowany” (decyzja Artura 04.10.2026, D1) ──────────────
+    # Wejście na „Zweryfikowany” z kolumn Nowi/Screening wymaga arkusza
+    # screeningu (albo odpowiedzi w karcie rekomendacji) i stawki kandydata
+    # (w profilu, na wcześniejszym etapie albo w tym samym ruchu) — 409
+    # `VERIFIED_REQUIREMENTS_MISSING`. Zwrot DL z „QC CV” do poprawy nie jest
+    # bramkowany. False = wyłącznik awaryjny: zachowanie sprzed 04.10.2026.
+    VERIFIED_GATE_ENABLED: bool = True
+    # D2 (04.10.2026): ręczny ruch na „Zatrudniony” wymaga pola „jak
+    # podpisano” (`hired_signed_via`). False = wyłącznik awaryjny.
+    HIRED_SIGNED_VIA_REQUIRED: bool = True
+
     # ── Jarvis — asystent-agent w shellu (0330, zastępuje MINDY) ─────────────
     # Wyłącznik całej funkcji: false = maskotka mówi „nie działam teraz”, trasy
     # czatu zwracają 503, reszta aplikacji nietknięta. Domyślnie false do
@@ -595,6 +606,13 @@ class Settings(BaseSettings):
     # Wyłączona = karty z notatek nie powstają; API karty i pola wpisane
     # ręcznie działają bez niej. Włączenie przez workflow „Coolify set env”.
     RECOMMENDATION_CARD_IMPORT_ENABLED: bool = False
+
+    # „Stawka od” (0414): filtry, AI i plakietki budżetu czytają najniższą
+    # stawkę kandydata z ostatnich 18 miesięcy (karty rekomendacji, etapy,
+    # zmiany profilu, zgłoszenia) zamiast stawki zapisanej ostatnio w profilu.
+    # Wyłączenie = zachowanie sprzed 0414 (czytamy profil) i stop pętli
+    # przeliczeń — bez deployu, przez workflow „Coolify set env”.
+    CANDIDATE_RATE_FROM_ENABLED: bool = True
 
     # Akademia (0369): pętla naboru z ogłoszeń i sortowania Luną co 10 min.
     # Bez programów nic nie robi; wyłączenie nie blokuje przycisku na ekranie.

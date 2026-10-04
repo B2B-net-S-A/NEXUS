@@ -41,6 +41,7 @@ from app.api import (
     candidate_activity_summary,
     candidate_identity_quarantine,
     candidate_profile_facts,
+    candidate_rates,
     jobs,
     clients,
     client_directory,
@@ -689,6 +690,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.recommendation_card_import import (
         recommendation_card_import_loop,
     )
+    from app.tasks.candidate_rate_from import candidate_rate_from_loop
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
     from app.tasks.signing_sweeper import signing_sweeper_loop
@@ -821,6 +823,8 @@ async def lifespan(app: FastAPI):
         "recommendation_card_import": asyncio.create_task(
             recommendation_card_import_loop()
         ),
+        # 0414: „Stawka od” — przeliczenia z kolejki zasilanej wyzwalaczami.
+        "candidate_rate_from": asyncio.create_task(candidate_rate_from_loop()),
         "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
         "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
         "signing_sweeper": asyncio.create_task(signing_sweeper_loop()),
@@ -1073,6 +1077,11 @@ app.include_router(
     candidate_profile_facts.router,
     prefix="/api/candidates",
     tags=["candidate-profile-facts"],
+)
+app.include_router(
+    candidate_rates.router,
+    prefix="/api/candidates",
+    tags=["candidate-rates"],
 )
 app.include_router(
     candidate_identity_quarantine.router,

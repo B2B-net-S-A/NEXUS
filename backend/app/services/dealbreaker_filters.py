@@ -66,10 +66,12 @@ def resolve_job_budget_hourly(job) -> Optional[float]:
 
 def _candidate_rate_pln_hourly(candidate) -> Optional[float]:
     """Stawka kandydata w PLN/h albo None (nieznana / niekanoniczna waluta)."""
-    rate = getattr(candidate, "expected_rate_hourly", None)
+    # „Stawka od” (0414) — przed przeliczeniem kandydata stawka profilu.
+    from app.services.candidate_rate_from import effective_rate
+
+    rate, currency = effective_rate(candidate)
     if rate is None:
         return None
-    currency = getattr(candidate, "expected_rate_currency", None)
     # Historical acceptance of an unlabeled profile amount is not evidence
     # that it can be compared with this request's PLN budget.
     if str(currency or "").strip().upper() != "PLN":

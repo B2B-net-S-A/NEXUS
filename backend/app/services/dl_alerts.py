@@ -902,8 +902,12 @@ async def emit_new_contractor_draft(
     job_title: Optional[str],
     user_ids: Optional[Sequence[int]] = None,
     now: Optional[datetime] = None,
+    source: str = "b2b_generator",
 ) -> list[DlAlert]:
     """Karta „Nowy kontraktor u klienta — uzupełnij zamówienie".
+
+    ``source``: ``b2b_generator`` (podpis w Generatorze) albo ``pipeline_hire``
+    (ręczny ruch na „Zatrudniony”, od 04.10.2026 — D3).
 
     Jedno źródło treści dla ścieżki podpisu (natychmiast) i dla skanera
     (powtórka co 7 dni, dopóki czegoś brakuje). Link otwiera TEN szkic
@@ -934,14 +938,19 @@ async def emit_new_contractor_draft(
         entity_key=f"order:{order.id}",
         title=f"Nowy kontraktor u {client_name} — uzupełnij zamówienie",
         message=(
-            f"Nowy kontraktor {candidate_name} — umowa podpisana obustronnie. "
-            f"Uzupełnij: {', '.join(missing)}."
+            f"Nowy kontraktor {candidate_name} — "
+            + (
+                "umowa podpisana obustronnie. "
+                if source == "b2b_generator"
+                else "zatrudniony w rekrutacji. "
+            )
+            + f"Uzupełnij: {', '.join(missing)}."
         ),
         link=f"/clients/{order.client_id}?tab=zamowienia&order={order.id}",
         payload={
             "candidate_name": candidate_name,
             "missing_fields": missing,
-            "source": "b2b_generator",
+            "source": source,
         },
         order_id=order.id,
         repeat_every_days=settings.DL_ALERT_REPEAT_DAYS,

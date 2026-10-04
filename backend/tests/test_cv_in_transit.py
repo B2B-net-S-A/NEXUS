@@ -213,6 +213,52 @@ async def test_recruiter_follows_the_cv_from_review_to_the_client(
 
 
 @pytest.mark.asyncio
+async def test_card_edited_by_the_delivery_lead_shows_who_and_what(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D4 (04.10.2026): DL poprawia kartę w przeglądzie, a rekruter widzi
+    w „Twoje CV w drodze”, kto i które pola zmienił. Własne zapisy rekrutera
+    nie są śladem."""
+    (
+        world,
+        (rec_id, rec_creds),
+        (other_id, _other_creds),
+        (dl_id, dl_creds),
+    ) = await _non_nordea_world(monkeypatch)
+    rec = await _login(api_client, rec_creds)
+    dl = await _login(api_client, dl_creds)
+    cid, jid = world["candidate_id"], world["job_id"]
+    try:
+        await _seed_screening(world, rec_id)
+        await _move(api_client, rec, world, "verified")
+        await _move(api_client, rec, world, "qc")
+        own = await api_client.put(
+            "/api/recommendation-cards",
+            headers=rec,
+            json={"candidate_id": cid, "job_id": jid, "fields": {"english": "B2"}},
+        )
+        assert own.status_code == 200, own.text
+        review = _mine(await _transit(api_client, rec), "in_review", cid)
+        assert review[0]["card_edited_by"] is None
+
+        edited = await api_client.put(
+            "/api/recommendation-cards",
+            headers=dl,
+            json={
+                "candidate_id": cid,
+                "job_id": jid,
+                "fields": {"motivation": "Chce wrócić do bankowości"},
+            },
+        )
+        assert edited.status_code == 200, edited.text
+        review = _mine(await _transit(api_client, rec), "in_review", cid)
+        assert review[0]["card_edited_by"].startswith("BT delivery_lead")
+        assert review[0]["card_edited_fields"] == ["Motywacja"]
+    finally:
+        await _cleanup(world, [rec_id, other_id, dl_id])
+
+
+@pytest.mark.asyncio
 async def test_rejection_by_the_delivery_lead_comes_back_with_the_reason(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

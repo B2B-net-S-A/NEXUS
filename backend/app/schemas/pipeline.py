@@ -54,6 +54,18 @@ class StageMove(BaseModel):
     expected_rate_value: Optional[Decimal] = Field(None, ge=0)
     expected_rate_unit: Optional[RateUnit] = None
     expected_rate_currency: Optional[str] = Field(None, max_length=3)
+    # „To jego nowe minimum” (0414): stawka z okna „Zweryfikowany” trafia też do
+    # profilu jako jawne minimum — starsze, niższe stawki przestają się liczyć
+    # do „Stawki od”. Działa tylko dla stawki w PLN.
+    expected_rate_is_minimum: bool = False
+
+    # ── Ręczny ruch na „Zatrudniony” (D2, 04.10.2026) ─────────────────────
+    # Jak podpisano umowę spoza Generatora B2B; bez pola ruch na `hired`
+    # dostaje 422 `HIRED_SIGNED_VIA_REQUIRED`. „other” wymaga opisu.
+    hired_signed_via: Optional[Literal["b2b_offline", "uop", "zlecenie", "other"]] = (
+        None
+    )
+    hired_signed_note: Optional[str] = Field(None, max_length=500)
 
     # ── Candidate offer response (migracja 0066 — Phase 17) ───────────────
     # Sensowne tylko gdy stage ∈ {acceptance, negotiation, onboarding}.
@@ -183,6 +195,9 @@ class CandidateStageResponse(BaseModel):
     # Stawka z PROFILU kandydata (`Candidate.expected_rate_hourly`, PLN/h) —
     # podpowiedź w oknie „Zweryfikowany". Wypełnia tylko tablica.
     candidate_expected_rate_hourly: Optional[Decimal] = None
+    # „Stawka od” (0414): najniższa stawka z 18 miesięcy — podpowiedź w oknie
+    # „Zweryfikowany”, gdy karta tej rekrutacji nie ma stawki.
+    candidate_rate_from_hourly: Optional[Decimal] = None
     # ── Tabela rekrutacji „wersja 3" (09.2026) — wypełnia tylko tablica ────
     # Rekruter karty: właściciel procesu, a bez niego osoba, która dodała
     # kandydata do rekrutacji. `moved_by` to mover BIEŻĄCEGO etapu — co innego.

@@ -109,6 +109,7 @@ import { DockInterviewCycle } from "@/components/v2/jobs/DockInterviewCycle";
 import { DockLoadError } from "@/components/v2/jobs/workbench-chrome";
 import { PinnedCandidateNotes } from "@/components/v2/recruitment/PinnedCandidateNotes";
 import { JobNotesList } from "@/components/v2/candidate-profile/JobNotesList";
+import { hourlyText } from "@/lib/candidate-rate";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -1172,8 +1173,8 @@ export function PipelineCandidateDock({
               <div className="text-xs font-semibold text-foreground">
                 Warunki wobec rekrutacji
               </div>
-              <div className="grid grid-cols-[92px_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
-                <ConditionRow label="Stawka">
+              <div className="grid grid-cols-[108px_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
+                <ConditionRow label="W tej rekrutacji">
                   {item.expected_rate_value != null ? (
                     <>
                       <span
@@ -1206,6 +1207,13 @@ export function PipelineCandidateDock({
                     </>
                   ) : (
                     <span className="text-muted-foreground">brak stawki</span>
+                  )}
+                </ConditionRow>
+                {/* „Stawka od” (0414): najniższa stawka z 18 miesięcy — obok
+                    stawki z tej rekrutacji, żeby było widać pole negocjacji. */}
+                <ConditionRow label="Stawka od">
+                  {hourlyText(item.candidate_rate_from_hourly) ?? (
+                    <span className="text-muted-foreground">—</span>
                   )}
                 </ConditionRow>
                 <ConditionRow label="Dostępność">

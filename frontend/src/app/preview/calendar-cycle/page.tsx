@@ -15,6 +15,7 @@ import { useSearchParams } from "next/navigation";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { CalendarCycleScreen } from "@/components/calendar/cycle/CalendarCycleScreen";
+import { rescheduleQueryKey } from "@/components/calendar/cycle/ReschedulePrepDialog";
 import { ToastProvider } from "@/components/Toast";
 import {
   clientQuestionsQueryKey,
@@ -243,6 +244,21 @@ function Harness() {
       { id: 700, title: "Daily zespołu", event_type: "meeting", start_time: at(now, 60 * 20), end_time: at(now, 60 * 20 + 30), all_day: false, status: "scheduled", external_source: "microsoft365", feedback_sources: [], can_remove: false },
     ];
     qc.setQueryData(["calendar-events", fromDate], weekEvents);
+    // „Przełóż” prep Karola (wypada po rozmowie) — okno czyta spotkanie po id.
+    qc.setQueryData(rescheduleQueryKey(604), {
+      id: 604,
+      title: `Przygotowanie do spotkania z Klientem ${pairs.karol.client_name} - ${pairs.karol.candidate_name}`,
+      event_type: "prep_call",
+      start_time: at(now, 60 * 120),
+      end_time: at(now, 60 * 120 + 45),
+      all_day: false,
+      reminder_minutes: 15,
+      status: "scheduled",
+      candidate_id: pairs.karol.candidate_id,
+      job_id: pairs.karol.job_id,
+      external_source: "microsoft365",
+      online_meeting_url: "https://teams.example.com/prep-late",
+    });
     qc.setQueryData(["calendar-conflicts-summary", fromDate], {});
     qc.setQueryData(["calendar-upcoming"], weekEvents);
     return qc;

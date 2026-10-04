@@ -680,15 +680,25 @@ async def _ensure_open_order(
             },
         )
     )
-    if from_signed_confirmation:
-        await _notify_new_contractor_draft(
-            db, order=order, candidate_name=candidate_name, job_title=job.title
-        )
+    # D3 (04.10.2026): karta „uzupełnij zamówienie” po KAŻDYM zatrudnieniu —
+    # z podpisu w Generatorze i z ręcznego ruchu na „Zatrudniony”.
+    await _notify_new_contractor_draft(
+        db,
+        order=order,
+        candidate_name=candidate_name,
+        job_title=job.title,
+        source="b2b_generator" if from_signed_confirmation else "pipeline_hire",
+    )
     return order, True, None
 
 
 async def _notify_new_contractor_draft(
-    db: AsyncSession, *, order: ClientOrder, candidate_name: str, job_title: str | None
+    db: AsyncSession,
+    *,
+    order: ClientOrder,
+    candidate_name: str,
+    job_title: str | None,
+    source: str = "b2b_generator",
 ) -> None:
     """Karta „Nowy kontraktor u klienta — uzupełnij zamówienie" w panelu DL.
 
@@ -706,6 +716,7 @@ async def _notify_new_contractor_draft(
                 order=order,
                 candidate_name=candidate_name or "Kontraktor",
                 job_title=job_title,
+                source=source,
             )
     except asyncio.CancelledError:
         raise

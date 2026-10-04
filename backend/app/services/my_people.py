@@ -41,6 +41,7 @@ from app.models.competence_category import CandidateCompetenceCategory
 from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride
 from app.models.recruitment_pipeline import STAGE_ORDER
 from app.services.current_employment import current_employment_client_ids
+from app.services.candidate_rate_from import rate_summary
 
 # Bezpiecznik, nie limit biznesowy: lista nie ma horyzontu czasu, więc po latach
 # importu Traffita jeden rekruter może mieć kilkaset osób. Powyżej tej liczby
@@ -337,7 +338,7 @@ async def load_my_people(db: AsyncSession, user_id: int) -> MyPeople:
         cand = candidates[cid]
         st = stats.get(cid, {})
         ov = overrides.get(cid)
-        rate = cand.expected_rate_hourly
+        rate = rate_summary(cand)["rate_from_hourly"]  # „Stawka od” (0414)
         availability = cand.availability_status
         rows.append(
             PersonRow(

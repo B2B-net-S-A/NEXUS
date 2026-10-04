@@ -228,6 +228,9 @@ class CvTransitRow(BaseModel):
     reason: Optional[str] = None
     # Uwaga dla rekrutera zostawiona przy decyzji (początek; całość w notatce).
     remark: Optional[str] = None
+    # D4 (04.10.2026): kto poprawił kartę rekomendacji od przekazania i co.
+    card_edited_by: Optional[str] = None
+    card_edited_fields: list[str] = []
 
 
 class CvInTransitBlock(BaseModel):

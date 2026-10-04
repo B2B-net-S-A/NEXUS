@@ -277,6 +277,19 @@ def _cv_qc_gate_off_by_default(monkeypatch):
     monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", False)
 
 
+# ── Bramka „Zweryfikowany” i powód zatrudnienia (D1, D2 — 04.10.2026) ───────
+
+
+@pytest.fixture(autouse=True)
+def _verified_and_hired_gates_off_by_default(monkeypatch):
+    """Setki testów przesuwają kartę na „Zweryfikowany” bez arkusza i na
+    „Zatrudniony” bez pola „jak podpisano” — testują co innego. Testy tych
+    reguł (`test_verified_gate.py`) włączają je jawnie."""
+
+    monkeypatch.setattr(settings, "VERIFIED_GATE_ENABLED", False)
+    monkeypatch.setattr(settings, "HIRED_SIGNED_VIA_REQUIRED", False)
+
+
 # ── Przegląd AI zgłoszeń z linku rekrutacji (0404) ───────────────────────────
 
 

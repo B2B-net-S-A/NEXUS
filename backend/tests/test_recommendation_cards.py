@@ -127,6 +127,9 @@ def test_only_listed_modules_read_recommendation_cards():
         "app/services/move_requirements.py",
         # Kolejka przeglądu DL czyta tylko stan karty (ile pól brakuje).
         "app/services/board_tasks.py",
+        # „Twoje CV w drodze”: tylko polskie nazwy pól z dziennika poprawek,
+        # nie treść karty.
+        "app/services/cv_in_transit.py",
     }
     pattern = re.compile(
         r"^\s*(?:from|import)\s.*\brecommendation_card(?:s|_rules|_import)?\b"
