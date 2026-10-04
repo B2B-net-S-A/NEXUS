@@ -44,6 +44,9 @@ function useInvalidateCycle() {
     qc.invalidateQueries({ queryKey: ["interview-cycle"] });
     qc.invalidateQueries({ queryKey: ["calendar-events"] });
     qc.invalidateQueries({ queryKey: ["calendar-upcoming"] });
+    // Odznaka rozmowy na Tablicy i w panelu osoby (PR 6, 04.10.2026) — oba
+    // klucze tablicy zaczynają się od „kanban”.
+    qc.invalidateQueries({ queryKey: ["kanban"] });
   };
 }
 

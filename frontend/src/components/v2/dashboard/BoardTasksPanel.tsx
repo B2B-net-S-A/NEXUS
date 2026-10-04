@@ -253,6 +253,10 @@ export function BoardTasksPanel() {
   }
 
   const cproGroups = groupCproByJob(data.cpro_to_send);
+  // „Twoje CV w drodze” z czymś, co wróciło, to Twój ruch (popraw i oddaj);
+  // samo czekanie na przegląd i klienta — „U innych”.
+  const transitIsMine = (transit?.returned_total ?? 0) > 0;
+  const othersGroup = (Boolean(transit) && !transitIsMine) || data.cpro_sent.length > 0;
   const openQueue = (jobId: number | null) => {
     setCproJob(jobId);
     setCproOpen(true);
@@ -276,6 +280,13 @@ export function BoardTasksPanel() {
           <CproSenderControl sender={sender.data} loading={sender.isLoading} compact />
         </div>
       ) : null}
+      {/* PR 6 (04.10.2026): „Twój ruch” i „U innych” — to, co zrobisz sam,
+          oddzielone od tego, na co czekasz (przegląd, klient, Cpro). */}
+      {othersGroup && (total > 0 || transitIsMine) ? (
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Twój ruch
+        </h3>
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-3">
         <AllocationProposalsSection
           rows={proposals}
@@ -284,7 +295,7 @@ export function BoardTasksPanel() {
         <NewJobLeadsSection rows={leads} />
         <PendingJobsSection pending={data.pending_jobs} forms={data.unfinished_forms} />
         <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
-        {transit ? <CvInTransitSection transit={transit} /> : null}
+        {transit && transitIsMine ? <CvInTransitSection transit={transit} /> : null}
         {dlReview.length > 0 && (
           <Section
             title="Czeka na Twój przegląd (DL)"
@@ -408,31 +419,41 @@ export function BoardTasksPanel() {
           </Section>
         )}
 
-        {data.cpro_sent.length > 0 && (
-          <Section
-            title="Wysłane do Cpro"
-            hint="Czekamy na odpowiedź Nordei."
-            count={data.cpro_sent.length}
-            expanded={expanded["cpro_sent"] === true}
-            onToggle={() => toggle("cpro_sent")}
-          >
-            {shown("cpro_sent", data.cpro_sent).map((row) => (
-              <li key={row.stage_id} className="flex items-center gap-2 px-3 py-2">
-                <div className="min-w-0 flex-1">
-                  <Link href={boardLink(row)} className="block truncate text-sm font-medium hover:underline">
-                    {row.candidate_name}
-                  </Link>
-                  <RowMeta row={row} />
-                </div>
-                <span className="inline-flex shrink-0 items-center gap-1 text-xs tabular-nums text-muted-foreground">
-                  <Clock className="h-3 w-3" aria-hidden />
-                  {waitingFor(row.since)}
-                </span>
-              </li>
-            ))}
-          </Section>
-        )}
       </div>
+      {othersGroup ? (
+        <div className="mt-4 border-t border-border pt-3" role="group" aria-label="U innych">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            U innych — czekasz na nich
+          </h3>
+          <div className="grid gap-4 lg:grid-cols-3">
+            {transit && !transitIsMine ? <CvInTransitSection transit={transit} /> : null}
+            {data.cpro_sent.length > 0 && (
+              <Section
+                title="Wysłane do Cpro"
+                hint="Czekamy na odpowiedź Nordei."
+                count={data.cpro_sent.length}
+                expanded={expanded["cpro_sent"] === true}
+                onToggle={() => toggle("cpro_sent")}
+              >
+                {shown("cpro_sent", data.cpro_sent).map((row) => (
+                  <li key={row.stage_id} className="flex items-center gap-2 px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <Link href={boardLink(row)} className="block truncate text-sm font-medium hover:underline">
+                        {row.candidate_name}
+                      </Link>
+                      <RowMeta row={row} />
+                    </div>
+                    <span className="inline-flex shrink-0 items-center gap-1 text-xs tabular-nums text-muted-foreground">
+                      <Clock className="h-3 w-3" aria-hidden />
+                      {waitingFor(row.since)}
+                    </span>
+                  </li>
+                ))}
+              </Section>
+            )}
+          </div>
+        </div>
+      ) : null}
       <DlReviewPanel
         task={reviewing}
         open={reviewing !== null}
