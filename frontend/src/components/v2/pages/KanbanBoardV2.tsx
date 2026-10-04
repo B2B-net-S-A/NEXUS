@@ -3061,10 +3061,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onClick={closeDock}
  />
  )}
- {dockItem && dockItemColLabel !== null && !personPanelCovered && (
+ {dockItem && dockItemColLabel !== null && (
+ // Przykryty przeglądem DL albo warsztatem panel jest UKRYTY, nie
+ // odmontowany: niewysłana notatka, otwarte sekcje i miejsce powrotu
+ // fokusu muszą przeżyć (przegląd PR 5, 04.10.2026).
  <aside
  aria-label="Panel osoby"
  data-help="jobs.person.dock"
+ hidden={personPanelCovered}
+ inert={personPanelCovered || undefined}
  className="fixed right-0 top-12 bottom-0 z-30 flex w-full max-w-[380px] flex-col border-l border-border bg-background shadow-xl"
  style={chromeTop != null ? { top: chromeTop } : undefined}
  >
