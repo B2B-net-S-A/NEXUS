@@ -1,8 +1,7 @@
 {
-  "entry": "18ca38058f8ed24ce16ebf4788734bba4fbc0fdeee6b497bd787f088ed2295a5",
+  "entry": "88d2f3e23efadcaa5495c7a1d3f7a240a7a4c76cc0fe2f72f37f0ad3854393ca",
   "guide": "job.champion",
   "sources": {
-    "frontend/src/components/ChampionProfileEditor.tsx": "a86b8392028437bd6151e4b4db41c3efa6b5b3b70e5ff755eef262aae52d6fab",
     "frontend/src/components/champion/ChampionBriefView.tsx": "c11b598c1f8afe25b54fafab929efc6e762c32c2cdf6a3b96bdeac8f5dde7766",
     "frontend/src/components/champion/ChampionWorkspace.tsx": "066cce42d318a9b236498db554a4237b16eb128051838f407d22a81eb920b126",
     "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx": "6df742044ac3c7d0229a5de2a03313cd25dd20cc0f3adef99ad3999caa939ff3"

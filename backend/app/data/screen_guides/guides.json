@@ -250,7 +250,6 @@
     ],
     "help_slug": null,
     "sources": [
-      "frontend/src/components/ChampionProfileEditor.tsx",
       "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx",
       "frontend/src/components/champion/ChampionWorkspace.tsx",
       "frontend/src/components/champion/ChampionBriefView.tsx"
