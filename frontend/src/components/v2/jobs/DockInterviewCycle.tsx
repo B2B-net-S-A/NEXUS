@@ -6,6 +6,7 @@ import { ArrowUpRight } from "lucide-react";
 
 import { InterviewCycleProgress } from "@/components/calendar/cycle/InterviewCycleProgress";
 import { PlanPrepDialog } from "@/components/calendar/cycle/PlanPrepDialog";
+import { ReschedulePrepDialog } from "@/components/calendar/cycle/ReschedulePrepDialog";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { PairInfo, StepState } from "@/lib/interview-cycle";
 import { scheduledInterviewFromSteps } from "@/lib/prep-timing";
@@ -43,6 +44,7 @@ export function DockInterviewCycle({
   onAddClientSlots?: () => void;
 }) {
   const [prepNo, setPrepNo] = useState<1 | 2 | null>(null);
+  const [rescheduling, setRescheduling] = useState(false);
   const steps = badge.steps ?? [];
   const state = (key: string) => steps.find((s) => s.key === key)?.state;
   const interviewDone = state("interview") === "done";
@@ -60,8 +62,9 @@ export function DockInterviewCycle({
   const slotsOpen = OPEN_STEP.has(state("slots") ?? "done");
   const calendarHref = `/calendar?cycle=${pair.candidate_id}-${pair.job_id}`;
   // Prep po rozmowie u klienta: krok jest „po terminie”, ale spotkanie już
-  // istnieje — przekładamy je w kalendarzu, zamiast zakładać drugie.
+  // istnieje — przekładamy TO spotkanie (nowy termin), zamiast zakładać drugie.
   const latePrepId = badge.late_prep_event_id ?? null;
+  const latePrepNo: 1 | 2 = state("prep") !== "overdue" && state("prep2") === "overdue" ? 2 : 1;
   // Termin rozmowy bywa dopiero proponowany — okno prepu liczy względem niego.
   const prepInterview =
     scheduledInterviewFromSteps(steps) ??
@@ -100,12 +103,13 @@ export function DockInterviewCycle({
             </button>
           ) : null}
           {latePrepId ? (
-            <Link
-              href={`/calendar?view=week&event=${latePrepId}`}
+            <button
+              type="button"
+              onClick={() => setRescheduling(true)}
               className="inline-flex h-8 items-center rounded-md border border-destructive/40 bg-card px-3 text-xs font-semibold text-destructive hover:bg-destructive/10"
             >
               Przełóż prep (wypada po rozmowie)
-            </Link>
+            </button>
           ) : null}
           {nextPrep ? (
             <button
@@ -126,6 +130,16 @@ export function DockInterviewCycle({
             </button>
           ) : null}
         </div>
+      ) : null}
+      {rescheduling && latePrepId ? (
+        <ReschedulePrepDialog
+          open
+          onOpenChange={(o) => !o && setRescheduling(false)}
+          eventId={latePrepId}
+          pair={pair}
+          prepNo={latePrepNo}
+          interview={prepInterview}
+        />
       ) : null}
       {prepNo ? (
         <PlanPrepDialog
