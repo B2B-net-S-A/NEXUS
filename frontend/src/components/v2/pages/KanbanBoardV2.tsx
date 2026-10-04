@@ -117,10 +117,13 @@ import {
 } from "@/lib/board-card-badges";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
- BoardWorkbenchDrawer,
+ PersonWorkbenchTabs,
+ usePersonRow,
+ workbenchDefaultSection,
+ workbenchSectionOwnsMove,
  type BoardWorkbenchContext,
-} from "@/components/v2/recruitment/BoardWorkbenchDrawer";
-import type { KanbanQueryState } from "@/components/v2/recruitment/PersonPanel";
+ type KanbanQueryState,
+} from "@/components/v2/person/PersonWorkbenchTabs";
 import { buildProcessRows } from "@/components/v2/recruitment/person-rows";
 import type { PersonPanelSection } from "@/components/v2/recruitment/types";
 import { useBulkCvHandoff } from "@/components/v2/recruitment/useBulkCvHandoff";
@@ -1765,11 +1768,22 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setDockCandidateId(item.candidate_id);
  }, []);
  const closeDock = useCallback(() => setDockCandidateId(null), []);
- // Warsztat osoby (szeroki panel z dawnej „Tabeli") — nad Tablicą.
+ // Pełne narzędzia osoby (dawny warsztat „Tabeli") — od 04.10.2026 to
+ // rozwinięty panel osoby („Rozwiń”), nie osobne okno. `open: false` =
+ // zwinięty, ale zakładki zostają zamontowane (wpisany tekst przeżywa).
  const [workbench, setWorkbench] = useState<{
  candidateId: number;
  section: PersonPanelSection;
+ open: boolean;
  } | null>(null);
+ // Rozwinięcie dotyczy jednej osoby — inna osoba w panelu zaczyna zwinięta.
+ useEffect(() => {
+ setWorkbench((w) => (w && w.candidateId !== dockCandidateId ? null : w));
+ }, [dockCandidateId]);
+ const openWorkbench = useCallback((candidateId: number, section: PersonPanelSection) => {
+ setDockCandidateId(candidateId);
+ setWorkbench({ candidateId, section, open: true });
+ }, []);
  useEffect(() => {
  onDockCandidateChange?.(dockCandidateId);
  }, [dockCandidateId, onDockCandidateChange]);
@@ -2215,9 +2229,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  );
  if (!onBoard && cols.length === 0) return;
  handledWorkbenchRef.current = key;
- if (onBoard) setWorkbench(initialWorkbench);
+ if (onBoard) openWorkbench(initialWorkbench.candidateId, initialWorkbench.section);
  onInitialWorkbenchHandled?.();
- }, [initialWorkbench, workbenchContext, cols, onInitialWorkbenchHandled]);
+ }, [initialWorkbench, workbenchContext, cols, onInitialWorkbenchHandled, openWorkbench]);
 
  // Zbiorcza wysyłka CV (dawny pasek zbiorczy „Tabeli"): per osoba ruch na
  // „CV Wysłane" → link dla klienta → stawka, na końcu jedno okno z linkami.
@@ -2382,9 +2396,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Jeden panel osoby (04.10.2026): przegląd DL otwiera się W panelu osoby
  // jako szeroki tryb; dok tej samej (albo innej) osoby zostaje pod nim
  // zamontowany i ukryty, a po zamknięciu przeglądu wraca z niewysłaną
- // notatką. Szeroki warsztat (osobne okno) dalej przykrywa cały panel.
+ // notatką.
  const reviewOpen = dlReviewTask !== null;
- const panelHidden = workbench !== null && !reviewOpen;
  // Przegląd nie jest oknem z pułapką fokusu — po zamknięciu fokus wraca
  // tam, skąd przegląd otwarto (karta, menu doku, okno „Przesuń dalej”).
  const reviewReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -2402,20 +2415,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  target?.focus();
  }, 0);
  }, []);
- // Panel osoby jest nakładką z prawej — Escape zamyka jego najwyższą warstwę
- // (przegląd DL, potem dok), chyba że otwarty jest dialog (modal powodu
- // odrzucenia, stawki itp.): wtedy Escape należy do niego.
- useEffect(() => {
- if (!dockItem && !dlReviewTask) return;
- const onKey = (e: KeyboardEvent) => {
- if (e.key !== "Escape" || e.defaultPrevented) return;
- if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
- if (dlReviewTask) closeDlReview();
- else closeDock();
- };
- window.addEventListener("keydown", onKey);
- return () => window.removeEventListener("keydown", onKey);
- }, [dockItem, dlReviewTask, closeDlReview, closeDock]);
  // Prawo wysyłki z wiersza serwera; do jego przyjścia — ta sama reguła
  // w przeglądarce (`recruitment_manage`).
  const [dlReviewCanSend, setDlReviewCanSend] = useState<boolean | undefined>(undefined);
@@ -2437,8 +2436,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
  reviewReturnFocusRef.current = document.activeElement;
  }
- // Warsztat w osobnym oknie zasłoniłby przegląd w panelu — zamykamy go.
- setWorkbench(null);
+ // Przegląd zajmuje szeroki panel — rozwinięte narzędzia zwijają się
+ // (zostają zamontowane pod spodem).
+ setWorkbench((w) => (w ? { ...w, open: false } : w));
  setDlReviewTask({
  kind: "dl_review",
  stage_id: item.id,
@@ -2485,23 +2485,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  useEffect(() => {
  openDlReviewRef.current = openDlReviewIfSending;
  }, [openDlReviewIfSending]);
- // Warsztat szeroki rusza kartą przez TĘ SAMĄ instancję co Tablica; wysyłka
- // z „QC CV” do klienta otwiera przegląd DL jak z doku i strzałki.
- const workbenchMove = useMemo(
- () => ({
- ...move,
- requestMove: (
- item: KanbanItem,
- from: KanbanColumn | string,
- to: KanbanColumn,
- options?: { taskAssigneeId?: number },
- ) => {
- if (openDlReviewIfSending(item, to)) return;
- move.requestMove(item, from, to, options);
- },
- }),
- [move, openDlReviewIfSending],
- );
  // `?candidate=&review=1` — dzwonek „CV do przeglądu” prowadzi prosto do
  // przeglądu, nie do samego doku (04.10.2026).
  useEffect(() => {
@@ -2568,6 +2551,49 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  moveNextSuspended.current = true;
  setMoveNextOpen(false);
  }, []);
+ // Rozwinięte narzędzia tej osoby (tylko dla osoby otwartej w panelu).
+ const activeWorkbench =
+ workbench && dockItem && workbench.candidateId === dockItem.candidate_id ? workbench : null;
+ const workbenchOpen = activeWorkbench?.open === true;
+ const dockRow = usePersonRow(stageCols, dockItem?.candidate_id ?? null, jobBudgetHourlyValue ?? null);
+ // „Zwiń” / Esc / klik w tło: narzędzia zostają zamontowane, a okno
+ // „Przesuń dalej”, z którego je otwarto, wraca.
+ const collapseWorkbench = useCallback(() => {
+ setWorkbench((w) => (w ? { ...w, open: false } : w));
+ resumeMoveNext();
+ }, [resumeMoveNext]);
+ const toggleWorkbench = useCallback(() => {
+ if (!dockItem) return;
+ if (workbenchOpen) {
+ collapseWorkbench();
+ return;
+ }
+ setWorkbench((w) =>
+ w && w.candidateId === dockItem.candidate_id
+ ? { ...w, open: true }
+ : {
+ candidateId: dockItem.candidate_id,
+ section: dockRow ? workbenchDefaultSection(dockRow) : "notes",
+ open: true,
+ },
+ );
+ }, [dockItem, dockRow, workbenchOpen, collapseWorkbench]);
+ // Panel osoby jest nakładką z prawej — Escape zamyka jego najwyższą warstwę
+ // (przegląd DL, potem rozwinięte narzędzia, potem dok), chyba że otwarty jest dialog (modal powodu
+ // odrzucenia, stawki itp.): wtedy Escape należy do niego.
+ useEffect(() => {
+ if (!dockItem && !dlReviewTask) return;
+ const onKey = (e: KeyboardEvent) => {
+ if (e.key !== "Escape" || e.defaultPrevented) return;
+ if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
+ if (dlReviewTask) closeDlReview();
+ else if (workbenchOpen) collapseWorkbench();
+ else closeDock();
+ };
+ window.addEventListener("keydown", onKey);
+ return () => window.removeEventListener("keydown", onKey);
+ }, [dockItem, dlReviewTask, workbenchOpen, closeDlReview, collapseWorkbench, closeDock]);
+
  // „Przesuń dalej" z okna QC: okno otwarte z listy braków wraca do swojego
  // „Przesuń dalej", otwarte z karty — otwiera je dla następnej kolumny. Ruch
  // etapu ma jedną drogę (`MoveNextDialog` → `usePipelineMove`).
@@ -2630,7 +2656,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }
  if (workbenchContext) {
  suspendMoveNext();
- setWorkbench({ candidateId: item.candidate_id, section: "cv" });
+ openWorkbench(item.candidate_id, "cv");
  } else {
  window.open(
  `/cv-generator?candidate_id=${item.candidate_id}&job_id=${jobId}`,
@@ -2644,7 +2670,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  if (action.event_id != null) {
  setDebriefFor({ eventId: action.event_id, name });
  } else if (workbenchContext) {
- setWorkbench({ candidateId: item.candidate_id, section: "interviews" });
+ openWorkbench(item.candidate_id, "interviews");
  } else {
  // PR 6: bez nowej karty z kalendarzem — rozmowa bez terminu w NEXUSIE
  // nie ma debriefu do zapisania, termin dodaje się w panelu osoby.
@@ -2672,7 +2698,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return;
  }
  },
- [suspendMoveNext, boardFold, cols, requestMove, requestReject, rejectedTemplateCol, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots, openDlReviewIfSending, showInfo]
+ [suspendMoveNext, boardFold, cols, requestMove, requestReject, rejectedTemplateCol, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots, openDlReviewIfSending, showInfo, openWorkbench]
  );
  const handleMoveNextMove = useCallback(
  (target: KanbanColumn) => {
@@ -3097,11 +3123,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  {((dockItem && dockItemColLabel !== null) || dlReviewTask) && (
  <PersonPanelShell
- wide={reviewOpen}
- hidden={panelHidden}
+ wide={reviewOpen || workbenchOpen}
  chromeTop={chromeTop}
- // Tablet: klik w tło zamyka kartę; przy przeglądzie — sam przegląd.
- onBackdropClick={reviewOpen ? closeDlReview : closeDock}
+ // Klik w tło zamyka najwyższą warstwę: przegląd, rozwinięcie, kartę.
+ onBackdropClick={reviewOpen ? closeDlReview : workbenchOpen ? collapseWorkbench : closeDock}
  >
  {dockItem && dockItemColLabel !== null && (
  // Pod przeglądem dok jest UKRYTY, nie odmontowany: niewysłana
@@ -3162,9 +3187,43 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  badgeToggles={dockBadgeToggles}
  onOpenWorkbench={
  workbenchContext
- ? (section) =>
- setWorkbench({ candidateId: dockItem.candidate_id, section })
+ ? (section) => openWorkbench(dockItem.candidate_id, section)
  : undefined
+ }
+ expanded={workbenchOpen}
+ onToggleExpanded={workbenchContext && kanbanQueryState ? toggleWorkbench : undefined}
+ hidePrimaryMove={
+ workbenchOpen &&
+ dockRow != null &&
+ workbenchSectionOwnsMove({
+ row: dockRow,
+ section: activeWorkbench.section,
+ columns: stageCols,
+ readOnly,
+ budgetHourly: jobBudgetHourlyValue ?? null,
+ })
+ }
+ workbench={
+ activeWorkbench && dockRow && workbenchContext && kanbanQueryState ? (
+ <PersonWorkbenchTabs
+ row={dockRow}
+ jobId={jobId}
+ columns={stageCols}
+ readOnly={readOnly}
+ canWriteClientRate={canWriteClientRate}
+ section={activeWorkbench.section}
+ onSectionChange={(section) =>
+ setWorkbench((prev) => (prev ? { ...prev, section } : prev))
+ }
+ workbenchContext={{
+ ...workbenchContext,
+ jobTitle: jobTitle ?? undefined,
+ cproEnabled,
+ budgetHourly: jobBudgetHourlyValue ?? null,
+ kanbanQueryState,
+ }}
+ />
+ ) : null
  }
  />
  </div>
@@ -3254,29 +3313,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setDebriefFor(null);
  resumeMoveNext();
  }}
- />
- )}
- {workbench && workbenchContext && kanbanQueryState && (
- <BoardWorkbenchDrawer
- jobId={jobId}
- jobTitle={jobTitle ?? null}
- columns={stageCols}
- candidateId={workbench.candidateId}
- section={workbench.section}
- onSectionChange={(section) =>
- setWorkbench((prev) => (prev ? { ...prev, section } : prev))
- }
- onClose={() => {
- setWorkbench(null);
- resumeMoveNext();
- }}
- readOnly={readOnly}
- canWriteClientRate={canWriteClientRate}
- budgetHourly={jobBudgetHourlyValue ?? null}
- move={workbenchMove}
- workbenchContext={workbenchContext}
- kanbanQueryState={kanbanQueryState}
- cproEnabled={cproEnabled}
  />
  )}
  {bulkCv.dialogs}

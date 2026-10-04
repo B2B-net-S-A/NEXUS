@@ -6,7 +6,7 @@
  * `/jobs/[id]` to gorąca trasa, a „CV do klienta" wciąga cały
  * `CVGeneratorStandaloneV2` (~1800 linii: combobox, dropzone, modale podglądu
  * i udostępniania). Panel osoby jest teraz DOMYŚLNYM widokiem rekrutacji, więc
- * statyczny import warsztatu w `PersonPanel` przeniósłby ten koszt na każde
+ * statyczny import warsztatu w `PersonWorkbenchTabs` przeniósłby ten koszt na każde
  * otwarcie rekrutacji — także wtedy, gdy nikt nie zajrzy do sekcji CV.
  * Pilnuje tego `heavy-bundle-boundaries.test.ts`.
  *

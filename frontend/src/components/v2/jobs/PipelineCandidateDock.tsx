@@ -40,6 +40,8 @@ import {
   HelpCircle,
   Loader2,
   Mail,
+  Maximize2,
+  Minimize2,
   MoreHorizontal,
   PhoneOff,
   Send,
@@ -374,6 +376,17 @@ export interface PipelineCandidateDockProps {
    * „podpisana". Włączenie = ruch na etap-odznakę, wyłączenie = powrót na
    * etap kolumny — liczy to tablica, dok tylko pokazuje przełączniki.
    */
+  /**
+   * Jeden panel osoby (04.10.2026): „Rozwiń” poszerza panel do 760 px i pod
+   * tą samą głową pokazuje pełne narzędzia osoby (`workbench`) zamiast sekcji.
+   * Sekcje i narzędzia zostają zamontowane — wpisany tekst przeżywa zmianę.
+   */
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
+  /** Zakładki pełnych narzędzi (`PersonWorkbenchTabs`) — gdy były otwarte. */
+  workbench?: ReactNode;
+  /** Otwarta zakładka ma własny przycisk ruchu — ramka „Następny etap” znika. */
+  hidePrimaryMove?: boolean;
   badgeToggles?: ReadonlyArray<{
     key: string;
     label: string;
@@ -488,6 +501,10 @@ export function PipelineCandidateDock({
   clientId = null,
   onOpenWorkbench,
   badgeToggles = [],
+  expanded = false,
+  onToggleExpanded,
+  workbench = null,
+  hidePrimaryMove = false,
 }: PipelineCandidateDockProps) {
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
@@ -842,10 +859,29 @@ export function PipelineCandidateDock({
               Panel osoby
             </span>
           )}
+          {onToggleExpanded ? (
+            <button
+              type="button"
+              onClick={onToggleExpanded}
+              aria-pressed={expanded}
+              data-help="jobs.person.expand"
+              className="ml-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {expanded ? (
+                <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
+              ) : (
+                <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              {expanded ? "Zwiń" : "Rozwiń"}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onClose}
-            className="ml-auto shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent pointer-coarse:p-2.5"
+            className={cn(
+              "shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent pointer-coarse:p-2.5",
+              !onToggleExpanded && "ml-auto",
+            )}
             aria-label="Zamknij dok"
           >
             <X className="h-4 w-4" />
@@ -992,7 +1028,7 @@ export function PipelineCandidateDock({
                 </Button>
               </div>
             )}
-            {primaryTarget ? (
+            {hidePrimaryMove ? null : primaryTarget ? (
               <DockNextStage
                 candidateId={item.candidate_id}
                 jobId={jobId}
@@ -1134,6 +1170,8 @@ export function PipelineCandidateDock({
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
         {/* 0399: przypięte notatki kandydata — z każdej rekrutacji. */}
         <PinnedCandidateNotes candidateId={item.candidate_id} />
+        {workbench ? <div hidden={!expanded}>{workbench}</div> : null}
+        <div className="space-y-3" hidden={expanded} data-testid="dock-sections">
         <DockSection
           id="process"
           label={DOCK_SECTION_LABEL.process}
@@ -1558,6 +1596,7 @@ export function PipelineCandidateDock({
             />
           </div>
         </DockSection>
+        </div>
       </div>
 
       {/* Notatka zawsze pod ręką — bez przechodzenia do sekcji „Notatki".

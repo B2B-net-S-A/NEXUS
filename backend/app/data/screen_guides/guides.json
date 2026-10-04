@@ -175,8 +175,8 @@
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",
-        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma kroki rozmowy: wybór i potwierdzenie terminu od klienta, prepy z oceną i debrief. Na „Umowie” i „Zatrudnionym” widać, czy umowa jest wygenerowana, podpisana i czy jest zamówienie. „Umowa podpisana” włączasz przełącznikiem w panelu.",
-        "anchor": "jobs.person.badges"
+        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma kroki rozmowy: termin od klienta, prepy z oceną i debrief. Na „Umowie” i „Zatrudnionym” widać umowę, podpis i zamówienie. Pełne narzędzia — stawkę do klienta, werdykt klienta, umowę — otwiera „Rozwiń” u góry panelu; „Zwiń” albo Esc wraca.",
+        "anchor": "jobs.person.expand"
       }
     ],
     "pitfalls": [
@@ -190,7 +190,8 @@
       {"id": "jobs.person.actions", "label": "Akcje etapu", "describe": "Przenieś na etap, Inny etap, Odrzuć z powodem, Zrezygnował."},
       {"id": "jobs.person.badges", "label": "Odznaki etapu", "describe": "Etapy pomocnicze, np. Prep, Umowa podpisana."},
       {"id": "jobs.person.note", "label": "Szybka notatka", "describe": "Pole notatki na dole karty."},
-      {"id": "jobs.person.followup", "label": "Kontakt z kandydatem", "describe": "Kto dzwoni do kandydata, gdy klient milczy, i kiedy — z przyciskami „Zapisz wynik telefonu” i „Zrobię to ja”."}
+      {"id": "jobs.person.followup", "label": "Kontakt z kandydatem", "describe": "Kto dzwoni do kandydata, gdy klient milczy, i kiedy — z przyciskami „Zapisz wynik telefonu” i „Zrobię to ja”."},
+      {"id": "jobs.person.expand", "label": "Rozwiń panel", "describe": "Poszerza panel osoby i pokazuje pełne narzędzia: CV do klienta, screening, rozmowy, umowę, dopasowanie i notatki."}
     ],
     "help_slug": null,
     "sources": ["frontend/src/components/v2/jobs/PipelineCandidateDock.tsx", "frontend/src/components/v2/followups/DockFollowupBlock.tsx"]
