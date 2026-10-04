@@ -421,7 +421,7 @@
       "Bez debriefu kandydat nie wyjdzie z kolumny „Rozmowa u klienta” na tablicy rekrutacji.",
       "Zmiana terminu wydarzenia z Outlooka idzie najpierw do Outlooka — bez połączonej skrzynki zapis zostanie odrzucony.",
     "Terminy od klienta przesuwają kandydata na „Rozmowę u klienta” tylko wtedy, gdy jego CV zostało już wysłane do klienta. Inaczej karta zostaje na swoim etapie — przesuń ją na tablicy rekrutacji.",
-      "Prep zaplanowany po rozmowie u klienta świeci na czerwono z przyciskiem „Przełóż”. Przełóż go przed rozmowę albo odwołaj — drugiego prepu o tym numerze nie da się założyć."
+      "Prep zaplanowany po rozmowie u klienta świeci na czerwono z przyciskiem „Przełóż”. Otwiera okno z tym samym spotkaniem — ustawiasz tylko nowy termin przed rozmową, a kandydat dostaje aktualizację zaproszenia. Drugiego prepu o tym numerze nie da się założyć."
     ],
     "anchors": [
       {"id": "calendar.board", "label": "Tablica kroków", "describe": "Siedem kroków cyklu, kandydaci w kolumnach, zadania na kartach."},

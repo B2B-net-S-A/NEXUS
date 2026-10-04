@@ -31,6 +31,7 @@ import { CycleCandidateSheet } from "./CycleCandidatePanel";
 import { DebriefModal } from "./DebriefModal";
 import { PlanPrepDialog } from "./PlanPrepDialog";
 import { PrepReviewDialog } from "./PrepReviewDialog";
+import { ReschedulePrepDialog } from "./ReschedulePrepDialog";
 import { SlotDecisionDialog, SlotRequestDialog } from "./SlotDialogs";
 
 const VIEWS: { value: CycleView; label: string }[] = [
@@ -44,6 +45,7 @@ type Dialog =
   | { kind: "prep"; pair: PairInfo; second: boolean }
   | { kind: "prep_review"; pair: PairInfo; eventId: number }
   | { kind: "slots"; pair: PairInfo | null }
+  | { kind: "reschedule_prep"; pair: PairInfo; eventId: number; prepNo: 1 | 2 }
   | null;
 
 /**
@@ -184,6 +186,14 @@ export function CalendarCycleScreen({
         break;
       case "add_slots":
         setDialog({ kind: "slots", pair: action.pair });
+        break;
+      case "reschedule_prep":
+        setDialog({
+          kind: "reschedule_prep",
+          pair: action.pair,
+          eventId: action.eventId,
+          prepNo: action.prepNo,
+        });
         break;
       case "open_event": {
         // Zakres zostaje — po powrocie na Tablicę użytkownik widzi ten sam zespół.
@@ -349,6 +359,16 @@ export function CalendarCycleScreen({
           onOpenChange={(o) => !o && setDialog(null)}
           pair={dialog.pair}
           prepNo={dialog.second ? 2 : 1}
+          interview={prepInterviewForPair(data, dialog.pair)}
+        />
+      ) : null}
+      {dialog?.kind === "reschedule_prep" ? (
+        <ReschedulePrepDialog
+          open
+          onOpenChange={(o) => !o && setDialog(null)}
+          eventId={dialog.eventId}
+          pair={dialog.pair}
+          prepNo={dialog.prepNo}
           interview={prepInterviewForPair(data, dialog.pair)}
         />
       ) : null}
