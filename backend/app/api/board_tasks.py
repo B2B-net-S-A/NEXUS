@@ -467,6 +467,60 @@ def _transit_block(
     )
 
 
+class DlReviewRowResponse(BaseModel):
+    row: BoardTaskRow
+    can_send_to_client: bool
+
+
+@router.get("/dl-review-row", response_model=DlReviewRowResponse)
+async def get_dl_review_row(
+    candidate_id: int,
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> DlReviewRowResponse:
+    """Zadanie przeglądu DL dla jednej pary — ten sam wiersz co na pulpicie.
+
+    Tablica i link z dzwonka „CV do przeglądu” (`?review=1`) otwierały
+    przegląd z wiersza składanego w przeglądarce, bez etapu CV po QC, osoby
+    weryfikującej i stanu karty (04.10.2026). Bramka jak wysyłka do klienta
+    (`recruitment_manage`) i odczyt rekrutacji; 404, gdy osoba nie czeka na
+    przegląd (nie stoi w „QC CV” albo klient wysyła przez Cpro).
+    """
+    from app.api.recruitment_access import ensure_job_read_access  # noqa: PLC0415
+
+    if not has_permission(current_user, ProductAction.recruitment_manage):
+        raise HTTPException(
+            status_code=403,
+            detail="Przegląd przed wysłaniem do klienta robi Delivery Lead.",
+        )
+    await ensure_job_read_access(db, current_user, job_id)
+    snapshot = await svc.load_snapshot(db, pair=(candidate_id, job_id))
+    task = next(
+        (
+            t
+            for t in snapshot.tasks
+            if t.kind == svc.KIND_DL_REVIEW
+            and t.candidate_id == candidate_id
+            and t.job_id == job_id
+        ),
+        None,
+    )
+    if task is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Ta osoba nie czeka na przegląd przed wysłaniem do klienta.",
+        )
+    cvs = await move_requirements.company_cv_refs(db, [(candidate_id, job_id)])
+    return DlReviewRowResponse(
+        row=BoardTaskRow(
+            **task.as_dict(),
+            cv_stage_id=(cvs.get((candidate_id, job_id)) or {}).get("stage_id"),
+        ),
+        can_send_to_client=True,
+    )
+
+
 @router.get("/cpro/sender", response_model=CproSenderRead)
 async def get_cpro_sender(
     current_user: OperationalUser,

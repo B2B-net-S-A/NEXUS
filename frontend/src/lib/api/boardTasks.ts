@@ -310,6 +310,23 @@ export function useBoardTasks() {
   });
 }
 
+export interface DlReviewRowResponse {
+  row: BoardTaskRow;
+  can_send_to_client: boolean;
+}
+
+/** Przegląd DL jednej pary — ten sam wiersz co na pulpicie (z etapem CV po
+ *  QC, osobą weryfikującą i stanem karty). Tablica i link z dzwonka
+ *  („?review=1”) otwierają przegląd z tego wiersza. 404 = osoba nie czeka
+ *  na przegląd. */
+export function fetchDlReviewRow(candidateId: number, jobId: number) {
+  return api
+    .get<DlReviewRowResponse>("/api/board-tasks/dl-review-row", {
+      params: { candidate_id: candidateId, job_id: jobId },
+    })
+    .then((r) => r.data);
+}
+
 // ── Cpro: jedna osoba na firmę (v5) ─────────────────────────────────────────
 
 export interface CproSender {

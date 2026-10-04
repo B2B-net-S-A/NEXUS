@@ -586,7 +586,7 @@ export function JobInterviewsTab({
       {/* ── Szyna: u klienta, weta i przygotowanie ─────────────────── */}
       <WorkbenchRail
         icon={<Users className="h-4 w-4 text-primary" />}
-        // „Rozmowy u klienta" (M03-B12): liczy etapy kroku 07, bez „CV Wysłane"
+        // „Rozmowy u klienta" (M03-B12): liczy etapy kroku 07, bez „CV wysłane"
         // i bez etapów umowy — to NIE jest grupa „U klienta (CV → interview)"
         // z szyny Pipeline'u. Etykieta = KPI jobbara i licznik listwy kroków.
         title="Rozmowy u klienta"
@@ -660,7 +660,7 @@ export function JobInterviewsTab({
 
         <RailSection
           label="Wcześniej u tego klienta"
-          note="Weto blokuje ponowne „CV Wysłane” i „Interview Klient” u tego managera — 409 z powodem, nie do nadpisania."
+          note="Weto blokuje ponowne „CV wysłane” i „Interview Klient” u tego managera — 409 z powodem, nie do nadpisania."
         >
           {vetoedEntries.length === 0 ? (
             <p className="text-[11px] text-muted-foreground">

@@ -1084,6 +1084,29 @@ async def handoff_core(
             user_id=actor_id,
         )
     )
+    # Osoba wskazana ręcznie dowiaduje się od razu (#2010, 04.10.2026) — także
+    # przy tworzeniu rekrutacji, które przekazuje ją w tej samej transakcji.
+    # Bez dzwonka dla siebie i przy ponowieniu przekazania tej samej osobie.
+    # `notify_assigned` pracuje w savepoincie i nie robi commita.
+    if recruiter.id not in (actor_id, previous_owner_id):
+        from app.models.client import Client  # noqa: PLC0415
+        from app.services.job_working_title import display_title  # noqa: PLC0415
+        from app.services.request_allocation_notices import (  # noqa: PLC0415
+            notify_assigned,
+        )
+
+        client_name = (
+            await db.scalar(select(Client.name).where(Client.id == job.client_id))
+            if job.client_id is not None
+            else None
+        )
+        await notify_assigned(
+            db,
+            job_id=job_id,
+            title=display_title(job),
+            client_name=client_name,
+            user_id=recruiter.id,
+        )
     return {"status": "handed_off", "job_id": job_id, "recruiter_id": recruiter.id}
 
 

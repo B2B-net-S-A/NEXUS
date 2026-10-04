@@ -151,7 +151,7 @@ beforeEach(() => {
 });
 
 async function callCard() {
-  const column = await screen.findByRole("listitem", { name: "Telefon ≤ 30 min" });
+  const column = await screen.findByRole("listitem", { name: "Telefon po rozmowie" });
   return within(column).getByTestId("cycle-board-card");
 }
 
@@ -172,13 +172,13 @@ describe("CalendarCycleScreen", () => {
     const views = await screen.findByRole("radiogroup", { name: "Widok" });
     expect(within(views).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Tydzień", "Tablica"]);
     expect(within(views).getByRole("radio", { name: "Tablica" })).toHaveAttribute("aria-checked", "true");
-    expect(await screen.findByRole("listitem", { name: "Telefon ≤ 30 min" })).toBeInTheDocument();
+    expect(await screen.findByRole("listitem", { name: "Telefon po rozmowie" })).toBeInTheDocument();
   });
 
   it("stary link ?view=agenda prowadzi na Tablicę", async () => {
     mocks.search = "view=agenda";
     renderScreen();
-    expect(await screen.findByRole("listitem", { name: "Telefon ≤ 30 min" })).toBeInTheDocument();
+    expect(await screen.findByRole("listitem", { name: "Telefon po rozmowie" })).toBeInTheDocument();
   });
 
   it("telefon po rozmowie: karta odlicza, a „Zapisz debrief” wysyła jak poszło, pytania i ofertę", async () => {
@@ -297,7 +297,7 @@ describe("CalendarCycleScreen", () => {
         <CalendarCycleScreen />
       </QueryClientProvider>,
     );
-    await screen.findByRole("listitem", { name: "Telefon ≤ 30 min" });
+    await screen.findByRole("listitem", { name: "Telefon po rozmowie" });
     expect(screen.queryByTestId("cycle-candidate-card")).not.toBeInTheDocument();
   });
 

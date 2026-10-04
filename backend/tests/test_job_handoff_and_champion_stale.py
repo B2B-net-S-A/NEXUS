@@ -239,6 +239,56 @@ async def test_second_handoff_replaces_the_recruiter(
     assert working == [second_id]
 
 
+async def test_manual_handoff_rings_the_chosen_recruiter_once(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Rekruter wskazany ręcznie dostaje dzwonek „Nowy request do pracy”.
+
+    Do 04.10.2026 dzwonek wychodził tylko przy przydziale przez automat
+    i akceptacji propozycji — osoba wskazana w „Przekaż do searchu” nie
+    wiedziała, że dostała rekrutację. Ponowne przekazanie tej samej osobie
+    nie dzwoni drugi raz.
+    """
+    from sqlalchemy import func, select
+
+    from app.models.notification import Notification, NotificationType
+    from app.services import embedding_service, canonical_fit
+
+    async def _empty(*_a, **_k):
+        return []
+
+    async def _noop(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(embedding_service, "search_candidates_semantic", _empty)
+    monkeypatch.setattr(embedding_service, "embed_job", _noop)
+    monkeypatch.setattr(canonical_fit, "score_candidates", _empty)
+
+    job_id = await _seed_job(champion=_READY_CHAMPION)
+    recruiter_id = await _seed_recruiter()
+
+    async def rings() -> int:
+        async with AsyncSessionLocal() as db:
+            return await db.scalar(
+                select(func.count(Notification.id)).where(
+                    Notification.user_id == recruiter_id,
+                    Notification.notification_type
+                    == NotificationType.request_assignment_changed,
+                    Notification.related_entity_type == "job",
+                    Notification.related_entity_id == job_id,
+                )
+            )
+
+    for _ in range(2):
+        resp = await app_client.post(
+            f"/api/jobs/{job_id}/handoff",
+            headers=app_auth_headers,
+            json={"recruiter_id": recruiter_id},
+        )
+        assert resp.status_code == 202, resp.text
+        assert await rings() == 1
+
+
 async def test_handoff_rejects_non_operational_recruiter(
     app_client: AsyncClient, app_auth_headers: dict
 ):

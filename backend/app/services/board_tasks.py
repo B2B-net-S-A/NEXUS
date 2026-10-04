@@ -290,6 +290,13 @@ _LATEST_SQL = text(
            -- w oknie ma w oknie także swój NAJNOWSZY wiersz. Bez tego zapytanie
            -- sortowało całą historię etapów przy każdym odczycie pulpitu.
            AND cs.moved_at >= :since
+           -- Jedna para (przegląd DL otwierany z Tablicy albo z dzwonka):
+           -- bez okna czasu, żeby karta stojąca w QC CV dłużej niż okno
+           -- pulpitu też dała się przejrzeć.
+           AND (
+               CAST(:pair_candidate_id AS INTEGER) IS NULL
+               OR (cs.candidate_id = :pair_candidate_id AND cs.job_id = :pair_job_id)
+           )
          ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
     )
     SELECT l.id, l.candidate_id, l.job_id, l.stage_def_id, l.moved_at,
@@ -319,9 +326,17 @@ _LATEST_SQL = text(
 
 
 async def load_snapshot(
-    db: AsyncSession, *, now: Optional[datetime] = None
+    db: AsyncSession,
+    *,
+    now: Optional[datetime] = None,
+    pair: Optional[tuple[int, int]] = None,
 ) -> BoardTaskSnapshot:
-    """Jedno przejście po najnowszych wierszach opublikowanych rekrutacji."""
+    """Jedno przejście po najnowszych wierszach opublikowanych rekrutacji.
+
+    ``pair`` = (kandydat, rekrutacja) zawęża migawkę do jednej pary i zdejmuje
+    okno czasu — ta sama reguła zadania co na pulpicie, dla przeglądu DL
+    otwieranego z Tablicy albo z dzwonka.
+    """
 
     now = now or datetime.now(timezone.utc)
     catalog = await _catalog(db)
@@ -349,8 +364,15 @@ async def load_snapshot(
             _LATEST_SQL,
             {
                 "default_template_id": default_template_id,
-                "since": now - timedelta(days=max(WINDOW_DAYS, DL_REVIEW_WINDOW_DAYS)),
+                # Jedna para (wiersz przeglądu DL) — bez dolnej granicy czasu.
+                "since": (
+                    datetime.min.replace(tzinfo=timezone.utc)
+                    if pair is not None
+                    else now - timedelta(days=max(WINDOW_DAYS, DL_REVIEW_WINDOW_DAYS))
+                ),
                 "stage_def_ids": sorted(relevant),
+                "pair_candidate_id": pair[0] if pair is not None else None,
+                "pair_job_id": pair[1] if pair is not None else None,
             },
         )
     ).all()

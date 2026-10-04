@@ -210,7 +210,7 @@ describe("useBulkCvHandoff", () => {
     expect(screen.getByTestId("bulk-cv-failure-3")).toHaveTextContent("anulowano po ostrzeżeniu");
   });
 
-  it("„przenieś bez linku”: domyślnie osoba bez sfinalizowanego CV jest pomijana; po zaznaczeniu idzie na „CV Wysłane” bez linku", async () => {
+  it("„przenieś bez linku”: domyślnie osoba bez sfinalizowanego CV jest pomijana; po zaznaczeniu idzie na „CV wysłane” bez linku", async () => {
     mocks.brandedGet.mockImplementation(async (stageId: number) => ({
       data: { status: stageId === stageIdOf(3) ? "draft" : "finalized" },
     }));
@@ -230,7 +230,7 @@ describe("useBulkCvHandoff", () => {
     // Link TYLKO dla osoby ze sfinalizowanym CV (plan `shareLink: null` dla drugiej).
     expect(mocks.shareCreate.mock.calls).toEqual([[stageIdOf(2), 14]]);
     expect(screen.getByTestId("bulk-cv-failure-3")).toHaveTextContent(/bez linku/);
-    expect(screen.getByText(/Przeniesiono na „CV Wysłane”: 2 z 2/)).toBeInTheDocument();
+    expect(screen.getByText(/Przeniesiono na „CV wysłane”: 2 z 2/)).toBeInTheDocument();
   });
 
   it("bez zaznaczenia „przenieś bez linku” osoba bez sfinalizowanego CV nie jest ruszana", async () => {
@@ -269,10 +269,10 @@ describe("useBulkCvHandoff", () => {
     expect(mocks.move.mock.calls.filter((c) => c[0].candidate_id === 2)).toHaveLength(1);
   });
 
-  it("szablon bez „CV Wysłane”: toast błędu, żadnego okna", async () => {
+  it("szablon bez „CV wysłane”: toast błędu, żadnego okna", async () => {
     renderHarness({ cols: columns.filter((c) => c.stage !== "cv_sent") });
     await userEvent.click(screen.getByRole("button", { name: "start" }));
-    expect(mocks.showError).toHaveBeenCalledWith(expect.stringMatching(/CV Wysłane/));
+    expect(mocks.showError).toHaveBeenCalledWith(expect.stringMatching(/CV wysłane/));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
@@ -281,16 +281,16 @@ describe("useBulkCvHandoff — linki dla klienta wyłączone (stan produkcyjny)"
   beforeEach(() => { linkFlags.enabled = false; });
   afterEach(() => { linkFlags.enabled = true; });
 
-  it("tylko oznacza „CV Wysłane”: bez pola ważności, bez sprawdzania CV firmowego i bez linku", async () => {
+  it("tylko oznacza „CV wysłane”: bez pola ważności, bez sprawdzania CV firmowego i bez linku", async () => {
     renderHarness();
     await userEvent.click(screen.getByText("start"));
     expect(screen.queryByLabelText("Ważność linków (dni)")).toBeNull();
     expect(screen.queryByText(/przenieś bez linku/)).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Oznacz „CV Wysłane”" }));
+    await userEvent.click(screen.getByRole("button", { name: "Oznacz „CV wysłane”" }));
     await waitFor(() => expect(mocks.move).toHaveBeenCalledTimes(2));
     expect(mocks.brandedGet).not.toHaveBeenCalled();
     expect(mocks.shareCreate).not.toHaveBeenCalled();
-    expect(await screen.findAllByText("Oznaczono „CV Wysłane”.")).toHaveLength(2);
+    expect(await screen.findAllByText("Oznaczono „CV wysłane”.")).toHaveLength(2);
   });
 });
 

@@ -199,7 +199,7 @@ function renderWorkbench(
 
 async function sendButton() {
   return screen.findByRole("button", {
-    name: /(?:Utwórz link i oznacz|Oznacz) „CV Wysłane”/,
+    name: /(?:Utwórz link i oznacz|Oznacz) „CV wysłane”/,
   });
 }
 
@@ -234,7 +234,7 @@ describe("CvHandoffWorkbench", () => {
 
   it("limit CV klienta jest liczony z tablicy, nie zmyślony", () => {
     renderWorkbench();
-    // Jedna karta na „CV Wysłane" przy limicie 3 z karty klienta — ta sama
+    // Jedna karta na „CV wysłane" przy limicie 3 z karty klienta — ta sama
     // liczba w pigułce nagłówka i w szynie reguł klienta (makieta kroku 06).
     expect(screen.getByText("Limit CV: 1 z 3")).toBeTruthy();
     expect(screen.getByText("Limit CV na proces: 3")).toBeTruthy();
@@ -266,9 +266,9 @@ describe("CvHandoffWorkbench", () => {
     await waitFor(() => expect(shareCreate).toHaveBeenCalledOnce());
     expect(calls).toEqual(["move", "share_link"]);
     // Etap 21 = „Zweryfikowany", na którym leży sfinalizowane CV brandowane —
-    // nie świeży „CV Wysłane" (id 99), który ruch właśnie utworzył.
+    // nie świeży „CV wysłane" (id 99), który ruch właśnie utworzył.
     expect(shareCreate).toHaveBeenCalledWith(21, 14);
-    // Stawka jedzie W RUCHU — serwer odmawia „CV Wysłane" bez niej.
+    // Stawka jedzie W RUCHU — serwer odmawia „CV wysłane" bez niej.
     expect(move).toHaveBeenCalledWith({
       candidate_id: 121,
       job_id: 7,
@@ -424,7 +424,7 @@ describe("CvHandoffWorkbench", () => {
 
     await waitFor(() => expect(showError).toHaveBeenCalled());
     const msg = showError.mock.calls[0][0] as string;
-    expect(msg).toContain("przeniesienie na „CV Wysłane”");
+    expect(msg).toContain("przeniesienie na „CV wysłane”");
     expect(msg).toContain("Nic nie zostało zmienione");
     expect(msg).toContain("link dla klienta nie powstał");
     // Do 09.2026 link powstawał PRZED ruchem — odmowa zostawiała żywy,
@@ -436,7 +436,7 @@ describe("CvHandoffWorkbench", () => {
 
   it("limit czasu ruchu NIE mówi „nic się nie zmieniło” — każe odświeżyć kartę przed ponowieniem", async () => {
     // Bez odpowiedzi serwera ruch mógł się zatwierdzić; „nic się nie stało"
-    // zachęcało do ponowienia, które dopisuje drugi etap „CV Wysłane".
+    // zachęcało do ponowienia, które dopisuje drugi etap „CV wysłane".
     move.mockRejectedValueOnce(
       Object.assign(new Error("timeout of 60000ms exceeded"), {
         code: "ECONNABORTED",
@@ -775,9 +775,9 @@ describe("linki dla klienta wyłączone (stan produkcyjny)", () => {
   beforeEach(() => { linkFlags.enabled = false; });
   afterEach(() => { linkFlags.enabled = true; });
 
-  it("przycisk tylko oznacza „CV Wysłane” i zapisuje stawkę — bez linku", async () => {
+  it("przycisk tylko oznacza „CV wysłane” i zapisuje stawkę — bez linku", async () => {
     renderWorkbench();
-    const button = await screen.findByRole("button", { name: "Oznacz „CV Wysłane”" });
+    const button = await screen.findByRole("button", { name: "Oznacz „CV wysłane”" });
     await waitFor(() => expect(button).not.toBeDisabled());
     await userEvent.type(screen.getByLabelText("Kwota"), "25000");
     await userEvent.click(button);
@@ -789,7 +789,7 @@ describe("linki dla klienta wyłączone (stan produkcyjny)", () => {
 
   it("nie pokazuje linku, ważności, kopiowania, maila ani zakładki linków", async () => {
     renderWorkbench();
-    await screen.findByRole("button", { name: "Oznacz „CV Wysłane”" });
+    await screen.findByRole("button", { name: "Oznacz „CV wysłane”" });
     expect(screen.queryByText("Utwórz link do brandowanego CV")).toBeNull();
     expect(screen.queryByLabelText("Ważność linku")).toBeNull();
     expect(screen.queryByText(/Kopiuj link/)).toBeNull();
@@ -800,7 +800,7 @@ describe("linki dla klienta wyłączone (stan produkcyjny)", () => {
 
   it("stopka doku nie odsyła do zarządzania linkami, których nie ma", async () => {
     renderWorkbench();
-    await screen.findByRole("button", { name: "Oznacz „CV Wysłane”" });
+    await screen.findByRole("button", { name: "Oznacz „CV wysłane”" });
     expect(screen.queryByText(/Zarządzanie linkami zostaje też/)).toBeNull();
   });
 });

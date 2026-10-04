@@ -258,7 +258,7 @@ export const STEP_TITLES: Record<StepKey, string> = {
   prep: "Prep",
   prep2: "Prep 2",
   interview: "Rozmowa u klienta",
-  call: "Telefon ≤ 30 min",
+  call: "Telefon po rozmowie",
   debrief: "Debrief",
 };
 
@@ -269,7 +269,7 @@ export const STEP_OWNER: Record<StepKey, string> = {
   prep: "prowadzi DL",
   prep2: "prowadzi rekruter",
   interview: "kandydat u klienta",
-  call: "rekruter dzwoni",
+  call: "rekruter dzwoni do 30 min po",
   debrief: "notatka dla DL",
 };
 

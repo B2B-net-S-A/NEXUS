@@ -1257,7 +1257,7 @@ export function PipelineCandidateDock({
               onClick={() => onOpenScreening(item.id, fullName)}
               className="w-full justify-start"
             >
-              <Sparkles className="h-3.5 w-3.5" /> Otwórz Screening Championa
+              <Sparkles className="h-3.5 w-3.5" /> Otwórz rozmowę z kandydatem
             </Button>
             {/* „Ściąga do rozmowy” (29.09.2026): tekst na start, odpowiedzi na
                 pytania kandydata i trzy pytania z profilu — z wyjaśnienia

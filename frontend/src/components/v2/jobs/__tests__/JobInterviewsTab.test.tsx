@@ -307,7 +307,7 @@ describe("JobInterviewsTab", () => {
     expect(screen.getByText(/Tylko do odczytu/)).toBeTruthy();
   });
 
-  it("„CV Wysłane” jest wyszarzone z powodem — jego modal mieszka na tablicy", async () => {
+  it("„CV wysłane” jest wyszarzone z powodem — jego modal mieszka na tablicy", async () => {
     renderTab();
     const pill = await screen.findByRole("button", { name: "CV Wysłane" });
     expect(pill).toBeDisabled();
@@ -340,7 +340,7 @@ describe("JobInterviewsTab", () => {
     expect(acceptance).not.toBeDisabled();
     expect(acceptance.getAttribute("title") ?? "").not.toMatch(/Hiring manager/);
 
-    // „CV Wysłane" zostaje wyszarzone WYŁĄCZNIE dlatego, że jego modal stawki
+    // „CV wysłane" zostaje wyszarzone WYŁĄCZNIE dlatego, że jego modal stawki
     // mieszka na tablicy — powód weta się nie pojawia.
     const cvSent = screen.getByRole("button", { name: "CV Wysłane" });
     expect(cvSent.getAttribute("title")).toMatch(/stawkę do klienta/);

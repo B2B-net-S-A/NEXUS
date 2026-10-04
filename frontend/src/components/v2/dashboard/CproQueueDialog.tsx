@@ -4,7 +4,8 @@
  * Kolejka Cpro (Rekrutacja v5, decyzja Artura 23.09.2026) — Nordea.
  *
  * Do Cpro wrzuca JEDNA osoba na całą firmę (nie per rekrutacja); zmienić ją
- * albo ustawić zastępstwo może każdy z zespołu. Okno prowadzi pracę
+ * albo ustawić zastępstwo może admin albo Delivery Lead klienta Nordei
+ * (`cpro_sender.can_set_sender`, od 25.09.2026). Okno prowadzi pracę
  * rekrutacja po rekrutacji: po lewej procesy z licznikami, po prawej osoby
  * po kolei z danymi do przepisania do Cpro. „✓ Wrzucone” i „Zwróć do
  * rekrutera” to ZWYKŁY ruch w pipeline (`POST /api/pipeline/move` z wersją
