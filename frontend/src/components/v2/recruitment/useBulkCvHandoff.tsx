@@ -47,6 +47,7 @@ import {
 } from "@/lib/bulk-cv-handoff";
 import { runCvHandoff } from "@/lib/cv-handoff";
 import { isEligibilityWarning } from "@/lib/pipeline-eligibility-warning";
+import { classifyMoveError } from "@/lib/pipeline-move-core";
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { CV_SENT_STAGE, findStageColumn } from "@/lib/pipeline-flow";
 import {
@@ -243,7 +244,9 @@ export function useBulkCvHandoff({
           }),
         isEligibilityWarning,
         isVersionConflict: isPipelineVersionConflict,
-        describeError: (error) => extractErrorMsg(error),
+        // To samo rozpoznanie odmowy co pojedynczy ruch (QC CV, bramki,
+        // konflikt wersji) — zdanie trafia do wyniku tej osoby.
+        describeError: (error) => classifyMoveError(error).message,
       });
     } catch (e) {
       // `runBulkCvHandoff` zamienia porażki w wyniki per osoba — to jest

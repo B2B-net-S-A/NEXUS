@@ -326,6 +326,45 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
   return out;
 }
 
+/**
+ * PR 4 ścieżki kandydata (04.10.2026): źródło, blokada 12 h i stan karty
+ * rekomendacji to ikony z krótkim dopiskiem — pełna treść w podpowiedzi
+ * i w panelu osoby. Karta ma mówić przede wszystkim, czyj jest ruch.
+ * `null` = plakietka zostaje pełnym napisem.
+ */
+export interface CompactCardBadge {
+  /** Krótki dopisek obok ikony (`null` = sama ikona). */
+  short: string | null;
+  /** Pełna treść dla podpowiedzi i czytników ekranu. */
+  full: string;
+}
+
+export const COMPACT_BADGE_KEYS: ReadonlySet<string> = new Set([
+  "source",
+  "claim",
+  "recommendation_card",
+]);
+
+export function compactCardBadge(badge: CardBadge): CompactCardBadge | null {
+  if (!COMPACT_BADGE_KEYS.has(badge.key)) return null;
+  const full = badge.title ? `${badge.label} — ${badge.title}` : badge.label;
+  if (badge.key === "claim") {
+    // „Twój · 11 h” → „11 h” (kolor mówi „mój”); cudza blokada zostaje
+    // z imieniem („Anna · 3 h”); „Wolny” → sama ikona.
+    if (badge.tone === "lock") return { short: badge.label, full };
+    if (badge.tone === "own") return { short: badge.label.split(" · ")[1] ?? null, full };
+    return { short: null, full };
+  }
+  if (badge.key === "recommendation_card") {
+    // „2 próby kontaktu” zostaje napisem — to informacja o telefonach, nie o karcie.
+    if (/^\d/.test(badge.label)) return null;
+    const missing = /brakuje (\d+)/.exec(badge.label);
+    if (missing) return { short: `−${missing[1]}`, full };
+    return { short: badge.tone === "ok" ? "✓" : null, full };
+  }
+  return { short: null, full };
+}
+
 /** Przycisk na karcie w „Nowych"/„Screeningu": „Biorę" (wolna) / „Przejmij" (cudza, DL). */
 export function claimAction(
   item: KanbanItem,

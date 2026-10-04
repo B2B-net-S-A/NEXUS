@@ -103,6 +103,8 @@ import {
   originalCvSentence,
   type DockProfileCvDoc,
 } from "@/lib/dock-cv-summary";
+import { useCvQc, type QcResult } from "@/lib/api/cvQc";
+import { countForm } from "@/lib/cv-qc";
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import { DockFollowupBlock } from "@/components/v2/followups/DockFollowupBlock";
 import { DockInterviewCycle } from "@/components/v2/jobs/DockInterviewCycle";
@@ -376,6 +378,11 @@ export interface PipelineCandidateDockProps {
    *  (terminy same przenoszą kartę na „Rozmowę u klienta"). */
   onAddClientSlots?: () => void;
   /**
+   * PR 4 (04.10.2026): okno QC CV dla tej osoby — dok pokazuje wynik QC już na
+   * „Zweryfikowanym”, zanim rekruter przekaże kartę dalej.
+   */
+  onOpenQc?: () => void;
+  /**
    * Pełny warsztat osoby (dawna „Tabela": CV do klienta ze stawką i linkiem,
    * rozmowy z werdyktem HM, umowa) — szeroki panel nad Tablicą. Brak = bez
    * przycisków warsztatu (np. harness).
@@ -396,6 +403,22 @@ export interface PipelineCandidateDockProps {
 }
 
 type WorkbenchSection = "cv" | "screening" | "interviews" | "contract";
+
+/** Zdanie QC CV w doku na „Zweryfikowanym” (PR 4, 04.10.2026). */
+export function earlyQcSentence(
+  loading: boolean,
+  result: Pick<QcResult, "passed" | "blocking_failed" | "override"> | null,
+): string {
+  if (loading) return "QC CV: sprawdzam…";
+  if (!result) return "QC CV: nie udało się sprawdzić";
+  if (result.passed) {
+    return result.override
+      ? "QC CV: przepuszczone przez Delivery Leada"
+      : "QC CV: bez blokad — można przekazać dalej";
+  }
+  const n = result.blocking_failed;
+  return `QC CV: ${countForm(n, ["rzecz", "rzeczy", "rzeczy"])} do poprawy przed wysłaniem`;
+}
 
 function WorkbenchLink({
   onClick,
@@ -476,6 +499,7 @@ export function PipelineCandidateDock({
   onReject,
   onWithdraw,
   onAddClientSlots,
+  onOpenQc,
   onOpenWorkbench,
   badgeToggles = [],
 }: PipelineCandidateDockProps) {
@@ -714,6 +738,11 @@ export function PipelineCandidateDock({
     pairHasCompanyCv: pairCompanyCv(nextStageRequirements.data?.items),
     pairBranded: pairCvElsewhere,
   });
+  // QC CV wcześniej (PR 4): na „Zweryfikowanym” z CV firmowym pary dok liczy
+  // QC tak jak bramka „CV wysłane” — rekruter poprawia przed przekazaniem.
+  const earlyQc =
+    item.stage === "verified" && (companyCv.tone === "success" || companyCv.tone === "info");
+  const qcQuery = useCvQc(item.id, isOpen("cv") && earlyQc);
   const profileHref = `/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`;
 
   // ── Ramka „Następny etap”: przyciski usuwające braki. Każda akcja otwiera
@@ -1410,6 +1439,37 @@ export function PipelineCandidateDock({
                 />
                 <span className="text-foreground">{originalCvSentence(originalCv)}</span>
               </li>
+              {earlyQc && (
+                <li className="flex items-start gap-1.5" data-testid="dock-early-qc">
+                  {qcQuery.isLoading ? (
+                    <Loader2 className="mt-0.5 h-3 w-3 animate-spin text-muted-foreground" aria-hidden="true" />
+                  ) : (
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "mt-1 h-2 w-2 shrink-0 rounded-full",
+                        qcQuery.isSuccess && qcQuery.data.passed
+                          ? "bg-success"
+                          : qcQuery.isSuccess
+                            ? "bg-warning"
+                            : "bg-muted-foreground",
+                      )}
+                    />
+                  )}
+                  <span className="min-w-0 flex-1 text-foreground">
+                    {earlyQcSentence(qcQuery.isLoading, qcQuery.isSuccess ? qcQuery.data : null)}
+                  </span>
+                  {onOpenQc && qcQuery.isSuccess && (
+                    <button
+                      type="button"
+                      onClick={onOpenQc}
+                      className="shrink-0 font-medium text-primary hover:underline"
+                    >
+                      Otwórz QC
+                    </button>
+                  )}
+                </li>
+              )}
             </ul>
             <div className="flex flex-col gap-1.5">
               {originalCv.kind === "snapshot" || originalCv.kind === "unknown" ? (

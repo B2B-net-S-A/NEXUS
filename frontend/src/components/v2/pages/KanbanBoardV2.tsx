@@ -15,6 +15,7 @@ import {
  AlertCircle,
  AlertTriangle,
  ArrowRight,
+ ClipboardList,
  ChevronLeft,
  ChevronRight,
  Clock,
@@ -24,6 +25,7 @@ import {
  Flag,
  HelpCircle,
  Loader2,
+ Lock,
  Mail,
  MoveRight,
  Phone,
@@ -31,6 +33,8 @@ import {
  Sparkles,
  Star,
  Trash2,
+ Unlock,
+ UserPlus,
  UserX,
  XCircle,
 } from"lucide-react";
@@ -72,7 +76,6 @@ import { ScorecardV2 } from"@/components/v2/modals/ScorecardV2";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
 import { SlotRequestDialog } from "@/components/calendar/cycle/SlotDialogs";
-import { InterviewCycleProgress } from "@/components/calendar/cycle/InterviewCycleProgress";
 import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { MoveNextDialog } from "@/components/v2/recruitment/MoveNextDialog";
@@ -109,6 +112,7 @@ import {
  qcChip,
  type CardNextStep,
  type QcChipTone,
+ compactCardBadge,
 } from "@/lib/board-card-badges";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -514,6 +518,7 @@ function NextActionRow({
  step,
  hidden,
  advance,
+ days,
 }: {
  action: NextAction;
  /** „Kto ma ruch" + co zrobić (Rekrutacja v5) — `null` = sama etykieta akcji. */
@@ -521,8 +526,11 @@ function NextActionRow({
  hidden?: boolean;
  /** Strzałka „→" na końcu wiersza. */
  advance?: React.ReactNode;
+ /** Dni na etapie — „piłka” mówi, od kiedy leży (PR 4, 04.10.2026). */
+ days?: number | null;
 }) {
- if (action.kind === "none" && !step && !advance) return null;
+ if (action.kind === "none" && !step && !advance && !(days != null && days >= 1)) return null;
+ const daysTone = days == null ? null : days >= 7 ? "danger" : days >= 3 ? "warning" : "neutral";
  const Icon = action.tone === "normal" ? NEXT_ACTION_ICON[action.kind] : AlertTriangle;
  const label = step?.label ?? action.label;
  return (
@@ -550,6 +558,20 @@ function NextActionRow({
  {/* Dwie linie zamiast ucinania: „Twój ruch" / imię zabiera miejsce,
  a „Przygotuj C…" nie mówi, co zrobić. */}
  <span className="min-w-0 flex-1 line-clamp-2" title={label}>{label}</span>
+ {/* „0 d” nic nie mówi — dni od pierwszego pełnego dnia na etapie. */}
+ {days != null && days >= 1 && (
+  <span
+   data-testid="card-days"
+   className={cn(
+    "shrink-0 tabular-nums text-muted-foreground",
+    daysTone === "danger" && "font-semibold text-destructive",
+    daysTone === "warning" && "font-semibold text-warning"
+   )}
+   title={`Na tym etapie od ${days} dni`}
+  >
+   {days} d
+  </span>
+ )}
  {advance}
  </div>
  );
@@ -671,6 +693,13 @@ interface BoardV4Ctx {
 }
 const BoardV4Context = React.createContext<BoardV4Ctx | null>(null);
 
+/** Ikony skróconych plakietek karty (`compactCardBadge`). */
+const COMPACT_BADGE_ICON: Record<string, typeof Lock> = {
+ source: UserPlus,
+ claim: Lock,
+ recommendation_card: ClipboardList,
+};
+
 function CardV4Badges({
  item,
  fullName,
@@ -694,22 +723,43 @@ function CardV4Badges({
  if (badges.length === 0 && !action) return null;
  return (
   <>
-   {badges.map((b) => (
-    <span
-     key={b.key}
-     data-testid={`card-badge-${b.key}`}
-     className={cn(
-      "inline-flex max-w-full items-center truncate rounded px-1 text-[10px] font-semibold",
-      CARD_BADGE_TONE_CLASS[b.tone]
-     )}
-     title={b.title}
-    >
-     {b.label}
-    </span>
-   ))}
-   {item.interview_badge?.steps?.length ? (
-    <InterviewCycleProgress steps={item.interview_badge.steps} className="mt-0.5 w-full" />
-   ) : null}
+   {badges.map((b) => {
+    const compact = compactCardBadge(b);
+    if (compact) {
+     // Źródło, blokada 12 h i karta rekomendacji: ikona + krótki dopisek,
+     // pełna treść w podpowiedzi i dla czytnika ekranu (PR 4, 04.10.2026).
+     const Icon =
+      b.key === "claim" && b.tone === "free" ? Unlock : (COMPACT_BADGE_ICON[b.key] ?? HelpCircle);
+     return (
+      <span
+       key={b.key}
+       data-testid={`card-badge-${b.key}`}
+       className={cn(
+        "inline-flex max-w-full items-center gap-0.5 truncate rounded px-1 text-[10px] font-semibold",
+        CARD_BADGE_TONE_CLASS[b.tone]
+       )}
+       title={compact.full}
+      >
+       <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+       {compact.short ? <span aria-hidden="true">{compact.short}</span> : null}
+       <span className="sr-only">{b.label}</span>
+      </span>
+     );
+    }
+    return (
+     <span
+      key={b.key}
+      data-testid={`card-badge-${b.key}`}
+      className={cn(
+       "inline-flex max-w-full items-center truncate rounded px-1 text-[10px] font-semibold",
+       CARD_BADGE_TONE_CLASS[b.tone]
+      )}
+      title={b.title}
+     >
+      {b.label}
+     </span>
+    );
+   })}
    {action && (
     <button
      type="button"
@@ -764,14 +814,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  typeof matchScore === "number" && Number.isFinite(matchScore)
  ? Math.max(0, Math.min(100, Math.round(matchScore)))
  : null;
- const daysBadge =
- item.days_in_stage == null
- ? null
- : item.days_in_stage >= 7
- ?"danger"
- : item.days_in_stage >= 3
- ?"warning"
- :"neutral";
  const detailsId = `kanban-candidate-details-${item.id}`;
  const hasAddedByName = Boolean(item.added_to_job_by_name?.trim());
  const addedByDisplayName = item.added_to_job_by_name?.trim() || "brak danych";
@@ -1116,22 +1158,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  Scorecard
  </button>
  )}
- {daysBadge && (
- <span
- className={cn(
- "ml-auto shrink-0 tabular-nums",
- daysBadge === "danger"
- ? "font-semibold text-destructive"
- : daysBadge === "warning"
- ? "font-semibold text-warning"
- : "",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- aria-hidden="true"
- >
- {item.days_in_stage} d
- </span>
- )}
  </div>
 
  {contactFeatureEnabled ? (
@@ -1144,6 +1170,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <NextActionRow
  action={nextAction}
  step={nextStep}
+ days={item.days_in_stage ?? null}
  hidden={desktopOverview}
  advance={
  nextColumnLabel && v5 ? (
@@ -3041,6 +3068,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  key={dockItem.candidate_id}
  item={dockItem}
  jobId={jobId}
+ onOpenQc={() => setQcStageId(dockItem.id)}
  currentStageLabel={dockItemColLabel}
  jobTitle={jobTitle}
  matchScore={scoreMap?.get(dockItem.candidate_id)}
