@@ -235,8 +235,8 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  <div className="mb-3 flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-900">
  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
  <span>
- {lowCount}{""}
- {lowCount === 1 ?"pole wymaga weryfikacji" :"pól wymaga weryfikacji"}{""}
+ {lowCount}{" "}
+ {lowCount === 1 ?"pole wymaga weryfikacji" :"pól wymaga weryfikacji"}{" "}
  — AI nie miało pełnej pewności. Otwórz profil żeby poprawić.
  </span>
  </div>

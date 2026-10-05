@@ -275,6 +275,49 @@ def requirement_terms(alternatives: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(out) or alternatives
 
 
+# Polska odmiana nazw technologii w zdaniach CV: „w Pythonie”, „z Dockerem”,
+# „Javą”, „w Django”. Bez tego QC zgłaszało „brak opisu” przy roli, która
+# opisuje technologię odmienioną (audyt 05.10.2026 na produkcji: „Rozwój
+# bramki płatności w Pythonie” → „Python — brak opisu”). Końcówki są zamkniętą
+# listą, nie dowolnym przyrostkiem — „Java” nie może trafić w „JavaScript”.
+_CASE_ENDINGS = ("a", "u", "ie", "em", "ze", "zie", "y", "i", "om", "ach", "ami", "owi")
+_CASE_ENDINGS_A = ("a", "y", "i", "ie", "ę", "ą", "om", "ach", "ami")
+_CASE_ENDINGS_O = ("a", "u", "iem", "em", "o")
+_INFLECTABLE = re.compile(r"^[A-Za-z]{3,}$")
+
+
+def _inflected_pattern(form: str) -> Optional[re.Pattern[str]]:
+    word = form.strip()
+    if not _INFLECTABLE.match(word):
+        return None
+    lower = word.lower()
+    if lower.endswith("a"):
+        stem, endings = word[:-1], _CASE_ENDINGS_A
+    elif lower.endswith("o"):
+        stem, endings = word[:-1], _CASE_ENDINGS_O
+    else:
+        stem, endings = word, _CASE_ENDINGS
+    alternatives = "|".join(sorted(endings, key=len, reverse=True))
+    return re.compile(
+        rf"(?<![^\W_]){re.escape(stem)}(?:{alternatives})(?![^\W_])", re.IGNORECASE
+    )
+
+
+def polish_base_forms(word: str) -> list[str]:
+    """Możliwe formy podstawowe odmienionego słowa („Dockera” → „Docker”)."""
+    lower = word.casefold()
+    out: list[str] = []
+    for ending in sorted(
+        set(_CASE_ENDINGS) | set(_CASE_ENDINGS_A) | set(_CASE_ENDINGS_O),
+        key=len,
+        reverse=True,
+    ):
+        if lower.endswith(ending) and len(lower) - len(ending) >= 3:
+            stem = lower[: -len(ending)]
+            out.extend((stem, stem + "a", stem + "o"))
+    return out
+
+
 def _patterns(name: str) -> list[re.Pattern[str]]:
     from app.services.skill_normalize import tech_alias_forms
 
@@ -285,6 +328,10 @@ def _patterns(name: str) -> list[re.Pattern[str]]:
         term = parse_keyword(form)
         if term is not None:
             out.append(py_regex(term))
+    for form in sorted(forms, key=len, reverse=True):
+        inflected = _inflected_pattern(form)
+        if inflected is not None:
+            out.append(inflected)
     return out
 
 

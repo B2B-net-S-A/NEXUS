@@ -3844,6 +3844,17 @@ async def bulk_move_candidates(
         await pipeline_move_rules.assert_debrief_before_contract(
             db, candidate_id=cid, job_id=data.job_id, target_column=bulk_target_column
         )
+    # D1 jak pojedynczy /move: skok z Nowych/Screeningu ponad „Zweryfikowany”
+    # wymaga arkusza i stawki (audyt 05.10.2026 — bulk tej bramki nie wołał).
+    for cid in unique_ids:
+        await pipeline_move_rules.assert_verified_requirements(
+            db,
+            candidate_id=cid,
+            job=job,
+            user=current_user,
+            target_column=bulk_target_column,
+            pending_rate=False,
+        )
 
     # Pipeline v4: cudza osoba zarezerwowana w „Nowych" blokuje całą paczkę.
     for cid in unique_ids:

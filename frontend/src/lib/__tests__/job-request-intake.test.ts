@@ -10,6 +10,7 @@ import {
   buildChampionPayload,
   buildJobPayload,
   clientReferenceFor,
+  clientTitleWithReference,
   editQuestion,
   effectiveWorkingTitle,
   formFromIntake,
@@ -179,6 +180,27 @@ describe("formFromIntake — wymagania jako słowa kluczowe", () => {
     expect(form.competenceCategoryId).toBeNull();
     expect(form.suggestedCategoryId).toBeNull();
     expect(form.categoryConfirmed).toBe(false);
+  });
+});
+
+describe("numer zapytania z maila poza nazwą od klienta (audyt 05.10.2026)", () => {
+  it("dopisuje numer do nazwy, żeby nie przepadł przy utworzeniu", () => {
+    const form = formFromIntake({
+      ...INTAKE,
+      client_title: "Python Developer",
+      client_reference: "ZOB-9905",
+    });
+    expect(form.clientTitle).toBe("Python Developer (ZOB-9905)");
+    expect(clientReferenceFor(form)).toBe("ZOB-9905");
+    const opts = { clientId: 7, requestText: "", templateJobId: null };
+    expect(buildJobPayload(form, opts).client_reference).toBe("ZOB-9905");
+  });
+
+  it("bez nazwy od klienta bierze rolę; numer już w nazwie zostawia bez zmian", () => {
+    expect(clientTitleWithReference("", "Tester", "ZOB 1")).toBe("Tester (ZOB 1)");
+    expect(clientTitleWithReference("Tester (zob 1)", "Tester", "ZOB 1")).toBe("Tester (zob 1)");
+    expect(clientTitleWithReference("Tester", "Tester", "")).toBe("Tester");
+    expect(clientTitleWithReference("", "", "ZOB 1")).toBe("");
   });
 });
 

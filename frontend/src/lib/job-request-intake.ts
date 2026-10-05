@@ -370,6 +370,25 @@ export function hiringManagerFromIntake(
   };
 }
 
+/**
+ * Numer zapytania z maila, którego nie ma w nazwie od klienta, dopisuje się do
+ * nazwy w nawiasie — „Python Developer (ZOB-9905)”, jak w rekrutacjach
+ * z Traffita. `clientReferenceFor` bierze numer tylko z nazwy, więc bez tego
+ * numer odczytany z maila („zapytanie nr ZOB-9905. Szukamy…”) przepadał,
+ * a formularz pisał „Nie widzę numeru zapytania w nazwie” (audyt 05.10.2026).
+ */
+export function clientTitleWithReference(
+  clientTitle: string,
+  roleName: string,
+  reference: string,
+): string {
+  const ref = reference.replace(/\s+/g, " ").trim();
+  const base = clientTitle.trim() || roleName.trim();
+  if (!ref || !base) return clientTitle;
+  if (base.toLocaleLowerCase("pl").includes(ref.toLocaleLowerCase("pl"))) return clientTitle;
+  return `${base} (${ref})`;
+}
+
 export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
   const provenance: IntakeForm["provenance"] = {};
   for (const [key, basis] of Object.entries(intake.provenance ?? {})) {
@@ -407,7 +426,11 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
     categoryConfirmed: false,
     provenance,
     title: intake.role_name ?? "",
-    clientTitle: intake.client_title ?? "",
+    clientTitle: clientTitleWithReference(
+      intake.client_title ?? "",
+      intake.role_name ?? "",
+      intake.client_reference ?? "",
+    ),
     referenceHint: intake.client_reference ?? "",
     referenceOverride: null,
     workingTitle: "",

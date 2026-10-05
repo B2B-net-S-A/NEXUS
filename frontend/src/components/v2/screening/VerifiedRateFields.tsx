@@ -141,7 +141,7 @@ export function VerifiedRateFields({
 
       <p className="text-[11px] text-muted-foreground">
         Porównanie z budżetem idzie po godzinie: dzień ÷ 8, miesiąc ÷ 168.
-        Waluta inna niż PLN → bez porównania. Stawka nie blokuje ruchu.
+        Waluta inna niż PLN → bez porównania. Stawka ponad budżet nie blokuje ruchu.
       </p>
     </div>
   );

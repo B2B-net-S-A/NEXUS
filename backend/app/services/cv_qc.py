@@ -202,7 +202,12 @@ def _phrase_in_sources(phrase: str, sources: str) -> bool:
         return True
     words = [w.casefold() for w in _WORD.findall(phrase) if len(w) >= 2]
     haystack = _norm(sources)
-    return bool(words) and all(w in haystack for w in words)
+    # Pogrubienie odmienione („Dockera”) pokrywa forma podstawowa w oryginale
+    # („Docker”) — audyt 05.10.2026.
+    return bool(words) and all(
+        w in haystack or any(base in haystack for base in dz.polish_base_forms(w))
+        for w in words
+    )
 
 
 def match_in(text: str, req: Requirement) -> Optional[str]:
@@ -460,6 +465,60 @@ def header_years(blocks: list[Block]) -> Optional[tuple[int, bool, str]]:
             at_least = bool(m.group("approx") or m.group("plus"))
             return int(m.group("n")), at_least, m.group(0).strip()
     return None
+
+
+# „w tym 5 lat w FikcyjnaPłatność”, „3 lata w Acme Bank” — staż w jednej
+# firmie. Generator (prompt v7) potrafi go podać bez pokrycia w datach
+# (produkcja 05.10.2026: „5 lat w X” przy roli 01.2022–obecnie), a kontrola
+# AI celowo nie czyta „Dlaczego nasz kandydat” jako twierdzeń.
+_COMPANY_YEARS = re.compile(
+    r"(?<![\d.,])(?P<n>\d{1,2})\s*\+?\s*(?:lat|lata|roku|years?)\s+"
+    r"(?:w|we|u|at|in|with)\s+(?:firmie\s+)?(?P<company>[^\W\d_][^,;.()]{1,60})",
+    re.IGNORECASE,
+)
+
+
+def _company_key(text: str) -> str:
+    words = re.findall(r"[^\W_]+", text.casefold())
+    return words[0] if words else ""
+
+
+def company_year_claims(
+    blocks: list[Block], experience: Any, *, today: Optional[date] = None
+) -> list[tuple[int, float, str, str]]:
+    """Twierdzenia „N lat w <firma>” z początku CV, którym przeczą daty roli.
+
+    Zwraca (N, lata z dat, firma z historii, cytat). Firmy spoza historii
+    i role bez dat są pomijane — tu nie zgadujemy.
+    """
+
+    entries = [e for e in (experience or []) if isinstance(e, dict)]
+    out: list[tuple[int, float, str, str]] = []
+    seen = 0
+    for block in blocks:
+        if block.kind == "h":
+            continue
+        seen += 1
+        if seen > HEADER_BLOCKS:
+            break
+        for m in _COMPANY_YEARS.finditer(block.text):
+            key = _company_key(m.group("company"))
+            if len(key) < 2:
+                continue
+            match = [
+                e for e in entries if _company_key(str(e.get("company") or "")) == key
+            ]
+            if not match:
+                continue
+            actual = experience_years(match, today=today)
+            if actual is None:
+                continue
+            claimed = int(m.group("n"))
+            if claimed > int(actual) + 1:
+                out.append(
+                    (claimed, actual, str(match[0].get("company")), m.group(0).strip())
+                )
+    return out
 
 
 def years_consistent(claimed: int, at_least: bool, actual: float) -> bool:
@@ -1065,6 +1124,29 @@ def compute_checks(data: QcInput) -> list[dict]:
                     ],
                 )
             )
+
+    # 6b. Staż w jednej firmie („w tym 5 lat w X”) — dokładany do tej samej
+    # uwagi o latach (nie blokuje), audyt 05.10.2026.
+    company_claims = company_year_claims(blocks, data.experience, today=data.today)
+    if company_claims:
+        items = [
+            _item(
+                detail=(
+                    f"CV mówi „{quote}”, a z dat roli w {company} wychodzi "
+                    f"{int(actual)}."
+                ),
+                term=quote,
+            )
+            for _claimed, actual, company, quote in company_claims
+        ]
+        previous = next(c for c in checks if c["key"] == "years_header")
+        merged = list(previous.get("items") or []) + items
+        checks[checks.index(previous)] = _check(
+            "years_header",
+            "fail",
+            f"{len(merged)} do sprawdzenia",
+            merged,
+        )
 
     # 7. Daty każdej roli.
     if not roles:

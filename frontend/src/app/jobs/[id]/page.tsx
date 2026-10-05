@@ -43,6 +43,7 @@ import {
 } from "@/lib/job-detail-routing";
 import { jobProposalsApi, jobProposalsKeys } from "@/lib/job-proposals-api";
 import { proposalsBulkApi, shortlistApi } from "@/lib/candidate-search-api";
+import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
 import { ChampionWorkspace } from "@/components/champion/ChampionWorkspace";
@@ -891,7 +892,18 @@ export default function JobDetailPage() {
           // Nowy kandydat z CV od razu trafia do „Nowych" tej rekrutacji.
           void proposalsBulkApi
             .add(jobId, { candidate_ids: [candidateId], source: "quick_add" })
-            .then(() => invalidateKanban())
+            .then((response) => {
+              invalidateKanban();
+              // 200 z pominięciem (czarna lista, weto HM, już w rekrutacji)
+              // nie może wyglądać jak dodanie — w „Nowych” nikogo nie ma
+              // (audyt 05.10.2026).
+              const summary = summarizeBulkResult(response);
+              if (summary.added === 0 && summary.skipped.length > 0) {
+                showError(
+                  `Kandydat jest w bazie, ale nie trafił do tej rekrutacji: ${formatReasonCounts(summary.skipped)}.`,
+                );
+              }
+            })
             .catch((error) => showError(assignErrorMessage(error)));
         }}
       />
