@@ -1746,8 +1746,9 @@ async def test_cv_from_outside_nexus_cannot_be_edited(
 
 
 def test_years_in_one_company_must_match_the_role_dates() -> None:
-    """Produkcja 05.10.2026: „w tym 5 lat w FikcyjnaPłatność” przy roli
-    01.2022–obecnie — liczba bez pokrycia w datach w CV do klienta."""
+    """„w tym 5 lat w FikcyjnaPłatność” przy roli 01.2024–obecnie (2,75 roku)
+    — liczba bez pokrycia w datach w CV do klienta. Tolerancja to ±1 rok, więc
+    rola od 01.2022 (4,75 roku) przy „5 lat” jest zgodna."""
     html = (
         "<ul><li>7 lat doświadczenia jako Python Developer, w tym 5 lat w "
         "FikcyjnaPłatność Sp. z o.o.</li></ul>" + BRANDED_HTML
@@ -1755,10 +1756,10 @@ def test_years_in_one_company_must_match_the_role_dates() -> None:
     history = [
         {
             "company": "FikcyjnaPłatność Sp. z o.o.",
-            "start": "2022-01",
+            "start": "2024-01",
             "end": "obecnie",
         },
-        {"company": "Bank Testowy", "start": "2019-01", "end": "2021-12"},
+        {"company": "Bank Testowy", "start": "2019-01", "end": "2023-12"},
     ]
     by = _by_key(
         qc.compute_checks(_qc_input(html, experience=history, today=date(2026, 10, 5)))
@@ -1767,6 +1768,17 @@ def test_years_in_one_company_must_match_the_role_dates() -> None:
     assert by["years_header"]["severity"] == "warning"
     assert any(
         "FikcyjnaPłatność" in (i["detail"] or "") for i in by["years_header"]["items"]
+    )
+
+    # W tolerancji (4,75 roku przy „5 lat”) — bez uwagi.
+    within = [{**history[0], "start": "2022-01"}]
+    assert (
+        qc.company_year_claims(
+            _blocks("<ul><li>w tym 5 lat w FikcyjnaPłatność</li></ul>"),
+            within,
+            today=date(2026, 10, 5),
+        )
+        == []
     )
 
     # Technologia to nie firma z historii — bez uwagi.
