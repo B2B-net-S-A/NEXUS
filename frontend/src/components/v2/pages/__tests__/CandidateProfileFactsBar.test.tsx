@@ -50,6 +50,19 @@ vi.mock("@/lib/api/candidateCards", () => ({
   useCandidateCardOverview: () => ({ data: cardOverview.data }),
 }));
 
+// 0418 (D4): okno stawki pyta o trwające procesy — domyślnie brak procesów.
+const rateChanges = vi.hoisted(() => ({
+  processes: [] as unknown[],
+  create: vi.fn(),
+}));
+vi.mock("@/lib/rate-change", () => ({
+  activeProcessesQueryKey: (id: number) => ["rate-changes", "active-processes", id],
+  rateChangesApi: {
+    activeProcesses: () => Promise.resolve(rateChanges.processes),
+    create: (...a: unknown[]) => rateChanges.create(...a),
+  },
+}));
+
 const apiPatch = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", () => ({
   __esModule: true,
@@ -448,6 +461,50 @@ describe("CandidateProfileFactsBar", () => {
       ),
     );
     expect(screen.queryByLabelText(/waluta|jednostka/i)).not.toBeInTheDocument();
+  });
+
+  it("asks about active processes and changes the rate in the checked ones", async () => {
+    rateChanges.processes = [
+      { job_id: 41, job_title: "Java Developer", client_name: "Klient A", board_column: "cv_sent", current_label: "160 zł/h" },
+      { job_id: 42, job_title: "Tester", client_name: null, board_column: "verified", current_label: null },
+    ];
+    rateChanges.create.mockResolvedValue({ unchanged: false, change: { id: 1 } });
+    mockedFactsApi.updateProfileRate.mockResolvedValue({
+      data: {
+        candidate_id: 7,
+        amount: "175.00",
+        currency: "PLN",
+        unit: "hour",
+        tax_basis: "net",
+        contract_type: "b2b",
+        version: 3,
+        updated_at: "2026-07-30T10:00:00Z",
+      },
+      etag: '"candidate-profile-rate-7-v3"',
+    });
+    const user = userEvent.setup();
+    renderBar();
+    await screen.findByText("160 PLN netto/h", {}, { timeout: 5_000 });
+    await user.click(screen.getByRole("button", { name: "Edytuj globalną stawkę B2B" }));
+    const list = await screen.findByTestId("profile-rate-processes");
+    expect(list).toHaveTextContent("Java Developer");
+    // Odznaczenie drugiego procesu — stawka zmieni się tylko w pierwszym.
+    await user.click(screen.getAllByRole("checkbox", { checked: true })[1]);
+    const input = screen.getByLabelText("Kwota");
+    await user.clear(input);
+    await user.type(input, "175");
+    await user.click(screen.getByRole("button", { name: "Zapisz stawkę" }));
+    await waitFor(() => expect(rateChanges.create).toHaveBeenCalledTimes(1));
+    expect(rateChanges.create).toHaveBeenCalledWith({
+      candidate_id: 7,
+      job_id: 41,
+      amount: "175",
+      unit: "hourly",
+      reason: "other",
+      source: "profile",
+    });
+    expect(showSuccess).toHaveBeenCalledWith("Stawka zapisana w profilu i w 1 procesie.");
+    rateChanges.processes = [];
   });
 
   it("accepts the full NUMERIC(10,2) profile-rate boundary", async () => {

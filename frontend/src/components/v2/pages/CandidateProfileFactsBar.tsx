@@ -18,6 +18,7 @@ import {
   Trash2,
   WalletCards,
 } from "lucide-react";
+import { activeProcessesQueryKey, rateChangesApi } from "@/lib/rate-change";
 
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -1479,6 +1480,24 @@ function RateEditor({
   // „Stawki od”, którą czytają filtry i AI.
   const [isMinimum, setIsMinimum] = React.useState(false);
   const wasOpenRef = React.useRef(false);
+  // 0418 (D4): zmiana stawki w profilu pyta o trwające procesy — w zaznaczonych
+  // stawka zmienia się tą samą regułą co w panelu osoby (ślad, DL i HoR).
+  const processes = useQuery({
+    queryKey: activeProcessesQueryKey(candidateId),
+    queryFn: () => rateChangesApi.activeProcesses(candidateId),
+    enabled: open,
+    staleTime: 15_000,
+  });
+  const [processJobs, setProcessJobs] = React.useState<Set<number> | null>(null);
+  React.useEffect(() => {
+    if (!open) {
+      setProcessJobs(null);
+      return;
+    }
+    if (processJobs === null && processes.data) {
+      setProcessJobs(new Set(processes.data.map((p) => p.job_id)));
+    }
+  }, [open, processes.data, processJobs]);
 
   React.useEffect(() => {
     if (open && !wasOpenRef.current) {
@@ -1509,7 +1528,7 @@ function RateEditor({
             queryData.etag,
           );
     },
-    onSuccess: (result) => {
+    onSuccess: async (result, nextAmount) => {
       setMutationError(null);
       queryClient.setQueryData(
         candidateQueryKeys.profileRate(candidateId),
@@ -1519,7 +1538,35 @@ function RateEditor({
       // unieważnienia lista pokazywała starą kwotę przez 30 s (staleTime).
       invalidateCandidateMutation(queryClient, candidateId, "rate");
       onOpenChange(false);
-      showSuccess("Stawka profilu zapisana");
+      const jobs = nextAmount !== null ? [...(processJobs ?? [])] : [];
+      if (jobs.length === 0) {
+        showSuccess("Stawka profilu zapisana");
+        return;
+      }
+      const results = await Promise.allSettled(
+        jobs.map((jobId) =>
+          rateChangesApi.create({
+            candidate_id: candidateId,
+            job_id: jobId,
+            amount: nextAmount as string,
+            unit: "hourly",
+            reason: "other",
+            source: "profile",
+          }),
+        ),
+      );
+      queryClient.invalidateQueries({ queryKey: ["kanban"] });
+      queryClient.invalidateQueries({ queryKey: ["rate-changes"] });
+      const failed = results.filter((r) => r.status === "rejected").length;
+      if (failed > 0) {
+        showError(
+          `Stawka profilu zapisana, ale w ${failed} z ${jobs.length} procesów nie udało się jej zmienić. Zmień ją w panelu osoby.`,
+        );
+      } else {
+        showSuccess(
+          `Stawka zapisana w profilu i w ${jobs.length} ${jobs.length === 1 ? "procesie" : "procesach"}.`,
+        );
+      }
     },
     onError: (error) => {
       const status = requestStatus(error);
@@ -1618,6 +1665,43 @@ function RateEditor({
               </span>
             </span>
           </label>
+          {processes.data && processes.data.length > 0 ? (
+            <fieldset className="mt-3" data-testid="profile-rate-processes">
+              <legend className="text-sm font-medium">Zmień też w trwających procesach</legend>
+              <p className="text-xs text-muted-foreground">
+                Delivery Lead i Head of Recruitment dostaną powiadomienie, a gdy CV
+                jest już u klienta — DL dostanie zadanie.
+              </p>
+              <ul className="mt-1.5 space-y-1">
+                {processes.data.map((p) => (
+                  <li key={p.job_id}>
+                    <label className="flex items-start gap-2 text-sm">
+                      <Checkbox
+                        checked={processJobs?.has(p.job_id) ?? true}
+                        onCheckedChange={(value) =>
+                          setProcessJobs((prev) => {
+                            const next = new Set(prev ?? []);
+                            if (value === true) next.add(p.job_id);
+                            else next.delete(p.job_id);
+                            return next;
+                          })
+                        }
+                        className="mt-0.5"
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate">{p.job_title}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {[p.client_name, p.current_label ? `teraz ${p.current_label}` : null]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </fieldset>
+          ) : null}
           {validationError ? (
             <p
               id="candidate-profile-rate-error"

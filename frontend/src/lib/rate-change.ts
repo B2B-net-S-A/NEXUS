@@ -124,7 +124,21 @@ export interface RateChangeInput {
   reason: RateChangeReason;
   note?: string | null;
   negotiable?: RateNegotiable | null;
+  /** „profile” — okno stawki w profilu pyta o trwające procesy (D4). */
+  source?: "manual" | "profile";
 }
+
+/** Rekrutacja kandydata od „Zweryfikowany” (okno stawki w profilu). */
+export interface ActiveProcess {
+  job_id: number;
+  job_title: string;
+  client_name: string | null;
+  board_column: string;
+  current_label: string | null;
+}
+
+export const activeProcessesQueryKey = (candidateId: number) =>
+  ["rate-changes", "active-processes", candidateId] as const;
 
 export const rateChangesQueryKey = (candidateId: number, jobId: number) =>
   ["rate-changes", candidateId, jobId] as const;
@@ -139,6 +153,12 @@ export const rateChangesApi = {
   create: (input: RateChangeInput) =>
     api
       .post<{ unchanged: boolean; change: RateChange | null }>("/api/rate-changes", input)
+      .then((r) => r.data),
+  activeProcesses: (candidateId: number) =>
+    api
+      .get<ActiveProcess[]>("/api/rate-changes/active-processes", {
+        params: { candidate_id: candidateId },
+      })
       .then((r) => r.data),
   negotiate: (
     changeId: number,

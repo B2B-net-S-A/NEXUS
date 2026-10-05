@@ -17,11 +17,12 @@ kandydata (``RecruitmentRateEditAccess`` + członkostwo — każda rola wewnętr
 """
 
 import logging
+from dataclasses import asdict
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -120,6 +121,16 @@ class RateChangeCreate(BaseModel):
     reason: ReasonCode = "conversation"
     note: Optional[str] = Field(None, max_length=1000)
     negotiable: Optional[NegotiableCode] = None
+    # „profile” = okno stawki w profilu kandydata pyta o trwające procesy (D4).
+    source: Literal["manual", "profile"] = "manual"
+
+
+class ActiveProcessOut(BaseModel):
+    job_id: int
+    job_title: str
+    client_name: Optional[str] = None
+    board_column: str
+    current_label: Optional[str] = None
 
 
 class NegotiationStart(BaseModel):
@@ -330,7 +341,7 @@ async def create_rate_change(
         amount=body.amount,
         unit=body.unit.value,
         currency=body.currency,
-        source="manual",
+        source=body.source,
         reason=body.reason,
         note=body.note,
         negotiable=body.negotiable,
@@ -343,6 +354,24 @@ async def create_rate_change(
         return RateChangeCreated(unchanged=True)
     await db.refresh(change)
     return RateChangeCreated(unchanged=False, change=(await outs_for(db, [change]))[0])
+
+
+@router.get("/rate-changes/active-processes", response_model=list[ActiveProcessOut])
+async def list_active_processes(
+    current_user: RecruitmentReadAccess,
+    candidate_id: int = Query(gt=0, le=2_147_483_647),
+    db: AsyncSession = Depends(get_db),
+) -> list[ActiveProcessOut]:
+    """Rekrutacje kandydata od „Zweryfikowany” — tylko te, które pytający widzi."""
+
+    out: list[ActiveProcessOut] = []
+    for process in await rate_change.active_processes(db, candidate_id=candidate_id):
+        try:
+            await ensure_job_read_access(db, current_user, process.job_id)
+        except HTTPException:
+            continue
+        out.append(ActiveProcessOut(**asdict(process)))
+    return out
 
 
 async def _finish(

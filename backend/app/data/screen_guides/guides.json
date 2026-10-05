@@ -370,6 +370,7 @@
     ],
     "pitfalls": [
       "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem.",
+      "Przy zmianie stawki okno pokazuje trwające procesy od „Zweryfikowany” — zaznaczone dostają wpis o zmianie stawki, a Delivery Lead i Head of Recruitment powiadomienie.",
       "„Przegląd” mówi, co dzieje się teraz: zaległy telefon po ciszy klienta, procesy w toku (kto ma ruch i od ilu dni) i ostatnią rozmowę. Zakończone rekrutacje są w „Rekrutacje” jako tabela tylko do odczytu.",
       "W „Notatkach i historii” filtry rodzajów bez notatek są schowane. Ważną notatkę przypnij pinezką: zobaczy ją cały zespół, także w karcie kandydata w rekrutacji."
     ],
