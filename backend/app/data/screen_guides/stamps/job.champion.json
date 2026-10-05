@@ -3,7 +3,7 @@
   "guide": "job.champion",
   "sources": {
     "frontend/src/components/champion/ChampionBriefView.tsx": "c11b598c1f8afe25b54fafab929efc6e762c32c2cdf6a3b96bdeac8f5dde7766",
-    "frontend/src/components/champion/ChampionWorkspace.tsx": "066cce42d318a9b236498db554a4237b16eb128051838f407d22a81eb920b126",
+    "frontend/src/components/champion/ChampionWorkspace.tsx": "698add66b395552fd858df6608a65b24e486a6e0928d6b267be5c54c78b87275",
     "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx": "7c9e1027d4005837bea8d1d24e3ff6a519640f58fd7d56b0d735fecc81eda16f"
   }
 }
