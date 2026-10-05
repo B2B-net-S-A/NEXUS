@@ -1,0 +1,593 @@
+{
+ "_comment": "Spis funkcji pełnego profilu kandydata (wariant B, wersja 5, 04.10.2026, makieta https://claude.ai/artifact/12sBoFm4VngFkyGXmCn1Ti). `file` + `marker` wskazują, gdzie funkcja żyje DZIŚ; przy przenosinach zmienia się `file`, wpis zostaje. Usunięcie wpisu wymaga `removed_reason` i decyzji Artura. Pilnuje tego lib/__tests__/candidate-profile-feature-parity.test.ts.",
+ "features": [
+  {
+   "id": "c.back",
+   "opis": "Powrót do listy kandydatów / do rekrutacji",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Wróć do",
+   "home": "Pasek nad kartą"
+  },
+  {
+   "id": "c.prevnext",
+   "opis": "Poprzedni i następny kandydat z listy",
+   "file": "components/v2/CandidateNav.tsx",
+   "marker": "Poprzedni kandydat",
+   "home": "Pasek nad kartą"
+  },
+  {
+   "id": "c.status",
+   "opis": "Status kandydata (Aktywny / Pasywny)",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "STATUS_LABELS",
+   "home": "Karta osoby"
+  },
+  {
+   "id": "c.category",
+   "opis": "Kategoria kompetencji",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "<CompetenceCategoryBadge",
+   "home": "Karta osoby"
+  },
+  {
+   "id": "c.blacklist",
+   "opis": "Ostrzeżenie: czarna lista",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Czarna lista",
+   "home": "Karta osoby"
+  },
+  {
+   "id": "c.risk",
+   "opis": "Ryzyko rezygnacji",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "<RiskBadge",
+   "home": "Karta osoby"
+  },
+  {
+   "id": "c.risk_retry",
+   "opis": "Ocena ryzyka niedostępna + „Ponów”",
+   "file": "components/v2/pages/CandidateDetailV2.tsx",
+   "marker": "Ocena ryzyka jest chwilowo niedostępna",
+   "home": "Nad układem profilu"
+  },
+  {
+   "id": "c.viewers",
+   "opis": "Kto teraz ogląda profil",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "<ActiveViewers",
+   "home": "Karta osoby"
+  },
+  {
+   "id": "c.email",
+   "opis": "Adres e-mail (link)",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "mailto:",
+   "home": "Karta osoby, kontakt"
+  },
+  {
+   "id": "c.call",
+   "opis": "Zadzwoń (CloudTalk)",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "<CallButton",
+   "home": "Karta osoby, kontakt"
+  },
+  {
+   "id": "c.linkedin",
+   "opis": "LinkedIn",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "LinkedIn",
+   "home": "Karta osoby, kontakt"
+  },
+  {
+   "id": "c.contact_status",
+   "opis": "Status sprawy kontaktu",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "<ContactStatusBadge",
+   "home": "Karta osoby"
+  },
+  {
+   "id": "c.contact_outcome",
+   "opis": "„Zaloguj wynik” sprawy kontaktu",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Zaloguj wynik",
+   "home": "Karta osoby"
+  },
+  {
+   "id": "c.employed",
+   "opis": "Pracuje u naszego klienta + link do kontraktu",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "<AtOurClientBanner",
+   "home": "Karta osoby (wersja zwarta)"
+  },
+  {
+   "id": "c.assign",
+   "opis": "Przypisz do rekrutacji",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Przypisz do rekrutacji",
+   "home": "Karta osoby, główny przycisk"
+  },
+  {
+   "id": "c.note",
+   "opis": "Dodaj notatkę",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Dodaj notatkę",
+   "home": "Karta osoby, pod „Przypisz”"
+  },
+  {
+   "id": "c.no_answer",
+   "opis": "Nie odebrał (próba kontaktu)",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Nie odebrał",
+   "home": "Karta osoby, pod „Przypisz”"
+  },
+  {
+   "id": "m.email",
+   "opis": "Napisz maila",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Napisz maila",
+   "home": "Menu „⋯” → Kontakt"
+  },
+  {
+   "id": "m.schedule",
+   "opis": "Zaplanuj rozmowę",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Zaplanuj rozmowę",
+   "home": "Menu „⋯” → Kontakt"
+  },
+  {
+   "id": "m.prep",
+   "opis": "Zaproś na prep",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Zaproś na prep",
+   "home": "Menu „⋯” → Kontakt"
+  },
+  {
+   "id": "m.followup",
+   "opis": "Spotkania i follow-up w Teams",
+   "file": "components/v2/pages/CandidateDetailV2.tsx",
+   "marker": "Spotkania i transkrypty Teams",
+   "home": "Menu „⋯” → Kontakt"
+  },
+  {
+   "id": "m.cv",
+   "opis": "Generuj CV",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Generuj CV",
+   "home": "Menu „⋯” → Dokumenty"
+  },
+  {
+   "id": "m.edit",
+   "opis": "Edytuj dane",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Edytuj dane",
+   "home": "Menu „⋯” → Dane"
+  },
+  {
+   "id": "m.identity",
+   "opis": "Korekta imienia i nazwiska",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Korekta imienia i nazwiska",
+   "home": "Menu „⋯” → Dane"
+  },
+  {
+   "id": "m.tags",
+   "opis": "Tagi i pule",
+   "file": "components/v2/candidate-profile/ProfileMenuDialogs.tsx",
+   "marker": "<CandidateTagsEditor",
+   "home": "Menu „⋯” → Dane → okno"
+  },
+  {
+   "id": "m.pools",
+   "opis": "Sugerowane pule",
+   "file": "components/v2/candidate-profile/ProfileMenuDialogs.tsx",
+   "marker": "<SuggestedPoolsWidget",
+   "home": "Menu „⋯” → Tagi i pule"
+  },
+  {
+   "id": "m.merge",
+   "opis": "Scal z…",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Scal z…",
+   "home": "Menu „⋯” → Dane"
+  },
+  {
+   "id": "m.watch",
+   "opis": "Obserwuj kandydata",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Obserwuj",
+   "home": "Menu „⋯” → Inne"
+  },
+  {
+   "id": "m.market",
+   "opis": "Wrzuć na targ",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Wrzuć na targ",
+   "home": "Menu „⋯” → Inne"
+  },
+  {
+   "id": "m.conflicts",
+   "opis": "Konflikty z klientami",
+   "file": "components/v2/candidate-profile/ProfileMenuDialogs.tsx",
+   "marker": "<ConflictsWidget",
+   "home": "Menu „⋯” → Konflikty i weta"
+  },
+  {
+   "id": "m.vetoes",
+   "opis": "Weta hiring managerów",
+   "file": "components/v2/candidate-profile/ProfileMenuDialogs.tsx",
+   "marker": "<HiringManagerVetoesWidget",
+   "home": "Menu „⋯” → Konflikty i weta"
+  },
+  {
+   "id": "m.delete",
+   "opis": "Usuń profil",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Usuń profil",
+   "home": "Menu „⋯”"
+  },
+  {
+   "id": "f.availability",
+   "opis": "Dostępność (z edycją)",
+   "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
+   "marker": "Edytuj dostępność",
+   "home": "Karta „Podsumowanie”"
+  },
+  {
+   "id": "f.rate",
+   "opis": "Stawka od + historia stawek",
+   "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
+   "marker": "Historia stawek",
+   "home": "Karta „Podsumowanie”"
+  },
+  {
+   "id": "f.workmode",
+   "opis": "Tryb pracy i dni w biurze",
+   "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
+   "marker": "Edytuj tryb pracy",
+   "home": "Karta „Podsumowanie”"
+  },
+  {
+   "id": "f.location",
+   "opis": "Miasto, kraj, region, hub",
+   "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
+   "marker": "Edytuj lokalizację",
+   "home": "Karta „Podsumowanie”"
+  },
+  {
+   "id": "f.languages",
+   "opis": "Języki",
+   "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
+   "marker": "label=\"Języki\"",
+   "home": "Karta „Podsumowanie”"
+  },
+  {
+   "id": "f.nationality",
+   "opis": "Narodowość z karty rekomendacji",
+   "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
+   "marker": "Narodowość",
+   "home": "Karta „Podsumowanie”"
+  },
+  {
+   "id": "f.call_facts",
+   "opis": "Fakty z rozmowy (poprawa)",
+   "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
+   "marker": "Popraw fakty z rozmowy",
+   "home": "Karta „Podsumowanie”"
+  },
+  {
+   "id": "f.summary",
+   "opis": "W skrócie (AI albo z CV)",
+   "file": "components/v2/pages/CandidateActivitySummaryCard.tsx",
+   "marker": "W skrócie",
+   "home": "Karta „Podsumowanie”"
+  },
+  {
+   "id": "f.notes_facts",
+   "opis": "Ustalenia z notatek (Zapisz w profilu)",
+   "file": "components/v2/pages/CandidateDetailV2.tsx",
+   "marker": "Ustalenia z notatek",
+   "home": "Link pod „Podsumowaniem” → okno"
+  },
+  {
+   "id": "t.now_followup",
+   "opis": "Zaległy telefon po ciszy klienta",
+   "file": "components/v2/candidate-profile/ProfileTab.tsx",
+   "marker": "Telefon po ciszy klienta",
+   "home": "Przegląd → Teraz"
+  },
+  {
+   "id": "t.now_processes",
+   "opis": "Procesy w toku: etap, kto ma ruch, dni",
+   "file": "components/v2/candidate-profile/ProfileTab.tsx",
+   "marker": "ruch:",
+   "home": "Przegląd → Teraz"
+  },
+  {
+   "id": "t.last_talk",
+   "opis": "Ostatnia rozmowa i liczba prób kontaktu",
+   "file": "components/v2/candidate-profile/ProfileTab.tsx",
+   "marker": "Ostatnia rozmowa",
+   "home": "Przegląd"
+  },
+  {
+   "id": "r.active",
+   "opis": "Karty rekrutacji w toku",
+   "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
+   "marker": "W toku",
+   "home": "Rekrutacje"
+  },
+  {
+   "id": "r.board",
+   "opis": "Link do Tablicy z otwartą osobą",
+   "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
+   "marker": "Tablica ›",
+   "home": "Rekrutacje → karta"
+  },
+  {
+   "id": "r.path",
+   "opis": "Ścieżka etapów",
+   "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
+   "marker": "Ścieżka etapów",
+   "home": "Rekrutacje → karta"
+  },
+  {
+   "id": "r.rates",
+   "opis": "Stawka kandydata i stawka do klienta",
+   "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
+   "marker": "Stawka do klienta",
+   "home": "Rekrutacje → karta"
+  },
+  {
+   "id": "r.original_cv",
+   "opis": "Pokaż CV oryginalne",
+   "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
+   "marker": "Pokaż CV oryginalne",
+   "home": "Rekrutacje → karta"
+  },
+  {
+   "id": "r.refresh_cv",
+   "opis": "Odśwież CV oryginalne",
+   "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
+   "marker": "Odśwież CV oryginalne",
+   "home": "Rekrutacje → karta → „⋯”"
+  },
+  {
+   "id": "r.remove",
+   "opis": "Usuń z rekrutacji",
+   "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
+   "marker": "Usuń z rekrutacji",
+   "home": "Rekrutacje → karta → „⋯”"
+  },
+  {
+   "id": "r.suggested",
+   "opis": "Pasujące otwarte rekrutacje",
+   "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
+   "marker": "<SuggestedJobsWidget",
+   "home": "Rekrutacje"
+  },
+  {
+   "id": "r.closed",
+   "opis": "Zakończone rekrutacje (tabela tylko do odczytu)",
+   "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
+   "marker": "Doszedł do",
+   "home": "Rekrutacje → Zakończone"
+  },
+  {
+   "id": "r.feedback",
+   "opis": "Feedback po rozmowach",
+   "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
+   "marker": "<CandidateInterviewFeedbackPanel",
+   "home": "Rekrutacje"
+  },
+  {
+   "id": "r.matching",
+   "opis": "Dopasowanie do rekrutacji",
+   "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
+   "marker": "Dopasowanie",
+   "home": "Rekrutacje (zwinięte)"
+  },
+  {
+   "id": "s.answers",
+   "opis": "Odpowiedzi z rozmów screeningowych",
+   "file": "components/v2/pages/CandidateDetailV2.tsx",
+   "marker": "<CandidateScreeningAnswersCard",
+   "home": "Zakładka „Odpowiedzi ze screeningu”"
+  },
+  {
+   "id": "s.search",
+   "opis": "Szukaj w odpowiedziach",
+   "file": "components/v2/candidate-profile/CandidateScreeningAnswersCard.tsx",
+   "marker": "Szukaj w odpowiedziach",
+   "home": "Zakładka „Odpowiedzi ze screeningu”"
+  },
+  {
+   "id": "s.cards",
+   "opis": "Odpowiedzi z kart rekomendacji w notatkach",
+   "file": "components/v2/candidate-profile/CandidateScreeningAnswersCard.tsx",
+   "marker": "Z kart rekomendacji w notatkach",
+   "home": "Zakładka „Odpowiedzi ze screeningu”"
+  },
+  {
+   "id": "h.composer",
+   "opis": "Nowa notatka (z rekrutacją, wzmianki)",
+   "file": "components/v2/candidate-profile/Notes.tsx",
+   "marker": "Notatka ogólna (bez rekrutacji)",
+   "home": "Notatki i historia"
+  },
+  {
+   "id": "h.groups",
+   "opis": "Filtry: Rozmowy, Próby kontaktu, Delivery Lead, Maile, Automat",
+   "file": "components/v2/candidate-profile/HistoryTab.tsx",
+   "marker": "Próby kontaktu",
+   "home": "Notatki i historia"
+  },
+  {
+   "id": "h.timeline",
+   "opis": "Wszystko (oś czasu) + Pokaż więcej",
+   "file": "components/v2/candidate-profile/HistoryTab.tsx",
+   "marker": "Pokaż więcej",
+   "home": "Notatki i historia"
+  },
+  {
+   "id": "h.cv_side",
+   "opis": "Pokaż CV obok osi czasu",
+   "file": "components/v2/candidate-profile/HistoryTab.tsx",
+   "marker": "Pokaż CV obok",
+   "home": "Notatki i historia → Wszystko"
+  },
+  {
+   "id": "h.calls",
+   "opis": "Telefony",
+   "file": "components/v2/candidate-profile/HistoryTab.tsx",
+   "marker": "Telefony",
+   "home": "Notatki i historia"
+  },
+  {
+   "id": "h.chat",
+   "opis": "Czat zespołu",
+   "file": "components/v2/candidate-profile/HistoryTab.tsx",
+   "marker": "Czat zespołu",
+   "home": "Notatki i historia"
+  },
+  {
+   "id": "h.emails",
+   "opis": "Skrzynka maili M365",
+   "file": "components/v2/candidate-profile/HistoryTab.tsx",
+   "marker": "<EmailThreadList",
+   "home": "Notatki i historia → Maile"
+  },
+  {
+   "id": "h.pin",
+   "opis": "Przypnij notatkę",
+   "file": "components/v2/candidate-profile/Notes.tsx",
+   "marker": "Przypnij notatkę",
+   "home": "Notatki i historia → notatka"
+  },
+  {
+   "id": "h.system",
+   "opis": "Pokaż systemowe",
+   "file": "components/v2/candidate-profile/Notes.tsx",
+   "marker": "Pokaż systemowe",
+   "home": "Notatki i historia"
+  },
+  {
+   "id": "h.card",
+   "opis": "Karta rekomendacji z tej rozmowy",
+   "file": "components/v2/candidate-profile/HistoryTab.tsx",
+   "marker": "<RecommendationCardDialog",
+   "home": "Notatki i historia → notatka"
+  },
+  {
+   "id": "d.cv",
+   "opis": "Główne CV: podgląd i odczyt",
+   "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
+   "marker": "Podgląd",
+   "home": "CV i dokumenty → CV i umiejętności"
+  },
+  {
+   "id": "d.reparse",
+   "opis": "Odczytaj CV ponownie",
+   "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
+   "marker": "<CvReparseAction",
+   "home": "CV i dokumenty → CV i umiejętności"
+  },
+  {
+   "id": "d.skills",
+   "opis": "Umiejętności (warianty złączone, Pokaż wszystkie)",
+   "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
+   "marker": "Pokaż wszystkie",
+   "home": "CV i dokumenty → CV i umiejętności"
+  },
+  {
+   "id": "d.experience",
+   "opis": "Doświadczenie",
+   "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
+   "marker": "Doświadczenie",
+   "home": "CV i dokumenty → CV i umiejętności"
+  },
+  {
+   "id": "d.details",
+   "opis": "Wykształcenie, certyfikaty i szczegóły",
+   "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
+   "marker": "Wykształcenie, certyfikaty i szczegóły",
+   "home": "CV i dokumenty"
+  },
+  {
+   "id": "d.engagement",
+   "opis": "Zaangażowanie (otwartość na projekty)",
+   "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
+   "marker": "<CandidateEngagementPanel",
+   "home": "CV i dokumenty → szczegóły"
+  },
+  {
+   "id": "d.sources",
+   "opis": "Źródła kandydata",
+   "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
+   "marker": "<CandidateSourcesPanel",
+   "home": "CV i dokumenty → szczegóły"
+  },
+  {
+   "id": "d.linkedin_sync",
+   "opis": "Synchronizacja LinkedIn",
+   "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
+   "marker": "<LinkedinSyncPanel",
+   "home": "CV i dokumenty → szczegóły"
+  },
+  {
+   "id": "d.jdg",
+   "opis": "Dane do umowy (JDG / firma)",
+   "file": "components/v2/candidate-profile/FilesContractsTab.tsx",
+   "marker": "Dane do umowy (JDG / firma)",
+   "home": "CV i dokumenty (zwinięte)"
+  },
+  {
+   "id": "d.contracts",
+   "opis": "Umowy: aktualne, draft, historia",
+   "file": "components/v2/candidate-profile/FilesContractsTab.tsx",
+   "marker": "Brak umowy z tym kandydatem",
+   "home": "CV i dokumenty → Umowy"
+  },
+  {
+   "id": "d.upload",
+   "opis": "Dodaj plik z rodzajem",
+   "file": "components/v2/files/CandidateFilesTab.tsx",
+   "marker": "Dodaj plik",
+   "home": "CV i dokumenty → Pliki kandydata"
+  },
+  {
+   "id": "d.primary",
+   "opis": "Ustaw jako główne CV",
+   "file": "components/v2/files/CandidateFilesTab.tsx",
+   "marker": "Ustaw jako główne CV",
+   "home": "Pliki → „⋯” wiersza"
+  },
+  {
+   "id": "d.outdated",
+   "opis": "Oznacz jako nieaktualne",
+   "file": "components/v2/files/CandidateFilesTab.tsx",
+   "marker": "Oznacz jako nieaktualne",
+   "home": "Pliki → „⋯” wiersza"
+  },
+  {
+   "id": "d.client_cv",
+   "opis": "CV dla klientów (B2B i z generatora)",
+   "file": "components/v2/files/CandidateFilesTab.tsx",
+   "marker": "CV dla klientów",
+   "home": "CV i dokumenty → Pliki kandydata"
+  },
+  {
+   "id": "d.orders",
+   "opis": "Dokumenty zamówień",
+   "file": "components/v2/files/CandidateFilesTab.tsx",
+   "marker": "<OrderDocumentsSection",
+   "home": "CV i dokumenty → Pliki kandydata"
+  },
+  {
+   "id": "e.no_mailbox",
+   "opis": "Mail bez podłączonej skrzynki: droga do Ustawień",
+   "file": "components/v2/modals/SendEmailV2.tsx",
+   "marker": "Podłącz w Ustawieniach",
+   "home": "Okno maila"
+  }
+ ]
+}

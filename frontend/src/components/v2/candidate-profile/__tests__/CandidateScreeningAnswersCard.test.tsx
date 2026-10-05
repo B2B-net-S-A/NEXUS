@@ -63,11 +63,11 @@ const OLDER: ScreeningConversation = {
   internal_note: null,
 };
 
-function renderCard() {
+function renderCard(variant: "card" | "tab" = "card") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <CandidateScreeningAnswersCard candidateId={42} />
+      <CandidateScreeningAnswersCard candidateId={42} variant={variant} />
     </QueryClientProvider>,
   );
 }
@@ -234,5 +234,53 @@ describe("CandidateScreeningAnswersCard", () => {
     await user.type(within(card).getByRole("searchbox", { name: "Szukaj w odpowiedziach" }), "płatności");
     expect(within(card).getAllByText("Kafka w projekcie płatności.").length).toBe(2);
     expect(within(card).queryByText("Java 17 od dwóch lat.")).toBeNull();
+  });
+
+  describe("zakładka „Odpowiedzi ze screeningu” (04.10.2026)", () => {
+    it("bez rozmów mówi to zdaniem zamiast pustki", async () => {
+      respond([]);
+      renderCard("tab");
+      expect(
+        await screen.findByText(/Nikt jeszcze nie zapisał odpowiedzi z rozmowy screeningowej/),
+      ).toBeInTheDocument();
+    });
+
+    it("czeka na karty rekomendacji, zanim powie, że nikt nic nie zapisał", async () => {
+      let releaseCards: (value: unknown) => void = () => {};
+      apiGet.mockImplementation((url: string) =>
+        url.endsWith("/recommendation-cards")
+          ? new Promise((resolve) => {
+              releaseCards = resolve;
+            })
+          : Promise.resolve(answersOf([])),
+      );
+      renderCard("tab");
+      expect(await screen.findByText("Wczytuję odpowiedzi z rozmów…")).toBeInTheDocument();
+      expect(screen.queryByText(/Nikt jeszcze nie zapisał/)).toBeNull();
+      releaseCards({
+        data: { candidate_id: 42, facts: [], note_links: [], conversations: [CARD_CONVERSATION] },
+      });
+      expect(await screen.findByText("Kafka w projekcie płatności.")).toBeInTheDocument();
+    });
+
+    it("awaria kart rekomendacji to komunikat z „Ponów”, nie „nikt nie zapisał”", async () => {
+      apiGet.mockImplementation((url: string) =>
+        url.endsWith("/recommendation-cards")
+          ? Promise.reject(new Error("500"))
+          : Promise.resolve(answersOf([])),
+      );
+      renderCard("tab");
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("Nie udało się wczytać odpowiedzi z kart rekomendacji.");
+      expect(within(alert).getByRole("button", { name: "Ponów" })).toBeInTheDocument();
+      expect(screen.queryByText(/Nikt jeszcze nie zapisał/)).toBeNull();
+    });
+
+    it("szukanie działa już przy jednej rozmowie", async () => {
+      respond([NEWEST]);
+      renderCard("tab");
+      const tab = await screen.findByRole("region", { name: "Odpowiedzi z rozmów screeningowych" });
+      expect(within(tab).getByRole("searchbox", { name: "Szukaj w odpowiedziach" })).toBeInTheDocument();
+    });
   });
 });

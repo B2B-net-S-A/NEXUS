@@ -257,13 +257,19 @@ export const EMPLOYMENT_FILTER_OPTIONS: {
  * Full-width banner shown on top of a consultant profile when they're
  * currently employed at one of our clients. Intentionally loud — this is the
  *"do not send profile to the wrong client" guardrail.
+ *
+ * `compact` (04.10.2026) = ramka w karcie osoby na profilu („Pracuje u nas ·
+ * klient · Kontrakt ›”); ta sama treść i to samo ostrzeżenie, bez paska na
+ * całą szerokość strony. Szybki podgląd zostaje przy banerze.
  */
 export function AtOurClientBanner({
  employment,
  className,
+ variant ="banner",
 }: {
  employment: EmploymentInfo;
  className?: string;
+ variant?:"banner" |"compact";
 }) {
  // Link do kontraktora tylko dla osób z dostępem do sekcji Delivery — bez
  // niego prowadził na 403 (baner i ostrzeżenie zostają dla wszystkich).
@@ -294,6 +300,34 @@ export function AtOurClientBanner({
  const clientLabel = multi
  ? engagements.map((e) => e.client_name ?? `Klient #${e.client_id}`).join(", ")
  : (employment.client_name ??"naszego klienta");
+ if (variant ==="compact") {
+ return (
+ <div
+ role="alert"
+ data-testid="at-our-client-callout"
+ className={cn("rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs", className)}
+ >
+ <div className="flex items-start justify-between gap-2">
+ <p className="flex min-w-0 items-start gap-1.5 font-semibold text-foreground">
+ <span aria-hidden="true" className="mt-1 inline-block h-2 w-2 shrink-0 rounded-full bg-success" />
+ <span className="min-w-0 break-words">Pracuje u nas · {clientLabel}</span>
+ </p>
+ {employment.contract_id && canOpenContractor ? (
+ <Link
+ href={`/contracts/${employment.contract_id}?from=candidate`}
+ className="inline-flex min-h-6 shrink-0 items-center font-medium text-primary hover:underline"
+ >
+ Kontrakt ›
+ </Link>
+ ) : null}
+ </div>
+ <p className="mt-0.5 text-muted-foreground">{endText}</p>
+ <p className="mt-0.5 font-medium text-warning-muted-foreground">
+ Przed wysłaniem profilu zapytaj Delivery.
+ </p>
+ </div>
+ );
+ }
  return (
  <div
  role="alert"

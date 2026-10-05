@@ -1,6 +1,10 @@
 /**
- * Adres URL profilu kandydata: cztery zakładki (Profil, Rekrutacje, Historia,
- * Pliki i umowy) i ich filtry.
+ * Adres URL profilu kandydata: pięć zakładek (Przegląd, Rekrutacje, Odpowiedzi
+ * ze screeningu, Notatki i historia, CV i dokumenty) i ich filtry.
+ *
+ * Klucze w adresie zostały te same, zmieniły się tylko etykiety (04.10.2026):
+ * `summary` = „Przegląd”, `activity` = „Notatki i historia”, `documents` =
+ * „CV i dokumenty”. Doszedł `screening` = „Odpowiedzi ze screeningu”.
  *
  * Stare klucze MUSZĄ działać dalej — linki z powiadomień są zapisane w bazie
  * (`?tab=chat&msg=`, `?tab=activity&activity=notes&note=`), a stare zakładki
@@ -11,6 +15,7 @@
 export const PROFILE_SECTIONS = [
   "summary",
   "recruitments",
+  "screening",
   "activity",
   "documents",
 ] as const;
@@ -204,11 +209,14 @@ const LEGACY_TABS: Record<string, ViewTarget> = {
   chat: target("activity", { activity: "chat" }),
   maile: target("activity", { activity: "emails" }),
   pliki: target("documents", { documents: "files" }),
+  // Odpowiedzi ze screeningu stały do 04.10.2026 na zakładce Profil.
+  odpowiedzi: target("screening"),
+  screeningi: target("screening"),
   umowa: target("documents", { documents: "contracts" }),
 };
 
 /**
- * Translate the incoming URL to the four-tab information architecture.
+ * Translate the incoming URL to the five-tab information architecture.
  * Unknown values fail safely to the summary.
  */
 export function parseCandidateProfileView(

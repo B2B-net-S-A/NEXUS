@@ -2,13 +2,20 @@
 
 /**
  * Profil kandydata — orkiestrator. Stan adresu, zapytania wspólne dla kilku
- * zakładek, nagłówek, cztery zakładki i modale akcji. Treść zakładek żyje
+ * zakładek, karta osoby, pięć zakładek i modale akcji. Treść zakładek żyje
  * w `components/v2/candidate-profile/*` (dawniej jeden plik ~4,9 tys. linii).
  *
- * Zakładki (`?tab=`): `summary` „Profil”, `recruitments` „Rekrutacje”,
- * `activity` „Historia”, `documents` „Pliki i umowy”. Stare klucze
- * (`matching`, `emails`, `chat`, `umowa`…) mapuje
- * `candidate-profile-navigation.ts` — linki z powiadomień są zapisane w bazie.
+ * Układ od 04.10.2026 (wariant B, wersja 5): od 1100 px dwie kolumny — po
+ * lewej karta osoby (kontakt, „Przypisz do rekrutacji”, „Dodaj notatkę”,
+ * „Nie odebrał”, menu „⋯”) i karta „Podsumowanie” (fakty, „W skrócie”,
+ * „Ustalenia z notatek”), po prawej zakładki. Węziej lewa kolumna stoi nad
+ * zakładkami.
+ *
+ * Zakładki (`?tab=`): `summary` „Przegląd”, `recruitments` „Rekrutacje”,
+ * `screening` „Odpowiedzi ze screeningu”, `activity` „Notatki i historia”,
+ * `documents` „CV i dokumenty”. Stare klucze (`matching`, `emails`, `chat`,
+ * `umowa`…) mapuje `candidate-profile-navigation.ts` — linki z powiadomień są
+ * zapisane w bazie.
  */
 
 import * as React from "react";
@@ -16,7 +23,14 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Calendar, Files, MessageSquare, User } from "lucide-react";
+import {
+  AlertTriangle,
+  Calendar,
+  Files,
+  ListChecks,
+  MessageSquare,
+  User,
+} from "lucide-react";
 
 import api, { candidatesApi, extractErrorMsg } from "@/lib/api";
 import { useToast } from "@/components/Toast";
@@ -36,7 +50,10 @@ import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { PrepInviteModal } from "@/components/v2/modals/PrepInviteModal";
 import ScheduleInterviewModal from "@/components/calendar/ScheduleInterviewModal";
 import { AddToMarketplaceButton } from "@/components/marketplace/AddToMarketplaceButton";
-import { AtOurClientBanner } from "@/components/v2/CandidateHighlights";
+import { CandidateProfileFactsBar } from "@/components/v2/pages/CandidateProfileFactsBar";
+import { CandidateActivitySummaryCard } from "@/components/v2/pages/CandidateActivitySummaryCard";
+import { CandidateFollowupDialog } from "@/components/v2/followups/CandidateFollowupDialog";
+import { useCandidateFollowup } from "@/lib/api/candidateFollowups";
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import { usePresence } from "@/hooks/usePresence";
 import { useAuthStore, hasRole } from "@/store/auth";
@@ -83,6 +100,13 @@ import { ProfileTab } from "@/components/v2/candidate-profile/ProfileTab";
 import { RecruitmentsTab } from "@/components/v2/candidate-profile/RecruitmentsTab";
 import { HistoryTab } from "@/components/v2/candidate-profile/HistoryTab";
 import { FilesContractsTab } from "@/components/v2/candidate-profile/FilesContractsTab";
+import { CandidateScreeningAnswersCard } from "@/components/v2/candidate-profile/CandidateScreeningAnswersCard";
+import {
+  ConflictsVetoesDialog,
+  NotesFactsDialog,
+  TagsPoolsDialog,
+} from "@/components/v2/candidate-profile/ProfileMenuDialogs";
+import { useNoAnswer } from "@/components/v2/candidate-profile/useNoteActions";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- payload kandydata i osi czasu jest luźno typowany */
 
@@ -262,10 +286,6 @@ export function CandidateDetailV2({
     router.replace(`${profilePath}?${params.toString()}`, { scroll: false });
   }, [backJobId, embedded, profilePath, profileViewFromUrl, router, searchString]);
 
-  // „Uzupełnij dane do umowy” (zakładka Umowy) → Profil, szczegóły, JDG.
-  const [jdgFocusRequest, setJdgFocusRequest] = useState(0);
-  const clearJdgFocusRequest = React.useCallback(() => setJdgFocusRequest(0), []);
-
   const activeTab = profileView.section;
 
   // ── Poprzedni/następny kandydat ───────────────────────────────────────
@@ -344,12 +364,17 @@ export function CandidateDetailV2({
   const [editingIdentity, setEditingIdentity] = useState(false);
   const [marketplaceOpen, setMarketplaceOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [tagsPoolsOpen, setTagsPoolsOpen] = useState(false);
+  const [conflictsOpen, setConflictsOpen] = useState(false);
+  const [notesFactsOpen, setNotesFactsOpen] = useState(false);
+  const [followupOpen, setFollowupOpen] = useState(false);
 
   // ── Uprawnienia ───────────────────────────────────────────────────────
   const currentUser = useAuthStore((s) => s.user);
   // Akcje zapisu = capability `candidate.write` (lustro CANDIDATE_WRITE_ROLES
   // + sekcja sourcing write + blokada impersonacji).
   const canWriteSourcing = useCapability("candidate.write");
+  const canManageProfileFacts = useCapability("candidate.profile_fact.manage");
   const cloudTalkEnabled = useCloudTalkEnabled({
     enabled: Boolean(currentUser) && canWriteSourcing,
   });
@@ -395,22 +420,11 @@ export function CandidateDetailV2({
     setEditingIdentity(false);
   }, [id]);
 
-  // Oś czasu (50): licznik „Historia”, „Ostatnia aktywność” i filtr „Wszystko”.
-  const timelineQuery = useQuery<{ timeline?: any[] } | any[]>({
-    queryKey: candidateQueryKeys.timeline(id, 50),
-    queryFn: ({ signal }) =>
-      api.get(`/api/candidates/${id}/timeline?limit=50`, { signal }).then((r) => r.data),
-    enabled: !!id,
-    staleTime: 30_000,
-  });
-  const timeline: any[] = Array.isArray(timelineQuery.data)
-    ? timelineQuery.data
-    : (timelineQuery.data?.timeline ?? []);
-
-  // Notatki: licznik zakładki „Historia” (29.09.2026 — liczba notatek ludzi,
-  // bez odpowiedzi i wpisów automatów). Ten sam klucz i zapytanie co lista
-  // w zakładce, więc jedno pobranie.
-  const notesCountQuery = useQuery<{ items?: any[] }>({
+  // Notatki: licznik zakładki „Notatki i historia” (29.09.2026 — liczba
+  // notatek ludzi, bez odpowiedzi i wpisów automatów) i „Ostatnia rozmowa”
+  // w Przeglądzie. Ten sam klucz i zapytanie co lista w zakładce, więc jedno
+  // pobranie. Oś czasu ładuje się dopiero w zakładce (04.10.2026).
+  const notesCountQuery = useQuery<{ items?: any[]; group_counts?: Record<string, number> }>({
     queryKey: candidateQueryKeys.notes(id),
     queryFn: ({ signal }) =>
       api.get(`/api/notes?candidate_id=${id}`, { signal }).then((r) => r.data),
@@ -436,6 +450,12 @@ export function CandidateDetailV2({
     enabled: !!id,
     staleTime: 30_000,
   });
+
+  // Follow-up z kandydatem (0372): „Teraz” w Przeglądzie i pozycja w menu „⋯”.
+  const followupQuery = useCandidateFollowup(Number.isFinite(id) && id > 0 ? id : null);
+  const hasFollowup = Boolean(followupQuery.data?.followup);
+  const hasFollowupMeetings = (followupQuery.data?.meetings?.length ?? 0) > 0;
+  const noAnswer = useNoAnswer(Number(id), !canWriteSourcing);
 
   // Ryzyko rezygnacji — odznaka w nagłówku (recompute event-driven + TTL 24h).
   const riskQuery = useQuery<CandidateRiskProfile>({
@@ -532,22 +552,25 @@ export function CandidateDetailV2({
 
   const fileCount = documentsQuery.isSuccess ? (documentsQuery.data ?? []).length : undefined;
   const tabs = [
-    { value: "summary", label: "Profil", icon: User },
+    { value: "summary", label: "Przegląd", icon: User },
     {
       value: "recruitments",
       label: "Rekrutacje",
       icon: Calendar,
       count: historyQuery.visibleData !== undefined ? history.length : undefined,
     },
+    // Bez licznika: liczba rozmów wymagałaby dodatkowego zapytania przy
+    // każdym otwarciu profilu.
+    { value: "screening", label: "Odpowiedzi ze screeningu", icon: ListChecks },
     {
       value: "activity",
-      label: "Historia",
+      label: "Notatki i historia",
       icon: MessageSquare,
       count: notesCountQuery.isSuccess
         ? humanNoteCount(notesCountQuery.data?.items ?? [])
         : undefined,
     },
-    { value: "documents", label: "Pliki i umowy", icon: Files, count: fileCount },
+    { value: "documents", label: "CV i dokumenty", icon: Files, count: fileCount },
   ];
 
   const navProps = showNav
@@ -593,8 +616,6 @@ export function CandidateDetailV2({
         candidateId={candidateNumericId}
       />
 
-      {candidate.employment ? <AtOurClientBanner employment={candidate.employment} /> : null}
-
       {riskQuery.error ? (
         <div
           role="status"
@@ -611,140 +632,231 @@ export function CandidateDetailV2({
         </div>
       ) : null}
 
-      <ProfileHeader
-        candidate={candidate}
-        candidateId={candidateNumericId}
-        canWrite={canWriteSourcing}
-        canCall={cloudTalkEnabled}
-        riskProfile={riskQuery.data ?? null}
-        contactCase={contactCase}
-        showContactStatus={contactFeature.enabled}
-        onLogContactOutcome={canLogContactOutcome ? () => setContactOutcomeOpen(true) : undefined}
-        viewers={presenceViewers}
-        editingIdentity={editingIdentity}
-        onCloseIdentityEditor={() => setEditingIdentity(false)}
-        onClose={embedded && !showNav ? onClose : undefined}
-        actions={{
-          onAssign: () => setAssignOpen(true),
-          onAddNote: openNoteComposer,
-          onEmail: () => setEmailOpen(true),
-          onScheduleInterview: () => setScheduleOpen(true),
-          onPrepInvite: () => setPrepInviteOpen(true),
-          onGenerateCv: () => setCvOpen(true),
-          onEdit: () => setEditOpen(true),
-          onMarketplace: () => setMarketplaceOpen(true),
-          onEditIdentity: candidate.identity_sync ? () => setEditingIdentity(true) : undefined,
-          onDelete: canDeleteCandidate ? () => setDeleteOpen(true) : undefined,
-          onMerge: canMerge ? () => setMergeOpen(true) : undefined,
-        }}
-      />
-
-      <Card variant="default" size="md" className="overflow-hidden p-0!" data-help="candidate.profile.tabs">
-        <TabbedNav
-          value={activeTab}
-          onValueChange={(value) => goToSection(value as CandidateProfileView["section"])}
-          ariaLabel="Sekcje profilu kandydata"
-          overflow="scroll"
-          listClassName="max-w-full justify-start px-4 pt-2 *:shrink-0"
-          tabs={tabs}
+      {/* Od 1100 px: karta osoby i „Podsumowanie” po lewej (przyklejone),
+          zakładki po prawej. `min-[1100px]` = szerokość okna; w szufladzie
+          (embedded) zawsze jedna kolumna — szuflada jest wąska. */}
+      <div
+        className={
+          embedded
+            ? "space-y-4"
+            : "grid items-start gap-4 min-[1100px]:grid-cols-[17.5rem_minmax(0,1fr)] md:max-2xl:gap-3"
+        }
+      >
+        <aside
+          aria-label="Karta kandydata"
+          className={
+            embedded
+              ? "space-y-4"
+              : "space-y-4 min-[1100px]:sticky min-[1100px]:top-4 min-[1100px]:max-h-[calc(100dvh-2rem)] min-[1100px]:overflow-y-auto min-[1100px]:pb-2"
+          }
         >
-          {/* `@container`: zakładki układają kolumnę boczną po szerokości
-              karty, nie okna — obok szyny i paska bocznego karta bywa wąska. */}
-          <div className="@container p-4 sm:p-5">
-            <TabsContent value="summary" className="mt-0">
-              <ProfileTab
-                candidate={candidate}
-                readOnly={readOnly}
-                embedded={embedded}
-                recentActivity={{
-                  items: timeline,
-                  isPending: timelineQuery.isPending,
-                  isError: timelineQuery.isError,
-                  refetch: () => void timelineQuery.refetch(),
-                }}
-                onNavigate={({ section }) => goToSection(section)}
-                onGenerateCv={canWriteSourcing ? () => setCvOpen(true) : undefined}
-                jdgFocusRequest={jdgFocusRequest}
-                onJdgFocusHandled={clearJdgFocusRequest}
-              />
-            </TabsContent>
+          <ProfileHeader
+            candidate={candidate}
+            candidateId={candidateNumericId}
+            canWrite={canWriteSourcing}
+            canCall={cloudTalkEnabled}
+            riskProfile={riskQuery.data ?? null}
+            contactCase={contactCase}
+            showContactStatus={contactFeature.enabled}
+            onLogContactOutcome={canLogContactOutcome ? () => setContactOutcomeOpen(true) : undefined}
+            viewers={presenceViewers}
+            editingIdentity={editingIdentity}
+            onCloseIdentityEditor={() => setEditingIdentity(false)}
+            onClose={embedded && !showNav ? onClose : undefined}
+            actions={{
+              onAssign: () => setAssignOpen(true),
+              onAddNote: openNoteComposer,
+              onNoAnswer: () => void noAnswer.recordNoAnswer(backJobId),
+              noAnswerSaving: noAnswer.saving,
+              onEmail: () => setEmailOpen(true),
+              onScheduleInterview: () => setScheduleOpen(true),
+              onPrepInvite: () => setPrepInviteOpen(true),
+              onFollowup:
+                hasFollowup || hasFollowupMeetings ? () => setFollowupOpen(true) : undefined,
+              followupLabel: hasFollowupMeetings
+                ? "Spotkania i transkrypty Teams"
+                : "Zaplanuj follow-up w Teams",
+              onGenerateCv: () => setCvOpen(true),
+              onEdit: () => setEditOpen(true),
+              onTagsPools: () => setTagsPoolsOpen(true),
+              onConflicts: () => setConflictsOpen(true),
+              onMarketplace: () => setMarketplaceOpen(true),
+              onEditIdentity: candidate.identity_sync ? () => setEditingIdentity(true) : undefined,
+              onDelete: canDeleteCandidate ? () => setDeleteOpen(true) : undefined,
+              onMerge: canMerge ? () => setMergeOpen(true) : undefined,
+            }}
+          />
 
-            <TabsContent value="recruitments" className="mt-0">
-              <RecruitmentsTab
-                candidateId={candidateNumericId}
-                candidateName={fullName}
-                history={history}
-                // Dane z innego zakresu widza są ukryte do końca pobrania —
-                // wtedy „ładowanie”, nie „brak rekrutacji”.
-                isPending={
-                  historyQuery.isPending ||
-                  (historyQuery.isFetching && historyQuery.visibleData === undefined)
-                }
-                error={historyQuery.error}
-                refetch={() => void historyQuery.refetch()}
-                refreshing={historyQuery.isRefreshing}
-                focusedJobId={requestedFocusJobId}
-                defaultJobId={backJobId}
-                view={profileView.recruitments}
-                readOnly={readOnly}
-                clientRateAccess={
-                  historyRaw && !Array.isArray(historyRaw)
-                    ? {
-                        canView: historyRaw.can_view_client_rate,
-                        canWrite: historyRaw.can_write_client_rate,
+          <CandidateProfileFactsBar candidate={candidate} layout="column">
+            <CandidateActivitySummaryCard
+              candidateId={candidateNumericId}
+              cvSummary={candidate.ai_summary ?? null}
+              variant="compact"
+            />
+            {canManageProfileFacts ? (
+              <button
+                type="button"
+                data-help="candidate.profile.notes_facts"
+                onClick={() => setNotesFactsOpen(true)}
+                className="inline-flex min-h-8 items-center text-xs font-medium text-primary hover:underline"
+              >
+                Ustalenia z notatek
+              </button>
+            ) : null}
+          </CandidateProfileFactsBar>
+        </aside>
+
+        <Card
+          variant="default"
+          size="md"
+          className="min-w-0 overflow-hidden p-0!"
+          data-help="candidate.profile.tabs"
+        >
+          <TabbedNav
+            value={activeTab}
+            onValueChange={(value) => goToSection(value as CandidateProfileView["section"])}
+            ariaLabel="Sekcje profilu kandydata"
+            overflow="scroll"
+            listClassName="max-w-full justify-start px-4 pt-2 *:shrink-0"
+            tabs={tabs}
+          >
+            {/* `@container`: treść zakładek układa się po szerokości karty,
+                nie okna — obok lewej kolumny i paska bocznego karta bywa wąska. */}
+            <div className="@container p-4 sm:p-5">
+              <TabsContent value="summary" className="mt-0">
+                <ProfileTab
+                  candidate={candidate}
+                  readOnly={readOnly}
+                  recruitments={{
+                    items: history,
+                    isPending:
+                      historyQuery.isPending ||
+                      (historyQuery.isFetching && historyQuery.visibleData === undefined),
+                    isError: Boolean(historyQuery.error),
+                    refetch: () => void historyQuery.refetch(),
+                  }}
+                  notes={{
+                    items: notesCountQuery.data?.items ?? [],
+                    groupCounts: notesCountQuery.data?.group_counts ?? null,
+                    isPending: notesCountQuery.isPending,
+                    isError: notesCountQuery.isError,
+                    refetch: () => void notesCountQuery.refetch(),
+                  }}
+                  onNavigate={(target) => {
+                    if (target.section === "activity" && target.noteId) {
+                      const params = withCandidateProfileView(new URLSearchParams(searchString), {
+                        section: "activity",
+                        activity: "notes",
+                        documents: "files",
+                        recruitments: "list",
+                      });
+                      params.set("note", String(target.noteId));
+                      setProfileView({ ...parseCandidateProfileView(params), isLegacy: false });
+                      if (!embedded) {
+                        router.replace(`${profilePath}?${params.toString()}`, { scroll: false });
                       }
-                    : undefined
-                }
-              />
-            </TabsContent>
+                      return;
+                    }
+                    goToSection(target.section);
+                  }}
+                />
+              </TabsContent>
 
-            <TabsContent value="activity" className="mt-0">
-              <HistoryTab
-                candidateId={candidateNumericId}
-                candidate={candidate}
-                activityView={profileView.activity}
-                onActivityViewChange={(activity: CandidateActivityView) =>
-                  goToSection("activity", { activity })
-                }
-                timeline={{
-                  items: timeline,
-                  isPending: timelineQuery.isPending,
-                  error: timelineQuery.error,
-                  refetch: () => void timelineQuery.refetch(),
-                }}
-                recruitments={history}
-                defaultJobId={backJobId}
-                readOnly={readOnly}
-                canModerate={hasRole(currentUser, "admin")}
-                currentUserId={currentUser?.id}
-                viewers={presenceViewers}
-                setPresenceEditing={setPresenceEditing}
-                focusedNoteId={focusedNoteId}
-                composeRequest={composeNoteRequest}
-                onComposeHandled={clearComposeNoteRequest}
-              />
-            </TabsContent>
+              <TabsContent value="recruitments" className="mt-0">
+                <RecruitmentsTab
+                  candidateId={candidateNumericId}
+                  candidateName={fullName}
+                  history={history}
+                  // Dane z innego zakresu widza są ukryte do końca pobrania —
+                  // wtedy „ładowanie”, nie „brak rekrutacji”.
+                  isPending={
+                    historyQuery.isPending ||
+                    (historyQuery.isFetching && historyQuery.visibleData === undefined)
+                  }
+                  error={historyQuery.error}
+                  refetch={() => void historyQuery.refetch()}
+                  refreshing={historyQuery.isRefreshing}
+                  focusedJobId={requestedFocusJobId}
+                  defaultJobId={backJobId}
+                  view={profileView.recruitments}
+                  readOnly={readOnly}
+                  clientRateAccess={
+                    historyRaw && !Array.isArray(historyRaw)
+                      ? {
+                          canView: historyRaw.can_view_client_rate,
+                          canWrite: historyRaw.can_write_client_rate,
+                        }
+                      : undefined
+                  }
+                />
+              </TabsContent>
 
-            <TabsContent value="documents" className="mt-0">
-              <FilesContractsTab
-                candidateId={candidateNumericId}
-                candidateName={fullName}
-                candidatePhone={candidate.phone ?? null}
-                jdgComplete={Boolean(candidate.legal_name && candidate.nip)}
-                focus={profileView.documents}
-                onFillJdg={
-                  canWriteSourcing
-                    ? () => {
-                        goToSection("summary");
-                        setJdgFocusRequest((value) => value + 1);
-                      }
-                    : undefined
-                }
-              />
-            </TabsContent>
-          </div>
-        </TabbedNav>
-      </Card>
+              <TabsContent value="screening" className="mt-0">
+                <CandidateScreeningAnswersCard candidateId={candidateNumericId} variant="tab" />
+              </TabsContent>
+
+              <TabsContent value="activity" className="mt-0">
+                <HistoryTab
+                  candidateId={candidateNumericId}
+                  candidate={candidate}
+                  activityView={profileView.activity}
+                  onActivityViewChange={(activity: CandidateActivityView) =>
+                    goToSection("activity", { activity })
+                  }
+                  recruitments={history}
+                  defaultJobId={backJobId}
+                  readOnly={readOnly}
+                  canModerate={hasRole(currentUser, "admin")}
+                  currentUserId={currentUser?.id}
+                  viewers={presenceViewers}
+                  setPresenceEditing={setPresenceEditing}
+                  focusedNoteId={focusedNoteId}
+                  composeRequest={composeNoteRequest}
+                  onComposeHandled={clearComposeNoteRequest}
+                />
+              </TabsContent>
+
+              <TabsContent value="documents" className="mt-0">
+                <FilesContractsTab
+                  candidate={candidate}
+                  candidateName={fullName}
+                  readOnly={readOnly}
+                  focus={profileView.documents}
+                  onGenerateCv={canWriteSourcing ? () => setCvOpen(true) : undefined}
+                />
+              </TabsContent>
+            </div>
+          </TabbedNav>
+        </Card>
+      </div>
+
+      <TagsPoolsDialog
+        open={tagsPoolsOpen}
+        onOpenChange={setTagsPoolsOpen}
+        candidateId={candidateNumericId}
+        tags={candidate.tags}
+        canEdit={canWriteSourcing}
+      />
+      <ConflictsVetoesDialog
+        open={conflictsOpen}
+        onOpenChange={setConflictsOpen}
+        candidateId={candidateNumericId}
+      />
+      {canManageProfileFacts ? (
+        <NotesFactsDialog
+          open={notesFactsOpen}
+          onOpenChange={setNotesFactsOpen}
+          candidateId={candidateNumericId}
+          readOnly={readOnly}
+        />
+      ) : null}
+      {followupOpen ? (
+        <CandidateFollowupDialog
+          candidateId={candidateNumericId}
+          open={followupOpen}
+          onOpenChange={setFollowupOpen}
+        />
+      ) : null}
 
       {canWriteSourcing ? (
         <>

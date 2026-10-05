@@ -93,7 +93,13 @@ test.describe("Candidates flow", () => {
     await page.getByTestId("candidate-quick-view").getByRole("button", { name: "Otwórz profil" }).click();
     await expect(page).toHaveURL(/\/candidates\/\d+\?tab=summary/);
 
-    for (const section of ["Profil", "Rekrutacje", "Historia", "Pliki i umowy"]) {
+    for (const section of [
+      "Przegląd",
+      "Rekrutacje",
+      "Odpowiedzi ze screeningu",
+      "Notatki i historia",
+      "CV i dokumenty",
+    ]) {
       await expect(page.getByRole("tab", { name: new RegExp(section) })).toBeVisible();
     }
 
@@ -101,7 +107,7 @@ test.describe("Candidates flow", () => {
     expect(candidateId).toBeTruthy();
     await page.goto(`/candidates/${candidateId}?tab=chat&msg=123`);
     await expect(page).toHaveURL(/tab=activity.*activity=chat|activity=chat.*tab=activity/);
-    await expect(page.getByRole("tab", { name: /Historia/ })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tab", { name: /Notatki i historia/ })).toHaveAttribute("aria-selected", "true");
   });
 
   test("eksportuje dokładnie zaznaczonego kandydata", async ({ page }) => {

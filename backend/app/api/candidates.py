@@ -1,6 +1,8 @@
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Annotated, Any, Literal, Optional
+from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 import asyncio
 import hashlib
 import io
@@ -50,7 +52,12 @@ from sqlalchemy.orm import aliased, selectinload
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.export_safety import safe_row
-from app.core.scheduling import business_today
+from app.core.scheduling import DEFAULT_TZ, business_today
+from app.services.pipeline_next_action import (
+    StageColumn,
+    group_key_for_column,
+    next_action_for,
+)
 from app.core.http_headers import content_disposition
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.core.tasks import spawn
@@ -4738,6 +4745,59 @@ async def get_candidate_hiring_manager_vetoes(
     ]
 
 
+_HISTORY_ENDED_STAGES = frozenset({"rejected", "withdrawn", "hired", "onboarding"})
+
+
+def _history_stage_column(
+    stage: PipelineStage,
+    *,
+    stage_def_id: Optional[int],
+    name: Optional[str],
+    legacy: Any,
+    category: Any,
+    terminal: Any,
+    order: Optional[int],
+) -> StageColumn:
+    """Kolumna etapu do reguły „kto ma ruch” — z definicji, a bez niej z enuma."""
+    if stage_def_id is not None and (legacy is not None or category is not None):
+        return StageColumn.from_stage_def(
+            SimpleNamespace(
+                legacy_enum_value=legacy,
+                category=category,
+                terminal_type=terminal,
+                name=name,
+                order=order,
+                id=stage_def_id,
+            )
+        )
+    return StageColumn(
+        stage=stage.value,
+        category=getattr(STAGE_CATEGORY.get(stage), "value", None),
+        name=STAGE_LABELS.get(stage),
+    )
+
+
+def _history_next_action_owner(
+    entry: dict,
+    latest: Optional[tuple[StageColumn, Optional[datetime]]],
+    *,
+    today: date,
+) -> Optional[str]:
+    """Właściciel następnego kroku (`next_action_for`) albo `None` dla zakończonych."""
+    if latest is None or entry.get("job_status") == "closed":
+        return None
+    if str(entry.get("latest_stage") or "") in _HISTORY_ENDED_STAGES:
+        return None
+    column, moved_at = latest
+    days = None
+    if moved_at is not None:
+        days = max(0, (today - moved_at.astimezone(ZoneInfo(DEFAULT_TZ)).date()).days)
+    owner = next_action_for(
+        column, days_in_stage=days, group=group_key_for_column(column)
+    ).owner
+    return None if owner == "none" else owner
+
+
 @router.get("/{candidate_id}/history")
 async def get_candidate_history(
     candidate_id: DbIdPath,
@@ -4763,6 +4823,12 @@ async def get_candidate_history(
             # Runda 10 (F04): nazwa etapu szablonu — profil składa etap w
             # kolumnę Tablicy tą samą regułą co tablica (`placeStage`).
             PipelineStageDef.name.label("stage_def_name"),
+            # 04.10.2026: definicja etapu do reguły „kto ma ruch”
+            # (`next_action_owner`) — ta sama co karta na Tablicy.
+            PipelineStageDef.legacy_enum_value.label("stage_def_legacy"),
+            PipelineStageDef.category.label("stage_def_category"),
+            PipelineStageDef.terminal_type.label("stage_def_terminal"),
+            PipelineStageDef.order.label("stage_def_order"),
         )
         .join(Job, CandidateStage.job_id == Job.id)
         .outerjoin(Client, Client.id == Job.client_id)
@@ -4801,6 +4867,7 @@ async def get_candidate_history(
     # Decyzja 23.09.2026: stawki do klienta nie widzą rekruter, sourcer i TAC.
     show_client_rate = user_can_view_client_rate(current_user)
     jobs_map: dict = {}
+    latest_columns: dict[int, tuple[StageColumn, Optional[datetime]]] = {}
     for (
         stage,
         job_title,
@@ -4808,6 +4875,10 @@ async def get_candidate_history(
         rejection_reason_name,
         client_name,
         stage_def_name,
+        stage_def_legacy,
+        stage_def_category,
+        stage_def_terminal,
+        stage_def_order,
     ) in stages_result.all():
         job_id = stage.job_id
         if job_id not in jobs_map:
@@ -4886,6 +4957,26 @@ async def get_candidate_history(
                 entry["latest_stage"] = stage.stage.value
                 entry["latest_stage_name"] = stage_def_name
                 entry["latest_stage_id"] = stage.id
+                latest_columns[job_id] = (
+                    _history_stage_column(
+                        stage.stage,
+                        stage_def_id=stage.stage_def_id,
+                        name=stage_def_name,
+                        legacy=stage_def_legacy,
+                        category=stage_def_category,
+                        terminal=stage_def_terminal,
+                        order=stage_def_order,
+                    ),
+                    stage.moved_at,
+                )
+
+    # 04.10.2026: „kto ma ruch” w procesie w toku — profil pokazuje go
+    # w „Teraz” tą samą regułą co karta na Tablicy. Zakończone = `None`.
+    today = business_today()
+    for job_id, entry in jobs_map.items():
+        entry["next_action_owner"] = _history_next_action_owner(
+            entry, latest_columns.get(job_id), today=today
+        )
 
     # Contracts
     from app.models.contract import Contract

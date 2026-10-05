@@ -1,18 +1,32 @@
 "use client";
 
 /**
- * Zakładka „Rekrutacje”: karty procesów (aktywne na górze, zakończone
- * zwinięte), feedback po rozmowach, zwijane „Dopasowanie do rekrutacji”
- * (dawna zakładka „Dopasowanie”) i boczna kolumna: pasujące otwarte
- * rekrutacje, sugerowane pule oraz dane handlowe (historia stawek, konflikty,
- * weta hiring managerów) — nagłówek tylko wtedy, gdy któryś widżet ma treść.
+ * Zakładka „Rekrutacje” (04.10.2026, jedna kolumna):
+ *
+ * 1. „W toku” — karty procesów z akcjami (stawki, CV dla klienta, menu „⋯”
+ *    z „Usuń z rekrutacji”) i linkiem do Tablicy, gdzie robi się resztę pracy.
+ * 2. „Pasujące otwarte rekrutacje” — dawniej boczny pasek.
+ * 3. „Zakończone” — tabela tylko do odczytu (rekrutacja, klient, dokąd
+ *    doszedł, wynik, kiedy); klik rozwija ścieżkę etapów i CV oryginalne.
+ * 4. Feedback po rozmowach (tylko gdy jest) i zwinięte „Dopasowanie”.
+ *
+ * Pule, historia stawek, konflikty i weta przeszły do karty osoby („⋯” i fakt
+ * „Stawka od”) — tu zostało to, co dotyczy procesów.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, ChevronDown, ChevronUp, RefreshCcw, Sparkles, Trash2 } from "lucide-react";
+import {
+  Ban,
+  ChevronDown,
+  ChevronUp,
+  MoreHorizontal,
+  RefreshCcw,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 
 import {
   candidatesApi,
@@ -22,7 +36,7 @@ import {
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { canViewClientRate, canWriteClientRate } from "@/lib/client-rate-access";
-import { useAuthStore } from "@/store/auth";
+import { hasRole, useAuthStore } from "@/store/auth";
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { stageCvBadge, stageCvStatus } from "@/lib/cv-to-client";
 import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
@@ -30,22 +44,30 @@ import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialo
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { CVShareLinkModal } from "@/components/v2/modals/CVShareLinkModal";
 import { CandidateInterviewFeedbackPanel } from "@/components/feedback/CandidateInterviewFeedbackPanel";
 import { RateChangeLatest } from "@/components/v2/rate-change/RateChangeLatest";
 import { SuggestedJobsWidget } from "@/components/SuggestedJobsWidget";
-import { SuggestedPoolsWidget } from "@/components/candidates/SuggestedPoolsWidget";
-import { RateHistorySummary } from "@/components/v2/candidate-profile/RateHistoryDialog";
-import { ConflictsWidget } from "@/components/ConflictsWidget";
-import { HiringManagerVetoesWidget } from "@/components/HiringManagerVetoesWidget";
 import { candidatePipelinesQueryKey } from "@/components/CandidatePipelinesWidget";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
 import { candidateStageLabel } from "@/components/v2/pages/candidate-timeline-labels";
-import { entrySourceLabel, recruitmentStageLabel } from "@/lib/recruitment-stage-label";
+import {
+  entrySourceLabel,
+  furthestBoardColumnLabel,
+  recruitmentOutcome,
+  recruitmentStageLabel,
+  recruitmentStagePath,
+} from "@/lib/recruitment-stage-label";
 import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-view";
 import {
   focusCandidateRecruitmentCard,
@@ -163,158 +185,285 @@ export function RecruitmentsTab({
   const hasData = history.length > 0;
 
   return (
-    <div className="grid grid-cols-1 items-start gap-5 @4xl:grid-cols-[minmax(0,1fr)_320px]">
-      <div className="min-w-0 space-y-4">
-        {isPending && !hasData ? (
-          <SectionLoading label="Ładowanie rekrutacji…" />
-        ) : error && !hasData ? (
-          <SectionError title="Nie udało się pobrać rekrutacji" onRetry={refetch} />
-        ) : !hasData ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            Kandydat nie jest w żadnej rekrutacji.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {refreshing ? (
-              <p role="status" className="text-xs text-muted-foreground">
-                Odświeżam…
-              </p>
-            ) : null}
-            {active.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Brak trwających procesów.
-              </p>
-            ) : (
-              active.map((job: any, i: number) => (
-                <RecruitmentCard
-                  key={job.job_id ?? job.id ?? i}
-                  job={job}
-                  candidateId={candidateId}
-                  candidateName={candidateName}
-                  focusedJobId={focusedJobId}
-                  readOnly={readOnly}
-                  clientRateAccess={clientRateAccess}
-                />
-              ))
-            )}
-            {ended.length > 0 ? (
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={() => setEndedOpen((open) => !open)}
-                  aria-expanded={endedOpen}
-                  className="flex min-h-9 items-center gap-1 text-xs font-medium text-muted-foreground hover:text-primary"
-                >
-                  {endedOpen ? (
-                    <ChevronUp className="h-3 w-3" />
-                  ) : (
-                    <ChevronDown className="h-3 w-3" />
-                  )}
-                  Zakończone ({ended.length})
-                </button>
-                {endedOpen ? (
-                  <div className="mt-2 space-y-2">
-                    {ended.map((job: any, i: number) => (
-                      <RecruitmentCard
-                        key={job.job_id ?? job.id ?? i}
-                        job={job}
-                        candidateId={candidateId}
-                        candidateName={candidateName}
-                        focusedJobId={focusedJobId}
-                        readOnly={readOnly}
-                        clientRateAccess={clientRateAccess}
-                      />
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        )}
+    <div className="min-w-0 space-y-5">
+      {isPending && !hasData ? (
+        <SectionLoading label="Ładowanie rekrutacji…" />
+      ) : error && !hasData ? (
+        <SectionError title="Nie udało się pobrać rekrutacji" onRetry={refetch} />
+      ) : (
+        <section aria-labelledby="candidate-recruitments-active" className="space-y-2">
+          <h2
+            id="candidate-recruitments-active"
+            className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+          >
+            W toku{active.length > 0 ? ` · ${active.length}` : ""}
+          </h2>
+          {refreshing ? (
+            <p role="status" className="text-xs text-muted-foreground">
+              Odświeżam…
+            </p>
+          ) : null}
+          {active.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {hasData
+                ? "Brak trwających procesów."
+                : "Kandydat nie jest w żadnej rekrutacji."}
+            </p>
+          ) : (
+            active.map((job: any, i: number) => (
+              <RecruitmentCard
+                key={job.job_id ?? job.id ?? i}
+                job={job}
+                candidateId={candidateId}
+                candidateName={candidateName}
+                focusedJobId={focusedJobId}
+                readOnly={readOnly}
+                clientRateAccess={clientRateAccess}
+              />
+            ))
+          )}
+        </section>
+      )}
 
-        <CandidateInterviewFeedbackPanel candidateId={candidateId} jobTitles={jobTitles} />
+      <SuggestedJobsWidget
+        candidateId={candidateId}
+        canAssign={!readOnly}
+        hideWhenEmpty
+        stacked
+        maxItems={5}
+        title="Pasujące otwarte rekrutacje"
+      />
 
-        <section
-          ref={matchingRef}
-          id="candidate-matching-section"
-          aria-labelledby="candidate-matching-heading"
-          className="scroll-mt-4 rounded-lg border border-border"
-        >
+      {ended.length > 0 ? (
+        <section aria-labelledby="candidate-recruitments-ended" className="space-y-2">
           <button
             type="button"
-            onClick={() => setMatchingOpen((open) => !open)}
-            aria-expanded={matchingOpen}
-            className="flex min-h-11 w-full items-center justify-between gap-2 px-3 text-left"
+            id="candidate-recruitments-ended"
+            onClick={() => setEndedOpen((open) => !open)}
+            aria-expanded={endedOpen}
+            className="flex min-h-9 items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-primary"
           >
-            <span
-              id="candidate-matching-heading"
-              className="flex items-center gap-2 text-sm font-semibold text-foreground"
-            >
-              <Sparkles className="h-4 w-4 text-primary" />
-              Dopasowanie do rekrutacji
-            </span>
-            {matchingOpen ? (
-              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            {endedOpen ? (
+              <ChevronUp className="h-3 w-3" />
             ) : (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              <ChevronDown className="h-3 w-3" />
             )}
+            Zakończone ({ended.length})
           </button>
-          {matchingOpen ? (
-            <div className="border-t border-border p-3">
-              {isPending && !hasData ? (
-                <SectionLoading label="Ładowanie danych dopasowania…" />
-              ) : error && !hasData ? (
-                <SectionError
-                  title="Nie udało się pobrać danych do dopasowania"
-                  onRetry={refetch}
-                />
-              ) : (
-                <DopasowanieTab
-                  candidateId={candidateId}
-                  recruitments={history}
-                  defaultJobId={defaultJobId}
-                  readOnly={readOnly}
-                />
-              )}
-            </div>
+          {endedOpen ? (
+            <ClosedRecruitmentsTable
+              items={ended}
+              candidateId={candidateId}
+              candidateName={candidateName}
+              focusedJobId={focusedJobId}
+              readOnly={readOnly}
+            />
           ) : null}
         </section>
-      </div>
+      ) : null}
 
-      <aside className="space-y-4 @4xl:sticky @4xl:top-4" aria-label="Sugestie i dane handlowe">
-        <SuggestedJobsWidget
-          candidateId={candidateId}
-          canAssign={!readOnly}
-          hideWhenEmpty
-          stacked
-          maxItems={5}
-          title="Pasujące otwarte rekrutacje"
-        />
-        <SuggestedPoolsWidget candidateId={candidateId} canAdd={!readOnly} />
-        {/* Nagłówek tylko wtedy, gdy któryś widżet coś wyrenderował —
-            wszystkie trzy chowają się przy braku danych (`hideWhenEmpty`). */}
-        <section
-          aria-labelledby="candidate-commercial-data"
-          className="hidden space-y-3 has-[[data-commercial-slot]>*]:block"
+      <CandidateInterviewFeedbackPanel
+        candidateId={candidateId}
+        jobTitles={jobTitles}
+        hideWhenEmpty
+      />
+
+      <section
+        ref={matchingRef}
+        id="candidate-matching-section"
+        aria-labelledby="candidate-matching-heading"
+        className="scroll-mt-4 rounded-lg border border-border"
+      >
+        <button
+          type="button"
+          onClick={() => setMatchingOpen((open) => !open)}
+          aria-expanded={matchingOpen}
+          className="flex min-h-11 w-full items-center justify-between gap-2 px-3 text-left"
         >
-          <h2
-            id="candidate-commercial-data"
-            className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+          <span
+            id="candidate-matching-heading"
+            className="flex items-center gap-2 text-sm font-semibold text-foreground"
           >
-            Dane handlowe
-          </h2>
-          <div data-commercial-slot>
-            <RateHistorySummary candidateId={candidateId} />
+            <Sparkles className="h-4 w-4 text-primary" />
+            Dopasowanie do rekrutacji
+          </span>
+          {matchingOpen ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          )}
+        </button>
+        {matchingOpen ? (
+          <div className="border-t border-border p-3">
+            {isPending && !hasData ? (
+              <SectionLoading label="Ładowanie danych dopasowania…" />
+            ) : error && !hasData ? (
+              <SectionError
+                title="Nie udało się pobrać danych do dopasowania"
+                onRetry={refetch}
+              />
+            ) : (
+              <DopasowanieTab
+                candidateId={candidateId}
+                recruitments={history}
+                defaultJobId={defaultJobId}
+                readOnly={readOnly}
+              />
+            )}
           </div>
-          <div data-commercial-slot>
-            <ConflictsWidget candidateId={candidateId} hideWhenEmpty />
-          </div>
-          <div data-commercial-slot>
-            <HiringManagerVetoesWidget candidateId={candidateId} hideWhenEmpty />
-          </div>
-        </section>
-      </aside>
+        ) : null}
+      </section>
     </div>
+  );
+}
+
+/**
+ * „Zakończone” jako tabela tylko do odczytu (decyzja 04.10.2026): 24 karty
+ * z „Generuj CV”, stawkami do uzupełnienia i czerwonym „Usuń z rekrutacji”
+ * zamieniały historię w formularz. Klik w wiersz rozwija szczegóły (ścieżka
+ * etapów, powód odrzucenia, CV oryginalne); usunięcie z zakończonej
+ * rekrutacji zostaje wyłącznie dla admina, w szczegółach.
+ */
+function ClosedRecruitmentsTable({
+  items,
+  candidateId,
+  candidateName,
+  focusedJobId,
+  readOnly,
+}: {
+  items: any[];
+  candidateId: number;
+  candidateName: string;
+  focusedJobId: number | null;
+  readOnly: boolean;
+}) {
+  // Rekrutacja z adresu (`focusJobId`) rozwinięta od pierwszego renderu —
+  // fokus karty w rodzicu szuka jej elementu zaraz po zamontowaniu tabeli.
+  const [openJobId, setOpenJobId] = useState<number | null>(() =>
+    focusedJobId != null && items.some((job) => (job.job_id ?? job.id) === focusedJobId)
+      ? focusedJobId
+      : null,
+  );
+  useEffect(() => {
+    if (focusedJobId != null && items.some((job) => (job.job_id ?? job.id) === focusedJobId)) {
+      setOpenJobId(focusedJobId);
+    }
+  }, [focusedJobId, items]);
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-border">
+      <table className="w-full min-w-[34rem] text-sm">
+        <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
+          <tr>
+            <th scope="col" className="px-3 py-2 font-medium">Rekrutacja</th>
+            <th scope="col" className="px-3 py-2 font-medium">Klient</th>
+            <th scope="col" className="px-3 py-2 font-medium">Doszedł do</th>
+            <th scope="col" className="px-3 py-2 font-medium">Wynik</th>
+            <th scope="col" className="px-3 py-2 font-medium">Kiedy</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((job: any, i: number) => {
+            const jobId: number = job.job_id ?? job.id;
+            const open = openJobId === jobId;
+            const outcome = recruitmentOutcome(job);
+            return (
+              <ClosedRecruitmentRow
+                key={jobId ?? i}
+                job={job}
+                jobId={jobId}
+                open={open}
+                outcome={outcome}
+                onToggle={() => setOpenJobId(open ? null : jobId)}
+                candidateId={candidateId}
+                candidateName={candidateName}
+                focusedJobId={focusedJobId}
+                readOnly={readOnly}
+              />
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const OUTCOME_VARIANT: Record<string, "success" | "danger" | "warning" | "neutral"> = {
+  success: "success",
+  danger: "danger",
+  warning: "warning",
+  neutral: "neutral",
+};
+
+function ClosedRecruitmentRow({
+  job,
+  jobId,
+  open,
+  outcome,
+  onToggle,
+  candidateId,
+  candidateName,
+  focusedJobId,
+  readOnly,
+}: {
+  job: any;
+  jobId: number;
+  open: boolean;
+  outcome: ReturnType<typeof recruitmentOutcome>;
+  onToggle: () => void;
+  candidateId: number;
+  candidateName: string;
+  focusedJobId: number | null;
+  readOnly: boolean;
+}) {
+  const detailsId = `candidate-closed-recruitment-${jobId}-details`;
+  return (
+    <>
+      <tr className="border-t border-border hover:bg-muted/30">
+        <td className="px-3 py-2">
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={open}
+            aria-controls={detailsId}
+            className="flex min-h-9 items-center gap-1.5 text-left font-medium text-foreground hover:text-primary"
+          >
+            {open ? (
+              <ChevronUp aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            ) : (
+              <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            )}
+            <span className="min-w-0 break-words">{job.job_title ?? `Rekrutacja #${jobId}`}</span>
+          </button>
+        </td>
+        <td className="px-3 py-2 text-muted-foreground">{job.client_name ?? "—"}</td>
+        <td className="px-3 py-2 text-muted-foreground">
+          {furthestBoardColumnLabel(job.stages) ?? "—"}
+        </td>
+        <td className="px-3 py-2">
+          <Badge size="sm" variant={OUTCOME_VARIANT[outcome.tone]}>
+            {outcome.label}
+          </Badge>
+        </td>
+        <td className="whitespace-nowrap px-3 py-2 tabular-nums text-muted-foreground">
+          {job.last_seen ? formatDate(job.last_seen) : "—"}
+        </td>
+      </tr>
+      {open ? (
+        <tr id={detailsId} className="border-t border-border bg-muted/20">
+          <td colSpan={5} className="p-3">
+            <RecruitmentCard
+              job={job}
+              candidateId={candidateId}
+              candidateName={candidateName}
+              focusedJobId={focusedJobId}
+              readOnly={readOnly}
+              ended
+            />
+          </td>
+        </tr>
+      ) : null}
+    </>
   );
 }
 
@@ -529,6 +678,7 @@ function RecruitmentCard({
   focusedJobId,
   readOnly = false,
   clientRateAccess,
+  ended = false,
 }: {
   job: any;
   candidateId: number;
@@ -536,7 +686,15 @@ function RecruitmentCard({
   focusedJobId: number | null;
   readOnly?: boolean;
   clientRateAccess?: ClientRateAccess;
+  /**
+   * Szczegóły zakończonego procesu (rozwinięty wiersz tabeli „Zakończone”):
+   * tylko odczyt — ścieżka etapów, powód odrzucenia, CV oryginalne. Usunąć
+   * z zakończonej rekrutacji może wyłącznie admin.
+   */
+  ended?: boolean;
 }) {
+  const isAdmin = useAuthStore((state) => hasRole(state.user, "admin"));
+  const canRemove = !readOnly && (!ended || isAdmin);
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const stageId: number | null = job.latest_stage_id ?? null;
@@ -609,6 +767,7 @@ function RecruitmentCard({
       showError(apiErrorMessage(e, "Błąd podczas usuwania z rekrutacji")),
   });
 
+  const stagePath = recruitmentStagePath(job.stages, candidateStageLabel);
   const brandedStatus =
     (branded?.status as "none" | "draft" | "finalized" | undefined) ?? "none";
   const stageCv = stageCvStatus(branded);
@@ -628,13 +787,23 @@ function RecruitmentCard({
       )}
     >
       <div className="min-w-0">
-        <Link
-          id={recruitmentTitleId}
-          href={`/jobs/${jobId}`}
-          className="font-medium text-foreground hover:underline"
-        >
-          {job.job_title ?? `Rekrutacja #${jobId}`}
-        </Link>
+        <div className="flex items-start justify-between gap-2">
+          <Link
+            id={recruitmentTitleId}
+            href={`/jobs/${jobId}`}
+            className="min-w-0 break-words font-medium text-foreground hover:underline"
+          >
+            {job.job_title ?? `Rekrutacja #${jobId}`}
+          </Link>
+          {!ended ? (
+            <Link
+              href={`/jobs/${jobId}?candidate=${candidateId}`}
+              className="inline-flex min-h-9 shrink-0 items-center px-1 text-xs font-medium text-primary hover:underline"
+            >
+              Tablica ›
+            </Link>
+          ) : null}
+        </div>
         <div className="text-xs text-muted-foreground">
           {job.client_name ? `${job.client_name} · ` : ""}
           {recruitmentStageLabel(
@@ -655,14 +824,20 @@ function RecruitmentCard({
             </Badge>
           </div>
         ) : null}
-        {Array.isArray(job.stages) && job.stages.length > 1 ? (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            {job.stages.slice(0, 6).map((s: any, si: number) => (
-              <Badge key={si} size="sm" variant="soft">
-                {recruitmentStageLabel(s.stage, s.stage_name, candidateStageLabel)}
-              </Badge>
+        {stagePath.length > 1 ? (
+          <ol
+            aria-label="Ścieżka etapów"
+            className="mt-1.5 flex flex-wrap items-center gap-1 text-xs text-muted-foreground"
+          >
+            {stagePath.map((label, si) => (
+              <li key={`${label}-${si}`} className="flex items-center gap-1">
+                {si > 0 ? <span aria-hidden="true">→</span> : null}
+                <Badge size="sm" variant="soft">
+                  {label}
+                </Badge>
+              </li>
             ))}
-          </div>
+          </ol>
         ) : null}
         {/* Powód odrzucenia — tylko gdy rekrutacja ZAKOŃCZYŁA się odrzuceniem. */}
         {job.latest_stage === "rejected" && job.rejection_reason ? (
@@ -685,14 +860,16 @@ function RecruitmentCard({
         ) : null}
       </div>
 
-      <RecruitmentRateRow
-        candidateId={candidateId}
-        jobId={jobId}
-        clientRate={job.client_rate ?? null}
-        expectedRate={job.expected_rate ?? null}
-        readOnly={readOnly}
-        clientRateAccess={clientRateAccess}
-      />
+      {!ended ? (
+        <RecruitmentRateRow
+          candidateId={candidateId}
+          jobId={jobId}
+          clientRate={job.client_rate ?? null}
+          expectedRate={job.expected_rate ?? null}
+          readOnly={readOnly}
+          clientRateAccess={clientRateAccess}
+        />
+      ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">
         {stageId != null ? (
@@ -710,7 +887,7 @@ function RecruitmentCard({
             >
               Pokaż CV oryginalne
             </Button>
-            {!readOnly ? (
+            {!readOnly && !ended ? (
               <>
                 {stageCv === "ready" ? (
                   <Button size="sm" variant="outline" onClick={() => setOpenBranded(true)}>
@@ -735,30 +912,47 @@ function RecruitmentCard({
                     Wyślij klientowi
                   </Button>
                 ) : null}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setConfirmRefresh(true)}
-                  title="Aktualizuj snapshot oryginalnego z bieżącym CV kandydata"
-                  aria-label="Aktualizuj snapshot CV oryginalnego"
-                >
-                  <RefreshCcw className="h-3.5 w-3.5" />
-                </Button>
               </>
             ) : null}
           </>
         ) : null}
-        {!readOnly ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setConfirmRemove(true)}
-            className="ml-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
-            title="Usuń kandydata z tej rekrutacji"
-          >
-            <Trash2 className="mr-1 h-3.5 w-3.5" />
-            Usuń z rekrutacji
-          </Button>
+        {(!readOnly && !ended && stageId != null) || canRemove ? (
+          // Rzadkie i nieodwracalne akcje w „⋯” — czerwony przycisk przy każdym
+          // procesie zachęcał do pomyłki (przegląd 04.10.2026).
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto min-h-9 min-w-9"
+                aria-label={`Więcej akcji: ${job.job_title ?? `rekrutacja #${jobId}`}`}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              {!readOnly && !ended && stageId != null ? (
+                <DropdownMenuItem
+                  className="min-h-11"
+                  title="Aktualizuj snapshot oryginalnego z bieżącym CV kandydata"
+                  onSelect={() => setTimeout(() => setConfirmRefresh(true), 0)}
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                  Odśwież CV oryginalne
+                </DropdownMenuItem>
+              ) : null}
+              {canRemove ? (
+                <DropdownMenuItem
+                  className="min-h-11 text-destructive focus:text-destructive"
+                  title="Usuń kandydata z tej rekrutacji"
+                  onSelect={() => setTimeout(() => setConfirmRemove(true), 0)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Usuń z rekrutacji
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : null}
       </div>
 

@@ -341,26 +341,26 @@
     "title": "Profil kandydata",
     "section": "sourcing",
     "roles": ["recruiter", "delivery_lead"],
-    "what": "Tu masz wszystko o jednej osobie: fakty (dostępność, stawka, lokalizacja), odpowiedzi z rozmów screeningowych, rekrutacje, historię kontaktów oraz pliki i umowy.",
+    "what": "Po lewej karta osoby i „Podsumowanie” (dostępność, stawka, tryb pracy, miasto, języki, „W skrócie”). Po prawej zakładki: Przegląd, Rekrutacje, Odpowiedzi ze screeningu, Notatki i historia, CV i dokumenty.",
     "tasks": [
       {
         "q": "Jak dodać kandydata do rekrutacji?",
-        "a": "Kliknij „Przypisz do rekrutacji” w nagłówku i wybierz rekrutację. Osoba trafi do kolumny Nowi.",
+        "a": "Kliknij „Przypisz do rekrutacji” w karcie osoby po lewej i wybierz rekrutację. Osoba trafi do kolumny Nowi. Pod spodem są „Dodaj notatkę” i „Nie odebrał” — próba kontaktu jednym kliknięciem.",
         "anchor": "candidate.profile.assign"
       },
       {
         "q": "Jak poprawić stawkę albo dostępność?",
-        "a": "Kliknij fakt na pasku pod nagłówkiem (dostępność, stawka, lokalizacja, tryb pracy) i zapisz. Pod wartością widać, co i kiedy ustalono w rozmowie (z karty rekomendacji). Tagi dodajesz przyciskiem „+ Tag” w nagłówku, usuwasz krzyżykiem.",
+        "a": "W karcie „Podsumowanie” kliknij „Edytuj” — przy faktach pojawią się ołówki (dostępność, stawka, tryb pracy, miasto, języki). Pod wartością widać, co ustalono w rozmowie. „Ustalenia z notatek” pod kartą pokazują fakty wyczytane z notatek — każdy zapisujesz sam.",
         "anchor": "candidate.profile.facts"
       },
       {
-        "q": "Skąd są dane w karcie „Z notatek rekruterów”?",
-        "a": "System co noc czyta notatki i wyciąga z nich stawkę, dostępność, tryb pracy i formę umowy. Nic nie zapisuje się samo — kliknij „Zapisz w profilu” przy fakcie, który się zgadza.",
-        "anchor": "candidate.profile.notes_facts"
+        "q": "Co kandydat już odpowiedział na screeningu?",
+        "a": "Zakładka „Odpowiedzi ze screeningu”: jedna rozmowa na rekrutację, najnowsza rozwinięta, z wyszukiwarką. Pod arkuszami są odpowiedzi z kart rekomendacji zapisanych w notatkach. Sprawdź je, zanim zapytasz o to samo.",
+        "anchor": "candidate.profile.screening_answers"
       },
       {
-        "q": "Gdzie są maile, notatki, rozmowy i CV?",
-        "a": "Maile i notatki są w „Historia”, rekrutacje w „Rekrutacje”, CV i umowy w „Pliki i umowy”. CV do klienta utworzysz przez „Generuj CV”. Mail wyślesz z „Więcej akcji → Napisz maila”: sprawdź treść i kliknij „Wyślij”. Używana jest Twoja skrzynka Microsoft 365, połączona w Twoim profilu.",
+        "q": "Gdzie są maile, notatki, CV i umowy?",
+        "a": "Notatki, maile, telefony i oś czasu są w „Notatki i historia”, CV, umiejętności, umowy i pliki w „CV i dokumenty”. Tagi, pule, konflikty, mail i scalanie profili są w menu „⋯” obok „Przypisz do rekrutacji”. Mail idzie z Twojej skrzynki Microsoft 365.",
         "anchor": "candidate.profile.tabs"
       },
       {
@@ -370,22 +370,46 @@
     ],
     "pitfalls": [
       "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem.",
-      "Co kandydat odpowiedział na pytania screeningowe, widać w zakładce „Profil”, w karcie „Odpowiedzi z rozmów screeningowych” (jedna rozmowa na rekrutację, z wyszukiwarką; pod arkuszami są odpowiedzi z kart rekomendacji wpisanych w notatkach). Sprawdź ją, zanim zapytasz o to samo w kolejnej rekrutacji.",
-      "„Historia” otwiera się na „Rozmowach”. Pozostałe wpisy mają własne zakładki: „Próby kontaktu” („Nie odebrał” zapiszesz jednym przyciskiem), „Delivery Lead”, „Maile” i „Automat” (np. „Auto-match 67/100”). Ważną notatkę przypnij pinezką: zobaczy ją cały zespół, także w karcie kandydata w rekrutacji."
+      "„Przegląd” mówi, co dzieje się teraz: zaległy telefon po ciszy klienta, procesy w toku (kto ma ruch i od ilu dni) i ostatnią rozmowę. Zakończone rekrutacje są w „Rekrutacje” jako tabela tylko do odczytu.",
+      "W „Notatkach i historii” filtry rodzajów bez notatek są schowane. Ważną notatkę przypnij pinezką: zobaczy ją cały zespół, także w karcie kandydata w rekrutacji."
     ],
     "anchors": [
-      {"id": "candidate.profile.assign", "label": "Przypisz do rekrutacji", "describe": "Dodanie kandydata do rekrutacji."},
-      {"id": "candidate.profile.note", "label": "Dodaj notatkę", "describe": "Nowa notatka o kandydacie."},
-      {"id": "candidate.profile.facts", "label": "Najważniejsze fakty", "describe": "Pasek faktów: dostępność, stawka, lokalizacja, tryb pracy — z datą ostatniego ustalenia w rozmowie."},
-      {"id": "candidate.profile.notes_facts", "label": "Z notatek rekruterów", "describe": "Fakty wyciągnięte z notatek do zatwierdzenia."},
-      {"id": "candidate.profile.screening_answers", "label": "Odpowiedzi z rozmów screeningowych", "describe": "Pytania i odpowiedzi kandydata z każdej rekrutacji — karta jest widoczna, gdy osoba ma zapisany screening."},
-      {"id": "candidate.profile.tabs", "label": "Zakładki profilu", "describe": "Profil, Rekrutacje, Historia, Pliki i umowy."}
+      {
+        "id": "candidate.profile.assign",
+        "label": "Przypisz do rekrutacji",
+        "describe": "Dodanie kandydata do rekrutacji."
+      },
+      {
+        "id": "candidate.profile.note",
+        "label": "Dodaj notatkę",
+        "describe": "Nowa notatka o kandydacie."
+      },
+      {
+        "id": "candidate.profile.facts",
+        "label": "Podsumowanie",
+        "describe": "Karta faktów po lewej: dostępność, stawka, tryb pracy, miasto, języki, narodowość i „W skrócie”."
+      },
+      {
+        "id": "candidate.profile.notes_facts",
+        "label": "Ustalenia z notatek",
+        "describe": "Fakty wyciągnięte z notatek do zatwierdzenia."
+      },
+      {
+        "id": "candidate.profile.screening_answers",
+        "label": "Odpowiedzi ze screeningu",
+        "describe": "Pytania i odpowiedzi kandydata z każdej rekrutacji."
+      },
+      {
+        "id": "candidate.profile.tabs",
+        "label": "Zakładki profilu",
+        "describe": "Przegląd, Rekrutacje, Odpowiedzi ze screeningu, Notatki i historia, CV i dokumenty."
+      }
     ],
     "help_slug": null,
     "sources": [
       "frontend/src/components/v2/pages/CandidateDetailV2.tsx",
       "frontend/src/components/v2/candidate-profile/ProfileHeader.tsx",
-      "frontend/src/components/v2/pages/CandidateNotesFactsCard.tsx"
+      "frontend/src/components/v2/pages/CandidateProfileFactsBar.tsx"
     ]
   },
   {

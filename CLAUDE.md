@@ -3698,33 +3698,64 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   kontakt, „W procesie”, ostatnia notatka, „Przypisz” i „Otwórz profil”.
   „Oznacz jako zatrudnionego” żyje wyłącznie w jego menu „⋯”.
 
-**Profil `/candidates/[id]` = 4 zakładki** (`?tab=summary|recruitments|activity|documents`,
-etykiety Profil · Rekrutacje · Historia · Pliki i umowy). Treść zakładek
+**Profil `/candidates/[id]` — karta osoby po lewej, 5 zakładek po prawej
+(wariant B, wersja 5, 04.10.2026; makieta https://claude.ai/artifact/12sBoFm4VngFkyGXmCn1Ti).**
+`?tab=summary|recruitments|screening|activity|documents` = Przegląd · Rekrutacje
+· Odpowiedzi ze screeningu · Notatki i historia · CV i dokumenty. Treść
 w `components/v2/candidate-profile/*`; `CandidateDetailV2.tsx` jest
-orkiestratorem. Zasady, których łatwo nie zauważyć:
-- **Każdy fakt pokazany RAZ:** dostępność, stawka, lokalizacja i języki żyją
-  wyłącznie w pasku faktów (`CandidateProfileFactsBar`, edycja za
-  `candidate.profile_fact.manage`); nagłówek mówi tylko „stanowisko · lata”.
-- **Jedna karta AI** („Podsumowanie” = `CandidateActivitySummaryCard`). Pod nią
-  „Odpowiedzi z rozmów screeningowych” (`CandidateScreeningAnswersCard`,
-  02.10.2026): jedna rozmowa na rekrutację z pytaniami i odpowiedziami arkusza
-  Championa (`GET /api/candidates/{id}/screening-answers`, tylko rekrutacje
-  widoczne dla patrzącego), najnowsza rozwinięta, szukanie od dwóch rozmów,
-  bez rozmów karty nie ma. Zastąpiła kartę „Screeningi” z zakładki Rekrutacje,
-  która czytała nieużywaną tabelę `screening_notes` — rekruter nie widział
-  w profilu, co kandydat już odpowiedział, i pytał o to samo w kolejnej
-  rekrutacji. Odpowiedzi renderuje JEDEN komponent
+orkiestratorem. Decyzje Artura D1–D5 z 04.10.2026. Zasady, których łatwo nie
+zauważyć:
+- **Układ:** od 1100 px szerokości okna dwie kolumny — lewa (przyklejona)
+  to karta osoby (`ProfileHeader`: kontakt, „Pracuje u nas” w wersji zwartej,
+  „Przypisz do rekrutacji”, pod nim „Dodaj notatkę” i „Nie odebrał”, menu
+  „⋯” w grupach Kontakt · Dokumenty · Dane · Inne) i karta „Podsumowanie”;
+  węziej lewa kolumna stoi nad zakładkami. Tagów, pul, konfliktów i wet nie ma
+  na widoku — są oknami z menu „⋯” (`ProfileMenuDialogs.tsx`).
+- **Każdy fakt pokazany RAZ:** dostępność, stawka, tryb pracy, miasto, języki
+  i narodowość żyją wyłącznie w karcie „Podsumowanie”
+  (`CandidateProfileFactsBar layout="column"`); ołówki pokazuje dopiero
+  „Edytuj” (`candidate.profile_fact.manage`). Dostępność zapisuje PATCH
+  kandydata tylko ze zmienionymi polami (`lib/candidate-availability-edit.ts`),
+  lokalizacja też (z regionem i hubem). Pod faktami „W skrócie”
+  (`CandidateActivitySummaryCard variant="compact"`, jedyna karta AI) i link
+  „Ustalenia z notatek” (okno z `CandidateNotesFactsCard`).
+- **Przegląd** = „Teraz” (zaległy telefon po ciszy klienta, procesy w toku:
+  etap, kto ma ruch, od ilu dni, link do Tablicy) i „Ostatnia rozmowa”.
+  Kto ma ruch liczy SERWER: `/history` niesie `next_action_owner` (ta sama
+  reguła co karta na Tablicy, `pipeline_next_action`), `null` dla zakończonych.
+  Zatrudnienie też kończy proces (`isRecruitmentEnded`).
+- **Rekrutacje:** „W toku” (karty), „Pasujące otwarte rekrutacje”,
+  „Zakończone” jako tabela tylko do odczytu (rozwinięcie pokazuje kartę bez
+  edycji; „Usuń z rekrutacji” tylko admin), feedback tylko gdy są wpisy.
+  „Odśwież CV oryginalne” i „Usuń z rekrutacji” w „⋯” karty.
+- **Odpowiedzi ze screeningu** to zakładka (`CandidateScreeningAnswersCard
+  variant="tab"`, aliasy `?tab=odpowiedzi|screeningi`): jedna rozmowa na
+  rekrutację z pytaniami i odpowiedziami arkusza Championa
+  (`GET /api/candidates/{id}/screening-answers`, tylko rekrutacje widoczne dla
+  patrzącego), pod nimi odpowiedzi z kart rekomendacji; szukanie od jednej
+  rozmowy, bez rozmów — zdanie. Odpowiedzi renderuje JEDEN komponent
   `screening/ScreeningAnswersList` (profil, dok osoby, panel osoby) — nie
-  dokładaj drugiego. Potwierdzone umiejętności dostają ✓ w sekcji Umiejętności.
+  dokładaj drugiego.
+- **Notatki i historia:** pole notatki zwinięte do jednej linii; filtry rodzajów
+  bez notatek schowane (poza „Rozmowami” i wybranym, D1); „Wszystko” bez
+  liczby, oś czasu ładuje się dopiero w tym filtrze, „Pokaż więcej” do 200.
+- **CV i dokumenty:** „CV i umiejętności” (`CvSkillsSection` — warianty nazw
+  łączone WYŁĄCZNIE w widoku przez słownik `GET /api/skills`,
+  `lib/skill-display.ts`, D3), umowy, zwinięte „Dane do umowy (JDG / firma)”,
+  pliki kandydata z akcjami w „⋯” wiersza i grupa „CV dla klientów” (pliki
+  „…B2B…” i CV z generatora, D4, `isClientCvFilename`).
+- **Mail = jedno okno** (`SendEmailV2`, D5): bez podłączonej skrzynki M365 okno
+  mówi to i prowadzi do Ustawień zamiast kończyć się 412.
+- **Nic nie znika:** `lib/candidate-profile-feature-inventory.json` + test
+  `candidate-profile-feature-parity.test.ts` (plik + marker każdej funkcji).
 - **Stare klucze `?tab=` i podparametry żyją jako aliasy**
   (`candidate-profile-navigation.ts`): `matching` → Rekrutacje z otwartym
-  „Dopasowaniem”, `emails`/`notes`/`calls`/`chat` → Historia z filtrem,
-  `documents=files|contracts` → Pliki i umowy. Linki zapisane w powiadomieniach
-  prowadzą w te miejsca — nie usuwaj aliasów.
-- Historia rekrutacji (`GET /api/candidates/{id}/history`) niesie `client_name`
-  — karta rekrutacji mówi, u kogo jest proces.
+  „Dopasowaniem”, `emails`/`notes`/`calls`/`chat` → Notatki i historia
+  z filtrem, `documents=files|contracts` → CV i dokumenty. Linki zapisane
+  w powiadomieniach prowadzą w te miejsca — nie usuwaj aliasów.
 - Harnessy wizualne (publiczne, zero zapytań): `/preview/candidates-list`
-  (`?dialog=1` otwiera okno requestu) i `/preview/candidate-profile` (`?tab=`).
+  (`?dialog=1` otwiera okno requestu) i `/preview/candidate-profile` (`?tab=`,
+  `?employed=1`).
 
 **Pliki, języki i „Dodaj kandydata” od CV (0400, 29.09.2026):**
 - **„Nieaktualne” to tylko plakietka** (`candidate_documents.outdated_at/

@@ -61,7 +61,7 @@ describe("pickHeaderWarning — najwyżej jedno ostrzeżenie", () => {
 });
 
 describe("splitRecruitments", () => {
-  it("odrzucenie, wycofanie i zamknięta rekrutacja są zakończone", () => {
+  it("odrzucenie, wycofanie, zatrudnienie i zamknięta rekrutacja są zakończone", () => {
     const history = [
       { job_id: 1, latest_stage: "cv_sent", job_status: "published" },
       { job_id: 2, latest_stage: "rejected", job_status: "published" },
@@ -70,8 +70,10 @@ describe("splitRecruitments", () => {
       { job_id: 5, latest_stage: "hired", job_status: "published" },
     ];
     const { active, ended } = splitRecruitments(history);
-    expect(active.map((j) => j.job_id)).toEqual([1, 5]);
-    expect(ended.map((j) => j.job_id)).toEqual([2, 3, 4]);
+    // 04.10.2026: zatrudnienie kończy proces — osoba trafia do „Zakończone”
+    // z wynikiem „Zatrudniony”, nie wisi „w toku”.
+    expect(active.map((j) => j.job_id)).toEqual([1]);
+    expect(ended.map((j) => j.job_id)).toEqual([2, 3, 4, 5]);
     expect(isRecruitmentEnded({ latest_stage: "screening" })).toBe(false);
   });
 });

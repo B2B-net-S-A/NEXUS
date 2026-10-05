@@ -1,8 +1,7 @@
 "use client";
 
 /**
- * Oś czasu kandydata (zakładka „Historia” → „Wszystko”) i skrót ostatniej
- * aktywności w prawej kolumnie zakładki „Profil”. Wydzielone z
+ * Oś czasu kandydata (zakładka „Notatki i historia” → „Wszystko”). Wydzielone z
  * `CandidateDetailV2.tsx`.
  */
 
@@ -20,7 +19,7 @@ import {
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   activityActionLabel,
   candidateStageLabel,
@@ -436,43 +435,5 @@ export function TimelineTab({ items }: { items: any[] }) {
         </section>
       ))}
     </div>
-  );
-}
-
-/**
- * Skrót ostatniej aktywności (1–2 zdarzenia) — prawa kolumna zakładki
- * „Profil”. Pełna oś czasu żyje w zakładce „Historia”.
- */
-export function RecentActivityList({ items }: { items: any[] }) {
-  if (!Array.isArray(items) || items.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">Brak zdarzeń.</p>
-    );
-  }
-  return (
-    <ul className="divide-y divide-border/60">
-      {items.map((item: any, i: number) => {
-        const content = item.content
-          ? unwrapNoteContent(item.content_rendered ?? item.content)
-          : "";
-        return (
-          <li key={`${item.type}-${item.id}-${i}`} className="py-2 first:pt-0 last:pb-0">
-            <div className="flex items-baseline gap-2">
-              <span className="min-w-0 truncate text-xs font-medium text-foreground">
-                {timelineItemLabel(item)}
-              </span>
-              <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
-                {item.timestamp ? formatRelativeTime(item.timestamp) : ""}
-              </span>
-            </div>
-            {content ? (
-              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                {content}
-              </p>
-            ) : null}
-          </li>
-        );
-      })}
-    </ul>
   );
 }
