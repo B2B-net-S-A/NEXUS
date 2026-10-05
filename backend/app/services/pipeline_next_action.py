@@ -35,6 +35,22 @@ GroupKey = Literal[
     "posting", "intake", "screening", "verification", "client", "contract", "closed"
 ]
 Owner = Literal["recruiter", "review", "client", "candidate", "delivery", "none"]
+# Faza cyklu rozmowy u klienta (lustro odznaki ``interview_cycle.compute_badge``,
+# mapowanie ``interview_cycle.badge_phase``). Na etapach klienta to ona mówi,
+# kto ma ruch: do 05.10.2026 karta w „Rozmowie u klienta” zawsze mówiła
+# „Klient · Zbierz feedback HM”, choć rekruter miał wybrać termin.
+InterviewPhase = Literal[
+    "awaiting_recruiter_pick",
+    "awaiting_dl_confirm",
+    "scheduled",
+    "debrief_due",
+    "debriefed",
+]
+# Etapy oferty — tam cykl rozmowy jest za nami (debrief zapisany wcześniej),
+# ruch należy do kandydata.
+_OFFER_STAGES = frozenset({"acceptance", "negotiation"})
+# Fazy, w których ruch jest po stronie rekrutera niezależnie od dni na etapie.
+_RECRUITER_PHASES = frozenset({"awaiting_recruiter_pick", "scheduled", "debrief_due"})
 # Kiedy ruch jest po stronie rekrutera — BEZ wiedzy o karcie (patrz
 # ``recruiter_owner_mode``): zawsze / dopiero po NUDGE_DAYS / nigdy.
 OwnerMode = Literal["always", "after_nudge", "review", "never"]
@@ -188,6 +204,36 @@ def group_keys_for_columns(columns: Sequence[StageColumn]) -> list[GroupKey]:
     return out
 
 
+def _phase_applies(col: StageColumn, group: str, phase: Optional[str]) -> bool:
+    """Czy faza cyklu rozmowy rozstrzyga krok tej karty."""
+    return group == "client" and phase is not None and col.stage not in _OFFER_STAGES
+
+
+def _day_month(iso_date: Optional[str]) -> Optional[str]:
+    """``RRRR-MM-DD`` → ``DD.MM`` (bez strefy — datę w Warszawie liczy serwer)."""
+    if not iso_date or len(iso_date) < 10:
+        return None
+    return f"{iso_date[8:10]}.{iso_date[5:7]}"
+
+
+def _phase_action(phase: str, interview_date: Optional[str]) -> tuple[str, str, str]:
+    if phase == "awaiting_recruiter_pick":
+        return ("Wybierz termin rozmowy", "normal", "client")
+    if phase == "awaiting_dl_confirm":
+        return ("Potwierdź termin u klienta", "normal", "client")
+    if phase == "scheduled":
+        day = _day_month(interview_date)
+        label = (
+            f"Rozmowa {day} — prep z kandydatem"
+            if day
+            else "Prep z kandydatem przed rozmową"
+        )
+        return (label, "normal", "client")
+    if phase == "debrief_due":
+        return ("Telefon po rozmowie i debrief", "normal", "client")
+    return ("Czekamy na decyzję klienta", "normal", "client")
+
+
 def _base_action(
     col: StageColumn,
     group: str,
@@ -196,6 +242,8 @@ def _base_action(
     screening_done: Optional[bool],
     hm_veto: bool,
     sla_days: Optional[int],
+    interview_phase: Optional[str] = None,
+    interview_date: Optional[str] = None,
 ) -> tuple[str, str, str]:
     if group == "closed":
         return ("", "normal", "none")
@@ -230,6 +278,8 @@ def _base_action(
         return ("Przygotuj CV do QC", "normal", "cv")
 
     if group == "client":
+        if _phase_applies(col, group, interview_phase):
+            return _phase_action(interview_phase, interview_date)
         if col.stage == CV_SENT_STAGE:
             return ("Umów interview / feedback klienta", "normal", "client")
         if col.stage == "client_interview":
@@ -247,7 +297,13 @@ def _base_action(
 
 
 def _owner(
-    col: StageColumn, group: str, kind: str, *, days: int, hm_veto: bool
+    col: StageColumn,
+    group: str,
+    kind: str,
+    *,
+    days: int,
+    hm_veto: bool,
+    interview_phase: Optional[str] = None,
 ) -> Owner:
     if group == "closed" or kind == "none":
         return "none"
@@ -260,6 +316,12 @@ def _owner(
         return "review"
     if group != "client":
         return "recruiter"
+    if _phase_applies(col, group, interview_phase):
+        if interview_phase in _RECRUITER_PHASES:
+            return "recruiter"
+        if interview_phase == "awaiting_dl_confirm":
+            # Termin potwierdza Delivery Lead u klienta — „Delivery” na karcie.
+            return "delivery"
     if days >= NUDGE_DAYS:
         return "recruiter"
     return "candidate" if kind == "offer" else "client"
@@ -273,12 +335,18 @@ def next_action_for(
     hm_veto: bool = False,
     group: Optional[str] = None,
     sla_days: Optional[int] = None,
+    interview_phase: Optional[str] = None,
+    interview_date: Optional[str] = None,
 ) -> NextAction:
     """Co dalej z kartą — z faktów, które karta niesie (lustro ``nextActionFor``).
 
     ``group`` podaje wołający, który zna całą tablicę
     (``group_keys_for_columns``); bez niej kolumna klasyfikuje się sama, ale
     własny etap wewnętrzny PO screeningu wyjdzie wtedy jako wejściowy.
+
+    ``interview_phase`` (+ ``interview_date`` jako ``RRRR-MM-DD``) to faza
+    cyklu rozmowy u klienta z odznaki karty (``interview_cycle.badge_phase``).
+    ``None`` = brak danych o cyklu, zachowanie jak dotąd.
     """
     resolved = group or group_key_for_column(col)
     days = days_in_stage or 0
@@ -289,12 +357,21 @@ def next_action_for(
         screening_done=screening_done,
         hm_veto=hm_veto,
         sla_days=sla_days,
+        interview_phase=interview_phase,
+        interview_date=interview_date,
     )
     return NextAction(
         label=label,
         tone=tone,
         kind=kind,
-        owner=_owner(col, resolved, kind, days=days, hm_veto=hm_veto),
+        owner=_owner(
+            col,
+            resolved,
+            kind,
+            days=days,
+            hm_veto=hm_veto,
+            interview_phase=interview_phase,
+        ),
     )
 
 
@@ -302,14 +379,19 @@ def recruiter_owner_mode(col: StageColumn, group: str) -> OwnerMode:
     """Kiedy właścicielem ruchu na tej kolumnie jest rekruter — BEZ karty.
 
     Służy agregatom (licznik „wymaga ruchu" na liście rekrutacji), które nie
-    ładują kart. Właściciel zależy od karty tylko w dwóch miejscach:
+    ładują kart. Właściciel zależy od karty w trzech miejscach:
 
     * ``days_in_stage`` na etapach klienta — stąd tryb ``after_nudge``,
     * weto hiring managera — na etapie klienta PRZED upływem ``NUDGE_DAYS``
-      oddaje ruch rekruterowi. Agregat świadomie to POMIJA (weto wymaga
-      osobnego zapytania per rekrutacja z hiring managerem); licznik listy może
-      więc być o takie karty NIŻSZY niż tablica. ``screening_done`` zmienia
-      etykietę, nie właściciela.
+      oddaje ruch rekruterowi,
+    * faza cyklu rozmowy (``interview_phase``) — wybór terminu, prep i telefon
+      po rozmowie są po stronie rekrutera, potwierdzenie terminu po stronie
+      Delivery Leada.
+
+    Agregat świadomie POMIJA weto i fazę (oba wymagają zapytań per karta);
+    licznik listy może więc być o takie karty NIŻSZY niż tablica (a o karty
+    czekające na potwierdzenie DL-a po ``NUDGE_DAYS`` — wyższy).
+    ``screening_done`` zmienia etykietę, nie właściciela.
     """
     probe = next_action_for(col, days_in_stage=0, group=group)
     if probe.owner == "recruiter":

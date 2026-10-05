@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
+import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import {
+  MY_MOVE_LABEL,
   cardBadges,
   cardNextStep,
   claimAction,
@@ -14,6 +15,7 @@ import {
   cardShortName,
   shortStepLabel,
 } from "@/lib/board-card-badges";
+import { nextActionFor } from "@/lib/pipeline-next-action";
 
 const NOW = new Date("2026-09-23T10:00:00Z");
 
@@ -328,5 +330,38 @@ describe("karta na laptopie (04.10.2026)", () => {
     expect(shortStepLabel("Przygotuj CV do QC")).toBe("CV do QC");
     expect(shortStepLabel("Umów interview / feedback klienta")).toBe("Umów rozmowę");
     expect(shortStepLabel("Feedback klienta")).toBe("Feedback klienta");
+  });
+
+  it("skraca kroki cyklu rozmowy u klienta (05.10.2026)", () => {
+    expect(shortStepLabel("Wybierz termin rozmowy")).toBe("Wybierz termin");
+    expect(shortStepLabel("Rozmowa 08.10 — prep z kandydatem")).toBe("Prep · rozmowa 08.10");
+    expect(shortStepLabel("Telefon po rozmowie i debrief")).toBe("Telefon i debrief");
+  });
+
+  it("karta w „Rozmowie u klienta” z wyborem terminu to ruch rekrutera, nie klienta", () => {
+    const item = {
+      id: 1,
+      candidate_id: 1,
+      stage: "client_interview",
+      days_in_stage: 1,
+      interview_badge: {
+        kind: "choose_slot",
+        label: "Wybierz termin · 2 propozycje",
+        tone: "wait",
+        phase: "awaiting_recruiter_pick",
+      },
+    } as KanbanItem;
+    const column = {
+      stage: "client_interview",
+      category: "external",
+      name: "Rozmowa u klienta",
+      count: 1,
+      items: [item],
+    } as unknown as KanbanColumn;
+    const step = cardNextStep(nextActionFor(item, column, { group: "client" }), item, {
+      column: "client_interview",
+      cproEnabled: false,
+    });
+    expect(step).toEqual({ who: MY_MOVE_LABEL, mine: true, label: "Wybierz termin rozmowy" });
   });
 });

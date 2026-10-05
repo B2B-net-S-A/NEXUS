@@ -503,9 +503,20 @@ const SHORT_STEP_LABEL: Record<string, string> = {
   "Uzupełnij arkusz screeningu": "Arkusz screeningu",
   "Zweryfikuj i przenieś dalej": "Zweryfikuj",
   "Reakcja kandydata na ofertę": "Reakcja na ofertę",
+  // Cykl rozmowy u klienta (05.10.2026).
+  "Wybierz termin rozmowy": "Wybierz termin",
+  "Potwierdź termin u klienta": "Potwierdź termin",
+  "Prep z kandydatem przed rozmową": "Prep z kandydatem",
+  "Telefon po rozmowie i debrief": "Telefon i debrief",
+  "Czekamy na decyzję klienta": "Decyzja klienta",
 };
 
+/** „Rozmowa 08.10 — prep z kandydatem” → „Prep · rozmowa 08.10”. */
+const PREP_BEFORE_INTERVIEW = /^Rozmowa (\d{2}\.\d{2}) — prep z kandydatem$/;
+
 export function shortStepLabel(label: string): string {
+  const prep = PREP_BEFORE_INTERVIEW.exec(label);
+  if (prep) return `Prep · rozmowa ${prep[1]}`;
   return SHORT_STEP_LABEL[label] ?? label;
 }
 

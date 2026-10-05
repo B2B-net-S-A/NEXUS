@@ -39,6 +39,8 @@ def test_next_action_matches_frontend(case):
         hm_veto=bool(case["item"]["hm_veto"]),
         group=case["group"],
         sla_days=case["sla_days"],
+        interview_phase=case["item"].get("interview_phase"),
+        interview_date=case["item"].get("interview_date"),
     )
     assert {
         "label": action.label,
@@ -52,7 +54,9 @@ def test_next_action_matches_frontend(case):
 def test_aggregate_owner_mode_agrees_with_the_card_rule(case):
     """Tryb kolumny (bez karty) daje tego samego właściciela co reguła karty.
 
-    Jedyny świadomy wyjątek: weto HM na etapie klienta przed ``NUDGE_DAYS``.
+    Świadome wyjątki: weto HM na etapie klienta przed ``NUDGE_DAYS`` i faza
+    cyklu rozmowy (``interview_phase``) — oba wymagają danych karty, których
+    agregat nie ładuje.
     """
     col = StageColumn.from_meta(case["column"])
     mode = rule.recruiter_owner_mode(col, case["group"])
@@ -64,7 +68,11 @@ def test_aggregate_owner_mode_agrees_with_the_card_rule(case):
         and mode == "after_nudge"
         and days < rule.NUDGE_DAYS
     )
-    if veto_exception:
+    if case["item"].get("interview_phase") is not None:
+        # Faza rozstrzyga właściciela na karcie; tryb kolumny jej nie zna.
+        probe = rule.next_action_for(col, days_in_stage=days, group=case["group"])
+        assert by_mode == (probe.owner == "recruiter")
+    elif veto_exception:
         assert expected and not by_mode
     else:
         assert by_mode == expected

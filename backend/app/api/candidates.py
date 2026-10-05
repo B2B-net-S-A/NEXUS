@@ -4777,23 +4777,39 @@ def _history_stage_column(
     )
 
 
+def _history_in_progress(
+    entry: dict, latest: Optional[tuple[StageColumn, Optional[datetime]]]
+) -> bool:
+    if latest is None or entry.get("job_status") == "closed":
+        return False
+    return str(entry.get("latest_stage") or "") not in _HISTORY_ENDED_STAGES
+
+
 def _history_next_action_owner(
     entry: dict,
     latest: Optional[tuple[StageColumn, Optional[datetime]]],
     *,
     today: date,
+    interview_badge: Optional[dict] = None,
 ) -> Optional[str]:
-    """Właściciel następnego kroku (`next_action_for`) albo `None` dla zakończonych."""
-    if latest is None or entry.get("job_status") == "closed":
-        return None
-    if str(entry.get("latest_stage") or "") in _HISTORY_ENDED_STAGES:
+    """Właściciel następnego kroku (`next_action_for`) albo `None` dla zakończonych.
+
+    ``interview_badge`` — odznaka terminarza pary (`interview_badges_for_job`),
+    z której reguła bierze fazę cyklu rozmowy u klienta, jak karta na Tablicy.
+    """
+    if not _history_in_progress(entry, latest):
         return None
     column, moved_at = latest
     days = None
     if moved_at is not None:
         days = max(0, (today - moved_at.astimezone(ZoneInfo(DEFAULT_TZ)).date()).days)
+    badge = interview_badge or {}
     owner = next_action_for(
-        column, days_in_stage=days, group=group_key_for_column(column)
+        column,
+        days_in_stage=days,
+        group=group_key_for_column(column),
+        interview_phase=badge.get("phase"),
+        interview_date=badge.get("interview_date"),
     ).owner
     return None if owner == "none" else owner
 
@@ -4973,9 +4989,33 @@ async def get_candidate_history(
     # 04.10.2026: „kto ma ruch” w procesie w toku — profil pokazuje go
     # w „Teraz” tą samą regułą co karta na Tablicy. Zakończone = `None`.
     today = business_today()
+    # 05.10.2026: na etapach klienta krok zależy od cyklu rozmowy (wybór
+    # terminu, potwierdzenie, prep, telefon) — odznaka tej samej funkcji co
+    # Tablica, tylko dla procesów w toku po stronie klienta (zwykle 0–2).
+    interview_badges: dict[int, dict] = {}
+    client_jobs = [
+        job_id
+        for job_id, entry in jobs_map.items()
+        if _history_in_progress(entry, latest_columns.get(job_id))
+        and group_key_for_column(latest_columns[job_id][0]) == "client"
+    ]
+    if client_jobs:
+        from app.services.interview_cycle import interview_badges_for_job
+
+        for job_id in client_jobs:
+            badge = (
+                await interview_badges_for_job(
+                    db, job_id=job_id, candidate_ids=[candidate_id]
+                )
+            ).get(candidate_id)
+            if badge is not None:
+                interview_badges[job_id] = badge
     for job_id, entry in jobs_map.items():
         entry["next_action_owner"] = _history_next_action_owner(
-            entry, latest_columns.get(job_id), today=today
+            entry,
+            latest_columns.get(job_id),
+            today=today,
+            interview_badge=interview_badges.get(job_id),
         )
 
     # Contracts
