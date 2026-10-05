@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import {
   agreementBadge,
+  agreementProjectDescription,
   daysSince,
   pairColumnLabel,
   prefillRateSource,
@@ -103,5 +104,60 @@ describe("podpisy i etykiety", () => {
     expect(daysSince("2026-10-01T10:00:00Z", NOW)).toBe(3);
     expect(daysSince("2026-10-09T10:00:00Z", NOW)).toBe(0);
     expect(daysSince("zła data", NOW)).toBeNull();
+  });
+});
+
+describe("agreementProjectDescription", () => {
+  const MAIL =
+    "Dzień dobry, szukamy testera. Stawka do 150 zł/h netto B2B. Pozdrawiam, Jan";
+
+  it("bierze ogłoszenie z rekrutacji z Traffita", () => {
+    expect(
+      agreementProjectDescription({
+        external_source: "traffit",
+        description: "Projekt bankowy, zespół 6 osób.",
+        champion_profile: { project: { about: "Inny opis" } },
+      }),
+    ).toBe("Projekt bankowy, zespół 6 osób.");
+  });
+
+  it("bierze opis projektu z Championa dla rekrutacji z NEXUSA", () => {
+    expect(
+      agreementProjectDescription({
+        external_source: "manual",
+        description: MAIL,
+        champion_profile: { project: { about: "  System płatności.  " } },
+      }),
+    ).toBe("System płatności.");
+  });
+
+  it("czyta stary kształt profilu", () => {
+    expect(
+      agreementProjectDescription({
+        external_source: null,
+        description: MAIL,
+        champion_profile: { project_context: { about: "Migracja danych." } },
+      }),
+    ).toBe("Migracja danych.");
+  });
+
+  it("bez opisu w Championie zwraca null — nigdy surowego maila klienta", () => {
+    expect(
+      agreementProjectDescription({ external_source: "manual", description: MAIL }),
+    ).toBeNull();
+    expect(
+      agreementProjectDescription({
+        external_source: "manual",
+        description: MAIL,
+        champion_profile: { project: { about: "   " } },
+      }),
+    ).toBeNull();
+  });
+
+  it("bez opisu zwraca null także dla Traffita", () => {
+    expect(
+      agreementProjectDescription({ external_source: "traffit", description: "  " }),
+    ).toBeNull();
+    expect(agreementProjectDescription(null)).toBeNull();
   });
 });

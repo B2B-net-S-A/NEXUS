@@ -185,6 +185,7 @@ beforeEach(() => {
           title: "Java Dev",
           client_id: 3,
           description: "Rozwój systemu bankowego.",
+          external_source: "traffit",
           location: "Warszawa",
           client_name: "Nordea Bank",
         },
