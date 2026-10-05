@@ -930,6 +930,42 @@ async def _follow_client_merge(db: AsyncSession, row: OrderMailDocument) -> None
     )
 
 
+async def _confirm_identification(
+    db: AsyncSession, row: OrderMailDocument, text: str
+) -> None:
+    """Podnieś rozpoznanie słabsze niż numer rejestrowy, gdy dziś ten sam klient
+    jest potwierdzony numerem.
+
+    Bramka zapisu czyta ``identification_method`` z wiersza, a „Przelicz plan"
+    poza PFRON-em go nie odświeżał: dokument rozpoznany kiedyś markerem
+    zostawał „do weryfikacji" na zawsze, choć dziś czytnik numerów (nowy format,
+    NIP dopisany klientowi w bazie) potwierdza klienta numerem. Zgłoszenie
+    05.10.2026: Nordea z samym fińskim Business ID „2858394-9".
+
+    Wyłącznie W GÓRĘ i wyłącznie dla tego samego klienta: inny wynik
+    rozpoznania niczego nie zmienia — przepięcie dokumentu na innego klienta
+    nie jest skutkiem ubocznym przeliczenia planu.
+    """
+    if row.identification_method == "registry_id" or not row.client_id:
+        return
+    registry = await build_registry_from_db(db)
+    ident = identify_client(
+        text, registry, sender_email=getattr(row, "sender_email", None)
+    )
+    if ident.method != "registry_id":
+        return
+    client_id, key = await resolve_order_client_id(db, ident)
+    if client_id is None:
+        return
+    canonical = (await _canonical_client_ids(db, {client_id})).get(client_id)
+    if canonical is None or canonical != row.client_id:
+        return
+    row.identification_method = ident.method
+    row.identification_reason = ident.reason
+    if key:
+        row.client_key = key
+
+
 async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
     """Przelicz utrwalony odczyt z PDF-em i bieżącym rosterem, bez writera.
 
@@ -974,6 +1010,7 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
         # rekordu zależy cała reszta przeliczenia. (PFRON rozpoznaje klienta od
         # nowa wyżej, więc nie ma tam czego przenosić.)
         await _follow_client_merge(db, row)
+        await _confirm_identification(db, row, doc.text)
     policies = active_policies(row.client_id)
     doc = dataclasses.replace(
         doc,
