@@ -139,11 +139,13 @@ async def test_email_match_does_not_restamp_another_live_traffit_record(
 
     _, _, external_id, _ = await _row(db, cid)
     assert external_id == first, "tożsamość przeskoczyła na drugi rekord Traffita"
-    assert any(
-        m.startswith(f"email_collision candidate ext={second}")
-        for m in progress.error_samples
-    )
-    assert f"candidate:{second}" in progress.error_refs
+    # Od 05.10.2026 kolizja jest doradcza: para ID w statystykach, bez błędu
+    # (inaczej wstrzymywała `__daily__` — kwarantanna jej nie parkowała).
+    assert progress.errors == 0
+    assert f"candidate:{second}" not in progress.error_refs
+    assert progress.email_collision_count == 1
+    assert progress.email_collisions == [{"ext_id": second, "candidate_id": cid}]
+    assert email not in repr(progress.as_dict())
 
 
 @pytest.mark.asyncio

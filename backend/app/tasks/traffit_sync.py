@@ -1145,6 +1145,10 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "pending_windows",
         "dropped_windows",
         "note",
+        # 05.10.2026: kolizje e-maila fazy `candidates` — DORADCZE, poza
+        # `errors`, więc nie wstrzymują `__daily__`; pary samych ID.
+        "email_collision_count",
+        "email_collisions",
     )
     out = {k: progress_dict.get(k) for k in keys if k in progress_dict}
     if isinstance(progress_dict.get("error"), int):
