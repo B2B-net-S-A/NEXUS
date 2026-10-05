@@ -409,8 +409,7 @@
     "sources": [
       "frontend/src/components/v2/pages/CandidateDetailV2.tsx",
       "frontend/src/components/v2/candidate-profile/ProfileHeader.tsx",
-      "frontend/src/components/v2/pages/CandidateProfileFactsBar.tsx",
-      "frontend/src/components/v2/pages/CandidateNotesFactsCard.tsx"
+      "frontend/src/components/v2/pages/CandidateProfileFactsBar.tsx"
     ]
   },
   {

@@ -10,7 +10,6 @@ vi.mock("@/components/v2/presence/ActiveViewers", () => ({ ActiveViewers: () => 
 vi.mock("@/components/v2/CompetenceCategoryBadge", () => ({
   CompetenceCategoryBadge: () => null,
 }));
-vi.mock("@/components/v2/PinButton", () => ({ PinButton: () => null }));
 vi.mock("../CandidateTagsEditor", () => ({ CandidateTagsEditor: () => null }));
 
 import { ProfileHeader } from "../ProfileHeader";
