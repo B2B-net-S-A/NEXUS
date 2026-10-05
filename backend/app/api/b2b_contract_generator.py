@@ -116,6 +116,8 @@ from app.services.contract_order_sync import (
     switch_loaded_contract_to_hourly,
 )
 from app.services.hired_order_status import notify_finance_hired_without_order
+from app.services.job_fill import suggest_closing_when_fully_staffed
+from app.services.pipeline_auto_move import run_after_commit
 from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.b2b_agreement_prefill import build_prefill
 from app.models.notification import NotificationType
@@ -3682,6 +3684,7 @@ async def confirm_generated_contract_fully_signed(
             "start_date": result.contract.start_date,
         }
         current_user_id = current_user.id
+        hired_stage_id = result.hired_stage.id if result.hired_stage else None
         await db.commit()
         # Live kanban: karta przeszła na „Zatrudniony" (best-effort).
         if result.created_hired_stage:
@@ -3752,7 +3755,7 @@ async def confirm_generated_contract_fully_signed(
                 "je ręcznie w zakładce Zamówienia („Nowy kontraktor / "
                 "zamówienie”)."
             )
-        return B2BConfirmFullySignedResponse(
+        response = B2BConfirmFullySignedResponse(
             outcome=outcome,
             contract_id=result.contract.id,
             order_id=result.order.id if result.order else None,
@@ -3764,12 +3767,47 @@ async def confirm_generated_contract_fully_signed(
             acknowledged_conflicts=list(result.acknowledged_conflicts),
             order_skipped_reason=result.order_skipped_reason,
         )
+        if hired_stage_id is not None:
+            # Audyt 05.10.2026: zatrudnienie z podpisu robi po commicie to
+            # samo co `/pipeline/move` — dzwonki z reguł etapu (rekruter wie,
+            # że kandydat jest zatrudniony), profil ryzyka i podpowiedź
+            # „komplet obsady”. Każdy efekt w savepoincie; nic nie cofa
+            # podpisu. Odpowiedź jest policzona WCZEŚNIEJ — nieudany commit
+            # efektu wycofuje sesję i wygasza obiekty ORM.
+            await _hired_effects_after_signature(
+                db, stage_id=hired_stage_id, job=job, mover=current_user
+            )
+        return response
     except HTTPException:
         await db.rollback()
         raise
     except Exception:
         await db.rollback()
         raise
+
+
+async def _hired_effects_after_signature(
+    db: AsyncSession, *, stage_id: int, job: Job, mover: User
+) -> None:
+    """Efekty zatrudnienia z podpisu — lustro bloku po commicie `/move`.
+
+    Nigdy nie rzuca: podpis i ruch karty są już zatwierdzone.
+    """
+    job_id = job.id
+    await run_after_commit(db, stage_id=stage_id, mover=mover)
+    try:
+        if await suggest_closing_when_fully_staffed(db, job):
+            await db.commit()
+    except Exception as exc:  # noqa: BLE001 — podpis jest zapisany
+        logger.warning(
+            "fully-staffed hint after signature failed job=%s (%s)",
+            job_id,
+            type(exc).__name__,
+        )
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 async def _lock_person_contracts_before_row(

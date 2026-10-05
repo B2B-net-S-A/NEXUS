@@ -32,6 +32,7 @@ from app.models.job import Job
 from app.models.order_type import OrderType
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.user_activity import UserActionType, UserActivity
 from app.services.contract_candidate_contact import (
     EMAIL_MAX_LENGTH,
     PHONE_MAX_LENGTH,
@@ -90,6 +91,15 @@ class B2BEmploymentDraftResult:
     # failed to produce the record every downstream reader (expiry scanner,
     # MRR, termination sync) expects; callers must not treat that as success.
     order_skipped_reason: str | None = None
+    # Wiersz etapu „Zatrudniony” założony przez TĘ operację (``None``, gdy
+    # karta już tam była albo ruch pominięto). Wołający po commicie robi z nim
+    # to samo co ``/pipeline/move``: powiadomienia o etapie, podpowiedź
+    # „komplet obsady” (audyt 05.10.2026).
+    hired_stage: CandidateStage | None = None
+    # Stawka kandydata z TEJ rekrutacji wpisana w nowy szkic przy ręcznym
+    # „Zatrudniony” (PLN/h). Wołający zapisuje ją w audycie szkicu — dzięki
+    # temu podpis w Generatorze rozpoznaje szkic jako zaślepkę.
+    seeded_rate_candidate: Decimal | None = None
 
 
 def _payload_value(payload: Any | None, name: str) -> Any | None:
@@ -158,7 +168,6 @@ async def _is_skeletal_pipeline_draft(
     has_skeletal_shape = (
         contract.status == ContractStatus.draft
         and detail is None
-        and contract.rate_candidate is None
         and contract.rate_client is None
         and not contract.candidate_rate_schedule
         and contract.draft_content_html is None
@@ -170,18 +179,35 @@ async def _is_skeletal_pipeline_draft(
     # incomplete manual draft with a negotiated date or currency. Only the
     # durable audit written by the hired-stage hook authorizes replacing its
     # placeholder defaults from the signed document.
-    origin_activity_id = await db.scalar(
-        select(Activity.id)
-        .where(
-            Activity.entity_type == "contract",
-            Activity.entity_id == contract.id,
-            Activity.action.in_(
-                ("auto_drafted_from_pipeline", "auto_drafted_from_order_mail")
-            ),
+    origin = (
+        await db.execute(
+            select(Activity.id, Activity.details)
+            .where(
+                Activity.entity_type == "contract",
+                Activity.entity_id == contract.id,
+                Activity.action.in_(
+                    ("auto_drafted_from_pipeline", "auto_drafted_from_order_mail")
+                ),
+            )
+            .order_by(Activity.id)
+            .limit(1)
         )
-        .limit(1)
-    )
-    return origin_activity_id is not None
+    ).first()
+    if origin is None:
+        return False
+    if contract.rate_candidate is None:
+        return True
+    # Ręczne „Zatrudniony” wpisuje w szkic stawkę z TEJ rekrutacji (audyt
+    # 05.10.2026) i zapisuje ją w audycie. Szkic z tą samą stawką jest nadal
+    # zaślepką — podpisany dokument ją zastępuje. Stawka zmieniona później
+    # przez człowieka to już warunek, którego podpis nie nadpisze po cichu.
+    seeded = (origin.details or {}).get("seeded_rate_candidate")
+    if seeded is None:
+        return False
+    try:
+        return Decimal(str(seeded)) == Decimal(str(contract.rate_candidate))
+    except ArithmeticError:
+        return False
 
 
 def _collect_term_conflicts(
@@ -210,7 +236,11 @@ def _collect_term_conflicts(
             conflicts.append("data rozpoczęcia")
 
     candidate_rate = _payload_value(payload, "rate_candidate")
-    if contract.rate_candidate is not None and candidate_rate is not None:
+    if (
+        not skeletal_pipeline_draft
+        and contract.rate_candidate is not None
+        and candidate_rate is not None
+    ):
         if Decimal(str(contract.rate_candidate)) != Decimal(str(candidate_rate)):
             conflicts.append("stawka kandydata")
 
@@ -350,8 +380,11 @@ def _fill_contract_terms(
 
     if replace_skeletal_defaults or contract.start_date is None:
         contract.start_date = _payload_value(payload, "start_date")
-    if replace_skeletal_defaults or contract.rate_candidate is None:
-        contract.rate_candidate = _payload_value(payload, "rate_candidate")
+    payload_rate = _payload_value(payload, "rate_candidate")
+    if contract.rate_candidate is None or (
+        replace_skeletal_defaults and payload_rate is not None
+    ):
+        contract.rate_candidate = payload_rate
     payload_currency = _payload_value(payload, "currency")
     if replace_skeletal_defaults and payload_currency:
         contract.rate_candidate_currency = payload_currency
@@ -726,6 +759,35 @@ async def _notify_new_contractor_draft(
         )
 
 
+async def _this_job_rate(
+    db: AsyncSession, *, job_id: int, candidate_id: int
+) -> Decimal | None:
+    """Stawka kandydata (PLN/h) podana w tej rekrutacji albo ``None``.
+
+    Podpowiedź do szkicu, nie warunek zatrudnienia: błąd odczytu cofa tylko
+    swój savepoint i daje ``None``.
+    """
+    from app.services.candidate_rate_from import this_job_rates  # noqa: PLC0415
+
+    try:
+        async with db.begin_nested():
+            rates = await this_job_rates(db, job_id, [candidate_id])
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — podpowiedź nie psuje zatrudnienia
+        logger.warning(
+            "hired draft: this-job rate lookup failed job=%s (%s)",
+            job_id,
+            type(exc).__name__,
+        )
+        return None
+    amount = (rates.get(candidate_id) or {}).get("amount")
+    if amount is None:
+        return None
+    value = Decimal(str(amount))
+    return value if value > 0 else None
+
+
 async def _resolve_hired_stage_def(
     db: AsyncSession, job: Job
 ) -> PipelineStageDef | None:
@@ -754,6 +816,30 @@ async def _ensure_hired_stage(
     job: Job,
     actor_id: int,
 ) -> bool:
+    """Czy ruch na „Zatrudniony” powstał — zgodność dla starych wołających."""
+    return (
+        await _ensure_hired_stage_row(
+            db, candidate=candidate, job=job, actor_id=actor_id
+        )
+        is not None
+    )
+
+
+async def _ensure_hired_stage_row(
+    db: AsyncSession,
+    *,
+    candidate: Candidate,
+    job: Job,
+    actor_id: int,
+) -> CandidateStage | None:
+    """Przesuń parę na „Zatrudniony” i zwróć NOWY wiersz etapu.
+
+    ``None`` = karta już tam była albo polityka Priority Work odmówiła
+    otwarcia procesu. Ślad ruchu jest ten sam co w ``/pipeline/move``
+    (``_record_stage_change``): ``Activity stage_changed`` i ``UserActivity``
+    — bez tego zatrudnienie z podpisu nie liczyło się w aktywności osoby
+    (audyt 05.10.2026). Efekty po commicie należą do wołającego.
+    """
     latest = await db.scalar(
         select(CandidateStage)
         .where(
@@ -765,7 +851,7 @@ async def _ensure_hired_stage(
         .with_for_update()
     )
     if latest is not None and latest.stage == PipelineStage.hired:
-        return False
+        return None
 
     stage_def = await _resolve_hired_stage_def(db, job)
     try:
@@ -789,7 +875,7 @@ async def _ensure_hired_stage(
             candidate.id,
             job.id,
         )
-        return False
+        return None
     # Etap zapisuje command service (writer fence), więc kolejka kontaktu
     # domyka się na jego wierszu — nie na własnym `CandidateStage`.
     await maybe_close_contact_opportunity(
@@ -815,7 +901,21 @@ async def _ensure_hired_stage(
             },
         )
     )
-    return True
+    db.add(
+        UserActivity(
+            user_id=actor_id,
+            action_type=UserActionType.stage_changed,
+            entity_type="pipeline",
+            entity_id=stage.id,
+            details={
+                "candidate_id": candidate.id,
+                "job_id": job.id,
+                "stage": PipelineStage.hired.value,
+                "stage_def_id": stage.stage_def_id,
+            },
+        )
+    )
+    return stage
 
 
 async def _live_contracts_of_person_at_client(
@@ -995,7 +1095,19 @@ async def ensure_b2b_employment_draft(
     created_contract = not contracts
     skeletal_pipeline_draft = False
     acknowledged_conflicts: tuple[str, ...] = ()
+    seeded_rate_candidate: Decimal | None = None
     if created_contract:
+        rate_candidate = _payload_value(payload, "rate_candidate")
+        is_b2b = require_b2b or contract_type == ContractType.b2b
+        if not require_b2b and is_b2b and rate_candidate is None:
+            # Ręczne „Zatrudniony” z umową B2B (audyt 05.10.2026): szkic
+            # dostaje stawkę, którą kandydat podał w TEJ rekrutacji (karta
+            # albo okno „Zweryfikowany”, PLN/h). Ścieżka Generatora ma
+            # stawkę z dokumentu i tu nie wchodzi.
+            seeded_rate_candidate = await _this_job_rate(
+                db, job_id=job.id, candidate_id=candidate.id
+            )
+            rate_candidate = seeded_rate_candidate
         contract = Contract(
             candidate_id=candidate.id,
             client_id=job.client_id,
@@ -1005,11 +1117,15 @@ async def ensure_b2b_employment_draft(
             contract_type=contract_type,
             status=ContractStatus.draft,
             start_date=_payload_value(payload, "start_date") or default_start_date,
-            rate_candidate=_payload_value(payload, "rate_candidate"),
-            rate_unit=RateUnit.hourly if require_b2b else RateUnit.monthly,
+            rate_candidate=rate_candidate,
+            # Kontrakty B2B są w zł/h (lustro `contract_unit_for_order`);
+            # miesięcznie liczą się tylko umowa o pracę i zlecenie.
+            rate_unit=RateUnit.hourly if is_b2b else RateUnit.monthly,
             currency=_payload_value(payload, "currency") or "PLN",
             candidate_rate_schedule=[],
         )
+        if seeded_rate_candidate is not None:
+            contract.rate_candidate_currency = "PLN"
         db.add(contract)
         await db.flush()
         existing_detail = None
@@ -1163,14 +1279,15 @@ async def ensure_b2b_employment_draft(
                 db, contract_ids=[contract.id], actor_id=actor_id
             )
 
-    created_hired_stage = False
+    hired_stage: CandidateStage | None = None
     if ensure_hired:
-        created_hired_stage = await _ensure_hired_stage(
+        hired_stage = await _ensure_hired_stage_row(
             db,
             candidate=candidate,
             job=job,
             actor_id=actor_id,
         )
+    created_hired_stage = hired_stage is not None
 
     if audit_source_generated_id is not None:
         db.add(
@@ -1205,4 +1322,6 @@ async def ensure_b2b_employment_draft(
         created_hired_stage=created_hired_stage,
         acknowledged_conflicts=acknowledged_conflicts,
         order_skipped_reason=order_skipped_reason,
+        hired_stage=hired_stage,
+        seeded_rate_candidate=seeded_rate_candidate,
     )
