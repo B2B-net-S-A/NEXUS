@@ -174,15 +174,17 @@ async def _seed_event(user_id: int, *, lead: timedelta, **extra) -> int:
 
     start = datetime.now(UTC) + lead
     async with AsyncSessionLocal() as db:
-        event = CalendarEvent(
-            title=f"Przypomnienie {uuid.uuid4().hex[:6]}",
-            event_type=EventType.interview,
-            start_time=start,
-            end_time=start + timedelta(hours=1),
-            status=EventStatus.scheduled,
-            created_by=user_id,
+        # `extra` może nadpisać typ (spotkanie z Outlooka, rozmowa u klienta).
+        fields = {
+            "title": f"Przypomnienie {uuid.uuid4().hex[:6]}",
+            "event_type": EventType.interview,
+            "start_time": start,
+            "end_time": start + timedelta(hours=1),
+            "status": EventStatus.scheduled,
+            "created_by": user_id,
             **extra,
-        )
+        }
+        event = CalendarEvent(**fields)
         db.add(event)
         await db.commit()
         return event.id
