@@ -469,7 +469,10 @@ async def test_finance_list_skips_pairs_no_longer_hired_and_excluded_placements(
     await _stage(
         left["candidate_id"],
         left["job_ids"][0],
-        PipelineStage.withdrawn,
+        # `rejected`, nie `withdrawn`: ten drugi wymaga powodu w CHECK-u
+        # `ck_candidate_stages_withdrawn_requires_reason`. Liczy się, że
+        # najnowszy wiersz pary nie jest już „Zatrudniony”.
+        PipelineStage.rejected,
         ago=timedelta(days=1),
     )
     async with AsyncSessionLocal() as db:
