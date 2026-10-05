@@ -359,9 +359,9 @@ class JobResponse(BaseModel):
     # plus propozycje automatu z ``proposed=True`` (`services/job_team`).
     # Wypełniają lista i ``GET /api/jobs/{id}``; inne odpowiedzi niosą pustą.
     recruiters: list[JobRecruiterOut] = []
-    # Delivery Lead rozwinięty do ``UserBrief`` — wypełnia tylko lista
-    # (``GET /api/jobs``), żeby kafelek pokazał „DL: …” obok prowadzącego
-    # (zgłoszenie 30.09.2026: DL widziała samo „Nieprzypisany”).
+    # Delivery Lead rozwinięty do ``UserBrief`` — wypełniają lista
+    # (``GET /api/jobs``, „DL: …” obok rekrutera; zgłoszenie 30.09.2026) i
+    # ``GET /api/jobs/{id}`` (Brief Profilu Championa, 04.10.2026).
     # Nazwa inna niż relacja ORM `Job.delivery_lead` — `model_validate(job)`
     # czytałby ją leniwie (MissingGreenlet → 500 na liście).
     delivery_lead_user: Optional[UserBrief] = None
