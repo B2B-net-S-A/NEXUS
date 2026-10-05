@@ -85,6 +85,67 @@ export const NUDGE_DAYS = 5;
 /** Do tylu dni świeża karta wejściowa jest jeszcze „do analizy dziś". */
 const FRESH_INTAKE_DAYS = 1;
 
+/**
+ * Faza cyklu rozmowy u klienta — liczy ją serwer z odznaki terminarza karty
+ * (`interview_cycle.badge_phase`, pole `interview_badge.phase`). Na etapach
+ * klienta to ona mówi, kto ma ruch: do 05.10.2026 karta w „Rozmowie
+ * u klienta” zawsze mówiła „Klient · Zbierz feedback HM”, choć rekruter miał
+ * wybrać termin. Brak pola (starszy serwer, brak cyklu) = jak dotąd.
+ */
+export type InterviewPhase =
+  | "awaiting_recruiter_pick"
+  | "awaiting_dl_confirm"
+  | "scheduled"
+  | "debrief_due"
+  | "debriefed";
+
+/** Etapy oferty — cykl rozmowy jest za nami, ruch ma kandydat. */
+const OFFER_STAGES = new Set(["acceptance", "negotiation"]);
+
+const RECRUITER_PHASES = new Set<InterviewPhase>([
+  "awaiting_recruiter_pick",
+  "scheduled",
+  "debrief_due",
+]);
+
+function phaseApplies(
+  column: KanbanColumn,
+  group: PipelineGroupKey,
+  phase: InterviewPhase | null | undefined,
+): phase is InterviewPhase {
+  return group === "client" && phase != null && !OFFER_STAGES.has(String(column.stage));
+}
+
+/** `RRRR-MM-DD` → `DD.MM` (datę w strefie firmy liczy serwer). */
+function dayMonth(isoDate: string | null | undefined): string | null {
+  if (!isoDate || isoDate.length < 10) return null;
+  return `${isoDate.slice(8, 10)}.${isoDate.slice(5, 7)}`;
+}
+
+function phaseAction(
+  phase: InterviewPhase,
+  interviewDate: string | null | undefined,
+): Omit<NextAction, "owner"> {
+  switch (phase) {
+    case "awaiting_recruiter_pick":
+      return { label: "Wybierz termin rozmowy", tone: "normal", kind: "client" };
+    case "awaiting_dl_confirm":
+      return { label: "Potwierdź termin u klienta", tone: "normal", kind: "client" };
+    case "scheduled": {
+      const day = dayMonth(interviewDate);
+      return {
+        label: day ? `Rozmowa ${day} — prep z kandydatem` : "Prep z kandydatem przed rozmową",
+        tone: "normal",
+        kind: "client",
+      };
+    }
+    case "debrief_due":
+      return { label: "Telefon po rozmowie i debrief", tone: "normal", kind: "client" };
+    default:
+      return { label: "Czekamy na decyzję klienta", tone: "normal", kind: "client" };
+  }
+}
+
 export interface NextActionContext {
   /** SLA klienta w dniach roboczych (karta klienta). `null` = nie ustawiono. */
   slaDays?: number | null;
@@ -153,6 +214,12 @@ function ownerFor(
   if (item.hm_veto) return "recruiter";
   if (group === "posting" || group === "intake") return "review";
   if (group !== "client") return "recruiter";
+  const phase = item.interview_badge?.phase;
+  if (phaseApplies(column, group, phase)) {
+    if (RECRUITER_PHASES.has(phase)) return "recruiter";
+    // Termin potwierdza Delivery Lead u klienta — „Delivery” na karcie.
+    if (phase === "awaiting_dl_confirm") return "delivery";
+  }
   const days = item.days_in_stage ?? 0;
   if (days >= NUDGE_DAYS) return "recruiter";
   return base.kind === "offer" ? "candidate" : "client";
@@ -232,7 +299,11 @@ function baseActionFor(
       }
       return { label: "Przygotuj CV do QC", tone: "normal", kind: "cv" };
 
-    case "client":
+    case "client": {
+      const phase = item.interview_badge?.phase;
+      if (phaseApplies(column, group, phase)) {
+        return phaseAction(phase, item.interview_badge?.interview_date);
+      }
       if (column.stage === CV_SENT_STAGE) {
         return {
           label: "Umów interview / feedback klienta",
@@ -253,6 +324,7 @@ function baseActionFor(
       // Własny etap zewnętrzny bez legacy enuma („Preparation Meeting").
       // Wiemy tyle, że kandydat jest u klienta — i tylko tyle mówimy.
       return { label: "Feedback klienta", tone: "normal", kind: "client" };
+    }
 
     case "contract":
       if (terminalOf(column) === "hired" || column.stage === "onboarding") {

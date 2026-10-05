@@ -2192,13 +2192,20 @@ def _card_warnings(stage: CandidateStage, *, decision, has_veto: bool) -> list[s
 
 
 def _with_next_action_owner(payload: dict, column: StageColumn, group: str) -> dict:
-    """Dopisz `next_action_owner` — ta sama reguła co karta na froncie."""
+    """Dopisz `next_action_owner` — ta sama reguła co karta na froncie.
+
+    Faza cyklu rozmowy u klienta idzie z odznaki terminarza karty
+    (`interview_cycle.badge_phase`) — tej samej, którą czyta front.
+    """
+    badge = payload.get("interview_badge") or {}
     payload["next_action_owner"] = next_action_for(
         column,
         days_in_stage=payload.get("days_in_stage"),
         screening_done=payload.get("screening_done"),
         hm_veto=payload.get("hm_veto") is not None,
         group=group,
+        interview_phase=badge.get("phase"),
+        interview_date=badge.get("interview_date"),
     ).owner
     return payload
 

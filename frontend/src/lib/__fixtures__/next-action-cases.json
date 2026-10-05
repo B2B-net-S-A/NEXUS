@@ -466,6 +466,306 @@
    }
   },
   {
+   "name": "rozmowa: rekruter wybiera termin od klienta",
+   "group": "client",
+   "column": {
+    "stage": "client_interview",
+    "category": "external",
+    "terminal_type": null,
+    "name": "client_interview"
+   },
+   "item": {
+    "days_in_stage": 1,
+    "screening_done": null,
+    "hm_veto": false,
+    "interview_phase": "awaiting_recruiter_pick"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Wybierz termin rozmowy",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "rozmowa: wybór terminu po nudge nadal rekruter",
+   "group": "client",
+   "column": {
+    "stage": "client_interview",
+    "category": "external",
+    "terminal_type": null,
+    "name": "client_interview"
+   },
+   "item": {
+    "days_in_stage": 9,
+    "screening_done": null,
+    "hm_veto": false,
+    "interview_phase": "awaiting_recruiter_pick"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Wybierz termin rozmowy",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "CV wysłane z terminami od klienta: rekruter wybiera",
+   "group": "client",
+   "column": {
+    "stage": "cv_sent",
+    "category": "external",
+    "terminal_type": null,
+    "name": "cv_sent"
+   },
+   "item": {
+    "days_in_stage": 1,
+    "screening_done": null,
+    "hm_veto": false,
+    "interview_phase": "awaiting_recruiter_pick"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Wybierz termin rozmowy",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "rozmowa: DL potwierdza termin u klienta",
+   "group": "client",
+   "column": {
+    "stage": "client_interview",
+    "category": "external",
+    "terminal_type": null,
+    "name": "client_interview"
+   },
+   "item": {
+    "days_in_stage": 1,
+    "screening_done": null,
+    "hm_veto": false,
+    "interview_phase": "awaiting_dl_confirm"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Potwierdź termin u klienta",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "delivery"
+   }
+  },
+  {
+   "name": "rozmowa: potwierdzenie DL po nudge nadal po stronie Delivery",
+   "group": "client",
+   "column": {
+    "stage": "client_interview",
+    "category": "external",
+    "terminal_type": null,
+    "name": "client_interview"
+   },
+   "item": {
+    "days_in_stage": 8,
+    "screening_done": null,
+    "hm_veto": false,
+    "interview_phase": "awaiting_dl_confirm"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Potwierdź termin u klienta",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "delivery"
+   }
+  },
+  {
+   "name": "rozmowa zaplanowana: prep z kandydatem",
+   "group": "client",
+   "column": {
+    "stage": "client_interview",
+    "category": "external",
+    "terminal_type": null,
+    "name": "client_interview"
+   },
+   "item": {
+    "days_in_stage": 2,
+    "screening_done": null,
+    "hm_veto": false,
+    "interview_phase": "scheduled",
+    "interview_date": "2026-10-08"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Rozmowa 08.10 — prep z kandydatem",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "rozmowa zaplanowana bez daty",
+   "group": "client",
+   "column": {
+    "stage": "client_interview",
+    "category": "external",
+    "terminal_type": null,
+    "name": "client_interview"
+   },
+   "item": {
+    "days_in_stage": 2,
+    "screening_done": null,
+    "hm_veto": false,
+    "interview_phase": "scheduled"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Prep z kandydatem przed rozmową",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "rozmowa odbyta bez debriefu: telefon",
+   "group": "client",
+   "column": {
+    "stage": "client_interview",
+    "category": "external",
+    "terminal_type": null,
+    "name": "client_interview"
+   },
+   "item": {
+    "days_in_stage": 0,
+    "screening_done": null,
+    "hm_veto": false,
+    "interview_phase": "debrief_due"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Telefon po rozmowie i debrief",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "debrief zapisany: czekamy na klienta",
+   "group": "client",
+   "column": {
+    "stage": "client_interview",
+    "category": "external",
+    "terminal_type": null,
+    "name": "client_interview"
+   },
+   "item": {
+    "days_in_stage": 1,
+    "screening_done": null,
+    "hm_veto": false,
+    "interview_phase": "debriefed"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Czekamy na decyzję klienta",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "client"
+   }
+  },
+  {
+   "name": "debrief zapisany, klient milczy po nudge: rekruter",
+   "group": "client",
+   "column": {
+    "stage": "client_interview",
+    "category": "external",
+    "terminal_type": null,
+    "name": "client_interview"
+   },
+   "item": {
+    "days_in_stage": 6,
+    "screening_done": null,
+    "hm_veto": false,
+    "interview_phase": "debriefed"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Czekamy na decyzję klienta",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "własny etap klienta (Po Interview) z wyborem terminu",
+   "group": "client",
+   "column": {
+    "stage": "new",
+    "category": "external",
+    "terminal_type": null,
+    "name": "Po Interview"
+   },
+   "item": {
+    "days_in_stage": 1,
+    "screening_done": null,
+    "hm_veto": false,
+    "interview_phase": "awaiting_recruiter_pick"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Wybierz termin rozmowy",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "weto HM wygrywa z fazą rozmowy",
+   "group": "client",
+   "column": {
+    "stage": "client_interview",
+    "category": "external",
+    "terminal_type": null,
+    "name": "client_interview"
+   },
+   "item": {
+    "days_in_stage": 1,
+    "screening_done": null,
+    "hm_veto": true,
+    "interview_phase": "awaiting_dl_confirm"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Ostrzeżenie: weto HM",
+    "tone": "gate",
+    "kind": "client",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "akceptacja ignoruje fazę rozmowy",
+   "group": "client",
+   "column": {
+    "stage": "acceptance",
+    "category": "external",
+    "terminal_type": null,
+    "name": "acceptance"
+   },
+   "item": {
+    "days_in_stage": 2,
+    "screening_done": null,
+    "hm_veto": false,
+    "interview_phase": "debriefed"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Reakcja kandydata na ofertę",
+    "tone": "normal",
+    "kind": "offer",
+    "owner": "candidate"
+   }
+  },
+  {
    "name": "akceptacja czeka na kandydata",
    "group": "client",
    "column": {

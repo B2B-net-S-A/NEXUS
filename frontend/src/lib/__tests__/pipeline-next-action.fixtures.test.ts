@@ -8,7 +8,12 @@
 import { describe, expect, it } from "vitest";
 
 import fixtures from "@/lib/__fixtures__/next-action-cases.json";
-import { NUDGE_DAYS, STUCK_DAYS, nextActionFor } from "@/lib/pipeline-next-action";
+import {
+  NUDGE_DAYS,
+  STUCK_DAYS,
+  nextActionFor,
+  type InterviewPhase,
+} from "@/lib/pipeline-next-action";
 import type { PipelineGroupKey } from "@/lib/pipeline-flow";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 
@@ -16,7 +21,14 @@ interface FixtureCase {
   name: string;
   group: string;
   column: { stage: string; category: string; terminal_type: string | null; name: string };
-  item: { days_in_stage: number | null; screening_done: boolean | null; hm_veto: boolean };
+  item: {
+    days_in_stage: number | null;
+    screening_done: boolean | null;
+    hm_veto: boolean;
+    /** Faza cyklu rozmowy — na karcie niesie ją odznaka terminarza. */
+    interview_phase?: string | null;
+    interview_date?: string | null;
+  };
   sla_days: number | null;
   expected: { label: string; tone: string; kind: string; owner: string };
 }
@@ -52,6 +64,17 @@ describe("nextActionFor — przypadki wspólne z backendem", () => {
         ...(c.item.days_in_stage == null ? {} : { days_in_stage: c.item.days_in_stage }),
         ...(c.item.screening_done == null ? {} : { screening_done: c.item.screening_done }),
         hm_veto: c.item.hm_veto ? VETO : null,
+        ...(c.item.interview_phase == null
+          ? {}
+          : {
+              interview_badge: {
+                kind: "slot",
+                label: "",
+                tone: "info",
+                phase: c.item.interview_phase as InterviewPhase,
+                interview_date: c.item.interview_date ?? null,
+              },
+            }),
       } as KanbanItem;
       expect(
         nextActionFor(item, column, {

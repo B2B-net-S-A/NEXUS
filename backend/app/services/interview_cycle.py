@@ -1363,6 +1363,41 @@ def compute_badge(
     return None
 
 
+# Faza cyklu rozmowy dla reguły „kto ma ruch” (``pipeline_next_action``,
+# ``InterviewPhase``) — liczona z TEJ SAMEJ odznaki, więc krok na karcie
+# i plakietka terminarza nie mogą się rozjechać. Lustro frontu czyta pola
+# ``phase``/``interview_date`` odznaki (``lib/pipeline-next-action.ts``).
+_BADGE_PHASE = {
+    "choose_slot": "awaiting_recruiter_pick",
+    "awaiting_dl": "awaiting_dl_confirm",
+    "prep_weak": "scheduled",
+    "prep_missing": "scheduled",
+    "prep2": "scheduled",
+    "prep_done": "scheduled",
+    "slot": "scheduled",
+    "call_due": "debrief_due",
+    "debrief_done": "debriefed",
+}
+
+
+def badge_phase(
+    pair: PairSnapshot, badge: Optional[dict]
+) -> tuple[Optional[str], Optional[str]]:
+    """``(faza, data rozmowy RRRR-MM-DD w strefie biznesowej)`` dla odznaki pary.
+
+    Data tylko dla fazy ``scheduled`` — rozmowa tej rundy, dla której liczy się
+    prepy (ta sama, którą pokazuje odznaka).
+    """
+    if badge is None:
+        return (None, None)
+    phase = _BADGE_PHASE.get(badge.get("kind"))
+    if phase != "scheduled":
+        return (phase, None)
+    round_pair = pair.for_preps() if pair.prep_interview is not None else pair
+    iv = round_pair.interview
+    return (phase, _local(iv.start).date().isoformat() if iv is not None else None)
+
+
 async def interview_badges_for_job(
     db: AsyncSession,
     *,
@@ -1467,5 +1502,7 @@ async def interview_badges_for_job(
                 badge["debrief"] = (
                     _debrief_payload(snap.debrief) if snap.debrief else None
                 )
+                # 05.10.2026: faza cyklu dla kroku na karcie („kto ma ruch”).
+                badge["phase"], badge["interview_date"] = badge_phase(snap, badge)
                 badges[cid] = badge
     return badges

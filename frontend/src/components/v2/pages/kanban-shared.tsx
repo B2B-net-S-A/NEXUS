@@ -22,6 +22,7 @@ import type { RateUnit } from "@/lib/api";
 import type { FollowupCardBadge } from "@/lib/api/candidateFollowups";
 import type { CandidateContactSummary } from "@/lib/candidate-contact";
 import type { DebriefSummary, SlotRequest, StepKey, StepState } from "@/lib/interview-cycle";
+import type { InterviewPhase } from "@/lib/pipeline-next-action";
 import type { RateChangeBadge } from "@/lib/rate-change";
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -180,6 +181,13 @@ export interface KanbanItem {
   }>;
   /** 04.10.2026: skrót zapisanego debriefu (warunek kandydata, pytania klienta). */
   debrief?: DebriefSummary | null;
+  /**
+   * 05.10.2026: faza cyklu dla kroku na karcie („kto ma ruch”,
+   * `lib/pipeline-next-action.ts`); starszy serwer = brak.
+   */
+  phase?: InterviewPhase | null;
+  /** Dzień rozmowy (RRRR-MM-DD, strefa firmy) — tylko przy fazie `scheduled`. */
+  interview_date?: string | null;
  } | null;
  // „Zatrudniony": czy jest uzupełnione zamówienie.
  order_status?: "complete" | "missing" | null;
