@@ -3057,6 +3057,11 @@ Pełny opis: `docs/competence-categories-completion-report.md`.
   `source='manual'` nie jest ruszany. `overwrite=False` = uzupełnij tylko gdy puste. Używają go
   OBIE ścieżki auto (`_auto_assign_primary_cc` w `candidates.py` na wgraniu CV + `public_share.py`
   invite-apply) oraz backfill.
+- **Kategoria idzie PO wektorze** (05.10.2026): przy włączonym outboxie indeksu
+  `finish_cv_ingest` klasyfikuje kandydata, zanim worker policzy wektor, a bez wektora
+  klasyfikator prawie nigdy nie przekracza progu (prod: 122 z 661 nowych CV w 7 dni). Worker
+  po udanym zapisie wektora woła `index_outbox_service.assign_cc_after_embed` — tylko kandydat
+  bez FK i bez wierszy M2M, własna krótka transakcja po commicie wektora, błąd połykany.
 - **Filtr listy:** `GET /api/candidates?competence_category_id=<id>` (repeat = OR), match primary
   LUB secondary (M2M) OR legacy FK. FE: `lib/url-filters.ts` (`competenceCategoryIds`, URL `cc`) +
   sekcja „Kategoria kompetencji" w panelu `CandidatesListV2` (reuse `CompetenceCategoryMultiSelect`)

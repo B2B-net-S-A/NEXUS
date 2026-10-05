@@ -153,7 +153,9 @@ async def finish_cv_ingest(
         )
 
     # Wektor PRZED kategorią: klasyfikator czyta aktualny profil, a przy
-    # wyłączonym outboxie wektor liczy się tu inline.
+    # wyłączonym outboxie wektor liczy się tu inline. Przy włączonym outboxie
+    # wektora jeszcze nie ma — kategorię uzupełnia worker po zapisaniu punktu
+    # (`index_outbox_service.assign_cc_after_embed`).
     embedded = False
     try:
         async with db.begin_nested():

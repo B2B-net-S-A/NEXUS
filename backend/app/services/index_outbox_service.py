@@ -441,13 +441,69 @@ async def _default_reindex(entity_type: str, entity_id: int, operation: str) -> 
             return await emb.delete_candidate_embedding(entity_id)
         return True  # job tombstone: best-effort, jobs rarely hard-deleted
     async with AsyncSessionLocal() as s:
-        if entity_type == CANDIDATE:
-            # Worker sam liczy próby — bez intencji (R8-N11-1); `embed_candidate`
-            # tylko flushuje stempel, commit należy do właściciela sesji (N11-5).
-            ok = await emb.embed_candidate(entity_id, s, record_intent=False)
+        if entity_type != CANDIDATE:
+            return await emb.embed_job(entity_id, s)
+        # Worker sam liczy próby — bez intencji (R8-N11-1); `embed_candidate`
+        # tylko flushuje stempel, commit należy do właściciela sesji (N11-5).
+        ok = await emb.embed_candidate(entity_id, s, record_intent=False)
+        await s.commit()
+    if ok:
+        await assign_cc_after_embed(entity_id)
+    return ok
+
+
+async def assign_cc_after_embed(candidate_id: int) -> None:
+    """Uzupełnij kategorię kompetencji kandydata, który właśnie dostał wektor.
+
+    Przy włączonym outboxie ``finish_cv_ingest`` klasyfikuje kandydata ZANIM
+    worker policzy wektor, więc klasyfikator ma tylko słowa kluczowe
+    (0,4 × udział) i prawie nigdy nie przekracza progu kategorii głównej.
+    Zmierzone 05.10.2026: z 661 kandydatów z CV w 7 dni kategorię miało 122.
+    Tu wektor już leży w Qdrancie, więc klasyfikacja ma pełny sygnał.
+
+    Wyłącznie kandydat BEZ żadnej kategorii (ani FK, ani wierszy M2M) — tanie
+    sprawdzenie w SQL idzie pierwsze, klasyfikator (odczyt kategorii z bazy
+    i dwa zapytania do Qdranta, bez modelu językowego) tylko gdy trzeba.
+    Kuracja ręczna i kategorie AI zostają nietknięte (``overwrite=False``).
+
+    Własna, krótka transakcja PO commicie zapisu wektora: blokada wiersza
+    kandydata (``apply_candidate_cc_scores``) nie wisi nad wywołaniami
+    Voyage'a ani nad całą paczką workera. Wzbogacenie, nie warunek — każdy
+    błąd jest logowany i połykany, intencja indeksu zostaje ``done``.
+    """
+    from sqlalchemy import exists
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.competence_category import CandidateCompetenceCategory
+    from app.services.cv_ingest_service import assign_primary_cc_if_empty
+
+    try:
+        async with AsyncSessionLocal() as s:
+            missing = await s.scalar(
+                select(Candidate.id).where(
+                    Candidate.id == candidate_id,
+                    Candidate.competence_category_id.is_(None),
+                    ~exists().where(
+                        CandidateCompetenceCategory.candidate_id == candidate_id
+                    ),
+                )
+            )
+            if missing is None:
+                return
+            candidate = await s.scalar(
+                select(Candidate).where(Candidate.id == candidate_id)
+            )
+            if candidate is None:
+                return
+            await assign_primary_cc_if_empty(candidate, s)
             await s.commit()
-            return ok
-        return await emb.embed_job(entity_id, s)
+    except Exception as exc:  # noqa: BLE001 — wzbogacenie, nie warunek
+        logger.warning(
+            "[index-outbox] kategoria po wektorze nieudana candidate=%s: %s",
+            candidate_id,
+            type(exc).__name__,
+        )
 
 
 def _embedding_provider_down() -> bool:
