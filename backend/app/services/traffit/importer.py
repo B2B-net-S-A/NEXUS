@@ -188,6 +188,11 @@ _ERROR_REF_RE = re.compile(r"\b(\w+)\s+(?:ext|id)=([^\s:,]+)")
 # row and quarantine is the wrong tool anyway.
 _MAX_ERROR_REFS = 500
 
+# Kolizje e-maila (05.10.2026): pary ext_id → kandydat są w statystykach fazy
+# i w `/sync/status`. Lista przycięta, licznik pełny — kilkadziesiąt par to
+# realny rząd wielkości, a JSONB stanu nie może rosnąć bez końca.
+_MAX_EMAIL_COLLISIONS = 200
+
 # HTTP answers that mean "the record no longer exists upstream". Neither is a
 # failure: retrying cannot change either one, so both are counted into
 # `gone_upstream` and never recorded as errors. Traffit answers 404 today
@@ -360,6 +365,18 @@ class PhaseProgress:
     # forever — the quarantine would never release and the whole mechanism
     # would be a no-op. Counted separately so the arithmetic stays exact.
     attributed_errors: int = 0
+    # Kolizje e-maila w fazie `candidates` (05.10.2026): rekord Traffita, którego
+    # mail należy już do wiersza NEXUSA z INNYM żywym numerem Traffita (dwie
+    # kartoteki tej samej osoby w Traffit albo duplikat w NEXUSIE). To stan
+    # DANYCH — ponowienie go nie naprawi, rozstrzyga człowiek („Scal z…” albo
+    # poprawka w Traffit). Do 05.10 szły przez `add_error`, a kwarantanna ich
+    # nie parkowała (licznik prób zerował się w biegu, który wiersza nie
+    # oglądał — delta bez zmiany u źródła, wznowienie z kursora), więc
+    # `__daily__` stał od 28.09. Teraz są DORADCZE: policzone i wypisane
+    # parami samych identyfikatorów (bez maili), ale nie wstrzymują
+    # watermarku. Inne błędy fazy blokują jak dotąd.
+    email_collision_count: int = 0
+    email_collisions: list[dict[str, Any]] = field(default_factory=list)
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
 
@@ -376,6 +393,49 @@ class PhaseProgress:
         # Past the ref cap we deliberately stop attributing: 500+ distinct
         # failing rows is a systemic fault, and counting the overflow as
         # unattributable keeps the watermark frozen, which is the safe answer.
+
+    def add_email_collision(self, ext_id: Any, candidate_id: int) -> None:
+        """Kolizja e-maila: doradczo, same identyfikatory (nigdy mail)."""
+        self.email_collision_count += 1
+        if len(self.email_collisions) < _MAX_EMAIL_COLLISIONS:
+            self.email_collisions.append(
+                {"ext_id": str(ext_id), "candidate_id": int(candidate_id)}
+            )
+
+    def collision_carry(self) -> dict[str, Any]:
+        """Kolizje do zapisania w kursorze wznowienia (kumulatywne)."""
+        return {
+            "count": self.email_collision_count,
+            "pairs": list(self.email_collisions),
+        }
+
+    def absorb_carried_collisions(self, carried: Any) -> None:
+        """Przyjmij kolizje przerwanej próby — wiersze sprzed kursora nie wrócą.
+
+        Bez tego wznowiony bieg pokazywałby tylko kolizje ze stron po kursorze,
+        a lista w `/sync/status` malałaby przy każdym deployu w trakcie fazy.
+        """
+        if not isinstance(carried, dict):
+            return
+        try:
+            count = max(0, int(carried.get("count") or 0))
+        except (TypeError, ValueError):
+            return
+        self.email_collision_count += count
+        for pair in carried.get("pairs") or []:
+            if len(self.email_collisions) >= _MAX_EMAIL_COLLISIONS:
+                break
+            if not isinstance(pair, dict):
+                continue
+            try:
+                self.email_collisions.append(
+                    {
+                        "ext_id": str(pair["ext_id"]),
+                        "candidate_id": int(pair["candidate_id"]),
+                    }
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
 
     # ── Błędy niesione przez kursor wznowienia (audyt 25.09.2026) ──────────
     #
@@ -443,6 +503,8 @@ class PhaseProgress:
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
+            "email_collision_count": self.email_collision_count,
+            "email_collisions": list(self.email_collisions),
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
         }
@@ -2673,7 +2735,6 @@ class TraffitImporter:
         # do INNEGO żywego rekordu Traffita (dwie kartoteki z jednym mailem).
         id_to_ext: dict[int, str] = {v: k for k, v in ext_to_id.items()}
         gone_ids = await self._traffit_candidates_gone_upstream()
-        email_collisions = 0
         # Nagrobki twardo usuniętych kandydatów (0388, art. 17 RODO). Faza robi
         # pełny skan `/employees/`, więc bez tego usunięta osoba wracała przy
         # najbliższym syncu razem z etapami, notatkami i plikami (dalsze fazy
@@ -2734,6 +2795,7 @@ class TraffitImporter:
             # Błędy wierszy sprzed przerwania wracają z kursora — inaczej
             # wznowiony, „czysty” przebieg przesunąłby watermark nad nimi.
             progress.absorb_carried_errors(_cursor.get("carried_errors"))
+            progress.absorb_carried_collisions(_cursor.get("carried_collisions"))
 
         current_page = start_page
         saw_fallback = False
@@ -2830,13 +2892,19 @@ class TraffitImporter:
                     # przerzucało tożsamość między dwiema kartotekami przy
                     # każdym biegu, a etapy, aktywności i pliki jednej z nich
                     # były po cichu pomijane. Scalenie to decyzja dedupu, nie
-                    # importera — błąd przypisany wierszowi (kwarantanna).
-                    email_collisions += 1
-                    progress.add_error(
-                        f"email_collision candidate ext={payload['external_id']}: "
-                        f"mail należy do kandydata id={existing_id} z innym "
-                        "numerem Traffita"
-                    )
+                    # importera. Od 05.10.2026 kolizja jest DORADCZA (licznik
+                    # i pary ID w statystykach, bez `add_error`) — ponowienie
+                    # jej nie naprawi, a jako błąd wstrzymywała `__daily__`
+                    # od 28.09 (kwarantanna jej nie parkowała, patrz
+                    # `PhaseProgress.email_collisions`).
+                    progress.add_email_collision(payload["external_id"], existing_id)
+                    if progress.email_collision_count <= 5:
+                        logger.warning(
+                            "Candidates ext=%s: mail należy do kandydata id=%s "
+                            "z innym numerem Traffita — pominięty (kolizja)",
+                            payload["external_id"],
+                            existing_id,
+                        )
                     continue
 
                 # Rozróżnia dwie ścieżki błędu w tym samym `except`: awaria
@@ -2992,6 +3060,7 @@ class TraffitImporter:
                                     "since": since_iso,
                                     "page_size": self.batch_size,
                                     "carried_errors": progress.error_carry(),
+                                    "carried_collisions": progress.collision_carry(),
                                 },
                             )
                         await self.db.commit()
@@ -3007,7 +3076,7 @@ class TraffitImporter:
                             progress.unchanged,
                             adopted,
                             collisions,
-                            email_collisions,
+                            progress.email_collision_count,
                             progress.errors,
                         )
                 except Exception as e:  # noqa: BLE001

@@ -2954,6 +2954,16 @@ Migracja Traffit→Nexus z maja 2026 była **one-shot CLI** (`python -m app.cli.
   watermark** — `candidates_cv_fields` nie jest objęta pełnym przebiegiem, więc
   bez przytrzymania kandydaci z tego biegu nigdy nie dostaliby pól z CV.
   Fazy importu rdzenia wstrzymują watermark jak dotąd.
+- **Kolizja e-maila w fazie `candidates` jest DORADCZA (od 05.10.2026).**
+  Rekord Traffita, którego mail ma wiersz NEXUSA z INNYM żywym numerem
+  Traffita, nie idzie przez `add_error`: `PhaseProgress.add_email_collision`
+  liczy go i zapisuje parę `ext_id → candidate_id` (same ID, nigdy mail)
+  w statystykach fazy i w `/sync/status` (`email_collisions`). Do tej daty był
+  błędem wiersza i `__daily__` stał od 28.09 — kwarantanna go nie parkowała,
+  bo `_next_quarantine` zeruje licznik w biegu, który wiersza nie obejrzał
+  (delta bez zmiany u źródła, wznowienie z kursora oddaje wcześniejsze błędy
+  jako nieprzypisane). Rozstrzyga człowiek („Scal z…” albo poprawka w Traffit);
+  każdy inny błąd fazy blokuje watermark jak dotąd.
 - **DB:** `traffit_sync_state` (PK `phase` + markery `__daily__`/`__full__`) — migracja `0136_traffit_sync_state` (na bazie `0135`).
 - **Rekrutacje z Traffita są w NEXUSIE ARCHIWUM (decyzja Artura 24.09.2026, 0377).**
   Od 25.09 Delivery Leadzi zakładają rekrutacje w NEXUSIE. Każda rekrutacja

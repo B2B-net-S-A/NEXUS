@@ -62,6 +62,32 @@ async def read_traffit_status(db: AsyncSession) -> dict[str, Any]:
                 }
             )
 
+    # Kolizje e-maila (05.10.2026): doradcze — nie wstrzymują `__daily__`
+    # i nie psują `checks.traffit`, więc jedynym miejscem, gdzie operator je
+    # widzi, jest ta lista. Same identyfikatory (numer Traffita → kandydat
+    # NEXUSA), nigdy mail: status czyta konto serwisowe i workflow z publicznym
+    # logiem. Rozstrzyga człowiek: „Scal z…” w NEXUSIE albo poprawka w Traffit.
+    email_collisions: list[dict[str, Any]] = []
+    email_collision_count = 0
+    for state in states:
+        stats = state["stats"] or {}
+        if not isinstance(stats, dict):
+            continue
+        try:
+            email_collision_count += int(stats.get("email_collision_count") or 0)
+        except (TypeError, ValueError):
+            pass
+        for pair in stats.get("email_collisions") or []:
+            if isinstance(pair, dict):
+                email_collisions.append(
+                    {
+                        "phase": state["phase"],
+                        "ext_id": pair.get("ext_id"),
+                        "candidate_id": pair.get("candidate_id"),
+                        "last_seen": state["last_run_finished_at"],
+                    }
+                )
+
     # Werdykt świeżości PER FAZA (INT-09). `checks.traffit` w `/api/health`
     # czyta wyłącznie `__daily__` — mówi, że nocna delta się kończy, nie że
     # każda faza doszła do ogona. `phases_stale` to lista, na którą operator
@@ -80,6 +106,8 @@ async def read_traffit_status(db: AsyncSession) -> dict[str, Any]:
         "max_row_attempts": settings.TRAFFIT_MAX_ROW_ATTEMPTS,
         "managed_in_nexus_jobs": managed_in_nexus_jobs,
         "quarantined": quarantined,
+        "email_collision_count": email_collision_count,
+        "email_collisions": email_collisions,
         "phases_stale": phases_stale,
         "states": states,
     }
