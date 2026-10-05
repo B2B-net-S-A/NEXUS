@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 04.10.2026
+> **Zgodność z systemem sprawdzona:** 05.10.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -1186,6 +1186,11 @@ Najczęstsza przyczyna wstrzymania znika **gdzie indziej niż w kolejce**:
 podpisanie umowy B2B nowego kontraktora albo uzupełnienie NIP-u na karcie
 klienta. Dlatego wpis wraca w każdym biegu, a nie tylko po zmianie reguły
 odczytu.
+Każde przeliczenie sprawdza też ponownie numer rejestrowy w PDF-ie: wpis
+rozpoznany wcześniej tylko po nazwie albo domenie nadawcy, w którym numer
+potwierdza **tego samego** klienta, przestaje czekać z powodu „Nie
+potwierdzono jednoznacznie klienta…”. Przeliczenie nigdy nie przenosi
+dokumentu na innego klienta.
 
 **Co się dzieje, gdy przyczyna nadal trwa,** zależy od tego, na co wpis czeka:
 
@@ -1944,6 +1949,12 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
   kosztowe — tylko o wyczerpaniu.
 
 ### Nordea
+
+**Rozpoznanie klienta.** Nordeę potwierdza jej numer firmy z nagłówka
+zamówienia („Company number **2858394-9**”) albo numer VAT **FI28583949**
+w bloku adresu do faktur — wystarczy jeden z nich. Do 05.10.2026 liczył się
+wyłącznie numer VAT, więc zamówienie bez tej linii trafiało do weryfikacji
+z powodem „Nie potwierdzono jednoznacznie klienta numerem rejestrowym…”.
 
 Dwa mechanizmy, które łatwo pomylić.
 
