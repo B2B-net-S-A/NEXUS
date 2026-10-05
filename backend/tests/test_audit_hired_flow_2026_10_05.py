@@ -480,7 +480,7 @@ async def test_finance_list_skips_pairs_no_longer_hired_and_excluded_placements(
             PlacementExclusion(
                 candidate_id=excluded["candidate_id"],
                 job_id=excluded["job_ids"][0],
-                reason="test",
+                reason="admin_bulk_no_cv",
             )
         )
         await db.commit()
