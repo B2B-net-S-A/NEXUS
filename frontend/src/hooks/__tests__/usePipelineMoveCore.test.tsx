@@ -113,6 +113,12 @@ describe("usePipelineMoveCore", () => {
     await expect(send()).resolves.toEqual({ ok: true, data: { id: 11 } });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban", "7"] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban", 7] });
+    // Panel osoby: follow-up „Klient milczy”, kolejka i wymagania ruchu
+    // (produkcja 05.10.2026 — blok follow-upu został po ruchu na „Umowę”).
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["candidate-followup"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["board-tasks"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["move-requirements"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["candidate-stage-history", 3, 7] });
   });
 
   it("ostrzeżenie → „Przenieś mimo to” → TEN SAM ruch z potwierdzeniem", async () => {

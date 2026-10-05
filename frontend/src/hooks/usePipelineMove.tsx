@@ -92,6 +92,7 @@ import {
   invalidateAfterPipelineVersionConflict,
   isPipelineVersionConflict,
 } from "@/lib/pipeline-version-conflict";
+import { invalidateAfterPipelineMove } from "@/lib/pipeline-move-invalidation";
 import {
   eligibilityWarningReason,
   isEligibilityWarning,
@@ -372,6 +373,8 @@ export function usePipelineMove({
     item: KanbanItem;
     retry: () => Promise<void>;
   } | null>(null);
+  // Okno debriefu zamknięte ZAPISEM (ruch idzie ponownie), nie „Anuluj”.
+  const debriefSavedRef = useRef(false);
   const [clientRateBulkTotal, setClientRateBulkTotal] = useState(0);
   // 409 ELIGIBILITY_WARNING (17.09.2026) — jedno okno. `retry` powtarza ruch,
   // który je wywołał, z `acknowledge_eligibility: true`; `onDismiss` pozwala
@@ -391,10 +394,12 @@ export function usePipelineMove({
   // Strona trzyma pipeline pod `["kanban", id]` (`id` to string z `useParams`)
   // i karmi nim listwę kroków, klaster KPI w jobbarze oraz kolejki kroków
   // 05–08. Oba klucze — część konsumentów trzyma liczbę.
-  const syncKanbanCache = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-    void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
-  }, [queryClient, jobId]);
+  // Wspólna lista z ekranami spoza Tablicy (`lib/pipeline-move-invalidation`):
+  // tablica (oba klucze), follow-up osoby, „Czeka na Ciebie”, wymagania ruchu.
+  const syncKanbanCache = useCallback(
+    (candidateId?: number) => invalidateAfterPipelineMove(queryClient, jobId, candidateId),
+    [queryClient, jobId]
+  );
 
   const hiredAgreement = pendingAgreement(hiredConfirm?.item.agreement ?? null);
 
@@ -580,7 +585,7 @@ export function usePipelineMove({
           );
         }
 
-        if (!opts?.deferCacheSync) syncKanbanCache();
+        if (!opts?.deferCacheSync) syncKanbanCache(item.candidate_id);
         return true;
       } catch (e) {
         console.error("Move failed", e);
@@ -622,7 +627,11 @@ export function usePipelineMove({
             item,
             retry: async () => {
               setDebriefRequired(null);
-              await sendMoveRef.current?.(item, dst, reason, opts);
+              const moved = await sendMoveRef.current?.(item, dst, reason, opts);
+              // Tablica po debriefie (05.10.2026): odczyt tablicy, który
+              // ruszył PRZED zapisem ruchu, nadpisywał kartę stanem sprzed
+              // niego. Ten odczyt startuje dopiero po potwierdzeniu ruchu.
+              if (moved) await refreshAfterMove();
             },
           });
           return false;
@@ -1252,15 +1261,24 @@ export function usePipelineMove({
         <DebriefRequiredDialog
           open
           onOpenChange={(open) => {
-            if (!open) {
-              setDebriefRequired(null);
-              void refreshAfterMove();
+            if (open) return;
+            setDebriefRequired(null);
+            // Zapis debriefu ponawia ruch (`onSaved` przychodzi przed
+            // zamknięciem) — odświeżenie tutaj ruszyłoby równolegle z ruchem
+            // i mogło wrócić później niż on, ze starą kolumną.
+            if (debriefSavedRef.current) {
+              debriefSavedRef.current = false;
+              return;
             }
+            void refreshAfterMove();
           }}
           eventId={debriefRequired.eventId}
           candidateName={itemFullName(debriefRequired.item)}
           jobId={jobId}
-          onSaved={() => void debriefRequired.retry()}
+          onSaved={() => {
+            debriefSavedRef.current = true;
+            void debriefRequired.retry();
+          }}
         />
       )}
 
