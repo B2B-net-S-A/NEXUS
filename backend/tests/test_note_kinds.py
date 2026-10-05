@@ -315,13 +315,12 @@ def test_text_search_never_matches_a_client_rate_note():
     from app.services.advanced_candidate_search import _phrase_match
 
     for phrase in ("161", "Wyślijmy za 161"):
-        sql = str(
-            _phrase_match(phrase).compile(
-                dialect=postgresql.dialect(),
-                compile_kwargs={"literal_binds": True},
-            )
-        )
-        assert "'dl_rate'" in sql, sql
+        compiled = _phrase_match(phrase).compile(dialect=postgresql.dialect())
+        sql = str(compiled)
+        params = [v for v in compiled.params.values()]
+        flat = [x for v in params for x in (v if isinstance(v, (list, tuple)) else [v])]
+        assert "notes.kind NOT IN" in sql, sql
+        assert "dl_rate" in flat, compiled.params
         # Notatki systemowe zostają — reszta wyników v1 bez zmian.
         assert "external_source" not in sql, sql
 
