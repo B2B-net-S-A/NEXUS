@@ -1743,3 +1743,38 @@ async def test_cv_from_outside_nexus_cannot_be_edited(
             await db.commit()
         await _cleanup_qc(world, stage_id)
         await _cleanup(world, [hor_id])
+
+
+def test_years_in_one_company_must_match_the_role_dates() -> None:
+    """Produkcja 05.10.2026: „w tym 5 lat w FikcyjnaPłatność” przy roli
+    01.2022–obecnie — liczba bez pokrycia w datach w CV do klienta."""
+    html = (
+        "<ul><li>7 lat doświadczenia jako Python Developer, w tym 5 lat w "
+        "FikcyjnaPłatność Sp. z o.o.</li></ul>" + BRANDED_HTML
+    )
+    history = [
+        {
+            "company": "FikcyjnaPłatność Sp. z o.o.",
+            "start": "2022-01",
+            "end": "obecnie",
+        },
+        {"company": "Bank Testowy", "start": "2019-01", "end": "2021-12"},
+    ]
+    by = _by_key(
+        qc.compute_checks(_qc_input(html, experience=history, today=date(2026, 10, 5)))
+    )
+    assert by["years_header"]["status"] == "fail"
+    assert by["years_header"]["severity"] == "warning"
+    assert any(
+        "FikcyjnaPłatność" in (i["detail"] or "") for i in by["years_header"]["items"]
+    )
+
+    # Technologia to nie firma z historii — bez uwagi.
+    assert (
+        qc.company_year_claims(
+            _blocks("<ul><li>5 lat w Java i Spring.</li></ul>"),
+            history,
+            today=date(2026, 10, 5),
+        )
+        == []
+    )
