@@ -127,6 +127,11 @@ async def run_legacy_draft_autoclose(
             actor_id=None,
             effects=effects,
         )
+        # Szkic nigdy nie był w pracy — nie może trafić do mianownika hit
+        # ratio Ligi DL, celu DL i Portfeli DL (rekrutacje zamknięte w oknie
+        # po `closed_at`). Ta sama reguła co przy archiwum
+        # (`job_archive_cutover`): `closed_at` zostaje pusty. Audyt 05.10.2026.
+        job.closed_at = None
         closed_ids.append(job.id)
     receipt = {
         "closed_ids": closed_ids,

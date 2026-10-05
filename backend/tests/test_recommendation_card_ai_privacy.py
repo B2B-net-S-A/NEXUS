@@ -85,6 +85,9 @@ def test_every_model_reader_of_notes_redacts_the_card():
         "app/services/cv_qc.py",
         "app/services/champion_draft_service.py",
         "app/services/jarvis/tools.py",
+        # Recenzja przy zatwierdzaniu CV czyta notatki zamrożone przy
+        # generacji — także sprzed #1998 (audyt 05.10.2026).
+        "app/services/cv_review_sources.py",
     )
     for path in readers:
         source = (_BACKEND / path).read_text(encoding="utf-8")
@@ -193,3 +196,15 @@ def test_jarvis_names_the_recruiter_note_like_the_screen():
     card["completeness"]["missing"] = ["recommendation"]
     shaped = by_name["get_recommendation_card"].shape(card, {})
     assert shaped["missing"] == ["Dlaczego ten kandydat"]
+
+
+def test_cv_review_source_drops_nationality_from_notes_frozen_before_redaction():
+    """CV wygenerowane przed 03.10.2026 mają w wejściu nieocięte notatki-karty."""
+    from app.services.cv_review_sources import _without_hidden_card_fields
+
+    frozen = "Stawka: 135 zł/h\nNarodowość: polska\nNotatka: mocny w Springu"
+    out = _without_hidden_card_fields(frozen)
+    assert "polska" not in out and "Narodowość" not in out
+    assert "mocny w Springu" in out
+    assert _without_hidden_card_fields(None) is None
+    assert _without_hidden_card_fields("") == ""

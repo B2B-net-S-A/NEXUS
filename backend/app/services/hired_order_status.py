@@ -199,8 +199,8 @@ async def resolve_hired_order_cases_safely(
     uzupełnione zamówienie: dzwonki Finansów oznacza jako przeczytane, karty
     Delivery Leada (szkice zamówień tego kontraktu) zamyka jako rozwiązane.
 
-    Wołane z ``commit_order_write`` (każdy zapis zamówienia) i z dobowego
-    skanera. Savepoint i fail-soft: zapis zamówienia jest ważniejszy niż
+    Wołane z ``commit_order_write`` (każdy zapis zamówienia z formularza)
+    i z ``order_mail_apply.apply_document`` (zamówienie z maila). Savepoint i fail-soft: zapis zamówienia jest ważniejszy niż
     sprzątanie powiadomień. Zwraca liczbę zamkniętych spraw (kontraktów).
     """
     from app.models.dl_alert import ALERT_NEW_CONTRACTOR_DRAFT  # noqa: PLC0415

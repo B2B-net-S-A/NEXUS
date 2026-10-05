@@ -53,6 +53,13 @@ export interface ChampionTodoStripProps {
   canSeeGate: boolean;
   canWritePipeline: boolean;
   canEditChampion: boolean;
+  /**
+   * Zapis weryfikacji Championa i briefingu stoi na roli admin/Delivery Lead
+   * (`DeliveryLeadPlus`), nie na uprawnieniu „Rekrutacje” ani prawie edycji
+   * treści — bez tego rekruter z nadanym uprawnieniem dostawał przyciski
+   * kończące się 403 (audyt 05.10.2026). Brak = `canEditChampion`.
+   */
+  canVerifyChampion?: boolean;
   canEditJob: boolean;
   /** Brak bramki z akcją w Championie — szuflada bloku albo pełny formularz. */
   onGoChampion: (anchor: string | null) => void;
@@ -65,6 +72,7 @@ export function ChampionTodoStrip({
   canSeeGate,
   canWritePipeline,
   canEditChampion,
+  canVerifyChampion,
   canEditJob,
   onGoChampion,
   onEditJob,
@@ -161,7 +169,7 @@ export function ChampionTodoStrip({
                 jobId={jobId}
                 verification={profile?.verification}
                 briefing={profile?.briefing}
-                canEdit={canEditChampion}
+                canEdit={canVerifyChampion ?? canEditChampion}
                 variant="rows"
               />
               {!done.client || !done.consultant ? (

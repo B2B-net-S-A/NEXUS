@@ -6,13 +6,14 @@ Oba wejścia czytają TĘ funkcję, więc pokazują te same liczby z tym samym
 człowiek jeszcze nie ruszył.
 
 Kolejność stawki: karta rekomendacji tej rekrutacji (PLN/h, bez widełek) →
-stawka podana w tej rekrutacji (okno „Zweryfikowany”) → „Stawka od” kandydata
-(najniższa z 18 miesięcy, a przed przeliczeniem stawka profilu).
+stawka podana w tej rekrutacji (okno „Zweryfikowany”, zmiana stawki w procesie)
+→ „Stawka od” kandydata (najniższa z 18 miesięcy, a przed przeliczeniem stawka
+profilu). Stawka z tej rekrutacji nowsza niż karta wygrywa z kartą.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import case, select
@@ -34,6 +35,31 @@ from app.services.stage_client_rate import latest_client_rates
 # Żywa umowa pary wygrywa z anulowaną albo zakończoną — tę pokazujemy jako
 # „już istnieje”.
 _LIVE_STATUSES = ("in_progress", "active")
+
+
+def _moment(value: object) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        moment = value
+    elif isinstance(value, str) and value:
+        try:
+            moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def _newer(candidate: object, current: object) -> bool:
+    """Czy obserwacja ``candidate`` jest późniejsza niż ``current``.
+
+    Brak daty po stronie obecnej podpowiedzi = nowsza wygrywa; brak daty
+    nowej obserwacji = zostaje obecna.
+    """
+    new, old = _moment(candidate), _moment(current)
+    if new is None:
+        return False
+    return old is None or new > old
 
 
 def _iso(value: object) -> Optional[str]:
@@ -107,15 +133,21 @@ async def build_prefill(
         if isinstance(availability, dict):
             availability_text = str(availability.get("raw") or "").strip() or None
 
-    if rate is None:
-        this_job = await candidate_rate_from.this_job_rates(db, job.id, [candidate.id])
-        hit = this_job.get(candidate.id)
-        if hit and hit.get("amount") is not None:
-            rate = {
-                "value": float(hit["amount"]),
-                "source": "this_job",
-                "at": _iso(hit.get("at")),
-            }
+    this_job = await candidate_rate_from.this_job_rates(db, job.id, [candidate.id])
+    hit = this_job.get(candidate.id)
+    if (
+        hit
+        and hit.get("amount") is not None
+        and (rate is None or _newer(hit.get("at"), rate.get("at")))
+    ):
+        # Zmiana stawki w procesie (0418: debrief, negocjacja, panel osoby)
+        # nie dotyka karty — nowsza stawka z tej rekrutacji wygrywa z kartą,
+        # inaczej umowa podpowiadałaby kwotę sprzed zmiany. Audyt 05.10.2026.
+        rate = {
+            "value": float(hit["amount"]),
+            "source": "this_job",
+            "at": _iso(hit.get("at")),
+        }
 
     if rate is None:
         summary = candidate_rate_from.rate_summary(candidate)

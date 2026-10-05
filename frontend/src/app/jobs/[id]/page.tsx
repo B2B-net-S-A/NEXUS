@@ -1237,6 +1237,9 @@ export default function JobDetailPage() {
               onEditBlockChange={setChampionEditBlock}
               fullFormDirty={championDirty && renderChampionEditor}
               canEditChampion={canEditChampion}
+              canVerifyChampion={
+                canEditChampion && hasRole(authUser, "admin", "delivery_lead")
+              }
               canWritePipeline={canWritePipeline}
               canSeeGate={
                 canSeeReadinessGate && hasSectionAccess(authUser, "pipeline", "read")

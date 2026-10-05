@@ -154,7 +154,9 @@ def test_rate_out_of_range_and_days_bool_ignored():
 def test_location_truncated_to_255():
     job = _bare_job()
     long_value = "Warszawa " * 40  # > 255 znaków
-    filled = fill_job_columns_from_champion(job, {"candidate_location_pref": long_value})
+    filled = fill_job_columns_from_champion(
+        job, {"candidate_location_pref": long_value}
+    )
 
     assert filled == ["location"]
     assert job.location == long_value.strip()[:255]
@@ -162,7 +164,9 @@ def test_location_truncated_to_255():
 
     # Sam biały znak nie jest lokalizacją — nie wypełnia.
     job2 = _bare_job()
-    assert fill_job_columns_from_champion(job2, {"candidate_location_pref": "   "}) == []
+    assert (
+        fill_job_columns_from_champion(job2, {"candidate_location_pref": "   "}) == []
+    )
     assert job2.location is None
 
 
@@ -213,6 +217,8 @@ def test_boolean_is_never_a_rate_even_though_bool_is_an_int():
 
     assert fill_job_columns_from_champion(job, {"rate_value": True}) == []
     assert job.rate_budget_hourly is None
+
+
 # ── wpięcie w zapis Championa (commit 3): update_champion_profile + ingest ──
 
 
@@ -402,6 +408,32 @@ def test_edited_rubric_overwrites_filled_column():
     assert changed == ["onsite_days_per_week"]
     assert job.onsite_days_per_week == 1
     assert job.remote_policy == RemotePolicy.hybrid
+
+
+def test_weekly_edit_clears_the_monthly_entry():
+    """Audyt 05.10.2026: wpis tygodniowy czyści miesięczny, jak w PATCH."""
+    job = _bare_job(onsite_days_per_week=1, remote_policy=RemotePolicy.hybrid)
+    job.onsite_days_per_month = 2
+    changed = overwrite_edited_job_columns(
+        job,
+        {"onsite_days_per_week": 1, "onsite_days_per_month": 2},
+        {"onsite_days_per_week": 3},
+    )
+    assert sorted(changed) == ["onsite_days_per_month", "onsite_days_per_week"]
+    assert job.onsite_days_per_week == 3
+    assert job.onsite_days_per_month is None
+
+
+def test_monthly_edit_reaches_the_recruitment_even_with_the_same_weekly_count():
+    job = _bare_job(onsite_days_per_week=1, remote_policy=RemotePolicy.hybrid)
+    changed = overwrite_edited_job_columns(
+        job,
+        {"onsite_days_per_week": 1},
+        {"onsite_days_per_week": 1, "onsite_days_per_month": 4},
+    )
+    assert changed == ["onsite_days_per_month"]
+    assert job.onsite_days_per_month == 4
+    assert job.onsite_days_per_week == 1
 
 
 def test_untouched_rubric_keeps_an_older_mismatch():

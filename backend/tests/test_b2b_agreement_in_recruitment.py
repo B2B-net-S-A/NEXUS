@@ -269,6 +269,67 @@ async def test_prefill_reads_the_card_and_redacts_the_client_rate(app_client, wo
     assert runner.json()["rate"]["value"] == 140.0
 
 
+@pytest.mark.asyncio
+async def test_prefill_prefers_a_rate_given_in_this_job_after_the_card(
+    app_client, world
+):
+    """Zmiana stawki w procesie (0418) nie dotyka karty — umowa nie może
+    podpowiadać kwoty sprzed zmiany (audyt 05.10.2026)."""
+    from app.models.recommendation_card import RecommendationCard
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            RecommendationCard(
+                candidate_id=world["candidate_id"],
+                job_id=world["job_id"],
+                fields_notes={},
+                fields_manual={
+                    "rate": {
+                        "raw": "140 zł/h",
+                        "value": 140,
+                        "currency": "PLN",
+                        "period": "h",
+                        "at": (now - timedelta(days=2)).isoformat(),
+                    }
+                },
+            )
+        )
+        db.add(
+            CandidateStage(
+                candidate_id=world["candidate_id"],
+                job_id=world["job_id"],
+                stage=PipelineStage.verified,
+                moved_at=now,
+                expected_rate_value=Decimal("165"),
+                expected_rate_unit="hourly",
+                expected_rate_currency="PLN",
+            )
+        )
+        await db.commit()
+
+    params = {"candidate_id": world["candidate_id"], "job_id": world["job_id"]}
+    response = await app_client.get(
+        "/api/b2b-generator/prefill", headers=world["admin"], params=params
+    )
+    assert response.status_code == 200, response.text
+    rate = response.json()["rate"]
+    assert rate["value"] == 165.0
+    assert rate["source"] == "this_job"
+
+
+def test_prefill_newer_rule_handles_missing_and_naive_dates():
+    from app.services.b2b_agreement_prefill import _newer
+
+    assert _newer("2026-10-05T10:00:00+00:00", "2026-10-03T10:00:00+00:00")
+    assert not _newer("2026-10-03T10:00:00+00:00", "2026-10-05T10:00:00+00:00")
+    assert not _newer(None, "2026-10-03T10:00:00+00:00")
+    assert _newer(datetime(2026, 10, 5, tzinfo=timezone.utc), None)
+    assert _newer("2026-10-05T10:00:00", "2026-10-03T10:00:00Z")
+    assert not _newer("nie-data", "2026-10-03T10:00:00Z")
+
+
 # ── D1: prośba o potwierdzenie podpisu ───────────────────────────────────────
 
 

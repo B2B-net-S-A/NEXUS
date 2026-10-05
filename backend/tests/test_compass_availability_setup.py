@@ -82,7 +82,7 @@ def test_only_named_availability_settings_are_written_to_validated_apps(
     writes = [
         (path, payload)
         for method, path, payload in calls
-        if method in {"POST", "PATCH"}
+        if method in {"POST", "PATCH"} and not path.startswith("/deploy")
     ]
     assert {(path, payload["key"]) for path, payload in writes} == {
         ("/applications/compass-app/envs", "AVAILABILITY_EXPORT_SECRET"),
@@ -92,4 +92,5 @@ def test_only_named_availability_settings_are_written_to_validated_apps(
     secret = writes[0][1]["value"]
     assert len(secret) >= 32 and writes[1][1]["value"] == secret
     assert secret not in capsys.readouterr().out
-    assert calls[-1][1] == "/deploy?uuid=compass-app&force=false"
+    # Coolify od 01.10.2026 odpowiada 405 na GET /deploy (#1964).
+    assert calls[-1][:2] == ("POST", "/deploy?uuid=compass-app&force=false")

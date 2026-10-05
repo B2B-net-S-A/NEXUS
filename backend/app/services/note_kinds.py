@@ -397,6 +397,22 @@ def searchable_clause():
     return _orm_filter(SEARCH_EXCLUDED_KINDS)
 
 
+def not_client_rate_clause():
+    """Zapytania ORM po ``Note``: bez wpisów ze stawką do klienta (``dl_rate``).
+
+    Dla dopasowania tekstu ``q`` (także v1 alertów zapisanych wyszukiwań),
+    które poza tym czyta wszystkie notatki: trafienie w zakrytą notatkę
+    zdradzałoby kwotę samym wynikiem (``q=161`` zwraca osobę, ``q=162`` nie).
+    Celowo węższy niż ``_orm_filter``: notatki systemowe zostają, żeby
+    reszta wyników v1 się nie zmieniła. Audyt 05.10.2026.
+    """
+    from sqlalchemy import or_
+
+    from app.models.note import Note
+
+    return or_(Note.kind.is_(None), Note.kind.notin_(sorted(CLIENT_RATE_KINDS)))
+
+
 def not_automat_clause():
     """Zapytania ORM po ``Note``: bez wpisów automatów (podgląd, „ostatnia notatka”)."""
     return _orm_filter(AUTOMAT_KINDS)
