@@ -10,7 +10,7 @@ from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -1534,6 +1534,49 @@ def reminder_due(start: datetime, minutes: int, tick: datetime) -> bool:
     return tick < start <= tick + window
 
 
+# Typy wydarzeń z pracy rekrutacyjnej — lustro ``RECRUITMENT_EVENT_TYPES``
+# z ``frontend/src/components/calendar/calendar-config.tsx``.
+REMINDER_RECRUITMENT_EVENT_TYPES: tuple[EventType, ...] = (
+    EventType.prep_call,
+    EventType.client_interview,
+    EventType.interview,
+    EventType.screening,
+    EventType.deadline,
+)
+
+
+def recruitment_reminder_clause():
+    """Wydarzenia, o których NEXUS przypomina sam (jedyne miejsce tej reguły).
+
+    Pomiar 05.10.2026: w 7 dni 136 przypomnień „Przypomnienie o wydarzeniu",
+    0% przeczytanych; 120 z nich to zwykłe spotkania zsynchronizowane z
+    Outlooka (``meeting`` bez kandydata i rekrutacji), o których Outlook
+    przypomina sam. Dzwonek uczył ignorowania.
+
+    Przypominamy, gdy wydarzenie dotyczy rekrutacji: ma kandydata albo
+    rekrutację, jest typu z pracy rekrutacyjnej (prep, rozmowa u klienta,
+    rozmowa, screening, termin) albo powstało w NEXUSIE. „Powstało w NEXUSIE"
+    = ``operational_owner_id`` ustawiony (stawiają go wyłącznie ścieżki
+    zakładające wydarzenie w NEXUSIE — formularz, zaproszenie z Outlookiem,
+    prep w Teams, follow-up, potwierdzony termin u klienta; import go nie
+    ustawia, patrz ``m365.sync._created_in_nexus``) albo źródło puste /
+    ``manual``. Lustro frontowego ``isOtherOutlookMeeting`` (Tydzień chowa
+    dokładnie te spotkania) z jedną różnicą: import iCal z własnym
+    ``source_tag`` też liczy się jako import, nie tylko ``ical``.
+
+    Pominięte wydarzenie NIE dostaje ``reminder_sent_at`` — skan i tak go nie
+    wybiera, a okno kończy się z jego startem (``start_time > now``).
+    """
+    return or_(
+        CalendarEvent.candidate_id.is_not(None),
+        CalendarEvent.job_id.is_not(None),
+        CalendarEvent.event_type.in_(REMINDER_RECRUITMENT_EVENT_TYPES),
+        CalendarEvent.operational_owner_id.is_not(None),
+        CalendarEvent.external_source.is_(None),
+        CalendarEvent.external_source == "manual",
+    )
+
+
 async def _due_reminder_ids(db: AsyncSession, now: datetime) -> list[int]:
     """Wydarzenia, dla których właśnie wypada przypomnienie.
 
@@ -1543,7 +1586,8 @@ async def _due_reminder_ids(db: AsyncSession, now: datetime) -> list[int]:
     zapisane jako `start_time - make_interval(...) <= now`, żeby parametr `now`
     stał po stronie porównania z kolumną `timestamptz` (asyncpg nie zgadnie
     typu `$1 + interval`). Wpisy całodniowe (urlop, OOO) i `reminder_minutes = 0`
-    nie dostają przypomnienia.
+    nie dostają przypomnienia, a zwykłe spotkania z Outlooka/iCal też nie
+    (`recruitment_reminder_clause`).
     """
     minutes_interval = func.make_interval(0, 0, 0, 0, 0, CalendarEvent.reminder_minutes)
     return list(
@@ -1560,6 +1604,7 @@ async def _due_reminder_ids(db: AsyncSession, now: datetime) -> list[int]:
                     CalendarEvent.all_day.is_(False),
                     CalendarEvent.status == EventStatus.scheduled,
                     CalendarEvent.reminder_sent_at.is_(None),
+                    recruitment_reminder_clause(),
                 )
             )
         ).all()
@@ -1586,11 +1631,15 @@ async def _dispatch_reminder(event_id: int) -> None:
     async with AsyncSessionLocal() as db:
         event = await db.scalar(
             select(CalendarEvent)
-            .where(CalendarEvent.id == event_id)
+            # Reguła przypomnień sprawdzana ponownie pod blokadą: wydarzenie
+            # odpięte od kandydata między skanem a blokadą nie dostaje dzwonka
+            # (ani stempla — skan i tak go już nie wybierze).
+            .where(CalendarEvent.id == event_id, recruitment_reminder_clause())
             .with_for_update(skip_locked=True)
         )
         if event is None:
-            # Locked by another worker or deleted between scan and claim.
+            # Locked by another worker, deleted between scan and claim, or no
+            # longer a recruitment event.
             return
         # Re-check under the lock — status may have changed, or another worker
         # may have won the race and already stamped it.
